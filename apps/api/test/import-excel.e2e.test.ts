@@ -352,34 +352,43 @@ describe("Excel import beta API", () => {
   });
 
   /**
-   * 라운드 57 QA(P2-13) — 컬럼 폭(varchar(120))을 넘는 품목명 행도 **그 행만** 거절된다.
+   * 라운드 57 QA(P2-13) + GAP-058 #8 — 상한을 넘는 품목명 행은 **그 행만** 떨어진다.
    *
-   * 무슨 일이 있었나: `import_rows.parsed_item_name`은 varchar(120)인데 가져오기는 사용자가 만든
-   * 파일을 그대로 읽는다. 121자 이상인 셀이 한 줄이라도 있으면 미리보기 행 insert가 DB에서 터지고,
-   * 그 insert는 잡 생성 트랜잭션 안이라 **업로드 전체가 500**으로 끝났다 — 검증 상태를 붙일 기회도
-   * 없이 파일이 통째로 거절된다. 금액(int4)에서 GAP-054 P1-1이 고친 것과 같은 형태의 결함이다.
+   * 무슨 일이 있었나(57): `import_rows.parsed_item_name`은 varchar(120)인데 가져오기는 사용자가
+   * 만든 파일을 그대로 읽는다. 121자 이상인 셀이 한 줄이라도 있으면 미리보기 행 insert가 DB에서
+   * 터지고, 그 insert는 잡 생성 트랜잭션 안이라 **업로드 전체가 500**으로 끝났다 — 검증 상태를
+   * 붙일 기회도 없이 파일이 통째로 거절된다. 금액(int4)에서 GAP-054 P1-1이 고친 것과 같은
+   * 형태의 결함이다.
+   *
+   * 남아 있던 비대칭(58 #8): 57은 컬럼 폭(120)만 봤다. 확정은 DTO를 지나지 않으므로(
+   * `confirmImport` -> `insertExpense`) 101~120자 품목명은 **그대로 지출이 됐고**, 그렇게 생긴
+   * 지출은 지출 상세에서 저장하는 순간 `UpdateExpenseDto.itemName`의 `@MaxLength(100)`에 걸려
+   * 400이 됐다 — 앱이 만들어 놓고 앱이 고칠 수 없는 기록. 이제 강등 임계는 계약값 100이고,
+   * 121자 이상과 같은 상태(`item_name_too_long`)·같은 미선택으로 떨어진다.
    *
    * 고친 뒤의 계약(금액과 같은 판단): **자르지 않는다.** 잘라 담으면 사용자가 적은 값이 조용히
-   * 짧아지고 원본을 되찾을 길이 없다(허위 절단 금지). 그 행의 품목명을 비우고 별도 검증 상태로
-   * 떨구면, 앱은 그 행을 "가져올 수 없어요 · 원본을 고쳐 다시 올려 주세요"로 보여 준다.
+   * 짧아지고 원본을 되찾을 길이 없다(허위 절단 금지). 121자 이상은 담을 칸이 없어 값을 비우고,
+   * 101~120자는 원문을 그대로 둔 채 상태만 떨군다.
    */
-  it("라운드 57 P2-13: 120자를 넘는 품목명 행만 떨구고 파일 전체를 500으로 만들지 않는다", async () => {
-    const accessToken = await login(app, "r57-import-item-name-len");
+  it("GAP-058 #8: 품목명 100자 초과 행을 계약과 같은 임계로 떨구고 파일 전체를 500으로 만들지 않는다", async () => {
+    const accessToken = await login(app, "r58-import-item-name-len");
     const { childId } = await completeOnboarding(app, accessToken);
 
-    // 카테고리 키워드("기저귀")를 앞에 두어 두 행 모두 평소처럼 `valid`가 되게 한다 --
+    // 카테고리 키워드("기저귀")를 앞에 두어 길이 말고는 전부 평범한 행이 되게 한다 --
     // 이 테스트가 보는 것은 분류 신뢰도가 아니라 **길이** 하나다.
-    const tooLongName = `기저귀 ${"가".repeat(117)}`; // 121자 (컬럼 폭 초과)
-    const boundaryName = `기저귀 ${"나".repeat(116)}`; // 정확히 120자 (컬럼 폭 경계)
+    const overColumnName = `기저귀 ${"가".repeat(117)}`; // 121자 (컬럼 폭 초과 — 담을 수 없다)
+    const overContractName = `기저귀 ${"나".repeat(106)}`; // 110자 (담을 수는 있으나 계약 초과)
+    const boundaryName = `기저귀 ${"다".repeat(96)}`; // 정확히 100자 (계약 경계 — 통과)
     const csvContent = [
       "날짜,적요,금액",
       "2026-07-06,기저귀 구매,32000",
-      `2026-07-05,${tooLongName},41000`,
-      `2026-07-04,${boundaryName},33000`,
+      `2026-07-05,${overColumnName},41000`,
+      `2026-07-04,${overContractName},33000`,
+      `2026-07-03,${boundaryName},21000`,
       ""
     ].join("\n");
 
-    // 예전에는 이 줄이 500이었다 -- 200이라는 사실 자체가 이 항목의 회귀 방지선이다.
+    // 예전에는 이 줄이 500이었다 -- 200이라는 사실 자체가 57 항목의 회귀 방지선이다.
     const job = (
       await request(app.getHttpServer())
         .post(`/api/v1/children/${childId}/imports/excel`)
@@ -396,25 +405,36 @@ describe("Excel import beta API", () => {
         .expect(200)
     ).body.rows as ImportRow[];
 
-    expect(rows).toHaveLength(3);
-    // 길이 오류는 **그 한 행뿐**이다 -- 나머지 두 행은 평소대로 살아 있다.
+    expect(rows).toHaveLength(4);
+    // 길이 오류는 **두 행뿐**이다(121자 · 110자) -- 나머지 두 행은 평소대로 살아 있다.
     const tooLongRows = rows.filter((row) => row.validationStatus === "item_name_too_long");
-    expect(tooLongRows).toHaveLength(1);
-    const tooLongRow = tooLongRows[0];
-    expect(tooLongRow.selected).toBe(false);
-    // **잘라서** 그럴듯한 이름을 만들지 않는다 -- 담을 수 없으면 비운다(금액과 같은 규칙).
-    expect(tooLongRow.parsedItemName).toBeUndefined();
-    // 담을 수 있는 값은 어디도 잘리지 않는다: 경계값(정확히 120자)이 원문 그대로 살아난다.
+    expect(tooLongRows).toHaveLength(2);
+    for (const row of tooLongRows) {
+      expect(row.selected, "상한을 넘은 행은 기본 선택에서 빠진다").toBe(false);
+    }
+
+    // 121자: **잘라서** 그럴듯한 이름을 만들지 않는다 -- 담을 수 없으면 비운다(금액과 같은 규칙).
+    const overColumnRow = tooLongRows.find((row) => row.parsedItemName === undefined);
+    expect(overColumnRow, "121자 행이 사라졌다").toBeDefined();
+
+    // 110자: 담을 수 있는 값은 비우지 않는다 -- 원문을 그대로 두고 상태만 떨군다.
+    const overContractRow = tooLongRows.find((row) => row.parsedItemName === overContractName);
+    expect(overContractRow, "110자 행의 품목명이 사라지거나 잘렸다").toBeDefined();
+    expect(overContractRow!.parsedItemName).toHaveLength(110);
+    expect(overContractRow!.validationStatus).toBe("item_name_too_long");
+    expect(overContractRow!.selected).toBe(false);
+
+    // 100자 경계는 통과한다(계약과 같은 자를 쓴다는 증거).
     const boundaryRow = rows.find((row) => row.parsedItemName === boundaryName);
-    expect(boundaryRow, "120자 행이 잘렸거나 사라졌다").toBeDefined();
-    expect(boundaryRow!.parsedItemName).toHaveLength(120);
+    expect(boundaryRow, "100자 행이 잘렸거나 사라졌다").toBeDefined();
+    expect(boundaryRow!.parsedItemName).toHaveLength(100);
     expect(boundaryRow!.validationStatus).toBe("valid");
     // 짧은 평범한 행도 그대로다.
     expect(rows.some((row) => row.parsedItemName === "기저귀 구매")).toBe(true);
 
     // 검수 화면에서 이름을 고치면 그 행도 살아난다(앱 안의 탈출구가 실제로 동작한다).
     await request(app.getHttpServer())
-      .patch(`/api/v1/imports/${job.id}/rows/${tooLongRow.id}`)
+      .patch(`/api/v1/imports/${job.id}/rows/${overContractRow!.id}`)
       .set("Authorization", `Bearer ${accessToken}`)
       .send({ parsedItemName: "정기 결제" })
       .expect(200)
@@ -423,7 +443,7 @@ describe("Excel import beta API", () => {
         expect(body.validationStatus).toBe("valid");
       });
 
-    // 확정: 고치지 않은 채로 통째로 선택해도 나머지 행은 평소대로 들어간다(전체 롤백 없음).
+    // 확정: 고치지 않은 121자 행까지 통째로 선택해도 나머지 행은 평소대로 들어간다(전체 롤백 없음).
     await request(app.getHttpServer())
       .post(`/api/v1/imports/${job.id}/confirm`)
       .set("Authorization", `Bearer ${accessToken}`)
@@ -431,6 +451,35 @@ describe("Excel import beta API", () => {
       .expect(200)
       .expect(({ body }) => {
         expect(body.importedCount).toBe(3);
+        expect(body.skippedCount).toBe(1);
+      });
+
+    // #8의 본론: 확정으로 **생긴 지출**이 지출 계약과 어긋나지 않는다.
+    const expenses = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.expenses as { id: string; itemName: string }[];
+
+    expect(expenses).toHaveLength(3);
+    for (const expense of expenses) {
+      expect(expense.itemName.length, `가져오기가 계약(100자)을 넘는 지출을 만들었다: ${expense.itemName}`)
+        .toBeLessThanOrEqual(100);
+    }
+
+    // 가장 긴(100자 경계) 지출을 상세에서 그대로 저장해도 400이 아니다 -- 예전에는 110자짜리가
+    // 여기서 400 VALIDATION_FAILED로 막혀 "고칠 수 없는 기록"이 됐다.
+    const longest = expenses.reduce((max, expense) => (expense.itemName.length > max.itemName.length ? expense : max));
+    expect(longest.itemName).toBe(boundaryName);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${longest.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ itemName: longest.itemName, amountKrw: 22_000 })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.itemName).toBe(boundaryName);
+        expect(body.amountKrw).toBe(22_000);
       });
   });
 

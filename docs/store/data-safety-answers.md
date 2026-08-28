@@ -1,10 +1,12 @@
 # Play Console 데이터 안전(Data Safety) 설문 답안지 (STORE-101)
 
-> 상태: 제출용 초안 v1 (2026-08-20). **모든 답은 코드로 확인한 실제 구현 기준.**
+> 상태: 제출용 초안 v1.1 (2026-08-20 작성 · 2026-08-28 갱신 — GAP-058 #9: 앱 잠금 PIN 항목 추가).
+> **모든 답은 코드로 확인한 실제 구현 기준.**
 > 근거 파일: `apps/api/prisma/schema.prisma`, `apps/api/src/settings/settings.controller.ts`,
 > `apps/api/src/households/household-runtime.service.ts`, `apps/api/src/onboarding/onboarding-core.service.ts`,
 > `apps/api/src/onboarding/expenses-store.service.ts`,
 > `apps/mobile/src/analytics/flag.ts`, `packages/contracts/src/analytics.ts`,
+> `apps/mobile/src/security/app-lock.ts`, `apps/mobile/src/security/app-lock-storage.ts`,
 > `apps/api/src/items-commerce/affiliate-link-guard.util.ts`,
 > `apps/mobile/android/.../xml/network_security_config.xml`.
 > `infra/legal/privacy-policy.html`과 항목이 1:1로 일치해야 한다 — 한쪽 수정 시 반드시 동기화.
@@ -88,6 +90,32 @@ Data Safety 섹션에 반드시 입력**해야 한다(2024년부터 시행). 현
 **"파일 및 문서: 수집 예(선택, 앱 기능 목적)"로 보수적으로 신고 권장**), 캘린더, 연락처,
 문자, 통화기록, 건강·피트니스, 검색 기록, 설치된 앱 목록.
 
+### B-6-1. 앱 잠금 비밀번호(PIN) — **수집 아님**
+
+| 세부 유형 | 수집 | 공유 | 필수/선택 | 목적 | 근거 |
+|---|---|---|---|---|---|
+| 비밀번호/인증 정보 | **아니요** | — | — | — | 앱 잠금 PIN은 **기기를 떠나지 않는다.** 아래 세 가지가 코드로 확인된다 |
+
+**신고를 "아니요"로 하는 근거 (라운드 55 트랙 B 앱 잠금, GAP-058 #9로 문서 반영):**
+
+1. **저장 위치가 기기 안뿐이다.** PIN 기록은 OS 보안 저장소(expo-secure-store)의 단일 키
+   `wooriai-app-lock`에만 쓴다 — 서버 테이블도, 백업 동기화도 없다
+   (`apps/mobile/src/security/app-lock-storage.ts`: `SecureStore.setItemAsync(APP_LOCK_STORAGE_KEY, …)`).
+   서버 스키마에 대응 컬럼이 아예 없다(`apps/api/prisma/schema.prisma`에 PIN·잠금 관련 필드 없음).
+2. **원문을 저장하지 않는다.** 저장되는 값은 무작위 솔트(16바이트)와
+   `base64url(sha256("<salt>:<pin>"))` 해시뿐이고, 검증도 같은 함수로 계산해
+   상수 시간 비교한다(`apps/mobile/src/security/app-lock.ts`: `hashPin`/`verifyPin`,
+   `APP_LOCK_SALT_BYTES = 16`, `APP_LOCK_PIN_LENGTH = 4`).
+3. **전송 경로가 없다.** `hashPin`/`AppLockRecord`를 읽는 파일은 잠금 저장소·잠금 스토어·순수
+   판정 모듈 셋뿐이고(API 클라이언트·동기화 아웃박스·분석 이벤트 어디에도 없다), 분석 payload는
+   enum/불리언/정수만 허용하는 계약 + CI PII 린트를 지난다(`packages/contracts/src/analytics.ts`).
+
+즉 Play 콘솔 정의상 "수집"(기기에서 서버로 전송해 보관)에 해당하지 않으므로 **어떤 데이터 유형으로도
+신고하지 않는다.** 다만 이용자에게는 스토어 설명문(`docs/store/play-listing.md` §3 "안심하고
+쓰세요")과 앱 내 설정 화면에서 "기기 안에만 보관한다"는 사실을 그대로 말한다 — 숨기는 것이 아니라
+신고 항목이 아닌 것이다. ⚠️ 잠금 상태·PIN을 계정에 동기화하거나 서버 복구(잊었을 때 재설정)를
+붙이는 순간 이 답은 뒤집힌다. 그 기능을 만들면 이 절과 처리방침을 먼저 갱신할 것.
+
 ### B-7. 경계 항목(내부 기록용 — 콘솔 신고 여부 판단 메모)
 
 - **IP 주소**: 원본 IP는 저장하지 않음. 동의 기록·감사 로그·제휴 클릭에 **솔트된
@@ -123,6 +151,7 @@ Data Safety 섹션에 반드시 입력**해야 한다(2024년부터 시행). 현
 |---|---|---|
 | 데이터가 사용자를 위해 처리되는 주된 방식 | 계정 기반 저장(서버) + 기기 내 오프라인 캐시(SQLite) 후 동기화 | `apps/mobile/src/offline/` |
 | 삭제 요청 시 데이터 처리 | 앱 내 삭제 플로우로 처리. 계정 삭제 시 즉시 탈퇴 처리 + 전체 로그인 토큰 폐기, 아이 프로필 삭제 시 프로필·지출 일괄 삭제 처리. 삭제 처리된 데이터는 삭제 처리 후 **30일**(환경 변수 `PURGE_RETENTION_DAYS`로 조정 가능, 기본 30일)이 경과하면 지체 없이(통상 수 분 이내) 워커 배치가 DB에서 물리 파기 — 처리방침 §3의 "삭제 처리 후 30일이 경과하면 지체 없이(통상 수 분 이내) 완전 파기" 문구와 일치 | `withdrawUser` + `revokeAllForUser`, `confirmChildProfileDeletion`, `apps/api/src/worker/jobs/data-retention-purge.job.ts` (PRIV-105, `data_retention_purge`) |
+| 보관 기간이 따로 정해진 기록 | 감사 로그 **730일**(2년), 분석 이벤트·제휴 클릭 **400일**(≈13개월). 삭제 처리된 개인 데이터의 유예(30일)와는 별개의 창이며, 셋 다 같은 워커 잡의 단계로 자동 파기된다 | `data-retention-purge.job.ts` phase 6·7(SEC-130) / phase 8(GAP-058 #10, `AUDIT_LOGS_RETENTION_DAYS` 기본 730). 감사 로그가 더 긴 이유는 책임 추적(누가·언제·무엇을 바꿨는가) 기록이라 문의·분쟁이 늦게 도착하기 때문 — 짧게 조정은 PM/법무 확인 대상 |
 | 독립 보안 검토(MASA) | 아니요(선택 항목) | 미실시 |
 
 ## 애매했던 분류 — 결정 요약 (리뷰어 필독)
@@ -133,3 +162,5 @@ Data Safety 섹션에 반드시 입력**해야 한다(2024년부터 시행). 현
 4. **displayName(카카오 닉네임) → "이름"으로 신고**(실명 아닐 수 있으나 이름 항목이 최근접).
 5. **광고 없음이되 isSponsored 기능 가동 시 재신고 필요**. §D.
 6. **계정 삭제 웹 URL 부재 = 제출 블로커** — 후속 티켓 필수. §A.
+7. **앱 잠금 PIN → 어떤 유형으로도 신고하지 않음**(기기 내 SecureStore·솔트+SHA-256 해시·전송
+   경로 없음). §B-6-1. 계정 동기화나 서버 재설정을 붙이면 재신고 대상.

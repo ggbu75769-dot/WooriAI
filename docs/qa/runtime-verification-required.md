@@ -1,8 +1,16 @@
 # 런타임 검증 필요 항목 (실기기/에뮬레이터 전용)
 
-작성: 2026-07-12 · 브랜치: codex/test-login-ui
+작성: 2026-07-12 (브랜치 codex/test-login-ui) · **갱신: 2026-08-28 — 라운드 58 트랙 D(GAP-058 #9)**
 
 이 문서는 이번 소스 감사·개선 작업에서 **소스/테스트 수준으로는 검증했으나 실제 Android 기기(또는 에뮬레이터)에서만 최종 확인 가능한 항목**을 기록한다. 아래 항목은 PASS로 표시하지 않았다 — 소스 검증 완료와 런타임 검증은 구분한다.
+
+> **2026-08-28 갱신 요지.** 이 문서의 §4·§5에 **지금은 사실이 아닌 문장 세 개**가 남아 있었다(서버가
+> 인메모리다 / 카카오 로그인이 dev stub이다 / 로컬 persist에 마이그레이션 경로가 없다). 셋 다 그 뒤
+> 라운드에서 구현이 끝났고, 문서만 옛 상태에 머물러 있었다 — 런타임 검증 문서가 거짓을 말하면
+> "무엇을 아직 확인하지 못했는가"라는 이 문서의 유일한 쓸모가 사라진다(§5의 "임포트 파싱은 AI
+> 스텁"과 §1-9의 "스텁 3행 프리뷰"도 같은 이유로 함께 정정했다). 정정하면서 §1 체크표에
+> 라운드 49~57에 들어온 기능들(§1-1의 13~21번)도 함께 넣었다. 표에 없던 동안 그 기능들은
+> **실기기에서 한 번도 확인되지 않은 채로** 출시 대기열에 있었다.
 
 ## 1. 독립 실행형 테스트 APK (최우선)
 
@@ -18,10 +26,29 @@
 | 6 | 예산 | 예산 수정 저장 → 홈 잔여 예산 반영. 예산 미설정 상태에서도 입력 가능 |
 | 7 | 준비템 | 상태 변경(이미 준비/필요 없음 등) 시 탭 간 이동 즉시 반영, 상세의 제휴 고지·외부 링크 |
 | 8 | 외부 구매 링크 | 클릭 시 외부 브라우저 이동 (로컬 클릭 로그 기록) |
-| 9 | 엑셀 가져오기 | 업로드 → 스텁 3행 프리뷰(신뢰도 0.62 행 기본 미선택·경고 배지) → 승인 후에만 지출 생성, 요약(가져온 수/제외 수) |
+| 9 | 엑셀 가져오기 | 실제 csv/xlsx 파일 업로드 → 파일 내용에서 뽑은 행 프리뷰(헤더 추론·카테고리 키워드 추론, 낮은 신뢰도/중복 후보 행 기본 미선택·경고 배지) → 승인 후에만 지출 생성, 요약(가져온 수/제외 수). 길이·금액 상한을 넘는 행은 **그 행만** 떨어지고 파일 전체가 거절되지 않는지 |
 | 10 | 가족 | 멤버 목록(owner 본인 + 픽스처 공동부모), owner의 멤버 삭제 2단계 확인, 초대 링크 생성("테스트 모드 — 실제 전송되지 않음" 안내) |
 | 11 | 설정/개인정보 | 아이 프로필 삭제·가구 탈퇴·계정 삭제 각 2단계 확인 흐름, 로그아웃 후 로그인 화면 복귀 |
 | 12 | 앱 재시작 후 데이터 유지 | 기록한 지출/예산/준비템 상태가 재실행 후에도 유지 (zustand persist) |
+
+### 1-1. 라운드 49~57 신설 기능 (2026-08-28 추가 — 실기기 확인 미실시)
+
+아래 9개 항목(기능 8종 — 앱 잠금만 화면/저장소로 나눴다)은 소스·vitest로는 그린이지만 **실기기 확인
+기록이 없다.** 각 항목의 근거 파일을 함께 적는다
+(문구·판정은 대부분 순수 모듈에 고정돼 있어, 기기에서 볼 것은 "그 판정이 실제 화면·실제 저장소·실제
+백그라운드 전환에서도 같은가"다).
+
+| # | 확인 항목 | 기대 동작 | 근거 파일 |
+|---|---|---|---|
+| 13 | 앱 잠금(PIN) 설정·해제 | 설정 > 앱 잠금에서 4자리 PIN 등록 → 앱을 백그라운드로 보냈다 오면 잠금 화면, 정확한 PIN에만 해제. 오입력 반복 시 대기 안내(30/60/300초)가 실제로 카운트다운되는지 | `app/settings/app-lock.tsx`, `src/security/app-lock.ts`, `src/security/AppLockOverlay.tsx` |
+| 14 | 앱 잠금 저장소(기기 재부팅·재설치) | PIN이 SecureStore에 남아 재부팅 후에도 잠금 유지. 삭제/재설치 후에는 잠금 없음. **읽기 실패 시 잠금이 열리는 일이 없어야 함**(설계상 `recovery`로 닫힘) | `src/security/app-lock-storage.ts` |
+| 15 | 정기 지출 템플릿 | 템플릿 등록 → 홈 카드 "이번 달 정기 지출 N건이 아직 기록에 없어요" 노출 → 카드에서 기록하면 사라짐. 이번 달 건너뛰기 동작 | `src/expenses/recurring-template.ts`, `app/expenses/recurring.tsx` |
+| 16 | 가져오기 이어보기 | 검수 중 앱을 벗어났다 돌아오면 "검토하던 가져오기로 돌아가기" 진입점이 뜨고 같은 잡으로 복귀. 확정/폐기 후에는 사라짐 | `src/import/import-resume.ts`, `app/import/` |
+| 17 | 판매처 자동완성 | 판매처 입력 시 이번 달 기록에서 뽑은 후보 칩/타이핑 연동 노출, 선택 시 입력칸 반영. 후보가 없으면 아무것도 뜨지 않음 | `src/expenses/merchant-suggest.ts`, `app/expenses/new.tsx` |
+| 18 | 동기화 실패 사유 안내 | 비행기 모드에서 기록 → 연결 복구 후 반영. 권한 없는 계정(보기 전용)으로 만든 실패 행은 "재시도"가 아니라 **사유 안내**로 보임(403은 재시도 불가) | `src/offline/permission-denied.ts`, `app/sync-status.tsx` |
+| 19 | 지출 상세 결제 수단 편집 | 상세에서 결제 수단을 바꿔 저장 → 목록/상세에 반영, 오프라인이면 대기 후 반영. 환불/선물 기록의 보존 규칙이 유지되는지 | `src/expenses/expense-detail-rows.ts`, `app/expenses/[expenseId].tsx` |
+| 20 | 달력 날짜 선택기 | 기록 시트에서 달력을 열어 2주보다 오래된 날짜 선택 가능, 미래 날짜는 선택 불가, 월 이동 한계(과거 상한)에서 화살표 비활성 | `src/expenses/date-picker-month.ts`, `src/expenses/ExpenseDatePicker.tsx` |
+| 21 | 기록 공백 알림(record_gap) | 마지막 기록에서 3일 이상 비면 알림함에 엔트리 1건(주 1회 dedupe), 눌러 기록 화면으로 이동. 설정에서 끄면 뜨지 않고, 기록 0건인 신규 사용자에게는 발화하지 않음. 문구가 책망조가 아닌지(DNC-018) | `src/notifications/generators.ts`(`recordGapNotification`), `src/notifications/notification.store.ts` |
 
 ## 2. 시각/UX (기기 의존)
 
@@ -42,9 +69,20 @@
 
 다음은 테스트 APK 범위 밖이며 외부 서비스 키/인프라가 필요하다:
 
-- 실제 Kakao OAuth (현재 dev stub — 문서상 의도된 경계)
+- 실제 Kakao OAuth — **구현은 끝났다(2026-08-28 정정).** 서버는 prepare/exchange 2단계 OIDC를
+  갖고 있고 ID 토큰을 JWKS 서명·iss/aud/exp·nonce 왕복까지 검증한다
+  (`apps/api/src/auth/kakao/kakao-auth.service.ts`, e2e `test/auth-kakao-oidc.e2e.test.ts`).
+  남은 것은 **키/리다이렉트 URI env뿐**이다: `OAUTH_KAKAO_CLIENT_ID` ·
+  `OAUTH_KAKAO_CLIENT_SECRET` · `OAUTH_KAKAO_REDIRECT_URIS`(서버) + `EXPO_PUBLIC_KAKAO_ENABLED=1` ·
+  `EXPO_PUBLIC_KAKAO_CLIENT_ID` · `EXPO_PUBLIC_KAKAO_REDIRECT_URI`(앱). 실기기 검증 대상은
+  "카카오 콘솔에 등록된 실제 앱 키로 로그인 왕복이 되는가"이지 "구현이 있는가"가 아니다.
+  (별개로 남아 있는 dev 경로 `POST /auth/oauth-login`은 테스트 로그인용이며, 위 OIDC 경로와
+  다른 엔드포인트다.)
 - 실 API 서버 연결 빌드 (EXPO_PUBLIC_API_BASE_URL을 https 서버로 설정 — 릴리즈 빌드는 cleartext HTTP 차단됨)
-- API 서버의 DB 영속화 (현재 인메모리 — 재시작 시 소실, 문서화된 프로토타입 경계)
+- ~~API 서버의 DB 영속화 (현재 인메모리)~~ — **거짓 문장이었다(2026-08-28 정정).** API 서버는
+  Prisma + PostgreSQL로 영속화한다(`apps/api/prisma/schema.prisma`, 마이그레이션 20종,
+  `test/persistence.db.test.ts`). 재시작해도 데이터는 남는다. 실기기 검증 대상은 영속화 여부가
+  아니라 **운영 DB 연결·백업/복구 리허설**(docs/operations/database-backup-restore.md)이다.
 - 프로덕션 JWT/관리자 시크릿 env 설정 (미설정 시 이제 프로덕션에서 fail-fast)
 - 릴리즈 서명 키스토어 (현재 debug keystore 서명 — 스토어 배포 불가)
 - 실제 제휴 링크/커머스 연동 (현재 example.com dev 링크)
@@ -53,6 +91,20 @@
 
 ## 5. 알려진 잔여 리스크
 
-- 로컬 백엔드 persist 스키마 변경 시 마이그레이션 경로 없음 (version: 1만 명시)
+- ~~로컬 백엔드 persist 스키마 변경 시 마이그레이션 경로 없음 (version: 1만 명시)~~ —
+  **거짓 문장이었다(2026-08-28 정정).** 지금은 두 저장소 모두 버전 경로가 있다:
+  (1) 로컬 백엔드 zustand persist는 `version: 3` + `migrate`(2 이하는 데모 데이터 제거를 위한
+  일회성 초기화, 3 이상은 필드 단위 보존 — `apps/mobile/src/api/local-backend.ts`),
+  (2) 오프라인 SQLite는 `PRAGMA user_version`을 진실로 삼는 **마이그레이션 러너**가 있다
+  (버전당 한 트랜잭션, 실패 시 통째 롤백, 다운그레이드 감지 — `src/offline/sqlite-offline-store.ts`,
+  `src/offline/sqlite-migrations.test.ts`).
+  남은 실기기 확인 항목은 "경로가 있는가"가 아니라 **구버전 APK로 만든 실제 기기 데이터가 새
+  빌드에서 마이그레이션되는가**, 그리고 마이그레이션이 실패했을 때 사용자에게 무엇이 보이는가다
+  (round58-scout P3 "마이그레이션 실패 시 사용자 가시성" — 의도된 브릭이지만 표시 미확인).
 - `startTestSession()`과 persist rehydration의 이론적 경쟁 (실사용 타이밍상 희박)
-- 임포트 실제 파싱(xlsx/csv 내용 분석)은 AI 분석 스텁 — 문서상 의도된 경계 (01_codex_master_instruction_v0_4 §8)
+- ~~임포트 실제 파싱(xlsx/csv 내용 분석)은 AI 분석 스텁~~ — **더 이상 스텁이 아니다(2026-08-28
+  정정).** 서버가 실제 파일을 파싱한다: csv(인코딩 판별 포함)·xlsx 헤더 추론, 날짜/금액/적요 열
+  매핑, 카테고리 키워드 추론과 신뢰도 산출(`apps/api/src/imports/import-parser.ts`,
+  `test/import-parser-inference.test.ts`, `test/import-parsing.db.test.ts`). 남은 경계는 "AI"가
+  아니라 **추론 규칙의 한계**(우리가 아는 헤더 키워드 밖의 은행 양식은 열을 못 찾을 수 있다)이며,
+  그때 사용자가 보는 화면이 정직한지가 실기기 확인 대상이다.
