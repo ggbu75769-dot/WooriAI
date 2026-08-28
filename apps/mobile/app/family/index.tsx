@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { Alert, Platform, Pressable, Text, View } from "react-native";
 import {
   cancelHouseholdInvite,
+  listChildren,
   listHouseholdInvites,
   listHouseholdMembers,
   LOCAL_HOUSEHOLD_ID,
@@ -12,6 +13,12 @@ import {
   LOCAL_USER_ID,
   removeHouseholdMember
 } from "../../src/api/client";
+import {
+  describeHouseholdScope,
+  householdScopeManageNotice,
+  householdScopePhrase,
+  resolveManagedHouseholdId
+} from "../../src/family/household-scope";
 import {
   INVITE_ROLE_PROMPT_CANCEL_LABEL,
   inviteRolePrompt,
@@ -26,6 +33,7 @@ import {
 import { formatInviteExpiry, memberBadge, memberRoleLabel } from "../../src/family/memberLabels";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
+import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
@@ -112,8 +120,30 @@ export default function FamilyScreen() {
   const sessionUserId = useSessionStore((state) => state.userId);
   const userId = sessionUserId ?? (isTestSession ? LOCAL_USER_ID : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const knownHouseholdIds = useSessionStore((state) => state.householdIds);
+  const fallbackHouseholdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const queryClient = useQueryClient();
+  /**
+   * 라운드 60 A — 이 화면이 관리하는 가구는 **보고 있는 아이의 가구**다.
+   *
+   * 종전에는 세션의 `defaultHouseholdId` 하나였다. 그 값은 다른 가구 초대를 수락하는 순간
+   * 영구히 바뀌므로(app/family/accept/[token].tsx), 수락한 사용자는 원래 가구의 구성원 관리·
+   * 초대·대기 초대 취소에 **앱 안에서 도달할 방법이 없었다** -- 아이를 전환해도 이 화면만
+   * 다른 가구를 보고 있었다. 아이 목록은 아이 관리·설정·기록 탭과 같은 `["children"]` 캐시라
+   * 대개 이미 채워져 있어 새 요청이 나가지 않는다.
+   */
+  const childrenQuery = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
+  });
+  const householdId = resolveManagedHouseholdId({
+    children: childrenQuery.data?.children,
+    childId: selectedChildId,
+    fallbackHouseholdId,
+    childrenSettled: childrenQuery.isSuccess || childrenQuery.isError
+  });
   const hasSession = Boolean(authToken && householdId);
   const members = useQuery({
     queryKey: ["household-members", householdId],
@@ -183,6 +213,29 @@ export default function FamilyScreen() {
   // 버튼은 그대로 -- 문구만 바뀐다(src/offline/messages.ts).
   const loadErrorCopy = useLoadErrorCopy(members.isError);
 
+  /**
+   * 라운드 60 A: 어느 가구인지 아직 정해지지 않은 창(= `["children"]` 조회 진행 중).
+   *
+   * 이때 기본 가구로 메우면 다가구 계정에서 **다른 가구의 구성원 목록과 삭제 버튼**이 잠깐
+   * 그려진다. 반대로 그냥 두면 로그인한 사용자에게 비로그인 미리보기 픽스처("다온이 패밀리")가
+   * 보인다 -- 둘 다 허위 표시라, 아래 스켈레톤으로 덮는다. 조회가 끝나면 householdScope가
+   * 아이의 가구(또는 기본 가구)로 확정되므로 이 창은 캐시가 따뜻하면 아예 생기지 않는다.
+   */
+  const householdScopePending = Boolean(authToken) && !householdId && childrenQuery.isPending;
+  // 다가구 계정에서만 붙는 한 줄 -- 1가구 계정과 비로그인 미리보기(FAM-001 픽셀락)에서는 null이라
+  // 화면이 종전과 한 노드도 달라지지 않는다.
+  const householdNotice = householdScopeManageNotice(
+    householdScopePhrase(
+      describeHouseholdScope({
+        householdId,
+        children: childrenQuery.data?.children,
+        members: members.data?.members,
+        knownHouseholdIds,
+        fallbackHouseholdId
+      })
+    )
+  );
+
   if (hasSession && membersPhase === "error") {
     return (
       <AppScreen>
@@ -195,7 +248,7 @@ export default function FamilyScreen() {
     );
   }
 
-  if (hasSession && membersPhase === "loading") {
+  if (householdScopePending || (hasSession && membersPhase === "loading")) {
     // MOB-119 (UX-5B-5 후속, D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     // 가족계정 카드 1장 + 멤버 행 실루엣으로 본 화면 형태를 따라간다.
     return (
@@ -278,6 +331,9 @@ export default function FamilyScreen() {
           </Pressable>
           <Text style={familyTitleStyle}>가족과 함께</Text>
         </View>
+
+        {/* 라운드 60 A: 다가구 계정에서만 나타나는 부제 -- 어느 가구를 관리하는 중인지 말한다. */}
+        {householdNotice ? <Text style={familyScopeNoticeStyle}>{householdNotice}</Text> : null}
 
         <View style={familyAvatarRowStyle}>
           <FamilyAvatarGroup names={avatarNames} />
@@ -456,6 +512,15 @@ const familyTitleStyle = {
   fontSize: 22,
   fontWeight: "800",
   lineHeight: 30
+} as const;
+
+// 라운드 60 A: 제목 아래 가구 부제. 새 토큰을 만들지 않고 이 화면이 이미 쓰는 보조 문장 레시피
+// (familyInviteHintStyle과 같은 gray600 12/18)를 그대로 쓴다.
+const familyScopeNoticeStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 18,
+  marginTop: -8
 } as const;
 
 const familyAvatarRowStyle = {

@@ -21,6 +21,8 @@ import {
 // 라운드 55 트랙 C: 두 진입점의 이름은 화면이 다시 적지 않고 각 기능의 순수 모듈에서 가져온다
 // (같은 기능이 화면마다 다른 이름으로 보이던 FIX/F5의 재발 방지).
 import { RECURRING_MANAGE_LABEL } from "../../src/expenses/recurring-template";
+// 라운드 60 A: 요약 카드의 두 줄이 같은 가구를 말하게 하는 판정(선택 아이 기준).
+import { resolveManagedHouseholdId } from "../../src/family/household-scope";
 import { APP_LOCK_TITLE } from "../../src/security/app-lock";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -53,7 +55,7 @@ export default function SettingsScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const fallbackHouseholdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const clearSession = useSessionStore((state) => state.clearSession);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const clearSelectedChild = useSelectedChildStore((state) => state.clearSelectedChildId);
@@ -65,6 +67,20 @@ export default function SettingsScreen() {
     enabled: Boolean(authToken),
     queryFn: () => listChildren(authToken!)
   });
+  /**
+   * 라운드 60 A — "현재 가구"와 "선택된 아이"가 **같은 가구를 말하게** 한다.
+   *
+   * 종전의 "가족 N명"은 세션 기본 가구의 인원이었고 바로 아래 줄은 선택된 아이였다. 다른 가구
+   * 초대를 수락하면 기본 가구가 영구히 바뀌므로, 두 줄이 서로 다른 가구를 말하는 카드가 됐다.
+   * 이제 인원도 보고 있는 아이의 가구를 센다(1가구 계정에서는 같은 값이라 문자열 불변).
+   */
+  const householdId = resolveManagedHouseholdId({
+    children: children.data?.children,
+    childId,
+    fallbackHouseholdId,
+    // 세션이 없으면 기다릴 조회 자체가 없다(쿼리가 disabled라 영원히 pending이다).
+    childrenSettled: !authToken || children.isSuccess || children.isError
+  });
   const members = useQuery({
     queryKey: ["household-members", householdId],
     enabled: Boolean(authToken && householdId),
@@ -73,7 +89,9 @@ export default function SettingsScreen() {
 
   const householdSummary = !authToken
     ? summarySignedOutText
-    : !householdId
+    : // 계정에 가구가 없다는 사실은 **세션이 아는 기본 가구**로 판정한다 -- 아이 목록을 아직
+      // 기다리는 동안 "연결된 가구가 없어요"를 띄우면 있는 가구를 없다고 말하는 셈이다.
+      !fallbackHouseholdId && !householdId
       ? "연결된 가구가 없어요"
       : members.data
         ? `가족 ${members.data.members.length}명`

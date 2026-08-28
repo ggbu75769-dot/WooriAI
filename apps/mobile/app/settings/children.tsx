@@ -30,6 +30,12 @@ import {
 } from "../../src/children/child-form";
 import { getOrCreateChildCreateKey, rotateChildCreateKey } from "../../src/children/child-create-idempotency";
 import { applyChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES } from "../../src/children/child-switch";
+import {
+  describeHouseholdScope,
+  householdScopeAddChildNotice,
+  householdScopePhrase,
+  resolveManagedHouseholdId
+} from "../../src/family/household-scope";
 import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -181,7 +187,10 @@ export default function ManageChildrenScreen() {
   const sessionUserId = useSessionStore((state) => state.userId);
   const userId = sessionUserId ?? (isTestSession ? LOCAL_USER_ID : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
-  const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  // 라운드 60 A: 세션의 기본 가구는 이제 **폴백**이다 -- 대상 가구는 아래 children 조회 뒤에
+  // 선택된 아이 기준으로 정한다(src/family/household-scope.ts).
+  const fallbackHouseholdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
+  const knownHouseholdIds = useSessionStore((state) => state.householdIds);
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
   const queryClient = useQueryClient();
@@ -239,6 +248,21 @@ export default function ManageChildrenScreen() {
     queryKey: ["children"],
     enabled: hasSession,
     queryFn: () => listChildren(authToken!)
+  });
+  /**
+   * 라운드 60 A — 이 화면이 **쓰는** 가구.
+   *
+   * 아이 추가가 만들어 온 것은 늘 `defaultHouseholdId`의 아이였다. 그 값은 다른 가구 초대를
+   * 수락하는 순간 영구히 바뀌므로, 수락 뒤에 추가한 둘째가 시가 가구에 생기고(앱 안에서
+   * 되돌릴 수 없다) 그 가족이 아이의 지출을 열람하게 됐다. 이제 대상은 **선택된 아이의 가구**
+   * 이고, 아이가 0명인 첫 가입 계정에서는 종전대로 기본 가구다(그것이 아는 유일한 사실).
+   * 역할 게이트도 같은 가구를 물어야 한다 -- 아니면 A 가구 owner가 B 가구 viewer로 잠긴다.
+   */
+  const householdId = resolveManagedHouseholdId({
+    children: children.data?.children,
+    childId: selectedChildId,
+    fallbackHouseholdId,
+    childrenSettled: children.isSuccess || children.isError
   });
   // Role gate (same lookup convention as app/family/index.tsx): editing is owner/co_parent
   // only; while members are still loading we default to view-only rather than flashing edit
@@ -397,6 +421,22 @@ export default function ManageChildrenScreen() {
 
   const childList = children.data?.children ?? [];
   const editingChild = childList.find((child) => child.id === editingChildId) ?? null;
+  /**
+   * 라운드 60 A: **다가구 계정에서만** 붙는 한 줄("… 가구에 추가돼요."). 가구가 하나뿐이거나
+   * 몇인지 모르면 null이라 폼이 종전과 한 글자도 달라지지 않고, 가구를 가리킬 사실(서버가 준
+   * 이름 · 그 가구의 아이)이 없으면 역시 아무것도 적지 않는다 -- 지어내지 않는다.
+   */
+  const addHouseholdNotice = householdScopeAddChildNotice(
+    householdScopePhrase(
+      describeHouseholdScope({
+        householdId,
+        children: children.data?.children,
+        members: members.data?.members,
+        knownHouseholdIds,
+        fallbackHouseholdId
+      })
+    )
+  );
 
   return (
     <AppScreen>
@@ -525,6 +565,7 @@ export default function ManageChildrenScreen() {
         {hasSession && canEditChildren && !isDemoSession && addOpen ? (
           <Card style={{ gap: theme.spacing.gap }}>
             <Text style={addTitleStyle}>새 아이 추가</Text>
+            {addHouseholdNotice ? <Text style={mutedTextStyle}>{addHouseholdNotice}</Text> : null}
             <View style={{ gap: 6 }}>
               <Text style={fieldLabelStyle}>지금 상황</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
