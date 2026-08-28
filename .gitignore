@@ -17,6 +17,12 @@ ios/
 *.tsbuildinfo
 artifacts/
 
+# `expo export:embed` 검증 산출물(GAP-061 #9). 4.1MB짜리 index.android.bundle에 앱 소스 전문이
+# 한 줄로 들어 있어 커밋되면 저장소 전역 grep이 **옛 소스 사본**까지 함께 물어 온다
+# (실제로 apps/mobile/.tmp-export-test/가 그렇게 커밋돼 있었고 이 라운드에서 지웠다).
+# 픽셀락(scripts/pixel-lock/·scripts/ui-pixel-lock.ts)은 이 디렉터리를 읽지 않는다 — 재확인 완료.
+.tmp-export-test/
+
 # QA browser-drive output (screenshots may contain admin MFA secrets/recovery codes) - never commit
 scripts/qa/out/
 

@@ -419,6 +419,92 @@ describe("A11Y-117 accessibility round-2 contract", () => {
 });
 
 /**
+ * GAP-061 #8 — 접근성 체크리스트 A-2에서 **스윕 밖**으로 남아 있던 두 줄을 여기로 들인다
+ * (docs/qa/accessibility-offline-checklist.md A-2 #4 정기 지출 · #10 달력 날짜 픽커).
+ *
+ * 왜 옮겼나 — 두 화면은 라벨·역할·상태가 이미 소스에 배선돼 있었는데도 "스윕 밖"이라는 이유로
+ * C절(사람이 기기에서 확인)에 한 번 더 적혀 있었다. 그 표기는 두 가지를 동시에 망가뜨린다:
+ * ① 릴리즈마다 사람이 코드가 이미 붙들고 있는 것을 다시 보게 만들고, ② 정작 회귀가 나면
+ * (라벨을 지우거나 role을 빼면) **아무 테스트도 빨개지지 않는다**. C절의 값은 "코드로는 증명할
+ * 수 없는 것만 남아 있다"는 데서 나오므로, 증명할 수 있는 절반은 여기로 내린다.
+ *
+ * 여기서 고정하는 것은 **존재**다(라벨·role·state). 낭독 **순서**와 제스처 충돌은 여전히 기기
+ * 문제라 C-5·C-6에 남는다 — 그 두 줄은 이제 "라벨이 있는가"가 아니라 순서·제스처만 말한다.
+ */
+describe("GAP-061 #8 정기 지출 · 달력 픽커 접근성 스윕", () => {
+  it("정기 지출 입력 4종에 한국어 라벨이 붙어 있다", () => {
+    const recurringSource = source("app/expenses/recurring.tsx");
+    for (const label of [
+      'accessibilityLabel="정기 지출 품목명 입력"',
+      'accessibilityLabel="정기 지출 금액 입력"',
+      'accessibilityLabel="정기 지출 결제일 입력 (1일부터 31일)"',
+      'accessibilityLabel="정기 지출 판매처 입력 (선택)"'
+    ]) {
+      expect(recurringSource, `정기 지출 입력 라벨 누락: ${label}`).toContain(label);
+    }
+  });
+
+  it("정기 지출 알림 토글이 switch 역할 + checked 상태로 낭독된다", () => {
+    const recurringSource = source("app/expenses/recurring.tsx");
+    expect(recurringSource).toContain('accessibilityLabel={`${template.itemName} 정기 지출 알림`}');
+    expect(recurringSource).toContain('accessibilityRole="switch"');
+    expect(recurringSource).toContain("accessibilityState={{ checked: template.active }}");
+  });
+
+  it("정기 지출 행 액션 셋이 모두 품목명을 라벨에 싣는다 (목록에서 어느 행인지 소리로 구분된다)", () => {
+    const recurringSource = source("app/expenses/recurring.tsx");
+    // 기록: 문구는 순수 모듈이 단일 소스로 만든다(품목명·금액이 들어간다 —
+    // src/expenses/recurring-template.ts의 recurringRecordAccessibilityLabel, 결과 문자열은
+    // recurring-template.test.ts가 핀한다). 여기서는 화면이 그 헬퍼를 지난다는 사실만 고정한다.
+    expect(recurringSource).toContain("accessibilityLabel={recurringRecordAccessibilityLabel(template)}");
+    expect(source("src/expenses/recurring-template.ts")).toContain("export function recurringRecordAccessibilityLabel");
+    expect(recurringSource).toContain('accessibilityLabel={`${template.itemName} 정기 지출 수정`}');
+    expect(recurringSource).toContain('accessibilityLabel={`${template.itemName} 정기 지출 삭제`}');
+  });
+
+  it("정기 지출 저장 실패 문구가 live region으로 자동 낭독된다", () => {
+    const recurringSource = source("app/expenses/recurring.tsx");
+    const errorBlock = recurringSource.slice(recurringSource.indexOf("{saveError ? ("), recurringSource.indexOf("{saveError}"));
+    expect(errorBlock).toContain('accessibilityLiveRegion="polite"');
+    expect(errorBlock).toContain('accessibilityRole="alert"');
+  });
+
+  it("달력 날짜 셀이 button 역할 + selected 상태 + 사람이 읽는 날짜 라벨을 갖는다", () => {
+    const pickerSource = source("src/expenses/ExpenseDatePicker.tsx");
+    expect(pickerSource).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso })");
+    expect(pickerSource).toContain('accessibilityRole="button"');
+    expect(pickerSource).toContain("accessibilityState={{ selected }}");
+    // 라벨 문구(오늘/선택됨/날짜)는 순수 모듈이 만들고 date-picker-month.test.ts가 핀한다.
+    expect(source("src/expenses/date-picker-month.ts")).toContain("export function expenseDatePickerCellAccessibilityLabel");
+  });
+
+  it("고를 수 없는 날은 **왜** 못 고르는지를 라벨에 싣는다 (누를 수 없는 요소로 남는다)", () => {
+    // 가져오기 검수의 잠긴 행과 같은 관례다 — 비활성 요소를 조용히 지나가게 두지 않고 이유를
+    // 낭독한다. 셀 자체는 Pressable이 아니므로 button 역할·disabled 상태를 흉내 내지 않는다.
+    const pickerSource = source("src/expenses/ExpenseDatePicker.tsx");
+    expect(pickerSource).toContain("<View accessible accessibilityLabel={accessibilityLabel} key={cell.key} style={cellStyle}>");
+    const monthSource = source("src/expenses/date-picker-month.ts");
+    expect(monthSource).toContain('export const EXPENSE_DATE_PICKER_FUTURE_HINT = "아직 오지 않은 날이라 고를 수 없어요"');
+    expect(monthSource).toContain("parts.push(EXPENSE_DATE_PICKER_FUTURE_HINT)");
+  });
+
+  it("달력 월 이동 화살표가 라벨 + disabled 상태를 알리고, 요일 머리글은 트리에서 감춘다", () => {
+    const pickerSource = source("src/expenses/ExpenseDatePicker.tsx");
+    expect(pickerSource).toContain('accessibilityLabel="이전 달"');
+    expect(pickerSource).toContain('accessibilityLabel="다음 달"');
+    expect(pickerSource).toContain(
+      "accessibilityState={{ disabled: !canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso) }}"
+    );
+    expect(pickerSource).toContain(
+      "accessibilityState={{ disabled: !canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso) }}"
+    );
+    // 요일 머리글(일~토)은 칸 라벨이 이미 완전한 날짜를 읽어 주므로 소음이다.
+    expect(pickerSource).toContain("accessibilityElementsHidden");
+    expect(pickerSource).toContain('importantForAccessibility="no-hide-descendants"');
+  });
+});
+
+/**
  * GAP-059 #3 — 잠금 오버레이의 **접근성 투과** 봉합 (docs/5차/round59-scout.md 트랙 C).
  *
  * 오버레이는 `<Stack>`·구매 확인 카드와 형제라 z-order로만 위에 온다. 접근성 트리는 z-order로

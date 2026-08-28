@@ -1,7 +1,7 @@
 # Accessibility And Offline Checklist
 
-Batch: 12 - 라운드 33~58 신설 화면 반영 · 갱신 2026-08-28 (라운드 59 트랙 D / GAP-059 #10)
-직전: Batch 11 - QA Release Hardening
+Batch: 12 - 라운드 33~58 신설 화면 반영 · 갱신 2026-08-28 (라운드 61 트랙 E / GAP-061 #8)
+직전 갱신: 라운드 59 트랙 D / GAP-059 #10 · 직전 배치: Batch 11 - QA Release Hardening
 
 > **이 문서를 읽는 법.** 항목은 세 절로 나뉜다.
 > - **A절 — 코드로 고정된 계약**: 소스 스윕 테스트(주로 `apps/mobile/src/a11y-contract.test.ts`)가
@@ -13,6 +13,14 @@ Batch: 12 - 라운드 33~58 신설 화면 반영 · 갱신 2026-08-28 (라운드
 >
 > A절에 "코드 계약 없음"으로 적힌 줄은 화면은 있는데 스윕이 아직 안 붙은 자리다 — 그 줄은
 > C절에서 한 번 더 나온다(사람이 봐야 하므로).
+>
+> **2026-08-28(GAP-061 #8) 갱신.** 그렇게 두 번 나오던 줄이 둘 있었다 — A-2 #4(정기 지출)와
+> A-2 #10(달력 날짜 픽커). 두 화면은 라벨·역할·상태가 이미 소스에 배선돼 있었는데도 "스윕 밖"
+> 이라는 이유로 C절에도 적혀 있었고, 그래서 ① 릴리즈마다 사람이 코드가 이미 붙들고 있는 것을
+> 다시 보고, ② 정작 라벨이나 role이 빠져도 **아무 테스트도 빨개지지 않았다.** 이번 라운드에
+> `a11y-contract.test.ts`의 `GAP-061 #8` 스윕이 그 **존재**를 계약으로 가져갔다. C절에는 코드로
+> 증명할 수 없는 것만 남는다 — 낭독 **순서**(C-5)와 **제스처 충돌**(C-6)이 그것이고, 그 두 줄은
+> 이제 라벨 유무를 묻지 않는다. A절 전체가 다시 "사람이 볼 필요 없는 항목"이 됐다.
 
 ## A절. 코드로 고정된 접근성 계약
 
@@ -36,13 +44,13 @@ Batch: 12 - 라운드 33~58 신설 화면 반영 · 갱신 2026-08-28 (라운드
 | 1 | 잠금 오버레이 (`src/security/AppLockOverlay.tsx`) | 잠금 중 배경(Stack)의 금액·품목이 접근성 트리에서 잘리는가. | 잠금 상태에서 TalkBack이 뒤쪽 화면 내용을 읽지 못한다. | `a11y-contract.test.ts` GAP-059 #3(라운드 59 트랙 C가 붙였다) — 방패가 `<Stack>`·구매 확인 카드만 감싸고 잠금 오버레이는 밖에 두는 것, 잠금 중에만 `accessibilityElementsHidden`/`importantForAccessibility="no-hide-descendants"`가 걸리는 것, 잠금을 켜지 않은 사용자·픽셀락 빌드에는 노드가 생기지 않는 것까지 고정. 오버레이 안쪽 PIN 도트 숨김·안내 live region은 종전대로 `app-lock-gate-contract.test.ts`. **낭독 실측은 여전히 C-3** |
 | 2 | 잠금 오버레이 | PIN 입력칸 라벨 + 오입력/대기 안내가 live region으로 낭독되는가. | 대기 안내가 `accessibilityLiveRegion="polite"` + `role="alert"`로 자동 낭독. | `AppLockOverlay.tsx`(고정) + `src/security/app-lock-gate-contract.test.ts` |
 | 3 | 설정 > 앱 잠금 (`app/settings/app-lock.tsx`) | "지금 잠그기" 등 아이콘/짧은 액션에 라벨이 있는가. | `APP_LOCK_LOCK_NOW_A11Y_LABEL` 상수로 고정. | `app-lock-gate-contract.test.ts` |
-| 4 | 정기 지출 (`app/expenses/recurring.tsx`) | 입력칸 4종(품목·금액·결제일·판매처)에 한국어 라벨, 알림 토글에 switch 역할·checked 상태, 행 액션(기록/수정/삭제)에 **품목명이 포함된** 라벨이 있는가. | 목록에서 어느 템플릿의 버튼인지 소리만으로 구분된다. | 화면에 배선돼 있으나 **a11y-contract 스윕 밖** — `recurring-flow.test.ts`가 문구를 고정. C절에서 낭독 순서 확인 |
+| 4 | 정기 지출 (`app/expenses/recurring.tsx`) | 입력칸 4종(품목·금액·결제일·판매처)에 한국어 라벨, 알림 토글에 switch 역할·checked 상태, 행 액션(기록/수정/삭제)에 **품목명이 포함된** 라벨이 있는가. | 목록에서 어느 템플릿의 버튼인지 소리만으로 구분된다. | `a11y-contract.test.ts` GAP-061 #8(스윕 편입 — 라벨 4종·switch role·checked 상태·행 액션 3종의 품목명). 기록 버튼 문구는 `recurring-template.ts`의 `recurringRecordAccessibilityLabel`이 단일 소스이고 `recurring-template.test.ts`가 핀한다. **낭독 순서만 C-5** |
 | 5 | 정기 지출 | 저장 실패 문구가 live region인가. | 오류가 자동 낭독된다(`accessibilityLiveRegion="polite"` + `role="alert"`). | `app/expenses/recurring.tsx`(고정) |
 | 6 | 동기화 상태 (`app/sync-status.tsx`) | 충돌 해결의 "내 값/서버 값" 선택이 선택 상태를 알리는가. | `accessibilityRole="button"` + `accessibilityState={{ selected }}`. | `app/sync-status.tsx`(고정) |
 | 7 | 기록 탭 동기화 칩 | 대기/실패 칩이 라벨 있는 버튼으로 낭독되는가. | 칩이 "무엇이 몇 건인지"를 말하고 누를 수 있음을 알린다. | `a11y-contract.test.ts` A11Y-101 |
 | 8 | 가져오기 검수 (`app/import/[importJobId].tsx`) | 행이 checkbox 역할 + checked/disabled 상태로 낭독되고, 잠긴 행은 **왜 못 고르는지**가 라벨에 들어가는가. | 미리보기 장식은 TalkBack에서 숨고 검수 안내는 보이는 텍스트로 남는다. | `a11y-contract.test.ts` A11Y-115/117 |
 | 9 | 가져오기 검수 | 일괄 선택/해제 컨트롤에 라벨이 있는가. | `IMPORT_BULK_CANCEL_A11Y_LABEL` 등 상수로 고정. | `app/import/[importJobId].tsx`(고정) |
-| 10 | 달력 날짜 픽커 (`src/expenses/ExpenseDatePicker.tsx`) | 날짜 셀이 button 역할 + selected 상태 + 사람이 읽는 날짜 라벨을 갖는가. 선택 불가한 날은 비활성으로 낭독되는가. | 미래 날짜/월 이동 한계에서 `accessibilityState.disabled`가 참. | `ExpenseDatePicker.tsx`(고정) + `date-picker-month.test.ts`(판정) — **a11y-contract 스윕 밖** |
+| 10 | 달력 날짜 픽커 (`src/expenses/ExpenseDatePicker.tsx`) | 날짜 셀이 button 역할 + selected 상태 + 사람이 읽는 날짜 라벨을 갖는가. 고를 수 없는 날은 **왜** 못 고르는지가 라벨에 들어가는가. 월 이동 한계에서 화살표가 비활성으로 낭독되는가. | 미래 날짜 셀은 누를 수 없는 요소로 남고 라벨이 "아직 오지 않은 날이라 고를 수 없어요"를 싣는다(가져오기 검수의 잠긴 행과 같은 관례). 월 이동 화살표는 한계에서 `accessibilityState.disabled`가 참. | `a11y-contract.test.ts` GAP-061 #8(스윕 편입) + `date-picker-month.test.ts`(라벨 문구 판정). **2026-08-28 정정**: 이 줄은 종전에 "선택 불가한 날은 `accessibilityState.disabled`가 참"이라고 적고 있었지만 **셀에는 그 상태가 없다** — 셀은 Pressable이 아니라 이유를 실은 `accessible` View다. `disabled` 상태를 갖는 것은 월 이동 화살표 쪽이다. **제스처·스와이프만 C-6** |
 | 11 | 리포트 도넛 범례 (`src/ui.tsx`) | 범례 한 줄이 "카테고리, 퍼센트, 금액"을 한 번에 낭독하고, 누를 수 있으면 **어디로 가는지**를 힌트로 먼저 말하는가. | 색만으로 구분하지 않는다(DNC 수치 병기). 드릴다운 힌트는 누르기 전에 들린다. | `src/reports/category-drilldown.test.ts`(`categoryDrilldownHint`) + `src/ui.tsx`(고정) |
 | 12 | 리포트 기간 이동 | 기간 라벨이 새 기간을 알리고, 현재 기간 앞으로는 이동 화살표가 비활성인가. | "다음 달" 화살표가 미래로 넘어가지 않는다. | `a11y-contract.test.ts` A11Y-117 |
 | 13 | 리포트 추세/인사이트 | 라인차트가 하나의 요약 라벨로 낭독되고 프리뷰 전용 델타는 거기서 빠지는가. | 그래프를 못 봐도 추세를 문장으로 듣는다. | `a11y-contract.test.ts` A11Y-117 |
@@ -77,8 +85,8 @@ Batch: 12 - 라운드 33~58 신설 화면 반영 · 갱신 2026-08-28 (라운드
 | C-2 | 대비 실측 (본문/보조/경고/위험 + 다크 모드 강제 기기) | 앱은 light 고정 선언이라 OS 강제 다크에서 무슨 색이 나오는지 화면으로만 확인된다. |
 | C-3 | **잠금 오버레이 TalkBack 투과** — 잠금 중 뒤쪽 화면의 금액·품목이 낭독되는가 | Stack과 오버레이가 형제라 접근성 트리가 z-order로 잘리지 않는다 — **코드 구조상 확정된 투과이고, 실기기 낭독으로 실측한 적은 없다**(라운드 59 통합리뷰 P2-4 표기 정정). 라운드 59 트랙 C가 방패(A-2 #1)로 잘라 냈고 소스 계약도 붙었지만, 실제로 읽히지 않는지는 기기에서만 안다. |
 | C-4 | 잠금 오버레이 진입/해제 시 포커스가 PIN 입력으로 가는가 | 포커스 이동은 런타임 동작이라 소스로 못 본다. |
-| C-5 | 정기 지출 목록의 낭독 순서 (템플릿명 → 상태 → 행 액션) | 라벨 존재는 코드가 보장하지만 순서·중복 낭독은 기기 문제다. |
-| C-6 | 달력 날짜 픽커의 스와이프/월 이동 제스처와 낭독 | TalkBack 제스처 충돌은 실기기 전용. |
+| C-5 | 정기 지출 목록의 낭독 **순서** (템플릿명 → 상태 → 행 액션)와 중복 낭독 | 라벨·역할·상태의 **존재**는 이제 코드가 붙든다(A-2 #4 / `a11y-contract.test.ts` GAP-061 #8). 여기 남은 것은 순서와 중복뿐이고, 그건 접근성 트리를 실제로 훑어 봐야 안다. |
+| C-6 | 달력 날짜 픽커의 스와이프/월 이동 **제스처** 충돌 | 라벨·역할·상태·"왜 못 고르는지"는 코드 계약이다(A-2 #10). TalkBack 제스처가 달력 스와이프와 부딪히는지는 실기기 전용. |
 | C-7 | 리포트 도넛 범례 드릴다운 — 힌트 낭독 후 실제 이동 | 힌트 문구는 고정돼 있으나 "두 번 누르기"가 실제로 이동시키는지는 기기 확인. |
 | C-8 | 가져오기 검수 대량 행(수십~수백)에서의 낭독 성능·초점 유실 | 목록 가상화와 접근성 트리의 상호작용. |
 | C-9 | 시스템 글꼴 최대 확대에서의 글자 잘림 (모든 신설 화면) | 폰트 스케일은 OS 설정. |

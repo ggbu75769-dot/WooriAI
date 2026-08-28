@@ -70,6 +70,7 @@ import {
   HOME_QUICK_RECORD_SECTION_TITLE
 } from "../../src/home/quick-record-chips";
 import { evaluateMilestoneCountdown } from "../../src/home/milestone-countdown";
+import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 import { evaluateHomePrepNudge, type PrepNudgeRecommendedItem } from "../../src/home/prep-nudge";
 import { buildPendingItemStatusIndex, effectiveItemStatus } from "../../src/items/pending-status";
 import { evaluateWeeklySummary } from "../../src/home/weekly-summary";
@@ -1737,7 +1738,19 @@ export default function HomeScreen() {
    * 상태가 서버 반영을 기다리는 동안에도 홈이 "모든 기록이 동기화됐어요"라고 말했다.
    */
   const homeSyncStatus = resolveHomeSyncStatus(offlineSyncSnapshot.counts, offlineSyncSnapshot.itemStatusRows);
-  const headerSpokenLabel = `${visibleHome.child.nickname} ${visibleHome.child.stageLabel}`;
+  /**
+   * GAP-061 #10: 헤더가 읽어 주는 단계 라벨. 예정일이 유예를 넘겨 지난 임신 프로필에서는 도메인
+   * 라벨이 "임신 42주차"에 고착돼 몇 달이고 같은 문장을 되풀이하므로(주차 clamp), 표시층에서만
+   * 주차 없는 사실 한 줄로 바꾼다 — 계산·stageCode·서버 DTO는 그대로다(src/home/stage-display-label.ts).
+   * 세션 렌더에서만 쓴다: 위 비세션 HOME-001 미리보기는 종전 문자열 그대로다.
+   */
+  const headerStageLabel = resolveStageDisplayLabel({
+    stageMode: selectedChild?.stageMode,
+    dueDate: selectedChild?.dueDate,
+    todayIso: seoulToday,
+    stageLabel: visibleHome.child.stageLabel
+  });
+  const headerSpokenLabel = `${visibleHome.child.nickname} ${headerStageLabel}`;
 
   /**
    * 접힘 대상 카드의 렌더. 카드 **내용**은 종전과 한 글자도 다르지 않다 -- 달라진 것은 이 카드가
@@ -2139,7 +2152,7 @@ export default function HomeScreen() {
                 <View style={homeHeaderStyle.copy}>
                   <KoreanText style={homeHeaderStyle.name}>{visibleHome.child.nickname}</KoreanText>
                   <View style={homeHeaderStyle.meta}>
-                    <KoreanText style={homeHeaderStyle.stage}>{visibleHome.child.stageLabel}</KoreanText>
+                    <KoreanText style={homeHeaderStyle.stage}>{headerStageLabel}</KoreanText>
                     <KoreanText style={homeHeaderStyle.switchAffordance}>아이 전환⌄</KoreanText>
                   </View>
                 </View>
@@ -2150,7 +2163,7 @@ export default function HomeScreen() {
                 <View style={homeHeaderStyle.copy}>
                   <KoreanText style={homeHeaderStyle.name}>{visibleHome.child.nickname}</KoreanText>
                   <View style={homeHeaderStyle.meta}>
-                    <KoreanText style={homeHeaderStyle.stage}>{visibleHome.child.stageLabel}</KoreanText>
+                    <KoreanText style={homeHeaderStyle.stage}>{headerStageLabel}</KoreanText>
                   </View>
                 </View>
               </View>

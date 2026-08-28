@@ -93,7 +93,12 @@ describe("NAV-121 settings entry point contract", () => {
     expect(settingsSource).not.toContain('"연결됨"');
     expect(settingsSource).not.toContain('"선택됨"');
     expect(settingsSource).toContain("`가족 ${members.data.members.length}명`");
-    expect(settingsSource).toContain("`${selectedChild.nickname} · ${selectedChild.stageLabel}`");
+    // GAP-061 #10: 태명 옆 단계는 **표시층 라벨**이다 — 예정일이 유예를 넘긴 임신 프로필에서
+    // 서버 라벨이 "임신 42주차"에 고착되므로 그 자리만 사실 문구로 바꾼다
+    // (src/home/stage-display-label.ts, 도메인 stageCode·계산 불변). 요약이 "태명 · 단계"라는
+    // 계약은 그대로다.
+    expect(settingsSource).toContain("`${selectedChild.nickname} · ${resolveStageDisplayLabel({");
+    expect(settingsSource).toContain("stageLabel: selectedChild.stageLabel");
     // 새 엔드포인트가 아니라 아이 관리 · 가족 관리 화면과 같은 캐시 키를 재사용한다.
     expect(settingsSource).toContain('queryKey: ["children"]');
     expect(settingsSource).toContain('queryKey: ["household-members", householdId]');

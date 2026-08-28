@@ -285,7 +285,11 @@ describe("UX-A 아기 카운터 화면 배선 계약 (app/(tabs)/index.tsx)", ()
   it("단계 라벨을 잃지 않고, 카운터 줄에 소리용 라벨을 붙인다", () => {
     // DSN-053 P2-A: 단계 라벨은 아이브로우가 아니라 캡처 문법의 헤더 두 번째 줄(11/700)에 산다 --
     // 자리는 바뀌었지만 "카운터가 떠도 단계를 잃지 않는다"는 계약은 그대로다.
-    expect(homeSource).toContain("<KoreanText style={homeHeaderStyle.stage}>{visibleHome.child.stageLabel}</KoreanText>");
+    // GAP-061 #10: 그 자리에 그리는 값이 서버 라벨에서 **표시층 라벨**로 바뀌었다(예정일이 유예를
+    // 넘긴 임신 프로필의 "임신 42주차" 고착을 걷어낸다 — src/home/stage-display-label.ts).
+    // 계약의 뜻은 그대로다: 카운터가 떠도 단계 줄은 사라지지 않는다.
+    expect(homeSource).toContain("<KoreanText style={homeHeaderStyle.stage}>{headerStageLabel}</KoreanText>");
+    expect(homeSource).toContain("const headerStageLabel = resolveStageDisplayLabel({");
     expect(homeSource).toContain("accessibilityLabel={babyCounter.accessibilityLabel}");
     expect(homeSource).toContain('testID="home-baby-counter"');
   });
