@@ -31,6 +31,19 @@ export type CreateExpenseInput = {
   linkedProductLinkId?: string;
   expenseType?: ExpenseType;
   source?: ExpenseSource;
+  /**
+   * GAP-066 #5: 이 행이 **어느 가져오기 잡에서** 나왔는지(`import_jobs.id`).
+   * 가져오기 확정(`ImportPipelineService.confirmImport`)만 채운다 — 다른 호출부는
+   * 보내지 않고, 보내지 않으면 종전과 **바이트 단위로 같은 행**이 된다(아래 `?? null`).
+   *
+   * ⚠️ 사용자 입력이 아니다. DTO·컨트롤러 어디에서도 받지 않으며(HTTP로 들어오는 값이
+   * 아니라 확정 트랜잭션이 아는 자기 잡 id다), 존재 검증도 하지 않는다 —
+   * 잘못된 id는 FK(`fk_expenses_import_job`, 000001)가 막는다. 그 거절은
+   * `linkedProductLinkId`와 달리 400으로 번역하지 않는다: 여기에 없는 잡 id가 실린다면
+   * 그것은 사용자 입력 오류가 아니라 서버 버그이므로 500으로 드러나야 한다
+   * (isLinkedProductLinkFkViolation 주석의 "넓게 삼키지 않는다" 규칙 그대로).
+   */
+  importJobId?: string;
 };
 
 export type UpdateExpenseInput = {
@@ -362,7 +375,14 @@ export class ExpensesStoreService {
         // ⚠️ DNC-009: 저장만 한다. 이 값이 추천 점수·정렬에 쓰이는 일은 없어야 한다.
         linkedProductLinkId: input.linkedProductLinkId ?? null,
         expenseType: input.expenseType ?? "expense",
-        source: input.source ?? "manual"
+        source: input.source ?? "manual",
+        // GAP-066 #5: `source: "excel_import"`는 **어떤 경로로** 들어왔는지만 말하고
+        // (지출 상세의 출처 행·CSV의 `출처` 열이 쓰는 한 단어), **어느 파일에서** 왔는지는
+        // 말하지 않았다 — 잘못 확정한 200행을 특정할 근거가 0이었다는 뜻이다. 그 칸은
+        // 000001부터 컬럼·FK로 있었고 채우는 곳만 없었으므로, 확정이 자기 잡 id를 여기 남긴다
+        // (마이그레이션 0건 — 라운드 64 #9의 `approved_at`과 같은 형태의 소생).
+        // 기본값 null이라 수동 생성·아웃박스 등 다른 호출부의 행은 종전과 완전히 같다.
+        importJobId: input.importJobId ?? null
       }
     });
 

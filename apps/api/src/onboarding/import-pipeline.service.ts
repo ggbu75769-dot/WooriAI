@@ -328,6 +328,31 @@ export class ImportPipelineService {
    * 둘 다 `updated_at`을 정렬·컷오프 컬럼으로 쓴다(data-retention-purge.job.ts). `approved_at`은
    * 그 판정에 쓰이지 않으며, 이 쓰기가 창을 앞당기거나 늦추지도 않는다 — 확정 CAS는 이 변경
    * 이전에도 `updated_at`을 갱신했고(`@updatedAt`), 여기서 컬럼 하나가 더 실릴 뿐이다.
+   *
+   * ## GAP-066 #5 — 어느 파일에서 온 행인지를 지출에 남긴다 (`expenses.import_job_id`)
+   *
+   * 라운드 64가 잡 쪽에 "승인됐다"를 남겼다면, 이번에는 **지출 쪽에 출처**를 남긴다.
+   * `expenses.import_job_id`는 컬럼도 FK(`fk_expenses_import_job`)도 000001부터 있었는데
+   * 채우는 곳이 0건이라 언제나 NULL이었다 — 즉 잘못 확정한 200행을 **특정할 방법이 없었다**.
+   * 지출이 아는 출처는 `source: "excel_import"` 한 단어뿐이라 지난달 파일에서 온 행과 오늘
+   * 파일에서 온 행이 구별되지 않았고, 감사 로그(`import.confirm`)도 "몇 건"까지만 답했다.
+   * 이제 확정이 자기 잡 id를 넘기므로(`insertExpense`의 `importJobId`), CS·운영이
+   * "이 파일에서 온 행"을 잡 id 하나로 셀 수 있다. **마이그레이션 0건.**
+   *
+   * ⚠️ 여기까지다. 되돌리기(일괄 soft delete)는 이번 범위가 아니다 — DNC-014(soft delete +
+   * 감사 로그)를 건당으로 지킬지 묶음으로 지킬지가 선행 판단이고, 홈·리포트·예산 캐시
+   * 무효화 경로를 한 번에 태우는 배치가 새로 생긴다. 응답 DTO에도 싣지 않는다
+   * (`store-shared.ts`의 `toExpenseDto`는 이 값을 모른다) — 화면이 출처를 어떻게 말할지는
+   * 되돌리기 설계와 함께 서야 한다. `approved_at`이 밟은 순서 그대로다.
+   *
+   * ⚠️ 파기 판정에는 쓰이지 않는다(위 `approved_at` 문단과 같은 이유): phase 9(미리보기 행
+   * 삭제)·phase 11(잡 헤더 마스킹)은 둘 다 `import_jobs.updated_at`을 정렬·컷오프 컬럼으로
+   * 쓰고, 이 컬럼은 그 창 계산에 들어가지 않는다. 다만 **파기의 삭제 순서에는 실체가 생겼다**:
+   * `purgeChildRows`가 잡을 지우기 전에 지출을 먼저 지우는 것("After the expenses:
+   * Expense.importJobId FKs import_jobs")은 종전에는 언제나 NULL인 컬럼을 위한 방어였지만,
+   * 이제는 실제로 걸리는 FK다 — 그 순서를 바꾸면 파기가 FK 위반으로 실패한다.
+   * phase 11의 마스킹은 잡 **행을 남기므로** 이 FK와 무관하다(파일명만 자리표시자가 되고,
+   * 그때도 "어느 잡에서 왔나"는 지출 쪽에 그대로 남는다).
    */
   async confirmImport(user: AuthenticatedUser, importJobId: string, input: ConfirmImportInput = {}) {
     const job = await this.requireImportJobAccess(user, importJobId, true);
@@ -361,7 +386,11 @@ export class ImportPipelineService {
           spentOn: fromDateOnly(row.parsedDate!),
           itemName: row.parsedItemName!,
           paymentMethod: "unknown",
-          source: "excel_import"
+          source: "excel_import",
+          // GAP-066 #5: 이 행의 **출처 파일**을 남긴다. 같은 트랜잭션 안이라 확정이
+          // 롤백되면 지출도 이 값도 없다. 판정 규칙(`validationStatusForImportRow`)·
+          // 선택 규칙은 손대지 않았다 — 채우는 것은 이 한 칸뿐이다.
+          importJobId
         });
       }
 

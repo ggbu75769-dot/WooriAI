@@ -745,6 +745,117 @@ describe("Excel import beta API", () => {
     ).toBe(confirmed.approvedAt!.toISOString());
   });
 
+  /**
+   * GAP-066 #5: 확정이 만든 지출이 **어느 가져오기에서** 왔는지 남는다
+   * (`expenses.import_job_id` — 컬럼·FK는 000001부터 있었고 채우는 곳만 없었다).
+   *
+   * 값 계약은 하나다: **확정 뒤 그 잡 id로 조회한 지출 수 = `importedCount`.**
+   * 이 테스트가 필요한 이유는 "쓰지 않는다"는 사실을 깨뜨리는 단언이 있을 수 없기
+   * 때문이다(빈 값도 유효한 값이라 어떤 기존 테스트도 실패하지 않았다 — 그래서 이
+   * 컬럼이 스무 라운드 넘게 비어 있었다).
+   *
+   * 함께 고정하는 것 셋:
+   *  1. **두 파일이 구별된다** — 같은 아이에 두 번 가져와도 각 잡 id가 자기 행만 센다
+   *     (이 후보의 실패 시나리오가 바로 "지난달 파일 행과 오늘 파일 행이 구별되지 않는다").
+   *  2. **다른 생성 경로는 종전과 같은 행을 만든다** — 수동 기록의 `importJobId`는 NULL이다
+   *     (`insertExpense`의 기본값 `?? null`).
+   *  3. **응답 DTO에 노출되지 않는다** — 되돌리기 설계와 함께 정할 일이라 이번에는 서버가
+   *     사실을 기록만 한다(`toExpenseDto`에 이 키가 없다).
+   */
+  it("GAP-066 #5: 확정이 expenses.import_job_id를 채우고, 그 잡 id의 지출 수가 importedCount와 같다", async () => {
+    const accessToken = await login(app, "import-job-origin");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = app.get(PrismaService);
+
+    // 가져오기와 무관한 수동 기록 — 확정이 남의 행에 출처를 칠하지 않는지 대조군이다.
+    const manualExpenseId = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ categoryId, amountKrw: 15000, spentOn: "2026-07-02", itemName: "손으로 적은 기저귀" })
+        .expect(200)
+    ).body.id as string;
+    expect((await prisma.expense.findUniqueOrThrow({ where: { id: manualExpenseId } })).importJobId).toBeNull();
+
+    async function uploadAndConfirm(fileName: string, csv: string) {
+      const uploaded = (
+        await request(app.getHttpServer())
+          .post(`/api/v1/children/${childId}/imports/excel`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .field("fileName", fileName)
+          .attach("file", Buffer.from(csv, "utf8"), fileName)
+          .expect(200)
+      ).body as ImportJob;
+
+      const uploadedRows = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/imports/${uploaded.id}/rows`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body.rows as ImportRow[];
+
+      // 확정 전에는 이 잡에서 온 지출이 0건이다(DNC-012 — 승인 전에는 expenses에 넣지 않는다).
+      expect(await prisma.expense.count({ where: { importJobId: uploaded.id } })).toBe(0);
+
+      const confirmResponse = (
+        await request(app.getHttpServer())
+          .post(`/api/v1/imports/${uploaded.id}/confirm`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ selectedRowIds: uploadedRows.map((row) => row.id) })
+          .expect(200)
+      ).body as { importedCount: number; skippedCount: number };
+
+      return { job: uploaded, confirmResponse };
+    }
+
+    // 첫 파일: 유효 2행 + 미래 날짜 1행(확정에서 빠진다 — 건수가 행 수와 달라야
+    // "선택된 행 수"가 아니라 **들어간 행 수**를 세고 있음이 드러난다).
+    const july = await uploadAndConfirm(
+      "카드내역-7월-1차.csv",
+      "날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n2026-07-05,물티슈 구매,12000\n2027-01-05,분유 구매,33000\n"
+    );
+    expect(july.confirmResponse).toEqual({ importedCount: 2, skippedCount: 1 });
+
+    // 둘째 파일: 유효 1행(같은 아이·같은 달에 두 번째로 올리는 파일 — 실패 시나리오 그대로).
+    const august = await uploadAndConfirm("카드내역-7월-2차.csv", "날짜,적요,금액\n2026-07-04,젖병 구매,21000\n");
+    expect(august.confirmResponse).toEqual({ importedCount: 1, skippedCount: 0 });
+
+    for (const { job: confirmedJob, confirmResponse } of [july, august]) {
+      // 값 계약: 그 잡 id의 지출 수 = importedCount(= 잡 행이 기록한 건수).
+      expect(await prisma.expense.count({ where: { importJobId: confirmedJob.id } })).toBe(
+        confirmResponse.importedCount
+      );
+      expect(
+        (await prisma.importJob.findUniqueOrThrow({ where: { id: confirmedJob.id } })).importedCount
+      ).toBe(confirmResponse.importedCount);
+    }
+
+    // 두 파일은 서로 섞이지 않는다 — 같은 아이·같은 달의 지출이지만 출처가 다르다.
+    const importedExpenses = await prisma.expense.findMany({
+      where: { childId, source: "excel_import" },
+      select: { id: true, importJobId: true }
+    });
+    expect(importedExpenses).toHaveLength(3);
+    expect(new Set(importedExpenses.map((expense) => expense.importJobId))).toEqual(
+      new Set([july.job.id, august.job.id])
+    );
+
+    // 수동 기록은 종전 그대로다 — 확정은 자기가 만든 행에만 출처를 남긴다.
+    expect((await prisma.expense.findUniqueOrThrow({ where: { id: manualExpenseId } })).importJobId).toBeNull();
+
+    // 응답 DTO는 이 값을 모른다(노출은 되돌리기 설계와 함께 정한다).
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.expenses).toHaveLength(4);
+        for (const expense of body.expenses as Record<string, unknown>[]) {
+          expect(expense).not.toHaveProperty("importJobId");
+        }
+      });
+  });
+
   // API-130: 형식 판정이 파일명 확장자에만 기대던 것을 (1) mimetype 1차 관문과
   // (2) 매직바이트 본검사로 나눠 잡는다. 둘 다 기존 400 IMPORT_FILE_TYPE_INVALID
   // 봉투를 그대로 쓴다 — 사용자에게는 "지원하지 않는 파일" 하나의 사실이다.
