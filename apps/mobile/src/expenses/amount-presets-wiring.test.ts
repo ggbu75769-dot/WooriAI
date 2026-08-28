@@ -55,8 +55,11 @@ describe("UX-121 quick-expense amount preset wiring", () => {
     // (픽셀 락 캡처는 authToken null이므로 그 화면에서는 이 행 자체가 렌더되지 않는다).
     const before = newExpenseSource.slice(0, presetRowStart);
     expect(before.lastIndexOf("{authToken ? (")).toBeGreaterThan(before.lastIndexOf(") : null}"));
-    // 그리고 칩은 픽셀 락이 고정한 금액 입력 카드와 카테고리 그리드 "사이"에만 들어간다.
-    expect(presetRowStart).toBeGreaterThan(newExpenseSource.indexOf('accessibilityLabel="지출 금액 입력"'));
-    expect(presetRowStart).toBeLessThan(newExpenseSource.indexOf("quickExpenseCategoryGridStyle.grid"));
+    // DSN-053 P2-C: 금액 입력칸이 **하단 고정 요약바**로 내려가면서 칩의 자리도 함께 옮겼다.
+    // 예전 계약은 "금액 카드와 카테고리 그리드 사이"였는데 그 카드가 더 이상 본문에 없다.
+    // 지금 지켜야 할 사실은 그대로다: 칩은 자기가 더하는 금액 칸 **바로 옆**에 있어야 한다 --
+    // 본문의 마지막 줄(카테고리 그리드보다 아래)이고, 그 아래가 곧 요약바의 금액 박스다.
+    expect(presetRowStart).toBeGreaterThan(newExpenseSource.indexOf("quickExpenseCategoryGridStyle.grid"));
+    expect(presetRowStart).toBeLessThan(newExpenseSource.indexOf('accessibilityLabel="지출 금액 입력"'));
   });
 });

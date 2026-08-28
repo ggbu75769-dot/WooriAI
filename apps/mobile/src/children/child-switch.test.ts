@@ -148,11 +148,14 @@ describe("HOME-138 홈 헤더 전환 입구", () => {
 
   it("라운드 38 H-8: 아이 2명 이상이어도 홈 제목 랜드마크(header)를 잃지 않는다", () => {
     const homeSource = source("app/(tabs)/index.tsx");
-    // 카운터 헤더 분기(= 이 화면의 제목 줄)만 잘라 본다 -- 에러 화면의 보조 입구(H-9)는 제목을
-    // 대신하지 않으므로 종전대로 버튼이다.
-    const triggerBlock = homeSource.slice(
-      homeSource.indexOf("{babyCounter ? ("),
-      homeSource.indexOf('testID="home-baby-counter"')
+    // DSN-053 P2-A: 제목 줄은 이제 캡처 문법의 헤더(아이 원형 아이콘 + 닉네임 + 단계 +
+    // "아이 전환⌄")다. 카운터 문장은 그 아래 한 줄로 남았고, 전환 입구는 헤더가 들고 있다 --
+    // 그래서 잘라 보는 곳도 그 헤더다(에러 화면의 보조 입구(H-9)는 제목을 대신하지 않으므로
+    // 종전대로 버튼이고, 아래 slice가 그 분기까지 삼키지 않도록 세션 렌더에서만 자른다).
+    const sessionRender = homeSource.slice(homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)"));
+    const triggerBlock = sessionRender.slice(
+      sessionRender.indexOf("{canSwitchChild ? ("),
+      sessionRender.indexOf('testID="home-child-switch-trigger"')
     );
     // RN은 role을 하나만 준다 -- 랜드마크를 지키고 버튼성은 힌트·액션으로 전한다.
     expect(triggerBlock).toContain('accessibilityRole="header"');

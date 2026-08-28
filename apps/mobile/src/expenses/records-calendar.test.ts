@@ -577,9 +577,10 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   });
 
   /**
-   * 라운드 34 L6: 0단계(beige #FFF9F3)와 1단계(coral[50] #FFF3F0)는 채널 차이가 (0,6,3)뿐이라
-   * "썼다/안 썼다"가 사실상 같은 색이었다. 1단계를 coral[100]으로 한 칸 올린다 -- 새 hex를
-   * 만들지 않고 기존 스케일 안에서만 옮긴다(DNC-017).
+   * 라운드 34 L6: 0단계(beige)와 1단계(coral[50])는 채널 차이가 거의 없어 "썼다/안 썼다"가
+   * 사실상 같은 색이었다. 1단계를 coral[100]으로 한 칸 올린다 -- 새 hex를 만들지 않고 기존
+   * 스케일 안에서만 옮긴다(DNC-017). 이 테스트가 고정하는 것은 **어느 토큰을 쓰는가**이지
+   * 그 토큰의 값이 아니라, DSN-053 P1의 팔레트 롤백에도 그대로 유효하다.
    */
   it("음영은 기존 coral 토큰 단계만 쓰고, 1단계가 0단계와 구별된다 (DNC-017: 새 색 도입 금지)", () => {
     const paletteBlock = recordsSource.slice(
@@ -602,7 +603,8 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   });
 
   it("L6: 진해진 4단계 위에서도 칸 글자가 대비를 유지한다 (한 색으로 전 단계 통과)", () => {
-    // 예전 brown(#3D3733)은 coral[400] 위에서 4.47:1로 AA 미달이라 gray900으로 낮췄다.
+    // brown은 진해진 coral[400] 위에서 AA에 미달해 gray900으로 낮췄다(재검산 값은 화면 쪽
+    // 주석에 비율로 적혀 있다 -- 여기서는 어느 토큰을 쓰는지만 고정한다).
     expect(recordsSource).toContain("const calendarCellTextColor = theme.colors.gray900;");
     // 라운드 35 F8: 종전 주석은 "세 Text가 모두 같은 토큰을 쓴다"였지만 사실이 아니다 --
     // 아래 루프가 도는 것은 날짜·금액 **두** Text뿐이고, 세 번째인 "선물" 라벨은 보조 정보라
@@ -621,7 +623,8 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(giftStyleBlock).toContain("color: theme.colors.gray600");
     expect(giftStyleBlock).not.toContain("color: calendarCellTextColor");
     // 재검산 근거(대비 비율)가 주석에 남아 있어야 다음 팔레트 변경이 다시 계산한다.
-    expect(recordsSource).toContain("4.47:1");
-    expect(recordsSource).toContain("6.29:1");
+    // DSN-053 P1에서 팔레트가 c20deeb 값으로 롤백되며 두 비율을 다시 계산했다.
+    expect(recordsSource).toContain("15.28:1");
+    expect(recordsSource).toContain("6.50:1");
   });
 });

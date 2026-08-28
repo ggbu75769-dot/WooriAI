@@ -275,7 +275,7 @@ export function SegmentedControl({
   return (
     <View
       accessibilityRole="tablist"
-      style={{ backgroundColor: "#F5F0EA", borderRadius: theme.radii.pill, flexDirection: "row", padding: 4 }}
+      style={{ backgroundColor: theme.colors.presentation.segmentedTrack, borderRadius: theme.radii.pill, flexDirection: "row", padding: 4 }}
     >
       {options.map((option) => (
         <Pressable
@@ -592,11 +592,23 @@ export function ProductComparisonRow({
   seller,
   price,
   caption = "무료배송",
+  primaryAction = false,
   onPress
 }: {
   seller: string;
   price: string;
   caption?: string;
+  /**
+   * DSN-053 P1: 승인 캡처(ITEM-002)의 판매처 행은 **한 줄만** 채워진 "구매하기" 버튼
+   * (최소 폭 72)이고 나머지는 외곽선 "구매"(최소 폭 62)다. 기본값 false라 이 prop을
+   * 넘기지 않는 기존 호출부의 렌더는 바뀌지 않는다.
+   *
+   * 채움 색은 `PrimaryButton` 기본값(mainCoral #C94627)을 그대로 쓴다. 캡처 이식 때는
+   * coral[400](#F98060)을 덮어씌웠는데, 그 위의 흰 15/700 라벨은 명암비 2.54:1로 WCAG AA
+   * (소형 텍스트 4.5:1)에 한참 못 미쳤다 — 핵심 루프의 구매 CTA가 가장 안 읽히는 버튼이
+   * 되는 셈이라 색 오버라이드를 걷어냈다(기본값은 4.76:1).
+   */
+  primaryAction?: boolean;
   onPress?: () => void;
 }) {
   return (
@@ -606,12 +618,21 @@ export function ProductComparisonRow({
         {caption ? <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{caption}</Text> : null}
       </View>
       {price ? <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "800" }]}>{price}</Text> : null}
-      <SecondaryButton
-        label="구매"
-        accessibilityLabel={`${seller}에서 구매하기`}
-        onPress={onPress}
-        style={{ minWidth: 62 }}
-      />
+      {primaryAction ? (
+        <PrimaryButton
+          label="구매하기"
+          accessibilityLabel={`${seller}에서 구매하기`}
+          onPress={onPress}
+          style={{ minWidth: 72 }}
+        />
+      ) : (
+        <SecondaryButton
+          label="구매"
+          accessibilityLabel={`${seller}에서 구매하기`}
+          onPress={onPress}
+          style={{ minWidth: 62 }}
+        />
+      )}
     </View>
   );
 }
@@ -768,7 +789,7 @@ export function LineChartCard({
           noticeText
             ? {
                 alignItems: "center",
-                backgroundColor: "#FFF4EE",
+                backgroundColor: theme.colors.presentation.chartPlot,
                 borderRadius: 14,
                 height: 104,
                 justifyContent: "center",
@@ -776,7 +797,7 @@ export function LineChartCard({
                 overflow: "hidden",
                 paddingHorizontal: 16
               }
-            : { backgroundColor: "#FFF4EE", borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }
+            : { backgroundColor: theme.colors.presentation.chartPlot, borderRadius: 14, height: 104, marginTop: 2, overflow: "hidden" }
         }
         testID={noticeText ? "line-chart-empty-notice" : undefined}
       >

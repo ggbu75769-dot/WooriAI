@@ -40,7 +40,10 @@ const previewMembers = [
 ] as const;
 
 const familyReferenceScreenId = "pixel-screen-FAM-001 FAM-001";
+// PIX-133: 보정 변환은 FAM-001 캡처 빌드 전용(기본값은 항등이지만 튜닝 값 유출을 구조적으로 차단).
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 function familyReferenceFrameStyle() {
+  if (!isPixelLockCalibration) return { gap: 16 } as const;
   return {
     gap: 16,
     transform: [
@@ -323,6 +326,14 @@ export default function FamilyScreen() {
           ))}
         </View>
 
+        {/*
+          DSN-053 P2-D: 승인 캡처(FAM-001)의 가족 화면에는 "멤버 관리" 목록 **하나**가 있다.
+          대기 중인 초대를 그 아래 별도 구획으로 두면 같은 사람이 목록 둘에 나뉘어 서고("보낸
+          초대"와 "가족"이 다른 것처럼 읽힌다), 화면도 구획 넷으로 길어진다. 그래서 대기 초대를
+          같은 목록 안의 **pending 행**으로 흡수한다 -- 행 문법(radius 16 · 아바타 · 이름 ·
+          상태 pill · 파괴적 액션)이 이미 같고, 서버 상태가 pending인 멤버 행과도 한 벌이 된다.
+          소유자 전용·세션 전용 게이트(canManageMembers)와 취소 확인·조용한 실패 안내는 그대로다.
+        */}
         <Text style={familySectionTitleStyle}>멤버 관리</Text>
         <View style={familyMemberGroupStyle}>
           {visibleMembers.map((member) => (
@@ -353,17 +364,17 @@ export default function FamilyScreen() {
               ) : null}
             </View>
           ))}
-        </View>
-
-        {/*
-          FAM-121B: 대기 중인 초대. Owner-only and session-only, so the non-session
-          FAM-001 pixel-lock capture renders nothing extra here.
-        */}
-        {canManageMembers ? (
-          <>
-            <Text style={familySectionTitleStyle}>대기 중인 초대</Text>
-            {pendingInvites.isLoading ? (
+          {/*
+            FAM-121B: 대기 중인 초대. Owner-only and session-only, so the non-session
+            FAM-001 pixel-lock capture renders nothing extra here -- 흡수 후에도 같다.
+            빈 목록에는 "대기 중인 초대가 없어요." 한 줄을 남긴다 — 이 줄이 없으면 초대를
+            보낸 owner가 "0건"과 "아직 안 불러옴"을 구분할 방법이 화면에 없다(적대적 리뷰).
+          */}
+          {canManageMembers ? (
+            pendingInvites.isLoading ? (
               <SkeletonRow />
+            ) : pendingInvites.data && pendingInvites.data.invites.length === 0 ? (
+              <Text style={familyPendingInviteMetaStyle}>대기 중인 초대가 없어요.</Text>
             ) : pendingInvites.isError ? (
               <Pressable
                 accessibilityRole="button"
@@ -372,42 +383,40 @@ export default function FamilyScreen() {
               >
                 <Text style={familyInviteErrorStyle}>대기 중인 초대를 불러오지 못했어요. 눌러서 다시 시도해 주세요.</Text>
               </Pressable>
-            ) : (pendingInvites.data?.invites.length ?? 0) === 0 ? (
-              <Text style={familyInviteHintStyle}>대기 중인 초대가 없어요.</Text>
             ) : (
-              <View style={familyMemberGroupStyle}>
-                {pendingInvites.data!.invites.map((invite) => {
-                  const roleLabel = memberRoleLabel(invite.role);
-                  return (
-                    <View key={invite.id} style={familyPendingInviteRowStyle}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={familyMemberNameStyle}>{roleLabel} 초대</Text>
-                        <Text style={familyPendingInviteMetaStyle}>{formatInviteExpiry(invite.expiresAt)}</Text>
-                      </View>
-                      <StatusBadge label="수락 대기" tone="neutral" />
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`${roleLabel} 초대 취소`}
-                        disabled={cancelInvite.isPending}
-                        onPress={() => confirmCancelInvite(invite.id, roleLabel)}
-                        hitSlop={8}
-                      >
-                        <Text style={familyMemberDeleteStyle}>취소</Text>
-                      </Pressable>
+              (pendingInvites.data?.invites ?? []).map((invite) => {
+                const roleLabel = memberRoleLabel(invite.role);
+                return (
+                  <View key={invite.id} style={familyPendingInviteRowStyle}>
+                    <FamilyAvatarGroup names={[roleLabel]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={familyMemberNameStyle}>{roleLabel} 초대</Text>
+                      <Text style={familyPendingInviteMetaStyle}>{formatInviteExpiry(invite.expiresAt)}</Text>
                     </View>
-                  );
-                })}
-              </View>
-            )}
-            {/*
-              Honesty note, not a placeholder: invite tokens are stored hashed on the
-              server, so a link can never be shown again after the create screen. The
-              only real recovery is cancel + create a new invite, and we say exactly that.
-            */}
-            {(pendingInvites.data?.invites.length ?? 0) > 0 ? (
-              <Text style={familyInviteHintStyle}>보낸 링크는 보안을 위해 다시 볼 수 없어요. 링크를 잃어버렸다면 취소하고 새로 만들어 주세요.</Text>
-            ) : null}
-          </>
+                    <StatusBadge label="수락 대기" tone="neutral" />
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${roleLabel} 초대 취소`}
+                      disabled={cancelInvite.isPending}
+                      onPress={() => confirmCancelInvite(invite.id, roleLabel)}
+                      hitSlop={8}
+                    >
+                      <Text style={familyMemberDeleteStyle}>취소</Text>
+                    </Pressable>
+                  </View>
+                );
+              })
+            )
+          ) : null}
+        </View>
+
+        {/*
+          Honesty note, not a placeholder: invite tokens are stored hashed on the
+          server, so a link can never be shown again after the create screen. The
+          only real recovery is cancel + create a new invite, and we say exactly that.
+        */}
+        {canManageMembers && (pendingInvites.data?.invites.length ?? 0) > 0 ? (
+          <Text style={familyInviteHintStyle}>보낸 링크는 보안을 위해 다시 볼 수 없어요. 링크를 잃어버렸다면 취소하고 새로 만들어 주세요.</Text>
         ) : null}
 
         {/* 진입점 ③: 화면 맨 아래 "가족 초대하기". 잠기면 버튼을 지우지 않고 비활성으로 남긴
@@ -455,15 +464,17 @@ const familyAvatarRowStyle = {
   justifyContent: "space-between"
 } as const;
 
+// DSN-053 P2-D: 승인 캡처(FAM-001)의 `+`는 48dp 원이다(theme.touchTarget과 같은 값) --
+// 종전 44는 아바타 스택(36)과의 대비도, 앱 전역의 터치 타깃 기준도 어긋나 있었다.
 const familyPlusButtonStyle = {
   alignItems: "center",
   backgroundColor: theme.colors.white,
   borderColor: "rgba(74, 63, 53, 0.10)",
-  borderRadius: 22,
+  borderRadius: theme.touchTarget / 2,
   borderWidth: 1,
-  height: 44,
+  height: theme.touchTarget,
   justifyContent: "center",
-  width: 44,
+  width: theme.touchTarget,
   ...theme.shadows.card
 } as const;
 

@@ -165,37 +165,47 @@ describe("준비완료 탭의 선물 배지 (items 탭)", () => {
   /**
    * 라운드 48 T1(A3b): 배지 판정이 화면에서 순수 모듈로 나갔다
    * (src/items/item-labels.ts의 itemListBadgeLabel). ITEM-123 B4가 지키려던 사실은
-   * 그대로다 -- 준비완료 탭이 prepared와 gifted를 함께 보여주므로 gifted 항목은 순서와
-   * 무관하게 "선물 받음"으로 구분돼야 한다. 예전에는 첫 행만 "BEST"가 덮어썼는데(근거
-   * 없는 평가라 이번 라운드에 삭제), 이제는 상태 라벨이 항상 필수도 배지보다 우선한다.
+   * 그대로다 -- 정리된 품목 밴드가 prepared와 gifted를 함께 보여주므로 gifted 항목은 순서와
+   * 무관하게 "선물"로 구분돼야 한다.
+   *
+   * DSN-053 P2-B: 목록이 승인 디자인의 타일 그리드가 되면서 그 구분을 **타일의 상태 pill**이
+   * 맡는다(design-system ModV1Primitives의 preparationStatusVisual — gifted는 성공 서피스의
+   * "선물"). 어댑터가 상태를 그 어휘로 올려 주는지까지 여기서 함께 고정한다.
    */
-  it("gifted 항목은 순서와 무관하게 상태 라벨 배지를 단다", () => {
+  it("gifted 항목은 순서와 무관하게 상태 라벨을 단다", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain("badge: itemListBadgeLabel(item)");
-    // 문구는 item-labels 한 곳에서만 관리한다("선물 받음").
+    // 상태 문구는 화면에 인라인하지 않는다("선물 받음"/"선물"은 모듈이 정한다).
     expect(itemsSource).not.toContain('return "선물 받음";');
-    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "essential" })).toBe("선물 받음");
-    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "optional" })).toBe("선물 받음");
+    expect(itemsSource).toContain("toPreparationParityItem(rowItem, {");
+    // P1-4: 배지 어휘도 타일 pill과 같은 "선물"이다(예전에는 상세만 "선물 받음"이라 갈렸다).
+    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "essential" })).toBe("선물");
+    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "optional" })).toBe("선물");
+    // 타일 pill의 문구도 어휘 모듈 한 곳에서만 온다.
+    expect(source("src/design-system/components/ModV1Primitives.tsx")).toContain(
+      '{ value: "gifted", label: MOD_V1_ITEM_STATUS_LABELS.gifted, icon: "gift-outline" }'
+    );
   });
 });
 
 /**
  * ITEM-123 (B5): 준비템 탭 1회 진입 요청 수 회귀 가드.
  * 전: 상태탭 1 + 준비율 스냅샷 4(Promise.all) + 홈 1 = 6.
- * 후: 상태탭 1 + 스냅샷 1(tab="all") + 홈 1 = 3.
+ * 그다음: 상태탭 1 + 스냅샷 1(tab="all") + 홈 1 = 3.
+ * DSN-053 P2-B: 상태 탭 목록이 사라지고 **스냅샷 하나가 곧 목록**이 됐다 -- 목록 1(tab="all")
+ * + 홈 1 = 2. 분류 이름은 다른 화면들과 공유하는 ["categories"] 캐시에서 읽는다.
  */
 describe("준비템 탭 진입 요청 수", () => {
-  it("준비율 스냅샷이 단일 요청이다 (탭별 Promise.all 제거)", () => {
+  it("준비율·목록·찜이 tab=\"all\" 스냅샷 한 건을 함께 쓴다", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain('const response = await listItems(authToken!, childId!, "all");');
+    expect(itemsSource).toContain('listItems(authToken!, childId!, "all")');
     expect(itemsSource).not.toContain('const tabs = ["now", "soon", "prepared", "not_needed"] as const;');
     expect(itemsSource).not.toContain("Promise.all(tabs.map");
   });
 
-  it("화면 전체에서 나가는 목록/홈 요청은 3개다", () => {
+  it("화면 전체에서 나가는 목록/홈 요청은 2개다", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
-    // listItems 호출 지점 2곳(선택된 상태 탭 1 + 전체 스냅샷 1) + getHome 1곳.
-    expect(itemsSource.match(/listItems\(authToken!/g)).toHaveLength(2);
+    // listItems 호출 지점 1곳(전 상태 스냅샷) + getHome 1곳.
+    expect(itemsSource.match(/listItems\(authToken!/g)).toHaveLength(1);
     expect(itemsSource.match(/getHome\(authToken!/g)).toHaveLength(1);
   });
 });

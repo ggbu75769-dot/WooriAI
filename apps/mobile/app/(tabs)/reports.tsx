@@ -56,6 +56,10 @@ import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { announceForA11y, AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
+// DSN-053 P2-D: 월 내비 화살표를 승인 캡처(REP-001)의 MaterialCommunityIcons chevron으로.
+// 글리프(‹ ›)는 기기 폰트에 따라 굵기가 제각각이라 캡처와 다른 그림이 됐다 -- 아이콘 계열은
+// 앱 전역과 같은 MCI다(docs/5차/design-restore-spec.md §아이콘 계열, 신규 의존성 0).
+import { AppIcon } from "../../src/design-system";
 import { SkeletonCard } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 import { ReportPixelStyles } from "../../src/pixelLock/styles";
@@ -66,9 +70,15 @@ const previewCumulativeTotalKrw = 1_245_700;
 // REP-128: 월간 탭 라인 차트가 그리는 막대 수(선택한 달 포함 최근 6개월). 서버 기본값과
 // 같은 값이지만, 캐시 키에 들어가고 요청에도 실리므로 화면 쪽에서 명시한다.
 const MONTHLY_TREND_MONTHS = 6;
-const reportReferenceHorizontalOffset = -16;
-const reportReferenceVerticalOffset = -4;
+// PIX-133(실기기 피드백): 아래 보정 오프셋·스케일은 REP-001 픽셀 캡처를 기준 이미지에
+// 맞추기 위한 값이지 실사용 레이아웃이 아니다. 종전에는 세션 렌더에도 무조건 적용돼
+// 리포트 탭 전체가 왼쪽 16dp·위 4dp 밀려 "꽉 차 보이지 않는" 실기기 결함이 됐다.
+// 캡처 빌드(EXPO_PUBLIC_PIXEL_LOCK=1)에서만 적용한다 — launch-animation의 R49 선례.
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
+const reportReferenceHorizontalOffset = isPixelLockCalibration ? -16 : 0;
+const reportReferenceVerticalOffset = isPixelLockCalibration ? -4 : 0;
 function reportReferenceScaleFrameStyle() {
+  if (!isPixelLockCalibration) return undefined;
   return {
     transform: [
       { translateX: ReportPixelStyles.horizontalOffset },
@@ -92,6 +102,50 @@ function startOfQuarter(date: Date) {
 
 function yearMonthOf(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * DSN-053 P2-D — 월/분기/연 내비의 화살표 하나.
+ *
+ * 승인 캡처(REP-001)의 치수는 **48dp 정사각 터치 타깃 안의 28px chevron**이다. 종전에는 세
+ * 기간 분기가 각자 `‹`/`›` 글리프를 24px Text로 그려(터치 타깃도 hitSlop 12뿐) 같은 컨트롤이
+ * 세 번 복제돼 있었다. 색·크기는 예전 스타일 토큰(reportReferencePeriodArrowStyle)에서 그대로
+ * 읽어 쓴다 -- A11Y-117의 "다음 화살표 dim" 계약은 색 교체가 아니라 기록 탭과 같은
+ * opacity(reportReferencePeriodArrowDisabledOpacity)로 지킨다.
+ *
+ * prop 이름이 `accessibilityLabel`/`isDisabled`인 이유: 호출부와 이 안쪽이 화면 계약
+ * (src/a11y-contract.test.ts · src/android-native-ui-quality.test.ts)이 grep하는 형태
+ * (`accessibilityLabel="이전 달"` · `accessibilityState={{ disabled: …`)를 그대로 유지해야
+ * 하기 때문이다 -- shorthand로 접히면 계약이 형태만 보고 놓친다.
+ */
+function ReportPeriodArrow({
+  accessibilityLabel,
+  direction,
+  isDisabled = false,
+  onPress
+}: {
+  accessibilityLabel: string;
+  direction: "left" | "right";
+  isDisabled?: boolean;
+  onPress: () => void;
+}) {
+  const glyph = reportReferencePeriodArrowStyle;
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isDisabled }}
+      disabled={isDisabled}
+      hitSlop={4}
+      onPress={onPress}
+      style={[
+        reportReferencePeriodArrowButtonStyle,
+        { opacity: isDisabled ? reportReferencePeriodArrowDisabledOpacity : 1 }
+      ]}
+    >
+      <AppIcon color={glyph.color} name={direction === "left" ? "chevron-left" : "chevron-right"} size={glyph.fontSize} />
+    </Pressable>
+  );
 }
 
 export default function ReportsScreen() {
@@ -608,54 +662,21 @@ export default function ReportsScreen() {
           <View style={reportReferencePeriodRowStyle}>
             {period === "월간" ? (
               <>
-                <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={goToPreviousPeriod}>
-                  <Text style={reportReferencePeriodArrowStyle}>‹</Text>
-                </Pressable>
+                <ReportPeriodArrow accessibilityLabel="이전 달" direction="left" onPress={goToPreviousPeriod} />
                 <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
-                <Pressable
-                  accessibilityLabel="다음 달"
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: !canGoNextPeriod }}
-                  disabled={!canGoNextPeriod}
-                  hitSlop={12}
-                  onPress={goToNextPeriod}
-                >
-                  <Text style={canGoNextPeriod ? reportReferencePeriodArrowStyle : reportReferencePeriodArrowDisabledStyle}>›</Text>
-                </Pressable>
+                <ReportPeriodArrow accessibilityLabel="다음 달" direction="right" isDisabled={!canGoNextPeriod} onPress={goToNextPeriod} />
               </>
             ) : period === "분기" ? (
               <>
-                <Pressable accessibilityLabel="이전 분기" accessibilityRole="button" hitSlop={12} onPress={goToPreviousPeriod}>
-                  <Text style={reportReferencePeriodArrowStyle}>‹</Text>
-                </Pressable>
+                <ReportPeriodArrow accessibilityLabel="이전 분기" direction="left" onPress={goToPreviousPeriod} />
                 <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
-                <Pressable
-                  accessibilityLabel="다음 분기"
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: !canGoNextPeriod }}
-                  disabled={!canGoNextPeriod}
-                  hitSlop={12}
-                  onPress={goToNextPeriod}
-                >
-                  <Text style={canGoNextPeriod ? reportReferencePeriodArrowStyle : reportReferencePeriodArrowDisabledStyle}>›</Text>
-                </Pressable>
+                <ReportPeriodArrow accessibilityLabel="다음 분기" direction="right" isDisabled={!canGoNextPeriod} onPress={goToNextPeriod} />
               </>
             ) : (
               <>
-                <Pressable accessibilityLabel="이전 연도" accessibilityRole="button" hitSlop={12} onPress={goToPreviousPeriod}>
-                  <Text style={reportReferencePeriodArrowStyle}>‹</Text>
-                </Pressable>
+                <ReportPeriodArrow accessibilityLabel="이전 연도" direction="left" onPress={goToPreviousPeriod} />
                 <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
-                <Pressable
-                  accessibilityLabel="다음 연도"
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: !canGoNextPeriod }}
-                  disabled={!canGoNextPeriod}
-                  hitSlop={12}
-                  onPress={goToNextPeriod}
-                >
-                  <Text style={canGoNextPeriod ? reportReferencePeriodArrowStyle : reportReferencePeriodArrowDisabledStyle}>›</Text>
-                </Pressable>
+                <ReportPeriodArrow accessibilityLabel="다음 연도" direction="right" isDisabled={!canGoNextPeriod} onPress={goToNextPeriod} />
               </>
             )}
           </View>
@@ -690,30 +711,15 @@ export default function ReportsScreen() {
             />
           ) : (
             <>
-              {/* UX-F: 숫자 카드보다 먼저 읽히는 한 문장. 말할 근거가 없으면(총액 0원·카테고리
-                  없음·지난달 0원) 카드 자체가 렌더되지 않는다. */}
-              {monthlyInsight ? (
-                <Card style={reportInsightCardStyle}>
-                  <View accessible accessibilityLabel={monthlyInsight.accessibilityLabel} style={reportInsightTextGroupStyle}>
-                    <Text style={reportInsightHeadlineStyle}>{monthlyInsight.headline}</Text>
-                    {monthlyInsight.detail ? <Text style={reportInsightDetailStyle}>{monthlyInsight.detail}</Text> : null}
-                  </View>
-                  {/* UX-H: 버튼은 위 accessible 그룹의 **형제**여야 한다 -- 그룹 안에 넣으면
-                      TalkBack이 카드를 한 덩어리로 읽으면서 버튼을 삼킨다. */}
-                  {monthlyShareMessage ? (
-                    <Pressable
-                      accessibilityLabel={`${reportMonthLabel} 요약 공유하기`}
-                      accessibilityRole="button"
-                      hitSlop={8}
-                      onPress={shareMonthlySummary}
-                      style={reportShareButtonStyle}
-                    >
-                      <Text style={reportShareButtonTextStyle}>공유하기</Text>
-                    </Pressable>
-                  ) : null}
-                </Card>
-              ) : null}
+              {/* DSN-053 P2-D — 세션 경로의 구획 순서는 승인 캡처(REP-001)를 따른다:
+                  ① 세그먼트 ② 월 내비(위) ③ 총 지출 LineChartCard ④ 카테고리 도넛+%범례
+                  ⑤ peach 카드(캡처의 "절약 팁" 자리 = 세션에서는 UX-F 인사이트 한 문장)
+                  ⑥ 누적 peach 카드. 세션에만 있는 확장 구획(마일스톤 카드)은 그 **뒤**에 선다.
 
+                  인사이트 카드가 ⑤로 내려온 이유: 캡션·방향 행이 차트에 붙어 있어(marginTop -10)
+                  카드가 그 위에 끼면 차트 구획이 둘로 갈리고, 캡처에서 peach 카드 두 장이
+                  연달아 서는 아래쪽 리듬도 깨진다. 문장 자체는 그대로다(문장 수 상한은
+                  src/reports/monthly-insight.ts의 MONTHLY_INSIGHT_MAX_SENTENCES가 진다). */}
               <LineChartCard
                 title="총 지출"
                 value={formatKrw(activeTotal ?? 0)}
@@ -797,6 +803,31 @@ export default function ReportsScreen() {
                 </>
               )}
 
+              {/* UX-F: 그 달을 한 문장으로 요약한다. 말할 근거가 없으면(총액 0원·카테고리
+                  없음·지난달 0원) 카드 자체가 렌더되지 않는다. 캡처의 "절약 팁" 카드와 **같은
+                  peach 카드·같은 18/800 제목 줄**을 쓴다(reportInsightCardStyle 참고). */}
+              {monthlyInsight ? (
+                <Card style={reportInsightCardStyle}>
+                  <View accessible accessibilityLabel={monthlyInsight.accessibilityLabel} style={reportInsightTextGroupStyle}>
+                    <Text style={reportInsightHeadlineStyle}>{monthlyInsight.headline}</Text>
+                    {monthlyInsight.detail ? <Text style={reportInsightDetailStyle}>{monthlyInsight.detail}</Text> : null}
+                  </View>
+                  {/* UX-H: 버튼은 위 accessible 그룹의 **형제**여야 한다 -- 그룹 안에 넣으면
+                      TalkBack이 카드를 한 덩어리로 읽으면서 버튼을 삼킨다. */}
+                  {monthlyShareMessage ? (
+                    <Pressable
+                      accessibilityLabel={`${reportMonthLabel} 요약 공유하기`}
+                      accessibilityRole="button"
+                      hitSlop={8}
+                      onPress={shareMonthlySummary}
+                      style={reportShareButtonStyle}
+                    >
+                      <Text style={reportShareButtonTextStyle}>공유하기</Text>
+                    </Pressable>
+                  ) : null}
+                </Card>
+              ) : null}
+
               {cumulative.isLoading ? (
                 <SkeletonCard />
               ) : cumulative.isError ? (
@@ -852,6 +883,7 @@ export default function ReportsScreen() {
 
 const reportReferenceFrameStyle = {
   gap: 18,
+  // PIX-133: 보정 모드가 아니면 두 값이 0이라 항등 변환이다(실사용 레이아웃 불변).
   transform: [{ translateX: reportReferenceHorizontalOffset }, { translateY: reportReferenceVerticalOffset }]
 };
 
@@ -863,26 +895,39 @@ const reportReferenceHeaderStyle = {
   textAlign: "center"
 } as const;
 
+// DSN-053 P2-D: 승인 캡처의 월 내비 줄은 48dp 화살표 두 개가 양 끝을 잡는다 -- 종전의
+// minHeight 26 + paddingHorizontal 6은 화살표가 글리프 Text였을 때의 값이라, 터치 타깃이
+// 44dp에 못 미치고 줄 높이도 캡처보다 얕았다. 좌우 여백은 이제 화살표 버튼 자신이 만든다.
 const reportReferencePeriodRowStyle = {
   alignItems: "center",
   flexDirection: "row",
   justifyContent: "space-between",
-  minHeight: 26,
-  paddingHorizontal: 6
+  minHeight: theme.touchTarget
 } as const;
 
 const reportReferencePeriodArrowStyle = {
   color: theme.colors.gray900,
-  fontSize: 24,
+  fontSize: 28,
   fontWeight: "900",
-  lineHeight: 28
+  lineHeight: 32
 } as const;
 
-// A11Y-117: 다음 화살표 dim (현재 기간에서 미래 이동 불가 -- 색만 gray300으로).
-const reportReferencePeriodArrowDisabledStyle = {
-  ...reportReferencePeriodArrowStyle,
-  color: theme.colors.gray300
+// 48dp 정사각(theme.touchTarget) — 캡처의 화살표 히트 영역.
+const reportReferencePeriodArrowButtonStyle = {
+  alignItems: "center",
+  height: theme.touchTarget,
+  justifyContent: "center",
+  width: theme.touchTarget
 } as const;
+
+/**
+ * A11Y-117: 다음 화살표 dim (현재 기간에서 미래 이동 불가).
+ *
+ * 흐림은 **opacity**로 준다 — 기록 탭(app/(tabs)/records.tsx의 `opacity: canGoNextMonth ? 1 : 0.35`)과
+ * 같은 방식이다. 종전처럼 색을 gray300으로 갈아끼우면 크림 배경 위에서 chevron이 거의 사라져,
+ * "누를 수 없는 버튼"이 아니라 "없는 버튼"으로 읽혔다. 글리프 색·크기는 활성과 같은 토큰을 쓴다.
+ */
+const reportReferencePeriodArrowDisabledOpacity = 0.35;
 
 const reportReferencePeriodTextStyle = {
   color: theme.colors.brown,
@@ -919,12 +964,10 @@ const reportInsightCardStyle = reportReferenceTipCardStyle;
 // 두 문장을 한 요소로 묶어 TalkBack이 카드를 한 번에 읽게 한다(Card는 접근성 props를 받지 않는다).
 const reportInsightTextGroupStyle = { gap: 4 } as const;
 
-const reportInsightHeadlineStyle = {
-  color: theme.colors.brown,
-  fontSize: 16,
-  fontWeight: "800",
-  lineHeight: 24
-} as const;
+// DSN-053 P2-D: 첫 줄은 캡처의 팁 카드 제목과 **같은 18/800**이다 -- 같은 자리(peach 카드
+// ⑤번 구획)에 서는 두 카드가 세션 여부에 따라 다른 크기로 읽히지 않게 한다. 두 번째 줄
+// (reportInsightDetailStyle)은 캡처의 본문 13px 그대로다.
+const reportInsightHeadlineStyle = reportReferenceTipTitleStyle;
 
 const reportInsightDetailStyle = reportReferenceTipBodyStyle;
 

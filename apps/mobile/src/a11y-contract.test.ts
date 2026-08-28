@@ -23,8 +23,12 @@ function listSettingsScreenSources(): string[] {
 
 /**
  * FIX-118B(F4): coral text tokens that fail WCAG AA at the sizes these screens actually use.
- * On the cream background (#FFF8F1) coral[500]/mainCoral is 3.16:1 and coral[600] ~3.9:1 -- only
- * coral[700] (#B93E23) clears 4.5:1. Matches the lowercase `color:` prop only, so brand fills
+ *
+ * 값 재검산 (DSN-053 P1, 팔레트가 c20deeb 값으로 롤백됨): 크림 배경(cream.bg #FFFDFC) 위에서
+ * coral[500] "#E85F3B"는 3.38:1, coral[600] "#C94627"는 4.72:1, coral[700] "#A93720"는 6.36:1이다.
+ * coral[600]은 흰 배경 하나만 놓고 보면 AA를 넘지만, 이 화면들이 실제로 쓰는 **연한 코랄 서피스**
+ * (coral[50] "#FFF4EF") 위에서는 4.43:1로 다시 미달한다 -- 그래서 목록에 남겨 둔다. 통과가
+ * 보장되는 것은 coral[700]뿐이다. Matches the lowercase `color:` prop only, so brand fills
  * (backgroundColor/borderColor/tintColor/trackColor) are deliberately untouched, which is the
  * same line A11Y-117 drew for the shared kit (ui.tsx smallCoralText vs PrimaryButton's fill).
  */
@@ -360,8 +364,14 @@ describe("A11Y-117 accessibility round-2 contract", () => {
       expect(screenSource, `${screen} should disable the next arrow`).toContain("canGoToNextPeriod(monthOffset)");
     }
     // Visual dim on the disabled next arrow.
-    expect(source("app/(tabs)/records.tsx")).toContain("canGoNextMonth ? theme.colors.gray900 : theme.colors.gray300");
-    expect(source("app/(tabs)/reports.tsx")).toContain("reportReferencePeriodArrowDisabledStyle");
+    // DSN-053 P2-C: 기록 탭의 화살표가 텍스트 글리프(‹ ›)에서 chevron 아이콘으로 바뀌면서 흐림도
+    // **색 교체에서 opacity로** 옮겼다. 리포트 탭도 같은 방식으로 맞췄다 -- 색을 gray300으로
+    // 떨어뜨리는 쪽은 크림 배경 위에서 아이콘이 거의 사라져 "없는 버튼"으로 읽혔다.
+    // 계약의 뜻(비활성 화살표는 눈에도 흐리게 보인다)은 그대로다.
+    expect(source("app/(tabs)/records.tsx")).toContain("opacity: canGoNextMonth ? 1 : 0.35");
+    const reportsSource = source("app/(tabs)/reports.tsx");
+    expect(reportsSource).toContain("const reportReferencePeriodArrowDisabledOpacity = 0.35;");
+    expect(reportsSource).toContain("{ opacity: isDisabled ? reportReferencePeriodArrowDisabledOpacity : 1 }");
   });
 
   it("hides the decorative import preview from TalkBack and shows the 검수 안내 as visible text", () => {

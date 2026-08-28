@@ -92,8 +92,17 @@ describe("라운드 48 T1: 상세 화면 배선", () => {
 
   it("세션 경로에는 모든 품목에 붙던 기저귀 팩 히어로 사진이 없다", () => {
     const detail = detailSource();
-    // 프리뷰(ITEM-002 픽셀 락)에서는 그대로 그린다 -- 분기가 살아 있어야 한다.
-    expect(detail).toContain("{hasSession ? (\n            <View style={productDetailSessionHeroSpacerStyle} />");
+    // DSN-053 P2-B: 히어로 **카드**는 승인 디자인대로 돌아왔지만, 세션 분기에 들어가는 것은
+    // 상품 사진이 아니라 중립 글리프다(응답에 상품 이미지가 없으므로 그릴 사실이 없다).
+    expect(detail).toContain("{hasSession ? (\n            <Card style={productDetailHeroCardStyle()}>");
+    expect(detail).toContain('<AppIcon color={theme.colors.coral[600]} name="package-variant-closed" size={64} />');
+    // 프리뷰(ITEM-002 픽셀 락)에서는 사진을 그대로 그린다 -- 분기가 살아 있어야 한다.
     expect(detail).toContain("<Image source={productImage} style={productDetailHeroImageStyle()} resizeMode=\"cover\" />");
+    // 세션 경로에서 사진을 그리는 배선은 남아 있지 않다.
+    const sessionBranch = detail.slice(
+      detail.indexOf("{hasSession ? (\n            <Card style={productDetailHeroCardStyle()}>"),
+      detail.indexOf(") : (", detail.indexOf("{hasSession ? (\n            <Card style={productDetailHeroCardStyle()}>"))
+    );
+    expect(sessionBranch).not.toContain("productImage");
   });
 });

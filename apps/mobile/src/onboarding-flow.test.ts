@@ -10,13 +10,14 @@ describe("Batch 05 mobile onboarding contract", () => {
     const { onboardingSteps } = await import("./onboarding/steps");
 
     expect(theme.colors).toMatchObject({
-      primary500: "#FF8A7A",
-      primary100: "#FFE6E0",
-      secondary500: "#7DDCC7",
-      background: "#FFF8F1",
+      primary500: "#C94627",
+      primary100: "#FFE4D8",
+      secondary500: "#267A68",
+      background: "#FFFDFC",
       // Round 5A D0 redirect (docs/5차/round5a-design-spec.md §D0): textPrimary now points at
-      // the new text.primary token ("#3D3733") instead of the pre-redesign "#242424" literal.
-      textPrimary: "#3D3733"
+      // the new text.primary token instead of the pre-redesign "#242424" literal. DSN-053 P1
+      // moved that token to the approved c20deeb value ("#211E1C").
+      textPrimary: "#211E1C"
     });
     expect(onboardingSteps.map((step) => step.screenId)).toEqual([
       "ONB-001",

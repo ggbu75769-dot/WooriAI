@@ -36,8 +36,30 @@ import type { Ionicons } from "@expo/vector-icons";
 /** 세션 메뉴 행의 식별자 — 테스트와 화면이 순서/구성을 말할 때 쓰는 안정된 이름이다. */
 export type MoreMenuRowId = "children" | "family" | "budget" | "notifications" | "settings" | "export" | "appInfo";
 
+/**
+ * DSN-053 P2-D — 세션 메뉴의 **4분할 구획**.
+ *
+ * 승인 캡처(SET-001 = "프로필")의 메뉴는 평평한 한 덩어리가 아니라 제목이 붙은 그룹 박스 넷이다
+ * (아이·산모 / 가족 / 예산·데이터 / 설정). 종전 화면은 같은 7행을 테두리 하나에 몰아넣어, "예산
+ * 수정" 바로 아래에 "알림함"이 오는 식으로 성격이 다른 행들이 인접했다.
+ *
+ * 구획은 **행 자체의 성질**이므로 행 목록과 같은 자리에서 정한다 — 화면이 id를 보고 다시
+ * 분류하면 행이 하나 늘 때마다 두 곳을 고쳐야 하고, 그 둘이 갈리는 순간 화면에서 조용히
+ * 사라지는 행이 생긴다. 문구·순서·목적지는 이 티켓에서 한 글자도 바뀌지 않는다.
+ */
+export type MoreMenuSection = "child" | "family" | "budgetData" | "settings";
+
+export const MORE_MENU_SECTIONS: ReadonlyArray<{ key: MoreMenuSection; title: string }> = [
+  { key: "child", title: "아이 · 산모" },
+  { key: "family", title: "가족" },
+  { key: "budgetData", title: "예산 · 데이터" },
+  { key: "settings", title: "설정" }
+];
+
 export type MoreMenuRowSpec = {
   id: MoreMenuRowId;
+  /** 이 행이 속한 구획. 화면은 이 값으로만 그룹 박스를 나눈다(MORE_MENU_SECTIONS 순서대로). */
+  section: MoreMenuSection;
   /**
    * 행 왼쪽 아이콘 **이름**(Ionicons). 설정 화면(app/settings/index.tsx)의 같은 항목과 같은
    * 아이콘을 쓴다 -- 같은 기능이 화면마다 다른 그림으로 보이지 않게 하는 게 요점이라, 예전
@@ -74,17 +96,19 @@ export const MORE_MENU_SETTINGS_ONLY_ROUTES = ["/import", "/settings/privacy"] a
  */
 export function buildMoreSessionMenuRows({ exportTitle }: { exportTitle: string }): MoreMenuRowSpec[] {
   return [
-    { id: "children", icon: "person-circle-outline", title: "아이 관리", route: "/settings/children" },
-    { id: "family", icon: "people-outline", title: "가족 관리", route: "/family" },
-    { id: "budget", icon: "wallet-outline", title: "예산 수정", route: "/budget" },
+    { id: "children", section: "child", icon: "person-circle-outline", title: "아이 관리", route: "/settings/children" },
+    { id: "family", section: "family", icon: "people-outline", title: "가족 관리", route: "/family" },
+    { id: "budget", section: "budgetData", icon: "wallet-outline", title: "예산 수정", route: "/budget" },
     // "알림 설정"(설정 → 푸시 수신 관리)과 헷갈리지 않도록 **받은 알림을 읽는 곳**임을 이름에 담는다.
     // 아이콘도 같은 구분을 따른다: 받은 알림을 읽는 이 행은 빈 종(notifications-outline),
     // 설정 안의 "알림 설정"은 원 안의 종(notifications-circle-outline)이다.
-    { id: "notifications", icon: "notifications-outline", title: "알림함", route: "/notifications" },
-    { id: "settings", icon: "settings-outline", title: "설정", route: "/settings" },
+    { id: "notifications", section: "settings", icon: "notifications-outline", title: "알림함", route: "/notifications" },
+    { id: "settings", section: "settings", icon: "settings-outline", title: "설정", route: "/settings" },
     // 라우트가 없는 두 행: 내보내기는 같은 화면의 기간 선택 카드를 접었다 폈다 하고,
     // 앱 정보는 Alert만 띄운다. 그 동작은 화면이 id로 붙인다.
-    { id: "export", icon: "share-outline", title: exportTitle, route: null },
-    { id: "appInfo", icon: "information-circle-outline", title: "앱 정보", route: null }
+    // 내보내기가 "예산 · 데이터"에 있는 이유: 이 행이 여는 것은 설정 토글이 아니라 **지출
+    // 데이터**의 기간 선택 카드다(설정 화면의 같은 항목과 한 벌 -- EXPORT_MENU_TITLE).
+    { id: "export", section: "budgetData", icon: "share-outline", title: exportTitle, route: null },
+    { id: "appInfo", section: "settings", icon: "information-circle-outline", title: "앱 정보", route: null }
   ];
 }

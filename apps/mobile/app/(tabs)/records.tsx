@@ -113,6 +113,7 @@ import {
   TextButton,
   Toast
 } from "../../src/ui";
+import { AppIcon } from "../../src/design-system";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
@@ -456,19 +457,23 @@ const RECORDS_VIEW_OPTIONS = [RECORDS_VIEW_LIST, RECORDS_VIEW_CALENDAR];
  * 대신 스케일 토큰을 쓰는 이유: 그 다섯 색은 이미 디자인 시스템이 고른 단계라, 팔레트가
  * 바뀌어도 달력만 따로 어긋나지 않는다.
  *
- * 라운드 34 L6 — 1단계를 coral[50]에서 **coral[100]으로 한 칸 올렸다**. beige(#FFF9F3)와
- * coral[50](#FFF3F0)은 채널 차이가 (0,6,3)뿐이라, "그날 돈을 썼다"와 "안 썼다"가 사실상
- * 같은 색이었다 -- 히트맵의 첫 단계가 안 보이면 달력이 하려던 말("언제 몰아서 썼나")의 절반이
- * 사라진다. coral[100](#FFE4DD)은 beige와 (0,21,22) 떨어져 눈에 잡히고, 위 단계 간격
- * (100→200: 0,27,34 / 200→300: 0,33,29 / 300→400: 0,30,20)과도 균일하다.
+ * 라운드 34 L6 — 1단계를 coral[50]에서 **coral[100]으로 한 칸 올렸다**. beige와 coral[50]은
+ * 채널 차이가 거의 없어, "그날 돈을 썼다"와 "안 썼다"가 사실상 같은 색이었다 -- 히트맵의 첫
+ * 단계가 안 보이면 달력이 하려던 말("언제 몰아서 썼나")의 절반이 사라진다.
  *
- * 글자색 재검산(WCAG 2.1 상대휘도, 소형 볼드 = AA 4.5:1 기준): 단계가 한 칸씩 진해지면서
- * 가장 진한 칸이 coral[300](#FFA88E) → coral[400](#F97B5C)이 됐고, 예전 글자색
- * brown(#3D3733)은 그 위에서 **4.47:1로 AA에 미달**한다(coral[300] 위에서는 6.27:1이었다).
- * 그래서 칸 글자만 gray900(#1F1F1F)으로 낮춘다 -- 0단계 beige 위 15.8:1, 4단계 coral[400] 위
- * 6.29:1로 다섯 단계가 모두 AA를 넘는다. 단계마다 글자색을 바꾸지 않는 원칙은 그대로다
- * (한 색으로 전 단계를 통과시키는 것이 요점이고, 옅은 칸의 숫자도 그만큼 더 또렷해진다).
- * gray900은 이 화면이 이미 쓰는 토큰이라(월 이동 화살표) 새 색이 아니다.
+ * DSN-053 P1 재검산(팔레트가 c20deeb 값으로 롤백된 뒤, WCAG 2.1 상대휘도 · 소형 볼드 AA
+ * 4.5:1 기준). 단계 색은 그대로 beige → coral[100] → [200] → [300] → [400]이고, 지금 값에서도
+ * beige(cream.surfaceAlt)와 coral[100]은 눈에 잡히게 벌어져 있다.
+ *
+ * 칸 글자는 계속 gray900 한 색으로 다섯 단계를 모두 통과한다 -- 가장 밝은 beige 위 **15.28:1**,
+ * 가장 진한 coral[400] 위 **6.50:1**. 단계마다 글자색을 바꾸지 않는 원칙은 그대로다(한 색으로
+ * 전 단계를 통과시키는 것이 요점이고, 옅은 칸의 숫자도 그만큼 더 또렷해진다).
+ *
+ * 주의: 롤백된 팔레트에서 brown과 gray900은 **같은 토큰(text.primary)** 을 가리킨다. 즉 L6이
+ * 했던 "brown → gray900" 교체는 지금 값에서는 색이 바뀌지 않는다. 그래도 gray900을 계속 쓰는
+ * 이유는 두 이름의 뜻이 다르기 때문이다 -- brown은 본문 색, gray900은 "가장 진한 중립"이고,
+ * 팔레트가 다시 갈라지면 히트맵이 따라가야 하는 쪽은 후자다. 두 이름이 다시 다른 값이 되면
+ * 위 두 비율부터 재계산할 것.
  */
 const calendarIntensityBackgrounds = [
   theme.colors.beige,
@@ -1428,8 +1433,19 @@ export default function RecordsScreen() {
             paddingHorizontal: 6
           }}
         >
-          <Pressable accessibilityLabel="이전 달" accessibilityRole="button" hitSlop={12} onPress={goToPreviousMonth}>
-            <Text style={{ color: theme.colors.gray900, fontSize: 22, fontWeight: "900" }}>‹</Text>
+          {/* DSN-053 P2-C: 달 내비 화살표를 텍스트 글리프(‹ ›)에서 승인 원본의 아이콘 문법으로
+              옮긴다 -- c20deeb `app/(tabs)/records.tsx`와 같은 chevron 26 + 48dp 터치 타깃이다.
+              글리프는 기기 폰트에 따라 굵기가 제각각이었고, hitSlop만으로는 실제 눌리는 상자가
+              화면에 드러나지 않았다. 이동 규칙·비활성 조건·라벨은 한 글자도 바뀌지 않는다
+              (다음 달 잠금은 색이 아니라 opacity로 말한다 -- gray300 화살표는 AA 미달이었다). */}
+          <Pressable
+            accessibilityLabel="이전 달"
+            accessibilityRole="button"
+            hitSlop={12}
+            onPress={goToPreviousMonth}
+            style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget }}
+          >
+            <AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />
           </Pressable>
           <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
           <Pressable
@@ -1439,8 +1455,15 @@ export default function RecordsScreen() {
             disabled={!canGoNextMonth}
             hitSlop={12}
             onPress={goToNextMonth}
+            style={{
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: theme.touchTarget,
+              minWidth: theme.touchTarget,
+              opacity: canGoNextMonth ? 1 : 0.35
+            }}
           >
-            <Text style={{ color: canGoNextMonth ? theme.colors.gray900 : theme.colors.gray300, fontSize: 22, fontWeight: "900" }}>›</Text>
+            <AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />
           </Pressable>
         </View>
         {/* PERF-102: lightweight month summary from already-fetched data (no extra API call).

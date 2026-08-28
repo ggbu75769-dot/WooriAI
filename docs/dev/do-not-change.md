@@ -1,8 +1,9 @@
 # 우리아이 Do Not Change Contract
 
 Source: `docs/4차/prompts/04_do_not_change_v0_4.md` and `docs/4차/contracts/do_not_change_contract_v0_4.yaml`  
-Version: v0.4  
+Version: v0.5  
 Repo copy created: 2026-07-06  
+Last revised: 2026-08-27 (DNC-017 토큰 잠금 값 개정 — 아래 "개정 이력" 참고)  
 Batch: 00 - Source Lock
 
 This file is the repo-local copy of the WooriAI MVP Do Not Change contract. If implementation pressure conflicts with this file, stop and document the requested change for PM/Tech Lead approval before modifying the locked behavior.
@@ -27,7 +28,7 @@ This file is the repo-local copy of the WooriAI MVP Do Not Change contract. If i
 | DNC-014 | Soft Delete | 지출 삭제는 soft delete + audit log로 처리한다. | 집계/감사 무결성 보호 |
 | DNC-015 | Gift Handling | 선물 받은 물건은 기본 지출 합계에서 제외한다. | 리포트 정확성 보호 |
 | DNC-016 | Out of Scope | 사진/영수증 AI, 커뮤니티, 가격 추적, 중고 연동, 보험/금융 제휴, 의료 조언은 MVP에 구현하지 않는다. | MVP 집중 |
-| DNC-017 | Design Tokens | Primary `#FF8A7A`, Secondary `#7DDCC7`, Background `#FFF8F1` 등 디자인 토큰을 임의 교체하지 않는다. | 브랜드 일관성 보호 |
+| DNC-017 | Design Tokens | Primary `#C94627`(coral 600), Secondary `#267A68`, Background `#FFFDFC` 등 디자인 토큰을 임의 교체하지 않는다. 값 개정은 v0.5(2026-08-27, DSN-053)에서 이뤄졌고, 근거는 아래 "개정 이력" 참고. | 브랜드 일관성 보호 |
 | DNC-018 | UX Copy Tone | 저장/예산/제휴/빈화면 등 고정 UX 문구는 해요체와 쉬운 문장 톤을 유지한다. | 감성/신뢰 보호 |
 | DNC-019 | Secrets | 실제 OAuth secret, 제휴 ID, 운영 DB URL을 코드/seed/test에 하드코딩하지 않는다. | 보안 보호 |
 | DNC-020 | Medical Claims | 영양제/의료용품/병원 관련 추천에서 진단·치료·의학적 효능을 단정하지 않는다. | 법무 리스크 방지 |
@@ -43,3 +44,12 @@ Before each batch report, answer:
 - import preview-before-save preserved: yes/no
 
 If a batch does not touch a surface, answer based on whether the repo still preserves the locked contract and clearly note that the surface was not implemented or modified in that batch.
+
+## 개정 이력
+
+| 버전 | 일자 | 항목 | 내용 | 승인 근거 |
+| --- | --- | --- | --- | --- |
+| v0.4 | 2026-07-06 | — | 4차 계약 원본을 저장소에 복사(Batch 00 - Source Lock). | `docs/4차/contracts/do_not_change_contract_v0_4.yaml` |
+| v0.5 | 2026-08-27 | DNC-017 | 브랜드 토큰 잠금 값을 캡처 승인 팔레트로 개정: Primary `#FF8A7A` → `#C94627`(coral 600), Secondary `#7DDCC7` → `#267A68`, Background `#FFF8F1` → `#FFFDFC`. | DSN-053 — 사용자가 릴리즈 `android-captures-c20deeb-20260828`의 캡처를 최종 디자인으로 승인(2026-08-27 지시). 값은 원본 커밋 `c20deeb`의 `apps/mobile/src/theme.ts`에서 그대로 복원했다(`docs/5차/design-restore-spec.md` 토큰 롤백 표). 이전 값은 Round 5A 과정에서 캡처와 어긋나게 밝아진 드리프트였다. |
+
+개정 이력에 없는 토큰 교체는 여전히 "임의 교체"이며, DNC 원칙대로 변경 요청을 먼저 문서화한다. 스토어 자산 기준색은 `docs/store/play-listing.md` §6이 이 표를 따라간다.

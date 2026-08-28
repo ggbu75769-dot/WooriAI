@@ -2,41 +2,67 @@ import type { CategoryCode } from "./categories";
 
 // Round 5A D0 (docs/5차/round5a-design-spec.md §D0) -- coral scale/cream/text/semantic tokens.
 // Additive: legacy flat color keys below are kept (nothing deleted) and redirected onto these
-// new tokens so both stay in sync, per the spec's "기존 키 재지향" rule. See
-// artifacts/design-progress.md for the notes on each redirected key.
+// new tokens so both stay in sync, per the spec's "기존 키 재지향" rule.
+//
+// DSN-053 P1: the scale values are the **approved c20deeb (MOD_V1) palette**, restored verbatim
+// from `git show c20deeb:apps/mobile/src/theme.ts` (docs/5차/design-restore-spec.md "토큰 롤백
+// 표"). The Round 5A pass had drifted them lighter/warmer; that drift is what made the shipped
+// screens stop matching the approved capture set, so the numbers below are not re-derived here --
+// they are the capture's own values.
 const coral = {
-  50: "#FFF3F0",
-  100: "#FFE4DD",
-  200: "#FFC9BB",
-  300: "#FFA88E",
-  400: "#F97B5C",
-  500: "#EF6644",
-  600: "#DB4F2E",
-  700: "#B93E23"
+  50: "#FFF4EF",
+  100: "#FFE4D8",
+  200: "#FFC8B5",
+  300: "#FFA58A",
+  400: "#F98060",
+  500: "#E85F3B",
+  600: "#C94627",
+  700: "#A93720",
+  800: "#862D1D",
+  900: "#67251B"
 } as const;
 
 const cream = {
-  // Spec text lists bg:"#FBF4EC" but annotates it "(현 배경 유지)" -- i.e. this token should
-  // encode the app's *current* background, not a new color. The app's actual current background
-  // is "#FFF8F1" (theme.colors.background below), so cream.bg is pinned to that value rather than
-  // the literal spec hex, to avoid silently recoloring every screen's background as a side effect
-  // of a token-only pass. Flagged in artifacts/design-progress.md for orchestrator review.
-  bg: "#FFF8F1",
+  bg: "#FFFDFC",
   surface: "#FFFFFF",
-  surfaceAlt: "#FFF9F3"
+  surfaceAlt: "#F8F6F4"
 } as const;
 
 const text = {
-  primary: "#3D3733",
-  secondary: "#6E645C",
-  tertiary: "#9C918A"
+  primary: "#211E1C",
+  secondary: "#5F5854",
+  tertiary: "#7A716B"
 } as const;
 
 const semantic = {
-  success: "#2E9E6B",
-  warning: "#E8A13A",
-  danger: "#D3382F",
-  info: "#5B7FA6"
+  success: "#16794B",
+  warning: "#B45309",
+  danger: "#B42318",
+  info: "#1D4ED8"
+} as const;
+
+// Brand identity (런치/스플래시). Not a UI surface palette -- these are the mark's own colors.
+const brandIdentity = {
+  canvas: "#FFF9F3",
+  navy: "#17324D",
+  persimmon: "#FF6B4A",
+  butter: "#FFD76A"
+} as const;
+
+// Named surfaces preserve the approved Android Pixel Lock palette while keeping
+// route/component code free of raw colour literals. They are presentation tokens,
+// never catalog or finance data.
+const presentation = {
+  dangerSurface: "#FFF0ED",
+  segmentedTrack: "#F5F0EA",
+  chartPlot: "#FFF4EE",
+  splashStageSurface: "#FFF9F4",
+  importCanvas: "#FFFCFA",
+  previewCoral: "#FFF0EA",
+  previewYellow: "#FFF5D7",
+  previewGreen: "#EAF7F2",
+  previewPeach: "#FFECE6",
+  previewNeutral: "#ECECEC"
 } as const;
 
 // Fixed 10-color warm-pastel category palette (D0), mapped onto the 12 existing category codes
@@ -78,27 +104,33 @@ export const theme = {
     cream,
     text,
     semantic,
+    brandIdentity,
+    presentation,
     categoryPalette,
     categoryColors,
+    brandNavy: brandIdentity.navy,
+    brandPersimmon: brandIdentity.persimmon,
+    brandButter: brandIdentity.butter,
+    brandCanvas: brandIdentity.canvas,
     // Legacy flat keys -- unchanged names, kept for every existing call site, but redirected
     // onto the D0 tokens above wherever a clear mapping exists (round5a-design-spec.md "기존 키
     // 재지향으로 회귀 최소화"). mainCoral/subCoral/peach/beige/brown/gray600/textPrimary/
     // textSecondary/success/warning/danger change *value* here; ui-pixel-lock-flow.test.ts and
     // onboarding-flow.test.ts style assertions were updated to match (see design-progress.md).
-    mainCoral: coral[500],
-    subCoral: coral[400],
+    mainCoral: coral[600],
+    subCoral: coral[500],
     peach: coral[100],
     mint: "#E8F6F1",
     sky: "#E8F1FF",
     brown: text.primary,
-    gray900: "#1F1F1F",
+    gray900: text.primary,
     gray600: text.secondary,
-    gray300: "#E5E5E5",
+    gray300: "#E5DFDB",
     beige: cream.surfaceAlt,
     white: cream.surface,
-    primary500: "#FF8A7A",
-    primary100: "#FFE6E0",
-    secondary500: "#7DDCC7",
+    primary500: coral[600],
+    primary100: coral[100],
+    secondary500: "#267A68",
     background: cream.bg,
     surface: cream.surface,
     textPrimary: text.primary,
@@ -128,17 +160,8 @@ export const theme = {
     body2: { fontSize: 13, lineHeight: 20, fontWeight: "400" },
     caption: { fontSize: 11, lineHeight: 16, fontWeight: "400" }
   },
-  // D0 money typography: three-tier hierarchy for amount text (hero/section/row), all
-  // tabular-nums so digits stay aligned. No component consumes it right now: the D0 `MoneyText`
-  // that rendered all three tiers went in MOB-121, and `row`'s last consumer, src/ui/ListRow.tsx,
-  // went in CLN-130. The scale stays as the documented design token (pinned by
-  // src/design-foundation.test.ts) for whatever adopts it next -- removing it is a separate
-  // token-level decision, not a dead-module cleanup.
-  money: {
-    hero: { fontSize: 30, fontWeight: "800", fontVariant: ["tabular-nums"] },
-    section: { fontSize: 17, fontWeight: "700", fontVariant: ["tabular-nums"] },
-    row: { fontSize: 15, fontWeight: "600", fontVariant: ["tabular-nums"] }
-  },
+  // (D0 money 3단 스케일은 유일 소비자였던 src/ui/MoneyText·ListRow가 DSN-053 P2에서
+  // 재삭제되며 함께 제거됐다 — 화면들은 각자 캡처 수치의 인라인 스타일을 쓴다.)
   shadows: {
     card:
       typeof document !== "undefined"
@@ -153,6 +176,6 @@ export const theme = {
             elevation: 2
           }
   },
-  touchTarget: 44,
+  touchTarget: 48,
   ctaHeight: 56
 } as const;

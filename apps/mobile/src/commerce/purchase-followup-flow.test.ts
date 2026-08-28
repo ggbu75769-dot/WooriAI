@@ -256,6 +256,7 @@ describe("라운드 49 C-03 판매처 입력칸의 픽셀 락 게이트", () => 
     // 저장 payload에도 사용자가 적었을 때만 실린다(빈 칸이면 키 자체가 없다).
     expect(expenseSource).toContain("...(merchant.trim() ? { merchant: merchant.trim() } : {})");
     // 픽셀 락 캡처 경로의 리터럴은 그대로 살아 있다(ui-pixel-lock-flow.test.ts와 같은 계약).
-    expect(expenseSource).toContain("₩ 38,500");
+    // DSN-053 P1에서 그 리터럴이 승인 캡처대로 "38,500원"으로 정정됐다.
+    expect(expenseSource).toContain("38,500원");
   });
 });

@@ -304,7 +304,8 @@ describe("REP-121 home screen wiring contract", () => {
   it("keeps the logged-out pixel-lock preview inert (no line rendered, previewHome untouched)", () => {
     expect(homeSource).toContain("const lastMonthInsight = hasSession");
     expect(homeSource).toContain("    : null;");
-    expect(homeSource).toContain("{lastMonthInsight ? (");
+    // DSN-053 P2-A: 이 줄은 우선순위 판정이 고르는 카드 중 하나라 렌더 함수 안의 분기가 됐다.
+    expect(homeSource).toContain("lastMonthInsight ? (");
     // 미리보기 고정 값은 그대로 -- 픽셀락 스크린샷에 영향이 없다.
     expect(homeSource).toContain("1_245_700");
   });
@@ -313,7 +314,7 @@ describe("REP-121 home screen wiring contract", () => {
     expect(homeSource).toContain("accessibilityLabel={lastMonthInsight.text}");
     // D1 후속(실기기 피드백 2): 장식 글리프(▤)는 Ionicons로 바뀌었지만 "접근성 트리에서
     // 감춘다"는 계약은 그대로다 -- 색·크기도 같은 스타일 토큰에서 그대로 읽어 쓴다.
-    expect(homeSource).toContain("accessible={false}\n                name=\"stats-chart-outline\"");
+    expect(homeSource).toMatch(/accessible=\{false\}\s+name="stats-chart-outline"/);
     expect(homeSource).toContain("size={homeLastMonthInsightStyle.glyph.fontSize}");
     expect(homeSource).toContain("color={homeLastMonthInsightStyle.glyph.color}");
     // 의미는 문장이 지고, 저대비 coral 소형 텍스트를 쓰지 않는다(A11Y-117).

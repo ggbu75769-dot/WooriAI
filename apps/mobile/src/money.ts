@@ -7,11 +7,6 @@
  * Amounts are always rendered as their absolute value -- this helper never emits a leading "-".
  * Sign (income/refund vs. expense) is a presentation concern handled by the caller, not by the
  * number formatter itself.
- *
- * (MOB-121 removed the D0 `MoneyText` component and, with it, this module's only caller of the
- * split number/suffix variant; `formatKrwParts`/`MoneyKrwParts` were dropped in R19-E as dead
- * exports. The money type scale those two rendered lives on in `theme.money`; CLN-130 removed
- * its last consumer (`src/ui/ListRow.tsx`), so the token now has no renderer — see theme.ts.)
  */
 
 const krwFormatter = new Intl.NumberFormat("ko-KR");
@@ -24,6 +19,9 @@ function safeAbsoluteAmount(amount: number): number {
 export function formatKrw(amount: number): string {
   return `${krwFormatter.format(safeAbsoluteAmount(amount))}원`;
 }
+
+// R19-E가 지웠던 formatKrwParts/MoneyKrwParts는 DSN-053 P1에서 MoneyText와 함께 되살아났다가,
+// P2가 그 컴포넌트를 채택하지 않아 다시 제거됐다(유일 호출부 소멸 — R19-E와 같은 판단).
 
 /**
  * FMT-127: strips everything but digits out of a money TextInput's raw text.

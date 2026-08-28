@@ -135,7 +135,7 @@ describe("UX-A 마일스톤 카드 배선 계약", () => {
     expect(homeSource).toContain("const milestoneCountdown = hasSession");
     expect(homeSource).toContain('testID="home-milestone-countdown"');
     expect(homeSource).toContain("accessibilityLabel={milestoneCountdown.accessibilityLabel}");
-    const cardStart = homeSource.indexOf("{milestoneCountdown ? (");
+    const cardStart = homeSource.indexOf("milestoneCountdown ? (");
     expect(cardStart).toBeGreaterThan(0);
     const cardBlock = homeSource.slice(cardStart, cardStart + 800);
     expect(cardBlock).toContain('router.push("/(tabs)/reports")');

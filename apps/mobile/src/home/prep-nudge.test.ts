@@ -131,8 +131,9 @@ describe("라운드 51 #6 evaluateHomePrepNudge -- interested(찜) 재발견 갈
   it("상태 라벨은 준비템 목록·상세와 같은 단일 소스에서 온다(item-labels)", () => {
     const nudge = evaluateHomePrepNudge(input({ recommendedItems: withInterested }));
     expect(nudge!.items[0].statusLabel).toBe(itemStatusBadgeLabel("interested"));
-    expect(nudge!.items[0].statusLabel).toBe("관심");
-    expect(nudge!.subtitle).toBe("베이비 아기띠 힙시트(관심)");
+    // P1-4: 어휘는 목록 pill과 같은 "알아보기"다(예전 상세 전용 어휘 "관심"이 아니다).
+    expect(nudge!.items[0].statusLabel).toBe("알아보기");
+    expect(nudge!.subtitle).toBe("베이비 아기띠 힙시트(알아보기)");
   });
 
   /**
@@ -155,13 +156,13 @@ describe("라운드 51 #6 evaluateHomePrepNudge -- interested(찜) 재발견 갈
     ];
     const nudge = evaluateHomePrepNudge(input({ recommendedItems: twoInterested }));
     expect(nudge!.items.map((entry) => entry.id)).toEqual(["i1", "i3"]);
-    expect(nudge!.subtitle).toBe("베이비 아기띠 힙시트(관심) · 젖병 소독기(관심)");
+    expect(nudge!.subtitle).toBe("베이비 아기띠 힙시트(알아보기) · 젖병 소독기(알아보기)");
   });
 
   it("소리용 문장은 쉼표로 잇는다(가운뎃점은 스크린리더에서 경계로 읽히지 않는다)", () => {
     const nudge = evaluateHomePrepNudge(input({ recommendedItems: withInterested }));
     expect(nudge!.accessibilityLabel).toBe(
-      `${HOME_PREP_NUDGE_INTERESTED_TITLE}. 베이비 아기띠 힙시트 관심. ${HOME_PREP_NUDGE_CTA_LABEL}`
+      `${HOME_PREP_NUDGE_INTERESTED_TITLE}. 베이비 아기띠 힙시트 알아보기. ${HOME_PREP_NUDGE_CTA_LABEL}`
     );
   });
 });
@@ -199,7 +200,7 @@ describe("라운드 51 #6 selectPrepNudgeItems -- 목록 정리 규칙", () => {
   it("낯선 상태 문자열은 '아직 준비 안 됨'으로 통과시키되 배지를 지어내지 않는다", () => {
     // 로컬 백엔드(데모/테스트 세션)가 좁혀지지 않은 문자열을 넣을 수 있다. isResolvedItemStatus는
     // 낯선 값을 미해결로 떨어뜨리므로 항목은 살아 있고, 라벨은 붙이지 않는다 -- itemStatusLabel의
-    // 기본값("준비 전")을 그대로 쓰면 홈이 확인한 적 없는 상태를 배지로 단언하게 된다.
+    // 기본 상태 라벨("필요")을 그대로 쓰면 홈이 확인한 적 없는 상태를 배지로 단언하게 된다.
     const selected = selectPrepNudgeItems([item("i1", "기저귀", "browsing")]);
     expect(selected).toEqual([{ id: "i1", name: "기저귀" }]);
   });
@@ -216,37 +217,52 @@ describe("라운드 51 #6 홈 화면 배선 계약", () => {
     expect(homeSource).toContain("const items = home.data?.recommendedItems ?? null;");
     expect(homeSource).toContain("buildPendingItemStatusIndex(offlineSyncSnapshot.itemStatusRows, childId)");
     expect(homeSource).toContain("effectiveItemStatus(item.status, pending)");
-    // 준비템 탭의 캐시를 새로 켜지 않는다 -- 홈의 쿼리 수는 종전 그대로 5개다
-    // (home / 이번 달 지출 / 지난달 지출 / 지난달 예산 / children).
+    // 준비템 탭의 캐시를 새로 켜지 않는다 -- 준비 넛지 판정은 /home 응답만 읽는다. 홈의 쿼리는
+    // 6개다(home / 이번 달 지출 / 지난달 지출 / 지난달 예산 / children / 공유 categories 캐시 --
+    // 마지막 것은 최근 기록 아이콘의 분류 해석용이고, 넛지 판정과는 무관하다).
     expect(homeSource).not.toContain('queryKey: ["items"');
-    expect(homeSource.match(/useQuery\(\{/g) ?? []).toHaveLength(5);
+    expect(homeSource.match(/useQuery\(\{/g) ?? []).toHaveLength(6);
   });
 
   it("첫 실행 안내 카드와 상호 배타 -- 화면이 게이트를 다시 짐작하지 않는다", () => {
     expect(homeSource).toContain("guideVariant: firstRunGuide?.variant ?? null");
   });
 
-  it("카드 전체가 버튼이고 목적지는 모듈이 예고한 경로 그대로다", () => {
-    expect(homeSource).toContain("testID={prepNudge.testID}");
-    expect(homeSource).toContain("accessibilityLabel={prepNudge.accessibilityLabel}");
-    expect(homeSource).toContain("router.push(prepNudge.route)");
-    expect(homeSource).toContain("{prepNudge.title}");
-    expect(homeSource).toContain("{prepNudge.subtitle}");
-    expect(homeSource).toContain("{prepNudge.ctaLabel}");
+  /**
+   * DSN-053 P2-A — 이 넛지는 이제 **자기 카드**를 갖지 않는다. 승인 캡처의 홈에는 준비템
+   * 이야기를 할 자리가 ④ "이번 주 준비 현황" 카드 **하나**뿐이라, 첫 실행 안내(first-items)·
+   * 이 넛지·캡처 기본 문구 중 무엇을 말할지 순수 모듈 하나가 고르고(resolveHomePrepCard) 화면은
+   * 고른 값만 그린다. 판정 입력(위 계약)은 그대로이고, 달라진 것은 출력이 서는 자리다.
+   */
+  it("넛지 문구는 준비 현황 카드 한 자리에서만 나온다(같은 말을 두 카드가 반복하지 않는다)", () => {
+    expect(homeSource).toContain("const prepCard = resolveHomePrepCard({");
+    expect(homeSource).toContain("prepNudge,");
+    expect(homeSource).toContain("testID={prepCard.testID}");
+    expect(homeSource).toContain("accessibilityLabel={prepCard.accessibilityLabel}");
+    expect(homeSource).toContain("router.push(prepCard.route)");
+    expect(homeSource).toContain("{prepCard.title}");
+    expect(homeSource).toContain("{prepCard.subtitle}");
+    expect(homeSource).toContain("{prepCard.ctaLabel}");
+    // 예전처럼 넛지 전용 카드를 따로 세우지 않는다.
+    expect(homeSource).not.toContain("testID={prepNudge.testID}");
   });
 
-  it("자리는 지난달 대비 줄과 최근 지출 섹션 사이다(루프 순서: 총액 확인 다음이 준비템)", () => {
-    const weekly = homeSource.indexOf('testID="home-weekly-summary"');
-    const prep = homeSource.indexOf("testID={prepNudge.testID}");
-    const recent = homeSource.indexOf('title="최근 지출"');
-    expect(weekly).toBeGreaterThan(-1);
-    expect(prep).toBeGreaterThan(weekly);
-    expect(prep).toBeLessThan(recent);
+  it("자리는 자주 기록해요 칩과 최근 기록 사이다(루프 순서: 총액 확인 다음이 준비템)", () => {
+    const sessionRender = homeSource.slice(homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)"));
+    const hero = sessionRender.indexOf('testID="home-hero-summary"');
+    const chips = sessionRender.indexOf("HOME_QUICK_RECORD_SECTION_TITLE}");
+    const prep = sessionRender.indexOf("testID={prepCard.testID}");
+    const recent = sessionRender.indexOf("최근 기록\n");
+    expect(hero).toBeGreaterThan(-1);
+    expect(chips).toBeGreaterThan(hero);
+    expect(prep).toBeGreaterThan(chips);
+    expect(recent).toBeGreaterThan(prep);
   });
 
   it("커머스 표면이 아니다 -- 카드에 가격도 구매 링크도 없다(DNC-010/011은 준비템 탭 몫)", () => {
-    const start = homeSource.indexOf("{prepNudge ? (");
+    const start = homeSource.indexOf("{prepCard ? (");
     const card = homeSource.slice(start, homeSource.indexOf("{showRecentExpensesSection ? (", start));
+    expect(start).toBeGreaterThan(-1);
     expect(card).not.toContain("formatKrw");
     expect(card).not.toContain("productLink");
     expect(card).not.toContain("Linking");

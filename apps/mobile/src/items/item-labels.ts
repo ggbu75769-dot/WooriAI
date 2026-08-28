@@ -1,4 +1,6 @@
 import type { ItemStatus, NecessityLevel } from "@wooriai/domain";
+import { catalogItemStatusLabel } from "../design-system/item-status-vocabulary";
+import { toCatalogPlanState } from "../preparation/catalog-contract";
 import { NECESSITY_FILTER_OPTIONS } from "./item-filters";
 
 /**
@@ -18,14 +20,20 @@ import { NECESSITY_FILTER_OPTIONS } from "./item-filters";
 
 /**
  * 준비 상태 라벨. 목록 카드 배지와 상세 화면 상태 줄이 함께 쓴다.
- * (예전 app/(tabs)/items.tsx의 로컬 statusLabel을 그대로 옮긴 값 -- 문구는 바뀌지 않았다.)
+ *
+ * 어휘는 **목록 pill의 것**이다(보유 · 알아보기 · 필요 · 선물). 예전에는 이 함수가 자기만의
+ * 어휘("이미 준비 · 관심 · 준비 전 · 선물 받음")를 들고 있어서, 사용자가 목록에서 "보유"로
+ * 바꾼 항목이 상세에서는 "이미 준비"로 보였다 -- 같은 값인지 다른 값인지 확인할 방법이 화면에
+ * 없는 상태였다. 승인 캡처가 확정한 쪽은 목록 어휘라, 그쪽으로 통일하고 문자열은
+ * `src/design-system/item-status-vocabulary.ts` 한 곳에서만 읽는다.
+ *
+ * 대응: prepared→보유 · interested→알아보기 · not_prepared→필요 · gifted→선물 ·
+ * not_needed→필요 없음 (`toCatalogPlanState`가 5값을 카탈로그 어휘로 올린다).
  */
 export function itemStatusLabel(status: ItemStatus): string {
-  if (status === "prepared") return "이미 준비";
-  if (status === "not_needed") return "필요 없음";
-  if (status === "interested") return "관심";
-  if (status === "gifted") return "선물 받음";
-  return "준비 전";
+  // 타입을 벗어난 값(로컬 백엔드가 넣을 수 있는 낯선 문자열)은 종전과 같이 기본 상태 라벨로
+  // 떨어진다 -- "미정" 같은 새 단어를 만들지 않는다.
+  return catalogItemStatusLabel(toCatalogPlanState(status) ?? "need");
 }
 
 /**

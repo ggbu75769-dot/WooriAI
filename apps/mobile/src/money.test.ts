@@ -111,15 +111,15 @@ describe("FMT-127 금액 표기 단일화 (재인라인 가드)", () => {
     expect(quickExpense).not.toContain('`₩ ${Number(amountText || 0).toLocaleString("ko-KR")}`');
     expect(quickExpense).not.toContain('toLocaleString("ko-KR")');
 
-    // 코드(주석 제외)에 남은 '₩'는 EXP-001 픽셀 락 캡처에 실제로 찍혀 있는 고정 문자열
-    // 하나뿐이고, 그 예외는 캡처 조건(세션 없음 + 고정 시드)으로 좁혀져 있다.
+    // DSN-053 P1: 예외가 아예 없어졌다. 예전에는 "캡처에 '₩ 38,500'이 찍혀 있다"는 전제로
+    // 리터럴 하나를 허용했는데, 승인 캡처의 원본(c20deeb)이 "38,500원"이라 그 전제가 틀렸다.
+    // 이제 코드(주석 제외)에는 '₩'가 한 줄도 없다 -- 규칙과 기준 이미지가 같은 곳을 가리킨다.
     const codeLines = quickExpense
       .split("\n")
       .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
       .filter((line) => line.includes("₩"));
-    expect(codeLines).toHaveLength(1);
-    expect(codeLines[0]).toContain('const quickExpenseAmountPreview = "₩ 38,500";');
-    expect(quickExpense).toContain('const quickExpenseAmountPreview = "₩ 38,500";');
+    expect(codeLines).toHaveLength(0);
+    expect(quickExpense).toContain('const quickExpenseAmountPreview = "38,500원";');
     expect(quickExpense).toContain('const isPixelLockAmountCapture = !authToken && amountText === "38500";');
   });
 });

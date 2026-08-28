@@ -5,9 +5,12 @@ import { describe, expect, it } from "vitest";
 // Round 5A 리디자인으로 기준 교체 -- QA-101 재측정 필요.
 // (docs/5차/round5a-design-spec.md 구현 순서·회귀 규칙: "이 리디자인은 기준 이미지 자체를 의도적으로
 // 교체하는 작업 -- ui-pixel-lock-flow 계약 테스트는 새 토큰 기준으로 갱신"). The mainCoral assertion
-// below was updated from the pre-Round-5A "#FF6B52" to the new D0 coral[500] token "#EF6644"; the
-// original QA-101 reference screenshots/pixel-lock captures were taken against the old value and
-// need to be recaptured against the new token set.
+// below was updated from the pre-Round-5A "#FF6B52" to the D0 coral token; the original QA-101
+// reference screenshots/pixel-lock captures were taken against the old value and need to be
+// recaptured against the new token set.
+//
+// DSN-053 P1: mainCoral은 이제 승인 캡처(c20deeb)의 coral[600] "#C94627"이다. Round 5A가
+// coral[500] "#EF6644"로 옮겨 둔 것이 캡처와 어긋나 있었다.
 const repoRoot = join(process.cwd(), "..", "..");
 const mobileRoot = process.cwd();
 
@@ -43,7 +46,7 @@ describe("UI Pixel Lock source contract", () => {
     const { theme } = await import("./theme");
     const uiSource = readFileSync(join(mobileRoot, "src/ui.tsx"), "utf8");
 
-    expect(theme.colors.mainCoral).toBe("#EF6644");
+    expect(theme.colors.mainCoral).toBe("#C94627");
     expect(theme.radii.card).toBeGreaterThanOrEqual(20);
     expect(uiSource).toContain("AppScreen");
     expect(uiSource).toContain("PrimaryButton");
@@ -79,7 +82,8 @@ describe("UI Pixel Lock source contract", () => {
       ["app/expenses/new.tsx", "QuickExpensePixelStyles.horizontalOffset"],
       ["app/expenses/new.tsx", "QuickExpensePixelStyles.topOffset"],
       ["app/expenses/new.tsx", "quickExpensePixelFrameStyle"],
-      ["app/expenses/new.tsx", "₩ 38,500"],
+      // DSN-053 P1: 캡처에 실제로 찍혀 있는 문자열은 "38,500원"이다(승인 원본 c20deeb 기준).
+      ["app/expenses/new.tsx", "38,500원"],
       ["app/expenses/new.tsx", "formatExpenseDate(today)"],
       ["app/(tabs)/items.tsx", "ProductCard"],
       ["app/(tabs)/items.tsx", "CategoryChip"],
@@ -219,8 +223,12 @@ describe("UI Pixel Lock source contract", () => {
     expect(reportSource).toContain("testID={reportReferenceScreenId}");
     expect(reportSource).not.toContain("ReportPixelStatusBar");
     expect(reportSource).toContain("reportReferenceHeaderStyle");
-    expect(reportSource).toContain("reportReferenceHorizontalOffset = -16");
-    expect(reportSource).toContain("reportReferenceVerticalOffset = -4");
+    // PIX-133: 보정 오프셋(-16/-4)은 캡처 빌드에서만 적용된다 — 실기기에서 리포트 탭이
+    // 왼쪽·위로 밀려 보이던 결함의 원인. 캡처 경로 값(-16/-4)과 실사용 항등(0) 게이트를
+    // 둘 다 고정한다.
+    expect(reportSource).toContain('reportReferenceHorizontalOffset = isPixelLockCalibration ? -16 : 0');
+    expect(reportSource).toContain('reportReferenceVerticalOffset = isPixelLockCalibration ? -4 : 0');
+    expect(reportSource).toContain('isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1"');
     expect(reportSource).toContain("ReportPixelStyles.scale");
     expect(reportSource).toContain("ReportPixelStyles.horizontalOffset");
     expect(reportSource).toContain("ReportPixelStyles.topOffset");
@@ -284,7 +292,11 @@ describe("UI Pixel Lock source contract", () => {
       "SPL-001",
       "Animated",
       "family.png",
-      "logo_mark.png",
+      // DSN-053 P1 §8: 스플래시 마크는 승인 캡처대로 splash-mark(캡처 경로는 pixel-splash-mark)다.
+      // 예전에는 illustrations/logo_mark.png를 정사각 박스에 cover로 채워 좌우를 자르고 있었다.
+      "splash-mark.png",
+      "pixel-splash-mark.png",
+      "growth_logo.png",
       "intro",
       "animationStages",
       "growth_fetus.png",
@@ -358,7 +370,11 @@ describe("UI Pixel Lock source contract", () => {
     // 호출부는 모드를 넘긴다 + 로고 잘림(cover)도 캡처 경로에만 남는다.
     expect(launchSource).toContain("splashPixelFrameStyle(isPixelLockMode)");
     expect(launchSource).toContain("introImageStyle(isPixelLockMode, windowWidth, windowHeight)");
-    expect(launchSource).toContain('resizeMode={isPixelLockMode ? "cover" : "contain"}');
+    // DSN-053 P1 §8: 로고는 두 경로 모두 contain이다. 잘림(cover)은 캡처 전용 예외가 아니라
+    // 마크를 정사각 박스에 억지로 채우던 것이었고, 캡처 경로는 이제 전용 파일을 쓴다.
+    expect(launchSource).toContain('source={isPixelLockMode ? pixelSplashLogo : splashLogo}');
+    expect(launchSource).toContain('resizeMode="contain"');
+    expect(launchSource).not.toContain('resizeMode={isPixelLockMode ? "cover" : "contain"}');
     expect(launchSource).toContain("useWindowDimensions()");
     // 일반 실행 경로에는 고정 폭/여백이 남아 있지 않다.
     expect(launchSource).not.toContain("paddingTop: 112 }, splashPixelFrameStyle()");

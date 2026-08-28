@@ -2,7 +2,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View
+} from "react-native";
 import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildExpenseRecordedPayload } from "../../src/analytics/events";
@@ -45,6 +55,11 @@ import {
   CONTINUE_RECORDING_SAVED_MESSAGE,
   resolvePostSaveDestination
 } from "../../src/expenses/post-save-destination";
+import {
+  nextQuickExpenseLimit,
+  QUICK_EXPENSE_DEFAULT_LIMIT,
+  quickExpenseItemsForCategory
+} from "../../src/expenses/quick-expense-catalog";
 import { parseExpensePrefillParams } from "../../src/expenses/record-row-actions";
 import { expenseMutationErrorMessage, INVALID_EXPENSE_INPUT_ERROR } from "../../src/expenses/save-error-messages";
 import {
@@ -53,7 +68,7 @@ import {
   recentItemChipAccessibilityLabel
 } from "../../src/expenses/recent-items";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
-import { formatKrw } from "../../src/money";
+import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 import { createExpenseOffline } from "../../src/offline/sync-controller";
@@ -61,16 +76,23 @@ import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, SecondaryButton, Toast } from "../../src/ui";
+import {
+  AppIcon,
+  compactGridColumnCount,
+  compactGridItemWidth,
+  type AppIconName
+} from "../../src/design-system";
 import { theme } from "../../src/theme";
 import { QuickExpensePixelStyles } from "../../src/pixelLock/styles";
 
 const quickExpenseScreenId = "pixel-screen-EXP-001 EXP-001";
-// FMT-127 유지 근거: 이 '₩ 38,500'은 EXP-001 픽셀 락 **캡처에 실제로 찍혀 있는 문자열**이고,
-// src/ui-pixel-lock-flow.test.ts가 이 파일에 이 리터럴이 남아 있는지를 계약으로 고정한다
-// (["app/expenses/new.tsx", "₩ 38,500"]). src/money.ts의 "콤마+원, ₩ 금지" 규칙에는 어긋나지만
-// 기준 이미지를 다시 찍을 수 없는 환경이므로 **캡처 경로만** 예외로 남긴다 -- 세션이 있는
-// 실제 입력 경로는 아래 formattedAmount에서 formatKrw로 정리했다.
-const quickExpenseAmountPreview = "₩ 38,500";
+// FMT-127 근거 정정 (DSN-053 P1): 예전 주석은 '₩' 접두 표기가 "EXP-001 픽셀 락 캡처에 실제로
+// 찍혀 있는 문자열"이라 예외로 남긴다고 적어 두었다. 그 전제가 사실과 달랐다 -- 승인 캡처의
+// 원본(c20deeb `app/expenses/new.tsx`)은 `const quickExpenseAmountPreview = "38,500원";`이고,
+// 캡처에 찍혀 있는 것도 '38,500원'이다. 즉 '₩' 표기는 캡처를 지키기 위한 예외가 아니라 캡처와
+// **어긋난** 표기였고, src/money.ts의 "콤마+원, ₩ 금지" 규칙을 예외 없이 지키는 쪽이 기준
+// 이미지와도 맞는다. 캡처 경로만 리터럴을 쓰는 구조(아래 isPixelLockAmountCapture)는 그대로다.
+const quickExpenseAmountPreview = "38,500원";
 // Fixed date used only when there's no session (preview / pixel-lock capture mode) so the
 // pixel-lock reference screenshot stays deterministic across runs. See src/android-native-ui-quality.test.ts.
 const previewExpenseDate = { iso: "2025-05-24", label: "2025. 05. 24 (토)" };
@@ -126,7 +148,10 @@ function buildRecentDateChips(today: Date) {
   });
 }
 
+// PIX-133: 보정 변환은 EXP-001 캡처 빌드 전용.
+const isPixelLockCalibration = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 function quickExpensePixelFrameStyle() {
+  if (!isPixelLockCalibration) return undefined;
   return {
     transform: [
       { translateX: QuickExpensePixelStyles.horizontalOffset },
@@ -136,42 +161,56 @@ function quickExpensePixelFrameStyle() {
   } as const;
 }
 
+// DSN-053 P2-C: 타일 그리드는 승인 원본(c20deeb `app/expenses/new.tsx`:82-129)의 수치 그대로다
+// -- 열 수는 화면 폭·글자 배율이 정하고(design-system/responsive), 사이 간격만 8이다.
 const quickExpenseCategoryGridStyle = StyleSheet.create({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
-    rowGap: 13
+    gap: 8
   }
 });
 
+/**
+ * DSN-053 P2-C — "바로 기록"·"분류별 빠른 품목"이 공유하는 타일 스타일(승인 원본과 같은 수치).
+ *
+ * 타일 144h · radius 16 · 선택 시 coral[50] 바탕 + mainCoral 2px 테두리, 아이콘은 44 원형
+ * pill(미선택 peach 바탕 / mainCoral 글리프 → 선택 mainCoral 바탕 / 흰 글리프).
+ *
+ * `iconText`/`iconTextSelected`는 그리는 Text가 없는 **색·크기 토큰**이다: 아이콘 컴포넌트가
+ * 이 값을 그대로 읽어 쓰므로(아래) 선택 시 반전 규칙이 한 곳에만 적힌다.
+ */
 const quickExpenseCategoryTileStyle = StyleSheet.create({
   button: {
     alignItems: "center",
-    flexBasis: "23%",
-    gap: 7
+    backgroundColor: theme.colors.white,
+    borderColor: "rgba(74, 63, 53, 0.10)",
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 6,
+    height: 144,
+    justifyContent: "center",
+    padding: 8
+  },
+  buttonSelected: {
+    backgroundColor: theme.colors.coral[50],
+    borderColor: theme.colors.mainCoral,
+    borderWidth: 2
   },
   iconBox: {
     alignItems: "center",
-    backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.10)",
-    borderRadius: 15,
-    borderWidth: 1,
-    height: 48,
+    backgroundColor: theme.colors.peach,
+    borderRadius: theme.radii.pill,
+    height: 44,
     justifyContent: "center",
-    width: 48
+    width: 44
   },
   iconBoxSelected: {
-    backgroundColor: theme.colors.mainCoral,
-    borderColor: theme.colors.mainCoral,
-    shadowColor: theme.colors.mainCoral,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12
+    backgroundColor: theme.colors.mainCoral
   },
   iconText: {
-    color: theme.colors.brown,
-    fontSize: 20,
+    color: theme.colors.mainCoral,
+    fontSize: 22,
     fontWeight: "800"
   },
   iconTextSelected: {
@@ -179,8 +218,17 @@ const quickExpenseCategoryTileStyle = StyleSheet.create({
   },
   label: {
     color: theme.colors.brown,
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "800",
+    lineHeight: 17,
+    minHeight: 34,
+    textAlign: "center",
+    textAlignVertical: "center"
+  },
+  hint: {
+    color: theme.colors.gray600,
+    fontSize: 10,
+    fontWeight: "700",
     textAlign: "center"
   }
 });
@@ -202,13 +250,22 @@ function ExpenseCategoryIconButton({
       accessibilityLabel={category.label}
       accessibilityState={{ selected }}
       onPress={onPress}
-      style={quickExpenseCategoryTileStyle.button}
+      style={({ pressed }) => [
+        quickExpenseCategoryTileStyle.button,
+        selected ? quickExpenseCategoryTileStyle.buttonSelected : null,
+        { opacity: pressed ? 0.76 : 1 }
+      ]}
     >
       <View style={[quickExpenseCategoryTileStyle.iconBox, selected ? quickExpenseCategoryTileStyle.iconBoxSelected : null]}>
         {/* D1 후속(실기기 피드백 2): 타일 글리프(▱ ▤ ⌘ …)를 탭바와 같은 Ionicons로 바꿨다.
             크기·색은 예전 Text 스타일 토큰(iconText / iconTextSelected)에서 그대로 읽어 쓰므로
             선택 시 흰색으로 반전되는 동작도 종전과 같다. 라벨은 바로 아래 Text와 Pressable의
-            accessibilityLabel이 말하므로 아이콘 자체는 장식이다. */}
+            accessibilityLabel이 말하므로 아이콘 자체는 장식이다.
+
+            DSN-053 P2-C: 이름은 계속 `src/categories.ts`의 Ionicons 이름이다 -- 그 필드는 데모
+            백엔드 `GET /categories`의 `iconName`으로도 그대로 나가는 계약이라(local-backend.ts)
+            화면 사정으로 바꾸지 않는다. 승인 원본의 MaterialCommunityIcons 계열은 이 카탈로그
+            **밖**의 아이콘(달력·연필·chevron·빠른 품목)에서 design-system `AppIcon`으로 쓴다. */}
         <Ionicons
           accessible={false}
           name={category.icon}
@@ -220,14 +277,68 @@ function ExpenseCategoryIconButton({
           }
         />
       </View>
-      <Text numberOfLines={1} style={quickExpenseCategoryTileStyle.label}>
+      <Text style={quickExpenseCategoryTileStyle.label}>
         {category.label}
       </Text>
     </Pressable>
   );
 }
 
+/**
+ * DSN-053 P2-C — "분류별 빠른 품목" 아코디언이 펼쳤을 때 그리는 품목 타일.
+ *
+ * 분류 타일(위)과 같은 상자를 쓰되 아이콘 이름만 MaterialCommunityIcons(`AppIcon`)다. 품목
+ * 카탈로그는 승인 원본에서 옮겨 온 것이라 이름 공간이 그쪽이고, 8타일 카탈로그의 Ionicons
+ * 계약과는 서로 독립이다.
+ */
+function ExpenseQuickItemButton({
+  hint,
+  icon,
+  label,
+  onPress,
+  selected
+}: {
+  hint?: string;
+  icon: AppIconName;
+  label: string;
+  onPress: () => void;
+  selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`${label}${hint ? `. ${hint}` : ""}${selected ? ". 선택됨" : ""}`}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        quickExpenseCategoryTileStyle.button,
+        selected ? quickExpenseCategoryTileStyle.buttonSelected : null,
+        { opacity: pressed ? 0.76 : 1 }
+      ]}
+    >
+      <View style={[quickExpenseCategoryTileStyle.iconBox, selected ? quickExpenseCategoryTileStyle.iconBoxSelected : null]}>
+        <AppIcon
+          color={
+            selected
+              ? quickExpenseCategoryTileStyle.iconTextSelected.color
+              : quickExpenseCategoryTileStyle.iconText.color
+          }
+          name={icon}
+          size={quickExpenseCategoryTileStyle.iconText.fontSize}
+        />
+      </View>
+      <Text style={quickExpenseCategoryTileStyle.label}>{label}</Text>
+      {hint ? <Text style={quickExpenseCategoryTileStyle.hint}>{hint}</Text> : null}
+    </Pressable>
+  );
+}
+
 export default function NewExpenseScreen() {
+  // DSN-053 P2-C: 타일 그리드의 열 수는 화면 폭과 글자 배율이 정한다(design-system/responsive의
+  // 공용 규칙 -- 큰 글자 설정에서는 2열로 내려가 144h 타일의 라벨이 잘리지 않는다).
+  const { fontScale, width } = useWindowDimensions();
+  const expenseGridColumns = compactGridColumnCount(width, fontScale);
+  const expenseGridItemWidth = compactGridItemWidth(expenseGridColumns);
   const params = useLocalSearchParams<{
     itemName?: string;
     itemTemplateId?: string;
@@ -311,7 +422,7 @@ export default function NewExpenseScreen() {
    * 구분할 방법이 없다는 뜻이다.
    *
    * EXP-001 픽셀 락: 이 상태는 세션 없이도 존재하지만 값이 늘 ""이고, **입력칸 렌더는
-   * authToken 게이트 뒤**에 있다(아래). 비세션 초기 렌더("₩ 38,500" 캡처 경로)는 한 픽셀도
+   * authToken 게이트 뒤**에 있다(아래). 비세션 초기 렌더("38,500원" 캡처 경로)는 한 픽셀도
    * 바뀌지 않는다.
    */
   const [merchant, setMerchant] = useState(() => (authToken ? prefilledMerchant : ""));
@@ -348,6 +459,10 @@ export default function NewExpenseScreen() {
     () => quickExpenseCategories.find((category) => category.id === initialCategoryId) ?? null
   );
   const selectedCategoryId = selectedCategory?.id ?? null;
+  // DSN-053 P2-C: "분류별 빠른 품목" 아코디언 상태. 한 번에 한 분류만 펼친다(""=전부 접힘)이고,
+  // 펼친 분류가 몇 개까지 보이는지는 분류별로 따로 센다(기본 6개 -> "더 보기").
+  const [expandedCategoryId, setExpandedCategoryId] = useState("");
+  const [categoryLimits, setCategoryLimits] = useState<Record<string, number>>({});
   const [paymentMethodIndex, setPaymentMethodIndex] = useState(0);
   const [isGift, setIsGift] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -361,6 +476,9 @@ export default function NewExpenseScreen() {
   const [expenseDateIso, setExpenseDateIso] = useState(() => initialExpenseDate.iso);
   const expenseDate = authToken ? formatExpenseDate(new Date(`${expenseDateIso}T00:00:00`)) : previewExpenseDate;
   const recentDateChips = buildRecentDateChips(today);
+  // DSN-053 P2-C: 헤더 바로 아래 3칸 pill 행이 쓰는 목록. 종전 14일 칩에서 앞의 셋(오늘·어제·
+  // 그제)만 잘라 **시간 순서대로** 뒤집는다 -- 왼쪽이 과거, 오른쪽이 오늘이다.
+  const quickDateChips = recentDateChips.slice(0, 3).reverse();
   // Only meaningful while a real/test session is picking a manually-typed date; null means
   // either preview mode, chip-only selection, or an empty (not-yet-typed) custom field.
   const dateInputError =
@@ -412,6 +530,10 @@ export default function NewExpenseScreen() {
   // 이후 절대 바뀌지 않으며, 비동기로 복원되는 초안은 여기에 들어오지 않는다(복원값은 기준선과
   // 달라 그대로 지켜진다). 판정 자체는 순수 함수 한 곳에만 있다(entry-form-guards.ts).
   const initialInputSnapshotRef = useRef<QuickExpenseInputSnapshot>({ itemName, amountText, memo });
+  // DSN-053 P2-C: 하단 고정 요약바의 연필(품목명 수정)과 빠른 품목의 "직접 입력" 타일이 함께
+  // 겨누는 입력칸. 품목명은 **한 곳에서만** 편집된다 -- 요약바에 두 번째 입력칸을 만들면 같은
+  // 값을 고치는 칸이 둘이 되고, 어느 쪽이 진짜인지 화면이 말해 주지 못한다.
+  const itemNameInputRef = useRef<TextInput | null>(null);
 
   // Restores a saved quick-expense draft on mount, so a user who closes the sheet mid-entry
   // (e.g. interrupted by a call) doesn't lose what they typed. Skipped in pixel-lock capture
@@ -748,8 +870,19 @@ export default function NewExpenseScreen() {
   // clearSession 후 이동) 고정 시드 "38500"으로만 실행되므로, 그 조합에서만 캡처 문자열을
   // 그대로 유지하면 EXP-001 기준 이미지는 한 픽셀도 바뀌지 않는다. 세션이 있는 모든 입력
   // 경로(= 실제 사용자가 보는 화면)는 이제 formatKrw를 탄다.
+  //
+  // DSN-053 P1 이후: 캡처 문자열이 "38,500원"으로 정정되면서 두 갈래의 결과가 **같은 문자열**이
+  // 됐다(formatKrw(38500) === quickExpenseAmountPreview). 갈래를 남겨 두는 이유는 캡처가 무엇을
+  // 기준으로 굳어 있는지를 코드에 남기기 위해서다 -- 나중에 표기 규칙이 또 흔들리면 여기가
+  // 먼저 갈라지고, 그 사실이 auto-fill-wiring.test.ts의 계약으로 드러난다.
   const isPixelLockAmountCapture = !authToken && amountText === "38500";
   const formattedAmount = isPixelLockAmountCapture ? quickExpenseAmountPreview : formatKrw(Number(amountText || 0));
+  // DSN-053 P2-C: 요약바의 금액 박스는 숫자와 '원'을 **다른 크기로** 그린다(승인 원본: 22/800 +
+  // 14/800). 그래서 입력칸의 값은 접미사 없는 숫자여야 하고, 그 규칙은 money.ts가 이미 갖고
+  // 있다(formatAmountDigits -- "38500" -> "38,500"). 화면에 읽히는 결과는 formattedAmount와
+  // 같은 문자열이고(캡처 경로 "38,500원" 포함), 스크린 리더에는 접미사가 붙은 쪽을 그대로
+  // 넘긴다(accessibilityValue) -- 숫자만 읽어 주면 단위가 사라진다.
+  const amountInputDisplay = formatAmountDigits(amountText);
   // Guards the one-tap quick-expense sheet: with a real/test session, the save button stays
   // disabled until a positive amount has actually been entered (and any manually-typed date is
   // valid), so opening the sheet can never by itself create an expense. Preview mode (authToken
@@ -790,7 +923,50 @@ export default function NewExpenseScreen() {
     return true;
   };
 
+  /**
+   * DSN-053 P2-C — "분류별 빠른 품목"에서 품목 하나를 고른다.
+   *
+   * 분류 타일 탭(아래 그리드)과 **같은 확정 규칙**을 지난다: 사용자가 직접 고른 것이므로 자동
+   * 추천이 뒤에서 분류를 바꾸지 않고(categoryTouchedRef), "자동으로 골라 줬다" 표시도 함께
+   * 내린다. 다만 품목명은 사용자가 고른 그 품목이라 **타일이 넣어 둔 라벨이 아니다** --
+   * lastTileFilledItemNameRef를 비워 두어야 뒤이어 분류 타일을 눌러도 이 이름이 덮이지 않는다
+   * (UX-K(B-b)의 shouldTileFillItemName 판정 재료).
+   */
+  const selectQuickExpenseItem = (category: QuickExpenseCategory, quickItemLabel: string) => {
+    categoryTouchedRef.current = true;
+    setAutoPickedCategory(null);
+    setSelectedCategory(category);
+    setCategoryNoticeRequested(false);
+    setItemName(quickItemLabel);
+    setAutocompleteApplied(true);
+    lastTileFilledItemNameRef.current = null;
+  };
+
+  /**
+   * 빠른 품목 목록의 마지막 타일("직접 입력"). 목록에 없는 품목이라 이름은 비우고, 분류만
+   * 그대로 확정한 뒤 품목명 입력칸으로 커서를 옮긴다 -- 목록에 없다는 이유로 기록을 포기하게
+   * 두지 않는다.
+   */
+  const startCustomItem = (category: QuickExpenseCategory) => {
+    categoryTouchedRef.current = true;
+    setAutoPickedCategory(null);
+    setSelectedCategory(category);
+    setCategoryNoticeRequested(false);
+    setItemName("");
+    setAutocompleteApplied(false);
+    lastTileFilledItemNameRef.current = null;
+    requestAnimationFrame(() => itemNameInputRef.current?.focus());
+  };
+
   return (
+    /* DSN-053 P2-C: 요약바(금액·저장)는 스크롤과 **함께 움직이지 않는다** -- 승인 원본의 지출
+       화면처럼 화면 아래에 고정돼, 품목을 고르러 한참 내려가도 저장이 늘 손 닿는 자리에 있다.
+       본문은 종전 그대로 AppScreen(픽셀 락 웹 캡처의 스크롤바 숨김 포함)이 굴리고, 키보드가
+       올라오면 KeyboardAvoidingView가 요약바를 그 위로 밀어 올린다. */
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ backgroundColor: theme.colors.background, flex: 1 }}
+    >
     <AppScreen>
       <View style={quickExpensePixelFrameStyle()}>
         <BottomSheetFrame
@@ -802,12 +978,12 @@ export default function NewExpenseScreen() {
             borderTopRightRadius: 0,
             boxShadow: "none",
             elevation: 0,
-            gap: 14,
+            gap: 16,
             padding: 0,
             position: "relative"
           }}
         >
-        <View testID={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 40 }}>
+        <View testID={quickExpenseScreenId} style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 52 }}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="닫기"
@@ -834,12 +1010,17 @@ export default function NewExpenseScreen() {
               }
               router.back();
             }}
-            style={{ minWidth: 36 }}
+            style={{ alignItems: "center", justifyContent: "center", minHeight: 48, minWidth: 48 }}
           >
             <Text style={{ color: theme.colors.gray900, fontSize: 24 }}>×</Text>
           </Pressable>
-          <Text style={{ color: theme.colors.gray900, fontSize: 18, fontWeight: "800" }}>지출 기록</Text>
-          <View style={{ width: 36 }} />
+          {/* DSN-053 P2-C: 제목 19/800 + 부제 11 (승인 원본의 헤더). 부제는 이 화면이 무엇을
+              요구하는지 한 줄로 말한다 -- 아래 요약바가 품목·금액만 묻는 이유이기도 하다. */}
+          <View style={{ alignItems: "center", gap: 2 }}>
+            <Text accessibilityRole="header" style={{ color: theme.colors.gray900, fontSize: 19, fontWeight: "800" }}>지출 기록</Text>
+            <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>품목을 고르고 금액만 입력하세요</Text>
+          </View>
+          <View style={{ width: 48 }} />
         </View>
 
         {/* EXP-113: 기저귀·분유처럼 반복 구매하는 품목을 다시 타이핑하지 않도록, 최근 입력
@@ -892,101 +1073,53 @@ export default function NewExpenseScreen() {
           </View>
         ) : null}
 
-        <View
-          style={{
-            backgroundColor: theme.colors.white,
-            borderColor: "rgba(74, 63, 53, 0.12)",
-            borderRadius: 14,
-            borderWidth: 1,
-            gap: 12,
-            padding: 16
-          }}
-        >
-          {authToken ? (
-            <Pressable
-              accessibilityLabel="지출 날짜 변경"
-              accessibilityRole="button"
-              onPress={() => setShowDatePicker((value) => !value)}
-              style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}
-            >
-              <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>{expenseDate.label}</Text>
-              <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>{showDatePicker ? "닫기" : "날짜 변경"}</Text>
-            </Pressable>
-          ) : (
-            <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
-              <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>{expenseDate.label}</Text>
-            </View>
-          )}
-          <View style={{ backgroundColor: "rgba(74, 63, 53, 0.12)", height: 1 }} />
-          <TextInput
-            accessibilityLabel="지출 금액 입력"
-            keyboardType="number-pad"
-            onChangeText={(value) => setAmountText(value.replace(/[^0-9]/g, ""))}
-            style={{ color: theme.colors.gray900, fontSize: 30, fontWeight: "800", paddingVertical: 0 }}
-            value={formattedAmount}
-          />
-        </View>
-
-        {/* UX-K(A): 금액을 치는 그 자리에서 "이번 달 지금까지"를 한 줄로 알려 준다 -- 탭을
-            옮기지 않고도 총액을 확인할 수 있어야 핵심 루프(기록 -> 총액 확인)가 끊기지 않는다.
-            숫자와 문구는 전부 src/expenses/entry-context-line.ts에서 오고, 캐시가 없으면 그
-            모듈이 null을 돌려줘 줄 자체가 사라진다(0원이라고 말하지 않는다). 세션 없는 픽셀 락
-            캡처에서는 이 분기 자체가 렌더되지 않는다. */}
-        {authToken && entryContextLine ? (
-          <Text accessibilityLabel={entryContextLine.accessibilityLabel} style={{ color: theme.colors.gray600, fontSize: 12 }}>
-            {entryContextLine.text}
-          </Text>
-        ) : null}
-
-        {/* UX-121: 금액 누적 프리셋 칩 -- 탭할 때마다 현재 금액에 더한다(빈 값이면 그 값으로 시작).
-            숫자 키패드를 대체하지 않고 보조하므로 칩을 누른 뒤에도 자유롭게 타이핑할 수 있고,
-            칩을 길게 누르거나 "지우기"를 누르면 0으로 리셋된다. 가산·상한 계산은
-            src/expenses/amount-presets.ts에 분리(DNC-013 정수·상한 규칙과 정합, 단위 테스트 대상).
-            금액 입력 카드 "아래"의 독립 행이라 EXP-001 픽셀 락이 고정한 카드/카테고리 그리드
-            레이아웃을 건드리지 않으며, 픽셀 락 캡처는 세션 없이(authToken null) 실행되므로
-            (app/pixel-lock.tsx가 clearSession 후 이동) 캡처 화면에는 아예 렌더되지 않는다. */}
-        {authToken ? (
-          <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
-            {QUICK_AMOUNT_PRESETS_KRW.map((presetKrw) => (
-              <Pressable
-                key={presetKrw}
-                accessibilityRole="button"
-                accessibilityLabel={presetChipAccessibilityLabel(presetKrw)}
-                accessibilityHint="길게 누르면 금액을 지워요"
-                accessibilityState={{ disabled: !canTapAmountPreset }}
-                disabled={!canTapAmountPreset}
-                hitSlop={8}
-                onPress={() => setAmountText((value) => addAmountPreset(value, presetKrw))}
-                onLongPress={() => setAmountText(clearAmountText())}
-                style={{
-                  alignItems: "center",
-                  backgroundColor: theme.colors.white,
-                  borderColor: theme.colors.primary100,
-                  borderRadius: theme.radii.pill,
-                  borderWidth: 1,
-                  flex: 1,
-                  justifyContent: "center",
-                  minHeight: 40,
-                  opacity: canTapAmountPreset ? 1 : 0.4
-                }}
-              >
-                {/* A11Y-117: 13px coral 텍스트 -- coral[500] 3.16:1(AA 미달) → coral[700] */}
-                <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "800" }}>
-                  {formatPresetChipLabel(presetKrw)}
-                </Text>
-              </Pressable>
+        {/* DSN-053 P2-C — 날짜 pill 행 (승인 원본: 3칸 flex1 + 달력 버튼 48·radius 14).
+            원본의 세 칸은 어제/오늘/**내일**이지만, 이 앱은 미래 날짜를 저장하지 않는다
+            (validateExpenseDateInput의 isFutureSeoulDate 거부). 눌러도 저장이 막히는 칸을
+            내놓느니 같은 자리를 **그제/어제/오늘**로 쓴다 -- 칩 목록 자체는 종전 14일 로직
+            (buildRecentDateChips)에서 그대로 잘라 오므로 라벨·iso 규칙이 갈라지지 않는다.
+            달력 버튼은 이번 라운드에서는 기존 14일 칩 패널을 여닫는다(진짜 달력 픽커는 다음
+            라운드 -- docs/5차/budget-app-gap-analysis.md #7). */}
+        <View accessibilityLabel={`지출 날짜 ${expenseDate.label}`} style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
+          <View style={{ flex: 1, flexDirection: "row", gap: 8 }}>
+            {quickDateChips.map((chip) => (
+              <View key={chip.iso} style={{ flex: 1 }}>
+                <CategoryChip
+                  label={chip.shortLabel}
+                  selected={!customDateMode && chip.iso === expenseDateIso}
+                  onPress={() => {
+                    setExpenseDateIso(chip.iso);
+                    setCustomDateMode(false);
+                    setCustomDateText("");
+                  }}
+                />
+              </View>
             ))}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="금액 지우기"
-              hitSlop={8}
-              onPress={() => setAmountText(clearAmountText())}
-              style={{ alignItems: "center", justifyContent: "center", minHeight: 40, paddingHorizontal: 4 }}
-            >
-              <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>지우기</Text>
-            </Pressable>
           </View>
-        ) : null}
+          <Pressable
+            accessibilityLabel="지출 날짜 변경"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showDatePicker }}
+            disabled={!authToken}
+            onPress={() => setShowDatePicker((value) => !value)}
+            style={({ pressed }) => ({
+              alignItems: "center",
+              backgroundColor: theme.colors.white,
+              borderColor: "rgba(74, 63, 53, 0.10)",
+              borderRadius: 14,
+              borderWidth: 1,
+              height: 48,
+              justifyContent: "center",
+              opacity: pressed ? 0.76 : 1,
+              width: 48
+            })}
+          >
+            <AppIcon color={theme.colors.mainCoral} name="calendar-blank-outline" size={22} />
+          </Pressable>
+        </View>
+        {/* 고른 날짜는 pill 라벨만으로는 알 수 없다(달력 패널에서 2주 전을 고르면 어느 칩도
+            눌려 있지 않다) -- 그래서 실제 저장될 날짜를 한 줄로 그대로 적는다. */}
+        <Text style={{ color: theme.colors.gray600, fontSize: 11, fontWeight: "700" }}>{expenseDate.label}</Text>
 
         {authToken && showDatePicker ? (
           <View style={{ gap: 10 }}>
@@ -1051,14 +1184,20 @@ export default function NewExpenseScreen() {
           </View>
         ) : null}
 
-        <View style={quickExpenseCategoryGridStyle.grid}>
+        {/* DSN-053 P2-C — "바로 기록". 분류 8타일이 승인 원본의 타일 문법(144h·radius 16·원형
+            44 아이콘)으로 그려진다. 고르는 대상과 저장되는 값은 종전과 한 글자도 다르지 않다. */}
+        <View style={{ gap: 3 }}>
+          <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>바로 기록</Text>
+          <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>분류를 고르면 품목명도 함께 채워져요</Text>
+        </View>
+        <View accessibilityLabel="바로 기록 분류" style={quickExpenseCategoryGridStyle.grid}>
           {quickExpenseCategories.map((category) => {
             // 라운드 51 C-#5: 미선택(selectedCategory === null)이면 **어느 타일에도** 하이라이트가
             // 없다 -- 그 부재가 "아직 안 골랐어요"를 말하는 시각 상태다.
             const selected = selectedCategory !== null && category.label === selectedCategory.label;
             return (
+              <View key={`${category.id}-${category.label}`} style={{ width: expenseGridItemWidth }}>
               <ExpenseCategoryIconButton
-                key={`${category.id}-${category.label}`}
                 selected={selected}
                 category={category}
                 onPress={() => {
@@ -1078,6 +1217,7 @@ export default function NewExpenseScreen() {
                   }
                 }}
               />
+              </View>
             );
           })}
         </View>
@@ -1088,6 +1228,112 @@ export default function NewExpenseScreen() {
         {authToken && autoPickedCategory ? (
           <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>{AUTO_CATEGORY_CAPTION}</Text>
         ) : null}
+
+        {/* DSN-053 P2-C — "분류별 빠른 품목" 아코디언 (승인 원본: 카드 radius 16 · 펼침 테두리
+            mainCoral · 헤더 minH 68 · 원 42 categoryColors · 기본 6개 + 마지막 "직접 입력").
+            분류만 고르면 품목명이 분류 이름("기저귀")으로 남는데, 실제로 산 것은 "기저귀 크림"
+            일 수 있다 -- 목록에서 고르면 그 이름이 그대로 기록에 남는다. 목록은 순수 모듈
+            (src/expenses/quick-expense-catalog.ts) 하나에만 있고, 저장 규칙은 이 목록을 거치지
+            않는다(고른 이름은 아래 품목명 칸에서 그대로 고쳐 쓸 수 있다). */}
+        <View style={{ gap: 3 }}>
+          <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>분류별 빠른 품목</Text>
+          <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>분류를 펼치면 자주 적는 품목을 바로 고를 수 있어요</Text>
+        </View>
+        {quickExpenseCategories.map((category) => {
+          const categoryItems = quickExpenseItemsForCategory(category.id);
+          const expanded = expandedCategoryId === category.id;
+          const categoryLimit = categoryLimits[category.id] ?? QUICK_EXPENSE_DEFAULT_LIMIT;
+          const visibleCategoryItems = categoryItems.slice(0, categoryLimit);
+          return (
+            <View
+              key={`quick-items-${category.id}-${category.label}`}
+              style={{
+                backgroundColor: theme.colors.white,
+                borderColor: expanded ? theme.colors.mainCoral : "rgba(74, 63, 53, 0.10)",
+                borderRadius: 16,
+                borderWidth: 1,
+                overflow: "hidden"
+              }}
+            >
+              <Pressable
+                accessibilityLabel={`${category.label}. 빠른 품목 ${categoryItems.length}개`}
+                accessibilityRole="button"
+                accessibilityState={{ expanded }}
+                onPress={() => setExpandedCategoryId((current) => (current === category.id ? "" : category.id))}
+                style={({ pressed }) => ({
+                  alignItems: "center",
+                  flexDirection: "row",
+                  gap: 12,
+                  minHeight: 68,
+                  opacity: pressed ? 0.76 : 1,
+                  paddingHorizontal: 14
+                })}
+              >
+                <View
+                  style={{
+                    alignItems: "center",
+                    backgroundColor: theme.colors.categoryColors[category.code],
+                    borderRadius: theme.radii.pill,
+                    height: 42,
+                    justifyContent: "center",
+                    width: 42
+                  }}
+                >
+                  <AppIcon color={theme.colors.brown} name={categoryItems[0]?.icon ?? "shape-outline"} size={22} />
+                </View>
+                <View style={{ flex: 1, gap: 3 }}>
+                  <Text style={{ color: theme.colors.brown, fontSize: 15, fontWeight: "800" }}>{category.label}</Text>
+                  <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>{categoryItems.length}개 품목</Text>
+                </View>
+                <AppIcon color={theme.colors.gray600} name={expanded ? "chevron-up" : "chevron-down"} size={22} />
+              </Pressable>
+              {expanded ? (
+                <View style={[quickExpenseCategoryGridStyle.grid, { paddingBottom: 14, paddingHorizontal: 14 }]}>
+                  {visibleCategoryItems.map((item) => (
+                    <View key={item.id} style={{ width: expenseGridItemWidth }}>
+                      <ExpenseQuickItemButton
+                        icon={item.icon}
+                        label={item.label}
+                        onPress={() => selectQuickExpenseItem(category, item.label)}
+                        selected={item.label === itemName && category.id === selectedCategoryId}
+                      />
+                    </View>
+                  ))}
+                  <View style={{ width: expenseGridItemWidth }}>
+                    <ExpenseQuickItemButton
+                      icon="plus"
+                      label="직접 입력"
+                      onPress={() => startCustomItem(category)}
+                      selected={false}
+                    />
+                  </View>
+                  {visibleCategoryItems.length < categoryItems.length ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${category.label} 빠른 품목 더 보기`}
+                      onPress={() =>
+                        setCategoryLimits((current) => ({
+                          ...current,
+                          [category.id]: nextQuickExpenseLimit(categoryLimit, categoryItems.length)
+                        }))
+                      }
+                      style={({ pressed }) => ({
+                        alignItems: "center",
+                        justifyContent: "center",
+                        minHeight: 48,
+                        opacity: pressed ? 0.76 : 1,
+                        width: "100%"
+                      })}
+                    >
+                      {/* A11Y-117: 13px coral 텍스트는 coral[700](5.56:1)으로 -- coral[500]/600은 AA 미달. */}
+                      <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "800" }}>더 보기</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
 
         {/* 라운드 49 C-03(a): 판매처 입력칸. **authToken 게이트 뒤**에 두는 것이 EXP-001
             픽셀 락 계약이다 -- 캡처는 세션 없이(app/pixel-lock.tsx가 clearSession 후 이동)
@@ -1162,6 +1408,8 @@ export default function NewExpenseScreen() {
               returnKeyType="done"
               onChangeText={handleItemNameChange}
               placeholder="품목명 (예: 기저귀)"
+              // DSN-053 P2-C: 요약바의 연필과 빠른 품목의 "직접 입력"이 겨누는 유일한 입력칸.
+              ref={itemNameInputRef}
               style={{
                 backgroundColor: theme.colors.white,
                 borderColor: "rgba(74, 63, 53, 0.10)",
@@ -1252,30 +1500,174 @@ export default function NewExpenseScreen() {
           </Pressable>
         ) : null}
 
-        {/* EXP-124: 저장 버튼 바로 위 인라인 오류 배너. Toast는 이 앱에서 화면 흐름 안에 그대로
-            놓이는 인라인 알림이고(accessibilityRole="alert" + live region으로 TalkBack에도
-            읽힌다), 실패해도 입력값은 그대로 남아 사용자가 고쳐서 바로 다시 저장할 수 있다.
-            초기값이 null이라 EXP-001 픽셀 락 캡처(세션 없음, 저장 시도 없음)에서는 렌더되지
-            않는다. */}
-        {saveErrorMessage ? <Toast message={saveErrorMessage} tone="error" /> : null}
-        {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}
-        {/* 라운드 51 C-#5 + 라운드 51 QA(P2-4): 분류를 고르지 않은 채 저장을 누른 뒤에만 뜨는
-            안내 한 줄. 자리는 **저장 버튼 바로 위**다(저장 실패 배너와 같은 자리 관례) --
-            타일 아래에 두던 예전 자리는 금액·날짜·판매처·결제수단·선물 체크박스 아래로 밀려
-            화면 밖이라, 저장을 눌러도 아무 반응이 없는 것처럼 보였다. 눌린 버튼 옆에서 답하고,
-            무엇을 하면 되는지는 문구가 말한다(문구는 src/expenses/entry-form-guards.ts).
-            포커스가 저장 버튼에 있는 상태에서 나타나므로 alert 역할 + live region으로
-            스크린리더도 함께 읽는다. 초기값이 false라 EXP-001 픽셀 락 캡처(세션 없음, 저장
-            시도 없음)에서는 렌더되지 않는다. */}
-        {showCategoryNotice ? (
-          <Text
-            accessibilityRole="alert"
-            accessibilityLiveRegion="polite"
-            style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "700" }}
-          >
-            {CATEGORY_REQUIRED_NOTICE}
+        {/* UX-K(A): 금액을 치는 그 자리에서 "이번 달 지금까지"를 한 줄로 알려 준다 -- 탭을
+            옮기지 않고도 총액을 확인할 수 있어야 핵심 루프(기록 -> 총액 확인)가 끊기지 않는다.
+            숫자와 문구는 전부 src/expenses/entry-context-line.ts에서 오고, 캐시가 없으면 그
+            모듈이 null을 돌려줘 줄 자체가 사라진다(0원이라고 말하지 않는다). 세션 없는 픽셀 락
+            캡처에서는 이 분기 자체가 렌더되지 않는다. */}
+        {authToken && entryContextLine ? (
+          <Text accessibilityLabel={entryContextLine.accessibilityLabel} style={{ color: theme.colors.gray600, fontSize: 12 }}>
+            {entryContextLine.text}
           </Text>
         ) : null}
+
+        {/* UX-121: 금액 누적 프리셋 칩 -- 탭할 때마다 현재 금액에 더한다(빈 값이면 그 값으로 시작).
+            숫자 키패드를 대체하지 않고 보조하므로 칩을 누른 뒤에도 자유롭게 타이핑할 수 있고,
+            칩을 길게 누르거나 "지우기"를 누르면 0으로 리셋된다. 가산·상한 계산은
+            src/expenses/amount-presets.ts에 분리(DNC-013 정수·상한 규칙과 정합, 단위 테스트 대상).
+            DSN-053 P2-C: 금액 칸이 하단 고정 요약바로 내려가면서 이 행도 함께 본문 맨 아래로
+            옮겼다 -- 칩은 자기가 더하는 금액 칸 바로 위에 있어야 무엇을 바꾸는 버튼인지 보인다.
+            픽셀 락 캡처는 세션 없이(authToken null) 실행되므로(app/pixel-lock.tsx가 clearSession
+            후 이동) 캡처 화면에는 이 행이 아예 렌더되지 않는다. */}
+        {authToken ? (
+          <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
+            {QUICK_AMOUNT_PRESETS_KRW.map((presetKrw) => (
+              <Pressable
+                key={presetKrw}
+                accessibilityRole="button"
+                accessibilityLabel={presetChipAccessibilityLabel(presetKrw)}
+                accessibilityHint="길게 누르면 금액을 지워요"
+                accessibilityState={{ disabled: !canTapAmountPreset }}
+                disabled={!canTapAmountPreset}
+                hitSlop={8}
+                onPress={() => setAmountText((value) => addAmountPreset(value, presetKrw))}
+                onLongPress={() => setAmountText(clearAmountText())}
+                style={{
+                  alignItems: "center",
+                  backgroundColor: theme.colors.white,
+                  borderColor: theme.colors.primary100,
+                  borderRadius: theme.radii.pill,
+                  borderWidth: 1,
+                  flex: 1,
+                  justifyContent: "center",
+                  minHeight: 40,
+                  opacity: canTapAmountPreset ? 1 : 0.4
+                }}
+              >
+                {/* A11Y-117: 13px coral 텍스트 -- coral[500] 3.16:1(AA 미달) → coral[700] */}
+                <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "800" }}>
+                  {formatPresetChipLabel(presetKrw)}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="금액 지우기"
+              hitSlop={8}
+              onPress={() => setAmountText(clearAmountText())}
+              style={{ alignItems: "center", justifyContent: "center", minHeight: 40, paddingHorizontal: 4 }}
+            >
+              <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>지우기</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        </BottomSheetFrame>
+      </View>
+    </AppScreen>
+
+      {/* DSN-053 P2-C — 하단 고정 요약바 (승인 원본의 푸터).
+          왼쪽은 "무엇을 기록하는가"(분류 라벨 11/700 -> 품목명 15/800 + 연필), 오른쪽은
+          "얼마인가"(beige 금액 박스 · radius 14 · 숫자 22/800 + '원' 14/800, 값이 있으면
+          mainCoral 테두리)다. 연필은 본문의 품목명 입력칸으로 커서를 옮길 뿐이고, 저장 버튼
+          두 개는 배치·문구·가드 모두 종전 그대로다(같은 뮤테이션·같은 분류 가드). */}
+      <View
+        style={{
+          backgroundColor: theme.colors.white,
+          borderColor: "rgba(74, 63, 53, 0.10)",
+          borderTopWidth: 1,
+          paddingHorizontal: 20,
+          paddingVertical: 12
+        }}
+      >
+        <View style={{ alignSelf: "center", gap: 10, maxWidth: 680, width: "100%" }}>
+          <View style={{ alignItems: "flex-end", flexDirection: "row", gap: 10 }}>
+            <View style={{ flex: 1, gap: 4 }}>
+              {/* 분류를 아직 고르지 않았으면 지어내지 않는다 -- 무엇을 하면 되는지만 적는다. */}
+              <Text style={{ color: theme.colors.gray600, fontSize: 11, fontWeight: "700" }}>
+                {selectedCategory ? selectedCategory.label : "분류 선택"}
+              </Text>
+              <Pressable
+                accessibilityLabel={itemName ? `${itemName} 품목명 수정` : "품목명 입력하기"}
+                accessibilityRole="button"
+                disabled={!authToken}
+                onPress={() => itemNameInputRef.current?.focus()}
+                style={({ pressed }) => ({
+                  alignItems: "center",
+                  flexDirection: "row",
+                  gap: 6,
+                  minHeight: 44,
+                  opacity: !authToken ? 1 : pressed ? 0.76 : 1
+                })}
+              >
+                <Text numberOfLines={1} style={{ color: theme.colors.brown, flex: 1, fontSize: 15, fontWeight: "800" }}>
+                  {itemName || "품목을 골라 주세요"}
+                </Text>
+                {itemName && authToken ? <AppIcon color={theme.colors.gray600} name="pencil-outline" size={18} /> : null}
+              </Pressable>
+            </View>
+            <View
+              style={{
+                alignItems: "center",
+                backgroundColor: theme.colors.beige,
+                borderColor: amountText ? theme.colors.mainCoral : "transparent",
+                borderRadius: 14,
+                borderWidth: 1,
+                flexDirection: "row",
+                minHeight: 52,
+                paddingHorizontal: 12,
+                width: width >= 600 ? 220 : 148
+              }}
+            >
+              <TextInput
+                accessibilityLabel="지출 금액 입력"
+                accessibilityValue={{ text: formattedAmount }}
+                keyboardType="number-pad"
+                onChangeText={(value) => setAmountText(amountDigitsOnly(value))}
+                placeholder="0"
+                placeholderTextColor={theme.colors.gray600}
+                style={{
+                  color: theme.colors.gray900,
+                  flex: 1,
+                  fontSize: 22,
+                  fontVariant: ["tabular-nums"],
+                  fontWeight: "800",
+                  minHeight: 50,
+                  paddingVertical: 0,
+                  textAlign: "right"
+                }}
+                value={amountInputDisplay}
+              />
+              <Text style={{ color: theme.colors.gray600, fontSize: 14, fontWeight: "800" }}>원</Text>
+            </View>
+          </View>
+
+          {/* EXP-124: 저장 버튼 바로 위 인라인 오류 배너. Toast는 이 앱에서 화면 흐름 안에 그대로
+              놓이는 인라인 알림이고(accessibilityRole="alert" + live region으로 TalkBack에도
+              읽힌다), 실패해도 입력값은 그대로 남아 사용자가 고쳐서 바로 다시 저장할 수 있다.
+              초기값이 null이라 EXP-001 픽셀 락 캡처(세션 없음, 저장 시도 없음)에서는 렌더되지
+              않는다. */}
+          {saveErrorMessage ? <Toast message={saveErrorMessage} tone="error" /> : null}
+          {savedMessage ? <Toast message={savedMessage} tone="success" /> : null}
+          {/* 라운드 51 C-#5 + 라운드 51 QA(P2-4): 분류를 고르지 않은 채 저장을 누른 뒤에만 뜨는
+              안내 한 줄. 자리는 **저장 버튼 바로 위**다(저장 실패 배너와 같은 자리 관례) --
+              타일 아래에 두던 예전 자리는 금액·날짜·판매처·결제수단·선물 체크박스 아래로 밀려
+              화면 밖이라, 저장을 눌러도 아무 반응이 없는 것처럼 보였다. 눌린 버튼 옆에서 답하고,
+              무엇을 하면 되는지는 문구가 말한다(문구는 src/expenses/entry-form-guards.ts).
+              포커스가 저장 버튼에 있는 상태에서 나타나므로 alert 역할 + live region으로
+              스크린리더도 함께 읽는다. 초기값이 false라 EXP-001 픽셀 락 캡처(세션 없음, 저장
+              시도 없음)에서는 렌더되지 않는다.
+              A11Y-117(DSN-053 P2-C): 12px coral 텍스트라 coral[700](5.56:1)로 -- mainCoral은
+              3.16:1로 AA 미달이고, 이 줄은 저장이 왜 멈췄는지를 말하는 유일한 자리다. */}
+          {showCategoryNotice ? (
+            <Text
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
+            >
+              {CATEGORY_REQUIRED_NOTICE}
+            </Text>
+          ) : null}
           <PrimaryButton
             disabled={saveExpense.isPending || isAmountInvalid}
             label={saveExpense.isPending ? "저장 중" : "저장하기"}
@@ -1304,8 +1696,8 @@ export default function NewExpenseScreen() {
               })}
             />
           ) : null}
-        </BottomSheetFrame>
+        </View>
       </View>
-    </AppScreen>
+    </KeyboardAvoidingView>
   );
 }

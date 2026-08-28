@@ -19,41 +19,41 @@ const source = (relativePath: string) => readFileSync(join(mobileRoot, relativeP
  * 유지하고, 미리보기 중에는 여집합인 두 번째 탭 라벨을 "다른 시기"로 바꾼다.
  */
 describe("items tab stage-band wiring", () => {
-  it("sends the selected chip to the server as the stageBand query argument", () => {
+  /**
+   * DSN-053 P2-B — 시기 칩이 **서버 파라미터에서 화면 안 판정 기준으로** 옮겼다.
+   *
+   * 왜: 승인 디자인의 "내 준비 목록"은 분류 섹션이 "2/6 보유"를 말하고 시기별 밴드 4종이 한
+   * 화면에 함께 서는 구조다. 상태·시기로 거른 목록으로는 둘 다 구조적으로 불가능하다(보유한
+   * 것과 아닌 것이 한 목록에 있어야 하고, 네 밴드가 동시에 채워져야 한다). 그래서 화면은
+   * 거르지 않는 스냅샷(tab="all") 한 건을 받고, 칩은 그 위에서 "지금/곧/여유"를 가르는
+   * 기준이자 준비율의 분모를 정하는 기준이 된다 -- 밴드 ↔ 스테이지 매핑은 여전히
+   * src/items/stage-bands.ts 하나뿐이다.
+   */
+  it("목록은 상태로도 시기로도 거르지 않는 스냅샷 한 건이다", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain("listItems(authToken!, childId!, statusTab, requestedStageBand)");
+    expect(itemsSource).toContain('listItems(authToken!, childId!, "all")');
+    expect(itemsSource).toContain('queryKey: ["items", childId, "catalog"]');
+    // 서버로 밴드를 보내던 배선은 남아 있지 않다(보내면 준비율 분모와 밴드가 함께 좁아진다).
+    expect(itemsSource).not.toContain("requestedStageBand");
+    expect(itemsSource).not.toContain("statusTab");
   });
 
-  /**
-   * 리뷰 F2 회귀 가드: 기본 칩(= 아이 현재 단계가 속한 밴드)이 선택된 동안에는 stageBand를
-   * 보내지 않는다. 밴드를 통째로 보내면 "지금 필요" 탭이 현재 단계 → 밴드 전체로 넓어져
-   * (0-6개월 밴드 = 임신 초기~생후 6개월) 신생아 부모에게 임신기 품목이 섞여 들어온다.
-   */
-  it("omits stageBand while the default chip is selected (정확히 현재 단계 = 구 동작)", () => {
+  it("칩이 시기별 밴드 판정과 준비율의 기준이 된다", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain("const isPreviewingOtherBand = stageLabel !== defaultStageLabel;");
-    expect(itemsSource).toContain("const requestedStageBand = isPreviewingOtherBand ? stageLabel : undefined;");
+    expect(itemsSource).toContain("resolvePreparationTimelineBucket(rowItem, stageLabel)");
+    expect(itemsSource).toContain("computeEssentialPrepProgress(items.data.items, stageLabel)");
     // 기본 칩은 사용자의 수동 선택과 무관하게 계산한다(다른 칩을 눌렀다가 되돌아와도 판별 가능).
     expect(itemsSource).toMatch(/const defaultStageLabel = resolveDefaultStageLabel\(\{[^]*?hasManualSelection: false/);
-    // 밴드 유무가 캐시를 가르도록 쿼리 키에도 같은 값이 들어간다.
-    expect(itemsSource).toContain('queryKey: ["items", childId, statusTab, requestedStageBand ?? "current-stage"]');
   });
 
-  /** 리뷰 F3: 밴드 미리보기 중 "soon"은 선택한 밴드의 여집합(지나간 시기 포함)이라 라벨을 바꾼다. */
-  it("relabels the soon tab to 다른 시기 only while another band is being previewed", () => {
-    const itemsSource = source("app/(tabs)/items.tsx");
-    expect(itemsSource).toContain('const soonTabLabelWhilePreviewingBand = "다른 시기";');
-    expect(itemsSource).toContain(
-      'option.value === "soon" && isPreviewingOtherBand ? soonTabLabelWhilePreviewingBand : option.label'
-    );
-    // 기본 칩에서는 기존 라벨 그대로다(값은 항상 soon).
-    expect(itemsSource).toContain('{ value: "soon", label: "곧 필요" }');
-  });
-
-  it("no longer re-filters the server list by band on the client (the old double filter)", () => {
+  it("밴드 ↔ 스테이지 매핑을 화면에 복제하지 않는다 (판정은 어댑터 한 곳)", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
     expect(itemsSource).not.toContain("itemMatchesBand");
     expect(itemsSource).not.toContain("stageFilteredItems");
+    // 판정은 어댑터가 stage-bands 모듈을 그대로 읽어서 한다.
+    const adapter = source("src/preparation/catalog-contract.ts");
+    expect(adapter).toContain('from "../items/stage-bands"');
+    expect(adapter).toContain("itemMatchesBand(item, selectedBand)");
   });
 
   it("derives the chip labels from the band definitions instead of a hand-copied list", () => {
@@ -64,7 +64,6 @@ describe("items tab stage-band wiring", () => {
   it("keeps the prep-progress snapshot band-agnostic (ITEM-123: 한 번의 tab=all, no stageBand)", () => {
     // 준비율은 밴드와 무관한 전 상태 스냅샷에서 계산한다 -- 여기에 stageBand를 넘기면
     // 분모가 좁아져 준비율이 틀어진다(computeEssentialPrepProgress가 밴드를 본다).
-    // ITEM-123 (B5): 탭 4개를 각각 부르던 스냅샷이 tab="all" 1요청으로 바뀌었다.
     const itemsSource = source("app/(tabs)/items.tsx");
     expect(itemsSource).toContain('listItems(authToken!, childId!, "all")');
     expect(itemsSource).not.toContain("tabs.map((tab) => listItems(authToken!, childId!, tab))");
@@ -72,10 +71,14 @@ describe("items tab stage-band wiring", () => {
 
   it("exposes the necessity chips and the name search only inside a real session (B2/B3)", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
-    // 픽셀 락 캡처는 비세션 미리보기를 찍으므로 두 컨트롤 모두 화면에 나오지 않는다.
-    expect(itemsSource).toMatch(/{hasSession \? \(\s*<View[^]*?NECESSITY_FILTER_OPTIONS\.map/);
-    expect(itemsSource).toMatch(/{hasSession \? \(\s*<TextInput[^]*?accessibilityLabel="준비템 이름으로 검색"/);
-    expect(itemsSource).toContain('returnKeyType="search"');
+    // 픽셀 락 캡처는 비세션 미리보기를 먼저 반환하므로 두 컨트롤 모두 화면에 나오지 않는다.
+    const previewReturnIndex = itemsSource.indexOf("if (!hasSession) {");
+    expect(previewReturnIndex).toBeGreaterThan(-1);
+    expect(itemsSource.indexOf("NECESSITY_FILTER_OPTIONS.map")).toBeGreaterThan(previewReturnIndex);
+    // 검색은 승인 디자인의 목록 컴포넌트가 들고 있고, 화면은 그 입력을 받아 좁히기만 한다.
+    expect(itemsSource).toContain("onSearch={setSearchText}");
+    expect(itemsSource).toContain("activeSearchQuery={searchText}");
+    expect(source("src/preparation/PreparationListParity.tsx")).toContain('returnKeyType="search"');
   });
 });
 

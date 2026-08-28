@@ -77,9 +77,6 @@ export function productPlatformLabel(platform: string | undefined | null): strin
  */
 export const EMPTY_PRODUCT_LINKS_TEXT = "아직 등록된 구매처가 없어요.";
 
-/** C4: 세션 경로의 판매처 목록 제목. 값이 하나뿐인 "가격 비교"를 대신한다. */
-export const PRODUCT_LINKS_SECTION_TITLE = "구매처";
-
 /** 링크가 하나라도 있어야 구매 CTA가 의미를 가진다. */
 export function hasPurchasableLink(links: ReadonlyArray<unknown> | undefined | null): boolean {
   return Boolean(links && links.length > 0);
@@ -233,4 +230,25 @@ export function productLinksDisclosureText(
   }
 
   return undefined;
+}
+
+export type ProductLinkFillInput = Pick<ProductLink, "isSponsored">;
+
+/**
+ * 판매처 목록에서 **채워진 "구매하기" 버튼**을 받을 행의 인덱스. 없으면 -1.
+ *
+ * 승인 캡처(ITEM-002)는 판매처 첫 줄만 채운 CTA고 나머지는 외곽선이다. 그런데 그 "첫 줄"을
+ * 순서만으로 정하면, 스폰서 링크가 displayOrder 1위로 올라온 순간 **광고 자리만** 화면에서
+ * 가장 강한 버튼을 갖는다 — 스폰서를 일반 추천과 구분해 표시하라는 DNC-011의 취지를
+ * 거꾸로 뒤집는 결과다(구분은 하되, 구분이 우대가 되면 안 된다).
+ *
+ * 그래서 채움은 **첫 번째 비스폰서 링크**가 받는다. 스폰서 링크는 순서와 무관하게 외곽선
+ * 버튼이고, 전부 스폰서면 채워진 버튼이 하나도 없다(-1). 정렬 자체는 건드리지 않는다 —
+ * 이 함수는 이미 정해진 순서에서 "어느 줄을 강조할지"만 고른다(DNC-009).
+ */
+export function primaryPurchaseLinkIndex(
+  links: ReadonlyArray<ProductLinkFillInput> | undefined | null
+): number {
+  if (!links || links.length === 0) return -1;
+  return links.findIndex((link) => !link.isSponsored);
 }

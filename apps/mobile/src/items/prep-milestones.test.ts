@@ -316,18 +316,29 @@ describe("items tab journey wiring (UX-E)", () => {
     const text = itemsSource();
     expect(text).toContain('from "../../src/items/prep-milestones"');
     expect(text).toContain("const prepMilestone = buildPrepMilestoneView(prepProgress);");
-    // 수치는 여전히 ITEM-114 스냅샷 하나에서 나온다.
-    expect(text).toContain("computeEssentialPrepProgress(allStatusItems.data, stageLabel)");
+    // 수치는 여전히 ITEM-114 스냅샷 하나에서 나온다(DSN-053 P2-B에서 그 스냅샷이 곧 목록
+    // 쿼리가 됐다 -- tab="all" 한 건이 목록·준비율·찜 목록의 공통 원천이다).
+    expect(text).toContain("computeEssentialPrepProgress(items.data.items, stageLabel)");
   });
 
-  it("renders the progress bar with the module's headline, tier copy, and a progressbar role", () => {
+  /**
+   * DSN-053 P2-B: 진행률 줄이 승인 디자인의 히어로 카드(PreparationListParity)로 옮겨 갔다.
+   * 지켜야 할 사실은 그대로다 -- **화면은 모듈이 만든 값만 넘기고**, 히어로는 그 값만 그린다
+   * (퍼센트 텍스트·바 폭·accessibilityValue가 모두 displayPercent 하나에서 온다).
+   */
+  it("passes the module's headline, tier copy, and capped percent to the progress hero", () => {
     const text = itemsSource();
-    expect(text).toContain('accessibilityRole="progressbar"');
-    expect(text).toContain("accessibilityLabel={prepMilestone.accessibilityLabel}");
-    expect(text).toContain("accessibilityValue={{ min: 0, max: 100, now: prepMilestone.displayPercent }}");
-    expect(text).toContain("{prepMilestone.headline}");
-    expect(text).toContain("{prepMilestone.tierText}");
-    expect(text).toContain("width: `${prepMilestone.displayPercent}%`");
+    expect(text).toContain("displayPercent: prepMilestone.displayPercent,");
+    expect(text).toContain("summaryText: prepMilestone.headline,");
+    expect(text).toContain("accessibilityLabel: prepMilestone.accessibilityLabel,");
+    expect(text).toContain("detailText: prepMilestone.tierText");
+
+    const hero = source("src/preparation/PreparationListParity.tsx");
+    expect(hero).toContain('accessibilityRole="progressbar"');
+    expect(hero).toContain("accessibilityValue={{ min: 0, max: 100, now: progressPercent }}");
+    expect(hero).toContain("width: `${progressPercent}%`");
+    // 히어로는 넘겨받은 값을 다시 계산하지 않는다(캡 규칙은 순수 모듈 하나뿐이다).
+    expect(hero).toContain("const progressPercent = progress\n    ? progress.displayPercent");
   });
 
   /**
@@ -371,7 +382,7 @@ describe("items tab journey wiring (UX-E)", () => {
   it("keeps every UX-E surface behind the session gate so the ITEM-001 pixel-lock preview is untouched", () => {
     const text = itemsSource();
     // prepProgress(=prepMilestone의 입력)는 hasSession + !isPixelLockMode 게이트를 통과한 값이다.
-    expect(text).toContain("hasSession && !isPixelLockMode && allStatusItems.data");
+    expect(text).toContain("hasSession && !isPixelLockMode && items.data");
     expect(text).toContain("const prepFocusIds = hasSession && !isPixelLockMode ? nextPrepFocusIds(listedItems) : null;");
     expect(text).toContain(
       "const prepFocusHint = hasSession && !isPixelLockMode ? nextPrepFocusHintText(listedItems) : null;"
@@ -406,9 +417,10 @@ describe("items tab journey wiring (UX-E)", () => {
     expect(text).toContain("{NEXT_PREP_FOCUS_BADGE_LABEL}");
     // 강조 대상을 별도 목록으로 한 번 더 map 하지 않는다(같은 항목이 두 번 보이면 안 된다).
     expect(text).not.toMatch(/prepFocus\w*\.map\(/);
-    // 라운드 48 T1(A3b): 배지가 더 이상 목록 순서를 보지 않으므로 map 콜백에서 index가
-    // 빠졌다. 이 단언이 지키려는 사실은 그대로다 -- 목록은 한 번만 돈다.
-    expect(text).toContain("{listedItems.map((item) => {");
+    // DSN-053 P2-B: 목록은 승인 디자인의 타일 그리드가 그린다. 배지는 그 타일 **아래 슬롯**에
+    // 붙으므로(renderItemFooter) 강조 대상이 별도 카드로 다시 그려질 자리가 없다.
+    expect(text).toContain("renderItemFooter={(parityItem) => {");
+    expect(text).toContain("const row = sessionRowById.get(parityItem.id);");
   });
 
   it("does not reorder the server list anywhere on the screen", () => {
@@ -419,7 +431,7 @@ describe("items tab journey wiring (UX-E)", () => {
     // (filterInterestedItems) 그쪽도 순서를 바꾸지 않는 filter 한 번이고, 필수도·검색은
     // 종전 그대로 filterItems 하나다(모집단 이름만 sourceItems로 바뀌었다).
     expect(text).toContain("filterItems<ItemSummary | RecommendationPreviewItem>(sourceItems, itemFilterInput)");
-    expect(text).toContain("filterInterestedItems(allStatusItems.data)");
+    expect(text).toContain("filterInterestedItems(visibleItems)");
   });
 
   it("adds no analytics events (UX-E는 이벤트 레지스트리 무접촉)", () => {
