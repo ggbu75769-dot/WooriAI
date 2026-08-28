@@ -9,7 +9,16 @@
     "userInterfaceStyle": "light",
     "plugins": [
       "expo-router",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFF6EC"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -18,7 +27,7 @@
       "package": "kr.wooriai.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#DB4F2E"
+        "backgroundColor": "#E95E3E"
       }
     }
   }

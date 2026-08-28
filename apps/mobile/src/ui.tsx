@@ -411,7 +411,11 @@ export function HeroSummaryCard({
   );
 }
 
-export function QuickActionIconButton({ icon, label, onPress }: { icon: string; label: string; onPress?: () => void }) {
+/**
+ * D1 후속(실기기 피드백 2): `icon`은 이제 문자열 글리프뿐 아니라 노드(Ionicons 등)도 받는다.
+ * 문자열이면 예전 그대로 Text로 그리므로 기존 호출부·픽셀 락 캡처는 바뀌지 않는다.
+ */
+export function QuickActionIconButton({ icon, label, onPress }: { icon: React.ReactNode; label: string; onPress?: () => void }) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -430,7 +434,7 @@ export function QuickActionIconButton({ icon, label, onPress }: { icon: string; 
           ...theme.shadows.card
         }}
       >
-        <Text style={{ color: theme.colors.brown, fontSize: 18 }}>{icon}</Text>
+        {typeof icon === "string" ? <Text style={{ color: theme.colors.brown, fontSize: 18 }}>{icon}</Text> : icon}
       </View>
       <Text style={[textStyles.caption, { color: theme.colors.brown, fontWeight: "700", textAlign: "center" }]}>{label}</Text>
     </Pressable>
@@ -498,7 +502,12 @@ export function ListRow({
   value,
   onPress
 }: {
-  icon?: string;
+  /**
+   * D1 후속(실기기 피드백 2): 문자열 글리프 외에 노드(Ionicons 등)도 받는다. 문자열이면
+   * 예전 그대로 coral Text로 그리므로 남아 있는 문자열 호출부는 그대로 동작한다.
+   * 여전히 선택 항목이라 알 수 없는 알림 종류처럼 undefined가 와도 안전하게 비운다.
+   */
+  icon?: React.ReactNode;
   title: string;
   subtitle?: string;
   value?: string;
@@ -507,7 +516,7 @@ export function ListRow({
   return (
     <Pressable accessibilityRole={onPress ? "button" : undefined} onPress={onPress}>
       <Card style={{ alignItems: "center", flexDirection: "row", gap: 12, paddingVertical: 12 }}>
-        {icon ? <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text> : null}
+        {typeof icon === "string" ? <Text style={{ color: theme.colors.mainCoral, fontSize: 20 }}>{icon}</Text> : icon}
         <View style={{ flex: 1 }}>
           <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700" }]}>{title}</Text>
           {subtitle ? <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{subtitle}</Text> : null}

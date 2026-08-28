@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { AccessibilityInfo, Animated, Image, Text, View } from "react-native";
+import { AccessibilityInfo, Animated, Image, Text, useWindowDimensions, View } from "react-native";
 import { AppScreen, PrimaryButton, TextButton } from "../src/ui";
 import { theme } from "../src/theme";
 import { SplashPixelStyles } from "../src/pixelLock/styles";
@@ -23,22 +23,59 @@ const animationStages = [
   { label: "고등학생", source: require("../assets/illustrations/growth_high.png") }
 ];
 
-function introImageStyle() {
+/** family.png 원본 비율(390x421). 실기기에서는 이 비율로 폭에 맞춰 높이를 잡는다. */
+const introImageAspectRatio = 390 / 421;
+/** 픽셀 락 기준 박스의 폭 -- 반응형 경로에서는 "이보다 커지지 않는다"는 상한으로만 쓴다. */
+const introImageMaxWidth = 390;
+/** AppScreen(ScrollView)의 좌우 패딩 -- 실기기에서 이미지가 쓸 수 있는 폭을 계산할 때 뺀다. */
+const splashHorizontalPadding = theme.spacing.screen * 2;
+/** 인트로 이미지가 세로로도 화면을 밀어내지 않도록 하는 상한(화면 높이 비율). */
+const introImageMaxHeightRatio = 0.42;
+const splashContentPaddingTop = 24;
+
+/**
+ * SPL-001 픽셀 락 캡처(`?pixelLock=1`)는 기준 이미지와 픽셀 단위로 맞춘 **고정 박스**
+ * (390x380 + SplashPixelStyles.introImageMarginTop)를 그대로 쓴다.
+ *
+ * 일반 실행은 그 고정 폭이 그대로 적용되던 것이 실기기(폭 390dp 미만)에서 첫 화면이
+ * 잘려 보이던 원인이라, 화면 폭·높이에 맞춰 줄어드는 박스를 쓴다. 픽셀 락 값은 건드리지
+ * 않으므로 캡처 결과는 예전과 동일하다.
+ */
+function introImageStyle(isPixelLockMode: boolean, windowWidth: number, windowHeight: number) {
+  if (isPixelLockMode) {
+    return {
+      height: SplashPixelStyles.introImageHeight,
+      marginTop: SplashPixelStyles.introImageMarginTop,
+      width: 390
+    };
+  }
+
+  const availableWidth = Math.max(0, windowWidth - splashHorizontalPadding);
+  const heightCappedWidth = Math.max(0, windowHeight * introImageMaxHeightRatio) * introImageAspectRatio;
+  const width = Math.min(introImageMaxWidth, availableWidth, heightCappedWidth);
+
   return {
-    height: SplashPixelStyles.introImageHeight,
-    marginTop: SplashPixelStyles.introImageMarginTop,
-    width: 390
-  } as const;
+    height: Math.round(width / introImageAspectRatio),
+    marginTop: splashContentPaddingTop,
+    width: Math.round(width)
+  };
 }
 
-function splashPixelFrameStyle() {
+/**
+ * 픽셀 락 전용 프레임 보정(위로 당기고 축소). 실기기에서는 이 변환이 화면 위쪽을 잘라
+ * 먹으므로 픽셀 락 모드가 아니면 아무 것도 얹지 않는다 -- 상단 여백도 여기서 갈린다.
+ */
+function splashPixelFrameStyle(isPixelLockMode: boolean) {
+  if (!isPixelLockMode) return null;
   return {
+    paddingTop: 112,
     transform: [{ translateY: SplashPixelStyles.topOffset }, { scale: SplashPixelStyles.groupScale }]
-  } as const;
+  };
 }
 
 export default function LaunchAnimationScreen() {
   const params = useLocalSearchParams<{ pixelLock?: string }>();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const [stageIndex, setStageIndex] = useState(-1);
   const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
@@ -118,12 +155,25 @@ export default function LaunchAnimationScreen() {
 
   return (
     <AppScreen>
-      <View style={[{ alignItems: "center", flex: 1, gap: SplashPixelStyles.logoGap, justifyContent: "flex-start", paddingTop: 112 }, splashPixelFrameStyle()]}>
+      <View
+        style={[
+          {
+            alignItems: "center",
+            flex: 1,
+            gap: SplashPixelStyles.logoGap,
+            justifyContent: "flex-start",
+            paddingTop: splashContentPaddingTop
+          },
+          splashPixelFrameStyle(isPixelLockMode)
+        ]}
+      >
         <Image
           testID={splashScreenId}
           source={splashLogo}
           style={{ height: SplashPixelStyles.logoSize, width: SplashPixelStyles.logoSize }}
-          resizeMode="cover"
+          // logo_mark.png는 96x86이라 정사각 박스에서 cover면 좌우가 잘린다. 픽셀 락 기준
+          // 이미지는 그 잘린 모습으로 굳어 있어 캡처 경로만 cover를 유지한다.
+          resizeMode={isPixelLockMode ? "cover" : "contain"}
         />
         <Text style={{ color: theme.colors.mainCoral, fontSize: SplashPixelStyles.titleFontSize, fontWeight: "800" }}>우리아이</Text>
         <Text style={{ color: theme.colors.gray600, fontSize: SplashPixelStyles.taglineFontSize, lineHeight: SplashPixelStyles.taglineLineHeight, maxWidth: SplashPixelStyles.taglineMaxWidth, textAlign: "center" }}>
@@ -133,7 +183,7 @@ export default function LaunchAnimationScreen() {
         <Animated.View style={{ opacity, transform: [{ scale }] }}>
           <Image
             source={currentStage.source}
-            style={stageIndex < 0 ? introImageStyle() : stageImageStyle}
+            style={stageIndex < 0 ? introImageStyle(isPixelLockMode, windowWidth, windowHeight) : stageImageStyle}
             resizeMode="contain"
           />
         </Animated.View>

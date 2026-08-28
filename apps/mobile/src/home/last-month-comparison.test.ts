@@ -311,7 +311,11 @@ describe("REP-121 home screen wiring contract", () => {
 
   it("announces the line as one labeled element with the decorative glyph hidden", () => {
     expect(homeSource).toContain("accessibilityLabel={lastMonthInsight.text}");
-    expect(homeSource).toContain("<Text accessible={false} style={homeLastMonthInsightStyle.glyph}>");
+    // D1 후속(실기기 피드백 2): 장식 글리프(▤)는 Ionicons로 바뀌었지만 "접근성 트리에서
+    // 감춘다"는 계약은 그대로다 -- 색·크기도 같은 스타일 토큰에서 그대로 읽어 쓴다.
+    expect(homeSource).toContain("accessible={false}\n                name=\"stats-chart-outline\"");
+    expect(homeSource).toContain("size={homeLastMonthInsightStyle.glyph.fontSize}");
+    expect(homeSource).toContain("color={homeLastMonthInsightStyle.glyph.color}");
     // 의미는 문장이 지고, 저대비 coral 소형 텍스트를 쓰지 않는다(A11Y-117).
     expect(homeSource).toContain("color: theme.colors.brown,\n    flex: 1,");
   });

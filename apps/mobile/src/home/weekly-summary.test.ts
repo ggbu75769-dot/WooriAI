@@ -418,6 +418,10 @@ describe("UX-A 주간 요약 화면 배선 계약 (app/(tabs)/index.tsx)", () =>
   it("카드에 소리용 라벨이 붙고 장식 글리프는 접근성 트리에서 감춰진다", () => {
     expect(homeSource).toContain("accessibilityLabel={weeklySummary.accessibilityLabel}");
     expect(homeSource).toContain('testID="home-weekly-summary"');
-    expect(homeSource).toContain("<Text accessible={false} style={homeWeeklySummaryStyle.glyph}>");
+    // D1 후속(실기기 피드백 2): 장식 글리프(▦)는 Ionicons로 바뀌었지만 "접근성 트리에서
+    // 감춘다"는 계약은 그대로다 -- 색·크기도 같은 스타일 토큰에서 그대로 읽어 쓴다.
+    expect(homeSource).toContain("accessible={false}\n                  name=\"calendar-outline\"");
+    expect(homeSource).toContain("size={homeWeeklySummaryStyle.glyph.fontSize}");
+    expect(homeSource).toContain("color={homeWeeklySummaryStyle.glyph.color}");
   });
 });

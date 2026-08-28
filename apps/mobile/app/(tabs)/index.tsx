@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect, useMemo, useRef } from "react";
@@ -129,6 +130,15 @@ function homePixelFrameStyle() {
     gap: theme.spacing.section,
     transform: [{ translateX: HomePixelStyles.horizontalOffset }, { translateY: HomePixelStyles.topOffset }]
   };
+}
+
+/**
+ * D1 후속(실기기 피드백 2): 퀵액션 4칸의 아이콘. 탭바(app/(tabs)/_layout.tsx)와 같은 Ionicons
+ * outlined 계열·같은 색 규칙을 쓰되, 퀵액션은 흰 원형 배지 위라 본문색(brown)을 쓴다 --
+ * 예전 QuickActionIconButton이 글리프에 주던 색·크기(brown / 18)를 그대로 옮긴 값이다.
+ */
+function QuickActionIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
+  return <Ionicons name={name} size={20} color={theme.colors.brown} />;
 }
 
 const homeBudgetNudgeStyle = StyleSheet.create({
@@ -1327,9 +1337,12 @@ export default function HomeScreen() {
               style={[homeWeeklySummaryStyle.card, theme.shadows.card]}
             >
               <View style={homeWeeklySummaryStyle.row}>
-                <Text accessible={false} style={homeWeeklySummaryStyle.glyph}>
-                  ▦
-                </Text>
+                <Ionicons
+                  accessible={false}
+                  name="calendar-outline"
+                  size={homeWeeklySummaryStyle.glyph.fontSize}
+                  color={homeWeeklySummaryStyle.glyph.color}
+                />
                 <Text style={homeWeeklySummaryStyle.text}>{weeklySummary.text}</Text>
               </View>
               <Text style={homeWeeklySummaryStyle.streak}>{weeklySummary.streakText}</Text>
@@ -1346,9 +1359,12 @@ export default function HomeScreen() {
             >
               <Card style={homeMilestoneStyle.card}>
                 <View style={homeMilestoneStyle.iconBox}>
-                  <Text accessible={false} style={homeMilestoneStyle.icon}>
-                    ★
-                  </Text>
+                  <Ionicons
+                    accessible={false}
+                    name="trophy-outline"
+                    size={homeMilestoneStyle.icon.fontSize}
+                    color={homeMilestoneStyle.icon.color}
+                  />
                 </View>
                 <View style={homeMilestoneStyle.copy}>
                   <Text style={homeMilestoneStyle.title}>{milestoneCountdown.title}</Text>
@@ -1378,9 +1394,12 @@ export default function HomeScreen() {
               style={[homeCumulativeTotalStyle.card, theme.shadows.card]}
             >
               <View style={homeCumulativeTotalStyle.row}>
-                <Text accessible={false} style={homeCumulativeTotalStyle.glyph}>
-                  ◈
-                </Text>
+                <Ionicons
+                  accessible={false}
+                  name="wallet-outline"
+                  size={homeCumulativeTotalStyle.glyph.fontSize}
+                  color={homeCumulativeTotalStyle.glyph.color}
+                />
                 <Text accessible={false} style={homeCumulativeTotalStyle.title}>
                   {cumulativeTotal.title}
                 </Text>
@@ -1392,10 +1411,12 @@ export default function HomeScreen() {
           ) : null}
 
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <QuickActionIconButton icon="▣" label="지출 기록" onPress={expenseGate.guard(() => router.push("/expenses/new"))} />
-            <QuickActionIconButton icon="☆" label="추천템" onPress={() => router.push("/(tabs)/items")} />
-            <QuickActionIconButton icon="▥" label="성장 리포트" onPress={() => router.push("/(tabs)/reports")} />
-            <QuickActionIconButton icon="☰" label="더보기" onPress={() => router.push("/(tabs)/more")} />
+            {/* D1 후속(실기기 피드백 2): 퀵액션 4개도 탭바와 같은 Ionicons outlined 계열로.
+                아이콘만 바뀌고 라벨·순서·목적지는 그대로다. HOME-001 기준 캡처는 재촬영 대상. */}
+            <QuickActionIconButton icon={<QuickActionIcon name="create-outline" />} label="지출 기록" onPress={expenseGate.guard(() => router.push("/expenses/new"))} />
+            <QuickActionIconButton icon={<QuickActionIcon name="cube-outline" />} label="추천템" onPress={() => router.push("/(tabs)/items")} />
+            <QuickActionIconButton icon={<QuickActionIcon name="bar-chart-outline" />} label="성장 리포트" onPress={() => router.push("/(tabs)/reports")} />
+            <QuickActionIconButton icon={<QuickActionIcon name="menu-outline" />} label="더보기" onPress={() => router.push("/(tabs)/more")} />
           </View>
 
           <Pressable
@@ -1406,7 +1427,11 @@ export default function HomeScreen() {
           >
             <Card style={homeBudgetNudgeStyle.card}>
               <View style={homeBudgetNudgeStyle.iconBox}>
-                <Text style={homeBudgetNudgeStyle.icon}>▮</Text>
+                <Ionicons
+                  name="wallet-outline"
+                  size={homeBudgetNudgeStyle.icon.fontSize}
+                  color={homeBudgetNudgeStyle.icon.color}
+                />
               </View>
               <View style={homeBudgetNudgeStyle.copy}>
                 <Text style={homeBudgetNudgeStyle.title}>{budgetNudge.title}</Text>
@@ -1425,9 +1450,12 @@ export default function HomeScreen() {
               testID="home-last-month-insight"
               style={[homeLastMonthInsightStyle.card, theme.shadows.card]}
             >
-              <Text accessible={false} style={homeLastMonthInsightStyle.glyph}>
-                ▤
-              </Text>
+              <Ionicons
+                accessible={false}
+                name="stats-chart-outline"
+                size={homeLastMonthInsightStyle.glyph.fontSize}
+                color={homeLastMonthInsightStyle.glyph.color}
+              />
               <Text style={homeLastMonthInsightStyle.text}>{lastMonthInsight.text}</Text>
             </View>
           ) : null}
@@ -1458,9 +1486,12 @@ export default function HomeScreen() {
                 testID={HOME_PENDING_SYNC_NOTICE_TEST_ID}
                 style={[homePendingSyncNoticeStyle.row, theme.shadows.card]}
               >
-                <Text accessible={false} style={homePendingSyncNoticeStyle.glyph}>
-                  ⟳
-                </Text>
+                <Ionicons
+                  accessible={false}
+                  name="sync-outline"
+                  size={homePendingSyncNoticeStyle.glyph.fontSize}
+                  color={homePendingSyncNoticeStyle.glyph.color}
+                />
                 <Text style={homePendingSyncNoticeStyle.text}>
                   {homePendingSyncNoticeText(pendingOfflineCreateCount)}
                 </Text>
@@ -1485,7 +1516,7 @@ export default function HomeScreen() {
             visibleHome.recentExpenses.slice(0, 3).map((expense) => (
               <ListRow
                 key={expense.id}
-                icon="▣"
+                icon={<Ionicons name="receipt-outline" size={20} color={theme.colors.mainCoral} />}
                 title={expense.itemName}
                 subtitle={homeRecentExpenseSubtitle(expense)}
                 value={formatKrw(expense.amountKrw)}

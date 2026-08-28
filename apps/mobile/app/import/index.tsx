@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { useMutation } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
@@ -40,20 +41,25 @@ function excelPreviewPixelFrameStyle() {
   } as const;
 }
 
+/**
+ * D1 후속(실기기 피드백 2): 카테고리 불릿을 텍스트 글리프(♥ 🍴 ▣ ◆ ✿ ●)에서 탭바와 같은
+ * Ionicons outlined 계열로 통일했다 -- 이모지 하나(🍴)만 컬러로 튀고 나머지는 기기 폰트에
+ * 따라 네모로 떨어져 6줄의 굵기·크기가 제각각이었다. 색·배경 톤·문구·순서는 그대로다.
+ */
 const excelPreviewRows = [
-  { icon: "♥", label: "기저귀/위생", amount: "₩425,000", percent: "34%", count: "42건", tone: "#FFF0EA", iconColor: theme.colors.mainCoral },
-  { icon: "🍴", label: "식비/간식", amount: "₩298,500", percent: "24%", count: "31건", tone: "#FFF5D7", iconColor: theme.colors.warning },
-  { icon: "▣", label: "분유/유제품", amount: "₩210,300", percent: "17%", count: "22건", tone: theme.colors.mint, iconColor: theme.colors.secondary500 },
-  { icon: "◆", label: "의류/잡화", amount: "₩156,200", percent: "13%", count: "18건", tone: "#EAF7F2", iconColor: theme.colors.success },
-  { icon: "✿", label: "장난감/도서", amount: "₩89,700", percent: "7%", count: "15건", tone: "#FFECE6", iconColor: theme.colors.subCoral },
-  { icon: "●", label: "기타", amount: "₩66,000", percent: "5%", count: "9건", tone: "#ECECEC", iconColor: theme.colors.gray600 }
-];
+  { icon: "water-outline", label: "기저귀/위생", amount: "₩425,000", percent: "34%", count: "42건", tone: "#FFF0EA", iconColor: theme.colors.mainCoral },
+  { icon: "restaurant-outline", label: "식비/간식", amount: "₩298,500", percent: "24%", count: "31건", tone: "#FFF5D7", iconColor: theme.colors.warning },
+  { icon: "cafe-outline", label: "분유/유제품", amount: "₩210,300", percent: "17%", count: "22건", tone: theme.colors.mint, iconColor: theme.colors.secondary500 },
+  { icon: "shirt-outline", label: "의류/잡화", amount: "₩156,200", percent: "13%", count: "18건", tone: "#EAF7F2", iconColor: theme.colors.success },
+  { icon: "book-outline", label: "장난감/도서", amount: "₩89,700", percent: "7%", count: "15건", tone: "#FFECE6", iconColor: theme.colors.subCoral },
+  { icon: "ellipsis-horizontal-outline", label: "기타", amount: "₩66,000", percent: "5%", count: "9건", tone: "#ECECEC", iconColor: theme.colors.gray600 }
+] as const satisfies readonly { icon: keyof typeof Ionicons.glyphMap; label: string; amount: string; percent: string; count: string; tone: string; iconColor: string }[];
 
 function ImportPreviewCategoryRow({ row }: { row: (typeof excelPreviewRows)[number] }) {
   return (
     <View style={[styles.previewRow, { minHeight: ExcelPreviewPixelStyles.rowHeight || 36 }]}>
       <View style={[styles.categoryIcon, { backgroundColor: row.tone }]}>
-        <Text style={{ color: row.iconColor, fontSize: 13, fontWeight: "800" }}>{row.icon}</Text>
+        <Ionicons name={row.icon} size={14} color={row.iconColor} />
       </View>
       <View style={styles.categoryLabelColumn}>
         <Text style={styles.categoryLabel}>{row.label}</Text>
@@ -158,7 +164,12 @@ export default function ImportUploadScreen() {
           style={excelUploadedFileCardStyle()}
         >
           <View accessible={false} style={styles.fileIcon}>
-            <Text accessible={false} style={styles.fileIconText}>▣</Text>
+            <Ionicons
+              accessible={false}
+              name="document-text-outline"
+              size={styles.fileIconText.fontSize}
+              color={styles.fileIconText.color}
+            />
           </View>
           <View style={styles.fileTextColumn}>
             <Text style={styles.fileName}>{showPreviewMockup ? "5월 지출내역.xlsx" : selectedFileName}</Text>
