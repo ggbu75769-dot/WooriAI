@@ -202,7 +202,14 @@ describe("client.ts 401 handling and single-flight refresh", () => {
     const fetchMock = vi.fn(async () => jsonResponse(401, { message: "unauthorized" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(getHome("wooriai-local-session", "child-1")).resolves.toBeDefined();
+    // 실기기 피드백 1: 로컬 세션은 이제 아이 없이 시작하므로, 홈을 조회하려면 온보딩이 하는
+    // 것과 같은 방식으로 아이를 먼저 만든다(예전에는 시드가 아이를 미리 만들어 두었다).
+    const localBackend = await import("./local-backend");
+    localBackend.resetLocalBackendForTests();
+    const created = localBackend.createChild({ nickname: "여정이" });
+    localBackend.updateChild(created.id, { stageMode: "manual", manualStage: "toddler_1_3" });
+
+    await expect(getHome("wooriai-local-session", created.id)).resolves.toBeDefined();
     // The local test token routes to the in-memory local backend, never touching fetch at all.
     expect(fetchMock).not.toHaveBeenCalled();
   });

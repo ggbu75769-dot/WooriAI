@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { getSeoulToday } from "@wooriai/domain";
 import * as localBackend from "./api/local-backend";
-import { LOCAL_CHILD_ID, LOCAL_ITEM_BLOCKS, LOCAL_ITEM_CARRIER, LOCAL_ITEM_DIAPER } from "./api/local-fixtures";
+import {
+  LOCAL_CHILD_ID,
+  LOCAL_HOUSEHOLD_ID,
+  LOCAL_ITEM_BLOCKS,
+  LOCAL_ITEM_CARRIER,
+  LOCAL_ITEM_DIAPER
+} from "./api/local-fixtures";
 
 const childId = LOCAL_CHILD_ID;
 
@@ -9,9 +15,20 @@ function currentYearMonth() {
   return getSeoulToday().slice(0, 7);
 }
 
+/** 서울 기준 오늘에서 n개월 전(YYYY-MM-DD). 아이 생년월일을 고정 날짜로 박지 않기 위한 헬퍼. */
+function seoulMonthsAgo(months: number): string {
+  const [year, month, day] = getSeoulToday().split("-").map(Number);
+  const total = year * 12 + (month - 1) - months;
+  const nextYear = Math.floor(total / 12);
+  const nextMonth = (total % 12) + 1;
+  const lastDay = new Date(Date.UTC(nextYear, nextMonth, 0)).getUTCDate();
+  return `${nextYear}-${String(nextMonth).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
 describe("Local test-mode backend data layer", () => {
   beforeEach(() => {
     localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
   });
 
   it("keeps the home total and the monthly report total in sync after a new expense", () => {
@@ -298,5 +315,103 @@ describe("Local test-mode backend data layer", () => {
       itemName: "연결 없는 지출"
     });
     expect(localBackend.getItemDetail(childId, LOCAL_ITEM_BLOCKS).status).toBe("not_prepared");
+  });
+});
+
+/**
+ * 실기기 피드백 1: 테스트 로그인이 실제로 도착하는 상태 -- 사용자 데이터 0, 콘텐츠만 있음.
+ * 위 describe와 달리 데모 픽스처를 arrange 하지 않는다(그것이 이 계약의 전부다).
+ */
+describe("Local test-mode backend zero start (테스트 로그인 = 신규 가입)", () => {
+  beforeEach(() => {
+    localBackend.resetLocalBackendForTests();
+  });
+
+  it("has no child, no expenses and no budget until the user creates them", () => {
+    expect(localBackend.listChildren().children).toEqual([]);
+    expect(localBackend.localChildId()).toBeNull();
+    expect(() => localBackend.getHome(LOCAL_CHILD_ID)).toThrow("아이 프로필을 찾을 수 없어요.");
+    // 카탈로그(앱 콘텐츠)는 아이가 없어도 그대로 있다.
+    expect(localBackend.listCategories().categories.length).toBeGreaterThan(0);
+  });
+
+  it("starts onboarding at the consents step and then asks for the child profile", () => {
+    expect(localBackend.onboardingStatus()).toMatchObject({ completed: false, nextStep: "consents" });
+    localBackend.upsertConsents();
+    // 예전에는 시드 아이 때문에 곧바로 prepared-items였다 -- 이제 실계정과 같이 아이부터 받는다.
+    expect(localBackend.onboardingStatus()).toMatchObject({ completed: false, nextStep: "child-profile" });
+    expect(localBackend.onboardingStatus().summary.child).toBeNull();
+  });
+
+  it("keeps a half-created child (단계 미설정) invisible until the stage input lands", () => {
+    localBackend.createChild({ nickname: "여정이" });
+    expect(localBackend.listChildren().children).toEqual([]);
+    expect(localBackend.onboardingStatus().nextStep).toBe("consents");
+
+    localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "born", birthDate: seoulMonthsAgo(2) });
+    const [child] = localBackend.listChildren().children;
+    expect(child).toMatchObject({ nickname: "여정이", stageMode: "born", dueDate: null, manualStage: null });
+    expect(child.currentStage).toBe("newborn_0_3");
+  });
+
+  it("mirrors the server's per-mode required stage input", () => {
+    localBackend.createChild({ nickname: "튼튼이" });
+    expect(() => localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "pregnant" })).toThrow(
+      "출산 예정일을 입력해 주세요."
+    );
+    expect(() => localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "born" })).toThrow(
+      "아이 생년월일을 입력해 주세요."
+    );
+    expect(() => localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "manual" })).toThrow(
+      "아이 단계를 선택해 주세요."
+    );
+    expect(() =>
+      localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "born", birthDate: "2999-01-01" })
+    ).toThrow("출생일은 오늘보다 미래일 수 없어요.");
+  });
+
+  it("allows only the 임신 중 → 태어남 transition once the stage is set (실서버 CHILD-127 규칙)", () => {
+    localBackend.createChild({ nickname: "튼튼이" });
+    localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "pregnant", dueDate: "2999-01-01" });
+    expect(localBackend.listChildren().children[0].currentStage).toBe("pregnancy_early");
+
+    // 임신 중인 아이에게는 100일/첫돌 리포트를 만들 수 없다(실서버 MILESTONE_UNAVAILABLE).
+    expect(() => localBackend.getMilestoneReport(LOCAL_CHILD_ID, "d100")).toThrow("아이 생년월일이 등록되어야");
+
+    const birthDate = seoulMonthsAgo(1);
+    localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "born", birthDate });
+    expect(localBackend.listChildren().children[0]).toMatchObject({ stageMode: "born", birthDate, dueDate: "2999-01-01" });
+    // 되돌리기는 막는다.
+    expect(() => localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "pregnant" })).toThrow(
+      "아이 상태는 임신 중에서 태어남으로만 바꿀 수 있어요."
+    );
+  });
+
+  /**
+   * 온보딩을 ONB-002까지만 하고 앱을 끈 뒤 다시 시작한 사용자. 이번엔 다른 시기를 골라도
+   * 저장이 막히면 안 된다 -- createChild가 프로필을 통째로 교체하므로 전환 규칙에 걸리지 않는다.
+   */
+  it("lets a restarted onboarding pick a different stage mode without dead-ending", () => {
+    localBackend.createChild({ nickname: "튼튼이" });
+    localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "born", birthDate: seoulMonthsAgo(3) });
+
+    localBackend.createChild({ nickname: "튼튼이" });
+    expect(() =>
+      localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "pregnant", dueDate: "2999-01-01" })
+    ).not.toThrow();
+    expect(localBackend.listChildren().children[0]).toMatchObject({
+      stageMode: "pregnant",
+      dueDate: "2999-01-01",
+      birthDate: null
+    });
+  });
+
+  it("starts the household with the owner alone and names invites after the child", () => {
+    expect(localBackend.listHouseholdMembers(LOCAL_HOUSEHOLD_ID).members.map((member) => member.role)).toEqual([
+      "owner"
+    ]);
+    localBackend.createChild({ nickname: "여정이" });
+    localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "manual", manualStage: "toddler_1_3" });
+    expect(localBackend.createInvite(LOCAL_HOUSEHOLD_ID, "co_parent", "link").householdName).toBe("여정이 패밀리");
   });
 });

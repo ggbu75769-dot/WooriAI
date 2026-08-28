@@ -12,6 +12,15 @@ import type {
 // Fixed identifiers for the local (server-less) test-mode backend. These never touch the
 // session store's accessToken/defaultHouseholdId/userId fields -- those must stay null for
 // an isTestSession per the local test login contract (see src/test-login-flow.test.ts).
+//
+// 실기기 피드백 1 이후 이 파일은 두 종류로 나뉜다:
+//   1) **앱 콘텐츠** -- 준비템 카탈로그(localItemTemplateFixtures)·상품 링크·고지 문구·
+//      카테고리·엑셀 가져오기 스텁 행. 실서버 시드에 해당하고 로컬 세션에서도 항상 살아 있다.
+//   2) **테스트 픽스처** -- localSeedExpenses·localMemberFixtures·LOCAL_DEFAULT_BUDGET_KRW.
+//      예전에는 테스트 로그인 시 자동으로 심어지던 "다온이" 데모 데이터였지만, 이제 테스트
+//      로그인도 데이터 0에서 시작하므로 프로덕션 경로에서는 아무도 쓰지 않는다. 남겨 둔
+//      이유는 "이미 기록이 쌓인 세션"을 arrange 하는 테스트 헬퍼
+//      (local-backend.ts의 seedLocalDemoFixturesForTests) 하나뿐이다.
 export const LOCAL_CHILD_ID = "local-child-daon";
 export const LOCAL_HOUSEHOLD_ID = "local-household-daon";
 export const LOCAL_USER_ID = "local-user-self";
@@ -105,8 +114,105 @@ export type LocalItemTemplateFixture = {
 export const LOCAL_ITEM_DIAPER = "10ca11fe-0000-4a01-8a01-f1c7deb0a001";
 export const LOCAL_ITEM_CARRIER = "10ca11fe-0000-4a02-8a02-f1c7deb0a002";
 export const LOCAL_ITEM_BLOCKS = "10ca11fe-0000-4a03-8a03-f1c7deb0a003";
+// 실기기 피드백 1: 임신~첫돌 시기의 카탈로그. 테스트 로그인이 데이터 0에서 시작하면서 아이의
+// 시기도 사용자가 정하게 됐는데, 예전 카탈로그는 걸음마기(toddler_1_3)와 그 이후만 담고 있어
+// 임신 중이나 신생아로 시작한 사용자에게 준비템 탭이 통째로 비어 보였다 -- 이 앱의 핵심 루프가
+// 도는 바로 그 시기다. 이름·시기·문구는 실서버 시드(apps/api/prisma/seed-data.ts의
+// itemTemplateSeeds)에서 그대로 가져와, 데모와 실계정이 같은 준비물을 말하게 한다.
+export const LOCAL_ITEM_PREGNANCY_VITAMIN = "10ca11fe-0000-4a04-8a04-f1c7deb0a004";
+export const LOCAL_ITEM_CAR_SEAT = "10ca11fe-0000-4a05-8a05-f1c7deb0a005";
+export const LOCAL_ITEM_DIAPER_STOCK = "10ca11fe-0000-4a06-8a06-f1c7deb0a006";
+export const LOCAL_ITEM_BABY_BATH = "10ca11fe-0000-4a07-8a07-f1c7deb0a007";
+export const LOCAL_ITEM_STROLLER = "10ca11fe-0000-4a08-8a08-f1c7deb0a008";
+export const LOCAL_ITEM_BABY_FOOD_MAKER = "10ca11fe-0000-4a09-8a09-f1c7deb0a009";
 
 export const localItemTemplateFixtures: LocalItemTemplateFixture[] = [
+  // --- 임신~첫돌 (실서버 시드 미러) ---
+  {
+    id: LOCAL_ITEM_PREGNANCY_VITAMIN,
+    name: "임산부 영양제",
+    necessityLevel: "essential",
+    timingLabel: "임신 초기부터",
+    priceMinKrw: 20_000,
+    priceMaxKrw: 80_000,
+    reasonText: "산모가 매달 챙기는 지출을 아이 준비 기록과 함께 남길 수 있어요.",
+    skipReasonText: null,
+    usedSecondhandOk: false,
+    safetyNote: "복용 여부와 종류는 담당 의료진 안내를 우선해요.",
+    displayOrder: 1,
+    stageCodes: ["pregnancy_early", "pregnancy_mid", "pregnancy_late"]
+  },
+  {
+    id: LOCAL_ITEM_CAR_SEAT,
+    name: "카시트",
+    necessityLevel: "essential",
+    timingLabel: "출산 전후",
+    priceMinKrw: 150_000,
+    priceMaxKrw: 700_000,
+    reasonText: "차량 이동이 있다면 퇴원과 외출 전에 안전 준비 상태를 확인해야 해요.",
+    skipReasonText: null,
+    usedSecondhandOk: false,
+    safetyNote: "안전 인증과 설치 상태를 확인하고 사고 이력이 있는 중고 제품은 피해요.",
+    displayOrder: 2,
+    stageCodes: ["pregnancy_late", "newborn_0_3"]
+  },
+  {
+    id: LOCAL_ITEM_DIAPER_STOCK,
+    name: "기저귀 첫 준비",
+    necessityLevel: "essential",
+    timingLabel: "출산 직전~0개월",
+    priceMinKrw: 30_000,
+    priceMaxKrw: 120_000,
+    reasonText: "출산 직후 반복 구매가 시작되는 기본 소모품이에요.",
+    skipReasonText: null,
+    usedSecondhandOk: false,
+    safetyNote: null,
+    displayOrder: 3,
+    stageCodes: ["pregnancy_late", "newborn_0_3"]
+  },
+  {
+    id: LOCAL_ITEM_BABY_BATH,
+    name: "아기 욕조",
+    necessityLevel: "convenience",
+    timingLabel: "출산 전후",
+    priceMinKrw: 15_000,
+    priceMaxKrw: 80_000,
+    reasonText: "초기 목욕 시간을 안정적으로 만들 수 있는 편의 준비템이에요.",
+    skipReasonText: "세면대나 큰 대야를 안전하게 쓸 수 있다면 바로 사지 않아도 돼요.",
+    usedSecondhandOk: true,
+    safetyNote: "물 사용 중에는 아이 곁을 떠나지 않아요.",
+    displayOrder: 4,
+    stageCodes: ["pregnancy_late", "newborn_0_3", "infant_4_6"]
+  },
+  {
+    id: LOCAL_ITEM_STROLLER,
+    name: "유모차",
+    necessityLevel: "optional",
+    timingLabel: "외출이 늘어날 때",
+    priceMinKrw: 100_000,
+    priceMaxKrw: 1_200_000,
+    reasonText: "생활 반경과 이동 방식에 따라 외출 부담을 줄여주는 선택 준비템이에요.",
+    skipReasonText: "차량 이동이 적거나 아기띠로 충분한 시기라면 구매를 늦춰도 돼요.",
+    usedSecondhandOk: true,
+    safetyNote: "프레임 잠금, 브레이크, 안전벨트 상태를 확인해요.",
+    displayOrder: 5,
+    stageCodes: ["newborn_0_3", "infant_4_6", "infant_7_12"]
+  },
+  {
+    id: LOCAL_ITEM_BABY_FOOD_MAKER,
+    name: "이유식 조리 도구",
+    necessityLevel: "convenience",
+    timingLabel: "4~6개월 전후",
+    priceMinKrw: 20_000,
+    priceMaxKrw: 200_000,
+    reasonText: "이유식 시작 시 조리와 보관 흐름을 편하게 만드는 준비템이에요.",
+    skipReasonText: "집에 있는 조리 도구와 보관 용기로 충분하면 별도 구매하지 않아도 돼요.",
+    usedSecondhandOk: true,
+    safetyNote: "소독과 세척이 쉬운 구조인지 확인해요.",
+    displayOrder: 6,
+    stageCodes: ["infant_4_6", "infant_7_12"]
+  },
+  // --- 걸음마기 이후(기존 픽스처) ---
   {
     id: LOCAL_ITEM_DIAPER,
     name: "네이처러브 기저귀 팬티형",
@@ -152,6 +258,44 @@ export const localItemTemplateFixtures: LocalItemTemplateFixture[] = [
 ];
 
 export const localProductLinkFixtures: LocalProductLinkFixture[] = [
+  // 임신~첫돌 준비템의 구매 링크. 제휴 여부 고지는 실제 노출 문구 그대로 싣는다(DNC-010) --
+  // 데모라고 해서 고지를 비우거나 없는 제휴를 있는 척하지 않는다.
+  {
+    id: "local-link-car-seat-coupang",
+    itemTemplateId: LOCAL_ITEM_CAR_SEAT,
+    platform: "coupang",
+    title: "쿠팡",
+    url: "https://example.com/coupang/car-seat",
+    affiliateUrl: "https://example.com/coupang/car-seat?ref=wooriai",
+    isAffiliate: true,
+    isSponsored: false,
+    disclosureText: "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
+    displayOrder: 10
+  },
+  {
+    id: "local-link-diaper-stock-naver",
+    itemTemplateId: LOCAL_ITEM_DIAPER_STOCK,
+    platform: "naver",
+    title: "네이버 스토어",
+    url: "https://example.com/naver/diaper-stock",
+    affiliateUrl: null,
+    isAffiliate: false,
+    isSponsored: false,
+    disclosureText: null,
+    displayOrder: 10
+  },
+  {
+    id: "local-link-stroller-coupang",
+    itemTemplateId: LOCAL_ITEM_STROLLER,
+    platform: "coupang",
+    title: "쿠팡",
+    url: "https://example.com/coupang/stroller",
+    affiliateUrl: "https://example.com/coupang/stroller?ref=wooriai",
+    isAffiliate: true,
+    isSponsored: false,
+    disclosureText: "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
+    displayOrder: 10
+  },
   {
     id: "local-link-diaper-affiliate",
     itemTemplateId: LOCAL_ITEM_DIAPER,

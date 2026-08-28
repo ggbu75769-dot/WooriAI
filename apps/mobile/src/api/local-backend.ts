@@ -3,9 +3,12 @@ import {
   calculateChildStage,
   getSeoulMonthRange,
   getSeoulToday,
+  isChildStageCode,
   isFutureSeoulDate,
   sortRecommendedItems,
+  type CalculatedChildStage,
   type ChildStageCode,
+  type ChildStageMode,
   type ExpenseSource,
   type ExpenseType,
   type ImportStatus,
@@ -123,10 +126,22 @@ export class LocalVersionConflictError extends Error {
   }
 }
 
+/**
+ * 실서버 `children` 행의 로컬 판본 — 실계정과 같은 네 가지 단계 입력(stageMode + 예정일/
+ * 출생일/수동 단계)을 그대로 들고 있다. 예전에는 `birthDate` 하나뿐이라 데모 세션의 아이는
+ * 언제나 "태어난 아이"였고, 임신 중으로 시작하는 사용자를 표현할 방법이 없었다.
+ *
+ * `stageMode: null`은 **아직 단계 입력이 끝나지 않은 아이**다(아래 createChild 주석 참고).
+ * requireChild/listChildren은 이 상태를 "아이 없음"으로 본다 — 절반만 만들어진 아이를
+ * 홈·리포트·준비템에 노출하지 않기 위한 것이고, 온보딩 ONB-002가 곧바로 채운다.
+ */
 type LocalChildRecord = {
   id: string;
   nickname: string;
-  birthDate: string;
+  stageMode: ChildStageMode | null;
+  dueDate: string | null;
+  birthDate: string | null;
+  manualStage: ChildStageCode | null;
   deletedAt: string | null;
 };
 
@@ -264,15 +279,34 @@ function sanitizeLocalExpenseRecord(value: unknown): LocalExpenseRecord | null {
   };
 }
 
+function optionalDateOnly(value: unknown): string | null {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
 function sanitizeLocalChildRecord(value: unknown): LocalChildRecord | null {
   if (!isPlainObject(value)) return null;
-  if (typeof value.id !== "string" || typeof value.nickname !== "string" || typeof value.birthDate !== "string") {
+  if (typeof value.id !== "string" || typeof value.nickname !== "string") {
     return null;
   }
+  const birthDate = optionalDateOnly(value.birthDate);
+  const dueDate = optionalDateOnly(value.dueDate);
+  const manualStage = isChildStageCode(value.manualStage) ? value.manualStage : null;
+  // 저장된 블롭이 stageMode를 모르는 판본(라운드 50 이전 = birthDate만 있던 아이)일 수도 있으므로
+  // 값이 없으면 실제로 들고 있는 날짜에서 되짚는다. 무엇으로도 단계를 계산할 수 없으면 null
+  // (= 미완성 아이)로 두어 화면에 노출되지 않게 한다 -- 없는 날짜를 지어내지 않는다.
+  const storedMode =
+    value.stageMode === "pregnant" || value.stageMode === "born" || value.stageMode === "manual"
+      ? value.stageMode
+      : null;
+  const stageMode: ChildStageMode | null =
+    storedMode ?? (birthDate ? "born" : dueDate ? "pregnant" : manualStage ? "manual" : null);
   return {
     id: value.id,
     nickname: value.nickname,
-    birthDate: value.birthDate,
+    stageMode,
+    dueDate,
+    birthDate,
+    manualStage,
     deletedAt: typeof value.deletedAt === "string" ? value.deletedAt : null
   };
 }
@@ -320,8 +354,15 @@ export const useLocalBackendStore = create<LocalBackendState>()(
     // MOB-107: bumped from 1 -> 2 for the `version` field added to every expense record
     // (MOB-102/103) plus `preparedItemsCompleted`/`idempotencyKeys` (MOB-101/102), none of which
     // existed in round4 or earlier (all persisted at version 1) -- `migrate` backfills them.
-    version: 2,
-    migrate: (persisted) => sanitizeLocalBackendState(persisted),
+    //
+    // 실기기 피드백 1 (zero-start): 3은 **데이터 이전이 아니라 일회성 초기화**다. 버전 2 이하로
+    // 저장된 로컬 백엔드는 예외 없이 "다온이" 데모 데이터(아이·시드 지출·가구 구성원·예산)를
+    // 자동 생성한 세션이고, 사용자가 요청한 것은 그 데이터 없이 0에서 시작하는 것이다. 이미
+    // 설치된 데모 APK를 열었을 때 예전 데모 데이터가 남아 있으면 요청 자체가 지켜지지 않으므로,
+    // 옛 블롭은 필드를 옮기지 않고 initialState로 되돌린다(= 온보딩부터 다시 시작). 3 이상에서
+    // 저장된 것은 사용자가 직접 입력한 기록이므로 종전대로 필드 단위로 살려 낸다.
+    version: 3,
+    migrate: (persisted, version) => (version < 3 ? { ...initialState } : sanitizeLocalBackendState(persisted)),
     merge: (persisted, current) => ({
       ...current,
       ...sanitizeLocalBackendState(persisted)
@@ -340,7 +381,7 @@ function wipeLocalBackendState() {
   });
 }
 
-/** Test-only helper: wipes the local backend so the next call reseeds from fixtures. */
+/** Test-only helper: wipes the local backend back to the zero state a fresh install has. */
 export function resetLocalBackendForTests() {
   wipeLocalBackendState();
 }
@@ -380,22 +421,83 @@ function seoulDateMinusMonths(dateOnly: string, months: number): string {
   return `${nextYear}-${String(nextMonth).padStart(2, "0")}-${String(clampedDay).padStart(2, "0")}`;
 }
 
-/** Public seed trigger, called from session.store.ts when a local test session starts. */
+/** Public init trigger, called from session.store.ts when a local test session starts. */
 export function ensureLocalBackendSeeded() {
   ensureSeeded();
 }
 
+/**
+ * 로컬 세션의 가구 관리자 = 이 기기의 사용자 본인. 실서버에서는 가입 순간 가구와 owner
+ * 구성원이 함께 만들어지고, 로컬 세션에는 가입이라는 서버 왕복이 없으므로 여기가 그 자리다.
+ * "아빠" 같은 다른 구성원은 데모 데이터라 더 이상 만들지 않는다 -- 가족 화면은 실계정 신규
+ * 가입과 똑같이 **나 혼자**로 시작하고, 초대를 수락해야 늘어난다.
+ */
+function localOwnerMember(): LocalMemberRecord {
+  return {
+    id: "local-member-self",
+    householdId: LOCAL_HOUSEHOLD_ID,
+    userId: LOCAL_USER_ID,
+    displayName: "나",
+    role: "owner",
+    status: "active"
+  };
+}
+
+/**
+ * 실기기 피드백 1: 여기서 만드는 것은 **앱 콘텐츠뿐**이다.
+ *
+ * 예전에는 이 함수가 데모 아이("다온이", 생후 24개월)·시드 지출 3건·가구 구성원 2명·이번 달
+ * 예산까지 자동으로 만들어 두었고, 테스트 로그인을 누르면 그 데이터가 이미 쌓인 홈으로 곧장
+ * 들어갔다. 사용자가 요청한 것은 정반대다 -- 테스트 로그인도 실계정 신규 가입과 똑같이
+ * **데이터 0에서 시작**하고 아이 정보는 온보딩에서 직접 입력한다.
+ *
+ * 그래서 사용자 데이터는 하나도 만들지 않는다. 준비템 카탈로그·카테고리·상품 링크·고지 문구는
+ * 실서버의 시드(콘텐츠)에 해당하므로 그대로 남는다 -- 그것까지 비우면 준비템 탭이 동작하지
+ * 않는다. 카탈로그는 상태가 아니라 상수(local-fixtures.ts)라 이 스토어에 담지도 않는다.
+ *
+ * 남는 유일한 "계정" 흔적은 가구 관리자 한 명(본인)이다. 위 localOwnerMember 주석 참고.
+ */
 function ensureSeeded() {
   const state = useLocalBackendStore.getState();
   if (state.seeded) return;
 
+  useLocalBackendStore.setState({
+    ...initialState,
+    seeded: true,
+    members: [localOwnerMember()]
+  });
+}
+
+/**
+ * 테스트 전용: 예전 `ensureSeeded()`가 만들던 데모 데이터(아이 "다온이" + 시드 지출 + 가구
+ * 구성원 2명 + 이번 달 예산)를 그대로 만들어 둔다.
+ *
+ * 프로덕션은 이 데이터를 절대 만들지 않는다(위 ensureSeeded 참고). 그럼에도 헬퍼를 남기는
+ * 이유는, 기존 데이터 계층·여정 테스트들이 "이미 기록이 쌓인 세션"을 전제로 검증하기
+ * 때문이다 -- 그 상태 자체는 사용자가 앱을 며칠 쓰면 실제로 도달하는 상태이므로 테스트의
+ * arrange 단계로서 정당하다. 0에서 시작하는 동작은 `resetLocalBackendForTests()`만 부르면
+ * 그대로 관찰할 수 있다.
+ */
+export function seedLocalDemoFixturesForTests() {
   const today = getSeoulToday();
   const yearMonth = getSeoulMonthRange(today).yearMonth;
   const birthDate = seoulDateMinusMonths(today, 24);
+  const now = new Date().toISOString();
 
-  const expenses: LocalExpenseRecord[] = localSeedExpenses.map((seed) => {
-    const now = new Date().toISOString();
-    return {
+  useLocalBackendStore.setState({
+    ...initialState,
+    seeded: true,
+    child: {
+      id: LOCAL_CHILD_ID,
+      nickname: "다온이",
+      stageMode: "born",
+      dueDate: null,
+      birthDate,
+      manualStage: null,
+      deletedAt: null
+    },
+    budgets: { [yearMonth]: LOCAL_DEFAULT_BUDGET_KRW },
+    expenses: localSeedExpenses.map((seed) => ({
       id: generateLocalId("expense"),
       childId: LOCAL_CHILD_ID,
       categoryId: seed.categoryId,
@@ -412,24 +514,8 @@ function ensureSeeded() {
       updatedAt: now,
       deletedAt: null,
       version: 1
-    };
-  });
-
-  const members: LocalMemberRecord[] = localMemberFixtures.map((member) => ({ ...member }));
-
-  useLocalBackendStore.setState({
-    seeded: true,
-    child: { id: LOCAL_CHILD_ID, nickname: "다온이", birthDate, deletedAt: null },
-    budgets: { [yearMonth]: LOCAL_DEFAULT_BUDGET_KRW },
-    expenses,
-    itemStatuses: {},
-    members,
-    invites: [],
-    importJobs: [],
-    importRows: {},
-    consents: [],
-    accountDeletedAt: null,
-    idempotencyKeys: {}
+    })),
+    members: localMemberFixtures.map((member) => ({ ...member }))
   });
 }
 
@@ -478,17 +564,47 @@ function cleanOptionalText(value?: string | null): string | null {
   return cleaned ? cleaned : null;
 }
 
+/** 단계 계산에 필요한 입력이 다 갖춰진 아이인지. stageMode만 있고 날짜가 없으면 미완성이다. */
+function isCompleteChild(child: LocalChildRecord | null): child is LocalChildRecord {
+  if (!child || child.deletedAt) return false;
+  if (child.stageMode === "pregnant") return Boolean(child.dueDate);
+  if (child.stageMode === "born") return Boolean(child.birthDate);
+  if (child.stageMode === "manual") return Boolean(child.manualStage);
+  return false;
+}
+
 function requireChild(): LocalChildRecord {
   ensureSeeded();
   const child = useLocalBackendStore.getState().child;
-  if (!child || child.deletedAt) {
+  if (!isCompleteChild(child)) {
     throw new Error("아이 프로필을 찾을 수 없어요.");
   }
   return child;
 }
 
+/**
+ * 실서버 toChildDto(apps/api/src/onboarding/store-shared.ts)와 **같은 갈래**로 단계를 계산한다 --
+ * 임신 중이면 예정일, 태어났으면 출생일, 수동이면 고른 단계. 예전에는 갈래 없이 언제나
+ * `stageMode: "born"`이었고, 그래서 데모 세션에는 임신 중인 아이가 존재할 수 없었다.
+ */
+function calculatedStageFor(child: LocalChildRecord): CalculatedChildStage {
+  const today = getSeoulToday();
+  if (child.stageMode === "pregnant" && child.dueDate) {
+    return calculateChildStage({ stageMode: "pregnant", dueDate: child.dueDate, today });
+  }
+  if (child.stageMode === "born" && child.birthDate) {
+    return calculateChildStage({ stageMode: "born", birthDate: child.birthDate, today });
+  }
+  if (child.stageMode === "manual" && child.manualStage) {
+    return calculateChildStage({ stageMode: "manual", manualStage: child.manualStage, today });
+  }
+  // requireChild/isCompleteChild를 통과한 아이만 여기 오므로 도달하지 않는다. 도달했다면
+  // 단계를 지어내는 대신 실패시킨다(허위 표시 금지).
+  throw new Error("아이 프로필을 찾을 수 없어요.");
+}
+
 function toChildDto(child: LocalChildRecord) {
-  const calculated = calculateChildStage({ stageMode: "born", birthDate: child.birthDate, today: getSeoulToday() });
+  const calculated = calculatedStageFor(child);
   return {
     id: child.id,
     nickname: child.nickname,
@@ -498,8 +614,7 @@ function toChildDto(child: LocalChildRecord) {
 }
 
 function currentStageCode(): ChildStageCode {
-  const child = requireChild();
-  return calculateChildStage({ stageMode: "born", birthDate: child.birthDate, today: getSeoulToday() }).stageCode;
+  return calculatedStageFor(requireChild()).stageCode;
 }
 
 function expensesForChild(childId: string, yearMonth?: string): LocalExpenseRecord[] {
@@ -797,7 +912,10 @@ export function getExpense(expenseId: string): Expense {
 export function updateExpense(
   expenseId: string,
   body: Partial<
-    Pick<Expense, "categoryId" | "amountKrw" | "spentOn" | "itemName" | "memo" | "paymentMethod" | "expenseType">
+    Pick<
+      Expense,
+      "categoryId" | "amountKrw" | "spentOn" | "itemName" | "merchant" | "memo" | "paymentMethod" | "expenseType"
+    >
   >,
   expectedVersion?: number
 ): Expense {
@@ -824,6 +942,9 @@ export function updateExpense(
     if (!itemName) throw new Error("품목명을 입력해 주세요.");
     updated.itemName = itemName;
   }
+  // R49-B 후속: 실서버 PATCH가 받는 판매처를 데모/로컬 세션도 같이 받는다 -- 빠뜨리면 수정
+  // 화면에서 판매처만 조용히 되돌아간다(memo와 같은 정규화: 빈 문자열은 null).
+  if (body.merchant !== undefined) updated.merchant = cleanOptionalText(body.merchant ?? undefined);
   if (body.memo !== undefined) updated.memo = cleanOptionalText(body.memo ?? undefined);
   // 라운드 48 QA(P2-6): 실서버 PATCH가 결제 수단을 받게 됐으므로 데모/로컬 세션도 같이 받는다 --
   // 충돌 병합이 고른 값이 실서버에서만 반영되고 데모에서만 사라지면 두 경로가 갈린다.
@@ -993,14 +1114,22 @@ function diffDateOnlyDays(startInclusive: string, endExclusive: string): number 
 /**
  * REP-103: local-session mirror of GET /children/:childId/reports/milestone.
  *
- * The demo child's birthDate is seeded ~24 months ago while the demo expenses are seeded
- * within the last few days (local-fixtures.ts `daysAgo`), so the true milestone window
- * [birthDate, birthDate+100d/1y) contains no fixture expenses. When that happens the
- * aggregation falls back to every stored (non-deleted, expenseType "expense") record so
- * the demo preview still shows a representative 100일 리포트 instead of an empty card.
+ * 생년월일이 없는 아이(임신 중·수동 단계)는 실서버와 같이 거절한다 -- 서버는 400
+ * MILESTONE_UNAVAILABLE로 답하고, 리포트 탭은 그 실패를 "카드 숨김"으로 읽는다
+ * (app/(tabs)/reports.tsx). 문구도 서버(milestone-report.service.ts)와 같게 둔다.
+ *
+ * 실기기 피드백 1: 예전에는 창 안에 기록이 하나도 없으면 **저장된 모든 지출**로 대신 집계하는
+ * 폴백이 있었다. 시드 지출이 생후 24개월 아이의 100일 창 밖에 있어 데모 카드가 늘 비던 것을
+ * 메우려던 장치인데, 이제 기록은 전부 사용자가 직접 넣은 것이라 그 폴백은 "100일 리포트"라는
+ * 이름으로 100일과 무관한 지출을 합쳐 보여주는 허위 표시가 된다. 창 밖 기록은 집계하지 않는다.
  */
 export function getMilestoneReport(childId: string, type: MilestoneReportType): MilestoneReport {
   const child = requireChild();
+  if (!child.birthDate) {
+    throw new Error(
+      "아이 생년월일이 등록되어야 100일/첫돌 리포트를 만들 수 있어요. 아이 프로필에서 생년월일을 입력해 주세요."
+    );
+  }
   const startDate = child.birthDate;
   const windowEndExclusive =
     type === "d100" ? seoulDateMinusDays(startDate, -100) : seoulDateMinusMonths(startDate, -12);
@@ -1010,9 +1139,9 @@ export function getMilestoneReport(childId: string, type: MilestoneReportType): 
   const partial = coveredEndExclusive < windowEndExclusive;
   const daysCovered = diffDateOnlyDays(startDate, coveredEndExclusive);
 
-  const stored = expensesForChild(childId).filter((expense) => countsTowardMonthlyTotal(expense.expenseType));
-  const inWindow = stored.filter((expense) => expense.spentOn >= startDate && expense.spentOn < coveredEndExclusive);
-  const aggregated = inWindow.length > 0 ? inWindow : stored;
+  const aggregated = expensesForChild(childId)
+    .filter((expense) => countsTowardMonthlyTotal(expense.expenseType))
+    .filter((expense) => expense.spentOn >= startDate && expense.spentOn < coveredEndExclusive);
 
   const totalKrw = totalExpenseKrw(aggregated);
   const categoryMetaById = new Map(listCategories().categories.map((category) => [category.id, category]));
@@ -1246,6 +1375,13 @@ export function removeHouseholdMember(householdId: string, memberId: string): { 
   return { success: true };
 }
 
+/** 초대 미리보기·수락 화면이 읽는 가구 이름. 아이 별명에서 만들고, 아직 없으면 중립 문구. */
+function localHouseholdName(): string {
+  const child = useLocalBackendStore.getState().child;
+  const nickname = child && !child.deletedAt ? child.nickname.trim() : "";
+  return nickname ? `${nickname} 패밀리` : "우리 가족";
+}
+
 export function createInvite(householdId: string, role: "co_parent" | "viewer" | "gift_participant", channel: InviteChannel): InviteResponse {
   ensureSeeded();
   const token = generateLocalId("invite");
@@ -1255,7 +1391,10 @@ export function createInvite(householdId: string, role: "co_parent" | "viewer" |
     id: generateLocalId("invite-id"),
     token,
     householdId,
-    householdName: "다온이 패밀리",
+    // 실기기 피드백 1: 예전에는 데모 아이 이름이 박힌 "다온이 패밀리" 고정 문자열이었다.
+    // 아이는 이제 사용자가 직접 만들므로 그 별명에서 가구 이름을 만든다(아직 아이가 없으면
+    // 이름을 지어내지 않고 중립적인 "우리 가족").
+    householdName: localHouseholdName(),
     role,
     channel,
     createdAt: now.toISOString(),
@@ -1582,29 +1721,59 @@ export function upsertConsents(): { success: boolean } {
   return { success: true };
 }
 
+/**
+ * 실기기 피드백 1: 이제 진짜로 **아이를 만든다**. 예전에는 시드가 이미 만들어 둔 "다온이"의
+ * 이름만 바꿔 줬고, 그래서 온보딩 ONB-002를 지나도 아이는 언제나 데모 아이였다.
+ *
+ * 단계 입력(stageMode·예정일/출생일/수동 단계)이 여기 없는 이유: client.ts의 로컬 분기가
+ * `createChild(token, body)`에서 `{ nickname }`만 로컬 백엔드로 넘긴다. 그래서 아이는 단계
+ * 미설정(stageMode: null) 상태로 만들어지고, 온보딩이 곧바로 `updateChild`로 나머지를 채운다
+ * (src/onboarding/child-create.ts 참고). 미설정 아이는 requireChild/listChildren이 "없음"으로
+ * 보므로 그 사이에 절반짜리 아이가 화면에 나오지 않는다.
+ *
+ * 로컬 백엔드는 아이를 한 명만 들 수 있어, 이미 아이가 있으면 두 번째를 만드는 대신 그 한
+ * 자리를 **통째로 새 프로필로 교체**한다(이름과 단계 입력이 함께 초기화된다). 예전처럼 이름만
+ * 바꾸고 예전 단계 입력을 남겨 두면, 온보딩을 중간에 끊고 다시 시작한 사용자가 이번엔 다른
+ * 시기를 골랐을 때 아래 updateChild의 전환 규칙(임신 중 → 태어남만 허용)에 걸려 저장 자체가
+ * 막히는 막다른 길이 생긴다. 설정 화면이 데모 세션에서 아이 추가를 아예 열지 않는 이유도
+ * 이것이다(app/settings/children.tsx의 isDemoSession) -- 데모에서 "추가"는 교체다.
+ */
 export function createChild(body: { nickname: string }): { id: string } {
   ensureSeeded();
-  useLocalBackendStore.setState((state) => ({
-    child: state.child ? { ...state.child, nickname: body.nickname.trim() || state.child.nickname } : state.child
-  }));
+  const nickname = body.nickname.trim();
+  if (!nickname) {
+    throw new Error("태명 또는 별명을 입력해 주세요.");
+  }
+  useLocalBackendStore.setState({
+    child: {
+      id: LOCAL_CHILD_ID,
+      nickname,
+      stageMode: null,
+      dueDate: null,
+      birthDate: null,
+      manualStage: null,
+      deletedAt: null
+    }
+  });
   return { id: LOCAL_CHILD_ID };
 }
 
 /**
  * MOB-118: full-detail child DTO matching the real API's GET /children entry (`Child` in
- * client.ts). The local demo backend keeps a single born-mode child, so the list has at most
- * one entry and stageMode is always "born" here.
+ * client.ts). The local backend keeps a single child, whose stageMode is whatever the user
+ * chose in onboarding (임신 중 / 태어남 / 직접 선택).
  */
 function toFullChildDto(child: LocalChildRecord): Child {
-  const calculated = calculateChildStage({ stageMode: "born", birthDate: child.birthDate, today: getSeoulToday() });
+  const calculated = calculatedStageFor(child);
   return {
     id: child.id,
     householdId: LOCAL_HOUSEHOLD_ID,
     nickname: child.nickname,
-    stageMode: "born",
-    dueDate: null,
+    // isCompleteChild를 통과한 아이만 이 함수에 온다(= stageMode가 null이 아니다).
+    stageMode: child.stageMode as ChildStageMode,
+    dueDate: child.dueDate,
     birthDate: child.birthDate,
-    manualStage: null,
+    manualStage: child.manualStage,
     currentStage: calculated.stageCode,
     stageLabel: calculated.stageLabel
   };
@@ -1614,35 +1783,93 @@ function toFullChildDto(child: LocalChildRecord): Child {
 export function listChildren(): { children: Child[] } {
   ensureSeeded();
   const child = useLocalBackendStore.getState().child;
-  return { children: child && !child.deletedAt ? [toFullChildDto(child)] : [] };
+  return { children: isCompleteChild(child) ? [toFullChildDto(child)] : [] };
 }
 
 /**
- * MOB-118: local mirror of PATCH /children/:childId. The local child is always born-mode, so
- * only `nickname` and `birthDate` apply; a future birth date is rejected with the same message
- * the UI's shared guard uses (the real server enforces this via stage calculation inputs).
+ * 실기기 피드백 1: 이 기기의 로컬 세션이 온보딩에서 아이를 만들었는지 -- 만들었으면 그 id.
+ *
+ * 라우팅 판정용 순수 조회다(요청 0건). 테스트 로그인도 실계정처럼 아이 없이 시작하므로,
+ * app/index.tsx와 session.store.ts는 "고정된 데모 아이 id"를 가정하는 대신 이 값을 본다.
+ */
+export function localChildId(): string | null {
+  ensureSeeded();
+  const child = useLocalBackendStore.getState().child;
+  return isCompleteChild(child) ? child.id : null;
+}
+
+/**
+ * 실서버 normalizeChildInput(apps/api/src/onboarding/onboarding-core.service.ts)의 로컬 판본 --
+ * 모드별로 반드시 있어야 하는 입력을 같은 문구로 요구한다. 온보딩 화면도 같은 문구를 쓰므로
+ * (src/children/child-form.ts) 데모와 실세션이 다른 말을 하지 않는다.
+ */
+function assertChildStageInput(input: {
+  stageMode: ChildStageMode;
+  dueDate: string | null;
+  birthDate: string | null;
+  manualStage: ChildStageCode | null;
+}) {
+  if (input.stageMode === "pregnant" && !input.dueDate) {
+    throw new Error("출산 예정일을 입력해 주세요.");
+  }
+  if (input.stageMode === "born" && !input.birthDate) {
+    throw new Error("아이 생년월일을 입력해 주세요.");
+  }
+  if (input.stageMode === "manual" && !input.manualStage) {
+    throw new Error("아이 단계를 선택해 주세요.");
+  }
+}
+
+/**
+ * MOB-118 / CHILD-127: local mirror of PATCH /children/:childId.
+ *
+ * 단계 전환 규칙은 실서버와 같다 -- `pregnant → born` 한 방향만 허용하고 그때 출생일이 같은
+ * 요청에 함께 와야 한다. 단 하나 다른 점은 **단계 미설정 아이의 최초 설정**을 허용한다는
+ * 것이다: 로컬 세션에서는 createChild가 별명만 받으므로(위 주석) 온보딩이 곧바로 이 경로로
+ * 나머지 단계 입력을 채운다. 그건 전환이 아니라 생성의 뒷부분이다.
  */
 export function updateChild(
   childId: string,
-  body: { nickname?: string; dueDate?: string; birthDate?: string; manualStage?: string }
+  body: { nickname?: string; stageMode?: string; dueDate?: string; birthDate?: string; manualStage?: string }
 ): Child {
-  const child = requireChild();
-  if (child.id !== childId) {
+  ensureSeeded();
+  const child = useLocalBackendStore.getState().child;
+  if (!child || child.deletedAt || child.id !== childId) {
     throw new Error("아이 프로필을 찾을 수 없어요.");
   }
   if (body.birthDate !== undefined && isFutureSeoulDate(body.birthDate)) {
     throw new Error("출생일은 오늘보다 미래일 수 없어요.");
   }
-  useLocalBackendStore.setState((state) => ({
-    child: state.child
-      ? {
-          ...state.child,
-          nickname: body.nickname !== undefined ? body.nickname.trim() || state.child.nickname : state.child.nickname,
-          birthDate: body.birthDate ?? state.child.birthDate
-        }
-      : state.child
-  }));
-  return toFullChildDto(requireChild());
+
+  const requestedMode =
+    body.stageMode === "pregnant" || body.stageMode === "born" || body.stageMode === "manual"
+      ? body.stageMode
+      : undefined;
+  const nextStageMode: ChildStageMode | null = requestedMode ?? child.stageMode;
+  if (
+    requestedMode !== undefined &&
+    child.stageMode !== null &&
+    requestedMode !== child.stageMode &&
+    !(child.stageMode === "pregnant" && requestedMode === "born")
+  ) {
+    throw new Error("아이 상태는 임신 중에서 태어남으로만 바꿀 수 있어요.");
+  }
+
+  const next: LocalChildRecord = {
+    ...child,
+    nickname: body.nickname !== undefined ? body.nickname.trim() || child.nickname : child.nickname,
+    stageMode: nextStageMode,
+    dueDate: body.dueDate ?? child.dueDate,
+    birthDate: body.birthDate ?? child.birthDate,
+    manualStage: isChildStageCode(body.manualStage) ? body.manualStage : child.manualStage
+  };
+  if (next.stageMode === null) {
+    throw new Error("아이 단계를 선택해 주세요.");
+  }
+  assertChildStageInput({ ...next, stageMode: next.stageMode });
+
+  useLocalBackendStore.setState({ child: next });
+  return toFullChildDto(next);
 }
 
 /**
@@ -1678,7 +1905,7 @@ export function onboardingStatus(): {
     };
   }
 
-  const child = state.child && !state.child.deletedAt ? state.child : null;
+  const child = isCompleteChild(state.child) ? state.child : null;
   if (!child) {
     return {
       completed: false,
@@ -1688,7 +1915,7 @@ export function onboardingStatus(): {
     };
   }
 
-  const childSummary = { ...toChildDto(child), stageMode: "born" };
+  const childSummary = { ...toChildDto(child), stageMode: child.stageMode as ChildStageMode };
   if (!state.preparedItemsCompleted) {
     return {
       completed: false,

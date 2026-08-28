@@ -286,11 +286,20 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
       ).toBe(false);
     });
 
-    it("keeps the MOB-107 fixture-id path in app/index.tsx untouched", () => {
+    /**
+      * 실기기 피드백 1: MOB-107의 목적(테스트 세션의 selectedChildId가 비어 굳는 것을 막는다)은
+      * 그대로지만, 근거가 "고정 데모 아이 id"에서 "로컬 백엔드에 실제로 있는 아이"로 바뀌었다 --
+      * 테스트 로그인도 데이터 0에서 시작하므로 고정 id의 아이는 더 이상 존재하지 않는다.
+      */
+    it("keeps the MOB-107 self-healing path in app/index.tsx, now keyed on the real local child", () => {
       const indexSource = source("app/index.tsx");
-      expect(indexSource).toContain("if (!hydrated || !isTestSession || selectedChildId)");
-      expect(indexSource).toContain("ensureLocalBackendSeeded();");
-      expect(indexSource).toContain("setSelectedChildId(LOCAL_CHILD_ID);");
+      expect(indexSource).toContain("if (!hydrated || !isTestSession)");
+      expect(indexSource).toContain("const childId = localChildId();");
+      expect(indexSource).toContain("if (!selectedChildId) setSelectedChildId(childId);");
+      // 아이가 없으면(온보딩 미완료) 남은 선택·완료 표시를 지워 온보딩으로 되돌린다.
+      expect(indexSource).toContain("if (selectedChildId) clearSelectedChildId();");
+      expect(indexSource).toContain("if (hasReachedHome) resetOnboarding();");
+      expect(indexSource).not.toContain("setSelectedChildId(LOCAL_CHILD_ID);");
     });
   });
 
@@ -299,8 +308,9 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
       const indexSource = source("app/index.tsx");
       expect(indexSource).toContain("useSelectedChildRecovery(childRecoveryInput, { setSelectedChildId, resetOnboarding })");
       expect(indexSource).toContain("if (shouldAttemptSelectedChildRecovery(childRecoveryInput))");
-      // The already-onboarded fast path pinned by test-login-flow.test.ts must survive.
-      expect(indexSource).toContain('hasReachedHome || isTestSession ? "/(tabs)"');
+      // The already-onboarded fast path pinned by test-login-flow.test.ts must survive
+      // (실기기 피드백 1: 데모 세션 예외 `|| isTestSession`이 빠졌다).
+      expect(indexSource).toContain('hasReachedHome ? "/(tabs)" : "/onboarding/child-status"');
     });
 
     it("renders the standard retry affordance on failure instead of an infinite spinner", () => {

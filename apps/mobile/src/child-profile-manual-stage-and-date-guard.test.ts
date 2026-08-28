@@ -28,11 +28,18 @@ describe("ONB-002 manual stage selection (audit fix: was hardcoded to infant_4_6
     expect(childProfileSource).toContain("useState<ChildStageCode | null>(null)");
     expect(childProfileSource).toContain("CHILD_STAGE_CODES.map");
     expect(childProfileSource).toContain("setManualStage(code)");
-    expect(childProfileSource).toContain('manualStage: draft.stageMode === "manual" ? manualStage : undefined');
+    // 실기기 피드백 1: 생성 바디 조립은 설정 화면의 아이 추가와 같은 shared 모듈로 모았다 --
+    // 화면은 고른 값을 그 빌더에 넘기고, 모드별 매핑은 빌더 한 곳에만 있다.
+    expect(childProfileSource).toContain(
+      "buildCreateChildBody(householdId, draft.stageMode, { nickname, dateText, manualStage })"
+    );
+    expect(childFormSource).toContain('manualStage: stageMode === "manual" ? values.manualStage : undefined');
   });
 
   it("blocks saving in manual mode until a stage is chosen", () => {
-    expect(childProfileSource).toContain("아이 단계를 하나 선택해 주세요.");
+    // 문구·판정은 shared 모듈(validateChildForm)에 있고, 화면은 그 결과로 저장을 막는다.
+    expect(childFormSource).toContain("아이 단계를 하나 선택해 주세요.");
+    expect(childProfileSource).toContain("validateChildForm(");
     expect(childProfileSource).toContain("!manualStageError");
   });
 
@@ -54,8 +61,10 @@ describe("ONB-002 birth date must reject future dates (audit fix: only format wa
     expect(childFormSource).toContain("isValidCalendarDate");
     expect(childFormSource).toContain('stageMode === "born" && isFutureSeoulDate(trimmed)');
     expect(childFormSource).toContain("출생일은 오늘보다 미래일 수 없어요.");
-    // The ONB-002 screen still runs this guard (imported, not reimplemented).
-    expect(childProfileSource).toContain("computeDateError");
+    // The ONB-002 screen still runs this guard (imported, not reimplemented) -- now through
+    // validateChildForm, which calls computeDateError for both the onboarding and settings forms.
+    expect(childProfileSource).toContain("validateChildForm(");
+    expect(childFormSource).toContain("computeDateError(stageMode, values.dateText)");
     expect(childProfileSource).not.toContain("function computeDateError");
   });
 

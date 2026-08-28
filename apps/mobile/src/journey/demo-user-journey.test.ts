@@ -19,9 +19,10 @@
  *   journey instead establishes its session the way the demo APK actually does: via
  *   useSessionStore.startTestSession() + LOCAL_SESSION_TOKEN (see src/test-login-flow.test.ts).
  *
- *   SKIPPED STEP (2, partially) -- "patch child": the mobile client exposes no child-PATCH
- *   function at all; in demo mode createChild() renames the seeded fixture child (always returns
- *   LOCAL_CHILD_ID), which is what the onboarding screen relies on and what is asserted here.
+ *   STEP 2 note -- "patch child": 로컬 백엔드는 아이를 한 명만 들 수 있어, createChild()는
+ *   언제나 LOCAL_CHILD_ID를 돌려주고 그 한 자리를 새 프로필로 교체한다. 단계 입력(임신 중/
+ *   태어남/직접 선택 + 날짜)은 이어지는 updateChild가 채운다 -- 온보딩이 실제로 타는 경로가
+ *   src/onboarding/child-create.ts이고, step 2c가 그 경로를 그대로 부른다.
  *
  *   SKIPPED STEP (9, partially) -- devices: no device-registration/list function exists anywhere
  *   in src/api/client.ts (server-only concern, if it exists at all).
@@ -37,7 +38,6 @@ import {
   LOCAL_SESSION_TOKEN,
   clickProductLink,
   confirmImport,
-  createChild,
   createExcelImport,
   createExpense,
   deleteExpense,
@@ -55,6 +55,7 @@ import {
   getSyncChanges,
   getYearlyReport,
   listCategories,
+  listChildren,
   listExpenses,
   listImportRows,
   listItems,
@@ -66,10 +67,13 @@ import {
   upsertConsents,
   type Expense
 } from "../api/client";
-import { resetLocalBackendForTests, useLocalBackendStore } from "../api/local-backend";
+import { resetLocalBackendForTests, seedLocalDemoFixturesForTests, useLocalBackendStore } from "../api/local-backend";
+import { buildCreateChildBody } from "../children/child-form";
+import { createOnboardingChild } from "../onboarding/child-create";
 import {
   LOCAL_CATEGORY_IMPORT,
   LOCAL_CHILD_ID,
+  LOCAL_HOUSEHOLD_ID,
   LOCAL_ITEM_BLOCKS,
   LOCAL_ITEM_CARRIER,
   LOCAL_ITEM_DIAPER,
@@ -125,8 +129,13 @@ async function allTimeTotal(): Promise<number> {
 describe("QA-DEMO-JOURNEY: full demo user journey through the API client (local backend)", () => {
   beforeAll(() => {
     // Same isolation pattern as src/local-backend.test.ts: wipe the persisted local-backend
-    // store so the journey reseeds from fixtures, and start from a logged-out session store.
+    // store, and start from a logged-out session store.
+    //
+    // 실기기 피드백 1: 테스트 로그인 자체는 이제 데이터 0에서 시작한다(step 1 참고). 이 여정은
+    // "이미 기록이 쌓인 데모 세션"을 처음부터 끝까지 훑는 것이 목적이라, 그 상태를 arrange
+    // 헬퍼로 명시적으로 만들어 둔다 -- 예전에는 로그인만 해도 자동으로 만들어지던 것이다.
     resetLocalBackendForTests();
+    seedLocalDemoFixturesForTests();
     useSessionStore.getState().clearSession();
   });
 
@@ -146,7 +155,9 @@ describe("QA-DEMO-JOURNEY: full demo user journey through the API client (local 
     expect(session.refreshToken).toBeNull();
     expect(session.userId).toBeNull();
     expect(session.defaultHouseholdId).toBeNull();
-    // startTestSession also selects the fixture child for every childId-scoped screen.
+    // 실기기 피드백 1: 테스트 로그인 자체는 더 이상 아이를 만들지도 고르지도 않는다. 이
+    // 여정은 beforeAll에서 아이가 있는 세션을 arrange 했으므로, startTestSession은 이미 있는
+    // 그 아이를 골라 준다(아이가 없으면 selectedChildId는 null로 남고 온보딩이 정한다).
     expect(useSelectedChildStore.getState().selectedChildId).toBe(LOCAL_CHILD_ID);
   });
 
@@ -167,8 +178,8 @@ describe("QA-DEMO-JOURNEY: full demo user journey through the API client (local 
 
     const progress = await getOnboardingProgress(token);
     expect(progress.completed).toBe(false);
-    // The demo backend seeds a child, so the child-profile step is already satisfied; a fresh
-    // real account would see "child-profile" here instead.
+    // 이 여정은 아이가 있는 세션을 arrange 했으므로 child-profile 단계는 이미 충족돼 있다.
+    // 실제 테스트 로그인(및 실계정)은 아이가 없어 여기서 "child-profile"을 본다.
     expect(progress.nextStep).toBe("prepared-items");
     expect(progress.canRestart).toBe(false);
     expect(progress.summary.consentsAccepted).toBe(true);
@@ -176,20 +187,35 @@ describe("QA-DEMO-JOURNEY: full demo user journey through the API client (local 
     expect(progress.summary.preparedItemsCount).toBeNull();
   });
 
-  it("step 2c: createChild renames the demo fixture child (demo has no separate child PATCH)", async () => {
-    const created = await createChild(token, {
-      householdId: "local-household-daon",
-      nickname: "여정이",
-      stageMode: "born"
-    });
-    // Demo mode always maps onto the single fixture child.
+  /**
+   * 실기기 피드백 1: 온보딩 ONB-002가 실제로 타는 경로(src/onboarding/child-create.ts)를 그대로
+   * 부른다 -- 별명만 넘기는 createChild 뒤에 단계 입력(여기서는 출생일)이 이어 붙는다. 예전에는
+   * 시드가 만들어 둔 아이의 이름만 갈아 끼웠기 때문에, 사용자가 입력한 시기 정보가 데모
+   * 세션에서는 어디에도 남지 않았다.
+   */
+  it("step 2c: 온보딩이 아이를 직접 만들고 입력한 시기 정보가 그대로 남는다", async () => {
+    // 이어지는 단계(현재 시기 = 걸음마기, 지난 100일 창)를 그대로 두려고 같은 출생일을 쓴다.
+    const birthDate = (await listChildren(token)).children[0].birthDate!;
+
+    const created = await createOnboardingChild(
+      token,
+      buildCreateChildBody(LOCAL_HOUSEHOLD_ID, "born", { nickname: "여정이", dateText: birthDate, manualStage: null })
+    );
+    // 로컬 백엔드는 아이를 한 명만 들 수 있어 언제나 같은 id다(두 번째 아이가 생기지 않는다).
     expect(created.id).toBe(LOCAL_CHILD_ID);
+    expect((await listChildren(token)).children).toHaveLength(1);
+    expect((await listChildren(token)).children[0]).toMatchObject({
+      nickname: "여정이",
+      stageMode: "born",
+      birthDate,
+      dueDate: null
+    });
 
     const home = await getHome(token, childId);
     expect(home.child.id).toBe(LOCAL_CHILD_ID);
     expect(home.child.nickname).toBe("여정이");
-    // stage is computed from the seeded birthDate (~24 months ago) -- keep it loose but real.
-    expect(home.child.currentStage).toBeTruthy();
+    // stage is computed from the birthDate the user just entered (~24 months ago).
+    expect(home.child.currentStage).toBe("toddler_1_3");
     expect(home.child.stageLabel).toBeTruthy();
   });
 
@@ -520,7 +546,7 @@ describe("QA-DEMO-JOURNEY: full demo user journey through the API client (local 
     expect(currentMonthBucket?.totalExpenseKrw).toBe(monthly.totalExpenseKrw);
   });
 
-  it("step 6d: the milestone report aggregates the demo ledger with exact arithmetic", async () => {
+  it("step 6d: the milestone report aggregates only the true 100-day window", async () => {
     const milestone = await getMilestoneReport(token, childId, "d100");
     expect(milestone.type).toBe("d100");
     expect(milestone.childId).toBe(childId);
@@ -529,22 +555,23 @@ describe("QA-DEMO-JOURNEY: full demo user journey through the API client (local 
     expect(milestone.daysCovered).toBe(100);
     expect(milestone.endDate > milestone.startDate).toBe(true);
 
-    // Demo fallback (documented in local-backend.ts): no fixture expense falls inside the true
-    // 100-day window, so the report aggregates the full stored ledger -- i.e. the cumulative total.
-    const cumulative = await getCumulativeReport(token, childId);
-    const allTimeBreakdown = (await getCategoryReport(token, childId)).categories;
-    expect(milestone.totalKrw).toBe(cumulative.totalExpenseKrw);
-    expect(milestone.expenseCount).toBe(allTimeBreakdown.reduce((sum, entry) => sum + entry.count, 0));
-    expect(milestone.avgDailyKrw).toBe(Math.round(milestone.totalKrw / milestone.daysCovered));
-
-    // topCategories == the top-5 of the all-time breakdown, with rounded 3-decimal shares.
-    expect(milestone.topCategories.map((entry) => ({ categoryId: entry.categoryId, amountKrw: entry.totalKrw }))).toEqual(
-      allTimeBreakdown.slice(0, 5).map((entry) => ({ categoryId: entry.categoryId, amountKrw: entry.amountKrw }))
+    // 실기기 피드백 1: 예전에는 창 안에 기록이 없으면 저장된 **전체** 원장으로 대신 집계하는
+    // 데모 폴백이 있었고, 이 단계는 그 폴백(= 누적 총액과 같은 값)을 고정하고 있었다. 이제
+    // 기록은 전부 사용자가 직접 넣은 것이라 그 폴백은 "100일 리포트"라는 이름으로 100일과
+    // 무관한 지출을 합치는 허위 표시가 된다 -- 창 밖 기록은 집계하지 않는다.
+    const inWindow = (await listExpenses(token, childId, undefined)).expenses.filter(
+      (expense) => expense.spentOn >= milestone.startDate && expense.spentOn <= milestone.endDate
     );
-    for (const entry of milestone.topCategories) {
-      expect(entry.share).toBe(Math.round((entry.totalKrw / milestone.totalKrw) * 1000) / 1000);
-      expect(entry.name.length).toBeGreaterThan(0);
-    }
+    expect(inWindow).toHaveLength(0); // 픽스처 지출은 전부 최근 며칠 -- 창(생후 0~100일) 밖이다.
+    expect(milestone.totalKrw).toBe(0);
+    expect(milestone.expenseCount).toBe(0);
+    expect(milestone.topCategories).toEqual([]);
+    // 0으로 나누지 않는다: 총액이 0이면 일평균도 0이다.
+    expect(milestone.avgDailyKrw).toBe(0);
+
+    // 누적/카테고리 리포트는 창과 무관하게 원장 전체를 계속 보여 준다(= 여기서 0이 아니다).
+    expect((await getCumulativeReport(token, childId)).totalExpenseKrw).toBeGreaterThan(0);
+    expect((await getCategoryReport(token, childId)).categories.length).toBeGreaterThan(0);
 
     // The first-birthday variant covers the whole first year.
     const firstBirthday = await getMilestoneReport(token, childId, "first-birthday");

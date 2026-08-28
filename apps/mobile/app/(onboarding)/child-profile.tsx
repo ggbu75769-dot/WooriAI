@@ -3,11 +3,17 @@ import { useMutation } from "@tanstack/react-query";
 import { Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { CHILD_STAGE_CODES, type ChildStageCode } from "@wooriai/domain";
-import { createChild, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 // MOB-118: the date guard (isFutureSeoulDate/isValidCalendarDate wiring), stage labels, and
 // date-field label moved verbatim to src/children/child-form.ts so the settings 아이 관리
 // screen's edit/add forms reuse exactly this screen's validation -- see that module.
-import { CHILD_STAGE_LABELS, computeDateError, dateFieldLabel } from "../../src/children/child-form";
+import {
+  buildCreateChildBody,
+  CHILD_STAGE_LABELS,
+  requiredDateFieldLabel,
+  validateChildForm
+} from "../../src/children/child-form";
+import { createOnboardingChild } from "../../src/onboarding/child-create";
 import { OnboardingSaveErrorCard, OnboardingStepProgress } from "../../src/onboarding/step-ui";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -16,8 +22,16 @@ import { AppScreen, Card, CategoryChip, PrimaryButton, ScreenHeader } from "../.
 import { theme } from "../../src/theme";
 
 export default function ChildProfileScreen() {
-  const [nickname, setNickname] = useState("튼튼이");
+  // 실기기 피드백 1: 예전에는 "튼튼이"가 미리 채워져 있어, 아무것도 입력하지 않아도 남의
+  // 이름으로 아이가 만들어졌다. 빈 칸에서 시작하고 예시는 placeholder로만 보여 준다.
+  const [nickname, setNickname] = useState("");
   const [dateText, setDateText] = useState("");
+  // 아직 손대지 않은 칸을 빨갛게 꾸짖지 않는다 -- 빈 칸에서 시작하는 화면이라(위 주석) 두 칸이
+  // 처음부터 오류로 보이면 아무것도 하기 전에 혼나는 인상이 된다. 저장 버튼은 어차피 비활성이라
+  // 진행을 잘못 허용할 위험도 없다. 설정 화면의 같은 폼도 제출 시점까지 오류를 숨긴다
+  // (app/settings/children.tsx의 showErrors).
+  const [nicknameTouched, setNicknameTouched] = useState(false);
+  const [dateTouched, setDateTouched] = useState(false);
   const [manualStage, setManualStage] = useState<ChildStageCode | null>(null);
   const session = useSessionStore();
   const authToken = session.accessToken ?? (session.isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -30,10 +44,21 @@ export default function ChildProfileScreen() {
   const clearChildCreateIdempotencyKey = useOnboardingProgressStore((state) => state.clearChildCreateIdempotencyKey);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
 
-  const nicknameError = nickname.trim().length === 0 ? "태명 또는 별명을 입력해 주세요." : null;
-  const dateError = useMemo(() => computeDateError(draft.stageMode, dateText), [draft.stageMode, dateText]);
-  const dateLabel = useMemo(() => dateFieldLabel(draft.stageMode), [draft.stageMode]);
-  const manualStageError = draft.stageMode === "manual" && !manualStage ? "아이 단계를 하나 선택해 주세요." : null;
+  // 실기기 피드백 1: 날짜를 **필수**로 받는다(requireDate). 예전에는 "날짜 없이 태명만으로도
+  // 계속할 수 있어요"라고 안내했지만, 서버 normalizeChildInput은 pregnant/born에 날짜가 없으면
+  // CHILD_STAGE_INPUT_REQUIRED(400)로 거절한다 -- 안내대로 비워 두고 누르면 저장에 실패했다.
+  // 게다가 시기별 준비물·리포트가 전부 이 날짜에서 나오므로, 아이 정보를 제대로 받는 것이
+  // 이 화면의 일이다. 검증은 설정 화면과 같은 shared 모듈 한 곳(child-form.ts)에서 온다.
+  const { nicknameError, dateError, manualStageError } = useMemo(
+    () =>
+      validateChildForm(
+        draft.stageMode,
+        { nickname, dateText, manualStage },
+        { requireDate: true }
+      ),
+    [draft.stageMode, nickname, dateText, manualStage]
+  );
+  const dateLabel = useMemo(() => requiredDateFieldLabel(draft.stageMode), [draft.stageMode]);
   const canSave =
     !nicknameError &&
     !dateError &&
@@ -48,24 +73,16 @@ export default function ChildProfileScreen() {
       if (draft.stageMode === "manual" && !manualStage) {
         throw new Error("missing manual stage selection");
       }
-      const trimmedDate = dateText.trim();
       // MOB-101: reuse the same Idempotency-Key across retries of this submission (network
       // retry, or a resumed app restarting the mutation) so the server never creates a second
       // child for the household -- see round5a-sprint1-plan.md §4.
       const idempotencyKey = getOrCreateChildCreateIdempotencyKey();
-      const child = await createChild(
+      // 바디 조립은 설정 화면의 아이 추가와 같은 shared 모듈에서 온다(단일 소스).
+      return createOnboardingChild(
         authToken,
-        {
-          householdId,
-          nickname: nickname.trim(),
-          stageMode: draft.stageMode,
-          dueDate: draft.stageMode === "pregnant" && trimmedDate ? trimmedDate : undefined,
-          birthDate: draft.stageMode === "born" && trimmedDate ? trimmedDate : undefined,
-          manualStage: draft.stageMode === "manual" ? manualStage : undefined
-        },
+        buildCreateChildBody(householdId, draft.stageMode, { nickname, dateText, manualStage }),
         idempotencyKey
       );
-      return child;
     },
     onSuccess: (child) => {
       setSelectedChildId(child.id);
@@ -89,11 +106,14 @@ export default function ChildProfileScreen() {
             <TextInput
               accessibilityLabel="태명 또는 별명 입력"
               returnKeyType="done"
-              onChangeText={setNickname}
+              onChangeText={(value) => {
+                setNickname(value);
+                setNicknameTouched(true);
+              }}
               placeholder="예) 튼튼이"
               style={{
                 backgroundColor: theme.colors.beige,
-                borderColor: nicknameError ? theme.colors.danger : "transparent",
+                borderColor: nicknameTouched && nicknameError ? theme.colors.danger : "transparent",
                 borderRadius: theme.radii.small,
                 borderWidth: 1,
                 color: theme.colors.brown,
@@ -103,7 +123,7 @@ export default function ChildProfileScreen() {
               }}
               value={nickname}
             />
-            {nicknameError ? (
+            {nicknameTouched && nicknameError ? (
               <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{nicknameError}</Text>
             ) : null}
           </View>
@@ -124,11 +144,14 @@ export default function ChildProfileScreen() {
                 keyboardType="numbers-and-punctuation"
                 maxLength={10}
                 returnKeyType="done"
-                onChangeText={setDateText}
+                onChangeText={(value) => {
+                  setDateText(value);
+                  setDateTouched(true);
+                }}
                 placeholder="YYYY-MM-DD"
                 style={{
                   backgroundColor: theme.colors.beige,
-                  borderColor: dateError ? theme.colors.danger : "transparent",
+                  borderColor: dateTouched && dateError ? theme.colors.danger : "transparent",
                   borderRadius: theme.radii.small,
                   borderWidth: 1,
                   color: theme.colors.brown,
@@ -138,11 +161,11 @@ export default function ChildProfileScreen() {
                 }}
                 value={dateText}
               />
-              {dateError ? (
+              {dateTouched && dateError ? (
                 <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{dateError}</Text>
               ) : (
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
-                  날짜 없이 태명만으로도 계속할 수 있어요.
+                  시기에 맞는 준비물과 리포트를 보여드리는 데 써요. 나중에 설정에서 바꿀 수 있어요.
                 </Text>
               )}
             </View>

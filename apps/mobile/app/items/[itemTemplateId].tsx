@@ -519,6 +519,9 @@ export default function ItemDetailScreen() {
         // ANA-127: carried so the prompt's purchase_followup_answered can report the same
         // `platform` dimension this click's affiliate_link_clicked just reported.
         platform: link.platform,
+        // 라운드 49 C-06(a)가 준비해 둔 선택 인자 배선 -- "샀어요"가 만든 지출이 어떤 상품
+        // 링크에서 왔는지 남긴다(빠진 동안에는 늘 undefined였다).
+        productLinkId: link.id,
         clickedAt: Date.now()
       });
       clickLink.mutate(link.id);

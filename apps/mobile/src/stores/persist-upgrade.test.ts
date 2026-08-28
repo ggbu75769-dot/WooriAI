@@ -477,7 +477,12 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
   });
 
   describe("local-backend.ts", () => {
-    it("backfills expense.version, preparedItemsCompleted, and idempotencyKeys from a round4-shaped blob, and getHome/listItems/getMonthlyReport all still resolve", async () => {
+    /**
+     * 실기기 피드백 1 (zero-start): 버전 2 이하로 저장된 로컬 백엔드는 예외 없이 "다온이"
+     * 데모 데이터를 자동 생성한 세션이다. 사용자 요청은 그 데이터 없이 0에서 시작하는
+     * 것이므로, 옛 블롭은 필드를 옮기지 않고 **한 번 비운다**(local-backend.ts의 migrate).
+     */
+    it("wipes a pre-zero-start (version <= 2) blob instead of migrating the demo data forward", async () => {
       const { persistStorage } = await loadModules();
       const { LOCAL_CHILD_ID } = await import("../api/local-fixtures");
 
@@ -487,6 +492,75 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
           state: {
             seeded: true,
             child: { id: LOCAL_CHILD_ID, nickname: "다온이", birthDate: "2024-01-01", deletedAt: null },
+            budgets: { "2026-01": 1_600_000 },
+            expenses: [
+              {
+                id: "local-expense-old-1",
+                childId: LOCAL_CHILD_ID,
+                categoryId: "local-category-diaper",
+                amountKrw: 45900,
+                spentOn: "2026-01-05",
+                itemName: "기저귀",
+                merchant: null,
+                memo: null,
+                paymentMethod: "unknown",
+                linkedItemTemplateId: null,
+                expenseType: "expense",
+                source: "manual",
+                createdAt: "2026-01-05T00:00:00.000Z",
+                updatedAt: "2026-01-05T00:00:00.000Z",
+                deletedAt: null
+              }
+            ],
+            itemStatuses: {},
+            members: [{ id: "local-member-dad", householdId: "local-household-daon", userId: "local-user-dad", displayName: "아빠", role: "co_parent", status: "active" }],
+            invites: [],
+            importJobs: [],
+            importRows: {},
+            consents: [],
+            accountDeletedAt: null
+          },
+          version: 2
+        })
+      );
+
+      const localBackendModule = await import("../api/local-backend");
+      const { useLocalBackendStore } = localBackendModule;
+      await useLocalBackendStore.persist.rehydrate();
+
+      const migrated = useLocalBackendStore.getState();
+      expect(migrated.child).toBeNull();
+      expect(migrated.expenses).toEqual([]);
+      expect(migrated.budgets).toEqual({});
+      expect(migrated.members).toEqual([]);
+      expect(localBackendModule.listChildren().children).toEqual([]);
+      expect(localBackendModule.localChildId()).toBeNull();
+      // 앱 콘텐츠(카탈로그)는 상수라 초기화의 영향을 받지 않는다 -- 준비템 탭은 계속 동작한다.
+      expect(localBackendModule.listCategories().categories.length).toBeGreaterThan(0);
+    });
+
+    /**
+     * MOB-107: zero-start 이후(버전 3~)에 저장된 블롭은 사용자가 직접 넣은 기록이므로 종전대로
+     * 필드 단위로 살려 낸다 -- 그중 `version`은 round4 이전 레코드에 없던 필드라 1로 채운다.
+     */
+    it("backfills expense.version, preparedItemsCompleted, and idempotencyKeys from a current-version blob", async () => {
+      const { persistStorage } = await loadModules();
+      const { LOCAL_CHILD_ID } = await import("../api/local-fixtures");
+
+      await persistStorage.setItem(
+        LOCAL_BACKEND_KEY,
+        JSON.stringify({
+          state: {
+            seeded: true,
+            child: {
+              id: LOCAL_CHILD_ID,
+              nickname: "여정이",
+              stageMode: "born",
+              dueDate: null,
+              birthDate: "2024-01-01",
+              manualStage: null,
+              deletedAt: null
+            },
             budgets: { "2026-01": 1_600_000 },
             expenses: [
               {
@@ -518,9 +592,9 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
               { type: "privacy", version: "2026-07-06", accepted: true }
             ],
             accountDeletedAt: null
-            // `preparedItemsCompleted` and `idempotencyKeys` intentionally absent -- round4 shape.
+            // `preparedItemsCompleted` and `idempotencyKeys` intentionally absent.
           },
-          version: 1
+          version: 3
         })
       );
 
@@ -533,6 +607,8 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
       expect(migrated.idempotencyKeys).toEqual({});
       expect(migrated.expenses[0].version).toBe(1);
       expect(migrated.seeded).toBe(true);
+      // 사용자가 직접 만든 아이가 그대로 살아 있다(초기화 대상이 아니다).
+      expect(migrated.child).toMatchObject({ nickname: "여정이", stageMode: "born", birthDate: "2024-01-01" });
 
       // The concrete Home/준비템/리포트 code paths must not throw against migrated data --
       // exactly what would otherwise leave those screens' react-query queries permanently
@@ -545,22 +621,37 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
       expect(home.recentExpenses[0].id).toBe("local-expense-old-1");
     });
 
-    it("safely reseeds instead of crashing when the persisted blob is fundamentally corrupt", async () => {
+    it("safely falls back to the zero state instead of crashing when the persisted blob is fundamentally corrupt", async () => {
       const { persistStorage } = await loadModules();
-      await persistStorage.setItem(LOCAL_BACKEND_KEY, JSON.stringify({ state: { expenses: "not-an-array" }, version: 1 }));
+      await persistStorage.setItem(
+        LOCAL_BACKEND_KEY,
+        JSON.stringify({ state: { expenses: "not-an-array", child: "not-an-object" }, version: 3 })
+      );
 
       const localBackendModule = await import("../api/local-backend");
       const { useLocalBackendStore } = localBackendModule;
       await expect(useLocalBackendStore.persist.rehydrate()).resolves.not.toThrow();
 
       expect(useLocalBackendStore.getState().expenses).toEqual([]);
-      const { LOCAL_CHILD_ID } = await import("../api/local-fixtures");
-      expect(() => localBackendModule.getHome(LOCAL_CHILD_ID)).not.toThrow();
+      // 아이를 지어내지 않는다 -- 아이가 없으면 화면은 온보딩으로 되돌아간다(app/index.tsx).
+      expect(localBackendModule.listChildren().children).toEqual([]);
+      expect(localBackendModule.localChildId()).toBeNull();
+      // 그래도 카탈로그 조회는 계속 성공한다(콘텐츠는 상태가 아니다).
+      expect(() => localBackendModule.listCategories()).not.toThrow();
     });
   });
 
   describe("full upgrade simulation (all four stores seeded with round4 shapes at once)", () => {
-    it("produces a working demo session end-to-end: hasSession resolves true and getHome succeeds", async () => {
+    /**
+     * 실기기 피드백 1: 이미 설치된 데모 APK를 업그레이드한 사용자가 도착하는 지점.
+     *
+     * 예전 계약은 "라운드4 블롭 네 개에서 곧바로 동작하는 데모 홈"이었다. 이제는 사용자가
+     * 요청한 대로 **데이터 0에서 다시 시작**하는 것이 맞는 결과다 -- 로컬 백엔드는 한 번
+     * 비워지고, 아이가 없으므로 app/index.tsx가 남은 선택·완료 표시를 지워 온보딩으로 보낸다
+     * (그 배선은 src/onboarding/selected-child-recovery.test.ts가 고정한다). 여기서는 그
+     * 판정의 근거가 되는 스토어 사실만 확인한다.
+     */
+    it("lands an upgraded demo install on a zero-data session instead of the old demo home", async () => {
       process.env.EXPO_PUBLIC_TEST_LOGIN = "1";
       const { persistStorage, secureSessionStorage } = await loadModules();
       const { LOCAL_CHILD_ID } = await import("../api/local-fixtures");
@@ -609,15 +700,17 @@ describe("MOB-107: persisted-store upgrade compatibility", () => {
         localBackendModule.useLocalBackendStore.persist.rehydrate()
       ]);
 
-      const accessToken = useSessionStore.getState().accessToken;
-      const isTestSession = useSessionStore.getState().isTestSession;
-      const childId = useSelectedChildStore.getState().selectedChildId;
-      // Mirrors app/(tabs)/index.tsx's own derivation exactly.
-      const authToken = accessToken ?? (isTestSession ? "wooriai-local-session" : null);
-      const hasSession = Boolean(authToken && childId);
+      // 세션 자체는 그대로 살아 있다(테스트 세션이고, 가짜 토큰을 만들지도 않는다).
+      expect(useSessionStore.getState().isTestSession).toBe(true);
+      expect(useSessionStore.getState().accessToken).toBeNull();
 
-      expect(hasSession).toBe(true);
-      expect(() => localBackendModule.getHome(childId!)).not.toThrow();
+      // 예전 데모 데이터는 남지 않는다 -- 아이도, 예산도 0에서 시작한다.
+      expect(localBackendModule.localChildId()).toBeNull();
+      expect(localBackendModule.listChildren().children).toEqual([]);
+      expect(localBackendModule.useLocalBackendStore.getState().budgets).toEqual({});
+      // 그래서 남아 있던 selectedChildId로 홈을 조회하면 없는 아이를 지어내는 대신 실패한다.
+      const childId = useSelectedChildStore.getState().selectedChildId;
+      expect(() => localBackendModule.getHome(childId!)).toThrow("아이 프로필을 찾을 수 없어요.");
     });
   });
 });

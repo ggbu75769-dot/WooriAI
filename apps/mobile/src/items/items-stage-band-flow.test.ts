@@ -83,19 +83,24 @@ describe("local backend listItems(stageBand)", () => {
   beforeEach(async () => {
     const localBackend = await import("../api/local-backend");
     localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
   });
 
   it("filters the loginless test session's fixtures by the requested band, not by the child's stage", async () => {
     const { listItems } = await import("../api/local-backend");
-    const { LOCAL_CHILD_ID, LOCAL_ITEM_BLOCKS } = await import("../api/local-fixtures");
+    const { LOCAL_CHILD_ID, LOCAL_ITEM_BLOCKS, LOCAL_ITEM_CAR_SEAT } = await import("../api/local-fixtures");
 
     const newbornBand = listItems(LOCAL_CHILD_ID, "now", "0-6개월").items;
     const olderBand = listItems(LOCAL_CHILD_ID, "now", "24개월+").items;
 
-    // 픽스처는 toddler_1_3 / kid_4_7 항목뿐이라 신생아 밴드는 비고, 24개월+ 밴드에는
-    // kid_4_7 항목(원목 블록 세트)이 들어온다 -- 예전에는 어떤 칩을 눌러도 같은 목록이었다.
-    expect(newbornBand).toEqual([]);
+    // 아이는 걸음마기(픽스처 ~24개월)인데도 밴드별로 **다른** 목록이 나온다 -- 예전에는 어떤
+    // 칩을 눌러도 같은 목록이었다. 실기기 피드백 1로 카탈로그가 임신~첫돌까지 넓어져,
+    // 0-6개월 밴드에는 그 시기 준비물(예: 카시트)이, 24개월+ 밴드에는 kid_4_7 항목(원목 블록
+    // 세트)이 들어온다.
+    expect(newbornBand.map((item) => item.id)).toContain(LOCAL_ITEM_CAR_SEAT);
+    expect(newbornBand.map((item) => item.id)).not.toContain(LOCAL_ITEM_BLOCKS);
     expect(olderBand.map((item) => item.id)).toContain(LOCAL_ITEM_BLOCKS);
+    expect(olderBand.map((item) => item.id)).not.toContain(LOCAL_ITEM_CAR_SEAT);
   });
 
   it("keeps the band-less call identical to the child's current stage (하위호환)", async () => {
