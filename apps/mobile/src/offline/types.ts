@@ -87,6 +87,22 @@ export type LocalExpenseRow = {
   pendingDelete: boolean;
   conflictCurrent: ConflictSnapshot;
   lastError: string | null;
+  /**
+   * 라운드 57 #8 — 실패 **사유의 구조화된 절반**. `lastError`는 사람이 읽는 한 문장이고,
+   * 이 두 필드는 코드가 판정에 쓰는 값이다(`src/offline/permission-denied.ts`).
+   *
+   * 왜 필요했나: 판정이 문자열 비교뿐이던 동안 화면은 "이 실패를 다시 보내면 성공할 수 있나"를
+   * `API_ERROR_MESSAGES.FORBIDDEN`과의 **글자 단위 일치** 하나로만 답할 수 있었다. 표의 문구가
+   * 한 글자만 바뀌어도 판정이 조용히 무너지고, 403이 아닌 4xx(검증 거부·상한 초과)는 아예
+   * 구분할 수 없어 재시도해도 같은 답이 오는 행에 "재시도" 버튼이 남았다.
+   *
+   * **선택 필드인 이유**: 이 컬럼(v2 마이그레이션)이 생기기 전에 실패한 행이 기기에 남아 있고,
+   * 그 행에는 status도 code도 없다. `undefined`/`null`은 "모름"이며, 판정은 그때만 예전 문자열
+   * 비교로 폴백한다 — 모르는 행의 동작이 바뀌지 않는 쪽이 안전하다(permission-denied.ts 참고).
+   */
+  lastErrorStatus?: number | null;
+  /** 서버 오류 봉투의 `code`(`{ error: { code } }`). 봉투가 아니면 null = 모름. */
+  lastErrorCode?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -102,6 +118,10 @@ export type MutationOutboxRow = {
   attemptCount: number;
   nextRetryAt: string | null;
   lastError: string | null;
+  /** 라운드 57 #8 — `LocalExpenseRow.lastErrorStatus`와 같은 계약(선택 = 모름). */
+  lastErrorStatus?: number | null;
+  /** 라운드 57 #8 — `LocalExpenseRow.lastErrorCode`와 같은 계약(선택 = 모름). */
+  lastErrorCode?: string | null;
   createdAt: string;
   /**
    * True while flushOutbox has this exact mutation row's payload in an active network request
@@ -169,6 +189,11 @@ export type ItemStatusOutboxRow = {
   attemptCount: number;
   nextRetryAt: string | null;
   lastError: string | null;
+  /** 라운드 57 #8 — `LocalExpenseRow.lastErrorStatus`와 같은 계약(선택 = 모름). 준비템 실패 행도
+   * 동기화 상태 화면에서 지출 행과 **같은 판정**을 받는다(403 안내 / 4xx 정직 안내 / 재시도). */
+  lastErrorStatus?: number | null;
+  /** 라운드 57 #8 — `LocalExpenseRow.lastErrorCode`와 같은 계약(선택 = 모름). */
+  lastErrorCode?: string | null;
   createdAt: string;
   updatedAt: string;
   /**

@@ -477,15 +477,28 @@ describe("C-10 저장 계층 계약", () => {
   });
 
   /**
-   * vitest는 네이티브 SQLite를 돌릴 수 없으므로 스키마는 소스 대조로 고정한다
-   * (sqlite-offline-store.ts 헤더의 관례).
+   * vitest는 expo-sqlite의 네이티브 바인딩을 열 수 없으므로 스키마 문자열은 소스 대조로 고정한다
+   * (sqlite-offline-store.ts 헤더의 관례). 라운드 57 #7부터 그 스키마가 **실제로** 구 기기에서
+   * 안전하게 올라가는지는 sqlite-migrations.test.ts가 node 내장 SQLite로 따로 검증한다.
    */
   it("SQLite 스키마는 순수 추가 변경이고, 세션 정리 트랜잭션에 합류한다", () => {
     const sqlite = source("src/offline/sqlite-offline-store.ts");
     expect(sqlite).toContain("CREATE TABLE IF NOT EXISTS item_status_outbox");
-    // 기존 두 테이블을 손대지 않는다 = 기기에 쌓인 지출 대기분이 이 업데이트로 사라지지 않는다.
+    // 기존 테이블의 데이터를 손대지 않는다 = 기기에 쌓인 지출 대기분이 업데이트로 사라지지 않는다.
     expect(sqlite).not.toContain("DROP TABLE");
-    expect(sqlite).not.toContain("ALTER TABLE mutation_outbox");
+    /*
+     * 라운드 57 #7/#8: 이 자리는 원래 `not.toContain("ALTER TABLE mutation_outbox")`였다. 당시 C-10이
+     * 지키려던 것은 "기존 테이블을 건드리지 않는다"는 수단이 아니라 **"이 업데이트로 기기에 쌓인
+     * 대기분이 사라지지 않는다"는 결과**였고, 컬럼을 더할 방법 자체가 없어서(마이그레이션 장치
+     * 부재 — 정찰 노트 #7) 수단 쪽을 못 박아 두었던 것이다. 이제 장치가 생겼으므로 계약을 결과로
+     * 되돌린다: ALTER는 허용하되 **ADD COLUMN만** 허용한다. DROP/RENAME COLUMN은 기존 행의 값을
+     * 실제로 잃는 변경이라 여전히 금지다.
+     */
+    for (const clause of sqlite.match(/ALTER TABLE [a-z_]+ [A-Z]+ [A-Z]+/g) ?? []) {
+      expect(clause).toContain("ADD COLUMN");
+    }
+    expect(sqlite).not.toContain("DROP COLUMN");
+    expect(sqlite).not.toContain("RENAME");
     const clearAllBody = sqlite.slice(sqlite.indexOf("async clearAll()"));
     const transactionBlock = clearAllBody.slice(0, clearAllBody.indexOf("COMMIT;"));
     expect(transactionBlock).toContain("DELETE FROM local_expenses;");
