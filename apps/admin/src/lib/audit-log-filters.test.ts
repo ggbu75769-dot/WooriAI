@@ -176,6 +176,22 @@ describe("AUDIT_LOG_ACTION_PRESETS (CS-101)", () => {
     expect(actions).toContain("expense.update");
     expect(actions).toContain("expense.delete");
   });
+
+  /**
+   * GAP-062 #7: "가구에서 나간 적 없는데 기록이 안 보여요" / "탈퇴한 적 없어요" 문의는
+   * 내보내기(household.member.remove)가 아니라 **본인이 실행한** 흐름을 찾아야 답할 수 있다.
+   * 두 액션은 서버가 새로 기록하기 시작한 값이므로 프리셋에서도 구분돼 보여야 한다.
+   */
+  it("covers the self-service flows CS asks about (본인 탈퇴·가구 나가기)", () => {
+    const actions = AUDIT_LOG_ACTION_PRESETS.map((preset) => preset.action);
+    expect(actions).toContain("household.leave");
+    expect(actions).toContain("account.delete");
+    // 내보내기와 같은 라벨로 뭉뚱그리지 않는다 — 누가 실행했는지가 다르다.
+    const labels = AUDIT_LOG_ACTION_PRESETS.filter((preset) =>
+      ["household.leave", "household.member.remove"].includes(preset.action)
+    ).map((preset) => preset.label);
+    expect(new Set(labels).size).toBe(2);
+  });
 });
 
 describe("auditLogActorLabel (CS-101)", () => {

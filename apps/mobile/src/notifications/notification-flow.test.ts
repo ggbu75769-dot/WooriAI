@@ -52,9 +52,10 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     // 그대로 router.push에 넘기기만 한다.
     expect(screenSource).toContain("markRead(entry.id)");
     expect(screenSource).toContain("router.push(notificationTapRoute(entry, nextRecordsViewNonce()))");
-    expect(screenSource).toContain(
-      'import { nextRecordsViewNonce, notificationTapRoute } from "../src/notifications/notification-route";'
-    );
+    // 라운드 62 B(#2): 같은 모듈에서 아이 판정(resolveNotificationTapChild)까지 들여오면서 이
+    // import가 여러 줄이 됐다 -- 목적지 판정이 그 모듈에서 온다는 계약은 그대로다.
+    expect(screenSource).toContain("  notificationTapRoute,");
+    expect(screenSource).toContain('} from "../src/notifications/notification-route";');
     // 예전의 화면 내 if 사슬은 남아 있지 않다 -- 특히 weekly_summary를 /budget으로 보내던 조건.
     expect(screenSource).not.toContain('entry.type === "weekly_summary"');
     expect(screenSource).not.toContain("function openNotification(");

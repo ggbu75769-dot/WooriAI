@@ -1,6 +1,7 @@
 import { MAX_DELAY_MS, computeNextRetryAtIso } from "./backoff";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import { mergeItemStatusMutation, mergeOutboxMutation } from "./outbox-merge";
+import { isDiscardablePendingRow } from "./pending-row-actions";
 import { isBulkRetryableFailedRow, syncFailureReasonOf } from "./permission-denied";
 import {
   generateOfflineId,
@@ -1035,6 +1036,46 @@ export async function retryFailedMutation(store: OfflineStore, localId: string):
 export async function discardFailedMutation(store: OfflineStore, localId: string): Promise<void> {
   await clearOutboxForLocalId(store, localId);
   await store.deleteLocalExpense(localId);
+}
+
+/**
+ * GAP-062 #3 — 동기화 상태 화면의 **대기 행** "버리기".
+ *
+ * 정리 자체는 위 `discardFailedMutation`과 **같은 한 벌**이다(아웃박스 정리 + 로컬 행 삭제).
+ * 여기서 더하는 것은 게이트 하나뿐이다: 화면이 버튼을 그릴 때 쓴 판정
+ * (`isDiscardablePendingRow`)을 **누른 시점의 저장소 행으로 다시 확인한다.**
+ *
+ * 왜 다시 확인하나: 화면이 들고 있는 것은 스냅샷이라 한 박자 낡을 수 있다. 사용자가 버튼을
+ * 보는 사이에 연결이 돌아와 flush pass가 이 행을 집어 갔다면 그 요청은 **이미 나가 있다**
+ * (flushOutboxPass가 보내기 직전에 `syncState: "syncing"` + mutation `inFlight`를 표시한다).
+ * 그 행을 지우면 로컬에서는 사라지고 서버에는 만들어지는 **고아 지출**이 된다 — 앱 안에서
+ * 다시 손댈 수 없는 기록이다. 일괄 액션이 스냅샷 대신 저장소를 읽는 것과 같은 이유다
+ * (`listFailedLocalIds` 주석).
+ *
+ * ## 창을 닫는 것은 재확인이 아니라 첫 줄의 가드다 (라운드 62 #1)
+ *
+ * 재확인만으로는 부족했다: 이 함수는 네 번 `await`하는데 그 사이가 열려 있어, 확인을 통과한
+ * 바로 그 행을 **진행 중인 flush pass가 집어 갈 수 있다**(확인 시점에는 아직 표시가 없다).
+ * 그래서 확인받고 사라진 행이 몇 초 뒤 목록에 되살아났다. `recoverInterruptedSyncState`가
+ * 같은 이유로 쓰는 선례 그대로, 살아 있는 pass가 있으면 **아무것도 하지 않는다**. pass가
+ * 끝난 뒤 다시 누르면 그때의 행 상태로 판정된다(확정됐으면 버튼 자체가 사라진다).
+ *
+ * 뒤따르는 재확인(`isDiscardablePendingRow` + `inFlight`)은 그 창이 아니라 **다른 원인**을
+ * 막는다: 화면 스냅샷이 낡은 사이 다른 화면·경로에서 그 행이 수정 대기(create 성공 뒤 남은
+ * 수정 — H-3)나 삭제 대기로 바뀌었거나, 이미 정리돼 사라진 경우다.
+ *
+ * 버렸으면 true, 그 사이에 조건이 어긋나 아무것도 하지 않았으면 false(화면은 그대로 두면
+ * 된다 — 스냅샷이 곧 그 행의 새 상태를 그린다. 전송 중이라 거절한 경우에는 화면이 그 사실을
+ * 한 줄로 알린다 — app/sync-status.tsx).
+ */
+export async function discardPendingMutation(store: OfflineStore, localId: string): Promise<boolean> {
+  if (inFlightFlushes.get(store)) return false;
+  const row = await store.getLocalExpense(localId);
+  if (!row || !isDiscardablePendingRow(row)) return false;
+  const mutations = await store.listOutboxMutationsForLocalId(localId);
+  if (mutations.some((mutation) => mutation.inFlight)) return false;
+  await discardFailedMutation(store, localId);
+  return true;
 }
 
 /**

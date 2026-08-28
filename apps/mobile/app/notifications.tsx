@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useFocusEffect } from "expo-router";
 import { Alert, Platform, Pressable, Text, View, type AccessibilityActionEvent } from "react-native";
 import { listChildren, LOCAL_SESSION_TOKEN } from "../src/api/client";
+import { applyChildSwitch } from "../src/children/child-switch";
 import {
   mergeNewNotificationMarks,
   removeNotificationMark
@@ -21,16 +22,21 @@ import {
   resolveNotificationRowAction,
   type NotificationRowActionKey
 } from "../src/notifications/notification-row-actions";
-import { nextRecordsViewNonce, notificationTapRoute } from "../src/notifications/notification-route";
+import {
+  nextRecordsViewNonce,
+  notificationTapRoute,
+  resolveNotificationTapChild
+} from "../src/notifications/notification-route";
 import {
   selectUnreadNotificationIds,
   useNotificationStore,
   type AppNotification
 } from "../src/notifications/notification.store";
 import { formatRelativeTime } from "../src/notifications/relative-time";
+import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { theme } from "../src/theme";
-import { AppScreen, EmptyStateCard, ListRow, ScreenHeader } from "../src/ui";
+import { announceForA11y, AppScreen, EmptyStateCard, ListRow, ScreenHeader } from "../src/ui";
 
 /**
  * NOTI-102 인앱 알림 센터: lists the client-side notifications persisted in
@@ -58,6 +64,15 @@ import { AppScreen, EmptyStateCard, ListRow, ScreenHeader } from "../src/ui";
  * 액션과 **같은 관례**로 롱프레스 액션시트 + 스크린리더 커스텀 액션을 얹는다 -- 항목·문구·버튼
  * 구성은 src/notifications/notification-row-actions.ts에 있고, 이 화면은 그것을 RN Alert과
  * accessibilityActions에 꽂기만 한다. 탭의 기본 동작(읽음 + 목적지 이동)은 그대로다.
+ *
+ * 라운드 62 트랙 B(#2) 알림의 아이로 데려가기: 착지 화면(/budget · /items/{id} · 두 탭)은 전부
+ * **지금 선택된 아이**로 동작하는데, 이 목록은 R20-C 이후 **다른 아이의 태명을 붙여** 행을
+ * 그린다 -- "튼튼이 · …"를 눌렀는데 다온이의 예산 수정 화면이 열리고, 그 화면의 저장이 다온이의
+ * 예산을 덮었다. 그래서 이동 **전에** 그 알림의 아이로 전환한다. 판정은 순수 모듈이 지고
+ * (resolveNotificationTapChild -- 어느 아이인지 모르거나 목록에 없으면 null), 전환 자체는 아이
+ * 관리 화면·헤더 전환 시트와 **같은 한 벌**(applyChildSwitch: 스토어 쓰기 → 아이 스코프 캐시
+ * 무효화 → 안내)을 그대로 태운다. 이 화면이 그 세 줄을 손으로 다시 적지 않는다(HOME-138).
+ * 전환할 아이가 null이면 push만 하므로 이동은 **종전 그대로**다.
  */
 
 /**
@@ -97,6 +112,40 @@ export default function NotificationsScreen() {
     queryFn: () => listChildren(authToken!)
   });
   const householdChildren = childrenQuery.data?.children;
+
+  /**
+   * 라운드 62 B(#2) 전환 한 벌의 바깥 세계. 목록·선택 상태는 이 화면이 이미 들고 있고
+   * (`householdChildren`은 태명 접두가 쓰던 바로 그 캐시다), 새 쿼리는 만들지 않는다 --
+   * 전환 입구가 하나 늘어도 요청 수는 그대로다(ChildSwitchSheet와 같은 규율).
+   */
+  const queryClient = useQueryClient();
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
+  const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
+  /**
+   * 알림 한 줄이 데려갈 아이로 전환한다(전환할 아이가 없으면 아무 일도 하지 않는다).
+   *
+   * `applyChildSwitch`를 그대로 쓰는 것이 요점이다: 무효화 키 목록도, 안내 문구도 이 화면에
+   * 없다. 같은 아이를 가리키는 알림이면 그 함수가 null을 돌려주고 따뜻한 캐시도 안내도
+   * 건드리지 않는다(planChildSwitch).
+   *
+   * 라운드 62 #7 — **왜 이 화면에는 눈에 보이는 전환 피드백이 없나.** 전환이 일어난 사실은
+   * `applyChildSwitch`의 `announce`(screen reader 전용)로만 나간다. 눈으로 볼 한 줄을 여기
+   * 세울 수 없는 이유는 렌더 순서가 아니라 **이 화면이 곧바로 사라지기 때문**이다: 바로 다음
+   * 줄에서 `router.push`가 일어나 목록은 착지 화면에 덮이고, 뒤로 돌아왔을 때 그때의 전환을
+   * 다시 알리는 것은 사실도 아니다(이미 지난 일이다). 그래서 "지금 누구를 보고 있는가"는
+   * **착지 화면이 스스로 말한다** — 최악의 목적지였던 준비템 상세에 아이 스코프 라벨을 붙였다
+   * (app/items/[itemTemplateId].tsx: 거기서 누르는 지출 기록이 그 아이 밑으로 들어간다).
+   * 예산·두 탭은 이미 헤더가 그 이름을 달고 있다(라운드 49·51·60의 같은 어휘).
+   */
+  const switchToNotificationChild = (entry: AppNotification) => {
+    const child = resolveNotificationTapChild(entry, householdChildren);
+    if (!child) return;
+    applyChildSwitch(selectedChildId, child, {
+      setSelectedChildId,
+      invalidateQueries: (input) => queryClient.invalidateQueries(input),
+      announce: announceForA11y
+    });
+  };
 
   /**
    * 라운드 39 UX-O "새 소식" 스냅샷: 읽음 처리 **직전의** 안읽음 id를 떠 둔다. 포커스와 동시에
@@ -301,6 +350,11 @@ export default function NotificationsScreen() {
                     // J-7: 점을 지우는 유일한 근거는 "이 줄을 열어 봤다"는 사실이다.
                     // 나머지 줄의 점은 다음 포커스에서도 그대로 남는다.
                     setNewNotificationIds((previous) => removeNotificationMark(previous, entry.id));
+                    // 라운드 62 B(#2): **이동보다 먼저** 그 알림의 아이로 전환한다. 착지 화면은
+                    // 전부 지금 선택된 아이로 그려지므로, push 뒤에 전환하면 그 화면은 한 번
+                    // 잘못된 아이로 렌더된 뒤 바뀐다. 전환할 아이를 모르면(구 blob·삭제된 아이)
+                    // 이 호출은 아무 일도 하지 않고 아래 이동만 종전 그대로 일어난다.
+                    switchToNotificationChild(entry);
                     // 라운드 57 QA(P1-1): 이번 탭의 회차를 함께 넘긴다. 기록 탭은 착지
                     // 파라미터를 회차 단위로 적용하므로, 회차가 없으면 두 번째 탭부터
                     // "지난번과 같은 값"으로 걸러져 달력으로 가지 않는다. 카운터가 이 화면의

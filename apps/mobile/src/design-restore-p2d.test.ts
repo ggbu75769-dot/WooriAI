@@ -135,7 +135,10 @@ describe("DSN-053 P2-D 더보기 = 승인 캡처의 '프로필'(SET-001)", () =>
       ].join("\n")
     );
     // stage pill은 앱이 이미 쓰는 한 벌(coral[50]/coral[700])이다 -- 새 배지를 만들지 않는다.
-    expect(src).toContain("<StageBadge label={visibleProfile.stageLabel} />");
+    // GAP-062 #6: 배지 **조리법**은 그대로고, 라벨 값만 표시층 판정(resolveStageDisplayLabel)을
+    // 지난 한 값으로 바뀌었다 -- 이 카드가 홈 헤더와 다른 문장을 말하지 않게 하기 위한 것이라
+    // 배지 자체의 계약(한 벌·한 줄)은 종전 그대로다.
+    expect(src).toContain("<StageBadge label={sessionStageLabel} />");
   });
 
   /**

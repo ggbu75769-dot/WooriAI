@@ -4,12 +4,16 @@ import { describe, expect, it } from "vitest";
 import { resolveExpenseHouseholdId } from "../expenses/records-list-view";
 // 라운드 61 #2: 탈퇴 뒤 세션 상태는 스토어의 **기존 API로만** 재현해 확인한다(스토어 무변경).
 import { useSessionStore } from "../stores/session.store";
+// 라운드 62 #4: 초대 화면과 탈퇴 화면이 **같은 파라미터 한 벌**을 지나는지 여기서 확인한다.
+import { INVITE_HOUSEHOLD_PARAM, inviteScreenHref, parseInviteHouseholdParam } from "./invite-flow";
 import { isExpenseEntryLocked } from "./record-permissions";
 import {
   ANDROID_ALERT_BUTTON_LIMIT,
   collectKnownHouseholdIds,
   describeHouseholdScope,
   HOUSEHOLD_SCOPE_EMPTY_LABEL,
+  HOUSEHOLD_SCOPE_LEAVE_LABEL,
+  HOUSEHOLD_SCOPE_PARAM,
   HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL,
   HOUSEHOLD_SCOPE_SWITCH_LABEL,
   HOUSEHOLD_SCOPE_SWITCH_MESSAGE,
@@ -22,7 +26,9 @@ import {
   householdScopePhrase,
   isChildrenSettled,
   isMultiHouseholdAccount,
+  leaveScreenHref,
   listHouseholdSwitchOptions,
+  parseHouseholdScopeParam,
   resolveHouseholdChildrenLabel,
   resolveHouseholdName,
   resolveManagedHouseholdId,
@@ -727,5 +733,156 @@ describe("탈퇴 후 세션 잔재 정리 (라운드 61 #2 — source contract)"
     expect(source("src/offline/session-teardown.ts")).toContain(
       "return next.userId !== previous.userId || next.isTestSession !== previous.isTestSession;"
     );
+  });
+});
+
+/**
+ * 라운드 62 #4 — **아이 없는 가구에서 나가는 길.**
+ *
+ * 탈퇴 대상은 `resolveManagedHouseholdId`가 정하는데, 그 판정은 아이가 하나도 없는 가구를
+ * 구조적으로 가리킬 수 없다(1단계는 선택 아이의 가구, 3단계는 기본 가구). 그래서 초대를 수락해
+ * 들어간 빈 가구는 "다른 가구 보기"로 볼 수만 있고 앱 안에서 나갈 방법이 없었다 -- 계정에 영구히
+ * 붙어 있는 가구가 생긴다. 라운드 61 #3이 초대 화면까지 만들어 둔 그 파라미터 관례를 탈퇴
+ * 화면으로 넓혀 그 막다른 길을 연다.
+ */
+describe("라운드 62 #4 가구 전환을 탈퇴 화면까지 (파라미터 관례)", () => {
+  const known = ["household-1", "household-2"];
+
+  it("아이가 없는 가구는 종전 판정으로 영영 가리켜지지 않는다 (이 라운드가 여는 그 막다른 길)", () => {
+    // 시가에서 만든 빈 가구(household-2)의 초대를 수락한 계정: 아이는 household-1에만 있다.
+    const children: HouseholdScopeChildRef[] = [
+      { id: "child-daon", householdId: "household-1", nickname: "다온이" }
+    ];
+    for (const childId of ["child-daon", null]) {
+      expect(
+        resolveManagedHouseholdId({
+          children,
+          childId,
+          fallbackHouseholdId: "household-1",
+          childrenSettled: true
+        })
+      ).toBe("household-1");
+    }
+    // 그런데 전환 후보에는 그 빈 가구가 서 있다(서버가 말한 목록이 그것을 안다).
+    expect(
+      listHouseholdSwitchOptions({
+        currentHouseholdId: "household-1",
+        children,
+        knownHouseholdIds: known,
+        fallbackHouseholdId: "household-1"
+      }).map((option) => option.householdId)
+    ).toEqual(known);
+  });
+
+  it("목적지는 초대와 **같은 관례**다 — 전환 중일 때만 싣는다", () => {
+    expect(HOUSEHOLD_SCOPE_PARAM).toBe("householdId");
+    expect(leaveScreenHref("household-2")).toEqual({
+      pathname: "/settings/privacy",
+      params: { householdId: "household-2" }
+    });
+    // 전환하지 않았으면 **파라미터 자체가 생기지 않는다** -- 1가구 계정의 탈퇴 화면은 종전과
+    // 한 글자도 달라지지 않는다(SET-003 픽셀락).
+    for (const value of [undefined, null, "", "   "]) {
+      expect(leaveScreenHref(value)).toEqual({ pathname: "/settings/privacy", params: {} });
+    }
+    // 라벨도 전환 입구와 같은 형태의 짧은 동작 이름이다(문장이 아니므로 종결어미를 붙이지 않는다).
+    expect(HOUSEHOLD_SCOPE_LEAVE_LABEL).toMatch(/기$/);
+    expect(HOUSEHOLD_SCOPE_SWITCH_LABEL).toMatch(/기$/);
+  });
+
+  it("아는 가구만 통과하고, 검증 실패는 **차단이 아니라 종전 판정**이다", () => {
+    expect(parseHouseholdScopeParam("household-2", known)).toBe("household-2");
+    // 딥링크·수동 URL이 남의 가구 id를 들이밀면 없던 일이 된다 -- 그때 화면은 잠기는 것이
+    // 아니라 아이 기준 판정으로 떨어진다(모르면 말하지 않는다).
+    const fallback = resolveManagedHouseholdId({
+      children: [{ id: "child-daon", householdId: "household-1", nickname: "다온이" }],
+      childId: "child-daon",
+      fallbackHouseholdId: "household-1",
+      childrenSettled: true
+    });
+    expect(parseHouseholdScopeParam("household-9", known) ?? fallback).toBe("household-1");
+    expect(parseHouseholdScopeParam("household-2", null)).toBeNull();
+    expect(parseHouseholdScopeParam(["household-2", "household-1"], known)).toBe("household-2");
+    for (const value of ["", "   ", undefined, null, 7, {}, ["nope"]]) {
+      expect(parseHouseholdScopeParam(value, known)).toBeNull();
+    }
+  });
+
+  it("탈퇴 카드의 대상 라벨은 파라미터로 온 그 가구를 가리킨다", () => {
+    const children: HouseholdScopeChildRef[] = [
+      { id: "child-daon", householdId: "household-1", nickname: "다온이" }
+    ];
+    // 전환해서 들어간 빈 가구: 이름도 아이도 모르므로 아무것도 지어내지 않는다.
+    expect(
+      describeHouseholdScope({
+        householdId: "household-2",
+        children,
+        knownHouseholdIds: known,
+        fallbackHouseholdId: "household-1"
+      })
+    ).toBeNull();
+    // 이름을 아는 가구라면 그 이름으로 말한다 -- 종전 대상(다온이의 가구)과 다른 문장이다.
+    const namedChildren: HouseholdScopeChildRef[] = [
+      ...children,
+      { id: "child-haneul", householdId: "household-2", nickname: "하늘이", householdName: "시가" }
+    ];
+    const phraseFor = (householdId: string) =>
+      householdScopeLeaveNotice(
+        householdScopePhrase(
+          describeHouseholdScope({
+            householdId,
+            children: namedChildren,
+            knownHouseholdIds: known,
+            fallbackHouseholdId: "household-1"
+          })
+        )
+      );
+    expect(phraseFor("household-2")).toBe("‘시가’ 가구에서 나가요.");
+    expect(phraseFor("household-1")).toBe("다온이의 가구에서 나가요.");
+  });
+
+  it("가족 화면은 **전환 중일 때만** 탈퇴 진입점을 그린다 (소스 계약)", () => {
+    const screenSource = source("app/family/index.tsx");
+    expect(screenSource).toContain("{switchedHouseholdId ? (");
+    expect(screenSource).toContain("onPress={() => router.push(leaveScreenHref(switchedHouseholdId))}");
+    expect(screenSource).toContain("accessibilityLabel={HOUSEHOLD_SCOPE_LEAVE_LABEL}");
+    // 진입점은 **가지 않는 길을 여는 것**뿐이다 -- 이 화면에서 탈퇴가 일어나면 미리보기도
+    // 두 번 확인도 없이 되돌릴 수 없는 일이 벌어진다.
+    expect(screenSource).not.toContain("confirmHouseholdLeave");
+    expect(screenSource).not.toContain("previewHouseholdLeave");
+    // 전환 입구(후보 2 이상)와 **다른 문턱**이다: 전환하지 않은 다가구 계정에서도 이 진입점은
+    // 그려지지 않는다(대상이 이미 아이 기준 판정과 같으므로 종전 경로로 충분하다).
+    expect(screenSource).toContain(
+      "const switchedHouseholdId = householdId && householdId !== scopedHouseholdId ? householdId : null;"
+    );
+  });
+
+  it("탈퇴 화면은 같은 화이트리스트로 받고, 그 하나의 값이 대상·라벨의 근거다 (소스 계약)", () => {
+    const screenSource = source("app/settings/privacy.tsx");
+    expect(screenSource).toContain("const requestedHouseholdId = parseHouseholdScopeParam(");
+    expect(screenSource).toContain("collectKnownHouseholdIds({");
+    expect(screenSource).toContain("const householdId = requestedHouseholdId ?? scopedHouseholdId;");
+    // 대상·미리보기·확인·라벨이 전부 그 하나의 값을 읽는다(갈리면 라벨이 곧 거짓말이 된다).
+    expect(screenSource).toContain("previewHouseholdLeave(authToken!, householdId!)");
+    expect(screenSource).toContain(
+      "confirmHouseholdLeave(authToken!, householdId!, householdPreview.data?.confirmationText ?? \"\")"
+    );
+    expect(screenSource).toContain("describeHouseholdScope({\n        householdId,");
+    // 검증 실패는 차단이 아니다 -- 버튼의 비활성 조건은 종전 그대로(요청 가구를 보지 않는다).
+    expect(screenSource).toContain(
+      "disabled={!authToken || !householdId || householdPreview.isPending}"
+    );
+    expect(screenSource).not.toContain("!requestedHouseholdId");
+  });
+
+  it("초대 화면과 탈퇴 화면이 **같은 파라미터 한 벌**을 지난다 (규칙을 두 벌로 만들지 않는다)", () => {
+    // 초대 흐름은 종전 이름을 그대로 쓰지만 값은 이 모듈의 것이다.
+    expect(INVITE_HOUSEHOLD_PARAM).toBe(HOUSEHOLD_SCOPE_PARAM);
+    expect(parseInviteHouseholdParam).toBe(parseHouseholdScopeParam);
+    // 두 목적지는 형태까지 같다: 전환 중일 때만 싣고, 아니면 파라미터가 없다.
+    expect(inviteScreenHref("co_parent", "household-2").params[HOUSEHOLD_SCOPE_PARAM]).toBe("household-2");
+    expect(leaveScreenHref("household-2").params[HOUSEHOLD_SCOPE_PARAM]).toBe("household-2");
+    expect(inviteScreenHref("co_parent", null).params[HOUSEHOLD_SCOPE_PARAM]).toBeUndefined();
+    expect(leaveScreenHref(null).params[HOUSEHOLD_SCOPE_PARAM]).toBeUndefined();
   });
 });

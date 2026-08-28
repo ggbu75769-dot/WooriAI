@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   addNotifications,
+  clearNotificationsForChild,
   markAllNotificationsRead,
   markNotificationRead,
   NOTIFICATION_MAX_ENTRIES,
@@ -357,5 +358,89 @@ describe("라운드 52 C-10 알림 한 줄 지우기", () => {
     expect(useNotificationStore.getState().seenDedupeKeys).toContain("a");
     useNotificationStore.getState().ingest([candidate({ dedupeKey: "a" })], NOW + 1);
     expect(useNotificationStore.getState().entries.map((entry) => entry.id)).toEqual(["notif:b"]);
+  });
+});
+
+/**
+ * 라운드 62 트랙 B(#5) — 삭제한 아이의 **기기 잔재** 정리.
+ *
+ * 아이 프로필 삭제의 뒤처리는 쿼리 캐시 무효화뿐이라, 사라진 아이의 알림 줄이 알림함에 계속
+ * 서 있었다(이름을 해석할 수 없으니 태명 접두조차 붙지 않아 어느 아이 것인지도 보이지 않는다).
+ * 배선(finishChildRemoval에서의 호출)은 이 트랙 밖이고, 여기서는 액션의 규칙을 값으로 못박는다.
+ */
+describe("라운드 62 B(#5) 아이 단위 정리 clearForChild", () => {
+  beforeEach(() => {
+    useNotificationStore.getState().resetAll();
+  });
+
+  it("그 아이의 줄만 빼고 다른 아이·childId 없는 옛 줄은 그대로 둔다", () => {
+    const { entries } = addNotifications(
+      [],
+      [],
+      [
+        candidate({ dedupeKey: "a", childId: "child-1" }),
+        candidate({ dedupeKey: "b", childId: "child-2" }),
+        candidate({ dedupeKey: "c" })
+      ],
+      NOW
+    );
+    const next = clearNotificationsForChild({ entries, lastSeenStageByChild: {} }, "child-2");
+    expect(next.entries.map((entry) => entry.id)).toEqual(["notif:a", "notif:c"]);
+  });
+
+  it("그 아이의 시기 메타(lastSeenStageByChild)도 함께 지운다", () => {
+    const next = clearNotificationsForChild(
+      { entries: [], lastSeenStageByChild: { "child-1": "24개월", "child-2": "임신 20주차" } },
+      "child-2"
+    );
+    expect(next.lastSeenStageByChild).toEqual({ "child-1": "24개월" });
+  });
+
+  it("빈 childId로는 아무것도 지우지 않는다 (childId 없는 줄까지 쓸어 버리지 않는다)", () => {
+    const { entries } = addNotifications([], [], [candidate({ dedupeKey: "a" })], NOW);
+    const state = { entries, lastSeenStageByChild: { "child-1": "24개월" } };
+    for (const blank of ["", "   "]) {
+      expect(clearNotificationsForChild(state, blank)).toBe(state);
+    }
+  });
+
+  it("지울 것이 없으면 같은 참조를 돌려준다(무의미한 리렌더 없음)", () => {
+    const { entries } = addNotifications([], [], [candidate({ dedupeKey: "a", childId: "child-1" })], NOW);
+    const state = { entries, lastSeenStageByChild: { "child-1": "24개월" } };
+    const next = clearNotificationsForChild(state, "child-gone");
+    expect(next.entries).toBe(state.entries);
+    expect(next.lastSeenStageByChild).toBe(state.lastSeenStageByChild);
+  });
+
+  /**
+   * dedupe 기억은 **남긴다**(근거는 clearNotificationsForChild 주석): 키 형식을 이 스토어가 다시
+   * 알아야 하는 대가가 크고, 남겨도 억제하는 것이 없다 — 삭제된 아이의 id는 다시 오지 않는다.
+   */
+  it("seenDedupeKeys는 건드리지 않는다 (키 형식을 두 번 알지 않기 위해)", () => {
+    const store = useNotificationStore.getState();
+    store.ingest([candidate({ dedupeKey: "budget_80:child-2:2026-08", childId: "child-2" })], NOW);
+    useNotificationStore.getState().recordSeenStage("child-2", "임신 20주차");
+    useNotificationStore.getState().clearForChild("child-2");
+    expect(useNotificationStore.getState().entries).toEqual([]);
+    expect(useNotificationStore.getState().lastSeenStageByChild).toEqual({});
+    expect(useNotificationStore.getState().seenDedupeKeys).toEqual(["budget_80:child-2:2026-08"]);
+  });
+
+  /** PRIV-104 teardown(resetAll)과 섞이지 않는 **별도 액션**이다 — 남는 것이 서로 다르다. */
+  it("resetAll과 다르다: 다른 아이의 줄과 dedupe 기억은 살아남는다", () => {
+    const store = useNotificationStore.getState();
+    store.ingest(
+      [
+        candidate({ dedupeKey: "a", childId: "child-1" }),
+        candidate({ dedupeKey: "b", childId: "child-2" })
+      ],
+      NOW
+    );
+    useNotificationStore.getState().clearForChild("child-1");
+    expect(useNotificationStore.getState().entries.map((entry) => entry.id)).toEqual(["notif:b"]);
+    expect(useNotificationStore.getState().seenDedupeKeys).toEqual(["a", "b"]);
+    useNotificationStore.getState().resetAll();
+    expect(useNotificationStore.getState().entries).toEqual([]);
+    expect(useNotificationStore.getState().seenDedupeKeys).toEqual([]);
   });
 });

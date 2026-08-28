@@ -1,4 +1,7 @@
 import { formatKrw } from "../money";
+import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";
+import { recordsCountPhrase, SYNC_ROW_PENDING_LABEL, unsendableRecordsSuffixText } from "../offline/messages";
+import { countPermanentlyFailedRows } from "../offline/permission-denied";
 import { milestoneSubtitleShowsTotal } from "./milestone-countdown";
 
 /**
@@ -47,8 +50,27 @@ export type HomeCumulativeTotal = {
   title: string;
   /** 구간과 제외 항목을 밝히는 한 줄 — 이번 달 합계·마일스톤 리포트 합계와 혼동되지 않게. */
   subtitle: string;
-  /** TalkBack 문장(제목 + 부제를 한 번에 읽는다). */
+  /**
+   * GAP-062 #9 — 아직 서버에 반영되지 않은 기록이 있을 때만 서는 한 줄. 없으면 null이라 카드는
+   * 예전과 완전히 같다(자세한 근거는 아래 `cumulativeTotalPendingNoticeText`).
+   */
+  pendingNotice: string | null;
+  /** TalkBack 문장(제목 + 부제 + 고지를 한 번에 읽는다). */
   accessibilityLabel: string;
+};
+
+/**
+ * GAP-062 #9 — 이 판정이 오프라인 스냅숏 행에서 읽는 것 전부(src/offline/types.ts와 구조 호환).
+ * 리포트 고지가 쓰는 모양과 같다(src/reports/pending-scope-notice.ts) — 다른 것은 **기간이
+ * 없다**는 점뿐이라 `spentOn`을 보지 않는다.
+ */
+export type CumulativeTotalPendingRow = {
+  syncState: string;
+  /** 영구 실패(4xx) 갈래를 가르는 데 필요한 사유. 전부 선택 — 모르면 종전대로 일시 실패로 읽힌다. */
+  lastError?: string | null;
+  lastErrorStatus?: number | null;
+  lastErrorCode?: string | null;
+  payload?: { expenseType?: string | null } | null;
 };
 
 export type HomeCumulativeTotalInput = {
@@ -64,6 +86,11 @@ export type HomeCumulativeTotalInput = {
    * null이 아닌지). 떠 있고 그 부제가 금액을 말하는 중이면 이 카드는 접힌다.
    */
   hasMilestoneCard: boolean;
+  /**
+   * GAP-062 #9 — **지금 보고 있는 아이의** 오프라인 스냅숏 행(홈이 이미 구독 중인
+   * `childOfflineRows`). 모르면 생략 — 그때는 고지를 만들지 않는다(없는 사실을 말하지 않는다).
+   */
+  pendingRows?: readonly CumulativeTotalPendingRow[] | null;
 };
 
 /**
@@ -98,6 +125,64 @@ export const CUMULATIVE_TOTAL_TITLE_PREFIX = "지금까지의 지출 합계";
  */
 export const CUMULATIVE_TOTAL_SUBTITLE = "기록을 시작한 뒤의 지출을 모두 더했어요 (선물로 받은 건 제외)";
 
+/** 고지 한 줄의 식별자(리포트 고지의 `REPORT_PENDING_SCOPE_NOTICE_TEST_ID`와 같은 관례). */
+export const HOME_CUMULATIVE_TOTAL_PENDING_NOTICE_TEST_ID = "home-cumulative-total-pending-notice";
+
+/**
+ * GAP-062 #9 — **이 카드가 오프라인 대기를 밝히는 한 줄.**
+ *
+ * ## 무엇이 문제였나
+ *
+ * 같은 화면의 히어로 금액은 재조정된 값이다(`reconcileMonthlyExpenses` — 서버 응답 + 이 기기의
+ * 대기 행). 그런데 바로 아래 이 카드는 서버 집계(`totalExpenseKrw`)를 **그대로** 쓴다. 그래서
+ * 오프라인으로 5건을 적은 직후 홈에서 히어로는 그 5건을 포함한 이번 달 금액을, 누적 카드는
+ * 그 5건이 빠진 전 기간 금액을 말한다 — 한 화면의 두 숫자가 서로 다른 시점을 말한다.
+ *
+ * 부제는 이미 제외 항목을 스스로 밝히는 자리인데("선물로 받은 건 제외") **아직 반영되지 않은
+ * 기록**은 밝히지 않았다. 정직성 규율(빼놓은 것은 밝힌다)을 이 카드만 절반 지키고 있었다.
+ *
+ * ## 왜 숫자를 고치지 않는가
+ *
+ * 재집계는 **불가능하다**: 누적은 전 기간이라 클라이언트에 재조정할 모집단(월 캐시) 자체가
+ * 없다(H절 "기간 합계 엔드포인트"는 여전히 비범위). 그래서 답은 숫자를 고치는 것이 아니라
+ * 사실을 밝히는 것이다 — 리포트 탭이 같은 이유로 이미 택한 답이고
+ * (src/reports/pending-scope-notice.ts 머리말), 이 줄은 그 결정을 그대로 따른다.
+ *
+ * ## 무엇을 세는가 (리포트 고지와 같은 술어, 기간만 없다)
+ *
+ * `syncState !== "synced"`이고 **이 숫자를 실제로 움직일** 행만 센다 — 판정은 합계와 같은 단일
+ * 소스다(`countsTowardMonthlyTotal`, DNC-015: `totalExpenseKrw`도 `expenseType='expense'`만
+ * 더한다). 선물·환불 대기 행을 세면 그것들이 동기화된 뒤에도 이 금액은 한 원도 움직이지 않아,
+ * 사용자를 오지 않을 변화에 기다리게 하는 안내가 된다.
+ *
+ * 다른 것은 **기간 필터가 없다**는 점 하나다. 리포트 고지는 보고 있는 달/분기/연도로 자르지만
+ * (`spentOn` 기준) 이 카드의 모집단은 전 기간이라 자를 것이 없다.
+ *
+ * ## 어휘 (offline/messages.ts 단일 소스)
+ *
+ * 문장은 리포트 고지와 **같은 두 조각**으로 만든다: 주어("동기화 대기 중인 기록 N건" / 영구
+ * 실패가 섞이면 수식을 뗀 "기록 N건" + "그중 M건은 보낼 수 없는 기록이에요.")와 약한 술어
+ * ("아직 반영되지 않았어요"). 술어를 "빠져 있어요"로 세게 쓰지 않는 이유도 같다 — 이 모집단에는
+ * 삭제 대기 행(그 금액이 아직 **들어 있다**)이 섞인다.
+ *
+ * 갈리는 것은 지시어 하나다: 리포트 고지는 화면 아래의 숫자들을 가리켜 "아래 숫자에"라고 하고,
+ * 이 카드는 **바로 위 제목의 금액**을 가리키므로 "이 금액에"라고 한다. 같은 자리를 가리키지
+ * 않는 두 문장을 한 상수로 묶으면 둘 중 하나가 화면에서 엉뚱한 곳을 짚는다.
+ */
+export function cumulativeTotalPendingNoticeText(count: number, unsendableCount = 0): string {
+  if (unsendableCount <= 0) {
+    return `${SYNC_ROW_PENDING_LABEL} 중인 기록 ${count}건은 이 금액에 아직 반영되지 않았어요.`;
+  }
+  return `${recordsCountPhrase(count)}은 이 금액에 아직 반영되지 않았어요. ${unsendableRecordsSuffixText(unsendableCount)}`;
+}
+
+/** 이 아이의 행 중 위 금액이 아직 모르는 것. 규칙은 `cumulativeTotalPendingNoticeText` 머리말. */
+function pendingRowsBehindCumulativeTotal(
+  rows: readonly CumulativeTotalPendingRow[]
+): CumulativeTotalPendingRow[] {
+  return rows.filter((row) => row.syncState !== "synced" && countsTowardMonthlyTotal(row.payload?.expenseType));
+}
+
 /** 홈 누적 총액 카드를 만든다. 보여줄 이유가 없으면 null(그 자리는 비어 있는다). */
 export function evaluateHomeCumulativeTotal(input: HomeCumulativeTotalInput): HomeCumulativeTotal | null {
   if (!input.hasSession) return null;
@@ -111,9 +196,19 @@ export function evaluateHomeCumulativeTotal(input: HomeCumulativeTotalInput): Ho
   const amountText = formatKrw(input.totalExpenseKrw);
   const title = `${CUMULATIVE_TOTAL_TITLE_PREFIX} ${amountText}`;
   const subtitle = CUMULATIVE_TOTAL_SUBTITLE;
+  // GAP-062 #9: 대기 0건이면 null이라 카드가 예전과 한 줄도 다르지 않다 — "0건이 대기 중이에요"는
+  // 소음이고, 대다수인 그 경우에 카드를 한 줄 키울 이유가 없다(리포트 고지와 같은 규칙).
+  const pendingRows = pendingRowsBehindCumulativeTotal(input.pendingRows ?? []);
+  const pendingNotice =
+    pendingRows.length > 0
+      ? cumulativeTotalPendingNoticeText(pendingRows.length, countPermanentlyFailedRows(pendingRows))
+      : null;
   return {
     title,
     subtitle,
-    accessibilityLabel: `${title}. ${subtitle}`
+    pendingNotice,
+    // 고지는 부제 다음에 붙는다 — 화면의 읽기 순서(제목 → 부제 → 고지)와 같아야 TalkBack
+    // 사용자가 눈으로 보는 사람과 같은 순서로 같은 사실을 듣는다.
+    accessibilityLabel: pendingNotice ? `${title}. ${subtitle}. ${pendingNotice}` : `${title}. ${subtitle}`
   };
 }

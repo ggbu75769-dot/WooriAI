@@ -13,7 +13,8 @@ import {
   buildItemStatusChangedPayload
 } from "../../src/analytics/events";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
-import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
+import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, type Child, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
+import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";
 import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
 import {
   expenseLinkParams,
@@ -304,6 +305,34 @@ export default function ItemDetailScreen() {
   // 타지 않아 실패가 곧 유실이라, 화면이 조용히 있으면 안 된다(src/items/status-mutation-messages.ts).
   const [statusErrorMessage, setStatusErrorMessage] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  /**
+   * 라운드 62 #7 — 이 화면이 **누구의 준비템인가**를 말한다.
+   *
+   * 고치는 문제: 알림함의 "샀나요?"(purchase_pending)가 데려오는 착지 화면이 여기다. 라운드 62
+   * #2가 이동 **전에** 그 알림의 아이로 전환하도록 고쳤지만(app/notifications.tsx), 전환이
+   * 일어났다는 사실은 이 화면 어디에도 남지 않는다 — 다자녀 가구에서 둘째의 알림을 누르면
+   * 아이가 바뀐 채로 첫째의 물건과 구별되지 않는 상세가 열리고, 여기서 누르는 "이미 샀어요 ·
+   * 지출로 기록"은 **그 바뀐 아이** 밑으로 들어간다. 화면이 말하지 않은 전환이 지출의 주인을
+   * 정하는 셈이다.
+   *
+   * 어휘를 새로 만들지 않는다: 라운드 60 #7이 쓰기 화면들에 세운 그 한 벌
+   * (src/children/child-switch.ts — 해석 `resolveChildScopeLabel`, 조립 `withChildScopeLabel`)을
+   * 그대로 쓰고, 준비템 탭이 쓰는 단어("준비템" — app/(tabs)/_layout.tsx)에 붙인다.
+   *
+   * 게이트는 기존 관례 그대로 **둘**이다: 다자녀(라벨이 null이 아님) ∧ 세션(`hasSession`).
+   *  - 외동 계정: `resolveChildScopeLabel`이 null이라 줄 자체가 생기지 않는다.
+   *  - 비세션: **ITEM-002 픽셀락 캡처가 세션을 지운 프리뷰 렌더다**(app/pixel-lock.tsx). 그래서
+   *    이 줄은 세션 전용으로만 그린다 — 같은 카드의 "예상 가격대" 라벨·상태 배지와 같은 자리에
+   *    같은 게이트를 쓴다. 캡처 경로는 한 픽셀도 달라지지 않는다.
+   *
+   * 목록은 **새 요청 없이** 이미 채워진 캐시에서만 읽는다(예산·정기 지출 화면과 같은 규칙):
+   * `useQuery`가 아니라 `getQueryData`라 쿼리를 활성화하지 않고, 캐시가 비어 있으면 라벨이
+   * null이라 화면이 종전 그대로다 — 모르면 말하지 않는다.
+   */
+  const cachedChildren = authToken
+    ? queryClient.getQueryData<{ children: Child[] }>(["children"])?.children
+    : undefined;
+  const childScopeLabel = resolveChildScopeLabel(childId, cachedChildren);
   const detail = useQuery({
     queryKey: ["item-detail", childId, itemTemplateId],
     enabled: Boolean(authToken && childId && itemTemplateId),
@@ -709,6 +738,14 @@ export default function ItemDetailScreen() {
           )}
 
           <Card style={productDetailInfoCardStyle()}>
+            {/* 라운드 62 #7: 다자녀 세션에서만 서는 한 줄 — 이 상세가 누구의 준비템인가.
+                게이트·근거는 위 childScopeLabel 주석에 있다(ITEM-002 캡처는 비세션이라 불변).
+                조립은 공용 함수 하나뿐이고 이 화면에서 문자열을 다시 잇지 않는다. */}
+            {hasSession && childScopeLabel ? (
+              <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>
+                {withChildScopeLabel("준비템", childScopeLabel)}
+              </Text>
+            ) : null}
             <Text style={{ color: theme.colors.brown, fontSize: 21, fontWeight: "800" }}>{visibleDetail.name}</Text>
             {/* 라운드 48 T1(A4): 내 준비 상태 한 줄. 목록 카드 배지와 **같은 문구**를 쓴다
                 (src/items/item-labels.ts) -- 목록에서 "선물 받음"으로 보이던 항목이 상세에서는

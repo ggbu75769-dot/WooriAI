@@ -84,4 +84,60 @@ describe("R19-C(F2) 아이 삭제 · 가구 탈퇴 이후 경로", () => {
       expect(privacySource).toContain("announceForA11y(plan.notice)");
     });
   });
+
+  /**
+   * 라운드 62 #5 — **삭제한 아이의 기기 잔재.**
+   *
+   * 뒤처리는 쿼리 캐시뿐이었다(위 CHILD_REMOVAL_INVALIDATE_KEYS). 기기에 persist되는 아이 단위
+   * 상태 셋은 그대로 남아, 삭제한 아이의 알림 줄이 알림함에 계속 서고(태명을 해석할 수 없어
+   * 어느 아이 것인지도 안 보인다) 정기 지출 템플릿이 아이별 상한 20칸을 차지한 채 남았다.
+   * 트랙 B가 세 스토어에 아이 단위 정리 액션을 놓았고(clearForChild), 여기서는 그 **배선**을
+   * 잡는다 -- 무엇을 지우는지는 각 스토어의 테스트가 이미 진다.
+   */
+  describe("라운드 62 #5 삭제한 아이의 기기 잔재 정리 (배선 source contract)", () => {
+    const privacySource = source("app/settings/privacy.tsx");
+    const blockBetween = (start: string, end: string) =>
+      privacySource.slice(privacySource.indexOf(start), privacySource.indexOf(end));
+
+    it("아이 삭제가 성공한 뒤 세 스토어의 아이 단위 정리를 부른다", () => {
+      const childDeleteBlock = blockBetween("const childDelete = useMutation({", "const householdPreview = useMutation({");
+      expect(childDeleteBlock).toContain("onSuccess: async () => {");
+      expect(childDeleteBlock).toContain("const removedChildId = childId;");
+      for (const store of [
+        "useNotificationStore",
+        "usePurchaseFollowupStore",
+        "useRecurringExpenseStore"
+      ]) {
+        expect(childDeleteBlock, store).toContain(`${store}.getState().clearForChild(removedChildId);`);
+        expect(privacySource, store).toContain(`import { ${store} }`);
+      }
+    });
+
+    it("가구 탈퇴 경로에서는 부르지 않는다 — 사라진 아이 집합을 모른다", () => {
+      const householdLeaveBlock = blockBetween("const householdLeave = useMutation({", "const accountPreview = useMutation({");
+      // 주석에서 그 액션을 **언급**하는 것은 호출이 아니므로(왜 안 부르는지가 거기 적혀 있다),
+      // 줄 첫 토큰이 호출인 형태만 잡는다 -- household-scope.test.ts의 clearSession 검사와 같은 관례.
+      const clearForChildCall = /\n\s*use\w+Store\.getState\(\)\.clearForChild\(/;
+      expect(householdLeaveBlock).not.toMatch(clearForChildCall);
+      // 그 이유가 코드 옆에 그대로 남아 있어야 다음 라운드가 "빠뜨린 자리"로 오해하지 않는다.
+      expect(householdLeaveBlock).toContain("어느 아이가 사라졌는가");
+      // 공통 뒤처리(두 경로가 함께 지나는 자리)에도 없다 -- 있으면 탈퇴가 곧 그 호출이 된다.
+      const finishBlock = blockBetween("const finishChildRemoval = async", "const privacy = useQuery({");
+      expect(finishBlock).not.toMatch(clearForChildCall);
+    });
+
+    it("PRIV-104 teardown(resetAll)과 섞지 않는다 — 아이 단위 정리는 별도 액션이다", () => {
+      // 정체성 전환에만 발화하는 그 경로는 이 화면이 아니라 세션 teardown이 진다.
+      expect(privacySource).not.toContain("resetAll()");
+      expect(source("src/offline/session-teardown.ts")).toContain("useNotificationStore.getState().resetAll();");
+      // 세 스토어 모두 같은 이름의 아이 단위 액션을 내놓는다(트랙 B 소유 -- 여기서는 호출만 한다).
+      for (const storePath of [
+        "src/notifications/notification.store.ts",
+        "src/commerce/purchase-followup.store.ts",
+        "src/stores/recurring-expense.store.ts"
+      ]) {
+        expect(source(storePath), storePath).toContain("clearForChild: (childId: string) => void;");
+      }
+    });
+  });
 });

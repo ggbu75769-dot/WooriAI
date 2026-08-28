@@ -22,6 +22,7 @@ import {
   diffExpenseFields,
   discardFailedItemStatusMutation,
   discardFailedMutation,
+  discardPendingMutation,
   flushOutbox,
   recordLocalCreate,
   recordLocalDelete,
@@ -253,6 +254,17 @@ async function attemptFlush(token: string, queryClient: QueryClient): Promise<Fl
     // 건을 한 번에 확정하므로) 조건 없이 무효화한다 -- 최악이라도 refetch 한 번이다.
     await queryClient.invalidateQueries({ queryKey: ["items"] });
     await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
+    // GAP-062 #1 — **경고가 걷히는 바로 그 순간**에 리포트 숫자가 조용히 틀리던 자리다.
+    //
+    // 오프라인 대기 동안 리포트 탭은 "반영되지 않은 기록 N건" 고지로 사실을 말한다(그 고지는
+    // 비-synced 행만 센다 — src/reports/pending-scope-notice.ts). flush가 확정되면 그 행들이
+    // 'synced'가 되어 고지가 사라지는데, 서버 집계 캐시(["report"])는 여기서 무효화하지 않으면
+    // 여전히 그 기록들을 모르는 옛 값이다. 즉 화면이 "다 반영됐다"고 말하기 시작하는 순간부터
+    // 최대 30초+(staleTime·포커스 리페치 전까지) 틀린 숫자를 단언한다.
+    // 예산 사용액(usedAmountKrw)도 같은 이유로 함께 무효화한다 — 근거 전문은
+    // app/expenses/new.tsx의 같은 두 줄 위(비활성 쿼리 무효화는 refetch를 일으키지 않는다).
+    await queryClient.invalidateQueries({ queryKey: ["report"] });
+    await queryClient.invalidateQueries({ queryKey: ["budget"] });
     emitFlashMessage(SERVER_CONFIRMED_MESSAGE);
     // ANA-101 (round5a-sprint2-plan.md §5): fires once per flush pass that
     // actually confirmed at least one write with the server, not once. A
@@ -480,6 +492,22 @@ export async function discardOfflineMutation(localId: string): Promise<void> {
 }
 
 /**
+ * GAP-062 #3 — 대기 행의 "버리기". 실패 행의 삭제와 같은 모양(폐기 → 스냅샷)이되, 엔진 쪽에서
+ * **전송 중이 아닌 생성 대기 행인지**를 저장소로 다시 확인한다(sync-engine.ts
+ * `discardPendingMutation` 주석 — 고아 지출 방지). 스냅샷은 어느 쪽이든 갱신한다: 조건이
+ * 어긋나 아무것도 버리지 않았다면 그 행의 **새 상태**(전송 중·확정됨)를 화면이 바로 그려야 한다.
+ *
+ * 쿼리 캐시는 건드리지 않는다 — 이 화면과 기록 탭·홈이 읽는 것은 서버 응답이 아니라 이
+ * 스냅샷이고(재조정), 서버는 이 행을 애초에 받은 적이 없다.
+ */
+export async function discardPendingOfflineMutation(localId: string): Promise<boolean> {
+  const store = await getOfflineStore();
+  const discarded = await discardPendingMutation(store, localId);
+  await refreshSnapshot();
+  return discarded;
+}
+
+/**
  * SYNC-127 "전체 재시도". Same shape as `retryOfflineMutation` (requeue → snapshot → one background
  * flush) but for every failed row at once: the point of the bulk action is that 100 failed rows
  * cost one flush pass instead of 100 individually-triggered ones. Returns the number of rows
@@ -572,6 +600,13 @@ async function pullDeltaInBackground(token: string, queryClient: QueryClient): P
     );
     if (summary.changeCount > 0 || summary.didResetCursor) {
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      // 라운드 62 #6: GAP-062 #1이 지출 **쓰기** 5경로에 붙인 두 줄이 여기에도 필요하다.
+      // 델타 풀은 **다른 기기의 쓰기**가 이 기기에 도착하는 경로다 — 서버 집계가 실제로
+      // 달라진 상황이라 리포트 합계·비중·추이(`["report"]`)와 예산 사용액(`["budget"]`)이
+      // 옛 값으로 남는다. 리포트 탭은 탭 전환으로 언마운트되지 않아 refetchOnMount도 돌지
+      // 않으므로(같은 티켓의 근거), 열어 둔 사람에게는 그 값이 계속 서 있다.
+      await queryClient.invalidateQueries({ queryKey: ["report"] });
+      await queryClient.invalidateQueries({ queryKey: ["budget"] });
     }
   } catch {
     // Best-effort (design doc §2.3): a failed pull changes nothing locally; the persisted

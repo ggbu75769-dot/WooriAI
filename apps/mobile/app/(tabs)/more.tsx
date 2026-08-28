@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { getSeoulToday } from "@wooriai/domain";
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import { Alert, Image, Pressable, Text, View } from "react-native";
@@ -27,6 +28,9 @@ import {
   type MoreMenuSection
 } from "../../src/settings/more-menu";
 import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
+// GAP-062 #6: 홈 헤더·설정 요약·아이 목록과 **같은** 표시층 판정을 이 카드도 지난다(재사용만 —
+// 판정은 src/home/stage-display-label.ts 한 자리에 그대로 있다).
+import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
@@ -189,6 +193,34 @@ export default function MoreScreen() {
    */
   const isChildPending = Boolean(authToken) && !childId;
   const visibleProfile = authToken ? (home.data?.child ?? loadingProfile) : previewProfile;
+  /**
+   * GAP-062 #6 — **세션 카드의 단계 라벨.**
+   *
+   * 라운드 61 #10이 걷어낸 "임신 42주차" 고착(예정일이 유예를 넘겨 지났는데 출생 전환을 하지
+   * 않은 프로필에서 도메인 라벨이 42주에 clamp돼 몇 달이고 같은 문장을 되풀이하는 것)은 홈
+   * 헤더·설정 요약·아이 목록 셋만 지났고, 이 카드는 서버 라벨을 그대로 그리고 있었다. 그래서
+   * 한 앱이 같은 아이를 두고 홈에서는 "예정일이 지났어요", 여기서는 "임신 42주차"라고 말했다.
+   * 같은 함수를 지나게 해서 **두 문장을 한 문장으로** 되돌린다(판정·도메인 stageCode·서버 DTO는
+   * 한 줄도 바뀌지 않는다 — 여기서 바뀌는 것은 읽어 주는 문장 하나뿐이다).
+   *
+   * 원천은 `["children"]` **캐시**다: `HomeSummary.child`에는 `stageMode`/`dueDate`가 없어
+   * (src/api/client.ts) 홈 응답만으로는 판정할 수 없다. 이 화면은 그 캐시를 가구 카드의
+   * "아이 M명" 때문에 **이미 조회하고 있으므로**(위 `children`) 새 요청은 0건이다.
+   *
+   * `home.data`가 아직 없으면 판정을 태우지 않는다 — 그동안 카드는 `loadingProfile`("...")을
+   * 그리는 중이고, 이름은 "..."인데 단계만 참말로 바뀌면 반쯤 로드된 카드가 된다. 아이를
+   * 못 찾거나(캐시 없음·다른 가구) 날짜를 모르면 판정은 서버 라벨을 **그대로** 돌려준다.
+   *
+   * SET-001 픽셀락: 이 값은 **세션 렌더에서만** 쓴다. 비로그인 미리보기 카드는 아래에서
+   * 예전 그대로 `visibleProfile.stageLabel`을 그린다(한 노드도 달라지지 않는다).
+   */
+  const stageSourceChild = home.data ? children.data?.children.find((child) => child.id === childId) : undefined;
+  const sessionStageLabel = resolveStageDisplayLabel({
+    stageMode: stageSourceChild?.stageMode,
+    dueDate: stageSourceChild?.dueDate,
+    todayIso: getSeoulToday(),
+    stageLabel: visibleProfile.stageLabel
+  });
 
   // EXP-106 데이터 내보내기(CSV): 기간 선택 카드는 아래 메뉴 행으로 접었다 폈다 한다. 상태·수집·
   // 공유·토스트는 설정 화면과 공유하는 src/export/ExpenseCsvExport.tsx가 전부 담당한다.
@@ -298,8 +330,8 @@ export default function MoreScreen() {
             accessibilityRole="button"
             accessibilityLabel={
               householdCaption
-                ? `${visibleProfile.nickname}네, ${householdCaption}, ${visibleProfile.stageLabel}, 프로필 관리`
-                : `${visibleProfile.nickname}네, ${visibleProfile.stageLabel}, 프로필 관리`
+                ? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`
+                : `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`
             }
             onPress={() => router.push(MORE_PROFILE_CARD_ROUTE)}
             style={moreHouseholdCardStyle}
@@ -312,7 +344,9 @@ export default function MoreScreen() {
               <Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>
               {householdCaption ? <Text style={moreHouseholdMetaStyle}>{householdCaption}</Text> : null}
             </View>
-            <StageBadge label={visibleProfile.stageLabel} />
+            {/* GAP-062 #6: 배지 조리법(coral[50]/coral[700])은 그대로고 **문장만** 표시층 판정을
+                지난다 — 보이는 줄과 위 낭독 줄이 갈리지 않게 같은 한 값을 쓴다. */}
+            <StageBadge label={sessionStageLabel} />
           </Pressable>
         ) : (
           <Pressable

@@ -207,6 +207,10 @@ model HouseholdMember {
   @@map("household_members")
 }
 
+/// GAP-062 #8 보존: `status`가 정해진 행(expired·accepted·revoked)은 파기 잡 phase 10이
+/// `expires_at` 기준 90일(HOUSEHOLD_INVITES_RETENTION_DAYS) 뒤 삭제한다. `pending`은 대상이
+/// 아니다 — 아직 살아 있는 링크다. 그래서 `expires_at` 인덱스는 만료 표시 UPDATE와 그 파기
+/// 단계가 함께 쓴다(근거·남는 격차는 data-retention-purge.job.ts의 phase 10 주석).
 model HouseholdInvite {
   id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   householdId      String     @map("household_id") @db.Uuid

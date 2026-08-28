@@ -1212,6 +1212,32 @@ export default function NewExpenseScreen() {
       }
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["home"] });
+      /**
+       * GAP-062 #1 — **리포트·예산 캐시도 방금의 기록을 모른다.** (지출 쓰기 4경로의 공통 근거)
+       *
+       * 리포트 탭은 탭 전환으로 언마운트되지 않으므로(react-navigation 기본) 돌아와도
+       * `refetchOnMount`가 돌지 않고, `staleTime: 30_000`(app/_layout.tsx)과 포커스 리페치는
+       * **앱 포그라운드 복귀**에만 걸린다. 그래서 리포트를 한 번 열어 둔 뒤 FAB로 3건을 적고
+       * 돌아오면 월간 합계·카테고리 도넛·6개월 추이가 기록 전 값 그대로다 — 핵심 루프의
+       * "총액 확인"이 옛 숫자를 말한다. 더 나쁜 것은 시점이다: 오프라인 대기 동안에는
+       * "반영되지 않은 기록 N건" 고지가 사실을 말하지만(app/(tabs)/reports.tsx), flush가
+       * 확정되는 순간 그 고지가 사라지고 서버 집계 캐시는 여전히 낡은 채로 남는다.
+       *
+       * 규칙은 이미 있었다 — 가져오기 확정(app/import/[importJobId].tsx)과 예산 저장
+       * (app/budget.tsx)은 둘 다 `["report"]`를 무효화한다. 지출 쓰기 경로 넷만 지나쳤다.
+       *
+       * **`["budget"]`을 함께 넣는 이유**: 예산 응답의 `usedAmountKrw`도 이 기록만큼 달라진다.
+       * 예산 화면은 스택이라 마운트마다 다시 물어(증상이 30초 창에 그쳐) 리포트만큼 눈에
+       * 띄지 않았을 뿐, 낡기는 같이 낡는다. 비활성 쿼리의 무효화는 refetch를 일으키지
+       * 않으므로(react-query) 그 화면이 떠 있지 않은 대다수 경우 추가 요청은 0건이다.
+       *
+       * **숫자를 클라이언트에서 다시 더하지 않는다**: 리포트 합계·비중·추이를 앱에서 재집계하면
+       * 같은 집계 규칙을 두 벌 유지해야 하고 한쪽만 바뀌는 순간 화면이 조용히 틀린다
+       * (src/reports/pending-scope-notice.ts 머리말이 못박은 규칙). 여기서 하는 일은 캐시를
+       * 낡았다고 표시하는 것뿐이다.
+       */
+      await queryClient.invalidateQueries({ queryKey: ["report"] });
+      await queryClient.invalidateQueries({ queryKey: ["budget"] });
       // R19-B (DNC-002 핵심 루프 마지막 고리): 준비템에서 넘어온 기록이면 서버가 그
       // 준비템을 자동으로 '준비 완료'로 올린다(store-shared.ts markLinkedItemPrepared).
       // 준비템 목록/상세 캐시를 그대로 두면 방금 기록한 항목이 화면에서는 계속

@@ -19,6 +19,10 @@ import {
   SYNC_STATUS_DISCARD_ALL_CONFIRM_TITLE,
   SYNC_STATUS_DISCARD_ALL_LABEL,
   SYNC_STATUS_DISCARD_LABEL,
+  SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE,
+  SYNC_STATUS_DISCARD_PENDING_CONFIRM_MESSAGE,
+  SYNC_STATUS_DISCARD_PENDING_CONFIRM_TITLE,
+  SYNC_STATUS_DISCARD_PENDING_LABEL,
   SYNC_STATUS_FAILED_LABEL,
   SYNC_STATUS_FIX_AND_RESEND_LABEL,
   SYNC_STATUS_PENDING_LABEL,
@@ -34,6 +38,7 @@ import {
   SYNC_STATUS_PERMANENT_FAILURE_HINT,
   SYNC_STATUS_PERMISSION_DENIED_HINT
 } from "../src/offline/permission-denied";
+import { isDiscardablePendingRow } from "../src/offline/pending-row-actions";
 import { buildFailedRowPrefillParams, FAILED_ROW_OTHER_CHILD_NOTICE } from "../src/expenses/failed-row-prefill";
 import { useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
 import { itemStatusLabel } from "../src/items/item-labels";
@@ -42,6 +47,7 @@ import {
   discardAllOfflineMutations,
   discardOfflineItemStatus,
   discardOfflineMutation,
+  discardPendingOfflineMutation,
   diffExpenseFieldsForDisplay,
   refreshOfflineSyncSnapshot,
   resolveConflictKeepChosenFields,
@@ -408,12 +414,58 @@ const FailedRow = memo(function FailedRow({
   );
 });
 
+/**
+ * GAP-062 #3 — 대기 행에 취할 수 있는 행동 **하나**("버리기").
+ *
+ * 종전에는 이 행에 문장 한 줄뿐이었다. 실패 행에는 재시도·삭제·고쳐서 다시 보내기가, 충돌
+ * 행에는 세 갈래가 있는데 대기 행에만 아무것도 없어서, 오프라인에서 금액을 잘못 적으면 연결이
+ * 돌아올 때까지 고칠 수도 지울 수도 없었다.
+ *
+ * 버튼이 서는 행은 순수 판정이 고른다(src/offline/pending-row-actions.ts): **전송 중이 아니고
+ * 서버가 아직 모르는 생성 대기 행**뿐이다. 수정·삭제 대기 행에는 서버 값이 따로 있어 같은
+ * 버튼이 다른 일을 하게 되고(그쪽은 "변경 취소"다), 전송 중인 행을 지우면 서버에만 남는 고아
+ * 지출이 된다 — 그 근거는 전부 그 모듈 머리말에 있다.
+ *
+ * 되돌릴 수 없는 파괴적 동작이라 확인 Alert을 앞에 둔다(전체 버리기·지출 삭제와 같은 관례).
+ * 누른 시점에 조건이 어긋났을 수 있으므로(스냅샷은 한 박자 낡는다) 실제 폐기는 저장소를 다시
+ * 읽어 판정한다 — 이 화면은 결과를 기다리지 않는다(스냅샷이 곧 새 상태를 그린다).
+ *
+ * 라운드 62 #2: 다만 **거절됐을 때는** 스냅샷만으로 부족하다. 지금 전송 중이라 거절된 경우
+ * (라운드 62 #1의 flush 가드) 행은 그 자리에 그대로 남아, 확인까지 누른 사용자에게는 눌린 것을
+ * 앱이 못 봤다고 읽힌다. 그래서 컨트롤러가 돌려주는 boolean을 받아 거절이면 이 행 안에 한 줄을
+ * 남긴다(SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE). 이 화면에는 records 탭의 플래시 토스트
+ * 같은 화면 전역 자리가 없고, 어차피 특정 행에 대한 답이라 그 행 안이 제자리다. 다시 누르면
+ * 지워지고, 그 사이 행이 확정돼 사라지면 컴포넌트와 함께 사라진다.
+ */
 const PendingRow = memo(function PendingRow({ row }: { row: LocalExpenseRow }) {
+  const [discardBlocked, setDiscardBlocked] = useState(false);
+  const confirmDiscard = useCallback(() => {
+    setDiscardBlocked(false);
+    Alert.alert(SYNC_STATUS_DISCARD_PENDING_CONFIRM_TITLE, SYNC_STATUS_DISCARD_PENDING_CONFIRM_MESSAGE, [
+      { text: "취소", style: "cancel" },
+      {
+        text: SYNC_STATUS_DISCARD_PENDING_LABEL,
+        style: "destructive",
+        onPress: () => {
+          void discardPendingOfflineMutation(row.localId).then((discarded) => {
+            if (!discarded) setDiscardBlocked(true);
+          });
+        }
+      }
+    ]);
+  }, [row.localId]);
+
   return (
     <SyncRow row={row}>
       <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>
         {row.syncState === "syncing" ? SYNC_STATUS_SYNCING_ROW_MESSAGE : "연결되면 자동으로 반영할게요."}
       </Text>
+      {discardBlocked ? (
+        <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE}</Text>
+      ) : null}
+      {isDiscardablePendingRow(row) ? (
+        <SecondaryButton label={SYNC_STATUS_DISCARD_PENDING_LABEL} onPress={confirmDiscard} />
+      ) : null}
     </SyncRow>
   );
 });

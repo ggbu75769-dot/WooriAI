@@ -246,6 +246,31 @@ export function applyStatus(
   return entries.map((entry) => (entry.itemTemplateId === itemTemplateId ? { ...entry, status } : entry));
 }
 
+/**
+ * 라운드 62 트랙 B(#5) — **삭제된 아이 한 명분**의 대기 항목을 지운다.
+ *
+ * 아이 프로필 삭제의 뒤처리는 지금 쿼리 캐시 무효화뿐이라, 이 기기에는 사라진 아이의 링크 클릭이
+ * 최대 24시간 동안 남는다. 그 항목이 실제로 카드를 띄우지는 않지만(`isFollowupForSelectedChild`가
+ * 지금 아이의 것만 고른다 — 그 아이는 이제 선택될 수 없다), **남길 이유도 없다**: 이 blob이
+ * 들고 있는 것은 삭제된 아이의 id와 그 아이를 위해 무엇을 사려 했는지(itemName)다. 아이를 지운
+ * 사람에게는 그 흔적이 기기에서 사라지는 것이 약속에 맞다.
+ *
+ * `resetAll`(PRIV-104 세션 teardown)과 섞지 않는 **별도 액션**이다 — 그쪽은 정체성이 바뀔 때
+ * 전부 지우고, 이쪽은 같은 사람이 로그인한 채 아이 하나만 지운 경우다.
+ *
+ * 빈 childId로는 아무것도 지우지 않는다(childId를 모르는 옛 항목까지 쓸어 버리지 않는다).
+ * 바뀌는 것이 없으면 **같은 배열**을 돌려준다(이 모듈의 no-op 관례).
+ */
+export function clearPurchaseFollowupsForChild(
+  entries: PurchaseFollowupEntry[],
+  childId: string
+): PurchaseFollowupEntry[] {
+  const target = childId.trim();
+  if (target.length === 0) return entries;
+  if (!entries.some((entry) => entry.childId === target)) return entries;
+  return entries.filter((entry) => entry.childId !== target);
+}
+
 export type PurchaseFollowupState = {
   entries: PurchaseFollowupEntry[];
   recordLinkClick: (click: PurchaseFollowupClick) => void;
@@ -260,6 +285,11 @@ export type PurchaseFollowupState = {
   completeFollowup: (itemTemplateId: string) => void;
   /** "괜찮아요" */
   dismissFollowup: (itemTemplateId: string) => void;
+  /**
+   * 라운드 62 트랙 B(#5): **아이 하나가 삭제됐을 때** 그 아이의 대기 항목을 지운다(규칙은 위
+   * `clearPurchaseFollowupsForChild` 주석). PRIV-104 teardown(`resetAll`)과는 별개 액션이다.
+   */
+  clearForChild: (childId: string) => void;
   /** PRIV-104 session teardown: drops every persisted entry (clicked items, child ids) so the
    * next account on this device never gets prompted about the previous account's clicks. Called
    * from src/offline/session-teardown.ts on logout / account switch / demo toggle. */
@@ -326,6 +356,12 @@ export const usePurchaseFollowupStore = create<PurchaseFollowupState>()(
         set((state) => ({ entries: applyStatus(state.entries, itemTemplateId, "done") })),
       dismissFollowup: (itemTemplateId) =>
         set((state) => ({ entries: applyStatus(state.entries, itemTemplateId, "dismissed") })),
+      clearForChild: (childId) =>
+        set((state) => {
+          const entries = clearPurchaseFollowupsForChild(state.entries, childId);
+          // 지울 것이 없으면 같은 상태를 유지한다(구독자가 헛돌지 않게).
+          return entries === state.entries ? state : { entries };
+        }),
       resetAll: () => set({ entries: [] })
     }),
     {

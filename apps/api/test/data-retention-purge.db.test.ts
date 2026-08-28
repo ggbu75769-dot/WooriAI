@@ -1455,4 +1455,170 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       await cleanupImportFixtures(owner, importJobIds);
     });
   });
+
+  describe("family invite retention (phase 10, GAP-062 #8)", () => {
+    afterEach(() => {
+      delete process.env.HOUSEHOLD_INVITES_RETENTION_DAYS;
+      delete process.env.IMPORT_ROWS_RETENTION_DAYS;
+      delete process.env.AUDIT_LOGS_RETENTION_DAYS;
+      delete process.env.ANALYTICS_EVENTS_RETENTION_DAYS;
+      delete process.env.AFFILIATE_CLICKS_RETENTION_DAYS;
+    });
+
+    /** 이 블록이 쓰는 최소 소유 체계: 살아 있는 사용자 + 그의 가구(초대의 FK 두 개). */
+    async function createInviteHousehold() {
+      const user = await createUser();
+      const household = await createHousehold(user.id);
+      return { user, household };
+    }
+
+    /**
+     * 픽스처 모양 주의: `expires_at`이 과거인 행을 살아남게 단언해도 안전하다 —
+     * household_invites에는 프로덕션 전역 DELETE 경로가 없고, 유일한 전역성 쓰기인
+     * 만료 표시 UPDATE는 `household_id` 스코프다(household-runtime.service.ts 349·386·570).
+     * 이 스위트는 그 API를 호출하지 않으므로 남의 로그인/조회가 이 행을 건드릴 수 없다.
+     */
+    async function createInvite(
+      owner: { user: { id: string }; household: { id: string } },
+      options: { status: "pending" | "expired" | "accepted" | "revoked"; expiresAt: Date; acceptedAt?: Date }
+    ) {
+      return prisma.householdInvite.create({
+        data: {
+          householdId: owner.household.id,
+          invitedByUserId: owner.user.id,
+          role: "co_parent",
+          inviteTokenHash: `purge-gap062-${randomUUID()}`,
+          channel: "link",
+          status: options.status,
+          expiresAt: options.expiresAt,
+          // chk_household_invites_expiry (expires_at > created_at) 때문에 유효기간을
+          // 과거로 두려면 생성 시각도 함께 옮긴다. 간격은 실제 초대 수명 7일
+          // (household-runtime.service.ts의 INVITE_TTL_MS)과 같게 맞춘다.
+          createdAt: new Date(options.expiresAt.getTime() - 7 * DAY_MS),
+          ...(options.status === "accepted"
+            ? { acceptedByUserId: owner.user.id, acceptedAt: options.acceptedAt ?? options.expiresAt }
+            : {})
+        }
+      });
+    }
+
+    async function cleanupInviteFixtures(owner: { user: { id: string }; household: { id: string } }) {
+      await prisma.householdInvite.deleteMany({ where: { householdId: owner.household.id } });
+      await prisma.householdMember.deleteMany({ where: { householdId: owner.household.id } });
+      await prisma.household.deleteMany({ where: { id: owner.household.id } });
+      await prisma.user.deleteMany({ where: { id: owner.user.id } });
+    }
+
+    it("defaults to a 90-day window and reports it in the summary", async () => {
+      const now = new Date();
+      const summary = await job.run(now);
+      expect(summary.householdInvitesRetentionDays).toBe(90);
+      // 정산 근거(400일)도 책임 추적 기록(730일)도 아니라는 판단을 숫자 관계로 고정한다.
+      expect(summary.householdInvitesRetentionDays as number).toBeLessThan(
+        summary.auditLogsRetentionDays as number
+      );
+      expect(summary.householdInvitesRetentionDays as number).toBeLessThan(
+        summary.analyticsEventsRetentionDays as number
+      );
+    });
+
+    it("purges expired/accepted/revoked invites whose TTL lapsed beyond the window, keeps the ones inside it, and never touches the household or its members", async () => {
+      const now = new Date();
+      const owner = await createInviteHousehold();
+      await createMembership(owner.household.id, owner.user.id, "active");
+
+      const expired = await createInvite(owner, { status: "expired", expiresAt: daysAgo(now, 91) });
+      const accepted = await createInvite(owner, { status: "accepted", expiresAt: daysAgo(now, 120) });
+      const revoked = await createInvite(owner, { status: "revoked", expiresAt: daysAgo(now, 365) });
+      // 경계 바로 안쪽(89일): 같은 상태여도 살아남아야 한다.
+      const onTheEdge = await createInvite(owner, { status: "expired", expiresAt: daysAgo(now, 89) });
+
+      const summary = await job.run(now);
+      expect(summary.householdInvitesPurged as number).toBeGreaterThanOrEqual(3);
+
+      expect(await prisma.householdInvite.findUnique({ where: { id: expired.id } })).toBeNull();
+      expect(await prisma.householdInvite.findUnique({ where: { id: accepted.id } })).toBeNull();
+      expect(await prisma.householdInvite.findUnique({ where: { id: revoked.id } })).toBeNull();
+      expect(await prisma.householdInvite.findUnique({ where: { id: onTheEdge.id } })).not.toBeNull();
+
+      // 수락 사실은 구성원 행이 계속 보존한다 — 초대 행 삭제가 중복 보존의 해소인 이유.
+      expect(await prisma.householdMember.count({ where: { householdId: owner.household.id } })).toBe(1);
+      expect(await prisma.household.findUnique({ where: { id: owner.household.id } })).not.toBeNull();
+      expect(await prisma.user.findUnique({ where: { id: owner.user.id } })).not.toBeNull();
+
+      await cleanupInviteFixtures(owner);
+    });
+
+    it("never purges a pending invite, however long ago its TTL lapsed — 살아 있는 링크는 대상이 아니다", async () => {
+      const now = new Date();
+      const owner = await createInviteHousehold();
+      // 아직 쓸 수 있는 링크.
+      const live = await createInvite(owner, { status: "pending", expiresAt: new Date(now.getTime() + DAY_MS) });
+      // 유효기간은 한참 지났지만 아무도 그 가구의 초대 목록을 다시 열지 않아 만료 표시가
+      // 돌지 않은 행(게으른 만료 — phase 10 주석이 남긴 사각 그대로). 상태가 정해지지
+      // 않았으므로 이 단계는 건드리지 않는다.
+      const staleButPending = await createInvite(owner, { status: "pending", expiresAt: daysAgo(now, 400) });
+      // 같은 나이의 만료 표시된 행은 지워진다 — 두 행의 운명이 갈리는 것이 이 단계의 판정이다.
+      const expired = await createInvite(owner, { status: "expired", expiresAt: daysAgo(now, 400) });
+
+      await job.run(now);
+
+      expect(await prisma.householdInvite.findUnique({ where: { id: live.id } })).not.toBeNull();
+      expect(await prisma.householdInvite.findUnique({ where: { id: staleButPending.id } })).not.toBeNull();
+      expect(await prisma.householdInvite.findUnique({ where: { id: expired.id } })).toBeNull();
+
+      await cleanupInviteFixtures(owner);
+    });
+
+    it("honors the HOUSEHOLD_INVITES_RETENTION_DAYS override independently of the other windows", async () => {
+      const now = new Date();
+      process.env.HOUSEHOLD_INVITES_RETENTION_DAYS = "200";
+      const owner = await createInviteHousehold();
+
+      const beyond = await createInvite(owner, { status: "expired", expiresAt: daysAgo(now, 250) });
+      // 150일은 기본 창(90)이면 지워질 나이지만 override(200) 안이다 — 이 행의 생존이
+      // 곧 "env가 실제로 반영됐다"는 증거다.
+      const within = await createInvite(owner, { status: "accepted", expiresAt: daysAgo(now, 150) });
+
+      const summary = await job.run(now);
+      expect(summary.householdInvitesRetentionDays).toBe(200);
+      // 다른 창은 이 override에 흔들리지 않는다.
+      expect(summary.retentionDays).toBe(30);
+      expect(summary.auditLogsRetentionDays).toBe(730);
+      expect(summary.importRowsRetentionDays).toBe(90);
+
+      expect(await prisma.householdInvite.findUnique({ where: { id: beyond.id } })).toBeNull();
+      expect(await prisma.householdInvite.findUnique({ where: { id: within.id } })).not.toBeNull();
+
+      await cleanupInviteFixtures(owner);
+    });
+
+    it("caps the phase at PURGE_BATCH_SIZE rows per tick, drains across ticks, and then no-ops", async () => {
+      const now = new Date();
+      // 3,000일 넘게 지난 유효기간: 다른 스위트는 이만한 나이의 초대를 만들지 않으므로
+      // (초대 TTL은 7일) 이 셋이 파기 대상 전부이고 배치 상한이 정확히 관측된다.
+      process.env.PURGE_BATCH_SIZE = "2";
+      const owner = await createInviteHousehold();
+      const invites = [
+        await createInvite(owner, { status: "expired", expiresAt: daysAgo(now, 3002) }),
+        await createInvite(owner, { status: "revoked", expiresAt: daysAgo(now, 3001) }),
+        await createInvite(owner, { status: "accepted", expiresAt: daysAgo(now, 3000) })
+      ];
+      const inviteIds = invites.map((invite) => invite.id);
+
+      const first = await job.run(now);
+      expect(first.householdInvitesPurged).toBe(2);
+      // 오래된 것부터: 셋 중 가장 최근 행은 첫 틱을 살아남는다.
+      expect(await prisma.householdInvite.findUnique({ where: { id: inviteIds[2]! } })).not.toBeNull();
+
+      const second = await job.run(now);
+      expect(second.householdInvitesPurged).toBe(1);
+      expect(await prisma.householdInvite.count({ where: { id: { in: inviteIds } } })).toBe(0);
+
+      const third = await job.run(now);
+      expect(third.householdInvitesPurged).toBe(0);
+
+      await cleanupInviteFixtures(owner);
+    });
+  });
 });
