@@ -1,4 +1,5 @@
 import * as SQLite from "expo-sqlite";
+import { createOneShotReopenGate } from "./store-open-gate";
 import type {
   ItemStatusOutboxRow,
   ItemStatusSyncState,
@@ -292,21 +293,138 @@ export async function runOfflineDbMigrations(
   return version;
 }
 
-let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+/* ----------------------------------------------------- 라운드 61 #4 — synced 행의 수명 */
+
+/**
+ * 라운드 61 #4 — **동기화가 끝난 지출 행의 보관 기간**.
+ *
+ * ## 없으면 무슨 일이 일어나나
+ *
+ * `local_expenses`에는 지우는 경로가 세 개뿐이었다: 사용자가 지운 행(삭제 mutation 확정),
+ * 실패 행 버리기, 그리고 계정 전환의 전체 삭제(PRIV-104 `clearAll`). 그 밖의 모든 행은
+ * **`sync_state='synced'`가 된 뒤에도 영원히 남는다** — 이 기기에서 기록한 지출 전부에,
+ * 지출 상세를 한 번이라도 연 서버 지출(`adoptServerExpense`가 남기는 synced 행)까지 더해진다.
+ * 그리고 그 테이블 전량이 저장할 때마다 스냅샷으로 실려 8개 화면 구독으로 흐른다
+ * (sync-controller.ts `refreshSnapshot`). 1년 쓴 기기에서 그 비용은 계속 커지기만 한다.
+ *
+ * ## 창을 90일로 잡은 근거 (= 이 행들을 **읽는** 소비자의 요구)
+ *
+ * synced 행을 실제로 읽는 자리는 하나뿐이다: 입력 보조의 제안 모집단
+ * (`src/expenses/suggest-source.ts` → 최근 칩·품목/판매처 자동완성). 그 모듈은 로컬 스냅숏을
+ * **서버 월 캐시 두 달치(이번 달 + 지난달)** 와 짝지어 쓴다. 즉 로컬 쪽이 두 달보다 짧아지면
+ * 그 모듈이 고치려던 비대칭이 되돌아온다. 90일은 그 두 달을 언제나 덮는 가장 가까운 값이다
+ * (달 길이와 월초 경계를 감안해도 62일 + 여유).
+ *
+ * ## "이 품목 이력" 모집단 조사 결과 — **이 창에 영향받지 않는다**
+ *
+ * 지출 상세의 "이 품목 이력"(app/expenses/[expenseId].tsx → `src/expenses/item-history.ts`)은
+ * 스냅숏 행을 그대로 쓰지 않는다. `itemHistoryPopulation`이 그 행들을
+ * `reconcileMonthlyExpenses`(src/offline/expense-list-reconciliation.ts)에 넘기는데, 그 함수는
+ * 양쪽 갈래 모두에서 `row.syncState !== "synced"`로 거른다(`staleServerCanonicalIds`와
+ * `offlinePendingRows`). 그러니까 그 화면의 이력은 **서버 월 캐시**가 만들고 로컬 행은 아직
+ * 올라가지 않은 것만 보탠다 — synced 행은 한 줄도 기여하지 않는다. 파기 창을 아무리 좁혀도
+ * 그 목록은 바뀌지 않는다. (같은 이유로 정기 지출 판정 `recordedItemNamesForMonth`도 영향이
+ * 없다 — 그쪽은 synced 행을 세지만 같은 지출이 서버 월 캐시에도 있어 결과가 같다.)
+ *
+ * 그래서 창을 정하는 요구는 위 제안 모집단 하나이고, 90일은 그 요구보다 넉넉하다.
+ */
+export const SYNCED_ROW_RETENTION_DAYS = 90;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 이 시각(ISO 8601)보다 **오래된** synced 행이 파기 대상이다. 경계값 자신은 남는다(`<` 비교). */
+export function syncedRowPurgeCutoff(nowMs: number = Date.now(), days: number = SYNCED_ROW_RETENTION_DAYS): string {
+  return new Date(nowMs - days * DAY_MS).toISOString();
+}
+
+/**
+ * 라운드 61 #4 — **파기 제외 계약**. 이 SQL이 그 계약의 단일 소스다.
+ *
+ * 지워도 되는 행은 "서버에 그대로 있고, 이 기기가 그 행에 대해 더 할 말이 없는" 행뿐이다.
+ * 다섯 가지가 그 조건을 이룬다 — 하나라도 빠지면 **되돌릴 수 없는 데이터 손실**이다.
+ *
+ *  1. `sync_state = 'synced'` — 대기·전송 중·실패·충돌 행은 아예 대상이 아니다.
+ *  2. `pending_delete = 0` — 삭제 대기 행은 sync_state가 무엇이든 아직 사용자의 의사를 들고
+ *     있다. 지우면 그 삭제는 서버에 영영 닿지 않고, 사용자가 지운 기록이 되살아난다.
+ *  3. `conflict_current IS NULL` — 충돌 스냅샷을 들고 있는 행은 사용자가 아직 고르지 않은
+ *     선택지(다른 기기 값)를 들고 있는 유일한 자리다. (1번이 이미 걸러 내지만, 상태와 스냅샷이
+ *     어긋난 행에서도 손실이 없도록 조건을 따로 세운다.)
+ *  4. `canonical_id IS NOT NULL` — 서버 id가 없는 행은 **서버에 존재한 적이 없다.** 그 행을
+ *     지우면 그 지출은 이 세상에서 사라진다(로컬이 유일한 사본이다).
+ *  5. 미결 아웃박스가 걸린 행 제외 — `mutation_outbox`에 이 local_id를 겨냥한 행이 하나라도
+ *     있으면 아직 보낼 것이 남았다는 뜻이다. 지우면 flush가 고아 mutation을 만나 그대로 버린다
+ *     (sync-engine의 고아 처리), 즉 사용자의 수정·삭제가 조용히 사라진다.
+ *
+ * 그 위에 시간 조건(`updated_at < ?`)이 붙는다. `created_at`이 아니라 `updated_at`인 이유:
+ * 오래전에 적었더라도 최근에 고친 지출은 사용자가 지금도 다루는 기록이고, 제안 모집단에서도
+ * 최근 것으로 취급된다. 문자열 비교로 충분한 이유는 이 컬럼에 들어가는 값이 언제나
+ * `new Date().toISOString()`(고정 자릿수 UTC)이기 때문이다 — 그 형식에서는 사전순 = 시간순이다.
+ */
+export const PURGE_EXPIRED_SYNCED_LOCAL_EXPENSES_SQL = `DELETE FROM local_expenses
+   WHERE sync_state = 'synced'
+     AND pending_delete = 0
+     AND conflict_current IS NULL
+     AND canonical_id IS NOT NULL
+     AND updated_at < ?
+     AND NOT EXISTS (
+       SELECT 1 FROM mutation_outbox WHERE mutation_outbox.target_local_id = local_expenses.local_id
+     )`;
+
+/**
+ * 파기에 필요한 최소한의 DB. `MigratableDatabase`와 같은 관례다 — expo-sqlite를 몰라도 되는
+ * 구조 타입이라 vitest가 node 내장 SQLite를 이 모양으로 감싸 **진짜 SQL로** 계약을 검증한다
+ * (sqlite-retention.test.ts).
+ */
+export type PurgeableDatabase = {
+  runAsync(source: string, ...params: unknown[]): Promise<{ changes?: number } | void>;
+};
+
+/** 파기한 행 수를 돌려준다(드라이버가 알려주지 않으면 0). */
+export async function purgeExpiredSyncedLocalExpenses(db: PurgeableDatabase, cutoff: string): Promise<number> {
+  const result = await db.runAsync(PURGE_EXPIRED_SYNCED_LOCAL_EXPENSES_SQL, cutoff);
+  return typeof result === "object" && result !== null && typeof result.changes === "number" ? result.changes : 0;
+}
+
+/**
+ * 부팅 1회 정리. **마이그레이션 러너 뒤**에서 한 번만 돈다(스키마가 이 빌드의 기대와 맞은 뒤에야
+ * 이 SQL의 컬럼 이름이 의미를 갖는다).
+ *
+ * 실패를 삼키는 이유: 이것은 청소이지 정합성 작업이 아니다. 파기에 실패한 기기는 종전처럼
+ * 행을 조금 더 들고 있을 뿐이고, 그 이유로 저장소 자체를 못 열게 만들면 아직 서버에 못 보낸
+ * 지출까지 함께 잠긴다(마이그레이션 실패와 정반대의 무게다).
+ */
+async function purgeExpiredSyncedLocalExpensesOnBoot(db: PurgeableDatabase): Promise<void> {
+  try {
+    await purgeExpiredSyncedLocalExpenses(db, syncedRowPurgeCutoff());
+  } catch {
+    // 청소 실패는 저장소를 막지 않는다.
+  }
+}
+
+/**
+ * 라운드 61 #6 — 저장소 열기는 이제 **재오픈이 가능한 문**을 지난다.
+ *
+ * 종전에는 이 promise가 거부된 채로 남아, 부팅 한 번의 실패가 그 앱 세션 전체의 모든 저장소
+ * 호출을 같은 옛 오류로 실패시켰다(그리고 호출부들은 그 오류를 최선 노력으로 삼킨다 —
+ * 사용자에게는 아무 일도 일어나지 않는 앱으로 보인다). 이제 성공만 캐시하고, 실패하면 다음
+ * 호출이 **한 번 더** 연다(그 뒤로는 래치가 폭풍을 막는다 — store-open-gate.ts).
+ *
+ * 실패 자체의 무게는 그대로다: 스키마가 코드의 기대와 어긋난 채로 쓰기를 계속하는 것보다 명확히
+ * 멈추고 sync-controller의 오류 경로로 넘기는 편이 데이터에 안전하다. 달라진 것은 "그 판단이
+ * 앱을 껐다 켤 때까지 굳어 있는가"뿐이다.
+ */
+const dbGate = createOneShotReopenGate<SQLite.SQLiteDatabase>(async () => {
+  const db = await SQLite.openDatabaseAsync(DB_NAME);
+  // WAL은 트랜잭션 안에서 바꿀 수 없으므로 마이그레이션 **밖**에서, 열자마자 한 번 건다.
+  await db.execAsync(`PRAGMA journal_mode = WAL;`);
+  await runOfflineDbMigrations(db);
+  // 라운드 61 #4: 부팅 1회 정리(마이그레이션 뒤 관례).
+  await purgeExpiredSyncedLocalExpensesOnBoot(db);
+  return db;
+});
 
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
-  if (!dbPromise) {
-    dbPromise = SQLite.openDatabaseAsync(DB_NAME).then(async (db) => {
-      // WAL은 트랜잭션 안에서 바꿀 수 없으므로 마이그레이션 **밖**에서, 열자마자 한 번 건다.
-      await db.execAsync(`PRAGMA journal_mode = WAL;`);
-      // 실패하면 이 promise가 거부된 채로 남아 이후 모든 저장소 호출이 같은 오류로 실패한다.
-      // 의도한 동작이다: 스키마가 코드의 기대와 어긋난 채로 쓰기를 계속하는 것보다, 명확히
-      // 멈추고 sync-controller의 오류 경로로 넘기는 편이 데이터에 안전하다.
-      await runOfflineDbMigrations(db);
-      return db;
-    });
-  }
-  return dbPromise;
+  return dbGate.open();
 }
 
 type LocalExpenseSqlRow = {

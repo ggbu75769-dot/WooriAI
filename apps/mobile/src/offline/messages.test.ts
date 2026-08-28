@@ -12,6 +12,7 @@ import {
   CONFLICT_OPTION_REAPPLY_MINE_LABEL,
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
   OFFLINE_SAVED_MESSAGE,
+  OFFLINE_STORAGE_UNAVAILABLE_NOTICE,
   SERVER_CONFIRMED_MESSAGE,
   LOAD_ERROR_NOTICE,
   LOAD_ERROR_RETRY_LABEL,
@@ -411,5 +412,34 @@ describe("라운드 59 트랙 A 영구 실패 어휘", () => {
     expect(unsendableRowsNoticeText(3).slice("이 중".length)).toBe(
       unsendableRecordsSuffixText(3).slice("그중".length)
     );
+  });
+});
+
+describe("라운드 61 #6 저장소를 열지 못했을 때의 문구", () => {
+  it("일어난 일·모르는 것·다음에 할 일을 말한다 (DNC-018 해요체, 한 줄)", () => {
+    expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).toBe(
+      "이 기기의 저장소를 열지 못했어요. 대기 중인 기록이 있는지 지금은 알 수 없어요. 앱을 다시 켜면 다시 시도할게요."
+    );
+    expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE.split("\n")).toHaveLength(1);
+    for (const sentence of OFFLINE_STORAGE_UNAVAILABLE_NOTICE.split(". ")) {
+      expect(sentence.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("건수를 말하지 않는다 — 저장소를 못 열었으므로 0건도 주장할 수 없다", () => {
+    expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).not.toMatch(/\d/);
+    expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).toContain("알 수 없어요");
+    expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).not.toContain("동기화됐어요");
+  });
+
+  it("지키지 못할 약속(자동 복구·데이터 안전)을 하지 않는다", () => {
+    // 재시도는 이 앱 세션에 한 번뿐이다(store-open-gate.ts) -- "곧 자동으로"라고 말할 수 없다.
+    expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).not.toContain("자동으로");
+    // 열지 못한 파일의 내용은 이 앱도 모른다 -- 안전하다고도, 사라졌다고도 말하지 않는다.
+    expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).not.toContain("안전");
+    expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).not.toContain("사라졌");
+    // 비난·지시형 금지(DNC-018).
+    expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).not.toContain("확인하세요");
+    expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).not.toContain("확보");
   });
 });
