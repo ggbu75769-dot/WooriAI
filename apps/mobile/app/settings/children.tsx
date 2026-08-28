@@ -21,6 +21,7 @@ import {
   buildCreateChildBody,
   buildUpdateChildBody,
   canTransitionStageMode,
+  childDatePickerDirection,
   CHILD_STAGE_LABELS,
   CHILD_STAGE_MODE_OPTIONS,
   isChildFormValid,
@@ -30,6 +31,7 @@ import {
 } from "../../src/children/child-form";
 import { getOrCreateChildCreateKey, rotateChildCreateKey } from "../../src/children/child-create-idempotency";
 import { applyChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES } from "../../src/children/child-switch";
+import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";
 import {
   collectKnownHouseholdIds,
   describeHouseholdScope,
@@ -46,6 +48,7 @@ import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
+import { AppIcon } from "../../src/design-system";
 import { theme } from "../../src/theme";
 import {
   announceForA11y,
@@ -84,37 +87,83 @@ const emptyForm: ChildFormValues = { nickname: "", dateText: "", manualStage: nu
  * CHILD-127: the labeled YYYY-MM-DD input, lifted out of ChildFormFields so the
  * "아이가 태어났어요" 전환 카드 reuses the exact same field (label, a11y label, error styling)
  * instead of growing a second, drifting date input.
+ *
+ * 라운드 65 D: 그 한 자리에 **달력 버튼**이 붙는다. 이 컴포넌트가 세 곳(편집 폼 · 추가 폼 ·
+ * 출생 전환 카드)의 유일한 날짜 칸이므로, 달력도 여기 한 번만 배선하면 세 곳이 같은 문법을
+ * 갖는다. 손타이핑 칸은 그대로 남는다 — 달력은 대안이지 대체가 아니다.
  */
 function ChildDateField({
   dateLabel,
+  direction,
   value,
   error,
   showErrors,
   onChange
 }: {
   dateLabel: string;
+  /** 달력이 열리는 쪽 — 출산 예정일만 "future"다(src/children/child-form.ts). */
+  direction: "past" | "future";
   value: string;
   error: string | null;
   showErrors: boolean;
   onChange: (dateText: string) => void;
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // 이 폼이 열려 있는 동안 "오늘"은 한 값이다(렌더마다 다시 물으면 자정을 넘길 때 격자와
+  // 판정이 갈린다).
+  const [todayIso] = useState(() => getSeoulToday());
   return (
     <View style={{ gap: 6 }}>
       <Text style={fieldLabelStyle}>{dateLabel}</Text>
-      <TextInput
-        accessibilityLabel={`${dateLabel} 입력`}
-        // 라운드 45 UX-Y(S): ONB-002와 같은 키보드 값 + YYYY-MM-DD 10자 제한.
-        // 라운드 45 O-7(주석 정정): numbers-and-punctuation은 iOS 숫자·기호 키보드이고,
-        // Android는 기본 키보드 + maxLength만 적용된다. 검증은 기존
-        // validateChildForm/computeDateError 그대로.
-        keyboardType="numbers-and-punctuation"
-        maxLength={10}
-        returnKeyType="done"
-        onChangeText={onChange}
-        placeholder="YYYY-MM-DD"
-        style={[fieldInputStyle, showErrors && error ? fieldInputErrorStyle : null]}
-        value={value}
-      />
+      {/* 라운드 65 D: 손타이핑 칸 + 달력 버튼(48dp) — 지출 입력 시트의 날짜 줄과 같은 문법. */}
+      <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
+        <TextInput
+          accessibilityLabel={`${dateLabel} 입력`}
+          // 라운드 45 UX-Y(S): ONB-002와 같은 키보드 값 + YYYY-MM-DD 10자 제한.
+          // 라운드 45 O-7(주석 정정): numbers-and-punctuation은 iOS 숫자·기호 키보드이고,
+          // Android는 기본 키보드 + maxLength만 적용된다. 검증은 기존
+          // validateChildForm/computeDateError 그대로.
+          keyboardType="numbers-and-punctuation"
+          maxLength={10}
+          returnKeyType="done"
+          onChangeText={onChange}
+          placeholder="YYYY-MM-DD"
+          style={[fieldInputStyle, { flex: 1 }, showErrors && error ? fieldInputErrorStyle : null]}
+          value={value}
+        />
+        <Pressable
+          accessibilityLabel={`${dateLabel} 달력에서 고르기`}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: pickerOpen }}
+          onPress={() => setPickerOpen((open) => !open)}
+          style={({ pressed }) => ({
+            alignItems: "center",
+            backgroundColor: theme.colors.white,
+            borderColor: "rgba(74, 63, 53, 0.10)",
+            borderRadius: 14,
+            borderWidth: 1,
+            height: 48,
+            justifyContent: "center",
+            opacity: pressed ? 0.76 : 1,
+            width: 48
+          })}
+        >
+          <AppIcon color={theme.colors.mainCoral} name="calendar-blank-outline" size={22} />
+        </Pressable>
+      </View>
+      {/* 지출 화면과 **같은 픽커**다. 고른 날짜는 손타이핑 칸과 같은 onChange로 들어가므로
+          검증(validateChildForm)·저장 payload가 보는 값이 하나뿐이다. */}
+      {pickerOpen ? (
+        <ExpenseDatePicker
+          direction={direction}
+          onSelectDate={(dateIso) => {
+            onChange(dateIso);
+            setPickerOpen(false);
+          }}
+          selectedIso={value}
+          todayIso={todayIso}
+        />
+      ) : null}
       {showErrors && error ? <Text style={fieldErrorStyle}>{error}</Text> : null}
     </View>
   );
@@ -152,6 +201,7 @@ function ChildFormFields({
       {dateLabel ? (
         <ChildDateField
           dateLabel={dateLabel}
+          direction={childDatePickerDirection(stageMode)}
           value={values.dateText}
           error={errors.dateError}
           showErrors={showErrors}
@@ -612,6 +662,9 @@ export default function ManageChildrenScreen() {
                     </Text>
                     <ChildDateField
                       dateLabel={requiredDateFieldLabel("born")!}
+                      // 출생 전환의 날짜는 출생일이다 — 편집 폼의 출생일과 같은 방향을 같은
+                      // 판정에서 받는다(미래 금지).
+                      direction={childDatePickerDirection("born")}
                       value={bornDateText}
                       error={validateChildForm("born", bornTransitionValues(child), { requireDate: true }).dateError}
                       showErrors={bornShowErrors}

@@ -1835,6 +1835,11 @@ export default function RecordsScreen() {
         renderItem={renderRecordsRow}
         // UX-B: 날짜 헤더 + 일별 소계. sticky 여부는 SectionList 기본 동작에 맡긴다.
         renderSectionHeader={renderRecordsSectionHeader}
+        // GAP-065 #6: 이 화면의 스크롤러는 리스트 자체다(PERF-102) — 검색 입력이 그 리스트의
+        // 헤더 안에 있으므로, 기본값("never")이면 검색어를 친 직후의 첫 탭이 카테고리 칩·결과
+        // 행에 가지 않고 키보드만 내린다. "always"가 아니라 "handled"인 이유는 src/ui.tsx의
+        // AppScreen 주석과 같다(빈 자리를 누르면 키보드는 여전히 내려가야 한다).
+        keyboardShouldPersistTaps="handled"
         // MOB-117: PERF-102대로 이 화면의 스크롤러는 리스트 자체이므로(AppScreen 중첩 금지)
         // RefreshControl도 리스트 prop으로 단다.
         refreshControl={

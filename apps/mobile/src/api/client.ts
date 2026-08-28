@@ -1,6 +1,12 @@
 import { getSeoulMonthRange, getSeoulToday, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
 import { ApiHttpError, parseApiErrorEnvelope } from "./api-error";
 import * as localBackend from "./local-backend";
+import {
+  consentAcceptance,
+  requiredConsentAcceptances,
+  type ConsentDefinitionView,
+  type ConsentUpsert
+} from "../consent/consent-definitions";
 import type { StageBandLabel } from "../items/stage-bands";
 import * as localDevices from "../notifications/local-devices";
 import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./local-fixtures";
@@ -677,18 +683,52 @@ export function getMe(token: string) {
   }>("/me", { token });
 }
 
-export function upsertConsents(token: string) {
-  if (isLocalToken(token)) return local(() => localBackend.upsertConsents());
-  return requestJson<{ success: boolean }>("/consents", {
-    method: "PUT",
-    token,
-    body: {
-      consents: [
-        { type: "terms", version: "2026-07-06", accepted: true },
-        { type: "privacy", version: "2026-07-06", accepted: true }
-      ]
-    }
-  });
+/**
+ * GET /consents — 서버가 **지금** 요구하는 동의 정의(type · version · 필수 여부 · 제목)와 이
+ * 계정의 동의 상태. 라운드 65 B(#4): 버전은 이 응답이 유일한 출처다(앱에 리터럴을 박지 않는다).
+ */
+export function listConsentDefinitions(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.listConsents());
+  return requestJson<{ consents: ConsentDefinitionView[] }>("/consents", { token });
+}
+
+/** PUT /consents — 서버가 준 type·version을 **그대로** 되돌려준다. */
+function putConsents(token: string, consents: ConsentUpsert[]) {
+  if (isLocalToken(token)) return local(() => localBackend.upsertConsents(consents));
+  return requestJson<{ success: boolean }>("/consents", { method: "PUT", token, body: { consents } });
+}
+
+/**
+ * 필수 동의를 **서버가 요구하는 버전으로** 저장한다(로그인 직후 · 온보딩 재개 · SET-003의
+ * 재동의 버튼이 공유하는 한 경로).
+ *
+ * 종전에는 약관·개인정보 두 줄을 **버전 문자열까지 앱에 박아** 그대로 PUT했다. 서버는
+ * type + version이 정확히 일치하는 행만 동의로 인정하므로(onboarding-core.service.ts), 약관을
+ * 개정해 버전이 오르면 **전 사용자가 미동의로 뒤집히고 앱은 영원히 옛 버전을 보냈다** — 되돌릴
+ * 길이 없었다. 이제 정의를 먼저 읽고 그 버전을 실어 보내므로, 개정만으로 앱을 다시 배포할 필요가
+ * 없다.
+ *
+ * 이미 동의된 항목은 보내지 않는다 — 서버 upsert가 `acceptedAt`을 매번 지금으로 덮어쓰기 때문에
+ * (매 로그인마다 "동의한 날"이 오늘로 밀리면 SET-003의 동의 내역 줄이 거짓이 된다). 보낼 것이
+ * 없으면 요청도 없다.
+ */
+export async function upsertConsents(token: string): Promise<{ success: boolean }> {
+  const { consents } = await listConsentDefinitions(token);
+  const pending = requiredConsentAcceptances(consents);
+  if (pending.length === 0) return { success: true };
+  return await putConsents(token, pending);
+}
+
+/**
+ * 한 동의 항목만 켜고 끈다(SET-003의 선택 동의 스위치). 버전은 **화면이 이미 받아 둔 서버 정의**
+ * (GET /settings/privacy의 consents)에서 오므로 새 조회가 없고, 리터럴도 없다.
+ */
+export function setConsentAccepted(
+  token: string,
+  definition: { type: string; version: string },
+  accepted: boolean
+) {
+  return putConsents(token, [consentAcceptance(definition, accepted)]);
 }
 
 /**

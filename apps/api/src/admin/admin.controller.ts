@@ -156,6 +156,32 @@ export class AdminController {
     return { disclosures: result.disclosures.map((entry) => ({ id: idByKey.get(entry.key) ?? null, ...entry })) };
   }
 
+  /**
+   * GAP-065 #9: 봉투가 `after`뿐이라 **무엇에서 무엇으로** 바꿨는지 서버가 몰랐다.
+   *
+   * 이 테이블에 담긴 것은 DNC-010이 잠근 그 문장이다 — 링크의 `disclosure_text`가
+   * 비면 앱·어드민·클릭 응답이 전부 이 값을 쓴다(items-catalog.service.ts의
+   * `defaultDisclosureFor`). 그리고 `disclosures` 행은 key당 한 칸 upsert라
+   * 덮어쓰면 이전 문구가 **사실 자체로 사라진다**(리비전을 타지 않는 직접 쓰기 경로다 —
+   * editor는 draft→review를 타지만 admin은 여기로 바로 덮어쓴다, COM-103).
+   * 그래서 고지가 약해진 뒤 남는 근거가 "언제 누가 무엇으로"뿐이었고, 되돌릴 값이
+   * 서버 어디에도 없었다. before는 upsert **직전** 조회 1회 —
+   * `budget.upsert`(GAP-063 #5)·지출 수정 경로와 같은 정밀도이고, 같은 트랜잭션이
+   * 아니라는 성질도 그와 같다. before가 null이면 **그 key가 없던 새 문구**라는 뜻이다
+   * (`affiliate_purchse` 같은 오타 키로 저장했을 때 로그에 드러나는 표식이기도 하다 —
+   * 이 경로는 키를 검증하지 않고 upsert한다).
+   *
+   * 봉투에 `key`를 함께 싣는 이유: `AuditLoggerService.persist`는 targetId를
+   * UUID가 아니면 null로 떨군다(`asUuidOrNull`). 고지의 targetId는 key 문자열이라
+   * **영속된 행에는 남지 않으므로**, 어느 문구가 바뀌었는지는 봉투만 답할 수 있다.
+   *
+   * PII는 없다 — 고지 문구는 운영이 쓴 공개 문구이고(앱 구매 CTA 옆에 그대로 그려진다),
+   * 사용자 데이터가 아니다. 그래서 원문을 그대로 싣는다: 되돌릴 값이 봉투에 있어야
+   * 이 기록이 쓸모가 있다. 저장되는 값과 맞추려고 after는 요청 body가 아니라 upsert
+   * 결과(`result.text` — 서비스가 trim한 값)를 싣는다.
+   *
+   * 응답은 한 글자도 달라지지 않는다(종전과 같은 `{ key, text }`). 마이그레이션 0건.
+   */
   @Put("disclosures/:key")
   @RequireAdminRoles("admin")
   async updateDisclosure(
@@ -163,13 +189,15 @@ export class AdminController {
     @Param("key") key: string,
     @Body(createDtoValidationPipe(UpdateDisclosureDto)) body: UpdateDisclosureDto
   ) {
+    const existing = await this.prisma.disclosure.findUnique({ where: { key }, select: { text: true } });
     const result = await this.store.adminUpdateDisclosure(key, body.text);
     await this.auditLogger.record({
       actorUserId: actorId(request),
       action: "admin.disclosure.update",
       targetType: "disclosures",
       targetId: key,
-      after: { text: body.text }
+      before: existing ? { key, text: existing.text } : null,
+      after: { key, text: result.text }
     });
     return result;
   }

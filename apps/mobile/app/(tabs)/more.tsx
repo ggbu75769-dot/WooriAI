@@ -292,7 +292,7 @@ export default function MoreScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={hasSession ? "기록 검색" : "설정"}
-            hitSlop={4}
+            hitSlop={MORE_SEARCH_HIT_SLOP}
             onPress={handleSearchPress}
             style={moreSearchButtonStyle}
           >
@@ -435,6 +435,13 @@ const moreTitleStyle = {
   fontWeight: "800",
   lineHeight: 30
 } as const;
+
+/**
+ * GAP-065 #7: 36dp 정사각 + 6 = 48(theme.touchTarget). 이 버튼은 헤더 줄의 한쪽 끝이고 반대편은
+ * 제목 텍스트뿐이라(space-between) 네 변을 같이 넓혀도 이웃 컨트롤의 몸에 닿지 않는다.
+ * 레이아웃 속성(36 정사각)은 그대로다 — SET-001 픽셀락 캡처 불변(hitSlop은 렌더가 아니다).
+ */
+const MORE_SEARCH_HIT_SLOP = 6;
 
 const moreSearchButtonStyle = {
   alignItems: "center",

@@ -81,12 +81,30 @@ function ensurePixelLockWebStyles() {
 // MOB-117: optional pass-through so screens can attach pull-to-refresh without restructuring
 // away from AppScreen (records.tsx is the exception -- its screen scroller is a FlatList per
 // PERF-102, so it takes the same element via the FlatList refreshControl prop instead).
+/**
+ * GAP-065 #6 — `keyboardShouldPersistTaps="handled"`.
+ *
+ * 이 ScrollView는 앱 거의 전 화면의 스크롤러다. RN 기본값은 `"never"`이고, 그 뜻은 **키보드가
+ * 떠 있는 동안의 첫 탭은 자식에게 가지 않고 키보드만 내린다**는 것이다. 그래서 금액을 치고
+ * (키보드) 카테고리 타일·칩·체크박스를 누르면 첫 탭이 통째로 먹히고, 사용자에게는 "눌렀는데
+ * 반응이 없다"로 보인다. 저장소는 그 비용을 이미 알고 있었다 — 판매처 자동완성 칩을 blur에서
+ * 접지 않는 이유가 통째로 그 설명이다(app/expenses/new.tsx의 `merchantFocused` 주석).
+ * 이식된 스캐폴드(src/design-system/components/ScreenScaffold.tsx)는 이미 `"handled"`다.
+ *
+ * `"always"`가 아니라 `"handled"`인 이유: `"always"`면 빈 자리를 눌러도 키보드가 내려가지 않아
+ * "닫는 법을 모르겠다"가 새로 생긴다. `"handled"`는 **자식이 처리한 탭만** 통과시키므로 빈
+ * 자리를 누르면 종전처럼 키보드가 내려간다.
+ *
+ * 렌더는 한 픽셀도 바뀌지 않는다 — 레이아웃 속성이 아니라 터치 전달 규칙이므로
+ * EXP-001·HOME-001·REP-001·ITEM-001·IMP-003·SET-001 픽셀락 기준선이 이 변경으로 흔들리지 않는다.
+ */
 export function AppScreen({ children, refreshControl }: ChildrenProps & { refreshControl?: React.ReactElement }) {
   ensurePixelLockWebStyles();
 
   return (
     <ScrollView
       refreshControl={refreshControl}
+      keyboardShouldPersistTaps="handled"
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
       style={[{ backgroundColor: theme.colors.background, flex: 1 }, webScrollHiddenStyle]}
@@ -263,6 +281,60 @@ export function TextButton({ label, onPress, disabled, style, accessibilityLabel
 // CLN-130: `InputField`는 값을 표시만 하는 읽기 전용 목업이었고 어느 화면도 쓰지 않았다
 // -- 실제 입력은 각 화면이 react-native TextInput을 직접 쓴다.
 
+/**
+ * GAP-065 #7 — **공유 프리미티브의 히트 영역**. 라운드 64 #6이 화면 파일 안의 인라인 칩·크롬을
+ * 48dp로 올렸지만, 같은 값(44)으로 서 있던 **공유 컴포넌트**는 그 계약이 읽지 않는 자리라
+ * 그대로 남아 있었다 — 그래서 새 화면이 하나 생길 때마다 44dp 컨트롤이 자동으로 따라 태어난다.
+ *
+ * 규율은 라운드 64와 같다.
+ *  ① 레이아웃 속성은 **한 개도** 건드리지 않는다(`minHeight`·`padding`·`gap`·`height` 무접촉).
+ *     `hitSlop`은 렌더가 아니라 터치 전달 규칙이라 픽셀락 6종이 전부 불변이다.
+ *  ② 넓히는 것은 **빈 자리뿐**이다 — 늘린 히트 영역이 이웃 컨트롤의 **몸(보이는 픽셀)**에
+ *     닿으면 "옆 것이 눌리는" 오탭을 새로 만든다. 그건 지금보다 나쁘다.
+ *  ③ 그래서 축마다 **인접 간격을 실측하고** 그 안에서만 갚는다(아래 각 상수의 근거 참고).
+ *
+ * 남는 한계도 적어 둔다: `hitSlop`은 **조상 뷰의 경계 안에서만** 유효하다(RN은 부모 바깥의
+ * 좌표를 자식에게 내려보내지 않는다). 줄 높이가 칩 높이와 같은 한 줄짜리 칩 행에서는 위아래로
+ * 넓힌 만큼이 부모 밖이라 실효가 없을 수 있다 — 근본 해법은 `minHeight`를 48로 올리는 것이고,
+ * 그건 승인 디자인(DSN-053) 캡처 재대조를 부르므로 이 라운드 범위 밖이다(변경 요청으로 분리).
+ * 실측은 손가락 몫이다(docs/qa/accessibility-offline-checklist.md C-1).
+ */
+
+/**
+ * 세그먼트 탭: 세로 9 + 9 패딩과 13px 텍스트 줄 상자를 합쳐 대략 36dp다. 다만 **줄 상자 높이는
+ * 런타임 폰트 메트릭이라 소스에서 읽을 수 없으므로**, 값은 소스가 보증하는 최소 높이
+ * (패딩 18 + fontSize 13 = 31)로 잡는다 — 31 + 9 + 9 = 49로 그 최소치에서도 48을 넘긴다
+ * (실제 높이는 더 크다. 실측은 a11y 체크리스트 C-1의 손가락 몫이다).
+ *
+ * **가로는 0이다.** 탭 셋은 `flex: 1`로 **맞붙어 있고 사이 간격이 0**이다. 종전의 `hitSlop={4}`는
+ * 네 변에 똑같이 걸려 있었으므로, 각 탭의 히트 영역이 **옆 탭의 몸 4dp를 덮고 있었다** — 겹치는
+ * 자리는 뒤에 그려진 형제가 이기므로(RN 터치 탐색은 자식을 역순으로 훑는다) 첫 탭의 오른쪽
+ * 4dp를 누르면 **두 번째 탭이 선택된다**. 위 ②의 규율대로 그 4dp를 돌려주고, 대신 세로로 갚는다.
+ * (트랙 안쪽 패딩 4를 덮던 바깥 두 변의 4dp도 함께 사라진다 — 잘못된 탭이 눌리는 쪽이 더 나쁘다.)
+ *
+ * 세로 여유 실측: 리포트 프레임 gap 18(위쪽 아이 전환 트리거의 hitSlop 8과 합쳐도 13 < 18) ·
+ * 기록 탭 spacing.section 20(아래 검색 입력) · 준비템 패리티 gap 14(위아래 칩 줄). 트랙 밖으로
+ * 나가는 것은 9-4=5dp뿐이고, 위아래 칩 줄의 세로 5와 겹쳐도 5+5=10 < 14라 어느 자리에서도
+ * 이웃의 몸에 닿지 않는다.
+ */
+const SEGMENTED_TAB_HIT_SLOP = { bottom: 9, left: 0, right: 0, top: 9 } as const;
+
+/**
+ * 카테고리 칩: `minHeight: 38` + 세로 5 + 5 = 48. 값은 라운드 64가 입력 보조 칩에 쓴 것과
+ * **같은 상자**다(`SUGGEST_CHIP_HIT_SLOP` — 같은 모양의 칩이 자리마다 다른 값을 갖지 않는다).
+ *
+ * **가로는 3 그대로다.** 칩 사이 간격 실측: 8이 12자리(온보딩·지출 시트·지출 상세·정기 지출·
+ * 아이 관리·기록 탭 필터·CSV 내보내기)인데 **준비템 탭 5자리는 6이다**
+ * (app/(tabs)/items.tsx의 칩 줄들 — 라운드 64 계약이 가정한 8보다 좁다). 3+3=6이 그 6을 정확히
+ * 메우므로 여기가 천장이다 — 더 올리면 두 칩의 히트 영역이 겹치고, 6부터는 이웃 칩의 몸에 닿는다.
+ *
+ * 세로 5의 근거: 칩 위아래에 다른 칩이 서는 자리는 **줄바꿈(wrap)과 칩 줄이 겹쳐 쌓인 곳**뿐이고
+ * 그 간격은 8(온보딩·아이 관리·정기 지출·내보내기)과 6(준비템 탭)이다. 5는 그 6보다 작아
+ * **이웃 칩의 몸에는 닿지 않는다** — 겹치는 것은 아무도 갖고 있지 않던 빈 띠뿐이고, 그 띠는
+ * 뒤에 그려진 칩이 가져간다(종전에는 그 자리를 누르면 아무 일도 일어나지 않았다).
+ */
+const CATEGORY_CHIP_HIT_SLOP = { bottom: 5, left: 3, right: 3, top: 5 } as const;
+
 export function SegmentedControl({
   options,
   value,
@@ -283,7 +355,7 @@ export function SegmentedControl({
           accessibilityRole="tab"
           accessibilityLabel={option}
           accessibilityState={{ selected: option === value }}
-          hitSlop={4}
+          hitSlop={SEGMENTED_TAB_HIT_SLOP}
           onPress={() => onChange?.(option)}
           style={{
             backgroundColor: option === value ? theme.colors.mainCoral : "transparent",
@@ -332,7 +404,7 @@ export function CategoryChip({
         selected === undefined ? (disabled ? { disabled: true } : undefined) : { selected, disabled: Boolean(disabled) }
       }
       disabled={disabled}
-      hitSlop={3}
+      hitSlop={CATEGORY_CHIP_HIT_SLOP}
       onPress={onPress}
       style={{
         alignItems: "center",

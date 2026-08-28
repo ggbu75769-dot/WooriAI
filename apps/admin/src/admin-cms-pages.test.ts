@@ -128,6 +128,23 @@ describe("Admin CMS disclosures page", () => {
     expect(source).toContain("listDisclosures");
     expect(source).toContain("updateDisclosure");
   });
+
+  /**
+   * GAP-065 #9: 이 화면은 아무 key나 upsert할 수 있고 서버는 키를 검증하지 않는다.
+   * 그래서 목록의 각 행과 새 키 입력칸이 "앱이 이 키를 읽는지"를 배지로 말한다 —
+   * 저장을 막는 검증이 아니라(나중에 쓸 키를 미리 막게 된다) 사실 표시다.
+   */
+  it("marks which disclosure keys the app actually reads (DNC-010 오타 키 사각)", () => {
+    const source = readSource("app/disclosures/page.tsx");
+    expect(source).toContain("disclosureKeyBadge");
+    expect(source).toContain("styles.badge");
+    // 표시일 뿐 저장을 막지 않는다 — 알 수 없는 키를 거르는 분기가 없어야 한다.
+    expect(source).not.toContain("APP_READ_DISCLOSURE_KEYS");
+
+    const keys = readSource("src/lib/disclosure-keys.ts");
+    expect(keys).toContain("affiliate_purchase");
+    expect(keys).toContain("sponsored_product");
+  });
 });
 
 // ADM-008: the dashboard home renders a live ops-summary strip on top of the

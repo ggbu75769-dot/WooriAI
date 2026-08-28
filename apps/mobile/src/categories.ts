@@ -271,8 +271,12 @@ const MOBILE_ALIAS_CODE_PREFIX = "mobile_";
  * Server category `code` prefix of the Excel-import stub row (`importStubCategorySeeds`, code
  * `import_stub_default`, name "가져오기 기본"). It is an internal placeholder for import rows
  * that have no category yet — never something a user should pick on purpose.
+ *
+ * 라운드 65 후속(#8): 검수 화면도 "이 행이 스텁으로 떨어졌는가"를 물어야 해서 export한다
+ * (src/import/preview-rows.ts). 접두사를 그쪽에 다시 적으면 두 벌이 되고, 그때 한쪽만 고치면
+ * 화면이 사용자에게 "분류를 골라 주세요"를 **틀린 행에** 붙이게 된다.
  */
-const IMPORT_STUB_CODE_PREFIX = "import_";
+export const IMPORT_STUB_CODE_PREFIX = "import_";
 
 /**
  * R20-B: narrows a `GET /categories` response down to the entries worth OFFERING in the expense

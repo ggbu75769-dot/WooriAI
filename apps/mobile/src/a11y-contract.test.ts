@@ -503,7 +503,9 @@ describe("GAP-061 #8 정기 지출 · 달력 픽커 접근성 스윕", () => {
 
   it("달력 날짜 셀이 button 역할 + selected 상태 + 사람이 읽는 날짜 라벨을 갖는다", () => {
     const pickerSource = source("src/expenses/ExpenseDatePicker.tsx");
-    expect(pickerSource).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso })");
+    // 라운드 65 D: 같은 픽커를 아이 생년월일·예정일도 쓴다. 라벨 입력에 방향 한 칸이 늘었을 뿐
+    // 계약은 그대로다 — 라벨은 여전히 순수 모듈이 만들고 화면은 그리기만 한다.
+    expect(pickerSource).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction })");
     expect(pickerSource).toContain('accessibilityRole="button"');
     expect(pickerSource).toContain("accessibilityState={{ selected }}");
     // 라벨 문구(오늘/선택됨/날짜)는 순수 모듈이 만들고 date-picker-month.test.ts가 핀한다.
@@ -517,7 +519,18 @@ describe("GAP-061 #8 정기 지출 · 달력 픽커 접근성 스윕", () => {
     expect(pickerSource).toContain("<View accessible accessibilityLabel={accessibilityLabel} key={cell.key} style={cellStyle}>");
     const monthSource = source("src/expenses/date-picker-month.ts");
     expect(monthSource).toContain('export const EXPENSE_DATE_PICKER_FUTURE_HINT = "아직 오지 않은 날이라 고를 수 없어요"');
-    expect(monthSource).toContain("parts.push(EXPENSE_DATE_PICKER_FUTURE_HINT)");
+    /**
+     * 라운드 65 D — 계약 갱신: 이유가 **한 문장에서 두 문장으로** 늘었다.
+     *
+     * 같은 픽커를 출산 예정일이 쓰기 시작했는데, 그 달력에서 못 고르는 칸의 이유는 "아직 오지
+     * 않은 날"이 아니라 "만삭보다 먼 날"이다. 라운드 61 E가 고정한 계약("왜 못 누르는지까지
+     * 말한다")은 그대로이고, 화면이 문구를 고르지 않는다는 규율도 그대로다 — 방향에서 문장을
+     * 고르는 일까지 순수 모듈이 한다. 그래서 여기서 고정하는 것은 "화면이 그 헬퍼를 지난다"이고,
+     * 결과 문자열은 date-picker-month.test.ts가 핀한다.
+     */
+    expect(monthSource).toContain("parts.push(expenseDatePickerUnselectableHint(direction))");
+    expect(monthSource).toContain("export function expenseDatePickerUnselectableHint");
+    expect(monthSource).toContain("export const EXPENSE_DATE_PICKER_BEYOND_TERM_HINT");
   });
 
   it("달력 월 이동 화살표가 라벨 + disabled 상태를 알리고, 요일 머리글은 트리에서 감춘다", () => {
@@ -528,7 +541,7 @@ describe("GAP-061 #8 정기 지출 · 달력 픽커 접근성 스윕", () => {
       "accessibilityState={{ disabled: !canGoToPreviousExpenseDatePickerMonth(pickerYearMonth, todayIso) }}"
     );
     expect(pickerSource).toContain(
-      "accessibilityState={{ disabled: !canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso) }}"
+      "accessibilityState={{ disabled: !canGoToNextExpenseDatePickerMonth(pickerYearMonth, todayIso, direction) }}"
     );
     // 요일 머리글(일~토)은 칸 라벨이 이미 완전한 날짜를 읽어 주므로 소음이다.
     expect(pickerSource).toContain("accessibilityElementsHidden");
@@ -1046,5 +1059,373 @@ describe("GAP-064 #1 전폭 구매 CTA 라벨 계약 (스폰서 판정 게이트
     expect(source("src/ui.tsx")).toContain("accessibilityLabel={`${seller}에서 구매하기`}");
     // 강조(채움)만 판정을 따르고 행 자체는 서버가 준 순서대로 전부 그려진다(DNC-009 무접촉).
     expect(detailSource()).toContain("primaryAction={hasSession && index === filledPurchaseRowIndex}");
+  });
+});
+
+/* ------------------------------------------------------------ 라운드 65 (GAP-065 #6 · #7) */
+
+/** `<Tag ...>` 여는 태그 하나. 중괄호 안의 `>`(중첩 JSX·화살표)는 태그 끝으로 세지 않는다. */
+function openingTagAfter(sourceText: string, afterMarker: string, tagStart: string): string {
+  const from = sourceText.indexOf(afterMarker);
+  if (from < 0) throw new Error(`${afterMarker}를 소스에서 찾지 못했다`);
+  // `useRef<ScrollView>(null)` 같은 **타입 인자**는 여는 태그가 아니다 — 태그 이름 뒤에 공백이
+  // 오는 자리만 센다.
+  let start = sourceText.indexOf(tagStart, from);
+  while (start >= 0 && !/\s/.test(sourceText[start + tagStart.length] ?? "")) {
+    start = sourceText.indexOf(tagStart, start + tagStart.length);
+  }
+  if (start < 0) throw new Error(`${afterMarker} 뒤에서 ${tagStart}를 찾지 못했다`);
+  let depth = 0;
+  for (let cursor = start; cursor < sourceText.length; cursor += 1) {
+    const char = sourceText[cursor];
+    if (char === "{") depth += 1;
+    else if (char === "}") depth -= 1;
+    else if (char === ">" && depth === 0) return sourceText.slice(start, cursor + 1);
+  }
+  throw new Error(`${tagStart}의 여는 태그가 닫히지 않았다`);
+}
+
+/** `const NAME = { ... } as const;` 스타일 객체에서 숫자 한 칸. */
+function readStyleNumber(sourceText: string, styleName: string, key: string): number {
+  const declaration = new RegExp(`const ${styleName} = \\{([^}]*)\\} as const;`).exec(sourceText);
+  if (!declaration) throw new Error(`${styleName} 스타일을 소스에서 찾지 못했다`);
+  const found = new RegExp(`\\b${key}:\\s*(\\d+)`).exec(declaration[1]);
+  if (!found) throw new Error(`${styleName}에서 ${key}를 찾지 못했다`);
+  return Number(found[1]);
+}
+
+/**
+ * GAP-065 #6 — **스크롤 스캐폴드의 키보드 계약**.
+ *
+ * RN의 `keyboardShouldPersistTaps` 기본값은 `"never"`다: 키보드가 떠 있는 동안의 **첫 탭은
+ * 자식에게 가지 않고 키보드만 내린다.** 이 앱에서 가장 자주 반복되는 동작이 정확히 그 모양이라
+ * (금액을 치고 → 카테고리 타일/칩/체크박스를 누른다) 사용자에게는 "눌렀는데 반응이 없다"로
+ * 나타난다. 저장소가 그 비용을 이미 자기 주석으로 적어 두었고(app/expenses/new.tsx의
+ * `merchantFocused` — "첫 탭에 칩이 사라져 두 번째 탭이 맞을 자리가 없다"), 이식된 스캐폴드는
+ * 이미 `"handled"`였다. 계약이 붙들 것은 **세 스캐폴드가 같은 답을 명시한다**는 사실이다.
+ *
+ * `"always"`가 아니라 `"handled"`인 이유도 함께 못박는다: `"always"`면 빈 자리를 눌러도 키보드가
+ * 내려가지 않아 "닫는 법을 모르겠다"가 새로 생긴다. `"handled"`는 자식이 처리한 탭만 통과시킨다.
+ */
+describe("GAP-065 #6 스크롤 스캐폴드 키보드 계약 (keyboardShouldPersistTaps=\"handled\")", () => {
+  /** 앱의 화면 스크롤러 셋. 첫 둘이 이번 라운드가 채운 자리, 셋째는 이미 그랬던 이식본이다. */
+  const scaffolds = [
+    { after: "export function AppScreen", path: "src/ui.tsx", tag: "<ScrollView" },
+    { after: "const listHeader =", path: "app/(tabs)/records.tsx", tag: "<SectionList" },
+    { after: "export function ScreenScaffold", path: "src/design-system/components/ScreenScaffold.tsx", tag: "<ScrollView" }
+  ] as const;
+
+  it("세 스캐폴드가 모두 'handled'를 명시한다 (기본값 never에 기대지 않는다)", () => {
+    for (const scaffold of scaffolds) {
+      const tag = openingTagAfter(source(scaffold.path), scaffold.after, scaffold.tag);
+      expect(tag, `${scaffold.path}의 스크롤러`).toContain('keyboardShouldPersistTaps="handled"');
+    }
+  });
+
+  it("'always'는 쓰지 않는다 — 빈 자리를 누르면 키보드가 내려가야 한다", () => {
+    for (const scaffold of scaffolds) {
+      expect(source(scaffold.path), `${scaffold.path}`).not.toContain('keyboardShouldPersistTaps="always"');
+    }
+  });
+
+  it("렌더는 한 픽셀도 바뀌지 않는다 — 스캐폴드의 레이아웃 속성은 그대로다 (픽셀락 6종)", () => {
+    // AppScreen은 전 화면이 지나는 컴포넌트다. 이번 변경은 터치 전달 규칙 한 줄뿐이고,
+    // 배경·여백·간격은 종전 그대로여야 한다(EXP-001·HOME-001·REP-001·ITEM-001·IMP-003·SET-001).
+    const appScreenTag = openingTagAfter(source("src/ui.tsx"), "export function AppScreen", "<ScrollView");
+    expect(appScreenTag).toContain("gap: theme.spacing.section");
+    expect(appScreenTag).toContain("padding: theme.spacing.screen");
+    expect(appScreenTag).toContain("flexGrow: 1");
+  });
+});
+
+/**
+ * GAP-065 #7 — **공유 프리미티브의 터치 타깃 소스 계약**.
+ *
+ * 라운드 64 #6이 세운 계약(위 GAP-064 블록)이 읽는 파일은 화면 셋뿐이라, 같은 값(44)으로 서
+ * 있던 **공유 컴포넌트**는 그대로 통과했다 — 그래서 새 화면이 하나 생길 때마다 44dp 컨트롤이
+ * 자동으로 따라 태어난다. 라운드 64가 소스 계약으로 막으려던 재발 경로가 정확히 거기 열려 있었다.
+ * 그래서 이 블록은 **화면이 아니라 컴포넌트**를 읽는다.
+ *
+ * 계산 방식은 라운드 64와 같다: 값을 테스트에 다시 박지 않고 **소스의 상수와 소스의 크기**를
+ * 읽어 더한다(`theme.touchTarget`도 숫자로 옮겨 적지 않는다).
+ *
+ * 넓히는 축을 고르는 규율도 같다 — **늘린 히트 영역이 이웃 컨트롤의 몸(보이는 픽셀)에 닿으면
+ * 안 된다.** 그래서 축마다 실측한 간격이 천장이고, 그 실측 자체를 아래 첫 테스트가 소스에서
+ * 다시 계산한다(칩 줄의 gap을 사람이 옮겨 적지 않는다).
+ */
+describe("GAP-065 #7 공유 프리미티브 터치 타깃 계약 (크기 + 2×hitSlop ≥ theme.touchTarget)", () => {
+  const uiSource = () => source("src/ui.tsx");
+
+  /**
+   * `<CategoryChip`이 서는 자리와 그 줄의 gap. 인라인 style이면 그 자리에서, 이름 붙은 style이면
+   * 선언에서 읽는다.
+   *
+   * 라운드 65 후속(#4): 화면 목록을 **사람이 적어 두지 않는다.** 종전에는 여덟 경로가 여기
+   * 하드코딩돼 있었고, 같은 라운드가 새로 만든 칩 줄(`app/import/[importJobId].tsx`의 검수
+   * 화면 분류 칩)이 목록에 없어 **이 계약이 그 줄을 한 번도 읽지 않았다** — "더 좁은 줄이 새로
+   * 태어나면 여기서 빨개진다"는 이 테스트의 목적이 조용히 무력화돼 있었다. 이제 컴포넌트 전량
+   * 스캔(`listComponentSources`)에서 칩을 쓰는 파일을 직접 찾으므로, 새 줄이 태어나면 아무도
+   * 목록을 갱신하지 않아도 자동으로 이 판정에 들어온다.
+   */
+  function categoryChipRowGaps(): { gap: number; path: string }[] {
+    const screens = listComponentSources().filter((path) => source(path).includes("<CategoryChip"));
+    const found: { gap: number; path: string }[] = [];
+    for (const path of screens) {
+      const screenSource = source(path);
+      const lines = screenSource.split("\n");
+      for (let index = 0; index < lines.length; index += 1) {
+        if (!lines[index].includes("<CategoryChip")) continue;
+        let gap: number | undefined;
+        // 칩 자리에서 위로 거슬러 올라가며 가장 가까운 줄 컨테이너를 찾는다(최대 40줄).
+        for (let cursor = index; cursor >= 0 && cursor > index - 40 && gap === undefined; cursor -= 1) {
+          const inline = /gap:\s*(\d+)/.exec(lines[cursor]);
+          if (inline) {
+            gap = Number(inline[1]);
+            break;
+          }
+          const named = /style=\{([A-Za-z][A-Za-z0-9]*)\}/.exec(lines[cursor]);
+          if (named) {
+            const declaration = new RegExp(`const ${named[1]} = \\{([^}]*)\\}`).exec(screenSource);
+            const namedGap = declaration ? /gap:\s*(\d+)/.exec(declaration[1]) : null;
+            if (namedGap) gap = Number(namedGap[1]);
+          }
+        }
+        if (gap === undefined) throw new Error(`${path}:${index + 1} 칩 줄의 gap을 소스에서 찾지 못했다`);
+        found.push({ gap, path });
+      }
+    }
+    return found;
+  }
+
+  it("카테고리 칩: 38 + 세로 5+5 = 48. 가로는 **실측한 칩 사이 간격**이 천장이라 3 그대로다", () => {
+    const box = readHitSlopBox(uiSource(), "CATEGORY_CHIP_HIT_SLOP");
+    const blocks = pressableBlocksWithHitSlop(uiSource(), "hitSlop={CATEGORY_CHIP_HIT_SLOP}");
+    expect(blocks, "CategoryChip은 프리미티브 하나다").toHaveLength(1);
+    expect(chipMinHeight(blocks[0]) + box.top + box.bottom, "칩의 세로 히트 영역").toBeGreaterThanOrEqual(
+      theme.touchTarget
+    );
+
+    // 가로: 라운드 64가 가정한 8이 아니라 **6인 줄이 있다**(준비템 탭). 그 실측을 사람이 옮겨
+    // 적지 않고 소스에서 다시 센다 — 더 좁은 줄이 새로 태어나면 여기서 빨개진다.
+    const rows = categoryChipRowGaps();
+    expect(rows.length, "칩이 서는 자리 수").toBe(18);
+    // 라운드 65 후속(#4): 목록을 손으로 적던 시절 빠져 있던 줄. 스캔이 실제로 그 줄을 읽는지
+    // 한 번 못 박아 둔다 -- 스캐너가 조용히 빈 목록을 돌려주면 위 개수 단언만으로는 안 잡힌다.
+    expect(rows.map((row) => row.path), "가져오기 검수 화면의 분류 칩 줄도 읽는다").toContain(
+      join("app", "import/[importJobId].tsx")
+    );
+    const tightest = Math.min(...rows.map((row) => row.gap));
+    expect(tightest, "가장 좁은 칩 줄 간격").toBe(6);
+    // 두 이웃이 각자 left/right만큼 그 간격으로 들어온다 — 합이 간격을 넘으면 히트 영역이 겹친다.
+    expect(box.left + box.right, "가로 합").toBeLessThanOrEqual(tightest);
+    expect(box.left, "가로 대칭").toBe(box.right);
+    // 0으로 지우지도 않는다(라운드 64의 판단 — 줄이면 히트 영역만 좁아진다).
+    expect(box.left).toBeGreaterThan(0);
+    // 세로 5는 그 6보다 **작다** — 겹치는 것은 아무도 갖고 있지 않던 빈 띠뿐이고, 이웃 칩의
+    // 몸(보이는 픽셀)에는 닿지 않는다. 종전에 그 자리를 누르면 아무 일도 일어나지 않았다.
+    expect(box.top, "세로 대칭").toBe(box.bottom);
+    expect(box.top, "세로 확장이 이웃 칩의 몸에 닿지 않는다").toBeLessThan(tightest);
+    // 라운드 64가 입력 보조 칩에 쓴 상자와 **같은 값**이다(같은 모양의 칩이 자리마다 갈리지 않는다).
+    expect(box).toEqual(readHitSlopBox(source("app/expenses/new.tsx"), "SUGGEST_CHIP_HIT_SLOP"));
+  });
+
+  it("세그먼트 탭: 세로로 갚고 **가로는 0** — 탭 셋이 맞붙어 있어 4는 옆 탭의 몸을 덮고 있었다", () => {
+    const box = readHitSlopBox(uiSource(), "SEGMENTED_TAB_HIT_SLOP");
+    const blocks = pressableBlocksWithHitSlop(uiSource(), "hitSlop={SEGMENTED_TAB_HIT_SLOP}");
+    expect(blocks, "SegmentedControl의 탭은 한 곳에서 태어난다").toHaveLength(1);
+
+    // 탭 높이는 세로 패딩 + 13px 텍스트의 줄 상자다. 줄 상자 높이는 런타임 폰트 메트릭이라
+    // 소스에서 읽을 수 없으므로, 계약은 **소스가 보증하는 최소 높이**(줄 상자 ≥ fontSize)로
+    // 계산한다 — 실제 높이는 이보다 크다(실측은 a11y 체크리스트 C-1의 손가락 몫).
+    const paddingVertical = Number(/paddingVertical:\s*(\d+)/.exec(blocks[0])?.[1]);
+    const fontSize = Number(/fontSize:\s*(\d+)/.exec(blocks[0])?.[1]);
+    expect(paddingVertical, "탭 세로 패딩").toBe(9);
+    expect(fontSize, "탭 글자 크기").toBe(13);
+    expect(2 * paddingVertical + fontSize + box.top + box.bottom, "탭의 세로 히트 영역").toBeGreaterThanOrEqual(
+      theme.touchTarget
+    );
+    expect(box.top, "세로 대칭").toBe(box.bottom);
+
+    // 가로가 0인 이유는 소스에 그대로 있다: 탭은 `flex: 1`이고 트랙에는 간격이 없다.
+    expect(blocks[0], "탭은 서로 맞붙는다").toContain("flex: 1");
+    const trackTag = openingTagAfter(uiSource(), "export function SegmentedControl", "<View");
+    expect(trackTag, "트랙 자체엔 탭 사이 간격이 없다").not.toContain("gap:");
+    expect(box.left, "맞붙은 이웃에게 가로를 넓히지 않는다").toBe(0);
+    expect(box.right).toBe(0);
+  });
+
+  it("알림 벨·더보기 검색: 36dp 정사각 + 6 = 48 (이웃 컨트롤이 없어 네 변을 함께 넓힌다)", () => {
+    const squares = [
+      { constant: "NOTIFICATION_BELL_HIT_SLOP", path: "src/notifications/NotificationBell.tsx", style: "bellButtonStyle" },
+      { constant: "MORE_SEARCH_HIT_SLOP", path: "app/(tabs)/more.tsx", style: "moreSearchButtonStyle" }
+    ] as const;
+
+    for (const square of squares) {
+      const squareSource = source(square.path);
+      const slop = readNumericConstant(squareSource, square.constant);
+      const height = readStyleNumber(squareSource, square.style, "height");
+      const width = readStyleNumber(squareSource, square.style, "width");
+      expect(height, `${square.path} 정사각`).toBe(width);
+      expect(height + 2 * slop, `${square.path}의 히트 영역`).toBeGreaterThanOrEqual(theme.touchTarget);
+      expect(squareSource, `${square.path}에 남은 맨 숫자 hitSlop`).not.toContain("hitSlop={4}");
+    }
+  });
+
+  it("렌더는 한 픽셀도 바뀌지 않는다 — 프리미티브의 레이아웃 속성은 그대로다 (픽셀락 6종)", () => {
+    const chipBlock = pressableBlocksWithHitSlop(uiSource(), "hitSlop={CATEGORY_CHIP_HIT_SLOP}")[0];
+    // 승인 캡처의 pill 38 · 좌우 여백 14가 그대로다(hitSlop은 레이아웃 속성이 아니다).
+    expect(chipBlock, "칩 높이").toContain("minHeight: 38,");
+    expect(chipBlock, "칩 여백").toContain("paddingHorizontal: 14");
+    // 세로 여백으로 높이를 벌지 않았다 — 그건 렌더가 바뀌는 길이다.
+    expect(chipBlock, "칩 세로 여백").not.toContain("paddingVertical");
+
+    const tabBlock = pressableBlocksWithHitSlop(uiSource(), "hitSlop={SEGMENTED_TAB_HIT_SLOP}")[0];
+    expect(tabBlock, "탭 높이를 새로 박지 않았다").not.toMatch(/[^n]height:\s*\d/);
+    expect(uiSource(), "트랙 패딩").toContain("borderRadius: theme.radii.pill, flexDirection: \"row\", padding: 4");
+
+    expect(readStyleNumber(source("src/notifications/NotificationBell.tsx"), "bellButtonStyle", "height")).toBe(36);
+    expect(readStyleNumber(source("app/(tabs)/more.tsx"), "moreSearchButtonStyle", "height")).toBe(36);
+  });
+});
+
+/* ------------------------------------- 라운드 65 트랙 F (GAP-065 #10 — 남은 낭독 계약) */
+
+/**
+ * 트랙 F의 몫은 **A~D가 이미 붙든 계약 위에 남은 공백만** 채우는 것이다. 이번 라운드의 값·문구
+ * 계약은 각 트랙이 자기 모듈 테스트에 넣었고(preview-rows.test.ts · consent-summary.test.ts ·
+ * legal-links.test.ts · date-picker-month.test.ts · 위 GAP-065 #6·#7 블록), 여기 남은 것은 세
+ * 자리뿐이다 — **새로 생긴 컨트롤이 소리로도 같은 것을 말하는가**.
+ *
+ * 세 자리 모두 이 파일의 오랜 관례를 따른다: 화면은 vitest에서 렌더되지 않으므로 소스 문자열로
+ * 고정하고(react-native 네이티브 바인딩 부재), 문구 자체는 순수 모듈의 테스트가 핀한다.
+ */
+
+/**
+ * GAP-065 #2 — **가져오기 검수 행의 분류가 소리로도 도달하는가.**
+ *
+ * 이 라운드 전까지 검수 카드는 분류를 그리지도 않았다(승인 대상의 절반이 미리보기에 없었다).
+ * 줄이 생겼으니 두 가지가 따라와야 한다: ⓐ 잠금 카드는 `accessible` **한 덩어리**라 자식
+ * 텍스트가 따로 읽히지 않으므로 분류를 라벨 문자열에 실어야 들리고, ⓑ 분류를 고르는 컨트롤은
+ * 펼침 상태를 알려야 한다(누르기 전에 "지금 열려 있는가"가 갈린다 — A-4 #23이 "누를 수 있는
+ * 칸과 없는 칸이 소리로 갈리는가"를 물은 것과 같은 규율).
+ */
+describe("GAP-065 #2 가져오기 검수 행의 분류 낭독 계약", () => {
+  const importSource = () => source("app/import/[importJobId].tsx");
+
+  it("분류 고르기 버튼이 라벨 + button 역할 + expanded 상태를 갖는다", () => {
+    const src = importSource();
+    // 문구는 순수 모듈이 고른다(펼침/닫힘 두 문구가 화면에서 갈리지 않는다 —
+    // 값은 preview-rows.test.ts가 핀한다).
+    expect(src).toContain("accessibilityLabel={importRowCategoryEditLabel(expanded)}");
+    expect(src).toContain("accessibilityState={{ expanded }}");
+    // 보이는 글자와 낭독 문장이 같은 한 값이다(눈과 귀가 다른 말을 하지 않는다 — A-3 #20).
+    expect(src).toContain("<Text style={rowCategoryEditStyle}>{importRowCategoryEditLabel(expanded)}</Text>");
+  });
+
+  it("잠금 카드는 한 덩어리로 읽히므로 분류를 라벨 문자열에 싣는다", () => {
+    const src = importSource();
+    const lockedLabel = /accessibilityLabel=\{`\$\{IMPORT_ROW_LOCKED_A11Y_PREFIX\}[^`]*`\}/.exec(src)?.[0] ?? "";
+    expect(lockedLabel, "잠금 카드 라벨").toContain("${importRowCategoryA11ySuffix(category)}");
+    // 잠긴 이유는 여전히 라벨의 마지막에 온다(라운드 41 K-1의 그 문장 — 분류가 끼어들어
+    // "왜 못 고르는지"를 밀어내지 않는다).
+    expect(lockedLabel.endsWith("${IMPORT_ROW_LOCKED_MESSAGE}`}"), "잠금 사유가 마지막이다").toBe(true);
+  });
+
+  it("칩은 공유 CategoryChip이라 selected 상태가 그대로 낭독된다 (새 픽커를 만들지 않는다)", () => {
+    const chipTag = openingTagAfter(importSource(), "{options.map((option) => (", "<CategoryChip");
+    expect(chipTag).toContain("selected={option.id === row.categoryId}");
+    // 선택 상태의 낭독은 프리미티브가 진다(src/ui.tsx의 accessibilityState) — 화면이 다시 적지 않는다.
+    expect(chipTag).not.toContain("accessibilityState");
+  });
+});
+
+/**
+ * GAP-065 #4·#5 — **SET-003 동의 카드에 처음으로 생긴 컨트롤 셋.**
+ *
+ * 종전 이 카드는 읽기 전용 상태 줄뿐이었다. 이제 셋이 선다: 필수 재동의 버튼(미동의일 때만) ·
+ * 선택 동의 스위치 · 약관 [보기] 링크. 셋 다 **화면 전환 없이** 상태가 바뀌거나 앱 밖으로
+ * 나가는 자리라, 소리로만 쓰는 사람에게 사실이 도달할 길을 따로 실어야 한다.
+ *
+ * 값·게이트 계약(언제 뜨는가·무엇을 보내는가)은 consent-summary.test.ts · legal-links.test.ts가
+ * 이미 진다. 여기가 붙드는 것은 **라벨과 낭독**이다.
+ */
+describe("GAP-065 #4·#5 SET-003 동의 카드의 낭독 계약", () => {
+  const privacySource = () => source("app/settings/privacy.tsx");
+
+  it("선택 동의 스위치의 라벨이 **보이는 제목과 같은 한 값**이다", () => {
+    const src = privacySource();
+    const switchTag = openingTagAfter(src, "{consentToggles.map((definition) => (", "<Switch");
+    expect(switchTag).toContain("accessibilityLabel={definition.title}");
+    expect(switchTag).toContain('accessibilityRole="switch"');
+    // 켜짐/꺼짐은 value가 진다 — 문구로 다시 말하지 않는다(같은 사실을 두 번 읽지 않는다).
+    expect(switchTag).toContain("value={consentToggleValue(definition)}");
+    // 바로 위 줄이 눈으로 읽는 같은 제목이다(라벨을 여기서 새로 짓지 않는다).
+    expect(src).toContain("<Text style={consentTitleStyle}>{definition.title}</Text>");
+  });
+
+  it("재동의 성공이 낭독된다 — 카드가 조용히 사라지는 자리다", () => {
+    const src = privacySource();
+    expect(src).toContain("announceForA11y(CONSENT_REQUIRED_DONE_NOTICE);");
+    // 성공하면 미동의 항목이 없어져 버튼·안내가 통째로 사라진다. 화면 전환이 없으므로
+    // announce가 없으면 소리로만 쓰는 사람에게는 아무 일도 일어나지 않은 것과 같다
+    // (구매 확인 프롬프트 A-2 #14와 같은 근거).
+    expect(src).toContain("{pendingRequired.length > 0 ? (");
+  });
+
+  it("[보기] 링크가 **어느 문서인지**를 말한다 (글자는 \"보기\" 두 자뿐이다)", () => {
+    const src = privacySource();
+    expect(src).toContain("accessibilityLabel={`${line.title} 전문 보기`}");
+    expect(src).toContain('accessibilityRole="link"');
+    // 로그인 화면의 같은 링크와 한 벌이다 — 두 자리가 다른 말을 하지 않는다.
+    expect(source("app/(auth)/login.tsx")).toContain("accessibilityLabel={`${label} 전문 보기`}");
+  });
+});
+
+/**
+ * GAP-065 #8 — **아이 날짜 칸에 새로 선 달력 버튼.**
+ *
+ * 아이콘 하나뿐인 버튼이라 라벨이 없으면 낭독할 것이 없고(A-1 `Screen-reader labels`),
+ * 눌러서 펼치는 컨트롤이라 상태가 없으면 "지금 열려 있는가"를 소리로 알 길이 없다.
+ * 두 화면(ONB-002 · SET-005)이 **같은 문법**을 쓰는지도 함께 본다 — 같은 일을 하는 버튼이
+ * 자리마다 다른 말을 하면 학습되지 않는다.
+ *
+ * 칸 라벨의 "왜 못 고르는지"가 방향별 두 문장으로 갈린 것은 위 GAP-061 #8 블록이 이미 붙들었다
+ * (라운드 65 D가 그 계약을 갱신했다). 여기서는 되풀이하지 않는다.
+ */
+describe("GAP-065 #8 아이 생년월일·예정일 달력 버튼의 낭독 계약", () => {
+  const dateScreens = ["app/(onboarding)/child-profile.tsx", "app/settings/children.tsx"] as const;
+
+  /** 달력 버튼의 여는 태그. 라벨 문구에서 위로 거슬러 그 `<Pressable`을 찾는다. */
+  function calendarButtonBlock(path: string): string {
+    const screenSource = source(path);
+    const labelAt = screenSource.indexOf("달력에서 고르기");
+    if (labelAt < 0) throw new Error(`${path}에 달력 버튼이 없다`);
+    const start = screenSource.lastIndexOf("<Pressable", labelAt);
+    if (start < 0) throw new Error(`${path}의 달력 버튼이 Pressable이 아니다`);
+    return screenSource.slice(start, labelAt + 400);
+  }
+
+  it("두 화면 모두 라벨 + button 역할 + expanded 상태를 단다", () => {
+    for (const path of dateScreens) {
+      const buttonBlock = calendarButtonBlock(path);
+      expect(buttonBlock, path).toContain('accessibilityRole="button"');
+      expect(buttonBlock, path).toMatch(/accessibilityState=\{\{ expanded: \w+ \}\}/);
+    }
+  });
+
+  it("라벨이 **어느 날짜 칸인지**를 말한다 — 두 화면이 같은 문법을 쓴다", () => {
+    for (const path of dateScreens) {
+      // `${dateLabel} 달력에서 고르기` — 이름(출산 예정일/출생일)은 requiredDateFieldLabel이
+      // 한 곳에서 정한다(화면이 "예정일"·"생년월일"을 새로 짓지 않는다).
+      expect(source(path), path).toMatch(/accessibilityLabel=\{`\$\{\w+\} 달력에서 고르기`\}/);
+    }
+  });
+
+  it("손타이핑 칸은 그대로 남는다 — 달력이 대체가 아니라 대안이다", () => {
+    for (const path of dateScreens) {
+      const src = source(path);
+      expect(src, path).toContain('placeholder="YYYY-MM-DD"');
+      expect(src, path).toMatch(/accessibilityLabel=\{`\$\{\w+\} 입력`\}/);
+    }
   });
 });
