@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Linking, Pressable, Switch, Text, View } from "react-native";
 import {
   confirmAccountDeletion,
   confirmChildProfileDeletion,
@@ -12,6 +12,8 @@ import {
   previewAccountDeletion,
   previewChildProfileDeletion,
   previewHouseholdLeave,
+  setConsentAccepted,
+  upsertConsents,
   type SettingsPreview
 } from "../../src/api/client";
 import { resetLocalBackend } from "../../src/api/local-backend";
@@ -36,6 +38,14 @@ import {
 // 라운드 61 #2: 탈퇴 직후 가구 목록·역할 표를 서버 기준으로 다시 받는 그 경로 그대로
 // (초대 수락과 같은 단일 소스 — app/family/accept/[token].tsx).
 import { revalidateHouseholdRoles } from "../../src/family/useExpenseEntryGate";
+// 라운드 65 B(#4·#5): 동의 정의 판정과 약관 링크. 버전 리터럴은 앱에 없다 — 서버 정의를 그대로
+// 되돌려주는 것이 이 두 모듈의 계약이다.
+import {
+  optionalConsents,
+  pendingRequiredConsents,
+  type ConsentDefinitionView
+} from "../../src/consent/consent-definitions";
+import { legalDocumentUrls, legalKindForConsentType } from "../../src/consent/legal-links";
 import { useNotificationStore } from "../../src/notifications/notification.store";
 import { buildConsentSummaryLines } from "../../src/settings/consent-summary";
 import { useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
@@ -87,6 +97,34 @@ const ACCOUNT_DELETE_REJOIN_NOTICE = "삭제 후 30일 동안은 같은 계정�
 
 const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
 const actionFailedText = "처리하지 못했어요. 잠시 후 다시 시도해 주세요.";
+
+/**
+ * 라운드 65 B(#4ⓑ) — **되돌아올 길.**
+ *
+ * 서버는 type + version이 정확히 일치하는 행만 동의로 인정하므로(apps/api
+ * onboarding-core.service.ts), 약관을 개정해 버전이 오르면 기존 사용자 전원의 필수 동의가
+ * "동의 안 함"으로 뒤집힌다. 이 화면은 그 상태를 **읽기 전용으로 보여 주기만** 했다 -- 다시
+ * 동의할 컨트롤이 앱 어디에도 없었다. 버튼은 필수 항목 중 미동의가 하나라도 있을 때만 뜨므로,
+ * 정상 상태의 화면은 종전과 한 글자도 다르지 않다.
+ *
+ * 미동의 상태에서 앱을 계속 쓰게 둘 것인가(차단 게이트)는 이번 범위 밖이다 -- PM·법무 판단이
+ * 선행이고, 여기서 만드는 것은 되돌아올 길까지다.
+ */
+const CONSENT_REQUIRED_NOTICE = "필수 항목에 동의가 필요해요. 약관이 개정되면 다시 동의를 받아요.";
+const CONSENT_REQUIRED_ACTION_LABEL = "필수 항목 다시 동의하기";
+const CONSENT_REQUIRED_DONE_NOTICE = "필수 항목에 다시 동의했어요.";
+const CONSENT_UPDATE_FAILED_TEXT = "동의를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+
+/**
+ * 선택 동의 스위치가 **약속하지 않는 것**: 이 스위치를 켠다고 알림이 오지는 않는다. 푸시는
+ * 자산 3종 부재로 no-op이고(known-limitations A절), 이 값은 **동의 기록**일 뿐이다 -- 없는
+ * 기능을 있는 척하지 않는다(DNC-018 톤).
+ */
+const OPTIONAL_CONSENT_NOTICE = "지금은 동의 기록만 저장돼요. 알림 보내기가 준비되면 이 동의를 기준으로 보내드려요.";
+
+/** 라운드 65 B(#5): 열지 못한 링크는 조용히 실패하지 않는다. */
+const LEGAL_LINK_FAILED_TITLE = "링크를 열지 못했어요";
+const LEGAL_LINK_FAILED_MESSAGE = "잠시 후 다시 시도해 주세요.";
 
 function DangerButton({
   label,
@@ -442,10 +480,60 @@ export default function PrivacySettingsScreen() {
   };
 
   const flows = privacy.data?.flows ?? [];
-  // 라운드 45 UX-AA(후보 3): 화면 부제는 "동의 내역과 삭제 · 탈퇴를 관리해요"인데 동의 내역이
-  // 어디에도 없었다. 서버 GET /settings/privacy가 이미 함께 내려주는 값이라 **새 요청 없이**
-  // 그린다. 응답에 없거나(구 서버) 불러오기에 실패하면 빈 배열 -> 카드를 아예 그리지 않는다.
-  const consentLines = buildConsentSummaryLines(privacy.data?.consents);
+  /**
+   * 라운드 45 UX-AA(후보 3): 화면 부제는 "동의 내역과 삭제 · 탈퇴를 관리해요"인데 동의 내역이
+   * 어디에도 없었다. 서버 GET /settings/privacy가 이미 함께 내려주는 값이라 **새 요청 없이**
+   * 그린다. 응답에 없거나(구 서버) 불러오기에 실패하면 빈 배열 -> 카드를 아예 그리지 않는다.
+   *
+   * 라운드 65 B(#4): 같은 응답이 type·version·필수 여부까지 싣고 있으므로, 재동의와 선택 동의
+   * 스위치도 **이 값 하나**로 판정한다(추가 조회 0건, 버전 리터럴 0벌).
+   */
+  const consentDefinitions = privacy.data?.consents ?? [];
+  const consentToggles = optionalConsents(consentDefinitions);
+  const pendingRequired = pendingRequiredConsents(consentDefinitions);
+  const consentLines = buildConsentSummaryLines(privacy.data?.consents, {
+    // 스위치로 그리는 항목은 상태 줄을 만들지 않는다(같은 사실을 두 번 말하지 않는다).
+    excludeTypes: consentToggles.map((definition) => definition.type)
+  });
+  const showConsentCard = consentLines.length > 0 || consentToggles.length > 0;
+  /** 라운드 65 B(#5): 주입된 빌드에서만 [보기] 링크가 생긴다(값이 없으면 카드가 종전 그대로다). */
+  const legalUrls = legalDocumentUrls();
+
+  /** 필수 동의 재제출 — 로그인이 쓰는 그 경로 그대로다(서버가 준 버전을 그대로 되돌려준다). */
+  const reconsent = useMutation({
+    mutationFn: () => upsertConsents(authToken!),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["privacy-settings"] });
+      announceForA11y(CONSENT_REQUIRED_DONE_NOTICE);
+    }
+  });
+
+  /** 선택 동의 켜기/끄기 — 버전은 위 응답이 준 정의에서 온다. */
+  const consentToggle = useMutation({
+    mutationFn: (input: { definition: ConsentDefinitionView; accepted: boolean }) =>
+      setConsentAccepted(authToken!, input.definition, input.accepted),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["privacy-settings"] });
+    }
+  });
+  /**
+   * 저장이 끝나 목록이 갱신되기 전까지는 **방금 고른 값**을 보여준다. 그러지 않으면 스위치가
+   * 눌린 직후 원래 자리로 튀었다가 잠시 뒤 다시 넘어간다.
+   */
+  const consentToggleValue = (definition: ConsentDefinitionView) => {
+    const inFlight = consentToggle.isPending ? consentToggle.variables : undefined;
+    return inFlight && inFlight.definition.type === definition.type ? inFlight.accepted : definition.accepted;
+  };
+
+  const openLegalDocument = async (url: string) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) throw new Error("cannot-open-url");
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert(LEGAL_LINK_FAILED_TITLE, LEGAL_LINK_FAILED_MESSAGE);
+    }
+  };
 
   return (
     <AppScreen>
@@ -470,15 +558,65 @@ export default function PrivacySettingsScreen() {
           </Card>
         ) : null}
 
-        {consentLines.length > 0 ? (
+        {showConsentCard ? (
           <Card style={{ gap: 8 }}>
             <Text style={cardTitleStyle}>동의 내역</Text>
-            {consentLines.map((line) => (
-              <View key={line.title} style={rowHeaderStyle}>
-                <Text style={consentTitleStyle}>{line.title}</Text>
-                <Text style={mutedTextStyle}>{line.statusText}</Text>
+            {consentLines.map((line) => {
+              // 라운드 65 B(#5): 문서가 있는 항목(terms · privacy)에만, URL이 주입된 빌드에만.
+              const legalKind = legalKindForConsentType(line.type);
+              const documentUrl = legalKind ? legalUrls[legalKind] : null;
+              return (
+                <View key={line.title} style={rowHeaderStyle}>
+                  <Text style={consentTitleStyle}>{line.title}</Text>
+                  {documentUrl ? (
+                    <Pressable
+                      accessibilityLabel={`${line.title} 전문 보기`}
+                      accessibilityRole="link"
+                      onPress={() => void openLegalDocument(documentUrl)}
+                      style={legalLinkStyle}
+                    >
+                      <Text style={legalLinkTextStyle}>보기</Text>
+                    </Pressable>
+                  ) : null}
+                  <Text style={mutedTextStyle}>{line.statusText}</Text>
+                </View>
+              );
+            })}
+
+            {/* 라운드 65 B(#4ⓑ): 필수인데 미동의인 항목이 하나라도 있을 때만 나타난다. */}
+            {pendingRequired.length > 0 ? (
+              <View style={{ gap: 8 }}>
+                <Text style={mutedTextStyle}>{CONSENT_REQUIRED_NOTICE}</Text>
+                <SecondaryButton
+                  label={reconsent.isPending ? "저장하는 중..." : CONSENT_REQUIRED_ACTION_LABEL}
+                  disabled={!authToken || reconsent.isPending}
+                  onPress={() => reconsent.mutate()}
+                />
+              </View>
+            ) : null}
+
+            {/* 라운드 65 B(#4ⓑ): 화면에 뜨는데 켤 수 없던 선택 동의(소식 알림)를 여기서 켜고 끈다. */}
+            {consentToggles.map((definition) => (
+              <View key={definition.type} style={{ gap: 4 }}>
+                <View style={rowHeaderStyle}>
+                  <Text style={consentTitleStyle}>{definition.title}</Text>
+                  <Switch
+                    accessibilityLabel={definition.title}
+                    accessibilityRole="switch"
+                    disabled={!authToken || consentToggle.isPending}
+                    onValueChange={(accepted) => consentToggle.mutate({ definition, accepted })}
+                    thumbColor={theme.colors.white}
+                    trackColor={{ false: theme.colors.gray300, true: theme.colors.mainCoral }}
+                    value={consentToggleValue(definition)}
+                  />
+                </View>
+                <Text style={mutedTextStyle}>{OPTIONAL_CONSENT_NOTICE}</Text>
               </View>
             ))}
+
+            {reconsent.isError || consentToggle.isError ? (
+              <Text style={{ color: theme.colors.danger }}>{CONSENT_UPDATE_FAILED_TEXT}</Text>
+            ) : null}
           </Card>
         ) : null}
 
@@ -587,6 +725,22 @@ const mutedTextStyle = {
   color: theme.colors.gray600,
   fontSize: 13,
   lineHeight: 20
+} as const;
+
+// 라운드 65 B(#5): 동의 줄의 [보기] 링크. 48dp 최소 터치 타깃(theme.touchTarget)을 숫자로 다시
+// 박지 않는다. 색은 12px 코랄 본문의 A11Y-117 규칙(coral[700]) -- 아래 previewNoticeStyle과 같다.
+const legalLinkStyle = {
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: theme.touchTarget,
+  paddingHorizontal: 6
+} as const;
+
+const legalLinkTextStyle = {
+  color: theme.colors.coral[700],
+  fontSize: 12,
+  fontWeight: "700",
+  textDecorationLine: "underline"
 } as const;
 
 // 동의 항목 이름: 오른쪽 상태 문구(mutedTextStyle)와 같은 크기로 두되, 이름 쪽이 앞선다.

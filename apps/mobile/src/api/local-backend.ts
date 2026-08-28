@@ -1718,16 +1718,56 @@ export function confirmImport(importJobId: string, selectedRowIds: string[]): Co
 // Consents / onboarding-adjacent
 // ---------------------------------------------------------------------------
 
-export function upsertConsents(): { success: boolean } {
+/**
+ * 라운드 65 B(#4): 데모 GET /consents. 실서버와 같은 정의 한 벌(LOCAL_CONSENT_DEFINITIONS)에
+ * 데모 상태가 실제로 기록한 동의 여부·동의일을 얹어 돌려준다 -- 앱은 여기서 받은 type·version을
+ * 그대로 되돌려주므로, 데모 경로에도 버전 리터럴이 남지 않는다.
+ */
+export function listConsents(): { consents: NonNullable<PrivacySettings["consents"]> } {
   ensureSeeded();
-  // 라운드 45 UX-AA: 실서버 upsertConsents와 같이 동의한 시각을 남긴다 -- 약관·개인정보
-  // 화면의 동의 내역 카드가 데모 세션에서도 실제 날짜를 보여줄 수 있게 하는 유일한 근거다.
+  return { consents: localConsentStates() };
+}
+
+/**
+ * 데모 PUT /consents. 실서버 upsertConsents와 같은 규칙이다:
+ * - **정의에 있는 type + version만** 반영한다(모르는 항목은 조용히 무시).
+ * - 동의하면 동의 시각을 남기고, 철회하면 지운다(라운드 45 UX-AA -- 동의 내역 카드가 데모
+ *   세션에서도 실제 날짜를 보여줄 수 있게 하는 유일한 근거다).
+ * - 넘겨받은 항목만 건드린다(선택 동의 스위치 하나를 끄는 것이 필수 동의를 지우면 안 된다).
+ *
+ * 인자를 생략하면 **필수 항목 전부를 동의**로 본다 -- 로그인 직후의 종전 동작이고, 여기서도
+ * 버전은 정의에서 읽는다.
+ */
+export function upsertConsents(
+  consents?: ReadonlyArray<{ type: string; version: string; accepted: boolean }>
+): { success: boolean } {
+  ensureSeeded();
   const acceptedAt = new Date().toISOString();
-  useLocalBackendStore.setState({
-    consents: [
-      { type: "terms", version: "2026-07-06", accepted: true, acceptedAt },
-      { type: "privacy", version: "2026-07-06", accepted: true, acceptedAt }
-    ]
+  const incoming =
+    consents ??
+    LOCAL_CONSENT_DEFINITIONS.filter((definition) => definition.required).map((definition) => ({
+      type: definition.type as string,
+      version: definition.version as string,
+      accepted: true
+    }));
+  useLocalBackendStore.setState((state) => {
+    const next = [...state.consents];
+    for (const entry of incoming) {
+      const known = LOCAL_CONSENT_DEFINITIONS.some(
+        (definition) => definition.type === entry.type && definition.version === entry.version
+      );
+      if (!known) continue;
+      const record = {
+        type: entry.type,
+        version: entry.version,
+        accepted: entry.accepted,
+        acceptedAt: entry.accepted ? acceptedAt : null
+      };
+      const index = next.findIndex((saved) => saved.type === entry.type && saved.version === entry.version);
+      if (index >= 0) next[index] = record;
+      else next.push(record);
+    }
+    return { consents: next };
   });
   return { success: true };
 }
@@ -2010,20 +2050,28 @@ const LOCAL_CONSENT_DEFINITIONS = [
   { type: "marketing", version: "2026-07-06", required: false, title: "소식 알림 동의" }
 ] as const;
 
+/**
+ * 정의 + 저장된 동의 상태. GET /consents(listConsents)와 GET /settings/privacy가 **같은 한 벌**을
+ * 읽는다 -- 두 화면이 같은 사실을 서로 다르게 말하지 않게 하는 자리다.
+ */
+function localConsentStates(): NonNullable<PrivacySettings["consents"]> {
+  const saved = useLocalBackendStore.getState().consents;
+  return LOCAL_CONSENT_DEFINITIONS.map((definition) => {
+    const record = saved.find(
+      (consent) => consent.type === definition.type && consent.version === definition.version
+    );
+    return {
+      ...definition,
+      accepted: record?.accepted ?? false,
+      acceptedAt: record?.acceptedAt ?? null
+    };
+  });
+}
+
 export function getPrivacySettings(): PrivacySettings {
   ensureSeeded();
-  const saved = useLocalBackendStore.getState().consents;
   return {
-    consents: LOCAL_CONSENT_DEFINITIONS.map((definition) => {
-      const record = saved.find(
-        (consent) => consent.type === definition.type && consent.version === definition.version
-      );
-      return {
-        ...definition,
-        accepted: record?.accepted ?? false,
-        acceptedAt: record?.acceptedAt ?? null
-      };
-    }),
+    consents: localConsentStates(),
     flows: [
       {
         id: "account_delete",

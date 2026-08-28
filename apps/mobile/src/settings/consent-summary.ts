@@ -20,6 +20,8 @@ export type ConsentSummaryInput = {
   title: string;
   accepted: boolean;
   acceptedAt?: string | null;
+  /** 항목 종류(terms · privacy · marketing). 구 서버·데모 응답에는 없을 수 있다. */
+  type?: string | null;
 };
 
 export type ConsentSummaryLine = {
@@ -27,6 +29,12 @@ export type ConsentSummaryLine = {
   title: string;
   /** 오른쪽에 붙는 상태 문구. */
   statusText: string;
+  /**
+   * 라운드 65 B(#5): 이 줄에 약관 [보기] 링크를 붙일지 정하는 값(terms · privacy에만 문서가 있다).
+   * 서버가 종류를 말해 주지 않으면 null이고, 그때 링크는 생기지 않는다 -- 어느 문서인지 모르는
+   * 채로 링크를 붙이면 엉뚱한 문서를 열게 된다.
+   */
+  type: string | null;
 };
 
 /** 동의 안 함 / 동의함 / "8월 4일 동의". */
@@ -43,11 +51,22 @@ export function consentStatusText(consent: ConsentSummaryInput): string {
  *
  * 응답에 동의 항목이 없거나(구 서버·데모) 실패해서 undefined면 빈 배열이다 -- 화면은 그때
  * 카드를 통째로 생략한다(빈 카드를 그려 "동의 내역이 없다"고 말하지 않는다).
+ *
+ * 라운드 65 B(#4): `excludeTypes`는 **스위치로 그리는 선택 항목**을 상태 줄에서 뺀다 -- 같은
+ * 사실("소식 알림 동의 · 동의 안 함")을 한 카드 안에서 두 번 말하지 않기 위해서다. 비우면
+ * 종전과 똑같이 전 항목이 줄이 된다.
  */
 export function buildConsentSummaryLines(
-  consents: readonly ConsentSummaryInput[] | null | undefined
+  consents: readonly ConsentSummaryInput[] | null | undefined,
+  options: { excludeTypes?: readonly string[] } = {}
 ): ConsentSummaryLine[] {
+  const excluded = new Set(options.excludeTypes ?? []);
   return (consents ?? [])
     .filter((consent) => typeof consent?.title === "string" && consent.title.trim().length > 0)
-    .map((consent) => ({ title: consent.title.trim(), statusText: consentStatusText(consent) }));
+    .filter((consent) => !(typeof consent.type === "string" && excluded.has(consent.type)))
+    .map((consent) => ({
+      title: consent.title.trim(),
+      statusText: consentStatusText(consent),
+      type: typeof consent.type === "string" && consent.type.length > 0 ? consent.type : null
+    }));
 }

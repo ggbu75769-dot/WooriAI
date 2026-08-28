@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
 import { accountStatusErrorMessage } from "../../src/api/api-error";
 import { LOCAL_SESSION_TOKEN, oauthLogin, upsertConsents } from "../../src/api/client";
@@ -11,6 +11,8 @@ import {
   KakaoLoginError,
   loginWithKakao
 } from "../../src/auth/kakao-login";
+import { loginSubtitle } from "../../src/auth/login-copy";
+import { legalDocumentUrls } from "../../src/consent/legal-links";
 import { SESSION_EXPIRED_LOGIN_NOTICE } from "../../src/offline/messages";
 import { shouldShowSessionExpiredNotice } from "../../src/offline/session-expiry";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -22,25 +24,35 @@ const logoMark = require("../../assets/illustrations/logo_mark.png");
 
 function ConsentRow({
   checked,
+  documentUrl,
   label,
+  onOpenDocument,
   onPress,
   optional = false,
   sublabel
 }: {
   checked: boolean;
+  /** 라운드 65 B(#5): 이 동의가 가리키는 문서 URL. 주입되지 않은 빌드에서는 null이고, 그때 이
+   *  줄은 종전과 한 글자도 다르지 않다(링크도, 감싸는 View도 생기지 않는다). */
+  documentUrl?: string | null;
   label: string;
+  onOpenDocument?: (url: string) => void;
   onPress: () => void;
   optional?: boolean;
   sublabel?: string;
 }) {
   const badge = optional ? "선택" : "필수";
-  return (
+  const row = (
     <Pressable
       accessibilityLabel={`${label}, ${badge}`}
       accessibilityRole="checkbox"
       accessibilityState={{ checked }}
       onPress={onPress}
-      style={({ pressed }) => [styles.consentRow, pressed ? styles.pressed : null]}
+      style={({ pressed }) => [
+        styles.consentRow,
+        documentUrl ? styles.consentRowGrow : null,
+        pressed ? styles.pressed : null
+      ]}
     >
       <View style={[styles.checkbox, checked ? styles.checkboxChecked : null]}>
         {checked ? <Text style={styles.checkmark}>✓</Text> : null}
@@ -51,6 +63,22 @@ function ConsentRow({
         {sublabel ? <Text style={styles.consentSublabel}>{sublabel}</Text> : null}
       </View>
     </Pressable>
+  );
+  if (!documentUrl) return row;
+  return (
+    <View style={styles.consentRowGroup}>
+      {row}
+      {/* 체크박스 Pressable **밖**에 둔다: 안에 넣으면 "동의 체크"와 "문서 열기"가 한 접근성
+          노드 안에서 겹치고, 링크를 누를 때 체크가 함께 뒤집힐 수 있다. */}
+      <Pressable
+        accessibilityLabel={`${label} 전문 보기`}
+        accessibilityRole="link"
+        onPress={() => onOpenDocument?.(documentUrl)}
+        style={({ pressed }) => [styles.documentLink, pressed ? styles.pressed : null]}
+      >
+        <Text style={styles.documentLinkText}>보기</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -112,6 +140,11 @@ export default function LoginScreen() {
   const setSession = useSessionStore((state) => state.setSession);
   const startTestSession = useSessionStore((state) => state.startTestSession);
   const requiredAccepted = termsAccepted && privacyAccepted;
+  /**
+   * 라운드 65 B(#5): 필수 동의 두 줄이 가리키는 문서의 URL. 빌드에 주입되지 않았으면 둘 다
+   * null이고, 그때 이 화면은 종전과 한 글자도 다르지 않다(푸시 토글과 같은 "정직한 부재").
+   */
+  const legalUrls = legalDocumentUrls();
 
   async function login() {
     if (!requiredAccepted || isLoginPending) return;
@@ -134,7 +167,21 @@ export default function LoginScreen() {
         // households가 없는 응답(구 스텁)은 null = 모름이고, 모름은 아무것도 잠그지 않는다.
         households: result.user.households
       });
-      await upsertConsents(result.tokens.accessToken);
+      /**
+       * 라운드 65 B(#4ⓒ) — **동의 저장 실패를 로그인 실패로 승격하지 않는다.**
+       *
+       * 종전에는 이 PUT이 실패하면 세션은 이미 저장됐는데 아래 router.replace가 실행되지 않고
+       * "로그인 중 문제가 발생했어요"만 떴다 -- 같은 함수의 데모 경로는 정확히 반대였다
+       * (`void … .catch(() => {})`). 사용자에게는 로그인이 실패한 것처럼 보이지만 실제로는
+       * 로그인돼 있어서, 다시 눌러도 같은 화면을 반복한다.
+       *
+       * 그래도 **기다리기는 한다**(데모 경로처럼 던져 두지 않는다): 다음 화면인 온보딩의 아이
+       * 생성이 서버에서 필수 동의를 검사하므로(apps/api onboarding-core.service.ts의 createChild
+       * → assertRequiredConsents), 순서가 뒤집히면 방금 로그인한 사람이 CONSENT_REQUIRED로
+       * 막힌다. 데모 경로는 로컬 백엔드라 그 대기가 사실상 즉시라 `void`로 둔 것이다.
+       * 실패했을 때의 재제출 경로는 이미 있다(app/(onboarding)/resume.tsx · SET-003의 재동의).
+       */
+      await upsertConsents(result.tokens.accessToken).catch(() => undefined);
       router.replace(inviteResumeHref ?? "/onboarding/child-status");
     } catch (error) {
       // Pressing 취소 on Kakao's consent screen is a normal outcome, not an error state.
@@ -167,6 +214,22 @@ export default function LoginScreen() {
       );
     } finally {
       setIsLoginPending(false);
+    }
+  }
+
+  /**
+   * 라운드 65 B(#5): 동의 문서 열기. URL이 주입된 빌드에서만 이 함수가 닿을 수 있는 컨트롤이
+   * 생긴다. 열지 못하면(브라우저 부재·잘못된 URL) 그 사실을 말한다 -- 아무 일도 일어나지 않는
+   * 링크를 남기지 않는다. 자리는 이 화면의 유일한 알림 카드(loginError)를 그대로 쓴다.
+   */
+  async function openLegalDocument(url: string) {
+    setLoginError(null);
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) throw new Error("cannot-open-url");
+      await Linking.openURL(url);
+    } catch {
+      setLoginError("약관을 열지 못했어요. 잠시 후 다시 시도해 주세요.");
     }
   }
 
@@ -206,13 +269,10 @@ export default function LoginScreen() {
             </View>
           ) : null}
           <Text style={styles.title}>우리 아이의 기록을 시작해요</Text>
-          {/* 실기기 피드백 1: 테스트 빌드의 안내를 사실과 맞춘다 -- 더 이상 "준비된" 데이터가
-              들어 있는 계정이 아니라, 실제 가입과 똑같이 빈 상태에서 아이 정보부터 입력한다. */}
-          <Text style={styles.subtitle}>
-            {isTestLoginEnabled
-              ? "테스트 계정도 실제 가입과 똑같이 시작해요.\n아이 정보를 입력하면 바로 기록할 수 있어요."
-              : "준비된 테스트 계정으로 로그인하고\n우리아이의 주요 화면을 편하게 둘러보세요."}
-          </Text>
+          {/* 라운드 65 B(#3): 두 갈래의 문구는 src/auth/login-copy.ts 한 곳에 나란히 있다 --
+              여기 삼항으로 두었을 때 갈래가 서로 뒤바뀌어(스토어 빌드에만 "준비된 테스트 계정으로
+              … 둘러보세요"가 떴다) 실사용자 빌드에서만 재현되는 거짓말이 남아 있었다. */}
+          <Text style={styles.subtitle}>{loginSubtitle(isTestLoginEnabled)}</Text>
           {/* AUTH-127: 만료 안내는 히어로 바로 아래(동의 카드 위)에 둔다 -- 화면에 들어오자마자
               읽히는 자리이고, 로그인 실패 에러 카드(하단)와 위치가 겹치지 않아 둘이 동시에
               떠도 서로를 가리지 않는다. */}
@@ -236,13 +296,17 @@ export default function LoginScreen() {
           <View style={styles.consentList}>
             <ConsentRow
               checked={termsAccepted}
+              documentUrl={legalUrls.terms}
               label="이용약관 동의"
+              onOpenDocument={openLegalDocument}
               onPress={() => setTermsAccepted((value) => !value)}
             />
             <View style={styles.divider} />
             <ConsentRow
               checked={privacyAccepted}
+              documentUrl={legalUrls.privacy}
               label="개인정보 수집·이용 동의"
+              onOpenDocument={openLegalDocument}
               onPress={() => setPrivacyAccepted((value) => !value)}
             />
             <View style={styles.divider} />
@@ -360,6 +424,14 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 58
   },
+  // 링크가 있을 때만 쓰이는 두 스타일(URL 미주입 빌드에서는 감싸는 View 자체가 없다).
+  consentRowGroup: {
+    alignItems: "center",
+    flexDirection: "row"
+  },
+  consentRowGrow: {
+    flex: 1
+  },
   consentSublabel: {
     color: theme.colors.gray600,
     fontSize: 12,
@@ -373,6 +445,21 @@ const styles = StyleSheet.create({
   divider: {
     backgroundColor: theme.colors.gray300,
     height: StyleSheet.hairlineWidth
+  },
+  // A11Y: 48dp 최소 터치 타깃(theme.touchTarget)을 숫자로 다시 박지 않는다.
+  documentLink: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: theme.touchTarget,
+    paddingHorizontal: 8
+  },
+  // A11Y-117: 12px 코랄 본문은 coral[700]이어야 크림 배경에서 4.5:1을 넘긴다
+  // (app/settings/privacy.tsx의 previewNoticeStyle과 같은 규칙).
+  documentLinkText: {
+    color: theme.colors.coral[700],
+    fontSize: 12,
+    fontWeight: "800",
+    textDecorationLine: "underline"
   },
   errorCard: {
     backgroundColor: "#FFF0ED",

@@ -32,7 +32,10 @@ describe("AUTH-102 login screen wiring (source verification -- follows the exist
     const loginSource = source("app/(auth)/login.tsx");
     expect(loginSource).toContain("accessToken: result.tokens.accessToken");
     expect(loginSource).toContain("refreshToken: result.tokens.refreshToken");
-    expect(loginSource).toContain("await upsertConsents(result.tokens.accessToken);");
+    // 라운드 65 B(#4ⓒ): 동의 저장은 여전히 **기다리되**(다음 화면인 온보딩의 아이 생성이 서버에서
+    // 필수 동의를 검사한다), 실패가 로그인 실패로 승격되지는 않는다 -- 종전에는 이 PUT이 실패하면
+    // 세션은 저장된 채 router.replace가 실행되지 않아 "로그인 중 문제가 발생했어요"만 떴다.
+    expect(loginSource).toContain("await upsertConsents(result.tokens.accessToken).catch(() => undefined);");
     // FAM-121A: 초대 복귀 파라미터가 없을 때의 기본 목적지는 그대로 온보딩이다.
     expect(loginSource).toContain('router.replace(inviteResumeHref ?? "/onboarding/child-status");');
   });

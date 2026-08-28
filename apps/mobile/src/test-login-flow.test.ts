@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import * as localBackend from "./api/local-backend";
+import { loginSubtitle, STORE_LOGIN_SUBTITLE, TEST_LOGIN_SUBTITLE } from "./auth/login-copy";
 import { LOCAL_CHILD_ID, LOCAL_ITEM_CAR_SEAT } from "./api/local-fixtures";
 import { useSelectedChildStore } from "./stores/selected-child.store";
 import { useSessionStore } from "./stores/session.store";
@@ -132,5 +133,66 @@ describe("Android local test login", () => {
     const buildSource = readFileSync(join(mobileRoot, "..", "..", "scripts/build-android-apk.ts"), "utf8");
     expect(buildSource).toContain('standalone: "1"');
     expect(buildSource).toContain('production: "0"');
+  });
+});
+
+/**
+ * 라운드 65 B(#3) — **env 갈래의 문구는 두 갈래가 같은 자리에서 읽혀야 한다.**
+ *
+ * 로그인 히어로 부제의 두 갈래가 서로 뒤바뀌어 있었다: 테스트 빌드에는 "테스트 계정도 실제
+ * 가입과 똑같이 시작해요."가, **실사용자가 받는 빌드**(Play AAB·production APK는
+ * `EXPO_PUBLIC_TEST_LOGIN="0"`)에는 "준비된 테스트 계정으로 로그인하고 … 둘러보세요."가 붙어
+ * 있었다. 개발 빌드에서는 재현되지 않고 AUTH-001은 픽셀락 대상도 아니라
+ * (scripts/pixel-lock/pixel-lock-screens.json) 어떤 자동 경로도 이것을 보지 못했다 -- 그래서
+ * 갈래를 값으로 고정한다.
+ */
+describe("로그인 첫 화면 문구 (AUTH-001 -- 빌드 갈래별 사실)", () => {
+  it("스토어/실사용 빌드는 테스트 계정을 말하지 않는다", () => {
+    const subtitle = loginSubtitle(false);
+    expect(subtitle).toBe(STORE_LOGIN_SUBTITLE);
+    for (const forbidden of ["테스트", "둘러보", "준비된"]) {
+      expect(subtitle).not.toContain(forbidden);
+    }
+    // 실제로 일어나는 일만 말한다: 카카오 로그인 -> 온보딩(아이 정보).
+    expect(subtitle).toContain("카카오");
+    expect(subtitle).toContain("아이 정보");
+  });
+
+  it("테스트 빌드는 테스트 계정임을 말하고, 실가입과 같은 여정임을 밝힌다", () => {
+    const subtitle = loginSubtitle(true);
+    expect(subtitle).toBe(TEST_LOGIN_SUBTITLE);
+    expect(subtitle).toContain("테스트 계정");
+    expect(subtitle).toContain("실제 가입과 똑같이");
+  });
+
+  it("두 갈래가 서로 다른 사실을 말하지 않는다 -- 문구가 뒤바뀔 자리가 없다", () => {
+    expect(loginSubtitle(true)).not.toBe(loginSubtitle(false));
+    // "테스트"라는 말은 테스트 빌드 갈래에만 있다(그 반대는 곧 이번에 고친 결함이다).
+    expect(loginSubtitle(true).includes("테스트")).toBe(true);
+    expect(loginSubtitle(false).includes("테스트")).toBe(false);
+    // 해요체(DNC-018).
+    for (const line of [...loginSubtitle(true).split("\n"), ...loginSubtitle(false).split("\n")]) {
+      expect(line.trim().endsWith("요.")).toBe(true);
+    }
+  });
+
+  it("화면은 삼항이 아니라 그 한 함수를 부른다(갈래가 두 벌로 갈리지 않는다)", () => {
+    const loginSource = readFileSync(join(mobileRoot, "app/(auth)/login.tsx"), "utf8");
+    expect(loginSource).toContain("<Text style={styles.subtitle}>{loginSubtitle(isTestLoginEnabled)}</Text>");
+    expect(loginSource).not.toContain("준비된 테스트 계정으로 로그인하고");
+    // 테스트 빌드임을 알리는 배지·꼬리말은 그대로 남는다(데모/실계정 구분 -- DNC).
+    expect(loginSource).toContain("테스트용 APK");
+    expect(loginSource).toContain("기록은 이 기기에만 저장되며 실제 카카오 로그인이 아니에요.");
+  });
+
+  /**
+   * 정찰 노트의 곁가지: "env 갈래의 한쪽만 손보면 아무도 모른다." 저장소에서 사용자 문구가
+   * env로 갈리는 자리는 지금 이 부제 하나뿐이고(푸시·카카오 갈래는 문구가 아니라 기능 유무를
+   * 판정한다), 새로 생기면 여기 계약이 먼저 깨지도록 이 목록을 좁게 유지한다.
+   */
+  it("사용자에게 보이는 문구를 EXPO_PUBLIC_TEST_LOGIN으로 가르는 자리는 로그인 부제 한 곳뿐이다", () => {
+    const loginSource = readFileSync(join(mobileRoot, "app/(auth)/login.tsx"), "utf8");
+    const flagReads = loginSource.match(/process\.env\.EXPO_PUBLIC_TEST_LOGIN/g) ?? [];
+    expect(flagReads).toHaveLength(1);
   });
 });
