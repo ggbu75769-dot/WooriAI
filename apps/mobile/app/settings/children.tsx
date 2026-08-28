@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { CHILD_STAGE_CODES, getSeoulToday, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
 import {
@@ -31,10 +31,15 @@ import {
 import { getOrCreateChildCreateKey, rotateChildCreateKey } from "../../src/children/child-create-idempotency";
 import { applyChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES } from "../../src/children/child-switch";
 import {
+  collectKnownHouseholdIds,
   describeHouseholdScope,
+  HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE,
+  HOUSEHOLD_SCOPE_EMPTY_LABEL,
+  HOUSEHOLD_SCOPE_PARAM,
   householdScopeAddChildNotice,
   householdScopePhrase,
   isChildrenSettled,
+  parseHouseholdScopeParam,
   resolveManagedHouseholdId
 } from "../../src/family/household-scope";
 import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
@@ -260,12 +265,47 @@ export default function ManageChildrenScreen() {
    * 이고, 아이가 0명인 첫 가입 계정에서는 종전대로 기본 가구다(그것이 아는 유일한 사실).
    * 역할 게이트도 같은 가구를 물어야 한다 -- 아니면 A 가구 owner가 B 가구 viewer로 잠긴다.
    */
-  const householdId = resolveManagedHouseholdId({
+  const scopedHouseholdId = resolveManagedHouseholdId({
     children: children.data?.children,
     childId: selectedChildId,
     fallbackHouseholdId,
     childrenSettled: isChildrenSettled({ authToken, isSuccess: children.isSuccess, isError: children.isError })
   });
+  /**
+   * 라운드 63 #7 — 가족 화면이 **가구를 전환한 채로** 보냈다면 그 가구에 아이를 만든다.
+   *
+   * 위 판정만으로는 **아이가 하나도 없는 가구를 영영 가리킬 수 없다**(1단계는 선택 아이의 가구,
+   * 3단계는 기본 가구). 그래서 초대를 수락해 들어간 빈 가구는 라운드 62 #4 이후 볼 수도 나갈 수도
+   * 있게 됐지만, 정작 그 가구를 만든 목적("여기에 우리 아이를 등록한다")은 여전히 불가능했다 --
+   * 아이 추가는 언제나 내 아이의 가구(또는 기본 가구)로 갔고, 화면은 그 사실을 정직하게 말하기까지
+   * 했다("… 가구에 추가돼요."). 전환은 가족 화면의 지역 상태라(app/family/index.tsx의
+   * `viewedHouseholdId`) 이 화면에서는 보이지 않으므로, 초대 화면·탈퇴 화면과 **같은 관례**로
+   * 파라미터를 받는다(라운드 61 #3 · 62 #4 — 규칙 한 벌은 src/family/household-scope.ts).
+   *
+   * 파라미터는 **아는 가구일 때만** 통과한다(collectKnownHouseholdIds 화이트리스트 — 아이의 가구 ·
+   * 서버가 말한 목록 · 기본 가구). 모르는 값은 조용히 무시하고 종전의 아이 기준 판정으로 떨어진다:
+   * **검증 실패는 차단이 아니다.** 매 렌더에서 다시 검증하므로(effect로 상태를 만들지 않는다)
+   * 아이 목록이 늦게 도착해 화이트리스트가 넓어지면 그때 통과한다.
+   *
+   * 이 값 하나가 **생성 대상·역할 게이트·대상 표기 셋 다**의 근거다(아래 `addChild`의
+   * `buildCreateChildBody(householdId!, …)`, `["household-members", householdId]`,
+   * `addHouseholdNotice`). 셋이 갈리면 A 가구 owner가 B 가구에서 편집 컨트롤을 얻거나, 라벨이 곧
+   * 거짓말이 된다. 서버는 그대로다 -- `POST /children`은 이미 본문의 householdId를 받고 그 가구의
+   * 역할을 가드로 검사한다(apps/api children.controller.ts).
+   *
+   * 1가구 계정에서는 가족 화면이 전환 자체를 못 하므로 **파라미터가 생기지 않고**, 이 화면은
+   * 종전과 한 글자도 달라지지 않는다(SET-005).
+   */
+  const params = useLocalSearchParams<{ householdId?: string | string[] }>();
+  const requestedHouseholdId = parseHouseholdScopeParam(
+    params[HOUSEHOLD_SCOPE_PARAM],
+    collectKnownHouseholdIds({
+      children: children.data?.children,
+      knownHouseholdIds,
+      fallbackHouseholdId
+    })
+  );
+  const householdId = requestedHouseholdId ?? scopedHouseholdId;
   // Role gate (same lookup convention as app/family/index.tsx): editing is owner/co_parent
   // only; while members are still loading we default to view-only rather than flashing edit
   // controls a viewer must not use.
@@ -337,8 +377,18 @@ export default function ManageChildrenScreen() {
       // Select the newly added child right away (same behavior as onboarding ONB-002).
       setSelectedChildId(created.id);
       await invalidateChildScopedQueries();
-      showToast(`${input.values.nickname.trim()}를 추가했어요.`, "success");
-      announceForA11y(`${input.values.nickname.trim()}를 추가하고 선택했어요.`);
+      /**
+       * 라운드 63 #7 — 전환해 들어온 흐름에서는 **전환이 일어났다는 사실**도 함께 말한다.
+       *
+       * 위 한 줄(`setSelectedChildId`)이 "가구 전환"을 조용히 "아이 전환"으로 승격시킨다 --
+       * 사용자가 방금 만든 아이의 홈으로 앱 전체가 옮겨 간다. 이 흐름에서는 그게 맞지만
+       * (만들자마자 그 아이를 보러 간다) 말해 주지 않으면 다른 가구를 보러 왔던 사람은 홈이
+       * 바뀐 이유를 모른다. 파라미터가 없는 계정(1가구 계정 포함)에서는 종전 문구 그대로다.
+       */
+      const addedNotice = `${input.values.nickname.trim()}를 추가했어요.`;
+      const switchNotice = requestedHouseholdId ? ` ${HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE}` : "";
+      showToast(`${addedNotice}${switchNotice}`, "success");
+      announceForA11y(`${input.values.nickname.trim()}를 추가하고 선택했어요.${switchNotice}`);
     }
   });
 
@@ -427,6 +477,13 @@ export default function ManageChildrenScreen() {
    * 라운드 60 A: **다가구 계정에서만** 붙는 한 줄("… 가구에 추가돼요."). 가구가 하나뿐이거나
    * 몇인지 모르면 null이라 폼이 종전과 한 글자도 달라지지 않고, 가구를 가리킬 사실(서버가 준
    * 이름 · 그 가구의 아이)이 없으면 역시 아무것도 적지 않는다 -- 지어내지 않는다.
+   *
+   * 라운드 63 #7: **전환해 들어온 가구에서만** 한 자리 더 내려간다. 이 흐름의 주인공은 아이가
+   * 하나도 없는 가구인데, 그 가구는 이름도 없고 가리킬 아이도 없어 위 판정이 언제나 null이다 --
+   * 즉 이 라운드가 여는 바로 그 경로에서만 "어디에 추가되는지"를 말하지 못한다. 그래서 가족
+   * 화면의 전환 목록이 같은 자리에서 이미 쓰는 **사실 표기**를 그대로 재사용한다
+   * (`HOUSEHOLD_SCOPE_EMPTY_LABEL` — 이름을 지어내는 것이 아니라 "아이가 아직 없는 가구"라는
+   * 사실이다). 파라미터가 없는 계정에서는 이 자리가 생기지 않으므로 1가구 계정은 종전 그대로다.
    */
   const addHouseholdNotice = householdScopeAddChildNotice(
     householdScopePhrase(
@@ -437,7 +494,7 @@ export default function ManageChildrenScreen() {
         knownHouseholdIds,
         fallbackHouseholdId
       })
-    )
+    ) ?? (requestedHouseholdId ? HOUSEHOLD_SCOPE_EMPTY_LABEL : null)
   );
 
   return (

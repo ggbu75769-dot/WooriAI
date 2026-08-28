@@ -126,6 +126,28 @@ describe("R19-C(F2) 아이 삭제 · 가구 탈퇴 이후 경로", () => {
       expect(finishBlock).not.toMatch(clearForChildCall);
     });
 
+    /**
+     * 라운드 63 C(#4) 배선 — **네 번째 잔재: 기록 시트의 오프라인 초안.**
+     *
+     * 세 스토어는 깨끗해졌는데 초안만 살아남으면, 존재하지 않는 아이를 위해 치던 금액이 다음
+     * 진입에서 남은 아이에게 프리필처럼 붙는다. 판정(무엇을 지우는가)은 모듈이 지고
+     * (src/expenses/draft-storage.ts의 `clearQuickExpenseDraftForChild` — 트랙 C 소유),
+     * 여기서는 **호출이 세 줄과 같은 자리에 있는지**만 잡는다.
+     */
+    it("삭제한 아이의 오프라인 초안도 같은 자리에서 지운다 (라운드 63 C 배선)", () => {
+      const childDeleteBlock = blockBetween("const childDelete = useMutation({", "const householdPreview = useMutation({");
+      expect(childDeleteBlock).toContain("await clearQuickExpenseDraftForChild(removedChildId);");
+      expect(privacySource).toContain(
+        'import { clearQuickExpenseDraftForChild } from "../../src/expenses/draft-storage";'
+      );
+      // 정리는 그 아이의 것으로 한정된다 -- 초안 전체를 지우는 함수를 부르면 다른 아이 앞에서
+      // 치던 값까지 사라진다(그 규율은 모듈 주석과 draft-storage.test.ts가 진다).
+      expect(privacySource).not.toMatch(/\n\s*await clearQuickExpenseDraft\(\)/);
+      // 가구 탈퇴 경로에는 없다 -- 세 스토어와 같은 이유(사라진 아이 집합을 모른다).
+      const householdLeaveBlock = blockBetween("const householdLeave = useMutation({", "const accountPreview = useMutation({");
+      expect(householdLeaveBlock).not.toContain("clearQuickExpenseDraftForChild(");
+    });
+
     it("PRIV-104 teardown(resetAll)과 섞지 않는다 — 아이 단위 정리는 별도 액션이다", () => {
       // 정체성 전환에만 발화하는 그 경로는 이 화면이 아니라 세션 teardown이 진다.
       expect(privacySource).not.toContain("resetAll()");

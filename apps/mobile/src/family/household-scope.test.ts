@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+// 라운드 63 #2: 아이 이름 판정은 이 라운드에서 한 줄도 바뀌지 않았다 — 그 한 벌을 그대로 통과시킨다.
+import { resolveChildScopeLabel } from "../children/child-switch";
 import { resolveExpenseHouseholdId } from "../expenses/records-list-view";
 // 라운드 61 #2: 탈퇴 뒤 세션 상태는 스토어의 **기존 API로만** 재현해 확인한다(스토어 무변경).
 import { useSessionStore } from "../stores/session.store";
@@ -8,9 +10,14 @@ import { useSessionStore } from "../stores/session.store";
 import { INVITE_HOUSEHOLD_PARAM, inviteScreenHref, parseInviteHouseholdParam } from "./invite-flow";
 import { isExpenseEntryLocked } from "./record-permissions";
 import {
+  addChildScreenHref,
   ANDROID_ALERT_BUTTON_LIMIT,
+  childScopeDeleteConfirmTitle,
+  childScopeDeleteNotice,
   collectKnownHouseholdIds,
   describeHouseholdScope,
+  HOUSEHOLD_SCOPE_ADD_CHILD_LABEL,
+  HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE,
   HOUSEHOLD_SCOPE_EMPTY_LABEL,
   HOUSEHOLD_SCOPE_LEAVE_LABEL,
   HOUSEHOLD_SCOPE_PARAM,
@@ -884,5 +891,175 @@ describe("라운드 62 #4 가구 전환을 탈퇴 화면까지 (파라미터 관
     expect(leaveScreenHref("household-2").params[HOUSEHOLD_SCOPE_PARAM]).toBe("household-2");
     expect(inviteScreenHref("co_parent", null).params[HOUSEHOLD_SCOPE_PARAM]).toBeUndefined();
     expect(leaveScreenHref(null).params[HOUSEHOLD_SCOPE_PARAM]).toBeUndefined();
+  });
+});
+
+/**
+ * 라운드 63 #2 — **아이 프로필 삭제가 어느 아이를 지우는지.**
+ *
+ * 같은 화면의 파괴적 카드 셋 중 아이 카드만 대상 표기 규율 밖에 있었다: 카드 본문은 "이 아이의 …"
+ * (그 "이 아이"가 누구인지 화면에 없다), 서버 미리보기는 이름도 건수도 없는 고정 문자열 목록,
+ * 확인 Alert은 "정말 삭제할까요?"뿐. 대상은 전역 선택 아이인데 라운드 62 #2가 알림함에도 전환
+ * 입구를 열면서 **선택 아이가 조용히 바뀌는 순간**이 늘었고, 결과는 아이 + 그 아이의 지출 전량
+ * soft delete이며 앱 안에 복구 경로가 없다.
+ */
+describe("라운드 63 #2 아이 삭제 카드의 대상 표기", () => {
+  const twoChildren = [
+    { id: "child-daon", nickname: "다온이" },
+    { id: "child-sol", nickname: "솔이" }
+  ];
+
+  it("1아이 계정에서는 두 문장 모두 null이라 카드도 Alert도 한 글자도 달라지지 않는다", () => {
+    // 판정은 라운드 48 T4의 한 벌 그대로다(2명 이상일 때만 값을 낸다) — 새 규칙을 만들지 않는다.
+    const label = resolveChildScopeLabel("child-daon", [{ id: "child-daon", nickname: "다온이" }]);
+    expect(label).toBeNull();
+    expect(childScopeDeleteNotice(label)).toBeNull();
+    expect(childScopeDeleteConfirmTitle(label)).toBeNull();
+  });
+
+  it("다자녀 계정에서는 세 단계가 같은 이름을 말한다(카드 · 확인 Alert)", () => {
+    const label = resolveChildScopeLabel("child-sol", twoChildren);
+    expect(label).toBe("솔이");
+    expect(childScopeDeleteNotice(label)).toBe("솔이 프로필을 삭제해요.");
+    expect(childScopeDeleteConfirmTitle(label)).toBe("솔이 프로필을 삭제할까요?");
+  });
+
+  it("이름을 못 풀면 아무것도 적지 않는다 — 지어내지 않는다", () => {
+    // 캐시 미도착 · 목록에 없는 childId · 빈 태명 · 아이 미선택.
+    for (const label of [
+      resolveChildScopeLabel("child-daon", undefined),
+      resolveChildScopeLabel("없는-아이", twoChildren),
+      resolveChildScopeLabel("child-x", [{ id: "child-x", nickname: "   " }, ...twoChildren]),
+      resolveChildScopeLabel(null, twoChildren)
+    ]) {
+      expect(childScopeDeleteNotice(label)).toBeNull();
+      expect(childScopeDeleteConfirmTitle(label)).toBeNull();
+    }
+    for (const value of [null, undefined, "", "   "]) {
+      expect(childScopeDeleteNotice(value)).toBeNull();
+      expect(childScopeDeleteConfirmTitle(value)).toBeNull();
+    }
+  });
+
+  it("DNC-018: 해요체를 유지하고, 가구 쪽 짝과 같은 자리에 산다", () => {
+    const label = resolveChildScopeLabel("child-daon", twoChildren);
+    expect(childScopeDeleteNotice(label)).toMatch(/요\.$/);
+    expect(childScopeDeleteConfirmTitle(label)).toMatch(/요\?$/);
+    // 한 화면의 파괴적 카드 셋이 같은 규율로 대상을 말한다(규칙을 두 벌로 만들지 않는다).
+    expect(householdScopeLeaveNotice("다온이의 가구")).toMatch(/요\.$/);
+  });
+
+  it("화면 배선: 카드·확인 Alert이 같은 라벨을 읽고, 서버는 건드리지 않는다 (소스 계약)", () => {
+    const screenSource = source("app/settings/privacy.tsx");
+    expect(screenSource).toContain(
+      'import { resolveChildScopeLabel } from "../../src/children/child-switch";'
+    );
+    expect(screenSource).toContain(
+      "const childDeleteLabel = resolveChildScopeLabel(childId, childrenQuery.data?.children);"
+    );
+    expect(screenSource).toContain("const childDeleteNotice = childScopeDeleteNotice(childDeleteLabel);");
+    expect(screenSource).toContain(
+      "{childDeleteNotice ? <Text style={mutedTextStyle}>{childDeleteNotice}</Text> : null}"
+    );
+    // 마지막 확인도 같은 라벨을 싣고, 모르면 **종전 제목 그대로**다(차단도 자리 채움도 아니다).
+    expect(screenSource).toContain(
+      'Alert.alert(childScopeDeleteConfirmTitle(childDeleteLabel) ?? "정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", ['
+    );
+    // 삭제 대상은 여전히 전역 선택 아이 하나이고, 서버 호출은 한 글자도 바뀌지 않았다.
+    expect(screenSource).toContain("previewChildProfileDeletion(authToken!, childId!)");
+    expect(screenSource).toContain(
+      'confirmChildProfileDeletion(authToken!, childId!, childPreview.data?.confirmationText ?? "")'
+    );
+    // 새 요청을 만들지 않는다 — 이름은 이 화면이 이미 물고 있는 ["children"] 캐시에서 온다.
+    expect(screenSource.match(/queryKey: \["children"\]/g) ?? []).toHaveLength(1);
+    // 계정 삭제 카드의 종전 제목은 그대로 남는다(이름이 붙는 카드는 아이 쪽 하나뿐이다).
+    expect(screenSource).toContain('Alert.alert("정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", [');
+  });
+});
+
+/**
+ * 라운드 63 #7 — **아이 추가가 전환한 가구로 전달된다.**
+ *
+ * 라운드 62 #4가 연 문의 나머지 절반이다. 그 뒤로 빈 가구는 볼 수도 나갈 수도 있게 됐지만, 정작
+ * 그 가구를 만든 목적("여기에 우리 아이를 등록한다")은 불가능했다 — 아이 추가의 대상 가구는
+ * `resolveManagedHouseholdId`가 정하고, 그 판정은 아이가 없는 가구를 구조적으로 가리킬 수 없다.
+ */
+describe("라운드 63 #7 아이 추가를 전환한 가구로 (파라미터 관례)", () => {
+  it("목적지는 탈퇴·초대와 **같은 관례**다 — 전환 중일 때만 싣는다", () => {
+    expect(addChildScreenHref("household-2")).toEqual({
+      pathname: "/settings/children",
+      params: { householdId: "household-2" }
+    });
+    // 전환하지 않았으면 파라미터 자체가 생기지 않는다 -- 1가구 계정의 아이 관리 화면은 종전
+    // 그대로다(SET-005).
+    for (const value of [undefined, null, "", "   "]) {
+      expect(addChildScreenHref(value)).toEqual({ pathname: "/settings/children", params: {} });
+    }
+    // 세 목적지가 같은 파라미터 한 벌을 쓴다(규칙을 두 벌로 만들지 않는다).
+    expect(addChildScreenHref("household-2").params[HOUSEHOLD_SCOPE_PARAM]).toBe("household-2");
+    expect(leaveScreenHref("household-2").params[HOUSEHOLD_SCOPE_PARAM]).toBe("household-2");
+    expect(inviteScreenHref("co_parent", "household-2").params[HOUSEHOLD_SCOPE_PARAM]).toBe("household-2");
+  });
+
+  it("라벨은 전환·탈퇴 입구와 같은 형태의 짧은 동작 이름이고, 안내는 해요체다", () => {
+    expect(HOUSEHOLD_SCOPE_ADD_CHILD_LABEL).toMatch(/기$/);
+    expect(HOUSEHOLD_SCOPE_LEAVE_LABEL).toMatch(/기$/);
+    // "이 가구"라고 쓴다 -- 어느 가구인지는 householdScopeManageNotice 한 줄이 이미 말한다.
+    expect(HOUSEHOLD_SCOPE_ADD_CHILD_LABEL).toContain("이 가구");
+    expect(HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE).toMatch(/요\.$/);
+  });
+
+  it("가족 화면은 전환 중일 때만 진입점을 그리고, 여기서 아이를 만들지 않는다 (소스 계약)", () => {
+    const screenSource = source("app/family/index.tsx");
+    expect(screenSource).toContain("accessibilityLabel={HOUSEHOLD_SCOPE_ADD_CHILD_LABEL}");
+    expect(screenSource).toContain("onPress={() => router.push(addChildScreenHref(switchedHouseholdId))}");
+    // 탈퇴 진입점과 **같은 게이트**다(전환 중일 때만) -- 1가구 계정과 비로그인 미리보기
+    // (FAM-001 픽셀락)에서는 두 노드 모두 그려지지 않는다.
+    expect(screenSource.match(/\{switchedHouseholdId \? \(/g) ?? []).toHaveLength(2);
+    expect(screenSource).toContain(
+      "const switchedHouseholdId = householdId && householdId !== scopedHouseholdId ? householdId : null;"
+    );
+    // 생성은 목적지 화면 한 곳에서만 일어난다(초대가 라운드 52 C-04에서 세운 그 규율 그대로).
+    expect(screenSource).not.toContain("createChild");
+  });
+
+  it("아이 관리 화면은 같은 화이트리스트로 받고, 그 하나의 값이 생성·역할·표기의 근거다 (소스 계약)", () => {
+    const screenSource = source("app/settings/children.tsx");
+    expect(screenSource).toContain("const requestedHouseholdId = parseHouseholdScopeParam(");
+    expect(screenSource).toContain("collectKnownHouseholdIds({");
+    expect(screenSource).toContain("const householdId = requestedHouseholdId ?? scopedHouseholdId;");
+    expect(screenSource).toContain("const scopedHouseholdId = resolveManagedHouseholdId({");
+    // 셋이 갈리면 A 가구 owner가 B 가구에서 편집 컨트롤을 얻거나 라벨이 곧 거짓말이 된다.
+    expect(screenSource).toContain("buildCreateChildBody(householdId!, input.stageMode, input.values)");
+    expect(screenSource).toContain('queryKey: ["household-members", householdId]');
+    expect(screenSource).toContain("const addHouseholdNotice = householdScopeAddChildNotice(");
+    // 이 흐름의 주인공(아이가 없는 가구)은 이름도 가리킬 아이도 없어 표기 판정이 언제나 null이다 --
+    // 전환해 들어왔을 때만 전환 목록과 **같은 사실 표기**로 내려간다(지어낸 이름이 아니다).
+    expect(screenSource).toContain(") ?? (requestedHouseholdId ? HOUSEHOLD_SCOPE_EMPTY_LABEL : null)");
+    expect(householdScopeAddChildNotice(HOUSEHOLD_SCOPE_EMPTY_LABEL)).toBe("아이가 아직 없는 가구에 추가돼요.");
+    // 검증 실패는 차단이 아니라 종전 판정이다 -- 제출 가드는 요청 가구를 보지 않는다.
+    expect(screenSource).toContain(
+      "if (!isChildFormValid(errors) || addChild.isPending || !householdId || isDemoSession) return;"
+    );
+    expect(screenSource).not.toContain("!requestedHouseholdId");
+    // 추가 성공은 그 아이를 곧바로 선택하므로(가구 전환 → 아이 전환), 전환해 들어온 흐름에서는
+    // 그 사실을 함께 말한다. 파라미터가 없는 계정에서는 종전 문구 그대로다.
+    expect(screenSource).toContain("setSelectedChildId(created.id);");
+    expect(screenSource).toContain(
+      'const switchNotice = requestedHouseholdId ? ` ${HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE}` : "";'
+    );
+  });
+
+  it("서버는 무변경이다 — POST /children이 이미 본문의 householdId와 그 가구의 역할을 본다", () => {
+    const controllerSource = readFileSync(
+      join(mobileRoot, "../../apps/api/src/onboarding/children.controller.ts"),
+      "utf8"
+    );
+    expect(controllerSource).toContain('@RequireHouseholdRoles("owner", "co_parent")');
+    expect(controllerSource).toContain("createChild(request.user!, body)");
+    // 클라이언트가 싣는 그 필드를 서버 DTO가 받는다(계약 미러가 아니라 실제 서버 파일).
+    expect(readFileSync(join(mobileRoot, "../../apps/api/src/onboarding/dto/child.dto.ts"), "utf8")).toContain(
+      "householdId"
+    );
   });
 });

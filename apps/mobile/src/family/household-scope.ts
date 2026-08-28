@@ -409,6 +409,47 @@ export function householdScopeLeaveNotice(phrase: string | null): string | null 
   return phrase ? `${phrase}에서 나가요.` : null;
 }
 
+/* --------------------------------------- 파괴적 카드의 대상 표기 · 아이 쪽 짝 (라운드 63 #2) */
+
+/**
+ * 라운드 63 #2 — **아이 프로필 삭제가 어느 아이를 지우는지.**
+ *
+ * 왜 이 두 함수가 가구 모듈에 있나: 약관 및 개인정보 화면(app/settings/privacy.tsx)에는 되돌릴
+ * 수 없는 카드가 셋 서 있고(아이 삭제 · 가구 탈퇴 · 계정 삭제), 그중 둘의 대상 표기는 이미 바로
+ * 위 `householdScopeLeaveNotice`가 지고 있다. 세 번째 카드만 문구를 화면 안에 두면 같은 화면의
+ * 같은 규율("되돌릴 수 없는 동작은 대상을 말한다")이 두 자리로 갈린다 — 이 모듈의 첫 번째 계약이
+ * **규칙을 두 벌로 만들지 않는 것**이므로 짝을 여기에 둔다.
+ *
+ * 라벨 판정은 만들지 않는다: 아이 이름은 `resolveChildScopeLabel`
+ * (src/children/child-switch.ts) 한 벌이 이미 정하고, 호출부가 그 결과를 넘긴다. 그 판정은
+ * **아이가 2명 이상일 때만** 값을 내므로(그 모듈의 라운드 48 T4 규율) 1아이 계정에서는 여기서도
+ * null이고, 카드가 종전과 한 글자도 달라지지 않는다.
+ *
+ * ⚠️ 1아이 계정에도 이름을 적는 편이 더 정직하다는 판단이 있다(지우는 대상을 말하는 데
+ * 아이 수는 사실 상관이 없다). 그럼에도 이번 라운드가 다자녀 게이트를 고른 근거는 둘이다:
+ *  1. 라운드 63 트랙 계약이 **1아이 계정 결과 불변**(SET-003 · SET-004)을 명시했고,
+ *  2. 바로 위 가구 쪽 짝이 같은 문턱("2 이상일 때만")으로 서 있어, 한 화면의 두 카드가 서로
+ *     다른 규율로 대상을 말하기 시작하면 다음 라운드가 둘 중 하나를 되돌린다.
+ * 문턱을 낮추는 판단은 두 카드를 **함께** 옮기는 별도 판단이다(정찰 노트의 설계 긴장 그대로).
+ */
+export function childScopeDeleteNotice(childLabel: string | null | undefined): string | null {
+  const label = childLabel?.trim();
+  return label ? `${label} 프로필을 삭제해요.` : null;
+}
+
+/**
+ * 삭제 확인 Alert의 제목, 또는 이름을 모르면 `null`(호출부는 **종전 제목 그대로**).
+ *
+ * 가족 화면의 구성원 삭제가 이미 같은 형태다(`${memberDisplayName}님을 삭제할까요?` —
+ * app/family/index.tsx). 마지막 확인은 되돌릴 수 없는 동작 직전의 한 문장이라, 카드에만 이름을
+ * 적고 여기서 "정말 삭제할까요?"로 되돌아가면 화면을 떠난 뒤 마지막으로 읽는 문장이 다시 대상을
+ * 말하지 않는다 — 라운드 62 #2가 늘려 놓은 "선택 아이가 조용히 바뀌는 순간"이 정확히 그 사이에 있다.
+ */
+export function childScopeDeleteConfirmTitle(childLabel: string | null | undefined): string | null {
+  const label = childLabel?.trim();
+  return label ? `${label} 프로필을 삭제할까요?` : null;
+}
+
 /* ------------------------------------------- 화면 → 화면으로 가구를 넘기는 한 벌 (라운드 62 #4) */
 
 /**
@@ -475,6 +516,55 @@ export function leaveScreenHref(householdId?: string | null): {
   const scopedHouseholdId = householdId?.trim();
   return {
     pathname: "/settings/privacy",
+    params: scopedHouseholdId ? { [HOUSEHOLD_SCOPE_PARAM]: scopedHouseholdId } : {}
+  };
+}
+
+/**
+ * 라운드 63 #7 — 가족 화면의 **"이 가구에 아이 추가하기"** 진입점 라벨.
+ *
+ * 라운드 62 #4가 연 문의 나머지 절반이다. 그 라운드 뒤로 아이가 하나도 없는 가구는 볼 수도,
+ * **나갈 수도** 있게 됐지만, 정작 그 가구를 만든 목적("여기에 우리 아이를 등록한다")은 여전히
+ * 불가능했다 — 아이 추가의 대상 가구는 `resolveManagedHouseholdId`가 정하고, 그 판정은 아이가
+ * 없는 가구를 구조적으로 가리킬 수 없다(1단계는 선택 아이의 가구, 3단계는 기본 가구). 배우자가
+ * 만든 빈 가구의 초대를 수락한 사람에게 남는 결론은 "이 앱은 가구를 보여 주고 나가게 해 주지만
+ * 쓸 수는 없게 한다"였다.
+ *
+ * 서버는 이미 이 절반을 지지한다: `POST /children`은 본문의 `householdId`를 받고
+ * (apps/api children.controller.ts), 그 가구의 owner/co_parent인지 가드가 검사한다 — 즉 모자란
+ * 것은 클라이언트가 **어느 가구인지 말하지 않는 것**뿐이었다. 서버는 한 줄도 바뀌지 않는다.
+ *
+ * "이 가구"라고 쓰는 이유는 탈퇴 라벨과 같다: 어느 가구인지는 `householdScopeManageNotice`
+ * 한 줄이 이미 말하고 있고(전환 중일 때만 그려지는 진입점이라 그 문장도 반드시 함께 서 있다),
+ * 여기서 이름을 한 번 더 지어내면 가리키는 사실이 두 벌이 된다.
+ */
+export const HOUSEHOLD_SCOPE_ADD_CHILD_LABEL = "이 가구에 아이 추가하기";
+
+/**
+ * 라운드 63 #7 — 전환한 가구에 아이를 만든 **직후**에 함께 뜨는 한 줄.
+ *
+ * 아이 관리 화면은 추가에 성공하면 그 아이를 곧바로 선택한다(온보딩 ONB-002와 같은 동작).
+ * 이 흐름에서는 그게 맞지만 — 만들자마자 그 아이를 보러 간다 — 그 한 줄이 "가구 전환"을 조용히
+ * **"아이 전환"으로 승격**시키는 셈이라, 사용자가 방금 만든 아이의 홈으로 앱 전체가 옮겨 간다.
+ * 전환해 들어온 흐름에서만 이 문장을 덧붙여 그 사실을 말한다(파라미터가 없는 계정 — 1가구
+ * 계정을 포함해 — 에서는 토스트가 종전과 한 글자도 달라지지 않는다: SET-005).
+ */
+export const HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE = "지금부터 이 아이 화면으로 바뀌어요.";
+
+/**
+ * 아이 관리 화면으로 가는 목적지. 탈퇴·초대 화면으로 갈 때와 **한 글자도 다르지 않은 관례**다
+ * (`leaveScreenHref` · `inviteScreenHref`): 전환 중일 때만 가구를 싣고, 전환하지 않았다면 아무것도
+ * 싣지 않는다 — 두 화면이 같은 입력으로 같은 판정을 내리므로 파라미터가 없는 편이 정확하고,
+ * 그래야 1가구 계정에서는 **파라미터 자체가 생기지 않아** 아이 관리 화면이 종전과 한 글자도
+ * 달라지지 않는다(SET-005).
+ */
+export function addChildScreenHref(householdId?: string | null): {
+  pathname: "/settings/children";
+  params: Record<string, string>;
+} {
+  const scopedHouseholdId = householdId?.trim();
+  return {
+    pathname: "/settings/children",
     params: scopedHouseholdId ? { [HOUSEHOLD_SCOPE_PARAM]: scopedHouseholdId } : {}
   };
 }

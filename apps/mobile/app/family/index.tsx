@@ -14,8 +14,10 @@ import {
   removeHouseholdMember
 } from "../../src/api/client";
 import {
+  addChildScreenHref,
   collectKnownHouseholdIds,
   describeHouseholdScope,
+  HOUSEHOLD_SCOPE_ADD_CHILD_LABEL,
   HOUSEHOLD_SCOPE_LEAVE_LABEL,
   HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL,
   HOUSEHOLD_SCOPE_SWITCH_LABEL,
@@ -454,6 +456,26 @@ export default function FamilyScreen() {
           </Pressable>
         ) : null}
 
+        {/* 라운드 63 #7: 같은 게이트(전환 중일 때만)로 서는 **아이 추가 진입점**. 라운드 62 #4가
+            연 문의 나머지 절반이다 -- 그때까지 빈 가구는 볼 수도 나갈 수도 있었지만 정작 그 가구를
+            만든 목적("여기에 우리 아이를 등록한다")은 불가능했다(아이 추가의 대상 가구 판정이
+            아이가 없는 가구를 구조적으로 가리킬 수 없다). 여기서 아이를 만들지 않는다 -- 누르면
+            종전의 아이 관리 화면으로 가고, 이 화면이 하는 일은 그 화면이 스스로는 가리킬 수 없는
+            가구를 파라미터로 알려 주는 것뿐이다(탈퇴 진입점과 한 글자도 다르지 않은 관례).
+            역할 게이트는 목적지가 그 가구 기준으로 다시 묻는다(그 화면의 ["household-members",
+            householdId]) -- 보기 전용 멤버에게는 거기서 종전 안내가 그대로 선다. */}
+        {switchedHouseholdId ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={HOUSEHOLD_SCOPE_ADD_CHILD_LABEL}
+            accessibilityHint={householdNotice ?? undefined}
+            hitSlop={8}
+            onPress={() => router.push(addChildScreenHref(switchedHouseholdId))}
+          >
+            <Text style={familyHouseholdAddChildStyle}>{HOUSEHOLD_SCOPE_ADD_CHILD_LABEL}</Text>
+          </Pressable>
+        ) : null}
+
         {/* 라운드 62 #4: **전환 중일 때만** 나타나는 탈퇴 진입점. 여기서 나가지 않는다 --
             누르면 종전의 탈퇴 화면으로 가고(미리보기 → 두 번 확인), 이 화면이 하는 일은 그
             화면이 스스로는 가리킬 수 없는 가구를 파라미터로 알려 주는 것뿐이다. 전환하지 않은
@@ -661,6 +683,15 @@ const familyScopeNoticeStyle = {
 // 라운드 60 리뷰(P1-3): 전환 입구의 문자 링크. 새 토큰을 만들지 않고 이 화면이 이미 쓰는
 // 강조 보조 텍스트(A11Y-117 대비 규칙에 맞는 coral[700] 12/18)를 그대로 쓴다.
 const familyHouseholdSwitchStyle = {
+  color: theme.colors.coral[700],
+  fontSize: 12,
+  fontWeight: "700",
+  lineHeight: 18
+} as const;
+
+// 라운드 63 #7: 아이 추가 진입점의 문자 링크. 전환 입구와 **같은 레시피**(coral[700] 12/18 · 700)다 --
+// 되돌릴 수 있는 이동이라 아래 탈퇴 링크(danger)와 같은 무게로 읽히면 안 된다. 새 토큰은 만들지 않는다.
+const familyHouseholdAddChildStyle = {
   color: theme.colors.coral[700],
   fontSize: 12,
   fontWeight: "700",
