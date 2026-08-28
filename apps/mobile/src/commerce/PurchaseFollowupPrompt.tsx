@@ -110,6 +110,8 @@ export function PurchaseFollowupLifecycle() {
     })
   );
   const snoozeFollowup = usePurchaseFollowupStore((state) => state.snoozeFollowup);
+  // 라운드 60 리뷰(P2-10): "샀어요" 이탈 재질문도 답변 예산을 쓴다(스토어의 순수 규칙 재사용).
+  const intendPurchaseFollowup = usePurchaseFollowupStore((state) => state.intendPurchaseFollowup);
   const dismissFollowup = usePurchaseFollowupStore((state) => state.dismissFollowup);
   const [activeFollowup, setActiveFollowup] = useState<PurchaseFollowupEntry | null>(null);
   /**
@@ -172,8 +174,22 @@ export function PurchaseFollowupLifecycle() {
   // 새 카드가 뜨는 일은 없지만, **이미 떠 있던 카드**가 잠금을 만나는 경로가 남는다(설정의
   // "지금 잠그기", 60초를 넘긴 백그라운드 복귀). 그때 이 낭독이 나가면 잠긴 화면 위로 품목명
   // 원문이 새는 것은 마찬가지다.
+  //
+  // 라운드 60 리뷰(P2-1): 억제 범위는 **잠금 전이 하나**다. 종전에는 키가 한 번 기억되면
+  // 앱 세션 내내 남아서, 아이 전환으로 카드가 내려갔다가 그 아이로 돌아와 **다시 선** 카드도
+  // 낭독되지 않았다(라운드 39 I-3이 슬롯을 돌려주며 되살린 그 재표출이다). 화면에 새로 뜬
+  // 물음을 스크린리더 사용자만 듣지 못하는 상태라, 억제가 잡으려던 것(잠금이 걸렸다 풀리는
+  // 것만으로 같은 카드가 두 번 읽히는 일)보다 넓게 잡고 있었다.
+  //
+  // 그래서 **카드가 내려갈 때 기억을 지운다**: 내려간 카드가 다시 서면 그것은 새 물음이다.
+  // 잠금 보류(appLockHeld)는 카드를 내리지 않으므로(첫 effect가 판정 자체를 건너뛴다) 기억이
+  // 그대로 남고, 풀린 뒤 같은 카드는 여전히 다시 읽히지 않는다.
   useEffect(() => {
-    if (!activeFollowup || appLockHeld) return;
+    if (!activeFollowup) {
+      announcedKeyRef.current = null;
+      return;
+    }
+    if (appLockHeld) return;
     const key = followupSessionKey(activeFollowup);
     if (announcedKeyRef.current === key) return;
     announcedKeyRef.current = key;
@@ -286,7 +302,14 @@ export function PurchaseFollowupLifecycle() {
              * **답의 기록**이고, 사용자는 실제로 "샀어요"라고 답했다. 그 답과 뒤따르는
              * expense_recorded 사이의 간격이 곧 이탈률이라, 여기서 이벤트를 빼면 그 간격을
              * 잴 수 없다(ANA-127이 세우려던 바로 그 전환율이다).
+             *
+             * 라운드 60 리뷰(P2-10): 다만 **재질문에는 상한이 있어야 한다.** 이탈하면 항목이
+             * pending으로 남는데, 그 재표출이 아무 예산도 쓰지 않으면 24시간 창이 닫힐 때까지
+             * 같은 물음이 앱을 열 때마다 되풀이된다. 그래서 답을 준 이 자리에서 답변 예산
+             * (PURCHASE_FOLLOWUP_MAX_PROMPTS) 한 칸을 쓴다 -- "아직이요"와 같은 축이다.
+             * 저장이 실제로 확정되면 그 자리에서 done으로 덮이므로 이 소진은 이탈에만 남는다.
              */
+            intendPurchaseFollowup(itemTemplateId);
             closeCard();
             // 라운드 48 T4(D1): 어디에서 왔는지를 함께 넘긴다. 저장 후 목적지는 그 값으로
             // 정해지는데(src/expenses/post-save-destination.ts), 이 경로는 **종전 그대로 기록

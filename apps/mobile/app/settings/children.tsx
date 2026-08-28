@@ -34,6 +34,7 @@ import {
   describeHouseholdScope,
   householdScopeAddChildNotice,
   householdScopePhrase,
+  isChildrenSettled,
   resolveManagedHouseholdId
 } from "../../src/family/household-scope";
 import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
@@ -262,7 +263,7 @@ export default function ManageChildrenScreen() {
     children: children.data?.children,
     childId: selectedChildId,
     fallbackHouseholdId,
-    childrenSettled: children.isSuccess || children.isError
+    childrenSettled: isChildrenSettled({ authToken, isSuccess: children.isSuccess, isError: children.isError })
   });
   // Role gate (same lookup convention as app/family/index.tsx): editing is owner/co_parent
   // only; while members are still loading we default to view-only rather than flashing edit

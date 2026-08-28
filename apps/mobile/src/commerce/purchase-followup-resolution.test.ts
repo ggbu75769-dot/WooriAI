@@ -252,8 +252,9 @@ describe("라운드 60 트랙 B 배선 계약", () => {
     const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
     // 판정 자체를 하지 않는다 -- 세션 표출 예산(takeSlot)이 사용자가 못 본 물음으로 소진되지 않는다.
     expect(promptSource).toContain("if (appLockHeld) return;");
-    // 낭독 보류(A11Y-115의 문장은 그대로다).
-    expect(promptSource).toContain("if (!activeFollowup || appLockHeld) return;");
+    // 낭독 보류(A11Y-115의 문장은 그대로다). 잠금 보류는 **기억을 지우지 않고** 건너뛴다 --
+    // 풀린 뒤 같은 카드가 두 번 읽히지 않게 하는 것이 이 억제의 목적이다.
+    expect(promptSource).toContain("if (appLockHeld) return;\n    const key = followupSessionKey(activeFollowup);");
     expect(promptSource).toContain("announceForA11y(`『${activeFollowup.itemName}』 구매하셨나요?`)");
     // 렌더도 물러난다.
     expect(promptSource).toContain("if (appLockHeld) return null;");
@@ -262,5 +263,39 @@ describe("라운드 60 트랙 B 배선 계약", () => {
     expect(promptSource).toContain("}, [activeFollowup, appLockHeld]);");
     // 같은 카드를 두 번 읽지 않는다(잠금이 걸렸다 풀리는 것만으로 새 물음처럼 들리지 않게).
     expect(promptSource).toContain("announcedKeyRef");
+  });
+
+  /**
+   * 라운드 60 리뷰(P2-1) — 낭독 억제의 **범위**는 잠금 전이 하나다.
+   *
+   * 종전에는 키가 한 번 기억되면 앱 세션 내내 남아서, 아이 전환으로 내려갔다가 그 아이로
+   * 돌아와 **다시 선** 카드도 낭독되지 않았다(라운드 39 I-3이 세션 슬롯을 돌려주며 되살린
+   * 바로 그 재표출이다). 화면에 새로 뜬 물음을 스크린리더 사용자만 듣지 못하는 상태였다.
+   */
+  it("카드가 내려가면 낭독 기억을 지운다 — 아이 전환 재표출은 다시 읽힌다", () => {
+    const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
+    // 카드가 내려간 순간(= 다음에 다시 서면 새 물음이다) 기억을 비운다.
+    expect(promptSource).toContain("if (!activeFollowup) {\n      announcedKeyRef.current = null;\n      return;\n    }");
+    // 잠금 보류는 그 아래에서 **기억을 남긴 채** 건너뛴다(순서가 규칙이다).
+    expect(promptSource.indexOf("announcedKeyRef.current = null;")).toBeLessThan(
+      promptSource.indexOf("if (appLockHeld) return;\n    const key = followupSessionKey(activeFollowup);")
+    );
+    // 종전의 넓은 억제(카드가 내려가도 기억이 남던 형태)로 되돌아가지 않는다.
+    expect(promptSource).not.toContain("if (!activeFollowup || appLockHeld) return;");
+  });
+
+  /**
+   * 라운드 60 리뷰(P2-10) — "샀어요" 이탈 재질문에도 상한이 있다.
+   *
+   * 트랙 B가 done 확정을 저장 자리로 옮기면서 이탈한 항목은 pending으로 남는다. 그 재표출이
+   * 아무 예산도 쓰지 않으면 24시간 창이 닫힐 때까지 되풀이된다 — 라운드 40 J-8과 같은 모양의
+   * 구멍이 항목 축에 생긴 것이다.
+   */
+  it("'샀어요'는 답변 예산을 한 칸 쓴다 (확정은 여전히 저장 자리에서만)", () => {
+    const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
+    expect(promptSource).toContain("intendPurchaseFollowup(itemTemplateId);");
+    // done 확정을 이 자리로 되돌리지 않는다(트랙 B의 계약).
+    expect(promptSource).not.toContain("closeWith(completeFollowup)");
+    expect(promptSource).not.toContain("state.completeFollowup");
   });
 });

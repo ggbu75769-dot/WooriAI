@@ -43,6 +43,27 @@ export type HouseholdScopeChildRef = ChildHouseholdRef & {
  *     가입 계정 · 목록에 없는 아이) 계정의 기본 가구. 그때는 그것이 우리가 아는 **유일한
  *     사실**이고, 종전 동작이기도 하다.
  */
+/**
+ * 라운드 60 리뷰(P2-4) — `childrenSettled`를 **한 벌로** 만든다.
+ *
+ * 여섯 화면이 같은 뜻을 각자 적고 있었다(`!authToken || q.isSuccess || q.isError`가 넷,
+ * `q.isSuccess || q.isError`가 둘). 같은 규칙이 여섯 벌이면 한 곳만 고쳐지는 날이 오고, 그
+ * 날의 증상은 "어떤 화면에서만 잠깐 다른 가구가 보인다"이다 -- 이 모듈이 존재하는 이유와
+ * 정확히 같은 문제다.
+ *
+ * 규칙: **토큰이 없으면 기다릴 조회가 없다**(쿼리 자체가 `enabled: Boolean(authToken)`이라
+ * 영원히 pending으로 남는다 — 그 상태를 "아직 모른다"로 읽으면 비로그인 화면이 스켈레톤에
+ * 갇힌다). 토큰이 있으면 성공·실패 어느 쪽이든 끝난 것이다.
+ */
+export function isChildrenSettled(input: {
+  authToken?: string | null;
+  isSuccess?: boolean;
+  isError?: boolean;
+}): boolean {
+  if (!input.authToken) return true;
+  return Boolean(input.isSuccess || input.isError);
+}
+
 export function resolveManagedHouseholdId(input: {
   /** `["children"]` 캐시의 목록. 로딩 중이거나 실패했으면 undefined/null. */
   children: readonly HouseholdScopeChildRef[] | null | undefined;
@@ -190,9 +211,18 @@ export function describeHouseholdScope(input: {
   ) {
     return null;
   }
-  const name = resolveHouseholdName({ householdId, children: input.children, members: input.members });
+  return descriptorForHousehold(householdId, input.children, input.members);
+}
+
+/** 다가구 판정을 이미 통과한 뒤의 표기 판정 한 벌(이름 → 그 가구의 아이 → 가리킬 사실 없음). */
+function descriptorForHousehold(
+  householdId: string,
+  children: readonly HouseholdScopeChildRef[] | null | undefined,
+  members?: readonly unknown[] | null
+): HouseholdScopeDescriptor | null {
+  const name = resolveHouseholdName({ householdId, children, members });
   if (name) return { kind: "name", text: name };
-  const childrenLabel = resolveHouseholdChildrenLabel({ householdId, children: input.children });
+  const childrenLabel = resolveHouseholdChildrenLabel({ householdId, children });
   if (childrenLabel) return { kind: "children", text: childrenLabel };
   // 이름도 모르고 그 가구의 아이도 모른다 -- 가리킬 수 있는 사실이 없으므로 아무것도 적지 않는다.
   return null;
@@ -210,6 +240,64 @@ export function householdScopePhrase(descriptor: HouseholdScopeDescriptor | null
   const text = descriptor.text.trim();
   if (!text) return null;
   return descriptor.kind === "name" ? `‘${text}’ 가구` : `${text}의 가구`;
+}
+
+/**
+ * 라운드 60 리뷰(P1-3) — 가족 화면의 **가구 전환 입구**.
+ *
+ * 무엇이 없었나: 관리 대상 가구는 "보고 있는 아이의 가구"로 정해지는데(resolveManagedHouseholdId),
+ * 그 규칙은 **아이가 하나도 없는 가구를 영영 가리킬 수 없다**. 초대를 수락해 기본 가구가 바뀌던
+ * 종전 동작에서는 그것이 곧 원래 가구의 소실이었고, 수락 화면이 기본 가구를 더 이상 덮어쓰지
+ * 않게 된 뒤에도(app/family/accept/[token].tsx) "아이가 아직 없는 새 가구"에는 도달할 길이
+ * 없었다 -- 그 가구의 구성원 관리·초대·대기 초대 취소가 전부 화면 밖이다.
+ *
+ * 그래서 아는 가구 전부를 후보로 세운다. 후보 목록은 `collectKnownHouseholdIds`가 이미 모으는
+ * 그 사실들이고(아이의 가구 · 서버가 말한 목록 · 기본 가구), **아이가 없는 가구도 목록에
+ * 들어온다**(서버가 말한 목록이 그것을 안다).
+ *
+ * 표기는 이 모듈의 규율 그대로다: 이름을 알면 이름, 모르면 그 가구의 아이들, 둘 다 없으면
+ * **이름 대신 사실**(`HOUSEHOLD_SCOPE_EMPTY_LABEL`)을 적는다 -- 아이가 없는 가구에 "○○의 가구"
+ * 같은 이름을 지어내지 않는다.
+ *
+ * 1가구(또는 몇인지 모르는) 계정에서는 빈 배열이다 -- 호출부가 아무것도 그리지 않으므로 화면이
+ * 종전과 한 노드도 달라지지 않는다(FAM-001 픽셀락 포함).
+ */
+export type HouseholdSwitchOption = {
+  householdId: string;
+  /** 화면에 그대로 적는 문자열. 지어낸 이름이 아니라 아는 사실이다. */
+  label: string;
+  /** 지금 이 화면이 관리하고 있는 가구인가. */
+  isCurrent: boolean;
+};
+
+/** 이름도 모르고 아이도 없는 가구를 가리키는 **사실** 표기. */
+export const HOUSEHOLD_SCOPE_EMPTY_LABEL = "아이가 아직 없는 가구";
+
+/** 가족 화면의 전환 입구 라벨. */
+export const HOUSEHOLD_SCOPE_SWITCH_LABEL = "다른 가구 보기";
+
+export function listHouseholdSwitchOptions(input: {
+  currentHouseholdId: string | null | undefined;
+  children: readonly HouseholdScopeChildRef[] | null | undefined;
+  members?: readonly unknown[] | null;
+  knownHouseholdIds?: readonly string[] | null;
+  fallbackHouseholdId?: string | null;
+}): HouseholdSwitchOption[] {
+  const ids = collectKnownHouseholdIds({
+    children: input.children,
+    knownHouseholdIds: input.knownHouseholdIds,
+    fallbackHouseholdId: input.fallbackHouseholdId
+  });
+  // "2개 이상일 때만" -- 표기 규율과 같은 문턱이다(1가구 계정 불변).
+  if (ids.length < 2) return [];
+  const currentHouseholdId = input.currentHouseholdId?.trim() ?? null;
+  return ids.map((householdId) => ({
+    householdId,
+    label:
+      householdScopePhrase(descriptorForHousehold(householdId, input.children, input.members)) ??
+      HOUSEHOLD_SCOPE_EMPTY_LABEL,
+    isCurrent: householdId === currentHouseholdId
+  }));
 }
 
 /** 아이 추가 폼(app/settings/children.tsx): 이 아이가 **어느 가구에** 생기는지. */

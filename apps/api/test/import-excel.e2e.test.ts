@@ -555,6 +555,84 @@ describe("Excel import beta API", () => {
       });
   });
 
+  /**
+   * 라운드 60 리뷰(P2-3) — 아이당 검수 중인 잡은 하나까지.
+   *
+   * `preview_ready` 잡을 끝내는 경로가 없어서, 같은 아이에게 가져오기를 여러 번 시도하고
+   * 검수를 마치지 않으면 승인한 적 없는 금융 내역 사본(import_rows)이 그 횟수만큼 쌓였다 —
+   * 파기 잡의 phase 9는 `preview_ready`를 일부러 건드리지 않기 때문이다. 새 미리보기를 만드는
+   * 순간 같은 아이의 이전 미리보기는 끝난 것으로 본다(`cancelled`).
+   */
+  it("라운드 60 리뷰(P2-3): 새 가져오기가 같은 아이의 이전 미확정 미리보기를 취소한다 (상한 1)", async () => {
+    const accessToken = await login(app, "import-preview-cap");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = app.get(PrismaService);
+    const csv = "날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n";
+
+    const upload = async () =>
+      (
+        await request(app.getHttpServer())
+          .post(`/api/v1/children/${childId}/imports/excel`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .field("fileName", "wooriai-import.csv")
+          .attach("file", Buffer.from(csv, "utf8"), "wooriai-import.csv")
+          .expect(200)
+      ).body as ImportJob;
+
+    const first = await upload();
+    const second = await upload();
+    const third = await upload();
+
+    // 검수 중인 잡은 언제나 **가장 최근 하나**다.
+    const previewReady = await prisma.importJob.findMany({
+      where: { childId, status: "preview_ready" },
+      select: { id: true }
+    });
+    expect(previewReady.map((job) => job.id)).toEqual([third.id]);
+
+    // 이전 잡들은 파기가 아니라 상태 전이다 — 잡도 행도 그대로 남아 CS 조회에 답할 수 있고,
+    // 이제 phase 9의 90일 창(IMPORT_ROWS_PURGEABLE_JOB_STATUSES)에 들어온다.
+    for (const previous of [first, second]) {
+      const job = await prisma.importJob.findUnique({ where: { id: previous.id } });
+      expect(job?.status).toBe("cancelled");
+      expect(await prisma.importRow.count({ where: { importJobId: previous.id } })).toBe(1);
+    }
+
+    // DNC-012: 취소는 확정이 아니다 — 지출은 단 한 건도 만들어지지 않는다.
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.expenses).toEqual([]);
+      });
+
+    // 취소된 잡은 더 이상 확정할 수 없다(같은 봉투로 거절된다).
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${first.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: [] })
+      .expect(400)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("IMPORT_NOT_CONFIRMABLE");
+      });
+
+    // 다른 아이의 미리보기는 건드리지 않는다.
+    const otherToken = await login(app, "import-preview-cap-other");
+    const other = await completeOnboarding(app, otherToken);
+    const otherJob = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${other.childId}/imports/excel`)
+        .set("Authorization", `Bearer ${otherToken}`)
+        .field("fileName", "wooriai-import.csv")
+        .attach("file", Buffer.from(csv, "utf8"), "wooriai-import.csv")
+        .expect(200)
+    ).body as ImportJob;
+    await upload();
+    expect((await prisma.importJob.findUnique({ where: { id: otherJob.id } }))?.status).toBe("preview_ready");
+  });
+
   // API-130: 형식 판정이 파일명 확장자에만 기대던 것을 (1) mimetype 1차 관문과
   // (2) 매직바이트 본검사로 나눠 잡는다. 둘 다 기존 400 IMPORT_FILE_TYPE_INVALID
   // 봉투를 그대로 쓴다 — 사용자에게는 "지원하지 않는 파일" 하나의 사실이다.

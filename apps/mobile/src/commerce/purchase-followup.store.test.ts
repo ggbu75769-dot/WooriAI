@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  applyPurchaseIntent,
   applyPurchaseLinkClick,
   applySnooze,
   applyStatus,
@@ -154,6 +155,55 @@ describe("라운드 39 UX-O 구매 확인 프롬프트의 아이 스코프", () 
     expect(selectPromptEligibleFollowup([legacy], NOW, "child-1")).toBeNull();
     // 시간·상태 게이트 자체는 통과한다 -- 걸러 낸 이유가 오직 아이라는 것을 분명히 한다.
     expect(isPromptEligible(legacy, NOW)).toBe(true);
+  });
+});
+
+/**
+ * 라운드 60 리뷰(P2-10) — "샀어요" 이탈 재질문도 같은 예산을 쓴다.
+ *
+ * 트랙 B가 done 확정을 저장 자리로 옮긴 뒤, "샀어요"를 누르고 기록 시트를 그냥 닫으면 항목은
+ * pending으로 남아 **다음 앱 세션에 다시** 뜬다. 그 재표출이 아무 예산도 쓰지 않으면 24시간
+ * 창이 닫힐 때까지 되풀이된다(라운드 40 J-8이 세션 축에서 막은 것과 같은 모양의 구멍).
+ */
+describe("'샀어요' 이탈 재질문 상한 (라운드 60 리뷰 P2-10)", () => {
+  const eligibleAt = NOW - 10 * 60 * 1000;
+
+  it("첫 '샀어요'는 예산 한 칸만 쓰고 pending으로 남는다 (이탈하면 한 번 더 물을 수 있다)", () => {
+    const once = applyPurchaseIntent([pendingEntry({ clickedAt: eligibleAt })], "item-diaper");
+    expect(once[0]).toMatchObject({ status: "pending", promptCount: 1 });
+    expect(isPromptEligible(once[0]!, NOW)).toBe(true);
+  });
+
+  it("두 번째에서 만료된다 — 세 번째 재질문은 없다", () => {
+    let entries = applyPurchaseIntent([pendingEntry({ clickedAt: eligibleAt })], "item-diaper");
+    entries = applyPurchaseIntent(entries, "item-diaper");
+    expect(entries[0]).toMatchObject({ status: "expired", promptCount: PURCHASE_FOLLOWUP_MAX_PROMPTS });
+    expect(selectPromptEligibleFollowup(entries, NOW, "child-1")).toBeNull();
+  });
+
+  it("'아직이요'와 같은 축을 센다 — 둘을 섞어도 상한은 하나다", () => {
+    let entries = applySnooze([pendingEntry({ clickedAt: eligibleAt })], "item-diaper");
+    entries = applyPurchaseIntent(entries, "item-diaper");
+    expect(entries[0]).toMatchObject({ status: "expired", promptCount: PURCHASE_FOLLOWUP_MAX_PROMPTS });
+  });
+
+  it("저장이 확정되면 done이 이긴다 — 이 소진은 이탈한 경우에만 남는다", () => {
+    const intended = applyPurchaseIntent([pendingEntry({ clickedAt: eligibleAt })], "item-diaper");
+    const saved = applyStatus(intended, "item-diaper", "done");
+    expect(saved[0]).toMatchObject({ status: "done" });
+    expect(selectPromptEligibleFollowup(saved, NOW, "child-1")).toBeNull();
+  });
+
+  it("겨냥한 pending 항목만 건드린다 (다른 아이·다른 항목·이미 답한 항목 불변)", () => {
+    const other = pendingEntry({ itemTemplateId: "item-other" });
+    const done = pendingEntry({ itemTemplateId: "item-done", status: "done" });
+    expect(applyPurchaseIntent([other, done], "item-done")).toEqual([other, done]);
+  });
+
+  it("스토어 액션이 그 순수 규칙을 그대로 쓴다", () => {
+    usePurchaseFollowupStore.setState({ entries: [pendingEntry({ clickedAt: eligibleAt })] });
+    usePurchaseFollowupStore.getState().intendPurchaseFollowup("item-diaper");
+    expect(usePurchaseFollowupStore.getState().entries[0]).toMatchObject({ status: "pending", promptCount: 1 });
   });
 });
 

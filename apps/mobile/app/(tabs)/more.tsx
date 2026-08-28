@@ -26,7 +26,7 @@ import {
   MORE_PROFILE_CARD_ROUTE,
   type MoreMenuSection
 } from "../../src/settings/more-menu";
-import { resolveManagedHouseholdId } from "../../src/family/household-scope";
+import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
@@ -160,7 +160,7 @@ export default function MoreScreen() {
     children: children.data?.children,
     childId,
     fallbackHouseholdId,
-    childrenSettled: !authToken || children.isSuccess || children.isError
+    childrenSettled: isChildrenSettled({ authToken, isSuccess: children.isSuccess, isError: children.isError })
   });
   const members = useQuery({
     queryKey: ["household-members", householdId],

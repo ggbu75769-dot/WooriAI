@@ -166,6 +166,34 @@ export class ImportPipelineService {
     const rows = await this.buildImportRowsFromParsed(childId, parsed.rows);
 
     const job = await this.prisma.$transaction(async (tx) => {
+      /**
+       * 라운드 60 리뷰(P2-3) — **아이당 검수 중인 잡은 하나까지.**
+       *
+       * 무엇이 문제였나: `preview_ready` 잡은 어떤 경로로도 끝나지 않는다. 확정하면 `confirmed`가
+       * 되지만, 검수 화면을 그냥 떠나면 그 잡과 행(파일 한 줄마다 날짜·품목명·금액)이 **영원히**
+       * 남는다 — 파기 잡의 phase 9는 `preview_ready`를 일부러 건드리지 않기 때문이다(이용자가
+       * 진행 중인 작업이라서). 그래서 같은 아이에게 가져오기를 열 번 시도하고 열 번 다 검수를
+       * 마치지 않으면 승인한 적 없는 금융 내역 사본이 열 벌 쌓였다. 파기 잡 주석이 그 상황을
+       * "미확정 잡 하나"라고 적어 둔 것은 사실이 아니었다(복수로 쌓인다).
+       *
+       * 고치는 자리는 여기다: **새 미리보기를 만드는 순간 같은 아이의 이전 미리보기는 끝난
+       * 것이다.** 사용자가 지금 검수하는 것은 방금 올린 파일이고, 검수 화면·재진입 카드도 그
+       * 잡 하나만 가리킨다(모바일 import-resume은 `cancelled`를 이미 "끝난 잡"으로 읽어 저장본을
+       * 지운다).
+       *
+       * 파기가 아니라 **상태 전이**다: 행을 여기서 지우지 않으므로 "가져왔는데 몇 건이 빠졌어요"
+       * 류 문의는 종전대로 답할 수 있고, 그 행들은 이제 phase 9의 90일 창에 들어온다
+       * (data-retention-purge.job.ts의 IMPORT_ROWS_PURGEABLE_JOB_STATUSES). DNC-012와도 무관하다 —
+       * 취소된 잡은 확정된 적이 없으므로 지출이 단 한 건도 만들어지지 않았다.
+       *
+       * 같은 트랜잭션 안에서 하는 이유: 새 잡 생성이 실패하면 이전 미리보기도 그대로 살아 있어야
+       * 한다(취소만 남고 새 잡이 없으면 사용자는 검수하던 화면을 이유 없이 잃는다).
+       */
+      await tx.importJob.updateMany({
+        where: { childId, status: "preview_ready" },
+        data: { status: "cancelled" }
+      });
+
       const created = await tx.importJob.create({
         data: {
           childId,

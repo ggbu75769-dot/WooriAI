@@ -5,12 +5,15 @@ import { resolveExpenseHouseholdId } from "../expenses/records-list-view";
 import {
   collectKnownHouseholdIds,
   describeHouseholdScope,
+  HOUSEHOLD_SCOPE_EMPTY_LABEL,
   householdScopeAddChildNotice,
   householdScopeInviteNotice,
   householdScopeLeaveNotice,
   householdScopeManageNotice,
   householdScopePhrase,
+  isChildrenSettled,
   isMultiHouseholdAccount,
+  listHouseholdSwitchOptions,
   resolveHouseholdChildrenLabel,
   resolveHouseholdName,
   resolveManagedHouseholdId,
@@ -357,16 +360,127 @@ describe("화면 배선 (source contract — 화면은 vitest에서 렌더할 �
     expect(settingsSource).toContain("!fallbackHouseholdId && !householdId");
   });
 
-  it("읽기 경로(라운드 27 L-4)와 초대 수락 화면은 이 트랙이 건드리지 않는다", () => {
-    // 판정은 위임이지 복제가 아니다 -- 규칙 본문은 여전히 records-list-view 한 곳에 있다.
+  it("읽기 경로(라운드 27 L-4)는 이 모듈이 건드리지 않는다 — 판정은 위임이지 복제가 아니다", () => {
+    // 규칙 본문은 여전히 records-list-view 한 곳에 있다.
     const moduleSource = source("src/family/household-scope.ts");
     expect(moduleSource).toContain('import { resolveExpenseHouseholdId, type ChildHouseholdRef } from "../expenses/records-list-view";');
     expect(moduleSource).toContain("const scoped = resolveExpenseHouseholdId({");
+  });
 
-    // 기본 가구를 영구히 바꾸는 자리는 그대로 남아 있다(트랙 C 소유) -- 트랙 A는 그 뒤의
-    // 화면들이 바뀐 값을 맹신하지 않게 했을 뿐이다.
-    expect(source("app/family/accept/[token].tsx")).toContain(
-      "useSessionStore.setState({ defaultHouseholdId: result.household.id });"
+  /**
+   * 라운드 60 리뷰(P1-3): 트랙 A가 남겨 둔 "기본 가구를 영구히 바꾸는 자리"는 이제 **없다**.
+   *
+   * 종전 계약은 "그 자리는 그대로 남아 있다(트랙 C 소유)"였다. 트랙 C가 실제로 그 자리를
+   * 고쳤으므로 계약도 사실을 따라간다: 초대 수락은 기본 가구를 **모를 때만** 채우고, 아는
+   * 가구 목록에 더하기만 한다. 그래야 아이가 아직 없는 원래 가구가 목록에 남아 아래
+   * `listHouseholdSwitchOptions`의 후보가 된다.
+   */
+  it("초대 수락은 기본 가구를 덮어쓰지 않는다 (라운드 60 리뷰 P1-3 — 트랙 C에서 이행됨)", () => {
+    const acceptSource = source("app/family/accept/[token].tsx");
+    expect(acceptSource).toContain("if (!useSessionStore.getState().defaultHouseholdId) {");
+    expect(acceptSource.split("defaultHouseholdId: result.household.id").length - 1).toBe(1);
+    expect(acceptSource).toContain(
+      "useSessionStore.getState().setHouseholdRole(result.household.id, result.household.role);"
+    );
+  });
+
+  /**
+   * 라운드 60 리뷰(P2-4): `childrenSettled`는 여섯 화면이 각자 적던 식이었다. 규칙이 여섯 벌이면
+   * 한 곳만 고쳐지는 날이 오고, 그 날의 증상이 곧 이 모듈이 존재하는 이유와 같은 문제다.
+   */
+  it("childrenSettled 규칙은 한 벌뿐이다 (여섯 화면 모두 헬퍼를 통과한다)", () => {
+    for (const path of scopedScreens) {
+      const screenSource = source(path);
+      expect(screenSource, path).toContain("isChildrenSettled({");
+      // 화면이 규칙을 다시 적는 형태(성공/실패 논리합)가 남아 있으면 안 된다.
+      expect(screenSource, path).not.toMatch(/childrenSettled(:| =)\s*(!authToken \|\| )?[\w.]+\.isSuccess/);
+    }
+  });
+
+  it("헬퍼 자체의 규칙 — 토큰이 없으면 기다릴 조회가 없다", () => {
+    expect(isChildrenSettled({ authToken: null, isSuccess: false, isError: false })).toBe(true);
+    expect(isChildrenSettled({ authToken: undefined })).toBe(true);
+    expect(isChildrenSettled({ authToken: "token", isSuccess: false, isError: false })).toBe(false);
+    expect(isChildrenSettled({ authToken: "token", isSuccess: true, isError: false })).toBe(true);
+    expect(isChildrenSettled({ authToken: "token", isSuccess: false, isError: true })).toBe(true);
+  });
+});
+
+/**
+ * 라운드 60 리뷰(P1-3) — **아이 없는 가구도 관리 대상 후보다.**
+ *
+ * `resolveManagedHouseholdId`는 "보고 있는 아이의 가구"라 아이가 하나도 없는 가구를 영영
+ * 가리킬 수 없다. 초대로 막 들어간 가구가 대개 그렇고, 그 가구의 구성원 관리·초대는 가족
+ * 화면 말고는 어디에도 없다. 그래서 아는 가구 전부를 전환 후보로 세운다.
+ */
+describe("가구 전환 후보 (라운드 60 리뷰 P1-3)", () => {
+  it("1가구 계정에서는 후보가 없다 — 화면이 종전과 한 노드도 달라지지 않는다", () => {
+    expect(
+      listHouseholdSwitchOptions({
+        currentHouseholdId: "household-1",
+        children: singleHousehold,
+        knownHouseholdIds: ["household-1"],
+        fallbackHouseholdId: "household-1"
+      })
+    ).toEqual([]);
+    // 몇 가구인지 모르는 계정도 같다(모르면 붙이지 않는다).
+    expect(
+      listHouseholdSwitchOptions({
+        currentHouseholdId: "household-1",
+        children: null,
+        knownHouseholdIds: null,
+        fallbackHouseholdId: "household-1"
+      })
+    ).toEqual([]);
+  });
+
+  it("아이가 하나도 없는 가구도 후보에 들어온다 (서버가 말한 목록이 그것을 안다)", () => {
+    const options = listHouseholdSwitchOptions({
+      currentHouseholdId: "household-1",
+      children: singleHousehold,
+      // household-2 = 방금 초대를 수락해 들어간 가구. 아이는 아직 없다.
+      knownHouseholdIds: ["household-1", "household-2"],
+      fallbackHouseholdId: "household-1"
+    });
+    expect(options.map((option) => option.householdId)).toEqual(["household-1", "household-2"]);
+    expect(options[1]).toEqual({
+      householdId: "household-2",
+      label: HOUSEHOLD_SCOPE_EMPTY_LABEL,
+      isCurrent: false
+    });
+    // 이름 대신 사실이다 -- 지어낸 이름이 아니다.
+    expect(options[1].label).toBe("아이가 아직 없는 가구");
+  });
+
+  it("표기 규율은 한 벌이다 (이름 → 그 가구의 아이 → 사실)", () => {
+    const options = listHouseholdSwitchOptions({
+      currentHouseholdId: "household-2",
+      children: [
+        { id: "child-daon", householdId: "household-1", nickname: "다온이" },
+        { id: "child-haneul", householdId: "household-2", nickname: "하늘이", householdName: "시가" }
+      ],
+      knownHouseholdIds: ["household-1", "household-2"],
+      fallbackHouseholdId: "household-1"
+    });
+    expect(options).toEqual([
+      { householdId: "household-1", label: "다온이의 가구", isCurrent: false },
+      { householdId: "household-2", label: "‘시가’ 가구", isCurrent: true }
+    ]);
+  });
+
+  it("가족 화면이 그 후보로 전환 입구를 그린다 (소스 계약 — 화면은 렌더할 수 없다)", () => {
+    const screenSource = source("app/family/index.tsx");
+    expect(screenSource).toContain("listHouseholdSwitchOptions({");
+    expect(screenSource).toContain("{householdSwitchOptions.length >= 2 ? (");
+    expect(screenSource).toContain("accessibilityLabel={HOUSEHOLD_SCOPE_SWITCH_LABEL}");
+    // 전환은 **보는 대상**만 바꾼다 -- 세션의 기본 가구를 다시 갈아 끼우면 P1-3의 소실을
+    // 이번엔 사용자 손으로 되풀이하게 된다.
+    expect(screenSource).toContain("const [viewedHouseholdId, setViewedHouseholdId] = useState<string | null>(null);");
+    expect(screenSource).not.toContain("setState({ defaultHouseholdId");
+    // 판정은 여전히 아이 기준이 기본이고, 전환은 그 위에 얹힌다.
+    expect(screenSource).toContain("const scopedHouseholdId = resolveManagedHouseholdId({");
+    expect(screenSource).toContain(
+      "viewedHouseholdId && knownHouseholdIdList.includes(viewedHouseholdId) ? viewedHouseholdId : scopedHouseholdId;"
     );
   });
 });

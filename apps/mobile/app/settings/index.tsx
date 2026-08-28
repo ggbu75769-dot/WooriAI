@@ -22,7 +22,7 @@ import {
 // (같은 기능이 화면마다 다른 이름으로 보이던 FIX/F5의 재발 방지).
 import { RECURRING_MANAGE_LABEL } from "../../src/expenses/recurring-template";
 // 라운드 60 A: 요약 카드의 두 줄이 같은 가구를 말하게 하는 판정(선택 아이 기준).
-import { resolveManagedHouseholdId } from "../../src/family/household-scope";
+import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
 import { APP_LOCK_TITLE } from "../../src/security/app-lock";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -79,7 +79,7 @@ export default function SettingsScreen() {
     childId,
     fallbackHouseholdId,
     // 세션이 없으면 기다릴 조회 자체가 없다(쿼리가 disabled라 영원히 pending이다).
-    childrenSettled: !authToken || children.isSuccess || children.isError
+    childrenSettled: isChildrenSettled({ authToken, isSuccess: children.isSuccess, isError: children.isError })
   });
   const members = useQuery({
     queryKey: ["household-members", householdId],

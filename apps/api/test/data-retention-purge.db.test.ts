@@ -1199,7 +1199,7 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
 
     async function createImportJobWithRows(
       owner: { user: { id: string }; household: { id: string }; child: { id: string } },
-      options: { status: "preview_ready" | "confirmed" | "failed"; updatedAt: Date; rows?: number }
+      options: { status: "preview_ready" | "confirmed" | "cancelled" | "failed"; updatedAt: Date; rows?: number }
     ) {
       const importJob = await prisma.importJob.create({
         data: {
@@ -1284,6 +1284,37 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       expect(await prisma.expense.findUnique({ where: { id: importedExpense.id } })).not.toBeNull();
 
       await cleanupImportFixtures(owner, [agedOut.importJob.id, onTheEdge.importJob.id]);
+    });
+
+    /**
+     * 라운드 60 리뷰(P2-3): `cancelled`는 이제 실제로 쓰이는 종료 상태다 — 같은 아이에게 새
+     * 가져오기를 시작하면 이전 미확정 미리보기가 이 상태로 넘어간다
+     * (import-pipeline.service.ts의 createImportJob). 그 행들은 사용자가 다 쓴 것이므로
+     * 확정분과 **같은 창**을 쓴다. 이 단계가 그것을 실제로 집어 가는지 고정한다.
+     */
+    it("purges a cancelled (새 가져오기로 대체된) import's rows on the same window", async () => {
+      const now = new Date();
+      const owner = await createImportOwner();
+      const cancelled = await createImportJobWithRows(owner, {
+        status: "cancelled",
+        updatedAt: daysAgo(now, 120),
+        rows: 2
+      });
+      // 경계 안쪽(89일)의 취소 잡은 살아남는다 — 창 자체는 확정분과 같은 90일이다.
+      const recent = await createImportJobWithRows(owner, {
+        status: "cancelled",
+        updatedAt: daysAgo(now, 89),
+        rows: 2
+      });
+
+      await job.run(now);
+
+      expect(await prisma.importRow.count({ where: { importJobId: cancelled.importJob.id } })).toBe(0);
+      expect(await prisma.importRow.count({ where: { importJobId: recent.importJob.id } })).toBe(2);
+      // 잡 행 자체는 가져오기 이력이라 남는다(확정분과 같은 규칙).
+      expect(await prisma.importJob.findUnique({ where: { id: cancelled.importJob.id } })).not.toBeNull();
+
+      await cleanupImportFixtures(owner, [cancelled.importJob.id, recent.importJob.id]);
     });
 
     it("purges a failed import's rows on the same window", async () => {

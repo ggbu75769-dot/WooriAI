@@ -125,15 +125,28 @@ export const DEFAULT_AUDIT_LOGS_RETENTION_DAYS = 730;
 export const DEFAULT_IMPORT_ROWS_RETENTION_DAYS = 90;
 
 /**
- * Import job statuses whose preview rows phase 9 may purge: the import is over
- * either way (`confirmed` = 승인분이 expenses로 넘어갔다, `failed` = 끝내 못
- * 넘어갔다). `preview_ready` is deliberately absent — see the phase doc.
- * `uploaded`/`analyzing`/`cancelled` exist in the enum but no code path writes
- * them today; leaving them out keeps this phase to statuses whose meaning is
- * settled (a future `cancelled` writer should be added here on purpose, with
- * its own thought about whether the user is done with those rows).
+ * Import job statuses whose preview rows phase 9 may purge — the import is over
+ * and the user has nothing left to review:
+ *
+ *  - `confirmed` — 승인분이 expenses로 넘어갔다. **오늘 실제로 쓰이는 유일한
+ *    종료 상태이고, 문서(privacy-policy §3 · data-safety)가 말하는 "확정된
+ *    가져오기"가 이것이다.**
+ *  - `cancelled` — 라운드 60 리뷰(P2-3): 같은 아이에게 새 가져오기를 시작해
+ *    이전 미리보기가 대체된 잡(import-pipeline.service.ts의 createImportJob).
+ *    그 constant 주석이 예고한 "a future `cancelled` writer"가 바로 이것이고,
+ *    사용자가 그 행들을 다 쓴 것이 맞다 — 그가 지금 검수하는 것은 새 잡이다.
+ *  - `failed` — **오늘 이 상태를 쓰는 코드 경로는 없다.** 가져오기 실패는
+ *    `createImportJob`이 `importJob.create` **전에** 던지므로(파일 없음·형식
+ *    불일치·파싱 실패·행 0건) 잡 행 자체가 만들어지지 않는다. 즉 이 항목은
+ *    지금은 죽은 값이고, 남겨 두는 이유는 하나뿐이다: 나중에 실패를 잡으로
+ *    남기게 되는 날 그 행들도 같은 창에 들어와야 하기 때문이다. 문서가 이
+ *    상태를 "일어나는 일"로 말하지 않도록 정정한 이유이기도 하다.
+ *
+ * `preview_ready` is deliberately absent — see the phase doc.
+ * `uploaded`/`analyzing` exist in the enum but no code path writes them today;
+ * leaving them out keeps this phase to statuses whose meaning is settled.
  */
-export const IMPORT_ROWS_PURGEABLE_JOB_STATUSES = ["confirmed", "failed"] as const;
+export const IMPORT_ROWS_PURGEABLE_JOB_STATUSES = ["confirmed", "cancelled", "failed"] as const;
 
 // Poison-row escalation (review M1): after this many CONSECUTIVE ticks in
 // which a phase failed terminally (first attempt AND halved retry), the phase
@@ -400,8 +413,8 @@ function errorMessage(error: unknown): string {
  *    whole (the same "driver row is always purged whole" rule phases 1–4
  *    follow), so a crash/retry can never leave half a preview behind and a CS
  *    reader never sees a partial one. Selection is
- *    `status IN (confirmed, failed) AND updated_at < cutoff AND EXISTS(rows)`,
- *    ordered (updated_at, id) — the EXISTS clause is what makes the phase
+ *    `status IN (confirmed, cancelled, failed) AND updated_at < cutoff AND
+ *    EXISTS(rows)`, ordered (updated_at, id) — the EXISTS clause is what makes the phase
  *    self-terminating and prevents head-of-line blocking: a job whose rows are
  *    already gone stays `confirmed` forever and would otherwise occupy the
  *    oldest-first window every tick (same reasoning as phase 4's NOT EXISTS
@@ -415,8 +428,17 @@ function errorMessage(error: unknown): string {
  *    mobile re-entry card points at that job (import-resume.store.ts), and
  *    deleting them would silently empty a preview the user is in the middle
  *    of. An abandoned preview therefore still lives until its child/household
- *    is purged — a known and accepted gap, narrower than the one this phase
- *    closes (미확정 잡 하나 vs. 모든 가져오기 이력).
+ *    is purged.
+ *
+ *    라운드 60 리뷰(P2-3): 이 문장은 예전에 "미확정 잡 **하나**"라고 적혀
+ *    있었는데 사실이 아니었다 — 검수를 마치지 않은 잡을 끝내는 경로가 없어
+ *    한 아이에게 시도한 횟수만큼 **여러 벌**이 쌓였다. 이제 새 미리보기를
+ *    만들 때 같은 아이의 이전 `preview_ready` 잡을 `cancelled`로 넘긴다
+ *    (import-pipeline.service.ts의 createImportJob — 아이당 상한 1). 그래서
+ *    파기되지 않고 남는 미확정 미리보기는 **아이당 하나**(지금 검수 중인
+ *    그것)이고, 취소된 이전 미리보기들은 위 90일 창의 대상이 된다. 남는 격차는
+ *    이 phase가 닫은 것보다 확실히 좁다(진행 중인 잡 하나 vs. 모든 가져오기
+ *    이력).
  *
  *    The import_jobs row itself survives: it is the user-visible history of
  *    the import (파일명·건수·시각) and it carries no line-level detail. Only

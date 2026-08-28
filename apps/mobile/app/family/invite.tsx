@@ -13,6 +13,7 @@ import {
   describeHouseholdScope,
   householdScopeInviteNotice,
   householdScopePhrase,
+  isChildrenSettled,
   resolveManagedHouseholdId
 } from "../../src/family/household-scope";
 import {
@@ -63,7 +64,11 @@ export default function FamilyInviteScreen() {
     queryFn: () => listChildren(authToken!)
   });
   // 세션이 없으면 기다릴 조회 자체가 없다(쿼리가 disabled라 영원히 pending이다).
-  const childrenSettled = !authToken || childrenQuery.isSuccess || childrenQuery.isError;
+  const childrenSettled = isChildrenSettled({
+    authToken,
+    isSuccess: childrenQuery.isSuccess,
+    isError: childrenQuery.isError
+  });
   const householdId = resolveManagedHouseholdId({
     children: childrenQuery.data?.children,
     childId: selectedChildId,

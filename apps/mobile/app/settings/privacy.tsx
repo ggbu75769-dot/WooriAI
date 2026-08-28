@@ -20,6 +20,7 @@ import {
   describeHouseholdScope,
   householdScopeLeaveNotice,
   householdScopePhrase,
+  isChildrenSettled,
   resolveManagedHouseholdId
 } from "../../src/family/household-scope";
 import { buildConsentSummaryLines } from "../../src/settings/consent-summary";
@@ -184,7 +185,7 @@ export default function PrivacySettingsScreen() {
     childId,
     fallbackHouseholdId,
     // 세션이 없으면 기다릴 조회 자체가 없다(쿼리가 disabled라 영원히 pending이다).
-    childrenSettled: !authToken || childrenQuery.isSuccess || childrenQuery.isError
+    childrenSettled: isChildrenSettled({ authToken, isSuccess: childrenQuery.isSuccess, isError: childrenQuery.isError })
   });
   /**
    * 되돌릴 수 없는 동작이 무엇을 대상으로 하는지 말하는 한 줄. 서버가 내려주는 영향 목록

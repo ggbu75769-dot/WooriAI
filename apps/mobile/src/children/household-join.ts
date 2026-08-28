@@ -88,6 +88,17 @@ export type HouseholdJoinPlan =
    * 그래서 온보딩이 아니라 **사실 안내**로 착지한다: 이 사람이 할 수 있는 일은 등록이 아니라
    * 기다림이고, 실제로 통하는 다음 행동은 관리자에게 부탁하는 것이다(INVITE_FORBIDDEN_MESSAGE와
    * 같은 규율 -- 재시도를 권하지 않는다).
+   *
+   * 라운드 60 리뷰(P1-2): 그 안내를 **어디에 세울 것인가**가 남아 있었다. 종전 목적지는
+   * `/family`였는데, 그 화면은 바로 아래 온보딩 분기 주석이 이미 "갈 곳이 아니다"라고 적어 둔
+   * 그 화면이다 -- 탭 밖이라 하단 탭이 없고, 탭으로 돌아가려 해도 온보딩 게이트가 "/"로
+   * 되돌린다. 즉 403 무한 재시도를 막고 나서 **같은 사람을 다른 막다른 길에** 세워 둔 셈이었다.
+   *
+   * 이제 탭 셸(`/(tabs)`)로 착지한다. 볼 아이가 없으니 홈은 비어 있지만, 그 빈 홈은 정직하다 --
+   * 홈은 `authToken && !childId`를 이미 "아이 정보를 불러오고 있어요 / 아이 선택하기"로 그린다
+   * (app/(tabs)/index.tsx, 라운드 49 C-07). 그리고 하단 탭이 생기므로 관리자에게 부탁하라는
+   * 이 안내(수락 직후 한 번 읽힌다)를 본 뒤에도 더보기 → 가족으로 언제든 되돌아갈 수 있다.
+   * 목적지가 탭 셸이므로 호출측은 select 분기와 **같이** markHomeReached()를 세워야 한다.
    */
   | { kind: "blocked"; notice: string; href: string }
   /**
@@ -115,9 +126,43 @@ export function isChildCreateBlockedRole(role: string | null | undefined): boole
 export const HOUSEHOLD_JOIN_VIEWER_NOTICE =
   "아직 등록된 아이가 없어요. 가족 관리자가 아이를 등록하면 바로 볼 수 있어요.";
 
-/** 라운드 60 #3: 아이 목록 조회가 실패했을 때의 문구. "아이 없음"을 단정하지 않는다. */
+/**
+ * 라운드 60 #3: 아이 목록 조회가 실패했을 때의 문구. "아이 없음"을 단정하지 않는다.
+ *
+ * 라운드 60 리뷰(P1-1): 종전 문구는 "잠시 후 다시 시도해 주세요." 하나였다. 그런데 이 실패의
+ * 가장 흔한 원인은 오프라인이고, 오프라인에서 "잠시 후 다시"만 권하는 카드는 **다시 눌러도
+ * 안 되는 버튼 하나**만 남긴 채 사용자를 그 화면에 묶어 둔다(참여는 이미 성공했으므로 뒤로
+ * 갈 수도, 다시 수락할 수도 없다). 그래서 문구가 두 길을 함께 말한다 -- 다시 시도, 그리고
+ * 나중에 하기. 화면의 두 번째 버튼(`HOUSEHOLD_JOIN_ESCAPE_LABEL`)이 그 두 번째 길이다.
+ */
 export const HOUSEHOLD_JOIN_LOAD_FAILED_NOTICE =
-  "가족 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
+  "가족 정보를 불러오지 못했어요. 다시 시도하거나, 나중에 하고 먼저 둘러봐도 괜찮아요.";
+
+/** 라운드 60 리뷰(P1-1): 재시도 카드의 두 번째 버튼 라벨. 재시도와 나란히 선다. */
+export const HOUSEHOLD_JOIN_ESCAPE_LABEL = "나중에 하기";
+
+/**
+ * 라운드 60 리뷰(P1-1) — 재시도 카드에서 **빠져나갈 때** 갈 곳.
+ *
+ * 참여(POST)는 이미 성공했고 아이 목록만 못 받은 상태다. 그 사실만으로는 어느 화면이 맞는지
+ * 정할 수 없으므로 **계정이 지금 어떤 상태인가**로 정한다:
+ *  - 보고 있는 아이가 있거나 이미 홈에 도달한 적이 있는 계정 → 탭 셸. 그 사람에게 온보딩은
+ *    이미 끝난 길이고, 되돌려 보내면 아이를 한 번 더 만들라고 권하는 셈이다;
+ *  - 그렇지 않으면 온보딩 시작점. 탭 셸로 보내도 게이트(`!hasReachedHome`)가 "/"로 되돌리므로
+ *    그 사람에게 탭은 아직 갈 수 있는 곳이 아니다.
+ *
+ * `marksHomeReached`는 목적지가 탭 셸일 때만 true다 -- 게이트를 지나는 목적지는 그것뿐이다
+ * (planAfterHouseholdJoin의 select/blocked와 같은 규칙).
+ */
+export function householdJoinEscapePlan(input: {
+  currentChildId?: string | null;
+  hasReachedHome?: boolean;
+}): { href: string; marksHomeReached: boolean } {
+  if (input.currentChildId || input.hasReachedHome) {
+    return { href: "/(tabs)", marksHomeReached: true };
+  }
+  return { href: "/onboarding/child-status", marksHomeReached: false };
+}
 
 /**
  * @param householdId 방금 참여한 가구.
@@ -173,7 +218,9 @@ export function planAfterHouseholdJoin(input: {
      */
     if (!input.currentChildId) {
       if (isChildCreateBlockedRole(input.role)) {
-        return { kind: "blocked", notice: HOUSEHOLD_JOIN_VIEWER_NOTICE, href: "/family" };
+        // 라운드 60 리뷰(P1-2): 목적지는 탭 셸이다 -- /family는 바로 아래 주석이 말하는 그
+        // 막다른 길이라 "403 무한 재시도"를 "탭 없는 화면에 갇힘"으로 바꾸는 것뿐이었다.
+        return { kind: "blocked", notice: HOUSEHOLD_JOIN_VIEWER_NOTICE, href: "/(tabs)" };
       }
       return {
         kind: "onboarding",

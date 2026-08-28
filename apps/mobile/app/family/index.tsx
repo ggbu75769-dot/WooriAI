@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Platform, Pressable, Text, View } from "react-native";
 import {
   cancelHouseholdInvite,
@@ -14,9 +14,13 @@ import {
   removeHouseholdMember
 } from "../../src/api/client";
 import {
+  collectKnownHouseholdIds,
   describeHouseholdScope,
+  HOUSEHOLD_SCOPE_SWITCH_LABEL,
   householdScopeManageNotice,
   householdScopePhrase,
+  isChildrenSettled,
+  listHouseholdSwitchOptions,
   resolveManagedHouseholdId
 } from "../../src/family/household-scope";
 import {
@@ -138,12 +142,41 @@ export default function FamilyScreen() {
     enabled: Boolean(authToken),
     queryFn: () => listChildren(authToken!)
   });
-  const householdId = resolveManagedHouseholdId({
+  const scopedHouseholdId = resolveManagedHouseholdId({
     children: childrenQuery.data?.children,
     childId: selectedChildId,
     fallbackHouseholdId,
-    childrenSettled: childrenQuery.isSuccess || childrenQuery.isError
+    childrenSettled: isChildrenSettled({
+      authToken,
+      isSuccess: childrenQuery.isSuccess,
+      isError: childrenQuery.isError
+    })
   });
+  /**
+   * 라운드 60 리뷰(P1-3) — 이 화면에서만 유효한 **가구 보기 전환**.
+   *
+   * 왜 필요한가: 위 판정은 "보고 있는 아이의 가구"라 **아이가 하나도 없는 가구를 영영 가리킬 수
+   * 없다**. 초대를 수락해 새로 들어간 가구가 대개 그렇고(아이는 관리자가 나중에 등록한다),
+   * 그 가구의 구성원 관리·초대·대기 초대 취소는 이 화면 말고는 어디에도 없다.
+   *
+   * 왜 세션 상태가 아니라 화면 지역 상태인가: 이 전환은 **보는 대상**을 바꾸는 것이지 계정의
+   * 기본값을 바꾸는 것이 아니다. `defaultHouseholdId`를 다시 갈아 끼우면 초대 수락이 저지른
+   * 그 소실(P1-3)을 이번엔 사용자 손으로 되풀이하게 된다. 화면을 벗어나면 판정은 다시 아이
+   * 기준으로 돌아간다 -- 되돌리는 데 아무 조작도 필요 없는 것이 이 형태의 이점이다.
+   */
+  const [viewedHouseholdId, setViewedHouseholdId] = useState<string | null>(null);
+  /**
+   * 전환은 **아는 가구**로만 간다. 목록에서 사라진 가구(탈퇴·초대 취소 뒤 갱신)를 계속 붙들고
+   * 있으면 그 가구의 구성원 조회가 403/404로만 답하므로, 검증에 실패하면 조용히 아이 기준
+   * 판정으로 되돌아간다(상태를 지우는 effect 없이 매 렌더에서 다시 검증한다).
+   */
+  const knownHouseholdIdList = collectKnownHouseholdIds({
+    children: childrenQuery.data?.children,
+    knownHouseholdIds,
+    fallbackHouseholdId
+  });
+  const householdId =
+    viewedHouseholdId && knownHouseholdIdList.includes(viewedHouseholdId) ? viewedHouseholdId : scopedHouseholdId;
   const hasSession = Boolean(authToken && householdId);
   const members = useQuery({
     queryKey: ["household-members", householdId],
@@ -235,6 +268,19 @@ export default function FamilyScreen() {
       })
     )
   );
+  /**
+   * 라운드 60 리뷰(P1-3): 전환 후보. 1가구(또는 몇인지 모르는) 계정에서는 빈 배열이라 아래
+   * 행 자체가 그려지지 않는다 -- FAM-001 픽셀락 캡처(비로그인)도 종전 그대로다.
+   */
+  const householdSwitchOptions = hasSession
+    ? listHouseholdSwitchOptions({
+        currentHouseholdId: householdId,
+        children: childrenQuery.data?.children,
+        members: members.data?.members,
+        knownHouseholdIds,
+        fallbackHouseholdId
+      })
+    : [];
 
   if (hasSession && membersPhase === "error") {
     return (
@@ -300,6 +346,27 @@ export default function FamilyScreen() {
       { cancelable: prompt.cancelable }
     );
   };
+  /**
+   * 라운드 60 리뷰(P1-3): 가구 전환 입구. 후보가 둘 이상일 때만 그려지므로 1가구 계정에서는
+   * 이 버튼이 존재하지 않는다. Alert 하나로 끝내는 최소 형태다 -- 전용 시트를 새로 만들 만큼의
+   * 화면이 아니고, 이 앱은 이미 초대 역할 선택에 같은 형태를 쓴다(invite-flow.ts).
+   *
+   * 라벨은 순수 모듈이 정한다: 이름을 알면 이름, 모르면 그 가구의 아이들, 둘 다 모르면 사실
+   * ("아이가 아직 없는 가구"). 지금 보고 있는 가구는 목록에서 표시만 하고 고를 수 없게 둔다.
+   */
+  const openHouseholdSwitch = () => {
+    Alert.alert(
+      HOUSEHOLD_SCOPE_SWITCH_LABEL,
+      "관리할 가구를 골라 주세요. 이 화면에서만 바뀌고 아이 선택은 그대로예요.",
+      [
+        { text: "닫기", style: "cancel" as const },
+        ...householdSwitchOptions.map((option) => ({
+          text: option.isCurrent ? `${option.label} (보는 중)` : option.label,
+          onPress: option.isCurrent ? undefined : () => setViewedHouseholdId(option.householdId)
+        }))
+      ]
+    );
+  };
   const confirmCancelInvite = (inviteId: string, roleLabel: string) => {
     Alert.alert(`${roleLabel} 초대를 취소할까요?`, "이미 보낸 초대 링크는 바로 사용할 수 없게 돼요.", [
       { text: "그대로 둘게요", style: "cancel" },
@@ -334,6 +401,19 @@ export default function FamilyScreen() {
 
         {/* 라운드 60 A: 다가구 계정에서만 나타나는 부제 -- 어느 가구를 관리하는 중인지 말한다. */}
         {householdNotice ? <Text style={familyScopeNoticeStyle}>{householdNotice}</Text> : null}
+
+        {/* 라운드 60 리뷰(P1-3): 아이가 없는 가구까지 포함한 전환 입구. 후보가 둘 이상일 때만
+            그려지므로 1가구 계정·비로그인 미리보기(FAM-001 픽셀락)에는 아무것도 늘지 않는다. */}
+        {householdSwitchOptions.length >= 2 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={HOUSEHOLD_SCOPE_SWITCH_LABEL}
+            hitSlop={8}
+            onPress={openHouseholdSwitch}
+          >
+            <Text style={familyHouseholdSwitchStyle}>{HOUSEHOLD_SCOPE_SWITCH_LABEL}</Text>
+          </Pressable>
+        ) : null}
 
         <View style={familyAvatarRowStyle}>
           <FamilyAvatarGroup names={avatarNames} />
@@ -521,6 +601,15 @@ const familyScopeNoticeStyle = {
   fontSize: 12,
   lineHeight: 18,
   marginTop: -8
+} as const;
+
+// 라운드 60 리뷰(P1-3): 전환 입구의 문자 링크. 새 토큰을 만들지 않고 이 화면이 이미 쓰는
+// 강조 보조 텍스트(A11Y-117 대비 규칙에 맞는 coral[700] 12/18)를 그대로 쓴다.
+const familyHouseholdSwitchStyle = {
+  color: theme.colors.coral[700],
+  fontSize: 12,
+  fontWeight: "700",
+  lineHeight: 18
 } as const;
 
 const familyAvatarRowStyle = {

@@ -30,7 +30,18 @@ const ANA127_EVENT_LABELS: Record<string, string> = {
   onboarding_step_viewed: "온보딩 단계 진입"
 };
 
-/** 온보딩 단계 수(ONB-001..ONB-004) — packages/contracts/src/analytics.ts의 ONBOARDING_STEPS 길이. */
+/**
+ * 온보딩 단계 수(ONB-001..ONB-004) — packages/contracts/src/analytics.ts의 `ONBOARDING_STEPS` 길이.
+ *
+ * 라운드 60 리뷰(P2-8): 왜 import가 아니라 **손으로 적은 숫자 + 대조 테스트**인가. 이 워크스페이스
+ * (apps/admin)는 `@wooriai/contracts`를 의존성으로 들지 않는다 — 어드민은 REST 응답만 읽는 Next
+ * 앱이고, 계약 패키지를 끌어오면 그 트랜지티브 의존성(zod 등)이 어드민 번들로 따라 들어온다.
+ * 그렇다고 숫자를 그냥 두면 레지스트리에 단계가 하나 늘어난 날 이 화면이 조용히 거짓말을 한다
+ * ("사람당 최대 4건"·"4.0배에 가까울수록"이 전부 틀린 수가 된다).
+ *
+ * 그래서 `admin-analytics.test.ts`가 계약 파일의 `ONBOARDING_STEPS`를 직접 읽어 이 값과 대조한다.
+ * 값이 갈리는 순간 테스트가 깨지고, 고칠 곳은 이 한 줄이다.
+ */
 const ONBOARDING_STEP_COUNT = 4;
 
 type FunnelStage = {
@@ -49,9 +60,16 @@ type FunnelStage = {
  * 계측하면서 구매 루프가 6단으로 이어진다.
  *
  * ANA-128: 마지막 단은 "샀어요"(purchased)만 센다. 예전에는 요약 API가 이벤트 이름 단위로만
- * 집계해 3갈래(샀어요·아직이요·괜찮아요) 합계밖에 없었고, 그 합계로 낸 전환율은 실제 구매
- * 전환율보다 부풀려졌다. 이제 API가 `purchaseFollowup`으로 답변별 분해를 내려주므로 마지막
- * 단계 전환율 = 링크 클릭 → 실구매다.
+ * 집계해 3갈래(샀어요·아직이요·괜찮아요) 합계밖에 없었고, 그 합계로 낸 전환율은 답변률보다도
+ * 넓은 수였다. 이제 API가 `purchaseFollowup`으로 답변별 분해를 내려주므로 마지막 단계는
+ * "샀어요"라는 **답** 하나만 센다.
+ *
+ * 라운드 60 리뷰(P2-5) — 그 단을 "실구매"라고 부르던 라벨·각주를 정정한다. 라운드 60 트랙 B가
+ * "샀어요" 버튼에서 done 확정을 떼어 내 **저장이 확정된 자리**로 옮겼다
+ * (apps/mobile/src/commerce/PurchaseFollowupPrompt.tsx). 그 버튼이 실제로 하는 일은 기록 시트를
+ * 여는 것뿐이라, 사용자가 시트를 닫으면 답은 남고 지출은 없다. 즉 이 이벤트는 **답의 기록**이지
+ * 구매의 기록이 아니다 — 그 답과 뒤따르는 expense_recorded 사이의 간격이 곧 이탈률이고, 그
+ * 간격을 "실구매"라고 부르면 앱이 이미 고친 부풀림을 어드민이 다시 만든다.
  *
  * 이벤트 이름 단위 단계는 `funnel` 별칭이 아니라 `byName`에서 읽는다 — 별칭 맵은 API가
  * 레거시 6종으로 동결했고(apps/api/src/admin/analytics-summary.service.ts의
@@ -63,7 +81,7 @@ const FUNNEL_STAGES: FunnelStage[] = [
   { key: "item_status_changed", label: "준비템 체크", count: (summary) => eventCount(summary, "item_status_changed") },
   { key: "item_detail_viewed", label: "준비템 상세 열람", count: (summary) => eventCount(summary, "item_detail_viewed") },
   { key: "affiliate_link_clicked", label: "제휴 링크 클릭", count: (summary) => eventCount(summary, "affiliate_link_clicked") },
-  { key: "purchase_followup_purchased", label: "구매 확인 (구매했어요)", count: (summary) => summary.purchaseFollowup.purchased }
+  { key: "purchase_followup_purchased", label: "구매 확인 응답 (샀어요)", count: (summary) => summary.purchaseFollowup.purchased }
 ];
 
 /** ANA-128: 구매 확인 프롬프트의 3갈래. 라벨은 COM-108 프롬프트에 실제로 뜨는 문구 그대로. */
@@ -285,14 +303,15 @@ export default function AnalyticsSummaryPage() {
                 포함한 전체 분해를 보여준다. */}
             <p className={styles.hint}>
               ※ 마지막 단계는 구매 확인 프롬프트에 <strong>&quot;샀어요&quot;로 답한 건수만</strong> 세요 (아직이요·괜찮아요는
-              제외). 그래서 마지막 전환율이 곧 링크 클릭 → 실구매 비율이에요.
+              제외). <strong>답이지 기록이 아니에요</strong> — &quot;샀어요&quot;는 기록 화면을 열 뿐이라, 그 화면을 닫으면
+              답만 남고 지출은 없어요. 실제 구매 수는 지출 기록(2단)과 함께 봐 주세요.
             </p>
           </section>
 
           {/* ANA-128: 3갈래 분해. 응답률(클릭 대비 응답)과 구매율(클릭 대비 "샀어요")을 각각
               분리해서, 어느 쪽이 새는지 — 답을 안 하는 건지, 답은 하는데 안 사는 건지 — 보이게 한다. */}
           <section className={styles.card}>
-            <h2>구매 확인 응답 (링크 클릭 → 실구매)</h2>
+            <h2>구매 확인 응답 (링크 클릭 → 샀어요 응답)</h2>
             {(() => {
               const followup = summary.purchaseFollowup;
               const clicks = eventCount(summary, "affiliate_link_clicked");

@@ -223,7 +223,7 @@ describe("Admin CMS analytics page (ADM-009)", () => {
    */
   it("labels the last stage as purchased-only and says exactly that in the footnote", () => {
     const source = readSource("app/analytics/page.tsx");
-    expect(source).toContain('label: "구매 확인 (구매했어요)"');
+    expect(source).toContain('label: "구매 확인 응답 (샀어요)"');
     expect(source).toContain("&quot;샀어요&quot;로 답한 건수만");
     // 3갈래 합계를 마지막 단계로 쓰던 옛 각주는 남아 있지 않다.
     expect(source).not.toContain("샀어요·아직이요·괜찮아요 합계");
@@ -234,12 +234,51 @@ describe("Admin CMS analytics page (ADM-009)", () => {
   });
 
   /**
+   * 라운드 60 리뷰(P2-5) — 마지막 단은 **답**이지 구매가 아니다.
+   *
+   * 라운드 60 트랙 B가 "샀어요" 버튼에서 done 확정을 떼어 저장 자리로 옮겼다(모바일
+   * PurchaseFollowupPrompt.tsx). 그 버튼은 기록 화면을 열 뿐이라 사용자가 화면을 닫으면 답만
+   * 남고 지출은 없다 — 이 수를 "실구매"라고 부르면 앱이 이미 고친 부풀림을 어드민이 되살린다.
+   */
+  it("never calls the last funnel stage 실구매 — it counts an answer, not a record", () => {
+    const source = readSource("app/analytics/page.tsx");
+    // 옛 단정(전환율 = 실구매 비율)은 남아 있지 않다.
+    expect(source).not.toContain("링크 클릭 → 실구매 비율이에요");
+    expect(source).not.toContain("구매 확인 응답 (링크 클릭 → 실구매)");
+    // 그 자리에 사실이 적힌다: 답이지 기록이 아니다.
+    expect(source).toContain("<strong>답이지 기록이 아니에요</strong>");
+    expect(source).toContain("구매 확인 응답 (링크 클릭 → 샀어요 응답)");
+  });
+
+  /**
+   * 라운드 60 리뷰(P2-8): 온보딩 단계 수는 계약(packages/contracts/src/analytics.ts의
+   * `ONBOARDING_STEPS`)이 정한다. 어드민은 그 패키지를 의존성으로 들지 않으므로 값을 손으로
+   * 적어 두고, **여기서 대조**한다 — 레지스트리에 단계가 하나 늘면 이 테스트가 깨진다.
+   */
+  it("keeps ONBOARDING_STEP_COUNT in sync with the contracts registry (대조 테스트)", () => {
+    const source = readSource("app/analytics/page.tsx");
+    const declared = Number(source.match(/const ONBOARDING_STEP_COUNT = (\d+);/)?.[1]);
+    expect(Number.isInteger(declared)).toBe(true);
+
+    const contractsSource = readSource(join("..", "..", "packages", "contracts", "src", "analytics.ts"));
+    const steps = contractsSource.match(/export const ONBOARDING_STEPS = \[([^\]]*)\] as const;/)?.[1];
+    expect(steps, "packages/contracts/src/analytics.ts should declare ONBOARDING_STEPS").toBeTruthy();
+    const stepCount = [...steps!.matchAll(/"[a-z_]+"/g)].length;
+    expect(stepCount).toBeGreaterThan(0);
+
+    expect(
+      declared,
+      `ONBOARDING_STEP_COUNT(${declared})가 계약의 ONBOARDING_STEPS 길이(${stepCount})와 달라요`
+    ).toBe(stepCount);
+  });
+
+  /**
    * ANA-128: 3갈래 분해 표 + 응답률/구매율 카드. 분해 합계가 이벤트 이름 총계보다 작을 수
    * 있다는 사실(answer 없는 레거시·손상 페이로드)을 숨기지 않고 "분류 불가"로 드러낸다.
    */
   it("renders the purchase-followup breakdown with 응답률/구매율 and an unclassified row", () => {
     const source = readSource("app/analytics/page.tsx");
-    expect(source).toContain("구매 확인 응답 (링크 클릭 → 실구매)");
+    expect(source).toContain("구매 확인 응답 (링크 클릭 → 샀어요 응답)");
     expect(source).toContain("응답률 (클릭 대비 응답)");
     expect(source).toContain("구매율 (클릭 대비 샀어요)");
     // 3갈래가 모두 표에 있고, 각 행은 payload의 answer 리터럴을 그대로 밝힌다.
