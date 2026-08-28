@@ -403,6 +403,9 @@ model ProductLink {
   isSponsored          Boolean         @default(false) @map("is_sponsored")
   sponsorLabel         String?         @map("sponsor_label") @db.VarChar(80)
   priceSnapshotKrw     Int?            @map("price_snapshot_krw")
+  // 라운드 51 #9(000020): priceSnapshotKrw를 **언제 확인했는지**. NULL = 모름이며,
+  // 모르면 앱 응답에 가격도 싣지 않는다(items-catalog.service.ts toProductLinkDto).
+  priceCheckedAt       DateTime?       @map("price_checked_at") @db.Timestamptz(6)
   displayOrder         Int             @default(0) @map("display_order")
   active               Boolean         @default(true)
   disclosureText       String?         @map("disclosure_text") @db.VarChar(200)

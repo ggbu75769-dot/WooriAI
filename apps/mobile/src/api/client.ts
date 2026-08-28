@@ -274,6 +274,20 @@ export type ProductLink = {
   isAffiliate: boolean;
   isSponsored: boolean;
   disclosureText?: string;
+  /**
+   * 라운드 51 #9 — 판매처별 가격(가산 optional, 이번 라운드는 계약만이고 화면 배선은 없다).
+   *
+   * 서버는 **가격과 확인 시각을 함께 보내거나 둘 다 보내지 않는다**(둘 중 하나만 있는
+   * 응답은 계약 위반이다 — packages/contracts productLinkSchema의 refine). 스냅샷 가격은
+   * "언젠가 확인한 값"이라 기준 시각 없이 보여주면 사용자가 현재가로 읽는다.
+   *
+   * 그래서 화면을 배선할 때의 규칙: `priceCheckedAt`이 없으면 가격을 **그리지 않는다**.
+   * 그릴 때는 값 옆에 기준 시각을 함께 적는다(값만 크게 쓰고 시각을 숨기면 같은 허위다).
+   * 정렬·추천에는 절대 쓰지 않는다(DNC-009).
+   */
+  priceSnapshotKrw?: number;
+  /** ISO 8601 UTC 문자열. 위 priceSnapshotKrw 주석의 짝. */
+  priceCheckedAt?: string;
 };
 
 export type ItemDetail = ItemSummary & {

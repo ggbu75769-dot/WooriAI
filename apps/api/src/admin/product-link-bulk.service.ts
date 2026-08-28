@@ -90,6 +90,17 @@ export class ProductLinkBulkService {
       return false;
     });
 
+    // 라운드 51 #9: 가격을 쓰는 자리에서 그 가격의 **확인 시각**(000020)도 함께 쓴다.
+    // 앱은 확인 시각이 없는 가격을 아예 내려받지 못하므로(items-catalog.service.ts
+    // toProductLinkDto), 이 시각이 없으면 CSV로 채운 가격은 화면에 영원히 나타나지
+    // 않는다. CSV에 가격 칸이 있다는 것은 운영자가 업로드 시점에 그 값을 확인했다는
+    // 뜻이므로 값이 같아도 now로 갱신한다("아직 이 가격이 맞다"는 확인).
+    //
+    // 가격 칸이 없는 행(priceSnapshotKrw === undefined)은 시각도 건드리지 않는다 —
+    // 제휴 URL만 교체한 것은 가격을 확인한 것이 아니다. 갱신 자체가 일어나지 않는
+    // 행(위 changed 필터에서 걸러진 무변경 행)도 마찬가지로 시각이 그대로 남아,
+    // 같은 CSV 재업로드는 여전히 완전한 no-op이다.
+    const priceConfirmedAt = new Date();
     await this.prisma.$transaction(
       changed.map(({ link, affiliateUrl, priceSnapshotKrw }) =>
         this.prisma.productLink.update({
@@ -99,7 +110,7 @@ export class ProductLinkBulkService {
             // A replaced link is by definition an affiliate link now — surface
             // the mobile app's disclosure UI for it.
             isAffiliate: true,
-            ...(priceSnapshotKrw === undefined ? {} : { priceSnapshotKrw })
+            ...(priceSnapshotKrw === undefined ? {} : { priceSnapshotKrw, priceCheckedAt: priceConfirmedAt })
           }
         })
       )

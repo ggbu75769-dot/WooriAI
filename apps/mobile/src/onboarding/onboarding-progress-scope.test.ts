@@ -135,7 +135,10 @@ describe("FIX-119B/F5 app/index.tsx 배선 (source verification -- ui-wiring.tes
     expect(indexSourceText).toContain(
       'import { fetchOnboardingProgressForSelectedChild } from "../src/onboarding/onboarding-progress-scope";'
     );
-    expect(indexSourceText).toContain("fetchOnboardingProgressForSelectedChild(accessToken, selectedChildId)");
+    // 라운드 51 #2: 인자가 `accessToken`에서 `progressToken`으로 바뀌었다 -- 데모 세션은
+    // 실토큰이 없어 LOCAL_SESSION_TOKEN을 넘긴다(app/index.tsx의 progressToken 주석 참고).
+    // 래퍼를 타는 것과 무효 childId를 지우는 계약 자체는 그대로다.
+    expect(indexSourceText).toContain("fetchOnboardingProgressForSelectedChild(progressToken, selectedChildId)");
     expect(indexSourceText).toContain("if (childScopeRejected) {");
     expect(indexSourceText).toContain("clearSelectedChildId();");
     // 예전의 직접 호출은 남아 있지 않다(그 경로가 실패를 catch로 흘려보내던 자리다).

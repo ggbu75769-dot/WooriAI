@@ -165,6 +165,27 @@ async function seedItemTemplates() {
   }
 }
 
+/**
+ * 라운드 51 #9 — 시드 링크의 `price_checked_at`(000020) 결정 규칙.
+ *
+ * - 시드가 가격을 명시하지 않았으면(null) 시각도 null이다. 서버가 강제하는
+ *   "가격과 확인 시각은 함께 있거나 함께 없다" 규칙을 데이터 쪽에서도 지킨다.
+ * - 저장된 가격이 시드와 같고 확인 시각이 이미 있으면 그 시각을 유지한다 — 시드를
+ *   다시 돌린 것은 가격을 다시 확인한 것이 아니다(재실행마다 시각이 오늘로 밀리면
+ *   "방금 확인한 가격"이라는 허위 신선도가 생긴다).
+ * - 그 밖(신규 링크·가격 변경·시각 없음)은 지금으로 채운다.
+ */
+function resolveSeedPriceCheckedAt(
+  seedPriceKrw: number | null,
+  existing: { priceSnapshotKrw: number | null; priceCheckedAt: Date | null } | null
+): Date | null {
+  if (seedPriceKrw === null) return null;
+  if (existing && existing.priceCheckedAt && existing.priceSnapshotKrw === seedPriceKrw) {
+    return existing.priceCheckedAt;
+  }
+  return new Date();
+}
+
 async function seedProductLinks() {
   const items = await prisma.itemTemplate.findMany({
     where: { code: { in: itemTemplateSeeds.map((item) => item.code) } },
@@ -184,7 +205,7 @@ async function seedProductLinks() {
         platform: link.platform,
         title: link.title
       },
-      select: { id: true }
+      select: { id: true, priceSnapshotKrw: true, priceCheckedAt: true }
     });
 
     const data = {
@@ -198,6 +219,14 @@ async function seedProductLinks() {
       isSponsored: link.isSponsored,
       sponsorLabel: link.sponsorLabel,
       priceSnapshotKrw: link.priceSnapshotKrw,
+      // 라운드 51 #9(000020): 가격의 기준 시각. 서버는 이 값이 없으면 가격도 내리지
+      // 않으므로(items-catalog.service.ts toProductLinkDto), 시드가 값을 명시한
+      // 링크는 여기서 유효화한다 — 시드가 그 가격을 적어 넣은 시점이 곧 확인 시점이다.
+      //
+      // 이미 같은 가격으로 확인 시각이 남아 있으면 그대로 둔다(시드를 다시 돌렸다는
+      // 사실만으로 "방금 확인했다"고 말하지 않는다). 가격이 바뀌었거나 시각이 비어
+      // 있을 때만 지금으로 채우고, 가격이 없는 링크는 시각도 없다(둘 다 NULL 규칙).
+      priceCheckedAt: resolveSeedPriceCheckedAt(link.priceSnapshotKrw, existing),
       displayOrder: link.displayOrder,
       active: link.active,
       disclosureText: link.disclosureText

@@ -53,6 +53,11 @@ type ProductLinkRow = {
   // keep compiling; Prisma rows always carry both.
   healthStatus?: string | null;
   healthCheckedAt?: Date | null;
+  // 라운드 51 #9 (마이그레이션 000020): 판매처별 가격 스냅샷과 그 **확인 시각**.
+  // healthStatus와 같은 이유로 optional이다(예전 코드/테스트의 손수 만든 행 호환).
+  // 둘의 관계 규칙은 toProductLinkDto 주석 참고 — 하나만 있으면 둘 다 내보내지 않는다.
+  priceSnapshotKrw?: number | null;
+  priceCheckedAt?: Date | null;
 };
 
 export type AdminItemTemplateInput = {
@@ -71,6 +76,13 @@ export type AdminItemTemplateInput = {
   active?: boolean;
 };
 
+/**
+ * 라운드 51 #9 메모: 여기에는 가격(priceSnapshotKrw)이 **없다** — 어드민 단건
+ * 생성/수정 경로는 가격을 쓰지 않는다. 가격을 쓰는 유일한 어드민 경로는 CSV 벌크
+ * 교체(admin/product-link-bulk.service.ts)이고, 그 자리에서 확인 시각(000020)을
+ * 함께 남긴다. 언젠가 이 입력에 가격을 더한다면 같은 규칙(가격을 쓸 때만
+ * price_checked_at을 now로)을 그 자리에도 붙여야 한다.
+ */
 export type AdminProductLinkInput = {
   itemTemplateId?: string;
   platform?: ProductPlatform;
@@ -532,14 +544,42 @@ export class ItemsCatalogService {
     };
   }
 
+  /**
+   * 라운드 51 #9 — 판매처별 가격의 **정직한** 노출 규칙(계약만; 화면 배선은 다음 라운드).
+   *
+   * `price_snapshot_krw`는 DB·어드민 CSV·시드에 전부터 있었지만 앱 응답에는 실리지
+   * 않았다. 스냅샷 가격은 "언젠가 확인한 값"이라, 언제 확인했는지를 함께 말하지 않으면
+   * 사용자는 그것을 현재가로 읽는다 — 그 자체가 허위 표시다. 그래서 서버가 다음 규칙을
+   * **강제**한다(둘 중 하나라도 없으면 둘 다 생략):
+   *
+   *   priceCheckedAt이 null이면 priceSnapshotKrw도 내려보내지 않는다.
+   *   priceSnapshotKrw가 null이면 priceCheckedAt도 내려보내지 않는다(홀로 남은 시각은
+   *   가리킬 값이 없다).
+   *
+   * 클라이언트가 "가격은 있는데 시각이 없으니 그냥 보여주자"를 고를 수 없도록 이 판단을
+   * 화면이 아니라 여기 한 곳에 둔다. product-link-price-honesty.e2e.test.ts가 세 조합
+   * (둘 다 있음 / 가격만 / 시각만)을 고정한다.
+   *
+   * DNC-009: 이 값들은 **표시용**이다. 준비템 추천·정렬(item-ranking.ts)은 링크를 아예
+   * 보지 않으며(RankableItem에 가격 필드가 없다), 링크 정렬도 displayOrder와 헬스
+   * 강등만 본다 — 같은 e2e가 가격을 흔들어도 순서가 변하지 않음을 고정한다.
+   */
   private toProductLinkDto(link: ProductLinkRow, disclosures: Map<string, string>) {
+    const priceKrw = link.priceSnapshotKrw ?? null;
+    const priceCheckedAt = link.priceCheckedAt ?? null;
+    // 둘 다 있을 때만 둘 다 싣는다(가산 optional — 구버전 클라이언트는 이 두 키를 무시한다).
+    const datedPrice =
+      priceKrw !== null && priceCheckedAt !== null
+        ? { priceSnapshotKrw: priceKrw, priceCheckedAt: priceCheckedAt.toISOString() }
+        : {};
     return {
       id: link.id,
       platform: link.platform,
       title: link.title,
       isAffiliate: link.isAffiliate,
       isSponsored: link.isSponsored,
-      disclosureText: link.disclosureText ?? this.defaultDisclosureFor(link, disclosures)
+      disclosureText: link.disclosureText ?? this.defaultDisclosureFor(link, disclosures),
+      ...datedPrice
     };
   }
 
