@@ -29,6 +29,19 @@ import { normalizeItemSearchText } from "./item-filters";
 export type ExpenseLinkParams = {
   itemName: string;
   itemTemplateId: string;
+  /**
+   * 라운드 49 C-02: 준비템이 속한 지출 분류(categories.id).
+   *
+   * /expenses/new의 프리필 계약은 이미 categoryId를 받는다
+   * (src/expenses/record-row-actions.ts의 parseExpensePrefillParams — "또 기록"이 쓰던 길).
+   * 서버 DTO에도 값이 있었는데(item_templates.category_id, 시드 63개 전부) 준비템 쪽
+   * 진입점만 그 값을 넘기지 않아, 준비템에서 기록하면 분류가 늘 기본 타일로 떨어졌다.
+   *
+   * **optional이다**: 서버 컬럼이 nullable이고, 로컬 백엔드 픽스처처럼 값이 없는 경로가
+   * 있으며, 없으면 종전과 똑같이 기본 타일에서 시작한다(파라미터 키 자체를 만들지 않는다).
+   * 화면이 알아보지 못하는 분류 id는 new.tsx가 조용히 무시한다.
+   */
+  categoryId?: string;
 };
 
 /**
@@ -65,6 +78,10 @@ export function expenseLinkParams(
   source?: ExpenseEntrySource
 ): ExpenseLinkParamsWithSource {
   const params: ExpenseLinkParamsWithSource = { itemName: input.itemName, itemTemplateId: input.itemTemplateId };
+  // 라운드 49 C-02: 분류는 **있을 때만** 키를 만든다. 빈 문자열을 실으면 /expenses/new가
+  // 그것을 분류 지정으로 읽어 유효하지 않은 값을 해석하려 들고, 없던 시절의 링크와 모양이
+  // 달라진다. 없으면 예전과 한 글자도 다르지 않은 파라미터가 나간다.
+  if (input.categoryId) params.categoryId = input.categoryId;
   if (source) params[EXPENSE_ENTRY_SOURCE_PARAM] = source;
   return params;
 }
@@ -143,6 +160,13 @@ export type ExpenseLinkPromptScope = {
 export type ExpenseLinkPrompt = {
   itemTemplateId: string;
   itemName: string;
+  /**
+   * 라운드 49 C-02: 그 준비템의 지출 분류(있으면). 프롬프트를 들고 다니는 이유는 이 줄이
+   * **행이 목록에서 빠진 뒤에도**(detached) 살아 있기 때문이다 — 그때는 목록에서 다시
+   * 찾아볼 수 없으므로, 줄을 남기는 순간의 값을 함께 박아 둬야 인라인과 떨어져 나온 줄이
+   * 같은 프리필을 보낸다. 없으면 종전과 같이 분류 없이 넘어간다.
+   */
+  categoryId?: string;
   /** 이 줄이 만들어진 순간의 화면 좌표. 지금 화면과 어긋나면 이 줄은 무효다. */
   scope: ExpenseLinkPromptScope;
 };
@@ -189,12 +213,20 @@ export function isExpenseLinkPromptStale(input: {
 export function nextExpenseLinkPrompt(input: {
   itemTemplateId: string;
   itemName: string;
+  /** 라운드 49 C-02: 그 행의 분류(응답에 있으면). 없으면 프롬프트에도 담지 않는다. */
+  categoryId?: string;
   status: ItemStatus;
   scope: ExpenseLinkPromptScope;
 }): ExpenseLinkPrompt | null {
   if (input.status !== "prepared") return null;
   if (!input.itemTemplateId || !input.itemName) return null;
-  return { itemTemplateId: input.itemTemplateId, itemName: input.itemName, scope: input.scope };
+  const prompt: ExpenseLinkPrompt = {
+    itemTemplateId: input.itemTemplateId,
+    itemName: input.itemName,
+    scope: input.scope
+  };
+  if (input.categoryId) prompt.categoryId = input.categoryId;
+  return prompt;
 }
 
 /**

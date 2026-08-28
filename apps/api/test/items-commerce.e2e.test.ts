@@ -1229,4 +1229,148 @@ describe("Items, commerce, and affiliate API", () => {
       delete process.env.WOORIAI_ADMIN_TOKEN;
     }
   });
+
+  /**
+   * 라운드 49 C-02: `categoryId`가 앱 DTO(목록·상세·상태변경 응답)에 실린다.
+   *
+   * 시드 63개 준비템 전부가 실제 categories 행을 가리키는데(prisma/seed.ts seedItemTemplates)
+   * 앱 DTO가 그 값을 버려서, "준비템 → 지출 기록" 프리필이 품목명만 넘기고 분류는 늘 기본
+   * 타일로 떨어졌다. 값은 카테고리 목록에 실재하는 id여야 한다 — 앱이 그 id로 분류 타일을
+   * 찾기 때문에, 어디에도 없는 uuid를 내려주면 조용히 무시되는 죽은 필드가 된다.
+   */
+  it("라운드 49 C-02: 준비템 DTO가 실재하는 categoryId를 목록·상세·상태변경 응답에 싣는다", async () => {
+    const accessToken = await login(app, "r49c02-item-category");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const categories = (
+      await request(app.getHttpServer())
+        .get("/api/v1/categories?includeAll=1")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.categories as Array<{ id: string }>;
+    const categoryIds = new Set(categories.map((category) => category.id));
+    expect(categoryIds.size).toBeGreaterThan(0);
+
+    const nowItems = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items as Array<ItemSummary & { categoryId?: string }>;
+    expect(nowItems.length).toBeGreaterThan(0);
+
+    // 시드 준비템은 전부 분류를 갖고 있다 — 하나라도 비면 프리필이 그 항목에서만 조용히
+    // 예전 동작으로 떨어진다.
+    for (const item of nowItems) {
+      itemSummarySchema.parse(item);
+      expect(item.categoryId, `${item.name} carries a categoryId`).toBeDefined();
+      expect(categoryIds.has(item.categoryId!), `${item.name}'s categoryId exists in /categories`).toBe(true);
+    }
+
+    const target = nowItems[0];
+    const detail = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items/${target.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as { categoryId?: string };
+    itemDetailSchema.parse(detail);
+    expect(detail.categoryId).toBe(target.categoryId);
+
+    // 상태 변경 응답도 같은 요약 DTO라 함께 실린다(목록이 갱신되기 전에 쓰는 화면이 있다).
+    await request(app.getHttpServer())
+      .patch(`/api/v1/children/${childId}/items/${target.id}/status`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ status: "interested" })
+      .expect(200)
+      .expect(({ body }) => {
+        itemSummarySchema.parse(body);
+        expect(body.categoryId).toBe(target.categoryId);
+      });
+  });
+
+  /**
+   * 라운드 49 C-04: 준비템 상세의 `linkedExpense` — 연결된 지출의 역방향 노출.
+   *
+   * `child_item_statuses.expense_id`는 지출 저장 경로가 예전부터 채우고 있었지만
+   * (store-shared.ts markLinkedItemPrepared) 어느 응답에도 실리지 않아, 앱에서는
+   * "지출 → 준비템"만 보이고 그 반대는 볼 길이 없었다.
+   *
+   * 두 번째 단언이 이 티켓의 핵심이다: **지출을 삭제하면 null로 사라져야 한다.** 삭제는
+   * 소프트 삭제이고 연결(expense_id)을 되돌리지 않으므로, deleted_at 필터가 없으면 사용자가
+   * 지운 지출의 금액이 준비템 상세에 계속 떠 있게 된다 — 총액과 어긋나는 허위 표시다.
+   */
+  it("라운드 49 C-04: 연결된 지출이 상세에 실리고, 그 지출을 삭제하면 null이 된다", async () => {
+    const accessToken = await login(app, "r49c04-linked-expense");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const categories = (
+      await request(app.getHttpServer())
+        .get("/api/v1/categories")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.categories as Array<{ id: string }>;
+    const categoryId = categories[0].id;
+
+    const nowItems = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items as ItemSummary[];
+    const target = nowItems[0];
+    expect(target).toBeDefined();
+
+    // 연결 전에는 필드가 있어도 값이 없다 — "아직 기록 없음"과 "기록 있음"이 구분된다.
+    const before = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items/${target.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as { linkedExpense: unknown };
+    itemDetailSchema.parse(before);
+    expect(before.linkedExpense).toBeNull();
+
+    const created = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          categoryId,
+          amountKrw: 38500,
+          spentOn: "2026-07-06",
+          itemName: target.name,
+          linkedItemTemplateId: target.id
+        })
+        .expect(200)
+    ).body as { id: string; version: number };
+
+    const afterLink = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items/${target.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as { status: string; linkedExpense: { id: string; amountKrw: number; spentOn: string } | null };
+    itemDetailSchema.parse(afterLink);
+    // R19-B: 연결된 지출을 저장하면 그 준비템은 준비 완료가 된다 — 그 상태와 금액이 함께 보인다.
+    expect(afterLink.status).toBe("prepared");
+    expect(afterLink.linkedExpense).toEqual({ id: created.id, amountKrw: 38500, spentOn: "2026-07-06" });
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/expenses/${created.id}?expectedVersion=${created.version}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+
+    const afterDelete = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items/${target.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as { status: string; linkedExpense: unknown };
+    itemDetailSchema.parse(afterDelete);
+    // 삭제한 지출의 금액을 계속 보여주면 허위다. 준비 상태 자체는 되돌리지 않는 기존 규칙
+    // 그대로다(deleteExpense 주석) — 사라지는 것은 **금액 표시**뿐이다.
+    expect(afterDelete.linkedExpense).toBeNull();
+    expect(afterDelete.status).toBe("prepared");
+  });
 });

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterInterestedItems,
   filterItems,
   hasActiveItemFilter,
+  INTERESTED_FILTER_EMPTY_TEXT,
+  INTERESTED_FILTER_LABEL,
+  INTERESTED_FILTER_SCOPE_NOTE,
+  itemIsInterested,
   itemMatchesNecessity,
   itemMatchesSearch,
   NECESSITY_FILTER_OPTIONS,
@@ -91,5 +96,54 @@ describe("hasActiveItemFilter", () => {
     expect(hasActiveItemFilter({ necessity: "all", searchText: "   " })).toBe(false);
     expect(hasActiveItemFilter({ necessity: "essential", searchText: "" })).toBe(true);
     expect(hasActiveItemFilter({ necessity: "all", searchText: "카시트" })).toBe(true);
+  });
+});
+
+/**
+ * 라운드 49 C-01: 찜(♡) 필터. 상세의 찜하기가 서버에 `interested`를 남기는데도 그것만 모아
+ * 보는 경로가 없어, 찜은 눌러도 다시 찾을 수 없는 기능이었다.
+ */
+describe("interested (찜) filter", () => {
+  const snapshot = [
+    { id: "car-seat", name: "카시트", status: "not_prepared" as const },
+    { id: "bottle", name: "젖병/소독 세트", status: "interested" as const },
+    { id: "mobile", name: "모빌/백색소음기", status: "prepared" as const },
+    { id: "diary", name: "태교 일기장", status: "interested" as const },
+    { id: "gift", name: "손수건 세트", status: "gifted" as const },
+    { id: "skip", name: "젖병 소독기", status: "not_needed" as const }
+  ];
+
+  it("판정은 상세의 찜하기가 저장하는 status 하나로 끝난다", () => {
+    expect(itemIsInterested({ status: "interested" })).toBe(true);
+    for (const status of ["not_prepared", "prepared", "gifted", "not_needed"] as const) {
+      expect(itemIsInterested({ status })).toBe(false);
+    }
+  });
+
+  it("찜한 항목만 남기고, 나머지 상태는 전부 걸러 낸다", () => {
+    expect(filterInterestedItems(snapshot).map((item) => item.id)).toEqual(["bottle", "diary"]);
+  });
+
+  it("받은 순서를 바꾸지 않는다 (추천 순서 계약 무접촉)", () => {
+    const reversed = [...snapshot].reverse();
+    expect(filterInterestedItems(reversed).map((item) => item.id)).toEqual(["diary", "bottle"]);
+  });
+
+  it("찜한 것이 하나도 없으면 빈 배열 — 없는 항목을 지어내지 않는다", () => {
+    expect(filterInterestedItems(snapshot.filter((item) => item.status !== "interested"))).toEqual([]);
+    expect(filterInterestedItems([])).toEqual([]);
+  });
+
+  /**
+   * 문구는 화면과 테스트가 같은 상수를 본다. 시기 칩을 따르지 않는다는 사실을 화면이 실제로
+   * 밝히는지는 아래 wiring 테스트(item-expense-roundtrip-wiring.test.ts)가 확인한다.
+   */
+  it("칩 라벨과 안내 문구는 해요체이고 찜을 재촉하지 않는다", () => {
+    expect(INTERESTED_FILTER_LABEL).toBe("찜한 것만");
+    expect(INTERESTED_FILTER_SCOPE_NOTE).toBe("찜한 준비템은 시기와 상관없이 모두 보여요.");
+    expect(INTERESTED_FILTER_EMPTY_TEXT).toBe("아직 찜한 준비템이 없어요.");
+    for (const text of [INTERESTED_FILTER_SCOPE_NOTE, INTERESTED_FILTER_EMPTY_TEXT]) {
+      expect(text.endsWith("요.")).toBe(true);
+    }
   });
 });
