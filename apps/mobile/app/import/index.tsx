@@ -4,7 +4,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import { apiErrorMessage } from "../../src/api/api-error";
 import { createExcelImport, LOCAL_SESSION_TOKEN, undoImport, type Child } from "../../src/api/client";
 // 라운드 68 트랙 B(#5): 다자녀 스코프 라벨의 해석·조립은 여덟 화면이 쓰는 **같은 순수 모듈 한 벌**
 // 에서만 온다(새 어휘를 만들지 않는다 — 라운드 48 T4의 `resolveChildScopeLabel`).
@@ -31,6 +30,9 @@ import {
   importUploadFileStatusText,
   importUploadPhase
 } from "../../src/import/upload-copy";
+// 라운드 71 트랙 A: 업로드·되돌리기 실패도 서버가 준 이름을 그대로 말한다(문구·판정은 순수 모듈).
+import { importFailureMessage } from "../../src/import/import-failure-messages";
+import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { validateImportFile } from "../../src/import-file-validation";
 import { useImportResumeStore } from "../../src/stores/import-resume.store";
@@ -105,6 +107,15 @@ export default function ImportUploadScreen() {
   const expenseGate = useExpenseEntryGate();
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
+  /**
+   * 라운드 71 트랙 A — **실패한 그 순간의 연결 상태**(오프라인이면 "잠시 후 다시"가 거짓말이 된다).
+   *
+   * 판정은 point-in-time 폴 한 번이고(app/family/index.tsx가 쓰는 그 배선 — 새 훅을 만들지
+   * 않는다), 기본값 true는 폴이 돌아오기 전과 판정 불가 플랫폼(web)에서 **종전 문구 그대로**를
+   * 뜻한다. 매 시도 시작에서 다시 true로 되돌린다 — 앞 실패의 판정이 다음 실패에 얹히면
+   * 화면이 없던 오프라인을 말하게 된다.
+   */
+  const [uploadFailureOnline, setUploadFailureOnline] = useState(true);
   // 라운드 56 D#5: 검토 도중 이탈해도 돌아올 길을 남긴다(규칙·문구는 src/import/import-resume.ts).
   const resumeEntry = useImportResumeStore((state) => state.entry);
   // 라운드 67 적대 리뷰 #1: 확정된 잡은 **다른 칸**에 있다 — 그래서 새 업로드가 이 입구를 덮지 않는다.
@@ -143,6 +154,12 @@ export default function ImportUploadScreen() {
   const upload = useMutation({
     mutationFn: (asset: DocumentPicker.DocumentPickerAsset) =>
       createExcelImport(authToken!, childId!, { uri: asset.uri, name: asset.name, mimeType: asset.mimeType }),
+    onMutate: () => {
+      setUploadFailureOnline(true);
+    },
+    onError: () => {
+      void isCurrentlyOnline().then(setUploadFailureOnline);
+    },
     // 파일명은 **이번 업로드의 변수**에서 온다(화면 state가 아니라) -- state는 이 콜백이 만들어진
     // 렌더의 값이라 첫 업로드에서는 아직 null이다.
     onSuccess: (job, asset) => {
@@ -188,8 +205,14 @@ export default function ImportUploadScreen() {
       // 행이 있으면 둘이 다르고, 그때 카드의 숫자를 말하면 화면이 거짓을 말한다).
       Alert.alert(IMPORT_UNDO_CARD_TITLE, importUndoResultMessage(result.deletedCount));
     },
+    // 라운드 71 트랙 A: 서버는 되돌릴 수 없는 이유를 코드로 말한다(`IMPORT_NOT_UNDOABLE` ·
+    // `IMPORT_JOB_NOT_FOUND` · 403). 종전에는 표에 없어 전부 "되돌리지 못했어요. 잠시 후 다시
+    // 시도해 주세요."로 접혔는데, 셋 다 다시 눌러도 같은 답이 오는 사실이다. 실패한 그 순간의
+    // 연결 상태를 한 번 확인해 넘기는 배선은 가족 화면(app/family/index.tsx)의 그것과 같다.
     onError: (error) => {
-      Alert.alert(IMPORT_UNDO_CARD_TITLE, apiErrorMessage(error, "되돌리지 못했어요. 잠시 후 다시 시도해 주세요."));
+      void isCurrentlyOnline().then((isOnline) => {
+        Alert.alert(IMPORT_UNDO_CARD_TITLE, importFailureMessage("undo", error, { isOnline }));
+      });
     }
   });
 
@@ -455,11 +478,15 @@ export default function ImportUploadScreen() {
       {/* 라운드 45 UX-Z: 예전에는 어떤 실패든 "잠시 후 다시 시도해 주세요."였다. 그런데 서버가
           거절하는 대표적인 이유(2,000행 초과 · csv/xlsx 아님 · 10MB 초과)는 **다시 눌러도 절대
           성공하지 않는다** -- 그 사람에게 필요한 것은 재시도가 아니라 파일을 나누거나 바꾸라는
-          사실이다. 아는 코드만 문구로 바꾸고(src/api/api-error.ts의 화이트리스트), 나머지는
-          예전 문장 그대로 폴백한다. */}
+          사실이다. 아는 코드만 문구로 바꾸고, 나머지는 예전 문장 그대로 폴백한다.
+          라운드 71 트랙 A: 그 판정이 여정 전용 모듈을 한 번 지난다 -- 표에 없던
+          `IMPORT_FILE_INVALID`(사용자가 실제로 고칠 수 있는 유일한 실패)와 403·오프라인이
+          여기서 갈린다. 세 줄(행 수·확장자·용량)의 문구는 여전히 앱 전역 표에서 온다.
+          ⚠️ IMP-003 픽셀락: 이 텍스트 노드는 업로드 실패 상태에서만 서고 캡처는 비로그인
+          경로라(upload.error가 없다) 캡처 화면은 한 픽셀도 바뀌지 않는다. */}
       {upload.error ? (
         <Text style={{ color: theme.colors.danger }}>
-          {apiErrorMessage(upload.error, "업로드하지 못했어요. 잠시 후 다시 시도해 주세요.")}
+          {importFailureMessage("upload", upload.error, { isOnline: uploadFailureOnline })}
         </Text>
       ) : null}
     </View>

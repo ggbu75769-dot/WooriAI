@@ -553,12 +553,27 @@ describe("배선 계약 (source verification)", () => {
     expect(clientSource).toContain("this.code = parseApiErrorEnvelope(body)?.code ?? null;");
   });
 
+  /**
+   * 라운드 71 트랙 A — 이 자리의 배선이 **한 겹 깊어졌다.** 업로드 화면은 이제
+   * `src/import/import-failure-messages.ts`(가져오기 여정 전용 문구 모듈)를 부르고, 그 모듈이
+   * 자기 표를 먼저 본 뒤 **이 표를 한 번 지난다**. 여기서 지키는 계약은 그대로다: 행 초과·형식
+   * 거절 두 코드의 문구가 이 표에서 오고, 무조건 재시도 안내가 하드코딩으로 남아 있지 않다.
+   * (여정 전체의 코드 스윕은 import-failure-messages.test.ts가 진다 — 그 파일 넷은 아웃박스가
+   * 지나는 파일이고 가져오기는 큐를 타지 않는 즉시 요청이라 이 스윕의 시야 밖이다.)
+   */
   it("ⓐ 가져오기 업로드 실패가 코드별 문구를 쓴다 (행 초과·형식 거절에 '잠시 후 다시' 오안내 제거)", () => {
     const importSource = source("app/import/index.tsx");
-    expect(importSource).toContain('import { apiErrorMessage } from "../../src/api/api-error";');
+    expect(importSource).toContain('import { importFailureMessage } from "../../src/import/import-failure-messages";');
     expect(importSource).toContain(
-      'apiErrorMessage(upload.error, "업로드하지 못했어요. 잠시 후 다시 시도해 주세요.")'
+      '{importFailureMessage("upload", upload.error, { isOnline: uploadFailureOnline })}'
     );
+    // 그 모듈이 이 표를 실제로 지난다(같은 실패를 두 문장이 각자 말하지 않는다).
+    const failureMessages = source("src/import/import-failure-messages.ts");
+    expect(failureMessages).toContain('import { apiErrorCodeOf, apiErrorMessageForCode } from "../api/api-error";');
+    expect(failureMessages).toContain("const knownGlobally = apiErrorMessageForCode(code);");
+    // 표의 두 줄은 여전히 이 표의 것이다(여정 모듈이 다시 적지 않는다).
+    expect(failureMessages).not.toContain("IMPORT_TOO_MANY_ROWS:");
+    expect(failureMessages).not.toContain("IMPORT_FILE_TYPE_INVALID:");
     // 예전의 무조건 재시도 안내(문구 하드코딩)는 남아 있으면 안 된다.
     expect(importSource).not.toContain(
       ">업로드하지 못했어요. 잠시 후 다시 시도해 주세요.</Text>"

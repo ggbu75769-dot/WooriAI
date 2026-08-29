@@ -43,7 +43,10 @@ import {
   type ImportBulkRunHandle,
   type ImportBulkRunOutcome
 } from "../../src/import/bulk-run";
+// 라운드 71 트랙 A: 행 편집·확정 실패는 조회 실패가 아니다 — 문구·판정은 이 순수 모듈 한 곳에서 온다.
+import { importFailureMessage } from "../../src/import/import-failure-messages";
 import { shouldForgetImportResume, shouldMarkImportResumeConfirmed } from "../../src/import/import-resume";
+import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import {
   attentionFilterChipLabel,
   buildImportBulkSelectionPlan,
@@ -111,6 +114,16 @@ const statusCopy: Record<ImportJob["status"], { label: string; tone: "neutral" |
   cancelled: { label: "가져오기가 취소됐어요", tone: "neutral" }
 };
 
+/**
+ * **조회** 실패 전용 문구다(잡 조회 · 행 목록 조회 두 자리).
+ *
+ * 라운드 71 트랙 A: 종전에는 이 한 문자열이 **네 자리**에 섰다 — 위 둘에 더해 행 체크·분류
+ * 편집 실패와 최종 확정 실패까지. 뒤의 둘은 "불러오지" 못한 것이 아니라 **저장하지 못한
+ * 것**이라 동사부터 틀렸고, 그 자리에는 [다시 시도]도 없었다. 이제 그 둘은
+ * `importFailureMessage`(src/import/import-failure-messages.ts)를 지난다. 여기 남은 두 자리는
+ * 실제로 [다시 시도]가 통하는 조회 실패이고, 그 오프라인 인지 배선은 목록 파일
+ * (`src/offline/offline-aware-screens.ts`)을 여는 다른 라운드의 몫이다(P3).
+ */
 const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
 
 // UX-S: 이 화면의 스크롤러는 FlatList 자체다(아래 주석 참고) -- 웹에서 스크롤바만 감추는
@@ -447,6 +460,16 @@ export default function ImportPreviewScreen() {
    * 행이 칩 12개를 항상 들고 있으면 가상화가 아끼려던 것을 그대로 다시 쓴다.
    */
   const [expandedCategoryRowId, setExpandedCategoryRowId] = useState<string | null>(null);
+  /**
+   * 라운드 71 트랙 A — **실패한 그 순간의 연결 상태.** 두 자리(행 편집 · 확정)가 각자 들고
+   * 있는 이유는 두 실패가 동시에 화면에 설 수 있고 원인이 서로 다를 수 있기 때문이다.
+   *
+   * 판정은 point-in-time 폴 한 번이고(가족 화면이 쓰는 그 배선 — 새 훅을 만들지 않는다),
+   * 기본값 true는 폴이 돌아오기 전과 판정 불가 플랫폼(web)에서 **일반 문구로 안전하게 떨어짐**을
+   * 뜻한다. 매 시도 시작에서 true로 되돌려 앞 실패의 판정이 다음 실패에 얹히지 않게 한다.
+   */
+  const [rowEditFailureOnline, setRowEditFailureOnline] = useState(true);
+  const [confirmFailureOnline, setConfirmFailureOnline] = useState(true);
 
   const rowsQueryKey = useMemo(() => ["import-rows", importJobId] as const, [importJobId]);
 
@@ -567,6 +590,7 @@ export default function ImportPreviewScreen() {
     // `toggleRow.isPending`이 **전 행을 잠갔다** -- 2,000행짜리 목록에서 체크 한 번마다 목록
     // 전체가 굳었다.
     onMutate: async (row) => {
+      setRowEditFailureOnline(true);
       await queryClient.cancelQueries({ queryKey: rowsQueryKey });
       const snapshot = queryClient.getQueryData<ImportRowsResponse>(rowsQueryKey);
       setPendingRowIds((ids) => {
@@ -587,7 +611,10 @@ export default function ImportPreviewScreen() {
       );
     },
     // 실패하면 그 행만 원래대로 되돌린다(스냅샷 통째로 덮으면 그 사이 성공한 다른 행까지 지워진다).
+    // 라운드 71 트랙 A: **롤백 동작은 한 줄도 바뀌지 않는다** — 더해지는 것은 그 실패 뒤에 설
+    // 문장을 고르기 위한 연결 상태 폴 한 번뿐이다.
     onError: (_error, row, context) => {
+      void isCurrentlyOnline().then(setRowEditFailureOnline);
       const snapshot = context?.snapshot;
       if (!snapshot) return;
       queryClient.setQueryData<ImportRowsResponse>(rowsQueryKey, (current) =>
@@ -619,6 +646,7 @@ export default function ImportPreviewScreen() {
     mutationFn: ({ row, categoryId }: { row: ImportRow; categoryId: string }) =>
       updateImportRow(authToken!, importJobId, row.id, { categoryId }),
     onMutate: async ({ row }) => {
+      setRowEditFailureOnline(true);
       // 라운드 65 후속(#5): 진행 중인 목록 재조회를 먼저 세운다 — `toggleRow.onMutate`와 같은
       // 한 줄이다. onSuccess가 서버가 돌려준 행을 캐시에 꽂는데, 그 사이 날아가던 refetch가
       // 뒤늦게 착지하면 **분류를 고르기 전의 행**으로 되돌아간다(사용자가 고른 값이 조용히
@@ -634,6 +662,11 @@ export default function ImportPreviewScreen() {
       queryClient.setQueryData<ImportRowsResponse>(rowsQueryKey, (current) =>
         current ? { rows: current.rows.map((row) => (row.id === updated.id ? updated : row)) } : current
       );
+    },
+    // 라운드 71 트랙 A: 캐시는 손대지 않는다(이 뮤테이션은 낙관 갱신을 하지 않으므로 되돌릴
+    // 것이 없다) — 실패 뒤에 설 문장을 고르기 위한 연결 상태 폴 한 번뿐이다.
+    onError: () => {
+      void isCurrentlyOnline().then(setRowEditFailureOnline);
     },
     onSettled: (_data, _error, { row }) => {
       setPendingRowIds((ids) => {
@@ -656,6 +689,7 @@ export default function ImportPreviewScreen() {
   const [landingMonth, setLandingMonth] = useState<string | null>(null);
   const confirm = useMutation({
     mutationFn: () => {
+      setConfirmFailureOnline(true);
       const rowList = rows.data?.rows ?? [];
       const confirmedIds = selectedRowIds(rowList);
       // 실제로 가져가는 행만 본다 -- 확정에서 빠진 행(잠긴 행·체크 해제)의 날짜로 착지 월을
@@ -676,6 +710,13 @@ export default function ImportPreviewScreen() {
       await queryClient.invalidateQueries({ queryKey: ["home"] });
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["budget"] });
+    },
+    /**
+     * 라운드 71 트랙 A — **확정 CAS·잠금 규칙은 한 줄도 바뀌지 않는다**(라운드 42 L-2의 영구
+     * 손실 창). 여기서 하는 일은 실패 뒤에 설 문장을 고를 연결 상태를 한 번 확인하는 것뿐이다.
+     */
+    onError: () => {
+      void isCurrentlyOnline().then(setConfirmFailureOnline);
     }
   });
 
@@ -1104,10 +1145,24 @@ export default function ImportPreviewScreen() {
     </View>
   );
 
+  /**
+   * 라운드 71 트랙 A — 두 편집 뮤테이션 중 실패한 쪽의 **값**. 종전 조건(`toggleRow.isError ||
+   * updateCategory.isError`)과 참·거짓이 같고(react-query의 `error`는 isError일 때만 non-null),
+   * 다른 점은 그 값을 문구 판정에 넘길 수 있다는 것뿐이다. 둘이 동시에 실패했으면 사용자가
+   * 방금 누른 쪽(체크)을 먼저 말한다.
+   */
+  const rowEditError = toggleRow.error ?? updateCategory.error;
+
   const listFooter = (
     <View style={{ gap: theme.spacing.gap, marginTop: theme.spacing.section }}>
-      {toggleRow.isError || updateCategory.isError ? (
-        <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text>
+      {/* 라운드 71 트랙 A: 체크·분류 편집 실패는 **저장** 실패다. 종전에는 조회 실패 문구가
+          그대로 섰고(동사부터 틀렸다), 가장 도달하기 쉬운 갈래인 "같은 아이의 파일을 새로
+          올려 앞 잡이 cancelled로 내려간" 경우(IMPORT_NOT_EDITABLE)가 하필 가장 조용했다.
+          이제 서버가 준 이름마다 정직한 문장과 다음 할 일이 선다. */}
+      {rowEditError ? (
+        <Text style={{ color: theme.colors.danger }}>
+          {importFailureMessage("row_edit", rowEditError, { isOnline: rowEditFailureOnline })}
+        </Text>
       ) : null}
       {/* 라운드 40 J-6: 확정은 서버에서 **편집 권한**을 요구한다(import-pipeline.service.ts의
           `requireImportJobAccess(user, id, true)` → 403). 게이트가 없으면 보기 전용 참여자가
@@ -1131,7 +1186,14 @@ export default function ImportPreviewScreen() {
       {isPreviewReady && !confirmBlockedByPending && bulkRunHeldElsewhere ? (
         <Text style={mutedTextStyle}>{IMPORT_BULK_CLAIM_BUSY_TEXT}</Text>
       ) : null}
-      {confirm.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+      {/* 라운드 71 트랙 A: 마지막 버튼의 실패도 조회 실패가 아니다. `IMPORT_NOT_CONFIRMABLE`
+          (상태 검사 · 확정 CAS 두 자리)은 다시 눌러도 같은 답이 오는 사실이라, 재시도를 권하는
+          대신 검수 내용이 남지 않는다는 것과 다음에 할 일을 말한다. 버튼·카드 구조는 무변경이다. */}
+      {confirm.isError ? (
+        <Text style={{ color: theme.colors.danger }}>
+          {importFailureMessage("confirm", confirm.error, { isOnline: confirmFailureOnline })}
+        </Text>
+      ) : null}
     </View>
   );
 
