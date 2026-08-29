@@ -313,7 +313,15 @@ describe("Admin CMS and settings APIs", () => {
         expect(body.confirmationText).toBe("LEAVE HOUSEHOLD");
         // 라운드 45 UX-AA: 이 배열은 앱의 확인 상자에 그대로 그려지므로 한국어 해요체다
         // (예전 영문 "shared child data is no longer accessible..."을 그리던 자리).
-        expect(body.impact).toEqual(["이 가구에 공유된 아이 기록을 볼 수 없어요"]);
+        //
+        // GAP-070 D: 이 계정은 가입과 함께 만들어진 자기 가구의 **관리자**다. 관리자가 나가면
+        // 그 가구에는 owner 역할이 아무도 없고(assertOwner는 구성원 역할을 본다) 역할을
+        // 넘기는 엔드포인트가 0건이라 초대·구성원 관리를 영구히 잃는다 — 그 사실을 말하는
+        // 둘째 줄이 **요청자의 역할에서 파생**돼 선다.
+        expect(body.impact).toEqual([
+          "이 가구에 공유된 아이 기록을 볼 수 없어요",
+          "관리자인 내가 나가면 그 가족에 관리자가 없어져서 새 구성원 초대와 구성원 관리를 아무도 할 수 없어요"
+        ]);
       });
 
     await request(app.getHttpServer())
@@ -323,7 +331,13 @@ describe("Admin CMS and settings APIs", () => {
       .expect(({ body }) => {
         expect(body.flowId).toBe("account_delete");
         expect(body.confirmationText).toBe("DELETE ACCOUNT");
-        expect(body.impact).toEqual(["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"]);
+        // GAP-070 D: 계정 삭제도 같은 판정을 지난다(관리자인 가구가 하나라도 있으면 한 줄).
+        // 종전에는 이 핸들러가 `@Req()`조차 받지 않는 완전 정적 응답이었다.
+        expect(body.impact).toEqual([
+          "이 계정으로는 다시 로그인할 수 없어요",
+          "참여 중인 가구에서 모두 나가게 돼요",
+          "관리자인 내가 나가면 그 가족에 관리자가 없어져서 새 구성원 초대와 구성원 관리를 아무도 할 수 없어요"
+        ]);
       });
 
     await request(app.getHttpServer())
@@ -339,6 +353,79 @@ describe("Admin CMS and settings APIs", () => {
       .get("/api/v1/me")
       .set("Authorization", `Bearer ${accessToken}`)
       .expect(401);
+  });
+
+  /**
+   * GAP-070 D: 되돌릴 수 없는 두 흐름의 impact는 **요청자의 역할에서 파생**된다.
+   *
+   * 회귀 좌표는 넷이고(관리자/비관리자 × 가구 탈퇴/계정 삭제), 관리자 둘은 위 테스트가
+   * 덮는다. 여기서 고정하는 것은 **바뀌지 않기로 한 쪽**이다 — 관리자가 아닌 사람에게는
+   * 종전과 바이트 단위로 같은 배열이어야 한다(관리자를 잃는 사건이 일어나지 않으므로).
+   *
+   * 판정에 쓰는 값은 `AuthenticatedUser.households`의 역할뿐이라 **새 조회가 0건**이고,
+   * 남은 구성원 수는 세지 않는다.
+   */
+  it("keeps leave/delete preview impact byte-identical for a member who is nobody's owner (GAP-070 D)", async () => {
+    const ownerToken = await login(app, "batch10-owner-loss-owner");
+    const { householdId } = await completeOnboarding(app, ownerToken);
+
+    const invite = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "co_parent", channel: "link" })
+      .expect(200);
+    const inviteToken = (invite.body.inviteUrl as string).split("/invite/")[1];
+
+    const memberToken = await login(app, "batch10-owner-loss-member");
+    // 첫 로그인은 자기 기본 가구의 owner로 시작한다(findOrCreateProviderUser). 그 가구를
+    // 떠나야 "관리자인 가구가 하나도 없는" 좌표가 만들어진다 — 계정 삭제 미리보기의 판정
+    // 대상은 가구 하나가 아니라 참여 중인 가구 전부다.
+    const ownHouseholdId = (
+      await request(app.getHttpServer()).get("/api/v1/me").set("Authorization", `Bearer ${memberToken}`).expect(200)
+    ).body.households[0].id as string;
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${inviteToken}/accept`)
+      .set("Authorization", `Bearer ${memberToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.household).toMatchObject({ id: householdId, role: "co_parent" });
+      });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/settings/households/${ownHouseholdId}/leave-confirm`)
+      .set("Authorization", `Bearer ${memberToken}`)
+      .send({ confirmationText: "LEAVE HOUSEHOLD" })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/settings/households/${householdId}/leave-preview`)
+      .set("Authorization", `Bearer ${memberToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.impact).toEqual(["이 가구에 공유된 아이 기록을 볼 수 없어요"]);
+      });
+
+    await request(app.getHttpServer())
+      .post("/api/v1/settings/account/delete-preview")
+      .set("Authorization", `Bearer ${memberToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.impact).toEqual(["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"]);
+      });
+
+    // 같은 사람이 **관리자로 있는 가구**의 탈퇴 미리보기를 보면 줄이 늘어난다 — 판정이
+    // 계정이 아니라 그 가구에서의 역할이라는 사실을 같은 세션 안에서 못박는다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/settings/households/${householdId}/leave-preview`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.impact).toHaveLength(2);
+        expect(body.impact[1]).toBe(
+          "관리자인 내가 나가면 그 가족에 관리자가 없어져서 새 구성원 초대와 구성원 관리를 아무도 할 수 없어요"
+        );
+      });
   });
 
   /**
