@@ -31,6 +31,12 @@ import {
   SPONSORED_MARKER_CAPTION,
   SPONSORED_MARKER_LABEL
 } from "./items/link-marker";
+// GAP-066 #8: 알림 한 줄이 **소리로** 어떻게 도달하는가. 후보(문구)와 라벨 조립은 각각 순수
+// 모듈의 것이고, 여기서는 그 둘이 만나 만들어지는 낭독 문장을 본다(값 계약은 트랙 E 소유).
+import { monthlyWrapupNotification } from "./notifications/generators";
+import { SEOUL_UTC_OFFSET_MS } from "./notifications/iso-week";
+import { formatNotificationRowTitle } from "./notifications/notification-child-label";
+import { notificationRowAccessibilityLabel } from "./notifications/notification-row-actions";
 // GAP-064 #6: 최소 터치 타깃의 단일 소스. 이 숫자를 테스트에 다시 박지 않는다.
 import { theme } from "./theme";
 
@@ -795,7 +801,8 @@ describe("GAP-063 #10 라운드 63 신설 UI 접근성 계약", () => {
     expect(childScopeDeleteNotice("솔이")).toBe("솔이 프로필을 삭제해요.");
     expect(childScopeDeleteConfirmTitle("솔이")).toBe("솔이 프로필을 삭제할까요?");
     // 이름을 못 풀면(1아이 계정·캐시 없음) null이고 호출부는 종전 문구로 떨어진다 —
-    // **모르면 지어내지 않는다**(SET-004 픽셀락).
+    // **모르면 지어내지 않는다**(SET-004의 1아이 문자열 불변 계약 — 캡처 아님. 라운드 66 F 정정:
+    // 픽셀락 캡처 라우트에 설정 계열은 SET-001뿐이다 — app/pixel-lock.tsx).
     for (const unknown of [null, undefined, "", "   "]) {
       expect(childScopeDeleteNotice(unknown), String(unknown)).toBeNull();
       expect(childScopeDeleteConfirmTitle(unknown), String(unknown)).toBeNull();
@@ -1428,5 +1435,135 @@ describe("GAP-065 #8 아이 생년월일·예정일 달력 버튼의 낭독 계�
       expect(src, path).toContain('placeholder="YYYY-MM-DD"');
       expect(src, path).toMatch(/accessibilityLabel=\{`\$\{\w+\} 입력`\}/);
     }
+  });
+});
+
+/**
+ * GAP-066 #2 — **월 선택 시트**(달 라벨 → 시트)의 낭독 계약.
+ *
+ * 트랙 A는 판정 쪽을 이미 고정했다: 어느 달을 고를 수 있는가·칸 라벨 문자열은
+ * `src/month-jump.test.ts`가, 두 탭이 트리거와 시트를 한 벌씩 붙였는가는
+ * `src/reports/month-end-review-flow.test.ts`가 진다. 여기서 보는 것은 그 산출이 **낭독되는
+ * 자리에 실제로 걸려 있는가** 하나다(GAP-062 #10이 세운 관례) — 값을 다시 단언하지 않는다.
+ *
+ * 이 시트에서만 새로 생기는 두 자리를 붙든다.
+ *  1. **연도 스테퍼**: 글자가 없는 아이콘 버튼 둘이라, 라벨이 없으면 "버튼"으로만 읽힌다.
+ *     잠긴 방향은 `accessibilityState`로 갈려야 한다(비활성을 투명도로만 말하면 소리로는
+ *     아무 차이가 없다).
+ *  2. **못 고르는 칸**: `Pressable disabled`가 아니라 `View`다. disabled 버튼은 "버튼, 비활성"
+ *     으로만 읽혀 **왜** 못 누르는지가 남는데, 이 시트는 이유를 라벨로 말한다(달력 픽커
+ *     A-2 #10 · A-4 #23이 세운 그 규율). 이유 문장은 화면이 짓지 않는다 — 순수 모듈이 준다.
+ */
+describe("GAP-066 #2 달 점프 시트의 낭독 계약", () => {
+  const sheetSource = source("src/MonthJumpSheet.tsx");
+
+  it("연도 스테퍼 두 버튼은 라벨 + button 역할 + disabled 상태를 단다 (아이콘만 있는 버튼이다)", () => {
+    for (const label of ["이전 연도", "다음 연도"]) {
+      expect(sheetSource, label).toContain(`accessibilityLabel="${label}"`);
+    }
+    expect(sheetSource.match(/accessibilityRole="button"/g) ?? []).not.toHaveLength(0);
+    expect(sheetSource).toContain("accessibilityState={{ disabled: !view.canGoPreviousYear }}");
+    expect(sheetSource).toContain("accessibilityState={{ disabled: !view.canGoNextYear }}");
+    // 잠금이 투명도로만 표현되지 않는다: 실제로 눌리지 않는 버튼이어야 상태 낭독이 참이다.
+    expect(sheetSource).toContain("disabled={!view.canGoPreviousYear}");
+    expect(sheetSource).toContain("disabled={!view.canGoNextYear}");
+  });
+
+  it("못 고르는 칸은 disabled 버튼이 아니라 라벨을 가진 View다 (왜 못 누르는지가 남지 않게)", () => {
+    // 비선택 칸: accessible한 View 하나 + 순수 모듈이 준 라벨(이유 포함).
+    expect(sheetSource).toContain("if (!cell.isSelectable) {");
+    expect(sheetSource).toContain("<View accessible accessibilityLabel={cell.accessibilityLabel}");
+    // 칸에는 disabled가 붙지 않는다 — 이 파일의 disabled는 연도 스테퍼 두 자리뿐이다.
+    expect(sheetSource.match(/disabled=\{/g) ?? []).toHaveLength(2);
+    // 고를 수 있는 칸은 button 역할 + selected 상태를 진다(칩·타일의 기존 문법 그대로).
+    expect(sheetSource).toContain("accessibilityState={{ selected: cell.isSelected }}");
+    expect(sheetSource).toContain("accessibilityLabel={cell.accessibilityLabel}");
+  });
+
+  it("문구를 화면이 짓지 않는다 — 이유·제목·안내는 전부 순수 모듈 상수다", () => {
+    for (const constantName of [
+      "MONTH_JUMP_SHEET_TITLE",
+      "MONTH_JUMP_HINT",
+      "MONTH_JUMP_CLOSE_LABEL"
+    ]) {
+      expect(sheetSource, constantName).toContain(constantName);
+    }
+    // "왜 못 고르는지"의 문장이 이 파일에 리터럴로 없다(있으면 두 곳이 갈린다 — 라운드 65 D가
+    // 달력 픽커에서 세운 규율: 화면이 방향에 따라 문장을 고르지 않는다).
+    expect(sheetSource).not.toContain("고를 수 없어요");
+    expect(sheetSource).not.toContain("달 선택");
+  });
+
+  it("두 탭의 달 라벨 트리거가 button 역할을 단다 (감싸기만 해도 역할은 새로 생긴다)", () => {
+    for (const path of ["app/(tabs)/records.tsx", "app/(tabs)/reports.tsx"]) {
+      const screenSource = source(path);
+      const triggerAt = screenSource.indexOf("month-jump-trigger");
+      if (triggerAt < 0) throw new Error(`${path}에 달 점프 트리거가 없다`);
+      const start = screenSource.lastIndexOf("<Pressable", triggerAt);
+      if (start < 0) throw new Error(`${path}의 달 라벨이 Pressable로 감싸이지 않았다`);
+      const triggerBlock = screenSource.slice(start, triggerAt);
+      expect(triggerBlock, path).toContain('accessibilityRole="button"');
+      expect(triggerBlock, path).toContain("monthJumpTriggerAccessibilityLabel(");
+    }
+  });
+});
+
+/**
+ * GAP-066 #8 — **지난달 정리** 알림 한 줄의 낭독 계약.
+ *
+ * 트랙 E는 발화 규칙·목적지·설정 스위치를 `src/notifications/monthly-wrapup.test.ts`에 고정했다.
+ * 여기서 보는 것은 그 행이 **소리로 어떻게 도달하는가**다. 알림함의 행은 종류를 아이콘 하나로
+ * 구분하는데(달력 계열), 그 아이콘은 공용 `ListRow`째 접근성 트리에서 감춰진 하위 트리 안에
+ * 있다 — 즉 **종류는 소리로 전달되지 않는다.** 그래서 이 알림이 말하는 사실(어느 달·얼마)은
+ * 아이콘이 아니라 **제목과 본문 글자**가 져야 하고, 그 조립은 여섯 종과 같은 한 벌이다.
+ */
+describe("GAP-066 #8 지난달 정리 알림 행의 낭독 계약", () => {
+  const notificationsScreen = source("app/notifications.tsx");
+  /** 2026-08-03(월) KST — 7월이 막 끝난 시점. 서울 오프셋은 도메인 상수에서 온다. */
+  const nowMs = Date.UTC(2026, 7, 3, 12) - SEOUL_UTC_OFFSET_MS;
+  const wrapup = monthlyWrapupNotification({
+    childId: "child-1",
+    now: nowMs,
+    lastMonthRecords: [
+      { amountKrw: 84_200, spentOn: "2026-07-02", expenseType: "expense" },
+      { amountKrw: 1_161_500, spentOn: "2026-07-28", expenseType: "expense" }
+    ]
+  });
+
+  it("종류 아이콘은 감춰진 하위 트리 안에 있다 — 소리로 종류를 나르는 것은 글자뿐이다", () => {
+    const hiddenAt = notificationsScreen.indexOf(
+      '<View accessibilityElementsHidden importantForAccessibility="no-hide-descendants"'
+    );
+    const iconAt = notificationsScreen.indexOf("<Ionicons name={iconName}");
+    expect(hiddenAt).toBeGreaterThan(-1);
+    expect(iconAt).toBeGreaterThan(hiddenAt);
+  });
+
+  it("행 라벨 조립에 종류가 끼어들지 않는다 — 일곱 종이 같은 한 벌을 지난다", () => {
+    const labelAt = notificationsScreen.indexOf("accessibilityLabel={notificationRowAccessibilityLabel({");
+    expect(labelAt).toBeGreaterThan(-1);
+    const labelBlock = notificationsScreen.slice(labelAt, labelAt + 200);
+    // 종류별 분기가 라벨에 들어오는 순간 "이 종류만 다르게 읽히는" 자리가 생긴다.
+    expect(labelBlock).not.toContain("entry.type");
+    expect(labelBlock).toContain("title: rowTitle");
+    expect(labelBlock).toContain("body: entry.body");
+    expect(labelBlock).toContain("timeLabel");
+  });
+
+  it("그래서 그 행은 라벨만으로 어느 달·얼마인지 들린다 (다자녀 태명 접두도 같은 한 벌)", () => {
+    if (!wrapup) throw new Error("지난달 정리 후보가 만들어지지 않았다");
+    const spoken = notificationRowAccessibilityLabel({
+      title: formatNotificationRowTitle(wrapup.title, "다온"),
+      body: wrapup.body,
+      timeLabel: "방금"
+    });
+    expect(spoken).toContain("다온");
+    expect(spoken).toContain("7월");
+    expect(spoken).toContain("1,245,700원");
+    expect(spoken).toContain("방금");
+    // 1아이 계정에서는 접두가 없고 제목이 종전 그대로 낭독된다(태명 판정은 재사용만 한다).
+    expect(notificationRowAccessibilityLabel({ title: formatNotificationRowTitle(wrapup.title, null), body: wrapup.body, timeLabel: "방금" })).toBe(
+      `${wrapup.title}, ${wrapup.body}, 방금`
+    );
   });
 });

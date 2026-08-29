@@ -788,7 +788,8 @@ describe("라운드 62 #4 가구 전환을 탈퇴 화면까지 (파라미터 관
       params: { householdId: "household-2" }
     });
     // 전환하지 않았으면 **파라미터 자체가 생기지 않는다** -- 1가구 계정의 탈퇴 화면은 종전과
-    // 한 글자도 달라지지 않는다(SET-003 픽셀락).
+    // 한 글자도 달라지지 않는다(SET-003의 1가구 문자열 불변 계약 -- 캡처 아님. 라운드 66 F
+    // 정정: 설정 계열 캡처 라우트는 SET-001뿐이다. 그 불변을 잠그는 것이 바로 이 단언이다).
     for (const value of [undefined, null, "", "   "]) {
       expect(leaveScreenHref(value)).toEqual({ pathname: "/settings/privacy", params: {} });
     }

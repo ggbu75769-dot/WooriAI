@@ -1,9 +1,10 @@
 # Accessibility And Offline Checklist
 
-Batch: 16 - 라운드 33~65 신설 화면 반영 · 갱신 2026-08-28 (라운드 65 트랙 F / GAP-065 #10)
-직전 갱신: 라운드 64 트랙 F / GAP-064 #10 · 그 앞: 라운드 63 트랙 F / GAP-063 #10 ·
-그 앞: 라운드 62 트랙 C / GAP-062 #10 · 그 앞: 라운드 61 트랙 E / GAP-061 #8
-직전 배치: Batch 15 - 라운드 33~64 신설 화면 반영
+Batch: 17 - 라운드 33~66 신설 화면 반영 · 갱신 2026-08-29 (라운드 66 트랙 F / GAP-066 #10)
+직전 갱신: 라운드 65 트랙 F / GAP-065 #10 · 그 앞: 라운드 64 트랙 F / GAP-064 #10 ·
+그 앞: 라운드 63 트랙 F / GAP-063 #10 · 그 앞: 라운드 62 트랙 C / GAP-062 #10 ·
+그 앞: 라운드 61 트랙 E / GAP-061 #8
+직전 배치: Batch 16 - 라운드 33~65 신설 화면 반영
 
 > **이 문서를 읽는 법.** 항목은 세 절로 나뉜다.
 > - **A절 — 코드로 고정된 계약**: 소스 스윕 테스트(주로 `apps/mobile/src/a11y-contract.test.ts`)가
@@ -72,6 +73,23 @@ Batch: 16 - 라운드 33~65 신설 화면 반영 · 갱신 2026-08-28 (라운드
 > 세로 확장분이 실효를 못 낼 수 있다. 근본 해법(`minHeight` 48)은 승인 디자인(DSN-053) 캡처
 > 재대조를 부르므로 **변경 요청으로 분리했다** — 그 한계가 어느 자리에서 실제로 물리는지는
 > 손가락으로만 안다.
+>
+> **2026-08-29(GAP-066 #10) 갱신.** 라운드 66분은 새 **A-7** 표(#35~#38)다. 넷 다 A절의 원래
+> 쟁점으로 돌아온다 — **사실이 소리로 도달하는가**(라운드 64·65가 들여온 "손가락" 항목은 이번
+> 라운드에 새로 생기지 않았다: 달 점프 시트의 칸·연도 버튼은 태어날 때부터 `theme.touchTarget`을
+> 쓰므로 A-1 `Touch targets`의 기존 계약 안이다).
+>
+> 넷의 성격이 둘로 갈린다. **#35·#36·#38은 화면이 그리는 것**이라 라벨·역할·상태를 계약이
+> 직접 붙들지만, **#37은 RN Alert**이라 그럴 수 없다 — 버튼에는 라벨도 상태도 걸리지 않고
+> 낭독되는 것은 **버튼 글자와 본문뿐**이다(A-3 #18이 가구 전환 Alert에서 세운 그 판정 그대로).
+> 그래서 #37에서 계약이 붙드는 것은 화면이 아니라 **문자열과 갈래**다: 세 번째 버튼이 서는
+> 갈래가 둘(아이 삭제·계정 삭제)이고 가구 탈퇴에는 **버튼도 문장도 없다**는 사실.
+>
+> **표기 정정 하나를 함께 싣는다.** 이 문서의 A-2 `Destructive actions` 줄과
+> `runtime-verification-required.md`의 몇 행이 "SET-003/SET-004 픽셀락"이라고 적고 있었는데,
+> 픽셀락 캡처 라우트 아홉 중 설정 계열은 **SET-001 하나뿐**이다(`apps/mobile/app/pixel-lock.tsx`).
+> 지키려는 계약("1아이·1가구 계정 문자열 불변")은 실재하고 vitest가 실제로 붙들고 있으므로,
+> **잠금의 이름만** 바로잡는다 — 있지도 않은 캡처를 근거로 다음 트랙의 경계가 좁아지지 않게.
 
 ## A절. 코드로 고정된 접근성 계약
 
@@ -84,7 +102,7 @@ Batch: 16 - 라운드 33~65 신설 화면 반영 · 갱신 2026-08-28 (라운드
 | Screen-reader labels | Icon-only or terse actions have accessible labels in production UI passes. | Login, expense save, delete, purchase CTA, import confirm, settings delete are understandable. | `a11y-contract.test.ts` A11Y-101/115 |
 | Numeric alternatives | Report totals, budget amounts, and chart-like summaries have visible numeric text. | Users can understand totals without color or graph interpretation. | `a11y-contract.test.ts`(라인차트 기하 요약 라벨) |
 | Error text | Validation and network failures provide direct action guidance. | Users know whether to retry, edit input, or contact support. | `a11y-contract.test.ts`(로그인 오류 카드·날짜 입력 오류 live region) |
-| Destructive actions | Child delete, household leave, account delete use preview and second-step confirmation. 라운드 62 신설 2건도 같은 규칙 아래 둔다: **동기화 대기 행 "버리기"**(#3)와 가족 화면의 **"이 가구에서 나가기"**(#4). **라운드 63 #2 — 그 규칙에 "대상을 말한다"가 더해졌다**: 아이 삭제는 카드 한 줄과 **확인 Alert 제목** 두 자리에서 어느 아이인지를 말한다(가구 탈퇴가 이미 서 있던 자리의 짝). | User sees impact scope before confirming. 버리기 Alert 본문은 지금 어디에만 있는지와 되돌릴 수 없다는 사실을 함께 말하고(그 버튼은 서버가 아직 모르는 생성 대기 행에만 서므로 그 단언이 참이다), 나가기는 진입점이 가리키는 가구를 탈퇴 화면의 대상 라벨이 그대로 이어받는다 — 어느 가구를 나가는지 낭독으로도 갈린다. 아이 삭제도 같다: 다자녀 계정에서 "○○ 프로필을 삭제해요." / "○○ 프로필을 삭제할까요?"가 서고, 이름을 못 풀거나 1아이면 **종전 문구 그대로**다(모르면 지어내지 않는다 — SET-004 픽셀락). | `a11y-contract.test.ts`(알림 모두 지우기 Alert · GAP-063 #10 아이 삭제 대상) + `settings-flow.test.ts` + `offline/pending-row-actions.test.ts`(버리기 Alert·문구 계약) + `family/household-scope.test.ts`(`HOUSEHOLD_SCOPE_LEAVE_LABEL`·탈퇴 대상 · `childScopeDeleteNotice`·`childScopeDeleteConfirmTitle`). 실기기 확인은 `runtime-verification-required.md` §1-1 #37·#40·#45 |
+| Destructive actions | Child delete, household leave, account delete use preview and second-step confirmation. 라운드 62 신설 2건도 같은 규칙 아래 둔다: **동기화 대기 행 "버리기"**(#3)와 가족 화면의 **"이 가구에서 나가기"**(#4). **라운드 63 #2 — 그 규칙에 "대상을 말한다"가 더해졌다**: 아이 삭제는 카드 한 줄과 **확인 Alert 제목** 두 자리에서 어느 아이인지를 말한다(가구 탈퇴가 이미 서 있던 자리의 짝). | User sees impact scope before confirming. 버리기 Alert 본문은 지금 어디에만 있는지와 되돌릴 수 없다는 사실을 함께 말하고(그 버튼은 서버가 아직 모르는 생성 대기 행에만 서므로 그 단언이 참이다), 나가기는 진입점이 가리키는 가구를 탈퇴 화면의 대상 라벨이 그대로 이어받는다 — 어느 가구를 나가는지 낭독으로도 갈린다. 아이 삭제도 같다: 다자녀 계정에서 "○○ 프로필을 삭제해요." / "○○ 프로필을 삭제할까요?"가 서고, 이름을 못 풀거나 1아이면 **종전 문구 그대로**다(모르면 지어내지 않는다 — SET-004의 1아이 문자열 불변 계약, **캡처 아님**: 위 GAP-066 #10 갱신 참고). | `a11y-contract.test.ts`(알림 모두 지우기 Alert · GAP-063 #10 아이 삭제 대상) + `settings-flow.test.ts` + `offline/pending-row-actions.test.ts`(버리기 Alert·문구 계약) + `family/household-scope.test.ts`(`HOUSEHOLD_SCOPE_LEAVE_LABEL`·탈퇴 대상 · `childScopeDeleteNotice`·`childScopeDeleteConfirmTitle`). 실기기 확인은 `runtime-verification-required.md` §1-1 #37·#40·#45 |
 | 내부 ID 누출 | `accessibilityLabel`에 화면 내부 ID가 새지 않는다. | 낭독에 uuid/스크린 ID가 들리지 않음. | `a11y-contract.test.ts` A11Y-115 전 컴포넌트 스윕 |
 | 장식 글리프 | ♡ · › · ▣ 같은 장식 문자는 접근성 트리에서 숨긴다. | 낭독에 의미 없는 기호가 끼지 않음. | `a11y-contract.test.ts` A11Y-115 |
 
@@ -164,6 +182,24 @@ Batch: 16 - 라운드 33~65 신설 화면 반영 · 갱신 2026-08-28 (라운드
 | 32 | 스크롤 스캐폴드의 키보드 첫 탭 (`src/ui.tsx` `AppScreen` · `app/(tabs)/records.tsx`, 라운드 65 #6) | 낭독이 아니라 **탭이 도달하는가**. 키보드가 떠 있는 동안 화면의 컨트롤을 한 번에 누를 수 있는가. 그러면서 키보드를 닫을 길은 남아 있는가. | RN의 `keyboardShouldPersistTaps` 기본값은 `"never"`다 — **첫 탭이 자식에게 가지 않고 키보드만 내린다.** 이 앱에서 가장 자주 반복되는 동작이 정확히 그 모양이라(금액을 치고 → 카테고리 타일·칩·체크박스를 누른다) 증상은 "눌렀는데 반응이 없다"이고, 라운드 64 #6의 터치 타깃과 **같은 인상**을 만든다(원인이 다른데 사용자에게는 한 가지로 보인다). 세 스캐폴드가 모두 `"handled"`를 **명시한다** — `"always"`는 쓰지 않는다: 빈 자리를 눌러도 키보드가 안 내려가면 "닫는 법을 모르겠다"가 새로 생긴다. 레이아웃 속성이 아니라 터치 전달 규칙이므로 픽셀락 6종 기준선은 불변이다. | `a11y-contract.test.ts` GAP-065 #6(세 스캐폴드가 `"handled"`를 명시 · `"always"` 부재 · `AppScreen`의 레이아웃 속성 불변). **실기기 확인은 `runtime-verification-required.md` §1-1 #58** — 특히 "빈 자리를 누르면 여전히 내려가는가"는 손가락 몫이다 |
 | 33 | 공유 프리미티브의 터치 타깃 (`src/ui.tsx` `CategoryChip`·`SegmentedControl` · `NotificationBell` · 더보기 검색, 라운드 65 #7) | 라운드 64 #6의 계약이 읽는 파일은 **화면 셋**뿐이라, 같은 값(44)으로 서 있던 공유 컴포넌트 넷은 그대로 통과했다. 매일 누르는 그 컨트롤들이 저장소 자신의 최소 터치 타깃을 채우는가. 넓히면서 **이웃을 침범하지는 않는가**. | 칩 38 + 세로 5×2 = 48(가로는 3 그대로 — 칩 사이 간격이 **준비템 탭에서는 6**이라 3+3이 천장이다. 라운드 64가 가정한 8보다 좁고, 그 실측을 사람이 옮겨 적지 않고 계약이 소스에서 다시 센다). 세그먼트 탭은 세로로 갚고 **가로는 0**이다 — 탭 셋이 `flex: 1`로 맞붙어 있어 종전의 `hitSlop={4}`가 **옆 탭의 몸 4dp를 덮고 있었고**, 그 자리를 누르면 두 번째 탭이 선택됐다(넓히는 변경이 **기존 오탭을 회수**하는 드문 경우다). 벨·검색 36 + 6×2 = 48은 이웃 컨트롤이 없어 네 변을 함께 넓힌다. 새 화면이 하나 생길 때마다 44dp 컨트롤이 따라 태어나던 재발 경로가 이 계약으로 닫힌다 — 자물쇠가 **화면이 아니라 프리미티브**에 있다. 레이아웃 속성은 한 개도 건드리지 않으므로 렌더는 불변이다. | `a11y-contract.test.ts` GAP-065 #7(크기 + 2×hitSlop ≥ `theme.touchTarget` · 가로 합 ≤ 실측 gap · 맞붙은 컨트롤은 가로 0 · 레이아웃 속성 불변 — 값도 `theme.touchTarget`도 테스트에 다시 박지 않는다). A-1 `Touch targets`가 이 라운드부터 함께 가리키는 계약이다. **실측은 C-1**(부모 경계 한계 포함), **실기기 확인은 `runtime-verification-required.md` §1-1 #59** |
 | 34 | 아이 생년월일·예정일의 달력 버튼 (`app/(onboarding)/child-profile.tsx` · `app/settings/children.tsx`, 라운드 65 #8) | 날짜 칸 옆에 아이콘 하나짜리 버튼이 새로 섰다. 무엇을 여는 버튼인지 들리는가. 펼침 상태가 갈리는가. 손타이핑 경로가 사라지지 않았는가. | 라벨은 "○○ 달력에서 고르기"이고 이름(출산 예정일/출생일)은 `requiredDateFieldLabel` 한 곳이 정한다 — 화면이 "예정일"·"생년월일"을 새로 짓지 않는다. `accessibilityRole="button"` + `accessibilityState={{ expanded }}`로 지금 열려 있는지가 소리로 갈린다. 두 화면(ONB-002·SET-005)이 **같은 문법**을 쓴다 — 같은 일을 하는 버튼이 자리마다 다른 말을 하면 학습되지 않는다. 그리고 **손타이핑 칸은 그대로 남는다**: 달력 격자를 훑는 것보다 열 글자를 치는 편이 빠른 스크린리더 사용자의 경로를 달력이 대체할 이유가 없다(지출 화면이 14일 칩·직접 입력을 함께 남겨 둔 것과 같은 판단). 칸 라벨의 "왜 못 고르는지"는 A-2 #10이 진다. | `a11y-contract.test.ts` GAP-065 #8(두 화면의 라벨·역할·expanded · 손타이핑 칸 존치) + `date-picker-month.test.ts`(방향 배선 · 지출 두 화면 무변경) + `children/child-form.test.ts`(`childDatePickerDirection`). 실기기 확인은 `runtime-verification-required.md` §1-1 #60 |
+
+### A-7. 라운드 66 신설 UI (2026-08-29 추가 — GAP-066 #10)
+
+넷 다 **사실이 소리로 도달하는가**다. 이번 라운드가 늘린 것은 컨트롤 하나(달 라벨 → 시트)와
+캡션 한 줄, Alert 버튼 하나, 알림 종류 하나인데 — **셋이 조건부로 나타나고 사라지는 자리**라
+(#36은 어떤 달에는 아예 없고, #37은 갈래에 따라 버튼 수가 갈리며, #38은 달에 한 번만 있다)
+"보이면 들린다"가 자동으로 성립하지 않는다.
+
+화면 파일은 각 트랙의 소유였으므로(F는 문서·스윕만 진다) 값·문구 판정은 그 트랙의 모듈
+테스트가 지고, 여기서는 **그 판정이 낭독되는 자리에 실제로 걸려 있는가**만 본다 — GAP-062 #10이
+세운 관례 그대로다.
+
+| # | 화면 | Check | Expected | 근거 |
+| --- | --- | --- | --- | --- |
+| 35 | 월 선택 시트 (`src/MonthJumpSheet.tsx` · 기록/리포트 탭의 달 라벨, 라운드 66 #2) | 평범한 `<Text>`였던 달 라벨이 버튼이 됐다 — **누르기 전에** 무엇이 열리는지 들리는가. 시트 안에는 글자 없는 아이콘 버튼 둘(연도 스테퍼)과 열두 칸 격자가 있는데, 잠긴 방향과 **못 고르는 칸**이 소리로 갈리는가. | 트리거는 `accessibilityRole="button"` + 지금 달을 읽는 라벨("2026년 8월, 달 선택") + 힌트("두 번 누르면 다른 달을 고를 수 있어요")다 — 라벨은 상태를, 힌트는 결과를 말한다. 연도 스테퍼는 아이콘뿐이라 라벨("이전 연도"/"다음 연도")이 곧 낭독 문장이고, 갈 수 없는 방향은 `accessibilityState={{ disabled }}` + 실제 `disabled`로 갈린다(투명도만으로는 소리에 아무것도 남지 않는다). **못 고르는 칸은 `Pressable disabled`가 아니라 `View`다** — disabled 버튼은 "버튼, 비활성"으로만 읽혀 *왜*가 사라지므로, 칸 라벨이 이유까지 말한다("아직 오지 않은 달이라 고를 수 없어요" / "아이 기록이 시작되기 전이라 고를 수 없어요"). 달력 픽커 A-2 #10 · A-4 #23이 세운 그 규율의 세 번째 적용이고, 이유 문장은 **화면이 고르지 않는다**(순수 모듈이 준다). 고를 수 있는 칸은 `selected` 상태를 진다. | `a11y-contract.test.ts` GAP-066 #2(스테퍼 라벨·역할·disabled 상태 · 비활성 칸이 라벨 가진 `View` · 화면에 이유 리터럴 0건 · 두 탭 트리거의 역할) + `month-jump.test.ts`(칸 라벨 문자열·상·하한 판정) + `reports/month-end-review-flow.test.ts`(트리거·시트 배선, 라벨 감싸기). 실기기 확인은 `runtime-verification-required.md` §1-1 #61 |
+| 36 | 끝난 달의 예산 결과 캡션 (`app/(tabs)/reports.tsx` "총 지출" 카드 아래, 라운드 66 #1) | 리포트에 **숫자를 설명하는 한 줄**이 늘었다. 그것이 색·막대가 아니라 **글자**로 서 있는가. 그리고 같은 사실이 한 화면에서 두 번 들리지 않는가. | 이 줄은 처음부터 **문장**이다 — 진행률 바도 배지도 아니라, A-1 `Numeric alternatives`가 요구하는 "숫자를 글로도 말한다"를 추가 배선 없이 만족한다(`accessibilityLabel`을 새로 짓지 않는 편이 옳은 드문 자리다: 보이는 글자가 곧 낭독 문장이다). 대신 **중복이 쟁점**이다. 인사이트 카드가 그 달의 예산을 이미 말한 달에는 이 줄이 접히고(`monthlyInsightSpokeBudget`), 진행 중인 달에는 서지 않는다(홈이 진행률 바·경고 배너로 이미 말한다) — 소리로만 쓰는 사람에게 같은 사실이 두 번 들리는 것은 화면에서 두 번 보이는 것보다 더 길다. 대기 고지도 다시 말하지 않는다(화면 머리의 기간 고지가 이미 아래 숫자 전부를 덮는다 — A-3 #21과 같은 근거). | `reports/completed-month-budget.test.ts`(문구 두 갈래 · 게이트 넷 · 퍼센트는 홈과 같은 함수) + `reports/month-end-review-flow.test.ts`(월간 탭·끝난 달·인사이트 중복 게이트가 화면에 실제로 걸려 있다). 실기기 확인은 `runtime-verification-required.md` §1-1 #62 |
+| 37 | 삭제 확인 Alert의 세 번째 버튼 (`app/settings/privacy.tsx`, 라운드 66 #6) | 되돌릴 수 없는 확인 Alert에 버튼이 하나 늘었다(취소 · **내보내기** · 삭제). RN Alert에는 라벨도 상태도 걸 수 없어 **낭독되는 것은 버튼 글자와 본문뿐**인데, 그 둘만으로 "지금 무엇을 할 수 있는가"가 전달되는가. | 그래서 본문이 버튼을 **먼저 말한다**: "이 작업은 되돌릴 수 없어요. 필요하면 먼저 설정 > 데이터 내보내기로 기록을 저장해 주세요." — 버튼 글자("내보내기")는 두 자이고, 그것이 무엇을 뜻하는지는 본문 문장이 진다(A-3 #18이 가구 전환 Alert에서 내린 것과 같은 판정: Alert에서 계약이 붙들 수 있는 것은 **문자열**뿐이다). 그리고 **갈래가 계약이다**: 이 문장과 버튼은 아이 삭제·계정 삭제 **둘에만** 서고, 가구 탈퇴 Alert은 본문 한 문장·버튼 둘로 **종전 그대로**다 — 나가는 사람에게 남의 가구 데이터를 복사해 가라고 권하지 않는다. 카드 렌더는 한 줄도 늘지 않는다(늘린 것은 Alert 본문뿐이라 1아이 계정 문자열 불변 계약을 깨지 않는다). | `export-flow.test.ts`(본문 문장·버튼 라벨·목적지 · **탈퇴 갈래에는 버튼도 안내도 없다**) + `settings-flow.test.ts`(파괴 플로우 카드 무변경). 실기기 확인은 `runtime-verification-required.md` §1-1 #65 — **안드로이드 Alert에서 버튼 셋이 잘리지 않는지**는 손가락·눈 몫이다 |
+| 38 | 알림함의 지난달 정리 행 (`app/notifications.tsx`, 라운드 66 #8) | 알림 종류가 일곱이 됐다. 새 행은 **달력 아이콘**으로 다른 종류와 구분되는데, 소리로만 쓰는 사람에게 그 구분이 도달하는가. | **도달하지 않는다 — 그리고 그것이 설계다.** 아이콘은 공용 `ListRow`째 `accessibilityElementsHidden` 하위 트리 안에 있어 따로 읽히지 않는다(행의 접근성 요소는 바깥 `Pressable` 하나 — 롱프레스·커스텀 액션을 얹기 위한 구조다). 그래서 이 알림이 말하는 사실은 아이콘이 아니라 **제목과 본문 글자**가 진다: "7월 함께한 지출 1,245,700원 / 리포트 탭에서 7월을 함께 확인해볼까요?" — 달 이름과 금액이 글자로 있으므로 라벨만 들어도 어느 달·얼마인지 갈린다. 조립은 여섯 종과 **같은 한 벌**이고(`notificationRowAccessibilityLabel` — 종류별 분기가 없다), 다자녀 태명 접두도 같은 자리에서 붙는다. 문구가 시점어("지난달"·"이번 달")를 쓰지 않는 것도 낭독의 문제다: 알림은 목록에 얼어붙는 스냅숏이라 한 달 뒤에 다시 들으면 시점어는 거짓이 된다. | `a11y-contract.test.ts` GAP-066 #8(아이콘이 감춰진 하위 트리 안 · 라벨 조립에 종류가 끼어들지 않는다 · 낭독 문장이 달·금액·태명을 싣는다) + `notifications/monthly-wrapup.test.ts`(문구·시점어 부재·아이콘 매핑·목적지) + `notifications/notification-row-actions.test.ts`(행 라벨 조립 규약). 실기기 확인은 `runtime-verification-required.md` §1-1 #66 |
 
 ## B절. 오프라인 및 오류 상태
 

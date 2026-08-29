@@ -298,7 +298,9 @@ export default function PrivacySettingsScreen() {
    * 도착해 화이트리스트가 넓어지면 그때 통과하고, 탈퇴가 끝나 목록에서 사라지면 즉시 되돌아간다.
    *
    * 1가구 계정에서는 가족 화면이 전환 자체를 못 하므로 **파라미터가 생기지 않고**, 이 화면은
-   * 종전과 한 글자도 달라지지 않는다(SET-003 픽셀락).
+   * 종전과 한 글자도 달라지지 않는다(SET-003의 1가구 문자열 불변 계약 — **캡처 아님**.
+   * 라운드 66 F 정정: 픽셀락 캡처 라우트에 설정 계열은 SET-001뿐이다 — app/pixel-lock.tsx.
+   * 이 불변을 잠그는 것은 캡처가 아니라 src/family/household-scope.test.ts의 단언이다).
    */
   const params = useLocalSearchParams<{ householdId?: string | string[] }>();
   const requestedHouseholdId = parseHouseholdScopeParam(
