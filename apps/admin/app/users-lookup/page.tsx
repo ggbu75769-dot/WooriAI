@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
-import { isAuthError, isTimeoutError, lookupAdminEndUsers, type AdminLookupUser } from "../../src/lib/admin-api";
+import { isAuthError, lookupAdminEndUsers, type AdminLookupUser } from "../../src/lib/admin-api";
 import { auditLogsHrefForActor } from "../../src/lib/audit-log-filters";
+import { loadErrorMessage } from "../../src/lib/load-error-copy";
 import {
   AUTH_PROVIDER_LABELS,
   accountStateLabel,
@@ -78,11 +79,9 @@ export default function UsersLookupPage() {
         clearSession();
         return;
       }
-      setSearchError(
-        isTimeoutError(error)
-          ? "조회에 시간이 너무 오래 걸렸어요. 검색어를 좁혀서 다시 시도해 주세요."
-          : "사용자를 조회하지 못했어요. 검색어를 확인하고 다시 시도해 주세요."
-      );
+      // 라운드 73 트랙 D: 실패 이유는 admin-api.ts가 이미 문장으로 만들어 던진다.
+      // (이 자리에는 [다시 시도] 버튼이 없다 — 조회 폼 자체가 재시도다.)
+      setSearchError(loadErrorMessage(error, "사용자를 조회하지 못했어요. 검색어를 확인하고 다시 시도해 주세요."));
     } finally {
       setSearching(false);
     }

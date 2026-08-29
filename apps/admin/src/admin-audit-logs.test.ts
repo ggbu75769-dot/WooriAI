@@ -84,10 +84,19 @@ describe("Audit logs page (ADM-113)", () => {
     expect(shell).toContain("item.roles.includes(session.admin.role)");
   });
 
+  /**
+   * 라운드 73 트랙 D: 판정도 문장도 그대로이고, **어디서 오는가**만 바뀌었다.
+   * 종전에는 이 화면이 `isTimeoutError`로 직접 갈라 타임아웃 문장을 옮겨 적었다 —
+   * 그래서 화면마다 그 문장이 조금씩 달랐다(카테고리·사용자 조회). 이제 조회 실패 한 벌
+   * (src/lib/load-error-copy.ts)이 admin-api.ts의 그 문장을 읽어 온다.
+   */
   it("surfaces the typed fetch timeout as Korean guidance instead of an endless loading state", () => {
     const source = readSource("app/audit-logs/page.tsx");
-    expect(source).toContain("isTimeoutError");
-    expect(source).toContain("요청 시간이 초과됐어요(10초)");
+    expect(source).toContain("load-error-copy");
+    expect(source).toContain('loadErrorCopy(error, "감사 로그를 불러오지 못했어요.")');
+    // 문장의 단일 소스는 admin-api.ts 한 곳이고, 화면은 그것을 옮겨 적지 않는다.
+    expect(source).not.toContain("요청 시간이 초과됐어요(10초)");
+    expect(readSource("src/lib/admin-api.ts")).toContain("요청 시간이 초과됐어요(10초)");
   });
 });
 

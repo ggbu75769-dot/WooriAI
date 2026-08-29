@@ -10,6 +10,7 @@ import {
   type AdminPurchaseFollowupBreakdown,
   type AnalyticsSummaryDays
 } from "../../src/lib/admin-api";
+import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import { classifiedOnboardingStepTotal, onboardingStepCount } from "../../src/lib/onboarding-steps-view";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
@@ -170,7 +171,7 @@ export default function AnalyticsSummaryPage() {
   const [days, setDays] = useState<AnalyticsSummaryDays>(7);
   const [summary, setSummary] = useState<AdminAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
 
   const loadSummary = useCallback(async () => {
     if (!session) return;
@@ -184,7 +185,7 @@ export default function AnalyticsSummaryPage() {
         clearSession();
         return;
       }
-      setLoadError("분석 요약을 불러오지 못했어요.");
+      setLoadError(loadErrorCopy(error, "분석 요약을 불러오지 못했어요."));
     } finally {
       setLoading(false);
     }
@@ -223,10 +224,13 @@ export default function AnalyticsSummaryPage() {
       {showLoading ? <p className={styles.emptyState}>불러오는 중...</p> : null}
       {loadError ? (
         <p className={styles.errorBanner}>
-          {loadError}
-          <button type="button" className={styles.retryButton} onClick={loadSummary}>
-            다시 시도
-          </button>
+          {loadError.message}
+          {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
+          {loadError.canRetry ? (
+            <button type="button" className={styles.retryButton} onClick={loadSummary}>
+              다시 시도
+            </button>
+          ) : null}
         </p>
       ) : null}
 

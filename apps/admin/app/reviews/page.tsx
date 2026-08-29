@@ -7,6 +7,7 @@ import {
   approvePublishContentRevision,
   createIdempotencyKeyHolder,
   getContentRevision,
+  getWorkerHealth,
   isAuthError,
   listContentRevisions,
   rejectContentRevision,
@@ -15,12 +16,16 @@ import {
   type ContentRevision,
   type ContentRevisionDetail,
   type ContentRevisionEntityType,
-  type ContentRevisionStatus
+  type ContentRevisionStatus,
+  type WorkerHealth
 } from "../../src/lib/admin-api";
+import { loadErrorCopy, loadErrorMessage, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import {
   REVISION_STATUS_FILTERS,
+  overdueScheduleNote,
   revisionStatusFilterFromSearchParams,
   revisionTargetLabel,
+  schedulingWorkerNote,
   type RevisionStatusFilter
 } from "../../src/lib/revision-rows";
 import { useAdminSession } from "../../src/lib/admin-token-context";
@@ -86,7 +91,15 @@ function ContentReviewsPageContent() {
     revisionStatusFilterFromSearchParams(searchParams)
   );
   const [revisions, setRevisions] = useState<ContentRevision[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
+
+  /**
+   * 라운드 73 트랙 D(GAP-073 #4ⓑ): 예약 게시의 조건을 **확인하고 말한다**.
+   * 종전에는 폼 아래 정적 문장이 "워커가 켜져 있어야 동작해요"라고 조건만 적어 뒀는데,
+   * 그 조건의 답은 이 앱이 이미 부를 수 있었다(대시보드가 유일한 호출부였다).
+   * 확인하지 못했으면(요청 실패·로딩) null로 남고, 그때는 아무 말도 하지 않는다.
+   */
+  const [worker, setWorker] = useState<WorkerHealth | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ContentRevisionDetail | null>(null);
@@ -121,13 +134,33 @@ function ContentReviewsPageContent() {
         clearSession();
         return;
       }
-      setLoadError("검토 목록을 불러오지 못했어요.");
+      setLoadError(loadErrorCopy(error, "검토 목록을 불러오지 못했어요."));
     }
   }, [session, statusFilter, clearSession]);
 
   useEffect(() => {
     loadList();
   }, [loadList]);
+
+  // 워커 상태는 무인증 공개 엔드포인트(GET /health/worker)라 세션과 무관하게 실패해도
+  // 로그아웃 처리를 하지 않는다 — 대시보드(app/page.tsx)와 같은 관례다.
+  //
+  // ⚠️ 실패했을 때 화면에 아무것도 세우지 않는 것이 이 자리의 판정이다(그래서 여기는
+  // 조회 실패 한 벌을 부르지 않는 유일한 자리이고, 그 예외와 이유는
+  // src/lib/load-error-copy.ts의 LOAD_ERROR_COPY_EXEMPT_SITES에 값으로 적혀 있다):
+  // 꺼졌는지 멈췄는지 **모르는** 상태에서 예약 폼 위에 문장을 세우면 그것이 허위 표시다.
+  const loadWorker = useCallback(async () => {
+    if (!session) return;
+    try {
+      setWorker(await getWorkerHealth());
+    } catch {
+      setWorker(null);
+    }
+  }, [session]);
+
+  useEffect(() => {
+    loadWorker();
+  }, [loadWorker]);
 
   const loadDetail = useCallback(
     async (id: string) => {
@@ -150,7 +183,9 @@ function ContentReviewsPageContent() {
           clearSession();
           return;
         }
-        setDetailError("검토 상세 정보를 불러오지 못했어요.");
+        // 상세 배너에는 [다시 시도] 버튼이 없다(목록에서 다시 고르는 것이 재시도다) —
+        // 그래서 문장만 받는다.
+        setDetailError(loadErrorMessage(error, "검토 상세 정보를 불러오지 못했어요."));
       }
     },
     [clearSession]
@@ -306,10 +341,13 @@ function ContentReviewsPageContent() {
         {revisions === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
-            {loadError}
-            <button type="button" className={styles.retryButton} onClick={loadList}>
-              다시 시도
-            </button>
+            {loadError.message}
+            {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
+            {loadError.canRetry ? (
+              <button type="button" className={styles.retryButton} onClick={loadList}>
+                다시 시도
+              </button>
+            ) : null}
           </p>
         ) : null}
         {revisions && revisions.length === 0 ? <p className={styles.emptyState}>해당 상태의 초안이 없어요.</p> : null}
@@ -336,7 +374,20 @@ function ContentReviewsPageContent() {
                     <td>#{revision.revisionNo}</td>
                     <td>{STATUS_LABELS[revision.status]}</td>
                     <td>{formatDate(revision.submittedAt)}</td>
-                    <td>{formatDate(revision.scheduledFor)}</td>
+                    {/* 라운드 73 트랙 D(GAP-073 #4ⓒ): 예약 시각이 지났는데 아직 검토 대기면
+                        그 게시는 일어나지 않은 것이다 — 종전에는 지난 날짜만 얌전히 적혔다.
+                        판정은 순수 함수 한 자리(revision-rows.ts overdueScheduleNote). */}
+                    <td>
+                      {formatDate(revision.scheduledFor)}
+                      {overdueScheduleNote(revision) ? (
+                        <>
+                          <br />
+                          <span className={`${styles.badge} ${styles.badgeInactive}`}>
+                            {overdueScheduleNote(revision)}
+                          </span>
+                        </>
+                      ) : null}
+                    </td>
                     <td>
                       <button type="button" className={styles.secondaryButton} onClick={() => setSelectedId(revision.id)}>
                         {selectedId === revision.id ? "선택됨" : "상세 보기"}
@@ -397,6 +448,14 @@ function ContentReviewsPageContent() {
                       {actionSubmitting ? "처리 중..." : "승인 게시"}
                     </button>
                   </div>
+                  {/* 라운드 73 트랙 D(GAP-073 #4ⓑ): 아래 정적 문장이 적어 둔 그 조건을
+                      이제 화면이 **확인해서** 말한다. 문장은 workerHealthStateNote()가 이미
+                      가진 것을 그대로 읽는다(새 문구 0건).
+                      ⚠️ 예약 자체는 막지 않는다 — 워커는 켜질 수 있고, 켜지면 밀린 예약이
+                      실제로 처리된다. 막는 것이 아니라 말하는 것이 이 자리의 판정이다. */}
+                  {schedulingWorkerNote(worker) ? (
+                    <p className={styles.errorBanner}>{schedulingWorkerNote(worker)}</p>
+                  ) : null}
                   <div className={styles.field}>
                     <label htmlFor="schedule-at">예약 게시 시각</label>
                     <input

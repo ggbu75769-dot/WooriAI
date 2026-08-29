@@ -4,11 +4,11 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import {
   isAuthError,
-  isTimeoutError,
   listAuditLogs,
   type AdminAuditLogEntry,
   type AdminAuditLogsPageInfo
 } from "../../src/lib/admin-api";
+import { loadErrorCopy, loadErrorMessage, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import {
   auditLogCsvFilename,
   buildAuditLogCsv,
@@ -104,7 +104,7 @@ function AuditLogsPageContent() {
 
   const [logs, setLogs] = useState<AdminAuditLogEntry[] | null>(null);
   const [pageInfo, setPageInfo] = useState<AdminAuditLogsPageInfo | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
   const [loading, setLoading] = useState(false);
 
   // 폼 입력값과 실제 적용된 필터를 분리: "적용" 버튼을 눌러야 조회한다.
@@ -142,11 +142,8 @@ function AuditLogsPageContent() {
       }
       // 행 걸린 요청은 10초 후 타임아웃으로 끊기고(admin-api fetchWithTimeout),
       // "불러오는 중..."이 무한히 이어지는 대신 시간 초과 안내 + 재시도가 뜬다.
-      setLoadError(
-        isTimeoutError(error)
-          ? "요청 시간이 초과됐어요(10초). 네트워크 상태를 확인하고 다시 시도해 주세요."
-          : "감사 로그를 불러오지 못했어요."
-      );
+      // 라운드 73 트랙 D: 그 문장을 여기서 옮겨 적지 않고 한 벌이 admin-api.ts에서 읽어 온다.
+      setLoadError(loadErrorCopy(error, "감사 로그를 불러오지 못했어요."));
     } finally {
       setLoading(false);
     }
@@ -179,11 +176,9 @@ function AuditLogsPageContent() {
         clearSession();
         return;
       }
-      setExportError(
-        isTimeoutError(error)
-          ? "요청 시간이 초과됐어요(10초). 네트워크 상태를 확인하고 다시 시도해 주세요."
-          : "CSV 내보내기에 실패했어요. 잠시 후 다시 시도해 주세요."
-      );
+      // 내보내기도 같은 목록 API의 조회다 — 같은 한 벌을 부른다(전용 [다시 시도] 버튼이
+      // 없는 자리라 문장만 받는다: 내보내기 버튼 자체가 재시도다).
+      setExportError(loadErrorMessage(error, "CSV 내보내기에 실패했어요. 잠시 후 다시 시도해 주세요."));
     } finally {
       setExporting(false);
     }
@@ -337,10 +332,13 @@ function AuditLogsPageContent() {
         {logs === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
-            {loadError}
-            <button type="button" className={styles.retryButton} onClick={loadLogs}>
-              다시 시도
-            </button>
+            {loadError.message}
+            {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
+            {loadError.canRetry ? (
+              <button type="button" className={styles.retryButton} onClick={loadLogs}>
+                다시 시도
+              </button>
+            ) : null}
           </p>
         ) : null}
         {logs && logs.length === 0 ? <p className={styles.emptyState}>조건에 맞는 기록이 없어요.</p> : null}

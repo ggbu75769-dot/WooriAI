@@ -9,6 +9,7 @@ import {
   type ClickSummary,
   type ClickSummaryDays
 } from "../../src/lib/admin-api";
+import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
@@ -22,7 +23,7 @@ export default function ClickSummaryPage() {
   const [days, setDays] = useState<ClickSummaryDays>(7);
   const [summary, setSummary] = useState<ClickSummary | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
   // FIX/F6: 기간 토글을 빠르게 누르면 먼저 보낸 요청이 나중에 도착할 수 있다. 마지막 요청만
   // 화면에 반영해 버튼(aria-pressed)과 표 제목("최근 N일")이 어긋나지 않게 한다.
   const requestSeq = useRef(0);
@@ -46,7 +47,7 @@ export default function ClickSummaryPage() {
         clearSession();
         return;
       }
-      setLoadError("클릭 통계를 불러오지 못했어요.");
+      setLoadError(loadErrorCopy(error, "클릭 통계를 불러오지 못했어요."));
     } finally {
       if (requestSeq.current === seq) setLoading(false);
     }
@@ -87,10 +88,13 @@ export default function ClickSummaryPage() {
         {loading ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
-            {loadError}
-            <button type="button" className={styles.retryButton} onClick={loadSummary}>
-              다시 시도
-            </button>
+            {loadError.message}
+            {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
+            {loadError.canRetry ? (
+              <button type="button" className={styles.retryButton} onClick={loadSummary}>
+                다시 시도
+              </button>
+            ) : null}
           </p>
         ) : null}
         {summary ? (
