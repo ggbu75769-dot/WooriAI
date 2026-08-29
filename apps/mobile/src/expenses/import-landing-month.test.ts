@@ -181,6 +181,33 @@ describe("라운드 51 C-#11 화면 배선", () => {
     expect(recordsSource).toContain("setMonthOffset((value) => value - 1);");
     expect(recordsSource).toContain("setMonthOffset((value) => value + 1);");
   });
+
+  /**
+   * 라운드 68 리뷰 C-1 — **‹ 화살표도 같은 바닥에서 멈춘다.**
+   *
+   * `resolveInitialMonthOffset`은 20년보다 먼 달의 `month=` 파라미터를 이번 달로 되돌린다. 그런데
+   * 화살표에는 그 바닥이 없어, 파라미터로는 못 가는 달에 ‹ 를 눌러서는 갈 수 있었다. 그 달의
+   * 달력 칸을 누르면 기록 시트가 그 날짜로 열리는데(handleRecordForCalendarDate →
+   * `/expenses/new?spentOn=`) 저장 가드는 하한에서 거절한다 — 읽기가 쓰기보다 넓어진 자리다.
+   *
+   * 화면은 vitest에서 렌더할 수 없으므로 소스 계약으로 고정한다(이 파일의 다른 배선 단언과 같은
+   * 관례). 고정하는 것은 두 가지: 판정이 **이 모듈의 상수**에서 나온다는 것(숫자를 화면에 다시
+   * 적으면 파라미터 쪽 바닥과 갈린다)과, 그 판정이 함수 안과 버튼 양쪽에 걸린다는 것.
+   */
+  it("기록 탭의 ‹ 는 같은 상수에서 과거 바닥을 얻는다(파라미터 쪽과 두 벌이 아니다)", () => {
+    expect(recordsSource).toContain(
+      'import { MAX_PAST_MONTH_OFFSET, resolveInitialMonthOffset } from "../../src/expenses/import-landing-month";'
+    );
+    expect(recordsSource).toContain("const canGoPrevMonth = monthOffset > -MAX_PAST_MONTH_OFFSET;");
+    // 함수 안 가드: ‹ 를 부르는 다른 자리(0건 카드의 "지난달에서 찾기")도 이 바닥을 지난다.
+    expect(recordsSource).toContain("const goToPreviousMonth = () => {\n    if (!canGoPrevMonth) return;");
+    // 버튼도 다음 달 잠금과 **같은 형태**로 상태를 말한다(A11Y-117).
+    expect(recordsSource).toContain("accessibilityState={{ disabled: !canGoPrevMonth }}");
+    expect(recordsSource).toContain("disabled={!canGoPrevMonth}");
+    expect(recordsSource).toContain("opacity: canGoPrevMonth ? 1 : 0.35");
+    // 숫자는 화면에 없다 — 이 모듈이(그리고 그 위 도메인이) 단일 소스다.
+    expect(recordsSource).not.toMatch(/\b240\b/);
+  });
 });
 
 /**

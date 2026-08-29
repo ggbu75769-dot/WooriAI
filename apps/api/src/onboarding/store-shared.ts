@@ -202,6 +202,14 @@ export function referenceNow() {
  * ## 이미 저장된 값은 고치지 않는다
  * 마이그레이션 0건이다. 지금 하는 일은 **새로 들어오는 값을 막는 것**뿐이고, 표시·회수 판단은
  * 별도 결정이다.
+ *
+ * ## 형제 함수와 계약이 다른 이유(라운드 68 리뷰 S-5)
+ * 출생일 쪽(`assertBirthDateWithinPastFloor` — onboarding-core.service.ts)은 도메인 술어가 던지면
+ * 삼키고 돌아간다. 여기는 삼키지 않는다: **이 함수는 `isValidCalendarDate`를 이미 지난 값에만
+ * 불린다**(유일한 호출부 `assertNotFutureDate`가 형식·실존을 먼저 보고 부른다). 그러니 여기서
+ * 던지는 일은 있을 수 없는 상태이고, 그때는 호출부의 catch가 `EXPENSE_DATE_INVALID`로 옮긴다 —
+ * 삼키면 그 있을 수 없는 값이 통과한다. 출생일 쪽은 형식 검증이 DTO에 있어 그 앞막이가 없으므로
+ * 반대 규칙이 맞다. 이 함수를 다른 자리에서 부르게 된다면 그 앞막이부터 확인해야 한다.
  */
 export function assertExpenseDateWithinPastFloor(spentOn: string) {
   if (isBeforeEntryDateFloor(spentOn, referenceNow())) {

@@ -635,9 +635,10 @@ describe("Items, commerce, and affiliate API", () => {
       }
 
       // ⚠️ `LINK_HEALTH_ENABLED`가 꺼진 배포에서는 `health_status`가 전부 null이라 이 변경이
-      // 아무것도 막지 않는다는 사실을, 위 "미확인 링크" 갈래가 그대로 증명한다(오늘의 운영
-      // 기본값이 그것이다 — 워커를 켜야 broken 행이 생긴다).
-      expect(linkFixtures.find((fixture) => fixture.healthStatus === null)?.shareable).toBe(true);
+      // 아무것도 막지 않는다 — 오늘의 운영 기본값이 그것이고, 워커를 켜야 broken 행이 생긴다.
+      // 그 사실을 증명하는 것은 위 루프의 "미확인 링크"(healthStatus null · shareable) 갈래다:
+      // 그 링크의 공유 URL을 실제로 때려 302까지 확인한다. 픽스처 배열에 같은 것을 다시 묻는
+      // 단언은 자기 자신을 확인할 뿐이라 두지 않는다(라운드 68 리뷰 S-7).
     } finally {
       await prisma.affiliateClick.deleteMany({ where: { itemTemplateId: template.id } });
       await prisma.productLink.deleteMany({ where: { itemTemplateId: template.id } });

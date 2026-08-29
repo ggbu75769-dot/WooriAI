@@ -32,7 +32,7 @@
  * react-native / expo-router / 저장소에 의존하지 않는다(vitest 단위 테스트 대상).
  */
 
-import { isValidCalendarDate } from "@wooriai/domain";
+import { isBeforeEntryDateFloor, isValidCalendarDate } from "@wooriai/domain";
 import type { ExpensePayload } from "../offline/types";
 import { SYNC_FIX_ENTRY_SOURCE } from "./post-save-destination";
 import {
@@ -257,20 +257,36 @@ export const NO_FAILED_ROW_PREFILL_DATE: FailedRowPrefillDate = { spentOn: null,
  * 사실과 어긋난다(DNC: 허위 데이터 금지). 그래서 **오늘로 물러서되 그 사실을 말한다** — 고르는
  * 것은 사용자 몫이고, 날짜 칩과 달력은 바로 그 자리에 있다.
  *
+ * ## 이 함수는 실패 행만의 것이 아니다
+ *
+ * 기록 시트가 `spentOn` 파라미터를 읽는 자리는 하나뿐이고(app/expenses/new.tsx), 그 자리로
+ * 들어오는 경로는 둘이다: 실패 행의 "고쳐서 다시 보내기"와 **기록 탭 달력 칸 탭**
+ * (app/(tabs)/records.tsx의 `handleRecordForCalendarDate` → `/expenses/new?spentOn=`). 그래서
+ * 여기가 두 동선의 **공통 입구**이고, 이 함수가 통과시킨 날짜는 시트의 초기값이 된다.
+ *
  * 판정 규칙(시트의 가드와 같은 질문을 순수하게 다시 묻는다):
  *  - 값 없음 → 프리필 없음, 안내 없음(평소의 새 기록과 같다).
  *  - 형식이 아니거나 달력에 없는 날짜 → 오늘 + 안내. 손상된 값을 화면에 그리지 않는다.
  *  - `todayIso`보다 뒤(미래) → 오늘 + 안내.
+ *  - **과거 하한보다 이른 날짜 → 오늘 + 안내**(라운드 68 리뷰 C-1). 시트의 저장 가드는 이미 그
+ *    날짜를 거절하는데(entry-form-guards.ts의 하한 갈래), 그 값이 초기값으로 앉으면 저장 버튼이
+ *    막힌 채로 열린다 — 미래 날짜와 같은 자리다. 하한 숫자는 여기 적지 않고 도메인 술어에
+ *    묻는다(`isBeforeEntryDateFloor`): 읽는 쪽과 쓰는 쪽이 같은 하나를 봐야 한다.
  *  - 그 밖 → 그대로 쓴다.
+ *
+ * 어느 갈래로 물러서든 안내 문장은 하나다("오늘로 두었어요") — 사용자가 할 일이 같기 때문이다.
  *
  * `todayIso`를 인자로 받는 이유: 이 앱의 "오늘"은 서울 기준이고(getSeoulToday), 화면은 이미 그
  * 값을 한 번 만들어 두었다. 여기서 시계를 다시 읽으면 같은 렌더 안에서 두 개의 오늘이 생긴다.
- * 문자열 비교로 충분한 것도 그 함수와 같은 이유다(ISO 날짜는 사전순 = 시간순).
+ * 문자열 비교로 충분한 것도 그 함수와 같은 이유다(ISO 날짜는 사전순 = 시간순). 하한 쪽은 폼
+ * 가드와 **같은 호출 형태**로 둔다(인자 없는 도메인 기본값) — 하한은 달 단위라 하루의 어긋남이
+ * 판정을 바꾸지 않고, 두 자리가 같은 모양이어야 다음 라운드가 한쪽만 고치지 않는다.
  */
 export function resolveFailedRowPrefillDate(value: unknown, todayIso: string): FailedRowPrefillDate {
   const spentOn = firstPrefillParamValue(value).trim();
   if (spentOn.length === 0) return NO_FAILED_ROW_PREFILL_DATE;
   if (!isValidCalendarDate(spentOn)) return { spentOn: null, fellBackToToday: true };
   if (spentOn > todayIso) return { spentOn: null, fellBackToToday: true };
+  if (isBeforeEntryDateFloor(spentOn)) return { spentOn: null, fellBackToToday: true };
   return { spentOn, fellBackToToday: false };
 }

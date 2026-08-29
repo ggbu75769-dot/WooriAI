@@ -9,6 +9,7 @@ import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
 import { hashClickIp, isAllowedAffiliateUrl, PRODUCT_LINK_NOT_FOUND_ERROR } from "../items-commerce/affiliate-link-guard.util";
 import { type StageBandLabel } from "../items-commerce/stage-bands";
 import { withCommissionDisclosure } from "../items-commerce/share-disclosure";
+import type { LinkHealthStatus } from "../worker/jobs/link-health.job";
 import { rankItemsForTab, type ItemTab } from "./item-ranking";
 import { ChildAccessService } from "./child-access.service";
 import { ExpensesStoreService } from "./expenses-store.service";
@@ -226,8 +227,13 @@ function publicRedirectShareUrl(redirectCode: string): string {
  * (worker/jobs/link-health.job.ts의 `LinkHealthStatus` — 4xx 또는 5홉 초과 리디렉트).
  * 정렬 강등표(`PRODUCT_LINK_HEALTH_DEMOTION`)가 같은 값을 키로 쓰지만, 그 표는 이번 변경의
  * 무접촉 대상이라 여기서 상수 하나를 따로 세운다(표의 등급 구성은 한 글자도 바뀌지 않는다).
+ *
+ * 라운드 68 리뷰 S-2: 타입 주석은 워커의 `LinkHealthStatus`다 — 그 유니온에서 값 하나가
+ * 사라지거나 이름이 바뀌면 여기가 **컴파일 타임에** 터진다(문자열 리터럴로 두면 조용히 아무
+ * 링크도 막지 않는 상태가 된다). type-only import라 런타임 결합은 0이다(워커 모듈은 이 경로로
+ * 적재되지 않는다).
  */
-const PRODUCT_LINK_HEALTH_BROKEN = "broken";
+const PRODUCT_LINK_HEALTH_BROKEN: LinkHealthStatus = "broken";
 
 /**
  * 라운드 68 C(#4) — **밖으로 내보내도 되는 주소인가.**
@@ -265,8 +271,13 @@ const PRODUCT_LINK_HEALTH_BROKEN = "broken";
  * 링크를 직접 눌러 봐야 하고, 그 표에는 판정이 이미 열로 서 있어(`healthStatus` — broken 필터도
  * 있다) 앱에서 무슨 일이 벌어지는지 읽을 수 있다. 가격 열(`priceExpired`)이 "앱에는 이미 보이지
  * 않는다"를 어드민에만 말하게 한 것과 같은 자리다.
+ *
+ * 라운드 68 리뷰 S-1: `healthStatus`는 **선택이 아니라 필수**다(값은 여전히 `null` 가능 —
+ * 미확인이라는 사실이다). optional이면 그 열을 빼먹은 `select`가 조용히 통과하고, 이 함수는
+ * 모든 링크를 "broken 아님"으로 읽어 죽은 주소를 다시 내보내게 된다. 필수로 두면 그 실수가
+ * 컴파일 타임에 잡힌다.
  */
-function shareableRedirectUrl(link: { redirectCode: string | null; healthStatus?: string | null }): string | undefined {
+function shareableRedirectUrl(link: { redirectCode: string | null; healthStatus: string | null }): string | undefined {
   if (!link.redirectCode) return undefined;
   if (link.healthStatus === PRODUCT_LINK_HEALTH_BROKEN) return undefined;
   return publicRedirectShareUrl(link.redirectCode);

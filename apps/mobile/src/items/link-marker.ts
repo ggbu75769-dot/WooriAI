@@ -327,7 +327,14 @@ export const LINK_SHARE_UNAVAILABLE_NOTICE = "지금은 공유할 수 있는 주
 /** 링크를 열지 못했고 **공유는 할 수 있는** 상태의 문구(종전 문장 그대로). */
 export const LINK_OPEN_FAILED_SHAREABLE_NOTICE = "링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.";
 
-/** 링크를 열지 못했고 **내보낼 주소도 없는** 상태의 문구. */
+/**
+ * 링크를 열지 못했고 **내보낼 주소도 없는** 상태의 문구.
+ *
+ * 클릭 기록 자체가 실패했을 때의 문장("링크를 열지 못했어요. **잠시 후** 다시 시도해 주세요." —
+ * app/items/[itemTemplateId].tsx의 `clickLink.onError`)과는 다른 갈래다: 그쪽은 서버 왕복이
+ * 실패해 잠시 뒤면 될 수도 있는 상태이고, 이쪽은 주소는 이미 받았는데 기기가 열지 못한 상태라
+ * 기다림이 답이 아니다.
+ */
 export const LINK_OPEN_FAILED_NOTICE = "링크를 열지 못했어요. 다시 시도해 주세요.";
 
 /**

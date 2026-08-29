@@ -373,6 +373,10 @@ export type LogoutPendingInput = {
  * 동기화 상태 화면의 `hasAny`와 **같은 덧셈**이다(그 화면: 대기+전송 중 · 실패 · 충돌 지출 행 +
  * 준비템 대기·실패 행). 두 큐를 함께 세는 근거는 홈 최하단 줄과 같다 — teardown은 둘 다 지우므로
  * 한쪽만 세면 화면이 실제보다 작은 수를 말한다.
+ *
+ * 기록 탭 배지(`syncStatusChipAccessibilityLabel` — 지출 `counts`만)와 **집합이 다른 것은
+ * 의도**다: 배지는 바로 아래 목록과 1:1로 맞아야 하는 숫자라 그 목록에 없는 준비템 상태 행을
+ * 셀 수 없고, 이 합산은 "로그아웃하면 잃는 것 전부"라 두 큐를 모두 센다.
  */
 export function countLogoutPendingRecords(
   counts: LogoutPendingCounts | null | undefined,

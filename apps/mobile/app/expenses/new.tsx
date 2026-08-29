@@ -1603,7 +1603,7 @@ export default function NewExpenseScreen() {
 
         {/* DSN-053 P2-C — 날짜 pill 행 (승인 원본: 3칸 flex1 + 달력 버튼 48·radius 14).
             원본의 세 칸은 어제/오늘/**내일**이지만, 이 앱은 미래 날짜를 저장하지 않는다
-            (validateExpenseDateInput의 isFutureSeoulDate 거부). 눌러도 저장이 막히는 칸을
+            (validateExpenseDateInput이 미래 날짜를 거부한다). 눌러도 저장이 막히는 칸을
             내놓느니 같은 자리를 **그제/어제/오늘**로 쓴다 -- 칩 목록 자체는 종전 14일 로직
             (buildRecentDateChips)에서 그대로 잘라 오므로 라벨·iso 규칙이 갈라지지 않는다.
             GAP-054 #7: 달력 버튼은 이제 **진짜 월 달력 픽커**를 연다(아래 패널). 14일 칩과

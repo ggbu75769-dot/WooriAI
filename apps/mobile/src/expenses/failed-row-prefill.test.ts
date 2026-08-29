@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { getEntryDateFloor, getSeoulToday } from "@wooriai/domain";
 import { createMemoryOfflineStore } from "../offline/memory-offline-store";
 import { RemotePermanentError } from "../offline/errors";
 import { isPermissionDeniedSyncError, isRetryableSyncFailureRow } from "../offline/permission-denied";
@@ -352,6 +353,32 @@ describe("라운드 58 #5 날짜 정직성 — 못 쓰는 날짜는 오늘로 �
         fellBackToToday: true
       });
     }
+  });
+
+  /**
+   * 라운드 68 리뷰 C-1 — **과거 하한도 같은 폴백**을 받는다.
+   *
+   * 이 함수는 실패 행 전용이 아니다: 기록 탭 달력 칸 탭도 같은 `spentOn` 파라미터로 이 시트를
+   * 연다(app/(tabs)/records.tsx의 `handleRecordForCalendarDate`). 하한을 여기서 묻지 않으면
+   * 저장 가드가 거절할 날짜가 시트의 초기값으로 앉아 저장 버튼이 막힌 채로 열린다 — 미래 날짜와
+   * 똑같은 증상이고, 그래서 갈래도 문구도 하나다.
+   *
+   * 경계는 폼 가드(entry-form-guards.test.ts)와 **같은 두 값**을 본다: 하한 당일은 통과(픽커가
+   * 고를 수 있게 열어 두는 날), 그 전날은 폴백.
+   */
+  it("하한보다 이른 날짜는 오늘로 폴백한다 (하한 당일은 그대로 쓴다)", () => {
+    const today = getSeoulToday();
+    const floor = getEntryDateFloor();
+    const dayBeforeFloor = new Date(`${floor}T00:00:00Z`);
+    dayBeforeFloor.setUTCDate(dayBeforeFloor.getUTCDate() - 1);
+
+    expect(resolveFailedRowPrefillDate(floor, today)).toEqual({ spentOn: floor, fellBackToToday: false });
+    expect(resolveFailedRowPrefillDate(dayBeforeFloor.toISOString().slice(0, 10), today)).toEqual({
+      spentOn: null,
+      fellBackToToday: true
+    });
+    // 읽기 화면이 열어 줄 수 없는 달의 오타(도메인 주석의 그 사례)도 같은 자리에서 걸린다.
+    expect(resolveFailedRowPrefillDate("1970-01-01", today)).toEqual({ spentOn: null, fellBackToToday: true });
   });
 });
 

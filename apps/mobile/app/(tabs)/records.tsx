@@ -21,7 +21,7 @@ import {
   CHILD_SWITCH_TRIGGER_HINT
 } from "../../src/children/child-switch";
 import { ChildSwitchSheet, useChildSwitchSheet } from "../../src/children/ChildSwitchSheet";
-import { resolveInitialMonthOffset } from "../../src/expenses/import-landing-month";
+import { MAX_PAST_MONTH_OFFSET, resolveInitialMonthOffset } from "../../src/expenses/import-landing-month";
 import { fetchMonthExpenses } from "../../src/expenses/month-expenses";
 import { buildCalendarMonth, dailyTotalsFromDateGroups } from "../../src/expenses/records-calendar";
 // 라운드 68 E(#9): 달력 **뷰**는 별도 모듈이다. 계산은 위 records-calendar.ts, 그리기는 이쪽.
@@ -703,7 +703,21 @@ export default function RecordsScreen() {
   // A11Y-117: 월 이동 시 새 기간 라벨을 TalkBack으로 읽어주고(포커스가 화살표에 머물러 라벨
   // 변경을 놓치는 문제), 현재 달 이후로는 "다음 달" 이동을 막는다(미래 빈 화면 제거).
   const canGoNextMonth = canGoToNextPeriod(monthOffset);
+  /**
+   * 라운드 68 리뷰 C-1 — ‹ 에도 바닥이 있다.
+   *
+   * 다음 달 잠금(canGoNextMonth)과 달리 이전 달은 여태 무한이었다. 그런데 이 앱의 **쓰기** 하한은
+   * 20년이고(도메인 `ENTRY_DATE_MAX_PAST_MONTHS`), 달력 보기의 칸을 누르면 그 날짜로 기록 시트가
+   * 열린다 — 즉 ‹ 를 계속 누르면 저장할 수 없는 달의 달력이 서고, 그 칸을 누른 사용자는 저장이
+   * 막힌 시트를 받는다. 딥링크(`month=` 파라미터)는 이미 같은 하한에서 멈추므로
+   * (`resolveInitialMonthOffset`), 화살표만 그 규칙 밖에 있었던 셈이다.
+   *
+   * 숫자는 여기 적지 않고 그 딥링크와 **같은 상수**를 읽는다 — 값이 두 벌이 되면 "파라미터로는
+   * 못 가는 달에 화살표로는 가진다"가 조용히 되살아난다(라운드 54 P2-8과 같은 판단).
+   */
+  const canGoPrevMonth = monthOffset > -MAX_PAST_MONTH_OFFSET;
   const goToPreviousMonth = () => {
+    if (!canGoPrevMonth) return;
     setMonthOffset((value) => value - 1);
     announceForA11y(periodLabelForOffset(baseDate, "month", monthOffset - 1));
   };
@@ -1391,9 +1405,11 @@ export default function RecordsScreen() {
           <Pressable
             accessibilityLabel="이전 달"
             accessibilityRole="button"
+            accessibilityState={{ disabled: !canGoPrevMonth }}
+            disabled={!canGoPrevMonth}
             hitSlop={12}
             onPress={goToPreviousMonth}
-            style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget }}
+            style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget, opacity: canGoPrevMonth ? 1 : 0.35 }}
           >
             <AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />
           </Pressable>
@@ -1604,7 +1620,8 @@ export default function RecordsScreen() {
   // 라운드 39 UX-P: 검색 0건일 때만 붙는 보조 액션. 종전 0건 카드가 제안하는 유일한 다음 행동은
   // "검색어 지우기"(= 찾기를 포기하기)였는데, 이 화면의 검색은 한 달 안에서만 걸리므로 사용자가
   // 찾던 기록은 대개 이전 달에 있다. 이동은 **기존 ‹ 동작을 그대로 재사용**한다 -- 검색어 state는
-  // 건드리지 않으므로 넘어간 달에서 같은 검색이 이어진다.
+  // 건드리지 않으므로 넘어간 달에서 같은 검색이 이어진다. 라운드 68 리뷰 C-1의 과거 하한도 같은
+  // 함수 안에 있으므로 이 재사용이 그 바닥을 우회하지 않는다.
   const previousMonthSearchActionButton = previousMonthSearchAction ? (
     <TextButton
       accessibilityLabel={previousMonthSearchAction.accessibilityLabel}
