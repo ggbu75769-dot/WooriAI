@@ -1,7 +1,9 @@
 import { useEffect } from "react";
-import type { HomeSummary } from "../api/client";
+import type { Expense, HomeSummary } from "../api/client";
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
+import { previousYearMonth } from "../home/last-month-comparison";
 import { evaluateHomeNotifications, latestRecordedOn, type WeeklySpendResolution } from "./generators";
+import { seoulCalendarDate } from "./iso-week";
 import { useNotificationPreferencesStore } from "./notification-preferences.store";
 import { useNotificationStore } from "./notification.store";
 
@@ -69,6 +71,42 @@ import { useNotificationStore } from "./notification.store";
  * 판단한다(그리고 같은 주에는 dedupe가 두 번째 발화를 막는다).
  */
 /**
+ * GAP-066 #8 (monthly_wrapup) — **지난달 합계를 어디서 읽는가.**
+ *
+ * 홈은 "지난달 같은 시점 대비" 한 줄과 달을 걸친 주간 카드를 위해 `["expenses", childId, 지난달]`
+ * 캐시를 이미 커서 루프로 전량 채워 둔다(app/(tabs)/index.tsx). 이 훅은 **그 값을 인자로 받는다**
+ * — 새 쿼리도, 새 구독도, 새 요청도 없다(NOTI-103이 세운 규칙이자 예산 화면·지출 입력 맥락 줄이
+ * 쓰는 것과 같은 관례). 홈 화면이 넘기는 것은 이미 자기 화면에서 쓰고 있는 쿼리의 결과뿐이다.
+ *
+ * ## 라운드 66 적대 리뷰(S-2) — 왜 캐시를 직접 읽지 않는가
+ *
+ * 처음에는 이 자리에서 쿼리 클라이언트로 캐시를 **명령형으로** 읽었다. 값이
+ * effect의 deps에 없으니, "지난달 캐시가 도착한다"는 사실 자체로는 재평가가 일어나지 않는다 —
+ * 재평가는 **다른 입력이 우연히 함께 바뀌어 줄 때만** 온다(대개 `weekly`가 그 역할을 했다).
+ * 그런데 그 우연이 성립하지 않는 조합이 실재한다: 이번 주가 달을 걸치지 않는 주(= 대부분의 주)
+ * 에서는 지난달 행이 도착해도 주간 합계가 그대로라 `weekly`가 같은 값이고, 그러면 지난달 정리는
+ * 홈이 다시 그려지는 **다음 순간까지** 미뤄진다. 첫 페인트 이후로 미뤄진 쿼리(UX-W C8)와 겹치면
+ * 그 창은 "그날 앱을 열었는데 아무 말도 없다"가 된다.
+ *
+ * 그래서 값을 **인자로 끌어올려 deps에 둔다.** react-query의 `data`는 새 결과가 오기 전까지
+ * 참조가 안정적이라, 이 변경으로 늘어나는 평가는 "캐시가 실제로 도착한 그 한 번"뿐이고
+ * (dedupe가 있어 결과도 한 번이다) 새 요청은 여전히 0건이다.
+ *
+ * 달 경계는 **서울 달력** 한 곳에서만 뽑는다(`seoulCalendarDate(nowMs)`): 캐시 키를 고르는 이
+ * 훅과 문구·dedupeKey를 만드는 generators가 **같은 순간**을 봐야, 자정 근처에 "8월 캐시를 읽고
+ * 7월이라고 말하는" 어긋남이 생기지 않는다. 그래서 `Date.now()`를 두 번 읽지 않고 `nowMs` 하나를
+ * 아래 평가 전체에 흘린다. 인자로 받는 지금은 **그 배열이 어느 달의 것인지**도 함께 받아
+ * (`lastMonthYearMonth`) 이 평가가 보는 달과 다르면 쓰지 않는다 — 자정을 갓 넘긴 렌더가 들고 있는
+ * 배열은 한 달 전의 것이고, 그것을 그대로 더하면 알림이 틀린 금액을 얼려 둔다.
+ *
+ * 타이밍(남는 트레이드오프): 지난달 쿼리는 첫 페인트 이후로 미뤄지므로(UX-W C8) 콜드 스타트의
+ * 첫 평가에서는 값이 `undefined`이고, 그때는 후보를 만들지 않는다 — **키를 태우지 않으므로**
+ * 값이 도착해 평가가 다시 돌 때 정확한 값으로 정확히 한 번 뜬다. 이제 그 재평가는 우연이 아니라
+ * **도착 자체**가 깨운다. 그래도 남는 것은 "미뤄진 쿼리가 아예 실패한 경우"뿐이고, 그때는 홈이
+ * 다시 그려지는 다음 순간(포커스 리페치·아이 전환)에 그 달 안에서 뜬다. "늦게 뜨는 것"과 "틀린
+ * 숫자를 말하는 것" 중 앞을 고른다는 판단은 그대로다.
+ */
+/**
  * rehydrate 안전 밸브의 유예 시간. app/index.tsx의 두 밸브(저장소 rehydrate · 서버 진행도 조회)와
  * **같은 3초**다 — 같은 실패 모드를 다루는 자리가 서로 다른 상한을 갖지 않게.
  */
@@ -82,7 +120,14 @@ export function useHomeNotificationEvaluation(
    * 호출부(홈 화면)가 이미 구독 중인 오프라인 스냅샷에서 `hasPendingRecordsForChild`로 계산해
    * 넘긴다. `true`면 record_gap만 발화하지 않고, 나머지 알림은 종전 그대로다.
    */
-  hasPendingLocalRecords: boolean
+  hasPendingLocalRecords: boolean,
+  /**
+   * GAP-066 #8 + 라운드 66 적대 리뷰(S-2): 홈이 이미 조회해 둔 **지난달 지출 행**과 그 배열이
+   * 어느 달의 것인가(`["expenses", childId, 지난달]` 쿼리의 결과와 그 키의 달). 아직 없으면
+   * `undefined`(판정 불가 — 지난달 정리만 만들어지지 않는다). 새 요청은 이 훅에서 0건이다.
+   */
+  lastMonthYearMonth: string | null,
+  lastMonthExpenses: Expense[] | undefined
 ) {
   useEffect(() => {
     if (!home) return;
@@ -93,13 +138,20 @@ export function useHomeNotificationEvaluation(
       if (evaluated) return;
       evaluated = true;
       const store = useNotificationStore.getState();
+      // GAP-066 #8: 판정 전체가 **같은 순간**을 본다(위 머리말 -- 자정 근처의 달 어긋남 방지).
+      const nowMs = Date.now();
+      const lastYearMonth = previousYearMonth(seoulCalendarDate(nowMs));
+      // S-2: 호출부가 쥔 배열이 **이 평가가 보는 달**의 것일 때만 쓴다(자정을 갓 넘긴 렌더는 한
+      // 달 전의 배열을 들고 있다 -- 그 합계를 말하면 알림이 틀린 금액을 얼려 둔다).
+      const lastMonthRecords =
+        lastYearMonth !== null && lastYearMonth === lastMonthYearMonth ? lastMonthExpenses : undefined;
       const candidates = evaluateHomeNotifications({
         child: { id: home.child.id, nickname: home.child.nickname, stageLabel: home.child.stageLabel },
         monthly: home.monthly,
         lastSeenStageLabel: store.lastSeenStageByChild[home.child.id] ?? null,
         // Read-only peek at the COM-108 click log -- purchase_pending candidates only.
         followupEntries: usePurchaseFollowupStore.getState().entries,
-        now: Date.now(),
+        now: nowMs,
         // G-1: `?? null`로 평탄화하지 않는다 -- 그 한 글자가 "아직 모른다"를 "확정 실패"로 바꿔
         // 폴백 발화를 만들던 자리다.
         weekly,
@@ -108,9 +160,13 @@ export function useHomeNotificationEvaluation(
         // "기록이 하나도 없다"라, 신규 사용자에게는 발화하지 않는다 -- generators.ts 참고.
         lastRecordedOn: latestRecordedOn(home.recentExpenses),
         // P1-3: 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 공백을 단언하지 않는다.
-        hasPendingLocalRecords
+        // (GAP-066 #8: 지난달 정리도 같은 이유로 같은 값을 본다 -- 금액을 단언하지 않는다.)
+        hasPendingLocalRecords,
+        // GAP-066 #8: 홈이 이미 받아 둔 지난달 캐시. 없으면 지난달 정리만 만들어지지 않고
+        // (키를 태우지 않는다) 나머지 평가는 종전과 한 글자도 다르지 않다.
+        lastMonthRecords
       });
-      store.ingest(candidates, Date.now());
+      store.ingest(candidates, nowMs);
       store.recordSeenStage(home.child.id, home.child.stageLabel);
     };
     // 두 저장소가 **모두** 올라온 다음에만 평가한다(C-08 주석 참고). zustand persist는
@@ -138,5 +194,7 @@ export function useHomeNotificationEvaluation(
       clearTimeout(valve);
       for (const unsubscribe of unsubscribes) unsubscribe();
     };
-  }, [home, weekly, hasPendingLocalRecords]);
+    // S-2: 지난달 값이 **deps에 있다** — 캐시가 도착한 그 순간이 재평가를 깨운다(우연에 기대지
+    // 않는다). react-query의 `data` 참조는 새 결과 전까지 안정적이라 늘어나는 평가는 그 한 번뿐이다.
+  }, [home, weekly, hasPendingLocalRecords, lastMonthYearMonth, lastMonthExpenses]);
 }

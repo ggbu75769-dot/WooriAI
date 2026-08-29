@@ -1,18 +1,20 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+// 라운드 66 트랙 B(P3 1번): 정기 지출 **문구**는 전부 이 순수 모듈에서 온다(스토어에는
+// 판정·상태만 남는다) — 그래서 문구 세 개의 수입처가 여기로 옮겨 왔다.
 import {
+  recurringDuplicateMessage,
+  RECURRING_ALREADY_REGISTERED_LABEL,
   RECURRING_LIMIT_MESSAGE,
   RECURRING_TEMPLATE_LIMIT,
+  RECURRING_TEMPLATE_MISSING_MESSAGE,
   RECURRING_AMOUNT_REQUIRED_MESSAGE,
   type RecurringTemplateDraft
 } from "../expenses/recurring-template";
 import {
   clearRecurringTemplatesForChild,
   findRecurringTemplateByItemName,
-  recurringDuplicateMessage,
-  RECURRING_ALREADY_REGISTERED_LABEL,
-  RECURRING_TEMPLATE_MISSING_MESSAGE,
   useRecurringExpenseStore
 } from "./recurring-expense.store";
 

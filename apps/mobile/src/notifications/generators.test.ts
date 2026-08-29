@@ -668,14 +668,12 @@ describe("라운드 51 #7: 예산 알림은 확정(서버) 사용액으로만 �
 
   it("홈 배선 계약: 알림 훅에는 재조정 값(monthlyUsed)이 아니라 /home 응답이 그대로 간다", () => {
     const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
-    expect(homeSource).toContain(
-      "useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification, hasPendingLocalRecords)"
-    );
-    // 훅 호출에 재조정 값이 섞여 들어가지 않는다(같은 줄에 monthlyUsed가 없다).
-    const call = homeSource.slice(
-      homeSource.indexOf("useHomeNotificationEvaluation(hasSession"),
-      homeSource.indexOf("useHomeNotificationEvaluation(hasSession") + 200
-    );
+    // 라운드 66 적대 리뷰(S-2)에서 인자가 다섯이 되며 호출이 여러 줄로 나뉘었다 — 첫 인자는
+    // 그대로 /home 응답이다.
+    expect(homeSource).toContain("useHomeNotificationEvaluation(\n    hasSession ? home.data : undefined,");
+    // 훅 호출에 재조정 값이 섞여 들어가지 않는다(호출 전체에 monthlyUsed가 없다).
+    const callAt = homeSource.indexOf("useHomeNotificationEvaluation(\n");
+    const call = homeSource.slice(callAt, homeSource.indexOf(");", callAt));
     expect(call).not.toContain("monthlyUsed");
   });
 });

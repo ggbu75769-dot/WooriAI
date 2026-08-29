@@ -254,10 +254,20 @@ export class ContentRevisionsService {
     }
 
     let publishedEntityId: string;
+    let liveBefore: Record<string, unknown> | null = null;
     try {
       // Fields read before the claim (entityType/entityId/payload) are
       // immutable once a revision leaves "draft" (PATCH only allows editing a
       // draft), so it's safe to use the pre-claim `revision` here.
+      //
+      // GAP-066 #7: 라이브 값을 덮어쓰기 **직전에** 한 번 읽어 감사 봉투의
+      // before로 싣는다(publishAuditBefore 머리말). 이 조회가 실패하면 아래
+      // catch가 claim을 in_review로 되돌리므로 행이 "publishing"에 갇히지 않는다.
+      liveBefore = await this.publishAuditBefore(
+        revision.entityType as ContentRevisionEntityType,
+        revision.entityId,
+        revision.payload as Record<string, unknown>
+      );
       publishedEntityId = await this.publishToLive(
         revision.entityType as ContentRevisionEntityType,
         revision.entityId,
@@ -292,7 +302,15 @@ export class ContentRevisionsService {
       action: "admin.content_revision.approve_publish",
       targetType: "content_revisions",
       targetId: id,
-      after: { entityType: revision.entityType, entityId: updated.entityId }
+      before: liveBefore,
+      after: {
+        entityType: revision.entityType,
+        entityId: updated.entityId,
+        ...this.auditDisclosureKey(
+          revision.entityType as ContentRevisionEntityType,
+          revision.payload as Record<string, unknown>
+        )
+      }
     });
 
     return this.toDto(updated);
@@ -386,7 +404,8 @@ export class ContentRevisionsService {
    *     entry records SYSTEM_WORKER_ACTOR as the actor instead.
    *   - the audit action is "admin.content_revision.scheduled_publish" so
    *     worker-initiated publishes are distinguishable from human approvals,
-   *     with the same targetType/targetId/after shape as approve_publish.
+   *     with the same targetType/targetId/before/after shape as approve_publish
+   *     (plus `scheduledFor`, the historical scheduled time).
    *   - the author/approver separation check does not apply (the worker is
    *     nobody's author).
    */
@@ -418,7 +437,16 @@ export class ContentRevisionsService {
       }
 
       let publishedEntityId: string;
+      let liveBefore: Record<string, unknown> | null = null;
       try {
+        // GAP-066 #7: 승인 발행과 같은 자리에서 같은 값을 읽는다 — 예약 발행은
+        // **사람이 자리에 없는 순간** 라이브 문구를 바꾸는 경로라, before가 없으면
+        // 되돌릴 값이 서버 어디에도 남지 않는다(publishAuditBefore 머리말).
+        liveBefore = await this.publishAuditBefore(
+          revision.entityType as ContentRevisionEntityType,
+          revision.entityId,
+          revision.payload as Record<string, unknown>
+        );
         publishedEntityId = await this.publishToLive(
           revision.entityType as ContentRevisionEntityType,
           revision.entityId,
@@ -452,10 +480,15 @@ export class ContentRevisionsService {
         action: "admin.content_revision.scheduled_publish",
         targetType: "content_revisions",
         targetId: revision.id,
+        before: liveBefore,
         after: {
           entityType: revision.entityType,
           entityId: updated.entityId,
-          scheduledFor: revision.scheduledFor?.toISOString() ?? null
+          scheduledFor: revision.scheduledFor?.toISOString() ?? null,
+          ...this.auditDisclosureKey(
+            revision.entityType as ContentRevisionEntityType,
+            revision.payload as Record<string, unknown>
+          )
         }
       });
 
@@ -681,6 +714,89 @@ export class ContentRevisionsService {
         message: "entityId가 가리키는 고지 문구의 key와 payload.key가 달라요."
       });
     }
+  }
+
+  /**
+   * GAP-066 #7 (known-limitations §J 해소): 발행 감사 봉투의 `before`.
+   *
+   * ⚠️ 라운드 66 적대 리뷰(S-3) — **읽기와 덮어쓰기 사이는 원자적이지 않다.** 같은 key(또는 같은
+   * entityId)를 겨냥한 두 발행이 겹치는 창에서는 여기서 읽은 값이 **그 발행이 실제로 덮어쓴 값**이
+   * 아닐 수 있다: 리비전의 CAS(`updateMany where status`)는 **같은 리비전**의 이중 발행만 막고,
+   * 서로 다른 두 리비전이 같은 라이브 행을 겨누는 것은 막지 않는다. 그 창에서 두 봉투는 같은
+   * before를 싣거나(둘 다 옛 값을 읽음) 한쪽이 다른 쪽의 after를 before로 싣는다. 발행이 승인·
+   * 예약을 거치는 **저빈도** 경로이고 이 값의 용도가 CS 근거(되돌릴 문구를 찾는 것)라 그대로
+   * 둔다 — 정확한 before가 계약이어야 한다면 라이브 행에 버전을 두고 CAS로 덮어써야 하고, 그건
+   * `publishToLive`의 upsert 계약을 바꾸는 일이라 이 수정의 범위 밖이다.
+   *
+   * 두 발행 경로(승인 발행 `approvePublish`, 예약 발행 `publishDueScheduled`)의
+   * 봉투에는 종전에 `after`뿐이었다 — 즉 **무엇에서** 바꿨는지가 서버 어디에도
+   * 남지 않았다. 리비전 행에는 발행할 `payload`(=새 값)만 있고, 고지(`disclosures`)는
+   * key당 한 칸 upsert라 덮어쓰는 순간 이전 문구가 **사실 자체로** 사라진다.
+   * 그래서 "고지가 왜 이렇게 바뀌었죠 / 원래 문구로 되돌려 주세요" CS에서 되돌릴 값이
+   * 없었다(직접 덮어쓰기 경로 `admin.disclosure.update`에만 before가 있었다 —
+   * admin.controller.ts, GAP-065 #9). 이 함수가 그 값을 발행 직전에 읽어 온다.
+   *
+   * `getLiveSnapshot`을 **읽기만** 한다 — 그 함수의 모양은 검수 화면 diff가 쓰는
+   * 계약(payload와 live의 키 합집합, 라운드 48 QA·라운드 63 E)이라 감사 봉투 때문에
+   * 손대지 않는다. 봉투와 검수 diff가 같은 값을 보게 되는 것은 덤이다.
+   *
+   * 고지만 경로가 다른 이유: 라이브 고지는 **id가 아니라 key로** 주소지정된다
+   * (`publishToLive`의 upsert-by-key). entityId 없이 만든 초안(신규 key로 보이지만
+   * 실제로는 같은 key의 라이브 문구를 덮어쓰는 흔한 경우)도 있어서, entityId만 보면
+   * before가 늘 null이 되어 이 수정이 정작 DNC-010 문구에서 헛돈다. 그래서 key로
+   * 라이브 행을 찾아 그 id로 같은 스냅숏 함수를 부른다. L-4 가드가 entityId와
+   * payload.key의 불일치를 이미 막으므로 두 주소가 갈라질 일은 없다.
+   *
+   * **봉투 크기 판단**(감사 로그 보존 730일): 세 entityType을 전부 싣는다.
+   * `item_template` 스냅숏이 가장 크다 — 아래 `getLiveSnapshot`이 싣는 키는
+   * `stageCodes`까지 세어 **열셋**이다(라운드 66 적대 리뷰 I-1: 종전 주석의 "필드
+   * 열넷 + stageCodes"는 실측과 어긋난 수였다). 그리고 그 수는 **필드 수의 상한이지
+   * 바이트 상한이 아니다** — 긴 `reasonText`·`safetyNote`가 들어오면 봉투도 그만큼
+   * 커진다. 그럼에도 그대로 싣는 근거는 크기가 아니라 **중복이 아니라는 사실**이다:
+   * 같은 내용의 사본이 이미 리비전 `payload`에 있고(감사 봉투의 `after`도 그 값이다),
+   * 봉투가 늘어나는 양은 발행 한 건당 스냅숏 하나로 **선형**이다. 발행은 승인·예약을
+   * 거치는 저빈도 경로라 그 선형 증가가 문제 되는 규모가 아니다. 그리고
+   * "누가 안전 주의 문구를 약하게 바꿨나"는 고지와 같은 모양의 질문이라 준비템·
+   * 상품 링크에도 같은 근거가 있어야 한다. **PII는 없다** — 세 스냅숏 모두 운영이
+   * 쓴 카탈로그 콘텐츠이고(앱 화면에 그대로 그려지는 값이다) 사용자 데이터가 아니다.
+   *
+   * 라이브에 아직 행이 없으면(신규 생성 발행) `null` — 라운드 65 E와 같은 표식이다.
+   */
+  private async publishAuditBefore(
+    entityType: ContentRevisionEntityType,
+    entityId: string | null,
+    payload: Record<string, unknown>
+  ): Promise<Record<string, unknown> | null> {
+    if (entityType !== "disclosure") {
+      return this.getLiveSnapshot(entityType, entityId);
+    }
+    const key = typeof payload.key === "string" ? payload.key : null;
+    if (!key) {
+      return this.getLiveSnapshot(entityType, entityId);
+    }
+    const row = await this.prisma.disclosure.findUnique({ where: { key }, select: { id: true } });
+    if (!row) {
+      return null;
+    }
+    return this.getLiveSnapshot(entityType, row.id);
+  }
+
+  /**
+   * GAP-066 #7: 고지 발행에 한해 봉투의 `after`에 `key`를 함께 싣는다.
+   * `before`가 null이면(그 key가 없던 새 문구) 어느 문구를 세운 발행인지 답할 값이
+   * 봉투 안에 하나도 남지 않기 때문이다 — 리비전의 targetId는 revision id라 고지의
+   * key를 말해 주지 않는다. 라운드 65 E가 `admin.disclosure.update` 봉투에 key를
+   * 실은 것과 같은 이유·같은 자리다. 준비템·상품 링크는 entityId(UUID)가 그 답을
+   * 이미 하고 있어 더할 것이 없다.
+   */
+  private auditDisclosureKey(
+    entityType: ContentRevisionEntityType,
+    payload: Record<string, unknown>
+  ): { key?: string } {
+    if (entityType !== "disclosure" || typeof payload.key !== "string") {
+      return {};
+    }
+    return { key: payload.key };
   }
 
   private async getLiveSnapshot(

@@ -2,8 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Pressable, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
-import { EXPENSE_LIST_MAX_LIMIT, listCategories, listExpenses, LOCAL_SESSION_TOKEN } from "../api/client";
+import { EXPENSE_LIST_MAX_LIMIT, listCategories, listChildren, listExpenses, LOCAL_SESSION_TOKEN } from "../api/client";
 import { buildCategoryNameLookup } from "../categories";
+// 라운드 66 트랙 B(#3): 다자녀 스코프 라벨의 해석·조립은 4탭·빠른 기록 시트·예산 화면과 **같은
+// 순수 모듈 한 벌**에서만 온다(새 어휘를 만들지 않는다 — 라운드 48 T4의 `resolveChildScopeLabel`).
+import { resolveChildScopeLabel, withChildScopeLabel, withSpokenChildScopeLabel } from "../children/child-switch";
 import { collectExpensePages, ExpensePageCollectionError } from "./expense-page-collector";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
@@ -67,6 +70,11 @@ export type ExpenseCsvExportController = {
   /** 지금 고른 구간으로 저장할 파일 이름 -- 텍스트로 붙여 넣은 뒤 무엇으로 저장할지 미리 말한다. */
   fileName: string;
   /**
+   * 라운드 66 트랙 B(#3): **어느 아이의 기록인가**. 아이가 하나(또는 아직 모름)면 `null`이고,
+   * 그때 카드 제목도 파일 이름도 종전과 한 글자도 다르지 않다(`resolveChildScopeLabel`).
+   */
+  childScopeLabel: string | null;
+  /**
    * GAP-056 #3: 고른 기간에서 **아직 서버에 올라가지 않아 CSV에 담기지 못하는** 기록 고지.
    * 0건이면 null이라 카드는 아무것도 그리지 않는다(판정은 export-pending-notice.ts).
    */
@@ -120,6 +128,26 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     queryFn: () => listCategories(authToken!, { includeAll: true })
   });
 
+  /**
+   * 라운드 66 트랙 B(#3) — 내보내기는 **선택된 아이 한 명**의 기록만 모으는데(아래 `runExport`의
+   * `listExpenses(authToken, childId, …)`) 그 사실을 화면도 파일 이름도 말하지 않았다. 두 아이를
+   * 키우는 사람이 각각 내보내면 화면이 **같은 이름**을 제시하고, 그대로 저장하면 앞의 파일이
+   * 덮어쓰인다(본문에도 아이 열이 없어 내용으로도 구별되지 않는다 — export-range.ts의
+   * `exportFileName` 주석).
+   *
+   * 목록은 4탭·설정이 이미 물고 있는 **같은 `["children"]` 캐시**다 — 새 캐시 키를 만들지 않으므로
+   * 대개 이미 채워져 있고, 캐시가 아직 없으면 라벨이 null이라 화면이 종전 그대로일 뿐이다
+   * (모르면 지어내지 않는다). 소비 화면(더보기 탭·설정)은 한 줄도 바뀌지 않는다 — 이 컨트롤러가
+   * 스스로 읽는다(그 두 화면은 SET-001 픽셀락이라 무접촉이 이 트랙의 계약이다).
+   */
+  const children = useQuery({
+    queryKey: ["children"],
+    enabled: canExport,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => listChildren(authToken!)
+  });
+  const childScopeLabel = resolveChildScopeLabel(childId, children.data?.children);
+
   const [cardOpen, setCardOpen] = useState(false);
   const [range, setRange] = useState<ExportRange>("month");
   // GAP-054 D#11: 기본값은 이번 달 한 달 -- "직접 선택"을 처음 누른 사람이 보게 되는 구간이
@@ -156,7 +184,7 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     (edge: "start" | "end", delta: -1 | 1) => canShiftCustomRange(customRange, edge, delta, getSeoulToday()),
     [customRange]
   );
-  const fileName = exportFileName({ range, todaySeoul: getSeoulToday(), custom: customRange });
+  const fileName = exportFileName({ range, todaySeoul: getSeoulToday(), custom: customRange, childLabel: childScopeLabel });
 
   /**
    * GAP-056 #3 — 이 기기에만 있어 CSV에 담기지 못하는 기록이 몇 건인가.
@@ -283,6 +311,7 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     canExport,
     canShiftCustomMonth,
     cardOpen,
+    childScopeLabel,
     customRange,
     fileName,
     pendingNotice,
@@ -354,7 +383,25 @@ export function ExpenseCsvExportCard({ controller }: { controller: ExpenseCsvExp
   if (!controller.canExport || !controller.cardOpen) return null;
   return (
     <View style={exportCardStyle()}>
-      <Text style={exportCardTitleStyle}>내보낼 기간</Text>
+      {/* 라운드 66 트랙 B(#3): 다자녀 계정에서만 붙는 대상 표기(어느 아이의 기록을 내보내는가).
+          표시용은 줄표, 소리는 쉼표 -- 라운드 49 C-08이 정한 두 구분자 그대로다. 아이가 하나면
+          라벨이 null이라 이 줄은 종전 <Text>내보낼 기간</Text>과 한 글자도 다르지 않다(접근성
+          라벨도 undefined = 없는 것과 같다).
+
+          ⚠️ **메뉴 행 제목(EXPORT_MENU_TITLE)에는 붙이지 않는다.** 그 행을 그리는 것은 설정
+          화면과 더보기 탭이고 두 화면 모두 이 트랙의 무접촉 대상이다(SET-001 픽셀락 · 공용
+          모듈을 부르기만 한다는 계약). 카드가 열려야 보이는 이 제목만으로도 "지금 내보내는
+          것이 누구의 기록인가"는 눌리기 전에 읽힌다. */}
+      <Text
+        accessibilityLabel={
+          controller.childScopeLabel
+            ? withSpokenChildScopeLabel("내보낼 기간", controller.childScopeLabel)
+            : undefined
+        }
+        style={exportCardTitleStyle}
+      >
+        {withChildScopeLabel("내보낼 기간", controller.childScopeLabel)}
+      </Text>
       <View style={exportChipRowStyle}>
         {EXPORT_RANGE_OPTIONS.map((option) => (
           <CategoryChip

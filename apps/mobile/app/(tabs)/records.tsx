@@ -106,6 +106,15 @@ import {
 } from "../../src/offline/sync-controller";
 import type { LocalExpenseRow } from "../../src/offline/types";
 import { canGoToNextPeriod, periodLabelForOffset } from "../../src/period-navigation";
+// GAP-066 트랙 A(#2): 달 라벨 → 월 선택 시트. 판정은 전부 순수 모듈(src/month-jump.ts)이 하고
+// 이 화면은 고른 달을 **기존 monthOffset으로 환산**해 세우기만 한다(상태 모양 무변경).
+import {
+  monthJumpTriggerAccessibilityLabel,
+  resolveMonthJumpEarliestMonth,
+  resolveMonthJumpOffset,
+  MONTH_JUMP_TRIGGER_HINT
+} from "../../src/month-jump";
+import { MonthJumpSheet } from "../../src/MonthJumpSheet";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import {
@@ -959,6 +968,22 @@ export default function RecordsScreen() {
     setMonthOffset((value) => value + 1);
     announceForA11y(periodLabelForOffset(baseDate, "month", monthOffset + 1));
   };
+  /**
+   * GAP-066 트랙 A(#2) — 달 라벨을 눌러 여는 **월 선택 시트**.
+   *
+   * 종전에는 이동 수단이 ±1 화살표뿐이라, 1년 전 기록을 찾으려면 ‹ 를 열두 번 눌러야 했고
+   * (0건 카드의 "지난달에서 찾기"도 한 달씩 되감는다) 그 열두 번이 열두 번의 조회를 태웠다.
+   * 시트는 그 이동을 한 번으로 줄이기만 한다 — 고른 달은 아래에서 **기존 monthOffset으로
+   * 환산**되므로 이 화면의 상태 모양·쿼리 키는 한 칸도 바뀌지 않는다.
+   */
+  const [monthJumpOpen, setMonthJumpOpen] = useState(false);
+  const goToMonthFromJump = (yearMonth: string) => {
+    const nextOffset = resolveMonthJumpOffset(yearMonth, seoulToday);
+    setMonthJumpOpen(false);
+    setMonthOffset(nextOffset);
+    // 이동 안내는 화살표 이동과 **같은 계산**을 읽어 준다(A11Y-117).
+    announceForA11y(periodLabelForOffset(baseDate, "month", nextOffset));
+  };
 
   // REC-124(H1): 한 요청은 한 페이지(기본 200 · 상한 500건)다 -- 목록·건수·합계·지난달 비교가
   // 모두 이 응답에서 나오므로, 첫 페이지만 읽으면 월 200건을 넘는 달이 조용히 잘린다(정렬이
@@ -1058,6 +1083,20 @@ export default function RecordsScreen() {
     childId,
     children: childrenQuery.data?.children
   });
+  /**
+   * GAP-066 트랙 A(#2) — 월 선택 시트의 경계.
+   *
+   * 위쪽은 `canGoToNextPeriod`가 이미 말하는 "미래 아님" 규칙 그대로이고, 아래쪽은 **아이의
+   * 생년월일/예정일에서 파생**한다("기록이 있는 가장 오래된 달"을 아는 API가 없다). 그 값은
+   * 위 `["children"]` 캐시에서 그대로 읽으므로 **새 요청이 0건**이고, 모르면 하한을 두지
+   * 않는다(모르면 막지 않는다). 판정은 전부 src/month-jump.ts에 있다.
+   */
+  const monthJumpBounds = {
+    todayIso: seoulToday,
+    earliestYearMonth: resolveMonthJumpEarliestMonth(
+      childrenQuery.data?.children.find((child) => child.id === childId) ?? null
+    )
+  };
   const { refreshing, onRefresh } = usePullToRefresh(() =>
     Promise.all([expenses.refetch(), refreshOfflineSyncSnapshot()])
   );
@@ -1591,7 +1630,28 @@ export default function RecordsScreen() {
           >
             <AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />
           </Pressable>
-          <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
+          {/* GAP-066 트랙 A(#2): 달 라벨이 곧 월 선택 시트의 입구다. 라운드 49 C-09의 선례대로
+              <Text>를 Pressable로 **감싸기만** 한다 -- 라벨의 스타일·문자열은 한 글자도 손대지
+              않으므로 렌더는 종전 그대로다(레이아웃 속성 무변경).
+              라운드 66 적대 리뷰(M-2): 감싸기만 하면 버튼의 몸은 16px 글자 줄 하나(약 20dp)라
+              hitSlop 8을 더해도 최소 터치 타깃에 못 미쳤다. 위 아이 전환 트리거와 **같은 한 줄**로
+              48dp를 채운다 -- 이 줄은 이미 48dp 화살표 둘이 높이를 잡고 있고 라벨은 가운데
+              정렬이라, 늘어난 것은 히트 영역뿐이고 렌더는 종전 그대로다. */}
+          {hasRecordsSession ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={monthJumpTriggerAccessibilityLabel(recordsMonthLabel)}
+              accessibilityHint={MONTH_JUMP_TRIGGER_HINT}
+              hitSlop={8}
+              onPress={() => setMonthJumpOpen((open) => !open)}
+              testID="records-month-jump-trigger"
+              style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
+            >
+              <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
+            </Pressable>
+          ) : (
+            <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
+          )}
           <Pressable
             accessibilityLabel="다음 달"
             accessibilityRole="button"
@@ -1610,6 +1670,17 @@ export default function RecordsScreen() {
             <AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />
           </Pressable>
         </View>
+        {/* GAP-066 트랙 A(#2): 월 선택 시트. 라벨을 눌렀을 때만 그린다(닫혀 있으면 화면은
+            종전과 한 줄도 다르지 않다). */}
+        {hasRecordsSession && monthJumpOpen ? (
+          <MonthJumpSheet
+            testID="records-month-jump-sheet"
+            selectedYearMonth={recordsYearMonth}
+            bounds={monthJumpBounds}
+            onSelect={goToMonthFromJump}
+            onClose={() => setMonthJumpOpen(false)}
+          />
+        ) : null}
         {/* PERF-102: lightweight month summary from already-fetched data (no extra API call).
             라운드 39 UX-P: 문구는 보고 있는 달의 라벨에서 나온다(buildRecordsMonthSummary) --
             아래 합계 카드의 "{recordsMonthLabel} 합계"와 같은 한 문자열이라 표기가 갈릴 수 없다.

@@ -150,7 +150,7 @@ describe("라운드 52 C-10 배선 (source verification -- 화면은 vitest에�
     const screenSource = screen();
     const tapHandler = screenSource.slice(
       screenSource.indexOf("markRead(entry.id);"),
-      screenSource.indexOf("router.push(notificationTapRoute(entry, nextRecordsViewNonce()));")
+      screenSource.indexOf("router.push(notificationTapRoute(entry, nextRecordsViewNonce(), getSeoulToday()));")
     );
     expect(tapHandler).toContain("removeNotificationMark(previous, entry.id)");
   });

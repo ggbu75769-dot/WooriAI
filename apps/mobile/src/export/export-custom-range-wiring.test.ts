@@ -69,7 +69,10 @@ describe("GAP-054 D#11 내보내기 카드의 시작/끝 달 선택", () => {
   it("붙여 넣은 뒤 무슨 이름으로 저장할지까지 말한다 (텍스트 공유 안내와 한 벌)", () => {
     expect(cardSource).toContain('export const EXPORT_FILE_NAME_LABEL = "저장할 이름"');
     expect(cardSource).toContain("{EXPORT_FILE_NAME_LABEL}: {controller.fileName}");
-    expect(cardSource).toContain("exportFileName({ range, todaySeoul: getSeoulToday(), custom: customRange })");
+    // 라운드 66 트랙 B(#3): 같은 호출에 아이 라벨 한 칸이 더 붙었다(기간 계산은 그대로다).
+    expect(cardSource).toContain(
+      "exportFileName({ range, todaySeoul: getSeoulToday(), custom: customRange, childLabel: childScopeLabel })"
+    );
     // 파일이 아니라 텍스트라는 기존 고지는 그대로 남아 있어야 한다(D#11이 지우지 않았다).
     expect(cardSource).toContain("<Text style={exportCardNoticeStyle}>{EXPORT_TEXT_SHARE_NOTICE}</Text>");
   });

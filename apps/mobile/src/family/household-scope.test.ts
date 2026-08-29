@@ -788,7 +788,8 @@ describe("라운드 62 #4 가구 전환을 탈퇴 화면까지 (파라미터 관
       params: { householdId: "household-2" }
     });
     // 전환하지 않았으면 **파라미터 자체가 생기지 않는다** -- 1가구 계정의 탈퇴 화면은 종전과
-    // 한 글자도 달라지지 않는다(SET-003 픽셀락).
+    // 한 글자도 달라지지 않는다(SET-003의 1가구 문자열 불변 계약 -- 캡처 아님. 라운드 66 F
+    // 정정: 설정 계열 캡처 라우트는 SET-001뿐이다. 그 불변을 잠그는 것이 바로 이 단언이다).
     for (const value of [undefined, null, "", "   "]) {
       expect(leaveScreenHref(value)).toEqual({ pathname: "/settings/privacy", params: {} });
     }
@@ -962,8 +963,9 @@ describe("라운드 63 #2 아이 삭제 카드의 대상 표기", () => {
       "{childDeleteNotice ? <Text style={mutedTextStyle}>{childDeleteNotice}</Text> : null}"
     );
     // 마지막 확인도 같은 라벨을 싣고, 모르면 **종전 제목 그대로**다(차단도 자리 채움도 아니다).
+    // 라운드 66 트랙 B(#6): 본문은 flowCopy가 갈래별로 정하는 문장이 됐다(제목 규칙은 그대로).
     expect(screenSource).toContain(
-      'Alert.alert(childScopeDeleteConfirmTitle(childDeleteLabel) ?? "정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", ['
+      'childScopeDeleteConfirmTitle(childDeleteLabel) ?? "정말 삭제할까요?",\n      destructiveAlertMessage(flowCopy.child_profile_delete.exportNotice),'
     );
     // 삭제 대상은 여전히 전역 선택 아이 하나이고, 서버 호출은 한 글자도 바뀌지 않았다.
     expect(screenSource).toContain("previewChildProfileDeletion(authToken!, childId!)");
@@ -973,7 +975,9 @@ describe("라운드 63 #2 아이 삭제 카드의 대상 표기", () => {
     // 새 요청을 만들지 않는다 — 이름은 이 화면이 이미 물고 있는 ["children"] 캐시에서 온다.
     expect(screenSource.match(/queryKey: \["children"\]/g) ?? []).toHaveLength(1);
     // 계정 삭제 카드의 종전 제목은 그대로 남는다(이름이 붙는 카드는 아이 쪽 하나뿐이다).
-    expect(screenSource).toContain('Alert.alert("정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", [');
+    expect(screenSource).toContain(
+      'Alert.alert("정말 삭제할까요?", destructiveAlertMessage(flowCopy.account_delete.exportNotice), ['
+    );
   });
 });
 

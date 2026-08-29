@@ -62,26 +62,67 @@ import {
   StatusBadge
 } from "../../src/ui";
 
+/**
+ * 되돌릴 수 없다는 사실. 파괴 플로우 셋의 마지막 확인 Alert이 공유하던 그 한 문장이다.
+ */
+const IRREVERSIBLE_NOTICE = "이 작업은 되돌릴 수 없어요.";
+
+/**
+ * 라운드 66 트랙 B(#6) — **되돌릴 수 없는 동작 앞에서 앱이 말해 주지 않던 유일한 선택지.**
+ *
+ * 이 화면은 사실을 정직하게 말해 왔다: 무엇이 삭제되는지(카드 본문), 30일 재가입 제한
+ * (`ACCOUNT_DELETE_REJOIN_NOTICE`), 되돌릴 수 없다는 것(위 한 줄). 그런데 **1년치 지출 기록을
+ * 꺼낼 수 있었다는 사실**만 아무도 말하지 않았다 — 그것도 그 기능이 이 화면의 **부모 화면 안에**
+ * 있는데(app/settings/index.tsx의 `ExpenseCsvExportCard`). 파기 잡이 30일 뒤 물리 삭제하면
+ * (`DEFAULT_PURGE_RETENTION_DAYS`) 그 데이터는 정말로 없다.
+ *
+ * 그래서 확인 Alert의 본문 한 문장을 늘리고, 그 문장이 가리키는 자리로 가는 버튼을 함께 둔다.
+ * **카드 렌더는 한 줄도 건드리지 않는다** — 라운드 63·65가 이 화면에 "1아이 계정 결과 불변"을
+ * 계약으로 걸어 두었고(그 계약은 실재한다 — 픽셀락 캡처 라우트에 설정 계열은 SET-001뿐이지만),
+ * 늘리는 것을 Alert 본문으로 좁히면 그 계약을 깨지 않고도 필요한 말을 다 할 수 있다.
+ */
+const EXPORT_BEFORE_DELETE_NOTICE = "필요하면 먼저 설정 > 데이터 내보내기로 기록을 저장해 주세요.";
+/** 그 문장이 가리키는 자리로 가는 Alert 버튼. 문구는 이 화면이 시키는 행동 그대로다. */
+const EXPORT_BEFORE_DELETE_ACTION_LABEL = "내보내기";
+/** 내보내기 카드가 있는 화면(설정). 이 화면의 부모라 뒤로 가면 그대로 돌아온다. */
+const EXPORT_SCREEN_ROUTE = "/settings";
+
 const flowCopy = {
   child_profile_delete: {
     title: "아이 프로필 삭제",
     description: "이 아이의 지출 기록과 준비 목록이 함께 삭제돼요.",
     previewLabel: "삭제 전 확인하기",
-    confirmLabel: "아이 프로필 삭제하기"
+    confirmLabel: "아이 프로필 삭제하기",
+    /** 사라지는 것이 **자기 기록**이라 먼저 꺼내 둘 수 있다. */
+    exportNotice: EXPORT_BEFORE_DELETE_NOTICE
   },
   household_leave: {
     title: "가구 탈퇴",
     description: "가구에서 나가면 공유 데이터에 더 이상 접근할 수 없어요.",
     previewLabel: "탈퇴 전 확인하기",
-    confirmLabel: "가구 탈퇴하기"
+    confirmLabel: "가구 탈퇴하기",
+    /**
+     * ⚠️ 탈퇴에는 **붙이지 않는다.** 나가는 사람이 잃는 것은 자기 기록이 아니라 **남의 가구
+     * 데이터에 대한 접근**이고, 그것을 내보내라고 권하는 것은 나가는 사람에게 남의 집 데이터를
+     * 복사해 가라는 말이 된다. 아이 삭제·계정 삭제 둘만이다.
+     */
+    exportNotice: null
   },
   account_delete: {
     title: "계정 삭제",
     description: "계정과 모든 데이터가 영구적으로 삭제돼요.",
     previewLabel: "삭제 전 확인하기",
-    confirmLabel: "계정 삭제하기"
+    confirmLabel: "계정 삭제하기",
+    exportNotice: EXPORT_BEFORE_DELETE_NOTICE
   }
 } as const;
+
+/**
+ * 마지막 확인 Alert의 본문. 내보내기를 권하지 않는 갈래(가구 탈퇴)에서는 **종전 한 문장 그대로**다.
+ */
+function destructiveAlertMessage(exportNotice: string | null): string {
+  return exportNotice ? `${IRREVERSIBLE_NOTICE} ${exportNotice}` : IRREVERSIBLE_NOTICE;
+}
 
 /**
  * 라운드 45 UX-AA(후보 8ⓐ): 되돌릴 수 없는 결정 앞에서 사용자가 가장 자주 하는 질문("다시 가입하면
@@ -257,7 +298,9 @@ export default function PrivacySettingsScreen() {
    * 도착해 화이트리스트가 넓어지면 그때 통과하고, 탈퇴가 끝나 목록에서 사라지면 즉시 되돌아간다.
    *
    * 1가구 계정에서는 가족 화면이 전환 자체를 못 하므로 **파라미터가 생기지 않고**, 이 화면은
-   * 종전과 한 글자도 달라지지 않는다(SET-003 픽셀락).
+   * 종전과 한 글자도 달라지지 않는다(SET-003의 1가구 문자열 불변 계약 — **캡처 아님**.
+   * 라운드 66 F 정정: 픽셀락 캡처 라우트에 설정 계열은 SET-001뿐이다 — app/pixel-lock.tsx.
+   * 이 불변을 잠그는 것은 캡처가 아니라 src/family/household-scope.test.ts의 단언이다).
    */
   const params = useLocalSearchParams<{ householdId?: string | string[] }>();
   const requestedHouseholdId = parseHouseholdScopeParam(
@@ -454,18 +497,34 @@ export default function PrivacySettingsScreen() {
     }
   });
 
+  /**
+   * 라운드 66 트랙 B(#6) — Alert 본문이 가리킨 자리로 **실제로 갈 수 있게** 하는 버튼.
+   *
+   * 문장만 두면 "설정 > 데이터 내보내기"를 사용자가 직접 찾아 들어가야 하고, 그 사이 이 화면은
+   * 닫힌다(Alert은 어떤 버튼을 눌러도 닫힌다). 그래서 그 버튼이 곧 이동이다 — 목적지는 이
+   * 화면의 부모라 뒤로 가면 그대로 돌아온다. **삭제는 일어나지 않는다**: 취소와 같은 자리에서
+   * 흐름을 빠져나가는 선택지이고, 미리보기 상태는 그대로 남아 돌아와 이어서 진행할 수 있다.
+   */
+  const goToExportScreen = () => router.push(EXPORT_SCREEN_ROUTE);
+
   const confirmChildDelete = () => {
     if (!childPreview.data || childDelete.isPending) return;
     // 라운드 63 #2: 이름을 알면 제목이 대상을 말하고, 모르면 종전 제목 그대로다.
-    Alert.alert(childScopeDeleteConfirmTitle(childDeleteLabel) ?? "정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", [
-      { text: "취소", style: "cancel" },
-      { text: "삭제", style: "destructive", onPress: () => childDelete.mutate() }
-    ]);
+    Alert.alert(
+      childScopeDeleteConfirmTitle(childDeleteLabel) ?? "정말 삭제할까요?",
+      destructiveAlertMessage(flowCopy.child_profile_delete.exportNotice),
+      [
+        { text: "취소", style: "cancel" },
+        { text: EXPORT_BEFORE_DELETE_ACTION_LABEL, onPress: goToExportScreen },
+        { text: "삭제", style: "destructive", onPress: () => childDelete.mutate() }
+      ]
+    );
   };
 
   const confirmHouseholdLeaveAction = () => {
     if (!householdPreview.data || householdLeave.isPending) return;
-    Alert.alert("정말 나갈까요?", "이 작업은 되돌릴 수 없어요.", [
+    // 탈퇴에는 내보내기 안내도 버튼도 붙지 않는다(위 flowCopy.household_leave.exportNotice 주석).
+    Alert.alert("정말 나갈까요?", destructiveAlertMessage(flowCopy.household_leave.exportNotice), [
       { text: "취소", style: "cancel" },
       { text: "나가기", style: "destructive", onPress: () => householdLeave.mutate() }
     ]);
@@ -473,8 +532,9 @@ export default function PrivacySettingsScreen() {
 
   const confirmAccountDelete = () => {
     if (!accountPreview.data || accountDelete.isPending) return;
-    Alert.alert("정말 삭제할까요?", "이 작업은 되돌릴 수 없어요.", [
+    Alert.alert("정말 삭제할까요?", destructiveAlertMessage(flowCopy.account_delete.exportNotice), [
       { text: "취소", style: "cancel" },
+      { text: EXPORT_BEFORE_DELETE_ACTION_LABEL, onPress: goToExportScreen },
       { text: "삭제", style: "destructive", onPress: () => accountDelete.mutate() }
     ]);
   };

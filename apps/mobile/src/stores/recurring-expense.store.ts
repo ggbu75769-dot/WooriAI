@@ -4,11 +4,17 @@ import { persistStorage } from "./persist-storage";
 // 라운드 59 P3: 중복 판정의 이름 비교는 이 앱의 단일 소스를 그대로 쓴다("물 티슈"/"물티슈"를
 // 같게 보는 규칙 — 자동완성·카테고리 추천·정기 지출 판정이 모두 이 함수 하나를 지난다).
 import { normalizeItemName } from "../expenses/item-name-match";
+// 라운드 66 트랙 B(P3 1번): 정기 지출 **문구는 전부** 순수 모듈 한 파일에서 온다. 저장 실패
+// 두 문장(찾을 수 없음 · 중복)이 라운드 59부터 이 파일에 남아 있었는데, 이번 라운드가 같은
+// 기능에 문구를 하나 더 더하므로(RECURRING_DEVICE_ONLY_NOTICE) 그 전에 정리한다 — 이 스토어에
+// 남는 것은 판정과 부수효과뿐이다.
 import {
   applyRecurringSkip,
   buildRecurringTemplate,
+  recurringDuplicateMessage,
   RECURRING_LIMIT_MESSAGE,
   RECURRING_TEMPLATE_LIMIT,
+  RECURRING_TEMPLATE_MISSING_MESSAGE,
   recurringTemplateValidationError,
   sanitizeRecurringTemplates,
   type RecurringExpenseTemplate,
@@ -43,37 +49,6 @@ import {
  * 넣는다. 대조군인 notification-preferences는 "이 기기에서 어떤 알림을 볼까"라는 기기 단위
  * 선택이라 일부러 합류하지 않는다 — 반복 템플릿은 그 범주가 아니다.
  */
-
-/** 수정 대상이 사라졌을 때(다른 화면에서 지운 뒤 저장). 화면이 그대로 보여준다. */
-export const RECURRING_TEMPLATE_MISSING_MESSAGE = "이 정기 지출을 찾을 수 없어요. 목록을 다시 확인해 주세요.";
-
-/**
- * 라운드 59 P3 — 같은 아이 밑에 **같은 품목의 정기 지출**을 두 개 만들려 할 때.
- *
- * 왜 막나: 이 앱의 리마인더 판정은 품목명 하나로 돈다(`buildRecurringReminder` → 이번 달 기록에
- * 그 이름이 있는가). 같은 이름의 템플릿이 둘이면 한 번 기록해도 **두 줄이 함께 사라지고**, 반대로
- * 두 줄이 함께 재촉한다 — 사용자에게는 "기저귀를 두 번 사라"는 카드로 읽힌다. 금액이 다른 두
- * 약속(38,500원과 41,000원)을 적어 둔 사람에게도 앱은 어느 쪽이 기록됐는지 말할 방법이 없다.
- *
- * 그래서 **저장 대신 사실을 말한다**(조용히 버리지도, 조용히 덮어쓰지도 않는다 — 덮어쓰면
- * 사용자가 지운 적 없는 금액·결제일이 사라진다). 무엇을 하면 되는지까지 한 줄에 담는다: 기존
- * 항목을 수정하면 된다. 그 항목은 이미 같은 화면의 목록에 서 있다(app/expenses/recurring.tsx).
- *
- * ⚠️ 자리: 정기 지출 문구의 단일 소스는 src/expenses/recurring-template.ts다. 이 두 개만 여기
- * 있는 이유는 라운드 59 트랙 A가 그 파일을 소유해 같은 라운드에서 충돌하기 때문이고, 문구를
- * 그 모듈로 옮기는 것은 다음 라운드의 몫이다(RECURRING_TEMPLATE_MISSING_MESSAGE가 이미 이
- * 파일에 있는 것과 같은 모양이라 튀지도 않는다).
- */
-export function recurringDuplicateMessage(itemName: string): string {
-  return `『${itemName.trim()}』 정기 지출이 이미 있어요. 기존 항목을 수정해 주세요.`;
-}
-
-/**
- * 역방향 등록 버튼(지출 상세 "정기 지출로 등록")이 **이미 등록된 지출**에서 다는 표기.
- *
- * 판정은 아래 `findRecurringTemplateByItemName` 하나뿐이라 화면이 규칙을 다시 적지 않는다.
- */
-export const RECURRING_ALREADY_REGISTERED_LABEL = "이미 등록됨";
 
 /**
  * 라운드 59 P3 — 이 아이 밑에 **같은 품목명의 템플릿**이 이미 있는가(있으면 그 항목).

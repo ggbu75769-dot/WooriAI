@@ -39,16 +39,18 @@ function candidate(overrides: Partial<AppNotificationCandidate> = {}): AppNotifi
  *     평소대로 발화한다("끄기"가 조용히 "영구 삭제"가 되면 안 된다).
  */
 describe("라운드 52 C-08 알림 종류별 설정(순수 로직)", () => {
-  it("설정 화면의 6종은 generators가 만드는 종류와 1:1이고 순서가 고정돼 있다", () => {
+  it("설정 화면의 7종은 generators가 만드는 종류와 1:1이고 순서가 고정돼 있다", () => {
     // GAP-054 #6: record_gap이 목록 끝에 합류했다 -- 새 종류는 기본 켬으로 들어오고(저장
     // 형태가 "꺼진 것들"이라) 사용자는 이 스위치로 끌 수 있다.
+    // GAP-066 #8: monthly_wrapup(지난달 정리)이 같은 방식으로 그 뒤에 합류했다.
     expect(NOTIFICATION_TYPE_OPTIONS.map((option) => option.type)).toEqual([
       "budget_80",
       "budget_100",
       "stage_transition",
       "purchase_pending",
       "weekly_summary",
-      "record_gap"
+      "record_gap",
+      "monthly_wrapup"
     ]);
     // 라벨·설명은 사람이 읽는 단일 소스다: 비어 있거나 중복되면 스위치를 구분할 수 없다.
     const labels = NOTIFICATION_TYPE_OPTIONS.map((option) => option.label);

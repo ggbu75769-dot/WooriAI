@@ -140,7 +140,13 @@ describe("SET-003 동의 내역 카드 wiring (source contract -- 화면은 vite
     expect(privacySource).toContain("Alert.alert(LEGAL_LINK_FAILED_TITLE, LEGAL_LINK_FAILED_MESSAGE);");
   });
 
-  /** SET-004(픽셀락)의 파괴 플로우 카드 3종은 이번 라운드에서 손대지 않는다. */
+  /**
+   * SET-004의 파괴 플로우 카드 3종은 이번 라운드에서 손대지 않는다.
+   *
+   * 라운드 66 F 정정: 이 줄은 "SET-004(픽셀락)"이라고 적고 있었는데 **그 잠금은 없다** —
+   * 캡처 라우트 아홉(app/pixel-lock.tsx) 중 설정 계열은 SET-001뿐이다. 지키려는 계약("카드
+   * 렌더 불변")은 실재하고, 그것을 실제로 붙들고 있는 것이 바로 아래 단언이다.
+   */
   it("파괴 플로우 카드 3종은 그대로다", () => {
     expect(privacySource).toContain('<View testID="screen-SET-004"');
     for (const label of ["아이 프로필 삭제", "가구 탈퇴", "계정 삭제"]) {

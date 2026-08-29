@@ -507,7 +507,9 @@ export const HOUSEHOLD_SCOPE_LEAVE_LABEL = "이 가구에서 나가기";
  * (src/family/invite-flow.ts의 `inviteScreenHref`): 전환 중일 때만 가구를 싣고, 전환하지 않았다면
  * 아무것도 싣지 않는다 — 두 화면이 같은 입력으로 같은 판정을 내리므로 파라미터가 없는 편이
  * 정확하고, 그래야 1가구 계정에서는 **파라미터 자체가 생기지 않아** 탈퇴 화면이 종전과 한 글자도
- * 달라지지 않는다(SET-003 픽셀락).
+ * 달라지지 않는다(SET-003의 1가구 문자열 불변 계약 — **캡처 아님**. 라운드 66 F 정정: 픽셀락
+ * 캡처 라우트 아홉 중 설정 계열은 SET-001 하나뿐이고 SET-003은 그 목록에 없다 —
+ * `app/pixel-lock.tsx`. 지키는 계약은 실재하지만 그것을 잠그는 것은 캡처가 아니라 아래 테스트다).
  */
 export function leaveScreenHref(householdId?: string | null): {
   pathname: "/settings/privacy";

@@ -13,8 +13,18 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     // 라운드 37 G-1: 그 값은 "아직 모름(undefined)"과 "확정 실패(null)"를 구분해서 넘어간다.
     // 라운드 54 P1-3: 세 번째 인자는 홈이 이미 구독 중인 오프라인 스냅샷에서 나온 순수 판정이다
     // (record_gap 억제 근거 -- 새 요청·새 구독 없음).
+    // 라운드 66 적대 리뷰(S-2): 넷째·다섯째는 홈이 **이미 조회 중인** 지난달 쿼리의 달과 결과다
+    // (훅이 캐시를 명령형으로 읽던 자리를 대체한다 -- 여기서도 새 요청은 0건이다).
     expect(homeSource).toContain(
-      "useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification, hasPendingLocalRecords)"
+      [
+        "useHomeNotificationEvaluation(",
+        "    hasSession ? home.data : undefined,",
+        "    weeklySpendForNotification,",
+        "    hasPendingLocalRecords,",
+        "    lastYearMonth,",
+        "    lastMonthExpenses.data?.expenses",
+        "  );"
+      ].join("\n")
     );
     expect(homeSource).toContain("resolveWeeklySpendForNotification({");
     expect(homeSource).toContain("expensesFailed: thisMonthExpenses.isError || lastMonthExpenses.isError");
@@ -51,7 +61,7 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     // 옮겼다(종류별 목적지는 notification-route.test.ts가 값으로 검증한다). 화면은 그 판정을
     // 그대로 router.push에 넘기기만 한다.
     expect(screenSource).toContain("markRead(entry.id)");
-    expect(screenSource).toContain("router.push(notificationTapRoute(entry, nextRecordsViewNonce()))");
+    expect(screenSource).toContain("router.push(notificationTapRoute(entry, nextRecordsViewNonce(), getSeoulToday()))");
     // 라운드 62 B(#2): 같은 모듈에서 아이 판정(resolveNotificationTapChild)까지 들여오면서 이
     // import가 여러 줄이 됐다 -- 목적지 판정이 그 모듈에서 온다는 계약은 그대로다.
     expect(screenSource).toContain("  notificationTapRoute,");

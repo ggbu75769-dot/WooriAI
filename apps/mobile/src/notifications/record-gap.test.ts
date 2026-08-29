@@ -195,9 +195,9 @@ describe("GAP-054 #6 기존 알림 평가 경로 합류(새 백그라운드 작�
     expect(homeScreen).toContain(
       "const hasPendingLocalRecords = hasPendingRecordsForChild(offlineSyncSnapshot.rows, childId);"
     );
-    expect(homeScreen).toContain(
-      "useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification, hasPendingLocalRecords)"
-    );
+    // 라운드 66 적대 리뷰(S-2)에서 인자가 다섯이 됐다 — 뒤의 둘도 홈이 **이미 조회 중인**
+    // 쿼리의 값이라, 화면이 새로 부르는 요청·구독은 여전히 0건이다.
+    expect(homeScreen).toContain("    hasPendingLocalRecords,\n    lastYearMonth,");
   });
 });
 
@@ -274,7 +274,9 @@ describe("GAP-054 #6 스토어 통합: 주 1회 · 끄기 · 딥링크", () => {
       "stage_transition",
       "purchase_pending",
       "weekly_summary",
-      "record_gap"
+      "record_gap",
+      // GAP-066 #8 — 라운드 66 트랙 E가 합류시킨 일곱 번째 종류(지난달 정리).
+      "monthly_wrapup"
     ]);
     const iconMap = screen.slice(screen.indexOf("const notificationIconByType"));
     for (const type of validTypes) {

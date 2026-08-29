@@ -150,15 +150,17 @@ export type AuditLogActionPreset = {
  * - admin.disclosure.update: apps/api/src/admin/admin.controller.ts (GAP-065 #9 — DNC-010 고지
  *   문구 수정. `disclosures` 행은 key당 한 칸 upsert라 덮어쓰면 이전 문구가 사라지고, admin
  *   역할은 검토(content revision) 없이 바로 덮어쓴다: "고지가 왜 이렇게 바뀌었죠" 문의에서
- *   누가·언제·어떤 문구에서 어떤 문구로 바꿨는지는 **직접 덮어쓰기 경로에 한해** 이 액션의
- *   before/after에 있다.
- *   ⚠️ 라운드 65 후속(#7) — 같은 문구가 **리비전으로도** 바뀔 수 있고(editor가 draft→review로
- *   올린 뒤 발행: `admin.content_revision.approve_publish`, 예약 발행:
- *   `…scheduled_publish`), 그 두 액션의 봉투에는 `after`뿐이라 **이전 문구가 어디에도 남지
- *   않는다**(apps/api/src/admin/content-revisions.service.ts). 고지 이력을 되짚을 때는 이 액션만
- *   보면 구멍이 생긴다 — docs/operations/known-limitations.md §J에 적어 둔 알려진 공백이다.
+ *   누가·언제·어떤 문구에서 어떤 문구로 바꿨는지는 이 액션의 before/after에 있다.
  *   **어느 키인지도 봉투 안에 있다** — 서버는 UUID가 아닌 targetId를 저장하지 않으므로
  *   행의 targetId는 null이고, key는 before/after의 `key` 필드가 답한다)
+ * - admin.content_revision.approve_publish / …scheduled_publish:
+ *   apps/api/src/admin/content-revisions.service.ts (GAP-066 #7 — 같은 고지 문구가 **리비전으로도**
+ *   바뀐다: editor가 draft→review로 올린 것을 admin이 승인 발행하거나, 예약 시각에 워커가
+ *   발행한다. 라운드 66부터 이 두 액션도 발행 직전 라이브 스냅숏을 `before`에 싣는다 —
+ *   즉 고지 이력은 **세 액션을 함께 보면 빈 곳이 없다**(라운드 65의 §J 공백은 해소됐다).
+ *   고지 발행은 봉투의 `key`가 어느 문구인지 답하고, 준비템·상품 링크 발행은 `entityId`가
+ *   답한다. 예약 발행은 **사람이 자리에 없는 순간** 라이브가 바뀌는 유일한 경로라 행위자가
+ *   시스템/알 수 없음으로 찍힌다 — 봉투의 `scheduledFor`가 언제로 예약됐던 것인지 답한다)
  * - auth.login / auth.logout: apps/api/src/auth/auth.service.ts (카카오는 kakao-auth.service.ts)
  * - admin.*: apps/api/src/admin/* (admin-auth / admin-users / admin-categories /
  *   content-revisions / admin.controller / admin-users-lookup)
@@ -185,6 +187,11 @@ export const AUDIT_LOG_ACTION_PRESETS: readonly AuditLogActionPreset[] = [
   { action: "admin.admin_user.update", label: "어드민 계정 변경" },
   { action: "admin.category.update", label: "카테고리 변경" },
   { action: "admin.content_revision.approve_publish", label: "콘텐츠 승인·발행" },
+  // GAP-066 #9: 예약 발행은 사람이 자리에 없는 순간 라이브 문구를 바꾸는 유일한 경로인데
+  // 프리셋에 없어 CS가 액션 문자열을 외워 손으로 쳐야 했다(#7이 그 봉투에 before를 채워도
+  // 찾을 수 없으면 소용이 없다). 문자열은 서버가 실제로 기록하는 값이다 —
+  // content-revisions.service.ts의 publishDueScheduled.
+  { action: "admin.content_revision.scheduled_publish", label: "콘텐츠 예약 발행 (워커)" },
   { action: "admin.product_link.update", label: "상품 링크 수정" },
   { action: "admin.item_template.update", label: "준비템 수정" },
   { action: "admin.disclosure.update", label: "고지 문구 수정 (제휴·스폰서)" }

@@ -19,15 +19,16 @@ import {
  */
 
 /** The closed list of types the generators actually produce (NOTI-102 + NOTI-103's
- * weekly_summary + GAP-054 #6's record_gap). This is what candidate-producing code should be
- * typed against. */
+ * weekly_summary + GAP-054 #6's record_gap + GAP-066 #8's monthly_wrapup). This is what
+ * candidate-producing code should be typed against. */
 export type KnownAppNotificationType =
   | "budget_80"
   | "budget_100"
   | "stage_transition"
   | "purchase_pending"
   | "weekly_summary"
-  | "record_gap";
+  | "record_gap"
+  | "monthly_wrapup";
 
 /**
  * `AppNotification["type"]`은 NOTI-102 리터럴 넷 + `(string & {})` 탈출구다. 닫힌
@@ -295,7 +296,11 @@ const VALID_TYPES: readonly KnownAppNotificationType[] = [
   // GAP-054 #6. weekly_summary와 같은 이유로 AppNotificationType 유니온에는 리터럴로 넣지
   // 않는다(저장본 호환 -- 위 주석). 저장본 검증은 여기 이 목록이 그대로 지고, 화면 표시
   // (아이콘·탭 목적지)는 app/notifications.tsx의 맵과 notification-route.ts가 진다.
-  "record_gap"
+  "record_gap",
+  // GAP-066 #8(지난달 정리). 같은 이유로 리터럴 유니온이 아니라 이 목록에만 넣는다. **저장본
+  // 마이그레이션은 없다**: 항목의 필드 모양은 한 칸도 바뀌지 않았고(새 종류일 뿐이다), 이 목록에
+  // 없는 종류를 담은 옛/새 blob은 예전과 똑같이 그 항목만 조용히 떨어진다.
+  "monthly_wrapup"
 ];
 
 /** Defensive shape check for a persisted blob from an unknown/older app version (mirrors the

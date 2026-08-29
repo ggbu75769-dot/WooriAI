@@ -323,6 +323,29 @@ model Expense {
   memo                 String?       @db.Text
   linkedItemTemplateId String?       @map("linked_item_template_id") @db.Uuid
   linkedProductLinkId  String?       @map("linked_product_link_id") @db.Uuid
+  /// GAP-066 #5 — 이 지출이 **어느 가져오기에서** 들어왔는지(`import_jobs.id`). NULL이면
+  /// 가져오기로 생긴 행이 아니라는 뜻이다(수동 기록·아웃박스·"샀어요" 경로 전부 NULL).
+  /// 쓰는 곳은 하나뿐이다: `ImportPipelineService.confirmImport`가 확정 트랜잭션 안에서
+  /// `ExpensesStoreService.insertExpense`에 자기 잡 id를 넘긴다. 컬럼과 FK
+  /// (`fk_expenses_import_job`)는 000001부터 있었고 채우는 곳만 없어 **언제나 NULL**이었다.
+  /// 라운드 66 이전 기록에는 소급해 채우지 않는다 — 어느 행이 어느 잡에서 왔는지 알 방법이
+  /// 없고, 추측으로 채우면 서버가 모르는 과거를 지어내는 것이 된다(그래서 옛 가져오기 행은
+  /// NULL로 남는다. `source = "excel_import"`인데 이 값이 NULL이면 그 시절 행이다).
+  ///
+  /// **무엇을 위해 채우는가.** `source`는 "엑셀 가져오기"라는 **경로**만 말하고 어느 파일인지는
+  /// 말하지 않아, 잘못 확정한 200행을 특정할 근거가 0이었다(지난달 파일에서 온 행과 오늘
+  /// 파일에서 온 행이 구별되지 않는다). 이 값이 있으면 CS는 잡 id 하나로 그 묶음을 셀 수 있고,
+  /// 다음 라운드가 **되돌리기(일괄 soft delete)** 를 이 위에 세울 수 있다.
+  ///
+  /// 지금은 **쓰기 전용**이다 — 어떤 응답 DTO에도 실리지 않는다(`store-shared.ts`의
+  /// `toExpenseDto`는 이 필드를 모른다). 화면이 출처를 어떻게 말할지는 되돌리기 설계와 함께
+  /// 정한다(`import_jobs.approved_at`이 라운드 64에서 밟은 순서 그대로).
+  ///
+  /// ⚠️ 파기 판정에 쓰이지 않는다: phase 9(미리보기 행 삭제)·phase 11(잡 헤더 마스킹)은 둘 다
+  /// `import_jobs.updated_at`을 정렬·컷오프 컬럼으로 쓴다(data-retention-purge.job.ts).
+  /// 다만 파기의 **삭제 순서**에는 실체가 생겼다 — `purgeChildRows`가 잡보다 지출을 먼저 지우는
+  /// 것은 이제 실제로 걸리는 FK다(종전에는 언제나 NULL인 컬럼을 위한 방어였다). phase 11은
+  /// 잡 행을 남기고 파일명만 마스킹하므로 이 FK와 무관하다.
   importJobId          String?       @map("import_job_id") @db.Uuid
   deletedAt            DateTime?     @map("deleted_at") @db.Timestamptz(6)
   deletedByUserId      String?       @map("deleted_by_user_id") @db.Uuid
@@ -667,6 +690,21 @@ model Disclosure {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   key       String   @unique @db.VarChar(80)
   text      String   @db.Text
+  /// ⚠️ 죽은 플래그(GAP-066 #9에서 확인 — 라운드 65 코드 건강이 권고한 "선언만 있고
+  /// 조건에 안 쓰이는 플래그" 스윕의 유일한 참조 0 항목). **아무도 읽지 않는다**:
+  /// 앱이 읽는 경로(`items-catalog.service.ts`의 `disclosuresByKey`)도, 어드민 목록
+  /// (`adminListDisclosures`)도 `where` 없이 전량을 읽는다. 쓰는 곳은 시드 한 곳뿐이고
+  /// (`prisma/seed.ts` — 언제나 `true`, 컬럼 기본값과 같은 값이라 사실상 no-op)
+  /// 두 실쓰기 경로(`AdminController.updateDisclosure`의 직접 upsert,
+  /// `ContentRevisionsService.publishToLive`의 발행) 어느 쪽도 이 값을 건드리지 않는다.
+  /// 즉 **끄는 수단도, 꺼진 것을 존중하는 판정도 없다.**
+  /// **"이 고지는 지금 쓰이지 않는다"의 근거로 인용하지 말 것** — 값이 무엇이든
+  /// 앱·어드민·클릭 응답은 그 문구를 계속 쓴다.
+  /// 소생시키지 않은 이유(GAP-064 #9 `import_jobs.approved_at`·GAP-065 #9
+  /// `disclosures.updated_by`와 같은 판단 형식, 세 번째 선례): 이 플래그를 존중하게
+  /// 만드는 순간 그것이 곧 **DNC-010이 잠근 고지를 끄는 정식 스위치**가 된다 —
+  /// 구매 CTA 인접 고지를 숨길 수 있는 수단을 만드는 일이라 소생이 곧 계약 위반이다.
+  /// 없애려면 마이그레이션이 필요하므로(도메인 테이블의 파괴적 변경) 별도 티켓 대상이다.
   active    Boolean  @default(true)
   /// ⚠️ 죽은 컬럼(GAP-065 #9에서 확인). 저장소 전체에서 **읽지도 쓰지도 않는다**
   /// (grep 결과가 이 선언 한 줄뿐이다) — 두 쓰기 경로(`AdminController.updateDisclosure`의

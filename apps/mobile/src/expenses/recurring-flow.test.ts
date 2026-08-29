@@ -2,9 +2,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  recurringDuplicateMessage,
   recurringPrefillParams,
+  RECURRING_ALREADY_REGISTERED_LABEL,
+  RECURRING_AUTO_RECORD_NOTICE_BODY,
+  RECURRING_AUTO_RECORD_NOTICE_TITLE,
+  RECURRING_DEVICE_ONLY_NOTICE,
   RECURRING_ITEM_NAME_MAX_LENGTH,
   RECURRING_MERCHANT_MAX_LENGTH,
+  RECURRING_TEMPLATE_MISSING_MESSAGE,
   type RecurringExpenseTemplate
 } from "./recurring-template";
 // GAP-056 #1: 지출 입력 화면들이 쓰는 길이 상한의 모바일 단일 소스.
@@ -66,9 +72,14 @@ describe("DNC-013 — 반복 지출은 어떤 경로로도 지출을 만들지 �
 
   it("관리 화면이 사용자에게도 그 사실을 말한다 (자동 기록을 기대하고 들어온 사람 대비)", () => {
     const screen = source("app/expenses/recurring.tsx");
-    expect(screen).toContain("자동으로 기록되지는 않아요");
+    // 라운드 66 트랙 B(P3 1번): 문구는 순수 모듈이 들고 화면은 읽기만 한다 -- 그래서 사실
+    // 확인은 값으로, 배선 확인은 소스로 나뉜다(문장이 화면과 모듈 두 벌이 되지 않게).
+    expect(RECURRING_AUTO_RECORD_NOTICE_TITLE).toBe("자동으로 기록되지는 않아요");
+    expect(screen).toContain("{RECURRING_AUTO_RECORD_NOTICE_TITLE}");
+    expect(screen).toContain("{RECURRING_AUTO_RECORD_NOTICE_BODY}");
     // "자동으로 기록했어요" 계열 문구 금지(설계 §1.3).
     expect(screen).not.toMatch(/자동으로 기록했|자동 기록했|대신 기록했/);
+    expect(RECURRING_AUTO_RECORD_NOTICE_BODY).not.toMatch(/자동으로 기록했|자동 기록했|대신 기록했/);
   });
 
   it("템플릿 저장소는 오프라인 아웃박스가 아니라 persist 스토어다", () => {
@@ -383,5 +394,64 @@ describe("라운드 55 #4 배치 결정 — 리마인더는 한 자리뿐 (§1.5
     const options = source("src/notifications/notification-preferences.store.ts");
     expect(options).not.toContain("recurring");
     expect(codeOnly("src/expenses/recurring-template.ts")).not.toContain("dedupeKey");
+  });
+});
+
+describe("라운드 66 트랙 B(#4) — 기기에만 사는 데이터를 앱이 말한다", () => {
+  const screen = source("app/expenses/recurring.tsx");
+
+  it("관리 화면이 '이 기기에만 저장돼요'를 한 줄로 말한다", () => {
+    // 사실 근거: 이 목록의 저장소는 zustand persist이고 대응하는 서버 테이블이 없다.
+    const store = codeOnly("src/stores/recurring-expense.store.ts");
+    expect(store).toContain("persist(");
+    expect(store).toContain('name: "wooriai-recurring-expenses"');
+    expect(RECURRING_DEVICE_ONLY_NOTICE).toContain("이 기기에만 저장돼요");
+    expect(screen).toContain("{RECURRING_DEVICE_ONLY_NOTICE}");
+  });
+
+  it("없는 기능을 약속하지 않는다 — '나중에 동기화된다'고 말하지 않는다", () => {
+    // 서버 이관은 새 테이블 + 마이그레이션 + 동기화 규칙이라 PM 선행이다(DNC-007·DNC-013).
+    // 문장은 사용자가 지금 할 수 있는 일까지만 간다.
+    expect(RECURRING_DEVICE_ONLY_NOTICE).toContain("다시 적어야 해요");
+    expect(RECURRING_DEVICE_ONLY_NOTICE).not.toMatch(/동기화(돼|될|해|합|됩)|백업(돼|될|됩)|나중에 (복구|복원)/);
+    // 해요체(DNC-018).
+    expect(RECURRING_DEVICE_ONLY_NOTICE.trim().endsWith("요.")).toBe(true);
+  });
+
+  it("템플릿을 CSV 내보내기에 싣지 않는다 (그 파일의 계약은 '지출 행'이다)", () => {
+    // 라운드 65 A의 왕복 계약: 우리 CSV는 서버 파서에 그대로 들어간다. 다른 종류의 데이터가
+    // 섞이면 그 파서가 그 행들을 지출로 읽는다.
+    for (const file of ["src/export/expense-csv.ts", "src/export/export-range.ts", "src/export/ExpenseCsvExport.tsx"]) {
+      expect(codeOnly(file), `${file}에 정기 지출 템플릿이 실리면 왕복 계약이 깨진다`).not.toContain("recurring");
+    }
+  });
+});
+
+describe("라운드 66 트랙 B(P3 1번) — 정기 지출 문구는 한 파일에만 있다", () => {
+  const module = source("src/expenses/recurring-template.ts");
+  const store = source("src/stores/recurring-expense.store.ts");
+
+  it("스토어에 남아 있던 문구 둘이 순수 모듈로 옮겨졌다", () => {
+    expect(RECURRING_TEMPLATE_MISSING_MESSAGE).toBe("이 정기 지출을 찾을 수 없어요. 목록을 다시 확인해 주세요.");
+    expect(recurringDuplicateMessage("기저귀")).toBe("『기저귀』 정기 지출이 이미 있어요. 기존 항목을 수정해 주세요.");
+    expect(RECURRING_ALREADY_REGISTERED_LABEL).toBe("이미 등록됨");
+    for (const declaration of [
+      "export const RECURRING_TEMPLATE_MISSING_MESSAGE",
+      "export function recurringDuplicateMessage",
+      "export const RECURRING_ALREADY_REGISTERED_LABEL",
+      "export const RECURRING_AUTO_RECORD_NOTICE_TITLE",
+      "export const RECURRING_AUTO_RECORD_NOTICE_BODY",
+      "export const RECURRING_DEVICE_ONLY_NOTICE"
+    ]) {
+      expect(module, `${declaration}가 단일 소스에 있어야 한다`).toContain(declaration);
+      expect(store, `${declaration}가 스토어에 남아 있으면 문구가 두 벌이 된다`).not.toContain(declaration);
+    }
+  });
+
+  it("스토어는 판정만 남기고 문장을 자기 손으로 만들지 않는다", () => {
+    // 유일하게 남는 문자열 조립은 없다 — 실패 메시지는 전부 모듈 상수/함수의 결과다.
+    expect(store).toContain('from "../expenses/recurring-template"');
+    expect(codeOnly("src/stores/recurring-expense.store.ts")).not.toContain("정기 지출이 이미 있어요");
+    expect(codeOnly("src/stores/recurring-expense.store.ts")).not.toContain("찾을 수 없어요");
   });
 });

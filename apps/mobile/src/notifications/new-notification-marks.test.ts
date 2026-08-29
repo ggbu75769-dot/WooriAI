@@ -78,7 +78,7 @@ describe("라운드 40 J-7 배선 (app/notifications.tsx)", () => {
     // 탭 핸들러 안에 있다(읽음 처리와 라우팅 사이).
     const tapHandler = screenSource.slice(
       screenSource.indexOf("markRead(entry.id);"),
-      screenSource.indexOf("router.push(notificationTapRoute(entry, nextRecordsViewNonce()));")
+      screenSource.indexOf("router.push(notificationTapRoute(entry, nextRecordsViewNonce(), getSeoulToday()));")
     );
     expect(tapHandler).toContain("removeNotificationMark(previous, entry.id)");
   });
