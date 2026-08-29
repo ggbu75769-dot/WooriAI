@@ -375,14 +375,51 @@ describe("UX/C-07 저장 실패 문구", () => {
     // 에러가 풀리면 판정이 초기값으로 복원된다(연결이 돌아온 뒤의 실패를 오프라인이라 하지 않는다).
     expect(hookSource).toContain("if (!isError) {");
 
-    // 예산 화면은 토스트 한 곳, 아이 관리 화면은 세 뮤테이션(편집·출생 전환·추가)이 같은 자리를 쓴다.
+    // 예산 화면은 토스트 한 곳, 아이 관리 화면은 세 뮤테이션(편집·출생 전환·추가)이 각자 한 자리.
     expect(source("app/budget.tsx")).toContain("<Toast message={saveErrorText} tone=\"error\" />");
     // 라운드 70 B: 두 화면 모두 실패 값을 함께 넘긴다 — 넘기지 않으면 훅은 코드를 볼 수 없다.
     expect(source("app/budget.tsx")).toContain("const saveErrorText = useSaveErrorCopy(save.isError, save.error);");
-    expect(source("app/settings/children.tsx")).toContain(
-      "saveEdit.isError || markChildBorn.isError || addChild.isError,\n    saveEdit.error ?? markChildBorn.error ?? addChild.error"
-    );
-    expect(source("app/settings/children.tsx").match(/\{saveFailedText\}/g) ?? []).toHaveLength(3);
+  });
+
+  /**
+   * 라운드 70 리뷰(M-2) — **자리별 사유는 그 자리 뮤테이션에서 온다.**
+   *
+   * 종전 계약은 훅 하나(세 상태의 OR + 세 실패의 `??` 체인)가 만든 **한 문장**을 세 자리가
+   * 함께 그리는 형태였다. 그런데 세 카드는 동시에 떠 있을 수 있고 `??`는 언제나 먼저 실패한
+   * 것을 고르므로, 편집이 날짜 하한으로 실패한 채 고착되면 그다음 추가 실패가 자기 자리에서
+   * **남의 사유**("20년보다 오래된…")로 읽혔다 — 사유를 말할 수 있게 된 라운드 70 B가 그만큼
+   * 오표시의 여지도 함께 만든 자리다.
+   *
+   * 이제 세 자리가 각자 자기 뮤테이션을 묻는다. 훅 호출 수는 셋으로 **고정**이라(조건부 호출이
+   * 아니다) hooks 규칙에 안전하다.
+   */
+  it("아이 관리 화면은 자리마다 자기 뮤테이션의 사유를 그린다 (M-2)", () => {
+    const screen = source("app/settings/children.tsx");
+
+    // 뮤테이션 하나당 훅 하나 — 셋 다 자기 상태와 자기 실패 값을 함께 넘긴다.
+    const wired: ReadonlyArray<[string, string]> = [
+      ["editFailedText", "saveEdit"],
+      ["bornFailedText", "markChildBorn"],
+      ["addFailedText", "addChild"]
+    ];
+    for (const [variable, mutation] of wired) {
+      expect(screen, `${variable}의 근거`).toContain(
+        `const ${variable} = useSaveErrorCopy(${mutation}.isError, ${mutation}.error);`
+      );
+      // 그리는 자리의 조건도 같은 뮤테이션이다(조건과 문장이 갈리면 그 자리가 남의 사유를 그린다).
+      expect(screen, `${variable}가 그려지는 자리`).toContain(
+        `{${mutation}.isError ? <Text style={{ color: theme.colors.danger }}>{${variable}}</Text> : null}`
+      );
+      // 각 문장은 자기 자리에서 한 번씩만 쓰인다.
+      expect(screen.match(new RegExp(`\\{${variable}\\}`, "g")) ?? [], variable).toHaveLength(1);
+    }
+    // 호출 수가 고정이라 hooks 규칙에 안전하다(조건부 호출·루프 호출이 아니다).
+    expect(screen.match(/useSaveErrorCopy\(/g) ?? []).toHaveLength(3);
+
+    // 합쳐 고르던 종전 배선(OR + ?? 체인, 그리고 세 자리가 공유하던 한 문장)이 되살아나지 않는다.
+    expect(screen).not.toContain("saveFailedText");
+    expect(screen).not.toContain("saveEdit.isError || markChildBorn.isError || addChild.isError");
+    expect(screen).not.toContain("saveEdit.error ?? markChildBorn.error ?? addChild.error");
   });
 
   /**

@@ -429,6 +429,63 @@ describe("Admin CMS and settings APIs", () => {
   });
 
   /**
+   * 라운드 70 리뷰(M-3) — **흐름 목록과 미리보기는 이제 같은 배열이 아니다.**
+   *
+   * `onboarding-core.service.ts`의 impact 상수 주석은 라운드 45 이래 "settings.controller.ts의
+   * 미리보기 문장과 글자까지 같다"고 적어 두고 있었는데, 라운드 70 D가 두 미리보기를 **요청자의
+   * 역할에서 파생**시키면서 그 문장이 거짓이 됐다(관리자에게는 한 줄이 더 선다). 주석은 고쳤고,
+   * 그 차이를 여기서 **값으로** 고정한다 — 다시 합치려면(또는 flows 쪽도 파생시키려면) 이
+   * 단언이 먼저 빨개진다.
+   *
+   * 관계는 둘이다: `GET /settings/privacy`의 `flows`는 **요청자와 무관한 기본형**(흐름이
+   * 무엇인지 나열하는 목록), 미리보기는 **요청자 역할 파생**(되돌릴 수 없는 결정 직전). 화면이
+   * "진행하면 이렇게 돼요" 상자에 그리는 것은 미리보기 쪽뿐이다(PreviewSummary).
+   */
+  it("keeps GET /settings/privacy flows request-agnostic while previews derive from the caller's role (라운드 70 D)", async () => {
+    // 가입과 함께 자기 가구의 **관리자**가 되는 계정이다(findOrCreateProviderUser).
+    const accessToken = await login(app, "round70-flows-vs-preview");
+    const { householdId } = await completeOnboarding(app, accessToken);
+
+    const flows = (
+      await request(app.getHttpServer())
+        .get("/api/v1/settings/privacy")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.flows as Array<{ id: string; impact: string[] }>;
+    const flowImpact = (id: string) => flows.find((flow) => flow.id === id)!.impact;
+
+    // ⓐ 흐름 목록은 관리자 계정에서도 **기본형 그대로**다(요청자를 보지 않는다).
+    expect(flowImpact("household_leave")).toEqual(["이 가구에 공유된 아이 기록을 볼 수 없어요"]);
+    expect(flowImpact("account_delete")).toEqual([
+      "이 계정으로는 다시 로그인할 수 없어요",
+      "참여 중인 가구에서 모두 나가게 돼요"
+    ]);
+
+    const leavePreview = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/settings/households/${householdId}/leave-preview`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.impact as string[];
+    const accountPreview = (
+      await request(app.getHttpServer())
+        .post("/api/v1/settings/account/delete-preview")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.impact as string[];
+
+    // ⓑ 같은 계정의 미리보기는 **그 기본형에 관리자 줄 하나가 더 붙은 배열**이다. 문장을 여기
+    //    다시 적지 않고 두 응답을 대조한다 — 고정하는 것은 문구가 아니라 **관계**다.
+    const lastOwnerLine =
+      "관리자인 내가 나가면 그 가족에 관리자가 없어져서 새 구성원 초대와 구성원 관리를 아무도 할 수 없어요";
+    expect(leavePreview).toEqual([...flowImpact("household_leave"), lastOwnerLine]);
+    expect(accountPreview).toEqual([...flowImpact("account_delete"), lastOwnerLine]);
+    // 즉 "글자까지 같다"가 아니라 "앞부분이 같고 미리보기만 늘어난다"이다.
+    expect(leavePreview).not.toEqual(flowImpact("household_leave"));
+    expect(accountPreview).not.toEqual(flowImpact("account_delete"));
+  });
+
+  /**
    * GAP-062 #7: 되돌릴 수 없는 두 흐름(가구 탈퇴·계정 삭제)이 감사 로그에 남는다.
    *
    * 종전에는 같은 컨트롤러에서 아이 프로필 삭제만 기록됐고, "스스로 나갔다/탈퇴했다"는

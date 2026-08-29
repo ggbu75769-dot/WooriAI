@@ -137,7 +137,11 @@ describe("CHILD-127 아이 관리 화면 배선 (app/settings/children.tsx sourc
   });
 
   it("shows the existing save-failure copy instead of a silent failure", () => {
-    expect(screenSource).toContain("{markChildBorn.isError ? <Text style={{ color: theme.colors.danger }}>{saveFailedText}</Text> : null}");
+    // 라운드 70 리뷰(M-2): 자리마다 **자기 뮤테이션의** 사유를 그린다 — 종전에는 세 뮤테이션이
+    // 한 문장(saveFailedText)을 공유해서, 편집이 먼저 실패해 있으면 이 자리가 남의 사유를
+    // 읽었다(`??` 체인은 언제나 먼저 실패한 것을 고른다). 계약은 src/offline/messages.test.ts.
+    expect(screenSource).toContain("{markChildBorn.isError ? <Text style={{ color: theme.colors.danger }}>{bornFailedText}</Text> : null}");
+    expect(screenSource).toContain("const bornFailedText = useSaveErrorCopy(markChildBorn.isError, markChildBorn.error);");
     expect(screenSource).toContain("disabled={markChildBorn.isPending}");
   });
 

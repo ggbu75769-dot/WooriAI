@@ -19,6 +19,7 @@ import {
 } from "../../../src/children/household-join";
 // 라운드 70 A: 만료·사용된 초대(재시도로 절대 풀리지 않는 실패)의 문구·판정 단일 소스.
 import {
+  INVITE_UNAVAILABLE_ALREADY_JOINED_HINT,
   INVITE_UNAVAILABLE_DETAIL,
   INVITE_UNAVAILABLE_ESCAPE_LABEL,
   INVITE_UNAVAILABLE_NEXT_STEP,
@@ -278,12 +279,33 @@ export default function AcceptInviteScreen() {
               <Text style={{ color: theme.colors.danger }}>{INVITE_UNAVAILABLE_TITLE}</Text>
               <Text style={mutedTextStyle}>{INVITE_UNAVAILABLE_DETAIL}</Text>
               <Text style={mutedTextStyle}>{INVITE_UNAVAILABLE_NEXT_STEP}</Text>
+              {/* 라운드 70 리뷰(S-1): 세션이 있는 사람에게만 서는 한 줄. 판정 근거는 토큰이
+                  아니라 **내 세션 상태**라 오라클이 아니고(문구 모듈 머리말), 비로그인
+                  방문자의 화면은 종전과 한 글자도 다르지 않다. */}
+              {authToken ? <Text style={mutedTextStyle}>{INVITE_UNAVAILABLE_ALREADY_JOINED_HINT}</Text> : null}
               <SecondaryButton
+                // 라운드 70 리뷰(P-A): 형제 버튼들(아래 라운드 60 #3 카드)과 같은 관례로,
+                // 짧은 라벨이 못 나르는 맥락("이 초대는 두고")을 낭독에 실어 준다.
+                accessibilityLabel="초대 없이 앱 둘러보기"
                 label={INVITE_UNAVAILABLE_ESCAPE_LABEL}
                 onPress={() => {
                   // 아래 라운드 60 #3 카드와 같은 계획 함수를 쓴다. 그 호출부는 성격이 다른
                   // 카드(수락은 **이미 성공**했고 뒤처리만 실패한 자리)라 이 라운드가 손대지
                   // 않기로 한 자리이므로, 공용 핸들러로 합치지 않고 같은 세 줄을 여기 둔다.
+                  //
+                  // 라운드 70 리뷰(M-1) — **세션 축이 하나 더 있다.** `householdJoinEscapePlan`은
+                  // 수락 **후** 카드에서 태어난 함수라 세션이 있다는 것을 전제한다: 두 목적지
+                  // (탭 셸 · 온보딩 시작점)는 모두 저장에 세션이 필요하다. 그런데 이 카드는
+                  // 수락 **전** 막다른 길이라 **계정이 없는 방문자도** 여기에 선다(로그인 CTA는
+                  // 이 갈래에서 접힌다). 그 사람을 온보딩으로 내려놓으면 아이 정보를 적게 한
+                  // 뒤 저장에서 막히는, 이 라운드가 없애려던 바로 그 형태의 막다른 길이 된다.
+                  // 그래서 세션이 없으면 루트("/")로 보낸다 — app/index.tsx가 **비세션 목적지의
+                  // 단일 소스**다(그 화면이 만료 여부를 보고 /login 또는 /launch-animation을
+                  // 고른다). 여기서 그 판정을 다시 적지 않는다.
+                  if (!authToken) {
+                    router.replace("/");
+                    return;
+                  }
                   const escape = householdJoinEscapePlan({ currentChildId: selectedChildId, hasReachedHome });
                   if (escape.marksHomeReached) markHomeReached();
                   router.replace(escape.href);

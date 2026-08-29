@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ApiHttpError } from "../api/api-error";
 import {
+  INVITE_UNAVAILABLE_ALREADY_JOINED_HINT,
   INVITE_UNAVAILABLE_CODES,
   INVITE_UNAVAILABLE_DETAIL,
   INVITE_UNAVAILABLE_ESCAPE_LABEL,
@@ -128,18 +129,38 @@ describe("라운드 70 A — 앱 문장과 초대 랜딩 페이지가 같은 사
     expect(landing.split("renderUnavailableInvitePage(").length - 1).toBe(2);
   });
 
-  it("문자열을 서버에서 가져오지 않는다 — 앱은 자기 톤으로 다시 쓴다", () => {
-    const landing = landingSource();
-    for (const copy of [INVITE_UNAVAILABLE_TITLE, INVITE_UNAVAILABLE_DETAIL, INVITE_UNAVAILABLE_NEXT_STEP]) {
-      expect(landing, `랜딩 HTML을 그대로 복사한 문장: ${copy}`).not.toContain(copy);
-    }
+  /**
+   * 라운드 70 리뷰(S-5) — 이 자리에는 종전에 "랜딩 HTML을 그대로 복사하지 않았다"는 부정 단언이
+   * 있었는데, 그 단언은 **마침표 한 글자**로 통과하고 있었다: 랜딩의 h1은 "초대가 만료되었거나
+   * 유효하지 않아요"이고 앱의 제목은 거기에 마침표만 붙인 문장이다. 마침표·공백을 지우고 비교하면
+   * 그대로 빨개진다 — 지키고 있던 것이 계약이 아니라 우연이었다는 뜻이다.
+   *
+   * 그래서 부정 단언을 지운다. "문자열을 서버에서 가져오지 않는다"가 실제로 뜻하는 것은
+   * **런타임 의존이 없다**(서버 문구를 import하지도, 응답 본문에서 꺼내 쓰지도 않는다)이지
+   * "같은 사실을 같은 한국어로 쓰지 못한다"가 아니다 — 뜻·톤이 같아야 한다는 것이 오히려 위
+   * SHARED_FACTS 대조의 요구다. 여기서는 그 런타임 독립과, 앱이 **더 아는 사실 하나**를 고정한다.
+   */
+  it("문자열을 서버에서 가져오지 않는다 — 런타임 의존 0건 + 앱이 아는 사실 하나를 더한다", () => {
+    const moduleSource = source("src/family/invite-accept-messages.ts");
+    // 이 모듈의 유일한 의존은 봉투 코드 파서다(서버 문구를 실어 오는 경로가 없다).
+    expect(moduleSource.match(/^import .*$/gm) ?? []).toEqual([
+      'import { hasApiErrorCode } from "../api/api-error";'
+    ]);
     // 앱이 아는 사실 하나를 더한다: 초대를 만들 수 있는 사람은 관리자뿐이다(assertOwner).
     expect(INVITE_UNAVAILABLE_NEXT_STEP).toContain("가족 관리자에게");
+    expect(landingSource(), "랜딩은 그 사실을 모른 채 '가족에게'로 남는다(서버 무접촉)").toContain(
+      "가족에게 새 초대 링크를 요청해주세요."
+    );
     expect(runtimeSource()).toContain('code: "FORBIDDEN", message: "가족 초대는 관리자만 할 수 있어요."');
   });
 
-  it("DNC-018: 세 문장 모두 해요체이고 재시도를 권하지 않는다", () => {
-    for (const copy of [INVITE_UNAVAILABLE_TITLE, INVITE_UNAVAILABLE_DETAIL, INVITE_UNAVAILABLE_NEXT_STEP]) {
+  it("DNC-018: 네 문장 모두 해요체이고 재시도를 권하지 않는다", () => {
+    for (const copy of [
+      INVITE_UNAVAILABLE_TITLE,
+      INVITE_UNAVAILABLE_DETAIL,
+      INVITE_UNAVAILABLE_NEXT_STEP,
+      INVITE_UNAVAILABLE_ALREADY_JOINED_HINT
+    ]) {
       expect(copy, copy).toMatch(/요\.$/);
       expect(copy, copy).not.toMatch(/확인하세요|하십시오|오류|에러|네트워크|토큰|error|invite_/i);
       // "잠시 후 다시 시도해 주세요"는 기다릴 대상이 있다는 뜻이다 — 여기엔 없다.
@@ -154,6 +175,27 @@ describe("라운드 70 A — 앱 문장과 초대 랜딩 페이지가 같은 사
     expect(INVITE_UNAVAILABLE_DETAIL).toBe("이미 사용했거나 기간이 지난 초대 링크일 수 있어요.");
     expect(INVITE_UNAVAILABLE_NEXT_STEP).toBe("가족 관리자에게 새 초대 링크를 요청해 주세요.");
     expect(INVITE_UNAVAILABLE_ESCAPE_LABEL).toBe("앱 둘러보기");
+    // 라운드 70 리뷰(S-1): 세션이 있는 사람에게만 서는 한 줄.
+    expect(INVITE_UNAVAILABLE_ALREADY_JOINED_HINT).toBe("이미 참여한 가족이라면 앱에서 바로 확인할 수 있어요.");
+  });
+
+  /**
+   * 라운드 70 리뷰(S-1) — 이 한 줄이 **오라클이 되지 않는** 이유를 값으로 고정한다.
+   *
+   * 근거가 토큰이 아니라 **내 세션 상태**라는 것이 전부다: 같은 실패에서 로그인한 사람에게는
+   * 언제나 서고, 비로그인 방문자에게는 언제나 서지 않는다 — 서버가 이 토큰에 대해 404를
+   * 말했는지 400을 말했는지와 아무 관계가 없다.
+   */
+  it("S-1: 그 한 줄은 단정하지 않고, 토큰이 아니라 세션을 근거로 삼는다", () => {
+    // 단정 금지 — "이미 참여했어요"가 아니라 "이미 참여한 가족이라면"이다.
+    expect(INVITE_UNAVAILABLE_ALREADY_JOINED_HINT).toContain("이라면");
+    expect(INVITE_UNAVAILABLE_ALREADY_JOINED_HINT).not.toContain("이미 참여했");
+    // 토큰·초대의 상태를 말하지 않는다(말하는 순간 존재 오라클이 된다).
+    expect(INVITE_UNAVAILABLE_ALREADY_JOINED_HINT).not.toMatch(/초대|링크|만료|토큰/);
+    // 판정 함수는 이 문장을 알지 못한다 — 갈림은 오직 호출부의 세션 축이다.
+    const moduleSource = source("src/family/invite-accept-messages.ts");
+    const decide = moduleSource.slice(moduleSource.indexOf("export function isInviteUnavailableError("));
+    expect(decide).not.toContain("INVITE_UNAVAILABLE_ALREADY_JOINED_HINT");
   });
 });
 
@@ -186,6 +228,61 @@ describe("라운드 70 A — FAM-003 네 갈래 배선 (source contract)", () =>
     expect(card).toContain("householdJoinEscapePlan({ currentChildId: selectedChildId, hasReachedHome })");
     expect(card).toContain("if (escape.marksHomeReached) markHomeReached();");
     expect(card).toContain("router.replace(escape.href)");
+    // 라운드 70 리뷰(P-A): 형제 버튼들과 같은 관례로 낭독 라벨을 갖는다.
+    expect(card).toContain('accessibilityLabel="초대 없이 앱 둘러보기"');
+  });
+
+  /**
+   * 라운드 70 리뷰(M-1) — **탈출구에는 세션 축이 하나 더 있다.**
+   *
+   * `householdJoinEscapePlan`은 수락 **후** 카드에서 태어난 함수라 세션을 전제한다(두 목적지인
+   * 탭 셸·온보딩 시작점은 모두 저장에 세션이 필요하다). 그런데 이 카드는 수락 **전** 막다른
+   * 길이라 계정이 없는 방문자도 여기 선다(로그인 CTA는 이 갈래에서 접힌다) — 그 사람을
+   * 온보딩으로 내려놓으면 아이 정보를 적게 한 뒤 저장에서 막히는, 이 라운드가 없애려던 바로
+   * 그 형태의 막다른 길이 된다.
+   */
+  it("M-1: 비세션 방문자의 탈출구는 루트('/')다 — 저장할 수 없는 온보딩에 내려놓지 않는다", () => {
+    const card = unavailableCardBlock();
+    // 세션 축이 계획 함수보다 **먼저** 선다(계획 함수는 세션이 있는 사람의 두 목적지만 안다).
+    expect(card).toContain("if (!authToken) {");
+    expect(card).toContain('router.replace("/");');
+    expect(card.indexOf("if (!authToken) {")).toBeLessThan(card.indexOf("householdJoinEscapePlan({"));
+    // 비세션 갈래는 목적지를 스스로 고르지 않는다 — 판정의 단일 소스는 루트 화면이다.
+    expect(card).not.toContain('router.replace("/onboarding/child-status")');
+    expect(card).not.toContain('router.replace("/(tabs)")');
+  });
+
+  it("M-1: 그 단일 소스(app/index.tsx)가 실제로 비세션 목적지를 고른다", () => {
+    // 루트가 만료 여부를 보고 /login 또는 /launch-animation을 고른다 — 이 화면이 그 판정을
+    // 다시 적지 않는 근거다. 루트에서 이 분기가 사라지면 위 축도 함께 다시 봐야 한다.
+    const indexSource = source("app/index.tsx");
+    expect(indexSource).toContain("if (!accessToken && !isTestSession) {");
+    expect(indexSource).toContain(
+      'shouldShowSessionExpiredNotice({ accessToken, isTestSession, lastEndReason }) ? "/login" : "/launch-animation"'
+    );
+    // 그리고 순수 계획 함수는 종전 그대로 **세션이 있는 사람의 두 목적지**만 안다(무접촉).
+    const planSource = source("src/children/household-join.ts");
+    const escapePlan = planSource.slice(
+      planSource.indexOf("export function householdJoinEscapePlan("),
+      planSource.indexOf("export function planAfterHouseholdJoin(")
+    );
+    expect(escapePlan).toContain('return { href: "/(tabs)", marksHomeReached: true };');
+    expect(escapePlan).toContain('return { href: "/onboarding/child-status", marksHomeReached: false };');
+    expect(escapePlan).not.toContain("authToken");
+  });
+
+  it("S-1: 세션이 있을 때만 한 줄이 늘고, 비세션 렌더는 종전 그대로다", () => {
+    const card = unavailableCardBlock();
+    // 그 줄은 세션 축 뒤에 있다(비로그인 방문자의 카드는 세 문장 + 버튼 그대로다).
+    expect(card).toContain(
+      "{authToken ? <Text style={mutedTextStyle}>{INVITE_UNAVAILABLE_ALREADY_JOINED_HINT}</Text> : null}"
+    );
+    // 문장은 화면이 짓지 않는다(단일 소스는 문구 모듈이다).
+    expect(card).not.toContain(INVITE_UNAVAILABLE_ALREADY_JOINED_HINT);
+    // 판정(초대가 끝났는가)에는 손대지 않았다 — 세 갈래는 여전히 한 카드를 본다.
+    expect(acceptSource()).toContain(
+      "const inviteUnavailable = isInviteUnavailableError(invite.error) || isInviteUnavailableError(accept.error);"
+    );
   });
 
   it("로그인 CTA가 그 갈래에서 접힌다 — 지킬 수 없는 약속을 하지 않는다", () => {

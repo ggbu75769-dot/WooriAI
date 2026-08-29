@@ -57,10 +57,21 @@ type UpdateChildInput = {
  * 해요체 사실 서술로 통일한다(DNC-018).
  *
  * 계정 삭제/가구 탈퇴 두 줄은 같은 라운드의 UX-AA가 settings.controller.ts의
- * leave-preview·account/delete-preview에 쓴 문장과 **글자까지 같다** — 같은 흐름을 설명하는
- * 두 응답이 서로 다른 문장을 내면 사용자에게는 다른 결과처럼 읽힌다.
+ * leave-preview·account/delete-preview에 쓴 문장과 **같은 한 벌에서 출발한다** — 같은 흐름을
+ * 설명하는 두 응답이 다른 이야기를 하면 사용자에게는 다른 결과처럼 읽힌다.
  * (계정 삭제가 가구에서 "모두 나가게" 되는 것은 household-runtime.service.ts의 withdrawUser
  * 동작 그대로다. 여기 목록과 아래 아이 삭제 미리보기가 같은 문구를 쓰므로 상수는 한 곳뿐이다.)
+ *
+ * ⚠️ 라운드 70 리뷰(M-3) — **두 응답은 이제 글자까지 같지는 않다.** 라운드 70 D(GAP-070 D)가
+ * settings.controller.ts의 두 미리보기를 **요청자의 역할에서 파생**시켰기 때문이다(관리자면
+ * `LAST_OWNER_LEAVE_IMPACT_LINE` 한 줄이 더 선다). 그래서 지금의 관계는 이렇다:
+ *  - 여기(GET /settings/privacy의 `flows`)는 **요청자와 무관한 기본형**이다 — 흐름이 무엇인지
+ *    나열하는 목록이라 "이 사람이 지금 진행하면 무슨 일이 나는가"를 말하는 자리가 아니다;
+ *  - 미리보기(leave-preview · account/delete-preview)는 **요청자 역할 파생**이고, 그 자리가
+ *    되돌릴 수 없는 결정 직전이라 요청자에게만 참인 줄까지 말한다.
+ * 그리고 **화면이 그리는 것은 미리보기의 impact뿐이다**(apps/mobile/app/settings/privacy.tsx의
+ * `PreviewSummary` — 그 화면은 `flows`에서 개수만 읽는다). 두 응답의 이 차이는
+ * apps/api/test/admin-settings.e2e.test.ts가 같은 계정의 두 응답을 대조해 값으로 고정한다.
  */
 const accountDeleteImpact = ["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"];
 const householdLeaveImpact = ["이 가구에 공유된 아이 기록을 볼 수 없어요"];

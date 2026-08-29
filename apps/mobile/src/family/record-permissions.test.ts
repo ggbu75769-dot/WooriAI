@@ -21,6 +21,18 @@ import {
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
+/**
+ * 주석을 걷어 낸 소스 — 화면이 **부르는 것**만 본다(a11y-contract.test.ts·invite-flow.test.ts가
+ * 같은 이유로 갖고 있는 그 헬퍼다).
+ *
+ * 라운드 70 리뷰(S-6): 아래 쓰기 화면 스윕은 "게이트를 참조하는가"를 소스 grep으로 판정하는데,
+ * 이 저장소는 설계 근거를 주석에 길게 남기는 관례라 **게이트를 부르지 않으면서 그 이름을 적어
+ * 둔 화면**이 통과할 수 있었다(예: "이 화면은 useExpenseEntryGate를 지나지 않는다"라고 적는
+ * 순간 그 화면은 그물을 빠져나간다). 주석을 먼저 걷어 내면 그런 통과가 불가능해진다.
+ */
+const withoutComments = (sourceText: string) =>
+  sourceText.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
 describe("UX-R(M) 역할별 기록 권한 판정", () => {
   it("서버 canEdit과 같은 역할만 기록할 수 있다", () => {
     expect(canRecordExpenses("owner")).toBe(true);
@@ -600,6 +612,19 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
    *
    * 제외 목록에는 "지금은 왜 게이트가 필요 없는가"를 값으로 적는다. 목록이 낡으면(그 파일이
    * 더 이상 쓰기가 아니거나, 사라지거나) 그것도 함께 빨개진다.
+   *
+   * ## 라운드 70 리뷰(S-6) — 이 그물이 실제로 보장하는 범위
+   *
+   * 넓어 보이지만 조건이 둘 있고, 둘 다 이 그물의 **밖**을 만든다.
+   *  1. **`app/` 아래만 훑는다.** `src/`의 컴포넌트가 쓰기를 들고 있으면 걸리지 않는다(오늘은
+   *     0건 — `src/`에 `useMutation`이 하나도 없다. 예컨대 src/commerce/PurchaseFollowupPrompt.tsx는
+   *     게이트를 지나지만 그것은 이 그물이 아니라 위 J-9 화이트리스트가 잡고 있는 것이다).
+   *  2. **`useMutation(`을 부르는 파일만** 쓰기로 친다. 화면이 react-query를 거치지 않고
+   *     클라이언트 함수를 **직접 await**하면(핸들러 안의 `await createX(...)`) 이 판정은 그
+   *     파일을 아예 쓰기로 세지 않는다.
+   *
+   * 그리고 판정은 **주석을 걷어 낸 소스**로 한다(`withoutComments` — 위 헬퍼): 게이트 이름을
+   * 설명으로 적어 둔 화면이 부르지 않고도 통과하던 구멍을 막는다.
    */
   it("라운드 70 B: app/의 모든 쓰기 화면이 역할 게이트를 지나거나, 지나지 않는 이유가 적혀 있다", () => {
     const writesSomething = /\buseMutation\s*\(/;
@@ -652,7 +677,8 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     expect(writers).toContain("app/budget.tsx");
     expect(writers).toContain("app/settings/children.tsx");
 
-    const ungated = writers.filter((path) => !referencesRoleGate.test(source(path)));
+    // 라운드 70 리뷰(S-6): 주석을 걷어 낸 뒤 판정한다 — 이름을 적어 둔 것은 배선이 아니다.
+    const ungated = writers.filter((path) => !referencesRoleGate.test(withoutComments(source(path))));
     const unexplained = ungated.filter((path) => !Object.prototype.hasOwnProperty.call(UNGATED_WITH_REASON, path));
     expect(unexplained, `역할 게이트도 이유도 없는 쓰기 화면: ${unexplained.join(", ")}`).toEqual([]);
 
