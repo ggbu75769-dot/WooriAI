@@ -271,16 +271,15 @@ export default function ManageChildrenScreen() {
    * 라운드 52 C-07: 아이 프로필 저장/추가는 아웃박스를 거치지 않는 서버 직행 쓰기라 오프라인에서는
    * 그냥 실패한다. 그때 "잠시 후 다시 시도해 주세요"는 기다릴 대상이 있다는 뜻이라 사실과
    * 어긋난다 -- 실패한 그 순간에 연결을 한 번 확인해 문구를 고른다(src/offline/messages.ts).
-   * 세 뮤테이션(편집·출생 전환·추가)이 같은 자리 문구를 쓰므로 판정도 하나다.
    *
    * 라운드 52 QA P3-1: 그 확인은 조회 실패 카드와 **같은 공용 훅**이 한다(useSaveErrorCopy).
    * 예전에는 각 뮤테이션의 onError가 직접 폴을 띄워, 저장 실패 직후 화면을 떠나면 사라진
    * 화면에 setState가 걸렸다 -- 이 화면이 토스트 타이머에 대해 지키는 "never setState after
    * unmount" 규율을 문구 쪽만 지키지 않고 있던 셈이다. 훅의 cancelled 패턴이 그 자리를 덮고,
-   * 세 뮤테이션이 모두 성공/초기 상태로 돌아가면 문구도 기본값으로 복원된다.
+   * 뮤테이션이 성공/초기 상태로 돌아가면 문구도 기본값으로 복원된다.
    *
-   * 세 상태의 OR을 넘기는 이유: 실패한 뮤테이션이 무엇이든 사용자가 보는 문장은 아래 한
-   * 자리이므로(각 카드의 danger 텍스트), 판정도 하나면 된다.
+   * 라운드 70 리뷰(M-2): 세 뮤테이션(편집·출생 전환·추가)은 **각자의 자리**에 자기 문장을
+   * 그린다 -- 훅을 셋으로 나눈 이유와 그 갈래는 아래 세 호출부 주석에 있다.
    */
   // Same timer-in-ref discipline as more.tsx's export toast: never setState after unmount.
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -381,6 +380,21 @@ export default function ManageChildrenScreen() {
     queryFn: () => listHouseholdMembers(authToken!, scopedHouseholdId!)
   });
   const myRole = scopedMembers.data?.members.find((member) => member.userId === userId)?.role;
+  /**
+   * ⚠️ 라운드 70 정찰 P3 — **앱에는 역할 판정 근거가 두 벌 있다.** 여기(그리고 app/family/index.tsx)는
+   * **구성원 목록 응답**에서 내 역할을 찾고, 나머지 전부(`useExpenseEntryGate` → record-permissions.ts)는
+   * **세션 스토어의 역할 표**에서 찾는다.
+   *
+   * 지금 이 화면이 응답 쪽을 쓰는 것은 정당하다: 어차피 이 쿼리를 부르고 있고(`scopedMembers`),
+   * 그 응답이 세션 스토어의 표보다 언제나 최신이다. 다만 **두 판정이 다른 답을 내는 창이 존재한다** —
+   * 스토어 표가 낡은 동안(역할이 서버에서 바뀌었는데 /me 재검증이 아직 돌지 않은 구간) 같은 계정이
+   * 이 화면에서는 편집 컨트롤을 보고 지출·예산 화면에서는 잠기거나 그 반대일 수 있다. 두 판정의
+   * 안전 방향이 다른 것도 의도다: 여기는 **로딩 중 보기 전용**으로 떨어지고(아래 주석), 게이트 쪽은
+   * **모르면 잠그지 않는다**(record-permissions.ts 머리말의 근거 — 잘못 잠그면 핵심 루프가 죽는다).
+   *
+   * 한 벌로 합치는 것은 이 트랙의 일이 아니다(게이트 훅은 호출부가 여섯 화면이고 이 트랙이 소유하지
+   * 않는다). 관계를 적어 두는 것까지가 라운드 70 B의 몫이다.
+   */
   const canEditChildren = myRole === "owner" || myRole === "co_parent";
   /**
    * **추가 폼**의 역할 게이트 — 근거는 파라미터가 가리키는 대상 가구(`householdId`)다. 생성이
@@ -473,8 +487,32 @@ export default function ManageChildrenScreen() {
     }
   });
 
-  // C-07/QA P3-1: 세 뮤테이션이 함께 쓰는 저장 실패 문구(위 주석 참고).
-  const saveFailedText = useSaveErrorCopy(saveEdit.isError || markChildBorn.isError || addChild.isError);
+  /**
+   * C-07/QA P3-1: 세 뮤테이션의 저장 실패 문구(위 주석 참고).
+   *
+   * 라운드 70 B — 라운드 69가 `src/api/api-error.ts`에 남긴 배선 빚을 여기서 갚는다. 그 파일은
+   * `CHILD_BIRTH_DATE_TOO_OLD`를 표에 세워 두면서 "이 코드는 아웃박스를 타지 않고(아이 저장에는
+   * 큐가 없다), 지금 그 화면은 실패를 `useSaveErrorCopy`의 일반 문구로 접는다 — 배선은 그 화면을
+   * 여는 라운드의 몫"이라고 적어 뒀다. 실패 값을 함께 넘기는 것이 그 배선이다: 20년보다 오래된
+   * 출생일로 저장이 거절되면 이제 화면이 **그 사실**을 말하고(폼의 문장과 같은 단일 소스다),
+   * 표에 없는 실패는 종전 두 문장 그대로다.
+   *
+   * 라운드 70 리뷰(M-2) — **자리마다 자기 뮤테이션의 사유다.**
+   *
+   * 종전에는 훅 하나가 세 상태의 OR과 세 실패의 `??` 체인을 받아 **한 문장**을 만들고, 그
+   * 문장을 세 자리(출생 전환 카드·편집 폼·추가 폼)가 함께 그렸다. 그런데 그 세 자리는 동시에
+   * 떠 있을 수 있고(각 카드는 서로 다른 상태로 열린다) `??`는 언제나 **먼저 실패한 것**을
+   * 고른다 — 편집이 날짜 하한으로 실패한 채 고착되면, 그다음 추가 실패는 자기 자리에서
+   * "20년보다 오래된…"이라는 **남의 사유**로 읽힌다. 사유를 말할 수 있게 된 라운드 70 B가
+   * 정확히 그만큼 오표시의 여지도 함께 만든 셈이다.
+   *
+   * 그래서 자리마다 자기 뮤테이션을 묻는다. 훅 호출 수는 **언제나 셋으로 고정**이라(조건부
+   * 호출이 아니다) hooks 규칙에 안전하고, 각 훅의 연결 판정도 자기 뮤테이션의 실패 전환에만
+   * 걸린다 — 종전에는 셋 중 하나만 실패해도 세 자리의 판정이 함께 움직였다.
+   */
+  const editFailedText = useSaveErrorCopy(saveEdit.isError, saveEdit.error);
+  const bornFailedText = useSaveErrorCopy(markChildBorn.isError, markChildBorn.error);
+  const addFailedText = useSaveErrorCopy(addChild.isError, addChild.error);
 
   // HOME-138: 전환의 부수효과 순서(스토어 쓰기 → 아이 스코프 캐시 무효화 → 안내)는
   // applyChildSwitch 한 곳에만 있다 -- 홈 헤더 1탭 전환이 같은 함수를 부른다.
@@ -670,7 +708,7 @@ export default function ManageChildrenScreen() {
                       showErrors={bornShowErrors}
                       onChange={setBornDateText}
                     />
-                    {markChildBorn.isError ? <Text style={{ color: theme.colors.danger }}>{saveFailedText}</Text> : null}
+                    {markChildBorn.isError ? <Text style={{ color: theme.colors.danger }}>{bornFailedText}</Text> : null}
                     <PrimaryButton
                       disabled={markChildBorn.isPending}
                       label={markChildBorn.isPending ? "바꾸는 중" : "출생일로 바꾸기"}
@@ -688,7 +726,7 @@ export default function ManageChildrenScreen() {
                       onChange={setForm}
                       showErrors={showErrors}
                     />
-                    {saveEdit.isError ? <Text style={{ color: theme.colors.danger }}>{saveFailedText}</Text> : null}
+                    {saveEdit.isError ? <Text style={{ color: theme.colors.danger }}>{editFailedText}</Text> : null}
                     <PrimaryButton
                       disabled={saveEdit.isPending}
                       label={saveEdit.isPending ? "저장하는 중" : "저장"}
@@ -741,7 +779,7 @@ export default function ManageChildrenScreen() {
               </View>
             </View>
             <ChildFormFields stageMode={addStageMode} values={form} onChange={setForm} showErrors={showErrors} />
-            {addChild.isError ? <Text style={{ color: theme.colors.danger }}>{saveFailedText}</Text> : null}
+            {addChild.isError ? <Text style={{ color: theme.colors.danger }}>{addFailedText}</Text> : null}
             <PrimaryButton
               disabled={addChild.isPending}
               label={addChild.isPending ? "추가하는 중" : "추가하기"}

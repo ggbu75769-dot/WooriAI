@@ -2099,6 +2099,35 @@ const HOUSEHOLD_LEAVE_IMPACT = ["이 가구에 공유된 아이 기록을 볼 �
 const CHILD_DELETE_IMPACT = ["아이 프로필을 더는 볼 수 없어요", "관련 지출 기록이 리포트에서 제외돼요"];
 
 /**
+ * GAP-070 D 거울: 관리자가 가구를 떠날 때만 서는 한 줄.
+ *
+ * 실서버 `LAST_OWNER_LEAVE_IMPACT_LINE`(apps/api/src/settings/settings.controller.ts)과
+ * **글자까지 같다** -- 위 주석의 "같은 문장" 약속 그대로다. 사실 근거(관리자가 나가면 그
+ * 가구에 owner 역할이 아무도 없고, 역할을 넘기는 엔드포인트가 0건이라 되돌릴 수 없다)는
+ * 그 파일의 주석에 적혀 있다.
+ */
+const LAST_OWNER_LEAVE_IMPACT_LINE =
+  "관리자인 내가 나가면 그 가족에 관리자가 없어져서 새 구성원 초대와 구성원 관리를 아무도 할 수 없어요";
+
+/**
+ * 실서버가 `AuthenticatedUser.households`의 역할을 읽는 자리(새 조회 0건)의 거울. 데모
+ * 세션에서 그 값에 해당하는 것은 이 기기 사용자의 구성원 행이다(localOwnerMember).
+ * 탈퇴를 마친 뒤에는 그 행이 `left`가 되므로 활성 구성원만 본다 -- 실서버의
+ * `householdsForUser`가 `status: "active"`만 싣는 것과 같은 규칙이다.
+ */
+function localUserIsHouseholdOwner(householdId?: string): boolean {
+  return useLocalBackendStore
+    .getState()
+    .members.some(
+      (member) =>
+        member.userId === LOCAL_USER_ID &&
+        member.status === "active" &&
+        member.role === "owner" &&
+        (householdId === undefined || member.householdId === householdId)
+    );
+}
+
+/**
  * 데모 동의 정의: 실서버 `consentDefinitions`(apps/api/src/onboarding/onboarding-core.service.ts)
  * 와 같은 세 가지. 동의 여부·동의일은 데모 상태(upsertConsents)가 실제로 기록한 값만 싣는다 --
  * 누른 적 없는 동의를 "동의함"으로 보이게 하지 않는다.
@@ -2201,13 +2230,17 @@ export function confirmChildProfileDeletion(childId: string, confirmationText: s
   return { success: true, flowId: "child_profile_delete" };
 }
 
-export function previewHouseholdLeave(_householdId: string): SettingsPreview {
+export function previewHouseholdLeave(householdId: string): SettingsPreview {
   ensureSeeded();
   return {
     flowId: "household_leave",
     requiresSecondStep: true,
     confirmationText: "LEAVE HOUSEHOLD",
-    impact: HOUSEHOLD_LEAVE_IMPACT
+    // GAP-070 D 거울: 실서버와 같이 **요청자의 역할에서 파생**한다(정적 리터럴 금지).
+    // 비관리자 데모 세션에서는 종전과 바이트 단위로 같은 배열이다.
+    impact: localUserIsHouseholdOwner(householdId)
+      ? [...HOUSEHOLD_LEAVE_IMPACT, LAST_OWNER_LEAVE_IMPACT_LINE]
+      : HOUSEHOLD_LEAVE_IMPACT
   };
 }
 
@@ -2230,7 +2263,8 @@ export function previewAccountDeletion(): SettingsPreview {
     flowId: "account_delete",
     requiresSecondStep: true,
     confirmationText: "DELETE ACCOUNT",
-    impact: ACCOUNT_DELETE_IMPACT
+    // GAP-070 D 거울: 관리자인 가구가 하나라도 있으면 한 줄(실서버 accountDeletePreview와 같다).
+    impact: localUserIsHouseholdOwner() ? [...ACCOUNT_DELETE_IMPACT, LAST_OWNER_LEAVE_IMPACT_LINE] : ACCOUNT_DELETE_IMPACT
   };
 }
 

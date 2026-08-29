@@ -5,18 +5,28 @@ import {
   DEFAULT_INVITE_ROLE,
   INVITE_HOUSEHOLD_PARAM,
   INVITE_ROLE_CHOICES,
+  INVITE_ROLE_EDIT_DESCRIPTION,
   INVITE_ROLE_PARAM,
   INVITE_ROLE_PROMPT_MESSAGE,
   INVITE_ROLE_PROMPT_TITLE,
+  INVITE_ROLE_VIEW_ONLY_DESCRIPTION,
+  INVITE_SCOPE_NOTICE,
+  inviteRoleDescription,
   inviteRolePrompt,
   inviteScreenHref,
   isInviteRole,
   parseInviteHouseholdParam,
   parseInviteRoleParam
 } from "./invite-flow";
+import { memberRoleLabel } from "./memberLabels";
+import { canRecordExpenses, EXPENSE_EDIT_ROLES } from "./record-permissions";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+
+/** 주석을 걷어 낸 소스 — 화면이 **렌더하는 값**만 본다(설계 근거 주석의 원문 인용을 걸러 낸다). */
+const withoutComments = (sourceText: string) =>
+  sourceText.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
 describe("라운드 52 C-04/C-06 초대 역할 표", () => {
   it("서버가 아는 세 역할을 모두 담는다 — 선물 참여가 빠지지 않는다", () => {
@@ -24,18 +34,18 @@ describe("라운드 52 C-04/C-06 초대 역할 표", () => {
     expect(new Set(INVITE_ROLE_CHOICES.map((choice) => choice.role)).size).toBe(INVITE_ROLE_CHOICES.length);
   });
 
-  it("초대 화면이 쓰던 라벨·설명문을 그대로 옮겼다(문구 변경 없음)", () => {
-    expect(INVITE_ROLE_CHOICES).toEqual([
-      { role: "co_parent", label: "공동부모", description: "지출 기록과 예산을 함께 관리할 수 있어요" },
-      { role: "viewer", label: "보기 전용", description: "기록만 확인할 수 있어요" },
-      { role: "gift_participant", label: "선물 참여", description: "선물 준비 목록만 함께 볼 수 있어요" }
-    ]);
+  it("라벨은 memberLabels 단일 소스에서 온다(값 무변경 — 구성원 목록 배지와 갈리지 않는다)", () => {
+    expect(INVITE_ROLE_CHOICES.map((choice) => choice.label)).toEqual(["공동부모", "보기 전용", "선물 참여"]);
+    for (const choice of INVITE_ROLE_CHOICES) {
+      expect(choice.label, choice.role).toBe(memberRoleLabel(choice.role));
+    }
   });
 
   it("DNC-018: 설명문은 해요체를 유지한다", () => {
     for (const choice of INVITE_ROLE_CHOICES) {
       expect(choice.description, choice.label).toMatch(/요$/);
     }
+    expect(INVITE_SCOPE_NOTICE).toMatch(/요\.$/);
   });
 
   it("Alert 본문이 라벨만이 아니라 설명까지 읽어 준다 — 고르는 순간에 차이를 알 수 있어야 한다", () => {
@@ -44,6 +54,164 @@ describe("라운드 52 C-04/C-06 초대 역할 표", () => {
       expect(INVITE_ROLE_PROMPT_MESSAGE).toContain(choice.description);
     }
     expect(INVITE_ROLE_PROMPT_TITLE).toBe("어떤 역할로 초대할까요?");
+  });
+});
+
+/**
+ * 라운드 70 #3 — "선물 참여"가 약속하던 범위는 서버에 근거가 없었다.
+ *
+ * 종전 문장: viewer = "기록만 확인할 수 있어요"(절반만 참), gift_participant = "선물 준비 목록만
+ * 함께 볼 수 있어요"(거짓). 서버에는 **읽기 스코프가 없다** — 역할이 판정에 들어가는 자리는 쓰기
+ * 하나뿐이고(`canEdit` = owner|co_parent), 조회 경로는 구성원인지만 본다. 그래서 이 라운드는
+ * 읽기 스코프를 만들지 않고(DNC-008 · PM 승인 선행) **문장을 사실로 되돌린다**.
+ */
+describe("라운드 70 #3 초대 역할 설명은 실제 권한에서만 파생된다", () => {
+  /** 이 앱이 역할로 실제 가르는 단 하나의 축(서버 `canEdit`의 거울). */
+  const editRoles = EXPENSE_EDIT_ROLES as readonly string[];
+
+  it("설명문의 갈림은 EXPENSE_EDIT_ROLES 하나뿐이다 — 권한이 바뀌면 문장이 따라 움직인다", () => {
+    for (const choice of INVITE_ROLE_CHOICES) {
+      const canEdit = editRoles.includes(choice.role);
+      expect(canEdit, choice.role).toBe(canRecordExpenses(choice.role));
+      expect(choice.description, choice.role).toBe(inviteRoleDescription(choice.role));
+      expect(choice.description.startsWith(canEdit ? INVITE_ROLE_EDIT_DESCRIPTION : INVITE_ROLE_VIEW_ONLY_DESCRIPTION), choice.role).toBe(true);
+    }
+    // 오늘의 값 고정: 편집 역할은 공동부모 하나뿐이고 나머지 둘은 같은 판정에 선다.
+    expect(INVITE_ROLE_CHOICES.filter((choice) => editRoles.includes(choice.role)).map((choice) => choice.role)).toEqual([
+      "co_parent"
+    ]);
+    expect(inviteRoleDescription("co_parent")).toBe("지출 기록과 예산을 함께 관리할 수 있어요");
+    expect(inviteRoleDescription("viewer")).toBe("지출 기록과 예산을 남기거나 고칠 수 없어요");
+    // 선물 참여는 오늘 보기 전용과 같은 역할이다 — 그 사실을 그 자리에서 말한다(짐작을 남기지 않는다).
+    expect(inviteRoleDescription("gift_participant")).toBe(
+      "지출 기록과 예산을 남기거나 고칠 수 없어요. 지금은 보기 전용과 권한이 같고, 구성원 목록에 다르게 표시돼요"
+    );
+  });
+
+  /**
+   * 부정 단언 — **판정이 없는 제약을 말하지 않는다.**
+   *
+   * "…만 볼 수 있어요" 계열이 역할 줄에 다시 등장하면 그것은 앱에 존재하지 않는 읽기 스코프를
+   * 약속하는 것이다. 보는 범위는 세 역할이 같으므로 그 이야기는 역할 줄이 아니라 목록 위의
+   * 공통 고지 한 곳에만 산다.
+   */
+  it("세 역할 × 없는 제약을 말하지 않는다 (…만 / 보기 범위 한정 금지)", () => {
+    const scopeLimit = /(?:만|뿐)\s*(?:함께\s*)?(?:볼|보이|확인|열람|조회)/;
+    const readVerb = /볼|보기|확인|열람|조회/;
+    /** 역할 이름("보기 전용")은 고유명사라 보기 범위를 말하는 동사가 아니다 — 대조 전에 걷어낸다. */
+    const withoutRoleLabels = (text: string) =>
+      INVITE_ROLE_CHOICES.reduce((acc, choice) => acc.split(choice.label).join(""), text);
+
+    for (const choice of INVITE_ROLE_CHOICES) {
+      // ⓐ "…만 볼 수 있어요" 형태의 범위 한정이 없다.
+      expect(choice.description, choice.role).not.toMatch(scopeLimit);
+      // ⓑ 애초에 역할 줄은 **보는 범위를 말하지 않는다**(그 문장은 공통 고지의 몫이다).
+      expect(withoutRoleLabels(choice.description), choice.role).not.toMatch(readVerb);
+      // ⓒ 거둬들인 두 문장이 어떤 형태로도 되살아나지 않는다.
+      expect(choice.description, choice.role).not.toContain("선물 준비");
+      expect(choice.description, choice.role).not.toContain("기록만");
+    }
+
+    // 역할 Alert 본문(= 같은 표를 읽는 두 번째 선택 자리)도 같은 규율을 지난다.
+    expect(INVITE_ROLE_PROMPT_MESSAGE).not.toContain("선물 준비 목록만 함께 볼 수 있어요");
+    expect(INVITE_ROLE_PROMPT_MESSAGE).not.toContain("기록만 확인할 수 있어요");
+  });
+
+  it("공통 고지는 세 역할 모두에 서고, 편집 역할 이름을 EXPENSE_EDIT_ROLES에서 가져온다", () => {
+    // 한 줄이 목록 전체를 덮으므로 역할별 분기가 아예 없다 = 세 역할 모두에 서 있다.
+    expect(INVITE_SCOPE_NOTICE).toContain("어떤 역할로 초대해도");
+    // 라운드 70 리뷰(S-4): 보기의 끝은 화면이 아니다 — 파일로 들고 나갈 수 있다는 사실까지 적는다.
+    expect(INVITE_SCOPE_NOTICE).toContain("모두 보고 CSV로 내보낼 수 있어요");
+    // 누가 남길 수 있는지는 손으로 적은 목록이 아니라 편집 역할의 라벨이다.
+    expect(INVITE_SCOPE_NOTICE).toContain(EXPENSE_EDIT_ROLES.map((role) => memberRoleLabel(role)).join("·"));
+    expect(INVITE_SCOPE_NOTICE).toContain("관리자·공동부모");
+    // 역할을 고르는 두 자리(초대 화면 · 가족 화면 Alert)가 같은 문장을 쓴다.
+    expect(INVITE_ROLE_PROMPT_MESSAGE.startsWith(INVITE_SCOPE_NOTICE)).toBe(true);
+  });
+
+  it("초대 화면이 역할 목록 위에 그 고지를 그린다 (source contract)", () => {
+    const inviteSource = source("app/family/invite.tsx");
+    expect(inviteSource).toContain("INVITE_SCOPE_NOTICE");
+    expect(inviteSource).toContain("<Text style={scopeNoticeStyle}>{INVITE_SCOPE_NOTICE}</Text>");
+    // "위"의 의미: 고지 노드가 역할 행 렌더보다 앞에 있다.
+    expect(inviteSource.indexOf("{INVITE_SCOPE_NOTICE}")).toBeLessThan(
+      inviteSource.indexOf("INVITE_ROLE_CHOICES.map((option) => (")
+    );
+    // 화면이 자기 문장을 따로 들고 있으면 표가 두 벌이 된다(C-04가 고친 그 병) — 설명문은
+    // 표에서만 나온다.
+    expect(inviteSource).toContain("{option.description}");
+    expect(inviteSource).not.toContain("const roleOptions");
+    // 거둬들인 문장은 **렌더되는 값**으로 되살아나지 않는다. 주석은 걷어 내고 본다: 이 화면은
+    // 무엇을 왜 거뒀는지를 주석에서 원문 그대로 인용하고(설계 근거를 값으로 남기는 이 저장소의
+    // 관례 — a11y-contract.test.ts의 `withoutComments`가 같은 이유로 있다), 사용자가 읽는 것은
+    // 주석이 아니라 렌더되는 값이다.
+    expect(withoutComments(inviteSource)).not.toContain("선물 준비 목록");
+  });
+
+  /**
+   * 라운드 70 리뷰(S-4) — 고지가 **프라이버시 결정의 가장 되돌리기 어려운 결과**를 빠뜨리지
+   * 않는다. 화면은 닫으면 끝이지만 CSV로 나간 파일은 회수할 수 없다.
+   */
+  it("S-4: 고지가 CSV 내보내기까지 말하고, 그 판정은 실제로 역할을 가르지 않는다", () => {
+    expect(INVITE_SCOPE_NOTICE).toContain("CSV");
+    expect(INVITE_SCOPE_NOTICE).toMatch(/요\.$/); // DNC-018 해요체
+    // 내보내기 화면은 역할 게이트를 지나지 않는다(= 세 역할이 같다는 이 문장의 근거).
+    const shareCsv = source("src/export/share-csv.ts");
+    expect(shareCsv).not.toContain("useExpenseEntryGate");
+    expect(shareCsv).not.toContain("canRecordExpenses");
+  });
+
+  /**
+   * 라운드 70 리뷰(S-3) — **"권한이 같다"는 파생은 쓰기 축만 본다.**
+   *
+   * `inviteRoleDescription`이 선물 참여 줄에 붙이는 "지금은 보기 전용과 권한이 같고…"는
+   * `canRecordExpenses`(서버 `canEdit`의 거울) 하나로 판정한다. 오늘 그 하나로 충분한 이유는
+   * **서버에 읽기 스코프가 없기** 때문이지, 파생이 읽기 축을 확인했기 때문이 아니다. 읽기
+   * 가드가 생기는 날 그 파생은 여전히 "같다"고 말하면서 틀리므로, 그 날을 소리 나게 하는
+   * 앵커를 여기 둔다 — 서버 소스는 **읽기만** 한다(link-marker.test.ts와 같은 관례).
+   */
+  describe("S-3 서버 읽기 역할 가드 0건 앵커 (서버는 읽기만)", () => {
+    const apiRoot = join(mobileRoot, "..", "..", "apps", "api");
+    const apiSource = (relativePath: string) => readFileSync(join(apiRoot, relativePath), "utf8");
+
+    it("아이 접근 검사에서 역할이 조회를 가르지 않는다 (edit일 때만 판정에 들어간다)", () => {
+      const childAccess = apiSource("src/onboarding/child-access.service.ts");
+      // 읽기(edit=false)에서 남는 판정은 "구성원인가" 하나뿐이다.
+      expect(childAccess).toContain("if (!role || (edit && !canEdit(role))) {");
+      // 조회를 역할 이름으로 가르는 분기가 생기면 이 단언이 먼저 빨개진다.
+      expect(childAccess).not.toMatch(/viewer|gift_participant/);
+    });
+
+    it("역할 화이트리스트 가드가 붙은 자리는 저장소 전체에서 쓰기 하나뿐이다", () => {
+      const guarded: string[] = [];
+      const walk = (directory: string) => {
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+          const fullPath = join(directory, entry.name);
+          if (entry.isDirectory()) {
+            walk(fullPath);
+            continue;
+          }
+          if (!entry.name.endsWith(".ts")) continue;
+          if (!readFileSync(fullPath, "utf8").includes("@RequireHouseholdRoles(")) continue;
+          guarded.push(relative(apiRoot, fullPath).split(sep).join("/"));
+        }
+      };
+      walk(join(apiRoot, "src"));
+
+      // 아이 **생성**(쓰기)뿐이다. 조회 컨트롤러에 이 데코레이터가 하나라도 붙으면 = 읽기
+      // 스코프가 생긴 것이고, 그때 선물 참여 줄("권한이 같고")을 다시 판단해야 한다.
+      expect(guarded).toEqual(["src/onboarding/children.controller.ts"]);
+      expect(apiSource("src/onboarding/children.controller.ts")).toContain(
+        '@RequireHouseholdRoles("owner", "co_parent")'
+      );
+    });
+  });
+
+  it("DNC-008: 역할 값과 라벨은 이 라운드에서 한 글자도 바뀌지 않는다", () => {
+    expect(INVITE_ROLE_CHOICES.map((choice) => choice.role)).toEqual(["co_parent", "viewer", "gift_participant"]);
+    expect(INVITE_ROLE_CHOICES.map((choice) => choice.label)).toEqual(["공동부모", "보기 전용", "선물 참여"]);
+    // 읽기 스코프를 앱이 지어내지 않는다: 두 보기 역할은 오늘 같은 판정에 서 있다.
+    expect(canRecordExpenses("viewer")).toBe(canRecordExpenses("gift_participant"));
   });
 });
 

@@ -17,6 +17,15 @@ import {
   loginHrefForInvite,
   planAfterHouseholdJoin
 } from "../../../src/children/household-join";
+// 라운드 70 A: 만료·사용된 초대(재시도로 절대 풀리지 않는 실패)의 문구·판정 단일 소스.
+import {
+  INVITE_UNAVAILABLE_ALREADY_JOINED_HINT,
+  INVITE_UNAVAILABLE_DETAIL,
+  INVITE_UNAVAILABLE_ESCAPE_LABEL,
+  INVITE_UNAVAILABLE_NEXT_STEP,
+  INVITE_UNAVAILABLE_TITLE,
+  isInviteUnavailableError
+} from "../../../src/family/invite-accept-messages";
 import { formatInviteExpiry } from "../../../src/family/memberLabels";
 // 라운드 41 K-3: 참여 직후 표·가구 목록을 서버 기준으로 한 벌로 다시 받는다(재검증 단일 소스).
 import { revalidateHouseholdRoles } from "../../../src/family/useExpenseEntryGate";
@@ -32,6 +41,10 @@ const roleLabel: Record<string, string> = {
   gift_participant: "선물 참여"
 };
 
+/**
+ * 재시도로 **풀리는** 실패(네트워크·5xx)의 문구. 라운드 70 A는 이 문장과 그 아래 [다시 시도]를
+ * 한 글자도 바꾸지 않는다 — 그 갈래에서는 잠시 후 다시 누르는 것이 실제로 통하는 행동이다.
+ */
 const loadFailedText = "초대 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
 const acceptFailedText = "가족에 참여하지 못했어요. 잠시 후 다시 시도해 주세요.";
 const alreadyMemberText = "이미 이 가족의 구성원이에요.";
@@ -149,6 +162,19 @@ export default function AcceptInviteScreen() {
   });
 
   /**
+   * 라운드 70 A — **이 초대는 끝났다**를 화면 전체가 한 번에 아는 자리.
+   *
+   * 서버는 이 사실을 세 갈래로 말한다: 조회 404(INVITE_NOT_FOUND) · 조회 400(INVITE_NOT_PENDING) ·
+   * 수락 400(INVITE_NOT_PENDING). 세 갈래가 **같은 문장**을 읽어야 한다는 것이 이 트랙의 회귀
+   * 계약인데, 그 보장을 테스트에만 맡기지 않고 **구조로** 세운다: 판정이 하나이므로 아래에서
+   * 그리는 카드도 하나이고, 세 갈래는 같은 문자열이 아니라 **같은 노드**를 본다.
+   *
+   * 두 코드를 가르지 않는 이유(오라클 금지)는 src/family/invite-accept-messages.ts 머리말에 있다.
+   * 네트워크·5xx는 이 판정에 걸리지 않으므로 그 갈래의 카드·버튼·문구는 종전 그대로다.
+   */
+  const inviteUnavailable = isInviteUnavailableError(invite.error) || isInviteUnavailableError(accept.error);
+
+  /**
    * 참여 성공 **이후**의 뒤처리 한 벌: 아이 목록 조회 -> 캐시 무효화 -> 계획대로 착지.
    * 조회 실패("retry" 계획) 때 버튼 하나로 이 함수만 다시 태울 수 있게 mutation 밖으로 뺐다.
    */
@@ -235,14 +261,63 @@ export default function AcceptInviteScreen() {
           </Card>
         ) : null}
 
-        {invite.isError ? (
+        {/* 재시도로 풀리는 실패(네트워크·5xx)만 이 카드에 남는다 — 문구도 버튼도 종전 그대로다. */}
+        {invite.isError && !inviteUnavailable ? (
           <Card style={{ gap: 10 }}>
             <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text>
             <SecondaryButton label="다시 시도" onPress={() => invite.refetch()} />
           </Card>
         ) : null}
 
-        {invite.data ? (
+        {/* 라운드 70 A(막다른 길 ① — 수락 **전**): 만료·사용된 초대. 세 갈래(조회 404 · 조회 400 ·
+            수락 400)가 모두 이 한 카드를 본다. [다시 시도]는 없다 — 다시 눌러 풀리는 것이
+            아무것도 없는 실패에 재시도 버튼을 세우는 것은 안내가 아니라 시간 낭비다. 대신
+            "새 링크를 요청하세요"라는 사실과, 지금 이 자리에서 할 수 있는 행동 하나를 준다. */}
+        {inviteUnavailable ? (
+          <View accessibilityRole="alert">
+            <Card style={{ gap: 8 }}>
+              <Text style={{ color: theme.colors.danger }}>{INVITE_UNAVAILABLE_TITLE}</Text>
+              <Text style={mutedTextStyle}>{INVITE_UNAVAILABLE_DETAIL}</Text>
+              <Text style={mutedTextStyle}>{INVITE_UNAVAILABLE_NEXT_STEP}</Text>
+              {/* 라운드 70 리뷰(S-1): 세션이 있는 사람에게만 서는 한 줄. 판정 근거는 토큰이
+                  아니라 **내 세션 상태**라 오라클이 아니고(문구 모듈 머리말), 비로그인
+                  방문자의 화면은 종전과 한 글자도 다르지 않다. */}
+              {authToken ? <Text style={mutedTextStyle}>{INVITE_UNAVAILABLE_ALREADY_JOINED_HINT}</Text> : null}
+              <SecondaryButton
+                // 라운드 70 리뷰(P-A): 형제 버튼들(아래 라운드 60 #3 카드)과 같은 관례로,
+                // 짧은 라벨이 못 나르는 맥락("이 초대는 두고")을 낭독에 실어 준다.
+                accessibilityLabel="초대 없이 앱 둘러보기"
+                label={INVITE_UNAVAILABLE_ESCAPE_LABEL}
+                onPress={() => {
+                  // 아래 라운드 60 #3 카드와 같은 계획 함수를 쓴다. 그 호출부는 성격이 다른
+                  // 카드(수락은 **이미 성공**했고 뒤처리만 실패한 자리)라 이 라운드가 손대지
+                  // 않기로 한 자리이므로, 공용 핸들러로 합치지 않고 같은 세 줄을 여기 둔다.
+                  //
+                  // 라운드 70 리뷰(M-1) — **세션 축이 하나 더 있다.** `householdJoinEscapePlan`은
+                  // 수락 **후** 카드에서 태어난 함수라 세션이 있다는 것을 전제한다: 두 목적지
+                  // (탭 셸 · 온보딩 시작점)는 모두 저장에 세션이 필요하다. 그런데 이 카드는
+                  // 수락 **전** 막다른 길이라 **계정이 없는 방문자도** 여기에 선다(로그인 CTA는
+                  // 이 갈래에서 접힌다). 그 사람을 온보딩으로 내려놓으면 아이 정보를 적게 한
+                  // 뒤 저장에서 막히는, 이 라운드가 없애려던 바로 그 형태의 막다른 길이 된다.
+                  // 그래서 세션이 없으면 루트("/")로 보낸다 — app/index.tsx가 **비세션 목적지의
+                  // 단일 소스**다(그 화면이 만료 여부를 보고 /login 또는 /launch-animation을
+                  // 고른다). 여기서 그 판정을 다시 적지 않는다.
+                  if (!authToken) {
+                    router.replace("/");
+                    return;
+                  }
+                  const escape = householdJoinEscapePlan({ currentChildId: selectedChildId, hasReachedHome });
+                  if (escape.marksHomeReached) markHomeReached();
+                  router.replace(escape.href);
+                }}
+              />
+            </Card>
+          </View>
+        ) : null}
+
+        {/* 끝난 초대에서는 미리보기도 접는다 — "3일 남음"이 "만료되었거나 유효하지 않아요" 옆에
+            서면 앱이 두 가지를 동시에 말하게 된다. 접으면 세 갈래의 화면이 완전히 같아진다. */}
+        {invite.data && !inviteUnavailable ? (
           <Card style={{ gap: 8 }}>
             <Text style={inviteHouseholdNameStyle}>{invite.data.householdName}</Text>
             <Text style={inviteRoleStyle}>{roleLabel[invite.data.role] ?? invite.data.role}</Text>
@@ -250,7 +325,11 @@ export default function AcceptInviteScreen() {
           </Card>
         ) : null}
 
-        {accept.isError ? <Text style={{ color: theme.colors.danger }}>{acceptErrorText(accept.error)}</Text> : null}
+        {/* 끝난 초대(수락 400)는 위 카드가 말한다 — 여기 남는 것은 재시도로 풀리는 실패와
+            HOUSEHOLD_ALREADY_MEMBER이고, 그 둘의 문구·판정은 종전 그대로다. */}
+        {accept.isError && !inviteUnavailable ? (
+          <Text style={{ color: theme.colors.danger }}>{acceptErrorText(accept.error)}</Text>
+        ) : null}
 
         {/* 라운드 60 #3(막다른 길 ②): 참여는 됐고 아이 목록만 못 받았다. "아이가 없다"고
             단정하지 않고 사실만 말한 뒤, 같은 뒤처리만 다시 태우는 [다시 시도]를 준다 --
@@ -284,7 +363,12 @@ export default function AcceptInviteScreen() {
           </View>
         ) : null}
 
-        {!authToken ? (
+        {/* 라운드 70 A(ⓔ): 끝난 초대에서는 **지킬 수 없는 약속을 하지 않는다.** 종전에는 이
+            아래 두 갈래가 `invite.isError`와 무관하게 그려져서, 계정이 없는 사람이 "로그인하면
+            이 초대로 바로 돌아와서 참여할 수 있어요."를 믿고 카카오 로그인·약관 동의·계정
+            생성까지 마치고 돌아와 **똑같은 실패**를 다시 읽었다. 참여 버튼도 같은 이유로 접는다
+            (그 버튼이 이 갈래의 [다시 시도]다 — 눌러 봐야 같은 400이 온다). */}
+        {inviteUnavailable ? null : !authToken ? (
           <>
             <Text style={mutedTextStyle}>로그인하면 이 초대로 바로 돌아와서 참여할 수 있어요.</Text>
             <PrimaryButton

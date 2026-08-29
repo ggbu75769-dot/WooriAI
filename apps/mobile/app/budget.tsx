@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import {
   getBudget,
@@ -27,6 +27,14 @@ import {
   sumLastMonthActualKrw
 } from "../src/home/budget-edit";
 import { previousYearMonth } from "../src/home/last-month-comparison";
+// 라운드 70 B: 예산 저장의 서버 술어는 지출 쓰기와 **같은 canEdit**이라 판정을 새로 만들지 않고
+// 기존 게이트를 **읽는다**(훅은 이 트랙이 소유하지 않는다 — 한 글자도 바꾸지 않는다).
+import { revalidateHouseholdRoles, useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
+import {
+  BUDGET_VIEW_ONLY_MESSAGE,
+  EXPENSE_VIEW_ONLY_ALERT_TITLE,
+  guardExpenseAction
+} from "../src/family/record-permissions";
 import { useLoadErrorCopy, useSaveErrorCopy } from "../src/offline/use-load-error-copy";
 import { useOfflineSyncSnapshot } from "../src/offline/sync-controller";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../src/ui";
@@ -117,12 +125,23 @@ export default function BudgetEditScreen() {
    * 확인할 방법이 화면 안에 없었다 — 홈 히어로로 돌아가서야 알게 된다. 라벨이 붙으면 제목
    * 한 줄이 "다온이 — 월 예산 수정"이 되어 (아이, 월) 두 축이 모두 화면에 선다.
    *
-   * 원천은 이 화면의 다른 맥락 값들과 **같은 규칙**이다(이 파일 머리 주석의 "새 요청 없이 이미
-   * 채워진 캐시에서 읽는다"): `useQuery`가 아니라 `getQueryData`라 쿼리를 활성화하지 않는다.
-   * ["children"]은 홈·기록·리포트·설정이 이미 채워 두는 캐시라 앱을 통해 들어왔다면 거의 언제나
-   * 있고, 알림 → /budget 직행 콜드 스타트처럼 비어 있으면 라벨이 null이라 제목이 종전 그대로다.
-   * 지난달 **예산**만 조회를 켰던 것(B1(b))은 그 값이 어떤 화면도 받아 두지 않는 데이터여서였고,
-   * 아이 목록은 그 예외에 해당하지 않는다 — 모르면 말하지 않는다.
+   * 이 **읽기 자체**는 이 화면의 다른 맥락 값들과 같은 규칙이다(이 파일 머리 주석): `useQuery`가
+   * 아니라 `getQueryData`라 쿼리를 활성화하지 않는다. ["children"]은 홈·기록·리포트·설정이 이미
+   * 채워 두는 캐시라 앱을 통해 들어왔다면 거의 언제나 있고, 비어 있으면 라벨이 null이라 제목이
+   * 종전 그대로다. 지난달 **예산**만 조회를 켰던 것(B1(b))은 그 값이 어떤 화면도 받아 두지 않는
+   * 데이터여서였고, 아이 목록은 그 예외에 해당하지 않는다 — 모르면 말하지 않는다.
+   *
+   * ⚠️ 라운드 70 리뷰(S-2) — **"이 화면은 ["children"]에 새 요청을 내지 않는다"는 이 좌표에서
+   * 더는 참이 아니다.** 라운드 70 B가 저장 게이트로 부르기 시작한 `useExpenseEntryGate`가
+   * 다가구·부분 표 계정에서 같은 키(["children"])의 쿼리를 **켤 수 있다**
+   * (needsChildHouseholdResolution — src/family/useExpenseEntryGate.ts). 그 계정에서는
+   * ⓐ 요청이 0건이 아니고, ⓑ 알림 → /budget 직행 콜드 스타트라도 그 조회가 끝나면 캐시가
+   * 채워져 라벨이 **뒤늦게** 붙을 수 있다(빈 캐시로 시작하니 첫 프레임의 제목은 여전히 종전
+   * 그대로다). 표가 비었거나 서버가 "가구가 하나뿐"이라고 말한 계정 · 데모 · 비세션에서는 그
+   * 쿼리가 켜지지 않으므로 이 자리의 종전 서술이 그대로 맞다.
+   *
+   * 그래도 이 줄이 `getQueryData`인 것은 그대로다: 게이트가 켜 준 캐시를 **읽기만** 하고,
+   * 라벨을 위해 조회를 켜지는 않는다(그것이 "모르면 말하지 않는다"의 배선이다).
    *
    * BUD-001 픽셀 캡처는 비세션이라 `authToken`이 null이고 캐시를 읽지도 않는다. 외동 가구도
    * `resolveChildScopeLabel`이 null을 주므로 종전 화면 그대로다. (낭독 전용 변형은 쓰지 않는다 —
@@ -243,8 +262,37 @@ export default function BudgetEditScreen() {
 
   const canSave = !amountError && Boolean(authToken && childId) && (amountDigits.length > 0 || Boolean(budget.data));
 
+  /**
+   * 라운드 70 B — **앱에서 마지막까지 역할 게이트를 지나지 않던 쓰기**가 이 화면의 저장이었다.
+   *
+   * 서버는 예산 저장을 편집 역할(owner·co_parent)에게만 허용한다(upsertBudget →
+   * requireChildAccess(edit) → canEdit). 그런데 이 화면에는 판정이 아예 없어서, 보기 전용으로
+   * 참여한 사람도 금액을 적고 [저장]을 눌렀고, 돌아오는 것은 "저장하지 못했어요. 잠시 후 다시
+   * 시도해 주세요."였다 — **기다릴 대상이 있다는 뜻**인데 실제로는 다시 눌러도 영원히 같은
+   * 403이다. 라운드 40 UX-R(M)이 지출 입력에서 없앤 시퀀스가 이 한 화면에 남아 있었다.
+   *
+   * 판정은 **새로 만들지 않는다**: 서버 술어가 지출 쓰기와 같으므로 `useExpenseEntryGate`의
+   * 그 판정을 그대로 읽는다(모르면 잠그지 않는다 · 비세션은 절대 잠기지 않는다 —
+   * BUD-001 픽셀락 캡처가 비세션이다). 문장만 예산의 것이다(record-permissions.ts).
+   *
+   * **화면은 잠그지 않는다 — 저장만 잠근다.** 서버는 읽기를 구성원 전원에게 허용하므로 보기
+   * 전용 참여자도 이번 달 예산이 얼마인지 볼 수 있어야 하고, 잠긴 컨트롤은 사라지는 대신
+   * 눌렀을 때 사실을 말한다(useExpenseEntryGate 머리말의 그 관례).
+   */
+  const expenseGate = useExpenseEntryGate();
+  // 안내가 곧 역할 재검증 트리거다(라운드 40 J-3 — 승격된 역할은 이 경로에서 반영된다).
+  // 조회는 백그라운드·스로틀이라 안내 자체는 지금 그대로 뜬다.
+  const explainBudgetViewOnly = () => {
+    Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, BUDGET_VIEW_ONLY_MESSAGE);
+    revalidateHouseholdRoles();
+  };
+  const saveBudget = guardExpenseAction(expenseGate.locked, explainBudgetViewOnly, () => save.mutate());
+
   // C-07 문구(온라인이면 종전 그대로, 오프라인이면 기다릴 대상이 없다는 사실).
-  const saveErrorText = useSaveErrorCopy(save.isError);
+  //
+  // 라운드 70 B: 실패 값을 함께 넘겨 **서버가 말해 준 사유**를 먼저 보게 한다(아는 코드면 표의
+  // 문구, 모르면 위 두 문장 그대로 — src/offline/messages.ts의 resolveSaveErrorCopy).
+  const saveErrorText = useSaveErrorCopy(save.isError, save.error);
 
   // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
   // 버튼은 그대로 -- 문구만 바뀐다(src/offline/messages.ts).
@@ -340,10 +388,12 @@ export default function BudgetEditScreen() {
 
             {save.isError ? <Toast message={saveErrorText} tone="error" /> : null}
 
+            {/* 잠금은 disabled에 넣지 않는다 — 눌렀을 때 사실을 말하는 것이 이 앱의 관례이고,
+                비활성 버튼은 "왜 안 되는지"를 끝내 말하지 않는다(DNC-018). */}
             <PrimaryButton
               disabled={!canSave || save.isPending}
               label={save.isPending ? "저장하는 중" : "저장"}
-              onPress={() => save.mutate()}
+              onPress={saveBudget}
             />
           </>
         )}

@@ -8,6 +8,11 @@
 // 문구의 단일 소스로 남고(sync-controller가 이 파일을 import하는 방향은 그대로다), 저장소 상태를
 // 부르는 이름만 컨트롤러와 한 벌로 유지한다.
 import type { OfflineStorageState } from "./sync-controller";
+// 라운드 70 B: 저장 실패 문구가 **서버 코드를 볼 수 있게** 하는 유일한 접점(resolveSaveErrorCopy).
+// 봉투 파서를 한 벌 더 만들지 않고 화이트리스트 표를 그대로 지난다 -- 근거는 그 함수 머리말.
+// 이 방향의 import는 사이클을 만들지 않는다: api-error.ts가 끌어오는 셋(amount-limit ·
+// entry-form-guards · child-form)은 어느 것도 src/offline/를 부르지 않는다.
+import { apiErrorCodeOf, apiErrorMessageForCode } from "../api/api-error";
 
 /** Shown immediately after a local (SQLite-first) save, before the server has confirmed it. */
 export const OFFLINE_SAVED_MESSAGE = "기기에 저장했어요. 연결되면 자동으로 반영할게요.";
@@ -602,13 +607,48 @@ export function resolveLoadErrorCopy({ isOnline }: { isOnline: boolean }): LoadE
 export const SAVE_ERROR_NOTICE = "저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
 export const OFFLINE_SAVE_NOTICE = "지금은 오프라인이에요. 연결된 뒤 다시 저장해 주세요.";
 
+export type SaveErrorCopyInput = {
+  /** 실패한 그 순간의 연결 상태(화면이 isCurrentlyOnline으로 한 번 확인해 넘긴다). */
+  isOnline: boolean;
+  /**
+   * 라운드 70 B — 던져진 실패 값 그대로. 생략하면 종전과 **바이트 단위로 같은** 두 문장뿐이다.
+   */
+  error?: unknown;
+};
+
 /**
- * 순수 판정 함수: 연결 상태만 보고 저장 실패 문구를 고른다. 화면은 저장이 실패한 그 순간에
- * 연결을 한 번 확인해(isCurrentlyOnline) 이 함수에 넘긴다.
+ * 순수 판정 함수: 저장 실패 문구를 고른다.
  *
- * `isOnline: true`가 기본 안전값인 이유는 resolveLoadErrorCopy와 같다 — "온라인인데 실패했다"와
- * "연결 상태를 알 수 없다"(web 폴백)를 함께 덮어, 판정이 어긋나도 기존 문구로 떨어진다.
+ * ## 라운드 70 B — 이 함수가 **코드를 볼 수 있게** 됐다
+ *
+ * 라운드 52에 세워질 때 이 판정이 받는 값은 `isOnline` 하나였다. 그래서 서버가 코드로 사유를
+ * 말해 준 실패까지 전부 "저장하지 못했어요. 잠시 후 다시 시도해 주세요."로 접혔다 — 다시 눌러도
+ * 영원히 같은 답이 오는 실패(보기 전용 역할의 403, 20년보다 오래된 출생일)에 재시도를 권하는
+ * **틀린 안내**다. 구조적으로 그럴 수밖에 없었다: 인자에 실패 값이 없으니 볼 수가 없었다.
+ *
+ * 이제 `error`를 함께 받아 `src/api/api-error.ts`의 화이트리스트 표를 한 번 지난다. 표는 이미
+ * 앱 전역의 단일 소스이고(서버 원문을 그대로 노출하지 않는 이유 셋이 그 파일 머리말에 있다),
+ * 라운드 69가 `CHILD_BIRTH_DATE_TOO_OLD`까지 세워 두면서 "배선은 그 화면을 여는 라운드의 몫"
+ * 이라고 적어 둔 그 배선이 이 한 줄이다.
+ *
+ * ## 판정 순서 — 코드 → 오프라인 → 일반
+ *
+ * `memberMutationErrorMessage`(src/family/member-mutation-messages.ts)가 세운 순서 그대로다.
+ * 코드가 먼저인 이유는 그 파일이 적어 둔 것과 같다: **서버가 답을 줬다는 사실 자체**가 연결이
+ * 있었다는 뜻이라, 그 경우까지 오프라인으로 말하면 그것이 또 하나의 틀린 안내가 된다.
+ * (403 전용 갈래를 따로 두지 않는 것은 이 자리의 차이다 — `FORBIDDEN`은 표에 이미 중립 문구로
+ * 서 있고, 그 문구를 이 화면 쪽으로 좁히면 같은 코드를 받는 다른 여섯 화면이 틀린 안내를 받는다.
+ * 예산 화면의 403은 **저장 전에** 역할 게이트가 사실을 말하고 막는다 —
+ * src/family/record-permissions.ts의 `BUDGET_VIEW_ONLY_MESSAGE`.)
+ *
+ * ## 두 폴백 문장은 그대로다
+ *
+ * 모르는 코드·코드 없는 실패(네트워크·5xx·타임아웃)의 동작은 **한 글자도 바뀌지 않는다** —
+ * 라운드 45가 표를 세우며 정한 규칙("아는 코드만 표의 문구, 나머지는 호출부 폴백")이고,
+ * `isOnline: true`가 기본 안전값인 이유도 resolveLoadErrorCopy와 같다.
  */
-export function resolveSaveErrorCopy({ isOnline }: { isOnline: boolean }): string {
+export function resolveSaveErrorCopy({ isOnline, error }: SaveErrorCopyInput): string {
+  const knownByCode = apiErrorMessageForCode(apiErrorCodeOf(error));
+  if (knownByCode) return knownByCode;
   return isOnline ? SAVE_ERROR_NOTICE : OFFLINE_SAVE_NOTICE;
 }

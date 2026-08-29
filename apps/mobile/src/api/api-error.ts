@@ -157,11 +157,11 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
    * 공동양육자**뿐이다. 그래도 표에 넣는 이유는 "그때 사용자가 보는 것이 막다른 문장"이라는
    * 것이고, 낮은 도달성이 곧 낮은 비용이다.
    *
-   * `CHILD_BIRTH_DATE_TOO_OLD`는 아웃박스를 타지 않는다(아이 저장에는 큐가 없다). 지금 그
-   * 화면(app/settings/children.tsx)은 실패를 `useSaveErrorCopy`의 일반 문구로 접는데, 그 배선을
-   * 바꾸는 것은 이 트랙이 소유하지 않은 파일이다 — 표에 먼저 세워 두는 이유는 **코드가 늘 때
-   * 표가 함께 늘어나야 한다**는 이 라운드의 규율 자체이고(아래 소스 계약), 배선은 그 화면을
-   * 여는 라운드가 이 한 줄을 읽어 쓰면 된다.
+   * `CHILD_BIRTH_DATE_TOO_OLD`는 아웃박스를 타지 않는다(아이 저장에는 큐가 없다). 라운드 69는
+   * 그 화면(app/settings/children.tsx)이 다른 트랙의 파일이라 표에만 세워 두고 "배선은 그 화면을
+   * 여는 라운드의 몫"이라고 적어 뒀다 — **라운드 70 B가 그 빚을 갚았다**: `useSaveErrorCopy`가
+   * 실패 값을 함께 받게 되면서(src/offline/use-load-error-copy.ts) 두 화면(예산·아이 관리)의
+   * 저장 실패가 이 표를 지난다. 표에 없는 실패의 문구·동작은 종전 그대로다.
    */
   EXPENSE_DATE_TOO_OLD: EXPENSE_DATE_TOO_OLD_ERROR,
   CHILD_BIRTH_DATE_TOO_OLD: CHILD_BIRTH_DATE_TOO_OLD_ERROR,

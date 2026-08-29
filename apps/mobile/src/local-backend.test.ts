@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { getSeoulToday } from "@wooriai/domain";
 import * as localBackend from "./api/local-backend";
@@ -452,5 +454,65 @@ describe("Local test-mode backend zero start (테스트 로그인 = 신규 가�
     localBackend.createChild({ nickname: "여정이" });
     localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "manual", manualStage: "toddler_1_3" });
     expect(localBackend.createInvite(LOCAL_HOUSEHOLD_ID, "co_parent", "link").householdName).toBe("여정이 패밀리");
+  });
+});
+
+/**
+ * GAP-070 D 거울: 되돌릴 수 없는 두 흐름의 "진행하면 이렇게 돼요"가 **요청자의 역할에서
+ * 파생**된다(정적 리터럴 금지 — 아이 삭제 미리보기가 이미 쓰는 형식).
+ *
+ * 데모 세션을 함께 고치는 이유는 라운드 46이 세운 "impact 서버-데모 통일" 규율이다 —
+ * 어긋나면 데모에서 본 문장과 실세션 문장이 달라지고, 그 화면(app/settings/privacy.tsx의
+ * PreviewSummary)은 배열을 한 줄씩 **그대로** 그린다.
+ *
+ * 회귀 좌표는 넷(관리자/비관리자 × 가구 탈퇴/계정 삭제)이고, 비관리자 둘은 **종전과 바이트
+ * 단위로 같아야 한다**.
+ */
+describe("GAP-070 D 데모 거울: 탈퇴·계정 삭제 미리보기의 관리자 상실 고지", () => {
+  const LEAVE_BASE = "이 가구에 공유된 아이 기록을 볼 수 없어요";
+  const DELETE_BASE = ["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"];
+  const OWNER_LINE = "관리자인 내가 나가면 그 가족에 관리자가 없어져서 새 구성원 초대와 구성원 관리를 아무도 할 수 없어요";
+
+  beforeEach(() => {
+    localBackend.resetLocalBackendForTests();
+  });
+
+  it("관리자 좌표 둘: 두 미리보기에 같은 한 줄이 더 선다", () => {
+    // 데모 세션의 기본값은 실계정 신규 가입과 같다 — 내가 이 가구의 유일한 관리자다.
+    expect(localBackend.listHouseholdMembers(LOCAL_HOUSEHOLD_ID).members.map((member) => member.role)).toEqual([
+      "owner"
+    ]);
+
+    expect(localBackend.previewHouseholdLeave(LOCAL_HOUSEHOLD_ID).impact).toEqual([LEAVE_BASE, OWNER_LINE]);
+    expect(localBackend.previewAccountDeletion().impact).toEqual([...DELETE_BASE, OWNER_LINE]);
+  });
+
+  it("비관리자 좌표 둘: 종전과 바이트 단위로 같다", () => {
+    // 탈퇴를 마치면 내 구성원 행이 `left`가 되어 어느 가구의 관리자도 아니게 된다
+    // (실서버 householdsForUser가 status: "active"만 싣는 것과 같은 규칙).
+    localBackend.confirmHouseholdLeave(LOCAL_HOUSEHOLD_ID, "LEAVE HOUSEHOLD");
+
+    expect(localBackend.previewHouseholdLeave(LOCAL_HOUSEHOLD_ID).impact).toEqual([LEAVE_BASE]);
+    expect(localBackend.previewAccountDeletion().impact).toEqual(DELETE_BASE);
+  });
+
+  it("설정 화면의 흐름 목록은 종전 그대로다 — 역할 파생은 미리보기의 몫이다", () => {
+    // 실서버의 흐름 목록(onboarding-core.service.ts getPrivacySettings)은 이 라운드가 손대지
+    // 않았다. 거울도 같아야 한다 — 목록만 늘면 두 표면이 다른 이야기를 한다.
+    const flows = localBackend.getPrivacySettings().flows;
+    expect(flows.find((flow) => flow.id === "household_leave")?.impact).toEqual([LEAVE_BASE]);
+    expect(flows.find((flow) => flow.id === "account_delete")?.impact).toEqual(DELETE_BASE);
+  });
+
+  it("서버 상수와 글자까지 같다 (라운드 46 impact 서버-데모 통일)", () => {
+    const controllerSource = readFileSync(
+      join(process.cwd(), "../../apps/api/src/settings/settings.controller.ts"),
+      "utf8"
+    );
+
+    expect(controllerSource).toContain(`"${OWNER_LINE}"`);
+    // 그리고 서버가 그 줄을 **역할에서** 고르는지까지 본다 — 정적 배열로 되돌아가면 빨개진다.
+    expect(controllerSource).toContain("isHouseholdOwner(request.user!, householdId)");
+    expect(controllerSource).toContain("ownsAnyHousehold(request.user!)");
   });
 });

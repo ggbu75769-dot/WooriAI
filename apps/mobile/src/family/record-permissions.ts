@@ -86,6 +86,26 @@ export const EXPENSE_VIEW_ONLY_MESSAGE =
 export const EXPENSE_VIEW_ONLY_ALERT_TITLE = "보기 전용이에요";
 
 /**
+ * 라운드 70 B — **월 예산 저장**(app/budget.tsx)의 형제 문장.
+ *
+ * 판정은 새로 만들지 않는다: 예산 저장의 서버 술어가 지출 쓰기와 **같기 때문**이다.
+ * `upsertBudget`(apps/api/src/onboarding/onboarding-core.service.ts)이
+ * `requireChildAccess(user, childId, true)`(edit = true)를 부르고, 그 안의 판정이 바로 위
+ * `EXPENSE_EDIT_ROLES`가 거울로 삼는 `canEdit`(store-shared.ts)이다. 그래서 잠금 여부는
+ * `isExpenseEntryLocked` 하나가 그대로 답하고, 이 파일이 더하는 것은 **문장 한 줄**이다.
+ *
+ * 왜 `EXPENSE_VIEW_ONLY_MESSAGE`를 재사용하지 않는가: 그 문장은 "기록은 …남길 수 있어요"라고
+ * 말하는데, 예산 화면에서 막힌 것은 기록이 아니라 예산이다. 같은 판정이라도 사용자가 알아야 할
+ * 사실은 화면마다 다르다(라운드 70 정찰 선행 확인 2 — `FORBIDDEN` 한 코드 아래 서버 문장이
+ * 일곱인 것과 같은 이유. 답은 표를 좁히는 것이 아니라 화면별 문구다).
+ *
+ * 형식은 형제 문장 그대로다: 재시도를 권하지 않고(다시 눌러도 같은 403이다), 비난하지 않으며,
+ * **누가 할 수 있는지**라는 사실을 준다(DNC-018).
+ */
+export const BUDGET_VIEW_ONLY_MESSAGE =
+  "보기 전용으로 참여하고 있어요. 예산은 관리자·공동부모가 정할 수 있어요.";
+
+/**
  * 라운드 40 J-5 — **빈 자리**(기록이 한 건도 없는 홈·기록 탭·리포트)에 놓는 사실 한 줄.
  *
  * 잠긴 세션에서 문제가 되는 것은 버튼이 아니라 **약속 문장**이다: "첫 지출을 기록해 보세요 /

@@ -22,6 +22,7 @@ import {
   INVITE_HOUSEHOLD_PARAM,
   INVITE_ROLE_CHOICES,
   INVITE_ROLE_PARAM,
+  INVITE_SCOPE_NOTICE,
   parseInviteHouseholdParam,
   parseInviteRoleParam
 } from "../../src/family/invite-flow";
@@ -159,6 +160,13 @@ export default function FamilyInviteScreen() {
         {householdNotice ? <Text style={mutedTextStyle}>{householdNotice}</Text> : null}
 
         <Card style={{ gap: 8 }}>
+          {/*
+            라운드 70 #3: 역할 목록 **위**의 공통 고지 -- 세 역할 어느 것을 골라도 참인 한 줄이다.
+            서버에는 읽기 스코프가 없어(구성원이면 전부 본다) 역할 줄이 보기 범위를 말할 근거가
+            없고, 그 근거 없는 약속이 "선물 준비 목록만 함께 볼 수 있어요"였다. 문장의 단일 소스는
+            src/family/invite-flow.ts이고, 가족 화면의 역할 Alert도 같은 상수를 본문에 싣는다.
+          */}
+          <Text style={scopeNoticeStyle}>{INVITE_SCOPE_NOTICE}</Text>
           {INVITE_ROLE_CHOICES.map((option) => (
             <Pressable
               key={option.role}
@@ -229,6 +237,15 @@ export default function FamilyInviteScreen() {
     </AppScreen>
   );
 }
+
+// 라운드 70 #3: 공통 고지는 선택지가 아니지만 **프라이버시 사실**이라 흐리게 두지 않는다
+// (본문색 brown · 12px). 크기는 역할 설명문과 같아 목록의 리듬은 그대로고, 줄간격만 넉넉히 준다.
+const scopeNoticeStyle = {
+  color: theme.colors.brown,
+  fontSize: 12,
+  lineHeight: 18,
+  marginBottom: 2
+} as const;
 
 const roleRowStyle = {
   alignItems: "center",

@@ -3,7 +3,7 @@ import { createDtoValidationPipe } from "../bootstrap";
 import { RefreshTokenStore } from "../auth/refresh-token.store";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
-import type { AuthenticatedRequest } from "../common/types/authenticated-request";
+import type { AuthenticatedRequest, AuthenticatedUser } from "../common/types/authenticated-request";
 import { HouseholdRuntimeService } from "../households/household-runtime.service";
 import { OnboardingCoreService } from "../onboarding/onboarding-core.service";
 import { SettingsConfirmationDto } from "./dto/settings.dto";
@@ -15,6 +15,44 @@ function assertConfirmation(actual: string, expected: string) {
       message: "Confirmation text does not match."
     });
   }
+}
+
+/**
+ * GAP-070 D: 관리자가 가구를 떠날 때만 서는 한 줄.
+ *
+ * 사실 근거 — 권한 판정은 **구성원 역할**을 본다(household-runtime.service.ts의 assertOwner).
+ * leaveHousehold/withdrawUser는 구성원 행을 `left`로 바꾸므로, 관리자가 나간 뒤 그 가구에는
+ * `owner` 역할을 가진 사람이 아무도 없다(households.ownerUserId 컬럼은 남지만 판정에 쓰이지
+ * 않는다). 그리고 관리자만 할 수 있는 일이 셋이다 — 초대 생성(createInvite)·초대 취소
+ * (cancelInvite)·구성원 삭제(removeMember). **역할을 바꾸거나 넘기는 엔드포인트는 저장소에
+ * 0건**이라 그 상태는 되돌릴 수 없다.
+ *
+ * 그래서 이 줄은 겁주지 않고 결과만 적는다 — **막지 않는다, 말한다.** 탈퇴·삭제를 막으면
+ * 마지막 관리자가 자기 계정에 갇히고, 계정 삭제 경로로 어차피 같은 결과가 난다.
+ * "소유권을 넘기는 경로가 없다"는 사실 자체는 docs/operations/known-limitations.md의 몫이다.
+ *
+ * 두 흐름이 같은 한 문장을 쓰는 이유: 탈퇴는 그 가구, 계정 삭제는 관리자로 있는 모든 가구가
+ * 대상이라 주어를 "그 가족"으로 두면 양쪽 다 참이다(계정 삭제는 바로 윗줄이 이미 "참여 중인
+ * 가구에서 모두 나가게 돼요"라고 말한다).
+ *
+ * 데모 세션 거울은 apps/mobile/src/api/local-backend.ts의 LAST_OWNER_LEAVE_IMPACT_LINE —
+ * 라운드 46이 세운 "impact 서버-데모 통일" 규율대로 **글자까지 같아야 한다**.
+ */
+const LAST_OWNER_LEAVE_IMPACT_LINE =
+  "관리자인 내가 나가면 그 가족에 관리자가 없어져서 새 구성원 초대와 구성원 관리를 아무도 할 수 없어요";
+
+/**
+ * 이 판정은 **새 조회를 하지 않는다** — 역할은 `AuthenticatedUser.households`에 이미 실려
+ * 있고(enrichUser가 매 토큰 검증마다 DB에서 채운다), assertOwner가 읽는 것과 같은 값이다.
+ * 남은 구성원 수는 세지 않는다: 그 숫자는 조회가 하나 더 필요하고, "혼자 쓰는 가구"에서도
+ * 위 문장이 거짓이 되지는 않는다.
+ */
+function isHouseholdOwner(user: AuthenticatedUser, householdId: string) {
+  return user.households.some((household) => household.id === householdId && household.role === "owner");
+}
+
+function ownsAnyHousehold(user: AuthenticatedUser) {
+  return user.households.some((household) => household.role === "owner");
 }
 
 @Controller("settings")
@@ -59,7 +97,7 @@ export class SettingsController {
 
   @Post("households/:householdId/leave-preview")
   @HttpCode(200)
-  householdLeavePreview(@Param("householdId") householdId: string) {
+  householdLeavePreview(@Req() request: AuthenticatedRequest, @Param("householdId") householdId: string) {
     return {
       flowId: "household_leave",
       householdId,
@@ -69,7 +107,13 @@ export class SettingsController {
       // (apps/mobile/app/settings/privacy.tsx의 PreviewSummary). 영문 원문은 되돌릴 수 없는
       // 결정을 앞둔 화면에서 읽히지 않는 문장이었으므로, 앱의 다른 문구와 같은 해요체 사실
       // 서술로 적는다(DNC-018). 데모 세션 거울은 apps/mobile/src/api/local-backend.ts.
-      impact: ["이 가구에 공유된 아이 기록을 볼 수 없어요"]
+      //
+      // GAP-070 D: 종전에는 역할을 보지 않는 정적 배열이라 **관리자가 나갈 때만 일어나는
+      // 일**을 한 글자도 말하지 않았다. 이제 요청자의 역할에서 파생한다(아이 삭제 미리보기가
+      // 이미 요청자 기준으로 만들어지는 그 형식). 비관리자에게는 종전과 바이트 단위로 같다.
+      impact: isHouseholdOwner(request.user!, householdId)
+        ? ["이 가구에 공유된 아이 기록을 볼 수 없어요", LAST_OWNER_LEAVE_IMPACT_LINE]
+        : ["이 가구에 공유된 아이 기록을 볼 수 없어요"]
     };
   }
 
@@ -107,7 +151,7 @@ export class SettingsController {
 
   @Post("account/delete-preview")
   @HttpCode(200)
-  accountDeletePreview() {
+  accountDeletePreview(@Req() request: AuthenticatedRequest) {
     return {
       flowId: "account_delete",
       requiresSecondStep: true,
@@ -116,7 +160,14 @@ export class SettingsController {
       // 그대로다 -- withdrawUser(households/household-runtime.service.ts)가 사용자를
       // withdrawn으로 바꾸고(카카오 로그인은 USER_WITHDRAWN으로 거절된다) 활성/대기 가구
       // 구성원 행을 전부 left로 만든다.
-      impact: ["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"]
+      //
+      // GAP-070 D: 이 핸들러는 종전에 `@Req()`조차 받지 않는 완전 정적 응답이었다. 그런데
+      // 위 두 줄이 말하는 "모두 나가게 돼요"에는 **관리자로 있는 가구**가 섞여 있을 수 있고,
+      // 그 가구는 그 순간 초대·구성원 관리를 영구히 잃는다. 관리자인 가구가 하나라도 있으면
+      // 한 줄을 더한다 — 이 트랙의 유일한 시그니처 변경이다.
+      impact: ownsAnyHousehold(request.user!)
+        ? ["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요", LAST_OWNER_LEAVE_IMPACT_LINE]
+        : ["이 계정으로는 다시 로그인할 수 없어요", "참여 중인 가구에서 모두 나가게 돼요"]
     };
   }
 

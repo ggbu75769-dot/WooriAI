@@ -29,6 +29,8 @@
 
 import type { InviteRole } from "../api/client";
 import { HOUSEHOLD_SCOPE_PARAM, parseHouseholdScopeParam } from "./household-scope";
+import { memberRoleLabel } from "./memberLabels";
+import { canRecordExpenses, EXPENSE_EDIT_ROLES } from "./record-permissions";
 
 export type InviteRoleChoice = {
   role: InviteRole;
@@ -37,17 +39,104 @@ export type InviteRoleChoice = {
 };
 
 /**
- * 초대할 수 있는 세 역할과 그 설명. 원래 app/family/invite.tsx의 `roleOptions`에만 있던 표를
- * 그대로 올렸다(문구 변경 없음) — 이제 초대 화면의 라디오 목록과 가족 화면의 역할 Alert이 **같은
- * 표**를 읽는다. 두 자리가 각자 목록을 들고 있던 것이 "Alert에는 선물 참여가 없다"의 원인이었다.
+ * 라운드 70 #3 — **앱이 지어낸 약속을 거둔다.**
  *
- * 순서도 초대 화면이 쓰던 순서 그대로다(공동부모 → 보기 전용 → 선물 참여).
+ * 종전의 세 설명문은 이 앱 어디에도 근거가 없는 범위를 약속했다.
+ *
+ *  - `viewer` → "기록만 확인할 수 있어요" — 절반만 참이었다(예산·리포트·누적 총액도 본다).
+ *  - `gift_participant` → "선물 준비 목록만 함께 볼 수 있어요" — **거짓이었다.**
+ *
+ * **서버에는 읽기 스코프가 없다.** 역할이 판정에 들어가는 자리는 쓰기 하나뿐이다
+ * (apps/api/src/onboarding/store-shared.ts의 `canEdit`, children.controller.ts의
+ * `@RequireHouseholdRoles("owner","co_parent")` — 그 밖의 조회 경로는 `child-access.service.ts`가
+ * **구성원인가**만 본다). 즉 `gift_participant`가 보는 것은 `viewer`와 한 글자도 다르지 않고,
+ * 둘 다 `owner`가 보는 것과 같다: 홈 총 지출 · 기록 탭 전량 · 예산 · 리포트 · CSV 내보내기.
+ *
+ * 시어머니를 "선물 참여"로 부른 사람은 **그 문장 때문에** 그 역할을 골랐고, 시어머니는 산후조리원비
+ * 부터 부부 외식비까지 전부 보게 된다. 되돌리는 길은 구성원 삭제뿐인데 그때는 이미 봤다 — 이 앱에서
+ * 가장 되돌릴 수 없는 종류의 실수를, 앱이 쓴 한 문장이 유도했다.
+ *
+ * 그래서 이 라운드가 하는 일은 **읽기 스코프를 만드는 것이 아니라**(그것은 서버 계약 결정이고
+ * DNC-008 "역할과 권한 원칙"이 정면으로 걸린다 — PM 승인이 먼저다) **문장을 사실로 되돌리는 것**
+ * 이다. 규율 셋:
+ *
+ * 1. **설명문은 `EXPENSE_EDIT_ROLES`에서 파생된다**(서버 `canEdit`의 거울 —
+ *    src/family/record-permissions.ts). 이 앱이 역할로 실제 가르는 것이 그 하나뿐이므로, 문장이
+ *    가르는 것도 그 하나여야 한다. 서버가 역할 권한을 바꾸는 날 문장이 함께 움직이거나, 최소한
+ *    테스트가 빨개진다.
+ * 2. **설명문은 "무엇을 볼 수 있는지"를 말하지 않는다** — 볼 수 있는 범위는 세 역할이 같으므로
+ *    역할 줄이 아니라 목록 **위**의 공통 고지 한 줄(`INVITE_SCOPE_NOTICE`)에 산다. 역할 줄에서
+ *    보기 범위를 말하는 순간, 판정이 없는 제약을 다시 지어내게 된다.
+ * 3. **라벨은 memberLabels 단일 소스에서 읽는다**(값 무변경 — 공동부모·보기 전용·선물 참여).
+ *    초대 화면이 부르는 이름과 구성원 목록의 배지가 갈리면 안 된다.
  */
-export const INVITE_ROLE_CHOICES: ReadonlyArray<InviteRoleChoice> = [
-  { role: "co_parent", label: "공동부모", description: "지출 기록과 예산을 함께 관리할 수 있어요" },
-  { role: "viewer", label: "보기 전용", description: "기록만 확인할 수 있어요" },
-  { role: "gift_participant", label: "선물 참여", description: "선물 준비 목록만 함께 볼 수 있어요" }
-];
+export const INVITE_ROLE_EDIT_DESCRIPTION = "지출 기록과 예산을 함께 관리할 수 있어요";
+
+/** 편집 역할이 아닌 역할의 설명. 재시도·기다림이 아니라 **누가 할 수 있는지**를 고지가 말한다. */
+export const INVITE_ROLE_VIEW_ONLY_DESCRIPTION = "지출 기록과 예산을 남기거나 고칠 수 없어요";
+
+/**
+ * "선물 참여"가 "보기 전용"과 **오늘 같은 역할**이라는 사실. 두 줄의 설명이 똑같이 서 있으면
+ * 고르는 사람은 "그래도 선물 참여가 좁겠지"라고 읽는데, 그 짐작이 바로 이 라운드가 없애려는
+ * 것이다. 문장은 판정에서 파생되므로(아래 `inviteRoleDescription`) 언젠가 두 역할이 실제로
+ * 갈리면 이 줄은 저절로 사라진다.
+ *
+ * ⚠️ 라운드 70 리뷰(S-3) — 그 파생이 보는 것은 **쓰기 권한 하나**다
+ * (`canRecordExpenses` = 서버 `canEdit`의 거울). 오늘 그 하나로 충분한 이유는 서버에 **읽기
+ * 스코프가 없기** 때문이고(위 머리말), 그래서 "권한이 같다"는 말이 지금은 두 축 모두에서 참이다.
+ * 하지만 그것은 파생이 확인한 사실이 아니라 **서버 쪽 사실**이다 — 읽기 스코프가 생기는 날
+ * 이 파생은 여전히 "같다"고 말하면서 틀린다. 그 날을 소리 나게 하려고 invite-flow.test.ts가
+ * **서버의 읽기 역할 가드 0건**을 앵커로 잡아 둔다(가드가 하나라도 생기면 빨개진다).
+ */
+const GIFT_SAME_AS_VIEWER_NOTE = "지금은 보기 전용과 권한이 같고, 구성원 목록에 다르게 표시돼요";
+
+/** 이 역할의 설명 한 줄. 갈림은 `EXPENSE_EDIT_ROLES` 하나뿐이다(서버 `canEdit`의 거울). */
+export function inviteRoleDescription(role: InviteRole): string {
+  if (canRecordExpenses(role)) return INVITE_ROLE_EDIT_DESCRIPTION;
+  const sameAsViewer = role === "gift_participant" && canRecordExpenses("viewer") === canRecordExpenses(role);
+  return sameAsViewer
+    ? `${INVITE_ROLE_VIEW_ONLY_DESCRIPTION}. ${GIFT_SAME_AS_VIEWER_NOTE}`
+    : INVITE_ROLE_VIEW_ONLY_DESCRIPTION;
+}
+
+/**
+ * 역할 목록 **위**에 서는 공통 고지 — 프라이버시 결정이 내려지는 그 자리에서 그 결정의 내용을
+ * 말한다. 세 역할 어느 것을 고르든 참이므로 역할 줄이 아니라 목록 전체를 덮는 자리에 둔다
+ * (초대 화면의 라디오 카드 머리 · 가족 화면 역할 Alert의 본문 머리 — 두 자리 모두 이 상수를 읽는다).
+ *
+ * 뒷문장의 역할 이름은 `EXPENSE_EDIT_ROLES`를 라벨로 옮긴 것이라 손으로 적은 목록이 아니다
+ * (문구는 잠긴 진입점 안내 `EXPENSE_VIEW_ONLY_MESSAGE`의 "관리자·공동부모"와 같은 결이다).
+ */
+const EXPENSE_EDIT_ROLE_LABELS = EXPENSE_EDIT_ROLES.map((role) => memberRoleLabel(role)).join("·");
+
+/**
+ * 라운드 70 리뷰(S-4) — **CSV 내보내기까지 적는다.**
+ *
+ * 종전 문장은 "모두 볼 수 있어요"에서 멈췄는데, 이 앱에서 보기의 끝은 화면이 아니다: 기록 탭의
+ * 지출 전량을 **파일 한 장으로 들고 나갈 수 있고**(src/export/share-csv.ts — 판정은 세 역할이
+ * 같은 그 읽기 권한 하나다), 그 파일은 가족 밖으로 공유될 수 있다. 프라이버시 결정이 내려지는
+ * 자리의 고지는 결정의 **가장 되돌리기 어려운 결과**를 빠뜨리면 안 된다 — 화면은 닫으면 끝이지만
+ * 나간 파일은 회수할 수 없다.
+ */
+export const INVITE_SCOPE_NOTICE =
+  `어떤 역할로 초대해도 이 가족의 지출 기록·합계·리포트·예산을 모두 보고 CSV로 내보낼 수 있어요. ` +
+  `지출 기록과 예산을 남길 수 있는 사람은 ${EXPENSE_EDIT_ROLE_LABELS}예요.`;
+
+/**
+ * 초대할 수 있는 세 역할과 그 설명. 원래 app/family/invite.tsx의 `roleOptions`에만 있던 표를
+ * 그대로 올렸다 — 이제 초대 화면의 라디오 목록과 가족 화면의 역할 Alert이 **같은 표**를 읽는다.
+ * 두 자리가 각자 목록을 들고 있던 것이 "Alert에는 선물 참여가 없다"의 원인이었다.
+ *
+ * 순서는 초대 화면이 쓰던 순서 그대로다(공동부모 → 보기 전용 → 선물 참여). 라벨·설명은 이제
+ * 손으로 적지 않고 각각 memberLabels · 위 판정에서 파생된다(라운드 70 #3).
+ */
+const INVITE_ROLE_ORDER: ReadonlyArray<InviteRole> = ["co_parent", "viewer", "gift_participant"];
+
+export const INVITE_ROLE_CHOICES: ReadonlyArray<InviteRoleChoice> = INVITE_ROLE_ORDER.map((role) => ({
+  role,
+  label: memberRoleLabel(role),
+  description: inviteRoleDescription(role)
+}));
 
 /** 초대 화면이 아무것도 넘겨받지 못했을 때 서 있는 역할 — 종전 화면의 초기값 그대로다. */
 export const DEFAULT_INVITE_ROLE: InviteRole = "co_parent";
@@ -83,10 +172,16 @@ export const INVITE_ROLE_PROMPT_CANCEL_LABEL = "취소";
 /**
  * Alert 본문. 라벨만 나열하면 "보기 전용"과 "선물 참여"의 차이를 고르는 순간에는 알 수 없어,
  * 초대 화면이 이미 쓰고 있던 설명문을 같은 표에서 그대로 가져와 함께 읽힌다.
+ *
+ * 라운드 70 #3: 역할을 **고르는 자리**는 둘이다(이 Alert · 초대 화면의 라디오 목록). 공통 고지가
+ * 한쪽에만 서면 빠른 초대로 들어온 사람은 자기가 무엇을 공유하는지 모른 채 역할을 고른다 —
+ * 그래서 목록 위의 그 한 줄을 여기서도 본문 머리에 세운다(버튼 구성·레이아웃은 종전 그대로다).
  */
-export const INVITE_ROLE_PROMPT_MESSAGE = INVITE_ROLE_CHOICES.map(
-  (choice) => `${choice.label} · ${choice.description}`
-).join("\n");
+export const INVITE_ROLE_PROMPT_MESSAGE = [
+  INVITE_SCOPE_NOTICE,
+  "",
+  ...INVITE_ROLE_CHOICES.map((choice) => `${choice.label} · ${choice.description}`)
+].join("\n");
 
 /**
  * react-native의 Android Alert은 버튼을 **3개까지만** 그린다 — 네이티브 AlertDialog에
