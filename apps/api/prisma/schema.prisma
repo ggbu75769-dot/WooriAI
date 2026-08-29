@@ -322,13 +322,17 @@ model ItemTemplateStage {
   /// 선언과 같은 형식이다). 이름이 약속하는 "이 시기에 더 급한 준비물"은 **오늘 어디에서도
   /// 성립하지 않는다.**
   /// **오늘 이 값이 정하는 것**: 한 준비템의 `stageCodes` **배열 안 순서** 하나뿐이다.
-  /// 쓰는 자리는 `prisma/seed.ts:156·161`과 어드민 저장(`items-catalog.service.ts:1040`)이고
-  /// 셋 다 `stageCodes.length - index`, 즉 **작성자가 적은 배열 순서를 그대로 되감는 값**이다.
-  /// 읽는 자리는 `items-catalog.service.ts`의 두 `orderBy: { priorityWeight: "desc" }`(:710·:723)
-  /// 뿐이고, 둘 다 그 배열을 원래 순서로 복원하는 데만 쓴다.
+  /// ⚠️ 줄 번호로 인용하지 않는다(라운드 72 리뷰 S-3 — 이 주석이 자라면서 인용한 줄 번호가
+  /// 스스로 어긋났다). 자리는 **함수 이름**으로 부른다.
+  /// 쓰는 자리는 `prisma/seed.ts`의 `itemTemplateStage.upsert`(update·create 두 갈래)와 어드민
+  /// 저장 `items-catalog.service.ts`의 `replaceItemTemplateStages`이고, 셋 다
+  /// `stageCodes.length - index`, 즉 **작성자가 적은 배열 순서를 그대로 되감는 값**이다.
+  /// 읽는 자리는 `items-catalog.service.ts`의 `itemTemplateWithStages` ·
+  /// `listItemTemplatesWithStages` 두 `orderBy: { priorityWeight: "desc" }`뿐이고, 둘 다 그
+  /// 배열을 원래 순서로 복원하는 데만 쓴다.
   /// **항목 간 순위에는 닿지 않는다** — 준비템 목록·홈 카드의 순서는
   /// `item-ranking.ts rankItemsForTab` → `packages/domain sortRecommendedItems`(시기 일치 ·
-  /// 필수도 · 상태) → 동점이면 `displayOrder`가 정하고, 그 경로는 이 컬럼을 **읽지 않는다**.
+  /// 필수도 · 상태) → 동점이면 `id.localeCompare`가 정하고, 그 경로는 이 컬럼을 **읽지 않는다**.
   /// 배열 순서 자체도 화면에서 순위가 되지 않는다: `stageCodes`를 보는 모든 자리가
   /// `.includes()`/`.some()`(item-ranking의 `isInSelectedPeriod`·`stageMatches`, 앱의
   /// `stage-bands.ts`·`pre-birth-filter.ts`)라 **순서를 읽지 않는다**.

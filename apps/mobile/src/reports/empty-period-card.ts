@@ -133,20 +133,42 @@ export function buildReportEmptyPeriodCard(input: {
     expenseEntryLocked: input.expenseEntryLocked
   });
 
-  // 종전 카드가 그대로 서는 세 경우(보기 전용 · 현재 기간 · 기간 이름을 모름)를 형제 모듈이 한
-  // 번에 가른다 — 그 셋에서 `action`이 "record"다. 제목·라벨·액션 모두 종전과 바이트 단위로 같다.
-  if (sentence.action === "record") {
-    return {
-      title: sentence.title,
-      actionLabel: REPORT_EMPTY_PERIOD_RECORD_ACTION_LABEL,
-      action: "record"
-    };
+  /**
+   * 형제 모듈의 액션 키를 **전수로** 접는다(라운드 72 리뷰 P-3).
+   *
+   * 종전에는 `if (action === "record") … else 끝난 기간`이었다. 그 모양은 형제 모듈이 액션을
+   * 하나 더 만드는 날 **조용히 틀린다** — 새 키가 전부 "끝난 기간" 갈래로 흘러 들어가
+   * [이번 달 보기]가 서고, 그 버튼은 자기가 하지 않는 일을 말하는 낭독되는 가짜 안내가 된다
+   * (그 모듈은 기록 탭의 소유물이라 이 파일이 그 변경을 미리 알 수 없다). switch + `never`
+   * 소진 검사로 바꾸면 그때 **컴파일이 먼저 멈춘다.**
+   */
+  switch (sentence.action) {
+    // 종전 카드가 그대로 서는 세 경우(보기 전용 · 현재 기간 · 기간 이름을 모름)를 형제 모듈이
+    // 한 번에 가른다 — 그 셋에서 `action`이 "record"다. 제목·라벨·액션 모두 종전과 바이트
+    // 단위로 같다.
+    case "record":
+      return {
+        title: sentence.title,
+        actionLabel: REPORT_EMPTY_PERIOD_RECORD_ACTION_LABEL,
+        action: "record"
+      };
+    // 끝난 기간: 약속 대신 사실. 액션은 오늘 날짜 기록 시트가 아니라 현재 기간으로 되돌아가기다.
+    // 형제 모듈의 `open-calendar`(달력 보기의 갈래)도 이 화면에는 달력이 없으므로 같은 자리로
+    // 접힌다 — 이 모듈은 `isCalendarView`를 넘기지 않아 그 키가 오늘 도달하지 않지만, 값으로
+    // 적어 두어야 다음 라운드가 이 갈래를 다시 세지 않는다.
+    case "go-current-month":
+    case "open-calendar":
+      return {
+        title: sentence.title,
+        actionLabel: REPORT_EMPTY_PERIOD_CURRENT_ACTION_LABELS[input.unit],
+        action: "go-current-period"
+      };
+    default: {
+      // 형제 모듈이 액션을 하나 더 만들면 여기서 타입 오류가 난다(런타임에 조용히 흘러가지 않게
+      // 값도 함께 지킨다 — 이 저장소의 순수 모듈 관례).
+      // 문자열 조립 0건 계약(이 모듈은 문장을 짓지 않는다) 때문에 템플릿 리터럴을 쓰지 않는다.
+      const unreachable: never = sentence.action;
+      throw new Error("알 수 없는 빈 기간 액션: " + String(unreachable));
+    }
   }
-
-  // 끝난 기간: 약속 대신 사실. 액션은 오늘 날짜 기록 시트가 아니라 현재 기간으로 되돌아가기다.
-  return {
-    title: sentence.title,
-    actionLabel: REPORT_EMPTY_PERIOD_CURRENT_ACTION_LABELS[input.unit],
-    action: "go-current-period"
-  };
 }

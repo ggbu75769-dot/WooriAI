@@ -107,9 +107,14 @@ describe("로그인 화면의 약관 링크 (source contract)", () => {
    * 라운드 72 트랙 E(#5ⓑ) — **여는 규칙은 이 화면이 다시 적지 않는다.**
    *
    * 라운드 71 리뷰 S-2가 `openExternalUrl` 한 벌로 모은 화면은 셋이었고(더보기·설정·개인정보),
-   * 이 화면에 **넷째 사본**이 남아 있었다. 사본은 갈릴 때까지만 같다 — 그 증거가 실패 문구다:
-   * 다른 셋은 재시도를 권하지 않는데 이 사본만 "잠시 후 다시 시도해 주세요"라고 말했다.
-   * 그런데 여기서 실패하는 이유(열 브라우저 없음 · 잘못된 주소)는 **기다려서 풀리지 않는다.**
+   * 이 화면에 **넷째 사본**이 남아 있었다.
+   *
+   * ⚠️ 라운드 72 리뷰 M-1 정정: 종전 이 머리말은 "다른 셋은 재시도를 권하지 않는데 이 사본만
+   * '잠시 후 다시 시도해 주세요'라고 말했다"고 적었는데 **거짓이었다.** 네 자리가 전부 그렇게
+   * 말하고 있었다(`SUPPORT_LINK_FAILED_MESSAGE` · privacy 화면의 `LEGAL_LINK_FAILED_MESSAGE` ·
+   * 이 화면의 상수). 사본이 갈린 자리가 문구였던 것이 아니라, 넷이 **같은 잘못을 함께** 하고
+   * 있었다 — 여기서 실패하는 이유(열 브라우저 없음 · 잘못된 주소)는 **기다려서 풀리지 않는다.**
+   * 네 자리 전부의 부정 단언은 `src/shared-decision-wiring.test.ts` ⓐ-2가 진다.
    */
   it("열지 못한 링크는 조용히 실패하지 않고, 여는 규칙은 공용 한 벌에서 온다", () => {
     expect(loginSource).toContain('import { openExternalUrl } from "../../src/settings/open-external-url";');
@@ -127,8 +132,12 @@ describe("로그인 화면의 약관 링크 (source contract)", () => {
   /**
    * 부정 단언 — 다시 눌러도 같은 답이 오는 실패에 **재시도를 권하지 않는다**(라운드 70 B가
    * 저장 실패에서, 라운드 71 A가 가져오기 실패에서 세운 그 규율). 해요체(DNC-018)도 함께 본다.
+   *
+   * 라운드 72 리뷰 S-6 — **원인 단정도 함께 막는다.** `canOpenURL`이 false인 경우와 `openURL`이
+   * 던지는 경우가 규칙 모듈의 **같은 `catch`**로 들어오므로, 이 자리에서 "브라우저가 없다"고
+   * 말하면 잘못된 주소로 실패한 사람에게 틀린 사실을 말하게 된다.
    */
-  it("링크 실패 문구에 '다시 시도'가 없다", () => {
+  it("링크 실패 문구에 '다시 시도'도, 원인 단정도 없다", () => {
     const failureCopy = [
       loginSource.match(/const LEGAL_DOCUMENT_OPEN_FAILED_TITLE = "([^"]+)";/)?.[1],
       loginSource.match(/const LEGAL_DOCUMENT_OPEN_FAILED_MESSAGE = "([^"]+)";/)?.[1]
@@ -137,11 +146,18 @@ describe("로그인 화면의 약관 링크 (source contract)", () => {
       expect(copy, "실패 문구 상수를 찾지 못했다").toBeTruthy();
       expect(copy).not.toContain("다시 시도");
       expect(copy).not.toContain("잠시 후");
-      expect(copy).not.toMatch(/확인하세요|하십시오|오류|에러|error/i);
+      expect(copy).not.toMatch(/확인하세요|확인해 주세요|하십시오|오류|에러|error/i);
+      // 앱이 알 수 없는 원인을 단정하지 않는다(두 실패가 같은 catch로 들어온다).
+      expect(copy).not.toContain("브라우저");
       expect(copy).toMatch(/요$|요\.$/);
     }
-    // 종전 문장은 저장소 어디에도 남지 않는다.
-    expect(loginSource).not.toContain("약관을 열지 못했어요. 잠시 후 다시 시도해 주세요.");
+    // 종전 문장은 **코드**로 남지 않는다(머리말이 옛 문장을 이력으로 인용하는 것과, 상수가
+    // 그 문장을 정의하는 것은 다르다 — 그래서 주석을 걷어내고 본다).
+    const renderedLogin = loginSource
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/^\s*\/\/.*$/gm, " ");
+    expect(renderedLogin).not.toContain("약관을 열지 못했어요. 잠시 후 다시 시도해 주세요.");
+    expect(renderedLogin).not.toContain("이 기기에서 열 수 있는 브라우저를 찾지 못했어요.");
   });
 
   /**

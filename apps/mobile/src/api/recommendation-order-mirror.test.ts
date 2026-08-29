@@ -70,6 +70,57 @@ describe("추천 순서: 서버 ↔ 데모 거울의 점수 입력", () => {
     }
   });
 
+  /**
+   * 라운드 72 리뷰 P-1 — **같은 입력 → 같은 id 배열**(파생 단언).
+   *
+   * 위 셋은 두 소스의 **키 집합**만 맞대 본다(소스 그렙). 그런데 서버 랭킹에는 데모 거울에 없는
+   * 꼬리가 하나 더 있다 — `rankItemsForTab`의 마지막 비교자가
+   * `leftIndex - rightIndex || left.displayOrder - right.displayOrder`다. 오랫동안 그 자리의
+   * 주석은 "동점이면 displayOrder"라고 설명했지만, `rankById`가 항목마다 **유일한 인덱스**를
+   * 주므로 앞 항이 0이 되는 경우가 없어 뒤 항은 **영영 실행되지 않는다.** 실제 동점 파괴자는
+   * 도메인의 `id.localeCompare`다.
+   *
+   * 그래서 여기서 값으로 못박는 것은 그 사실이다: **displayOrder를 어떻게 흔들어도** 서버 랭킹의
+   * 결과 id 배열이 도메인 정렬(= 데모 거울이 하는 일 전부)의 그것과 같다. 이 단언이 빨개지는
+   * 경우는 둘뿐이고 둘 다 알아야 할 일이다 — ⓐ displayOrder가 정말로 순서에 닿기 시작했거나
+   * (그러면 데모 거울과 실세션의 목록이 갈린다), ⓑ 도메인의 동점 규칙이 바뀌었거나.
+   */
+  it("displayOrder를 뒤집어도 서버 랭킹의 id 배열이 도메인 정렬과 같다", async () => {
+    const { rankItemsForTab } = await import("../../../../apps/api/src/onboarding/item-ranking");
+    const { sortRecommendedItems } = await import("@wooriai/domain");
+
+    // 점수가 정확히 같은 짝을 일부러 만든다(동점이 실제로 생겨야 이 단언이 무언가를 지킨다).
+    const items = [
+      { id: "c-tie", stageCodes: ["newborn_0_3" as const], necessityLevel: "essential" as const, status: "not_prepared" as const, displayOrder: 1 },
+      { id: "a-tie", stageCodes: ["newborn_0_3" as const], necessityLevel: "essential" as const, status: "not_prepared" as const, displayOrder: 2 },
+      { id: "b-tie", stageCodes: ["newborn_0_3" as const], necessityLevel: "essential" as const, status: "not_prepared" as const, displayOrder: 3 },
+      { id: "d-marked", stageCodes: ["newborn_0_3" as const], necessityLevel: "essential" as const, status: "interested" as const, displayOrder: 9 },
+      { id: "e-optional", stageCodes: ["newborn_0_3" as const], necessityLevel: "optional" as const, status: "not_prepared" as const, displayOrder: 0 }
+    ];
+    // 데모 거울이 하는 일 전부: 도메인 정렬의 결과 순서를 그대로 쓴다(displayOrder 꼬리가 없다).
+    const domainOrder = sortRecommendedItems(
+      items.map((item) => ({
+        id: item.id,
+        stageMatches: item.stageCodes.includes("newborn_0_3"),
+        necessityLevel: item.necessityLevel,
+        status: item.status
+      }))
+    ).map((entry) => entry.id);
+
+    for (const displayOrders of [
+      items.map((item) => item.displayOrder),
+      items.map((item) => -item.displayOrder), // 뒤집어도
+      items.map(() => 0) // 전부 같아도
+    ]) {
+      const shuffled = items.map((item, index) => ({ ...item, displayOrder: displayOrders[index] }));
+      const serverOrder = rankItemsForTab(shuffled, { tab: "now", stageCode: "newborn_0_3" }).map((item) => item.id);
+      expect(serverOrder, `displayOrder=${displayOrders.join(",")}`).toEqual(domainOrder);
+    }
+    // 찜한 항목이 맨 위고, 그 뒤 동점 셋의 순서를 가른 것은 id다(displayOrder였다면 c → a → b다).
+    expect(domainOrder[0]).toBe("d-marked");
+    expect(domainOrder.slice(1, 4)).toEqual(["a-tie", "b-tie", "c-tie"]);
+  });
+
   it("DNC-009: 데모 거울도 점수 입력에 금액을 싣지 않는다 (부정 단언)", () => {
     // 순서를 만지는 트랙이라 함께 못박는다 — 가격·수수료는 순위에 유입되지 않는다.
     // (짝: src/items/link-price.test.ts, apps/api/test/item-ranking.test.ts)

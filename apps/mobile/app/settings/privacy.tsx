@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
 import { Alert, Pressable, Switch, Text, View } from "react-native";
 import {
   confirmAccountDeletion,
@@ -48,9 +47,9 @@ import {
 } from "../../src/consent/consent-definitions";
 import { legalDocumentUrls, legalKindForConsentType } from "../../src/consent/legal-links";
 import { useNotificationStore } from "../../src/notifications/notification.store";
-// 라운드 71 B(#2): 실패한 그 순간의 연결 상태. 폴 한 번이고 새 폴러를 돌리지 않는다
-// (가족 화면의 파괴적 동작이 쓰는 그 배선 — src/family/member-mutation-messages.ts).
-import { isCurrentlyOnline } from "../../src/offline/connectivity";
+// 라운드 71 B(#2): 실패한 그 순간의 연결 상태. 폴 한 번이고 새 폴러를 돌리지 않는다.
+// 라운드 72 리뷰 M-2: 그 배선은 저장소의 공용 한 벌이다(손으로 다시 적지 않는다).
+import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";
 import { buildConsentSummaryLines } from "../../src/settings/consent-summary";
 // 라운드 71 B(#2): 이 화면의 서버 직행 쓰기 넷이 실패했을 때의 문구 단일 소스(순수 모듈).
 import {
@@ -153,19 +152,22 @@ const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 �
  * 라운드 71 B(#2) — **실패한 그 순간의 연결 상태로 문구를 고르는 얇은 배선.**
  *
  * 판정과 문장은 전부 순수 모듈에 있다(src/settings/destructive-flow-messages.ts). 여기 남는
- * 것은 "에러로 **전환되는 순간에만** 연결을 한 번 확인한다"는 배선 하나이고, 형태는 라운드 52
- * QA P3-1이 조회·저장 실패 훅에 세운 그 cancelled 패턴 그대로다
+ * 것은 "에러로 **전환되는 순간에만** 연결을 한 번 확인한다"는 배선 하나이고, 그 배선은 라운드 52
+ * QA P3-1이 조회·저장 실패 훅에 세운 공용 한 벌이다
  * (src/offline/use-load-error-copy.ts의 `useErrorTimeConnectivity`):
  *   - 에러가 풀리면 초깃값으로 되돌린다(다음 실패는 그때의 연결 상태로 다시 판정한다),
  *   - effect가 정리되면 이전 폴의 결과를 버린다(언마운트 뒤 setState 금지 · 늦게 도착한 옛
  *     판정이 최신 판정을 덮어쓰지 않게).
  *
- * 그 훅을 그대로 부르지 않고 여기 한 벌을 두는 이유: 그쪽은 조회/저장 문구(`resolveLoadErrorCopy`
- * ·`resolveSaveErrorCopy`)에 묶여 있고 연결 판정만 따로 내주지 않는다. 되돌릴 수 없는 확정의
- * 문장은 그 두 표가 아니라 이 화면의 표에서 와야 하므로(모듈 머리말), 배선만 같은 모양으로 둔다.
+ * 라운드 72 리뷰 M-2 — 종전에는 그 배선을 **여기 한 벌 더** 적어 두고 "그 훅은 조회/저장 문구에
+ * 묶여 있어 연결 판정만 따로 내주지 않는다"를 이유로 삼았다. 그 이유는 라운드 72 트랙 E가
+ * `useErrorTimeConnectivity`를 export하면서 사라졌는데, 그때 이 자리가 함께 옮겨지지 않았다.
+ * 지금은 **문구 표만** 이 화면의 것이고(되돌릴 수 없는 확정의 문장은 그 두 표에서 올 수 없다 —
+ * 모듈 머리말) 배선은 저장소에 한 벌이다.
  *
- * 기본값이 `true`(온라인)인 이유도 같다 — 폴이 끝나기 전 첫 프레임과 연결 상태를 보고할 수 없는
- * 플랫폼에서는 **종전 문장 그대로**이고, 새 문장은 "오프라인이라고 확인된" 경우에만 대체한다.
+ * 기본값이 `true`(온라인)인 것도 그 공용 훅에서 온다 — 폴이 끝나기 전 첫 프레임과 연결 상태를
+ * 보고할 수 없는 플랫폼에서는 **종전 문장 그대로**이고, 새 문장은 "오프라인이라고 확인된"
+ * 경우에만 대체한다.
  *
  * 라운드 71 리뷰 S-4 — ⚠ **데모(로컬 토큰) 세션에서는 오프라인 갈래를 건너뛴다.**
  *
@@ -176,23 +178,15 @@ const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 �
  * 실패 문장으로 떨어진다(모듈 머리말 4번 갈래 — 데모 세션이 원래 도달하던 그 자리다).
  */
 function useFlowFailureText(kind: DestructiveFlowKind, isError: boolean, error: unknown): string {
-  const [isOnline, setIsOnline] = useState(true);
   // 화면 본문의 `isDemoSession`과 같은 판정이다(authToken === LOCAL_SESSION_TOKEN을 편 것).
   const isDemoSession = useSessionStore((state) => !state.accessToken && state.isTestSession);
-
-  useEffect(() => {
-    if (!isError || isDemoSession) {
-      setIsOnline(true);
-      return;
-    }
-    let cancelled = false;
-    void isCurrentlyOnline().then((online) => {
-      if (!cancelled) setIsOnline(online);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isError, isDemoSession]);
+  // 라운드 72 리뷰 M-2 — 폴 배선은 **공용 한 벌**이다(src/offline/use-load-error-copy.ts).
+  // 종전에는 이 자리에 useState + `isCurrentlyOnline().then((online) => …)` + cancelled 가드가
+  // 손으로 다시 적혀 있었고, 그 형태가 `.then(set…)`만 보던 스윕을 그대로 빠져나갔다.
+  // 넘기는 값이 종전 effect 가드(`!isError || isDemoSession`이면 폴을 돌리지 않고 true로
+  // 복원)와 **동치**다 — 공용 훅도 인자가 false면 폴을 띄우지 않고 true로 되돌린다. 훅은 조건
+  // 없이 호출되므로 hooks 규칙에 안전하고, 이 화면의 네 호출은 각자 자기 판정을 갖는다.
+  const isOnline = useErrorTimeConnectivity(isError && !isDemoSession);
 
   return destructiveFlowErrorMessage(kind, error, { isOnline: isDemoSession || isOnline });
 }
@@ -220,9 +214,16 @@ const CONSENT_REQUIRED_DONE_NOTICE = "필수 항목에 다시 동의했어요.";
  */
 const OPTIONAL_CONSENT_NOTICE = "지금은 동의 기록만 저장돼요. 알림 보내기가 준비되면 이 동의를 기준으로 보내드려요.";
 
-/** 라운드 65 B(#5): 열지 못한 링크는 조용히 실패하지 않는다. */
+/**
+ * 라운드 65 B(#5): 열지 못한 링크는 조용히 실패하지 않는다.
+ *
+ * 라운드 72 리뷰 M-1 — 본문에서 **재시도 권유를 뺀다.** 여기서 실패하는 경우는 `openExternalUrl`
+ * 한 벌이 아는 둘뿐이고(열 수 있는지 물었을 때 false · 여는 호출이 던짐) 둘 다 기다려서 풀리지
+ * 않는다. 그렇다고 원인을 단정하지도 않는다 — 둘이 같은 `catch`로 들어오므로 이 자리에서 앱이
+ * 아는 것은 "열리지 않았다"까지다(근거는 `src/settings/support-links.ts`의 그 문단).
+ */
 const LEGAL_LINK_FAILED_TITLE = "링크를 열지 못했어요";
-const LEGAL_LINK_FAILED_MESSAGE = "잠시 후 다시 시도해 주세요.";
+const LEGAL_LINK_FAILED_MESSAGE = "이 기기에서 링크가 열리지 않았어요.";
 
 function DangerButton({
   label,

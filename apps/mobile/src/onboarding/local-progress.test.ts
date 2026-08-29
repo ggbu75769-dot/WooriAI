@@ -51,10 +51,16 @@ describe("계약 ⓐ: 서버가 답하지 않을 때의 목적지 표", () => {
   const table: Array<{ completed: OnboardingScreenId[]; childId: string | null; destination: string | null }> = [
     // 아무것도 없음 -> 폴백은 아무 말도 하지 않는다(= 종전 목적지 그대로).
     { completed: [], childId: null, destination: null },
-    { completed: [], childId: CHILD_ID, destination: null },
-    // ONB-001까지만: 아이가 만들어지기 전이라 되돌아가도 잃을 것이 없다.
+    // 라운드 72 리뷰 S-4: **아이 id 하나만 남은 경합.** 두 스토어는 각자 flush되므로 ONB-002
+    // 성공 직후 앱이 죽으면 이 상태가 실제로 남는다. 종전 판정은 여기서 null이었고, 그래서
+    // 이 트랙이 없애려던 중복 생성 창이 그 창에서 그대로 되살아났다. id는 ONB-002 성공에서만
+    // 생기므로(child-profile.tsx · 데모 세션의 재선택) 그 자체를 통과 증거로 인정한다.
+    { completed: [], childId: CHILD_ID, destination: "/onboarding/prepared-items" },
+    // ONB-001까지만 + 아이 없음: 아이가 만들어지기 전이라 되돌아가도 잃을 것이 없다.
     { completed: ["ONB-001"], childId: null, destination: null },
-    { completed: ["ONB-001"], childId: CHILD_ID, destination: null },
+    // ONB-001 표시 + 아이 id: 같은 경합의 더 흔한 모양이다(ONB-001은 이미 flush됐고 ONB-002
+    // 표시만 늦었다). 아이가 이미 있으므로 "되돌아가도 잃을 것이 없다"는 전제가 깨져 있다.
+    { completed: ["ONB-001"], childId: CHILD_ID, destination: "/onboarding/prepared-items" },
     // ONB-002까지: **이 트랙의 본체.** ONB-001로 되돌리면 그 길 끝에서 아이가 하나 더 생긴다.
     { completed: ["ONB-001", "ONB-002"], childId: CHILD_ID, destination: "/onboarding/prepared-items" },
     // 완료 표시가 있어도 아이 id가 없으면 폴백은 서지 않는다(빈 화면에 사람을 세우지 않는다).
@@ -69,6 +75,29 @@ describe("계약 ⓐ: 서버가 답하지 않을 때의 목적지 표", () => {
 
   it.each(table)("완료표시=$completed · 아이id=$childId -> $destination", ({ completed, childId, destination }) => {
     expect(localOnboardingResumeRoute(facts(completed, childId))).toBe(destination);
+  });
+
+  /**
+   * 라운드 72 리뷰 S-4 — **두 스토어의 논리곱을 요구하지 않는다(한 방향만).**
+   *
+   * `selectedChildId`와 `completedStepIds`는 서로 다른 zustand persist 스토어이고 쓰는 순간도
+   * 두 번이다(child-profile.tsx의 저장 성공이 잇달아 부른다). 한쪽만 flush된 창에서 콜드
+   * 스타트하면 종전 판정은 `null`로 떨어져 ONB-001로 되돌아갔다 — 이 트랙이 없애려던 중복
+   * 생성 창이 그 경합에서 되살아난 것이다.
+   */
+  it("아이 id만 남은 경합에서도 ONB-001로 되돌리지 않는다 (완화는 한 방향뿐이다)", () => {
+    // 아이 id 자체가 ONB-002 통과의 증거다 — 완료 표시가 없어도, ONB-001까지만 있어도 같다.
+    for (const completed of [[], ["ONB-001"]] as OnboardingScreenId[][]) {
+      expect(localOnboardingNextStep(facts(completed, CHILD_ID))).toBe("prepared-items");
+    }
+    // 더 뒤 단계의 표시가 있으면 그쪽이 여전히 이긴다(주입이 순서를 되돌리지 않는다).
+    expect(localOnboardingNextStep(facts(["ONB-003"], CHILD_ID))).toBe("budget");
+    expect(localOnboardingNextStep(facts(["ONB-004"], CHILD_ID))).toBe("budget");
+    // ⚠ 반대 방향은 그대로다: 스텝 표시만 있고 아이 id가 없으면 폴백이 서지 않는다
+    // (아이 없이는 ONB-003·ONB-004에서 아무것도 누를 수 없다).
+    for (const completed of [[], ["ONB-001"], ["ONB-002"], ["ONB-003"], ["ONB-004"]] as OnboardingScreenId[][]) {
+      expect(localOnboardingNextStep(facts(completed, null)), `아이 없음: ${completed}`).toBeNull();
+    }
   });
 
   it("저장된 배열의 순서를 믿지 않는다 (persist된 blob은 steps.ts 순서가 아닐 수 있다)", () => {
@@ -299,6 +328,33 @@ describe("계약 ⓑ: ONB-003의 로컬 탈출구", () => {
     expect(screen).toContain("onPress={() => save.mutate()}");
   });
 
+  /**
+   * 라운드 72 리뷰 S-5 — **이 탈출구가 약속하지 않는 것을 값으로 적어 둔다.**
+   *
+   * 로컬 통과는 `completeStep("ONB-003")` **로컬 표시 하나**다. 서버에는 `preparedItemsSetAt`이
+   * 서지 않으므로 다음 실행에서 진행도 조회가 **성공하면** 서버의 이어하기 대상이 다시 이
+   * 화면이다(`app/index.tsx`는 서버가 답하면 로컬 폴백을 보지 않는다 — 계약 ⓐ의 그 순서).
+   *
+   * 그래도 막다른 길이 아니라는 것이 이 줄의 요점이다: 돌아온 그 순간에는 연결이 있으므로
+   * 기본 버튼이 0건 저장을 실제로 보내고 한 번에 지나간다. 그리고 체크가 하나라도 있으면
+   * 탈출구가 애초에 열리지 않으므로, 되돌아온 화면에서 사용자가 잃는 선택도 없다.
+   * **그래서 UI는 한 글자도 바뀌지 않는다** — 화면에 이 사실을 안내로 적으면 대개 일어나지 않을
+   * 일을 미리 말하게 된다. 사실은 화면 주석과 이 계약에만 남는다.
+   */
+  it("로컬 통과는 서버 표시를 남기지 않는다 (다음 온라인 콜드 스타트에 이 화면을 다시 본다)", () => {
+    const screen = source(PREPARED_ITEMS_PATH);
+    // 탈출구는 서버로 아무것도 보내지 않는다(같은 저장을 몰래 태우지 않는다).
+    const passBlock = screen.slice(screen.indexOf("function passLocally()"), screen.indexOf("return (", screen.indexOf("function passLocally()")));
+    expect(passBlock).toContain('completeStep("ONB-003");');
+    expect(passBlock, "탈출구가 서버 쓰기를 태우지 않는다").not.toContain("save.mutate()");
+    expect(passBlock, "탈출구가 서버 쓰기를 태우지 않는다").not.toContain("setPreparedItems");
+    // 그래서 다음 실행의 이어하기는 서버가 답하는 한 이 화면으로 되돌아온다 — 그 사실이
+    // 화면 주석에 값으로 남아 있다(다음 라운드가 "왜 또 여기지?"를 다시 세지 않게).
+    expect(screen).toContain("preparedItemsSetAt");
+    // ⚠ UI 무변경: 이 사실을 안내 문장으로 화면에 적지 않는다.
+    expect(screen, "아직 일어나지 않은 일을 미리 말하지 않는다").not.toContain("다시 물어볼게요");
+  });
+
   it("ONB-004의 로컬 건너뛰기는 한 줄도 바뀌지 않았다 (형식의 출처)", () => {
     const budget = source("app/(onboarding)/budget.tsx");
     expect(budget).toContain('completeStep("ONB-004");');
@@ -320,16 +376,29 @@ describe("계약 ⓑ: ONB-003의 로컬 탈출구", () => {
 describe("계약 ⓒ: 온보딩 저장 실패 문구", () => {
   const stepUi = source(STEP_UI_PATH);
 
-  it("실패 시점에 연결을 한 번 확인한다 (라운드 71 B가 쓴 그 형태)", () => {
-    expect(stepUi).toContain('import { isCurrentlyOnline } from "../offline/connectivity";');
-    expect(stepUi).toContain("void isCurrentlyOnline().then((online) => {");
-    // 화면을 떠난 뒤 도착한 폴이 setState를 걸지 않는다(cancelled 가드).
-    expect(stepUi).toContain("let cancelled = false;");
-    expect(stepUi).toContain("if (!cancelled) setIsOnline(online);");
-    // 에러가 풀리면 종전 상태로 복원된다.
-    expect(stepUi).toContain("if (!isError || isDemoSession) {");
-    // 카드가 그 판정을 문구 함수에 넘긴다.
-    expect(stepUi).toContain("const isOnline = useOnboardingSaveFailureConnectivity(true);");
+  /**
+   * 라운드 72 리뷰 M-2 · S-1 — **폴 배선은 공용 한 벌이고, 죽은 인자는 없다.**
+   *
+   * 종전에는 이 화면 모듈이 `useState` + `isCurrentlyOnline().then((online) => {…})` +
+   * cancelled 가드를 손으로 다시 적고 있었다(형태만 privacy 화면과 같았다). 그 사본을
+   * `useErrorTimeConnectivity` 한 벌로 옮겼으므로, 여기서 확인하는 것은 **같은 사실이
+   * 인자 하나로 표현되는가**다 — cancelled 가드·복원 자체의 계약은 공용 훅 쪽
+   * (`src/shared-decision-wiring.test.ts` ⓐ-1)이 진다.
+   */
+  it("실패 시점 연결 판정을 공용 배선 한 벌에서 받는다", () => {
+    expect(stepUi).toContain('import { useErrorTimeConnectivity } from "../offline/use-load-error-copy";');
+    // 데모 세션 갈래는 **인자**로만 남는다(폴을 돌리지 않는다는 뜻이다).
+    expect(stepUi).toContain("const isOnline = useErrorTimeConnectivity(!isDemoSession);");
+    // 재구현이 남지 않는다 — 폴도 가드도 이 파일의 **코드**에 없다(머리말이 라운드 72 정찰의
+    // 전수 grep을 인용하므로 주석을 걷어내고 본다).
+    const stepUiCode = stepUi.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+    expect(stepUiCode).not.toContain("isCurrentlyOnline");
+    expect(stepUiCode).not.toContain("let cancelled = false;");
+    // 카드가 그 판정을 문구 함수에 넘긴다. 라운드 72 리뷰 S-1: 이 카드는 실패했을 때만 그려져
+    // 종전 인자가 언제나 리터럴 `true`였고, 갈래를 만들지 않는 인자는 시그니처에서 사라졌다.
+    expect(stepUi).toContain("export function useOnboardingSaveFailureConnectivity(): boolean {");
+    expect(stepUi).toContain("const isOnline = useOnboardingSaveFailureConnectivity();");
+    expect(stepUi).not.toContain("useOnboardingSaveFailureConnectivity(true)");
     expect(stepUi).toContain("onboardingSaveErrorMessage(error, { isOnline })");
   });
 

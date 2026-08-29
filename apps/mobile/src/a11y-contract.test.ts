@@ -2673,3 +2673,183 @@ describe("GAP-071 #4 지원·FAQ 메뉴 행의 낭독 계약 (SET-001·SET-002)"
     }
   });
 });
+
+/* ============================================================================================ */
+/* GAP-072 트랙 E — 라운드 72가 만든 새 UI의 **낭독 계약** (접근성 체크표 A-13)                    */
+/*                                                                                              */
+/* 라운드 66~71과 같은 형식이다: **문구를 다시 단언하지 않는다.** 비교에 쓰는 문자열까지 전부 각   */
+/* 트랙의 모듈에서 읽어 오므로, 그쪽이 문장을 다듬어도 이 파일은 그대로다. 여기서 묻는 것은 하나   */
+/* 뿐이다 — **그 문장·그 컨트롤이 소리로 도달하는 자리에 걸려 있는가.**                            */
+/*                                                                                              */
+/* ⚠️ 라운드 72 리뷰 M-3이 세우는 블록이다. 라운드 72는 다섯 트랙 중 넷이 낭독 표면을 만들었는데   */
+/* 이 파일에 블록이 **0건**이었다 — 체크표 A-13의 근거 칸이 "각 트랙의 모듈 계약 + 종전 컴포넌트   */
+/* 계약" 둘로만 채워져 있었고, 그래서 **낭독 자리 자체**를 붙드는 자리가 이 라운드에는 없었다.     */
+/* 넷 중 낭독 노드가 새로 생긴 자리(ⓐ ONB-003 탈출구 · ⓑ 빈 기간 카드 · ⓒ 그 카드의 액션 ·        */
+/* ⓓ 로그인 링크 실패)를 여기서 값으로 묶는다.                                                    */
+/* ============================================================================================ */
+
+/**
+ * GAP-072 ⓐ(트랙 A / A-13 #63) — **ONB-003의 로컬 탈출구가 소리로 도달하는가.**
+ *
+ * 이 라운드가 새로 만든 낭독 노드다. 오프라인에서 온보딩이 멈춘 사람에게 이 버튼은 **앞으로
+ * 나아가는 유일한 길**이므로, 묻는 것은 셋이다: ⓐ 라벨이 순수 모듈의 한 값에서 오는가(화면이
+ * 다시 적으면 눈과 귀가 다른 말을 한다 — A-3 #20), ⓑ 그 노드가 **조건이 성립할 때만** 서는가
+ * (열리지 않아야 할 때 낭독되는 버튼은 가짜 버튼이다 — GAP-071 #5의 그 자물쇠), ⓒ 누를 수 있는
+ * 자리에 실제로 배선이 붙어 있는가(라벨↔onPress 짝).
+ *
+ * ⚠️ 문구는 여기서 다시 단언하지 않는다 — `PREPARED_ITEMS_LOCAL_PASS_LABEL`을 **모듈에서 읽어**
+ * 대조하므로 트랙 A가 문장을 다듬어도 이 블록은 그대로다(값 계약은 local-progress.test.ts).
+ */
+describe("GAP-072 ⓐ ONB-003 로컬 탈출구의 낭독 계약", () => {
+  const screen = () => source("app/(onboarding)/prepared-items.tsx");
+
+  it("라벨은 순수 모듈의 한 값이고, 화면이 그 글자를 다시 적지 않는다", async () => {
+    const { PREPARED_ITEMS_LOCAL_PASS_LABEL } = await import("./onboarding/local-progress");
+    const src = screen();
+    expect(src, "라벨을 모듈에서 받는다").toContain("label={PREPARED_ITEMS_LOCAL_PASS_LABEL}");
+    // 눈이 읽는 글자와 귀가 듣는 글자가 같은 한 값이다(화면에 리터럴이 남으면 두 벌이 된다).
+    expect(withoutComments(src), "화면이 다시 적은 라벨").not.toContain(PREPARED_ITEMS_LOCAL_PASS_LABEL);
+  });
+
+  it("조건이 성립할 때만 노드가 선다 (열리지 않아야 할 때 낭독되는 버튼이 없다)", () => {
+    const src = screen();
+    // 판정은 순수 모듈이 하고(체크 0건 + 저장 실패), 화면은 그 답으로 노드를 만들거나 만들지 않는다.
+    expect(src).toContain(
+      "canPassPreparedItemsLocally({ checkedCount: checkedIds.length, saveFailed: save.isError })"
+    );
+    expect(src, "조건부 렌더").toContain("{canPassLocally ? (");
+    // 조건이 거짓이면 노드 자체가 없다 — 비활성 버튼으로 남기지 않는다(그러면 "버튼, 비활성"이
+    // 낭독되면서 왜 못 누르는지가 남지 않는다 — 달력 미래 칸 A-4 #23의 그 판정).
+    const block = src.slice(src.indexOf("{canPassLocally ? ("), src.indexOf(") : null}", src.indexOf("{canPassLocally ? (")));
+    expect(block, "조건 거짓이면 노드 0개").not.toContain("disabled={!canPassLocally}");
+  });
+
+  it("라벨↔onPress 짝이 붙어 있다 (라벨만 낭독되는 가짜 버튼이 아니다)", () => {
+    const src = screen();
+    const at = src.indexOf("label={PREPARED_ITEMS_LOCAL_PASS_LABEL}");
+    expect(at, "탈출구 버튼").toBeGreaterThan(-1);
+    const tag = src.slice(src.lastIndexOf("<TextButton", at), src.indexOf("/>", at));
+    expect(tag, "목적지가 붙어 있다").toContain("onPress={passLocally}");
+    // 그 핸들러가 실제로 앞으로 보낸다(단계 표시 + 다음 화면). 라벨이 말한 일과 같다.
+    expect(src).toContain('completeStep("ONB-003");');
+    expect(src).toContain('router.push("/onboarding/budget");');
+  });
+});
+
+/**
+ * GAP-072 ⓑ·ⓒ(트랙 C / A-13 #65) — **리포트 빈 기간 카드**가 소리로 성립하는가.
+ *
+ * 이 카드는 액션 키가 둘로 갈리는 자리다. 그래서 GAP-071 #5가 `EmptyStateCard`에 세운
+ * **actionLabel↔onPress 짝**의 형식을 그대로 쓴다 — 라벨은 순수 모듈이 고르고 목적지는 화면이
+ * 배선하므로, 그 둘이 갈리면 **낭독되는 가짜 안내**가 된다("이번 달 보기"라고 읽어 주고 오늘
+ * 날짜 기록 시트를 여는 것이 정확히 그 사고다).
+ *
+ * ⓒ는 그 액션의 **소리 쪽 절반**이다: 끝난 기간에서 현재 기간으로 돌아가면 눈으로는 화면 전체가
+ * 바뀌지만 스크린리더에는 아무 일도 없다. 화살표 이동 둘이 이미 `announceForA11y`를 남기므로
+ * (A11Y-115의 그 배선), 같은 문법의 셋째 이동에도 같은 자리가 있어야 한다.
+ */
+describe("GAP-072 ⓑ 리포트 빈 기간 카드의 액션 라벨↔onPress 짝", () => {
+  const screen = () => source("app/(tabs)/reports.tsx");
+  const cardTag = () => {
+    const src = screen();
+    const at = src.indexOf("title={emptyPeriodCard.title}");
+    expect(at, "빈 기간 카드").toBeGreaterThan(-1);
+    return src.slice(src.lastIndexOf("<EmptyStateCard", at), src.indexOf("/>", at));
+  };
+
+  it("제목·라벨·목적지가 한 카드 안에서 같은 판정을 읽는다", () => {
+    const tag = cardTag();
+    // 제목과 라벨이 같은 산출의 두 필드다(둘이 다른 소스에서 오면 기간이 어긋날 수 있다).
+    expect(tag, "제목").toContain("title={emptyPeriodCard.title}");
+    expect(tag, "라벨").toContain("actionLabel={emptyPeriodCard.actionLabel}");
+    // 목적지도 **같은 산출의 action 키**로 갈린다 — 화면이 제 나름의 조건을 다시 세우지 않는다.
+    expect(tag, "목적지 갈래").toContain('emptyPeriodCard.action === "go-current-period"');
+    expect(tag, "끝난 기간의 목적지").toContain("? goToCurrentPeriod");
+    expect(tag, "현재 기간의 목적지").toContain('expenseGate.guard(() => router.push("/expenses/new"))');
+  });
+
+  it("라벨만 있고 목적지가 없는 자리가 아니다 (GAP-071 #5의 짝 계약을 이 카드가 지킨다)", () => {
+    const tag = cardTag();
+    expect(tag).toContain("actionLabel");
+    expect(tag, "라벨만 있는 카드").toContain("onPress");
+  });
+
+  it("문구를 화면이 짓지 않는다 (제목·라벨 전부 순수 모듈의 산출이다)", async () => {
+    const { REPORT_EMPTY_PERIOD_CURRENT_ACTION_LABELS, REPORT_EMPTY_PERIOD_RECORD_ACTION_LABEL } = await import(
+      "./reports/empty-period-card"
+    );
+    const rendered = withoutComments(screen());
+    for (const label of [
+      REPORT_EMPTY_PERIOD_RECORD_ACTION_LABEL,
+      ...Object.values(REPORT_EMPTY_PERIOD_CURRENT_ACTION_LABELS)
+    ]) {
+      expect(rendered, `화면이 다시 적은 라벨: ${label}`).not.toContain(label);
+    }
+  });
+});
+
+describe("GAP-072 ⓒ 현재 기간으로 되돌아가기의 announce 자리", () => {
+  const screen = () => source("app/(tabs)/reports.tsx");
+  const handlerBody = (name: string) => {
+    const src = screen();
+    const at = src.indexOf(`const ${name} = () => {`);
+    expect(at, `${name} 핸들러`).toBeGreaterThan(-1);
+    return src.slice(at, src.indexOf("\n  };", at));
+  };
+
+  it("세 이동이 모두 새 기간 라벨을 낭독한다 (화살표 둘과 같은 문법이다)", () => {
+    for (const name of ["goToPreviousPeriod", "goToNextPeriod", "goToCurrentPeriod"]) {
+      expect(handlerBody(name), `${name}의 announce`).toContain("announceForA11y(periodLabelForOffset(");
+    }
+    // 새 문구 0건 — 읽히는 문장은 화살표 이동이 이미 쓰는 그 라벨 함수의 산출이다.
+    expect(handlerBody("goToCurrentPeriod")).toContain("announceForA11y(periodLabelForOffset(baseDate, periodUnit, 0));");
+  });
+
+  it("상태 변경과 낭독이 한 핸들러 안에 함께 있다 (한쪽만 도는 자리가 없다)", () => {
+    const body = handlerBody("goToCurrentPeriod");
+    const moveAt = body.indexOf("setMonthOffset(0);");
+    const speakAt = body.indexOf("announceForA11y(");
+    expect(moveAt, "오프셋 이동").toBeGreaterThan(-1);
+    expect(speakAt, "낭독").toBeGreaterThan(moveAt);
+  });
+});
+
+/**
+ * GAP-072 ⓓ(트랙 E / A-13 #66) — **로그인 화면의 링크 실패가 어디에서 소리가 되는가.**
+ *
+ * 종전에는 이 실패가 화면 안 `loginError` 카드에 섰다 — 소리로만 듣는 사람에게는 방금 누른
+ * **로그인**이 실패한 것처럼 들렸다. 이제 다른 세 화면과 같은 자리(Alert)에 서고, Alert에서
+ * 계약이 붙들 수 있는 것은 **문자열뿐**이므로(A-3 #18 · GAP-069 #1 · GAP-070 #2 · GAP-071 #1이
+ * 같은 판정을 남겼다) 사실이 소리에 남을 길은 제목·본문 두 인자다.
+ *
+ * ⚠️ 문구 자체(재시도 없음 · 원인 단정 없음)는 값 계약이 진다 — `src/consent/legal-links.test.ts`와
+ * 네 자리 스윕 `src/shared-decision-wiring.test.ts` ⓐ-2. 여기서 보는 것은 **자리**다.
+ */
+describe("GAP-072 ⓓ 로그인 링크 실패의 낭독 자리 (Alert 본문)", () => {
+  const loginScreen = () => source("app/(auth)/login.tsx");
+
+  it("실패는 Alert **본문**에 실린다 (제목 자리로 밀지 않는다)", () => {
+    expect(loginScreen(), "화면이 자기 문구를 규칙 한 벌에 넘긴다").toContain(
+      "openExternalUrl(url, { failTitle: LEGAL_DOCUMENT_OPEN_FAILED_TITLE, failMessage: LEGAL_DOCUMENT_OPEN_FAILED_MESSAGE });"
+    );
+    // 규칙 모듈이 그 두 인자를 Alert의 제목·본문에 그대로 놓는다(문장을 만들지 않는다).
+    expect(source("src/settings/open-external-url.ts")).toContain("Alert.alert(failTitle, failMessage);");
+  });
+
+  it("로그인 실패 카드와 자리가 섞이지 않는다 (두 사실이 소리에서 겹치지 않는다)", () => {
+    const src = loginScreen();
+    const at = src.indexOf("function openLegalDocument(url: string) {");
+    expect(at, "링크 열기 핸들러").toBeGreaterThan(-1);
+    const body = src.slice(at, src.indexOf("\n  }", at));
+    // 링크 실패는 `loginError` 카드에 쓰지 않는다 — 그 카드는 이제 로그인 실패 전용이다.
+    expect(body, "카드 자리로 새지 않는다").not.toContain("setLoginError");
+    // Alert은 시스템이 스스로 낭독하므로 A11Y-115의 announce 배선이 따로 필요 없다.
+    expect(body, "이중 낭독").not.toContain("announceForA11y");
+  });
+
+  it("URL이 주입되지 않은 빌드에서는 낭독될 컨트롤이 아예 없다 (라운드 65 B(#5) 그대로)", () => {
+    const src = loginScreen();
+    expect(src, "URL이 없으면 링크도 감싸는 View도 없다").toContain("if (!documentUrl) return row;");
+    expect(src, "링크의 낭독 라벨").toContain('accessibilityLabel={`${label} 전문 보기`}');
+  });
+});

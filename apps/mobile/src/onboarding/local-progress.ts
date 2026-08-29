@@ -57,6 +57,11 @@ export type LocalOnboardingFacts = {
  *  - `ONB-001`(아이 상태 선택)까지만: 아이가 만들어지기 전이라 되돌아가도 잃을 것이 없다.
  *    `resume.ts`가 서버의 `"consents"`·`"child-profile"`을 똑같이 ONB-001로 보내는 것과 같은
  *    판단이다 — 그래서 이 줄은 종전과 같은 자리로 떨어진다(값으로는 `null`).
+ *    ⚠ 라운드 72 리뷰 S-4 이후 이 줄은 **`localOnboardingNextStep`을 통해서는 도달하지 않는다**:
+ *    그 함수는 아이 id가 없으면 표를 보기 전에 `null`을 돌려주고, 아이 id가 있으면 ONB-002를
+ *    함께 넣고 세기 때문이다(아래 그 함수의 머리말). 줄을 지우지 않는 이유는 이 표의 키가
+ *    `steps.ts`의 네 단계와 **1:1**이라는 계약 때문이고(단계가 늘면 빨개진다), 그 판단 자체는
+ *    여전히 참이다 — "아이가 없는 ONB-001 상태에서는 폴백이 아무 말도 하지 않는다."
  *  - `ONB-002`(아이 프로필 저장 성공): **아이가 이미 서버에 있다.** 여기가 이 트랙의 본체다 —
  *    ONB-001로 되돌리면 그 길 끝에서 아이가 하나 더 생긴다.
  *  - `ONB-003`(준비물 제출): 남은 것은 예산 한 단계다.
@@ -95,10 +100,38 @@ export function highestCompletedOnboardingStep(
  * 아이 id가 없으면 어떤 완료 표시가 있어도 `null`이다. ONB-003·ONB-004는 둘 다 저장에
  * `selectedChildId`를 요구하므로(두 화면의 `disabled`·`mutationFn` 가드), 아이 없이 그리로
  * 보내면 아무것도 누를 수 없는 화면에 사람을 세워 두게 된다.
+ *
+ * ## 라운드 72 리뷰 S-4 — **아이 id 자체가 ONB-002 통과의 증거다**
+ *
+ * 종전에는 이 폴백이 **두 스토어의 논리곱**을 요구했다: `selectedChildId`가 있고 **그리고**
+ * `completedStepIds`에 무언가가 있어야 답을 냈다. 그런데 두 값은 **서로 다른 zustand persist
+ * 스토어**이고, 쓰는 순간도 두 번이다(child-profile.tsx의 저장 성공이 `setSelectedChildId` →
+ * `completeStep("ONB-002")`를 잇달아 부르고, 각 스토어가 각자 비동기로 flush한다). 아이를 만든
+ * 직후 앱이 죽거나(저사양 기기의 백그라운드 회수) 쓰기가 갈린 창에서 콜드 스타트하면 **한쪽만
+ * 남는다.** 그때 종전 판정은 `null`로 떨어졌고, 그것이 곧 ONB-001로 되돌아가는 길 —
+ * 이 트랙이 없애려던 **중복 생성 창**이 그 경합에서 그대로 되살아났다.
+ *
+ * 그래서 아이 id의 존재를 ONB-002 완료 표시와 **같은 사실**로 읽는다. 근거: 이 앱에서
+ * `selectedChildId`가 세워지는 자리는 둘뿐이고 둘 다 **아이가 이미 만들어진 뒤**다 —
+ * ONB-002의 저장 성공(`app/(onboarding)/child-profile.tsx`의 `setSelectedChildId(child.id)`)과,
+ * 그렇게 만들어진 아이를 데모 세션이 다시 고르는 자리(`src/stores/session.store.ts`의
+ * `startTestSession`). 즉 id가 있으면 `POST /children`은 이미 성공했고, 그 사람을 ONB-001·ONB-002로
+ * 되돌리는 것은 어느 경우에도 옳지 않다.
+ *
+ * ⚠ **반대 방향은 그대로 `null`이다.** 완료 표시만 있고 아이 id가 없는 경우는 위 문단의 이유로
+ * 여전히 폴백이 서지 않는다(아이 없이는 ONB-003·ONB-004에서 아무것도 누를 수 없다). 이 완화는
+ * 한 방향뿐이다.
  */
 export function localOnboardingNextStep(facts: LocalOnboardingFacts): OnboardingNextStep | null {
   if (!facts.selectedChildId) return null;
-  const highest = highestCompletedOnboardingStep(facts.completedStepIds);
+  // 아이 id = ONB-002 통과. 완료 표시가 아직 flush되지 않았어도(또는 ONB-001까지만 남았어도)
+  // 그 사실을 표에 함께 넣고 **가장 뒤 단계**를 고른다 — ONB-003·ONB-004 표시가 있으면 그쪽이
+  // 여전히 이긴다(highestCompletedOnboardingStep은 steps.ts 순서로 센다).
+  const completedWithChild = facts.completedStepIds.includes("ONB-002")
+    ? facts.completedStepIds
+    : [...facts.completedStepIds, "ONB-002" as const];
+  const highest = highestCompletedOnboardingStep(completedWithChild);
+  // ONB-002를 함께 넣었으므로 여기서 null이 나올 수 없다(타입을 위해 남기는 가드다).
   if (!highest) return null;
   return LOCAL_ONBOARDING_NEXT_STEP_BY_HIGHEST_COMPLETED[highest];
 }

@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Text, View } from "react-native";
 import { hasApiErrorCode } from "../api/api-error";
 import { LOCAL_SESSION_TOKEN } from "../api/client";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { useAnalyticsConsentStore } from "../analytics/flag";
-// 라운드 72 트랙 A(#1): 실패한 그 순간의 연결 상태. 폴 한 번이고 새 폴러를 돌리지 않는다
-// (라운드 71 B가 privacy.tsx에 쓴 그 형태 -- src/settings/destructive-flow-messages.ts 머리말).
-import { isCurrentlyOnline } from "../offline/connectivity";
+// 라운드 72 트랙 A(#1): 실패한 그 순간의 연결 상태. 폴 한 번이고 새 폴러를 돌리지 않는다.
+// 라운드 72 리뷰 M-2: 그 배선은 저장소의 공용 한 벌이다(손으로 다시 적지 않는다).
+import { useErrorTimeConnectivity } from "../offline/use-load-error-copy";
 // 오프라인 문장은 이 앱의 **공용 단일 소스**를 글자 그대로 읽는다(새 문구 0건).
 import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
 import { useSessionStore } from "../stores/session.store";
@@ -126,35 +126,27 @@ export function onboardingSaveErrorMessage(error: unknown, { isOnline = true }: 
 /**
  * 라운드 72 트랙 A(#1) — 실패 시점 연결 판정의 **배선**.
  *
- * 형태는 라운드 71 B가 `app/settings/privacy.tsx`에 쓴 `useFlowFailureText` 그대로다: cancelled
- * 가드가 있어 화면을 떠난 뒤 도착한 폴이 setState를 걸지 않고, 에러가 풀리면 true로 복원된다.
- *
  * **데모 세션은 폴을 돌리지 않는다.** 로컬 백엔드는 네트워크를 지나지 않으므로(client.ts의
  * isLocalToken 분기) 그 실패는 연결과 무관하다 — 그 자리에서 "지금은 오프라인이에요"라고 말하면
  * 그것 자체가 틀린 사실이다(privacy.tsx가 같은 이유로 같은 예외를 둔다).
  *
- * ⚠ 이 폴을 손으로 적은 자리는 저장소에 여럿이고(가져오기 두 화면·개인정보 화면 등), 그것을
- * 공용 훅 하나로 모으는 것은 **별도 트랙의 몫**이다(라운드 72 후보 5 ⓐ). 여기서 `useSaveErrorCopy`를
- * 쓰지 않는 이유는 그 훅의 사용 집합이 "예산·아이 관리 둘뿐"이라는 계약으로 고정돼 있고
- * (src/offline/messages.test.ts), 이 화면들의 문구 표가 그 훅의 표와 다르기 때문이다.
+ * ## 라운드 72 리뷰 M-2 — 폴 배선을 손으로 적지 않는다
+ *
+ * 종전에는 이 자리에 `useState` + `isCurrentlyOnline().then(setIsOnline)` + cancelled 가드가
+ * **손으로 다시 적혀** 있었다. 라운드 72 트랙 E가 그 사본들을 세는 스윕을 세울 때 이 자리를
+ * 놓친 이유는 스윕이 `.then(set…)` **한 형태만** 봤기 때문이다 — 여기와 privacy 화면은
+ * `.then((online) => { … })` 꼴이라 그물을 그대로 빠져나갔다(그 스윕은 이제 호출 자리 단위로
+ * 넓혀졌다: `src/shared-decision-wiring.test.ts` ⓐ-1).
+ *
+ * 그래서 판정 배선은 공용 한 벌(`useErrorTimeConnectivity`)이 지고, 이 훅에 남는 것은 **데모
+ * 세션 갈래 하나**다. 종전과 동작이 동치인 근거: 넘기는 값 `!isDemoSession`은 종전 effect의
+ * 가드 `!isError || isDemoSession`을 뒤집은 것과 같고(이 훅이 마운트되는 순간이 곧 실패
+ * 시점이라 `isError`는 언제나 true다 — 아래 카드의 주석), 공용 훅도 인자가 false면 `true`로
+ * 복원하고 폴을 띄우지 않는다. 훅은 **조건 없이** 호출되므로 hooks 규칙에도 안전하다.
  */
-export function useOnboardingSaveFailureConnectivity(isError: boolean): boolean {
-  const [isOnline, setIsOnline] = useState(true);
+export function useOnboardingSaveFailureConnectivity(): boolean {
   const isDemoSession = useSessionStore((state) => !state.accessToken && state.isTestSession);
-
-  useEffect(() => {
-    if (!isError || isDemoSession) {
-      setIsOnline(true);
-      return;
-    }
-    let cancelled = false;
-    void isCurrentlyOnline().then((online) => {
-      if (!cancelled) setIsOnline(online);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isError, isDemoSession]);
+  const isOnline = useErrorTimeConnectivity(!isDemoSession);
 
   return isDemoSession || isOnline;
 }
@@ -185,8 +177,10 @@ export function OnboardingSaveErrorCard({
   const forbidden = isOnboardingSaveForbidden(error);
   const consentRequired = isOnboardingConsentRequired(error);
   // 라운드 72 트랙 A(#1): 이 카드는 실패했을 때만 그려지므로(세 화면 모두 `save.isError ?`)
-  // 훅에 넘기는 값은 언제나 true다 -- 마운트되는 순간이 곧 실패 시점이고, 그때 폴이 한 번 돈다.
-  const isOnline = useOnboardingSaveFailureConnectivity(true);
+  // 마운트되는 순간이 곧 실패 시점이고, 그때 폴이 한 번 돈다.
+  // 라운드 72 리뷰 S-1: 그래서 종전의 `isError` 인자는 **언제나 리터럴 `true`**였다 —
+  // 갈래를 만들지 않는 인자는 판정이 하나 더 있는 척하는 것이라 시그니처에서 걷어냈다.
+  const isOnline = useOnboardingSaveFailureConnectivity();
   const text = message ?? onboardingSaveErrorMessage(error, { isOnline });
   return (
     <View accessibilityRole="alert">

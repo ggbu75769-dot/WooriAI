@@ -88,38 +88,74 @@ const CONNECTIVITY_POLL_EXEMPT: Record<string, string> = {
     "화면이 사라졌으면 결과를 버린다. 공용 훅과 같은 사실을 이미 지키고, 입력이 '에러 상태'가 " +
     "아니라 '이 안내가 아직 최신인가'라 훅의 시그니처로 옮길 수 없다.",
 
-  // ── 이미 같은 cancelled 가드를 갖고 있으나 입력이 하나 더 있는 자리 ──────────────────
-  "app/settings/privacy.tsx":
-    "파괴적 흐름 문구(destructiveFlowErrorMessage)는 같은 cancelled 가드·복원을 이미 갖고 있고, " +
-    "판정에 **데모 세션 갈래**가 하나 더 걸린다(isDemoSession이면 언제나 온라인으로 읽는다). " +
-    "훅에 없는 입력이라 그대로 두고, 이 파일은 라운드 72 어느 트랙의 소유도 아니다.",
-
   // ── 폴 자체가 목적인 하부 배선 ───────────────────────────────────────────────────────
   "src/offline/sync-controller.ts":
     "아웃박스 flush의 사전 조건이다(문구 판정이 아니라 전송 여부) — await 한 번이고 화면 상태가 없다.",
   "src/onboarding/selected-child-recovery.ts":
     "MOB-116 복구 경로가 **주입받은** 폴 함수다(wiring.isCurrentlyOnline). 결과는 setState가 " +
-    "아니라 전이 리듀서(observe)로 들어가고, 그 리듀서가 자기 가드를 진다(라운드 71 트랙 C).",
-  "src/onboarding/step-ui.tsx":
-    "온보딩 저장 실패 문구의 배선(라운드 72 트랙 A). privacy.tsx와 같은 이유로 훅 밖에 있다 — " +
-    "같은 cancelled 가드·복원을 이미 갖고 있고, 판정에 **데모 세션 갈래**가 하나 더 걸린다" +
-    "(로컬 백엔드는 네트워크를 지나지 않으므로 그 실패를 오프라인이라 부르면 틀린 사실이다). " +
-    "파일은 트랙 A 소유이고 이 트랙은 읽기만 한다."
+    "아니라 전이 리듀서(observe)로 들어가고, 그 리듀서가 자기 가드를 진다(라운드 71 트랙 C)."
+
+  // ⚠ 라운드 72 리뷰 M-2로 **둘이 이 목록에서 사라졌다.** `app/settings/privacy.tsx`(라운드 71 B)와
+  // `src/onboarding/step-ui.tsx`(라운드 72 트랙 A)는 "같은 cancelled 가드를 이미 갖고 있고 데모
+  // 세션 갈래가 하나 더 걸린다"를 사유로 손으로 적은 폴을 들고 있었다. 그런데 그 갈래는 훅에
+  // 넘기는 **인자 하나**로 표현된다(`isError && !isDemoSession`) — 훅 밖에 남을 이유가 아니었다.
+  // 이제 둘 다 `useErrorTimeConnectivity`를 부르므로 `isCurrentlyOnline`을 아예 import하지 않는다.
 };
 
 describe("GAP-072 E ⓐ-1 실패 시점 연결 판정은 공용 배선 한 벌이다", () => {
-  it("훅 파일 밖에 `isCurrentlyOnline().then(set…)` 형태가 0건이다", () => {
-    const handRewritten: string[] = [];
+  /**
+   * ⚠ 라운드 72 리뷰 M-2 — **스윕의 단위가 파일이 아니라 호출 자리다.**
+   *
+   * 종전 스윕은 `isCurrentlyOnline().then(set…)` **한 형태만** 봤다. 그래서 같은 일을 하는
+   * `.then((online) => { … setIsOnline(online) … })` 꼴 둘(privacy 화면 · 온보딩 step-ui)이
+   * 그물을 그대로 빠져나갔고, 그 둘은 "제외 사유가 적힌 자리"로 남아 라운드 72 트랙 E의 통합에서
+   * 통째로 빠졌다. 이제는 각 호출의 `.then(...)` **콜백 본문을 괄호 균형으로 잘라** 그 안에
+   * setState가 있는지 본다 — 콜백 밖(같은 함수의 `finally`에 있는 `setBusy(false)` 같은 것)은
+   * 세지 않으므로 창 크기에 걸리는 오탐도 생기지 않는다.
+   */
+  const pollCallbackBody = (src: string, callIndex: number): string | null => {
+    const after = src.slice(callIndex);
+    const head = /^isCurrentlyOnline\(\s*\)\s*\.then\(/.exec(after);
+    if (!head) return null;
+    let depth = 1;
+    let cursor = head[0].length;
+    for (; cursor < after.length && depth > 0; cursor += 1) {
+      if (after[cursor] === "(") depth += 1;
+      else if (after[cursor] === ")") depth -= 1;
+    }
+    return after.slice(head[0].length, cursor - 1);
+  };
+
+  /** 폴의 콜백이 화면 상태를 직접 쓰는 자리(= 손으로 다시 적은 배선). */
+  const handRewrittenPolls = (): string[] => {
+    const found: string[] = [];
     for (const path of productSources()) {
       if ((CONNECTIVITY_POLL_OWNERS as readonly string[]).includes(path)) continue;
       const src = withoutComments(source(path));
-      for (const match of src.matchAll(/isCurrentlyOnline\(\)\s*\.then\(\s*set/g)) {
-        handRewritten.push(`${path}: ${src.slice(match.index, match.index + 60).split("\n")[0]}`);
+      for (const match of src.matchAll(/isCurrentlyOnline\(/g)) {
+        const body = pollCallbackBody(src, match.index);
+        if (body && /\bset[A-Z]\w*\(/.test(body)) found.push(path);
       }
     }
-    // 이 형태가 정확히 라운드 71 A가 가져오기 두 화면에 남긴 넷이었다. setState를 폴의 콜백에
-    // 직접 걸면 ① 사라진 화면에 값이 쓰이고 ② 연속 실패에서 늦게 도착한 옛 판정이 최신을 덮는다.
-    expect(handRewritten, `손으로 다시 적은 폴: ${handRewritten.join(" | ")}`).toEqual([]);
+    return [...new Set(found)];
+  };
+
+  it("훅 파일 밖에서 폴의 콜백이 화면 상태를 직접 쓰는 자리가 제외 목록뿐이다", () => {
+    const undeclared = handRewrittenPolls().filter((path) => !(path in CONNECTIVITY_POLL_EXEMPT));
+    // setState를 폴의 콜백에 직접 걸면 ① 사라진 화면에 값이 쓰이고 ② 연속 실패에서 늦게 도착한
+    // 옛 판정이 최신을 덮는다. 정확히 그 형태가 라운드 71 A의 넷이었고, 라운드 72 리뷰가
+    // `.then((online) => {…})` 꼴 둘을 더 찾아냈다.
+    expect(undeclared, `손으로 다시 적은 폴: ${undeclared.join(" | ")}`).toEqual([]);
+  });
+
+  it("그 스윕이 `.then((online) => {…})` 꼴을 실제로 잡는다 (그물이 다시 성기어지면 빨개진다)", () => {
+    // 이 자리는 콜백이 `(online) => { … if (!online) setClickedTitle(…) }`이고 제외 사유가 있다.
+    // 종전 스윕(`.then(set` 정규식)은 이 꼴을 한 건도 세지 못했다 — 그것이 M-2의 구멍이었다.
+    expect(handRewrittenPolls()).toContain("app/items/[itemTemplateId].tsx");
+    // 반대쪽: 통합된 둘은 폴을 아예 부르지 않으므로 이 목록에 없다.
+    for (const merged of ["app/settings/privacy.tsx", "src/onboarding/step-ui.tsx"]) {
+      expect(handRewrittenPolls(), `통합된 자리: ${merged}`).not.toContain(merged);
+    }
   });
 
   it("남은 호출 자리는 전부 이유가 적힌 제외 목록에 있다", () => {
@@ -130,14 +166,17 @@ describe("GAP-072 E ⓐ-1 실패 시점 연결 판정은 공용 배선 한 벌�
     );
     // 스윕이 실제로 무언가를 찾았다(그렙이 조용히 0을 세면 계약이 아무것도 지키지 않는다).
     expect(callers.length).toBeGreaterThanOrEqual(6);
-    // 네 갈래의 대표 자리는 반드시 잡힌다 — 스윕이 무너지면 여기서 먼저 빨개진다.
+    // 세 갈래의 대표 자리는 반드시 잡힌다 — 스윕이 무너지면 여기서 먼저 빨개진다.
     for (const anchor of [
       "app/family/index.tsx",
       "app/items/[itemTemplateId].tsx",
-      "app/settings/privacy.tsx",
       "src/offline/sync-controller.ts"
     ]) {
       expect(callers, `스윕이 놓친 자리: ${anchor}`).toContain(anchor);
+    }
+    // 통합된 둘은 폴을 import조차 하지 않는다(사본이 되살아나면 여기서 걸린다).
+    for (const merged of ["app/settings/privacy.tsx", "src/onboarding/step-ui.tsx"]) {
+      expect(callers, `되살아난 사본: ${merged}`).not.toContain(merged);
     }
     // 핵심 단언: **선언되지 않은 사본이 0건**이다. 새로 손으로 적은 자리가 생기면 여기서 걸린다.
     // (반대 방향을 등호로 묶지 않는 이유는 이 목록이 다른 트랙 소유 파일까지 담기 때문이다 —
@@ -160,6 +199,43 @@ describe("GAP-072 E ⓐ-1 실패 시점 연결 판정은 공용 배선 한 벌�
     expect(review).toContain("const toggleFailureOnline = useErrorTimeConnectivity(toggleRow.isError);");
     expect(review).toContain("const categoryFailureOnline = useErrorTimeConnectivity(updateCategory.isError);");
     expect(review).toContain("const confirmFailureOnline = useErrorTimeConnectivity(confirm.isError);");
+  });
+
+  /**
+   * 라운드 72 리뷰 M-2 — **데모 세션 갈래를 가진 둘도 같은 배선을 쓴다.**
+   *
+   * 둘이 훅 밖에 남아 있던 사유는 "판정에 데모 세션 갈래가 하나 더 걸린다"였는데, 그 갈래는
+   * 훅에 넘기는 **인자 하나**로 표현된다 — 데모 세션이면 폴을 돌리지 않는다는 뜻이므로
+   * 종전 effect 가드(`!isError || isDemoSession`이면 true로 복원)와 동치다. 훅은 조건 없이
+   * 호출되므로 hooks 규칙에도 안전하다.
+   */
+  it("데모 세션 갈래를 가진 둘(개인정보 · 온보딩)도 그 공용 배선을 쓴다", () => {
+    const privacy = source("app/settings/privacy.tsx");
+    const stepUi = source("src/onboarding/step-ui.tsx");
+
+    expect(privacy).toContain('import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";');
+    expect(stepUi).toContain('import { useErrorTimeConnectivity } from "../offline/use-load-error-copy";');
+
+    // 데모 세션 갈래는 **인자**로만 남는다(판정 로직은 한 줄도 새로 쓰지 않았다).
+    expect(privacy).toContain("const isOnline = useErrorTimeConnectivity(isError && !isDemoSession);");
+    expect(privacy).toContain("destructiveFlowErrorMessage(kind, error, { isOnline: isDemoSession || isOnline })");
+    expect(stepUi).toContain("const isOnline = useErrorTimeConnectivity(!isDemoSession);");
+    expect(stepUi).toContain("return isDemoSession || isOnline;");
+
+    // 재구현이 남지 않는다 — 두 파일은 폴도 cancelled 가드도 들고 있지 않다.
+    for (const [label, src] of [
+      ["개인정보", privacy],
+      ["온보딩 step-ui", stepUi]
+    ] as const) {
+      const code = withoutComments(src);
+      expect(code, `${label}에 남은 폴`).not.toContain("isCurrentlyOnline");
+      expect(code, `${label}에 남은 가드`).not.toContain("let cancelled = false;");
+    }
+
+    // 라운드 72 리뷰 S-1: 갈래를 만들지 않는 죽은 인자가 사라졌다(호출부는 언제나 `true`였다).
+    expect(stepUi).toContain("export function useOnboardingSaveFailureConnectivity(): boolean {");
+    expect(stepUi).toContain("const isOnline = useOnboardingSaveFailureConnectivity();");
+    expect(stepUi, "죽은 인자").not.toContain("useOnboardingSaveFailureConnectivity(true)");
   });
 
   /**
@@ -236,5 +312,48 @@ describe("GAP-072 E ⓐ-2 앱 밖 링크 열기는 한 벌이다", () => {
     const opener = source(EXTERNAL_LINK_OWNER);
     expect(opener).toContain("Alert.alert(failTitle, failMessage);");
     expect(opener).not.toContain("열지 못했어요");
+  });
+
+  /**
+   * 라운드 72 리뷰 M-1 — **네 자리의 실패 문구를 한 자리에서 센다.**
+   *
+   * 라운드 72 트랙 E는 로그인 화면의 문구만 고치면서 그 근거로 "다른 셋은 재시도를 권하지 않는데
+   * 이 사본만 그랬다"를 적었는데, **세어 보니 넷 다 "잠시 후 다시 시도해 주세요."였다.** 근거가
+   * 거짓이었던 것이 아니라 아무도 세지 않았던 것이다. 그래서 문구 계약도 화면 단위가 아니라
+   * **호출 집합 단위**로 둔다 — 여는 규칙이 한 벌이면 그 규칙이 띄우는 알림의 규율도 한 벌이다.
+   *
+   * 규율은 둘이다.
+   *  ⓐ **재시도를 권하지 않는다.** `openExternalUrl`이 알림을 띄우는 경우는 둘뿐이고(열 수 있는지
+   *    물었을 때 false · 여는 호출이 던짐) 둘 다 기다려서 풀리지 않는다.
+   *  ⓑ **원인을 단정하지 않는다.** 그 둘은 규칙 모듈의 **같은 `catch`**로 들어오므로, "브라우저가
+   *    없다"고 말하면 잘못된 주소로 실패한 사람에게 틀린 사실을 말하게 된다(라운드 72 리뷰 S-6).
+   */
+  it("네 자리의 링크 실패 문구가 재시도도, 원인도 말하지 않는다(해요체 — DNC-018)", async () => {
+    // 더보기·설정은 같은 표(support-links.ts)를 읽고, 나머지 둘은 자기 화면의 상수를 갖는다.
+    const { SUPPORT_LINK_FAILED_TITLE, SUPPORT_LINK_FAILED_MESSAGE } = await import("./settings/support-links");
+    const constantIn = (path: string, name: string): string => {
+      const found = source(path).match(new RegExp(`const ${name} = "([^"]+)";`))?.[1];
+      expect(found, `${path}의 ${name}`).toBeTruthy();
+      return found!;
+    };
+
+    const failureCopy: Array<[string, string]> = [
+      ["더보기·설정(지원·FAQ)", SUPPORT_LINK_FAILED_TITLE],
+      ["더보기·설정(지원·FAQ)", SUPPORT_LINK_FAILED_MESSAGE],
+      ["개인정보(약관 링크)", constantIn("app/settings/privacy.tsx", "LEGAL_LINK_FAILED_TITLE")],
+      ["개인정보(약관 링크)", constantIn("app/settings/privacy.tsx", "LEGAL_LINK_FAILED_MESSAGE")],
+      ["로그인(약관 링크)", constantIn("app/(auth)/login.tsx", "LEGAL_DOCUMENT_OPEN_FAILED_TITLE")],
+      ["로그인(약관 링크)", constantIn("app/(auth)/login.tsx", "LEGAL_DOCUMENT_OPEN_FAILED_MESSAGE")]
+    ];
+    // 화면 넷이 읽는 상수는 **세 벌**(제목·본문 짝 셋)이다 — 더보기와 설정이 같은 표를 읽는다.
+    expect(failureCopy).toHaveLength(6);
+
+    for (const [where, copy] of failureCopy) {
+      expect(copy, `${where}: 재시도 권유`).not.toContain("다시 시도");
+      expect(copy, `${where}: 기다림 권유`).not.toContain("잠시 후");
+      expect(copy, `${where}: 지시형·오류 어투`).not.toMatch(/확인하세요|확인해 주세요|하십시오|오류|에러|error/i);
+      expect(copy, `${where}: 알 수 없는 원인 단정`).not.toContain("브라우저");
+      expect(copy, `${where}: 해요체`).toMatch(/요$|요\.$/);
+    }
   });
 });
