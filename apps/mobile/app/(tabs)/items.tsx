@@ -324,6 +324,7 @@ export default function ItemsScreen() {
    */
   const defaultStageBand = resolveDefaultStageLabel({
     currentStage: stageSourceChild?.currentStage,
+    birthDate: stageSourceChild?.birthDate,
     isPixelLockMode,
     hasManualSelection: false,
     fallback: "12-24개월"
