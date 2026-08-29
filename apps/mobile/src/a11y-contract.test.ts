@@ -41,6 +41,21 @@ import { notificationRowAccessibilityLabel } from "./notifications/notification-
 // 쓰는 문자열까지 전부 이 두 모듈에서 오므로, 트랙 A·C가 문구를 다듬어도 이 파일은 그대로다.
 import { STAGE_BAND_UNRESOLVED_NOTICE } from "./items/stage-bands";
 import { logoutConfirmMessage } from "./offline/messages";
+// GAP-070 트랙 E(A·B·C가 만든 새 문구): 값·문구 계약은 각 트랙의 모듈 테스트가 진다. 여기서는
+// **그 문장이 낭독되는 자리에 걸려 있는가**만 보므로, 비교에 쓰는 문자열까지 전부 모듈에서
+// 읽어 온다 — 트랙이 문구를 다듬어도 이 파일은 그대로다(라운드 66~69의 형식).
+import {
+  INVITE_UNAVAILABLE_DETAIL,
+  INVITE_UNAVAILABLE_ESCAPE_LABEL,
+  INVITE_UNAVAILABLE_NEXT_STEP,
+  INVITE_UNAVAILABLE_TITLE
+} from "./family/invite-accept-messages";
+import { INVITE_ROLE_CHOICES, INVITE_SCOPE_NOTICE } from "./family/invite-flow";
+import { BUDGET_VIEW_ONLY_MESSAGE } from "./family/record-permissions";
+// GAP-070 트랙 E: ONB-001 세 카드의 **문구·순서**는 이 순수 모듈이 이미 거울로 들고 있다
+// ("mirroring the onboarding ONB-001 option titles"). 그래서 이 파일은 카드 문구를 다시 적지
+// 않고 그 거울과 대조한다 — 문구가 바뀌면 두 자리 중 하나가 아니라 **둘 다** 움직여야 한다.
+import { CHILD_STAGE_MODE_OPTIONS } from "./children/child-form";
 // GAP-064 #6: 최소 터치 타깃의 단일 소스. 이 숫자를 테스트에 다시 박지 않는다.
 import { theme } from "./theme";
 
@@ -1937,5 +1952,372 @@ describe("GAP-069 #3 준비템 탭 시기 밴드 안내의 낭독 계약", () =>
     // 문구를 이 파일에 옮겨 적지 않고 모듈에서 읽어 비교한다 — 트랙 C가 문장을 다듬어도
     // 이 단언은 그대로 서고, 화면이 리터럴을 복사한 순간에만 빨개진다.
     expect(withoutComments(itemsScreen()), "화면이 다시 적은 문장").not.toContain(STAGE_BAND_UNRESOLVED_NOTICE);
+  });
+});
+
+/* ------------------------------------------- 라운드 70 트랙 E (GAP-070 #5 · 선행 확인 6) */
+
+/**
+ * GAP-070 트랙 E — **온보딩 첫 화면(ONB-001)의 타일 셋**.
+ *
+ * 두 가지가 한 자리에서 만난다.
+ *
+ * ⓐ **아이콘 관례.** 라운드 49 실기기 피드백 ②는 텍스트 글리프·이모지를 세 자리에서 Ionicons
+ *    outline 한 벌로 옮겼고(탭바 `app/(tabs)/_layout.tsx` · 알림함 `app/notifications.tsx` ·
+ *    가져오기 `app/import/index.tsx` — 세 파일 모두 그 근거를 주석으로 적어 뒀다), 그때 남은
+ *    마지막 세 자리가 이 화면이었다. 승인 캡처 아홉에 온보딩이 없다는 것이 선행 확인 6의 값
+ *    확인이라 여기만 고칠 수 있었다(알림 벨 `\u{1F514}` · `"무료배송"`은 캡처 본문에 실재해 무접촉).
+ *
+ * ⓑ **낭독 라벨.** 카드는 `Pressable`이라 접근성 트리에서 **한 덩어리**로 읽히는데 라벨이 없어
+ *    자식 노드가 순서대로 낭독됐다 — 타일이 첫 자식이므로 TalkBack이 **이모지 이름을 제목보다
+ *    먼저** 읽었다("임신부, 임신 중이에요, …"). 아이콘으로 바꾸는 것만으로는 그 순서가 낫지
+ *    않는다(글리프 이름이 이모지 이름으로 바뀔 뿐이다). 그래서 아이콘은 장식으로 내리고
+ *    (`accessible={false}` — A-7 #38 · GAP-067 #3이 알림 행·되돌리기 카드에 쓴 그 판정) 카드가
+ *    **눈이 읽는 두 값**(제목 · 설명)을 그대로 이어 라벨로 진다.
+ *
+ * 이 블록은 **문구를 다시 단언하지 않는다**(라운드 66~69의 형식): 비교에 쓰는 문자열은 전부
+ * 소스와 순수 모듈(`CHILD_STAGE_MODE_OPTIONS`)에서 읽어 오므로, 문구를 다듬어도 여기서 고칠
+ * 것이 없다 — 여기가 빨개진다면 **배선이 끊어졌거나 관례가 깨진 것**이다.
+ */
+describe("GAP-070 #5 온보딩 첫 화면(ONB-001) 세 카드의 아이콘·낭독 계약", () => {
+  const childStatusPath = "app/(onboarding)/child-status.tsx";
+  const childStatus = () => source(childStatusPath);
+
+  /** 라운드 49가 아이콘을 옮긴 세 화면. 관례를 사람이 옮겨 적지 않고 여기서 다시 읽는다. */
+  const conventionScreens = ["app/(tabs)/_layout.tsx", "app/notifications.tsx", "app/import/index.tsx"] as const;
+  /** outline 이름의 모양. 세 화면의 실제 값에서 다시 확인한 뒤에만 이 화면에 적용한다. */
+  const outlineName = /^[a-z][a-z0-9-]*-outline$/;
+
+  /** 카드 정의 셋을 소스에서 그대로 읽는다(값을 이 파일에 옮겨 적지 않는다). */
+  function stageOptions(): { mode: string; icon: string; title: string; description: string; tint: string }[] {
+    const src = childStatus();
+    const block = src.slice(src.indexOf("const stageOptions"), src.indexOf("export default function"));
+    const found = [
+      ...block.matchAll(
+        /\{\s*mode: "(\w+)",\s*icon: "([^"]+)",\s*title: "([^"]+)",\s*description: "([^"]+)",\s*tint: ([^\s,}]+)\s*\}/g
+      )
+    ].map((match) => ({ mode: match[1], icon: match[2], title: match[3], description: match[4], tint: match[5] }));
+    if (found.length === 0) throw new Error("ONB-001의 카드 정의를 소스에서 찾지 못했다");
+    return found;
+  }
+
+  /** 48×48 tint 타일 한 칸(그 안의 노드 하나가 이번에 바뀐 전부다). */
+  function tileBlock(): string {
+    const src = childStatus();
+    const tintAt = src.indexOf("backgroundColor: option.tint");
+    if (tintAt < 0) throw new Error("tint 타일을 소스에서 찾지 못했다");
+    const start = src.lastIndexOf("<View", tintAt);
+    return src.slice(start, src.indexOf("</View>", tintAt));
+  }
+
+  /** 카드를 감싼 `Pressable`의 여는 태그(라벨·역할·상태가 사는 자리). */
+  function cardPressableTag(): string {
+    const src = childStatus();
+    const start = src.indexOf("<Pressable");
+    if (start < 0) throw new Error("카드가 Pressable이 아니다");
+    return src.slice(start, src.indexOf(">", src.indexOf("onPress=", start)));
+  }
+
+  it("타일 안이 이모지 텍스트가 아니라 Ionicons다 (세 화면과 같은 한 벌을 import 한다)", () => {
+    const src = childStatus();
+    // 같은 컴포넌트를 같은 자리에서 가져온다 — 아이콘 가족이 화면마다 갈리지 않는다.
+    const importLine = 'import { Ionicons } from "@expo/vector-icons";';
+    for (const screen of conventionScreens) {
+      expect(source(screen), `${screen}의 아이콘 import`).toContain(importLine);
+    }
+    expect(src, "온보딩도 같은 한 벌을 쓴다").toContain(importLine);
+
+    // 타일 안의 노드는 이제 아이콘 하나다(글리프를 Text로 그리던 자리가 남아 있지 않다).
+    const tile = tileBlock();
+    expect(tile, "타일 안의 노드").toContain("<Ionicons");
+    expect(tile, "글리프를 글자로 그리던 자리").not.toContain("{option.icon}</Text>");
+
+    // 렌더되는 값에는 이모지가 한 자도 남지 않는다(문장 속 이모지가 있는 다른 화면과 달리,
+    // 여기의 이모지는 전부 아이콘 슬롯이었다 — 선행 확인 6). 주석은 걷어 내고 본다: 이 화면은
+    // **무엇을 무엇으로 바꿨는지**를 주석에서 원문 그대로 인용하고 있고(설계 근거를 값으로
+    // 남기는 이 저장소의 관례), 낭독되는 것은 주석이 아니라 렌더되는 값이다.
+    expect(withoutComments(src), "남은 이모지").not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  it("아이콘 이름이 세 화면과 같은 outline 관례를 따르고, 값은 타입으로 잠긴다", () => {
+    // 관례를 소스에서 다시 읽는다: 라운드 49가 옮긴 세 화면이 실제로 쓰는 이름들.
+    const conventionNames = conventionScreens.flatMap((screen) =>
+      [...source(screen).matchAll(/"([a-z][a-z0-9-]*-outline)"/g)].map((match) => match[1])
+    );
+    // 가드의 가드 — 정규식이 빗나가면 아래 관례 확인이 조용히 공허해진다.
+    expect(conventionNames.length, "세 화면이 쓰는 outline 아이콘 수").toBeGreaterThanOrEqual(10);
+    for (const name of conventionNames) expect(name, "관례의 이름 모양").toMatch(outlineName);
+
+    const icons = stageOptions().map((option) => option.icon);
+    expect(icons, "세 카드의 아이콘").toHaveLength(CHILD_STAGE_MODE_OPTIONS.length);
+    for (const icon of icons) expect(icon, "온보딩 아이콘 이름").toMatch(outlineName);
+    // 셋이 서로 다르다(같은 글리프 셋이면 눈으로 카드를 가릴 수 없다).
+    expect(new Set(icons).size, "서로 다른 아이콘").toBe(icons.length);
+
+    // 없는 글리프 이름은 여기가 아니라 typecheck에서 걸린다 — 그 잠금이 소스에 서 있는지만 본다.
+    expect(childStatus(), "아이콘 이름의 타입 잠금").toContain("icon: keyof typeof Ionicons.glyphMap;");
+  });
+
+  it("문구·순서·타일 기하는 그대로다 — 바뀐 것은 타일 안의 노드 하나다", () => {
+    const options = stageOptions();
+    // 문구·순서를 이 파일에 옮겨 적지 않고 거울(순수 모듈)과 대조한다.
+    expect(options.map((option) => option.mode), "세 단계의 순서").toEqual(
+      CHILD_STAGE_MODE_OPTIONS.map((option) => option.mode)
+    );
+    expect(options.map((option) => option.title), "세 카드의 제목").toEqual(
+      CHILD_STAGE_MODE_OPTIONS.map((option) => option.label)
+    );
+
+    // tint는 테마 토큰 셋 그대로다(색을 새로 짓지 않았다 · 카드마다 다르다).
+    for (const option of options) expect(option.tint, `${option.mode}의 tint`).toMatch(/^theme\.colors\./);
+    expect(new Set(options.map((option) => option.tint)).size, "서로 다른 tint").toBe(options.length);
+
+    // 타일은 여전히 정사각 48 = 최소 터치 타깃이고(숫자를 다시 박지 않는다), 아이콘은 그 안에 든다.
+    const tile = tileBlock();
+    const height = Number(/height:\s*(\d+)/.exec(tile)?.[1]);
+    const width = Number(/width:\s*(\d+)/.exec(tile)?.[1]);
+    const iconSize = Number(/size=\{(\d+)\}/.exec(tile)?.[1]);
+    expect(height, "타일은 정사각이다").toBe(width);
+    expect(height, "타일 한 변").toBe(theme.touchTarget);
+    expect(Number.isFinite(iconSize), "아이콘 크기를 소스에서 찾지 못했다").toBe(true);
+    expect(iconSize, "아이콘은 타일 안에 든다").toBeLessThan(height);
+    // 타일 자체의 여백으로 카드를 키우지 않았다(그건 렌더가 바뀌는 길이다).
+    expect(tile, "타일 여백").not.toContain("padding");
+    expect(tile, "타일 여백").not.toContain("margin");
+  });
+
+  it("각 카드가 낭독 라벨을 진다 — 이모지 이름이 제목보다 먼저 읽히던 자리다", () => {
+    const tag = cardPressableTag();
+    // 라벨은 **화면이 그리는 두 값**을 그대로 잇는다(문장을 새로 짓지 않는다).
+    expect(tag, "낭독 라벨").toContain("accessibilityLabel={`${option.title}. ${option.description}`}");
+    // 종전 계약은 그대로 남는다(역할 · 선택 상태).
+    expect(tag, "역할").toContain('accessibilityRole="button"');
+    expect(tag, "선택 상태").toContain("accessibilityState={{ selected }}");
+    // 선택 여부를 문구로 다시 말하지 않는다 — 그건 상태가 진다(같은 사실을 두 번 읽지 않는다).
+    expect(tag, "상태를 말로 다시 적지 않는다").not.toContain("선택됨");
+
+    // 아이콘은 장식이라 트리에서 빠진다 — 이 한 줄이 없으면 라벨을 붙여도 플랫폼에 따라
+    // 글리프 이름이 먼저 남는다(A-7 #38 · GAP-067 #3과 같은 판정).
+    expect(tileBlock(), "장식 아이콘").toContain("accessible={false}");
+  });
+
+  it("그래서 카드는 제목부터 낭독된다 (라벨 = 제목 + 설명, 아이콘 이름은 들어오지 않는다)", () => {
+    const src = childStatus();
+    for (const option of stageOptions()) {
+      // 소스의 라벨 틀에 이 카드의 값을 넣어 실제로 낭독될 문장을 만든다 — 문구를 여기에 적지
+      // 않으므로 이 단언은 문장을 고정하지 않는다.
+      const spoken = `${option.title}. ${option.description}`;
+      expect(spoken.startsWith(option.title), `${option.mode}: 제목이 먼저다`).toBe(true);
+      expect(spoken, `${option.mode}: 설명이 이어진다`).toContain(option.description);
+      expect(spoken, `${option.mode}: 아이콘 이름은 낭독되지 않는다`).not.toContain(option.icon);
+
+      // 눈이 읽는 것과 귀가 듣는 것이 같은 값이다(라벨을 리터럴로 따로 적지 않았다).
+      expect(src, `${option.mode}: 라벨을 리터럴로 적지 않는다`).not.toContain(`accessibilityLabel="${option.title}`);
+    }
+    // 제목·설명은 카드가 값으로 그린다(두 자리가 갈릴 틈이 없다).
+    expect(src, "보이는 제목").toContain("{option.title}");
+    expect(src, "보이는 설명").toContain("{option.description}");
+  });
+});
+
+/* ------------------------ 라운드 70 트랙 E (GAP-070 — A·B·C·D가 만든 새 문구의 낭독 계약) */
+
+/**
+ * 트랙 E의 두 번째 몫은 **다른 트랙이 이번 라운드에 만든 UI가 소리로도 도달하는가**다
+ * (트랙 구성 E의 마지막 줄 — "같은 파일에서 세울 것").
+ *
+ * 형식은 라운드 66~69 그대로다: 값·문구 계약은 각 트랙이 자기 모듈 테스트에 이미 지고 있고
+ * (`src/family/invite-accept-messages.test.ts` · `src/family/record-permissions.test.ts` ·
+ * `src/offline/messages.test.ts` · `src/family/invite-flow.test.ts`), 여기가 붙드는 것은 하나뿐이다 —
+ * **그 문구가 낭독되는 자리에 실제로 걸려 있는가.**
+ *
+ * 그래서 아래 블록들은 **문구를 다시 단언하지 않는다.** 비교에 쓰는 문자열까지 전부 순수
+ * 모듈에서 읽어 오므로, 트랙이 문장을 한 번 더 다듬어도 여기서는 고칠 것이 없다 — 여기가
+ * 빨개진다면 그것은 문구가 바뀐 것이 아니라 **배선이 끊어진 것**이다.
+ */
+
+/**
+ * GAP-070 #1(트랙 A) — **끝난 초대**가 소리로 도달하는가 (FAM-003).
+ *
+ * 이 카드는 화면 전환 없이 같은 자리에 뜬다(딥링크로 들어오면 첫 프레임에 선다). 소리로만 쓰는
+ * 사람에게 그 사실이 남으려면 ⓐ 세 갈래(조회 404 · 조회 400 · 수락 400)가 보는 카드가
+ * **alert로** 떠야 하고, ⓑ 그 카드에서 누를 수 있는 것이 **탈출구 하나**여야 한다(재시도로
+ * 풀리지 않는 실패에 [다시 시도]가 함께 낭독되면 그 손은 영원히 같은 400을 다시 받는다),
+ * ⓒ 지킬 수 없는 약속("로그인하면 이 초대로 바로 돌아와서…")이 그 갈래에서 낭독되지 않아야 한다.
+ */
+describe("GAP-070 #1 끝난 초대 카드의 낭독 계약 (FAM-003)", () => {
+  const acceptScreen = () => source("app/family/accept/[token].tsx");
+
+  /** 세 갈래가 함께 보는 그 카드 한 장(다음 카드가 시작되기 전까지). */
+  function unavailableCardBlock(): string {
+    const src = acceptScreen();
+    const at = src.indexOf("{inviteUnavailable ? (");
+    expect(at, "끝난 초대 카드가 화면에 걸려 있다").toBeGreaterThan(-1);
+    const end = src.indexOf("{invite.data && !inviteUnavailable ? (", at);
+    expect(end, "카드의 끝을 소스에서 찾지 못했다").toBeGreaterThan(at);
+    return src.slice(at, end);
+  }
+
+  it("세 갈래가 보는 카드가 alert로 뜬다 (같은 화면 안에서 나타나는 자리다)", () => {
+    const block = unavailableCardBlock();
+    expect(block, "끝난 초대 카드").toContain('<View accessibilityRole="alert">');
+    // 판정이 하나이므로 카드도 하나다 — 세 갈래가 같은 문자열이 아니라 **같은 노드**를 본다.
+    expect((block.match(/accessibilityRole="alert"/g) ?? []).length, "카드 수").toBe(1);
+  });
+
+  it("세 문장과 탈출 버튼 라벨이 전부 순수 모듈에서 온다 (화면이 다시 적지 않는다)", () => {
+    const block = unavailableCardBlock();
+    for (const constantName of [
+      "INVITE_UNAVAILABLE_TITLE",
+      "INVITE_UNAVAILABLE_DETAIL",
+      "INVITE_UNAVAILABLE_NEXT_STEP",
+      "INVITE_UNAVAILABLE_ESCAPE_LABEL"
+    ]) {
+      expect(block, constantName).toContain(constantName);
+    }
+    // 모듈이 만드는 문장이 화면에 리터럴로 없다. 비교 문자열을 이 파일에 적지 않으므로(모듈에서
+    // 읽어 온다) 이 단언은 문구를 고정하지 않는다.
+    const rendered = withoutComments(acceptScreen());
+    for (const line of [INVITE_UNAVAILABLE_TITLE, INVITE_UNAVAILABLE_DETAIL, INVITE_UNAVAILABLE_NEXT_STEP]) {
+      expect(rendered, "화면이 다시 적은 문장").not.toContain(line);
+    }
+    // 탈출 버튼 라벨은 이 목록에 넣지 않는다: 라운드 60 #3의 **다른 카드**(수락은 이미
+    // 성공했고 뒤처리만 실패한 자리 — 이 라운드가 무접촉으로 둔 곳)가 자기 낭독 라벨
+    // "나중에 하고 앱 둘러보기"를 갖고 있어, 부분 문자열로는 두 자리가 갈리지 않는다.
+    // 이 카드가 모듈의 라벨을 쓴다는 사실은 위 상수 확인이 이미 진다.
+    expect(INVITE_UNAVAILABLE_ESCAPE_LABEL.length, "탈출 버튼 라벨").toBeGreaterThan(0);
+  });
+
+  it("그 카드에서 낭독되는 버튼은 탈출구 하나뿐이다 (다시 눌러 풀리는 것이 없는 갈래다)", () => {
+    const block = unavailableCardBlock();
+    expect((block.match(/<SecondaryButton/g) ?? []).length, "카드 안의 버튼 수").toBe(1);
+    expect(block, "이 갈래에는 재시도가 없다").not.toContain("refetch()");
+    // 재시도로 풀리는 실패(네트워크·5xx)의 카드는 종전 그대로 남는다 — 그쪽에만 재시도가 산다.
+    expect(acceptScreen(), "네트워크 실패 카드는 종전 그대로다").toContain(
+      "{invite.isError && !inviteUnavailable ? ("
+    );
+  });
+
+  it("지킬 수 없는 약속은 그 갈래에서 낭독되지 않는다 (로그인 CTA가 접힌다)", () => {
+    // 종전에는 이 두 갈래가 실패와 **무관하게** 그려져, 계정이 없는 사람이 로그인·약관 동의·
+    // 계정 생성을 마치고 돌아와 똑같은 실패를 다시 들었다.
+    expect(acceptScreen(), "로그인 안내의 바깥 게이트").toContain("{inviteUnavailable ? null : !authToken ? (");
+  });
+});
+
+/**
+ * GAP-070 #2(트랙 B) — **예산 저장이 잠겼다는 사실**이 소리로 도달하는가 (BUD-001).
+ *
+ * 이 화면의 새 사실은 둘이고 낭독되는 길이 서로 다르다.
+ *  1. **보기 전용이라 저장할 수 없다**: 눌렀을 때 뜨는 RN Alert. Alert에는 라벨도 상태도 걸리지
+ *     않으므로 사실이 소리에 남을 길은 **본문 인자 하나**다(A-3 #18 · A-7 #37 · GAP-069 #1이
+ *     같은 판정을 남겼다). 그리고 잠긴 컨트롤을 `disabled`로 침묵시키지 않는 것이 이 저장소의
+ *     관례다 — 비활성 버튼은 "버튼, 비활성"으로만 읽혀 **왜** 못 누르는지가 남지 않는다
+ *     (GAP-066 #2의 못 고르는 칸과 같은 규율).
+ *  2. **서버가 말해 준 실패 사유**: 공용 `Toast`를 지나므로 뜨는 순간 announce 된다(A11Y-115).
+ */
+describe("GAP-070 #2 예산 저장 잠금·실패 사유의 낭독 계약 (BUD-001)", () => {
+  const budgetScreen = () => source("app/budget.tsx");
+
+  it("보기 전용이라는 사실은 Alert **본문**에 실린다 (제목 자리로 밀지 않는다)", () => {
+    expect(budgetScreen(), "본문 자리에 순수 모듈의 문장").toContain(
+      "Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, BUDGET_VIEW_ONLY_MESSAGE);"
+    );
+    // 문장은 화면이 짓지 않는다(단일 소스는 record-permissions.ts다).
+    expect(withoutComments(budgetScreen()), "화면이 다시 적은 문장").not.toContain(BUDGET_VIEW_ONLY_MESSAGE);
+  });
+
+  it("잠긴 저장은 사라지지도, disabled로 침묵하지도 않는다 — 눌리면 사실을 말한다", () => {
+    const src = budgetScreen();
+    expect(src, "게이트를 지나는 저장").toContain("guardExpenseAction(expenseGate.locked");
+    // 게이트가 버튼을 비활성으로 만들면 이유가 소리에 남지 않는다(그리고 눌러서 재검증을
+    // 태우는 라운드 40 J-3의 경로도 함께 사라진다).
+    expect(src, "게이트로 버튼을 비활성화하지 않는다").not.toContain("disabled={expenseGate.locked");
+  });
+
+  it("저장 실패 사유는 공용 Toast를 지나 뜨는 순간 낭독된다 (A11Y-115)", () => {
+    const src = budgetScreen();
+    expect(src, "실패 문구가 Toast에 실린다").toContain('<Toast message={saveErrorText} tone="error" />');
+    // 그 문구가 **서버 코드를 보고** 갈리게 된 것이 이번 라운드의 변화다(실패 값을 함께 넘긴다).
+    expect(src, "실패 값을 문구 훅에 넘긴다").toContain("useSaveErrorCopy(save.isError, save.error)");
+    // 뜨는 순간 읽어 주는 것은 공용 프리미티브의 몫이다 — 화면이 announce를 다시 적지 않는다.
+    expect(source("src/ui.tsx"), "Toast의 announce").toContain("announceForA11y(message);");
+    expect(src, "화면이 announce를 다시 적지 않는다").not.toContain("announceForA11y(saveErrorText)");
+  });
+
+  /**
+   * 이 훅을 쓰는 화면은 저장소에 **둘뿐**이고(그 사실은 `src/offline/messages.test.ts`가 값으로
+   * 못박아 뒀다), 이번 라운드는 그 둘 **모두**에 실패 값을 함께 넘겼다(아이 관리 쪽은 라운드
+   * 69가 `api-error.ts`에 남긴 배선 빚이다). 낭독되는 문장이 "잠시 후 다시 시도해 주세요"에서
+   * **서버가 말해 준 사유**로 갈릴 수 있는지는 그 인자 하나에 달려 있다 — 한쪽만 넘기면 같은
+   * 실패가 화면마다 다른 말로 읽힌다.
+   */
+  it("두 화면 모두 실패 값을 넘긴다 — 낭독될 문장이 사유를 담을 수 있다", () => {
+    for (const path of ["app/budget.tsx", "app/settings/children.tsx"]) {
+      expect(source(path), `${path}의 저장 실패 문구`).toMatch(/useSaveErrorCopy\([\s\S]{0,200}?\.error/);
+    }
+  });
+});
+
+/**
+ * GAP-070 #3(트랙 C) — **초대가 여는 범위**가 소리로 도달하는가 (초대 화면).
+ *
+ * 프라이버시 결정이 내려지는 자리다. 그 결정의 내용이 소리로 성립하려면 ⓐ 공통 고지가 **고르는
+ * 대상보다 먼저** 읽혀야 하고(고지가 카드 아래로 내려가면 이미 고른 뒤에 듣는다 — GAP-069 #3이
+ * 시기 밴드 안내에 세운 그 순서), ⓑ 각 카드의 **설명 한 줄이 라벨에 실려야** 한다(카드는
+ * `Pressable`이라 한 덩어리로 읽히는데, 라벨이 제목만 나르면 범위 문장은 눈에만 남는다).
+ */
+describe("GAP-070 #3 초대 역할 범위 고지의 낭독 계약", () => {
+  const inviteScreen = () => source("app/family/invite.tsx");
+
+  it("공통 고지 다음에 읽히는 것이 **고르는 대상**이다 (역할 카드 바로 위에 선다)", () => {
+    const src = inviteScreen();
+    const noticeAt = src.indexOf("{INVITE_SCOPE_NOTICE}");
+    expect(noticeAt, "고지가 화면에 걸려 있다").toBeGreaterThan(-1);
+    const choicesAt = src.indexOf("INVITE_ROLE_CHOICES.map(", noticeAt);
+    expect(choicesAt, "고지 뒤에 고를 대상이 온다").toBeGreaterThan(noticeAt);
+    // 그 사이에 다른 안내가 끼어들지 않는다(고지와 카드 줄은 같은 컨테이너의 이웃이다).
+    expect(src.slice(noticeAt + "{INVITE_SCOPE_NOTICE}".length, choicesAt), "고지와 카드 사이").not.toContain("<Text");
+  });
+
+  it("각 카드가 역할 이름과 **범위 문장을 함께** 낭독한다 (설명이 눈에만 남지 않는다)", () => {
+    const src = inviteScreen();
+    expect(src, "카드 라벨").toContain("accessibilityLabel={`${option.label}, ${option.description}`}");
+    expect(src, "역할").toContain('accessibilityRole="button"');
+    // 눈이 읽는 것과 귀가 듣는 것이 같은 두 값이다(라벨을 따로 짓지 않았다).
+    expect(src, "보이는 설명").toContain("{option.description}");
+  });
+
+  it("문장을 화면이 짓지 않는다 (고지·세 설명 전부 순수 모듈의 산출이다)", () => {
+    const rendered = withoutComments(inviteScreen());
+    expect(rendered, "화면이 다시 적은 고지").not.toContain(INVITE_SCOPE_NOTICE);
+    for (const choice of INVITE_ROLE_CHOICES) {
+      expect(rendered, `${choice.role} 설명`).not.toContain(choice.description);
+    }
+  });
+});
+
+/**
+ * GAP-070 #4(트랙 D) — **"진행하면 이렇게 돼요" 상자에 늘어나는 한 줄.**
+ *
+ * 이 트랙이 만드는 문장은 **서버(그리고 데모 백엔드 거울)의 impact 배열**에 있고, 화면은 그
+ * 배열을 그대로 그린다(`PreviewSummary`) — 새 컨트롤도, 새 라벨도, 앱이 짓는 문자열도 없다.
+ * 그래서 여기서 세울 낭독 계약은 **하나뿐이다**: 배열이 한 줄 늘었을 때 그 줄이 실제로 낭독
+ * 되는가. 화면이 배열을 자르거나(slice) 줄 수를 제한하거나(numberOfLines) 그 자리를 접근성
+ * 트리에서 빼면, 서버가 말한 사실이 소리에는 남지 않는다.
+ *
+ * 문구 자체와 "요청자의 역할에서 파생되는가"는 트랙 D의 서버·거울 테스트가 진다 —
+ * 이 파일은 그 문장을 알지 못한다(그래서 여기에 적지 않는다).
+ */
+describe("GAP-070 #4 되돌릴 수 없는 흐름의 impact 줄 낭독 계약 (SET-004)", () => {
+  it("impact 배열 전량이 보이는 글자로 그려진다 (자르지도, 트리에서 빼지도 않는다)", () => {
+    const src = source("app/settings/privacy.tsx");
+    const at = src.indexOf("preview.impact.map((line) => (");
+    expect(at, "impact 배열을 그리는 자리").toBeGreaterThan(-1);
+    const block = src.slice(at, src.indexOf("{preview.requiresSecondStep", at));
+    expect(block, "배열을 자르지 않는다").not.toContain("slice(");
+    expect(block, "줄 수를 제한하지 않는다").not.toContain("numberOfLines");
+    expect(block, "트리에서 빼지 않는다").not.toContain("accessible={false}");
+    expect(block, "트리에서 빼지 않는다").not.toContain("importantForAccessibility");
   });
 });
