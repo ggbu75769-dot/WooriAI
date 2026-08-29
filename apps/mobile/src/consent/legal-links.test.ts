@@ -103,8 +103,64 @@ describe("로그인 화면의 약관 링크 (source contract)", () => {
     expect(loginSource).toContain('accessibilityLabel={`${label} 전문 보기`}');
   });
 
-  it("열지 못한 링크는 조용히 실패하지 않는다", () => {
-    expect(loginSource).toContain("약관을 열지 못했어요. 잠시 후 다시 시도해 주세요.");
-    expect(loginSource).toContain("const canOpen = await Linking.canOpenURL(url);");
+  /**
+   * 라운드 72 트랙 E(#5ⓑ) — **여는 규칙은 이 화면이 다시 적지 않는다.**
+   *
+   * 라운드 71 리뷰 S-2가 `openExternalUrl` 한 벌로 모은 화면은 셋이었고(더보기·설정·개인정보),
+   * 이 화면에 **넷째 사본**이 남아 있었다. 사본은 갈릴 때까지만 같다 — 그 증거가 실패 문구다:
+   * 다른 셋은 재시도를 권하지 않는데 이 사본만 "잠시 후 다시 시도해 주세요"라고 말했다.
+   * 그런데 여기서 실패하는 이유(열 브라우저 없음 · 잘못된 주소)는 **기다려서 풀리지 않는다.**
+   */
+  it("열지 못한 링크는 조용히 실패하지 않고, 여는 규칙은 공용 한 벌에서 온다", () => {
+    expect(loginSource).toContain('import { openExternalUrl } from "../../src/settings/open-external-url";');
+    expect(loginSource).toContain(
+      "openExternalUrl(url, { failTitle: LEGAL_DOCUMENT_OPEN_FAILED_TITLE, failMessage: LEGAL_DOCUMENT_OPEN_FAILED_MESSAGE });"
+    );
+    // 문구는 여전히 **이 화면의 상수**다(규칙 모듈은 문장을 만들지 않는다).
+    expect(loginSource).toContain('const LEGAL_DOCUMENT_OPEN_FAILED_TITLE = "약관을 열지 못했어요";');
+    expect(loginSource).toMatch(/const LEGAL_DOCUMENT_OPEN_FAILED_MESSAGE = "[^"]+";/);
+    // 재구현이 남지 않는다.
+    expect(loginSource).not.toContain("Linking.canOpenURL");
+    expect(loginSource).not.toContain("Linking.openURL");
+  });
+
+  /**
+   * 부정 단언 — 다시 눌러도 같은 답이 오는 실패에 **재시도를 권하지 않는다**(라운드 70 B가
+   * 저장 실패에서, 라운드 71 A가 가져오기 실패에서 세운 그 규율). 해요체(DNC-018)도 함께 본다.
+   */
+  it("링크 실패 문구에 '다시 시도'가 없다", () => {
+    const failureCopy = [
+      loginSource.match(/const LEGAL_DOCUMENT_OPEN_FAILED_TITLE = "([^"]+)";/)?.[1],
+      loginSource.match(/const LEGAL_DOCUMENT_OPEN_FAILED_MESSAGE = "([^"]+)";/)?.[1]
+    ];
+    for (const copy of failureCopy) {
+      expect(copy, "실패 문구 상수를 찾지 못했다").toBeTruthy();
+      expect(copy).not.toContain("다시 시도");
+      expect(copy).not.toContain("잠시 후");
+      expect(copy).not.toMatch(/확인하세요|하십시오|오류|에러|error/i);
+      expect(copy).toMatch(/요$|요\.$/);
+    }
+    // 종전 문장은 저장소 어디에도 남지 않는다.
+    expect(loginSource).not.toContain("약관을 열지 못했어요. 잠시 후 다시 시도해 주세요.");
+  });
+
+  /**
+   * ⚠️ 이 트랙은 링크 열기 한 벌만 만진다 — 로그인 성공·실패·카카오·테스트 로그인 갈래는
+   * 한 글자도 바뀌지 않는다(그 갈래들은 후보 1도 이 파일도 열지 않는다).
+   */
+  it("로그인 성공·실패·카카오·테스트 분기는 무변경이다", () => {
+    for (const line of [
+      "const result = isKakaoLoginAvailable() ? await loginWithKakao() : await oauthLogin(\"kakao\");",
+      "if (error instanceof KakaoLoginCancelledError) return;",
+      "const accountStatusMessage = accountStatusErrorMessage(error);",
+      '? "로그인 중 문제가 발생했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요."',
+      ': "서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요."',
+      "await upsertConsents(result.tokens.accessToken).catch(() => undefined);",
+      'router.replace(inviteResumeHref ?? "/onboarding/child-status");',
+      "startTestSession();",
+      'router.replace(inviteResumeHref ?? "/");'
+    ]) {
+      expect(loginSource, line).toContain(line);
+    }
   });
 });

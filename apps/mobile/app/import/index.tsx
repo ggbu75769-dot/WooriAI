@@ -33,6 +33,8 @@ import {
 // 라운드 71 트랙 A: 업로드·되돌리기 실패도 서버가 준 이름을 그대로 말한다(문구·판정은 순수 모듈).
 import { importFailureMessage } from "../../src/import/import-failure-messages";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
+// 라운드 72 트랙 E: 실패 시점 연결 판정은 공용 배선 한 벌에서 온다(손으로 다시 적지 않는다).
+import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { validateImportFile } from "../../src/import-file-validation";
 import { useImportResumeStore } from "../../src/stores/import-resume.store";
@@ -107,15 +109,6 @@ export default function ImportUploadScreen() {
   const expenseGate = useExpenseEntryGate();
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
-  /**
-   * 라운드 71 트랙 A — **실패한 그 순간의 연결 상태**(오프라인이면 "잠시 후 다시"가 거짓말이 된다).
-   *
-   * 판정은 point-in-time 폴 한 번이고(app/family/index.tsx가 쓰는 그 배선 — 새 훅을 만들지
-   * 않는다), 기본값 true는 폴이 돌아오기 전과 판정 불가 플랫폼(web)에서 **종전 문구 그대로**를
-   * 뜻한다. 매 시도 시작에서 다시 true로 되돌린다 — 앞 실패의 판정이 다음 실패에 얹히면
-   * 화면이 없던 오프라인을 말하게 된다.
-   */
-  const [uploadFailureOnline, setUploadFailureOnline] = useState(true);
   // 라운드 56 D#5: 검토 도중 이탈해도 돌아올 길을 남긴다(규칙·문구는 src/import/import-resume.ts).
   const resumeEntry = useImportResumeStore((state) => state.entry);
   // 라운드 67 적대 리뷰 #1: 확정된 잡은 **다른 칸**에 있다 — 그래서 새 업로드가 이 입구를 덮지 않는다.
@@ -154,12 +147,6 @@ export default function ImportUploadScreen() {
   const upload = useMutation({
     mutationFn: (asset: DocumentPicker.DocumentPickerAsset) =>
       createExcelImport(authToken!, childId!, { uri: asset.uri, name: asset.name, mimeType: asset.mimeType }),
-    onMutate: () => {
-      setUploadFailureOnline(true);
-    },
-    onError: () => {
-      void isCurrentlyOnline().then(setUploadFailureOnline);
-    },
     // 파일명은 **이번 업로드의 변수**에서 온다(화면 state가 아니라) -- state는 이 콜백이 만들어진
     // 렌더의 값이라 첫 업로드에서는 아직 null이다.
     onSuccess: (job, asset) => {
@@ -174,6 +161,20 @@ export default function ImportUploadScreen() {
       router.push(`/import/${job.id}`);
     }
   });
+  /**
+   * 라운드 71 트랙 A — **실패한 그 순간의 연결 상태**(오프라인이면 "잠시 후 다시"가 거짓말이 된다).
+   *
+   * 라운드 72 트랙 E — 그 폴을 **손으로 적지 않는다.** 종전 배선은 `onMutate`에서 상태를 true로
+   * 되돌리고 `onError`에서 폴의 콜백에 setState를 직접 거는 두 조각이었는데, 그 형태에는 이
+   * 저장소가 라운드 52 QA P3-1에서 이미 없앤 두 구멍이 그대로
+   * 있었다 — ① 실패 직후 화면을 떠나면 사라진 화면에 setState가 걸리고, ② 연달아 실패하면
+   * **늦게 도착한 옛 판정이 최신 판정을 덮는다**(터널을 빠져나온 뒤의 실패를 "지금은
+   * 오프라인이에요"라고 말한다). 두 문제를 이미 cancelled 가드로 닫아 둔 공용 배선이
+   * `useErrorTimeConnectivity`(src/offline/use-load-error-copy.ts)이고, 여기서는 그것을 그대로
+   * 부른다 — **문구도 판정 함수도 한 글자도 바뀌지 않는다**(import-failure-messages.ts 무접촉).
+   * 실패 상태가 풀리면(다시 시도) 훅이 초기값 true로 되돌리므로 종전 `onMutate`의 무장도 그대로다.
+   */
+  const uploadFailureOnline = useErrorTimeConnectivity(upload.isError);
 
   /**
    * 라운드 67 #3 — **확정한 가져오기 되돌리기.**

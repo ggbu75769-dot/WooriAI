@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
-import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
 import { accountStatusErrorMessage } from "../../src/api/api-error";
 import { LOCAL_SESSION_TOKEN, oauthLogin, upsertConsents } from "../../src/api/client";
@@ -15,12 +15,31 @@ import { loginCtaLabel, loginFootnote, loginSubtitle } from "../../src/auth/logi
 import { legalDocumentUrls } from "../../src/consent/legal-links";
 import { SESSION_EXPIRED_LOGIN_NOTICE } from "../../src/offline/messages";
 import { shouldShowSessionExpiredNotice } from "../../src/offline/session-expiry";
+// 라운드 72 트랙 E: 앱 밖으로 나가는 링크는 저장소에 한 벌뿐이다(라운드 71 리뷰 S-2).
+import { openExternalUrl } from "../../src/settings/open-external-url";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { announceForA11y, AppScreen } from "../../src/ui";
 
 const isTestLoginEnabled = process.env.EXPO_PUBLIC_TEST_LOGIN === "1";
 const logoMark = require("../../assets/illustrations/logo_mark.png");
+
+/**
+ * 라운드 72 트랙 E — 이 화면의 링크 실패 문구. **이 화면의 단일 소스**이고, 다른 화면의
+ * 문구(`SUPPORT_LINK_FAILED_*` · privacy 화면의 `LEGAL_LINK_FAILED_*`)와 합치지 않는다 —
+ * 여는 규칙만 한 벌이고 무엇을 열지 못했는지는 화면마다 다르다.
+ *
+ * 종전 문장은 제목 없이 한 줄이었고 **재시도를 권하는 절**을 달고 있었다. 그런데 여기서
+ * 실패하는 이유는 열 브라우저가 없거나 주소가 잘못된 것(열 수 있는지 물었을 때 false이거나
+ * 여는 호출이 던지는 경우)이고, **둘 다 기다려서 풀리지 않는다** — 몇 번을 눌러도 같은 답이
+ * 온다. 그래서 그 절을 뺀다(라운드 70 B가 저장 실패에서, 라운드 71 A가 가져오기 실패에서 세운
+ * 그 규율: 다시 눌러도 결과가 같은 실패에 기다리라고 말하지 않는다).
+ *
+ * 대신 지금 실제로 할 수 있는 일을 말한다: 이 문서들은 웹에도 그대로 올라가 있고
+ * (infra/legal/*.html), 로그인한 뒤 설정 > 약관 및 개인정보에서도 같은 링크가 선다.
+ */
+const LEGAL_DOCUMENT_OPEN_FAILED_TITLE = "약관을 열지 못했어요";
+const LEGAL_DOCUMENT_OPEN_FAILED_MESSAGE = "이 기기에서 열 수 있는 브라우저를 찾지 못했어요. 브라우저 앱을 확인해 주세요.";
 
 function ConsentRow({
   checked,
@@ -231,17 +250,21 @@ export default function LoginScreen() {
   /**
    * 라운드 65 B(#5): 동의 문서 열기. URL이 주입된 빌드에서만 이 함수가 닿을 수 있는 컨트롤이
    * 생긴다. 열지 못하면(브라우저 부재·잘못된 URL) 그 사실을 말한다 -- 아무 일도 일어나지 않는
-   * 링크를 남기지 않는다. 자리는 이 화면의 유일한 알림 카드(loginError)를 그대로 쓴다.
+   * 링크를 남기지 않는다.
+   *
+   * 라운드 72 트랙 E — **여는 규칙은 여기서 다시 적지 않는다.** 라운드 71 리뷰 S-2가
+   * `openExternalUrl` 한 벌로 모은 그 여섯 줄(열 수 있는지 묻기 → 열기 → 못 열면 말하기)이
+   * 이 화면에만 넷째 사본으로 남아 있었다. 사본은 갈릴 때까지만 같다 — 그 사본에서만 실패
+   * 문구가 재시도를 권하는 쪽으로 갈려 있었던 것이 그 증거다.
+   *
+   * 그 결과 실패는 종전의 `loginError` 카드가 아니라 다른 셋과 **같은 자리(Alert)**에 선다.
+   * 카드를 유지하려면 규칙 모듈이 실패를 화면으로 되돌려 줘야 하는데, 그러면 "여는 방법은
+   * 하나 · 조용히 실패하지 않는다"를 지키는 자리가 다시 화면으로 흩어진다. 카드 자리는 이제
+   * 로그인 실패 전용이고(약관 링크는 로그인의 성패와 무관한 일이다), Alert은 시스템이 스스로
+   * 낭독하므로 A11Y-115의 announce 배선도 필요 없다.
    */
-  async function openLegalDocument(url: string) {
-    setLoginError(null);
-    try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (!canOpen) throw new Error("cannot-open-url");
-      await Linking.openURL(url);
-    } catch {
-      setLoginError("약관을 열지 못했어요. 잠시 후 다시 시도해 주세요.");
-    }
+  function openLegalDocument(url: string) {
+    openExternalUrl(url, { failTitle: LEGAL_DOCUMENT_OPEN_FAILED_TITLE, failMessage: LEGAL_DOCUMENT_OPEN_FAILED_MESSAGE });
   }
 
   function continueWithLogin() {

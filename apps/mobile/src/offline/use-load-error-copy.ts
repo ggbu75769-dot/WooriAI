@@ -91,8 +91,26 @@ export function useSaveErrorCopy(isError: boolean, error?: unknown): string {
  * cancelled 플래그가 하는 일: effect가 정리되면(에러 해제·언마운트·연속 실패로 인한 재실행)
  * 그 전에 띄운 폴의 결과를 **버린다**. 그래서 사라진 화면에 setState가 걸리지 않고, 늦게
  * 도착한 옛 판정이 최신 판정을 덮어쓰지도 않는다.
+ *
+ * ## 라운드 72 트랙 E — 왜 export하는가
+ *
+ * 이 저장소의 가장 성공한 형식("판정을 한 벌로 모은다")이 매번 한 벌을 남긴다. 라운드 52
+ * C-07이 이 가드를 세울 때 훑은 것은 그때 열려 있던 두 화면(예산·아이 프로필)뿐이었고,
+ * 그 뒤 라운드 71 A가 가져오기 두 화면에 같은 폴을 **손으로 네 벌** 적었다
+ * (`app/import/index.tsx`의 업로드 · `app/import/[importJobId].tsx`의 행 체크·분류 편집·확정).
+ * 넷 다 `void isCurrentlyOnline().then(setX)`라 위 두 문제가 그대로 살아 있었다 — 화면을 떠난
+ * 뒤 도착한 결과가 setState를 걸고, **연속 실패에서 늦게 도착한 옛 판정이 최신을 덮었다**
+ * (터널을 빠져나온 뒤의 실패를 "지금은 오프라인이에요"라고 말하는 경우).
+ *
+ * 그래서 판정 로직은 **한 줄도 새로 쓰지 않고** 이름만 열어, 문구 판정 함수가 다른 화면
+ * (`resolveLoadErrorCopy`/`resolveSaveErrorCopy`가 아니라 `importFailureMessage`)이어도 같은
+ * 배선 하나를 쓰게 한다. 위 두 훅의 동작은 이 export로 한 글자도 바뀌지 않는다.
+ *
+ * 인자는 "지금 실패 상태인가"다. 한 화면의 여러 뮤테이션이 **각자의 문장**을 가지면
+ * (가져오기 검수 화면의 체크·분류·확정) 뮤테이션마다 한 번씩 부른다 — 한쪽의 연결 판정이
+ * 다른 쪽 문장에 얹히지 않게 한 라운드 71 리뷰 S-6의 판정 그대로다.
  */
-function useErrorTimeConnectivity(isError: boolean): boolean {
+export function useErrorTimeConnectivity(isError: boolean): boolean {
   const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {

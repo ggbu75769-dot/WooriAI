@@ -852,7 +852,9 @@ export default function ItemsScreen() {
         selectedContextKey={childId}
         selectedContextName={childScopeLabel ?? "우리 아이"}
         onBack={() => router.push("/(tabs)")}
-        onRetry={() => items.refetch()}
+        // 라운드 72 트랙 E: `onRetry`는 이식본의 조회 실패 가지에만 쓰였는데, 이 화면이 `error`를
+        // 넘긴 적이 없어 그 가지는 도달할 수 없었다. 죽은 프롭과 함께 걷었다 — 다시 조회는 이
+        // 화면의 당겨서 새로고침(RefreshControl)이 그대로 진다.
         onItemPress={(item) => router.push(`/items/${item.id}`)}
         onSearch={setSearchText}
         activeSearchQuery={searchText}

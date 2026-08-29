@@ -382,6 +382,8 @@ describe("배선 계약 (source verification)", () => {
   it("업로드 화면이 여정 모듈을 지나고, 실패 텍스트 노드는 하나 그대로다", () => {
     const src = uploadScreen();
     expect(src).toContain('import { importFailureMessage } from "../../src/import/import-failure-messages";');
+    // 되돌리기 실패는 Alert 한 줄이라 setState가 없다 — 그 자리는 여전히 폴을 직접 띄운다
+    // (제외 이유는 shared-decision-wiring.test.ts의 목록에 값으로 적혀 있다).
     expect(src).toContain('import { isCurrentlyOnline } from "../../src/offline/connectivity";');
     expect(src).toContain('{importFailureMessage("upload", upload.error, { isOnline: uploadFailureOnline })}');
     expect(src).toContain(
@@ -390,9 +392,16 @@ describe("배선 계약 (source verification)", () => {
     // 종전의 무조건 재시도 안내(문구 하드코딩)는 남아 있으면 안 된다.
     expect(src).not.toContain(">업로드하지 못했어요. 잠시 후 다시 시도해 주세요.</Text>");
     expect(src).not.toContain('"되돌리지 못했어요. 잠시 후 다시 시도해 주세요."');
-    // 연결 판정은 실패 시점 폴 한 번이고, 매 시도에서 다시 무장한다.
-    expect(src).toContain("void isCurrentlyOnline().then(setUploadFailureOnline);");
-    expect(src).toContain("setUploadFailureOnline(true);");
+    /**
+     * 라운드 72 트랙 E — 연결 판정은 여전히 **실패 시점 폴 한 번**이고 매 시도에서 다시
+     * 무장하지만, 그 배선을 화면이 손으로 적지 않는다. 종전 두 조각
+     * (`onMutate`의 `setUploadFailureOnline(true)` + `onError`의
+     * `void isCurrentlyOnline().then(setUploadFailureOnline)`)에는 언마운트 미가드와 연속 실패
+     * 레이스가 남아 있었다 — 공용 훅이 그 둘을 cancelled 가드로 이미 닫아 두었다.
+     */
+    expect(src).toContain('import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";');
+    expect(src).toContain("const uploadFailureOnline = useErrorTimeConnectivity(upload.isError);");
+    expect(src).not.toContain("setUploadFailureOnline");
   });
 
   it("⚠️ IMP-003 픽셀락 — 업로드 화면의 렌더가 바뀐 곳은 실패 상태의 텍스트 노드뿐이다", () => {
@@ -418,16 +427,20 @@ describe("배선 계약 (source verification)", () => {
   it("검수 화면의 저장·확정 실패가 여정 모듈을 지난다 (조회 실패 둘은 종전 문구 그대로)", () => {
     const src = reviewScreen();
     expect(src).toContain('import { importFailureMessage } from "../../src/import/import-failure-messages";');
-    expect(src).toContain('import { isCurrentlyOnline } from "../../src/offline/connectivity";');
+    expect(src).toContain('import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";');
     // 라운드 71 리뷰 S-6: 행 편집의 연결 판정은 뮤테이션별 상태 둘이고(체크·분류), 문장을 고를
     // 때 오류와 그 판정을 **한 짝으로** 집는다 — 한쪽의 판정이 다른 쪽 문장에 얹히지 않는다.
     expect(src).toContain(
       '{importFailureMessage("row_edit", rowEditFailure.error, { isOnline: rowEditFailure.isOnline })}'
     );
-    expect(src).toContain("const [toggleFailureOnline, setToggleFailureOnline] = useState(true);");
-    expect(src).toContain("const [categoryFailureOnline, setCategoryFailureOnline] = useState(true);");
-    expect(src).toContain("void isCurrentlyOnline().then(setToggleFailureOnline);");
-    expect(src).toContain("void isCurrentlyOnline().then(setCategoryFailureOnline);");
+    // 라운드 72 트랙 E: 뮤테이션별 한 자리라는 사실은 그대로이고, 그 판정을 손으로 적지 않는다.
+    expect(src).toContain("const toggleFailureOnline = useErrorTimeConnectivity(toggleRow.isError);");
+    expect(src).toContain("const categoryFailureOnline = useErrorTimeConnectivity(updateCategory.isError);");
+    expect(src).toContain("const confirmFailureOnline = useErrorTimeConnectivity(confirm.isError);");
+    // 손배선(useState + onMutate 무장 + onError 폴)은 남아 있으면 안 된다.
+    for (const setter of ["setToggleFailureOnline", "setCategoryFailureOnline", "setConfirmFailureOnline"]) {
+      expect(src, setter).not.toContain(`${setter}(`);
+    }
     // 공용 상태 한 벌이던 종전 배선은 남아 있으면 안 된다.
     expect(src).not.toContain("rowEditFailureOnline");
     expect(src).toContain('{importFailureMessage("confirm", confirm.error, { isOnline: confirmFailureOnline })}');

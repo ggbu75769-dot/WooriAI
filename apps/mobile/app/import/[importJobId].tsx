@@ -49,7 +49,8 @@ import {
 // 라운드 71 트랙 A: 행 편집·확정 실패는 조회 실패가 아니다 — 문구·판정은 이 순수 모듈 한 곳에서 온다.
 import { importFailureMessage } from "../../src/import/import-failure-messages";
 import { shouldForgetImportResume, shouldMarkImportResumeConfirmed } from "../../src/import/import-resume";
-import { isCurrentlyOnline } from "../../src/offline/connectivity";
+// 라운드 72 트랙 E: 실패 시점 연결 판정은 공용 배선 한 벌에서 온다(손으로 다시 적지 않는다).
+import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";
 import {
   attentionFilterChipLabel,
   buildImportBulkSelectionPlan,
@@ -463,24 +464,6 @@ export default function ImportPreviewScreen() {
    * 행이 칩 12개를 항상 들고 있으면 가상화가 아끼려던 것을 그대로 다시 쓴다.
    */
   const [expandedCategoryRowId, setExpandedCategoryRowId] = useState<string | null>(null);
-  /**
-   * 라운드 71 트랙 A — **실패한 그 순간의 연결 상태.** 자리마다 따로 들고 있는 이유는 두 실패가
-   * 동시에 화면에 설 수 있고 원인이 서로 다를 수 있기 때문이다.
-   *
-   * 판정은 point-in-time 폴 한 번이고(가족 화면이 쓰는 그 배선 — 새 훅을 만들지 않는다),
-   * 기본값 true는 폴이 돌아오기 전과 판정 불가 플랫폼(web)에서 **일반 문구로 안전하게 떨어짐**을
-   * 뜻한다. 매 시도 시작에서 true로 되돌려 앞 실패의 판정이 다음 실패에 얹히지 않게 한다.
-   *
-   * 라운드 71 리뷰 S-6 — 행 편집 자리가 **뮤테이션 둘의 공용 상태 하나**였다. 체크 토글과 분류
-   * 편집은 서로 다른 요청이고 각자 실패할 수 있는데, 한쪽의 연결 판정이 다른 쪽 문장에 그대로
-   * 얹혔다: 오프라인에서 체크가 실패해 false로 내려간 뒤 분류 편집이 (연결이 돌아와) 서버
-   * 오류로 실패하면, 화면은 체크의 오류를 오프라인 문구로 말하거나 그 반대를 했다. 상태를
-   * 뮤테이션별로 나누고, 문장을 고를 때 **오류와 연결 판정을 같은 짝으로** 집는다.
-   */
-  const [toggleFailureOnline, setToggleFailureOnline] = useState(true);
-  const [categoryFailureOnline, setCategoryFailureOnline] = useState(true);
-  const [confirmFailureOnline, setConfirmFailureOnline] = useState(true);
-
   const rowsQueryKey = useMemo(() => ["import-rows", importJobId] as const, [importJobId]);
 
   /**
@@ -600,7 +583,6 @@ export default function ImportPreviewScreen() {
     // `toggleRow.isPending`이 **전 행을 잠갔다** -- 2,000행짜리 목록에서 체크 한 번마다 목록
     // 전체가 굳었다.
     onMutate: async (row) => {
-      setToggleFailureOnline(true);
       await queryClient.cancelQueries({ queryKey: rowsQueryKey });
       const snapshot = queryClient.getQueryData<ImportRowsResponse>(rowsQueryKey);
       setPendingRowIds((ids) => {
@@ -621,10 +603,9 @@ export default function ImportPreviewScreen() {
       );
     },
     // 실패하면 그 행만 원래대로 되돌린다(스냅샷 통째로 덮으면 그 사이 성공한 다른 행까지 지워진다).
-    // 라운드 71 트랙 A: **롤백 동작은 한 줄도 바뀌지 않는다** — 더해지는 것은 그 실패 뒤에 설
-    // 문장을 고르기 위한 연결 상태 폴 한 번뿐이다.
+    // 라운드 71 트랙 A / 72 트랙 E: **롤백 동작은 한 줄도 바뀌지 않는다.** 종전에 이 자리에 함께
+    // 있던 연결 상태 폴은 공용 배선(useErrorTimeConnectivity)으로 옮겨 갔다 — 아래 참고.
     onError: (_error, row, context) => {
-      void isCurrentlyOnline().then(setToggleFailureOnline);
       const snapshot = context?.snapshot;
       if (!snapshot) return;
       queryClient.setQueryData<ImportRowsResponse>(rowsQueryKey, (current) =>
@@ -656,7 +637,6 @@ export default function ImportPreviewScreen() {
     mutationFn: ({ row, categoryId }: { row: ImportRow; categoryId: string }) =>
       updateImportRow(authToken!, importJobId, row.id, { categoryId }),
     onMutate: async ({ row }) => {
-      setCategoryFailureOnline(true);
       // 라운드 65 후속(#5): 진행 중인 목록 재조회를 먼저 세운다 — `toggleRow.onMutate`와 같은
       // 한 줄이다. onSuccess가 서버가 돌려준 행을 캐시에 꽂는데, 그 사이 날아가던 refetch가
       // 뒤늦게 착지하면 **분류를 고르기 전의 행**으로 되돌아간다(사용자가 고른 값이 조용히
@@ -674,10 +654,8 @@ export default function ImportPreviewScreen() {
       );
     },
     // 라운드 71 트랙 A: 캐시는 손대지 않는다(이 뮤테이션은 낙관 갱신을 하지 않으므로 되돌릴
-    // 것이 없다) — 실패 뒤에 설 문장을 고르기 위한 연결 상태 폴 한 번뿐이다.
-    onError: () => {
-      void isCurrentlyOnline().then(setCategoryFailureOnline);
-    },
+    // 것이 없다). 라운드 72 트랙 E: 실패 뒤에 설 문장을 고르기 위한 연결 판정은 공용 배선이
+    // 지므로 이 자리에는 남길 일이 없다 — `onError` 갈래 자체가 사라졌다.
     onSettled: (_data, _error, { row }) => {
       setPendingRowIds((ids) => {
         if (!ids.has(row.id)) return ids;
@@ -699,7 +677,6 @@ export default function ImportPreviewScreen() {
   const [landingMonth, setLandingMonth] = useState<string | null>(null);
   const confirm = useMutation({
     mutationFn: () => {
-      setConfirmFailureOnline(true);
       const rowList = rows.data?.rows ?? [];
       const confirmedIds = selectedRowIds(rowList);
       // 실제로 가져가는 행만 본다 -- 확정에서 빠진 행(잠긴 행·체크 해제)의 날짜로 착지 월을
@@ -720,15 +697,31 @@ export default function ImportPreviewScreen() {
       await queryClient.invalidateQueries({ queryKey: ["home"] });
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["budget"] });
-    },
-    /**
-     * 라운드 71 트랙 A — **확정 CAS·잠금 규칙은 한 줄도 바뀌지 않는다**(라운드 42 L-2의 영구
-     * 손실 창). 여기서 하는 일은 실패 뒤에 설 문장을 고를 연결 상태를 한 번 확인하는 것뿐이다.
-     */
-    onError: () => {
-      void isCurrentlyOnline().then(setConfirmFailureOnline);
     }
   });
+
+  /**
+   * 라운드 71 트랙 A — **실패한 그 순간의 연결 상태.** 자리마다 따로 들고 있는 이유는 두 실패가
+   * 동시에 화면에 설 수 있고 원인이 서로 다를 수 있기 때문이다(라운드 71 리뷰 S-6: 체크 토글과
+   * 분류 편집은 서로 다른 요청이라 한쪽의 연결 판정이 다른 쪽 문장에 얹히면 안 된다 — 문장을
+   * 고를 때 **오류와 연결 판정을 같은 짝으로** 집는다).
+   *
+   * 라운드 72 트랙 E — 그 판정을 **손으로 세 벌 적지 않는다.** 종전 배선은 뮤테이션마다
+   * `useState(true)` + 시작 시 무장 + `onError`의 `void isCurrentlyOnline().then(setX)`였고,
+   * 그 형태에는 라운드 52 QA P3-1이 예산·아이 프로필에서 이미 없앤 두 구멍이 남아 있었다 —
+   * ① 실패 직후 화면을 떠나면 사라진 화면에 setState가 걸리고(검수 화면은 뒤로 나가는 것이 가장
+   * 흔한 반응이다), ② **연속 실패에서 늦게 도착한 옛 판정이 최신 판정을 덮는다**(터널 안에서 얻은
+   * "오프라인"이 터널을 빠져나온 뒤의 실패에 뒤늦게 얹혀, 연결이 있는데도 화면이 오프라인이라고
+   * 말한다 — 라운드 71 A가 세운 정직한 문장이 배선 때문에 틀린 사실을 말하는 경우다).
+   *
+   * 공용 배선(`useErrorTimeConnectivity`)은 그 둘을 cancelled 가드 하나로 이미 닫아 두었고,
+   * 에러가 풀리면 초기값 true로 되돌리므로 종전의 "매 시도 시작에서 무장"도 그대로다. 기본값
+   * true는 폴이 돌아오기 전과 판정 불가 플랫폼(web)에서 **일반 문구로 안전하게 떨어짐**을 뜻한다.
+   * 문구·판정 함수(`importFailureMessage`)는 한 글자도 바뀌지 않는다.
+   */
+  const toggleFailureOnline = useErrorTimeConnectivity(toggleRow.isError);
+  const categoryFailureOnline = useErrorTimeConnectivity(updateCategory.isError);
+  const confirmFailureOnline = useErrorTimeConnectivity(confirm.isError);
 
   const rowList = rows.data?.rows ?? [];
   const selectedCount = selectedRowIds(rowList).length;
