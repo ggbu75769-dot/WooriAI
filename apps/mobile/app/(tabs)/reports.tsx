@@ -73,6 +73,9 @@ import {
   REPORTS_MONTH_NONCE_PARAM,
   REPORTS_MONTH_PARAM
 } from "../../src/reports/month-landing";
+// GAP-072 트랙 C(#3): 기록이 0건인 기간의 카드(제목·액션). 끝난 기간에는 약속 대신 사실 한 줄이
+// 서고, 현재 기간은 종전 그대로다 -- 문장 틀은 기록 탭의 순수 모듈에서 온다(문장 한 벌).
+import { buildReportEmptyPeriodCard } from "../../src/reports/empty-period-card";
 import { buildMonthlyInsight, resolveMonthStatus } from "../../src/reports/monthly-insight";
 import {
   evaluateReportPendingScopeNotice,
@@ -84,7 +87,6 @@ import { evaluateTrendDirection } from "../../src/reports/trend-direction";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
 import { refreshOfflineSyncSnapshot, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
-import { EXPENSE_VIEW_ONLY_EMPTY_TITLE } from "../../src/family/record-permissions";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -342,6 +344,21 @@ export default function ReportsScreen() {
     setMonthOffset((value) => value + 1);
     announceForA11y(periodLabelForOffset(baseDate, periodUnit, monthOffset + 1));
   };
+  /**
+   * GAP-072 트랙 C(#3): 끝난 빈 기간 카드의 액션 — 현재 기간으로 되돌아간다.
+   *
+   * 화살표 이동과 **같은 문법**이다(오프셋 하나를 옮기고 새 기간 라벨을 읽어 준다). 눈으로는
+   * 화면 전체가 바뀌지만 소리로만 쓰는 사람에게는 침묵이라, 위 두 함수와 같은 announce를 남긴다
+   * -- 문장은 `periodLabelForOffset`이 만드는 그 라벨 그대로다(새 문구 0건).
+   *
+   * 이 버튼은 **읽기 동작**이라 지출 게이트를 지나지 않는다(기록 탭이 끝난 빈 달의 두 갈래에
+   * 내린 판정과 같다). 이미 현재 기간이면 카드가 이 액션을 내지 않지만, 그래도 한 번 막는다.
+   */
+  const goToCurrentPeriod = () => {
+    if (!canGoNextPeriod) return;
+    setMonthOffset(0);
+    announceForA11y(periodLabelForOffset(baseDate, periodUnit, 0));
+  };
 
   const previousMonthDate = addMonths(reportDate, -1);
   const previousMonthYearMonth = yearMonthOf(previousMonthDate);
@@ -412,6 +429,25 @@ export default function ReportsScreen() {
   });
   const categoryName = buildCategoryNameLookup(categories.data?.categories);
   const categoryCardTitle = period === "월간" ? `${reportDate.getMonth() + 1}월 카테고리 비중` : `${periodLabel} 카테고리 비중`;
+  /**
+   * GAP-072 트랙 C(#3) — 그 기간에 기록이 0건일 때 도넛 자리에 서는 카드.
+   *
+   * **바로 위 줄과 같은 기간을 가리키게** 하는 것이 이 배선의 전부다: 도넛 제목이 `periodLabel`
+   * (·같은 `reportDate`)에서 오므로 빈 카드도 같은 값을 받는다. 종전에는 이 카드만 "이번 달"을
+   * 고정 문자열로 말해서, 21개월 전으로 점프한 화면이 "2025년 11월 카테고리 비중"과 "이번 달"을
+   * 동시에 말했다.
+   *
+   * 판정·문구는 전부 순수 모듈에 있고(src/reports/empty-period-card.ts) 화면은 아래에서 키
+   * (action)로 배선만 한다. "끝난 기간인가"도 새로 판정하지 않는다 -- 화살표가 이미 쓰는
+   * `canGoNextPeriod`(= 과거 오프셋에서만 참)를 그대로 뒤집어 넘긴다.
+   */
+  const emptyPeriodCard = buildReportEmptyPeriodCard({
+    unit: periodUnit,
+    periodLabel,
+    isCurrentPeriod: !canGoNextPeriod,
+    // 라운드 40 J-5: 보기 전용 세션의 제목 갈래는 종전 그대로 순수 모듈이 고른다.
+    expenseEntryLocked: expenseGate.locked
+  });
   /**
    * GAP-067 트랙 A(#6) — 분기 합계도 **한 번의 범위 질의**로 접는다.
    *
@@ -1058,17 +1094,21 @@ export default function ReportsScreen() {
                   onPress={() => activeCategory.refetch()}
                 />
               ) : categoryData.length === 0 ? (
+                /* GAP-072 트랙 C(#3): 제목·라벨·액션 모두 순수 모듈이 고른다(화면에 문구 리터럴
+                   0건). 끝난 기간에서는 그 기간을 이름으로 부르는 사실 한 줄과 [이번 달 보기 ·
+                   이번 분기 보기 · 올해 보기]가 서고, 현재 기간·보기 전용 갈래는 종전과 바이트
+                   단위로 같다. 라운드 40 J-5의 보기 전용 문구도 그 모듈을 지나 온다. */
                 <EmptyStateCard
-                  // 라운드 40 J-5: 보기 전용 세션에서는 "첫 기록을 남기면 …"이 지킬 수 없는
-                  // 약속이 된다(그 조건을 이 사람은 만족시킬 수 없다) -- 홈·기록 탭의 빈 자리와
-                  // 같은 사실 한 줄로 바꾼다(문구 단일 소스: src/family/record-permissions.ts).
-                  title={
-                    expenseGate.locked
-                      ? EXPENSE_VIEW_ONLY_EMPTY_TITLE
-                      : "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
+                  title={emptyPeriodCard.title}
+                  actionLabel={emptyPeriodCard.actionLabel}
+                  onPress={
+                    // 끝난 기간의 액션은 **화면 이동**이라 지출 게이트를 지나지 않는다(읽기
+                    // 동작이다). 지출 생성 입구인 "record"만 종전처럼 게이트를 지난다 --
+                    // 날짜를 지어내지 않으므로 그 입구는 현재 기간에만 열린다.
+                    emptyPeriodCard.action === "go-current-period"
+                      ? goToCurrentPeriod
+                      : expenseGate.guard(() => router.push("/expenses/new"))
                   }
-                  actionLabel="지출 기록하기"
-                  onPress={expenseGate.guard(() => router.push("/expenses/new"))}
                 />
               ) : (
                 // 월간/분기/연간 모두 categoryPeriod로 해당 기간만 집계한 비중을 보여준다 (REP-104).
