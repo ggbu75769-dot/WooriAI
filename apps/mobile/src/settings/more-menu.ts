@@ -32,9 +32,21 @@
 // D1 후속(실기기 피드백 2): 행 글리프가 Ionicons **이름**이 됐다. 타입 전용 import라 런타임에는
 // 아무것도 들어오지 않는다(이 모듈은 vitest에서 도는 순수 모듈로 남는다).
 import type { Ionicons } from "@expo/vector-icons";
+// 라운드 68 트랙 B(#6): 잠금 행의 라벨·낭독 문장은 **이미 있는 셋**을 그대로 쓴다(새 문구 0건).
+// 내보내기 제목만 주입받는 이유는 그 단일 소스가 화면 컴포넌트 파일이기 때문이고, 앱 잠금 문구는
+// 순수 모듈이라 여기서 곧장 읽어도 이 모듈이 vitest에서 그대로 돈다.
+import { APP_LOCK_LOCK_NOW_A11Y_LABEL, APP_LOCK_LOCK_NOW_LABEL } from "../security/app-lock";
 
 /** 세션 메뉴 행의 식별자 — 테스트와 화면이 순서/구성을 말할 때 쓰는 안정된 이름이다. */
-export type MoreMenuRowId = "children" | "family" | "budget" | "notifications" | "settings" | "export" | "appInfo";
+export type MoreMenuRowId =
+  | "children"
+  | "family"
+  | "budget"
+  | "notifications"
+  | "settings"
+  | "lockNow"
+  | "export"
+  | "appInfo";
 
 /**
  * DSN-053 P2-D — 세션 메뉴의 **4분할 구획**.
@@ -68,8 +80,14 @@ export type MoreMenuRowSpec = {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   /**
-   * 이동할 라우트. 화면 안에서 처리하는 행(내보내기 카드 토글 · 앱 정보 Alert)은 `null`이고,
-   * 그 행의 동작은 화면이 id로 붙인다 — 라우팅이 아닌 동작을 이 모듈이 알 필요가 없다.
+   * 라운드 68 트랙 B(#6): 스크린리더가 읽을 문장이 보이는 제목과 **달라야 할 때만** 채운다.
+   * 없으면 화면은 종전대로 제목(과 캡션)을 읽어 준다 — 기존 일곱 행은 이 값이 없어 낭독이
+   * 한 글자도 바뀌지 않는다.
+   */
+  a11yLabel?: string;
+  /**
+   * 이동할 라우트. 화면 안에서 처리하는 행(내보내기 카드 토글 · 앱 정보 Alert · 지금 잠그기)은
+   * `null`이고, 그 행의 동작은 화면이 id로 붙인다 — 라우팅이 아닌 동작을 이 모듈이 알 필요가 없다.
    */
   route: string | null;
 };
@@ -93,8 +111,16 @@ export const MORE_MENU_SETTINGS_ONLY_ROUTES = ["/import", "/settings/privacy"] a
  *
  * @param exportTitle CSV 내보내기 행의 제목. 문구 단일 소스는 src/export/ExpenseCsvExport.tsx의
  *   `EXPORT_MENU_TITLE`이라 여기서 다시 적지 않고 주입받는다(설정 화면도 같은 상수를 쓴다).
+ * @param appLockEnabled 이 계정에서 앱 잠금이 **켜져 있는가**(GAP-068 #6). 켜지 않은 절대다수
+ *   계정은 종전 7행 그대로다 — 아래 조건부 행 주석 참고.
  */
-export function buildMoreSessionMenuRows({ exportTitle }: { exportTitle: string }): MoreMenuRowSpec[] {
+export function buildMoreSessionMenuRows({
+  exportTitle,
+  appLockEnabled = false
+}: {
+  exportTitle: string;
+  appLockEnabled?: boolean;
+}): MoreMenuRowSpec[] {
   return [
     { id: "children", section: "child", icon: "person-circle-outline", title: "아이 관리", route: "/settings/children" },
     { id: "family", section: "family", icon: "people-outline", title: "가족 관리", route: "/family" },
@@ -104,6 +130,36 @@ export function buildMoreSessionMenuRows({ exportTitle }: { exportTitle: string 
     // 설정 안의 "알림 설정"은 원 안의 종(notifications-circle-outline)이다.
     { id: "notifications", section: "settings", icon: "notifications-outline", title: "알림함", route: "/notifications" },
     { id: "settings", section: "settings", icon: "settings-outline", title: "설정", route: "/settings" },
+    /**
+     * 라운드 68 트랙 B(GAP-068 #6) — **"지금 잠그기"가 홈에서 다섯 번째 탭**이었다.
+     *
+     * 그 버튼의 위협 모델은 문장으로 못박혀 있다(`APP_LOCK_LOCK_NOW_HINT`: "폰을 잠깐 건네주기
+     * 전에 눌러요."). 그런데 닿는 길은 하나뿐이었다 — 홈 [더보기] → [설정] → [앱 잠금] → 잠금
+     * 설정 화면 → [지금 잠그기]. 폰을 건네는 그 3초에 다섯 번을 누를 사람은 없고, 그러면 이
+     * 잠금이 막기로 한 **유일한 상황**이 그대로 일어난다. 여기에 행을 하나 두면 두 번이다.
+     *
+     * **조건부 행인 이유**: 더보기의 "7행 고정"은 픽셀락이 아니라 레이아웃 근거다(SET-001 캡처는
+     * 비로그인 경로이고 이 모듈은 세션 메뉴만 만든다 — 이 파일 머리말). 잃는 것은 "한 화면에
+     * 들어오는 compact" 근거뿐이므로, 잠금을 켜지 않은 절대다수 계정은 **종전 7행 그대로** 두고
+     * 켠 계정에서만 8행이 된다. 홈 퀵액션(HOME-001 캡처)에는 세우지 않는다 — 그쪽은 승인 디자인
+     * 변경이라 변경 요청이 선행이다.
+     *
+     * 새 화면 0건·새 문구 0건이고, 동작은 스토어 액션 하나다(`lockNow()` — 오버레이가 전역이라
+     * 화면을 옮기지 않는다). 이 행이 늘어난다고 잠금이 더 많은 것을 막게 되는 것은 아니므로
+     * 문구는 커지지 않는다(수용 기준 11).
+     */
+    ...(appLockEnabled
+      ? [
+          {
+            id: "lockNow" as const,
+            section: "settings" as const,
+            icon: "lock-closed-outline" as const,
+            title: APP_LOCK_LOCK_NOW_LABEL,
+            a11yLabel: APP_LOCK_LOCK_NOW_A11Y_LABEL,
+            route: null
+          }
+        ]
+      : []),
     // 라우트가 없는 두 행: 내보내기는 같은 화면의 기간 선택 카드를 접었다 폈다 하고,
     // 앱 정보는 Alert만 띄운다. 그 동작은 화면이 id로 붙인다.
     // 내보내기가 "예산 · 데이터"에 있는 이유: 이 행이 여는 것은 설정 토글이 아니라 **지출

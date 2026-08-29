@@ -142,7 +142,7 @@ describe("Batch 07 mobile items and commerce contract", () => {
     // 여는 URL(redirectUrl)과 다른 값이라 한 칸으로 합칠 수 없다.
     expect(productDetailSource).toContain("linkOpenFallback");
     expect(productDetailSource).toMatch(
-      /catch\s*{\s*showLinkFailure\([^)]*\);\s*setLinkOpenFallback\(\{\s*redirectUrl: result\.redirectUrl,\s*shareUrl: result\.shareUrl,\s*disclosureText: result\.disclosureText,\s*link\s*\}\);\s*}/
+      /catch\s*{[\s\S]{0,400}?showLinkFailure\([^;]*\);\s*setLinkOpenFallback\(\{\s*redirectUrl: result\.redirectUrl,\s*shareUrl: result\.shareUrl,\s*disclosureText: result\.disclosureText,\s*link\s*\}\);\s*}/
     );
 
     // Retry re-attempts Linking.openURL against the same stored redirect URL.
@@ -157,12 +157,18 @@ describe("Batch 07 mobile items and commerce contract", () => {
     // 문구 계약은 link-marker.test.ts가 진다.
     //
     // 라운드 67 #4: **나가는 URL은 서버가 준 공유 URL**(`shareUrl`)이다 — 그것이 우리 집계를
-    // 지나고, 어드민이 내린 링크는 그 주소에서 404가 된다. 없으면 종전 URL로 떨어진다.
+    // 지나고, 어드민이 내린 링크는 그 주소에서 404가 된다.
     // 앱이 문자열을 스스로 잇지 않는다는 것도 함께 못 박는다(조립은 서버 한 자리).
+    //
+    // 라운드 68 C(#4): **폴백이 사라졌다.** 서버는 워커가 4xx를 확인한 링크(broken)에
+    // `shareUrl`을 싣지 않으므로, 원문 URL로 떨어지는 폴백은 "우리가 죽은 줄 아는 주소를
+    // 집계도 회수도 없이 내보내는" 길이 된다. 그래서 나가는 값은 `shareUrl` 하나뿐이고,
+    // 그 값이 없으면 공유 자체를 하지 않는다(아래 렌더 계약).
     expect(productDetailSource).toContain("const shareFallbackLink = () => {");
     expect(productDetailSource).toMatch(
-      /shareFallbackLink[\s\S]*?Share\.share\(\{\s*message: purchaseLinkShareMessage\(\{\s*url: linkOpenFallback\.shareUrl \?\? linkOpenFallback\.redirectUrl,/
+      /shareFallbackLink[\s\S]*?Share\.share\(\{\s*message: purchaseLinkShareMessage\(\{\s*url: linkOpenFallback\.shareUrl,/
     );
+    expect(productDetailSource).not.toContain("linkOpenFallback.shareUrl ?? linkOpenFallback.redirectUrl");
     expect(productDetailSource).not.toMatch(/Share\.share\(\{ message: linkOpenFallback\.redirectUrl \}\)/);
     // 앱이 `/r/` 주소를 짓지 않는다(베이스도 경로도 서버의 것이다).
     expect(productDetailSource).not.toContain("/api/v1/r/");
@@ -174,5 +180,13 @@ describe("Batch 07 mobile items and commerce contract", () => {
 
     // The fallback card renders both a share action and a "다시 시도" (retry) action.
     expect(productDetailSource).toMatch(/{linkOpenFallback \? \([\s\S]*?링크 공유하기[\s\S]*?다시 시도[\s\S]*?\) : null}/);
+
+    // 라운드 68 C(#4): 그 공유 버튼은 **내보낼 주소가 있을 때만** 선다(같은 판정
+    // `canSharePurchaseLink` — 클릭 응답에 `shareUrl`이 없으면 서버가 깨진 줄 아는 링크이거나
+    // 애초에 코드가 없는 행이다). 버튼이 말없이 사라지지 않도록 그 자리에서 사실을 한 줄로
+    // 말하고, 재시도는 두 갈래 모두에 그대로 남는다.
+    expect(productDetailSource).toMatch(
+      /{canSharePurchaseLink\(linkOpenFallback\.shareUrl\) \? \([\s\S]*?링크 공유하기[\s\S]*?\) : \([\s\S]*?LINK_SHARE_UNAVAILABLE_NOTICE[\s\S]*?\)}/
+    );
   });
 });

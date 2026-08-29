@@ -524,6 +524,130 @@ describe("Items, commerce, and affiliate API", () => {
   });
 
   /**
+   * 라운드 68 C(#4) — **서버가 4xx로 확인한 링크는 밖으로 내보내지 않는다.**
+   *
+   * 워커는 죽은 링크를 알고 있었는데(`health_status = "broken"` — 4xx 또는 5홉 초과 리디렉트)
+   * 앱 경로가 그 값으로 하는 일은 정렬 강등 하나뿐이었다. 그래서 라운드 67 #4가 연 공유
+   * (`shareUrl` → `/api/v1/r/:code`)는 **우리가 죽은 줄 아는 주소**를 우리 도메인을 거쳐
+   * 카카오톡으로 내보내면서 `affiliate_clicks`에 익명 행까지 남겼다 — 있지도 않은 유입을
+   * 우리 숫자로 세는 셈이다.
+   *
+   * 이 테스트가 고정하는 것은 **네 갈래의 서로 다른 답**이다: broken만 공유 URL이 빠지고,
+   * ok·unstable·미확인은 종전 그대로 나간다(unstable은 일시적일 수 있어 벌주지 않는다 —
+   * 강등표의 등급 근거와 같은 판단). 그리고 **막히지 않는 것들**을 함께 못 박는다: 여는
+   * URL·링크 목록·개수·클릭 집계는 broken에서도 한 글자도 달라지지 않는다.
+   */
+  it("drops the outbound share URL for links the worker verified as 4xx, and only for those (라운드 68 C #4)", async () => {
+    const accessToken = await login(app, "round68-broken-link-share");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = moduleRef.get(PrismaService);
+
+    const template = await prisma.itemTemplate.create({
+      data: {
+        code: `${OWN_TEMPLATE_CODE_PREFIX}${randomUUID()}`,
+        name: "깨진 링크 공유 테스트 준비템",
+        necessityLevel: "essential",
+        reasonText: "라운드 68 C(#4) 공유 차단 검증 전용 픽스처.",
+        active: true
+      }
+    });
+
+    // 네 갈래를 한 준비템에 나란히 둔다(같은 요청·같은 사용자에서 답이 갈리는지 본다).
+    const linkFixtures = [
+      { displayOrder: 10, title: "정상 링크", healthStatus: "ok", shareable: true },
+      { displayOrder: 20, title: "미확인 링크", healthStatus: null, shareable: true },
+      { displayOrder: 30, title: "불안정 링크", healthStatus: "unstable", shareable: true },
+      { displayOrder: 40, title: "깨진 링크", healthStatus: "broken", shareable: false }
+    ];
+
+    try {
+      const linkIds = new Map<string, string>();
+      for (const fixture of linkFixtures) {
+        const created = await prisma.productLink.create({
+          data: {
+            itemTemplateId: template.id,
+            platform: "coupang",
+            title: fixture.title,
+            url: `https://example.com/dev/round68/${fixture.displayOrder}`,
+            affiliateUrl: `https://example.com/dev/affiliate/round68/${fixture.displayOrder}`,
+            isAffiliate: true,
+            isSponsored: false,
+            displayOrder: fixture.displayOrder,
+            active: true,
+            healthStatus: fixture.healthStatus,
+            healthCheckedAt: fixture.healthStatus ? new Date() : null
+          }
+        });
+        linkIds.set(fixture.title, created.id);
+      }
+
+      // 링크 목록은 이 변경과 무관하다 — 감추지 않는다(개수 그대로, health 비노출 그대로).
+      const detail = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/children/${childId}/items/${template.id}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body as { productLinks: ProductLink[] };
+      itemDetailSchema.parse(detail);
+      expect(detail.productLinks).toHaveLength(linkFixtures.length);
+      expect(detail.productLinks.map((link) => link.title)).toContain("깨진 링크");
+      for (const link of detail.productLinks) {
+        expect(link).not.toHaveProperty("healthStatus");
+      }
+
+      for (const fixture of linkFixtures) {
+        const linkId = linkIds.get(fixture.title)!;
+        const clickResponse = await request(app.getHttpServer())
+          .post(`/api/v1/product-links/${linkId}/click`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ childId, referrerScreenId: "ITEM-003" })
+          .expect(200);
+
+        // 계약 무변경: `shareUrl`은 처음부터 optional이라 스키마는 양쪽 갈래를 다 받는다.
+        affiliateClickResponseSchema.parse(clickResponse.body);
+
+        // **여는 URL은 어느 갈래에서도 종전 그대로다** — 깨진 링크라도 사용자가 직접 눌러
+        // 보는 길을 막지 않는다(판정은 묵었거나 틀릴 수 있고, 감추면 없는 사실을 말하게 된다).
+        expect(clickResponse.body.redirectUrl, fixture.title).toBe(
+          `https://example.com/dev/affiliate/round68/${fixture.displayOrder}`
+        );
+        // 제휴 고지도 갈래와 무관하게 그대로 실린다(DNC-010).
+        expect(clickResponse.body.disclosureText, fixture.title).toEqual(expect.stringContaining("수수료"));
+
+        // 클릭 집계도 그대로다 — 막는 것은 **밖으로 나가는 사본** 하나뿐이다.
+        const clicks = await prisma.affiliateClick.findMany({ where: { productLinkId: linkId } });
+        expect(clicks.map((row) => row.id), fixture.title).toContain(clickResponse.body.clickId);
+
+        if (fixture.shareable) {
+          const shareUrl = String(clickResponse.body.shareUrl);
+          expect(shareUrl, fixture.title).not.toBe(clickResponse.body.redirectUrl);
+          // 라운드 64 C-1과 같은 방식: 모양을 다시 조립해 비교하지 않고 **실제로 때린다**.
+          const shared = await request(app.getHttpServer()).get(new URL(shareUrl).pathname);
+          expect(shared.status, `${fixture.title}: 공유 URL이 응답하지 않는다`).toBe(302);
+          expect(shared.headers.location, fixture.title).toBe(clickResponse.body.redirectUrl);
+        } else {
+          // 워커가 눌러 보고 4xx를 받은 링크에는 내보낼 주소가 실리지 않는다. 앱은 이 부재를
+          // 보고 공유 버튼을 내린다(원문 URL로 떨어지는 폴백은 없앴다 —
+          // apps/mobile/src/items/link-marker.ts의 canSharePurchaseLink).
+          expect(clickResponse.body.shareUrl, fixture.title).toBeUndefined();
+          expect(Object.keys(clickResponse.body), fixture.title).not.toContain("shareUrl");
+        }
+      }
+
+      // ⚠️ `LINK_HEALTH_ENABLED`가 꺼진 배포에서는 `health_status`가 전부 null이라 이 변경이
+      // 아무것도 막지 않는다 — 오늘의 운영 기본값이 그것이고, 워커를 켜야 broken 행이 생긴다.
+      // 그 사실을 증명하는 것은 위 루프의 "미확인 링크"(healthStatus null · shareable) 갈래다:
+      // 그 링크의 공유 URL을 실제로 때려 302까지 확인한다. 픽스처 배열에 같은 것을 다시 묻는
+      // 단언은 자기 자신을 확인할 뿐이라 두지 않는다(라운드 68 리뷰 S-7).
+    } finally {
+      await prisma.affiliateClick.deleteMany({ where: { itemTemplateId: template.id } });
+      await prisma.productLink.deleteMany({ where: { itemTemplateId: template.id } });
+      await prisma.childItemStatus.deleteMany({ where: { itemTemplateId: template.id } });
+      await prisma.itemTemplate.deleteMany({ where: { id: template.id } });
+    }
+  });
+
+  /**
    * GAP-064 #5ⓑ — 클릭 응답만 **종별 기본 고지**를 지나지 않던 자리.
    *
    * 앱 DTO와 어드민 DTO는 둘 다 `defaultDisclosureFor`를 지나 링크의 `disclosure_text`가

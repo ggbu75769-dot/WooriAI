@@ -27,6 +27,20 @@ function futureRowDate(): string {
   return new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
+/**
+ * 라운드 68 A — **하한보다 오래된 행**도 같은 이유로 오늘에서 파생한다.
+ *
+ * 하한은 "240개월 전 달의 1일"이라 해가 갈수록 앞으로 움직인다(packages/domain의
+ * `getEntryDateFloor`). `1970-01-01` 같은 값을 박아 두면 지금은 통과하지만 그 자체로는
+ * 경계를 지켜 주지 못하고, 반대로 하한 근처를 박으면 언젠가 조용히 유효해진다. 21년 전이면
+ * 시간대 차이로도 뒤집히지 않을 만큼 하한 아래이고, 그 자체가 "20년보다 오래됐다"는 사실
+ * 말고 다른 무엇도 뜻하지 않는다(위 `futureRowDate`와 같은 규율).
+ */
+function tooOldRowDate(): string {
+  const today = new Date();
+  return new Date(Date.UTC(today.getUTCFullYear() - 21, today.getUTCMonth(), 15)).toISOString().slice(0, 10);
+}
+
 type ImportJob = {
   id: string;
   childId: string;
@@ -283,6 +297,70 @@ describe("Excel import beta API", () => {
     expect(response.body.error.details.fields).toEqual([
       expect.objectContaining({ field: "fileName" })
     ]);
+  });
+
+  /**
+   * 라운드 68 A — **20년보다 오래된 날짜 행**도 그 행만 거절된다.
+   *
+   * 무슨 일이 있었나: 행 판정이 보던 날짜 규칙은 미래 하나뿐이었다
+   * (`validationStatusForImportRow` → `assertNotFutureDate`). 그래서 엑셀 날짜 열이 시리얼 값으로
+   * 오해돼 연도 1000대의 날짜가 만들어져도 그 행은 `valid`로 미리보기를 통과하고 기본 선택까지
+   * 됐다 — 사용자가 친 오타가 아닌데도, 확정되고 나면 그 지출은 누적 총액에는 들어가면서
+   * 어느 읽기 화면에서도 그 달을 열 수 없는 자리에 놓인다.
+   *
+   * 고친 뒤의 계약: 그 행은 `invalid_date`(기존 검증 상태 관례 그대로 — 새 상태를 만들지
+   * 않는다)이고 **선택되지 않으며**(DNC-012: 승인 전에는 저장하지 않는다), 같은 파일의 나머지
+   * 행은 평소대로 확정된다. 서버 가드 한 자리(store-shared의 `assertExpenseDateWithinPastFloor`)를
+   * 지나므로 지출 생성·수정과 **같은 경계**다.
+   */
+  it("라운드 68 A: 20년보다 오래된 날짜 행만 invalid_date로 떨구고 나머지 행은 살린다", async () => {
+    const accessToken = await login(app, "r68-import-date-floor");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const tooOld = tooOldRowDate();
+
+    const csvContent = [
+      "날짜,적요,금액",
+      "2026-07-06,기저귀 구매,32000",
+      `${tooOld},시리얼 오해된 행,41000`,
+      "2026-07-04,분유 구매,33000",
+      ""
+    ].join("\n");
+
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", "too-old.csv")
+        .attach("file", Buffer.from(csvContent, "utf8"), "too-old.csv")
+        .expect(200)
+    ).body as ImportJob;
+
+    const rows = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/imports/${job.id}/rows`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.rows as ImportRow[];
+
+    expect(rows).toHaveLength(3);
+    const tooOldRow = rows.find((row) => row.parsedItemName === "시리얼 오해된 행");
+    expect(tooOldRow, "하한보다 오래된 행을 찾지 못했다").toBeDefined();
+    expect(tooOldRow!.validationStatus).toBe("invalid_date");
+    // 사유를 달고 선택에서 빠진다 — 선택돼 있으면 확정이 그 행을 집어삼킨다.
+    expect(tooOldRow!.selected).toBe(false);
+    // 날짜 오류는 그 한 행뿐이다.
+    expect(rows.filter((row) => row.validationStatus === "invalid_date")).toHaveLength(1);
+    expect(rows.filter((row) => row.selected)).toHaveLength(2);
+
+    // 사용자가 그 행을 직접 골라 확정에 실어도 서버가 다시 판정하므로 들어가지 않는다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: rows.map((row) => row.id) })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ importedCount: 2, skippedCount: 1 });
+      });
   });
 
   /**

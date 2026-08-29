@@ -646,6 +646,21 @@ function errorMessage(error: unknown): string {
  *     preview rows go first and its header is masked second. Both orders are
  *     correct (neither predicate depends on the other's effect), but this one
  *     keeps the phase-9 counters reading as they always did.
+ *
+ * ---
+ * 시간 창이 **없는** 표는 둘이고, 각각 이유가 다르다 (GAP-068 #8). 이 목록 자체가 답이다 —
+ * 여기에 없는 표는 위 phase 중 하나가 덮고 있고, 여기 있는 둘은 **판정을 받은 뒤 남은 것**이지
+ * 빠뜨린 자리가 아니다. 근거는 각 모델의 머리말(prisma/schema.prisma)에 있다.
+ *  - `push_boundary_marks` — **가질 수 없다.** 예산 경계 평가가 지출 커밋 시점의 `yearMonth`로
+ *    돌기 때문에, 나이로 지우면 오래된 달을 수정할 때마다 80/100 푸시가 다시 나간다
+ *    (known-limitations D절의 at-most-once 계약이 깨진다). 성장률은 아이당 월 최대 2행
+ *    (2년에 48행)이고, 아이 물리 파기의 FK CASCADE가 유일한 — 그리고 충분한 — 삭제 경로다.
+ *    **여기에 phase를 추가하지 말 것.**
+ *  - `content_revisions` — **가질 수 있으나 아직 정하지 않았다.** 발행된 리비전의 payload는
+ *    이미 라이브에 있고 감사 봉투가 before/after를 따로 지므로 창을 여는 것 자체는 가능하지만,
+ *    보존 기간은 AUDIT_LOGS_RETENTION_DAYS·IMPORT_ROWS_RETENTION_DAYS와 같은 이유로 PM/법무가
+ *    정할 값이다. 정한다면 published·rejected·archived만 — draft와 예약분(in_review +
+ *    미래 scheduled_for)은 어드민의 살아 있는 작업물이다.
  */
 /**
  * Terminal wrapper thrown by run() AFTER all phases have executed, when at

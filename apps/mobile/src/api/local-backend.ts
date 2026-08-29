@@ -554,6 +554,21 @@ function assertValidCalendarDate(dateOnly: string) {
   }
 }
 
+/**
+ * 라운드 68 A 메모 — **여기에는 과거 하한을 넣지 않는다.**
+ *
+ * 서버는 이번 라운드부터 20년보다 오래된 지출 날짜를 거절한다(apps/api store-shared.ts의
+ * `assertExpenseDateWithinPastFloor`). 이 데모 백엔드는 그 서버를 흉내 내는 자리라 같은 규칙을
+ * 여기 적을 수도 있지만, 그러지 않는 이유가 셋이다.
+ *  1. **이 경로로는 그 값이 들어올 수 없다.** 데모의 유일한 쓰기 입구는 앱 폼 두 화면이고,
+ *     그 폼은 저장을 시작하기 전에 하한을 본다(src/expenses/entry-form-guards.ts의
+ *     `validateExpenseDateInput`). 여기 가드는 폼을 우회한 호출을 막는 자리가 아니다 —
+ *     데모에는 우회할 네트워크가 없다.
+ *  2. 데모는 **로그인 없이 화면을 보는 경로**다. 여기서 거절하면 픽셀락 캡처·비세션 미리보기가
+ *     쓰는 고정 시드 날짜가 미래에 바뀔 때 캡처가 조용히 깨진다.
+ *  3. 하한 판정을 두 벌로 두지 않는다는 것이 이 트랙의 계약이다(값은 도메인 한 곳).
+ * 미래 갈래는 종전 그대로다.
+ */
 function assertNotFutureDate(spentOn: string) {
   let future: boolean;
   try {

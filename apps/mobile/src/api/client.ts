@@ -318,7 +318,13 @@ export type AffiliateClickResponse = {
   /**
    * GAP-067 #4: **앱 밖으로 내보내는** URL(`…/api/v1/r/:code`). 서버가 조립한 문자열을
    * 그대로 싣는다 — 베이스(INVITE_LINK_BASE_URL)는 API 프로세스의 환경변수라 앱이 알 수 없고,
-   * 앱이 조립하면 같은 주소를 두 곳에서 짓게 된다. 없으면 종전대로 `redirectUrl`을 공유한다.
+   * 앱이 조립하면 같은 주소를 두 곳에서 짓게 된다.
+   *
+   * 라운드 68 C(#4): **없을 수 있다는 뜻이 늘었다.** 서버는 워커가 눌러 보고 4xx를 받은 링크
+   * (`health_status = "broken"`)에도 이 값을 싣지 않는다. 그래서 "없음"은 셋 중 하나이고
+   * (죽은 줄 아는 링크 · 코드 없는 옛 데이터 · 구버전 서버) **답은 셋 다 같다: 내보내지
+   * 않는다** — 원문 `redirectUrl`로 떨어지는 폴백은 없앴다(src/items/link-marker.ts의
+   * `canSharePurchaseLink` 머리말에 근거가 있다).
    */
   shareUrl?: string;
   disclosureText?: string;

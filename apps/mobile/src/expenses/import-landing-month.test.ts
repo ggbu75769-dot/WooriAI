@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ENTRY_DATE_MAX_PAST_MONTHS } from "@wooriai/domain";
 import {
   importLandingMonthNotice,
   resolveImportLandingMonth,
   resolveInitialMonthOffset,
+  MAX_PAST_MONTH_OFFSET,
   RECORDS_MONTH_PARAM
 } from "./import-landing-month";
 
@@ -178,5 +180,54 @@ describe("라운드 51 C-#11 화면 배선", () => {
     // 화면 안의 월 이동은 종전 로직 그대로다.
     expect(recordsSource).toContain("setMonthOffset((value) => value - 1);");
     expect(recordsSource).toContain("setMonthOffset((value) => value + 1);");
+  });
+
+  /**
+   * 라운드 68 리뷰 C-1 — **‹ 화살표도 같은 바닥에서 멈춘다.**
+   *
+   * `resolveInitialMonthOffset`은 20년보다 먼 달의 `month=` 파라미터를 이번 달로 되돌린다. 그런데
+   * 화살표에는 그 바닥이 없어, 파라미터로는 못 가는 달에 ‹ 를 눌러서는 갈 수 있었다. 그 달의
+   * 달력 칸을 누르면 기록 시트가 그 날짜로 열리는데(handleRecordForCalendarDate →
+   * `/expenses/new?spentOn=`) 저장 가드는 하한에서 거절한다 — 읽기가 쓰기보다 넓어진 자리다.
+   *
+   * 화면은 vitest에서 렌더할 수 없으므로 소스 계약으로 고정한다(이 파일의 다른 배선 단언과 같은
+   * 관례). 고정하는 것은 두 가지: 판정이 **이 모듈의 상수**에서 나온다는 것(숫자를 화면에 다시
+   * 적으면 파라미터 쪽 바닥과 갈린다)과, 그 판정이 함수 안과 버튼 양쪽에 걸린다는 것.
+   */
+  it("기록 탭의 ‹ 는 같은 상수에서 과거 바닥을 얻는다(파라미터 쪽과 두 벌이 아니다)", () => {
+    expect(recordsSource).toContain(
+      'import { MAX_PAST_MONTH_OFFSET, resolveInitialMonthOffset } from "../../src/expenses/import-landing-month";'
+    );
+    expect(recordsSource).toContain("const canGoPrevMonth = monthOffset > -MAX_PAST_MONTH_OFFSET;");
+    // 함수 안 가드: ‹ 를 부르는 다른 자리(0건 카드의 "지난달에서 찾기")도 이 바닥을 지난다.
+    expect(recordsSource).toContain("const goToPreviousMonth = () => {\n    if (!canGoPrevMonth) return;");
+    // 버튼도 다음 달 잠금과 **같은 형태**로 상태를 말한다(A11Y-117).
+    expect(recordsSource).toContain("accessibilityState={{ disabled: !canGoPrevMonth }}");
+    expect(recordsSource).toContain("disabled={!canGoPrevMonth}");
+    expect(recordsSource).toContain("opacity: canGoPrevMonth ? 1 : 0.35");
+    // 숫자는 화면에 없다 — 이 모듈이(그리고 그 위 도메인이) 단일 소스다.
+    expect(recordsSource).not.toMatch(/\b240\b/);
+  });
+});
+
+/**
+ * 라운드 68 A — 240이 적혀 있는 자리는 **하나뿐**이다.
+ *
+ * 라운드 54 P2-8이 이 상수를 단일 소스로 세웠고(그때 픽커가 적어 두고 있던 240을 지웠다),
+ * 이번 라운드에 그 소스가 도메인으로 한 칸 더 내려갔다. 값도 이름도 동작도 여기서는 그대로다 —
+ * 바뀐 이유는 하나다: 이제 **서버도 같은 하한을 쓰는데** 서버는 `apps/mobile`을 import할 수
+ * 없다. 두 층이 각자 240을 적으면 P2-8이 여기서 고친 바로 그 드리프트가 다시 생긴다.
+ */
+describe("라운드 68 A — 하한 숫자의 단일 소스", () => {
+  it("모바일 상수는 도메인 값을 그대로 읽고, 값은 종전과 같다", () => {
+    expect(MAX_PAST_MONTH_OFFSET).toBe(ENTRY_DATE_MAX_PAST_MONTHS);
+    expect(MAX_PAST_MONTH_OFFSET).toBe(240);
+  });
+
+  it("이 모듈에는 그 숫자가 리터럴로 적혀 있지 않다", () => {
+    const source = readFileSync(join(process.cwd(), "src/expenses/import-landing-month.ts"), "utf8");
+    expect(source).toContain('import { ENTRY_DATE_MAX_PAST_MONTHS } from "@wooriai/domain";');
+    expect(source).toContain("export const MAX_PAST_MONTH_OFFSET = ENTRY_DATE_MAX_PAST_MONTHS;");
+    expect(source).not.toMatch(/\b240\b/);
   });
 });

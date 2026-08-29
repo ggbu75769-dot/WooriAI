@@ -191,7 +191,9 @@ describe("A11Y-101 accessibility source contract", () => {
     expect(familySource).toContain("accessibilityLabel={value ? `${title}, ${value}` : title}");
 
     const moreSource = source("app/(tabs)/more.tsx");
-    expect(moreSource).toContain("accessibilityLabel={caption ? `${title}, ${caption}` : title}");
+    // 라운드 68 B(#6): 그 계산 앞에 낭독 전용 문장 슬롯이 하나 붙었다(`a11yLabel`) -- 채우지
+    // 않는 행(기존 일곱 · 비로그인 미리보기)의 낭독은 종전과 한 글자도 같다.
+    expect(moreSource).toContain("accessibilityLabel={a11yLabel ?? (caption ? `${title}, ${caption}` : title)}");
     expect(moreSource).toContain("accessibilityLabel={`${visibleProfile.nickname} 프로필 관리`}");
   });
 
@@ -781,20 +783,32 @@ describe("GAP-063 #10 라운드 63 신설 UI 접근성 계약", () => {
     }
     // 화면은 판정을 다시 하지 않고, 누를 수 없는 칸을 disabled 버튼이 아니라 **라벨만 있는
     // 비대화형 자리**로 그린다("버튼, 비활성"으로 읽히면 '왜 못 누르지'가 남는다).
-    const recordsSource = source("app/(tabs)/records.tsx");
-    expect(recordsSource).toContain("const action = resolveCalendarCellAction(cell);");
-    expect(recordsSource).toContain("const accessibilityLabel = calendarCellAccessibilityLabel(cell, { filterLabel }) ?? undefined;");
-    expect(recordsSource).toContain("<View accessible accessibilityLabel={accessibilityLabel} style={cellStyle}>");
-    expect(recordsSource).toContain('onPress={() => (action === "record-new" ? onRecordForDate(date) : onSelectDate(date))}');
+    // 라운드 68 E(#9): 달력 칸을 그리는 뷰가 app/(tabs)/records.tsx에서
+    // src/expenses/RecordsCalendar.tsx로 **그대로 옮겨졌다**(순수 이동). 단언의 뜻은 그대로이고
+    // 읽는 자리만 그 뷰로 따라간다.
+    const calendarViewSource = source("src/expenses/RecordsCalendar.tsx");
+    expect(calendarViewSource).toContain("const action = resolveCalendarCellAction(cell);");
+    expect(calendarViewSource).toContain(
+      "const accessibilityLabel = calendarCellAccessibilityLabel(cell, { filterLabel }) ?? undefined;"
+    );
+    expect(calendarViewSource).toContain("<View accessible accessibilityLabel={accessibilityLabel} style={cellStyle}>");
+    expect(calendarViewSource).toContain(
+      'onPress={() => (action === "record-new" ? onRecordForDate(date) : onSelectDate(date))}'
+    );
   });
 
   it("달력 범례가 새 목적지 둘을 말하고, 화면이 그 문장을 다시 적지 않는다", () => {
     // 음영만으로는 색일 뿐이고, 이제 "누르면 무엇이 되는가"가 칸마다 둘로 갈린다.
     expect(CALENDAR_LEGEND_TEXT).toContain("그날 기록으로 이동");
     expect(CALENDAR_LEGEND_TEXT).toContain("그날로 기록");
+    // 라운드 68 E(#9): 범례를 그리는 자리도 뷰 모듈로 옮겨졌다(순수 이동). "화면이 그 문장을
+    // 다시 적지 않는다"는 부정 단언은 화면·뷰 **양쪽**에 건다 — 옮기면서 문구가 새로 생기지
+    // 않았는지가 그 단언의 뜻이다.
     const recordsSource = source("app/(tabs)/records.tsx");
-    expect(recordsSource).toContain("<Text style={calendarLegendStyle}>{calendarLegendText(filterLabel)}</Text>");
+    const calendarViewSource = source("src/expenses/RecordsCalendar.tsx");
+    expect(calendarViewSource).toContain("<Text style={calendarLegendStyle}>{calendarLegendText(filterLabel)}</Text>");
     expect(recordsSource).not.toContain("색이 진할수록");
+    expect(calendarViewSource).not.toContain("색이 진할수록");
   });
 
   it("아이 삭제는 카드와 확인 Alert **두 자리**에서 어느 아이인지 말하고, 모르면 종전 문구 그대로다", () => {

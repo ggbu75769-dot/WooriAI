@@ -9,6 +9,7 @@ import { isHttpOrHttpsUrl } from "../common/validation/url-scheme";
 import { hashClickIp, isAllowedAffiliateUrl, PRODUCT_LINK_NOT_FOUND_ERROR } from "../items-commerce/affiliate-link-guard.util";
 import { type StageBandLabel } from "../items-commerce/stage-bands";
 import { withCommissionDisclosure } from "../items-commerce/share-disclosure";
+import type { LinkHealthStatus } from "../worker/jobs/link-health.job";
 import { rankItemsForTab, type ItemTab } from "./item-ranking";
 import { ChildAccessService } from "./child-access.service";
 import { ExpensesStoreService } from "./expenses-store.service";
@@ -221,6 +222,67 @@ function publicRedirectShareUrl(redirectCode: string): string {
   return `${base}/api/v1/r/${redirectCode}`;
 }
 
+/**
+ * `health_status`의 "확정된 죽은 링크" 값. 워커가 적는 문자열 그대로다
+ * (worker/jobs/link-health.job.ts의 `LinkHealthStatus` — 4xx 또는 5홉 초과 리디렉트).
+ * 정렬 강등표(`PRODUCT_LINK_HEALTH_DEMOTION`)가 같은 값을 키로 쓰지만, 그 표는 이번 변경의
+ * 무접촉 대상이라 여기서 상수 하나를 따로 세운다(표의 등급 구성은 한 글자도 바뀌지 않는다).
+ *
+ * 라운드 68 리뷰 S-2: 타입 주석은 워커의 `LinkHealthStatus`다 — 그 유니온에서 값 하나가
+ * 사라지거나 이름이 바뀌면 여기가 **컴파일 타임에** 터진다(문자열 리터럴로 두면 조용히 아무
+ * 링크도 막지 않는 상태가 된다). type-only import라 런타임 결합은 0이다(워커 모듈은 이 경로로
+ * 적재되지 않는다).
+ */
+const PRODUCT_LINK_HEALTH_BROKEN: LinkHealthStatus = "broken";
+
+/**
+ * 라운드 68 C(#4) — **밖으로 내보내도 되는 주소인가.**
+ *
+ * 라운드 64 S-1·67 #4가 쓴 그 문장을 한 칸 넓힌 것이다: "누르면 404가 나는 주소는 내보내지
+ * 않는다." 지금까지 그 규율은 `active`(= 어드민이 내렸는가) 하나에만 걸려 있었는데, 우리에게는
+ * **더 강한 근거**가 이미 있다 — `health_status = "broken"`은 워커가 실제로 눌러 보고 4xx(또는
+ * 5홉 초과 리디렉트)를 받은 링크다. 어드민이 아직 내리지 않았을 뿐 그 주소는 죽어 있고, 그것을
+ * `/r/:code`로 감싸 카카오톡으로 내보내면 **우리 도메인을 거쳐 죽은 주소에 데려다 놓으면서**
+ * `affiliate_clicks`에 익명 행까지 남긴다(있지도 않은 유입을 우리 숫자로 센다).
+ *
+ * 멈추는 것은 **밖으로 나가는 사본 하나뿐**이다. 여는 URL(`redirectUrl`)·링크 목록·개수·정렬은
+ * 한 글자도 바뀌지 않고, 링크를 목록에서 감추지도 않는다: 워커는 기본 off이고
+ * (`LINK_HEALTH_ENABLED`), 판정이 묵었거나 틀릴 수 있으며(정상 쇼핑몰에서도 5홉 초과가 난다),
+ * 감추는 순간 "그런 판매처가 없다"는 **없는 사실**을 말하게 된다. `toProductLinkDto`에 health를
+ * 노출하지도 않는다(계약 무변경 — "깨졌어요" 배지는 24시간 묵은 판정으로 판매처를 공개 비난하는
+ * 표시다).
+ *
+ * `unstable`은 막지 않는다 — 5xx·타임아웃·네트워크 오류라 일시적일 수 있고 워커가 다음 회차에
+ * 바로 재확인한다. 강등표의 등급 근거와 **같은 판단**이다: 살아 있을 가능성이 높은 링크를 죽은
+ * 링크와 같은 취급으로 벌주지 않는다.
+ *
+ * ⚠️ **`LINK_HEALTH_ENABLED`가 꺼진 배포에서는 이 함수가 아무것도 바꾸지 않는다** —
+ * `health_status`가 전부 null이라 모든 링크가 종전대로 공유 URL을 받는다. 그것이 오늘의 운영
+ * 기본값이고, 어드민도 그 상태를 정직하게 말하고 있다(`worker-health-view.ts` — "링크 검사:
+ * 꺼짐(LINK_HEALTH_ENABLED=0)"). 이 변경이 실제로 무언가를 막으려면 워커를 켜야 한다.
+ *
+ * 앱은 이 값이 없으면 **공유 버튼 자체를 내린다**(app/items/[itemTemplateId].tsx의
+ * `canSharePurchaseLink`). 원문 제휴 URL로 떨어지는 폴백은 두지 않는다 — 그것은 라운드 67 #4가
+ * 없애려던 바로 그 값이고(집계에 남지 않고, 어드민이 내려도 회수할 수 없다), 여기서는 **우리가
+ * 죽은 줄 아는 주소**이기까지 하다. 공유할 수 있는 주소가 없다는 것이 사실이므로, 없는 것을
+ * 대신 지어내지 않는다.
+ *
+ * 어드민 표의 복사 버튼(`toAdminProductLinkDto.redirectShareUrl`)은 **무접촉**이다: 운영은 죽은
+ * 링크를 직접 눌러 봐야 하고, 그 표에는 판정이 이미 열로 서 있어(`healthStatus` — broken 필터도
+ * 있다) 앱에서 무슨 일이 벌어지는지 읽을 수 있다. 가격 열(`priceExpired`)이 "앱에는 이미 보이지
+ * 않는다"를 어드민에만 말하게 한 것과 같은 자리다.
+ *
+ * 라운드 68 리뷰 S-1: `healthStatus`는 **선택이 아니라 필수**다(값은 여전히 `null` 가능 —
+ * 미확인이라는 사실이다). optional이면 그 열을 빼먹은 `select`가 조용히 통과하고, 이 함수는
+ * 모든 링크를 "broken 아님"으로 읽어 죽은 주소를 다시 내보내게 된다. 필수로 두면 그 실수가
+ * 컴파일 타임에 잡힌다.
+ */
+function shareableRedirectUrl(link: { redirectCode: string | null; healthStatus: string | null }): string | undefined {
+  if (!link.redirectCode) return undefined;
+  if (link.healthStatus === PRODUCT_LINK_HEALTH_BROKEN) return undefined;
+  return publicRedirectShareUrl(link.redirectCode);
+}
+
 function priceBandText(priceMinKrw: number | null, priceMaxKrw: number | null) {
   if (priceMinKrw == null && priceMaxKrw == null) {
     return undefined;
@@ -386,11 +448,16 @@ export class ItemsCatalogService {
        * 만드는 익명 행이 겹쳐 한 번의 클릭이 두 번 세어진다(허위 수치).
        *
        * 라운드 64 S-1과 **같은 규율**: 누르면 404가 나는 주소는 내보내지 않는다. 여기서
-       * `active`를 다시 보지 않는 이유는 위 조회가 이미 `active: true`로 좁혔기 때문이고
-       * (비활성 링크의 클릭은 PRODUCT_LINK_NOT_FOUND로 끝난다), 그래서 남은 조건은
-       * 코드의 존재뿐이다. 조립은 어드민 DTO와 **같은 함수 한 자리**다(앱에서 잇지 않는다).
+       * `active`를 다시 보지 않는 이유는 위 조회가 이미 `active: true`로 좁혔기 때문이다
+       * (비활성 링크의 클릭은 PRODUCT_LINK_NOT_FOUND로 끝난다). 조립은 어드민 DTO와 **같은
+       * 함수 한 자리**다(앱에서 잇지 않는다).
+       *
+       * 라운드 68 C(#4) — 그 규율에 **`health_status`가 함께 걸린다**: 워커가 눌러 보고 4xx를
+       * 받은 링크(`broken`)는 어드민이 아직 내리지 않았어도 죽은 주소다. 판정과 그 경계
+       * (unstable은 막지 않는 이유 · 워커가 꺼진 배포에서는 아무것도 달라지지 않는다는 사실 ·
+       * 앱이 폴백 대신 버튼을 내리는 이유)는 `shareableRedirectUrl` 머리말에 있다.
        */
-      shareUrl: productLink.redirectCode ? publicRedirectShareUrl(productLink.redirectCode) : undefined
+      shareUrl: shareableRedirectUrl(productLink)
     };
   }
 

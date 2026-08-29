@@ -15,7 +15,7 @@ import { theme } from "../theme";
 import { CategoryChip, SecondaryButton, Toast } from "../ui";
 import { AppIcon } from "../design-system";
 import { isCurrentlyOnline } from "../offline/connectivity";
-import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
+import { OFFLINE_RETRY_NOTICE, type LogoutPendingInput } from "../offline/messages";
 import { refreshOfflineSyncSnapshot, useOfflineSyncSnapshot } from "../offline/sync-controller";
 import { buildExpenseCsv } from "./expense-csv";
 import {
@@ -98,6 +98,13 @@ export type ExpenseCsvExportController = {
    * 0건이면 null이라 카드는 아무것도 그리지 않는다(판정은 export-pending-notice.ts).
    */
   pendingNotice: ExportPendingNotice | null;
+  /**
+   * 라운드 68 트랙 B(#2): 로그아웃이 지우는 것의 크기 — **아이·기간 필터를 지나지 않은** 이 기기
+   * 전량이다(위 `pendingNotice`와 모집단이 다르다). 이 컨트롤러가 이미 구독 중인 스냅숏에서
+   * 그대로 나오므로 소비 화면에는 새 구독도 새 요청도 없다. 문장을 만드는 것은
+   * `logoutConfirmMessage`(src/offline/messages.ts)이고 이 값은 그 입력일 뿐이다.
+   */
+  devicePendingRecords: LogoutPendingInput;
   busy: boolean;
   toast: ExpenseCsvExportToastState | null;
   runExport: () => Promise<void>;
@@ -281,6 +288,24 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
    * `runExport`가 렌더마다 새로 만들어진다(pendingCount와 같은 관례).
    */
   const pendingUnsendableCount = pendingNotice?.unsendableCount ?? 0;
+  /**
+   * 라운드 68 트랙 B(#2) — **이 기기 전량**의 대기 상태. 로그아웃 확인 문구가 읽는 값이다.
+   *
+   * 왜 이 훅이 들고 나가는가: 설정 화면(app/settings/index.tsx)은 이 컨트롤러를 통해 **이미**
+   * 오프라인 스냅숏을 구독하고 있고, 그 화면이 스스로 구독하지 않는 것이 이 모듈의 오랜 계약이다
+   * (export-pending-notice.test.ts — "소비 화면(더보기·설정)은 이 배선을 알 필요가 없다").
+   * 그래서 구독을 하나 더 만드는 대신, 이미 손에 든 스냅숏에서 **아이·기간 필터를 지나지 않은**
+   * 세 값만 그대로 내보낸다. 새 요청 0건이고, 문구 판정은 순수 모듈이 한다(offline/messages.ts).
+   *
+   * 위 `pendingNotice`와 모집단이 다르다는 점이 요점이다: 그쪽은 "지금 고른 아이 · 지금 고른
+   * 기간"을 세고(파일에 빠지는 행), 이쪽은 로그아웃이 실제로 지우는 **모든 아이·모든 기간**을
+   * 센다. 두 숫자를 한 값으로 합치면 둘 중 하나가 거짓이 된다.
+   */
+  const devicePendingRecords: LogoutPendingInput = {
+    counts: offlineSyncSnapshot.counts,
+    itemStatusRowCount: offlineSyncSnapshot.itemStatusRows.length,
+    storage: offlineSyncSnapshot.storage
+  };
 
   const runExport = useCallback(async () => {
     if (!authToken || !childId || busy) return;
@@ -364,6 +389,7 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     childScopeLabel,
     closeMonthJump,
     customRange,
+    devicePendingRecords,
     fileName,
     monthJumpBounds,
     monthJumpEdge,

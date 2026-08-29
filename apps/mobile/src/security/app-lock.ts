@@ -16,6 +16,20 @@
  * 데이터는 보지 못한다. 즉 이 잠금이 막는 것은 **"잠깐 빌려준 폰에서 곁눈질"** 하나뿐이고,
  * 아래 문구들이 그보다 크게 말하지 않는 것이 계약이다(APP_LOCK_SCOPE_NOTICE).
  *
+ * ⚠️ 솔트의 난수 품질 (GAP-068 #7):
+ * 위에 적은 대로 솔트는 PKCE의 `getRandomBytes`(src/auth/pkce.ts)에서 온다. 그 함수는
+ * `crypto.getRandomValues`가 없으면 `Math.random`/`Date.now` 혼합으로 떨어지고, 이 저장소에는
+ * `expo-crypto`도 `react-native-get-random-values`도 없으므로 그 폴백은 **실제 런타임 경로일
+ * 수 있다.** 즉 **이 솔트는 암호학적 난수가 아닐 수 있다.**
+ * 그래도 이 잠금이 더 잃는 것은 없다 — 바로 위 문단이 적은 대로 4자리 PIN은 후보가 1만 개뿐이라,
+ * SecureStore 블롭을 손에 쥔 공격자는 솔트가 완벽해도 1만 번을 돌려 즉시 역산한다. **PIN 자릿수가
+ * 이미 상한이고, 솔트 품질은 그 상한을 낮추지도 높이지도 않는다.** 솔트가 여기서 지는 몫은
+ * "같은 PIN이라도 기기마다 해시가 다르다" 하나뿐이고, 그 몫은 폴백 난수로도 실질적으로 선다.
+ * 그러므로 이것은 **고칠 결함이 아니라 적어 둘 사실이다** — 진짜 난수는 새 의존성(`expo-crypto`)
+ * 이고, 새 의존성은 known-limitations A절 관례상 사용자 몫이다.
+ * 다만 **암호학적 난수가 필요한 새 소비자는 `getRandomBytes`를 쓰면 안 된다** — pkce.ts의 그
+ * 정당화는 PKCE의 code_verifier 하나만 덮는다(그 파일 머리말이 이쪽을 가리키고 있다).
+ *
  * ⚠️ 밸브 방향 (§2.5):
  * 저장소의 다른 3초 밸브(app/index.tsx 두 곳, useHomeNotificationEvaluation)는 "모르면 진행"
  * 이다. 잠금에서 그대로 열면 그게 곧 잠금 우회다. 그래서 여기서는 `unknown` → `recovery`로

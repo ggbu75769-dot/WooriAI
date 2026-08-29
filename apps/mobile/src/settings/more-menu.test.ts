@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { APP_LOCK_LOCK_NOW_A11Y_LABEL, APP_LOCK_LOCK_NOW_LABEL } from "../security/app-lock";
 import {
   buildMoreSessionMenuRows,
   MORE_MENU_SECTIONS,
@@ -71,7 +72,11 @@ describe("라운드 41 UX-U(A) 더보기 세션 메뉴 구성", () => {
     expect(buildMoreSessionMenuRows({ exportTitle: "데이터 내보내기" }).find((row) => row.id === "export")?.title).toBe(
       "데이터 내보내기"
     );
-    expect(source("app/(tabs)/more.tsx")).toContain("buildMoreSessionMenuRows({ exportTitle: EXPORT_MENU_TITLE })");
+    // 라운드 68 B(#6): 두 번째 인자(appLockEnabled)가 붙었다 -- 제목이 공용 상수에서 온다는
+    // 이 계약 자체는 그대로다(그 게이트의 계약은 아래 "지금 잠그기 행" 묶음이 따로 진다).
+    expect(source("app/(tabs)/more.tsx")).toContain(
+      "buildMoreSessionMenuRows({ exportTitle: EXPORT_MENU_TITLE, appLockEnabled })"
+    );
   });
 
   /**
@@ -201,5 +206,70 @@ describe("라운드 41 UX-U(A) 비로그인 미리보기 메뉴 불변 계약", 
     // 반대에서 **`!authToken`**으로 좁혀졌다. 비로그인 렌더는 그대로이고(토큰이 없으면 두 식의
     // 값이 같다), 토큰은 있는데 아이만 없는 창에서 "다온이 · 24개월"이 그려지던 것만 사라진다.
     expect(src).toContain("const visibleMenuRows = authToken ? sessionMenuRows : previewMenuRowActions;");
+  });
+});
+
+/**
+ * 라운드 68 트랙 B(GAP-068 #6) — **"지금 잠그기"가 홈에서 다섯 번째 탭**이었다.
+ *
+ * 그 버튼의 위협 모델은 "폰을 잠깐 건네주기 전에"(APP_LOCK_LOCK_NOW_HINT)인데, 닿는 길은
+ * 홈 [더보기] → [설정] → [앱 잠금] → 잠금 설정 화면 → [지금 잠그기] 하나뿐이었다. 여기에 행
+ * 하나를 두면 두 번이다. 잃는 것("7행 compact")을 잠금을 켜지 않은 계정에서 잃지 않는 것이
+ * 이 계약의 요점이다.
+ */
+describe("라운드 68 B(#6) 더보기의 '지금 잠그기' 행", () => {
+  const lockedRows = () => buildMoreSessionMenuRows({ exportTitle: "데이터 내보내기", appLockEnabled: true });
+
+  it("잠금이 꺼진 계정(기본값)의 더보기는 종전 7행 그대로다", () => {
+    expect(rows()).toHaveLength(7);
+    expect(rows().some((row) => row.id === "lockNow")).toBe(false);
+    expect(buildMoreSessionMenuRows({ exportTitle: "데이터 내보내기", appLockEnabled: false })).toEqual(rows());
+  });
+
+  it("잠금을 켠 계정에서만 8행이 되고, 늘어나는 것은 그 한 행뿐이다", () => {
+    expect(lockedRows()).toHaveLength(8);
+    const added = lockedRows().filter((row) => !rows().some((existing) => existing.id === row.id));
+    expect(added.map((row) => row.id)).toEqual(["lockNow"]);
+    // 종전 7행의 구성·순서·목적지는 한 글자도 바뀌지 않는다.
+    expect(lockedRows().filter((row) => row.id !== "lockNow")).toEqual(rows());
+  });
+
+  it("라벨·낭독 문장은 이미 있는 상수 그대로다 (새 문구 0건)", () => {
+    const lockRow = lockedRows().find((row) => row.id === "lockNow");
+    expect(lockRow).toMatchObject({
+      section: "settings",
+      title: APP_LOCK_LOCK_NOW_LABEL,
+      a11yLabel: APP_LOCK_LOCK_NOW_A11Y_LABEL,
+      // 화면 안에서 처리하는 동작이라 라우트가 없다(새 화면 0건 — 오버레이가 전역이다).
+      route: null
+    });
+    expect(APP_LOCK_LOCK_NOW_LABEL).toBe("지금 잠그기");
+    // 기존 일곱 행은 낭독 문장을 따로 갖지 않는다(제목 낭독이 종전 그대로다).
+    for (const row of rows()) expect(row.a11yLabel).toBeUndefined();
+  });
+
+  it("잠금 설정 화면과 **같은 액션 하나**에 이어져 있고, 게이트는 켜짐 여부다", () => {
+    const moreSource = source("app/(tabs)/more.tsx");
+    expect(moreSource).toContain("buildMoreSessionMenuRows({ exportTitle: EXPORT_MENU_TITLE, appLockEnabled })");
+    expect(moreSource).toContain("const appLockEnabled = Boolean(appLockRecord?.enabled);");
+    expect(moreSource).toContain("() => useAppLockStore.getState().lockNow()");
+    // 낭독 문장이 실제로 그 행에 걸린다(a11y 계약은 문구를 다시 단언하지 않고 자리만 본다).
+    expect(moreSource).toContain("accessibilityLabel={a11yLabel ?? (caption ? `${title}, ${caption}` : title)}");
+    expect(moreSource).toContain("a11yLabel={row.a11yLabel}");
+    // 앱 잠금의 판정·저장소 코드는 한 줄도 바뀌지 않는다 -- 이 화면은 읽고 부르기만 한다.
+    expect(moreSource).not.toContain("writeAppLockRecord");
+    expect(moreSource).not.toContain("verifyPin");
+  });
+
+  it("SET-001 비로그인 미리보기 행은 이 행을 모른다(캡처 불변)", () => {
+    const moreSource = source("app/(tabs)/more.tsx");
+    const previewBlock = moreSource.slice(
+      moreSource.indexOf("const previewMenuRowActions"),
+      moreSource.indexOf("const visibleMenuRows")
+    );
+    expect(previewBlock).not.toContain("lockNow");
+    expect(previewBlock).not.toContain("a11yLabel:");
+    // 미리보기 행은 세션 메뉴가 아니라 화면의 상수 목록에서 온다(이 모듈은 세션 메뉴만 만든다).
+    expect(previewBlock).toContain("...moreMenuRows.map((row) => ({");
   });
 });

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
+import { getSeoulToday } from "@wooriai/domain";
 import {
   getExpense,
   listCategories,
@@ -60,6 +60,8 @@ import {
 // GAP-054 라운드 54 P2-5: 빠른 기록 시트와 **같은** 달력 픽커(판정은 그 안에서 다시 순수
 // 모듈 src/expenses/date-picker-month.ts로 내려간다 — 이 화면이 달력을 새로 계산하지 않는다).
 import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";
+// 라운드 68 A: 손타이핑 날짜 가드는 빠른 기록 시트와 **같은 한 벌**이다(복제를 걷은 자리).
+import { validateExpenseDateInput } from "../../src/expenses/entry-form-guards";
 import { expenseSourceLine } from "../../src/expenses/expense-source-line";
 import { buildItemHistory } from "../../src/expenses/item-history";
 // 라운드 42 L-5: 이력 재조정을 **정규화된 품목명이 실제로 바뀔 때만** 돌리기 위한 같은 단일 소스
@@ -175,20 +177,10 @@ function formatExpenseDate(date: Date) {
   return { iso: `${year}-${month}-${day}`, label: `${year}. ${month}. ${day} (${weekday})` };
 }
 
-// MOB-121: calendar validity comes from @wooriai/domain's isValidCalendarDate (same check the
-// server/local-backend enforce). The wording intentionally differs from src/children/child-form.ts
-// ("실제 존재하는 날짜인지 확인해 주세요.") — copy unification is out of scope (pixel-lock/test
-// impact), so this screen keeps its existing message.
-function validateExpenseDateInput(dateOnly: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return "YYYY-MM-DD 형식으로 입력해 주세요.";
-  if (!isValidCalendarDate(dateOnly)) return "존재하지 않는 날짜예요.";
-  try {
-    if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";
-  } catch {
-    return "날짜를 다시 확인해 주세요.";
-  }
-  return null;
-}
+// 라운드 68 A: 이 자리에 있던 `validateExpenseDateInput`이 `src/expenses/entry-form-guards.ts`로
+// 올라갔다 — 빠른 기록 시트(`app/expenses/new.tsx`)가 **글자까지 같은 함수**를 따로 들고 있었고,
+// 이번 라운드가 그 판정에 과거 하한을 더한다(복제를 걷지 않으면 하한이 두 벌로 태어난다).
+// 판정 내용·문구·호출부는 그대로다(그 모듈 주석 참고).
 
 function buildRecentDateChips(today: Date) {
   return Array.from({ length: 14 }, (_, index) => {

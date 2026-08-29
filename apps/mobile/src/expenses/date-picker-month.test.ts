@@ -448,6 +448,7 @@ describe("GAP-054 #7 화면 배선", () => {
    */
   const source = readFileSync(join(process.cwd(), "src/expenses/ExpenseDatePicker.tsx"), "utf8");
   const entrySheet = readFileSync(join(process.cwd(), "app/expenses/new.tsx"), "utf8");
+  const guardsSource = readFileSync(join(process.cwd(), "src/expenses/entry-form-guards.ts"), "utf8");
   const detailScreen = readFileSync(join(process.cwd(), "app/expenses/[expenseId].tsx"), "utf8");
 
   it("P2-C 달력 버튼(48dp)이 진짜 월 픽커를 연다", () => {
@@ -530,7 +531,10 @@ describe("GAP-054 #7 화면 배선", () => {
     expect(entrySheet).toContain("const quickDateChips = recentDateChips.slice(0, 3).reverse();");
     expect(entrySheet).toContain("recentDateChips.map");
     expect(entrySheet).toContain('accessibilityLabel="날짜 직접 입력"');
-    expect(entrySheet).toContain('if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";');
+    // 라운드 68 A: 손타이핑 판정은 이 화면에서 순수 모듈 한 벌로 걷혔다(복제를 걷지 않으면
+    // 이번 라운드의 과거 하한이 두 벌로 태어난다). 화면이 그 판정을 여전히 지나는지를 본다.
+    expect(entrySheet).toContain("validateExpenseDateInput(cleaned);");
+    expect(guardsSource).toContain('if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";');
   });
 
   /**

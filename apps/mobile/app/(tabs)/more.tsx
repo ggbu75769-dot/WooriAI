@@ -31,6 +31,9 @@ import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/h
 // GAP-062 #6: 홈 헤더·설정 요약·아이 목록과 **같은** 표시층 판정을 이 카드도 지난다(재사용만 —
 // 판정은 src/home/stage-display-label.ts 한 자리에 그대로 있다).
 import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
+// 라운드 68 트랙 B(#6): "지금 잠그기" 행의 게이트(잠금이 켜졌는가)와 동작(lockNow) 둘 다 이미
+// 있는 스토어에서 온다 -- 판정·저장소 코드는 한 줄도 바뀌지 않는다.
+import { useAppLockStore } from "../../src/stores/app-lock.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { MoreSettingsPixelStyles } from "../../src/pixelLock/styles";
@@ -78,12 +81,18 @@ function MoreMenuRow({
   icon,
   title,
   caption,
+  a11yLabel,
   grouped = false,
   onPress
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   caption?: string;
+  /**
+   * 라운드 68 트랙 B(#6): 스크린리더가 읽을 문장이 보이는 제목과 다를 때만 넘어온다("지금 잠그기"
+   * → `APP_LOCK_LOCK_NOW_A11Y_LABEL`). 없으면 아래 계산은 종전과 완전히 같다.
+   */
+  a11yLabel?: string;
   /**
    * DSN-053 P2-D: 세션("프로필") 구획 안의 행 문법 — 최소 높이 64에 coral[50] 원 40 안의
    * coral[700] 아이콘. **기본값 false**라 비로그인 미리보기(SET-001 픽셀 락 캡처)의 행은
@@ -95,7 +104,7 @@ function MoreMenuRow({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={caption ? `${title}, ${caption}` : title}
+      accessibilityLabel={a11yLabel ?? (caption ? `${title}, ${caption}` : title)}
       accessibilityState={{ disabled: !onPress }}
       disabled={!onPress}
       onPress={onPress}
@@ -225,6 +234,15 @@ export default function MoreScreen() {
   // EXP-106 데이터 내보내기(CSV): 기간 선택 카드는 아래 메뉴 행으로 접었다 폈다 한다. 상태·수집·
   // 공유·토스트는 설정 화면과 공유하는 src/export/ExpenseCsvExport.tsx가 전부 담당한다.
   const csvExport = useExpenseCsvExport();
+  /**
+   * GAP-068 #6 — "지금 잠그기" 행의 게이트. **잠금을 켠 계정에서만** 행이 선다(켜지 않은
+   * 절대다수 계정의 더보기는 종전 7행 그대로다 — src/settings/more-menu.ts의 조건부 행 주석).
+   *
+   * 기록은 앱 부팅 때 오버레이가 한 번 읽어 둔 그 값이고(app-lock.store의 `load`), 여기서는
+   * 읽기만 한다 — 이 화면은 잠금의 판정에도 저장소에도 손대지 않는다.
+   */
+  const appLockRecord = useAppLockStore((state) => state.record);
+  const appLockEnabled = Boolean(appLockRecord?.enabled);
 
   const handleSearchPress = () => {
     router.push(hasSession ? "/(tabs)/records" : "/settings");
@@ -243,27 +261,35 @@ export default function MoreScreen() {
     icon: keyof typeof Ionicons.glyphMap;
     title: string;
     caption?: string;
+    a11yLabel?: string;
     /** DSN-053 P2-D: 세션 메뉴만 구획을 갖는다(비로그인 미리보기 행은 예전처럼 한 덩어리다). */
     section?: MoreMenuSection;
     onPress?: () => void;
   }> =
-    buildMoreSessionMenuRows({ exportTitle: EXPORT_MENU_TITLE }).map((row) => {
+    buildMoreSessionMenuRows({ exportTitle: EXPORT_MENU_TITLE, appLockEnabled }).map((row) => {
       const route = row.route;
       return {
         icon: row.icon,
         title: row.title,
+        a11yLabel: row.a11yLabel,
         section: row.section,
         onPress: route
           ? () => router.push(route)
           : row.id === "export"
             ? csvExport.toggleCard
-            : () => Alert.alert("앱 정보", appInfoText)
+            : // GAP-068 #6: 화면을 옮기지 않는다 -- 오버레이가 전역이라 이번 포그라운드의 통과만
+              // 무르면 그 자리에서 PIN 화면이 덮는다(설정 화면의 "지금 잠그기"와 같은 액션 하나).
+              row.id === "lockNow"
+              ? () => useAppLockStore.getState().lockNow()
+              : () => Alert.alert("앱 정보", appInfoText)
       };
     });
   const previewMenuRowActions: Array<{
     icon: keyof typeof Ionicons.glyphMap;
     title: string;
     caption?: string;
+    /** 라운드 68 B(#6): **타입만** 세션 행과 맞춘다 — 미리보기 행은 이 값을 채우지 않는다(불변). */
+    a11yLabel?: string;
     section?: MoreMenuSection;
     onPress?: () => void;
   }> = [
@@ -384,6 +410,7 @@ export default function MoreScreen() {
                       icon={row.icon}
                       title={row.title}
                       caption={row.caption}
+                      a11yLabel={row.a11yLabel}
                       onPress={row.onPress}
                     />
                   ))}

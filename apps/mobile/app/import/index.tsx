@@ -5,7 +5,10 @@ import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiErrorMessage } from "../../src/api/api-error";
-import { createExcelImport, LOCAL_SESSION_TOKEN, undoImport } from "../../src/api/client";
+import { createExcelImport, LOCAL_SESSION_TOKEN, undoImport, type Child } from "../../src/api/client";
+// 라운드 68 트랙 B(#5): 다자녀 스코프 라벨의 해석·조립은 여덟 화면이 쓰는 **같은 순수 모듈 한 벌**
+// 에서만 온다(새 어휘를 만들지 않는다 — 라운드 48 T4의 `resolveChildScopeLabel`).
+import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";
 import {
   importResumeCardAccessibilityLabel,
   importResumeCardSubtitle,
@@ -110,6 +113,33 @@ export default function ImportUploadScreen() {
   // 라운드 67 #3: 되돌린 뒤에는 그 카드를 지운다(되돌릴 것이 남지 않았다 — 되돌리기의 되돌리기는 없다).
   const forgetImportReview = useImportResumeStore((state) => state.forgetImportReview);
   const queryClient = useQueryClient();
+  /**
+   * 라운드 68 트랙 B(#5) — **이 파일이 어느 아이에게 붙는가**를 화면이 말한다.
+   *
+   * 고치는 문제: 이 화면은 `childId`를 읽어 `createExcelImport(authToken, childId, …)`로 넘기면서
+   * 그 아이를 어디에도 그리지 않았다. 라운드 67 #3이 되돌리기(뒷수습)를 만든 그 사고 — "200행을
+   * 올려 확정했는데 알고 보니 둘째로 전환한 상태였다" — 의 **앞막이**가 없었던 것이다. 파일을
+   * 고르는 이 순간이 그 흐름에서 아이를 확인할 수 있는 마지막이자 가장 싼 자리다(그 뒤로는
+   * 업로드 → 분석 대기 → 수백 행 검수가 이어진다).
+   *
+   * 새 어휘도 새 요청도 만들지 않는다: 예산·정기 지출·리포트 등 여덟 화면과 **같은 함수**를 쓰고
+   * (`resolveChildScopeLabel`/`withChildScopeLabel` — 아이가 2명 이상일 때만, 이름을 못 풀면
+   * 아무것도 붙이지 않는다), 목록은 이미 채워진 `["children"]` **캐시**에서만 읽는다.
+   *
+   * ⚠️ IMP-003 픽셀락 이중 게이트: 캡처는 **비로그인 경로**로 찍고(app/pixel-lock.tsx가 세션을
+   * 지운 뒤 /import로 보낸다), ⓐ 세션이 없으면 아래 캐시 읽기 자체가 일어나지 않아 목록이
+   * undefined이고, ⓑ `resolveChildScopeLabel`은 목록이 없으면 언제나 null이다. 라벨이 null이면
+   * `withChildScopeLabel`이 **원문 그대로**를 돌려주므로 캡처는 한 픽셀도 바뀌지 않는다(외동
+   * 계정에서도 마찬가지다).
+   *
+   * 검수 화면(app/import/[importJobId].tsx)의 방식과 섞지 않는다: 그쪽은 **잡에 박힌 아이**
+   * (`job.childId`)를 말하고 여기는 **지금 고른 아이**를 말한다 — 아직 잡이 없는 화면에서
+   * `job.childId`를 흉내 내면 없는 값을 짓게 된다(라운드 41 K-2가 세운 구분).
+   */
+  const cachedChildren = authToken
+    ? queryClient.getQueryData<{ children: Child[] }>(["children"])?.children
+    : undefined;
+  const childScopeLabel = resolveChildScopeLabel(childId, cachedChildren);
   const upload = useMutation({
     mutationFn: (asset: DocumentPicker.DocumentPickerAsset) =>
       createExcelImport(authToken!, childId!, { uri: asset.uri, name: asset.name, mimeType: asset.mimeType }),
@@ -265,7 +295,9 @@ export default function ImportUploadScreen() {
         <Pressable accessibilityRole="button" accessibilityLabel="뒤로가기" hitSlop={6} onPress={() => router.back()} style={styles.backButton}>
           <Text style={styles.backIcon}>‹</Text>
         </Pressable>
-        <Text style={styles.navigationTitle}>엑셀 업로드</Text>
+        {/* 라운드 68 B(#5): 다자녀 계정에서만 "다온이 — 엑셀 업로드"가 된다(외동·비로그인은 원문
+            그대로 — 위 childScopeLabel 주석의 이중 게이트). 스타일·자리는 한 글자도 바뀌지 않는다. */}
+        <Text style={styles.navigationTitle}>{withChildScopeLabel("엑셀 업로드", childScopeLabel)}</Text>
         <View style={styles.backButton} />
       </View>
 

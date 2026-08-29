@@ -22,6 +22,8 @@
  * react / react-native / expo-router 의존 없음 — vitest에서 바로 단위 테스트한다.
  */
 
+import { ENTRY_DATE_MAX_PAST_MONTHS } from "@wooriai/domain";
+
 /** 기록 탭이 읽는 라우트 파라미터 이름. 화면 두 곳이 같은 문자열을 쓰도록 여기 한 번만 적는다. */
 export const RECORDS_MONTH_PARAM = "month";
 
@@ -40,9 +42,16 @@ const ISO_DATE_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
  *
  * 라운드 54 P2-8: 지출 입력의 월 달력 픽커도 **같은 상한**을 쓴다(date-picker-month.ts의
  * `EXPENSE_DATE_PICKER_MAX_PAST_MONTHS`). 값을 양쪽에 적어 두면 한쪽만 바뀌었을 때 "픽커에서는
- * 고를 수 있는데 기록 탭은 그 달로 가 주지 않는" 상태가 조용히 생기므로 여기가 단일 소스다.
+ * 고를 수 있는데 기록 탭은 그 달로 가 주지 않는" 상태가 조용히 생긴다.
+ *
+ * 라운드 68 A: 그 단일 소스가 **도메인으로 한 칸 내려갔다**(`ENTRY_DATE_MAX_PAST_MONTHS`).
+ * 값도 이름도 동작도 여기서는 한 글자도 달라지지 않는다 — 바뀐 것은 **그 숫자가 리터럴로 적혀
+ * 있는 자리** 하나뿐이다. 내려간 이유: 이번 라운드부터 **쓰는 쪽**(서버의 지출 날짜 가드·아이
+ * 출생일 가드)도 같은 하한을 쓰는데, 서버는 `apps/mobile`을 import할 수 없다. 두 층이 각자
+ * 그 숫자를 적는 순간 한쪽만 바뀌는 드리프트가 확정이므로(P2-8이 여기서 고친 바로 그 함정),
+ * 두 층이 모두 닿을 수 있는 가장 아래층에 값을 둔다.
  */
-export const MAX_PAST_MONTH_OFFSET = 240;
+export const MAX_PAST_MONTH_OFFSET = ENTRY_DATE_MAX_PAST_MONTHS;
 
 function parseYearMonth(value: string): { year: number; month: number } | null {
   if (!YEAR_MONTH_PATTERN.test(value)) return null;

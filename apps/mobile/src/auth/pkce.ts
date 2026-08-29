@@ -34,6 +34,16 @@ export function toBase64Url(bytes: Uint8Array): string {
  * here, not the primary control: the server's prepare/exchange transaction already binds the
  * login to a single-use server-generated `state` + `nonce` (see
  * apps/api/src/auth/kakao/kakao-auth.service.ts), and the verifier only ever travels over TLS.
+ *
+ * ⚠️ **이 함수의 소비자는 둘이고, 위 정당화는 PKCE 것이다**(GAP-068 #7). 두 번째 소비자는
+ * 앱 잠금 PIN의 솔트(`src/security/app-lock.ts`의 `createAppLockRecord`)인데, 그쪽에는 서버가
+ * 없어서 "서버가 state/nonce로 이미 묶는다"는 근거가 **넘어가지 않는다**. 그쪽 사정은
+ * `app-lock.ts` 머리말에 따로 적혀 있으니 두 파일을 함께 읽을 것.
+ *
+ * 그리고 이 저장소에는 `expo-crypto`도 `react-native-get-random-values`도 없다 — 폴백은 이론이
+ * 아니라 **실제 런타임 경로일 수 있다.** 그러므로 **암호학적 난수가 필요한 새 소비자
+ * (세션·초대 토큰, idempotency 키 등)는 이 함수를 쓰면 안 된다.** 위 문단이 "괜찮다"고
+ * 말하는 대상은 PKCE의 code_verifier 하나뿐이다.
  */
 export function getRandomBytes(length: number): Uint8Array {
   const out = new Uint8Array(length);

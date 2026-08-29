@@ -10,8 +10,20 @@
  * GAP-054 #2(트랙 C 몫)로 **금액 상한 가드**가 합류했다 — 같은 저장 버튼이 지나는 같은 성격의
  * 판정이다. 숫자와 문구는 이 모듈이 만들지 않는다: `./amount-limit`이 단일 소스이고(서버
  * `@Max`와 같은 값), 여기서는 "이 입력으로 저장을 시작해도 되는가"만 답한다.
+ *
+ * 라운드 68 A로 **날짜 손타이핑 가드**(`validateExpenseDateInput`)가 합류했다. 그 함수는 지금까지
+ * `app/expenses/new.tsx`와 `app/expenses/[expenseId].tsx`에 **통째로 복제**돼 있었다(주석만 서로
+ * 다르고 본문은 한 글자도 다르지 않았다). 이번 라운드가 그 판정에 과거 하한을 더하는데, 복제를
+ * 먼저 걷지 않으면 **하한이 처음부터 두 벌로 태어난다** — 이 모듈이 있는 이유가 정확히 그것이다
+ * (화면에 인라인으로 두면 조건이 조용히 갈려도 아무도 못 잡는다, 위 머리말).
  */
 
+import {
+  ENTRY_DATE_MAX_PAST_YEARS,
+  isBeforeEntryDateFloor,
+  isFutureSeoulDate,
+  isValidCalendarDate
+} from "@wooriai/domain";
 import { amountOverLimitMessage, isAmountOverLimit } from "./amount-limit";
 
 export type QuickExpenseInputSnapshot = {
@@ -195,4 +207,56 @@ export function isAmountOverLimitForSave({ hasSession, amountText }: AmountLimit
   const amountKrw = Number(digits);
   if (!Number.isFinite(amountKrw)) return false;
   return isAmountOverLimit(amountKrw);
+}
+
+/**
+ * 라운드 68 A — 손으로 친 지출 날짜의 **과거 하한** 문구.
+ *
+ * 숫자는 짓지 않는다: 연 수는 도메인의 `ENTRY_DATE_MAX_PAST_YEARS`이고, 그 값은 읽는 쪽 넷이
+ * 쓰는 개월 수와 **같은 하나**다(달력 픽커·기록 탭 딥링크가 같은 상수를 읽는다). 이 모듈에는
+ * 그 숫자가 리터럴로 적히지 않는다 — 계약 테스트가 그 사실을 붙든다.
+ *
+ * 어휘도 짓지 않는다: 달력 픽커가 못 누르는 칸을 설명할 때 쓰는 형태
+ * (`…보다 먼 날은 고를 수 없어요.` — date-picker-month.ts / child-form.ts의
+ * `CHILD_DUE_DATE_BEYOND_TERM_ERROR`)를 과거 쪽으로 옮긴 같은 문장이다. 같은 경계를 두 이름으로
+ * 부르지 않는다(라운드 67 B의 계약). 아이 출생일 폼도 **글자까지 같은 문장**을 쓰고
+ * (src/children/child-form.ts의 `CHILD_BIRTH_DATE_TOO_OLD_ERROR` — 그 모듈은 이 폴더를
+ * import하지 않는 것이 계약이라 자기 자리에서 같은 값을 읽어 만든다), 서버도 같은 문장을 낸다
+ * (apps/api store-shared.ts / onboarding-core.service.ts). 계약 테스트가 셋을 함께 붙든다.
+ * DNC-018 해요체.
+ */
+export const EXPENSE_DATE_TOO_OLD_ERROR = `${ENTRY_DATE_MAX_PAST_YEARS}년보다 오래된 날은 고를 수 없어요.`;
+
+/**
+ * 라운드 68 A — 손타이핑 지출 날짜 한 칸의 판정. **두 화면이 이 한 벌을 쓴다.**
+ *
+ * 종전에는 `app/expenses/new.tsx`와 `app/expenses/[expenseId].tsx`가 같은 함수를 각자 들고
+ * 있었다(MOB-121 이후 본문이 동일). 그 상태에서 하한을 더하면 두 벌이 되므로 먼저 여기로 걷었다.
+ *
+ * 갈래는 다섯이고, **넷은 종전 그대로**다(문구도 순서도 한 글자 안 바뀌었다).
+ *  1. 형식(`YYYY-MM-DD`)
+ *  2. 실존 달력 — 도메인 `isValidCalendarDate`(서버·로컬 백엔드가 쓰는 같은 판정)
+ *  3. **미래 금지** — 도메인 `isFutureSeoulDate`(무변경)
+ *  4. **과거 하한** ← 라운드 68 A가 더한 갈래. 이것이 없던 동안 `2016-08-14` 같은 한 자리 오타가
+ *     그대로 저장됐고, 그 지출은 누적 총액에는 들어가는데 어느 읽기 화면에서도 그 달을 열 수
+ *     없어 사용자가 지울 수조차 없었다(도메인 `ENTRY_DATE_MAX_PAST_MONTHS` 주석).
+ *  5. 도메인 술어가 던진 경우의 폴백(형식 오염) — 종전 그대로.
+ *
+ * 하한 판정을 **미래 판정과 같은 try 안**에 두는 이유: 두 술어가 형식이 깨진 값에서 같은 방식으로
+ * 던지므로(도메인 계약), 한쪽만 밖에 두면 같은 입력이 갈래에 따라 다른 문구를 받는다.
+ *
+ * MOB-121 메모(그대로 유지): 실존 달력 문구가 `src/children/child-form.ts`
+ * ("실제 존재하는 날짜인지 확인해 주세요.")와 다른 것은 알고 있는 차이다 — 문구 통일은 픽셀락·
+ * 테스트 영향이 있어 이 트랙 밖이고, 이번에 **새로 생긴 하한 문구만** 두 폼이 같은 문장을 쓴다.
+ */
+export function validateExpenseDateInput(dateOnly: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return "YYYY-MM-DD 형식으로 입력해 주세요.";
+  if (!isValidCalendarDate(dateOnly)) return "존재하지 않는 날짜예요.";
+  try {
+    if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";
+    if (isBeforeEntryDateFloor(dateOnly)) return EXPENSE_DATE_TOO_OLD_ERROR;
+  } catch {
+    return "날짜를 다시 확인해 주세요.";
+  }
+  return null;
 }

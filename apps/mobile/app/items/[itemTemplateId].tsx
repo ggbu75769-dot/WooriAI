@@ -23,8 +23,11 @@ import {
   ITEM_DETAIL_EXPENSE_LINK_LABEL
 } from "../../src/items/expense-link-prompt";
 import {
+  canSharePurchaseLink,
   EMPTY_PRODUCT_LINKS_TEXT,
   hasPurchasableLink,
+  LINK_SHARE_UNAVAILABLE_NOTICE,
+  linkOpenFailureNotice,
   primaryPurchaseLinkIndex,
   productLinkMarker,
   productLinksDisclosureText,
@@ -529,7 +532,9 @@ export default function ItemDetailScreen() {
         await Linking.openURL(result.redirectUrl);
         registerPurchaseFollowup(link);
       } catch {
-        showLinkFailure("링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.");
+        // 라운드 68 C: 문구도 **공유 가능 여부와 같은 판정**에서 갈린다 — 공유 버튼이 서지
+        // 않는 상태에서 "링크를 공유하거나"라고 말하면 화면의 두 주장이 어긋난다.
+        showLinkFailure(linkOpenFailureNotice(result.shareUrl));
         setLinkOpenFallback({
           redirectUrl: result.redirectUrl,
           shareUrl: result.shareUrl,
@@ -556,7 +561,7 @@ export default function ItemDetailScreen() {
       showLinkNotice(linkOpenFallback.disclosureText ?? "구매 링크");
       setLinkOpenFallback(null);
     } catch {
-      showLinkFailure("링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.");
+      showLinkFailure(linkOpenFailureNotice(linkOpenFallback.shareUrl));
     }
   };
 
@@ -585,14 +590,22 @@ export default function ItemDetailScreen() {
    * 세어진다(허위 수치).
    *
    * URL을 여기서 짓지 않는다: 서버가 만든 문자열을 그대로 싣는다(베이스는 API 환경변수라
-   * 앱이 알 수 없다). `shareUrl`이 없으면(옛 서버·코드 없는 행) **종전 URL로 떨어진다** —
-   * 공유 자체가 사라지는 것보다 낫다.
+   * 앱이 알 수 없다).
+   *
+   * 라운드 68 C(#4) — **`shareUrl`이 없으면 내보내지 않는다.** 종전에는 원문 URL
+   * (`redirectUrl`)로 떨어졌는데, 서버가 그 값을 빼는 조건이 하나 늘면서 그 폴백이 정확히
+   * 반대 방향이 됐다: 워커가 눌러 보고 4xx를 받은 링크(`health_status = "broken"`)에는 서버가
+   * `shareUrl`을 싣지 않으므로, 폴백을 두면 **우리가 죽은 줄 아는 주소**를 원문 그대로(집계도
+   * 회수도 없이) 친구에게 보내게 된다. 그래서 버튼 자체를 내린다 — 공유할 수 있는 주소가
+   * 없다는 것이 사실이고, 없는 것을 대신 지어내지 않는다. 판정·근거는 순수 모듈 한 자리다
+   * (src/items/link-marker.ts의 `canSharePurchaseLink`).
    */
   const shareFallbackLink = () => {
     if (!linkOpenFallback) return;
+    if (!canSharePurchaseLink(linkOpenFallback.shareUrl)) return;
     void Share.share({
       message: purchaseLinkShareMessage({
-        url: linkOpenFallback.shareUrl ?? linkOpenFallback.redirectUrl,
+        url: linkOpenFallback.shareUrl,
         link: linkOpenFallback.link,
         disclosureText: linkOpenFallback.disclosureText
       })
@@ -1172,7 +1185,17 @@ export default function ItemDetailScreen() {
               <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>
                 링크를 자동으로 열지 못했어요.
               </Text>
-              <SecondaryButton label="링크 공유하기" onPress={shareFallbackLink} />
+              {/* 라운드 68 C(#4): 내보낼 주소가 없으면(서버가 깨진 줄 아는 링크·코드 없는 옛
+                  데이터·구버전 서버) 공유 버튼을 그리지 않고 그 사실을 한 줄로 말한다 —
+                  버튼만 말없이 사라지면 사용자는 이유를 알 길이 없고, 원문 URL로 떨어지면
+                  집계에도 회수에도 잡히지 않는 사본이 밖으로 나간다. */}
+              {canSharePurchaseLink(linkOpenFallback.shareUrl) ? (
+                <SecondaryButton label="링크 공유하기" onPress={shareFallbackLink} />
+              ) : (
+                <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>
+                  {LINK_SHARE_UNAVAILABLE_NOTICE}
+                </Text>
+              )}
               <PrimaryButton label="다시 시도" onPress={() => void retryOpenFallbackLink()} />
             </Card>
           ) : null}

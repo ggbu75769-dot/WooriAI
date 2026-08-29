@@ -1,11 +1,19 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { calculateChildStage, CHILD_STAGE_CODES, getSeoulToday } from "@wooriai/domain";
+import {
+  calculateChildStage,
+  getEntryDateFloor,
+  getSeoulToday,
+  CHILD_STAGE_CODES,
+  ENTRY_DATE_MAX_PAST_MONTHS,
+  ENTRY_DATE_MAX_PAST_YEARS
+} from "@wooriai/domain";
 import {
   buildCreateChildBody,
   buildUpdateChildBody,
   childDatePickerDirection,
+  CHILD_BIRTH_DATE_TOO_OLD_ERROR,
   CHILD_DUE_DATE_BEYOND_TERM_ERROR,
   CHILD_DUE_DATE_MAX_FUTURE_DAYS,
   CHILD_DUE_DATE_MAX_FUTURE_WEEKS,
@@ -17,11 +25,14 @@ import {
   validateChildForm
 } from "./child-form";
 import {
+  canGoToPreviousExpenseDatePickerMonth,
   EXPENSE_DATE_PICKER_FUTURE_DIRECTION_HINT,
   EXPENSE_DATE_PICKER_MAX_FUTURE_DAYS,
   EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS,
+  EXPENSE_DATE_PICKER_MAX_PAST_MONTHS,
   isExpenseDatePickerDateSelectable
 } from "../expenses/date-picker-month";
+import { EXPENSE_DATE_TOO_OLD_ERROR } from "../expenses/entry-form-guards";
 
 describe("MOB-118 shared child form validation (reused from ONB-002)", () => {
   it("keeps a Korean label for every domain stage code and all three stage modes", () => {
@@ -255,5 +266,70 @@ describe("라운드 67 B 출산 예정일 상한(만삭)", () => {
     // 서버 e2e(apps/api/test/child-stage-transition.e2e.test.ts)가 이 문장을 응답에서 못박고,
     // 여기서는 앱이 내는 문장이 그 문장인지를 못박는다 — 두 자리가 같은 문자열을 든다.
     expect(CHILD_DUE_DATE_BEYOND_TERM_ERROR).toBe(`만삭(${CHILD_DUE_DATE_MAX_FUTURE_WEEKS}주)보다 먼 날은 고를 수 없어요.`);
+  });
+});
+
+/**
+ * 라운드 68 A — **출생일의 아래쪽 경계(20년)**.
+ *
+ * 라운드 67 B의 반대 방향이고, 구멍이 있던 이유도 같다: 모든 유효 과거 날짜가 통과하는 것이
+ * 종전 계약이었고(위 스위트가 `2020-01-01`·`2025-06-15`를 그렇게 고정하고 있다), **같은 칸의
+ * 달력 픽커만** 20년에서 잠겨 있었다. 그래서 여기서 고정하는 것도 값 하나가 아니라 **두 자리가
+ * 같은 사실을 말하는가**다 — 픽커가 더는 내려가지 못하는 달과 폼이 거절하는 날이 맞물리는지,
+ * 지출 폼과 이 폼이 같은 경계를 같은 문장으로 부르는지.
+ */
+describe("라운드 68 A 출생일 하한(20년)", () => {
+  const TODAY = getSeoulToday();
+  const FLOOR = getEntryDateFloor();
+
+  function shiftDays(iso: string, days: number): string {
+    const shifted = new Date(`${iso}T00:00:00Z`);
+    shifted.setUTCDate(shifted.getUTCDate() + days);
+    return shifted.toISOString().slice(0, 10);
+  }
+
+  it("경계 세 값 — 하한 당일 통과 · 하루 넘김 거부 · 오늘 통과", () => {
+    expect(computeDateError("born", FLOOR)).toBeNull();
+    expect(computeDateError("born", shiftDays(FLOOR, -1))).toBe(CHILD_BIRTH_DATE_TOO_OLD_ERROR);
+    expect(computeDateError("born", TODAY)).toBeNull();
+  });
+
+  it("실패 시나리오: 홈이 '생후 1,197개월'을 그리던 오타를 폼이 먼저 막는다", () => {
+    expect(computeDateError("born", "1926-08-14")).toBe(CHILD_BIRTH_DATE_TOO_OLD_ERROR);
+    // 필드 전체 검증에서도 같은 문장이 그대로 올라온다(화면이 보는 자리는 이쪽이다).
+    const errors = validateChildForm("born", { nickname: "콩이", dateText: "1926-08-14", manualStage: null });
+    expect(errors.dateError).toBe(CHILD_BIRTH_DATE_TOO_OLD_ERROR);
+    expect(isChildFormValid(errors)).toBe(false);
+  });
+
+  it("정상 출생일과 예정일 갈래는 종전과 한 글자도 다르지 않다", () => {
+    // 이 앱이 실제로 다루는 구간(임신~첫돌, 넉넉히 잡아 몇 해)은 전부 통과한다.
+    for (const days of [0, -1, -30, -365, -3650]) {
+      expect(computeDateError("born", shiftDays(TODAY, days)), String(days)).toBeNull();
+    }
+    expect(computeDateError("born", "2999-01-01")).toBe("출생일은 오늘보다 미래일 수 없어요.");
+    // **과거 예정일 허용은 무변경**이다 — 하한은 출생일 갈래에만 붙는다.
+    expect(computeDateError("pregnant", "1926-08-14")).toBeNull();
+    expect(computeDateError("pregnant", shiftDays(FLOOR, -1))).toBeNull();
+    // 단계를 직접 고른 모드엔 날짜 칸 자체가 없다.
+    expect(computeDateError("manual", "1926-08-14")).toBeNull();
+    expect(computeDateError(null, "1926-08-14")).toBeNull();
+  });
+
+  it("달력 픽커와 폼이 **같은 경계**를 쓴다(달력은 잠기고 옆 칸은 안 잠기던 비대칭을 없앤다)", () => {
+    // 픽커의 과거 바닥은 달 단위다(‹ 가 20년에서 멈춘다). 그 마지막 달의 1일이 곧 폼의 하한이다.
+    expect(FLOOR.slice(8)).toBe("01");
+    expect(canGoToPreviousExpenseDatePickerMonth(FLOOR.slice(0, 7), TODAY)).toBe(false);
+    expect(isExpenseDatePickerDateSelectable(FLOOR, TODAY)).toBe(true);
+    expect(computeDateError("born", FLOOR)).toBeNull();
+    // 값: 이 폼도 픽커도 도메인의 같은 상수 하나에서 답을 얻는다.
+    expect(EXPENSE_DATE_PICKER_MAX_PAST_MONTHS).toBe(ENTRY_DATE_MAX_PAST_MONTHS);
+  });
+
+  it("지출 폼·서버와 **같은 문장**으로 거절한다", () => {
+    // 같은 경계를 두 이름으로 부르지 않는다(라운드 67 B의 계약). 서버 e2e가 응답에서 같은
+    // 문장을 못박고, 여기서는 앱이 내는 문장이 그 문장인지를 못박는다.
+    expect(CHILD_BIRTH_DATE_TOO_OLD_ERROR).toBe(`${ENTRY_DATE_MAX_PAST_YEARS}년보다 오래된 날은 고를 수 없어요.`);
+    expect(CHILD_BIRTH_DATE_TOO_OLD_ERROR).toBe(EXPENSE_DATE_TOO_OLD_ERROR);
   });
 });

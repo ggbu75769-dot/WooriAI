@@ -293,3 +293,55 @@ export function purchaseLinkShareMessage(input: {
   if (!notice) return input.url;
   return `${notice}\n${input.url}`;
 }
+
+/**
+ * 라운드 68 C(#4) — **내보낼 수 있는 주소가 실제로 있는가.**
+ *
+ * 서버는 `/r/:code`의 절대 주소(`shareUrl`)를 스스로 조립해 클릭 응답에 싣는데, 그 자리에
+ * 조건이 하나 늘었다: 워커가 눌러 보고 4xx를 받은 링크(`health_status = "broken"`)에는 그 값을
+ * 싣지 않는다(apps/api/.../items-catalog.service.ts의 `shareableRedirectUrl`). 즉 이 앱이 보는
+ * "`shareUrl`이 없다"는 세 가지를 한꺼번에 뜻한다 — 서버가 죽은 줄 아는 링크 · 코드가 없는 옛
+ * 데이터 · `shareUrl`을 아직 보내지 않는 구버전 서버.
+ *
+ * **셋 다 답은 같다: 내보내지 않는다.** 종전에는 이 자리에서 `redirectUrl`(= 저장된 원문 제휴
+ * URL)로 떨어졌는데, 그것은 라운드 67 #4가 없애려던 바로 그 값이다 — 그 사본으로 산 구매는
+ * `affiliate_clicks`에 흔적이 없고(우리가 만든 유입인데 우리 숫자에는 없다), 어드민이 링크를
+ * 내려도 이미 나간 사본은 영영 산다. broken인 경우에는 거기에 더해 **우리가 죽은 줄 아는 주소**를
+ * 친구에게 보내는 셈이다. 공유할 수 있는 주소가 없다는 것이 사실이므로, 없는 것을 대신 지어내지
+ * 않는다(화면은 이 판정이 false면 공유 버튼을 아예 그리지 않는다).
+ *
+ * ⚠️ 링크를 목록에서 감추거나 "깨졌어요"라고 적는 일과는 무관하다 — 이 판정이 정하는 것은
+ * **앱 밖으로 나가는 사본** 하나뿐이고, 여는 URL·링크 목록·개수·정렬은 종전 그대로다.
+ *
+ * 곁가지: 데모 백엔드(src/api/local-backend.ts)는 `shareUrl`을 아예 주지 않으므로 데모에서는
+ * 이 판정이 늘 false다. 그쪽은 서버 흉내라 `/r/:code`로 응답할 것이 없고, 없는 주소를 내보내지
+ * 않는 것이 그 화면에서도 사실이다(그 파일은 이 변경의 무접촉 대상이다).
+ */
+export function canSharePurchaseLink(shareUrl: string | null | undefined): shareUrl is string {
+  return typeof shareUrl === "string" && shareUrl.trim().length > 0;
+}
+
+/** 내보낼 주소가 없을 때 실패 카드가 그 자리에서 말하는 사실. 판매처를 탓하지 않는다. */
+export const LINK_SHARE_UNAVAILABLE_NOTICE = "지금은 공유할 수 있는 주소가 없어요.";
+
+/** 링크를 열지 못했고 **공유는 할 수 있는** 상태의 문구(종전 문장 그대로). */
+export const LINK_OPEN_FAILED_SHAREABLE_NOTICE = "링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.";
+
+/**
+ * 링크를 열지 못했고 **내보낼 주소도 없는** 상태의 문구.
+ *
+ * 클릭 기록 자체가 실패했을 때의 문장("링크를 열지 못했어요. **잠시 후** 다시 시도해 주세요." —
+ * app/items/[itemTemplateId].tsx의 `clickLink.onError`)과는 다른 갈래다: 그쪽은 서버 왕복이
+ * 실패해 잠시 뒤면 될 수도 있는 상태이고, 이쪽은 주소는 이미 받았는데 기기가 열지 못한 상태라
+ * 기다림이 답이 아니다.
+ */
+export const LINK_OPEN_FAILED_NOTICE = "링크를 열지 못했어요. 다시 시도해 주세요.";
+
+/**
+ * 링크 열기 실패 문구. 공유 버튼이 서지 않는 상태에서 "링크를 공유하거나"라고 말하면 화면의 두
+ * 주장이 어긋난다(있지도 않은 버튼을 가리킨다) — 그래서 같은 판정에서 갈린다. 공유가 가능한
+ * 종전 경로의 문장은 **한 글자도 바뀌지 않는다**.
+ */
+export function linkOpenFailureNotice(shareUrl: string | null | undefined): string {
+  return canSharePurchaseLink(shareUrl) ? LINK_OPEN_FAILED_SHAREABLE_NOTICE : LINK_OPEN_FAILED_NOTICE;
+}

@@ -1,8 +1,10 @@
 import {
   calculateChildStage,
   getSeoulToday,
+  isBeforeEntryDateFloor,
   isFutureSeoulDate,
   isValidCalendarDate,
+  ENTRY_DATE_MAX_PAST_YEARS,
   type ChildStageCode,
   type ChildStageMode
 } from "@wooriai/domain";
@@ -139,6 +141,38 @@ function isBeyondFullTermDueDate(dateIso: string): boolean {
   return isFutureSeoulDate(dateIso, fullTermReference);
 }
 
+/**
+ * 라운드 68 A — 출생일의 **아래쪽 경계**(20년).
+ *
+ * 라운드 67 B가 예정일의 위쪽만 막았고, 출생일의 과거 쪽에는 경계가 없었다. 그런데 **같은 칸의
+ * 달력 픽커는 20년에서 잠긴다**(`childDatePickerDirection` → `direction: "past"` →
+ * `EXPENSE_DATE_PICKER_MAX_PAST_MONTHS`). 즉 달력은 잠기고 그 옆 손타이핑 칸은 안 잠기는
+ * 비대칭이 과거 쪽에 그대로 남아 있었다 — 라운드 67 #1이 미래 쪽에서 고친 것과 같은 모양이다.
+ *
+ * 막지 않으면 `2026` → `2016` 한 자리 오타가 저장되고, 홈은 **"생후 117개월"** 을 그리며 단계가
+ * `elementary`로 굳는다(더 먼 오타면 "생후 1,197개월"이다 — `ageMonthsToStageCode`의 마지막
+ * 밴드에 상한이 없어 전부 `middle_school` 하나로 받는다). 값이 대놓고 이상한데도 무엇이 틀렸는지
+ * 말해 주는 자리가 없었다.
+ *
+ * ## 숫자도 문장도 여기서 짓지 않는다
+ * 20은 도메인의 `ENTRY_DATE_MAX_PAST_YEARS`이고, 그 값은 지출 날짜 하한·달력 픽커·기록 탭
+ * 딥링크가 쓰는 **같은 하나**다. 문장은 지출 폼(`src/expenses/entry-form-guards.ts`의
+ * `EXPENSE_DATE_TOO_OLD_ERROR`)과 **글자까지 같다** — 이 모듈은 지출 폴더를 import하지 않는 것이
+ * 계약이라(위 `childDatePickerDirection` 주석) 상수를 끌어오는 대신 같은 값을 자기 자리에서
+ * 읽어 같은 문장을 만들고, 두 자리가 같은 문장을 말한다는 사실은 계약 테스트가 붙든다
+ * (라운드 67 B가 만삭 문구에 쓴 그 형태 그대로). 서버도 같은 규칙을 자기 층에 한 벌 갖는다
+ * (apps/api/src/onboarding/onboarding-core.service.ts).
+ *
+ * ## 밴드는 건드리지 않는다
+ * `ageMonthsToStageCode`의 열린 마지막 밴드를 닫는 것은 DNC-007이 지키는 도메인 의미 변경이고
+ * 스테이지 코드를 쓰는 모든 자리를 건드린다. 여기서 하는 일은 **폼이 값을 받지 않는 것**뿐이다.
+ *
+ * ## 예정일에는 적용하지 않는다
+ * 과거 예정일 허용은 무변경이다(라운드 67 B ⓒ) — 이미 출산한 사람이 예정일을 적는 것은 정상
+ * 입력이고, 그 값은 홈이 "예정일이 지났어요"로 읽는다(src/home/stage-display-label.ts).
+ */
+export const CHILD_BIRTH_DATE_TOO_OLD_ERROR = `${ENTRY_DATE_MAX_PAST_YEARS}년보다 오래된 날은 고를 수 없어요.`;
+
 // Birth dates (stageMode "born") must not be in the future -- a due date (stageMode "pregnant")
 // is expected to be in the future and is allowed to be in the past too (the parent may already
 // have given birth), so only the calendar-validity check applies there.
@@ -146,12 +180,16 @@ function isBeyondFullTermDueDate(dateIso: string): boolean {
 // 라운드 67 B: 그 미래에도 끝이 있다 — 예정일은 만삭보다 멀 수 없다(바로 위 주석). 나머지 세
 // 갈래는 한 글자도 바뀌지 않았다: 형식·실존 검사, 출생일의 미래 금지, 그리고 **과거 예정일
 // 허용**(이미 출산한 사람이 예정일을 적는 것은 정상 입력이고, 그 갈래는 출생 전환 입구가 받는다).
+//
+// 라운드 68 A: 출생일에는 **아래쪽 끝**도 생겼다(20년 — 바로 위 CHILD_BIRTH_DATE_TOO_OLD_ERROR).
+// 예정일 갈래·미래 갈래·과거 예정일 허용은 여기서도 무변경이다.
 export function computeDateError(stageMode: string | null, rawValue: string): string | null {
   const trimmed = rawValue.trim();
   if (trimmed.length === 0) return null;
   if (!isoDatePattern.test(trimmed)) return "날짜는 YYYY-MM-DD 형식으로 입력해 주세요.";
   if (!isValidCalendarDate(trimmed)) return "실제 존재하는 날짜인지 확인해 주세요.";
   if (stageMode === "born" && isFutureSeoulDate(trimmed)) return "출생일은 오늘보다 미래일 수 없어요.";
+  if (stageMode === "born" && isBeforeEntryDateFloor(trimmed)) return CHILD_BIRTH_DATE_TOO_OLD_ERROR;
   if (stageMode === "pregnant" && isBeyondFullTermDueDate(trimmed)) return CHILD_DUE_DATE_BEYOND_TERM_ERROR;
   return null;
 }

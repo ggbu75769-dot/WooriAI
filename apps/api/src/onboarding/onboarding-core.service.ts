@@ -3,7 +3,9 @@ import {
   calculateChildStage,
   getSeoulMonthRange,
   getSeoulToday,
+  isBeforeEntryDateFloor,
   isFutureSeoulDate,
+  ENTRY_DATE_MAX_PAST_YEARS,
   type ChildStageCode,
   type ChildStageMode
 } from "@wooriai/domain";
@@ -116,6 +118,44 @@ function assertNotFutureBirthDate(birthDate: string) {
     throw new BadRequestException({
       code: "CHILD_BIRTH_DATE_FUTURE",
       message: "출생일은 오늘보다 미래일 수 없어요."
+    });
+  }
+}
+
+/**
+ * 라운드 68 A: birthDate의 **아래쪽 경계**(20년). 바로 위 `assertNotFutureBirthDate`가 세운 위쪽
+ * 경계의 반대 방향이고, 형식·기준 시각·실패 시 침묵 규칙까지 **같은 모양**이다.
+ *
+ * 지금까지 이 값에는 아래쪽 경계가 아예 없었다(normalizeChildInput은 존재 여부만, DTO는 형식만
+ * 본다). 그래서 `2026` → `2016` 같은 한 자리 오타든 폼을 우회한 API 호출이든 그대로 저장됐고,
+ * 그 아이의 홈은 "생후 117개월"을, 단계는 `elementary`를 그린다(더 먼 값이면 도메인의 마지막
+ * 밴드가 열려 있어 전부 `middle_school`로 받는다 — packages/domain/src/stage.ts). 값이 대놓고
+ * 이상한데도 무엇이 틀렸는지 말해 주는 자리가 없었다. 모바일 폼도 같은 규칙을 갖지만
+ * (apps/mobile/src/children/child-form.ts의 `computeDateError`), 그 가드를 우회한 호출을 막는
+ * 것이 이 함수의 존재 이유다 — R27(L-6)이 birthDate 미래에 세운 선례 그대로다.
+ *
+ * ## 숫자를 짓지 않는다
+ * 하한은 도메인의 `ENTRY_DATE_MAX_PAST_MONTHS`(240) 한 곳에만 있고, 지출 날짜 가드
+ * (store-shared.ts의 `assertExpenseDateWithinPastFloor`)와 앱의 달력 픽커가 **같은 그 값**을
+ * 읽는다. 문장도 폼이 내는 것과 글자까지 같다(child-form.ts의 `CHILD_BIRTH_DATE_TOO_OLD_ERROR`).
+ * 하한 당일은 통과시킨다 — 달력 픽커가 고를 수 있게 열어 두는 그 날이다.
+ *
+ * ## 도메인 밴드는 건드리지 않는다
+ * `ageMonthsToStageCode`의 열린 마지막 밴드를 닫는 것은 DNC-007이 지키는 도메인 의미 변경이다.
+ * 여기서 하는 일은 **서버가 값을 받지 않는 것**뿐이고, 이미 저장된 값은 마이그레이션하지 않는다.
+ */
+function assertBirthDateWithinPastFloor(birthDate: string) {
+  let tooOld: boolean;
+  try {
+    tooOld = isBeforeEntryDateFloor(birthDate, referenceNow());
+  } catch {
+    // 형식 검증은 DTO(@Matches(datePattern))의 몫 — assertNotFutureBirthDate와 같은 판단이다.
+    return;
+  }
+  if (tooOld) {
+    throw new BadRequestException({
+      code: "CHILD_BIRTH_DATE_TOO_OLD",
+      message: `${ENTRY_DATE_MAX_PAST_YEARS}년보다 오래된 날은 고를 수 없어요.`
     });
   }
 }
@@ -340,8 +380,10 @@ export class OnboardingCoreService {
     normalizeChildInput(input);
     // L-6: 넘어온 birthDate는 stageMode와 무관하게 검사한다 — pregnant/manual로
     // 만들면서 미리 심어둔 미래 birthDate가 나중 전환/마일스톤에서 되살아나면 안 된다.
+    // 라운드 68 A: 같은 값의 반대쪽 경계(20년 하한)도 같은 자리에서 본다.
     if (input.birthDate !== undefined) {
       assertNotFutureBirthDate(input.birthDate);
+      assertBirthDateWithinPastFloor(input.birthDate);
     }
     // 라운드 67 B: dueDate도 stageMode와 무관하게 검사한다(위와 같은 이유 — born/manual로
     // 만들면서 심어둔 값이 나중 화면에서 되살아나면 안 된다).
@@ -418,8 +460,11 @@ export class OnboardingCoreService {
     // L-6: 이번 요청이 실제로 보낸 birthDate만 검사한다(전환 포함). 저장돼 있던 값까지
     // 다시 보면, 이 규칙이 생기기 전에 들어온 미래 birthDate 때문에 닉네임 수정 같은
     // 무관한 PATCH가 영영 막힌다.
+    // 라운드 68 A: 같은 값의 반대쪽 경계(20년 하한)도 같은 규칙으로 본다 — **이번 요청이 실제로
+    // 보낸 값만** 보므로, 규칙이 생기기 전에 들어온 값 때문에 무관한 PATCH가 막히지 않는다.
     if (definedInput.birthDate !== undefined) {
       assertNotFutureBirthDate(definedInput.birthDate);
+      assertBirthDateWithinPastFloor(definedInput.birthDate);
     }
     // 라운드 67 B: dueDate도 **이번 요청이 실제로 보낸 값만** 본다. 저장돼 있던 값까지 다시
     // 보면, 이 규칙이 생기기 전에 들어온 예정일 때문에 별명 수정 같은 무관한 PATCH가 영영
