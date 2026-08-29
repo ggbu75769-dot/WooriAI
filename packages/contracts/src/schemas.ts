@@ -436,9 +436,17 @@ export const homeSummarySchema = z.object({
   recentExpenses: z.array(expenseSchema)
 });
 
+/**
+ * GAP-067 #4: `shareUrl`은 **앱 밖으로 내보내는** 주소이고 `redirectUrl`은 **여는** 주소다.
+ * 둘을 한 칸으로 합치지 않는 이유: `/r/:code`로 열면 이 클릭 행과 리다이렉트가 만드는 익명
+ * 클릭이 겹쳐 한 번의 클릭이 두 번 세어진다. optional인 이유: 리다이렉트 코드가 없는 행
+ * (이론상 — 컬럼은 NOT NULL UNIQUE다)과 이 필드를 모르는 옛 서버에서 앱이 종전 URL로
+ * 떨어질 수 있어야 한다.
+ */
 export const affiliateClickResponseSchema = z.object({
   clickId: uuidSchema,
   redirectUrl: z.string().url(),
+  shareUrl: z.string().url().optional(),
   disclosureText: z.string().optional()
 });
 

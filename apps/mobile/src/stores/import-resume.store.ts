@@ -11,8 +11,12 @@ import { sanitizeImportResumeBlob, sanitizeImportResumeEntry, type ImportResumeE
  *
  *  - 적기: 업로드가 **성공한 순간**(app/import/index.tsx의 mutation onSuccess). 그 전에 적으면
  *    존재하지 않는 jobId를 가리키는 카드가 생긴다.
- *  - 지우기: 검수 화면이 **끝난 잡**(확정/취소/실패)이나 **사라진 잡**(404)을 본 순간
- *    (app/import/[importJobId].tsx). 판정은 `shouldForgetImportResume` 하나뿐이다.
+ *  - 지우기: 검수 화면이 **끝난 잡**(취소/실패)이나 **사라진 잡**(404)을 본 순간
+ *    (app/import/[importJobId].tsx), 그리고 **되돌린 뒤**(app/import/index.tsx — 되돌릴 것이
+ *    남지 않았다). 판정은 `shouldForgetImportResume` 하나뿐이다.
+ *  - 확정 표시: 검수 화면이 **confirmed**를 본 순간(라운드 67 #3의 `markImportConfirmed`).
+ *    종전에는 그 순간 저장본을 지웠고, 그래서 확정한 가져오기는 앱에서 도달 불가가 됐다 —
+ *    이제는 건수를 적어 "방금 가져온 결과" 카드로 남고 그 카드가 되돌리기의 입구다.
  *
  * ## 왜 1건인가
  * 서버에 "내 가져오기 목록"이 없다. 여러 건을 쌓으면 기기가 서버에 없는 목록을 지어내는 셈이고,
@@ -44,6 +48,14 @@ export type ImportResumeState = {
   /** 업로드 성공 직후 기록. 모양이 어긋난 값은 저장하지 않는다(카드가 갈 곳을 잃지 않게). */
   rememberImportReview: (entry: ImportResumeEntry) => void;
   /**
+   * 라운드 67 #3 — 그 잡이 **확정됐다**고 적는다(건수는 서버가 말한 `importedCount`).
+   *
+   * `jobId`가 일치할 때만 쓴다: `forgetImportReview`와 같은 이유로, 옛 검수 화면이 뒤늦게
+   * 깨어나 방금 올린 다른 파일의 카드를 확정 결과로 둔갑시키지 못하게 한다. 같은 값으로
+   * 다시 부르면 아무 일도 일어나지 않는다(effect가 렌더마다 도는 자리라 그 멱등이 필요하다).
+   */
+  markImportConfirmed: (jobId: string, importedCount: number) => void;
+  /**
    * 저장본을 지운다.
    *
    * `jobId`를 주면 **그 잡일 때만** 지운다. 검수 화면 두 개가 겹쳐 있거나(옛 링크로 들어간 화면
@@ -69,6 +81,14 @@ export const useImportResumeStore = create<ImportResumeState>()(
         if (!sanitized) return;
         set({ entry: sanitized });
       },
+
+      markImportConfirmed: (jobId, importedCount) =>
+        set((state) => {
+          if (!state.entry || state.entry.jobId !== jobId) return state;
+          if (state.entry.importedCount === importedCount) return state;
+          const sanitized = sanitizeImportResumeEntry({ ...state.entry, importedCount });
+          return sanitized ? { entry: sanitized } : state;
+        }),
 
       forgetImportReview: (jobId) =>
         set((state) => {

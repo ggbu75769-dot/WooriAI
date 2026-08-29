@@ -41,7 +41,10 @@ const REQUIRED_SPECS: EnvSpec[] = [
   {
     key: "INVITE_LINK_BASE_URL",
     scope: "api",
-    note: "미설정 시 가족 초대 링크가 wooriai.local로 발급되어 조용히 죽은 링크가 나간다"
+    // 라운드 67 #4: 소비자가 셋이 됐다 — 가족 초대 링크, 어드민이 복사해 뿌리는 공개 공유
+    // URL(라운드 64 D), 그리고 **앱이 밖으로 내보내는 구매 링크**(items-catalog.service.ts의
+    // publicRedirectShareUrl). 미설정이면 그 셋이 모두 wooriai.local로 나간다.
+    note: "미설정 시 가족 초대 링크·어드민 공유 URL·앱이 공유하는 구매 링크가 wooriai.local로 발급되어 조용히 죽은 링크가 나간다"
   },
   { key: "OAUTH_KAKAO_CLIENT_ID", scope: "api", note: "미설정 시 카카오 OIDC 검증이 dev 폴백 client id로 진행" },
   { key: "OAUTH_KAKAO_REDIRECT_URIS", scope: "api", note: "허용 redirect 목록 — 미설정 시 실 로그인 콜백이 거부" },

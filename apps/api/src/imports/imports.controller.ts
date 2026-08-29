@@ -183,4 +183,38 @@ export class ImportsController {
     });
     return response;
   }
+
+  /**
+   * GAP-067 #3 — 확정한 가져오기 되돌리기.
+   *
+   * 라운드 66 #5가 `expenses.import_job_id`를 채우면서 서버는 "이 파일에서 온 200건"을 알게
+   * 됐는데, 사용자가 그것을 되돌릴 길은 없었다(앱의 수단은 한 건씩 롱프레스 삭제뿐이고, 어느
+   * 200건인지 화면에서 가릴 방법도 없다). 이 경로가 그 나머지 절반이다.
+   *
+   * 감사 로그는 **묶음 1행**(`import.undo`)이다 — 200줄이면 CS 화면을 덮고, 그 200줄이 답하는
+   * "어느 행이 지워졌나"는 `import_job_id`가 이미 답한다(라운드 66이 그 칸을 채운 이유). 봉투는
+   * `import.confirm`과 같은 모양이고 같은 금지를 진다: **파일명·행 원문 금지**, 상태·건수·시각뿐.
+   * 그래서 한 잡의 이력은 `import.confirm` → `import.undo` 두 줄로 순서까지 읽힌다.
+   *
+   * `IdempotencyInterceptor`를 달지 않는 이유: 되돌리기는 **경로 자체가 멱등**이다(살아 있는
+   * 행만 지우므로 두 번째 호출은 0건이고 상태도 그대로다). 확정처럼 캐시 응답으로 끊을 필요가
+   * 없고, 끊으면 오히려 "그 사이 손으로 지운 행"까지 반영된 진짜 건수 대신 옛 숫자가 돌아온다.
+   *
+   * `audit`는 응답 계약이 아니다 — 여기서 벗겨 내고 `deletedCount`만 내보낸다.
+   */
+  @Post("imports/:importJobId/undo")
+  @HttpCode(200)
+  async undoImport(@Req() request: AuthenticatedRequest, @Param("importJobId") importJobId: string) {
+    const { audit, ...response } = await this.store.undoImport(request.user!, importJobId);
+    await this.auditLogger.record({
+      actorUserId: request.user!.id,
+      householdId: audit.householdId,
+      action: "import.undo",
+      targetType: "import_job",
+      targetId: importJobId,
+      before: audit.before,
+      after: audit.after
+    });
+    return response;
+  }
 }

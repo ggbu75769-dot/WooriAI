@@ -339,11 +339,13 @@ export class ImportPipelineService {
    * 이제 확정이 자기 잡 id를 넘기므로(`insertExpense`의 `importJobId`), CS·운영이
    * "이 파일에서 온 행"을 잡 id 하나로 셀 수 있다. **마이그레이션 0건.**
    *
-   * ⚠️ 여기까지다. 되돌리기(일괄 soft delete)는 이번 범위가 아니다 — DNC-014(soft delete +
-   * 감사 로그)를 건당으로 지킬지 묶음으로 지킬지가 선행 판단이고, 홈·리포트·예산 캐시
-   * 무효화 경로를 한 번에 태우는 배치가 새로 생긴다. 응답 DTO에도 싣지 않는다
-   * (`store-shared.ts`의 `toExpenseDto`는 이 값을 모른다) — 화면이 출처를 어떻게 말할지는
-   * 되돌리기 설계와 함께 서야 한다. `approved_at`이 밟은 순서 그대로다.
+   * ⚠️ 라운드 67 #3에서 그 나머지 절반이 섰다: **되돌리기**(`undoImport` — 이 잡 id의 지출을
+   * 묶음 soft delete + 감사 로그 1행)가 바로 이 컬럼 위에서 돈다. DNC-014를 묶음으로 지킬지
+   * 건당으로 지킬지의 판단은 그 메서드 주석에 있다.
+   *
+   * ⚠️ **응답 DTO에는 여전히 싣지 않는다**(`store-shared.ts`의 `toExpenseDto`는 이 값을 모른다).
+   * 되돌리기는 잡 id 하나로 도는 서버 경로라 이 값을 노출할 필요가 없었고, 화면이 지출마다
+   * 출처 파일을 어떻게 말할지는 아직 정해진 적이 없다. `approved_at`이 밟은 순서 그대로다.
    *
    * ⚠️ 파기 판정에는 쓰이지 않는다(위 `approved_at` 문단과 같은 이유): phase 9(미리보기 행
    * 삭제)·phase 11(잡 헤더 마스킹)은 둘 다 `import_jobs.updated_at`을 정렬·컷오프 컬럼으로
@@ -438,6 +440,108 @@ export class ImportPipelineService {
           importedCount,
           skippedCount,
           approvedAt: approvedAt.toISOString()
+        }
+      }
+    };
+  }
+
+  /**
+   * GAP-067 #3 — **확정한 가져오기를 한 번에 되돌린다.**
+   *
+   * ## 무엇이 없었나
+   * 라운드 66 #5가 `expenses.import_job_id`를 채우기 시작하면서 "이 파일에서 온 행"이 서버에서
+   * 특정 가능해졌지만, 그 사실을 쓰는 곳이 0건이었다. 그래서 카드 내역 200행을 엉뚱한 아이로
+   * 확정했거나 지난달 파일을 두 번 올린 사람에게 앱이 준 수단은 기록 탭에서 **한 건씩
+   * 롱프레스해 지우는 것**뿐이었다(200번). 어느 200건인지 화면에서 가릴 방법도 없었다 —
+   * 지출이 아는 출처는 `source: "excel_import"` 한 단어뿐이라 지난달 파일에서 온 행과 오늘
+   * 파일에서 온 행이 구별되지 않는다.
+   *
+   * ## 이 경로가 지키는 것
+   * - **soft delete + 감사 로그**(DNC-014). 지우는 방식은 개별 삭제와 **같다**
+   *   (`deletedAt`·`deletedByUserId` + `version` 증가 — expenses-store.service.ts의
+   *   `deleteExpense`와 finance/expenses.service.ts의 버전 증가를 한 UPDATE로 합친 것이다).
+   *   버전을 올리는 이유: 오프라인 아웃박스가 들고 있던 `expectedVersion`이 그대로 통과하면
+   *   되돌린 지출이 조용히 되살아난다. 그리고 `updated_at`이 갱신되므로 델타 동기화
+   *   (`GET /sync/changes`)가 이 행들을 **삭제 툼스톤**으로 실어 나른다 — 오프라인 클라이언트도
+   *   같은 결론에 수렴한다.
+   * - **감사는 묶음 1행**(`import.undo`). 200행이면 감사 로그 200줄이 CS 화면을 덮고, 그 200줄이
+   *   답하는 "어느 행이 지워졌나"는 이미 `import_job_id`가 답한다(라운드 66이 그 칸을 채운
+   *   이유가 그것이다). 봉투는 `import.confirm`과 같은 규율이다 — **파일명·행 원문 금지**,
+   *   상태·건수·시각만.
+   * - **멱등**. 되돌리기는 살아 있는 행만 지운다(`deletedAt: null`). 두 번 누르면 두 번째는
+   *   0건이고 잡 상태도 그대로다. 그래서 재전송·중복 탭이 데이터를 더 망가뜨리지 않는다.
+   *
+   * ## 정의: "그 파일에서 온 행 **전부**"
+   * 확정 뒤에 사용자가 금액이나 분류를 고친 행도 함께 사라진다. 되돌리기를 그 파일 단위로 두는
+   * 이상 피할 수 없고(고친 행만 남기면 "일부만 남은 가져오기"라는 더 설명하기 어려운 상태가
+   * 된다), 그렇다면 **확인 문구가 그 사실을 말해야 한다** — 그 몫은 앱에 있다
+   * (src/import/import-resume.ts의 `importUndoConfirmMessage`).
+   *
+   * ## 하지 않는 것
+   * - **되돌리기의 되돌리기를 만들지 않는다.** soft delete라 행은 DB에 남지만, 복구 버튼을
+   *   세우면 그 자체가 또 하나의 일괄 경로이고 "지웠다"는 화면의 말이 흔들린다.
+   * - **잡 상태를 바꾸지 않는다.** `confirmed`는 "이 파일이 승인됐다"는 사실이고 그것은 되돌린
+   *   뒤에도 참이다(그래서 감사 로그 두 줄이 순서대로 남는다). 상태를 되돌리면 CAS가 다시
+   *   열려 같은 파일을 두 번 확정할 수 있게 된다.
+   * - **준비템 상태(`prepared`)를 되돌리지 않는다** — 개별 삭제와 같은 판단이다(R19-B,
+   *   expenses-store.service.ts `deleteExpense` 주석).
+   *
+   * 마이그레이션 0건 · 새 컬럼 0건.
+   */
+  async undoImport(user: AuthenticatedUser, importJobId: string) {
+    const job = await this.requireImportJobAccess(user, importJobId, true);
+    if (job.status !== "confirmed") {
+      // 확정되지 않은 잡에는 되돌릴 지출이 애초에 없다(DNC-012 — 승인 전에는 expenses에 넣지
+      // 않는다). 0건을 조용히 돌려주는 대신 거절하는 이유: 앱의 되돌리기 입구는 **확정된 잡
+      // 하나**에만 서므로, 그 밖의 상태가 오는 것은 사용자가 아니라 호출부가 틀린 것이다.
+      throw new BadRequestException({ code: "IMPORT_NOT_UNDOABLE", message: "되돌릴 수 있는 가져오기가 아니에요." });
+    }
+
+    // 아직 살아 있는 행만 본다. 사용자가 그 사이 손으로 지운 행은 이미 지워졌고, 다시 세면
+    // 화면이 "200건을 되돌렸어요"라고 거짓을 말한다.
+    const alive = await this.prisma.expense.findMany({
+      where: { importJobId, householdId: job.householdId, deletedAt: null },
+      select: { id: true, spentOn: true }
+    });
+
+    const undoneAt = new Date();
+    const deletedCount =
+      alive.length === 0
+        ? 0
+        : (
+            await this.prisma.expense.updateMany({
+              // `deletedAt: null`을 다시 거는 것은 위 조회와 이 UPDATE 사이의 경합 때문이다
+              // (같은 순간 누군가 한 건을 지웠다면 그 행은 여기서 빠진다 — 삭제 시각이 덮이지
+              // 않는다).
+              where: { id: { in: alive.map((expense) => expense.id) }, deletedAt: null },
+              data: { deletedAt: undoneAt, deletedByUserId: user.id, version: { increment: 1 } }
+            })
+          ).count;
+
+    // 확정이 태우는 그 경로와 **같은 자리**다(PUSH-113 후속): 합계가 내려갔으므로 예산 경계
+    // 판정을 아이별로 한 번 다시 건다. fire-and-forget이고 실패는 흐름에 영향이 없다.
+    if (deletedCount > 0) {
+      const yearMonths = [...new Set(alive.map((expense) => fromDateOnly(expense.spentOn).slice(0, 7)))];
+      void this.pushDispatch?.onBudgetRelevantChange(job.childId, yearMonths);
+    }
+
+    return {
+      deletedCount,
+      /**
+       * 감사 봉투(HTTP 응답 아님 — ImportsController가 벗겨 낸다). `import.confirm`과 **같은
+       * 규율**: 파일명·행 원문은 싣지 않는다(파기 잡 phase 11이 90일 뒤 마스킹하는 값을 730일
+       * 보존되는 감사 로그에 복사하지 않는다). 여기 있는 것은 상태·건수·시각뿐이다.
+       */
+      audit: {
+        householdId: job.householdId,
+        before: {
+          status: job.status,
+          importedCount: job.importedCount ?? 0
+        },
+        after: {
+          status: job.status,
+          deletedCount,
+          undoneAt: undoneAt.toISOString()
         }
       }
     };

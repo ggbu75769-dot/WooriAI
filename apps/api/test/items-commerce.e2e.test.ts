@@ -408,6 +408,20 @@ describe("Items, commerce, and affiliate API", () => {
       disclosureText: expect.stringContaining("제휴")
     });
 
+    /**
+     * GAP-067 #4 — 앱이 **밖으로 내보내는** URL은 우리 리다이렉트를 지난다.
+     *
+     * 라운드 64 C-1과 같은 방식으로 본다: 값의 모양을 다시 조립해 비교하면(동어반복) 그 주소가
+     * 실제로 어디로도 가지 않는다는 사실을 통과시킨다. 그래서 **그 주소를 실제로 때린다**.
+     */
+    const shareUrl = String(clickResponse.body.shareUrl);
+    expect(shareUrl).not.toBe(clickResponse.body.redirectUrl);
+    const sharePath = new URL(shareUrl).pathname;
+    const shared = await request(app.getHttpServer()).get(sharePath);
+    expect(shared.status, `공유 URL이 가리키는 경로가 응답하지 않는다: ${sharePath}`).toBe(302);
+    // 목적지는 그 링크 자신의 제휴 주소다 — 즉 **여는 URL과 같은 곳**으로 간다.
+    expect(shared.headers.location).toBe(clickResponse.body.redirectUrl);
+
     const prisma = moduleRef.get(PrismaService);
     const affiliateClickEntries = await prisma.affiliateClick.findMany({ where: { productLinkId: affiliateLink!.id } });
     expect(affiliateClickEntries).toEqual(

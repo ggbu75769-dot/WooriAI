@@ -313,7 +313,14 @@ export type ItemDetail = ItemSummary & {
 
 export type AffiliateClickResponse = {
   clickId: string;
+  /** **여는** URL(원문 제휴 URL). 이것으로 연다 — `/r/`로 열면 클릭이 두 번 세어진다. */
   redirectUrl: string;
+  /**
+   * GAP-067 #4: **앱 밖으로 내보내는** URL(`…/api/v1/r/:code`). 서버가 조립한 문자열을
+   * 그대로 싣는다 — 베이스(INVITE_LINK_BASE_URL)는 API 프로세스의 환경변수라 앱이 알 수 없고,
+   * 앱이 조립하면 같은 주소를 두 곳에서 짓게 된다. 없으면 종전대로 `redirectUrl`을 공유한다.
+   */
+  shareUrl?: string;
   disclosureText?: string;
 };
 
@@ -399,6 +406,14 @@ export type ImportRow = {
 export type ConfirmImportResponse = {
   importedCount: number;
   skippedCount: number;
+};
+
+/**
+ * 라운드 67 #3 — 되돌리기가 실제로 지운 건수. 카드에 적힌 숫자와 다를 수 있다(그 사이 사용자가
+ * 손으로 지운 행이 있으면 서버가 세는 값이 더 작다) — 화면은 **이 값**을 말한다.
+ */
+export type UndoImportResponse = {
+  deletedCount: number;
 };
 
 export type PrivacySettings = {
@@ -1409,6 +1424,18 @@ export function confirmImport(token: string, importJobId: string, selectedRowIds
     token,
     body: { selectedRowIds }
   });
+}
+
+/**
+ * 라운드 67 #3 — 확정한 가져오기를 통째로 되돌린다(서버가 그 잡 id의 지출을 soft delete).
+ *
+ * 본문이 없다: 무엇을 지울지는 **잡 id 하나**가 정한다(서버가 `expenses.import_job_id`로 센다 —
+ * 앱이 행 목록을 만들어 보내면 그 목록이 두 번째 진실이 된다). 두 번 불러도 안전하다 —
+ * 서버는 살아 있는 행만 지우므로 두 번째 호출은 `deletedCount: 0`이다.
+ */
+export function undoImport(token: string, importJobId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.undoImport(importJobId));
+  return requestJson<UndoImportResponse>(`/imports/${importJobId}/undo`, { method: "POST", token });
 }
 
 export function getPrivacySettings(token: string) {

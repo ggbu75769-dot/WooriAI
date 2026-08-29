@@ -4,12 +4,21 @@ import { describe, expect, it } from "vitest";
 import {
   importResumeCardAccessibilityLabel,
   importResumeCardSubtitle,
+  importUndoActionAccessibilityLabel,
+  importUndoCardAccessibilityLabel,
+  importUndoCardSubtitle,
+  importUndoConfirmMessage,
+  importUndoResultMessage,
+  isConfirmedImportEntry,
   isMissingImportJobError,
   resolveImportResumeCard,
   sanitizeImportResumeBlob,
   sanitizeImportResumeEntry,
   shouldForgetImportResume,
+  shouldMarkImportResumeConfirmed,
   IMPORT_RESUME_CARD_TITLE,
+  IMPORT_UNDO_CARD_TITLE,
+  IMPORT_UNDO_CONFIRM_TITLE,
   type ImportResumeEntry
 } from "./import-resume";
 
@@ -92,11 +101,12 @@ describe("라운드 56 D#5 가져오기 재진입 저장본", () => {
     }
   });
 
-  it("끝난 잡(확정·취소·실패)과 사라진 잡에서만 저장본을 지운다", () => {
-    for (const status of ["confirmed", "cancelled", "failed"]) {
+  it("끝난 잡(취소·실패)과 사라진 잡에서만 저장본을 지운다", () => {
+    for (const status of ["cancelled", "failed"]) {
       expect(shouldForgetImportResume({ status, error: null }), status).toBe(true);
     }
-    for (const status of ["uploaded", "analyzing", "preview_ready", undefined]) {
+    // 라운드 67 #3: **확정된 잡은 더는 지우지 않는다** — 결과 카드(되돌리기 입구)로 남는다.
+    for (const status of ["confirmed", "uploaded", "analyzing", "preview_ready", undefined]) {
       expect(shouldForgetImportResume({ status, error: null }), String(status)).toBe(false);
     }
     // 404는 상태를 못 받은 채로도 판정된다(잡 자체가 없으니 status가 올 리 없다).
@@ -126,7 +136,8 @@ describe("라운드 56 D#5 가져오기 화면 배선", () => {
     expect(src).toContain(
       "const resumeCard = resolveImportResumeCard({ entry: resumeEntry, childId, canResume: canUpload });"
     );
-    expect(src).toContain("{resumeCard ? (");
+    // 라운드 67 #3: 확정된 잡은 결과 카드로 서므로, 이어서 보기 카드는 그 갈래가 아닐 때만 선다.
+    expect(src).toContain("{resumeCard && !undoCard ? (");
     expect(src).toContain("onPress={() => router.push(`/import/${resumeCard.jobId}`)}");
     expect(src).toContain("accessibilityLabel={importResumeCardAccessibilityLabel(resumeCard, now)}");
     expect(src).toContain("{importResumeCardSubtitle(resumeCard, now)}");
@@ -156,7 +167,7 @@ describe("라운드 56 D#5 가져오기 화면 배선", () => {
 
   it("카드도 최소 터치 타깃을 지키고 새 색을 만들지 않는다", () => {
     const src = uploadScreen();
-    const cardStyle = src.slice(src.indexOf("  resumeCard: {"), src.indexOf("  guideCard: {"));
+    const cardStyle = src.slice(src.indexOf("  resumeCard: {"), src.indexOf("  undoButton: {"));
     expect(cardStyle).toContain("minHeight: theme.touchTarget");
     expect(cardStyle).toContain("backgroundColor: theme.colors.white");
     expect(cardStyle).toContain("...theme.shadows.card");
@@ -165,9 +176,133 @@ describe("라운드 56 D#5 가져오기 화면 배선", () => {
 
   it("검수 화면은 순수 판정 하나로 저장본을 지우고, 자기 잡만 지운다", () => {
     const src = reviewScreen();
-    expect(src).toContain('import { shouldForgetImportResume } from "../../src/import/import-resume";');
-    expect(src).toContain("if (shouldForgetImportResume({ status, error: job.error })) forgetImportReview(importJobId);");
+    expect(src).toContain(
+      'import { shouldForgetImportResume, shouldMarkImportResumeConfirmed } from "../../src/import/import-resume";'
+    );
+    expect(src).toContain("if (shouldForgetImportResume({ status, error: job.error })) {");
+    expect(src).toContain("forgetImportReview(importJobId);");
     // 상태 목록을 화면이 다시 나열하면 그 목록이 두 번째 계약이 된다.
     expect(src).not.toContain('status === "cancelled" ||');
+  });
+});
+
+/**
+ * 라운드 67 #3 — **확정한 가져오기 되돌리기.**
+ *
+ * 라운드 66이 서버에 출처(`expenses.import_job_id`)를 남기기 시작했지만 앱에는 그 200건을
+ * 되돌릴 길이 없었다: 확정하는 순간 저장본이 지워졌고, 서버에는 "내 가져오기 목록"이 없어
+ * 그 잡으로 돌아갈 주소를 아무도 몰랐다. 여기서 고정하는 것은 **확정된 저장본이 남는다**는
+ * 사실과, 그 카드가 말하는 문장들이다.
+ */
+describe("라운드 67 #3 확정 가져오기 되돌리기", () => {
+  const confirmed: ImportResumeEntry = { ...entry, importedCount: 200 };
+
+  it("건수가 적힌 저장본만 '확정된 잡'이다", () => {
+    expect(isConfirmedImportEntry(confirmed)).toBe(true);
+    expect(isConfirmedImportEntry(entry)).toBe(false);
+    // 0건 확정도 확정이다(모두 건너뛴 파일 — 되돌릴 것이 없다는 사실을 카드가 말해야 한다).
+    expect(isConfirmedImportEntry({ ...entry, importedCount: 0 })).toBe(true);
+  });
+
+  it("건수만 어긋난 저장본은 버리지 않고 건수만 잃는다 (카드가 갈 곳은 살아 있다)", () => {
+    expect(sanitizeImportResumeEntry(confirmed)).toEqual(confirmed);
+    for (const broken of [-1, 1.5, Number.NaN, "200", null]) {
+      const sanitized = sanitizeImportResumeEntry({ ...entry, importedCount: broken });
+      expect(sanitized, String(broken)).toEqual(entry);
+      expect(isConfirmedImportEntry(sanitized!), String(broken)).toBe(false);
+    }
+  });
+
+  it("확정된 잡은 지우는 대신 결과로 바꾼다", () => {
+    expect(shouldMarkImportResumeConfirmed({ status: "confirmed" })).toBe(true);
+    expect(shouldForgetImportResume({ status: "confirmed", error: null })).toBe(false);
+    for (const status of ["preview_ready", "cancelled", "failed", undefined]) {
+      expect(shouldMarkImportResumeConfirmed({ status }), String(status)).toBe(false);
+    }
+  });
+
+  it("결과 카드는 파일명·건수·언제를 말한다", () => {
+    expect(IMPORT_UNDO_CARD_TITLE).toBe("방금 가져온 결과");
+    expect(importUndoCardSubtitle(confirmed, NOW)).toBe("5월 카드내역.xlsx · 200건 · 3시간 전");
+    expect(importUndoCardAccessibilityLabel(confirmed, NOW)).toBe(
+      "방금 가져온 결과. 5월 카드내역.xlsx · 200건 · 3시간 전"
+    );
+    // 시각을 읽을 수 없어도 건수는 남는다(없는 시각만 지어내지 않는다).
+    expect(importUndoCardSubtitle({ ...confirmed, createdAt: "어제" }, NOW)).toBe("5월 카드내역.xlsx · 200건");
+    // 버튼은 무엇을 되돌리는지까지 읽어 준다.
+    expect(importUndoActionAccessibilityLabel(confirmed)).toBe("5월 카드내역.xlsx 되돌리기");
+  });
+
+  /**
+   * 확인 문구가 지는 세 가지: 건수(`syncStatusDiscardAllConfirmMessage`가 세운 관례) ·
+   * **확정 뒤 고친 기록도 함께 사라진다**(되돌리기의 정의가 "그 파일에서 온 행 전부"라 피할 수
+   * 없는 사실이다) · 되돌릴 수 없다. 해요체(DNC-018).
+   */
+  it("확인 문구가 건수와 '고친 기록도 함께 사라진다'를 말한다", () => {
+    const message = importUndoConfirmMessage(200);
+    expect(message).toContain("200건");
+    expect(message).toContain("고친 기록도 함께 사라지고");
+    expect(message).toContain("되돌릴 수 없어요");
+    expect(IMPORT_UNDO_CONFIRM_TITLE).toBe("가져온 기록을 되돌릴까요?");
+    expect(importUndoConfirmMessage(1)).toContain("1건");
+  });
+
+  it("결과 문구는 서버가 실제로 지운 건수를 말한다", () => {
+    expect(importUndoResultMessage(200)).toBe("200건을 되돌렸어요.");
+    // 그 사이 손으로 다 지웠다면 0건이다 — 카드의 숫자를 되풀이하지 않는다.
+    expect(importUndoResultMessage(0)).toBe("되돌릴 기록이 이미 없었어요.");
+  });
+});
+
+describe("라운드 67 #3 되돌리기 배선", () => {
+  const uploadScreen = () => source("app/import/index.tsx");
+  const reviewScreen = () => source("app/import/[importJobId].tsx");
+  const client = () => source("src/api/client.ts");
+
+  it("검수 화면이 **읽은 상태**로 확정을 적는다 (뮤테이션 성공이 아니라)", () => {
+    const src = reviewScreen();
+    expect(src).toContain("shouldMarkImportResumeConfirmed({ status })");
+    expect(src).toContain("markImportConfirmed(importJobId, confirmedImportedCount)");
+    // 건수는 서버가 말한 값이다 — 화면이 행을 세지 않는다.
+    expect(src).toContain("const confirmedImportedCount = job.data?.importedCount;");
+  });
+
+  it("결과 카드는 순수 판정으로만 서고, 되돌리기는 확인 Alert를 지난다", () => {
+    const src = uploadScreen();
+    expect(src).toContain(
+      "const undoCard = resumeCard && isConfirmedImportEntry(resumeCard) ? resumeCard : null;"
+    );
+    expect(src).toContain("{undoCard ? (");
+    expect(src).toContain("Alert.alert(IMPORT_UNDO_CONFIRM_TITLE, importUndoConfirmMessage(entry.importedCount ?? 0)");
+    expect(src).toContain("onPress: () => undo.mutate(entry.jobId)");
+    // 화면이 문구를 다시 적지 않는다(제목·라벨은 상수로만 들어온다).
+    expect(src).toContain("{IMPORT_UNDO_CARD_TITLE}");
+    expect(src).toContain("{IMPORT_UNDO_ACTION_LABEL}");
+    expect(src).not.toContain(">방금 가져온 결과<");
+    expect(src).not.toContain(">되돌리기<");
+    // 라운드 41 K-7과 같은 게이트: 보기 전용 세션은 확인 Alert 앞에서 막힌다(서버도 403이다).
+    const confirmBlock = src.slice(src.indexOf("const confirmUndo ="), src.indexOf("const canUpload ="));
+    expect(confirmBlock).toContain("if (expenseGate.locked) {");
+    expect(confirmBlock).toContain("expenseGate.explain();");
+    expect(confirmBlock.indexOf("expenseGate.locked")).toBeLessThan(confirmBlock.indexOf("Alert.alert("));
+  });
+
+  it("되돌린 뒤 **확정이 태우는 그 넷**을 그대로 무효화하고 카드를 지운다", () => {
+    const src = uploadScreen();
+    const undoBlock = src.slice(src.indexOf("const undo = useMutation({"), src.indexOf("const confirmUndo ="));
+    expect(undoBlock).toContain("forgetImportReview(jobId)");
+    for (const key of ["report", "home", "expenses", "budget"]) {
+      expect(undoBlock, key).toContain(`queryKey: ["${key}"]`);
+    }
+    // 결과 문구는 서버가 준 건수에서 온다.
+    expect(undoBlock).toContain("importUndoResultMessage(result.deletedCount)");
+    // 되돌리기의 되돌리기는 없다 — 이 화면에 복구 입구가 생기지 않는다.
+    expect(src).not.toContain("복구하기");
+  });
+
+  it("되돌리기 요청은 잡 id 하나만 보낸다 (행 목록을 앱이 만들지 않는다)", () => {
+    const src = client();
+    expect(src).toContain("export function undoImport(token: string, importJobId: string) {");
+    expect(src).toContain('return requestJson<UndoImportResponse>(`/imports/${importJobId}/undo`, { method: "POST", token });');
   });
 });

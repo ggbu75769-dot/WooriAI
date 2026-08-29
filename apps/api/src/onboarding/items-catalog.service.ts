@@ -193,6 +193,10 @@ function isPriceSnapshotExpired(priceCheckedAt: Date | null | undefined, today: 
 /**
  * 라운드 64 D(#8) — 공개 리다이렉트(`GET /api/v1/r/:code`)의 공유용 절대 URL.
  *
+ * 라운드 67 #4: 소비자가 둘이 됐다 — 어드민 링크 표의 복사 버튼(`toAdminProductLinkDto`)과
+ * **앱의 클릭 응답**(`clickProductLink`의 `shareUrl`). 조립을 한 자리에 두는 이유는 아래
+ * 그대로이고, 앱도 서버가 만든 문자열을 **그대로** 싣는다(앱에서 조립 0건).
+ *
  * 베이스 URL 관례는 가족 초대 링크가 이미 쓰는 것 그대로다
  * (`INVITE_LINK_BASE_URL`, 미설정 시 dev 플레이스홀더 —
  * apps/api/src/households/household-runtime.service.ts createInvite ·
@@ -364,7 +368,29 @@ export class ItemsCatalogService {
       //
       // 고지 대상이 아닌 일반 링크는 **종전 그대로 undefined**다(없는 고지를 지어내지
       // 않는다). 그 경우 조회를 아예 하지 않으므로 클릭 경로에 쿼리가 늘지도 않는다.
-      disclosureText
+      disclosureText,
+      /**
+       * GAP-067 #4 — 앱이 **밖으로 내보내는** URL. 여는 URL(`redirectUrl`)과는 다른 값이다.
+       *
+       * 고치는 문제: 링크를 열지 못했을 때 뜨는 카드의 "링크 공유하기"가 `redirectUrl`
+       * (= 저장된 원문 제휴 URL)을 그대로 카카오톡으로 내보냈다. 그러면 ⓐ 그 사본으로 산
+       * 구매는 `affiliate_clicks`에 아무 흔적이 없고(우리가 만든 유입인데 우리 숫자에는
+       * 없다), ⓑ 어드민이 깨진 링크를 `active=false`로 내려도 이미 나간 사본은 **영원히
+       * 산다** — 운영이 링크를 회수할 수단이 앱 안에만 있었다.
+       *
+       * `/api/v1/r/:code`를 지나면 둘 다 닫힌다: 그 클릭은 익명 행으로 집계에 남고
+       * (마이그레이션 000008이 user/household/child를 nullable로 만든 이유가 그것이다),
+       * 내려간 링크는 그 순간부터 404다(redirect.controller.ts는 `active: true`만 302로 보낸다).
+       *
+       * **여는 URL은 바꾸지 않는다** — 앱이 `/r/`로 직접 열면 이 클릭 행과 리다이렉트가
+       * 만드는 익명 행이 겹쳐 한 번의 클릭이 두 번 세어진다(허위 수치).
+       *
+       * 라운드 64 S-1과 **같은 규율**: 누르면 404가 나는 주소는 내보내지 않는다. 여기서
+       * `active`를 다시 보지 않는 이유는 위 조회가 이미 `active: true`로 좁혔기 때문이고
+       * (비활성 링크의 클릭은 PRODUCT_LINK_NOT_FOUND로 끝난다), 그래서 남은 조건은
+       * 코드의 존재뿐이다. 조립은 어드민 DTO와 **같은 함수 한 자리**다(앱에서 잇지 않는다).
+       */
+      shareUrl: productLink.redirectCode ? publicRedirectShareUrl(productLink.redirectCode) : undefined
     };
   }
 
