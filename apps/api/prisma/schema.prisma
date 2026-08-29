@@ -318,6 +318,28 @@ model ItemTemplateStage {
   id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   itemTemplateId String         @map("item_template_id") @db.Uuid
   stageCode      ChildStageCode @map("stage_code")
+  /// ⚠️ 준-죽은 컬럼(GAP-072 트랙 D에서 확인 — 라운드 64~67 #8·#9가 죽은 컬럼에 내려 온
+  /// 선언과 같은 형식이다). 이름이 약속하는 "이 시기에 더 급한 준비물"은 **오늘 어디에서도
+  /// 성립하지 않는다.**
+  /// **오늘 이 값이 정하는 것**: 한 준비템의 `stageCodes` **배열 안 순서** 하나뿐이다.
+  /// 쓰는 자리는 `prisma/seed.ts:156·161`과 어드민 저장(`items-catalog.service.ts:1040`)이고
+  /// 셋 다 `stageCodes.length - index`, 즉 **작성자가 적은 배열 순서를 그대로 되감는 값**이다.
+  /// 읽는 자리는 `items-catalog.service.ts`의 두 `orderBy: { priorityWeight: "desc" }`(:710·:723)
+  /// 뿐이고, 둘 다 그 배열을 원래 순서로 복원하는 데만 쓴다.
+  /// **항목 간 순위에는 닿지 않는다** — 준비템 목록·홈 카드의 순서는
+  /// `item-ranking.ts rankItemsForTab` → `packages/domain sortRecommendedItems`(시기 일치 ·
+  /// 필수도 · 상태) → 동점이면 `displayOrder`가 정하고, 그 경로는 이 컬럼을 **읽지 않는다**.
+  /// 배열 순서 자체도 화면에서 순위가 되지 않는다: `stageCodes`를 보는 모든 자리가
+  /// `.includes()`/`.some()`(item-ranking의 `isInSelectedPeriod`·`stageMatches`, 앱의
+  /// `stage-bands.ts`·`pre-birth-filter.ts`)라 **순서를 읽지 않는다**.
+  /// **"준비물에 시기별 우선순위가 매겨져 있다"의 근거로 인용하지 말 것.**
+  /// 소생시키지 않은 이유: 이 값을 항목 간 순위에 넣으려면 점수 축이 하나 더 생기는 것이고
+  /// (시기 일치 35 · 필수도 · 상태와의 대소를 새로 정해야 한다), 그 값을 채우는 운영 화면도
+  /// 함께 필요하다 — 컬럼을 켜는 일이 아니라 기능을 만드는 일이다. 없애지 않은 이유:
+  /// `item_template_stages`는 **DNC-007이 지키는 도메인**이고 인덱스
+  /// `idx_item_template_stages_stage(stage_code, priority_weight DESC)`가 마이그레이션
+  /// 000001에 붙어 있어 파괴적 변경에 변경 요청이 먼저다. **이번 라운드는 값도 인덱스도
+  /// 건드리지 않는다(마이그레이션 0건 — 선언만).**
   priorityWeight Int            @default(0) @map("priority_weight")
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 

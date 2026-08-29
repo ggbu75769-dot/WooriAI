@@ -705,6 +705,10 @@ export class ItemsCatalogService {
   private async itemTemplateWithStages(itemTemplateId: string): Promise<ItemTemplateWithStages | null> {
     const item = await this.prisma.itemTemplate.findUnique({ where: { id: itemTemplateId } });
     if (!item) return null;
+    // GAP-072 트랙 D: `priorityWeight`가 오늘 정하는 것은 **이 배열 안의 순서 하나뿐**이다
+    // (쓰는 쪽이 전부 `stageCodes.length - index`라 작성자가 적은 순서를 되감을 뿐이다).
+    // 항목 간 순위는 rankItemsForTab이 정하고 그 경로는 이 값을 읽지 않는다 —
+    // 선언은 schema.prisma의 `priorityWeight` 주석에 있다.
     const stages = await this.prisma.itemTemplateStage.findMany({
       where: { itemTemplateId },
       orderBy: { priorityWeight: "desc" }
@@ -718,6 +722,9 @@ export class ItemsCatalogService {
       orderBy: { displayOrder: "asc" }
     });
     if (items.length === 0) return [];
+    // GAP-072 트랙 D: 위 itemTemplateWithStages와 같다 — `priorityWeight`는 `stageCodes`
+    // 배열의 순서만 복원하고, 목록의 항목 순서는 `orderBy: { displayOrder: "asc" }`(바로 위)와
+    // rankItemsForTab이 정한다.
     const stages = await this.prisma.itemTemplateStage.findMany({
       where: { itemTemplateId: { in: items.map((item) => item.id) } },
       orderBy: { priorityWeight: "desc" }

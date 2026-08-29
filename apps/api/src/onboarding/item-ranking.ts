@@ -118,6 +118,13 @@ export function rankItemsForTab<T extends RankableItem>(items: readonly T[], con
     return [...candidates].sort((left, right) => left.displayOrder - right.displayOrder);
   }
 
+  // GAP-072 트랙 D: 예전에는 여기서 `budgetFits: true`(전 항목 동일 상수 → 순서 기여 0)와
+  // `userInterest: item.status === "interested"`(status의 파생 사본 → 상태 점수와 정확히
+  // 상쇄)를 함께 넘겼다. 둘 다 도메인 입력에서 사라졌고, 찜 신호는 `status` 한 곳으로
+  // 모였다(packages/domain/src/recommendation.ts의 머리말이 그 판정과 방향을 적어 둔다).
+  // ⚠️ 데모 거울(apps/mobile/src/api/local-backend.ts listItems)이 **같은 점수 입력 셋**
+  // (stageMatches · necessityLevel · status)을 넘긴다 —
+  // 한쪽만 늘리면 데모와 실세션의 목록 순서가 갈린다(계약이 두 소스의 키 집합을 맞대 본다).
   const sorted = sortRecommendedItems(
     candidates.map((item) => ({
       id: item.id,
@@ -126,8 +133,6 @@ export function rankItemsForTab<T extends RankableItem>(items: readonly T[], con
       stageMatches: item.stageCodes.includes(context.stageCode),
       necessityLevel: item.necessityLevel,
       status: item.status,
-      budgetFits: true,
-      userInterest: item.status === "interested",
       displayOrder: item.displayOrder
     }))
   );

@@ -55,7 +55,9 @@ function idsFor(tab: ItemTab, stageBand?: typeof FUTURE_BAND) {
 
 describe("탭 술어: 시기 기준 (밴드 미지정 = 현재 단계)", () => {
   it("밴드가 없으면 현재 단계를 포함하는 미정리 항목만 now에 담긴다", () => {
-    expect(idsFor("now")).toEqual([NOW_OPEN.id, NOW_INTERESTED.id]);
+    // GAP-072 트랙 D: 찜한 NOW_INTERESTED가 앞이다(찜 25 > 미준비 20). 이 줄이 예전에는
+    // `[NOW_OPEN, NOW_INTERESTED]`였다 — 두 항목이 정확히 동점이라 id가 순서를 정했다.
+    expect(idsFor("now")).toEqual([NOW_INTERESTED.id, NOW_OPEN.id]);
   });
 
   it("soon은 now의 여집합이다 — 둘은 서로소이고 합집합이 미정리 항목 전체다", () => {
@@ -73,12 +75,12 @@ describe("탭 술어: 시기 기준 (밴드 미지정 = 현재 단계)", () => {
     // ITEM-121: 예비 부모의 "다음 시기 미리 보기". 밴드에 걸치는 항목이 now가 되고,
     // 현재 단계뿐인 항목은 그 여집합인 soon으로 간다.
     expect(idsFor("now", FUTURE_BAND)).toEqual([BAND_OPEN.id]);
-    expect(idsFor("soon", FUTURE_BAND)).toEqual([NOW_OPEN.id, NOW_INTERESTED.id, OTHER_OPEN.id]);
+    expect(idsFor("soon", FUTURE_BAND)).toEqual([NOW_INTERESTED.id, NOW_OPEN.id, OTHER_OPEN.id]);
   });
 
   it("밴드를 봐도 점수의 stageMatches는 늘 아이의 현재 단계다", () => {
     // soon(밴드 기준 여집합) 안에서도 지금 당장 필요한 항목(현재 단계)이 위로 온다:
-    // NOW_OPEN/NOW_INTERESTED는 stageMatches=true(95점), OTHER_OPEN은 false(50점).
+    // NOW_OPEN 85점 · NOW_INTERESTED 90점(stageMatches=true), OTHER_OPEN 40점(false).
     const soon = idsFor("soon", FUTURE_BAND);
     expect(soon.indexOf(OTHER_OPEN.id)).toBe(soon.length - 1);
   });
@@ -151,7 +153,7 @@ describe("정렬: 동점 처리와 결정성", () => {
   });
 
   it("점수가 다르면 displayOrder보다 점수가 우선한다", () => {
-    // essential(30) + 관심(15+5) > convenience(20) + 미준비(20)
+    // essential(30) + 찜(25) > convenience(20) + 미준비(20)
     const ranked = rankItemsForTab(
       [
         item("z-cheap-convenience", { necessityLevel: "convenience", displayOrder: 1 }),
@@ -167,6 +169,123 @@ describe("정렬: 동점 처리와 결정성", () => {
     const input = [...CATALOG];
     rankItemsForTab(input, { tab: "all", stageCode: CURRENT_STAGE });
     expect(input).toEqual(CATALOG);
+  });
+});
+
+/**
+ * GAP-072 트랙 D — **찜이 순서에 도달한다. 그리고 그것만 바뀐다.**
+ *
+ * 정찰 판정: `userInterest`가 상태 점수와 정확히 상쇄되도록 값이 정해져 있어(20 = 15 + 5)
+ * 사용자가 "관심 있어요"를 눌러도 목록이 한 칸도 움직이지 않았다. 이제 찜은 미준비보다
+ * 5점 위다. 이 트랙이 바꾸는 것은 **순서뿐**이므로, 여기서 두 가지를 함께 못박는다:
+ * ⓐ 순서가 실제로 움직인다, ⓑ **어느 탭에 담기는가는 한 항목도 바뀌지 않는다**(부정 단언 —
+ * `matchesTab`·`TAB_STATUSES`·`isInSelectedPeriod`는 한 줄도 손대지 않았다).
+ */
+describe("GAP-072 트랙 D: 찜은 순서만 바꾼다", () => {
+  const context = { tab: "now" as const, stageCode: CURRENT_STAGE };
+
+  it("찜한 항목이 같은 필수도의 미준비 항목 위로 온다 — displayOrder를 이긴다", () => {
+    // z는 카탈로그 편집 순서상 맨 뒤(displayOrder 900)이고 id도 뒤다. 그럼에도 찜 하나로
+    // 맨 앞에 온다 — 예전에는 동점이라 a, z 순이었다.
+    const untouched = item("a-untouched", { displayOrder: 1 });
+    const marked = item("z-marked", { status: "interested", displayOrder: 900 });
+
+    expect(rankItemsForTab([untouched, marked], context).map((entry) => entry.id)).toEqual([
+      "z-marked",
+      "a-untouched"
+    ]);
+  });
+
+  it("찜을 눌러도(=취소해도) 다섯 탭 어디에서도 담기는 집합이 바뀌지 않는다", () => {
+    // 같은 카탈로그에서 한 항목의 상태만 미준비↔찜으로 뒤집는다. 두 상태 모두
+    // OPEN_STATUSES라 탭 술어에는 아무 차이도 없어야 한다.
+    const asNotPrepared = CATALOG.map((entry) =>
+      entry.id === NOW_INTERESTED.id ? { ...entry, status: "not_prepared" as const } : entry
+    );
+
+    for (const tab of ["now", "soon", "prepared", "not_needed", "all"] as const) {
+      for (const stageBand of [undefined, FUTURE_BAND] as const) {
+        const tabContext = { tab, stageCode: CURRENT_STAGE, stageBand };
+        expect(
+          new Set(rankItemsForTab(asNotPrepared, tabContext).map((entry) => entry.id)),
+          `${tab}/${stageBand ?? "밴드 없음"} 탭의 집합`
+        ).toEqual(new Set(rankItemsForTab(CATALOG, tabContext).map((entry) => entry.id)));
+      }
+    }
+
+    // 그런데 now 탭의 **순서**는 갈린다 — 그것이 이 트랙이 고친 결함이다.
+    expect(rankItemsForTab(CATALOG, context).map((entry) => entry.id)).not.toEqual(
+      rankItemsForTab(asNotPrepared, context).map((entry) => entry.id)
+    );
+  });
+
+  it("찜은 필수도를 뒤집지 못한다 (부정 단언)", () => {
+    const essentialUntouched = item("a-essential", { displayOrder: 500 });
+    const convenienceMarked = item("b-convenience", {
+      necessityLevel: "convenience",
+      status: "interested",
+      displayOrder: 1
+    });
+
+    expect(
+      rankItemsForTab([essentialUntouched, convenienceMarked], context).map((entry) => entry.id)
+    ).toEqual(["a-essential", "b-convenience"]);
+  });
+
+  /**
+   * GAP-072 트랙 D ⓒ — **`priorityWeight`가 오늘 정하는 것**을 값으로 고정한다.
+   *
+   * `item_template_stages.priority_weight`는 이름과 인덱스
+   * (`idx_item_template_stages_stage(stage_code, priority_weight DESC)`)가 "이 시기에 더 급한
+   * 준비물"을 약속하지만, 오늘 그 값이 정하는 것은 한 준비템의 `stageCodes` **배열 안 순서**
+   * 하나뿐이다(쓰는 쪽이 전부 `stageCodes.length - index`, 읽는 쪽은
+   * `items-catalog.service.ts`의 두 `orderBy`뿐 — 선언은 schema.prisma의 주석에 있다).
+   * 그 배열 순서가 **항목 간 순위에 닿지 않는다**는 것이 아래 두 단언이다.
+   * 마이그레이션 0건 · 값도 인덱스도 무변경.
+   */
+  it("stageCodes 배열의 순서를 뒤집어도 어느 탭의 집합도 순서도 바뀌지 않는다", () => {
+    // priorityWeight가 정하는 유일한 것이 이 배열 순서다 — 순위 경로는 .includes()만 쓴다.
+    const reversedStages = CATALOG.map((entry) => ({
+      ...entry,
+      stageCodes: [...entry.stageCodes].reverse()
+    }));
+
+    for (const tab of ["now", "soon", "prepared", "not_needed", "all"] as const) {
+      for (const stageBand of [undefined, FUTURE_BAND] as const) {
+        const tabContext = { tab, stageCode: CURRENT_STAGE, stageBand };
+        expect(
+          rankItemsForTab(reversedStages, tabContext).map((entry) => entry.id),
+          `${tab}/${stageBand ?? "밴드 없음"}`
+        ).toEqual(rankItemsForTab(CATALOG, tabContext).map((entry) => entry.id));
+      }
+    }
+  });
+
+  it("순위 경로(item-ranking · 도메인)는 priorityWeight를 읽지 않는다", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+
+    for (const path of [
+      join(__dirname, "..", "src", "onboarding", "item-ranking.ts"),
+      join(__dirname, "..", "..", "..", "packages", "domain", "src", "recommendation.ts")
+    ]) {
+      const code = readFileSync(path, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "");
+      expect(code, `${path}가 priorityWeight를 읽어요`).not.toMatch(/priorityWeight/i);
+    }
+  });
+
+  it("죽은 점수 입력 둘이 이 모듈에서 사라졌다 (되살아나면 빨개진다)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const source = readFileSync(join(__dirname, "..", "src", "onboarding", "item-ranking.ts"), "utf8");
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+    // budgetFits는 여기서 `true` 고정이었다(전 항목 동일 상수 → 순서 기여 0), userInterest는
+    // `item.status === "interested"`라 status의 파생 사본이었다(상태 점수와 상쇄).
+    expect(code).not.toContain("budgetFits");
+    expect(code).not.toContain("userInterest");
   });
 });
 

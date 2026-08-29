@@ -329,6 +329,80 @@ describe("Items, commerce, and affiliate API", () => {
       });
   });
 
+  /**
+   * GAP-072 트랙 D — **찜이 순서에 도달한다. 그리고 홈과 준비템 탭이 갈리지 않는다.**
+   *
+   * 정찰 판정: 추천 점수의 `userInterest`가 상태 점수와 **정확히 상쇄**되도록 값이 정해져
+   * 있어(`interested 15 + 5 = not_prepared 20`), 사용자가 "관심 있어요"를 눌러도 목록이 한
+   * 칸도 움직이지 않았다. 사용자가 이 앱에 주는 유일한 개인화 신호가 저장만 되고 순서에는
+   * 쓰이지 않은 것이다. 순수 모듈 쪽 계약은 test/item-ranking.test.ts에 있고, 여기서는
+   * **실 응답 두 개**로 그 사실을 확인한다 — 목록이 실제로 움직이는가, 그리고 홈 카드가
+   * 같은 순서를 받는가.
+   *
+   * 홈의 세 줄은 `ReportingStoreService.getHome`이 `recommendedItemsForChild`(=`tab=now`)를
+   * `slice(0, 3)`한 값이다. 두 화면이 같은 정렬을 받는다는 사실은 코드를 읽어야만 알 수
+   * 있었는데, 그것을 값으로 남긴다(한쪽만 정렬이 바뀌면 빨개진다).
+   */
+  it("GAP-072 트랙 D: 찜이 지금 필요 순서를 바꾸고, 홈 상위 셋이 그 순서를 그대로 따른다", async () => {
+    const accessToken = await login(app, "gap072-item-order");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const nowItems = async () =>
+      (
+        await request(app.getHttpServer())
+          .get(`/api/v1/children/${childId}/items?tab=now`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body.items as ItemSummary[];
+    const homeItems = async () =>
+      (
+        await request(app.getHttpServer())
+          .get(`/api/v1/home?childId=${childId}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body.recommendedItems as ItemSummary[];
+    const ids = (items: ItemSummary[]) => items.map((item) => item.id);
+
+    const before = await nowItems();
+    expect(before.length).toBeGreaterThanOrEqual(4);
+    // 홈은 준비템 탭 "지금 필요"의 상위 셋이다 — 두 화면이 같은 정렬을 받는다.
+    expect(ids(await homeItems())).toEqual(ids(before.slice(0, 3)));
+
+    // 앞 두 줄은 시기·필수도가 같아 점수가 동점이고, 그래서 순서를 가르는 것은 id뿐이다.
+    // 찜 하나가 그 순서를 이길 수 있어야 한다.
+    const target = before[1];
+    expect(target.necessityLevel).toBe(before[0].necessityLevel);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/children/${childId}/items/${target.id}/status`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ status: "interested" })
+      .expect(200);
+
+    const after = await nowItems();
+    // ⚠️ 라운드 72 이전에는 이 줄이 통과하지 못했다 — 점수가 정확히 동점이라 목록이 그대로였다.
+    expect(after[0].id).toBe(target.id);
+    expect(after[0].status).toBe("interested");
+
+    // **담기는 집합은 불변이다** — 탭 술어는 한 줄도 바뀌지 않았고, 바뀐 것은 순서뿐이다.
+    expect(new Set(ids(after))).toEqual(new Set(ids(before)));
+
+    // 홈 카드도 같은 순서를 받는다: 찜한 항목이 홈의 첫 줄이 된다.
+    const homeAfter = await homeItems();
+    expect(ids(homeAfter)).toEqual(ids(after.slice(0, 3)));
+    expect(homeAfter[0].id).toBe(target.id);
+
+    // 찜을 취소하면 종전 순서로 그대로 되돌아온다(되돌릴 수 있는 신호다).
+    await request(app.getHttpServer())
+      .patch(`/api/v1/children/${childId}/items/${target.id}/status`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ status: "not_prepared" })
+      .expect(200);
+
+    expect(ids(await nowItems())).toEqual(ids(before));
+    expect(ids(await homeItems())).toEqual(ids(before.slice(0, 3)));
+  });
+
   it("returns detail trust fields, explicit disclosure/sponsor markers, and persists affiliate clicks", async () => {
     const accessToken = await login(app, "batch07-commerce");
     const { childId, householdId } = await completeOnboarding(app, accessToken);
