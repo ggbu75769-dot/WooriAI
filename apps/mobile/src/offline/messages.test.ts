@@ -1,7 +1,10 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { EXPENSE_CREATE_FAILED_MESSAGE } from "../expenses/save-error-messages";
+// 라운드 70 트랙 B: 저장 실패 문구가 지나게 된 화이트리스트 표(문구를 여기 다시 적지 않는다).
+import { API_ERROR_MESSAGES, ApiHttpError } from "../api/api-error";
+import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
 // 라운드 69 트랙 A(#1): 같은 사실을 말하는 두 자리 — 정기 지출 관리 화면의 고지와 로그아웃 줄.
 import { RECURRING_DEVICE_ONLY_NOTICE } from "../expenses/recurring-template";
 import { OFFLINE_AWARE_LOAD_ERROR_SCREENS } from "./offline-aware-screens";
@@ -360,9 +363,11 @@ describe("UX/C-07 저장 실패 문구", () => {
     }
 
     // 판정은 훅 한 곳에서 순수 함수로 내려온다.
+    // 라운드 70 B: 시그니처가 넓어졌다(실패 값을 함께 받는다) — 연결 판정은 종전 그대로
+    // 첫 인자에만 걸린다.
     const hookSource = source("src/offline/use-load-error-copy.ts");
-    expect(hookSource).toContain("export function useSaveErrorCopy(isError: boolean): string {");
-    expect(hookSource).toContain("resolveSaveErrorCopy({ isOnline: useErrorTimeConnectivity(isError) })");
+    expect(hookSource).toContain("export function useSaveErrorCopy(isError: boolean, error?: unknown): string {");
+    expect(hookSource).toContain("resolveSaveErrorCopy({ isOnline: useErrorTimeConnectivity(isError), error })");
     // 조회·저장 두 훅이 **같은** cancelled 패턴 하나를 공유한다(사본이 다시 갈라지지 않게).
     expect(hookSource.match(/let cancelled = false;/g) ?? []).toHaveLength(1);
     expect(hookSource).toContain("if (!cancelled) setIsOnline(online);");
@@ -372,11 +377,124 @@ describe("UX/C-07 저장 실패 문구", () => {
 
     // 예산 화면은 토스트 한 곳, 아이 관리 화면은 세 뮤테이션(편집·출생 전환·추가)이 같은 자리를 쓴다.
     expect(source("app/budget.tsx")).toContain("<Toast message={saveErrorText} tone=\"error\" />");
-    expect(source("app/budget.tsx")).toContain("const saveErrorText = useSaveErrorCopy(save.isError);");
+    // 라운드 70 B: 두 화면 모두 실패 값을 함께 넘긴다 — 넘기지 않으면 훅은 코드를 볼 수 없다.
+    expect(source("app/budget.tsx")).toContain("const saveErrorText = useSaveErrorCopy(save.isError, save.error);");
     expect(source("app/settings/children.tsx")).toContain(
-      "const saveFailedText = useSaveErrorCopy(saveEdit.isError || markChildBorn.isError || addChild.isError);"
+      "saveEdit.isError || markChildBorn.isError || addChild.isError,\n    saveEdit.error ?? markChildBorn.error ?? addChild.error"
     );
     expect(source("app/settings/children.tsx").match(/\{saveFailedText\}/g) ?? []).toHaveLength(3);
+  });
+
+  /**
+   * 라운드 70 트랙 B — **이 훅을 쓰는 화면은 여전히 둘뿐이다.**
+   *
+   * 위 계약(라운드 52 QA P3-1)이 값으로 못박아 둔 그 둘이다. 셋째 화면이 생기면 이 단언이 먼저
+   * 빨개지고, 만든 사람이 "그 화면의 저장 실패는 무엇을 말해야 하는가"에 답해야 한다 — 라운드
+   * 70이 예산 화면에서 발견한 것이 정확히 그 질문을 아무도 받지 않은 결과였다.
+   */
+  it("useSaveErrorCopy를 쓰는 화면은 예산·아이 관리 둘뿐이다 (셋째가 생기면 빨개진다)", () => {
+    const users: string[] = [];
+    const walk = (directory: string) => {
+      for (const name of readdirSync(join(mobileRoot, directory))) {
+        if (name === "node_modules" || name.startsWith(".")) continue;
+        const relativePath = `${directory}/${name}`;
+        if (statSync(join(mobileRoot, relativePath)).isDirectory()) {
+          walk(relativePath);
+          continue;
+        }
+        if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) continue;
+        if (/\buseSaveErrorCopy\s*\(/.test(source(relativePath))) users.push(relativePath);
+      }
+    };
+    walk("app");
+    walk("src");
+
+    // 정의부(훅 자신)는 호출부가 아니다.
+    expect(users.filter((path) => path !== "src/offline/use-load-error-copy.ts").sort()).toEqual([
+      "app/budget.tsx",
+      "app/settings/children.tsx"
+    ]);
+  });
+});
+
+/**
+ * 라운드 70 트랙 B — **저장 실패 문구가 서버 코드를 볼 수 있게 됐다.**
+ *
+ * 종전 `resolveSaveErrorCopy`는 인자로 `isOnline` 하나만 받아, 구조적으로 사유를 볼 수 없었다.
+ * 그래서 다시 눌러도 영원히 같은 답이 오는 실패에까지 "잠시 후 다시 시도해 주세요."라고 말했다.
+ * 이제 실패 값을 함께 받아 화이트리스트 표(src/api/api-error.ts)를 한 번 지난다.
+ *
+ * 이 describe가 지키는 것은 둘이다: **아는 코드는 말한다**, 그리고 **모르는 실패의 동작은 한
+ * 글자도 바뀌지 않는다**(라운드 45가 세운 규칙 · 라운드 52의 두 폴백 문장).
+ */
+describe("라운드 70 B 저장 실패 문구의 코드 인지", () => {
+  const mobileRoot = process.cwd();
+
+  /** 서버 봉투를 그대로 실어 나르는 실제 실패 값(client.ts가 던지는 그 클래스다). */
+  const httpError = (status: number, code: string) =>
+    new ApiHttpError(status, { error: { code, message: "서버 원문", requestId: "req-1" } });
+
+  it("아는 코드면 표의 문구를 쓴다 — 라운드 69가 남긴 배선 빚(아이 출생일 하한)이 여기서 갚아진다", () => {
+    expect(resolveSaveErrorCopy({ isOnline: true, error: httpError(400, "CHILD_BIRTH_DATE_TOO_OLD") })).toBe(
+      CHILD_BIRTH_DATE_TOO_OLD_ERROR
+    );
+    // 문구는 폼이 이미 세운 그 문장이다 — 같은 경계를 두 자리가 다르게 말하지 않는다.
+    expect(API_ERROR_MESSAGES.CHILD_BIRTH_DATE_TOO_OLD).toBe(CHILD_BIRTH_DATE_TOO_OLD_ERROR);
+    expect(resolveSaveErrorCopy({ isOnline: true, error: httpError(400, "CHILD_BIRTH_DATE_TOO_OLD") })).not.toBe(
+      SAVE_ERROR_NOTICE
+    );
+  });
+
+  it("403은 표의 **중립** 문구 그대로다 — 화면 쪽으로 좁히지 않는다(다른 여섯 화면이 같은 코드를 받는다)", () => {
+    expect(resolveSaveErrorCopy({ isOnline: true, error: httpError(403, "FORBIDDEN") })).toBe(
+      API_ERROR_MESSAGES.FORBIDDEN
+    );
+    // 이 표는 라운드 70이 한 글자도 바꾸지 않았다(서버 문장 일곱이 이 한 코드 아래 있다).
+    expect(API_ERROR_MESSAGES.FORBIDDEN).toBe(
+      "권한이 없어 처리하지 못했어요. 가족 구성원 여부와 내 역할을 확인해 주세요."
+    );
+  });
+
+  it("코드가 먼저다 — 서버가 답을 줬다는 사실 자체가 연결이 있었다는 뜻이다", () => {
+    // 오프라인 판정이 어긋난 채로 서버 코드가 도착하는 경우에도 표가 앞선다
+    // (member-mutation-messages.ts가 세운 그 순서 그대로).
+    expect(resolveSaveErrorCopy({ isOnline: false, error: httpError(400, "CHILD_BIRTH_DATE_TOO_OLD") })).toBe(
+      CHILD_BIRTH_DATE_TOO_OLD_ERROR
+    );
+  });
+
+  it("⚠ 모르는 실패의 동작은 종전과 바이트 단위로 같다 (두 폴백 문장 무변경)", () => {
+    for (const error of [
+      undefined,
+      null,
+      new Error("Network request failed"),
+      httpError(500, "INTERNAL_ERROR"),
+      httpError(400, "SOME_CODE_THE_TABLE_DOES_NOT_KNOW"),
+      // 봉투가 아닌 본문(모양이 바뀌어도 조용히 예전처럼 동작한다).
+      new ApiHttpError(400, { message: "not an envelope" })
+    ]) {
+      expect(resolveSaveErrorCopy({ isOnline: true, error })).toBe(SAVE_ERROR_NOTICE);
+      expect(resolveSaveErrorCopy({ isOnline: false, error })).toBe(OFFLINE_SAVE_NOTICE);
+    }
+    // 인자를 생략한 종전 호출도 그대로다.
+    expect(resolveSaveErrorCopy({ isOnline: true })).toBe(SAVE_ERROR_NOTICE);
+    expect(resolveSaveErrorCopy({ isOnline: false })).toBe(OFFLINE_SAVE_NOTICE);
+  });
+
+  it("프로토타입 체인의 값이 문구로 둔갑하지 않는다(표 조회는 hasOwnProperty를 쓴다)", () => {
+    for (const code of ["toString", "constructor", "__proto__"]) {
+      expect(resolveSaveErrorCopy({ isOnline: true, error: httpError(400, code) })).toBe(SAVE_ERROR_NOTICE);
+    }
+  });
+
+  it("판정은 봉투 파서를 한 벌 더 만들지 않고 표 모듈을 그대로 지난다 (source contract)", () => {
+    const messagesSource = readFileSync(join(mobileRoot, "src/offline/messages.ts"), "utf8");
+    expect(messagesSource).toContain('import { apiErrorCodeOf, apiErrorMessageForCode } from "../api/api-error";');
+    expect(messagesSource).toContain("const knownByCode = apiErrorMessageForCode(apiErrorCodeOf(error));");
+    // 표의 문구를 이 파일에 사본으로 적지 않는다(코드 이름은 주석에 나올 수 있다 — 문장이 아니다).
+    for (const copy of Object.values(API_ERROR_MESSAGES)) {
+      expect(messagesSource, copy).not.toContain(`"${copy}"`);
+    }
   });
 });
 

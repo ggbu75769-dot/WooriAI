@@ -66,12 +66,23 @@ export function useLoadErrorCopy(isError: boolean): LoadErrorCopy {
  * `useErrorTimeConnectivity`): 에러로 **전환되는 순간에만** 한 번 확인하고, 에러가 풀리면
  * 초기값으로 되돌리며, effect가 정리될 때 이전 폴의 결과를 버린다.
  *
- * 인자는 "지금 저장 실패 상태인가"다. 한 화면에서 여러 뮤테이션이 같은 자리 문구를 쓰면
+ * 첫 인자는 "지금 저장 실패 상태인가"다. 한 화면에서 여러 뮤테이션이 같은 자리 문구를 쓰면
  * (아이 관리 화면의 편집·출생 전환·추가) 그 셋의 OR을 넘긴다 — 어느 것이 실패했든 사용자가
  * 보는 문장은 하나이므로 판정도 하나면 된다.
+ *
+ * ## 라운드 70 B — 둘째 인자(`error`)를 받는 이유
+ *
+ * 종전 시그니처는 boolean 하나였다. 그래서 이 훅을 쓰는 두 화면은 **구조적으로** 서버가 말해 준
+ * 사유를 볼 수 없었고, 다시 눌러도 영원히 같은 답이 오는 실패에까지 "잠시 후 다시 시도해
+ * 주세요."라고 말했다. 이제 실패 값을 그대로 함께 넘기면 판정 함수가 화이트리스트 표를 한 번
+ * 지난다(resolveSaveErrorCopy 머리말 — 아는 코드면 그 문구, 모르면 종전 두 문장 그대로).
+ *
+ * 선택 인자인 것이 계약이다: 넘기지 않으면 동작이 **한 글자도** 바뀌지 않는다. 연결 판정은
+ * 종전 그대로 첫 인자(`isError`)에만 걸리고, 여러 뮤테이션이 한 자리를 쓰는 화면은 OR과 같은
+ * 순서로 `error`를 골라 넘긴다(app/settings/children.tsx).
  */
-export function useSaveErrorCopy(isError: boolean): string {
-  return resolveSaveErrorCopy({ isOnline: useErrorTimeConnectivity(isError) });
+export function useSaveErrorCopy(isError: boolean, error?: unknown): string {
+  return resolveSaveErrorCopy({ isOnline: useErrorTimeConnectivity(isError), error });
 }
 
 /**

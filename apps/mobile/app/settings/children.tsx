@@ -381,6 +381,21 @@ export default function ManageChildrenScreen() {
     queryFn: () => listHouseholdMembers(authToken!, scopedHouseholdId!)
   });
   const myRole = scopedMembers.data?.members.find((member) => member.userId === userId)?.role;
+  /**
+   * ⚠️ 라운드 70 정찰 P3 — **앱에는 역할 판정 근거가 두 벌 있다.** 여기(그리고 app/family/index.tsx)는
+   * **구성원 목록 응답**에서 내 역할을 찾고, 나머지 전부(`useExpenseEntryGate` → record-permissions.ts)는
+   * **세션 스토어의 역할 표**에서 찾는다.
+   *
+   * 지금 이 화면이 응답 쪽을 쓰는 것은 정당하다: 어차피 이 쿼리를 부르고 있고(`scopedMembers`),
+   * 그 응답이 세션 스토어의 표보다 언제나 최신이다. 다만 **두 판정이 다른 답을 내는 창이 존재한다** —
+   * 스토어 표가 낡은 동안(역할이 서버에서 바뀌었는데 /me 재검증이 아직 돌지 않은 구간) 같은 계정이
+   * 이 화면에서는 편집 컨트롤을 보고 지출·예산 화면에서는 잠기거나 그 반대일 수 있다. 두 판정의
+   * 안전 방향이 다른 것도 의도다: 여기는 **로딩 중 보기 전용**으로 떨어지고(아래 주석), 게이트 쪽은
+   * **모르면 잠그지 않는다**(record-permissions.ts 머리말의 근거 — 잘못 잠그면 핵심 루프가 죽는다).
+   *
+   * 한 벌로 합치는 것은 이 트랙의 일이 아니다(게이트 훅은 호출부가 여섯 화면이고 이 트랙이 소유하지
+   * 않는다). 관계를 적어 두는 것까지가 라운드 70 B의 몫이다.
+   */
   const canEditChildren = myRole === "owner" || myRole === "co_parent";
   /**
    * **추가 폼**의 역할 게이트 — 근거는 파라미터가 가리키는 대상 가구(`householdId`)다. 생성이
@@ -473,8 +488,23 @@ export default function ManageChildrenScreen() {
     }
   });
 
-  // C-07/QA P3-1: 세 뮤테이션이 함께 쓰는 저장 실패 문구(위 주석 참고).
-  const saveFailedText = useSaveErrorCopy(saveEdit.isError || markChildBorn.isError || addChild.isError);
+  /**
+   * C-07/QA P3-1: 세 뮤테이션이 함께 쓰는 저장 실패 문구(위 주석 참고).
+   *
+   * 라운드 70 B — 라운드 69가 `src/api/api-error.ts`에 남긴 배선 빚을 여기서 갚는다. 그 파일은
+   * `CHILD_BIRTH_DATE_TOO_OLD`를 표에 세워 두면서 "이 코드는 아웃박스를 타지 않고(아이 저장에는
+   * 큐가 없다), 지금 그 화면은 실패를 `useSaveErrorCopy`의 일반 문구로 접는다 — 배선은 그 화면을
+   * 여는 라운드의 몫"이라고 적어 뒀다. 실패 값을 함께 넘기는 것이 그 배선이다: 20년보다 오래된
+   * 출생일로 저장이 거절되면 이제 화면이 **그 사실**을 말하고(폼의 문장과 같은 단일 소스다),
+   * 표에 없는 실패는 종전 두 문장 그대로다.
+   *
+   * `??` 순서는 위 OR과 같다 — 한 자리에 한 문장이므로 판정도 실패도 하나씩만 고른다.
+   * (react-query는 실패가 없으면 `error`가 null이라 그대로 다음 후보로 넘어간다.)
+   */
+  const saveFailedText = useSaveErrorCopy(
+    saveEdit.isError || markChildBorn.isError || addChild.isError,
+    saveEdit.error ?? markChildBorn.error ?? addChild.error
+  );
 
   // HOME-138: 전환의 부수효과 순서(스토어 쓰기 → 아이 스코프 캐시 무효화 → 안내)는
   // applyChildSwitch 한 곳에만 있다 -- 홈 헤더 1탭 전환이 같은 함수를 부른다.

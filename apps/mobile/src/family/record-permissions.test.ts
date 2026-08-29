@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  BUDGET_VIEW_ONLY_MESSAGE,
   canRecordExpenses,
   EXPENSE_EDIT_ROLES,
   EXPENSE_VIEW_ONLY_ALERT_TITLE,
@@ -71,6 +72,54 @@ describe("UX-R(M) 진입점 잠금 판정", () => {
     // 캡처는 app/pixel-lock.tsx가 clearSession으로 세션을 지운 뒤 찍는다.
     for (const role of ["viewer", "gift_participant", "owner", undefined, null]) {
       expect(isExpenseEntryLocked({ hasSession: false, role })).toBe(false);
+    }
+  });
+});
+
+/**
+ * 라운드 70 B — **예산 저장의 네 좌표.** 판정을 새로 만들지 않았다는 것을 값으로 고정한다:
+ * 예산 저장이 묻는 질문은 지출 쓰기가 묻는 질문과 **같은 함수**다(서버 술어가 같기 때문이다).
+ */
+describe("라운드 70 B 예산 저장 잠금의 네 좌표", () => {
+  const budgetSaveLocked = (input: { hasSession: boolean; role: string | null | undefined }) =>
+    isExpenseEntryLocked(input);
+
+  it("편집 역할(owner·co_parent)은 저장이 종전 그대로 실행된다 — 성공/실패 모두", () => {
+    for (const role of EXPENSE_EDIT_ROLES) {
+      expect(budgetSaveLocked({ hasSession: true, role })).toBe(false);
+      const mutate = vi.fn();
+      const explain = vi.fn();
+      guardExpenseAction(budgetSaveLocked({ hasSession: true, role }), explain, mutate)();
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(explain).not.toHaveBeenCalled();
+    }
+  });
+
+  it("보기 전용은 저장 시도가 뮤테이션을 시작하지 않고 사실을 말한다(요청 0건)", () => {
+    for (const role of VIEW_ONLY_ROLES) {
+      expect(budgetSaveLocked({ hasSession: true, role })).toBe(true);
+      const mutate = vi.fn();
+      const explain = vi.fn();
+      guardExpenseAction(budgetSaveLocked({ hasSession: true, role }), explain, mutate)();
+      expect(mutate).not.toHaveBeenCalled();
+      expect(explain).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("⚠ 화면 읽기는 잠금과 무관하다 — 이 판정이 답하는 것은 '저장'뿐이다", () => {
+    // 판정 함수는 boolean 하나이고, 화면을 접는 두 번째 값을 만들지 않는다(구조 계약은
+    // 아래 app/budget.tsx 소스 계약이 본다: 조기 return·조건부 렌더가 없다).
+    expect(typeof budgetSaveLocked({ hasSession: true, role: "viewer" })).toBe("boolean");
+  });
+
+  it("⚠ 데모·비세션·역할 미상은 종전 동작 그대로다(모르면 잠그지 않는다)", () => {
+    // 데모 세션은 역할 표가 null이라 역할이 undefined로 떨어진다.
+    expect(budgetSaveLocked({ hasSession: true, role: resolveHouseholdRole({ householdRoles: null }) })).toBe(false);
+    expect(budgetSaveLocked({ hasSession: true, role: undefined })).toBe(false);
+    expect(budgetSaveLocked({ hasSession: true, role: "grandparent" })).toBe(false);
+    // BUD-001 픽셀락 캡처는 비세션이다.
+    for (const role of ["viewer", "gift_participant", "owner", undefined]) {
+      expect(budgetSaveLocked({ hasSession: false, role })).toBe(false);
     }
   });
 });
@@ -213,11 +262,28 @@ describe("UX-R(M) 문구", () => {
   });
 
   it("DNC-018: 해요체이고, 비난하지 않으며, 재시도를 권하지 않는다", () => {
-    for (const copy of [EXPENSE_VIEW_ONLY_MESSAGE, EXPENSE_VIEW_ONLY_ALERT_TITLE]) {
+    for (const copy of [EXPENSE_VIEW_ONLY_MESSAGE, EXPENSE_VIEW_ONLY_ALERT_TITLE, BUDGET_VIEW_ONLY_MESSAGE]) {
       expect(copy).toMatch(/요\.?$/);
       expect(copy).not.toContain("다시 시도");
       expect(copy).not.toContain("권한이 없");
     }
+  });
+
+  /**
+   * 라운드 70 B — 예산 저장의 형제 문장. 판정은 하나이고 문장만 화면의 것이다.
+   */
+  it("예산 문구는 형제 문장과 같은 형식이되, 막힌 것이 무엇인지 정확히 말한다", () => {
+    expect(BUDGET_VIEW_ONLY_MESSAGE).toBe("보기 전용으로 참여하고 있어요. 예산은 관리자·공동부모가 정할 수 있어요.");
+    // 앞 절(참여 상태)은 형제와 같고, 뒷 절(할 수 있는 사람)만 예산의 것이다.
+    const [viewOnlyClause] = EXPENSE_VIEW_ONLY_MESSAGE.split(". ");
+    expect(BUDGET_VIEW_ONLY_MESSAGE.startsWith(`${viewOnlyClause}. `)).toBe(true);
+    expect(BUDGET_VIEW_ONLY_MESSAGE).not.toBe(EXPENSE_VIEW_ONLY_MESSAGE);
+    // 기록이 아니라 예산이 막혔다고 말한다 — 같은 판정이라도 화면마다 알아야 할 사실이 다르다.
+    expect(BUDGET_VIEW_ONLY_MESSAGE).toContain("예산");
+    expect(BUDGET_VIEW_ONLY_MESSAGE).not.toContain("기록");
+    // 그리고 **누가 할 수 있는지**를 말한다(두 문장이 같은 두 역할을 부른다).
+    expect(BUDGET_VIEW_ONLY_MESSAGE).toContain("관리자·공동부모");
+    expect(EXPENSE_VIEW_ONLY_MESSAGE).toContain("관리자·공동부모");
   });
 });
 
@@ -481,6 +547,119 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     // 문구는 한 곳에서만 정의된다 -- 화면들이 각자 적으면 갈라진다.
     for (const screen of ["app/(tabs)/index.tsx", "app/(tabs)/records.tsx", "app/(tabs)/reports.tsx"]) {
       expect(source(screen), screen).not.toContain(`"${EXPENSE_VIEW_ONLY_EMPTY_TITLE}"`);
+    }
+  });
+
+  /**
+   * 라운드 70 B — **예산 저장**이 같은 게이트를 지난다.
+   *
+   * 서버 술어가 지출 쓰기와 같으므로(upsertBudget → requireChildAccess(edit) → canEdit) 판정을
+   * 새로 만들지 않고 이 훅을 읽는다. 화면은 잠그지 않고 **저장만** 잠근다 — 서버가 읽기를
+   * 허용하므로 보기 전용 참여자도 이번 달 예산이 얼마인지 볼 수 있어야 한다.
+   */
+  it("라운드 70 B: 예산 저장이 같은 게이트를 지나고, 화면 읽기는 그대로다", () => {
+    const screen = source("app/budget.tsx");
+    expect(screen).toContain("const expenseGate = useExpenseEntryGate();");
+    expect(screen).toMatch(/from "(\.\.\/)+(src\/)?family\/useExpenseEntryGate"/);
+    // 판정을 화면에서 다시 적지 않는다(역할 문자열 비교·새 술어 금지).
+    expect(screen).not.toContain('=== "gift_participant"');
+    expect(screen).not.toContain('=== "viewer"');
+    expect(screen).not.toContain("canRecordExpenses");
+    // 저장 실행이 공용 가드를 지난다 — 잠겼으면 뮤테이션이 시작되지 않는다.
+    expect(screen).toContain(
+      "const saveBudget = guardExpenseAction(expenseGate.locked, explainBudgetViewOnly, () => save.mutate());"
+    );
+    expect(screen).toContain("onPress={saveBudget}");
+    // 게이트를 우회하는 두 번째 저장 경로가 없다.
+    expect(screen.match(/save\.mutate\(\)/g) ?? []).toHaveLength(1);
+
+    // ⚠ 화면을 잠그지 않는다: 조기 return도, 입력·조회를 접는 분기도 없다.
+    expect(screen).not.toContain("if (expenseGate.locked) return null;");
+    expect(screen).not.toContain("expenseGate.locked ?");
+    // ⚠ 버튼은 사라지지도 비활성이 되지도 않는다 — 눌렀을 때 사실을 말하는 것이 이 앱의 관례다.
+    expect(screen).toContain("disabled={!canSave || save.isPending}");
+    expect(screen).not.toContain("disabled={!canSave || save.isPending || expenseGate.locked}");
+
+    // 문구는 순수 모듈에서 온다(화면이 문장을 다시 적으면 두 개의 계약이 된다).
+    expect(screen).toContain("BUDGET_VIEW_ONLY_MESSAGE");
+    expect(screen).not.toContain(`"${BUDGET_VIEW_ONLY_MESSAGE}"`);
+    // 안내가 곧 역할 재검증 트리거다(라운드 40 J-3의 그 경로를 그대로 쓴다).
+    expect(screen).toContain("revalidateHouseholdRoles();");
+  });
+
+  /**
+   * 라운드 70 B — **세 번째 역방향 계약**. J-9는 `/expenses/new`로 **이동**하는 파일을,
+   * J-6은 **지출을 만드는 호출**을 훑는다. 둘 다 지출이라는 한 도메인의 그물이라, 예산 저장처럼
+   * 지출이 아닌 서버 직행 쓰기는 어느 쪽에도 걸리지 않았다 — 그래서 라운드 70까지 **앱에서
+   * 유일하게 역할 게이트를 지나지 않는 쓰기**가 살아남았고, 어떤 단언도 그 사실을 말해 주지
+   * 않았다(정찰 선행 확인 7).
+   *
+   * 그래서 이번 그물은 도메인이 아니라 **행위**로 짠다: `app/`에서 `useMutation(`을 부르는 파일
+   * 전량이 쓰기 진입점이고, 그 집합의 모든 파일은 역할 게이트를 참조하거나 **이유가 적힌 제외
+   * 목록**에 있어야 한다. 새 쓰기 화면의 기본값은 실패다.
+   *
+   * 제외 목록에는 "지금은 왜 게이트가 필요 없는가"를 값으로 적는다. 목록이 낡으면(그 파일이
+   * 더 이상 쓰기가 아니거나, 사라지거나) 그것도 함께 빨개진다.
+   */
+  it("라운드 70 B: app/의 모든 쓰기 화면이 역할 게이트를 지나거나, 지나지 않는 이유가 적혀 있다", () => {
+    const writesSomething = /\buseMutation\s*\(/;
+    // ⚠ 판정을 **부르는** 자리만 센다. `revalidateHouseholdRoles`만 가져다 쓰는 화면
+    // (개인정보·초대 수락)은 같은 모듈을 import하지만 게이트를 지나는 것이 아니다.
+    const referencesRoleGate =
+      /useExpenseEntryGate\(\)|expenseGate\.(?:guard|locked|explain)|expenseEntryLocked|useItemStatusGate\(\)|itemStatusGate\.|canEditChildren|canAddChild|canManageMembers/;
+
+    /**
+     * 게이트를 지나지 않는 쓰기와 그 이유. **역할이 판정에 개입하지 않는 쓰기만** 여기 온다.
+     */
+    const UNGATED_WITH_REASON: Readonly<Record<string, string>> = {
+      // 온보딩 셋: 자기 아이를 방금 만든 사람의 흐름이라 보기 전용이 도달하지 않고,
+      // 실패 배선도 다르다(OnboardingSaveErrorCard).
+      "app/(onboarding)/child-profile.tsx": "온보딩 — 아이를 만드는 그 사람의 흐름이다(가구도 이때 생긴다)",
+      "app/(onboarding)/budget.tsx": "온보딩 — 방금 자기 아이를 만든 사람의 흐름이다",
+      "app/(onboarding)/prepared-items.tsx": "온보딩 — 같은 흐름의 준비템 초기 선택",
+      // 가족: 초대 **수락**은 아직 구성원이 아닌 사람의 요청이라 가구 역할이 존재하지 않는다.
+      "app/family/accept/[token].tsx": "초대 수락 — 요청자에게 아직 이 가구의 역할이 없다",
+      // 초대 **생성** 화면의 진입점은 가족 화면이 `inviteLocked`로 잠근다(invite-permissions.ts).
+      // 이 화면 자체의 문구·판정은 트랙 C가 소유한다 — 이 라운드는 읽기만 한다.
+      "app/family/invite.tsx": "초대 생성 — 진입점을 app/family/index.tsx의 inviteLocked가 잠근다",
+      // 본인 기기/본인 계정: 가구 역할이 개입하지 않는다.
+      "app/settings/notifications.tsx": "알림 설정 — 본인 기기의 토글이다",
+      "app/settings/privacy.tsx": "개인정보 — 본인 계정(탈퇴·삭제·동의)이고, 아이 삭제는 서버가 요청자 기준으로 판정한다"
+    };
+
+    const screenFiles: string[] = [];
+    const walk = (directory: string) => {
+      for (const name of readdirSync(directory)) {
+        if (name === "node_modules" || name.startsWith(".")) continue;
+        const fullPath = join(directory, name);
+        if (statSync(fullPath).isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) continue;
+        screenFiles.push(fullPath);
+      }
+    };
+    walk(join(mobileRoot, "app"));
+
+    const writers = screenFiles
+      .filter((fullPath) => writesSomething.test(readFileSync(fullPath, "utf8")))
+      .map((fullPath) => relative(mobileRoot, fullPath).split("\\").join("/"))
+      .sort();
+
+    // 스캔이 실제로 무언가를 찾았는지부터 확인한다(정규식이 조용히 죽으면 통과해 버린다).
+    expect(writers.length).toBeGreaterThanOrEqual(16);
+    expect(writers).toContain("app/budget.tsx");
+    expect(writers).toContain("app/settings/children.tsx");
+
+    const ungated = writers.filter((path) => !referencesRoleGate.test(source(path)));
+    const unexplained = ungated.filter((path) => !Object.prototype.hasOwnProperty.call(UNGATED_WITH_REASON, path));
+    expect(unexplained, `역할 게이트도 이유도 없는 쓰기 화면: ${unexplained.join(", ")}`).toEqual([]);
+
+    // 제외 목록이 낡지 않게 — 적어 둔 파일이 여전히 쓰기 진입점이고 여전히 게이트 밖인지 본다.
+    expect(Object.keys(UNGATED_WITH_REASON).sort()).toEqual(ungated.sort());
+    for (const reason of Object.values(UNGATED_WITH_REASON)) {
+      expect(reason.length).toBeGreaterThan(10);
     }
   });
 
