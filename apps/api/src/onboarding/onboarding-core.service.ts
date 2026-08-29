@@ -1,5 +1,12 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { getSeoulMonthRange, isFutureSeoulDate, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
+import {
+  calculateChildStage,
+  getSeoulMonthRange,
+  getSeoulToday,
+  isFutureSeoulDate,
+  type ChildStageCode,
+  type ChildStageMode
+} from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { ChildAccessService } from "./child-access.service";
@@ -93,7 +100,8 @@ function normalizeChildInput(input: {
  * `referenceNow()` — 서울 기준 오늘이며, 테스트는 WOORIAI_STAGE_TODAY로 고정한다.
  * 서울 기준 "오늘"은 정상 입력이므로 허용한다(오늘 태어난 아이).
  *
- * dueDate에는 적용하지 않는다: 출산 예정일은 미래인 것이 정상이다.
+ * dueDate에는 적용하지 않는다: 출산 예정일은 미래인 것이 정상이다. 다만 **끝은 있다** —
+ * 아래 `assertDueDateWithinFullTerm`(라운드 67 B)이 그 위쪽 경계를 본다.
  */
 function assertNotFutureBirthDate(birthDate: string) {
   let future: boolean;
@@ -108,6 +116,52 @@ function assertNotFutureBirthDate(birthDate: string) {
     throw new BadRequestException({
       code: "CHILD_BIRTH_DATE_FUTURE",
       message: "출생일은 오늘보다 미래일 수 없어요."
+    });
+  }
+}
+
+/**
+ * 라운드 67 B: dueDate의 **위쪽 경계**. 예정일이 미래인 것은 정상이지만, 무한히 먼 미래가
+ * 정상인 것은 아니다 — 임신에는 만삭이라는 끝이 있다.
+ *
+ * 지금까지 이 값에는 위쪽 경계가 아예 없었다(normalizeChildInput은 존재 여부만 보고, DTO는
+ * `YYYY-MM-DD` 형식만 본다). 그래서 손타이핑 오타(`2026` → `2062`)든 폼을 우회한 API 호출이든
+ * 그대로 저장됐고, 그 아이는 도메인의 주차 계산이 0으로 clamp되면서(packages/domain/src/stage.ts)
+ * **임신 0주차**로 굳는다 — 홈의 D 카운트와 준비템 밴드가 임신 초기에 고정되는데 무엇이
+ * 틀렸는지 말해 주는 자리가 없다. 모바일 폼도 같은 규칙을 갖지만(apps/mobile/src/children/
+ * child-form.ts의 `computeDateError`), 그 가드를 우회한 호출을 막는 것이 이 함수의 존재
+ * 이유다 — R27(L-6)이 birthDate에 세운 선례 그대로다.
+ *
+ * ## 숫자를 짓지 않는다
+ * 만삭 주차를 여기 적지 않고 도메인에 물어 읽는다: "예정일이 곧 오늘"이면 도메인이 만삭 주차를
+ * 답하고, 그 답이 곧 "예정일이 오늘로부터 가장 멀 수 있는 거리"다. 모바일 폼과 달력 픽커도
+ * 같은 질문을 자기 자리에서 따로 던진다(계층을 가로질러 상수를 끌어오지 않는다). 만삭 당일은
+ * 통과시킨다 — 달력 픽커가 고를 수 있게 열어 두는 그 날이라, 여기서 거절하면 픽커에서 고른
+ * 날짜가 저장 직전에 막힌다.
+ *
+ * 기준 시각은 `assertNotFutureBirthDate`와 **같은** `referenceNow()`(서울 기준 오늘, 테스트는
+ * WOORIAI_STAGE_TODAY로 고정)이고, 비교도 같은 도메인 함수(`isFutureSeoulDate`)다 — 기준을
+ * 오늘에서 만삭 날짜로 옮길 뿐이다. 만삭을 못 읽으면(도메인 응답 모양이 바뀌면) 막지 않는다:
+ * 상한을 지어내 정상 예정일을 거절하는 편이 더 나쁘다.
+ */
+function assertDueDateWithinFullTerm(dueDate: string) {
+  const probeIso = getSeoulToday(referenceNow());
+  const fullTerm = calculateChildStage({ stageMode: "pregnant", dueDate: probeIso, today: probeIso });
+  const weeks = "pregnancyWeek" in fullTerm ? Math.max(0, fullTerm.pregnancyWeek) : 0;
+  if (weeks <= 0) return;
+
+  const fullTermReference = new Date(referenceNow().getTime() + weeks * 7 * 86_400_000);
+  let beyond: boolean;
+  try {
+    beyond = isFutureSeoulDate(dueDate, fullTermReference);
+  } catch {
+    // 형식 검증은 DTO(@Matches(datePattern))의 몫 — assertNotFutureBirthDate와 같은 판단이다.
+    return;
+  }
+  if (beyond) {
+    throw new BadRequestException({
+      code: "CHILD_DUE_DATE_BEYOND_TERM",
+      message: `만삭(${weeks}주)보다 먼 날은 고를 수 없어요.`
     });
   }
 }
@@ -289,6 +343,11 @@ export class OnboardingCoreService {
     if (input.birthDate !== undefined) {
       assertNotFutureBirthDate(input.birthDate);
     }
+    // 라운드 67 B: dueDate도 stageMode와 무관하게 검사한다(위와 같은 이유 — born/manual로
+    // 만들면서 심어둔 값이 나중 화면에서 되살아나면 안 된다).
+    if (input.dueDate !== undefined) {
+      assertDueDateWithinFullTerm(input.dueDate);
+    }
     const created = await this.prisma.child.create({
       data: {
         householdId: input.householdId,
@@ -361,6 +420,12 @@ export class OnboardingCoreService {
     // 무관한 PATCH가 영영 막힌다.
     if (definedInput.birthDate !== undefined) {
       assertNotFutureBirthDate(definedInput.birthDate);
+    }
+    // 라운드 67 B: dueDate도 **이번 요청이 실제로 보낸 값만** 본다. 저장돼 있던 값까지 다시
+    // 보면, 이 규칙이 생기기 전에 들어온 예정일 때문에 별명 수정 같은 무관한 PATCH가 영영
+    // 막힌다(위 birthDate와 같은 판단). 잘못 저장된 값은 이 폼에서 고쳐 덮어쓰는 길이 열려 있다.
+    if (definedInput.dueDate !== undefined) {
+      assertDueDateWithinFullTerm(definedInput.dueDate);
     }
 
     const updated = await this.prisma.child.update({

@@ -1,9 +1,14 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CHILD_STAGE_CODES } from "@wooriai/domain";
+import { calculateChildStage, CHILD_STAGE_CODES, getSeoulToday } from "@wooriai/domain";
 import {
   buildCreateChildBody,
   buildUpdateChildBody,
   childDatePickerDirection,
+  CHILD_DUE_DATE_BEYOND_TERM_ERROR,
+  CHILD_DUE_DATE_MAX_FUTURE_DAYS,
+  CHILD_DUE_DATE_MAX_FUTURE_WEEKS,
   CHILD_STAGE_LABELS,
   CHILD_STAGE_MODE_OPTIONS,
   computeDateError,
@@ -11,6 +16,12 @@ import {
   requiredDateFieldLabel,
   validateChildForm
 } from "./child-form";
+import {
+  EXPENSE_DATE_PICKER_FUTURE_DIRECTION_HINT,
+  EXPENSE_DATE_PICKER_MAX_FUTURE_DAYS,
+  EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS,
+  isExpenseDatePickerDateSelectable
+} from "../expenses/date-picker-month";
 
 describe("MOB-118 shared child form validation (reused from ONB-002)", () => {
   it("keeps a Korean label for every domain stage code and all three stage modes", () => {
@@ -46,7 +57,9 @@ describe("MOB-118 shared child form validation (reused from ONB-002)", () => {
     // 방향과 가드가 같은 사실을 말한다: 미래를 막는 모드는 달력도 미래를 열지 않는다.
     expect(computeDateError("born", "2999-01-01")).not.toBeNull();
     expect(childDatePickerDirection("born")).toBe("past");
-    expect(computeDateError("pregnant", "2999-01-01")).toBeNull();
+    // 라운드 67 B: 예정일도 미래 쪽이 무한하지는 않다 — 달력이 만삭에서 잠그는 그 경계를
+    // 가드도 갖게 됐다(아래 전용 describe). 여기서는 방향이 여전히 "future"라는 것만 본다.
+    expect(computeDateError("pregnant", "2026-09-01")).toBeNull();
     expect(childDatePickerDirection("pregnant")).toBe("future");
   });
 
@@ -56,7 +69,9 @@ describe("MOB-118 shared child form validation (reused from ONB-002)", () => {
     expect(computeDateError("born", "2999-01-01")).toBe("출생일은 오늘보다 미래일 수 없어요.");
     expect(computeDateError("born", "2025-06-15")).toBeNull();
     // A pregnant due date may lie in the future (expected) or the past (already gave birth).
-    expect(computeDateError("pregnant", "2999-01-01")).toBeNull();
+    // 라운드 67 B: 미래 쪽은 만삭까지만이다(아래 전용 describe가 경계 세 값을 고정한다) —
+    // 종전 이 자리가 "2999-01-01도 통과"를 고정하고 있었고, 그것이 바로 없던 상한이다.
+    expect(computeDateError("pregnant", "2999-01-01")).toBe(CHILD_DUE_DATE_BEYOND_TERM_ERROR);
     expect(computeDateError("pregnant", "2020-01-01")).toBeNull();
     // Empty is not a format error (requiredness is handled separately by validateChildForm).
     expect(computeDateError("born", "  ")).toBeNull();
@@ -118,6 +133,16 @@ describe("MOB-118 shared child form validation (reused from ONB-002)", () => {
     });
   });
 
+  it("라운드 67 B — 만삭보다 먼 예정일은 폼 전체가 막는다", () => {
+    const errors = validateChildForm(
+      "pregnant",
+      { nickname: "다온이", dateText: "2062-11-14", manualStage: null },
+      { requireDate: true }
+    );
+    expect(errors.dateError).toBe(CHILD_DUE_DATE_BEYOND_TERM_ERROR);
+    expect(isChildFormValid(errors)).toBe(false);
+  });
+
   it("builds a POST body matching the onboarding ONB-002 field mapping", () => {
     expect(
       buildCreateChildBody("household-1", "pregnant", { nickname: " 콩이 ", dateText: "2026-12-01", manualStage: null })
@@ -139,5 +164,96 @@ describe("MOB-118 shared child form validation (reused from ONB-002)", () => {
       birthDate: undefined,
       manualStage: "newborn_0_3"
     });
+  });
+});
+
+/**
+ * 라운드 67 B — **출산 예정일의 위쪽 경계(만삭)**.
+ *
+ * 이 자리에 오래 구멍이 있었던 이유는 "없는 것을 잡는 단언은 존재할 수 없어서"다: 모든 유효
+ * 날짜가 통과하는 것이 종전 계약이었고(위 두 케이스가 `2999-01-01`을 그렇게 고정하고 있었다),
+ * 달력 픽커만 만삭에서 잠갔다. 그래서 여기서 고정하는 것은 값 하나가 아니라 **두 자리가 같은
+ * 사실을 말하는가**다 — 픽커가 잠그는 날과 폼이 거절하는 날이 같은 날인지, 두 문장이 같은
+ * 경계를 같은 이름으로 부르는지.
+ *
+ * "오늘"은 실제 오늘이다(`computeDateError`는 픽커와 달리 기준일 인자를 받지 않는다 — 출생일
+ * 갈래가 종전대로 `isFutureSeoulDate(trimmed)`를 그대로 쓰기 때문이다). 그래서 경계 날짜도
+ * 오늘에서 만들어 쓴다: 달력의 계약(`isExpenseDatePickerDateSelectable`)에도 같은 오늘을 넘겨
+ * 두 판정이 같은 기준 위에서 비교되게 한다.
+ */
+describe("라운드 67 B 출산 예정일 상한(만삭)", () => {
+  const TODAY = getSeoulToday();
+
+  /** ISO 날짜를 며칠 옮긴다(테스트 전용 — 제품 코드는 도메인 기준 비교만 쓴다). */
+  function shiftDays(iso: string, days: number): string {
+    const shifted = new Date(`${iso}T00:00:00Z`);
+    shifted.setUTCDate(shifted.getUTCDate() + days);
+    return shifted.toISOString().slice(0, 10);
+  }
+
+  const FULL_TERM_DAY = shiftDays(TODAY, CHILD_DUE_DATE_MAX_FUTURE_DAYS);
+  const ONE_DAY_TOO_FAR = shiftDays(TODAY, CHILD_DUE_DATE_MAX_FUTURE_DAYS + 1);
+
+  it("상한을 새로 짓지 않고 도메인의 임신 주차 규칙에서 읽는다", () => {
+    // 도메인은 "예정일이 곧 오늘"이면 만삭 주차를 답한다(packages/domain/src/stage.ts).
+    const fullTerm = calculateChildStage({ stageMode: "pregnant", dueDate: TODAY, today: TODAY });
+    expect("pregnancyWeek" in fullTerm && fullTerm.pregnancyWeek).toBe(CHILD_DUE_DATE_MAX_FUTURE_WEEKS);
+    expect(CHILD_DUE_DATE_MAX_FUTURE_DAYS).toBe(CHILD_DUE_DATE_MAX_FUTURE_WEEKS * 7);
+    // 0이면 가드가 쉰다(모르면 지어내지 않는다) — 그 상태가 조용히 굳지 않도록 하한을 건다.
+    expect(CHILD_DUE_DATE_MAX_FUTURE_WEEKS, "만삭 주차가 0이면 이 상한은 아무것도 막지 않는다").toBeGreaterThan(0);
+
+    // 그리고 그 값은 **소스에서도** 도메인을 거쳐 들어온다 — 주차도 날수도 여기 다시 적히지 않고,
+    // 이 순수 폼 모듈은 지출 폴더를 import하지 않는다(픽커의 상수를 끌어오지 않는다는 규율).
+    const source = readFileSync(join(process.cwd(), "src/children/child-form.ts"), "utf8");
+    expect(source).toContain('calculateChildStage({ stageMode: "pregnant", dueDate: probeIso, today: probeIso })');
+    expect(source).not.toMatch(/\b280\b/);
+    expect(source).not.toMatch(/\b40\b/);
+    expect(source).not.toContain('from "../expenses');
+  });
+
+  it("경계 세 값 — 오늘 통과 · 만삭 당일 통과 · 하루 넘김 거부", () => {
+    expect(computeDateError("pregnant", TODAY)).toBeNull();
+    expect(computeDateError("pregnant", FULL_TERM_DAY)).toBeNull();
+    expect(computeDateError("pregnant", ONE_DAY_TOO_FAR)).toBe(CHILD_DUE_DATE_BEYOND_TERM_ERROR);
+    // 실패 시나리오 그대로: 2026을 2062로 친 오타(형식도 맞고 실존하는 날짜다).
+    expect(computeDateError("pregnant", "2062-11-14")).toBe(CHILD_DUE_DATE_BEYOND_TERM_ERROR);
+  });
+
+  it("정상 예정일과 출생일 갈래는 종전과 한 글자도 다르지 않다", () => {
+    // 오늘~만삭 사이는 전부 통과한다(가장 흔한 입력이 이 구간이다).
+    for (const days of [1, 7, 100, 200, CHILD_DUE_DATE_MAX_FUTURE_DAYS - 1]) {
+      expect(computeDateError("pregnant", shiftDays(TODAY, days)), String(days)).toBeNull();
+    }
+    // 지난 예정일은 여전히 정상 입력이다(이미 출산한 사람 — 출생 전환 입구가 받는 갈래).
+    expect(computeDateError("pregnant", shiftDays(TODAY, -1))).toBeNull();
+    expect(computeDateError("pregnant", "2020-01-01")).toBeNull();
+    // 출생일·형식·실존 검사는 그대로다.
+    expect(computeDateError("born", "2999-01-01")).toBe("출생일은 오늘보다 미래일 수 없어요.");
+    expect(computeDateError("born", "2025-06-15")).toBeNull();
+    expect(computeDateError("pregnant", "2026-02-30")).toBe("실제 존재하는 날짜인지 확인해 주세요.");
+    expect(computeDateError("pregnant", "2062/11/14")).toBe("날짜는 YYYY-MM-DD 형식으로 입력해 주세요.");
+    expect(computeDateError("pregnant", "  ")).toBeNull();
+    // 단계를 직접 고른 모드엔 날짜 칸 자체가 없고, 이 상한도 걸리지 않는다.
+    expect(computeDateError("manual", "2062-11-14")).toBeNull();
+    expect(computeDateError(null, "2062-11-14")).toBeNull();
+  });
+
+  it("달력 픽커와 폼이 **같은 경계를 같은 이름으로** 부른다", () => {
+    // 값: 두 모듈이 각자 도메인에 물어 읽은 답이 같은 값이다(상수를 끌어오지 않고도 갈리지 않는다).
+    expect(CHILD_DUE_DATE_MAX_FUTURE_WEEKS).toBe(EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS);
+    expect(CHILD_DUE_DATE_MAX_FUTURE_DAYS).toBe(EXPENSE_DATE_PICKER_MAX_FUTURE_DAYS);
+    // 문장: 픽커의 안내 뒷문장이 폼의 오류 문구와 글자까지 같다.
+    expect(EXPENSE_DATE_PICKER_FUTURE_DIRECTION_HINT.endsWith(CHILD_DUE_DATE_BEYOND_TERM_ERROR)).toBe(true);
+    // 날: 픽커가 마지막으로 열어 주는 날을 폼도 받고, 픽커가 잠그는 첫 날을 폼도 거절한다.
+    expect(isExpenseDatePickerDateSelectable(FULL_TERM_DAY, TODAY, "future")).toBe(true);
+    expect(computeDateError("pregnant", FULL_TERM_DAY)).toBeNull();
+    expect(isExpenseDatePickerDateSelectable(ONE_DAY_TOO_FAR, TODAY, "future")).toBe(false);
+    expect(computeDateError("pregnant", ONE_DAY_TOO_FAR)).toBe(CHILD_DUE_DATE_BEYOND_TERM_ERROR);
+  });
+
+  it("서버도 같은 문장으로 거절한다(양쪽이 다른 말로 설명하지 않는다)", () => {
+    // 서버 e2e(apps/api/test/child-stage-transition.e2e.test.ts)가 이 문장을 응답에서 못박고,
+    // 여기서는 앱이 내는 문장이 그 문장인지를 못박는다 — 두 자리가 같은 문자열을 든다.
+    expect(CHILD_DUE_DATE_BEYOND_TERM_ERROR).toBe(`만삭(${CHILD_DUE_DATE_MAX_FUTURE_WEEKS}주)보다 먼 날은 고를 수 없어요.`);
   });
 });

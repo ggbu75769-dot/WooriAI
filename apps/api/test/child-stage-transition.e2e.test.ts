@@ -391,15 +391,117 @@ describe("CHILD-127 아이 상태 전환 (임신 → 출생)", () => {
     });
 
     it("leaves the due date alone — a future due date is the normal case", async () => {
-      // dueDate에는 이 규칙을 적용하지 않는다(출산 예정일은 미래인 것이 정상).
+      // dueDate에는 이 규칙(미래 금지)을 적용하지 않는다 — 출산 예정일은 미래인 것이 정상이다.
+      // 라운드 67 B: 그 미래의 **끝**은 만삭이고, 그 경계는 아래 describe가 따로 고정한다.
       const childId = await createPregnantChild("2026-12-25");
       await request(app.getHttpServer())
         .patch(`/api/v1/children/${childId}`)
         .set("Authorization", `Bearer ${accessToken}`)
-        .send({ dueDate: "2027-01-31" })
+        .send({ dueDate: "2027-01-10" })
         .expect(200)
         .expect(({ body }) => {
-          expect(body).toMatchObject({ stageMode: "pregnant", dueDate: "2027-01-31" });
+          expect(body).toMatchObject({ stageMode: "pregnant", dueDate: "2027-01-10" });
+        });
+    });
+  });
+
+  /**
+   * 라운드 67 B: 출산 예정일의 **위쪽 경계**. 예정일이 미래인 것은 정상이지만 무한히 먼
+   * 미래가 정상인 것은 아니다 — 임신에는 만삭이라는 끝이 있고, 앱의 달력 픽커는 라운드 65 D
+   * 부터 거기서 잠긴다. 그런데 그 옆의 손타이핑 칸도, 서버도 그 경계를 몰라서
+   * `2026-11-14` → `2062-11-14` 오타가 그대로 저장됐다. 그렇게 저장된 아이는 도메인의 주차
+   * 계산이 0으로 clamp되면서 임신 0주차로 굳고, 준비템 탭이 임신 초기 밴드에 영영 고정된다.
+   * 앱 폼(apps/mobile/src/children/child-form.ts)이 같은 규칙을 갖되, 그 폼을 우회한 API
+   * 호출을 막는 것이 서버 가드의 몫이다(R27 L-6이 birthDate에 세운 선례 그대로).
+   *
+   * 기준일은 이 파일의 WOORIAI_STAGE_TODAY = 2026-04-10 (서울 기준 "오늘").
+   * 만삭(40주 = 280일)이 되는 날은 2027-01-15 — 그날까지는 통과하고 그 다음 날부터 거절된다.
+   */
+  describe("라운드 67 B 만삭보다 먼 출산 예정일 거부", () => {
+    const FULL_TERM_DAY = "2027-01-15";
+    const ONE_DAY_TOO_FAR = "2027-01-16";
+    const TYPO_DUE_DATE = "2062-11-14";
+
+    const expectBeyondTermError = ({ body }: { body: { error: { code: string; message: string } } }) => {
+      expect(body.error.code).toBe("CHILD_DUE_DATE_BEYOND_TERM");
+      // 앱이 폼에서 내는 문장과 **글자까지 같다**(child-form.ts의 CHILD_DUE_DATE_BEYOND_TERM_ERROR).
+      expect(body.error.message).toBe("만삭(40주)보다 먼 날은 고를 수 없어요.");
+    };
+
+    it("refuses to create a pregnant child with a due date beyond full term", async () => {
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "오타둥이", stageMode: "pregnant", dueDate: TYPO_DUE_DATE })
+        .expect(400)
+        .expect(expectBeyondTermError);
+
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "하루초과", stageMode: "pregnant", dueDate: ONE_DAY_TOO_FAR })
+        .expect(400)
+        .expect(expectBeyondTermError);
+
+      // 거부된 생성은 아무것도 남기지 않는다.
+      await request(app.getHttpServer())
+        .get("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.children).toHaveLength(0);
+        });
+    });
+
+    it("accepts the full-term day itself — the calendar picker opens that day too", async () => {
+      const childId = await createPregnantChild(FULL_TERM_DAY);
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ stageMode: "pregnant", dueDate: FULL_TERM_DAY });
+        });
+    });
+
+    it("refuses a beyond-term due date on PATCH and keeps the stored one", async () => {
+      const childId = await createPregnantChild("2026-05-20");
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ dueDate: TYPO_DUE_DATE })
+        .expect(400)
+        .expect(expectBeyondTermError);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.dueDate).toBe("2026-05-20");
+        });
+    });
+
+    it("only checks the due date this request actually sent (별명만 고치는 PATCH는 막지 않는다)", async () => {
+      const childId = await createPregnantChild(FULL_TERM_DAY);
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ nickname: "다온이" })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ nickname: "다온이", dueDate: FULL_TERM_DAY });
+        });
+    });
+
+    it("does not touch the past-due-date branch (지난 예정일은 정상 입력이다)", async () => {
+      const childId = await createPregnantChild("2026-03-01");
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.dueDate).toBe("2026-03-01");
         });
     });
   });

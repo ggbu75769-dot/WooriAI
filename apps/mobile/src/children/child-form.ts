@@ -1,4 +1,6 @@
 import {
+  calculateChildStage,
+  getSeoulToday,
   isFutureSeoulDate,
   isValidCalendarDate,
   type ChildStageCode,
@@ -74,15 +76,83 @@ export function childDatePickerDirection(stageMode: string | null): "past" | "fu
   return stageMode === "pregnant" ? "future" : "past";
 }
 
+/**
+ * 라운드 67 B — 출산 예정일의 **위쪽 경계**(만삭).
+ *
+ * 없던 규칙이다. 달력 픽커는 라운드 65 D부터 미래 쪽을 만삭까지만 열어 두는데
+ * (src/expenses/date-picker-month.ts), **그 옆의 손타이핑 칸은 그 경계를 몰랐다** — 형식과
+ * 실존 달력만 지나면 `2062-11-14`도 그대로 저장됐다(온보딩 ONB-002의 안드로이드 키보드는 일반
+ * 키보드라 하이픈을 찾아 열 글자를 친다). 그렇게 들어온 값은 조용히 뭉개진다: 도메인의 주차
+ * 계산이 0으로 clamp되면서(packages/domain/src/stage.ts) **임신 0주차**가 되고, 홈의 D 카운트와
+ * 준비템 밴드가 임신 초기에 영영 고정되는데 무엇이 틀렸는지 말해 주는 자리가 없었다.
+ *
+ * ## 숫자를 여기서 짓지 않는다
+ * 주차도 날수도 이 파일에 적지 않고 **도메인에 물어 읽는다**: "예정일이 곧 오늘"이면 도메인이
+ * 만삭 주차를 답하고(남은 날이 없으면 만삭이다), 그 답은 곧 "예정일이 오늘로부터 가장 멀 수
+ * 있는 거리"이기도 하다. 픽커도 **같은 질문을 자기 자리에서 따로** 던진다 — 이 모듈은 폼 검증의
+ * 순수 모듈이라 지출 폴더를 import하지 않는 것이 계약이고(위 `childDatePickerDirection` 주석),
+ * 상수를 끌어오면 그 규율이 깨진다. 두 자리가 같은 값을 말한다는 사실은 계약 테스트가 붙든다
+ * (child-form.test.ts — 같은 경계를 두 이름으로 부르지 않는다). 서버도 같은 규칙을 자기 층에서
+ * 한 벌 갖는다(apps/api/src/onboarding/onboarding-core.service.ts의
+ * `assertDueDateWithinFullTerm` — 폼을 우회한 API 호출을 막는 것이 그 자리의 존재 이유다).
+ *
+ * ## 만삭을 못 읽으면 **막지 않는다**
+ * 도메인 응답에 주차가 없으면 이 값이 0이 되는데, 그때도 상한을 적용하면 정상 예정일이 전부
+ * 거절된다. 픽커는 좁아지는 쪽이라 잠가도 되지만(못 고를 뿐 손으로 칠 수 있다) 가드는 반대다 —
+ * 모르면 지어내지 않고 종전처럼 통과시킨다.
+ */
+function readFullTermPregnancyWeeks(): number {
+  const probeIso = getSeoulToday();
+  const fullTerm = calculateChildStage({ stageMode: "pregnant", dueDate: probeIso, today: probeIso });
+  return "pregnancyWeek" in fullTerm ? Math.max(0, fullTerm.pregnancyWeek) : 0;
+}
+
+/** 만삭 주차(도메인에서 읽은 값). 오류 문구도 이 숫자를 그대로 읽는다. */
+export const CHILD_DUE_DATE_MAX_FUTURE_WEEKS = readFullTermPregnancyWeeks();
+
+/** 예정일이 오늘로부터 떨어질 수 있는 최대 날수. 0이면 "모른다"는 뜻이라 가드가 쉰다(위 주석). */
+export const CHILD_DUE_DATE_MAX_FUTURE_DAYS = CHILD_DUE_DATE_MAX_FUTURE_WEEKS * 7;
+
+/**
+ * 상한을 넘긴 예정일의 오류 문구. 픽커가 같은 경계를 설명하는 문장
+ * (`EXPENSE_DATE_PICKER_FUTURE_DIRECTION_HINT`의 뒷문장)과 **글자까지 같고**, 서버가 같은 값을
+ * 거절할 때 내는 문장과도 같다. DNC-018 해요체.
+ */
+export const CHILD_DUE_DATE_BEYOND_TERM_ERROR = `만삭(${CHILD_DUE_DATE_MAX_FUTURE_WEEKS}주)보다 먼 날은 고를 수 없어요.`;
+
+/**
+ * 이 예정일이 만삭보다 먼가.
+ *
+ * 비교는 **도메인 함수 그대로**다 — 기준 시각을 오늘에서 만삭 날짜로 옮길 뿐 "이 날짜가 저
+ * 날짜보다 뒤인가"를 새로 적지 않는다(픽커의 `latestSelectableIso`가 같은 자리에서 내린 판단).
+ * 오늘을 서울 정오로 놓는 이유도 픽커와 같다: 그 시각의 도메인 "오늘"은 어떤 기기 타임존에서도
+ * 정확히 오늘이다(자정을 쓰면 UTC 해석이 하루 앞뒤로 흔들린다).
+ *
+ * "오늘"을 인자로 받지 않는 것은 바로 위 출생일 갈래와 같은 형태를 지키기 위해서다 — 한 함수
+ * 안에서 두 갈래가 서로 다른 오늘을 보면 안 된다.
+ */
+function isBeyondFullTermDueDate(dateIso: string): boolean {
+  if (CHILD_DUE_DATE_MAX_FUTURE_DAYS <= 0) return false;
+  const fullTermReference = new Date(
+    new Date(`${getSeoulToday()}T12:00:00+09:00`).getTime() + CHILD_DUE_DATE_MAX_FUTURE_DAYS * 86_400_000
+  );
+  return isFutureSeoulDate(dateIso, fullTermReference);
+}
+
 // Birth dates (stageMode "born") must not be in the future -- a due date (stageMode "pregnant")
 // is expected to be in the future and is allowed to be in the past too (the parent may already
 // have given birth), so only the calendar-validity check applies there.
+//
+// 라운드 67 B: 그 미래에도 끝이 있다 — 예정일은 만삭보다 멀 수 없다(바로 위 주석). 나머지 세
+// 갈래는 한 글자도 바뀌지 않았다: 형식·실존 검사, 출생일의 미래 금지, 그리고 **과거 예정일
+// 허용**(이미 출산한 사람이 예정일을 적는 것은 정상 입력이고, 그 갈래는 출생 전환 입구가 받는다).
 export function computeDateError(stageMode: string | null, rawValue: string): string | null {
   const trimmed = rawValue.trim();
   if (trimmed.length === 0) return null;
   if (!isoDatePattern.test(trimmed)) return "날짜는 YYYY-MM-DD 형식으로 입력해 주세요.";
   if (!isValidCalendarDate(trimmed)) return "실제 존재하는 날짜인지 확인해 주세요.";
   if (stageMode === "born" && isFutureSeoulDate(trimmed)) return "출생일은 오늘보다 미래일 수 없어요.";
+  if (stageMode === "pregnant" && isBeyondFullTermDueDate(trimmed)) return CHILD_DUE_DATE_BEYOND_TERM_ERROR;
   return null;
 }
 

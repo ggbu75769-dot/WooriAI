@@ -14,7 +14,13 @@ export class CreateChildDto {
   @IsIn([...CHILD_STAGE_MODES])
   stageMode!: ChildStageMode;
 
-  /** 출산 예정일은 미래인 것이 정상이므로 형식만 본다. */
+  /**
+   * 출산 예정일은 미래인 것이 정상이므로 여기서는 형식만 본다.
+   *
+   * 라운드 67 B: 그 미래에도 끝이 있다 — "만삭보다 멀 수 없다"는 도메인 규칙이라
+   * (임신 주차 계산에서 읽는다) birthDate와 같은 방식으로 OnboardingCoreService가 판정하고,
+   * VALIDATION_ERROR가 아니라 CHILD_DUE_DATE_BEYOND_TERM(400)으로 나간다.
+   */
   @IsOptional()
   @Matches(datePattern)
   dueDate?: string;
@@ -50,6 +56,7 @@ export class UpdateChildDto {
   @IsIn([...CHILD_STAGE_MODES])
   stageMode?: ChildStageMode;
 
+  /** CreateChildDto.dueDate와 동일 — 만삭 상한은 서비스 계층(CHILD_DUE_DATE_BEYOND_TERM, 라운드 67 B). */
   @IsOptional()
   @Matches(datePattern)
   dueDate?: string;
