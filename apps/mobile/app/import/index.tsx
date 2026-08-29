@@ -14,7 +14,6 @@ import {
   importUndoCardSubtitle,
   importUndoConfirmMessage,
   importUndoResultMessage,
-  isConfirmedImportEntry,
   resolveImportResumeCard,
   IMPORT_RESUME_CARD_TITLE,
   IMPORT_UNDO_ACTION_LABEL,
@@ -105,6 +104,8 @@ export default function ImportUploadScreen() {
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   // 라운드 56 D#5: 검토 도중 이탈해도 돌아올 길을 남긴다(규칙·문구는 src/import/import-resume.ts).
   const resumeEntry = useImportResumeStore((state) => state.entry);
+  // 라운드 67 적대 리뷰 #1: 확정된 잡은 **다른 칸**에 있다 — 그래서 새 업로드가 이 입구를 덮지 않는다.
+  const confirmedEntry = useImportResumeStore((state) => state.confirmed);
   const rememberImportReview = useImportResumeStore((state) => state.rememberImportReview);
   // 라운드 67 #3: 되돌린 뒤에는 그 카드를 지운다(되돌릴 것이 남지 않았다 — 되돌리기의 되돌리기는 없다).
   const forgetImportReview = useImportResumeStore((state) => state.forgetImportReview);
@@ -172,7 +173,9 @@ export default function ImportUploadScreen() {
       expenseGate.explain();
       return;
     }
-    Alert.alert(IMPORT_UNDO_CONFIRM_TITLE, importUndoConfirmMessage(entry.importedCount ?? 0), [
+    // 라운드 67 적대 리뷰(#2): 건수는 **확정 시점의 참고값**으로만 넘긴다 — 그 사이 손으로 지운
+    // 행이 있으면 실제로 사라지는 수는 더 적다(문구가 크기를 주장하지 않는 이유는 순수 모듈 주석).
+    Alert.alert(IMPORT_UNDO_CONFIRM_TITLE, importUndoConfirmMessage(entry.importedCount), [
       { text: "취소", style: "cancel" },
       { text: IMPORT_UNDO_ACTION_LABEL, style: "destructive", onPress: () => undo.mutate(entry.jobId) }
     ]);
@@ -240,14 +243,19 @@ export default function ImportUploadScreen() {
    */
   const resumeCard = resolveImportResumeCard({ entry: resumeEntry, childId, canResume: canUpload });
   /**
-   * 라운드 67 #3: 그 한 장이 **확정된 잡**이면 "방금 가져온 결과"(되돌리기 입구)가 된다.
+   * 라운드 67 #3: **확정 칸**이 차 있으면 "방금 가져온 결과"(되돌리기 입구)가 선다.
    *
-   * 두 카드는 **같은 저장본 한 건**을 나눠 쓴다(카드가 둘 동시에 서는 일은 없다) — 저장본을
-   * 둘로 늘리면 서버에 없는 목록을 기기가 지어내는 셈이고, 그 규율은 라운드 56이 세운 것이다.
-   * 아이 스코프·로그인 게이트는 위 판정 하나를 그대로 지난다: 비로그인 렌더(=IMP-003 픽셀락
-   * 캡처 경로)에는 이 카드도 존재할 수 없으므로 캡처가 한 픽셀도 바뀌지 않는다.
+   * 라운드 67 적대 리뷰(#1)에서 이 카드의 근거가 바뀌었다. 종전에는 저장본이 한 칸이었고 그
+   * 한 건이 건수를 달고 있으면 결과 카드로 **변신**했다 — 그래서 새 업로드가 그 칸을 덮는
+   * 순간 되돌리기 입구가 영구히 사라졌다(잘못 확정한 사람이 올바른 파일을 다시 올리는 것이
+   * 바로 그 경로다). 이제 칸이 둘이라 **두 카드가 동시에 설 수 있고**, 새 업로드는 위쪽
+   * 검토 칸만 덮는다. 슬롯 가산은 하나뿐이라 "서버에 없는 목록을 지어내지 않는다"는 라운드
+   * 56의 규율은 그대로다.
+   *
+   * 아이 스코프·로그인 게이트는 **같은 판정 하나**를 지난다: 비로그인 렌더(=IMP-003 픽셀락
+   * 캡처 경로)에는 두 카드 모두 존재할 수 없으므로 캡처가 한 픽셀도 바뀌지 않는다.
    */
-  const undoCard = resumeCard && isConfirmedImportEntry(resumeCard) ? resumeCard : null;
+  const undoCard = resolveImportResumeCard({ entry: confirmedEntry, childId, canResume: canUpload });
   // 알림함과 같은 관례: "언제"는 렌더 시각 기준으로 한 번만 읽는다.
   const now = Date.now();
 
@@ -302,9 +310,11 @@ export default function ImportUploadScreen() {
 
       {/* 라운드 56 D#5: 검토 중이던 가져오기로 돌아가는 카드. 서버에는 "내 가져오기 목록"이
           없으므로(엔드포인트 자체가 없다) 이 카드가 그 잡으로 가는 유일한 길이다. 취소된 잡과
-          사라진 잡(404)은 검수 화면이 저장본을 지우므로 여기 남지 않고, 확정된 잡은 위
-          결과 카드로 선다(라운드 67 #3). */}
-      {resumeCard && !undoCard ? (
+          사라진 잡(404)은 검수 화면이 저장본을 지우므로 여기 남지 않고, 확정된 잡은 확정 칸으로
+          옮겨 가 위 결과 카드로 선다(라운드 67 #3). 라운드 67 적대 리뷰 #1로 칸이 나뉜 뒤로는
+          **두 카드가 함께 설 수 있다** — 확정한 뒤 새 파일을 올린 사람의 화면이 정확히 그렇다
+          (위: 방금 확정한 것을 되돌리는 입구 / 아래: 방금 올려 검토 중인 파일). */}
+      {resumeCard ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={importResumeCardAccessibilityLabel(resumeCard, now)}

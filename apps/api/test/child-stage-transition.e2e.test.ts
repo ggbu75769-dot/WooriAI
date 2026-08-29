@@ -6,6 +6,7 @@ import { childSchema, updateChildRequestSchema } from "@wooriai/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
+import { PrismaService } from "../src/prisma/prisma.service";
 
 /**
  * CHILD-127: 임신(pregnant) 중 가입한 사용자의 아이가 태어났을 때 stageMode를 born으로
@@ -488,6 +489,54 @@ describe("CHILD-127 아이 상태 전환 (임신 → 출생)", () => {
         .patch(`/api/v1/children/${childId}`)
         .set("Authorization", `Bearer ${accessToken}`)
         .send({ nickname: "다온이" })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ nickname: "다온이", dueDate: FULL_TERM_DAY });
+        });
+    });
+
+    /**
+     * 라운드 67 적대 리뷰(#4) — **이미 저장돼 있는 범위 밖 예정일.**
+     *
+     * 위 테스트는 예정일이 **범위 안**인 아이로 "별명만 고치는 PATCH는 막지 않는다"를 봤다.
+     * 그런데 이 가드가 실제로 지켜야 할 사람은 그 아이가 아니라 **가드가 생기기 전에
+     * `2062-11-14`를 저장해 버린 사람**이다(이 규칙을 만든 이유가 그 오타다). 그 계정에서
+     * 별명 하나를 고치려는 PATCH가 저장된 값 때문에 400을 맞으면, 오타를 고칠 화면에 닿기도
+     * 전에 계정이 잠긴다 — 그리고 그 조건은 API로는 만들 수 없다(생성·수정이 둘 다 막혀 있다).
+     * 그래서 prisma로 직접 심는다: **판정 대상은 이번 요청이 실제로 보낸 값**뿐이라는 계약을
+     * 저장된 값이 어긋난 상태에서 고정한다.
+     */
+    it("이미 저장된 범위 밖 예정일은 별명만 고치는 PATCH를 막지 않는다 (prisma로 직접 심은 계정)", async () => {
+      const prisma = app.get(PrismaService);
+      const legacy = await prisma.child.create({
+        data: { householdId, nickname: "오타로 저장된 아이", stageMode: "pregnant", dueDate: new Date(`${TYPO_DUE_DATE}T00:00:00.000Z`) },
+        select: { id: true }
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${legacy.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ nickname: "다온이" })
+        .expect(200)
+        .expect(({ body }) => {
+          childSchema.parse(body);
+          // 별명은 바뀌고, 저장돼 있던 값은 그대로다(이 PATCH가 고치겠다고 한 값이 아니다).
+          expect(body).toMatchObject({ nickname: "다온이", stageMode: "pregnant", dueDate: TYPO_DUE_DATE });
+        });
+
+      // 그 값을 **실제로 고치려 할 때는** 종전대로 막힌다(가드가 느슨해진 것이 아니다).
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${legacy.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ dueDate: TYPO_DUE_DATE })
+        .expect(400)
+        .expect(expectBeyondTermError);
+
+      // 범위 안의 날로 고치는 길은 열려 있다 — 그것이 이 사람이 가야 할 출구다.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${legacy.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ dueDate: FULL_TERM_DAY })
         .expect(200)
         .expect(({ body }) => {
           expect(body).toMatchObject({ nickname: "다온이", dueDate: FULL_TERM_DAY });

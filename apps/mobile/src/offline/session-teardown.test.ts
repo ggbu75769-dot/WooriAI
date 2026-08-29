@@ -678,7 +678,10 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
 
     expect(useRecurringExpenseStore.getState().templates).toEqual([]);
     // 라운드 56 트랙 D: 가져오기 이어보기 항목도 함께 비어야 한다(다음 계정에 파일명이 새지 않게).
+    // 라운드 67 적대 리뷰 #1: 확정 칸도 같은 계정 데이터다 — 한 칸만 비우면 다음 사람의 화면에
+    // 남의 파일명이 "방금 가져온 결과"로 뜬다.
     expect(useImportResumeStore.getState().entry).toBeNull();
+    expect(useImportResumeStore.getState().confirmed).toBeNull();
     // 런타임 상태와 SecureStore 키가 **둘 다** 비어야 한다. 하나만 지우면 다음 부팅에서 되살아난다.
     expect(useAppLockStore.getState().record).toBeNull();
     expect(await readAppLockRecord()).toEqual({ status: "loaded", record: null });

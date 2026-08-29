@@ -1693,9 +1693,12 @@ describe("GAP-067 #2 끝난 빈 달 카드의 낭독 계약", () => {
  */
 describe("GAP-067 #3 가져오기 되돌리기 카드의 낭독 계약", () => {
   const uploadScreen = source("app/import/index.tsx");
+  // 라운드 67 적대 리뷰 #1: 저장본이 검토 칸·확정 칸으로 나뉘면서 두 카드가 **함께** 설 수
+  // 있게 됐다(이어서 보기 카드의 조건에서 `&& !undoCard`가 빠졌다). 잘라 내는 경계만 그
+  // 사실을 따라간다 — 보는 대상은 종전과 같은 결과 카드 블록이다.
   const undoCardBlock = uploadScreen.slice(
     uploadScreen.indexOf("{undoCard ? ("),
-    uploadScreen.indexOf("{resumeCard && !undoCard ? (")
+    uploadScreen.indexOf("{resumeCard ? (")
   );
 
   it("한 줄의 누르는 자리 둘이 각각 라벨을 진다 (결과 보기 ↔ 되돌리기)", () => {
