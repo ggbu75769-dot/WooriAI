@@ -461,7 +461,7 @@ describe("트랙 D의 무접촉 계약", () => {
     }
   });
 
-  it("admin-e2e의 17스텝 앵커가 그대로다", () => {
+  it("admin-e2e의 18스텝 앵커가 그대로다", () => {
     const home = readSource("app/page.tsx");
     // 요약 카드는 링크 여부와 상관없이 <article>로 남는다(스텝 2가 8개를 센다).
     expect(home).toContain("scripts/qa/admin-e2e.mjs가 요약 카드를 article로 세고 있어서다.");
