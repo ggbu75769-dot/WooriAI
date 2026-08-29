@@ -20,9 +20,10 @@ import {
   getCurrentDevicePlatform,
   usePushRegistrationStore
 } from "../../src/notifications/usePushDeviceRegistration";
-// 라운드 72 트랙 B: 오프라인 갈래인지 묻는 값 하나만 읽는다(문구를 이 화면이 다시 짓지 않는다).
-import { OFFLINE_LOAD_NOTICE } from "../../src/offline/messages";
-import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
+// 라운드 72 트랙 B · 73 트랙 E: 오프라인 갈래인지 묻는 값 둘만 읽는다(문구를 이 화면이 다시
+// 짓지 않는다 — 조회 쪽 하나, 저장 쪽 하나).
+import { OFFLINE_LOAD_NOTICE, OFFLINE_SAVE_NOTICE } from "../../src/offline/messages";
+import { useLoadErrorCopy, useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
@@ -140,6 +141,31 @@ export default function NotificationSettingsScreen() {
     devicesLoadErrorCopy.title === OFFLINE_LOAD_NOTICE
       ? devicesLoadErrorCopy.title
       : `기기 목록을 ${devicesLoadErrorCopy.title}`;
+
+  /**
+   * 라운드 73 트랙 E(GAP-073 #5) — **같은 화면 안에서 조회만 정직했다.**
+   *
+   * 바로 위 조회 실패는 라운드 72가 공용 단일 소스로 들여왔는데, 기기 알림 스위치 저장
+   * (PATCH /me/devices/:id) 실패는 여전히 고정 리터럴이었다. 그래서 지하철에서 스위치를 끈
+   * 사람은 스위치가 되돌아간 자리에서 "잠시 후 다시 시도해 주세요"를 읽었다 — 그 사람이 30초
+   * 전 홈에서 읽은 문장은 "지금은 오프라인이에요"였다.
+   *
+   * 배선은 위 조회 줄과 **같은 모양**이다: 판정·문구는 공용 한 벌(useSaveErrorCopy)에서 오고,
+   * 이 화면이 더하는 것은 주어 한 조각("알림 설정을")뿐이다. 접두는 오프라인 갈래에 붙이지
+   * 않는다("알림 설정을 지금은 오프라인이에요…"는 문장이 아니고, 오프라인은 이 저장만의
+   * 사실도 아니다). 온라인 갈래는 접두 + 공용 문장이라 종전 문자열과 **바이트 단위로 같다.**
+   *
+   * 실패 값(둘째 인자)은 넘기지 않는다 — 그것이 이 자리에서 "새 문구 0건"의 뜻이다. 이 PATCH가
+   * 돌려주는 화이트리스트 코드는 오늘 하나도 없고(src/api/api-error.ts), 표의 문장은 저장 실패를
+   * 말하는 문장이 아니라서 위 접두를 붙일 수도 없다. 코드가 생기는 날 그 문장을 이 자리에서
+   * 어떻게 말할지 정하는 것이 그 라운드의 일이다(훅의 둘째 인자는 선택이고, 넘기지 않으면
+   * 동작이 한 글자도 바뀌지 않는다 — use-load-error-copy.ts 머리말).
+   */
+  const deviceToggleSaveErrorCopy = useSaveErrorCopy(toggleDevice.isError);
+  const deviceToggleSaveErrorText =
+    deviceToggleSaveErrorCopy === OFFLINE_SAVE_NOTICE
+      ? deviceToggleSaveErrorCopy
+      : `알림 설정을 ${deviceToggleSaveErrorCopy}`;
 
   return (
     <AppScreen>
@@ -284,7 +310,7 @@ export default function NotificationSettingsScreen() {
             })}
 
             {toggleDevice.isError ? (
-              <Text style={errorTextStyle}>알림 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.</Text>
+              <Text style={errorTextStyle}>{deviceToggleSaveErrorText}</Text>
             ) : null}
           </View>
         ) : null}

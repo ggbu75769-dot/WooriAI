@@ -29,6 +29,9 @@ import {
 import { formatInviteExpiry } from "../../../src/family/memberLabels";
 // 라운드 41 K-3: 참여 직후 표·가구 목록을 서버 기준으로 한 벌로 다시 받는다(재검증 단일 소스).
 import { revalidateHouseholdRoles } from "../../../src/family/useExpenseEntryGate";
+// 라운드 73 트랙 E: 오프라인 갈래인지 묻는 값 둘만 읽는다(문구를 이 화면이 다시 짓지 않는다).
+import { OFFLINE_LOAD_NOTICE, OFFLINE_SAVE_NOTICE } from "../../../src/offline/messages";
+import { useLoadErrorCopy, useSaveErrorCopy } from "../../../src/offline/use-load-error-copy";
 import { useOnboardingProgressStore } from "../../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../../src/stores/selected-child.store";
 import { useSessionStore } from "../../../src/stores/session.store";
@@ -43,9 +46,20 @@ const roleLabel: Record<string, string> = {
 
 /**
  * 재시도로 **풀리는** 실패(네트워크·5xx)의 문구. 라운드 70 A는 이 문장과 그 아래 [다시 시도]를
- * 한 글자도 바꾸지 않는다 — 그 갈래에서는 잠시 후 다시 누르는 것이 실제로 통하는 행동이다.
+ * 한 글자도 바꾸지 않았다 — 그 갈래에서는 잠시 후 다시 누르는 것이 실제로 통하는 행동이다.
+ *
+ * ## 라운드 73 트랙 E(GAP-073 #5) — 그 "잠시 후"가 참이 아닌 한 갈래
+ *
+ * 연결이 아예 없으면 기다릴 대상이 없다. 그 사실은 이 화면만의 것이 아니라 앱 전체의 공용
+ * 판정이고(src/offline/messages.ts), 이 여정에서만 앱이 다른 말을 하고 있었다 — 초대 링크를
+ * 지하철에서 누른 사람이 읽는 두 문장이 정확히 여기였다.
+ *
+ * 그래서 **온라인 갈래는 그대로 두고 오프라인 갈래만** 공용 문장으로 간다:
+ *  - **조회**는 주어 한 조각("초대 정보를")만 더한다 — 접두 + 공용 문장이 아래 종전 문자열과
+ *    바이트 단위로 같아서, 이 파일이 그 리터럴을 더 들고 있지 않아도 된다.
+ *  - **참여(저장)**는 공용 문장에서 만들 수 없는 자기 문장을 갖고 있어(주어가 "저장"이 아니라
+ *    "가족에 참여") 아래 상수가 그대로 남는다. 오프라인일 때만 공용 문장이 그 자리를 대신한다.
  */
-const loadFailedText = "초대 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
 const acceptFailedText = "가족에 참여하지 못했어요. 잠시 후 다시 시도해 주세요.";
 const alreadyMemberText = "이미 이 가족의 구성원이에요.";
 
@@ -175,6 +189,26 @@ export default function AcceptInviteScreen() {
   const inviteUnavailable = isInviteUnavailableError(invite.error) || isInviteUnavailableError(accept.error);
 
   /**
+   * 라운드 73 트랙 E — 두 문장이 **연결을 확인한다**(그것만 바뀐다).
+   *
+   * 판정은 공용 훅 한 벌이고(에러로 전환되는 순간 연결을 한 번 묻는다 — 화면이 직접 폴을
+   * 띄우지 않는다), 문구도 공용 단일 소스다. 조회는 온라인 갈래에만 주어를 붙여 종전 문자열을
+   * 그대로 만들고, 참여는 온라인 갈래에서 종전 판정(acceptErrorText)을 그대로 지난다.
+   *
+   * ⚠️ 오프라인 문장이 서는 조건이 `=== OFFLINE_SAVE_NOTICE`인 것이 계약이다.
+   * `resolveSaveErrorCopy`의 순서는 **아는 코드 → 오프라인 → 모르는 실패**라, 이 비교가 참이면
+   * "서버가 아무 코드도 주지 않았다"가 이미 참이다. 그래서 409 HOUSEHOLD_ALREADY_MEMBER는
+   * 연결 판정이 어긋난 순간에도 오프라인 문장에 가려지지 않는다 — 그 갈래의 문구도 판정도
+   * 한 글자도 바뀌지 않는다(라운드 70 A).
+   */
+  const inviteLoadErrorCopy = useLoadErrorCopy(invite.isError);
+  const inviteLoadErrorText =
+    inviteLoadErrorCopy.title === OFFLINE_LOAD_NOTICE
+      ? inviteLoadErrorCopy.title
+      : `초대 정보를 ${inviteLoadErrorCopy.title}`;
+  const acceptSaveErrorCopy = useSaveErrorCopy(accept.isError, accept.error);
+
+  /**
    * 참여 성공 **이후**의 뒤처리 한 벌: 아이 목록 조회 -> 캐시 무효화 -> 계획대로 착지.
    * 조회 실패("retry" 계획) 때 버튼 하나로 이 함수만 다시 태울 수 있게 mutation 밖으로 뺐다.
    */
@@ -261,11 +295,12 @@ export default function AcceptInviteScreen() {
           </Card>
         ) : null}
 
-        {/* 재시도로 풀리는 실패(네트워크·5xx)만 이 카드에 남는다 — 문구도 버튼도 종전 그대로다. */}
+        {/* 재시도로 풀리는 실패(네트워크·5xx)만 이 카드에 남는다 — 카드도 버튼도 종전 그대로이고,
+            문구는 오프라인일 때만 공용 문장으로 갈린다(라운드 73 E). */}
         {invite.isError && !inviteUnavailable ? (
           <Card style={{ gap: 10 }}>
-            <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text>
-            <SecondaryButton label="다시 시도" onPress={() => invite.refetch()} />
+            <Text style={{ color: theme.colors.danger }}>{inviteLoadErrorText}</Text>
+            <SecondaryButton label={inviteLoadErrorCopy.actionLabel} onPress={() => invite.refetch()} />
           </Card>
         ) : null}
 
@@ -328,7 +363,9 @@ export default function AcceptInviteScreen() {
         {/* 끝난 초대(수락 400)는 위 카드가 말한다 — 여기 남는 것은 재시도로 풀리는 실패와
             HOUSEHOLD_ALREADY_MEMBER이고, 그 둘의 문구·판정은 종전 그대로다. */}
         {accept.isError && !inviteUnavailable ? (
-          <Text style={{ color: theme.colors.danger }}>{acceptErrorText(accept.error)}</Text>
+          <Text style={{ color: theme.colors.danger }}>
+            {acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)}
+          </Text>
         ) : null}
 
         {/* 라운드 60 #3(막다른 길 ②): 참여는 됐고 아이 목록만 못 받았다. "아이가 없다"고
