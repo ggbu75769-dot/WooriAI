@@ -1,5 +1,38 @@
 [
-  {"name": "home", "src": "docs/store/assets/sources/home-clean.png", "caption": "오늘 지출이 한눈에"},
-  {"name": "family", "src": "docs/store/assets/sources/family-clean.png", "caption": "가족이 함께 기록해요"},
-  {"name": "excel-import", "src": "docs/store/assets/sources/excel-clean.png", "caption": "쓰던 엑셀 그대로 가져오기"}
+  {
+    "name": "home",
+    "src": "docs/store/assets/sources/home-clean.png",
+    "caption": "오늘 지출이 한눈에",
+    "capturedFrom": {
+      "lineage": "pre-DSN-053",
+      "build": "",
+      "commit": "",
+      "capturedAt": "2026-08-21",
+      "note": "픽셀락 라이브 캡처(430×798). 지배색이 #FF6B52/#FFF8F1이라 DSN-053(2026-08-27) 이전 빌드예요. 재캡처 전에는 제출할 수 없어요."
+    }
+  },
+  {
+    "name": "family",
+    "src": "docs/store/assets/sources/family-clean.png",
+    "caption": "가족이 함께 기록해요",
+    "capturedFrom": {
+      "lineage": "pre-DSN-053",
+      "build": "",
+      "commit": "",
+      "capturedAt": "2026-08-21",
+      "note": "픽셀락 라이브 캡처(390×842). 지배색이 #FF6A52/#FFF8F1이라 DSN-053(2026-08-27) 이전 빌드예요. 재캡처 전에는 제출할 수 없어요."
+    }
+  },
+  {
+    "name": "excel-import",
+    "src": "docs/store/assets/sources/excel-clean.png",
+    "caption": "쓰던 엑셀 그대로 가져오기",
+    "capturedFrom": {
+      "lineage": "pre-DSN-053",
+      "build": "",
+      "commit": "",
+      "capturedAt": "2026-08-21",
+      "note": "픽셀락 라이브 캡처(330×1062). 지배색이 #FF6B52/#FFF8F1이라 DSN-053(2026-08-27) 이전 빌드예요. 재캡처 전에는 제출할 수 없어요."
+    }
+  }
 ]

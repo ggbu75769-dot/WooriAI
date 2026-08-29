@@ -150,13 +150,18 @@
 
 ## 6. 그래픽 자산 스펙 체크리스트
 
-| 자산 | 스펙 | 상태 |
+| 자산 | 스펙 | 상태 (2026-08-29 · 라운드 73 트랙 B 측정) |
 |---|---|---|
-| 앱 아이콘(스토어) | 512×512 PNG, 32bit, 알파 허용, 1MB 이하 | `apps/mobile/assets/icon.png` 원본에서 512px 내보내기 필요 |
-| 피처 그래픽 | 1024×500 JPG/PNG, 텍스트 최소화 | 신규 제작 필요 (브랜드 컬러: Primary `#C94627`, Background `#FFFDFC` — DNC-017 v0.5) |
-| 휴대전화 스크린샷 | 2~8장, 16:9 또는 9:16, 각 변 320~3840px, PNG/JPG | §5 가이드로 촬영 |
+| 앱 아이콘(스토어) | 512×512 PNG, 32bit, 알파 허용, 1MB 이하 | ⛔ **재생성 전 제출 불가** — 현재 `docs/store/assets/play-icon-512.png`의 최빈색이 `#FFF8F1` + `#DB4F2E`예요. 둘 다 승인 팔레트가 아니에요(`#FFF8F1`은 DNC-017 v0.5가 걷어낸 이전 배경, `#DB4F2E`는 어느 시점의 토큰도 아니에요). `apps/mobile/assets/icon.png`(DSN-053 복원본) 원본에서 512px로 다시 내보내요. |
+| 피처 그래픽 | 1024×500 JPG/PNG, 텍스트 최소화 | ⛔ **재생성 전 제출 불가** — 현재 `play-feature-graphic-1024x500.png`의 최빈색이 `#DB4F2E`예요. 브랜드 값은 `docs/brand/brand-tokens.json`(DNC-017 v0.5 단일 소스: Primary `#C94627`, Background `#FFFDFC`)에서 읽어요. |
+| 휴대전화 스크린샷 | 2~8장, 16:9 또는 9:16, 각 변 320~3840px, PNG/JPG | ⛔ **재캡처 전 제출 불가** — 현재 3장의 원본(`assets/sources/`)이 전부 DSN-053(2026-08-27) 이전 빌드 캡처예요. 각 캡처의 출처는 `docs/store/assets/screenshot-manifest.json`의 `capturedFrom` 칸이 지고, 오늘 셋 다 `"lineage": "pre-DSN-053"`이에요. 재캡처 절차와 해제 조건은 `docs/store/submission-checklist.md` §0. |
 | 7"/10" 태블릿 스크린샷 | 선택(태블릿 미최적화 시 생략 가능) | 생략 (portrait 전용 앱) |
 | 프로모션 동영상 | 선택 (YouTube URL) | 생략 |
+
+> **§6 자산 표의 제출 차단 판정**: 위 세 줄이 ⛔인 동안에는 스토어에 올리지 않아요. 자산이
+> 존재하는 것과 자산이 지금의 앱인 것은 다른 이야기예요 — Play 정책도 스크린샷이 실제 앱을
+> 대표할 것을 요구해요. 브랜드 값의 단일 소스는 `docs/brand/brand-tokens.json`이고,
+> 생성기(`scripts/store/frame_screenshots.py`)의 색 상수는 라운드 73부터 그 파일에서 읽어요.
 
 기타 등록 정보:
 - [ ] 개인정보처리방침 URL — `infra/legal/privacy-policy.html` 호스팅 후 URL 입력 (필수)

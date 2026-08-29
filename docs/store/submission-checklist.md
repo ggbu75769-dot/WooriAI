@@ -17,7 +17,48 @@
 - [ ] 릴리즈 AAB(`pnpm android:build-aab` — REL-011 원커맨드, keystore env 4종 + 앱 env 4종
       필요, release keystore 서명 자동 주입)와 versionCode 확정. (env 없이 gradle 직접 실행 금지
       — debug 서명 AAB는 Play 업로드 거부, `docs/5차/launch-72h-plan.md` §3.2)
-- [ ] 스크린샷·그래픽 자산 완료(`docs/store/play-listing.md` §5–6 체크리스트).
+- [ ] ⛔ **스토어 자산 재캡처 — 제출 차단 항목** (2026-08-29 · 라운드 73 트랙 B, GAP-073 #2):
+      **오늘 기준으로는 제출할 수 없어요.** 스크린샷 3장의 원본은 `#FF6B52`/`#FFF8F1` 팔레트의
+      **DSN-053(2026-08-27) 이전 빌드 캡처**이고, 512 아이콘과 1024×500 피처 그래픽은
+      **`#DB4F2E`/`#FFF8F1`** — 어느 시점의 토큰도 아닌 색이에요. 지금 앱은 `#C94627`/`#FFFDFC`
+      (DNC-017 v0.5)라서, 이대로 올리면 **사람이 스토어에서 본 앱과 설치한 앱이 다른 앱**이에요.
+      Play 정책도 스크린샷이 실제 앱을 대표할 것을 요구해요. 해제 조건은 아래 §0.1이고,
+      자산별 현황은 `docs/store/play-listing.md` §6이에요.
+
+## 0.1 스토어 자산 재캡처 절차 (§0의 ⛔를 초록으로 바꾸는 유일한 길)
+
+> 손으로 새 이미지를 그리지 않아요. 기기 없이 만든 이미지는 "지금 앱이 아닌 것"을 한 장 더
+> 늘릴 뿐이에요. 저장소에는 이미 **기기 캡처 파이프라인**이 있으니 그 산출물에서 뽑아요 —
+> 그러면 다음 디자인 변경 때도 같은 길로 갱신돼요.
+
+1. **DSN-053 이후 커밋으로 APK를 만들고 실기기에 올려요.** `pnpm pixel:android:build-apk` →
+   `pnpm pixel:android`(또는 화면 단위 `pnpm pixel:android:screen`). 캡처는
+   `artifacts/pixel-lock/android/screenshots/`에 떨어지고, 그 회차의 기기·시각은
+   `artifacts/pixel-lock/android/reports/latest.json`(`generatedAt`·`device`)이 적어요.
+   ⚠️ 이 절차는 `scripts/pixel-lock/**`을 **쓰는 것**이지 고치는 것이 아니에요.
+2. **쓸 캡처를 `docs/store/assets/sources/`로 복사해요**(오버레이 라벨이 없는 화면만 — 홈·가족·
+   가져오기 미리보기가 오늘의 세 장이에요). 어떤 화면을 어떤 캡션으로 담을지와 촬영 체크
+   (개인정보 없는 시드 · 상태바 정리 · 라이트 모드 고정)는 `docs/store/play-listing.md` §5예요.
+3. **`docs/store/assets/screenshot-manifest.json`의 `capturedFrom` 칸을 채워요.** 각 행의 형식은
+   이래요:
+
+   | 칸 | 값 | 규칙 |
+   |---|---|---|
+   | `lineage` | `"DSN-053+"` 또는 `"pre-DSN-053"` | **빈 칸·미선언은 계약이 빨간불로 잡아요.** 오늘은 셋 다 `pre-DSN-053`이에요 |
+   | `build` | 그 캡처를 만든 빌드 이름(예: 픽셀락 릴리즈 태그) | `DSN-053+`라고 적으려면 **반드시** 채워요 |
+   | `commit` | 그 빌드의 커밋 SHA | `DSN-053+`라고 적으려면 **반드시** 채워요 |
+   | `capturedAt` | 캡처 일자(`YYYY-MM-DD`) | — |
+   | `note` | 사람이 읽을 한 줄 | — |
+
+4. **프레임을 다시 합성해요**: `FRAME_FONT=<한글 ttf/otf> python3 scripts/store/frame_screenshots.py
+   docs/store/assets/screenshot-manifest.json docs/store/assets`.
+   이 도구는 라운드 73부터 ① 색을 `docs/brand/brand-tokens.json`(DNC-017 v0.5 단일 소스)에서 읽고
+   ② **출처가 미선언이거나 승인 계보 이전이면 합성을 거부**해요
+   (프레임 코드 확인 등으로 굳이 돌려야 하면 `ALLOW_PRE_DSN053_CAPTURES=1`을 명시해요 —
+   그때도 "스토어에 올리지 마세요"를 출력해요).
+5. **512 아이콘·피처 그래픽을 다시 만들어요.** 아이콘은 `apps/mobile/assets/icon.png`(DSN-053
+   복원본) 원본에서 512px로 내보내고, 피처 그래픽의 색은 같은 값 파일에서 읽어요.
+6. **§0의 ⛔를 지우고 `docs/qa/runtime-verification-required.md`의 해당 행을 초록으로 만들어요.**
 
 ## 1. 앱 생성 및 스토어 등록 정보
 

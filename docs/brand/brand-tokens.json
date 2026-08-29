@@ -1,0 +1,101 @@
+{
+  "_": "우리아이 브랜드 값 단일 소스 (BRAND-001, 라운드 73 트랙 B 신설).",
+  "_why": [
+    "이 저장소의 브랜드 값은 TS(apps/mobile/src/theme.ts)·CSS(infra/site)·HTML(infra/legal)·",
+    "Python(scripts/store/frame_screenshots.py)·문서(docs/**)로 언어가 갈려서 런타임 공유가 안 된다.",
+    "그래서 단일 소스의 형태는 '한 자리에 적힌 값 + 그 값과의 일치를 묻는 계약'이다.",
+    "계약: packages/test-utils/src/store-brand-and-asset-provenance.test.ts",
+    "이 파일은 값을 새로 정하지 않는다 — DNC-017 v0.5(docs/dev/do-not-change.md)가 잠근 값과",
+    "그 값이 실제로 사는 자리(apps/mobile/src/theme.ts)를 기계가 읽을 수 있게 옮겨 적을 뿐이다.",
+    "값을 바꾸려면 DNC 절차대로 do-not-change.md의 개정 이력을 먼저 고친다."
+  ],
+  "version": "DNC-017 v0.5",
+  "revisedOn": "2026-08-27",
+  "approval": "DSN-053 (릴리즈 android-captures-c20deeb-20260828 캡처를 최종 디자인으로 승인)",
+  "sources": {
+    "contract": "docs/dev/do-not-change.md",
+    "runtime": "apps/mobile/src/theme.ts"
+  },
+  "locked": {
+    "_": "DNC-017이 이름과 값으로 잠근 셋. 이 셋은 do-not-change.md와도 글자 단위로 같아야 한다.",
+    "primary": "#C94627",
+    "secondary": "#267A68",
+    "background": "#FFFDFC"
+  },
+  "derived": {
+    "_": "잠근 셋과 같은 팔레트에서 나온 값들. theme.ts에 실제로 있는 값만 적는다(지어내지 않는다).",
+    "primaryDark": "#A93720",
+    "primaryLight": "#FFE4D8",
+    "surface": "#FFFFFF",
+    "surfaceAlt": "#F8F6F4",
+    "textPrimary": "#211E1C",
+    "textSecondary": "#5F5854",
+    "onPrimary": "#FFFFFF"
+  },
+  "retired": [
+    {
+      "value": "#FF8A7A",
+      "role": "primary",
+      "replacedBy": "#C94627",
+      "note": "DNC-017 v0.5가 걷어낸 드리프트 값. infra/site·infra/legal이 아직 쓴다(라운드 73 트랙 C)."
+    },
+    {
+      "value": "#7DDCC7",
+      "role": "secondary",
+      "replacedBy": "#267A68",
+      "note": "DNC-017 v0.5가 걷어낸 드리프트 값."
+    },
+    {
+      "value": "#FFF8F1",
+      "role": "background",
+      "replacedBy": "#FFFDFC",
+      "note": "DNC-017 v0.5가 걷어낸 드리프트 값. 스토어 생성기와 정적 사이트가 쓰던 크림."
+    },
+    {
+      "value": "#FF7A59",
+      "role": "primary",
+      "replacedBy": "#C94627",
+      "note": "어느 시점의 토큰도 아니다 — API 공개 HTML 둘이 자체로 쓰던 값(라운드 73 트랙 C)."
+    },
+    {
+      "value": "#FFF8F2",
+      "role": "background",
+      "replacedBy": "#FFFDFC",
+      "note": "어느 시점의 토큰도 아니다 — API 공개 HTML 둘이 자체로 쓰던 값(라운드 73 트랙 C)."
+    },
+    {
+      "value": "#DB4F2E",
+      "role": "primary",
+      "replacedBy": "#C94627",
+      "note": "어느 시점의 토큰도 아니다 — 스토어 생성기 상수와 그 산출물(아이콘·피처 그래픽)이 쓰던 값."
+    },
+    {
+      "value": "#FF6B52",
+      "role": "primary",
+      "replacedBy": "#C94627",
+      "note": "픽셀락 시대의 코랄. docs/store/assets/sources의 캡처 셋이 이 색이다(= DSN-053 이전 빌드)."
+    },
+    {
+      "value": "#FF6A52",
+      "role": "primary",
+      "replacedBy": "#C94627",
+      "note": "위와 같은 캡처 셋의 인접 값(압축 편차)."
+    }
+  ],
+  "retiredSweepScope": {
+    "_": "'옛 팔레트 리터럴 0건'을 물을 수 있는 자리와, 물으면 안 되는 자리.",
+    "include": [
+      "scripts/store/frame_screenshots.py",
+      "infra/site/site.css",
+      "infra/legal/*.html",
+      "apps/api/src/items-commerce/redirect.controller.ts",
+      "apps/api/src/households/invite-landing.controller.ts"
+    ],
+    "exempt": [
+      "docs/ui-pixel-lock/** — 승인 계보의 기준 이미지·분석 기록이다. 옛 값이 적혀 있는 것이 사실이다.",
+      "docs/store/assets/** — 재캡처 전까지 옛 빌드 캡처가 그대로 있는 것이 사실이다(screenshot-manifest.json이 그 사실을 진다).",
+      "apps/admin/** — 내부 도구이고 사용자 접점이 아니다(라운드 73 P3).",
+      "docs/dev/do-not-change.md · 이 파일 — 개정 이력이 옛 값을 이름으로 적는 자리다."
+    ]
+  }
+}
