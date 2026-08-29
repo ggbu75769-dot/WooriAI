@@ -1253,7 +1253,17 @@ export default function HomeScreen() {
    * 고지가 쓰는 것과 같은 주입 방식이다.
    */
   const hasPendingLocalRecords = hasPendingRecordsForChild(offlineSyncSnapshot.rows, childId);
-  useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification, hasPendingLocalRecords);
+  // GAP-066 #8 + 라운드 66 적대 리뷰(S-2): 지난달 정리 알림이 쓰는 지난달 행을 **이 화면이 이미
+  // 조회해 둔 쿼리**(위 lastMonthExpenses -- 한 줄 인사이트·주간 카드가 쓰는 그것)에서 그대로
+  // 넘긴다. 훅이 캐시를 명령형으로 읽던 시절에는 그 도착이 재평가를 깨우지 못해, 달을 걸치지 않는
+  // 주에는 알림이 다음 렌더까지 미뤄졌다. 새 쿼리도 새 요청도 생기지 않는다(같은 쿼리의 결과다).
+  useHomeNotificationEvaluation(
+    hasSession ? home.data : undefined,
+    weeklySpendForNotification,
+    hasPendingLocalRecords,
+    lastYearMonth,
+    lastMonthExpenses.data?.expenses
+  );
   /**
    * MOB-117 당겨서 새로고침 → GAP-060 #10: **이 화면이 실제로 읽는 캐시 전부**를 갱신한다.
    *

@@ -450,6 +450,38 @@ describe("GAP-054 D#11 사용자 지정 기간", () => {
     expect(exportFileName({ range: "month", todaySeoul: today, childLabel: long }).endsWith("-2026-08.csv")).toBe(true);
   });
 
+  /**
+   * 라운드 66 적대 리뷰(S-1) — 다듬기의 **극단 세 자리**. 태명은 사용자가 자유롭게 치는 값이라
+   * 이모지도 보이지 않는 제어 문자도 실제로 들어온다.
+   */
+  it("이모지 경계·양방향 제어 문자·잘린 자리의 점까지 안전하게 다듬는다", () => {
+    // ① 서러게이트 쌍이 20번째 자리에 걸려도 **반쪽이 남지 않는다**(반쪽은 어디서나 `�`로 뜬다).
+    const atBoundary = `${"가".repeat(19)}👶`;
+    expect(exportFileNameChildSegment(atBoundary)).toBe(atBoundary);
+    const overBoundary = `${"가".repeat(20)}👶`;
+    const truncated = exportFileNameChildSegment(overBoundary);
+    expect(truncated).toBe("가".repeat(20));
+    expect(truncated).not.toMatch(/[\uD800-\uDFFF]/);
+    // 이모지도 한 자로 센다(코드 유닛이 아니라 코드 포인트가 단위다).
+    expect([...(exportFileNameChildSegment("👶".repeat(30)) ?? "")]).toHaveLength(
+      EXPORT_FILE_NAME_CHILD_MAX_LENGTH
+    );
+
+    // ② 보이지 않으면서 표시 순서를 뒤집는 양방향 제어 문자는 제어 문자와 같이 떨군다.
+    expect(exportFileNameChildSegment("다‮온‬이")).toBe("다온이");
+    expect(exportFileNameChildSegment("‎다온‏")).toBe("다온");
+    expect(exportFileNameChildSegment("⁦다온⁩")).toBe("다온");
+    expect(exportFileNameChildSegment("‮⁦‏")).toBeNull();
+    // 멀쩡한 활자(줄표·따옴표·말줄임표)는 그대로 남는다 — 범위를 넓게 잡지 않았다는 근거다.
+    expect(exportFileNameChildSegment("다‘온’…")).toBe("다‘온’…");
+
+    // ③ 자르고 나서 생긴 꼬리 점도 다시 정리한다(확장자 앞에 점이 줄줄이 붙지 않게).
+    expect(exportFileNameChildSegment(`다온${".".repeat(18)}이`)).toBe("다온");
+    expect(exportFileName({ range: "month", todaySeoul: today, childLabel: `다온${".".repeat(18)}이` })).toBe(
+      "우리아이-지출-다온-2026-08.csv"
+    );
+  });
+
   it("고정 3구간의 동작은 D#11 이전과 한 글자도 다르지 않다", async () => {
     const { fetchMonth, calls } = fetcherFromPages({ "2026-08": [makeExpense("2026-08-02")] });
     // custom 옵션을 함께 넘겨도 고정 구간에서는 무시된다.

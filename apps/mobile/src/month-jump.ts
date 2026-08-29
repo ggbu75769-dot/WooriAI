@@ -143,13 +143,32 @@ export function resolveMonthJumpEarliestMonth(child: MonthJumpChildRef | null | 
 /**
  * 실제로 적용되는 하한 `YYYY-MM` — 아이에서 파생한 값과 20년 절대 하한 중 **늦은 쪽**이다.
  * 오늘을 읽을 수 없으면 null이고, 그때는 아래 판정이 아무 달도 고를 수 없다고 답한다.
+ *
+ * ## 라운드 66 적대 리뷰(M-1) — 파생 하한이 **오늘보다 미래**일 수 있다
+ *
+ * 파생 규칙(전년 1월)은 앵커(생년월일/예정일)가 사실일 때만 과거를 가리킨다. 예정일을 2028년으로
+ * 잘못 입력한 계정에서는 하한이 `2027-01`이 되고, 그러면 상한(이번 달)이 하한보다 **앞**이라
+ * 시트의 어떤 칸도 고를 수 없다 — 오타 하나가 달 점프를 통째로 잠근다.
+ *
+ * 그래서 하한이 **이번 달보다 뒤면 앵커를 이번 달로 당겨** 같은 규칙(전년 1월)을 다시 적용한다.
+ * 즉 그 계정은 "예정일이 오늘"인 계정과 같은 하한을 갖는다 — 이 모듈의 규율("모르면 막지
+ * 않는다")은 **잘못 안 경우**에도 같아야 하고, 미래를 가리키는 하한은 아무것도 모르는 것과
+ * 같다. 하한을 이번 달 자체로 놓지 않는 이유는 그러면 시트가 여전히 한 칸짜리이기 때문이다
+ * (기록이 있는 지난달조차 잠긴다).
+ *
+ * 임신 중이라 예정일이 **정상적으로 미래**인 계정은 이 갈래에 들어오지 않는다: 그때 파생 하한은
+ * 올해 1월(또는 그 이전)이라 이번 달보다 앞이다. 절대 바닥은 아래를 그대로 지키므로 이 보정이
+ * 20년 규칙을 넓히지도 않는다.
  */
 export function monthJumpFloorYearMonth(bounds: MonthJumpBounds): string | null {
   const absolute = absoluteEarliestYearMonth(bounds.todayIso);
   if (absolute === null) return null;
-  const derived = parseYearMonth(bounds.earliestYearMonth) ? (bounds.earliestYearMonth as string) : null;
-  if (derived === null) return absolute;
+  const rawDerived = parseYearMonth(bounds.earliestYearMonth) ? (bounds.earliestYearMonth as string) : null;
+  if (rawDerived === null) return absolute;
+  const current = currentYearMonth(bounds.todayIso);
   // "YYYY-MM"은 사전순이 곧 시간순이다.
+  const derived =
+    current !== null && rawDerived > current ? toYearMonth(Number(current.slice(0, 4)) - 1, 1) : rawDerived;
   return derived > absolute ? derived : absolute;
 }
 

@@ -186,15 +186,25 @@ describe("GAP-066 #8 홈 평가 합류 (새 요청 0건)", () => {
   });
 
   /**
-   * 판정에 쓰는 지난달 합계는 **홈이 이미 받아 둔 캐시**에서만 온다(NOTI-103: 알림을 위해 새
-   * 요청을 내지 않는다). 훅은 `getQueryData`로 읽기만 하고 홈 화면은 이 트랙에서 손대지 않는다.
+   * 판정에 쓰는 지난달 합계는 **홈이 이미 받아 둔 쿼리 결과**에서만 온다(NOTI-103: 알림을 위해
+   * 새 요청을 내지 않는다).
+   *
+   * 라운드 66 적대 리뷰(S-2)로 전달 방식이 바뀌었다: 훅이 `getQueryData`로 **명령형으로 읽던**
+   * 값을 이제 **인자로 받아 effect의 deps에 둔다.** 명령형 읽기는 deps에 잡히지 않아 "캐시가
+   * 도착했다"는 사실만으로는 재평가가 일어나지 않았고, 달을 걸치지 않는 주(= 대부분의 주)에는
+   * `weekly`도 함께 바뀌지 않아 지난달 정리가 다음 렌더까지 미뤄졌다.
    */
-  it("훅이 지난달 캐시를 읽기만 한다 -- 새 쿼리도 새 요청도 없다", () => {
+  it("훅이 지난달 값을 **인자로** 받는다 -- deps에 있고, 새 쿼리도 새 요청도 없다", () => {
     const hookSource = source("src/notifications/useHomeNotificationEvaluation.ts");
-    expect(hookSource).toContain(
-      'queryClient.getQueryData<{ expenses: Expense[] }>(["expenses", home.child.id, lastYearMonth])?.expenses'
-    );
+    // 명령형 캐시 읽기는 남아 있지 않다(그 자리가 재평가 누락 창을 만들었다).
+    expect(hookSource).not.toContain("getQueryData");
+    expect(hookSource).not.toContain("useQueryClient");
+    expect(hookSource).toContain("lastMonthExpenses: Expense[] | undefined");
     expect(hookSource).toContain("lastMonthRecords");
+    // 값이 실제로 deps에 있다 -- 도착 자체가 재평가를 깨운다.
+    expect(hookSource).toContain(
+      "}, [home, weekly, hasPendingLocalRecords, lastMonthYearMonth, lastMonthExpenses]);"
+    );
     // 읽기 전용이다: 이 훅은 쿼리를 만들지도, 무효화하지도 않는다.
     expect(hookSource).not.toContain("useQuery(");
     expect(hookSource).not.toContain("invalidateQueries");
@@ -202,9 +212,14 @@ describe("GAP-066 #8 홈 평가 합류 (새 요청 0건)", () => {
     expect(hookSource).toContain("const nowMs = Date.now();");
     expect(hookSource).toContain("const lastYearMonth = previousYearMonth(seoulCalendarDate(nowMs));");
     expect(hookSource).toContain("now: nowMs");
-    // 홈 화면 호출부는 이 트랙에서 바뀌지 않았다(인자 셋 그대로).
-    expect(source("app/(tabs)/index.tsx")).toContain(
-      "useHomeNotificationEvaluation(hasSession ? home.data : undefined, weeklySpendForNotification, hasPendingLocalRecords)"
+    // 넘겨받은 배열이 **다른 달**의 것이면 쓰지 않는다(자정을 갓 넘긴 렌더).
+    expect(hookSource).toContain("lastYearMonth === lastMonthYearMonth");
+    // 홈 화면은 **이미 조회 중인 쿼리**의 결과를 넘긴다 -- 새 쿼리를 만들지 않는다.
+    const homeSource = source("app/(tabs)/index.tsx");
+    expect(homeSource).toContain("    lastYearMonth,\n    lastMonthExpenses.data?.expenses\n  );");
+    // 지난달 쿼리는 이 화면에 **하나뿐**이다(나머지 한 자리는 당겨서 새로고침의 무효화다).
+    expect(homeSource.match(/useQuery\(\{\n\s+queryKey: \["expenses", childId, lastYearMonth\]/g) ?? []).toHaveLength(
+      1
     );
   });
 });

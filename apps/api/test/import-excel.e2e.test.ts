@@ -11,6 +11,22 @@ import { PrismaService } from "../src/prisma/prisma.service";
 
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
+/**
+ * 라운드 66 적대 리뷰(S-4) — **미래 날짜 행은 오늘에서 파생한다.**
+ *
+ * 두 시나리오는 "미래 날짜라 확정에서 빠지는 행"으로 건수를 가른다(선택된 행 수가 아니라 실제로
+ * 들어간 행 수를 세고 있음을 드러내는 장치다). 그 행의 날짜가 `2027-01-05`로 박혀 있었는데,
+ * 미래 판정은 **서울 오늘** 기준이라(packages/domain의 `isFutureExpenseDate`) 그날이 오면 그 행이
+ * 갑자기 유효해지고 두 단언(`{ importedCount: 1, skippedCount: 1 }` · `{ 2, 1 }`)이 동시에 깨진다.
+ * 시한폭탄이라 실패 시점의 사람은 원인을 이 파일에서 찾지 못한다.
+ *
+ * 그래서 실행 시각 + 180일로 만든다 — 시간대 차이(±1일)로도 뒤집히지 않을 만큼 멀고,
+ * 그 자체가 "미래"라는 사실 말고 다른 무엇도 뜻하지 않는다.
+ */
+function futureRowDate(): string {
+  return new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 type ImportJob = {
   id: string;
   childId: string;
@@ -660,7 +676,7 @@ describe("Excel import beta API", () => {
     // 2행 중 1행만 유효(둘째 행은 미래 날짜라 확정에서 빠진다) — before/after의 건수가
     // 서로 다른 값이어야 "몇 건이 들어가고 몇 건이 빠졌나"를 실제로 검증할 수 있다.
     const fileName = "카드내역-2026년7월-홍길동.csv";
-    const csv = "날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n2027-01-05,분유 구매,33000\n";
+    const csv = `날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n${futureRowDate()},분유 구매,33000\n`;
     const job = (
       await request(app.getHttpServer())
         .post(`/api/v1/children/${childId}/imports/excel`)
@@ -812,7 +828,7 @@ describe("Excel import beta API", () => {
     // "선택된 행 수"가 아니라 **들어간 행 수**를 세고 있음이 드러난다).
     const july = await uploadAndConfirm(
       "카드내역-7월-1차.csv",
-      "날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n2026-07-05,물티슈 구매,12000\n2027-01-05,분유 구매,33000\n"
+      `날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n2026-07-05,물티슈 구매,12000\n${futureRowDate()},분유 구매,33000\n`
     );
     expect(july.confirmResponse).toEqual({ importedCount: 2, skippedCount: 1 });
 

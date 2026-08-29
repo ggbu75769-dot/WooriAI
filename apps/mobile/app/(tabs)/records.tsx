@@ -1632,7 +1632,11 @@ export default function RecordsScreen() {
           </Pressable>
           {/* GAP-066 트랙 A(#2): 달 라벨이 곧 월 선택 시트의 입구다. 라운드 49 C-09의 선례대로
               <Text>를 Pressable로 **감싸기만** 한다 -- 라벨의 스타일·문자열은 한 글자도 손대지
-              않으므로 렌더는 종전 그대로다(레이아웃 속성 무변경). */}
+              않으므로 렌더는 종전 그대로다(레이아웃 속성 무변경).
+              라운드 66 적대 리뷰(M-2): 감싸기만 하면 버튼의 몸은 16px 글자 줄 하나(약 20dp)라
+              hitSlop 8을 더해도 최소 터치 타깃에 못 미쳤다. 위 아이 전환 트리거와 **같은 한 줄**로
+              48dp를 채운다 -- 이 줄은 이미 48dp 화살표 둘이 높이를 잡고 있고 라벨은 가운데
+              정렬이라, 늘어난 것은 히트 영역뿐이고 렌더는 종전 그대로다. */}
           {hasRecordsSession ? (
             <Pressable
               accessibilityRole="button"
@@ -1641,6 +1645,7 @@ export default function RecordsScreen() {
               hitSlop={8}
               onPress={() => setMonthJumpOpen((open) => !open)}
               testID="records-month-jump-trigger"
+              style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
             >
               <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
             </Pressable>

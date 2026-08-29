@@ -1003,6 +1003,45 @@ describe("GAP-064 #6 터치 타깃 소스 계약 (높이 + 2×세로 hitSlop ≥
     expect(pressableBlocksWithHitSlop(detailSource, "hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP}")).toHaveLength(2);
   });
 
+  /**
+   * 라운드 66 적대 리뷰(M-2) — **글자를 감싸기만 한 트리거 두 자리**.
+   *
+   * GAP-066 #2가 두 탭의 달 라벨을 Pressable로 감쌌는데, 그 버튼의 몸은 글자 줄 하나(16px면
+   * 약 20dp)다 — `hitSlop={8}`을 더해도 36dp라 최소 타깃에 못 미쳤다. 이 계약이 칩만 읽고
+   * 있어 그 자리가 조용히 통과했다(라운드 64가 막으려던 재발 경로 그대로다).
+   *
+   * 고침은 같은 파일의 **아이 전환 트리거 선례**와 한 글자도 다르지 않다: 세로 가운데 정렬 +
+   * `minHeight: theme.touchTarget`. 두 자리 모두 줄 높이를 48dp 화살표(기록 탭)·
+   * `minHeight: theme.touchTarget`인 줄(리포트 탭)이 이미 잡고 있어 **렌더는 불변**이다.
+   */
+  it("두 탭의 달 라벨 트리거도 최소 타깃을 채운다 (감싸기만 한 버튼의 몸은 글자 줄 하나다)", () => {
+    const triggers = [
+      { path: "app/(tabs)/records.tsx", testId: "records-month-jump-trigger" },
+      { path: "app/(tabs)/reports.tsx", testId: "reports-month-jump-trigger" }
+    ] as const;
+
+    for (const trigger of triggers) {
+      const screenSource = source(trigger.path);
+      const at = screenSource.indexOf(`testID="${trigger.testId}"`);
+      if (at < 0) throw new Error(`${trigger.path}에 ${trigger.testId}가 없다`);
+      const start = screenSource.lastIndexOf("<Pressable", at);
+      const end = screenSource.indexOf("</Pressable>", at);
+      const block = screenSource.slice(start, end);
+
+      // 높이를 hitSlop으로 벌지 않는다 — 글자 줄 하나 + 8+8은 48에 못 미친다.
+      expect(block, `${trigger.path} 트리거의 최소 높이`).toContain("minHeight: theme.touchTarget");
+      // 채운 높이 안에서 글자가 가운데 선다(늘어난 것은 히트 영역뿐, 라벨의 위치는 그대로다).
+      expect(block, `${trigger.path} 트리거의 세로 정렬`).toContain('justifyContent: "center"');
+      // 세로 여백으로 벌지 않았다 — 그건 줄 높이가 달라지는 길이다(픽셀락 REP-001).
+      expect(block, `${trigger.path} 트리거의 세로 여백`).not.toContain("paddingVertical");
+    }
+
+    // 이 한 줄이 새로 지은 값이 아니라는 근거: 같은 파일의 아이 전환 트리거가 쓰던 그 줄이다.
+    expect(source("app/(tabs)/records.tsx")).toContain(
+      'style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}'
+    );
+  });
+
   it("렌더는 한 픽셀도 바뀌지 않는다 — 칩의 레이아웃 속성은 그대로다 (EXP-001 픽셀락)", () => {
     for (const screen of chipScreens) {
       for (const block of pressableBlocksWithHitSlop(source(screen.path), CHIP_HIT_SLOP_PROP)) {

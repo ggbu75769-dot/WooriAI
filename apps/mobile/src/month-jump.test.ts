@@ -77,6 +77,30 @@ describe("달 점프 — 하한은 아이 날짜에서 파생한다 (모르면 �
     expect(monthJumpFloorYearMonth({ todayIso: TODAY, earliestYearMonth: "1999-01" })).toBe("2006-08");
     expect(monthJumpFloorYearMonth({ todayIso: TODAY, earliestYearMonth: "2025-01" })).toBe("2025-01");
   });
+
+  it("파생 하한이 오늘보다 미래면 앵커를 이번 달로 당긴다 — 예정일 오타가 시트를 잠그지 않는다", () => {
+    // 예정일을 2년 뒤로 잘못 입력한 계정: 전년 1월 규칙이 하한을 **미래**로 밀어 올린다.
+    const typo = resolveMonthJumpEarliestMonth({ dueDate: "2028-05-10" });
+    expect(typo).toBe("2027-01");
+
+    const bounds = { todayIso: TODAY, earliestYearMonth: typo };
+    // 하한은 "예정일이 오늘"인 계정과 같아진다(오늘의 전년 1월) — 이번 달 한 칸만 남기지 않는다.
+    expect(monthJumpFloorYearMonth(bounds)).toBe("2025-01");
+    expect(isMonthJumpSelectable("2026-08", bounds)).toBe(true);
+    expect(isMonthJumpSelectable("2026-07", bounds)).toBe(true);
+
+    const view = buildMonthJumpYear({ year: 2026, selectedYearMonth: "2026-08", bounds });
+    expect(view.cells.filter((cell) => cell.isSelectable).map((cell) => cell.month)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8
+    ]);
+    expect(view.canGoPreviousYear).toBe(true);
+
+    // 임신 중이라 예정일이 **정상적으로** 미래인 계정은 이 보정에 걸리지 않는다(종전 하한 그대로).
+    const pregnant = { todayIso: TODAY, earliestYearMonth: resolveMonthJumpEarliestMonth({ dueDate: "2027-03-02" }) };
+    expect(pregnant.earliestYearMonth).toBe("2026-01");
+    expect(monthJumpFloorYearMonth(pregnant)).toBe("2026-01");
+    expect(isMonthJumpSelectable("2025-12", pregnant)).toBe(false);
+  });
 });
 
 describe("달 점프 — 한 해치 격자와 연도 스테퍼", () => {

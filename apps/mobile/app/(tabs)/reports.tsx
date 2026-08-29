@@ -868,7 +868,11 @@ export default function ReportsScreen() {
                     Pressable로 **감싸기만** 해 렌더를 바꾸지 않았다. 여기서도 라벨의 스타일·
                     문자열은 한 글자도 손대지 않는다(레이아웃 속성 무변경).
                     REP-001 픽셀락 게이트: 비세션 미리보기에서는 hasSession이 false라 아래 else
-                    분기, 즉 종전의 <Text>{periodLabel}</Text> 그대로다. */}
+                    분기, 즉 종전의 <Text>{periodLabel}</Text> 그대로다.
+                    라운드 66 적대 리뷰(M-2): 감싸기만 하면 버튼의 몸은 글자 줄 하나라 hitSlop 8을
+                    더해도 최소 터치 타깃에 못 미쳤다. 기록 탭의 아이 전환 트리거와 **같은 한 줄**로
+                    48dp를 채운다 -- 이 줄(reportReferencePeriodRowStyle)은 이미 minHeight
+                    theme.touchTarget에 세로 가운데 정렬이라 늘어난 것은 히트 영역뿐이다. */}
                 {hasSession ? (
                   <Pressable
                     accessibilityRole="button"
@@ -877,6 +881,7 @@ export default function ReportsScreen() {
                     hitSlop={8}
                     onPress={() => setMonthJumpOpen((open) => !open)}
                     testID="reports-month-jump-trigger"
+                    style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
                   >
                     <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
                   </Pressable>
