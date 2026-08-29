@@ -153,22 +153,39 @@ describe("resolveDefaultStageLabel", () => {
   });
 
   /**
-   * 라운드 69 트랙 C 회귀 좌표 **넷**: 임신·출생 각각 × 아이 캐시 있음/실패.
+   * 라운드 69 트랙 C 회귀 좌표 **넷**: 시기 있음(임신·출생) × 시기 없음(미도착·비정상 값).
    *
    * `["children"]` 캐시가 살아 있으면 기본 칩이 아이의 실제 시기를 따르고(resolved), 캐시가
-   * 없으면(실패·미도착) 폴백이되 그 사실이 `resolved: false`로 드러난다 — 종전에는 이 네 좌표
-   * 중 둘("캐시 실패")이 나머지 둘과 **구분 불가능한 같은 값**이었다.
+   * 없으면 폴백이되 그 사실이 `resolved: false`로 드러난다 — 종전에는 이 네 좌표 중 둘("캐시
+   * 실패")이 나머지 둘과 **구분 불가능한 같은 값**이었다.
+   *
+   * 라운드 69 리뷰 S-4 — 네 좌표를 **실질화**한다. 종전 코드는 두 축이 모두 무너져 있었다:
+   *  - 실패 쪽 두 좌표가 `currentStage: undefined`로 **글자 그대로 같은 입력**이었다(임신·출생을
+   *    적어 놨을 뿐 두 번 같은 것을 물었다). 이제 실패의 두 갈래를 나눠 잡는다 — 캐시 **미도착**
+   *    (`undefined`)과 캐시에 **비정상 값**이 들어온 경우(`isChildStageCode`를 통과 못 하는 문자열).
+   *  - 성공 쪽 두 좌표가 `pregnancy_late`·`newborn_0_3`이라 **같은 밴드("0-6개월")**였다. 출생
+   *    좌표를 `toddler_1_3`으로 잡아 라벨 축이 실제로 갈리게 한다. 그러면 "라벨이 폴백과 같아도
+   *    resolved가 다르다"(bornWithCache ↔ 실패 둘)까지 이 한 테스트가 함께 못 박는다.
    */
-  it("회귀 네 좌표 — 임신·출생 × 캐시 있음/실패", () => {
+  it("회귀 네 좌표 — 시기 있음(임신·출생) × 시기 없음(미도착·비정상 값)", () => {
     const pregnantWithCache = resolveDefaultStageLabel({ ...base, currentStage: "pregnancy_late" });
-    const pregnantWithoutCache = resolveDefaultStageLabel({ ...base, currentStage: undefined });
-    const bornWithCache = resolveDefaultStageLabel({ ...base, currentStage: "newborn_0_3" });
-    const bornWithoutCache = resolveDefaultStageLabel({ ...base, currentStage: undefined });
+    const bornWithCache = resolveDefaultStageLabel({ ...base, currentStage: "toddler_1_3" });
+    const cacheNotArrived = resolveDefaultStageLabel({ ...base, currentStage: undefined });
+    const cacheMalformed = resolveDefaultStageLabel({ ...base, currentStage: "not-a-real-stage" });
 
+    // 시기를 알면 라벨이 실제로 갈린다(같은 밴드 두 개를 두 번 묻던 자리다).
     expect(pregnantWithCache).toEqual({ label: "0-6개월", resolved: true });
-    expect(bornWithCache).toEqual({ label: "0-6개월", resolved: true });
-    expect(pregnantWithoutCache).toEqual({ label: "12-24개월", resolved: false });
-    expect(bornWithoutCache).toEqual({ label: "12-24개월", resolved: false });
+    expect(bornWithCache).toEqual({ label: "12-24개월", resolved: true });
+    expect(pregnantWithCache.label).not.toBe(bornWithCache.label);
+
+    // 시기를 모르는 두 갈래는 서로 다른 입력이고, 같은 폴백으로 수렴하되 resolved가 그 사실을 말한다.
+    expect(cacheNotArrived).toEqual({ label: "12-24개월", resolved: false });
+    expect(cacheMalformed).toEqual({ label: "12-24개월", resolved: false });
+
+    // 출생 좌표의 라벨은 폴백과 같은 값이다 — 그래서 `resolved`가 유일한 구분점이 된다.
+    // (라벨만 보는 소비자가 생기면 이 두 상태를 다시 뭉갠다는 뜻이고, 그 자리가 화면의 안내 한 줄이다.)
+    expect(bornWithCache.label).toBe(cacheNotArrived.label);
+    expect(bornWithCache.resolved).not.toBe(cacheNotArrived.resolved);
   });
 });
 

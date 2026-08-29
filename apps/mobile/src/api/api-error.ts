@@ -45,6 +45,11 @@ import { amountOverLimitMessage } from "../expenses/amount-limit";
 // 여기서 문장을 새로 지으면 같은 경계를 폼·서버·이 표가 각자 말하게 되고, 20이라는 숫자가
 // 이 파일에 리터럴로 들어온다(도메인 `ENTRY_DATE_MAX_PAST_YEARS`가 단일 소스다).
 import { EXPENSE_DATE_TOO_OLD_ERROR } from "../expenses/entry-form-guards";
+// ⚠️ 라운드 69 리뷰 P-5: 이 값 import는 `../children/child-form`을 거쳐 순환 **직전**까지 간다 —
+// child-form.ts는 `import type { UpdateChildBody } from "../api/client"`을 들고 있고, client.ts는
+// 이 파일(ApiHttpError)을 값으로 부른다. 지금은 그 한 줄이 `import type`이라 컴파일 뒤 사라져서
+// 런타임 사이클이 없다. 그 줄이 값 import로 바뀌면 client → api-error → child-form → client이
+// 실제 사이클이 되고, 모듈 초기화 순서에 따라 이 표의 두 줄이 `undefined`가 될 수 있다.
 import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
 
 /** 서버 오류 응답 봉투(apps/api/src/common/filters/global-exception.filter.ts)에서 꺼낸 값. */
@@ -110,9 +115,14 @@ export class ApiHttpError extends Error {
  * 한 줄 + **재시도 버튼 없음**이라, 사용자가 고치면 바로 풀리는 실패도 막다른 문장이 된다.
  *
  * 이제 그 규율은 **소스 계약**으로 선다: api-error.test.ts가 앱의 아웃박스·준비템 상태 큐가
- * 지나는 서버 파일들을 읽어 `code: "…"`를 전부 긁고, 그 코드가 이 표에 있는지 아니면 **이유가
- * 적힌 제외 목록**에 있는지를 묻는다. 서버에 코드를 새로 만들면 그 테스트가 빨개지고, 만든
- * 사람이 "이 코드는 앱에서 어떻게 보이는가"에 답해야 한다.
+ * 지나는 서버 파일 **넷**(onboarding/의 store-shared.ts · expenses-store.service.ts ·
+ * child-access.service.ts · items-catalog.service.ts)을 읽어 `code: "…"`를 전부 긁고, 그 코드가
+ * 이 표에 있는지 아니면 **이유가 적힌 제외 목록**에 있는지를 묻는다. 서버에 코드를 새로 만들면
+ * 그 테스트가 빨개지고, 만든 사람이 "이 코드는 앱에서 어떻게 보이는가"에 답해야 한다.
+ *
+ * 스윕은 **파일 단위**라 큐가 지나지 않는 코드도 함께 걸린다 — items-catalog.service.ts에는
+ * 어드민 콘솔 전용 갈래(`ADMIN_*`)와 구매 링크 클릭(큐가 아닌 즉시 요청)이 같은 클래스에 산다.
+ * 그것들은 표가 아니라 그 테스트의 제외 목록에서 이유와 함께 처리된다.
  */
 export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   // --- 지출 저장/수정 (apps/api/src/onboarding/store-shared.ts, expenses-store.service.ts,

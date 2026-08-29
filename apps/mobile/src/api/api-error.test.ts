@@ -385,7 +385,11 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
     const outboxPathFiles = [
       "onboarding/store-shared.ts",
       "onboarding/expenses-store.service.ts",
-      "onboarding/child-access.service.ts"
+      "onboarding/child-access.service.ts",
+      // 라운드 69 리뷰 M-1: 준비템 상태 큐가 실제로 지나는 파일인데 스윕에 없었다. 상태 PATCH의
+      // 종점이 여기다(updateItemStatus → requireItemTemplate → ITEM_NOT_FOUND). 이 파일은 앱
+      // 경로와 어드민 경로가 한 클래스에 같이 살아서, 아래 제외 목록이 그 둘을 갈라 적는다.
+      "onboarding/items-catalog.service.ts"
     ];
 
     /** 표에 넣지 않는 코드와 그 이유. 비우면 안 된다 — 이유 없는 제외가 바로 이 표의 병이었다. */
@@ -395,7 +399,23 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
       EXPENSE_CHILD_MISMATCH:
         "준비템 상태 PATCH가 expenseId를 함께 보낼 때만 나오는 403인데, 상태 큐가 보내는 것은 상태값 하나다(src/offline/remote-api.ts의 updateItemStatus).",
       VALIDATION_ERROR:
-        "바구니 코드다. 표에 넣으면 DTO 검증 실패 전량이 한 문구를 뒤집어쓴다 — 사유가 있는 갈래는 EXPENSE_CATEGORY_INVALID처럼 자기 코드를 받는다."
+        "바구니 코드다. 표에 넣으면 DTO 검증 실패 전량이 한 문구를 뒤집어쓴다 — 사유가 있는 갈래는 EXPENSE_CATEGORY_INVALID처럼 자기 코드를 받는다.",
+      // --- items-catalog.service.ts의 어드민 전용 갈래 (apps/admin만 부른다) ---
+      // 넷 다 어드민 콘솔의 입력 검증이라 모바일 앱은 그 엔드포인트를 호출하지 않는다.
+      // 원문이 영어인 것도 그래서다 — 사용자 화면에 설 문장이 아니다.
+      ADMIN_ITEM_TEMPLATE_REQUIRED:
+        "어드민 준비템 저장의 필수 입력 검증(normalizeAdminItemTemplateInput)과 어드민 링크 생성 시 itemTemplateId 누락 검증이다. 앱은 두 엔드포인트를 모두 호출하지 않는다.",
+      ADMIN_PRODUCT_LINK_REQUIRED:
+        "어드민 구매 링크 생성/수정의 필수 입력 검증이다(adminCreateProductLink·adminUpdateProductLink). 앱은 이 엔드포인트를 호출하지 않는다.",
+      ADMIN_DISCLOSURE_REQUIRED:
+        "어드민 고지 문구 저장의 빈 값 검증이다(adminUpdateDisclosure). 앱은 고지 문구를 읽기만 하고 쓰지 않는다.",
+      ADMIN_SKIP_REASON_REQUIRED:
+        "어드민 준비템 저장에서 필수가 아닌 템플릿에 건너뛰기 안내를 요구하는 검증이다. 앱은 이 엔드포인트를 호출하지 않는다.",
+      // --- 앱이 지나지만 **큐가 아닌** 갈래 (구매 링크 클릭은 즉시 요청이다) ---
+      PRODUCT_LINK_NOT_FOUND:
+        "구매 링크 클릭(clickProductLink)의 404와 어드민 링크 조회의 404다. 클릭은 아웃박스를 타지 않는 즉시 요청이라 실패해도 큐 행이 남지 않고, 그 화면이 자기 문구를 쓴다(app/items/[itemTemplateId].tsx의 showLinkFailure). 아웃박스가 지나는 '연결하려던 링크가 없다'는 별도 코드 LINKED_PRODUCT_LINK_NOT_FOUND이고 그쪽은 표에 있다.",
+      PRODUCT_LINK_URL_SCHEME_INVALID:
+        "어드민이 넣은 링크 주소의 스킴 검증(requireHttpUrl)이다. 클릭 경로에서도 같은 함수가 저장된 주소를 방어적으로 다시 보지만, 그때 잘못된 값은 사용자가 고칠 수 있는 것이 아니고 클릭은 큐를 타지 않는다."
     };
 
     const swept = new Set(outboxPathFiles.flatMap(thrownCodesIn));

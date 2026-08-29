@@ -170,7 +170,13 @@ describe("Affiliate opaque redirect (GET /r/:code)", () => {
       // 302의 본문은 express의 `res.redirect`가 자체적으로 협상하는 한 줄짜리 예의 문구다
       // (`<p>Found. Redirecting to …</p>` vs 평문) — **이번 변경 이전부터 그랬고** 우리 페이지가
       // 아니다. 고정하는 것은 "실패 페이지가 성공 경로로 새지 않는다"이다.
-      expect(browser.text).toContain("Found. Redirecting to https://link.coupang.com/a/redirect-affiliate");
+      //
+      // 라운드 69 리뷰 P-4: 그래서 단언도 **우리 것이 아닌 문자열에 기대지 않는 선까지만** 조인다.
+      // 종전에는 목적지 URL까지 포함한 전문을 요구해서, express가 그 예의 문구의 문법(URL 이스케이프
+      // 방식·문장)을 바꾸는 마이너 업그레이드가 이 스위트를 빨갛게 만들 수 있었다 — 우리 계약은
+      // 위의 `Location` 헤더가 이미 못 박고 있다. 여기서는 "그 자리에 express의 302 본문이 서 있고,
+      // 우리 실패 페이지가 새지 않았다"만 본다.
+      expect(browser.text).toContain("Found. Redirecting to");
       expect(browser.text ?? "").not.toContain("이 구매 링크는 지금 열 수 없어요");
 
       // 클릭 행 생성 순서도 그대로다 — 성공 두 번이면 두 행.
@@ -188,6 +194,8 @@ describe("Affiliate opaque redirect (GET /r/:code)", () => {
       expect(response.headers["content-type"]).toMatch(/^text\/html/);
       expect(response.headers["cache-control"]).toBe("no-store");
       expect(response.headers["x-frame-options"]).toBe("DENY");
+      // 라운드 69 리뷰 P-1: 본문이 Accept에 따라 갈리는 응답이므로 캐시에게 그 사실을 말한다.
+      expect(response.headers.vary?.toLowerCase()).toContain("accept");
       expect(response.text).toContain('<meta name="robots" content="noindex">');
       expect(response.text).toContain('<html lang="ko">');
       expect(response.text).toContain("이 구매 링크는 지금 열 수 없어요.");
@@ -264,6 +272,9 @@ describe("Affiliate opaque redirect (GET /r/:code)", () => {
       expect(response.body.error.message).toBe("상품 링크를 찾을 수 없어요.");
       expect(response.body.error.requestId).toEqual(expect.any(String));
       expect(response.text).not.toContain("이 구매 링크는 지금 열 수 없어요");
+      // 라운드 69 리뷰 P-1: JSON 갈래에도 같은 `Vary`가 선다 — 협상이 일어나는 자리는 한
+      // 응답이 아니라 **이 URL**이라, 두 표현 중 하나만 표시하면 캐시는 나머지 하나를 잘못 준다.
+      expect(response.headers.vary?.toLowerCase()).toContain("accept");
     });
 
     it("keeps JSON for a wildcard Accept too (curl's default -- the smoke script's 404 check is unaffected)", async () => {

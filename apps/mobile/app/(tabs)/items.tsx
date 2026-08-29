@@ -514,9 +514,12 @@ export default function ItemsScreen() {
   //    길이 화면에 있어야 한다 — 당겨서 새로고침이 바로 그 길이고, 홈·기록 탭이 이미 "화면이
   //    읽는 캐시를 갱신한다"는 같은 규율을 따른다(GAP-060 #10).
   //  · `["home"]`을 **남긴다**: 이 화면은 더 이상 그 응답을 읽지 않지만, 여기서 누른 준비 상태는
-  //    홈 탭의 추천 카드가 그리는 값이라(app/(tabs)/index.tsx의 recommendedItems) 당김이 그
-  //    온기를 갱신하던 종전 동작을 지울 근거가 없다. 이 트랙은 홈 화면 무접촉이고, 빼는 쪽이
-  //    오히려 홈의 동작을 바꾼다.
+  //    홈 탭의 추천 카드가 그리는 값이라(app/(tabs)/index.tsx의 recommendedItems) 그 캐시를
+  //    낡은 것으로 표시해 두는 편이 맞다. 라운드 69 리뷰 S-5 — 정확히 말하면 이 줄은 홈을 지금
+  //    **다시 불러오지 않는다**: 이 화면이 `["home"]`을 구독하지 않으므로 그 쿼리는 비활성이고,
+  //    invalidate는 stale 표시까지다. 실제 재요청은 사용자가 홈 탭에 들어가 그 쿼리가 다시
+  //    활성이 되는 순간 일어난다(그래서 이 줄의 값은 "당김 즉시 갱신"이 아니라 "홈에 갔을 때
+  //    낡은 값을 보지 않는다"이다). 이 트랙은 홈 화면 무접촉이고, 빼는 쪽이 오히려 홈의 동작을 바꾼다.
   const { refreshing, onRefresh } = usePullToRefresh(() =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ["items"] }),

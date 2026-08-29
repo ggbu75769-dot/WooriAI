@@ -109,6 +109,14 @@ export class AffiliateRedirectController {
    * 성공 경로의 응답을 바꾸기 때문이다.
    */
   private respondLinkUnavailable(request: AuthenticatedRequest, response: Response): void {
+    // 라운드 69 리뷰 P-1: 이 실패 응답의 **본문이 `Accept`에 따라 갈리므로** 캐시에게 그 사실을
+    // 말한다. 없으면 중간 캐시(공유 링크라 CDN·회사 프록시를 지날 수 있다)가 한 클라이언트에게
+    // 준 표현을 다른 `Accept`의 요청에 그대로 돌려줄 수 있다 — 브라우저에 JSON 봉투가, 앱에
+    // HTML 페이지가 가는 모양이다. `Cache-Control: no-store`가 이미 저장을 막지만, 그 값은
+    // HTML 갈래에만 이 메서드가 세우고 JSON 갈래는 미들웨어에 딸려 있어서 둘의 근거가 다르다.
+    // 그래서 `Vary`는 **두 갈래 모두**에, 갈림이 일어나기 전에 세운다(JSON 갈래는 여기서
+    // 던지면 GlobalExceptionFilter가 `response.status().json()`으로 이어 쓰므로 헤더가 남는다).
+    response.setHeader("Vary", "Accept");
     if (!prefersHtmlPage(request)) {
       throw new NotFoundException(PRODUCT_LINK_NOT_FOUND_ERROR);
     }
@@ -120,6 +128,13 @@ export class AffiliateRedirectController {
     response.setHeader("Content-Type", "text/html; charset=utf-8");
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("X-Frame-Options", "DENY");
+    // ⚠️ 라운드 69 리뷰 P-3: `@Res({ passthrough: true })`라 **Nest도 반환값으로 응답을 쓴다.**
+    // 여기서 `response.send(...)`의 결과를 return하면 Nest가 그 값을 한 번 더 직렬화해 보내려
+    // 하고(이미 헤더가 나간 뒤라 ERR_HTTP_HEADERS_SENT), 그 이중 전송은 이 페이지처럼 드문
+    // 실패 경로에서만 터진다. 지금 무해한 이유는 이 메서드가 `void`를 선언하고 send 뒤에
+    // 아무것도 반환하지 않아 호출부의 `return this.respondLinkUnavailable(...)`이 undefined로
+    // 끝나기 때문이다 — Nest는 undefined를 "직접 썼다"로 읽는다. 이 마지막 줄을 `return`으로
+    // 바꾸지 말 것.
     response.send(renderLinkUnavailablePage());
   }
 }

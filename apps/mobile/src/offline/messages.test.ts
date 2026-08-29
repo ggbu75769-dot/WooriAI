@@ -644,6 +644,15 @@ describe("라운드 69 A(#1) 로그아웃이 지우는 세 번째 목록", () =>
     expect([...called].filter((name) => !judged.has(name))).toEqual([]);
     // 반대 방향도 본다: 목록에만 남은 이름은 teardown을 따라오지 못한 낡은 판정이다.
     expect([...judged].filter((name) => !called.has(name))).toEqual([]);
+    // 라운드 69 리뷰 S-2 — 한 겹 더. 위 두 방향은 `reset()`/`resetAll()`이라는 **호출 모양**에
+    // 걸려 있어서, 스토어를 비우는 방법이 달라지면(예: `.setState(초기값)`, 전용 헬퍼) 그 스토어는
+    // 조용히 판정 밖으로 빠진다. 그래서 호출이 아니라 **import 목록**을 한 번 더 긁는다.
+    // 전제: session-teardown.ts는 스토어를 오직 teardown 목적으로만 import한다(읽기용 조회나
+    // 파생 계산을 위해 스토어를 가져오지 않는다 — 그런 import가 생기면 이 단언이 먼저 깨지고,
+    // 그때 판정 목록이 아니라 이 전제를 다시 봐야 한다).
+    const imported = new Set(Array.from(teardown.matchAll(/import \{ (use\w+Store) \}/g), (match) => match[1]));
+    expect(imported.size).toBeGreaterThan(0);
+    expect([...imported].filter((name) => !judged.has(name))).toEqual([]);
     // 세는 쪽 하나는 실제로 문구에 도달한다(목록만 적어 두고 말하지 않는 일이 없게).
     expect([...LOGOUT_COUNTED_TEARDOWN_STORES]).toContain("useRecurringExpenseStore");
     expect(logoutConfirmMessage({ recurringTemplateCount: 1 })).toContain("정기 지출 1개");
