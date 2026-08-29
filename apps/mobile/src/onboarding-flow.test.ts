@@ -82,7 +82,12 @@ describe("Batch 05 mobile onboarding contract", () => {
 
     expect(loginSource).toContain("loginError");
     expect(loginSource).toContain("로그인 중");
-    expect(loginSource).toContain("서버에 연결할 수 없어요");
+    // 라운드 73 트랙 A: 실패 문구 두 갈래는 src/auth/login-copy.ts 한 자리로 옮겨 갔다(문장은
+    // 바이트 그대로, 갈래의 기준만 "env 주입 여부" → "빌드 성격"). 여기서 확인하는 사실은
+    // 그대로다 — 카카오 시작이 멈춘 채 방치되지 않고 화면이 이유를 말한다.
+    expect(loginSource).toContain("setLoginError(");
+    const copySource = readFileSync(join(mobileRoot, "src/auth/login-copy.ts"), "utf8");
+    expect(copySource).toContain("서버에 연결할 수 없어요");
   });
 
   it("registers /onboarding routes so login does not land on an unmatched route", () => {

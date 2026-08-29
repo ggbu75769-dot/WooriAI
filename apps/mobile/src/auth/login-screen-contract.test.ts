@@ -57,10 +57,25 @@ describe("AUTH-102 login screen wiring (source verification -- follows the exist
     expect(loginSource.indexOf("error instanceof KakaoLoginCancelledError")).toBeLessThan(
       loginSource.indexOf("error instanceof KakaoLoginError) {")
     );
-    // Untyped fallback copy: the "PC와 같은 Wi-Fi" hint is reserved for the dev-stub path;
-    // the real-Kakao path gets production-appropriate copy.
+    // 라운드 73 트랙 A: 타입 없는 실패의 문구는 **빌드 성격**으로 갈린다(종전 기준은
+    // "env가 주입됐는가"였다). 두 질문이 각각 자기 자리에서 오고, 화면에는 리터럴이 없다.
     expect(loginSource).toMatch(
-      /isKakaoLoginAvailable\(\)\s*\?\s*"로그인 중 문제가 발생했어요\. 네트워크 연결을 확인한 뒤 다시 시도해 주세요\."\s*:\s*"서버에 연결할 수 없어요\. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요\."/
+      /loginFailureMessage\(\{\s*developerBuild: isDeveloperBuild\(\),\s*kakaoConfigured: isKakaoLoginAvailable\(\)\s*\}\)/
+    );
+  });
+
+  it("라운드 73 트랙 A: 실패 문구 두 갈래가 화면이 아니라 한 모듈에 있고, 화면은 리터럴을 갖지 않는다", () => {
+    const loginSource = source("app/(auth)/login.tsx");
+    // 화면은 판정 둘을 각각의 단일 소스에서 읽는다.
+    expect(loginSource).toContain('import { isDeveloperBuild } from "../../src/auth/release-build";');
+    expect(loginSource).toMatch(/import \{[\s\S]*?loginFailureMessage,[\s\S]*?\} from "\.\.\/\.\.\/src\/auth\/login-copy";/);
+    // 주석(이력 인용)을 걷어낸 실제 코드에는 두 문장이 리터럴로 남지 않는다.
+    const renderedLogin = loginSource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+    expect(renderedLogin).not.toContain("서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요.");
+    expect(renderedLogin).not.toContain("로그인 중 문제가 발생했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요.");
+    // ⚠️ 경로 선택(:184의 삼항)은 이 트랙이 손대지 않는다 — 바뀐 것은 문구의 갈래 기준뿐이다.
+    expect(loginSource).toContain(
+      'const result = isKakaoLoginAvailable() ? await loginWithKakao() : await oauthLogin("kakao");'
     );
   });
 

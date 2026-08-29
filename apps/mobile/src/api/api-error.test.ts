@@ -657,8 +657,10 @@ describe("배선 계약 (source verification)", () => {
     expect(loginSource.indexOf("error instanceof KakaoLoginError) {")).toBeLessThan(
       loginSource.indexOf("const accountStatusMessage =")
     );
+    // 라운드 73 트랙 A: 그 마지막 갈래의 두 문구는 이제 src/auth/login-copy.ts 한 자리에 있고
+    // 화면은 loginFailureMessage(...)를 부른다 — 순서 계약은 그 호출 자리로 그대로 이어진다.
     expect(loginSource.indexOf("const accountStatusMessage =")).toBeLessThan(
-      loginSource.indexOf("로그인 중 문제가 발생했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요.")
+      loginSource.indexOf("loginFailureMessage({")
     );
   });
 

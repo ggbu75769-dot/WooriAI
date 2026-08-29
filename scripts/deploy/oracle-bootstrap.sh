@@ -145,7 +145,17 @@ AFFILIATE_ALLOWED_DOMAINS=coupang.com,link.coupang.com,naver.com,smartstore.nave
 AFFILIATE_DISCLOSURE_TEXT=이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
 INVITE_LINK_BASE_URL=https://${DOMAIN}
 TRUST_PROXY=1
+# 운영 스위치는 **끌 때도 값을 적는다**(check-env.ts의 WORKER_ENABLED 규율을 셋 모두에 적용).
+# 주석으로 비워 두면 "그 기능이 왜 안 도는가"를 이 파일에서 읽을 수 없다 — 아래 두 줄은
+# 기능을 켜는 것이 아니라 **오늘의 기본값을 명시**하는 것이다(값 변경 아님).
 WORKER_ENABLED=1
+# 제휴 링크 헬스체크(COM-105)는 워커에서 외부 네트워크로 나가는 잡이라 opt-in이다.
+# 꺼짐이 오늘의 운영 기본값이고, 어드민 대시보드가 그 상태를 정직하게 말한다.
+# 켜는 것은 별도 제품 결정(쿠팡/네이버 호출)이므로 여기서는 0을 명시만 한다.
+LINK_HEALTH_ENABLED=0
+# FCM 푸시 발송(PUSH-113)도 opt-in — FCM_SERVICE_ACCOUNT_PATH의 서비스 계정 JSON이 있어야
+# 실제 발송이다. 꺼짐이 정상이고 앱은 그 상태를 정직한 비활성으로 표시한다.
+PUSH_ENABLED=0
 ADMIN_SEED_EMAIL=${ADMIN_SEED_EMAIL:-admin@${DOMAIN}}
 ADMIN_SEED_PASSWORD=${ADMIN_SEED_PASSWORD_GEN}
 # 카카오 실연동 시 채우고 api 재기동 (docs/5차/day1-deploy-runbook.md):

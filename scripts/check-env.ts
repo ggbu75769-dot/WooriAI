@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 /**
  * 환경변수 게이트 (GAP-059 #6).
@@ -131,12 +131,31 @@ const OPTIONAL_SPECS: EnvSpec[] = [
   { key: "EXPO_PUBLIC_PUSH_ENABLED", scope: "mobile", note: "opt-in — 꺼짐이 정상(PUSH-113)" },
   { key: "EXPO_PUBLIC_TERMS_URL", scope: "mobile", note: "이용약관 호스팅 URL — 없으면 앱에 [보기] 링크가 생기지 않음(GAP-065 #5)" },
   { key: "EXPO_PUBLIC_PRIVACY_POLICY_URL", scope: "mobile", note: "개인정보처리방침 URL — Play 등록 URL과 같은 값(docs/store/play-listing.md)" },
+  // 라운드 73 트랙 A(#1ⓒ): 라운드 71 D가 넣은 두 키가 카탈로그에도 `.env.example`에도 없어서
+  // 양방향 드리프트 가드의 사각에 있었다(코드는 읽는데 어느 쪽에서도 보이지 않았다).
+  {
+    key: "EXPO_PUBLIC_SUPPORT_URL",
+    scope: "mobile",
+    note: "고객 지원 페이지 URL(SITE-113 infra/site/support.html) — 없으면 앱 안에 도움으로 가는 길이 0건"
+  },
+  {
+    key: "EXPO_PUBLIC_FAQ_URL",
+    scope: "mobile",
+    note: "자주 묻는 질문 페이지 URL(SITE-113 infra/site/faq.html) — 없으면 더보기·설정에 그 행이 서지 않음"
+  },
   { key: "NEXT_PUBLIC_API_BASE_URL", scope: "admin", note: "기본 /api/v1 (same-origin rewrite) — 교차 출처 호출 때만 설정" },
   { key: "ADMIN_API_PROXY_TARGET", scope: "admin", note: "기본 http://localhost:3000 (next.config.js rewrite 대상)" }
 ];
 
 // 빌드 프로파일·테스트 하네스만 주입하는 키. 코드가 읽지만 `.env`/.env.example의 관심사가
 // 아니므로 카탈로그에서 의도적으로 제외한다(드리프트 가드가 "누락"으로 오탐하지 않도록 명시).
+//
+// 라운드 73 트랙 A(#1ⓒ): 이 목록은 이제 **두 방향 모두**에 참여한다 — 종전의 `.env.example`
+// 방향(여기 적힌 키가 예시 파일에 있으면 "제거가 정답"이라고 안내)과, 새로 생긴 **소스 방향**
+// (앱이 읽는 EXPO_PUBLIC_* 중 카탈로그에 없는 키를 여기서 구제). 종전에는 `.env.example`
+// 방향에만 참여했기 때문에, 코드가 읽는데 카탈로그에도 예시 파일에도 없는 키는 어느 쪽에서도
+// 보이지 않았다(오늘 그 사각에 있던 EXPO_PUBLIC_SUPPORT_URL·EXPO_PUBLIC_FAQ_URL은 사각이
+// 아니라 카탈로그로 옮겼다 — 앱이 사용자에게 보여 주는 값이라 예시 파일의 관심사다).
 const INTENTIONALLY_UNCATALOGUED = [
   "EXPO_PUBLIC_TEST_LOGIN", // scripts/build-android-apk.ts standalone 프로파일
   "EXPO_PUBLIC_PIXEL_LOCK", // 픽셀락 캡처 빌드
@@ -282,6 +301,73 @@ if (existsSync(examplePath)) {
   console.warn(`[env] .env.example not found at ${examplePath} — drift guard skipped.`);
 }
 
+/* ---------------------------------------------------------------------------
+ * 3) 소스 → 카탈로그 방향 드리프트 가드 (라운드 73 트랙 A · GAP-073 #1ⓒ)
+ *
+ *    위 2)는 **카탈로그 ↔ `.env.example`** 양방향만 본다 — 소스는 한 번도 읽지 않았다.
+ *    그래서 "코드가 읽는데 카탈로그에도 예시 파일에도 없는 키"는 어느 쪽에서도 보이지 않았고,
+ *    오늘 그런 키가 둘 있었다(EXPO_PUBLIC_SUPPORT_URL · EXPO_PUBLIC_FAQ_URL — 라운드 71 D).
+ *    세 번째 방향은 그 사각을 닫는다: **앱이 읽는 `EXPO_PUBLIC_*` 전수**가 카탈로그 또는
+ *    INTENTIONALLY_UNCATALOGUED에 있어야 한다.
+ *
+ *    `EXPO_PUBLIC_*`만 보는 이유: babel-preset-expo가 번들 시점에 인라인하는 그 접두사만이
+ *    "빌드에 주입되지 않으면 앱이 조용히 다른 것을 한다"는 성질을 가진다(서버 키는 미주입이
+ *    부팅·요청 실패로 드러난다). 테스트 파일은 제외한다 — 여기서 묻는 것은 **앱이 읽는 키**이고,
+ *    테스트가 env를 넣었다 뺐다 하는 것은 앱의 동작이 아니다.
+ * ------------------------------------------------------------------------- */
+const MOBILE_SOURCE_ROOTS = ["apps/mobile/app", "apps/mobile/src"];
+// `process.env.EXPO_PUBLIC_*`(주석 안의 와일드카드 표기)는 뒤에 실제 키 문자가 없으므로 잡히지 않는다.
+const EXPO_PUBLIC_READ_PATTERN = /process\.env\.(EXPO_PUBLIC_[A-Z0-9_]+)/g;
+const knownKeys = new Set<string>([...catalogueKeys, ...INTENTIONALLY_UNCATALOGUED]);
+
+function collectSourceFiles(dir: string, collected: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      collectSourceFiles(path, collected);
+      continue;
+    }
+    if (!/\.tsx?$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) continue;
+    collected.push(path);
+  }
+  return collected;
+}
+
+const sourceRoots = MOBILE_SOURCE_ROOTS.map((relative) => resolve(process.cwd(), relative)).filter(existsSync);
+let sourceScanned: number | null = null;
+
+if (sourceRoots.length === MOBILE_SOURCE_ROOTS.length) {
+  const readKeys = new Map<string, string>(); // 키 → 처음 읽은 파일(진단용)
+  const files = sourceRoots.flatMap((root) => collectSourceFiles(root));
+
+  for (const file of files) {
+    const content = readFileSync(file, "utf8");
+    for (const match of content.matchAll(EXPO_PUBLIC_READ_PATTERN)) {
+      if (!readKeys.has(match[1])) readKeys.set(match[1], file);
+    }
+  }
+  sourceScanned = readKeys.size;
+
+  const uncatalogued = [...readKeys.keys()].filter((key) => !knownKeys.has(key)).sort();
+
+  if (uncatalogued.length > 0) {
+    errors.push(
+      [
+        `[env] 소스 드리프트 — 앱이 읽지만 카탈로그에 없는 키: ${uncatalogued.join(", ")}`,
+        ...uncatalogued.map((key) => `        - ${key} (읽는 자리: ${readKeys.get(key)})`),
+        "        → scripts/check-env.ts의 REQUIRED_SPECS/OPTIONAL_SPECS에 등록하고 .env.example에 값과 주석을 추가하거나,",
+        "          빌드 프로파일 전용 키라면 INTENTIONALLY_UNCATALOGUED에 이유와 함께 적으세요."
+      ].join("\n")
+    );
+  }
+} else {
+  // 예시 파일 가드와 같은 규율: 건너뛰되 조용히 넘어가지 않는다(배포 컨테이너에는 앱 소스가 없다).
+  console.warn(
+    `[env] apps/mobile 소스를 찾지 못해 EXPO_PUBLIC_* 소스 스캔을 건너뜁니다 (${MOBILE_SOURCE_ROOTS.join(", ")}).`
+  );
+}
+
 if (errors.length > 0) {
   for (const error of errors) {
     console.error(error);
@@ -295,5 +381,6 @@ const scopeLabel = scopes ? ` [scope: ${scopes.join(",")}]` : "";
 console.log(
   `[env] ${checkedRequired.length} required variables present in ${sourceName}${scopeLabel}; ` +
     `${OPTIONAL_SPECS.filter(inScope).length} optional keys catalogued; ` +
-    `.env.example drift guard ${driftChecked ? `OK (${catalogueKeys.length} keys)` : "skipped"}.`
+    `.env.example drift guard ${driftChecked ? `OK (${catalogueKeys.length} keys)` : "skipped"}; ` +
+    `source drift guard ${sourceScanned === null ? "skipped" : `OK (${sourceScanned} EXPO_PUBLIC_* keys read by apps/mobile)`}.`
 );
