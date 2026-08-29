@@ -378,8 +378,10 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
       // 기록 탭: 상단 CTA · 빈 상태 · 행 액션(또 기록 · 삭제).
       ["app/(tabs)/records.tsx", 'label="빠른 지출 기록" onPress={expenseGate.guard(() => router.push("/expenses/new"))}'],
       ["app/(tabs)/records.tsx", "if (expenseEntryLocked) {"],
-      // 리포트 탭 빈 상태.
-      ["app/(tabs)/reports.tsx", 'onPress={expenseGate.guard(() => router.push("/expenses/new"))}'],
+      // 리포트 탭 빈 상태. GAP-072 트랙 C(#3) 이후 이 카드의 onPress는 갈래가 둘이라(끝난 기간은
+      // 화면 이동이고 지출 생성이 아니다) `onPress={…}` 한 줄이 아니지만, **지출 생성 갈래**는
+      // 종전과 같은 게이트 표현 그대로다.
+      ["app/(tabs)/reports.tsx", 'expenseGate.guard(() => router.push("/expenses/new"))'],
       // 준비템 목록의 "지출도 기록할까요?" · 상세의 "이미 샀어요" / "지출 기록하고 준비 완료".
       ["app/(tabs)/items.tsx", "const openExpenseLinkPrompt = expenseGate.guard("],
       ["app/items/[itemTemplateId].tsx", "onPress={expenseGate.guard(() =>"],
@@ -561,8 +563,11 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     // 그 아래에 달력 보기 여부가 한 줄 더 붙었을 뿐, 잠금 갈래는 종전 그대로 순수 모듈이 고른다).
     expect(source("app/(tabs)/records.tsx")).toContain("const emptyMonthState = buildRecordsEmptyMonthState({");
     expect(source("app/(tabs)/records.tsx")).toContain("    expenseEntryLocked,\n");
-    // 리포트 탭: 카테고리 빈 상태 제목.
-    expect(source("app/(tabs)/reports.tsx")).toContain("expenseGate.locked\n                      ? EXPENSE_VIEW_ONLY_EMPTY_TITLE");
+    // 리포트 탭: 카테고리 빈 상태 제목. GAP-072 트랙 C(#3) 이후 이 갈래도 기록 탭과 **같은
+    // 모양**이다 — 화면이 제목을 고르지 않고 순수 모듈에 잠금 판정을 넘긴다(그 모듈은 문장을
+    // 다시 짓지 않고 buildRecordsEmptyMonthState를 그대로 부른다 = 저장소에 문장 한 벌).
+    expect(source("app/(tabs)/reports.tsx")).toContain("const emptyPeriodCard = buildReportEmptyPeriodCard({");
+    expect(source("app/(tabs)/reports.tsx")).toContain("    expenseEntryLocked: expenseGate.locked\n");
     // 문구는 한 곳에서만 정의된다 -- 화면들이 각자 적으면 갈라진다.
     for (const screen of ["app/(tabs)/index.tsx", "app/(tabs)/records.tsx", "app/(tabs)/reports.tsx"]) {
       expect(source(screen), screen).not.toContain(`"${EXPENSE_VIEW_ONLY_EMPTY_TITLE}"`);

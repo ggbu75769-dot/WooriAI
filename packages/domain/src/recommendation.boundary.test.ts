@@ -28,9 +28,7 @@ function makeRandomItem(rand: () => number, id: string): RecommendationItem {
     id,
     stageMatches: rand() < 0.5,
     necessityLevel: NECESSITY_LEVELS[randomInt(0, NECESSITY_LEVELS.length - 1)],
-    status: ITEM_STATUSES[randomInt(0, ITEM_STATUSES.length - 1)],
-    budgetFits: rand() < 0.5,
-    userInterest: rand() < 0.5
+    status: ITEM_STATUSES[randomInt(0, ITEM_STATUSES.length - 1)]
   };
 }
 
@@ -44,29 +42,30 @@ function shuffle<T>(items: T[], rand: () => number): T[] {
 }
 
 describe("추천 점수 경계", () => {
-  it("최대 점수는 100, 최소 점수는 10이다", () => {
+  /**
+   * GAP-072 트랙 D: 범위가 100~10에서 **90~10**으로 좁아졌다 — 전 항목에 똑같이 붙던
+   * `budgetFits` 10점이 입력에서 빠졌기 때문이다(모든 항목에서 같은 상수가 빠지므로
+   * **순서는 한 칸도 바뀌지 않는다**). 최고점은 이제 "지금 시기 · 필수 · 찜"이다.
+   */
+  it("최대 점수는 90, 최소 점수는 10이다", () => {
     expect(
       calculateRecommendationScore({
         stageMatches: true,
         necessityLevel: "essential",
-        status: "not_prepared",
-        budgetFits: true,
-        userInterest: true
+        status: "interested"
       })
-    ).toBe(100);
+    ).toBe(90);
 
     expect(
       calculateRecommendationScore({
         stageMatches: false,
         necessityLevel: "optional",
-        status: "prepared",
-        budgetFits: false,
-        userInterest: false
+        status: "prepared"
       })
     ).toBe(10);
   });
 
-  it("budgetFits·userInterest 미지정(undefined)은 false와 동일하게 처리한다", () => {
+  it("affiliateCommissionRate 미지정(undefined)은 0과 동일하게 처리한다 — 어차피 읽지 않는다", () => {
     const base = {
       stageMatches: true,
       necessityLevel: "essential",
@@ -74,9 +73,28 @@ describe("추천 점수 경계", () => {
     } as const;
 
     expect(calculateRecommendationScore(base)).toBe(
-      calculateRecommendationScore({ ...base, budgetFits: false, userInterest: false })
+      calculateRecommendationScore({ ...base, affiliateCommissionRate: 0 })
     );
-    expect(calculateRecommendationScore(base)).toBe(80);
+    expect(calculateRecommendationScore(base)).toBe(90);
+  });
+
+  /**
+   * GAP-072 트랙 D: 찜↔미준비의 **방향**을 상태 전수로 고정한다. 라운드 72 이전에는
+   * `interested 15 + userInterest 5 = not_prepared 20`으로 정확히 동점이었고, 그래서
+   * 사용자가 준 유일한 개인화 신호가 순서에 도달하지 못했다.
+   */
+  it("목록에 남는 두 상태의 점수 차이는 5이고, 찜이 위다", () => {
+    const base = { stageMatches: true, necessityLevel: "convenience" } as const;
+    const interested = calculateRecommendationScore({ ...base, status: "interested" });
+    const notPrepared = calculateRecommendationScore({ ...base, status: "not_prepared" });
+
+    expect(interested - notPrepared).toBe(5);
+    expect(interested).toBeGreaterThan(notPrepared);
+
+    // 정리된 세 상태는 0점으로 동일하다(목록에서 빠지므로 서로 견줄 일이 없다).
+    for (const status of ["prepared", "gifted", "not_needed"] as ItemStatus[]) {
+      expect(calculateRecommendationScore({ ...base, status })).toBe(notPrepared - 20);
+    }
   });
 
   it("[속성] DNC-009: 임의 수수료율 100건(0·음수·거대값·소수 포함)이 점수에 영향 없음", () => {

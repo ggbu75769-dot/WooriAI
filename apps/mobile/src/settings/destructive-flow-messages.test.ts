@@ -352,11 +352,27 @@ describe("라운드 71 B(#2) SET-004 배선 (source contract)", () => {
     expect(privacySource).not.toContain("동의를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
   });
 
-  it("연결 판정은 실패로 전환되는 순간 폴 한 번이고, 늦게 도착한 결과를 버린다", () => {
-    expect(privacySource).toContain('import { isCurrentlyOnline } from "../../src/offline/connectivity";');
-    expect(privacySource).toContain("void isCurrentlyOnline().then((online) => {");
-    expect(privacySource).toContain("if (!cancelled) setIsOnline(online);");
-    expect(privacySource).toContain("cancelled = true;");
+  /**
+   * 라운드 72 리뷰 M-2 — **그 폴은 이제 이 화면에 적혀 있지 않다.**
+   *
+   * 종전에는 이 화면이 `useState` + `isCurrentlyOnline().then((online) => {…})` + cancelled
+   * 가드를 손으로 들고 있었고, 이 계약이 그 세 줄을 글자로 붙들었다. 라운드 72 트랙 E가 같은
+   * 배선을 `useErrorTimeConnectivity` 한 벌로 모을 때 이 자리가 빠진 이유는 스윕이
+   * `.then(set…)` 한 형태만 봤기 때문이다(리뷰 M-2가 그 그물을 호출 자리 단위로 넓혔다).
+   *
+   * 그래서 이 계약이 붙드는 것도 옮긴다: **폴의 모양**이 아니라 **그 한 벌을 부르는가**다.
+   * 가드·복원의 사실 자체는 공용 훅 쪽 계약이 진다(`src/shared-decision-wiring.test.ts` ⓐ-1).
+   */
+  it("연결 판정은 공용 배선 한 벌에서 오고, 이 화면에 사본이 없다", () => {
+    expect(privacySource).toContain(
+      'import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";'
+    );
+    expect(privacySource).toContain("const isOnline = useErrorTimeConnectivity(isError && !isDemoSession);");
+    // 재구현이 남지 않는다 — 폴도 가드도 이 화면의 **코드**에 없다(옛 배선을 이력으로 인용하는
+    // 주석과, 그 배선을 실제로 적는 코드는 다르다).
+    const privacyCode = privacySource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+    expect(privacyCode).not.toContain("isCurrentlyOnline");
+    expect(privacyCode).not.toContain("let cancelled = false;");
     // 새 폴러·새 타이머 0건 — 조회/저장 실패 훅과 같은 point-in-time 폴이다.
     expect(privacySource).not.toContain("setInterval");
     expect(privacySource).not.toContain("startConnectivityWatcher");
@@ -374,7 +390,10 @@ describe("라운드 71 B(#2) SET-004 배선 (source contract)", () => {
     expect(privacySource).toContain(
       "const isDemoSession = useSessionStore((state) => !state.accessToken && state.isTestSession);"
     );
-    expect(privacySource).toContain("if (!isError || isDemoSession) {");
+    // 라운드 72 리뷰 M-2: 그 갈래는 이제 공용 훅에 넘기는 **인자 하나**다(동치 — 데모 세션이면
+    // 폴을 돌리지 않고 판정이 true로 남는다). 종전의 `if (!isError || isDemoSession) {` 가드가
+    // 하던 일과 같고, 문구를 고르는 자리도 그대로다.
+    expect(privacySource).toContain("const isOnline = useErrorTimeConnectivity(isError && !isDemoSession);");
     expect(privacySource).toContain("destructiveFlowErrorMessage(kind, error, { isOnline: isDemoSession || isOnline });");
     // 그때 서는 문장은 종전 그대로다 — 데모 거울이 던지는 평문 Error에는 코드가 없어 모르는
     // 실패 갈래로 떨어지고, 그 값은 화면의 옛 리터럴과 바이트 단위로 같다.

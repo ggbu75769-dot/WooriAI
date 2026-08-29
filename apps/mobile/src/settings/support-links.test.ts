@@ -134,6 +134,28 @@ describe("지원 · FAQ 링크 (env가 있을 때만 행이 선다)", () => {
     }
     expect(SUPPORT_LINK_FAILED_MESSAGE.endsWith("요.")).toBe(true);
   });
+
+  /**
+   * 라운드 72 리뷰 M-1 — **재시도를 권하지 않고, 원인도 단정하지 않는다.**
+   *
+   * 이 알림이 뜨는 경우는 `openExternalUrl` 한 벌이 아는 둘뿐이고(열 수 있는지 물었을 때
+   * false · 여는 호출이 던짐) 둘 다 기다려서 풀리지 않는다. 그리고 둘이 같은 `catch`로 들어오므로
+   * 원인을 이름으로 부르면 한쪽에는 틀린 사실이 된다. 네 자리 전부의 스윕은
+   * `src/shared-decision-wiring.test.ts` ⓐ-2에 있고, 여기서는 이 화면 몫을 값으로 못박는다.
+   */
+  it("링크 실패 문구에 '다시 시도'도, 원인 단정도 없다", () => {
+    for (const copy of [SUPPORT_LINK_FAILED_TITLE, SUPPORT_LINK_FAILED_MESSAGE]) {
+      expect(copy).not.toContain("다시 시도");
+      expect(copy).not.toContain("잠시 후");
+      expect(copy).not.toMatch(/확인하세요|확인해 주세요|하십시오|오류|에러|error/i);
+      expect(copy, "앱이 알 수 없는 원인").not.toContain("브라우저");
+      expect(copy).toMatch(/요$|요\.$/);
+    }
+    // 종전 문장은 저장소 어디에도 남지 않는다.
+    expect(source("src/settings/support-links.ts")).not.toMatch(
+      /=\s*"잠시 후 다시 시도해 주세요\."/
+    );
+  });
 });
 
 /**

@@ -106,8 +106,20 @@ export function matchesTab(item: RankableItem, context: ItemRankingContext): boo
 
 /**
  * 탭에 담기는 항목을 화면 순서대로 돌려준다.
- * - now/soon: 추천 점수(도메인 sortRecommendedItems) → 동점이면 displayOrder.
+ * - now/soon: 추천 점수(도메인 sortRecommendedItems) → **동점은 도메인이 `id.localeCompare`로
+ *   가른다.**
  * - 그 외 탭: displayOrder만(카탈로그 편집 순서 그대로).
+ *
+ * ⚠️ 라운드 72 리뷰 P-1 정정: 종전 이 줄은 "동점이면 displayOrder"라고 적었는데 **도달할 수 없는
+ * 설명**이었다. 아래 비교자의 `left.displayOrder - right.displayOrder`는 `rankById`가 항목마다
+ * **유일한 인덱스**를 주기 때문에 앞의 `leftIndex - rightIndex`가 0이 되는 경우가 없어 영영
+ * 실행되지 않는다. 실제 동점 파괴자는 도메인 `sortRecommendedItems`의 `id.localeCompare`다
+ * (packages/domain/src/recommendation.ts). 그래서 **displayOrder는 순서에 닿지 않는다** —
+ * 같은 입력이면 이 함수의 결과 id 배열이 도메인 정렬의 그것과 같다
+ * (파생 단언: apps/mobile/src/api/recommendation-order-mirror.test.ts).
+ *
+ * 코드를 지우지 않고 주석만 고치는 이유: 이 트랙의 범위는 문서 정정이고, 그 한 줄은 `rankById`가
+ * 유일 인덱스라는 **위쪽 배선에 의존하는** 안전망이다(그 전제가 바뀌면 그때 함께 판단할 것).
  *
  * 입력 배열은 변형하지 않는다.
  */
@@ -118,6 +130,13 @@ export function rankItemsForTab<T extends RankableItem>(items: readonly T[], con
     return [...candidates].sort((left, right) => left.displayOrder - right.displayOrder);
   }
 
+  // GAP-072 트랙 D: 예전에는 여기서 `budgetFits: true`(전 항목 동일 상수 → 순서 기여 0)와
+  // `userInterest: item.status === "interested"`(status의 파생 사본 → 상태 점수와 정확히
+  // 상쇄)를 함께 넘겼다. 둘 다 도메인 입력에서 사라졌고, 찜 신호는 `status` 한 곳으로
+  // 모였다(packages/domain/src/recommendation.ts의 머리말이 그 판정과 방향을 적어 둔다).
+  // ⚠️ 데모 거울(apps/mobile/src/api/local-backend.ts listItems)이 **같은 점수 입력 셋**
+  // (stageMatches · necessityLevel · status)을 넘긴다 —
+  // 한쪽만 늘리면 데모와 실세션의 목록 순서가 갈린다(계약이 두 소스의 키 집합을 맞대 본다).
   const sorted = sortRecommendedItems(
     candidates.map((item) => ({
       id: item.id,
@@ -126,8 +145,6 @@ export function rankItemsForTab<T extends RankableItem>(items: readonly T[], con
       stageMatches: item.stageCodes.includes(context.stageCode),
       necessityLevel: item.necessityLevel,
       status: item.status,
-      budgetFits: true,
-      userInterest: item.status === "interested",
       displayOrder: item.displayOrder
     }))
   );

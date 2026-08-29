@@ -198,14 +198,13 @@ describe("PreparationListParity source contract", () => {
     expect(source).toContain("height: 5");
   });
 
-  it("keeps 해요체 copy and the 누락 신고 escape hatch", () => {
+  it("keeps 해요체 copy on every branch the caller can actually reach", () => {
     for (const copy of [
       "나의 준비 진행률",
       "아직 준비 상태를 정한 품목이 없어요",
       "품목명·별칭·분류 검색",
       "검색 결과가 없어요.",
-      "5개 이상 확인된 준비 품목 그룹이 없어요.",
-      "누락 신고하기"
+      "5개 이상 확인된 준비 품목 그룹이 없어요."
     ]) {
       expect(source).toContain(copy);
     }
@@ -229,14 +228,58 @@ describe("PreparationListParity source contract", () => {
       "auxiliaryFilters?: ReactNode;",
       "notices?: ReactNode;",
       "emptyState?: ReactNode;",
-      "renderItemFooter?: (item: PreparationParityItem) => ReactNode;",
-      "onMissingReport?: () => void;"
+      "renderItemFooter?: (item: PreparationParityItem) => ReactNode;"
     ]) {
       expect(source, slot).toContain(slot);
     }
     // 히어로 수치를 넘기면 그 값만 그린다 -- 컴포넌트가 다시 세지 않는다.
     expect(source).toContain("const totalCount = progress ? progress.totalCount : trackedItems.length;");
     expect(source).toContain("const completedCount = progress ? progress.completedCount : completedItems.length;");
+  });
+
+  /**
+   * 라운드 72 트랙 E(#5ⓒ) — **죽은 프롭 셋을 걷었다.**
+   *
+   * 이식본이 들고 있던 `loading` · `error`(그리고 그 가지만 쓰던 `onRetry`) · `onMissingReport`는
+   * 이 저장소의 **유일한 호출부**(`app/(tabs)/items.tsx`)가 하나도 넘기지 않았다 — 즉 그 프롭들이
+   * 여는 네 가지(로딩 카드 · 조회 실패 카드 · 검색 0건의 신고 갈래 · "누락 신고하기" 줄)는 한 번도
+   * 렌더된 적이 없다. 걷어도 **화면은 한 픽셀도 바뀌지 않는다**는 것이 이 조각의 안전 근거이고,
+   * 아래 두 단언이 그 사실을 양쪽에서 고정한다(선언에 없다 ∧ 호출부가 넘기지 않는다).
+   */
+  it("죽은 프롭 넷은 선언에도 호출부에도 없다", () => {
+    const items = readSource("app/(tabs)/items.tsx");
+    const parityTag = items.slice(items.indexOf("<PreparationListParity"), items.indexOf("\n      />", items.indexOf("<PreparationListParity")));
+    expect(parityTag.length, "호출부 태그를 찾지 못했다").toBeGreaterThan(0);
+    for (const prop of ["loading", "error", "onRetry", "onMissingReport"]) {
+      expect(source, `선언에 남은 죽은 프롭: ${prop}`).not.toMatch(new RegExp(`\\n  ${prop}[?:,]`));
+      expect(parityTag, `호출부가 다시 넘기는 프롭: ${prop}`).not.toContain(`${prop}=`);
+    }
+    // 그 프롭들이 열던 문장은 함께 사라졌다(도달 불가였으므로 렌더는 그대로다).
+    for (const deadCopy of [
+      "준비 품목을 불러오고 있어요.",
+      "준비 품목을 불러오지 못했어요.",
+      "없는 품목 신고",
+      "누락 신고하기"
+    ]) {
+      expect(source, `죽은 가지의 문장: ${deadCopy}`).not.toContain(deadCopy);
+    }
+  });
+
+  /**
+   * ⚠️ DSN-053 이식본의 **살아 있는 가지는 승인 디자인**이다 — 렌더가 바뀌면 그것은 디자인 변경
+   * 승인이 먼저인 일이다. 그래서 죽은 가지를 걷은 뒤에도 실제로 서는 조각들이 **글자 그대로**
+   * 남아 있는지 본다(조건 사슬의 첫 갈래가 검색으로 당겨진 것만이 이번 변화다).
+   */
+  it("살아 있는 가지의 렌더는 글자 그대로다", () => {
+    expect(source).toContain("{activeSearchQuery ? (");
+    expect(source).toContain('<EmptyStateCard actionLabel="검색 지우기" onPress={onClearSearch} title="검색 결과가 없어요." />');
+    expect(source).toContain('emptyState ?? <EmptyStateCard actionLabel="준비 홈" onPress={onBack} title="5개 이상 확인된 준비 품목 그룹이 없어요." />');
+    expect(source).toContain("<ItemGrid columns={columns} items={displayedItems.slice(0, searchLimit)} onItemPress={onItemPress} renderItemFooter={renderItemFooter} />");
+    expect(source).toContain("<ItemGrid columns={columns} items={visibleGroupItems} onItemPress={onItemPress} renderItemFooter={renderItemFooter} />");
+    expect(source).toContain("<ItemGrid columns={columns} items={visibleBandItems} onItemPress={onItemPress} renderItemFooter={renderItemFooter} />");
+    expect(source).toContain('<TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비 목록" trailing={topBarTrailing} />');
+    // 남은 EmptyStateCard는 검색 0건과 그룹 0건 폴백 **둘뿐**이다(죽은 둘이 사라졌다).
+    expect(source.match(/<EmptyStateCard\b/g) ?? []).toHaveLength(2);
   });
 });
 

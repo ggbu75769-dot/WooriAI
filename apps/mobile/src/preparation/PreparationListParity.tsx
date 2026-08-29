@@ -186,16 +186,29 @@ function ItemGrid({
   );
 }
 
+/**
+ * 라운드 72 트랙 E — **죽은 프롭 셋을 걷었다.**
+ *
+ * 이식본에는 `loading` · `error`(+ 그 가지가 쓰던 `onRetry`) · `onMissingReport`가 남아 있었는데
+ * 이 저장소의 **유일한 호출부**(`app/(tabs)/items.tsx`)는 그중 무엇도 넘기지 않았다. 즉 그 넷이
+ * 여는 네 가지 — 로딩 카드 · 조회 실패 카드 · 검색 0건의 신고 갈래 · 목록 아래 누락 신고 줄 —
+ * 은 **한 번도 렌더된 적이 없다**. 라운드 71 E가 그중 가짜 버튼 하나에 `onPress`를 달아 준 것도
+ * 그 죽은 가지 안에서였다.
+ *
+ * 걷어도 화면은 **한 픽셀도 바뀌지 않는다**(호출부 0건이므로 도달 불가였다). 조회 로딩·실패는
+ * 이 컴포넌트 밖 화면이 이미 자기 방식으로 말하고 있고(준비템 탭의 스켈레톤·조회 실패 카드),
+ * 다시 시도는 화면의 당겨서 새로고침이 지고 있다.
+ *
+ * ⚠️ 살아 있는 가지는 전부 그대로다 — 진행률 히어로 · 세그먼트 · 검색 · 분류 섹션 · 시기 밴드 ·
+ * 검색 0건("검색 지우기") · 그룹 0건 폴백. DSN-053 이식본이라 그 렌더는 **승인 디자인**이고,
+ * 바꾸려면 디자인 변경 승인이 먼저다.
+ */
 export function PreparationListParity({
   items,
   selectedContextKey,
   selectedContextName,
-  loading = false,
-  error = false,
   onBack,
-  onRetry,
   onItemPress,
-  onMissingReport,
   onSearch,
   activeSearchQuery = "",
   onClearSearch = () => undefined,
@@ -212,13 +225,8 @@ export function PreparationListParity({
   items: PreparationParityItem[];
   selectedContextKey: string | null;
   selectedContextName: string;
-  loading?: boolean;
-  error?: boolean;
   onBack: () => void;
-  onRetry: () => void;
   onItemPress: (item: PreparationParityItem) => void;
-  /** 없으면 "누락 신고" 줄과 검색 빈 화면의 신고 버튼을 그리지 않는다(죽은 버튼 금지). */
-  onMissingReport?: () => void;
   onSearch: (query: string) => void;
   activeSearchQuery?: string;
   onClearSearch?: () => void;
@@ -415,11 +423,7 @@ export function PreparationListParity({
 
       {notices}
 
-      {loading ? (
-        <EmptyStateCard actionLabel="잠시만요" title="준비 품목을 불러오고 있어요." />
-      ) : error ? (
-        <EmptyStateCard actionLabel="다시 시도" onPress={onRetry} title="준비 품목을 불러오지 못했어요." />
-      ) : activeSearchQuery ? (
+      {activeSearchQuery ? (
         <View style={{ gap: 12 }}>
           <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
             <Text accessibilityLiveRegion="polite" style={{ color: semanticColors.textPrimary, flex: 1, fontSize: 14, fontWeight: "800" }}>
@@ -443,8 +447,6 @@ export function PreparationListParity({
                 </Pressable>
               ) : null}
             </>
-          ) : onMissingReport ? (
-            <EmptyStateCard actionLabel="없는 품목 신고" onPress={onMissingReport} title="검색 결과가 없어요." />
           ) : (
             <EmptyStateCard actionLabel="검색 지우기" onPress={onClearSearch} title="검색 결과가 없어요." />
           )}
@@ -549,13 +551,6 @@ export function PreparationListParity({
           })}
         </View>
       )}
-
-      {/* 신고를 받을 곳이 있을 때만 그린다 -- 눌러도 아무 일도 일어나지 않는 줄은 두지 않는다. */}
-      {onMissingReport ? (
-        <Pressable accessibilityRole="button" onPress={onMissingReport} style={({ pressed }) => ({ alignItems: "center", justifyContent: "center", minHeight: 48, opacity: pressed ? 0.76 : 1 })}>
-          <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>찾는 품목이 없나요? <Text style={{ color: semanticColors.actionPrimary, fontWeight: "800" }}>누락 신고하기</Text></Text>
-        </Pressable>
-      ) : null}
 
     </View>
   );

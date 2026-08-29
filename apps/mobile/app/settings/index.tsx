@@ -27,7 +27,9 @@ import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/h
 // GAP-061 #10: 예정일이 유예를 넘긴 임신 프로필의 "임신 42주차" 고착을 표시층에서만 걷어낸다.
 import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 // 라운드 68 트랙 B(#2): 로그아웃 확인 문구는 동기화 문구의 단일 소스에서 온다(화면이 다시 적지 않는다).
-import { logoutConfirmMessage, LOGOUT_CONFIRM_TITLE } from "../../src/offline/messages";
+import { logoutConfirmMessage, LOGOUT_CONFIRM_TITLE, OFFLINE_LOAD_NOTICE } from "../../src/offline/messages";
+// 라운드 72 트랙 B(GAP-072 #2): 요약 줄이 받는 것은 **연결 판정 하나**다(문구는 아래 참고).
+import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { APP_LOCK_TITLE } from "../../src/security/app-lock";
 // 라운드 71 트랙 D(#4): 도움(지원·FAQ) 행의 목록·라벨은 더보기 탭과 **같은 표**에서 온다
 // (buildSupportMenuRows). 주입된 URL이 없으면 빈 배열이라 이 화면은 종전과 한 글자도 다르지 않다.
@@ -47,6 +49,25 @@ import { AppScreen, Card, ListRow, ScreenHeader } from "../../src/ui";
 
 const summaryLoadingText = "불러오는 중...";
 const summaryUnavailableText = "불러오지 못했어요";
+/**
+ * 라운드 72 트랙 B(GAP-072 #2) — 요약 줄의 **오프라인 갈래**.
+ *
+ * ## 이 자리가 목록의 카드 계약 밖인 이유
+ *
+ * 다른 화면들은 조회 실패를 [다시 시도]가 달린 카드로 말하지만, 여기는 요약 카드 오른쪽의 값
+ * 한 줄이다(라벨 "현재 가구" · 값 "가족 3명"). 그래서 `LoadErrorCopy.title`을 그대로 실을 수
+ * 없다: 두 문장짜리 공용 문구는 이 폭에서 줄이 접혀 레이아웃을 바꾸고, 뒷문장이 가리키는
+ * "다시 시도"라는 행동이 이 자리에는 아예 없다(눌러서 다시 부를 버튼이 없다).
+ *
+ * 그래서 이 화면이 공용 훅에서 받는 것은 **연결 판정 하나**이고, 문구는 같은 단일 소스 문장의
+ * 앞 문장을 잘라 쓴다 — 새 문구가 0건이라는 규율은 그대로 지키면서 길이는 종전 값
+ * ("불러오지 못했어요")과 같은 급으로 남는다. 이 사실은 값으로도 적혀 있다
+ * (src/offline/offline-aware-screens.ts의 `OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS`) —
+ * 다음 라운드가 이 자리를 "아직 배선 안 된 옛 리터럴"로 다시 세지 않게 하기 위해서다.
+ *
+ * 온라인 갈래는 종전 문자열 그대로다(위 `summaryUnavailableText`, 바이트 불변).
+ */
+const summaryOfflineText = OFFLINE_LOAD_NOTICE.slice(0, OFFLINE_LOAD_NOTICE.indexOf(".") + 1);
 // 리뷰 F7: 로그아웃해도 selectedChildId는 기기에 남는다(clearSelectedChild를 부르지 않는 경로 존재).
 // 그 상태에서는 ["children"] 쿼리가 enabled:false라 영원히 로딩도, 실패도 아니므로 요약 줄이
 // "불러오는 중..."에 붙박인다 -- 세션이 없다는 사실을 그대로 말한다.
@@ -117,6 +138,19 @@ export default function SettingsScreen() {
     queryFn: () => listHouseholdMembers(authToken!, householdId!)
   });
 
+  /**
+   * 라운드 72 트랙 B — 두 요약 줄이 **한 판정**을 나눠 쓴다.
+   *
+   * 두 조회(아이 목록 · 구성원)는 오프라인에서 함께 실패하고, 사용자가 읽는 것은 같은 카드의
+   * 두 줄이라 판정도 하나면 된다(아이 관리 화면의 저장 실패 셋이 자기 뮤테이션을 각각 묻는 것과
+   * 반대 방향인데, 그 자리는 카드가 서로 다른 상태로 **동시에** 뜰 수 있었고 여기는 한 카드다).
+   * 훅은 에러로 전환되는 순간에만 폴을 한 번 띄우고, 그 결과를 버릴 줄도 안다 —
+   * 이 화면이 `isCurrentlyOnline`을 손으로 다시 적지 않는 이유다.
+   */
+  const loadErrorCopy = useLoadErrorCopy(children.isError || members.isError);
+  // 오프라인으로 **확인된** 경우에만 갈린다(판정 전 첫 프레임·web은 온라인 갈래 = 종전 문자열).
+  const summaryErrorText = loadErrorCopy.title === OFFLINE_LOAD_NOTICE ? summaryOfflineText : summaryUnavailableText;
+
   const householdSummary = !authToken
     ? summarySignedOutText
     : // 계정에 가구가 없다는 사실은 **세션이 아는 기본 가구**로 판정한다 -- 아이 목록을 아직
@@ -126,7 +160,7 @@ export default function SettingsScreen() {
       : members.data
         ? `가족 ${members.data.members.length}명`
         : members.isError
-          ? summaryUnavailableText
+          ? summaryErrorText
           : summaryLoadingText;
   const selectedChild = children.data?.children.find((child) => child.id === childId);
   const childSummary = !authToken
@@ -141,7 +175,7 @@ export default function SettingsScreen() {
             stageLabel: selectedChild.stageLabel
           })}`
         : children.isError
-          ? summaryUnavailableText
+          ? summaryErrorText
           : summaryLoadingText;
   // ANA-102: opt-in analytics consent -- backed by the persisted zustand store that gates the
   // entire analytics client (src/analytics/flag.ts), so flipping this off immediately stops any

@@ -1290,14 +1290,17 @@ export function listItems(
     return status === "not_prepared" || status === "interested";
   });
 
+  // GAP-072 트랙 D: 실서버 랭킹(apps/api/src/onboarding/item-ranking.ts rankItemsForTab)과
+  // **같은 점수 입력 셋**을 넘긴다 — 예전에는 양쪽이 함께 `budgetFits: true`(전 항목 동일
+  // 상수라 순서 기여 0)와 `userInterest`(status의 파생 사본이라 상태 점수와 상쇄)를 넘겼고,
+  // 둘 다 도메인 입력에서 사라졌다. 찜 신호는 이제 `status` 하나에서만 나온다.
+  // ⚠️ 한쪽만 늘리면 데모와 실세션의 "지금 필요" 순서가 갈린다(계약이 두 소스를 맞대 본다).
   const sorted = sortRecommendedItems(
     candidates.map((item) => ({
       id: item.id,
       stageMatches: item.stageCodes.includes(stageCode),
       necessityLevel: item.necessityLevel,
-      status: itemStatusFor(item.id),
-      budgetFits: true,
-      userInterest: itemStatusFor(item.id) === "interested"
+      status: itemStatusFor(item.id)
     }))
   );
 

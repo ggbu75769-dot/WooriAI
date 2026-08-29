@@ -20,6 +20,9 @@ import {
   getCurrentDevicePlatform,
   usePushRegistrationStore
 } from "../../src/notifications/usePushDeviceRegistration";
+// 라운드 72 트랙 B: 오프라인 갈래인지 묻는 값 하나만 읽는다(문구를 이 화면이 다시 짓지 않는다).
+import { OFFLINE_LOAD_NOTICE } from "../../src/offline/messages";
+import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
@@ -120,6 +123,23 @@ export default function NotificationSettingsScreen() {
 
   const masterToggleValue = pushSupported && (currentDevice?.notificationEnabled ?? false);
   const masterToggleDisabled = !pushSupported || !hasSession || toggleCurrentDevice.isPending;
+
+  /**
+   * 라운드 72 트랙 B(GAP-072 #2) — 기기 목록 조회 실패 문구가 공용 단일 소스로 들어온다.
+   *
+   * 종전 문장("기기 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.")은 오프라인에서
+   * 기다릴 대상이 없는 실패에까지 기다림을 권했다. 판정·문구는 조회 실패 카드와 같은 한 벌이고
+   * (useLoadErrorCopy), 이 화면이 더하는 것은 **주어 한 조각**뿐이다.
+   *
+   * 접두를 오프라인 갈래에는 붙이지 않는다: "기기 목록을 지금은 오프라인이에요…"는 문장이
+   * 아니고, 오프라인이라는 사실은 이 목록만의 사실도 아니다(화면 전체가 같은 상태다).
+   * 온라인 갈래는 접두 + 공용 문장이라 종전 문자열과 **바이트 단위로 같다**.
+   */
+  const devicesLoadErrorCopy = useLoadErrorCopy(devices.isError);
+  const devicesLoadErrorText =
+    devicesLoadErrorCopy.title === OFFLINE_LOAD_NOTICE
+      ? devicesLoadErrorCopy.title
+      : `기기 목록을 ${devicesLoadErrorCopy.title}`;
 
   return (
     <AppScreen>
@@ -224,8 +244,8 @@ export default function NotificationSettingsScreen() {
 
             {devices.isError ? (
               <Card style={{ gap: 10 }}>
-                <Text style={errorTextStyle}>기기 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.</Text>
-                <SecondaryButton label="다시 시도" onPress={() => devices.refetch()} />
+                <Text style={errorTextStyle}>{devicesLoadErrorText}</Text>
+                <SecondaryButton label={devicesLoadErrorCopy.actionLabel} onPress={() => devices.refetch()} />
               </Card>
             ) : null}
 
