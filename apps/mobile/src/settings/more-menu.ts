@@ -36,6 +36,9 @@ import type { Ionicons } from "@expo/vector-icons";
 // 내보내기 제목만 주입받는 이유는 그 단일 소스가 화면 컴포넌트 파일이기 때문이고, 앱 잠금 문구는
 // 순수 모듈이라 여기서 곧장 읽어도 이 모듈이 vitest에서 그대로 돈다.
 import { APP_LOCK_LOCK_NOW_A11Y_LABEL, APP_LOCK_LOCK_NOW_LABEL } from "../security/app-lock";
+// 라운드 71 트랙 D(#4): 지원·FAQ 행의 **존재 여부**(주입된 URL)와 라벨은 그 순수 모듈이 정한다.
+// 이 파일은 여전히 vitest에서 도는 순수 모듈이다(support-links.ts도 react-native를 모른다).
+import { SUPPORT_LINK_LABELS, supportLinkUrls, type SupportLinkKind } from "./support-links";
 
 /** 세션 메뉴 행의 식별자 — 테스트와 화면이 순서/구성을 말할 때 쓰는 안정된 이름이다. */
 export type MoreMenuRowId =
@@ -45,6 +48,8 @@ export type MoreMenuRowId =
   | "notifications"
   | "settings"
   | "lockNow"
+  | "faq"
+  | "support"
   | "export"
   | "appInfo";
 
@@ -90,7 +95,62 @@ export type MoreMenuRowSpec = {
    * `null`이고, 그 행의 동작은 화면이 id로 붙인다 — 라우팅이 아닌 동작을 이 모듈이 알 필요가 없다.
    */
   route: string | null;
+  /**
+   * 라운드 71 트랙 D(#4): **앱 밖 브라우저**로 여는 주소(지원·FAQ 행). 앱 안 라우트가 아니므로
+   * `route`는 null이고, 화면은 이 값이 있으면 `Linking.openURL` 하나로 연다(인앱 웹뷰 0건).
+   * 값은 주입된 env에서만 오므로 이 필드를 가진 행은 **그 빌드에만** 존재한다.
+   */
+  externalUrl?: string;
 };
+
+/**
+ * 라운드 71 트랙 D(GAP-071 #4) — 도움(지원·FAQ)으로 가는 행의 **단일 소스**.
+ *
+ * 더보기 탭과 설정 화면이 **같은 표**를 읽는다(EXPORT_MENU_TITLE·RECURRING_MANAGE_LABEL이 세운
+ * 그 관례). 더보기는 제목만, 설정 화면은 부제까지 그린다.
+ */
+export type SupportMenuRowSpec = {
+  id: SupportLinkKind;
+  section: MoreMenuSection;
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  /** 설정 화면 행의 부제(더보기 행 문법에는 부제 자리가 없다). */
+  subtitle: string;
+  /** 정규화를 통과한 주소만 온다 — 이 값이 없는 종류는 아래에서 행 자체가 만들어지지 않는다. */
+  url: string;
+};
+
+/**
+ * 표시 순서: 스스로 찾아보는 쪽(FAQ)이 먼저고, 사람에게 묻는 쪽(지원)이 뒤다.
+ * 아이콘은 다른 행과 같은 Ionicons outlined 계열이다(D1 후속의 그 규칙).
+ */
+const SUPPORT_MENU_ROW_ORDER: ReadonlyArray<{ kind: SupportLinkKind; icon: keyof typeof Ionicons.glyphMap }> = [
+  { kind: "faq", icon: "help-circle-outline" },
+  { kind: "support", icon: "chatbubble-ellipses-outline" }
+];
+
+/**
+ * 주입된 URL이 있는 종류만 행이 된다. **없으면 빈 배열**이라 두 화면 모두 종전과 한 글자도
+ * 다르지 않다(정직한 감춤 — src/settings/support-links.ts의 머리말).
+ */
+export function buildSupportMenuRows(): SupportMenuRowSpec[] {
+  const urls = supportLinkUrls();
+  return SUPPORT_MENU_ROW_ORDER.flatMap(({ kind, icon }) => {
+    const url = urls[kind];
+    if (!url) return [];
+    return [
+      {
+        id: kind,
+        // 앱 자체를 다루는 구획이다(알림함 · 설정 · 앱 정보와 같은 자리).
+        section: "settings" as const,
+        icon,
+        title: SUPPORT_LINK_LABELS[kind].title,
+        subtitle: SUPPORT_LINK_LABELS[kind].subtitle,
+        url
+      }
+    ];
+  });
+}
 
 /**
  * 프로필 카드(아이 이름 + 개월수)를 눌렀을 때의 목적지. 카드가 보여 주는 정보와 같은 화면이다.
@@ -113,6 +173,10 @@ export const MORE_MENU_SETTINGS_ONLY_ROUTES = ["/import", "/settings/privacy"] a
  *   `EXPORT_MENU_TITLE`이라 여기서 다시 적지 않고 주입받는다(설정 화면도 같은 상수를 쓴다).
  * @param appLockEnabled 이 계정에서 앱 잠금이 **켜져 있는가**(GAP-068 #6). 켜지 않은 절대다수
  *   계정은 종전 7행 그대로다 — 아래 조건부 행 주석 참고.
+ *
+ * 라운드 71 트랙 D(#4)의 지원·FAQ 행은 파라미터가 아니라 **빌드에 주입된 URL**에서 온다
+ * (`buildSupportMenuRows` — 호출 시점에 env를 읽는다). 주입 전에는 빈 배열이라 이 목록이
+ * 종전과 완전히 같다.
  */
 export function buildMoreSessionMenuRows({
   exportTitle,
@@ -160,6 +224,24 @@ export function buildMoreSessionMenuRows({
           }
         ]
       : []),
+    /**
+     * 라운드 71 트랙 D(GAP-071 #4) — **도움으로 가는 길**. 위 "지금 잠그기"와 같은 조건부 행
+     * 형식이고, 게이트는 계정 상태가 아니라 **빌드에 주입된 URL**이다: 값이 없으면 행이 서지
+     * 않으므로 더보기는 종전 7행 그대로다(죽은 링크도, 지어낸 이메일도 생기지 않는다).
+     *
+     * ⚠️ SET-001 픽셀락 캡처는 **비로그인 미리보기 행 목록**을 그린다(app/(tabs)/more.tsx의
+     * `previewMenuRowActions` — 이 모듈이 손대지 않는 그 목록). 새 행은 여기 **세션 메뉴에만**
+     * 더한다.
+     */
+    ...buildSupportMenuRows().map((row) => ({
+      id: row.id,
+      section: row.section,
+      icon: row.icon,
+      title: row.title,
+      // 앱 안 라우트가 아니라 브라우저다 — 화면은 externalUrl을 Linking.openURL 하나로 연다.
+      route: null,
+      externalUrl: row.url
+    })),
     // 라우트가 없는 두 행: 내보내기는 같은 화면의 기간 선택 카드를 접었다 폈다 하고,
     // 앱 정보는 Alert만 띄운다. 그 동작은 화면이 id로 붙인다.
     // 내보내기가 "예산 · 데이터"에 있는 이유: 이 행이 여는 것은 설정 토글이 아니라 **지출

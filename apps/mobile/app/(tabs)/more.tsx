@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getSeoulToday } from "@wooriai/domain";
 import Constants from "expo-constants";
 import { router } from "expo-router";
-import { Alert, Image, Pressable, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, Text, View } from "react-native";
 import {
   getHome,
   listChildren,
@@ -27,6 +27,8 @@ import {
   MORE_PROFILE_CARD_ROUTE,
   type MoreMenuSection
 } from "../../src/settings/more-menu";
+// 라운드 71 트랙 D(#4): 열기 실패 문구도 그 모듈 한 곳에서 온다 -- 화면이 다시 적지 않는다.
+import { SUPPORT_LINK_FAILED_MESSAGE, SUPPORT_LINK_FAILED_TITLE } from "../../src/settings/support-links";
 import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
 // GAP-062 #6: 홈 헤더·설정 요약·아이 목록과 **같은** 표시층 판정을 이 카드도 지난다(재사용만 —
 // 판정은 src/home/stage-display-label.ts 한 자리에 그대로 있다).
@@ -248,6 +250,24 @@ export default function MoreScreen() {
     router.push(hasSession ? "/(tabs)/records" : "/settings");
   };
 
+  /**
+   * 라운드 71 트랙 D(GAP-071 #4) — 지원·FAQ 페이지 열기.
+   *
+   * URL이 주입된 빌드에서만 이 함수에 닿는 행이 생긴다(src/settings/more-menu.ts의 조건부 행).
+   * 인앱 웹뷰를 만들지 않는 이유는 새 의존성이기 때문이고(known-limitations A절), 열지 못하면
+   * (브라우저 부재·잘못된 URL) 그 사실을 말한다 -- 아무 일도 일어나지 않는 행을 남기지 않는다
+   * (app/settings/privacy.tsx의 openLegalDocument와 같은 관례).
+   */
+  const openSupportLink = async (url: string) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) throw new Error("cannot-open-url");
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert(SUPPORT_LINK_FAILED_TITLE, SUPPORT_LINK_FAILED_MESSAGE);
+    }
+  };
+
   // 라운드 41 UX-U(A): 행 구성 · 이름 · 목적지는 src/settings/more-menu.ts(buildMoreSessionMenuRows)가
   // 정한다 -- 여기서는 그 스펙을 라우팅과 화면 안 동작(내보내기 카드 토글 · 앱 정보 Alert)에 잇기만
   // 한다. 비로그인 미리보기(previewMenuRowActions)는 SET-001 픽셀 락 캡처 경로라 손대지 않는다.
@@ -268,6 +288,9 @@ export default function MoreScreen() {
   }> =
     buildMoreSessionMenuRows({ exportTitle: EXPORT_MENU_TITLE, appLockEnabled }).map((row) => {
       const route = row.route;
+      // 라운드 71 트랙 D(#4): 앱 밖으로 나가는 행은 라우트가 아니라 주소를 갖는다(주입된 빌드에만
+      // 존재한다 -- 없으면 이 목록이 종전과 완전히 같다).
+      const externalUrl = row.externalUrl;
       return {
         icon: row.icon,
         title: row.title,
@@ -275,13 +298,15 @@ export default function MoreScreen() {
         section: row.section,
         onPress: route
           ? () => router.push(route)
-          : row.id === "export"
-            ? csvExport.toggleCard
-            : // GAP-068 #6: 화면을 옮기지 않는다 -- 오버레이가 전역이라 이번 포그라운드의 통과만
-              // 무르면 그 자리에서 PIN 화면이 덮는다(설정 화면의 "지금 잠그기"와 같은 액션 하나).
-              row.id === "lockNow"
-              ? () => useAppLockStore.getState().lockNow()
-              : () => Alert.alert("앱 정보", appInfoText)
+          : externalUrl
+            ? () => openSupportLink(externalUrl)
+            : row.id === "export"
+              ? csvExport.toggleCard
+              : // GAP-068 #6: 화면을 옮기지 않는다 -- 오버레이가 전역이라 이번 포그라운드의 통과만
+                // 무르면 그 자리에서 PIN 화면이 덮는다(설정 화면의 "지금 잠그기"와 같은 액션 하나).
+                row.id === "lockNow"
+                ? () => useAppLockStore.getState().lockNow()
+                : () => Alert.alert("앱 정보", appInfoText)
       };
     });
   const previewMenuRowActions: Array<{
