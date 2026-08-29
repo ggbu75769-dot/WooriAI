@@ -20,6 +20,7 @@ import {
   type ProductLinkInput,
   type ProductPlatform
 } from "../../src/lib/admin-api";
+import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import {
   EMPTY_LINK_FILTERS,
   LINK_HEALTH_FILTERS,
@@ -279,7 +280,7 @@ function ProductLinksPageContent() {
   const searchParams = useSearchParams();
   const [itemTemplates, setItemTemplates] = useState<ItemTemplate[]>([]);
   const [links, setLinks] = useState<ProductLink[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
 
   const [createForm, setCreateForm] = useState<LinkFormState>(emptyLinkForm(""));
   const [creating, setCreating] = useState(false);
@@ -317,7 +318,7 @@ function ProductLinksPageContent() {
         clearSession();
         return;
       }
-      setLoadError("상품 링크 목록을 불러오지 못했어요.");
+      setLoadError(loadErrorCopy(error, "상품 링크 목록을 불러오지 못했어요."));
     }
   }, [session, clearSession]);
 
@@ -485,10 +486,13 @@ function ProductLinksPageContent() {
         {links === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
-            {loadError}
-            <button type="button" className={styles.retryButton} onClick={loadAll}>
-              다시 시도
-            </button>
+            {loadError.message}
+            {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
+            {loadError.canRetry ? (
+              <button type="button" className={styles.retryButton} onClick={loadAll}>
+                다시 시도
+              </button>
+            ) : null}
           </p>
         ) : null}
 

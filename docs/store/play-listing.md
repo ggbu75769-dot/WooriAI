@@ -1,6 +1,8 @@
 # 우리아이 — Google Play 스토어 등록 정보 (STORE-101)
 
-> 상태: 제출용 초안 v1.2 (2026-08-20 작성 · 2026-08-28 갱신 — GAP-058 #9 · 2026-08-29 갱신 — GAP-070 #10 트랙 F: §3 6번 역할 문장 정정 · **2026-08-29 갱신 — GAP-071 #10 트랙 F: §6 지원 URL 행이 앱 안 입구와 같은 주소임을 명시**). 모든 문구는 실제 구현 기준으로 작성했으며,
+> 상태: 제출용 초안 v1.2 (2026-08-20 작성 · 2026-08-28 갱신 — GAP-058 #9 · 2026-08-29 갱신 — GAP-070 #10 트랙 F: §3 6번 역할 문장 정정 · **2026-08-29 갱신 — GAP-071 #10 트랙 F: §6 지원 URL 행이 앱 안 입구와 같은 주소임을 명시** ·
+> **2026-08-29 갱신 — 라운드 73 후속 리뷰 ②: §5 머리말이 스스로 판정하지 않고 §6·제출 순서
+> 체크리스트 §0.1을 가리키도록 정정**). 모든 문구는 실제 구현 기준으로 작성했으며,
 > 구현되지 않은 기능(사진/영수증 AI, 커뮤니티, 가격 추적 등 — DNC-016)은 언급하지 않는다.
 > 글자 수는 공백 포함 기준. Play Console 입력 시 최종 글자 수를 다시 확인할 것.
 
@@ -116,9 +118,12 @@
 
 ## 5. 스크린샷 촬영 가이드
 
-> **현재 제출 가능 자산 (STORE-102, `docs/store/assets/`)**: `phone-01-home` · `phone-02-family` ·
+> **오늘 저장소에 있는 자산 (STORE-102, `docs/store/assets/`)**: `phone-01-home` · `phone-02-family` ·
 > `phone-03-excel-import` 3장(1080×1920 프레임 합성, Play 규격 검증 완료) + `play-icon-512.png` +
-> `play-feature-graphic-1024x500.png`. **최소 요건(2장)을 이미 충족**하므로 이대로 제출 가능하고,
+> `play-feature-graphic-1024x500.png`. **장수와 규격은 Play 최소 요건(2장)을 넘지만, 제출 가능
+> 여부는 장수가 아니라 계보 판정이고 오늘 그 판정은 ⛔예요** — 자산별 현황은 아래 §6 표,
+> 해제 절차는 `docs/store/submission-checklist.md` §0.1이에요(자산이 **존재**하는 것과 자산이
+> **지금의 앱**인 것은 다른 이야기예요).
 > 아래 표의 나머지 화면은 Day 2 실기기 QA 중 `adb exec-out screencap -p > shot.png`로 캡처해
 > `scripts/store/frame_screenshots.py`(매니페스트: `docs/store/assets/screenshot-manifest.json`)로
 > 재합성하면 추가된다.
@@ -150,13 +155,18 @@
 
 ## 6. 그래픽 자산 스펙 체크리스트
 
-| 자산 | 스펙 | 상태 |
+| 자산 | 스펙 | 상태 (2026-08-29 · 라운드 73 트랙 B 측정) |
 |---|---|---|
-| 앱 아이콘(스토어) | 512×512 PNG, 32bit, 알파 허용, 1MB 이하 | `apps/mobile/assets/icon.png` 원본에서 512px 내보내기 필요 |
-| 피처 그래픽 | 1024×500 JPG/PNG, 텍스트 최소화 | 신규 제작 필요 (브랜드 컬러: Primary `#C94627`, Background `#FFFDFC` — DNC-017 v0.5) |
-| 휴대전화 스크린샷 | 2~8장, 16:9 또는 9:16, 각 변 320~3840px, PNG/JPG | §5 가이드로 촬영 |
+| 앱 아이콘(스토어) | 512×512 PNG, 32bit, 알파 허용, 1MB 이하 | ⛔ **재생성 전 제출 불가** — 현재 `docs/store/assets/play-icon-512.png`의 최빈색이 `#FFF8F1` + `#DB4F2E`예요. 둘 다 승인 팔레트가 아니에요(`#FFF8F1`은 DNC-017 v0.5가 걷어낸 이전 배경, `#DB4F2E`는 어느 시점의 토큰도 아니에요). `apps/mobile/assets/icon.png`(DSN-053 복원본) 원본에서 512px로 다시 내보내요. |
+| 피처 그래픽 | 1024×500 JPG/PNG, 텍스트 최소화 | ⛔ **재생성 전 제출 불가** — 현재 `play-feature-graphic-1024x500.png`의 최빈색이 `#DB4F2E`예요. 브랜드 값은 `docs/brand/brand-tokens.json`(DNC-017 v0.5 단일 소스: Primary `#C94627`, Background `#FFFDFC`)에서 읽어요. |
+| 휴대전화 스크린샷 | 2~8장, 16:9 또는 9:16, 각 변 320~3840px, PNG/JPG | ⛔ **재캡처 전 제출 불가** — 현재 3장의 원본(`assets/sources/`)이 전부 DSN-053(2026-08-27) 이전 빌드 캡처예요. 각 캡처의 출처는 `docs/store/assets/screenshot-manifest.json`의 `capturedFrom` 칸이 지고, 오늘 셋 다 `"lineage": "pre-DSN-053"`이에요. 재캡처 절차와 해제 조건은 `docs/store/submission-checklist.md` §0. |
 | 7"/10" 태블릿 스크린샷 | 선택(태블릿 미최적화 시 생략 가능) | 생략 (portrait 전용 앱) |
 | 프로모션 동영상 | 선택 (YouTube URL) | 생략 |
+
+> **§6 자산 표의 제출 차단 판정**: 위 세 줄이 ⛔인 동안에는 스토어에 올리지 않아요. 자산이
+> 존재하는 것과 자산이 지금의 앱인 것은 다른 이야기예요 — Play 정책도 스크린샷이 실제 앱을
+> 대표할 것을 요구해요. 브랜드 값의 단일 소스는 `docs/brand/brand-tokens.json`이고,
+> 생성기(`scripts/store/frame_screenshots.py`)의 색 상수는 라운드 73부터 그 파일에서 읽어요.
 
 기타 등록 정보:
 - [ ] 개인정보처리방침 URL — `infra/legal/privacy-policy.html` 호스팅 후 URL 입력 (필수)

@@ -8,8 +8,10 @@ import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
 // 라운드 69 트랙 A(#1): 같은 사실을 말하는 두 자리 — 정기 지출 관리 화면의 고지와 로그아웃 줄.
 import { RECURRING_DEVICE_ONLY_NOTICE } from "../expenses/recurring-template";
 import {
+  OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS,
   OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS,
-  OFFLINE_AWARE_LOAD_ERROR_SCREENS
+  OFFLINE_AWARE_LOAD_ERROR_SCREENS,
+  OFFLINE_AWARE_SAVE_ERROR_SCREENS
 } from "./offline-aware-screens";
 import {
   CONFLICT_BANNER_MESSAGE,
@@ -258,12 +260,44 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     for (const path of Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)) {
       expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS, `${path}는 목록 안의 화면이다`).toContain(path);
     }
-    // 오늘의 셋. 늘어나면 이 줄이 먼저 빨개지고, 늘린 라운드가 이유를 함께 적게 된다.
+    // 오늘의 넷(라운드 73 E가 초대 화면을 더했다). 늘어나면 이 줄이 먼저 빨개지고, 늘린
+    // 라운드가 이유를 함께 적게 된다.
     expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS).sort()).toEqual([
+      "app/family/accept/[token].tsx",
       "app/settings/children.tsx",
       "app/settings/index.tsx",
       "app/settings/notifications.tsx"
     ]);
+  });
+
+  /**
+   * 라운드 73 트랙 E — **배선하지 않기로 한 자리도 값이다.**
+   *
+   * L-2는 여덟 라운드 동안 `app/(onboarding)/prepared-items.tsx`의 한 줄을 "남은 P3"로 이월했다.
+   * 이번 라운드가 그 자리를 다시 재어 보니 배선이 답이 아니었는데(공용 문장은 [다시 시도]를
+   * 가리키는데 그 자리에는 그 버튼이 없고, 이미 더 구체적인 탈출구 문장이 있다), **"배선하지
+   * 않는다"는 판정은 어떤 단언도 깨지 않는다.** 그래서 제외를 목록으로 적고, 그 목록이
+   * 두 방향으로 사실과 묶여 있게 한다 — 제외는 배선 목록 밖에 있고, 실제로 훅을 부르지 않는다.
+   */
+  it("라운드 73 트랙 E: 제외 목록은 이유를 지고, 배선 목록과 겹치지 않는다 (L-2 이월 종결)", () => {
+    const exempt = Object.entries(OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS);
+    expect(exempt.length).toBeGreaterThan(0);
+    for (const [path, reason] of exempt) {
+      // 이유가 값으로 남아 있을 때만 제외다(빈 문자열로 목록을 늘릴 수 없다).
+      expect(reason.length, `${path}의 제외 사유가 값으로 남아 있다`).toBeGreaterThan(30);
+      expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS, `${path}는 배선 목록 밖이다`).not.toContain(path);
+      // 제외해 놓고 조용히 배선돼 있지 않다(그 반대도 아니다 — 위 스윕이 그쪽을 본다).
+      expect(source(path), `${path}는 공용 훅을 부르지 않는다`).not.toContain("useLoadErrorCopy(");
+    }
+    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS)).toEqual([
+      "app/(onboarding)/prepared-items.tsx"
+    ]);
+    // 그 화면의 문구·분기는 이 라운드가 손대지 않는다 — 제외의 근거가 되는 그 모양 그대로다.
+    const preparedItems = source("app/(onboarding)/prepared-items.tsx");
+    expect(preparedItems).toContain("{!isLoadingOptions && !hasOptions ? (");
+    expect(preparedItems).toContain(
+      '"준비물 목록을 불러오지 못했어요. 이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요."'
+    );
   });
 
   /**
@@ -457,8 +491,9 @@ describe("UX/C-07 저장 실패 문구", () => {
    * 연결이 돌아와도 복원되지 않았다. 조회 실패 카드(useLoadErrorCopy)가 이미 cancelled
    * 패턴으로 해결해 둔 문제들이라, 같은 파일의 같은 패턴을 쓰는 훅 하나로 모은다.
    */
-  it("두 화면이 옛 리터럴 대신 공용 훅을 쓰고, 그 훅이 실패 시점에 연결을 확인한다", () => {
-    for (const path of ["app/budget.tsx", "app/settings/children.tsx"] as const) {
+  it("목록의 화면이 옛 리터럴 대신 공용 훅을 쓰고, 그 훅이 실패 시점에 연결을 확인한다", () => {
+    // 라운드 73 트랙 E: 손으로 적던 두 경로가 목록에서 온다(목록 ↔ 사용 집합의 일치는 아래 스윕).
+    for (const path of OFFLINE_AWARE_SAVE_ERROR_SCREENS) {
       const screenSource = source(path);
       expect(screenSource, `${path} uses the shared hook`).toContain("useSaveErrorCopy(");
       expect(screenSource, `${path} imports it from the shared wiring layer`).toContain(
@@ -533,13 +568,47 @@ describe("UX/C-07 저장 실패 문구", () => {
   });
 
   /**
-   * 라운드 70 트랙 B — **이 훅을 쓰는 화면은 여전히 둘뿐이다.**
+   * 라운드 73 트랙 E(GAP-073 #5) — **저장 쪽에도 목록이 선다.**
    *
-   * 위 계약(라운드 52 QA P3-1)이 값으로 못박아 둔 그 둘이다. 셋째 화면이 생기면 이 단언이 먼저
-   * 빨개지고, 만든 사람이 "그 화면의 저장 실패는 무엇을 말해야 하는가"에 답해야 한다 — 라운드
-   * 70이 예산 화면에서 발견한 것이 정확히 그 질문을 아무도 받지 않은 결과였다.
+   * 라운드 70 B가 세운 종전 계약은 같은 사실을 **손으로 적은 배열**로 지켰다
+   * (`["app/budget.tsx", "app/settings/children.tsx"]`). 그래서 새 저장 실패 문구가 생겨도
+   * 아무도 세지 않았다 — 오늘 세어 보니 그렇게 남은 자리가 셋이었다(알림 저장 · 초대 참여 ·
+   * 초대 조회). 조회 쪽이 라운드 38 H-12 이후 줄어들 수 있었던 이유는 목록이 아니라 **스윕**이
+   * 있었기 때문이라, 같은 형식으로 바꾼다: 목록은 offline-aware-screens.ts 한 곳이고 여기서는
+   * `app/**`을 훑어 사용 집합과의 **정확한 일치**만 본다(위 조회 쪽 스윕과 같은 모양).
+   *
+   * 넷째 화면이 생기면 이 단언이 먼저 빨개지고, 만든 사람이 "그 화면의 저장 실패는 무엇을
+   * 말해야 하는가"에 답한 뒤 목록에 한 줄을 적게 된다.
    */
-  it("useSaveErrorCopy를 쓰는 화면은 예산·아이 관리 둘뿐이다 (셋째가 생기면 빨개진다)", () => {
+  it("라운드 73 트랙 E: 목록이 useSaveErrorCopy를 실제로 쓰는 app/** 화면 집합과 정확히 일치한다", () => {
+    const appRoot = join(mobileRoot, "app");
+    const wired: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!entry.name.endsWith(".tsx")) continue;
+        if (!readFileSync(fullPath, "utf8").includes("useSaveErrorCopy(")) continue;
+        // 목록은 mobile 루트 기준 상대 경로(POSIX 구분자)로 적는다.
+        wired.push(relative(mobileRoot, fullPath).split(sep).join("/"));
+      }
+    };
+    walk(appRoot);
+
+    expect(wired.sort()).toEqual([...OFFLINE_AWARE_SAVE_ERROR_SCREENS].sort());
+    // 오늘의 값: 라운드 72까지 둘 → 이 트랙 뒤 넷.
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(4);
+  });
+
+  /**
+   * 라운드 73 트랙 E — 스윕이 `app/**`만 훑으므로, `src/**`에 조용히 생긴 호출부는 목록 밖에
+   * 남을 수 있다. 오늘 그런 자리는 0건이고(훅 정의부 자신뿐이다), 생기는 날 이 단언이 먼저
+   * 빨개진다 — 그때 물어야 할 것은 "그 모듈이 어느 화면의 문장을 만드는가"다.
+   */
+  it("라운드 73 트랙 E: src/** 에는 훅 정의부 말고 호출부가 없다 (스윕의 사각을 닫는다)", () => {
     const users: string[] = [];
     const walk = (directory: string) => {
       for (const name of readdirSync(join(mobileRoot, directory))) {
@@ -550,17 +619,103 @@ describe("UX/C-07 저장 실패 문구", () => {
           continue;
         }
         if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) continue;
-        if (/\buseSaveErrorCopy\s*\(/.test(source(relativePath))) users.push(relativePath);
+        // 주석은 걷어내고 본다 — 목록 모듈(offline-aware-screens.ts)의 머리말은 자기가 무엇을
+        // 세는지 설명하려고 훅 **이름**을 인용한다. 여기서 잡으려는 것은 호출부이지 언급이 아니다
+        // (recurring-flow.test.ts의 codeOnly와 같은 관례).
+        const code = source(relativePath)
+          .replace(/\/\*[\s\S]*?\*\//g, " ")
+          .replace(/\/\/[^\n]*/g, " ");
+        if (/\buseSaveErrorCopy\s*\(/.test(code)) users.push(relativePath);
       }
     };
-    walk("app");
     walk("src");
 
     // 정의부(훅 자신)는 호출부가 아니다.
-    expect(users.filter((path) => path !== "src/offline/use-load-error-copy.ts").sort()).toEqual([
-      "app/budget.tsx",
-      "app/settings/children.tsx"
-    ]);
+    expect(users.filter((path) => path !== "src/offline/use-load-error-copy.ts")).toEqual([]);
+  });
+
+  /**
+   * 라운드 73 트랙 E(GAP-073 #5) — 목록이 넷이 되며 배선된 두 자리.
+   *
+   * 두 자리의 규율은 라운드 72 트랙 B와 같다: **온라인 갈래는 종전과 바이트 단위로 같고**,
+   * 오프라인 갈래만 공용 단일 소스 문장으로 갈린다. 그래서 아래 단언들은 새 문구를 고정하지
+   * 않고(문구는 이 파일 위쪽이 이미 고정한다) **종전 문자열이 그대로 나온다는 사실**을 고정한다.
+   */
+  describe("라운드 73 트랙 E: 알림 저장·초대 참여의 오프라인 인지 배선", () => {
+    it("알림 설정(SET-006)은 주어만 더하고, 오프라인 갈래에는 그 주어를 붙이지 않는다", () => {
+      const src = source("app/settings/notifications.tsx");
+      expect(src).toContain("const deviceToggleSaveErrorCopy = useSaveErrorCopy(toggleDevice.isError);");
+      expect(src).toContain("? deviceToggleSaveErrorCopy");
+      expect(src).toContain(": `알림 설정을 ${deviceToggleSaveErrorCopy}`");
+      expect(src).toContain("<Text style={errorTextStyle}>{deviceToggleSaveErrorText}</Text>");
+      // 온라인 갈래 바이트 불변: 접두 + 공용 문장이 종전 문자열과 정확히 같다.
+      expect(`알림 설정을 ${SAVE_ERROR_NOTICE}`).toBe("알림 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
+      expect(`알림 설정을 ${resolveSaveErrorCopy({ isOnline: true })}`).toBe(
+        "알림 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요."
+      );
+      // "알림 설정을 지금은 오프라인이에요…"는 문장이 아니다 — 오프라인 갈래는 공용 문장 그대로다.
+      expect(`알림 설정을 ${OFFLINE_SAVE_NOTICE}`).not.toBe(OFFLINE_SAVE_NOTICE);
+      expect(src).not.toContain('"알림 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요."');
+      expect(src).not.toContain(">알림 설정을 저장하지 못했어요");
+      // 이 화면의 다른 판정(알림함 종류별 스위치 · 푸시 정직 비활성)은 무접촉이다.
+      expect(src).toContain("masterToggleDisabled = !pushSupported");
+      expect(src).toContain("앱 업데이트 후 사용할 수 있어요");
+    });
+
+    it("초대 조회(FAM-003)는 주어만 더하고, [다시 시도]는 같은 단일 소스에서 온다", () => {
+      const src = source("app/family/accept/[token].tsx");
+      expect(src).toContain("const inviteLoadErrorCopy = useLoadErrorCopy(invite.isError);");
+      expect(src).toContain("? inviteLoadErrorCopy.title");
+      expect(src).toContain(": `초대 정보를 ${inviteLoadErrorCopy.title}`");
+      expect(src).toContain("<Text style={{ color: theme.colors.danger }}>{inviteLoadErrorText}</Text>");
+      expect(src).toContain(
+        "<SecondaryButton label={inviteLoadErrorCopy.actionLabel} onPress={() => invite.refetch()} />"
+      );
+      // 온라인 갈래 바이트 불변: 접두 + 공용 문장·라벨이 종전 두 문자열과 정확히 같다.
+      expect(`초대 정보를 ${LOAD_ERROR_NOTICE}`).toBe("초대 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+      expect(LOAD_ERROR_RETRY_LABEL).toBe("다시 시도");
+      // 종전 리터럴은 이 화면에서 사라졌다(두 자리가 다시 갈라지지 않게).
+      expect(src).not.toContain('"초대 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요."');
+    });
+
+    it("초대 참여는 자기 문장을 지키고, 오프라인 갈래만 공용 문장으로 갈린다", () => {
+      const src = source("app/family/accept/[token].tsx");
+      expect(src).toContain("const acceptSaveErrorCopy = useSaveErrorCopy(accept.isError, accept.error);");
+      expect(src).toContain(
+        "{acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)}"
+      );
+      // 온라인 갈래 바이트 불변: 종전 판정 함수와 두 문장이 그대로다(라운드 70 A).
+      expect(src).toContain('const acceptFailedText = "가족에 참여하지 못했어요. 잠시 후 다시 시도해 주세요.";');
+      expect(src).toContain('const alreadyMemberText = "이미 이 가족의 구성원이에요.";');
+      expect(src).toContain(
+        'return hasApiErrorCode(error, "HOUSEHOLD_ALREADY_MEMBER") ? alreadyMemberText : acceptFailedText;'
+      );
+      // 이 화면도 직접 폴을 띄우지 않는다(판정은 훅 하나).
+      expect(src).not.toContain("isCurrentlyOnline()");
+    });
+
+    /**
+     * ⓒ **파생 단언** — 오프라인 문장이 서는 조건이 화면의 판단이 아니라
+     * `resolveSaveErrorCopy`의 **순서**에서 나온다. 화면의 비교는 `=== OFFLINE_SAVE_NOTICE`
+     * 하나뿐이므로, 그 비교가 참인 순간은 "아는 코드가 없다"가 이미 참인 순간이다.
+     */
+    it("오프라인 갈래는 아는 코드가 없을 때만 선다 (코드 → 오프라인 → 모르는 실패)", () => {
+      const alreadyMember = new ApiHttpError(409, {
+        error: { code: "HOUSEHOLD_ALREADY_MEMBER", message: "서버 원문", requestId: "req-1" }
+      });
+      // 연결 판정이 어긋난 채로(오프라인이라고 봤는데) 서버 코드가 도착해도 표가 앞선다.
+      expect(resolveSaveErrorCopy({ isOnline: false, error: alreadyMember })).not.toBe(OFFLINE_SAVE_NOTICE);
+      // 그리고 그 문구는 화면의 전용 문장과 **글자까지 같다** — 어느 갈래로 가도 사용자가 읽는
+      // 문장이 하나다(화면은 종전 판정 함수를 그대로 지난다).
+      expect(resolveSaveErrorCopy({ isOnline: false, error: alreadyMember })).toBe("이미 이 가족의 구성원이에요.");
+      // 코드가 없을 때만 오프라인 문장이 선다.
+      expect(resolveSaveErrorCopy({ isOnline: false, error: new Error("Network request failed") })).toBe(
+        OFFLINE_SAVE_NOTICE
+      );
+      expect(resolveSaveErrorCopy({ isOnline: true, error: new Error("Network request failed") })).toBe(
+        SAVE_ERROR_NOTICE
+      );
+    });
   });
 });
 

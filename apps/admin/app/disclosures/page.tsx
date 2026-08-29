@@ -10,6 +10,7 @@ import {
 } from "../../src/lib/admin-api";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import { disclosureKeyBadge } from "../../src/lib/disclosure-keys";
+import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import styles from "../../src/components/admin-page.module.css";
 
 // COM-103: an editor's save goes through draft -> submit for review instead of
@@ -93,7 +94,7 @@ function DisclosureRow({
 export default function DisclosuresPage() {
   const { session, clearSession } = useAdminSession();
   const [disclosures, setDisclosures] = useState<Disclosure[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
 
   const [newKey, setNewKey] = useState("");
   const [newText, setNewText] = useState("");
@@ -112,7 +113,7 @@ export default function DisclosuresPage() {
         clearSession();
         return;
       }
-      setLoadError("고지 문구 목록을 불러오지 못했어요.");
+      setLoadError(loadErrorCopy(error, "고지 문구 목록을 불러오지 못했어요."));
     }
   }, [session, clearSession]);
 
@@ -200,10 +201,13 @@ export default function DisclosuresPage() {
       {disclosures === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
       {loadError ? (
         <p className={styles.errorBanner}>
-          {loadError}
-          <button type="button" className={styles.retryButton} onClick={loadDisclosures}>
-            다시 시도
-          </button>
+          {loadError.message}
+          {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
+          {loadError.canRetry ? (
+            <button type="button" className={styles.retryButton} onClick={loadDisclosures}>
+              다시 시도
+            </button>
+          ) : null}
         </p>
       ) : null}
       {disclosures && disclosures.length === 0 ? <p className={styles.emptyState}>등록된 고지 문구가 없어요.</p> : null}

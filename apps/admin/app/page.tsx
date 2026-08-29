@@ -11,6 +11,7 @@ import {
   type AdminRole,
   type WorkerHealth
 } from "../src/lib/admin-api";
+import { loadErrorCopy, type LoadErrorCopy } from "../src/lib/load-error-copy";
 import {
   WORKER_HEALTH_STATE_LABELS,
   brokenLinkCountCaption,
@@ -120,9 +121,9 @@ const SECTION_CARDS: Array<{
 export default function AdminHomePage() {
   const { session, clearSession } = useAdminSession();
   const [summary, setSummary] = useState<AdminDashboardSummary | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
   const [worker, setWorker] = useState<WorkerHealth | null>(null);
-  const [workerError, setWorkerError] = useState(false);
+  const [workerError, setWorkerError] = useState<LoadErrorCopy | null>(null);
 
   const loadSummary = useCallback(async () => {
     if (!session) return;
@@ -135,7 +136,9 @@ export default function AdminHomePage() {
         clearSession();
         return;
       }
-      setLoadError("대시보드 요약을 불러오지 못했어요.");
+      // 라운드 73 트랙 D: 왜 못 불러왔는지는 admin-api.ts가 이미 알고 있다 —
+      // 그 문장을 받고, 못 받았을 때만 종전 기본문장으로 물러선다.
+      setLoadError(loadErrorCopy(error, "대시보드 요약을 불러오지 못했어요."));
     }
   }, [session, clearSession]);
 
@@ -143,12 +146,14 @@ export default function AdminHomePage() {
   // 처리를 하지 않는다 — 요약 카드와 독립적으로 실패/재시도한다.
   const loadWorker = useCallback(async () => {
     if (!session) return;
-    setWorkerError(false);
+    setWorkerError(null);
     try {
       setWorker(await getWorkerHealth());
-    } catch {
+    } catch (error) {
+      // 라운드 73 트랙 D: 종전에는 `catch {}`로 값 자체를 받지 않아 "상태를 확인하지
+      // 못했어요." 한 문장만 남았다 — 이유는 여기서 이미 손에 있었다.
       setWorker(null);
-      setWorkerError(true);
+      setWorkerError(loadErrorCopy(error, "상태를 확인하지 못했어요."));
     }
   }, [session]);
 
@@ -173,10 +178,13 @@ export default function AdminHomePage() {
         {summary === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
-            {loadError}
-            <button type="button" className={styles.retryButton} onClick={loadSummary}>
-              다시 시도
-            </button>
+            {loadError.message}
+            {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
+            {loadError.canRetry ? (
+              <button type="button" className={styles.retryButton} onClick={loadSummary}>
+                다시 시도
+              </button>
+            ) : null}
           </p>
         ) : null}
         {summary ? (
@@ -232,10 +240,12 @@ export default function AdminHomePage() {
             </span>
           ) : workerError ? (
             <span>
-              상태를 확인하지 못했어요.
-              <button type="button" className={styles.retryButton} onClick={loadWorker}>
-                다시 시도
-              </button>
+              {workerError.message}
+              {workerError.canRetry ? (
+                <button type="button" className={styles.retryButton} onClick={loadWorker}>
+                  다시 시도
+                </button>
+              ) : null}
             </span>
           ) : (
             <span>불러오는 중...</span>

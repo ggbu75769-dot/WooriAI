@@ -69,3 +69,49 @@ export const STORE_LOGIN_FOOTNOTE = "로그인하면 필수 약관 동의가 계
 export function loginFootnote(isTestLoginEnabled: boolean): string {
   return isTestLoginEnabled ? TEST_LOGIN_FOOTNOTE : STORE_LOGIN_FOOTNOTE;
 }
+
+/* --------------------------------------------------------- 로그인 실패 문구 두 갈래
+ *
+ * 라운드 73 트랙 A(GAP-073 #1ⓐ) — **갈래의 기준이 틀렸다.**
+ *
+ * 종전 이 두 문장은 화면 안 삼항에 있었고 기준이 `isKakaoLoginAvailable()`이었다 — 즉
+ * **env가 주입됐는가**. 그런데 "PC와 같은 Wi-Fi" 문장은 개발 스텁 경로(로컬 API 서버)를 위한
+ * 것이고, env 부재는 빌드 성격이 아니다. 그래서 **카카오 키 없이 만든 스토어 빌드**의
+ * 실사용자가 "카카오로 시작하기"를 누르면(서버의 oauthLogin은 프로덕션에서 501 fail-closed다 —
+ * apps/api auth.service.ts) 그 개발자용 문장을 받았다. 그 사람에게는 PC도 API 서버도 없다.
+ *
+ * 기준을 **빌드 성격**으로 바꾼다(src/auth/release-build.ts). 두 문장은 **바이트 단위로 종전
+ * 그대로**이고 새 문구는 0건이다 — 바뀐 것은 어느 빌드가 어느 문장을 받는가뿐이다.
+ *
+ * 갈래가 둘 다 필요한 이유(부정으로 적는다):
+ *  - 개발 빌드 + 카카오 미설정 = 실제로 로컬 API 서버를 보는 유일한 상태 → Wi-Fi 문장.
+ *  - 개발 빌드 + 카카오 설정 = 실 카카오·실 서버를 본다 → 종전대로 첫 문장(무변경).
+ *  - 실사용자 빌드 = **어느 경우에도** Wi-Fi 문장에 닿지 않는다(도달 불가 · 부정 단언).
+ */
+
+/** 실 서버를 보는 빌드의 로그인 실패 문구(카카오 경로 · 실사용자 빌드 공통). */
+export const LOGIN_FAILED_MESSAGE = "로그인 중 문제가 발생했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요.";
+
+/**
+ * **개발 빌드에서 개발 스텁 경로가 실패했을 때만** 서는 문장. 여기서 말하는 "API 서버"는
+ * 개발자 PC에서 도는 로컬 프로세스라, 실사용자 빌드에 실리면 그 자체로 허위 안내가 된다.
+ */
+export const DEV_STUB_LOGIN_FAILED_MESSAGE =
+  "서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요.";
+
+/**
+ * 타입 없는 로그인 실패(네트워크·서버)에 보여 줄 문장.
+ *
+ * `developerBuild`는 `isDeveloperBuild()`(빌드 성격), `kakaoConfigured`는
+ * `isKakaoLoginAvailable()`(경로 선택)에서 온다 — **두 질문을 분리해 두는 것**이 이 함수의
+ * 계약이다. 하나가 다른 하나의 대용으로 쓰이면 라운드 73이 고친 그 결함이 다시 생긴다.
+ */
+export function loginFailureMessage({
+  developerBuild,
+  kakaoConfigured
+}: {
+  developerBuild: boolean;
+  kakaoConfigured: boolean;
+}): string {
+  return developerBuild && !kakaoConfigured ? DEV_STUB_LOGIN_FAILED_MESSAGE : LOGIN_FAILED_MESSAGE;
+}

@@ -1,12 +1,17 @@
 /* 우리아이 지원 사이트 공통 스타일 (SITE-113)
    - 순수 CSS, 외부 리소스 없음, 시스템 폰트 스택
-   - 브랜드 팔레트: Primary #FF8A7A / Background #FFF8F1 (DNC-017)
+   - 브랜드 팔레트: Primary #C94627 / Background #FFFDFC — DNC-017 v0.5(2026-08-27 개정,
+     DSN-053 승인)의 값입니다. 값의 단일 소스는 docs/brand/brand-tokens.json이고,
+     그 파일이 apps/mobile/src/theme.ts·docs/dev/do-not-change.md와의 일치를 계약으로 집니다.
+     ⚠️ 종전 이 주석은 다른 팔레트를 적으면서 근거로 DNC-017을 인용했는데, v0.5가 바로 그 값을
+     갈아 끼운 개정이라 인용이 거짓이었습니다(라운드 73 트랙 C). 폐기값의 이름은 여기가 아니라
+     단일 소스의 retired 목록과 do-not-change.md 개정 이력이 집니다.
    - 본문 텍스트는 대비 확보를 위해 다크 브라운 계열 사용 */
 
 :root {
-  --brand: #FF8A7A;          /* 코랄 — 강조 배경·보더 전용 (텍스트에는 쓰지 않음) */
-  --brand-deep: #b8503f;     /* 코랄 다크 — 링크·강조 텍스트 (크림 배경 대비 4.5:1 이상) */
-  --bg: #FFF8F1;             /* 크림 배경 */
+  --brand: #C94627;          /* Primary — 강조 배경·보더 전용 (텍스트에는 쓰지 않음) */
+  --brand-deep: #A93720;     /* primaryDark — 링크·강조 텍스트 (--bg 대비 6.36:1) */
+  --bg: #FFFDFC;             /* Background */
   --surface: #ffffff;
   --line: #e5d9cc;
   --text: #3d3229;
@@ -148,7 +153,10 @@ h3 { font-size: 1.05rem; color: var(--heading); }
 
 .btn-primary {
   background: var(--brand);
-  color: #47160e; /* 코랄 위 다크 텍스트 — 대비 확보 */
+  /* onPrimary — Primary가 v0.5의 진한 코랄(#C94627)이 되면서 종전의 다크 브라운 텍스트는
+     대비가 3.16:1로 떨어집니다. 단일 소스의 onPrimary(#FFFFFF)가 같은 배경에서 4.78:1이라
+     AA를 넘습니다. */
+  color: #FFFFFF;
 }
 
 .btn-primary[aria-disabled="true"] { cursor: default; }

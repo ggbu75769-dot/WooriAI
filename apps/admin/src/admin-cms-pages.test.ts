@@ -264,8 +264,10 @@ describe("Admin item templates: category (categoryId) input", () => {
     const source = readSource("app/items/page.tsx");
     expect(source).toContain("listAdminCategories");
     // 분류 목록 실패가 준비템 목록 전체를 막지 않는다.
-    expect(source).toContain("categoryLoadFailed");
-    expect(source).toContain("분류 목록을 불러오지 못해");
+    // 라운드 73 트랙 D: 종전 불리언(categoryLoadFailed)이 실패 사실만 남기고 이유를 버렸다 —
+    // 이제 같은 자리가 조회 실패 한 벌(src/lib/load-error-copy.ts)이 만든 문장을 받는다.
+    expect(source).toContain("categoryLoadError");
+    expect(source).toContain('loadErrorMessage(error, "분류 목록을 불러오지 못해 지금은 고를 수 없어요.")');
   });
 
   it("sends categoryId only when one is picked (the server DTO takes a UUID, and an omitted value keeps the stored one)", () => {

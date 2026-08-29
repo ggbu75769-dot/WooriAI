@@ -543,8 +543,16 @@ async function main() {
       page.locator("table tbody tr").first().waitFor({ timeout: STEP_TIMEOUT }),
       page.locator("p", { hasText: "해당 상태의 초안이 없어요" }).first().waitFor({ timeout: STEP_TIMEOUT })
     ]);
-    const errorBanner = page.locator("p", { hasText: "검토 목록을 불러오지 못했어요" });
-    if (await errorBanner.count()) throw new Error("reviews list error banner shown");
+    // 라운드 73 후속(적대적 리뷰 ⑦): 배너를 **고정 문장**이 아니라 errorBanner 클래스로 찾는다.
+    // 라운드 73 트랙 D 이후 이 배너의 문장은 실패 이유에 따라 갈린다(타임아웃·연결 실패·서버
+    // 문장 — 화면별 기본문장은 마지막 갈래다). 문장으로 찾으면 그 넷 중 셋을 못 보고 지나간다.
+    // 이 스텝에서 열려 있는 것은 목록 섹션뿐이라(상세 카드는 닫혀 있다) 이 로케이터가 보는
+    // 배너는 목록 조회 실패 하나다 — 스텝의 의미는 그대로다.
+    const errorBanner = page.locator('p[class*="errorBanner"]');
+    if (await errorBanner.count()) {
+      const shown = (await errorBanner.first().innerText()).replace(/\s+/g, " ").slice(0, 160);
+      throw new Error(`reviews list error banner shown: "${shown}"`);
+    }
     const rowCount = await page.locator("table tbody tr").count();
     return `reviews loaded without error (rows: ${rowCount})`;
   });

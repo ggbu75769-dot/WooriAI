@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ApiHttpError } from "../api/api-error";
+// 라운드 73 트랙 E: 이 화면의 두 실패 문장이 지나는 공용 단일 소스(문구를 여기 다시 적지 않는다).
+import { LOAD_ERROR_NOTICE, LOAD_ERROR_RETRY_LABEL, resolveSaveErrorCopy } from "../offline/messages";
 import {
   INVITE_UNAVAILABLE_ALREADY_JOINED_HINT,
   INVITE_UNAVAILABLE_CODES,
@@ -297,13 +299,24 @@ describe("라운드 70 A — FAM-003 네 갈래 배선 (source contract)", () =>
     expect(src).toContain("{invite.data && !inviteUnavailable ? (");
   });
 
+  /**
+   * 라운드 73 트랙 E — 이 갈래의 **문장은** 여전히 종전과 바이트 단위로 같다. 바뀐 것은 하나다:
+   * 연결이 아예 없을 때만 공용 오프라인 문장이 그 자리에 선다(그 판정·문구의 계약은
+   * src/offline/messages.test.ts가 진다). 그래서 종전 리터럴을 소스에서 찾던 단언을
+   * **값 단언**으로 바꾼다 — 접두 + 공용 문장이 종전 문자열과 정확히 같은지 본다(더 강한 형태다:
+   * 공용 문장이 바뀌면 여기가 먼저 빨개진다).
+   */
   it("갈래 4(네트워크·5xx)는 종전과 바이트 단위로 같다", () => {
     const src = acceptSource();
-    expect(src).toContain('const loadFailedText = "초대 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";');
+    expect(`초대 정보를 ${LOAD_ERROR_NOTICE}`).toBe("초대 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+    expect(LOAD_ERROR_RETRY_LABEL).toBe("다시 시도");
+    expect(src).toContain(": `초대 정보를 ${inviteLoadErrorCopy.title}`");
     expect(src).toContain("{invite.isError && !inviteUnavailable ? (");
     const retryCard = src.slice(src.indexOf("{invite.isError && !inviteUnavailable ? ("), src.indexOf("{inviteUnavailable ? ("));
-    expect(retryCard).toContain("<Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text>");
-    expect(retryCard).toContain('<SecondaryButton label="다시 시도" onPress={() => invite.refetch()} />');
+    expect(retryCard).toContain("<Text style={{ color: theme.colors.danger }}>{inviteLoadErrorText}</Text>");
+    expect(retryCard).toContain(
+      "<SecondaryButton label={inviteLoadErrorCopy.actionLabel} onPress={() => invite.refetch()} />"
+    );
   });
 
   it("HOUSEHOLD_ALREADY_MEMBER 갈래는 문구도 판정도 한 글자도 바뀌지 않는다", () => {
@@ -314,7 +327,14 @@ describe("라운드 70 A — FAM-003 네 갈래 배선 (source contract)", () =>
       'return hasApiErrorCode(error, "HOUSEHOLD_ALREADY_MEMBER") ? alreadyMemberText : acceptFailedText;'
     );
     expect(src).toContain("{accept.isError && !inviteUnavailable ? (");
-    expect(src).toContain("{acceptErrorText(accept.error)}");
+    // 라운드 73 트랙 E: 화면은 여전히 그 판정 함수를 그대로 지난다 — 앞에 서는 것은 오프라인
+    // 갈래 하나뿐이고, 그 갈래는 **아는 코드가 없을 때만** 참이다(판정 순서가 이미 그렇다).
+    expect(src).toContain(
+      "{acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)}"
+    );
+    expect(resolveSaveErrorCopy({ isOnline: false, error: httpError(409, "HOUSEHOLD_ALREADY_MEMBER", "서버 원문") })).toBe(
+      "이미 이 가족의 구성원이에요."
+    );
   });
 
   it("수락 성공 후 뒤처리 실패 카드(라운드 60 #3)는 무접촉이다", () => {

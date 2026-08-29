@@ -20,6 +20,7 @@ import {
   type NecessityLevel
 } from "../../src/lib/admin-api";
 import { itemCategoryOptions, type ItemCategoryOption } from "../../src/lib/item-category-options";
+import { loadErrorCopy, loadErrorMessage, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import {
   EMPTY_ITEM_FILTERS,
   activeProductLinkCount,
@@ -160,14 +161,15 @@ function ItemFormFields({
   idPrefix,
   mode,
   categoryOptions,
-  categoryLoadFailed
+  categoryLoadError
 }: {
   form: ItemFormState;
   onChange: (next: ItemFormState) => void;
   idPrefix: string;
   mode: "create" | "edit";
   categoryOptions: ItemCategoryOption[];
-  categoryLoadFailed: boolean;
+  /** 분류 목록 조회가 실패한 이유(라운드 73 트랙 D의 한 벌이 만든 문장). 성공이면 null. */
+  categoryLoadError: string | null;
 }) {
   // ADM-124: 수정 폼에서 빈칸은 이제 "지움"이다(예전 안내 "비워두면 값을 바꾸지 않아요"는
   // 실제 동작과 어긋난 데다, 지우는 방법 자체가 없었다).
@@ -224,9 +226,7 @@ function ItemFormFields({
             ))}
           </select>
           <span className={styles.hint}>{categoryHint}</span>
-          {categoryLoadFailed ? (
-            <span className={styles.hint}>분류 목록을 불러오지 못해 지금은 고를 수 없어요.</span>
-          ) : null}
+          {categoryLoadError ? <span className={styles.hint}>{categoryLoadError}</span> : null}
         </div>
         <div className={styles.field}>
           <label htmlFor={`${idPrefix}-timing`}>타이밍 라벨</label>
@@ -346,11 +346,12 @@ function ItemFormFields({
 export default function ItemTemplatesPage() {
   const { session, clearSession } = useAdminSession();
   const [items, setItems] = useState<ItemTemplate[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
   // 라운드 49 C-02: 분류 셀렉트의 선택지. /categories 조회는 어드민 역할 전부에게
   // 열려 있어(admin-categories.controller.ts) 편집자 계정에서도 그대로 쓴다.
   const [categories, setCategories] = useState<AdminCategory[]>([]);
-  const [categoryLoadFailed, setCategoryLoadFailed] = useState(false);
+  // 라운드 73 트랙 D: 종전에는 불리언 하나였다(실패 사실만 남고 이유는 버려졌다).
+  const [categoryLoadError, setCategoryLoadError] = useState<string | null>(null);
 
   const [createForm, setCreateForm] = useState<ItemFormState>(emptyItemForm());
   const [creating, setCreating] = useState(false);
@@ -381,7 +382,7 @@ export default function ItemTemplatesPage() {
         clearSession();
         return;
       }
-      setLoadError("준비템 목록을 불러오지 못했어요.");
+      setLoadError(loadErrorCopy(error, "준비템 목록을 불러오지 못했어요."));
     }
   }, [session, clearSession]);
 
@@ -392,13 +393,14 @@ export default function ItemTemplatesPage() {
     try {
       const result = await listAdminCategories();
       setCategories(result.categories);
-      setCategoryLoadFailed(false);
+      setCategoryLoadError(null);
     } catch (error) {
       if (isAuthError(error)) {
         clearSession();
         return;
       }
-      setCategoryLoadFailed(true);
+      // [다시 시도] 버튼이 서지 않는 자리(폼 안의 한 줄)라 문장만 받는다.
+      setCategoryLoadError(loadErrorMessage(error, "분류 목록을 불러오지 못해 지금은 고를 수 없어요."));
     }
   }, [session, clearSession]);
 
@@ -514,7 +516,7 @@ export default function ItemTemplatesPage() {
           idPrefix="create"
           mode="create"
           categoryOptions={createCategoryOptions}
-          categoryLoadFailed={categoryLoadFailed}
+          categoryLoadError={categoryLoadError}
         />
         {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
         {createSuccess ? (
@@ -532,10 +534,13 @@ export default function ItemTemplatesPage() {
         {items === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
-            {loadError}
-            <button type="button" className={styles.retryButton} onClick={loadItems}>
-              다시 시도
-            </button>
+            {loadError.message}
+            {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
+            {loadError.canRetry ? (
+              <button type="button" className={styles.retryButton} onClick={loadItems}>
+                다시 시도
+              </button>
+            ) : null}
           </p>
         ) : null}
 
@@ -643,7 +648,7 @@ export default function ItemTemplatesPage() {
                             idPrefix={`edit-${item.id}`}
                             mode="edit"
                             categoryOptions={editCategoryOptions}
-                            categoryLoadFailed={categoryLoadFailed}
+                            categoryLoadError={categoryLoadError}
                           />
                           {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
                           {editError ? <p className={styles.errorBanner}>{editError}</p> : null}

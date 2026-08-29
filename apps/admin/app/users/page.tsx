@@ -15,6 +15,7 @@ import {
   type AdminRole,
   type AdminUserAccount
 } from "../../src/lib/admin-api";
+import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import { isBlank, isEmailLike } from "../../src/lib/validation";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
@@ -90,7 +91,7 @@ function TempPasswordCallout({ notice, onDismiss }: { notice: TempPasswordNotice
 export default function AdminUsersPage() {
   const { session, clearSession } = useAdminSession();
   const [users, setUsers] = useState<AdminUserAccount[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
 
   const [createForm, setCreateForm] = useState<CreateFormState>(emptyCreateForm());
   const [creating, setCreating] = useState(false);
@@ -121,7 +122,7 @@ export default function AdminUsersPage() {
         clearSession();
         return;
       }
-      setLoadError("관리자 계정 목록을 불러오지 못했어요.");
+      setLoadError(loadErrorCopy(error, "관리자 계정 목록을 불러오지 못했어요."));
     }
   }, [session, clearSession]);
 
@@ -300,10 +301,13 @@ export default function AdminUsersPage() {
         {users === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
-            {loadError}
-            <button type="button" className={styles.retryButton} onClick={loadUsers}>
-              다시 시도
-            </button>
+            {loadError.message}
+            {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
+            {loadError.canRetry ? (
+              <button type="button" className={styles.retryButton} onClick={loadUsers}>
+                다시 시도
+              </button>
+            ) : null}
           </p>
         ) : null}
         {rowError ? <p className={styles.errorBanner}>{rowError}</p> : null}

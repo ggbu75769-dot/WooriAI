@@ -37,6 +37,127 @@ function requireEnv(name: string, hint: string): string {
   return value;
 }
 
+/* ---------------------------------------------------------------------------
+ * 라운드 73 트랙 A(GAP-073 #1ⓑⓓ) — **실사용자 빌드가 요구하는 EXPO_PUBLIC_* 한 자리.**
+ *
+ * 종전 이 스크립트가 fail-closed로 물은 EXPO_PUBLIC_*는 API 주소 **하나**였다. 그 하나에는
+ * 이유가 적혀 있었다 — "없으면 조용히 localhost dev 기본값이 실린다". 그런데 앱이 읽는 나머지
+ * 키들도 성질이 같은데(없어도 빌드는 끝까지 성공하고, 앱은 조용히 다른 것을 한다) 아무도 묻지
+ * 않았다. 그래서 카카오 키·약관 URL 없이 만든 AAB가 Play까지 올라갈 수 있었다.
+ *
+ * `buildChildEnv`가 `...process.env`를 펼치므로 값이 있으면 실린다 — 이 목록이 하는 일은
+ * **없을 때 빌드를 끝내지 않는 것**이고, 키마다 "없으면 사용자가 무엇을 잃는가"를 값으로 진다.
+ * 그 한 줄이 곧 거부 메시지다(DNC-019: 키 이름과 이유만 — 값은 어떤 경로로도 출력하지 않는다).
+ *
+ * 강제와 선택을 나눈다:
+ *  - **필수**: 없으면 앱이 오동작하거나(카카오) 읽지 못한 문서에 동의시킨다(약관·개인정보).
+ *  - **명시 opt-out**: 지원·FAQ는 페이지 호스팅이 사용자 자산이라 없을 수 있다. 다만
+ *    조용히 통과시키지 않는다 — `WOORIAI_ALLOW_MISSING_SUPPORT_LINKS=1`로 **적어야** 지나가고,
+ *    그때 무엇을 잃는지 출력한다(L-3이 예고한 그 상태를 침묵으로 두지 않는다).
+ * ------------------------------------------------------------------------- */
+type PublicEnvRequirement = {
+  key: string;
+  /** 없으면 사용자가 무엇을 잃는가. 거부 메시지에 그대로 실린다. */
+  loss: string;
+  /** 열 수 있는 http(s) 주소여야 하는 키(앱의 normalize 규칙과 같은 판정). */
+  httpUrl?: true;
+};
+
+const RELEASE_REQUIRED_PUBLIC_ENV: PublicEnvRequirement[] = [
+  {
+    key: "EXPO_PUBLIC_KAKAO_ENABLED",
+    loss:
+      '"1"이 아니면 앱이 실 카카오 대신 개발 스텁 경로로 로그인합니다 — 실사용자는 서버의 501(OAUTH_LOGIN_NOT_IMPLEMENTED)만 받고 ' +
+      "첫 화면에서 가입 자체를 못 합니다."
+  },
+  {
+    key: "EXPO_PUBLIC_KAKAO_CLIENT_ID",
+    loss: "카카오 앱 키가 없으면 실 카카오 로그인이 켜지지 않습니다(위와 같은 결과 — 실사용자가 가입할 수 없습니다)."
+  },
+  {
+    key: "EXPO_PUBLIC_KAKAO_REDIRECT_URI",
+    loss:
+      "리다이렉트 URI가 없으면 실 카카오 로그인이 켜지지 않습니다. 카카오 콘솔과 서버의 OAUTH_KAKAO_REDIRECT_URIS 양쪽에 등록된 값이어야 합니다."
+  },
+  {
+    key: "EXPO_PUBLIC_TERMS_URL",
+    loss: "로그인 화면의 이용약관 [보기] 링크가 서지 않습니다 — 사용자가 **읽지 못한 문서에 필수 동의**하게 됩니다.",
+    httpUrl: true
+  },
+  {
+    key: "EXPO_PUBLIC_PRIVACY_POLICY_URL",
+    loss:
+      "개인정보처리방침 [보기] 링크가 서지 않습니다 — 읽지 못한 문서에 필수 동의하게 되고, Play 등록 URL과 같은 값이어야 합니다.",
+    httpUrl: true
+  }
+];
+
+/** 명시 opt-out 플래그. 값이 "1"일 때만 아래 둘의 부재가 빌드를 통과한다. */
+const SUPPORT_LINKS_OPT_OUT = "WOORIAI_ALLOW_MISSING_SUPPORT_LINKS";
+
+const RELEASE_OPTIONAL_PUBLIC_ENV: PublicEnvRequirement[] = [
+  {
+    key: "EXPO_PUBLIC_SUPPORT_URL",
+    loss: "더보기·설정의 [고객 지원] 행이 서지 않습니다 — 앱 안에 도움으로 가는 길이 0건인 채로 나갑니다.",
+    httpUrl: true
+  },
+  {
+    key: "EXPO_PUBLIC_FAQ_URL",
+    loss: "더보기·설정의 [자주 묻는 질문] 행이 서지 않습니다 — 앱 안에 도움으로 가는 길이 0건인 채로 나갑니다.",
+    httpUrl: true
+  }
+];
+
+/** 앱의 normalize 규칙과 같은 판정(src/consent/legal-links.ts · src/settings/support-links.ts). */
+function assertHttpUrl(spec: PublicEnvRequirement) {
+  if (!spec.httpUrl) return;
+  const value = process.env[spec.key] ?? "";
+  if (!/^https?:\/\/\S+$/i.test(value.trim())) {
+    // 값은 출력하지 않는다(DNC-019) — 앱이 그 값을 어떻게 볼지만 말한다.
+    throw new Error(
+      `${spec.key}_NOT_HTTP_URL: 앱은 http(s):// 주소만 링크로 인정합니다(그 밖의 값은 주입되지 않은 것과 같이 취급합니다). ${spec.loss}`
+    );
+  }
+}
+
+/** 실사용자 빌드가 갖춰야 할 EXPO_PUBLIC_*를 fail-closed로 확인한다. */
+function validateReleasePublicEnv() {
+  // 목록이 비면 이 관문은 아무것도 묻지 않는 관문이 된다 — 그 상태를 조용히 두지 않는다.
+  if (RELEASE_REQUIRED_PUBLIC_ENV.length === 0) {
+    throw new Error(
+      "RELEASE_PUBLIC_ENV_LIST_EMPTY: 실사용자 빌드가 요구하는 EXPO_PUBLIC_* 목록이 비어 있습니다 " +
+        "(scripts/build-android-aab.ts의 RELEASE_REQUIRED_PUBLIC_ENV)."
+    );
+  }
+  for (const spec of RELEASE_REQUIRED_PUBLIC_ENV) {
+    requireEnv(spec.key, spec.loss);
+    assertHttpUrl(spec);
+  }
+  // 카카오는 "주입됐는가"가 아니라 "켜졌는가"를 묻는다 — 앱의 getKakaoEnvConfig()가 셋 중
+  // ENABLED만 "1" 비교이고, "0"이면 나머지 둘이 있어도 개발 스텁 경로가 선다.
+  if (process.env.EXPO_PUBLIC_KAKAO_ENABLED !== "1") {
+    throw new Error(
+      `EXPO_PUBLIC_KAKAO_ENABLED_NOT_ENABLED: ${RELEASE_REQUIRED_PUBLIC_ENV[0].loss} (허용 값은 "1" 하나입니다.)`
+    );
+  }
+
+  const missingOptional = RELEASE_OPTIONAL_PUBLIC_ENV.filter((spec) => !process.env[spec.key]?.trim());
+  const optedOut = process.env[SUPPORT_LINKS_OPT_OUT] === "1";
+  if (missingOptional.length > 0 && !optedOut) {
+    throw new Error(
+      `${missingOptional[0].key}_REQUIRED: ${missingOptional[0].loss} ` +
+        `도움 페이지 없이 내보내려면 ${SUPPORT_LINKS_OPT_OUT}=1로 명시하세요(그 선택은 아래 손실 안내와 함께 기록됩니다).`
+    );
+  }
+  // opt-out으로 지나가더라도 **무엇을 잃는지는 출력한다**(침묵 통과 금지).
+  for (const spec of missingOptional) {
+    console.warn(`[android:build-aab] ${SUPPORT_LINKS_OPT_OUT}=1 — ${spec.key} 없이 빌드합니다. ${spec.loss}`);
+  }
+  for (const spec of RELEASE_OPTIONAL_PUBLIC_ENV) {
+    if (process.env[spec.key]?.trim()) assertHttpUrl(spec);
+  }
+}
+
 // AAB는 항상 실사용자(production) 빌드다 — standalone/demo 프로필 없음.
 // keystore 경로는 절대경로로 정규화해서 넘긴다(gradle file()이 상대경로를 app/ 기준으로 풀기 때문).
 function validateEnv(): SigningEnv {
@@ -71,6 +192,9 @@ function validateEnv(): SigningEnv {
   if (!/^\d+$/.test(versionCode) || Number.parseInt(versionCode, 10) <= 0) {
     throw new Error(`WOORIAI_ANDROID_VERSION_CODE_INVALID: "${versionCode}" (양의 정수만 허용)`);
   }
+
+  // 라운드 73 트랙 A: 서명·정체성 다음은 **실사용자가 첫 화면에서 받는 것**이다.
+  validateReleasePublicEnv();
 
   return { keystorePath, keystorePassword, keyAlias, keyPassword, apiBaseUrl, androidPackage, appVersion, versionCode };
 }

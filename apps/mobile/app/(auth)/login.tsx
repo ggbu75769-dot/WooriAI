@@ -11,7 +11,14 @@ import {
   KakaoLoginError,
   loginWithKakao
 } from "../../src/auth/kakao-login";
-import { loginCtaLabel, loginFootnote, loginSubtitle } from "../../src/auth/login-copy";
+import {
+  loginCtaLabel,
+  loginFailureMessage,
+  loginFootnote,
+  loginSubtitle
+} from "../../src/auth/login-copy";
+// 라운드 73 트랙 A: "이 빌드가 무엇인가"는 "env가 주입됐는가"와 다른 질문이다.
+import { isDeveloperBuild } from "../../src/auth/release-build";
 import { legalDocumentUrls } from "../../src/consent/legal-links";
 import { SESSION_EXPIRED_LOGIN_NOTICE } from "../../src/offline/messages";
 import { shouldShowSessionExpiredNotice } from "../../src/offline/session-expiry";
@@ -240,13 +247,19 @@ export default function LoginScreen() {
         setLoginError(accountStatusMessage);
         return;
       }
-      // Untyped errors: on the real Kakao path these are network/API failures against the
-      // production server, so show production-appropriate copy; the "PC와 같은 Wi-Fi" hint
-      // stays reserved for the dev-stub path, where the API server really is a local process.
+      // 라운드 73 트랙 A: 타입 없는 실패(네트워크·서버)의 문구는 **빌드 성격**으로 갈린다.
+      // 종전 기준은 `isKakaoLoginAvailable()` 하나였는데 그것은 "env가 주입됐는가"라서,
+      // 카카오 키 없이 만든 스토어 빌드의 실사용자에게 개발자용 문장("PC와 같은 Wi-Fi…")이
+      // 그대로 나갔다. 두 문장은 바이트 그대로이고(src/auth/login-copy.ts), 바뀐 것은 갈래의
+      // 기준뿐이다 — 경로 선택(이 `login()` 함수 앞부분의
+      // `isKakaoLoginAvailable() ? await loginWithKakao() : await oauthLogin("kakao")` 삼항)은
+      // 손대지 않는다. (줄 번호로 가리키지 않는다 — 라운드 73 후속 리뷰 ⑤: 그 앵커는 이미
+      // 낡아 있었다.)
       setLoginError(
-        isKakaoLoginAvailable()
-          ? "로그인 중 문제가 발생했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요."
-          : "서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요."
+        loginFailureMessage({
+          developerBuild: isDeveloperBuild(),
+          kakaoConfigured: isKakaoLoginAvailable()
+        })
       );
     } finally {
       setIsLoginPending(false);

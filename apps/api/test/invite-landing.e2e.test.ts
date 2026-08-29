@@ -1,11 +1,21 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { PrismaService } from "../src/prisma/prisma.service";
+
+// 라운드 73 트랙 C: 이 페이지의 색은 DNC-017 v0.5의 승인 팔레트에서 온다. 값의 단일 소스를
+// 여기서도 **읽어서** 묻는 이유는, 소스 파일의 `<style>` 문자열이 아니라 **실제로 나간 응답**이
+// 그 값을 실었는지가 이 트랙이 고치려는 결함이기 때문이다(표면 쪽 계약은
+// packages/test-utils/src/public-surface-brand.test.ts).
+const brandTokens = JSON.parse(
+  readFileSync(fileURLToPath(new URL("../../../docs/brand/brand-tokens.json", import.meta.url)), "utf8")
+) as { locked: Record<string, string>; retired: { value: string }[] };
 
 // L8: public HTML landing page for invite links -- GET /invite/:token, OUTSIDE the
 // api/v1 prefix, matching the URL createInvite hands out
@@ -105,6 +115,36 @@ describe("Public invite landing page (GET /invite/:token)", () => {
     const bogus = await request(app.getHttpServer()).get(`/invite/${randomUUID()}`).expect(200);
     expect(expired.text).toBe(bogus.text);
     expect(expired.text).toContain("초대가 만료되었거나 유효하지 않아요");
+  });
+
+  it("serves the approved brand palette (DNC-017 v0.5) on both the pending and the unavailable page", async () => {
+    const { accessToken, householdId } = await login();
+    const token = await createInviteToken(accessToken, householdId);
+
+    const pending = await request(app.getHttpServer()).get(`/invite/${token}`).expect(200);
+    const unavailable = await request(app.getHttpServer()).get(`/invite/${randomUUID()}`).expect(200);
+
+    for (const response of [pending, unavailable]) {
+      // 응답이 실제로 나른 값 — 앱(#C94627/#FFFDFC)과 같은 브랜드다.
+      expect(response.text).toContain(`background: ${brandTokens.locked.background};`);
+      expect(response.text).toContain(`color: ${brandTokens.locked.primary};`);
+      // 폐기 팔레트가 응답에 0건이다(부정 단언).
+      for (const retired of brandTokens.retired) {
+        expect(response.text.toUpperCase()).not.toContain(retired.value.toUpperCase());
+      }
+    }
+
+    // 초대받은 사람이 누르는 버튼: 승인 Primary 위의 흰 텍스트(AA 4.78:1).
+    expect(pending.text).toContain(`.cta { display: inline-block; background: ${brandTokens.locked.primary}; color: #FFFFFF;`);
+
+    // 색이 바뀌어도 라운드 70 A가 세운 자리는 그대로다 — 200 · 오라클 없음 · 헤더 셋.
+    for (const response of [pending, unavailable]) {
+      expect(response.headers["content-type"]).toMatch(/^text\/html/);
+      expect(response.headers["cache-control"]).toBe("no-store");
+      expect(response.headers["x-frame-options"]).toBe("DENY");
+    }
+    expect(unavailable.text).toContain("초대가 만료되었거나 유효하지 않아요");
+    expect(unavailable.text).not.toContain("wooriai://family/accept/");
   });
 
   it("leaves the api/v1 routes unaffected: JSON invite lookup still works and the landing page is not under the prefix", async () => {

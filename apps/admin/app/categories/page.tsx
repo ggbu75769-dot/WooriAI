@@ -24,6 +24,7 @@ import {
   type CategoryDraft,
   type CategoryFilter
 } from "../../src/lib/category-rows";
+import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
@@ -41,7 +42,7 @@ export default function CategoriesPage() {
   const { session, clearSession } = useAdminSession();
 
   const [categories, setCategories] = useState<AdminCategory[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
   const [filter, setFilter] = useState<CategoryFilter>(emptyCategoryFilter());
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -63,11 +64,9 @@ export default function CategoriesPage() {
         clearSession();
         return;
       }
-      setLoadError(
-        isTimeoutError(error)
-          ? "카테고리를 불러오는 데 시간이 너무 오래 걸렸어요. 잠시 후 다시 시도해 주세요."
-          : "카테고리 목록을 불러오지 못했어요."
-      );
+      // 라운드 73 트랙 D: 타임아웃 문장을 화면이 따로 짓지 않는다 — 네 갈래 전부
+      // admin-api.ts가 이미 만든 문장이고, 판정은 한 벌(load-error-copy.ts)이 한다.
+      setLoadError(loadErrorCopy(error, "카테고리 목록을 불러오지 못했어요."));
     }
   }, [session, clearSession]);
 
@@ -203,10 +202,13 @@ export default function CategoriesPage() {
         {categories === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
-            {loadError}
-            <button type="button" className={styles.retryButton} onClick={loadCategories}>
-              다시 시도
-            </button>
+            {loadError.message}
+            {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
+            {loadError.canRetry ? (
+              <button type="button" className={styles.retryButton} onClick={loadCategories}>
+                다시 시도
+              </button>
+            ) : null}
           </p>
         ) : null}
         {rowError ? <p className={styles.errorBanner}>{rowError}</p> : null}

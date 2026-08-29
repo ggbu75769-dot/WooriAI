@@ -169,8 +169,11 @@ describe("로그인 화면의 약관 링크 (source contract)", () => {
       "const result = isKakaoLoginAvailable() ? await loginWithKakao() : await oauthLogin(\"kakao\");",
       "if (error instanceof KakaoLoginCancelledError) return;",
       "const accountStatusMessage = accountStatusErrorMessage(error);",
-      '? "로그인 중 문제가 발생했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요."',
-      ': "서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요."',
+      // 라운드 73 트랙 A: 실패 문구 두 갈래는 src/auth/login-copy.ts로 옮겨 갔다(문장은 바이트
+      // 그대로이고 바뀐 것은 갈래의 기준이다 — 그 계약은 src/auth/release-build.test.ts가 진다).
+      // 여기서는 이 트랙(링크 열기)이 그 자리를 건드리지 않았다는 사실만 확인한다.
+      "loginFailureMessage({",
+      "kakaoConfigured: isKakaoLoginAvailable()",
       "await upsertConsents(result.tokens.accessToken).catch(() => undefined);",
       'router.replace(inviteResumeHref ?? "/onboarding/child-status");',
       "startTestSession();",

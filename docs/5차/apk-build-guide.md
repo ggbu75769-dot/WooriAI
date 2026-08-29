@@ -148,6 +148,44 @@ eas env:create
 > `eas.json`의 `cli.appVersionSource`는 `local`이에요. 버전은 위 env → config plugin이 정하고,
 > EAS가 임의로 증가시키지 않아요(로컬 AAB 빌드와 값이 어긋나지 않게).
 
+### 3-1. 실사용자 빌드가 요구하는 `EXPO_PUBLIC_*` — 클라우드에는 관문이 없어요
+
+로컬 AAB 빌드(`pnpm android:build-aab`)는 아래 키가 없으면 **빌드를 거부**해요
+(`scripts/build-android-aab.ts`의 `RELEASE_REQUIRED_PUBLIC_ENV` — 키마다 "없으면 사용자가 무엇을
+잃는가"가 한 줄씩 붙어 있고, 그 줄이 곧 거부 메시지예요). **EAS 클라우드 빌드는 그 스크립트를
+거치지 않으므로 이 관문이 아예 없어요.** `eas.json`의 `env`도 이 값들을 담지 않아요 — 실 키·실
+주소를 저장소에 커밋하지 않기 때문이에요(§7). 그래서 클라우드로 실사용자 빌드(`production`,
+`production-apk`)를 낼 때는 **아래를 EAS 환경변수(`production` 환경)로 직접 넣고, 빌드 전에 눈으로
+확인**해야 해요.
+
+| 키 | 없으면 벌어지는 일 |
+|---|---|
+| `EXPO_PUBLIC_API_BASE_URL` | 앱이 조용히 `http://localhost:3000/api/v1`을 봐요 (§3) |
+| `EXPO_PUBLIC_KAKAO_ENABLED` | `"1"`이 아니면 실 카카오 대신 개발 스텁 경로로 로그인해요 — 실사용자는 서버의 501만 받고 가입 자체를 못 해요 |
+| `EXPO_PUBLIC_KAKAO_CLIENT_ID` | 위와 같은 결과 — 실 카카오 로그인이 켜지지 않아요 |
+| `EXPO_PUBLIC_KAKAO_REDIRECT_URI` | 위와 같은 결과. 카카오 콘솔과 서버 `OAUTH_KAKAO_REDIRECT_URIS` 양쪽에 등록된 값이어야 해요 |
+| `EXPO_PUBLIC_TERMS_URL` | 로그인 화면의 이용약관 [보기] 링크가 서지 않아요 — 읽지 못한 문서에 필수 동의하게 돼요 |
+| `EXPO_PUBLIC_PRIVACY_POLICY_URL` | 개인정보처리방침 [보기] 링크가 서지 않아요. Play 등록 URL과 같은 값이어야 해요 |
+| `EXPO_PUBLIC_SUPPORT_URL` · `EXPO_PUBLIC_FAQ_URL` | 더보기·설정의 도움 행이 서지 않아요(앱 안에 도움으로 가는 길이 0건). 로컬 관문은 `WOORIAI_ALLOW_MISSING_SUPPORT_LINKS=1`로 **명시**해야 지나가요 |
+
+빌드 직전 확인:
+
+```bash
+cd apps/mobile
+eas env:list --environment production   # 위 표의 키가 전부 있는지 눈으로 대조
+```
+
+- URL 키들(`TERMS`·`PRIVACY_POLICY`·`SUPPORT`·`FAQ`)은 앱이 `http(s)://`만 링크로 인정해요.
+  그 밖의 값은 **주입되지 않은 것과 같이** 취급돼서 링크가 그냥 사라져요.
+- 레포 쪽 드리프트(코드가 읽는데 카탈로그·`.env.example` 어디에도 없는 키)는
+  `pnpm check:env --scope=mobile`이 잡아요. 이 명령은 **EAS 서버의 값을 보지 못하므로** 위
+  `eas env:list` 대조를 대신하지 못해요 — 둘 다 하세요.
+- ⚠️ **`eas.json`에 검증 훅을 넣을 수는 없어요.** 빌드 프로필의 `prebuildCommand`는 임의 명령이
+  아니라 `npx expo <여기>`의 **인자**로 쓰여요(`@expo/build-tools`의 `getPrebuildCommandArgs`가
+  `npx `/`expo ` 접두를 떼고 `--platform`을 덧붙여 `expo prebuild`에 넘겨요 — 그 파일에는
+  "deprecate prebuildCommand" TODO도 붙어 있어요). 검증 스크립트를 적으면 prebuild 자체가
+  깨지므로 넣지 않았어요. 클라우드 경로의 방어선은 **이 표 + 위 대조 + 회귀 테스트**(§6)예요.
+
 ---
 
 ## 4. 로컬에서 빌드하기 (Android SDK가 있을 때)
@@ -179,7 +217,7 @@ EXPO_PUBLIC_API_BASE_URL="https://api.내도메인.kr/api/v1" pnpm android:build
 | 서명 키 | **EAS가 생성·보관** (권장) 또는 내 keystore 업로드 | 내 keystore 파일 (env로 경로·비밀번호 전달) |
 | 키 분실 위험 | 낮음(EAS 서버에 보관, 내려받기 가능) | 내가 백업 안 하면 **앱 영구 업데이트 불가** |
 | 필요한 env | `WOORIAI_APP_VERSION`, `WOORIAI_ANDROID_VERSION_CODE`, `EXPO_PUBLIC_API_BASE_URL` (EAS 환경변수) | 위 3개 + `WOORIAI_UPLOAD_KEYSTORE(_PASSWORD)`, `WOORIAI_UPLOAD_KEY_ALIAS`, `WOORIAI_UPLOAD_KEY_PASSWORD` |
-| 사전 검증 | 없음(값 직접 확인) | `pnpm android:build-aab -- --check` 로 env·prebuild·서명 주입만 검사 가능 |
+| 사전 검증 | **fail-closed 관문 없음** — §3-1의 키 표를 `eas env:list --environment production`으로 대조하고, 레포 쪽은 `pnpm check:env --scope=mobile`로 점검 | `pnpm android:build-aab -- --check` 로 env·prebuild·서명 주입까지 검사 (없는 키가 있으면 빌드 거부) |
 | PC 준비물 | 없음 | JDK 17 + Android SDK |
 | 업로드 | `eas submit -p android --profile production` 또는 파일 수동 업로드 | Play Console에 파일 수동 업로드 |
 
@@ -223,6 +261,9 @@ EXPO_PUBLIC_API_BASE_URL="https://api.내도메인.kr/api/v1" pnpm android:build
   (`allowUnknown: false`)로 통과를 확인했어요. 필드를 추가할 땐 같은 방식으로 검증하세요.
 - **회귀 방지 테스트**: `apps/mobile/src/eas-cloud-build-profiles.test.ts` — 실사용자 프로필에 테스트 로그인이
   켜지지 않는지, APK/AAB 산출물 종류, API 주소·비밀값이 `eas.json`에 박히지 않았는지를 잠가 둬요.
+  라운드 73 후속으로 하나가 더 붙었어요: `scripts/build-android-aab.ts`의 `RELEASE_REQUIRED_PUBLIC_ENV`를
+  **소스에서 읽어**, 실사용자 프로필의 `env`가 덮지 않는 키마다 §3-1이 그 키를 **이름으로** 적고 있는지
+  대조해요. 로컬 관문에 키가 늘면 이 문서가 먼저 빨개져요.
   (`pnpm --filter mobile test`에 포함돼요.)
 
 ---
