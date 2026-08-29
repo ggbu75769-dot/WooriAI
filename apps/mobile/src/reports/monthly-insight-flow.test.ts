@@ -20,9 +20,10 @@ describe("UX-F 리포트 인사이트 배선", () => {
     expect(reportSource).toContain("categoryLabel: categoryName");
     expect(reportSource).toContain("previousMonthTotalKrw: previousMonth.isSuccess ? previousMonth.data.totalExpenseKrw : null");
 
-    // REP-128의 요청 예산을 그대로 지킨다: getMonthlyReport 호출부는 여전히 세 곳뿐이고,
-    // 인사이트를 위해 지출 행 목록을 새로 불러오지도 않는다.
-    expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(3);
+    // 요청 예산을 그대로 지킨다: getMonthlyReport 호출부는 이번 달·지난 달 카드 둘뿐이고
+    // (GAP-067 트랙 A(#6) 이후 분기도 범위 질의 하나다), 인사이트를 위해 지출 행 목록을
+    // 새로 불러오지도 않는다.
+    expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(2);
     expect(reportSource).not.toContain("listExpenses(");
   });
 

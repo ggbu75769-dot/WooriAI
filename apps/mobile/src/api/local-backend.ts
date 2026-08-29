@@ -51,6 +51,7 @@ import type {
   SettingsConfirmResponse,
   SettingsPreview,
   TrendReport,
+  UndoImportResponse,
   YearlyReport
 } from "./client";
 
@@ -178,6 +179,12 @@ type LocalImportJobRecord = {
   rowCount: number;
   candidateCount: number;
   importedCount: number;
+  /**
+   * 라운드 67 #3: 이 잡이 만든 지출 id들 — 서버의 `expenses.import_job_id`를 로컬 세션에서
+   * 대신하는 값이다(로컬 지출 레코드는 서버 컬럼을 미러하지 않으므로 잡 쪽에 적는다).
+   * 옛 저장본에는 없으므로 optional이고, 없으면 되돌릴 것이 없는 것으로 읽는다.
+   */
+  importedExpenseIds?: string[];
 };
 
 type LocalImportRowRecord = {
@@ -1695,8 +1702,9 @@ export function confirmImport(importJobId: string, selectedRowIds: string[]): Co
   const selectedRows = rows.filter((row) => (hasExplicitSelection ? selectedIdSet.has(row.id) : row.selected));
   const importableRows = selectedRows.filter((row) => validationStatusForImportRow(row) === "valid");
 
+  const importedExpenseIds: string[] = [];
   for (const row of importableRows) {
-    createExpense(job.childId, {
+    const created = createExpense(job.childId, {
       categoryId: row.categoryId!,
       amountKrw: row.parsedAmountKrw!,
       spentOn: row.parsedDate!,
@@ -1704,14 +1712,50 @@ export function confirmImport(importJobId: string, selectedRowIds: string[]): Co
       paymentMethod: "unknown",
       source: "excel_import"
     });
+    // 라운드 67 #3: 되돌리기가 지울 대상. 서버는 지출 행의 `import_job_id`로 세지만 로컬
+    // 지출 레코드에는 그 칸이 없으므로 잡 쪽에 적는다.
+    importedExpenseIds.push(created.id);
   }
 
-  const confirmedJob: LocalImportJobRecord = { ...job, status: "confirmed", importedCount: importableRows.length };
+  const confirmedJob: LocalImportJobRecord = {
+    ...job,
+    status: "confirmed",
+    importedCount: importableRows.length,
+    importedExpenseIds
+  };
   useLocalBackendStore.setState((state) => ({
     importJobs: state.importJobs.map((record) => (record.id === importJobId ? confirmedJob : record))
   }));
 
   return { importedCount: importableRows.length, skippedCount: selectedRows.length - importableRows.length };
+}
+
+/**
+ * 라운드 67 #3 — 데모 세션의 되돌리기. 서버와 **같은 결론**을 낸다: 그 잡이 만든 지출 중
+ * 아직 살아 있는 것만 soft delete하고(version +1 — 개별 삭제와 같은 형태) 지운 건수를
+ * 돌려준다. 두 번 부르면 두 번째는 0건이다(멱등).
+ */
+export function undoImport(importJobId: string): UndoImportResponse {
+  const job = requireImportJob(importJobId);
+  if (job.status !== "confirmed") {
+    throw new Error("되돌릴 수 있는 가져오기가 아니에요.");
+  }
+
+  const targetIds = new Set(job.importedExpenseIds ?? []);
+  const now = new Date().toISOString();
+  // 세는 것과 쓰는 것을 나눈다 — set 콜백 안에서 세면 그 콜백이 몇 번 도는지에 건수가 매인다.
+  const doomedIds = new Set(
+    useLocalBackendStore
+      .getState()
+      .expenses.filter((record) => targetIds.has(record.id) && !record.deletedAt)
+      .map((record) => record.id)
+  );
+  useLocalBackendStore.setState((state) => ({
+    expenses: state.expenses.map((record) =>
+      doomedIds.has(record.id) ? { ...record, deletedAt: now, updatedAt: now, version: record.version + 1 } : record
+    )
+  }));
+  return { deletedCount: doomedIds.size };
 }
 
 // ---------------------------------------------------------------------------

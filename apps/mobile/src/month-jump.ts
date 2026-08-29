@@ -30,6 +30,15 @@ import { MAX_PAST_MONTH_OFFSET, resolveInitialMonthOffset } from "./expenses/imp
  * 1월은 그 임신 전체를 반드시 포함한다. 달 단위로 더 좁게 자를 수도 있지만, 좁힐수록 "기록이
  * 있는데 고를 수 없는 달"이 생길 위험만 커지고 얻는 것은 격자 몇 칸뿐이다.
  *
+ * ## 라운드 67 트랙 C(#5) — 세 번째 화면(CSV 내보내기)이 같은 시트를 연다
+ *
+ * 내보내기의 "직접 선택"도 시작/끝 달을 ±1 스테퍼로만 옮기고 있었다(최대 120번). 그 화면이 이
+ * 시트를 그대로 쓰되, 규칙 둘이 다르다 — 상한이 **이번 달이 아니라 반대쪽 끝**일 수 있고(시작 ≤
+ * 끝), 하한이 아이 날짜가 아니라 **범위 상한**(CUSTOM_RANGE_MAX_MONTHS)에서 온다. 그래서 이
+ * 모듈이 넓힌 것은 `MonthJumpBounds`의 **optional 세 칸**뿐이다(`latestYearMonth` ·
+ * 이유 문장 둘). **화면별 규칙은 여기 들어오지 않는다** — 규칙은 인자로 들어오고, 넘기지 않는
+ * 기존 두 호출부의 답은 한 글자도 바뀌지 않는다(src/month-jump.test.ts가 그 사실을 붙든다).
+ *
  * react/react-native 의존 없음 — 화면을 띄우지 않고 vitest로 고정한다(src/month-jump.test.ts).
  */
 
@@ -63,8 +72,33 @@ export type MonthJumpChildRef = {
 export type MonthJumpBounds = {
   /** 오늘(서울 기준) `YYYY-MM-DD`. 화면이 이미 계산해 둔 `getSeoulToday()` 값을 그대로 넘긴다. */
   todayIso: string;
-  /** 아이 날짜에서 파생한 하한 `YYYY-MM`. 모르면 null/undefined(하한 없음). */
+  /**
+   * 화면이 정한 하한 `YYYY-MM`. 모르면 null/undefined(하한 없음 — 20년 절대 바닥만 남는다).
+   *
+   * 기록·리포트 두 탭은 **아이 날짜에서 파생**한 값을 넘기고(`resolveMonthJumpEarliestMonth`),
+   * 라운드 67 트랙 C(#5)의 내보내기 화면은 **자기 범위 규칙**을 넘긴다(시작 달은 10년 상한,
+   * 끝 달은 시작 달). 하한을 어디서 얻는지는 화면의 몫이고 이 모듈은 받은 값만 쓴다.
+   */
   earliestYearMonth?: string | null;
+  /**
+   * 라운드 67 트랙 C(#5) 가산 — 화면이 정한 **상한** `YYYY-MM`. 없으면 **이번 달**이다(기록·
+   * 리포트 두 탭이 쓰는 그 규칙 그대로라, 넘기지 않는 호출부의 동작은 한 칸도 바뀌지 않는다).
+   *
+   * 이번 달보다 뒤인 값은 이번 달로 접는다 — **미래 달은 어느 화면에서도 고를 수 없다**는
+   * 이 시트의 규칙(`canGoToNextPeriod`와 같은 규칙)을 인자가 넓히지 못하게 한다.
+   */
+  latestYearMonth?: string | null;
+  /**
+   * 상한 너머(그러나 **미래는 아닌**) 칸의 이유 문장. 그런 칸은 `latestYearMonth`를 이번 달보다
+   * 앞으로 넘긴 화면에서만 생기므로, 그 문장도 그 화면이 준다(시트 안에 화면별 규칙을 넣지
+   * 않는다). 없으면 이유를 붙이지 않는다 — 없는 이유를 지어내지 않는다.
+   */
+  beyondLatestHint?: string | null;
+  /**
+   * 하한 이전 칸의 이유 문장. 없으면 기록·리포트 두 탭의 기존 문장
+   * (`MONTH_JUMP_BEFORE_START_HINT`)이라, 넘기지 않는 호출부는 종전과 한 글자도 다르지 않다.
+   */
+  beforeEarliestHint?: string | null;
 };
 
 export type MonthJumpCell = {
@@ -173,17 +207,30 @@ export function monthJumpFloorYearMonth(bounds: MonthJumpBounds): string | null 
 }
 
 /**
- * 이 달을 고를 수 있는가 = **미래가 아니고**(canGoToNextPeriod와 같은 규칙) **하한보다 앞이
- * 아닌가**.
+ * 실제로 적용되는 **상한** `YYYY-MM`. 화면이 `latestYearMonth`를 주지 않으면 이번 달이고,
+ * 주더라도 이번 달을 넘지 못한다(라운드 67 트랙 C — 위 필드 주석). 오늘을 읽을 수 없으면 null.
+ */
+export function monthJumpCeilingYearMonth(bounds: MonthJumpBounds): string | null {
+  const current = currentYearMonth(bounds.todayIso);
+  if (current === null) return null;
+  const requested = parseYearMonth(bounds.latestYearMonth) ? (bounds.latestYearMonth as string) : null;
+  if (requested === null) return current;
+  // "YYYY-MM"은 사전순이 곧 시간순이다.
+  return requested < current ? requested : current;
+}
+
+/**
+ * 이 달을 고를 수 있는가 = **상한 너머가 아니고**(기본 상한은 이번 달 — canGoToNextPeriod와 같은
+ * 규칙) **하한보다 앞이 아닌가**.
  *
  * 오늘을 읽을 수 없거나 달 형식이 어긋나면 false다 — 기준을 모르는 채로 열어 두면 고른 달이
  * 오프셋 0으로 떨어져 "골랐는데 이번 달"이 된다.
  */
 export function isMonthJumpSelectable(yearMonth: string, bounds: MonthJumpBounds): boolean {
   if (!parseYearMonth(yearMonth)) return false;
-  const current = currentYearMonth(bounds.todayIso);
-  if (current === null) return false;
-  if (yearMonth > current) return false;
+  const ceiling = monthJumpCeilingYearMonth(bounds);
+  if (ceiling === null) return false;
+  if (yearMonth > ceiling) return false;
   const floor = monthJumpFloorYearMonth(bounds);
   return floor === null ? false : yearMonth >= floor;
 }
@@ -221,12 +268,38 @@ export function resolveMonthJumpOffset(yearMonth: string, todayIso: string): num
   return resolveInitialMonthOffset({ monthParam: yearMonth, todayIso });
 }
 
+/**
+ * 못 고르는 칸의 **이유** 한 문장, 또는 null.
+ *
+ * 세 갈래다. ⓐ **미래**는 어느 화면에서나 같은 사실이라 문장도 한 벌이다(화면이 못 바꾼다 —
+ * 오지 않은 달을 다른 이름으로 부를 이유가 없다). ⓑ **상한 너머지만 미래는 아닌** 칸은 화면이
+ * 상한을 좁혔을 때만 생기므로 그 화면이 문장을 주고, 안 주면 이유를 붙이지 않는다(지어내지
+ * 않는다). ⓒ **하한 이전**은 기본이 기록·리포트의 기존 문장이고 화면이 덮어쓸 수 있다.
+ */
+function monthJumpCellReason(input: {
+  isFuture: boolean;
+  isBeyondCeiling: boolean;
+  bounds: MonthJumpBounds;
+}): string | null {
+  if (input.isFuture) return MONTH_JUMP_FUTURE_HINT;
+  if (input.isBeyondCeiling) {
+    return typeof input.bounds.beyondLatestHint === "string" && input.bounds.beyondLatestHint.length > 0
+      ? input.bounds.beyondLatestHint
+      : null;
+  }
+  return typeof input.bounds.beforeEarliestHint === "string" && input.bounds.beforeEarliestHint.length > 0
+    ? input.bounds.beforeEarliestHint
+    : MONTH_JUMP_BEFORE_START_HINT;
+}
+
 function monthJumpCellAccessibilityLabel(input: {
   yearMonth: string;
   isSelectable: boolean;
   isSelected: boolean;
   isCurrentMonth: boolean;
   isFuture: boolean;
+  isBeyondCeiling: boolean;
+  bounds: MonthJumpBounds;
 }): string {
   const parts: string[] = [];
   if (input.isCurrentMonth) parts.push("이번 달");
@@ -234,7 +307,8 @@ function monthJumpCellAccessibilityLabel(input: {
   if (input.isSelected) {
     parts.push("선택됨");
   } else if (!input.isSelectable) {
-    parts.push(input.isFuture ? MONTH_JUMP_FUTURE_HINT : MONTH_JUMP_BEFORE_START_HINT);
+    const reason = monthJumpCellReason(input);
+    if (reason !== null) parts.push(reason);
   }
   return parts.join(", ");
 }
@@ -243,7 +317,8 @@ function monthJumpCellAccessibilityLabel(input: {
  * 한 해치 격자(12칸) + 연도 스테퍼의 잠금 판정.
  *
  * 연도 이동은 **고를 수 있는 달이 하나라도 있는 해**로만 간다(월 달력 픽커의 "고를 수 있는 칸이
- * 하나도 없는 달은 열지 않는다"와 같은 규칙): 다음 해는 올해까지, 이전 해는 하한이 든 해까지다.
+ * 하나도 없는 달은 열지 않는다"와 같은 규칙): 다음 해는 상한이 든 해까지(기본은 올해), 이전 해는
+ * 하한이 든 해까지다.
  */
 export function buildMonthJumpYear(input: {
   year: number;
@@ -252,6 +327,7 @@ export function buildMonthJumpYear(input: {
   bounds: MonthJumpBounds;
 }): MonthJumpYear {
   const current = currentYearMonth(input.bounds.todayIso);
+  const ceiling = monthJumpCeilingYearMonth(input.bounds);
   const floor = monthJumpFloorYearMonth(input.bounds);
   const cells = Array.from({ length: 12 }, (_, index) => {
     const month = index + 1;
@@ -272,17 +348,19 @@ export function buildMonthJumpYear(input: {
         isSelectable,
         isSelected,
         isCurrentMonth,
-        isFuture
+        isFuture,
+        isBeyondCeiling: ceiling !== null && yearMonth > ceiling,
+        bounds: input.bounds
       })
     } satisfies MonthJumpCell;
   });
-  const currentYear = current === null ? null : Number(current.slice(0, 4));
+  const ceilingYear = ceiling === null ? null : Number(ceiling.slice(0, 4));
   const floorYear = floor === null ? null : Number(floor.slice(0, 4));
   return {
     year: input.year,
     yearLabel: `${input.year}년`,
     cells,
     canGoPreviousYear: floorYear !== null && input.year - 1 >= floorYear,
-    canGoNextYear: currentYear !== null && input.year + 1 <= currentYear
+    canGoNextYear: ceilingYear !== null && input.year + 1 <= ceilingYear
   };
 }

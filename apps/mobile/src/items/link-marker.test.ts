@@ -685,7 +685,9 @@ describe("라운드 64 #5ⓐ: 공유 메시지의 제휴 고지", () => {
     const detail = detailSource();
 
     expect(detail).toContain("message: purchaseLinkShareMessage({");
-    expect(detail).toContain("url: linkOpenFallback.redirectUrl,");
+    // 라운드 67 #4: 나가는 URL은 서버가 만든 공유 URL(`/r/:code`)이고, 없으면 종전 URL로
+    // 떨어진다. 고지 조립 자체는 이 함수 한 자리 그대로다 — 바뀐 것은 넘기는 `url` 하나뿐이다.
+    expect(detail).toContain("url: linkOpenFallback.shareUrl ?? linkOpenFallback.redirectUrl,");
     expect(detail).toContain("link: linkOpenFallback.link,");
     expect(detail).toContain("disclosureText: linkOpenFallback.disclosureText");
     expect(detail).not.toContain("Share.share({ message: linkOpenFallback.redirectUrl })");

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Expense } from "../api/client";
 import {
+  addMonthsToYearMonth,
   ALL_EMPTY_MONTH_STOP,
   ALL_MAX_MONTHS,
   canShiftCustomRange,
@@ -8,13 +9,18 @@ import {
   CUSTOM_RANGE_MAX_MONTHS,
   customRangeBounds,
   customRangeLabel,
+  customRangeMonthJumpBounds,
   defaultCustomRange,
+  EXPORT_MONTH_JUMP_AFTER_END_HINT,
+  EXPORT_MONTH_JUMP_BEFORE_EARLIEST_HINT,
+  EXPORT_MONTH_JUMP_BEFORE_START_HINT,
   EXPORT_FILE_NAME_CHILD_MAX_LENGTH,
   EXPORT_RANGE_OPTIONS,
   exportFileName,
   exportFileNameChildSegment,
   isExpenseInCustomRange,
   normalizeCustomRange,
+  selectCustomRangeMonth,
   shiftCustomRange,
   yearMonthLabel,
   yearMonthsBetween,
@@ -495,5 +501,69 @@ describe("GAP-054 D#11 사용자 지정 기간", () => {
       "2026-02",
       "2026-03"
     ]);
+  });
+});
+
+/**
+ * 라운드 67 트랙 C(#5) — 시작/끝 달을 **달 점프 시트**로도 고른다.
+ *
+ * 이 describe가 지는 사실 셋:
+ *  1. 시트에 넘기는 경계가 **화살표가 이미 말하는 그 두 규칙**과 같은 답을 낸다(새 규칙 0건).
+ *  2. 하한은 이 화면의 것이다 — 아이 날짜가 아니라 `CUSTOM_RANGE_MAX_MONTHS`.
+ *  3. 고른 달은 기존 정규화를 그대로 지난다(시작>끝·미래 달·길이 상한 규칙 불변).
+ */
+describe("라운드 67 트랙 C(#5) 내보내기 달 점프", () => {
+  const today = "2026-08-14";
+
+  it("시트 경계가 화살표와 같은 답을 낸다 (시작 ≤ 끝 · 끝 ≤ 이번 달)", () => {
+    const range = { startYearMonth: "2026-03", endYearMonth: "2026-06" };
+    const start = customRangeMonthJumpBounds(range, "start", today);
+    const end = customRangeMonthJumpBounds(range, "end", today);
+    // 시작 달의 상한은 끝 달, 하한은 10년 상한이 정한 그 달이다.
+    expect(start.latestYearMonth).toBe("2026-06");
+    expect(start.earliestYearMonth).toBe(customRangeBounds(today).earliest);
+    // 끝 달의 하한은 시작 달, 상한은 시트의 기본값(이번 달)이라 넘기지 않는다.
+    expect(end.earliestYearMonth).toBe("2026-03");
+    expect(end.latestYearMonth).toBeUndefined();
+    // 두 화면이 같은 사실을 말한다: 화살표가 못 가는 곳은 시트에서도 고를 수 없다.
+    expect(canShiftCustomRange({ startYearMonth: "2026-06", endYearMonth: "2026-06" }, "start", 1, today)).toBe(false);
+    expect(selectCustomRangeMonth(range, "start", "2026-07", today)).toEqual(range);
+    expect(selectCustomRangeMonth(range, "end", "2026-02", today)).toEqual(range);
+    expect(selectCustomRangeMonth(range, "end", "2026-09", today)).toEqual(range);
+  });
+
+  it("이유 문장은 이 화면의 것이다 — 하한이 아이 날짜가 아니라 10년 상한에서 온다", () => {
+    const bounds = customRangeMonthJumpBounds({ startYearMonth: "2026-03", endYearMonth: "2026-06" }, "start", today);
+    expect(bounds.beyondLatestHint).toBe(EXPORT_MONTH_JUMP_AFTER_END_HINT);
+    expect(bounds.beforeEarliestHint).toBe(EXPORT_MONTH_JUMP_BEFORE_EARLIEST_HINT);
+    // 숫자를 문장에 다시 적지 않는다(상한 상수에서 읽는다).
+    expect(EXPORT_MONTH_JUMP_BEFORE_EARLIEST_HINT).toContain(String(CUSTOM_RANGE_MAX_MONTHS / 12));
+    expect(customRangeMonthJumpBounds({ startYearMonth: "2026-03", endYearMonth: "2026-06" }, "end", today))
+      .toMatchObject({ beforeEarliestHint: EXPORT_MONTH_JUMP_BEFORE_START_HINT });
+    // 아이 기록 문장은 이 화면에 오지 않는다.
+    expect(bounds.beforeEarliestHint).not.toContain("아이 기록");
+  });
+
+  it("고른 달은 한쪽 끝만 옮기고, 반대쪽은 사용자가 고른 그대로다", () => {
+    const range = { startYearMonth: "2026-03", endYearMonth: "2026-06" };
+    expect(selectCustomRangeMonth(range, "start", "2025-11", today)).toEqual({
+      startYearMonth: "2025-11",
+      endYearMonth: "2026-06"
+    });
+    expect(selectCustomRangeMonth(range, "end", "2026-08", today)).toEqual({
+      startYearMonth: "2026-03",
+      endYearMonth: "2026-08"
+    });
+    // 10년 하한 밖은 시트에서 애초에 잠기고, 값도 움직이지 않는다.
+    const earliest = customRangeBounds(today).earliest;
+    expect(selectCustomRangeMonth(range, "start", earliest, today).startYearMonth).toBe(earliest);
+    expect(selectCustomRangeMonth(range, "start", addMonthsToYearMonth(earliest, -1), today)).toEqual(range);
+    // 형식이 깨진 값도 아무 일을 하지 않는다(없는 달을 해석하지 않는다).
+    expect(selectCustomRangeMonth(range, "start", "2026-3", today)).toEqual(range);
+    // 깨진 현재 값에서 시작해도 기존 정규화가 먼저 접는다(이번 달 한 달).
+    expect(selectCustomRangeMonth(null, "start", "2026-05", today)).toEqual({
+      startYearMonth: "2026-05",
+      endYearMonth: "2026-08"
+    });
   });
 });

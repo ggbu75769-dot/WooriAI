@@ -472,8 +472,10 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
   it("라운드 40 J-5: 빈 자리의 약속 문구는 잠긴 세션에서 사실 한 줄로 바뀐다", () => {
     // 홈: 판정·문구 모두 순수 모듈이 고른다(첫 실행 카드).
     expect(source("app/(tabs)/index.tsx")).toContain("expenseEntryLocked: expenseGate.locked");
-    // 기록 탭: 그 달 빈 상태 제목이 같은 판정을 받는다.
-    expect(source("app/(tabs)/records.tsx")).toContain("expenseEntryLocked\n  });");
+    // 기록 탭: 그 달 빈 상태 제목이 같은 판정을 받는다(GAP-067 이후에도 같은 호출부다 —
+    // 그 아래에 달력 보기 여부가 한 줄 더 붙었을 뿐, 잠금 갈래는 종전 그대로 순수 모듈이 고른다).
+    expect(source("app/(tabs)/records.tsx")).toContain("const emptyMonthState = buildRecordsEmptyMonthState({");
+    expect(source("app/(tabs)/records.tsx")).toContain("    expenseEntryLocked,\n");
     // 리포트 탭: 카테고리 빈 상태 제목.
     expect(source("app/(tabs)/reports.tsx")).toContain("expenseGate.locked\n                      ? EXPENSE_VIEW_ONLY_EMPTY_TITLE");
     // 문구는 한 곳에서만 정의된다 -- 화면들이 각자 적으면 갈라진다.

@@ -138,25 +138,39 @@ describe("Batch 07 mobile items and commerce contract", () => {
     // GAP-060 #4: 실패 문구는 공용 갈래(showLinkFailure -- 오프라인이면 OFFLINE_RETRY_NOTICE)를
     // 지나고, 폴백 상태에는 눌린 링크가 함께 담긴다(재시도로 열렸을 때 구매 확인 대기를 남기려면
     // 그때 그 링크를 알아야 한다). 담기는 redirectUrl/disclosureText는 종전 그대로다.
+    // 라운드 67 #4: 그 상태에 **밖으로 내보내는 URL**(result.shareUrl)이 함께 담긴다 —
+    // 여는 URL(redirectUrl)과 다른 값이라 한 칸으로 합칠 수 없다.
     expect(productDetailSource).toContain("linkOpenFallback");
-    expect(productDetailSource).toMatch(/catch\s*{\s*showLinkFailure\([^)]*\);\s*setLinkOpenFallback\(\{ redirectUrl: result\.redirectUrl, disclosureText: result\.disclosureText, link \}\);\s*}/);
+    expect(productDetailSource).toMatch(
+      /catch\s*{\s*showLinkFailure\([^)]*\);\s*setLinkOpenFallback\(\{\s*redirectUrl: result\.redirectUrl,\s*shareUrl: result\.shareUrl,\s*disclosureText: result\.disclosureText,\s*link\s*\}\);\s*}/
+    );
 
     // Retry re-attempts Linking.openURL against the same stored redirect URL.
     expect(productDetailSource).toContain("const retryOpenFallbackLink = async () => {");
     expect(productDetailSource).toMatch(/retryOpenFallbackLink[\s\S]*?Linking\.canOpenURL\(linkOpenFallback\.redirectUrl\)[\s\S]*?Linking\.openURL\(linkOpenFallback\.redirectUrl\)/);
 
-    // Share uses RN's Share.share (not a new dependency) with the stored redirect URL.
+    // Share uses RN's Share.share (not a new dependency).
     //
     // 라운드 64 #5ⓐ: 그 메시지에 **제휴 고지가 함께** 실린다(DNC-010) -- 앱 밖으로 나간 링크에는
     // "구매 CTA 인접"이라 부를 자리가 없어, 문장을 함께 보내는 것 말고 그 계약을 지킬 방법이
     // 없다. 조립은 순수 모듈 한 자리(src/items/link-marker.ts의 purchaseLinkShareMessage)이고
-    // 문구 계약은 link-marker.test.ts가 진다. 여기서는 **URL이 여전히 그 리다이렉트 URL이라는
-    // 것**과 화면이 문자열을 스스로 잇지 않는다는 것만 본다.
+    // 문구 계약은 link-marker.test.ts가 진다.
+    //
+    // 라운드 67 #4: **나가는 URL은 서버가 준 공유 URL**(`shareUrl`)이다 — 그것이 우리 집계를
+    // 지나고, 어드민이 내린 링크는 그 주소에서 404가 된다. 없으면 종전 URL로 떨어진다.
+    // 앱이 문자열을 스스로 잇지 않는다는 것도 함께 못 박는다(조립은 서버 한 자리).
     expect(productDetailSource).toContain("const shareFallbackLink = () => {");
     expect(productDetailSource).toMatch(
-      /shareFallbackLink[\s\S]*?Share\.share\(\{\s*message: purchaseLinkShareMessage\(\{\s*url: linkOpenFallback\.redirectUrl,/
+      /shareFallbackLink[\s\S]*?Share\.share\(\{\s*message: purchaseLinkShareMessage\(\{\s*url: linkOpenFallback\.shareUrl \?\? linkOpenFallback\.redirectUrl,/
     );
     expect(productDetailSource).not.toMatch(/Share\.share\(\{ message: linkOpenFallback\.redirectUrl \}\)/);
+    // 앱이 `/r/` 주소를 짓지 않는다(베이스도 경로도 서버의 것이다).
+    expect(productDetailSource).not.toContain("/api/v1/r/");
+
+    // **여는** URL은 종전 그대로다 — `/r/`로 열면 이 화면의 클릭 행과 리다이렉트의 익명 행이
+    // 겹쳐 한 번의 클릭이 두 번 세어진다.
+    expect(productDetailSource).toMatch(/Linking\.openURL\(result\.redirectUrl\)/);
+    expect(productDetailSource).not.toMatch(/Linking\.openURL\([^)]*shareUrl/);
 
     // The fallback card renders both a share action and a "다시 시도" (retry) action.
     expect(productDetailSource).toMatch(/{linkOpenFallback \? \([\s\S]*?링크 공유하기[\s\S]*?다시 시도[\s\S]*?\) : null}/);

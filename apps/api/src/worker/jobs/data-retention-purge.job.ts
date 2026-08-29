@@ -222,13 +222,20 @@ export const DEFAULT_HOUSEHOLD_INVITES_RETENTION_DAYS = 90;
  * **`pending`은 일부러 빠져 있다.** 아직 살아 있는 링크이고, 그 행을 지우면
  * 사용자가 방금 카카오톡으로 보낸 초대가 조용히 죽는다.
  *
- * 남는 사각을 정직하게 적어 둔다: 만료 표시는 **게으르다**(누군가 그 가구의 초대
- * 목록을 열거나 그 토큰을 조회할 때만 UPDATE가 돈다 — 같은 파일 349·386·570).
- * 그래서 아무도 다시 들여다보지 않은 가구의 초대는 유효기간이 한참 지나도
- * `pending`으로 남고, 이 단계의 대상이 아니다. 그 행은 어차피 사용될 수 없지만
- * (모든 조회 경로가 만료 표시를 먼저 한다) 파기되지도 않는다 — 상태가 정해진 행만
- * 지운다는 이 단계의 규칙을 지키기 위해 남겨 둔 격차이고, 닫으려면 "pending이지만
- * expires_at이 창 밖" 조건을 별도 판단으로 추가해야 한다.
+ * 이 목록이 남기던 사각(GAP-062 #8이 적어 두고 GAP-067 #7이 닫았다): 만료 표시는
+ * **게으르다**(누군가 그 가구의 초대 목록을 열거나 취소하거나 그 토큰을 조회할 때만
+ * UPDATE가 돈다 — household-runtime.service.ts의 세 경로). 그래서 아무도 다시
+ * 들여다보지 않은 가구의 초대는 유효기간(7일)이 한참 지나도 `pending`으로 남았고,
+ * 상태가 정해진 행만 지운다는 이 단계의 규칙 때문에 **영구 보존됐다** — 보존 기간이
+ * 정해진 테이블 안에 보존되지 않는 행이 섞여 있는 상태였다.
+ *
+ * 이제 phase 10a(`expireLapsedHouseholdInvites`)가 그 게으른 만료를 **잡이 대신 한 번**
+ * 돌려 준다: `status = pending AND expires_at <= now` -> `expired`. 그러면 그 행은
+ * 이 목록의 첫 값에 들어와 기존 창(expires_at + HOUSEHOLD_INVITES_RETENTION_DAYS)을
+ * 그대로 이어받는다. **이 목록은 그대로 두는 것이 요점이다** — `pending` 행을 직접
+ * 파기하면 그 토큰의 조회 결과가 `INVITE_NOT_PENDING`("사용할 수 없는 초대 링크예요")
+ * 에서 `INVITE_NOT_FOUND`("초대 링크를 찾을 수 없어요")로 바뀐다. 상태 정정만 하면
+ * 그 문구가 한 글자도 바뀌지 않고, "상태가 정해진 행만 지운다"는 규칙도 그대로 산다.
  */
 export const HOUSEHOLD_INVITES_PURGEABLE_STATUSES = ["expired", "accepted", "revoked"] as const;
 
@@ -285,7 +292,8 @@ function errorMessage(error: unknown): string {
  * idempotency_keys never had one). Deletion order below is therefore not just
  * hygiene — Postgres enforces it.
  *
- * Eleven phases, each capped at PURGE_BATCH_SIZE driver rows per tick. Phases
+ * Eleven phases plus one correction step (10a), each capped at
+ * PURGE_BATCH_SIZE driver rows per tick. Phases
  * run INDEPENDENTLY: each is wrapped in its own try/catch so one poisoned
  * phase can never block the others; a phase's terminal error is reported in
  * the summary (`<phase>Error`) and the later phases still run. A phase whose
@@ -562,9 +570,41 @@ function errorMessage(error: unknown): string {
  *    expiry UPDATE), so this phase needs no new index and no migration.
  *
  *    **`pending` rows are never selected** — see
- *    HOUSEHOLD_INVITES_PURGEABLE_STATUSES for that rule and for the residual
- *    gap it deliberately leaves (a never-re-read invite stays `pending` past
- *    its TTL because expiry marking is lazy).
+ *    HOUSEHOLD_INVITES_PURGEABLE_STATUSES for that rule.
+ *
+ *    10a. Lazy-expiry catch-up (GAP-067 #7) — a **correction, not a delete**.
+ *    Runs immediately BEFORE the delete above. Expiry marking in
+ *    household-runtime.service.ts is lazy (it only runs when someone opens
+ *    that household's invite list, cancels an invite, or resolves the token),
+ *    so an invite nobody ever looked at again stayed `pending` long past its
+ *    7-day TTL — and therefore outside the status filter above, i.e. retained
+ *    forever inside a table that has a retention window. This step does the
+ *    marking the job's own comment said was needed: `status = pending AND
+ *    expires_at <= now` -> `expired`, in the **same CAS shape as the three
+ *    live paths** (`updateMany` gated on `status = pending`, so an accept
+ *    committing between this step's SELECT and its UPDATE keeps the
+ *    membership it created instead of being overwritten to `expired`).
+ *
+ *    Why correct instead of purging `pending` directly: the user-facing
+ *    wording. A stale token resolves to `INVITE_NOT_PENDING` ("사용할 수 없는
+ *    초대 링크예요"); deleting the row would turn that into `INVITE_NOT_FOUND`
+ *    ("초대 링크를 찾을 수 없어요"). Correcting the status leaves both strings
+ *    and the phase-10 rule untouched — the row simply enters the existing
+ *    window and is deleted `HOUSEHOLD_INVITES_RETENTION_DAYS` after its TTL,
+ *    exactly as if someone had opened that screen on the day it lapsed.
+ *
+ *    Counter: reported as `householdInvitesExpired`, **separate from**
+ *    `householdInvitesPurged` — a correction and a deletion must not add up
+ *    into one number. Within one tick a long-lapsed row can be counted by
+ *    both (marked here, then already outside the window when phase 10 runs);
+ *    that overlap is the backlog draining and is exactly what closing the gap
+ *    means. Same batch/ordering/poison-row discipline as every other phase
+ *    (runPhase, `(expires_at, id)` ordering), and self-terminating: a marked
+ *    row no longer matches `status = pending`.
+ *
+ *    Not a replacement for the lazy paths — those stay as they are; this only
+ *    covers the households nobody comes back to. No API, no error code, no
+ *    user-facing string, no new constant and no new env changes with it.
  *
  *    Nothing FKs household_invites, so the delete is a plain batched
  *    deleteMany. Nor does it destroy the only record of anything: an accepted
@@ -719,6 +759,15 @@ export class DataRetentionPurgeJob implements WorkerJob {
       (size, skip) => this.purgeImportRows(importRowsCutoff, size, skip),
       { importRowsPurged: 0, importJobPreviewsDrained: 0 }
     );
+    // Phase 10a (GAP-067 #7): 게으른 만료 대행 — 파기가 아니라 상태 정정이다.
+    // phase 10 **앞에** 둔다(클래스 문서 item 10a): 유효기간이 창 밖인 채 pending으로
+    // 남아 있던 행이 이 틱에 곧바로 상태 필터로 넘어가, 밀린 백로그가 그대로 빠진다.
+    const householdInviteExpiry = await this.runPhase(
+      "householdInviteExpiry",
+      batchSize,
+      (size, skip) => this.expireLapsedHouseholdInvites(now, size, skip),
+      { householdInvitesExpired: 0 }
+    );
     // Phase 10 (GAP-062 #8): 상태가 정해진 가족 초대 보존 창.
     const householdInvites = await this.runPhase(
       "householdInvitePurge",
@@ -752,6 +801,9 @@ export class DataRetentionPurgeJob implements WorkerJob {
       ...affiliateClicks,
       ...auditLogs,
       ...importRows,
+      // 정정(householdInvitesExpired)과 파기(householdInvitesPurged)는 따로 읽힌다 —
+      // 두 숫자를 뭉치면 다음 사람이 "지운 수"를 잘못 읽는다(클래스 문서 item 10a).
+      ...householdInviteExpiry,
       ...householdInvites,
       ...importJobHeaders
     };
@@ -882,6 +934,9 @@ export class DataRetentionPurgeJob implements WorkerJob {
       where: { duplicateCandidateExpenseId: { in: expenseIds } },
       data: { duplicateCandidateExpenseId: null }
     });
+    // GAP-067 #8: `attachments`는 **언제나 비어 있다**(만드는 코드가 0건 · 채울 기능은
+    // DNC-016이 잠갔다 — schema.prisma의 모델 주석). 방어적으로 남긴다: 표가 살아 있는
+    // 한 FK를 끊지 않고 지출을 지우면 언젠가 FK 위반으로 터진다.
     await tx.attachment.updateMany({ where: { expenseId: { in: expenseIds } }, data: { expenseId: null } });
     await tx.expense.deleteMany({ where: { id: { in: expenseIds } } });
   }
@@ -940,6 +995,7 @@ export class DataRetentionPurgeJob implements WorkerJob {
       await tx.importRow.deleteMany({ where: { importJobId: { in: importJobIds } } });
     }
     await tx.childItemStatus.deleteMany({ where: { childId: { in: childIds } } });
+    // GAP-067 #8: 언제나 빈 표(위 deleteExpensesHard의 주석과 같은 이유로 방어적으로 남긴다).
     await tx.attachment.deleteMany({ where: { childId: { in: childIds } } });
     // All expenses of the child, regardless of their own deletedAt: a purged
     // child must not leave live expense rows behind, and their tombstones are
@@ -1114,6 +1170,10 @@ export class DataRetentionPurgeJob implements WorkerJob {
     // subquery per NOT NULL user FK) — keep both in sync; see that helper for
     // why the satellite tables (user_devices etc.) are included even though
     // phase 3 normally deletes those rows.
+    //
+    // GAP-067 #8: `attachments` 서브쿼리는 **언제나 참**이다(그 표에 행을 만드는 코드가
+    // 0건 — schema.prisma의 모델 주석). 방어적으로 남기지만, 이 술어가 통과한 것을
+    // "이 사용자는 첨부가 없다"의 근거로 읽지 말 것 — 아무도 채우지 않는 표를 본 결과다.
     return this.prisma.$queryRaw<{ id: string }[]>`
       SELECT u.id
       FROM users u
@@ -1470,6 +1530,64 @@ export class DataRetentionPurgeJob implements WorkerJob {
   }
 
   /**
+   * Phase 10a (GAP-067 #7): invites still `pending` although their TTL has
+   * lapsed — the rows the lazy expiry marking never reached (class doc, item
+   * 10a).
+   *
+   * **This is a correction, not a purge**: it only moves `pending` -> `expired`
+   * so the row enters phase 10's existing window. Nothing is deleted here, and
+   * the user-facing wording for a stale token (`INVITE_NOT_PENDING`) survives
+   * precisely because the row survives.
+   *
+   * The UPDATE is a compare-and-swap on `status = pending`, the same shape the
+   * three live paths use (household-runtime.service.ts listInvites /
+   * cancelInvite / requirePendingInvite): a row this batch selected can be
+   * accepted (or cancelled) between the SELECT and the UPDATE — right at the
+   * TTL boundary that is exactly the race — and the CAS makes that concurrent
+   * writer win, so a membership never coexists with an `expired` invite. Rows
+   * the CAS misses are simply not counted; they already reached a settled
+   * status, which is where this step was pushing them anyway.
+   *
+   * Selection uses the same `(expires_at, id)` total order as phase 10 so the
+   * halved retry and the poison-skip window are strict prefixes of the same
+   * sequence, and the same index (idx_household_invites_expires_at) carries
+   * it — no new index, no migration.
+   */
+  private async expireLapsedHouseholdInvites(now: Date, batchSize: number, skip: number) {
+    const where = {
+      status: "pending",
+      expiresAt: { lte: now }
+    } satisfies Prisma.HouseholdInviteWhereInput;
+    // id tiebreaker: strict total order (see purgeExpenses / review L1).
+    const orderBy = [{ expiresAt: "asc" }, { id: "asc" }] satisfies Prisma.HouseholdInviteOrderByWithRelationInput[];
+    if (skip > 0) {
+      const skipped = await this.prisma.householdInvite.findMany({ where, select: { id: true }, orderBy, take: skip });
+      this.logPoisonSkippedRows("householdInviteExpiry", "household_invites", skipped.map((row) => row.id));
+    }
+    const rows = await this.prisma.householdInvite.findMany({
+      where,
+      select: { id: true },
+      orderBy,
+      skip,
+      take: batchSize
+    });
+    if (rows.length === 0) {
+      return { householdInvitesExpired: 0 };
+    }
+    const ids = rows.map((row) => row.id);
+    const expired = await this.prisma.$transaction(
+      // CAS: `status: "pending"` is repeated here on purpose — see the doc above.
+      (tx) =>
+        tx.householdInvite.updateMany({
+          where: { id: { in: ids }, status: "pending" },
+          data: { status: "expired" }
+        }),
+      PURGE_TX_OPTIONS
+    );
+    return { householdInvitesExpired: expired.count };
+  }
+
+  /**
    * Phase 10 (GAP-062 #8): family invites whose outcome is settled and whose
    * TTL lapsed more than HOUSEHOLD_INVITES_RETENTION_DAYS ago (class doc,
    * item 10).
@@ -1568,6 +1686,8 @@ export class DataRetentionPurgeJob implements WorkerJob {
         })
       ).map((row) => ({ userId: row.updatedByUserId }))
     );
+    // GAP-067 #8: 언제나 빈 결과다(위 raw SQL의 같은 서브쿼리 주석 참고). 목록을 raw SQL과
+    // 1:1로 유지하는 규율이 우선이라 방어적으로 남긴다.
     collect(
       (
         await tx.attachment.findMany({

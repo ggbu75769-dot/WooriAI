@@ -237,6 +237,16 @@ model Child {
   dueDate         DateTime?       @map("due_date") @db.Date
   birthDate       DateTime?       @map("birth_date") @db.Date
   manualStage     ChildStageCode? @map("manual_stage")
+  /// ⚠️ 죽은 컬럼(GAP-067 #8에서 확인). 제품 코드에서 **읽지도 쓰지도 않는다** — 앱의
+  /// 아이 등록/수정 폼에도, 온보딩 서비스에도, 어떤 DTO에도 없다. 저장소에서 이 이름이
+  /// 나오는 곳은 어드민 조회 e2e 픽스처 한 곳(`"female"`을 넣어 두고, 같은 파일이 응답에
+  /// 이 값이 **새지 않는지** 단언한다)뿐이라, 실제로 이 컬럼은 언제나 NULL이다.
+  /// **"아이 성별을 안다"의 근거로 인용하지 말 것** — 준비템 랭킹(item-ranking)도
+  /// 시기 판정(stage)도 성별을 보지 않는다.
+  /// 소생시키지 않은 이유: 성별은 수집하지 않아도 되는 개인정보이고(수집 최소화),
+  /// 그것을 받으려면 동의·표시·수정 경로가 함께 생겨야 한다 — 컬럼을 채우는 일이 아니라
+  /// 기능을 만드는 일이다. 없애지 않은 이유: `children`은 **DNC-007이 지키는 도메인**이라
+  /// 파괴적 변경에 변경 요청이 먼저다(`attachments`와 다른 점이다 — 그 표의 주석 참고).
   gender          String?         @db.VarChar(20)
   profileImageUrl String?         @map("profile_image_url") @db.Text
   preparedItemsSetAt DateTime?    @map("prepared_items_set_at") @db.Timestamptz(6)
@@ -251,6 +261,15 @@ model Child {
 
 model Category {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// ⚠️ 죽은 컬럼(GAP-067 #8에서 확인). 저장소 전체에서 **읽지도 쓰지도 않는다** — 시드도
+  /// 채우지 않고(prisma/seed.ts) 어드민 편집 DTO는 이 필드를 의도적으로 뺐다고 적어 둘 뿐이라
+  /// (`admin/dto/admin-categories.dto.ts`) 값은 **언제나 NULL**이다. 마이그레이션 000001의
+  /// 자기참조 FK만 남아 있다.
+  /// **"카테고리에 계층이 있다"의 근거로 인용하지 말 것** — 앱도 어드민도 카테고리를 평면
+  /// 목록으로만 다루고, 정렬 축은 `displayOrder`, 노출 축은 `active`/`selectable`이다.
+  /// 소생시키지 않은 이유: 계층을 실제로 쓰려면 조회·집계·리포트가 전부 "부모로 접기"를
+  /// 알아야 하는데(카테고리 리포트는 지금 평면 합계다), 그것은 컬럼 하나가 아니라 리포트
+  /// 계약의 변경이다. 없애려면 파괴적 마이그레이션이므로 별도 티켓 대상이다.
   parentCategoryId String?  @map("parent_category_id") @db.Uuid
   code             String   @unique @db.VarChar(50)
   name             String   @db.VarChar(50)
@@ -417,6 +436,15 @@ model ChildItemStatus {
   itemTemplateId String     @map("item_template_id") @db.Uuid
   status         ItemStatus @default(not_prepared)
   expenseId      String?    @map("expense_id") @db.Uuid
+  /// ⚠️ 죽은 컬럼(GAP-065 #9가 지목하고 GAP-067 #8이 함께 문서화). 저장소 전체에서
+  /// **읽지도 쓰지도 않는다** — 상태 토글 API(`PUT /children/:childId/items/:itemTemplateId`)에
+  /// 메모 입력이 없고, 준비템 응답 DTO에도 실리지 않으며, 시드도 채우지 않는다. 값은 언제나
+  /// NULL이다.
+  /// **"이 상태에 사용자가 남긴 메모가 있다"의 근거로 인용하지 말 것.**
+  /// 소생시키지 않은 이유: 자유 문자열은 개인정보 밀도가 높은 축이라(파기 잡 phase 5·11이
+  /// 이미 그런 문자열 둘을 뒤늦게 마스킹하고 있다) 받는 순간 보존·마스킹 판단이 함께 필요하고,
+  /// 지금 이 메모를 보여 줄 화면도 없다. 없애려면 파괴적 마이그레이션이고
+  /// `child_item_statuses`는 **DNC-007이 지키는 도메인**이라 변경 요청이 먼저다.
   statusNote     String?    @map("status_note") @db.VarChar(200)
   updatedByUserId String    @map("updated_by_user_id") @db.Uuid
   createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -586,6 +614,27 @@ model Consent {
   @@map("consents")
 }
 
+/// ⚠️ **죽은 테이블**(GAP-067 #8에서 확인 — 라운드 64 #9·65 #9·66 #9가 컬럼 단위로 세 번
+/// 내린 판단을 처음으로 **표 단위**에 적용한 네 번째 선례다). 이 표에 행을 **만드는 코드가
+/// 저장소 전체에 0건**이다: `create`도 `createMany`도 없고, `fileUrl`·`metadataJson`은
+/// 스키마 선언 밖 참조가 0건, `uploadedByUserId`는 파기 잡에서만 나온다. 이 표를 언급하는
+/// 유일한 제품 코드는 `data-retention-purge.job.ts`의 방어적 캐스케이드 네 자리뿐이고,
+/// 그 넷은 모두 **언제나 빈 표**를 상대로 돈다(그 자리들의 주석 참고).
+///
+/// 채울 기능이 없는 것이 아니라 **잠겨 있다**: 사진/영수증은 DNC-016이 MVP 밖으로 못박은
+/// 항목이라, 설계상 이 표는 계속 비어 있다. 즉 **살리는 것이 곧 범위 확대**이고, 그 판단은
+/// 이 스키마가 아니라 DNC 변경 요청에서 시작해야 한다.
+///
+/// **"첨부 파일 기능이 있(었)다"의 근거로 인용하지 말 것.** 특히 파기 판정에서 —
+/// "이 사용자는 첨부가 없어서 하드 삭제됐다"는 문장은 사실이 아니다(그 술어는 아무도
+/// 채우지 않는 표를 보는 항진명제다).
+///
+/// 지우지 않은 이유: 테이블 DROP은 파괴적 마이그레이션이고, 인덱스 둘
+/// (`idx_attachments_expense`·`idx_attachments_child`)과 파기 잡의 네 자리·`perf-indexes.db`
+/// 계약이 함께 걸려 있어 한 번에 정리해야 한다. 다만 **`attachments`는 DNC-007의 도메인
+/// 목록에 없다** — 계약이 지키는 표가 아니라 "쓸 일이 없어진 표"라는 뜻이고, 언젠가 지운다면
+/// DNC 변경 요청이 아니라 평범한 파괴적 마이그레이션 티켓이다. 그 구분이 여기 적혀 있어야
+/// 다음 사람이 지울 수 있는 것과 없는 것을 구별한다.
 model Attachment {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   householdId      String    @map("household_id") @db.Uuid

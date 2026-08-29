@@ -84,9 +84,12 @@ describe("ONB-002 birth date must reject future dates (audit fix: only format wa
   });
 
   it("only applies the future-date rejection to born mode, not pregnant due dates", () => {
-    // The guard function only calls isFutureSeoulDate when stageMode === "born"; pregnant mode
-    // falls through to the calendar-validity check only, so a past due date is accepted.
+    // The guard function only calls isFutureSeoulDate(trimmed) — "미래는 곧 오류" — when
+    // stageMode === "born", so a due date in the past is still accepted.
+    // 라운드 67 B: 예정일에는 그 대신 **위쪽 경계**(만삭)가 붙었다. 다른 규칙이고 다른 문장이라
+    // 이 계약(출생일만 미래 금지)은 그대로다 — 경계 자체는 child-form.test.ts가 고정한다.
     const bornModeGuardOnly = /stageMode === "born" && isFutureSeoulDate/;
     expect(bornModeGuardOnly.test(childFormSource)).toBe(true);
+    expect(childFormSource).toContain('stageMode === "pregnant" && isBeyondFullTermDueDate');
   });
 });

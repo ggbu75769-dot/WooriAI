@@ -1545,6 +1545,28 @@ describe("GAP-066 #2 달 점프 시트의 낭독 계약", () => {
       expect(triggerBlock, path).toContain("monthJumpTriggerAccessibilityLabel(");
     }
   });
+
+  /**
+   * 라운드 67 트랙 C(#5) — 세 번째 트리거는 **화면이 아니라 공용 카드**에 선다
+   * (src/export/ExpenseCsvExport.tsx를 더보기 탭·설정 두 화면이 함께 쓴다). 문법은 두 탭과 같아야
+   * 하고, 이 자리에서만 생기는 사실 하나를 더 붙든다: **어느 쪽 달인지**가 라벨에 남는가
+   * ("2026년 8월, 달 선택"만 들으면 시작인지 끝인지 알 수 없다 — 스테퍼가 이미 지고 있던 사실이다).
+   */
+  it("라운드 67 트랙 C(#5): 내보내기의 두 달 라벨도 같은 트리거 문법을 단다", () => {
+    const cardSource = source("src/export/ExpenseCsvExport.tsx");
+    const triggerAt = cardSource.indexOf("month-jump-trigger");
+    if (triggerAt < 0) throw new Error("내보내기 카드에 달 점프 트리거가 없다");
+    const start = cardSource.lastIndexOf("<Pressable", triggerAt);
+    if (start < 0) throw new Error("내보내기 카드의 달 라벨이 Pressable로 감싸이지 않았다");
+    const triggerBlock = cardSource.slice(start, triggerAt);
+    expect(triggerBlock).toContain('accessibilityRole="button"');
+    expect(triggerBlock).toContain("MONTH_JUMP_TRIGGER_HINT");
+    // 시작/끝 라벨이 트리거 문장 앞에 남는다(단일 소스는 순수 모듈의 조립 함수다).
+    expect(triggerBlock).toContain("monthJumpTriggerAccessibilityLabel(`${label} ${monthLabel}`)");
+    // 시트 아래 한 줄도 화면이 짓지 않는다 — 이 화면은 달로 "이동"하지 않으므로 자기 문장을
+    // 순수 모듈(src/export/export-range.ts)에서 받아 넘긴다.
+    expect(cardSource).toContain("hint={EXPORT_MONTH_JUMP_HINT}");
+  });
 });
 
 /**
@@ -1604,5 +1626,105 @@ describe("GAP-066 #8 지난달 정리 알림 행의 낭독 계약", () => {
     expect(notificationRowAccessibilityLabel({ title: formatNotificationRowTitle(wrapup.title, null), body: wrapup.body, timeLabel: "방금" })).toBe(
       `${wrapup.title}, ${wrapup.body}, 방금`
     );
+  });
+});
+
+/**
+ * GAP-067 #2 — **끝난 빈 달**의 액션이 소리로도 일어나는가.
+ *
+ * 트랙 A는 문구·판정(`buildRecordsEmptyMonthState`)과 화면의 키 배선을
+ * `src/expenses/records-list-view.test.ts`에 고정했다. 여기서 보는 것은 그 배선이 만드는
+ * **낭독**이다. 이 카드의 첫 갈래([달력에서 날짜 고르기])는 눌러도 **화면이 바뀌지 않는다** —
+ * 같은 자리에 같은 카드가 서 있고 액션 라벨만 "이번 달 보기"로 바뀐다. 눈으로는 리스트가
+ * 달력으로 바뀐 것이 보이지만, 소리로만 쓰는 사람에게는 **아무 일도 일어나지 않은 것과 같다**
+ * (구매 확인 프롬프트 A-2 #14 · 아이 추가 성공 안내 A-4 #26이 announce를 붙인 그 근거).
+ *
+ * 그리고 그 announce가 **새 문구를 짓지 않는다**는 것이 두 번째 계약이다: 읽어 주는 문장은
+ * 세그먼트 컨트롤이 이미 쓰는 옵션 이름 그대로다(화면에 새 문자열이 늘면 세그먼트가 말하는
+ * 것과 announce가 말하는 것이 갈릴 자리가 생긴다).
+ */
+describe("GAP-067 #2 끝난 빈 달 카드의 낭독 계약", () => {
+  const recordsScreen = source("app/(tabs)/records.tsx");
+
+  it("달력으로 바뀌는 갈래는 announce를 남긴다 (화면 전환이 없는 자리라 침묵하면 안 된다)", () => {
+    const branchAt = recordsScreen.indexOf('if (emptyMonthState.action === "open-calendar") {');
+    expect(branchAt).toBeGreaterThan(-1);
+    const branchBlock = recordsScreen.slice(branchAt, branchAt + 400);
+    expect(branchBlock).toContain("setViewMode(RECORDS_VIEW_CALENDAR);");
+    expect(branchBlock).toContain("announceForA11y(RECORDS_VIEW_CALENDAR);");
+    // 순서도 계약이다 — 보기 모드를 바꾼 **뒤에** 그 사실을 말한다.
+    expect(branchBlock.indexOf("setViewMode(")).toBeLessThan(branchBlock.indexOf("announceForA11y("));
+  });
+
+  it("announce가 새 문구를 짓지 않는다 (세그먼트가 쓰는 옵션 이름 그대로다)", () => {
+    // 옵션 이름은 이 화면의 상수 한 자리에서 온다(리터럴을 다시 적지 않는다).
+    expect(recordsScreen).toContain('const RECORDS_VIEW_CALENDAR = "달력"');
+    expect(recordsScreen).not.toContain('announceForA11y("달력');
+    expect(recordsScreen).not.toContain("달력 보기로 바꿨어요");
+  });
+
+  it("빈 달·검색 0건 카드의 두 보조 액션이 같은 문법으로 낭독된다", () => {
+    // 두 버튼 모두 라벨은 보이는 글자, 낭독 문장은 순수 모듈의 조립이다(한쪽만 다른 문법이면
+    // 나란히 선 두 버튼이 서로 다른 말을 한다).
+    expect(recordsScreen).toContain("accessibilityLabel={previousMonthSearchAction.accessibilityLabel}");
+    expect(recordsScreen).toContain("accessibilityLabel={monthJumpSearchAction.accessibilityLabel}");
+    // 카드 제목·액션 라벨도 화면이 짓지 않는다(문구 리터럴 0건 — 판정은 순수 모듈이 진다).
+    expect(recordsScreen).not.toContain("에는 기록이 없어요.");
+    expect(recordsScreen).not.toContain("달력에서 날짜 고르기");
+    expect(recordsScreen).not.toContain("다른 달에서 찾기");
+  });
+});
+
+/**
+ * GAP-067 #3 — **되돌리기 결과 카드**가 소리로 도달하는가.
+ *
+ * 트랙 E는 문구·건수·무효화 목록을 `src/import/import-resume.test.ts`에 고정했다. 여기서 보는
+ * 것은 그 문구가 **낭독되는 자리에 실제로 걸려 있는가**다(GAP-062 #10이 세운 관례).
+ *
+ * 이 카드는 한 줄에 **누르는 자리가 둘**이다 — 카드 본문(그 잡의 결과로 이동)과 [되돌리기]
+ * (파괴적 일괄 동작). 소리로만 쓰는 사람에게 그 둘이 갈리지 않으면 "결과를 보러" 누른 손이
+ * 200건을 지우는 버튼에 닿는다. 그래서 ⓐ 두 자리가 각각 라벨을 지고, ⓑ 되돌리기 라벨은
+ * **무엇을** 되돌리는지(파일명)까지 말하며, ⓒ 진행 중에는 `accessibilityState.disabled`가
+ * 실제 `disabled`와 함께 걸린다(투명도만으로는 소리에 아무것도 남지 않는다 — 달 점프 시트의
+ * 연도 스테퍼 A-7 #35와 같은 판정).
+ *
+ * Alert 쪽은 이 파일이 붙들 것이 없다: RN Alert에는 라벨도 상태도 걸리지 않아 낭독되는 것은
+ * **버튼 글자와 본문뿐**이고(A-3 #18 · A-7 #37), 그 문자열은 트랙 E의 모듈 테스트가 진다.
+ */
+describe("GAP-067 #3 가져오기 되돌리기 카드의 낭독 계약", () => {
+  const uploadScreen = source("app/import/index.tsx");
+  // 라운드 67 적대 리뷰 #1: 저장본이 검토 칸·확정 칸으로 나뉘면서 두 카드가 **함께** 설 수
+  // 있게 됐다(이어서 보기 카드의 조건에서 `&& !undoCard`가 빠졌다). 잘라 내는 경계만 그
+  // 사실을 따라간다 — 보는 대상은 종전과 같은 결과 카드 블록이다.
+  const undoCardBlock = uploadScreen.slice(
+    uploadScreen.indexOf("{undoCard ? ("),
+    uploadScreen.indexOf("{resumeCard ? (")
+  );
+
+  it("한 줄의 누르는 자리 둘이 각각 라벨을 진다 (결과 보기 ↔ 되돌리기)", () => {
+    expect(undoCardBlock.length).toBeGreaterThan(0);
+    expect(undoCardBlock).toContain("accessibilityLabel={importUndoCardAccessibilityLabel(undoCard, now)}");
+    expect(undoCardBlock).toContain("accessibilityLabel={importUndoActionAccessibilityLabel(undoCard)}");
+    // 둘 다 button 역할이다(카드 본문은 Pressable로 감싼 두 줄짜리 텍스트다).
+    expect((undoCardBlock.match(/accessibilityRole="button"/g) ?? []).length).toBe(2);
+    // 라벨 문자열을 화면이 조립하지 않는다 — 단일 소스는 순수 모듈이다.
+    expect(undoCardBlock).not.toContain("방금 가져온 결과.");
+    expect(undoCardBlock).not.toContain("건 ·");
+  });
+
+  it("되돌리는 동안은 disabled 상태가 소리로도 갈린다 (투명도만으로는 남지 않는다)", () => {
+    expect(undoCardBlock).toContain("accessibilityState={{ disabled: undo.isPending }}");
+    // 상태 낭독이 참이 되려면 실제로 눌리지 않아야 한다.
+    expect(undoCardBlock).toContain("disabled={undo.isPending}");
+  });
+
+  it("카드의 종류 아이콘은 접근성 트리에서 빠진다 (사실을 나르는 것은 글자다)", () => {
+    // 알림 행(A-7 #38)과 같은 판정 — 아이콘은 종류를 눈으로만 구분하고, 낭독되는 문장은
+    // 제목·부제를 조립한 라벨 한 벌이다.
+    expect(undoCardBlock).toContain('<View accessible={false} style={styles.fileIcon}>');
+    const iconAt = undoCardBlock.indexOf("<Ionicons");
+    expect(iconAt).toBeGreaterThan(-1);
+    // 아이콘 자신도 트리에서 빠진다(감싼 View만 빼면 하위 노드가 남는 플랫폼이 있다).
+    expect(undoCardBlock.slice(iconAt, iconAt + 200)).toContain("accessible={false}");
   });
 });

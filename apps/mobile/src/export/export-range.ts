@@ -1,4 +1,7 @@
 import type { Expense } from "../api/client";
+// 라운드 67 트랙 C(#5): 달 점프 시트의 **판정을 그대로 재사용**한다(같은 규칙을 두 벌로 적지
+// 않는다). 시트 쪽 모듈은 react 의존이 없는 순수 모듈이라 이 파일의 순수성도 그대로다.
+import { isMonthJumpSelectable, type MonthJumpBounds } from "../month-jump";
 import { EXPORT_MAX_ROWS } from "./expense-csv";
 
 /**
@@ -178,6 +181,85 @@ export function shiftCustomRange(
   return edge === "start"
     ? { ...range, startYearMonth: addMonthsToYearMonth(range.startYearMonth, delta) }
     : { ...range, endYearMonth: addMonthsToYearMonth(range.endYearMonth, delta) };
+}
+
+/**
+ * 라운드 67 트랙 C(#5) — 시작/끝 달을 **달 점프 시트**(src/MonthJumpSheet.tsx)로도 고른다.
+ *
+ * ## 왜
+ * 이 화면의 이동 수단은 `shiftCustomRange(edge, ±1)` 한 칸뿐이었고, 고를 수 있는 범위는
+ * `CUSTOM_RANGE_MAX_MONTHS`(120개월)다 — 연말정산 자료("작년 1월~작년 12월")를 8월에 만들려면
+ * 화살표를 19번 + 8번, 상한인 10년 전을 고르려면 한쪽만 120번 눌러야 했다. 같은 앱의 기록 탭은
+ * 라운드 66 A 이후 세 번이면 닿는다.
+ *
+ * ## 새 규칙을 짓지 않는다
+ * 시트에 넘기는 경계는 **`canShiftCustomRange`가 화살표로 이미 말하는 그 두 규칙**을 달 문자열로
+ * 옮긴 것이다:
+ *  - **시작 달**: 하한은 `customRangeBounds().earliest`(= 10년 상한), 상한은 **끝 달**.
+ *  - **끝 달**: 하한은 **시작 달**, 상한은 **이번 달**(시트의 기본 상한이라 넘기지 않는다).
+ * 즉 "시작 ≤ 끝"과 "끝 ≤ 이번 달"이 시트 안에서 그대로 잠긴다. 하한을 **아이 날짜에서 파생하지
+ * 않는 것**이 기록·리포트 탭과 다른 점이고(그 두 탭의 하한은 "아이 기록이 시작되기 전"이다),
+ * 그래서 이유 문장도 이 화면의 것을 함께 넘긴다 — 시트는 화면별 규칙을 알지 못한다.
+ */
+export const EXPORT_MONTH_JUMP_AFTER_END_HINT = "끝 달보다 뒤라 고를 수 없어요";
+export const EXPORT_MONTH_JUMP_BEFORE_START_HINT = "시작 달보다 앞이라 고를 수 없어요";
+/**
+ * 10년 하한의 이유. 숫자를 여기 다시 적지 않는다 — `CUSTOM_RANGE_MAX_MONTHS`에서 읽으므로
+ * 상한을 바꾸면 문장도 함께 움직인다(두 자리가 갈리지 않는다).
+ */
+export const EXPORT_MONTH_JUMP_BEFORE_EARLIEST_HINT = `${CUSTOM_RANGE_MAX_MONTHS / 12}년보다 오래된 달은 고를 수 없어요`;
+/**
+ * 시트 아래 한 줄. 두 탭의 기본 문장("달을 눌러 **그 달로 이동해요**")은 여기서 사실이 아니다 —
+ * 이 시트는 화면을 옮기지 않고 내보낼 구간의 한쪽 끝을 정한다. 잠긴 쪽을 함께 말하는 형식은
+ * `MONTH_JUMP_HINT`와 같다.
+ */
+export const EXPORT_MONTH_JUMP_HINT = "달을 눌러 그 달로 정해요. 흐린 달은 지금 고를 수 없어요.";
+
+/** 한 쪽 끝의 시트가 쓸 경계 + 이유 문장. 판정 자체는 전부 src/month-jump.ts가 한다. */
+export function customRangeMonthJumpBounds(
+  custom: Partial<CustomExportRange> | null | undefined,
+  edge: "start" | "end",
+  todaySeoul: string
+): MonthJumpBounds {
+  const { earliest } = customRangeBounds(todaySeoul);
+  const range = normalizeCustomRange(custom, todaySeoul);
+  if (edge === "start") {
+    return {
+      todayIso: todaySeoul,
+      earliestYearMonth: earliest,
+      latestYearMonth: range.endYearMonth,
+      beyondLatestHint: EXPORT_MONTH_JUMP_AFTER_END_HINT,
+      beforeEarliestHint: EXPORT_MONTH_JUMP_BEFORE_EARLIEST_HINT
+    };
+  }
+  return {
+    todayIso: todaySeoul,
+    earliestYearMonth: range.startYearMonth,
+    // 상한은 시트의 기본값(이번 달) 그대로다 -- 같은 규칙을 두 번 적지 않는다.
+    beforeEarliestHint: EXPORT_MONTH_JUMP_BEFORE_START_HINT
+  };
+}
+
+/**
+ * 시트에서 고른 달을 한 쪽 끝에 넣은 새 범위. **고를 수 없는 달이면 아무것도 바뀌지 않는다** --
+ * 화살표(`shiftCustomRange`)가 경계에서 값을 움직이지 않는 것과 같은 형태이고, 판정도 시트가
+ * 칸을 잠글 때 쓴 그 함수 그대로다(화면이 잠근 것과 저장되는 것이 갈리지 않는다).
+ *
+ * 마지막에 `normalizeCustomRange`를 한 번 더 지난다 -- 기존 구간 검증 규칙(형식·미래 달·
+ * 시작>끝 맞바꿈·길이 상한)은 이 경로에서도 한 글자도 달라지지 않는다.
+ */
+export function selectCustomRangeMonth(
+  custom: Partial<CustomExportRange> | null | undefined,
+  edge: "start" | "end",
+  yearMonth: string,
+  todaySeoul: string
+): CustomExportRange {
+  const range = normalizeCustomRange(custom, todaySeoul);
+  if (!isMonthJumpSelectable(yearMonth, customRangeMonthJumpBounds(range, edge, todaySeoul))) return range;
+  return normalizeCustomRange(
+    edge === "start" ? { ...range, startYearMonth: yearMonth } : { ...range, endYearMonth: yearMonth },
+    todaySeoul
+  );
 }
 
 /** 범위 안의 모든 `YYYY-MM`(오름차순, 양끝 포함). */

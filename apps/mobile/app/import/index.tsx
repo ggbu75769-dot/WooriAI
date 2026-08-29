@@ -1,16 +1,25 @@
 import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiErrorMessage } from "../../src/api/api-error";
-import { createExcelImport, LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { createExcelImport, LOCAL_SESSION_TOKEN, undoImport } from "../../src/api/client";
 import {
   importResumeCardAccessibilityLabel,
   importResumeCardSubtitle,
+  importUndoActionAccessibilityLabel,
+  importUndoCardAccessibilityLabel,
+  importUndoCardSubtitle,
+  importUndoConfirmMessage,
+  importUndoResultMessage,
   resolveImportResumeCard,
-  IMPORT_RESUME_CARD_TITLE
+  IMPORT_RESUME_CARD_TITLE,
+  IMPORT_UNDO_ACTION_LABEL,
+  IMPORT_UNDO_CARD_TITLE,
+  IMPORT_UNDO_CONFIRM_TITLE,
+  type ImportResumeEntry
 } from "../../src/import/import-resume";
 import {
   IMPORT_UPLOAD_GUIDE_TEXT,
@@ -95,7 +104,12 @@ export default function ImportUploadScreen() {
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   // 라운드 56 D#5: 검토 도중 이탈해도 돌아올 길을 남긴다(규칙·문구는 src/import/import-resume.ts).
   const resumeEntry = useImportResumeStore((state) => state.entry);
+  // 라운드 67 적대 리뷰 #1: 확정된 잡은 **다른 칸**에 있다 — 그래서 새 업로드가 이 입구를 덮지 않는다.
+  const confirmedEntry = useImportResumeStore((state) => state.confirmed);
   const rememberImportReview = useImportResumeStore((state) => state.rememberImportReview);
+  // 라운드 67 #3: 되돌린 뒤에는 그 카드를 지운다(되돌릴 것이 남지 않았다 — 되돌리기의 되돌리기는 없다).
+  const forgetImportReview = useImportResumeStore((state) => state.forgetImportReview);
+  const queryClient = useQueryClient();
   const upload = useMutation({
     mutationFn: (asset: DocumentPicker.DocumentPickerAsset) =>
       createExcelImport(authToken!, childId!, { uri: asset.uri, name: asset.name, mimeType: asset.mimeType }),
@@ -113,6 +127,60 @@ export default function ImportUploadScreen() {
       router.push(`/import/${job.id}`);
     }
   });
+
+  /**
+   * 라운드 67 #3 — **확정한 가져오기 되돌리기.**
+   *
+   * 고치는 문제: 라운드 66이 서버에 출처(`expenses.import_job_id`)를 남기기 시작했지만, 앱에는
+   * 확정한 200건을 되돌릴 길이 없었다 — 확정하는 순간 이 화면의 저장본이 지워졌고, 서버에는
+   * "내 가져오기 목록"이 없어 그 잡으로 돌아갈 주소를 아는 곳이 아무 데도 없었다. 남는 수단은
+   * 기록 탭에서 한 건씩 롱프레스해 지우는 것(200번)이었고, 어느 200건인지 가릴 방법도 없었다
+   * (출처 행과 CSV 열이 말하는 것은 `"엑셀 가져오기"` 한 단어뿐이다).
+   *
+   * **새 화면을 만들지 않는다**: 재진입 카드와 같은 자리·같은 저장소에서, 확정된 잡이면 카드가
+   * "방금 가져온 결과 · 되돌리기"로 바뀐다. 판정·문구는 전부 순수 모듈에 있다.
+   *
+   * 무효화 목록은 **확정이 태우는 그 넷 그대로**다(app/import/[importJobId].tsx의 onSuccess) —
+   * 되돌리기는 확정의 반대 방향이고 숫자가 걸린 화면도 정확히 같다(리포트·홈·기록·예산).
+   * 하나라도 빠지면 "되돌렸는데 총액이 그대로"가 된다.
+   */
+  const undo = useMutation({
+    mutationFn: (jobId: string) => undoImport(authToken!, jobId),
+    onSuccess: async (result, jobId) => {
+      // 되돌린 잡의 카드는 사라진다 — 되돌리기의 되돌리기는 만들지 않는다.
+      forgetImportReview(jobId);
+      await queryClient.invalidateQueries({ queryKey: ["import-job", jobId] });
+      await queryClient.invalidateQueries({ queryKey: ["report"] });
+      await queryClient.invalidateQueries({ queryKey: ["home"] });
+      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      await queryClient.invalidateQueries({ queryKey: ["budget"] });
+      // 건수는 **서버가 실제로 지운 값**이다(카드에 적힌 숫자가 아니다 — 그 사이 손으로 지운
+      // 행이 있으면 둘이 다르고, 그때 카드의 숫자를 말하면 화면이 거짓을 말한다).
+      Alert.alert(IMPORT_UNDO_CARD_TITLE, importUndoResultMessage(result.deletedCount));
+    },
+    onError: (error) => {
+      Alert.alert(IMPORT_UNDO_CARD_TITLE, apiErrorMessage(error, "되돌리지 못했어요. 잠시 후 다시 시도해 주세요."));
+    }
+  });
+
+  const confirmUndo = (entry: ImportResumeEntry) => {
+    if (undo.isPending) return;
+    // 라운드 41 K-7과 같은 게이트: 서버도 되돌리기에 편집 권한을 요구한다
+    // (`requireImportJobAccess(user, id, true)` → 403). 게이트가 없으면 보기 전용으로 역할이
+    // 바뀐 사람이 확인 Alert까지 지난 뒤 "잠시 후 다시 시도해 주세요"라는 **틀린 이유**를
+    // 받는다(다시 눌러도 결과가 같다).
+    if (expenseGate.locked) {
+      expenseGate.explain();
+      return;
+    }
+    // 라운드 67 적대 리뷰(#2): 건수는 **확정 시점의 참고값**으로만 넘긴다 — 그 사이 손으로 지운
+    // 행이 있으면 실제로 사라지는 수는 더 적다(문구가 크기를 주장하지 않는 이유는 순수 모듈 주석).
+    Alert.alert(IMPORT_UNDO_CONFIRM_TITLE, importUndoConfirmMessage(entry.importedCount), [
+      { text: "취소", style: "cancel" },
+      { text: IMPORT_UNDO_ACTION_LABEL, style: "destructive", onPress: () => undo.mutate(entry.jobId) }
+    ]);
+  };
+
   const canUpload = Boolean(authToken && childId);
   const pickAndUpload = async () => {
     setValidationMessage(null);
@@ -174,6 +242,20 @@ export default function ImportUploadScreen() {
    * 없으므로 캡처 화면이 한 픽셀도 바뀌지 않는다.
    */
   const resumeCard = resolveImportResumeCard({ entry: resumeEntry, childId, canResume: canUpload });
+  /**
+   * 라운드 67 #3: **확정 칸**이 차 있으면 "방금 가져온 결과"(되돌리기 입구)가 선다.
+   *
+   * 라운드 67 적대 리뷰(#1)에서 이 카드의 근거가 바뀌었다. 종전에는 저장본이 한 칸이었고 그
+   * 한 건이 건수를 달고 있으면 결과 카드로 **변신**했다 — 그래서 새 업로드가 그 칸을 덮는
+   * 순간 되돌리기 입구가 영구히 사라졌다(잘못 확정한 사람이 올바른 파일을 다시 올리는 것이
+   * 바로 그 경로다). 이제 칸이 둘이라 **두 카드가 동시에 설 수 있고**, 새 업로드는 위쪽
+   * 검토 칸만 덮는다. 슬롯 가산은 하나뿐이라 "서버에 없는 목록을 지어내지 않는다"는 라운드
+   * 56의 규율은 그대로다.
+   *
+   * 아이 스코프·로그인 게이트는 **같은 판정 하나**를 지난다: 비로그인 렌더(=IMP-003 픽셀락
+   * 캡처 경로)에는 두 카드 모두 존재할 수 없으므로 캡처가 한 픽셀도 바뀌지 않는다.
+   */
+  const undoCard = resolveImportResumeCard({ entry: confirmedEntry, childId, canResume: canUpload });
   // 알림함과 같은 관례: "언제"는 렌더 시각 기준으로 한 번만 읽는다.
   const now = Date.now();
 
@@ -187,9 +269,51 @@ export default function ImportUploadScreen() {
         <View style={styles.backButton} />
       </View>
 
+      {/* 라운드 67 #3: 확정된 가져오기의 결과 카드 — 되돌리기의 유일한 입구다. 카드를 누르면
+          그 잡의 결과 화면으로 가고, 옆 버튼이 그 파일에서 온 지출을 통째로 되돌린다(확인
+          Alert가 건수와 "고친 기록도 함께 사라진다"를 먼저 말한다). 되돌린 뒤에는 저장본이
+          지워져 이 카드도 사라진다 — 되돌리기의 되돌리기는 만들지 않는다. */}
+      {undoCard ? (
+        <View style={styles.resumeCard}>
+          <View accessible={false} style={styles.fileIcon}>
+            <Ionicons
+              accessible={false}
+              name="checkmark-done-outline"
+              size={styles.fileIconText.fontSize}
+              color={styles.fileIconText.color}
+            />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={importUndoCardAccessibilityLabel(undoCard, now)}
+            onPress={() => router.push(`/import/${undoCard.jobId}`)}
+            style={({ pressed }) => [styles.fileTextColumn, { opacity: pressed ? 0.82 : 1 }]}
+          >
+            <Text style={styles.fileName}>{IMPORT_UNDO_CARD_TITLE}</Text>
+            <Text numberOfLines={1} style={styles.fileStatus}>
+              {importUndoCardSubtitle(undoCard, now)}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={importUndoActionAccessibilityLabel(undoCard)}
+            accessibilityState={{ disabled: undo.isPending }}
+            disabled={undo.isPending}
+            hitSlop={12}
+            onPress={() => confirmUndo(undoCard)}
+            style={({ pressed }) => [styles.undoButton, { opacity: pressed || undo.isPending ? 0.82 : 1 }]}
+          >
+            <Text style={styles.undoButtonText}>{IMPORT_UNDO_ACTION_LABEL}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* 라운드 56 D#5: 검토 중이던 가져오기로 돌아가는 카드. 서버에는 "내 가져오기 목록"이
-          없으므로(엔드포인트 자체가 없다) 이 카드가 그 잡으로 가는 유일한 길이다. 확정·취소된
-          잡과 사라진 잡(404)은 검수 화면이 저장본을 지우므로 여기 남지 않는다. */}
+          없으므로(엔드포인트 자체가 없다) 이 카드가 그 잡으로 가는 유일한 길이다. 취소된 잡과
+          사라진 잡(404)은 검수 화면이 저장본을 지우므로 여기 남지 않고, 확정된 잡은 확정 칸으로
+          옮겨 가 위 결과 카드로 선다(라운드 67 #3). 라운드 67 적대 리뷰 #1로 칸이 나뉜 뒤로는
+          **두 카드가 함께 설 수 있다** — 확정한 뒤 새 파일을 올린 사람의 화면이 정확히 그렇다
+          (위: 방금 확정한 것을 되돌리는 입구 / 아래: 방금 올려 검토 중인 파일). */}
       {resumeCard ? (
         <Pressable
           accessibilityRole="button"
@@ -404,6 +528,24 @@ const styles = StyleSheet.create({
     minHeight: theme.touchTarget,
     padding: 14,
     ...theme.shadows.card
+  },
+  // 라운드 67 #3: 결과 카드의 되돌리기 버튼. 되돌릴 수 없는 일괄 동작이라 색은 danger 토큰을
+  // 쓰고(새 hex 없음), 터치 타깃은 hitSlop 12로 채운다 — 카드 안의 다른 누르는 자리와 같은
+  // 관례다.
+  // ⚠️ 표기 정정(라운드 67 트랙 F, 주석만 — 동작 0건): 이 저장소의 기준은 44가 아니라 자신의
+  // 토큰 `theme.touchTarget`(=48dp)이다(A11Y 체크표 A-1 · a11y-contract.test.ts GAP-064 #6·65 #7).
+  // 여기 값(글자 줄 + 세로 패딩 6×2 + hitSlop 12×2)은 그 48도 넘으므로 숫자를 바꾸지 않고
+  // **기준의 이름만** 바로잡는다 — 44라고 적어 두면 다음 사람이 더 낮은 기준을 물려받는다.
+  undoButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    paddingVertical: 6
+  },
+  undoButtonText: {
+    color: theme.colors.danger,
+    fontSize: 13,
+    fontWeight: "800"
   },
   // 라운드 41 UX-S: 로그인·파일 선택 전 안내 카드. 목업 카드와 같은 자리(marginTop 34)·같은
   // 표면 토큰을 쓴다 -- 새 hex 없이 기존 카드 문법 그대로다.

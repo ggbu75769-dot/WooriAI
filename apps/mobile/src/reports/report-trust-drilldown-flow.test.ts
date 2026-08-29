@@ -27,7 +27,9 @@ describe("C-02 분기·연간 추이의 미래 달 절벽", () => {
     expect(reportSource).toContain("evaluateTrendDirection({ points: monthlyTrendPoints, monthStatus })");
     // 서버 응답을 자르는 것이지 요청을 바꾸는 것이 아니다.
     expect(reportSource.match(/getYearlyReport\(/g) ?? []).toHaveLength(1);
-    expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(3);
+    // GAP-067 트랙 A(#6): 분기의 세 요청이 범위 질의 하나가 되면서 이 호출부는 둘로 줄었다
+    // (이번 달 카드 · 지난 달 카드). 자르기 판정은 그대로다 -- 점의 출처만 바뀌었다.
+    expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(2);
   });
 
   it("draws the truncation as a fact under the chart, session-only", () => {

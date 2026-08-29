@@ -63,7 +63,9 @@ describe("GAP-054 D#11 내보내기 카드의 시작/끝 달 선택", () => {
     expect(cardSource).toContain("accessibilityState={{ disabled: !enabled }}");
     // 스크린리더는 어느 쪽 달을 옮기는지 알아야 한다("이전 달"만으로는 시작인지 끝인지 모른다).
     expect(cardSource).toContain('accessibilityLabel={`${label} ${delta < 0 ? "이전" : "다음"} 달`}');
-    expect(cardSource).toContain("accessibilityLabel={`${label} ${monthLabel}`}");
+    // 라운드 67 트랙 C(#5): 그 문장은 이제 시트 트리거가 진다(아래 describe) -- 어느 쪽 달인지를
+    // 말한다는 사실 자체는 한 글자도 바뀌지 않았다.
+    expect(cardSource).toContain("monthJumpTriggerAccessibilityLabel(`${label} ${monthLabel}`)");
   });
 
   it("붙여 넣은 뒤 무슨 이름으로 저장할지까지 말한다 (텍스트 공유 안내와 한 벌)", () => {
@@ -79,5 +81,54 @@ describe("GAP-054 D#11 내보내기 카드의 시작/끝 달 선택", () => {
 
   it("고른 구간을 사람이 읽는 문장으로도 확인시킨다", () => {
     expect(cardSource).toContain("{customRangeLabel(controller.customRange)} 기록을 내보내요.");
+  });
+});
+
+/**
+ * 라운드 67 트랙 C(#5) — 두 달 라벨이 **달 점프 시트**의 입구가 된다.
+ *
+ * 판정은 여기서 단언하지 않는다(export-range.test.ts가 경계 셋을 직접 부르며 잠근다). 여기서
+ * 잠그는 것은 화면이 그 판정을 **우회하지 않는지** 하나다: 카드가 자기 격자를 그리거나, 시트를
+ * 새로 만들거나, 고른 달을 자기 방식으로 넣기 시작하면 같은 규칙이 두 벌이 된다.
+ */
+describe("라운드 67 트랙 C(#5) 내보내기 달 라벨 → 월 선택 시트", () => {
+  it("기록·리포트 탭과 **같은 시트**를 연다 (새 시트를 만들지 않는다)", () => {
+    expect(cardSource).toContain('import { MonthJumpSheet } from "../MonthJumpSheet";');
+    expect(cardSource).toContain('} from "../month-jump";');
+    // 카드 안에 시트는 한 벌뿐이다(끝마다 한 번씩 그려지는 같은 컴포넌트).
+    expect((cardSource.match(/<MonthJumpSheet/g) ?? []).length).toBe(1);
+    // 격자·연도 스테퍼를 카드가 다시 짓지 않는다.
+    expect(cardSource).not.toContain("buildMonthJumpYear");
+  });
+
+  it("두 라벨이 눌리고, 열린 쪽은 한 번에 하나다", () => {
+    // 트리거·시트는 끝마다 한 벌씩 서지만 소스에는 한 번만 적힌다(같은 컴포넌트가 edge를 받는다).
+    expect(cardSource).toContain("testID={`export-${edge}-month-jump-trigger`}");
+    expect(cardSource).toContain("testID={`export-${edge}-month-jump-sheet`}");
+    expect(cardSource).toContain("const monthJumpOpen = controller.monthJumpEdge === edge;");
+    expect(cardSource).toContain("setMonthJumpEdge((open) => (open === edge ? null : edge));");
+    // 감싸기만 한다 -- 라벨 스타일은 종전 그대로다(렌더 불변).
+    expect(cardSource).toContain("<Text style={exportMonthValueStyle}>{monthLabel}</Text>");
+  });
+
+  it("경계·이유 문장·고른 달의 반영은 전부 순수 모듈에서 온다", () => {
+    for (const imported of ["customRangeMonthJumpBounds", "EXPORT_MONTH_JUMP_HINT", "selectCustomRangeMonth"]) {
+      expect(cardSource, imported).toContain(imported);
+    }
+    expect(cardSource).toContain("bounds={controller.monthJumpBounds(edge)}");
+    expect(cardSource).toContain("controller.selectCustomMonth(edge, next)");
+    // "왜 못 고르는지"의 문장이 카드에 리터럴로 없다(있으면 시트와 카드가 갈린다).
+    expect(cardSource).not.toContain("고를 수 없어요");
+  });
+
+  it("스테퍼는 그대로 남는다 -- 시트는 대안이지 대체가 아니다", () => {
+    expect(cardSource).toContain("const stepButton = (delta: -1 | 1) => {");
+    expect(cardSource).toContain("onPress={() => controller.shiftCustomMonth(edge, delta)}");
+    expect(cardSource).toContain('<ExportMonthStepper label="시작 달" edge="start" controller={controller} />');
+  });
+
+  it("구간 칩을 옮기면 열려 있던 시트가 닫힌다 (연 적 없는 시트가 서 있지 않게)", () => {
+    expect(cardSource).toContain("const selectRange = useCallback((next: ExportRange) => {");
+    expect(cardSource).toContain("setRange: selectRange,");
   });
 });

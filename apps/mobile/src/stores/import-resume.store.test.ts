@@ -66,6 +66,81 @@ describe("useImportResumeStore", () => {
   });
 
   /**
+   * 라운드 67 적대 리뷰(#1) — **이 파일이 고정하는 새 사실.**
+   *
+   * 칸이 하나였을 때, 확정한 잡(= 되돌리기의 유일한 입구)이 그 칸에 앉아 있는 동안 새 업로드가
+   * 무가드로 덮었다. 잘못 확정한 사람이 가장 자연스럽게 하는 행동(올바른 파일을 다시 올리기)이
+   * 곧 되돌리기 입구를 영구히 지우는 동작이었다.
+   */
+  describe("검토 칸 / 확정 칸", () => {
+    const confirm = (jobId: string, count: number) => state().markImportConfirmed(jobId, count);
+
+    it("확정하면 검토 칸에서 확정 칸으로 **옮겨** 앉는다", () => {
+      state().rememberImportReview(entry);
+      confirm("job-1", 200);
+      expect(state().entry).toBeNull();
+      expect(state().confirmed).toEqual({ ...entry, importedCount: 200 });
+    });
+
+    it("⚠️ 새 업로드는 검토 칸만 덮는다 — 되돌리기 입구는 그대로 남는다", () => {
+      state().rememberImportReview(entry);
+      confirm("job-1", 200);
+
+      const next = { ...entry, jobId: "job-2", fileName: "6월 카드내역.csv" };
+      state().rememberImportReview(next);
+      expect(state().entry).toEqual(next);
+      // 종전 결함: 이 한 줄이 null이었다(= 잘못 확정한 200건으로 돌아갈 길이 사라졌다).
+      expect(state().confirmed).toEqual({ ...entry, importedCount: 200 });
+    });
+
+    it("새 확정은 이전 확정 칸을 확인 없이 교체한다 (최신 확정이 이긴다)", () => {
+      state().rememberImportReview(entry);
+      confirm("job-1", 200);
+
+      const next = { ...entry, jobId: "job-2", fileName: "6월 카드내역.csv" };
+      state().rememberImportReview(next);
+      confirm("job-2", 7);
+      expect(state().entry).toBeNull();
+      expect(state().confirmed).toEqual({ ...next, importedCount: 7 });
+    });
+
+    it("모르는 잡은 확정 결과로 둔갑시키지 않고, 같은 값은 멱등이다", () => {
+      state().rememberImportReview(entry);
+      confirm("job-없음", 9);
+      expect(state().entry).toEqual(entry);
+      expect(state().confirmed).toBeNull();
+
+      confirm("job-1", 200);
+      const afterFirst = useImportResumeStore.getState();
+      // effect가 렌더마다 도는 자리라 같은 값 재호출이 상태를 새로 만들면 안 된다.
+      confirm("job-1", 200);
+      expect(useImportResumeStore.getState()).toBe(afterFirst);
+      // 건수가 바뀌면(서버가 다시 말한 값) 확정 칸만 갱신된다.
+      confirm("job-1", 201);
+      expect(state().confirmed).toEqual({ ...entry, importedCount: 201 });
+    });
+
+    it("되돌린 뒤에는 확정 칸이 지워진다 — 그런데 자기 잡일 때만", () => {
+      state().rememberImportReview(entry);
+      confirm("job-1", 200);
+      state().forgetImportReview("job-0");
+      expect(state().confirmed).toEqual({ ...entry, importedCount: 200 });
+
+      state().forgetImportReview("job-1");
+      expect(state().confirmed).toBeNull();
+    });
+
+    it("PRIV-104 초기화는 두 칸을 모두 비운다 (다음 계정에 파일명이 새지 않게)", () => {
+      state().rememberImportReview(entry);
+      confirm("job-1", 200);
+      state().rememberImportReview({ ...entry, jobId: "job-2" });
+      state().resetAll();
+      expect(state().entry).toBeNull();
+      expect(state().confirmed).toBeNull();
+    });
+  });
+
+  /**
    * 라운드 57 QA(P2-5) — 헤더가 "아직 배선되지 않았다"고 적혀 있었지만 배선은 라운드 55 트랙 C가
    * 이미 넣었다. 문서와 코드가 갈리면 다음 사람이 없는 결함을 고치려 든다(또는 있는 결함으로
    * 착각해 중복 배선한다). 사실 쪽으로 못 박는다.
@@ -97,6 +172,8 @@ describe("useImportResumeStore", () => {
     expect(source).toContain("version: 1");
     expect(source).toContain("migrate: (persisted) => sanitizedState(persisted)");
     expect(source).toContain("merge: (persisted, current) => ({ ...current, ...sanitizedState(persisted) })");
+    // 라운드 67 적대 리뷰 #1: 두 칸이 함께 저장된다(확정 칸을 빠뜨리면 재시작에 입구가 사라진다).
+    expect(source).toContain("partialize: (state) => ({ entry: state.entry, confirmed: state.confirmed })");
     // 규칙은 순수 모듈 한 곳에만 있다.
     expect(source).toContain('from "../import/import-resume"');
   });

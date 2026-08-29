@@ -28,14 +28,21 @@ import {
   canShiftCustomRange,
   collectExpensesForRange,
   customRangeLabel,
+  customRangeMonthJumpBounds,
   defaultCustomRange,
+  EXPORT_MONTH_JUMP_HINT,
   EXPORT_RANGE_OPTIONS,
   exportFileName,
+  selectCustomRangeMonth,
   shiftCustomRange,
   yearMonthLabel,
   type CustomExportRange,
   type ExportRange
 } from "./export-range";
+// 라운드 67 트랙 C(#5): 기록·리포트 탭이 쓰는 **그 시트·그 판정**을 그대로 연다(새 시트를 만들지
+// 않는다 — 라운드 66 A가 세운 달 점프 관례). 경계·이유 문장은 위 export-range.ts가 인자로 준다.
+import { monthJumpTriggerAccessibilityLabel, MONTH_JUMP_TRIGGER_HINT, type MonthJumpBounds } from "../month-jump";
+import { MonthJumpSheet } from "../MonthJumpSheet";
 import { shareExpenseCsv } from "./share-csv";
 import { csvShareToastMessage } from "./share-payload";
 
@@ -67,6 +74,18 @@ export type ExpenseCsvExportController = {
   shiftCustomMonth: (edge: "start" | "end", delta: -1 | 1) => void;
   /** 그 방향으로 옮길 수 있는가 -- 화면은 이 값으로 화살표를 잠근다(시작>끝·미래 달 방지). */
   canShiftCustomMonth: (edge: "start" | "end", delta: -1 | 1) => boolean;
+  /**
+   * 라운드 67 트랙 C(#5): 지금 달 점프 시트가 열려 있는 끝(없으면 null). 한 번에 하나만 열린다 --
+   * 두 시트가 동시에 서면 어느 쪽 달을 고르는지가 화면에서 사라진다.
+   */
+  monthJumpEdge: "start" | "end" | null;
+  /** 달 라벨을 눌렀을 때. 같은 끝을 다시 누르면 닫힌다(기록 탭 트리거와 같은 토글). */
+  toggleMonthJump: (edge: "start" | "end") => void;
+  closeMonthJump: () => void;
+  /** 그 끝의 시트가 쓸 경계·이유 문장. 판정은 전부 순수 모듈(src/month-jump.ts)이 한다. */
+  monthJumpBounds: (edge: "start" | "end") => MonthJumpBounds;
+  /** 시트에서 고른 달을 그 끝에 넣는다. 고를 수 없는 달이면 아무 일도 일어나지 않는다. */
+  selectCustomMonth: (edge: "start" | "end", yearMonth: string) => void;
   /** 지금 고른 구간으로 저장할 파일 이름 -- 텍스트로 붙여 넣은 뒤 무엇으로 저장할지 미리 말한다. */
   fileName: string;
   /**
@@ -153,6 +172,11 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
   // GAP-054 D#11: 기본값은 이번 달 한 달 -- "직접 선택"을 처음 누른 사람이 보게 되는 구간이
   // 고정 "이번 달"과 같아, 화살표를 누른 만큼만 범위가 넓어진다(놀랄 일이 없다).
   const [customRange, setCustomRange] = useState<CustomExportRange>(() => defaultCustomRange(getSeoulToday()));
+  /**
+   * 라운드 67 트랙 C(#5) — 달 점프 시트가 열린 끝. 닫혀 있으면 카드는 종전과 한 줄도 다르지 않다
+   * (시트는 열렸을 때만 그려진다 — 기록·리포트 탭과 같은 관례).
+   */
+  const [monthJumpEdge, setMonthJumpEdge] = useState<"start" | "end" | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<ExpenseCsvExportToastState | null>(null);
   // Same timer-in-ref discipline as records.tsx's confirmedFlash: a toast arriving right before
@@ -184,6 +208,32 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     (edge: "start" | "end", delta: -1 | 1) => canShiftCustomRange(customRange, edge, delta, getSeoulToday()),
     [customRange]
   );
+  /**
+   * 라운드 67 트랙 C(#5) — 달 라벨 → 시트. **스테퍼는 그대로 남는다**(대안이지 대체가 아니다 —
+   * 한 칸 옮기기는 화살표가 여전히 빠르다. 라운드 65가 달력 픽커를 세우면서 손타이핑 칸을 남긴
+   * 것과 같은 관례). 여기서도 판정은 한 줄도 짓지 않는다: 경계·이유 문장은 `customRangeMonthJumpBounds`,
+   * 고른 달의 반영은 `selectCustomRangeMonth`가 하고 이 훅은 "어느 끝"만 말한다.
+   */
+  const toggleMonthJump = useCallback((edge: "start" | "end") => {
+    setMonthJumpEdge((open) => (open === edge ? null : edge));
+  }, []);
+  const closeMonthJump = useCallback(() => setMonthJumpEdge(null), []);
+  const monthJumpBounds = useCallback(
+    (edge: "start" | "end") => customRangeMonthJumpBounds(customRange, edge, getSeoulToday()),
+    [customRange]
+  );
+  const selectCustomMonth = useCallback((edge: "start" | "end", yearMonth: string) => {
+    setCustomRange((current) => selectCustomRangeMonth(current, edge, yearMonth, getSeoulToday()));
+    setMonthJumpEdge(null);
+  }, []);
+  /**
+   * 구간 칩을 옮기면 열려 있던 시트를 닫는다 -- "직접 선택"이 아닌 구간에서는 그 줄 자체가 사라지고
+   * (시트도 함께 언마운트된다), 다시 돌아왔을 때 사용자가 연 적 없는 시트가 서 있으면 안 된다.
+   */
+  const selectRange = useCallback((next: ExportRange) => {
+    setMonthJumpEdge(null);
+    setRange(next);
+  }, []);
   const fileName = exportFileName({ range, todaySeoul: getSeoulToday(), custom: customRange, childLabel: childScopeLabel });
 
   /**
@@ -312,15 +362,20 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     canShiftCustomMonth,
     cardOpen,
     childScopeLabel,
+    closeMonthJump,
     customRange,
     fileName,
+    monthJumpBounds,
+    monthJumpEdge,
     pendingNotice,
     range,
     runExport,
-    setRange,
+    selectCustomMonth,
+    setRange: selectRange,
     shiftCustomMonth,
     toast,
-    toggleCard
+    toggleCard,
+    toggleMonthJump
   };
 }
 
@@ -329,6 +384,12 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
  * chevron 26 + 48dp 터치 타깃, 그리고 "더 갈 수 없음"은 색이 아니라 **opacity 0.35**로 말한다
  * (gray300 화살표는 AA 미달이라 그 화면에서 이미 버린 방식이다). 여기서 잠기는 방향이 곧
  * 이 기능의 두 규칙이다: 시작은 끝을 넘지 못하고, 끝은 이번 달을 넘지 못한다.
+ *
+ * 라운드 67 트랙 C(#5): 그 문법의 **나머지 절반**도 기록 탭과 같아진다 -- 가운데 달 라벨이 곧
+ * 월 선택 시트의 입구다(라운드 66 A). 라운드 49 C-09·66 A의 선례대로 <Text>를 Pressable로
+ * **감싸기만** 하므로 라벨의 스타일·문자열·자리는 한 글자도 바뀌지 않고, 이 줄은 이미 48dp
+ * 화살표 둘이 높이를 잡고 있어 늘어나는 것은 히트 영역뿐이다. **화살표는 그대로 남는다** --
+ * 한 칸 옮기기는 스테퍼가 여전히 빠르다(시트는 대안이지 대체가 아니다).
  */
 function ExportMonthStepper({
   label,
@@ -363,18 +424,48 @@ function ExportMonthStepper({
       </Pressable>
     );
   };
+  const monthJumpOpen = controller.monthJumpEdge === edge;
   return (
-    <View style={exportMonthStepperRowStyle}>
-      <Text style={exportMonthStepperLabelStyle}>{label}</Text>
-      <View style={exportMonthStepperNavStyle}>
-        {stepButton(-1)}
-        {/* 라벨을 소리에도 실어 준다 -- "2026년 8월"만 들으면 그것이 시작인지 끝인지 알 수 없다. */}
-        <Text accessibilityLabel={`${label} ${monthLabel}`} style={exportMonthValueStyle}>
-          {monthLabel}
-        </Text>
-        {stepButton(1)}
+    <>
+      <View style={exportMonthStepperRowStyle}>
+        <Text style={exportMonthStepperLabelStyle}>{label}</Text>
+        <View style={exportMonthStepperNavStyle}>
+          {stepButton(-1)}
+          {/* 라벨을 소리에도 실어 준다 -- "2026년 8월"만 들으면 그것이 시작인지 끝인지 알 수 없다.
+              라운드 67 트랙 C(#5): 그 문장 뒤에 "달 선택"이 붙고(트리거 라벨의 단일 소스는 순수
+              모듈의 monthJumpTriggerAccessibilityLabel이다), 힌트가 **누르기 전에** 무엇이
+              열리는지 말한다. 감싸인 <Text>는 라벨을 따로 달지 않는다 -- 접근성 컨테이너가 된
+              Pressable이 이미 같은 문장을 읽어 주므로 두 번 읽히지 않게 한다. */}
+          <Pressable
+            accessibilityHint={MONTH_JUMP_TRIGGER_HINT}
+            accessibilityLabel={monthJumpTriggerAccessibilityLabel(`${label} ${monthLabel}`)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: monthJumpOpen }}
+            hitSlop={8}
+            onPress={() => controller.toggleMonthJump(edge)}
+            testID={`export-${edge}-month-jump-trigger`}
+            style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
+          >
+            <Text style={exportMonthValueStyle}>{monthLabel}</Text>
+          </Pressable>
+          {stepButton(1)}
+        </View>
       </View>
-    </View>
+      {/* 라운드 67 트랙 C(#5): 기록·리포트 탭과 **같은 시트**다(새 시트를 만들지 않는다). 닫혀
+          있으면 아무것도 그리지 않으므로 카드는 종전과 픽셀 하나 다르지 않다. 어느 달을 고를 수
+          있는지는 전부 순수 모듈이 정한다 -- 시작은 끝을 넘지 못하고, 끝은 이번 달을 넘지
+          못하며, 하한은 이 화면의 10년 상한(CUSTOM_RANGE_MAX_MONTHS)이다. */}
+      {monthJumpOpen ? (
+        <MonthJumpSheet
+          testID={`export-${edge}-month-jump-sheet`}
+          selectedYearMonth={yearMonth}
+          bounds={controller.monthJumpBounds(edge)}
+          hint={EXPORT_MONTH_JUMP_HINT}
+          onSelect={(next) => controller.selectCustomMonth(edge, next)}
+          onClose={controller.closeMonthJump}
+        />
+      ) : null}
+    </>
   );
 }
 

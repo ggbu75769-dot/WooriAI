@@ -112,6 +112,7 @@ curl -si $BASE/../r/AAAAAAAAAAAA | head -1
 - [ ] `health/ready` 200
 - [ ] 시드 + 관리자 로그인 → 비밀번호 교체 + MFA 등록
 - [ ] (도메인 있으면) HTTPS 커스텀 도메인 + `INVITE_LINK_BASE_URL` 일치
+  - `INVITE_LINK_BASE_URL`은 **부트 필수 6종에 들어 있지 않다** — 미설정이어도 서버는 그냥 뜨고, 대신 그 값에서 나오는 **공유 URL 소비자 셋**이 조용히 `https://wooriai.local`로 발급된다: ⓐ 가족 초대 링크(`household-runtime.service.ts`), ⓑ 어드민이 복사해 뿌리는 공개 공유 URL, ⓒ 앱이 밖으로 내보내는 구매 링크(`items-catalog.service.ts`의 `publicRedirectShareUrl` — 라운드 67 #4). 셋 다 **받는 사람 쪽에서만** 죽은 링크로 드러나므로 배포 스모크에서는 보이지 않는다. `pnpm check:env`가 REQUIRED로 잡고 있으니 배포 전에 한 번 돌려 확인하세요.
 - [ ] 카카오 콘솔에 `wooriai://oauth/kakao` redirect 등록 (서버 allowlist와 동일 값)
 
 ## E. 주의

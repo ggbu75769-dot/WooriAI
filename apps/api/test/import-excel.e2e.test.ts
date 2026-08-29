@@ -872,6 +872,353 @@ describe("Excel import beta API", () => {
       });
   });
 
+  /**
+   * GAP-067 #3: 확정한 가져오기를 **한 번에 되돌린다**(`POST /imports/:id/undo`).
+   *
+   * 라운드 66이 지출에 출처를 남기기 시작한 뒤에도 사용자가 그것을 되돌릴 길은 0건이었다 —
+   * 앱의 수단은 한 건씩 롱프레스 삭제뿐이었다(200번). 이 테스트가 고정하는 값 계약 넷:
+   *  1. **그 잡의 행만** 사라진다(같은 아이의 수동 기록·다른 파일의 행은 그대로다). 라운드 67
+   *     적대 리뷰(#4): **확정 뒤에 고친 행도** 사라진다 — 앱의 확인 Alert가 그렇게 약속한다.
+   *  2. **soft delete**다(DNC-014) — 행은 남고 `deleted_at`·`deleted_by_user_id`가 찍히며
+   *     `version`이 **행마다 한 칸씩** 오른다(오프라인 아웃박스가 들고 있던 expectedVersion이
+   *     통과해 되살아나지 않도록 — 고쳐서 이미 2인 행은 3이 된다). 그래서 델타 동기화가 그
+   *     행들을 **삭제 툼스톤**으로 실어 나른다.
+   *  3. **감사 로그는 묶음 1행**(`import.undo`) — 건수·잡 id를 싣고 파일명은 싣지 않는다.
+   *  4. **멱등** — 두 번째 호출은 0건이고 잡 상태·건수는 그대로다(되돌리기의 되돌리기가 없다).
+   */
+  it("GAP-067 #3: 확정한 가져오기를 되돌리면 그 잡의 지출만 soft delete되고 감사 로그 1행이 남는다", async () => {
+    const accessToken = await login(app, "import-undo");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = app.get(PrismaService);
+
+    const me = (
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as { user: { id: string }; households: { id: string }[] };
+
+    // 대조군 둘: 수동 기록 1건 + **다른 파일**에서 온 1건. 되돌리기가 "그 파일에서 온 행"만
+    // 고른다는 사실은 이 둘이 살아남아야 드러난다.
+    const manualExpenseId = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ categoryId, amountKrw: 15000, spentOn: "2026-07-02", itemName: "손으로 적은 기저귀" })
+        .expect(200)
+    ).body.id as string;
+
+    async function uploadAndConfirm(fileName: string, csv: string) {
+      const job = (
+        await request(app.getHttpServer())
+          .post(`/api/v1/children/${childId}/imports/excel`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .field("fileName", fileName)
+          .attach("file", Buffer.from(csv, "utf8"), fileName)
+          .expect(200)
+      ).body as ImportJob;
+      const rows = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/imports/${job.id}/rows`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body.rows as ImportRow[];
+      const confirmed = (
+        await request(app.getHttpServer())
+          .post(`/api/v1/imports/${job.id}/confirm`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ selectedRowIds: rows.map((row) => row.id) })
+          .expect(200)
+      ).body as { importedCount: number; skippedCount: number };
+      return { job, confirmed };
+    }
+
+    const other = await uploadAndConfirm("카드내역-다른파일.csv", "날짜,적요,금액\n2026-07-01,젖병 구매,21000\n");
+    expect(other.confirmed.importedCount).toBe(1);
+
+    // 되돌릴 파일: 유효 2행 + 미래 날짜 1행(확정에서 빠진다 — 되돌린 건수가 **들어간 건수**와
+    // 같고 파일의 행 수와는 다르다는 사실이 드러난다).
+    const undoTargetFileName = "카드내역-되돌릴파일-홍길동.csv";
+    const target = await uploadAndConfirm(
+      undoTargetFileName,
+      `날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n2026-07-05,물티슈 구매,12000\n${futureRowDate()},분유 구매,33000\n`
+    );
+    expect(target.confirmed).toEqual({ importedCount: 2, skippedCount: 1 });
+
+    const listJuly = async () =>
+      (
+        await request(app.getHttpServer())
+          .get(`/api/v1/children/${childId}/expenses?yearMonth=2026-07`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body.expenses as Array<{ id: string }>;
+    // 수동 1 + 다른 파일 1 + 되돌릴 파일 2.
+    expect(await listJuly()).toHaveLength(4);
+
+    const importedBefore = await prisma.expense.findMany({
+      where: { importJobId: target.job.id },
+      orderBy: { spentOn: "asc" }
+    });
+    expect(importedBefore).toHaveLength(2);
+    for (const expense of importedBefore) {
+      expect(expense.deletedAt).toBeNull();
+      expect(expense.version).toBe(1);
+    }
+
+    /**
+     * 라운드 67 적대 리뷰(#4) — **확정 뒤에 고친 행도 되돌리기의 대상이다.**
+     *
+     * 앱의 확인 Alert가 그 사실을 문장으로 약속한다("가져온 뒤에 고친 기록도 함께 사라져요" —
+     * apps/mobile/src/import/import-resume.ts). 그런데 서버 쪽에서 그 약속을 붙들고 있는 것은
+     * 아무것도 없었다: 이 시나리오의 두 행은 확정 뒤 손대지 않은 version 1짜리였고, 되돌리기의
+     * 선택 조건이 언젠가 "확정 이후 바뀌지 않은 행"으로 좁아져도(낙관적 잠금을 잘못 옮겨 오는
+     * 흔한 변경이다) 테스트는 초록이었다. 그래서 **한 행을 실제로 고쳐 놓고**(version 1→2)
+     * 되돌린다 — 그 행도 함께 사라져야 하고, 버전은 개별 삭제와 같은 모양으로 **한 칸 더**
+     * 올라야 한다(오프라인 아웃박스가 들고 있던 expectedVersion이 되살리지 못하게).
+     */
+    const editedExpenseId = importedBefore[0].id;
+    const untouchedExpenseId = importedBefore[1].id;
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${editedExpenseId}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ amountKrw: 40000, memo: "확정 뒤에 금액을 고쳤다" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ id: editedExpenseId, amountKrw: 40000, version: 2 });
+      });
+
+    const beforeUndo = Date.now();
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${target.job.id}/undo`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      // 응답은 건수 하나다 — 감사 봉투는 컨트롤러가 벗겨 낸다.
+      .expect(({ body }) => {
+        expect(body).toEqual({ deletedCount: 2 });
+      });
+
+    // 1. 목록에서 사라진다(그리고 대조군 둘은 그대로다).
+    const remaining = await listJuly();
+    expect(remaining).toHaveLength(2);
+    expect(remaining.map((expense) => expense.id)).toContain(manualExpenseId);
+    expect(await prisma.expense.count({ where: { importJobId: other.job.id, deletedAt: null } })).toBe(1);
+
+    // 2. soft delete다 — 행은 남고, 출처도 남고(어느 파일에서 왔는지는 지운 뒤에도 사실이다),
+    //    지운 사람과 버전이 개별 삭제와 같은 모양으로 찍힌다.
+    const importedAfter = await prisma.expense.findMany({ where: { importJobId: target.job.id } });
+    expect(importedAfter).toHaveLength(2);
+    // 고친 행의 버전은 2에서 3으로, 손대지 않은 행은 1에서 2로 — 되돌리기가 **행마다 한 칸씩**
+    // 올린다(고쳐서 버전이 앞선 행을 건너뛰지도, 버전을 2로 되감지도 않는다).
+    const expectedVersionById = new Map([
+      [editedExpenseId, 3],
+      [untouchedExpenseId, 2]
+    ]);
+    for (const expense of importedAfter) {
+      expect(expense.deletedAt).toBeInstanceOf(Date);
+      expect(expense.deletedAt!.getTime()).toBeGreaterThanOrEqual(beforeUndo - 1000);
+      expect(expense.deletedByUserId).toBe(me.user.id);
+      expect(expense.version, expense.id).toBe(expectedVersionById.get(expense.id));
+    }
+    // 같은 순간에 지워진다(묶음 하나라 시각이 하나여야 CS가 "이 되돌리기"를 셀 수 있다).
+    expect(new Set(importedAfter.map((expense) => expense.deletedAt!.toISOString())).size).toBe(1);
+
+    // 델타 동기화가 그 행들을 **삭제 툼스톤**으로 실어 나른다(오프라인 클라이언트도 수렴한다).
+    const changes = (
+      await request(app.getHttpServer())
+        .get("/api/v1/sync/changes?limit=200")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.changes as Array<{ type: string; op: string; id?: string; version?: number }>;
+    for (const expense of importedAfter) {
+      expect(changes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: "expense", op: "delete", id: expense.id, version: expense.version })
+        ])
+      );
+    }
+
+    // 3. 감사 로그는 묶음 1행이고, 봉투에 파일명이 없다.
+    const undoEntries = await prisma.auditLog.findMany({
+      where: { action: "import.undo", targetId: target.job.id },
+      orderBy: { createdAt: "asc" }
+    });
+    expect(undoEntries).toHaveLength(1);
+    expect(undoEntries[0].actorUserId).toBe(me.user.id);
+    expect(undoEntries[0].householdId).toBe(me.households[0].id);
+    expect(undoEntries[0].targetType).toBe("import_job");
+    expect(undoEntries[0].beforeJson).toEqual({ status: "confirmed", importedCount: 2 });
+    expect(undoEntries[0].afterJson).toMatchObject({ status: "confirmed", deletedCount: 2 });
+    const envelope = JSON.stringify([undoEntries[0].beforeJson, undoEntries[0].afterJson]);
+    expect(envelope).not.toContain("홍길동");
+    expect(envelope).not.toContain(".csv");
+    expect(envelope).not.toContain("카드내역");
+    // 확정 로그는 그대로 남는다 — 한 잡의 이력이 두 줄로 순서까지 읽힌다.
+    expect(await prisma.auditLog.count({ where: { action: "import.confirm", targetId: target.job.id } })).toBe(1);
+
+    // 4. 멱등: 두 번째는 0건이고, 이미 지워진 행의 삭제 시각·버전은 덮이지 않는다.
+    const firstDeletedAt = importedAfter[0].deletedAt!.toISOString();
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${target.job.id}/undo`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ deletedCount: 0 });
+      });
+    const afterSecond = await prisma.expense.findMany({ where: { importJobId: target.job.id } });
+    for (const expense of afterSecond) {
+      expect(expense.version, expense.id).toBe(expectedVersionById.get(expense.id));
+    }
+    expect(afterSecond.map((expense) => expense.deletedAt!.toISOString())).toContain(firstDeletedAt);
+
+    // 잡 자신은 그대로다 — "이 파일이 승인됐다"는 사실은 되돌린 뒤에도 참이고, 상태를 되돌리면
+    // 확정 CAS가 다시 열려 같은 파일을 두 번 확정할 수 있게 된다.
+    const jobAfter = await prisma.importJob.findUniqueOrThrow({ where: { id: target.job.id } });
+    expect(jobAfter.status).toBe("confirmed");
+    expect(jobAfter.importedCount).toBe(2);
+  });
+
+  /**
+   * 라운드 67 적대 리뷰(#4) — **되돌리기의 권한 게이트.**
+   *
+   * 앱은 확인 Alert **앞에서** 보기 전용 역할을 막는다(app/import/index.tsx의 `expenseGate`) —
+   * 그 게이트가 있는 이유가 "서버도 403이다"였는데, 정작 그 사실을 붙들고 있는 테스트가 없었다.
+   * 되돌리기는 지출 200건을 한 번에 지우는 경로라, 권한이 조용히 넓어지면(예: `edit` 플래그를
+   * 빠뜨린 리팩터링) 보기 전용 참여자가 남의 가계부를 비울 수 있게 된다.
+   *
+   * 두 갈래를 함께 본다.
+   *  - **같은 가구의 뷰어** → 403 FORBIDDEN(잡은 보이지만 쓰기가 아니다).
+   *  - **남의 가구 사람** → 같은 403 FORBIDDEN이다. `requireImportJobAccess`가 잡을 먼저 찾고
+   *    그다음 `requireChildAccess`가 판정하므로, **없는 잡의 404와 남의 잡의 403이 갈린다**
+   *    (저장소 전체가 지키는 순서다 — 위 테스트가 404 쪽을 이미 붙들고 있다). 여기서 굳이
+   *    404로 뭉개지 않는 이유는 그 순서를 바꾸는 것이 이 라운드의 변경이 아니기 때문이고,
+   *    갈린다는 사실 자체를 테스트가 적어 두면 다음 사람이 판단할 근거가 남는다.
+   *  - 그리고 **소유자는 여전히 200**이다 — 게이트가 역할을 막은 것이지 경로를 막은 것이 아니다.
+   */
+  it("라운드 67 적대 리뷰 #4: 되돌리기는 편집 권한을 요구한다 (뷰어·남의 가구 거절, 소유자만 통과)", async () => {
+    const ownerToken = await login(app, "import-undo-rbac-owner");
+    const { childId } = await completeOnboarding(app, ownerToken);
+    const householdId = (
+      await request(app.getHttpServer())
+        .get("/api/v1/me")
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .expect(200)
+    ).body.households[0].id as string;
+
+    const fileName = "권한게이트.csv";
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .field("fileName", fileName)
+        .attach("file", Buffer.from("날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n", "utf8"), fileName)
+        .expect(200)
+    ).body as ImportJob;
+    const rows = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/imports/${job.id}/rows`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .expect(200)
+    ).body.rows as ImportRow[];
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ selectedRowIds: rows.map((row) => row.id) })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.importedCount).toBe(1);
+      });
+
+    // 같은 가구의 **뷰어**: 잡은 읽히지만 되돌리기는 막힌다.
+    const viewerInvite = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/households/${householdId}/invites`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ role: "viewer", channel: "link" })
+        .expect(200)
+    ).body as { inviteUrl: string };
+    const viewerToken = await login(app, "import-undo-rbac-viewer");
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${viewerInvite.inviteUrl.split("/invite/")[1]}/accept`)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.household.role).toBe("viewer");
+      });
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/imports/${job.id}`)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/undo`)
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .expect(403)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("FORBIDDEN");
+      });
+
+    // 남의 가구 사람: 같은 거절이고, 없는 잡의 404와는 갈린다.
+    const strangerToken = await login(app, "import-undo-rbac-stranger");
+    await completeOnboarding(app, strangerToken);
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/undo`)
+      .set("Authorization", `Bearer ${strangerToken}`)
+      .expect(403)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("FORBIDDEN");
+      });
+
+    // 거절당한 두 번의 호출은 아무것도 지우지 않았다.
+    const prisma = app.get(PrismaService);
+    expect(await prisma.expense.count({ where: { importJobId: job.id, deletedAt: null } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { action: "import.undo", targetId: job.id } })).toBe(0);
+
+    // 소유자는 통과한다 — 막힌 것은 역할이지 경로가 아니다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/undo`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ deletedCount: 1 });
+      });
+  });
+
+  it("GAP-067 #3: 확정되지 않은 잡은 되돌릴 수 없다 (400 IMPORT_NOT_UNDOABLE)", async () => {
+    const accessToken = await login(app, "import-undo-guard");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", "미확정.csv")
+        .attach("file", Buffer.from("날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n", "utf8"), "미확정.csv")
+        .expect(200)
+    ).body as ImportJob;
+    expect(job.status).toBe("preview_ready");
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/undo`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("IMPORT_NOT_UNDOABLE");
+      });
+
+    // 없는 잡은 종전 봉투 그대로다(되돌리기가 새 실패 모양을 만들지 않는다).
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${randomUUID()}/undo`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(404)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("IMPORT_JOB_NOT_FOUND");
+      });
+  });
+
   // API-130: 형식 판정이 파일명 확장자에만 기대던 것을 (1) mimetype 1차 관문과
   // (2) 매직바이트 본검사로 나눠 잡는다. 둘 다 기존 400 IMPORT_FILE_TYPE_INVALID
   // 봉투를 그대로 쓴다 — 사용자에게는 "지원하지 않는 파일" 하나의 사실이다.

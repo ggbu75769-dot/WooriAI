@@ -311,8 +311,12 @@ export default function ItemDetailScreen() {
   // GAP-060 #4: 눌린 **링크 자체**도 함께 들고 있는다. 구매 확인 대기는 이제 링크가 실제로
   // 열린 뒤에만 등록되므로(아래 registerPurchaseFollowup), 재시도로 열린 경우에도 같은 사실을
   // 남기려면 그때 그 링크가 무엇이었는지를 알아야 한다.
+  //
+  // GAP-067 #4: **밖으로 내보내는** URL(`shareUrl`)도 함께 들고 있는다. 여는 URL과 다른 값이라
+  // 한 칸으로 합칠 수 없다(아래 shareFallbackLink 주석).
   const [linkOpenFallback, setLinkOpenFallback] = useState<{
     redirectUrl: string;
+    shareUrl?: string;
     disclosureText?: string;
     link: ProductLink;
   } | null>(null);
@@ -526,7 +530,12 @@ export default function ItemDetailScreen() {
         registerPurchaseFollowup(link);
       } catch {
         showLinkFailure("링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.");
-        setLinkOpenFallback({ redirectUrl: result.redirectUrl, disclosureText: result.disclosureText, link });
+        setLinkOpenFallback({
+          redirectUrl: result.redirectUrl,
+          shareUrl: result.shareUrl,
+          disclosureText: result.disclosureText,
+          link
+        });
       }
     },
     onError: () => {
@@ -563,14 +572,27 @@ export default function ItemDetailScreen() {
    * `purchaseLinkShareMessage`)이고, 그 안에서 화면과 **같은 판정**(`productLinksDisclosureText`)이
    * 돈다. 일반 링크(제휴도 스폰서도 아님)는 종전 그대로 URL 한 줄이다.
    *
-   * 나가는 URL 자체는 이 트랙에서 바꾸지 않는다 — 공개 리다이렉트(/r/:code)로 목적지를 옮기는
-   * 판단은 어드민 노출(라운드 64 #8)과 함께 서야 한다.
+   * 라운드 67 #4 — **나가는 URL을 공개 리다이렉트로 옮긴다**(라운드 64가 이 자리에 남긴 몫이고,
+   * 그 선행 조건인 어드민 노출은 라운드 64 D가 채웠다).
+   *
+   * 종전에는 `redirectUrl`(= 저장된 원문 제휴 URL)이 그대로 나갔다. 그래서 ⓐ 그 사본으로 산
+   * 구매는 우리 집계에 한 줄도 남지 않았고, ⓑ 어드민이 깨진 링크를 내려도 이미 나간 사본은
+   * 계속 살아 있었다. 서버가 주는 `shareUrl`(공개 리다이렉트 `/r/:code`의 절대 주소)로 나가면
+   * 그 클릭이 익명 행으로 집계에 남고, 내려간 링크는 그 주소에서 404가 된다.
+   *
+   * **여는 URL은 그대로다**(위 openLink·retryOpenFallbackLink는 `redirectUrl`을 쓴다) — `/r/`로
+   * 열면 이 화면이 만든 클릭 행과 리다이렉트가 만드는 익명 행이 겹쳐 한 번의 클릭이 두 번
+   * 세어진다(허위 수치).
+   *
+   * URL을 여기서 짓지 않는다: 서버가 만든 문자열을 그대로 싣는다(베이스는 API 환경변수라
+   * 앱이 알 수 없다). `shareUrl`이 없으면(옛 서버·코드 없는 행) **종전 URL로 떨어진다** —
+   * 공유 자체가 사라지는 것보다 낫다.
    */
   const shareFallbackLink = () => {
     if (!linkOpenFallback) return;
     void Share.share({
       message: purchaseLinkShareMessage({
-        url: linkOpenFallback.redirectUrl,
+        url: linkOpenFallback.shareUrl ?? linkOpenFallback.redirectUrl,
         link: linkOpenFallback.link,
         disclosureText: linkOpenFallback.disclosureText
       })

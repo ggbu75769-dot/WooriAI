@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Platform, Pressable, RefreshControl, Share, StyleSheet, Text, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
@@ -104,6 +104,9 @@ const previewCumulativeTotalKrw = 1_245_700;
 // REP-128: 월간 탭 라인 차트가 그리는 막대 수(선택한 달 포함 최근 6개월). 서버 기본값과
 // 같은 값이지만, 캐시 키에 들어가고 요청에도 실리므로 화면 쪽에서 명시한다.
 const MONTHLY_TREND_MONTHS = 6;
+// GAP-067 트랙 A(#6): 분기 탭이 한 번에 받는 개월 수. 그 분기의 세 달이고, 마지막 달이
+// 요청의 endYearMonth다(같은 엔드포인트 · 같은 캐시 키 모양 — 아래 quarterTrend 주석).
+const QUARTER_TREND_MONTHS = 3;
 // PIX-133(실기기 피드백): 아래 보정 오프셋·스케일은 REP-001 픽셀 캡처를 기준 이미지에
 // 맞추기 위한 값이지 실사용 레이아웃이 아니다. 종전에는 세션 렌더에도 무조건 적용돼
 // 리포트 탭 전체가 왼쪽 16dp·위 4dp 밀려 "꽉 차 보이지 않는" 실기기 결함이 됐다.
@@ -409,15 +412,35 @@ export default function ReportsScreen() {
   });
   const categoryName = buildCategoryNameLookup(categories.data?.categories);
   const categoryCardTitle = period === "월간" ? `${reportDate.getMonth() + 1}월 카테고리 비중` : `${periodLabel} 카테고리 비중`;
-  const quarterQueries = useQueries({
-    queries: quarterMonths.map((date) => {
-      const ym = yearMonthOf(date);
-      return {
-        queryKey: ["report", "monthly", childId, ym],
-        enabled: Boolean(authToken && childId && period === "분기"),
-        queryFn: () => getMonthlyReport(authToken!, childId!, ym)
-      };
-    })
+  /**
+   * GAP-067 트랙 A(#6) — 분기 합계도 **한 번의 범위 질의**로 접는다.
+   *
+   * 종전에는 `useQueries`로 `getMonthlyReport`를 그 분기의 세 달마다 한 번씩 불러 클라이언트에서
+   * 더했다. 그 모양은 REP-128이 **이 파일 안에서** 이미 없앤 워터폴과 같은 것이다(월간 추이
+   * 차트가 막대 하나당 한 번씩 여섯 번 부르던 자리 — 바로 아래 `monthlyTrend`). 분기가 쓰는 값은
+   * 달마다 `totalExpenseKrw` 하나뿐이라 그 엔드포인트의 응답이 그대로 답이고, 서버는 한 줄도
+   * 바뀌지 않는다(`GET /children/:id/reports/trend`는 REP-128이 이미 열어 둔 경로다).
+   *
+   * 세 번이 한 번이 되면서 화면의 판정도 단순해진다: 로딩·실패가 `some(...)`이 아니라 이 쿼리
+   * 하나이므로 **실패 확률이 세 배**이던 자리가 사라지고(셋 중 하나만 늦어도 스켈레톤에 머물던
+   * 지연도 마찬가지다), 분기 화살표로 한 칸 옮길 때 나가는 요청도 3 → 1이다.
+   *
+   * ## 잃는 것(값으로 남긴다 — 다음 라운드가 근거 없이 되돌리지 않도록)
+   * 종전 세 요청의 캐시 키는 `["report","monthly",childId,ym]`로 **월간 탭과 같은 키**였다. 그래서
+   * 분기를 한 번 열면 그 세 달의 월간 카드가 공짜였고(그 반대도), 트렌드 키로 바꾸면 그 온기가
+   * 사라진다. 그 교환을 받아들이는 이유: **분기 진입은 매번 일어나고**(세그먼트 탭 · 분기 이동마다
+   * 세 요청) 분기를 본 뒤 그 세 달을 월간으로 다시 여는 경로는 드물다. 즉 확실한 3배를 없애고
+   * 드문 1회의 재요청을 감수하는 교환이다.
+   *
+   * 캐시 무효화는 아무것도 늘지 않는다 — 이 키도 `["report", …]` 프리픽스라 당겨서 새로고침
+   * (위 usePullToRefresh)·아이 전환(CHILD_SCOPED_QUERY_KEY_PREFIXES)·지출 쓰기 경로가 이미
+   * 무효화하는 그 목록에 그대로 걸린다.
+   */
+  const quarterEndYearMonth = yearMonthOf(quarterMonths[2]);
+  const quarterTrend = useQuery({
+    queryKey: ["report", "trend", childId, quarterEndYearMonth, QUARTER_TREND_MONTHS],
+    enabled: Boolean(authToken && childId && period === "분기"),
+    queryFn: () => getTrendReport(authToken!, childId!, quarterEndYearMonth, QUARTER_TREND_MONTHS)
   });
   const yearly = useQuery({
     queryKey: ["report", "yearly", childId, yearStart.getFullYear()],
@@ -537,7 +560,7 @@ export default function ReportsScreen() {
     }
   };
 
-  // REP-128: 월간 탭 라인 차트의 최근 6개월(선택한 달 포함) 추이. 종전에는 quarterQueries와
+  // REP-128: 월간 탭 라인 차트의 최근 6개월(선택한 달 포함) 추이. 종전에는 분기 합계와
   // 같은 useQueries 패턴으로 `getMonthlyReport`를 **막대 하나당 한 번씩 6번** 불렀다 — 탭을
   // 열 때마다, 그리고 달을 옮길 때마다 6개의 요청이 나가는 워터폴이었다. 차트가 실제로 쓰는
   // 값은 달마다 totalExpenseKrw 하나뿐이라(아래 monthlyTrendPoints) 예산·카테고리 분해까지
@@ -553,10 +576,12 @@ export default function ReportsScreen() {
   const monthlyTotal = monthly.data?.totalExpenseKrw ?? previewReportTotalKrw;
   const cumulativeTotal = cumulative.data?.totalExpenseKrw ?? previewCumulativeTotalKrw;
 
-  const quarterTotal = quarterQueries.reduce((sum, query) => sum + (query.data?.totalExpenseKrw ?? 0), 0);
-  const quarterIsLoading = quarterQueries.some((query) => query.isLoading);
-  const quarterIsError = quarterQueries.some((query) => query.isError);
-  const refetchQuarter = () => quarterQueries.forEach((query) => query.refetch());
+  // GAP-067 트랙 A(#6): 합계는 **서버가 준 달별 값의 합**이다 — 종전 세 응답을 더하던 것과 같은
+  // 산수이고(재집계 0건), 응답이 아직 없으면 종전처럼 0이다.
+  const quarterTotal = (quarterTrend.data?.months ?? []).reduce((sum, month) => sum + month.totalExpenseKrw, 0);
+  const quarterIsLoading = quarterTrend.isLoading;
+  const quarterIsError = quarterTrend.isError;
+  const refetchQuarter = () => quarterTrend.refetch();
 
   const activeIsLoading = period === "월간" ? monthly.isLoading : period === "분기" ? quarterIsLoading : yearly.isLoading;
   const activeIsError = period === "월간" ? monthly.isError : period === "분기" ? quarterIsError : yearly.isError;
@@ -656,9 +681,11 @@ export default function ReportsScreen() {
     period === "월간" && monthlyTrend.isSuccess
       ? monthlyTrend.data!.months.map((month) => month.totalExpenseKrw)
       : undefined;
+  // GAP-067 트랙 A(#6): 순서는 종전과 같다 — 트렌드 응답의 `months`는 오름차순이고 마지막
+  // 원소가 요청한 endYearMonth(그 분기의 셋째 달)라, 배열이 곧 분기 첫 달부터의 세 점이다.
   const quarterPoints =
-    period === "분기" && quarterQueries.every((query) => query.isSuccess)
-      ? quarterQueries.map((query) => query.data!.totalExpenseKrw)
+    period === "분기" && quarterTrend.isSuccess
+      ? quarterTrend.data!.months.map((month) => month.totalExpenseKrw)
       : undefined;
   const yearlyPoints =
     period === "연간" && yearly.isSuccess ? yearly.data!.monthlyTotals.map((entry) => entry.totalExpenseKrw) : undefined;
@@ -666,7 +693,8 @@ export default function ReportsScreen() {
   // 라운드 52 C-02: 분기·연간의 **미래 달 0원 절벽**을 잘라 낸다.
   //
   // 서버는 연간 리포트의 monthlyTotals를 12개월 전부 채워 주고(기록 없는 달은 0원), 분기 탭도
-  // 그 분기의 세 달을 각각 물어보므로 아직 오지 않은 달이 0원으로 온다. 그대로 그리면 8월에 연간
+  // 그 분기의 세 달을 한 범위로 받으므로(GAP-067 트랙 A(#6) 이후 — 그전에는 세 달을 각각
+  // 물어봤다. 판정은 그대로다: 어느 쪽이든 아직 오지 않은 달이 0원으로 온다) 미래 달이 섞인다. 그대로 그리면 8월에 연간
   // 탭을 열었을 때 9~12월이 바닥에 눌어붙은 선이 되어 "연말에 지출이 끊겼다"는 사실 주장이 된다.
   // 서버는 그대로 두고(그 배열은 합계의 근거이자 정직한 계약이다) 화면이 현재 달까지만 그린다 --
   // 판정과 캡션 문구는 전부 src/reports/period-trend-points.ts에 있다. 끝난 연도/분기는 자르지

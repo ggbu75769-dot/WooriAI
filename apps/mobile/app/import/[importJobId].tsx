@@ -43,7 +43,7 @@ import {
   type ImportBulkRunHandle,
   type ImportBulkRunOutcome
 } from "../../src/import/bulk-run";
-import { shouldForgetImportResume } from "../../src/import/import-resume";
+import { shouldForgetImportResume, shouldMarkImportResumeConfirmed } from "../../src/import/import-resume";
 import {
   attentionFilterChipLabel,
   buildImportBulkSelectionPlan,
@@ -724,18 +724,32 @@ export default function ImportPreviewScreen() {
    * 라운드 56 D#5 — **이어서 보기 카드를 지우는 유일한 자리.**
    *
    * 카드(app/import/index.tsx)는 "아직 검토할 것이 남아 있다"고 말한다. 그 말이 더는 사실이
-   * 아닌 순간은 둘뿐이다: 잡이 끝났거나(확정·취소·실패) 서버에서 사라졌거나(404 — 만료·삭제).
+   * 아닌 순간은 둘뿐이다: 잡이 끝났거나(취소·실패) 서버에서 사라졌거나(404 — 만료·삭제).
    * 판정은 순수 모듈 하나가 갖는다 -- 화면이 상태 문자열을 다시 나열하면 그 목록이 곧 두 번째
    * 계약이 된다. 네트워크 실패나 아직 오지 않은 응답에는 손대지 않는다(잠깐 끊긴 것을
    * "없어졌다"로 단정하면 앱이 사용자의 돌아갈 길을 스스로 지운다).
    *
    * `importJobId`를 함께 넘기므로 **이 화면이 보고 있는 잡일 때만** 지운다: 옛 링크로 들어간
    * 화면이 뒤늦게 깨어나도 그 사이 새로 올린 파일의 카드를 지우지 못한다.
+   *
+   * 라운드 67 #3 — **확정된 잡은 지우지 않고 결과로 바꾼다.** 종전에는 확정이 곧 삭제였고,
+   * 그래서 잘못 확정한 200건으로 돌아갈 주소가 앱 어디에도 남지 않았다(서버에 "내 가져오기
+   * 목록"이 없다). 이제 그 저장본에 서버가 말한 건수를 적어 두면 /import의 카드가
+   * "방금 가져온 결과 · 되돌리기"가 된다. 뮤테이션 성공이 아니라 **읽은 상태**로 판정하는
+   * 이유는 위와 같다: 확정 직후 화면을 떠났다 다시 들어와도 같은 결론에 닿아야 한다.
    */
   const forgetImportReview = useImportResumeStore((state) => state.forgetImportReview);
+  const markImportConfirmed = useImportResumeStore((state) => state.markImportConfirmed);
+  const confirmedImportedCount = job.data?.importedCount;
   useEffect(() => {
-    if (shouldForgetImportResume({ status, error: job.error })) forgetImportReview(importJobId);
-  }, [status, job.error, importJobId, forgetImportReview]);
+    if (shouldForgetImportResume({ status, error: job.error })) {
+      forgetImportReview(importJobId);
+      return;
+    }
+    if (shouldMarkImportResumeConfirmed({ status }) && confirmedImportedCount !== undefined) {
+      markImportConfirmed(importJobId, confirmedImportedCount);
+    }
+  }, [status, job.error, importJobId, forgetImportReview, markImportConfirmed, confirmedImportedCount]);
 
   /**
    * 라운드 41 K-7: 토글·일괄도 확정과 **같은 게이트**를 지난다.

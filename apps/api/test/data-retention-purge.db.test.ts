@@ -1716,10 +1716,16 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
     }
 
     /**
-     * 픽스처 모양 주의: `expires_at`이 과거인 행을 살아남게 단언해도 안전하다 —
-     * household_invites에는 프로덕션 전역 DELETE 경로가 없고, 유일한 전역성 쓰기인
-     * 만료 표시 UPDATE는 `household_id` 스코프다(household-runtime.service.ts 349·386·570).
-     * 이 스위트는 그 API를 호출하지 않으므로 남의 로그인/조회가 이 행을 건드릴 수 없다.
+     * 픽스처 모양 주의: `expires_at`이 과거인 행을 살아남게 단언해도 남의 요청이
+     * 건드릴 일은 없다 — household_invites에는 프로덕션 전역 DELETE 경로가 없고,
+     * 서비스의 만료 표시 UPDATE 세 경로는 모두 `household_id`나 토큰 스코프다
+     * (household-runtime.service.ts). 이 스위트는 그 API를 호출하지 않는다.
+     *
+     * ⚠️ GAP-067 #7 이후 **잡 자신은 전역이다**: phase 10a가 `status = pending AND
+     * expires_at <= now`인 행을 전량(배치 상한 안에서) `expired`로 정정한다. 그래서
+     * `status: "pending"` + 과거 `expires_at` 픽스처는 `job.run()` 뒤에 더 이상
+     * pending이 아니고, 창 밖(90일)이면 같은 틱의 phase 10이 곧바로 지운다. 이
+     * 스위트가 배타 레인인 이유가 하나 늘었다(helpers/exclusive-suites.ts).
      */
     async function createInvite(
       owner: { user: { id: string }; household: { id: string } },
@@ -1750,6 +1756,20 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       await prisma.householdMember.deleteMany({ where: { householdId: owner.household.id } });
       await prisma.household.deleteMany({ where: { id: owner.household.id } });
       await prisma.user.deleteMany({ where: { id: owner.user.id } });
+    }
+
+    /**
+     * phase 10a(GAP-067 #7)의 백로그를 먼저 비운다 — 다른 스위트가 남긴 만료-미표시
+     * `pending` 초대가 공유 DB에 있을 수 있고, 그러면 아래 **정확 개수** 단언
+     * (`householdInvitesExpired === 1`)이 남의 행까지 세게 된다. 다 비운 뒤에 픽스처를
+     * 만들면 그 1이 확정적으로 우리 행이다. 배치 상한 때문에 여러 틱이 필요하다.
+     */
+    async function drainLapsedPendingInvites(now: Date) {
+      for (let tick = 0; tick < 20; tick += 1) {
+        const summary = await job.run(now);
+        if (summary.householdInvitesExpired === 0) return;
+      }
+      throw new Error("phase 10a 백로그가 20틱 안에 비워지지 않았어요");
     }
 
     it("defaults to a 90-day window and reports it in the summary", async () => {
@@ -1792,23 +1812,127 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       await cleanupInviteFixtures(owner);
     });
 
-    it("never purges a pending invite, however long ago its TTL lapsed — 살아 있는 링크는 대상이 아니다", async () => {
+    it("never touches a still-live pending invite — 유효기간이 남은 링크는 정정도 파기도 대상이 아니다", async () => {
       const now = new Date();
       const owner = await createInviteHousehold();
-      // 아직 쓸 수 있는 링크.
+      // 아직 쓸 수 있는 링크: 만료 표시(phase 10a)도, 파기(phase 10)도 걸리면 안 된다.
       const live = await createInvite(owner, { status: "pending", expiresAt: new Date(now.getTime() + DAY_MS) });
-      // 유효기간은 한참 지났지만 아무도 그 가구의 초대 목록을 다시 열지 않아 만료 표시가
-      // 돌지 않은 행(게으른 만료 — phase 10 주석이 남긴 사각 그대로). 상태가 정해지지
-      // 않았으므로 이 단계는 건드리지 않는다.
-      const staleButPending = await createInvite(owner, { status: "pending", expiresAt: daysAgo(now, 400) });
       // 같은 나이의 만료 표시된 행은 지워진다 — 두 행의 운명이 갈리는 것이 이 단계의 판정이다.
       const expired = await createInvite(owner, { status: "expired", expiresAt: daysAgo(now, 400) });
 
       await job.run(now);
 
-      expect(await prisma.householdInvite.findUnique({ where: { id: live.id } })).not.toBeNull();
-      expect(await prisma.householdInvite.findUnique({ where: { id: staleButPending.id } })).not.toBeNull();
+      const stillLive = await prisma.householdInvite.findUnique({ where: { id: live.id } });
+      expect(stillLive).not.toBeNull();
+      expect(stillLive?.status).toBe("pending");
       expect(await prisma.householdInvite.findUnique({ where: { id: expired.id } })).toBeNull();
+
+      await cleanupInviteFixtures(owner);
+    });
+
+    it("phase 10a marks a lapsed pending invite expired WITHOUT deleting it, counts it in its own field, and then no-ops (GAP-067 #7)", async () => {
+      const now = new Date();
+      const owner = await createInviteHousehold();
+      await drainLapsedPendingInvites(now);
+
+      // 유효기간은 지났지만 아무도 그 가구의 초대 목록을 다시 열지 않아 게으른 만료가
+      // 돌지 않은 행 — 라운드 67 전까지 영구 보존되던 바로 그 행이다. 창(90일) 안이라
+      // 이번 틱에서는 정정만 되고 파기 대상은 아니다.
+      const lapsed = await createInvite(owner, { status: "pending", expiresAt: daysAgo(now, 1) });
+
+      const summary = await job.run(now);
+      // "정정한 수"는 "지운 수"와 **다른 칸**이다 — 뭉치면 다음 사람이 숫자를 잘못 읽는다.
+      expect(summary.householdInvitesExpired).toBe(1);
+
+      const corrected = await prisma.householdInvite.findUnique({ where: { id: lapsed.id } });
+      // 파기가 아니라 정정이다. 행이 살아 있어야 그 토큰의 조회가
+      // INVITE_NOT_PENDING("사용할 수 없는 초대 링크예요")으로 남는다 — 지웠다면
+      // INVITE_NOT_FOUND("초대 링크를 찾을 수 없어요")로 문구가 바뀐다.
+      expect(corrected).not.toBeNull();
+      expect(corrected?.status).toBe("expired");
+
+      // 자기 종료: 정정된 행은 `status = pending`에 더 걸리지 않는다.
+      const second = await job.run(now);
+      expect(second.householdInvitesExpired).toBe(0);
+      expect(await prisma.householdInvite.findUnique({ where: { id: lapsed.id } })).not.toBeNull();
+
+      await cleanupInviteFixtures(owner);
+    });
+
+    it("draws phase 10a's line at expires_at <= now, exactly like the three lazy paths", async () => {
+      const now = new Date();
+      const owner = await createInviteHousehold();
+      await drainLapsedPendingInvites(now);
+
+      // 경계 위(정확히 유효기간 만료 시각) — 서비스의 게으른 만료도 `lte`다.
+      const onTheDot = await createInvite(owner, { status: "pending", expiresAt: new Date(now.getTime()) });
+      // 경계 밖으로 1ms — 아직 살아 있는 링크이므로 건드리면 안 된다.
+      const justAlive = await createInvite(owner, { status: "pending", expiresAt: new Date(now.getTime() + 1) });
+
+      const summary = await job.run(now);
+      expect(summary.householdInvitesExpired).toBe(1);
+
+      expect((await prisma.householdInvite.findUnique({ where: { id: onTheDot.id } }))?.status).toBe("expired");
+      expect((await prisma.householdInvite.findUnique({ where: { id: justAlive.id } }))?.status).toBe("pending");
+
+      await cleanupInviteFixtures(owner);
+    });
+
+    it("hands a long-lapsed pending invite straight to phase 10 in the same tick — the backlog drains, and each step is counted separately", async () => {
+      const now = new Date();
+      const owner = await createInviteHousehold();
+      await drainLapsedPendingInvites(now);
+
+      // 유효기간이 창(90일)보다 한참 밖인 채 pending으로 남아 있던 행: 정정(10a) 뒤
+      // 곧바로 상태 필터(10)에 들어와 같은 틱에 사라진다. 이것이 "사각을 닫는다"의 뜻이다.
+      const longLapsed = await createInvite(owner, { status: "pending", expiresAt: daysAgo(now, 400) });
+
+      const summary = await job.run(now);
+      expect(summary.householdInvitesExpired).toBe(1);
+      expect(summary.householdInvitesPurged as number).toBeGreaterThanOrEqual(1);
+      expect(await prisma.householdInvite.findUnique({ where: { id: longLapsed.id } })).toBeNull();
+
+      await cleanupInviteFixtures(owner);
+    });
+
+    it("phase 10a is a CAS on status=pending: an accept committing between the batch SELECT and the UPDATE is not overwritten", async () => {
+      const now = new Date();
+      const owner = await createInviteHousehold();
+      await drainLapsedPendingInvites(now);
+
+      // 만료 직전 수락 = 정확히 이 분기가 도는 시점(household-runtime.service.ts의
+      // FIX-121A(F5)가 세 경로에 같은 CAS를 세운 이유). 창 안이라 phase 10도 건드리지 않는다.
+      const racing = await createInvite(owner, { status: "pending", expiresAt: daysAgo(now, 1) });
+
+      // TEST-132(link-health)와 같은 기법: 잡에 넘기는 클라이언트에 query 확장을 걸어
+      // **선택과 UPDATE 사이**에 수락 CAS가 커밋된 상황을 재현한다. phase 10a의 선택만
+      // 골라내려고 `where.status === "pending"`을 본다(phase 10은 `{ in: [...] }`이다).
+      const racingJob = new DataRetentionPurgeJob(
+        prisma.$extends({
+          query: {
+            householdInvite: {
+              async findMany({ args, query }) {
+                const rows = await query(args);
+                if ((args.where as { status?: unknown } | undefined)?.status === "pending") {
+                  await prisma.householdInvite.updateMany({
+                    where: { id: racing.id, status: "pending" },
+                    data: { status: "accepted", acceptedByUserId: owner.user.id, acceptedAt: new Date() }
+                  });
+                }
+                return rows;
+              }
+            }
+          }
+        }) as unknown as ConstructorParameters<typeof DataRetentionPurgeJob>[0]
+      );
+
+      const summary = await racingJob.run(now);
+
+      const after = await prisma.householdInvite.findUnique({ where: { id: racing.id } });
+      // 멤버십을 만든 초대가 `expired`로 덮어써지면 "멤버십은 생겼는데 초대는 만료"라는
+      // 모순이 남는다. CAS라 진 쪽은 아무것도 쓰지 않고, 세지도 않는다.
+      expect(after?.status).toBe("accepted");
+      expect(summary.householdInvitesExpired).toBe(0);
 
       await cleanupInviteFixtures(owner);
     });
