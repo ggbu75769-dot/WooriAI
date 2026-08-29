@@ -87,7 +87,7 @@ export function getSeoulMonthRange(yearMonthOrDate: string): SeoulMonthRange {
  * 이 숫자는 원래 모바일 한 곳에만 있었다(`apps/mobile/src/expenses/import-landing-month.ts`의
  * `MAX_PAST_MONTH_OFFSET` = 240). **읽는 쪽 넷**은 전부 그 값에서 바닥을 얻는데(달력 픽커 ·
  * 기록 탭 딥링크 · 달 점프 시트의 절대 하한 · 그 파생) **쓰는 쪽 셋**에는 바닥이 하나도
- * 없었다: 앱 폼 두 화면 · 서버 `assertNotFutureDate` · 엑셀 가져오기 행 판정. 그래서
+ * 없었다: 앱 폼 두 화면 · 서버 `assertExpenseDateWithinRange` · 엑셀 가져오기 행 판정. 그래서
  * `2026-08-14`를 `2016-08-14`로 한 자리 잘못 치면 형식도 맞고 실존하며 미래도 아니라 **저장됐고**,
  * 그 지출은 **누적 총액에는 들어가는데**(전 기간 서버 집계) 어느 읽기 화면에서도 그 달로 갈 수
  * 없어 사용자가 찾아가 지울 수조차 없었다.

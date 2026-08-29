@@ -7,7 +7,7 @@ import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { isUuid } from "../common/validation/uuid";
 import { ChildAccessService } from "./child-access.service";
 import {
-  assertNotFutureDate,
+  assertExpenseDateWithinRange,
   cleanOptionalText,
   markLinkedItemPrepared,
   requireMoneyKrw,
@@ -274,7 +274,7 @@ export class ExpensesStoreService {
     }
     if (input.amountKrw !== undefined) data.amountKrw = requireMoneyKrw(input.amountKrw);
     if (input.spentOn !== undefined) {
-      assertNotFutureDate(input.spentOn);
+      assertExpenseDateWithinRange(input.spentOn);
       data.spentOn = toDateOnly(input.spentOn);
     }
     if (input.itemName !== undefined) {
@@ -349,7 +349,7 @@ export class ExpensesStoreService {
     if (!itemName) {
       throw new BadRequestException({ code: "EXPENSE_ITEM_NAME_REQUIRED", message: "품목명을 입력해 주세요." });
     }
-    assertNotFutureDate(input.spentOn);
+    assertExpenseDateWithinRange(input.spentOn);
     await this.requireExistingCategory(input.categoryId, client);
     if (input.linkedItemTemplateId) {
       await this.requireExistingItemTemplateAnyStatus(input.linkedItemTemplateId, client);
@@ -421,11 +421,28 @@ export class ExpensesStoreService {
     return expense;
   }
 
+  /**
+   * 라운드 69 B — 이 갈래에 **자기 코드**를 준다.
+   *
+   * 문장은 오래전부터 완성돼 있었다("존재하지 않는 카테고리예요. 카테고리를 다시 선택해 주세요."
+   * — 해요체이고 다음에 할 일까지 말한다). 그런데 그 문장이 `VALIDATION_ERROR`라는 **바구니
+   * 코드**로 나갔다. 앱의 화이트리스트는 코드 단위라(apps/mobile/src/api/api-error.ts) 바구니
+   * 코드로 나가는 문장은 구조적으로 꺼낼 수 없다 — `VALIDATION_ERROR`를 그 표에 넣으면 DTO 검증
+   * 실패 **전량**이 카테고리 문구를 뒤집어쓴다. 표의 결함이 아니라 코드 부여의 결함이었다.
+   *
+   * 그래서 이 한 자리만 갈랐다. **문장은 한 글자도 바뀌지 않고**, `VALIDATION_ERROR`의 나머지
+   * 소비자(DTO 검증 실패, 어드민 컨트롤러 넷, GlobalExceptionFilter의 400 기본 코드)도 그대로다.
+   * status도 그대로 400이라 아웃박스의 permanent/transient 분류는 무접촉이다.
+   *
+   * 왜 사용자에게 중요한가: 오프라인에서 적은 지출이 flush 400을 받으면 그 행은 실패 행으로
+   * 파킹되고 재시도 버튼이 사라진다. 그때 화면에 서던 문장은 "요청을 처리하지 못했어요." 하나
+   * 였다 — 고칠 곳이 카테고리라는 사실이 서버에는 있는데 화면에는 없었다.
+   */
   async requireExistingCategory(categoryId: string, client: DbClient = this.prisma) {
     const exists = await client.category.findUnique({ where: { id: categoryId }, select: { id: true } });
     if (!exists) {
       throw new BadRequestException({
-        code: "VALIDATION_ERROR",
+        code: "EXPENSE_CATEGORY_INVALID",
         message: "존재하지 않는 카테고리예요. 카테고리를 다시 선택해 주세요."
       });
     }

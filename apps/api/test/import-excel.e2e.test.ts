@@ -303,7 +303,7 @@ describe("Excel import beta API", () => {
    * 라운드 68 A — **20년보다 오래된 날짜 행**도 그 행만 거절된다.
    *
    * 무슨 일이 있었나: 행 판정이 보던 날짜 규칙은 미래 하나뿐이었다
-   * (`validationStatusForImportRow` → `assertNotFutureDate`). 그래서 엑셀 날짜 열이 시리얼 값으로
+   * (`validationStatusForImportRow` → `assertExpenseDateWithinRange`). 그래서 엑셀 날짜 열이 시리얼 값으로
    * 오해돼 연도 1000대의 날짜가 만들어져도 그 행은 `valid`로 미리보기를 통과하고 기본 선택까지
    * 됐다 — 사용자가 친 오타가 아닌데도, 확정되고 나면 그 지출은 누적 총액에는 들어가면서
    * 어느 읽기 화면에서도 그 달을 열 수 없는 자리에 놓인다.

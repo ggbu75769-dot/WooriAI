@@ -41,6 +41,11 @@
 // GAP-054 라운드 54 P2-6: 금액 상한 문구는 입력 가드와 같은 단일 소스에서 온다
 // (숫자를 여기 다시 적으면 서버 @Max와 갈라지는 순간을 아무도 모른다).
 import { amountOverLimitMessage } from "../expenses/amount-limit";
+// 라운드 69 B: 날짜 하한 두 코드의 문구도 같은 규율을 따른다 — 폼이 이미 세운 문장을 **읽는다**.
+// 여기서 문장을 새로 지으면 같은 경계를 폼·서버·이 표가 각자 말하게 되고, 20이라는 숫자가
+// 이 파일에 리터럴로 들어온다(도메인 `ENTRY_DATE_MAX_PAST_YEARS`가 단일 소스다).
+import { EXPENSE_DATE_TOO_OLD_ERROR } from "../expenses/entry-form-guards";
+import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
 
 /** 서버 오류 응답 봉투(apps/api/src/common/filters/global-exception.filter.ts)에서 꺼낸 값. */
 export type ApiErrorEnvelope = {
@@ -95,9 +100,23 @@ export class ApiHttpError extends Error {
  * 원칙: 서버 한국어 원문이 이미 해요체로 완성돼 있으면 그대로 쓰고(같은 실패가 웹/앱에서 다르게
  * 들리지 않게), 영어이거나 내부 용어가 섞였으면 같은 뜻의 해요체로 다듬는다. 여기 없는 코드는
  * 절대 원문을 노출하지 않고 호출부의 일반 문구로 폴백한다.
+ *
+ * ## 라운드 69 B — 이 표에는 **늘어나는 규율**이 필요하다
+ *
+ * 표가 라운드 45에 세워진 뒤, 서버에 4xx 코드가 늘 때 이 표가 함께 늘어나게 하는 장치가 없었다.
+ * 그래서 라운드 68이 코드를 둘 만들면서 표를 열지 않았고(`EXPENSE_DATE_TOO_OLD` ·
+ * `CHILD_BIRTH_DATE_TOO_OLD`), 그 이전에도 넷이 밀려 있었다. 표에 없는 코드의 실패 행이 화면에서
+ * 받는 것은 `PERMANENT_FAILURE_MESSAGE`("요청을 처리하지 못했어요." — src/offline/remote-api.ts)
+ * 한 줄 + **재시도 버튼 없음**이라, 사용자가 고치면 바로 풀리는 실패도 막다른 문장이 된다.
+ *
+ * 이제 그 규율은 **소스 계약**으로 선다: api-error.test.ts가 앱의 아웃박스·준비템 상태 큐가
+ * 지나는 서버 파일들을 읽어 `code: "…"`를 전부 긁고, 그 코드가 이 표에 있는지 아니면 **이유가
+ * 적힌 제외 목록**에 있는지를 묻는다. 서버에 코드를 새로 만들면 그 테스트가 빨개지고, 만든
+ * 사람이 "이 코드는 앱에서 어떻게 보이는가"에 답해야 한다.
  */
 export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
-  // --- 지출 저장/수정 (apps/api/src/onboarding/store-shared.ts, expenses-store.service.ts) ---
+  // --- 지출 저장/수정 (apps/api/src/onboarding/store-shared.ts, expenses-store.service.ts,
+  //     child-access.service.ts · items-catalog.service.ts · onboarding-core.service.ts) ---
   // 서버 원문 그대로: 이미 해요체이고, 다시 눌러도 바뀌지 않는 사실을 정확히 말한다.
   EXPENSE_FUTURE_DATE: "미래 날짜의 지출은 저장할 수 없어요.",
   EXPENSE_DATE_INVALID: "날짜를 다시 확인해 주세요.",
@@ -115,11 +134,77 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
    */
   EXPENSE_AMOUNT_TOO_LARGE: amountOverLimitMessage(),
   EXPENSE_ITEM_NAME_REQUIRED: "품목명을 입력해 주세요.",
+  /**
+   * 라운드 69 B — 라운드 68 A가 만든 **날짜 하한**(20년) 두 코드. 서버가 이미 해요체로 말해
+   * 주는데 표에 없어서 화면까지 오지 못하던 자리다.
+   *
+   * 문구를 새로 짓지 않고 **폼 상수를 읽는다**(`amountOverLimitMessage`가 세운 선례 그대로):
+   * 같은 경계를 폼과 이 표가 다른 문장으로 말하면 그 자체가 두 개의 계약이고, 20이라는 숫자가
+   * 여기 리터럴로 적히는 순간 도메인 `ENTRY_DATE_MAX_PAST_YEARS`와 갈라진다.
+   *
+   * 도달성이 낮다는 사실을 함께 적어 둔다: 라운드 68 이후 폼·프리필·달력이 전부 막으므로
+   * `EXPENSE_DATE_TOO_OLD`를 받는 행은 **업데이트 전에 큐에 들어간 행**과 **구버전 앱을 쓰는
+   * 공동양육자**뿐이다. 그래도 표에 넣는 이유는 "그때 사용자가 보는 것이 막다른 문장"이라는
+   * 것이고, 낮은 도달성이 곧 낮은 비용이다.
+   *
+   * `CHILD_BIRTH_DATE_TOO_OLD`는 아웃박스를 타지 않는다(아이 저장에는 큐가 없다). 지금 그
+   * 화면(app/settings/children.tsx)은 실패를 `useSaveErrorCopy`의 일반 문구로 접는데, 그 배선을
+   * 바꾸는 것은 이 트랙이 소유하지 않은 파일이다 — 표에 먼저 세워 두는 이유는 **코드가 늘 때
+   * 표가 함께 늘어나야 한다**는 이 라운드의 규율 자체이고(아래 소스 계약), 배선은 그 화면을
+   * 여는 라운드가 이 한 줄을 읽어 쓰면 된다.
+   */
+  EXPENSE_DATE_TOO_OLD: EXPENSE_DATE_TOO_OLD_ERROR,
+  CHILD_BIRTH_DATE_TOO_OLD: CHILD_BIRTH_DATE_TOO_OLD_ERROR,
+  /**
+   * 라운드 69 B — **가장 도달하기 쉬운 자리**(400). 준비템에서 "샀어요"를 눌러 오프라인으로
+   * 저장 → 그 사이 운영이 그 템플릿을 내림/교체 → flush가 400을 받는다. 사용자가 볼 수 있는
+   * 값(금액·품목·날짜)에는 아무 문제가 없어서, 종전의 "요청을 처리하지 못했어요."로는 무엇을
+   * 고쳐야 큐가 풀리는지 알 방법이 없었다.
+   *
+   * 서버 원문("연결된 준비템을 찾을 수 없어요.")에 **다음에 할 일**을 한 문장 붙인다 —
+   * 형태는 바로 아래 `LINKED_PRODUCT_LINK_NOT_FOUND`와 같다(그쪽은 링크, 이쪽은 준비템 연결).
+   */
+  EXPENSE_LINKED_ITEM_TEMPLATE_INVALID: "연결된 준비템을 찾을 수 없어요. 준비템 연결 없이 다시 저장해 주세요.",
+  /**
+   * 라운드 69 B — 카테고리 갈래의 **자기 코드**. 서버는 이 문장을 오래전부터 들고 있었는데
+   * `VALIDATION_ERROR`라는 바구니 코드로 던져서(라운드 69 B가 `EXPENSE_CATEGORY_INVALID`로
+   * 갈랐다 — apps/api/.../expenses-store.service.ts의 `requireExistingCategory`) 코드 단위인
+   * 이 표가 구조적으로 꺼낼 수 없었다. `VALIDATION_ERROR` 자체는 **표에 넣지 않는다**: 바구니
+   * 코드라 DTO 검증 실패 전량이 이 문구를 뒤집어쓴다.
+   *
+   * 문구는 서버 원문 **그대로**다 — 이미 해요체이고 다음에 할 일까지 말한다.
+   */
+  EXPENSE_CATEGORY_INVALID: "존재하지 않는 카테고리예요. 카테고리를 다시 선택해 주세요.",
   // 라운드 49 QA(P2-4): "샀어요"가 실어 보낸 구매 링크가 서버에 없을 때(링크가 내려갔거나
   // 오래된 대기 행). 서버 원문 그대로다 — 다시 눌러도 바뀌지 않는 사실이라 재시도를 권하는
   // 대신 사용자가 지금 할 수 있는 일(링크 없이 저장)을 말한다. 이 코드가 4xx이므로 오프라인
   // 아웃박스는 이 행을 영원히 재시도하지 않고 실패 행으로 파킹한다(remote-api.ts).
   LINKED_PRODUCT_LINK_NOT_FOUND: "연결하려던 구매 링크를 찾지 못했어요. 링크 없이 다시 저장해 주세요.",
+
+  /**
+   * --- 대상이 사라진 404 셋 (라운드 69 B) ---
+   *
+   * 다른 기기에서 지출·아이가 지워졌거나 운영이 준비템을 내린 뒤, 이 기기에 남아 있던 큐가
+   * 받는 답이다. 셋 다 4xx라 아웃박스·준비템 상태 큐는 그 행을 실패 행으로 파킹하고 재시도
+   * 버튼을 내린다(src/offline/permission-denied.ts).
+   *
+   * **재시도를 권하지 않는다** — `USER_WITHDRAWN`이 세운 형식이다. 대신 붙이는 한 문장은
+   * "이 큐 행을 어떻게 하라"가 **아니라** "사라진 그것이 지금 어디 있는지"를 말한다. 행을
+   * 어떻게 할지는 바로 아랫줄의 안내가 이미 말하고 있고(`SYNC_STATUS_PERMANENT_FAILURE_HINT` ·
+   * `SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT`), 같은 사실을 두 문장이 각자 말하기
+   * 시작하면 표와 그 파일이 갈라지는 순간을 아무도 모른다(permission-denied.ts의 그 규율).
+   *
+   * ⚠️ `EXPENSE_NOT_FOUND`의 **삭제 경로는 이 문구를 지나지 않는다**: 삭제가 받은 404 +
+   * 이 코드는 "서버에 이미 없다"는 뜻이라 sync-engine이 **성공으로 수렴**시킨다(코드로 판정하며
+   * 문구를 보지 않는다 — src/offline/sync-engine.ts). 이 문구가 서는 자리는 수정 경로다.
+   *
+   * `ITEM_NOT_FOUND`는 서버에 갈래가 둘이고 한쪽 원문이 **영어**다(items-catalog.service.ts의
+   * `requireItemTemplateAnyStatus` — "Item template was not found."). 표를 지나므로 어느
+   * 갈래든 사용자가 보는 것은 이 한국어 한 문장이다 — 이 표의 존재 이유 그대로다.
+   */
+  EXPENSE_NOT_FOUND: "지출 기록을 찾을 수 없어요. 다른 기기에서 지워졌을 수 있으니 기록 탭에서 확인해 주세요.",
+  CHILD_NOT_FOUND: "아이 프로필을 찾을 수 없어요. 다른 기기에서 지워졌을 수 있으니 아이 목록에서 확인해 주세요.",
+  ITEM_NOT_FOUND: "준비템을 찾을 수 없어요. 목록에서 내려갔을 수 있으니 준비템 탭에서 확인해 주세요.",
 
   // --- 엑셀 가져오기 (apps/api/src/imports/import-parser.ts, onboarding/import-pipeline.service.ts) ---
   // 서버 원문이 영어라 한국어로 옮긴다. 행 수·확장자·용량 상한은 서버가 거절하는 조건과 같은 값이다
