@@ -48,7 +48,7 @@ import {
 // 화면이 짓지 않는다 — 둘 다 이 순수 모듈의 것이다.
 import { isExpenseEntryLocked, VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
-import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
+import { useLoadErrorCopy, useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppIcon } from "../../src/design-system";
@@ -533,6 +533,20 @@ export default function ManageChildrenScreen() {
   const bornFailedText = useSaveErrorCopy(markChildBorn.isError, markChildBorn.error);
   const addFailedText = useSaveErrorCopy(addChild.isError, addChild.error);
 
+  /**
+   * 라운드 72 트랙 B(GAP-072 #2) — **조회** 실패 문구도 같은 단일 소스로 들어온다.
+   *
+   * 저장 실패 세 자리는 라운드 52 C-07에 이미 오프라인을 인지하게 됐는데, 바로 위 조회 실패
+   * 카드만 옛 리터럴로 남아 있었다. 지하철에서 이 화면을 연 사람이 읽는 "잠시 후 다시 시도해
+   * 주세요."는 기다려서 풀리는 실패를 가리키지만 그 자리에 기다릴 대상은 없고, 같은 사람이
+   * 30초 전 홈에서 읽은 문장은 이미 "지금은 오프라인이에요"였다.
+   *
+   * 온라인 갈래는 종전 문자열과 **바이트 단위로 같다**(LOAD_ERROR_NOTICE ·
+   * LOAD_ERROR_RETRY_LABEL이 그 두 리터럴과 같은 값이다). 카드 구조·[다시 시도] 버튼·레이아웃은
+   * 한 노드도 바뀌지 않고 문구만 갈린다.
+   */
+  const loadErrorCopy = useLoadErrorCopy(children.isError);
+
   // HOME-138: 전환의 부수효과 순서(스토어 쓰기 → 아이 스코프 캐시 무효화 → 안내)는
   // applyChildSwitch 한 곳에만 있다 -- 홈 헤더 1탭 전환이 같은 함수를 부른다.
   const handleSelect = (child: Child) => {
@@ -662,8 +676,8 @@ export default function ManageChildrenScreen() {
 
         {hasSession && children.isError ? (
           <Card style={{ gap: 10 }}>
-            <Text style={{ color: theme.colors.danger }}>불러오지 못했어요. 잠시 후 다시 시도해 주세요.</Text>
-            <SecondaryButton label="다시 시도" onPress={() => children.refetch()} />
+            <Text style={{ color: theme.colors.danger }}>{loadErrorCopy.title}</Text>
+            <SecondaryButton label={loadErrorCopy.actionLabel} onPress={() => children.refetch()} />
           </Card>
         ) : null}
 

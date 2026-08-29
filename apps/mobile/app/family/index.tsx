@@ -42,6 +42,8 @@ import {
 } from "../../src/family/member-mutation-messages";
 import { formatInviteExpiry, memberBadge, memberRoleLabel } from "../../src/family/memberLabels";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
+// 라운드 72 트랙 B: 대기 초대 줄이 "지금 오프라인 갈래인가"를 묻는 값 하나(문구 단일 소스).
+import { OFFLINE_LOAD_NOTICE } from "../../src/offline/messages";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -56,6 +58,16 @@ const previewMembers = [
   { id: "preview-dad", avatar: "아", displayName: "아빠", role: "co_parent", status: "active" },
   { id: "preview-grandma", avatar: "할", displayName: "할머니", role: "viewer", status: "pending" }
 ] as const;
+
+/**
+ * 라운드 72 트랙 B — 대기 초대 줄의 **온라인 갈래** 문장. 값은 종전 리터럴 그대로다(바이트 불변).
+ *
+ * 이 줄만 뒷절이 "눌러서 다시 시도해 주세요."인 이유: 다른 조회 실패 자리에는 [다시 시도] 버튼이
+ * 따로 있지만 여기는 **줄 자체가 버튼**이라(Pressable), 문장이 그 사실을 말해야 무엇을 누르면
+ * 되는지 화면에서 알 수 있다. 그래서 공용 카드 문구로 갈아 끼우지 않고 오프라인 갈래에서만
+ * 단일 소스 문장으로 갈린다(아래 `pendingInviteLoadErrorText`).
+ */
+const FAMILY_PENDING_INVITE_LOAD_ERROR_TEXT = "대기 중인 초대를 불러오지 못했어요. 눌러서 다시 시도해 주세요.";
 
 const familyReferenceScreenId = "pixel-screen-FAM-001 FAM-001";
 // PIX-133: 보정 변환은 FAM-001 캡처 빌드 전용(기본값은 항등이지만 튜닝 값 유출을 구조적으로 차단).
@@ -278,6 +290,24 @@ export default function FamilyScreen() {
   // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
   // 버튼은 그대로 -- 문구만 바뀐다(src/offline/messages.ts).
   const loadErrorCopy = useLoadErrorCopy(members.isError);
+
+  /**
+   * 라운드 72 트랙 B(GAP-072 #2) — **대기 초대 줄**도 같은 판정을 읽는다.
+   *
+   * 이 줄은 구성원 목록 카드와 달리 줄 자체가 눌리는 자리라(Pressable + 한 줄) 종전 문장의
+   * 뒷절이 "눌러서 다시 시도해 주세요."다 — 그래서 온라인 갈래는 공용 카드 문구가 아니라
+   * **자기 문장 그대로**여야 한다(바이트 불변). 오프라인 갈래에서만 공용 단일 소스 문장으로
+   * 갈린다: 그 상황에서 "눌러서 다시 시도"는 다시 눌러도 같은 실패로 되돌아오는 안내다.
+   *
+   * ⚠️ 판정은 **위 훅 하나**를 읽는다(둘째 훅 금지). 초대 조회만 실패하고 구성원 조회는 성공한
+   * 창에서는 온라인 갈래로 남는데, 그것이 이 자리의 의도된 보수적 기본값이다 — 오프라인은
+   * 두 조회를 함께 넘어뜨리므로 실제 오프라인에서는 판정이 이미 서 있고, 그 밖의 경우는
+   * "연결이 있는데 이 조회만 실패했다"라서 종전 문장이 사실이다. 훅을 하나 더 부르면 같은
+   * 화면에서 폴이 둘로 늘고(연결 확인은 화면당 한 번이라는 관례), 두 판정이 갈리는 창까지
+   * 생긴다.
+   */
+  const pendingInviteLoadErrorText =
+    loadErrorCopy.title === OFFLINE_LOAD_NOTICE ? loadErrorCopy.title : FAMILY_PENDING_INVITE_LOAD_ERROR_TEXT;
 
   /**
    * 라운드 60 A: 어느 가구인지 아직 정해지지 않은 창(= `["children"]` 조회 진행 중).
@@ -594,7 +624,7 @@ export default function FamilyScreen() {
                 accessibilityLabel="대기 중인 초대 다시 불러오기"
                 onPress={() => pendingInvites.refetch()}
               >
-                <Text style={familyInviteErrorStyle}>대기 중인 초대를 불러오지 못했어요. 눌러서 다시 시도해 주세요.</Text>
+                <Text style={familyInviteErrorStyle}>{pendingInviteLoadErrorText}</Text>
               </Pressable>
             ) : (
               (pendingInvites.data?.invites ?? []).map((invite) => {

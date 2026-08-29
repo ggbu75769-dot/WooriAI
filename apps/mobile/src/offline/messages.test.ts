@@ -7,7 +7,10 @@ import { API_ERROR_MESSAGES, ApiHttpError } from "../api/api-error";
 import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
 // 라운드 69 트랙 A(#1): 같은 사실을 말하는 두 자리 — 정기 지출 관리 화면의 고지와 로그아웃 줄.
 import { RECURRING_DEVICE_ONLY_NOTICE } from "../expenses/recurring-template";
-import { OFFLINE_AWARE_LOAD_ERROR_SCREENS } from "./offline-aware-screens";
+import {
+  OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS,
+  OFFLINE_AWARE_LOAD_ERROR_SCREENS
+} from "./offline-aware-screens";
 import {
   CONFLICT_BANNER_MESSAGE,
   FAILED_ROW_OTHER_CHILD_NOTICE,
@@ -214,21 +217,53 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
   // 라운드 52 C-05: 마지막으로 남아 있던 가족 화면까지 들어와, 조회 실패 카드를 그리는 화면은
   // 모두 같은 문구를 쓴다.
   // 라운드 38 H-12: 목록은 여기 다시 적지 않는다 -- 세 계약 파일이 함께 읽는 단일 소스에서 온다.
+  // 라운드 72 트랙 B: 목록의 셋은 카드가 아니다(Card+Text+버튼 둘 · 요약 한 줄 하나).
+  // 그 사실과 이유는 이 파일이 손으로 적지 않는다 -- 목록과 같은 단일 소스에서 온다.
   it("is the single source for every screen wired so far", () => {
     const screens = OFFLINE_AWARE_LOAD_ERROR_SCREENS;
     expect(screens.length).toBeGreaterThan(0);
     for (const path of screens) {
       const screenSource = source(path);
       expect(screenSource, `${path} imports the shared hook`).toContain('src/offline/use-load-error-copy"');
-      expect(screenSource, `${path} renders the resolved copy`).toContain("title={loadErrorCopy.title}");
-      expect(screenSource, `${path} keeps the retry label from the same source`).toContain(
-        "actionLabel={loadErrorCopy.actionLabel}"
-      );
+      const nonCardReason = OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS[path];
+      if (nonCardReason) {
+        // 예외는 **이유가 값으로 남아 있을 때만** 예외다(빈 문자열로 목록을 늘릴 수 없다).
+        expect(nonCardReason.length, `${path}의 예외 사유가 값으로 남아 있다`).toBeGreaterThan(30);
+        // 카드가 아니어도 판정은 같은 훅에서 온다 -- 화면이 문구를 스스로 고르지 않는다.
+        expect(screenSource, `${path} still resolves its copy through the shared hook`).toContain(
+          "= useLoadErrorCopy("
+        );
+      } else {
+        expect(screenSource, `${path} renders the resolved copy`).toContain("title={loadErrorCopy.title}");
+        expect(screenSource, `${path} keeps the retry label from the same source`).toContain(
+          "actionLabel={loadErrorCopy.actionLabel}"
+        );
+      }
       // 재발 방지: 같은 화면에 옛 리터럴이 다시 인라인되면 두 문구가 갈린다.
       expect(screenSource, `${path} must not inline the old copy again`).not.toContain(
         'title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."'
       );
     }
+  });
+
+  /**
+   * 라운드 72 트랙 B — 예외 목록이 **목록의 부분집합**이고, 그 밖으로 자라지 않는다.
+   *
+   * 예외를 값으로 적어 두는 것의 값은 "이유가 어딘가에 있다"가 아니라 **다음 라운드가 이 자리를
+   * 다시 세지 않는다**는 것이다. 그래서 두 방향을 함께 고정한다: 예외에 적힌 화면은 반드시
+   * 목록 안에 있고(배선된 화면만 예외가 될 수 있다), 예외가 아닌 화면은 카드 계약을 그대로 진다
+   * (위 루프의 else 갈래).
+   */
+  it("라운드 72 트랙 B: 카드 아닌 자리의 예외는 목록 안에서만 산다", () => {
+    for (const path of Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)) {
+      expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS, `${path}는 목록 안의 화면이다`).toContain(path);
+    }
+    // 오늘의 셋. 늘어나면 이 줄이 먼저 빨개지고, 늘린 라운드가 이유를 함께 적게 된다.
+    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS).sort()).toEqual([
+      "app/settings/children.tsx",
+      "app/settings/index.tsx",
+      "app/settings/notifications.tsx"
+    ]);
   });
 
   /**
@@ -288,6 +323,76 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     expect(OFFLINE_RETRY_NOTICE).toBe(OFFLINE_LOAD_NOTICE);
   });
 
+  /**
+   * 라운드 72 트랙 B(GAP-072 #2) — L-2가 세어 둔 옛 리터럴 넷의 배선.
+   *
+   * 네 자리의 공통 규율은 하나다: **온라인 갈래는 종전과 바이트 단위로 같고**, 오프라인 갈래만
+   * 공용 단일 소스 문장으로 갈린다. 그래서 아래 단언들은 새 문구를 고정하는 것이 아니라
+   * (문구는 이 파일 위쪽이 이미 고정한다) **종전 문자열이 그대로 나온다는 사실**을 고정한다.
+   */
+  describe("라운드 72 트랙 B: 설정·가족 네 자리의 오프라인 인지 배선", () => {
+    it("아이 관리(SET-005)의 조회 실패 카드가 공용 문구·라벨을 그대로 받는다", () => {
+      const src = source("app/settings/children.tsx");
+      expect(src).toContain("const loadErrorCopy = useLoadErrorCopy(children.isError);");
+      expect(src).toContain("<Text style={{ color: theme.colors.danger }}>{loadErrorCopy.title}</Text>");
+      // 카드 구조·[다시 시도] 버튼·재조회 대상은 그대로다(문구만 갈린다).
+      expect(src).toContain("<SecondaryButton label={loadErrorCopy.actionLabel} onPress={() => children.refetch()} />");
+      // 종전 두 리터럴은 공용 상수와 **같은 값**이라 온라인 화면이 한 글자도 바뀌지 않는다.
+      expect(LOAD_ERROR_NOTICE).toBe("불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+      expect(LOAD_ERROR_RETRY_LABEL).toBe("다시 시도");
+    });
+
+    it("알림 설정(SET-006)은 주어만 더하고, 오프라인 갈래에는 그 주어를 붙이지 않는다", () => {
+      const src = source("app/settings/notifications.tsx");
+      expect(src).toContain("const devicesLoadErrorCopy = useLoadErrorCopy(devices.isError);");
+      expect(src).toContain("? devicesLoadErrorCopy.title");
+      expect(src).toContain(": `기기 목록을 ${devicesLoadErrorCopy.title}`");
+      expect(src).toContain("<Text style={errorTextStyle}>{devicesLoadErrorText}</Text>");
+      expect(src).toContain(
+        "<SecondaryButton label={devicesLoadErrorCopy.actionLabel} onPress={() => devices.refetch()} />"
+      );
+      // 온라인 갈래 바이트 불변: 접두 + 공용 문장이 종전 문자열과 정확히 같다.
+      expect(`기기 목록을 ${LOAD_ERROR_NOTICE}`).toBe("기기 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+      // "기기 목록을 지금은 오프라인이에요…"는 문장이 아니다 -- 오프라인 갈래는 공용 문장 그대로다.
+      expect(`기기 목록을 ${OFFLINE_LOAD_NOTICE}`).not.toBe(OFFLINE_LOAD_NOTICE);
+    });
+
+    it("설정 요약 줄(SET-001)은 판정만 공유하고, 문구는 같은 문장의 앞 문장을 잘라 쓴다", () => {
+      const src = source("app/settings/index.tsx");
+      // 연결 판정은 공용 훅 하나 -- 이 화면은 isCurrentlyOnline을 손으로 다시 적지 않는다.
+      expect(src).toContain("const loadErrorCopy = useLoadErrorCopy(children.isError || members.isError);");
+      expect(src).not.toContain("isCurrentlyOnline()");
+      expect(src).not.toContain('/offline/connectivity"');
+      expect(src).toContain(
+        'const summaryErrorText = loadErrorCopy.title === OFFLINE_LOAD_NOTICE ? summaryOfflineText : summaryUnavailableText;'
+      );
+      // 온라인 갈래는 종전 문자열 그대로다.
+      expect(src).toContain('const summaryUnavailableText = "불러오지 못했어요";');
+      // 새 문구 0건: 오프라인 갈래는 공용 문장에서 잘라 만든다(화면에 리터럴이 없다).
+      expect(src).toContain(
+        'const summaryOfflineText = OFFLINE_LOAD_NOTICE.slice(0, OFFLINE_LOAD_NOTICE.indexOf(".") + 1);'
+      );
+      expect(src).not.toContain("지금은 오프라인이에요");
+      // 그 잘라내기가 무엇을 만드는지 값으로 못박는다(공용 문장이 바뀌면 여기가 먼저 빨개진다).
+      expect(OFFLINE_LOAD_NOTICE.slice(0, OFFLINE_LOAD_NOTICE.indexOf(".") + 1)).toBe("지금은 오프라인이에요.");
+    });
+
+    it("가족 화면의 대기 초대 줄은 같은 파일의 기존 판정을 읽는다(둘째 훅 금지)", () => {
+      const src = source("app/family/index.tsx");
+      // 구성원 목록 카드가 이미 부르는 그 훅 하나뿐이다 -- 화면당 폴 한 번이라는 관례.
+      expect(src.match(/useLoadErrorCopy\(/g) ?? []).toHaveLength(1);
+      expect(src).toContain("const loadErrorCopy = useLoadErrorCopy(members.isError);");
+      expect(src).toContain(
+        "loadErrorCopy.title === OFFLINE_LOAD_NOTICE ? loadErrorCopy.title : FAMILY_PENDING_INVITE_LOAD_ERROR_TEXT;"
+      );
+      expect(src).toContain("<Text style={familyInviteErrorStyle}>{pendingInviteLoadErrorText}</Text>");
+      // 온라인 갈래 바이트 불변: 이 줄만 뒷절이 "눌러서"다(줄 자체가 버튼인 유일한 자리).
+      expect(src).toContain(
+        'const FAMILY_PENDING_INVITE_LOAD_ERROR_TEXT = "대기 중인 초대를 불러오지 못했어요. 눌러서 다시 시도해 주세요.";'
+      );
+    });
+  });
+
   it("probes connectivity once per error, from the existing isCurrentlyOnline helper", () => {
     const hookSource = source("src/offline/use-load-error-copy.ts");
     expect(hookSource).toContain('from "./connectivity"');
@@ -296,8 +401,13 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     // 판정 실패/미확정 시 기존 문구로 떨어지는 안전 폴백(웹은 isCurrentlyOnline이 항상 true).
     expect(hookSource).toContain("useState(true)");
     // 문구 리터럴은 messages.ts에만 있다 -- 훅은 문자열을 만들지 않는다.
-    expect(hookSource).not.toContain("불러오지 못했어요");
-    expect(hookSource).not.toContain("오프라인이에요");
+    //
+    // 주석은 제거하고 본다(위 onlineManager 계약과 같은 관례): 이 훅의 머리말은 자기가 막는
+    // 오표시를 설명하려고 문구를 **이름으로** 인용하는데, 그것은 화면이 읽는 문자열이 아니다.
+    // 여기서 잡으려는 것은 "훅이 문장을 스스로 만드는 일"이지 "문장을 언급하는 일"이 아니다.
+    const hookCode = hookSource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+    expect(hookCode).not.toContain("불러오지 못했어요");
+    expect(hookCode).not.toContain("오프라인이에요");
   });
 });
 
