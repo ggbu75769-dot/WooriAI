@@ -4,6 +4,7 @@ import { Platform, Text, View } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../src/analytics/client";
 import { LOCAL_SESSION_TOKEN } from "../src/api/client";
 import { localChildId, useLocalBackendStore } from "../src/api/local-backend";
+import { isCurrentlyOnline, subscribeAppStateChange } from "../src/offline/connectivity";
 import { shouldShowSessionExpiredNotice } from "../src/offline/session-expiry";
 import { COLD_START_HOLD_COPY, coldStartHoldReason, type ColdStartHoldReason } from "../src/onboarding/cold-start-hold";
 import { fetchOnboardingProgressForSelectedChild } from "../src/onboarding/onboarding-progress-scope";
@@ -279,9 +280,18 @@ export default function IndexScreen() {
    * R19-C(F1): 아이가 여러 명이면 복구가 첫째를 "골라준" 것이므로 hook이 안내(notice)를 돌려주고,
    * 아래에서 사용자가 확인할 때까지 이동을 잡아둔다 -- 둘째를 쓰던 사용자가 아무 안내 없이 첫째
    * 화면을 보게 되는 침묵 오선택을 막는다.
+   *
+   * 라운드 71 트랙 C(#3): 세 번째 인자가 네이티브 배선이다. 두 함수 모두 저장소에 **이미 있는
+   * 것**이고(src/offline/connectivity.ts -- AppState 네이티브 구독은 그 모듈이 FIX-118A에서
+   * 하나로 모아 두었다), 훅이 import 대신 주입으로 받는 이유는 판정 모듈을 vitest에서 그대로
+   * import할 수 있게 남기기 위해서다(그 파일의 SelectedChildRecoveryWiring 머리말).
    */
   const childRecoveryInput = { hydrated, isTestSession, accessToken, hasReachedHome, selectedChildId };
-  const childRecovery = useSelectedChildRecovery(childRecoveryInput, { setSelectedChildId, resetOnboarding });
+  const childRecovery = useSelectedChildRecovery(
+    childRecoveryInput,
+    { setSelectedChildId, resetOnboarding },
+    { isCurrentlyOnline, subscribeAppStateChange }
+  );
 
   /**
    * 라운드 52 QA P3-4 — 홀딩 판정의 **단일 소스를 실제로 부른다.**
@@ -332,13 +342,20 @@ export default function IndexScreen() {
   // selectedChildId; no-child clears hasReachedHome), so only the in-flight and error states
   // ever render here -- and the hook's internal timeout valve guarantees the in-flight null
   // cannot outlive the grace period, so no infinite spinner/blank is possible.
+  //
+  // 라운드 71 트랙 C(#3): 카드의 구조·버튼은 그대로이고 **문장 둘만** 판정에서 온다 -- 첫 줄은
+  // 오프라인이면 그 사실을(아니면 종전 문장 그대로), 둘째 줄은 이 갈래가 아무것도 건드리지
+  // 않는다는 사실을 말한다(src/onboarding/selected-child-recovery.ts). 그리고 이 카드가 떠 있는
+  // 동안 훅이 재연결·포그라운드 복귀에 스스로 한 번 다시 시도하므로, [다시 시도]가 유일한 탈출구가
+  // 아니게 됐다.
   if (childRecoveryNeeded && childRecovery.status === "error") {
     return (
       <AppScreen>
         <View testID="screen-child-recovery-error" style={{ gap: theme.spacing.section }}>
           <Card style={{ gap: 10 }}>
-            <Text style={{ color: theme.colors.danger }}>
-              아이 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.
+            <Text style={{ color: theme.colors.danger }}>{childRecovery.copy.title}</Text>
+            <Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 19 }}>
+              {childRecovery.copy.body}
             </Text>
             <SecondaryButton label="다시 시도" onPress={childRecovery.retry} />
           </Card>
