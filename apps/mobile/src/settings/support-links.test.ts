@@ -167,12 +167,29 @@ describe("두 화면이 같은 표를 읽는다 (source contract)", () => {
     }
   });
 
+  /**
+   * 라운드 71 리뷰 S-2 — 여는 규칙이 화면마다 한 벌씩(셋)이던 것을 `src/settings/open-external-url.ts`
+   * 한 곳으로 합쳤다. 계약이 지키는 사실은 그대로다(인앱 웹뷰 0건 · 조용한 실패 0건). 다만 그
+   * 사실을 확인하는 자리가 옮겨졌으므로, 규칙은 그 모듈에서 보고 화면에서는 **넘기는 문구**를 본다.
+   */
   it("여는 방법은 Linking.openURL 하나이고, 열기 실패를 조용히 넘기지 않는다", () => {
+    const opener = source("src/settings/open-external-url.ts");
+    expect(opener).toContain("const canOpen = await Linking.canOpenURL(url);");
+    expect(opener).toContain("await Linking.openURL(url);");
+    expect(opener).toContain("Alert.alert(failTitle, failMessage);");
+    // 규칙 모듈은 문장을 만들지 않는다 — 문구는 언제나 화면이 넘긴 단일 소스 상수다.
+    expect(opener).not.toContain(SUPPORT_LINK_FAILED_TITLE);
+    expect(opener).not.toContain(SUPPORT_LINK_FAILED_MESSAGE);
+
     for (const relativePath of ["app/(tabs)/more.tsx", "app/settings/index.tsx"]) {
       const screenSource = source(relativePath);
-      expect(screenSource, relativePath).toContain("const canOpen = await Linking.canOpenURL(url);");
-      expect(screenSource, relativePath).toContain("await Linking.openURL(url);");
-      expect(screenSource, relativePath).toContain("Alert.alert(SUPPORT_LINK_FAILED_TITLE, SUPPORT_LINK_FAILED_MESSAGE);");
+      expect(screenSource, relativePath).toContain('import { openExternalUrl } from "../../src/settings/open-external-url";');
+      expect(screenSource, relativePath).toContain(
+        "openExternalUrl(url, { failTitle: SUPPORT_LINK_FAILED_TITLE, failMessage: SUPPORT_LINK_FAILED_MESSAGE });"
+      );
+      // 화면에 재구현이 남지 않는다(세 벌은 갈릴 때까지만 같다).
+      expect(screenSource, relativePath).not.toContain("Linking.canOpenURL");
+      expect(screenSource, relativePath).not.toContain("Linking.openURL");
       // 문구도 단일 소스에서 온다(화면이 다시 적지 않는다).
       expect(screenSource, relativePath).not.toContain(SUPPORT_LINK_FAILED_TITLE);
       expect(screenSource, relativePath).not.toContain(SUPPORT_LINK_FAILED_MESSAGE);

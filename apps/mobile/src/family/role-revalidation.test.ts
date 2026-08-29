@@ -210,7 +210,11 @@ describe("라운드 40 J-3 배선 (source contract)", () => {
       hookSource.indexOf("export function useExpenseEntryGate()")
     );
     expect(explainBlock).toContain("message: string = EXPENSE_VIEW_ONLY_MESSAGE");
-    expect(explainBlock).toContain("Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, message);");
+    // 라운드 71 리뷰 S-1: 본문 자리에 문자열이 아닌 값이 오면(핸들러에 직접 이어 붙인 press
+    // 이벤트) 기본 문장으로 떨어진다 — 자리(제목/본문)와 재검증 배선은 그대로다.
+    expect(explainBlock).toContain(
+      'Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, typeof message === "string" ? message : EXPENSE_VIEW_ONLY_MESSAGE);'
+    );
     expect(explainBlock).toContain("revalidateHouseholdRoles();");
     // 스로틀은 모듈 지역(앱 세션 수명)이고, 판정은 순수 모듈에 있다.
     expect(hookSource).toContain("const householdRoleRevalidator = createHouseholdRoleRevalidator();");

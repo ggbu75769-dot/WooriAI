@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { APP_LOCK_LOCK_NOW_A11Y_LABEL, APP_LOCK_LOCK_NOW_LABEL } from "../security/app-lock";
 import {
   buildMoreSessionMenuRows,
@@ -25,6 +25,34 @@ const ioniconsGlyphMap: Record<string, number> = createRequire(import.meta.url)(
 );
 
 const rows = (): MoreMenuRowSpec[] => buildMoreSessionMenuRows({ exportTitle: "데이터 내보내기" });
+
+/**
+ * 라운드 71 리뷰 M-3 — **이 스위트의 기본 환경은 "주입 없음"이다.**
+ *
+ * 도움 두 행(FAQ·지원)은 빌드에 주입된 env로 서고(`buildSupportMenuRows` — 호출 시점에 읽는다),
+ * 이 파일의 오래된 단언 다수는 그 값이 **없다는 전제**로 쓰여 있다("더보기는 7행", "행 이름
+ * 목록은 이 일곱", "아이콘이 겹치지 않는다"). 그래서 `.env`나 CI가 EXPO_PUBLIC_SUPPORT_URL·
+ * EXPO_PUBLIC_FAQ_URL을 실제로 주입한 환경에서는 그 단언들이 **코드가 멀쩡한데도** 빨개졌다
+ * (릴리즈 빌드 환경에서 도는 스위트가 바로 그런 환경이다).
+ *
+ * 그래서 매 테스트 앞에서 두 키를 지우고, 파일이 끝나면 원래 값을 돌려놓는다. 아래 라운드 71 D
+ * describe는 자기 저장·복원을 그대로 갖고 있고 매 테스트에서 필요한 값을 **직접 세우므로**
+ * 충돌하지 않는다(바깥 beforeEach → 안쪽 테스트의 setEnv 순서, 안쪽 afterEach → 바깥 afterAll).
+ */
+const originalSupportUrl = process.env.EXPO_PUBLIC_SUPPORT_URL;
+const originalFaqUrl = process.env.EXPO_PUBLIC_FAQ_URL;
+
+beforeEach(() => {
+  delete process.env.EXPO_PUBLIC_SUPPORT_URL;
+  delete process.env.EXPO_PUBLIC_FAQ_URL;
+});
+
+afterAll(() => {
+  if (originalSupportUrl === undefined) delete process.env.EXPO_PUBLIC_SUPPORT_URL;
+  else process.env.EXPO_PUBLIC_SUPPORT_URL = originalSupportUrl;
+  if (originalFaqUrl === undefined) delete process.env.EXPO_PUBLIC_FAQ_URL;
+  else process.env.EXPO_PUBLIC_FAQ_URL = originalFaqUrl;
+});
 
 describe("라운드 41 UX-U(A) 더보기 세션 메뉴 구성", () => {
   it("아이 이름을 보여 주는 프로필 카드는 아이 관리 화면으로 보낸다", () => {

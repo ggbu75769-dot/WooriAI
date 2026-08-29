@@ -117,7 +117,14 @@ const householdIdsRepairLatch = createOneShotRevalidationLatch();
  * 쓰인다 — 기록 탭의 행 액션 useCallback 의존성이 렌더마다 새로 만들어지지 않는다).
  */
 export function explainExpenseViewOnly(message: string = EXPENSE_VIEW_ONLY_MESSAGE): void {
-  Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, message);
+  /**
+   * 라운드 71 리뷰 S-1 — 기본값만으로는 부족한 자리가 하나 있다: `guard`가 돌려준 핸들러가
+   * `onPress`에 그대로 걸리면 react-native가 **press 이벤트 객체**를 첫 인자로 넘긴다. 이 함수는
+   * `guardExpenseAction`이 인자 없이 부르므로 오늘은 그 경로가 없지만, 진입점이 `onPress={
+   * expenseGate.explain}`처럼 직접 잇는 순간 Alert 본문이 `[object Object]`가 된다.
+   * 문자열이 아니면 기본 문장으로 떨어진다 — 잘못된 값이 사용자에게 보이는 것보다 낫다.
+   */
+  Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, typeof message === "string" ? message : EXPENSE_VIEW_ONLY_MESSAGE);
   revalidateHouseholdRoles();
 }
 

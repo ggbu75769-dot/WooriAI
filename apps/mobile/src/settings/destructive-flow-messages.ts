@@ -143,6 +143,10 @@ export const DESTRUCTIVE_FLOW_MESSAGE_BY_CODE: Readonly<
  * 빈칸을 문장으로 채운다(그 문장은 서버가 한 번도 말한 적 없는 사실이 된다). 서버가 이 경로에
  * 404 도메인 코드를 만들면 테스트가 빨개지고, 만든 사람이 "그때 사용자가 무엇을 보는가"에
  * 답해야 한다.
+ *
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8). 화면은 이 값을 읽지 않는다 — 읽는 것은 위
+ * 계약뿐이다. **지우지 않는다**: 이 표가 사라지면 "빈칸의 근거"도 함께 사라지고, 그 빈칸은
+ * 다음 라운드가 지어낸 문장으로 채우게 된다.
  */
 export const DESTRUCTIVE_FLOW_ABSENT_TARGET_BRANCHES: Readonly<Partial<Record<DestructiveFlowKind, string>>> = {
   account_delete:
@@ -170,7 +174,14 @@ export function destructiveFlowOfflineMessage(kind: DestructiveFlowKind): string
   return `${REQUEST_LABEL_BY_KIND[kind]}이 서버에 닿지 못했어요. ${OFFLINE_RETRY_NOTICE}`;
 }
 
-/** 모르는 실패의 문장 — 종전 화면 리터럴과 바이트 단위로 같다. */
+/**
+ * 모르는 실패의 문장 — 종전 화면 리터럴과 바이트 단위로 같다.
+ *
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8). 화면은 `destructiveFlowErrorMessage` 하나만
+ * 부르므로 이 함수에 직접 닿지 않는다. **지우지 않는다** — 스윕 계약이 실패 메시지에
+ * "이 코드를 받은 사용자는 무엇을 보게 되는가"를 흐름별로 적어 넣을 때 쓰는 값이고, 그
+ * 매핑을 테스트에 옮겨 적으면 표가 두 벌이 된다.
+ */
 export function destructiveFlowFallbackMessage(kind: DestructiveFlowKind): string {
   return FALLBACK_MESSAGE_BY_KIND[kind];
 }

@@ -118,6 +118,32 @@ export const CHILD_EDIT_VIEW_ONLY_MESSAGE =
   "보기 전용으로 참여하고 있어요. 아이 정보는 관리자·공동부모가 수정할 수 있어요.";
 
 /**
+ * 라운드 71 리뷰 M-5 — **정기 지출 목록**(app/expenses/recurring.tsx)의 문장.
+ *
+ * 종전에는 지출 기록의 문장(`EXPENSE_VIEW_ONLY_MESSAGE`)을 그대로 돌려 썼는데, 그 문장은
+ * "기록은 관리자·공동부모가 남길 수 있어요"라고만 말해서 **이 화면에서 실제로 할 수 있는 일까지
+ * 부정**했다: 정기 지출 템플릿은 이 기기에 저장되는 메모라(src/expenses/recurring-template.ts)
+ * 보기 전용 참여자도 적고 고치고 지울 수 있고, 게이트가 막는 것은 행의 "기록하기" 하나뿐이다
+ * (그 버튼만 `expenseGate.guard`를 지난다). 없는 제약을 말하는 것도 허위 표시다.
+ *
+ * 그래서 문장이 두 절이다: 할 수 있는 일과, 역할이 필요한 그 한 가지. 형식은 형제 문장 그대로
+ * 재시도를 권하지 않고, 비난하지 않으며, **누가 할 수 있는지**를 말한다(DNC-018).
+ */
+export const RECURRING_VIEW_ONLY_MESSAGE =
+  "보기 전용으로 참여하고 있어요. 정기 지출은 적어 둘 수 있고, 기록하기는 관리자·공동부모가 할 수 있어요.";
+
+/**
+ * 라운드 71 리뷰 M-5 — **동기화 상태**(app/sync-status.tsx)의 문장.
+ *
+ * 같은 이유다. 이 화면에서 보기 전용 참여자가 못 하는 것은 **"고쳐서 다시 보내기"** 하나이고
+ * (그 버튼만 `expenseEntryLocked`를 지난다), 실패·대기 행을 확인하고 **버리는** 일은 전부
+ * 그대로 할 수 있다 — 그 행들은 이 기기의 오프라인 큐다. 그래서 잠긴 머리말도 종전 머리말이
+ * 약속하던 "확인하고 정리할 수 있어요"를 **거두지 않고**, 역할이 필요한 한 가지만 덧붙인다.
+ */
+export const SYNC_STATUS_VIEW_ONLY_MESSAGE =
+  "보기 전용으로 참여하고 있어요. 남은 기록은 확인하고 정리할 수 있고, 다시 보내는 것은 관리자·공동부모가 할 수 있어요.";
+
+/**
  * 라운드 71 트랙 E — **화면 머리말이 판정을 읽는다.**
  *
  * 라운드 40~70은 게이트를 **버튼**에 한 자리씩 태웠고, 라운드 70 B의 파생 계약도 **뮤테이션
@@ -141,16 +167,16 @@ export const VIEW_ONLY_HEADLINES = {
   budget: BUDGET_VIEW_ONLY_MESSAGE,
   /** app/expenses/[expenseId].tsx — 막힌 것은 지출 수정·삭제다. */
   expenseDetail: EXPENSE_VIEW_ONLY_MESSAGE,
-  /** app/expenses/recurring.tsx — 목록은 이 기기의 메모지만, 그것으로 기록하는 길이 막힌다. */
-  recurring: EXPENSE_VIEW_ONLY_MESSAGE,
+  /** app/expenses/recurring.tsx — 목록은 이 기기의 메모라 그대로 적을 수 있고, "기록하기"만 막힌다. */
+  recurring: RECURRING_VIEW_ONLY_MESSAGE,
   /** app/settings/children.tsx — 막힌 것은 아이 정보 수정이다. */
   children: CHILD_EDIT_VIEW_ONLY_MESSAGE,
-  /** app/sync-status.tsx — 실패 행을 고쳐 다시 보내는 길이 막힌다(그것도 기록이다). */
-  syncStatus: EXPENSE_VIEW_ONLY_MESSAGE,
+  /** app/sync-status.tsx — 확인·폐기는 그대로 할 수 있고, 실패 행을 다시 보내는 길만 막힌다. */
+  syncStatus: SYNC_STATUS_VIEW_ONLY_MESSAGE,
   /**
    * app/import/[importJobId].tsx — 확정이 만드는 것은 지출이다.
-   * ⚠ 그 화면은 트랙 A가 소유한다: 이 트랙은 **상수만 세우고**, 머리말 배선은 A가 읽어 쓴다
-   * (라운드 70의 C→A 읽기 방향 그대로).
+   * 문장은 트랙 E가 세우고, 머리말 배선은 그 화면을 소유한 트랙 A가 읽어 쓴다
+   * (라운드 70의 C→A 읽기 방향 그대로 — 라운드 71 리뷰 M-1에서 이어졌다).
    */
   importReview: EXPENSE_VIEW_ONLY_MESSAGE
 } as const;

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -43,11 +43,60 @@ const reviewScreen = () => source("app/import/[importJobId].tsx");
 const IMPORT_JOURNEY_SERVER_FILES = ["imports/import-parser.ts", "onboarding/import-pipeline.service.ts"] as const;
 
 /**
- * 서버 파일이 던지는 오류 코드 전량. api-error.test.ts의 `thrownCodesIn`과 **같은 정규식**이다 —
- * 대문자만 받으므로 import-parser.ts의 분류 코드(`code: "diaper_hygiene"` 등)는 걸리지 않는다.
+ * 라운드 71 리뷰 M-2 — **`code:` 뒤에 오는 것이 문자열 리터럴만은 아니다.**
+ *
+ * 종전 정규식은 `code: "…"` 한 형태만 봤는데, 서버는 코드를 **상수 식별자**로 넘기기도 한다
+ * (`throw new BadRequestException({ code: IMPORT_FILE_TOO_LARGE_CODE, … })` — 10MB 상한).
+ * 그래서 이 여정에서 가장 흔한 업로드 실패 중 하나가 스윕에 **한 번도 잡히지 않았고**, 계약은
+ * "코드 아홉이 전부 답을 갖는다"고 말하면서 열째를 못 본 채였다.
+ *
+ * 이제 두 형태를 다 받는다. 식별자는 정의를 찾아 값으로 바꾼다 — 같은 파일의 `const X_CODE = "…"`가
+ * 먼저이고, 없으면 서버 소스 전역의 `export const X_CODE = "…"`를 본다(이 저장소의 그 상수는
+ * common/filters/global-exception.filter.ts에 살고 import돼 쓰인다).
+ *
+ * ⚠ 해석하지 못한 식별자는 **조용히 버리지 않는다**(`UNRESOLVED:` 표식으로 남긴다). 못 읽은 코드를
+ * 없는 코드로 세는 것이 바로 이 스윕이 막으려는 병이다.
+ *
+ * 대문자만 받는 것은 종전과 같다 — import-parser.ts의 분류 코드(`code: "diaper_hygiene"` 등)는
+ * 여전히 걸리지 않는다.
  */
+const apiSourceRoot = join(mobileRoot, "../../apps/api/src");
+
+let codeConstantCache: Map<string, string> | null = null;
+function codeConstants(): Map<string, string> {
+  if (codeConstantCache) return codeConstantCache;
+  const table = new Map<string, string>();
+  const walk = (directory: string) => {
+    for (const name of readdirSync(directory)) {
+      if (name === "node_modules" || name.startsWith(".")) continue;
+      const fullPath = join(directory, name);
+      if (statSync(fullPath).isDirectory()) {
+        walk(fullPath);
+        continue;
+      }
+      if (!/\.ts$/.test(name)) continue;
+      for (const match of readFileSync(fullPath, "utf8").matchAll(
+        /\bconst ([A-Z][A-Z0-9_]*_CODE)\s*=\s*"([A-Z0-9_]+)"/g
+      )) {
+        table.set(match[1], match[2]);
+      }
+    }
+  };
+  walk(apiSourceRoot);
+  codeConstantCache = table;
+  return table;
+}
+
 function thrownCodesIn(relativePath: string): string[] {
-  return [...apiSource(relativePath).matchAll(/\bcode: "([A-Z0-9_]+)"/g)].map((match) => match[1]);
+  const text = apiSource(relativePath);
+  const localConstants = new Map(
+    [...text.matchAll(/\bconst ([A-Z][A-Z0-9_]*_CODE)\s*=\s*"([A-Z0-9_]+)"/g)].map((match) => [match[1], match[2]])
+  );
+  return [...text.matchAll(/\bcode: (?:"([A-Z0-9_]+)"|([A-Z][A-Z0-9_]*_CODE)\b)/g)].map((match) => {
+    if (match[1]) return match[1];
+    const identifier = match[2];
+    return localConstants.get(identifier) ?? codeConstants().get(identifier) ?? `UNRESOLVED:${identifier}`;
+  });
 }
 
 describe("importFailureMessage — 회귀 여섯 좌표", () => {
@@ -263,13 +312,20 @@ describe("여정 스윕 소스 계약 (import 서버 파일 둘)", () => {
     IMPORT_TOO_MANY_ROWS:
       "라운드 45 UX-Z가 업로드 화면을 위해 src/api/api-error.ts의 표에 이미 세워 둔 줄이다(2,000행 상한). 이 모듈은 그 표를 한 번 지나므로 문구가 도달하고, 여기 다시 적으면 같은 실패를 두 문장이 각자 말하게 된다.",
     IMPORT_FILE_TYPE_INVALID:
-      "같은 이유로 앱 전역 표에 이미 있다(csv·xlsx만 허용). 업로드 전에 src/import-file-validation.ts가 대개 먼저 거르고, 서버까지 간 경우의 문구는 그 표에서 온다."
+      "같은 이유로 앱 전역 표에 이미 있다(csv·xlsx만 허용). 업로드 전에 src/import-file-validation.ts가 대개 먼저 거르고, 서버까지 간 경우의 문구는 그 표에서 온다.",
+    // 라운드 71 리뷰 M-2: 상수 식별자(`code: IMPORT_FILE_TOO_LARGE_CODE`)로 던져지던 열째 코드.
+    // 종전 스윕은 문자열 리터럴만 봐서 이 자리를 아예 세지 않았다.
+    IMPORT_FILE_TOO_LARGE:
+      "10MB 상한이고, 앱 전역 표(src/api/api-error.ts)에 이미 문구가 있다. 서버가 이 코드를 상수 식별자로 던지는 유일한 자리라(global-exception.filter.ts의 IMPORT_FILE_TOO_LARGE_CODE) 스윕이 식별자를 해석하게 된 뒤에야 보였다."
   };
 
   it("두 서버 파일의 코드는 이 트랙의 표에 있거나, 이유가 적힌 제외 목록에 있다", () => {
     const swept = new Set(IMPORT_JOURNEY_SERVER_FILES.flatMap((file) => thrownCodesIn(file)));
     // 스윕이 실제로 무언가를 읽었는지부터 확인한다(정규식이 조용히 0건이 되면 계약이 사라진다).
-    expect(swept.size).toBeGreaterThanOrEqual(9);
+    // 라운드 71 리뷰 M-2: 식별자 형태를 해석하면서 아홉에서 **열**이 됐다.
+    expect(swept.size).toBeGreaterThanOrEqual(10);
+    // 그리고 못 읽은 식별자가 하나도 없어야 한다 — 해석 실패를 "코드 없음"으로 세지 않는다.
+    expect([...swept].filter((code) => code.startsWith("UNRESOLVED:"))).toEqual([]);
 
     for (const code of swept) {
       const known = Object.prototype.hasOwnProperty.call(IMPORT_FAILURE_MESSAGE_BY_CODE, code);
@@ -363,7 +419,17 @@ describe("배선 계약 (source verification)", () => {
     const src = reviewScreen();
     expect(src).toContain('import { importFailureMessage } from "../../src/import/import-failure-messages";');
     expect(src).toContain('import { isCurrentlyOnline } from "../../src/offline/connectivity";');
-    expect(src).toContain('{importFailureMessage("row_edit", rowEditError, { isOnline: rowEditFailureOnline })}');
+    // 라운드 71 리뷰 S-6: 행 편집의 연결 판정은 뮤테이션별 상태 둘이고(체크·분류), 문장을 고를
+    // 때 오류와 그 판정을 **한 짝으로** 집는다 — 한쪽의 판정이 다른 쪽 문장에 얹히지 않는다.
+    expect(src).toContain(
+      '{importFailureMessage("row_edit", rowEditFailure.error, { isOnline: rowEditFailure.isOnline })}'
+    );
+    expect(src).toContain("const [toggleFailureOnline, setToggleFailureOnline] = useState(true);");
+    expect(src).toContain("const [categoryFailureOnline, setCategoryFailureOnline] = useState(true);");
+    expect(src).toContain("void isCurrentlyOnline().then(setToggleFailureOnline);");
+    expect(src).toContain("void isCurrentlyOnline().then(setCategoryFailureOnline);");
+    // 공용 상태 한 벌이던 종전 배선은 남아 있으면 안 된다.
+    expect(src).not.toContain("rowEditFailureOnline");
     expect(src).toContain('{importFailureMessage("confirm", confirm.error, { isOnline: confirmFailureOnline })}');
     // 종전에는 이 한 문자열이 **네 자리**에 섰다. 이제 조회 실패 둘뿐이다.
     const loadFailedUses = src.match(/\{loadFailedText\}/g) ?? [];

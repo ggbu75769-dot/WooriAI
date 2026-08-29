@@ -24,6 +24,9 @@ import {
   resolveImportLandingMonth,
   RECORDS_MONTH_PARAM
 } from "../../src/expenses/import-landing-month";
+// 라운드 71 리뷰 M-1: 잠긴 세션의 머리말 문장은 화면이 짓지 않는다 — 여섯 화면의 단일 소스가
+// src/family/record-permissions.ts의 VIEW_ONLY_HEADLINES 표다(트랙 E가 세우고 A가 읽어 쓴다).
+import { VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 import { explainExpenseViewOnly, useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import {
   canConfirmImport,
@@ -461,14 +464,21 @@ export default function ImportPreviewScreen() {
    */
   const [expandedCategoryRowId, setExpandedCategoryRowId] = useState<string | null>(null);
   /**
-   * 라운드 71 트랙 A — **실패한 그 순간의 연결 상태.** 두 자리(행 편집 · 확정)가 각자 들고
-   * 있는 이유는 두 실패가 동시에 화면에 설 수 있고 원인이 서로 다를 수 있기 때문이다.
+   * 라운드 71 트랙 A — **실패한 그 순간의 연결 상태.** 자리마다 따로 들고 있는 이유는 두 실패가
+   * 동시에 화면에 설 수 있고 원인이 서로 다를 수 있기 때문이다.
    *
    * 판정은 point-in-time 폴 한 번이고(가족 화면이 쓰는 그 배선 — 새 훅을 만들지 않는다),
    * 기본값 true는 폴이 돌아오기 전과 판정 불가 플랫폼(web)에서 **일반 문구로 안전하게 떨어짐**을
    * 뜻한다. 매 시도 시작에서 true로 되돌려 앞 실패의 판정이 다음 실패에 얹히지 않게 한다.
+   *
+   * 라운드 71 리뷰 S-6 — 행 편집 자리가 **뮤테이션 둘의 공용 상태 하나**였다. 체크 토글과 분류
+   * 편집은 서로 다른 요청이고 각자 실패할 수 있는데, 한쪽의 연결 판정이 다른 쪽 문장에 그대로
+   * 얹혔다: 오프라인에서 체크가 실패해 false로 내려간 뒤 분류 편집이 (연결이 돌아와) 서버
+   * 오류로 실패하면, 화면은 체크의 오류를 오프라인 문구로 말하거나 그 반대를 했다. 상태를
+   * 뮤테이션별로 나누고, 문장을 고를 때 **오류와 연결 판정을 같은 짝으로** 집는다.
    */
-  const [rowEditFailureOnline, setRowEditFailureOnline] = useState(true);
+  const [toggleFailureOnline, setToggleFailureOnline] = useState(true);
+  const [categoryFailureOnline, setCategoryFailureOnline] = useState(true);
   const [confirmFailureOnline, setConfirmFailureOnline] = useState(true);
 
   const rowsQueryKey = useMemo(() => ["import-rows", importJobId] as const, [importJobId]);
@@ -590,7 +600,7 @@ export default function ImportPreviewScreen() {
     // `toggleRow.isPending`이 **전 행을 잠갔다** -- 2,000행짜리 목록에서 체크 한 번마다 목록
     // 전체가 굳었다.
     onMutate: async (row) => {
-      setRowEditFailureOnline(true);
+      setToggleFailureOnline(true);
       await queryClient.cancelQueries({ queryKey: rowsQueryKey });
       const snapshot = queryClient.getQueryData<ImportRowsResponse>(rowsQueryKey);
       setPendingRowIds((ids) => {
@@ -614,7 +624,7 @@ export default function ImportPreviewScreen() {
     // 라운드 71 트랙 A: **롤백 동작은 한 줄도 바뀌지 않는다** — 더해지는 것은 그 실패 뒤에 설
     // 문장을 고르기 위한 연결 상태 폴 한 번뿐이다.
     onError: (_error, row, context) => {
-      void isCurrentlyOnline().then(setRowEditFailureOnline);
+      void isCurrentlyOnline().then(setToggleFailureOnline);
       const snapshot = context?.snapshot;
       if (!snapshot) return;
       queryClient.setQueryData<ImportRowsResponse>(rowsQueryKey, (current) =>
@@ -646,7 +656,7 @@ export default function ImportPreviewScreen() {
     mutationFn: ({ row, categoryId }: { row: ImportRow; categoryId: string }) =>
       updateImportRow(authToken!, importJobId, row.id, { categoryId }),
     onMutate: async ({ row }) => {
-      setRowEditFailureOnline(true);
+      setCategoryFailureOnline(true);
       // 라운드 65 후속(#5): 진행 중인 목록 재조회를 먼저 세운다 — `toggleRow.onMutate`와 같은
       // 한 줄이다. onSuccess가 서버가 돌려준 행을 캐시에 꽂는데, 그 사이 날아가던 refetch가
       // 뒤늦게 착지하면 **분류를 고르기 전의 행**으로 되돌아간다(사용자가 고른 값이 조용히
@@ -666,7 +676,7 @@ export default function ImportPreviewScreen() {
     // 라운드 71 트랙 A: 캐시는 손대지 않는다(이 뮤테이션은 낙관 갱신을 하지 않으므로 되돌릴
     // 것이 없다) — 실패 뒤에 설 문장을 고르기 위한 연결 상태 폴 한 번뿐이다.
     onError: () => {
-      void isCurrentlyOnline().then(setRowEditFailureOnline);
+      void isCurrentlyOnline().then(setCategoryFailureOnline);
     },
     onSettled: (_data, _error, { row }) => {
       setPendingRowIds((ids) => {
@@ -1040,7 +1050,7 @@ export default function ImportPreviewScreen() {
       <ScreenHeader
         eyebrow="데이터 가져오기"
         title="가져오기 진행 상황"
-        subtitle="분석 결과를 확인하고 가져올 항목을 골라요"
+        subtitle={expenseGate.locked ? VIEW_ONLY_HEADLINES.importReview : "분석 결과를 확인하고 가져올 항목을 골라요"}
         onBack={() => router.back()}
       />
 
@@ -1150,8 +1160,15 @@ export default function ImportPreviewScreen() {
    * updateCategory.isError`)과 참·거짓이 같고(react-query의 `error`는 isError일 때만 non-null),
    * 다른 점은 그 값을 문구 판정에 넘길 수 있다는 것뿐이다. 둘이 동시에 실패했으면 사용자가
    * 방금 누른 쪽(체크)을 먼저 말한다.
+   *
+   * 라운드 71 리뷰 S-6: 오류와 **그 실패의 연결 판정**을 한 짝으로 집는다 — 고르는 자리가 하나면
+   * 둘이 어긋날 수 없다(종전에는 오류는 이쪽에서, 연결 판정은 공용 상태 하나에서 왔다).
    */
-  const rowEditError = toggleRow.error ?? updateCategory.error;
+  const rowEditFailure = toggleRow.error
+    ? { error: toggleRow.error, isOnline: toggleFailureOnline }
+    : updateCategory.error
+      ? { error: updateCategory.error, isOnline: categoryFailureOnline }
+      : null;
 
   const listFooter = (
     <View style={{ gap: theme.spacing.gap, marginTop: theme.spacing.section }}>
@@ -1159,9 +1176,9 @@ export default function ImportPreviewScreen() {
           그대로 섰고(동사부터 틀렸다), 가장 도달하기 쉬운 갈래인 "같은 아이의 파일을 새로
           올려 앞 잡이 cancelled로 내려간" 경우(IMPORT_NOT_EDITABLE)가 하필 가장 조용했다.
           이제 서버가 준 이름마다 정직한 문장과 다음 할 일이 선다. */}
-      {rowEditError ? (
+      {rowEditFailure ? (
         <Text style={{ color: theme.colors.danger }}>
-          {importFailureMessage("row_edit", rowEditError, { isOnline: rowEditFailureOnline })}
+          {importFailureMessage("row_edit", rowEditFailure.error, { isOnline: rowEditFailure.isOnline })}
         </Text>
       ) : null}
       {/* 라운드 40 J-6: 확정은 서버에서 **편집 권한**을 요구한다(import-pipeline.service.ts의

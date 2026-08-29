@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getSeoulToday } from "@wooriai/domain";
 import Constants from "expo-constants";
 import { router } from "expo-router";
-import { Alert, Image, Linking, Pressable, Text, View } from "react-native";
+import { Alert, Image, Pressable, Text, View } from "react-native";
 import {
   getHome,
   listChildren,
@@ -27,6 +27,8 @@ import {
   MORE_PROFILE_CARD_ROUTE,
   type MoreMenuSection
 } from "../../src/settings/more-menu";
+// 라운드 71 리뷰 S-2: 앱 밖으로 나가는 링크를 여는 규칙은 화면 셋이 공유하는 한 벌이다.
+import { openExternalUrl } from "../../src/settings/open-external-url";
 // 라운드 71 트랙 D(#4): 열기 실패 문구도 그 모듈 한 곳에서 온다 -- 화면이 다시 적지 않는다.
 import { SUPPORT_LINK_FAILED_MESSAGE, SUPPORT_LINK_FAILED_TITLE } from "../../src/settings/support-links";
 import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
@@ -257,16 +259,12 @@ export default function MoreScreen() {
    * 인앱 웹뷰를 만들지 않는 이유는 새 의존성이기 때문이고(known-limitations A절), 열지 못하면
    * (브라우저 부재·잘못된 URL) 그 사실을 말한다 -- 아무 일도 일어나지 않는 행을 남기지 않는다
    * (app/settings/privacy.tsx의 openLegalDocument와 같은 관례).
+   *
+   * 라운드 71 리뷰 S-2: 여는 규칙은 화면 셋이 나눠 갖던 것을 `src/settings/open-external-url.ts`
+   * 한 벌로 합쳤다 — 이 화면이 더하는 것은 실패 문구 두 줄뿐이고, 동작은 한 글자도 바뀌지 않는다.
    */
-  const openSupportLink = async (url: string) => {
-    try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (!canOpen) throw new Error("cannot-open-url");
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert(SUPPORT_LINK_FAILED_TITLE, SUPPORT_LINK_FAILED_MESSAGE);
-    }
-  };
+  const openSupportLink = (url: string) =>
+    openExternalUrl(url, { failTitle: SUPPORT_LINK_FAILED_TITLE, failMessage: SUPPORT_LINK_FAILED_MESSAGE });
 
   // 라운드 41 UX-U(A): 행 구성 · 이름 · 목적지는 src/settings/more-menu.ts(buildMoreSessionMenuRows)가
   // 정한다 -- 여기서는 그 스펙을 라우팅과 화면 안 동작(내보내기 카드 토글 · 앱 정보 Alert)에 잇기만

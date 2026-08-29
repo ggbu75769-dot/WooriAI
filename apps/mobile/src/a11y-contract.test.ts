@@ -767,11 +767,12 @@ describe("GAP-071 #5 EmptyStateCard의 actionLabel↔onPress 짝 (가짜 버튼 
 
   it("렌더도 같은 짝을 지킨다 — 타입을 우회해도 낭독되는 가짜 버튼이 서지 않는다", () => {
     const block = emptyCardBlock();
+    // 라운드 71 리뷰 S-9: 위 한 줄이 렌더 형태를 통째로 고정하므로 "무조건 그리던 옛 렌더"를
+    // 다시 부정하던 줄은 지웠다 — 그 줄은 같은 사실을 두 번 말하면서 판정이 **줄바꿈 한 글자**에
+    // 걸려 있었다(같은 코드를 포매터가 한 줄 접기만 해도 통과하거나 빨개진다).
     expect(block, "onPress가 없으면 버튼 노드 자체가 없다").toContain(
       "{onPress && actionLabel ? <SecondaryButton label={actionLabel} onPress={onPress} /> : null}"
     );
-    // 종전 렌더(무조건 그리기)가 되돌아오면 여기서 걸린다.
-    expect(block, "무조건 그리던 옛 렌더").not.toContain("<SecondaryButton label={actionLabel} onPress={onPress} />\n");
   });
 
   /**
@@ -2343,8 +2344,10 @@ describe("GAP-070 #2 예산 저장 잠금·실패 사유의 낭독 계약 (BUD-0
    * 게이트에서 보고, 화면에서는 그 본문이 순수 모듈의 문장인지를 본다.
    */
   it("보기 전용이라는 사실은 Alert **본문**에 실린다 (제목 자리로 밀지 않는다)", () => {
+    // 라운드 71 리뷰 S-1: 본문이 문자열이 아니면 기본 문장으로 떨어진다(제목 자리로 미는 것이
+    // 아니라, 본문 자리에 `[object Object]`가 서지 않게 하는 방어다).
     expect(source("src/family/useExpenseEntryGate.ts"), "본문 자리에 화면이 넘긴 문장").toContain(
-      "Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, message);"
+      'Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, typeof message === "string" ? message : EXPENSE_VIEW_ONLY_MESSAGE);'
     );
     expect(budgetScreen(), "화면은 본문만 넘긴다").toContain("expenseGate.explain(VIEW_ONLY_HEADLINES.budget)");
     // 문장은 화면이 짓지 않는다(단일 소스는 record-permissions.ts다).
@@ -2556,7 +2559,11 @@ describe("GAP-071 #2 되돌릴 수 없는 흐름의 실패 문구 낭독 계약 
     for (const sentence of [DESTRUCTIVE_ACTION_FAILED_MESSAGE, CONSENT_UPDATE_FAILED_MESSAGE]) {
       expect(rendered, "화면이 다시 적은 문장").not.toContain(sentence);
     }
-    expect(privacyScreen(), "문구는 모듈이 고른다").toContain("destructiveFlowErrorMessage(kind, error, { isOnline })");
+    // 라운드 71 리뷰 S-4: 데모(로컬 토큰) 세션은 오프라인 갈래를 건너뛴다 — 그 요청은 서버로
+    // 가지 않으므로 "닿지 못했어요"가 참일 수 없다. 문구를 고르는 곳은 여전히 순수 모듈이다.
+    expect(privacyScreen(), "문구는 모듈이 고른다").toContain(
+      "destructiveFlowErrorMessage(kind, error, { isOnline: isDemoSession || isOnline })"
+    );
   });
 });
 
@@ -2652,9 +2659,14 @@ describe("GAP-071 #4 지원·FAQ 메뉴 행의 낭독 계약 (SET-001·SET-002)"
   });
 
   it("열기 실패는 조용히 넘어가지 않고 Alert **본문**으로 말한다", () => {
+    // 라운드 71 리뷰 S-2: Alert를 띄우는 자리는 화면 셋이 공유하는 한 벌이 됐고
+    // (src/settings/open-external-url.ts), 화면은 **본문 문구를 넘긴다**. 자리(제목/본문)는 그대로다.
+    expect(source("src/settings/open-external-url.ts"), "본문 자리에 화면이 넘긴 문장").toContain(
+      "Alert.alert(failTitle, failMessage);"
+    );
     for (const path of ["app/(tabs)/more.tsx", "app/settings/index.tsx"]) {
       expect(source(path), `${path}의 실패 안내`).toContain(
-        "Alert.alert(SUPPORT_LINK_FAILED_TITLE, SUPPORT_LINK_FAILED_MESSAGE);"
+        "openExternalUrl(url, { failTitle: SUPPORT_LINK_FAILED_TITLE, failMessage: SUPPORT_LINK_FAILED_MESSAGE });"
       );
       // 문장은 화면이 짓지 않는다.
       expect(withoutComments(source(path)), `${path}가 다시 적은 문장`).not.toContain(SUPPORT_LINK_FAILED_MESSAGE);

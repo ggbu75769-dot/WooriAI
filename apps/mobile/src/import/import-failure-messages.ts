@@ -70,6 +70,12 @@ import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
  */
 export type ImportFailureKind = "upload" | "row_edit" | "confirm" | "undo";
 
+/**
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8). 화면은 걸음 이름을 리터럴로 넘기므로 이 목록을
+ * 부르지 않는다 — 쓰는 곳은 "네 걸음 전부에서 이렇게 보인다"를 도는 계약뿐이다
+ * (import-failure-messages.test.ts). **지우지 않는다**: 걸음이 하나 늘면 그 계약이 자동으로
+ * 새 걸음까지 돌아야 하고, 목록을 테스트에 옮겨 적는 순간 그 자동이 사라진다.
+ */
 export const IMPORT_FAILURE_KINDS = ["upload", "row_edit", "confirm", "undo"] as const;
 
 /**
@@ -163,7 +169,14 @@ const FALLBACK_MESSAGE_BY_KIND: Readonly<Record<ImportFailureKind, string>> = {
   undo: IMPORT_UNDO_FAILED_MESSAGE
 };
 
-/** 이 여정이 이름을 아는 실패인가(= 재시도가 아니라 다른 행동이 필요한 실패인가). */
+/**
+ * 이 여정이 이름을 아는 실패인가(= 재시도가 아니라 다른 행동이 필요한 실패인가).
+ *
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8). 화면은 문장만 그리므로 이 판정을 부르지 않고,
+ * 쓰는 곳은 "표가 아는 코드와 모르는 코드의 경계"를 고정하는 계약이다. **지우지 않는다** —
+ * 재시도 버튼을 이름 있는 실패에서 접는 화면이 생기면 그때 필요한 것이 바로 이 술어이고,
+ * 지금은 그 경계를 값으로 지켜 두는 일을 한다.
+ */
 export function isNamedImportFailure(error: unknown): boolean {
   const code = apiErrorCodeOf(error);
   if (!code) return false;

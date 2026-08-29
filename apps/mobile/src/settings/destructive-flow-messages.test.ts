@@ -230,6 +230,18 @@ describe("라운드 71 B(#2) 서버가 실제로 던지는 코드 (source contra
     return end === -1 ? rest : rest.slice(0, end);
   }
 
+  /**
+   * 라운드 71 리뷰 P-4 — 모듈 스코프 함수의 본문(들여쓰기 0의 닫는 중괄호까지).
+   * 위 `methodBody`의 종료 규칙(다음 클래스 멤버)은 클래스 밖 함수에는 통하지 않는다.
+   */
+  function functionBody(fileSource: string, signature: string): string {
+    const start = fileSource.indexOf(signature);
+    expect(start, `${signature} — 서버에서 이 자리를 찾지 못했다`).toBeGreaterThan(-1);
+    const rest = fileSource.slice(start + signature.length);
+    const end = rest.indexOf("\n}");
+    return end === -1 ? rest : rest.slice(0, end);
+  }
+
   /** `throw new XxxException({ code: "...", ... })`의 그 리터럴. */
   const codesIn = (text: string) => [...text.matchAll(/\bcode: "([A-Z0-9_]+)"/g)].map((match) => match[1]);
 
@@ -238,7 +250,14 @@ describe("라운드 71 B(#2) 서버가 실제로 던지는 코드 (source contra
   const childAccessSource = apiSource("onboarding/child-access.service.ts");
   const settingsControllerSource = apiSource("settings/settings.controller.ts");
 
-  /** 흐름별로 **실제로 지나는 자리**만 읽는다(파일 전체를 긁으면 초대·구성원 관리 코드가 섞인다). */
+  /**
+   * 흐름별로 **실제로 지나는 자리**만 읽는다(파일 전체를 긁으면 초대·구성원 관리 코드가 섞인다).
+   *
+   * 라운드 71 리뷰 P-4: 컨트롤러 둘만 그 규율에서 빠져 있었다 — `codesIn(settingsControllerSource)`는
+   * 파일 **전체**라, 아이 삭제 핸들러가 던지는 코드가 생기면 그것이 가구 탈퇴·계정 삭제의
+   * 스윕에도 섞여 들어온다(오늘은 컨트롤러가 코드를 하나만 던져 값이 같지만, 같은 병이다).
+   * 이제 두 흐름 모두 **자기 확정 핸들러 + 둘이 공유하는 확인 텍스트 검증 함수**만 읽는다.
+   */
   const sweptByKind: Record<DestructiveFlowKind, string[]> = {
     child_profile_delete: [
       ...codesIn(methodBody(childAccessSource, "async requireChildAccess(")),
@@ -248,11 +267,13 @@ describe("라운드 71 B(#2) 서버가 실제로 던지는 코드 (source contra
     household_leave: [
       ...codesIn(methodBody(householdSource, "async leaveHousehold(")),
       ...codesIn(methodBody(householdSource, "private assertMember(")),
-      ...codesIn(settingsControllerSource)
+      ...codesIn(methodBody(settingsControllerSource, "async householdLeaveConfirm(")),
+      ...codesIn(functionBody(settingsControllerSource, "function assertConfirmation("))
     ],
     account_delete: [
       ...codesIn(methodBody(householdSource, "async withdrawUser(")),
-      ...codesIn(settingsControllerSource)
+      ...codesIn(methodBody(settingsControllerSource, "async accountDeleteConfirm(")),
+      ...codesIn(functionBody(settingsControllerSource, "function assertConfirmation("))
     ],
     consent_update: [...codesIn(methodBody(coreSource, "async upsertConsents("))]
   };
@@ -280,6 +301,9 @@ describe("라운드 71 B(#2) 서버가 실제로 던지는 코드 (source contra
     }
     for (const code of Object.keys(excludedWithReason)) {
       expect(excludedWithReason[code].length, code).toBeGreaterThan(20);
+      // 라운드 71 리뷰 P-4: 좁힌 스윕이 그 코드를 여전히 읽는지도 본다 — 범위를 좁히면서
+      // 코드를 시야 밖으로 밀어내면 제외 이유가 조용히 유령이 된다.
+      expect(swept.has(code), `${code}는 좁힌 스윕이 더는 읽지 않는다`).toBe(true);
     }
   });
 
@@ -339,6 +363,32 @@ describe("라운드 71 B(#2) SET-004 배선 (source contract)", () => {
   });
 
   /**
+   * 라운드 71 리뷰 S-4 — **데모(로컬 토큰) 세션에는 닿지 못한 서버가 없다.**
+   *
+   * 데모의 요청은 기기 안에서 답한다(src/api/local-backend.ts). 그런데 연결 판정이 보는 것은
+   * **기기의 연결 상태**라, 비행기 모드에서 데모를 둘러보다 실패하면 "…요청이 서버에 닿지
+   * 못했어요"라는, 일어난 적 없는 일을 말하게 된다. 그 세션에서는 갈래를 아예 건너뛰고 종전
+   * 문장(모르는 실패)으로 떨어진다 — 데모 거울을 손대지 않는다는 이 트랙의 계약 그대로다.
+   */
+  it("데모 세션에서는 오프라인 갈래를 건너뛴다 (닿지 못한 서버가 애초에 없다)", () => {
+    expect(privacySource).toContain(
+      "const isDemoSession = useSessionStore((state) => !state.accessToken && state.isTestSession);"
+    );
+    expect(privacySource).toContain("if (!isError || isDemoSession) {");
+    expect(privacySource).toContain("destructiveFlowErrorMessage(kind, error, { isOnline: isDemoSession || isOnline });");
+    // 그때 서는 문장은 종전 그대로다 — 데모 거울이 던지는 평문 Error에는 코드가 없어 모르는
+    // 실패 갈래로 떨어지고, 그 값은 화면의 옛 리터럴과 바이트 단위로 같다.
+    for (const kind of DESTRUCTIVE_KINDS) {
+      expect(destructiveFlowErrorMessage(kind, new Error("boom"), online), kind).toBe(DESTRUCTIVE_ACTION_FAILED_MESSAGE);
+    }
+    expect(destructiveFlowErrorMessage("consent_update", new Error("boom"), online)).toBe(CONSENT_UPDATE_FAILED_MESSAGE);
+    // 판정 자체는 한 글자도 바뀌지 않았다 — 실세션의 오프라인은 종전대로 그 문장이다.
+    expect(destructiveFlowErrorMessage("account_delete", new Error("boom"), offline)).toBe(
+      destructiveFlowOfflineMessage("account_delete")
+    );
+  });
+
+  /**
    * 라운드 70 D가 방금 세운 자리(상자)와 그 위의 2단계는 **이 트랙이 만지지 않는다.**
    * 이 트랙이 만지는 것은 그 아래, 버튼이 실패했을 때의 한 줄뿐이다.
    */
@@ -362,7 +412,11 @@ describe("라운드 71 B(#2) SET-004 배선 (source contract)", () => {
     // 조회 실패의 오프라인 배선은 OFFLINE_AWARE_LOAD_ERROR_SCREENS의 몫이다(무접촉).
     expect(privacySource).toContain('const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";');
     expect(privacySource).toContain("{privacy.isError ? (");
-    expect(privacySource).toContain("Alert.alert(LEGAL_LINK_FAILED_TITLE, LEGAL_LINK_FAILED_MESSAGE);");
+    // 라운드 71 리뷰 S-2: 여는 규칙만 공용 모듈로 옮겼고(문구·동작 불변), 이 트랙은 여전히
+    // 그 자리를 지나지 않는다.
+    expect(privacySource).toContain(
+      "openExternalUrl(url, { failTitle: LEGAL_LINK_FAILED_TITLE, failMessage: LEGAL_LINK_FAILED_MESSAGE });"
+    );
     expect(privacySource).not.toContain("useLoadErrorCopy");
   });
 

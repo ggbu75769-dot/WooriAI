@@ -15,7 +15,9 @@ import {
   isViewOnlyRole,
   needsChildHouseholdResolution,
   needsHouseholdIdsRepair,
+  RECURRING_VIEW_ONLY_MESSAGE,
   resolveHouseholdRole,
+  SYNC_STATUS_VIEW_ONLY_MESSAGE,
   VIEW_ONLY_HEADLINES,
   VIEW_ONLY_ROLES
 } from "./record-permissions";
@@ -740,7 +742,17 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
    * 부르지 않고도 통과하던 구멍은 여기서도 같다.
    */
   it("라운드 71 E: 게이트를 읽는 화면의 머리말이 그 판정을 읽거나, 읽지 않는 이유가 적혀 있다", () => {
-    const readsGate = /useExpenseEntryGate\s*\(\s*\)|isExpenseEntryLocked\s*\(/;
+    /**
+     * 라운드 71 리뷰 S-10 — **라운드 70 B 스윕과 같은 집합을 본다.**
+     *
+     * 종전에는 훅 호출(`useExpenseEntryGate()`)이나 순수 판정 호출 두 형태만 셌다. 그런데 게이트를
+     * 읽는 형태는 그 둘만이 아니다: 값만 넘겨받은 화면(`expenseGate.locked`·`expenseEntryLocked`),
+     * 준비템 상태 게이트, 아이·구성원 관리의 역할 판정도 전부 같은 그물이 세야 할 자리다.
+     * 그래서 판정 집합을 위 라운드 70 B 스윕(`referencesRoleGate`)과 **같게** 맞춘다 — 두 그물이
+     * 다른 집합을 보면, 한쪽만 통과하는 화면이 조용히 생긴다.
+     */
+    const readsGate =
+      /useExpenseEntryGate\(\)|expenseGate\.(?:guard|locked|explain)|expenseEntryLocked|useItemStatusGate\(\)|itemStatusGate\.|canEditChildren|canAddChild|canManageMembers|isExpenseEntryLocked\s*\(/;
     const readsHeadline = /VIEW_ONLY_HEADLINES\./;
 
     /**
@@ -757,11 +769,14 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     };
 
     /**
-     * ⚠️ 트랙 A로 이관되는 자리. 이 트랙은 문장(`VIEW_ONLY_HEADLINES.importReview`)만 세우고,
-     * 검수 화면의 머리말 배선은 그 화면을 소유한 트랙 A가 읽어 쓴다(라운드 70의 C→A 읽기 방향).
-     * **A가 이으면 이 줄을 지운다** — 그때 아래 staleness 검사가 그 사실을 알려 준다.
+     * ⚠️ 트랙 A로 이관됐던 자리. 트랙 E는 문장(`VIEW_ONLY_HEADLINES.importReview`)만 세우고,
+     * 검수 화면의 머리말 배선은 그 화면을 소유한 트랙 A가 읽어 썼다(라운드 70의 C→A 읽기 방향).
+     *
+     * **라운드 71 리뷰 M-1에서 A가 이었으므로 이 목록은 비었다.** 상수는 남겨 둔다 — 다음 라운드에
+     * 같은 이관이 또 생기면 여기에 적고, 아래 두 staleness 단언이 "이었으니 지워라 / 게이트에서
+     * 이탈했다"를 그 자리에서 말해 준다.
      */
-    const TRACK_A_PENDING = ["app/import/[importJobId].tsx"];
+    const TRACK_A_PENDING: readonly string[] = [];
 
     const screenFiles: string[] = [];
     const walk = (directory: string) => {
@@ -797,8 +812,17 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     );
     expect(unexplained, `머리말이 판정을 읽지 않고 이유도 없는 화면: ${unexplained.join(", ")}`).toEqual([]);
 
+    // 라운드 71 리뷰 M-1: 이관 목록도 낡지 않게 본다. 종전에는 이 목록만 아무 검사 없이
+    // 통과했고(어느 쪽이어도 좋다), 그래서 A가 머리말을 이어도 이 줄이 그대로 남을 수 있었다.
+    for (const path of TRACK_A_PENDING) {
+      // 이었으면 잠금 문구가 생겨 withoutLockCopy에서 빠진다 = 이 줄을 지우라는 신호다.
+      expect(withoutLockCopy, `${path} — 머리말을 이었으니 TRACK_A_PENDING에서 지운다`).toContain(path);
+      // 그 화면이 게이트를 읽는 머리말 화면이 아니게 되면(배선 이탈) 여기서 먼저 빨개진다.
+      expect(headlineScreens, `${path} — 더는 게이트를 읽는 머리말 화면이 아니다`).toContain(path);
+    }
+
     // 제외 목록이 낡지 않게 — 적어 둔 화면이 여전히 게이트를 읽는 머리말 화면이고, 여전히
-    // 잠금 문구를 갖지 않는지 본다(트랙 A 이관분은 어느 쪽이어도 좋다).
+    // 잠금 문구를 갖지 않는지 본다(트랙 A 이관분은 위에서 따로 본다).
     expect(Object.keys(HEADLINE_UNGATED_WITH_REASON).sort()).toEqual(
       withoutLockCopy.filter((path) => !TRACK_A_PENDING.includes(path)).sort()
     );
@@ -846,6 +870,16 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
         gate: "expenseEntryLocked",
         key: "syncStatus" as const,
         unlocked: "아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요."
+      },
+      /**
+       * 라운드 71 리뷰 M-1 — 여섯째. 트랙 E가 세운 문장을 트랙 A가 소유한 화면이 읽어 쓴다
+       * (C→A 읽기 방향 그대로). 이 줄이 서면서 위 TRACK_A_PENDING은 비었다.
+       */
+      {
+        path: "app/import/[importJobId].tsx",
+        gate: "expenseGate.locked",
+        key: "importReview" as const,
+        unlocked: "분석 결과를 확인하고 가져올 항목을 골라요"
       }
     ];
 
@@ -858,10 +892,7 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
       expect(src, `${path}가 다시 적은 잠금 문장`).not.toContain(`"${VIEW_ONLY_HEADLINES[key]}"`);
     }
 
-    /**
-     * 여섯째는 가져오기 검수 화면이고 **트랙 A가 소유한다** — 이 트랙은 문장만 세운다.
-     * 그 화면이 무엇을 읽어야 하는지는 여기 값으로 남는다(A가 이 상수를 읽어 쓴다).
-     */
+    // 검수 화면이 읽는 그 문장은 지출 기록의 형제 문장 그대로다(확정이 만드는 것은 지출이다).
     expect(VIEW_ONLY_HEADLINES.importReview).toBe(EXPENSE_VIEW_ONLY_MESSAGE);
   });
 
@@ -906,8 +937,49 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     }
     // 화면마다 막힌 것이 다르므로 문장도 갈린다(표를 좁혀 한 문장으로 만들지 않는다 —
     // 라운드 70의 "판정은 한 벌, 문구는 화면별"이 여기서도 답이다).
-    expect(new Set(Object.values(VIEW_ONLY_HEADLINES)).size).toBe(3);
+    //
+    // 라운드 71 리뷰 M-5: 셋에서 **다섯**이 됐다. 정기 지출·동기화 상태 두 자리가 지출 기록의
+    // 문장을 돌려 쓰면서 그 화면에서 여전히 **할 수 있는 일**까지 부정하고 있었다.
+    expect(new Set(Object.values(VIEW_ONLY_HEADLINES)).size).toBe(5);
     expect(CHILD_EDIT_VIEW_ONLY_MESSAGE).toBe("보기 전용으로 참여하고 있어요. 아이 정보는 관리자·공동부모가 수정할 수 있어요.");
+  });
+
+  /**
+   * 라운드 71 리뷰 M-5 — **없는 제약을 말하지 않는다.**
+   *
+   * 두 화면의 잠긴 머리말이 지출 기록의 문장("기록은 관리자·공동부모가 남길 수 있어요")을 그대로
+   * 돌려 쓰고 있었는데, 그 문장은 이 화면들에서 **여전히 가능한 일**까지 부정했다:
+   *  - 정기 지출 템플릿은 이 기기의 메모라 보기 전용도 적고 고칠 수 있고, 게이트가 막는 것은
+   *    행의 "기록하기" 하나뿐이다;
+   *  - 동기화 상태의 실패·대기 행은 이 기기의 큐라 확인·폐기가 전부 열려 있고, 막히는 것은
+   *    "고쳐서 다시 보내기" 하나뿐이다.
+   *
+   * 허위 표시는 방향을 가리지 않는다 — 할 수 있는 일을 못 한다고 말하는 것도 같은 값이다.
+   */
+  it("라운드 71 M-5: 정기 지출·동기화 상태 문장은 그 화면에서 여전히 가능한 일을 부정하지 않는다", () => {
+    expect(VIEW_ONLY_HEADLINES.recurring).toBe(RECURRING_VIEW_ONLY_MESSAGE);
+    expect(RECURRING_VIEW_ONLY_MESSAGE).toBe(
+      "보기 전용으로 참여하고 있어요. 정기 지출은 적어 둘 수 있고, 기록하기는 관리자·공동부모가 할 수 있어요."
+    );
+    expect(VIEW_ONLY_HEADLINES.syncStatus).toBe(SYNC_STATUS_VIEW_ONLY_MESSAGE);
+    expect(SYNC_STATUS_VIEW_ONLY_MESSAGE).toBe(
+      "보기 전용으로 참여하고 있어요. 남은 기록은 확인하고 정리할 수 있고, 다시 보내는 것은 관리자·공동부모가 할 수 있어요."
+    );
+
+    // 지출 기록의 문장을 더는 돌려 쓰지 않는다(그 문장이 두 화면에서 하던 과장이 이 자리였다).
+    expect(VIEW_ONLY_HEADLINES.recurring).not.toBe(EXPENSE_VIEW_ONLY_MESSAGE);
+    expect(VIEW_ONLY_HEADLINES.syncStatus).not.toBe(EXPENSE_VIEW_ONLY_MESSAGE);
+
+    // 그리고 **할 수 있는 일**을 실제로 말한다(첫 절이 그 자리다).
+    expect(RECURRING_VIEW_ONLY_MESSAGE).toContain("적어 둘 수 있고");
+    // 동기화 상태는 종전 머리말의 약속("확인하고 정리할 수 있어요")을 잠긴 쪽에서도 거두지 않는다.
+    expect(SYNC_STATUS_VIEW_ONLY_MESSAGE).toContain("확인하고 정리할 수 있");
+    expect(source("app/sync-status.tsx")).toContain("아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요.");
+
+    // 확정이 지출을 만드는 검수 화면은 그대로 지출 기록의 형제 문장이다(그 화면에서 막히는 것은
+    // 체크·분류·확정 전부라, 좁혀 말할 것이 없다 — 표를 기계적으로 갈라 놓지 않는다).
+    expect(VIEW_ONLY_HEADLINES.importReview).toBe(EXPENSE_VIEW_ONLY_MESSAGE);
+    expect(VIEW_ONLY_HEADLINES.expenseDetail).toBe(EXPENSE_VIEW_ONLY_MESSAGE);
   });
 
   it("라운드 40 J-5 문구: 사실만 말하고 약속·재촉이 없다 (DNC-018)", () => {

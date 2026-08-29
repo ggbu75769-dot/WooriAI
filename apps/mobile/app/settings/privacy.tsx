@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, Linking, Pressable, Switch, Text, View } from "react-native";
+import { Alert, Pressable, Switch, Text, View } from "react-native";
 import {
   confirmAccountDeletion,
   confirmChildProfileDeletion,
@@ -57,6 +57,8 @@ import {
   destructiveFlowErrorMessage,
   type DestructiveFlowKind
 } from "../../src/settings/destructive-flow-messages";
+// 라운드 71 리뷰 S-2: 앱 밖으로 나가는 링크를 여는 규칙은 화면 셋이 공유하는 한 벌이다.
+import { openExternalUrl } from "../../src/settings/open-external-url";
 import { useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -164,12 +166,22 @@ const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 �
  *
  * 기본값이 `true`(온라인)인 이유도 같다 — 폴이 끝나기 전 첫 프레임과 연결 상태를 보고할 수 없는
  * 플랫폼에서는 **종전 문장 그대로**이고, 새 문장은 "오프라인이라고 확인된" 경우에만 대체한다.
+ *
+ * 라운드 71 리뷰 S-4 — ⚠ **데모(로컬 토큰) 세션에서는 오프라인 갈래를 건너뛴다.**
+ *
+ * 데모 세션의 요청은 네트워크를 지나지 않는다(src/api/local-backend.ts가 기기 안에서 답한다 —
+ * `authToken === LOCAL_SESSION_TOKEN`). 그런데 연결 판정은 **기기의 연결 상태**를 보므로, 비행기
+ * 모드에서 데모를 둘러보다 실패한 사람에게 "…요청이 서버에 닿지 못했어요"라고 말하게 된다 —
+ * 그 요청은 애초에 서버로 가지 않았으므로 **허위 표시**다. 그때의 평문 Error는 종전대로 모르는
+ * 실패 문장으로 떨어진다(모듈 머리말 4번 갈래 — 데모 세션이 원래 도달하던 그 자리다).
  */
 function useFlowFailureText(kind: DestructiveFlowKind, isError: boolean, error: unknown): string {
   const [isOnline, setIsOnline] = useState(true);
+  // 화면 본문의 `isDemoSession`과 같은 판정이다(authToken === LOCAL_SESSION_TOKEN을 편 것).
+  const isDemoSession = useSessionStore((state) => !state.accessToken && state.isTestSession);
 
   useEffect(() => {
-    if (!isError) {
+    if (!isError || isDemoSession) {
       setIsOnline(true);
       return;
     }
@@ -180,9 +192,9 @@ function useFlowFailureText(kind: DestructiveFlowKind, isError: boolean, error: 
     return () => {
       cancelled = true;
     };
-  }, [isError]);
+  }, [isError, isDemoSession]);
 
-  return destructiveFlowErrorMessage(kind, error, { isOnline });
+  return destructiveFlowErrorMessage(kind, error, { isOnline: isDemoSession || isOnline });
 }
 
 /**
@@ -646,15 +658,12 @@ export default function PrivacySettingsScreen() {
     reconsent.error ?? consentToggle.error
   );
 
-  const openLegalDocument = async (url: string) => {
-    try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (!canOpen) throw new Error("cannot-open-url");
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert(LEGAL_LINK_FAILED_TITLE, LEGAL_LINK_FAILED_MESSAGE);
-    }
-  };
+  /**
+   * 라운드 71 리뷰 S-2: 여는 규칙은 화면 셋이 공유하는 한 벌이고(src/settings/open-external-url.ts),
+   * 이 화면이 더하는 것은 실패 문구 두 줄뿐이다 — 동작·문구 모두 종전 그대로다.
+   */
+  const openLegalDocument = (url: string) =>
+    openExternalUrl(url, { failTitle: LEGAL_LINK_FAILED_TITLE, failMessage: LEGAL_LINK_FAILED_MESSAGE });
 
   return (
     <AppScreen>
