@@ -14,7 +14,9 @@
  *   LOAD_CONCURRENCY  동시 요청 수 (기본 10)
  *   LOAD_WARMUP       시나리오별 워밍업 요청 수, 통계 제외 (기본 10)
  *   LOAD_ADMIN_TOKEN  감사로그 시나리오용 x-admin-token (기본 dev-admin-token)
- *   LOAD_SEED_ROWS    측정 전에 대상 아이에게 심을 지출 행 수 (기본 0 = 볼륨 축 끔)
+ *   LOAD_SEED_ROWS    측정 전에 대상 아이에게 심을 지출 행 수 (기본 0 = 지출 축 끔)
+ *   LOAD_SEED_ITEMS   측정 전에 심을 **준비템 수** (기본 0 = 카탈로그 축 끔)
+ *   LOAD_SEED_LINKS_PER_ITEM  그 준비템 하나당 상품 링크 수 (기본 3, LOAD_SEED_ITEMS>0일 때만)
  *   LOAD_SEED_KEEP    1이면 측정 후 시드 행을 지우지 않고 남긴다 (기본 0 = 정리)
  *   LOAD_SEED_DATABASE_URL  시드가 붙을 DB (기본 DATABASE_URL, 없으면 dev DB URL)
  *
@@ -23,10 +25,12 @@
  *     /children/:id/reports/monthly, /health/ready
  *   - 추가: /sync/changes(델타 동기화, JWT), /health/push, /health/worker(무인증),
  *     /admin/audit-logs(관리자 감사로그 목록)
- *   - 볼륨 축(GAP-060 #8, LOAD_SEED_ROWS>0일 때만): 홈 콜드 스타트 전량 루프,
+ *   - 볼륨 축 ①지출(GAP-060 #8, LOAD_SEED_ROWS>0일 때만): 홈 콜드 스타트 전량 루프,
  *     지출 목록 깊은 커서 — 아래 "볼륨 축" 절 참고.
+ *   - 볼륨 축 ②카탈로그(GAP-067 #9): 준비템 상세, 어드민 준비템 목록 — 항상 붙고
+ *     LOAD_SEED_ITEMS>0이면 커진 카탈로그에서 잰다. 아래 "볼륨 축 ② 카탈로그" 절 참고.
  *
- * ── 볼륨 축 (GAP-060 #8) ────────────────────────────────────────────────────
+ * ── 볼륨 축 ① 지출 (GAP-060 #8) ─────────────────────────────────────────────
  * known-limitations H절(홈 주간 카드가 이번 달 지출 전량을 커서 루프로 끌어온다)과
  * F절(깊은 커서)은 **수용한 위험**인데, 그 크기를 한 번도 재 본 적이 없었다. 시드
  * 데이터 수준(수십 행)에서는 어떤 표도 그 위험을 보여 주지 못한다. 그래서
@@ -64,6 +68,29 @@
  * 429 응답은 오류(err)와 분리해 rate-limited(429) 칼럼으로 따로 집계된다.
  *
  * POST로 생성한 지출 행은 종료 시 전부 DELETE로 정리한다(DB를 깨끗하게 유지).
+ *
+ * ── 볼륨 축 ② 카탈로그 (GAP-067 #9) ─────────────────────────────────────────
+ * 위 지출 축이 재는 것은 **한 아이가 만드는 볼륨**이다. 그런데 운영이 실제로 키우는
+ * 축은 다른 쪽이다 — 어드민 CMS와 CSV 일괄 적용(500행/회)이 늘리는 **카탈로그**
+ * (준비템 · 상품 링크). 그리고 그 축을 타는 조회는 전량 스캔 + JS 랭킹이다:
+ *   - `GET /children/:id/items?tab=now` → `itemsForChild`가 **활성 준비템 전량**을
+ *     스테이지와 함께 읽고(`listItemTemplatesWithStages(true)`), 그 아이의 상태 행
+ *     전량을 읽어 메모리에서 결합·정렬한다(`apps/api/src/onboarding/items-catalog.service.ts`).
+ *     홈도 추천 3개를 위해 같은 경로를 탄다(`recommendedItemsForChild`).
+ *   - `GET /admin/item-templates` → `adminListItemTemplates`가 **모든 준비템 + 모든
+ *     상품 링크**를 `where` 없이 읽어 한 응답에 싣는다.
+ *   - `GET /children/:id/items/:itemTemplateId` → 상세 한 건 + 그 준비템의 활성 링크.
+ * 시드 수준(준비템 62 · 링크 58)에서는 어떤 표도 이 비용을 보여 주지 못하므로,
+ * `LOAD_SEED_ITEMS=1000 LOAD_SEED_LINKS_PER_ITEM=3`처럼 볼륨을 주면:
+ *   1. 표식(`item_templates.code`가 "load_smoke_seed_"로 시작)을 단 준비템 N개를 심고,
+ *      각각에 스테이지 행(현재 단계에 걸리는 것이 약 1/3)과 링크 M개를 붙이며,
+ *      대상 아이의 상태 행도 준비템 3개당 1개꼴로 심는다(JS 결합이 실제로 일하게),
+ *   2. 위 세 시나리오를 그 볼륨에서 재고,
+ *   3. 끝나면 심은 것을 표식으로 되찾아 **하드 삭제**한다(클릭 → 상태 → 링크 → 준비템
+ *      순서. 스테이지는 FK ON DELETE CASCADE로 함께 지워진다).
+ * 지출 축과 같은 규율이다: **dev DB 전용**(`wooriai_test`면 거부)이고 LOAD_SEED_KEEP=1
+ * 이면 남긴다. 이번 라운드(GAP-067 #9)는 **재는 것까지**이고 서버 최적화는 하지 않는다 —
+ * 재기 전에 인덱스나 페이지네이션을 붙이면 무엇을 고쳤는지 증명할 수 없다.
  */
 
 import { randomUUID } from "node:crypto";
@@ -77,11 +104,31 @@ const N = intEnv("LOAD_N", 200);
 const CONCURRENCY = intEnv("LOAD_CONCURRENCY", 10);
 const WARMUP = intEnv("LOAD_WARMUP", 10);
 const SEED_ROWS = intEnv("LOAD_SEED_ROWS", 0);
+const SEED_ITEMS = intEnv("LOAD_SEED_ITEMS", 0);
+const SEED_LINKS_PER_ITEM = intEnv("LOAD_SEED_LINKS_PER_ITEM", 3);
 const SEED_KEEP = process.env.LOAD_SEED_KEEP === "1";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const DEV_DATABASE_URL = "postgresql://wooriai:wooriai_dev_password@localhost:5432/wooriai_dev";
 /** 시드 행을 되찾기 위한 표식 — 정리(그리고 크래시 후 재실행)가 이 값 하나로 끝난다. */
 const SEED_ITEM_NAME = "load-smoke-seed";
+/**
+ * 카탈로그 축(GAP-067 #9)의 표식. `item_templates.code`는 UNIQUE라 이 접두만으로
+ * 심은 준비템 전량을 되찾을 수 있고, 링크·스테이지·상태는 그 id 목록에서 따라온다.
+ */
+const SEED_ITEM_CODE_PREFIX = "load_smoke_seed_";
+/** 스테이지 시드가 도는 값 — schema.prisma의 ChildStageCode 전량(순서 포함)이다. */
+const SEED_STAGE_CODES = [
+  "pregnancy_early",
+  "pregnancy_mid",
+  "pregnancy_late",
+  "newborn_0_3",
+  "infant_4_6",
+  "infant_7_12",
+  "toddler_1_3",
+  "kid_4_7",
+  "elementary",
+  "middle_school"
+];
 /** 서버의 지출 목록 limit 상한(EXPENSE_LIST_MAX_LIMIT) = 모바일 전량 루프의 페이지 크기. */
 const PAGE_LIMIT = 500;
 
@@ -240,6 +287,111 @@ async function cleanupSeededExpenses(prisma, childId) {
   return deleted.count;
 }
 
+// ── 볼륨 축 ②: 카탈로그 시드 (GAP-067 #9) ────────────────────────────────────
+
+/**
+ * 준비템 `items`개 + 각각의 링크 `linksPerItem`개 + 스테이지 + 대상 아이의 상태 행을 심는다.
+ *
+ * 왜 이 모양인가:
+ *  - **스테이지**: `itemsForChild`가 랭킹에 쓰는 값이다. 전량을 아이의 현재 단계에 걸면
+ *    "지금 필요" 탭이 비현실적으로 커지고, 하나도 안 걸면 조회는 여전히 전량을 읽지만
+ *    결과 집합이 종전과 같아 DTO 변환 비용이 안 늘어난다 — 그래서 **약 1/3**만 현재
+ *    단계에 걸고 나머지는 열 단계에 고르게 퍼뜨린다(실제 카탈로그의 모양이다).
+ *  - **상태 행**: `itemsForChild`는 그 아이의 `child_item_statuses` 전량을 따로 읽어
+ *    메모리에서 결합한다. 상태가 0건이면 그 조회와 Map 결합이 사실상 빈 일이라, 준비템
+ *    3개당 1개꼴로 심어 두 축이 함께 자라게 한다.
+ *  - **링크**: 앱 상세(활성 링크만)와 어드민 목록(전량, `where` 없음)이 함께 타는 축이다.
+ *    스폰서 링크는 만들지 않는다 — `chk_product_links_sponsor` 제약(스폰서면 라벨 필수)을
+ *    피하려는 것이 아니라, 스폰서 표기는 이 측정이 재려는 축이 아니기 때문이다.
+ */
+async function seedCatalog(prisma, ctx, items, linksPerItem) {
+  const templates = [];
+  for (let i = 0; i < items; i += 1) {
+    templates.push({
+      code: `${SEED_ITEM_CODE_PREFIX}${String(i).padStart(6, "0")}`,
+      name: `부하 시드 준비템 ${i}`,
+      necessityLevel: ["essential", "convenience", "optional"][i % 3],
+      reasonText: "QA-LOAD 카탈로그 축 시드 (LOAD_SEED_ITEMS — 측정 후 자동 삭제)",
+      // 기존 카탈로그(62개)보다 뒤에 세워 종전 항목의 표시 순서를 흔들지 않는다.
+      displayOrder: 10_000 + i,
+      active: true
+    });
+    if (templates.length === 500 || i === items - 1) {
+      await prisma.itemTemplate.createMany({ data: templates });
+      templates.length = 0;
+    }
+  }
+  const seeded = await prisma.itemTemplate.findMany({
+    where: { code: { startsWith: SEED_ITEM_CODE_PREFIX } },
+    select: { id: true, code: true },
+    orderBy: { code: "asc" }
+  });
+
+  const stages = [];
+  const links = [];
+  const statuses = [];
+  seeded.forEach((template, i) => {
+    const rotating = SEED_STAGE_CODES[i % SEED_STAGE_CODES.length];
+    stages.push({ itemTemplateId: template.id, stageCode: rotating, priorityWeight: i % 5 });
+    // 약 1/3은 아이의 현재 단계에도 걸린다(같은 값이면 UNIQUE 충돌이라 건너뛴다).
+    if (i % 3 === 0 && ctx.childStageCode && ctx.childStageCode !== rotating) {
+      stages.push({ itemTemplateId: template.id, stageCode: ctx.childStageCode, priorityWeight: 9 });
+    }
+    for (let j = 0; j < linksPerItem; j += 1) {
+      links.push({
+        itemTemplateId: template.id,
+        platform: ["coupang", "naver", "custom"][j % 3],
+        title: `부하 시드 링크 ${i}-${j}`,
+        url: `https://example.invalid/load-smoke/${i}/${j}`,
+        isAffiliate: j % 2 === 0,
+        isSponsored: false,
+        displayOrder: j,
+        active: true
+      });
+    }
+    if (i % 3 === 0) {
+      statuses.push({
+        childId: ctx.childId,
+        itemTemplateId: template.id,
+        status: ["not_prepared", "interested", "prepared"][(i / 3) % 3],
+        updatedByUserId: ctx.userId
+      });
+    }
+  });
+  await createManyInChunks(prisma.itemTemplateStage, stages);
+  await createManyInChunks(prisma.productLink, links);
+  await createManyInChunks(prisma.childItemStatus, statuses);
+  return { items: seeded.length, links: links.length, stages: stages.length, statuses: statuses.length };
+}
+
+/** createMany를 500행씩 나눠 보낸다(한 번에 수천 행을 보내면 파라미터 한도에 걸린다). */
+async function createManyInChunks(model, rows) {
+  for (let start = 0; start < rows.length; start += 500) {
+    await model.createMany({ data: rows.slice(start, start + 500) });
+  }
+}
+
+/**
+ * 카탈로그 시드 하드 삭제. 순서가 계약이다 — 클릭 → 상태 → 링크 → 준비템
+ * (`item_template_stages`만 ON DELETE CASCADE라 나머지 셋은 FK가 막는다). 표식으로
+ * 되찾으므로 이전 실행이 중간에 죽어 남긴 행도 함께 걷힌다.
+ */
+async function cleanupSeededCatalog(prisma) {
+  const seeded = await prisma.itemTemplate.findMany({
+    where: { code: { startsWith: SEED_ITEM_CODE_PREFIX } },
+    select: { id: true }
+  });
+  if (seeded.length === 0) return { items: 0, links: 0, statuses: 0 };
+  const ids = seeded.map((row) => row.id);
+  // 이 측정은 클릭을 만들지 않지만(클릭 시나리오가 없다), 손으로 눌러 본 흔적이 남아
+  // 있으면 FK가 삭제를 막으므로 방어적으로 먼저 지운다.
+  await prisma.affiliateClick.deleteMany({ where: { itemTemplateId: { in: ids } } });
+  const statuses = await prisma.childItemStatus.deleteMany({ where: { itemTemplateId: { in: ids } } });
+  const links = await prisma.productLink.deleteMany({ where: { itemTemplateId: { in: ids } } });
+  const removed = await prisma.itemTemplate.deleteMany({ where: { id: { in: ids } } });
+  return { items: removed.count, links: links.count, statuses: statuses.count };
+}
+
 /**
  * 모바일 콜드 스타트와 같은 형태로 이번 달 지출을 hasMore가 끝날 때까지 따라간다
  * (`fetchMonthExpenses`, 페이지당 500). 페이지 수·행 수와 함께 **마지막 페이지를
@@ -272,7 +424,8 @@ async function walkExpensePages(auth, childId, yearMonth) {
 
 async function main() {
   console.log(
-    `# load-smoke  base=${BASE}  N=${N}  concurrency=${CONCURRENCY}  warmup=${WARMUP}  seedRows=${SEED_ROWS}`
+    `# load-smoke  base=${BASE}  N=${N}  concurrency=${CONCURRENCY}  warmup=${WARMUP}` +
+      `  seedRows=${SEED_ROWS}  seedItems=${SEED_ITEMS}${SEED_ITEMS > 0 ? `×${SEED_LINKS_PER_ITEM}링크` : ""}`
   );
 
   // ── 1. 인증(1회만 — /auth/*는 레이트리밋이 더 빡빡함) ───────────────────
@@ -288,7 +441,11 @@ async function main() {
   const householdId = login?.user?.households?.[0]?.id;
 
   // ── 2. childId 확보(/children → 없으면 생성) ────────────────────────────
-  let childId = (await jsonFetch("/children", { headers: auth }))?.children?.[0]?.id;
+  const firstChild = (await jsonFetch("/children", { headers: auth }))?.children?.[0];
+  let childId = firstChild?.id;
+  // GAP-067 #9: 카탈로그 시드가 "현재 단계에 걸리는 준비템"을 만들 때 쓰는 값. 여기서
+  // 다시 계산하지 않고 **서버가 준 DTO**를 그대로 읽는다(단계 판정은 도메인의 몫이다).
+  let childStageCode = firstChild?.currentStage ?? null;
   if (!childId) {
     if (!householdId) throw new Error("householdId 없음 — child 생성 불가");
     const created = await jsonFetch("/children", {
@@ -302,6 +459,7 @@ async function main() {
       })
     });
     childId = created?.id ?? created?.child?.id;
+    childStageCode = created?.currentStage ?? created?.child?.currentStage ?? null;
   }
   if (!childId) throw new Error("childId 확보 실패");
 
@@ -320,7 +478,8 @@ async function main() {
   let prisma = null;
   let deepCursor = null;
   let walk = null;
-  if (SEED_ROWS > 0) {
+  // 두 축(지출·카탈로그)이 같은 DB 핸들·같은 거부 규칙·같은 정리 경로를 쓴다.
+  if (SEED_ROWS > 0 || SEED_ITEMS > 0) {
     const databaseUrl = process.env.LOAD_SEED_DATABASE_URL ?? process.env.DATABASE_URL ?? DEV_DATABASE_URL;
     if (/wooriai_test/.test(databaseUrl)) {
       throw new Error(
@@ -330,6 +489,26 @@ async function main() {
     if (!userId) throw new Error("시드 불가: 로그인 응답에 user.id가 없습니다");
     prisma = await loadPrisma(databaseUrl);
     seedState = { prisma, childId };
+  }
+  if (prisma && SEED_ITEMS > 0) {
+    // ── 3b-①. 카탈로그 축 시드 (GAP-067 #9) ──────────────────────────────
+    const stale = await cleanupSeededCatalog(prisma);
+    if (stale.items > 0) {
+      console.log(`seed: 이전 실행 잔여 카탈로그 시드 준비템 ${stale.items}건 정리(링크 ${stale.links}·상태 ${stale.statuses})`);
+    }
+    const catalog = await seedCatalog(
+      prisma,
+      { childId, userId, childStageCode },
+      SEED_ITEMS,
+      SEED_LINKS_PER_ITEM
+    );
+    console.log(
+      `seed: 준비템 ${catalog.items}건 · 링크 ${catalog.links}건 · 스테이지 ${catalog.stages}건 · 상태 ${catalog.statuses}건 심음 ` +
+        `(현재 단계=${childStageCode ?? "모름"}, 표식 code="${SEED_ITEM_CODE_PREFIX}*")`
+    );
+  }
+  if (prisma && SEED_ROWS > 0) {
+    // ── 3b-②. 지출 축 시드 (GAP-060 #8) ──────────────────────────────────
     // 이전 실행이 중간에 죽어 남긴 시드가 있으면 먼저 걷어낸다(표식 기반).
     const stale = await cleanupSeededExpenses(prisma, childId);
     if (stale > 0) console.log(`seed: 이전 실행 잔여 시드 ${stale}건 정리`);
@@ -447,7 +626,26 @@ async function main() {
     });
   }
 
-  // ── 3d. 관리자 감사로그 목록 — dev/test 전용 x-admin-token 폴백으로 인증 ──
+  // ── 3c-②. 카탈로그 축 시나리오 (GAP-067 #9) ─────────────────────────────
+  // 시드 없이도 붙인다 — 이 축은 "심어야 의미가 생기는" 전량 루프와 달리 **기준선이
+  // 먼저 필요**하기 때문이다(시드 전 62개 카탈로그의 수치가 배율의 분모가 된다).
+  // 상세는 사용자가 실제로 누르는 자리 = "지금 필요" 탭의 첫 항목을 잰다.
+  const nowTabItems = (await jsonFetch(`/children/${childId}/items?tab=now`, { headers: auth }))?.items ?? [];
+  const detailItemId = nowTabItems[0]?.id ?? null;
+  if (detailItemId) {
+    const detail = await jsonFetch(`/children/${childId}/items/${detailItemId}`, { headers: auth });
+    console.log(
+      `catalog: tab=now ${nowTabItems.length}건 · 상세 대상 ${detailItemId}(${detail?.name ?? "?"}) 링크 ${detail?.productLinks?.length ?? 0}개`
+    );
+    scenarios.push({
+      name: `GET /children/:id/items/:itemTemplateId`,
+      request: () => fetch(`${API}/children/${childId}/items/${detailItemId}`, { headers: auth })
+    });
+  } else {
+    console.warn("skip: GET /children/:id/items/:itemTemplateId — tab=now 응답이 비어 대상 준비템이 없습니다.");
+  }
+
+  // ── 3d. 관리자 목록 둘 — dev/test 전용 x-admin-token 폴백으로 인증 ────────
   // (쿠키 세션 + MFA 실플로우는 admin-e2e.mjs 소관. 여기서는 서버가 폴백을
   //  허용하는 경우에만 측정하고, 아니면 사유를 남기고 건너뛴다.)
   const adminToken = process.env.LOAD_ADMIN_TOKEN ?? "dev-admin-token";
@@ -464,6 +662,26 @@ async function main() {
       `skip: GET /admin/audit-logs — 프로브 응답 ${auditProbe.status}. ` +
         `dev/test 전용 x-admin-token 폴백이 거부됨(비 dev/test 환경이거나 WOORIAI_ADMIN_TOKEN 불일치 — LOAD_ADMIN_TOKEN으로 지정 가능).`
     );
+  }
+
+  // GAP-067 #9: 카탈로그 축의 어드민 쪽 — `where` 없이 **모든 준비템 + 모든 링크**를
+  // 한 응답에 싣는 목록이다(페이지네이션 자체가 없다). 같은 폴백 프로브 규칙을 지난다.
+  const templatesProbe = await fetch(`${API}/admin/item-templates`, { headers: adminHeaders });
+  const templatesProbeBody = await templatesProbe.text();
+  if (templatesProbe.ok) {
+    let templateCount = "?";
+    try {
+      templateCount = JSON.parse(templatesProbeBody)?.items?.length ?? "?";
+    } catch {
+      /* 개수는 로그용일 뿐이라 파싱 실패는 무시한다 */
+    }
+    console.log(`catalog: GET /admin/item-templates 응답 ${templateCount}건 · 본문 ${(templatesProbeBody.length / 1024).toFixed(1)}KB`);
+    scenarios.push({
+      name: `GET /admin/item-templates`,
+      request: () => fetch(`${API}/admin/item-templates`, { headers: adminHeaders })
+    });
+  } else {
+    console.warn(`skip: GET /admin/item-templates — 프로브 응답 ${templatesProbe.status}(위 감사로그와 같은 사유).`);
   }
 
   const results = [];
@@ -513,10 +731,19 @@ async function main() {
         console.log(`cleanup: POST 시나리오 툼스톤 ${tombstones.count}건 하드 삭제(과거 실행 잔여 포함)`);
       }
       if (SEED_KEEP) {
-        console.log(`cleanup: LOAD_SEED_KEEP=1 — 시드 행을 남깁니다(지우려면 같은 스크립트를 다시 돌리거나 itemName="${SEED_ITEM_NAME}" 행을 삭제).`);
+        console.log(
+          `cleanup: LOAD_SEED_KEEP=1 — 시드 행을 남깁니다(지우려면 같은 스크립트를 다시 돌리거나 itemName="${SEED_ITEM_NAME}" 지출 · code="${SEED_ITEM_CODE_PREFIX}*" 준비템을 삭제).`
+        );
       } else {
         const removed = await cleanupSeededExpenses(prisma, childId);
-        console.log(`cleanup: 볼륨 축 시드 ${removed}건 하드 삭제 완료`);
+        if (SEED_ROWS > 0 || removed > 0) console.log(`cleanup: 지출 축 시드 ${removed}건 하드 삭제 완료`);
+        // GAP-067 #9: 카탈로그 축도 같은 자리에서 걷는다(FK 순서는 cleanupSeededCatalog가 진다).
+        const catalog = await cleanupSeededCatalog(prisma);
+        if (SEED_ITEMS > 0 || catalog.items > 0) {
+          console.log(
+            `cleanup: 카탈로그 축 시드 준비템 ${catalog.items}건 · 링크 ${catalog.links}건 · 상태 ${catalog.statuses}건 하드 삭제 완료`
+          );
+        }
       }
     } finally {
       seedState = null;
@@ -548,10 +775,13 @@ main().catch(async (error) => {
   if (seedState && !SEED_KEEP) {
     try {
       const removed = await cleanupSeededExpenses(seedState.prisma, seedState.childId);
-      console.error(`cleanup: 실패 경로에서 볼륨 축 시드 ${removed}건 삭제`);
+      const catalog = await cleanupSeededCatalog(seedState.prisma);
+      console.error(
+        `cleanup: 실패 경로에서 지출 축 시드 ${removed}건 · 카탈로그 축 시드 준비템 ${catalog.items}건(링크 ${catalog.links}·상태 ${catalog.statuses}) 삭제`
+      );
     } catch (cleanupError) {
       console.error(
-        `cleanup 경고: 시드 정리 실패(${cleanupError.message}) — dev DB에 itemName="${SEED_ITEM_NAME}" 행이 남았을 수 있습니다.`
+        `cleanup 경고: 시드 정리 실패(${cleanupError.message}) — dev DB에 itemName="${SEED_ITEM_NAME}" 지출 또는 code="${SEED_ITEM_CODE_PREFIX}*" 준비템이 남았을 수 있습니다.`
       );
     } finally {
       await seedState.prisma.$disconnect().catch(() => {});

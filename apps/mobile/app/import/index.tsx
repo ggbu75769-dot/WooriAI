@@ -520,8 +520,12 @@ const styles = StyleSheet.create({
     ...theme.shadows.card
   },
   // 라운드 67 #3: 결과 카드의 되돌리기 버튼. 되돌릴 수 없는 일괄 동작이라 색은 danger 토큰을
-  // 쓰고(새 hex 없음), 터치 타깃은 hitSlop 12로 44dp를 채운다 — 카드 안의 다른 누르는 자리와
-  // 같은 관례다.
+  // 쓰고(새 hex 없음), 터치 타깃은 hitSlop 12로 채운다 — 카드 안의 다른 누르는 자리와 같은
+  // 관례다.
+  // ⚠️ 표기 정정(라운드 67 트랙 F, 주석만 — 동작 0건): 이 저장소의 기준은 44가 아니라 자신의
+  // 토큰 `theme.touchTarget`(=48dp)이다(A11Y 체크표 A-1 · a11y-contract.test.ts GAP-064 #6·65 #7).
+  // 여기 값(글자 줄 + 세로 패딩 6×2 + hitSlop 12×2)은 그 48도 넘으므로 숫자를 바꾸지 않고
+  // **기준의 이름만** 바로잡는다 — 44라고 적어 두면 다음 사람이 더 낮은 기준을 물려받는다.
   undoButton: {
     alignItems: "center",
     justifyContent: "center",
