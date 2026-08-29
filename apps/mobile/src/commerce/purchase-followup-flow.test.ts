@@ -92,7 +92,13 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(detailSource).toContain("const showLinkNotice = (text: string) => {");
     // 세 실패 경로(서버 클릭 기록 실패 · 첫 열기 실패 · 재시도 실패)가 모두 같은 자리를 지난다.
     expect(detailSource).toContain('showLinkFailure("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");');
-    expect(detailSource.match(/showLinkFailure\("링크를 열지 못했어요\. 링크를 공유하거나 다시 시도해 주세요\."\);/g) ?? []).toHaveLength(2);
+    // 라운드 68 C: 열기 실패 두 경로(첫 시도 · 재시도)의 문구는 이제 **공유 가능 여부와 같은
+    // 판정**에서 갈린다(src/items/link-marker.ts의 linkOpenFailureNotice) — 공유 버튼이 서지
+    // 않는 상태에서 "링크를 공유하거나"라고 말하면 화면의 두 주장이 어긋난다. 화면이 문구를
+    // 다시 인라인하지 않는다는 것도 함께 못 박는다(공유 가능한 경로의 문장 자체는 무변경이고,
+    // 그 계약은 link-marker.test.ts가 진다).
+    expect(detailSource.match(/showLinkFailure\(linkOpenFailureNotice\((result\.shareUrl|linkOpenFallback\.shareUrl)\)\);/g) ?? []).toHaveLength(2);
+    expect(detailSource).not.toContain('showLinkFailure("링크를 열지 못했어요. 링크를 공유하거나');
     // 옛 리터럴 setState는 남아 있지 않다(다시 인라인되면 오프라인에서 틀린 안내가 돌아온다).
     expect(detailSource).not.toContain('setClickedTitle("링크를 열지 못했어요');
   });

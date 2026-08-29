@@ -4,6 +4,11 @@ import { describe, expect, it } from "vitest";
 import { LOCAL_ITEM_DIAPER, localProductLinkFixtures } from "../api/local-fixtures";
 import {
   AFFILIATE_DISCLOSURE_CORE_TERMS,
+  canSharePurchaseLink,
+  LINK_OPEN_FAILED_NOTICE,
+  LINK_OPEN_FAILED_SHAREABLE_NOTICE,
+  LINK_SHARE_UNAVAILABLE_NOTICE,
+  linkOpenFailureNotice,
   statesAffiliateCommission,
   AFFILIATE_DISCLOSURE_FALLBACK_TEXT,
   AFFILIATE_MARKER_CAPTION,
@@ -685,12 +690,68 @@ describe("라운드 64 #5ⓐ: 공유 메시지의 제휴 고지", () => {
     const detail = detailSource();
 
     expect(detail).toContain("message: purchaseLinkShareMessage({");
-    // 라운드 67 #4: 나가는 URL은 서버가 만든 공유 URL(`/r/:code`)이고, 없으면 종전 URL로
-    // 떨어진다. 고지 조립 자체는 이 함수 한 자리 그대로다 — 바뀐 것은 넘기는 `url` 하나뿐이다.
-    expect(detail).toContain("url: linkOpenFallback.shareUrl ?? linkOpenFallback.redirectUrl,");
+    // 라운드 67 #4: 나가는 URL은 서버가 만든 공유 URL(`/r/:code`)이다.
+    // 라운드 68 C(#4): 그 값이 없을 때 원문 URL로 떨어지던 폴백은 없앴다 — 서버가 깨진 줄
+    // 아는 링크에도 `shareUrl`이 비므로, 폴백은 죽은 주소를 집계도 회수도 없이 내보내는 길이다.
+    expect(detail).toContain("url: linkOpenFallback.shareUrl,");
+    expect(detail).not.toContain("linkOpenFallback.shareUrl ?? linkOpenFallback.redirectUrl");
     expect(detail).toContain("link: linkOpenFallback.link,");
     expect(detail).toContain("disclosureText: linkOpenFallback.disclosureText");
     expect(detail).not.toContain("Share.share({ message: linkOpenFallback.redirectUrl })");
+  });
+});
+
+/**
+ * 라운드 68 C(#4) — **서버가 4xx로 확인한 링크는 밖으로 내보내지 않는다.**
+ *
+ * 서버가 `health_status = "broken"`인 링크의 클릭 응답에서 `shareUrl`을 빼면, 앱이 보는 사실은
+ * "내보낼 주소가 없다" 하나다(코드 없는 옛 데이터·구버전 서버와 같은 모양이고, 답도 같다).
+ * 이 절은 그 판정과 그 판정에 붙어 있는 두 문구를 고정한다 — 여는 URL·링크 목록·정렬은
+ * 이 판정과 무관하다(그쪽 계약은 상세 목록 테스트와 e2e가 진다).
+ */
+describe("라운드 68 C(#4): 내보낼 수 있는 주소가 없으면 공유하지 않는다", () => {
+  it("내보낼 주소의 유무만 본다 — 빈 문자열·공백은 주소가 아니다", () => {
+    expect(canSharePurchaseLink("https://example.test/api/v1/r/abc123")).toBe(true);
+    expect(canSharePurchaseLink(undefined)).toBe(false);
+    expect(canSharePurchaseLink(null)).toBe(false);
+    expect(canSharePurchaseLink("")).toBe(false);
+    expect(canSharePurchaseLink("   ")).toBe(false);
+  });
+
+  it("공유할 수 있는 상태의 문구는 종전 그대로다", () => {
+    expect(linkOpenFailureNotice("https://example.test/api/v1/r/abc123")).toBe(LINK_OPEN_FAILED_SHAREABLE_NOTICE);
+    expect(LINK_OPEN_FAILED_SHAREABLE_NOTICE).toBe("링크를 열지 못했어요. 링크를 공유하거나 다시 시도해 주세요.");
+  });
+
+  it("공유할 수 없으면 없는 버튼을 가리키지 않는다 — 재시도만 말한다", () => {
+    expect(linkOpenFailureNotice(undefined)).toBe(LINK_OPEN_FAILED_NOTICE);
+    expect(LINK_OPEN_FAILED_NOTICE).not.toContain("공유");
+    expect(LINK_OPEN_FAILED_NOTICE).toContain("다시 시도");
+  });
+
+  it("판매처를 탓하지 않는다 — 없는 것은 우리가 내보낼 주소다", () => {
+    // "깨졌어요" 배지·문구는 이번 범위 밖이다(24시간 묵은 판정으로 판매처를 공개 비난하지
+    // 않는다). 이 문장이 말하는 것은 우리 쪽 사실 하나뿐이고, 해요체다(DNC-018).
+    expect(LINK_SHARE_UNAVAILABLE_NOTICE).toBe("지금은 공유할 수 있는 주소가 없어요.");
+    for (const word of ["깨진", "깨졌", "죽은", "오류"]) {
+      expect(LINK_SHARE_UNAVAILABLE_NOTICE).not.toContain(word);
+    }
+    expect(LINK_SHARE_UNAVAILABLE_NOTICE.endsWith("요.")).toBe(true);
+  });
+
+  it("화면은 같은 판정 하나로 버튼과 문구를 함께 가른다(두 벌 금지)", () => {
+    const detail = detailSource();
+
+    // 공유 버튼은 판정이 참일 때만 서고, 거짓이면 그 자리에서 사실을 말한다.
+    expect(detail).toContain("{canSharePurchaseLink(linkOpenFallback.shareUrl) ? (");
+    expect(detail).toContain("{LINK_SHARE_UNAVAILABLE_NOTICE}");
+    // 실패 문구도 같은 모듈에서 온다 — 화면이 문장을 다시 짓지 않는다.
+    expect(detail).toContain("showLinkFailure(linkOpenFailureNotice(result.shareUrl));");
+    expect(detail).toContain("showLinkFailure(linkOpenFailureNotice(linkOpenFallback.shareUrl));");
+    // 공유 조립부에도 같은 판정이 한 번 더 걸린다(버튼 밖의 호출 경로가 생겨도 새지 않는다).
+    expect(detail).toContain("if (!canSharePurchaseLink(linkOpenFallback.shareUrl)) return;");
+    // **여는 URL은 이 판정과 무관하다** — 공유가 막혀도 재시도는 그대로 원문 URL을 연다.
+    expect(detail).toContain("Linking.openURL(linkOpenFallback.redirectUrl)");
   });
 });
 
