@@ -29,3 +29,4 @@ scripts/qa/out/
 # release/upload keystore - never commit (generate outside the repo: $HOME/wooriai-release.keystore, launch-72h-plan.md §3.1)
 *.keystore
 *.jks
+__pycache__/
