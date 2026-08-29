@@ -111,6 +111,8 @@ import {
  */
 import { buildSuggestSourceRows, type SuggestSourceRow } from "../../src/expenses/suggest-source";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+// 라운드 71 트랙 E: 잠긴 세션의 머리말 문장은 화면이 짓지 않는다(단일 소스는 순수 모듈이다).
+import { VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 // GAP-058 #6: "지난달"은 홈의 지난달 비교 한 줄과 **같은 함수**로 센다(달 경계를 화면에서 다시
 // 계산하면 12월→1월에 두 화면이 다른 달을 가리킬 수 있다).
 import { previousYearMonth } from "../../src/home/last-month-comparison";
@@ -772,10 +774,15 @@ export default function ExpenseDetailScreen() {
   return (
     <AppScreen>
       <View testID="screen-EXP-003" style={{ gap: theme.spacing.section }}>
+        {/* 라운드 71 트랙 E: 머리말이 게이트를 읽는다 — 잠긴 계정에게 "수정할 수 있어요"는
+            지킬 수 없는 약속이다(저장·삭제가 같은 판정에 걸려 있다). 문장은 순수 모듈에서 오고,
+            역할 미상·비세션·데모는 종전 문장 그대로다. */}
         <ScreenHeader
           eyebrow="지출 상세"
           title={withChildScopeLabel("지출 수정", childScopeLabel)}
-          subtitle="품목과 금액을 확인하고 수정할 수 있어요."
+          subtitle={
+            expenseGate.locked ? VIEW_ONLY_HEADLINES.expenseDetail : "품목과 금액을 확인하고 수정할 수 있어요."
+          }
           onBack={() => router.back()}
         />
 

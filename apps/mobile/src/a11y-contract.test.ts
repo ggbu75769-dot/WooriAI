@@ -52,6 +52,21 @@ import {
 } from "./family/invite-accept-messages";
 import { INVITE_ROLE_CHOICES, INVITE_SCOPE_NOTICE } from "./family/invite-flow";
 import { BUDGET_VIEW_ONLY_MESSAGE } from "./family/record-permissions";
+// GAP-071 트랙 E(A·B·C·D가 만든 새 UI): 값·문구 계약은 각 트랙의 모듈 테스트가 진다. 여기서는
+// **그 문장이 낭독되는 자리에 걸려 있는가**만 보므로, 비교에 쓰는 문자열까지 전부 모듈에서
+// 읽어 온다 — 트랙이 문구를 다듬어도 이 파일은 그대로다(라운드 66~70의 형식).
+import {
+  IMPORT_CONFIRM_FAILED_MESSAGE,
+  IMPORT_FORBIDDEN_MESSAGE,
+  IMPORT_ROW_EDIT_FAILED_MESSAGE,
+  IMPORT_UPLOAD_FAILED_MESSAGE
+} from "./import/import-failure-messages";
+import { CONSENT_UPDATE_FAILED_MESSAGE, DESTRUCTIVE_ACTION_FAILED_MESSAGE } from "./settings/destructive-flow-messages";
+import {
+  SELECTED_CHILD_RECOVERY_DATA_INTACT_NOTICE,
+  SELECTED_CHILD_RECOVERY_ERROR_NOTICE
+} from "./onboarding/selected-child-recovery";
+import { SUPPORT_LINK_FAILED_MESSAGE, SUPPORT_LINK_LABELS } from "./settings/support-links";
 // GAP-070 트랙 E: ONB-001 세 카드의 **문구·순서**는 이 순수 모듈이 이미 거울로 들고 있다
 // ("mirroring the onboarding ONB-001 option titles"). 그래서 이 파일은 카드 문구를 다시 적지
 // 않고 그 거울과 대조한다 — 문구가 바뀌면 두 자리 중 하나가 아니라 **둘 다** 움직여야 한다.
@@ -704,7 +719,109 @@ describe("GAP-062 #10 라운드 61 신설 UI 접근성 계약", () => {
     // (색·배지 톤만으로 상태를 말하지 않는다 — A-1 Error text와 같은 규율).
     const emptyCard = source("src/ui.tsx").slice(source("src/ui.tsx").indexOf("export function EmptyStateCard"));
     expect(emptyCard.slice(0, 600)).toContain(">{title}</Text>");
-    expect(emptyCard.slice(0, 600)).toContain("<SecondaryButton label={actionLabel}");
+    /**
+     * ⚠️ 라운드 71 트랙 E — **버튼 단언을 새 계약으로 교체한다.**
+     *
+     * 종전 단언(`"<SecondaryButton label={actionLabel}"`)은 "액션 라벨이 버튼에 실린다"까지만
+     * 물었고, 그래서 **`onPress`가 없어도 버튼이 그려진다**는 사실을 통과시켰다. 소리로만 앱을
+     * 쓰는 사람에게 `accessibilityRole="button"` 낭독은 그 자체가 약속이고, 눌러도 아무 일도
+     * 일어나지 않으면 그 약속이 깨진다. 이제 묻는 것은 **짝**이다 — 값이 도달하는가가 아니라,
+     * 도달할 수 없는 상태가 애초에 만들어지지 않는가.
+     */
+    expect(emptyCard.slice(0, 900), "onPress가 없으면 버튼을 그리지 않는다").toContain(
+      "{onPress && actionLabel ? <SecondaryButton label={actionLabel} onPress={onPress} /> : null}"
+    );
+  });
+});
+
+/**
+ * GAP-071 #5(트랙 E) — **낭독되는 버튼은 반드시 눌리는 버튼이다** (`EmptyStateCard`).
+ *
+ * 이 저장소는 라운드마다 "눌러도 아무 일도 없는 버튼"을 한두 자리씩 손으로 걷어내 왔고
+ * (MOB-119 · UX-Q(B) — 그 주석은 자기가 마지막이라고 적었는데 넷이 더 살아 있었다), 그때마다
+ * 같은 자리가 다시 생겼다. 원인이 호출부가 아니라 **컴포넌트가 그것을 허용한다는 사실**이기
+ * 때문이다. 그래서 이번 계약은 호출부를 세지 않고 **타입과 렌더**를 붙든다 —
+ * `AffiliateDisclosure`의 `text`를 필수로 만든 라운드 43 리뷰 M-1이 같은 판단이었다.
+ *
+ * 접근성 쪽에서 이것이 값 계약이 아니라 낭독 계약인 이유: TalkBack은 이 노드를 "…, 버튼"으로
+ * 읽는다. 눈으로 보는 사람은 눌러 보고 아무 일도 없다는 것을 곧 알지만, 소리로만 쓰는 사람에게는
+ * **그 낭독이 유일한 정보**라 화면이 멈춘 것인지 자기가 잘못 누른 것인지 끝내 알 수 없다.
+ */
+describe("GAP-071 #5 EmptyStateCard의 actionLabel↔onPress 짝 (가짜 버튼 재발 금지)", () => {
+  const uiSource = () => source("src/ui.tsx");
+  const emptyCardBlock = () => {
+    const src = uiSource();
+    const at = src.indexOf("export type EmptyStateCardProps");
+    expect(at, "EmptyStateCard의 타입 선언").toBeGreaterThan(-1);
+    return src.slice(at, src.indexOf("export function Toast(", at));
+  };
+
+  it("타입이 짝을 강제한다 — 라벨만 넘기는 호출부는 컴파일되지 않는다", () => {
+    const block = emptyCardBlock();
+    // 판별 합집합: 액션은 둘 다 있거나 둘 다 없다. `onPress?: () => void`(선택 인자)로
+    // 되돌아가면 이 단언이 깨진다.
+    expect(block, "액션이 있는 갈래").toContain("{ actionLabel: string; onPress: () => void }");
+    expect(block, "액션이 없는 갈래").toContain("{ actionLabel?: undefined; onPress?: undefined }");
+    expect(block, "라벨만 있는 옛 시그니처").not.toContain("actionLabel: string; onPress?: () => void");
+  });
+
+  it("렌더도 같은 짝을 지킨다 — 타입을 우회해도 낭독되는 가짜 버튼이 서지 않는다", () => {
+    const block = emptyCardBlock();
+    expect(block, "onPress가 없으면 버튼 노드 자체가 없다").toContain(
+      "{onPress && actionLabel ? <SecondaryButton label={actionLabel} onPress={onPress} /> : null}"
+    );
+    // 종전 렌더(무조건 그리기)가 되돌아오면 여기서 걸린다.
+    expect(block, "무조건 그리던 옛 렌더").not.toContain("<SecondaryButton label={actionLabel} onPress={onPress} />\n");
+  });
+
+  /**
+   * 정찰이 센 **살아 있는 가짜 버튼 넷**. 전부 `!hasSession` 카드였고, "로그인 후 이용할 수
+   * 있어요"라고 말하면서 로그인으로 가는 길을 주지 않았다. 카드 문구는 종전 그대로이고
+   * 더해진 것은 **목적지 하나**다.
+   */
+  it("정찰이 센 네 자리는 이제 실제로 갈 곳을 준다 (문구는 종전 그대로)", () => {
+    const withDestination = [
+      "app/settings/app-lock.tsx",
+      "app/settings/children.tsx",
+      "app/settings/notifications.tsx",
+      "app/expenses/recurring.tsx"
+    ];
+    for (const path of withDestination) {
+      const src = source(path);
+      expect(src, `${path}의 비세션 카드`).toContain('actionLabel="확인"');
+      expect(src, `${path}의 목적지`).toMatch(/onPress=\{\(\) => router\.push\([^)]*"\/login"\)\}/);
+    }
+    // 카드 문구는 한 글자도 바뀌지 않았다.
+    for (const path of ["app/settings/app-lock.tsx", "app/settings/children.tsx", "app/settings/notifications.tsx"]) {
+      expect(source(path), `${path}의 카드 제목`).toContain('title="로그인 후 이용할 수 있어요."');
+    }
+    expect(source("app/expenses/recurring.tsx"), "정기 지출 카드 제목").toContain(
+      'title="로그인하고 아이를 선택하면 정기 지출을 적어 둘 수 있어요."'
+    );
+  });
+
+  /**
+   * 파생 단언 — **호출부 전량**을 훑어 라벨만 넘기는 자리가 하나도 없는지 본다. 타입이 이미
+   * 막지만, 이 단언은 "그 타입이 실제로 이 컴포넌트에 걸려 있는가"까지 함께 지킨다(다른
+   * `EmptyStateCard`를 import한 화면이 섞이면 타입 검사만으로는 조용히 통과한다).
+   */
+  it("src/ui.tsx의 EmptyStateCard를 쓰는 호출부에 라벨만 있는 자리가 없다", () => {
+    const callers = listComponentSources().filter((path) => {
+      const src = source(path);
+      return /from "(\.\.\/)*(src\/)?ui"/.test(src) && src.includes("EmptyStateCard");
+    });
+    expect(callers.length, "호출부 스캔이 실제로 무언가를 찾았다").toBeGreaterThanOrEqual(10);
+
+    const fakeButtons: string[] = [];
+    for (const path of callers) {
+      const src = source(path);
+      // `<EmptyStateCard …/>` 한 덩어리씩 읽어 actionLabel과 onPress가 함께 있는지 본다.
+      for (const match of src.matchAll(/<EmptyStateCard\b[\s\S]*?\/>/g)) {
+        const tag = match[0];
+        if (tag.includes("actionLabel") && !tag.includes("onPress")) fakeButtons.push(`${path}: ${tag.slice(0, 80)}`);
+      }
+    }
+    expect(fakeButtons, `라벨만 있고 목적지가 없는 카드: ${fakeButtons.join(" | ")}`).toEqual([]);
   });
 });
 
@@ -2219,17 +2336,25 @@ describe("GAP-070 #1 끝난 초대 카드의 낭독 계약 (FAM-003)", () => {
 describe("GAP-070 #2 예산 저장 잠금·실패 사유의 낭독 계약 (BUD-001)", () => {
   const budgetScreen = () => source("app/budget.tsx");
 
+  /**
+   * 라운드 71 트랙 E(라운드 70 리뷰 P-B) — Alert를 띄우는 자리가 **게이트 한 벌로 합쳐졌다.**
+   * 화면이 갖고 있던 재구현(제목·본문·재검증 세 줄)은 사라지고 넘기는 것은 본문 하나다.
+   * 그래서 이 계약도 자리를 옮긴다: **본문이 인자로 도달하는가**(제목 자리로 밀지 않는가)를
+   * 게이트에서 보고, 화면에서는 그 본문이 순수 모듈의 문장인지를 본다.
+   */
   it("보기 전용이라는 사실은 Alert **본문**에 실린다 (제목 자리로 밀지 않는다)", () => {
-    expect(budgetScreen(), "본문 자리에 순수 모듈의 문장").toContain(
-      "Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, BUDGET_VIEW_ONLY_MESSAGE);"
+    expect(source("src/family/useExpenseEntryGate.ts"), "본문 자리에 화면이 넘긴 문장").toContain(
+      "Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, message);"
     );
+    expect(budgetScreen(), "화면은 본문만 넘긴다").toContain("expenseGate.explain(VIEW_ONLY_HEADLINES.budget)");
     // 문장은 화면이 짓지 않는다(단일 소스는 record-permissions.ts다).
     expect(withoutComments(budgetScreen()), "화면이 다시 적은 문장").not.toContain(BUDGET_VIEW_ONLY_MESSAGE);
   });
 
   it("잠긴 저장은 사라지지도, disabled로 침묵하지도 않는다 — 눌리면 사실을 말한다", () => {
     const src = budgetScreen();
-    expect(src, "게이트를 지나는 저장").toContain("guardExpenseAction(expenseGate.locked");
+    expect(src, "게이트를 지나는 저장").toContain("guardExpenseAction(");
+    expect(src, "게이트를 지나는 저장").toContain("expenseGate.locked,");
     // 게이트가 버튼을 비활성으로 만들면 이유가 소리에 남지 않는다(그리고 눌러서 재검증을
     // 태우는 라운드 40 J-3의 경로도 함께 사라진다).
     expect(src, "게이트로 버튼을 비활성화하지 않는다").not.toContain("disabled={expenseGate.locked");
@@ -2319,5 +2444,220 @@ describe("GAP-070 #4 되돌릴 수 없는 흐름의 impact 줄 낭독 계약 (SE
     expect(block, "줄 수를 제한하지 않는다").not.toContain("numberOfLines");
     expect(block, "트리에서 빼지 않는다").not.toContain("accessible={false}");
     expect(block, "트리에서 빼지 않는다").not.toContain("importantForAccessibility");
+  });
+});
+
+/* ============================================================================================ */
+/* GAP-071 트랙 E — A·B·C·D가 만든 새 UI의 **낭독 계약**                                          */
+/*                                                                                              */
+/* 라운드 66~70과 같은 형식이다: **문구를 다시 단언하지 않는다.** 비교에 쓰는 문자열까지 전부 각   */
+/* 트랙의 모듈에서 읽어 오므로, 그쪽이 문장을 다듬어도 이 파일은 그대로다. 여기서 묻는 것은 하나   */
+/* 뿐이다 — **그 문장이 소리로 도달하는 자리에 걸려 있는가.**                                     */
+/* ============================================================================================ */
+
+/**
+ * GAP-071 #1(트랙 A) — 가져오기 여정의 실패가 **소리로** 도달하는가.
+ *
+ * 이 여정의 실패는 네 자리에서 서고 낭독되는 길이 둘로 갈린다.
+ *  - 업로드 · 행 편집 · 확정: 화면 안의 **보이는 Text**. 색(danger)만으로 상태를 말하지 않는다는
+ *    A-1 Error text의 그 규율이고, 스크린리더는 그 문장을 순서대로 읽는다.
+ *  - 되돌리기: RN **Alert**. Alert 버튼에는 accessibilityLabel도 state도 걸 수 없으므로 사실이
+ *    소리에 남을 길은 **본문 인자 하나**다(A-3 #18 · GAP-069 #1 · GAP-070 #2가 같은 판정이다).
+ */
+describe("GAP-071 #1 가져오기 실패 문구의 낭독 계약 (IMP-002·IMP-003)", () => {
+  const uploadScreen = () => source("app/import/index.tsx");
+  const reviewScreen = () => source("app/import/[importJobId].tsx");
+
+  it("업로드 실패는 보이는 Text로 읽힌다 (색·배지 톤만으로 말하지 않는다)", () => {
+    const src = uploadScreen();
+    const at = src.indexOf('importFailureMessage("upload"');
+    expect(at, "업로드 실패 문구가 화면에 걸려 있다").toBeGreaterThan(-1);
+    // 그 문장이 서는 노드는 Text다 — 바로 앞 여는 태그를 확인한다.
+    expect(src.slice(0, at).lastIndexOf("<Text")).toBeGreaterThan(src.slice(0, at).lastIndexOf("</Text>"));
+  });
+
+  it("행 편집·확정 실패도 각각 보이는 Text로 읽힌다 (두 자리가 한 문장을 돌려 쓰지 않는다)", () => {
+    const src = reviewScreen();
+    for (const kind of ["row_edit", "confirm"]) {
+      const at = src.indexOf(`importFailureMessage("${kind}"`);
+      expect(at, `${kind} 실패 문구가 화면에 걸려 있다`).toBeGreaterThan(-1);
+      expect(src.slice(0, at).lastIndexOf("<Text"), `${kind}의 Text 노드`).toBeGreaterThan(
+        src.slice(0, at).lastIndexOf("</Text>")
+      );
+    }
+    // 두 자리가 서로 다른 종류를 넘긴다(같은 값을 넘기면 같은 문장이 두 번 서는 종전 상태다).
+    expect(src.indexOf('importFailureMessage("row_edit"')).not.toBe(src.indexOf('importFailureMessage("confirm"'));
+  });
+
+  it("되돌리기 실패는 Alert **본문**에 실린다 (제목 자리로 밀지 않는다)", () => {
+    expect(uploadScreen(), "본문 인자에 모듈의 산출").toContain(
+      'Alert.alert(IMPORT_UNDO_CARD_TITLE, importFailureMessage("undo", error, { isOnline }))'
+    );
+  });
+
+  it("문장을 화면이 짓지 않는다 (전부 순수 모듈의 산출이다)", () => {
+    const moduleSentences = [
+      IMPORT_UPLOAD_FAILED_MESSAGE,
+      IMPORT_ROW_EDIT_FAILED_MESSAGE,
+      IMPORT_CONFIRM_FAILED_MESSAGE,
+      IMPORT_FORBIDDEN_MESSAGE
+    ];
+    for (const path of ["app/import/index.tsx", "app/import/[importJobId].tsx"]) {
+      const rendered = withoutComments(source(path));
+      for (const sentence of moduleSentences) {
+        expect(rendered, `${path}가 다시 적은 문장`).not.toContain(sentence);
+      }
+    }
+  });
+});
+
+/**
+ * GAP-071 #2(트랙 B) — 되돌릴 수 없는 세 흐름의 실패가 **소리로** 도달하는가 (SET-004).
+ *
+ * 이 화면에서 그 문장이 뜨는 순간은 사용자가 **결과를 가장 알고 싶은 순간**이다("내 계정이
+ * 지워졌나?"). 그래서 묻는 것은 셋이다: ⓐ 세 흐름이 **각자의** 문장을 갖는가(한 자리에 한 문장을
+ * 돌려 쓰면 소리로는 구분이 없다), ⓑ 그 문장이 보이는 Text로 서는가, ⓒ 화면이 그 문장을 다시
+ * 적지 않는가.
+ *
+ * ⚠ 라운드 70 D가 세운 **impact 상자**의 낭독 계약은 위 GAP-070 #4가 이미 지고 있고, 이 트랙은
+ * 그 **아래**만 만졌다 — 여기서 그 상자를 다시 단언하지 않는다.
+ */
+describe("GAP-071 #2 되돌릴 수 없는 흐름의 실패 문구 낭독 계약 (SET-004)", () => {
+  const privacyScreen = () => source("app/settings/privacy.tsx");
+
+  it("세 흐름 + 동의가 각자의 문장을 갖는다 (한 문장을 네 자리가 돌려 쓰지 않는다)", () => {
+    const src = privacyScreen();
+    const texts = ["childDeleteFailureText", "householdLeaveFailureText", "accountDeleteFailureText", "consentUpdateFailureText"];
+    for (const name of texts) {
+      expect(src, `${name}의 자리`).toContain(`{${name}}`);
+    }
+    expect(new Set(texts).size, "네 이름이 서로 다르다").toBe(4);
+    // 종전의 단일 리터럴(actionFailedText)이 되돌아오면 여기서 걸린다.
+    expect(src, "종전의 한 문장 돌려쓰기").not.toContain("const actionFailedText =");
+  });
+
+  it("네 문장 모두 보이는 Text로 읽힌다 (Alert 뒤로 숨기지 않는다)", () => {
+    const src = privacyScreen();
+    for (const name of [
+      "childDeleteFailureText",
+      "householdLeaveFailureText",
+      "accountDeleteFailureText",
+      "consentUpdateFailureText"
+    ]) {
+      const at = src.indexOf(`{${name}}`);
+      expect(src.slice(0, at).lastIndexOf("<Text"), `${name}의 Text 노드`).toBeGreaterThan(
+        src.slice(0, at).lastIndexOf("</Text>")
+      );
+    }
+  });
+
+  it("문장을 화면이 짓지 않는다 (판정도 문구도 순수 모듈의 것이다)", () => {
+    const rendered = withoutComments(privacyScreen());
+    for (const sentence of [DESTRUCTIVE_ACTION_FAILED_MESSAGE, CONSENT_UPDATE_FAILED_MESSAGE]) {
+      expect(rendered, "화면이 다시 적은 문장").not.toContain(sentence);
+    }
+    expect(privacyScreen(), "문구는 모듈이 고른다").toContain("destructiveFlowErrorMessage(kind, error, { isOnline })");
+  });
+});
+
+/**
+ * GAP-071 #3(트랙 C) — 앱의 **현관**에서 막힌 사람에게 도달하는 두 줄.
+ *
+ * 이 카드는 탭 셸 **앞**에 서므로 스크린리더 사용자가 앱에서 듣는 것이 이것뿐인 상태다. 그래서
+ * 묻는 것은 셋이다: ⓐ 갈린 첫 줄과 **새로 생긴 둘째 줄**이 둘 다 보이는 Text인가(둘째 줄이
+ * 캡션 스타일이라 시각적으로 작아도 낭독 순서에는 그대로 들어간다), ⓑ 탈출구 버튼이 그대로
+ * 남는가(연결 판정은 폴 한 번이라 틀릴 수 있고, 틀렸을 때 되돌릴 유일한 수단이다),
+ * ⓒ 화면이 그 두 문장을 다시 적지 않는가.
+ */
+describe("GAP-071 #3 현관 복구 실패 카드의 낭독 계약", () => {
+  const entranceScreen = () => source("app/index.tsx");
+  const cardBlock = () => {
+    const src = entranceScreen();
+    const at = src.indexOf('testID="screen-child-recovery-error"');
+    expect(at, "현관 실패 카드").toBeGreaterThan(-1);
+    return src.slice(at, src.indexOf("</AppScreen>", at));
+  };
+
+  it("두 줄이 모두 보이는 글자로 서고, 순서는 사실 → 잃지 않은 것이다", () => {
+    const block = cardBlock();
+    const titleAt = block.indexOf("{childRecovery.copy.title}");
+    const bodyAt = block.indexOf("{childRecovery.copy.body}");
+    expect(titleAt, "첫 줄").toBeGreaterThan(-1);
+    expect(bodyAt, "둘째 줄").toBeGreaterThan(titleAt);
+    // 둘 다 Text다 — 색·아이콘만으로 말하지 않는다(A-1 Error text).
+    expect(block.slice(0, titleAt).lastIndexOf("<Text")).toBeGreaterThan(block.slice(0, titleAt).lastIndexOf("</Text>"));
+    expect(block.slice(0, bodyAt).lastIndexOf("<Text")).toBeGreaterThan(block.slice(0, bodyAt).lastIndexOf("</Text>"));
+    // 트리에서 빼거나 줄 수를 자르지 않는다.
+    expect(block, "줄 수를 제한하지 않는다").not.toContain("numberOfLines");
+    expect(block, "트리에서 빼지 않는다").not.toContain("accessible={false}");
+  });
+
+  it("탈출구는 그대로 남는다 — 오프라인 갈래에서도 [다시 시도]가 사라지지 않는다", () => {
+    const block = cardBlock();
+    expect(block, "재시도 버튼").toContain('<SecondaryButton label="다시 시도" onPress={childRecovery.retry} />');
+    // 자동 재시도가 생겼다고 수동 탈출구를 접지 않는다(조건부로 감싸지 않는다).
+    expect(block, "버튼을 조건부로 접지 않는다").not.toContain("? <SecondaryButton");
+  });
+
+  it("문장을 화면이 짓지 않는다 (두 줄 다 순수 모듈의 산출이다)", () => {
+    const rendered = withoutComments(entranceScreen());
+    for (const sentence of [SELECTED_CHILD_RECOVERY_ERROR_NOTICE, SELECTED_CHILD_RECOVERY_DATA_INTACT_NOTICE]) {
+      expect(rendered, "화면이 다시 적은 문장").not.toContain(sentence);
+    }
+  });
+});
+
+/**
+ * GAP-071 #4(트랙 D) — **도움으로 가는 행**이 소리로 성립하는가.
+ *
+ * 새 UI는 메뉴 행 둘이고, 낭독에서 중요한 것은 셋이다: ⓐ 눈이 읽는 제목·부제와 귀가 듣는 것이
+ * **같은 한 표**에서 오는가(두 화면이 각자 라벨을 적으면 같은 행이 화면마다 다르게 읽힌다),
+ * ⓑ **주입되지 않은 빌드에서는 행 자체가 없는가**(낭독되는 행이 열리지 않는 것이 이 저장소가
+ * 가장 오래 싸운 결함이다 — 죽은 링크는 가짜 버튼과 같은 것이다), ⓒ 열기 실패가 조용히
+ * 넘어가지 않고 **Alert 본문**으로 말하는가.
+ */
+describe("GAP-071 #4 지원·FAQ 메뉴 행의 낭독 계약 (SET-001·SET-002)", () => {
+  it("보이는 제목·부제가 두 화면 모두 같은 한 표에서 온다", () => {
+    const menuSource = source("src/settings/more-menu.ts");
+    expect(menuSource, "라벨의 단일 소스").toContain("SUPPORT_LINK_LABELS[kind].title");
+    expect(menuSource, "라벨의 단일 소스").toContain("SUPPORT_LINK_LABELS[kind].subtitle");
+    // 두 화면 모두 그 표를 읽는다(각자 문자열을 적지 않는다).
+    for (const path of ["app/(tabs)/more.tsx", "app/settings/index.tsx"]) {
+      const rendered = withoutComments(source(path));
+      for (const kind of ["support", "faq"] as const) {
+        expect(rendered, `${path}가 다시 적은 제목`).not.toContain(SUPPORT_LINK_LABELS[kind].title);
+        expect(rendered, `${path}가 다시 적은 부제`).not.toContain(SUPPORT_LINK_LABELS[kind].subtitle);
+      }
+    }
+  });
+
+  it("주입되지 않은 빌드에서는 낭독될 행이 아예 만들어지지 않는다", () => {
+    // 값 계약(env → 행 수)은 트랙 D의 모듈 테스트가 진다. 여기서 보는 것은 **화면이 그 목록을
+    // 그대로 그리는가**뿐이다 — 목록이 비면 노드가 0개라 낭독 표면이 종전과 완전히 같다.
+    expect(source("app/settings/index.tsx"), "설정 화면의 행 렌더").toContain("supportRows.map((row) => (");
+    expect(source("src/settings/more-menu.ts"), "더보기 목록의 행 조립").toContain("...buildSupportMenuRows().map((row) => ({");
+    // 화면이 목록을 걸러 내거나 잘라 내지 않는다(자르면 서버가 아니라 화면이 사실을 감춘다).
+    const settingsSrc = source("app/settings/index.tsx");
+    const at = settingsSrc.indexOf("supportRows.map((row) => (");
+    expect(settingsSrc.slice(at, at + 400), "목록을 자르지 않는다").not.toContain("slice(");
+  });
+
+  it("⚠ SET-001 비로그인 미리보기 행 목록은 종전 그대로다 (픽셀락 기준선 불변)", () => {
+    const moreSource = source("app/(tabs)/more.tsx");
+    const at = moreSource.indexOf("const previewMenuRowActions");
+    expect(at, "미리보기 행 목록").toBeGreaterThan(-1);
+    const block = moreSource.slice(at, moreSource.indexOf("];", at));
+    expect(block, "미리보기 목록에는 새 행이 없다").not.toContain("openSupportLink");
+    expect(block, "미리보기 목록에는 새 행이 없다").not.toContain("buildSupportMenuRows");
+  });
+
+  it("열기 실패는 조용히 넘어가지 않고 Alert **본문**으로 말한다", () => {
+    for (const path of ["app/(tabs)/more.tsx", "app/settings/index.tsx"]) {
+      expect(source(path), `${path}의 실패 안내`).toContain(
+        "Alert.alert(SUPPORT_LINK_FAILED_TITLE, SUPPORT_LINK_FAILED_MESSAGE);"
+      );
+      // 문장은 화면이 짓지 않는다.
+      expect(withoutComments(source(path)), `${path}가 다시 적은 문장`).not.toContain(SUPPORT_LINK_FAILED_MESSAGE);
+    }
   });
 });

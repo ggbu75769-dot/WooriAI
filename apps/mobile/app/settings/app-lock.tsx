@@ -256,7 +256,12 @@ export default function AppLockSettingsScreen() {
           onBack={() => router.back()}
         />
 
-        {!hasSession ? <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" /> : null}
+        {/* 라운드 71 트랙 E: 문구는 종전 그대로이고 **목적지 하나**가 더해진다 — 이 카드는
+            "로그인 후 이용할 수 있어요"라고 말하면서 로그인으로 가는 길을 주지 않았고, [확인]은
+            눌러도 아무 일도 일어나지 않는 가짜 버튼이었다(컴포넌트 타입이 그것을 허용했다). */}
+        {!hasSession ? (
+          <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" onPress={() => router.push("/login")} />
+        ) : null}
 
         {hasSession ? (
           <Card style={{ gap: 10 }}>

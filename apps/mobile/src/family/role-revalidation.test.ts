@@ -203,11 +203,14 @@ describe("라운드 40 J-3 배선 (source contract)", () => {
   it("안내가 곧 재검증 트리거다 — 기존 클라이언트 호출 하나를 재사용한다", () => {
     const hookSource = source("src/family/useExpenseEntryGate.ts");
     // 안내 함수 안에서 재검증을 부른다(guard도 잠기면 이 함수를 지난다).
+    // 라운드 71 트랙 E: 본문은 인자가 됐고(화면마다 사실이 다르다) **기본값이 지출 기록의
+    // 문장**이라 종전 호출부는 한 줄도 바뀌지 않는다. 재검증 트리거라는 이 배선도 그대로다.
     const explainBlock = hookSource.slice(
-      hookSource.indexOf("export function explainExpenseViewOnly()"),
+      hookSource.indexOf("export function explainExpenseViewOnly("),
       hookSource.indexOf("export function useExpenseEntryGate()")
     );
-    expect(explainBlock).toContain("Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, EXPENSE_VIEW_ONLY_MESSAGE);");
+    expect(explainBlock).toContain("message: string = EXPENSE_VIEW_ONLY_MESSAGE");
+    expect(explainBlock).toContain("Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, message);");
     expect(explainBlock).toContain("revalidateHouseholdRoles();");
     // 스로틀은 모듈 지역(앱 세션 수명)이고, 판정은 순수 모듈에 있다.
     expect(hookSource).toContain("const householdRoleRevalidator = createHouseholdRoleRevalidator();");

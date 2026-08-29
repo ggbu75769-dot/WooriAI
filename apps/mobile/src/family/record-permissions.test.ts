@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BUDGET_VIEW_ONLY_MESSAGE,
   canRecordExpenses,
+  CHILD_EDIT_VIEW_ONLY_MESSAGE,
   EXPENSE_EDIT_ROLES,
   EXPENSE_VIEW_ONLY_ALERT_TITLE,
   EXPENSE_VIEW_ONLY_EMPTY_TITLE,
@@ -15,6 +16,7 @@ import {
   needsChildHouseholdResolution,
   needsHouseholdIdsRepair,
   resolveHouseholdRole,
+  VIEW_ONLY_HEADLINES,
   VIEW_ONLY_ROLES
 } from "./record-permissions";
 
@@ -129,7 +131,10 @@ describe("라운드 70 B 예산 저장 잠금의 네 좌표", () => {
     expect(budgetSaveLocked({ hasSession: true, role: resolveHouseholdRole({ householdRoles: null }) })).toBe(false);
     expect(budgetSaveLocked({ hasSession: true, role: undefined })).toBe(false);
     expect(budgetSaveLocked({ hasSession: true, role: "grandparent" })).toBe(false);
-    // BUD-001 픽셀락 캡처는 비세션이다.
+    // ⚠ 라운드 71 트랙 E 표기 정정: 종전 주석은 이 줄을 "BUD-001 픽셀락 캡처는 비세션이다"라고
+    // 적었지만, 픽셀락 캡처는 아홉이고(app/pixel-lock.tsx의 `pixelLockRoutes`) 그 목록에 BUD-001은
+    // 없다 — `screen-BUD-001`은 QA 화면 id일 뿐이다. 이 좌표가 지키는 사실은 그대로다:
+    // **비세션 렌더는 어떤 역할이 와도 잠기지 않는다**(판정·값은 한 글자도 바뀌지 않았다).
     for (const role of ["viewer", "gift_participant", "owner", undefined]) {
       expect(budgetSaveLocked({ hasSession: false, role })).toBe(false);
     }
@@ -578,25 +583,53 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     expect(screen).not.toContain('=== "viewer"');
     expect(screen).not.toContain("canRecordExpenses");
     // 저장 실행이 공용 가드를 지난다 — 잠겼으면 뮤테이션이 시작되지 않는다.
-    expect(screen).toContain(
-      "const saveBudget = guardExpenseAction(expenseGate.locked, explainBudgetViewOnly, () => save.mutate());"
-    );
+    //
+    // 라운드 70 리뷰 P-B / 라운드 71 트랙 E: 안내는 화면 지역 함수(`explainBudgetViewOnly`)가
+    // 아니라 **게이트의 explain에 본문을 넘기는 것**이다 — 재구현 마지막 한 벌이 사라졌다.
+    expect(screen).toContain("guardExpenseAction(");
+    expect(screen).toContain("expenseGate.locked,");
+    expect(screen).toContain("() => expenseGate.explain(VIEW_ONLY_HEADLINES.budget),");
+    expect(screen).toContain("() => save.mutate()");
+    expect(screen, "재구현이 남지 않는다").not.toContain("explainBudgetViewOnly");
+    expect(screen, "Alert를 화면이 다시 띄우지 않는다").not.toContain("Alert.alert(");
     expect(screen).toContain("onPress={saveBudget}");
     // 게이트를 우회하는 두 번째 저장 경로가 없다.
     expect(screen.match(/save\.mutate\(\)/g) ?? []).toHaveLength(1);
 
     // ⚠ 화면을 잠그지 않는다: 조기 return도, 입력·조회를 접는 분기도 없다.
     expect(screen).not.toContain("if (expenseGate.locked) return null;");
-    expect(screen).not.toContain("expenseGate.locked ?");
+    /**
+     * 라운드 71 트랙 E — 종전에는 `expenseGate.locked ?`가 **한 번도** 나오지 않는 것이 이
+     * 계약이었다(삼항이 곧 화면을 접는 분기였다). 이제 판정을 읽는 자리가 하나 생겼다:
+     * **머리말 한 줄**이다. 그래서 계약을 "삼항 금지"에서 **"삼항은 subtitle 하나뿐"**으로
+     * 옮긴다 — 읽기·레이아웃·순서·버튼 배치는 여전히 한 줄도 판정에 걸리지 않는다.
+     */
+    expect(screen.match(/expenseGate\.locked \?/g) ?? [], "판정을 읽는 삼항은 하나뿐이다").toHaveLength(1);
+    expect(screen, "그 삼항은 머리말의 것이다").toContain(
+      "subtitle={expenseGate.locked ? VIEW_ONLY_HEADLINES.budget :"
+    );
+    // JSX 조건부 렌더(카드·입력·버튼을 접는 분기)는 여전히 0건이다. 삼항은 위에서 하나로
+    // 묶었고(그 하나가 subtitle이다), `&&` 갈래는 아예 없다.
+    expect(screen, "판정으로 노드를 접지 않는다").not.toContain("{expenseGate.locked &&");
+    expect(screen, "판정으로 노드를 접지 않는다").not.toContain("expenseGate.locked ? (");
     // ⚠ 버튼은 사라지지도 비활성이 되지도 않는다 — 눌렀을 때 사실을 말하는 것이 이 앱의 관례다.
     expect(screen).toContain("disabled={!canSave || save.isPending}");
     expect(screen).not.toContain("disabled={!canSave || save.isPending || expenseGate.locked}");
 
     // 문구는 순수 모듈에서 온다(화면이 문장을 다시 적으면 두 개의 계약이 된다).
-    expect(screen).toContain("BUDGET_VIEW_ONLY_MESSAGE");
+    // 라운드 71 트랙 E: 화면이 읽는 이름은 머리말 표의 항목이고, 그 값이 형제 문장 그대로다.
+    expect(screen).toContain("VIEW_ONLY_HEADLINES.budget");
+    expect(VIEW_ONLY_HEADLINES.budget).toBe(BUDGET_VIEW_ONLY_MESSAGE);
     expect(screen).not.toContain(`"${BUDGET_VIEW_ONLY_MESSAGE}"`);
-    // 안내가 곧 역할 재검증 트리거다(라운드 40 J-3의 그 경로를 그대로 쓴다).
-    expect(screen).toContain("revalidateHouseholdRoles();");
+    /**
+     * 안내가 곧 역할 재검증 트리거다(라운드 40 J-3의 그 경로를 그대로 쓴다) — 라운드 71 트랙 E
+     * 이후 그 세 줄은 **게이트 안에 한 벌만** 있다. 화면은 본문을 넘기고, 재검증은 그 안에서
+     * 종전과 똑같이 일어난다.
+     */
+    expect(screen, "화면에 재구현이 남지 않는다").not.toContain("revalidateHouseholdRoles();");
+    expect(source("src/family/useExpenseEntryGate.ts"), "재검증은 게이트 안에 한 벌").toContain(
+      "revalidateHouseholdRoles();"
+    );
   });
 
   /**
@@ -687,6 +720,194 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     for (const reason of Object.values(UNGATED_WITH_REASON)) {
       expect(reason.length).toBeGreaterThan(10);
     }
+  });
+
+  /**
+   * 라운드 71 트랙 E — **네 번째 역방향 계약: 화면의 첫 문장.**
+   *
+   * J-9는 `/expenses/new`로 **이동**하는 파일을, J-6은 **지출을 만드는 호출**을, 라운드 70 B는
+   * `app/`의 **모든 쓰기 진입점**을 센다. 셋 다 **버튼**의 그물이다. 화면의 **문장**은 그 어느
+   * 목록에도 없었고, 그래서 라운드 40~70이 게이트를 하나씩 세우는 동안 그 화면들의 머리말은
+   * 라운드 39 이전 값 그대로 남았다 — 잠긴 계정에게 앱이 자기 자신과 모순되는 말을 했다
+   * (머리말: "필요할 때 언제든 예산을 조정할 수 있어요" / 저장 버튼: "보기 전용으로 참여하고
+   * 있어요"). 어떤 단언도 그 사실을 말해 주지 않았다(정찰 코드 건강 판정 — 게이트 스윕의
+   * 구조적 사각).
+   *
+   * 그래서 이 그물은 **판정을 읽는 화면 중 머리말을 가진 것**을 세고, 그 머리말이 같은 판정을
+   * 읽는지 묻는다. 새 쓰기 화면이 머리말을 달고 들어오면 기본값은 실패다.
+   *
+   * 판정은 **주석을 걷어 낸 소스**로 한다(위 헬퍼) — 게이트 이름을 설명으로 적어 둔 화면이
+   * 부르지 않고도 통과하던 구멍은 여기서도 같다.
+   */
+  it("라운드 71 E: 게이트를 읽는 화면의 머리말이 그 판정을 읽거나, 읽지 않는 이유가 적혀 있다", () => {
+    const readsGate = /useExpenseEntryGate\s*\(\s*\)|isExpenseEntryLocked\s*\(/;
+    const readsHeadline = /VIEW_ONLY_HEADLINES\./;
+
+    /**
+     * 머리말이 판정을 읽지 **않아도 되는** 화면과 그 이유. "약속을 하지 않는 머리말"만 여기 온다.
+     */
+    const HEADLINE_UNGATED_WITH_REASON: Readonly<Record<string, string>> = {
+      // 홈: 머리말은 아이 이름·단계이고 부제는 앱 전체의 성격 한 줄이라 이 사람이 지금 할 수
+      // 있는 일을 조건으로 걸지 않는다. 잠긴 세션에서 접히는 **약속 문장**은 빈 자리 쪽이고,
+      // 그것은 라운드 40 J-5가 이미 판정에서 파생시켜 뒀다(위 단언). HOME-001 픽셀락 캡처이기도 하다.
+      "app/(tabs)/index.tsx": "머리말이 아이 이름·앱 성격이고, 잠긴 세션의 약속 문장은 J-5가 이미 판정에서 파생시킨다",
+      // 기록 탭: 부제는 "확인해 보세요"라는 **읽기** 안내다(보기 전용도 끝까지 참이다).
+      // 이 화면의 약속 문장(그 달 빈 상태 제목)도 J-5가 파생시킨다.
+      "app/(tabs)/records.tsx": "부제가 읽기 안내('확인해 보세요')라 잠긴 계정에게도 참이다 — 약속 문장은 J-5가 판정에서 파생시킨다"
+    };
+
+    /**
+     * ⚠️ 트랙 A로 이관되는 자리. 이 트랙은 문장(`VIEW_ONLY_HEADLINES.importReview`)만 세우고,
+     * 검수 화면의 머리말 배선은 그 화면을 소유한 트랙 A가 읽어 쓴다(라운드 70의 C→A 읽기 방향).
+     * **A가 이으면 이 줄을 지운다** — 그때 아래 staleness 검사가 그 사실을 알려 준다.
+     */
+    const TRACK_A_PENDING = ["app/import/[importJobId].tsx"];
+
+    const screenFiles: string[] = [];
+    const walk = (directory: string) => {
+      for (const name of readdirSync(directory)) {
+        if (name === "node_modules" || name.startsWith(".")) continue;
+        const fullPath = join(directory, name);
+        if (statSync(fullPath).isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!/\.tsx$/.test(name) || /\.test\.tsx$/.test(name)) continue;
+        screenFiles.push(fullPath);
+      }
+    };
+    walk(join(mobileRoot, "app"));
+
+    const headlineScreens = screenFiles
+      .map((fullPath) => relative(mobileRoot, fullPath).split("\\").join("/"))
+      .filter((path) => {
+        const src = source(path);
+        return src.includes("<ScreenHeader") && readsGate.test(withoutComments(src));
+      })
+      .sort();
+
+    // 스캔이 실제로 무언가를 찾았는지부터 확인한다(정규식이 조용히 죽으면 통과해 버린다).
+    expect(headlineScreens.length).toBeGreaterThanOrEqual(7);
+    expect(headlineScreens).toContain("app/budget.tsx");
+    expect(headlineScreens).toContain("app/settings/children.tsx");
+
+    const withoutLockCopy = headlineScreens.filter((path) => !readsHeadline.test(withoutComments(source(path))));
+    const unexplained = withoutLockCopy.filter(
+      (path) => !Object.prototype.hasOwnProperty.call(HEADLINE_UNGATED_WITH_REASON, path) && !TRACK_A_PENDING.includes(path)
+    );
+    expect(unexplained, `머리말이 판정을 읽지 않고 이유도 없는 화면: ${unexplained.join(", ")}`).toEqual([]);
+
+    // 제외 목록이 낡지 않게 — 적어 둔 화면이 여전히 게이트를 읽는 머리말 화면이고, 여전히
+    // 잠금 문구를 갖지 않는지 본다(트랙 A 이관분은 어느 쪽이어도 좋다).
+    expect(Object.keys(HEADLINE_UNGATED_WITH_REASON).sort()).toEqual(
+      withoutLockCopy.filter((path) => !TRACK_A_PENDING.includes(path)).sort()
+    );
+    for (const reason of Object.values(HEADLINE_UNGATED_WITH_REASON)) {
+      expect(reason.length).toBeGreaterThan(10);
+    }
+  });
+
+  /**
+   * 라운드 71 트랙 E — **여섯 화면 × (잠김 / 안 잠김).**
+   *
+   * 화면은 vitest에서 렌더할 수 없으므로 두 갈래를 소스로 고정한다: 잠긴 쪽의 값은 순수 모듈의
+   * 표에서 오고(화면이 문장을 다시 적지 않는다), **안 잠긴 쪽은 종전 문장 그대로**여야 한다 —
+   * 이번 변화의 절반은 "관리자 계정에서 한 글자도 달라지지 않는 것"이다.
+   */
+  it("라운드 71 E: 여섯 머리말이 잠김/안 잠김 두 갈래를 갖고, 안 잠긴 쪽은 종전 문장 그대로다", () => {
+    const flat = (text: string) => text.replace(/\s+/g, " ");
+    const HEADLINES = [
+      {
+        path: "app/budget.tsx",
+        gate: "expenseGate.locked",
+        key: "budget" as const,
+        unlocked: "필요할 때 언제든 예산을 조정할 수 있어요."
+      },
+      {
+        path: "app/expenses/[expenseId].tsx",
+        gate: "expenseGate.locked",
+        key: "expenseDetail" as const,
+        unlocked: "품목과 금액을 확인하고 수정할 수 있어요."
+      },
+      {
+        path: "app/expenses/recurring.tsx",
+        gate: "expenseGate.locked",
+        key: "recurring" as const,
+        unlocked: "매월 반복되는 지출을 적어 두면 홈에서 확인할 수 있어요"
+      },
+      {
+        path: "app/settings/children.tsx",
+        gate: "childEditViewOnly",
+        key: "children" as const,
+        unlocked: "아이를 전환하거나 정보를 수정해요"
+      },
+      {
+        path: "app/sync-status.tsx",
+        gate: "expenseEntryLocked",
+        key: "syncStatus" as const,
+        unlocked: "아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요."
+      }
+    ];
+
+    for (const { path, gate, key, unlocked } of HEADLINES) {
+      const src = source(path);
+      expect(flat(src), `${path}의 머리말 두 갈래`).toContain(
+        `${gate} ? VIEW_ONLY_HEADLINES.${key} : "${unlocked}"`
+      );
+      // 문장은 화면이 짓지 않는다(단일 소스는 record-permissions.ts다).
+      expect(src, `${path}가 다시 적은 잠금 문장`).not.toContain(`"${VIEW_ONLY_HEADLINES[key]}"`);
+    }
+
+    /**
+     * 여섯째는 가져오기 검수 화면이고 **트랙 A가 소유한다** — 이 트랙은 문장만 세운다.
+     * 그 화면이 무엇을 읽어야 하는지는 여기 값으로 남는다(A가 이 상수를 읽어 쓴다).
+     */
+    expect(VIEW_ONLY_HEADLINES.importReview).toBe(EXPENSE_VIEW_ONLY_MESSAGE);
+  });
+
+  /**
+   * 라운드 71 트랙 E — ⚠ **"모르면 잠그지 않는다"가 머리말에도 그대로다.**
+   *
+   * 다섯 화면 중 넷은 게이트의 `locked`를 그대로 읽으므로 이 규칙이 자동으로 따라온다. 남은
+   * 하나(아이 관리)만 근거가 달라서 위험했다: 그 화면의 컨트롤 게이트(`canEditChildren`)는
+   * **구성원 목록이 오는 중이거나 응답에서 나를 찾지 못했을 때도 false**로 떨어지도록 일부러
+   * 그렇게 만든 값이라(뷰어가 못 쓸 컨트롤을 깜빡이는 것보다 낫다), 그 부정을 머리말에 쓰면
+   * 모르는 상태의 정상 사용자에게 "당신은 보기 전용이에요"라고 말하는 **허위 표시**가 된다.
+   */
+  it("라운드 71 E: 아이 관리 머리말은 canEditChildren의 부정이 아니라 '알려진 보기 전용'을 읽는다", () => {
+    const screen = source("app/settings/children.tsx");
+    expect(screen, "머리말 판정의 근거").toContain(
+      "const childEditViewOnly = isExpenseEntryLocked({ hasSession, role: myRole });"
+    );
+    // 컨트롤 게이트는 한 글자도 바뀌지 않는다(두 판정의 안전 방향이 다른 것이 의도다).
+    expect(screen, "컨트롤 게이트 무변경").toContain('const canEditChildren = myRole === "owner" || myRole === "co_parent";');
+    // 머리말이 그 부정을 읽지 않는다 — 로딩 중·역할 미상이 잠김으로 새지 않게.
+    expect(screen, "머리말이 canEditChildren의 부정을 읽지 않는다").not.toContain("!canEditChildren ? VIEW_ONLY_HEADLINES");
+    expect(screen).not.toContain("subtitle={!canEditChildren");
+
+    // 그리고 그 판정 자체가 모름·비세션·데모를 잠그지 않는다(값으로 다시 확인한다).
+    for (const role of [undefined, null, "", "grandparent"]) {
+      expect(isExpenseEntryLocked({ hasSession: true, role }), `역할 ${String(role)}`).toBe(false);
+    }
+    for (const role of [...VIEW_ONLY_ROLES, ...EXPENSE_EDIT_ROLES, undefined]) {
+      expect(isExpenseEntryLocked({ hasSession: false, role }), "비세션").toBe(false);
+    }
+    // 데모 세션은 역할 표가 null이라 역할이 undefined로 떨어진다 → 머리말도 종전 문장이다.
+    expect(isExpenseEntryLocked({ hasSession: true, role: resolveHouseholdRole({ householdRoles: null }) })).toBe(false);
+  });
+
+  it("라운드 71 E: 머리말 문장 여섯이 형제 문장의 형식을 지킨다 (DNC-018)", () => {
+    for (const message of Object.values(VIEW_ONLY_HEADLINES)) {
+      expect(message).toMatch(/요\.$/);
+      expect(message, "비난·재시도 권유 금지").not.toMatch(/하세요|해야|다시 시도|권한이 없|할 수 없어요/);
+      // **누가 할 수 있는지**라는 사실을 준다(형제 문장 셋이 공유하는 그 형식).
+      expect(message).toContain("보기 전용으로 참여하고 있어요.");
+      expect(message).toContain("관리자·공동부모");
+    }
+    // 화면마다 막힌 것이 다르므로 문장도 갈린다(표를 좁혀 한 문장으로 만들지 않는다 —
+    // 라운드 70의 "판정은 한 벌, 문구는 화면별"이 여기서도 답이다).
+    expect(new Set(Object.values(VIEW_ONLY_HEADLINES)).size).toBe(3);
+    expect(CHILD_EDIT_VIEW_ONLY_MESSAGE).toBe("보기 전용으로 참여하고 있어요. 아이 정보는 관리자·공동부모가 수정할 수 있어요.");
   });
 
   it("라운드 40 J-5 문구: 사실만 말하고 약속·재촉이 없다 (DNC-018)", () => {

@@ -106,6 +106,56 @@ export const BUDGET_VIEW_ONLY_MESSAGE =
   "보기 전용으로 참여하고 있어요. 예산은 관리자·공동부모가 정할 수 있어요.";
 
 /**
+ * 라운드 71 트랙 E — **아이 관리**(app/settings/children.tsx)의 형제 문장.
+ *
+ * 그 화면의 편집 게이트는 구성원 목록 응답에서 찾은 역할을 보고(`myRole`), 잠금 판정 자체는
+ * 위 `isExpenseEntryLocked` 한 벌 그대로다. 문장만 아이 정보의 것이다 — 거기서 막힌 것은
+ * 기록도 예산도 아니라 아이 정보 수정이기 때문이다(형제 문장들과 같은 이유).
+ *
+ * 형식은 그대로다: 재시도를 권하지 않고, 비난하지 않으며, **누가 할 수 있는지**를 말한다(DNC-018).
+ */
+export const CHILD_EDIT_VIEW_ONLY_MESSAGE =
+  "보기 전용으로 참여하고 있어요. 아이 정보는 관리자·공동부모가 수정할 수 있어요.";
+
+/**
+ * 라운드 71 트랙 E — **화면 머리말이 판정을 읽는다.**
+ *
+ * 라운드 40~70은 게이트를 **버튼**에 한 자리씩 태웠고, 라운드 70 B의 파생 계약도 **뮤테이션
+ * 호출부**를 센다. 화면의 **첫 문장**은 그 어느 목록에도 없었다. 그래서 게이트가 선 여섯 화면의
+ * `ScreenHeader` subtitle이 라운드 39 이전 값 그대로 남았고, 잠긴 계정에게 앱이 자기 자신과
+ * 모순되는 말을 했다 — 머리말은 "필요할 때 언제든 예산을 조정할 수 있어요"라고 말하고, 저장
+ * 버튼은 "보기 전용으로 참여하고 있어요"라고 답한다. 소리로만 앱을 쓰는 사람에게는 그 순서가
+ * 전부다: 제목, 약속, 그리고 거절.
+ *
+ * 고치는 방법은 **문장을 판정에서 파생시키는 것**이고, 그 문장은 전부 이 파일의 것이다(화면이
+ * 새로 짓지 않는다). 이 표는 **어느 화면이 어느 문장을 쓰는가**의 단일 소스이자, 파생 계약이
+ * 대조하는 목록이다 — 게이트를 지나는 새 화면이 생기면 이 표에 자리가 없어 빨개진다
+ * (record-permissions.test.ts).
+ *
+ * ⚠ 잠그는 조건은 머리말도 버튼과 **똑같다**: `isExpenseEntryLocked`(실세션 + 알려진 보기 전용
+ * 역할)뿐이다. 역할 미상·비세션·데모는 **종전 문장 그대로**다 — 잘못 잠근 머리말은 정상 사용자에게
+ * 자기가 할 수 없다고 말하는 허위 표시이고, 그 손해가 반대쪽보다 크다(이 파일 머리 주석의 1)).
+ */
+export const VIEW_ONLY_HEADLINES = {
+  /** app/budget.tsx — 막힌 것은 예산 저장이다. */
+  budget: BUDGET_VIEW_ONLY_MESSAGE,
+  /** app/expenses/[expenseId].tsx — 막힌 것은 지출 수정·삭제다. */
+  expenseDetail: EXPENSE_VIEW_ONLY_MESSAGE,
+  /** app/expenses/recurring.tsx — 목록은 이 기기의 메모지만, 그것으로 기록하는 길이 막힌다. */
+  recurring: EXPENSE_VIEW_ONLY_MESSAGE,
+  /** app/settings/children.tsx — 막힌 것은 아이 정보 수정이다. */
+  children: CHILD_EDIT_VIEW_ONLY_MESSAGE,
+  /** app/sync-status.tsx — 실패 행을 고쳐 다시 보내는 길이 막힌다(그것도 기록이다). */
+  syncStatus: EXPENSE_VIEW_ONLY_MESSAGE,
+  /**
+   * app/import/[importJobId].tsx — 확정이 만드는 것은 지출이다.
+   * ⚠ 그 화면은 트랙 A가 소유한다: 이 트랙은 **상수만 세우고**, 머리말 배선은 A가 읽어 쓴다
+   * (라운드 70의 C→A 읽기 방향 그대로).
+   */
+  importReview: EXPENSE_VIEW_ONLY_MESSAGE
+} as const;
+
+/**
  * 라운드 40 J-5 — **빈 자리**(기록이 한 건도 없는 홈·기록 탭·리포트)에 놓는 사실 한 줄.
  *
  * 잠긴 세션에서 문제가 되는 것은 버튼이 아니라 **약속 문장**이다: "첫 지출을 기록해 보세요 /
