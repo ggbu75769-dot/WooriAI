@@ -3,6 +3,7 @@ import { MAX_PAST_MONTH_OFFSET } from "./expenses/import-landing-month";
 import {
   buildMonthJumpYear,
   isMonthJumpSelectable,
+  monthJumpCeilingYearMonth,
   monthJumpFloorYearMonth,
   monthJumpInitialYear,
   monthJumpTriggerAccessibilityLabel,
@@ -149,6 +150,65 @@ describe("달 점프 — 한 해치 격자와 연도 스테퍼", () => {
     expect(open.canGoPreviousYear).toBe(true);
     const bottom = buildMonthJumpYear({ year: 2006, selectedYearMonth: "2026-08", bounds: { todayIso: TODAY } });
     expect(bottom.canGoPreviousYear).toBe(false);
+  });
+});
+
+/**
+ * 라운드 67 트랙 C(#5) — `MonthJumpBounds`가 넓어졌다(optional 세 칸). 이 describe가 지는 사실은
+ * 둘이다: **넘기지 않으면 종전과 같다**(기존 두 호출부의 동작 불변 증명)와, **넘기면 그 화면의
+ * 규칙이 시트 안에서 잠긴다**(내보내기의 "시작 ≤ 끝").
+ */
+describe("달 점프 — 화면이 상한을 좁힐 수 있다 (라운드 67 트랙 C)", () => {
+  it("상한을 넘기지 않으면 이번 달이다 — 기존 두 호출부의 답이 한 칸도 바뀌지 않는다", () => {
+    expect(monthJumpCeilingYearMonth({ todayIso: TODAY })).toBe("2026-08");
+    expect(monthJumpCeilingYearMonth({ todayIso: TODAY, latestYearMonth: null })).toBe("2026-08");
+    expect(monthJumpCeilingYearMonth({ todayIso: TODAY, latestYearMonth: "2026-8" })).toBe("2026-08");
+    // 미래를 넘겨도 이번 달로 접힌다 — 인자가 "미래 아님" 규칙을 넓히지 못한다.
+    expect(monthJumpCeilingYearMonth({ todayIso: TODAY, latestYearMonth: "2027-01" })).toBe("2026-08");
+    expect(isMonthJumpSelectable("2026-09", { todayIso: TODAY, latestYearMonth: "2027-01" })).toBe(false);
+  });
+
+  it("상한을 좁히면 그 뒤의 달이 잠긴다 (내보내기의 시작 ≤ 끝)", () => {
+    const bounds = { todayIso: TODAY, latestYearMonth: "2026-03", earliestYearMonth: "2016-09" };
+    expect(monthJumpCeilingYearMonth(bounds)).toBe("2026-03");
+    expect(isMonthJumpSelectable("2026-03", bounds)).toBe(true);
+    expect(isMonthJumpSelectable("2026-04", bounds)).toBe(false);
+    expect(isMonthJumpSelectable("2016-09", bounds)).toBe(true);
+    expect(isMonthJumpSelectable("2016-08", bounds)).toBe(false);
+    // 연도 스테퍼도 상한이 든 해에서 멈춘다(고를 수 있는 달이 없는 해로 가지 않는다).
+    expect(buildMonthJumpYear({ year: 2026, selectedYearMonth: "2026-03", bounds }).canGoNextYear).toBe(false);
+    expect(buildMonthJumpYear({ year: 2025, selectedYearMonth: "2026-03", bounds }).canGoNextYear).toBe(true);
+  });
+
+  it("이유 문장도 인자로 들어온다 — 미래가 아닌 잠금을 '아직 오지 않은 달'이라 부르지 않는다", () => {
+    const bounds = {
+      todayIso: TODAY,
+      latestYearMonth: "2026-03",
+      earliestYearMonth: "2026-01",
+      beyondLatestHint: "끝 달보다 뒤라 고를 수 없어요",
+      beforeEarliestHint: "시작 달보다 앞이라 고를 수 없어요"
+    };
+    const view = buildMonthJumpYear({ year: 2026, selectedYearMonth: "2026-03", bounds });
+    // 상한 너머지만 과거인 달: 화면이 준 문장.
+    expect(view.cells[3].accessibilityLabel).toBe("2026년 4월, 끝 달보다 뒤라 고를 수 없어요");
+    // 하한 이전: 화면이 준 문장(아이 기록 문장이 아니다).
+    expect(view.cells[11].accessibilityLabel).not.toContain("끝 달보다");
+    expect(buildMonthJumpYear({ year: 2025, selectedYearMonth: "2026-03", bounds }).cells[0].accessibilityLabel).toBe(
+      "2025년 1월, 시작 달보다 앞이라 고를 수 없어요"
+    );
+    // 진짜 미래는 화면이 못 바꾼다 — 오지 않은 달은 어느 화면에서나 같은 사실이다.
+    expect(view.cells[8].accessibilityLabel).toBe(`2026년 9월, ${MONTH_JUMP_FUTURE_HINT}`);
+    // 이번 달 표시는 그대로 남는다(잠겼어도 "이번 달"이라는 사실은 사라지지 않는다).
+    expect(view.cells[7].accessibilityLabel).toBe("이번 달, 2026년 8월, 끝 달보다 뒤라 고를 수 없어요");
+  });
+
+  it("이유 문장을 안 주면 지어내지 않는다 (상한 너머는 이유 없이, 하한 이전은 기존 문장)", () => {
+    const bounds = { todayIso: TODAY, latestYearMonth: "2026-03", earliestYearMonth: "2026-01" };
+    const view = buildMonthJumpYear({ year: 2026, selectedYearMonth: "2026-03", bounds });
+    expect(view.cells[3].accessibilityLabel).toBe("2026년 4월");
+    expect(
+      buildMonthJumpYear({ year: 2025, selectedYearMonth: "2026-03", bounds }).cells[0].accessibilityLabel
+    ).toBe(`2025년 1월, ${MONTH_JUMP_BEFORE_START_HINT}`);
   });
 });
 

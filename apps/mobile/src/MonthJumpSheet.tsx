@@ -100,12 +100,26 @@ export type MonthJumpSheetProps = {
   /** 지금 화면이 보고 있는 달 `YYYY-MM`. */
   selectedYearMonth: string;
   bounds: MonthJumpBounds;
+  /**
+   * 라운드 67 트랙 C(#5) 가산 — 시트 아래 한 줄 안내. 없으면 기록·리포트 두 탭의 기존 문장
+   * (`MONTH_JUMP_HINT`)이라 그 두 호출부는 종전과 한 글자도 다르지 않다. 내보내기 화면은 이
+   * 시트로 **이동하지 않고 시작/끝 달을 정하므로**("그 달로 이동해요"가 사실이 아니다) 자기
+   * 문장을 넘긴다 — 문장은 그 화면의 순수 모듈(src/export/export-range.ts)에 있고 여기서 짓지 않는다.
+   */
+  hint?: string;
   /** 칸을 눌렀을 때. 호출부가 `resolveMonthJumpOffset`으로 환산해 화면 상태를 옮긴다. */
   onSelect: (yearMonth: string) => void;
   onClose: () => void;
 };
 
-export function MonthJumpSheet({ testID, selectedYearMonth, bounds, onSelect, onClose }: MonthJumpSheetProps) {
+export function MonthJumpSheet({
+  testID,
+  selectedYearMonth,
+  bounds,
+  hint = MONTH_JUMP_HINT,
+  onSelect,
+  onClose
+}: MonthJumpSheetProps) {
   const [year, setYear] = useState(() => monthJumpInitialYear(selectedYearMonth, bounds.todayIso));
   const view = buildMonthJumpYear({ year, selectedYearMonth, bounds });
 
@@ -176,7 +190,7 @@ export function MonthJumpSheet({ testID, selectedYearMonth, bounds, onSelect, on
           </Pressable>
         </View>
         <View style={monthJumpSheetStyle.grid}>{view.cells.map((cell) => renderCell(cell))}</View>
-        <Text style={monthJumpSheetStyle.hint}>{MONTH_JUMP_HINT}</Text>
+        <Text style={monthJumpSheetStyle.hint}>{hint}</Text>
         <TextButton label={MONTH_JUMP_CLOSE_LABEL} onPress={onClose} />
       </BottomSheetFrame>
     </View>

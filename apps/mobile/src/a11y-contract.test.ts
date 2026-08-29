@@ -1545,6 +1545,28 @@ describe("GAP-066 #2 달 점프 시트의 낭독 계약", () => {
       expect(triggerBlock, path).toContain("monthJumpTriggerAccessibilityLabel(");
     }
   });
+
+  /**
+   * 라운드 67 트랙 C(#5) — 세 번째 트리거는 **화면이 아니라 공용 카드**에 선다
+   * (src/export/ExpenseCsvExport.tsx를 더보기 탭·설정 두 화면이 함께 쓴다). 문법은 두 탭과 같아야
+   * 하고, 이 자리에서만 생기는 사실 하나를 더 붙든다: **어느 쪽 달인지**가 라벨에 남는가
+   * ("2026년 8월, 달 선택"만 들으면 시작인지 끝인지 알 수 없다 — 스테퍼가 이미 지고 있던 사실이다).
+   */
+  it("라운드 67 트랙 C(#5): 내보내기의 두 달 라벨도 같은 트리거 문법을 단다", () => {
+    const cardSource = source("src/export/ExpenseCsvExport.tsx");
+    const triggerAt = cardSource.indexOf("month-jump-trigger");
+    if (triggerAt < 0) throw new Error("내보내기 카드에 달 점프 트리거가 없다");
+    const start = cardSource.lastIndexOf("<Pressable", triggerAt);
+    if (start < 0) throw new Error("내보내기 카드의 달 라벨이 Pressable로 감싸이지 않았다");
+    const triggerBlock = cardSource.slice(start, triggerAt);
+    expect(triggerBlock).toContain('accessibilityRole="button"');
+    expect(triggerBlock).toContain("MONTH_JUMP_TRIGGER_HINT");
+    // 시작/끝 라벨이 트리거 문장 앞에 남는다(단일 소스는 순수 모듈의 조립 함수다).
+    expect(triggerBlock).toContain("monthJumpTriggerAccessibilityLabel(`${label} ${monthLabel}`)");
+    // 시트 아래 한 줄도 화면이 짓지 않는다 — 이 화면은 달로 "이동"하지 않으므로 자기 문장을
+    // 순수 모듈(src/export/export-range.ts)에서 받아 넘긴다.
+    expect(cardSource).toContain("hint={EXPORT_MONTH_JUMP_HINT}");
+  });
 });
 
 /**
