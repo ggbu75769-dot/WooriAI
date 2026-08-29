@@ -37,8 +37,9 @@ describe("UX-H 리포트 공유 배선", () => {
     // 인사이트를 만들 때만 yearMonth/todayIso를 쓴다 -- 공유 조립기에는 넘기지 않는다.
     expect(reportSource).toContain("yearMonth: reportYearMonth");
     expect(reportSource).toContain("todayIso: seoulToday");
-    // 공유를 위해 새 요청을 만들지 않는다(REP-128의 요청 예산 그대로).
-    expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(3);
+    // 공유를 위해 새 요청을 만들지 않는다(요청 예산 그대로 — GAP-067 트랙 A(#6) 이후
+    // getMonthlyReport 호출부는 이번 달·지난 달 카드 둘이다).
+    expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(2);
   });
 
   /**

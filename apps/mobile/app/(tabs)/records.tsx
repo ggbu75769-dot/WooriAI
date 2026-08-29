@@ -56,10 +56,11 @@ import {
 } from "../../src/expenses/save-error-messages";
 import {
   buildRecordsCategoryChips,
-  buildRecordsEmptyMonthTitle,
+  buildRecordsEmptyMonthState,
   buildRecordsFilteredEmptyState,
   buildRecordsFilterScopeSummary,
   buildRecordsMonthSummary,
+  buildRecordsSearchMonthJumpAction,
   buildRecordsSearchPreviousMonthAction,
   buildRecordsSearchScopeNotice,
   expenseCreatedByUserId,
@@ -969,6 +970,17 @@ export default function RecordsScreen() {
     announceForA11y(periodLabelForOffset(baseDate, "month", monthOffset + 1));
   };
   /**
+   * GAP-067 트랙 A(#2) — 끝난 빈 달의 **달력 보기**에서 되돌아가는 자리.
+   *
+   * 그 화면에는 달력이 이미 서 있어 "달력에서 고르기"가 보낼 곳이 없으므로, 빈 달 카드가
+   * 제안하는 나머지 하나가 이번 달로 돌아오는 것이다(문구·판정은 순수 모듈). 이동 안내는
+   * 화살표·월 선택 시트와 **같은 계산**을 읽어 준다(A11Y-117).
+   */
+  const goToCurrentMonth = () => {
+    setMonthOffset(0);
+    announceForA11y(periodLabelForOffset(baseDate, "month", 0));
+  };
+  /**
    * GAP-066 트랙 A(#2) — 달 라벨을 눌러 여는 **월 선택 시트**.
    *
    * 종전에는 이동 수단이 ±1 화살표뿐이라, 1년 전 기록을 찾으려면 ‹ 를 열두 번 눌러야 했고
@@ -1449,14 +1461,26 @@ export default function RecordsScreen() {
     categoryFiltered: selectedCategoryId !== null,
     categoryLabel: selectedCategoryLabel
   });
-  // 라운드 39 I-5: 그 달에 기록이 하나도 없을 때의 문구도 보고 있는 달을 따른다(현재 달이면
-  // 종전 "이번 달" 문구 그대로 -- 홈 화면의 같은 카드와 한 글자도 다르지 않다).
-  const emptyMonthTitle = buildRecordsEmptyMonthTitle({
+  // GAP-067 트랙 A(#2) 곁가지: 검색 0건의 두 번째 탈출구 — 한 달 되감기 옆에 **달을 고르는**
+  // 자리를 하나 더 둔다(시트는 이미 이 화면에 있다 — 여는 자리만 늘린다). 라벨·접근성 문구는
+  // 위 "지난달에서 찾기"와 같은 순수 모듈·같은 조립이다.
+  const monthJumpSearchAction = buildRecordsSearchMonthJumpAction({
+    searchText,
+    categoryFiltered: selectedCategoryId !== null,
+    categoryLabel: selectedCategoryLabel
+  });
+  // 라운드 39 I-5 → GAP-067 트랙 A(#2): 그 달에 기록이 하나도 없을 때의 문구·액션. 현재 달이면
+  // 종전 "이번 달" 문구·[기록하기] 그대로이고(홈 화면의 같은 카드와 한 글자도 다르지 않다),
+  // 끝난 달에서는 사실 한 줄 + 그 달에서 실제로 할 수 있는 일을 가리킨다. 판정은 전부 순수
+  // 모듈에 있고 화면은 아래에서 키(action)로 배선만 한다.
+  const emptyMonthState = buildRecordsEmptyMonthState({
     monthLabel: recordsMonthLabel,
     isCurrentMonth: monthOffset === 0,
     // 라운드 40 J-5: 보기 전용 세션에는 "첫 기록을 남기면 …"이라는 약속 대신 사실을 말한다
     // (홈의 빈 카드와 같은 문장 · 같은 단일 소스). 버튼은 그대로 서서 눌렀을 때 안내한다.
-    expenseEntryLocked
+    expenseEntryLocked,
+    // 달력이 이미 화면에 서 있으면 "달력에서 고르기"는 보낼 곳이 없다(순수 모듈의 판정).
+    isCalendarView
   });
 
   // UX-N: 조회 실패 카드 문구는 연결 상태에 따라 갈린다(items 탭과 같은 배선).
@@ -1847,6 +1871,19 @@ export default function RecordsScreen() {
     />
   ) : null;
 
+  // GAP-067 트랙 A(#2) 곁가지: 같은 카드에서 **달을 골라** 계속 찾는 자리. 여는 것은 헤더에 이미
+  // 있는 그 시트 하나이고(새 컴포넌트·새 판정 0건), 검색어·필터 state는 건드리지 않으므로 고른
+  // 달에서 같은 검색이 그대로 이어진다. 비세션에서는 시트 자체가 그려지지 않으므로 버튼도 없다.
+  const monthJumpSearchActionButton =
+    hasRecordsSession && monthJumpSearchAction ? (
+      <TextButton
+        accessibilityLabel={monthJumpSearchAction.accessibilityLabel}
+        label={monthJumpSearchAction.label}
+        onPress={() => setMonthJumpOpen(true)}
+        style={{ alignItems: "center" }}
+      />
+    ) : null;
+
   const listEmpty = expenses.isLoading ? (
     // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
     <View style={{ gap: theme.spacing.gap }}>
@@ -1877,12 +1914,13 @@ export default function RecordsScreen() {
         }}
       />
       {previousMonthSearchActionButton}
+      {monthJumpSearchActionButton}
     </View>
   ) : (
     <View style={{ gap: theme.spacing.gap }}>
       <EmptyStateCard
-        title={filteredEmptyState ? filteredEmptyState.title : emptyMonthTitle}
-        actionLabel={filteredEmptyState ? filteredEmptyState.actionLabel : "기록하기"}
+        title={filteredEmptyState ? filteredEmptyState.title : emptyMonthState.title}
+        actionLabel={filteredEmptyState ? filteredEmptyState.actionLabel : emptyMonthState.actionLabel}
         onPress={() => {
           // 필터/검색을 푸는 갈래는 잠금과 무관하다(읽기 동작이다).
           if (filteredEmptyState) {
@@ -1890,10 +1928,25 @@ export default function RecordsScreen() {
             else setSearchText("");
             return;
           }
+          // GAP-067 트랙 A(#2): 끝난 빈 달의 두 갈래는 **화면 이동**이라 잠금과 무관하다(읽기
+          // 동작이다). 지출 생성 입구인 "record"만 종전처럼 게이트를 지난다.
+          if (emptyMonthState.action === "open-calendar") {
+            setViewMode(RECORDS_VIEW_CALENDAR);
+            // 이 버튼은 눌린 자리에 그대로 있고 라벨만 바뀌므로(달력이 서면 카드의 액션이
+            // "이번 달 보기"가 된다), 소리로는 아무 일도 일어나지 않은 것처럼 들린다. 세그먼트
+            // 컨트롤이 이미 쓰는 그 옵션 이름을 그대로 읽어 준다(새 문구 0건).
+            announceForA11y(RECORDS_VIEW_CALENDAR);
+            return;
+          }
+          if (emptyMonthState.action === "go-current-month") {
+            goToCurrentMonth();
+            return;
+          }
           expenseGate.guard(() => router.push("/expenses/new"))();
         }}
       />
       {previousMonthSearchActionButton}
+      {monthJumpSearchActionButton}
     </View>
   );
 

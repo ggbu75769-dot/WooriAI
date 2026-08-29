@@ -101,7 +101,9 @@ describe("Real session data integrity contract", () => {
 
     expect(reportSource).toContain("getYearlyReport(authToken!, childId!, yearStart.getFullYear())");
     expect(reportSource).toContain('period === "분기"');
-    expect(reportSource).toContain("quarterQueries");
+    // GAP-067 트랙 A(#6): 분기도 실제 서버 집계다 — 세 번의 월간 요청 대신 그 분기를 한 번에
+    // 받는 범위 질의(REP-128이 월간 추이에서 이미 쓰던 그 엔드포인트)를 쓴다.
+    expect(reportSource).toContain("quarterTrend");
     // REP-104: the category breakdown must follow the selected 월간/분기/연간 period
     // instead of the old period-less all-time call.
     expect(reportSource).toContain("getCategoryReport(authToken!, childId!, categoryPeriod)");
@@ -125,11 +127,36 @@ describe("Real session data integrity contract", () => {
     // 워터폴 잔재가 되살아나지 않아야 한다: 추이용 useQueries도, 6개월 배열 생성도 없다.
     expect(reportSource).not.toContain("monthlyTrendQueries");
     expect(reportSource).not.toContain("monthlyTrendMonths");
-    // getMonthlyReport 호출부는 세 곳만 남는다: 이번 달 카드, 지난 달 카드(둘 다 예산·
-    // 카테고리 분해를 쓴다), 그리고 분기 탭의 3개월 useQueries. 추이용 호출은 없다.
-    expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(3);
+    // GAP-067 트랙 A(#6) 이후 getMonthlyReport 호출부는 **두 곳**만 남는다: 이번 달 카드와
+    // 지난 달 카드(둘 다 예산·카테고리 분해를 쓴다). 추이용도, 분기용도 없다.
+    expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(2);
     expect(reportSource).toContain("getMonthlyReport(authToken!, childId!, reportYearMonth)");
     expect(reportSource).toContain("getMonthlyReport(authToken!, childId!, previousMonthYearMonth)");
-    expect(reportSource).toContain("getMonthlyReport(authToken!, childId!, ym)");
+  });
+
+  /**
+   * GAP-067 트랙 A(#6): 분기 탭도 REP-128과 **같은 엔드포인트 한 번**으로 접었다. 세그먼트를
+   * "분기"로 옮기거나 분기 화살표를 한 칸 옮길 때 나가던 요청 셋(병렬 · 실패 확률 3배 · 지연은
+   * 가장 느린 요청이 결정)이 하나가 된다. 서버는 한 줄도 바뀌지 않는다.
+   */
+  it("fetches the 분기 tab's three months in one range query instead of three monthly calls (GAP-067)", () => {
+    const reportSource = source("app/(tabs)/reports.tsx");
+
+    expect(reportSource).toContain("const QUARTER_TREND_MONTHS = 3;");
+    expect(reportSource).toContain(
+      'queryKey: ["report", "trend", childId, quarterEndYearMonth, QUARTER_TREND_MONTHS]'
+    );
+    expect(reportSource).toContain("getTrendReport(authToken!, childId!, quarterEndYearMonth, QUARTER_TREND_MONTHS)");
+    // 워터폴 잔재가 남아 있지 않다 -- 이 화면에는 useQueries 호출도, 그 import도 없다.
+    expect(reportSource).not.toContain("quarterQueries");
+    expect(reportSource).not.toContain("useQueries(");
+    expect(reportSource).toContain('import { useQuery, useQueryClient } from "@tanstack/react-query";');
+    // 로딩·실패 판정도 단일 쿼리다(some(...)으로 되돌아가지 않는다).
+    expect(reportSource).toContain("const quarterIsLoading = quarterTrend.isLoading;");
+    expect(reportSource).toContain("const quarterIsError = quarterTrend.isError;");
+    // 합계는 서버가 준 달별 값의 합이다 -- 지출 행에서 다시 세지 않는다(재집계 금지).
+    expect(reportSource).toContain(
+      "const quarterTotal = (quarterTrend.data?.months ?? []).reduce((sum, month) => sum + month.totalExpenseKrw, 0);"
+    );
   });
 });

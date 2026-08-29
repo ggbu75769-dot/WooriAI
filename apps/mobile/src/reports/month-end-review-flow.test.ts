@@ -24,9 +24,10 @@ describe("GAP-066 A(#1) 끝난 달의 예산 결과 한 줄", () => {
     expect(reportSource).toContain("buildCompletedMonthBudgetLine({");
     expect(reportSource).toContain("budgetAmountKrw: monthly.data.budgetAmountKrw");
     expect(reportSource).toContain("totalExpenseKrw: monthly.data.totalExpenseKrw");
-    // REP-128의 요청 예산은 그대로다: getMonthlyReport 호출부는 여전히 셋이고, 지출 행 목록을
-    // 새로 불러오지도 않는다(예산 줄은 서버가 이미 실어 보낸 budgetAmountKrw를 그대로 쓴다).
-    expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(3);
+    // 요청 예산은 그대로다: getMonthlyReport 호출부는 여전히 이번 달·지난 달 카드 둘뿐이고
+    // (GAP-067 트랙 A(#6)이 분기의 세 요청을 범위 질의 하나로 접었다), 지출 행 목록을 새로
+    // 불러오지도 않는다(예산 줄은 서버가 이미 실어 보낸 budgetAmountKrw를 그대로 쓴다).
+    expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(2);
     expect(reportSource).not.toContain("listExpenses(");
   });
 

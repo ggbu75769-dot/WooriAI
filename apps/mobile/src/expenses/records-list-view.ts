@@ -341,6 +341,42 @@ export function buildRecordsSearchPreviousMonthAction(input: {
   };
 }
 
+/** 0건 카드에서 검색어를 유지한 채 **달을 골라** 넘어가는 보조 액션의 라벨. */
+export const RECORDS_SEARCH_MONTH_JUMP_ACTION_LABEL = "다른 달에서 찾기";
+
+/**
+ * GAP-067 트랙 A(#2) 곁가지 — 검색 0건 카드의 **두 번째 탈출구**.
+ *
+ * 무엇이 문제였나: 이 카드가 제안하는 이동은 아직 **한 달 되감기** 하나뿐이다
+ * (`buildRecordsSearchPreviousMonthAction`). 라운드 66이 달 라벨을 월 선택 시트의 입구로 만들어
+ * 이 화면이 21개월을 한 번에 건너뛰게 된 뒤에도, 검색만 한 칸씩 걷는다 — 조리원 비용을 찾으러
+ * 아홉 달을 되감으려면 "지난달에서 찾기"를 아홉 번 눌러야 하고 그 아홉 번이 아홉 번의 조회다.
+ *
+ * 그래서 **같은 시트를 여는 자리를 하나 더** 만든다. 새 판정도 새 문구 규칙도 없다: 라벨은
+ * 상대 표현이고, 접근성 라벨은 위 "지난달에서 찾기"와 **같은 조립**(검색어 + 필터 유지 고지)을
+ * 쓴다 — 두 버튼이 나란히 서는 카드에서 한쪽만 다른 문법으로 읽히면 안 된다. 다만 이쪽은 갈 달을
+ * 사용자가 고르므로 목적지 이름을 말하지 않는다(아직 정해지지 않은 값을 지어내지 않는다).
+ *
+ * 검색 중이 아니면 `null`이라 필터만 걸린 0건 카드·빈 달 카드는 종전과 한 줄도 다르지 않다.
+ */
+export function buildRecordsSearchMonthJumpAction(input: {
+  /** 검색어 원본(트림 전). 비어 있으면 이 액션 자체가 없다. */
+  searchText?: string | null;
+  /** 카테고리 칩이 걸려 있는지(스코프 줄과 같은 관례로 라벨과 따로 받는다). */
+  categoryFiltered?: boolean;
+  /** 그 칩의 이모지 없는 이름. 모르면 이름 없이 "카테고리 필터"라고만 말한다. */
+  categoryLabel?: string | null;
+}): { label: string; accessibilityLabel: string } | null {
+  const query = input.searchText?.trim() ?? "";
+  if (query.length === 0) return null;
+  const filterName = categoryFilterName(input);
+  const filterSuffix = filterName ? `(${filterName} 유지)` : "";
+  return {
+    label: RECORDS_SEARCH_MONTH_JUMP_ACTION_LABEL,
+    accessibilityLabel: `달을 골라 '${query}' 계속 찾기${filterSuffix}`
+  };
+}
+
 /** 필터/검색 0건 카드가 제안하는 다음 행동 — 화면은 이 키로 어느 필터를 풀지 정한다. */
 export type RecordsEmptyFilterAction = "clear-category" | "clear-search";
 
@@ -389,33 +425,103 @@ export function buildRecordsFilteredEmptyState(input: {
   return { title: `'${query}' 검색 결과가 없어요.`, actionLabel: "검색어 지우기", action: "clear-search" };
 }
 
+/** 이번 달 빈 카드의 액션 라벨. 홈의 같은 카드와 **한 글자도** 달라선 안 된다(라운드 39 I-5). */
+const RECORDS_EMPTY_MONTH_RECORD_ACTION_LABEL = "기록하기";
 /**
- * 라운드 39 I-5 — 그 달에 기록이 하나도 없을 때의 카드 제목.
+ * GAP-067 트랙 A(#2): 끝난 빈 달의 액션 — **달력 보기**로 보낸다. 이 화면에서 "그 달의 어느
+ * 날인지"를 묻는 자리는 달력의 빈 날 칸 하나뿐이기 때문이다(라운드 63 C ·
+ * `resolveCalendarCellAction`의 `"record-new"`).
+ */
+export const RECORDS_EMPTY_MONTH_CALENDAR_ACTION_LABEL = "달력에서 날짜 고르기";
+/** 이미 달력을 보고 있는 끝난 달에서, 그 자리에서 실제로 할 수 있는 나머지 하나. */
+export const RECORDS_EMPTY_MONTH_CURRENT_ACTION_LABEL = "이번 달 보기";
+
+/** 빈 달 카드가 제안하는 다음 행동 — 화면은 이 키로 무엇을 배선할지 정한다. */
+export type RecordsEmptyMonthAction = "record" | "open-calendar" | "go-current-month";
+
+export type RecordsEmptyMonthState = {
+  /** 0건 카드 제목. */
+  title: string;
+  /** 기본 액션 버튼 라벨. */
+  actionLabel: string;
+  /** 그 버튼이 실제로 하는 일. */
+  action: RecordsEmptyMonthAction;
+};
+
+/**
+ * 라운드 39 I-5 → GAP-067 트랙 A(#2) — 그 달에 기록이 하나도 없을 때의 카드(제목 + 액션).
  *
- * 종전 문구는 어느 달을 보고 있든 "첫 기록을 남기면 **이번 달** 비용을 바로 보여드릴게요."였다.
+ * ## GAP-067이 고치는 것 — 끝난 달에는 **약속이 아니라 사실**을 말한다
+ *
+ * 아래 I-5는 문장이 가리키는 달을 화면과 맞췄지만 그 틀("첫 기록을 남기면 … 보여드릴게요")은
+ * 남겨 뒀고, 라운드 66이 그 전제를 걷어냈다: 달 라벨이 월 선택 시트의 입구가 되면서 이 화면은
+ * **21개월 전까지 한 번에** 갈 수 있다. 기록이 800건 있는 사용자가 작년 11월로 점프하면 화면은
+ * "첫 기록을 남기면 2025년 11월 비용을 바로 보여드릴게요"라고 말하는데, ① "첫 기록"은 사실이
+ * 아니고 ② 그 아래 [기록하기]는 파라미터 없는 `/expenses/new`라 **오늘 날짜로** 저장한다 --
+ * 보고 있는 달과 저장될 달이 다르다. 문장이 쓰인 라운드 39에는 이 화면이 ±1개월밖에 못 움직여
+ * "빈 달 = 이번 달 아니면 지난달"이었다.
+ *
+ * 그래서 끝난 달에는 사실 한 줄("2025년 11월에는 기록이 없어요.")을 놓고, 액션은 그 달에서
+ * **실제로 할 수 있는 일**을 가리킨다:
+ *  - **리스트 보기**: 달력 보기로 보낸다. 이 화면 안에서 "그 달의 어느 날"을 **묻는** 자리는
+ *    달력의 빈 날 칸 하나뿐이고(라운드 63 C), 그 칸은 그날로 기록 시트를 연다.
+ *  - **달력 보기**: 달력은 이미 같은 화면에 서 있으므로 보낼 곳이 없다 -- 남은 하나(이번 달로
+ *    되돌아가기)를 제안한다.
+ *
+ * **날짜를 지어내지 않는다**: "그 달로 기록하기"를 만들려면 그 달의 어느 날인지가 필요한데 앱은
+ * 모른다. `spentOn`을 그 달 1일로 채우면 사용자가 고른 적 없는 날짜가 기록에 남는다(DNC-013 ·
+ * 라운드 58 `FAILED_ROW_PREFILL_DATE_RESET_NOTICE`가 정확히 그 이유로 오늘로 두고 물어본다).
+ * 이 카드가 여는 것은 **묻는 화면**이지 프리필이 아니다.
+ *
+ * ## 라운드 39 I-5 — 이 판정의 뿌리(이번 달 갈래는 그때 그대로다)
+ *
+ * 그 전 문구는 어느 달을 보고 있든 "첫 기록을 남기면 **이번 달** 비용을 바로 보여드릴게요."였다.
  * 기록 탭은 ‹ ›로 달을 옮기는 화면이라, 6월을 보면서 "이번 달"을 안내받으면 그 문장이 가리키는
  * 달이 화면의 월 라벨·합계 카드와 갈린다(라운드 39 UX-P가 월 요약 줄에서 이미 고친 것과 같은
- * 종류의 어긋남이다).
+ * 종류의 어긋남이다). I-5는 그 자리에 **달 이름**을 넣었고, GAP-067은 그다음 한 걸음 —
+ * 끝난 달에서는 문장의 틀 자체를 사실로 바꾼다 — 을 밟는다.
  *
- * 현재 달에서는 "이번 달"이 가장 자연스럽고 홈 화면의 같은 카드와도 한 글자도 다르지 않다
- * (refresh-wiring-contract.test.ts가 두 화면의 문구 일치를 고정한다 — 홈은 언제나 현재 달이다).
- * 과거 달을 보고 있을 때만 그 달의 이름을 쓴다.
+ * **현재 달 갈래는 한 글자도 바뀌지 않는다**: "이번 달"이 가장 자연스럽고 홈 화면의 같은 카드와도
+ * 같은 문장이어야 한다(refresh-wiring-contract.test.ts가 두 화면의 문구 일치를 고정한다 —
+ * 홈은 언제나 현재 달이다).
  *
  * 라운드 40 J-5 — 보기 전용 세션에서는 이 문장이 **약속**이 된다("첫 기록을 남기면 …"의 조건을
  * 이 사람은 만족시킬 수 없다). 그때는 홈의 빈 카드와 같은 사실 한 줄로 바꾼다(문구는
  * src/family/record-permissions.ts가 단일 소스). 잠금은 실세션 + 알려진 보기 전용 역할에서만
  * 참이므로 기본값(false)에서는 한 글자도 바뀌지 않는다.
  */
-export function buildRecordsEmptyMonthTitle(input: {
+export function buildRecordsEmptyMonthState(input: {
   monthLabel: string;
   isCurrentMonth: boolean;
   expenseEntryLocked?: boolean;
-}): string {
-  if (input.expenseEntryLocked) return EXPENSE_VIEW_ONLY_EMPTY_TITLE;
+  /** 지금 달력 보기인지. 달력이 이미 서 있으면 그리로 보내는 액션은 할 일이 없다. */
+  isCalendarView?: boolean;
+}): RecordsEmptyMonthState {
+  // J-5: 잠긴 세션은 문장만 사실로 바꾸고 액션은 종전 그대로다(무변경 갈래).
+  if (input.expenseEntryLocked) {
+    return {
+      title: EXPENSE_VIEW_ONLY_EMPTY_TITLE,
+      actionLabel: RECORDS_EMPTY_MONTH_RECORD_ACTION_LABEL,
+      action: "record"
+    };
+  }
   const monthLabel = input.monthLabel.trim();
-  // 달 이름을 모르면 지어내지 않고 종전 문구를 쓴다.
-  const monthPart = input.isCurrentMonth || monthLabel.length === 0 ? "이번 달" : monthLabel;
-  return `첫 기록을 남기면 ${monthPart} 비용을 바로 보여드릴게요.`;
+  // 달 이름을 모르면 지어내지 않고 종전 문구를 쓴다(이름 없이는 "끝난 달"도 말할 수 없다).
+  if (input.isCurrentMonth || monthLabel.length === 0) {
+    return {
+      title: "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요.",
+      actionLabel: RECORDS_EMPTY_MONTH_RECORD_ACTION_LABEL,
+      action: "record"
+    };
+  }
+  // 끝난 달: 약속 대신 사실. 액션은 그 달에서 실제로 할 수 있는 일을 가리킨다(위 머리말).
+  return {
+    title: `${monthLabel}에는 기록이 없어요.`,
+    actionLabel: input.isCalendarView
+      ? RECORDS_EMPTY_MONTH_CURRENT_ACTION_LABEL
+      : RECORDS_EMPTY_MONTH_CALENDAR_ACTION_LABEL,
+    action: input.isCalendarView ? "go-current-month" : "open-calendar"
+  };
 }
 
 /**

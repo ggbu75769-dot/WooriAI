@@ -13,12 +13,15 @@ import {
   RECORDS_SEARCH_FIELDS_LABEL,
   RECORDS_SEARCH_PLACEHOLDER,
   buildRecordsCategoryChips,
-  buildRecordsEmptyMonthTitle,
+  buildRecordsEmptyMonthState,
   buildRecordsFilteredEmptyState,
   buildRecordsFilterScopeSummary,
   buildRecordsMonthSummary,
+  buildRecordsSearchMonthJumpAction,
   buildRecordsSearchPreviousMonthAction,
   buildRecordsSearchScopeNotice,
+  RECORDS_EMPTY_MONTH_CALENDAR_ACTION_LABEL,
+  RECORDS_EMPTY_MONTH_CURRENT_ACTION_LABEL,
   RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL,
   expenseCreatedByUserId,
   expenseTypeLabelKo,
@@ -826,45 +829,124 @@ describe("I-4 buildRecordsFilteredEmptyState", () => {
 
 /**
  * 라운드 39 I-5 — 달을 옮겨도 "이번 달"이라고 말하던 마지막 한 곳.
+ * GAP-067 트랙 A(#2) — 끝난 달에서는 문장의 **틀 자체**가 거짓이 됐다("첫 기록"·오늘로 저장).
  */
-describe("I-5 buildRecordsEmptyMonthTitle", () => {
-  it("현재 달에서는 홈 화면과 같은 문구다", () => {
-    expect(buildRecordsEmptyMonthTitle({ monthLabel: "2026년 8월", isCurrentMonth: true })).toBe(
-      "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
+describe("I-5 / GAP-067 buildRecordsEmptyMonthState", () => {
+  it("현재 달에서는 홈 화면과 같은 문구·같은 액션이다", () => {
+    expect(buildRecordsEmptyMonthState({ monthLabel: "2026년 8월", isCurrentMonth: true })).toEqual({
+      title: "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요.",
+      actionLabel: "기록하기",
+      action: "record"
+    });
+  });
+
+  it("이번 달 갈래는 달력 보기에서도 한 글자도 바뀌지 않는다", () => {
+    expect(
+      buildRecordsEmptyMonthState({ monthLabel: "2026년 8월", isCurrentMonth: true, isCalendarView: true })
+    ).toEqual({
+      title: "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요.",
+      actionLabel: "기록하기",
+      action: "record"
+    });
+  });
+
+  /**
+   * GAP-067 #2의 본체 — 800건을 적어 온 사람에게 "첫 기록"이라고 말하지 않는다. 그리고 그 달의
+   * 액션은 **오늘로 저장하는 [기록하기]**가 아니라 그 달에서 실제로 할 수 있는 일이다.
+   */
+  it("끝난 달에서는 약속 대신 사실을 말하고, 달력 보기로 보낸다", () => {
+    expect(buildRecordsEmptyMonthState({ monthLabel: "2025년 11월", isCurrentMonth: false })).toEqual({
+      title: "2025년 11월에는 기록이 없어요.",
+      actionLabel: RECORDS_EMPTY_MONTH_CALENDAR_ACTION_LABEL,
+      action: "open-calendar"
+    });
+    // 종전 문장의 틀("첫 기록을 남기면 …")은 끝난 달에서 사라졌다.
+    expect(buildRecordsEmptyMonthState({ monthLabel: "2025년 11월", isCurrentMonth: false }).title).not.toContain(
+      "첫 기록"
     );
   });
 
-  it("과거 달을 보고 있으면 그 달의 이름을 말한다", () => {
-    expect(buildRecordsEmptyMonthTitle({ monthLabel: "2026년 6월", isCurrentMonth: false })).toBe(
-      "첫 기록을 남기면 2026년 6월 비용을 바로 보여드릴게요."
-    );
+  it("이미 달력을 보고 있으면 보낼 곳이 없다 -- 이번 달로 되돌리는 쪽을 제안한다", () => {
+    expect(
+      buildRecordsEmptyMonthState({ monthLabel: "2025년 11월", isCurrentMonth: false, isCalendarView: true })
+    ).toEqual({
+      title: "2025년 11월에는 기록이 없어요.",
+      actionLabel: RECORDS_EMPTY_MONTH_CURRENT_ACTION_LABEL,
+      action: "go-current-month"
+    });
   });
 
-  it("달 라벨을 모르면 지어내지 않고 종전 문구를 쓴다", () => {
-    expect(buildRecordsEmptyMonthTitle({ monthLabel: "   ", isCurrentMonth: false })).toBe(
-      "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
-    );
+  it("달 라벨을 모르면 지어내지 않고 종전 문구를 쓴다 (이름 없이는 끝난 달도 말할 수 없다)", () => {
+    expect(buildRecordsEmptyMonthState({ monthLabel: "   ", isCurrentMonth: false })).toEqual({
+      title: "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요.",
+      actionLabel: "기록하기",
+      action: "record"
+    });
   });
 
   /**
    * 라운드 40 J-5 — "첫 기록을 남기면 …"은 보기 전용 참여자가 만족시킬 수 없는 조건이다.
    * 홈의 빈 카드와 **같은 문장**으로 바꾼다(단일 소스: src/family/record-permissions.ts).
+   * GAP-067: 이 갈래는 **한 칸도 바뀌지 않는다** — 액션도 종전 [기록하기] 그대로다(누르면
+   * 화면이 잠금을 설명한다).
    */
-  it("J-5: 보기 전용 세션에서는 약속 대신 사실을 말한다 (어느 달을 보고 있든)", () => {
+  it("J-5: 보기 전용 세션에서는 약속 대신 사실을 말한다 (어느 달·어느 보기에서도 불변)", () => {
     for (const isCurrentMonth of [true, false]) {
-      expect(
-        buildRecordsEmptyMonthTitle({ monthLabel: "2026년 6월", isCurrentMonth, expenseEntryLocked: true })
-      ).toBe(EXPENSE_VIEW_ONLY_EMPTY_TITLE);
+      for (const isCalendarView of [true, false]) {
+        expect(
+          buildRecordsEmptyMonthState({
+            monthLabel: "2026년 6월",
+            isCurrentMonth,
+            isCalendarView,
+            expenseEntryLocked: true
+          })
+        ).toEqual({ title: EXPENSE_VIEW_ONLY_EMPTY_TITLE, actionLabel: "기록하기", action: "record" });
+      }
     }
   });
 
   it("J-5: 잠기지 않은 세션(기본값)에서는 한 글자도 바뀌지 않는다", () => {
     expect(
-      buildRecordsEmptyMonthTitle({ monthLabel: "2026년 8월", isCurrentMonth: true, expenseEntryLocked: false })
+      buildRecordsEmptyMonthState({ monthLabel: "2026년 8월", isCurrentMonth: true, expenseEntryLocked: false }).title
     ).toBe("첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요.");
-    expect(buildRecordsEmptyMonthTitle({ monthLabel: "2026년 8월", isCurrentMonth: true })).toBe(
+    expect(buildRecordsEmptyMonthState({ monthLabel: "2026년 8월", isCurrentMonth: true }).title).toBe(
       "첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요."
     );
+  });
+});
+
+/**
+ * GAP-067 트랙 A(#2) 곁가지 — 검색 0건 카드의 **두 번째 탈출구**(달을 골라 계속 찾기).
+ */
+describe("GAP-067 buildRecordsSearchMonthJumpAction", () => {
+  it("검색 중일 때만 서고, 무엇을 계속 찾는지 라벨이 말한다", () => {
+    expect(buildRecordsSearchMonthJumpAction({ searchText: "유모차" })).toEqual({
+      label: "다른 달에서 찾기",
+      accessibilityLabel: "달을 골라 '유모차' 계속 찾기"
+    });
+    expect(buildRecordsSearchMonthJumpAction({})).toBeNull();
+    expect(buildRecordsSearchMonthJumpAction({ searchText: "   " })).toBeNull();
+  });
+
+  it("카테고리 칩이 함께 걸려 있으면 그 사실도 말한다 (지난달 액션과 같은 조립)", () => {
+    expect(
+      buildRecordsSearchMonthJumpAction({
+        searchText: "유모차",
+        categoryFiltered: true,
+        categoryLabel: "기저귀/위생"
+      })?.accessibilityLabel
+    ).toBe("달을 골라 '유모차' 계속 찾기(기저귀/위생 필터 유지)");
+    // 이름을 모르면 지어내지 않는다 -- 스코프 줄·지난달 액션과 같은 관례다.
+    expect(
+      buildRecordsSearchMonthJumpAction({ searchText: "유모차", categoryFiltered: true, categoryLabel: "  " })
+        ?.accessibilityLabel
+    ).toBe("달을 골라 '유모차' 계속 찾기(카테고리 필터 유지)");
+  });
+
+  it("목적지 달 이름을 지어내지 않는다 (아직 사용자가 고르지 않은 값이다)", () => {
+    const action = buildRecordsSearchMonthJumpAction({ searchText: "유모차" });
+    expect(action?.label).not.toContain("월");
+    expect(action?.accessibilityLabel).not.toContain("년");
   });
 });
 
@@ -1365,12 +1447,49 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   it("I-4/I-5: 0건 카드의 제목·액션은 순수 모듈이 만든다 (하드코딩 문구가 화면에 없다)", () => {
     expect(recordsSource).toContain("const filteredEmptyState = buildRecordsFilteredEmptyState({");
     expect(recordsSource).toContain('if (filteredEmptyState.action === "clear-category") setSelectedCategoryId(null);');
-    expect(recordsSource).toContain("const emptyMonthTitle = buildRecordsEmptyMonthTitle({");
+    expect(recordsSource).toContain("const emptyMonthState = buildRecordsEmptyMonthState({");
     expect(recordsSource).toContain("isCurrentMonth: monthOffset === 0");
     // 종전 하드코딩 문구는 화면에서 사라졌다.
     expect(recordsSource).not.toContain('"이 카테고리의 기록이 없어요."');
     expect(recordsSource).not.toContain('"카테고리 필터 해제"');
     expect(recordsSource).not.toContain("첫 기록을 남기면 이번 달 비용을 바로 보여드릴게요.");
+  });
+
+  /**
+   * GAP-067 트랙 A(#2) — 끝난 빈 달의 액션 배선.
+   *
+   * 화면에 남는 것은 **키에 따른 배선**뿐이다(문구·판정 0줄). 그리고 그 두 갈래는 화면 이동이라
+   * 잠금 게이트를 지나지 않는다 — 게이트를 지나는 것은 지출 생성 입구인 "record" 하나다.
+   */
+  it("GAP-067: 빈 달 카드의 제목·액션 라벨이 모두 순수 모듈에서 오고, 화면은 키로 배선만 한다", () => {
+    expect(recordsSource).toContain("title={filteredEmptyState ? filteredEmptyState.title : emptyMonthState.title}");
+    expect(recordsSource).toContain(
+      "actionLabel={filteredEmptyState ? filteredEmptyState.actionLabel : emptyMonthState.actionLabel}"
+    );
+    expect(recordsSource).toContain('if (emptyMonthState.action === "open-calendar") {');
+    expect(recordsSource).toContain("setViewMode(RECORDS_VIEW_CALENDAR);");
+    expect(recordsSource).toContain('if (emptyMonthState.action === "go-current-month") {');
+    expect(recordsSource).toContain("goToCurrentMonth();");
+    // 종전 하드코딩 액션 라벨은 사라졌다(문구는 전부 순수 모듈이 단일 소스다).
+    expect(recordsSource).not.toContain('actionLabel={filteredEmptyState ? filteredEmptyState.actionLabel : "기록하기"}');
+    // 보고 있는 달이 무엇인지 앱은 알아도 **그 달의 어느 날인지는 모른다** -- 그래서 이 카드는
+    // 날짜를 프리필하지 않는다(DNC-013). 시트에 날짜를 싣는 자리는 달력 칸 하나뿐이다.
+    expect((recordsSource.match(/params: \{ spentOn: date \}/g) ?? []).length).toBe(1);
+  });
+
+  /**
+   * GAP-067 트랙 A(#2) 곁가지 — 검색 0건 카드에서 월 선택 시트를 여는 자리.
+   * 시트 자체(src/MonthJumpSheet.tsx · src/month-jump.ts)는 한 글자도 손대지 않는다.
+   */
+  it("GAP-067: 검색 0건 카드가 같은 월 선택 시트를 연다 (여는 자리만 늘어난다)", () => {
+    expect(recordsSource).toContain("const monthJumpSearchAction = buildRecordsSearchMonthJumpAction({");
+    expect(recordsSource).toContain("label={monthJumpSearchAction.label}");
+    expect(recordsSource).toContain("accessibilityLabel={monthJumpSearchAction.accessibilityLabel}");
+    expect(recordsSource).toContain("onPress={() => setMonthJumpOpen(true)}");
+    // 두 개의 0건 분기 모두에 붙는다(지난달 액션과 같은 자리).
+    expect((recordsSource.match(/\{monthJumpSearchActionButton\}/g) ?? []).length).toBe(2);
+    // 시트는 여전히 한 벌이다 -- 새 시트를 그리지 않는다.
+    expect((recordsSource.match(/<MonthJumpSheet/g) ?? []).length).toBe(1);
   });
 });
 

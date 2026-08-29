@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildRecordsEmptyMonthTitle } from "./expenses/records-list-view";
+import { buildRecordsEmptyMonthState } from "./expenses/records-list-view";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
@@ -198,8 +198,13 @@ describe("MOB-117 refresh/refetch wiring (source verification -- follows the exi
      * (과거 달에서는 "2026년 6월 비용을 …"). 홈은 언제나 현재 달이므로, 두 화면의 일치는
      * 이제 "현재 달일 때 같은 문구"로 고정한다 -- 문구 자체는 순수 모듈이 단일 소스다.
      */
-    expect(recordsSource).toContain("const emptyMonthTitle = buildRecordsEmptyMonthTitle({");
-    expect(buildRecordsEmptyMonthTitle({ monthLabel: "2026년 8월", isCurrentMonth: true })).toBe(emptyCopy);
+    expect(recordsSource).toContain("const emptyMonthState = buildRecordsEmptyMonthState({");
+    // GAP-067 트랙 A(#2): 끝난 달의 문장·액션이 갈렸어도 **현재 달 갈래**는 홈과 같은 한 벌이다
+    // (문구뿐 아니라 액션 라벨까지 — 홈의 같은 카드가 그리는 것이 [기록하기]다).
+    const currentMonthEmpty = buildRecordsEmptyMonthState({ monthLabel: "2026년 8월", isCurrentMonth: true });
+    expect(currentMonthEmpty.title).toBe(emptyCopy);
+    expect(currentMonthEmpty.actionLabel).toBe("기록하기");
+    expect(currentMonthEmpty.action).toBe("record");
     // 픽셀락 미리보기(비세션)는 항상 previewHome의 3건을 그리므로 빈 상태 분기의 영향이 없다.
     expect(homeSource).toContain("previewHome");
   });
