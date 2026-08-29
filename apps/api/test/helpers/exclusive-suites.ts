@@ -28,7 +28,9 @@
  *     which any suite that inserts a category would change;
  *   - `data-retention-purge` runs the purge job, which deletes withdrawn users and
  *     orphaned households across the whole database — including rows other suites
- *     are still using.
+ *     are still using. GAP-067 #7 added a second database-wide write to the same
+ *     job (phase 10a marks every lapsed `pending` family invite `expired`), which
+ *     this entry already covers.
  *
  * TEST-132 removed `link-health.db` from this list — it was never an original entry:
  * the round-30 review (F2) added it here to stop a global write from trampling other
