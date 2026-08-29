@@ -1,5 +1,7 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
@@ -21,6 +23,14 @@ import { PrismaService } from "../src/prisma/prisma.service";
  */
 /** 실제 브라우저 내비게이션이 보내는 Accept 헤더. */
 const BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8";
+
+// 라운드 73 트랙 C: 이 실패 페이지의 색은 DNC-017 v0.5의 승인 팔레트에서 온다. 값의 단일 소스를
+// 여기서도 **읽어서** 묻는 이유는, 소스의 `<style>` 문자열이 아니라 **실제로 나간 응답**이 그
+// 값을 실었는지가 이 트랙이 고치려는 결함이기 때문이다(표면 쪽 계약은
+// packages/test-utils/src/public-surface-brand.test.ts).
+const brandTokens = JSON.parse(
+  readFileSync(fileURLToPath(new URL("../../../docs/brand/brand-tokens.json", import.meta.url)), "utf8")
+) as { locked: Record<string, string>; retired: { value: string }[] };
 describe("Affiliate opaque redirect (GET /r/:code)", () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
@@ -200,6 +210,29 @@ describe("Affiliate opaque redirect (GET /r/:code)", () => {
       expect(response.text).toContain('<html lang="ko">');
       expect(response.text).toContain("이 구매 링크는 지금 열 수 없어요.");
       expect(response.text).toContain("우리아이 앱의 준비템에서 지금 열 수 있는 구매 링크를 확인할 수 있어요.");
+    });
+
+    it("serves the approved brand palette (DNC-017 v0.5) without disturbing the 404 contract", async () => {
+      const response = await request(app.getHttpServer())
+        .get("/api/v1/r/does-not-exist")
+        .set("Accept", BROWSER_ACCEPT)
+        .redirects(0);
+
+      // 공유된 구매 링크를 연 사람이 보는 색이 앱과 같다(#C94627 / #FFFDFC).
+      expect(response.text).toContain(`background: ${brandTokens.locked.background};`);
+      expect(response.text).toContain(`color: ${brandTokens.locked.primary};`);
+      // 폐기 팔레트가 응답에 0건이다(부정 단언).
+      for (const retired of brandTokens.retired) {
+        expect(response.text.toUpperCase()).not.toContain(retired.value.toUpperCase());
+      }
+
+      // 색만 바뀌었다 — 상태 코드·헤더 셋·문장은 그대로다(라운드 69 #4·리뷰 P-1).
+      expect(response.status).toBe(404);
+      expect(response.headers["cache-control"]).toBe("no-store");
+      expect(response.headers["x-frame-options"]).toBe("DENY");
+      expect(response.headers.vary?.toLowerCase()).toContain("accept");
+      expect(response.text).toContain("이 구매 링크는 지금 열 수 없어요.");
+      expect(response.text).not.toContain("<a ");
     });
 
     it("never leaks the JSON envelope's internals (error code, server message, requestId) or the requested code", async () => {

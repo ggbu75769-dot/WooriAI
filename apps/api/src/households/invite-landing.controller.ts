@@ -61,6 +61,17 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * 색은 DNC-017 v0.5의 승인 팔레트다(Primary `#C94627` · Background `#FFFDFC` ·
+ * onPrimary `#FFFFFF`). 값의 단일 소스는 `docs/brand/brand-tokens.json`이고, 표면 쪽 일치와
+ * `.cta` 대비는 `packages/test-utils/src/public-surface-brand.test.ts`가 진다.
+ *
+ * 라운드 73 트랙 C 이전에는 이 페이지가 **어느 시점의 토큰도 아닌 자체 팔레트**를 썼고(그 값의
+ * 이름과 내력은 단일 소스의 `retired` 목록이 진다 — 여기서 다시 적으면 폐기값이 이 파일에
+ * 되살아난다), `.cta`의 흰 텍스트는 그 배경에서 **2.57:1 — AA 미달**이었다. 승인 Primary
+ * 위에서는 같은 흰 텍스트가 **4.78:1**로 AA를 넘는다. 바뀐 것은 이 `<style>` 블록의 색
+ * 리터럴뿐이다 — 200 응답·오라클 없음·헤더 셋(`@Header` 셋)·문구는 그대로다.
+ */
 function pageShell(bodyHtml: string): string {
   return `<!doctype html>
 <html lang="ko">
@@ -70,14 +81,14 @@ function pageShell(bodyHtml: string): string {
 <meta name="robots" content="noindex">
 <title>우리아이 가족 초대</title>
 <style>
-  body { margin: 0; background: #FFF8F2; color: #4A3F35; font-family: "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  body { margin: 0; background: #FFFDFC; color: #4A3F35; font-family: "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
   main { max-width: 420px; margin: 0 auto; padding: 48px 24px; text-align: center; }
   .card { background: #FFFFFF; border: 1px solid rgba(74, 63, 53, 0.08); border-radius: 20px; padding: 32px 24px; box-shadow: 0 6px 18px rgba(74, 63, 53, 0.08); }
-  .brand { color: #FF7A59; font-size: 22px; font-weight: 800; margin-bottom: 24px; }
+  .brand { color: #C94627; font-size: 22px; font-weight: 800; margin-bottom: 24px; }
   h1 { font-size: 20px; line-height: 1.5; margin: 0 0 8px; }
   p { color: #857567; font-size: 14px; line-height: 1.6; margin: 0 0 8px; }
   .household { color: #4A3F35; font-size: 18px; font-weight: 800; margin: 0 0 16px; }
-  .cta { display: inline-block; background: #FF7A59; color: #FFFFFF; border-radius: 14px; padding: 14px 28px; font-size: 16px; font-weight: 800; text-decoration: none; margin: 16px 0 20px; }
+  .cta { display: inline-block; background: #C94627; color: #FFFFFF; border-radius: 14px; padding: 14px 28px; font-size: 16px; font-weight: 800; text-decoration: none; margin: 16px 0 20px; }
   .hint { font-size: 12px; color: #A8988A; }
 </style>
 </head>

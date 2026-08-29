@@ -160,6 +160,13 @@ function prefersHtmlPage(request: AuthenticatedRequest): boolean {
  * 이 페이지에 **보간되는 값은 0건**이다. 요청한 코드조차 되비추지 않는다 — 되비추는 순간
  * 이스케이프 문제가 생기고, 무엇보다 "이 코드는 있었다/없었다"를 말할 여지가 생긴다.
  *
+ * 색은 DNC-017 v0.5의 승인 팔레트다(Primary `#C94627` · Background `#FFFDFC`). 값의 단일 소스는
+ * `docs/brand/brand-tokens.json`이고, 표면 쪽 일치는
+ * `packages/test-utils/src/public-surface-brand.test.ts`가 진다. 라운드 73 트랙 C 이전에는 이
+ * 페이지가 **어느 시점의 토큰도 아닌 자체 팔레트**를 썼다 — 그 값의 이름과 내력은 단일 소스의
+ * `retired` 목록이 진다(여기서 다시 적으면 폐기값이 이 파일에 되살아난다). 바뀐 것은 `<style>`
+ * 블록의 색 리터럴뿐이고 상태 코드·헤더 셋·문장은 그대로다.
+ *
  * 문구는 사실 한 줄과 앱으로 가는 길까지다(DNC-018 해요체). **여기서 다른 판매처를 추천하지
  * 않는다** — 그 순간 이 URL이 커머스 페이지가 되고 DNC-010(고지)·DNC-011(스폰서 구분)이 통째로
  * 딸려 온다. 그래서 이 페이지에는 링크(`<a>`)가 하나도 없다.
@@ -173,10 +180,10 @@ function renderLinkUnavailablePage(): string {
 <meta name="robots" content="noindex">
 <title>우리아이 구매 링크</title>
 <style>
-  body { margin: 0; background: #FFF8F2; color: #4A3F35; font-family: "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
+  body { margin: 0; background: #FFFDFC; color: #4A3F35; font-family: "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; }
   main { max-width: 420px; margin: 0 auto; padding: 48px 24px; text-align: center; }
   .card { background: #FFFFFF; border: 1px solid rgba(74, 63, 53, 0.08); border-radius: 20px; padding: 32px 24px; box-shadow: 0 6px 18px rgba(74, 63, 53, 0.08); }
-  .brand { color: #FF7A59; font-size: 22px; font-weight: 800; margin-bottom: 24px; }
+  .brand { color: #C94627; font-size: 22px; font-weight: 800; margin-bottom: 24px; }
   h1 { font-size: 20px; line-height: 1.5; margin: 0 0 8px; }
   p { color: #857567; font-size: 14px; line-height: 1.6; margin: 0 0 8px; }
 </style>
