@@ -193,7 +193,10 @@ describe("GAP-072 E ⓐ-1 실패 시점 연결 판정은 공용 배선 한 벌�
     const upload = source("app/import/index.tsx");
     const review = source("app/import/[importJobId].tsx");
     for (const src of [upload, review]) {
-      expect(src).toContain('import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";');
+      // 라운드 74 트랙 D: 검수 화면은 같은 배선층에서 형제 훅(useLoadErrorCopy)을 함께 받으면서
+      // import 줄이 한 이름 넓어졌다. 이 계약이 붙드는 것은 줄의 모양이 아니라 **어디서 오는가**다.
+      expect(src).toContain('} from "../../src/offline/use-load-error-copy";');
+      expect(src).toContain("useErrorTimeConnectivity");
     }
     expect(upload).toContain("const uploadFailureOnline = useErrorTimeConnectivity(upload.isError);");
     expect(review).toContain("const toggleFailureOnline = useErrorTimeConnectivity(toggleRow.isError);");
@@ -213,7 +216,10 @@ describe("GAP-072 E ⓐ-1 실패 시점 연결 판정은 공용 배선 한 벌�
     const privacy = source("app/settings/privacy.tsx");
     const stepUi = source("src/onboarding/step-ui.tsx");
 
-    expect(privacy).toContain('import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";');
+    // 라운드 74 트랙 D: 개인정보 화면은 같은 배선층에서 형제 훅(useLoadErrorCopy)을 함께 받으면서
+    // import 줄이 한 이름 넓어졌다(조회 자리 넷의 배선 — src/offline/messages.test.ts가 진다).
+    expect(privacy).toContain('} from "../../src/offline/use-load-error-copy";');
+    expect(privacy).toContain("useErrorTimeConnectivity");
     expect(stepUi).toContain('import { useErrorTimeConnectivity } from "../offline/use-load-error-copy";');
 
     // 데모 세션 갈래는 **인자**로만 남는다(판정 로직은 한 줄도 새로 쓰지 않았다).

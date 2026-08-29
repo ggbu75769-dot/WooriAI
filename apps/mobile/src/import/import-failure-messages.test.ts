@@ -424,10 +424,13 @@ describe("배선 계약 (source verification)", () => {
     expect(src).toContain("Alert.alert(IMPORT_UNDO_CONFIRM_TITLE, importUndoConfirmMessage(entry.importedCount), [");
   });
 
-  it("검수 화면의 저장·확정 실패가 여정 모듈을 지난다 (조회 실패 둘은 종전 문구 그대로)", () => {
+  it("검수 화면의 저장·확정 실패가 여정 모듈을 지난다 (조회 실패 둘과 섞이지 않는다)", () => {
     const src = reviewScreen();
     expect(src).toContain('import { importFailureMessage } from "../../src/import/import-failure-messages";');
-    expect(src).toContain('import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";');
+    // 라운드 74 트랙 D: 같은 배선층에서 형제 훅(useLoadErrorCopy)이 함께 들어오면서 import 줄이
+    // 한 이름 넓어졌다. 이 계약이 붙드는 것은 줄의 모양이 아니라 **어디서 오는가**다.
+    expect(src).toContain('} from "../../src/offline/use-load-error-copy";');
+    expect(src).toContain("useErrorTimeConnectivity");
     // 라운드 71 리뷰 S-6: 행 편집의 연결 판정은 뮤테이션별 상태 둘이고(체크·분류), 문장을 고를
     // 때 오류와 그 판정을 **한 짝으로** 집는다 — 한쪽의 판정이 다른 쪽 문장에 얹히지 않는다.
     expect(src).toContain(
@@ -444,14 +447,19 @@ describe("배선 계약 (source verification)", () => {
     // 공용 상태 한 벌이던 종전 배선은 남아 있으면 안 된다.
     expect(src).not.toContain("rowEditFailureOnline");
     expect(src).toContain('{importFailureMessage("confirm", confirm.error, { isOnline: confirmFailureOnline })}');
-    // 종전에는 이 한 문자열이 **네 자리**에 섰다. 이제 조회 실패 둘뿐이다.
-    const loadFailedUses = src.match(/\{loadFailedText\}/g) ?? [];
-    expect(loadFailedUses).toHaveLength(2);
-    expect(src).toContain("<SecondaryButton label=\"다시 시도\" onPress={() => job.refetch()} />");
-    expect(src).toContain("<SecondaryButton label=\"다시 시도\" onPress={() => rows.refetch()} />");
-    // 저장·확정 자리에서 조회 문구를 돌려 쓰던 종전 배선은 남아 있으면 안 된다.
-    expect(src).not.toContain("{toggleRow.isError || updateCategory.isError ? (\n        <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text>");
-    expect(src).not.toContain("{confirm.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}");
+    // 종전에는 조회 실패 한 문자열이 **네 자리**에 섰다. 라운드 71 A가 저장 둘을 자기 여정의
+    // 문장으로 갈라 두 자리로 줄였고, 라운드 74 D가 남은 둘을 공용 조회 훅으로 배선했다 —
+    // 자리 수는 여전히 둘이고, 이제 그 둘이 각자 자기 조회의 판정을 그린다.
+    expect(src).not.toContain("loadFailedText");
+    expect(src.match(/useLoadErrorCopy\(/g) ?? []).toHaveLength(2);
+    expect(src).toContain("<Text style={{ color: theme.colors.danger }}>{jobLoadErrorCopy.title}</Text>");
+    expect(src).toContain("<Text style={{ color: theme.colors.danger }}>{rowsLoadErrorCopy.title}</Text>");
+    expect(src).toContain("<SecondaryButton label={jobLoadErrorCopy.actionLabel} onPress={() => job.refetch()} />");
+    expect(src).toContain("<SecondaryButton label={rowsLoadErrorCopy.actionLabel} onPress={() => rows.refetch()} />");
+    // 저장·확정 자리는 조회 문구를 돌려 쓰지 않는다(동사가 다르다) — 그 자리에 조회 훅의 값이
+    // 서면 라운드 71 A가 고친 그 오표시가 그대로 돌아온다.
+    expect(src).not.toContain("{confirm.isError ? <Text style={{ color: theme.colors.danger }}>{jobLoadErrorCopy.title}</Text>");
+    expect(src).not.toContain("{confirm.isError ? <Text style={{ color: theme.colors.danger }}>{rowsLoadErrorCopy.title}</Text>");
   });
 
   it("행 낙관 토글의 롤백·확정 CAS 잠금 규칙은 한 줄도 바뀌지 않았다", () => {
@@ -466,10 +474,25 @@ describe("배선 계약 (source verification)", () => {
     expect(src).toContain("IMPORT_BULK_CANCELLED_TEXT");
   });
 
-  it("오프라인 인지 화면 목록(P3 소유)은 무접촉이다", () => {
+  /**
+   * 라운드 74 트랙 D — 이 단언이 **다 갚아졌다**(그래서 방향을 뒤집는다).
+   *
+   * 라운드 71 A는 조회 실패 둘을 자기 트랙 밖으로 두면서 그 사실을 값으로 적었다 — 목록을
+   * 넓히는 것은 *"그 목록을 여는 라운드의 몫"*이라고. 라운드 74 트랙 D가 그 목록을 열어 검수
+   * 화면을 넣었으므로, 이제 물어야 할 것은 "목록 밖인가"가 아니라 **"두 여정이 섞이지
+   * 않는가"**다: 조회 둘은 공용 조회 훅에서, 저장 셋은 이 파일의 여정 표에서 온다.
+   */
+  it("조회 둘은 공용 목록의 몫이고, 저장 셋은 이 여정 표의 몫이다 (두 여정이 섞이지 않는다)", () => {
     const screens = source("src/offline/offline-aware-screens.ts");
-    // 이 트랙은 목록을 넓히지 않는다 — 검수 화면의 조회 실패 둘은 그 목록을 여는 라운드의 몫이다.
-    expect(screens).not.toContain("app/import/[importJobId].tsx");
-    expect(reviewScreen()).not.toContain("useLoadErrorCopy");
+    // 검수 화면은 이제 조회 배선 목록 안에 있고, 그 자리 모양(카드가 아님)도 값으로 남아 있다.
+    expect(screens).toContain('"app/import/[importJobId].tsx"');
+    const src = reviewScreen();
+    expect(src).toContain("const jobLoadErrorCopy = useLoadErrorCopy(job.isError);");
+    expect(src).toContain("const rowsLoadErrorCopy = useLoadErrorCopy(rows.isError);");
+    // 저장 셋은 여전히 이 파일의 판정 함수를 지난다(조회 훅이 그 자리에 서지 않는다).
+    expect(src).toContain('importFailureMessage("row_edit"');
+    expect(src).toContain('importFailureMessage("confirm"');
+    // 이 여정 모듈은 조회 목록을 import하지 않는다(두 단일 소스가 서로를 부르지 않는다).
+    expect(source("src/import/import-failure-messages.ts")).not.toContain("offline-aware-screens");
   });
 });

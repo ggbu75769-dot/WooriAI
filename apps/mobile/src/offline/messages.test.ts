@@ -11,6 +11,7 @@ import {
   OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS,
   OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS,
   OFFLINE_AWARE_LOAD_ERROR_SCREENS,
+  OFFLINE_AWARE_SAVE_ERROR_EXEMPT_SCREENS,
   OFFLINE_AWARE_SAVE_ERROR_SCREENS
 } from "./offline-aware-screens";
 import {
@@ -260,14 +261,21 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     for (const path of Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)) {
       expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS, `${path}는 목록 안의 화면이다`).toContain(path);
     }
-    // 오늘의 넷(라운드 73 E가 초대 화면을 더했다). 늘어나면 이 줄이 먼저 빨개지고, 늘린
-    // 라운드가 이유를 함께 적게 된다.
+    // 오늘의 여섯(라운드 73 E가 초대 화면을, 라운드 74 D가 검수·개인정보 두 화면을 더했다).
+    // 늘어나면 이 줄이 먼저 빨개지고, 늘린 라운드가 이유를 함께 적게 된다.
     expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS).sort()).toEqual([
       "app/family/accept/[token].tsx",
+      "app/import/[importJobId].tsx",
       "app/settings/children.tsx",
       "app/settings/index.tsx",
-      "app/settings/notifications.tsx"
+      "app/settings/notifications.tsx",
+      "app/settings/privacy.tsx"
     ]);
+    // 라운드 74 트랙 D — 이 여섯 중 둘은 **한 화면 안에 자리가 여럿**이다(검수 둘 · 개인정보 넷).
+    // 그래서 이유가 자리 모양만이 아니라 "왜 자리마다 훅을 하나씩 부르는가"까지 적는다.
+    for (const path of ["app/import/[importJobId].tsx", "app/settings/privacy.tsx"] as const) {
+      expect(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS[path], path).toContain("자리마다");
+    }
   });
 
   /**
@@ -424,6 +432,90 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
       expect(src).toContain(
         'const FAMILY_PENDING_INVITE_LOAD_ERROR_TEXT = "대기 중인 초대를 불러오지 못했어요. 눌러서 다시 시도해 주세요.";'
       );
+    });
+  });
+
+  /**
+   * 라운드 74 트랙 D(GAP-074 #4) — 부정 단언 스윕이 찾아낸 **화면 셋 · 자리 일곱**의 배선.
+   *
+   * 셋 다 공용 훅을 아예 부르지 않아 라운드 73까지의 스윕(목록 ↔ 사용 집합의 일치)을 **양쪽이
+   * 일치한 채** 통과했다. 규율은 라운드 72 B·73 E와 같다: **온라인 갈래는 종전과 바이트 단위로
+   * 같고**, 오프라인 갈래만 공용 단일 소스 문장으로 갈린다. 그래서 아래 단언들은 새 문구를
+   * 고정하지 않고 **종전 문자열이 그대로 나온다는 사실**과 **자리마다 자기 판정을 그린다는
+   * 사실**을 고정한다.
+   */
+  describe("라운드 74 트랙 D: 지출 상세 · 파기 미리보기 넷 · 검수 조회 둘의 배선", () => {
+    it("지출 상세(EXP-002)의 조회 실패 카드가 공용 문구·라벨을 그대로 받는다", () => {
+      const src = source("app/expenses/[expenseId].tsx");
+      expect(src).toContain("const loadErrorCopy = useLoadErrorCopy(expense.isError);");
+      expect(src).toContain("title={loadErrorCopy.title}");
+      expect(src).toContain("actionLabel={loadErrorCopy.actionLabel}");
+      // 카드 구조·재조회 대상은 그대로다(문구만 갈린다 — EXP-002 렌더 구조 불변).
+      expect(src).toContain("onPress={() => expense.refetch()}");
+      // 종전 두 리터럴이 화면에서 사라졌고, 그 값은 공용 상수와 **같다**(온라인 갈래 바이트 불변).
+      expect(src).not.toContain('title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."');
+      expect(src).not.toContain('actionLabel="다시 시도"');
+      expect(resolveLoadErrorCopy({ isOnline: true })).toEqual({
+        title: "불러오지 못했어요. 잠시 후 다시 시도해 주세요.",
+        actionLabel: "다시 시도"
+      });
+      // 이 화면은 폴을 손으로 띄우지 않는다(판정은 훅 하나).
+      expect(src).not.toContain("isCurrentlyOnline()");
+    });
+
+    it("개인정보 화면(SET-003/004)은 조회 자리 넷이 각자 자기 판정을 그린다", () => {
+      const src = source("app/settings/privacy.tsx");
+      const wired: ReadonlyArray<[string, string]> = [
+        ["privacyLoadErrorCopy", "privacy"],
+        ["childPreviewLoadErrorCopy", "childPreview"],
+        ["householdPreviewLoadErrorCopy", "householdPreview"],
+        ["accountPreviewLoadErrorCopy", "accountPreview"]
+      ];
+      for (const [variable, query] of wired) {
+        expect(src, `${variable}의 근거`).toContain(`const ${variable} = useLoadErrorCopy(${query}.isError);`);
+        // 각 문장은 자기 자리에서 한 번씩만 쓰인다(한 판정이 네 자리에 얹히던 종전 배선의 반대).
+        expect(src.match(new RegExp(`\\{${variable}\\.title\\}`, "g")) ?? [], variable).toHaveLength(1);
+      }
+      // 호출 수가 넷으로 고정이라 hooks 규칙에 안전하다(조건부 호출·루프 호출이 아니다).
+      expect(src.match(/useLoadErrorCopy\(/g) ?? []).toHaveLength(4);
+      // 고정 문자열 하나를 넷이 나눠 쓰던 종전 배선은 사라졌다.
+      expect(src).not.toContain("const loadFailedText =");
+      expect(src).not.toContain('"불러오지 못했어요. 잠시 후 다시 시도해 주세요."');
+      // 동의 내역 카드의 [다시 시도]도 같은 단일 소스에서 온다(온라인 갈래 라벨 불변).
+      expect(src).toContain(
+        "<SecondaryButton label={privacyLoadErrorCopy.actionLabel} onPress={() => privacy.refetch()} />"
+      );
+      // ⚠️ 파괴 흐름의 **저장** 실패 배선은 한 글자도 바뀌지 않는다(라운드 71 B · 리뷰 S-4의 데모 갈래).
+      expect(src).toContain("const isOnline = useErrorTimeConnectivity(isError && !isDemoSession);");
+      expect(src).toContain(
+        "return destructiveFlowErrorMessage(kind, error, { isOnline: isDemoSession || isOnline });"
+      );
+      // 정의 하나 + 저장 실패 네 자리 = 다섯(파괴 흐름 셋 + 동의 갱신 하나).
+      expect(src.match(/useFlowFailureText\(/g) ?? []).toHaveLength(5);
+    });
+
+    it("검수 화면(IMP-004)은 조회 둘만 배선하고, K-10 경고 자리는 그대로다", () => {
+      const src = source("app/import/[importJobId].tsx");
+      expect(src).toContain("const jobLoadErrorCopy = useLoadErrorCopy(job.isError);");
+      expect(src).toContain("const rowsLoadErrorCopy = useLoadErrorCopy(rows.isError);");
+      expect(src).toContain("<Text style={{ color: theme.colors.danger }}>{jobLoadErrorCopy.title}</Text>");
+      expect(src).toContain("<Text style={{ color: theme.colors.danger }}>{rowsLoadErrorCopy.title}</Text>");
+      expect(src).toContain("<SecondaryButton label={jobLoadErrorCopy.actionLabel} onPress={() => job.refetch()} />");
+      expect(src).toContain("<SecondaryButton label={rowsLoadErrorCopy.actionLabel} onPress={() => rows.refetch()} />");
+      // 조회는 정확히 둘이다 — 세 번째가 생기면 그 자리가 무엇인지 먼저 물어야 한다.
+      expect(src.match(/useLoadErrorCopy\(/g) ?? []).toHaveLength(2);
+      expect(src).not.toContain("const loadFailedText =");
+      // ⚠️ 일괄 선택의 **중간 실패**는 이 배선의 대상이 아니다(K-10: 앞부분은 이미 서버에 남아
+      // 있다 — 조회 문구를 돌려 쓰면 그 사실을 감춘다). 그 자리는 자기 문장을 그대로 지킨다.
+      expect(src).toContain(
+        "<Text style={{ color: theme.colors.danger }}>{IMPORT_BULK_PARTIAL_FAILURE_TEXT}</Text>"
+      );
+      // 저장 셋의 배선(라운드 71 A · 72 E)과 그 여정의 문구 판정은 무변경이다.
+      expect(src).toContain("const toggleFailureOnline = useErrorTimeConnectivity(toggleRow.isError);");
+      expect(src).toContain("const categoryFailureOnline = useErrorTimeConnectivity(updateCategory.isError);");
+      expect(src).toContain("const confirmFailureOnline = useErrorTimeConnectivity(confirm.isError);");
+      expect(src).toContain('importFailureMessage("row_edit"');
+      expect(src).toContain('importFailureMessage("confirm"');
     });
   });
 
@@ -716,6 +808,147 @@ describe("UX/C-07 저장 실패 문구", () => {
         SAVE_ERROR_NOTICE
       );
     });
+  });
+});
+
+/**
+ * 라운드 74 트랙 D(GAP-074 #4) — **옛 리터럴 부정 단언 스윕.**
+ *
+ * ## 무엇이 새는 축이었나
+ *
+ * 이 파일에는 이미 두 방향의 스윕이 있다: `app/**`에서 `useLoadErrorCopy(`/`useSaveErrorCopy(`를
+ * **실제로 쓰는 화면 집합**과 목록의 정확한 일치. 그 둘은 "배선해 놓고 목록에 안 적었다"와
+ * "목록에 적어 놓고 배선을 뗐다"를 잡는다.
+ *
+ * 라운드 73의 L-2 갱신 블록이 그 스윕이 **잡지 못하는 축**을 미리 적어 뒀다:
+ * *"새 리터럴 감지는 아니다: 새 화면이 공용 훅을 아예 부르지 않고 자기 문장을 손으로 적으면
+ * 사용 집합에도 목록에도 없으므로 **양쪽이 일치한 채 통과한다.** … 그 축을 잡으려면 다른 형태의
+ * 단언(예: **옛 리터럴의 부정 단언 스윕**)이 따로 필요하고, **오늘 그것은 조회 쪽에도 저장
+ * 쪽에도 없다.**"*
+ *
+ * 실제로 그렇게 통과한 채 살아 있던 옛 조회 실패 리터럴이 **화면 셋 · 자리 일곱**이었고
+ * (지출 상세 하나 · 개인정보 넷 · 검수 둘), 그 위에서 L-2의 제목은 "P3 0"이었다. 종결을 세는
+ * 목록이 그것을 세고 있지 않으면 종결이 아니다 — 그래서 반대 방향의 단언을 여기 세운다.
+ *
+ * ## 스윕이 묻는 것
+ *
+ * **`app/**`에 옛 실패 리터럴이 살아 있는 화면은 배선 목록이나 제외 목록에 예외 없이 이름이
+ * 있어야 한다.** 두 목록 어디에도 없는 화면이 하나라도 있으면 실패한다 — 즉 다음 라운드가
+ * 손으로 문장을 적는 순간, 두 답(배선하거나 이유를 값으로 적거나) 중 하나를 **고르게 된다.**
+ * 조회·저장 두 쪽에 같은 형태로 선다(라운드 73 N-3이 지목한 그 대칭이다).
+ *
+ * 바늘은 손으로 적지 않고 공용 상수의 앞 문장에서 **파생**한다. 그래서 주어가 앞에 붙은 변형
+ * ("기기 목록을 …", "초대 정보를 …", "대기 중인 초대를 …")도 같은 그물에 걸리고, 문구가 바뀌면
+ * 스윕이 세는 대상도 함께 따라간다.
+ */
+describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
+  const mobileRoot = process.cwd();
+
+  /**
+   * 주석은 걷어내고 본다 — 이 저장소의 화면 주석은 자기가 무엇을 고쳤는지 설명하려고 **옛
+   * 문장을 인용한다**(검수 화면의 403 설명 · 알림 설정의 종전 문장 · 이 파일 자신). 여기서
+   * 잡으려는 것은 화면이 사용자에게 그리는 문자열이지 그 문장을 언급하는 일이 아니다
+   * (recurring-flow.test.ts의 codeOnly와 같은 관례).
+   */
+  const codeOnly = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+
+  /** 바늘은 공용 상수의 **앞 문장**이다(손으로 적지 않는다 — 문구가 바뀌면 함께 따라간다). */
+  const firstSentenceOf = (notice: string) => notice.slice(0, notice.indexOf("."));
+  const OLD_LOAD_FAILURE_PHRASE = firstSentenceOf(LOAD_ERROR_NOTICE);
+  const OLD_SAVE_FAILURE_PHRASE = firstSentenceOf(SAVE_ERROR_NOTICE);
+
+  /** `app/**`의 화면 중 코드(주석 제외)에 그 문장이 살아 있는 것들. */
+  const appScreensWithPhrase = (phrase: string): string[] => {
+    const found: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!entry.name.endsWith(".tsx")) continue;
+        if (!codeOnly(readFileSync(fullPath, "utf8")).includes(phrase)) continue;
+        found.push(relative(mobileRoot, fullPath).split(sep).join("/"));
+      }
+    };
+    walk(join(mobileRoot, "app"));
+    return found.sort();
+  };
+
+  /**
+   * 스윕 자신의 계약. 저장 쪽 답이 오늘 0건이라, **그물이 찢어져 있어도 통과하는** 형태가 될 수
+   * 있다 — 그래서 바늘과 주석 제거가 실제로 동작하는지를 값으로 못박는다.
+   */
+  it("바늘은 파생값이고, 살아 있는 문자열과 주석 인용을 가른다", () => {
+    expect(OLD_LOAD_FAILURE_PHRASE).toBe("불러오지 못했어요");
+    expect(OLD_SAVE_FAILURE_PHRASE).toBe("저장하지 못했어요");
+    // 주어가 앞에 붙은 계열도 같은 바늘에 걸린다.
+    expect(`기기 목록을 ${LOAD_ERROR_NOTICE}`).toContain(OLD_LOAD_FAILURE_PHRASE);
+    expect(`알림 설정을 ${SAVE_ERROR_NOTICE}`).toContain(OLD_SAVE_FAILURE_PHRASE);
+    // 살아 있는 문자열은 잡고, 같은 문장의 주석 인용은 놓아준다.
+    expect(codeOnly(`const t = "${LOAD_ERROR_NOTICE}";`)).toContain(OLD_LOAD_FAILURE_PHRASE);
+    expect(codeOnly(`// 종전 문장은 "${LOAD_ERROR_NOTICE}"였다`)).not.toContain(OLD_LOAD_FAILURE_PHRASE);
+    expect(codeOnly(`/** ${SAVE_ERROR_NOTICE} */`)).not.toContain(OLD_SAVE_FAILURE_PHRASE);
+  });
+
+  it("ⓐ 조회: 옛 리터럴이 살아 있는 app/** 화면은 예외 없이 배선 목록이나 제외 목록에 있다", () => {
+    const screens = appScreensWithPhrase(OLD_LOAD_FAILURE_PHRASE);
+    // 그물이 실제로 app 트리를 훑고 있다는 증거(빈 답이 조용히 통과하지 않게).
+    expect(screens.length).toBeGreaterThan(0);
+    const named = new Set<string>([
+      ...OFFLINE_AWARE_LOAD_ERROR_SCREENS,
+      ...Object.keys(OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS)
+    ]);
+    expect(screens.filter((path) => !named.has(path))).toEqual([]);
+  });
+
+  it("ⓐ 저장: 같은 형태의 스윕이 저장 쪽에도 선다 (대칭 — 라운드 73 N-3이 지목한 그 단언)", () => {
+    const screens = appScreensWithPhrase(OLD_SAVE_FAILURE_PHRASE);
+    const named = new Set<string>([
+      ...OFFLINE_AWARE_SAVE_ERROR_SCREENS,
+      ...Object.keys(OFFLINE_AWARE_SAVE_ERROR_EXEMPT_SCREENS)
+    ]);
+    expect(screens.filter((path) => !named.has(path))).toEqual([]);
+    // 오늘의 답은 0건이다 — 화면이 그리는 저장 실패 문장은 전부 순수 모듈에서 오고, 그 모듈들이
+    // 각자 자기 여정의 판정을 이미 지고 있다(save-error-messages · import-failure-messages ·
+    // destructive-flow-messages · step-ui · app-lock). 손으로 적는 화면이 하나 생기는 날 위
+    // 단언이 먼저 빨개진다.
+    expect(screens).toEqual([]);
+  });
+
+  it("ⓔ 두 제외 목록의 이유는 빈 문자열일 수 없고, 배선 목록과 겹치지 않는다", () => {
+    const lists = [
+      ["조회", OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS, OFFLINE_AWARE_LOAD_ERROR_SCREENS],
+      ["저장", OFFLINE_AWARE_SAVE_ERROR_EXEMPT_SCREENS, OFFLINE_AWARE_SAVE_ERROR_SCREENS]
+    ] as const;
+    for (const [label, exempt, wired] of lists) {
+      for (const [path, reason] of Object.entries(exempt)) {
+        expect(reason.trim().length, `${label} 제외 ${path}의 사유가 값으로 남아 있다`).toBeGreaterThan(30);
+        expect(wired, `${label} 제외 ${path}는 배선 목록 밖이다`).not.toContain(path);
+      }
+    }
+  });
+
+  /**
+   * ⓑ 오늘의 값. 라운드 73이 "제외를 값으로 적는다"는 기계를 만들고 넷 중 하나만 넣은 뒤
+   * "P3 0개"를 선언했으므로, 이번 라운드가 만든 값도 여기 남긴다 — 다음 라운드가 문서의 산문이
+   * 아니라 이 줄과 대조하게 된다.
+   */
+  it("ⓑ 조회 목록 열넷 · 카드가 아닌 자리 여섯(다섯 이상) · 저장 목록 넷", () => {
+    expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toHaveLength(14);
+    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS).length).toBeGreaterThanOrEqual(5);
+    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)).toHaveLength(6);
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(4);
+    // 이번 라운드가 더한 셋이 실제로 목록 안에 있다(스윕이 통과한 이유가 목록이지 예외가 아니다).
+    for (const path of [
+      "app/expenses/[expenseId].tsx",
+      "app/import/[importJobId].tsx",
+      "app/settings/privacy.tsx"
+    ] as const) {
+      expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toContain(path);
+      expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS)).not.toContain(path);
+    }
   });
 });
 

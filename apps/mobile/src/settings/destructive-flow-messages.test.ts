@@ -364,9 +364,10 @@ describe("라운드 71 B(#2) SET-004 배선 (source contract)", () => {
    * 가드·복원의 사실 자체는 공용 훅 쪽 계약이 진다(`src/shared-decision-wiring.test.ts` ⓐ-1).
    */
   it("연결 판정은 공용 배선 한 벌에서 오고, 이 화면에 사본이 없다", () => {
-    expect(privacySource).toContain(
-      'import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";'
-    );
+    // 라운드 74 트랙 D: 같은 배선층에서 형제 훅(useLoadErrorCopy)이 함께 들어오면서 import 줄이
+    // 한 이름 넓어졌다. 이 계약이 붙드는 것은 줄의 모양이 아니라 **어디서 오는가**다.
+    expect(privacySource).toContain('} from "../../src/offline/use-load-error-copy";');
+    expect(privacySource).toContain("useErrorTimeConnectivity");
     expect(privacySource).toContain("const isOnline = useErrorTimeConnectivity(isError && !isDemoSession);");
     // 재구현이 남지 않는다 — 폴도 가드도 이 화면의 **코드**에 없다(옛 배선을 이력으로 인용하는
     // 주석과, 그 배선을 실제로 적는 코드는 다르다).
@@ -427,16 +428,33 @@ describe("라운드 71 B(#2) SET-004 배선 (source contract)", () => {
     expect(privacySource).toContain("clearSession();");
   });
 
-  it("이 트랙이 지나지 않는 두 자리는 종전 그대로다 — 조회 실패와 약관 링크 실패", () => {
-    // 조회 실패의 오프라인 배선은 OFFLINE_AWARE_LOAD_ERROR_SCREENS의 몫이다(무접촉).
-    expect(privacySource).toContain('const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";');
+  /**
+   * 라운드 74 트랙 D — 이 단언의 절반이 **사실이 아니게 됐다**(그래서 갱신한다).
+   *
+   * 라운드 71 B는 조회 실패 넷을 자기 트랙 밖으로 두면서 그 사실을 여기 값으로 적었다
+   * (*"조회 실패의 오프라인 배선은 `OFFLINE_AWARE_LOAD_ERROR_SCREENS`의 몫이다"*). 라운드 74
+   * 트랙 D가 바로 그 목록을 열어 이 화면을 넣었으므로 조회 자리 넷은 이제 공용 훅을 지난다.
+   *
+   * 이 테스트가 **계속** 지켜야 하는 것은 바뀌지 않았다: 이 트랙(파괴 흐름 **저장** 실패)의
+   * 배선·문구가 조회 쪽 변화에 끌려가지 않는다는 사실이다. 그래서 조회 쪽은 "무접촉"이 아니라
+   * **"저장 쪽과 섞이지 않는다"**로 단언의 방향만 바꾼다 — 조회 넷의 배선 자체는 그 목록의
+   * 계약(src/offline/messages.test.ts)이 진다.
+   */
+  it("조회 실패는 저장 실패와 섞이지 않고, 약관 링크 실패는 종전 그대로다", () => {
+    // 조회 자리 넷은 공용 조회 훅에서 오고, 파괴 흐름의 저장 문구 모듈을 지나지 않는다.
+    expect(privacySource).toContain("const privacyLoadErrorCopy = useLoadErrorCopy(privacy.isError);");
     expect(privacySource).toContain("{privacy.isError ? (");
+    expect(privacySource).not.toContain("const loadFailedText =");
+    // 되돌릴 수 없는 확정의 문장은 여전히 이 모듈에서만 온다(조회 훅이 그 자리에 서지 않는다).
+    for (const variable of ["childDeleteFailureText", "householdLeaveFailureText", "accountDeleteFailureText"]) {
+      expect(privacySource, variable).toContain(`{${variable}}`);
+      expect(privacySource, variable).not.toContain(`{${variable}LoadErrorCopy`);
+    }
     // 라운드 71 리뷰 S-2: 여는 규칙만 공용 모듈로 옮겼고(문구·동작 불변), 이 트랙은 여전히
     // 그 자리를 지나지 않는다.
     expect(privacySource).toContain(
       "openExternalUrl(url, { failTitle: LEGAL_LINK_FAILED_TITLE, failMessage: LEGAL_LINK_FAILED_MESSAGE });"
     );
-    expect(privacySource).not.toContain("useLoadErrorCopy");
   });
 
   it("서버·데모 거울은 무접촉이다 (impact 배열은 상자의 계약, 실패 문구는 앱의 것)", () => {
