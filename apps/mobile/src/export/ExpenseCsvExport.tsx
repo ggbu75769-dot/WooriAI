@@ -103,6 +103,12 @@ export type ExpenseCsvExportController = {
    * 전량이다(위 `pendingNotice`와 모집단이 다르다). 이 컨트롤러가 이미 구독 중인 스냅숏에서
    * 그대로 나오므로 소비 화면에는 새 구독도 새 요청도 없다. 문장을 만드는 것은
    * `logoutConfirmMessage`(src/offline/messages.ts)이고 이 값은 그 입력일 뿐이다.
+   *
+   * ⚠️ 라운드 69 트랙 A(#1): 같은 teardown이 지우는 **정기 지출 템플릿 개수는 여기 들어오지
+   * 않는다.** 저장소가 다르고(zustand persist ↔ SQLite 아웃박스) 이 모듈에는 그 데이터가 실리지
+   * 않는다는 계약이 따로 있다(recurring-flow.test.ts "템플릿을 CSV 내보내기에 싣지 않는다" —
+   * 라운드 65 A의 CSV 왕복 계약). 그래서 그 값은 로그아웃 Alert를 여는 화면이 셀렉터 하나로 읽어
+   * 이 값과 함께 넘긴다(app/settings/index.tsx). 즉 이 필드의 모집단은 **아웃박스 두 큐**다.
    */
   devicePendingRecords: LogoutPendingInput;
   busy: boolean;

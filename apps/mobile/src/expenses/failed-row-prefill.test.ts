@@ -7,9 +7,11 @@ import { RemotePermanentError } from "../offline/errors";
 import { isPermissionDeniedSyncError, isRetryableSyncFailureRow } from "../offline/permission-denied";
 import { discardFailedMutation, flushOutbox, recordLocalCreate, type RemoteSyncApi } from "../offline/sync-engine";
 import type { ExpensePayload } from "../offline/types";
+// 라운드 69 트랙 A(P3): 이 문구는 열 라운드 이월 끝에 동기화 상태 화면 문구의 단일 소스로
+// 이사했다(값 불변). 그래서 이 파일도 그 자리에서 읽는다 — 두 벌이 되지 않게.
+import { FAILED_ROW_OTHER_CHILD_NOTICE } from "../offline/messages";
 import {
   buildFailedRowPrefillParams,
-  FAILED_ROW_OTHER_CHILD_NOTICE,
   isFailedRowChildMismatch,
   NO_FAILED_ROW_PREFILL_DATE,
   parseFailedRowLocalId,
@@ -434,9 +436,10 @@ describe("라운드 58 #5 sync-status 화면 배선 (소스 계약)", () => {
 
   it("재시도가 무익한 4xx 행에만 '고쳐서 다시 보내기'가 선다", () => {
     const src = screen();
-    expect(src).toContain(
-      'import { buildFailedRowPrefillParams, FAILED_ROW_OTHER_CHILD_NOTICE } from "../src/expenses/failed-row-prefill";'
-    );
+    expect(src).toContain('import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";');
+    // 라운드 69 트랙 A(P3): 안내 문구는 이 모듈이 아니라 동기화 문구 단일 소스에서 온다.
+    expect(src).toContain("  FAILED_ROW_OTHER_CHILD_NOTICE,\n");
+    expect(source("src/expenses/failed-row-prefill.ts")).not.toContain("export const FAILED_ROW_OTHER_CHILD_NOTICE");
     expect(src).toContain("SYNC_STATUS_FIX_AND_RESEND_LABEL");
     const branchStart = src.indexOf("if (!isRetryableSyncFailureRow(row)) {");
     expect(branchStart).toBeGreaterThan(-1);

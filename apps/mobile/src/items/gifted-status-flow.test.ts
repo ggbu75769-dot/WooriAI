@@ -193,6 +193,10 @@ describe("준비완료 탭의 선물 배지 (items 탭)", () => {
  * 그다음: 상태탭 1 + 스냅샷 1(tab="all") + 홈 1 = 3.
  * DSN-053 P2-B: 상태 탭 목록이 사라지고 **스냅샷 하나가 곧 목록**이 됐다 -- 목록 1(tab="all")
  * + 홈 1 = 2. 분류 이름은 다른 화면들과 공유하는 ["categories"] 캐시에서 읽는다.
+ * 라운드 69 트랙 C: `/home`의 소비처가 `child.currentStage` 한 필드뿐이었고 그 값을 이미 구독
+ * 중인 ["children"] 캐시에서 읽게 되면서 홈 요청이 이 화면에서 **사라졌다** -- 목록 1이 전부다.
+ * (요청 수는 곁가지다: ["home", childId]는 홈 탭과 공유하는 키라 실제 절감은 "홈을 아직 안 본
+ * 상태에서 준비템 탭으로 직행"에서만 생긴다. 이 변경의 본체는 정직성이다.)
  */
 describe("준비템 탭 진입 요청 수", () => {
   it("준비율·목록·찜이 tab=\"all\" 스냅샷 한 건을 함께 쓴다", () => {
@@ -202,11 +206,13 @@ describe("준비템 탭 진입 요청 수", () => {
     expect(itemsSource).not.toContain("Promise.all(tabs.map");
   });
 
-  it("화면 전체에서 나가는 목록/홈 요청은 2개다", () => {
+  it("화면 전체에서 나가는 목록/홈 요청은 1개다 (라운드 69 C: 홈 요청이 사라졌다)", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
-    // listItems 호출 지점 1곳(전 상태 스냅샷) + getHome 1곳.
+    // listItems 호출 지점 1곳(전 상태 스냅샷)뿐. 홈은 아예 부르지 않는다.
     expect(itemsSource.match(/listItems\(authToken!/g)).toHaveLength(1);
-    expect(itemsSource.match(/getHome\(authToken!/g)).toHaveLength(1);
+    expect(itemsSource).not.toContain("getHome");
+    // 시기 밴드의 원천은 아이 전환이 이미 구독 중인 캐시라 **새 요청이 0건**이다.
+    expect(itemsSource.match(/listChildren\(authToken!/g)).toHaveLength(1);
   });
 });
 

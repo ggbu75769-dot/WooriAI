@@ -43,7 +43,9 @@ describe("items tab stage-band wiring", () => {
     expect(itemsSource).toContain("resolvePreparationTimelineBucket(rowItem, stageLabel)");
     expect(itemsSource).toContain("computeEssentialPrepProgress(items.data.items, stageLabel)");
     // 기본 칩은 사용자의 수동 선택과 무관하게 계산한다(다른 칩을 눌렀다가 되돌아와도 판별 가능).
-    expect(itemsSource).toMatch(/const defaultStageLabel = resolveDefaultStageLabel\(\{[^]*?hasManualSelection: false/);
+    // 라운드 69 트랙 C: 판정이 `{ label, resolved }`를 돌려주므로 화면은 라벨을 따로 꺼낸다.
+    expect(itemsSource).toMatch(/const defaultStageBand = resolveDefaultStageLabel\(\{[^]*?hasManualSelection: false/);
+    expect(itemsSource).toContain("const defaultStageLabel = defaultStageBand.label;");
   });
 
   it("밴드 ↔ 스테이지 매핑을 화면에 복제하지 않는다 (판정은 어댑터 한 곳)", () => {
@@ -79,6 +81,103 @@ describe("items tab stage-band wiring", () => {
     expect(itemsSource).toContain("onSearch={setSearchText}");
     expect(itemsSource).toContain("activeSearchQuery={searchText}");
     expect(source("src/preparation/PreparationListParity.tsx")).toContain('returnKeyType="search"');
+  });
+});
+
+/**
+ * 라운드 69 트랙 C — **시기 밴드: 출처를 하나로, 모르면 모른다고.**
+ *
+ * 고치던 문제: 화면이 아이의 현재 단계를 `/home`에서만 읽었고, 그 응답이 실패하면 기본 칩이
+ * 아무 말 없이 `"12-24개월"`이 되고 "출산 전" 칩이 통째로 사라졌다. 목록(`tab="all"`)은 그
+ * 순간에도 성공하므로 화면은 완전히 건강해 보였다 — 탭의 이름이 곧 약속인 자리에서
+ * (시기별 준비물, DNC-001) 그 약속이 침묵으로 깨지는 유일한 경로다.
+ */
+describe("라운드 69 C: 시기 밴드의 원천과 모름 고지", () => {
+  it("시기 원천이 이미 구독 중인 ['children'] 캐시의 선택된 아이다 (새 요청 0건)", () => {
+    const items = source("app/(tabs)/items.tsx");
+
+    expect(items).toContain('queryKey: ["children"]');
+    expect(items).toContain("const stageSourceChild = childrenQuery.data?.children.find((child) => child.id === childId);");
+    expect(items).toContain("currentStage: stageSourceChild?.currentStage,");
+    // 기본 칩과 "출산 전" 칩이 **같은 한 값**을 읽는다(둘 다 stageSourceChild).
+    expect(items.match(/currentStage: stageSourceChild\?\.currentStage,/g)).toHaveLength(2);
+  });
+
+  it("두 원천이 서버에서 같은 함수(toChildDto)에서 온다는 근거가 소스에 적혀 있다", () => {
+    // 출처를 바꾸는 변경의 정당성이 곧 이 사실이라, 다음 사람이 되돌리기 전에 읽을 수 있어야 한다.
+    const items = source("app/(tabs)/items.tsx");
+    expect(items).toContain("toChildDto");
+    expect(source("src/items/stage-bands.ts")).toContain("toChildDto");
+    // 서버에서도 그 함수가 한 벌인지 값으로 확인한다(이 트랙은 서버를 한 줄도 바꾸지 않는다).
+    const storeShared = readFileSync(join(mobileRoot, "../api/src/onboarding/store-shared.ts"), "utf8");
+    expect(storeShared).toContain("export function toChildDto(");
+    for (const path of ["../api/src/onboarding/reporting-store.service.ts", "../api/src/onboarding/onboarding-core.service.ts"]) {
+      expect(readFileSync(join(mobileRoot, path), "utf8"), path).toContain("toChildDto(");
+    }
+  });
+
+  it("/home 쿼리는 이 화면에서 사라졌다 (소비처가 그 한 필드뿐이었다)", () => {
+    const items = source("app/(tabs)/items.tsx");
+    expect(items).not.toContain("getHome");
+    expect(items).not.toContain('queryKey: ["home", childId]');
+    expect(items).not.toContain("home.data");
+    // 당겨서 새로고침의 ["home"] 무효화는 **남는다**: 여기서 누른 준비 상태를 홈 탭의 추천
+    // 카드가 그리므로, 빼는 쪽이 오히려 홈의 동작을 바꾼다(이 트랙은 홈 화면 무접촉).
+    expect(items).toContain('queryClient.invalidateQueries({ queryKey: ["home"] })');
+    // 시기 원천이 옮겨 왔으므로 그 캐시도 당김의 대상이다 — 고지에서 벗어나는 길이 화면에 있어야 한다.
+    expect(items).toContain('queryClient.invalidateQueries({ queryKey: ["children"] })');
+  });
+
+  it("모름 고지는 정착 뒤에만, 칩 줄 바로 위에 선다 (로딩 중에는 무언)", () => {
+    const items = source("app/(tabs)/items.tsx");
+
+    // 정착 판정은 새로 적지 않고 기존 술어 한 벌을 쓴다.
+    expect(items).toContain("isChildrenSettled({ authToken, isSuccess: childrenQuery.isSuccess, isError: childrenQuery.isError })");
+    expect(items).toContain("const showStageBandUnresolvedNotice =");
+    // 네 게이트: 세션 · 픽셀락 아님 · 수동 선택 전 · 시기 모름.
+    const gate = items.slice(
+      items.indexOf("const showStageBandUnresolvedNotice ="),
+      items.indexOf("const childSwitch = useChildSwitchSheet({")
+    );
+    expect(gate).toContain("hasSession");
+    expect(gate).toContain("!isPixelLockMode");
+    expect(gate).toContain("!hasManualStageSelection");
+    expect(gate).toContain("!defaultStageBand.resolved");
+
+    // 고지는 시기 칩 줄보다 **앞**에 그려진다(고를 대상이 바로 아래 있어야 한다).
+    const noticeIndex = items.indexOf("{showStageBandUnresolvedNotice ? (");
+    const chipRowIndex = items.indexOf("{tabOptions.map((option) => (", noticeIndex);
+    expect(noticeIndex).toBeGreaterThan(-1);
+    expect(chipRowIndex).toBeGreaterThan(noticeIndex);
+    // 문구는 화면이 다시 적지 않는다(단일 소스는 stage-bands.ts).
+    expect(items).toContain("{STAGE_BAND_UNRESOLVED_NOTICE}");
+    expect(items).not.toContain('"지금 시기를 확인하지 못했어요');
+  });
+
+  it("비세션(ITEM-001 캡처) 렌더는 고지에 닿지 않는다", () => {
+    const items = source("app/(tabs)/items.tsx");
+    // 미리보기 렌더는 그 위에서 먼저 반환된다 -- 고지는 세션 렌더의 보조 칩 줄에만 있다.
+    const previewReturnIndex = items.indexOf("if (!hasSession) {");
+    const noticeIndex = items.indexOf("{showStageBandUnresolvedNotice ? (");
+    expect(previewReturnIndex).toBeGreaterThan(-1);
+    expect(noticeIndex).toBeGreaterThan(previewReturnIndex);
+    // 폴백 밴드 값 자체는 그대로다(ITEM-001 캡처 판정이 그 값에 걸려 있다).
+    expect(items).toContain('const [stageLabel, setStageLabel] = useState<StageBandLabel>("12-24개월");');
+    expect(items).toContain('fallback: "12-24개월"');
+  });
+
+  it("판정 모듈 셋은 무접촉이다 (입력 출처만 바뀐다)", () => {
+    // pre-birth-filter / item-filters의 판정 규칙은 이번 라운드가 한 글자도 만지지 않는다.
+    expect(source("src/items/pre-birth-filter.ts")).toContain(
+      "return input.hasSession && isPreBirthStage(input.currentStage) && bandOffersPreBirthItems(input.selectedBand);"
+    );
+    const items = source("app/(tabs)/items.tsx");
+    expect(items).toContain("const offersPreBirthFilter = shouldOfferPreBirthFilter({");
+    expect(items).toContain("const preBirthFilterActive = isPreBirthFilterActive({");
+    // 목록 요청·준비율·찜 칩도 그대로다.
+    expect(items).toContain('listItems(authToken!, childId!, "all")');
+    expect(items).toContain("computeEssentialPrepProgress(items.data.items, stageLabel)");
+    expect(items).toContain("filterInterestedItems(visibleItems)");
   });
 });
 

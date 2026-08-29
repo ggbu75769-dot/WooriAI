@@ -35,7 +35,7 @@ export class CreateExpenseDto {
   /**
    * 라운드 36 F-7: 여기서는 `YYYY-MM-DD` 형식만 본다. "오늘보다 미래일 수 없다"(DNC-013)는
    * 도메인 규칙이라 서비스 계층이 서울 기준으로 판정하고
-   * (`store-shared.assertNotFutureDate` → `isFutureSeoulDate(spentOn, referenceNow())`),
+   * (`store-shared.assertExpenseDateWithinRange` → `isFutureSeoulDate(spentOn, referenceNow())`),
    * VALIDATION_ERROR가 아니라 **EXPENSE_FUTURE_DATE(400)** 로 나간다. 달력상 불가능한 날짜
    * (2026-02-31)도 같은 곳에서 EXPENSE_DATE_INVALID로 걸린다 — 정규식만으로는 통과하기 때문이다.
    *

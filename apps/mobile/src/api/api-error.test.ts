@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   accountStatusErrorMessage,
+  ACCOUNT_STATUS_ERROR_CODES,
   apiErrorCodeOf,
   apiErrorMessage,
   apiErrorMessageForCode,
@@ -12,6 +13,13 @@ import {
   parseApiErrorEnvelope
 } from "./api-error";
 import { amountOverLimitMessage, EXPENSE_AMOUNT_MAX_KRW } from "../expenses/amount-limit";
+import { EXPENSE_DATE_TOO_OLD_ERROR } from "../expenses/entry-form-guards";
+import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
+import { ENTRY_DATE_MAX_PAST_YEARS } from "@wooriai/domain";
+import {
+  SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT,
+  SYNC_STATUS_PERMANENT_FAILURE_HINT
+} from "../offline/permission-denied";
 
 /**
  * 라운드 45 UX-Z — 서버 실패 사유가 경계에서 뭉개지지 않는다는 계약.
@@ -24,6 +32,17 @@ import { amountOverLimitMessage, EXPENSE_AMOUNT_MAX_KRW } from "../expenses/amou
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+
+/**
+ * 라운드 69 B — 표의 반대편. 계약이 "두 자리가 같은 사실을 말하는가"라서 **실제 서버 파일**을
+ * 읽는다(계약 미러가 아니다 — src/family/household-scope.test.ts가 세운 형식 그대로).
+ */
+const apiSource = (relativePath: string) => readFileSync(join(mobileRoot, "../../apps/api/src", relativePath), "utf8");
+
+/** 서버 파일이 던지는 오류 코드 전량. `throw new XxxException({ code: "...", ... })`의 그 리터럴. */
+function thrownCodesIn(relativePath: string): string[] {
+  return [...apiSource(relativePath).matchAll(/\bcode: "([A-Z0-9_]+)"/g)].map((match) => match[1]);
+}
 
 /** 서버(GlobalExceptionFilter)가 실제로 내려보내는 모양. */
 function envelope(code: string, message: string, extra: Record<string, unknown> = {}) {
@@ -236,6 +255,247 @@ describe("화이트리스트 표 — 아는 코드만 문구로 바꾼다", () =
     // 프로토타입 오염 방지: Object.prototype의 키가 문구로 둔갑하지 않는다.
     expect(apiErrorMessageForCode("toString")).toBeNull();
     expect(apiErrorMessageForCode("constructor")).toBeNull();
+  });
+});
+
+/**
+ * 라운드 69 B — **서버가 이미 한국어로 말한 실패 사유가 화면까지 오는가.**
+ *
+ * 라운드 45가 세운 표에는 "서버에 코드가 늘 때 함께 늘어나는 규율"이 없었다. 그래서 라운드 68이
+ * 코드를 둘 만들면서 표를 열지 않았고(날짜 하한 두 코드), 그 이전에도 넷이 밀려 있었다. 표에 없는
+ * 코드의 실패 행이 받는 것은 "요청을 처리하지 못했어요." 한 줄 + 재시도 버튼 없음이다.
+ *
+ * 이 블록은 두 가지를 고정한다.
+ *  1. 이번에 더한 일곱 줄이 **말해야 하는 것을 말하는가**(문구의 출처 · 재시도 금지 · 다음 할 일).
+ *  2. **앞으로도 늘어나는가** — 아웃박스·상태 큐가 지나는 서버 파일을 긁어, 거기서 던지는 코드가
+ *     표에 있거나 **이유가 적힌 제외 목록**에 있는지 묻는다(교집합 소스 계약).
+ */
+describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
+  const round69Codes = [
+    "EXPENSE_DATE_TOO_OLD",
+    "CHILD_BIRTH_DATE_TOO_OLD",
+    "EXPENSE_LINKED_ITEM_TEMPLATE_INVALID",
+    "EXPENSE_CATEGORY_INVALID",
+    "EXPENSE_NOT_FOUND",
+    "CHILD_NOT_FOUND",
+    "ITEM_NOT_FOUND"
+  ];
+
+  /** 이번에 더한 404 셋 — 대상이 사라진 실패다. */
+  const notFoundCodes = ["EXPENSE_NOT_FOUND", "CHILD_NOT_FOUND", "ITEM_NOT_FOUND"];
+
+  it("이번 라운드가 약속한 일곱 줄이 모두 표에 있다", () => {
+    for (const code of round69Codes) {
+      expect(API_ERROR_MESSAGES[code], code).toBeTruthy();
+    }
+  });
+
+  it("날짜 하한 두 코드의 문구는 폼 상수를 읽는다 — 표가 문장도 숫자도 짓지 않는다", () => {
+    // 같은 경계를 폼·서버·표가 각자 말하면 그 자체가 세 개의 계약이다(라운드 68 A의 판단).
+    expect(API_ERROR_MESSAGES.EXPENSE_DATE_TOO_OLD).toBe(EXPENSE_DATE_TOO_OLD_ERROR);
+    expect(API_ERROR_MESSAGES.CHILD_BIRTH_DATE_TOO_OLD).toBe(CHILD_BIRTH_DATE_TOO_OLD_ERROR);
+    // 두 폼이 이미 글자까지 같은 한 문장을 쓴다(entry-form-guards.test.ts · child-form.test.ts).
+    expect(API_ERROR_MESSAGES.EXPENSE_DATE_TOO_OLD).toBe(API_ERROR_MESSAGES.CHILD_BIRTH_DATE_TOO_OLD);
+
+    const apiErrorSource = source("src/api/api-error.ts");
+    expect(apiErrorSource).toContain('import { EXPENSE_DATE_TOO_OLD_ERROR } from "../expenses/entry-form-guards";');
+    expect(apiErrorSource).toContain('import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";');
+    expect(apiErrorSource).toContain("EXPENSE_DATE_TOO_OLD: EXPENSE_DATE_TOO_OLD_ERROR,");
+    expect(apiErrorSource).toContain("CHILD_BIRTH_DATE_TOO_OLD: CHILD_BIRTH_DATE_TOO_OLD_ERROR,");
+    // 연 수(20)가 이 파일에 리터럴로 적히면 도메인 상수와 갈라지는 순간을 아무도 모른다.
+    expect(apiErrorSource).not.toContain(`${ENTRY_DATE_MAX_PAST_YEARS}년보다`);
+  });
+
+  it("서버가 던진 그 코드를 받으면 표의 문구가 서고, 막다른 폴백은 사라진다", () => {
+    // 서버 원문 그대로의 봉투(store-shared.ts / onboarding-core.service.ts).
+    const tooOld = new ApiHttpError(400, envelope("EXPENSE_DATE_TOO_OLD", EXPENSE_DATE_TOO_OLD_ERROR));
+    expect(apiErrorMessage(tooOld, "요청을 처리하지 못했어요.")).toBe(EXPENSE_DATE_TOO_OLD_ERROR);
+
+    // 가장 도달하기 쉬운 자리: "샀어요" → 오프라인 저장 → 그 사이 템플릿이 내려감 → flush 400.
+    const linkedItem = new ApiHttpError(
+      400,
+      envelope("EXPENSE_LINKED_ITEM_TEMPLATE_INVALID", "연결된 준비템을 찾을 수 없어요.")
+    );
+    const linkedShown = apiErrorMessage(linkedItem, "요청을 처리하지 못했어요.");
+    expect(linkedShown).toBe(API_ERROR_MESSAGES.EXPENSE_LINKED_ITEM_TEMPLATE_INVALID);
+    expect(linkedShown).not.toBe("요청을 처리하지 못했어요.");
+    // 사용자가 지금 할 수 있는 일을 말한다(형태는 LINKED_PRODUCT_LINK_NOT_FOUND와 같다).
+    expect(linkedShown).toContain("다시 저장해 주세요.");
+
+    // 준비템 상태 큐가 지나는 유일한 4xx — 서버 한쪽 갈래의 원문은 영어다.
+    const itemMissing = new ApiHttpError(404, envelope("ITEM_NOT_FOUND", "Item template was not found."));
+    const itemShown = apiErrorMessage(itemMissing, "요청을 처리하지 못했어요.");
+    expect(itemShown).toBe(API_ERROR_MESSAGES.ITEM_NOT_FOUND);
+    expect(itemShown).not.toContain("Item template");
+  });
+
+  it("404 셋은 다음 할 일을 말하되 재시도를 권하지 않는다 (USER_WITHDRAWN의 형식)", () => {
+    for (const code of notFoundCodes) {
+      const message = API_ERROR_MESSAGES[code];
+      expect(message, code).toBeTruthy();
+      // 다시 보내도 같은 답이 온다 — 재시도를 권하는 순간 그것이 허위 안내다.
+      for (const retryPhrase of ["잠시 후 다시", "다시 시도"]) {
+        expect(message, `${code}는 "${retryPhrase}"를 쓰지 않는다`).not.toContain(retryPhrase);
+      }
+      // 사실 한 문장 + 다음에 할 일 한 문장.
+      expect(message.split("요.").filter(Boolean).length, code).toBeGreaterThanOrEqual(2);
+      expect(message, code).toContain("확인해 주세요.");
+    }
+  });
+
+  it("404 문구는 '큐 행을 어떻게 하라'를 말하지 않는다 — 그 문장은 동기화 상태 화면의 몫이다", () => {
+    // 같은 사실을 두 문장이 각자 말하기 시작하면 표와 permission-denied.ts가 갈라지는 순간을
+    // 아무도 모른다(그 파일의 규율). 표는 "사라진 그것이 지금 어디 있는지"만 말한다.
+    for (const code of notFoundCodes) {
+      const message = API_ERROR_MESSAGES[code];
+      for (const rowAction of ["버려 주세요", "새로 기록", "다시 보내도"]) {
+        expect(message, `${code}는 "${rowAction}"를 쓰지 않는다`).not.toContain(rowAction);
+      }
+    }
+    // 그 두 문장은 그대로 남아 있다(이 트랙은 permission-denied.ts를 건드리지 않는다).
+    expect(SYNC_STATUS_PERMANENT_FAILURE_HINT).toBe("다시 보내도 같은 결과예요. 내용을 고쳐 새로 기록하거나 버려 주세요.");
+    expect(SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT).toContain("이 변경은 버리고");
+  });
+
+  it("카테고리 갈래는 자기 코드를 갖고, 바구니 코드는 표에 들어오지 않는다", () => {
+    // 서버 원문 그대로다 — 이미 해요체이고 다음에 할 일까지 말한다.
+    expect(API_ERROR_MESSAGES.EXPENSE_CATEGORY_INVALID).toBe("존재하지 않는 카테고리예요. 카테고리를 다시 선택해 주세요.");
+    // 서버가 실제로 그 코드로 던진다(문장은 한 글자도 바뀌지 않았다).
+    const expensesStore = apiSource("onboarding/expenses-store.service.ts");
+    expect(expensesStore).toContain('code: "EXPENSE_CATEGORY_INVALID"');
+    expect(expensesStore).toContain('message: "존재하지 않는 카테고리예요. 카테고리를 다시 선택해 주세요."');
+    // VALIDATION_ERROR를 표에 넣으면 DTO 검증 실패 **전량**이 카테고리 문구를 뒤집어쓴다.
+    expect(API_ERROR_MESSAGES.VALIDATION_ERROR).toBeUndefined();
+    expect(apiErrorMessageForCode("VALIDATION_ERROR")).toBeNull();
+    // 나머지 소비자는 무변경 — 400 기본 코드는 여전히 VALIDATION_ERROR다.
+    expect(apiSource("common/filters/global-exception.filter.ts")).toContain(
+      'if (statusCode === HttpStatus.BAD_REQUEST) return "VALIDATION_ERROR";'
+    );
+  });
+
+  /**
+   * **교집합 소스 계약** — 이 라운드의 진짜 산출물이다.
+   *
+   * 앱의 지출 아웃박스와 준비템 상태 큐가 지나는 서버 파일 셋을 읽어 거기서 던지는 4xx 코드를
+   * 전부 긁는다. 각 코드는 둘 중 하나여야 한다: 표에 있거나, **이유가 적힌 제외 목록**에 있거나.
+   * 서버에 코드를 새로 만들면 이 단언이 빨개지고, 만든 사람이 "이 코드는 앱에서 어떻게 보이는가"에
+   * 답해야 한다 — 라운드 45 이후 없던 그 규율이다.
+   */
+  it("아웃박스가 지나는 서버 파일의 4xx 코드는 표에 있거나, 이유가 적힌 제외 목록에 있다", () => {
+    const outboxPathFiles = [
+      "onboarding/store-shared.ts",
+      "onboarding/expenses-store.service.ts",
+      "onboarding/child-access.service.ts",
+      // 라운드 69 리뷰 M-1: 준비템 상태 큐가 실제로 지나는 파일인데 스윕에 없었다. 상태 PATCH의
+      // 종점이 여기다(updateItemStatus → requireItemTemplate → ITEM_NOT_FOUND). 이 파일은 앱
+      // 경로와 어드민 경로가 한 클래스에 같이 살아서, 아래 제외 목록이 그 둘을 갈라 적는다.
+      "onboarding/items-catalog.service.ts"
+    ];
+
+    /** 표에 넣지 않는 코드와 그 이유. 비우면 안 된다 — 이유 없는 제외가 바로 이 표의 병이었다. */
+    const excludedWithReason: Readonly<Record<string, string>> = {
+      EXPENSE_CURSOR_INVALID:
+        "목록 조회 전용이다. 커서는 앱이 만든 값이고 그 화면이 자기 폴백으로 처리한다 — 아웃박스·상태 큐가 지나지 않는다.",
+      EXPENSE_CHILD_MISMATCH:
+        "준비템 상태 PATCH가 expenseId를 함께 보낼 때만 나오는 403인데, 상태 큐가 보내는 것은 상태값 하나다(src/offline/remote-api.ts의 updateItemStatus).",
+      VALIDATION_ERROR:
+        "바구니 코드다. 표에 넣으면 DTO 검증 실패 전량이 한 문구를 뒤집어쓴다 — 사유가 있는 갈래는 EXPENSE_CATEGORY_INVALID처럼 자기 코드를 받는다.",
+      // --- items-catalog.service.ts의 어드민 전용 갈래 (apps/admin만 부른다) ---
+      // 넷 다 어드민 콘솔의 입력 검증이라 모바일 앱은 그 엔드포인트를 호출하지 않는다.
+      // 원문이 영어인 것도 그래서다 — 사용자 화면에 설 문장이 아니다.
+      ADMIN_ITEM_TEMPLATE_REQUIRED:
+        "어드민 준비템 저장의 필수 입력 검증(normalizeAdminItemTemplateInput)과 어드민 링크 생성 시 itemTemplateId 누락 검증이다. 앱은 두 엔드포인트를 모두 호출하지 않는다.",
+      ADMIN_PRODUCT_LINK_REQUIRED:
+        "어드민 구매 링크 생성/수정의 필수 입력 검증이다(adminCreateProductLink·adminUpdateProductLink). 앱은 이 엔드포인트를 호출하지 않는다.",
+      ADMIN_DISCLOSURE_REQUIRED:
+        "어드민 고지 문구 저장의 빈 값 검증이다(adminUpdateDisclosure). 앱은 고지 문구를 읽기만 하고 쓰지 않는다.",
+      ADMIN_SKIP_REASON_REQUIRED:
+        "어드민 준비템 저장에서 필수가 아닌 템플릿에 건너뛰기 안내를 요구하는 검증이다. 앱은 이 엔드포인트를 호출하지 않는다.",
+      // --- 앱이 지나지만 **큐가 아닌** 갈래 (구매 링크 클릭은 즉시 요청이다) ---
+      PRODUCT_LINK_NOT_FOUND:
+        "구매 링크 클릭(clickProductLink)의 404와 어드민 링크 조회의 404다. 클릭은 아웃박스를 타지 않는 즉시 요청이라 실패해도 큐 행이 남지 않고, 그 화면이 자기 문구를 쓴다(app/items/[itemTemplateId].tsx의 showLinkFailure). 아웃박스가 지나는 '연결하려던 링크가 없다'는 별도 코드 LINKED_PRODUCT_LINK_NOT_FOUND이고 그쪽은 표에 있다.",
+      PRODUCT_LINK_URL_SCHEME_INVALID:
+        "어드민이 넣은 링크 주소의 스킴 검증(requireHttpUrl)이다. 클릭 경로에서도 같은 함수가 저장된 주소를 방어적으로 다시 보지만, 그때 잘못된 값은 사용자가 고칠 수 있는 것이 아니고 클릭은 큐를 타지 않는다."
+    };
+
+    const swept = new Set(outboxPathFiles.flatMap(thrownCodesIn));
+    // 스윕이 실제로 무언가를 읽었는지부터 확인한다(정규식이 조용히 0건이 되면 계약이 사라진다).
+    expect(swept.size).toBeGreaterThanOrEqual(10);
+
+    for (const code of swept) {
+      const known = Object.prototype.hasOwnProperty.call(API_ERROR_MESSAGES, code);
+      const excluded = Object.prototype.hasOwnProperty.call(excludedWithReason, code);
+      expect(
+        known || excluded,
+        `${code}: 표에 없고 제외 이유도 없다. 이 코드를 받은 실패 행은 "요청을 처리하지 못했어요." 한 줄 + 재시도 버튼 없음이 된다.`
+      ).toBe(true);
+    }
+
+    // 제외 목록이 유령을 들고 있지 않은지도 본다 — 서버에서 사라진 코드의 이유는 남을 수 없다.
+    for (const code of Object.keys(excludedWithReason)) {
+      expect(excludedWithReason[code].length, code).toBeGreaterThan(20);
+    }
+  });
+
+  it("표의 코드는 실제 서버 파일이 던지는 코드다 (반대 방향 — 유령 줄 금지)", () => {
+    // 이번에 더한 일곱 줄이 각각 어느 서버 파일에서 오는지를 값으로 못 박는다.
+    const origins: Readonly<Record<string, string>> = {
+      EXPENSE_DATE_TOO_OLD: "onboarding/store-shared.ts",
+      CHILD_BIRTH_DATE_TOO_OLD: "onboarding/onboarding-core.service.ts",
+      EXPENSE_LINKED_ITEM_TEMPLATE_INVALID: "onboarding/expenses-store.service.ts",
+      EXPENSE_CATEGORY_INVALID: "onboarding/expenses-store.service.ts",
+      EXPENSE_NOT_FOUND: "onboarding/expenses-store.service.ts",
+      CHILD_NOT_FOUND: "onboarding/child-access.service.ts",
+      ITEM_NOT_FOUND: "onboarding/items-catalog.service.ts"
+    };
+
+    for (const [code, file] of Object.entries(origins)) {
+      expect(thrownCodesIn(file), `${code} ← ${file}`).toContain(code);
+    }
+  });
+
+  it("개명은 이름만이다 — 판정·기준 시각·던지는 코드는 그대로다", () => {
+    const storeShared = apiSource("onboarding/store-shared.ts");
+    // 새 이름은 범위 전체를 말한다(위 = 미래 금지, 아래 = 20년 하한).
+    expect(storeShared).toContain("export function assertExpenseDateWithinRange(spentOn: string) {");
+    expect(storeShared).not.toContain("export function assertNotFutureDate");
+    // 하한만 보는 형제 함수는 자기 이름 그대로이고, 여기가 그 유일한 호출부다.
+    expect(storeShared).toContain("export function assertExpenseDateWithinPastFloor(spentOn: string) {");
+    expect(storeShared).toContain("assertExpenseDateWithinPastFloor(spentOn);");
+    // 세 코드와 기준 시각은 한 글자도 바뀌지 않았다.
+    for (const code of ["EXPENSE_DATE_INVALID", "EXPENSE_FUTURE_DATE", "EXPENSE_DATE_TOO_OLD"]) {
+      expect(storeShared, code).toContain(`code: "${code}"`);
+    }
+    expect(storeShared).toContain("isFutureSeoulDate(spentOn, referenceNow())");
+    expect(storeShared).toContain("isBeforeEntryDateFloor(spentOn, referenceNow())");
+
+    // 호출부 셋이 모두 새 이름을 부른다(생성 · 수정 · 엑셀 가져오기 행 판정).
+    const expensesStore = apiSource("onboarding/expenses-store.service.ts");
+    expect(expensesStore.match(/assertExpenseDateWithinRange\(input\.spentOn\);/g) ?? []).toHaveLength(2);
+    expect(apiSource("onboarding/import-pipeline.service.ts")).toContain(
+      "assertExpenseDateWithinRange(fromDateOnly(row.parsedDate));"
+    );
+    for (const file of [
+      "onboarding/expenses-store.service.ts",
+      "onboarding/import-pipeline.service.ts"
+    ]) {
+      expect(apiSource(file), file).not.toContain("assertNotFutureDate");
+    }
+  });
+
+  it("분류·상태코드 계약은 무접촉이다 (문구만 갈린다)", () => {
+    const remoteApiSource = source("src/offline/remote-api.ts");
+    // 4xx만 permanent라는 R19-H 분류, 그리고 모르는 코드의 폴백 문구 — 둘 다 그대로다.
+    expect(remoteApiSource).toContain("error instanceof ExpenseHttpError && error.status < 500");
+    expect(remoteApiSource).toContain('const PERMANENT_FAILURE_MESSAGE = "요청을 처리하지 못했어요.";');
+    // 재시도 가능 4xx 예외 셋도 무접촉이다.
+    expect(source("src/offline/permission-denied.ts")).toContain(
+      "const RETRYABLE_CLIENT_ERROR_STATUSES = new Set([401, 408, 429]);"
+    );
+    // 로그인 화면 전용 목록은 넓히지 않는다.
+    expect(ACCOUNT_STATUS_ERROR_CODES).toEqual(["USER_WITHDRAWN", "USER_BLOCKED"]);
+    // 삭제-404 수렴은 코드로 판정한다 — 표에 문구가 생겼다고 그 경로가 바뀌지 않는다.
+    expect(source("src/offline/sync-engine.ts")).toContain('body?.error?.code === "EXPENSE_NOT_FOUND"');
   });
 });
 

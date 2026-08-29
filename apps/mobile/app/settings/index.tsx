@@ -29,6 +29,11 @@ import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 // 라운드 68 트랙 B(#2): 로그아웃 확인 문구는 동기화 문구의 단일 소스에서 온다(화면이 다시 적지 않는다).
 import { logoutConfirmMessage, LOGOUT_CONFIRM_TITLE } from "../../src/offline/messages";
 import { APP_LOCK_TITLE } from "../../src/security/app-lock";
+// 라운드 69 트랙 A(#1): 로그아웃이 지우는 세 번째 목록의 크기. 이 스토어는 zustand persist라
+// 구독 비용이 렌더 한 번이고 **새 요청이 없다**(아웃박스 스냅숏과 저장소가 다르므로 내보내기
+// 컨트롤러가 들고 나올 수 없다 — 그 모듈에는 정기 지출이 들어가지 않는다는 계약도 있다:
+// src/expenses/recurring-flow.test.ts "템플릿을 CSV 내보내기에 싣지 않는다").
+import { useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -125,6 +130,22 @@ export default function SettingsScreen() {
   const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);
   // 가져오기 행 바로 아래에 붙는 CSV 내보내기 -- 상태·수집·공유·토스트는 공용 모듈이 담당한다.
   const csvExport = useExpenseCsvExport();
+  /**
+   * 라운드 69 트랙 A(#1) — 로그아웃과 함께 사라지는 **정기 지출 템플릿**의 수.
+   *
+   * 아이 필터를 지나지 않은 전량이다: teardown의 `resetAll()`은 모든 아이의 템플릿을 지우므로
+   * 지금 고른 아이 것만 세면 화면이 실제보다 작은 수를 말한다(아웃박스에 내린 판단과 같다).
+   * 셀렉터가 숫자를 돌려주므로 목록이 바뀌지 않는 한 이 화면은 다시 그려지지 않는다.
+   *
+   * 라운드 69 리뷰 S-3 — 알고 받아들이는 갈래: 이 스토어는 zustand persist라 **하이드레이션
+   * 전에는 0으로 읽힌다**. 그 찰나에 로그아웃을 누르면 문구가 정기 지출 줄 없는 종전 갈래로
+   * 떨어진다(문구가 틀린 수를 말하는 것이 아니라 한 줄을 덜 말한다). `hasHydrated` 게이트를
+   * 더하지 않은 이유는 도달성이다: 설정 탭은 앱을 열고 최소 한 번의 화면 전환을 지나야 닿는
+   * 자리라 실기기에서 그 창은 사실상 닫혀 있고, 게이트를 더하면 "아직 모른다" 상태를 이 화면과
+   * 문구가 각각 다뤄야 해서 갈래가 둘 늘어난다. 하이드레이션이 느려질 수 있는 변경(스토어에
+   * 큰 값을 싣거나 persist 저장소를 바꾸는 일)이 오면 이 판단을 다시 봐야 한다.
+   */
+  const recurringTemplateCount = useRecurringExpenseStore((state) => state.templates.length);
 
   /**
    * 라운드 68 트랙 B(#2) — 확인 문구가 **미동기화 기록이 사라진다는 사실**을 함께 말한다.
@@ -138,9 +159,14 @@ export default function SettingsScreen() {
    * 건수는 **새 요청 0건**으로 읽는다 — 내보내기 컨트롤러가 이미 구독 중인 오프라인 스냅숏에서
    * 그대로 온다(`devicePendingRecords`: 아이 필터를 지나지 않은 이 기기 전량 · 저장소를 못 연
    * 부팅에서는 건수 대신 "모른다"를 말한다). 대기 0건이면 종전 문장 그대로다.
+   *
+   * 라운드 69 트랙 A(#1): 같은 teardown이 지우는 **정기 지출 템플릿**도 함께 넘긴다. 그 값은
+   * 아웃박스와 저장소가 다르므로(zustand persist ↔ SQLite) 위 스냅숏에 실려 오지 않고, 이 화면이
+   * 셀렉터 하나로 읽어 두 모집단을 합쳐 넘긴다 — 합치는 것은 **입력**이고, 문장은 순수 모듈이
+   * 여전히 두 줄로 나눠 말한다(성질이 다른 두 손실을 한 문장에 섞지 않는다). 0/0이면 종전 한 줄.
    */
   const handleLogout = () => {
-    Alert.alert(LOGOUT_CONFIRM_TITLE, logoutConfirmMessage(csvExport.devicePendingRecords), [
+    Alert.alert(LOGOUT_CONFIRM_TITLE, logoutConfirmMessage({ ...csvExport.devicePendingRecords, recurringTemplateCount }), [
       { text: "취소", style: "cancel" },
       {
         text: "로그아웃",

@@ -14,7 +14,7 @@ import { PushDispatchService } from "../push/push-dispatch.service";
 import { ChildAccessService } from "./child-access.service";
 import { ExpensesStoreService } from "./expenses-store.service";
 import {
-  assertNotFutureDate,
+  assertExpenseDateWithinRange,
   cleanOptionalText,
   currentYearMonth,
   fromDateOnly,
@@ -773,7 +773,7 @@ export class ImportPipelineService {
   }) {
     if (!row.parsedDate) return "missing_date";
     try {
-      assertNotFutureDate(fromDateOnly(row.parsedDate));
+      assertExpenseDateWithinRange(fromDateOnly(row.parsedDate));
     } catch {
       return "invalid_date";
     }

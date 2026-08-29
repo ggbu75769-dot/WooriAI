@@ -98,7 +98,7 @@ function normalizeChildInput(input: {
  * 100일/첫돌 마일스톤 창이 미래에서 시작해(milestone-report.service.ts) 리포트가
  * 사실과 다른 값을 냈다.
  *
- * 기준 시각은 기존 지출 검증(store-shared.assertNotFutureDate)과 같은
+ * 기준 시각은 기존 지출 검증(store-shared.assertExpenseDateWithinRange)과 같은
  * `referenceNow()` — 서울 기준 오늘이며, 테스트는 WOORIAI_STAGE_TODAY로 고정한다.
  * 서울 기준 "오늘"은 정상 입력이므로 허용한다(오늘 태어난 아이).
  *

@@ -146,7 +146,9 @@ describe("라운드 43 UX-V: 출산 전 칩 배선", () => {
     const items = itemsSource();
 
     expect(items).toContain("const offersPreBirthFilter = shouldOfferPreBirthFilter({");
-    expect(items).toContain("currentStage: home.data?.child.currentStage,");
+    // 라운드 69 트랙 C: 판정은 그대로, **입력 출처만** `/home` → `["children"]` 캐시로 옮겼다.
+    expect(items).toContain("currentStage: stageSourceChild?.currentStage,");
+    expect(items).not.toContain("home.data?.child.currentStage");
     // 리뷰 M-7: 선택된 시기 밴드도 판정에 들어간다.
     expect(items).toContain("selectedBand: stageLabel");
     expect(items).toContain("const preBirthFilterActive = isPreBirthFilterActive({");
@@ -180,13 +182,19 @@ describe("라운드 43 UX-V: 출산 전 칩 배선", () => {
     });
   });
 
-  it("리뷰 M-8 → 라운드 51 #3: 데모 세션도 홈 요약과 **실제 아이 시기**로 판정한다", () => {
+  it("리뷰 M-8 → 라운드 51 #3 → 라운드 69 C: 데모 세션도 **실제 아이 시기**로 판정한다", () => {
     const items = itemsSource();
 
-    // 예전에는 `!isTestSession`이 걸려 데모에서는 home.data가 영영 undefined였고, 그 값에
+    // 예전에는 `!isTestSession`이 걸려 데모에서는 시기 원천이 영영 undefined였고, 그 값에
     // 기대는 칩이 구조적으로 절대 뜨지 않았다. 픽셀 락 캡처는 여전히 별도로 막는다.
-    expect(items).toContain("const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode;");
+    //
+    // 라운드 69 트랙 C: 원천이 `/home`에서 `["children"]` 캐시로 옮기면서 그 쿼리 전용 게이트
+    // (`shouldResolveChildStage`)도 함께 사라졌다 — 남은 게이트는 (1) 아이 쿼리의
+    // `enabled: Boolean(authToken)`과 (2) resolveDefaultStageLabel의 `isPixelLockMode` 둘이다.
+    expect(items).not.toContain("shouldResolveChildStage");
     expect(items).not.toContain("&& !isPixelLockMode && !isTestSession");
+    expect(items).toContain("const stageSourceChild = childrenQuery.data?.children.find((child) => child.id === childId);");
+    expect(items).toContain('enabled: Boolean(authToken),');
 
     // 라운드 51 #3: M-8이 쿼리를 켠 뒤에도 **기본 칩**은 데모에서 "12-24개월"로 굳어 있었다
     // (resolveDefaultStageLabel의 isTestSession 폴백). 그 밴드에는 임신 시기가 없어서

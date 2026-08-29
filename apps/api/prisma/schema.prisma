@@ -520,6 +520,37 @@ model AffiliateClick {
   subId          String?         @map("sub_id") @db.VarChar(128)
   referrerScreenId String?       @map("referrer_screen_id") @db.VarChar(50)
   ipHash         String?         @map("ip_hash") @db.VarChar(128)
+  /// ⚠️ **읽는 곳이 0건인데 원문 그대로 400일 남는 식별자**(GAP-069 P3에서 확인 — 라운드 64 #9
+  /// `import_jobs.approved_at` · 65 #9 `disclosures.updated_by` · 66 #9 `disclosures.active` ·
+  /// 67 #8 `attachments` · 68 #8 `content_revisions`에 내려 온 **같은 형식의 여섯 번째 판정
+  /// 기록**이다. 앞의 다섯과 다른 점: 이 컬럼은 죽지 않았다 — **쓰기만 살아 있다.**)
+  ///
+  /// 사실관계 셋:
+  ///  1. 쓰는 곳은 둘이다 — 인증 클릭(`items-catalog.service.ts`의 `clickProductLink`)과 공개
+  ///     리다이렉트(`items-commerce/redirect.controller.ts`). 둘 다 `user-agent` 헤더 **원문**을
+  ///     그대로 넣는다.
+  ///  2. **읽는 곳은 0건이다.** 어드민 클릭 통계는 이 컬럼을 보지 않고
+  ///     (`affiliate-click-breakdown.service.ts`는 `clicked_at`·`product_link_id`만 집계한다),
+  ///     어떤 DTO에도 실리지 않는다. 참조는 스키마 선언 + 두 쓰기 + 두 e2e 단언뿐이다.
+  ///  3. 같은 표의 IP는 **해시**다(`ip_hash` — `hashClickIp`의 솔트된 SHA-256). 즉 **한 표 안에서
+  ///     한 식별자는 최소화하고 다른 하나는 원문이다.** 탈퇴·아이 파기의 익명화도 이 비대칭을
+  ///     건드리지 않는다: `data-retention-purge.job.ts`는 `user_id`·`household_id`·`child_id`만
+  ///     NULL로 만들고 `ip_hash`·`user_agent`는 그대로 둔 채 행을 남긴다(정산/통계 기질).
+  ///     남는 기간은 `AFFILIATE_CLICKS_RETENTION_DAYS`(기본 400일)의 phase 7뿐이다.
+  ///
+  /// **법적 결함은 아니다** — 개인정보 처리방침·데이터 세이프티에 이미 기재돼 있다
+  /// (`infra/legal/privacy-policy.html`의 "브라우저/앱 User-Agent" 행 ·
+  /// `docs/store/data-safety-answers.md`의 "User-Agent 문자열" 항목: 기기 모델 수준 정보로
+  /// "기기 또는 기타 ID" 신고에 포괄). 그래서 이번 라운드가 **지우거나 해시하지 않았다.**
+  ///
+  /// 지우거나 해시하는 것이 PM 판단인 이유: 읽는 코드가 0건이므로 **비우는 쪽은 지금 당장
+  /// 아무것도 깨뜨리지 않는다.** 깨지는 것은 미래의 용도다 — 이 컬럼이 답할 수 있는 유일한
+  /// 질문은 "제휴 클릭이 봇인가/어느 기기인가"(부정 클릭 대응·정산 이의)이고, 그 질문을 버릴지는
+  /// 제휴사 정산 계약을 아는 사람이 정한다. 해시는 **답이 아니다**: 해시된 UA로는 봇 판별을
+  /// 할 수 없어 최소화의 이득만 남고 용도는 사라진다(IP와 다른 점 — IP 해시는 "같은 사람의
+  /// 반복 클릭"이라는 용도를 그대로 유지한다).
+  ///
+  /// **"제휴 클릭이 최소화돼 있다"의 근거로 이 표를 통째로 인용하지 말 것.** IP만 그렇다.
   userAgent      String?         @map("user_agent") @db.Text
   clickedAt      DateTime        @default(now()) @map("clicked_at") @db.Timestamptz(6)
   createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)

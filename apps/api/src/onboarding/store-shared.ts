@@ -184,9 +184,10 @@ export function referenceNow() {
  * 라운드 68 A — 지출 발생일의 **과거 하한**(20년). 라운드 67 B가 예정일에 세운
  * `assertDueDateWithinFullTerm`과 **같은 형식·같은 기준 시각**(`referenceNow()`)이다.
  *
- * 없던 규칙이다. 이 층이 보던 것은 형식·실존 달력·미래 금지 셋뿐이었고(`assertNotFutureDate` —
- * 이름이 곧 범위였다), 그래서 `2026-08-14`를 `2016-08-14`로 한 자리 잘못 친 지출이 그대로
- * 저장됐다. 그 지출은 **누적 총액에는 들어가는데**(전 기간 서버 집계 — reporting-store.service.ts)
+ * 없던 규칙이다. 이 층이 보던 것은 형식·실존 달력·미래 금지 셋뿐이었고(그때는 아래 함수의
+ * 이름이 곧 범위였다 — `assertNotFutureDate`, 라운드 69 B에서 `assertExpenseDateWithinRange`로
+ * 개명), 그래서 `2026-08-14`를 `2016-08-14`로 한 자리 잘못 친 지출이 그대로 저장됐다.
+ * 그 지출은 **누적 총액에는 들어가는데**(전 기간 서버 집계 — reporting-store.service.ts)
  * 앱의 읽는 쪽 넷이 전부 20년에서 잠겨 있어 어느 화면에서도 그 달을 열 수 없다: 총액은 늘었는데
  * 그 금액이 어느 달에 있는지 물어볼 자리가 없고, 지우려 해도 도달할 수 없다.
  *
@@ -206,8 +207,8 @@ export function referenceNow() {
  * ## 형제 함수와 계약이 다른 이유(라운드 68 리뷰 S-5)
  * 출생일 쪽(`assertBirthDateWithinPastFloor` — onboarding-core.service.ts)은 도메인 술어가 던지면
  * 삼키고 돌아간다. 여기는 삼키지 않는다: **이 함수는 `isValidCalendarDate`를 이미 지난 값에만
- * 불린다**(유일한 호출부 `assertNotFutureDate`가 형식·실존을 먼저 보고 부른다). 그러니 여기서
- * 던지는 일은 있을 수 없는 상태이고, 그때는 호출부의 catch가 `EXPENSE_DATE_INVALID`로 옮긴다 —
+ * 불린다**(유일한 호출부 `assertExpenseDateWithinRange`가 형식·실존을 먼저 보고 부른다). 그러니
+ * 여기서 던지는 일은 있을 수 없는 상태이고, 그때는 호출부의 catch가 `EXPENSE_DATE_INVALID`로 옮긴다 —
  * 삼키면 그 있을 수 없는 값이 통과한다. 출생일 쪽은 형식 검증이 DTO에 있어 그 앞막이가 없으므로
  * 반대 규칙이 맞다. 이 함수를 다른 자리에서 부르게 된다면 그 앞막이부터 확인해야 한다.
  */
@@ -221,18 +222,30 @@ export function assertExpenseDateWithinPastFloor(spentOn: string) {
 }
 
 /**
- * 지출 발생일이 저장 가능한 범위 안인가.
+ * 지출 발생일이 **저장 가능한 범위 안**인가 — 형식 · 실존 달력 · 두 경계(위쪽 = 미래 금지,
+ * 아래쪽 = 20년 하한).
  *
- * 라운드 68 A 메모: 이름은 미래 갈래만 말하지만 이 함수는 이제 **두 경계**를 본다(위쪽 = 미래
- * 금지, 아래쪽 = 20년 하한). 이름을 범위에 맞게 바꾸려면 이 트랙이 소유하지 않은 호출부
- * (expenses-store.service.ts의 생성·수정 두 자리)를 함께 고쳐야 해서 다음 라운드로 미룬다 —
- * 대신 하한 판정을 `assertExpenseDateWithinPastFloor`라는 자기 이름으로 바로 위에 세워 두고
- * 여기서 부른다. 이 한 자리를 지나면 **쓰는 경로 셋이 모두** 하한을 갖는다: 지출 생성 · 지출
- * 수정 · 엑셀 가져오기 행 판정(import-pipeline.service.ts의 `validationStatusForImportRow`가
- * 이 함수를 부르고, 그 행은 `invalid_date`가 되어 미리보기에서 사유를 달고 `selected`에서
- * 빠진다 — DNC-012 "승인 전에는 저장하지 않는다").
+ * ## 이름 (라운드 69 B)
+ * 종전 이름은 `assertNotFutureDate`였다. 라운드 68 A가 아래쪽 경계를 더하면서 이름이 범위의
+ * **절반만** 말하게 됐고, 그 트랙은 호출부를 소유하지 않아 "다음 라운드로 미룬다"고 적어 두고
+ * 넘겼다 — 그 메모를 갚는 것이 이 개명이다. **바뀐 것은 이름뿐이다**: 갈래 순서도, 기준 시각
+ * (`referenceNow()`)도, 던지는 세 코드(`EXPENSE_DATE_INVALID` · `EXPENSE_FUTURE_DATE` ·
+ * `EXPENSE_DATE_TOO_OLD`)도 한 글자 바뀌지 않았다.
+ *
+ * ## 바로 위 `assertExpenseDateWithinPastFloor`와의 관계
+ * 그쪽은 **아래쪽 경계 하나만** 보는 자기 이름의 술어이고, 이 함수가 그 술어의 **유일한
+ * 호출부**다(형식·실존·미래를 먼저 본 뒤 마지막으로 부른다). 둘을 한 함수로 합치지 않는 이유는
+ * 그 머리말에 적혀 있다 — 하한 술어는 `isValidCalendarDate`를 이미 지난 값에만 불려야 던지지
+ * 않고, 그 앞막이가 바로 여기다. 그래서 이름도 둘이다: **범위 전체**를 묻는 자리(여기)와
+ * **하한만** 묻는 자리(위).
+ *
+ * ## 호출부 셋
+ * 지출 생성 · 지출 수정(expenses-store.service.ts) · 엑셀 가져오기 행 판정
+ * (import-pipeline.service.ts의 `validationStatusForImportRow` — 여기서 던지면 그 행이
+ * `invalid_date`가 되어 미리보기에서 사유를 달고 `selected`에서 빠진다, DNC-012 "승인 전에는
+ * 저장하지 않는다"). 이 셋을 지나면 **쓰는 경로가 모두** 두 경계를 갖는다.
  */
-export function assertNotFutureDate(spentOn: string) {
+export function assertExpenseDateWithinRange(spentOn: string) {
   if (!isValidCalendarDate(spentOn)) {
     throw new BadRequestException({ code: "EXPENSE_DATE_INVALID", message: "날짜를 다시 확인해 주세요." });
   }

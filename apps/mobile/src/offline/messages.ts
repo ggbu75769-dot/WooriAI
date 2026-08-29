@@ -246,6 +246,26 @@ export const FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE =
   "이 기록은 다른 아이의 기록이에요. 그 아이로 바꾼 뒤에 저장할 수 있어요.";
 
 /**
+ * 라운드 59 #5 — 다른 아이의 실패 행에서 **버튼 자리에 서는 한 줄**.
+ *
+ * 라운드 58 통합리뷰 P1-1이 그 행에서 "고쳐서 다시 보내기"를 뗀 것은 옳았지만(위
+ * `FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE`가 막는 그 데이터 손실), 뗀 자리에 아무 말도 남기지
+ * 않았다. 사용자가 보는 것은 같은 실패 행 둘 중 하나에만 버튼이 있는 화면이고, 왜 이 행에는
+ * 없는지 화면 어디에도 없다 — 이 앱의 관례(라운드 40 J-9: **지우지 않고 사실을 말한다**)에서
+ * 벗어난 유일한 자리였다.
+ *
+ * 무엇을 하면 되는지까지 한 줄에 말한다(아이를 바꾸면 그 행에도 버튼이 선다). 책망 없는 해요체
+ * (DNC-018)이고, "버리기"는 그 행에 그대로 남으므로 사용자가 갇히지도 않는다.
+ *
+ * ⚠️ 자리(라운드 69 트랙 A에서 이사 완료): 이 상수는 라운드 59부터 열 라운드 동안
+ * `src/expenses/failed-row-prefill.ts`에 남아 있었다 — 그 라운드의 트랙 A가 이 파일을 소유해
+ * 같은 라운드에서 충돌했기 때문이고, 그때부터 "옮기는 것은 다음 라운드의 몫"이었다. 동기화 상태
+ * 화면의 문구 단일 소스는 이 파일이므로 여기가 제자리다. **값은 한 글자도 바뀌지 않았다**
+ * (바로 위 짝인 시트 쪽 문장과 나란히 둔다 — 같은 어긋남을 두 화면이 각자의 말로 설명한다).
+ */
+export const FAILED_ROW_OTHER_CHILD_NOTICE = "다른 아이의 기록이에요. 그 아이를 선택하면 고쳐서 다시 보낼 수 있어요.";
+
+/**
  * SYNC-127 일괄 액션 문구. 개별 행의 "재시도"/"삭제"와 같은 동사를 쓰되 범위를 앞에 붙여
  * ("전체") 한 화면 안에서 두 액션이 서로 다른 것을 가리킨다는 사실이 문구만으로 드러나게 한다.
  * 버리기 쪽만 "삭제"가 아니라 "버리기"인 이유: 개별 삭제는 한 건이라 취소가 쉽지만, 일괄은
@@ -313,7 +333,7 @@ export const SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE =
   "지금은 보내는 중이라 버릴 수 없어요. 잠시 뒤 다시 눌러 주세요.";
 
 /* ------------------------------------------------------------------------------------------ */
-/* 라운드 68 트랙 B(#2) — 설정 화면의 **로그아웃 확인** 문구                                     */
+/* 라운드 68 트랙 B(#2) · 라운드 69 트랙 A(#1) — 설정 화면의 **로그아웃 확인** 문구              */
 /* ------------------------------------------------------------------------------------------ */
 
 /**
@@ -344,6 +364,24 @@ export const SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE =
  * 만료(`clearSession("expired")`) 경로는 이 문장과 무관하다 — 그쪽은 정체성을 유지해 아무것도
  * 지우지 않고, 로그인 화면이 이미 반대 방향을 약속한다(`SESSION_EXPIRED_LOGIN_NOTICE`, AUTH-127).
  * 두 문장이 한 흐름에서 부딪히지 않도록 이 문구는 **설정 화면의 명시적 로그아웃**에만 선다.
+ *
+ * ## 라운드 69 트랙 A(#1) — 세는 목록이 아웃박스에서 멈춰 있었다
+ *
+ * 위 세 가지는 그대로 유효한데, **모집단이 teardown보다 좁았다.** `clearSession()`이 발화시키는
+ * teardown은 아웃박스 말고도 여섯 스토어를 비우고(session-teardown.ts), 그중 **정기 지출 템플릿**은
+ * 사용자가 직접 적은 계정 데이터인데 서버에 사본이 없다(recurring-expense.store.ts 머리말 —
+ * "여기 담기는 값은 명백한 계정 데이터다"). 아이당 최대 20개다.
+ *
+ * 그래서 같은 폰에서 로그아웃한 사람(배우자 계정 확인 · 로그인 재시도 · 계정 정리)은 다시 로그인한
+ * 뒤 지출·예산·아이·준비 상태가 전부 돌아오는데 **정기 지출만 비어 있는** 화면을 만난다. 그가 읽어
+ * 둔 유일한 경고는 그 화면의 `RECURRING_DEVICE_ONLY_NOTICE`였고, 그 문장의 조건절은 라운드 66이
+ * 상상한 사고인 **"기기를 바꾸면"**이라 이 경로를 정확히 비켜 갔다(라운드 69가 그 조건절을 함께
+ * 넓힌다 — 한 사실을 두 자리가 다르게 말하지 않게).
+ *
+ * **두 모집단을 한 문장에 합치지 않는다.** 기록(되돌릴 수 없는 미동기화)과 목록(다시 적어야 하는
+ * 입력 보조)은 성질이 다르다 — 합치면 "N건이 사라져요"의 N이 두 종류를 섞은 수가 되고, 그 수는
+ * 어느 화면에서도 다시 확인할 수 없다. 줄을 나누면 각 줄이 자기 화면(동기화 상태 · 정기 지출
+ * 관리)과 1:1로 맞는다. 0/0이면 종전 한 줄 그대로다.
  */
 export const LOGOUT_CONFIRM_TITLE = "로그아웃 할까요?";
 
@@ -365,6 +403,49 @@ export type LogoutPendingInput = {
   itemStatusRowCount?: number;
   /** 위 숫자를 **믿어도 되는가**(라운드 61 #6). `"unavailable"`이면 건수를 말하지 않는다. */
   storage?: OfflineStorageState;
+  /**
+   * 라운드 69 트랙 A(#1) — `useRecurringExpenseStore((s) => s.templates.length)`.
+   *
+   * **아이 필터를 지나지 않은 전량**이 맞다: teardown의 `resetAll()`은 모든 아이의 템플릿을
+   * 지우므로, 지금 고른 아이 것만 세면 화면이 실제보다 작은 수를 말한다(라운드 68이 아웃박스에
+   * 내린 판단과 같다). 위 세 값과 **저장소가 다르다**(zustand persist ↔ SQLite) — 그래서 이 값은
+   * `storage` 판정에 걸리지 않고, 저장소를 못 연 부팅에서도 그대로 말할 수 있다.
+   */
+  recurringTemplateCount?: number;
+};
+
+/**
+ * 라운드 69 트랙 A(#1) — **teardown이 지우는 것 중 이 문구가 세는 것과 세지 않는 것.**
+ *
+ * 이 두 값이 있는 이유는 목록을 예쁘게 적기 위해서가 아니다. 라운드 68이 아웃박스만 세고 멈춘
+ * 이유가 "빠졌다는 사실이 어떤 단언도 깨지 않았다"이므로, teardown에 `resetAll()`이 하나 늘 때
+ * **판단하지 않으면 테스트가 깨지도록** 목록을 값으로 적어 둔다(파생 단언 — messages.test.ts가
+ * session-teardown.ts의 호출을 긁어 이 두 목록의 합집합과 맞춘다).
+ *
+ * 세는 쪽은 둘이다: 아웃박스(`wipeOfflineStore` → `counts`·`itemStatusRowCount`)와 정기 지출
+ * 템플릿. 둘의 공통점은 **사용자가 직접 적었고 서버에 사본이 없다**는 것이다.
+ */
+export const LOGOUT_COUNTED_TEARDOWN_STORES = ["useRecurringExpenseStore"] as const;
+
+/**
+ * 세지 않기로 한 대상과 **그 근거**. 근거를 값으로 적어 두지 않으면 다음 라운드가 목록을 다섯 개로
+ * 늘린다(라운드 69 정찰의 설계 긴장 ⓐ). 공통 기준: 사용자가 적은 값이 아니거나(파생·기기 선택),
+ * 서버에 사본이 남거나, 스스로 만료되는 것은 "되돌릴 수 없다"고 말할 값이 아니다.
+ */
+export const LOGOUT_UNCOUNTED_TEARDOWN_STORES: Readonly<Record<string, string>> = {
+  // 구매 확인 대기: 핵심 루프 5단계이긴 하지만 24시간이면 스스로 만료되고(PURCHASE_FOLLOWUP_MAX_AGE_MS)
+  // 최대 5개이며, 클릭 자체는 affiliate_clicks로 서버에 남는다.
+  usePurchaseFollowupStore: "스스로 만료되는 임시 항목이고 클릭은 서버에 남는다",
+  // 알림함: 이력·중복 방지 키는 서버 상태에서 다시 만들어지는 파생물이다.
+  useNotificationStore: "서버 상태에서 다시 만들어지는 파생물",
+  // 홈 첫 실행 안내의 닫음 플래그 · 첫 기록 축하 이력: 둘 다 사용자가 적은 값이 아니라 관찰 이력이다.
+  useHomeFirstRunGuideStore: "안내를 닫았다는 관찰 이력(사용자가 적은 값이 아니다)",
+  useFirstRecordCelebrationStore: "축하를 보였다는 관찰 이력(사용자가 적은 값이 아니다)",
+  // 가져오기 이어보기: 원본 파일과 서버의 가져오기 잡이 그대로 있어 다시 열 수 있는 파생물이다.
+  useImportResumeStore: "서버의 가져오기 잡에서 다시 이어 볼 수 있는 파생물",
+  // 앱 잠금 PIN: 이 기기의 선택이고, 남겨 두면 다음 계정을 잠근다(session-teardown.ts §2.8 브릭 방지) —
+  // 잃는 값이 아니라 반드시 지워야 하는 값이다.
+  useAppLockStore: "이 기기의 선택이고, 남기면 다음 계정이 잠긴다(브릭 방지)"
 };
 
 /**
@@ -387,20 +468,44 @@ export function countLogoutPendingRecords(
 }
 
 /**
+ * 라운드 69 트랙 A(#1) — 정기 지출 템플릿 줄.
+ *
+ * 위 기록 줄과 **다른 문장인 것이 요점**이다. 기록은 되돌릴 수 없는 미동기화 값이라 "되돌릴 수
+ * 없어요"로 끝나지만, 템플릿은 사용자가 다시 적을 수 있는 입력 보조라 문장이 **할 수 있는 일**로
+ * 끝난다. 단위도 그 기능의 화면과 같은 "개"다(app/expenses/recurring.tsx: "저장한 정기 지출 N개").
+ *
+ * 뒷문장은 `RECURRING_DEVICE_ONLY_NOTICE`의 뒷문장을 **글자 그대로** 쓴다 — 같은 사실을 두 자리가
+ * 다른 말로 부르지 않게 하는 것이 이 라운드의 절반이다(소스 계약이 이 겹침을 고정한다).
+ * "아직"을 붙이지 않는 것도 의도다: 기록은 곧 올라갈 수 있지만 이 목록은 영영 올라가지 않는다.
+ */
+function logoutRecurringSentence(count: number): string {
+  return `정기 지출 ${count}개는 이 기기에만 저장돼 있어요. 서버에서 돌아오지 않으니 다시 적어야 해요.`;
+}
+
+/**
  * 확인 Alert 본문. 두 확인 문구 계열(`syncStatusDiscardAllConfirmMessage` ·
  * `SYNC_STATUS_DISCARD_PENDING_CONFIRM_MESSAGE`)과 **같은 두 가지**를 말한다: 어디에만 있는지,
  * 되돌릴 수 있는지. 주어는 그 계열과 같은 `recordsCountPhrase`다 — 이 모집단에는 다시 보내도
  * 소용없는 행(영구 실패)이 섞여 있어 "동기화 대기 중인"이라는 수식을 붙일 수 없다.
+ *
+ * 라운드 69 트랙 A(#1): 두 모집단은 **각자의 줄**로 선다(합치지 않는다 — 머리말 참고). 네 좌표로
+ * 읽으면 이렇다 — 대기0·정기0이면 종전 한 줄, 대기N·정기0이면 종전 두 줄, 대기0·정기M이면 기본
+ * 문장 + 목록 줄, 둘 다면 세 줄. 저장소를 못 연 갈래에서도 정기 지출 줄은 그대로 선다: 그 판정은
+ * SQLite 아웃박스에 대한 것이고 템플릿은 zustand persist라 **저장소가 다르다**(두 사실을 한 문장에
+ * 섞으면 "모른다"가 거짓이 된다 — 라운드 61 S-4·M-1).
  */
 export function logoutConfirmMessage(input: LogoutPendingInput = {}): string {
+  const recurring = Math.max(0, Math.trunc(input.recurringTemplateCount ?? 0));
+  // 정기 지출 줄은 아래 두 갈래에 **같은 모양으로** 덧붙는다(줄 하나 = 모집단 하나).
+  const recurringLine = recurring > 0 ? `\n${logoutRecurringSentence(recurring)}` : "";
   if (input.storage === "unavailable") {
     // 건수를 말하지 않는다(0건도 주장할 수 없다). 대신 모른다는 사실과, 그 경우 잃는 것이
     // 무엇인지를 조건문으로만 밝힌다 -- 있지도 모르는 기록을 "사라져요"라고 단정하지 않는다.
-    return `${LOGOUT_CONFIRM_BASE_MESSAGE}\n${OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE} 이 기기에만 있는 기록은 로그아웃하면 되돌릴 수 없어요.`;
+    return `${LOGOUT_CONFIRM_BASE_MESSAGE}\n${OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE} 이 기기에만 있는 기록은 로그아웃하면 되돌릴 수 없어요.${recurringLine}`;
   }
   const count = countLogoutPendingRecords(input.counts, input.itemStatusRowCount);
-  if (count <= 0) return LOGOUT_CONFIRM_BASE_MESSAGE;
-  return `${LOGOUT_CONFIRM_BASE_MESSAGE}\n${recordsCountPhrase(count)}은 아직 이 기기에만 저장돼 있어요. 로그아웃하면 되돌릴 수 없어요.`;
+  if (count <= 0) return `${LOGOUT_CONFIRM_BASE_MESSAGE}${recurringLine}`;
+  return `${LOGOUT_CONFIRM_BASE_MESSAGE}\n${recordsCountPhrase(count)}은 아직 이 기기에만 저장돼 있어요. 로그아웃하면 되돌릴 수 없어요.${recurringLine}`;
 }
 
 /**

@@ -2,9 +2,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { EXPENSE_CREATE_FAILED_MESSAGE } from "../expenses/save-error-messages";
+// 라운드 69 트랙 A(#1): 같은 사실을 말하는 두 자리 — 정기 지출 관리 화면의 고지와 로그아웃 줄.
+import { RECURRING_DEVICE_ONLY_NOTICE } from "../expenses/recurring-template";
 import { OFFLINE_AWARE_LOAD_ERROR_SCREENS } from "./offline-aware-screens";
 import {
   CONFLICT_BANNER_MESSAGE,
+  FAILED_ROW_OTHER_CHILD_NOTICE,
   FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE,
   FAILED_ROW_PREFILL_DATE_RESET_NOTICE,
   SYNC_STATUS_FIX_AND_RESEND_LABEL,
@@ -35,6 +38,8 @@ import {
   logoutConfirmMessage,
   LOGOUT_CONFIRM_BASE_MESSAGE,
   LOGOUT_CONFIRM_TITLE,
+  LOGOUT_COUNTED_TEARDOWN_STORES,
+  LOGOUT_UNCOUNTED_TEARDOWN_STORES,
   syncStatusDiscardAllConfirmMessage,
   SESSION_EXPIRED_LOGIN_NOTICE,
   unsendableRecordsSuffixText,
@@ -518,7 +523,9 @@ describe("라운드 68 B(#2) 로그아웃 확인 문구", () => {
     // 만료는 정체성을 유지해 아무것도 지우지 않고, 로그인 화면이 반대 방향을 약속한다.
     expect(SESSION_EXPIRED_LOGIN_NOTICE).toContain("저장하지 않은 기록도 이어서 반영할게요");
     const settingsSource = source("app/settings/index.tsx");
-    expect(settingsSource).toContain("Alert.alert(LOGOUT_CONFIRM_TITLE, logoutConfirmMessage(csvExport.devicePendingRecords)");
+    expect(settingsSource).toContain(
+      "Alert.alert(LOGOUT_CONFIRM_TITLE, logoutConfirmMessage({ ...csvExport.devicePendingRecords, recurringTemplateCount })"
+    );
     // 화면은 문구를 다시 적지 않는다(단일 소스는 이 파일이다 -- 인라인 Alert 문자열이 없다).
     expect(settingsSource).not.toContain('Alert.alert("로그아웃');
     expect(settingsSource).not.toContain('clearSession("expired")');
@@ -533,5 +540,152 @@ describe("라운드 68 B(#2) 로그아웃 확인 문구", () => {
     expect(cardSource).toContain("childId: canExport ? childId : null,");
     // 소비 화면은 여전히 스냅숏을 스스로 구독하지 않는다(export-pending-notice.test.ts의 계약).
     expect(source("app/settings/index.tsx")).not.toContain("useOfflineSyncSnapshot");
+  });
+});
+
+/**
+ * 라운드 69 트랙 A(#1) — 로그아웃이 지우는 **세 번째 목록**.
+ *
+ * 라운드 68이 세운 문구의 모집단이 아웃박스에서 멈춰 있었고, 같은 teardown이 지우는 정기 지출
+ * 템플릿(사용자가 직접 적은 계정 데이터 · 서버에 사본 없음 · 아이당 최대 20개)은 그 수에 잡히지
+ * 않았다. 그래서 같은 폰에서 로그아웃한 사람은 "대기 0건" 갈래로 떨어져 종전 한 줄만 읽고, 다시
+ * 로그인하면 정기 지출만 비어 있는 화면을 만났다.
+ *
+ * 이 계약이 잡는 것은 넷이다.
+ *  1. **네 좌표 회귀 고정** — 대기0·정기0(종전 무변경) / 대기N·정기0(라운드 68 무변경) /
+ *     대기0·정기M / 둘 다. 이번 변화의 절반이 "종전과 한 글자도 달라지면 안 되는 쪽"이다.
+ *  2. **두 모집단을 한 문장에 합치지 않는다** — 합계 숫자는 어느 화면에서도 다시 확인할 수 없다.
+ *  3. **한 사실을 두 자리가 다르게 말하지 않는다** — 관리 화면 고지와 로그아웃 줄의 뒷문장 겹침.
+ *  4. **파생 단언** — teardown이 비우는 스토어 목록과 이 문구가 "센다/세지 않는다"로 판정한
+ *     목록이 같은가. 라운드 68이 아웃박스만 세고 멈춘 이유가 "빠졌다는 사실이 어떤 단언도 깨지
+ *     않았다"이므로, 다음 `resetAll()`이 판단 없이 지나가지 못하게 한다.
+ */
+describe("라운드 69 A(#1) 로그아웃이 지우는 세 번째 목록", () => {
+  const mobileRoot = process.cwd();
+  const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+  const expenseCounts = (pending: number) => ({ pending, syncing: 0, failed: 0, conflict: 0 });
+  const RECURRING_SENTENCE_TAIL = "서버에서 돌아오지 않으니 다시 적어야 해요.";
+
+  it("회귀 고정 네 좌표 — 0/0은 종전 한 줄, 대기만 있으면 라운드 68 두 줄 그대로", () => {
+    expect(logoutConfirmMessage({ counts: expenseCounts(0), recurringTemplateCount: 0 })).toBe(
+      LOGOUT_CONFIRM_BASE_MESSAGE
+    );
+    expect(logoutConfirmMessage({ counts: expenseCounts(2), recurringTemplateCount: 0 })).toBe(
+      `${LOGOUT_CONFIRM_BASE_MESSAGE}\n${recordsCountPhrase(2)}은 아직 이 기기에만 저장돼 있어요. 로그아웃하면 되돌릴 수 없어요.`
+    );
+  });
+
+  it("정기 지출만 있으면 그 줄만 선다 — 없는 기록 손실을 지어내지 않는다", () => {
+    const recurringOnly = logoutConfirmMessage({ counts: expenseCounts(0), recurringTemplateCount: 3 });
+    expect(recurringOnly).toBe(
+      `${LOGOUT_CONFIRM_BASE_MESSAGE}\n정기 지출 3개는 이 기기에만 저장돼 있어요. ${RECURRING_SENTENCE_TAIL}`
+    );
+    // 확인 문구 계열과 **같은 두 가지**를 말한다: 어디에만 있는지 · 되돌릴 수 있는지.
+    expect(recurringOnly).toContain("이 기기에만");
+    expect(recurringOnly).toContain("서버에서 돌아오지 않으니");
+    // 다만 기록 줄의 서술("되돌릴 수 없어요")은 서지 않는다 — 이 목록은 다시 적을 수 있다.
+    expect(recurringOnly).not.toContain("되돌릴 수 없어요");
+    // 성질이 다른 두 손실이라 서술도 다르다: 이쪽은 사용자가 할 수 있는 일로 끝난다.
+    expect(recurringOnly).toContain("다시 적어야 해요");
+  });
+
+  it("둘 다면 줄이 셋이고, 두 수를 더한 숫자는 어디에도 없다 (한 문장에 합치지 않는다)", () => {
+    const both = logoutConfirmMessage({
+      counts: expenseCounts(2),
+      itemStatusRowCount: 1,
+      recurringTemplateCount: 3
+    });
+    const lines = both.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe(LOGOUT_CONFIRM_BASE_MESSAGE);
+    expect(lines[1]).toContain(recordsCountPhrase(3));
+    expect(lines[2]).toContain("정기 지출 3개");
+    // 합계(3+3)는 어느 화면에서도 다시 확인할 수 없는 숫자다 — 그 수를 말하지 않는다.
+    expect(both).not.toContain("6건");
+    expect(both).not.toContain("6개");
+    // 단위도 각자의 화면과 같다: 동기화 상태는 "건", 정기 지출 관리 화면은 "개".
+    expect(source("app/expenses/recurring.tsx")).toContain("저장한 정기 지출 ${childTemplates.length}개");
+  });
+
+  it("한 사실을 두 자리가 다르게 말하지 않는다 — 관리 화면 고지가 로그아웃도 말한다", () => {
+    // 라운드 66이 세운 조건절은 "기기를 바꾸면"이라 로그아웃을 비켜 갔다. 조건절만 넓힌다.
+    expect(RECURRING_DEVICE_ONLY_NOTICE).toContain("기기를 바꾸거나 로그아웃하면");
+    expect(RECURRING_DEVICE_ONLY_NOTICE).toContain(RECURRING_SENTENCE_TAIL);
+    // 로그아웃 줄은 그 뒷문장을 **글자 그대로** 쓴다(두 자리가 같은 사실을 말한다).
+    const line = logoutConfirmMessage({ recurringTemplateCount: 1 });
+    expect(line).toContain(RECURRING_SENTENCE_TAIL);
+    // 해요체(DNC-018) · 없는 기능(서버 동기화·백업)을 예고하지 않는다.
+    expect(line.endsWith("요.")).toBe(true);
+    expect(line).not.toMatch(/동기화(돼|될|해|합|됩)|백업(돼|될|됩)|나중에 (복구|복원)/);
+  });
+
+  it("저장소를 못 연 갈래의 문장은 무변경이고, 정기 지출 줄만 덧붙는다 (저장소가 다르다)", () => {
+    const unknownAlone = logoutConfirmMessage({ storage: "unavailable" });
+    const unknownWithList = logoutConfirmMessage({ storage: "unavailable", recurringTemplateCount: 4 });
+    // 종전 두 줄이 접두로 그대로 남는다 — "모른다"의 문장을 손대지 않는다.
+    expect(unknownWithList.startsWith(`${unknownAlone}\n`)).toBe(true);
+    expect(unknownWithList).toContain(OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE);
+    expect(unknownWithList).toContain("정기 지출 4개");
+    // 정기 지출은 zustand persist라 그 판정과 저장소가 다르다: 아웃박스 건수는 여전히 침묵한다.
+    expect(unknownWithList).not.toMatch(/\d+건/);
+  });
+
+  it("파생 단언 — teardown이 비우는 스토어가 전부 '센다/세지 않는다' 중 하나로 판정돼 있다", () => {
+    const teardown = source("src/offline/session-teardown.ts");
+    const called = new Set(
+      Array.from(teardown.matchAll(/(use\w+Store)\.getState\(\)\.reset(?:All)?\(/g), (match) => match[1])
+    );
+    expect(called.size).toBeGreaterThan(0);
+    const judged = new Set<string>([
+      ...LOGOUT_COUNTED_TEARDOWN_STORES,
+      ...Object.keys(LOGOUT_UNCOUNTED_TEARDOWN_STORES)
+    ]);
+    // teardown에 resetAll이 하나 늘면 여기서 깨진다 — 판단하지 않고 지나갈 수 없게 한다.
+    expect([...called].filter((name) => !judged.has(name))).toEqual([]);
+    // 반대 방향도 본다: 목록에만 남은 이름은 teardown을 따라오지 못한 낡은 판정이다.
+    expect([...judged].filter((name) => !called.has(name))).toEqual([]);
+    // 라운드 69 리뷰 S-2 — 한 겹 더. 위 두 방향은 `reset()`/`resetAll()`이라는 **호출 모양**에
+    // 걸려 있어서, 스토어를 비우는 방법이 달라지면(예: `.setState(초기값)`, 전용 헬퍼) 그 스토어는
+    // 조용히 판정 밖으로 빠진다. 그래서 호출이 아니라 **import 목록**을 한 번 더 긁는다.
+    // 전제: session-teardown.ts는 스토어를 오직 teardown 목적으로만 import한다(읽기용 조회나
+    // 파생 계산을 위해 스토어를 가져오지 않는다 — 그런 import가 생기면 이 단언이 먼저 깨지고,
+    // 그때 판정 목록이 아니라 이 전제를 다시 봐야 한다).
+    const imported = new Set(Array.from(teardown.matchAll(/import \{ (use\w+Store) \}/g), (match) => match[1]));
+    expect(imported.size).toBeGreaterThan(0);
+    expect([...imported].filter((name) => !judged.has(name))).toEqual([]);
+    // 세는 쪽 하나는 실제로 문구에 도달한다(목록만 적어 두고 말하지 않는 일이 없게).
+    expect([...LOGOUT_COUNTED_TEARDOWN_STORES]).toContain("useRecurringExpenseStore");
+    expect(logoutConfirmMessage({ recurringTemplateCount: 1 })).toContain("정기 지출 1개");
+    // 세지 않기로 한 것에는 **근거가 값으로** 붙어 있다(적지 않으면 다음 라운드가 목록을 늘린다).
+    for (const [name, reason] of Object.entries(LOGOUT_UNCOUNTED_TEARDOWN_STORES)) {
+      expect(reason.trim().length, `${name}의 제외 근거가 비어 있다`).toBeGreaterThan(10);
+    }
+    // 아웃박스는 스토어가 아니라 wipe다 — 그쪽은 종전대로 counts·itemStatusRowCount가 센다.
+    expect(teardown).toContain("wipeOfflineStore(store)");
+  });
+
+  it("정기 지출 개수는 **새 요청 0건**이다: 셀렉터 하나 · 아이 필터 없음 · 내보내기 모듈 무접촉", () => {
+    const settingsSource = source("app/settings/index.tsx");
+    expect(settingsSource).toContain(
+      "const recurringTemplateCount = useRecurringExpenseStore((state) => state.templates.length);"
+    );
+    // teardown은 모든 아이의 것을 지운다 — 아이 필터를 지나면 화면이 실제보다 작은 수를 말한다.
+    expect(settingsSource).not.toContain("templates.filter");
+    // 화면은 문구를 다시 적지 않는다(단일 소스는 이 파일이다).
+    expect(settingsSource).not.toContain(RECURRING_SENTENCE_TAIL);
+    // CSV 내보내기 모듈에는 들어가지 않는다(그 파일의 계약: 템플릿을 CSV에 싣지 않는다 —
+    // recurring-flow.test.ts, 라운드 65 A의 왕복 계약). 주석은 그 사실을 설명해도 된다.
+    const cardCode = source("src/export/ExpenseCsvExport.tsx")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/[^\n]*/g, " ");
+    expect(cardCode).not.toContain("recurring");
+  });
+
+  it("P3 열 라운드 이월 청산 — 실패 행 안내가 동기화 문구 단일 소스로 왔다 (값 불변)", () => {
+    expect(FAILED_ROW_OTHER_CHILD_NOTICE).toBe("다른 아이의 기록이에요. 그 아이를 선택하면 고쳐서 다시 보낼 수 있어요.");
+    expect(source("src/expenses/failed-row-prefill.ts")).not.toContain("export const FAILED_ROW_OTHER_CHILD_NOTICE");
+    expect(source("app/sync-status.tsx")).toContain(
+      'import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";'
+    );
   });
 });

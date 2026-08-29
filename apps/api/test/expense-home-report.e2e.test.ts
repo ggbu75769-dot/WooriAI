@@ -433,7 +433,7 @@ describe("Expense, budget, home, and report API", () => {
    * 저녁에 오늘 날짜가 미래로 걸린다). 이 스위트의 오늘은 WOORIAI_STAGE_TODAY=2026-07-06라
    * 서울 기준 오늘/내일이 결정적이다.
    *
-   * 규칙은 DTO가 아니라 서비스 계층에 있으므로(store-shared.assertNotFutureDate) 에러 코드는
+   * 규칙은 DTO가 아니라 서비스 계층에 있으므로(store-shared.assertExpenseDateWithinRange) 에러 코드는
    * VALIDATION_ERROR가 아니라 EXPENSE_FUTURE_DATE이고, **생성·수정 두 경로가 같은 코드를 쓴다**
    * (모바일 3경로의 isFutureSeoulDate를 우회해 API를 직접 호출해도 막힌다).
    */
@@ -562,6 +562,76 @@ describe("Expense, budget, home, and report API", () => {
       .expect(({ body }) => {
         expect(body.spentOn).toBe("2016-08-14");
         expect(body.itemName).toBe("10년 전 기록");
+      });
+  });
+
+  /**
+   * 라운드 69 B: **바구니에서 갈라 나온 코드**.
+   *
+   * 존재하지 않는 카테고리로 저장하려는 요청에 서버는 오래전부터 완성된 해요체 문장을 답했는데,
+   * 그 문장이 `VALIDATION_ERROR`라는 바구니 코드로 나갔다. 앱의 화이트리스트는 코드 단위라
+   * (apps/mobile/src/api/api-error.ts) 바구니 코드로 나가는 문장은 구조적으로 꺼낼 수 없다 —
+   * 그 코드를 표에 넣으면 DTO 검증 실패 **전량**이 카테고리 문구를 뒤집어쓴다.
+   *
+   * 그래서 이 갈래만 자기 코드를 받았다. **문장·status는 한 글자도 바뀌지 않았고**, 생성·수정
+   * 두 경로가 같은 코드를 쓴다(`requireExistingCategory` 한 자리를 둘이 함께 지난다).
+   * 오프라인에서 적은 지출이 flush 400을 받으면 그 행은 실패 행으로 파킹되고 재시도 버튼이
+   * 사라지므로, 고칠 곳이 카테고리라는 사실이 화면까지 오는지가 이 코드의 존재 이유다.
+   */
+  it("라운드 69 B: 없는 카테고리는 400 EXPENSE_CATEGORY_INVALID (생성·수정 두 경로, 문장 무변경)", async () => {
+    const accessToken = await login(app, `r69-category-code-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+    const missingCategoryId = randomUUID();
+
+    const expectCategoryError = ({ body }: { body: { error: { code: string; message: string } } }) => {
+      errorResponseSchema.parse(body);
+      expect(body.error.code).toBe("EXPENSE_CATEGORY_INVALID");
+      // 앱의 표가 그대로 쓰는 문장이다(api-error.ts의 EXPENSE_CATEGORY_INVALID).
+      expect(body.error.message).toBe("존재하지 않는 카테고리예요. 카테고리를 다시 선택해 주세요.");
+      // 바구니 코드로는 더 이상 나가지 않는다.
+      expect(body.error.code).not.toBe("VALIDATION_ERROR");
+    };
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId: missingCategoryId, amountKrw: 12000, spentOn: "2026-07-06", itemName: "없는 분류" })
+      .expect(400)
+      .expect(expectCategoryError);
+
+    const created = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ categoryId, amountKrw: 12000, spentOn: "2026-07-06", itemName: "정상 분류" })
+        .expect(200)
+    ).body as { id: string };
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId: missingCategoryId })
+      .expect(400)
+      .expect(expectCategoryError);
+
+    // DTO 검증 실패는 **종전 그대로** VALIDATION_ERROR다 — 갈라낸 것은 이 한 갈래뿐이다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId: "not-a-uuid", amountKrw: 12000, spentOn: "2026-07-06", itemName: "형식 위반" })
+      .expect(400)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+
+    // 거절된 수정이 행을 건드리지 않았다(부분 적용 금지).
+    await request(app.getHttpServer())
+      .get(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categoryId).toBe(categoryId);
       });
   });
 
