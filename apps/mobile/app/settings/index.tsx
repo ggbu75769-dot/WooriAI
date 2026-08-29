@@ -26,6 +26,8 @@ import { RECURRING_MANAGE_LABEL } from "../../src/expenses/recurring-template";
 import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
 // GAP-061 #10: 예정일이 유예를 넘긴 임신 프로필의 "임신 42주차" 고착을 표시층에서만 걷어낸다.
 import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
+// 라운드 68 트랙 B(#2): 로그아웃 확인 문구는 동기화 문구의 단일 소스에서 온다(화면이 다시 적지 않는다).
+import { logoutConfirmMessage, LOGOUT_CONFIRM_TITLE } from "../../src/offline/messages";
 import { APP_LOCK_TITLE } from "../../src/security/app-lock";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -124,8 +126,21 @@ export default function SettingsScreen() {
   // 가져오기 행 바로 아래에 붙는 CSV 내보내기 -- 상태·수집·공유·토스트는 공용 모듈이 담당한다.
   const csvExport = useExpenseCsvExport();
 
+  /**
+   * 라운드 68 트랙 B(#2) — 확인 문구가 **미동기화 기록이 사라진다는 사실**을 함께 말한다.
+   *
+   * 이 앱에서 사람들이 실제로 쓰는 로그아웃은 이 버튼 하나인데(나머지 둘은 PIN을 잊은 사람만
+   * 지나는 길이다), 정작 이 자리만 "다시 로그인해야 이용할 수 있어요."가 전부였다. `clearSession()`
+   * 은 PRIV-104 teardown을 발화시켜 아웃박스를 통째로 지우므로(src/offline/session-teardown.ts),
+   * 오프라인에서 적은 기록은 그때 사라진다.
+   *
+   * 판정·문구는 순수 모듈 한 곳에 있고(offline/messages.ts) 이 화면은 값을 넘기기만 한다.
+   * 건수는 **새 요청 0건**으로 읽는다 — 내보내기 컨트롤러가 이미 구독 중인 오프라인 스냅숏에서
+   * 그대로 온다(`devicePendingRecords`: 아이 필터를 지나지 않은 이 기기 전량 · 저장소를 못 연
+   * 부팅에서는 건수 대신 "모른다"를 말한다). 대기 0건이면 종전 문장 그대로다.
+   */
   const handleLogout = () => {
-    Alert.alert("로그아웃 할까요?", "다시 로그인해야 이용할 수 있어요.", [
+    Alert.alert(LOGOUT_CONFIRM_TITLE, logoutConfirmMessage(csvExport.devicePendingRecords), [
       { text: "취소", style: "cancel" },
       {
         text: "로그아웃",

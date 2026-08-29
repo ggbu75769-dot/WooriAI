@@ -13,6 +13,7 @@ import {
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
   OFFLINE_SAVED_MESSAGE,
   OFFLINE_STORAGE_UNAVAILABLE_NOTICE,
+  OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE,
   SERVER_CONFIRMED_MESSAGE,
   LOAD_ERROR_NOTICE,
   LOAD_ERROR_RETRY_LABEL,
@@ -30,6 +31,12 @@ import {
   SYNC_ROW_PENDING_LABEL,
   SYNC_ROW_UNSENDABLE_LABEL,
   recordsCountPhrase,
+  countLogoutPendingRecords,
+  logoutConfirmMessage,
+  LOGOUT_CONFIRM_BASE_MESSAGE,
+  LOGOUT_CONFIRM_TITLE,
+  syncStatusDiscardAllConfirmMessage,
+  SESSION_EXPIRED_LOGIN_NOTICE,
   unsendableRecordsSuffixText,
   unsendableRowsNoticeText,
   SYNC_STATUS_CONFLICT_LABEL,
@@ -441,5 +448,90 @@ describe("라운드 61 #6 저장소를 열지 못했을 때의 문구", () => {
     // 비난·지시형 금지(DNC-018).
     expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).not.toContain("확인하세요");
     expect(OFFLINE_STORAGE_UNAVAILABLE_NOTICE).not.toContain("확보");
+  });
+});
+
+/**
+ * 라운드 68 트랙 B(#2) — 설정 화면의 로그아웃 확인 문구.
+ *
+ * 이 계약이 잡는 사실은 "문구가 짧다"가 아니라 **두 자리가 같은 사실을 말하는가**이다(라운드 64
+ * M-2·65 A·67 B와 같은 형식): 로그아웃이 세는 건수와 동기화 상태 화면이 세는 건수가 같은 술어에서
+ * 오는가, 그리고 대기가 없을 때 화면이 종전과 한 글자도 다르지 않은가.
+ */
+describe("라운드 68 B(#2) 로그아웃 확인 문구", () => {
+  const mobileRoot = process.cwd();
+  const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+
+  it("대기 0건이면 종전 문장 그대로다 (없는 위험을 지어내지 않는다)", () => {
+    expect(LOGOUT_CONFIRM_TITLE).toBe("로그아웃 할까요?");
+    expect(LOGOUT_CONFIRM_BASE_MESSAGE).toBe("다시 로그인해야 이용할 수 있어요.");
+    expect(logoutConfirmMessage()).toBe(LOGOUT_CONFIRM_BASE_MESSAGE);
+    expect(logoutConfirmMessage({ counts: { pending: 0, syncing: 0, failed: 0, conflict: 0 } })).toBe(
+      LOGOUT_CONFIRM_BASE_MESSAGE
+    );
+    expect(logoutConfirmMessage({ counts: null, itemStatusRowCount: 0, storage: "ok" })).toBe(
+      LOGOUT_CONFIRM_BASE_MESSAGE
+    );
+  });
+
+  it("대기가 있으면 건수를 숫자로 말하고, 종전 문장은 접두로 그대로 남는다", () => {
+    const message = logoutConfirmMessage({ counts: { pending: 3, syncing: 1, failed: 1, conflict: 0 } });
+    expect(message.startsWith(`${LOGOUT_CONFIRM_BASE_MESSAGE}\n`)).toBe(true);
+    expect(message).toContain("기록 5건");
+  });
+
+  it("확인 문구 계열과 **같은 두 가지**를 말한다: 어디에만 있는지 · 되돌릴 수 있는지", () => {
+    const message = logoutConfirmMessage({ counts: { pending: 2, syncing: 0, failed: 0, conflict: 0 } });
+    expect(message).toContain("이 기기에만");
+    expect(message).toContain("되돌릴 수 없어요");
+    // 같은 계열(전체 버리기)이 쓰는 주어·서술을 그대로 따른다 -- 새 어휘를 만들지 않는다.
+    expect(syncStatusDiscardAllConfirmMessage(2)).toContain("이 기기에만");
+    expect(message).toContain(recordsCountPhrase(2));
+    // 해요체(DNC-018) · 책망/지시형 없음.
+    expect(message.endsWith("요.")).toBe(true);
+  });
+
+  it("건수는 동기화 상태 화면과 **같은 술어**다: 지출 큐 네 상태 전부 + 준비템 상태 큐 전부", () => {
+    expect(countLogoutPendingRecords({ pending: 1, syncing: 2, failed: 3, conflict: 4 })).toBe(10);
+    expect(countLogoutPendingRecords({ pending: 1, syncing: 0, failed: 0, conflict: 0 }, 2)).toBe(3);
+    expect(countLogoutPendingRecords(null, 0)).toBe(0);
+    // 그 화면이 목록에 세우는 다섯 갈래가 정확히 이 덧셈이다(app/sync-status.tsx의 hasAny).
+    const syncStatusSource = source("app/sync-status.tsx");
+    expect(syncStatusSource).toContain(
+      'snapshot.rows.filter((row) => row.syncState === "pending" || row.syncState === "syncing")'
+    );
+    expect(syncStatusSource).toContain('snapshot.rows.filter((row) => row.syncState === "failed")');
+    expect(syncStatusSource).toContain('snapshot.rows.filter((row) => row.syncState === "conflict")');
+    expect(syncStatusSource).toContain("snapshot.itemStatusRows.filter(");
+  });
+
+  it("저장소를 못 연 상태에서는 0건이라고 말하지 않는다 (라운드 61 S-4·M-1)", () => {
+    const unknown = logoutConfirmMessage({ counts: { pending: 0, syncing: 0, failed: 0, conflict: 0 }, storage: "unavailable" });
+    expect(unknown).toContain(OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE);
+    expect(unknown).not.toMatch(/\d+건/);
+    // 그래도 잃을 수 있는 것이 무엇인지는 말한다(조건문으로 — 있다고 단정하지 않는다).
+    expect(unknown).toContain("되돌릴 수 없어요");
+    expect(unknown.startsWith(`${LOGOUT_CONFIRM_BASE_MESSAGE}\n`)).toBe(true);
+  });
+
+  it("만료 경로와 부딪히지 않는다: 이 문장은 명시적 로그아웃 자리에만 선다 (AUTH-127)", () => {
+    // 만료는 정체성을 유지해 아무것도 지우지 않고, 로그인 화면이 반대 방향을 약속한다.
+    expect(SESSION_EXPIRED_LOGIN_NOTICE).toContain("저장하지 않은 기록도 이어서 반영할게요");
+    const settingsSource = source("app/settings/index.tsx");
+    expect(settingsSource).toContain("Alert.alert(LOGOUT_CONFIRM_TITLE, logoutConfirmMessage(csvExport.devicePendingRecords)");
+    // 화면은 문구를 다시 적지 않는다(단일 소스는 이 파일이다 -- 인라인 Alert 문자열이 없다).
+    expect(settingsSource).not.toContain('Alert.alert("로그아웃');
+    expect(settingsSource).not.toContain('clearSession("expired")');
+  });
+
+  it("건수는 **새 요청 0건**으로 온다: 이미 구독 중인 스냅숏 한 벌에서 아이 필터 없이 읽는다", () => {
+    const cardSource = source("src/export/ExpenseCsvExport.tsx");
+    expect(cardSource).toContain("const devicePendingRecords: LogoutPendingInput = {");
+    expect(cardSource).toContain("counts: offlineSyncSnapshot.counts,");
+    expect(cardSource).toContain("itemStatusRowCount: offlineSyncSnapshot.itemStatusRows.length,");
+    // 내보내기 고지(아이·기간 필터를 지나는 값)와 섞이지 않는다 -- 모집단이 다르다.
+    expect(cardSource).toContain("childId: canExport ? childId : null,");
+    // 소비 화면은 여전히 스냅숏을 스스로 구독하지 않는다(export-pending-notice.test.ts의 계약).
+    expect(source("app/settings/index.tsx")).not.toContain("useOfflineSyncSnapshot");
   });
 });

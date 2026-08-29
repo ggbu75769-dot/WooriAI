@@ -454,7 +454,9 @@ describe("GAP-056 #3 내보내기 카드 배선", () => {
 
   it("완전 오프라인 실패는 '잠시 후 다시'가 아니라 messages.ts의 정직 문구다 (라운드 52 C-07 선례)", () => {
     const src = cardSource();
-    expect(src).toContain('import { OFFLINE_RETRY_NOTICE } from "../offline/messages";');
+    // 라운드 68 B(#2): 같은 줄에 타입 하나(`LogoutPendingInput`)가 함께 실렸다 -- 이 계약이
+    // 지키는 사실("오프라인 문구가 messages.ts에서 온다")은 그대로다.
+    expect(src).toContain('import { OFFLINE_RETRY_NOTICE, type LogoutPendingInput } from "../offline/messages";');
     expect(src).toContain("isOnline ? \"내보내기에 실패했어요. 잠시 후 다시 시도해주세요.\" : OFFLINE_RETRY_NOTICE");
     // 판정은 실패 시점의 폴 한 번(family 화면의 실패 Alert과 같은 관례).
     expect(src).toContain('import { isCurrentlyOnline } from "../offline/connectivity";');

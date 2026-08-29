@@ -4,6 +4,11 @@
  * design doc specifies, and so tests can assert on the copy without duplicating literals.
  */
 
+// 라운드 68 트랙 B(#2): **타입 전용** import라 런타임에는 아무것도 들어오지 않는다 -- 이 모듈은
+// 문구의 단일 소스로 남고(sync-controller가 이 파일을 import하는 방향은 그대로다), 저장소 상태를
+// 부르는 이름만 컨트롤러와 한 벌로 유지한다.
+import type { OfflineStorageState } from "./sync-controller";
+
 /** Shown immediately after a local (SQLite-first) save, before the server has confirmed it. */
 export const OFFLINE_SAVED_MESSAGE = "기기에 저장했어요. 연결되면 자동으로 반영할게요.";
 
@@ -306,6 +311,93 @@ export const SYNC_STATUS_DISCARD_PENDING_CONFIRM_MESSAGE =
  */
 export const SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE =
   "지금은 보내는 중이라 버릴 수 없어요. 잠시 뒤 다시 눌러 주세요.";
+
+/* ------------------------------------------------------------------------------------------ */
+/* 라운드 68 트랙 B(#2) — 설정 화면의 **로그아웃 확인** 문구                                     */
+/* ------------------------------------------------------------------------------------------ */
+
+/**
+ * ## 무엇이 문제였나
+ *
+ * 사용자가 스스로 누르는 로그아웃은 셋인데 문장이 갈려 있었다. 잠금 화면의 "PIN을 잊으셨나요?"와
+ * 앱 잠금 설정 카드는 둘 다 `APP_LOCK_LOGOUT_UNSYNCED_LOSS_NOTICE`("아직 서버에 올라가지 않은
+ * 기록은 로그아웃할 때 사라져요.")를 먼저 보여 주는데, **사람들이 실제로 쓰는 하나**인 설정
+ * 화면의 로그아웃만 "다시 로그인해야 이용할 수 있어요."가 전부였다.
+ *
+ * 사라지는 것은 셋 다 똑같다: `clearSession()`이 `userId`를 null로 만들고, 그 전이가 PRIV-104
+ * teardown을 발화시켜 아웃박스를 통째로 지운다(src/offline/session-teardown.ts — "after logout
+ * there is no token left to ever flush them with"). 오프라인에서 적은 다섯 건은 그때 사라지는데
+ * 화면은 그 사실을 물어본 적이 없다.
+ *
+ * ## 이 문장이 지키는 세 가지
+ *
+ *  1. **대기 0건이면 종전 문장 그대로다.** 없는 위험을 지어내 겁주지 않는다 — 그래서 이 함수는
+ *     기존 문장을 **접두로 보존**하고 필요할 때만 한 줄을 덧붙인다.
+ *  2. **모집단은 이 기기 전량이다.** 내보내기 고지(`export-pending-notice.ts`)는 "지금 고른 아이 ·
+ *     그 기간"을 세지만 로그아웃은 **모든 아이**의 것을 지운다. 그래서 아이 필터를 지나지 않은
+ *     동기화 상태 화면(app/sync-status.tsx)과 **같은 술어**를 쓴다 — 지출 큐의 네 상태 전부와
+ *     준비템 상태 큐 전부(`countLogoutPendingRecords`). 새 술어를 만들지 않는다.
+ *  3. **0건과 "모름"은 다르다**(라운드 61 S-4·M-1). 저장소를 열지 못한 부팅에서 스냅숏은 빈
+ *     초깃값이라 여기서 세면 0건이 되고, 그 침묵은 "잃을 것이 없어요"로 읽힌다. 그때는 건수를
+ *     말하지 않고 **모른다는 사실**을 말한다(`OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE`).
+ *
+ * 만료(`clearSession("expired")`) 경로는 이 문장과 무관하다 — 그쪽은 정체성을 유지해 아무것도
+ * 지우지 않고, 로그인 화면이 이미 반대 방향을 약속한다(`SESSION_EXPIRED_LOGIN_NOTICE`, AUTH-127).
+ * 두 문장이 한 흐름에서 부딪히지 않도록 이 문구는 **설정 화면의 명시적 로그아웃**에만 선다.
+ */
+export const LOGOUT_CONFIRM_TITLE = "로그아웃 할까요?";
+
+/** 종전 본문. 대기 0건에서는 이 한 줄이 그대로 전부다(문자열 불변 계약). */
+export const LOGOUT_CONFIRM_BASE_MESSAGE = "다시 로그인해야 이용할 수 있어요.";
+
+/**
+ * 동기화 상태 화면이 지출 큐에서 세는 네 칸(`SyncStatusCounts`)의 최소 형태. 홈 최하단 줄이
+ * 같은 이유로 자기 구조 타입을 두는 것과 같다(src/home/home-sync-status.ts) — 이 문구 모듈이
+ * 컨트롤러를 런타임으로 끌어오지 않게 한다.
+ */
+export type LogoutPendingCounts = { pending: number; syncing: number; failed: number; conflict: number };
+
+/** 로그아웃이 지우는 것의 크기를 재는 입력. 전부 선택이라 값을 모르는 호출부는 0건으로 읽힌다. */
+export type LogoutPendingInput = {
+  /** `useOfflineSyncSnapshot().counts` — 아이 필터를 지나지 않은 지출 큐 집계. */
+  counts?: LogoutPendingCounts | null;
+  /** `useOfflineSyncSnapshot().itemStatusRows.length` — 준비템 상태 아웃박스(충돌 갈래 없음). */
+  itemStatusRowCount?: number;
+  /** 위 숫자를 **믿어도 되는가**(라운드 61 #6). `"unavailable"`이면 건수를 말하지 않는다. */
+  storage?: OfflineStorageState;
+};
+
+/**
+ * 로그아웃과 함께 사라지는 행의 수.
+ *
+ * 동기화 상태 화면의 `hasAny`와 **같은 덧셈**이다(그 화면: 대기+전송 중 · 실패 · 충돌 지출 행 +
+ * 준비템 대기·실패 행). 두 큐를 함께 세는 근거는 홈 최하단 줄과 같다 — teardown은 둘 다 지우므로
+ * 한쪽만 세면 화면이 실제보다 작은 수를 말한다.
+ */
+export function countLogoutPendingRecords(
+  counts: LogoutPendingCounts | null | undefined,
+  itemStatusRowCount: number = 0
+): number {
+  const expenses = counts ? counts.pending + counts.syncing + counts.failed + counts.conflict : 0;
+  return expenses + itemStatusRowCount;
+}
+
+/**
+ * 확인 Alert 본문. 두 확인 문구 계열(`syncStatusDiscardAllConfirmMessage` ·
+ * `SYNC_STATUS_DISCARD_PENDING_CONFIRM_MESSAGE`)과 **같은 두 가지**를 말한다: 어디에만 있는지,
+ * 되돌릴 수 있는지. 주어는 그 계열과 같은 `recordsCountPhrase`다 — 이 모집단에는 다시 보내도
+ * 소용없는 행(영구 실패)이 섞여 있어 "동기화 대기 중인"이라는 수식을 붙일 수 없다.
+ */
+export function logoutConfirmMessage(input: LogoutPendingInput = {}): string {
+  if (input.storage === "unavailable") {
+    // 건수를 말하지 않는다(0건도 주장할 수 없다). 대신 모른다는 사실과, 그 경우 잃는 것이
+    // 무엇인지를 조건문으로만 밝힌다 -- 있지도 모르는 기록을 "사라져요"라고 단정하지 않는다.
+    return `${LOGOUT_CONFIRM_BASE_MESSAGE}\n${OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE} 이 기기에만 있는 기록은 로그아웃하면 되돌릴 수 없어요.`;
+  }
+  const count = countLogoutPendingRecords(input.counts, input.itemStatusRowCount);
+  if (count <= 0) return LOGOUT_CONFIRM_BASE_MESSAGE;
+  return `${LOGOUT_CONFIRM_BASE_MESSAGE}\n${recordsCountPhrase(count)}은 아직 이 기기에만 저장돼 있어요. 로그아웃하면 되돌릴 수 없어요.`;
+}
 
 /**
  * AUTH-127 — 로그인 화면 안내. 리프레시 토큰이 만료(30일)되거나 재사용 감지로 폐기돼
