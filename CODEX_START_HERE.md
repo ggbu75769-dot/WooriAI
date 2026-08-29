@@ -2,6 +2,16 @@
 
 당신은 우리아이 MVP를 구현하는 Codex입니다. 이 패키지의 `docs/` 폴더가 구현의 단일 기준입니다. 임의로 제품 방향, 화면 구조, 기술 스택, MVP 범위를 재해석하지 마세요.
 
+> ⚠️ **오늘의 저장소 상태부터 읽으세요.** 이 문서는 MVP 첫 구현 지시문이고, 그 뒤로 라운드가 여러 번
+> 지나갔습니다. 저장소 현황·명령·테스트 정책은 [`CLAUDE.md`](CLAUDE.md)와 [`README.md`](README.md),
+> 진행 중인 라운드는 `docs/5차/`가 최신입니다. 패키지 매니저는 **pnpm**이고(루트 `package.json`의
+> `packageManager`), 안드로이드 패키지명은 `apps/mobile/app.json`이 단일 소스입니다.
+>
+> **잠긴 동작(DNC 계약)의 현행 단일 소스는 [`docs/dev/do-not-change.md`](docs/dev/do-not-change.md)(v0.5)
+> 하나입니다.** `docs/4차/**`의 계약 문서는 **승인 계보의 원본 보존본**이라 한 글자도 고치지 않으며,
+> 그래서 개정된 항목(예: DNC-017 브랜드 토큰 값 — v0.5, DSN-053 사용자 승인)은 **v0.4 시절 값이 그대로
+> 남아 있습니다.** 값을 따라야 할 때는 언제나 저장소 사본(v0.5)을 보세요.
+
 ## 1. 먼저 읽을 문서
 
 반드시 아래 순서로 읽은 뒤 구현을 시작하세요.
@@ -28,8 +38,11 @@
 
 문서 간 충돌이 있으면 다음 우선순위를 따르세요.
 
-1. `docs/4차/prompts/04_do_not_change_v0_4.md`
-2. `docs/4차/contracts/do_not_change_contract_v0_4.yaml`
+1. `docs/dev/do-not-change.md` — **DNC 계약의 현행 단일 소스(v0.5)**. 저장소 사본이 원본보다 위에 있는
+   이유는, 개정(예: DNC-017 브랜드 토큰 값)이 이 파일에만 반영되기 때문입니다.
+2. `docs/4차/prompts/04_do_not_change_v0_4.md`, `docs/4차/contracts/do_not_change_contract_v0_4.yaml` —
+   ⚠️ **원본 보존본**(승인 계보). **고치지 않고, 개정된 항목의 값을 여기서 읽지도 않습니다.**
+   1번과 어긋나면 1번이 이깁니다.
 3. `docs/4차/prompts/05_acceptance_criteria_v0_4.md`
 4. `docs/3차/db_api/wooriai_phase3_openapi_v0_3.yaml` 및 `wooriai_phase3_schema_v0_3.sql`
 5. `docs/3차/개발고정_문서/wooriai_phase3_dev_fixed_docs_v0_3.docx`
@@ -46,6 +59,8 @@
 사용자는 “가계부를 쓴다”가 아니라 “우리 아이에게 해준 것을 남긴다”고 느껴야 합니다.
 
 ## 4. 절대 변경 금지
+
+⚠️ 아래는 **읽기 편하라고 둔 요약**이고, 계약의 단일 소스는 [`docs/dev/do-not-change.md`](docs/dev/do-not-change.md)(DNC-001~020, v0.5)입니다. 요약과 계약이 어긋나면 **계약이 이깁니다.** 요약에 없는 조항(금액 규칙·soft delete·선물 제외·토큰 취급·해요체 문구·비밀값 로깅·의료 단정 금지 등)도 똑같이 잠겨 있습니다.
 
 아래 항목은 구현 중 임의 변경하지 마세요.
 
@@ -109,4 +124,13 @@
 
 ## 7. 시작 명령
 
-이 지시문을 읽은 뒤 먼저 리포지토리와 문서 구조를 스캔하고, `Batch 00 — Source Lock`부터 시작하세요. 기능 구현은 Source Lock 산출물을 만든 뒤 진행합니다.
+⚠️ **§5의 Batch 00~11은 이미 전부 끝났습니다**(Source Lock 산출물은 `docs/dev/source-lock.md`·`docs/dev/do-not-change.md`이고, 그 뒤로 라운드가 계속 이어졌습니다). 처음부터 다시 밟지 마세요.
+
+오늘의 시작점은 이렇습니다.
+
+1. [`CLAUDE.md`](CLAUDE.md) — 명령·테스트·DB·커밋 관례.
+2. [`docs/dev/do-not-change.md`](docs/dev/do-not-change.md) — 잠긴 동작(v0.5).
+3. `docs/5차/`의 **가장 최근 라운드 정찰 노트**(`roundNN-scout.md`) — 지금 무엇을 하는 라운드인지.
+4. [`docs/operations/known-limitations.md`](docs/operations/known-limitations.md) — 이미 판정이 끝난 것을 다시 제안하지 않으려고 읽습니다.
+
+§1·§5는 **최초 구현의 기록**으로 남겨 둡니다(무엇이 왜 그렇게 됐는지의 계보).

@@ -13,7 +13,7 @@ pnpm workspace + turbo 기반 모노레포입니다.
 | `apps/api` | NestJS + Prisma(PostgreSQL) API 서버. base path `/api/v1` |
 | `apps/mobile` | Expo(React Native) 앱. expo-router, TanStack Query + Zustand |
 | `apps/admin` | Next.js 어드민 콘솔 (기본 포트 3001) |
-| `packages/contracts` | OpenAPI 기반 DTO/타입 계약 (`pnpm contracts:generate`) |
+| `packages/contracts` | DTO/타입 계약의 **수기 단일 소스**(zod). ⚠️ `pnpm contracts:generate`는 **영구 no-op 스텁**(CON-115) — 아무 타입도 생성하지 않습니다 |
 | `packages/domain` | 공유 도메인 로직 |
 | `packages/config`, `packages/ui`, `packages/test-utils` | 공통 설정 / UI / 테스트 유틸 |
 | `scripts/` | DB 운영(`db.ts`), 릴리즈 게이트, QA, 픽셀 락, 배포 스크립트 |
@@ -50,7 +50,7 @@ ADMIN_API_PROXY_TARGET=http://localhost:3000 pnpm --filter admin dev
 - 패키지별: `pnpm --filter api test`, `pnpm --filter mobile test`, `pnpm --filter admin test` 등 (전체: `pnpm test`)
 - **api 테스트는 실 PostgreSQL 필수** — 기본 DB는 `wooriai_test` (vitest globalSetup이 연결 확인·마이그레이션·시드까지 수행, `DATABASE_URL`로 덮어쓰기 가능)
 - 릴리즈 게이트(설치→env→prisma→lint→typecheck→테스트→빌드 일괄): `pnpm release:gate` — evidence는 `docs/qa/evidence/`에 기록
-- 실서버 스모크(31검사 — 근거: `grep -c '^chk ' scripts/qa/server-smoke.sh`): dev 서버 기동 후 `SMOKE_BASE_URL=<베이스> bash scripts/qa/server-smoke.sh` (기본 `http://localhost:3400/api/v1`, `jq` 필요)
+- 실서버 스모크(근거: `grep -c '^chk ' scripts/qa/server-smoke.sh` → **37**검사): dev 서버 기동 후 `SMOKE_BASE_URL=<베이스> bash scripts/qa/server-smoke.sh` (기본 `http://localhost:3400/api/v1`, `jq` 필요)
 - 어드민 브라우저 E2E: `node scripts/qa/admin-e2e.mjs` — 전제조건: API(3400)·어드민(3100) dev 서버 기동, 시드된 dev 어드민 계정(`admin@wooriai.local`), playwright-core + Chromium (자세한 전제는 스크립트 상단 주석)
 
 ## 배포
@@ -73,5 +73,5 @@ ADMIN_API_PROXY_TARGET=http://localhost:3000 pnpm --filter admin dev
 ## 구현 원칙
 
 - 기능 구현 전 `docs/dev/do-not-change.md` 계약을 확인하고, 충돌 시 임의 변경 대신 변경 요청을 문서화합니다.
-- API 계약은 `/api/v1` + OpenAPI 기반 타입 생성(`pnpm contracts:generate`)을 유지합니다.
+- API 계약은 `/api/v1` 고정이고, 계약 타입의 단일 소스는 `packages/contracts`의 **수기 zod 스키마**입니다. `pnpm contracts:generate`(`scripts/generate-openapi-types.ts`)는 **아무것도 생성하지 않는 스텁**(CON-115)이므로 타입을 얻으려고 돌리지 마세요 — 계약이 바뀌면 `packages/contracts`를 직접 고칩니다.
 - 과거 Codex 실행 패키지 시절의 이력 문서는 `codex/`에 보존되어 있습니다(현행 작업 기준 아님).

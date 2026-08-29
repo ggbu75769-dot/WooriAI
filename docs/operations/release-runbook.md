@@ -1,13 +1,13 @@
 # 릴리즈 런북 (Release Runbook)
 
-작성: 2026-07-12 · 브랜치: codex/source-audit-standalone-apk
+작성: 2026-07-12 · 최종 정정: 2026-08-29(라운드 74 트랙 C) · 브랜치 고정 없음(배포 시점의 릴리즈 브랜치에서 실행)
 
 ## 1. 배포 전 체크리스트
 
 - [ ] `npx --yes pnpm@11.7.0 install --frozen-lockfile` 성공
-- [ ] `npx --yes pnpm@11.7.0 release:gate` 11/11 PASS (근거: `grep -c 'label:' scripts/release-gate.ts`의 단계 정의 — Install·Env example·Prisma validate·Prisma generate·Database up·Lint·Typecheck·All tests·API e2e·Build dry-run·Peer dependencies)
+- [ ] `npx --yes pnpm@11.7.0 release:gate` 전 단계 PASS (근거: `grep -c '    label: "' scripts/release-gate.ts` → **11**단계 — Install·Env example·Prisma validate·Prisma generate·Database up·Lint·Typecheck·All tests·API e2e·Build dry-run·Peer dependencies)
 - [ ] 프로덕션 env 설정: `NODE_ENV=production`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `WOORIAI_ADMIN_TOKEN`, `DATABASE_URL`, OAuth client id/secret, `EXPO_PUBLIC_API_BASE_URL`(https)
-- [ ] `pnpm check:env` 통과 (누락 시 API 부팅 실패)
+- [ ] `pnpm check:env` 통과 (누락 시 API 부팅 실패) — 카탈로그 크기는 필수 근거: `awk '/^const REQUIRED_SPECS/,/^\];/' scripts/check-env.ts | grep -c 'key: "'` → **22**개 · 선택 근거: `awk '/^const OPTIONAL_SPECS/,/^\];/' scripts/check-env.ts | grep -c 'key: "'` → **41**개
 - [ ] DB 마이그레이션: `pnpm --filter api prisma:deploy` (= `prisma migrate deploy`)
 - [ ] seed: `pnpm --filter api seed` — 시드 내용의 단일 소스는 `apps/api/prisma/seed-data.ts`
       (정식 카테고리 12 + 모바일 별칭 8 + 가져오기 스텁 1, 준비템 카탈로그, 제휴 고지 문구,
@@ -15,10 +15,10 @@
       안전**하다. 로컬 dev DB는 `pnpm db seed`로도 같은 시드를 돌린다.
 - [ ] 관리자 계정/토큰 발급 및 안전 보관(`WOORIAI_ADMIN_TOKEN`)
 - [ ] 릴리즈 keystore 준비 + Gradle signingConfig 연결 (스토어 배포 시)
-- [ ] applicationId를 실제 패키지명으로 변경 (현재 `com.anonymous.wooriai`)
+- [x] applicationId는 이미 실제 패키지명이다 — `kr.wooriai.app`(`apps/mobile/app.json`의 `expo.android.package`가 단일 소스이고, `android/`는 `expo prebuild`가 생성한다). **확인할 것이 남아 있지 않다.**
 - [ ] 개인정보처리방침·이용약관·제휴 고지 접근 경로 확인(설정 → 개인정보)
 - [ ] 워커를 돌리는 배포면 `WORKER_ENABLED=1` 주입 + `/health/worker` 모니터 설정(§3.2)
-- [ ] 로그·오류 추적(Sentry 등) 연결 지점 확인
+- 로그·오류 추적: ⚠️ **연결 지점이 없다**(체크할 칸이 아니라 알고 있어야 하는 사실이다). 앱에는 크래시 파이프라인이 아직 없고(`apps/mobile/src/errors/error-boundary-core.ts` — "no crash pipeline yet — Sentry 추후"), 오늘의 오류 추적은 **서버의 requestId 요청 로그**(§5·[incident-response.md](incident-response.md))와 **기기의 `console.error`**뿐이다. 실기기에서 앱이 죽으면 운영자에게 오는 신호는 없다.
 
 ## 2. 빌드 산출물
 
