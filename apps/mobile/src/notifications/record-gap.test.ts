@@ -274,7 +274,9 @@ describe("GAP-054 #6 스토어 통합: 주 1회 · 끄기 · 딥링크", () => {
       "stage_transition",
       "purchase_pending",
       "weekly_summary",
-      "record_gap"
+      "record_gap",
+      // GAP-066 #8 — 라운드 66 트랙 E가 합류시킨 일곱 번째 종류(지난달 정리).
+      "monthly_wrapup"
     ]);
     const iconMap = screen.slice(screen.indexOf("const notificationIconByType"));
     for (const type of validTypes) {

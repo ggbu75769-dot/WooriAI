@@ -5,8 +5,15 @@ import {
   type PurchaseFollowupEntry
 } from "../commerce/purchase-followup.store";
 import { budgetUsagePercent } from "../home/budget-progress";
+import {
+  daysInYearMonth,
+  previousYearMonth,
+  sumMonthExpensesThroughDay,
+  type ComparableExpenseRecord
+} from "../home/last-month-comparison";
 import type { WeeklySummary } from "../home/weekly-summary";
 import { formatKrw } from "../money";
+import { shareTotalLine } from "../reports/share-text";
 import { isIsoCalendarDate, isoCalendarDaysBetween, seoulCalendarDate, seoulIsoWeekKey } from "./iso-week";
 import type { AppNotificationCandidate } from "./notification.store";
 
@@ -27,6 +34,8 @@ import type { AppNotificationCandidate } from "./notification.store";
  *   (a fresh re-click has a new clickedAt and may fire again).
  * - weekly_summary (NOTI-103) keys on childId + the Seoul-calendar ISO week, so it fires at most
  *   once per child per week and re-arms every Monday 00:00 KST.
+ * - monthly_wrapup (GAP-066 #8) keys on childId + the Seoul-calendar **지난달**, so it fires at most
+ *   once per child per month and re-arms at 매월 1일 00:00 KST.
  */
 
 /* R19-D: the old `BUDGET_WARNING_RATIO = 0.8` float ratio is gone -- nothing imported it and the
@@ -419,6 +428,116 @@ export function recordGapNotification(input: RecordGapInput): AppNotificationCan
   };
 }
 
+/* ---------------------------------------------------------------------------------------------
+ * GAP-066 #8 — 지난달 정리(monthly_wrapup)
+ * ------------------------------------------------------------------------------------------- */
+
+const MONTHLY_WRAPUP_YEAR_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** dedupeKey의 첫 조각. 키를 **만드는 쪽**(여기)과 **읽는 쪽**(notification-route.ts)이 같은
+ * 문자열을 쓰도록 한 번만 적는다 — purchase_pending의 키 왕복과 같은 관례다. */
+export const MONTHLY_WRAPUP_DEDUPE_PREFIX = "monthly_wrapup";
+
+/**
+ * `monthly_wrapup:{childId}:{지난달 YYYY-MM}`.
+ *
+ * 키에 담는 달이 **이번 달이 아니라 지난달**인 이유: 이 알림의 목적지가 그 달의 리포트이고
+ * (notification-route.ts), 목적지는 이 키에서 달을 되읽어 만든다. 키가 이번 달을 담으면 dedupe가
+ * 세는 달과 착지하는 달이 서로 다른 사실을 말하게 되고, 그 둘이 어긋나는 날을 아무도 못 잡는다.
+ * 달이 바뀌면 키도 바뀌므로 재무장은 저절로 일어난다(weekly_summary의 주 단위 키와 같은 규율).
+ */
+export function monthlyWrapupDedupeKey(childId: string, yearMonth: string): string {
+  return `${MONTHLY_WRAPUP_DEDUPE_PREFIX}:${childId}:${yearMonth}`;
+}
+
+/**
+ * dedupeKey에서 **그 알림이 말하는 달**을 되읽는다. 못 읽으면 null(목적지 쪽이 달 없는 폴백으로
+ * 떨어진다 — notification-route.ts).
+ *
+ * childId 자체에 ":"가 들어 있어도 안전하도록 **마지막 조각**을 본다
+ * (`itemTemplateIdFromPurchaseDedupeKey`가 clickedAt을 마지막 조각으로 다루는 것과 같은 이유).
+ * 형식 검사까지 여기서 하는 이유는, 손상된 저장본이 착지 파라미터로 흘러가지 않게 하기 위해서다.
+ */
+export function yearMonthFromMonthlyWrapupDedupeKey(dedupeKey: string): string | null {
+  const parts = dedupeKey.split(":");
+  if (parts[0] !== MONTHLY_WRAPUP_DEDUPE_PREFIX || parts.length < 3) return null;
+  const yearMonth = parts[parts.length - 1];
+  return MONTHLY_WRAPUP_YEAR_MONTH_PATTERN.test(yearMonth) ? yearMonth : null;
+}
+
+export type MonthlyWrapupInput = {
+  childId: string;
+  /** Epoch ms "now". 달 경계는 여기서 **서울 달력**으로 뽑는다(기기 시간대와 무관 — iso-week.ts). */
+  now: number;
+  /**
+   * 지난달 한 달치 지출 행(`["expenses", childId, 지난달]` 캐시 — 홈이 이미 받아 둔 그것).
+   *
+   * 세 상태의 구분은 주간 요약(`WeeklySpendResolution`)과 같은 규율이다:
+   *  - `undefined`/`null` = **판정 불가**(캐시가 아직 없다) → 후보를 만들지 않는다. 키를 태우지
+   *    않으므로 캐시가 도착한 다음 평가가 정확한 값으로 정확히 한 번 발화한다.
+   *  - 배열 = 그 달의 전량이다(홈의 커서 루프 `fetchMonthExpenses`가 페이지를 다 모은다 —
+   *    첫 페이지만 읽으면 200건 넘는 달의 합계가 조용히 작아진다).
+   */
+  lastMonthRecords?: ComparableExpenseRecord[] | null;
+  /**
+   * 이 기기에 아직 올라가지 않은 이 아이의 지출 행이 있는가(`hasPendingRecordsForChild`).
+   * `true`면 **발화하지 않는다** — record_gap이 라운드 54 P1-3에서 내린 것과 **같은 판단**이다.
+   * 위 캐시는 서버가 아는 행뿐이라, 로컬로만 적어 온 기록이 있는 동안 합계를 말하면 사용자가 그
+   * 자리에서 반박할 수 있는 금액을 알림에 얼려 두게 된다. 아웃박스가 확정되면 `["expenses"]`가
+   * 무효화되고 다음 평가가 정확한 값으로 판단한다(키를 안 썼으므로 그 달 안에 그대로 뜬다).
+   */
+  hasPendingLocalRecords?: boolean;
+};
+
+/**
+ * GAP-066 #8 — **지난달 정리** 한 건.
+ *
+ * ## 무엇이 문제였나
+ * 8월 1일 아침의 앱에는 7월이 없다. 홈의 이번 달 총액은 0원으로 리셋되고 예산도 비며(예산은
+ * (아이, 월) 한 칸이고 이월이 없다), 한 달치 기록은 사용자가 스스로 리포트 탭에 들어가 ‹ 를 눌러야
+ * 보인다. 핵심 루프의 "총액 확인"이 가장 의미 있는 그 하루에 앱이 아무 말도 하지 않았다.
+ *
+ * ## 언제 뜨는가 (전부 "근거가 없으면 말하지 않는다")
+ * - 달이 바뀐 뒤 **첫 평가 한 번**. dedupeKey가 `monthly_wrapup:{childId}:{지난달}`이라 스토어의
+ *   dedupe 메모리가 같은 달의 재평가를 전부 막고, 다음 달 1일 00:00 KST에 키가 갈린다.
+ *   (그날 앱을 안 열었으면 그 달 안에 처음 여는 날 뜬다 — 주간 요약과 같은 성질이다.)
+ * - **지난달 합계가 0원이면 만들지 않는다.** 주간 요약의 규칙 그대로다 — 0원 요약은 소음이고,
+ *   그 사람에게는 정리할 것이 애초에 없다.
+ * - 지난달 캐시가 아직 없으면 만들지 않는다(위 `lastMonthRecords` 주석 — 키를 태우지 않는다).
+ * - 이 기기에 미동기화 지출 행이 있으면 만들지 않는다(위 `hasPendingLocalRecords` 주석).
+ *
+ * ## 문구 (DNC-018)
+ * 새 어휘를 짓지 않는다. 금액 줄은 공유 카드가 이미 쓰는 문장 그대로이고(`shareTotalLine` —
+ * "함께한 지출 1,245,700원"), 본문은 record_gap의 초대 한 줄과 같은 모양이다. 주어를 "지난달"이
+ * 아니라 **"7월"**로 두는 것이 규칙의 핵심이다: 알림은 목록에 얼어붙는 스냅숏이라(notification.
+ * store.ts) 시점어("지난달"·"이번 달")를 넣으면 한 달 뒤에는 스스로 거짓이 된다.
+ *
+ * ## 합계는 어디서 오나
+ * 새 요청을 내지 않는다(NOTI-103 규칙). 홈이 "지난달 같은 시점 대비" 한 줄을 위해 이미 받아 둔
+ * `["expenses", childId, 지난달]` 캐시를 훅이 읽어 넘긴다. 더하는 술어도 새로 짓지 않는다 —
+ * 기록 탭 월 합계·홈 비교 한 줄과 **같은 함수**(`sumMonthExpensesThroughDay`, DNC-015에 따라
+ * 선물·환불 제외)로 그 달 마지막 날까지 더한다.
+ */
+export function monthlyWrapupNotification(input: MonthlyWrapupInput): AppNotificationCandidate | null {
+  const { childId, now, lastMonthRecords, hasPendingLocalRecords } = input;
+  // 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 금액을 단언하지 않는다(P1-3와 같은 규율).
+  if (hasPendingLocalRecords) return null;
+  if (!lastMonthRecords) return null;
+  const lastYearMonth = previousYearMonth(seoulCalendarDate(now));
+  if (!lastYearMonth) return null;
+  const totalKrw = sumMonthExpensesThroughDay(lastMonthRecords, lastYearMonth, daysInYearMonth(lastYearMonth));
+  // 0원인 달은 정리할 것이 없다(주간 요약의 0원 규칙 그대로).
+  if (totalKrw <= 0) return null;
+  const month = Number(lastYearMonth.slice(5, 7));
+  return {
+    type: "monthly_wrapup",
+    title: `${month}월 ${shareTotalLine(totalKrw)}`,
+    body: `리포트 탭에서 ${month}월을 함께 확인해볼까요?`,
+    dedupeKey: monthlyWrapupDedupeKey(childId, lastYearMonth),
+    childId
+  };
+}
+
 export type HomeNotificationInput = {
   child: { id: string; nickname: string; stageLabel: string };
   monthly: { yearMonth: string; amountKrw: number; usedAmountKrw: number };
@@ -448,8 +567,19 @@ export type HomeNotificationInput = {
    *
    * `lastRecordedOn`과 같은 이유로 optional이다: 이 값을 넘기지 않는 호출부(홈 외의 테스트 등)는
    * record_gap을 판단하는 자리가 아니고, 없으면 종전 동작 그대로다.
+   *
+   * GAP-066 #8: **지난달 정리도 같은 값을 본다.** 두 알림 다 "서버 스냅숏이 이 기기가 아는 사실을
+   * 아직 모른다"는 같은 이유로 침묵하므로, 판정을 두 벌로 만들지 않는다.
    */
   hasPendingLocalRecords?: boolean;
+  /**
+   * GAP-066 #8: 지난달 한 달치 지출 행(`["expenses", childId, 지난달]` 캐시 — 홈이 "지난달 같은
+   * 시점 대비" 한 줄을 위해 **이미 받아 둔** 그것을 훅이 읽어 넘긴다. 새 요청 0건).
+   *
+   * `lastRecordedOn`과 같은 이유로 optional이다: 이 값을 넘기지 않는 호출부는 지난달 정리를
+   * 판단하는 자리가 아니고, 없으면 그 알림만 만들어지지 않을 뿐 나머지 평가는 종전 그대로다.
+   */
+  lastMonthRecords?: ComparableExpenseRecord[] | null;
 };
 
 /** Everything the home screen's evaluation hook needs in one pure call. */
@@ -492,5 +622,15 @@ export function evaluateHomeNotifications(input: HomeNotificationInput): AppNoti
     now: input.now
   });
   if (recordGapCandidate) candidates.push(recordGapCandidate);
+  // GAP-066 #8: 지난달 정리. 홈이 이미 받아 둔 지난달 캐시에서 나오므로 여기서도 새 요청은 0건이고,
+  // 다른 여섯 종류와 같은 평가 한 번에 합류한다. 지난달 합계가 0원이거나 캐시가 아직 없으면
+  // 만들지 않는다(둘 다 키를 태우지 않는다).
+  const monthlyWrapupCandidate = monthlyWrapupNotification({
+    childId: input.child.id,
+    now: input.now,
+    lastMonthRecords: input.lastMonthRecords,
+    hasPendingLocalRecords: input.hasPendingLocalRecords
+  });
+  if (monthlyWrapupCandidate) candidates.push(monthlyWrapupCandidate);
   return candidates;
 }

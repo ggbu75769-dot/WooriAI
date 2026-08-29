@@ -51,7 +51,7 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     // 옮겼다(종류별 목적지는 notification-route.test.ts가 값으로 검증한다). 화면은 그 판정을
     // 그대로 router.push에 넘기기만 한다.
     expect(screenSource).toContain("markRead(entry.id)");
-    expect(screenSource).toContain("router.push(notificationTapRoute(entry, nextRecordsViewNonce()))");
+    expect(screenSource).toContain("router.push(notificationTapRoute(entry, nextRecordsViewNonce(), getSeoulToday()))");
     // 라운드 62 B(#2): 같은 모듈에서 아이 판정(resolveNotificationTapChild)까지 들여오면서 이
     // import가 여러 줄이 됐다 -- 목적지 판정이 그 모듈에서 온다는 계약은 그대로다.
     expect(screenSource).toContain("  notificationTapRoute,");

@@ -39,14 +39,14 @@ export type NotificationTypeOption = {
 };
 
 /**
- * 화면에 보이는 순서 그대로의 6종(GAP-054 #6에서 record_gap이 합류했다). generators.ts가 실제로
- * 만드는 종류와 1:1이고
+ * 화면에 보이는 순서 그대로의 7종(GAP-054 #6에서 record_gap이, GAP-066 #8에서 monthly_wrapup이
+ * 합류했다). generators.ts가 실제로 만드는 종류와 1:1이고
  * (notification.store.ts의 `KnownAppNotificationType`이 그 계약을 타입으로 잡는다), 이 배열이
- * 설정 화면의 행 순서이기도 하다 — 예산 → 시기 → 구매 → 주간.
+ * 설정 화면의 행 순서이기도 하다 — 예산 → 시기 → 구매 → 주간 → 기록 → 지난달.
  *
  * 문구는 "무엇이 있을 때 알리는가"만 말한다. 알림이 실제로 하는 일보다 크게 말하지 않는다
  * (예: 예산 알림은 이번 달 기준이고, 주간 요약은 한 주 합계다. 기록 리마인더도 "한 번"이라고
- * 밝힌다 -- 실제로 주 1회 dedupe라 매일 오지 않는다).
+ * 밝힌다 -- 실제로 주 1회 dedupe라 매일 오지 않는다. 지난달 정리도 달마다 "한 번"이다).
  */
 export const NOTIFICATION_TYPE_OPTIONS: readonly NotificationTypeOption[] = [
   {
@@ -81,6 +81,14 @@ export const NOTIFICATION_TYPE_OPTIONS: readonly NotificationTypeOption[] = [
     type: "record_gap",
     label: "기록 리마인더",
     description: "며칠 동안 기록이 없으면 한 번 알려드려요."
+  },
+  {
+    // GAP-066 #8. record_gap과 같은 방식으로 합류한다 — 이 배열에 행 하나를 더하면 설정 화면에
+    // 스위치가 생기고(화면은 이 목록을 그대로 그린다) 생성 경로의 필터도 같은 목록을 쓴다.
+    // 저장 형태가 "꺼진 것들"이라 기존 사용자에게는 기본 켬으로 들어간다(이 파일 머리말).
+    type: "monthly_wrapup",
+    label: "지난달 정리 알림",
+    description: "달이 바뀌면 지난달 지출을 한 번 알려드려요."
   }
 ] as const;
 

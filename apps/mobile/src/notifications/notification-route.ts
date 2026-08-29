@@ -1,4 +1,9 @@
-import { itemTemplateIdFromPurchaseDedupeKey } from "./generators";
+import {
+  buildReportsMonthLandingTarget,
+  REPORTS_TAB_PATHNAME,
+  type ReportsMonthLandingTarget
+} from "../reports/month-landing";
+import { itemTemplateIdFromPurchaseDedupeKey, yearMonthFromMonthlyWrapupDedupeKey } from "./generators";
 import type { AppNotification } from "./notification.store";
 
 /**
@@ -68,13 +73,20 @@ export type RecordsCalendarViewRoute = {
 /**
  * 알림함이 밀 수 있는 목적지. expo-router의 typedRoutes가 켜져 있어(app.json) 이 유니온이
  * 그대로 Href로 검사되므로, 없는 경로를 반환하면 typecheck에서 걸린다.
+ *
+ * 라운드 66 트랙 E(#8): **리포트가 여기 없었다.** 인앱 알림 여섯 종 중 어느 것도 리포트 탭으로
+ * 가지 않았고(주간 요약조차 기록 탭으로 간다), 그래서 달이 끝나는 순간 한 달치 기록을 보러 가는
+ * 길이 앱 안에 하나도 없었다. 지난달 정리(monthly_wrapup)가 그 첫 소비자다 — 달 착지 규약은
+ * 트랙 A가 만든 `src/reports/month-landing.ts` 하나뿐이고 이 모듈은 그것을 **부르기만** 한다.
  */
 export type NotificationRoute =
   | "/budget"
   | "/(tabs)/records"
   | "/(tabs)/items"
+  | typeof REPORTS_TAB_PATHNAME
   | `/items/${string}`
-  | RecordsCalendarViewRoute;
+  | RecordsCalendarViewRoute
+  | ReportsMonthLandingTarget;
 
 /**
  * 기록 탭이 받은 `view` 파라미터가 **달력을 요청하는가**.
@@ -137,9 +149,24 @@ export function nextRecordsViewNonce(): number {
  *   만들었다. 기록 탭은 이 값을 **회차(nonce) 단위로** 적용한다(라운드 57 QA P1-1): 재렌더·
  *   뒤로가기는 사용자가 고른 보기를 되돌리지 않고, 알림을 **다시** 누르면 다시 달력으로 간다.
  *   예전 판은 "앱 실행당 1회"만 적용해(boolean 가드) 두 번째 탭부터 아무 일도 일어나지 않았다.
- * @param viewNonce record_gap 목적지에 실을 이번 탭의 회차. 화면은 `nextRecordsViewNonce()`가
- *   주는 값을 그대로 넘긴다. 정수가 아니거나 음수면 회차를 싣지 않는다 — 읽는 쪽이 무시할 값을
- *   실어 보내면 착지가 조용히 예전 가드로 되돌아가고, 그건 이 라운드가 고친 그 증상이다.
+ * @param viewNonce 이번 탭의 회차. 화면은 `nextRecordsViewNonce()`가 주는 값을 그대로 넘긴다.
+ *   정수가 아니거나 음수면 회차를 싣지 않는다 — 읽는 쪽이 무시할 값을 실어 보내면 착지가 조용히
+ *   예전 가드로 되돌아가고, 그건 라운드 57 QA가 고친 그 증상이다. 회차를 쓰는 목적지가 둘이 됐지만
+ *   (record_gap의 달력 · monthly_wrapup의 달) **카운터는 하나로 충분하다**: 한 번의 탭은 목적지
+ *   하나만 만들고, 회차의 뜻은 두 자리 모두 "몇 번째 탭인가" 하나뿐이라 서로 간섭할 값이 없다
+ *   (파라미터 **이름**을 나눠야 했던 이유와는 다른 문제다 — 위 RECORDS_VIEW_NONCE_PARAM 주석).
+ * @param todayIso 서울 기준 오늘 `YYYY-MM-DD`. monthly_wrapup의 달 착지가 **고를 수 있는 달인지**를
+ *   판정하는 데만 쓴다(`buildReportsMonthLandingTarget`). 넘기지 않거나 판정이 서지 않으면 달 없이
+ *   리포트 탭으로 간다 — 아래 monthly_wrapup 항목 참고. 이 판정을 화면이 대신 내리지 않게 하려고
+ *   인자로 받는다(`notificationTapRoute`는 여전히 입력만 보고 답하는 순수 함수다).
+ * - monthly_wrapup -> /(tabs)/reports + **그 달**(라운드 66 E). 이 알림이 말하는 사실은 "7월은
+ *   이랬어요"인데, 리포트 탭을 그냥 열면 사용자가 보는 것은 **이번 달**이다 — 알림이 가리킨 달로
+ *   가려면 거기서 ‹ 를 직접 눌러야 하고, 그건 record_gap이 라운드 63에서 겪은 막다른 길과 같은
+ *   모양이다. 그래서 착지 월을 함께 싣는다. 달은 dedupeKey에서 되읽고(키가 그 달을 담는 이유는
+ *   generators.ts의 `monthlyWrapupDedupeKey` 주석), 링크의 이름·형식·방어는 트랙 A의 규약 모듈이
+ *   단독으로 진다. 그 규약이 null을 내면(손상된 저장본의 달·미래 달·20년보다 먼 과거) 달 없이
+ *   리포트 탭으로 간다: **틀린 달에 내려놓는 것보다 낫고**, 준비템 목록으로 떨어뜨리는 종전 폴백
+ *   보다도 낫다(그 화면은 이 알림이 말한 사실과 아무 관계가 없다).
  * - stage_transition -> /(tabs)/items (새 시기의 준비템)
  * - purchase_pending -> 그 준비템 상세(/items/{id}). dedupeKey에서 itemTemplateId를 못 뽑으면
  *   준비템 목록으로 떨어진다 -- 예전 화면 코드와 같은 폴백이다.
@@ -148,10 +175,19 @@ export function nextRecordsViewNonce(): number {
  */
 export function notificationTapRoute(
   entry: Pick<AppNotification, "type" | "dedupeKey">,
-  viewNonce?: number
+  viewNonce?: number,
+  todayIso?: string
 ): NotificationRoute {
   if (entry.type === "budget_80" || entry.type === "budget_100") return "/budget";
   if (entry.type === "weekly_summary") return "/(tabs)/records";
+  if (entry.type === "monthly_wrapup") {
+    const yearMonth = yearMonthFromMonthlyWrapupDedupeKey(entry.dedupeKey);
+    const target =
+      yearMonth && typeof todayIso === "string" && Number.isInteger(viewNonce) && (viewNonce as number) >= 0
+        ? buildReportsMonthLandingTarget({ yearMonth, nonce: viewNonce as number, todayIso })
+        : null;
+    return target ?? REPORTS_TAB_PATHNAME;
+  }
   if (entry.type === "record_gap") {
     const nonce = Number.isInteger(viewNonce) && (viewNonce as number) >= 0 ? String(viewNonce) : "";
     return {

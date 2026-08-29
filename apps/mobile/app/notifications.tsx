@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getSeoulToday } from "@wooriai/domain";
 import { router, useFocusEffect } from "expo-router";
 import { Alert, Platform, Pressable, Text, View, type AccessibilityActionEvent } from "react-native";
 import { listChildren, LOCAL_SESSION_TOKEN } from "../src/api/client";
@@ -88,7 +89,10 @@ const notificationIconByType: Record<AppNotification["type"], keyof typeof Ionic
   weekly_summary: "stats-chart-outline",
   // GAP-054 라운드 54 P1-4: 아이콘이 없으면 `ListRow`의 icon prop이 undefined가 되어 그 행만
   // 아이콘 칸 없이 그려진다 — 다른 다섯 종류와 제목 시작 위치가 어긋나 목록이 계단처럼 보인다.
-  record_gap: "time-outline"
+  record_gap: "time-outline",
+  // 라운드 66 E(#8): 지난달 정리. 주간 요약(stats-chart)과 구분되도록 달력 계열을 쓴다 — 이
+  // 알림이 말하는 단위가 "달"이다.
+  monthly_wrapup: "calendar-outline"
 };
 
 export default function NotificationsScreen() {
@@ -360,7 +364,11 @@ export default function NotificationsScreen() {
                     // "지난번과 같은 값"으로 걸러져 달력으로 가지 않는다. 카운터가 이 화면의
                     // state가 아닌 이유는 notification-route.ts의 nextRecordsViewNonce 주석 참고
                     // (이 화면은 뒤로가기로 언마운트된다).
-                    router.push(notificationTapRoute(entry, nextRecordsViewNonce()));
+                    //
+                    // 라운드 66 E(#8): 서울 오늘을 함께 넘긴다. 지난달 정리의 **달 착지**가
+                    // "고를 수 있는 달인가"를 그 값으로 판정하기 때문이다(판정 자체는 트랙 A의
+                    // 규약 모듈에 있고, 이 화면은 시각만 준다 — 목적지 함수는 순수하게 남는다).
+                    router.push(notificationTapRoute(entry, nextRecordsViewNonce(), getSeoulToday()));
                   }}
                   style={{ flex: 1 }}
                 >

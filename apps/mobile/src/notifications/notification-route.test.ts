@@ -93,7 +93,7 @@ describe("라운드 56 D#10 record_gap 달력 착지", () => {
     const notificationsSource = source("app/notifications.tsx");
     expect(notificationsSource).toContain("  nextRecordsViewNonce,");
     expect(notificationsSource).toContain('} from "../src/notifications/notification-route";');
-    expect(notificationsSource).toContain("router.push(notificationTapRoute(entry, nextRecordsViewNonce()));");
+    expect(notificationsSource).toContain("router.push(notificationTapRoute(entry, nextRecordsViewNonce(), getSeoulToday()));");
   });
 
   /**
@@ -182,6 +182,9 @@ describe("라운드 56 D#10 record_gap 달력 착지", () => {
     let appliedNonce: string | null | undefined = undefined;
     const applyLanding = (route: ReturnType<typeof notificationTapRoute>): boolean => {
       if (typeof route === "string") return false;
+      // 라운드 66 E(#8)로 목적지 유니온에 리포트 달 착지가 합류해 객체 목적지가 둘이 됐다 --
+      // 기록 탭의 effect도 자기 화면의 파라미터만 보므로, 미니 모델도 같은 자리에서 좁힌다.
+      if (route.pathname !== "/(tabs)/records") return false;
       if (!isRecordsCalendarViewParam(route.params[RECORDS_VIEW_PARAM])) return false;
       const nonce = resolveRecordsViewNonceParam(route.params[RECORDS_VIEW_NONCE_PARAM]);
       if (appliedNonce === nonce) return false;
@@ -205,6 +208,7 @@ describe("라운드 56 D#10 record_gap 달력 착지", () => {
     const applyLanding = (): boolean => {
       const route = notificationTapRoute(entry);
       if (typeof route === "string") return false;
+      if (route.pathname !== "/(tabs)/records") return false;
       const nonce = resolveRecordsViewNonceParam(route.params[RECORDS_VIEW_NONCE_PARAM]);
       if (appliedNonce === nonce) return false;
       appliedNonce = nonce;
@@ -300,7 +304,7 @@ describe("라운드 62 B(#2) 알림 탭이 데려갈 아이", () => {
     // 순서: 착지 화면은 지금 선택된 아이로 그려지므로 전환이 push보다 앞서야 한다.
     const tapHandler = screenSource.slice(
       screenSource.indexOf("markRead(entry.id);"),
-      screenSource.indexOf("router.push(notificationTapRoute(entry, nextRecordsViewNonce()));")
+      screenSource.indexOf("router.push(notificationTapRoute(entry, nextRecordsViewNonce(), getSeoulToday()));")
     );
     expect(tapHandler).toContain("switchToNotificationChild(entry);");
   });
