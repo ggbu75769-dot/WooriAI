@@ -6,7 +6,6 @@ import { Alert, Image, Platform, Pressable, RefreshControl, Text, View, type Ima
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildItemStatusChangedPayload } from "../../src/analytics/events";
 import {
-  getHome,
   listCategories,
   listChildren,
   listItems,
@@ -24,6 +23,7 @@ import {
 } from "../../src/children/child-switch";
 import { ChildSwitchSheet, useChildSwitchSheet } from "../../src/children/ChildSwitchSheet";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+import { isChildrenSettled } from "../../src/family/household-scope";
 import { useItemStatusGate } from "../../src/items/useItemStatusGate";
 import {
   buildPendingItemStatusIndex,
@@ -56,7 +56,12 @@ import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
 import { ItemListPixelStyles } from "../../src/pixelLock/styles";
-import { bandDefinitions, resolveDefaultStageLabel, type StageBandLabel } from "../../src/items/stage-bands";
+import {
+  bandDefinitions,
+  resolveDefaultStageLabel,
+  STAGE_BAND_UNRESOLVED_NOTICE,
+  type StageBandLabel
+} from "../../src/items/stage-bands";
 import { computeEssentialPrepProgress } from "../../src/items/prep-progress";
 import {
   buildPrepMilestoneView,
@@ -258,27 +263,72 @@ export default function ItemsScreen() {
     // 첫 렌더에서도 큐를 읽어 두어야 대기 배지가 한 박자 늦게 나타나지 않는다.
     void refreshOfflineSyncSnapshot();
   }, []);
-  // Default the selected chip to the child's actual current stage once it's known, unless the
-  // pixel-lock capture is running or the user already tapped a chip. Falls back to "12-24개월"
-  // otherwise.
-  //
-  // 라운드 51 #3: 데모의 기본 칩도 **실제 아이 시기**를 따른다 — `ensureSeeded`가 사용자
-  // 데이터를 하나도 만들지 않게 되면서(local-backend.ts) 데모 아이도 온보딩에서 직접 입력하는
-  // 값이다. 픽셀 락 캡처의 결정성은 `isPixelLockMode`가 그대로 지킨다.
-  const shouldResolveChildStage = Boolean(authToken && childId) && !isPixelLockMode;
-  const home = useQuery({
-    queryKey: ["home", childId],
-    enabled: shouldResolveChildStage,
-    queryFn: () => getHome(authToken!, childId!)
+  /**
+   * 라운드 51 #10 → 라운드 69 트랙 C — `["children"]` 캐시는 이제 이 화면의 **두 가지**를 짊어진다:
+   * 아이 전환 시트/다자녀 라벨(아래 `childScopeLabel`·`childSwitch`)과 **시기 밴드의 원천**.
+   *
+   * 다자녀 가구에서 둘째의 준비템을 보려면 홈으로 나갔다 돌아와야 했는데, 준비템은 아이마다
+   * 목록도 준비율도 통째로 다른 화면이라 그 왕복이 특히 잦았다. 상태·부수효과·시트는 홈/기록/
+   * 리포트와 **같은 한 벌**을 쓴다(src/children/ChildSwitchSheet.tsx). 전환은 ["items"]·
+   * ["item-detail"]·["home"]을 통째로 무효화하므로 이 탭의 목록·준비율도 함께 갈린다.
+   *
+   * DSN-053 P2-B: 입구가 헤더의 제목에서 **TopAppBar 우측 슬롯**으로 옮겼다(스펙 §통합 지점의
+   * "아이 전환=헤더 onPress"). 이중 게이트는 그대로다 -- hasSession(비세션 캡처에서 false)
+   * **그리고** 아이 2명 이상. 둘 중 하나라도 아니면 슬롯이 비어 헤더는 제목만 남는다.
+   *
+   * 쿼리 자체(키·enabled·queryFn)는 라운드 51 #10이 세운 그대로다 — 이번 라운드가 하는 일은
+   * **이미 구독 중인 이 응답을 한 번 더 읽는 것**뿐이라 새 요청이 0건이다.
+   */
+  const childrenQuery = useQuery({
+    queryKey: ["children"],
+    enabled: Boolean(authToken),
+    queryFn: () => listChildren(authToken!)
   });
-  // 기본으로 선택되는 칩(= 아이 현재 단계가 속한 밴드). 사용자의 수동 선택과 무관하게 계산해,
-  // "지금 보고 있는 칩이 기본 칩인가"를 판별하는 기준으로 쓴다.
-  const defaultStageLabel = resolveDefaultStageLabel({
-    currentStage: home.data?.child.currentStage,
+  /**
+   * 라운드 69 트랙 C — **시기 밴드의 원천을 `/home`에서 `["children"]`으로 옮긴다.**
+   *
+   * 고치는 문제: 이 화면은 아이의 현재 단계를 `/home`에서만 읽었고, 그 응답에서 쓰는 것은
+   * `child.currentStage` **한 필드**가 전부였다. `/home`이 실패하면(지하철·엘리베이터·와이파이
+   * 전환) `currentStage`가 undefined가 되고, 기본 칩은 아무 말 없이 `"12-24개월"`로,
+   * "출산 전" 칩은 아예 사라진다 — 그런데 목록(`tab="all"`)은 성공하므로 **화면은 완전히
+   * 건강해 보인다.** 임신 28주 사용자가 보행기와 이유식 그릇을 권받는 화면이고, 탭의 이름이
+   * 곧 약속인 자리에서(시기별 준비물 — DNC-001) 그 약속이 침묵으로 깨진다.
+   *
+   * 두 원천은 **정의상 같은 값**이다: 서버가 `Child` DTO를 만드는 함수가 한 벌뿐이고
+   * (apps/api/src/onboarding/store-shared.ts의 `toChildDto`), `/home`은
+   * reporting-store.service.ts의 `child: toChildDto(child)`가, `/children`은
+   * onboarding-core.service.ts가 그 같은 함수를 부른다. 즉 출처만 바뀌고 값은 그대로다.
+   *
+   * 그래서 `/home` 쿼리는 이 화면에서 **사라졌다** — 소비처가 그 한 필드뿐이었다.
+   * (요청 수 감소는 곁가지이지 목적이 아니다: `["home", childId]`는 홈 탭과 공유하는 키라
+   * 실제 절감은 "홈을 아직 안 본 상태에서 준비템 탭으로 직행"에서만 생긴다. 이 변경의 본체는
+   * 정직성이다.)
+   */
+  const stageSourceChild = childrenQuery.data?.children.find((child) => child.id === childId);
+  /**
+   * 기본으로 선택되는 칩(= 아이 현재 단계가 속한 밴드). 사용자의 수동 선택과 무관하게 계산해,
+   * "지금 보고 있는 칩이 기본 칩인가"를 판별하는 기준으로 쓴다.
+   *
+   * 라운드 51 #3: 데모의 기본 칩도 **실제 아이 시기**를 따른다 — `ensureSeeded`가 사용자
+   * 데이터를 하나도 만들지 않게 되면서(local-backend.ts) 데모 아이도 온보딩에서 직접 입력하는
+   * 값이다. 픽셀 락 캡처의 결정성은 `isPixelLockMode`가 그대로 지킨다.
+   *
+   * ⚠️ ITEM-001 캡처의 **이중 게이트**(값으로 증명 — src/items/stage-bands.test.ts):
+   *  1. `resolveDefaultStageLabel`이 `isPixelLockMode`를 **최우선**으로 보고 폴백을 돌려준다;
+   *  2. 캡처는 비세션 렌더라(app/pixel-lock.tsx가 세션을 지우고 찍는다) 위 `["children"]`
+   *     쿼리 자체가 `enabled: Boolean(authToken)`으로 꺼져 있어 `stageSourceChild`가 undefined다.
+   * 원천이 바뀌어도 캡처는 어느 쪽으로도 흔들리지 않는다.
+   *
+   * 라운드 69 트랙 C: 반환값이 `{ label, resolved }`다 — `resolved === false`는 "이 칩은
+   * 아이의 시기가 아니라 폴백"이라는 뜻이고, 아래 안내 한 줄이 그 사실을 화면에 세운다.
+   */
+  const defaultStageBand = resolveDefaultStageLabel({
+    currentStage: stageSourceChild?.currentStage,
     isPixelLockMode,
     hasManualSelection: false,
     fallback: "12-24개월"
   });
+  const defaultStageLabel = defaultStageBand.label;
   /**
    * DSN-053 P2-B — 준비템 목록은 **전 상태 스냅샷 한 건**이다.
    *
@@ -394,25 +444,31 @@ export default function ItemsScreen() {
       });
   };
   const hasSession = Boolean(authToken && childId);
-  /**
-   * 라운드 51 #10 — 준비템 탭도 "지금 누구의 준비물인가"를 말하고, 그 이름이 곧 아이 전환
-   * 입구가 된다. 다자녀 가구에서 둘째의 준비템을 보려면 홈으로 나갔다 돌아와야 했는데, 준비템은
-   * 아이마다 목록도 준비율도 통째로 다른 화면이라 그 왕복이 특히 잦았다.
-   *
-   * 상태·부수효과·시트는 홈/기록/리포트와 **같은 한 벌**을 쓴다(src/children/ChildSwitchSheet.tsx).
-   * 전환은 ["items"]·["item-detail"]·["home"]을 통째로 무효화하므로 이 탭의 목록·준비율도 함께
-   * 갈린다.
-   *
-   * DSN-053 P2-B: 입구가 헤더의 제목에서 **TopAppBar 우측 슬롯**으로 옮겼다(스펙 §통합 지점의
-   * "아이 전환=헤더 onPress"). 이중 게이트는 그대로다 -- hasSession(비세션 캡처에서 false)
-   * **그리고** 아이 2명 이상. 둘 중 하나라도 아니면 슬롯이 비어 헤더는 제목만 남는다.
-   */
-  const childrenQuery = useQuery({
-    queryKey: ["children"],
-    enabled: Boolean(authToken),
-    queryFn: () => listChildren(authToken!)
-  });
   const childScopeLabel = resolveChildScopeLabel(childId, childrenQuery.data?.children);
+  /**
+   * 라운드 69 트랙 C — **모르면 모른다고 말하는 자리.**
+   *
+   * 조건 넷이 모두 참일 때만 칩 줄 위에 한 줄이 선다:
+   *  1. 세션 렌더일 것 — 비세션(ITEM-001 캡처)에는 이 아래 코드가 아예 도달하지 않지만,
+   *     판정 자체도 `hasSession`을 지나게 해 캡처 불변을 값으로 남긴다;
+   *  2. 픽셀 락이 아닐 것 — `resolveDefaultStageLabel`이 캡처에서 늘 폴백을 돌려주므로, 이
+   *     게이트가 없으면 캡처 빌드의 세션 렌더에 없던 문장이 선다;
+   *  3. `["children"]` 조회가 **정착했을 것**(성공·실패 모두 — 규칙은 기존 술어 한 벌만 쓴다:
+   *     src/family/household-scope.ts의 `isChildrenSettled`). **로딩 중에는 아무 말도 하지
+   *     않는다** — 첫 페인트마다 경고가 번쩍이면 그것이 새 소음이다;
+   *  4. 그러고도 시기를 모를 것(`!resolved`). 조회가 실패한 경우와 성공했는데 그 아이를 찾지
+   *     못한 경우(다른 가구·방금 지워진 아이)가 여기로 함께 떨어진다 — 사용자가 겪는 사실이
+   *     둘 다 "지금 시기를 모른다"로 같기 때문이다.
+   *
+   * 사용자가 칩을 직접 고른 뒤에는 말하지 않는다: 그때 화면에 선 밴드는 **사용자의 선택**이지
+   * 우리가 지어낸 값이 아니라서, 고쳐야 할 거짓이 남아 있지 않다(안내가 권한 일이 바로 그것이다).
+   */
+  const showStageBandUnresolvedNotice =
+    hasSession &&
+    !isPixelLockMode &&
+    !hasManualStageSelection &&
+    !defaultStageBand.resolved &&
+    isChildrenSettled({ authToken, isSuccess: childrenQuery.isSuccess, isError: childrenQuery.isError });
   const childSwitch = useChildSwitchSheet({
     hasSession,
     childId,
@@ -450,11 +506,21 @@ export default function ItemsScreen() {
     ]);
   };
 
-  // MOB-117 당겨서 새로고침: ["items"] 접두어 invalidate로 목록 = 준비율 스냅샷을 갱신하고,
-  // 기본 시기 칩이 읽는 ["home"] 캐시도 갱신한다.
+  // MOB-117 당겨서 새로고침: ["items"] 접두어 invalidate로 목록 = 준비율 스냅샷을 갱신한다.
+  //
+  // 라운드 69 트랙 C — 이 화면이 읽는 캐시가 바뀌었으므로 당김의 대상도 함께 판단했다.
+  //  · `["children"]`을 **더한다**: 시기 밴드의 원천이 그 캐시로 옮겨 왔다. 실패로 정착해
+  //    모름 고지(STAGE_BAND_UNRESOLVED_NOTICE)가 서 있을 때, 사용자가 그 안내에서 벗어나는
+  //    길이 화면에 있어야 한다 — 당겨서 새로고침이 바로 그 길이고, 홈·기록 탭이 이미 "화면이
+  //    읽는 캐시를 갱신한다"는 같은 규율을 따른다(GAP-060 #10).
+  //  · `["home"]`을 **남긴다**: 이 화면은 더 이상 그 응답을 읽지 않지만, 여기서 누른 준비 상태는
+  //    홈 탭의 추천 카드가 그리는 값이라(app/(tabs)/index.tsx의 recommendedItems) 당김이 그
+  //    온기를 갱신하던 종전 동작을 지울 근거가 없다. 이 트랙은 홈 화면 무접촉이고, 빼는 쪽이
+  //    오히려 홈의 동작을 바꾼다.
   const { refreshing, onRefresh } = usePullToRefresh(() =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ["items"] }),
+      queryClient.invalidateQueries({ queryKey: ["children"] }),
       queryClient.invalidateQueries({ queryKey: ["home"] })
     ])
   );
@@ -527,9 +593,13 @@ export default function ItemsScreen() {
   // 라운드 43 UX-V: 칩은 아이가 아직 태어나기 전일 때만 나온다. 출생 뒤에는 좁혀 봐야 지나간
   // 준비물만 남기 때문이다. 켜 둔 채로 아이가 출생 전환을 하면 칩이 사라지는데, 그때 필터만
   // 살아 남아 목록이 이유 없이 비지 않도록 **노출 판정과 적용 판정을 같은 값으로 묶는다**.
+  //
+  // 라운드 69 트랙 C: 판정(src/items/pre-birth-filter.ts)은 한 글자도 바뀌지 않는다 — 바뀐 것은
+  // `currentStage`의 **출처**뿐이고, 기본 칩과 이 칩이 이제 같은 한 값을 읽는다. 종전에는 둘 다
+  // `/home`을 읽었으므로 그 응답이 실패하면 기본 칩은 폴백으로, 이 칩은 통째로 사라졌다.
   const offersPreBirthFilter = shouldOfferPreBirthFilter({
     hasSession,
-    currentStage: home.data?.child.currentStage,
+    currentStage: stageSourceChild?.currentStage,
     selectedBand: stageLabel
   });
   // 라운드 49 QA(P3-3): 찜 칩이 켜져 있으면 시기 좁히기는 쉰다 -- 바로 위 안내가 "시기와
@@ -833,6 +903,17 @@ export default function ItemsScreen() {
              선다 -- 이제 목록을 서버에서 좁히는 값이 아니라 "지금/곧/여유"를 가르는 기준이자
              준비율의 분모를 정하는 기준이다. */
           <View style={{ gap: 6 }}>
+            {/* 라운드 69 트랙 C: 시기를 끝내 확인하지 못했을 때만, 칩 줄 **바로 위**에 한 줄.
+                고를 대상(칩)이 바로 아래 있어야 "직접 골라 주세요"가 막다른 말이 되지 않는다.
+                로딩 중에는 그리지 않는다(showStageBandUnresolvedNotice의 정착 판정). */}
+            {showStageBandUnresolvedNotice ? (
+              <Text
+                accessibilityRole="text"
+                style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}
+              >
+                {STAGE_BAND_UNRESOLVED_NOTICE}
+              </Text>
+            ) : null}
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
               {tabOptions.map((option) => (
                 <CategoryChip
