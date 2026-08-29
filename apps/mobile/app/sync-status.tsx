@@ -10,6 +10,7 @@ import {
   CONFLICT_OPTION_ADOPT_SERVER_LABEL,
   CONFLICT_OPTION_REAPPLY_MINE_LABEL,
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
+  FAILED_ROW_OTHER_CHILD_NOTICE,
   OFFLINE_STORAGE_UNAVAILABLE_NOTICE,
   syncStatusBadgeLabel,
   syncStatusDiscardAllConfirmMessage,
@@ -39,7 +40,7 @@ import {
   SYNC_STATUS_PERMISSION_DENIED_HINT
 } from "../src/offline/permission-denied";
 import { isDiscardablePendingRow } from "../src/offline/pending-row-actions";
-import { buildFailedRowPrefillParams, FAILED_ROW_OTHER_CHILD_NOTICE } from "../src/expenses/failed-row-prefill";
+import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";
 import { useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
 import { itemStatusLabel } from "../src/items/item-labels";
 import { ITEM_STATUS_QUEUED_MESSAGE } from "../src/items/status-mutation-messages";
