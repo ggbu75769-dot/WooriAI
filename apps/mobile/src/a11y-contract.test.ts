@@ -37,6 +37,10 @@ import { monthlyWrapupNotification } from "./notifications/generators";
 import { SEOUL_UTC_OFFSET_MS } from "./notifications/iso-week";
 import { formatNotificationRowTitle } from "./notifications/notification-child-label";
 import { notificationRowAccessibilityLabel } from "./notifications/notification-row-actions";
+// GAP-069 #1·#3: 이번 라운드가 만든 새 문장 둘. **값을 여기서 다시 단언하지 않는다** — 비교에
+// 쓰는 문자열까지 전부 이 두 모듈에서 오므로, 트랙 A·C가 문구를 다듬어도 이 파일은 그대로다.
+import { STAGE_BAND_UNRESOLVED_NOTICE } from "./items/stage-bands";
+import { logoutConfirmMessage } from "./offline/messages";
 // GAP-064 #6: 최소 터치 타깃의 단일 소스. 이 숫자를 테스트에 다시 박지 않는다.
 import { theme } from "./theme";
 
@@ -1740,5 +1744,198 @@ describe("GAP-067 #3 가져오기 되돌리기 카드의 낭독 계약", () => {
     expect(iconAt).toBeGreaterThan(-1);
     // 아이콘 자신도 트리에서 빠진다(감싼 View만 빼면 하위 노드가 남는 플랫폼이 있다).
     expect(undoCardBlock.slice(iconAt, iconAt + 200)).toContain("accessible={false}");
+  });
+});
+
+/* ------------------------------------------------------------------ 라운드 69 (GAP-069 #5) */
+
+/**
+ * GAP-069 #5 — **엑셀 업로드 화면의 뒤로가기**가 마지막 남은 44dp였다.
+ *
+ * `styles.backButton`이 32×32인데 `hitSlop`이 6이라 32 + 2×6 = 44 — 이 저장소가 스스로 못박은
+ * 최소 타깃(`theme.touchTarget` = 48, DSN-053 토큰 표)에 미달이었다. 같은 역할의 다른 버튼들은
+ * 이미 48이다(커머스 상세 34 + `PRODUCT_DETAIL_CHROME_HIT_SLOP` 7 · 가족 화면 12 · 리포트
+ * 화살표는 `theme.touchTarget`을 통째로 쓴다). 라운드 65·66·67·68 P3에서 **네 번 이월**됐고,
+ * 값을 8로 바꾸는 것보다 중요한 것이 **그 산수를 이 표에 한 줄로 세우는 것**이라 여기 들어온다
+ * (다섯 번째 이월이 없으려면 되돌리는 손이 여기서 빨개져야 한다).
+ *
+ * 계산 방식은 라운드 64·65가 세운 그대로다: 숫자를 테스트에 다시 박지 않고 **소스의 hitSlop과
+ * 소스의 크기**를 읽어 더한다(`theme.touchTarget`도 옮겨 적지 않는다).
+ *
+ * 넓히는 축: 이 버튼은 `navigationBar`의 왼쪽 끝에 혼자 서 있고 가운데 제목은 누르는 자리가
+ * 아니므로(오른쪽은 같은 크기의 **빈 스페이서**다) 네 변을 함께 넓혀도 이웃 컨트롤의 몸에
+ * 닿지 않는다 — 알림 벨·더보기 검색(GAP-065 #7)과 같은 판정이다.
+ */
+describe("GAP-069 #5 가져오기 첫 화면 뒤로가기 터치 타깃 (32 + 2×8 = 48)", () => {
+  const uploadScreen = () => source("app/import/index.tsx");
+
+  /** `StyleSheet.create({ ... name: { ... } })`의 한 칸에서 숫자 하나. */
+  function readStyleSheetNumber(sourceText: string, styleName: string, key: string): number {
+    const declaration = new RegExp(`\\b${styleName}: \\{([^}]*)\\}`).exec(sourceText);
+    if (!declaration) throw new Error(`${styleName} 스타일을 소스에서 찾지 못했다`);
+    const found = new RegExp(`\\b${key}:\\s*(\\d+)`).exec(declaration[1]);
+    if (!found) throw new Error(`${styleName}에서 ${key}를 찾지 못했다`);
+    return Number(found[1]);
+  }
+
+  /** 내비게이션 바의 첫 Pressable = 뒤로가기(오른쪽 자리는 Pressable이 아닌 스페이서다). */
+  const backButtonTag = () => openingTagAfter(uploadScreen(), "<View style={styles.navigationBar}>", "<Pressable");
+
+  it("32dp 정사각 + hitSlop 8 = 48 (값을 계약에 다시 박지 않고 소스에서 더한다)", () => {
+    const tag = backButtonTag();
+    const slop = Number(/hitSlop=\{(\d+)\}/.exec(tag)?.[1]);
+    expect(Number.isFinite(slop), "뒤로가기의 hitSlop을 소스에서 찾지 못했다").toBe(true);
+
+    const src = uploadScreen();
+    const height = readStyleSheetNumber(src, "backButton", "height");
+    const width = readStyleSheetNumber(src, "backButton", "width");
+    expect(height, "뒤로가기는 정사각이다").toBe(width);
+    expect(height + 2 * slop, "뒤로가기의 히트 영역").toBeGreaterThanOrEqual(theme.touchTarget);
+
+    // 이 버튼이 그 hitSlop을 실제로 지고 있는지(태그가 바뀌면 위 계산이 다른 버튼을 잰다).
+    expect(tag, "뒤로가기 버튼").toContain("style={styles.backButton}");
+    expect(tag, "역할").toContain('accessibilityRole="button"');
+    expect(tag, "라벨").toContain('accessibilityLabel="뒤로가기"');
+    // 44dp로 되돌리는 손은 여기서 빨개진다(라운드 64·65가 맨 숫자에 쓴 그 못).
+    expect(src, "44dp로 되돌린 hitSlop").not.toContain("hitSlop={6}");
+  });
+
+  it("렌더는 한 픽셀도 바뀌지 않는다 — IMP-003 픽셀락 캡처가 그대로다", () => {
+    const src = uploadScreen();
+    // 32는 승인 캡처(IMP-003)의 값이다. 높이로 벌지 않았다는 사실을 값으로 못박는다.
+    expect(readStyleSheetNumber(src, "backButton", "height"), "버튼 높이").toBe(32);
+    expect(readStyleSheetNumber(src, "backButton", "width"), "버튼 너비").toBe(32);
+    // 바 높이도 그대로다(바를 키우는 것은 제목 줄이 내려앉는 길이다).
+    expect(readStyleSheetNumber(src, "navigationBar", "height"), "내비게이션 바 높이").toBe(46);
+    // 여백으로 히트 영역을 벌지 않았다 — 그건 렌더가 바뀌는 길이다.
+    const backButtonStyle = /\bbackButton: \{([^}]*)\}/.exec(src)?.[1] ?? "";
+    expect(backButtonStyle, "버튼 여백").not.toContain("padding");
+    expect(backButtonStyle, "버튼 여백").not.toContain("margin");
+  });
+});
+
+/* ------------------------------------------ 라운드 69 (GAP-069 #1 · #3 — 새 UI의 낭독 계약) */
+
+/**
+ * 주석을 걷어 낸 소스. 이 파일의 오랜 관례 하나("화면이 문구를 다시 적지 않는다")를 이 라운드에
+ * 그대로 쓰려면 필요하다 — 두 화면 모두 **왜 이 문장을 넣었는지**를 주석에서 원문 그대로
+ * 인용하고 있어(설계 근거를 값으로 남기는 이 저장소의 관례), 소스 전체를 그냥 훑으면 그 인용이
+ * "화면이 문장을 조립했다"로 잘못 잡힌다. 낭독되는 것은 주석이 아니라 렌더되는 값이다.
+ */
+function withoutComments(sourceText: string): string {
+  return sourceText.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+/**
+ * GAP-069 #1 · #3 — **이번 라운드가 만든 새 문장 둘이 소리로도 도달하는가.**
+ *
+ * 값 계약(무엇을 세는가 · 언제 뜨는가 · 문장이 무엇인가)은 각 트랙이 자기 모듈 테스트에 지고
+ * 있다(트랙 A: 로그아웃이 세는 두 모집단 · 트랙 C: 폴백을 썼다는 사실). 여기가 붙드는 것은
+ * 라운드 66·67·68이 쓴 그 형식 하나뿐이다 — **그 문구가 낭독되는 자리에 실제로 걸려 있는가.**
+ *
+ * 그래서 이 두 블록은 **문구를 다시 단언하지 않는다.** 비교에 쓰는 문자열까지 전부 순수 모듈에서
+ * 읽어 오므로, 트랙이 문구를 한 번 더 다듬어도 여기서는 고칠 것이 없다 — 여기가 빨개진다면
+ * 그것은 문구가 바뀐 것이 아니라 **배선이 끊어진 것**이다.
+ */
+describe("GAP-069 #1 로그아웃 확인 문구의 낭독 계약", () => {
+  const settingsScreen = () => source("app/settings/index.tsx");
+
+  it("새 줄은 Alert **본문**에 실린다 (RN Alert에서 낭독되는 것은 본문과 버튼 글자뿐이다)", () => {
+    const src = settingsScreen();
+    // A-3 #18 · A-7 #37 · GAP-067 #3이 같은 판정을 남겼다: Alert에는 라벨도 상태도 걸리지
+    // 않으므로, 사실이 소리에 남을 길은 **본문 인자 하나**다. 제목 자리(첫 인자)로 밀면
+    // 긴 문장이 제목으로 낭독되고, Toast로 빼면 확인 전에 사라진다.
+    expect(src, "본문 자리에 순수 모듈의 산출").toContain("Alert.alert(LOGOUT_CONFIRM_TITLE, logoutConfirmMessage(");
+    // 파괴적 갈래는 버튼 글자로만 갈린다(취소가 앞, 로그아웃이 destructive) — 그 순서가 곧 낭독 순서다.
+    const alertCall = src.slice(src.indexOf("Alert.alert(LOGOUT_CONFIRM_TITLE"), src.indexOf("router.replace"));
+    expect(alertCall.indexOf('style: "cancel"'), "취소가 먼저 읽힌다").toBeLessThan(
+      alertCall.indexOf('style: "destructive"')
+    );
+  });
+
+  it("화면이 문장을 조립하지 않는다 (단일 소스는 순수 모듈이다 — 문구는 여기서 다시 단언하지 않는다)", () => {
+    const rendered = withoutComments(settingsScreen());
+    // 모듈이 만드는 **모든 줄**이 화면에 리터럴로 없어야 한다. 비교 문자열을 이 파일에 적지
+    // 않으므로(모듈 호출의 산출을 그대로 쓴다) 이 단언은 문구를 고정하지 않는다.
+    const sample = logoutConfirmMessage({
+      counts: { pending: 1, syncing: 0, failed: 0, conflict: 0 },
+      itemStatusRowCount: 1,
+      recurringTemplateCount: 2
+    });
+    expect(sample.split("\n").length, "네 좌표 중 '둘 다' 갈래는 세 줄이다").toBeGreaterThan(1);
+    for (const line of sample.split("\n")) {
+      expect(rendered, "화면이 다시 적은 문장").not.toContain(line);
+    }
+    // 건수도 화면이 만들지 않는다 — 셀렉터가 준 수를 그대로 넘긴다(새 요청 0건의 그 배선).
+    expect(rendered, "정기 지출 건수 배선").toContain("recurringTemplateCount");
+  });
+});
+
+/**
+ * GAP-069 #3 — **시기를 모른다는 사실**이 준비템 탭에서 소리로도 도달하는가.
+ *
+ * 이 안내는 "지금 이 칩은 아이의 시기가 아니라 폴백"이라는 사실을 말하고, 문장 끝에서 **할 일**을
+ * 준다. 소리로만 쓰는 사람에게 그 두 가지가 성립하려면 ⓐ 안내가 접근성 트리에 남아 있어야 하고
+ * ⓑ 그 다음에 읽히는 것이 **고를 대상(칩 줄)**이어야 한다 — 안내가 칩 줄 아래로 내려가면
+ * "직접 골라 주세요"를 들었을 때 고를 것이 이미 지나간 뒤다.
+ *
+ * ⓒ 그리고 **모르는 동안에는 아무 말도 하지 않는다**(라운드 61 S-4·68 #2가 세운 "0건과 모름은
+ * 다르다"의 같은 형식): 로딩 중에 이 줄이 떴다가 사라지면, 화면을 눈으로 보지 않는 사람에게는
+ * 없던 문제가 생겼다 사라진 것으로 남는다.
+ */
+describe("GAP-069 #3 준비템 탭 시기 밴드 안내의 낭독 계약", () => {
+  const itemsScreen = () => source("app/(tabs)/items.tsx");
+  const NOTICE_SLOT = "{STAGE_BAND_UNRESOLVED_NOTICE}";
+
+  /** 안내를 감싸는 조건식의 이름(`{이름 ? (` 중 안내 바로 앞의 것). 이름이 바뀌어도 따라간다. */
+  function noticeGuardName(src: string): string {
+    const at = src.indexOf(NOTICE_SLOT);
+    expect(at, "안내가 화면에 걸려 있다").toBeGreaterThan(-1);
+    let name: string | undefined;
+    for (const match of src.slice(Math.max(0, at - 800), at).matchAll(/\{(\w+) \? \(/g)) name = match[1];
+    if (!name) throw new Error("안내를 감싸는 조건식을 소스에서 찾지 못했다");
+    return name;
+  }
+
+  it("안내 다음에 읽히는 것이 **고를 대상**이다 (칩 줄 바로 위에 선다)", () => {
+    const src = itemsScreen();
+    const noticeAt = src.indexOf(NOTICE_SLOT);
+    expect(noticeAt, "안내가 화면에 걸려 있다").toBeGreaterThan(-1);
+    // 시기 밴드 칩은 공유 프리미티브다(GAP-065 #7이 그 낭독·선택 상태를 이미 진다).
+    const chipAt = src.indexOf("<CategoryChip", noticeAt);
+    expect(chipAt, "안내 뒤에 고를 대상이 온다").toBeGreaterThan(noticeAt);
+    // 그 사이에 다른 필터 줄이 끼어들지 않는다 — 안내와 칩 줄은 같은 컨테이너의 이웃이다.
+    const between = src.slice(noticeAt, chipAt);
+    expect(between, "안내와 칩 사이에 다른 안내가 없다").not.toContain("<Text");
+  });
+
+  it("안내가 접근성 트리에서 빠지지 않는다 (보이는데 들리지 않는 자리를 만들지 않는다)", () => {
+    const src = itemsScreen();
+    const noticeAt = src.indexOf(NOTICE_SLOT);
+    const noticeTag = src.slice(src.lastIndexOf("<Text", noticeAt), noticeAt);
+    expect(noticeTag, "안내는 글자로 읽힌다").toContain('accessibilityRole="text"');
+    // 아이콘·장식과 달리 이 줄은 사실을 나르므로 트리에서 빼지 않는다(A-7 #38의 반대쪽).
+    expect(noticeTag, "트리에서 빼지 않는다").not.toContain("accessible={false}");
+    expect(noticeTag, "트리에서 빼지 않는다").not.toContain("importantForAccessibility");
+  });
+
+  it("모르는 동안에는 말하지 않는다 (정착 판정을 지난 뒤에만 뜬다)", () => {
+    const src = itemsScreen();
+    const guard = noticeGuardName(src);
+    const declarationAt = src.indexOf(`const ${guard} =`);
+    expect(declarationAt, `${guard} 선언`).toBeGreaterThan(-1);
+    const declaration = src.slice(declarationAt, src.indexOf(";", declarationAt));
+    // 정착 판정은 이 화면이 이미 쓰던 그것이다(새 판정을 만들지 않는다).
+    expect(declaration, "로딩 중에는 그리지 않는다").toContain("isChildrenSettled(");
+    // "폴백을 썼다"는 사실에서만 나온다 — 라벨 값이 아니라 그 옆의 판정을 읽는다.
+    expect(declaration, "폴백을 썼다는 사실에서 나온다").toContain("resolved");
+    // 픽셀락 캡처(ITEM-001)는 비세션 렌더라 이 줄이 설 수 없다 — 이중 게이트의 바깥쪽.
+    expect(declaration, "캡처에서는 뜨지 않는다").toContain("isPixelLockMode");
+  });
+
+  it("화면이 문장을 다시 적지 않는다 (단일 소스는 순수 모듈이다)", () => {
+    // 문구를 이 파일에 옮겨 적지 않고 모듈에서 읽어 비교한다 — 트랙 C가 문장을 다듬어도
+    // 이 단언은 그대로 서고, 화면이 리터럴을 복사한 순간에만 빨개진다.
+    expect(withoutComments(itemsScreen()), "화면이 다시 적은 문장").not.toContain(STAGE_BAND_UNRESOLVED_NOTICE);
   });
 });

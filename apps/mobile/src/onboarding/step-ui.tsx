@@ -162,6 +162,10 @@ export function OnboardingSaveErrorCard({
  * 같은 **모듈 레벨 Set** 관례다: 한 실행 안에서 같은 단계는 한 번만 센다(뒤로 갔다 오는 것은
  * 새로운 진입이 아니다). 동의 게이트를 **먼저** 본 뒤 실제로 발사한 경우에만 Set에 넣는다
  * (라운드 27 L-3: 동의 OFF로 지나친 단계가 이후 동의를 켜도 영영 미발사로 남지 않게).
+ *
+ * 라운드 69 E(#5): 이 Set을 비우는 `__reset…ForTests`가 여섯 라운드 동안 **참조 0건**으로 있다가
+ * 지워졌다 — 부르는 테스트가 없는 리셋 함수는 "테스트가 이 상태를 초기화한다"는 거짓말이었다.
+ * 실제 계약은 그대로다: 이 Set은 **한 실행 안에서만** 산다(모듈 레벨 = 앱 실행 단위).
  */
 const trackedOnboardingStepsThisLaunch = new Set<OnboardingScreenId>();
 
@@ -203,9 +207,4 @@ export function useOnboardingStepAnalytics(screenId: OnboardingScreenId): void {
     });
     trackedOnboardingStepsThisLaunch.add(screenId);
   }, [analyticsConsent, authToken, screenId]);
-}
-
-/** 테스트 전용: 실행당 1회 억제 Set을 비운다. */
-export function __resetOnboardingStepAnalyticsForTests(): void {
-  trackedOnboardingStepsThisLaunch.clear();
 }

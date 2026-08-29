@@ -25,12 +25,6 @@
 
 export type LegalDocumentKind = "terms" | "privacy";
 
-/** 링크 접근성 라벨에 쓰는 문서 이름. */
-export const LEGAL_DOCUMENT_LABELS: Record<LegalDocumentKind, string> = {
-  terms: "이용약관",
-  privacy: "개인정보 처리방침"
-};
-
 /**
  * 열 수 있는 값만 URL로 인정한다. 빈 값·공백·`http(s)`가 아닌 스킴은 전부 null이다 —
  * 링크를 그렸는데 열리지 않는 것이 링크가 없는 것보다 나쁘다.
