@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ENTRY_DATE_MAX_PAST_MONTHS } from "@wooriai/domain";
 import {
   importLandingMonthNotice,
   resolveImportLandingMonth,
   resolveInitialMonthOffset,
+  MAX_PAST_MONTH_OFFSET,
   RECORDS_MONTH_PARAM
 } from "./import-landing-month";
 
@@ -178,5 +180,27 @@ describe("라운드 51 C-#11 화면 배선", () => {
     // 화면 안의 월 이동은 종전 로직 그대로다.
     expect(recordsSource).toContain("setMonthOffset((value) => value - 1);");
     expect(recordsSource).toContain("setMonthOffset((value) => value + 1);");
+  });
+});
+
+/**
+ * 라운드 68 A — 240이 적혀 있는 자리는 **하나뿐**이다.
+ *
+ * 라운드 54 P2-8이 이 상수를 단일 소스로 세웠고(그때 픽커가 적어 두고 있던 240을 지웠다),
+ * 이번 라운드에 그 소스가 도메인으로 한 칸 더 내려갔다. 값도 이름도 동작도 여기서는 그대로다 —
+ * 바뀐 이유는 하나다: 이제 **서버도 같은 하한을 쓰는데** 서버는 `apps/mobile`을 import할 수
+ * 없다. 두 층이 각자 240을 적으면 P2-8이 여기서 고친 바로 그 드리프트가 다시 생긴다.
+ */
+describe("라운드 68 A — 하한 숫자의 단일 소스", () => {
+  it("모바일 상수는 도메인 값을 그대로 읽고, 값은 종전과 같다", () => {
+    expect(MAX_PAST_MONTH_OFFSET).toBe(ENTRY_DATE_MAX_PAST_MONTHS);
+    expect(MAX_PAST_MONTH_OFFSET).toBe(240);
+  });
+
+  it("이 모듈에는 그 숫자가 리터럴로 적혀 있지 않다", () => {
+    const source = readFileSync(join(process.cwd(), "src/expenses/import-landing-month.ts"), "utf8");
+    expect(source).toContain('import { ENTRY_DATE_MAX_PAST_MONTHS } from "@wooriai/domain";');
+    expect(source).toContain("export const MAX_PAST_MONTH_OFFSET = ENTRY_DATE_MAX_PAST_MONTHS;");
+    expect(source).not.toMatch(/\b240\b/);
   });
 });

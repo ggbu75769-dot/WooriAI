@@ -554,4 +554,169 @@ describe("CHILD-127 아이 상태 전환 (임신 → 출생)", () => {
         });
     });
   });
+
+  /**
+   * 라운드 68 A: 출생일의 **아래쪽 경계**(20년). 라운드 67 B가 예정일의 위쪽만 막았고, 출생일의
+   * 과거 쪽에는 경계가 없었다 — 그런데 **같은 칸의 달력 픽커는 20년에서 잠긴다**(라운드 65 D).
+   * 그래서 `2026` → `2016` 같은 오타나 폼을 우회한 API 호출이 그대로 저장됐고, 그 아이의 홈은
+   * "생후 117개월"을, 단계는 elementary를 그렸다(더 먼 값이면 도메인의 마지막 밴드가 열려 있어
+   * 전부 middle_school로 받는다). 앱 폼(child-form.ts의 computeDateError)이 같은 규칙을 갖되,
+   * 그 폼을 우회한 호출을 막는 것이 서버 가드의 몫이다 — R27 L-6 · 라운드 67 B와 같은 형태다.
+   *
+   * 기준일은 이 파일의 WOORIAI_STAGE_TODAY = 2026-04-10 (서울 기준 "오늘").
+   * 하한은 240개월 전 **달의 1일** = 2006-04-01 — 그날까지는 통과하고 그 전날부터 거절된다
+   * (달력 픽커의 과거 바닥이 달 단위라 하한도 그 달의 1일이다 — packages/domain/src/money-date.ts).
+   */
+  describe("라운드 68 A 20년보다 오래된 출생일 거부", () => {
+    const FLOOR_DAY = "2006-04-01";
+    const ONE_DAY_TOO_OLD = "2006-03-31";
+    const TYPO_BIRTH_DATE = "1926-08-14";
+
+    const expectTooOldError = ({ body }: { body: { error: { code: string; message: string } } }) => {
+      expect(body.error.code).toBe("CHILD_BIRTH_DATE_TOO_OLD");
+      // 앱이 폼에서 내는 문장과 **글자까지 같다**(child-form.ts의 CHILD_BIRTH_DATE_TOO_OLD_ERROR,
+      // 그리고 지출 폼의 EXPENSE_DATE_TOO_OLD_ERROR — 같은 경계를 세 자리가 한 문장으로 부른다).
+      expect(body.error.message).toBe("20년보다 오래된 날은 고를 수 없어요.");
+    };
+
+    const createBornChild = async (birthDate: string) =>
+      (
+        await request(app.getHttpServer())
+          .post("/api/v1/children")
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ householdId, nickname: "튼튼이", stageMode: "born", birthDate })
+          .expect(200)
+      ).body.id as string;
+
+    it("경계 세 값 — 하한 당일 통과 · 하루 넘김 거부 · 오늘 통과", async () => {
+      const floorChildId = await createBornChild(FLOOR_DAY);
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${floorChildId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ stageMode: "born", birthDate: FLOOR_DAY });
+        });
+
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "하루초과", stageMode: "born", birthDate: ONE_DAY_TOO_OLD })
+        .expect(400)
+        .expect(expectTooOldError);
+
+      const todayChildId = await createBornChild("2026-04-10");
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${todayChildId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.birthDate).toBe("2026-04-10");
+        });
+    });
+
+    it("refuses a too-old birth date on create, on PATCH, and on the born transition", async () => {
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "오타둥이", stageMode: "born", birthDate: TYPO_BIRTH_DATE })
+        .expect(400)
+        .expect(expectTooOldError);
+
+      // stageMode와 무관하게 본다 — pregnant로 만들면서 심어둔 값이 나중 전환에서 되살아나면 안 된다.
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "숨은오타", stageMode: "pregnant", dueDate: "2026-05-20", birthDate: TYPO_BIRTH_DATE })
+        .expect(400)
+        .expect(expectTooOldError);
+
+      const bornChildId = await createBornChild("2025-06-15");
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${bornChildId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ birthDate: TYPO_BIRTH_DATE })
+        .expect(400)
+        .expect(expectTooOldError);
+
+      // 거절된 수정이 저장된 값을 건드리지 않았는지까지 본다(부분 적용 금지).
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${bornChildId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.birthDate).toBe("2025-06-15");
+        });
+
+      // 출생 전환 입구도 같은 방어선을 지난다(폼을 우회한 호출을 막는 것이 이 가드의 존재 이유다).
+      const pregnantChildId = await createPregnantChild();
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${pregnantChildId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ stageMode: "born", birthDate: TYPO_BIRTH_DATE })
+        .expect(400)
+        .expect(expectTooOldError);
+    });
+
+    it("미래 갈래는 종전 그대로다(두 경계가 서로 다른 코드로 말한다)", async () => {
+      await request(app.getHttpServer())
+        .post("/api/v1/children")
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ householdId, nickname: "미래둥이", stageMode: "born", birthDate: "2999-01-01" })
+        .expect(400)
+        .expect(({ body }) => {
+          expect(body.error.code).toBe("CHILD_BIRTH_DATE_FUTURE");
+        });
+    });
+
+    it("예정일에는 이 하한이 붙지 않는다(과거 예정일 허용 무변경)", async () => {
+      const childId = await createPregnantChild(ONE_DAY_TOO_OLD);
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ stageMode: "pregnant", dueDate: ONE_DAY_TOO_OLD });
+        });
+    });
+
+    /**
+     * 라운드 67 적대 리뷰 #4와 같은 자리 — **이미 저장돼 있는 범위 밖 출생일.** 이 가드가 실제로
+     * 지켜야 할 사람은 가드가 생기기 전에 그 값을 저장해 버린 사람이고, 그 계정에서 별명 하나를
+     * 고치려는 PATCH가 저장된 값 때문에 400을 맞으면 오타를 고칠 화면에 닿기도 전에 잠긴다.
+     * 그 조건은 이제 API로 만들 수 없으므로 prisma로 직접 심는다.
+     */
+    it("이미 저장된 범위 밖 출생일은 별명만 고치는 PATCH를 막지 않는다 (prisma로 직접 심은 계정)", async () => {
+      const prisma = app.get(PrismaService);
+      const legacy = await prisma.child.create({
+        data: {
+          householdId,
+          nickname: "오타로 저장된 아이",
+          stageMode: "born",
+          birthDate: new Date(`${TYPO_BIRTH_DATE}T00:00:00.000Z`)
+        },
+        select: { id: true }
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${legacy.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ nickname: "다온이" })
+        .expect(200)
+        .expect(({ body }) => {
+          childSchema.parse(body);
+          expect(body).toMatchObject({ nickname: "다온이", stageMode: "born", birthDate: TYPO_BIRTH_DATE });
+        });
+
+      // 범위 안의 날로 고치는 길은 열려 있다 — 그것이 이 사람이 가야 할 출구다.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${legacy.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ birthDate: FLOOR_DAY })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body).toMatchObject({ nickname: "다온이", birthDate: FLOOR_DAY });
+        });
+    });
+  });
 });

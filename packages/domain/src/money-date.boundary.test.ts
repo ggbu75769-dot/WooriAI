@@ -3,11 +3,15 @@
 import { describe, expect, it } from "vitest";
 import {
   assertMoneyKrw,
+  getEntryDateFloor,
   getSeoulMonthRange,
   getSeoulToday,
+  isBeforeEntryDateFloor,
   isFutureSeoulDate,
   isMoneyKrw,
   isValidCalendarDate,
+  ENTRY_DATE_MAX_PAST_MONTHS,
+  ENTRY_DATE_MAX_PAST_YEARS,
   MONEY_KRW_MAX
 } from "./money-date";
 
@@ -257,6 +261,77 @@ describe("isValidCalendarDate 경계", () => {
       if (last < 31) {
         expect(isValidCalendarDate(`${year}-${pad2(month)}-${pad2(last + 1)}`)).toBe(false);
       }
+    }
+  });
+});
+
+/**
+ * 라운드 68 A — 손으로 적는 날짜의 **과거 하한**(20년).
+ *
+ * 이 자리에 구멍이 있던 이유는 라운드 67 B와 같다: 모든 유효 과거 날짜가 통과하는 것이 종전
+ * 계약이었고, 앱의 **읽는 쪽 넷**만 240개월에서 잠겨 있었다. 그래서 여기서 고정하는 것은 값
+ * 하나가 아니라 **하한이 읽는 쪽의 축과 정확히 맞물리는가**다 — 달력 픽커가 마지막으로 열어
+ * 주는 달의 1일이 곧 하한이어야 한다(쓰기가 읽기보다 좁으면 픽커에서 고른 날이 저장 직전에
+ * 막히고, 넓으면 기록 탭이 열 수 없는 달의 지출이 다시 생긴다).
+ */
+describe("라운드 68 A 입력 날짜 하한(20년)", () => {
+  const NOW = new Date("2026-08-29T12:00:00+09:00");
+
+  it("상수는 240개월 = 20년 한 벌이고, 그 값이 곧 사람이 읽는 단위다", () => {
+    expect(ENTRY_DATE_MAX_PAST_MONTHS).toBe(240);
+    expect(ENTRY_DATE_MAX_PAST_YEARS).toBe(20);
+    expect(ENTRY_DATE_MAX_PAST_YEARS * 12).toBe(ENTRY_DATE_MAX_PAST_MONTHS);
+  });
+
+  it("하한은 240개월 전 **달의 1일**이다(읽는 쪽의 축이 달이라서)", () => {
+    expect(getEntryDateFloor(NOW)).toBe("2006-08-01");
+    // 연 경계를 넘는 달에서도 같은 식이다(1월 → 12월로 내려간다).
+    expect(getEntryDateFloor(new Date("2026-01-15T12:00:00+09:00"))).toBe("2006-01-01");
+    expect(getEntryDateFloor(new Date("2026-12-31T12:00:00+09:00"))).toBe("2006-12-01");
+  });
+
+  it("경계 세 값 — 하한 당일 통과 · 하루 넘김 거부 · 오늘 통과", () => {
+    expect(isBeforeEntryDateFloor("2006-08-01", NOW)).toBe(false);
+    expect(isBeforeEntryDateFloor("2006-07-31", NOW)).toBe(true);
+    expect(isBeforeEntryDateFloor("2026-08-29", NOW)).toBe(false);
+  });
+
+  it("실패 시나리오의 오타를 거절하고, 정상 과거 입력은 종전대로 통과한다", () => {
+    // 2026을 2016으로 친 한 자리 오타는 20년 안이라 **여전히 통과한다** — 하한이 잡는 것은
+    // 그보다 먼 오타다(1926-08-14, 1970-01-01 같은 값). 이 사실을 여기 못박아 두는 이유는
+    // 하한을 좁히자는 다음 제안이 오면 그 대가를 먼저 보게 하기 위해서다.
+    expect(isBeforeEntryDateFloor("2016-08-14", NOW)).toBe(false);
+    expect(isBeforeEntryDateFloor("1926-08-14", NOW)).toBe(true);
+    expect(isBeforeEntryDateFloor("1970-01-01", NOW)).toBe(true);
+    for (const iso of ["2026-08-28", "2025-01-01", "2010-12-31", "2006-08-15"]) {
+      expect(isBeforeEntryDateFloor(iso, NOW), iso).toBe(false);
+    }
+  });
+
+  it("형식이 깨진 값에서는 isFutureSeoulDate와 **같은 방식으로** 던진다", () => {
+    for (const bad of ["2026/08/29", "20260829", "", "오늘"]) {
+      expect(() => isBeforeEntryDateFloor(bad, NOW), bad).toThrow("DATE_INVALID");
+      expect(() => isFutureSeoulDate(bad, NOW), bad).toThrow("DATE_INVALID");
+    }
+  });
+
+  it("[속성] 하한 앞뒤 100쌍 — 하한 이상은 통과, 하한 미만은 거부", () => {
+    const rand = makeLcg(680108);
+    const randomInt = makeIntPicker(rand);
+    const floor = getEntryDateFloor(NOW);
+
+    for (let i = 0; i < 100; i += 1) {
+      const days = randomInt(0, 7300);
+      const above = new Date(`${floor}T00:00:00Z`);
+      above.setUTCDate(above.getUTCDate() + days);
+      const aboveIso = above.toISOString().slice(0, 10);
+      // 하한 + n일은 오늘을 넘길 수 있지만, 이 술어가 보는 것은 아래쪽 경계뿐이다.
+      expect(isBeforeEntryDateFloor(aboveIso, NOW), aboveIso).toBe(false);
+
+      const below = new Date(`${floor}T00:00:00Z`);
+      below.setUTCDate(below.getUTCDate() - (days + 1));
+      const belowIso = below.toISOString().slice(0, 10);
+      expect(isBeforeEntryDateFloor(belowIso, NOW), belowIso).toBe(true);
     }
   });
 });

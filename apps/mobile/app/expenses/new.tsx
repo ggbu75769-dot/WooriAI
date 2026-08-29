@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
   View
 } from "react-native";
-import { getSeoulToday, isFutureSeoulDate, isValidCalendarDate } from "@wooriai/domain";
+import { getSeoulToday } from "@wooriai/domain";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildExpenseRecordedPayload } from "../../src/analytics/events";
 import { LOCAL_SESSION_TOKEN, type CategoryListItem, type Child } from "../../src/api/client";
@@ -65,6 +65,7 @@ import {
   resolveInitialCategoryId,
   shouldClearQuickExpenseDraftOnClose,
   shouldTileFillItemName,
+  validateExpenseDateInput,
   AMOUNT_OVER_LIMIT_NOTICE,
   CATEGORY_REQUIRED_NOTICE,
   type QuickExpenseInputSnapshot
@@ -215,21 +216,10 @@ function formatExpenseDate(date: Date) {
   return { iso: `${year}-${month}-${day}`, label: `${year}. ${month}. ${day} (${weekday})` };
 }
 
-// Validates a manually-typed expense date: format, calendar validity, then future-date rejection
-// (reusing the same isValidCalendarDate/isFutureSeoulDate the server/local-backend enforce so the
-// two never disagree). MOB-121: the calendar-valid wording intentionally differs from
-// src/children/child-form.ts ("실제 존재하는 날짜인지 확인해 주세요.") — unifying copy is out of
-// scope here (pixel-lock/test impact), so each screen keeps its existing message.
-function validateExpenseDateInput(dateOnly: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return "YYYY-MM-DD 형식으로 입력해 주세요.";
-  if (!isValidCalendarDate(dateOnly)) return "존재하지 않는 날짜예요.";
-  try {
-    if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";
-  } catch {
-    return "날짜를 다시 확인해 주세요.";
-  }
-  return null;
-}
+// 라운드 68 A: 이 자리에 있던 `validateExpenseDateInput`이 `src/expenses/entry-form-guards.ts`로
+// 올라갔다. 같은 함수가 이 화면과 지출 상세(`app/expenses/[expenseId].tsx`)에 **통째로 복제**돼
+// 있었고, 이번 라운드가 그 판정에 과거 하한을 더하기 때문이다 — 복제를 걷지 않으면 하한이
+// 처음부터 두 벌이 된다. 판정 내용·문구·호출부는 그대로다(그 모듈 주석 참고).
 
 function buildRecentDateChips(today: Date) {
   return Array.from({ length: 14 }, (_, index) => {

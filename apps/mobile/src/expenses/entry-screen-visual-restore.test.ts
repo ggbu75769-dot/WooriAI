@@ -84,8 +84,11 @@ describe("날짜 pill 행", () => {
   it("미래 날짜 칩을 만들지 않고, 기존 14일 칩 로직에서 잘라 쓴다", () => {
     expect(newExpenseSource).toContain("const quickDateChips = recentDateChips.slice(0, 3).reverse();");
     expect(newExpenseSource).not.toContain('"내일"');
-    // 미래 날짜 거부 자체는 종전 그대로다.
-    expect(newExpenseSource).toContain('if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";');
+    // 미래 날짜 거부 자체는 종전 그대로다 — 라운드 68 A로 그 판정이 순수 모듈 한 벌
+    // (src/expenses/entry-form-guards.ts)로 걷혔을 뿐, 문장도 조건도 바뀌지 않았다.
+    expect(newExpenseSource).toContain("validateExpenseDateInput(cleaned);");
+    const guardsSource = readFileSync(join(process.cwd(), "src/expenses/entry-form-guards.ts"), "utf8");
+    expect(guardsSource).toContain('if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";');
   });
 
   it("고른 날짜를 그대로 적는 줄이 남아 있다(칩만으로는 알 수 없다)", () => {

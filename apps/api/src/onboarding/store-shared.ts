@@ -5,8 +5,10 @@ import {
   calculateChildStage,
   getSeoulMonthRange,
   getSeoulToday,
+  isBeforeEntryDateFloor,
   isFutureSeoulDate,
   isValidCalendarDate,
+  ENTRY_DATE_MAX_PAST_YEARS,
   type ChildStageCode,
   type ChildStageMode,
   type ExpenseSource,
@@ -178,6 +180,50 @@ export function referenceNow() {
     : new Date();
 }
 
+/**
+ * 라운드 68 A — 지출 발생일의 **과거 하한**(20년). 라운드 67 B가 예정일에 세운
+ * `assertDueDateWithinFullTerm`과 **같은 형식·같은 기준 시각**(`referenceNow()`)이다.
+ *
+ * 없던 규칙이다. 이 층이 보던 것은 형식·실존 달력·미래 금지 셋뿐이었고(`assertNotFutureDate` —
+ * 이름이 곧 범위였다), 그래서 `2026-08-14`를 `2016-08-14`로 한 자리 잘못 친 지출이 그대로
+ * 저장됐다. 그 지출은 **누적 총액에는 들어가는데**(전 기간 서버 집계 — reporting-store.service.ts)
+ * 앱의 읽는 쪽 넷이 전부 20년에서 잠겨 있어 어느 화면에서도 그 달을 열 수 없다: 총액은 늘었는데
+ * 그 금액이 어느 달에 있는지 물어볼 자리가 없고, 지우려 해도 도달할 수 없다.
+ *
+ * ## 숫자를 짓지 않는다
+ * 하한은 도메인의 `ENTRY_DATE_MAX_PAST_MONTHS`(240) 한 곳에만 있고, 앱의 달력 픽커·기록 탭
+ * 딥링크가 **같은 그 값**을 읽는다(apps/mobile/src/expenses/import-landing-month.ts). 이 층이
+ * 240을 다시 적으면 한쪽만 바뀌는 드리프트가 확정이다(라운드 54 P2-8).
+ *
+ * ## 하한 당일은 통과시킨다
+ * 그 날은 달력 픽커가 고를 수 있게 열어 두는 날이라, 여기서 거절하면 픽커에서 고른 날짜가
+ * 저장 직전에 막힌다(라운드 67 B가 만삭 당일에 내린 것과 같은 판단).
+ *
+ * ## 이미 저장된 값은 고치지 않는다
+ * 마이그레이션 0건이다. 지금 하는 일은 **새로 들어오는 값을 막는 것**뿐이고, 표시·회수 판단은
+ * 별도 결정이다.
+ */
+export function assertExpenseDateWithinPastFloor(spentOn: string) {
+  if (isBeforeEntryDateFloor(spentOn, referenceNow())) {
+    throw new BadRequestException({
+      code: "EXPENSE_DATE_TOO_OLD",
+      message: `${ENTRY_DATE_MAX_PAST_YEARS}년보다 오래된 날은 고를 수 없어요.`
+    });
+  }
+}
+
+/**
+ * 지출 발생일이 저장 가능한 범위 안인가.
+ *
+ * 라운드 68 A 메모: 이름은 미래 갈래만 말하지만 이 함수는 이제 **두 경계**를 본다(위쪽 = 미래
+ * 금지, 아래쪽 = 20년 하한). 이름을 범위에 맞게 바꾸려면 이 트랙이 소유하지 않은 호출부
+ * (expenses-store.service.ts의 생성·수정 두 자리)를 함께 고쳐야 해서 다음 라운드로 미룬다 —
+ * 대신 하한 판정을 `assertExpenseDateWithinPastFloor`라는 자기 이름으로 바로 위에 세워 두고
+ * 여기서 부른다. 이 한 자리를 지나면 **쓰는 경로 셋이 모두** 하한을 갖는다: 지출 생성 · 지출
+ * 수정 · 엑셀 가져오기 행 판정(import-pipeline.service.ts의 `validationStatusForImportRow`가
+ * 이 함수를 부르고, 그 행은 `invalid_date`가 되어 미리보기에서 사유를 달고 `selected`에서
+ * 빠진다 — DNC-012 "승인 전에는 저장하지 않는다").
+ */
 export function assertNotFutureDate(spentOn: string) {
   if (!isValidCalendarDate(spentOn)) {
     throw new BadRequestException({ code: "EXPENSE_DATE_INVALID", message: "날짜를 다시 확인해 주세요." });
@@ -187,6 +233,7 @@ export function assertNotFutureDate(spentOn: string) {
     if (isFutureSeoulDate(spentOn, referenceNow())) {
       throw new BadRequestException({ code: "EXPENSE_FUTURE_DATE", message: "미래 날짜의 지출은 저장할 수 없어요." });
     }
+    assertExpenseDateWithinPastFloor(spentOn);
   } catch (error) {
     if (error instanceof BadRequestException) {
       throw error;

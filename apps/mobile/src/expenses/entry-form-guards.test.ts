@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getEntryDateFloor, getSeoulToday, ENTRY_DATE_MAX_PAST_MONTHS, ENTRY_DATE_MAX_PAST_YEARS } from "@wooriai/domain";
 import { categoryCatalog } from "../categories";
+import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
 import { amountOverLimitMessage, EXPENSE_AMOUNT_MAX_KRW } from "./amount-limit";
+import {
+  canGoToPreviousExpenseDatePickerMonth,
+  EXPENSE_DATE_PICKER_MAX_PAST_MONTHS,
+  isExpenseDatePickerDateSelectable
+} from "./date-picker-month";
+import { MAX_PAST_MONTH_OFFSET } from "./import-landing-month";
 import {
   hasQuickExpenseInput,
   isAmountOverLimitForSave,
@@ -10,8 +18,10 @@ import {
   resolveInitialCategoryId,
   shouldClearQuickExpenseDraftOnClose,
   shouldTileFillItemName,
+  validateExpenseDateInput,
   AMOUNT_OVER_LIMIT_NOTICE,
-  CATEGORY_REQUIRED_NOTICE
+  CATEGORY_REQUIRED_NOTICE,
+  EXPENSE_DATE_TOO_OLD_ERROR
 } from "./entry-form-guards";
 
 describe("hasQuickExpenseInput — 닫기가 초안을 지워도 되는지", () => {
@@ -327,5 +337,107 @@ describe("라운드 51 C-#5 화면 배선", () => {
     const resetBlock = source.slice(resetStart, source.indexOf("\n  };", resetStart));
     expect(resetBlock).toContain("setSelectedCategory(null);");
     expect(resetBlock).not.toContain("setSelectedCategory(quickExpenseCategories[0])");
+  });
+});
+
+/**
+ * 라운드 68 A — 손타이핑 지출 날짜 가드. **먼저 복제를 걷었고**, 그다음 하한을 더했다.
+ *
+ * 종전에는 이 판정이 `app/expenses/new.tsx`와 `app/expenses/[expenseId].tsx`에 각각 통째로
+ * 복제돼 있었다(본문 동일). 그 상태로 하한을 더하면 하한이 처음부터 두 벌이 되므로, 이 스위트가
+ * 고정하는 것은 값 하나가 아니라 **판정이 한 벌인가 · 그 한 벌이 읽는 쪽과 같은 경계를 쓰는가**다.
+ */
+describe("라운드 68 A 지출 날짜 하한(20년)", () => {
+  const TODAY = getSeoulToday();
+  const FLOOR = getEntryDateFloor();
+
+  function shiftDays(iso: string, days: number): string {
+    const shifted = new Date(`${iso}T00:00:00Z`);
+    shifted.setUTCDate(shifted.getUTCDate() + days);
+    return shifted.toISOString().slice(0, 10);
+  }
+
+  /** `YYYY-MM`의 다음 달(테스트 전용 — 제품 코드는 픽커의 달 이동을 그대로 쓴다). */
+  function monthAfter(yearMonth: string): string {
+    const year = Number(yearMonth.slice(0, 4));
+    const month = Number(yearMonth.slice(5, 7));
+    return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
+  }
+
+  it("경계 세 값 — 하한 당일 통과 · 하루 넘김 거부 · 오늘 통과", () => {
+    expect(validateExpenseDateInput(FLOOR)).toBeNull();
+    expect(validateExpenseDateInput(shiftDays(FLOOR, -1))).toBe(EXPENSE_DATE_TOO_OLD_ERROR);
+    expect(validateExpenseDateInput(TODAY)).toBeNull();
+  });
+
+  it("실패 시나리오: 도달할 수 없는 달의 오타를 거절한다", () => {
+    // 정찰이 적은 그 오타(1926-08-14 · 1970-01-01)는 읽는 쪽 넷 어디에서도 열 수 없는 달이다.
+    expect(validateExpenseDateInput("1926-08-14")).toBe(EXPENSE_DATE_TOO_OLD_ERROR);
+    expect(validateExpenseDateInput("1970-01-01")).toBe(EXPENSE_DATE_TOO_OLD_ERROR);
+  });
+
+  it("정상 과거 날짜는 종전과 한 글자도 다르지 않다", () => {
+    for (const days of [0, -1, -14, -365, -3650]) {
+      expect(validateExpenseDateInput(shiftDays(TODAY, days)), String(days)).toBeNull();
+    }
+    // 나머지 세 갈래도 그대로다(문구까지).
+    expect(validateExpenseDateInput(shiftDays(TODAY, 1))).toBe("미래 날짜는 선택할 수 없어요.");
+    expect(validateExpenseDateInput("2026-02-30")).toBe("존재하지 않는 날짜예요.");
+    expect(validateExpenseDateInput("2026/08/14")).toBe("YYYY-MM-DD 형식으로 입력해 주세요.");
+  });
+
+  it("하한은 **달력 픽커가 마지막으로 열어 주는 달의 1일**과 정확히 같다", () => {
+    // 픽커의 과거 바닥은 날이 아니라 달이다(‹ 버튼이 240개월에서 멈춘다). 그래서 쓰기 하한도
+    // 그 달의 1일이어야 한다: 더 좁으면 픽커에서 고른 날이 저장 직전에 막히고, 더 넓으면
+    // 기록 탭이 열 수 없는 달의 지출이 다시 생긴다.
+    const floorMonth = FLOOR.slice(0, 7);
+    expect(FLOOR.slice(8)).toBe("01");
+    // 하한이 든 달까지는 내려갈 수 있고, 거기서 더는 못 내려간다.
+    expect(canGoToPreviousExpenseDatePickerMonth(monthAfter(floorMonth), TODAY)).toBe(true);
+    expect(canGoToPreviousExpenseDatePickerMonth(floorMonth, TODAY)).toBe(false);
+    // 그 달 안의 날은 픽커가 고를 수 있게 열어 두고, 폼도 그 날을 받는다.
+    expect(isExpenseDatePickerDateSelectable(FLOOR, TODAY)).toBe(true);
+    expect(validateExpenseDateInput(FLOOR)).toBeNull();
+    // 값도 한 벌이다: 읽는 쪽의 240과 쓰는 쪽의 240이 같은 상수에서 온다.
+    expect(MAX_PAST_MONTH_OFFSET).toBe(ENTRY_DATE_MAX_PAST_MONTHS);
+    expect(EXPENSE_DATE_PICKER_MAX_PAST_MONTHS).toBe(ENTRY_DATE_MAX_PAST_MONTHS);
+  });
+
+  it("문구는 숫자를 짓지 않고 도메인에서 읽는다", () => {
+    expect(EXPENSE_DATE_TOO_OLD_ERROR).toBe(`${ENTRY_DATE_MAX_PAST_YEARS}년보다 오래된 날은 고를 수 없어요.`);
+    // 아이 출생일 폼도 **글자까지 같은 문장**을 쓴다(같은 경계를 두 이름으로 부르지 않는다).
+    expect(EXPENSE_DATE_TOO_OLD_ERROR).toBe(CHILD_BIRTH_DATE_TOO_OLD_ERROR);
+  });
+});
+
+describe("라운드 68 A 복제 걷기 — 판정은 한 벌만 존재한다", () => {
+  const guardsSource = readFileSync(join(process.cwd(), "src/expenses/entry-form-guards.ts"), "utf8");
+  const screens = ["app/expenses/new.tsx", "app/expenses/[expenseId].tsx"] as const;
+
+  it("두 화면 모두 판정을 스스로 정의하지 않고 이 모듈에서 가져온다", () => {
+    expect(guardsSource).toContain("export function validateExpenseDateInput(");
+    for (const path of screens) {
+      const source = readFileSync(join(process.cwd(), path), "utf8");
+      expect(source, path).not.toContain("function validateExpenseDateInput(");
+      expect(source, path).toContain("validateExpenseDateInput");
+      expect(source, path).toContain("expenses/entry-form-guards");
+    }
+  });
+
+  it("두 화면 중 어느 쪽도 하한 숫자나 날짜 술어를 자기 자리에 다시 적지 않는다", () => {
+    for (const path of screens) {
+      const source = readFileSync(join(process.cwd(), path), "utf8");
+      expect(source, path).not.toContain("isBeforeEntryDateFloor");
+      expect(source, path).not.toContain("ENTRY_DATE_MAX_PAST");
+      // 미래·실존 판정도 이제 이 모듈 안에만 있다(화면은 도메인 술어를 직접 부르지 않는다).
+      expect(source, path).not.toContain("isFutureSeoulDate(");
+      expect(source, path).not.toContain("isValidCalendarDate(");
+    }
+  });
+
+  it("하한 숫자는 이 모듈에도 적히지 않는다(도메인이 단일 소스)", () => {
+    expect(guardsSource).toContain('from "@wooriai/domain"');
+    expect(guardsSource).not.toMatch(/\b240\b/);
+    expect(guardsSource).toContain("ENTRY_DATE_MAX_PAST_YEARS");
   });
 });

@@ -490,6 +490,81 @@ describe("Expense, budget, home, and report API", () => {
       });
   });
 
+  /**
+   * 라운드 68 A: 같은 값의 **아래쪽 경계**(20년). F-7이 위쪽만 막았고 아래쪽에는 아무것도 없어서,
+   * `2026-08-14`를 `2016-08-14`로 한 자리 잘못 친 지출이 형식·실존·미래 셋을 전부 지나 저장됐다.
+   * 그 지출은 **누적 총액에는 들어가는데**(전 기간 서버 집계) 앱의 읽는 쪽 넷이 전부 20년에서
+   * 잠겨 있어 어느 화면에서도 그 달을 열 수 없다 — 총액은 늘었는데 그 금액을 찾아가 지울
+   * 자리가 없다. 모바일 폼도 같은 규칙을 갖되(entry-form-guards.ts의 validateExpenseDateInput),
+   * 그 가드를 우회한 호출을 막는 것이 서버의 몫이다.
+   *
+   * 이 스위트의 오늘은 WOORIAI_STAGE_TODAY = 2026-07-06이라 하한은 240개월 전 **달의 1일** =
+   * 2006-07-01이다(달력 픽커의 과거 바닥이 달 단위라 하한도 그 달의 1일이다).
+   * 코드는 미래 갈래와 **다르다**: 두 경계를 한 이름으로 부르지 않는다.
+   */
+  it("라운드 68 A: rejects a spentOn older than 20 years on both create and update (경계 세 값)", async () => {
+    const accessToken = await login(app, `r68-date-floor-${randomUUID()}`);
+    const { childId } = await completeOnboarding(app, accessToken);
+    const floorDay = "2006-07-01";
+    const oneDayTooOld = "2006-06-30";
+
+    const expectTooOldError = ({ body }: { body: { error: { code: string; message: string } } }) => {
+      errorResponseSchema.parse(body);
+      expect(body.error.code).toBe("EXPENSE_DATE_TOO_OLD");
+      // 앱 폼이 내는 문장과 **글자까지 같다**(entry-form-guards.ts의 EXPENSE_DATE_TOO_OLD_ERROR,
+      // child-form.ts의 CHILD_BIRTH_DATE_TOO_OLD_ERROR와도 같은 한 문장이다).
+      expect(body.error.message).toBe("20년보다 오래된 날은 고를 수 없어요.");
+    };
+
+    // 하한 당일은 정상 경로다 — 달력 픽커가 열어 주는 날을 서버가 거절하면 안 된다.
+    const created = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ categoryId, amountKrw: 12000, spentOn: floorDay, itemName: "하한 당일" })
+        .expect(200)
+        .expect(({ body }) => {
+          expenseSchema.parse(body);
+          expect(body.spentOn).toBe(floorDay);
+        })
+    ).body as { id: string; version: number };
+
+    // 하루만 넘어도 막힌다(생성 경로).
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId, amountKrw: 12000, spentOn: oneDayTooOld, itemName: "하루 초과" })
+      .expect(400)
+      .expect(expectTooOldError);
+
+    // 실패 시나리오의 오타 그대로.
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId, amountKrw: 30000, spentOn: "1926-08-14", itemName: "오타 기저귀" })
+      .expect(400)
+      .expect(expectTooOldError);
+
+    // 수정 경로도 같은 방어선을 지난다 — 저장된 지출을 나중에 도달 불가능한 달로 밀 수 없다.
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ spentOn: oneDayTooOld })
+      .expect(400)
+      .expect(expectTooOldError);
+
+    // 거절된 수정이 행을 건드리지 않았고, 정상 과거 날짜는 종전 그대로 통과한다.
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ spentOn: "2016-08-14", itemName: "10년 전 기록" })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.spentOn).toBe("2016-08-14");
+        expect(body.itemName).toBe("10년 전 기록");
+      });
+  });
+
   it("creates a gift expense through the public create-expense API and excludes it from home and report totals", async () => {
     const accessToken = await login(app, `batch06-gift-api-${randomUUID()}`);
     const { childId } = await completeOnboarding(app, accessToken);

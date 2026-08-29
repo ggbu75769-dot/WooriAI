@@ -168,13 +168,23 @@ describe("EXP-003 edit screen category/date wiring", () => {
     expect(detailSource).toContain("categoryId: categoryId || undefined");
   });
 
-  it("reuses the shared Seoul future-date validation for manually typed dates, same as the create screen", () => {
+  /**
+   * 라운드 68 A: 이 계약이 원래 붙들던 사실은 "두 화면이 **같은 방식으로** 손타이핑 날짜를
+   * 검증한다"였는데, 그 방식이 각 화면에 **복제된 같은 함수**였다(주석만 다르고 본문 동일).
+   * 이번 라운드가 그 판정에 과거 하한을 더하면서 복제를 순수 모듈 한 벌로 걷었으므로, 같은
+   * 사실을 더 강하게 못박는다 — 두 화면이 같은 방식을 쓰는 것이 아니라 **같은 한 벌**을 쓴다.
+   * 술어(`isFutureSeoulDate`)와 문구는 이제 그 모듈 안에만 있다.
+   */
+  it("reuses the shared Seoul date validation for manually typed dates, same as the create screen", () => {
     const createSource = source("app/expenses/new.tsx");
     for (const screenSource of [detailSource, createSource]) {
-      expect(screenSource).toContain("isFutureSeoulDate");
       expect(screenSource).toContain("validateExpenseDateInput");
-      expect(screenSource).toContain('"존재하지 않는 날짜예요."');
+      expect(screenSource).toContain('from "../../src/expenses/entry-form-guards"');
+      expect(screenSource).not.toContain("isFutureSeoulDate(");
     }
+    const guards = source("src/expenses/entry-form-guards.ts");
+    expect(guards).toContain("isFutureSeoulDate");
+    expect(guards).toContain('"존재하지 않는 날짜예요."');
   });
 });
 
