@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { isAuthError, lookupAdminEndUsers, type AdminLookupUser } from "../../src/lib/admin-api";
 import { auditLogsHrefForActor } from "../../src/lib/audit-log-filters";
-import { loadErrorMessage } from "../../src/lib/load-error-copy";
+import { loadErrorMessage, loadErrorReason } from "../../src/lib/load-error-copy";
 import {
   AUTH_PROVIDER_LABELS,
   accountStateLabel,
@@ -32,6 +32,15 @@ import styles from "../../src/components/admin-page.module.css";
  * 권한: API가 admin 전용(RequireAdminRoles("admin"))이라, 다른 역할에는 깨진 화면 대신
  * 안내를 띄운다(ADM-006 /users와 같은 패턴).
  */
+/**
+ * 타임아웃 갈래에만 붙는 이 화면의 조각(라운드 73 후속 · 적대적 리뷰 ③).
+ *
+ * 공용 판정이 주는 문장(읽기 타임아웃 — 단일 소스는 `src/lib/admin-api.ts`) 뒤에 붙는 이 한
+ * 조각은 **이 폼에서만 참인 사실**이다 — 검색은 부분 일치라 검색어가 짧을수록 스캔이 넓어진다.
+ * 다른 갈래(네트워크·서버·그 밖)에는 붙이지 않는다: 검색어를 좁혀도 달라지지 않기 때문이다.
+ */
+const LOOKUP_TIMEOUT_NARROWING_HINT = "검색어를 좁혀서 다시 시도해 주세요.";
+
 export default function UsersLookupPage() {
   const { session, clearSession } = useAdminSession();
 
@@ -81,7 +90,17 @@ export default function UsersLookupPage() {
       }
       // 라운드 73 트랙 D: 실패 이유는 admin-api.ts가 이미 문장으로 만들어 던진다.
       // (이 자리에는 [다시 시도] 버튼이 없다 — 조회 폼 자체가 재시도다.)
-      setSearchError(loadErrorMessage(error, "사용자를 조회하지 못했어요. 검색어를 확인하고 다시 시도해 주세요."));
+      //
+      // 라운드 73 후속(적대적 리뷰 ③): **타임아웃에는 이 화면만 아는 조각을 되돌려 붙인다.**
+      // 종전 손문장은 두 부분이었다 — 판정(느렸다) + 이 폼에서 할 수 있는 다음 행동. 앞부분을
+      // 공용 판정으로 옮기면서 뒷조각까지 함께 사라졌는데, 그 조각은 판정의 사본이 아니라
+      // **부분 일치 검색에서 실제로 스캔 범위를 줄이는 행동**이라 화면이 알던 것을 잃은 것이었다.
+      // 공용 문장은 한 글자도 고치지 않고 주어 조각만 뒤에 얹는 모바일 관례를 따른다
+      // (apps/mobile/src/expenses/records-calendar.ts).
+      const message = loadErrorMessage(error, "사용자를 조회하지 못했어요. 검색어를 확인하고 다시 시도해 주세요.");
+      setSearchError(
+        loadErrorReason(error) === "timeout" ? `${message} ${LOOKUP_TIMEOUT_NARROWING_HINT}` : message
+      );
     } finally {
       setSearching(false);
     }

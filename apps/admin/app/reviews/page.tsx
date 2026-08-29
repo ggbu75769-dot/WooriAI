@@ -367,34 +367,40 @@ function ContentReviewsPageContent() {
                 </tr>
               </thead>
               <tbody>
-                {revisions.map((revision) => (
-                  <tr key={revision.id}>
-                    <td>{ENTITY_TYPE_LABELS[revision.entityType]}</td>
-                    <td>{revisionTargetLabel(revision)}</td>
-                    <td>#{revision.revisionNo}</td>
-                    <td>{STATUS_LABELS[revision.status]}</td>
-                    <td>{formatDate(revision.submittedAt)}</td>
-                    {/* 라운드 73 트랙 D(GAP-073 #4ⓒ): 예약 시각이 지났는데 아직 검토 대기면
-                        그 게시는 일어나지 않은 것이다 — 종전에는 지난 날짜만 얌전히 적혔다.
-                        판정은 순수 함수 한 자리(revision-rows.ts overdueScheduleNote). */}
-                    <td>
-                      {formatDate(revision.scheduledFor)}
-                      {overdueScheduleNote(revision) ? (
-                        <>
-                          <br />
-                          <span className={`${styles.badge} ${styles.badgeInactive}`}>
-                            {overdueScheduleNote(revision)}
-                          </span>
-                        </>
-                      ) : null}
-                    </td>
-                    <td>
-                      <button type="button" className={styles.secondaryButton} onClick={() => setSelectedId(revision.id)}>
-                        {selectedId === revision.id ? "선택됨" : "상세 보기"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {revisions.map((revision) => {
+                  /* 라운드 73 후속(적대적 리뷰 ⑪): 판정을 **행마다 한 번만** 부른다.
+                     `overdueScheduleNote()`의 기준 시각은 인자를 주지 않으면 호출 시점의
+                     `Date.now()`라, 같은 행에서 두 번 부르면 두 순간을 비교하게 된다 —
+                     예약 시각을 막 지나는 경계에서 배지가 없는 판정과 있는 판정이 한 행 안에
+                     엇갈릴 수 있다. 값 하나를 만들어 조건과 본문이 같은 순간을 본다. */
+                  const overdueNote = overdueScheduleNote(revision);
+                  return (
+                    <tr key={revision.id}>
+                      <td>{ENTITY_TYPE_LABELS[revision.entityType]}</td>
+                      <td>{revisionTargetLabel(revision)}</td>
+                      <td>#{revision.revisionNo}</td>
+                      <td>{STATUS_LABELS[revision.status]}</td>
+                      <td>{formatDate(revision.submittedAt)}</td>
+                      {/* 라운드 73 트랙 D(GAP-073 #4ⓒ): 예약 시각이 지났는데 아직 검토 대기면
+                          그 게시는 일어나지 않은 것이다 — 종전에는 지난 날짜만 얌전히 적혔다.
+                          판정은 순수 함수 한 자리(revision-rows.ts overdueScheduleNote). */}
+                      <td>
+                        {formatDate(revision.scheduledFor)}
+                        {overdueNote ? (
+                          <>
+                            <br />
+                            <span className={`${styles.badge} ${styles.badgeInactive}`}>{overdueNote}</span>
+                          </>
+                        ) : null}
+                      </td>
+                      <td>
+                        <button type="button" className={styles.secondaryButton} onClick={() => setSelectedId(revision.id)}>
+                          {selectedId === revision.id ? "선택됨" : "상세 보기"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

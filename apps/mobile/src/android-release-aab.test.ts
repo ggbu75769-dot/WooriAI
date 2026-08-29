@@ -213,7 +213,39 @@ describe("라운드 73 트랙 A — AAB가 실사용자 빌드의 EXPO_PUBLIC_*�
     // 값 보간(`${process.env[...]}` · `${value}`)이 이 영역의 어떤 메시지에도 없다.
     expect(region).not.toMatch(/\$\{process\.env\[[^\]]+\]\}/);
     expect(region).not.toMatch(/\$\{value\}/);
+    // 라운드 73 후속(적대적 리뷰 ⑧): 같은 누출이 **점 접근**으로도 쓰인다 —
+    // `${process.env.EXPO_PUBLIC_KAKAO_CLIENT_ID}`는 대괄호 형태를 막아도 그대로 통과했다.
+    expect(region).not.toMatch(/\$\{process\.env\.[A-Za-z_$][\w$]*\}/);
     expect(region).toContain("// 값은 출력하지 않는다(DNC-019)");
+  });
+
+  /**
+   * 라운드 73 후속(적대적 리뷰 ⑨) — **"열 수 있는 주소"의 판정이 두 벌이 되지 않는다.**
+   *
+   * 관문의 `assertHttpUrl`은 주석으로 "앱의 normalize 규칙과 같은 판정"이라고 말하는데,
+   * 그 말이 참인지는 아무도 묻지 않았다. 두 규칙이 갈리면 관문이 통과시킨 값이 앱에서
+   * **주입되지 않은 것과 같이** 취급되고(링크가 조용히 사라진다), 반대로 앱은 열 수 있는 값을
+   * 관문이 막을 수도 있다. 그래서 세 자리의 정규식 원문이 글자 단위로 같은지 본다.
+   */
+  it("ⓖ URL 판정 정규식이 앱의 normalize 소스 둘과 글자 단위로 같다", () => {
+    const urlPattern = /\/\^https\?:\\\/\\\/\\S\+\$\/i/;
+    const scriptMatch = urlPattern.exec(buildScript);
+    expect(scriptMatch, "build-android-aab.ts의 http(s) 판정 정규식을 찾지 못했어요").not.toBeNull();
+
+    // 앱 쪽 단일 소스 둘(동의 문서 링크 · 지원/FAQ 링크).
+    for (const relativePath of ["src/consent/legal-links.ts", "src/settings/support-links.ts"]) {
+      const source = readFileSync(join(process.cwd(), relativePath), "utf8");
+      const appMatch = urlPattern.exec(source);
+      expect(appMatch, `${relativePath}의 normalize 정규식을 찾지 못했어요`).not.toBeNull();
+      expect(appMatch![0], `${relativePath} ↔ build-android-aab.ts`).toBe(scriptMatch![0]);
+      // 그 판정이 "trim한 값"에 걸린다는 것도 양쪽이 같다.
+      expect(source).toContain(".trim()");
+    }
+    expect(buildScript).toContain("process.env[spec.key] ?? \"\"");
+    expect(buildScript).toContain(".trim()");
+    // 그리고 그 사실을 스크립트가 주석으로 가리키는 자리도 남아 있어야 한다(다음 사람이 찾을 길).
+    expect(buildScript).toContain("src/consent/legal-links.ts");
+    expect(buildScript).toContain("src/settings/support-links.ts");
   });
 
   it("ⓕ 이 관문은 서명·정체성 검증과 같은 자리(validateEnv)에서 fail-closed로 돈다", () => {

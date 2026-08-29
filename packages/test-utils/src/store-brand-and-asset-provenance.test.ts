@@ -36,6 +36,11 @@ type BrandTokens = {
   derived: Record<string, string>;
   retired: { value: string; role: string; replacedBy: string; note: string }[];
   sources: { contract: string; runtime: string };
+  retiredSweepScope: {
+    commentRule: { default: string; exceptions: Record<string, string> };
+    include: string[];
+    includeOwners: Record<string, string[]>;
+  };
 };
 
 function brandTokens(): BrandTokens {
@@ -164,9 +169,25 @@ describe("스토어 자산 생성기가 브랜드 값을 스스로 정하지 않
     expect(generator).toContain('locked.get(key)');
   });
 
-  it("생성기 안에 색 리터럴이 0건이다 (부정 단언)", () => {
+  it("생성기 안에 색 리터럴이 0건이다 (부정 단언 · 주석 취급은 값 파일이 정한다)", () => {
     // 묻는 것은 **코드**다. 주석은 "종전에 어떤 값이 박혀 있었고 왜 걷어냈는가"를 적는 자리이고,
     // 그 기록에서 옛 값의 이름을 지우면 다음 사람이 같은 값을 다시 넣는다.
+    //
+    // 라운드 73 후속(적대적 리뷰 ④): 그 판단은 **이 파일의 관례가 아니라 값**이다. 트랙 C의
+    // 계약은 같은 값을 읽어 자기 네 표면에는 기본 규칙(주석도 대상)을 적용하고, 여기서는
+    // 이 파일만의 예외를 적용한다 — 두 계약이 같은 한 자리를 본다.
+    const commentRule = brandTokens().retiredSweepScope.commentRule;
+    expect(
+      commentRule.exceptions[GENERATOR_PATH],
+      `값 파일의 commentRule.exceptions에 ${GENERATOR_PATH}가 있어야 해요`
+    ).toBeTruthy();
+    expect(commentRule.exceptions[GENERATOR_PATH]).toContain("주석 줄은 대상에서 뺀다");
+    expect(commentRule.default).toContain("주석도 대상이다");
+    // 이 파일이 include의 그 항목을 여는 주인이라는 것도 값으로 적혀 있다.
+    expect(
+      brandTokens().retiredSweepScope.includeOwners["packages/test-utils/src/store-brand-and-asset-provenance.test.ts"]
+    ).toEqual([GENERATOR_PATH]);
+
     const generator = read(GENERATOR_PATH)
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("#"))
@@ -274,12 +295,47 @@ describe("play-listing §6 자산 표가 단일 소스를 가리킨다", () => {
     expect(section).toContain("capturedFrom");
   });
 
-  it("§1~5(등록 정보 문안·촬영 가이드)은 라운드 73이 손대지 않는다", () => {
+  /**
+   * 라운드 73 후속(적대적 리뷰 ②) — **이 부정 단언이 정정을 막고 있었다.**
+   *
+   * 종전 문언은 "§1~5 무접촉"이었다. 그런데 §5의 머리말은 같은 3장을 두고 "이대로 제출 가능"
+   * 이라고 적고 있었고 §6은 같은 자산을 ⛔로 판정한다 — **문서 두 절이 서로 반대를 말하는데,
+   * 그 상태를 이 단언이 고정하고 있었다**(§5를 고치면 계약이 빨개지므로). 계약이 지키려던 것은
+   * "**등록 정보 문안**(§1~4의 앱 이름·설명·카테고리)이 트랙 B에 딸려 바뀌지 않는다"이지
+   * "§5의 **상태 표기**가 §6과 어긋난 채로 남는다"가 아니었다.
+   *
+   * 그래서 범위를 그 원래 뜻으로 좁힌다:
+   *  ① **§1~4 문안**에는 이 트랙의 토큰(`brand-tokens.json` · `capturedFrom` · 제출 차단 표기)이
+   *     여전히 0건이다 — 문안 쪽으로 범위가 새는 것은 그대로 잡힌다.
+   *  ② §5는 **촬영 가이드 본문**(표·촬영 체크)이 그대로여야 하고, 상태 표기는 §6·§0.1을
+   *     **가리키기만** 한다(자기 판정을 새로 만들지 않는다).
+   */
+  it("§1~4(등록 정보 문안)에는 트랙 B의 토큰이 0건이다 (부정 단언 · 범위 이탈 감시)", () => {
     const playListing = read(PLAY_LISTING_PATH);
-    const beforeSection6 = playListing.slice(0, playListing.indexOf("## 6. 그래픽 자산 스펙 체크리스트"));
-    // 트랙 B의 소유는 §6 자산 표뿐이다. 문안 쪽에 이 라운드의 흔적이 생기면 그것은 범위 이탈이다.
-    expect(beforeSection6).not.toContain("brand-tokens.json");
-    expect(beforeSection6).not.toContain("capturedFrom");
-    expect(beforeSection6).not.toContain("제출 불가");
+    const section5Start = playListing.indexOf("## 5. 스크린샷 촬영 가이드");
+    expect(section5Start, "play-listing.md에 §5가 있어야 해요").toBeGreaterThan(-1);
+    const beforeSection5 = playListing.slice(0, section5Start);
+    for (const token of ["brand-tokens.json", "capturedFrom", "제출 불가", "DNC-017 v0.5"]) {
+      expect(beforeSection5, `§1~4에 "${token}"이 생겼어요 — 트랙 B의 소유는 §5 상태 표기와 §6입니다`).not.toContain(
+        token
+      );
+    }
+  });
+
+  it("§5는 촬영 가이드 문안을 유지하고, 제출 가능 여부는 §6·§0.1을 가리킨다", () => {
+    const playListing = read(PLAY_LISTING_PATH);
+    const section5 = playListing.slice(
+      playListing.indexOf("## 5. 스크린샷 촬영 가이드"),
+      playListing.indexOf("## 6. 그래픽 자산 스펙 체크리스트")
+    );
+    // 촬영 가이드 본문(이 라운드가 손대지 않는 자리)이 그대로 있다.
+    expect(section5).toContain("실제 존재하는 화면만 사용한다");
+    expect(section5).toContain("촬영 체크:");
+    expect(section5).toContain("스토어 사용 금지");
+    // 상태 표기는 스스로 판정하지 않고 §6·§0.1을 가리킨다.
+    expect(section5).toContain("§6");
+    expect(section5).toContain(SUBMISSION_CHECKLIST_PATH);
+    // 그리고 §6과 반대되는 단정("이대로 제출 가능")은 남아 있지 않다.
+    expect(section5).not.toContain("이대로 제출 가능");
   });
 });

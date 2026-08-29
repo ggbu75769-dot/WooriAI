@@ -51,6 +51,49 @@ function appScreenPaths(): string[] {
   return found.sort();
 }
 
+/**
+ * `catch (error) {` … 대응하는 `}` 까지의 블록 본문 전수.
+ *
+ * 라운드 73 후속(적대적 리뷰 ⑩): 401 갈래 순서를 **파일 전체의 첫 위치**로 재면, 두 번째
+ * catch가 로그아웃보다 문구를 먼저 세워도 통과한다(첫 catch 하나가 통과를 사 준다).
+ * 그래서 자리별로 — catch 블록 단위로 — 묻는다.
+ */
+function catchBlocks(source: string): string[] {
+  const blocks: string[] = [];
+  for (const match of source.matchAll(/catch \((?:error|err)\) \{/g)) {
+    const open = (match.index as number) + match[0].length - 1;
+    let depth = 0;
+    for (let index = open; index < source.length; index += 1) {
+      if (source[index] === "{") depth += 1;
+      else if (source[index] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          blocks.push(source.slice(open, index + 1));
+          break;
+        }
+      }
+    }
+  }
+  return blocks;
+}
+
+/**
+ * **401 갈래가 없는 catch와 그 이유**(자리별 단언의 예외 — 값으로 남긴다).
+ *
+ * 예외가 늘어나면 이 표가 먼저 빨개지고, 늘린 라운드가 이유를 적게 된다
+ * (`LOAD_ERROR_COPY_EXEMPT_SITES`와 같은 관례). `marker`는 그 블록을 알아보는 문자열이다.
+ */
+const NO_AUTH_BRANCH_CATCH_SITES: Readonly<Record<string, { marker: string; reason: string }[]>> = {
+  "app/page.tsx": [
+    {
+      marker: "setWorkerError(",
+      reason:
+        "워커 상태는 무인증 공개 엔드포인트(GET /health/worker)라 401이 오지 않는다 — " +
+        "이 자리에 로그아웃 갈래를 세우면 오지 않는 응답을 다루는 코드가 된다."
+    }
+  ]
+};
+
 function timeoutError(method = "GET"): AdminApiTimeoutError {
   return new AdminApiTimeoutError(new Error("aborted"), method);
 }
@@ -156,22 +199,47 @@ describe("조회 실패 한 벌: [다시 시도]가 서지 않는 실패 (라운
    * 401은 이 한 벌에 닿지 않는다 — 모든 화면의 **첫 갈래**가 로그아웃이고, 그 앞에
    * 아무것도 끼우지 않는다는 것이 이 트랙의 설계 긴장 ⓐ다. 자리마다 그 순서를 확인한다.
    */
-  it("401 로그아웃이 여전히 모든 화면의 첫 갈래다", () => {
-    for (const path of Object.keys(LOAD_ERROR_COPY_SITES)) {
+  it("401 로그아웃이 여전히 모든 자리의 첫 갈래다 (catch 블록 단위)", () => {
+    let checkedBlocks = 0;
+    for (const [path, count] of Object.entries(LOAD_ERROR_COPY_SITES)) {
       const source = readSource(path);
-      const firstAuth = source.indexOf("isAuthError(error)");
-      const firstCopy = source.search(/loadError(?:Copy|Message)\(/);
-      expect(firstAuth, `${path}에 401 갈래가 있다`).toBeGreaterThanOrEqual(0);
-      expect(firstAuth, `${path}: isAuthError → clearSession 앞에 아무것도 끼우지 않는다`).toBeLessThan(firstCopy);
+      const blocks = catchBlocks(source).filter((block) => /loadError(?:Copy|Message)\(/.test(block));
+      // 한 벌을 부르는 자리는 전부 catch 안이다 — 소비 집합의 수와 자리 수가 같아야 한다.
+      expect(blocks.length, `${path}: 한 벌을 부르는 catch 블록 수`).toBe(count);
+
+      for (const [index, block] of blocks.entries()) {
+        const where = `${path} #${index + 1}`;
+        const exempt = (NO_AUTH_BRANCH_CATCH_SITES[path] ?? []).find((entry) => block.includes(entry.marker));
+        if (exempt) {
+          // 면제는 장식이 아니다 — 그 자리에 401 갈래가 **실제로 없어야** 하고 이유가 적혀 있어야 한다.
+          expect(block, `${where}: 면제 자리인데 401 갈래가 있다`).not.toContain("isAuthError(error)");
+          expect(exempt.reason.length, `${where}의 면제 이유`).toBeGreaterThan(20);
+          checkedBlocks += 1;
+          continue;
+        }
+        const auth = block.indexOf("isAuthError(error)");
+        expect(auth, `${where}에 401 갈래가 있다`).toBeGreaterThanOrEqual(0);
+        expect(block, `${where}: 401은 세션을 지우고 끝난다`).toContain("clearSession()");
+        expect(auth, `${where}: isAuthError → clearSession 앞에 아무것도 끼우지 않는다`).toBeLessThan(
+          block.search(/loadError(?:Copy|Message)\(/)
+        );
+        checkedBlocks += 1;
+      }
     }
+    expect(checkedBlocks, "확인한 catch 자리 수 = 소비 집합의 합").toBe(
+      Object.values(LOAD_ERROR_COPY_SITES).reduce((sum, count) => sum + count, 0)
+    );
   });
 });
 
 describe("조회 실패 판정의 소비 집합 (라운드 73 트랙 D ⓐ)", () => {
   /**
    * 파생 단언: 목록을 손으로 적어 두는 것이 아니라 `app/**`을 훑어 **실제 호출 자리 수**와
-   * 대조한다. 새 조회 화면이 생겼는데 한 벌을 부르지 않으면 이 줄이 먼저 빨개진다
-   * (모바일 쪽 `messages.test.ts`의 useLoadErrorCopy 스윕과 같은 형태).
+   * 대조한다(모바일 쪽 `messages.test.ts`의 useLoadErrorCopy 스윕과 같은 형태).
+   *
+   * ⚠️ 잡는 것은 **목록 ↔ 사용 집합의 불일치**다: 부르는데 목록에 없다 · 목록에 있는데 안 부른다 ·
+   * 자리 수가 달라졌다. 새 화면이 한 벌을 **아예 부르지 않고** 자기 문장을 손으로 적으면 양쪽이
+   * 일치한 채 통과한다 — 새 리터럴을 감지하는 단언이 아니다(known-limitations N-3의 정정).
    */
   it("app/**의 소비 자리 수가 값(LOAD_ERROR_COPY_SITES)과 정확히 일치한다", () => {
     const wired: Record<string, number> = {};
@@ -218,7 +286,15 @@ describe("조회 실패 판정의 소비 집합 (라운드 73 트랙 D ⓐ)", ()
    * 형제 넷은 종전에도 타임아웃을 갈랐지만 **각자 지은 문장**이었다 — 같은 실패가 화면마다
    * 다른 등급으로 말해지던 자리다. 이제 그 손 문장들이 사라지고 판정이 한 곳에서 온다.
    */
-  it("손으로 지은 타임아웃 문장이 app/**에서 사라졌다 (부정 단언)", () => {
+  it("손으로 지은 타임아웃 **판정 문장**이 app/**에서 사라졌다 (부정 단언 · 화면의 조각은 대상이 아니다)", () => {
+    // 라운드 73 후속(적대적 리뷰 ③): 이 부정 단언이 무엇을 겨누는지 좁혀 적는다.
+    // 사라져야 하는 것은 **판정을 다시 말하는 문장**("…시간이 너무 오래 걸렸어요")이다 —
+    // 같은 사실을 화면마다 다른 등급으로 말하던 자리이고, 그 판정은 이제 한 곳에서 온다.
+    // 사라지면 안 되는 것은 **그 화면만 아는 다음 행동**이다. 사용자 조회의 종전 손문장은 둘로
+    // 되어 있었고("조회에 시간이 너무 오래 걸렸어요." + "검색어를 좁혀서 다시 시도해 주세요."),
+    // 판정 쪽만 공용으로 옮기면서 뒷조각까지 함께 사라졌다 — 그 조각은 판정의 사본이 아니라
+    // 부분 일치 검색에서 **실제로 스캔 범위를 줄이는** 행동이라 화면이 아는 것을 잃은 것이었다.
+    // 아래에서 그 조각이 공용 문장을 **대체하지 않고 뒤에 얹히는** 형태를 값으로 고정한다.
     const handWrittenTimeoutCopy = [
       "카테고리를 불러오는 데 시간이 너무 오래 걸렸어요",
       "조회에 시간이 너무 오래 걸렸어요"
@@ -233,6 +309,15 @@ describe("조회 실패 판정의 소비 집합 (라운드 73 트랙 D ⓐ)", ()
     }
     // 그 문장은 여전히 admin-api.ts에 있고, 한 벌이 그것을 읽는다.
     expect(readSource("src/lib/admin-api.ts")).toContain("요청 시간이 초과됐어요(10초)");
+
+    // 사용자 조회의 조각: 타임아웃 갈래에서만, 공용 문장 **뒤에** 붙는다(문장 교체가 아니다).
+    const lookup = readSource("app/users-lookup/page.tsx");
+    expect(lookup).toContain('const LOOKUP_TIMEOUT_NARROWING_HINT = "검색어를 좁혀서 다시 시도해 주세요.";');
+    expect(lookup, "조각은 loadErrorReason의 타임아웃 갈래에만 얹힌다").toMatch(
+      /loadErrorReason\(error\) === "timeout"[\s\S]{0,80}\$\{message\} \$\{LOOKUP_TIMEOUT_NARROWING_HINT\}/
+    );
+    // 다른 갈래는 공용 문장 그대로다 — 조각이 조건 없이 붙지 않는다.
+    expect(lookup).toMatch(/\}`\s*:\s*message/);
   });
 
   it("조회 실패 문장을 화면이 직접 상태에 박아 넣는 자리가 없다 (부정 단언)", () => {

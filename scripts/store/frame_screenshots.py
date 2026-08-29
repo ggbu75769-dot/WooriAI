@@ -153,15 +153,14 @@ def main():
     if len(sys.argv) != 3:
         print(__doc__ or "usage: frame_screenshots.py <manifest.json> <outdir>")
         sys.exit(1)
-    font_path = os.environ.get("FRAME_FONT")
-    if not font_path or not os.path.exists(font_path):
-        print("FRAME_FONT env로 한글 ttf/otf 폰트 경로를 지정하세요 (헤더의 Noto Sans KR 다운로드 참고)")
-        sys.exit(1)
-    font = ImageFont.truetype(font_path, 72)
     manifest = json.load(open(sys.argv[1], encoding="utf-8"))
     outdir = sys.argv[2]
     allow_pre_approval = os.environ.get(ALLOW_PRE_APPROVAL_ENV) == "1"
-    os.makedirs(outdir, exist_ok=True)
+
+    # 라운드 73 후속(적대적 리뷰 ⑫): **계보 검사를 폰트 요구보다 먼저** 한다.
+    # 종전 순서에서는 FRAME_FONT가 없으면 폰트 안내로 먼저 죽어서, 구세대 캡처로 자산을 만들려던
+    # 사람은 "왜 막혔는가"를 끝내 듣지 못했다 — 폰트를 구해 온 뒤에야 진짜 이유를 만났다.
+    # 거부 사유(승인 계보 이전 · 출처 미선언)는 폰트가 없어도 그대로 나와야 하는 사실이다.
     for i, entry in enumerate(manifest, 1):
         # 4차 리뷰 F4: 필수 키 누락 시 bare KeyError traceback 대신 한국어 에러.
         missing = [key for key in ("name", "src", "caption") if key not in entry]
@@ -171,6 +170,14 @@ def main():
                 "(형식: [{\"name\":..., \"src\":..., \"caption\":...}, ...])"
             )
         check_capture_lineage(i, entry, allow_pre_approval)
+
+    font_path = os.environ.get("FRAME_FONT")
+    if not font_path or not os.path.exists(font_path):
+        print("FRAME_FONT env로 한글 ttf/otf 폰트 경로를 지정하세요 (헤더의 Noto Sans KR 다운로드 참고)")
+        sys.exit(1)
+    font = ImageFont.truetype(font_path, 72)
+    os.makedirs(outdir, exist_ok=True)
+    for i, entry in enumerate(manifest, 1):
         out = os.path.join(outdir, f"phone-{i:02d}-{entry['name']}.png")
         frame(entry["src"], entry["caption"], font).save(out)
         print(f"{out} 1080x1920 · {entry['caption']}")

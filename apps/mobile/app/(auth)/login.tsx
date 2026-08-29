@@ -251,7 +251,10 @@ export default function LoginScreen() {
       // 종전 기준은 `isKakaoLoginAvailable()` 하나였는데 그것은 "env가 주입됐는가"라서,
       // 카카오 키 없이 만든 스토어 빌드의 실사용자에게 개발자용 문장("PC와 같은 Wi-Fi…")이
       // 그대로 나갔다. 두 문장은 바이트 그대로이고(src/auth/login-copy.ts), 바뀐 것은 갈래의
-      // 기준뿐이다 — 경로 선택(:184의 삼항)은 손대지 않는다.
+      // 기준뿐이다 — 경로 선택(이 `login()` 함수 앞부분의
+      // `isKakaoLoginAvailable() ? await loginWithKakao() : await oauthLogin("kakao")` 삼항)은
+      // 손대지 않는다. (줄 번호로 가리키지 않는다 — 라운드 73 후속 리뷰 ⑤: 그 앵커는 이미
+      // 낡아 있었다.)
       setLoginError(
         loginFailureMessage({
           developerBuild: isDeveloperBuild(),

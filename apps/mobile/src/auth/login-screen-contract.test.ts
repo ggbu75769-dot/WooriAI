@@ -73,7 +73,9 @@ describe("AUTH-102 login screen wiring (source verification -- follows the exist
     const renderedLogin = loginSource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
     expect(renderedLogin).not.toContain("서버에 연결할 수 없어요. PC와 같은 Wi-Fi에서 API 서버가 켜져 있는지 확인해 주세요.");
     expect(renderedLogin).not.toContain("로그인 중 문제가 발생했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요.");
-    // ⚠️ 경로 선택(:184의 삼항)은 이 트랙이 손대지 않는다 — 바뀐 것은 문구의 갈래 기준뿐이다.
+    // ⚠️ 경로 선택(`login()`의 `isKakaoLoginAvailable() ? loginWithKakao() : oauthLogin("kakao")`
+    // 삼항)은 이 트랙이 손대지 않는다 — 바뀐 것은 문구의 갈래 기준뿐이다. 줄 번호 앵커(:184)로
+    // 가리키던 것을 식별자 인용으로 바꿨다(라운드 73 후속 리뷰 ⑤ — 그 번호는 이미 낡아 있었다).
     expect(loginSource).toContain(
       'const result = isKakaoLoginAvailable() ? await loginWithKakao() : await oauthLogin("kakao");'
     );
