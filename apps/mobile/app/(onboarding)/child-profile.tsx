@@ -17,6 +17,13 @@ import {
 import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";
 import { createOnboardingChild } from "../../src/onboarding/child-create";
 import { saveWithConsentRecovery } from "../../src/onboarding/consent-recovery";
+// 라운드 72 트랙 A(#1): 이 기기가 이미 아이를 만들었다는 사실과, 그 아이로 이어가는 길.
+import {
+  hasLocallyCreatedChild,
+  localOnboardingResumeRoute,
+  ONBOARDING_CHILD_ALREADY_CREATED_CONTINUE_LABEL,
+  ONBOARDING_CHILD_ALREADY_CREATED_NOTICE
+} from "../../src/onboarding/local-progress";
 import {
   OnboardingSaveErrorCard,
   OnboardingStepProgress,
@@ -26,7 +33,7 @@ import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppIcon } from "../../src/design-system";
-import { AppScreen, Card, CategoryChip, PrimaryButton, ScreenHeader } from "../../src/ui";
+import { AppScreen, Card, CategoryChip, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
 import { theme } from "../../src/theme";
 
 export default function ChildProfileScreen() {
@@ -57,6 +64,9 @@ export default function ChildProfileScreen() {
   const householdId = session.defaultHouseholdId ?? (session.isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const draft = useOnboardingProgressStore((state) => state.childDraft);
   const completeStep = useOnboardingProgressStore((state) => state.completeStep);
+  // 라운드 72 트랙 A(#1): 이 화면이 **다시 열린 경우**를 알아보는 로컬 사실 둘.
+  const completedStepIds = useOnboardingProgressStore((state) => state.completedStepIds);
+  const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   const getOrCreateChildCreateIdempotencyKey = useOnboardingProgressStore(
     (state) => state.getOrCreateChildCreateIdempotencyKey
   );
@@ -81,6 +91,22 @@ export default function ChildProfileScreen() {
     [draft.stageMode, nickname, dateText, manualStage]
   );
   const dateLabel = useMemo(() => requiredDateFieldLabel(draft.stageMode), [draft.stageMode]);
+
+  /**
+   * 라운드 72 트랙 A(#1) — **중복 생성의 최후 방어.**
+   *
+   * 서버 진행도가 답하지 않는 콜드 스타트는 이제 로컬 폴백이 받으므로(app/index.tsx) 이 화면이
+   * 그 경로로 다시 열리지는 않는다. 그래도 뒤로 가기·딥링크로 다시 열릴 길은 남고, 그때 화면이
+   * 아무 말도 하지 않으면 사용자는 어제 만든 아이를 모른 채 같은 태명을 한 번 더 적는다 —
+   * 그 제출은 **새 멱등키**를 들고 나가므로(성공 시 키가 지워졌다) 서버가 막지 않는다.
+   *
+   * **막지 않고 말한다.** 폼도 [다음]도 그대로다 — 둘째 아이를 같은 이름으로 만드는 것은 정당할
+   * 수 있고, 그 판정은 서버 쪽이라 DNC-007에 닿는 별도 결정이다(이 트랙은 서버 0건이다).
+   * 대신 사실 한 줄과 **이미 만든 아이로 이어가는 길**을 함께 준다. 목적지는 손으로 적지 않고
+   * 로컬 목적지 표에서 받는다(라우트 표를 두 벌로 만들지 않는다).
+   */
+  const alreadyHasLocalChild = hasLocallyCreatedChild({ completedStepIds, selectedChildId });
+  const continueHref = localOnboardingResumeRoute({ completedStepIds, selectedChildId });
   const canSave =
     !nicknameError &&
     !dateError &&
@@ -137,6 +163,23 @@ export default function ChildProfileScreen() {
       <View testID="screen-ONB-002" style={{ gap: theme.spacing.section }}>
         <OnboardingStepProgress screenId="ONB-002" />
         <ScreenHeader eyebrow="아이 프로필" title="아이를 소개해 주세요" subtitle="태명이나 별명을 알려주시면 앞으로 이렇게 부를게요." />
+
+        {/* 라운드 72 트랙 A(#1): 이 기기가 이미 아이를 만든 상태로 이 화면이 다시 열렸다는 사실.
+            안내일 뿐 차단이 아니다 -- 아래 폼과 [다음]은 그대로 쓸 수 있다. */}
+        {alreadyHasLocalChild && continueHref ? (
+          <View testID="onboarding-child-already-created">
+            <Card style={{ gap: theme.spacing.gap }}>
+              <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body2.fontSize, lineHeight: 20 }}>
+                {ONBOARDING_CHILD_ALREADY_CREATED_NOTICE}
+              </Text>
+              <SecondaryButton
+                accessibilityLabel={ONBOARDING_CHILD_ALREADY_CREATED_CONTINUE_LABEL}
+                label={ONBOARDING_CHILD_ALREADY_CREATED_CONTINUE_LABEL}
+                onPress={() => router.replace(continueHref)}
+              />
+            </Card>
+          </View>
+        ) : null}
 
         <Card style={{ gap: theme.spacing.gap }}>
           <View style={{ gap: 6 }}>

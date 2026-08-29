@@ -1,10 +1,15 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Text, View } from "react-native";
 import { hasApiErrorCode } from "../api/api-error";
 import { LOCAL_SESSION_TOKEN } from "../api/client";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { useAnalyticsConsentStore } from "../analytics/flag";
+// 라운드 72 트랙 A(#1): 실패한 그 순간의 연결 상태. 폴 한 번이고 새 폴러를 돌리지 않는다
+// (라운드 71 B가 privacy.tsx에 쓴 그 형태 -- src/settings/destructive-flow-messages.ts 머리말).
+import { isCurrentlyOnline } from "../offline/connectivity";
+// 오프라인 문장은 이 앱의 **공용 단일 소스**를 글자 그대로 읽는다(새 문구 0건).
+import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
 import { useSessionStore } from "../stores/session.store";
 import { Card, SecondaryButton } from "../ui";
 import { theme } from "../theme";
@@ -86,10 +91,72 @@ export function isOnboardingSaveForbidden(error: unknown): boolean {
 /**
  * 저장 실패 -> 화면 문구. 아는 코드 둘만 갈라내고 나머지는 종전 문구 그대로다.
  * `CONSENT_REQUIRED`를 먼저 본다 — 둘 다 403이지만 이쪽이 더 구체적인 사실이다.
+ *
+ * ## 라운드 72 트랙 A(#1) — **연결을 확인하고 말한다**
+ *
+ * 이 문구는 실패의 종류를 가리지 않고 "네트워크 연결을 확인한 뒤 다시 시도해 주세요"라고 했고,
+ * 온보딩 네 화면은 연결 상태를 **한 번도 확인하지 않았다**(라운드 72 정찰의 전수 grep:
+ * `app/(onboarding)/**`·`src/onboarding/**`에서 `isCurrentlyOnline` 사용은 라운드 71 C가 넣은
+ * `selected-child-recovery.ts` 한 곳뿐이었다). 라운드 52 C-07 이후 이 저장소의 규율은
+ * **"확인하고 말한다"**인데 온보딩만 그 밖에 남아 있었다 — 게다가 그 문장은 지시형이라
+ * 사용자에게 "당신이 확인하라"고 시킨다(DNC-018이 없애 온 어투다).
+ *
+ * ### 판정 순서 — 코드 → 오프라인 → 모르는 실패
+ *
+ * `destructive-flow-messages.ts`·`member-mutation-messages.ts`가 세운 순서 그대로다. 코드가
+ * 먼저인 이유도 같다: **서버가 답을 줬다는 사실 자체**가 연결이 있었다는 뜻이라, 그 경우까지
+ * 오프라인으로 말하면 그것이 또 하나의 틀린 안내가 된다.
+ *
+ * ### 바뀌지 않는 것
+ *
+ * `CONSENT_REQUIRED`·403·**온라인의 모르는 실패**는 종전과 **바이트 단위로 같다**. `isOnline`을
+ * 넘기지 않은 호출부(기본값 true)도 종전 동작 그대로다 — 이 인자는 갈래를 하나 **더할** 뿐
+ * 기존 셋 중 어느 것도 옮기지 않는다.
  */
-export function onboardingSaveErrorMessage(error: unknown): string {
+export function onboardingSaveErrorMessage(error: unknown, { isOnline = true }: { isOnline?: boolean } = {}): string {
   if (isOnboardingConsentRequired(error)) return ONBOARDING_CONSENT_REQUIRED_MESSAGE;
-  return isOnboardingSaveForbidden(error) ? ONBOARDING_SAVE_FORBIDDEN_MESSAGE : ONBOARDING_SAVE_FAILED_MESSAGE;
+  if (isOnboardingSaveForbidden(error)) return ONBOARDING_SAVE_FORBIDDEN_MESSAGE;
+  // 오프라인 갈래만 새로 갈린다. 문장은 공용 단일 소스에서 글자 그대로 온다 -- 같은 상황을
+  // 화면마다 다른 말로 부르지 않기 위해서다(src/offline/messages.ts의 OFFLINE_RETRY_NOTICE
+  // 머리말). 카드의 버튼이 "재시도"이므로 그 문장의 "다시 시도해 주세요"와 동사가 맞는다.
+  if (!isOnline) return OFFLINE_RETRY_NOTICE;
+  return ONBOARDING_SAVE_FAILED_MESSAGE;
+}
+
+/**
+ * 라운드 72 트랙 A(#1) — 실패 시점 연결 판정의 **배선**.
+ *
+ * 형태는 라운드 71 B가 `app/settings/privacy.tsx`에 쓴 `useFlowFailureText` 그대로다: cancelled
+ * 가드가 있어 화면을 떠난 뒤 도착한 폴이 setState를 걸지 않고, 에러가 풀리면 true로 복원된다.
+ *
+ * **데모 세션은 폴을 돌리지 않는다.** 로컬 백엔드는 네트워크를 지나지 않으므로(client.ts의
+ * isLocalToken 분기) 그 실패는 연결과 무관하다 — 그 자리에서 "지금은 오프라인이에요"라고 말하면
+ * 그것 자체가 틀린 사실이다(privacy.tsx가 같은 이유로 같은 예외를 둔다).
+ *
+ * ⚠ 이 폴을 손으로 적은 자리는 저장소에 여럿이고(가져오기 두 화면·개인정보 화면 등), 그것을
+ * 공용 훅 하나로 모으는 것은 **별도 트랙의 몫**이다(라운드 72 후보 5 ⓐ). 여기서 `useSaveErrorCopy`를
+ * 쓰지 않는 이유는 그 훅의 사용 집합이 "예산·아이 관리 둘뿐"이라는 계약으로 고정돼 있고
+ * (src/offline/messages.test.ts), 이 화면들의 문구 표가 그 훅의 표와 다르기 때문이다.
+ */
+export function useOnboardingSaveFailureConnectivity(isError: boolean): boolean {
+  const [isOnline, setIsOnline] = useState(true);
+  const isDemoSession = useSessionStore((state) => !state.accessToken && state.isTestSession);
+
+  useEffect(() => {
+    if (!isError || isDemoSession) {
+      setIsOnline(true);
+      return;
+    }
+    let cancelled = false;
+    void isCurrentlyOnline().then((online) => {
+      if (!cancelled) setIsOnline(online);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isError, isDemoSession]);
+
+  return isDemoSession || isOnline;
 }
 
 // ONB-105: consistent inline save-failure card with an explicit 재시도 affordance.
@@ -117,7 +184,10 @@ export function OnboardingSaveErrorCard({
 }) {
   const forbidden = isOnboardingSaveForbidden(error);
   const consentRequired = isOnboardingConsentRequired(error);
-  const text = message ?? onboardingSaveErrorMessage(error);
+  // 라운드 72 트랙 A(#1): 이 카드는 실패했을 때만 그려지므로(세 화면 모두 `save.isError ?`)
+  // 훅에 넘기는 값은 언제나 true다 -- 마운트되는 순간이 곧 실패 시점이고, 그때 폴이 한 번 돈다.
+  const isOnline = useOnboardingSaveFailureConnectivity(true);
+  const text = message ?? onboardingSaveErrorMessage(error, { isOnline });
   return (
     <View accessibilityRole="alert">
       <Card style={{ borderColor: theme.colors.danger, borderWidth: 1, gap: theme.spacing.gap }}>

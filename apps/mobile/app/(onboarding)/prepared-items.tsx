@@ -3,6 +3,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Alert, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { listItems, LOCAL_SESSION_TOKEN, setPreparedItems } from "../../src/api/client";
+// 라운드 72 트랙 A(#1): "이 단계를 로컬로 통과할 수 있는가"의 순수 판정 + 그 버튼의 라벨.
+import { canPassPreparedItemsLocally, PREPARED_ITEMS_LOCAL_PASS_LABEL } from "../../src/onboarding/local-progress";
 import {
   PREPARED_ITEMS_PARTIAL_ALERT_TITLE,
   preparedIdsToSubmit,
@@ -95,6 +97,31 @@ export default function PreparedItemsScreen() {
   // 요약에도 "0개"라는 사실 그대로가 남는다.
   const canSkip = !isLoadingOptions && !hasOptions;
 
+  /**
+   * 라운드 72 트랙 A(#1) — **로컬 탈출구.**
+   *
+   * 위 저장이 이 화면의 **유일한 전진 경로**였다: 하나도 체크하지 않은 사람이 누르는
+   * "건너뛰고 계속"도 같은 서버 쓰기라, 연결이 없으면 0건조차 보내지 못해 온보딩이 여기서
+   * 멈췄다. 바로 다음 화면(ONB-004)의 건너뛰기는 순수 로컬이라 오프라인에서도 통과되는데,
+   * 같은 온보딩 안에서 두 화면의 규율이 달랐다.
+   *
+   * 열리는 조건은 **저장이 실패했고 체크가 0건일 때뿐**이다(판정은 순수 모듈 —
+   * src/onboarding/local-progress.ts의 `canPassPreparedItemsLocally` 머리말에 근거가 있다).
+   * 체크한 항목이 있으면 이 길은 열리지 않는다: 그 체크는 서버에 있어야 의미가 있는 사실이라,
+   * 로컬로 넘겨 보내면 앱이 저장한 척하게 된다.
+   */
+  const canPassLocally = canPassPreparedItemsLocally({ checkedCount: checkedIds.length, saveFailed: save.isError });
+
+  /**
+   * ONB-004의 `skip()`과 **같은 모양**이다 — 단계 완료 표시를 남기고 다음 화면으로 보낸다.
+   * 다른 점은 하나뿐: 여기서는 `markHomeReached()`를 하지 않는다(온보딩이 끝난 것이 아니다).
+   * 성공 경로의 `proceed()`와 같은 두 줄이라 목적지가 갈릴 자리가 없다.
+   */
+  function passLocally() {
+    completeStep("ONB-003");
+    router.push("/onboarding/budget");
+  }
+
   return (
     <AppScreen>
       <View testID="screen-ONB-003" style={{ gap: theme.spacing.section }}>
@@ -179,6 +206,14 @@ export default function PreparedItemsScreen() {
           label={save.isPending ? "저장하는 중" : canSkip ? "건너뛰고 계속" : "저장하고 계속"}
           onPress={() => save.mutate()}
         />
+        {canPassLocally ? (
+          <TextButton
+            disabled={save.isPending}
+            label={PREPARED_ITEMS_LOCAL_PASS_LABEL}
+            onPress={passLocally}
+            style={{ alignSelf: "center" }}
+          />
+        ) : null}
         {itemsQuery.isError ? (
           <TextButton
             disabled={itemsQuery.isFetching}

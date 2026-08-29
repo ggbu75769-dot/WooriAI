@@ -7,6 +7,9 @@ import { localChildId, useLocalBackendStore } from "../src/api/local-backend";
 import { isCurrentlyOnline, subscribeAppStateChange } from "../src/offline/connectivity";
 import { shouldShowSessionExpiredNotice } from "../src/offline/session-expiry";
 import { COLD_START_HOLD_COPY, coldStartHoldReason, type ColdStartHoldReason } from "../src/onboarding/cold-start-hold";
+// 라운드 72 트랙 A(#1): 서버 진행도가 답하지 않았을 때 **기기가 아는 사실**로 다음 단계를
+// 정하는 순수 판정. 라우트 표는 그 모듈이 resume.ts에서 읽어 온다(두 벌 금지).
+import { localOnboardingResumeRoute } from "../src/onboarding/local-progress";
 import { fetchOnboardingProgressForSelectedChild } from "../src/onboarding/onboarding-progress-scope";
 import { hasResumeWorthyProgress } from "../src/onboarding/resume";
 import {
@@ -109,6 +112,9 @@ export default function IndexScreen() {
   // AUTH-127: 마지막 세션이 만료로 끝났는지. 아래 로그아웃 분기의 목적지만 바꾼다.
   const lastEndReason = useSessionStore((state) => state.lastEndReason);
   const hasReachedHome = useOnboardingProgressStore((state) => state.hasReachedHome);
+  // 라운드 72 트랙 A(#1): 서버가 답하지 않았을 때 읽는 로컬 사실 하나(다른 하나는
+  // selectedChildId — 아래). 이 값은 폴백 갈래에서만 쓰인다.
+  const completedStepIds = useOnboardingProgressStore((state) => state.completedStepIds);
   const markHomeReached = useOnboardingProgressStore((state) => state.markHomeReached);
   const resetOnboarding = useOnboardingProgressStore((state) => state.resetOnboarding);
   const setResumeProgress = useOnboardingResumeStore((state) => state.setProgress);
@@ -119,6 +125,13 @@ export default function IndexScreen() {
   const [hydrated, setHydrated] = useState(storesHydrated);
   const [progressFetch, setProgressFetch] = useState<ProgressFetchState>("idle");
   const [hasResumeTarget, setHasResumeTarget] = useState(false);
+  /**
+   * 라운드 72 트랙 A(#1): **서버가 실제로 답했는가.** `progressFetch === "done"`만으로는
+   * 구분할 수 없다 — 그 값은 성공·실패·3초 밸브 셋 모두에서 "done"이 된다. 로컬 폴백은
+   * 서버가 답하지 **않은** 두 갈래(catch · 밸브)에서만 서야 하므로 사실을 따로 센다.
+   * 서버가 답한 경우 이 값은 true이고, 아래 목적지는 종전과 한 글자도 같다.
+   */
+  const [progressAnswered, setProgressAnswered] = useState(false);
   // R19-C(F1): 다자녀 복구 안내를 사용자가 확인했는지. 확인 전까지 /(tabs) 이동을 잡아둔다.
   const [recoveryNoticeAcknowledged, setRecoveryNoticeAcknowledged] = useState(false);
   /**
@@ -186,6 +199,8 @@ export default function IndexScreen() {
     // 완전히 같은 {completed, nextStep, canRestart, summary} 계약 위에서 돈다.
     fetchOnboardingProgressForSelectedChild(progressToken, selectedChildId)
       .then(({ progress, childScopeRejected }) => {
+        // 라운드 72 트랙 A(#1): 서버가 답했다 -- 아래 로컬 폴백은 서지 않는다.
+        setProgressAnswered(true);
         if (childScopeRejected) {
           clearSelectedChildId();
         }
@@ -206,6 +221,10 @@ export default function IndexScreen() {
         // Offline / server unreachable: fall back to the local-only default below instead of
         // blocking the user indefinitely (local zustand persist is the offline-tolerant
         // fallback per round5a-sprint1-plan.md §4).
+        //
+        // 라운드 72 트랙 A(#1): 그 폴백을 **실제로 읽는 코드**가 아래에 생겼다(localResumeHref).
+        // 여기서 하는 일은 종전 그대로 삼키는 것뿐이고, `progressAnswered`가 false로 남는다는
+        // 사실이 곧 "서버가 답하지 않았다"는 값이다.
       })
       .finally(() => setProgressFetch("done"));
   }, [
@@ -226,6 +245,11 @@ export default function IndexScreen() {
   // After the same 3s grace period we proceed as if the check found nothing (progressFetch
   // "done" with no resume target), which routes to onboarding/tabs via the default redirect
   // below; a late response is harmless since every store update it makes is idempotent.
+  //
+  // 라운드 72 트랙 A(#1): **밸브의 조건식·시간은 한 줄도 바뀌지 않았다.** 바뀐 것은 그 뒤에
+  // 무엇이 서는가뿐이다 -- 밸브가 열린 시점에도 `progressAnswered`는 false이므로(응답이 없어서
+  // 열린 밸브다) 아래 로컬 폴백이 이 갈래를 함께 받는다. 노출 창이 "오프라인"보다 넓다는 것이
+  // 이 트랙의 근거 ⓔ다: 느린 회선도 같은 자리로 떨어진다.
   useEffect(() => {
     if (progressFetch !== "loading") {
       return;
@@ -318,6 +342,22 @@ export default function IndexScreen() {
     onboardingProgressPending: !hasReachedHome && Boolean(progressToken) && progressFetch !== "done"
   });
 
+  /**
+   * 라운드 72 트랙 A(#1) — **서버가 답하지 않았을 때의 목적지.**
+   *
+   * 조건은 둘뿐이다: 조회가 끝났고(`"done"` — catch도 3초 밸브도 여기로 온다), 서버가 답하지
+   * **않았다**. 그 두 조건이 아니면 이 값은 `null`이고, 아래 리다이렉트는 종전과 바이트 단위로
+   * 같다(서버가 답한 경우 · 조회가 아직 도는 경우 · 토큰이 없어 조회가 없는 경우).
+   *
+   * 판정 자체는 순수 모듈이 한다(src/onboarding/local-progress.ts). 이 화면은 로컬 사실 둘을
+   * 넘기기만 하고, "완료"는 그 모듈이 절대 돌려주지 않는다 — `hasReachedHome`은 여기서 서지
+   * 않는다(폴백이 정하는 것은 **다음 단계**이지 완료가 아니다).
+   */
+  const localResumeHref =
+    progressFetch === "done" && !progressAnswered
+      ? localOnboardingResumeRoute({ completedStepIds, selectedChildId })
+      : null;
+
   if (pixelLockMode) {
     return <Redirect href="/pixel-lock?screen=HOME-001" />;
   }
@@ -408,6 +448,19 @@ export default function IndexScreen() {
     }
     if (hasResumeTarget) {
       return <Redirect href="/onboarding/resume" />;
+    }
+    /**
+     * 라운드 72 트랙 A(#1): 서버가 답하지 않은 갈래에서만 서는 로컬 폴백. 여기 닿는다는 것은
+     * 위 이어하기(ONB-006)가 서버 진행도를 받지 못했다는 뜻이고, 그때 이 기기가 아는 사실
+     * (완료 표시 · 아이 id)이 있으면 **ONB-001로 되돌리지 않는다** — 그 되돌아간 길이
+     * `POST /children`을 다시 불러 같은 이름의 아이를 하나 더 만들던 자리다.
+     *
+     * 이어하기 화면(ONB-006)을 거치지 않고 곧장 그 단계로 보내는 것은, 그 화면이 그릴 요약이
+     * 서버 진행도(`useOnboardingResumeStore`)에서 오기 때문이다 — 없는 요약으로 "지난번에는
+     * …까지 진행했어요"라고 말하면 사실이 아닌 말을 하게 된다(라운드 51 #2의 그 판정).
+     */
+    if (localResumeHref) {
+      return <Redirect href={localResumeHref} />;
     }
   }
 
