@@ -29,6 +29,12 @@ import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 // 라운드 68 트랙 B(#2): 로그아웃 확인 문구는 동기화 문구의 단일 소스에서 온다(화면이 다시 적지 않는다).
 import { logoutConfirmMessage, LOGOUT_CONFIRM_TITLE } from "../../src/offline/messages";
 import { APP_LOCK_TITLE } from "../../src/security/app-lock";
+// 라운드 71 트랙 D(#4): 도움(지원·FAQ) 행의 목록·라벨은 더보기 탭과 **같은 표**에서 온다
+// (buildSupportMenuRows). 주입된 URL이 없으면 빈 배열이라 이 화면은 종전과 한 글자도 다르지 않다.
+import { buildSupportMenuRows } from "../../src/settings/more-menu";
+// 라운드 71 리뷰 S-2: 앱 밖으로 나가는 링크를 여는 규칙은 화면 셋이 공유하는 한 벌이다.
+import { openExternalUrl } from "../../src/settings/open-external-url";
+import { SUPPORT_LINK_FAILED_MESSAGE, SUPPORT_LINK_FAILED_TITLE } from "../../src/settings/support-links";
 // 라운드 69 트랙 A(#1): 로그아웃이 지우는 세 번째 목록의 크기. 이 스토어는 zustand persist라
 // 구독 비용이 렌더 한 번이고 **새 요청이 없다**(아웃박스 스냅숏과 저장소가 다르므로 내보내기
 // 컨트롤러가 들고 나올 수 없다 — 그 모듈에는 정기 지출이 들어가지 않는다는 계약도 있다:
@@ -59,6 +65,20 @@ const summarySignedOutText = "로그인이 필요해요";
 function SettingsRowIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
   return <Ionicons accessible={false} name={name} size={20} color={theme.colors.mainCoral} />;
 }
+
+/**
+ * 라운드 71 트랙 D(GAP-071 #4) — **앱 안에 도움을 구할 길이 0건이었다.**
+ *
+ * 갈 곳은 이미 저장소에 있는데(infra/site/support.html · faq.html) 앱이 그곳을 가리키지 않았다.
+ * 호스팅 URL은 사용자 자산이라 이 라운드가 만들 수 없으므로, 약관 링크와 같은 관례를 쓴다 --
+ * 주입된 빌드에만 행이 서고, 없으면 이 목록이 비어 화면이 종전 그대로다(지어낸 이메일도, 죽은
+ * 링크도 만들지 않는다). 행 이름·부제·순서는 더보기 탭과 같은 표에서 온다.
+ *
+ * 라운드 71 리뷰 P-1: **모듈 상수다.** 이 목록의 원천은 빌드에 주입된 env라 앱이 사는 동안
+ * 바뀌지 않는데, 렌더마다 다시 만들면 매번 새 배열이 된다(같은 값의 새 참조). 더보기 탭의
+ * `moreMenuRows`가 이미 그 자리에 있는 것과 같은 관례다.
+ */
+const supportRows = buildSupportMenuRows();
 
 export default function SettingsScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -146,6 +166,13 @@ export default function SettingsScreen() {
    * 큰 값을 싣거나 persist 저장소를 바꾸는 일)이 오면 이 판단을 다시 봐야 한다.
    */
   const recurringTemplateCount = useRecurringExpenseStore((state) => state.templates.length);
+  /**
+   * 열기 실패는 조용히 넘기지 않는다. 인앱 웹뷰를 만들지 않으므로 여는 방법은 OS 링크 열기
+   * 하나이고, 그 규칙은 라운드 71 리뷰 S-2에서 화면 셋이 공유하는 한 벌이 됐다
+   * (src/settings/open-external-url.ts). 이 화면이 더하는 것은 실패 문구 두 줄뿐이다.
+   */
+  const openSupportLink = (url: string) =>
+    openExternalUrl(url, { failTitle: SUPPORT_LINK_FAILED_TITLE, failMessage: SUPPORT_LINK_FAILED_MESSAGE });
 
   /**
    * 라운드 68 트랙 B(#2) — 확인 문구가 **미동기화 기록이 사라진다는 사실**을 함께 말한다.
@@ -276,6 +303,17 @@ export default function SettingsScreen() {
         />
         <ExpenseCsvExportCard controller={csvExport} />
         <ExpenseCsvExportToast controller={csvExport} />
+        {/* 라운드 71 트랙 D(#4): 도움으로 가는 행. URL이 주입된 빌드에서만 선다 -- 목록이 비면
+            이 자리에는 노드가 하나도 생기지 않아 화면이 종전과 한 글자도 다르지 않다. */}
+        {supportRows.map((row) => (
+          <ListRow
+            key={row.id}
+            icon={<SettingsRowIcon name={row.icon} />}
+            title={row.title}
+            subtitle={row.subtitle}
+            onPress={() => openSupportLink(row.url)}
+          />
+        ))}
         <Card style={consentRowStyle}>
           <View style={{ flex: 1, gap: 3, paddingRight: 12 }}>
             <Text style={consentTitleStyle}>통계 수집 동의(선택)</Text>

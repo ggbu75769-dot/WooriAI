@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -39,9 +39,55 @@ const source = (relativePath: string) => readFileSync(join(mobileRoot, relativeP
  */
 const apiSource = (relativePath: string) => readFileSync(join(mobileRoot, "../../apps/api/src", relativePath), "utf8");
 
-/** 서버 파일이 던지는 오류 코드 전량. `throw new XxxException({ code: "...", ... })`의 그 리터럴. */
+/**
+ * 서버 파일이 던지는 오류 코드 전량. `throw new XxxException({ code: ..., ... })`의 그 값.
+ *
+ * 라운드 71 리뷰 M-2 — 문자열 리터럴만 보던 그물을 **상수 식별자**까지 넓힌다. 서버는 코드를
+ * `code: IMPORT_FILE_TOO_LARGE_CODE`처럼 넘기기도 하고(common/filters/global-exception.filter.ts),
+ * 그런 자리는 종전 정규식에 한 번도 걸리지 않았다 — 없는 코드로 세어졌다는 뜻이다.
+ * 오늘 이 네 파일에는 그 형태가 0건이지만(구멍은 형제 스윕인 import-failure-messages.test.ts에서
+ * 실제로 드러났다), 두 그물이 다른 것을 보면 다음번 구멍은 이쪽에 생긴다.
+ *
+ * 해석은 같은 파일의 `const X_CODE = "…"`가 먼저이고, 없으면 서버 소스 전역의 정의를 본다.
+ * 해석하지 못한 식별자는 조용히 버리지 않고 `UNRESOLVED:` 표식으로 남긴다.
+ */
+const apiSourceRoot = join(mobileRoot, "../../apps/api/src");
+
+let codeConstantCache: Map<string, string> | null = null;
+function codeConstants(): Map<string, string> {
+  if (codeConstantCache) return codeConstantCache;
+  const table = new Map<string, string>();
+  const walk = (directory: string) => {
+    for (const name of readdirSync(directory)) {
+      if (name === "node_modules" || name.startsWith(".")) continue;
+      const fullPath = join(directory, name);
+      if (statSync(fullPath).isDirectory()) {
+        walk(fullPath);
+        continue;
+      }
+      if (!/\.ts$/.test(name)) continue;
+      for (const match of readFileSync(fullPath, "utf8").matchAll(
+        /\bconst ([A-Z][A-Z0-9_]*_CODE)\s*=\s*"([A-Z0-9_]+)"/g
+      )) {
+        table.set(match[1], match[2]);
+      }
+    }
+  };
+  walk(apiSourceRoot);
+  codeConstantCache = table;
+  return table;
+}
+
 function thrownCodesIn(relativePath: string): string[] {
-  return [...apiSource(relativePath).matchAll(/\bcode: "([A-Z0-9_]+)"/g)].map((match) => match[1]);
+  const text = apiSource(relativePath);
+  const localConstants = new Map(
+    [...text.matchAll(/\bconst ([A-Z][A-Z0-9_]*_CODE)\s*=\s*"([A-Z0-9_]+)"/g)].map((match) => [match[1], match[2]])
+  );
+  return [...text.matchAll(/\bcode: (?:"([A-Z0-9_]+)"|([A-Z][A-Z0-9_]*_CODE)\b)/g)].map((match) => {
+    if (match[1]) return match[1];
+    const identifier = match[2];
+    return localConstants.get(identifier) ?? codeConstants().get(identifier) ?? `UNRESOLVED:${identifier}`;
+  });
 }
 
 /** 서버(GlobalExceptionFilter)가 실제로 내려보내는 모양. */
@@ -421,6 +467,8 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
     const swept = new Set(outboxPathFiles.flatMap(thrownCodesIn));
     // 스윕이 실제로 무언가를 읽었는지부터 확인한다(정규식이 조용히 0건이 되면 계약이 사라진다).
     expect(swept.size).toBeGreaterThanOrEqual(10);
+    // 라운드 71 리뷰 M-2: 못 읽은 상수 식별자를 "코드 없음"으로 세지 않는다.
+    expect([...swept].filter((code) => code.startsWith("UNRESOLVED:"))).toEqual([]);
 
     for (const code of swept) {
       const known = Object.prototype.hasOwnProperty.call(API_ERROR_MESSAGES, code);
@@ -553,12 +601,27 @@ describe("배선 계약 (source verification)", () => {
     expect(clientSource).toContain("this.code = parseApiErrorEnvelope(body)?.code ?? null;");
   });
 
+  /**
+   * 라운드 71 트랙 A — 이 자리의 배선이 **한 겹 깊어졌다.** 업로드 화면은 이제
+   * `src/import/import-failure-messages.ts`(가져오기 여정 전용 문구 모듈)를 부르고, 그 모듈이
+   * 자기 표를 먼저 본 뒤 **이 표를 한 번 지난다**. 여기서 지키는 계약은 그대로다: 행 초과·형식
+   * 거절 두 코드의 문구가 이 표에서 오고, 무조건 재시도 안내가 하드코딩으로 남아 있지 않다.
+   * (여정 전체의 코드 스윕은 import-failure-messages.test.ts가 진다 — 그 파일 넷은 아웃박스가
+   * 지나는 파일이고 가져오기는 큐를 타지 않는 즉시 요청이라 이 스윕의 시야 밖이다.)
+   */
   it("ⓐ 가져오기 업로드 실패가 코드별 문구를 쓴다 (행 초과·형식 거절에 '잠시 후 다시' 오안내 제거)", () => {
     const importSource = source("app/import/index.tsx");
-    expect(importSource).toContain('import { apiErrorMessage } from "../../src/api/api-error";');
+    expect(importSource).toContain('import { importFailureMessage } from "../../src/import/import-failure-messages";');
     expect(importSource).toContain(
-      'apiErrorMessage(upload.error, "업로드하지 못했어요. 잠시 후 다시 시도해 주세요.")'
+      '{importFailureMessage("upload", upload.error, { isOnline: uploadFailureOnline })}'
     );
+    // 그 모듈이 이 표를 실제로 지난다(같은 실패를 두 문장이 각자 말하지 않는다).
+    const failureMessages = source("src/import/import-failure-messages.ts");
+    expect(failureMessages).toContain('import { apiErrorCodeOf, apiErrorMessageForCode } from "../api/api-error";');
+    expect(failureMessages).toContain("const knownGlobally = apiErrorMessageForCode(code);");
+    // 표의 두 줄은 여전히 이 표의 것이다(여정 모듈이 다시 적지 않는다).
+    expect(failureMessages).not.toContain("IMPORT_TOO_MANY_ROWS:");
+    expect(failureMessages).not.toContain("IMPORT_FILE_TYPE_INVALID:");
     // 예전의 무조건 재시도 안내(문구 하드코딩)는 남아 있으면 안 된다.
     expect(importSource).not.toContain(
       ">업로드하지 못했어요. 잠시 후 다시 시도해 주세요.</Text>"

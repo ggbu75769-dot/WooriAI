@@ -133,7 +133,10 @@ export default function NotificationSettingsScreen() {
           onBack={() => router.back()}
         />
 
-        {!hasSession ? <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" /> : null}
+        {/* 라운드 71 트랙 E: 문구 무변경 + 목적지 하나(가짜 버튼 → 로그인 화면). */}
+        {!hasSession ? (
+          <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" onPress={() => router.push("/login")} />
+        ) : null}
 
         {/* C-08: 지금 실제로 뜨는 알림(인앱 알림함)의 종류별 스위치 -- 푸시 카드보다 위. */}
         {hasSession ? (

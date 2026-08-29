@@ -44,6 +44,9 @@ import {
   parseHouseholdScopeParam,
   resolveManagedHouseholdId
 } from "../../src/family/household-scope";
+// 라운드 71 트랙 E: 잠긴 세션의 머리말은 게이트와 **같은 판정**을 읽고(새 판정 0건), 문장도
+// 화면이 짓지 않는다 — 둘 다 이 순수 모듈의 것이다.
+import { isExpenseEntryLocked, VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -397,6 +400,22 @@ export default function ManageChildrenScreen() {
    */
   const canEditChildren = myRole === "owner" || myRole === "co_parent";
   /**
+   * 라운드 71 트랙 E — **머리말이 판정을 읽는다.** 이 화면의 첫 문장은 종전에 모두에게
+   * "아이를 전환하거나 정보를 수정해요"라고 말했고, 보기 전용 참여자에게는 아래의 편집 컨트롤이
+   * 하나도 서지 않았다 — 화면이 자기 자신과 모순됐다.
+   *
+   * ⚠ 그런데 머리말의 판정은 `canEditChildren`의 부정이 **아니다**. 그 값은 구성원 목록이 아직
+   * 오는 중이거나(로딩) 응답에서 나를 찾지 못했을 때도 false로 떨어지도록 일부러 그렇게 만든
+   * 것이라(위 주석 — 뷰어가 못 쓸 컨트롤을 깜빡이는 것보다 낫다), 그대로 머리말에 쓰면 **모르는
+   * 상태의 정상 사용자에게 "당신은 보기 전용이에요"라고 말하는 허위 표시**가 된다. 머리말은
+   * 게이트 쪽 규칙을 그대로 따른다 — **알려진 보기 전용 역할일 때만** 잠근다(record-permissions.ts의
+   * 그 판정 하나를 읽는다. 새 판정 0건 · 역할 미상·비세션·데모는 종전 문장 그대로다).
+   *
+   * 컨트롤의 게이트(`canEditChildren`)는 **한 글자도 바뀌지 않는다**: 두 판정의 안전 방향이
+   * 다른 것이 의도이고(위 주석), 이 트랙이 만지는 것은 첫 문장 하나뿐이다.
+   */
+  const childEditViewOnly = isExpenseEntryLocked({ hasSession, role: myRole });
+  /**
    * **추가 폼**의 역할 게이트 — 근거는 파라미터가 가리키는 대상 가구(`householdId`)다. 생성이
    * 실제로 가는 곳의 역할을 물어야 빈 가구 B의 owner가 B에 아이를 만들 수 있고(라운드 63 #7),
    * 반대로 뷰어로 전환해 들어온 가구에는 추가 폼이 서지 않는다.
@@ -623,9 +642,17 @@ export default function ManageChildrenScreen() {
   return (
     <AppScreen>
       <View testID="screen-SET-005" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="설정" title="아이 관리" subtitle="아이를 전환하거나 정보를 수정해요" onBack={() => router.back()} />
+        <ScreenHeader
+          eyebrow="설정"
+          title="아이 관리"
+          subtitle={childEditViewOnly ? VIEW_ONLY_HEADLINES.children : "아이를 전환하거나 정보를 수정해요"}
+          onBack={() => router.back()}
+        />
 
-        {!hasSession ? <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" /> : null}
+        {/* 라운드 71 트랙 E: 문구 무변경 + 목적지 하나(가짜 버튼 → 로그인 화면). */}
+        {!hasSession ? (
+          <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" onPress={() => router.push("/login")} />
+        ) : null}
 
         {hasSession && children.isLoading ? (
           <Card>

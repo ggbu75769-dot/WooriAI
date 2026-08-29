@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
-import { Alert, Linking, Pressable, Switch, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Alert, Pressable, Switch, Text, View } from "react-native";
 import {
   confirmAccountDeletion,
   confirmChildProfileDeletion,
@@ -47,7 +48,17 @@ import {
 } from "../../src/consent/consent-definitions";
 import { legalDocumentUrls, legalKindForConsentType } from "../../src/consent/legal-links";
 import { useNotificationStore } from "../../src/notifications/notification.store";
+// 라운드 71 B(#2): 실패한 그 순간의 연결 상태. 폴 한 번이고 새 폴러를 돌리지 않는다
+// (가족 화면의 파괴적 동작이 쓰는 그 배선 — src/family/member-mutation-messages.ts).
+import { isCurrentlyOnline } from "../../src/offline/connectivity";
 import { buildConsentSummaryLines } from "../../src/settings/consent-summary";
+// 라운드 71 B(#2): 이 화면의 서버 직행 쓰기 넷이 실패했을 때의 문구 단일 소스(순수 모듈).
+import {
+  destructiveFlowErrorMessage,
+  type DestructiveFlowKind
+} from "../../src/settings/destructive-flow-messages";
+// 라운드 71 리뷰 S-2: 앱 밖으로 나가는 링크를 여는 규칙은 화면 셋이 공유하는 한 벌이다.
+import { openExternalUrl } from "../../src/settings/open-external-url";
 import { useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -137,7 +148,54 @@ function destructiveAlertMessage(exportNotice: string | null): string {
 const ACCOUNT_DELETE_REJOIN_NOTICE = "삭제 후 30일 동안은 같은 계정으로 다시 가입할 수 없어요.";
 
 const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
-const actionFailedText = "처리하지 못했어요. 잠시 후 다시 시도해 주세요.";
+
+/**
+ * 라운드 71 B(#2) — **실패한 그 순간의 연결 상태로 문구를 고르는 얇은 배선.**
+ *
+ * 판정과 문장은 전부 순수 모듈에 있다(src/settings/destructive-flow-messages.ts). 여기 남는
+ * 것은 "에러로 **전환되는 순간에만** 연결을 한 번 확인한다"는 배선 하나이고, 형태는 라운드 52
+ * QA P3-1이 조회·저장 실패 훅에 세운 그 cancelled 패턴 그대로다
+ * (src/offline/use-load-error-copy.ts의 `useErrorTimeConnectivity`):
+ *   - 에러가 풀리면 초깃값으로 되돌린다(다음 실패는 그때의 연결 상태로 다시 판정한다),
+ *   - effect가 정리되면 이전 폴의 결과를 버린다(언마운트 뒤 setState 금지 · 늦게 도착한 옛
+ *     판정이 최신 판정을 덮어쓰지 않게).
+ *
+ * 그 훅을 그대로 부르지 않고 여기 한 벌을 두는 이유: 그쪽은 조회/저장 문구(`resolveLoadErrorCopy`
+ * ·`resolveSaveErrorCopy`)에 묶여 있고 연결 판정만 따로 내주지 않는다. 되돌릴 수 없는 확정의
+ * 문장은 그 두 표가 아니라 이 화면의 표에서 와야 하므로(모듈 머리말), 배선만 같은 모양으로 둔다.
+ *
+ * 기본값이 `true`(온라인)인 이유도 같다 — 폴이 끝나기 전 첫 프레임과 연결 상태를 보고할 수 없는
+ * 플랫폼에서는 **종전 문장 그대로**이고, 새 문장은 "오프라인이라고 확인된" 경우에만 대체한다.
+ *
+ * 라운드 71 리뷰 S-4 — ⚠ **데모(로컬 토큰) 세션에서는 오프라인 갈래를 건너뛴다.**
+ *
+ * 데모 세션의 요청은 네트워크를 지나지 않는다(src/api/local-backend.ts가 기기 안에서 답한다 —
+ * `authToken === LOCAL_SESSION_TOKEN`). 그런데 연결 판정은 **기기의 연결 상태**를 보므로, 비행기
+ * 모드에서 데모를 둘러보다 실패한 사람에게 "…요청이 서버에 닿지 못했어요"라고 말하게 된다 —
+ * 그 요청은 애초에 서버로 가지 않았으므로 **허위 표시**다. 그때의 평문 Error는 종전대로 모르는
+ * 실패 문장으로 떨어진다(모듈 머리말 4번 갈래 — 데모 세션이 원래 도달하던 그 자리다).
+ */
+function useFlowFailureText(kind: DestructiveFlowKind, isError: boolean, error: unknown): string {
+  const [isOnline, setIsOnline] = useState(true);
+  // 화면 본문의 `isDemoSession`과 같은 판정이다(authToken === LOCAL_SESSION_TOKEN을 편 것).
+  const isDemoSession = useSessionStore((state) => !state.accessToken && state.isTestSession);
+
+  useEffect(() => {
+    if (!isError || isDemoSession) {
+      setIsOnline(true);
+      return;
+    }
+    let cancelled = false;
+    void isCurrentlyOnline().then((online) => {
+      if (!cancelled) setIsOnline(online);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isError, isDemoSession]);
+
+  return destructiveFlowErrorMessage(kind, error, { isOnline: isDemoSession || isOnline });
+}
 
 /**
  * 라운드 65 B(#4ⓑ) — **되돌아올 길.**
@@ -154,7 +212,6 @@ const actionFailedText = "처리하지 못했어요. 잠시 후 다시 시도해
 const CONSENT_REQUIRED_NOTICE = "필수 항목에 동의가 필요해요. 약관이 개정되면 다시 동의를 받아요.";
 const CONSENT_REQUIRED_ACTION_LABEL = "필수 항목 다시 동의하기";
 const CONSENT_REQUIRED_DONE_NOTICE = "필수 항목에 다시 동의했어요.";
-const CONSENT_UPDATE_FAILED_TEXT = "동의를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
 
 /**
  * 선택 동의 스위치가 **약속하지 않는 것**: 이 스위치를 켠다고 알림이 오지는 않는다. 푸시는
@@ -585,15 +642,28 @@ export default function PrivacySettingsScreen() {
     return inFlight && inFlight.definition.type === definition.type ? inFlight.accepted : definition.accepted;
   };
 
-  const openLegalDocument = async (url: string) => {
-    try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (!canOpen) throw new Error("cannot-open-url");
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert(LEGAL_LINK_FAILED_TITLE, LEGAL_LINK_FAILED_MESSAGE);
-    }
-  };
+  /**
+   * 라운드 71 B(#2) — 실패한 흐름마다 **그 실패가 무엇이었는지**를 말하는 한 줄.
+   *
+   * 셋은 되돌릴 수 없는 확정이고 넷째는 되돌아올 길이다(동의 재동의·선택 동의 스위치는 한 자리에
+   * 문장을 그리므로 두 뮤테이션의 OR을 넘기고, `error`도 같은 순서로 고른다 — 아이 관리 화면이
+   * 세운 관례 그대로다: app/settings/children.tsx).
+   */
+  const childDeleteFailureText = useFlowFailureText("child_profile_delete", childDelete.isError, childDelete.error);
+  const householdLeaveFailureText = useFlowFailureText("household_leave", householdLeave.isError, householdLeave.error);
+  const accountDeleteFailureText = useFlowFailureText("account_delete", accountDelete.isError, accountDelete.error);
+  const consentUpdateFailureText = useFlowFailureText(
+    "consent_update",
+    reconsent.isError || consentToggle.isError,
+    reconsent.error ?? consentToggle.error
+  );
+
+  /**
+   * 라운드 71 리뷰 S-2: 여는 규칙은 화면 셋이 공유하는 한 벌이고(src/settings/open-external-url.ts),
+   * 이 화면이 더하는 것은 실패 문구 두 줄뿐이다 — 동작·문구 모두 종전 그대로다.
+   */
+  const openLegalDocument = (url: string) =>
+    openExternalUrl(url, { failTitle: LEGAL_LINK_FAILED_TITLE, failMessage: LEGAL_LINK_FAILED_MESSAGE });
 
   return (
     <AppScreen>
@@ -675,7 +745,7 @@ export default function PrivacySettingsScreen() {
             ))}
 
             {reconsent.isError || consentToggle.isError ? (
-              <Text style={{ color: theme.colors.danger }}>{CONSENT_UPDATE_FAILED_TEXT}</Text>
+              <Text style={{ color: theme.colors.danger }}>{consentUpdateFailureText}</Text>
             ) : null}
           </Card>
         ) : null}
@@ -709,7 +779,9 @@ export default function PrivacySettingsScreen() {
               onPress={confirmChildDelete}
             />
           ) : null}
-          {childDelete.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
+          {childDelete.isError ? (
+            <Text style={{ color: theme.colors.danger }}>{childDeleteFailureText}</Text>
+          ) : null}
         </Card>
 
         <Card style={{ gap: 10 }}>
@@ -734,7 +806,9 @@ export default function PrivacySettingsScreen() {
               onPress={confirmHouseholdLeaveAction}
             />
           ) : null}
-          {householdLeave.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
+          {householdLeave.isError ? (
+            <Text style={{ color: theme.colors.danger }}>{householdLeaveFailureText}</Text>
+          ) : null}
         </Card>
 
         <Card style={{ gap: 10 }}>
@@ -758,7 +832,9 @@ export default function PrivacySettingsScreen() {
               onPress={confirmAccountDelete}
             />
           ) : null}
-          {accountDelete.isError ? <Text style={{ color: theme.colors.danger }}>{actionFailedText}</Text> : null}
+          {accountDelete.isError ? (
+            <Text style={{ color: theme.colors.danger }}>{accountDeleteFailureText}</Text>
+          ) : null}
         </Card>
       </View>
     </AppScreen>

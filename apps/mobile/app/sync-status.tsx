@@ -42,6 +42,8 @@ import {
 import { isDiscardablePendingRow } from "../src/offline/pending-row-actions";
 import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";
 import { useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
+// 라운드 71 트랙 E: 잠긴 세션의 머리말 문장은 화면이 짓지 않는다(단일 소스는 순수 모듈이다).
+import { VIEW_ONLY_HEADLINES } from "../src/family/record-permissions";
 import { itemStatusLabel } from "../src/items/item-labels";
 import { ITEM_STATUS_QUEUED_MESSAGE } from "../src/items/status-mutation-messages";
 import {
@@ -770,7 +772,17 @@ export default function SyncStatusScreen() {
 
   const listHeader = (
     <View testID="screen-EXP-005" style={{ gap: theme.spacing.gap, paddingBottom: theme.spacing.gap }}>
-      <ScreenHeader eyebrow="동기화" title="동기화 상태" subtitle="아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요." />
+      {/* 라운드 71 트랙 E: 머리말이 게이트를 읽는다. 잠긴 계정에게 "정리할 수 있어요"는 지킬 수
+          없는 약속이다 — 실패 행을 고쳐 다시 보내는 길(SYNC_STATUS_FIX_AND_RESEND_LABEL)이 같은
+          판정에 걸려 있고, 그 행들은 애초에 403으로 굳은 것이다. 문장은 순수 모듈에서 오고,
+          역할 미상·비세션·데모는 종전 문장 그대로다. */}
+      <ScreenHeader
+        eyebrow="동기화"
+        title="동기화 상태"
+        subtitle={
+          expenseEntryLocked ? VIEW_ONLY_HEADLINES.syncStatus : "아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요."
+        }
+      />
 
       {/* REC-123(H4): 배지/섹션 제목 문구는 기록 탭과 같은 src/offline/messages.ts에서 온다.
           라운드 51 C-10: 이 화면의 배지는 목록에 실제로 그리는 행 수를 세므로 준비템 상태 행까지

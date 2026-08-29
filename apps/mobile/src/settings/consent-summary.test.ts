@@ -137,7 +137,11 @@ describe("SET-003 동의 내역 카드 wiring (source contract -- 화면은 vite
     expect(privacySource).toContain("{documentUrl ? (");
     expect(privacySource).toContain('accessibilityRole="link"');
     // 열지 못하면 그 사실을 말한다(아무 일도 일어나지 않는 링크를 남기지 않는다).
-    expect(privacySource).toContain("Alert.alert(LEGAL_LINK_FAILED_TITLE, LEGAL_LINK_FAILED_MESSAGE);");
+    // 라운드 71 리뷰 S-2: 여는 규칙은 화면 셋이 공유하는 한 벌이 됐고(src/settings/open-external-url.ts),
+    // 이 화면은 자기 실패 문구 두 줄을 넘긴다 — 동작·문구는 한 글자도 바뀌지 않았다.
+    expect(privacySource).toContain(
+      "openExternalUrl(url, { failTitle: LEGAL_LINK_FAILED_TITLE, failMessage: LEGAL_LINK_FAILED_MESSAGE });"
+    );
   });
 
   /**

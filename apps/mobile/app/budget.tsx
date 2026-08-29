@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import {
   getBudget,
@@ -29,12 +29,8 @@ import {
 import { previousYearMonth } from "../src/home/last-month-comparison";
 // 라운드 70 B: 예산 저장의 서버 술어는 지출 쓰기와 **같은 canEdit**이라 판정을 새로 만들지 않고
 // 기존 게이트를 **읽는다**(훅은 이 트랙이 소유하지 않는다 — 한 글자도 바꾸지 않는다).
-import { revalidateHouseholdRoles, useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
-import {
-  BUDGET_VIEW_ONLY_MESSAGE,
-  EXPENSE_VIEW_ONLY_ALERT_TITLE,
-  guardExpenseAction
-} from "../src/family/record-permissions";
+import { useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
+import { guardExpenseAction, VIEW_ONLY_HEADLINES } from "../src/family/record-permissions";
 import { useLoadErrorCopy, useSaveErrorCopy } from "../src/offline/use-load-error-copy";
 import { useOfflineSyncSnapshot } from "../src/offline/sync-controller";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../src/ui";
@@ -143,7 +139,14 @@ export default function BudgetEditScreen() {
    * 그래도 이 줄이 `getQueryData`인 것은 그대로다: 게이트가 켜 준 캐시를 **읽기만** 하고,
    * 라벨을 위해 조회를 켜지는 않는다(그것이 "모르면 말하지 않는다"의 배선이다).
    *
-   * BUD-001 픽셀 캡처는 비세션이라 `authToken`이 null이고 캐시를 읽지도 않는다. 외동 가구도
+   * ⚠️ 라운드 71 트랙 E — **표기 정정.** 이 자리(와 아래 저장 게이트 주석 · record-permissions.test.ts)는
+   * 종전에 "BUD-001 픽셀락 캡처"라고 적었지만, 픽셀락 캡처는 아홉이고 그 목록에 BUD-001은 없다
+   * (app/pixel-lock.tsx의 `pixelLockRoutes` — splash · home · quick-expense · recommendation ·
+   * product-detail · family · excel-preview · report · more). 이 화면의 `screen-BUD-001`은 QA
+   * 화면 id일 뿐 캡처 대상이 아니다. 라운드 70 F가 "제품 소스 0건" 계약 때문에 고치지 못하고
+   * 이 파일을 여는 다음 트랙에 넘긴 자리다(docs/qa/runtime-verification-required.md).
+   * **지키려는 사실은 그대로다**: 비세션 렌더에서는 `authToken`이 null이라 캐시를 읽지도 않고,
+   * 잠금 판정도 비세션에서는 절대 발동하지 않는다(판정·값은 한 글자도 바뀌지 않았다). 외동 가구도
    * `resolveChildScopeLabel`이 null을 주므로 종전 화면 그대로다. (낭독 전용 변형은 쓰지 않는다 —
    * 공용 `ScreenHeader`의 제목 Text는 잘리지 않아 보이는 문구가 곧 접근성 이름이고, 덮어쓸
    * accessibilityLabel 슬롯이 없다.)
@@ -273,20 +276,27 @@ export default function BudgetEditScreen() {
    *
    * 판정은 **새로 만들지 않는다**: 서버 술어가 지출 쓰기와 같으므로 `useExpenseEntryGate`의
    * 그 판정을 그대로 읽는다(모르면 잠그지 않는다 · 비세션은 절대 잠기지 않는다 —
-   * BUD-001 픽셀락 캡처가 비세션이다). 문장만 예산의 것이다(record-permissions.ts).
+   * 라운드 71 트랙 E 표기 정정: 이 화면은 픽셀락 캡처 아홉에 **없다**. 비세션에서 잠기지
+   * 않는다는 사실 자체는 판정이 지고 있다). 문장만 예산의 것이다(record-permissions.ts).
    *
    * **화면은 잠그지 않는다 — 저장만 잠근다.** 서버는 읽기를 구성원 전원에게 허용하므로 보기
    * 전용 참여자도 이번 달 예산이 얼마인지 볼 수 있어야 하고, 잠긴 컨트롤은 사라지는 대신
    * 눌렀을 때 사실을 말한다(useExpenseEntryGate 머리말의 그 관례).
    */
   const expenseGate = useExpenseEntryGate();
-  // 안내가 곧 역할 재검증 트리거다(라운드 40 J-3 — 승격된 역할은 이 경로에서 반영된다).
-  // 조회는 백그라운드·스로틀이라 안내 자체는 지금 그대로 뜬다.
-  const explainBudgetViewOnly = () => {
-    Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, BUDGET_VIEW_ONLY_MESSAGE);
-    revalidateHouseholdRoles();
-  };
-  const saveBudget = guardExpenseAction(expenseGate.locked, explainBudgetViewOnly, () => save.mutate());
+  /**
+   * 라운드 70 리뷰 P-B / 라운드 71 트랙 E — **안내를 다시 구현하지 않는다.**
+   *
+   * 이 화면은 게이트가 이미 하는 세 줄(Alert 제목·본문 + 역할 재검증)을 지역 함수로 한 벌 더
+   * 갖고 있었고, 다른 점은 본문 한 줄뿐이었다. 이제 그 한 줄만 넘긴다 — 안내가 곧 역할 재검증
+   * 트리거라는 라운드 40 J-3의 경로도 게이트 안에 그대로 있다(조회는 백그라운드·스로틀이라
+   * 안내 자체는 지금 그대로 뜬다).
+   */
+  const saveBudget = guardExpenseAction(
+    expenseGate.locked,
+    () => expenseGate.explain(VIEW_ONLY_HEADLINES.budget),
+    () => save.mutate()
+  );
 
   // C-07 문구(온라인이면 종전 그대로, 오프라인이면 기다릴 대상이 없다는 사실).
   //
@@ -304,10 +314,15 @@ export default function BudgetEditScreen() {
         {/* 라운드 39 I-8: 스택으로만 도달하는 화면이라 OS 헤더가 없다(전역 headerShown:false).
             알림함 → /budget 직행이 가장 갇히기 쉬운 경로였다 -- UX-Q(C)가 낸 ScreenHeader의
             onBack 슬롯을 그대로 쓴다(‹ 표기·"뒤로가기" 라벨·44dp 타깃이 한 곳에 있다). */}
+        {/* 라운드 71 트랙 E — **머리말이 게이트를 읽는다.**
+            잠긴 계정에게 이 자리는 종전에 "필요할 때 언제든 예산을 조정할 수 있어요."라고 말했고,
+            바로 아래 저장 버튼은 "보기 전용으로 참여하고 있어요"라고 답했다 — 화면이 자기 자신과
+            모순됐다. 문장은 순수 모듈에서 오고(화면이 짓지 않는다), 판정은 저장 버튼과 **같은
+            하나**다. 역할 미상·비세션·데모는 종전 문장 그대로다(모르면 잠그지 않는다). */}
         <ScreenHeader
           eyebrow="예산 관리"
           title={withChildScopeLabel("월 예산 수정", childScopeLabel)}
-          subtitle="필요할 때 언제든 예산을 조정할 수 있어요."
+          subtitle={expenseGate.locked ? VIEW_ONLY_HEADLINES.budget : "필요할 때 언제든 예산을 조정할 수 있어요."}
           onBack={() => router.back()}
         />
 

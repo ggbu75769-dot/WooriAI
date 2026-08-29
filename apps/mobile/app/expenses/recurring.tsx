@@ -28,6 +28,8 @@ import {
   type RecurringTemplateDraft
 } from "../../src/expenses/recurring-template";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
+// 라운드 71 트랙 E: 잠긴 세션의 머리말 문장은 화면이 짓지 않는다(단일 소스는 순수 모듈이다).
+import { VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 // 라운드 66 트랙 B(P3 1번): 문구는 전부 recurring-template.ts에서 온다 — 여기서 오는 것은
 // 판정(findRecurringTemplateByItemName)과 스토어뿐이다.
 import { findRecurringTemplateByItemName, useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
@@ -334,10 +336,16 @@ export default function RecurringExpensesScreen() {
   return (
     <AppScreen>
       <View testID={recurringScreenId} style={{ gap: theme.spacing.section }}>
+        {/* 라운드 71 트랙 E: 머리말이 게이트를 읽는다. 목록 자체는 이 기기의 메모라 잠기지
+            않지만, 그 목록이 약속하는 것("적어 두면 홈에서 확인할 수 있어요")은 **기록**을 지나야
+            성립한다 — 잠긴 계정에게는 그 한 걸음이 막혀 있다. 문장은 순수 모듈에서 오고,
+            역할 미상·비세션·데모는 종전 문장 그대로다. */}
         <ScreenHeader
           eyebrow="지출"
           title={withChildScopeLabel("정기 지출", childScopeLabel)}
-          subtitle="매월 반복되는 지출을 적어 두면 홈에서 확인할 수 있어요"
+          subtitle={
+            expenseGate.locked ? VIEW_ONLY_HEADLINES.recurring : "매월 반복되는 지출을 적어 두면 홈에서 확인할 수 있어요"
+          }
           onBack={() => router.back()}
         />
 
@@ -354,8 +362,15 @@ export default function RecurringExpensesScreen() {
           <Text style={rowSubtitleStyle}>{RECURRING_DEVICE_ONLY_NOTICE}</Text>
         </Card>
 
+        {/* 라운드 71 트랙 E: 문구 무변경 + 목적지 하나(가짜 버튼 → 실제로 갈 곳).
+            이 카드의 문장은 조건을 **둘** 말하므로("로그인하고 아이를 선택하면") 목적지도 지금
+            막고 있는 쪽으로 간다 — 토큰이 없으면 로그인, 있으면 아이를 고르는 화면이다. */}
         {!canManage ? (
-          <EmptyStateCard title="로그인하고 아이를 선택하면 정기 지출을 적어 둘 수 있어요." actionLabel="확인" />
+          <EmptyStateCard
+            title="로그인하고 아이를 선택하면 정기 지출을 적어 둘 수 있어요."
+            actionLabel="확인"
+            onPress={() => router.push(authToken ? "/settings/children" : "/login")}
+          />
         ) : null}
 
         {canManage ? (

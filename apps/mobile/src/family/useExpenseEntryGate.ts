@@ -37,8 +37,15 @@ import { createHouseholdRoleRevalidator, createOneShotRevalidationLatch } from "
 export type ExpenseEntryGate = {
   /** 이 세션이 보기 전용이라 기록 진입을 막아야 하는가. 모름·비세션이면 항상 false. */
   locked: boolean;
-  /** 안내만 띄운다(진입점이 자체 확인 Alert를 갖고 있어 guard로 감싸기 어려운 자리용). */
-  explain: () => void;
+  /**
+   * 안내만 띄운다(진입점이 자체 확인 Alert를 갖고 있어 guard로 감싸기 어려운 자리용).
+   *
+   * 라운드 70 리뷰 P-B / 라운드 71 트랙 E: **본문을 넘길 수 있다.** 같은 판정 아래에서도 사용자가
+   * 알아야 할 사실은 화면마다 다르므로(예산 화면에서 막힌 것은 기록이 아니라 예산이다) 화면이
+   * 자기 문장을 넘긴다 — 재검증 트리거·제목·참조 안정성은 한 벌 그대로다. 넘기지 않으면 지출
+   * 기록의 문장이 선다.
+   */
+  explain: (message?: string) => void;
   /** 잠겼으면 안내로, 아니면 원래 동작으로 — 진입점 onPress를 그대로 감싼다. */
   guard: <TArgs extends unknown[]>(action: (...args: TArgs) => void) => (...args: TArgs) => void;
 };
@@ -99,9 +106,25 @@ const householdIdsRepairLatch = createOneShotRevalidationLatch();
  *
  * 라운드 40 J-3: 이 안내가 곧 재검증 트리거다. 조회는 백그라운드이고 스로틀이 걸려 있어
  * 안내 자체는 지금 그대로 뜬다.
+ *
+ * 라운드 70 리뷰 P-B / 라운드 71 트랙 E — **재구현 마지막 한 벌을 여기로 합쳤다.**
+ * app/budget.tsx가 같은 세 줄(Alert + 재검증)을 화면 지역 함수로 다시 갖고 있었고, 다른 점은
+ * **본문 한 줄**뿐이었다. 그래서 본문을 인자로 받는다: 기본값은 지출 기록의 문장이고, 화면이
+ * 자기 사실을 말해야 하면 그 문장을 넘긴다(문장 자체는 언제나 record-permissions.ts의 것이다 —
+ * 화면이 짓지 않는다).
+ *
+ * ⚠ 인자를 더해도 **모듈 스코프·참조 안정성은 그대로다**(기본값이 있어 `() => void`로도 그대로
+ * 쓰인다 — 기록 탭의 행 액션 useCallback 의존성이 렌더마다 새로 만들어지지 않는다).
  */
-export function explainExpenseViewOnly(): void {
-  Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, EXPENSE_VIEW_ONLY_MESSAGE);
+export function explainExpenseViewOnly(message: string = EXPENSE_VIEW_ONLY_MESSAGE): void {
+  /**
+   * 라운드 71 리뷰 S-1 — 기본값만으로는 부족한 자리가 하나 있다: `guard`가 돌려준 핸들러가
+   * `onPress`에 그대로 걸리면 react-native가 **press 이벤트 객체**를 첫 인자로 넘긴다. 이 함수는
+   * `guardExpenseAction`이 인자 없이 부르므로 오늘은 그 경로가 없지만, 진입점이 `onPress={
+   * expenseGate.explain}`처럼 직접 잇는 순간 Alert 본문이 `[object Object]`가 된다.
+   * 문자열이 아니면 기본 문장으로 떨어진다 — 잘못된 값이 사용자에게 보이는 것보다 낫다.
+   */
+  Alert.alert(EXPENSE_VIEW_ONLY_ALERT_TITLE, typeof message === "string" ? message : EXPENSE_VIEW_ONLY_MESSAGE);
   revalidateHouseholdRoles();
 }
 

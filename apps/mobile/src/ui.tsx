@@ -1090,11 +1090,37 @@ export function DonutChartCard({
   );
 }
 
-export function EmptyStateCard({ title, actionLabel, onPress }: { title: string; actionLabel: string; onPress?: () => void }) {
+/**
+ * 라운드 71 트랙 E — **`actionLabel`과 `onPress`는 한 짝이다.**
+ *
+ * 예전 시그니처는 `actionLabel: string` + `onPress?: () => void`였고, 렌더는 `onPress`가 없어도
+ * `SecondaryButton`을 **언제나** 그렸다. 그래서 `accessibilityRole="button"`으로 낭독되고 눌리는데
+ * 아무 일도 일어나지 않는 **가짜 버튼**이 만들어졌다 — 소리로만 앱을 쓰는 사람에게는 "버튼"이라는
+ * 낭독 자체가 약속이고, 그 약속이 지켜지지 않는다.
+ *
+ * 라운드마다 그런 호출부를 한두 자리씩 손으로 걷어내 왔지만(MOB-119 · UX-Q(B) — 그 주석은 자기가
+ * 마지막이라고 적었는데 넷이 더 살아 있었다) **컴포넌트가 허용하는 한 계속 생긴다.** 그래서 고칠
+ * 자리는 호출부가 아니라 타입이다: `AffiliateDisclosure`의 `text`를 필수로 만든 라운드 43 리뷰
+ * M-1이 같은 판단이었다.
+ *
+ * 고정하는 것 둘.
+ *  1) **타입** — 액션은 둘 다 있거나 둘 다 없다(판별 합집합). 라벨만 넘기면 컴파일이 깨진다.
+ *  2) **렌더** — 그래도 `onPress`가 없으면 버튼을 **그리지 않는다**. 타입을 우회하는 경로(any·
+ *     스프레드)에서도 낭독되는 가짜 버튼이 서지 않게, 안전이 판정 하나에만 걸리지 않는다.
+ *
+ * 액션이 없는 카드는 제목 한 줄짜리 안내가 된다(제목은 종전 그대로 보이는 Text다 — 색·배지 톤이
+ * 아니라 문장으로 상태를 말한다는 A-1 Error text의 그 규율).
+ */
+export type EmptyStateCardProps = { title: string } & (
+  | { actionLabel: string; onPress: () => void }
+  | { actionLabel?: undefined; onPress?: undefined }
+);
+
+export function EmptyStateCard({ title, actionLabel, onPress }: EmptyStateCardProps) {
   return (
     <Card style={{ alignItems: "center", backgroundColor: theme.colors.beige }}>
       <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700", textAlign: "center" }]}>{title}</Text>
-      <SecondaryButton label={actionLabel} onPress={onPress} />
+      {onPress && actionLabel ? <SecondaryButton label={actionLabel} onPress={onPress} /> : null}
     </Card>
   );
 }
