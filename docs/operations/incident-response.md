@@ -17,7 +17,16 @@
    - `GET /api/v1/health/worker` — 워커 상태. **항상 200**이므로 본문의 `"stale":true`·
      `"degraded":true`와 `jobs[].lastStatus`를 읽는다(모니터 설정은
      [release-runbook.md §3.2](release-runbook.md)).
-2. 서버 로그에서 requestId 기준으로 오류 추적 (structured JSON 로그, Authorization 헤더는 redact됨).
+2. 서버 로그에서 requestId 기준으로 오류 추적. ⚠️ **한 스트림에 두 형식이 섞여 흐른다**:
+   - **요청 로그** — 요청 하나에 JSON 한 줄. 필드는 고정이다(`ts`·`level`·`requestId`·`method`·
+     `path`·`status`·`durationMs`·`userId?`) — 헤더·본문·쿼리 문자열은 직렬화하지 않으므로
+     Authorization 값은 애초에 실리지 않는다(`apps/api/src/common/logging/request-logger.middleware.ts`).
+   - **그 밖의 서버 오류** — NestJS `Logger`의 **텍스트 + 여러 줄 스택**이라 JSON이 아니다.
+     `docker compose logs api`를 JSON 파서에 통째로 넣으면 **오류 줄이 조용히 빠진다** — 스택은
+     눈으로 읽는다.
+   - `LOG_LEVEL`은 **요청 로그만** 조인다(Nest `Logger`는 그 값을 읽지 않는다). `NODE_ENV=test`에서는
+     `LOG_LEVEL`이 명시되지 않는 한 요청 로그가 조용하다.
+   - 로그 파일을 **통째로 밖으로 내보내지 않는다** — 필요한 requestId 구간만 발췌해서 공유한다.
 3. DB 상태: `pnpm db status`, 연결 수·디스크 확인. 데이터는 PostgreSQL에 영속되므로
    **API를 재기동해도 사용자 데이터가 사라지지 않는다** — "재시작하면 초기화되는" 프로토타입
    시절의 가정으로 판단하지 않는다.

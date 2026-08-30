@@ -118,6 +118,9 @@ import { VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 import { previousYearMonth } from "../../src/home/last-month-comparison";
 import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
+// 라운드 74 트랙 D(GAP-074 #4): 조회 실패 카드의 문구·라벨은 공용 단일 소스가 고른다
+// (판정은 순수 함수 resolveLoadErrorCopy — 이 화면은 결과를 카드에 그대로 넘긴다).
+import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 // 라운드 41 K-11의 useOfflineSyncSnapshot("이 품목 이력"의 모집단에 이 기기의 오프라인 대기·
 // 실패·충돌 행을 합류시킨다)도 같은 모듈이라 한 줄로 합쳤다(라운드 42 L-5).
 import {
@@ -771,6 +774,19 @@ export default function ExpenseDetailScreen() {
     hasData: Boolean(expense.data)
   });
 
+  /**
+   * 라운드 74 트랙 D(GAP-074 #4) — 조회 실패 카드의 **오프라인 인지 문구.**
+   *
+   * 이 자리는 핵심 루프 한가운데다: 기록 탭은 라운드 72부터 연결이 없으면 "지금은
+   * 오프라인이에요"라고 말하는데, 그 목록에서 줄 하나를 눌러 들어온 이 화면만 30초 뒤에
+   * "잠시 후 다시 시도해 주세요"라고 했다 — 기다릴 대상이 없는 자리에서 기다리라는 안내다.
+   *
+   * 바뀌는 것은 **오프라인 갈래 하나**뿐이다: 온라인(서버 오류·타임아웃·판정 불가 플랫폼)에서는
+   * 공용 상수가 종전 두 리터럴과 **같은 값**이라 카드가 한 글자도 달라지지 않고, 구조도
+   * [다시 시도] 버튼도 재조회 대상도 그대로다(EXP-002 렌더 구조 불변).
+   */
+  const loadErrorCopy = useLoadErrorCopy(expense.isError);
+
   return (
     <AppScreen>
       <View testID="screen-EXP-003" style={{ gap: theme.spacing.section }}>
@@ -788,8 +804,8 @@ export default function ExpenseDetailScreen() {
 
         {canLoadExpense && expensePhase === "error" ? (
           <EmptyStateCard
-            title="불러오지 못했어요. 잠시 후 다시 시도해 주세요."
-            actionLabel="다시 시도"
+            title={loadErrorCopy.title}
+            actionLabel={loadErrorCopy.actionLabel}
             onPress={() => expense.refetch()}
           />
         ) : canLoadExpense && expensePhase === "loading" ? (

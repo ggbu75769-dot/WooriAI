@@ -49,7 +49,9 @@ import { legalDocumentUrls, legalKindForConsentType } from "../../src/consent/le
 import { useNotificationStore } from "../../src/notifications/notification.store";
 // 라운드 71 B(#2): 실패한 그 순간의 연결 상태. 폴 한 번이고 새 폴러를 돌리지 않는다.
 // 라운드 72 리뷰 M-2: 그 배선은 저장소의 공용 한 벌이다(손으로 다시 적지 않는다).
-import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";
+// 라운드 74 트랙 D(GAP-074 #4): 같은 배선층의 형제 훅. 저장 쪽은 라운드 71 B부터 정직했는데
+// 조회 자리 넷이 이 파일 안에서 그 훅을 지나쳐 가고 있었다 — 이제 넷도 같은 단일 소스를 읽는다.
+import { useErrorTimeConnectivity, useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { buildConsentSummaryLines } from "../../src/settings/consent-summary";
 // 라운드 71 B(#2): 이 화면의 서버 직행 쓰기 넷이 실패했을 때의 문구 단일 소스(순수 모듈).
 import {
@@ -145,8 +147,6 @@ function destructiveAlertMessage(exportNotice: string | null): string {
  * -- 그래서 "30일 동안은 …할 수 없어요"까지만 말하고, 30일이 지나면 된다고는 약속하지 않는다.
  */
 const ACCOUNT_DELETE_REJOIN_NOTICE = "삭제 후 30일 동안은 같은 계정으로 다시 가입할 수 없어요.";
-
-const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
 
 /**
  * 라운드 71 B(#2) — **실패한 그 순간의 연결 상태로 문구를 고르는 얇은 배선.**
@@ -650,6 +650,30 @@ export default function PrivacySettingsScreen() {
    * 문장을 그리므로 두 뮤테이션의 OR을 넘기고, `error`도 같은 순서로 고른다 — 아이 관리 화면이
    * 세운 관례 그대로다: app/settings/children.tsx).
    */
+  /**
+   * 라운드 74 트랙 D(GAP-074 #4) — **조회** 실패 넷의 오프라인 인지 문구.
+   *
+   * 이 화면은 라운드 71 B부터 저장 실패에는 정직했다(바로 아래 `useFlowFailureText`). 그런데
+   * 같은 모듈 안에서 조회 자리 넷은 고정 문자열 하나를 함께 쓰고 있었다 — 되돌릴 수 없는
+   * 버튼 바로 위에서, 무엇이 지워지는지 보여 주는 **파기 미리보기**가 실패하면 앱이 기다릴
+   * 대상이 없는데 "잠시 후 다시"라고 말했다.
+   *
+   * 자리마다 훅을 하나씩 부르는 이유는 저장 쪽 넷과 같다(라운드 70 리뷰 M-2 · 71 리뷰 S-6):
+   * 넷은 동시에 화면에 설 수 있는 **서로 다른 요청**이라, 한쪽의 연결 판정이 다른 쪽 문장에
+   * 얹히면 그 자리가 남의 사실을 말하게 된다. 호출 수는 넷으로 고정이라(조건부 호출이 아니다)
+   * hooks 규칙에 안전하다.
+   *
+   * 미리보기 셋에는 [다시 시도] 버튼이 없지만 재시도 수단은 **바로 위 [확인] 버튼**이고,
+   * 실패해도 계속 눌린다 — 공용 문장이 가리키는 행동이 그 자리에 실제로 있다.
+   *
+   * 온라인 갈래는 넷 다 종전 문자열 그대로다(공용 상수가 같은 값이다). SET-003/004의 카드
+   * 구조·확인 단계·파괴 흐름 저장 문구는 한 글자도 바뀌지 않는다.
+   */
+  const privacyLoadErrorCopy = useLoadErrorCopy(privacy.isError);
+  const childPreviewLoadErrorCopy = useLoadErrorCopy(childPreview.isError);
+  const householdPreviewLoadErrorCopy = useLoadErrorCopy(householdPreview.isError);
+  const accountPreviewLoadErrorCopy = useLoadErrorCopy(accountPreview.isError);
+
   const childDeleteFailureText = useFlowFailureText("child_profile_delete", childDelete.isError, childDelete.error);
   const householdLeaveFailureText = useFlowFailureText("household_leave", householdLeave.isError, householdLeave.error);
   const accountDeleteFailureText = useFlowFailureText("account_delete", accountDelete.isError, accountDelete.error);
@@ -684,8 +708,8 @@ export default function PrivacySettingsScreen() {
 
         {privacy.isError ? (
           <Card style={{ gap: 10 }}>
-            <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text>
-            <SecondaryButton label="다시 시도" onPress={() => privacy.refetch()} />
+            <Text style={{ color: theme.colors.danger }}>{privacyLoadErrorCopy.title}</Text>
+            <SecondaryButton label={privacyLoadErrorCopy.actionLabel} onPress={() => privacy.refetch()} />
           </Card>
         ) : null}
 
@@ -771,7 +795,9 @@ export default function PrivacySettingsScreen() {
             disabled={!authToken || !childId || childPreview.isPending}
             onPress={() => childPreview.mutate()}
           />
-          {childPreview.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+          {childPreview.isError ? (
+            <Text style={{ color: theme.colors.danger }}>{childPreviewLoadErrorCopy.title}</Text>
+          ) : null}
           <PreviewSummary preview={childPreview.data} />
           {childPreview.data ? (
             <DangerButton
@@ -798,7 +824,9 @@ export default function PrivacySettingsScreen() {
             disabled={!authToken || !householdId || householdPreview.isPending}
             onPress={() => householdPreview.mutate()}
           />
-          {householdPreview.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+          {householdPreview.isError ? (
+            <Text style={{ color: theme.colors.danger }}>{householdPreviewLoadErrorCopy.title}</Text>
+          ) : null}
           <PreviewSummary preview={householdPreview.data} />
           {householdPreview.data ? (
             <DangerButton
@@ -824,7 +852,9 @@ export default function PrivacySettingsScreen() {
             disabled={!authToken || accountPreview.isPending}
             onPress={() => accountPreview.mutate()}
           />
-          {accountPreview.isError ? <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text> : null}
+          {accountPreview.isError ? (
+            <Text style={{ color: theme.colors.danger }}>{accountPreviewLoadErrorCopy.title}</Text>
+          ) : null}
           <PreviewSummary preview={accountPreview.data} />
           {accountPreview.data ? (
             <DangerButton

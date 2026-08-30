@@ -319,6 +319,49 @@ function readAuditActionPresets() {
   return actions;
 }
 
+/**
+ * GAP-064 #7 / 라운드 74 트랙 E — 헤더의 **남은 복구 코드 잔량** 한 줄을 순수 모듈에서 파생한다.
+ *
+ * 라운드 64가 이 빈칸을 적어 두고 열 라운드가 지났다(`docs/qa/runtime-verification-required.md`
+ * §1-1 라운드 63분 아래 문단): 표시 로직은 이미 순수 모듈이고(`apps/admin/src/lib/recovery-codes-view.ts`),
+ * 3층 배선(서버 세션 DTO → 어드민 세션 캐시 → 헤더 표기)의 계약 테스트도 있는데
+ * (`apps/admin/src/admin-recovery-codes-remaining.test.ts`) **브라우저가 그 줄을 실제로 읽은 적은
+ * 없었다.** 그 빈칸을 메우는 자리는 실기기 체크표가 아니라 여기 단언 한 줄이다.
+ *
+ * ⚠️ **새 문자열 0건**: 기대 문구를 이 스크립트에 적지 않는다 — 문장 틀·임계·안내 한 줄을 전부
+ * 그 모듈에서 읽어 온다(readFunnelStageContract가 화면 계약에 대해 하는 것과 같은 규율).
+ * 그래서 모듈이 문구를 바꾸면 이 스텝은 따라가고, **화면이 모듈과 어긋난 경우에만** 실패한다.
+ */
+function readRecoveryCodesNoticeContract() {
+  const hint =
+    "화면이 계약을 잃었을 수도 있지만, **서식이 바뀌었을 뿐일 수도 있습니다**. " +
+    "이 판독기(scripts/qa/admin-e2e.mjs readRecoveryCodesNoticeContract)의 패턴을 먼저 확인하세요.";
+  const source = readFileSync(
+    path.join(repoRoot, "apps", "admin", "src", "lib", "recovery-codes-view.ts"),
+    "utf8"
+  );
+
+  const template = /text:\s*`([^`]*)`/.exec(source)?.[1];
+  if (!template || !template.includes("${remaining}")) {
+    throw new Error(`recovery-codes-view.ts에서 잔량 문장 틀을 찾지 못했습니다. ${hint}`);
+  }
+  const [prefix, suffix] = template.split("${remaining}");
+  const escape = (part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const textPattern = new RegExp(`${escape(prefix)}(\\d+)${escape(suffix)}`);
+
+  const threshold = Number(/RECOVERY_CODES_LOW_THRESHOLD\s*=\s*(\d+)/.exec(source)?.[1]);
+  if (!Number.isInteger(threshold)) {
+    throw new Error(`recovery-codes-view.ts에서 RECOVERY_CODES_LOW_THRESHOLD를 읽지 못했습니다. ${hint}`);
+  }
+
+  const actionText = /actionText:\s*low\s*\?\s*"([^"]+)"/.exec(source)?.[1];
+  if (!actionText) {
+    throw new Error(`recovery-codes-view.ts에서 임계 이하 안내 문장을 찾지 못했습니다. ${hint}`);
+  }
+
+  return { textPattern, sample: template.replace("${remaining}", "N"), threshold, actionText, hint };
+}
+
 /** QA-114: parse the total count out of the audit-log record card heading
  * ("기록 (총 1,234건)"). */
 async function readAuditTotal(page) {
@@ -353,8 +396,12 @@ async function main() {
   page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
 
   // ---- Step 1: login + MFA (enrollment or verify) -> dashboard --------------
+  // 어느 MFA 경로로 들어왔는지는 마지막 스텝(복구 코드 잔량)의 **전제**다 — MFA가 없는
+  // 계정에는 복구 코드 자체가 없다. 그래서 값을 여기서 붙잡아 둔다.
+  let adminLoginFlow = null;
   const loginOk = await runStep("login-mfa-dashboard", page, async () => {
     const flow = await loginViaUi(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+    adminLoginFlow = flow;
     return `logged in via ${flow} path, dashboard heading visible`;
   });
 
@@ -996,6 +1043,64 @@ async function main() {
       return `editor logged in via ${flow} path; nav hides 감사 로그; direct URL shows the access notice`;
     });
     await editorContext.close().catch(() => {});
+  }
+
+  // ---- Step 17: 헤더의 남은 복구 코드 잔량 (GAP-064 #7 / 라운드 74 트랙 E) ---------
+  // 열여덟 번째 runStep이고, **맨 뒤에 붙는다** — 앞의 열일곱은 이름도 순서도 그대로다
+  // (실패 리포트의 스텝 이름으로 과거 실행 기록을 대조한다). 읽기 전용이고 관리자 컨텍스트를
+  // 그대로 쓴다(위 에디터 스텝은 별도 컨텍스트라 이미 닫혔다). 기대 문구는 전부 순수 모듈에서
+  // 온다 — 이 파일에 새 한국어 UI 문자열을 심지 않는다.
+  //
+  // 라운드 74 적대적 리뷰 E-3: **MFA를 지나지 않은 로그인에는 복구 코드가 없다.**
+  // loginViaUi는 세 갈래를 돌려주는데(enrollment · verify-login · no-mfa), 마지막 갈래에서는
+  // 세션 응답의 `mfaRecoveryCodesRemaining`가 애초에 없으므로 헤더에 줄이 서지 않는 것이
+  // **정상**이다. 그런데 이 스텝은 줄이 없으면 "3층 배선이 끊겼다"며 하드 실패했다 — MFA를
+  // 끈 개발 DB에서 이 하네스가 통째로 빨간불이 되는 자리다. 스텝 16(에디터 계정 부재)과
+  // 같은 형태로 **SKIP**하고 이유를 남긴다: 밟을 수 없는 전제를 실패로 세지 않는다.
+  if (adminLoginFlow === "no-mfa") {
+    process.stdout.write(
+      "\n=== STEP: header-recovery-codes-remaining ===\nSKIP — 로그인이 MFA를 지나지 않아(no-mfa) 복구 코드 잔량 자체가 없습니다\n"
+    );
+    results.push({
+      name: "header-recovery-codes-remaining",
+      status: "SKIP",
+      detail: "login flow = no-mfa (복구 코드 없음)",
+      shot: "(none)"
+    });
+  } else {
+    await runStep("header-recovery-codes-remaining", page, async () => {
+      const contract = readRecoveryCodesNoticeContract();
+      const header = page.locator("header").first();
+      await header.waitFor({ timeout: STEP_TIMEOUT });
+      const headerText = (await header.innerText()).replace(/\s+/g, " ").trim();
+
+      const match = contract.textPattern.exec(headerText);
+      if (!match) {
+        // 잔량이 undefined면 모듈이 null을 돌려 줄 자체가 없다(0으로 단정하지 않는다는 규칙).
+        // 이 스크립트는 방금 로그인했으므로 세션 응답에 잔량이 실려 있어야 한다 —
+        // 줄이 없다는 것은 3층 배선 어딘가가 끊겼다는 뜻이다.
+        throw new Error(
+          `헤더에 복구 코드 잔량 줄이 없습니다(기대 형태 "${contract.sample}"). ` +
+            `읽은 헤더: "${headerText.slice(0, 200)}" — 세션 응답의 mfaRecoveryCodesRemaining가 ` +
+            `헤더까지 닿았는지 확인하세요. ${contract.hint}`
+        );
+      }
+
+      const remaining = Number(match[1]);
+      const low = remaining <= contract.threshold;
+      const showsAction = headerText.includes(contract.actionText);
+      if (low && !showsAction) {
+        throw new Error(
+          `잔량 ${remaining}장은 임계(${contract.threshold}) 이하인데 재등록 안내 한 줄이 없습니다`
+        );
+      }
+      if (!low && showsAction) {
+        throw new Error(
+          `잔량 ${remaining}장은 임계(${contract.threshold})를 넘는데 재등록 안내가 서 있습니다`
+        );
+      }
+      return `헤더 잔량 ${remaining}장 · 임계 ${contract.threshold} · 재등록 안내 ${showsAction ? "표시" : "없음"}`;
+    });
   }
 
   await finish(browser, consoleErrors, results.some((r) => r.status === "FAIL") ? 1 : 0);

@@ -49,7 +49,7 @@ curl -fsSL "https://raw.githubusercontent.com/ggbu75769-dot/WooriAI/master/scrip
      -f infra/docker/docker-compose.caddy.yml --env-file .env.production up -d api
    ```
 3. 모바일 릴리즈 빌드 env: `EXPO_PUBLIC_API_BASE_URL=https://<도메인>/api/v1`
-4. 스모크 테스트: `curl https://<도메인>/api/v1/health/ready` (전체 31검사 스모크 — 근거: `grep -c '^chk ' scripts/qa/server-smoke.sh` — 는 `SMOKE_BASE_URL=https://<도메인>/api/v1 bash scripts/qa/server-smoke.sh` — 테스트 데이터가 실제로 생성되니 감안)
+4. 스모크 테스트: `curl https://<도메인>/api/v1/health/ready` (전체 스모크 — 근거: `grep -c '^chk ' scripts/qa/server-smoke.sh` → **37**검사 — 는 `SMOKE_BASE_URL=https://<도메인>/api/v1 bash scripts/qa/server-smoke.sh` — 테스트 데이터가 실제로 생성되니 감안)
 5. `TRUST_PROXY=1` 확인: 부트스트랩이 생성하는 `.env.production`에 포함되어 있습니다(이 구성은 API가 항상 Caddy 리버스 프록시 1홉 뒤에서 동작). 이 값이 없으면 모든 요청이 프록시 IP 하나로 집계되어 per-IP rate limit이 전역 버킷 하나로 무력화됩니다. 기존 `.env.production`을 유지한 채 재실행한 경우(스크립트는 기존 파일을 덮어쓰지 않음) `TRUST_PROXY=1` 한 줄을 직접 추가하고 api를 재기동하세요.
 6. (선택) FCM 푸시 실발송(PUSH-113): 부트스트랩이 생성하는 `.env.production`에는 **없으므로** 켜려면 `PUSH_ENABLED=1`과 `FCM_SERVICE_ACCOUNT_PATH=<서비스 계정 JSON 경로>` 두 줄을 직접 추가하고 api를 재기동하세요. 경로는 **api 컨테이너 안에서 읽을 수 있어야** 하므로 JSON 파일을 볼륨으로 마운트해야 합니다(JSON 내용·private key는 env/로그에 넣지 말 것 — DNC-019). 미설정이면 안전한 no-op(출시 비차단). 상태 확인: `curl https://<도메인>/api/v1/health/push` — 키 미주입 시 `enabled=false`가 정상.
 

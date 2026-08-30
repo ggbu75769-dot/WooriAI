@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import type { AuthenticatedRequest } from "../types/authenticated-request";
+import { loggablePath, loggableRequestId } from "./loggable-path";
 
 const LEVEL_ORDER = { error: 0, warn: 1, info: 2, debug: 3 } as const;
 type LogLevel = keyof typeof LEVEL_ORDER;
@@ -20,10 +21,61 @@ function shouldLog(): boolean {
 }
 
 /**
- * Logs one JSON line per completed request: {ts, level, requestId, method,
- * path, status, durationMs, userId?}. Deliberately never includes headers,
- * body, query params, or any auth material (Authorization/token/password) --
- * only this fixed, pre-approved field set is ever serialized.
+ * **직렬화되는 필드의 전부**(라운드 74 트랙 A 계약 ⓐ).
+ *
+ * 이 모듈의 주석은 오래 "only this fixed, pre-approved field set is ever serialized"라고
+ * 약속했지만 그 집합은 **주석에만 있었고**, 그 줄을 세는 것은 저장소 전체에서 0건이었다.
+ * 이제 목록이 값이다: `apps/api/test/request-log-fields.test.ts`가 실제로 나간 줄의 키를
+ * 이 배열과 **정확히** 대조하고(밖의 키 0건 — 부정 단언), 아래 `RequestLogEntry` 타입이
+ * 같은 집합을 컴파일 시점에도 잠근다.
+ *
+ * `userId`만 선택이다(인증된 요청에서만 붙는다). 헤더·본문·질의 문자열·인증 자료는 여기에
+ * 없고, `path`에 실려 들어오던 초대 토큰은 `loggablePath`가 라우트 모양으로 가린다.
+ *
+ * ⚠️ **`requestId`는 그 약속의 명시적 예외다**(라운드 74 리뷰 A-3): 값의 출처가 클라이언트가
+ * 보낸 `x-request-id` 헤더다. 운영자가 그 값으로 요청을 추적하는 절차가 이미 문서에 있어
+ * (`incident-response.md` §초동 2) 남기는 것이 답이지만, **아무나 보낼 수 있는 값**이므로
+ * 길이·문자셋을 지난 뒤에만 남는다(`loggableRequestId`). 예외가 있다는 사실 자체를 여기 적어
+ * 두는 것이 이 문단의 몫이다 — 조용한 예외는 예외가 아니다.
+ */
+export const REQUEST_LOG_FIELDS = [
+  "ts",
+  "level",
+  "requestId",
+  "method",
+  "path",
+  "status",
+  "durationMs",
+  "userId"
+] as const;
+
+export type RequestLogField = (typeof REQUEST_LOG_FIELDS)[number];
+
+/**
+ * 위 목록의 타입 쪽 사본. 객체 리터럴에 목록 밖의 키를 더하면 여기서 먼저 막힌다
+ * (TypeScript의 초과 속성 검사).
+ */
+type RequestLogEntry = {
+  ts: string;
+  level: LogLevel;
+  requestId: string | undefined;
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+  userId?: string;
+};
+
+/**
+ * Logs one JSON line per completed request. The serialized field set is
+ * REQUEST_LOG_FIELDS above -- {ts, level, requestId, method, path, status,
+ * durationMs, userId?} -- and nothing else: no headers, body, query params, or
+ * auth material (Authorization/token/password).
+ *
+ * `path` is NOT the raw request path: it goes through `loggablePath`, which
+ * replaces secret-bearing path parameters with the route shape
+ * (`/invite/9f3c…` -> `/invite/:token`). See loggable-path.ts for the list of
+ * masked routes, the reasoned exemptions, and why no part of the token is kept.
  */
 export function requestLoggerMiddleware() {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -35,15 +87,17 @@ export function requestLoggerMiddleware() {
       const level: LogLevel = res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info";
       if (LEVEL_ORDER[level] > LEVEL_ORDER[configuredLevel()]) return;
 
-      const requestIdHeader = req.headers["x-request-id"];
       const authenticated = req as AuthenticatedRequest;
 
-      const entry = {
+      const entry: RequestLogEntry = {
         ts: new Date().toISOString(),
         level,
-        requestId: Array.isArray(requestIdHeader) ? requestIdHeader[0] : requestIdHeader,
+        // ⚠️ 이 한 필드만 **클라이언트가 보낸 헤더**에서 온다(`x-request-id`) — 위 약속의
+        // 유일한 예외다. 그래서 그대로 옮겨 적지 않고 길이·문자셋을 지난다(loggable-path.ts의
+        // `loggableRequestId` — 모양이 어긋나면 없는 것으로 남긴다).
+        requestId: loggableRequestId(req.headers["x-request-id"]),
         method: req.method,
-        path: req.path ?? req.url,
+        path: loggablePath(req.path ?? req.url),
         status: res.statusCode,
         durationMs: Date.now() - start,
         ...(authenticated.user?.id || authenticated.adminUser?.id

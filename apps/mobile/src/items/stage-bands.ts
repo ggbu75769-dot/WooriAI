@@ -1,4 +1,4 @@
-import { isChildStageCode, type ChildStageCode } from "@wooriai/domain";
+import { calculateChildStage, isChildStageCode, type ChildStageCode } from "@wooriai/domain";
 
 export type StageBandLabel = "0-6개월" | "6-12개월" | "12-24개월" | "24개월+";
 
@@ -27,8 +27,67 @@ const stageToBandLabel: Record<ChildStageCode, StageBandLabel> = {
   middle_school: "24개월+"
 };
 
-export function bandForStage(stage: ChildStageCode): StageBandLabel {
-  return stageToBandLabel[stage];
+/**
+ * 이 스테이지를 담고 있는 밴드 전부. 대부분 하나지만 `toddler_1_3`은 **둘**이다
+ * ("12-24개월"과 "24개월+" — 24개월+ 칩에서도 걸음마기 준비물이 이어 보이게 하는 **의도된**
+ * 중복이고, 서버 표의 주석이 그 이유를 적어 두었다: apps/api/src/items-commerce/stage-bands.ts).
+ */
+export function bandsForStage(stage: ChildStageCode): StageBandLabel[] {
+  return bandDefinitions.filter((band) => band.stages.includes(stage)).map((band) => band.label);
+}
+
+/**
+ * 밴드 라벨이 **스스로 말하는** 시작 개월("0-6개월"→0 · "6-12개월"→6 · "12-24개월"→12 ·
+ * "24개월+"→24). 개월 수를 이 파일에 따로 적지 않으려고 라벨에서 읽는다 — 네 문자열은
+ * ITEM-001 캡처·`packages/contracts`·서버 쿼리 파라미터가 함께 잠근 바이트라, 여기서 파생시키면
+ * 값이 한 곳에만 남는다.
+ */
+function bandStartMonth(label: StageBandLabel): number {
+  const leadingMonths = /^(\d+)/.exec(label);
+  return leadingMonths ? Number(leadingMonths[1]) : 0;
+}
+
+/**
+ * 스테이지가 속한 밴드. **겹치는 밴드에서는 아이의 나이가 고른다.**
+ *
+ * 라운드 74 트랙 B: 종전에는 스테이지 코드 하나만 받아 `stageToBandLabel` 표로 떨어뜨렸고,
+ * 그래서 `toddler_1_3`(도메인상 13~47개월)인 아이는 **생후 30개월이어도** 늘 "12-24개월"
+ * 칩을 받았다. 밴드 둘이 그 스테이지를 나눠 갖는 것은 설계인데, **겹칠 때 어느 쪽인지를 정할
+ * 입력이 없었다.** `ageMonths`가 그 입력이다 — 나이를 알면 그 나이가 지나온 가장 늦은 밴드를
+ * 고르고(라벨이 말하는 시작 개월 기준), 모르면 종전 표 그대로다.
+ */
+export function bandForStage(stage: ChildStageCode, ageMonths?: number | null): StageBandLabel {
+  const candidates = bandsForStage(stage);
+  if (candidates.length < 2 || ageMonths == null) {
+    return stageToBandLabel[stage];
+  }
+
+  let chosen: StageBandLabel | null = null;
+  for (const label of candidates) {
+    if (bandStartMonth(label) > ageMonths) continue;
+    if (chosen === null || bandStartMonth(label) > bandStartMonth(chosen)) {
+      chosen = label;
+    }
+  }
+  return chosen ?? stageToBandLabel[stage];
+}
+
+/**
+ * 아이의 생후 개월. 판정은 도메인 함수 한 벌이 하고(`calculateChildStage`), 이 모듈은
+ * 날짜 계산을 다시 적지 않는다. 임신 중·수동 단계·값 없음·형식 오류는 전부 **모름**(null)이다 —
+ * 지어내지 않는다.
+ */
+export function childAgeMonths(birthDate: unknown): number | null {
+  if (typeof birthDate !== "string" || birthDate.length === 0) {
+    return null;
+  }
+
+  try {
+    const calculated = calculateChildStage({ stageMode: "born", birthDate });
+    return "ageMonths" in calculated ? calculated.ageMonths : null;
+  } catch {
+    return null;
+  }
 }
 
 export function bandStages(label: StageBandLabel): ChildStageCode[] {
@@ -57,6 +116,31 @@ export type ResolveDefaultStageLabelInput = {
    * 즉 **정의상 같은 값**이라 판정 규칙은 한 줄도 바뀌지 않았다.
    */
   currentStage: unknown;
+  /**
+   * 아이의 생년월일(`YYYY-MM-DD`) — **겹치는 밴드를 가르는 유일한 입력**이다.
+   *
+   * 라운드 74 트랙 B: 같은 `["children"]` 응답에 이미 실려 오는 필드다(서버의 `toChildDto` —
+   * apps/api/src/onboarding/store-shared.ts). 그래서 이 입력에 **새 요청이 0건**이고 서버도
+   * 한 줄 바뀌지 않는다. 없을 수 있다(임신 중·수동 단계·조회 실패) — 그때는 종전 값을
+   * 그대로 돌려주되 `resolved: false`로 그 사실을 말한다.
+   */
+  birthDate?: unknown;
+  /**
+   * 아이의 시기 입력 방식(`"pregnant"` · `"born"` · `"manual"`). 같은 `["children"]` 응답에
+   * 이미 실려 오는 필드다(서버의 `toChildDto` — apps/api/src/onboarding/store-shared.ts).
+   *
+   * ⚠️ 라운드 74 적대적 리뷰 B-1 — **`"manual"`에는 설계상 `birthDate`가 없다.**
+   * 수동 입력은 사용자가 시기를 **직접 고르는** 갈래이고, 그래서 폼이 서버로 보내는 것은
+   * `manualStage` 하나다(apps/mobile/src/children/child-form.ts의 `buildCreateChildBody`:
+   * `birthDate`는 `stageMode === "born"`일 때만 실린다). 즉 이 갈래에서 나이를 모르는 것은
+   * **결함이 아니라 그 갈래의 정상**이다.
+   *
+   * 그런데 아래 "겹치는 밴드" 절은 나이를 모른다는 이유로 `resolved: false`를 붙였고, 화면은
+   * 그때 "지금 시기를 확인하지 못했어요. 시기를 직접 골라 주세요."를 세운다 — **방금 시기를
+   * 직접 고른 사람에게** 시기를 직접 고르라고 말하는 자리였다(수동 `toddler_1_3` 한 갈래).
+   * 모름을 정직하게 만드는 장치가 아는 것을 모른다고 말하면 그것도 허위 표시다.
+   */
+  stageMode?: unknown;
   /** True while a pixel-lock capture run is in progress -- must render deterministically. */
   isPixelLockMode: boolean;
   /** True once the user has tapped a chip -- their choice must not be overridden. */
@@ -121,6 +205,14 @@ export const STAGE_BAND_UNRESOLVED_NOTICE = "지금 시기를 확인하지 못�
  * 라운드 69 트랙 C: 반환값이 `{ label, resolved }`다. 폴백 값 자체는 한 글자도 바뀌지 않고
  * (호출부가 넘기는 `"12-24개월"` 그대로 — ITEM-001 캡처 판정이 그 값에 걸려 있다), 바뀌는 것은
  * **그 값이 사실인 척하지 않게** 된 것뿐이다.
+ *
+ * 라운드 74 트랙 B: 그 정직성 장치가 **한 자리에서만 침묵하고 있었다.** `toddler_1_3`은 밴드
+ * 둘이 나눠 갖는 스테이지라(bandsForStage) 스테이지 코드만으로는 어느 칩인지 정해지지 않는데,
+ * 종전 판정은 표에 적힌 "12-24개월"을 돌려주면서 `resolved: true`(= "아이의 실제 시기에서
+ * 나왔다")를 붙였다. 생후 30개월 아이의 부모가 받던 그 칩이 그 자리다. 이제 `birthDate`로
+ * 나이를 알면 그 나이로 고르고, 모르면 **종전 값 그대로 + `resolved: false`** — 라운드 69 C가
+ * 세운 "폴백을 썼으면 그렇다고 말한다"는 갈래를 한 자리 더 넓히는 것뿐이고, 겹치지 않는
+ * 스테이지 여덟의 판정은 한 글자도 바뀌지 않는다.
  */
 export function resolveDefaultStageLabel(input: ResolveDefaultStageLabelInput): ResolvedStageBand {
   if (input.isPixelLockMode || input.hasManualSelection) {
@@ -129,5 +221,20 @@ export function resolveDefaultStageLabel(input: ResolveDefaultStageLabelInput): 
   if (!isChildStageCode(input.currentStage)) {
     return { label: input.fallback, resolved: false };
   }
-  return { label: bandForStage(input.currentStage), resolved: true };
+
+  const ageMonths = childAgeMonths(input.birthDate);
+  const label = bandForStage(input.currentStage, ageMonths);
+
+  if (ageMonths === null && bandsForStage(input.currentStage).length > 1 && input.stageMode !== "manual") {
+    // 밴드 둘이 이 스테이지를 나눠 갖는데 나이를 모른다 — 라벨은 종전 값 그대로 두고,
+    // 그것이 아이의 시기에서 갈라 나온 값이 아니라는 사실만 말한다(화면은 그때 칩을 직접
+    // 고르라고 안내한다 — STAGE_BAND_UNRESOLVED_NOTICE).
+    //
+    // ⚠️ 수동 입력(`stageMode === "manual"`)은 이 갈래가 아니다: 그 아이에게는 설계상
+    // 생년월일이 없고(위 `stageMode` 주석), 사용자가 **방금 고른** 시기가 곧 원천이다.
+    // 나이가 없다는 것이 "시기를 확인하지 못했다"는 뜻이 되지 않는 유일한 갈래다.
+    return { label, resolved: false };
+  }
+
+  return { label, resolved: true };
 }

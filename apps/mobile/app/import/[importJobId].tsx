@@ -50,7 +50,9 @@ import {
 import { importFailureMessage } from "../../src/import/import-failure-messages";
 import { shouldForgetImportResume, shouldMarkImportResumeConfirmed } from "../../src/import/import-resume";
 // 라운드 72 트랙 E: 실패 시점 연결 판정은 공용 배선 한 벌에서 온다(손으로 다시 적지 않는다).
-import { useErrorTimeConnectivity } from "../../src/offline/use-load-error-copy";
+// 라운드 74 트랙 D(GAP-074 #4): 같은 배선층의 형제 훅. 저장 셋은 라운드 71 A가 이미 자기 여정의
+// 문구로 갈라 뒀고, 남아 있던 **조회 둘**(잡 · 행 목록)이 이제 공용 단일 소스를 읽는다.
+import { useErrorTimeConnectivity, useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import {
   attentionFilterChipLabel,
   buildImportBulkSelectionPlan,
@@ -117,18 +119,6 @@ const statusCopy: Record<ImportJob["status"], { label: string; tone: "neutral" |
   failed: { label: "분석에 실패했어요", tone: "warning" },
   cancelled: { label: "가져오기가 취소됐어요", tone: "neutral" }
 };
-
-/**
- * **조회** 실패 전용 문구다(잡 조회 · 행 목록 조회 두 자리).
- *
- * 라운드 71 트랙 A: 종전에는 이 한 문자열이 **네 자리**에 섰다 — 위 둘에 더해 행 체크·분류
- * 편집 실패와 최종 확정 실패까지. 뒤의 둘은 "불러오지" 못한 것이 아니라 **저장하지 못한
- * 것**이라 동사부터 틀렸고, 그 자리에는 [다시 시도]도 없었다. 이제 그 둘은
- * `importFailureMessage`(src/import/import-failure-messages.ts)를 지난다. 여기 남은 두 자리는
- * 실제로 [다시 시도]가 통하는 조회 실패이고, 그 오프라인 인지 배선은 목록 파일
- * (`src/offline/offline-aware-screens.ts`)을 여는 다른 라운드의 몫이다(P3).
- */
-const loadFailedText = "불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
 
 // UX-S: 이 화면의 스크롤러는 FlatList 자체다(아래 주석 참고) -- 웹에서 스크롤바만 감추는
 // 기록 탭과 같은 스타일을 그대로 쓴다.
@@ -723,6 +713,21 @@ export default function ImportPreviewScreen() {
   const categoryFailureOnline = useErrorTimeConnectivity(updateCategory.isError);
   const confirmFailureOnline = useErrorTimeConnectivity(confirm.isError);
 
+  /**
+   * 라운드 74 트랙 D(GAP-074 #4) — **조회** 실패 두 자리의 문구.
+   *
+   * 라운드 71 A가 저장 셋을 자기 여정의 문장으로 갈라내면서, 남은 두 자리(잡 조회 · 행 목록
+   * 조회)에 대해 *"그 오프라인 인지 배선은 목록 파일을 여는 다른 라운드의 몫"*이라고 적어 뒀다.
+   * 이 라운드가 그 목록 파일을 열었으므로 여기서 갚는다 — 배선만 붙고 문구·구조는 그대로다.
+   *
+   * 자리마다 훅을 하나씩 부르는 이유는 바로 위 저장 셋과 같다(라운드 71 리뷰 S-6): 두 조회는
+   * 서로 다른 요청이라 동시에 실패할 수 있고, 한쪽의 연결 판정이 다른 쪽 문장에 얹히면 그 자리가
+   * 남의 사실을 말한다. 온라인 갈래는 두 자리 다 종전 문자열 그대로이고(공용 상수가 같은 값이다),
+   * [다시 시도] 라벨과 재조회 대상도 바뀌지 않는다(IMP-004 렌더 구조 불변).
+   */
+  const jobLoadErrorCopy = useLoadErrorCopy(job.isError);
+  const rowsLoadErrorCopy = useLoadErrorCopy(rows.isError);
+
   const rowList = rows.data?.rows ?? [];
   const selectedCount = selectedRowIds(rowList).length;
   const attentionCount = countImportRowsNeedingAttention(rowList);
@@ -1055,8 +1060,8 @@ export default function ImportPreviewScreen() {
 
       {job.isError ? (
         <Card style={{ gap: 10 }}>
-          <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text>
-          <SecondaryButton label="다시 시도" onPress={() => job.refetch()} />
+          <Text style={{ color: theme.colors.danger }}>{jobLoadErrorCopy.title}</Text>
+          <SecondaryButton label={jobLoadErrorCopy.actionLabel} onPress={() => job.refetch()} />
         </Card>
       ) : null}
 
@@ -1120,7 +1125,9 @@ export default function ImportPreviewScreen() {
             ) : null}
           </View>
           {/* K-10: 중간 실패는 "아무것도 안 됐어요"가 아니다 — 앞부분은 이미 서버에 남아 있다.
-              목록 조회 실패 문구(loadFailedText)를 돌려 쓰면 그 사실을 감추게 된다. */}
+              목록 조회 실패 문구(rowsLoadErrorCopy.title)를 돌려 쓰면 그 사실을 감추게 된다.
+              라운드 74 트랙 D: 그 문구가 고정 문자열에서 공용 훅의 값으로 바뀌었을 뿐, 이 자리가
+              그것을 돌려 쓰면 안 된다는 근거는 그대로다 — 여기는 배선 대상이 아니다. */}
           {bulkOutcome === "failed" ? (
             <Text style={{ color: theme.colors.danger }}>{IMPORT_BULK_PARTIAL_FAILURE_TEXT}</Text>
           ) : null}
@@ -1141,8 +1148,8 @@ export default function ImportPreviewScreen() {
 
       {rows.isError ? (
         <Card style={{ gap: 10 }}>
-          <Text style={{ color: theme.colors.danger }}>{loadFailedText}</Text>
-          <SecondaryButton label="다시 시도" onPress={() => rows.refetch()} />
+          <Text style={{ color: theme.colors.danger }}>{rowsLoadErrorCopy.title}</Text>
+          <SecondaryButton label={rowsLoadErrorCopy.actionLabel} onPress={() => rows.refetch()} />
         </Card>
       ) : null}
     </View>
