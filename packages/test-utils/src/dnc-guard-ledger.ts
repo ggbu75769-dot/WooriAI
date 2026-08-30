@@ -30,6 +30,23 @@
 // `route-surface.test.ts`는 **DNC-003의 가드**다. 그것으로 DNC-001에 가드가 있다고 적으면 대장이
 // 곧 면제부가 된다.
 //
+// ## ⚠️ 이 대장이 무는 것의 한계 — **줄이 실재한다 ≠ 그 단언이 무엇을 실행한다**
+//
+// 가드 칸은 소스에서 **줄을 찾는다**. 그것이 확인하는 것은 "그 단언이 아직 거기 있다"까지이고,
+// 그 단언이 실제로 도는지(스킵되지 않았는지)도, 그 단언이 **무엇을 견주는지**도 묻지 않는다.
+// 라운드 84 리뷰 H-2가 그 창을 실제로 열어 보였다: 종전 DNC-005의 가드 칸은
+// `expect(Object.keys(packageJson.dependencies).sort()).toEqual([` 라는 **여는 줄 하나**였고,
+// 그 아래 배열을 통째로 비워도(= 잠긴 스택 넷을 아무도 세지 않게 만들어도) 이 대장은 초록이었다.
+// 같은 부류가 셋 더 있었다 — DNC-004(routeExpectations 표) · DNC-007(테이블 이름 표) ·
+// DNC-009(수수료율 100건) · DNC-018(문구 표 전수).
+//
+// 그래서 **루프·배열이 구동하는 행**은 `population` 칸을 함께 든다: 그 단언이 도는 **모집단의
+// 핵심 줄**(의존성 이름 넷 · 잠긴 화면 ID · 도메인 테이블 이름 · 수수료율 목록 · 표 전수를 도는
+// for 줄)이 가드 파일에 **주석이 아닌 줄로 실재**해야 한다. 그래도 남는 한계는 그대로다 —
+// 이 대장은 **정적 검사**이고, 단언의 실행까지 재는 것은 각 가드 파일 자신의 일이다. 그 사실을
+// 값으로 여기 적어 두는 이유는 다음 사람이 이 대장을 "조항이 지켜진다는 증명"으로 읽지 않게
+// 하기 위해서다(그것이 이 저장소가 O-3으로 이름 붙인 고질병의 다음 판본이 될 자리다).
+//
 // ## ⚠️ 정찰과 갈린 자리 둘 — 이 트랙이 실측해서 정한다
 //
 // 정찰(`docs/5차/round84-scout.md` #3)은 **인용 수**로 재어 *"테스트에 이름조차 없는 것 둘
@@ -183,6 +200,14 @@ export type DncGuardedEntry = {
   readonly file: string;
   /** 그 단언을 특정하는 소스 줄(하나 이상 · 글자 그대로). */
   readonly assertion: string;
+  /**
+   * ⚠️ 라운드 84 리뷰 H-2 — 그 단언이 도는 **모집단의 핵심 줄**(루프·배열이 구동하는 행에만).
+   *
+   * 여는 줄만 발췌하면 그 속을 비워도 초록이다(머리말의 "한계" 절). 여기 적은 문자열은 각각
+   * 가드 파일의 **주석이 아닌 줄**에 글자 그대로(trim 후) 실재해야 한다 — 의존성 이름을 지우거나
+   * 표에서 잠긴 ID를 빼면 그 순간 빨개진다.
+   */
+  readonly population?: readonly string[];
   /** 그 단언이 **무는 것**과 **물지 않는 것** — 빈 문자열일 수 없다. */
   readonly covers: string;
 };
@@ -245,6 +270,18 @@ export const DNC_GUARD_LEDGER: Readonly<Record<string, DncLedgerEntry>> = {
     state: "guarded",
     file: "apps/mobile/src/expense-home-report-flow.test.ts",
     assertion: '      expect(existsSync(filePath) ? readFileSync(filePath, "utf8") : "").toContain(expectedText);',
+    // ⚠️ H-2: 이 단언은 routeExpectations 표를 돈다 — 표가 비면 단언이 0회 돌고도 초록이다.
+    population: [
+      "const routeExpectations = [",
+      '      ["app/(tabs)/index.tsx", "HOME-001"],',
+      '      ["app/expenses/new.tsx", "EXP-001"],',
+      '      ["app/expenses/[expenseId].tsx", "EXP-003"],',
+      '      ["app/(tabs)/records.tsx", "EXP-004"],',
+      '      ["app/(tabs)/reports.tsx", "REP-001"],',
+      '      ["app/(tabs)/reports.tsx", "REP-002"],',
+      '      ["app/budget.tsx", "BUD-001"],',
+      "    for (const [relativePath, expectedText] of routeExpectations) {"
+    ],
     covers:
       "잠긴 화면 ID(HOME-001 · EXP-001/003/004 · REP-001/002 · BUD-001)가 각자의 라우트 파일에 실제로 실려 있는지를 " +
       "routeExpectations 표 전수로 확인한다 — ID를 임의로 갈면 빨개진다. " +
@@ -255,6 +292,9 @@ export const DNC_GUARD_LEDGER: Readonly<Record<string, DncLedgerEntry>> = {
     state: "guarded",
     file: "apps/mobile/src/security/app-lock-gate-contract.test.ts",
     assertion: "    expect(Object.keys(packageJson.dependencies).sort()).toEqual([",
+    // ⚠️ H-2: 이 조항이 잠근 것은 **그 배열 안의 네 이름**이다. 여는 줄만 물면 배열을 비워도 초록이다
+    // (라운드 84 리뷰가 실제로 재현한 자리 — DNC-005가 그 부류의 대표였다).
+    population: ['      "react-native",', '      "expo",', '      "@tanstack/react-query",', '      "zustand"'],
     covers:
       "apps/mobile/package.json의 의존성 이름 전수를 못 박는다 — 그 목록에 react-native · expo · @tanstack/react-query · zustand가 " +
       "이름으로 있어서 넷 중 하나라도 갈아 끼우면 빨개진다. " +
@@ -276,6 +316,21 @@ export const DNC_GUARD_LEDGER: Readonly<Record<string, DncLedgerEntry>> = {
     state: "guarded",
     file: "apps/api/test/db-contract.test.ts",
     assertion: '      expect(schema).toContain(`@@map("${tableName}")`);',
+    // ⚠️ H-2: 잠긴 도메인은 tableNames 배열 안에 있다 — 그 배열이 모집단이다.
+    population: [
+      "const tableNames = [",
+      '      "households",',
+      '      "children",',
+      '      "expenses",',
+      '      "budgets",',
+      '      "item_templates",',
+      '      "child_item_statuses",',
+      '      "product_links",',
+      '      "affiliate_clicks",',
+      '      "consents",',
+      '      "audit_logs"',
+      "    for (const tableName of tableNames) {"
+    ],
     covers:
       "잠긴 도메인 테이블 전수(users · households · household_members · children · expenses · budgets · item_templates · " +
       "child_item_statuses · product_links · affiliate_clicks · import_jobs/import_rows · consents · audit_logs 포함)가 " +
@@ -297,6 +352,13 @@ export const DNC_GUARD_LEDGER: Readonly<Record<string, DncLedgerEntry>> = {
     state: "guarded",
     file: "packages/domain/src/recommendation.boundary.test.ts",
     assertion: "      expect(calculateRecommendationScore({ ...base, affiliateCommissionRate: rate })).toBe(",
+    // ⚠️ H-2: 이 단언의 값은 **100회 반복과 그 수수료율 목록**에서 나온다 — 반복을 1회로 줄이거나
+    // 목록을 [0] 하나로 바꾸면 단언 줄은 그대로인 채 무는 범위만 사라진다.
+    population: [
+      "for (let i = 0; i < 100; i += 1) {",
+      "const rate = [0, -1, 0.999, Number.MAX_SAFE_INTEGER, rand() * 100, -rand(), NaN][",
+      "const baseline = calculateRecommendationScore({ ...base, affiliateCommissionRate: undefined });"
+    ],
     covers:
       "임의 수수료율 100건(0 · 음수 · 거대값 · 소수 · NaN)을 넣어도 점수가 수수료율을 넣지 않은 기준값과 같음을 속성으로 묻는다 — " +
       "수수료율이 점수에 한 번이라도 유입되면 빨개진다. 가격이 순서에 유입되지 않는 인접 축은 " +
@@ -369,11 +431,18 @@ export const DNC_GUARD_LEDGER: Readonly<Record<string, DncLedgerEntry>> = {
       "조항이 잠근 것은 범위 밖 여섯(사진/영수증 AI · 커뮤니티 · 가격 추적 · 중고 연동 · 보험/금융 제휴 · 의료 조언)인데, " +
       "그 여섯을 훑는 부정 단언이 0건이다. 저장소 전체에서 이 ID의 인용도 주석 한 줄뿐이다 " +
       "(apps/api/src/worker/jobs/data-retention-purge.job.ts). " +
-      "⚠️ 오늘 여섯이 실제로 없다는 것은 사실이다(가격 이력 필드·커뮤니티 라우트·OCR 의존성 전부 0건). " +
-      "문제는 없다는 사실을 세는 자리가 없다는 것이다 — 생겨도 조용하다.",
+      "⚠️ **라운드 84 리뷰 L-8 — 종전 이 자리는 '가격 이력 필드가 0건'이라고 적었는데 그것은 부정확했다.** " +
+      "schema.prisma의 product_links에는 이미 `price_snapshot_krw`와 `price_checked_at`이 있다(라운드 51 #9). " +
+      "다만 그 둘은 **현재값 한 벌**이고(행이 쌓이지 않는다 · 이력 테이블이 없다 · 주기 수집 잡이 없다) " +
+      "쓰임은 '언제 확인한 값인지 모르면 가격을 아예 싣지 않는다'는 **정직 표시**다 — 조항이 말하는 " +
+      "'가격 추적/최저가 비교'가 아니다. 커뮤니티 라우트·OCR 의존성이 0건인 것은 그대로 사실이다. " +
+      "문제는 그 경계가 어디에도 세어지지 않는다는 것이다 — 스냅샷 한 칸이 이력 테이블로 자라도 조용하다.",
     resumeWhen:
-      "여섯 중 하나에 인접한 필드·라우트·의존성이 하나라도 들어오는 날(가격 이력 저장 · 리뷰/댓글 테이블 · OCR/이미지 인식 의존성 · " +
-      "중고 플랫폼 연동 키 · 보험 제휴 링크 종별), 또는 부정 스윕의 모집단(무엇을 어디까지 훑을 것인가)이 결정되는 날."
+      "⚠️ 가격 축의 재개 조건은 **오늘 있는 컬럼 기준**으로 적는다: `price_snapshot_krw`·`price_checked_at`이 " +
+      "**행으로 쌓이기 시작하는 날**(가격 이력/추이 테이블 · product_links에 시계열 컬럼 추가 · 스냅샷을 주기적으로 " +
+      "갱신하는 워커 잡 · 최저가 비교나 가격 인하 알림 표면). 나머지 다섯은 인접한 필드·라우트·의존성이 하나라도 " +
+      "들어오는 날(리뷰/댓글 테이블 · OCR/이미지 인식 의존성 · 중고 플랫폼 연동 키 · 보험 제휴 링크 종별 · " +
+      "의료 조언 문구). 또는 부정 스윕의 모집단(무엇을 어디까지 훑을 것인가)이 결정되는 날."
   },
   "DNC-017": {
     state: "guarded",
@@ -388,6 +457,8 @@ export const DNC_GUARD_LEDGER: Readonly<Record<string, DncLedgerEntry>> = {
     state: "guarded",
     file: "apps/mobile/src/api/api-error.test.ts",
     assertion: "      expect(message, code).toMatch(/[요]\\.$/);",
+    // ⚠️ H-2: 모집단은 문구 표 **전수**다 — 그 for 줄이 골라 도는 순간 이 가드가 무는 범위가 줄어든다.
+    population: ["for (const [code, message] of Object.entries(API_ERROR_MESSAGES)) {"],
     covers:
       "API 오류 문구 표 전수를 돌며 해요체로 끝나는지를 묻고, 같은 테스트가 사용자를 탓하는 표현 다섯을 부정으로 훑는다 — " +
       "표에 문구가 늘 때마다 모집단이 함께 는다. " +

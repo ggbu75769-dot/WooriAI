@@ -106,7 +106,61 @@ describe("ⓑ 두 방향 — 대장이 가리키는 파일과 단언 줄이 실�
       // 이유 칸과 같은 규율: 무는 것/물지 않는 것이 빈 문자열일 수 없다.
       expect(entry.covers.trim().length, `${id}의 covers가 비어 있어요`).toBeGreaterThan(20);
     });
+
+    if (entry.population) {
+      /**
+       * ⚠️ 라운드 84 리뷰 H-2 — **여는 줄만 물면 단언 속을 비워도 초록이다.**
+       *
+       * 루프·배열이 구동하는 가드는 그 모집단이 곧 무는 범위다. 그래서 모집단의 핵심 줄이
+       * 각각 **주석이 아닌 줄**에 실재하는지를 함께 묻는다(대장이 자기 한계를 자기 안에서 닫는다).
+       */
+      it(`${id}: 그 단언이 도는 모집단의 핵심 줄이 ${entry.file}에 실재한다`, () => {
+        const source = readRepoFile(entry.file);
+        expect(entry.population!.length, `${id}의 population이 비어 있어요`).toBeGreaterThan(0);
+        for (const line of entry.population!) {
+          expect(
+            findAssertionLines(source, line).length,
+            `${id}의 모집단 줄이 사라졌어요: \`${line}\` — 단언은 남았는데 그 단언이 도는 대상이 줄었는지 보세요`
+          ).toBeGreaterThan(0);
+        }
+      });
+    }
   }
+});
+
+describe("ⓑ 두 방향 — 루프·배열 가드는 모집단 칸을 갖는다 (라운드 84 리뷰 H-2)", () => {
+  /**
+   * 이 대장이 무는 것의 한계를 **픽스처로 실제로 돌려 보인다**: 여는 줄만 발췌한 가드는 그 아래
+   * 배열이 비어도 `findAssertionLines`가 자리를 찾는다. 그 사실을 값으로 세지 않으면 다음 사람이
+   * 다시 발견해야 한다(머리말의 "한계" 절이 말하는 그 창).
+   */
+  it("여는 줄만 발췌하면 배열을 비워도 자리로 세어진다 (그래서 population 칸이 있다)", () => {
+    const opener = "expect(Object.keys(packageJson.dependencies).sort()).toEqual([";
+    const emptied = ["  it('deps', () => {", `    ${opener}`, "    ]);", "  });"].join("\n");
+
+    // 종전 검사는 이 소스를 통과시킨다 — 잠긴 스택 넷을 아무도 세지 않는데도.
+    expect(findAssertionLines(emptied, `    ${opener}`).length).toBeGreaterThan(0);
+    // 모집단 줄을 함께 물면 같은 소스가 빨개진다.
+    expect(findAssertionLines(emptied, '      "react-native",')).toEqual([]);
+  });
+
+  it("루프·배열이 구동하는 행 전수가 모집단 칸을 갖는다", () => {
+    // 오늘 그 부류로 판정한 다섯. 새 가드가 같은 모양으로 들어오면 이 줄을 함께 고치는 것이
+    // 곧 "그 단언이 무엇을 도는가"를 한 번 더 보게 만드는 자리다.
+    const loopDriven = ["DNC-004", "DNC-005", "DNC-007", "DNC-009", "DNC-018"];
+    for (const id of loopDriven) {
+      const entry = DNC_GUARD_LEDGER[id];
+      expect(entry.state, `${id}`).toBe("guarded");
+      if (entry.state !== "guarded") continue;
+      expect(entry.population, `${id}의 모집단 칸이 비어 있어요`).toBeDefined();
+    }
+    // 모집단 칸을 가진 행이 그 다섯 밖으로 조용히 늘지 않는다(늘면 이 줄을 함께 고친다).
+    const withPopulation = guardedRuleIds().filter((id) => {
+      const entry = DNC_GUARD_LEDGER[id];
+      return entry.state === "guarded" && entry.population !== undefined;
+    });
+    expect(withPopulation.sort()).toEqual(loopDriven);
+  });
 });
 
 describe("ⓒ 가드 없음 행은 이유와 재개 조건을 갖는다", () => {
@@ -137,6 +191,21 @@ describe("ⓓ 래칫 — 가드 없는 조항의 수는 오늘 값을 넘지 못
   it("상한 자체가 조용히 올라가지 않는다 (오늘 실측값 셋)", () => {
     // 두 자리를 함께 고쳐야 상한이 오른다 — 한 자리만 고쳐서 지나가는 길을 남기지 않는다.
     expect(UNGUARDED_RULE_MAX).toBeLessThanOrEqual(3);
+  });
+
+  /**
+   * ⚠️ 라운드 84 리뷰 L-7 — **래칫은 내려가기도 해야 한다.**
+   *
+   * 위 두 줄은 상한이 오르는 것만 막는다. 가드가 하나 서서 실측값이 둘이 돼도 상한이 셋인 채로
+   * 남으면, 다음 사람은 그 줄을 "셋까지는 비어도 된다"로 읽는다(대장 머리말이 그러지 말라고
+   * 적어 둔 바로 그 자리다 — 적어 두는 것과 세는 것은 다르다).
+   */
+  it("상한이 오늘 실측값과 **정확히** 같다 (가드가 서면 이 줄도 함께 내려간다)", () => {
+    expect(
+      UNGUARDED_RULE_MAX,
+      `가드 없는 조항은 오늘 ${unguardedRuleIds().length}개예요(${unguardedRuleIds().join(" · ")}) — ` +
+        "UNGUARDED_RULE_MAX를 그 수로 맞추세요"
+    ).toBe(unguardedRuleIds().length);
   });
 });
 

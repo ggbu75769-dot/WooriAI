@@ -75,8 +75,21 @@ export function activeProductLinkCount(item: Pick<ItemTemplate, "productLinks" |
  * ⚠️ 이 수는 **세고 고르는** 데만 쓴다 — 스폰서 링크를 숨기거나 뒤로 미는 일은 여기서도, 이
  * 화면 어디에서도 하지 않는다(DNC-011). 정렬·추천 점수와도 무관하다(DNC-009).
  *
- * productLinks가 통째로 비어 오는 응답(구버전)에서는 0이 된다 — activeProductLinkCount의 N-8
- * 폴백과 방향이 같다: 링크가 정말 없으면 화면에도 큰 버튼이 서지 않는 것이 사실이다.
+ * ⚠️ **라운드 84 리뷰 L-12 — 필드 부재 폴백의 방향이 N-8과 반대다(값으로 적어 둔다).**
+ * 종전 이 문단은 *"activeProductLinkCount의 N-8 폴백과 방향이 같다"* 고 적었는데 그것은 틀렸다.
+ * `productLinks`가 통째로 비어 오는 응답에서 두 함수가 가는 방향은 정확히 반대다:
+ *   - `activeProductLinkCount`는 **없는 문제를 만들지 않는** 쪽으로 떨어진다(등록 링크 수 → 필터에
+ *     걸리지 않는다). 그것이 N-8이 고른 방향이다.
+ *   - 이 함수는 0으로 떨어져 **없는 문제를 만드는** 쪽이다 — 링크가 멀쩡히 있어도 "강조 버튼이
+ *     서지 않는 준비템"으로 목록에 남는다.
+ *
+ * 그래도 오늘 코드 동작을 바꾸지 않는 이유: `productLinks`는 목록 응답의 **필수 필드**이고
+ * (admin-api.ts의 ItemTemplate), 이 판정은 그 배열의 `active`·`isSponsored`를 **직접 읽어야만**
+ * 성립한다 — 서버가 세어 준 요약 수(activeLinkCount) 같은 대체 근거가 없다. 즉 배열이 없으면
+ * 어느 방향으로 떨어져도 근거 없는 단정이고, 그 상태에서 "링크가 있다"고 가정하는 폴백은 **필터가
+ * 존재 이유를 잃는 방향**(스폰서만 걸린 자리를 영영 못 찾는다)이다. 그래서 방향을 여기 적어 두고,
+ * 그 사실 자체는 테스트가 값으로 고정한다(item-filters.test.ts의 L-12 줄). 배열이 정말 선택 필드가
+ * 되는 날 그 줄이 먼저 이 판단을 다시 하게 만든다.
  */
 export function activeNonSponsoredLinkCount(item: Pick<ItemTemplate, "productLinks">): number {
   return (item.productLinks ?? []).filter((link) => link.active && !link.isSponsored).length;

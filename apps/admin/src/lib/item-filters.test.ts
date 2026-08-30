@@ -249,9 +249,28 @@ describe("모바일 CTA 술어와의 동치 (라운드 84 트랙 A ⓑ)", () => 
   });
 
   /**
+   * ⚠️ 라운드 84 리뷰 M-3 — **동치의 서버 절반에도 단언이 선다.**
+   *
+   * 위 두 줄은 모바일의 술어(`!link.isSponsored`)와 어드민의 술어(`link.active && !link.isSponsored`)를
+   * 소스로 맞댄다. 그런데 둘이 동치인 **근거의 절반**은 서버에 있다: 앱이 그 술어를 먹이는 목록에
+   * 애초에 활성 링크만 실린다는 사실이다. 그 절반에는 단언이 0건이었고, 서버가 `active: true`를
+   * 푸는 날(비활성 링크도 상세에 실리는 날) 어드민의 활성 조건은 조용히 **덧붙은 조건**이 된다 —
+   * 앱은 비활성 스폰서 링크에도 채움 버튼을 세우는데 어드민은 그것을 0으로 센다.
+   *
+   * 읽기만 한다(ⓐ와 같은 관례 — apps/admin은 api를 의존성으로 들지 않는다).
+   */
+  it("서버 상세 조회가 활성 링크만 싣는다 (어드민에 활성 조건이 붙는 근거)", () => {
+    const service = readRepoSource("apps/api/src/onboarding/items-catalog.service.ts");
+    expect(service).toContain("const linkRows = await this.prisma.productLink.findMany({");
+    expect(service, "서버가 상세 링크를 활성으로 좁히지 않으면 어드민의 활성 조건이 덧붙은 조건이 돼요").toContain(
+      "where: { itemTemplateId: item.id, active: true },"
+    );
+  });
+
+  /**
    * 값으로도 동치를 센다: 앱이 그 술어를 먹이는 목록에는 **활성 링크만** 실리므로
-   * (items-catalog.service.ts의 상세 조회가 `active: true`로 좁힌다), 같은 링크 집합에서
-   * "채워진 버튼이 서는가"와 "활성 비스폰서 링크가 1건 이상인가"는 언제나 같은 답이다.
+   * (items-catalog.service.ts의 상세 조회가 `active: true`로 좁힌다 — 그 절이 위 줄로 고정된다),
+   * 같은 링크 집합에서 "채워진 버튼이 서는가"와 "활성 비스폰서 링크가 1건 이상인가"는 언제나 같은 답이다.
    */
   it("같은 링크 집합에서 두 판정의 답이 같다", () => {
     const appSeesFilledButton = (links: ProductLink[]) =>
@@ -310,20 +329,106 @@ describe("AND 결합과 요청 0건 (라운드 84 트랙 A ⓒ)", () => {
  */
 describe("새 필터의 문구 (라운드 84 트랙 A ⓓ)", () => {
   const page = readAdminSource("app/items/page.tsx");
-  const LABEL = "스폰서 아닌 상품 링크 없음만 보기";
+  /**
+   * ⚠️ 라운드 84 리뷰 L-9 — 종전 라벨 "스폰서 아닌 상품 링크 없음만 보기"는 두 가지로 오독됐다:
+   * ① "스폰서 아닌 (상품 링크 없음만)"으로 끊어 읽히고 ② **활성** 조건을 한 글자도 말하지 않는다
+   * (비스폰서 링크가 있어도 내려가 있으면 이 필터에 걸린다 — 판정은 그때부터 라벨과 다른 말을 한다).
+   */
+  const LABEL = "활성 비스폰서 링크가 없는 준비템만 보기";
   const HINT = "앱에서 강조되는 구매 버튼은 스폰서가 아닌 활성 링크가 받는데, 그 링크가 없는 준비템만 나와요.";
+  /** 라운드 84 리뷰 L-11 — 두 필터의 **포함 관계**(필터1 ⊆ 필터2)를 힌트가 한 줄로 말한다. */
+  const HINT_INCLUSION = "위 필터에 걸리는 준비템은 여기에도 모두 나와요 — 이 필터가 위 필터를 포함해요.";
 
   it("라벨과 힌트가 그 자리에 있다", () => {
     expect(page).toContain(LABEL);
     expect(page).toContain(HINT);
+    expect(page).toContain(HINT_INCLUSION);
     expect(page).toContain('id="item-filter-missing-non-sponsored-links"');
+    // 오독되던 종전 라벨은 남아 있지 않다(문구가 두 벌이 되지 않는다).
+    expect(page).not.toContain("스폰서 아닌 상품 링크 없음만 보기");
+  });
+
+  it("라벨이 판정의 두 조건(활성 · 비스폰서)을 모두 말한다", () => {
+    for (const word of ["활성", "비스폰서"]) {
+      expect(LABEL, `라벨이 ${word} 조건을 말하지 않아요`).toContain(word);
+    }
+  });
+
+  /**
+   * ⚠️ 라운드 84 리뷰 L-11 — 포함 관계는 **문장으로만** 말한다. 라디오 버튼으로 바꾸는 것은
+   * 과공학이고(두 필터를 함께 켤 수 있다는 사실 자체는 참이다 — AND 결합의 기존 규율), 무엇보다
+   * 종전 필터의 동작을 바꾼다. 그래서 체크박스 둘은 그대로다.
+   */
+  it("포함 관계를 말할 뿐 입력 방식을 바꾸지 않는다 (라디오 0건)", () => {
+    expect(page).not.toContain('type="radio"');
+    expect((page.match(/id="item-filter-missing-(non-sponsored-)?links"/g) ?? []).length).toBe(2);
+  });
+
+  it("포함 관계가 실제로 참이다 (문장과 판정이 갈리지 않는다)", () => {
+    const all = [swaddle, sterilizer, tub, bottleWarmer, stroller, walker, wipes];
+    const narrow = filterItemTemplates(all, { missingLinksOnly: true });
+    const wide = filterItemTemplates(all, { missingNonSponsoredLinksOnly: true });
+    for (const entry of narrow) {
+      expect(wide, `${entry.name}: 위 필터에 걸리는데 아래 필터에는 없어요`).toContain(entry);
+    }
+    expect(wide.length).toBeGreaterThan(narrow.length);
   });
 
   it("해요체이고, 무엇이 잘못됐다고 말하지 않는다", () => {
     expect(HINT.endsWith("요.")).toBe(true);
+    expect(HINT_INCLUSION.endsWith("요.")).toBe(true);
     for (const banned of ["잘못", "오류", "위반", "문제", "실수", "고쳐"]) {
-      expect(`${LABEL} ${HINT}`, `단정하는 낱말(${banned})`).not.toContain(banned);
+      expect(`${LABEL} ${HINT} ${HINT_INCLUSION}`, `단정하는 낱말(${banned})`).not.toContain(banned);
     }
+  });
+
+  /**
+   * ⚠️ 라운드 84 리뷰 L-10 — **필터가 무엇을 보고 골랐는지가 결과에도 보인다.**
+   *
+   * 종전에는 새 필터를 켜야만 그 자리가 드러났고, 목록의 어느 칸도 "이 준비템은 활성 링크가 있는데
+   * 전부 광고다"라고 말하지 않았다. 링크 열의 의미(활성 링크 수)는 그대로 두고, 그 경우에만 괄호
+   * 한 칸이 는다 — 종전 "(비활성 N)"과 같은 형식이다.
+   */
+  it("링크 열이 새 판정의 근거를 함께 보여 준다 (열의 의미는 그대로)", () => {
+    const page = readAdminSource("app/items/page.tsx");
+    expect(page).toContain("activeProductLinkCount(item) > 0 && activeNonSponsoredLinkCount(item) === 0");
+    expect(page).toContain("(비스폰서 0)");
+    // 기존 표시는 바이트 불변이다 — 활성 수와 "(비활성 N)"이 그대로다.
+    expect(page).toContain("(비활성 {productLinkCount(item) - activeProductLinkCount(item)})");
+    // 그 배지가 서는 조건이 곧 필터의 조건이다(픽스처로 같은 답을 확인한다).
+    for (const fixture of [stroller, walker]) {
+      expect(activeProductLinkCount(fixture) > 0 && activeNonSponsoredLinkCount(fixture) === 0).toBe(
+        activeProductLinkCount(fixture) > 0 &&
+          filterItemTemplates([fixture], { missingNonSponsoredLinksOnly: true }).length === 1
+      );
+    }
+    // 링크가 아예 없는 준비템에는 붙지 않는다(그 자리는 활성 수 0이 이미 말한다).
+    expect(activeProductLinkCount(sterilizer) > 0 && activeNonSponsoredLinkCount(sterilizer) === 0).toBe(false);
+    // 스폰서 링크를 숨기거나 뒤로 미는 배선은 여전히 0건이다(DNC-011).
+    expect(page).not.toContain("isSponsored ?");
+    expect(page).not.toMatch(/filter\([^)]*isSponsored/);
+  });
+
+  /**
+   * ⚠️ 라운드 84 리뷰 L-12 — **필드 부재 폴백의 방향이 N-8과 반대라는 사실을 값으로 고정한다.**
+   *
+   * 오늘 두 필드는 모두 필수라 이 경우가 실제로 오지는 않는다. 그래서 코드 동작은 바꾸지 않고,
+   * 방향이 반대라는 것과 그 이유(이 판정에는 배열 말고 대체 근거가 없다)를 주석과 이 줄에 남긴다.
+   */
+  it("L-12: productLinks가 비어 오면 두 판정의 폴백 방향이 반대다", () => {
+    const legacy = { name: "신생아 속싸개", activeLinkCount: 2 } as unknown as FilterableItem;
+
+    // N-8: 없는 문제를 만들지 않는 쪽 — 서버가 센 활성 수를 그대로 믿는다.
+    expect(activeProductLinkCount(legacy)).toBe(2);
+    expect(filterItemTemplates([legacy], { missingLinksOnly: true })).toEqual([]);
+
+    // 새 판정: 배열이 없으면 0 — **없는 문제를 만드는 쪽**이다(그 사실을 숨기지 않는다).
+    expect(activeNonSponsoredLinkCount(legacy)).toBe(0);
+    expect(filterItemTemplates([legacy], { missingNonSponsoredLinksOnly: true })).toEqual([legacy]);
+
+    // 그 비대칭이 주석에 값으로 적혀 있다(다음 사람이 이 판단을 다시 하지 않게).
+    const source = readAdminSource("src/lib/item-filters.ts");
+    expect(source).toContain("필드 부재 폴백의 방향이 N-8과 반대다");
   });
 
   it("기존 필터의 문구는 한 글자도 바뀌지 않는다 (ⓔ)", () => {

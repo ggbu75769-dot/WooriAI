@@ -76,6 +76,14 @@ export const LONG_SHARED_STALE_TIME_MS = 5 * 60 * 1000;
  * "둘 이상"의 기준은 `queryKey: ["…"` 선언이 등장하는 **서로 다른 파일 수 ≥ 2**이고, 그 전수는
  * 테스트가 저장소를 훑어 스스로 센다(수를 손으로 적지 않는다). 여기 없는 키가 둘째 소비처를
  * 얻는 날 ⓑ가 빨개진다.
+ *
+ * ⚠️ **왜 단위가 "선언 파일 수"인가**(라운드 84 리뷰 L-14). 이 표가 정하는 것은 **신선도**이고,
+ * 신선도는 그 키를 **읽는 관찰자**가 정한다(ⓐ 재현: 같은 항목에 붙은 가장 짧은 선언이 이긴다).
+ * 그래서 모집단의 단위도 "읽는 자리"여야 한다 — **무효화 자리 수는 이 표의 단위가 아니다.**
+ * 그 선택의 대가는 값으로 남긴다: 오늘 `["home"]`은 여섯 자리에서, `["report"]`는 일곱 자리에서
+ * 무효화되는데 선언 파일은 각각 하나뿐이라 **이 표의 모집단 밖**이다. 그런 키 전수(선언 파일 1 ·
+ * 무효화 자리 ≥ 2)는 아래 `INVALIDATION_ONLY_KEYS`가 이유와 함께 세고, 테스트가 두 방향으로
+ * 맞댄다 — 즉 사각이 아니라 **다른 대장이 지는 자리**다.
  */
 export const SHARED_CACHE_POLICIES: readonly SharedCachePolicy[] = [
   {
@@ -291,14 +299,28 @@ export const CHILDREN_WRITE_LEDGER: readonly ChildrenWritePath[] = [
  * *"어떤 mutation이 연결 지출이었는지 FlushSummary가 알지 못하므로 조건 없이 무효화한다"* 는
  * 문단이 있다, 즉 조건을 붙이고 싶어질 자리라는 뜻이다 — 아래 대장이 빨개진다.
  *
+ * ⚠️ **라운드 84 리뷰 H-1 — 그 약속을 대장이 실제로 지키게 된 것은 이번 리뷰부터다.** 종전
+ * `flush-confirm` 검증기는 확정 갈래 **구간 안에 그 무효화 줄이 있는가**만 물었다. 그래서
+ * `["home"]` 무효화를 `if (summary.expenseSynced > 0) {` 같은 갈래로 **감싸도** 줄은 그대로
+ * 구간 안에 있었고 계약은 초록이었다 — 머리말의 이 약속과 아래 "빠른 기록" 줄의 서술이 서로
+ * 어긋난 채였다. 이제 검증기는 두 가지를 더 본다: ① 그 줄이 `if (summary.synced > 0) {`의
+ * **최상위 깊이**(중괄호 깊이 1)에 서 있는가 ② 그 줄 자신이 조건절로 시작하지 않는가.
+ * 조건이 한 겹이라도 붙으면 빨개진다.
+ *
  * ## 이 대장들이 세는 것과 세지 않는 것
  *
- * 스윕은 **리터럴**만 센다: 쿼리 선언은 `queryKey: ["…"`(위 정책 대장과 같은 규칙),
- * 무효화 자리는 `invalidateQueries({ queryKey: ["…"`. 상수를 거치는 무효화
+ * 쿼리 선언 스윕은 **리터럴**만 센다(`queryKey: ["…"` — 위 정책 대장과 같은 규칙). 리터럴이
+ * 아닌 `queryKey` 선언은 `NON_LITERAL_QUERY_KEY_SITES`가 이름과 이유로 센다.
+ *
+ * ⚠️ **무효화 자리 스윕은 라운드 84 리뷰 M-4가 두 갈래로 넓혔다.** 종전에는 리터럴
+ * (`invalidateQueries({ queryKey: ["…"`)만 세었고, 상수를 거치는 무효화
  * (`CHILD_SCOPED_QUERY_KEY_PREFIXES` · `CHILD_REMOVAL_INVALIDATE_KEYS` ·
- * `HOUSEHOLD_JOIN_INVALIDATE_KEYS`)는 그 스윕에 잡히지 않으므로 **쓰기 줄이 표현식 그대로**
- * 들고 있고, 테스트가 그 상수의 실제 값으로 확인한다. 리터럴이 아닌 `queryKey` 선언은
- * `NON_LITERAL_QUERY_KEY_SITES`가 이름과 이유로 센다.
+ * `HOUSEHOLD_JOIN_INVALIDATE_KEYS`)는 **모집단 밖**이었다 — 그래서 아이 전환·아이 관리·아이
+ * 삭제·초대 수락이 [\"expenses\"]·[\"budget\"]을 실제로 비우는데도 그 넷은 어느 대장에도 없었다.
+ * 이제 테스트가 그 상수들을 **import해 실제 멤버 키로 전개**하고, 그 상수 이름이 주석이 아닌
+ * 줄에 등장하면서 같은 파일이 `invalidateQueries`를 부르는 자리를 무효화 자리로 함께 센다
+ * (`otherInvalidationSites`에 이유가 없으면 빨개진다). 쓰기 줄이 표현식을 그대로 들고 그
+ * 상수의 **실제 값**으로 확인하던 종전 검사는 그대로 남는다.
  * =========================================================================================== */
 
 /** 공유 키 한 줄이 세는 쓰기 경로 하나. */
@@ -320,6 +342,20 @@ export type SharedKeyWrite = {
    * (라운드 83 M-5와 같은 2단계 검사: ① 구간이 그 헬퍼를 부르는가 ② 헬퍼 정의가 무효화를 담는가).
    */
   readonly via?: string;
+  /**
+   * ⚠️ 라운드 84 리뷰 L-13 — 그 구간이 **리터럴로** 무효화하는 키의 첫 칸 전수(있으면 테스트가
+   * 소스에서 세어 이 배열과 정확히 같은지 본다 = 두 방향). 이유 문장이 *"목록도 확정과 같다"* 처럼
+   * 다른 자리의 집합을 말하는 줄에는 반드시 적는다 — 그 문장이 세어지지 않으면 수를 손으로 적은
+   * 것과 같고, 실제로 그 자리에서 **넷이라고 적힌 집합이 다섯**이었다.
+   */
+  readonly invalidatedKeyHeads?: readonly string[];
+  /**
+   * ⚠️ 라운드 84 리뷰 M-5 — **무효화 0건**(`invalidatedIn: null`)인 줄이 기대는 사실의 이름.
+   * 이유 문장만으로는 그 사실이 참인지 아무도 세지 않는다(실제로 종전 이 자리의 이유는 거짓이었다).
+   *   - `child-scoped-key-new-child` — 그 키가 childId 스코프이고 이 경로 앞 단계가 **새 아이를
+   *     만든다** → 그 childId의 캐시 항목이 아직 없어 무효화할 대상이 0건이다.
+   */
+  readonly zeroInvalidationProvenBy?: "child-scoped-key-new-child";
   readonly why: string;
 };
 
@@ -344,6 +380,46 @@ export type SharedKeyCoverage = {
   readonly otherInvalidationSites: readonly { readonly file: string; readonly why: string }[];
   readonly why: string;
 };
+
+/**
+ * ⚠️ 라운드 84 리뷰 M-4 — **아이 스코프 캐시를 상수로 통째로 비우는 자리 넷.**
+ *
+ * `CHILD_SCOPED_QUERY_KEY_PREFIXES`(home · expenses · expense · budget · items · item-detail ·
+ * report)를 직접, 또는 그것을 품은 두 집합(`CHILD_REMOVAL_INVALIDATE_KEYS` ·
+ * `HOUSEHOLD_JOIN_INVALIDATE_KEYS`)을 거쳐 훑는 자리다. 넷 다 **이 키의 쓰기가 아니다** —
+ * 지출이나 예산을 한 건도 바꾸지 않고, *"보고 있는 아이가 통째로 바뀐다"* 는 다른 축의 사건에
+ * 곁들여 이 키를 비운다. 그래서 `writes`가 아니라 여기 이유와 함께 선다.
+ *
+ * 두 공유 키(`["expenses"]`·`["budget"]`)가 같은 넷을 공유하므로 배열 하나로 두고 두 줄이 펼친다
+ * — 같은 사실을 두 벌 적으면 한쪽만 낡는다.
+ */
+const CHILD_SCOPE_INVALIDATION_SITES: readonly { readonly file: string; readonly why: string }[] = [
+  {
+    file: "src/children/child-switch.ts",
+    why:
+      "아이 전환(applyChildSwitch)이 CHILD_SCOPED_QUERY_KEY_PREFIXES를 훑는다 — 쓰기가 아니라 " +
+      "**보는 대상**이 바뀌는 자리라, 아이 A의 캐시가 아이 B 화면에 남지 않게 비운다(MOB-118)."
+  },
+  {
+    file: "app/settings/children.tsx",
+    why:
+      "아이 추가·수정·출생 전환 뒤처리가 같은 상수를 훑는다(invalidateChildScopedQueries). " +
+      "[\"children\"] 쓰기의 곁들임이고 지출·예산 자체는 한 건도 바뀌지 않는다 — 서버 계산 " +
+      "단계가 움직여 그 아이의 집계가 달라질 수 있어 함께 비운다."
+  },
+  {
+    file: "app/settings/privacy.tsx",
+    why:
+      "아이 프로필 삭제·가구 탈퇴 뒤처리(CHILD_REMOVAL_INVALIDATE_KEYS = [\"children\"] + 아이 " +
+      "스코프 일곱). 선택 아이가 통째로 사라지는 자리라 그 아이의 지출·예산 캐시도 함께 지운다."
+  },
+  {
+    file: "app/family/accept/[token].tsx",
+    why:
+      "초대 수락 뒤처리(HOUSEHOLD_JOIN_INVALIDATE_KEYS = 위 집합 + [\"household-members\"]). " +
+      "새 가구의 아이로 갈아타는 자리라 이전 가구 아이의 지출·예산 캐시가 남으면 안 된다."
+  }
+];
 
 /**
  * ⓐ **공유 키 전수의 무효화 대장.** 줄 = 위 `SHARED_CACHE_POLICIES`의 키 전수이고, 그 전수는
@@ -459,10 +535,12 @@ export const SHARED_KEY_COVERAGE: readonly SharedKeyCoverage[] = [
         sliceEnd: "const toggleFailureOnline = useErrorTimeConnectivity(",
         invalidatedIn: "app/import/[importJobId].tsx",
         invalidation: 'await queryClient.invalidateQueries({ queryKey: ["expenses"] });',
+        invalidatedKeyHeads: ["import-job", "report", "home", "expenses", "budget"],
         why:
           "가져오기 확정 — 지출을 **묶음으로** 만든다(서버가 한 번에 넣는다). 로컬 우선 경로가 " +
           "아니라 서버 쓰기가 끝난 뒤 onSuccess가 돌므로, 아래 다섯 경로와 달리 이 시점의 " +
-          "무효화는 새 값을 받아온다 — 그래서 이 자리는 [\"home\"]도 함께 무효화한다."
+          "무효화는 새 값을 받아온다 — 그래서 이 자리는 [\"home\"]도 함께 무효화한다. " +
+          "무효화 집합은 **다섯**이다(검수 중인 잡 카드 [\"import-job\"] + 리포트·홈·기록·예산)."
       },
       {
         writeSite: "app/import/index.tsx",
@@ -471,14 +549,19 @@ export const SHARED_KEY_COVERAGE: readonly SharedKeyCoverage[] = [
         sliceEnd: "const confirmUndo = ",
         invalidatedIn: "app/import/index.tsx",
         invalidation: 'await queryClient.invalidateQueries({ queryKey: ["expenses"] });',
+        invalidatedKeyHeads: ["import-job", "report", "home", "expenses", "budget"],
         why:
-          "라운드 67 #3 되돌리기 — 확정의 반대 방향이고 무효화 목록도 확정과 같은 넷이다. " +
-          "확정과 같은 이유로 서버 확정 뒤에 도는 무효화다."
+          "라운드 67 #3 되돌리기 — 확정의 반대 방향이고 무효화 목록도 확정과 같다. 확정과 같은 " +
+          "이유로 서버 확정 뒤에 도는 무효화다. ⚠️ 라운드 84 리뷰 L-13 — 종전 이 문장은 그 목록을 " +
+          "**넷**이라고 적었는데 실측은 **다섯**이다(그 화면의 소스 주석도 같은 넷을 말한다 — " +
+          "[\"import-job\", jobId]를 세지 않았다). 이제 그 집합은 문장이 아니라 " +
+          "invalidatedKeyHeads가 지고, 두 줄이 정말 같은지는 테스트가 두 소스에서 세어 맞댄다."
       }
     ],
     detailLedger: "EXPENSE_WRITE_LEDGER",
     otherInvalidationSites: [
-      { file: "app/(tabs)/index.tsx", why: "홈의 당김 새로고침(쓰기 뒤처리가 아니다)." }
+      { file: "app/(tabs)/index.tsx", why: "홈의 당김 새로고침(쓰기 뒤처리가 아니다)." },
+      ...CHILD_SCOPE_INVALIDATION_SITES
     ],
     why:
       "⚠️ 이 키의 쓰기는 **두 모집단**이다: 지출 한 건을 바꾸는 다섯 경로(EXPENSE_WRITE_LEDGER — " +
@@ -510,12 +593,20 @@ export const SHARED_KEY_COVERAGE: readonly SharedKeyCoverage[] = [
         sliceEnd: "function skip() {",
         invalidatedIn: null,
         invalidation: null,
+        zeroInvalidationProvenBy: "child-scoped-key-new-child",
         why:
-          "⚠️ **무효화 0건이고 그것이 오늘은 맞다** — 온보딩 마지막 단계(ONB-004)라 이 성공 " +
-          "분기에서 markHomeReached()가 **처음** 서고 그 다음에 탭이 마운트된다. 즉 이 시점에 " +
-          "[\"budget\", childId, yearMonth] 캐시 항목이 아직 없어 무효화할 대상이 0건이다. " +
-          "재개 조건: 온보딩을 마친 계정이 이 화면에 다시 설 수 있게 되면(또는 이 화면 앞에 " +
-          "홈이 서게 되면) 그 전제가 깨지고 이 줄은 무효화를 요구하는 줄이 된다."
+          "⚠️ **무효화 0건이고 그것이 오늘은 맞다** — 다만 그 이유는 라운드 84 리뷰 M-5가 고쳐 " +
+          "적은 것이다. 종전 이 자리에는 *\"이 성공 분기에서 markHomeReached()가 처음 선다\"* 고 " +
+          "적혀 있었는데 그것은 **거짓**이다: 초대 수락 화면이 같은 함수를 두 갈래에서 먼저 세운다" +
+          "(app/family/accept/[token].tsx의 blocked 갈래 · escape.marksHomeReached 갈래). 즉 이 " +
+          "화면 앞에 탭이 선 적 없다는 보장은 그 문장이 주지 못한다. **참인 근거는 키의 모양이다**: " +
+          "이 키는 [\"budget\", childId, yearMonth]로 **childId 스코프**이고, 온보딩은 바로 앞 " +
+          "단계(ONB-002)에서 **새 아이를 만든다**(src/onboarding/child-create.ts의 createChild). " +
+          "그 childId로 열린 예산 캐시 항목은 아직 세상에 없으므로 무효화할 대상이 0건이다 — " +
+          "이전 아이의 예산 캐시가 남아 있어도 키가 다르니 이 저장과 무관하다. " +
+          "재개 조건: 이 화면이 **이미 있는 아이**의 예산을 저장하게 되거나(온보딩 재개·아이 " +
+          "재선택), 예산 키에서 childId 칸이 사라지는 날 — 그때 이 줄은 무효화를 요구하는 줄이 된다. " +
+          "그 둘 다 zeroInvalidationProvenBy 검증기가 소스로 확인한다."
       }
     ],
     detailLedger: "EXPENSE_WRITE_LEDGER",
@@ -525,7 +616,8 @@ export const SHARED_KEY_COVERAGE: readonly SharedKeyCoverage[] = [
         file: "app/import/[importJobId].tsx",
         why: "가져오기 확정이 지출을 묶음으로 더한다 — 예산 응답의 usedAmountKrw가 그만큼 달라진다."
       },
-      { file: "app/import/index.tsx", why: "가져오기 되돌리기 — 같은 이유로 usedAmountKrw가 줄어든다." }
+      { file: "app/import/index.tsx", why: "가져오기 되돌리기 — 같은 이유로 usedAmountKrw가 줄어든다." },
+      ...CHILD_SCOPE_INVALIDATION_SITES
     ],
     why:
       "⚠️ 이 키를 바꾸는 것은 **예산 저장만이 아니다**: 응답의 usedAmountKrw는 지출이 늘고 줄 " +
@@ -567,7 +659,10 @@ export type ExpenseWriteDivergence = {
   readonly direction: "missing" | "extra";
   /**
    * ⚠️ 이 이유가 **기대는 사실의 이름**. 테스트가 이름마다 검증기를 돌린다(이름이 없으면 빨강):
-   *   - `flush-confirm` — `sync-controller.ts`의 `summary.synced > 0` 갈래가 그 키를 무효화한다;
+   *   - `flush-confirm` — `sync-controller.ts`의 `summary.synced > 0` 갈래가 그 키를 **조건 없이**
+   *     무효화한다. 라운드 84 리뷰 H-1 이후 "조건 없이"까지 검사한다: 그 무효화 줄이 갈래의
+   *     최상위 깊이에 있고(중괄호 깊이 1) 줄 자신이 `if`·삼항으로 시작하지 않아야 한다 —
+   *     감싸는 조건이 한 겹이라도 생기면 이 이유에 기댄 줄 전부가 빨개진다;
    *   - `single-file-key` — 그 키를 켜는 파일이 이 경로 자신 하나뿐이다(공유 키가 아니다).
    */
   readonly provenBy: "flush-confirm" | "single-file-key";
@@ -622,8 +717,11 @@ export const EXPENSE_WRITE_LEDGER: readonly ExpenseWritePath[] = [
       "확정 시점 집합과 **같다**. 단, [\"items\"]·[\"item-detail\"] 두 줄은 " +
       "`if (linkedItemTemplateId)` 안에 있어 연결 기록에서만 돈다(그 파일의 FIX-119B/F1 주석이 " +
       "이유를 적어 두었다 — 실서버에서 실제로 듣는 것은 flush 쪽 무효화이고, 이 자리는 동기 " +
-      "인메모리 백엔드를 쓰는 데모/로컬 세션 때문에 남아 있다). 이 대장은 **구간에 적힌 것**을 " +
-      "세므로 그 조건 분기는 집합에 함께 들어온다 — 조건이 사라지거나 붙어도 집합은 그대로다."
+      "인메모리 백엔드를 쓰는 데모/로컬 세션 때문에 남아 있다). ⚠️ 라운드 84 리뷰 H-1 — 이 " +
+      "**집합**은 구간에 적힌 것을 세므로 그 조건 분기도 함께 들어오고, 조건이 붙거나 사라져도 " +
+      "집합은 그대로다. 그 느슨함이 허용되는 자리는 **화면 줄까지**다: 확정 갈래(flush 줄)는 " +
+      "위 세 경로가 통째로 기대고 있는 자리라, 거기서는 집합 대조에 더해 **조건 없음(깊이 1)** 이 " +
+      "함께 검사된다(provenBy `flush-confirm`)."
   },
   {
     label: "상세 수정",
@@ -778,6 +876,74 @@ export const EXPENSE_WRITE_LEDGER: readonly ExpenseWritePath[] = [
  * 그 키는 모집단에 들어오지 못한다. 그래서 이름과 이유로 여기 등재하고, 테스트가 ① 그 자리
  * 전수가 이 표와 같은지 ② 각 키가 정말 단일 파일인지를 스윕으로 확인한다.
  */
+/**
+ * ⓕ **선언은 한 파일인데 무효화는 여러 자리인 키 전수**(라운드 84 리뷰 L-14).
+ *
+ * 위 두 대장의 모집단 단위는 *"그 키를 켜는 파일 수 ≥ 2"* 다(그 이유는 `SHARED_CACHE_POLICIES`
+ * 머리말에 값으로 있다 — 신선도는 읽는 자리가 정한다). 그 단위가 담지 못하는 것이 여기 있다:
+ * 읽는 자리는 하나인데 **비우는 자리는 여럿**인 키다. 그 키들은 신선도 정책이 필요 없지만
+ * (관찰자가 하나라 두 벌이 될 수 없다) 무효화 집합이 갈릴 수는 있고, 실제로 이 라운드가 센
+ * `["home"]`의 갈림 셋이 정확히 그 모양이었다.
+ *
+ * 테스트가 두 방향으로 맞댄다: 소스에서 이 모양인 키 전수 = 이 표의 키 전수.
+ */
+export const INVALIDATION_ONLY_KEYS: readonly {
+  readonly keyHead: string;
+  /** 그 키를 켜는 유일한 파일. */
+  readonly declaredIn: string;
+  readonly why: string;
+}[] = [
+  {
+    keyHead: "home",
+    declaredIn: "app/(tabs)/index.tsx",
+    why:
+      "홈 요약은 홈 탭만 읽고, 지출을 바꾸는 자리 전부가 비운다 — 이 라운드의 EXPENSE_WRITE_LEDGER가 " +
+      "그 여섯 자리와 갈림 셋을 이미 집합으로 센다(이 키가 이 트랙의 주제였다)."
+  },
+  {
+    keyHead: "expense",
+    declaredIn: "app/expenses/[expenseId].tsx",
+    why:
+      "단건 지출 캐시는 상세 화면만 연다. 그 화면이 저장 뒤 스스로 비우고, 아이 스코프 상수를 " +
+      "훑는 넷이 함께 비운다(아이가 바뀌면 이전 아이의 단건 캐시가 남으면 안 된다). 이 키가 " +
+      "**공유 키가 아니라는 사실**은 EXPENSE_WRITE_LEDGER의 `extra:expense` 갈림이 " +
+      "provenBy `single-file-key`로 이미 센다."
+  },
+  {
+    keyHead: "report",
+    declaredIn: "app/(tabs)/reports.tsx",
+    why:
+      "리포트 탭만 읽는다. 지출·가져오기·flush가 일곱 자리에서 비우고, 그 집합은 " +
+      "EXPENSE_WRITE_LEDGER의 invalidatedKeyHeads가 경로마다 센다."
+  },
+  {
+    keyHead: "items",
+    declaredIn: "app/(tabs)/items.tsx",
+    why:
+      "준비템 목록은 그 탭만 읽는다. 연결 지출 생성과 flush 확정이 비우고(서버의 준비 완료 전이), " +
+      "그 갈림 셋도 EXPENSE_WRITE_LEDGER에 이유와 함께 있다."
+  },
+  {
+    keyHead: "item-detail",
+    declaredIn: "app/items/[itemTemplateId].tsx",
+    why: "준비템 상세도 그 화면만 읽는다 — [\"items\"]와 같은 전이에 걸리고 같은 대장이 센다."
+  },
+  {
+    keyHead: "import-job",
+    declaredIn: "app/import/[importJobId].tsx",
+    why:
+      "검수 화면만 읽는 잡 카드다. 확정(같은 화면)과 되돌리기(목록 화면) 두 자리가 비우고, 그 둘의 " +
+      "집합은 SHARED_KEY_COVERAGE의 [\"expenses\"] 줄이 invalidatedKeyHeads로 센다(리뷰 L-13)."
+  },
+  {
+    keyHead: "household-invites",
+    declaredIn: "app/family/index.tsx",
+    why:
+      "대기 중인 초대 목록은 가족 화면만 읽는다. 초대 발송 화면(app/family/invite.tsx)이 성공 뒤 " +
+      "함께 비우는 것이 둘째 자리다 — 읽는 자리가 하나라 신선도 정책의 축은 서지 않는다."
+  }
+];
+
 export const NON_LITERAL_QUERY_KEY_SITES: readonly {
   readonly file: string;
   readonly constantName: string;

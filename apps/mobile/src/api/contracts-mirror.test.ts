@@ -98,6 +98,9 @@ describe("contracts 수기 미러 드리프트 가드 — 상수 셋과 ImportJo
  *  ⓑ **필드 두 방향** — 짝마다 필드 이름 집합이 양방향으로 같다. 다른 자리는 **면제 대장**에
  *     이유와 함께 있어야 하고, 대장에 있는데 실제로는 같아진 자리도 빨개진다(죽은 면제 금지).
  *  ⓒ **짝 없는 스키마** — 요청·쿼리·봉투처럼 짝이 없는 것도 이유와 함께 대장에 있다.
+ *  ⓒ' **짝 없는 모바일 타입**(라운드 84 리뷰 M-6) — 그 반대 방향. 종전 스윕은 계약에서만
+ *     출발해서, `client.ts`가 계약 밖의 모양을 **스물** 들고 있다는 사실이 세어지지 않았다.
+ *     스물 각각에 이유(대개 "계약에 스키마 없음" = 그 도메인이 계약의 모집단 밖)와 천장을 둔다.
  *  ⓓ **상수 대장** — 계약 상수 전수가 "모바일 사본이 있는가 · 그 대조는 어느 파일인가"를 갖는다.
  *     대장은 **가리키기만** 한다 — 이미 다른 파일에 선 대조를 이 파일로 옮기지 않는다.
  *  ⓔ **래칫** — 면제의 수는 오늘 값을 넘을 수 없다.
@@ -122,6 +125,14 @@ const TEXT_LIMITS_TEST_PATH = "src/expenses/text-limits.test.ts";
 const FIELD_EXEMPTION_CEILING = 1;
 /** 오늘 실측한 "짝 없는 스키마" 수의 천장(래칫). */
 const UNPAIRED_SCHEMA_CEILING = 11;
+/**
+ * ⚠️ 라운드 84 리뷰 M-6 — 오늘 실측한 **"짝 없는 모바일 타입"** 수의 천장(래칫).
+ *
+ * 종전 이 스윕은 한 방향뿐이었다: 계약 스키마에서 출발해 짝이 없으면 이유를 물었고, **모바일에서
+ * 출발하는 방향**은 아예 없었다. 그래서 모바일이 계약 밖의 모양을 스무 개 들고 있다는 사실도,
+ * 그 스물이 왜 계약 밖인지도 어디에도 적혀 있지 않았다.
+ */
+const UNPAIRED_MOBILE_TYPE_CEILING = 20;
 
 /**
  * ⓑ 면제 대장 — 짝의 필드 집합이 갈린 자리 전부. 키는 `모바일타입.필드`.
@@ -186,6 +197,57 @@ const UNPAIRED_SCHEMAS: Record<string, string> = {
     "카테고리 합계 한 줄. 모바일은 이 모양을 MonthlyReport.categoryTop·CategoryReport.categories " +
     "**안에 인라인**으로 적는다 — 중첩이라 이 스윕의 깊이 1 모집단 밖이고, 두 짝의 필드 이름은 " +
     "그 배열 이름까지만 대조된다."
+};
+
+/**
+ * ⓒ' **짝 없는 모바일 타입 대장**(라운드 84 리뷰 M-6) — 계약 쪽에 짝이 없는 `client.ts`의 객체
+ * 리터럴 타입 전수와 그 이유.
+ *
+ * ⚠️ 이 대장이 말하는 것은 드리프트가 아니라 **경계**다: `packages/contracts`는 서버 API의
+ * 일부만 스키마로 들고 있고(오늘 객체 스키마 스물여덟), 나머지는 모바일이 수기 타입으로만
+ * 든다. 그 경계를 세지 않으면 "계약에 있는데 모바일이 놓친 것"과 "계약이 애초에 다루지 않는
+ * 것"이 한 덩어리가 되고, 스윕이 무는 범위가 조용히 줄어도 아무도 모른다.
+ *
+ * 이유 문구의 대부분이 *"계약에 스키마 없음"* 인 것 자체가 값이다 — 오늘 계약의 모집단은
+ * **지출·아이·카테고리·준비템·리포트·가져오기**이고, 가족/초대 · 설정/개인정보 · 온보딩 ·
+ * 오프라인 동기화 · 인증(카카오) · 기기/알림은 통째로 그 밖이다.
+ */
+const UNPAIRED_MOBILE_TYPES: Record<string, string> = {
+  CumulativeReport:
+    "계약에 스키마 없음 — 리포트 스키마는 월간·카테고리·추이·연간 넷뿐이고 누적(GET /reports/cumulative)은 " +
+    "그 목록에 없다. 응답 모양의 대조는 apps/api/test/expense-home-report.e2e.test.ts가 서버 쪽에서 진다.",
+  HouseholdMember:
+    "계약에 스키마 없음 — 가족/가구 도메인 전체가 packages/contracts의 모집단 밖이다(household·invite 스키마 0건). " +
+    "역할 값의 계약은 src/family/record-permissions.test.ts와 서버 가드가 양쪽에서 문다.",
+  InviteResponse: "계약에 스키마 없음 — 위 가족/초대 도메인과 같은 자리(POST /households/invites 응답).",
+  PendingInvite: "계약에 스키마 없음 — 같은 도메인(대기 중인 초대 목록 행).",
+  InvitePreview: "계약에 스키마 없음 — 같은 도메인(토큰으로 여는 초대 미리보기).",
+  AcceptInviteResponse: "계약에 스키마 없음 — 같은 도메인(초대 수락 응답 · 새 가구와 역할).",
+  ConfirmImportResponse:
+    "계약에 스키마 없음 — 가져오기 스키마는 잡·행 둘뿐이고 확정/되돌리기 **응답**은 없다. " +
+    "그 두 수(importedCount·skippedCount)의 계약은 apps/api/test/import-excel.e2e.test.ts가 진다.",
+  UndoImportResponse: "계약에 스키마 없음 — 위와 같은 자리(되돌린 건수 deletedCount).",
+  PrivacySettings:
+    "계약에 스키마 없음 — 설정/개인정보 도메인이 모집단 밖이다(GET /settings/privacy). " +
+    "동의 내역 필드의 계약은 그 화면 테스트가 문다.",
+  SettingsPreview: "계약에 스키마 없음 — 같은 도메인(삭제·탈퇴 2단계 확인의 미리보기 응답).",
+  SettingsConfirmResponse: "계약에 스키마 없음 — 같은 도메인(그 확인의 결과).",
+  OnboardingChildSummary: "계약에 스키마 없음 — 온보딩 진행 도메인이 모집단 밖이다(GET /onboarding/progress).",
+  OnboardingProgress: "계약에 스키마 없음 — 위와 같은 응답의 바깥 모양.",
+  SyncChangesResult:
+    "계약에 스키마 없음 — 오프라인 증분 동기화(GET /sync/changes)는 계약이 다루지 않는다. " +
+    "그 커서·변경 봉투의 계약은 src/offline/** 테스트가 진다.",
+  MilestoneReport:
+    "계약에 스키마 없음 — 마일스톤 리포트는 위 CumulativeReport와 같은 자리다(리포트 스키마 넷 밖).",
+  PickedImportFile:
+    "**서버 모양이 아니다** — expo-document-picker가 돌려주는 기기 로컬 파일 참조(uri·name·mimeType)라 " +
+    "계약에 짝이 있을 수 없는 유일한 줄이다. 이 대장이 '계약에 없다'와 '계약 대상이 아니다'를 가르는 자리.",
+  KakaoPrepareResponse: "계약에 스키마 없음 — 인증(카카오 OIDC) 도메인이 모집단 밖이다.",
+  KakaoExchangeResult: "계약에 스키마 없음 — 같은 도메인(코드 교환 결과 · 세션 토큰).",
+  UserDeviceSummary: "계약에 스키마 없음 — 기기/알림 도메인이 모집단 밖이다(GET /me/devices).",
+  RegisterDeviceBody:
+    "계약에 스키마 없음 — 같은 도메인의 **요청 바디**다. 그 상한(pushToken 2000자)은 서버 DTO가 " +
+    "단일 소스이고 계약 상수에도 없다."
 };
 
 /**
@@ -399,6 +461,8 @@ type Population = {
   mobileFieldsOf: (name: string) => string[];
   pairs: { schema: string; type: string; contractFields: string[]; mobileFields: string[] }[];
   unpaired: string[];
+  /** ⓒ' 라운드 84 리뷰 M-6 — 반대 방향: 계약 쪽에 짝이 없는 모바일 타입 전수. */
+  unpairedMobileTypes: string[];
 };
 
 let cachedPopulation: Population | null = null;
@@ -434,7 +498,18 @@ function population(): Population {
     }
   }
 
-  cachedPopulation = { declarations, mobileTypes, contractFieldsOf, mobileFieldsOf, pairs, unpaired };
+  const pairedTypes = new Set(pairs.map((pair) => pair.type));
+  const unpairedMobileTypes = [...mobileTypes.keys()].filter((name) => !pairedTypes.has(name)).sort();
+
+  cachedPopulation = {
+    declarations,
+    mobileTypes,
+    contractFieldsOf,
+    mobileFieldsOf,
+    pairs,
+    unpaired,
+    unpairedMobileTypes
+  };
   return cachedPopulation;
 }
 
@@ -499,6 +574,48 @@ describe("contracts 수기 미러 모집단 스윕 — 스키마 짝·필드 두
       expect(reason.length, `${name}의 이유가 비어 있다`).toBeGreaterThan(20);
     }
     expect(unpaired.length).toBeLessThanOrEqual(UNPAIRED_SCHEMA_CEILING);
+  });
+
+  /**
+   * ⓒ' ⚠️ 라운드 84 리뷰 M-6 — **스윕의 반대 방향.**
+   *
+   * ⓒ는 계약에서 출발한다(짝 없는 스키마 열하나). 모바일에서 출발하는 방향은 0건이었고, 그래서
+   * `client.ts`가 계약 밖의 모양을 **스물** 들고 있다는 사실이 어디에도 세어지지 않았다.
+   * 여기서 그 스물에 각각 이유를 붙이고 천장을 세운다 — 스물한 번째가 이유 없이 생기면 빨개진다.
+   */
+  it("ⓒ' 짝 없는 모바일 타입 전수가 이유와 함께 대장에 있다 (두 방향 · 래칫)", () => {
+    const { unpairedMobileTypes } = population();
+
+    // 두 방향: 새로 생긴 계약 밖 타입은 대장에 없어서, 짝이 생긴 타입은 대장에 남아 있어서 빨개진다.
+    expect(unpairedMobileTypes).toEqual(Object.keys(UNPAIRED_MOBILE_TYPES).sort());
+    for (const [name, reason] of Object.entries(UNPAIRED_MOBILE_TYPES)) {
+      expect(reason.length, `${name}의 이유가 비어 있다`).toBeGreaterThan(20);
+      // 이름만 적고 이유를 "없음"으로 때우지 못하게, 이유는 **계약 쪽 사실**을 말해야 한다.
+      expect(reason, `${name}의 이유가 계약 쪽 사실을 말하지 않는다`).toMatch(/계약에 스키마 없음|계약/);
+    }
+    expect(unpairedMobileTypes.length).toBeLessThanOrEqual(UNPAIRED_MOBILE_TYPE_CEILING);
+
+    // 이 스물이 정말 `client.ts`의 타입이다(대장이 유령 이름을 들고 있지 않다).
+    const { mobileTypes } = population();
+    for (const name of Object.keys(UNPAIRED_MOBILE_TYPES)) {
+      expect(mobileTypes.has(name), `client.ts에 ${name} 타입이 없다`).toBe(true);
+    }
+  });
+
+  it("ⓒ' 오늘 계약이 다루지 않는 도메인이 무엇인지 값으로 센다", () => {
+    const { declarations } = population();
+    const schemaNames = declarations.map((decl) => decl.name.toLowerCase());
+    // 이 여섯은 오늘 계약의 모집단 밖이다 — 그래서 위 대장의 스물이 생긴다.
+    for (const outside of ["household", "invite", "onboarding", "sync", "kakao", "device"]) {
+      expect(
+        schemaNames.filter((name) => name.includes(outside)),
+        `계약에 ${outside} 스키마가 생겼다 — 그 도메인의 모바일 타입은 이제 짝을 가져야 한다`
+      ).toEqual([]);
+    }
+    // 반대로 핵심 루프의 도메인은 계약이 든다(카나리아 — 이 단언이 공허하지 않다는 증거).
+    for (const inside of ["expense", "child", "item", "report", "budget", "import"]) {
+      expect(schemaNames.some((name) => name.includes(inside)), `계약에 ${inside} 스키마가 없다`).toBe(true);
+    }
   });
 
   it("ⓑ 짝마다 필드 이름 집합이 양방향으로 같고, 갈린 자리는 면제 대장과 정확히 일치한다", () => {

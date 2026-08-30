@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { QueryClient, QueryObserver, focusManager } from "@tanstack/react-query";
 import { afterEach, describe, expect, it } from "vitest";
 import { CHILD_REMOVAL_INVALIDATE_KEYS } from "../children/child-deletion";
+import { CHILD_SCOPED_QUERY_KEY_PREFIXES } from "../children/child-switch";
 import { HOUSEHOLD_JOIN_INVALIDATE_KEYS } from "../children/household-join";
 import {
   CHILDREN_WRITE_APIS,
@@ -11,6 +12,7 @@ import {
   EXPENSE_WRITE_APIS,
   EXPENSE_WRITE_APIS_EXCLUDED,
   EXPENSE_WRITE_LEDGER,
+  INVALIDATION_ONLY_KEYS,
   LONG_SHARED_STALE_TIME_MS,
   NON_LITERAL_QUERY_KEY_SITES,
   SHARED_CACHE_POLICIES,
@@ -557,6 +559,75 @@ function literalInvalidationSites(keyHead: string): string[] {
   return [...found].sort();
 }
 
+/**
+ * 라운드 84 리뷰 M-4 — 무효화 키를 **집합 상수**로 들고 있는 자리들. 이름이 아니라 **실제 값**을
+ * import해서 전개하므로, 상수의 내용이 바뀌면 그 순간 이 스윕이 세는 키도 함께 바뀐다.
+ */
+const KEY_SET_CONSTANTS: Record<string, ReadonlyArray<ReadonlyArray<string>>> = {
+  CHILD_SCOPED_QUERY_KEY_PREFIXES,
+  CHILD_REMOVAL_INVALIDATE_KEYS,
+  HOUSEHOLD_JOIN_INVALIDATE_KEYS
+};
+
+/**
+ * 그 키를 **상수를 거쳐** 무효화하는 소스 전수.
+ *
+ * 판정: ① 그 상수의 실제 값이 `[keyHead]`를 담고 ② 파일이 그 상수 이름을 주석이 아닌 줄에서
+ * 쓰며 ③ 같은 파일이 `invalidateQueries`를 부른다. ②만으로 세면 주석에서 이름만 인용하는 파일
+ * (app/(tabs)/reports.tsx · src/notifications/notification.store.ts)이 모집단에 들어오고,
+ * ③만으로 세면 상수를 **정의만** 하는 파일(src/children/child-deletion.ts)이 들어온다.
+ */
+function constantInvalidationSites(keyHead: string): string[] {
+  const names = Object.entries(KEY_SET_CONSTANTS)
+    .filter(([, keys]) => keys.some((key) => key.length === 1 && key[0] === keyHead))
+    .map(([name]) => name);
+  if (names.length === 0) return [];
+  const found = new Set<string>();
+  for (const file of productionSources()) {
+    const rel = relative(file);
+    if (rel.startsWith("src/query/")) continue;
+    const lines = readFileSync(file, "utf8")
+      .split("\n")
+      .filter((line) => !isCommentLine(line));
+    const usesConstant = lines.some((line) => names.some((name) => line.includes(name)));
+    const invalidates = lines.some((line) => line.includes("invalidateQueries("));
+    if (usesConstant && invalidates) found.add(rel);
+  }
+  return [...found].sort();
+}
+
+/** 리터럴 + 상수 경유 = 그 키를 실제로 비우는 자리 전수(리뷰 M-4 뒤의 모집단). */
+function invalidationSites(keyHead: string): string[] {
+  return [...new Set([...literalInvalidationSites(keyHead), ...constantInvalidationSites(keyHead)])].sort();
+}
+
+/** 한 무효화 줄의 위치 — 구간 안 중괄호 깊이와 그 줄 자신. */
+type InvalidationLine = { keyHead: string; depth: number; text: string };
+
+/**
+ * ⚠️ 라운드 84 리뷰 H-1 — 구간이 무효화하는 키를 **깊이와 함께** 센다.
+ *
+ * 깊이는 구간 **첫 줄의 여는 중괄호**를 1로 본다. 즉 `if (summary.synced > 0) {` 로 시작하는
+ * 구간에서 `depth === 1`은 "그 갈래 최상위 = 조건 없음"이고, 무효화를 갈래 하나로 더 감싸면
+ * 2가 된다. 종전 검사(문자열이 구간 안에 있는가)는 그 차이를 보지 못했다.
+ */
+function invalidationLines(slice: string): InvalidationLine[] {
+  const found: InvalidationLine[] = [];
+  let depth = 0;
+  for (const line of slice.split("\n")) {
+    if (isCommentLine(line)) {
+      continue;
+    }
+    const match = line.match(/invalidateQueries\(\{\s*queryKey:\s*\["([a-z-]+)"/);
+    if (match) found.push({ keyHead: match[1], depth, text: line.trim() });
+    depth += (line.match(/\{/g)?.length ?? 0) - (line.match(/\}/g)?.length ?? 0);
+  }
+  return found;
+}
+
+/** 그 줄 자신이 조건절을 앞에 달고 있지 않은가(`if (…) await queryClient…` · 삼항을 막는다). */
+const UNCONDITIONAL_INVALIDATION_LINE = /^(await\s+)?(void\s+)?queryClient\.invalidateQueries\(/;
+
 /** 세부를 대신 세는 대장이 아는 자리(쓰기 자리 + 무효화 자리). */
 const DETAIL_LEDGER_SITES: Record<string, readonly string[]> = {
   CHILDREN_WRITE_LEDGER: CHILDREN_WRITE_LEDGER.flatMap((row) => [row.writeSite, row.invalidatedIn]),
@@ -632,10 +703,53 @@ describe("라운드 84 ⓐ 무효화 대장의 모집단 = 공유 키 전수 (�
           // 무효화 0건은 **숨기지 않고** 이유로 남긴다(그 이유에는 재개 조건이 있다).
           expect(write.invalidation, `${write.mutation} 무효화 0건인데 표현식이 적혀 있다`).toBeNull();
           expect(write.why.length, `${write.mutation} 무효화 0건의 이유`).toBeGreaterThan(60);
+
+          // ⚠️ 라운드 84 리뷰 M-5 — 이유만 적혀 있으면 그 이유가 참인지는 아무도 세지 않는다
+          // (종전 이 자리의 이유는 실제로 **거짓**이었다: markHomeReached 선행 경로가 둘 있었다).
+          expect(
+            write.zeroInvalidationProvenBy,
+            `${write.writeSite} (${write.mutation}) 무효화 0건인데 그 이유를 검증하는 이름이 없다`
+          ).toBeDefined();
+          if (write.zeroInvalidationProvenBy === "child-scoped-key-new-child") {
+            // ① 이 화면은 그 키를 **열지 않는다**. 열고 있으면 "무효화할 대상이 없다"가 아니다.
+            expect(
+              collectQuerySites().filter((site) => site.file === write.writeSite && site.keyHead === key),
+              `${write.writeSite} 가 ["${key}"] 를 스스로 연다 — 무효화 0건의 이유가 성립하지 않는다`
+            ).toEqual([]);
+            // ② 그 키가 정말 childId 스코프다 — 선언 전수의 둘째 칸이 childId다.
+            const scoped = new RegExp(`^queryKey:\\s*\\["${key}",\\s*childId\\b`);
+            const unscoped: string[] = [];
+            for (const file of productionSources()) {
+              const lines = readFileSync(file, "utf8").split("\n");
+              for (let i = 0; i < lines.length; i += 1) {
+                const trimmed = lines[i].trim();
+                if (isCommentLine(lines[i]) || !trimmed.startsWith(`queryKey: ["${key}"`)) continue;
+                if (!scoped.test(trimmed)) unscoped.push(`${relative(file)}:${i + 1} ${trimmed}`);
+              }
+            }
+            expect(unscoped, `["${key}"] 선언 중 childId 스코프가 아닌 자리`).toEqual([]);
+            // ③ 이 경로 **앞 단계**가 새 아이를 만든다(그 사실은 CHILDREN_WRITE_LEDGER가 이미 센다).
+            expect(write.writeSite.startsWith("app/(onboarding)/"), `${write.writeSite} 가 온보딩 화면이 아니다`).toBe(
+              true
+            );
+            expect(
+              CHILDREN_WRITE_LEDGER.find(
+                (entry) => entry.invalidatedIn.startsWith("app/(onboarding)/") && entry.apis.includes("createChild")
+              ),
+              "온보딩이 새 아이를 만드는 줄이 CHILDREN_WRITE_LEDGER에서 사라졌다"
+            ).toBeDefined();
+          }
           continue;
         }
 
         const slice = sliceBetween(write.invalidatedIn, write.sliceStart, write.sliceEnd);
+        if (write.invalidatedKeyHeads) {
+          // ⚠️ 라운드 84 리뷰 L-13 — 이유가 말하는 집합을 **소스에서 세어** 맞댄다(두 방향).
+          expect(
+            invalidatedKeyHeads(slice),
+            `${write.writeSite} (${write.mutation}) 의 무효화 키 집합`
+          ).toEqual([...write.invalidatedKeyHeads].sort());
+        }
         const invalidationSource = readFileSync(join(MOBILE_ROOT, write.invalidatedIn), "utf8");
         if (write.via) {
           // 2단계 ①: 이 구간이 실제로 그 헬퍼를 부른다.
@@ -672,6 +786,38 @@ describe("라운드 84 ⓐ 무효화 대장의 모집단 = 공유 키 전수 (�
     }
   });
 
+  /**
+   * ⚠️ 라운드 84 리뷰 M-4 — 상수 경유 스윕이 **실제로 무언가를 센다**(0건이면 죽은 코드다).
+   *
+   * 그리고 그 넷은 리터럴 스윕이 끝내 볼 수 없는 자리다: 상수를 훑는 줄에는 키 이름이 한 글자도
+   * 적혀 있지 않다. 이름이 아니라 **import한 값**으로 판정한다는 사실도 여기서 함께 못 박는다.
+   */
+  it("상수를 거쳐 아이 스코프 캐시를 비우는 자리가 모집단에 들어온다 (이름이 아니라 값으로 판정한다)", () => {
+    expect(
+      CHILD_SCOPED_QUERY_KEY_PREFIXES.map((key) => key[0]).sort(),
+      "아이 스코프 상수의 실제 값"
+    ).toEqual(["budget", "expense", "expenses", "home", "item-detail", "items", "report"]);
+
+    for (const key of ["expenses", "budget"]) {
+      const constantOnly = constantInvalidationSites(key).filter(
+        (file) => !literalInvalidationSites(key).includes(file)
+      );
+      expect(constantOnly, `["${key}"] 를 상수로만 비우는 자리`).toEqual([
+        "app/family/accept/[token].tsx",
+        "app/settings/children.tsx",
+        "app/settings/privacy.tsx",
+        "src/children/child-switch.ts"
+      ]);
+    }
+    // 그 상수가 담지 않는 키에는 상수 경유 자리가 0건이다(스윕이 아무 파일이나 끌어오지 않는다).
+    expect(constantInvalidationSites("categories"), "[categories] 상수 경유 자리").toEqual([]);
+    // 주석에서 이름만 인용하는 파일은 세지 않는다(그 둘이 실제로 이 저장소에 있다).
+    for (const key of ["expenses", "budget", "children"]) {
+      expect(constantInvalidationSites(key)).not.toContain("app/(tabs)/reports.tsx");
+      expect(constantInvalidationSites(key)).not.toContain("src/notifications/notification.store.ts");
+    }
+  });
+
   it("세부를 대신 세는 대장이 실재하고, 비어 있지 않다", () => {
     for (const row of SHARED_KEY_COVERAGE) {
       if (row.detailLedger === null) continue;
@@ -684,7 +830,8 @@ describe("라운드 84 ⓐ 무효화 대장의 모집단 = 공유 키 전수 (�
   it("그 키를 무효화하는 자리 전수가 대장이 아는 자리이고, 쓰기 뒤처리가 아닌 자리는 이유와 함께 있다", () => {
     for (const row of SHARED_KEY_COVERAGE) {
       const key = row.queryKeyPrefix[0];
-      const actual = literalInvalidationSites(key);
+      // ⚠️ 라운드 84 리뷰 M-4 — 리터럴 + **상수 경유**가 함께 모집단이다.
+      const actual = invalidationSites(key);
       const known = new Set<string>([
         ...row.writes.flatMap((write) => (write.invalidatedIn ? [write.invalidatedIn] : [])),
         ...(row.detailLedger ? DETAIL_LEDGER_SITES[row.detailLedger] : [])
@@ -805,6 +952,7 @@ describe("라운드 84 ⓒ·ⓓ 갈린 이유와 그 이유의 참 (이유 없�
     const flush = EXPENSE_WRITE_LEDGER.find((row) => row.kind === "flush")!;
     const branch = sliceBetween(flush.writeSite, flush.sliceStart, flush.sliceEnd);
     const confirmed = invalidatedKeyHeads(branch);
+    const lines = invalidationLines(branch);
 
     const claims = EXPENSE_WRITE_LEDGER.flatMap((row) =>
       row.divergences.filter((entry) => entry.provenBy === "flush-confirm").map((entry) => ({ row, entry }))
@@ -819,9 +967,72 @@ describe("라운드 84 ⓒ·ⓓ 갈린 이유와 그 이유의 참 (이유 없�
         confirmed,
         `${row.label} 의 이유가 거짓이 됐다 — 확정 갈래가 ["${entry.keyHead}"]을 더는 무효화하지 않는다`
       ).toContain(entry.keyHead);
+
+      // ⚠️ 라운드 84 리뷰 H-1 — **조건이 붙으면 그 이유는 이미 거짓이다.** 화면 셋은 "flush가
+      // 어떤 mutation이었는지 모르므로 조건 없이 덮는다"에 기대고 있으므로, 그 무효화가
+      // ① 갈래 최상위 깊이에 있고 ② 줄 자신이 조건절로 시작하지 않아야 한다.
+      const unconditional = lines.filter(
+        (line) =>
+          line.keyHead === entry.keyHead &&
+          line.depth === 1 &&
+          UNCONDITIONAL_INVALIDATION_LINE.test(line.text)
+      );
+      expect(
+        unconditional.length,
+        `${row.label} 의 이유가 거짓이 됐다 — 확정 갈래의 ["${entry.keyHead}"] 무효화에 조건이 붙었다 ` +
+          `(발견: ${lines
+            .filter((line) => line.keyHead === entry.keyHead)
+            .map((line) => `깊이 ${line.depth} · ${line.text}`)
+            .join(" / ") || "0건"})`
+      ).toBeGreaterThan(0);
     }
-    // 이 트랙 전체가 서 있는 그 한 줄을 문자 그대로도 못 박는다.
+    // 이 트랙 전체가 서 있는 그 한 줄을 문자 그대로도, 조건 없음으로도 못 박는다.
     expect(branch, "확정 갈래의 [\"home\"] 무효화가 사라졌다").toContain('invalidateQueries({ queryKey: ["home"] })');
+    expect(
+      lines.filter((line) => line.keyHead === "home").map((line) => line.depth),
+      '확정 갈래의 ["home"] 무효화가 갈래 최상위(깊이 1)에 있다'
+    ).toEqual([1]);
+  });
+
+  /**
+   * ⚠️ 라운드 84 리뷰 H-1 — **판정기를 픽스처로 실제로 돌린다.**
+   *
+   * 위 단언이 무엇을 잡는지는 픽스처가 보여야 한다: 같은 무효화 줄을 갈래 하나로 감싸면
+   * 깊이가 2가 되고(그래서 빨개지고), 줄 앞에 조건절을 붙이면 줄 모양 검사가 잡는다.
+   * 종전 검사(문자열이 구간 안에 있는가)는 셋을 전부 초록으로 통과시켰다.
+   */
+  it("조건으로 감싼 무효화는 갈래 최상위가 아니다 (그 창이 닫혔다는 것을 픽스처로 보인다)", () => {
+    const unconditional = [
+      "if (summary.synced > 0) {",
+      '    await queryClient.invalidateQueries({ queryKey: ["home"] });',
+      "  }"
+    ].join("\n");
+    const wrapped = [
+      "if (summary.synced > 0) {",
+      "    if (summary.expenseSynced > 0) {",
+      '      await queryClient.invalidateQueries({ queryKey: ["home"] });',
+      "    }",
+      "  }"
+    ].join("\n");
+    const guardedOnOneLine = [
+      "if (summary.synced > 0) {",
+      '    if (touchedHome) await queryClient.invalidateQueries({ queryKey: ["home"] });',
+      "  }"
+    ].join("\n");
+
+    // 종전 검사는 셋을 구분하지 못한다 — 집합도, 문자열 포함도 똑같다.
+    for (const source of [unconditional, wrapped, guardedOnOneLine]) {
+      expect(invalidatedKeyHeads(source)).toEqual(["home"]);
+      expect(source).toContain('invalidateQueries({ queryKey: ["home"] })');
+    }
+
+    expect(invalidationLines(unconditional).map((line) => line.depth)).toEqual([1]);
+    expect(UNCONDITIONAL_INVALIDATION_LINE.test(invalidationLines(unconditional)[0].text)).toBe(true);
+    // ① 감싸는 갈래가 한 겹 생기면 깊이가 2다.
+    expect(invalidationLines(wrapped).map((line) => line.depth)).toEqual([2]);
+    // ② 같은 줄에 조건이 붙으면 깊이는 1이지만 줄 모양이 아니다.
+    expect(invalidationLines(guardedOnOneLine).map((line) => line.depth)).toEqual([1]);
+    expect(UNCONDITIONAL_INVALIDATION_LINE.test(invalidationLines(guardedOnOneLine)[0].text)).toBe(false);
   });
 
   it("이유의 참 ②(single-file-key) — 그 키를 켜는 파일이 그 경로 하나뿐이고, 공유 키가 아니다", () => {
@@ -850,6 +1061,51 @@ describe("라운드 84 ⓒ·ⓓ 갈린 이유와 그 이유의 참 (이유 없�
       "상세 삭제",
       "기록 탭 행 삭제"
     ]);
+  });
+});
+
+/**
+ * ⚠️ 라운드 84 리뷰 L-14 — **모집단 단위가 담지 못하는 것을 다른 대장이 진다.**
+ *
+ * ⓐ·ⓑ의 단위는 *"그 키를 켜는 파일 수 ≥ 2"* 다(이유는 shared-cache-policy.ts 머리말에 값으로
+ * 있다 — 신선도는 읽는 자리가 정한다). 그 단위 밖에 **읽는 자리는 하나인데 비우는 자리는 여럿**인
+ * 키가 있고, 그 전수를 세지 않으면 "모집단 밖"과 "사각"의 구분이 사라진다.
+ */
+describe("라운드 84 ⓕ 선언 한 파일 · 무효화 여러 자리인 키 (두 방향)", () => {
+  /** 그 키를 켜는 파일 전수(정책 대장과 같은 스윕). */
+  function declaringFiles(sites: QuerySite[], keyHead: string): string[] {
+    return [...new Set(sites.filter((site) => site.keyHead === keyHead).map((site) => site.file))].sort();
+  }
+
+  it("소스에서 그 모양인 키 전수가 대장과 같고, 대장에 낡은 줄이 없다", () => {
+    const sites = collectQuerySites();
+    const shared = new Set(sharedKeyHeads(sites));
+    const actual = [...new Set(sites.map((site) => site.keyHead))]
+      .filter((keyHead) => !shared.has(keyHead))
+      .filter((keyHead) => invalidationSites(keyHead).length >= 2)
+      .sort();
+    const ledger = INVALIDATION_ONLY_KEYS.map((row) => row.keyHead).sort();
+
+    // 방향 1: 그 모양인데 대장에 없으면 빨강(아무도 세지 않는 무효화 집합이 생겼다).
+    expect(actual.filter((key) => !ledger.includes(key)), "대장에 없는 '무효화만 여럿' 키").toEqual([]);
+    // 방향 2: 대장에 있는데 더는 그 모양이 아니면 빨강(공유 키가 됐거나 무효화가 하나로 줄었다).
+    expect(ledger.filter((key) => !actual.includes(key)), "실재하지 않는 대장의 줄").toEqual([]);
+  });
+
+  it("각 줄의 선언 파일이 실재하고 하나뿐이며, 이유가 비어 있지 않다", () => {
+    const sites = collectQuerySites();
+    for (const row of INVALIDATION_ONLY_KEYS) {
+      expect(declaringFiles(sites, row.keyHead), `["${row.keyHead}"] 를 켜는 파일`).toEqual([row.declaredIn]);
+      expect(row.why.length, `["${row.keyHead}"] 이유`).toBeGreaterThan(40);
+      expect(invalidationSites(row.keyHead).length, `["${row.keyHead}"] 무효화 자리`).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('그 단위가 실제로 무엇을 놓치는지 값으로 센다 — ["home"]은 여섯 자리에서 비워지지만 공유 키가 아니다', () => {
+    const shared = new Set(sharedKeyHeads(collectQuerySites()));
+    expect(shared.has("home"), '["home"] 이 공유 키가 됐다 — 정책 대장이 세야 한다').toBe(false);
+    expect(literalInvalidationSites("home").length, '["home"] 을 비우는 자리').toBeGreaterThanOrEqual(6);
+    expect(INVALIDATION_ONLY_KEYS.map((row) => row.keyHead)).toContain("home");
   });
 });
 
