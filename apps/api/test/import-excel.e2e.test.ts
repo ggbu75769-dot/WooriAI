@@ -1,6 +1,8 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import ExcelJS from "exceljs";
 import request from "supertest";
 import { errorResponseSchema, importJobSchema, importRowSchema, MONEY_KRW_MAX } from "@wooriai/contracts";
@@ -8,6 +10,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { PrismaService } from "../src/prisma/prisma.service";
+import {
+  buildImportRowCreateData,
+  buildImportedExpenseCreateData,
+  importMaxRows,
+  PG_MAX_BIND_PARAMETERS
+} from "../src/onboarding/import-pipeline.service";
 
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -1390,5 +1398,336 @@ describe("Excel import beta API", () => {
       importJobSchema.parse(xlsxJob.body);
       expect(xlsxJob.body.rowCount).toBe(1);
     });
+  });
+});
+
+/**
+ * 라운드 81 E — **왕복을 세는 그물.**
+ *
+ * ## 왜 이 자리에 계약이 필요한가
+ * 이 파이프라인의 상한은 `importMaxRows` = 2,000행이고 그 값은 **계약**이다(AC-IMP-001 ·
+ * source-lock IMPAPI-001 · QA 런북 QR-10). 그런데 두 트랜잭션의 문장 수가 행 수에 비례했다 —
+ * 미리보기 **N + 3**(행마다 `importRow.create`), 확정 **2N + 2**(행마다 `insertExpense`,
+ * 그 안에서 행마다 `category.findUnique`). 즉 지원한다고 약속한 끝값의 파일이 **그 약속 때문에**
+ * 트랜잭션 예산을 넘길 수 있는 모양이었고, 확정에서 터지면 사용자의 검수 30분이 함께 사라진다.
+ *
+ * ## 세는 방법을 계약이 정한다
+ * ⚠️ 이 저장소에는 왕복을 세는 자리가 **한 곳도 없었다**. 그래서 세는 방법부터 정한다:
+ * `PrismaService`를 **query 이벤트를 내보내는 인스턴스로 갈아 끼우고**(아래 서브클래스 —
+ * Prisma 6에는 `$use` 미들웨어가 없다) 요청 하나가 내보낸 **SQL 문장 수를 실측**한다.
+ * BEGIN/COMMIT과 인증·권한 조회까지 전부 세지만, 그 몫은 **행 수와 무관한 상수**라 아래
+ * 두 단언에서 서로 상쇄된다.
+ *
+ * ## 단언이 손으로 적은 수치를 쓰지 않는 이유
+ * "확정은 몇 문장"을 상수로 박으면 다음 라운드에 낡는다(그리고 낡은 줄은 계약이 아니라
+ * 유지비다). 그래서 두 단언 다 **행 수 자신으로** 표현한다.
+ *  1. **행 수보다 적다** — 400행짜리 요청의 문장 수가 400 미만이어야 한다. 종전 소스에서는
+ *     **미리보기 411 · 확정 811**(실측)이라 둘 다 빨개진다.
+ *     ⚠️ 라운드 81 리뷰(M-5): 이 두 수는 **요청 하나가 내보낸 문장 전체**다 — 트랜잭션 안의
+ *     비례분(미리보기 `N + 3` = 403 · 확정 `2N + 2` = 802)에 인증·권한 조회와 BEGIN/COMMIT
+ *     같은 **행 수와 무관한 상수 오버헤드**(두 수의 차이가 곧 그 몫이다 — 여덟·아홉)가 더해진
+ *     값이고, 이 스위트가 세는
+ *     것이 바로 그 전체다. 종전에는 이 자리에 트랜잭션 안의 수(403·802)만 적혀 있어서, 같은
+ *     사실을 두고 문서(`known-limitations.md` N절·V-4의 **411/811**)와 다른 숫자를 말했다.
+ *  2. **행 수를 4배로 늘려도 문장 수가 그만큼 늘지 않는다** — 늘어난 행 수의 10분의 1 미만.
+ *     비례하는 구현에서는 증가분이 늘어난 행 수와 같아지므로(300) 반드시 빨개진다.
+ * 여유(10분의 1)를 두는 것은 확정이 트랜잭션 뒤에 fire-and-forget으로 거는 예산 경계 평가
+ * (`onBudgetRelevantChange`)가 **행 수와 무관한** 몇 문장을 측정 창 안팎에 흘릴 수 있기
+ * 때문이다 — 그 흔들림은 한 자릿수이고, 비례/비비례를 가르는 300과는 자릿수가 다르다.
+ */
+class QueryCountingPrismaService extends PrismaService {
+  constructor() {
+    // 기본 PrismaService는 로그 설정이 없어 query 이벤트를 내보내지 않는다. 서브클래스가
+    // 생성 인자만 바꾼다(동작·연결 방식은 그대로 상속한다).
+    super({ log: [{ level: "query", emit: "event" }] });
+  }
+}
+
+/** `$on("query")`는 로그를 이벤트로 설정한 클라이언트에서만 타입이 열린다(생성 옵션이 타입에
+ *  실리지 않는 서브클래스라 이 좁은 모양으로 받는다). */
+type QueryLogEmitter = { $on(eventType: "query", callback: (event: { query: string }) => void): unknown };
+
+describe("라운드 81 E — 가져오기 트랜잭션의 왕복 수 계약", () => {
+  /** 비교의 작은 쪽/큰 쪽 행 수. 큰 쪽이 작은 쪽의 4배라는 것 말고 다른 뜻은 없다. */
+  const SMALL_ROWS = 100;
+  const LARGE_ROWS = 400;
+
+  let app: INestApplication;
+  const statements: string[] = [];
+
+  beforeEach(async () => {
+    process.env.JWT_ACCESS_SECRET = "test-access-secret";
+    process.env.JWT_REFRESH_SECRET = "test-refresh-secret";
+    process.env.WOORIAI_STAGE_TODAY = "2026-07-06";
+
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(PrismaService)
+      .useClass(QueryCountingPrismaService)
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    configureApiApp(app);
+    await app.init();
+
+    (app.get(PrismaService) as unknown as QueryLogEmitter).$on("query", (event) => {
+      statements.push(event.query);
+    });
+  });
+
+  afterEach(async () => {
+    delete process.env.WOORIAI_STAGE_TODAY;
+    statements.length = 0;
+    await app.close();
+  });
+
+  /**
+   * query 이벤트는 엔진에서 올라오므로 HTTP 응답보다 조금 늦게 도착할 수 있다. 측정 앞뒤로
+   * 같은 시간을 기다려 창의 경계를 맞춘다(앞의 대기는 직전 요청의 잔여 이벤트를 비우는 몫).
+   */
+  async function settleQueryLog() {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  async function countStatements(run: () => Promise<void>): Promise<number> {
+    await settleQueryLog();
+    statements.length = 0;
+    await run();
+    await settleQueryLog();
+    // 다음 라운드가 실측값을 다시 보고 싶을 때 쓰는 창(단언은 이 값을 쓰지 않는다):
+    // `WOORIAI_LOG_STATEMENT_COUNTS=1 npx vitest run test/import-excel.e2e.test.ts`.
+    if (process.env.WOORIAI_LOG_STATEMENT_COUNTS) console.log(`[statements] ${statements.length}`);
+    return statements.length;
+  }
+
+  /** 전부 유효·고신뢰(품목명이 키워드에 걸린다)이고 금액만 다른 행 N개. */
+  function csvWithRows(rowCount: number): string {
+    const lines = ["날짜,적요,금액"];
+    for (let index = 0; index < rowCount; index += 1) {
+      lines.push(`2026-07-06,기저귀 구매,${1000 + index}`);
+    }
+    return `${lines.join("\n")}\n`;
+  }
+
+  async function uploadRows(accessToken: string, childId: string, rowCount: number): Promise<ImportJob> {
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/imports/excel`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .field("fileName", `wooriai-${rowCount}.csv`)
+      .attach("file", Buffer.from(csvWithRows(rowCount), "utf8"), `wooriai-${rowCount}.csv`)
+      .expect(200);
+    return response.body as ImportJob;
+  }
+
+  /** 확정 DTO는 `selectedRowIds`를 요구한다(ConfirmImportDto) — 검수 화면이 보내는 그 목록. */
+  async function selectedRowIdsOf(accessToken: string, importJobId: string): Promise<string[]> {
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/imports/${importJobId}/rows`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    return (response.body.rows as ImportRow[]).filter((row) => row.selected).map((row) => row.id);
+  }
+
+  it("미리보기 생성의 문장 수는 행 수에 비례하지 않는다", async () => {
+    const accessToken = await login(app, "r81e-preview-statements");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    // 같은 아이에 연달아 올린다 — 두 측정이 지나는 자리(취소 updateMany 포함)를 같게 두려는
+    // 것이고, 아직 확정한 적이 없어 중복 후보 조회의 모집단도 양쪽 다 0이다.
+    let small: ImportJob | undefined;
+    const smallStatements = await countStatements(async () => {
+      small = await uploadRows(accessToken, childId, SMALL_ROWS);
+    });
+    let large: ImportJob | undefined;
+    const largeStatements = await countStatements(async () => {
+      large = await uploadRows(accessToken, childId, LARGE_ROWS);
+    });
+
+    // 값 계약이 먼저다 — 행이 실제로 다 들어갔을 때만 문장 수 비교가 뜻을 가진다.
+    expect(small!.rowCount).toBe(SMALL_ROWS);
+    expect(large!.rowCount).toBe(LARGE_ROWS);
+
+    expect(largeStatements).toBeLessThan(LARGE_ROWS);
+    expect(largeStatements - smallStatements).toBeLessThan((LARGE_ROWS - SMALL_ROWS) / 10);
+  });
+
+  it("확정의 문장 수는 행 수에 비례하지 않는다", async () => {
+    const accessToken = await login(app, "r81e-confirm-statements");
+
+    // ⚠️ 아이를 둘로 나눈다: 확정이 만든 지출은 같은 아이의 **다음 파일에서 중복 후보**가
+    // 되므로(같은 날짜·같은 금액), 한 아이로 두 번 재면 두 측정이 서로 다른 일을 한다.
+    const { childId: smallChildId } = await completeOnboarding(app, accessToken);
+    const { childId: largeChildId } = await completeOnboarding(app, accessToken);
+
+    async function confirmStatements(childId: string, rowCount: number): Promise<number> {
+      const job = await uploadRows(accessToken, childId, rowCount);
+      expect(job.rowCount).toBe(rowCount);
+      // 행 목록 조회는 측정 창 **밖**이다 — 재는 것은 확정 요청 하나다.
+      const selectedRowIds = await selectedRowIdsOf(accessToken, job.id);
+      expect(selectedRowIds).toHaveLength(rowCount);
+      return await countStatements(async () => {
+        await request(app.getHttpServer())
+          .post(`/api/v1/imports/${job.id}/confirm`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ selectedRowIds })
+          .expect(200)
+          .expect(({ body }) => {
+            // 값 계약: 선택된 행이 전부 지출이 됐다(문장 수를 줄이면서 건수가 줄지 않았다).
+            expect(body).toEqual({ importedCount: rowCount, skippedCount: 0 });
+          });
+      });
+    }
+
+    const smallStatements = await confirmStatements(smallChildId, SMALL_ROWS);
+    const largeStatements = await confirmStatements(largeChildId, LARGE_ROWS);
+
+    expect(largeStatements).toBeLessThan(LARGE_ROWS);
+    expect(largeStatements - smallStatements).toBeLessThan((LARGE_ROWS - SMALL_ROWS) / 10);
+  });
+
+  /**
+   * 확정이 `insertExpense`가 아니라 배치 INSERT로 행을 넣게 됐으므로, **그 행의 모양**을
+   * 값으로 고정한다. 여기가 빨개지면 지출 생성의 단일 소스와 가져오기 경로가 갈라진 것이다
+   * (import-pipeline.service.ts `insertImportedExpenses` 주석의 마지막 경고).
+   */
+  it("확정이 만든 지출 행의 모양은 종전과 같다", async () => {
+    const accessToken = await login(app, "r81e-row-shape");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = app.get(PrismaService);
+
+    const job = await uploadRows(accessToken, childId, 2);
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: await selectedRowIdsOf(accessToken, job.id) })
+      .expect(200);
+
+    const child = await prisma.child.findUniqueOrThrow({ where: { id: childId }, select: { householdId: true } });
+    const created = await prisma.expense.findMany({ where: { importJobId: job.id }, orderBy: { amountKrw: "asc" } });
+    expect(created).toHaveLength(2);
+    for (const expense of created) {
+      expect(expense).toMatchObject({
+        childId,
+        categoryId: expect.any(String),
+        itemName: "기저귀 구매",
+        merchant: null,
+        memo: null,
+        paymentMethod: "unknown",
+        expenseType: "expense",
+        source: "excel_import",
+        linkedItemTemplateId: null,
+        linkedProductLinkId: null,
+        importJobId: job.id,
+        deletedAt: null,
+        deletedByUserId: null,
+        version: 1
+      });
+      // 가구·작성자는 잡이 아는 값 그대로다(권한 검증을 통과한 그 잡의 가구, 확정을 누른 사람).
+      expect(expense.householdId).toBe(child.householdId);
+      expect(expense.createdByUserId).toEqual(expect.any(String));
+    }
+    expect(created.map((expense) => expense.amountKrw)).toEqual([1000, 1001]);
+    // 날짜는 파일의 값 그대로다(문자열 → date-only 변환이 이 경로에서도 같은 자를 쓴다).
+    expect(created.every((expense) => expense.spentOn.toISOString().slice(0, 10) === "2026-07-06")).toBe(true);
+  });
+
+  /**
+   * 상한이 계약인 입력의 **끝값**이 실제로 통과하는지를 한 번 재현한다(2,000행). 정찰이
+   * "지원 범위의 끝값"이라고 부른 그 파일이고, 종전 소스에서는 미리보기 2,003문장 · 확정
+   * 4,002문장이 기본 5초 예산 안에서 직렬로 돌았다.
+   */
+  it("상한(2,000행) 파일이 미리보기·확정을 모두 통과한다", async () => {
+    const accessToken = await login(app, "r81e-max-rows");
+    const { childId } = await completeOnboarding(app, accessToken);
+
+    const job = await uploadRows(accessToken, childId, 2000);
+    expect(job.rowCount).toBe(2000);
+    expect(job.candidateCount).toBe(2000);
+
+    const selectedRowIds = await selectedRowIdsOf(accessToken, job.id);
+    expect(selectedRowIds).toHaveLength(2000);
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ importedCount: 2000, skippedCount: 0 });
+      });
+
+    // 합계는 1000..2999의 합이다 — 건수만이 아니라 값이 다 들어갔음을 본다.
+    const expectedTotal = (1000 + 2999) * (2000 / 2);
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/monthly?yearMonth=2026-07`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.totalExpenseKrw).toBe(expectedTotal);
+      });
+  }, 60_000);
+});
+
+/**
+ * 라운드 81 리뷰(L-9) — **배치 한 문장의 천장은 행 수가 아니라 바인드 파라미터 수다.**
+ *
+ * 라운드 81 E가 행마다 한 문장이던 두 자리를 `createMany` 한 문장으로 모으면서 한계선이 조용히
+ * 옮겨 갔다: 한 INSERT가 `행 수 × 컬럼 수`개의 파라미터를 싣는데 PostgreSQL 프로토콜은 한 문장에
+ * **65,535개**까지만 받는다. 넘기면 미리보기·확정이 통째로 실패하고, 그 실패는 **상한을 다 채운
+ * 파일에서만** 나타나므로 상한을 올리거나 지출에 칸을 더하는 라운드가 모르고 지나간다.
+ *
+ * 그래서 천장을 값이 아니라 **계약**으로 둔다. 컬럼 수를 손으로 적지 않고 실제로 행을 만드는 두
+ * 함수의 키 수를 그대로 세므로, 칸이 늘거나 `importMaxRows`가 커져 곱이 상한에 닿는 날 빨개진다.
+ * DB가 필요 없는 순수 계약이다(그래서 위 스위트들과 달리 앱을 띄우지 않는다).
+ */
+describe("라운드 81 리뷰 L-9 — 가져오기 배치의 바인드 파라미터 천장", () => {
+  const sampleRow = {
+    id: "11111111-1111-4111-8111-111111111111",
+    importJobId: "",
+    rowIndex: 1,
+    parsedDate: new Date("2026-07-06T00:00:00.000Z"),
+    parsedItemName: "기저귀 구매",
+    parsedAmountKrw: 32000,
+    categoryId,
+    confidence: 0.9,
+    selected: true,
+    userReviewed: false,
+    validationStatus: "valid",
+    duplicateCandidateExpenseId: null
+  };
+
+  it("행 상한 × 컬럼 수가 65,535 미만이다 (미리보기 행 · 확정 지출 둘 다)", () => {
+    const importRowColumns = Object.keys(buildImportRowCreateData(sampleRow, "job-1")).length;
+    const expenseColumns = Object.keys(
+      buildImportedExpenseCreateData(sampleRow, {
+        householdId: "household-1",
+        childId: "child-1",
+        createdByUserId: "user-1",
+        importJobId: "job-1"
+      })
+    ).length;
+
+    // 컬럼 수 자체는 손으로 적지 않는다 — 여기서 세는 것은 **곱이 천장 아래인가** 하나다.
+    expect(importRowColumns).toBeGreaterThan(0);
+    expect(expenseColumns).toBeGreaterThan(0);
+    expect(importMaxRows * importRowColumns).toBeLessThan(PG_MAX_BIND_PARAMETERS);
+    expect(importMaxRows * expenseColumns).toBeLessThan(PG_MAX_BIND_PARAMETERS);
+
+    // 천장이 실제로 물리는 값이라는 사실도 함께 고정한다(가드가 언제 빨개지는지를 값으로):
+    // 지금 컬럼 수로 담을 수 있는 최대 행 수보다 상한이 작아야 한다.
+    const maxRowsAtCurrentShape = Math.floor(PG_MAX_BIND_PARAMETERS / Math.max(importRowColumns, expenseColumns));
+    expect(importMaxRows).toBeLessThan(maxRowsAtCurrentShape);
+  });
+
+  /**
+   * 확정이 만드는 지출 행은 `insertExpense`가 만드는 행과 **같은 모양이어야 한다**(그쪽에 칸이
+   * 생기는 날 가져오기 행만 조용히 그 칸을 비운 채 남는다 — 서비스 주석의 마지막 문단). 위
+   * 천장 계약이 그 함수의 키를 세므로, 그 함수가 실제 INSERT의 단일 소스라는 사실도 못박는다.
+   */
+  it("두 배치 INSERT는 그 두 함수로만 행을 만든다", () => {
+    const serviceSource = readFileSync(
+      join(process.cwd(), "src/onboarding/import-pipeline.service.ts"),
+      "utf8"
+    );
+    expect(serviceSource).toContain("data: rows.map((row) => buildImportRowCreateData(row, created.id))");
+    expect(serviceSource).toContain("buildImportedExpenseCreateData(row, {");
   });
 });

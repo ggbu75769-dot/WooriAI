@@ -1,12 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyPurchaseIntent,
   applyPurchaseLinkClick,
   applySnooze,
   applyStatus,
   clearPurchaseFollowupsForChild,
+  createPurchaseFollowupEligibilityTimer,
   isFollowupForSelectedChild,
   isPromptEligible,
+  nextPromptEligibleDelayMs,
   PURCHASE_FOLLOWUP_MAX_AGE_MS,
   PURCHASE_FOLLOWUP_MAX_ENTRIES,
   PURCHASE_FOLLOWUP_MAX_PROMPTS,
@@ -438,5 +440,197 @@ describe("라운드 62 B(#5) 아이 단위 정리 clearForChild", () => {
     expect(usePurchaseFollowupStore.getState().entries.map((entry) => entry.itemTemplateId)).toEqual(["item-b"]);
     usePurchaseFollowupStore.getState().resetAll();
     expect(usePurchaseFollowupStore.getState().entries).toEqual([]);
+  });
+});
+
+/**
+ * 라운드 81 트랙 B — **자격 창이 열리기까지 남은 시간**.
+ *
+ * 자격은 시간 두 개로 정의되는데(3분~24시간), 그 시간이 지나는 것을 보고 있는 자리가 없었다:
+ * 판정은 콜드 스타트·포그라운드 복귀·아이 전환에만 돌아서, 링크를 누르고 90초 만에 앱으로
+ * 돌아온 사용자는 그 세션 내내 카드를 보지 못했다(자격은 90초 뒤에 갖춰졌는데도).
+ *
+ * 이 술어가 답하는 것은 "언제 다시 물어볼까" 하나이고, **판정 규칙은 한 글자도 바뀌지 않는다** --
+ * 그 시각에 실제로 카드가 뜨는지는 여전히 세션 슬롯·아이 게이트·앱 잠금이 정한다.
+ */
+describe("라운드 81 B 자격 도래까지 남은 시간 (nextPromptEligibleDelayMs)", () => {
+  it("재현: 클릭 90초 뒤 복귀 -- 지금은 후보가 없고, 남은 90초가 지나면 같은 스냅샷이 후보를 낸다", () => {
+    const clickedAt = NOW - 90 * 1000;
+    const entries = [pendingEntry({ clickedAt })];
+    // 오늘의 답: 아직 3분 전이라 후보가 없다(그리고 그 세션에는 판정이 다시 서지 않았다).
+    expect(selectPromptEligibleFollowup(entries, NOW, "child-1")).toBeNull();
+    const delay = nextPromptEligibleDelayMs(entries, NOW, "child-1");
+    expect(delay).toBe(PURCHASE_FOLLOWUP_MIN_AGE_MS - 90 * 1000);
+    // 그 시각에 다시 물으면 같은 항목이 후보가 된다 -- 술어가 가리킨 자리가 정확히 창의 문턱이다.
+    expect(selectPromptEligibleFollowup(entries, NOW + (delay ?? 0), "child-1")?.itemTemplateId).toBe("item-diaper");
+    // 1밀리초 앞은 아직 문턱 밖이다(창 상수는 이 트랙에서 한 글자도 바뀌지 않는다).
+    expect(selectPromptEligibleFollowup(entries, NOW + (delay ?? 0) - 1, "child-1")).toBeNull();
+  });
+
+  /**
+   * 라운드 81 리뷰(M-4) — **미래 클릭은 깨움을 만들지 않는다.**
+   *
+   * 종전에는 남은 시간을 `Math.min`으로 MIN_AGE에 잘랐다. 상한 자체는 지켜졌지만 그 3분 뒤에
+   * 깨어난 판정이 **여전히 자격 없는 같은 항목**을 보고 또 3분을 걸어, 6시간 미래의 blob 하나가
+   * 3분 주기 폴링이 됐다("헛도는 깨움 0건"의 정반대다). 이제 그런 항목은 세지 않는다 -- 시간이
+   * 실제로 흘러 창에 가까워지면 그때의 판정이 정상적인 깨움을 건다.
+   */
+  it("부정: 미래 clickedAt(시계 역행 blob)은 깨움을 만들지 않는다 -- 3분 주기 폴링 0건", () => {
+    const future = [pendingEntry({ clickedAt: NOW + 6 * 60 * 60 * 1000 })];
+    expect(nextPromptEligibleDelayMs(future, NOW, "child-1")).toBeNull();
+    // 그 시각에 깨워 봐야 후보가 될 수 없다는 사실이 이 부정의 근거다.
+    expect(selectPromptEligibleFollowup(future, NOW + PURCHASE_FOLLOWUP_MIN_AGE_MS, "child-1")).toBeNull();
+    // 1밀리초만 미래여도 같다(경계는 "지금"이다).
+    expect(nextPromptEligibleDelayMs([pendingEntry({ clickedAt: NOW + 1 })], NOW, "child-1")).toBeNull();
+    // 실제로 시간이 흘러 그 클릭이 과거가 되면 그때는 평소대로 깨움을 만든다.
+    const later = NOW + 6 * 60 * 60 * 1000 + 60 * 1000;
+    expect(nextPromptEligibleDelayMs(future, later, "child-1")).toBe(PURCHASE_FOLLOWUP_MIN_AGE_MS - 60 * 1000);
+    // 정상 항목이 함께 있으면 그 항목의 답은 미래 blob에 가려지지 않는다.
+    const mixed = [...future, pendingEntry({ itemTemplateId: "item-soon", clickedAt: NOW - 150 * 1000 })];
+    expect(nextPromptEligibleDelayMs(mixed, NOW, "child-1")).toBe(PURCHASE_FOLLOWUP_MIN_AGE_MS - 150 * 1000);
+  });
+
+  it("파생 상한: 답은 언제나 MIN_AGE 이하다", () => {
+    expect(nextPromptEligibleDelayMs([pendingEntry({ clickedAt: NOW })], NOW, "child-1")).toBe(
+      PURCHASE_FOLLOWUP_MIN_AGE_MS
+    );
+    for (const offset of [0, 1, 1000, PURCHASE_FOLLOWUP_MIN_AGE_MS - 1]) {
+      const delay = nextPromptEligibleDelayMs([pendingEntry({ clickedAt: NOW - offset })], NOW, "child-1");
+      expect(delay).not.toBeNull();
+      expect(delay).toBeGreaterThan(0);
+      expect(delay).toBeLessThanOrEqual(PURCHASE_FOLLOWUP_MIN_AGE_MS);
+    }
+  });
+
+  it("부정: 이미 자격을 갖춘 항목은 깨움을 만들지 않는다 (기존 경로 무변화)", () => {
+    const eligible = [pendingEntry({ clickedAt: NOW - 10 * 60 * 1000 })];
+    expect(selectPromptEligibleFollowup(eligible, NOW, "child-1")).not.toBeNull();
+    expect(nextPromptEligibleDelayMs(eligible, NOW, "child-1")).toBeNull();
+    // 창의 문턱에 정확히 선 항목도 마찬가지다(이미 창 안이다).
+    expect(
+      nextPromptEligibleDelayMs([pendingEntry({ clickedAt: NOW - PURCHASE_FOLLOWUP_MIN_AGE_MS })], NOW, "child-1")
+    ).toBeNull();
+  });
+
+  it("부정: 다른 아이·아이 미선택 항목은 깨움을 만들지 않는다", () => {
+    const entries = [pendingEntry({ childId: "child-1", clickedAt: NOW - 30 * 1000 })];
+    expect(nextPromptEligibleDelayMs(entries, NOW, "child-2")).toBeNull();
+    expect(nextPromptEligibleDelayMs(entries, NOW, null)).toBeNull();
+    // 그 아이로 돌아오면 그때 다시 센다 -- 상태는 아무것도 바뀌지 않았다.
+    expect(nextPromptEligibleDelayMs(entries, NOW, "child-1")).toBe(PURCHASE_FOLLOWUP_MIN_AGE_MS - 30 * 1000);
+  });
+
+  it("부정: 예산을 다 쓴 항목·pending이 아닌 항목·24시간을 넘긴 항목은 깨움을 만들지 않는다", () => {
+    const fresh = { clickedAt: NOW - 30 * 1000 };
+    expect(
+      nextPromptEligibleDelayMs(
+        [pendingEntry({ ...fresh, promptCount: PURCHASE_FOLLOWUP_MAX_PROMPTS })],
+        NOW,
+        "child-1"
+      )
+    ).toBeNull();
+    for (const status of ["done", "dismissed", "expired"] as const) {
+      expect(nextPromptEligibleDelayMs([pendingEntry({ ...fresh, status })], NOW, "child-1")).toBeNull();
+    }
+    // 24시간을 넘긴 항목은 기다려도 자격이 다시 생기지 않는다(조용히 만료된 채로 둔다).
+    expect(
+      nextPromptEligibleDelayMs(
+        [pendingEntry({ clickedAt: NOW - PURCHASE_FOLLOWUP_MAX_AGE_MS - 1 })],
+        NOW,
+        "child-1"
+      )
+    ).toBeNull();
+    expect(nextPromptEligibleDelayMs([], NOW, "child-1")).toBeNull();
+  });
+
+  it("여럿이면 가장 먼저 자격을 얻는 하나를 고른다 (깨움도 하나다)", () => {
+    const soon = pendingEntry({ itemTemplateId: "item-soon", clickedAt: NOW - 150 * 1000 });
+    const later = pendingEntry({ itemTemplateId: "item-later", clickedAt: NOW - 10 * 1000 });
+    const otherChild = pendingEntry({ itemTemplateId: "item-other", childId: "child-2", clickedAt: NOW - 179 * 1000 });
+    expect(nextPromptEligibleDelayMs([soon, later, otherChild], NOW, "child-1")).toBe(
+      PURCHASE_FOLLOWUP_MIN_AGE_MS - 150 * 1000
+    );
+  });
+});
+
+/**
+ * 라운드 81 트랙 B — 그 술어를 실제 시계에 꽂는 **일회용 타이머 하나**.
+ *
+ * 화면(PurchaseFollowupPrompt.tsx)은 vitest에서 렌더할 수 없어서(react-native import) 타이머가
+ * 화면 안에만 있으면 "제때 깨우는가 · 중복으로 걸지 않는가 · cleanup에서 풀리는가"를 물을
+ * 방법이 없다. 세션 게이트를 순수 모듈로 떼어 낸 라운드 39 I-3과 같은 이유다.
+ */
+describe("라운드 81 B 자격 도래 타이머 (createPurchaseFollowupEligibilityTimer)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("① MIN_AGE 이전 복귀: 자격 도래 시각에 딱 한 번 판정을 다시 세운다", () => {
+    const onDue = vi.fn();
+    const timer = createPurchaseFollowupEligibilityTimer(onDue);
+    const clickedAt = NOW - 90 * 1000;
+    timer.schedule([pendingEntry({ clickedAt })], NOW, "child-1");
+    expect(timer.isArmed()).toBe(true);
+
+    const delay = PURCHASE_FOLLOWUP_MIN_AGE_MS - 90 * 1000;
+    vi.advanceTimersByTime(delay - 1);
+    expect(onDue).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onDue).toHaveBeenCalledTimes(1);
+    // 일회용이다 -- 발화한 타이머는 스스로 표시를 내리고, 다음 깨움은 그 판정이 다시 건다.
+    expect(timer.isArmed()).toBe(false);
+    vi.advanceTimersByTime(PURCHASE_FOLLOWUP_MAX_AGE_MS);
+    expect(onDue).toHaveBeenCalledTimes(1);
+  });
+
+  it("② cleanup(언마운트·의존성 변화): 걸린 타이머가 해제되고 다시 깨우지 않는다", () => {
+    const onDue = vi.fn();
+    const timer = createPurchaseFollowupEligibilityTimer(onDue);
+    timer.schedule([pendingEntry({ clickedAt: NOW - 30 * 1000 })], NOW, "child-1");
+    expect(vi.getTimerCount()).toBe(1);
+    timer.clear();
+    expect(timer.isArmed()).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(PURCHASE_FOLLOWUP_MIN_AGE_MS * 2);
+    expect(onDue).not.toHaveBeenCalled();
+    // 두 번 풀어도 안전하다(cleanup이 겹쳐 도는 경로).
+    timer.clear();
+    expect(timer.isArmed()).toBe(false);
+  });
+
+  it("③ 이미 자격이 있으면 타이머를 만들지 않는다 (기존 경로 무변화 · 헛도는 깨움 0건)", () => {
+    const onDue = vi.fn();
+    const timer = createPurchaseFollowupEligibilityTimer(onDue);
+    timer.schedule([pendingEntry({ clickedAt: NOW - 10 * 60 * 1000 })], NOW, "child-1");
+    expect(timer.isArmed()).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    // 다른 아이·예산 소진·빈 목록도 같다.
+    timer.schedule([pendingEntry({ clickedAt: NOW - 30 * 1000 })], NOW, "child-2");
+    timer.schedule([pendingEntry({ clickedAt: NOW - 30 * 1000, promptCount: PURCHASE_FOLLOWUP_MAX_PROMPTS })], NOW, "child-1");
+    timer.schedule([], NOW, "child-1");
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(PURCHASE_FOLLOWUP_MIN_AGE_MS * 2);
+    expect(onDue).not.toHaveBeenCalled();
+  });
+
+  it("④ 중복 타이머 없음: 판정이 여러 번 돌아도 살아 있는 깨움은 언제나 하나다", () => {
+    const onDue = vi.fn();
+    const timer = createPurchaseFollowupEligibilityTimer(onDue);
+    const entries = [pendingEntry({ clickedAt: NOW - 60 * 1000 })];
+    // 포그라운드 복귀·아이 전환처럼 판정이 잇달아 도는 경로.
+    timer.schedule(entries, NOW, "child-1");
+    timer.schedule(entries, NOW, "child-1");
+    timer.schedule(entries, NOW, "child-1");
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(PURCHASE_FOLLOWUP_MIN_AGE_MS);
+    expect(onDue).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    // 자격을 갖춘 뒤의 재판정은 깨움을 새로 만들지 않는다(같은 항목으로 무한히 돌지 않는다).
+    timer.schedule(entries, NOW + PURCHASE_FOLLOWUP_MIN_AGE_MS, "child-1");
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

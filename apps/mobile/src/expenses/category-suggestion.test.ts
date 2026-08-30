@@ -314,6 +314,78 @@ describe("F3 자동 선택 되돌리기 (resolveAutoCategorySelection)", () => {
     });
   });
 
+  /**
+   * GAP-081 #1 (라운드 81 트랙 A) — **매달 1일의 구멍**을 순수 함수로 재현한다.
+   *
+   * 화면이 이 판정에 넘기던 이력은 이번 달 서버 캐시 하나였다(`["expenses", childId, 이번 달]`).
+   * 그 배열은 매달 1일 아침에 **정의상 비어 있고**, 그러면 1순위(과거 기록) 갈래는 입력이 없어
+   * 반드시 실패한다 — 남는 것은 2순위 정적 키워드 사전 하나이고, 사전에 없는 이름이면 분류는
+   * 미선택이라 저장 버튼이 막힌다. 사용자의 이력은 하나도 사라지지 않았는데도.
+   *
+   * ⚠️ **이 절은 모듈 소스를 한 글자도 바꾸지 않는다.** 달라지는 것은 화면이 넘기는 배열의
+   * 범위(한 달 → 두 달)뿐이고, 여기 선 단언들은 그 두 입력에 대한 **같은 규칙의 답**이다.
+   */
+  describe("GAP-081 #1 매달 1일 — 원천의 범위가 판정을 살린다 (규칙 무변경)", () => {
+    /** 9월 1일 아침의 이번 달 캐시 — 정의상 빈 배열이다. */
+    const CURRENT_MONTH_EMPTY: CategorySuggestionHistoryRow[] = [];
+    /** 지난달(8월)에 이 사용자가 직접 그렇게 적어 둔 행. 사전에는 없는 이름이다. */
+    const LAST_MONTH = [row({ itemName: "가습기", categoryId: ETC, spentOn: "2026-08-28" })];
+    const unselected = { currentCategoryId: null, autoPicked: null, defaultCategoryId: null };
+
+    it("오늘의 답(이번 달 캐시 하나): 근거가 없어 아무 타일도 눌리지 않는다", () => {
+      expect(suggestCategoryId("가습기", CURRENT_MONTH_EMPTY)).toBeNull();
+      // 그래서 저장 버튼이 분류를 요구한다(isCategoryMissingForSave) — 어제까지는 없던 탭이다.
+      expect(resolveAutoCategorySelection({ ...unselected, itemName: "가습기", history: CURRENT_MONTH_EMPTY })).toEqual(
+        { categoryId: null, autoPicked: null }
+      );
+    });
+
+    it("넓힌 뒤(두 달을 이어 붙인 한 배열): 지난달에 적어 둔 그 분류가 다시 눌린다", () => {
+      // 화면이 넘기는 배열은 [...이번 달, ...지난달] 하나다(new.tsx의 recentItemServerRows).
+      const twoMonths = [...CURRENT_MONTH_EMPTY, ...LAST_MONTH];
+      expect(suggestCategoryId("가습기", twoMonths)).toEqual({ categoryId: ETC, source: "history" });
+      expect(resolveAutoCategorySelection({ ...unselected, itemName: "가습기", history: twoMonths })).toEqual({
+        categoryId: ETC,
+        autoPicked: { itemName: "가습기", categoryId: ETC }
+      });
+    });
+
+    it("바이트 불변: 이번 달에 같은 등급의 이력이 있으면 답이 종전 그대로다 (최신이 이긴다)", () => {
+      // 오늘 대다수 경로가 이것이다 — 2일부터 말일까지는 이번 달 캐시에 그 이름이 이미 있다.
+      const thisMonth = [row({ itemName: "가습기", categoryId: TOYS, spentOn: "2026-09-12" })];
+      const before = suggestCategoryId("가습기", thisMonth);
+      const after = suggestCategoryId("가습기", [...thisMonth, ...LAST_MONTH]);
+      expect(after).toEqual(before);
+      expect(after).toEqual({ categoryId: TOYS, source: "history" });
+    });
+
+    /**
+     * ⚠️ 답이 달라질 수 있는 **유일한 방향**을 값으로 적는다. 규칙은 종전 그대로다(매칭 등급이
+     * 먼저, 동률이면 최신 행) — 지난달 행이 더 좋은 등급이면 그 행이 이기는 것은 이번 달 안에서
+     * 이미 그랬던 일이고(오래된 완전일치가 최신 접두를 이긴다), 두 달을 이어 붙여도 같은 규칙이
+     * 그대로 답을 정한다. 넓어진 것은 모집단이지 판정이 아니다.
+     */
+    it("달라지는 유일한 방향: 지난달 행이 더 좋은 등급이면 그 행이 이긴다 (등급 우선 규칙 그대로)", () => {
+      const thisMonth = [row({ itemName: "가습기 필터", categoryId: TOYS, spentOn: "2026-09-12" })];
+      const lastMonthExact = [row({ itemName: "가습기", categoryId: ETC, spentOn: "2026-08-28" })];
+      // 이번 달만 보면 접두 매칭 하나뿐이다.
+      expect(suggestCategoryId("가습기", thisMonth)).toEqual({ categoryId: TOYS, source: "history" });
+      // 두 달을 합치면 완전일치가 생기고, 등급 우선 규칙이 그것을 고른다.
+      expect(suggestCategoryId("가습기", [...thisMonth, ...lastMonthExact])).toEqual({
+        categoryId: ETC,
+        source: "history"
+      });
+    });
+
+    it("어느 달에도 근거가 없으면 종전대로 2순위 키워드 사전으로 내려간다", () => {
+      const twoMonths = [...CURRENT_MONTH_EMPTY, ...LAST_MONTH];
+      expect(suggestCategoryId("물티슈", twoMonths)).toMatchObject({ categoryId: DIAPER, source: "keyword" });
+      // 지난달 행이 선물/환불이거나 8타일 밖 분류면 여전히 근거로 삼지 않는다(달이 늘어도 같다).
+      const lastMonthGift = [row({ itemName: "가습기", categoryId: ETC, spentOn: "2026-08-28", expenseType: "gift" })];
+      expect(suggestCategoryId("가습기", [...CURRENT_MONTH_EMPTY, ...lastMonthGift])).toBeNull();
+    });
+  });
+
   it("같은 상태끼리는 같다고 판정한다 (화면 렌더 루프 방지)", () => {
     expect(isSameAutoPickedCategory(null, null)).toBe(true);
     expect(isSameAutoPickedCategory({ itemName: "물티슈", categoryId: DIAPER }, null)).toBe(false);

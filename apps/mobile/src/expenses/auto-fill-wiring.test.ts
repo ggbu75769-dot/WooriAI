@@ -339,7 +339,8 @@ describe("GAP-056 #1 텍스트 길이 가드 배선 (빠른 기록 시트)", () 
  *  2) 재료는 **이미 손에 있는 것**뿐이다: 오프라인 스냅숏 + getQueryData로 읽은 월 캐시 두 달치.
  *     지난달을 읽는 줄이 useQuery가 되는 순간 "시트를 여는 것만으로 네트워크가 돈다"가 된다.
  *  3) 새 계산은 전부 authToken 뒤에 있다 — EXP-001 비세션 캡처 경로는 한 줄도 돌지 않는다.
- *  4) 자동 분류(resolveAutoCategorySelection)의 원천은 **일부러** 그대로 두었다(별개 판단).
+ *  4) 자동 분류(resolveAutoCategorySelection)의 원천은 라운드 81 A가 **서버 두 달**로 맞췄다 —
+ *     아래 "GAP-081 #1 세 보조의 원천 대조표"가 셋을 한 표로 나란히 세운다.
  */
 describe("GAP-058 #6 통합 제안 원천 배선", () => {
   it("두 화면 모두 통합 원천을 공용 순수 모듈에서 받는다", () => {
@@ -409,16 +410,142 @@ describe("GAP-058 #6 통합 제안 원천 배선", () => {
     expect(newExpenseSource).toContain('const quickExpenseAmountPreview = "38,500원";');
   });
 
-  it("자동 분류의 원천은 일부러 그대로다 (이번 달 캐시 — 별개 판단)", () => {
-    // 자동 분류는 후보를 제안하는 것이 아니라 사용자가 손대지 않은 타일을 **대신 누르는** 판정이라,
-    // 원천을 넓히면 저장되는 값이 달라진다. 이 티켓의 범위(세 보조가 서로 다른 데이터를 본다)와는
-    // 다른 판단이므로 함께 바꾸지 않았다 — 화면에도 그 근거가 주석으로 남아 있다.
+  it("자동 분류의 원천은 라운드 81 A가 서버 두 달로 맞췄다 (아래 대조표가 셋을 나란히 센다)", () => {
     const selectionStart = newExpenseSource.indexOf("const nextSelection = resolveAutoCategorySelection({");
+    const selectionEnd = newExpenseSource.indexOf("});", selectionStart);
     expect(selectionStart).toBeGreaterThan(0);
-    const selectionBlock = newExpenseSource.slice(selectionStart, newExpenseSource.indexOf("});", selectionStart));
-    expect(selectionBlock).toContain("history: expenseHistory,");
-    expect(selectionBlock).not.toContain("history: suggestRows");
-    // 그리고 그 근거가 주석으로 남아 있다(다음 사람이 "빠뜨렸다"고 읽지 않도록).
-    expect(selectionBlock).toContain("통합 원천 suggestRows로 바꾸지 않았다");
+    expect(selectionEnd).toBeGreaterThan(selectionStart);
+    const selectionBlock = newExpenseSource.slice(selectionStart, selectionEnd);
+    expect(selectionBlock).toContain("history: recentItemServerRows,");
+    // 라운드 58 E가 남긴 옛 원천(이번 달 캐시 하나)은 더 이상 이 자리에 없다.
+    expect(selectionBlock).not.toContain("history: expenseHistory");
+  });
+});
+
+/**
+ * GAP-081 #1 (라운드 81 트랙 A) — **세 보조가 각각 무엇을 보는가**를 한 표로 세운다.
+ *
+ * 고치는 사실 하나: 이 시트에는 *"이 사용자가 전에 뭘 어떻게 적었나"* 를 묻는 자리가 셋인데,
+ * 라운드 58 E가 둘(자동완성 칩 · 최근 품목 칩)만 지난달까지 넓히고 **자동 분류를 남겼다**.
+ * 그래서 매달 1일 아침, 자동 분류의 1순위(과거 기록) 갈래는 이번 달 캐시가 정의상 비어 있어
+ * **반드시 실패했다** — 사용자의 이력은 하나도 사라지지 않았는데도 어제까지 자동으로 눌리던
+ * 타일이 오늘은 사용자의 탭을 요구했다(그 뒤 남는 것은 2순위 정적 키워드 사전 하나뿐이고,
+ * 그것도 안 걸리면 분류 미선택이라 저장 버튼이 막힌다).
+ *
+ * 지키려는 것:
+ *  1) **대조표** — 셋의 원천이 한 자리에서 나란히 읽힌다. 형제 하나를 고치면서 셋째를 세지 않는
+ *     일이 다시 조용히 지나가지 않게 하는 것이 이 표의 존재 이유다.
+ *  2) **부정 ①** — 자동 분류는 **오프라인 스냅숏을 보지 않는다**. 라운드 58 E가 미룬 질문 둘 중
+ *     *"아직 안 올라간 로컬 행이 그 다툼에 끼는가"* 는 **여전히 별도 결정**이고, 그 결정이 조용히
+ *     열리는 날 이 단언이 빨개진다.
+ *  3) **부정 ②** — 판정 규칙(순수 모듈)에는 새 갈래가 생기지 않았다. 넓힌 것은 원천의 **범위**
+ *     (한 달 → 두 달)일 뿐 **성격**(서버가 확정한 행)이 아니다.
+ *  4) **배선의 순서** — 그 배열은 **하나**이고(새 배열·새 useMemo·새 요청 0건), 선언이 자동 분류
+ *     effect보다 위에 선다.
+ *  5) **판정을 값으로** — 왜 두 달이고 왜 스냅숏이 아닌지가 화면 소스에 남는다.
+ */
+describe("GAP-081 #1 세 보조의 원천 대조표", () => {
+  /**
+   * 셋의 원천을 한 표로 — `wiring`은 화면 소스에 실제로 서 있어야 하는 배선 한 줄이고,
+   * `source`는 그 배선이 보는 모집단을 사람의 말로 적은 것이다.
+   */
+  const SUGGEST_SOURCE_TABLE: ReadonlyArray<{
+    readonly surface: string;
+    readonly wiring: string;
+    readonly source: string;
+    readonly readsOfflineRows: boolean;
+  }> = [
+    {
+      surface: "품목 자동완성 칩",
+      wiring: "buildItemAutocompleteSuggestions(itemName, suggestRows)",
+      source: "통합 원천 — 오프라인 스냅숏 + 서버 이번 달 + 서버 지난달 (라운드 58 E)",
+      readsOfflineRows: true
+    },
+    {
+      surface: "최근 품목 칩",
+      wiring: "buildRecentItemChips(offlineSnapshot.rows, childId, { serverRows: recentItemServerRows })",
+      source: "로컬 스냅숏 우선 + 서버 두 달 폴백 (라운드 58 E · 두 원천을 갈라서 받는다)",
+      readsOfflineRows: true
+    },
+    {
+      surface: "자동 분류",
+      wiring: "history: recentItemServerRows,",
+      source: "서버 두 달 하나 — 오프라인 스냅숏은 성격이 다른 원천이라 별도 결정 (라운드 81 A)",
+      readsOfflineRows: false
+    }
+  ];
+
+  it("셋이 전부 화면에 배선돼 있고, 각 자리의 모집단이 표에 적혀 있다", () => {
+    expect(SUGGEST_SOURCE_TABLE).toHaveLength(3);
+    for (const entry of SUGGEST_SOURCE_TABLE) {
+      expect(newExpenseSource, entry.surface).toContain(entry.wiring);
+      // 이유 없는 줄은 아무것도 막지 못한다(라운드 78 E의 대장 형식과 같은 규율).
+      expect(entry.source.trim().length, entry.surface).toBeGreaterThan(0);
+    }
+    // 표가 조용히 한 줄로 줄어들지 않는다 — 셋을 나란히 세우는 것이 이 계약의 본체다.
+    expect(new Set(SUGGEST_SOURCE_TABLE.map((entry) => entry.wiring)).size).toBe(3);
+  });
+
+  it("서버 두 달 배열은 **하나**이고, 자동 분류와 최근 품목 칩이 그것을 함께 읽는다", () => {
+    // 새 배열도 새 useMemo도 만들지 않았다 — 라운드 58 E가 최근 칩을 위해 만든 그 배열 그대로다.
+    expect(newExpenseSource).toContain(
+      "() => [...expenseHistory, ...(cachedPreviousMonthExpenses ?? noExpenseHistory)],"
+    );
+    expect(newExpenseSource.match(/const recentItemServerRows = useMemo\(/g) ?? []).toHaveLength(1);
+    expect(newExpenseSource.match(/recentItemServerRows/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    // 두 달 다 getQueryData로 읽은 값이라 이 화면의 "새 요청 0건" 계약은 그대로다.
+    expect(newExpenseSource).not.toContain("useQuery(");
+  });
+
+  it("배선의 순서: 그 배열의 선언이 자동 분류 effect보다 위에 선다", () => {
+    const declarationStart = newExpenseSource.indexOf("const recentItemServerRows = useMemo(");
+    const selectionStart = newExpenseSource.indexOf("const nextSelection = resolveAutoCategorySelection({");
+    const chipStart = newExpenseSource.indexOf(
+      "buildRecentItemChips(offlineSnapshot.rows, childId, { serverRows: recentItemServerRows })"
+    );
+    expect(declarationStart).toBeGreaterThan(0);
+    expect(selectionStart).toBeGreaterThan(declarationStart);
+    // 원래 소비자(최근 품목 칩)는 여전히 그 아래에서 같은 배열을 읽는다.
+    expect(chipStart).toBeGreaterThan(declarationStart);
+    // effect의 의존성도 함께 옮겨졌다 — 옛 이름이 남아 있으면 두 달치가 갱신돼도 다시 돌지 않는다.
+    expect(newExpenseSource).toContain(
+      "}, [authToken, itemName, recentItemServerRows, selectedCategoryId, autoPickedCategory]);"
+    );
+  });
+
+  it("부정 ①: 자동 분류는 오프라인 스냅숏을 보지 않는다 (라운드 58 E가 미룬 나머지 절반)", () => {
+    const selectionStart = newExpenseSource.indexOf("const nextSelection = resolveAutoCategorySelection({");
+    const selectionEnd = newExpenseSource.indexOf("});", selectionStart);
+    expect(selectionStart).toBeGreaterThan(0);
+    expect(selectionEnd).toBeGreaterThan(selectionStart);
+    const selectionBlock = newExpenseSource.slice(selectionStart, selectionEnd);
+    // 통합 원천(suggestRows)은 오프라인 스냅숏 행을 품고 있다 — 그 배열이 이 자리에 넘어가는
+    // 날은 "아직 안 올라간 로컬 행이 사용자 대신 타일을 누른다"가 시작되는 날이고, 그것은
+    // 아직 아무도 근거를 재지 않은 별개 결정이다. 조용히 지나가지 않게 여기서 막는다.
+    expect(selectionBlock).not.toContain("suggestRows");
+    expect(selectionBlock).not.toContain("offlineSnapshot");
+    // 최근 품목 칩은 그 로컬 행을 **일부러** 본다 — 셋의 원천이 서로 다르다는 사실이 표의 값이다.
+    expect(SUGGEST_SOURCE_TABLE.filter((entry) => entry.readsOfflineRows)).toHaveLength(2);
+    expect(SUGGEST_SOURCE_TABLE.find((entry) => entry.surface === "자동 분류")?.readsOfflineRows).toBe(false);
+  });
+
+  it("부정 ②: 판정 규칙(순수 모듈)에는 새 갈래가 생기지 않았다", () => {
+    const suggestionModuleSource = readFileSync(join(mobileRoot, "src/expenses/category-suggestion.ts"), "utf8");
+    // 1순위(과거 기록) 갈래는 여전히 하나이고, 그 안에서 도는 정렬도 하나다.
+    expect(suggestionModuleSource.match(/function suggestFromHistory\(/g) ?? []).toHaveLength(1);
+    expect(suggestionModuleSource.match(/sortByRecency\(/g) ?? []).toHaveLength(1);
+    // 모듈은 넘겨받은 행이 **어느 달·어느 원천**의 것인지 묻지 않는다 — 그래서 두 달을 이어
+    // 붙여도 규칙이 한 글자도 달라지지 않는다(이 트랙이 모듈 소스를 열지 않은 이유다).
+    for (const foreign of ["previousMonth", "suggestRows", "SuggestSourceRow", "localRows", "offline"]) {
+      expect(suggestionModuleSource, foreign).not.toContain(foreign);
+    }
+  });
+
+  it("판정을 값으로: 왜 두 달이고 왜 스냅숏이 아닌지가 화면 소스에 남는다", () => {
+    // 라운드 58 E의 유예가 22라운드 동안 열리지 않은 이유는 "이유가 적혀 있다"는 사실 자체였다.
+    // 이번에 닫은 절반과 **아직 열려 있는 절반**을 함께 적어 두지 않으면 같은 일이 반복된다.
+    expect(newExpenseSource).toContain("성격이 같은 원천");
+    expect(newExpenseSource).toContain("여전히 별도 결정");
+    expect(newExpenseSource).toContain("매달 1일");
   });
 });

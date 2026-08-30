@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, HttpException, Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import {
+  BadRequestException,
+  HttpException,
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+  Optional
+} from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { EXPENSE_ITEM_NAME_MAX_LENGTH } from "@wooriai/contracts";
 import { isMoneyKrw, type ImportStatus } from "@wooriai/domain";
@@ -107,6 +115,77 @@ export type ConfirmImportInput = {
   selectedRowIds?: string[];
 };
 
+/**
+ * 라운드 81 리뷰(L-9) — 확정이 만드는 **지출 행 한 벌**(= `insertExpense`가 만드는 행과 같은
+ * 모양이어야 하는 그 리터럴). 이름 있는 함수로 세우는 이유는 아래 `buildImportRowCreateData`와
+ * 같다: 배치의 바인드 파라미터 천장을 세는 계약이 **실제 키 수**를 셀 수 있어야 한다.
+ *
+ * 순수 판정(품목명 trim·날짜 범위·금액 상한)은 `insertExpense`와 **같은 술어로 같은 순서**로
+ * 여기서 지난다 — 값·순서·타입 모두 인라인이던 그때 그대로다.
+ */
+export function buildImportedExpenseCreateData(
+  row: ImportRowRow,
+  context: { householdId: string; childId: string; createdByUserId: string; importJobId: string }
+) {
+  // insertExpense와 같은 술어·같은 순서의 순수 판정. 확정이 넘기는 행은 이미
+  // validationStatusForImportRow를 통과했으므로 여기서 던지는 일은 실제로는 없지만
+  // (라운드 81 리뷰 L-6의 근거), "지출이 되는 값의 조건"을 이 경로만 느슨하게 두지 않는다.
+  const itemName = row.parsedItemName!.trim();
+  if (!itemName) {
+    throw new BadRequestException({ code: "EXPENSE_ITEM_NAME_REQUIRED", message: "품목명을 입력해 주세요." });
+  }
+  const spentOn = fromDateOnly(row.parsedDate!);
+  assertExpenseDateWithinRange(spentOn);
+
+  return {
+    householdId: context.householdId,
+    childId: context.childId,
+    createdByUserId: context.createdByUserId,
+    categoryId: row.categoryId!,
+    amountKrw: requireMoneyKrw(row.parsedAmountKrw ?? undefined),
+    spentOn: toDateOnly(spentOn),
+    itemName,
+    // 가져오기 행에는 판매처·메모가 없다(파서가 `merchant`를 만들지 않는다 —
+    // IMPORT_ITEM_NAME_MAX_LENGTH 주석). insertExpense도 이 경로에서는 같은 값을 썼다.
+    merchant: null,
+    memo: null,
+    paymentMethod: "unknown" as const,
+    linkedItemTemplateId: null,
+    linkedProductLinkId: null,
+    expenseType: "expense" as const,
+    source: "excel_import" as const,
+    // GAP-066 #5: 이 행의 **출처 파일**을 남긴다. 같은 트랜잭션 안이라 확정이 롤백되면
+    // 지출도 이 값도 없다.
+    importJobId: context.importJobId
+  };
+}
+
+/**
+ * 라운드 81 리뷰(L-9) — 미리보기 행 하나가 `import_rows`에 들어갈 때의 **컬럼 한 벌**.
+ *
+ * 배치 INSERT의 파라미터 수는 `행 수 × 여기 키 수`이고 그 곱이 `PG_MAX_BIND_PARAMETERS`를
+ * 넘으면 문장 자체가 만들어지지 않는다. 그래서 리터럴을 `createMany` 인자 안에 인라인해 두는
+ * 대신 이름 있는 함수로 세워, 천장 계약이 **실제로 만들어지는 행의 키 수**를 셀 수 있게 한다
+ * (손으로 적은 컬럼 수는 다음 라운드에 낡는다). 값·순서·타입은 인라인이던 그때 그대로다.
+ */
+export function buildImportRowCreateData(row: ImportRowRow, importJobId: string) {
+  return {
+    id: row.id,
+    importJobId,
+    rowIndex: row.rowIndex,
+    rawJson: {},
+    parsedDate: row.parsedDate,
+    parsedItemName: row.parsedItemName,
+    parsedAmountKrw: row.parsedAmountKrw,
+    categoryId: row.categoryId,
+    confidence: row.confidence,
+    duplicateCandidateExpenseId: row.duplicateCandidateExpenseId ?? null,
+    selected: row.selected,
+    userReviewed: row.userReviewed,
+    validationStatus: row.validationStatus
+  };
+}
+
 const defaultImportCategoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 /**
  * 업로드 크기 상한. 여기서는 클라이언트가 알려준 fileSizeBytes를 사전 검증하고,
@@ -114,7 +193,51 @@ const defaultImportCategoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
  * 끊는다(API-130) — 그래서 컨트롤러가 이 상수를 가져다 쓴다.
  */
 export const IMPORT_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-const importMaxRows = 2000;
+export const importMaxRows = 2000;
+
+/**
+ * 라운드 81 리뷰(L-9) — **배치 한 문장의 천장은 행 수가 아니라 바인드 파라미터 수다.**
+ *
+ * 라운드 81 E가 행마다 한 문장이던 두 자리를 `createMany` 한 문장으로 모으면서, 이 파이프라인의
+ * 한계선이 조용히 옮겨 갔다: 이제 한 INSERT가 **행 수 × 컬럼 수**개의 바인드 파라미터를 싣는데,
+ * PostgreSQL 프로토콜은 한 문장에 **65,535개**까지만 받는다(`int16` 카운트). 넘기면 드라이버가
+ * 문장을 만들 수 없어 미리보기·확정이 통째로 실패한다 — 그리고 그 실패는 상한을 다 채운
+ * 파일에서만 나타나므로, 상한을 올리거나 지출에 칸을 더하는 라운드가 **모르고 지나간다.**
+ *
+ * 오늘의 값(계산을 값으로 적는다):
+ *  - 미리보기 행 INSERT: 2,000 × 13 = **26,000**
+ *  - 확정 지출 INSERT: 2,000 × 15 = **30,000**
+ *  - 여유: 15컬럼 기준 상한은 65,535 ÷ 15 = **4,369행** — 오늘의 2,000은 그 절반 아래다.
+ *
+ * 컬럼 수를 손으로 세어 두면 낡으므로, 실제로 행을 만드는 두 함수(`buildImportRowCreateData` ·
+ * `buildImportedExpenseCreateData`)의 키 수를 그대로 세는 계약이 `apps/api/test/import-excel.e2e.test.ts`에
+ * 있다 — **행 상한 × 그 키 수 < 65,535**가 깨지는 날 빨개진다.
+ */
+export const PG_MAX_BIND_PARAMETERS = 65_535;
+
+/**
+ * 라운드 81 E — **두 가져오기 트랜잭션의 상한을 명시한다.**
+ *
+ * 무엇이 문제였나: 미리보기 생성(`createImportJob`)과 확정(`confirmImport`)의 `$transaction`
+ * 둘 다 옵션 인자가 없었고 `PrismaService`에도 `transactionOptions`가 없었다 — 즉 인터랙티브
+ * 트랜잭션의 상한이 Prisma 기본값(5초)이었다. 그런데 이 파이프라인이 **지원한다고 약속한**
+ * 입력의 끝값은 `importMaxRows` = 2,000행이다(AC-IMP-001). 상한이 계약인데 그 상한을 다 채운
+ * 파일이 기본 5초 안에 끝난다는 근거는 어디에도 없었고, 넘기면 P2028로 롤백돼 사용자는
+ * "업로드 실패" 한 문장만 본다(확정에서 터지면 검수에 쓴 시간까지 함께 사라진다).
+ *
+ * 그래서 값이 아니라 **근거**를 함께 둔다: 이 트랜잭션들의 일감은 이제 행 수에 비례하지
+ * **않고**(아래 두 `createMany`), 남는 것은 배치 INSERT 두어 문장 + 잡 UPDATE 몇 개다.
+ * 30초는 그 일감이 느린 디스크·경합 중인 DB에서도 끝나기에 충분하면서, 무언가 정말 잘못됐을
+ * 때(락 대기 등) 연결을 무한정 붙잡지는 않는 값이다. 파기 잡이 같은 이유로 고른 값과 같다
+ * (`data-retention-purge.job.ts`의 `PURGE_TX_OPTIONS` — 그 주석이 근거의 원본이다).
+ * `maxWait`(풀에서 연결을 얻기까지 기다리는 시간)는 **Prisma 기본 2초**보다 넉넉한 10초로 둔다 —
+ * 가져오기는 사용자가 버튼을 누르고 기다리는 단발 요청이라, 붐빌 때 즉시 실패하는 것보다
+ * 잠깐 기다리는 편이 낫다. ⚠️ 라운드 81 리뷰(L-8): 파기 잡의 `maxWait`(5초)도 **기본값이 아니라
+ * 명시값**이다 — 그 주석이 한동안 "5s default"라고 잘못 적고 있었고, 지금은 두 주석이 같은
+ * 사실(기본 2초 · 두 값 다 근거를 적은 명시값)을 말한다. 이 파일이 그 주석에서 물려받는 근거는
+ * **timeout 30초 쪽**이다.
+ */
+const IMPORT_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 } as const;
 
 /**
  * REF-118: Excel/CSV import pipeline (job creation -> preview rows -> confirm)
@@ -209,23 +332,47 @@ export class ImportPipelineService {
         }
       });
 
-      for (const row of rows) {
-        await tx.importRow.create({
-          data: {
-            id: row.id,
-            importJobId: created.id,
-            rowIndex: row.rowIndex,
-            rawJson: {},
-            parsedDate: row.parsedDate,
-            parsedItemName: row.parsedItemName,
-            parsedAmountKrw: row.parsedAmountKrw,
-            categoryId: row.categoryId,
-            confidence: row.confidence,
-            duplicateCandidateExpenseId: row.duplicateCandidateExpenseId ?? null,
-            selected: row.selected,
-            userReviewed: row.userReviewed,
-            validationStatus: row.validationStatus
-          }
+      /**
+       * 라운드 81 E — **행마다 한 문장이 아니라 배치 한 문장.**
+       *
+       * 종전에는 `for (const row of rows) await tx.importRow.create(...)` 였다. 파일이 2,000행이면
+       * 이 트랜잭션 하나가 2,000번 왕복했고(문장 수 = N + 3), 그 전부가 **한 트랜잭션 예산**
+       * 안에서 직렬로 돌았다 — 상한이 계약인 입력(`importMaxRows`)이 그 상한 때문에 실패할 수
+       * 있는 모양이다. 행 값은 이미 `buildImportRowsFromParsed`가 전부 만들어 두었고(id도 그쪽에서
+       * 부여한다) 행끼리 의존이 없으므로 한 문장으로 모을 수 있다. **문장 수 = 4.**
+       *
+       * 저장소 관례가 이미 있다: `analytics/analytics.service.ts`가 같은 이유로 `createMany`를 쓴다.
+       * 관측되는 결과는 바이트 불변이다 — 같은 행·같은 id·같은 컬럼값이 같은 트랜잭션 안에서
+       * 들어가고, 실패하면 종전처럼 파일 전체가 롤백된다(길이·금액 초과 행을 미리 떨궈 두는
+       * 규율은 `buildImportRowsFromParsed`가 그대로 들고 있다 — 라운드 54 P1-1 · 57 P2-13).
+       * `skipDuplicates`는 쓰지 않는다: 여기서 중복 id가 나온다면 그것은 사실이 아니라 버그이고,
+       * 조용히 건너뛰면 "몇 건이 사라졌다"가 된다.
+       *
+       * ⚠️ 라운드 81 리뷰(L-7②) — **그래서 관례의 인용은 여기서 한 걸음 갈라진다.**
+       * `analytics.service.ts`는 `skipDuplicates`를 **쓰기 때문에** 반환 count를 일부러 보지
+       * 않는다(그 주석: *"accepted는 검증을 통과한 행 수이지 createMany가 넣은 행 수가 아니다"*
+       * — 재전송 멱등이 그 설계의 값이다). 이 경로는 그 반대라, 반환 count가 곧 "정말 다 들어
+       * 갔는가"의 답이다. 아래에서 그 값을 실제로 대조한다.
+       */
+      // 라운드 81 리뷰(L-9): 행 하나의 컬럼 한 벌은 `buildImportRowCreateData`가 만든다 —
+      // 배치의 바인드 파라미터 천장(행 수 × 컬럼 수 < 65,535)을 세는 계약이 그 함수를 센다.
+      const insertedRows = await tx.importRow.createMany({
+        data: rows.map((row) => buildImportRowCreateData(row, created.id))
+      });
+      /**
+       * 라운드 81 리뷰(L-7②) — **넣은 만큼 들어갔는지 본다.**
+       *
+       * `createMany`는 넣은 행 수를 돌려주는데 종전에는 그 값을 보지 않았다. `skipDuplicates`를
+       * 쓰지 않으므로 오늘의 드라이버에서 이 수가 갈릴 이유는 없지만, 갈린다면 그것은 "몇 건이
+       * 조용히 사라진 미리보기"이고 사용자는 그 사실을 알 방법이 없다(rowCount는 우리가 센
+       * 숫자를 그대로 적는다). 같은 트랜잭션 안이라 여기서 던지면 잡도 행도 함께 롤백된다.
+       */
+      if (insertedRows.count !== rows.length) {
+        // 400이 아니라 500이다: 사용자가 잘못 준 것이 없고(파일은 이미 다 읽혔다) 다시 눌러 볼
+        // 가치도 있다. 코드를 붙이지 않으므로 앱은 이 여정의 일반 문구("업로드하지 못했어요.
+        // 잠시 후 다시 시도해 주세요.")를 그대로 쓴다 -- 없는 사유를 지어내지 않는다.
+        throw new InternalServerErrorException({
+          message: "가져오기 미리보기를 만들지 못했어요."
         });
       }
 
@@ -234,7 +381,7 @@ export class ImportPipelineService {
         where: { id: created.id },
         data: { rowCount: rows.length, candidateCount }
       });
-    });
+    }, IMPORT_TX_OPTIONS);
 
     return this.toImportJobDto(job);
   }
@@ -381,28 +528,18 @@ export class ImportPipelineService {
         throw new BadRequestException({ code: "IMPORT_NOT_CONFIRMABLE", message: "Import job is not ready to confirm." });
       }
 
-      for (const row of importableRows) {
-        await this.expensesStore.insertExpense(tx, job.householdId, job.childId, user, {
-          categoryId: row.categoryId!,
-          amountKrw: row.parsedAmountKrw!,
-          spentOn: fromDateOnly(row.parsedDate!),
-          itemName: row.parsedItemName!,
-          paymentMethod: "unknown",
-          source: "excel_import",
-          // GAP-066 #5: 이 행의 **출처 파일**을 남긴다. 같은 트랜잭션 안이라 확정이
-          // 롤백되면 지출도 이 값도 없다. 판정 규칙(`validationStatusForImportRow`)·
-          // 선택 규칙은 손대지 않았다 — 채우는 것은 이 한 칸뿐이다.
-          importJobId
-        });
-      }
+      // 라운드 81 리뷰(L-7②): 잡·응답·감사 봉투에 적히는 건수는 **실제로 들어간 행 수**다
+      // (그 수가 우리가 넣으려던 수와 다르면 위 헬퍼가 이미 던져 트랜잭션을 롤백한다 — 즉
+      // 여기 닿은 값은 importableRows.length와 같지만, 그 사실을 가정이 아니라 값으로 읽는다).
+      const insertedCount = await this.insertImportedExpenses(tx, job, user, importableRows, importJobId);
 
       await tx.importJob.update({
         where: { id: importJobId },
-        data: { importedCount: importableRows.length }
+        data: { importedCount: insertedCount }
       });
 
-      return importableRows.length;
-    });
+      return insertedCount;
+    }, IMPORT_TX_OPTIONS);
 
     // PUSH-113 후속(리뷰 m-2): 가져오기 커밋은 insertExpense를 직접 호출해
     // ExpensesVersionService의 지출 생성 훅을 타지 않으므로, 배치 커밋 완료 후
@@ -550,6 +687,129 @@ export class ImportPipelineService {
   // ---------------------------------------------------------------------------
   // internal helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * 라운드 81 E — **확정의 지출 삽입을 행 수와 무관한 문장 수로 만든다.**
+   *
+   * ## 종전 모양과 그 비용
+   * 확정 트랜잭션 안이 `for (const row of importableRows) await insertExpense(tx, …)` 였다.
+   * 그런데 `insertExpense`는 **행마다 조회를 하나 먼저 한다** — `requireExistingCategory` →
+   * `category.findUnique`(expenses-store.service.ts). 그래서 확정 한 번의 문장 수가
+   * **2N + 2**였고, 상한을 다 채운 파일(2,000행)이면 한 트랜잭션이 4,002번 왕복했다.
+   * 그 조회의 인자는 같은 값이 계속 반복된다(분류 표는 잠긴 시드 열둘을 중심으로 한 작은
+   * 표이고, 한 파일의 행은 그중 소수를 반복해 가리킨다) — 교과서적인 N+1이다.
+   *
+   * ## 지금 모양
+   * ① **분류 존재 확인을 루프 밖으로** 올린다 — 이 배치의 **고유 분류 id 집합**을 한 번 묻는다.
+   * ② **삽입을 배치 한 문장**으로 모은다(`createMany`). **문장 수 = 2**(실패 경로에서만 +1).
+   *
+   * ## 왜 관측 결과가 바이트 불변인가
+   * - **오류 계약**: 없는 분류가 하나라도 있으면 오늘과 **같은 코드·같은 문장·같은 400**이
+   *   나간다(`EXPENSE_CATEGORY_INVALID`). 그 문장을 여기서 베끼지 않고 지출 생성의 단일
+   *   소스에게 그대로 묻는다(`expensesStore.requireExistingCategory`) — 실패 경로에서만 도는
+   *   왕복들이다. 실패는 같은 트랜잭션의 롤백이라 종전에도 지출은 0건 생겼고 잡도
+   *   `preview_ready`로 남았다.
+   *
+   *   ⚠️ 라운드 81 리뷰(L-6) — **"던지는 시점만 앞당겨진다"는 문장을 정직하게 좁힌다.** 순서가
+   *   바뀐 것은 사실이다: 종전에는 행 순서대로 `insertExpense`를 돌았으므로 앞선 행의 품목명
+   *   문제(`EXPENSE_ITEM_NAME_REQUIRED`)가 뒤 행의 분류 문제보다 먼저 나갔고, 지금은 분류
+   *   확인이 배치 전체에 대해 **먼저** 돈다. 그래서 *"어떤 입력에서도 같은 코드가 나간다"* 는
+   *   주장은 참이 아니다 — 참인 것은 **오늘 도달 가능한 입력에서는 같다**는 것이고, 그 근거는
+   *   값으로 확인된다: 이 메서드가 받는 행은 전부 `validationStatusForImportRow === "valid"`를
+   *   통과한 행이라 **품목명이 비어 있을 수 없고**(`missing_item_name`으로 먼저 걸린다)
+   *   `categoryId`도 null일 수 없다(`missing_category`). 즉 두 오류가 한 배치에서 경합하는
+   *   입력 자체가 만들어지지 않는다(아래 품목명 가드가 방어로만 남아 있는 이유이기도 하다).
+   *   그 필터가 느슨해지는 날에는 이 순서가 실제로 코드를 바꾸므로, 그때 함께 볼 자리다.
+   * - **CAS 우선순위 보존**: 이 호출은 확정 CAS(`updateMany`) **뒤**에 있다. 확정할 수 없는
+   *   잡이면 종전처럼 `IMPORT_NOT_CONFIRMABLE`이 먼저 나간다.
+   * - **행별 판정 규칙 무변경**: 어떤 행이 지출이 되는가는 여전히
+   *   `validationStatusForImportRow` 하나가 정한다. 여기서 도는 것은 그 판정을 이미 통과한
+   *   행들(`importableRows`)뿐이고, 이 메서드는 행을 더 넣지도 빼지도 않는다.
+   *
+   * ## `insertExpense`를 지나지 않는 것에 대하여
+   * 그 함수는 지출 생성의 단일 소스다(수동 기록·아웃박스·"샀어요"·가져오기). 그래서 여기서
+   * 우회하는 것은 **왕복 두 갈래뿐**이고, 그 함수가 하던 **순수 판정은 같은 술어로 같은 순서로**
+   * 여기서 다시 지난다(품목명 trim·빈 값 → `EXPENSE_ITEM_NAME_REQUIRED`,
+   * `assertExpenseDateWithinRange`, `requireMoneyKrw`). 우회되는 나머지 둘은 이 경로에서
+   * **도달할 수 없는 갈래**다:
+   * - `requireExistingItemTemplateAnyStatus`·`markLinkedItemPrepared` — 가져오기 행에는
+   *   `linkedItemTemplateId`가 없다(확정은 그 값을 넘긴 적이 없다).
+   * - `createExpenseRowOrTranslateFk`의 `LINKED_PRODUCT_LINK_NOT_FOUND` 번역 —
+   *   `linkedProductLinkId`가 언제나 null이라 그 FK가 걸릴 수 없다.
+   *
+   * ⚠️ **`expenses` 행의 모양이 이 파일에도 적히게 된 것이 이 변경의 값 비싼 절반이다.**
+   * 지출에 새 칸이 생기고 그 기본값을 `insertExpense`가 계산하게 되는 날, **여기도 함께**
+   * 고쳐야 한다(가져오기로 들어온 행만 조용히 그 칸을 비운 채로 남는다). 그 사실을 아래
+   * `data` 리터럴 바로 위에 한 번 더 적어 둔다.
+   */
+  private async insertImportedExpenses(
+    tx: Prisma.TransactionClient,
+    job: { householdId: string; childId: string },
+    user: AuthenticatedUser,
+    rows: ImportRowRow[],
+    importJobId: string
+  ): Promise<number> {
+    if (rows.length === 0) return 0;
+
+    // ① 고유 분류 id 집합 한 번. 이 집합의 크기는 **행 수가 아니라 분류 표의 크기**로 막힌다
+    //    (2,000행이라도 서로 다른 분류가 그보다 많을 수는 없다) — 조회는 한 문장이고 그 인자
+    //    개수도 행 수에 비례하지 않는다.
+    const categoryIds = [...new Set(rows.map((row) => row.categoryId!))];
+    const existingCategories = await tx.category.findMany({ where: { id: { in: categoryIds } }, select: { id: true } });
+    if (existingCategories.length !== categoryIds.length) {
+      const found = new Set(existingCategories.map((category) => category.id));
+      /**
+       * 라운드 81 리뷰(L-7①) — **누락 분류 전부를 확인한다.**
+       *
+       * 종전에는 첫 누락 하나만 단일 소스에 물었다. 그 호출이 던지면 결과는 같지만, 던지지
+       * **않는** 경로가 하나 있다: Prisma 인터랙티브 트랜잭션의 기본 격리는 Read Committed라
+       * 문장마다 최신 커밋을 다시 보므로, 위 조회와 이 재조회 사이에 그 분류가 만들어져
+       * 커밋되면 통과한다. 그때 나머지 누락은 **확인되지 않은 채** 아래 INSERT로 흘러가고,
+       * 결과는 FK 위반(=500)이다 — 사용자가 받아야 할 답은 400 `EXPENSE_CATEGORY_INVALID`다.
+       *
+       * 그래서 누락 **전부**를 같은 단일 소스에 묻는다(코드·문장을 여기서 베끼지 않는다 —
+       * 베끼면 두 문장이 갈라진다). 이 왕복은 **실패 경로에서만** 돌고 그 개수도 행 수가 아니라
+       * 이 배치의 고유 분류 수로 막히므로, 성공 경로의 문장 수 계약(라운드 81 E)은 무접촉이다.
+       * 전부가 그 사이에 실제로 만들어졌다면 그것들은 이제 존재하는 분류이므로 확정이 그대로
+       * 진행되는 것이 옳다.
+       */
+      for (const categoryId of categoryIds.filter((id) => !found.has(id))) {
+        await this.expensesStore.requireExistingCategory(categoryId, tx);
+      }
+    }
+
+    // ② 배치 한 문장. ⚠️ 행 하나의 모양은 `buildImportedExpenseCreateData`가 만들고, 그것은
+    //    `ExpensesStoreService.insertExpense`가 만드는 지출 행과 **같은 모양이어야 한다** —
+    //    그쪽에 칸이 생기면 그 함수도 같이 고친다(위 주석 마지막 문단).
+    const inserted = await tx.expense.createMany({
+      data: rows.map((row) =>
+        buildImportedExpenseCreateData(row, {
+          householdId: job.householdId,
+          childId: job.childId,
+          createdByUserId: user.id,
+          importJobId
+        })
+      )
+    });
+
+    /**
+     * 라운드 81 리뷰(L-7②) — **넣은 만큼 들어갔는지 본다.**
+     *
+     * 종전에는 `createMany`의 반환 count를 보지 않고 `importableRows.length`를 그대로
+     * `importedCount`로 적고 응답·감사 봉투에 실었다. 그 둘이 갈리는 날 앱은 "12건을
+     * 가져왔어요"라고 말하는데 실제 지출은 그보다 적다 — 이 저장소가 금지하는 종류의 문장이다
+     * (허위 표시). `skipDuplicates`를 쓰지 않으므로 오늘 그 일이 일어날 경로는 알려진 것이
+     * 없지만, 그렇다면 이 가드는 **영원히 조용하고 대신 거짓말을 막는다.** 같은 트랜잭션이라
+     * 던지면 지출도 잡 상태도 함께 롤백된다(DNC-012 — 승인 없이 남는 지출 0건).
+     */
+    if (inserted.count !== rows.length) {
+      // 위 미리보기 가드와 같은 판단: 사용자 입력의 문제가 아니고 롤백 뒤 잡은 `preview_ready`로
+      // 남으므로 재시도가 실제로 가능하다. `IMPORT_NOT_CONFIRMABLE`을 빌려 쓰지 않는다 -- 그
+      // 코드의 앱 문구는 "이 미리보기는 끝나서 가져올 수 없어요"라, 여기서는 거짓이 된다.
+      throw new InternalServerErrorException({ message: "가져오기를 확정하지 못했어요." });
+    }
+    return inserted.count;
+  }
 
   private async requireImportJobAccess(user: AuthenticatedUser, importJobId: string, edit = false) {
     const job = await this.prisma.importJob.findUnique({ where: { id: importJobId } });

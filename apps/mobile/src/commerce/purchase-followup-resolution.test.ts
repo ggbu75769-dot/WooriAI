@@ -254,13 +254,19 @@ describe("라운드 60 트랙 B 배선 계약", () => {
     expect(promptSource).toContain("if (appLockHeld) return;");
     // 낭독 보류(A11Y-115의 문장은 그대로다). 잠금 보류는 **기억을 지우지 않고** 건너뛴다 --
     // 풀린 뒤 같은 카드가 두 번 읽히지 않게 하는 것이 이 억제의 목적이다.
-    expect(promptSource).toContain("if (appLockHeld) return;\n    const key = followupSessionKey(activeFollowup);");
+    //
+    // ⚠️ 라운드 81 리뷰(M-1): 그 아래에 **아이 게이트 한 줄**이 더 섰다(렌더의 조기 반환과 같은
+    // 술어다) — 그리지 않는 프레임에서 기억을 소모하지 않기 위해서다. 잠금 보류가 기억을 남긴 채
+    // 건너뛴다는 이 규칙 자체는 한 글자도 바뀌지 않았다.
+    expect(promptSource).toContain(
+      "if (appLockHeld) return;\n    if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return;\n    const key = followupSessionKey(activeFollowup);"
+    );
     expect(promptSource).toContain("announceForA11y(`『${activeFollowup.itemName}』 구매하셨나요?`)");
     // 렌더도 물러난다.
     expect(promptSource).toContain("if (appLockHeld) return null;");
     // 잠금이 풀리면 effect가 다시 돌아 그때 판정한다.
     expect(promptSource).toContain("}, [hasSession, selectedChildId, appLockHeld]);");
-    expect(promptSource).toContain("}, [activeFollowup, appLockHeld]);");
+    expect(promptSource).toContain("}, [activeFollowup, appLockHeld, selectedChildId]);");
     // 같은 카드를 두 번 읽지 않는다(잠금이 걸렸다 풀리는 것만으로 새 물음처럼 들리지 않게).
     expect(promptSource).toContain("announcedKeyRef");
   });
@@ -276,9 +282,11 @@ describe("라운드 60 트랙 B 배선 계약", () => {
     const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
     // 카드가 내려간 순간(= 다음에 다시 서면 새 물음이다) 기억을 비운다.
     expect(promptSource).toContain("if (!activeFollowup) {\n      announcedKeyRef.current = null;\n      return;\n    }");
-    // 잠금 보류는 그 아래에서 **기억을 남긴 채** 건너뛴다(순서가 규칙이다).
+    // 잠금 보류와 아이 게이트는 그 아래에서 **기억을 남긴 채** 건너뛴다(순서가 규칙이다).
     expect(promptSource.indexOf("announcedKeyRef.current = null;")).toBeLessThan(
-      promptSource.indexOf("if (appLockHeld) return;\n    const key = followupSessionKey(activeFollowup);")
+      promptSource.indexOf(
+        "if (appLockHeld) return;\n    if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return;"
+      )
     );
     // 종전의 넓은 억제(카드가 내려가도 기억이 남던 형태)로 되돌아가지 않는다.
     expect(promptSource).not.toContain("if (!activeFollowup || appLockHeld) return;");

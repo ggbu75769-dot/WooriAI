@@ -1,7 +1,40 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+/**
+ * 라운드 81 트랙 C — 첫 펼침 판정을 **실행해서** 확인하기 위한 최소 대역(stub).
+ *
+ * `PreparationListParity.tsx`는 react-native와 디자인 시스템 배럴을 값으로 import하는데, 이
+ * 스위트는 plain-node라 그 둘을 실행하지 못한다(파일 상단 주석 참고). 판정 자체는 순수
+ * 함수이므로, **모듈이 로드되기만 하면** 되도록 화면 쪽 값만 세워 둔다 — 렌더는 이 스위트에서
+ * 한 번도 호출되지 않으므로 여기 적힌 값이 화면에 나가는 일은 없다. 모듈 최상위에서 실제로
+ * 읽히는 것은 `semanticColors`의 시기 밴드 색뿐이다(timingBands).
+ */
+vi.mock("react-native", () => ({
+  Keyboard: { dismiss: () => undefined },
+  Pressable: () => null,
+  TextInput: () => null,
+  View: () => null,
+  useWindowDimensions: () => ({ fontScale: 1, width: 390 })
+}));
+vi.mock("../design-system/components/KoreanText", () => ({ KoreanText: () => null }));
+vi.mock("../design-system", () => ({
+  AppIcon: () => null,
+  EmptyStateCard: () => null,
+  PreparationItemCard: () => null,
+  TopAppBar: () => null,
+  semanticColors: {
+    actionPrimary: "#000000",
+    brandSecondary: "#000000",
+    success: "#000000",
+    successSurface: "#000000",
+    warning: "#000000"
+  },
+  spacing: { xs: 8, xxs: 4 }
+}));
+
+import { preparationAutoExpandKey, resolvePreparationAutoExpand } from "./PreparationListParity";
 import { preparationDisplayGroupIds, resolvePreparationDisplayGroupId } from "./preparation-grouping";
 import { expenseCategoryVisual, htmlPreparationItemVisuals, resolvePreparationItemVisual } from "./item-visuals";
 import { resolvePreparationTimelineBucket, toCatalogPlanState, toPreparationParityItem } from "./catalog-contract";
@@ -280,6 +313,223 @@ describe("PreparationListParity source contract", () => {
     expect(source).toContain('<TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비 목록" trailing={topBarTrailing} />');
     // 남은 EmptyStateCard는 검색 0건과 그룹 0건 폴백 **둘뿐**이다(죽은 둘이 사라졌다).
     expect(source.match(/<EmptyStateCard\b/g) ?? []).toHaveLength(2);
+  });
+
+  /**
+   * 라운드 81 트랙 C — 첫 펼침 effect는 **판정을 스스로 적지 않는다.** 순수 함수 하나를 통해서만
+   * ref 키를 적고, 그 키는 더 이상 아이 id 하나가 아니다(선택 컨텍스트 + 그룹 목록 서명).
+   * 렌더 트리는 한 줄도 바뀌지 않았다 — 위 두 단언이 그 사실을 이미 물고 있다.
+   */
+  it("첫 펼침은 아이 id 하나가 아니라 그룹 목록 서명까지 보고 다시 계산한다", () => {
+    expect(source).toContain("const decision = resolvePreparationAutoExpand({");
+    expect(source).toContain("autoExpandedKey.current = decision.nextKey;");
+    expect(source).toContain("setExpandedGroups(new Set([decision.expandGroupId]));");
+    // 예전 판정(아이 id 하나로 잠그는 ref)은 남아 있지 않다.
+    expect(source).not.toContain("autoExpandedContext");
+    // 목록이 갈리는 것을 실제로 보려면 `categories`와 지금 펼침 상태가 의존성에 있어야 한다.
+    // 라운드 81 리뷰(M-3): 검색어도 함께 본다 — 검색 중에는 그룹 섹션이 그려지지 않으므로
+    // 판정이 그 사실을 알아야 보이지 않는 화면의 펼침을 건드리지 않는다.
+    expect(source).toContain("searchActive: Boolean(activeSearchQuery)");
+    expect(source).toContain("}, [activeSearchQuery, categories, expandedGroups, selectedContextKey]);");
+  });
+});
+
+/**
+ * 라운드 81 트랙 C(#3) — **첫 펼침을 언제 다시 계산하는가.**
+ *
+ * 예전 키는 `selectedContextKey`(아이 id) 하나였고, 콜드 스타트에는 분류 캐시가 늦게 와서
+ * 그 한 번을 "기타" 한 그룹에 써 버린 뒤 잠겼다. 분류가 도착해 그룹이 갈리면 펼쳐 둔 "기타"는
+ * 사라지고 화면은 접힌 헤더의 벽이 된다. 아래 셋이 그 재현과 그 반대 방향(사용자가 접은 것을
+ * 되펼치지 않는다)을 함께 고정한다.
+ */
+describe("준비템 첫 펼침 재계산 (라운드 81 트랙 C)", () => {
+  const coldStartGroups = ["기타"];
+  const settledGroups = ["건강·진료", "수유·이유식", "기저귀·생활"];
+
+  it("① 콜드 스타트의 '기타' 한 그룹은 분류가 도착해 그룹이 갈리면 다시 계산된다", () => {
+    const coldStart = resolvePreparationAutoExpand({
+      contextKey: "child-1",
+      expandedGroupIds: [],
+      groupIds: coldStartGroups,
+      previousKey: undefined
+    });
+    expect(coldStart).toEqual({
+      expandGroupId: "기타",
+      nextKey: preparationAutoExpandKey("child-1", coldStartGroups)
+    });
+
+    // 분류 캐시 도착: 그룹이 실제 이름들로 갈리고 "기타"는 목록에 없다.
+    const afterCategories = resolvePreparationAutoExpand({
+      contextKey: "child-1",
+      expandedGroupIds: ["기타"],
+      groupIds: settledGroups,
+      previousKey: coldStart?.nextKey
+    });
+    expect(afterCategories).toEqual({
+      expandGroupId: "건강·진료",
+      nextKey: preparationAutoExpandKey("child-1", settledGroups)
+    });
+  });
+
+  it("② 같은 그룹 구성에서는 리렌더가 몇 번 와도 다시 계산하지 않는다", () => {
+    const settledKey = preparationAutoExpandKey("child-1", settledGroups);
+    for (const expandedGroupIds of [["건강·진료"], ["기저귀·생활", "수유·이유식"], []]) {
+      expect(
+        resolvePreparationAutoExpand({
+          contextKey: "child-1",
+          expandedGroupIds,
+          groupIds: settledGroups,
+          previousKey: settledKey
+        }),
+        `펼침 상태 ${JSON.stringify(expandedGroupIds)}`
+      ).toBeNull();
+    }
+  });
+
+  it("② 사용자가 접은 것을 되펼치지 않는다 — 살아 있는 그룹이 하나라도 있으면 키만 갱신한다", () => {
+    // 필수도 칩 하나로 목록이 좁아졌지만 펼쳐 둔 "수유·이유식"은 그대로 있다.
+    const narrowedGroups = ["수유·이유식", "외출·놀이·교육"];
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: ["수유·이유식"],
+        groupIds: narrowedGroups,
+        previousKey: preparationAutoExpandKey("child-1", settledGroups)
+      })
+    ).toEqual({ expandGroupId: null, nextKey: preparationAutoExpandKey("child-1", narrowedGroups) });
+  });
+
+  /**
+   * 라운드 81 리뷰(M-2) — **전부 접은 화면은 앱이 되펼치지 않는다.**
+   *
+   * 종전 조건("펼쳐 둔 그룹 중 지금 목록에 살아 있는 것이 0")은 사용자가 손으로 전부 접은
+   * 화면에서도 참이었다(빈 배열의 `some`은 언제나 false다). 그래서 칩 하나로 목록이 갈리기만
+   * 하면 접는 데 여덟 번을 쓴 화면이 첫 그룹부터 다시 펼쳐졌다 — 체크표 #91과 판정 V-1이
+   * 약속한 "되펼치지 않는다"가 실제로는 지켜지지 않던 자리다.
+   */
+  it("② 전부 접은 상태는 되펼치지 않는다 — 사용자의 결정이지 잃어버린 펼침이 아니다", () => {
+    const narrowedGroups = ["수유·이유식", "외출·놀이·교육"];
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: [],
+        groupIds: narrowedGroups,
+        previousKey: preparationAutoExpandKey("child-1", settledGroups)
+      })
+    ).toEqual({ expandGroupId: null, nextKey: preparationAutoExpandKey("child-1", narrowedGroups) });
+
+    // 목록이 완전히 다른 이름들로 갈려도 마찬가지다(살아남을 그룹이 있고 없고의 문제가 아니다).
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: [],
+        groupIds: ["가족·기록"],
+        previousKey: preparationAutoExpandKey("child-1", settledGroups)
+      })
+    ).toEqual({ expandGroupId: null, nextKey: preparationAutoExpandKey("child-1", ["가족·기록"]) });
+
+    // ⚠️ 아이를 바꾸면 그 결정은 따라가지 않는다(다른 아이의 화면이다 — 아래 ③과 같은 규칙).
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-2",
+        expandedGroupIds: [],
+        groupIds: settledGroups,
+        previousKey: preparationAutoExpandKey("child-1", settledGroups)
+      })
+    ).toEqual({ expandGroupId: "건강·진료", nextKey: preparationAutoExpandKey("child-2", settledGroups) });
+
+    // ⚠️ 첫 계산(previousKey 없음)은 종전 그대로 첫 그룹을 편다 — 그때의 빈 펼침은 사용자가
+    // 접은 것이 아니라 아직 아무 일도 일어나지 않은 상태다(콜드 스타트 ①이 그 자리다).
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: [],
+        groupIds: settledGroups,
+        previousKey: undefined
+      })
+    ).toEqual({ expandGroupId: "건강·진료", nextKey: preparationAutoExpandKey("child-1", settledGroups) });
+  });
+
+  /**
+   * 라운드 81 리뷰(M-3) — **검색 중에는 판정이 쉰다**(C-2 왕복 손실).
+   *
+   * 검색이 켜져 있으면 화면은 분류 섹션 대신 평평한 검색 결과 그리드를 그린다. 그런데 판정은
+   * 그 사실을 몰라서, 검색 결과의 그룹 서명으로 자동 펼침을 다시 계산했다 — 사용자가 펼쳐 둔
+   * 그룹이 결과에 없으면 **보이지도 않는 화면**의 펼침이 다른 그룹으로 갈아치워지고, 검색을
+   * 닫으면 그 결과가 그대로 남았다(좁아졌다 넓어지는 왕복의 손실).
+   */
+  it("② 검색 왕복은 무손실이다 — 검색 중에는 손대지 않고, 닫으면 같은 서명이라 그대로다", () => {
+    const beforeKey = preparationAutoExpandKey("child-1", settledGroups);
+    // ⓐ 검색 중: 결과가 다른 그룹 하나로 좁아져도 판정은 아무것도 하지 않는다(키도 그대로).
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: ["기저귀·생활"],
+        groupIds: ["수유·이유식"],
+        previousKey: beforeKey,
+        searchActive: true
+      })
+    ).toBeNull();
+    // 결과가 0건이어도, 아이를 바꿔도, 첫 계산이어도 마찬가지다 — 그려지지 않는 목록이다.
+    for (const input of [
+      { contextKey: "child-1", expandedGroupIds: [], groupIds: [] },
+      { contextKey: "child-2", expandedGroupIds: ["기저귀·생활"], groupIds: ["수유·이유식"] }
+    ]) {
+      expect(resolvePreparationAutoExpand({ ...input, previousKey: beforeKey, searchActive: true })).toBeNull();
+      expect(resolvePreparationAutoExpand({ ...input, previousKey: undefined, searchActive: true })).toBeNull();
+    }
+    // ⓑ 검색을 닫으면 목록은 검색 전 그대로다 → 서명이 같아 판정도 아무것도 하지 않는다.
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: ["기저귀·생활"],
+        groupIds: settledGroups,
+        previousKey: beforeKey
+      })
+    ).toBeNull();
+  });
+
+  it("③ 아이를 바꾸면 예전처럼 첫 그룹이 펼쳐진다 — 그 그룹이 새 목록에도 있어도 마찬가지다", () => {
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-2",
+        expandedGroupIds: ["기저귀·생활"],
+        groupIds: settledGroups,
+        previousKey: preparationAutoExpandKey("child-1", settledGroups)
+      })
+    ).toEqual({ expandGroupId: "건강·진료", nextKey: preparationAutoExpandKey("child-2", settledGroups) });
+  });
+
+  it("그릴 그룹이 없는 프레임은 키를 잠그지 않는다(예전 가드 그대로)", () => {
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: [],
+        groupIds: [],
+        previousKey: undefined
+      })
+    ).toBeNull();
+  });
+
+  /**
+   * ⚠️ 그룹 id는 호출부가 정하는 값이고 그 폭은 넓어질 수 있다(준비템 탭은 분류 *이름*을 쓴다).
+   * 서명은 그 값의 모양에 아무 가정도 두지 않는다 — 다른 목록은 언제나 다른 서명이다.
+   */
+  it("서명은 그룹 값의 폭에 가정을 두지 않는다", () => {
+    const cases: ReadonlyArray<[string | null, readonly string[]]> = [
+      ["child-1", ["가", "나"]],
+      ["child-1", ["가,나"]],
+      ["child-1", ["나", "가"]],
+      ["child-1", ["가"]],
+      ["child-1", ['따옴표" 든 이름', "줄바꿈\n든 이름"]],
+      ["child-1", []],
+      [null, ["가", "나"]],
+      ["null", ["가", "나"]]
+    ];
+    const signatures = cases.map(([contextKey, groupIds]) => preparationAutoExpandKey(contextKey, groupIds));
+    expect(new Set(signatures).size).toBe(cases.length);
+    // 같은 입력은 언제나 같은 서명이다(재렌더가 서명을 흔들지 않는다).
+    expect(preparationAutoExpandKey("child-1", ["가", "나"])).toBe(preparationAutoExpandKey("child-1", ["가", "나"]));
   });
 });
 

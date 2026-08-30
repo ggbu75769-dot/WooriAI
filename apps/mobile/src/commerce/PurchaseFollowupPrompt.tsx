@@ -16,6 +16,7 @@ import { theme } from "../theme";
 import { isPurchaseFollowupHeldByAppLock } from "./purchase-followup-resolution";
 import { createPurchaseFollowupSessionGate, evaluateFollowupPrompt, followupSessionKey } from "./purchase-followup-session";
 import {
+  createPurchaseFollowupEligibilityTimer,
   isFollowupForSelectedChild,
   purchaseFollowupMerchantLabel,
   usePurchaseFollowupStore,
@@ -28,6 +29,10 @@ import {
  * (post-rehydration) and on every foreground return (AppState 'active') it checks the persisted
  * purchase-followup store for a pending product-link click that is 3min–24h old and, at most
  * once per app session per click, shows a non-blocking bottom card asking 구매하셨나요?.
+ *
+ * 라운드 81 트랙 B(자격 도래 타이머): 그 두 순간에 더해, 판정이 돌 때마다 **다음 자격 도래
+ * 시각**에 한 번 더 판정하도록 일회용 타이머를 건다(자격 창이 앱 안에서 열리는 세션을 통째로
+ * 놓치던 자리 — 술어는 purchase-followup.store.ts의 nextPromptEligibleDelayMs).
  *
  * Never blocks navigation: the overlay wrapper uses pointerEvents="box-none" so only the card
  * itself is touchable, and the component renders null (and attaches no listeners) whenever
@@ -133,18 +138,50 @@ export function PurchaseFollowupLifecycle() {
      * (appLockHeld가 의존성이다) 조건이 여전한 항목을 그때 판정한다.
      */
     if (appLockHeld) return;
+    /**
+     * 라운드 81 트랙 B — **자격 창이 열리는 순간을 보고 있는다.**
+     *
+     * 아래 방아쇠 셋(하이드레이션 · `AppState "active"` · 의존성 변화)은 전부 사용자가 앱 밖에서
+     * 무언가를 한 순간이라, 링크를 누르고 3분 안에 돌아온 사람에게는 그 세션 내내 판정이 다시
+     * 서지 않았다(자격은 14분째 갖춰져 있는데도). 그래서 판정이 돌 때마다 **다음 자격 도래
+     * 시각에 한 번 깨우는 일회용 타이머**를 다시 건다 — 창 상수도, 세션 슬롯도, 아이 게이트도
+     * 한 글자도 약해지지 않는다. 타이머가 하는 일은 "그때 다시 물어본다" 하나다.
+     */
+    /**
+     * 라운드 81 리뷰(M-1) — **타이머가 발화해도 앱이 뒤에 있으면 판정하지 않는다.**
+     *
+     * 위 앱 잠금 게이트(appLockHeld)는 백그라운드를 덮지 못한다: `unlockedThisForeground`는
+     * `noteForegrounded`에서만 false가 되므로, 앱이 백그라운드로 내려간 것만으로는 이 effect가
+     * 다시 돌지 않는다. 그런데 타이머는 안드로이드에서 백그라운드에도 발화할 수 있고, 그때
+     * `check()`가 돌면 **사용자가 본 적 없는 물음이 세션 표출 슬롯(takeSlot)을 쓰고** 아래 낭독
+     * effect가 announcedKeyRef까지 소모한다 — 나중에 실제로 카드를 볼 때는 슬롯도 낭독 기억도
+     * 이미 쓰인 뒤라, 스크린리더 사용자에게는 그 물음이 영영 소리로 오지 않는다.
+     *
+     * 그래서 앞에 있지 않으면 **아무것도 하지 않고 넘긴다**(다시 걸지도 않는다). 남은 판정은
+     * 다음 `"active"`가 맡는다 — 그 방아쇠는 아래 리스너가 이미 들고 있고, 그 자리에서 판정이
+     * 다시 돌며 타이머도 다시 걸린다. 즉 이 가드가 잃는 것은 없고, 백그라운드에서 조용히
+     * 소모되던 두 자원만 지켜진다.
+     */
+    const eligibilityTimer = createPurchaseFollowupEligibilityTimer(() => {
+      if (AppState.currentState !== "active") return;
+      check();
+    });
     const check = () => {
+      const now = Date.now();
       // 라운드 39 I-3: 아이가 바뀌어 가려진 카드는 세션 슬롯을 돌려받고 내려간다 — 그래야 그
       // 아이로 돌아왔을 때 다시 묻는다(규칙과 근거는 purchase-followup-session.ts).
       const next = evaluateFollowupPrompt({
         gate: promptSessionGate,
         active: activeFollowupRef.current,
         entries: usePurchaseFollowupStore.getState().entries,
-        now: Date.now(),
+        now,
         selectedChildId
       });
       activeFollowupRef.current = next;
       setActiveFollowup(next);
+      // 판정이 끝난 자리에서 다음 깨움을 다시 건다(이전 타이머는 그 안에서 해제된다 --
+      // 포그라운드 복귀로 판정이 다시 돌아도 타이머가 겹쳐 쌓이지 않는다).
+      eligibilityTimer.schedule(usePurchaseFollowupStore.getState().entries, now, selectedChildId);
     };
     // Cold start: only check once the persisted entries have actually rehydrated -- checking the
     // (still-empty) initial state would silently miss the stored click.
@@ -156,6 +193,9 @@ export function PurchaseFollowupLifecycle() {
     return () => {
       unsubscribeHydration();
       subscription.remove();
+      // 언마운트·의존성 변화(세션 종료·아이 전환·앱 잠금)에서 반드시 해제한다 -- 지난 판정이
+      // 걸어 둔 깨움이 살아남으면 이미 무효가 된 조건으로 판정이 한 번 더 돈다.
+      eligibilityTimer.clear();
     };
   }, [hasSession, selectedChildId, appLockHeld]);
 
@@ -184,17 +224,25 @@ export function PurchaseFollowupLifecycle() {
   // 그래서 **카드가 내려갈 때 기억을 지운다**: 내려간 카드가 다시 서면 그것은 새 물음이다.
   // 잠금 보류(appLockHeld)는 카드를 내리지 않으므로(첫 effect가 판정 자체를 건너뛴다) 기억이
   // 그대로 남고, 풀린 뒤 같은 카드는 여전히 다시 읽히지 않는다.
+  //
+  // 라운드 81 리뷰(M-1): 낭독 기억은 **카드가 실제로 그려지는 프레임에서만** 소모한다. 아래
+  // 두 가드는 렌더의 조기 반환 둘과 같은 술어다(잠금 보류 · 아이 게이트) -- 그리지 않는 프레임에
+  // 키를 적어 두면 그 카드는 나중에 화면에 서도 다시는 읽히지 않는다. 두 가드의 차이는 기억을
+  // 지우느냐다: 잠금은 카드를 내리지 않으므로 기억을 그대로 두고(풀린 뒤 같은 카드는 다시 읽지
+  // 않는다), 아이 전환은 첫 effect가 곧 activeFollowup을 비워 기억을 지운다(그 아이로 돌아와
+  // 다시 선 카드는 새 물음이다 -- 위 P2-1 문단).
   useEffect(() => {
     if (!activeFollowup) {
       announcedKeyRef.current = null;
       return;
     }
     if (appLockHeld) return;
+    if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return;
     const key = followupSessionKey(activeFollowup);
     if (announcedKeyRef.current === key) return;
     announcedKeyRef.current = key;
     announceForA11y(`『${activeFollowup.itemName}』 구매하셨나요?`);
-  }, [activeFollowup, appLockHeld]);
+  }, [activeFollowup, appLockHeld, selectedChildId]);
 
   if (!hasSession || !activeFollowup) return null;
   /**

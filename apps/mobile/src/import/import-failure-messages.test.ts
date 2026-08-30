@@ -393,7 +393,11 @@ describe("여정 스윕 소스 계약 (import 서버 파일 셋)", () => {
     // 라운드 71 리뷰 M-2: 상수 식별자(`code: IMPORT_FILE_TOO_LARGE_CODE`)로 던져지던 열째 코드.
     // 종전 스윕은 문자열 리터럴만 봐서 이 자리를 아예 세지 않았다.
     IMPORT_FILE_TOO_LARGE:
-      "10MB 상한이고, 앱 전역 표(src/api/api-error.ts)에 이미 문구가 있다. 서버가 이 코드를 상수 식별자로 던지는 유일한 자리라(global-exception.filter.ts의 IMPORT_FILE_TOO_LARGE_CODE) 스윕이 식별자를 해석하게 된 뒤에야 보였다."
+      "10MB 상한이고, 앱 전역 표(src/api/api-error.ts)에 이미 문구가 있다. 서버가 이 코드를 상수 식별자로 던지는 유일한 자리라(global-exception.filter.ts의 IMPORT_FILE_TOO_LARGE_CODE) 스윕이 식별자를 해석하게 된 뒤에야 보였다.",
+    // 라운드 81 E: 확정 배치화가 insertExpense의 순수 판정(품목명 trim·빈 값)을
+    // import-pipeline 안에 재현하면서 이 코드가 여정 파일 스윕에 처음 잡혔다.
+    EXPENSE_ITEM_NAME_REQUIRED:
+      "지출 입력 화면을 위해 앱 전역 표(src/api/api-error.ts)에 이미 문구가 있다(품목명을 입력해 주세요). 가져오기 확정에서는 방어적 재검사다 — 품목명이 빈 행은 미리보기 판정(validationStatusForImportRow)이 먼저 걸러 확정 대상에 들지 못하므로, 정상 경로에서는 도달하지 않는다."
   };
 
   it("여정 서버 파일들의 코드는 이 트랙의 표에 있거나, 이유가 적힌 제외 목록에 있다", () => {
