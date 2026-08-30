@@ -366,9 +366,18 @@ function errorMessage(error: unknown): string {
  *    updatedAt < cutoff). Timestamp choice: withdrawUser
  *    (households/household-runtime.service.ts) only flips status — it does not
  *    stamp User.deletedAt — so the status flip's own updatedAt bump is the
- *    withdrawal time. A later login *attempt* by a withdrawn user bumps
- *    updatedAt again (lastLoginAt write), which merely extends retention —
- *    conservative, never premature.
+ *    withdrawal time. GAP-075 A: a later login *attempt* by a withdrawn user
+ *    used to bump updatedAt again (an unconditional lastLoginAt write on the
+ *    find-or-create path), which rewound this clock to zero on every attempt —
+ *    not "conservative", but a broken promise: the privacy policy, the Play
+ *    account-deletion page and the data-safety answers all state the 30 days
+ *    unconditionally, so an account that was merely tried once a month would
+ *    have been retained forever. attemptFindOrCreateProviderUser
+ *    (households/household-runtime.service.ts) now writes lastLoginAt only for
+ *    `active` rows, so a rejected login leaves updatedAt alone and this clock
+ *    runs from the withdrawal itself. NOTE: updatedAt still *stands in for* the
+ *    withdrawal time (there is no withdrawn_at column), so any new write path
+ *    that touches a withdrawn user's row would re-open the same defect.
  *
  *    Their satellite personal data is hard-deleted: refresh tokens (normally
  *    already gone via revokeAllForUser + refresh_token_cleanup), devices,
