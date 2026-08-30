@@ -1,10 +1,11 @@
 import type { ItemStatus, NecessityLevel } from "@wooriai/domain";
 
 /**
- * ITEM-121 (B2/B3): 준비템 목록의 클라이언트 전용 좁히기 — 필수도 칩과 이름 검색.
+ * ITEM-121 (B2/B3): 준비템 목록의 클라이언트 전용 좁히기 — 필수도 칩과 검색.
  *
- * 서버로 보내지 않는 이유: 두 조건 모두 이미 받은 목록 항목의 필드(necessityLevel, name)만
- * 보므로 왕복이 필요 없고, 시기(stageBand)·상태(tab)처럼 목록의 모집단을 바꾸지 않는다.
+ * 서버로 보내지 않는 이유: 두 조건 모두 이미 받은 목록 항목의 필드(necessityLevel, name)와
+ * 화면이 그것으로 이미 그리고 있는 값(분류 표시명)만 보므로 왕복이 필요 없고,
+ * 시기(stageBand)·상태(tab)처럼 목록의 모집단을 바꾸지 않는다.
  * 시기/상태 필터는 서버가 담당한다(apps/api/src/onboarding/items-catalog.service.ts).
  */
 export type NecessityFilter = "all" | NecessityLevel;
@@ -19,12 +20,45 @@ export const NECESSITY_FILTER_OPTIONS: Array<{ value: NecessityFilter; label: st
 export type FilterableItem = {
   name: string;
   necessityLevel: NecessityLevel;
+  /**
+   * 라운드 81 D: 이 항목이 어느 분류 그룹에 들어가는지 정하는 값(서버 분류 id).
+   *
+   * ⚠️ 이 파일은 이 id로 **이름을 만들지 않는다** — 이름은 화면의 단일 조립기가 낸다
+   * (`app/(tabs)/items.tsx`의 `groupKeyOf`). 여기 id가 있는 이유는 그 조립기를
+   * `ItemFilterInput.categoryNameOf`로 그대로 넘겨 받을 수 있게 타입을 맞추기 위해서다.
+   * 선택 필드라 이 값이 없는 항목(로컬 백엔드 픽스처 등)은 오늘과 똑같이 동작한다.
+   */
+  categoryId?: string | null;
 };
 
-export type ItemFilterInput = {
+/**
+ * 항목 하나가 **화면에서** 어떤 분류 이름 아래 그려지는지 알려 주는 함수.
+ *
+ * 화면이 그룹 헤더에 그리는 그 값 하나(단일 소스)를 그대로 받는다 — 이 파일이 두 번째
+ * 조립기를 두면 검색이 화면에 없는 이름을 찾거나 화면에 있는 이름을 못 찾게 된다.
+ *
+ * 항목 타입으로 매개변수화한 이유: 화면의 조립기(`groupKeyOf`)는 `ItemSummary`를 받는
+ * 함수이고, 그 시그니처는 다른 계약(src/design-restore-p2b.test.ts)이 바이트로 물고 있다.
+ * 여기서 항목 타입을 고정해 버리면 그 함수를 그대로 넘길 수 없어 화면이 **두 번째 조립기**를
+ * 만들게 된다 — 그것이 이 트랙이 막으려는 바로 그 일이다.
+ */
+export type ItemCategoryNameResolver<TItem extends FilterableItem = FilterableItem> = (
+  item: TItem
+) => string | null | undefined;
+
+/** 목록을 좁히는 두 조건 — 이 둘만 "필터가 걸렸는지"를 판정한다(분류 이름은 조건이 아니다). */
+export type ItemNarrowingInput = {
   necessity: NecessityFilter;
   /** 사용자가 입력한 원문. 앞뒤 공백·대소문자는 여기서 정규화한다. */
   searchText: string;
+};
+
+export type ItemFilterInput<TItem extends FilterableItem = FilterableItem> = ItemNarrowingInput & {
+  /**
+   * 선택 — 주면 검색이 품목명에 더해 **그 항목의 분류 표시명**까지 본다.
+   * 주지 않으면 술어는 종전과 정확히 같게 이름만 본다.
+   */
+  categoryNameOf?: ItemCategoryNameResolver<TItem>;
 };
 
 /** 검색어 정규화 — 기록 탭(app/(tabs)/records.tsx)의 검색 관례와 동일하게 trim + 소문자. */
@@ -36,23 +70,50 @@ export function itemMatchesNecessity(item: FilterableItem, necessity: NecessityF
   return necessity === "all" || item.necessityLevel === necessity;
 }
 
-/** 이름 부분 일치(대소문자 무시). 빈 검색어는 모든 항목을 통과시킨다. */
-export function itemMatchesSearch(item: FilterableItem, normalizedSearch: string): boolean {
+/**
+ * 이름·분류 표시명 부분 일치(대소문자 무시). 빈 검색어는 모든 항목을 통과시킨다.
+ *
+ * ## 라운드 81 D — 분류 이름 갈래를 더한 이유
+ * 준비템 목록의 그룹 헤더는 각 항목 위에 **분류 이름**을 크게 그린다("위생·목욕 3/6 보유").
+ * 그런데 술어는 `item.name`만 봤으므로, 사용자가 방금 화면에서 읽은 그 글자("위생")를
+ * 검색칸에 치면 0건이 나왔다 — 화면이 자기가 그린 이름을 자기 검색으로 못 찾았다.
+ *
+ * 이름의 출처는 **화면이 그 항목에 붙여 그리는 값 하나**뿐이다(`categoryNameOf` 인자로 받는
+ * `groupKeyOf`). 이 파일이 분류 id에서 이름을 따로 조립하지 않으므로, 검색이 화면에 없는
+ * 이름을 찾는 방향도, 화면에 있는 이름을 못 찾는 방향도 둘 다 막힌다.
+ *
+ * 정규화 규칙은 이름 갈래와 **같다**: 검색어는 trim + 소문자(normalizeItemSearchText),
+ * 대상 문자열은 소문자만. 갈래마다 다른 규칙을 쓰면 같은 글자가 자리에 따라 다르게 걸린다.
+ *
+ * ⚠️ **별칭은 여기 없다** — 저장소에 그 데이터의 원천이 0건이다(`ItemSummary`에도 시드에도
+ * 별칭 필드가 없다). 검색칸 placeholder는 셋을 말하지만, 없는 데이터를 지어내는 대신
+ * 지킬 수 있는 약속(분류)만 실제로 지킨다. 문구 정정은 디자인 승인이 선행이다.
+ */
+export function itemMatchesSearch<TItem extends FilterableItem>(
+  item: TItem,
+  normalizedSearch: string,
+  categoryNameOf?: ItemCategoryNameResolver<TItem>
+): boolean {
   if (!normalizedSearch) return true;
-  return item.name.toLowerCase().includes(normalizedSearch);
+  if (item.name.toLowerCase().includes(normalizedSearch)) return true;
+  const categoryName = categoryNameOf?.(item);
+  if (!categoryName) return false;
+  return categoryName.toLowerCase().includes(normalizedSearch);
 }
 
 /**
  * 두 조건을 모두 만족하는 항목만, 서버가 준 순서(추천 점수 순) 그대로 남긴다 —
  * 필터가 정렬을 바꾸면 추천 순서 계약(DNC-009 주변)이 흐려진다.
  */
-export function filterItems<T extends FilterableItem>(items: T[], input: ItemFilterInput): T[] {
+export function filterItems<T extends FilterableItem>(items: T[], input: ItemFilterInput<T>): T[] {
   const normalizedSearch = normalizeItemSearchText(input.searchText);
-  return items.filter((item) => itemMatchesNecessity(item, input.necessity) && itemMatchesSearch(item, normalizedSearch));
+  return items.filter(
+    (item) => itemMatchesNecessity(item, input.necessity) && itemMatchesSearch(item, normalizedSearch, input.categoryNameOf)
+  );
 }
 
 /** 좁히기 조건이 하나라도 걸려 있는지 — 빈 화면 문구를 고르는 데 쓴다. */
-export function hasActiveItemFilter(input: ItemFilterInput): boolean {
+export function hasActiveItemFilter(input: ItemNarrowingInput): boolean {
   return input.necessity !== "all" || normalizeItemSearchText(input.searchText).length > 0;
 }
 

@@ -595,9 +595,38 @@ export default function ItemsScreen() {
   // (INTERESTED_FILTER_SCOPE_NOTE).
   const sourceItems: Array<ItemSummary | RecommendationPreviewItem> =
     hasSession && showInterestedOnly ? filterInterestedItems(visibleItems) : visibleItems;
-  // 필수도 칩과 이름 검색만 적용한다 -- 비세션 미리보기에는 두 컨트롤을 노출하지 않으므로
+  /**
+   * 분류 섹션의 축. 원본(c20deeb)은 카탈로그 도메인 코드로 10그룹을 나눴지만 현재 준비템
+   * 계약에는 그 코드가 없다 -- 있는 분류는 **지출 분류**(`categoryId`) 하나뿐이고, 그것이
+   * 마침 이 앱이 지출을 세는 축이자 "지출도 기록할까요?"가 프리필하는 축이다. 없는 분류를
+   * 지어내는 대신 그 축을 그대로 쓴다. 순서는 서버가 준 목록 순서 그대로다(재정렬 없음).
+   *
+   * 라운드 81 D: 선언이 목록 조립(listedItems)보다 **위**로 올라왔다. 검색이 분류 이름을
+   * 보려면 그 이름이 필터보다 먼저 있어야 하기 때문이고, 두 선언 다 순수 호출이라 값도
+   * 렌더도 바뀌지 않는다(아래 세션 렌더는 이 값을 그대로 이어 쓴다).
+   */
+  const categoryNameOf = buildCategoryNameLookup(categories.data?.categories);
+  /**
+   * 그룹 키는 **분류 id가 아니라 그 분류의 이름**이다.
+   *
+   * 공유 캐시가 아직 비어 있으면(콜드 스타트·오프라인 첫 실행) 서버 분류 UUID는 이름을 알 수
+   * 없어 전부 "기타"로 떨어진다. 그때 id로 묶으면 "기타"라는 이름의 섹션이 여러 개 나란히
+   * 서서 서로 구별되지 않는다 -- 이름으로 묶으면 그 경우 하나로 합쳐지고, 캐시가 채워지면
+   * 자연히 갈라진다.
+   *
+   * 라운드 81 D: 이 함수가 **분류 이름의 단일 소스**다 -- 그룹 헤더의 제목도, 아래 검색의
+   * 분류 갈래도 여기서만 나온다. 두 번째 조립기를 두면 사용자가 화면에서 읽은 글자와
+   * 검색이 찾는 글자가 갈라진다.
+   */
+  const groupKeyOf = (item: ItemSummary) =>
+    item.categoryId ? categoryNameOf(item.categoryId) : UNCATEGORIZED_GROUP_NAME;
+  // 필수도 칩과 검색만 적용한다 -- 비세션 미리보기에는 두 컨트롤을 노출하지 않으므로
   // 목록도 손대지 않는다.
-  const itemFilterInput = { necessity: necessityFilter, searchText };
+  //
+  // 라운드 81 D: 검색은 품목명에 더해 **그룹 헤더가 그 항목 위에 그리는 분류 이름**도 본다.
+  // 새 요청도 새 스키마도 없다 -- 화면이 이미 만들어 그리고 있는 값 하나(groupKeyOf)를
+  // 술어에 그대로 넘길 뿐이고, 분류 캐시가 비어 있으면 헤더와 검색이 똑같이 "기타"를 쓴다.
+  const itemFilterInput = { necessity: necessityFilter, searchText, categoryNameOf: groupKeyOf };
   // 라운드 43 UX-V: 칩은 아이가 아직 태어나기 전일 때만 나온다. 출생 뒤에는 좁혀 봐야 지나간
   // 준비물만 남기 때문이다. 켜 둔 채로 아이가 출생 전환을 하면 칩이 사라지는데, 그때 필터만
   // 살아 남아 목록이 이유 없이 비지 않도록 **노출 판정과 적용 판정을 같은 값으로 묶는다**.
@@ -789,24 +818,8 @@ export default function ItemsScreen() {
   });
   const sessionRowById = new Map(sessionRows.map((row) => [row.item.id, row]));
 
-  /**
-   * 분류 섹션의 축. 원본(c20deeb)은 카탈로그 도메인 코드로 10그룹을 나눴지만 현재 준비템
-   * 계약에는 그 코드가 없다 -- 있는 분류는 **지출 분류**(`categoryId`) 하나뿐이고, 그것이
-   * 마침 이 앱이 지출을 세는 축이자 "지출도 기록할까요?"가 프리필하는 축이다. 없는 분류를
-   * 지어내는 대신 그 축을 그대로 쓴다. 순서는 서버가 준 목록 순서 그대로다(재정렬 없음).
-   */
-  const categoryNameOf = buildCategoryNameLookup(categories.data?.categories);
+  // 분류 섹션의 아이콘·색을 8타일 카탈로그에서 고르는 해석기(이름은 위 groupKeyOf가 낸다).
   const resolveTileCategory = buildTileCategoryResolver(categories.data?.categories);
-  /**
-   * 그룹 키는 **분류 id가 아니라 그 분류의 이름**이다.
-   *
-   * 공유 캐시가 아직 비어 있으면(콜드 스타트·오프라인 첫 실행) 서버 분류 UUID는 이름을 알 수
-   * 없어 전부 "기타"로 떨어진다. 그때 id로 묶으면 "기타"라는 이름의 섹션이 여러 개 나란히
-   * 서서 서로 구별되지 않는다 -- 이름으로 묶으면 그 경우 하나로 합쳐지고, 캐시가 채워지면
-   * 자연히 갈라진다.
-   */
-  const groupKeyOf = (item: ItemSummary) =>
-    item.categoryId ? categoryNameOf(item.categoryId) : UNCATEGORIZED_GROUP_NAME;
   const categoryGroups: PreparationCategoryGroup[] = [];
   const seenGroupIds = new Set<string>();
   for (const { item } of sessionRows) {
