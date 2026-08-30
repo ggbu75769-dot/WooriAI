@@ -327,7 +327,10 @@ describe("PreparationListParity source contract", () => {
     // 예전 판정(아이 id 하나로 잠그는 ref)은 남아 있지 않다.
     expect(source).not.toContain("autoExpandedContext");
     // 목록이 갈리는 것을 실제로 보려면 `categories`와 지금 펼침 상태가 의존성에 있어야 한다.
-    expect(source).toContain("}, [categories, expandedGroups, selectedContextKey]);");
+    // 라운드 81 리뷰(M-3): 검색어도 함께 본다 — 검색 중에는 그룹 섹션이 그려지지 않으므로
+    // 판정이 그 사실을 알아야 보이지 않는 화면의 펼침을 건드리지 않는다.
+    expect(source).toContain("searchActive: Boolean(activeSearchQuery)");
+    expect(source).toContain("}, [activeSearchQuery, categories, expandedGroups, selectedContextKey]);");
   });
 });
 
@@ -394,6 +397,96 @@ describe("준비템 첫 펼침 재계산 (라운드 81 트랙 C)", () => {
         previousKey: preparationAutoExpandKey("child-1", settledGroups)
       })
     ).toEqual({ expandGroupId: null, nextKey: preparationAutoExpandKey("child-1", narrowedGroups) });
+  });
+
+  /**
+   * 라운드 81 리뷰(M-2) — **전부 접은 화면은 앱이 되펼치지 않는다.**
+   *
+   * 종전 조건("펼쳐 둔 그룹 중 지금 목록에 살아 있는 것이 0")은 사용자가 손으로 전부 접은
+   * 화면에서도 참이었다(빈 배열의 `some`은 언제나 false다). 그래서 칩 하나로 목록이 갈리기만
+   * 하면 접는 데 여덟 번을 쓴 화면이 첫 그룹부터 다시 펼쳐졌다 — 체크표 #91과 판정 V-1이
+   * 약속한 "되펼치지 않는다"가 실제로는 지켜지지 않던 자리다.
+   */
+  it("② 전부 접은 상태는 되펼치지 않는다 — 사용자의 결정이지 잃어버린 펼침이 아니다", () => {
+    const narrowedGroups = ["수유·이유식", "외출·놀이·교육"];
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: [],
+        groupIds: narrowedGroups,
+        previousKey: preparationAutoExpandKey("child-1", settledGroups)
+      })
+    ).toEqual({ expandGroupId: null, nextKey: preparationAutoExpandKey("child-1", narrowedGroups) });
+
+    // 목록이 완전히 다른 이름들로 갈려도 마찬가지다(살아남을 그룹이 있고 없고의 문제가 아니다).
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: [],
+        groupIds: ["가족·기록"],
+        previousKey: preparationAutoExpandKey("child-1", settledGroups)
+      })
+    ).toEqual({ expandGroupId: null, nextKey: preparationAutoExpandKey("child-1", ["가족·기록"]) });
+
+    // ⚠️ 아이를 바꾸면 그 결정은 따라가지 않는다(다른 아이의 화면이다 — 아래 ③과 같은 규칙).
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-2",
+        expandedGroupIds: [],
+        groupIds: settledGroups,
+        previousKey: preparationAutoExpandKey("child-1", settledGroups)
+      })
+    ).toEqual({ expandGroupId: "건강·진료", nextKey: preparationAutoExpandKey("child-2", settledGroups) });
+
+    // ⚠️ 첫 계산(previousKey 없음)은 종전 그대로 첫 그룹을 편다 — 그때의 빈 펼침은 사용자가
+    // 접은 것이 아니라 아직 아무 일도 일어나지 않은 상태다(콜드 스타트 ①이 그 자리다).
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: [],
+        groupIds: settledGroups,
+        previousKey: undefined
+      })
+    ).toEqual({ expandGroupId: "건강·진료", nextKey: preparationAutoExpandKey("child-1", settledGroups) });
+  });
+
+  /**
+   * 라운드 81 리뷰(M-3) — **검색 중에는 판정이 쉰다**(C-2 왕복 손실).
+   *
+   * 검색이 켜져 있으면 화면은 분류 섹션 대신 평평한 검색 결과 그리드를 그린다. 그런데 판정은
+   * 그 사실을 몰라서, 검색 결과의 그룹 서명으로 자동 펼침을 다시 계산했다 — 사용자가 펼쳐 둔
+   * 그룹이 결과에 없으면 **보이지도 않는 화면**의 펼침이 다른 그룹으로 갈아치워지고, 검색을
+   * 닫으면 그 결과가 그대로 남았다(좁아졌다 넓어지는 왕복의 손실).
+   */
+  it("② 검색 왕복은 무손실이다 — 검색 중에는 손대지 않고, 닫으면 같은 서명이라 그대로다", () => {
+    const beforeKey = preparationAutoExpandKey("child-1", settledGroups);
+    // ⓐ 검색 중: 결과가 다른 그룹 하나로 좁아져도 판정은 아무것도 하지 않는다(키도 그대로).
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: ["기저귀·생활"],
+        groupIds: ["수유·이유식"],
+        previousKey: beforeKey,
+        searchActive: true
+      })
+    ).toBeNull();
+    // 결과가 0건이어도, 아이를 바꿔도, 첫 계산이어도 마찬가지다 — 그려지지 않는 목록이다.
+    for (const input of [
+      { contextKey: "child-1", expandedGroupIds: [], groupIds: [] },
+      { contextKey: "child-2", expandedGroupIds: ["기저귀·생활"], groupIds: ["수유·이유식"] }
+    ]) {
+      expect(resolvePreparationAutoExpand({ ...input, previousKey: beforeKey, searchActive: true })).toBeNull();
+      expect(resolvePreparationAutoExpand({ ...input, previousKey: undefined, searchActive: true })).toBeNull();
+    }
+    // ⓑ 검색을 닫으면 목록은 검색 전 그대로다 → 서명이 같아 판정도 아무것도 하지 않는다.
+    expect(
+      resolvePreparationAutoExpand({
+        contextKey: "child-1",
+        expandedGroupIds: ["기저귀·생활"],
+        groupIds: settledGroups,
+        previousKey: beforeKey
+      })
+    ).toBeNull();
   });
 
   it("③ 아이를 바꾸면 예전처럼 첫 그룹이 펼쳐진다 — 그 그룹이 새 목록에도 있어도 마찬가지다", () => {

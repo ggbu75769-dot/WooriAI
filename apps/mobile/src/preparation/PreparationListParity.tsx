@@ -108,6 +108,22 @@ export function preparationAutoExpandKey(contextKey: string | null, groupIds: re
   return `${JSON.stringify(contextKey)}${AUTO_EXPAND_KEY_SEPARATOR}${JSON.stringify(groupIds)}`;
 }
 
+/**
+ * 라운드 81 리뷰(M-2·M-3) — 위 규율에 **두 가지가 더** 붙었다.
+ *
+ * **M-2. 전부 접은 상태는 사용자의 결정이다.** 종전 조건("펼쳐 둔 그룹 중 살아 있는 것이 0")은
+ * 사용자가 손으로 **전부 접은** 화면에서도 참이라, 목록이 조금만 갈려도 앱이 첫 그룹을 다시
+ * 펼쳤다 — 접는 데 여덟 번을 쓴 사람에게 되펼침은 그 여덟 번을 부정하는 동작이다. 같은 아이
+ * 안에서 펼침이 0이면 그것은 "잃어버린 펼침"이 아니라 **의도한 상태**이므로 손대지 않고 키만
+ * 갱신한다(체크표 #91과 known-limitations V-1이 약속한 "되펼치지 않는다"의 실제 의미다).
+ *
+ * **M-3. 검색 중에는 판정을 보류한다.** 검색이 켜져 있으면 화면은 그룹 섹션 대신 **평평한 검색
+ * 결과 그리드**를 그린다 — 그 동안 목록 서명으로 자동 펼침을 다시 계산하면 *보이지도 않는
+ * 화면의 상태*가 바뀌고, 검색을 닫는 순간 사용자가 만들어 둔 펼침이 검색 결과에서 고른 다른
+ * 그룹으로 갈아치워진다(좁아졌다 넓어지는 왕복의 손실). 그래서 검색 중에는 **키도 갱신하지
+ * 않고 펼침에도 손대지 않는다** — 검색을 닫으면 그때의 목록으로 판정이 한 번 돌고, 그 목록이
+ * 검색 전과 같으면 서명도 같아 아무것도 바뀌지 않는다(왕복이 무손실이 되는 자리다).
+ */
 export type PreparationAutoExpandDecision = {
   /** ref에 새로 적을 키. */
   nextKey: string;
@@ -119,7 +135,8 @@ export function resolvePreparationAutoExpand({
   contextKey,
   expandedGroupIds,
   groupIds,
-  previousKey
+  previousKey,
+  searchActive = false
 }: {
   /** 선택된 아이(또는 호출부가 정한 컨텍스트). */
   contextKey: string | null;
@@ -129,7 +146,12 @@ export function resolvePreparationAutoExpand({
   groupIds: readonly string[];
   /** 직전에 자동 펼침을 계산한 키. 아직 한 번도 계산하지 않았으면 `undefined`. */
   previousKey: string | undefined;
+  /** 지금 검색어가 걸려 있는가 — 그렇다면 화면에 분류 섹션이 아예 그려지지 않는다. */
+  searchActive?: boolean;
 }): PreparationAutoExpandDecision | null {
+  // 라운드 81 리뷰(M-3): 검색 중에는 그룹 섹션이 그려지지 않는다 -- 보이지 않는 화면의 펼침을
+  // 바꾸지 않고, 키도 갱신하지 않는다(검색을 닫으면 그때의 목록으로 한 번 판정한다).
+  if (searchActive) return null;
   const [firstGroupId] = groupIds;
   // 그릴 그룹이 하나도 없으면 예전과 같이 아무것도 하지 않는다(키도 잠그지 않는다) --
   // 조회가 끝나기 전의 빈 프레임에 그 한 번을 쓰지 않기 위한 예전 가드 그대로다.
@@ -140,6 +162,10 @@ export function resolvePreparationAutoExpand({
   const sameContext = previousKey !== undefined
     && previousKey.startsWith(`${JSON.stringify(contextKey)}${AUTO_EXPAND_KEY_SEPARATOR}`);
   if (!sameContext) return { expandGroupId: firstGroupId, nextKey };
+  // 라운드 81 리뷰(M-2): 같은 아이 안에서 펼침이 하나도 없다 = 사용자가 전부 접었다. 되펼치지
+  // 않는다(빈 배열에서는 아래 survives 판정이 언제나 false라, 이 갈래가 없으면 목록이 갈릴
+  // 때마다 접어 둔 화면이 첫 그룹부터 다시 펼쳐졌다).
+  if (expandedGroupIds.length === 0) return { expandGroupId: null, nextKey };
   const survivesInNextList = expandedGroupIds.some((id) => groupIds.includes(id));
   return { expandGroupId: survivesInNextList ? null : firstGroupId, nextKey };
 }
@@ -348,14 +374,18 @@ export function PreparationListParity({
       contextKey: selectedContextKey,
       expandedGroupIds: [...expandedGroups],
       groupIds: categories.filter((group) => group.items.length > 0).map((group) => group.id),
-      previousKey: autoExpandedKey.current
+      previousKey: autoExpandedKey.current,
+      // 라운드 81 리뷰(M-3): 검색 중에는 이 목록이 화면에 서지 않는다 — 판정은 그 사실을 알아야
+      // 보이지 않는 화면의 펼침을 건드리지 않는다(그래서 검색어가 의존성에도 함께 있다).
+      searchActive: Boolean(activeSearchQuery)
     });
     if (!decision) return;
     autoExpandedKey.current = decision.nextKey;
-    // 키만 갱신하는 갈래(살아 있는 그룹이 있다) — 사용자가 만든 펼침/접힘을 그대로 둔다.
+    // 키만 갱신하는 갈래(살아 있는 그룹이 있다 · 또는 사용자가 전부 접었다) — 사용자가 만든
+    // 펼침/접힘을 그대로 둔다.
     if (decision.expandGroupId === null) return;
     setExpandedGroups(new Set([decision.expandGroupId]));
-  }, [categories, expandedGroups, selectedContextKey]);
+  }, [activeSearchQuery, categories, expandedGroups, selectedContextKey]);
 
   /**
    * 입력 디바운스. **빈 문자열도 하나의 검색어**다.

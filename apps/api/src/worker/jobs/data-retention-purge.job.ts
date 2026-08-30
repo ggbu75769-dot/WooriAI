@@ -261,11 +261,17 @@ type PhasePoisonState = {
   poisonSkip: number;
 };
 
-// Explicit interactive-transaction options: the Prisma default of 5s aborts
-// (P2028) on an oversized cascade batch, and because batch selection is
+// Explicit interactive-transaction options: the Prisma default timeout of 5s
+// aborts (P2028) on an oversized cascade batch, and because batch selection is
 // deterministic oldest-first, a timed-out batch would be re-selected
 // identically on every tick and stall that phase forever. 30s gives a full
-// batch of deep cascades room to finish; maxWait stays at the 5s default.
+// batch of deep cascades room to finish.
+//
+// 라운드 81 리뷰(L-8) — maxWait 5s는 **기본값이 아니라 명시값**이다(Prisma의 maxWait 기본은
+// 2초다). 이 잡은 워커 틱 안에서 도는 배치라 붐비는 순간에 즉시 실패하기보다 풀에서 연결을
+// 조금 더 기다리는 편이 낫다(다음 틱까지 그 배치가 통째로 밀린다). 종전 주석은 이 값을
+// "5s default"라고 적었고, 가져오기 쪽 IMPORT_TX_OPTIONS 주석이 그 문장을 근거로 인용하고
+// 있었다 — 두 주석은 이제 같은 사실(기본 2초 · 여기 5초는 명시)을 말한다.
 const PURGE_TX_OPTIONS = { timeout: 30_000, maxWait: 5_000 } as const;
 
 type Tx = Prisma.TransactionClient;

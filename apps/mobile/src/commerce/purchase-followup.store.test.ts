@@ -467,13 +467,33 @@ describe("라운드 81 B 자격 도래까지 남은 시간 (nextPromptEligibleDe
     expect(selectPromptEligibleFollowup(entries, NOW + (delay ?? 0) - 1, "child-1")).toBeNull();
   });
 
-  it("파생 상한: 답은 언제나 MIN_AGE 이하다 (미래 시각 blob·시계 역행 포함)", () => {
+  /**
+   * 라운드 81 리뷰(M-4) — **미래 클릭은 깨움을 만들지 않는다.**
+   *
+   * 종전에는 남은 시간을 `Math.min`으로 MIN_AGE에 잘랐다. 상한 자체는 지켜졌지만 그 3분 뒤에
+   * 깨어난 판정이 **여전히 자격 없는 같은 항목**을 보고 또 3분을 걸어, 6시간 미래의 blob 하나가
+   * 3분 주기 폴링이 됐다("헛도는 깨움 0건"의 정반대다). 이제 그런 항목은 세지 않는다 -- 시간이
+   * 실제로 흘러 창에 가까워지면 그때의 판정이 정상적인 깨움을 건다.
+   */
+  it("부정: 미래 clickedAt(시계 역행 blob)은 깨움을 만들지 않는다 -- 3분 주기 폴링 0건", () => {
+    const future = [pendingEntry({ clickedAt: NOW + 6 * 60 * 60 * 1000 })];
+    expect(nextPromptEligibleDelayMs(future, NOW, "child-1")).toBeNull();
+    // 그 시각에 깨워 봐야 후보가 될 수 없다는 사실이 이 부정의 근거다.
+    expect(selectPromptEligibleFollowup(future, NOW + PURCHASE_FOLLOWUP_MIN_AGE_MS, "child-1")).toBeNull();
+    // 1밀리초만 미래여도 같다(경계는 "지금"이다).
+    expect(nextPromptEligibleDelayMs([pendingEntry({ clickedAt: NOW + 1 })], NOW, "child-1")).toBeNull();
+    // 실제로 시간이 흘러 그 클릭이 과거가 되면 그때는 평소대로 깨움을 만든다.
+    const later = NOW + 6 * 60 * 60 * 1000 + 60 * 1000;
+    expect(nextPromptEligibleDelayMs(future, later, "child-1")).toBe(PURCHASE_FOLLOWUP_MIN_AGE_MS - 60 * 1000);
+    // 정상 항목이 함께 있으면 그 항목의 답은 미래 blob에 가려지지 않는다.
+    const mixed = [...future, pendingEntry({ itemTemplateId: "item-soon", clickedAt: NOW - 150 * 1000 })];
+    expect(nextPromptEligibleDelayMs(mixed, NOW, "child-1")).toBe(PURCHASE_FOLLOWUP_MIN_AGE_MS - 150 * 1000);
+  });
+
+  it("파생 상한: 답은 언제나 MIN_AGE 이하다", () => {
     expect(nextPromptEligibleDelayMs([pendingEntry({ clickedAt: NOW })], NOW, "child-1")).toBe(
       PURCHASE_FOLLOWUP_MIN_AGE_MS
     );
-    // 기기 시계가 뒤로 간 뒤에도 몇 시간짜리 타이머를 걸고 앉아 있지 않는다.
-    const future = [pendingEntry({ clickedAt: NOW + 6 * 60 * 60 * 1000 })];
-    expect(nextPromptEligibleDelayMs(future, NOW, "child-1")).toBe(PURCHASE_FOLLOWUP_MIN_AGE_MS);
     for (const offset of [0, 1, 1000, PURCHASE_FOLLOWUP_MIN_AGE_MS - 1]) {
       const delay = nextPromptEligibleDelayMs([pendingEntry({ clickedAt: NOW - offset })], NOW, "child-1");
       expect(delay).not.toBeNull();

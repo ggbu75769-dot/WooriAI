@@ -1,6 +1,8 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import ExcelJS from "exceljs";
 import request from "supertest";
 import { errorResponseSchema, importJobSchema, importRowSchema, MONEY_KRW_MAX } from "@wooriai/contracts";
@@ -8,6 +10,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { PrismaService } from "../src/prisma/prisma.service";
+import {
+  buildImportRowCreateData,
+  buildImportedExpenseCreateData,
+  importMaxRows,
+  PG_MAX_BIND_PARAMETERS
+} from "../src/onboarding/import-pipeline.service";
 
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -1414,7 +1422,13 @@ describe("Excel import beta API", () => {
  * "확정은 몇 문장"을 상수로 박으면 다음 라운드에 낡는다(그리고 낡은 줄은 계약이 아니라
  * 유지비다). 그래서 두 단언 다 **행 수 자신으로** 표현한다.
  *  1. **행 수보다 적다** — 400행짜리 요청의 문장 수가 400 미만이어야 한다. 종전 소스에서는
- *     미리보기 403 · 확정 802라 둘 다 빨개진다.
+ *     **미리보기 411 · 확정 811**(실측)이라 둘 다 빨개진다.
+ *     ⚠️ 라운드 81 리뷰(M-5): 이 두 수는 **요청 하나가 내보낸 문장 전체**다 — 트랜잭션 안의
+ *     비례분(미리보기 `N + 3` = 403 · 확정 `2N + 2` = 802)에 인증·권한 조회와 BEGIN/COMMIT
+ *     같은 **행 수와 무관한 상수 오버헤드**(두 수의 차이가 곧 그 몫이다 — 여덟·아홉)가 더해진
+ *     값이고, 이 스위트가 세는
+ *     것이 바로 그 전체다. 종전에는 이 자리에 트랜잭션 안의 수(403·802)만 적혀 있어서, 같은
+ *     사실을 두고 문서(`known-limitations.md` N절·V-4의 **411/811**)와 다른 숫자를 말했다.
  *  2. **행 수를 4배로 늘려도 문장 수가 그만큼 늘지 않는다** — 늘어난 행 수의 10분의 1 미만.
  *     비례하는 구현에서는 증가분이 늘어난 행 수와 같아지므로(300) 반드시 빨개진다.
  * 여유(10분의 1)를 두는 것은 확정이 트랜잭션 뒤에 fire-and-forget으로 거는 예산 경계 평가
@@ -1650,4 +1664,70 @@ describe("라운드 81 E — 가져오기 트랜잭션의 왕복 수 계약", ()
         expect(body.totalExpenseKrw).toBe(expectedTotal);
       });
   }, 60_000);
+});
+
+/**
+ * 라운드 81 리뷰(L-9) — **배치 한 문장의 천장은 행 수가 아니라 바인드 파라미터 수다.**
+ *
+ * 라운드 81 E가 행마다 한 문장이던 두 자리를 `createMany` 한 문장으로 모으면서 한계선이 조용히
+ * 옮겨 갔다: 한 INSERT가 `행 수 × 컬럼 수`개의 파라미터를 싣는데 PostgreSQL 프로토콜은 한 문장에
+ * **65,535개**까지만 받는다. 넘기면 미리보기·확정이 통째로 실패하고, 그 실패는 **상한을 다 채운
+ * 파일에서만** 나타나므로 상한을 올리거나 지출에 칸을 더하는 라운드가 모르고 지나간다.
+ *
+ * 그래서 천장을 값이 아니라 **계약**으로 둔다. 컬럼 수를 손으로 적지 않고 실제로 행을 만드는 두
+ * 함수의 키 수를 그대로 세므로, 칸이 늘거나 `importMaxRows`가 커져 곱이 상한에 닿는 날 빨개진다.
+ * DB가 필요 없는 순수 계약이다(그래서 위 스위트들과 달리 앱을 띄우지 않는다).
+ */
+describe("라운드 81 리뷰 L-9 — 가져오기 배치의 바인드 파라미터 천장", () => {
+  const sampleRow = {
+    id: "11111111-1111-4111-8111-111111111111",
+    importJobId: "",
+    rowIndex: 1,
+    parsedDate: new Date("2026-07-06T00:00:00.000Z"),
+    parsedItemName: "기저귀 구매",
+    parsedAmountKrw: 32000,
+    categoryId,
+    confidence: 0.9,
+    selected: true,
+    userReviewed: false,
+    validationStatus: "valid",
+    duplicateCandidateExpenseId: null
+  };
+
+  it("행 상한 × 컬럼 수가 65,535 미만이다 (미리보기 행 · 확정 지출 둘 다)", () => {
+    const importRowColumns = Object.keys(buildImportRowCreateData(sampleRow, "job-1")).length;
+    const expenseColumns = Object.keys(
+      buildImportedExpenseCreateData(sampleRow, {
+        householdId: "household-1",
+        childId: "child-1",
+        createdByUserId: "user-1",
+        importJobId: "job-1"
+      })
+    ).length;
+
+    // 컬럼 수 자체는 손으로 적지 않는다 — 여기서 세는 것은 **곱이 천장 아래인가** 하나다.
+    expect(importRowColumns).toBeGreaterThan(0);
+    expect(expenseColumns).toBeGreaterThan(0);
+    expect(importMaxRows * importRowColumns).toBeLessThan(PG_MAX_BIND_PARAMETERS);
+    expect(importMaxRows * expenseColumns).toBeLessThan(PG_MAX_BIND_PARAMETERS);
+
+    // 천장이 실제로 물리는 값이라는 사실도 함께 고정한다(가드가 언제 빨개지는지를 값으로):
+    // 지금 컬럼 수로 담을 수 있는 최대 행 수보다 상한이 작아야 한다.
+    const maxRowsAtCurrentShape = Math.floor(PG_MAX_BIND_PARAMETERS / Math.max(importRowColumns, expenseColumns));
+    expect(importMaxRows).toBeLessThan(maxRowsAtCurrentShape);
+  });
+
+  /**
+   * 확정이 만드는 지출 행은 `insertExpense`가 만드는 행과 **같은 모양이어야 한다**(그쪽에 칸이
+   * 생기는 날 가져오기 행만 조용히 그 칸을 비운 채 남는다 — 서비스 주석의 마지막 문단). 위
+   * 천장 계약이 그 함수의 키를 세므로, 그 함수가 실제 INSERT의 단일 소스라는 사실도 못박는다.
+   */
+  it("두 배치 INSERT는 그 두 함수로만 행을 만든다", () => {
+    const serviceSource = readFileSync(
+      join(process.cwd(), "src/onboarding/import-pipeline.service.ts"),
+      "utf8"
+    );
+    expect(serviceSource).toContain("data: rows.map((row) => buildImportRowCreateData(row, created.id))");
+    expect(serviceSource).toContain("buildImportedExpenseCreateData(row, {");
+  });
 });

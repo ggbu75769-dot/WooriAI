@@ -222,6 +222,10 @@ describe("COM-108 purchase follow-up source contract", () => {
     // 아이 전환이 effect 재실행 -> 재판정으로 이어진다(라운드 60 트랙 B에서 잠금 해제도 같은
     // 재판정 신호가 됐다 -- 의존성에 appLockHeld가 함께 있다).
     expect(promptSource).toContain("}, [hasSession, selectedChildId, appLockHeld]);");
+    // 라운드 81 리뷰(M-1): 낭독 기억(announcedKeyRef)도 **그리는 프레임에서만** 소모된다 --
+    // 아이 게이트에 걸려 그려지지 않는 프레임에서 키를 적으면 그 카드는 다시 서도 읽히지 않는다.
+    expect(promptSource).toContain("if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return;");
+    expect(promptSource).toContain("}, [activeFollowup, appLockHeld, selectedChildId]);");
     // 다른 아이의 항목은 숨겨질 뿐, 상태를 바꾸는 호출은 없다(그 아이로 돌아오면 다시 뜬다).
     const guardIndex = promptSource.indexOf("if (!isFollowupForSelectedChild(activeFollowup, selectedChildId)) return null;");
     expect(guardIndex).toBeGreaterThan(promptSource.indexOf("if (!hasSession || !activeFollowup) return null;"));
@@ -359,8 +363,11 @@ describe("라운드 81 B 자격 도래 시각의 재판정 배선", () => {
     const storeSource = source("src/commerce/purchase-followup.store.ts");
     expect(storeSource).toContain("export function nextPromptEligibleDelayMs(");
     expect(storeSource).toContain("export function createPurchaseFollowupEligibilityTimer(");
-    // 상한이 술어 자기 안에 있다 -- 답은 언제나 MIN_AGE 이하다(시계 역행·미래 blob 포함).
-    expect(storeSource).toContain("Math.min(remaining, PURCHASE_FOLLOWUP_MIN_AGE_MS)");
+    // 상한이 술어 자기 안에 있다 -- 답은 언제나 MIN_AGE 이하다. 라운드 81 리뷰(M-4): 그 상한을
+    // **자르기가 아니라 건너뛰기**로 지킨다(미래 blob을 3분으로 잘라 두면 깨어난 판정이 같은
+    // 항목을 보고 또 3분을 걸어 폴링이 된다 -- 부정 계약은 purchase-followup.store.test.ts).
+    expect(storeSource).toContain("if (remaining > PURCHASE_FOLLOWUP_MIN_AGE_MS) continue;");
+    expect(storeSource).not.toContain("Math.min(remaining, PURCHASE_FOLLOWUP_MIN_AGE_MS)");
     // 창 상수는 이 트랙에서 바이트 불변이다(그 창이 지나는 것을 볼 뿐 창을 바꾸지 않는다).
     expect(storeSource).toContain("export const PURCHASE_FOLLOWUP_MIN_AGE_MS = 3 * 60 * 1000;");
     expect(storeSource).toContain("export const PURCHASE_FOLLOWUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;");
@@ -368,7 +375,10 @@ describe("라운드 81 B 자격 도래 시각의 재판정 배선", () => {
 
     const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
     expect(promptSource).toContain("createPurchaseFollowupEligibilityTimer,");
-    expect(promptSource).toContain("const eligibilityTimer = createPurchaseFollowupEligibilityTimer(() => check());");
+    expect(promptSource).toContain("const eligibilityTimer = createPurchaseFollowupEligibilityTimer(() => {");
+    // 라운드 81 리뷰(M-1): 타이머가 백그라운드에서 발화하면 판정으로 이어지지 않는다 -- 사용자가
+    // 본 적 없는 물음이 세션 슬롯과 낭독 기억을 태우는 자리였다(다음 "active"가 다시 판정한다).
+    expect(promptSource).toContain('if (AppState.currentState !== "active") return;');
     // 화면에 시계 사본이 생기지 않는다 -- 깨움은 그 팩토리 하나를 통해서만 걸린다.
     expect(promptSource).not.toContain("setTimeout(");
     expect(promptSource).not.toContain("setInterval(");

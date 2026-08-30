@@ -159,6 +159,14 @@ describe("interested (찜) filter", () => {
  * 검색칸에 치면 0건이 나오고, 검색을 지우면 바로 그 이름의 그룹이 서 있었다.
  *
  * 아래 계약의 축은 하나다 -- **검색이 보는 이름과 헤더가 그리는 이름이 같은 값일 것.**
+ *
+ * ⚠️ 라운드 81 리뷰(L-10) — **이 계약이 말하는 "헤더"는 검색을 닫았을 때의 화면이다.** 검색이
+ * 켜져 있는 동안 화면은 분류 섹션 대신 평평한 결과 그리드를 그리고(PreparationListParity의
+ * `activeSearchQuery` 갈래), 시기별 세그먼트에서도 헤더는 시기 밴드다 -- 즉 **매칭 근거인 분류
+ * 이름이 그 순간 화면에 없다**. 아래 단언들은 두 집합이 같다는 사실(술어의 정직함)을 고정할 뿐,
+ * 사용자가 그 근거를 검색 중에 읽을 수 있다고 말하지 않는다. 결과 카드에 매칭 사유를 적는 것은
+ * 승인 디자인 이식본(DSN-053)의 렌더를 여는 일이라 디자인 승인이 선행이고, 그때까지의 잔여는
+ * `docs/operations/known-limitations.md` **V-1**에 값으로 적혀 있다.
  */
 describe("분류 이름 검색 (라운드 81 D)", () => {
   const mobileRoot = process.cwd();
@@ -199,7 +207,9 @@ describe("분류 이름 검색 (라운드 81 D)", () => {
   const groupMembers = (groupName: string, resolver = categoryNameOf) =>
     catalog.filter((item) => resolver(item) === groupName).map((item) => item.id);
 
-  it("ⓐ 분류 이름으로 찾은 집합이 그 그룹 헤더가 세는 집합과 같다", () => {
+  // ⚠️ 제목이 말하는 것은 **집합의 동일성**이다(검색 중에는 그 헤더가 렌더되지 않는다 --
+  // 위 머리말의 잔여). 여기서 `groupMembers`는 검색을 닫았을 때 그 헤더가 세는 바로 그 집합이다.
+  it("ⓐ 분류 이름으로 찾은 집합이 그 그룹 헤더가 세는 집합과 같다 (검색 중 헤더는 화면에 없다)", () => {
     expect(search("위생")).toEqual(["tub", "towel"]);
     expect(search("위생")).toEqual(groupMembers("위생·목욕"));
     expect(search("위생·목욕")).toEqual(groupMembers("위생·목욕"));

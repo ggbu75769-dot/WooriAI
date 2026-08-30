@@ -217,9 +217,17 @@ export function selectPromptEligibleFollowup(
  *  - 답변 예산을 다 쓴 항목(`promptCount >= MAX_PROMPTS`)·pending이 아닌 항목·다른 아이의
  *    항목: 그 시각에 깨워도 후보가 될 수 없으므로 세지 않는다(헛도는 깨움 0건).
  *
- * ⚠️ **상한이 자기 안에 있다**: 답은 언제나 `PURCHASE_FOLLOWUP_MIN_AGE_MS` 이하다. 기기 시계가
- * 뒤로 가거나 클릭 시각이 미래인 blob(clickedAt > now)이라도 그 상한으로 잘라, 호출부가 몇
- * 시간짜리 타이머를 걸고 앉아 있는 일이 없다.
+ * ⚠️ **상한이 자기 안에 있다**: 답은 언제나 `PURCHASE_FOLLOWUP_MIN_AGE_MS` 이하다 — 남은 시간이
+ * 그 값을 넘는 항목은 아래에서 아예 세지 않기 때문이다(그 조건은 곧 `clickedAt > now`, 즉 기기
+ * 시계가 뒤로 갔거나 클릭 시각이 미래인 blob이다). 그래서 호출부가 몇 시간짜리 타이머를 걸고
+ * 앉아 있는 일이 없다.
+ *
+ * 라운드 81 리뷰(M-4) — **미래 클릭을 상한으로 자르지 않고 건너뛴다.** 종전에는 `Math.min`으로
+ * 3분에 잘랐는데, 그 3분 뒤에 깨어난 판정은 여전히 자격을 못 갖춘 같은 항목을 보고 또 3분을
+ * 걸었다 — 6시간 미래의 blob 하나가 **3분 주기 폴링**이 된다(위 "헛도는 깨움 0건"과 정면으로
+ * 어긋난다). 깨워도 후보가 될 수 없는 시각에는 깨우지 않는 것이 이 술어의 규칙이고, 미래 클릭이
+ * 그 규칙의 한 경우다: 시간이 실제로 흘러 그 항목이 창에 가까워지면 그때의 판정(포그라운드
+ * 복귀·아이 전환)이 다시 세어 정상적인 깨움을 건다.
  */
 export function nextPromptEligibleDelayMs(
   entries: PurchaseFollowupEntry[],
@@ -234,8 +242,10 @@ export function nextPromptEligibleDelayMs(
     // 남은 시간이 0 이하면 기다릴 것이 없다 -- 이미 창 안이거나(지금 판정이 본다) 창을 지났다.
     const remaining = entry.clickedAt + PURCHASE_FOLLOWUP_MIN_AGE_MS - now;
     if (remaining <= 0) continue;
-    const capped = Math.min(remaining, PURCHASE_FOLLOWUP_MIN_AGE_MS);
-    if (best === null || capped < best) best = capped;
+    // 라운드 81 리뷰(M-4): 남은 시간이 MIN_AGE를 넘는다 = 클릭 시각이 미래다. 그 시각에 깨워도
+    // 자격은 없고, 깨어난 판정이 같은 항목을 보고 또 거는 순간 3분 주기 폴링이 된다.
+    if (remaining > PURCHASE_FOLLOWUP_MIN_AGE_MS) continue;
+    if (best === null || remaining < best) best = remaining;
   }
   return best;
 }
