@@ -16,6 +16,10 @@ import {
 import { routeForOnboardingNextStep } from "./resume";
 import { onboardingSteps, type OnboardingScreenId } from "./steps";
 import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
+// 라운드 78 A: 이 모듈의 넷째 갈래는 화이트리스트 표다. 표의 판정을 이 파일이 다시 적지 않고,
+// step-ui가 실제로 부르는 그 두 함수를 **그대로 평가해** 값을 확인한다.
+import { apiErrorCodeOf, apiErrorMessageForCode, ApiHttpError, API_ERROR_MESSAGES } from "../api/api-error";
+import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
 
 /**
  * 라운드 72 트랙 A(#1) — **가입 첫 10분**의 계약.
@@ -377,6 +381,12 @@ describe("계약 ⓒ: 온보딩 저장 실패 문구", () => {
   const stepUi = source(STEP_UI_PATH);
 
   /**
+   * 모르는 실패의 폴백 문장. 화면 모듈을 import할 수 없으므로 값으로 적고, **그 값이 소스의
+   * 상수 선언과 같다는 사실**을 아래 두 케이스가 함께 못박는다(라운드 60 #3 이후 바이트 불변).
+   */
+  const ONBOARDING_SAVE_FAILED_MESSAGE_TEXT = "저장하지 못했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요.";
+
+  /**
    * 라운드 72 리뷰 M-2 · S-1 — **폴 배선은 공용 한 벌이고, 죽은 인자는 없다.**
    *
    * 종전에는 이 화면 모듈이 `useState` + `isCurrentlyOnline().then((online) => {…})` +
@@ -441,5 +451,88 @@ describe("계약 ⓒ: 온보딩 저장 실패 문구", () => {
     expect(stepUi).toContain("{ isOnline = true }: { isOnline?: boolean } = {}");
     // 403은 여전히 [재시도] 버튼 자체를 내린다.
     expect(stepUi).toContain(") : forbidden ? null : (");
+  });
+
+  /* -------------------------------------------------------------------------------------- */
+  /* 라운드 78 A — 갈래가 넷이 된다: 전용 둘 → 오프라인 → 표 → 전용 폴백                        */
+  /* -------------------------------------------------------------------------------------- */
+
+  /**
+   * ⚠️ 이 모듈은 **아는 코드가 둘뿐이었고 화이트리스트 표를 부르지 않았다.** 그래서 서버가
+   * 이유를 코드로 말해 준 실패까지 전부 마지막 폴백 한 문장으로 접혔고, 표에 **이미 있던**
+   * `CHILD_BIRTH_DATE_TOO_OLD`조차 온보딩 화면에는 구조적으로 설 수 없었다 — 같은 실패가 아이
+   * 관리 화면(app/settings/children.tsx → useSaveErrorCopy → resolveSaveErrorCopy → 표)에서는
+   * *"20년보다 오래된 날은 고를 수 없어요."* 인데 온보딩에서는 *"저장하지 못했어요…"* 였다.
+   * **한 여정의 두 화면이 같은 실패를 정반대로 말하던 자리**다.
+   *
+   * 화면 모듈은 react-native를 끌고 와 vitest에서 import할 수 없으므로(이 파일의 관례),
+   * 갈래의 **순서**는 소스로 고정하고, 그 갈래가 내는 **값**은 모듈이 실제로 부르는 그 식
+   * (`apiErrorMessageForCode(apiErrorCodeOf(error))`)을 **그대로 평가해** 확인한다 — 판정의
+   * 사본을 이 파일에 만들지 않는다.
+   */
+  it("표 갈래가 오프라인 뒤·폴백 앞에 선다 (갈래 넷의 순서)", () => {
+    const consentIndex = stepUi.indexOf("if (isOnboardingConsentRequired(error)) return ONBOARDING_CONSENT_REQUIRED_MESSAGE;");
+    const forbiddenIndex = stepUi.indexOf("if (isOnboardingSaveForbidden(error)) return ONBOARDING_SAVE_FORBIDDEN_MESSAGE;");
+    const offlineIndex = stepUi.indexOf("if (!isOnline) return OFFLINE_RETRY_NOTICE;");
+    const tableIndex = stepUi.indexOf("const knownByCode = apiErrorMessageForCode(apiErrorCodeOf(error));");
+    const fallbackIndex = stepUi.indexOf("return ONBOARDING_SAVE_FAILED_MESSAGE;");
+
+    expect(stepUi).toContain('import { apiErrorCodeOf, apiErrorMessageForCode } from "../api/api-error";');
+    expect(stepUi).toContain("if (knownByCode) return knownByCode;");
+    expect(tableIndex).toBeGreaterThan(offlineIndex);
+    expect(fallbackIndex).toBeGreaterThan(tableIndex);
+    // 전용 둘은 여전히 표보다 앞이다(그 둘의 출력이 바이트 불변인 이유다).
+    expect(tableIndex).toBeGreaterThan(consentIndex);
+    expect(tableIndex).toBeGreaterThan(forbiddenIndex);
+    // 문구를 이 파일에 사본으로 적지 않는다 — 표의 문장이 step-ui에 리터럴로 들어오면 안 된다.
+    for (const code of ["CHILD_BIRTH_DATE_FUTURE", "CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED"]) {
+      expect(stepUi, code).not.toContain(API_ERROR_MESSAGES[code]);
+    }
+  });
+
+  /**
+   * **재현** — 표의 아무 코드로나 그 문장이 실제로 선다.
+   *
+   * 실패 시나리오 그대로다: 공동양육자가 먼저 [아이가 태어났어요]를 눌러 전환을 마친 뒤, 어제
+   * 열어 둔 화면에서 같은 버튼을 누르면 서버가 400 `CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED`로
+   * 막는다. 종전에는 그 자리에 *"저장하지 못했어요. …다시 시도해 주세요."* 가 섰고, 30초 뒤
+   * 다시 눌러도 같은 문장이었다.
+   */
+  it("아는 코드는 표의 문장이 되고, 모르는 실패의 폴백은 바이트 불변이다", () => {
+    const transition = new ApiHttpError(
+      400,
+      { error: { code: "CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED", message: "…", requestId: "req-1" } }
+    );
+    const shown = apiErrorMessageForCode(apiErrorCodeOf(transition));
+    expect(shown).toBe(API_ERROR_MESSAGES.CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED);
+    expect(shown).not.toBe(ONBOARDING_SAVE_FAILED_MESSAGE_TEXT);
+    expect(shown).not.toBe(OFFLINE_RETRY_NOTICE);
+
+    // 표에 **이미 있던** 그 코드도 이제 이 화면에 설 수 있다(아이 관리 화면과 같은 문장이다).
+    const tooOld = new ApiHttpError(400, { error: { code: "CHILD_BIRTH_DATE_TOO_OLD", message: "…" } });
+    expect(apiErrorMessageForCode(apiErrorCodeOf(tooOld))).toBe(CHILD_BIRTH_DATE_TOO_OLD_ERROR);
+
+    // 모르는 코드·코드 없는 실패는 표가 null을 돌려주고, 아랫줄의 폴백이 종전 그대로 선다.
+    expect(apiErrorMessageForCode(apiErrorCodeOf(new ApiHttpError(500, { error: { code: "INTERNAL_ERROR" } })))).toBeNull();
+    expect(apiErrorMessageForCode(apiErrorCodeOf(new Error("Network request failed")))).toBeNull();
+    expect(stepUi).toContain(`export const ONBOARDING_SAVE_FAILED_MESSAGE = "${ONBOARDING_SAVE_FAILED_MESSAGE_TEXT}";`);
+  });
+
+  /**
+   * ⚠️ **전용 둘의 출력은 표가 생겨도 바뀌지 않는다.**
+   * `FORBIDDEN`은 표에도 있지만 이 화면에서 사용자가 알아야 할 사실은 중립 문구가 아니라
+   * "가족 관리자에게 부탁하라"이고, `CONSENT_REQUIRED`는 문구가 아니라 **복구 동선**이 답이라
+   * 표에 아예 넣지 않았다(넣으면 전용 버튼을 잃는다).
+   */
+  it("전용 둘은 표보다 앞이고, CONSENT_REQUIRED는 표에 들어오지 않았다", () => {
+    // 403의 표 문구와 이 화면의 문구는 서로 다른 문장이다 — 순서가 그 차이를 지킨다.
+    expect(API_ERROR_MESSAGES.FORBIDDEN).not.toBe(
+      "권한이 없어 저장하지 못했어요. 가족 관리자에게 아이 등록을 부탁해 주세요."
+    );
+    expect(stepUi).toContain('"권한이 없어 저장하지 못했어요. 가족 관리자에게 아이 등록을 부탁해 주세요."');
+    // 복구 동선을 잃지 않는다: 이 코드는 표에 없고, 전용 버튼이 그대로 선다.
+    expect(API_ERROR_MESSAGES.CONSENT_REQUIRED).toBeUndefined();
+    expect(apiErrorMessageForCode("CONSENT_REQUIRED")).toBeNull();
+    expect(stepUi).toContain("label={ONBOARDING_CONSENT_RETRY_ACTION_LABEL}");
   });
 });

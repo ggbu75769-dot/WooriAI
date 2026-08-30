@@ -173,6 +173,21 @@ function isBeyondFullTermDueDate(dateIso: string): boolean {
  */
 export const CHILD_BIRTH_DATE_TOO_OLD_ERROR = `${ENTRY_DATE_MAX_PAST_YEARS}년보다 오래된 날은 고를 수 없어요.`;
 
+/**
+ * 라운드 78 A — 출생일의 **위쪽 경계**(미래 금지) 문구. 새 문장이 아니다.
+ *
+ * 아래 `computeDateError`의 born 갈래가 리터럴로 들고 있던 그 문장을 **글자 하나 바꾸지 않고**
+ * 상수로 올린 것뿐이다(판정·갈래·출력 전부 무변경 — 이 파일의 계약 테스트가 그대로 초록이다).
+ *
+ * 올린 이유는 하나다: 서버도 같은 규칙을 자기 층에 한 벌 갖고 있고
+ * (apps/api/src/onboarding/onboarding-core.service.ts의 `assertNotFutureBirthDate` →
+ * 400 `CHILD_BIRTH_DATE_FUTURE`, 서버 원문이 이 문장과 **바이트 동일**하다), 그 코드가 앱에
+ * 도착할 때 화이트리스트 표(src/api/api-error.ts)가 **이 상수를 읽어** 답하기 때문이다.
+ * 표가 문장을 새로 지으면 같은 경계를 폼과 표가 다른 말로 부르게 된다 — 바로 위
+ * `CHILD_BIRTH_DATE_TOO_OLD_ERROR`와 위쪽 `CHILD_DUE_DATE_BEYOND_TERM_ERROR`가 세운 선례 그대로다.
+ */
+export const CHILD_BIRTH_DATE_FUTURE_ERROR = "출생일은 오늘보다 미래일 수 없어요.";
+
 // Birth dates (stageMode "born") must not be in the future -- a due date (stageMode "pregnant")
 // is expected to be in the future and is allowed to be in the past too (the parent may already
 // have given birth), so only the calendar-validity check applies there.
@@ -183,12 +198,16 @@ export const CHILD_BIRTH_DATE_TOO_OLD_ERROR = `${ENTRY_DATE_MAX_PAST_YEARS}년�
 //
 // 라운드 68 A: 출생일에는 **아래쪽 끝**도 생겼다(20년 — 바로 위 CHILD_BIRTH_DATE_TOO_OLD_ERROR).
 // 예정일 갈래·미래 갈래·과거 예정일 허용은 여기서도 무변경이다.
+//
+// 라운드 78 A: 미래 갈래의 문장이 리터럴에서 상수(CHILD_BIRTH_DATE_FUTURE_ERROR)로 올라갔다.
+// **판정도 갈래도 출력도 바이트 불변**이고, 바뀐 것은 그 문장을 화이트리스트 표가 읽을 수 있게
+// 됐다는 사실뿐이다(src/api/api-error.ts의 CHILD_BIRTH_DATE_FUTURE 줄).
 export function computeDateError(stageMode: string | null, rawValue: string): string | null {
   const trimmed = rawValue.trim();
   if (trimmed.length === 0) return null;
   if (!isoDatePattern.test(trimmed)) return "날짜는 YYYY-MM-DD 형식으로 입력해 주세요.";
   if (!isValidCalendarDate(trimmed)) return "실제 존재하는 날짜인지 확인해 주세요.";
-  if (stageMode === "born" && isFutureSeoulDate(trimmed)) return "출생일은 오늘보다 미래일 수 없어요.";
+  if (stageMode === "born" && isFutureSeoulDate(trimmed)) return CHILD_BIRTH_DATE_FUTURE_ERROR;
   if (stageMode === "born" && isBeforeEntryDateFloor(trimmed)) return CHILD_BIRTH_DATE_TOO_OLD_ERROR;
   if (stageMode === "pregnant" && isBeyondFullTermDueDate(trimmed)) return CHILD_DUE_DATE_BEYOND_TERM_ERROR;
   return null;

@@ -14,7 +14,12 @@ import {
 } from "./api-error";
 import { amountOverLimitMessage, EXPENSE_AMOUNT_MAX_KRW } from "../expenses/amount-limit";
 import { EXPENSE_DATE_TOO_OLD_ERROR } from "../expenses/entry-form-guards";
-import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
+import {
+  CHILD_BIRTH_DATE_FUTURE_ERROR,
+  CHILD_BIRTH_DATE_TOO_OLD_ERROR,
+  CHILD_DUE_DATE_BEYOND_TERM_ERROR,
+  CHILD_DUE_DATE_MAX_FUTURE_WEEKS
+} from "../children/child-form";
 import { ENTRY_DATE_MAX_PAST_YEARS } from "@wooriai/domain";
 import {
   SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT,
@@ -88,6 +93,41 @@ function thrownCodesIn(relativePath: string): string[] {
     const identifier = match[2];
     return localConstants.get(identifier) ?? codeConstants().get(identifier) ?? `UNRESOLVED:${identifier}`;
   });
+}
+
+/**
+ * 라운드 78 A ⓔ — **코드 → 그 코드로 나가는 서로 다른 문장들.**
+ *
+ * 이 표는 "코드 하나 = 문장 하나"를 가정하는데 서버는 그렇지 않다. 그 사실을 산문이 아니라
+ * **스윕이 센 값**으로 들고 있기 위한 한 벌이다: 서버 소스 전역에서 `code: "X"` 바로 뒤의
+ * `message:`를 짝지어 모은다(원문 그대로 — 템플릿 리터럴은 한 문장으로 센다).
+ *
+ * 위 `codeConstants()`와 같은 이유로 캐시한다(트리 전체를 두 번 걷지 않는다).
+ */
+let serverMessageCache: Map<string, Set<string>> | null = null;
+function serverMessagesByCode(): Map<string, Set<string>> {
+  if (serverMessageCache) return serverMessageCache;
+  const table = new Map<string, Set<string>>();
+  const walk = (directory: string) => {
+    for (const name of readdirSync(directory)) {
+      if (name === "node_modules" || name.startsWith(".")) continue;
+      const fullPath = join(directory, name);
+      if (statSync(fullPath).isDirectory()) {
+        walk(fullPath);
+        continue;
+      }
+      if (!/\.ts$/.test(name)) continue;
+      for (const match of readFileSync(fullPath, "utf8").matchAll(
+        /\bcode: "([A-Z0-9_]+)",\s*message: (`[^`]*`|"[^"]*")/g
+      )) {
+        if (!table.has(match[1])) table.set(match[1], new Set());
+        table.get(match[1])!.add(match[2]);
+      }
+    }
+  };
+  walk(apiSourceRoot);
+  serverMessageCache = table;
+  return table;
 }
 
 /** 서버(GlobalExceptionFilter)가 실제로 내려보내는 모양. */
@@ -345,7 +385,10 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
 
     const apiErrorSource = source("src/api/api-error.ts");
     expect(apiErrorSource).toContain('import { EXPENSE_DATE_TOO_OLD_ERROR } from "../expenses/entry-form-guards";');
-    expect(apiErrorSource).toContain('import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";');
+    // 라운드 78 A: 같은 폼 모듈에서 문장 셋을 읽게 되면서 이 import가 한 줄에서 여러 줄로 넓어졌다
+    // (읽는 이름이 늘었을 뿐 방향도 모듈도 그대로다 — 아래 블록이 나머지 둘을 문다).
+    expect(apiErrorSource).toContain("  CHILD_BIRTH_DATE_TOO_OLD_ERROR,\n");
+    expect(apiErrorSource).toContain('} from "../children/child-form";');
     expect(apiErrorSource).toContain("EXPENSE_DATE_TOO_OLD: EXPENSE_DATE_TOO_OLD_ERROR,");
     expect(apiErrorSource).toContain("CHILD_BIRTH_DATE_TOO_OLD: CHILD_BIRTH_DATE_TOO_OLD_ERROR,");
     // 연 수(20)가 이 파일에 리터럴로 적히면 도메인 상수와 갈라지는 순간을 아무도 모른다.
@@ -681,6 +724,231 @@ describe("라운드 77 A — 구매 링크 클릭 실패가 이유를 말한다"
     for (const code of clickCodes) {
       expect(detailSource, code).not.toContain(API_ERROR_MESSAGES[code]);
     }
+  });
+});
+
+/**
+ * 라운드 78 A — **루프에 들어오기 전의 관문(아이 프로필·임신→출생 전환)이 막다른 문장으로
+ * 끝나지 않는다.**
+ *
+ * 서버는 이 여정의 실패도 오래전부터 코드로 말해 왔다(onboarding/onboarding-core.service.ts):
+ * `CHILD_BIRTH_DATE_FUTURE` · `CHILD_DUE_DATE_BEYOND_TERM` ·
+ * `CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED`. **셋 다 다시 눌러도 결과가 같은데** 표 밖에 있었고,
+ * ⚠️ 그 여정에는 **스윕조차 없어서** 서버가 코드를 더해도 아무 단언도 깨지지 않았다 —
+ * 표에 이미 있던 `CHILD_BIRTH_DATE_TOO_OLD`마저 온보딩 화면에는 구조적으로 설 수 없었다
+ * (step-ui.tsx가 표를 부르지 않았다 — 그 갈래의 계약은 local-progress.test.ts가 진다).
+ *
+ * 이 블록이 고정하는 것은 넷이다: 세 문구가 **말해야 하는 것을 말하는가**(그리고 문장을 새로
+ * 짓지 않았는가), 그 코드가 **실제 서버 파일에서 오는가**, **두 번째 여정 스윕**이 앞으로도
+ * 표를 늘어나게 하는가, 그리고 ⚠️ **표의 "코드 하나 = 문장 하나" 가정이 서버에서는 참이
+ * 아니라는 관측**.
+ */
+describe("라운드 78 A — 아이 프로필 여정의 실패가 이유를 말한다", () => {
+  /** 이번 라운드가 표에 세운 세 줄. 문장은 셋 다 이미 있던 것이다(새 한국어 문장 0건). */
+  const round78Codes = [
+    "CHILD_BIRTH_DATE_FUTURE",
+    "CHILD_DUE_DATE_BEYOND_TERM",
+    "CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED"
+  ];
+
+  /**
+   * 온보딩 저장 실패 카드가 **모르는 실패**에 쓰는 문장(src/onboarding/step-ui.tsx).
+   * 이 라운드가 바이트 하나도 바꾸지 않은 폴백이고, 세 코드가 종전에 받던 것이 이 한 줄이었다.
+   */
+  const onboardingFallback = "저장하지 못했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요.";
+
+  it("세 줄이 표에 있고, 표는 문장을 짓지 않는다 (폼 상수 둘 + 서버 원문 하나)", () => {
+    for (const code of round78Codes) {
+      expect(API_ERROR_MESSAGES[code], code).toBeTruthy();
+    }
+    // 앞 둘은 폼이 이미 세운 문장이다 — 같은 경계를 폼과 표가 다른 말로 부르지 않는다.
+    expect(API_ERROR_MESSAGES.CHILD_BIRTH_DATE_FUTURE).toBe(CHILD_BIRTH_DATE_FUTURE_ERROR);
+    expect(API_ERROR_MESSAGES.CHILD_DUE_DATE_BEYOND_TERM).toBe(CHILD_DUE_DATE_BEYOND_TERM_ERROR);
+    // 만삭 주차는 도메인에서 온다 — 이 표에도 폼에도 숫자가 리터럴로 적히지 않는다.
+    expect(CHILD_DUE_DATE_BEYOND_TERM_ERROR).toBe(`만삭(${CHILD_DUE_DATE_MAX_FUTURE_WEEKS}주)보다 먼 날은 고를 수 없어요.`);
+    const apiErrorSource = source("src/api/api-error.ts");
+    expect(apiErrorSource).toContain("CHILD_BIRTH_DATE_FUTURE: CHILD_BIRTH_DATE_FUTURE_ERROR,");
+    expect(apiErrorSource).toContain("CHILD_DUE_DATE_BEYOND_TERM: CHILD_DUE_DATE_BEYOND_TERM_ERROR,");
+    expect(apiErrorSource).not.toContain(`만삭(${CHILD_DUE_DATE_MAX_FUTURE_WEEKS}주)`);
+    // 셋째는 서버 원문 그대로다(EXPENSE_FUTURE_DATE·EXPENSE_CATEGORY_INVALID의 선례).
+    expect(API_ERROR_MESSAGES.CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED).toBe(
+      "아이 상태는 '임신 중'에서 '태어났어요'로만 바꿀 수 있어요."
+    );
+  });
+
+  it("앞 두 문장은 서버 원문과 바이트 동일하다 (앱과 서버가 다른 말로 설명하지 않는다)", () => {
+    const core = apiSource("onboarding/onboarding-core.service.ts");
+    // 출생일 미래 금지: 폼 상수 = 서버 원문.
+    expect(core).toContain(`message: "${CHILD_BIRTH_DATE_FUTURE_ERROR}"`);
+    // 만삭 상한: 서버는 주차를 자기 층에서 읽어 같은 문형을 만든다(템플릿이라 꼬리로 맞춘다).
+    expect(core).toContain("주)보다 먼 날은 고를 수 없어요.");
+    expect(CHILD_DUE_DATE_BEYOND_TERM_ERROR.endsWith("주)보다 먼 날은 고를 수 없어요.")).toBe(true);
+    // 전환 거절: 서버 원문을 글자 그대로 쓴다.
+    expect(core).toContain(`message: "${API_ERROR_MESSAGES.CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED}"`);
+  });
+
+  it("세 문장은 재시도를 권하지 않고, 붙여 쓴 방언을 늘리지 않는다", () => {
+    for (const code of round78Codes) {
+      const message = API_ERROR_MESSAGES[code];
+      // 다시 눌러도 결과가 같은 실패다 — 재시도를 권하는 순간 그것이 허위 안내다.
+      for (const retryPhrase of ["잠시 후 다시", "다시 시도"]) {
+        expect(message, `${code}는 "${retryPhrase}"를 쓰지 않는다`).not.toContain(retryPhrase);
+      }
+      // 표기 방언(P3): 새 줄은 붙여 쓴 파일 셋에 넷째를 더하지 않는다.
+      expect(message, code).not.toContain("확인해주세요");
+      expect(message, code).not.toContain("시도해주세요");
+      // 그리고 종전에 이 셋이 받던 막다른 폴백과 다르다(그것이 이 트랙의 본체다).
+      expect(message, code).not.toBe(onboardingFallback);
+    }
+  });
+
+  it("서버가 던진 그 코드를 받으면 표의 문구가 서고, 온보딩의 막다른 폴백은 사라진다", () => {
+    // 실패 시나리오: 공동양육자가 먼저 [아이가 태어났어요]를 눌러 전환을 마친 뒤, 어제 열어 둔
+    // 화면에서 같은 버튼을 누른다(이미 born이라 pregnant→born이 아니다).
+    const transition = new ApiHttpError(
+      400,
+      envelope(
+        "CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED",
+        "아이 상태는 '임신 중'에서 '태어났어요'로만 바꿀 수 있어요."
+      )
+    );
+    const transitionShown = apiErrorMessage(transition, onboardingFallback);
+    expect(transitionShown).toBe(API_ERROR_MESSAGES.CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED);
+    expect(transitionShown).not.toBe(onboardingFallback);
+
+    const future = new ApiHttpError(400, envelope("CHILD_BIRTH_DATE_FUTURE", CHILD_BIRTH_DATE_FUTURE_ERROR));
+    expect(apiErrorMessage(future, onboardingFallback)).toBe(CHILD_BIRTH_DATE_FUTURE_ERROR);
+
+    const beyondTerm = new ApiHttpError(
+      400,
+      envelope("CHILD_DUE_DATE_BEYOND_TERM", CHILD_DUE_DATE_BEYOND_TERM_ERROR)
+    );
+    expect(apiErrorMessage(beyondTerm, onboardingFallback)).toBe(CHILD_DUE_DATE_BEYOND_TERM_ERROR);
+
+    // 모르는 실패는 종전 그대로 화면의 문장이다(표가 새 폴백을 만들지 않는다).
+    expect(apiErrorMessage(new ApiHttpError(500, envelope("INTERNAL_ERROR", "…")), onboardingFallback)).toBe(
+      onboardingFallback
+    );
+    expect(apiErrorMessage(new Error("Network request failed"), onboardingFallback)).toBe(onboardingFallback);
+  });
+
+  it("표의 세 줄은 실제 서버 파일이 던지는 코드다 (반대 방향 — 유령 줄 금지)", () => {
+    const origins: Readonly<Record<string, string>> = {
+      CHILD_BIRTH_DATE_FUTURE: "onboarding/onboarding-core.service.ts",
+      CHILD_DUE_DATE_BEYOND_TERM: "onboarding/onboarding-core.service.ts",
+      CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED: "onboarding/onboarding-core.service.ts"
+    };
+
+    for (const [code, file] of Object.entries(origins)) {
+      expect(thrownCodesIn(file), `${code} ← ${file}`).toContain(code);
+    }
+  });
+
+  /**
+   * **두 번째 여정 스윕** — 이 라운드의 진짜 산출물이다.
+   *
+   * 저장소에서 여정 단위의 서버 파일 목록을 가진 것은 오늘까지 하나였다
+   * (`IMPORT_JOURNEY_SERVER_FILES` — 가져오기 여정 셋). 아웃박스 스윕(`outboxPathFiles` — 넷)은
+   * 여정이 아니라 **큐의 단위**이고, 그래서 큐를 타지 않는 아이 저장은 어느 그물에도 걸리지
+   * 않았다. 여기 두 번째 목록이 선다: 아이 프로필 여정의 서버 파일이 던지는 코드는 표에 있거나,
+   * **이유가 적힌 제외 목록**에 있어야 한다.
+   *
+   * ⚠️ **기존 아웃박스 스윕과 합치지 않는다** — 단위가 다르다(아이 저장에는 큐가 없다).
+   * 라운드 77 A가 얻은 규율 그대로, 제외의 사유는 **그 스윕의 단위로만** 적는다: 여기서는
+   * *"아이 프로필 여정의 화면이 이 코드를 문구로 받을 필요가 없는 이유"* 하나만이 사유다.
+   */
+  it("아이 프로필 여정 서버 파일의 4xx 코드는 표에 있거나, 이유가 적힌 제외 목록에 있다", () => {
+    const CHILD_PROFILE_JOURNEY_SERVER_FILES = [
+      // 생성·수정·전환·진행도·예산·파기 확인이 한 서비스에 있다(아홉 코드를 던진다).
+      "onboarding/onboarding-core.service.ts",
+      // 그 앞을 지나는 접근 판정(아이가 사라졌다 · 이 가족의 아이가 아니다).
+      "onboarding/child-access.service.ts"
+    ];
+
+    /**
+     * 표에 넣지 않는 코드와 그 이유. 비우면 안 되고, 사유는 **이 스윕의 단위**로만 적는다.
+     */
+    const excludedWithReason: Readonly<Record<string, string>> = {
+      CHILD_STAGE_INPUT_REQUIRED:
+        "⚠️ 한 코드가 서버에서 세 문장을 나른다(출산 예정일 · 아이 생년월일 · 아이 단계). 표의 단위는 코드라 하나를 고르면 나머지 둘에 거짓이 된다 — 이 여정에서 그 셋을 가르는 것은 폼의 requireDate 검증이고, 사용자는 서버에 닿기 전에 그 문장을 받는다.",
+      CONSENT_REQUIRED:
+        "이 여정에서 답은 문구가 아니라 복구 동선이다 — 온보딩 저장 실패 카드는 전용 버튼(onReconsent)을 세워 동의를 다시 올린 뒤 같은 저장을 재시도한다(src/onboarding/consent-recovery.ts). 표에 넣으면 그 동선을 잃고 문장 하나로 접힌다.",
+      BUDGET_NOT_FOUND:
+        "실패가 아니라 정상 흐름이다 — '예산 미설정'이 그 화면의 정상 상태이고, 앱은 이 404를 문구로 만들지 않고 null로 접는다(src/api/client.ts의 getBudget).",
+      SETTINGS_CONFIRMATION_REQUIRED:
+        "확인 문자열은 앱이 만드는 상수이지 사용자가 치는 값이 아니다(src/api/local-backend.ts의 confirmationText ↔ 서버의 DELETE CHILD/LEAVE HOUSEHOLD/DELETE ACCOUNT). 이 코드가 오면 사용자가 고칠 것이 없는 배선 어긋남이라, 문구를 주는 것이 오히려 거짓 안내가 된다."
+    };
+
+    const swept = new Set(CHILD_PROFILE_JOURNEY_SERVER_FILES.flatMap(thrownCodesIn));
+    // 스윕이 실제로 무언가를 읽었는지부터 확인한다(정규식이 조용히 0건이 되면 계약이 사라진다).
+    expect(swept.size).toBeGreaterThanOrEqual(10);
+    expect([...swept].filter((code) => code.startsWith("UNRESOLVED:"))).toEqual([]);
+
+    for (const code of swept) {
+      const known = Object.prototype.hasOwnProperty.call(API_ERROR_MESSAGES, code);
+      const excluded = Object.prototype.hasOwnProperty.call(excludedWithReason, code);
+      expect(
+        known || excluded,
+        `${code}: 표에 없고 제외 이유도 없다. 이 코드를 받은 아이 저장 실패는 온보딩에서 "${onboardingFallback}"가 된다.`
+      ).toBe(true);
+    }
+
+    // 제외 목록이 유령을 들고 있지 않은지도 본다 — 서버가 더는 던지지 않는 코드의 이유는 남을 수 없다.
+    for (const [code, reason] of Object.entries(excludedWithReason)) {
+      expect(swept.has(code), `${code}는 서버가 더는 던지지 않는다 — 제외 이유가 남을 수 없다`).toBe(true);
+      expect(reason.length, code).toBeGreaterThan(20);
+      // 라운드 77 A의 규율: "그 화면이 자기 문구를 쓴다"는 제외의 근거가 될 수 없다
+      // (그 문구가 오안내가 되는 날 이 계약은 아무 말도 하지 않는다).
+      expect(reason, `${code}의 제외 사유가 "자기 문구"에 기대고 있다`).not.toContain("자기 문구");
+    }
+
+    // 제외 사유가 실제 자리를 가리키는지 — 셋은 소스에서 그 사실을 확인할 수 있다.
+    expect(apiSource("onboarding/onboarding-core.service.ts").match(/code: "CHILD_STAGE_INPUT_REQUIRED"/g) ?? []).toHaveLength(4);
+    expect(source("src/api/client.ts")).toContain(
+      'if (error instanceof Error && error.message.includes("BUDGET_NOT_FOUND")) return null;'
+    );
+    expect(source("src/api/local-backend.ts")).toContain('confirmationText: "DELETE CHILD"');
+
+    // 그리고 이 여정의 네 코드는 이제 제외가 아니라 **표**가 답한다(둘은 이 라운드가 세웠다).
+    for (const code of [...round78Codes, "CHILD_BIRTH_DATE_TOO_OLD"]) {
+      expect(Object.prototype.hasOwnProperty.call(excludedWithReason, code), `${code}는 제외 목록에 없다`).toBe(
+        false
+      );
+      expect(API_ERROR_MESSAGES[code], code).toBeTruthy();
+      expect([...swept], code).toContain(code);
+    }
+  });
+
+  /**
+   * ⓔ **관측** — 표는 "코드 하나 = 문장 하나"를 가정하는데 서버는 그렇지 않다.
+   *
+   * 오늘 거짓은 없다(표 안의 셋은 앱이 부르는 갈래가 하나뿐이다). 그 사실을 값으로 적는 것이
+   * 이 케이스의 전부이고, **표를 늘리는 다음 라운드가 먼저 물어야 할 질문**이 그것이다.
+   * 수치는 이 스윕 자신이 센 값이다 — 정찰의 어림값(코드 95)과 다르면 스윕 쪽이 옳다.
+   */
+  it("ⓔ 서버는 한 코드로 여러 문장을 던진다 — 표 안에서 그런 코드는 오늘 셋뿐이다", () => {
+    const messagesByCode = serverMessagesByCode();
+    const multiMessageCodes = [...messagesByCode].filter(([, messages]) => messages.size > 1);
+
+    // 2026-08-30 실측: `code:` 리터럴 97 · 문장이 붙은 코드 94 · 둘 이상을 나르는 코드 18
+    // (최대 FORBIDDEN 다섯). 서버가 코드를 더하는 것은 자유이므로 하한으로 적는다.
+    expect(messagesByCode.size).toBeGreaterThanOrEqual(94);
+    expect(multiMessageCodes.length).toBeGreaterThanOrEqual(18);
+    expect(messagesByCode.get("FORBIDDEN")?.size ?? 0).toBeGreaterThanOrEqual(5);
+
+    // **전수 부정 단언**: 표 안에서 문장을 둘 이상 나르는 코드는 오늘 정확히 이 셋이다.
+    // 넷째가 생기는 날(표의 어떤 코드가 서버에서 다른 문장을 하나 더 갖는 날) 여기가 빨개진다.
+    const multiInTable = Object.keys(API_ERROR_MESSAGES)
+      .filter((code) => (messagesByCode.get(code)?.size ?? 0) > 1)
+      .sort();
+    expect(multiInTable).toEqual(["FORBIDDEN", "ITEM_NOT_FOUND", "PRODUCT_LINK_NOT_FOUND"]);
+
+    // 이번에 더한 셋은 그 열여덟에 속하지 않는다 — 코드 하나가 문장 하나다.
+    for (const code of round78Codes) {
+      expect(messagesByCode.get(code)?.size, code).toBe(1);
+    }
+    // 그리고 제외된 CHILD_STAGE_INPUT_REQUIRED는 정확히 그 반대 이유로 제외됐다(문장 셋).
+    expect(messagesByCode.get("CHILD_STAGE_INPUT_REQUIRED")?.size).toBe(3);
   });
 });
 

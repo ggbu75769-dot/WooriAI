@@ -2,6 +2,10 @@ import { useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Text, View } from "react-native";
 import { hasApiErrorCode } from "../api/api-error";
+// 라운드 78 A: 아는 코드는 표가 말한다. ⚠️ 같은 모듈인데 줄을 따로 두는 이유 — 윗줄은 라운드 60 #3의
+// 소스 계약이 **바이트 그대로** 무는 자리다(src/onboarding-step-progress.test.ts: "판정은 서버 봉투의
+// 코드 하나로 한다"). 한 줄로 합치면 이 트랙의 파일이 아닌 그 계약이 빨개진다.
+import { apiErrorCodeOf, apiErrorMessageForCode } from "../api/api-error";
 import { LOCAL_SESSION_TOKEN } from "../api/client";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { useAnalyticsConsentStore } from "../analytics/flag";
@@ -112,6 +116,27 @@ export function isOnboardingSaveForbidden(error: unknown): boolean {
  * `CONSENT_REQUIRED`·403·**온라인의 모르는 실패**는 종전과 **바이트 단위로 같다**. `isOnline`을
  * 넘기지 않은 호출부(기본값 true)도 종전 동작 그대로다 — 이 인자는 갈래를 하나 **더할** 뿐
  * 기존 셋 중 어느 것도 옮기지 않는다.
+ *
+ * ## 라운드 78 A(#1) — **아는 코드는 표가 말한다**
+ *
+ * 이 모듈이 아는 코드는 둘(`CONSENT_REQUIRED`·`FORBIDDEN`)뿐이었고 화이트리스트 표
+ * (src/api/api-error.ts)를 **부르지 않았다.** 그래서 서버가 이유를 코드로 말해 준 실패까지
+ * 전부 마지막 폴백 한 문장으로 접혔다 — 표에 **이미 있던** `CHILD_BIRTH_DATE_TOO_OLD`조차
+ * 이 화면에는 구조적으로 설 수 없었다. 같은 실패가 아이 관리 화면
+ * (app/settings/children.tsx → `useSaveErrorCopy` → `resolveSaveErrorCopy` → 표)에서는
+ * *"20년보다 오래된 날은 고를 수 없어요."* 이고 온보딩에서는 *"저장하지 못했어요…"* 였다.
+ * **한 여정의 두 화면이 같은 실패를 정반대로 말하던 자리**다(라운드 77 E가 초대 화면에서
+ * 닫은 그 비대칭의 쌍둥이).
+ *
+ * ### 갈래는 넷이다 — 전용 둘 → 오프라인 → 표 → 전용 폴백
+ *
+ * 표를 **오프라인 뒤**에 두는 것이 이 갈래의 자리다: 오프라인으로 판정된 실패에는 서버 코드가
+ * 애초에 없고(응답을 받지 못했다), 그 순서 덕분에 종전 넷의 출력이 **바이트 단위로 보존**된다.
+ * 전용 둘이 표보다 앞인 이유도 같다 — `FORBIDDEN`은 표에도 있지만 이 화면에서 사용자가 알아야
+ * 할 사실은 중립 문구가 아니라 *"가족 관리자에게 부탁하라"* 이고, `CONSENT_REQUIRED`는 문구가
+ * 아니라 **복구 동선**(`onReconsent`)이 답이라 표에 아예 넣지 않았다.
+ *
+ * 그래서 이 라운드가 실제로 바꾸는 것은 **표가 아는 코드 하나뿐**이고, 그것이 이 갈래의 목적이다.
  */
 export function onboardingSaveErrorMessage(error: unknown, { isOnline = true }: { isOnline?: boolean } = {}): string {
   if (isOnboardingConsentRequired(error)) return ONBOARDING_CONSENT_REQUIRED_MESSAGE;
@@ -120,6 +145,10 @@ export function onboardingSaveErrorMessage(error: unknown, { isOnline = true }: 
   // 화면마다 다른 말로 부르지 않기 위해서다(src/offline/messages.ts의 OFFLINE_RETRY_NOTICE
   // 머리말). 카드의 버튼이 "재시도"이므로 그 문장의 "다시 시도해 주세요"와 동사가 맞는다.
   if (!isOnline) return OFFLINE_RETRY_NOTICE;
+  // 라운드 78 A: 서버가 코드로 말해 준 실패는 표가 답한다(문구를 이 파일에 다시 적지 않는다).
+  // 모르는 코드면 표가 null을 돌려주고, 그 아랫줄의 폴백은 종전과 바이트 단위로 같다.
+  const knownByCode = apiErrorMessageForCode(apiErrorCodeOf(error));
+  if (knownByCode) return knownByCode;
   return ONBOARDING_SAVE_FAILED_MESSAGE;
 }
 

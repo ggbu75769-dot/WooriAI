@@ -49,8 +49,13 @@ import { EXPENSE_DATE_TOO_OLD_ERROR } from "../expenses/entry-form-guards";
 // child-form.ts는 `import type { UpdateChildBody } from "../api/client"`을 들고 있고, client.ts는
 // 이 파일(ApiHttpError)을 값으로 부른다. 지금은 그 한 줄이 `import type`이라 컴파일 뒤 사라져서
 // 런타임 사이클이 없다. 그 줄이 값 import로 바뀌면 client → api-error → child-form → client이
-// 실제 사이클이 되고, 모듈 초기화 순서에 따라 이 표의 두 줄이 `undefined`가 될 수 있다.
-import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
+// 실제 사이클이 되고, 모듈 초기화 순서에 따라 이 표의 **세 줄**이 `undefined`가 될 수 있다
+// (라운드 78 A가 아이 프로필 여정의 두 문장을 같은 자리에서 읽으면서 둘 → 셋이 됐다).
+import {
+  CHILD_BIRTH_DATE_FUTURE_ERROR,
+  CHILD_BIRTH_DATE_TOO_OLD_ERROR,
+  CHILD_DUE_DATE_BEYOND_TERM_ERROR
+} from "../children/child-form";
 
 /** 서버 오류 응답 봉투(apps/api/src/common/filters/global-exception.filter.ts)에서 꺼낸 값. */
 export type ApiErrorEnvelope = {
@@ -156,6 +161,16 @@ export class ApiHttpError extends Error {
  *    방금 목록에서 내려갔다는 뜻이라 사용자가 갈 곳은 실제로 목록이다. ⚠️ 문장을 이 화면
  *    전용으로 가르지 **않는다**: 같은 코드가 아웃박스·준비템 상태 큐에서도 이 문장을 쓰고
  *    (그쪽에서는 정확히 옳다), 화면마다 문장을 가르는 순간 이 표가 코드 단위라는 성질을 잃는다.
+ *
+ * ## 라운드 78 A — ⚠️ **이 표는 "코드 하나 = 문장 하나"를 가정하는데 서버는 그렇지 않다**
+ *
+ * 관측을 값으로 남긴다(2026-08-30, api-error.test.ts의 스윕 자신이 센 값): 서버가 `code:`로
+ * 던지는 코드 **97** 중 문장이 붙은 것이 **94**이고, 그중 **열여덟**이 서로 다른 문장을 둘
+ * 이상 나른다(최대 `FORBIDDEN` **다섯**). 오늘 이 표 안에서 그런 코드는 **셋**이다 —
+ * `FORBIDDEN`(5) · `ITEM_NOT_FOUND`(2, 한쪽은 어드민 영문) · `PRODUCT_LINK_NOT_FOUND`(2).
+ * **셋 다 앱이 부르는 갈래는 하나뿐**이라 오늘 거짓은 없고, 그 사실을 적어 두는 것이 전부다:
+ * 표를 늘리는 다음 라운드는 **그 코드가 서버에서 문장을 몇 개 나르는지** 먼저 물어야 한다
+ * (이번에 더한 셋은 전부 문장이 하나다 — 그래서 표의 단위와 어긋나지 않는다).
  */
 export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   // --- 지출 저장/수정 (apps/api/src/onboarding/store-shared.ts, expenses-store.service.ts,
@@ -198,6 +213,36 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
    */
   EXPENSE_DATE_TOO_OLD: EXPENSE_DATE_TOO_OLD_ERROR,
   CHILD_BIRTH_DATE_TOO_OLD: CHILD_BIRTH_DATE_TOO_OLD_ERROR,
+
+  /**
+   * --- 아이 프로필 여정의 실패 셋 (라운드 78 A · 루프에 들어오기 전의 관문) ---
+   *
+   * 서버는 이 셋도 오래전부터 코드로 말해 왔다(onboarding/onboarding-core.service.ts):
+   * 출생일이 미래면 400 `CHILD_BIRTH_DATE_FUTURE`, 예정일이 만삭보다 멀면 400
+   * `CHILD_DUE_DATE_BEYOND_TERM`, 허용되지 않은 상태 전환이면 400
+   * `CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED`. **셋 다 다시 눌러도 결과가 같은데** 표에 없어서,
+   * 온보딩(ONB-002)의 저장 실패 카드는 *"저장하지 못했어요. 네트워크 연결을 확인한 뒤 다시
+   * 시도해 주세요."* 한 문장만 말했다 — 연결과 무관한 실패에 연결을 확인하라 하고, 영원히
+   * 풀리지 않는 벽에 재시도를 권한 셈이다.
+   *
+   * ⚠️ 그 여정에는 **스윕이 없었다.** 라운드 69가 손으로 넣은 `CHILD_BIRTH_DATE_TOO_OLD`(바로
+   * 윗줄) 하나만 표에 있었고, 그 뒤 서버가 더한 세 코드는 아무 단언도 깨지 않은 채 표 밖에
+   * 있었다. 이번 라운드가 세우는 **두 번째 여정 스윕**(api-error.test.ts의
+   * `CHILD_PROFILE_JOURNEY_SERVER_FILES`)이 그 자리를 막는다.
+   *
+   * **문장은 셋 다 이미 있던 것이다**(새 한국어 문장 0건):
+   *  - 앞 둘은 **폼 상수를 읽는다**(`amountOverLimitMessage`·`EXPENSE_DATE_TOO_OLD_ERROR`가 세운
+   *    선례 그대로). 두 상수는 서버 원문과 **바이트 동일**하고, 만삭 주차·20년 같은 숫자는
+   *    도메인 한 곳에서만 온다 — 표가 문장도 숫자도 짓지 않는다.
+   *  - 셋째는 **서버 원문 그대로**다(`EXPENSE_FUTURE_DATE`·`EXPENSE_CATEGORY_INVALID`의 선례):
+   *    이미 해요체이고, 다시 눌러도 바뀌지 않는 사실을 정확히 말한다. ⚠️ 꼬리에
+   *    `"잠시 후 다시"`를 붙이지 않는다 — 공동양육자가 먼저 전환을 마친 뒤라면 기다림이
+   *    답이 아니다(그 화면은 목록을 새로 고치면 이미 태어난 것으로 보인다).
+   */
+  CHILD_BIRTH_DATE_FUTURE: CHILD_BIRTH_DATE_FUTURE_ERROR,
+  CHILD_DUE_DATE_BEYOND_TERM: CHILD_DUE_DATE_BEYOND_TERM_ERROR,
+  CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED: "아이 상태는 '임신 중'에서 '태어났어요'로만 바꿀 수 있어요.",
+
   /**
    * 라운드 69 B — **가장 도달하기 쉬운 자리**(400). 준비템에서 "샀어요"를 눌러 오프라인으로
    * 저장 → 그 사이 운영이 그 템플릿을 내림/교체 → flush가 400을 받는다. 사용자가 볼 수 있는
