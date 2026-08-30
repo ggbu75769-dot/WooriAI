@@ -448,7 +448,9 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
         "바구니 코드다. 표에 넣으면 DTO 검증 실패 전량이 한 문구를 뒤집어쓴다 — 사유가 있는 갈래는 EXPENSE_CATEGORY_INVALID처럼 자기 코드를 받는다.",
       // --- items-catalog.service.ts의 어드민 전용 갈래 (apps/admin만 부른다) ---
       // 다섯 다 어드민 콘솔의 입력 검증이라 모바일 앱은 그 엔드포인트를 호출하지 않는다.
-      // 원문이 영어인 것도 그래서다 — 사용자 화면에 설 문장이 아니다.
+      // 앞의 넷은 원문이 영어다 — 사용자 화면에 설 문장이 아니다. 다섯째(ITEM_TIMING_LABEL_MISMATCH)는
+      // 한국어지만 어드민 콘솔 문장이다(운영자가 고칠 구간을 그대로 말해야 해서다) — 언어가 아니라
+      // **누가 읽는가**가 이 제외의 근거다.
       ADMIN_ITEM_TEMPLATE_REQUIRED:
         "어드민 준비템 저장의 필수 입력 검증(normalizeAdminItemTemplateInput)과 어드민 링크 생성 시 itemTemplateId 누락 검증이다. 앱은 두 엔드포인트를 모두 호출하지 않는다.",
       ADMIN_PRODUCT_LINK_REQUIRED:

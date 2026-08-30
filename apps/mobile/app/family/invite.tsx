@@ -153,9 +153,11 @@ export default function FamilyInviteScreen() {
    * ⚠️ 연결 사실을 `!== OFFLINE_SAVE_NOTICE`로 읽는 것이 계약이다(app/family/accept/[token].tsx가
    * 라운드 73 E에서 쓴 그 비교와 같은 판정이고, 이 화면은 부정만 뒤집어 **연결 사실**로 읽는다).
    * `resolveSaveErrorCopy`의 순서는 **아는 코드 → 오프라인 →
-   * 모르는 실패**라, 그 비교가 참인 순간은 "서버가 아무 코드도 주지 않았다"가 이미 참인 순간이다 —
-   * 그래서 403은 연결 판정이 어긋난 창에서도 오프라인 문장에 가려지지 않는다(모듈 쪽 판정 순서가
-   * 403을 먼저 보는 것과 함께 두 겹으로 막는다).
+   * 모르는 실패**라, 그 비교가 **거짓인** 순간(= 공용 훅이 오프라인 문장을 골랐다)은 "서버가 아무
+   * 코드도 주지 않았다 **그리고** 폴이 오프라인이라고 답했다"가 둘 다 참인 순간이다 — 서버가
+   * 코드를 준 실패는 그 앞 갈래에서 이미 갈라져 비교가 참이 된다. 그래서 403은 연결 판정이
+   * 어긋난 창에서도 오프라인 문장에 가려지지 않는다(모듈 쪽 판정 순서가 403을 먼저 보는 것과
+   * 함께 두 겹으로 막는다).
    */
   const inviteSaveErrorCopy = useSaveErrorCopy(invite.isError, invite.error);
   const inviteCreateErrorText = inviteCreateErrorMessage(invite.error, {

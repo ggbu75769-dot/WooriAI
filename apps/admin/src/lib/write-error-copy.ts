@@ -32,11 +32,22 @@ import { AdminApiError } from "./admin-api";
  * `admin-canonical-mirrors.test.ts`의 `NON_MIRROR_CONSTANT_TABLES`에 "미러가 아닌 이유"를
  * 손으로 적어 편입시켰는데(`LOAD_ERROR_COPY_SITES`·`LOAD_ERROR_COPY_EXEMPT_SITES` 두 줄),
  * 그 파일은 이 트랙의 **무접촉 대상**이다(라운드 76 트랙 B 금지 목록). 상수 표를 `src/lib/**`에
- * 두면 라운드 75 E의 전수 스크레이프가 물고, 편입할 자리가 이 트랙 밖이라 초록으로 만들 수
- * 없다 — 그래서 대장을 **스윕이 사는 테스트 파일**에 두고(테스트 파일은 그 스크레이프의
- * 명시적 제외 뿌리다) 이 사실을 여기 값으로 적어 둔다. 두 대장을 한 자리로 모으려면
- * 그 파일에 두 줄을 더하는 별도 결정이 필요하다.
+ * 두면 라운드 75 E의 전수 스크레이프가 물고, 편입할 자리가 이 트랙의 **무접촉 목록** 안에
+ * 있다. ⚠️ 그 목록은 **기술적 차단이 아니라 자기 부과 범위**다 — 같은 패키지 안의 편집이라
+ * 손이 닿지 않는 파일은 하나도 없고, 두 줄을 더하면 초록이 된다. 다만 그 편집은 이 트랙이
+ * 스스로 긋고 들어온 선 밖이라 하지 않는다. 그래서 대장을 **스윕이 사는 테스트 파일**에 두고
+ * (테스트 파일은 그 스크레이프의 명시적 제외 뿌리다) 이 사실을 여기 값으로 적어 둔다.
+ * 두 대장을 한 자리로 모으는 것은 그 파일에 두 줄을 더하는 **별도 결정**이다.
  */
+
+/**
+ * 한글 음절 한 자라도 있는가.
+ *
+ * ⚠️ 범위를 유니코드 이스케이프로 적는 이유가 값이다 — 이 파일의 계약은 "코드에 한국어
+ * **문구**가 0건"이고(옆 테스트의 부정 단언이 그것을 문다), 문자 범위는 문구가 아니라 판정의
+ * 재료다. 리터럴로 적으면 그 부정 단언이 문구와 범위를 구별하지 못한다.
+ */
+const HANGUL_SYLLABLE = /[\uAC00-\uD7A3]/;
 
 /**
  * 쓰기 실패 하나를 화면이 쓸 문장으로.
@@ -50,9 +61,22 @@ import { AdminApiError } from "./admin-api";
  * 다시 시도하세요") 또는 `IDEMPOTENT_WRITE_TIMEOUT_MESSAGE`("같은 요청을 다시 보내면 중복
  * 없이 처리돼요")를 이미 싣고 있어서다. 종전 폴백은 그 자리에서 **틀린 원인(입력값)** 을
  * 지목하고 **금지된 행동(재시도)** 을 권했다.
+ *
+ * ⚠️ **다만 서버 문장이 전부 한국어인 것은 아니다.** 어드민 API의 역할 게이트는
+ * `ADMIN_FORBIDDEN` / `"Admin access is required."`를 낸다(`admin-auth.guard.ts` ·
+ * `admin-token.guard.ts` — 응답 계약이라 이 트랙은 그 문장을 바꾸지 않는다). 그 자리는 화면
+ * 밖의 이야기가 아니다: 어드민 내비에는 역할 제한이 없어 `analyst` 계정도 준비템·링크·고지
+ * 문구 저장 UI까지 걸어 들어오고(쓰기 버튼만 `isEditor`로 갈린다), 그 계정이 저장을 누르면
+ * 오늘 그 영문 문장이 **한국어 화면에** 선다. 그래서 이 한 벌은 **한글이 한 자도 없는 서버
+ * 문장은 폴백으로 되돌린다** — 판정을 새로 만드는 것이 아니라(코드도 상태도 보지 않는다)
+ * "이 문장은 사용자 화면에 세울 수 있는가"를 묻는 **소비 규칙** 한 겹이다.
  */
+
 export function writeErrorMessage(error: unknown, fallbackMessage: string): string {
   const fromError = error instanceof AdminApiError ? error.message.trim() : "";
   // 빈 문장을 화면에 세우지 않는다 — 이유를 못 받은 것은 "그 밖"과 같다(조회 쪽과 같은 규율).
-  return fromError === "" ? fallbackMessage : fromError;
+  if (fromError === "") return fallbackMessage;
+  // 그리고 한국어 화면에 영문 문장을 세우지 않는다 — 읽을 수 없는 사유는 사유가 아니다.
+  if (!HANGUL_SYLLABLE.test(fromError)) return fallbackMessage;
+  return fromError;
 }

@@ -138,7 +138,7 @@ export type TimingLabelMismatchReason =
   | "outside_stage_months"
   /** 품목이 지는 스테이지 하나가 라벨과 한 달도 겹치지 않는다(뒤 방향 · 대칭 겹침). */
   | "stage_not_overlapped"
-  /** 라벨이 칩 이름을 그대로 말하는데 품목이 더 이른 칩에도 선다. */
+  /** 라벨이 칩 이름을 그대로 말하는데 품목이 **그 칩과 겹치지 않는** 더 이른 칩에도 선다. */
   | "earlier_band_than_label";
 
 export type TimingLabelMismatch = {
@@ -161,7 +161,9 @@ function formatSegments(segments: MonthRange[]): string {
  *
  * ① 라벨 구간이 `stageCodes` 합집합의 **한 조각 안에** 있을 것,
  * ② 품목이 지는 스테이지 **하나하나가** 라벨과 겹칠 것(대칭),
- * ③ 라벨이 밴드 칩 이름을 그대로 말하면 **더 이른 칩에 서 있지 않을** 것.
+ * ③ 라벨이 밴드 칩 이름을 그대로 말하면 **그 칩과 겹치지 않는 더 이른 칩에 서 있지 않을** 것
+ *    — 이름을 말한 칩에 **함께 서 있는** 스테이지(밴드 표의 의도된 중복)는 이른 칩의 증거가
+ *    아니다(라운드 76 적대적 리뷰 M-2).
  *
  * 어긋나면 첫 어긋남 하나를, 아니면 `null`을 돌려준다. **모르면 지어내지 않는다** — 빈 라벨과
  * 파싱되지 않는 라벨(서술·임신·세 표기)은 판정 대상이 아니라 언제나 `null`이다.
@@ -222,15 +224,28 @@ export function judgeTimingLabelAgainstStages(
   // ③ 사용자는 상세의 "준비 시기: 12~24개월"을 칩 이름으로 읽는다(물결표/하이픈 차이는 눈에
   // 띄지 않는다). 라벨이 어떤 칩의 개월 구간과 정확히 같은데 품목이 그보다 이른 칩에도 서 있으면,
   // 그 이른 칩에서 연 사용자는 목록과 상세에서 다른 나이를 듣는다.
+  //
+  // ⚠️ **겹치는 칩은 이른 칩이 아니다**(라운드 76 적대적 리뷰 M-2). 밴드 집합은 서로소가 아니고
+  // (`items-commerce/stage-bands.ts`: `toddler_1_3`이 `"12-24개월"`과 `"24개월+"` 양쪽에 서는 것은
+  // **의도된 중복**이다), 그 중복 때문에 종전 규칙은 `"24개월 이후"` 라벨을 **어떤 조합으로도**
+  // 통과시키지 못했다: ①을 지나려면 24개월을 덮는 `toddler_1_3`이 있어야 하는데, `toddler_1_3`이
+  // 있으면 ③이 `"12-24개월"` 칩을 "더 이른 칩"으로 세어 거절했다. 이름을 말한 칩에 **함께 서 있는**
+  // 스테이지는 "더 이른 칩에 선다"는 증거가 아니라 그 중복 자신이므로 세지 않는다. 이른 칩에만
+  // 있는 스테이지(예: `"6~12개월"` 라벨 × `infant_4_6`)는 종전 그대로 걸린다.
   const bandOrder = [...STAGE_BAND_LABELS];
   const bandMonths = bandOrder.map((band) => parseBandLabelMonths(band));
   const namedBandIndex = bandMonths.findIndex(
     (range) => range.from === labelRange.from && range.to === labelRange.to
   );
   if (namedBandIndex >= 0) {
+    const stagesInNamedBand = STAGE_BAND_STAGES[bandOrder[namedBandIndex] as StageBandLabel];
     for (const earlierBand of bandOrder.slice(0, namedBandIndex)) {
       const stagesInEarlierBand = STAGE_BAND_STAGES[earlierBand as StageBandLabel];
-      const standsEarlier = stageCodes.some((code) => stagesInEarlierBand.includes(code as ChildStageCode));
+      const standsEarlier = stageCodes.some(
+        (code) =>
+          stagesInEarlierBand.includes(code as ChildStageCode) &&
+          !stagesInNamedBand.includes(code as ChildStageCode)
+      );
       if (!standsEarlier) continue;
       return {
         reason: "earlier_band_than_label",

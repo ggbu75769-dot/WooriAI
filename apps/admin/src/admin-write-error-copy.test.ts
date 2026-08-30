@@ -291,7 +291,10 @@ describe("쓰기 실패 한 벌의 소비 규칙 (라운드 76 트랙 B ⓒ)", (
     const source = readSource("src/lib/write-error-copy.ts");
     const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
     // 코드에는 한국어 리터럴이 한 글자도 없다(문장은 전부 서버 것이거나 호출부의 종전 폴백이다).
+    // ⚠️ 한글 판정의 문자 범위도 유니코드 이스케이프로 적혀 있어 이 단언과 부딪히지 않는다 —
+    // 범위는 **문구가 아니라 판정의 재료**이고, 리터럴로 적으면 이 부정 단언이 둘을 구별하지 못한다.
     expect(codeOnly, "write-error-copy.ts의 코드에 한국어 리터럴이 있다").not.toMatch(/[가-힣]/);
+    expect(codeOnly, "한글 범위는 이스케이프로 적는다").toContain("\\uAC00-\\uD7A3");
     // 조회 한 벌과 합치지 않는다(경계가 정반대라는 것이 그 파일의 머리말이다).
     expect(codeOnly).not.toContain("load-error-copy");
     // 타임아웃·재시도 판정은 admin-api.ts가 이미 낸다 — 여기서 다시 적지 않는다.
@@ -321,6 +324,65 @@ describe("쓰기 타임아웃 두 문장이 화면까지 닿는다 (라운드 76
   it("연결 실패도 admin-api.ts가 만든 문장 그대로 닿는다", () => {
     const error = new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.");
     expect(writeErrorMessage(error, "저장하지 못했어요. 다시 시도해 주세요.")).toBe(error.message);
+  });
+});
+
+/**
+ * 라운드 76 적대적 리뷰 M-1 — **한국어 화면에 영문 서버 문장을 세우지 않는다.**
+ *
+ * 서버 사유를 그대로 나르는 이 한 벌에는 갈래가 하나 빠져 있었다: 어드민 API의 역할 게이트가
+ * 내는 `ADMIN_FORBIDDEN`의 문장은 **영문**이다(`"Admin access is required."` —
+ * `admin-auth.guard.ts` · `admin-token.guard.ts`). 그리고 그 403은 도달 불가능한 자리가 아니다:
+ * 어드민 내비에 역할 제한이 없어 `analyst` 계정도 준비템·링크·고지 문구 저장 UI까지 걸어
+ * 들어오고(쓰기 버튼만 `isEditor`로 갈린다), 저장을 누르면 그 영문 문장이 한국어 화면에 섰다.
+ *
+ * ⚠️ **고치는 자리는 소비 쪽 한 겹이다** — 서버 문장 자체는 응답 계약이라 바꾸지 않는다.
+ */
+describe("읽을 수 없는 서버 문장은 화면에 서지 않는다 (라운드 76 리뷰 M-1)", () => {
+  const ADMIN_FORBIDDEN_MESSAGE = "Admin access is required.";
+
+  it("한글이 한 자도 없는 서버 문장은 종전 폴백으로 되돌아간다", () => {
+    const error = new AdminApiError(403, ADMIN_FORBIDDEN_MESSAGE, "ADMIN_FORBIDDEN");
+    for (const fallback of [
+      "저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요.",
+      "저장하지 못했어요. 다시 시도해 주세요.",
+      "승인 게시하지 못했어요."
+    ]) {
+      expect(writeErrorMessage(error, fallback), `${fallback} 자리에 영문이 섰다`).toBe(fallback);
+    }
+    // 다른 영문 사유(프록시·게이트웨이가 낸 문장 등)도 같은 갈래로 간다.
+    expect(writeErrorMessage(new AdminApiError(502, "Bad Gateway"), "저장하지 못했어요. 다시 시도해 주세요.")).toBe(
+      "저장하지 못했어요. 다시 시도해 주세요."
+    );
+  });
+
+  it("한국어 서버 문장은 종전 그대로 선다 — 영문 갈래가 사유를 삼키지 않는다", () => {
+    // 한글이 한 자라도 있으면 그 문장이 그대로다(코드·상태를 보지 않는 것이 이 한 벌의 계약이다).
+    expect(
+      writeErrorMessage(
+        new AdminApiError(403, "카테고리 수정은 관리자(admin) 권한에서만 할 수 있어요.", "ADMIN_FORBIDDEN"),
+        "저장하지 못했어요. 다시 시도해 주세요."
+      )
+    ).toBe("카테고리 수정은 관리자(admin) 권한에서만 할 수 있어요.");
+    // 라틴 문자·숫자가 섞인 한국어 문장도 그대로다.
+    expect(
+      writeErrorMessage(
+        new AdminApiError(400, '준비 시기 "12~24개월"은 12~24개월를 말하는데, 선택한 시기가 덮는 구간은 6~12개월예요.'),
+        "저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요."
+      )
+    ).toContain("12~24개월");
+    // 쓰기 타임아웃 두 문장도 한국어라 이 갈래에 걸리지 않는다(위 ⓓ가 무는 그 문장들).
+    expect(writeErrorMessage(timeoutError("POST"), "저장하지 못했어요. 다시 시도해 주세요.")).toContain(
+      "반영 여부가 확실하지 않으니"
+    );
+  });
+
+  it("서버 문장 자체는 바뀌지 않았다 — 고친 자리는 소비 쪽 한 겹뿐이다 (응답 계약 불변)", () => {
+    for (const guard of ["apps/api/src/admin/admin-auth.guard.ts", "apps/api/src/admin/admin-token.guard.ts"]) {
+      expect(readRepoSource(guard), `${guard}의 403 문장`).toContain(
+        `code: "ADMIN_FORBIDDEN", message: "${ADMIN_FORBIDDEN_MESSAGE}"`
+      );
+    }
   });
 });
 

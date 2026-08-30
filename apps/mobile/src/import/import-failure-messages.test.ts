@@ -161,7 +161,14 @@ function resolvedRelativeImports(relativePath: string): string[] {
   return resolved;
 }
 
-/** 여정 서버 파일을 import하는 컨트롤러(=이 여정의 일부인 컨트롤러) 전수. */
+/**
+ * 여정 서버 파일을 import하는 컨트롤러(=이 여정의 일부인 컨트롤러) 전수.
+ *
+ * ⚠️ **이 파생의 시야는 "직접 상대 import" 한 겹까지다**(라운드 76 리뷰 P-4): 컨트롤러가 여정
+ * 파일을 **다른 모듈을 경유해** 쓰거나, 패키지 별칭·동적 import로 들면 여기서 보이지 않는다.
+ * 그래서 이 계약은 목록의 대체가 아니라 **목록이 놓친 자리를 한 종류만** 잡는 그물이고,
+ * 여정 목록 자체를 세우는 큰 질문은 known-limitations L-1에 그대로 열려 있다.
+ */
 function controllersImportingJourneyFiles(): string[] {
   const journey = new Set<string>(IMPORT_JOURNEY_SERVER_FILES);
   return apiControllerFiles().filter((controller) =>

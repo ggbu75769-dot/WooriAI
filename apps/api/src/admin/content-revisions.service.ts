@@ -954,11 +954,35 @@ export class ContentRevisionsService {
     const clean = JSON.parse(JSON.stringify(instance)) as Record<string, unknown>;
     if (entityType === "item_template") {
       requireTimingLabelMatchesStages(
-        typeof clean.timingLabel === "string" ? clean.timingLabel : null,
+        await this.draftTimingLabel(clean, entityId),
         await this.draftStageCodes(clean, entityId)
       );
     }
     return clean;
+  }
+
+  /**
+   * 라운드 76 적대적 리뷰 M-4 — 초안이 **발행되면 실제로 서게 될** 준비 시기 표기.
+   *
+   * `draftStageCodes`와 **대칭**이어야 한다. 종전에는 시기만 라이브 행 폴백이 있고 라벨에는
+   * 없어서, 수정 초안이 `timingLabel`을 **보내지 않으면** 검토는 "라벨 없음 = 판정 대상 아님"으로
+   * 통과시키고 발행은 `normalizeAdminItemTemplateInput`의
+   * `input.timingLabel ?? existing.timingLabel`이 살려 낸 **라이브 라벨**로 400을 냈다 —
+   * 운영자가 사유를 **고칠 수 없는 자리**(발행 버튼)에서 처음 듣는 갈림이다.
+   */
+  private async draftTimingLabel(payload: Record<string, unknown>, entityId: string | null): Promise<string | null> {
+    if (typeof payload.timingLabel === "string") {
+      return payload.timingLabel;
+    }
+    if (entityId) {
+      const live = await this.prisma.itemTemplate.findUnique({
+        where: { id: entityId },
+        select: { timingLabel: true }
+      });
+      if (live) return live.timingLabel;
+    }
+    // 생성 초안이 라벨을 안 보내면 발행도 빈 라벨로 저장한다(`?? ""` 갈래) — 판정 대상이 아니다.
+    return null;
   }
 
   /**

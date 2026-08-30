@@ -12,10 +12,13 @@ import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { ContentRevisionsService } from "../src/admin/content-revisions.service";
 import {
+  formatMonthRange,
   judgeTimingLabelAgainstStages,
+  parseBandLabelMonths,
   parseTimingLabelMonths,
   stageNotationRanges
 } from "../src/onboarding/timing-label-range";
+import { STAGE_BAND_LABELS, STAGE_BAND_STAGES } from "../src/items-commerce/stage-bands";
 import { isDatabaseAvailable } from "./helpers/test-db";
 
 /**
@@ -74,9 +77,15 @@ describe("준비 시기 판정 모듈 (라운드 76 트랙 E)", () => {
     const source = readFileSync(moduleSourcePath, "utf8");
     expect(source).toContain('from "@wooriai/domain"');
     expect(source).toContain("calculateChildStage");
-    // 도메인의 경계 숫자(4·7·13·48·96·156개월의 표기값)를 모듈이 직접 적고 있지 않을 것.
+    // 도메인의 경계 숫자(4·7·13·48·96·156개월의 표기값)를 모듈이 **코드에서** 적고 있지 않을 것.
+    // ⚠️ 재는 자리는 주석을 걷어낸 코드이고(주석은 근거를 적는 자리라 숫자가 서도 된다), 바늘은
+    // 부분문자열이 아니라 **숫자 리터럴 경계**다(라운드 76 리뷰 S-6) — 종전 `toContain("47")`은
+    // `1470`·`x47y` 같은 무관한 자리에도 걸려, 이 계약이 무는 축이 아닌 이유로 빨개질 수 있었다.
+    const codeOnly = source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
     for (const boundary of ["47", "95", "155"]) {
-      expect(source, `모듈이 도메인 경계 ${boundary}을 손으로 적고 있다`).not.toContain(boundary);
+      expect(codeOnly, `모듈이 도메인 경계 ${boundary}을 손으로 적고 있다`).not.toMatch(
+        new RegExp(`\\b${boundary}\\b`)
+      );
     }
   });
 
@@ -132,8 +141,65 @@ describe("준비 시기 판정 모듈 (라운드 76 트랙 E)", () => {
     expect(judgeTimingLabelAgainstStages("0~3개월", ["newborn_0_3"])).toBeNull();
     expect(judgeTimingLabelAgainstStages("12개월 이후", ["toddler_1_3", "kid_4_7"])).toBeNull();
     expect(judgeTimingLabelAgainstStages("4~6개월 전후", ["infant_4_6"])).toBeNull();
-    // 임신 스테이지가 섞여 있어도 개월 판정은 출생 이후 시기만 본다.
+    // 임신 스테이지가 섞여 있어도 개월 판정은 출생 이후 시기만 본다 — ⚠️ **①②에 한한다**
+    // (라운드 76 리뷰 S-7). 규칙 ③은 원본 `stageCodes`를 그대로 보는데, 밴드 표의 `"0-6개월"`
+    // 칩에 임신 스테이지 셋이 들어 있어서다: 칩 이름 라벨에서는 임신 스테이지도 "더 이른 칩에
+    // 선다"의 증거가 된다(아래 케이스가 그 사실을 값으로 고정한다).
     expect(judgeTimingLabelAgainstStages("0~3개월", ["pregnancy_late", "newborn_0_3"])).toBeNull();
+    expect(judgeTimingLabelAgainstStages("6~12개월", ["pregnancy_late", "infant_7_12"])?.reason).toBe(
+      "earlier_band_than_label"
+    );
+  });
+
+  /**
+   * 라운드 76 적대적 리뷰 M-2 — **칩 이름을 그대로 적은 라벨에는 통과 조합이 있어야 한다.**
+   *
+   * 종전 규칙 ③은 `"24개월 이후"`를 **어떤 `stageCodes` 조합으로도** 통과시키지 못했다:
+   * ①을 지나려면 24개월을 덮는 `toddler_1_3`이 있어야 하는데, `toddler_1_3`이 있으면 ③이
+   * `"12-24개월"` 칩을 "더 이른 칩"으로 세어 거절했다(밴드 표의 **의도된 중복** —
+   * `items-commerce/stage-bands.ts`). 운영자가 고칠 방법이 없는 거절은 판정이 아니라 봉쇄다.
+   *
+   * 그래서 규칙 ③은 **이름을 말한 칩에 함께 서 있는 스테이지**를 이른 칩의 증거로 세지 않는다.
+   * 이 단언은 그 사실을 밴드 이름 하나가 아니라 **전 밴드 × 조합 전수 프로빙**으로 문다 —
+   * 밴드 표가 자라거나 도메인이 경계를 옮겨도 "통과할 방법이 없는 칩 이름"이 다시 생기면 빨개진다.
+   */
+  it("모든 밴드 칩 이름 라벨에 통과 조합이 최소 하나 있다 (전 밴드 × 대표 조합 프로빙)", () => {
+    // 밴드가 덮는 출생 이후 스테이지 전수 — 조합의 재료도 손으로 적지 않고 표에서 파생시킨다.
+    const bornStages = [...stageNotationRanges().keys()];
+    expect(bornStages.length).toBeGreaterThanOrEqual(7);
+
+    for (const band of STAGE_BAND_LABELS) {
+      // 칩 이름을 **카탈로그 표기**로 옮긴다(`"24개월+"` → `"24개월 이후"`) — 사용자가 상세에서
+      // 읽는 그 문자열이고, 두 표기를 잇는 것은 모듈 자신의 파서·포매터다.
+      const label = formatMonthRange(parseBandLabelMonths(band));
+      expect(parseTimingLabelMonths(label), `${band}의 카탈로그 표기 ${label}`).not.toBeNull();
+
+      const passing: string[][] = [];
+      for (let mask = 1; mask < 1 << bornStages.length; mask += 1) {
+        const combo = bornStages.filter((_, index) => (mask & (1 << index)) !== 0);
+        if (judgeTimingLabelAgainstStages(label, combo) === null) passing.push(combo);
+      }
+      expect(
+        passing.length,
+        `준비 시기 "${label}"(${band} 칩의 이름)은 어떤 시기 조합으로도 저장할 수 없어요 — ` +
+          "운영자가 고칠 방법이 없는 거절은 판정이 아니라 봉쇄예요"
+      ).toBeGreaterThan(0);
+    }
+
+    // 그리고 이 라운드가 연 그 자리를 값으로 못 박는다: `"24개월+"` 칩의 스테이지는 `toddler_1_3`을
+    // `"12-24개월"` 칩과 **공유**하고(의도된 중복), 그래서 그 중복은 이른 칩의 증거가 아니다.
+    expect(STAGE_BAND_STAGES["24개월+"]).toContain("toddler_1_3");
+    expect(STAGE_BAND_STAGES["12-24개월"]).toContain("toddler_1_3");
+    expect(judgeTimingLabelAgainstStages("24개월 이후", ["toddler_1_3"])).toBeNull();
+    expect(judgeTimingLabelAgainstStages("24개월 이후", ["toddler_1_3", "kid_4_7"])).toBeNull();
+    // ⚠️ 그 완화가 규칙 ③을 통째로 끄지 않는다 — 이른 칩**에만** 있는 스테이지는 그대로 걸린다.
+    expect(judgeTimingLabelAgainstStages("6~12개월", ["infant_4_6", "infant_7_12"])?.reason).toBe(
+      "earlier_band_than_label"
+    );
+    // 그리고 ②는 ③보다 먼저다 — 24개월과 한 달도 겹치지 않는 시기가 섞이면 그 사유로 걸린다.
+    expect(judgeTimingLabelAgainstStages("24개월 이후", ["infant_7_12", "toddler_1_3"])?.reason).toBe(
+      "stage_not_overlapped"
+    );
   });
 
   it("오늘의 시드 62건이 이 판정을 전부 지난다 (저장 경로가 기존 카탈로그를 막지 않는다)", async () => {
@@ -368,6 +434,55 @@ describe.skipIf(!dbAvailable)("준비 시기 판정이 저장·검토 경로를 
         )
       )
     ).toBe("ITEM_TIMING_LABEL_MISMATCH");
+  });
+
+  /**
+   * 라운드 76 적대적 리뷰 M-4 — 폴백이 **한쪽에만** 있으면 "초안 통과 → 발행 400"이 실재한다.
+   *
+   * 시기(`stageCodes`)에는 라이브 행 폴백이 있었는데 라벨(`timingLabel`)에는 없었다. 그래서
+   * 라벨을 안 보내는 수정 초안은 검토에서 "라벨 없음 = 판정 대상 아님"으로 통과하고, 발행이
+   * 라이브 라벨을 살려 내 400을 냈다 — 운영자가 **고칠 수 없는 자리**에서 사유를 처음 듣는다.
+   */
+  it("초안이 라벨을 안 보내면 라이브 행의 라벨과 대조한다 (발행 시점과 같은 값을 본다)", async () => {
+    const live = (
+      await createItem({
+        name: `R76 라벨 폴백 ${randomUUID().slice(0, 8)}`,
+        ...essential,
+        timingLabel: "12~24개월",
+        stageCodes: ["toddler_1_3"]
+      }).expect(200)
+    ).body as { id: string };
+
+    const author = { id: adminId, email: "r76@wooriai.local", role: "editor" as const };
+
+    // 라벨을 보내지 않고 시기만 바꾼다 — 발행하면 라이브의 "12~24개월"이 그대로 남아 어긋난다.
+    expect(
+      await rejectionCode(() =>
+        revisions.create(author, {
+          entityType: "item_template",
+          entityId: live.id,
+          payload: { name: "R76 라벨 폴백", ...essential, stageCodes: ["infant_7_12"] }
+        })
+      )
+    ).toBe("ITEM_TIMING_LABEL_MISMATCH");
+
+    // 그리고 그 갈림이 실재했다는 증거: 같은 값이 발행 경로(라이브 수정)에서도 400이다.
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/item-templates/${live.id}`)
+      .set("x-admin-token", adminToken)
+      .send({ stageCodes: ["infant_7_12"] })
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("ITEM_TIMING_LABEL_MISMATCH");
+      });
+
+    // 라벨을 함께 맞춰 보내면 초안이 그대로 선다(폴백이 통과를 좁히기만 하지 않는다).
+    const draft = await revisions.create(author, {
+      entityType: "item_template",
+      entityId: live.id,
+      payload: { name: "R76 라벨 폴백", ...essential, timingLabel: "7~12개월", stageCodes: ["infant_7_12"] }
+    });
+    expect(draft.status).toBe("draft");
   });
 
   it("판정 모듈의 구간이 실제 저장된 행에서도 같은 답을 낸다 (시드 카탈로그 전수)", async () => {
