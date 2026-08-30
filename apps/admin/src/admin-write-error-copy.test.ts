@@ -697,17 +697,24 @@ describe("미리보기 실패가 원인을 단정하지 않는다 (라운드 77 
     return previewCatchBlock().replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
   }
 
-  it("catch가 갈래 셋을 지난다 — 401 → 타임아웃 전용 안내 → 서버 사유/폴백 (ⓐ)", () => {
+  it("catch가 갈래 넷을 지난다 — 401 → 타임아웃 전용 안내 → 연결 실패 전용 안내 → 서버 사유/폴백 (ⓐ)", () => {
     const block = previewCatchCode();
     const auth = block.indexOf("isAuthError(err)");
     const timeout = block.indexOf("isTimeoutError(err)");
+    const connection = block.indexOf("isConnectionFailureError(err)");
     const copy = block.indexOf("writeErrorMessage(err,");
-    for (const [name, index] of [["401", auth], ["타임아웃", timeout], ["한 벌", copy]] as const) {
+    for (const [name, index] of [
+      ["401", auth],
+      ["타임아웃", timeout],
+      ["연결 실패", connection],
+      ["한 벌", copy]
+    ] as const) {
       expect(index, `미리보기 catch에 ${name} 갈래가 있다`).toBeGreaterThan(-1);
     }
-    // 순서가 값이다 — 타임아웃 갈래가 한 벌 **뒤에** 서면 거짓 문장이 먼저 화면에 선다.
+    // 순서가 값이다 — 전용 갈래가 한 벌 **뒤에** 서면 거짓 문장이 먼저 화면에 선다.
     expect(auth, "401이 첫째다").toBeLessThan(timeout);
-    expect(timeout, "타임아웃이 한 벌보다 먼저다").toBeLessThan(copy);
+    expect(timeout, "타임아웃이 연결 실패보다 먼저다").toBeLessThan(connection);
+    expect(connection, "연결 실패가 한 벌보다 먼저다").toBeLessThan(copy);
     // 401은 종전 그대로 세션을 지우고 문장을 세우지 않는다.
     expect(block).toContain("clearSession();");
     // 판정을 새로 만들지 않는다 — 셋 다 admin-api.ts가 이미 내는 판정이다(읽기만).
@@ -723,6 +730,17 @@ describe("미리보기 실패가 원인을 단정하지 않는다 (라운드 77 
     // 요청에 대한 거짓이고, 이 한 줄이 그 갈래가 존재하는 이유를 값으로 남긴다.
     const carried = writeErrorMessage(timeoutError("POST"), PREVIEW_FALLBACK);
     expect(carried).toContain("반영 여부가 확실하지 않으니");
+    // 라운드 77 B·C 접점 — 연결 실패도 같은 성질이다: 트랙 B가 가른 비멱등 쓰기 갈래의
+    // 문장이 멱등키 없는 POST인 bulk-preview에 흘러들면 같은 거짓("반영 여부…")이 선다.
+    // 한 벌이 그 문장을 그대로 나른다는 사실을 값으로 남긴다(한국어라 폴백으로 접히지 않는다).
+    const carriedConnection = writeErrorMessage(
+      new AdminApiError(
+        0,
+        "서버에 연결하지 못했어요. 반영 여부가 확실하지 않으니 네트워크 상태를 확인하고, 목록을 새로고침해 확인한 뒤 다시 시도하세요."
+      ),
+      PREVIEW_FALLBACK
+    );
+    expect(carriedConnection).toContain("반영 여부가 확실하지 않으니");
 
     // 그래서 패널은 그 자리에 자기 안내를 세운다: 미리보기는 **다시 눌러도 안전하다**.
     const code = previewCatchCode();

@@ -493,6 +493,13 @@ export function isTimeoutError(error: unknown): boolean {
   return error instanceof AdminApiTimeoutError;
 }
 
+/** 연결 실패(fetch 거절 — status 0) 판별. 타임아웃은 같은 status 0이지만
+ * AdminApiTimeoutError로 따로 서므로 여기서는 false. 화면이 status 코드를 손으로
+ * 읽지 않고 이 술어를 읽게 하려고 판정을 이 파일에 둔다(라운드 77 B·C 접점). */
+export function isConnectionFailureError(error: unknown): boolean {
+  return error instanceof AdminApiError && !(error instanceof AdminApiTimeoutError) && error.status === 0;
+}
+
 /** 쓰기 타임아웃(반영 여부 불명 → 재시도 시 이중 반영 위험) 판별. 읽기 타임아웃,
  * 일반 네트워크 실패, 그리고 멱등키를 실어 보낸 쓰기에는 false. */
 export function isRetryUnsafeTimeoutError(error: unknown): boolean {

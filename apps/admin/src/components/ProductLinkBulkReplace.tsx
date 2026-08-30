@@ -13,6 +13,7 @@ import {
   bulkPreviewProductLinks,
   createIdempotencyKeyHolder,
   isAuthError,
+  isConnectionFailureError,
   isIdempotentTimeoutError,
   isRetryUnsafeTimeoutError,
   isTimeoutError,
@@ -109,14 +110,20 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
         );
         return;
       }
-      // 라운드 77 트랙 C ②: 남은 실패(403 · 5xx · 400 검증 · 연결 실패)의 서버 사유를 그대로
+      // 라운드 77 B·C 접점: 연결 실패도 **미리보기 전용** 안내로 갈라 낸다. 트랙 B가 연결
+      // 실패를 R19-F 판정으로 가른 뒤로, 멱등키 없는 POST인 bulk-preview의 연결 실패에는
+      // 비멱등 쓰기 문장(*"반영 여부가 확실하지 않으니 … 새로고침해 확인"*)이 흘러드는데,
+      // 이 요청은 반영할 것이 없어 그 문장이 거짓이다. 판정은 admin-api.ts의 술어를 읽는다.
+      if (isConnectionFailureError(err)) {
+        setError(
+          "서버에 연결하지 못했어요. 미리보기는 검증만 하고 아무것도 바꾸지 않으니, 네트워크 상태를 확인하고 '미리보기'를 한 번 더 눌러 주세요."
+        );
+        return;
+      }
+      // 라운드 77 트랙 C ②: 남은 실패(403 · 5xx · 400 검증)의 서버 사유를 그대로
       // 나른다 — 종전에는 err를 401 판정에만 쓰고 버려서 **모든 실패**가 CSV 형식을 지목했다
       // (analyst 계정의 403도, 죽은 서버도). 폴백에서 그 원인을 단정하던 가운데 한 절이 빠진
       // 이유가 그것이고, CSV 형식이 실제 원인일 때는 **서버가 그 사유를 말한다**.
-      // ⚠️ 관측(다음 라운드의 값): 라운드 77 트랙 B가 연결 실패를 R19-F 판정으로 가르면
-      // 비멱등 쓰기 갈래의 문장이 이 자리에도 흘러든다 — bulk-preview는 멱등키가 없는 POST라
-      // 그 갈래에 떨어지는데, 이 요청은 반영할 것이 없다. 그 자리는 이 트랙의 축(타임아웃)이
-      // 아니어서 오늘 열지 않고, 사실만 여기 적어 둔다.
       setError(writeErrorMessage(err, "미리보기에 실패했어요. 다시 시도해 주세요."));
     } finally {
       setPreviewing(false);
