@@ -2,8 +2,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
-import { calculateChildStage, type ChildStageCode } from "@wooriai/domain";
+import type { ChildStageCode } from "@wooriai/domain";
 import { STAGE_BAND_LABELS, STAGE_BAND_STAGES } from "../src/items-commerce/stage-bands";
+import {
+  mergeRanges,
+  overlaps,
+  parseBandLabelMonths,
+  parseTimingLabelMonths,
+  stageNotationRanges,
+  type MonthRange
+} from "../src/onboarding/timing-label-range";
 
 const apiRoot = fileURLToPath(new URL("..", import.meta.url));
 const prismaDir = join(apiRoot, "prisma");
@@ -71,7 +79,7 @@ const ALL_STAGE_CODES = [
 ];
 
 /**
- * 라운드 74 트랙 B — `timingLabel`을 읽는 첫 계약.
+ * 라운드 74 트랙 B — `timingLabel`을 읽는 첫 계약. **라운드 76 트랙 E: 판정을 모듈로 옮겼다.**
  *
  * 왜 필요했나: 상세 화면은 `timingLabel`을 **사실 줄로 승격**해 그대로 읽어 주고
  * (apps/mobile/app/items/[itemTemplateId].tsx의 "준비 시기"), 목록은 그 값을 보지 않고
@@ -80,99 +88,15 @@ const ALL_STAGE_CODES = [
  * (생후 8개월 부모가 "6-12개월" 목록에서 연 안전문의 상세가 "12~24개월"이라고 적혀 있었다).
  *
  * ⚠️ 개월 수를 이 파일에 손으로 다시 적지 않는다. 스테이지의 개월 경계는 `packages/domain`의
- * `calculateChildStage`를 **나이로 훑어** 파생시키고(아래 `stageNotationRanges`), 밴드의 개월
+ * `calculateChildStage`를 **나이로 훑어** 파생시키고(`stageNotationRanges`), 밴드의 개월
  * 경계는 밴드 라벨 네 문자열 자신에서 파싱한다. 도메인이 경계를 옮기면 이 계약이 따라 옮긴다.
- */
-const PROBE_TODAY = "2100-01-15";
-/** 훑는 상한(개월). 스테이지 경계값이 아니라 탐침 범위다 — 마지막 스테이지는 열린 구간으로 본다. */
-const PROBE_MAX_AGE_MONTHS = 600;
-
-type MonthRange = { from: number; to: number };
-
-function probeBirthDate(ageMonths: number): string {
-  const [year, month, day] = PROBE_TODAY.split("-").map(Number);
-  const totalMonths = year * 12 + (month - 1) - ageMonths;
-  const probeYear = Math.floor(totalMonths / 12);
-  const probeMonth = (totalMonths % 12) + 1;
-  return [
-    String(probeYear).padStart(4, "0"),
-    String(probeMonth).padStart(2, "0"),
-    String(day).padStart(2, "0")
-  ].join("-");
-}
-
-function stageForAgeMonths(ageMonths: number): ChildStageCode {
-  return calculateChildStage({ stageMode: "born", birthDate: probeBirthDate(ageMonths), today: PROBE_TODAY })
-    .stageCode;
-}
-
-/**
- * 출생 이후 스테이지의 **표기 구간**(개월). 카탈로그와 밴드 라벨이 쓰는 표기 관례를 그대로 따른다:
- * 구간의 시작 숫자는 "그 달이 되는 시점"이라 앞 스테이지의 마지막 개월과 같다
- * (밴드 `"6-12개월"`이 완료 개월 7~12인 `infant_7_12` 하나인 것이 그 관례의 증거다).
- * 그래서 시작값은 완료 개월 최소값 - 1이고, 마지막 스테이지의 끝은 열려 있다.
- */
-function stageNotationRanges(): Map<ChildStageCode, MonthRange> {
-  const completed = new Map<ChildStageCode, MonthRange>();
-  for (let ageMonths = 0; ageMonths <= PROBE_MAX_AGE_MONTHS; ageMonths += 1) {
-    const stage = stageForAgeMonths(ageMonths);
-    const seen = completed.get(stage);
-    completed.set(stage, { from: seen?.from ?? ageMonths, to: ageMonths });
-  }
-
-  const openEndedStage = stageForAgeMonths(PROBE_MAX_AGE_MONTHS);
-  const notation = new Map<ChildStageCode, MonthRange>();
-  for (const [stage, range] of completed) {
-    notation.set(stage, {
-      from: range.from === 0 ? 0 : range.from - 1,
-      to: stage === openEndedStage ? Number.POSITIVE_INFINITY : range.to
-    });
-  }
-  return notation;
-}
-
-/** `timingLabel`이 개월 구간을 말하면 그 구간을. 임신·연령(세)·서술 표기는 null(판정 대상 아님). */
-function parseTimingLabelMonths(label: string): MonthRange | null {
-  const span = /^(\d+)~(\d+)개월(?: 전후)?$/.exec(label);
-  if (span) return { from: Number(span[1]), to: Number(span[2]) };
-  const openEnded = /^(\d+)개월 이후$/.exec(label);
-  if (openEnded) return { from: Number(openEnded[1]), to: Number.POSITIVE_INFINITY };
-  return null;
-}
-
-/** 두 구간이 한 달이라도 겹치는가(표기 관례상 경계값은 앞뒤 구간이 함께 갖는다). */
-function overlaps(a: MonthRange, b: MonthRange): boolean {
-  return a.from <= b.to && b.from <= a.to;
-}
-
-/**
- * 구간들의 **합집합**(맞물리는 것끼리 이어 붙인다).
  *
- * 라운드 74 리뷰(제안 채택): 종전 검사는 `min(from)`·`max(to)` 하나로 뭉쳐서, 불연속한
- * `stageCodes` 조합(예: 신생아 + 네 살)의 **사이 빈 구간까지** 덮은 것으로 셌다.
+ * ⚠️ 라운드 76 트랙 E: 이 판정들은 **테스트 파일 안에만 살아서 시드만 물었다** — 어드민 CMS가
+ * 넣는 `timingLabel`은 어떤 대조도 지나지 않았다. 그래서 `../src/onboarding/timing-label-range`로
+ * **로직 그대로** 옮기고 여기서는 import한다(아래 단언은 한 줄도 바뀌지 않았다 — 계약이
+ * 약해지지 않았다는 증거다). 이제 저장 경로(items-catalog.service)와 검토 경로
+ * (admin/content-revisions.service)가 같은 판정을 지난다.
  */
-function mergeRanges(ranges: MonthRange[]): MonthRange[] {
-  const sorted = [...ranges].sort((a, b) => a.from - b.from);
-  const merged: MonthRange[] = [];
-  for (const range of sorted) {
-    const last = merged.at(-1);
-    if (last && range.from <= last.to) {
-      last.to = Math.max(last.to, range.to);
-      continue;
-    }
-    merged.push({ ...range });
-  }
-  return merged;
-}
-
-/** 밴드 라벨 네 문자열이 스스로 말하는 개월 구간(`"24개월+"`는 열린 구간). */
-function parseBandLabelMonths(label: string): MonthRange {
-  const span = /^(\d+)-(\d+)개월$/.exec(label);
-  if (span) return { from: Number(span[1]), to: Number(span[2]) };
-  const openEnded = /^(\d+)개월\+$/.exec(label);
-  expect(openEnded, `band label ${label} must state a month range`).not.toBeNull();
-  return { from: Number(openEnded?.[1]), to: Number.POSITIVE_INFINITY };
-}
 
 /**
  * 라운드 73까지의 라벨 사전(62건 · 서로 다른 **24**개).
