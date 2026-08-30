@@ -447,7 +447,7 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
       VALIDATION_ERROR:
         "바구니 코드다. 표에 넣으면 DTO 검증 실패 전량이 한 문구를 뒤집어쓴다 — 사유가 있는 갈래는 EXPENSE_CATEGORY_INVALID처럼 자기 코드를 받는다.",
       // --- items-catalog.service.ts의 어드민 전용 갈래 (apps/admin만 부른다) ---
-      // 넷 다 어드민 콘솔의 입력 검증이라 모바일 앱은 그 엔드포인트를 호출하지 않는다.
+      // 다섯 다 어드민 콘솔의 입력 검증이라 모바일 앱은 그 엔드포인트를 호출하지 않는다.
       // 원문이 영어인 것도 그래서다 — 사용자 화면에 설 문장이 아니다.
       ADMIN_ITEM_TEMPLATE_REQUIRED:
         "어드민 준비템 저장의 필수 입력 검증(normalizeAdminItemTemplateInput)과 어드민 링크 생성 시 itemTemplateId 누락 검증이다. 앱은 두 엔드포인트를 모두 호출하지 않는다.",
@@ -457,6 +457,8 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
         "어드민 고지 문구 저장의 빈 값 검증이다(adminUpdateDisclosure). 앱은 고지 문구를 읽기만 하고 쓰지 않는다.",
       ADMIN_SKIP_REASON_REQUIRED:
         "어드민 준비템 저장에서 필수가 아닌 템플릿에 건너뛰기 안내를 요구하는 검증이다. 앱은 이 엔드포인트를 호출하지 않는다.",
+      ITEM_TIMING_LABEL_MISMATCH:
+        "어드민 준비템 저장·검토 초안의 시기 라벨↔스테이지 정합 검증이다(라운드 76 E, requireTimingLabelMatchesStages). 앱은 카탈로그를 읽기만 하고 저장 엔드포인트를 호출하지 않는다.",
       // --- 앱이 지나지만 **큐가 아닌** 갈래 (구매 링크 클릭은 즉시 요청이다) ---
       PRODUCT_LINK_NOT_FOUND:
         "구매 링크 클릭(clickProductLink)의 404와 어드민 링크 조회의 404다. 클릭은 아웃박스를 타지 않는 즉시 요청이라 실패해도 큐 행이 남지 않고, 그 화면이 자기 문구를 쓴다(app/items/[itemTemplateId].tsx의 showLinkFailure). 아웃박스가 지나는 '연결하려던 링크가 없다'는 별도 코드 LINKED_PRODUCT_LINK_NOT_FOUND이고 그쪽은 표에 있다.",
