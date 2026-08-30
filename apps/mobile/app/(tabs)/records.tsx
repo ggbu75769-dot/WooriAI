@@ -787,7 +787,7 @@ export default function RecordsScreen() {
   // 사실이 아닌 문장이 나온다. 홈도 같은 페처를 쓰므로 두 화면의 캐시 내용이 계속 같다.
   const lastMonthExpenses = useQuery({
     queryKey: ["expenses", childId, lastYearMonth],
-    enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth),
+    enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth && expenses.isFetched),
     queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, lastYearMonth!, page))
   });
 

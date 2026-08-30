@@ -351,8 +351,11 @@ describe("REC-123(D1) 기록 탭 wiring contract", () => {
     expect(recordsSource).toContain('queryKey: ["expenses", childId, lastYearMonth]');
     // 홈(app/(tabs)/index.tsx)과 문자 그대로 같은 키여야 캐시가 실제로 공유된다.
     expect(homeSource).toContain('queryKey: ["expenses", childId, lastYearMonth]');
-    // 과거 달을 보는 동안에는 조회 자체가 비활성.
-    expect(recordsSource).toContain("enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth)");
+    // 과거 달을 보는 동안에는 조회 자체가 비활성. 라운드 83 B가 그 게이트는 그대로 둔 채 홈과 같은
+    // 순서로 첫 페인트 뒤로 미뤘다(`expenses.isFetched` — 대장은 src/query/home-payload-consumers.test.ts).
+    expect(recordsSource).toContain(
+      "enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth && expenses.isFetched)"
+    );
   });
 });
 
