@@ -83,6 +83,67 @@ export function nextPreparationGroupLimit(current: number, total: number) {
   return total;
 }
 
+/**
+ * 라운드 81 트랙 C — 첫 펼침을 **다시 계산할지** 정하는 순수 판정.
+ *
+ * 예전에는 그 판정의 키가 `selectedContextKey`(= 아이 id) **하나**였다. 그런데 그리는 그룹
+ * 목록을 갈아 끼우는 입력은 아이 말고도 넷이 더 있고(시기 밴드 칩·필수도 칩·찜 칩·검색어),
+ * 무엇보다 **콜드 스타트에는 분류 캐시가 늦게 온다** — 분류 이름을 아직 모르는 프레임에서는
+ * 모든 품목이 "기타" 한 그룹으로 묶이므로, 아이당 한 번뿐인 그 계산을 **곧 사라질 그룹**에
+ * 써 버리고 ref가 잠겼다. 분류가 도착해 그룹이 여덟~열로 갈리면 펼쳐 둔 "기타"는 목록에
+ * 없고, 사용자가 처음 보는 화면은 **접힌 헤더의 벽**이 된다(품목이 한 개도 보이지 않는다).
+ *
+ * 그래서 키를 *"지금 펼칠 그룹을 정하는 입력"* 으로 넓힌다 — 선택 컨텍스트 + 지금 그려질
+ * 그룹 목록의 서명. 대신 **사용자가 접은 것을 앱이 되펼치지 않는다**: 같은 아이 안에서 목록만
+ * 바뀐 경우, 펼쳐 둔 그룹 중 하나라도 새 목록에 살아 있으면 펼침 상태에 손대지 않고 키만
+ * 갱신한다. 아이가 바뀐 경우는 예전 그대로 첫 그룹을 다시 펼친다(다른 아이의 화면이다).
+ */
+const AUTO_EXPAND_KEY_SEPARATOR = "\u0000";
+
+export function preparationAutoExpandKey(contextKey: string | null, groupIds: readonly string[]) {
+  // 그룹 id는 **호출부가 정하는 값**이다(준비템 탭은 분류 *이름*을 쓴다). 그 값의 폭에 아무
+  // 가정을 두지 않으려고 JSON 인코딩으로 적는다 -- 어떤 문자가 와도 서로 다른 목록이 같은
+  // 서명이 되지 않고, JSON은 NUL을 반드시 이스케이프하므로 구분자로 쓴 raw NUL은 값 안에
+  // 나타날 수 없다(컨텍스트 부분과 그룹 부분이 섞이지 않는다).
+  return `${JSON.stringify(contextKey)}${AUTO_EXPAND_KEY_SEPARATOR}${JSON.stringify(groupIds)}`;
+}
+
+export type PreparationAutoExpandDecision = {
+  /** ref에 새로 적을 키. */
+  nextKey: string;
+  /** 새로 펼칠 그룹 id. `null`이면 지금 펼침 상태를 그대로 두고 키만 갱신한다. */
+  expandGroupId: string | null;
+};
+
+export function resolvePreparationAutoExpand({
+  contextKey,
+  expandedGroupIds,
+  groupIds,
+  previousKey
+}: {
+  /** 선택된 아이(또는 호출부가 정한 컨텍스트). */
+  contextKey: string | null;
+  /** 지금 펼쳐져 있는 그룹 id들. */
+  expandedGroupIds: readonly string[];
+  /** 지금 그려질 그룹 id들(그리는 순서 그대로). */
+  groupIds: readonly string[];
+  /** 직전에 자동 펼침을 계산한 키. 아직 한 번도 계산하지 않았으면 `undefined`. */
+  previousKey: string | undefined;
+}): PreparationAutoExpandDecision | null {
+  const [firstGroupId] = groupIds;
+  // 그릴 그룹이 하나도 없으면 예전과 같이 아무것도 하지 않는다(키도 잠그지 않는다) --
+  // 조회가 끝나기 전의 빈 프레임에 그 한 번을 쓰지 않기 위한 예전 가드 그대로다.
+  if (firstGroupId === undefined) return null;
+  const nextKey = preparationAutoExpandKey(contextKey, groupIds);
+  // 같은 아이 · 같은 그룹 목록이면 리렌더가 몇 번 오든 손대지 않는다(사용자가 접은 상태 보존).
+  if (previousKey === nextKey) return null;
+  const sameContext = previousKey !== undefined
+    && previousKey.startsWith(`${JSON.stringify(contextKey)}${AUTO_EXPAND_KEY_SEPARATOR}`);
+  if (!sameContext) return { expandGroupId: firstGroupId, nextKey };
+  const survivesInNextList = expandedGroupIds.some((id) => groupIds.includes(id));
+  return { expandGroupId: survivesInNextList ? null : firstGroupId, nextKey };
+}
+
 const displayGroups: ReadonlyArray<{
   id: PreparationDisplayGroupId;
   name: string;
@@ -264,7 +325,7 @@ export function PreparationListParity({
   const [groupLimits, setGroupLimits] = useState<Record<string, number>>({});
   const [searchLimit, setSearchLimit] = useState(20);
   const [searchDraft, setSearchDraft] = useState("");
-  const autoExpandedContext = useRef<string | null | undefined>(undefined);
+  const autoExpandedKey = useRef<string | undefined>(undefined);
   const submittedSearch = useRef("");
 
   const categories = useMemo(() => (categoryGroups ?? displayGroups)
@@ -283,11 +344,18 @@ export function PreparationListParity({
     .filter((band) => band.items.length > 0 && band.items.length >= minimumGroupSize), [items, minimumGroupSize]);
 
   useEffect(() => {
-    const firstPopulatedCategory = categories.find((group) => group.items.length > 0);
-    if (!firstPopulatedCategory || autoExpandedContext.current === selectedContextKey) return;
-    autoExpandedContext.current = selectedContextKey;
-    setExpandedGroups(new Set([firstPopulatedCategory.id]));
-  }, [categories, selectedContextKey]);
+    const decision = resolvePreparationAutoExpand({
+      contextKey: selectedContextKey,
+      expandedGroupIds: [...expandedGroups],
+      groupIds: categories.filter((group) => group.items.length > 0).map((group) => group.id),
+      previousKey: autoExpandedKey.current
+    });
+    if (!decision) return;
+    autoExpandedKey.current = decision.nextKey;
+    // 키만 갱신하는 갈래(살아 있는 그룹이 있다) — 사용자가 만든 펼침/접힘을 그대로 둔다.
+    if (decision.expandGroupId === null) return;
+    setExpandedGroups(new Set([decision.expandGroupId]));
+  }, [categories, expandedGroups, selectedContextKey]);
 
   /**
    * 입력 디바운스. **빈 문자열도 하나의 검색어**다.
