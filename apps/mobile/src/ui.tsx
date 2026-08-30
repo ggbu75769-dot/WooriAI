@@ -6,6 +6,7 @@ import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath"
 import { formatKrw } from "./money";
 import { computeCategoryShares } from "./reports/category-share";
 import type { CategoryShareSlice } from "./reports/category-share";
+import type { TrendPointLabels } from "./reports/trend-point-labels";
 import { theme } from "./theme";
 
 type ChildrenProps = {
@@ -797,7 +798,8 @@ export function LineChartCard({
   value,
   deltaLabel,
   points,
-  chartNotice
+  chartNotice,
+  pointLabels
 }: {
   title: string;
   value: string;
@@ -805,6 +807,12 @@ export function LineChartCard({
   points?: number[];
   /** 차트 자리에 선 대신 그릴 한 줄. 없으면(undefined/null) 종전 그대로 선을 그린다. */
   chartNotice?: string | null;
+  /**
+   * 라운드 85 트랙 C: 점마다의 달 라벨과 낭독 계열(src/reports/trend-point-labels.ts).
+   * 넘기지 않으면(undefined/null) **종전 렌더 그대로**다 — 비세션 미리보기(REP-001 픽셀락)와
+   * 점 2개 미만의 장식 폴백은 이 값에 닿지 않는다.
+   */
+  pointLabels?: TrendPointLabels | null;
 }) {
   const showDelta = deltaLabel !== null;
   // deltaLabel undefined means no real comparison data -- the visible "+12.5%" is preview-only
@@ -826,6 +834,14 @@ export function LineChartCard({
   const activePoints = noticeText ? [] : drawnPoints;
   const activeSegments = noticeText ? [] : hasRealData ? lineChartSegmentsFor(drawnPoints) : lineChartSegments;
   const gridLineTops = noticeText ? [] : [25, 50, 75];
+  // 라운드 85 트랙 C: 축 라벨은 **실데이터 갈래에만** 선다. 장식 폴백(점 2개 미만·비세션)과
+  // 빈 상태는 이 값이 null이라 렌더가 종전과 바이트 단위로 같다. 수가 어긋나면 그리지 않는다 --
+  // 조립기가 이미 같은 판정을 하지만, 어느 점이 어느 달인지 틀리게 말하는 축은 여기서도 막는다.
+  const axisLabels =
+    !noticeText && hasRealData && pointLabels && pointLabels.labels && pointLabels.labels.length === drawnPoints.length
+      ? pointLabels.labels
+      : null;
+  const seriesText = axisLabels ? pointLabels?.accessibilitySeries ?? null : null;
 
   return (
     <Card style={{ gap: 8 }}>
@@ -854,7 +870,10 @@ export function LineChartCard({
         accessibilityLabel={
           noticeText
             ? `${title} 합계 ${value}, ${noticeText}`
-            : `${title} 추이 차트, 합계 ${value}${hasRealDelta ? `, 지난 달 대비 ${deltaText}` : ""}`
+            : // 라운드 85 트랙 C: 실데이터 갈래에서는 각 점의 **달과 값**까지 읽는다 -- 종전에는
+              // 합계에서 멈춰, 눈으로 보이는 추이를 소리로는 들을 수 없었다. 미리보기 전용 가짜
+              // 델타는 여전히 이 문장에 들어오지 않는다(A11Y-117).
+              `${title} 추이 차트, 합계 ${value}${hasRealDelta ? `, 지난 달 대비 ${deltaText}` : ""}${seriesText ? `, ${seriesText}` : ""}`
         }
         onLayout={!noticeText && hasRealData ? (event) => setMeasuredWidth(event.nativeEvent.layout.width) : undefined}
         style={
@@ -917,6 +936,26 @@ export function LineChartCard({
             />
           );
         })}
+        {/* 라운드 85 트랙 C: 점이 어느 달인지 축이 말한다. 카드 높이·격자선·점 크기는 그대로다 --
+            라벨은 플롯 영역의 **이미 비어 있는 아래 여백**(lineChartPaddingBottom 20)에 절대
+            배치로 들어가므로 선/점 좌표에 닿지 않는다. 이 줄은 실데이터 갈래에만 서고
+            (axisLabels === null이면 렌더 0건), 바깥 View가 accessible이라 라벨 하나하나가 따로
+            읽히지 않는다 -- 소리로는 위 accessibilityLabel의 계열 한 조각이 대신 말한다. */}
+        {axisLabels ? (
+          <View
+            style={{ bottom: 0, flexDirection: "row", justifyContent: "space-between", left: 0, position: "absolute", right: 0 }}
+          >
+            {axisLabels.map((label, index) => (
+              <Text
+                key={`${label}-${index}`}
+                numberOfLines={1}
+                style={{ color: theme.colors.gray600, fontSize: 9, lineHeight: 12 }}
+              >
+                {label}
+              </Text>
+            ))}
+          </View>
+        ) : null}
       </View>
     </Card>
   );
