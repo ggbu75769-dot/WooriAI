@@ -16,6 +16,7 @@ import { theme } from "../theme";
 import { isPurchaseFollowupHeldByAppLock } from "./purchase-followup-resolution";
 import { createPurchaseFollowupSessionGate, evaluateFollowupPrompt, followupSessionKey } from "./purchase-followup-session";
 import {
+  createPurchaseFollowupEligibilityTimer,
   isFollowupForSelectedChild,
   purchaseFollowupMerchantLabel,
   usePurchaseFollowupStore,
@@ -28,6 +29,10 @@ import {
  * (post-rehydration) and on every foreground return (AppState 'active') it checks the persisted
  * purchase-followup store for a pending product-link click that is 3min–24h old and, at most
  * once per app session per click, shows a non-blocking bottom card asking 구매하셨나요?.
+ *
+ * 라운드 81 트랙 B(자격 도래 타이머): 그 두 순간에 더해, 판정이 돌 때마다 **다음 자격 도래
+ * 시각**에 한 번 더 판정하도록 일회용 타이머를 건다(자격 창이 앱 안에서 열리는 세션을 통째로
+ * 놓치던 자리 — 술어는 purchase-followup.store.ts의 nextPromptEligibleDelayMs).
  *
  * Never blocks navigation: the overlay wrapper uses pointerEvents="box-none" so only the card
  * itself is touchable, and the component renders null (and attaches no listeners) whenever
@@ -133,18 +138,32 @@ export function PurchaseFollowupLifecycle() {
      * (appLockHeld가 의존성이다) 조건이 여전한 항목을 그때 판정한다.
      */
     if (appLockHeld) return;
+    /**
+     * 라운드 81 트랙 B — **자격 창이 열리는 순간을 보고 있는다.**
+     *
+     * 아래 방아쇠 셋(하이드레이션 · `AppState "active"` · 의존성 변화)은 전부 사용자가 앱 밖에서
+     * 무언가를 한 순간이라, 링크를 누르고 3분 안에 돌아온 사람에게는 그 세션 내내 판정이 다시
+     * 서지 않았다(자격은 14분째 갖춰져 있는데도). 그래서 판정이 돌 때마다 **다음 자격 도래
+     * 시각에 한 번 깨우는 일회용 타이머**를 다시 건다 — 창 상수도, 세션 슬롯도, 아이 게이트도
+     * 한 글자도 약해지지 않는다. 타이머가 하는 일은 "그때 다시 물어본다" 하나다.
+     */
+    const eligibilityTimer = createPurchaseFollowupEligibilityTimer(() => check());
     const check = () => {
+      const now = Date.now();
       // 라운드 39 I-3: 아이가 바뀌어 가려진 카드는 세션 슬롯을 돌려받고 내려간다 — 그래야 그
       // 아이로 돌아왔을 때 다시 묻는다(규칙과 근거는 purchase-followup-session.ts).
       const next = evaluateFollowupPrompt({
         gate: promptSessionGate,
         active: activeFollowupRef.current,
         entries: usePurchaseFollowupStore.getState().entries,
-        now: Date.now(),
+        now,
         selectedChildId
       });
       activeFollowupRef.current = next;
       setActiveFollowup(next);
+      // 판정이 끝난 자리에서 다음 깨움을 다시 건다(이전 타이머는 그 안에서 해제된다 --
+      // 포그라운드 복귀로 판정이 다시 돌아도 타이머가 겹쳐 쌓이지 않는다).
+      eligibilityTimer.schedule(usePurchaseFollowupStore.getState().entries, now, selectedChildId);
     };
     // Cold start: only check once the persisted entries have actually rehydrated -- checking the
     // (still-empty) initial state would silently miss the stored click.
@@ -156,6 +175,9 @@ export function PurchaseFollowupLifecycle() {
     return () => {
       unsubscribeHydration();
       subscription.remove();
+      // 언마운트·의존성 변화(세션 종료·아이 전환·앱 잠금)에서 반드시 해제한다 -- 지난 판정이
+      // 걸어 둔 깨움이 살아남으면 이미 무효가 된 조건으로 판정이 한 번 더 돈다.
+      eligibilityTimer.clear();
     };
   }, [hasSession, selectedChildId, appLockHeld]);
 

@@ -196,6 +196,102 @@ export function selectPromptEligibleFollowup(
 }
 
 /**
+ * 라운드 81 트랙 B — **자격 창이 열리기까지 남은 시간**(밀리초), 없으면 null.
+ *
+ * 왜 필요한가: 자격은 시간 두 개(`PURCHASE_FOLLOWUP_MIN_AGE_MS`·`PURCHASE_FOLLOWUP_MAX_AGE_MS`)로
+ * 정의되는데, 그 시간이 지나는 것을 보고 있는 자리가 없었다. 판정(`isPromptEligible`)은 콜드
+ * 스타트·포그라운드 복귀·아이 전환에만 돌기 때문에, 링크를 누르고 **3분 안에 앱으로 돌아온**
+ * 사용자에게는 그 세션 내내 카드가 오지 않았다 — 90초 뒤 복귀하면 "아직 3분 전"으로 떨어지고,
+ * 그 뒤 앱 안에서 20분을 써도 `"active"`는 다시 오지 않는다. MIN_AGE가 존재하는 이유
+ * (*"아직 구매 중일 수 있다"*)는 사용자가 앱으로 돌아온 순간 이미 소멸했는데, 판정이 그것을
+ * 알 방법이 없었다.
+ *
+ * 이 함수는 **판정을 한 글자도 바꾸지 않는다** — "언제 다시 물어볼까"만 답한다. 답을 받은
+ * 호출부(PurchaseFollowupPrompt.tsx)는 그 시각에 같은 판정을 한 번 더 세울 뿐이고, 실제로
+ * 카드가 뜰지는 여전히 세션 슬롯(purchase-followup-session.ts)·아이 게이트·앱 잠금 보류가
+ * 정한다.
+ *
+ * 세는 대상은 **지금 선택된 아이의 pending 항목 중 아직 창에 들지 않은 것**뿐이다.
+ *  - 이미 자격을 갖춘 항목: 남은 시간이 0 이하라 세지 않는다(지금 판정이 이미 본다).
+ *  - 24시간을 넘긴 항목: 마찬가지로 0 이하다 — 기다려도 자격은 다시 생기지 않는다.
+ *  - 답변 예산을 다 쓴 항목(`promptCount >= MAX_PROMPTS`)·pending이 아닌 항목·다른 아이의
+ *    항목: 그 시각에 깨워도 후보가 될 수 없으므로 세지 않는다(헛도는 깨움 0건).
+ *
+ * ⚠️ **상한이 자기 안에 있다**: 답은 언제나 `PURCHASE_FOLLOWUP_MIN_AGE_MS` 이하다. 기기 시계가
+ * 뒤로 가거나 클릭 시각이 미래인 blob(clickedAt > now)이라도 그 상한으로 잘라, 호출부가 몇
+ * 시간짜리 타이머를 걸고 앉아 있는 일이 없다.
+ */
+export function nextPromptEligibleDelayMs(
+  entries: PurchaseFollowupEntry[],
+  now: number,
+  selectedChildId: string | null
+): number | null {
+  let best: number | null = null;
+  for (const entry of entries) {
+    if (entry.status !== "pending") continue;
+    if (entry.promptCount >= PURCHASE_FOLLOWUP_MAX_PROMPTS) continue;
+    if (!isFollowupForSelectedChild(entry, selectedChildId)) continue;
+    // 남은 시간이 0 이하면 기다릴 것이 없다 -- 이미 창 안이거나(지금 판정이 본다) 창을 지났다.
+    const remaining = entry.clickedAt + PURCHASE_FOLLOWUP_MIN_AGE_MS - now;
+    if (remaining <= 0) continue;
+    const capped = Math.min(remaining, PURCHASE_FOLLOWUP_MIN_AGE_MS);
+    if (best === null || capped < best) best = capped;
+  }
+  return best;
+}
+
+export type PurchaseFollowupEligibilityTimer = {
+  /**
+   * 지금 상태로 **다음 자격 도래 시각에 한 번** 깨우도록 다시 건다. 걸려 있던 타이머는 반드시
+   * 먼저 해제하므로 동시에 살아 있는 타이머는 언제나 최대 하나다. 깨울 이유가 없으면
+   * (술어가 null) 아무것도 걸지 않는다.
+   */
+  schedule: (entries: PurchaseFollowupEntry[], now: number, selectedChildId: string | null) => void;
+  /** 걸린 타이머를 해제한다(언마운트·의존성 변화의 cleanup). */
+  clear: () => void;
+  /** 지금 타이머가 걸려 있는가(테스트·디버깅용 조회). */
+  isArmed: () => boolean;
+};
+
+/**
+ * 라운드 81 트랙 B — 위 술어를 실제 시계에 꽂는 **일회용 타이머 하나**.
+ *
+ * 화면(PurchaseFollowupPrompt.tsx)은 판정을 effect 안에서 돌리는데, 그 effect가 다시 도는
+ * 계기는 하이드레이션·`AppState "active"`·의존성 셋뿐이다. 그래서 "그때 다시 물어본다"를
+ * 맡을 자리가 필요하고, 그 자리는 **화면이 아니라 여기**다 — 화면은 vitest에서 렌더할 수
+ * 없어서(react-native import) 타이머가 화면 안에 있으면 "제때 깨우는가·중복으로 걸지 않는가·
+ * cleanup에서 풀리는가"를 단위로 물을 방법이 없다. 세션 게이트를 순수 모듈로 떼어 낸
+ * 라운드 39 I-3과 같은 이유·같은 모양(팩토리 하나 · 실행 상태는 클로저)이다.
+ *
+ * 규칙 판정은 한 줄도 여기에 없다 — 언제 깨울지는 `nextPromptEligibleDelayMs`가, 깨운 뒤
+ * 무엇을 띄울지는 `evaluateFollowupPrompt`가 정한다. 이 팩토리가 아는 것은 setTimeout 하나뿐이다.
+ */
+export function createPurchaseFollowupEligibilityTimer(onDue: () => void): PurchaseFollowupEligibilityTimer {
+  let handle: ReturnType<typeof setTimeout> | null = null;
+  const clear = () => {
+    if (handle === null) return;
+    clearTimeout(handle);
+    handle = null;
+  };
+  return {
+    schedule: (entries, now, selectedChildId) => {
+      // 다시 걸기 전에 반드시 해제한다: 포그라운드 복귀·아이 전환처럼 판정이 여러 번 도는
+      // 경로에서 타이머가 겹쳐 쌓이면 같은 시각에 판정이 여러 번 돈다(중복 발화).
+      clear();
+      const delay = nextPromptEligibleDelayMs(entries, now, selectedChildId);
+      if (delay === null) return;
+      handle = setTimeout(() => {
+        // 일회용이다 -- 발화한 타이머는 스스로 표시를 내리고, 다음 타이머는 그 판정이 다시 건다.
+        handle = null;
+        onDue();
+      }, delay);
+    },
+    clear,
+    isArmed: () => handle !== null
+  };
+}
+
+/**
  * 답변 예산을 한 칸 쓴다: 그 답이 상한에 닿으면 항목은 expired로 굳어 다시 묻지 않는다.
  * pending이 아닌 항목은 이미 답이 끝난 것이라 건드리지 않는다.
  *

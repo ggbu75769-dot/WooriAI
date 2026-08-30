@@ -337,3 +337,69 @@ describe("라운드 49 C-03 판매처 입력칸의 픽셀 락 게이트", () => 
     expect(expenseSource).toContain("38,500원");
   });
 });
+
+/**
+ * 라운드 81 트랙 B — **자격 창이 열리는 순간을 보고 있는다.**
+ *
+ * 자격은 시간 두 개(`PURCHASE_FOLLOWUP_MIN_AGE_MS`·`MAX_AGE_MS`)로 정의되는데, 그 시간이
+ * 지나는 것을 보는 자리가 없었다: `check()`를 부르는 방아쇠는 하이드레이션 · `AppState "active"` ·
+ * effect 의존성 셋뿐이고, 셋 다 사용자가 **앱 밖에서** 무언가를 한 순간이다. 그래서 링크를
+ * 누르고 90초 만에 돌아온 사람은 "아직 3분 전"으로 떨어진 뒤 그 세션 내내 카드를 보지 못했다
+ * (자격은 90초 뒤에 갖춰졌는데도). 저녁에 다시 열면 그때는 뜨지만, 다음 날 아침이면 24시간이
+ * 지나 영영 뜨지 않는다.
+ *
+ * 고치는 것은 둘뿐이다 — **순수 술어 하나**(다음 자격 도래까지 남은 시간)와 그 값으로 거는
+ * **일회용 타이머 하나**. 창 상수·세션 슬롯·아이 게이트·앱 잠금 보류는 한 글자도 약해지지
+ * 않는다(타이머가 하는 일은 "그때 다시 물어본다" 하나다). 술어·타이머의 계약 전문은
+ * purchase-followup.store.test.ts에 있고, 여기서는 **화면이 그 술어를 통해서만 타이머를 걸고
+ * cleanup에서 반드시 해제한다**는 배선을 못박는다.
+ */
+describe("라운드 81 B 자격 도래 시각의 재판정 배선", () => {
+  it("술어와 타이머는 스토어의 단일 소스이고, 화면은 시계를 직접 만지지 않는다", () => {
+    const storeSource = source("src/commerce/purchase-followup.store.ts");
+    expect(storeSource).toContain("export function nextPromptEligibleDelayMs(");
+    expect(storeSource).toContain("export function createPurchaseFollowupEligibilityTimer(");
+    // 상한이 술어 자기 안에 있다 -- 답은 언제나 MIN_AGE 이하다(시계 역행·미래 blob 포함).
+    expect(storeSource).toContain("Math.min(remaining, PURCHASE_FOLLOWUP_MIN_AGE_MS)");
+    // 창 상수는 이 트랙에서 바이트 불변이다(그 창이 지나는 것을 볼 뿐 창을 바꾸지 않는다).
+    expect(storeSource).toContain("export const PURCHASE_FOLLOWUP_MIN_AGE_MS = 3 * 60 * 1000;");
+    expect(storeSource).toContain("export const PURCHASE_FOLLOWUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;");
+    expect(storeSource).toContain("export const PURCHASE_FOLLOWUP_MAX_PROMPTS = 2;");
+
+    const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
+    expect(promptSource).toContain("createPurchaseFollowupEligibilityTimer,");
+    expect(promptSource).toContain("const eligibilityTimer = createPurchaseFollowupEligibilityTimer(() => check());");
+    // 화면에 시계 사본이 생기지 않는다 -- 깨움은 그 팩토리 하나를 통해서만 걸린다.
+    expect(promptSource).not.toContain("setTimeout(");
+    expect(promptSource).not.toContain("setInterval(");
+  });
+
+  it("판정이 돌 때마다 다음 깨움을 다시 걸고(중복 없음), cleanup에서 반드시 해제한다", () => {
+    const promptSource = source("src/commerce/PurchaseFollowupPrompt.tsx");
+    // 재판정이 곧 재예약이다: 판정 본문의 끝에서 술어에 지금 상태를 그대로 넘긴다.
+    const checkIndex = promptSource.indexOf("const check = () => {");
+    const hydrationIndex = promptSource.indexOf("if (usePurchaseFollowupStore.persist.hasHydrated()) check();");
+    expect(checkIndex, "판정 본문(check)을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(hydrationIndex, "콜드 스타트 방아쇠를 찾지 못했어요").toBeGreaterThan(checkIndex);
+    const checkBody = promptSource.slice(checkIndex, hydrationIndex);
+    expect(checkBody).toContain("eligibilityTimer.schedule(usePurchaseFollowupStore.getState().entries, now, selectedChildId);");
+    // 세션 슬롯·아이 게이트를 지나는 판정은 종전 그대로다(타이머는 그 판정을 다시 부를 뿐이다).
+    expect(checkBody).toContain("gate: promptSessionGate,");
+    expect(checkBody).toContain("selectedChildId");
+
+    // cleanup(언마운트 · 세션 종료 · 아이 전환 · 앱 잠금)에서 해제한다.
+    const cleanupIndex = promptSource.indexOf("      unsubscribeHydration();");
+    const depsIndex = promptSource.indexOf("}, [hasSession, selectedChildId, appLockHeld]);");
+    expect(cleanupIndex, "effect cleanup을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(depsIndex, "effect 의존성 줄을 찾지 못했어요").toBeGreaterThan(cleanupIndex);
+    const cleanupBlock = promptSource.slice(cleanupIndex, depsIndex);
+    expect(cleanupBlock).toContain("eligibilityTimer.clear();");
+
+    // 잠금이 덮고 있는 동안에는 타이머도 걸지 않는다 -- 예약은 잠금 게이트 **뒤**에 선다.
+    const lockGuardIndex = promptSource.indexOf("if (appLockHeld) return;");
+    expect(lockGuardIndex, "앱 잠금 보류 게이트를 찾지 못했어요").toBeGreaterThan(-1);
+    expect(promptSource.indexOf("const eligibilityTimer = createPurchaseFollowupEligibilityTimer")).toBeGreaterThan(
+      lockGuardIndex
+    );
+  });
+});
