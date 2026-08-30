@@ -560,15 +560,16 @@ function MfaSetupScreen() {
         {loading ? <p className={styles.hint}>불러오는 중...</p> : null}
         {/* 라운드 75 트랙 D: 이유는 한 벌에서 오고, [다시 시도]는 그 판정(canRetry)에서
             파생된다 — 다시 눌러도 같은 답이 오는 실패에는 서지 않는다. 라벨은 열한 자리가
-            이미 쓰는 그 문자열이고(새 문구 0건), 이 화면의 스타일 시트에는 배너용 버튼 클래스가
-            없어 같은 카드의 보조 버튼 셋과 같은 모양(legacyToggle)을 쓴다. */}
+            이미 쓰는 그 문자열이다(새 문구 0건). 적대적 리뷰 S-6: 모양도 그 열한 자리와 같은
+            `.retryButton`이다 — 종전에 빌려 쓰던 `.legacyToggle`은 회색 #7a7a7a라 대비가
+            4.29:1(AA 미달)이었고 여백이 0이라 오류 문장에 붙어 렌더됐다. */}
         {loadError ? (
           <p className={styles.errorText}>
             {loadError.message}
             {loadError.canRetry ? (
               <button
                 type="button"
-                className={styles.legacyToggle}
+                className={styles.retryButton}
                 onClick={() => setReloadKey((key) => key + 1)}
               >
                 다시 시도

@@ -509,9 +509,20 @@ describe("MFA 등록 관문의 조회 실패 (라운드 75 트랙 D)", () => {
         new RegExp(`styles\\.retryButton\\}[\\s\\S]{0,120}?>\\s*${label}\\s*</button>`)
       );
     }
-    expect(readSource(shellPath), "셸이 같은 라벨을 쓴다").toMatch(
-      new RegExp(`>\\s*${label}\\s*</button>`)
+    // 적대적 리뷰 S-6: 라벨만이 아니라 **모양도** 그 열한 자리와 같다. 종전에는 이 자리만
+    // `.legacyToggle`(회색 #7a7a7a · 대비 4.29:1로 AA 미달 · 여백 0이라 문장에 붙는다)이었다.
+    expect(readSource(shellPath), "셸이 같은 라벨과 같은 클래스를 쓴다").toMatch(
+      new RegExp(`styles\\.retryButton\\}[\\s\\S]{0,120}?>\\s*${label}\\s*</button>`)
     );
+    // 그 클래스가 셸의 스타일 시트에 실제로 있다(값은 admin-page.module.css에서 그대로 왔고
+    // 새 색을 만들지 않았다 — 두 파일이 같은 색을 적는다).
+    const shellCss = readSource("src/components/admin-shell.module.css");
+    const pageCss = readSource("src/components/admin-page.module.css");
+    expect(shellCss).toContain(".retryButton {");
+    for (const declaration of ["border: 1px solid #a13030;", "color: #a13030;", "margin-left: 8px;"]) {
+      expect(shellCss, `.retryButton의 ${declaration}`).toContain(declaration);
+      expect(pageCss, `admin-page.module.css의 ${declaration}`).toContain(declaration);
+    }
   });
 
   /**
@@ -741,5 +752,130 @@ describe("트랙 D의 무접촉 계약", () => {
     ]);
     // 워커 조회는 GET 하나다 — 이 화면에 새 쓰기가 생기지 않았다.
     expect(readSource("src/lib/admin-api.ts")).toContain('return request<WorkerHealth>("/health/worker");');
+  });
+});
+
+/**
+ * 라운드 75 적대적 리뷰 채택 — **옛/직접 리터럴 부정 단언 스윕**(모바일 `messages.test.ts`의 대칭).
+ *
+ * 이 파일의 파생 단언 둘은 "배선해 놓고 목록에 안 적었다"와 "목록에 적어 놓고 배선을 뗐다"를
+ * 잡는다. 잡지 못하는 축은 모바일 쪽 라운드 74 D가 이미 이름 붙여 두었다 — **새 화면이 한 벌을
+ * 아예 부르지 않고 자기 문장을 손으로 적으면 사용 집합에도 목록에도 없으므로 양쪽이 일치한 채
+ * 통과한다.** 어드민에서 실제로 그렇게 통과한 채 살아 있던 자리가 MFA 등록 관문이었다.
+ *
+ * 그래서 반대 방향의 단언을 여기 세운다. 묻는 것은 둘이다.
+ *  ⓐ **한 벌이 하는 일의 손 사본 형태**(`error instanceof AdminApiError ? error.message : "…"`)가
+ *    살아 있는 자리는 예외 없이 **이유와 함께 값으로** 적혀 있을 것. 오늘 그 자리는 전부
+ *    **쓰기** 실패다(R19-F의 경계 — 조회에 이 형태가 다시 생기면 여기가 먼저 빨개진다).
+ *  ⓑ **이미 허용된 리터럴**(각 화면이 한 벌에 넘기는 종전 폴백 문장)은 **기대 출현 수로 고정**.
+ *    자리가 하나라도 늘면(= 화면이 그 문장을 손으로 되쓰면) 이 단언이 먼저 빨개진다.
+ *
+ * ⚠️ 바늘을 파생시키지 못하는 이유도 값이다: 모바일은 공용 상수 한 문장(`LOAD_ERROR_NOTICE`)에서
+ * 바늘을 잘라 오지만, 어드민의 폴백은 **화면마다 다른 종전 문장**이고 그것이 라운드 73 트랙 D의
+ * 판정(“그 밖이면 종전 화면별 기본문장 그대로”)이다. 공통분모는 어미 한 조각뿐이라 여기서는
+ * 그 조각을 바늘로 쓴다.
+ */
+describe("옛/직접 리터럴 부정 단언 스윕 (모바일 messages.test.ts의 대칭)", () => {
+  /** 주석은 걷어낸다 — 이 저장소의 화면 주석은 자기가 무엇을 고쳤는지 설명하려고 옛 문장을 인용한다. */
+  const codeOnly = (text: string) =>
+    text
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/[^\n]*/g, " ");
+
+  /** 화면별 출현 횟수(코드만 — 0건인 화면은 담지 않는다). */
+  const screenPhraseCounts = (phrase: string): Record<string, number> => {
+    const found: Record<string, number> = {};
+    for (const path of appScreenPaths()) {
+      const count = codeOnly(readSource(path)).split(phrase).length - 1;
+      if (count > 0) found[path] = count;
+    }
+    return found;
+  };
+
+  /** 한 벌이 하는 일의 **손 사본** 형태. 라운드 73 트랙 D가 열다섯 자리에서 걷어낸 그 모양이다. */
+  const HAND_COPIED_SHAPE = "error instanceof AdminApiError ? error.message";
+
+  /** 그 형태가 살아 있는 자리와 이유. 오늘은 한 파일이고, 그 안의 다섯이 전부 **쓰기**다. */
+  const HAND_COPIED_SHAPE_OCCURRENCES: Readonly<Record<string, { count: number; reason: string }>> = {
+    "src/components/AdminShell.tsx": {
+      count: 5,
+      reason:
+        "다섯 자리 전부 **쓰기** 실패다(비밀번호 변경 · MFA 해제 · 로그인 · MFA 인증 · 등록 코드 확인). " +
+        "쓰기 실패의 판정은 R19-F가 근거와 함께 세워 뒀고(WRITE_TIMEOUT_MESSAGE — \"재시도를 권하지 않는다\"), " +
+        "그 자리는 폼 자체가 재시도라 조회 한 벌의 대상이 아니다. 같은 파일의 **조회** 한 자리는 " +
+        "라운드 75 트랙 D가 이 형태에서 loadErrorCopy로 옮겼다."
+    }
+  };
+
+  it("ⓐ 손 사본 형태가 살아 있는 자리는 예외 없이 이유와 함께 값으로 적혀 있다", () => {
+    const counts = screenPhraseCounts(HAND_COPIED_SHAPE);
+    // 그물이 실제로 두 뿌리를 훑고 있다는 증거(빈 답이 조용히 통과하지 않게).
+    expect(appScreenPaths().length).toBeGreaterThan(10);
+    expect(counts).toEqual(
+      Object.fromEntries(Object.entries(HAND_COPIED_SHAPE_OCCURRENCES).map(([path, entry]) => [path, entry.count]))
+    );
+    for (const [path, entry] of Object.entries(HAND_COPIED_SHAPE_OCCURRENCES)) {
+      expect(entry.reason.trim().length, `${path}의 사유가 값으로 남아 있다`).toBeGreaterThan(30);
+    }
+  });
+
+  it("ⓐ 그 형태가 조회 상태에 다시 들어오지 않는다 (부정 단언)", () => {
+    for (const path of appScreenPaths()) {
+      const source = codeOnly(readSource(path));
+      expect(source, `${path}: 조회 실패 상태에 손 사본을 넣지 않는다`).not.toMatch(
+        /set(?:Load|Detail)Error\(\s*error instanceof AdminApiError/
+      );
+    }
+  });
+
+  /**
+   * ⓑ 이미 **허용된** 리터럴. 전부 `loadErrorCopy`/`loadErrorMessage`에 넘기는 종전 폴백
+   * 문장이거나(라운드 73 트랙 D: "그 밖이면 종전 화면별 기본문장 그대로") 오류 경계의 제목이다.
+   */
+  const FALLBACK_PHRASE = "불러오지 못했어요";
+
+  const FALLBACK_PHRASE_OCCURRENCES: Readonly<Record<string, number>> = {
+    "app/analytics/page.tsx": 1,
+    "app/audit-logs/page.tsx": 1,
+    "app/categories/page.tsx": 1,
+    "app/clicks/page.tsx": 1,
+    "app/disclosures/page.tsx": 1,
+    "app/error.tsx": 1,
+    "app/items/page.tsx": 1,
+    "app/links/page.tsx": 1,
+    "app/page.tsx": 1,
+    "app/reviews/page.tsx": 2,
+    "app/users/page.tsx": 1,
+    "src/components/AdminShell.tsx": 1
+  };
+
+  /** 한 벌의 소비 자리가 아닌데 그 어미를 쓰는 곳과 그 이유. */
+  const FALLBACK_PHRASE_NON_SITE_SCREENS: Readonly<Record<string, string>> = {
+    "app/error.tsx":
+      "Next의 오류 경계 화면 제목이다(\"화면을 불러오지 못했어요\"). 이 자리는 조회 실패가 아니라 " +
+      "렌더 자체가 던진 예외를 받는 곳이라 AdminApiError가 없고, 한 벌이 물어볼 상태 코드도 없다."
+  };
+
+  it("ⓑ 허용된 폴백 문장의 화면별 출현 수가 값과 정확히 일치한다", () => {
+    expect(screenPhraseCounts(FALLBACK_PHRASE)).toEqual(FALLBACK_PHRASE_OCCURRENCES);
+  });
+
+  it("ⓑ 그 문장을 쓰는 화면은 소비 목록 안이거나, 밖인 이유가 값으로 적혀 있다", () => {
+    for (const [path, count] of Object.entries(FALLBACK_PHRASE_OCCURRENCES)) {
+      if (Object.hasOwn(FALLBACK_PHRASE_NON_SITE_SCREENS, path)) {
+        expect(
+          FALLBACK_PHRASE_NON_SITE_SCREENS[path].trim().length,
+          `${path}가 소비 목록 밖인 이유`
+        ).toBeGreaterThan(30);
+        expect(Object.keys(LOAD_ERROR_COPY_SITES), `${path}는 소비 목록 밖이다`).not.toContain(path);
+        continue;
+      }
+      expect(Object.keys(LOAD_ERROR_COPY_SITES), `${path}는 소비 목록 안이다`).toContain(path);
+      // 폴백 문장은 자리 하나당 하나다 — 자리 수보다 많으면 화면이 그 문장을 되쓰고 있다.
+      expect(count, `${path}의 폴백 문장 수가 소비 자리 수를 넘지 않는다`).toBeLessThanOrEqual(
+        LOAD_ERROR_COPY_SITES[path]
+      );
+    }
   });
 });

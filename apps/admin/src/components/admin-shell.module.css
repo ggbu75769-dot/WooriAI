@@ -112,6 +112,23 @@
   text-decoration: underline;
 }
 
+/*
+ * 라운드 75 적대적 리뷰 S-6: 조회 실패 배너의 [다시 시도]는 `.legacyToggle`(회색 #7a7a7a ·
+ * 여백 0 · 밑줄)을 빌려 쓰고 있었다 — 대비 4.29:1로 WCAG AA(4.5:1) 미달이고, 여백이 없어
+ * 오류 문장에 그대로 붙어 렌더됐다. 값은 `admin-page.module.css`의 `.retryButton`에서 그대로
+ * 가져온다(어드민의 열한 화면이 이미 쓰는 그 모양 — **새 색 0건**).
+ */
+.retryButton {
+  background: transparent;
+  border: 1px solid #a13030;
+  border-radius: 8px;
+  color: #a13030;
+  cursor: pointer;
+  font-size: 13px;
+  margin-left: 8px;
+  padding: 4px 10px;
+}
+
 .legacySection {
   border-top: 1px solid #f0e6d8;
   display: flex;

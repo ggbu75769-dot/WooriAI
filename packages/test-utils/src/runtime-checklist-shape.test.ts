@@ -378,6 +378,8 @@ describe("§1-1 머리말의 라운드 구간 (ⓔ 신설분 편입)", () => {
   it("마지막 구간이 이번 라운드 신설분이고, 그 행들이 실제로 표에 있다", () => {
     const ranges = declaredRoundRanges();
     const last = ranges[ranges.length - 1];
+    // ⚠️ 이 파일에서 **라운드마다 사람이 갱신하는 유일한 값**이다(라운드 종료 트립와이어) —
+    // 나머지 수치는 전부 파싱으로 파생된다. 다음 라운드가 행을 더하고 이 줄을 안 고치면 여기가 빨개진다.
     expect(last.round).toBe("75");
 
     const rows = section11Rows.filter((row) => {

@@ -653,3 +653,59 @@ describe("ⓓ 방침 ↔ 데이터 안전 답안지: 보존 기간 숫자가 같
     expect(read(DATA_SAFETY_PATH)).toContain(PRIVACY_POLICY_PATH);
   });
 });
+
+/**
+ * 라운드 75 적대적 리뷰 S-5 — **일곱 번째 사본**.
+ *
+ * P-2가 "여섯이 사람이 읽는 문서 **셋**에 손으로 적혀 있다"고 셌는데, 재어 보니 저장소 안에
+ * 한 벌이 더 있었다: `scripts/check-env.ts`의 선택 카탈로그가 같은 여섯을 **note 문장**으로
+ * 되풀이한다("기본 30(PRIV-105)" · "기본 400(SEC-130)" …). 그 문장은 `pnpm check:env`가
+ * 운영자에게 그대로 출력하는 값이라, 상수가 바뀌고 note가 안 바뀌면 **배포 담당자가 틀린
+ * 기본값을 읽는다.**
+ *
+ * 방향은 위와 같다 — **상수 → note**다. 숫자를 여기 손으로 적지 않는다.
+ * ⚠️ `check-env.ts`는 **읽기만** 한다(카탈로그·문구 무접촉 — P-2의 그 판정 그대로).
+ */
+const CHECK_ENV_PATH = "scripts/check-env.ts";
+
+describe("ⓕ 상수 → check:env note: 일곱 번째 사본도 같은 숫자를 말한다", () => {
+  /** `{ key: "X", scope: "api", note: "…" }` 꼴에서 키별 note를 뽑는다(여러 줄 선언 허용). */
+  const noteByKey = (): Map<string, string> => {
+    const source = read(CHECK_ENV_PATH);
+    const found = new Map<string, string>();
+    for (const match of source.matchAll(/key:\s*"([A-Z0-9_]+)",[\s\S]{0,400}?note:\s*"((?:[^"\\]|\\.)*)"/g)) {
+      if (!found.has(match[1])) found.set(match[1], match[2]);
+    }
+    return found;
+  };
+
+  it("여섯 override 키가 모두 카탈로그에 있고 note를 갖는다", () => {
+    const notes = noteByKey();
+    expect(notes.size, "check-env.ts에서 note를 하나도 읽지 못했다(파서가 낡았다)").toBeGreaterThan(10);
+    for (const name of EXPECTED_CONSTANT_NAMES) {
+      const key = `${name}_RETENTION_DAYS`;
+      expect(notes.has(key), `${key}가 check:env 카탈로그에 없다`).toBe(true);
+      expect(notes.get(key)!.trim().length, `${key}의 note가 비어 있다`).toBeGreaterThan(0);
+    }
+  });
+
+  it("각 note가 그 상수의 기본값을 그 숫자로 말한다", () => {
+    const notes = noteByKey();
+    for (const name of EXPECTED_CONSTANT_NAMES) {
+      const key = `${name}_RETENTION_DAYS`;
+      const note = notes.get(key) as string;
+      const stated = /기본\s*(\d+)/.exec(note)?.[1];
+      expect(stated, `${key}의 note가 "기본 N" 꼴로 기본값을 말하지 않는다: ${note}`).toBeTruthy();
+      expect(
+        Number(stated),
+        `${key}의 note가 말하는 기본값(${stated})이 상수 DEFAULT_${name}_RETENTION_DAYS(${daysOf(name)})와 다르다`
+      ).toBe(daysOf(name));
+    }
+  });
+
+  it("note가 말하는 다른 숫자를 상수 값으로 착각하지 않는다 (바늘 검증)", () => {
+    // "기본 90(GAP-062 #8, …)"처럼 note에는 티켓 번호도 들어 있다 — 바늘은 "기본" 뒤의 수 하나다.
+    expect(/기본\s*(\d+)/.exec("기본 90(GAP-062 #8, 만료·수락·취소된 가족 초대 행)")?.[1]).toBe("90");
+    expect(/기본\s*(\d+)/.exec("기본 730(GAP-058 #10)")?.[1]).toBe("730");
+  });
+});
