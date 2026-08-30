@@ -33,7 +33,28 @@ function readSource(relativePath: string): string {
   return readFileSync(filePath, "utf8");
 }
 
-/** `app/**`의 화면 소스 전수(어드민 루트 기준 POSIX 경로). */
+/**
+ * **스윕이 걷는 뿌리**(라운드 75 트랙 D ⓐ).
+ *
+ * 라운드 73~74의 스윕은 `app/**` 하나만 걸었다. 그래서 파생 단언(소비 집합 ↔ 값)이
+ * `src/**`를 **구조적으로 보지 못했고**, 어드민에서 가장 먼저 만나는 화면
+ * (`src/components/AdminShell.tsx`의 MFA 등록 관문)이 한 벌을 부르지 않은 채 목록에도
+ * 면제 목록에도 없이 통과했다. 어드민의 화면 소스는 이 두 뿌리가 전부다.
+ */
+const SCREEN_SOURCE_ROOTS = ["app", "src/components"] as const;
+
+/**
+ * 그리고 **걷지 않는 뿌리와 그 이유**. 값으로 남기는 이유는 `LOAD_ERROR_COPY_EXEMPT_SITES`와
+ * 같다 — 다음 라운드가 "왜 여기는 안 보나"를 다시 재지 않는다.
+ */
+const NON_SCREEN_SOURCE_ROOTS: Readonly<Record<string, string>> = {
+  "src/lib":
+    "화면이 아니라 판정·API 래퍼·세션 컨텍스트 모듈만 있는 뿌리다. `.tsx`가 하나 있지만" +
+    "(`admin-token-context.tsx`) 그것은 프로바이더라 조회 실패를 그릴 자리가 없고, 이 뿌리의" +
+    "나머지는 화면이 **소비하는** 판정(load-error-copy·worker-health-view·revision-rows)이다."
+};
+
+/** 화면 소스 전수(어드민 루트 기준 POSIX 경로). */
 function appScreenPaths(): string[] {
   const found: string[] = [];
   const walk = (dir: string) => {
@@ -47,7 +68,7 @@ function appScreenPaths(): string[] {
       found.push(relative(adminRoot, fullPath).split(sep).join("/"));
     }
   };
-  walk(join(adminRoot, "app"));
+  for (const root of SCREEN_SOURCE_ROOTS) walk(join(adminRoot, ...root.split("/")));
   return found.sort();
 }
 
@@ -241,7 +262,7 @@ describe("조회 실패 판정의 소비 집합 (라운드 73 트랙 D ⓐ)", ()
    * 자리 수가 달라졌다. 새 화면이 한 벌을 **아예 부르지 않고** 자기 문장을 손으로 적으면 양쪽이
    * 일치한 채 통과한다 — 새 리터럴을 감지하는 단언이 아니다(known-limitations N-3의 정정).
    */
-  it("app/**의 소비 자리 수가 값(LOAD_ERROR_COPY_SITES)과 정확히 일치한다", () => {
+  it("app/** + src/components/**의 소비 자리 수가 값(LOAD_ERROR_COPY_SITES)과 정확히 일치한다", () => {
     const wired: Record<string, number> = {};
     for (const path of appScreenPaths()) {
       const count = readSource(path).match(/loadError(?:Copy|Message)\(/g)?.length ?? 0;
@@ -250,9 +271,59 @@ describe("조회 실패 판정의 소비 집합 (라운드 73 트랙 D ⓐ)", ()
     expect(wired).toEqual({ ...LOAD_ERROR_COPY_SITES });
   });
 
-  it("오늘의 자리는 열다섯이다 (라운드 73 전에는 그중 열이 이유를 통째로 버렸다)", () => {
+  /**
+   * 라운드 75 트랙 D ⓐ — **범위가 값이다.**
+   *
+   * 위 파생 단언이 무엇을 보고 무엇을 못 보는지가 이 계약의 절반이다. 라운드 73~74에는
+   * 그 범위가 `app/**` 하나였고, 그 사실이 어디에도 값으로 없어서 사각이 **일치한 채**
+   * 열 달을 통과했다. 이제 뿌리 목록과 제외 이유가 둘 다 값이고, 어드민의 `.tsx` 전수가
+   * 그 둘 중 하나에 속한다(제외한 뿌리에 화면이 생기면 이 줄이 먼저 빨개진다).
+   */
+  it("스윕 범위가 어드민의 화면 소스 전부를 덮는다 (전수 단언 · 제외 뿌리는 이유와 함께)", () => {
+    expect([...SCREEN_SOURCE_ROOTS]).toEqual(["app", "src/components"]);
+
+    // 어드민 루트의 `.tsx` 전수 — 스윕이 걷는 뿌리이거나, 이유가 적힌 제외 뿌리이거나.
+    const everyTsx: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (entry.name.endsWith(".tsx")) everyTsx.push(relative(adminRoot, fullPath).split(sep).join("/"));
+      }
+    };
+    walk(adminRoot);
+    expect(everyTsx.length, "어드민에 .tsx가 있다").toBeGreaterThan(10);
+
+    const swept = new Set(appScreenPaths());
+    for (const path of everyTsx) {
+      if (swept.has(path)) continue;
+      const root = Object.keys(NON_SCREEN_SOURCE_ROOTS).find((entry) => path.startsWith(`${entry}/`));
+      expect(root, `${path}: 스윕 밖인데 이유가 없다`).toBeTruthy();
+    }
+    for (const [root, reason] of Object.entries(NON_SCREEN_SOURCE_ROOTS)) {
+      expect(existsSync(join(adminRoot, ...root.split("/"))), `${root}가 실재한다`).toBe(true);
+      expect(reason.length, `${root}의 제외 이유가 비어 있다`).toBeGreaterThan(40);
+      expect([...SCREEN_SOURCE_ROOTS], `${root}는 걷는 뿌리가 아니다`).not.toContain(root);
+    }
+
+    // 그리고 그 사각에 실제로 화면이 하나 있었다 — 이번 라운드가 더한 자리다.
+    expect(swept).toContain("src/components/AdminShell.tsx");
+    expect(Object.keys(LOAD_ERROR_COPY_SITES)).toContain("src/components/AdminShell.tsx");
+  });
+
+  it("오늘의 자리는 열여섯이다 (라운드 75가 스윕 밖 관문 하나를 더했다)", () => {
     const total = Object.values(LOAD_ERROR_COPY_SITES).reduce((sum, count) => sum + count, 0);
-    expect(total).toBe(15);
+    expect(total).toBe(16);
+    // ⚠️ app/**의 열다섯은 한 자리도 늘지도 줄지도 않는다(설계 긴장 ⓐ).
+    const appTotal = Object.entries(LOAD_ERROR_COPY_SITES)
+      .filter(([path]) => path.startsWith("app/"))
+      .reduce((sum, [, count]) => sum + count, 0);
+    expect(appTotal).toBe(15);
+    expect(LOAD_ERROR_COPY_SITES["src/components/AdminShell.tsx"]).toBe(1);
   });
 
   /**
@@ -394,6 +465,92 @@ describe("[다시 시도] 버튼의 렌더 규칙 (라운드 73 트랙 D ⓒ)", 
   });
 });
 
+/**
+ * 라운드 75 트랙 D(GAP-075 #4) — **관문 화면이 막다른 길이 아니다.**
+ *
+ * `MfaSetupScreen`은 처음 로그인한 관리자가 반드시 지나야 하는 관문이고, 어드민 전체가 그
+ * 뒤에 있다. 종전에는 `adminMfaSetupStart()`가 실패하면 오류 한 줄만 남고 [다시 시도]가
+ * 없었으며, 등록 버튼은 `!secret`이라 눌리지 않았고 QR도 수동 키도 그려지지 않았다 —
+ * 읽기 타임아웃 한 번(10초)으로 운영자가 어드민에 못 들어가는 화면에 갇혔다.
+ */
+describe("MFA 등록 관문의 조회 실패 (라운드 75 트랙 D)", () => {
+  const shellPath = "src/components/AdminShell.tsx";
+
+  it("등록 정보 조회가 한 벌을 부르고, 종전 폴백 문장은 바이트 그대로다 (ⓓ)", () => {
+    const shell = readSource(shellPath);
+    // ⚠️ 종전 문장 그대로 — 서버도 클라이언트도 이유를 못 준 갈래에서만 쓰인다.
+    expect(shell).toContain('loadErrorCopy(error, "MFA 등록 정보를 불러오지 못했어요.")');
+    // 그 문장이 다른 자리에 또 적혀 있지 않다(한 벌의 마지막 갈래가 유일한 출구다).
+    expect((shell.match(/MFA 등록 정보를 불러오지 못했어요\./g) ?? []).length).toBe(1);
+    // 화면이 상태에 문장을 직접 박아 넣던 종전 모양은 사라졌다.
+    expect(shell).not.toMatch(/setLoadError\(\s*"/);
+    expect(shell).not.toContain('setLoadError(error instanceof AdminApiError');
+    // 이유는 한 벌이 준 값에서 온다.
+    expect(shell).toContain("{loadError.message}");
+  });
+
+  it("[다시 시도]가 canRetry에서 파생된다 (ⓒ)", () => {
+    const shell = readSource(shellPath);
+    expect(shell).toContain("loadError.canRetry ? (");
+    // 재시도는 등록 시작 절차를 처음부터 다시 밟는다(이펙트가 그 값을 의존성으로 진다).
+    expect(shell).toContain("setReloadKey((key) => key + 1)");
+    expect(shell).toMatch(/\}, \[reloadKey\]\);/);
+    expect(shell).toContain("const [reloadKey, setReloadKey] = useState(0);");
+  });
+
+  /**
+   * ⚠️ 새 한국어 문구 0건: 배너 문장은 `admin-api.ts`가 만든 것이거나 종전 폴백이고,
+   * 버튼 라벨은 `app/**`의 열한 자리가 **이미 쓰는** 그 문자열이다.
+   */
+  it("[다시 시도] 라벨이 새 문구가 아니다 (새 한국어 문구 0건)", () => {
+    const label = "다시 시도";
+    for (const path of ["app/page.tsx", "app/links/page.tsx", "app/audit-logs/page.tsx"]) {
+      expect(readSource(path), `${path}의 재시도 버튼 라벨`).toMatch(
+        new RegExp(`styles\\.retryButton\\}[\\s\\S]{0,120}?>\\s*${label}\\s*</button>`)
+      );
+    }
+    expect(readSource(shellPath), "셸이 같은 라벨을 쓴다").toMatch(
+      new RegExp(`>\\s*${label}\\s*</button>`)
+    );
+  });
+
+  /**
+   * ⓔ 401 갈래 판정: **로그아웃 첫 갈래가 여기서도 맞다.** 이 화면은 로그인이 끝나고 등록만
+   * 남은 자리라 401은 세션이 더 이상 유효하지 않다는 뜻이고, 그 실패에 [다시 시도]를 세우면
+   * 같은 401을 몇 번이고 다시 받는다. 그래서 면제 목록에 들어가지 않는다(위 자리별 단언이
+   * 순서까지 확인한다 — 여기서는 **면제가 아니라는 사실**을 값으로 고정한다).
+   */
+  it("401은 여기서도 첫 갈래다 — 면제 목록에 들어가지 않는다 (ⓔ)", () => {
+    expect(Object.keys(NO_AUTH_BRANCH_CATCH_SITES)).toEqual(["app/page.tsx"]);
+    expect(Object.keys(NO_AUTH_BRANCH_CATCH_SITES)).not.toContain(shellPath);
+    const shell = readSource(shellPath);
+    expect(shell).toContain("isAuthError(error)");
+    expect(shell).toContain("clearSession()");
+    // 면제 목록의 값도 그대로다(설계 긴장: 기존 항목 무변경).
+    expect(Object.keys(LOAD_ERROR_COPY_EXEMPT_SITES)).toEqual(["app/reviews/page.tsx#worker-health"]);
+  });
+
+  /**
+   * 설계 긴장 ⓒ: 고쳐지는 것은 **실패했을 때 무엇이 보이는가**뿐이다.
+   * 등록 판정·API 호출·QR 생성·수동 키·복구 코드 표시·`finishSetup`·`switchAccount` 무변경.
+   */
+  it("등록 절차 자체는 한 줄도 바뀌지 않았다", () => {
+    const shell = readSource(shellPath);
+    expect(shell).toContain("const result = await adminMfaSetupStart();");
+    expect(shell).toContain('const QRCode = await import("qrcode");');
+    expect(shell).toContain("await QRCode.toDataURL(result.otpauthUrl)");
+    expect(shell).toContain('<img src={qrDataUrl} alt="MFA 등록 QR 코드" width={200} height={200} />');
+    expect(shell).toContain("QR을 스캔할 수 없다면 인증 앱에 수동 키를 입력해 주세요:");
+    // 등록 완료 버튼의 조건은 종전 그대로다 — secret 없이 확인 요청을 보낼 수는 없다.
+    expect(shell).toContain("disabled={verifying || !secret}");
+    expect(shell).toContain("setRecoveryCodes(result.recoveryCodes);");
+    expect(shell).toContain("복구 코드를 저장해 주세요");
+    expect(shell).toContain("mfaEnabled: true, mfaRecoveryCodesRemaining: recoveryCodes?.length");
+    expect(shell).toContain("다른 계정으로 로그인");
+    expect(shell).toContain("임시 비밀번호를 먼저 변경할래요");
+  });
+});
+
 describe("검토 화면이 워커 상태를 실제로 조회한다 (라운드 73 트랙 D ⓓ)", () => {
   it("getWorkerHealth를 부르고, 문장은 순수 함수 한 자리에서 온다", () => {
     const source = readSource("app/reviews/page.tsx");
@@ -448,11 +605,32 @@ describe("트랙 D의 무접촉 계약", () => {
     expect(api).not.toContain("load-error-copy");
   });
 
-  it("AdminShell은 이 트랙 밖이다 (세션·MFA 화면 무접촉)", () => {
+  /**
+   * 라운드 75 트랙 D 설계 긴장 ⓑ — **쓰기 실패 다섯은 그대로다.**
+   *
+   * (라운드 73의 이 자리는 "AdminShell은 이 트랙 밖이다"였다. 그 판정이 바로 후보 4가 센
+   * 사각이다 — 셸의 조회 실패 **하나**는 트랙 안이었고, 스윕이 `app/**`만 걸어서 그 사실이
+   * 드러나지 않았다. 지금은 그 하나만 안으로 들어오고, 나머지는 종전 모양 그대로다.)
+   *
+   * R19-F가 근거와 함께 세운 경계는 조회/쓰기다. 셸의 나머지 catch 다섯(비밀번호 변경 ·
+   * MFA 해제 · 로그인 · 로그인 2단계 확인 · 인증 코드 확인)은 전부 쓰기이고, 그 자리는
+   * **폼 자체가 재시도**라 `AdminApiError.message`를 그대로 보여 주는 종전 모양을 지킨다.
+   */
+  it("셸의 쓰기 실패 다섯은 종전 모양 그대로다 (조회 하나만 한 벌로 옮겼다)", () => {
     const shell = readSource("src/components/AdminShell.tsx");
-    expect(shell).not.toContain("load-error-copy");
-    // 종전대로 AdminApiError.message를 그대로 보여 주는 자리 — 이 트랙이 만들려는 모양이다.
-    expect(shell).toContain("error instanceof AdminApiError ? error.message");
+    expect((shell.match(/error instanceof AdminApiError \? error\.message/g) ?? []).length).toBe(5);
+    for (const fallback of [
+      "비밀번호를 변경하지 못했어요. 다시 시도해 주세요.",
+      "2단계 인증을 해제하지 못했어요. 다시 시도해 주세요.",
+      "로그인하지 못했어요. 다시 시도해 주세요.",
+      "인증하지 못했어요. 다시 시도해 주세요.",
+      "인증 코드를 확인하지 못했어요."
+    ]) {
+      expect(shell, `쓰기 실패 문구: ${fallback}`).toContain(fallback);
+    }
+    // 한 벌은 조회 자리 하나에만 쓰인다.
+    expect((shell.match(/loadError(?:Copy|Message)\(/g) ?? []).length).toBe(1);
+    expect(shell).toContain('loadErrorCopy(error, "MFA 등록 정보를 불러오지 못했어요.")');
   });
 
   it("역할 안내 화면은 조회 실패가 아니라 권한 표시다 (무변경)", () => {
