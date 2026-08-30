@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Text, View } from "react-native";
@@ -207,6 +207,20 @@ export default function AcceptInviteScreen() {
       ? inviteLoadErrorCopy.title
       : `초대 정보를 ${inviteLoadErrorCopy.title}`;
   const acceptSaveErrorCopy = useSaveErrorCopy(accept.isError, accept.error);
+
+  /**
+   * 라운드 79 리뷰(M-1) — 프롭 둘(`accessibilityLiveRegion` + `accessibilityRole="alert"`)은
+   * **안드로이드에서만** 자동 낭독을 만든다. iOS/VoiceOver에는 live region이 없고 alert 역할에
+   * 대응하는 트레이트도 없어, 프롭만으로는 [참여하기]를 누른 사람이 실패를 소리로 듣지 못한다.
+   * 크로스플랫폼 관례는 `announceForA11y`다((auth)/login.tsx와 같은 조건 — 포커스가 눌린 버튼에
+   * 남는다). 읽어 주는 문장은 아래 갈래가 그리는 것과 **같은 식**이다(눈과 귀가 다른 말을 하지
+   * 않는다 — a11y-contract.test.ts가 두 자리의 식이 같은지를 계약으로 문다).
+   */
+  useEffect(() => {
+    if (accept.isError && !inviteUnavailable) {
+      announceForA11y(acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error));
+    }
+  }, [accept.isError, accept.error, acceptSaveErrorCopy, inviteUnavailable]);
 
   /**
    * 참여 성공 **이후**의 뒤처리 한 벌: 아이 목록 조회 -> 캐시 무효화 -> 계획대로 착지.

@@ -118,9 +118,10 @@ export function useHomeNotificationEvaluation(
   /**
    * GAP-054 라운드 54 P1-3: 이 기기에 아직 올라가지 않은 **이 아이의** 지출 행이 있는가.
    * 호출부(홈 화면)가 이미 구독 중인 오프라인 스냅샷에서 `hasPendingRecordsForChild`로 계산해
-   * 넘긴다. `true`면 **셋**이 발화하지 않는다 — record_gap(P1-3) · monthly_wrapup(GAP-066 #8) ·
-   * 예산 경계 둘(라운드 79 B). 셋 다 키를 태우지 않아 동기화 뒤 정확히 한 번 뜨고, 나머지
-   * (시기 전환 · 구매 확인 · 주간 요약)는 종전 그대로다 — 갈래별 이유는 generators.ts에 있다.
+   * 넘긴다. `true`면 **둘**이 발화하지 않는다 — record_gap(P1-3) · monthly_wrapup(GAP-066 #8).
+   * 둘 다 키를 태우지 않아 동기화 뒤 정확히 한 번 뜨고, 나머지(시기 전환 · 구매 확인 · 주간
+   * 요약)는 종전 그대로다 — 갈래별 이유는 generators.ts에 있다.
+   * ⚠️ 라운드 79 리뷰(M-3): **예산 경계 둘은 이 값이 아니라 아래 값을 본다**(단위가 다르다).
    */
   hasPendingLocalRecords: boolean,
   /**
@@ -129,7 +130,15 @@ export function useHomeNotificationEvaluation(
    * `undefined`(판정 불가 — 지난달 정리만 만들어지지 않는다). 새 요청은 이 훅에서 0건이다.
    */
   lastMonthYearMonth: string | null,
-  lastMonthExpenses: Expense[] | undefined
+  lastMonthExpenses: Expense[] | undefined,
+  /**
+   * 라운드 79 B (GAP-079 #2) + 리뷰(M-3·S-1): **예산 경계 둘의 게이트.** 위 값과 같은 스냅샷에서
+   * 나오지만 술어가 다르다 — `hasRecoverablePendingRecordsForMonth(rows, childId, 이번 달)`
+   * (회복 가능한 상태 × 그 달). 홈 배너가 재조정 캐시를 고르는 조건과 **같은 달 단위**이고,
+   * 종점 상태(failed·conflict)는 세지 않는다(그 한 행이 그 달의 알림을 영영 막지 않게).
+   * 여기서도 새 요청·새 구독은 0건이다.
+   */
+  hasRecoverablePendingMonthRecords: boolean
 ) {
   useEffect(() => {
     if (!home) return;
@@ -164,6 +173,8 @@ export function useHomeNotificationEvaluation(
         // P1-3: 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 공백을 단언하지 않는다.
         // (GAP-066 #8: 지난달 정리도 같은 이유로 같은 값을 본다 -- 금액을 단언하지 않는다.)
         hasPendingLocalRecords,
+        // 라운드 79 B + 리뷰(M-3): 예산 경계는 자기 술어를 본다(회복 가능한 상태 × 그 달).
+        hasRecoverablePendingMonthRecords,
         // GAP-066 #8: 홈이 이미 받아 둔 지난달 캐시. 없으면 지난달 정리만 만들어지지 않고
         // (키를 태우지 않는다) 나머지 평가는 종전과 한 글자도 다르지 않다.
         lastMonthRecords
@@ -198,5 +209,12 @@ export function useHomeNotificationEvaluation(
     };
     // S-2: 지난달 값이 **deps에 있다** — 캐시가 도착한 그 순간이 재평가를 깨운다(우연에 기대지
     // 않는다). react-query의 `data` 참조는 새 결과 전까지 안정적이라 늘어나는 평가는 그 한 번뿐이다.
-  }, [home, weekly, hasPendingLocalRecords, lastMonthYearMonth, lastMonthExpenses]);
+  }, [
+    home,
+    weekly,
+    hasPendingLocalRecords,
+    lastMonthYearMonth,
+    lastMonthExpenses,
+    hasRecoverablePendingMonthRecords
+  ]);
 }

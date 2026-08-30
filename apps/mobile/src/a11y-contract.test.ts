@@ -2955,6 +2955,14 @@ function jsxElementsOf(masked: string, tagName: string): JsxElement[] {
       nestedPattern.lastIndex = cursor;
       const nested = nestedPattern.exec(masked);
       if (nested && nested.index < nextClose) {
+        // 라운드 79 리뷰(P-1): **자기 닫힘 중첩은 중첩이 아니다.** `<Text …/>`는 닫는 태그를
+        // 소비하지 않으므로 level을 올리면 바깥 요소의 본문 끝이 한 칸 밀리고, 그 뒤의 자리가
+        // 통째로 바깥 본문에 삼켜진다(위 여는 태그 판정과 **같은 기준**을 여기에도 적용한다).
+        const nestedEnd = openingTagEnd(masked, nested.index);
+        if (nestedEnd >= 0 && masked.slice(nested.index, nestedEnd + 1).endsWith("/>")) {
+          cursor = nestedEnd + 1;
+          continue;
+        }
         level += 1;
         cursor = nested.index + 1;
         continue;
@@ -3006,12 +3014,77 @@ function saveErrorCopyNames(masked: string): string[] {
   return [...names].sort();
 }
 
+/**
+ * ⚠️ **라운드 79 리뷰(M-1) — 프롭 둘은 한 플랫폼의 답이다.**
+ *
+ * `accessibilityLiveRegion`은 React Native 문서가 **`@platform android`** 로 표시한 프롭이고,
+ * `accessibilityRole="alert"`에는 iOS/VoiceOver에서 대응하는 트레이트가 없다. 그래서 프롭
+ * 조합만 걸린 자리의 "낭독 밖 0건"은 **안드로이드 한정**이었다 — iOS에서는 화면에 문장이 서도
+ * 아무 소리가 나지 않는다.
+ *
+ * 이 저장소의 크로스플랫폼 답은 이미 있었다: `announceForA11y`(`src/ui.tsx` — `AccessibilityInfo.
+ * announceForAccessibility`를 best-effort로 감싼다)이고, `app/(auth)/login.tsx`가 **같은 이유**로
+ * (포커스가 눌린 버튼에 남는다) 실패 문장에 그것을 건다. Toast는 프롭과 announce를 **둘 다** 진다.
+ */
+const ANDROID_ONLY_LIVE_REGION_REASON =
+  "accessibilityLiveRegion은 @platform android 프롭이고 accessibilityRole=\"alert\"에 대응하는 VoiceOver 트레이트가 " +
+  "없다 — 프롭 조합만으로는 iOS에서 아무 소리도 나지 않는다. 크로스플랫폼 출구는 announceForA11y이고, " +
+  "app/(auth)/login.tsx가 같은 이유(포커스가 눌린 버튼에 남는다)로 이미 그 관례를 쓴다.";
+
 /** 저장 실패 문장이 **그려지는** 한 자리와, 그 자리가 소리로 나가는 출구. */
 type SaveErrorAnnounceSite = {
   readonly name: string;
-  /** `live-region` = 관례 조합 · `toast` = 두 번째 출구(Toast가 스스로 announce한다) · `silent` = 낭독 밖. */
-  readonly exit: "live-region" | "toast" | "silent";
+  /**
+   * `announce` = 관례 조합 + `announceForA11y` 배선(**두 플랫폼 다**) ·
+   * `live-region` = 프롭 조합만(**안드로이드 한정** — 위 `ANDROID_ONLY_LIVE_REGION_REASON`) ·
+   * `toast` = 두 번째 출구(Toast가 프롭과 announce를 스스로 진다) · `silent` = 낭독 밖.
+   */
+  readonly exit: "announce" | "live-region" | "toast" | "silent";
 };
+
+/**
+ * `이름(` 호출 하나의 **괄호 구간**(문자열 안의 괄호는 세지 않는다). 낭독 배선이 실제로
+ * `useEffect` 안에 있는지를 묻는 데 쓴다 — 렌더 도중 부르면 같은 문장을 매 렌더 다시 읽는다.
+ */
+function callBlocksOf(masked: string, calleeName: string): string[] {
+  const blocks: string[] = [];
+  const pattern = new RegExp(`\\b${calleeName}\\(`, "g");
+  let found: RegExpExecArray | null;
+  while ((found = pattern.exec(masked))) {
+    const open = found.index + found[0].length - 1;
+    let depth = 0;
+    let quote: string | null = null;
+    for (let i = open; i < masked.length; i += 1) {
+      const char = masked[i];
+      if (quote) {
+        if (char === quote) quote = null;
+        continue;
+      }
+      if (char === '"' || char === "'" || char === "`") quote = char;
+      else if (char === "(") depth += 1;
+      else if (char === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          blocks.push(masked.slice(open, i + 1));
+          break;
+        }
+      }
+    }
+  }
+  return blocks;
+}
+
+/** `useEffect` 안에서 `announceForA11y(...)`로 실제로 읽히는 이름들. */
+function announcedSaveErrorNames(masked: string, names: readonly string[]): Set<string> {
+  const announced = new Set<string>();
+  for (const block of callBlocksOf(masked, "useEffect")) {
+    if (!block.includes("announceForA11y(")) continue;
+    for (const name of names) {
+      if (new RegExp(`announceForA11y\\([^;]*\\b${name}\\b`).test(block)) announced.add(name);
+    }
+  }
+  return announced;
+}
 
 /**
  * 한 화면 소스에서 "저장 실패 문장이 그려지는 자리"를 전부 찾아 출구를 매긴다.
@@ -3024,6 +3097,7 @@ type SaveErrorAnnounceSite = {
 function saveErrorAnnounceSitesOf(sourceText: string): SaveErrorAnnounceSite[] {
   const masked = maskComments(sourceText);
   const names = saveErrorCopyNames(masked);
+  const announced = announcedSaveErrorNames(masked, names);
   const texts = jsxElementsOf(masked, "Text");
   const toasts = jsxElementsOf(masked, "Toast");
   const seen = new Set<string>();
@@ -3044,10 +3118,10 @@ function saveErrorAnnounceSitesOf(sourceText: string): SaveErrorAnnounceSite[] {
       if (seen.has(key)) continue;
       seen.add(key);
       if (inText) {
-        sites.push({
-          name,
-          exit: ANNOUNCED_ALERT_PROPS.every((prop) => inText.openTag.includes(prop)) ? "live-region" : "silent"
-        });
+        const hasProps = ANNOUNCED_ALERT_PROPS.every((prop) => inText.openTag.includes(prop));
+        // 라운드 79 리뷰(M-1): 출구는 **세 칸**이다 — 프롭만이면 안드로이드 한정(`live-region`),
+        // announce까지 서 있어야 두 플랫폼 다(`announce`)다.
+        sites.push({ name, exit: hasProps ? (announced.has(name) ? "announce" : "live-region") : "silent" });
         continue;
       }
       sites.push({ name, exit: "toast" });
@@ -3235,6 +3309,8 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
     expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS.length, "대장이 비면 이 스윕이 조용히 죽는다").toBeGreaterThan(0);
 
     const silent: string[] = [];
+    const androidOnly: string[] = [];
+    const exits: Record<string, number> = {};
     let total = 0;
     for (const screen of OFFLINE_AWARE_SAVE_ERROR_SCREENS) {
       const sites = saveErrorAnnounceSites(screen);
@@ -3243,7 +3319,9 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
       expect(sites.length, `${screen}이 그리는 저장 실패 자리`).toBeGreaterThan(0);
       total += sites.length;
       for (const site of sites) {
+        exits[site.exit] = (exits[site.exit] ?? 0) + 1;
         if (site.exit === "silent") silent.push(`${screen} ${site.name}`);
+        if (site.exit === "live-region") androidOnly.push(`${screen} ${site.name}`);
       }
     }
 
@@ -3257,6 +3335,63 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
     expect(silent.sort(), "낭독 밖에 남은 저장 실패 자리").toEqual(
       Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN).sort()
     );
+
+    // ⚠️ 라운드 79 리뷰(M-1) — **한 플랫폼만 답하는 자리도 0건이다.** 프롭 조합은 안드로이드의
+    // 답이고, iOS는 `announceForA11y`가 답한다. 일곱 자리 전부가 두 플랫폼 다 도달하는 출구를
+    // 가진다: 맨 Text 여섯은 `announce`(프롭 + useEffect 배선), Toast 하나는 자기가 진다.
+    expect(androidOnly.sort(), "프롭만 걸려 안드로이드에서만 읽히는 자리").toEqual([]);
+    expect(ANDROID_ONLY_LIVE_REGION_REASON, "한 플랫폼만 답하는 자리를 세는 이유").toContain("@platform android");
+    expect(exits, "출구별 자리 수").toEqual({ announce: 6, toast: 1 });
+  });
+
+  it("ⓐ-4 일곱 자리 전부 announce 배선이 소스에 실재한다 (맨 Text 여섯 = useEffect · Toast 하나 = 컴포넌트)", () => {
+    // 파생 스윕이 답을 내는 근거가 실제 소스 바이트라는 것을 자리별로 한 번 더 못박는다 —
+    // 스캐너가 끊겨도(위 유령 방지가 놓쳐도) 여기가 빨개진다.
+    const wiredByEffect: ReadonlyArray<{ readonly file: string; readonly guard: string; readonly announced: string }> = [
+      { file: "app/settings/children.tsx", guard: "markChildBorn.isError", announced: "bornFailedText" },
+      { file: "app/settings/children.tsx", guard: "saveEdit.isError", announced: "editFailedText" },
+      { file: "app/settings/children.tsx", guard: "addChild.isError", announced: "addFailedText" },
+      {
+        file: "app/settings/notifications.tsx",
+        guard: "toggleDevice.isError",
+        announced: "deviceToggleSaveErrorText"
+      },
+      {
+        file: "app/family/accept/[token].tsx",
+        guard: "accept.isError && !inviteUnavailable",
+        announced: "acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)"
+      },
+      { file: "app/family/invite.tsx", guard: "invite.isError", announced: "inviteCreateErrorText" }
+    ];
+    expect(wiredByEffect, "맨 Text 자리").toHaveLength(6);
+    for (const entry of wiredByEffect) {
+      const masked = maskComments(source(entry.file));
+      const effects = callBlocksOf(masked, "useEffect").filter((block) => block.includes("announceForA11y("));
+      const wired = effects.find(
+        (block) => block.includes(`if (${entry.guard})`) && block.includes(`announceForA11y(${entry.announced})`)
+      );
+      // ⚠️ 배선이 사라지면(또는 조건이 화면의 갈래와 갈리면) 여기가 먼저 빨개진다.
+      expect(wired, `${entry.file}: ${entry.announced} 낭독 배선`).toBeTruthy();
+      // 렌더 도중이 아니라 **effect 안**이고, 문장이 바뀌면 다시 읽도록 의존 배열이 그 값을 든다
+      // (들지 않으면 두 번째 실패가 조용해진다 — 같은 화면에서 사유만 갈리는 자리들이다).
+      const deps = wired!.slice(wired!.lastIndexOf(", ["));
+      expect(deps, `${entry.file}: ${entry.announced}의 의존 배열`).toContain(entry.announced.split(" ")[0]);
+    }
+
+    // 눈과 귀가 같은 말을 한다: 초대 수락 자리는 화면이 그리는 **그 식 그대로**를 읽는다
+    // (이 화면만 파생 변수 없이 갈래를 인라인으로 그리므로, 두 자리의 식이 갈리는 날 빨개진다).
+    const acceptScreenSource = source("app/family/accept/[token].tsx");
+    const acceptExpression =
+      "acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)";
+    expect(acceptScreenSource, "화면이 그리는 식").toContain(`{${acceptExpression}}`);
+    expect(acceptScreenSource, "낭독하는 식").toContain(`announceForA11y(${acceptExpression})`);
+
+    // Toast는 프롭이 아니라 자기가 announce해서 통과한다(두 번째 출구의 실재 확인).
+    const uiSource = source("src/ui.tsx");
+    expect(uiSource).toContain("export function announceForA11y");
+    const toastAt = uiSource.indexOf("export function Toast");
+    expect(toastAt, "Toast 컴포넌트").toBeGreaterThan(-1);
+    expect(uiSource.slice(toastAt)).toContain("announceForA11y(message)");
   });
 
   it("ⓐ-2 제외는 자기 무효화된다 — 오늘 제외는 0건이고, 생기면 화면의 그 구간과 핀이 **둘 다** 실재해야 한다", () => {
@@ -3326,7 +3461,22 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
         );
       }
     `;
-    // 프롭이 없으면 침묵이고, 관례 조합이 서면 낭독이다 — 그물이 실제로 두 답을 가른다.
+    /** 라운드 79 리뷰(M-1): 같은 화면에 낭독 배선(useEffect)까지 선 모양. */
+    const announcedScreen = (tag: string) => `
+      const failText = useSaveErrorCopy(save.isError, save.error);
+      useEffect(() => {
+        if (save.isError) announceForA11y(failText);
+      }, [save.isError, failText]);
+      export default function Screen() {
+        return (
+          <View style={{ gap: 12 }}>
+            {save.isError ? ${tag}{failText}</Text> : null}
+          </View>
+        );
+      }
+    `;
+    // 프롭이 없으면 침묵이고, 관례 조합이 서면 **안드로이드까지**이며, announce까지 서야 두
+    // 플랫폼 다다 — 그물이 실제로 세 답을 가른다.
     expect(saveErrorAnnounceSitesOf(screen("<Text style={{ color: theme.colors.danger }}>"))).toEqual([
       { name: "failText", exit: "silent" }
     ]);
@@ -3335,6 +3485,18 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
         screen('<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>')
       )
     ).toEqual([{ name: "failText", exit: "live-region" }]);
+    expect(
+      saveErrorAnnounceSitesOf(
+        announcedScreen(
+          '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>'
+        )
+      )
+    ).toEqual([{ name: "failText", exit: "announce" }]);
+    // ⚠️ announce만 있고 프롭이 없으면 여전히 `silent`가 아니라 침묵으로 센다 — 관례는 **둘 다**이고
+    // (안드로이드에서 live region이 하는 일을 announce가 대신하지 않는다) 반쪽은 통과가 아니다.
+    expect(saveErrorAnnounceSitesOf(announcedScreen("<Text style={{}}>"))).toEqual([
+      { name: "failText", exit: "silent" }
+    ]);
     // ⚠️ 한 짝만 걸면 여전히 침묵이다(관례는 **둘 다**이고, 반쪽은 라운드 78까지의 그 자리다).
     expect(saveErrorAnnounceSitesOf(screen('<Text accessibilityRole="alert" style={{}}>'))).toEqual([
       { name: "failText", exit: "silent" }
@@ -3351,6 +3513,29 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
       }
     `;
     expect(saveErrorAnnounceSitesOf(toastScreen)).toEqual([{ name: "saveErrorText", exit: "toast" }]);
+
+    /*
+     * 라운드 79 리뷰(P-1) — **자기 닫힘 중첩을 중첩으로 세면 그 뒤가 통째로 삼켜진다.**
+     *
+     * `<Text …/>`는 닫는 태그를 소비하지 않는다. 그것을 중첩으로 세던 스캐너는 바깥 요소의
+     * 닫는 태그를 그 중첩의 것으로 써 버려 본문 끝을 **파일 끝까지** 밀었고, 그 뒤에 오는 자리는
+     * 전부 그 요소 안으로 들어갔다. 아래 화면에서 실패 문장이 실제로 서는 곳은 Toast인데,
+     * 종전 스캐너는 그 자리를 앞선 `<Text>`의 본문으로 읽어 **출구를 잘못 매겼다**.
+     */
+    const selfClosingNesting = `
+      const failText = useSaveErrorCopy(save.isError, save.error);
+      export default function Screen() {
+        return (
+          <View>
+            <Text accessibilityLiveRegion="polite" accessibilityRole="alert">
+              <Text style={{ fontWeight: "700" }} />
+            </Text>
+            {save.isError ? <Toast message={failText} tone="error" /> : null}
+          </View>
+        );
+      }
+    `;
+    expect(saveErrorAnnounceSitesOf(selfClosingNesting)).toEqual([{ name: "failText", exit: "toast" }]);
     // 그 출구가 실제로 소리를 내는가 — 값으로 확인한다(위 A11Y-115 스윕과 같은 사실).
     const uiSource = source("src/ui.tsx");
     const toastAt = uiSource.indexOf("export function Toast");

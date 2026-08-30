@@ -22,7 +22,10 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
         "    weeklySpendForNotification,",
         "    hasPendingLocalRecords,",
         "    lastYearMonth,",
-        "    lastMonthExpenses.data?.expenses",
+        "    lastMonthExpenses.data?.expenses,",
+        // 라운드 79 리뷰(M-3): 여섯째는 예산 경계 게이트의 술어다 — 같은 스냅샷에서 나오지만
+        // 회복 가능한 상태 × 이번 달로 좁힌 값이라, 여기서도 새 요청·새 구독은 0건이다.
+        "    hasRecoverablePendingMonthRecords",
         "  );"
       ].join("\n")
     );

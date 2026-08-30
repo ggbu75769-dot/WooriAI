@@ -128,13 +128,23 @@ export function adminApiWriteFunctionNames(source: string, unit: AdminApiWriteUn
 
   // 상태를 바꾸는 메서드를 실어 보내는 함수와, 그것을 부르는 한 겹 합성 함수
   // (`draftAndSubmitContentRevision` = create + submit)가 전부다.
+  //
+  // ⚠️ 라운드 79 리뷰(P-3) — **승계는 정확히 한 겹이다. 고정점이 아니다.**
+  // 아래 둘째 루프는 **한 번만** 돈다: 그때 이미 `writes`에 있던 이름을 부르는 함수만 오른다.
+  // 합성을 부르는 합성(두 겹)은 오늘 0건이고, 생기는 날 이 파서는 그것을 **세지 않는다** —
+  // 그 사실을 값으로 적어 두는 이유는 두 겹이 조용히 빠지는 것보다 계약이 그때 답을 다시
+  // 정하는 것이 낫기 때문이다(고정점으로 바꾸면 "한 겹"이라는 오늘의 단위가 소리 없이 넓어진다).
+  // 두 겹이 실재하는지는 `admin-api.test.ts`의 교차 단언이 함께 센다.
   const writes = new Set<string>();
   for (const fn of chunks) {
     if (countAdminApiWriteMethods(fn.chunk) > 0) writes.add(fn.name);
   }
+  const directWrites = [...writes];
   for (const fn of chunks) {
     if (writes.has(fn.name)) continue;
-    if ([...writes].some((write) => new RegExp(`\\b${write}\\(`).test(fn.chunk))) writes.add(fn.name);
+    // 승계의 근거는 **직접 쓰기 함수**뿐이다(방금 승계된 이름은 근거가 되지 않는다) —
+    // 루프 도중 자라는 집합을 다시 읽으면 순서에 따라 두 겹이 우연히 섞여 들어온다.
+    if (directWrites.some((write) => new RegExp(`\\b${write}\\(`).test(fn.chunk))) writes.add(fn.name);
   }
   return [...writes].sort();
 }

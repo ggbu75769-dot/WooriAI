@@ -18,6 +18,7 @@ import {
 import {
   LINK_HEALTH_JOB_NAME,
   SCHEDULED_PUBLISH_JOB_NAME,
+  failingJobNames,
   workerHealthState,
   workerHealthStateNote
 } from "./worker-health-view";
@@ -259,6 +260,48 @@ describe("overdueScheduleBadge (라운드 79 트랙 D)", () => {
     expect(overdueScheduleBadge(overdueScheduleNote(overdue, now), off)).toBe(OVERDUE_SCHEDULE_NOTE);
     // 그 사실은 예약 폼 위 안내가 이미 말한다(문장 중복 0건).
     expect(schedulingWorkerNote(off)).toBe(workerHealthStateNote(off));
+  });
+
+  /**
+   * ⚠️ 라운드 79 리뷰(M-2) — **잔존 실패 기록 위에서 '연속 실패 중'이라고 말하지 않는다.**
+   *
+   * `failingJobNames()`는 잡의 카운터만 읽으므로, 임계치를 넘긴 뒤 워커가 꺼지거나(off) 멈춰도
+   * (stale) 계속 참이다. 그 조합에서 배지가 실패 절을 달면 같은 화면의 두 줄이 **서로 다른 다음
+   * 행동**을 시킨다 — 예약 폼 위 안내는 "워커를 켜라"고, 배지는 "지금도 실패 중"이라고 말한다.
+   * 배지가 서는 조건은 대시보드 한 줄이 잡 이름을 말하는 조건과 **정확히 같아야** 한다.
+   */
+  it("ⓑ-4 상태 우선순위를 건너뛰지 않는다 — stale·off + 잔존 실패 기록이면 종전 문장이다", () => {
+    for (const [label, health] of [
+      ["stale", workerHealth({ stale: true, degraded: true, jobs: [failingJob(SCHEDULED_PUBLISH_JOB_NAME)] })],
+      [
+        "off",
+        workerHealth({ enabled: false, stale: true, degraded: true, jobs: [failingJob(SCHEDULED_PUBLISH_JOB_NAME)] })
+      ]
+    ] as const) {
+      // 잔존 카운터는 여전히 그 잡을 가리킨다(그래서 잡 이름만 보면 실패 중으로 읽힌다).
+      expect(failingJobNames(health), label).toContain(SCHEDULED_PUBLISH_JOB_NAME);
+      // 그런데 표시 상태는 degraded가 아니다 — 꺼짐·멈춤이 앞선다.
+      expect(workerHealthState(health), label).not.toBe("degraded");
+      // 대시보드도 이 순간 잡 이름을 말하지 않는다(꺼짐·멈춤 문장이다) — 배지가 그것과 같은
+      // 조건에 서는지가 이 단언의 전부다.
+      expect(workerHealthStateNote(health), label).not.toContain(SCHEDULED_PUBLISH_JOB_NAME);
+      expect(overdueScheduleBadge(overdueScheduleNote(overdue, now), health), label).toBe(OVERDUE_SCHEDULE_NOTE);
+      // 그 상태에서 사람이 해야 할 일은 예약 폼 위 안내가 말한다(두 줄이 같은 행동을 시킨다).
+      expect(schedulingWorkerNote(health), label).toBe(workerHealthStateNote(health));
+    }
+  });
+
+  /**
+   * ⚠️ 라운드 79 리뷰(S-6) — **문장을 조립하는 자리는 이 모듈 하나다.**
+   * 아는 문장이 아니면 뒤에 절을 잇지 않고 그대로 돌려준다(호출부가 다른 배지를 만들어 넘기는
+   * 날, 그 문장에 "예약 게시 작업이 …"가 붙어 뜻이 어긋나지 않게).
+   */
+  it("ⓑ-5 note가 이 모듈이 아는 문장이 아니면 그대로 돌려준다", () => {
+    const stranger = "다른 화면이 만든 배지";
+    expect(overdueScheduleBadge(stranger, scheduledPublishFailing)).toBe(stranger);
+    expect(overdueScheduleBadge(OVERDUE_SCHEDULE_JOB_FAILING_NOTE, scheduledPublishFailing)).toBe(
+      OVERDUE_SCHEDULE_JOB_FAILING_NOTE
+    );
   });
 
   it("화면이 이미 손에 든 워커 상태를 그 판정에 넘긴다 (새 요청·새 컨트롤 0건)", () => {

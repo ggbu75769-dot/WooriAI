@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -1162,6 +1162,49 @@ describe("`admin-api.ts`를 읽는 두 파서의 교차 단언 (GAP-079 트랙 E
   });
 
   /**
+   * ⚠️ **라운드 79 리뷰(P-3) — 승계는 정확히 한 겹이고, 그 사실이 계약으로 선다.**
+   *
+   * 공용 파서의 `role-gate-write-function` 단위는 쓰기 함수를 부르는 함수를 승계하는데, 그
+   * 승계는 **고정점이 아니다**(둘째 루프가 한 번만 돌고, 근거는 직접 쓰기 함수뿐이다). 그래서
+   * *합성을 부르는 합성*(두 겹)은 세지 않는다. 오늘 그런 자리는 0건이라 아무도 이 경계를 볼 수
+   * 없다 — 그래서 ⓓ와 같은 규율로 **승격**한다: 오늘의 0건과 경계의 모양을 함께 못박고, 두 겹이
+   * 생기는 날 그것이 사고가 아니라 **결정**이 되게 한다.
+   */
+  it("합성 승계는 한 겹까지다 — 두 겹은 세지 않고, 오늘 그런 자리는 0건이다 (리뷰 P-3)", () => {
+    const api = readApiSource();
+    const gate = roleGateWriteFunctions(api);
+    const direct = adminApiWriteFunctionNames(api, "request-write-site");
+    // 승계로 오른 이름 전부가 **직접 쓰기 함수를 직접 부른다**(두 겹으로 오른 이름이 0건이다).
+    const chunks = adminApiFunctionChunks(api);
+    const inherited = gate.filter((name) => !direct.includes(name));
+    expect(inherited, "승계로 오른 이름").toEqual(["draftAndSubmitContentRevision"]);
+    for (const name of inherited) {
+      const chunk = chunks.find((fn) => fn.name === name);
+      expect(chunk, `${name} 청크가 실재한다`).toBeTruthy();
+      expect(
+        direct.some((write) => new RegExp(`\\b${write}\\(`).test(chunk!.chunk)),
+        `${name}은 직접 쓰기 함수를 직접 부른다(두 겹이 아니다)`
+      ).toBe(true);
+    }
+
+    // 경계의 재현: 합성을 부르는 합성은 **세지 않는다**(고정점이 아니라는 사실이 소스로 선다).
+    const twoLayers = [
+      'export function createThing() {\n  return request<Thing>("/admin/things", { method: "POST" });\n}',
+      "export function draftThing() {\n  return createThing();\n}",
+      "export function draftAndAnnounceThing() {\n  return draftThing();\n}",
+      ""
+    ].join("\n\n");
+    expect(adminApiWriteFunctionNames(`\n${twoLayers}`, "role-gate-write-function")).toEqual([
+      "createThing",
+      "draftThing"
+    ]);
+    // 그 경계가 값으로도 적혀 있다(주석이 사라지면 다음 사람이 고정점으로 바꾸고 만다).
+    const parserSource = readFileSync(parserSourcePath, "utf8");
+    expect(parserSource).toContain("승계는 정확히 한 겹이다");
+    expect(parserSource).toContain("const directWrites = [...writes];");
+  });
+
+  /**
    * ⓓ **가정의 승격 — 문서에 적히지 않았던 두 파서의 두 번째 차이.**
    *
    * 함수 표 쪽은 선언의 끝(`ADMIN_API_DECLARATION_END_PATTERN`)까지만 보고, 역할 게이트 쪽은
@@ -1261,7 +1304,30 @@ describe("`admin-api.ts`를 읽는 두 파서의 교차 단언 (GAP-079 트랙 E
       ).toBe(false);
       expect(existsSync(join(adminWorkspaceRoot, bundledRoot, "lib", "admin-api-source-parser.ts"))).toBe(false);
     }
-    // 제품 소스는 이 파서를 부르지 않는다 — 부르면 번들에 실린다.
+    // ⚠️ 라운드 79 리뷰(S-4) — **한 파일이 아니라 전수다.** 종전에는 `admin-api.ts` 한 곳과
+    // 파일명 넷만 봤다: 다른 화면·훅이 이 파서를 import하면 번들에 실리는데도 초록이었다.
+    // 번들 뿌리(`src/**`·`app/**`)의 **비테스트 소스 전수**에서 참조가 0건인지 묻는다.
+    const bundledSources: string[] = [];
+    const walk = (directory: string) => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const entryPath = join(directory, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === "node_modules" || entry.name === ".next") continue;
+          walk(entryPath);
+          continue;
+        }
+        if (!/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(entry.name)) continue;
+        if (/\.test\.(ts|tsx)$/.test(entry.name)) continue;
+        bundledSources.push(entryPath);
+      }
+    };
+    for (const bundledRoot of ["src", "app"]) walk(join(adminWorkspaceRoot, bundledRoot));
+    // 유령 방지: 스윕이 실제로 파일을 훑었다(0건 스윕 위의 부정 단언은 영원한 초록이다).
+    expect(bundledSources.length, "번들 뿌리의 비테스트 소스").toBeGreaterThan(20);
+    const referencing = bundledSources.filter((path) => readFileSync(path, "utf8").includes("admin-api-source-parser"));
+    expect(referencing, "번들에 실리는 소스가 테스트 전용 파서를 참조한다").toEqual([]);
+    // 그 스윕이 `admin-api.ts`를 실제로 포함한다(모집단이 옳다는 실재 확인).
+    expect(bundledSources).toContain(join(adminWorkspaceRoot, "src", "lib", "admin-api.ts"));
     expect(readApiSource()).not.toContain("admin-api-source-parser");
   });
 });

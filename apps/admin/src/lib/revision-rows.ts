@@ -162,12 +162,27 @@ export function overdueScheduleNote(
  * 임계치는 대시보드와 **같은 것**을 쓴다(`failingJobNames` = 연속 실패 ≥ failureThreshold).
  * 두 화면이 같은 순간 다른 사실을 말하지 않게 하는 것이 이 자리의 판정이고, 임계치 전의
  * 1~2회 실패는 다음 틱에 다시 시도되므로 그때 아는 것의 전부는 여전히 종전 문장이다.
+ *
+ * ⚠️ **라운드 79 리뷰(M-2) — 상태 우선순위를 건너뛰지 않는다.**
+ *
+ * `failingJobNames()`는 잡의 **잔존 카운터**만 읽으므로 워커가 그 뒤에 꺼지거나(off) 멈춰도
+ * (stale) 계속 참이다. 그러면 같은 화면의 두 줄이 서로 다른 다음 행동을 시킨다 — 예약 폼 위
+ * 안내(`schedulingWorkerNote`)는 *"워커가 꺼져 있어요"* 라고 말하는데 배지는 *"연속 실패
+ * 중이에요"* 라고 **현재진행으로** 말한다(꺼진 워커는 실패 중일 수 없다). 그래서 실패 절은
+ * `workerHealthState(health) === "degraded"`일 때만 선다 — 대시보드 한 줄이 잡 이름을 말하는
+ * 순간과 **정확히 같은 조건**이다(`workerHealthStateNote`의 degraded 갈래).
+ *
+ * ⚠️ **라운드 79 리뷰(S-6) — 이 함수는 note를 신뢰하지 않는다.** 인자로 오는 문장이 이 모듈이
+ * 아는 그 문장이 아니면(호출부가 다른 배지를 만들어 넘겼다면) 뒤에 절을 잇지 않고 **그대로**
+ * 돌려준다. 문장을 조립하는 자리는 이 모듈 하나여야 한다.
  */
 export function overdueScheduleBadge(
   note: string | null,
   health: WorkerHealth | null | undefined
 ): string | null {
   if (!note) return null;
+  if (note !== OVERDUE_SCHEDULE_NOTE) return note;
   if (!health) return note;
+  if (workerHealthState(health) !== "degraded") return note;
   return failingJobNames(health).includes(SCHEDULED_PUBLISH_JOB_NAME) ? OVERDUE_SCHEDULE_JOB_FAILING_NOTE : note;
 }

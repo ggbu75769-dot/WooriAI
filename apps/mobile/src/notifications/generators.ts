@@ -49,9 +49,22 @@ export type BudgetNotificationInput = {
   budgetKrw: number;
   spentKrw: number;
   /**
-   * 라운드 79 B (GAP-079 #2) — 이 기기에 아직 올라가지 않은 **이 아이의** 지출 행이 있는가
-   * (`hasPendingRecordsForChild`). `true`면 **발화하지 않는다**: record_gap(라운드 54 P1-3)·
-   * monthly_wrapup(GAP-066 #8)이 이미 지고 있는 것과 **같은 판단**이고, 같은 갈래 형식이다.
+   * 라운드 79 B (GAP-079 #2) — 이 달에 아직 서버가 모르는 **이 아이의 되돌아올 변경**이 있는가
+   * (`hasRecoverablePendingRecordsForMonth`). `true`면 **발화하지 않는다**: record_gap(라운드 54
+   * P1-3)·monthly_wrapup(GAP-066 #8)이 이미 지고 있는 것과 **같은 판단**이고, 같은 갈래 형식이다.
+   *
+   * ⚠️ **라운드 79 리뷰(M-3·S-1) — 게이트의 단위가 형제 둘과 다르다. 그것이 이 자리의 판정이다.**
+   *
+   * 형제 둘이 보는 `hasPendingRecordsForChild`는 ⓐ `syncState !== "synced"` **전부**를 세고
+   * ⓑ **달을 가리지 않는다**. 예산 경계에 그 술어를 그대로 쓰면 두 가지가 어긋난다.
+   *  - **종점 상태**: `failed`·`conflict` 행은 사용자가 재시도하거나 폐기할 때까지 **영구히**
+   *    남는다. 그 한 행이 그 달의 예산 알림을 **영영** 침묵시킨다 — 대가가 "지연"이 아니라
+   *    "그 달 전체 손실"이 된다(record_gap은 주 단위 dedupe라 성질이 다르다).
+   *  - **달**: 3월에 실패한 행이 8월 예산 알림을 막을 이유가 없다. 배너가 보는 재조정 술어
+   *    (`hasPendingMonthAdjustments` — src/home/budget-edit.ts)는 **이번 달 행만** 센다.
+   * 그래서 이 게이트는 **회복 가능한 상태(pending·syncing) × 그 달**로 좁힌다 — 배너가 서버
+   * 집계 대신 캐시를 고르는 바로 그 조건과 같은 달 단위이고, 침묵의 끝이 사용자의 폐기가 아니라
+   * **동기화**라는 사실이 술어 자체로 보장된다.
    *
    * 이유: 이 판정의 입력(`spentKrw`)은 `/home`의 **서버 집계**(`monthly.usedAmountKrw`)다.
    * 같은 화면의 예산 배너·진행바·히어로는 그 값이 아니라 대기 행까지 재조정한 값을 읽으므로
@@ -68,7 +81,7 @@ export type BudgetNotificationInput = {
    * 말하고 있고, 서버 푸시는 지출 커밋 시점에 `push_boundary_marks` 클레임으로 따로 간다
    * (at-most-once — apps/api/src/push/push-dispatch.service.ts).
    */
-  hasPendingLocalRecords?: boolean;
+  hasRecoverablePendingMonthRecords?: boolean;
 };
 
 /**
@@ -95,11 +108,13 @@ export type BudgetNotificationInput = {
  * (FIX-119B/F4로 억제 시 새 키도 dedupe 메모리에 기록되지만, 그것은 억제를 legacy 키 수명에서
  * 독립시킬 뿐 억제 범위를 넓히지도 좁히지도 않는다.)
  *
- * 라운드 79 B (GAP-079 #2): 판정 앞에 **게이트 하나**가 섰다 — 이 기기에 서버가 모르는 이 아이의
- * 지출 행이 있으면(`hasPendingLocalRecords`) 후보를 만들지 않는다. 규칙이 아니라 **입력**이
- * 갈리던 자리이고, 형제 알림 둘이 이미 같은 이유로 침묵한다(위 필드 주석 · `RecordGapInput`의
- * `hasPendingLocalRecords` 주석 — "서버 스냅샷이 모르는 기록을 두고 단언하지 않는다").
- * 대기 행이 없으면 종전과 한 글자도 다르지 않다.
+ * 라운드 79 B (GAP-079 #2): 판정 앞에 **게이트 하나**가 섰다 — 이 달에 서버가 모르는 이 아이의
+ * **되돌아올** 지출 변경이 있으면(`hasRecoverablePendingMonthRecords`) 후보를 만들지 않는다.
+ * 규칙이 아니라 **입력**이 갈리던 자리이고, 형제 알림 둘이 이미 같은 이유로 침묵한다(위 필드
+ * 주석 · `RecordGapInput`의 `hasPendingLocalRecords` 주석 — "서버 스냅샷이 모르는 기록을 두고
+ * 단언하지 않는다"). 대기 행이 없으면 종전과 한 글자도 다르지 않다.
+ * ⚠️ 라운드 79 리뷰(M-3): 이 게이트의 단위는 형제 둘과 **일부러 다르다**(위 필드 주석 — 종점
+ * 상태와 달을 가른다. 그래야 대가가 "지연"이라는 서술이 참으로 남는다).
  *
  * Copy note: unlike the live banner, an in-app notification is a SNAPSHOT that stays in the list,
  * so the 초과 case deliberately keeps the amount-free "이번 달 예산을 초과했어요" -- a frozen
@@ -107,10 +122,12 @@ export type BudgetNotificationInput = {
  * (delivered immediately) do name the amount.
  */
 export function budgetNotifications(input: BudgetNotificationInput): AppNotificationCandidate[] {
-  const { childId, yearMonth, budgetKrw, spentKrw, hasPendingLocalRecords } = input;
-  // 라운드 79 B: 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 경계를 단언하지 않는다
+  const { childId, yearMonth, budgetKrw, spentKrw, hasRecoverablePendingMonthRecords } = input;
+  // 라운드 79 B: 서버가 모르는 그 달의 기록이 이 기기에 남아 있는 동안에는 경계를 단언하지 않는다
   // (record_gap·monthly_wrapup과 같은 규율 -- 키를 태우지 않으므로 동기화 뒤 정확히 한 번 뜬다).
-  if (hasPendingLocalRecords) return [];
+  // 라운드 79 리뷰(M-3): "남아 있다"의 뜻은 **되돌아올 행**이다 -- 종점 상태(failed·conflict)는
+  // 사용자가 폐기하기 전까지 영구히 남으므로 그것까지 세면 침묵이 그 달 내내 풀리지 않는다.
+  if (hasRecoverablePendingMonthRecords) return [];
   const status = reachedBudgetBoundaries({ budgetKrw, spentKrw });
   if (!status.reached80) return [];
   if (status.reached100) {
@@ -355,8 +372,17 @@ export function latestRecordedOn(records: ReadonlyArray<RecordedExpenseLike | nu
   return latest;
 }
 
-/** `LocalExpenseRow`(src/offline/types.ts)에서 이 판정에 필요한 것만 — 구조 호환. */
-export type PendingRecordRowLike = { childId?: string | null; syncState?: string | null };
+/**
+ * `LocalExpenseRow`(src/offline/types.ts)에서 이 판정에 필요한 것만 — 구조 호환.
+ *
+ * `payload.spentOn`은 **달 단위 판정에만** 쓴다(아래 `hasRecoverablePendingRecordsForMonth`).
+ * 선택 필드라 record_gap 쪽 호출부는 종전 그대로다.
+ */
+export type PendingRecordRowLike = {
+  childId?: string | null;
+  syncState?: string | null;
+  payload?: { spentOn?: string | null } | null;
+};
 
 /**
  * GAP-054 라운드 54 P1-3 — 이 기기에 **아직 서버가 모르는 이 아이의 지출 행**이 있는가.
@@ -376,6 +402,47 @@ export function hasPendingRecordsForChild(
 ): boolean {
   if (!childId || !rows) return false;
   return rows.some((row) => row?.childId === childId && typeof row?.syncState === "string" && row.syncState !== "synced");
+}
+
+/**
+ * 라운드 79 리뷰(M-3·S-1) — **아웃박스가 스스로 풀 수 있는** 동기화 상태.
+ *
+ * `SyncState`(src/offline/types.ts)의 다섯 중 `failed`·`conflict`는 **종점**이다: 큐가 자동으로
+ * 다시 보내지 않고, 사용자가 동기화 상태 화면에서 재시도하거나 폐기해야 사라진다. `synced`는
+ * 서버가 이미 아는 행이다. 남는 둘(`pending`·`syncing`)만이 "곧 서버가 알게 될 변경"이다.
+ */
+export const RECOVERABLE_PENDING_SYNC_STATES = ["pending", "syncing"] as const;
+
+/**
+ * 라운드 79 리뷰(M-3·S-1) — 예산 경계 게이트의 술어. **그 달**에 **곧 서버가 알게 될** 이 아이의
+ * 변경이 있는가.
+ *
+ * 형제 둘(`hasPendingRecordsForChild`)과 일부러 두 가지가 다르다.
+ *  ⓐ **상태**: 회복 가능한 둘만 센다(위 상수). 종점 상태까지 세면 실패 한 행이 그 달의 예산
+ *     알림을 영영 막아, 그 게이트의 대가가 "지연"이 아니라 "그 달 전체 손실"이 된다.
+ *  ⓑ **달**: 이번 달 행만 센다 — 홈 배너가 서버 집계 대신 재조정 캐시를 고르는 조건
+ *     (`hasPendingMonthAdjustments` — src/home/budget-edit.ts)과 **같은 단위**다. 두 표면이
+ *     같은 순간 같은 "이번 달"을 보게 하는 것이 이 게이트의 목적이므로 단위도 같아야 한다.
+ *     ⚠️ 그 모듈을 import하지 않는 이유: 이 파일은 알림 층의 순수 모듈이고(react-native·홈 층에
+ *     의존하지 않는다) 상태 집합도 다르다. 같은 달 단위를 쓴다는 사실은 계약이 문다
+ *     (generators.test.ts — 두 술어를 같은 행으로 나란히 돌린다).
+ *
+ * 달을 모르면(`yearMonth`가 없으면) false다 — 판정할 수 없는 것을 참으로 세지 않는다.
+ */
+export function hasRecoverablePendingRecordsForMonth(
+  rows: ReadonlyArray<PendingRecordRowLike | null | undefined> | null | undefined,
+  childId: string | null | undefined,
+  yearMonth: string | null | undefined
+): boolean {
+  if (!childId || !yearMonth || !rows) return false;
+  return rows.some(
+    (row) =>
+      row?.childId === childId &&
+      typeof row?.syncState === "string" &&
+      (RECOVERABLE_PENDING_SYNC_STATES as readonly string[]).includes(row.syncState) &&
+      typeof row?.payload?.spentOn === "string" &&
+      row.payload.spentOn.startsWith(yearMonth)
+  );
 }
 
 export type RecordGapInput = {
@@ -601,15 +668,26 @@ export type HomeNotificationInput = {
    * GAP-066 #8: **지난달 정리도 같은 값을 본다.** 두 알림 다 "서버 스냅숏이 이 기기가 아는 사실을
    * 아직 모른다"는 같은 이유로 침묵하므로, 판정을 두 벌로 만들지 않는다.
    *
-   * 라운드 79 B (GAP-079 #2): **예산 알림(budget_80·budget_100)도 같은 값을 본다** — 셋째다.
+   * ⚠️ 라운드 79 리뷰(M-3): **예산 경계는 이 값을 보지 않는다.** 그 게이트는 아래
+   * `hasRecoverablePendingMonthRecords`(회복 가능한 상태 × 그 달)를 본다 — 종점 상태 한 행이
+   * 그 달의 알림을 영영 막지 않게 하려면 술어가 달라야 한다. 이 값의 뜻과 두 형제의 동작은
+   * 종전 그대로다.
+   */
+  hasPendingLocalRecords?: boolean;
+  /**
+   * 라운드 79 B (GAP-079 #2) + 리뷰(M-3·S-1) — **예산 경계 둘(budget_80·budget_100)의 게이트.**
+   *
    * 같은 화면의 배너·진행바·히어로는 재조정 값(`resolveThisMonthUsedKrw`)을 읽는데 이 알림만
    * 서버 집계(`monthly.usedAmountKrw`)를 읽어, 대기 행이 있는 동안 두 표면이 서로 다른 수 위에서
-   * 말했다(`BudgetNotificationInput.hasPendingLocalRecords` 주석에 방향까지 값으로 적어 둔다).
+   * 말했다(`BudgetNotificationInput` 주석에 방향까지 값으로 적어 둔다).
+   *
+   * 값은 `hasRecoverablePendingRecordsForMonth(rows, childId, 이번 달)`이고, 홈 화면이 **이미
+   * 구독 중인** 오프라인 스냅샷에서 계산해 넘긴다(새 요청·새 구독 0건 — 위 값과 같은 주입 방식).
    * ⚠️ 주간 요약은 이 게이트 밖이다 — 1순위가 **홈 주간 카드가 재조정 캐시로 이미 만든 값**이라
    * 화면과 같은 수를 말하고, 서버 집계는 그 캐시가 확정 실패했을 때의 폴백뿐이다(그때는 서버 값이
    * 유일하게 아는 사실이다).
    */
-  hasPendingLocalRecords?: boolean;
+  hasRecoverablePendingMonthRecords?: boolean;
   /**
    * GAP-066 #8: 지난달 한 달치 지출 행(`["expenses", childId, 지난달]` 캐시 — 홈이 "지난달 같은
    * 시점 대비" 한 줄을 위해 **이미 받아 둔** 그것을 훅이 읽어 넘긴다. 새 요청 0건).
@@ -628,9 +706,9 @@ export function evaluateHomeNotifications(input: HomeNotificationInput): AppNoti
       yearMonth: input.monthly.yearMonth,
       budgetKrw: input.monthly.amountKrw,
       spentKrw: input.monthly.usedAmountKrw,
-      // 라운드 79 B (GAP-079 #2): 형제 둘과 **같은 값**을 본다 — 새 인자도 새 배선도 없다
-      // (이 값은 P1-3부터 이미 이 입력에 있었고, 홈 화면은 한 글자도 바뀌지 않는다).
-      hasPendingLocalRecords: input.hasPendingLocalRecords
+      // 라운드 79 B (GAP-079 #2) + 리뷰(M-3·S-1): 형제 둘과 **같은 규율**이되 술어는 자기 것이다
+      // — 회복 가능한 상태 × 그 달(종점 상태 한 행이 그 달을 통째로 침묵시키지 않게).
+      hasRecoverablePendingMonthRecords: input.hasRecoverablePendingMonthRecords
     })
   ];
   const stage = stageTransitionNotification({

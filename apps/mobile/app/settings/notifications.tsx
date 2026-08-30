@@ -26,7 +26,15 @@ import { OFFLINE_LOAD_NOTICE, OFFLINE_SAVE_NOTICE } from "../../src/offline/mess
 import { useLoadErrorCopy, useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, EmptyStateCard, ScreenHeader, SecondaryButton, StatusBadge } from "../../src/ui";
+import {
+  announceForA11y,
+  AppScreen,
+  Card,
+  EmptyStateCard,
+  ScreenHeader,
+  SecondaryButton,
+  StatusBadge
+} from "../../src/ui";
 
 /**
  * PUSH-116 (SET-006) 알림 설정: 현재 기기의 푸시 등록 상태 + "푸시 알림" 마스터 토글 +
@@ -166,6 +174,16 @@ export default function NotificationSettingsScreen() {
     deviceToggleSaveErrorCopy === OFFLINE_SAVE_NOTICE
       ? deviceToggleSaveErrorCopy
       : `알림 설정을 ${deviceToggleSaveErrorCopy}`;
+
+  /**
+   * 라운드 79 리뷰(M-1) — 프롭 둘은 **안드로이드에서만** 자동 낭독을 만든다
+   * (`accessibilityLiveRegion`은 @platform android · `accessibilityRole="alert"`에 대응하는
+   * VoiceOver 트레이트가 없다). 크로스플랫폼 관례는 `announceForA11y`이고, 이 자리는 되돌아간
+   * 스위치 바로 아래라 포커스가 그 스위치에 남는다 — (auth)/login.tsx와 같은 조건이다.
+   */
+  useEffect(() => {
+    if (toggleDevice.isError) announceForA11y(deviceToggleSaveErrorText);
+  }, [toggleDevice.isError, deviceToggleSaveErrorText]);
 
   return (
     <AppScreen>
