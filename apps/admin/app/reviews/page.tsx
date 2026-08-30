@@ -20,6 +20,7 @@ import {
   type WorkerHealth
 } from "../../src/lib/admin-api";
 import { loadErrorCopy, loadErrorMessage, type LoadErrorCopy } from "../../src/lib/load-error-copy";
+import { writeErrorMessage } from "../../src/lib/write-error-copy";
 import {
   REVISION_STATUS_FILTERS,
   overdueScheduleNote,
@@ -226,7 +227,11 @@ function ContentReviewsPageContent() {
         clearSession();
         return;
       }
-      setActionError("승인 게시하지 못했어요. 본인이 작성한 초안은 승인할 수 없어요.");
+      // 라운드 76 트랙 B(GAP-076 #2ⓒ): 종전 폴백은 **모든 실패**에 "본인이 작성한 초안은
+      // 승인할 수 없어요"라고 원인을 단정했다 — 네트워크 끊김·500·60초 타임아웃에도 그렇게
+      // 말했다. 그 문장은 서버가 CONTENT_REVISION_SELF_APPROVAL일 때만 하는 말이고
+      // (content-revisions.service.ts), 그때는 서버가 직접 말한다. 화면은 아는 것만 말한다.
+      setActionError(writeErrorMessage(error, "승인 게시하지 못했어요."));
     } finally {
       setActionSubmitting(false);
     }
@@ -250,7 +255,7 @@ function ContentReviewsPageContent() {
         clearSession();
         return;
       }
-      setActionError("반려하지 못했어요. 다시 시도해 주세요.");
+      setActionError(writeErrorMessage(error, "반려하지 못했어요. 다시 시도해 주세요."));
     } finally {
       setActionSubmitting(false);
     }
@@ -279,6 +284,9 @@ function ContentReviewsPageContent() {
         return;
       }
       // API가 이미 한국어 사용자 메시지를 내려줘요(과거 시각·본인 제출 초안 등).
+      // 라운드 76 트랙 B: 형제 넷 중 **이 자리만** 그 사실을 알고 있었고, 이번 라운드가
+      // 나머지 셋을 같은 한 벌(writeErrorMessage)로 옮겼다. 이 자리의 손 사본이 남는
+      // 이유는 admin-write-error-copy.test.ts의 면제 목록에 값으로 적혀 있다.
       setActionError(
         error instanceof AdminApiError && error.message
           ? error.message
@@ -303,7 +311,7 @@ function ContentReviewsPageContent() {
         clearSession();
         return;
       }
-      setActionError("롤백하지 못했어요. 다시 시도해 주세요.");
+      setActionError(writeErrorMessage(error, "롤백하지 못했어요. 다시 시도해 주세요."));
     } finally {
       setActionSubmitting(false);
     }

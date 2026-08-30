@@ -19,6 +19,7 @@ import {
   type ProductLinkBulkPreviewResult
 } from "../lib/admin-api";
 import { linkPriceText } from "../lib/link-price-view";
+import { writeErrorMessage } from "../lib/write-error-copy";
 import { useAdminSession } from "../lib/admin-token-context";
 import styles from "./admin-page.module.css";
 
@@ -157,7 +158,10 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
         await recheckCurrentState();
         return;
       }
-      setError("적용하지 못했어요. 다시 미리보기 후 시도해 주세요.");
+      // 라운드 76 트랙 B: 위 두 갈래(멱등 타임아웃·재시도 불가 타임아웃)는 이 패널이
+      // 이미 갈라 두었고, 남은 실패(400 검증·403·5xx·연결 실패)의 서버 사유는 여기서
+      // 통째로 버려지고 있었다. 종전 폴백은 서버가 아무 말도 못 했을 때만 선다.
+      setError(writeErrorMessage(err, "적용하지 못했어요. 다시 미리보기 후 시도해 주세요."));
     } finally {
       setApplying(false);
     }

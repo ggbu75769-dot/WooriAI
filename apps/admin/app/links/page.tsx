@@ -21,6 +21,7 @@ import {
   type ProductPlatform
 } from "../../src/lib/admin-api";
 import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
+import { writeErrorMessage } from "../../src/lib/write-error-copy";
 import {
   EMPTY_LINK_FILTERS,
   LINK_HEALTH_FILTERS,
@@ -370,7 +371,7 @@ function ProductLinksPageContent() {
         clearSession();
         return;
       }
-      setCreateError("저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요.");
+      setCreateError(writeErrorMessage(error, "저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요."));
     } finally {
       setCreating(false);
     }
@@ -436,7 +437,7 @@ function ProductLinksPageContent() {
         clearSession();
         return;
       }
-      setEditError("저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요.");
+      setEditError(writeErrorMessage(error, "저장하지 못했어요. 입력값을 확인하고 다시 시도해 주세요."));
     } finally {
       setEditSubmitting(false);
     }
