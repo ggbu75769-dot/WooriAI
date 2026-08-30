@@ -2079,5 +2079,74 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     displayOrder: 580,
     active: true,
     disclosureText: null
+  },
+  // 라운드 82 트랙 B — 링크 0건으로 남아 있던 넷. 이 넷 중 둘(`pregnancy_vitamin`·
+  // `diaper_stock`)은 `essential`이고 도메인 점수로 재면 자기 시기 "지금 필요" 목록의 머리에
+  // 서므로, 온보딩을 막 마친 사용자에게 앱이 처음 내미는 추천 카드가 구매 경로 0건이었다
+  // (핵심 루프 4단계가 1순위에서 시작되지 않았다 — apps/api/test/seed-data.test.ts의 대장 참고).
+  //
+  // ⚠️ 넷 다 **일반 링크**다: `isAffiliate: false` · `isSponsored: false` · `sponsorLabel: null` ·
+  // `disclosureText: null`. 고지 판정은 **링크 집합**에서 나오므로(apps/mobile/src/items/link-marker.ts —
+  // 라운드 43 M-1/M-2) 이 넷은 DNC-010 문장도 DNC-011 배지도 한 줄 늘리지 않는다.
+  // ⚠️ 제목에 효능·효과를 적지 않는다(DNC-020) — 위 `iron_supplement`의 중립 제목이 본보기다.
+  {
+    itemTemplateCode: "pregnancy_vitamin",
+    platform: "custom",
+    title: "개발용 임산부 영양제 링크",
+    url: "https://example.com/dev/pregnancy-vitamin",
+    affiliateUrl: null,
+    affiliatePartnerCode: null,
+    isAffiliate: false,
+    isSponsored: false,
+    sponsorLabel: null,
+    priceSnapshotKrw: 45000,
+    displayOrder: 590,
+    active: true,
+    disclosureText: null
+  },
+  {
+    itemTemplateCode: "diaper_stock",
+    platform: "custom",
+    title: "개발용 기저귀 링크",
+    url: "https://example.com/dev/diaper-stock",
+    affiliateUrl: null,
+    affiliatePartnerCode: null,
+    isAffiliate: false,
+    isSponsored: false,
+    sponsorLabel: null,
+    priceSnapshotKrw: 60000,
+    displayOrder: 600,
+    active: true,
+    disclosureText: null
+  },
+  {
+    itemTemplateCode: "baby_food_maker",
+    platform: "custom",
+    title: "개발용 이유식 조리 도구 링크",
+    url: "https://example.com/dev/baby-food-maker",
+    affiliateUrl: null,
+    affiliatePartnerCode: null,
+    isAffiliate: false,
+    isSponsored: false,
+    sponsorLabel: null,
+    priceSnapshotKrw: 70000,
+    displayOrder: 610,
+    active: true,
+    disclosureText: null
+  },
+  {
+    itemTemplateCode: "first_books",
+    platform: "custom",
+    title: "개발용 첫 그림책 링크",
+    url: "https://example.com/dev/first-books",
+    affiliateUrl: null,
+    affiliatePartnerCode: null,
+    isAffiliate: false,
+    isSponsored: false,
+    sponsorLabel: null,
+    priceSnapshotKrw: 45000,
+    displayOrder: 620,
+    active: true,
+    disclosureText: null
   }
 ];
