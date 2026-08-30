@@ -461,9 +461,10 @@ export class ContentRevisionsService {
       } catch (error) {
         // Same compensation as approvePublish: back to in_review so the row is
         // never stuck in "publishing". scheduledFor is left intact, so the
-        // next tick retries; the failure is surfaced via the returned summary
-        // (logged by the scheduler) rather than thrown, so one bad revision
-        // can't block the rest of the batch.
+        // next tick retries; the failure is collected into the returned summary
+        // instead of aborting here, so one bad revision can't block the rest of
+        // the batch (the job throws that summary after the batch — 라운드 78 트랙 B,
+        // src/worker/jobs/scheduled-publish.job.ts).
         await this.prisma.contentRevision.updateMany({
           where: { id: revision.id, status: "publishing" },
           data: { status: "in_review", reviewedAt: null }

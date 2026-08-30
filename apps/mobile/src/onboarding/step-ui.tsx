@@ -2,6 +2,10 @@ import { useEffect } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Text, View } from "react-native";
 import { hasApiErrorCode } from "../api/api-error";
+// 라운드 78 A: 아는 코드는 표가 말한다. ⚠️ 같은 모듈인데 줄을 따로 두는 이유 — 윗줄은 라운드 60 #3의
+// 소스 계약이 **바이트 그대로** 무는 자리다(src/onboarding-step-progress.test.ts: "판정은 서버 봉투의
+// 코드 하나로 한다"). 한 줄로 합치면 이 트랙의 파일이 아닌 그 계약이 빨개진다.
+import { apiErrorCodeOf, apiErrorMessageForCode } from "../api/api-error";
 import { LOCAL_SESSION_TOKEN } from "../api/client";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { useAnalyticsConsentStore } from "../analytics/flag";
@@ -10,6 +14,8 @@ import { useAnalyticsConsentStore } from "../analytics/flag";
 import { useErrorTimeConnectivity } from "../offline/use-load-error-copy";
 // 오프라인 문장은 이 앱의 **공용 단일 소스**를 글자 그대로 읽는다(새 문구 0건).
 import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
+// 라운드 78 리뷰 M-2: 아이가 사라진 실패의 문장도 이 앱에 이미 한 벌 있다(새 문구 0건).
+import { DESTRUCTIVE_FLOW_MESSAGE_BY_CODE } from "../settings/destructive-flow-messages";
 import { useSessionStore } from "../stores/session.store";
 import { Card, SecondaryButton } from "../ui";
 import { theme } from "../theme";
@@ -81,6 +87,14 @@ export const ONBOARDING_SAVE_FORBIDDEN_MESSAGE =
   "권한이 없어 저장하지 못했어요. 가족 관리자에게 아이 등록을 부탁해 주세요.";
 
 /**
+ * 라운드 78 리뷰 M-2 — **아이가 사라진 실패**의 문구. 아이 삭제 흐름이 쓰는 그 문장 그대로다
+ * (src/settings/destructive-flow-messages.ts). 목적지를 가리키지 않고 지금 상태만 말하므로
+ * 온보딩에서도 그대로 참이고, 재시도를 권하지도 않는다 — 이 화면에 없는 *"아이 목록"* 을
+ * 가리키는 표의 문장 대신 여기 서는 이유가 그것이다(위 머리말).
+ */
+export const ONBOARDING_CHILD_GONE_MESSAGE = DESTRUCTIVE_FLOW_MESSAGE_BY_CODE.child_profile_delete.CHILD_NOT_FOUND;
+
+/**
  * 이 저장 실패가 권한(403) 때문인가. 판정 기준은 서버 봉투의 코드 하나다
  * (src/api/api-error.ts -- 사람이 읽는 message 문구는 비교 기준으로 쓰지 않는다).
  */
@@ -112,13 +126,88 @@ export function isOnboardingSaveForbidden(error: unknown): boolean {
  * `CONSENT_REQUIRED`·403·**온라인의 모르는 실패**는 종전과 **바이트 단위로 같다**. `isOnline`을
  * 넘기지 않은 호출부(기본값 true)도 종전 동작 그대로다 — 이 인자는 갈래를 하나 **더할** 뿐
  * 기존 셋 중 어느 것도 옮기지 않는다.
+ *
+ * ## 라운드 78 A(#1) — **아는 코드는 표가 말한다**
+ *
+ * 이 모듈이 아는 코드는 둘(`CONSENT_REQUIRED`·`FORBIDDEN`)뿐이었고 화이트리스트 표
+ * (src/api/api-error.ts)를 **부르지 않았다.** 그래서 서버가 이유를 코드로 말해 준 실패까지
+ * 전부 마지막 폴백 한 문장으로 접혔다 — 표에 **이미 있던** `CHILD_BIRTH_DATE_TOO_OLD`조차
+ * 이 화면에는 구조적으로 설 수 없었다. 같은 실패가 아이 관리 화면
+ * (app/settings/children.tsx → `useSaveErrorCopy` → `resolveSaveErrorCopy` → 표)에서는
+ * *"20년보다 오래된 날은 고를 수 없어요."* 이고 온보딩에서는 *"저장하지 못했어요…"* 였다.
+ * **한 여정의 두 화면이 같은 실패를 정반대로 말하던 자리**다(라운드 77 E가 초대 화면에서
+ * 닫은 그 비대칭의 쌍둥이).
+ *
+ * ### 갈래는 다섯이다 — 전용 셋 → 표 → 오프라인 → 전용 폴백
+ *
+ * ⚠️ **라운드 78 리뷰 M-1이 순서를 뒤집었다.** 처음 이 갈래는 표를 오프라인 **뒤**에 두면서
+ * *"오프라인으로 판정된 실패에는 서버 코드가 애초에 없다"* 를 근거로 적었는데, **그 근거는
+ * 거짓이다**: `isOnline`은 실패 값에서 파생한 값이 아니라 카드가 마운트되는 순간 도는 **독립된
+ * 폴 한 번**이다(`useErrorTimeConnectivity`). 서버가 400을 주고 그 직후 연결이 끊기면 —
+ * 코드를 든 실패 값과 `isOnline: false`가 **동시에** 성립하고, 표 뒤 순서에서는 이유를 아는
+ * 실패가 *"지금은 오프라인이에요"* 로 접힌다.
+ *
+ * 그래서 순서는 **코드 → 오프라인**이다. 근거는 이 저장소가 그 순서를 세울 때 적은 것과 같다:
+ * **서버가 답을 줬다는 사실 자체**가 연결이 있었다는 뜻이다.
+ *
+ * **저장소의 순서 넷(2026-08-30 실측) — 표를 직접 보는 셋은 전부 코드가 먼저다.**
+ *  - `resolveSaveErrorCopy`(src/offline/messages.ts): 표 → 오프라인 → 폴백.
+ *  - `memberMutationErrorMessage`(src/family/member-mutation-messages.ts): 403 → 표 → 오프라인 → 폴백.
+ *  - **이 함수**: 전용 셋 → 표 → 오프라인 → 폴백.
+ *  - `inviteCreateErrorMessage`(src/family/invite-permissions.ts)만 403 → 오프라인 → 문장 → 폴백인데,
+ *    그 자리는 **표를 직접 보지 않는다** — 이미 표를 지난 훅의 답(`serverCopy`)을 받으므로
+ *    단위가 다르다. 이 계약이 무는 것은 앞의 셋이다.
+ *
+ * 전용 셋이 표보다 앞인 이유는 각각이다 — `FORBIDDEN`은 표에도 있지만 이 화면에서 사용자가
+ * 알아야 할 사실은 중립 문구가 아니라 *"가족 관리자에게 부탁하라"* 이고, `CONSENT_REQUIRED`는
+ * 문구가 아니라 **복구 동선**(`onReconsent`)이 답이라 표에 아예 넣지 않았다. 셋째는 라운드 78
+ * 리뷰 M-2가 세웠다(바로 아래).
+ *
+ * ### `CHILD_NOT_FOUND` — 표의 문장이 **갈 곳 없는 안내**가 되는 자리 (리뷰 M-2)
+ *
+ * 표의 그 줄은 *"…아이 목록에서 확인해 주세요."* 로 끝난다. 아이 관리 화면에서는 옳지만
+ * **온보딩에는 그 목적지가 없다**(탭도 목록도 아직 서지 않는다). 도달 경로는 실재한다: 공동
+ * 양육자가 그사이 아이를 지우면 ONB-003·004의 저장이 `requireChildAccess`에서 404를 받는다
+ * (apps/api/src/onboarding/child-access.service.ts).
+ *
+ * 그래서 이 코드만 표보다 앞에서 가로채고, 문장은 **이미 있던 것을 그대로 읽는다**(새 문구 0건 —
+ * `DESTRUCTIVE_FLOW_MESSAGE_BY_CODE.child_profile_delete.CHILD_NOT_FOUND`). 그 문장은 목적지를
+ * 가리키지 않고 지금 상태만 말하며, 재시도를 권하지도 않는다.
+ *
+ * ⚠️ `ITEM_NOT_FOUND`("준비템 탭에서 확인해 주세요")는 **같은 병이 아니다** — 온보딩의 저장 셋은
+ * 그 코드를 던지는 파일(items-catalog.service.ts)을 지나지 않는다. ONB-003의 저장은 없는
+ * 템플릿 id를 조용히 걸러 낼 뿐 404를 만들지 않는다(onboarding-core.service.ts의
+ * `setPreparedItems`). 갈래를 세우지 않는 근거를 값으로 적어 두는 것이 여기서 할 수 있는 전부다
+ * (그 사실은 api-error.test.ts의 여정 스윕이 함께 문다).
+ *
+ * ### ⚠️ 이 갈래의 값은 오늘 좁다 — 표가 자라는 날을 위한 자리다 (리뷰 M-3)
+ *
+ * 정직하게 적는다: **오늘 이 화면에서 표를 지나 실제로 서는 코드는 0건**이다. 날짜 셋
+ * (`CHILD_BIRTH_DATE_FUTURE`·`CHILD_DUE_DATE_BEYOND_TERM`·`CHILD_BIRTH_DATE_TOO_OLD`)은 같은 폼
+ * 모듈(`src/children/child-form.ts`의 `computeDateError`)이 저장 **전에** 막고,
+ * `CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED`를 내는 전환 카드는 **설정 > 아이 프로필에만** 있으며,
+ * `FORBIDDEN`·`CONSENT_REQUIRED`·`CHILD_NOT_FOUND`는 전용 셋이 먼저 답한다. 그래도 이 갈래가 서는
+ * 이유는 라운드 77 트랙 E가 초대 화면에서 적어 둔 것과 같다 — **종전 구조에서는 앱 전역 표가
+ * 자라도 이 화면만 일반 폴백을 말했고, 그 파생은 아무 단언도 깨지 않았다.** 아이 저장 경로에
+ * 서버 코드가 하나 느는 날 이 자리가 값을 낸다(실기기 확인은
+ * docs/qa/runtime-verification-required.md의 124번 행 ⓕ — ⚠️ 이 파일의 픽셀락 계약이 `#` + 숫자를
+ * 색상 리터럴로 읽으므로 행 번호를 그 모양으로 적지 않는다).
+ *
+ * 그래서 이 라운드가 실제로 바꾸는 것은 **표가 아는 코드**와 그 순서뿐이고, 그것이 이 갈래의
+ * 목적이다.
  */
 export function onboardingSaveErrorMessage(error: unknown, { isOnline = true }: { isOnline?: boolean } = {}): string {
   if (isOnboardingConsentRequired(error)) return ONBOARDING_CONSENT_REQUIRED_MESSAGE;
   if (isOnboardingSaveForbidden(error)) return ONBOARDING_SAVE_FORBIDDEN_MESSAGE;
-  // 오프라인 갈래만 새로 갈린다. 문장은 공용 단일 소스에서 글자 그대로 온다 -- 같은 상황을
-  // 화면마다 다른 말로 부르지 않기 위해서다(src/offline/messages.ts의 OFFLINE_RETRY_NOTICE
-  // 머리말). 카드의 버튼이 "재시도"이므로 그 문장의 "다시 시도해 주세요"와 동사가 맞는다.
+  // 라운드 78 리뷰 M-2: 표의 문장이 이 화면에 없는 목적지를 가리키는 유일한 코드(위 머리말).
+  if (hasApiErrorCode(error, "CHILD_NOT_FOUND")) return ONBOARDING_CHILD_GONE_MESSAGE;
+  // 라운드 78 A: 서버가 코드로 말해 준 실패는 표가 답한다(문구를 이 파일에 다시 적지 않는다).
+  // 모르는 코드면 표가 null을 돌려주고, 그 아랫줄의 두 문장은 종전과 바이트 단위로 같다.
+  const knownByCode = apiErrorMessageForCode(apiErrorCodeOf(error));
+  if (knownByCode) return knownByCode;
+  // 오프라인 갈래. 문장은 공용 단일 소스에서 글자 그대로 온다 -- 같은 상황을 화면마다 다른 말로
+  // 부르지 않기 위해서다(src/offline/messages.ts의 OFFLINE_RETRY_NOTICE 머리말). 카드의 버튼이
+  // "재시도"이므로 그 문장의 "다시 시도해 주세요"와 동사가 맞는다.
   if (!isOnline) return OFFLINE_RETRY_NOTICE;
   return ONBOARDING_SAVE_FAILED_MESSAGE;
 }

@@ -99,10 +99,14 @@ describe("라운드 48 T1: 상세 화면 배선", () => {
     // 프리뷰(ITEM-002 픽셀 락)에서는 사진을 그대로 그린다 -- 분기가 살아 있어야 한다.
     expect(detail).toContain("<Image source={productImage} style={productDetailHeroImageStyle()} resizeMode=\"cover\" />");
     // 세션 경로에서 사진을 그리는 배선은 남아 있지 않다.
-    const sessionBranch = detail.slice(
-      detail.indexOf("{hasSession ? (\n            <Card style={productDetailHeroCardStyle()}>"),
-      detail.indexOf(") : (", detail.indexOf("{hasSession ? (\n            <Card style={productDetailHeroCardStyle()}>"))
-    );
+    // 라운드 78 트랙 E: 시작 표식이 스타일 **호출 모양**(`productDetailHeroCardStyle()`)까지
+    // 담고 있어, 인자 하나만 받게 되어도 -1이 됐다. 그러면 구간이 빈 문자열이 되어 아래
+    // 부정 단언이 아무것도 검사하지 않은 채 통과한다(끝점이 -1일 때보다 조용한 실패다).
+    const heroBranchStart = detail.indexOf("{hasSession ? (\n            <Card style={productDetailHeroCardStyle");
+    const heroBranchEnd = detail.indexOf(") : (", heroBranchStart);
+    expect(heroBranchStart, "세션 히어로 카드 갈래를 찾지 못했어요").toBeGreaterThan(-1);
+    expect(heroBranchEnd, "세션 히어로 카드 갈래의 끝을 찾지 못했어요").toBeGreaterThan(heroBranchStart);
+    const sessionBranch = detail.slice(heroBranchStart, heroBranchEnd);
     expect(sessionBranch).not.toContain("productImage");
   });
 });

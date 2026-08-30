@@ -327,10 +327,13 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
   });
 
   it("정기 지출 카드는 비세션 프리뷰(HOME-001 캡처 경로)에 존재하지 않는다", () => {
-    const preview = homeSource.slice(
-      homeSource.indexOf("// 비세션 프리뷰 렌더(HOME-001 캡처 경로)"),
-      homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)")
-    );
+    // 라운드 78 트랙 E: 두 표식은 소스 주석이다 — 주석 한 줄이 손질되면 -1이 되고,
+    // 시작이 -1이면 구간이 **빈 문자열**이라 아래 부정 단언이 영원히 초록이 된다.
+    const previewStart = homeSource.indexOf("// 비세션 프리뷰 렌더(HOME-001 캡처 경로)");
+    const previewEnd = homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)", previewStart);
+    expect(previewStart, "비세션 프리뷰 렌더 표식을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(previewEnd, "세션 홈 렌더 표식을 찾지 못했어요").toBeGreaterThan(previewStart);
+    const preview = homeSource.slice(previewStart, previewEnd);
     expect(preview).not.toContain("recurringReminder");
     // 모듈 쪽 게이트: 세션이 없으면 childId를 넘기지 않아 판정 자체가 null이다.
     expect(homeSource).toContain("childId: hasSession ? childId : null,");
@@ -381,10 +384,12 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
   });
 
   it("비세션 프리뷰(HOME-001 캡처 경로)는 종전 렌더 그대로 남는다", () => {
-    const preview = homeSource.slice(
-      homeSource.indexOf("// 비세션 프리뷰 렌더(HOME-001 캡처 경로)"),
-      homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)")
-    );
+    // 라운드 78 트랙 E: 위 테스트와 같은 자리 — 자르기 전에 두 표식의 실재를 묻는다.
+    const previewStart = homeSource.indexOf("// 비세션 프리뷰 렌더(HOME-001 캡처 경로)");
+    const previewEnd = homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)", previewStart);
+    expect(previewStart, "비세션 프리뷰 렌더 표식을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(previewEnd, "세션 홈 렌더 표식을 찾지 못했어요").toBeGreaterThan(previewStart);
+    const preview = homeSource.slice(previewStart, previewEnd);
     expect(preview).toContain("<ScreenHeader");
     expect(preview).toContain("<HeroSummaryCard");
     expect(preview).toContain("<QuickActionIconButton");

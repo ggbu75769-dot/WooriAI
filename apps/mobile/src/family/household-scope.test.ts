@@ -652,10 +652,14 @@ describe("탈퇴 후 세션 잔재 정리 (라운드 61 #2 — source contract)"
 
   it("정리는 탈퇴가 **성공한 뒤**에만 일어난다", () => {
     const screenSource = privacySource();
-    const mutationBlock = screenSource.slice(
-      screenSource.indexOf("const householdLeave = useMutation({"),
-      screenSource.indexOf("const accountPreview = useMutation({")
-    );
+    // 라운드 78 트랙 E: 두 표식이 `useMutation({` 호출 모양에 매여 있었다(옵션 객체를
+    // 변수로 빼는 손질 한 번에 -1이 된다). 접두로 줄이고 자르기 전에 실재를 묻는다 —
+    // 시작이 -1이면 구간이 비어 아래 `not.toMatch`가 영원히 초록이다.
+    const leaveStart = screenSource.indexOf("const householdLeave = useMutation(");
+    const leaveEnd = screenSource.indexOf("const accountPreview = useMutation(", leaveStart);
+    expect(leaveStart, "가구 탈퇴 뮤테이션을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(leaveEnd, "계정 미리보기 뮤테이션을 찾지 못했어요").toBeGreaterThan(leaveStart);
+    const mutationBlock = screenSource.slice(leaveStart, leaveEnd);
     expect(mutationBlock).toContain("onSuccess: async () => {");
     expect(mutationBlock).toContain("revalidateHouseholdRoles({ force: true });");
     expect(mutationBlock).toContain("useSessionStore.setState({ defaultHouseholdId: null });");

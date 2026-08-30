@@ -82,8 +82,16 @@ function DisclosureRow({
       </h2>
       <p className={styles.hint}>{badge.hint}</p>
       {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
+      {/* 라운드 78 트랙 C(GAP-078 #3ⓑ): 문구는 그대로 보이고(값을 보는 것은 정당하다 — R-4의
+          판정), 고칠 수 있다는 **거짓 신호**만 거둔다. 라운드 77은 제출 컨트롤만 감춰서
+          `analyst`가 문구를 고친 뒤에야 저장할 수 없다는 것을 알았다.
+          ⚠️ 두 속성으로 갈리는 이유를 값으로 적어 둔다: `readOnly`는 값을 **읽고 복사할 수 있게**
+          남기지만, `<select>`와 `<input type="checkbox">`에는 readOnly 속성이 없다(HTML 명세 —
+          걸어도 무시된다). 선택형에서 같은 뜻을 내는 것은 `disabled`뿐이다. 이 화면에는 선택형이
+          없어 자물쇠가 readOnly 하나지만, 셋이 같은 이유를 들고 있어야 다음 라운드가 그 비대칭을
+          결함으로 읽지 않는다. */}
       <div className={styles.field}>
-        <textarea value={text} onChange={(event) => setText(event.target.value)} />
+        <textarea value={text} readOnly={!canEdit} onChange={(event) => setText(event.target.value)} />
       </div>
       {error ? <p className={styles.errorBanner}>{error}</p> : null}
       {saved ? <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p> : null}
@@ -193,28 +201,33 @@ export default function DisclosuresPage() {
       <section className={styles.card}>
         <h2>새 고지 문구 키 추가</h2>
         {isEditor ? <p className={styles.hint}>편집자 계정은 바로 저장하지 않고, 검토 요청을 관리자에게 보내요.</p> : null}
-        <div className={styles.formGrid}>
-          <div className={styles.field}>
-            <label htmlFor="new-disclosure-key">키</label>
-            <input id="new-disclosure-key" type="text" value={newKey} onChange={(event) => setNewKey(event.target.value)} />
-            {/* GAP-065 #9: 오타 키가 태어나는 자리다 — 저장 전에 같은 사실을 미리 보여 준다. */}
-            {newKey.trim() ? <p className={styles.hint}>{disclosureKeyBadge(newKey).label}</p> : null}
-          </div>
-        </div>
-        <div className={styles.field}>
-          <label htmlFor="new-disclosure-text">문구</label>
-          <textarea id="new-disclosure-text" value={newText} onChange={(event) => setNewText(event.target.value)} />
-        </div>
-        {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
-        {createSuccess ? (
-          <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
-        ) : null}
+        {/* 라운드 78 트랙 C(GAP-078 #3ⓐ): **빈 생성 폼에는 읽을 데이터가 0건**이다 — 아래 목록의
+            textarea를 남기는 근거("값을 보는 것은 정당하다")가 여기에는 적용되지 않는다. 그래서 이
+            카드는 폼째로 게이트 뒤에 서고, 그 자리에 라운드 77이 만든 캡션 한 줄만 남는다. */}
         {canEdit ? (
-          <div className={styles.actions}>
-            <button type="button" className={styles.primaryButton} onClick={handleAddKey} disabled={creating}>
-              {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
-            </button>
-          </div>
+          <>
+            <div className={styles.formGrid}>
+              <div className={styles.field}>
+                <label htmlFor="new-disclosure-key">키</label>
+                <input id="new-disclosure-key" type="text" value={newKey} onChange={(event) => setNewKey(event.target.value)} />
+                {/* GAP-065 #9: 오타 키가 태어나는 자리다 — 저장 전에 같은 사실을 미리 보여 준다. */}
+                {newKey.trim() ? <p className={styles.hint}>{disclosureKeyBadge(newKey).label}</p> : null}
+              </div>
+            </div>
+            <div className={styles.field}>
+              <label htmlFor="new-disclosure-text">문구</label>
+              <textarea id="new-disclosure-text" value={newText} onChange={(event) => setNewText(event.target.value)} />
+            </div>
+            {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
+            {createSuccess ? (
+              <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
+            ) : null}
+            <div className={styles.actions}>
+              <button type="button" className={styles.primaryButton} onClick={handleAddKey} disabled={creating}>
+                {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
+              </button>
+            </div>
+          </>
         ) : (
           <p className={styles.hint}>{ADMIN_EDITOR_WRITE_ROLE_NOTICE}</p>
         )}

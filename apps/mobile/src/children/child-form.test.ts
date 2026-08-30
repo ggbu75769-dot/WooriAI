@@ -13,6 +13,7 @@ import {
   buildCreateChildBody,
   buildUpdateChildBody,
   childDatePickerDirection,
+  CHILD_BIRTH_DATE_FUTURE_ERROR,
   CHILD_BIRTH_DATE_TOO_OLD_ERROR,
   CHILD_DUE_DATE_BEYOND_TERM_ERROR,
   CHILD_DUE_DATE_MAX_FUTURE_DAYS,
@@ -331,5 +332,50 @@ describe("라운드 68 A 출생일 하한(20년)", () => {
     // 문장을 못박고, 여기서는 앱이 내는 문장이 그 문장인지를 못박는다.
     expect(CHILD_BIRTH_DATE_TOO_OLD_ERROR).toBe(`${ENTRY_DATE_MAX_PAST_YEARS}년보다 오래된 날은 고를 수 없어요.`);
     expect(CHILD_BIRTH_DATE_TOO_OLD_ERROR).toBe(EXPENSE_DATE_TOO_OLD_ERROR);
+  });
+});
+
+/**
+ * 라운드 78 A — **리터럴이 상수로 올라갔을 뿐**이라는 것.
+ *
+ * `computeDateError`의 born 갈래가 들고 있던 문장이 `CHILD_BIRTH_DATE_FUTURE_ERROR`가 됐다.
+ * 화이트리스트 표(src/api/api-error.ts)가 서버 코드 `CHILD_BIRTH_DATE_FUTURE`에 답할 때 이 문장을
+ * **읽기 위해서**이고, 그 표가 문장을 새로 지으면 같은 경계를 폼과 표가 다른 말로 부르게 된다
+ * (라운드 68 A가 하한에서, 라운드 67 B가 만삭에서 세운 그 선례).
+ *
+ * 그래서 여기서 고정하는 것은 **아무것도 달라지지 않았다는 사실**이다: 값도, 갈래도, 이 파일의
+ * 다른 케이스들이 이미 못박고 있는 세 자리의 출력도.
+ */
+describe("라운드 78 A 출생일 미래 금지 문구의 상수 승격", () => {
+  it("상수는 종전 리터럴과 글자 하나 다르지 않다", () => {
+    expect(CHILD_BIRTH_DATE_FUTURE_ERROR).toBe("출생일은 오늘보다 미래일 수 없어요.");
+    // 나란히 선 두 형제와 같은 규율: 해요체이고, 재시도를 권하지 않는다.
+    expect(CHILD_BIRTH_DATE_FUTURE_ERROR).toMatch(/요\.$/);
+    expect(CHILD_BIRTH_DATE_FUTURE_ERROR).not.toContain("다시 시도");
+    // 세 문장은 서로 다른 사실을 말한다(경계가 셋이므로 문장도 셋이다).
+    expect(CHILD_BIRTH_DATE_FUTURE_ERROR).not.toBe(CHILD_BIRTH_DATE_TOO_OLD_ERROR);
+    expect(CHILD_BIRTH_DATE_FUTURE_ERROR).not.toBe(CHILD_DUE_DATE_BEYOND_TERM_ERROR);
+  });
+
+  it("판정·갈래·출력이 바이트 불변이다 (상수를 통해 같은 문장이 그대로 나온다)", () => {
+    expect(computeDateError("born", "2999-01-01")).toBe(CHILD_BIRTH_DATE_FUTURE_ERROR);
+    expect(computeDateError("born", "2999-01-01")).toBe("출생일은 오늘보다 미래일 수 없어요.");
+    // 폼 전체 검증에서도 같은 문장이 올라온다(화면이 보는 자리는 이쪽이다).
+    const errors = validateChildForm("born", { nickname: "콩이", dateText: "2999-01-01", manualStage: null });
+    expect(errors.dateError).toBe(CHILD_BIRTH_DATE_FUTURE_ERROR);
+    expect(isChildFormValid(errors)).toBe(false);
+    // 미래 금지는 여전히 출생일 갈래에만 붙는다 — 예정일의 미래는 정상 입력이다(만삭까지).
+    expect(computeDateError("pregnant", getSeoulToday())).toBeNull();
+    expect(computeDateError("manual", "2999-01-01")).toBeNull();
+    expect(computeDateError(null, "2999-01-01")).toBeNull();
+  });
+
+  it("서버도 같은 문장으로 거절한다 (앱과 서버가 다른 말로 설명하지 않는다)", () => {
+    // 서버는 이 규칙을 자기 층에 한 벌 갖고 400 CHILD_BIRTH_DATE_FUTURE로 던진다. 그 원문이
+    // 이 상수와 바이트 동일하다는 사실은 화이트리스트 표의 계약(src/api/api-error.test.ts)이
+    // 서버 소스를 읽어 다시 확인한다 — 여기서는 상수가 소스에 리터럴로 살아 있는지만 본다.
+    const source = readFileSync(join(process.cwd(), "src/children/child-form.ts"), "utf8");
+    expect(source).toContain('export const CHILD_BIRTH_DATE_FUTURE_ERROR = "출생일은 오늘보다 미래일 수 없어요.";');
+    expect(source).toContain('if (stageMode === "born" && isFutureSeoulDate(trimmed)) return CHILD_BIRTH_DATE_FUTURE_ERROR;');
   });
 });

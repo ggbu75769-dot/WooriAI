@@ -50,10 +50,13 @@ describe("UX-H 리포트 공유 배선", () => {
   it("F-5: 공유 조립기에 달/오늘을 이중으로 넘기지 않는다", () => {
     const reportSource = source("app/(tabs)/reports.tsx");
 
-    const shareCall = reportSource.slice(
-      reportSource.indexOf("buildMonthlyShareMessage({"),
-      reportSource.indexOf("const shareMonthlySummary")
-    );
+    // 라운드 78 트랙 E: 아래 라운드 64 S-3이 세운 형식(87-93행)의 쌍둥이 자리다 —
+    // 표식이 `({` 호출 모양에 매여 있었고 실재 확인도 없었다. 접두로 줄이고 먼저 묻는다.
+    const shareCallStart = reportSource.indexOf("buildMonthlyShareMessage(");
+    const shareCallEnd = reportSource.indexOf("const shareMonthlySummary", shareCallStart);
+    expect(shareCallStart, "buildMonthlyShareMessage 호출을 찾지 못했다").toBeGreaterThan(-1);
+    expect(shareCallEnd, "const shareMonthlySummary 표식을 찾지 못했다").toBeGreaterThan(shareCallStart);
+    const shareCall = reportSource.slice(shareCallStart, shareCallEnd);
     expect(shareCall).not.toContain("yearMonth:");
     expect(shareCall).not.toContain("todayIso:");
 
