@@ -1,6 +1,14 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ADMIN_API_WRITE_UNITS,
+  adminApiFunctionChunks,
+  adminApiWriteFunctionNames,
+  adminApiWriteMethodPattern,
+  countAdminApiWriteMethods,
+  type AdminApiWriteUnit
+} from "../../test/admin-api-source-parser";
 import {
   AdminApiError,
   AdminApiTimeoutError,
@@ -432,11 +440,14 @@ describe("admin API write timeout separation (FIX-118C)", () => {
  * ⚠️ **수치 넷(24·8·6·10)과 이름 목록은 바이트 불변**이다 — 세는 방법만 바뀌고
  * **답이 같다는 것**이 이 트랙의 안전망이다(제품 소스 `admin-api.ts`는 0건 변경).
  *
- * ⚠️ **왜 사본인가.** 같은 워크스페이스의 `src/admin-write-role-gate.test.ts`의
- * `adminApiWriteFunctions()`가 이미 이 분할(`\nexport (?:async )?function `)을 한다 —
- * **그것이 이 파서의 본보기다.** 공용 모듈로 추출하면 라운드 78의 두 트랙(C·D)이 같은
- * 파일을 열게 되므로 **이번 라운드는 사본 하나를 허용**하고, 그 판단을 여기 값으로 남긴다
- * (추출은 다음 라운드의 결정이다).
+ * ⚠️ **왜 사본이었나 — 그리고 GAP-079 트랙 E가 그 사본을 어떻게 닫았나.** 같은 워크스페이스의
+ * `src/admin-write-role-gate.test.ts`의 `adminApiWriteFunctions()`가 이미 이 분할
+ * (`\nexport (?:async )?function `)을 한다 — **그것이 이 파서의 본보기다.** 라운드 78은 두
+ * 트랙(C·D)이 같은 파일을 열지 않도록 **사본 하나를 허용**하고 추출을 다음 라운드로 미뤘다.
+ * 라운드 79 트랙 E가 **순서를 지켜** 그것을 닫았다: 먼저 아래 교차 단언이 *"두 단위가 오늘
+ * 같은 답을 낸다"* 를 못 박고, **그 단언이 초록인 채로** `test/admin-api-source-parser.ts`로
+ * 분할·선언 자르기를 옮겼다(⚠️ 그 모듈은 두 단위를 **인자로** 받고 **어느 쪽도 기본값이
+ * 아니다** — 기본값이 곧 "조용히 덮는다"의 입구다).
  * ⚠️ 그리고 두 파서는 **단위가 다르다**: 옆 파일의 단위는 *"역할 게이트가 지켜야 할 쓰기
  * 함수"* 라서 합성 함수(`draftAndSubmitContentRevision` = create + submit)를 **한 겹
  * 승계**하고, 이 표의 단위는 *"`request()`가 쓰기 메서드를 싣는 자리"* 라서 그 합성 함수는
@@ -455,16 +466,14 @@ type AdminApiFunction = {
   idempotencyKeyForwarded: boolean;
 };
 
-const WRITE_CALL_PATTERN = /method: "(?:POST|PUT|PATCH|DELETE)"/g;
+/**
+ * ⚠️ 쓰기 메서드 리터럴은 **공용 파서가 진다**(트랙 E ⓑ) — 이 상수는 그 정규식이고, 두
+ * 호출부가 같은 리터럴을 세는지 묻는 아래 교차 단언의 재료이기도 하다. `String.match`는
+ * 전역 정규식의 `lastIndex`를 스스로 0으로 되돌리므로 세는 자리에서만 쓴다(`test()` 금지).
+ */
+const WRITE_CALL_PATTERN = adminApiWriteMethodPattern();
 const RETRY_SAFE_PATTERN = /\{ retrySafe: true \}/g;
 const REQUEST_CALL_PATTERN = /\brequest\s*[<(]/g;
-const EXPORTED_FUNCTION_SPLIT = /\nexport (?:async )?function /;
-/**
- * 함수 선언의 끝 — **줄 첫 칸의 `}` 뒤가 줄바꿈인 자리**.
- * ⚠️ `\n}`만으로는 부족하다: `createContentRevision`의 인라인 인자 타입이 `\n})`로 닫혀
- * 시그니처 한가운데를 끝으로 읽고 그 함수의 쓰기 한 자리를 **조용히 잃는다**(실측으로 만난 값).
- */
-const DECLARATION_END_PATTERN = /\n\}(?=\r?\n|$)/;
 
 /**
  * `request(...)`의 **최상위 인자 목록**. 괄호·중괄호·대괄호와 문자열·템플릿을 건너뛰며
@@ -502,15 +511,17 @@ function requestCallArguments(body: string): string[] {
   return args.map((argument) => argument.trim()).filter((argument) => argument.length > 0);
 }
 
-/** `admin-api.ts`가 내보내는 함수 전수의 표(손 목록이 아니라 **파생**이다). */
+/**
+ * `admin-api.ts`가 내보내는 함수 전수의 표(손 목록이 아니라 **파생**이다).
+ *
+ * ⚠️ 분할과 **선언 끝 자르기**는 이 파일이 하지 않는다 — `test/admin-api-source-parser.ts`의
+ * `adminApiFunctionChunks()`가 한 벌로 지고, 여기서는 그 위에 이 단위의 칸 넷을 얹는다
+ * (트랙 E ⓑ). 그 모듈이 선언과 **꼬리**를 둘 다 내주므로, 두 파서가 갈라질 수 있는 자리
+ * (선언 끝 뒤의 쓰기 메서드)를 아래 계약 ⓓ가 값으로 물을 수 있다.
+ */
 function adminApiFunctionTable(source: string): AdminApiFunction[] {
   const table: AdminApiFunction[] = [];
-  for (const chunk of source.split(EXPORTED_FUNCTION_SPLIT).slice(1)) {
-    const name = /^([A-Za-z0-9_]+)/.exec(chunk)?.[1];
-    if (!name) continue;
-    const end = DECLARATION_END_PATTERN.exec(chunk);
-    const declaration = end ? chunk.slice(0, end.index + 2) : chunk;
-
+  for (const { name, declaration } of adminApiFunctionChunks(source)) {
     // 시그니처의 끝 = 이름 뒤 `(`의 짝(인자에 인라인 객체 타입이 와도 흔들리지 않는다).
     let depth = 0;
     let cursor = declaration.indexOf("(");
@@ -1061,5 +1072,196 @@ describe("어드민 연결 실패의 세 갈래 (GAP-077 트랙 B)", () => {
     expect(isConnectionFailureError(new AdminApiError(500, "서버 오류"))).toBe(false);
     expect(isConnectionFailureError(new Error("network"))).toBe(false);
     expect(isConnectionFailureError(null)).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * GAP-079 트랙 E(#5) — **두 파서를 교차 단언한 뒤 합친다.** (ⓐ 교차 단언 → ⓑ 추출)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * 라운드 78 트랙 D가 이 파일 위쪽에 값으로 적어 둔 사실이 있다: 같은 워크스페이스의
+ * `src/admin-write-role-gate.test.ts`가 **같은 분할**(`\nexport (?:async )?function `)로
+ * `admin-api.ts`를 읽는데, 그때는 두 트랙이 같은 파일을 열지 않도록 **사본 하나를 허용**했고
+ * 추출을 다음 라운드의 결정으로 미뤘다.
+ *
+ * ⚠️ **그 결정을 하기 전에 물어야 할 것이 하나 있다 — 두 파서가 오늘 같은 답을 내는가.**
+ * 합치는 쪽이 먼저면, 공용 모듈이 한쪽 단위로 서고 다른 쪽은 **아무 단언도 깨지 않은 채**
+ * 자기 목록을 잃는다(라운드 78 S-4가 *"한쪽의 단위가 조용히 다른 쪽을 덮는다"* 로 이름 붙인
+ * 모양이다). 그래서 순서는 ⓐ **교차 단언** → ⓑ **추출**이었고, 이 블록은 그 ⓐ가 추출 **뒤에도**
+ * 계속 서 있는 자리다 — 오늘 두 단위가 내는 답은 `test/admin-api-source-parser.ts`가 한 벌로
+ * 만들지만, **답이 같은지 묻는 것은 여전히 이 계약**이다.
+ */
+describe("`admin-api.ts`를 읽는 두 파서의 교차 단언 (GAP-079 트랙 E ⓐ)", () => {
+  const adminWorkspaceRoot = process.cwd();
+  const apiSourcePath = join(adminWorkspaceRoot, "src", "lib", "admin-api.ts");
+  const parserSourcePath = join(adminWorkspaceRoot, "test", "admin-api-source-parser.ts");
+  const readApiSource = (): string => readFileSync(apiSourcePath, "utf8");
+
+  /** 역할 게이트 쪽 단위 — *"역할 게이트가 지켜야 할 쓰기 함수"*(한 겹 합성을 승계한다). */
+  function roleGateWriteFunctions(api: string): string[] {
+    return adminApiWriteFunctionNames(api, "role-gate-write-function");
+  }
+
+  /**
+   * 함수 표 쪽 단위 — *"`request()`가 쓰기 메서드를 싣는 자리"*.
+   * ⚠️ 공용 파서의 답이 아니라 **이 파일의 호출부가 실제로 내는 답**을 읽는다(아래 첫 단언이
+   * 그 둘이 같은 집합임을 따로 묻는다 — 공용화가 호출부의 답을 바꾸지 않았다는 증거다).
+   */
+  function functionTableWriteFunctions(api: string): string[] {
+    return classifyAdminApiWrites(adminApiFunctionTable(api))
+      .writes.map((fn) => fn.name)
+      .sort();
+  }
+
+  it("호출부의 답이 공용 파서의 단위와 같다 (추출이 답을 바꾸지 않았다)", () => {
+    const api = readApiSource();
+    expect(functionTableWriteFunctions(api), "함수 표의 쓰기 집합 = `request-write-site` 단위").toEqual(
+      adminApiWriteFunctionNames(api, "request-write-site")
+    );
+  });
+
+  it("차집합이 한 방향으로 정확히 하나이고 반대는 0건이다 (계약 ⓐ)", () => {
+    const api = readApiSource();
+    const gate = roleGateWriteFunctions(api);
+    const table = functionTableWriteFunctions(api);
+
+    // 두 단위의 오늘 값 — 이 수치가 ⓑ의 공용 파서가 지켜야 할 답이다.
+    expect(gate.length, "역할 게이트 쪽 쓰기 함수").toBe(25);
+    expect(table.length, "함수 표 쪽 쓰기 함수").toBe(24);
+
+    // ⚠️ 본체: 차이는 **합성 함수 승계** 한 겹뿐이다.
+    expect(
+      gate.filter((name) => !table.includes(name)),
+      "역할 게이트만 세는 함수"
+    ).toEqual(["draftAndSubmitContentRevision"]);
+    expect(
+      table.filter((name) => !gate.includes(name)),
+      "함수 표만 세는 함수(반대 방향 차이는 0건이어야 한다)"
+    ).toEqual([]);
+    // 그래서 역할 게이트의 목록은 함수 표의 목록을 **온전히 포함**한다.
+    expect(table.every((name) => gate.includes(name))).toBe(true);
+  });
+
+  it("그 하나가 실제로 한 겹 합성이다 — 이름이 아니라 소스로 묻는다 (유령 금지)", () => {
+    const api = readApiSource();
+    const start = api.indexOf("export async function draftAndSubmitContentRevision(");
+    expect(start, "draftAndSubmitContentRevision 선언이 실재한다").toBeGreaterThan(-1);
+    const end = api.indexOf("\n}\n", start);
+    expect(end, "그 선언의 끝이 실재한다").toBeGreaterThan(start);
+    const declaration = api.slice(start, end);
+
+    // create + submit 둘을 부르는 합성이라 **자기 자신은 쓰기 메서드를 싣지 않는다**.
+    expect(declaration).toContain("createContentRevision(");
+    expect(declaration).toContain("submitContentRevision(");
+    expect(declaration.match(WRITE_CALL_PATTERN) ?? []).toEqual([]);
+    // 그리고 승계의 뿌리 둘은 **함수 표 쪽에도 있다**(승계가 유령을 세지 않는다).
+    const table = functionTableWriteFunctions(api);
+    expect(table).toContain("createContentRevision");
+    expect(table).toContain("submitContentRevision");
+  });
+
+  /**
+   * ⓓ **가정의 승격 — 문서에 적히지 않았던 두 파서의 두 번째 차이.**
+   *
+   * 함수 표 쪽은 선언의 끝(`ADMIN_API_DECLARATION_END_PATTERN`)까지만 보고, 역할 게이트 쪽은
+   * **다음 `export function`까지의 청크 전체**를 본다. 즉 **선언 끝 뒤 꼬리**(파일 상수·주석·
+   * 타입 선언)에 쓰기 메서드 리터럴이 생기면 **역할 게이트만 그 함수를 쓰기로 센다.**
+   * 오늘 그런 자리는 0건이라 **아무도 이 차이를 볼 수 없다** — 그래서 단언으로 승격한다.
+   * ⚠️ **공용화가 이 차이를 지우지 않았다**는 것도 이 계약이 지키는 값이다: 공용 파서는 두
+   * 단위를 합치는 대신 `chunk`와 `declaration`을 **둘 다** 내주고, 어느 쪽을 볼지는 단위가 정한다.
+   */
+  it("선언 끝 뒤 꼬리에 쓰기 메서드가 있는 자리가 0건이다 (계약 ⓓ · 오늘 참인 가정)", () => {
+    const chunks = adminApiFunctionChunks(readApiSource());
+    // 그물이 실제로 쳐졌다는 증거 — 꼬리를 볼 함수가 있어야 이 0건이 뜻을 갖는다.
+    expect(chunks.length, "`admin-api.ts`가 내보내는 함수").toBe(48);
+    expect(
+      chunks.filter((fn) => countAdminApiWriteMethods(fn.tail) > 0).map((fn) => fn.name),
+      "선언 끝 뒤 꼬리에서 쓰기 메서드를 싣는 자리"
+    ).toEqual([]);
+    // 그래서 오늘은 청크 전체가 세는 값과 선언만 세는 값이 함수마다 같다(두 파서가 갈릴 자리 0건).
+    expect(
+      chunks
+        .filter((fn) => countAdminApiWriteMethods(fn.chunk) !== countAdminApiWriteMethods(fn.declaration))
+        .map((fn) => fn.name),
+      "청크와 선언이 다른 수를 세는 함수"
+    ).toEqual([]);
+  });
+
+  /**
+   * ⓔ **드리프트 재현** — 두 파서가 갈라지는 소스를 넣으면 위 교차 단언이 **실제로 빨개진다**.
+   * 이 테스트는 `admin-api.ts`를 읽지 않는다 — 읽는 것은 **두 파서 자신**이다.
+   */
+  it("두 파서가 갈라지는 소스에서는 차집합이 커진다 (재현 단언 · 계약 ⓔ)", () => {
+    // 꼬리(선언 끝 뒤)에 쓰기 메서드 리터럴이 선 함수 — 오늘 0건인 그 모양이다.
+    const drifted = [
+      "export function readThing(id: string) {",
+      "  return request<Thing>(`/admin/things/${id}`);",
+      "}",
+      "",
+      'const RETRY_HINT = { method: "PATCH" };',
+      "",
+      "export function nextThing() {",
+      "  return request<Thing>(`/admin/things/next`);",
+      "}",
+      ""
+    ].join("\n");
+    const source = `\n${drifted}`;
+
+    const gate = roleGateWriteFunctions(source);
+    const table = functionTableWriteFunctions(source);
+    // 역할 게이트는 꼬리를 함수의 것으로 읽어 `readThing`을 쓰기로 세고, 함수 표는 세지 않는다.
+    expect(gate).toEqual(["readThing"]);
+    expect(table).toEqual([]);
+    // ⚠️ 그래서 차집합이 `draftAndSubmitContentRevision` 하나가 아니게 된다 — 계약 ⓐ가 빨개진다.
+    expect(gate.filter((name) => !table.includes(name))).not.toEqual(["draftAndSubmitContentRevision"]);
+  });
+
+  /**
+   * ⓒ **두 단위는 인자이고, 어느 쪽도 기본값이 아니다.**
+   *
+   * 기본값이 서는 순간 부르는 자리가 자기 단위를 **말하지 않고** 답을 받게 되고, 그 자리가
+   * 바로 *"한쪽의 단위가 조용히 다른 쪽을 덮는다"* 의 입구다. 그래서 셋을 함께 묻는다 —
+   * 단위 목록이 둘이고, 둘이 **실제로 다른 답**을 내며, 시그니처에 기본값이 없다.
+   */
+  it("공용 파서는 두 단위를 인자로 받고 어느 쪽도 기본값이 아니다 (계약 ⓒ)", () => {
+    const api = readApiSource();
+
+    // 단위는 둘이고, 둘 다 이 계약이 실제로 부른다.
+    expect([...ADMIN_API_WRITE_UNITS].sort()).toEqual(["request-write-site", "role-gate-write-function"]);
+    expect(adminApiWriteFunctionNames(api, "request-write-site")).not.toEqual(
+      adminApiWriteFunctionNames(api, "role-gate-write-function")
+    );
+    // 목록 밖의 값은 빈 배열이 아니라 예외다 — 조용한 0건은 영원한 초록이 된다.
+    expect(() => adminApiWriteFunctionNames(api, "write" as AdminApiWriteUnit)).toThrow();
+
+    // 그리고 시그니처에 기본값이 없다 — 소스로 묻는다(존재 확인을 함께 세운다).
+    expect(existsSync(parserSourcePath), "공용 파서 파일이 실재한다").toBe(true);
+    const parserSource = readFileSync(parserSourcePath, "utf8");
+    const signature = parserSource.indexOf("export function adminApiWriteFunctionNames(");
+    expect(signature, "공용 파서의 진입 함수가 실재한다").toBeGreaterThan(-1);
+    expect(parserSource).toContain("source: string, unit: AdminApiWriteUnit)");
+    expect(parserSource).not.toContain("unit: AdminApiWriteUnit =");
+    expect(parserSource).not.toContain("unit?: AdminApiWriteUnit");
+  });
+
+  /**
+   * ⚠️ **공용 파서는 앱 번들에 실리지 않는 자리에 둔다**(정찰 후보 5 ⓓ).
+   *
+   * `src/lib/`에 두면 어드민 런타임 번들에 죽은 코드가 실리고, `src/`·`app/` 아래에 두면 이
+   * 워크스페이스의 소스 스윕들(미러 스크레이프 · 역할 게이트 · 조회/쓰기 실패 문구)이 그것을
+   * **화면 소스로** 읽는다. 그 판단을 값으로 남기고, 자리가 옮겨지는 날 빨개지게 한다.
+   */
+  it("공용 파서가 제품 소스 뿌리 밖에 있다 (테스트 전용 · 번들 0건)", () => {
+    expect(existsSync(parserSourcePath), "공용 파서는 apps/admin/test 아래에 있다").toBe(true);
+    for (const bundledRoot of ["src", "app"]) {
+      expect(
+        existsSync(join(adminWorkspaceRoot, bundledRoot, "admin-api-source-parser.ts")),
+        `${bundledRoot}/에 사본이 생겼어요 — 그 뿌리는 번들·소스 스윕의 자리입니다`
+      ).toBe(false);
+      expect(existsSync(join(adminWorkspaceRoot, bundledRoot, "lib", "admin-api-source-parser.ts"))).toBe(false);
+    }
+    // 제품 소스는 이 파서를 부르지 않는다 — 부르면 번들에 실린다.
+    expect(readApiSource()).not.toContain("admin-api-source-parser");
   });
 });
