@@ -124,9 +124,19 @@ describe("추천 순서: 서버 ↔ 데모 거울의 점수 입력", () => {
   it("DNC-009: 데모 거울도 점수 입력에 금액을 싣지 않는다 (부정 단언)", () => {
     // 순서를 만지는 트랙이라 함께 못박는다 — 가격·수수료는 순위에 유입되지 않는다.
     // (짝: src/items/link-price.test.ts, apps/api/test/item-ranking.test.ts)
+    //
+    // ⚠️ 라운드 78 리뷰 M-4: 이 자리는 **잘라 낸 구간 위의 부정 단언**인데 두 인덱스가 전부
+    // 인라인이라(`const` 이름이 없어) 트랙 E의 스윕 밖에 있었다 — 표식이 사라지면 시작점 -1이
+    // 빈 구간을 만들고, **DNC-009 부정 단언이 아무것도 검사하지 않은 채 영원히 초록**이 된다.
+    // 형식은 이 파일 위쪽 `scoreInputKeys`가 이미 쓰는 그것과 같다(자르기 전에 실재를 묻는다).
     for (const text of [serverRanking(), demoBackend()]) {
-      const call = codeOf(text).slice(codeOf(text).indexOf("sortRecommendedItems("));
-      expect(call.slice(0, call.indexOf("\n  );"))).not.toMatch(/price|krw|commission|budget/i);
+      const code = codeOf(text);
+      const callStart = code.indexOf("sortRecommendedItems(");
+      expect(callStart, "sortRecommendedItems 호출을 찾지 못했어요").toBeGreaterThan(-1);
+      const call = code.slice(callStart);
+      const callEnd = call.indexOf("\n  );");
+      expect(callEnd, "sortRecommendedItems 호출의 끝을 찾지 못했어요").toBeGreaterThan(0);
+      expect(call.slice(0, callEnd)).not.toMatch(/price|krw|commission|budget/i);
     }
   });
 });

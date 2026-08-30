@@ -33,6 +33,13 @@ const DAY_MS = 24 * HOUR_MS;
  * 이번 라운드부터 실패는 **throw**로 나가므로 그 행이 남의 tick 자체를 깨뜨린다.
  * 잡의 due 판정(`scheduledFor <= now`)은 그대로 쓰면서 **모집단만 시간축으로 가른다** —
  * 스코프된 Prisma가 공간축으로 가르는 것과 같은 기법이다.
+ *
+ * ⚠️ **라운드 78 리뷰 M-5 — 이 축은 실패 픽스처만의 것이 아니다.** 스코프된 Prisma는 *이 파일의
+ * 잡이 남의 행을 보지 않게* 할 뿐, **남의 비스코프 잡이 이 파일의 행을 보는 것은 막지 못한다.**
+ * 그래서 `toEqual`로 요약 전체를 비교하는 자리는 전부 이 축 위에 서야 한다(근접 과거 예약은
+ * 남의 틱에 먼저 발행된다). 그리고 `publishing` 픽스처는 **예약 시각과 무관하게** 회수되므로
+ * (`recoverStalePublishing`이 보는 것은 `status`·`updatedAt`뿐이다) `updatedAt`까지 함께
+ * 옮긴다 — 남의 `run(new Date())`가 세는 staleBefore(now - 10분)보다 뒤여야 한다.
  */
 const FAR_FUTURE_SCHEDULE_MS = 10 * 365 * DAY_MS;
 
@@ -498,7 +505,14 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     // (키가 하나라도 늘거나 줄면 여기서 빨개진다).
     it("does not throw on a tick with no failures, and returns the same summary as before", async () => {
       const key = `worker_ok_${randomUUID().slice(0, 8)}`;
-      const now = new Date();
+      // 라운드 78 리뷰 M-5: 이 **정확 일치** 단언은 종전에 근접 과거 예약(now - 1분) 위에 서
+      // 있었다 — content-revisions.e2e.test.ts는 DI에서 꺼낸 **비스코프 잡**을 `run(new Date())`
+      // 로 부르므로, 나란히 도는 워커에서 그 행이 남의 틱에 먼저 발행되면 여기서는
+      // publishedCount가 0이 된다(스코프는 이 파일의 잡이 남의 행을 보지 않게 할 뿐, 남의 잡이
+      // 이 파일의 행을 보는 것은 막지 못한다). FAR_FUTURE_SCHEDULE_MS 축으로 옮기고 tick 시각을
+      // 함께 옮긴다 — 이 파일이 실패 픽스처에 이미 쓰는 기법 그대로다.
+      const scheduledFor = new Date(Date.now() + FAR_FUTURE_SCHEDULE_MS);
+      const tickAt = new Date(scheduledFor.getTime() + MINUTE_MS);
       const revision = await createRevision({
         entityType: "disclosure",
         entityId: null,
@@ -506,11 +520,11 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
         payload: { key, text: "실패 없는 틱의 문구" },
         status: "in_review",
         authorAdminId: randomUUID(),
-        submittedAt: new Date(now.getTime() - HOUR_MS),
-        scheduledFor: new Date(now.getTime() - MINUTE_MS)
+        submittedAt: new Date(tickAt.getTime() - HOUR_MS),
+        scheduledFor
       });
 
-      const result = await scheduledPublishJob.run(now);
+      const result = await scheduledPublishJob.run(tickAt);
       expect(result).toEqual({
         publishedCount: 1,
         failedCount: 0,
@@ -596,8 +610,13 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     // GAP-078 #2 ⓒ: 크래시 복구는 이 잡이 **제 일을 한 것**이지 실패가 아니다.
     // recovered만 있는 틱이 던지면 워커가 정상인데 degraded가 서는 거짓이 생긴다.
     it("does not throw on a tick that only recovered a stale 'publishing' row (recovery is success, not failure)", async () => {
-      const now = new Date();
-      const scheduledFor = new Date(now.getTime() + HOUR_MS);
+      // 라운드 78 리뷰 M-5: `publishing` 픽스처는 **예약 시각과 무관하게** 회수된다 —
+      // recoverStalePublishing이 보는 것은 `status`와 `updatedAt`뿐이다. 그래서 예약뿐 아니라
+      // **updatedAt까지** 먼 미래 축으로 옮긴다: 남의 `run(new Date())`가 세는 staleBefore
+      // (now - 10분)보다 한참 뒤라 그 틱의 회수 그물에 걸리지 않는다.
+      const tickAt = new Date(Date.now() + FAR_FUTURE_SCHEDULE_MS);
+      // 예약은 tick보다 뒤다 — 회수만 하고 발행은 하지 않는 틱이 이 케이스의 전부다.
+      const scheduledFor = new Date(tickAt.getTime() + HOUR_MS);
       const stale = await createRevision({
         entityType: "disclosure",
         entityId: null,
@@ -605,13 +624,13 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
         payload: { key: `worker_recover_only_${randomUUID().slice(0, 8)}`, text: "복구만 한 틱" },
         status: "publishing",
         authorAdminId: randomUUID(),
-        submittedAt: new Date(now.getTime() - 2 * HOUR_MS),
+        submittedAt: new Date(tickAt.getTime() - 2 * HOUR_MS),
         scheduledFor,
-        reviewedAt: new Date(now.getTime() - HOUR_MS),
-        updatedAt: new Date(now.getTime() - HOUR_MS)
+        reviewedAt: new Date(tickAt.getTime() - HOUR_MS),
+        updatedAt: new Date(tickAt.getTime() - HOUR_MS)
       });
 
-      const result = await scheduledPublishJob.run(now);
+      const result = await scheduledPublishJob.run(tickAt);
       expect(result).toEqual({
         publishedCount: 0,
         failedCount: 0,
@@ -664,6 +683,9 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
       const entry = snapshot.jobs.find((job) => job.name === "cms_scheduled_publish");
       expect(entry?.lastStatus).toBe("failed");
       expect(entry?.consecutiveFailures).toBe(threshold);
+      // ⓔ 라운드 78 리뷰 M-5: 이 케이스의 정확 일치 단언 둘(아래 `{}`와 마지막 줄의 0 셋)은
+      // 이미 먼 미래 축 위에 서 있다 — 픽스처가 `createFailingRevision`이고 tick 시각이 전부
+      // `scheduledFor + N분`이라, 나란히 도는 비스코프 잡의 `run(new Date())`와 겹치지 않는다.
       // ⓔ 대가를 값으로: 실패 틱의 요약은 `{}`가 되므로 그 틱의 publishedCount는
       // /health/worker에서 사라진다(스케줄러가 실패 시 빈 요약을 기록한다 —
       // 파기 잡이 이미 치른 대가다). 진행 여부는 lastStatus·consecutiveFailures로 읽는다.
@@ -683,10 +705,12 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     });
 
     it("recovers a stale 'publishing' row (worker crash between claim and publish) back to in_review with scheduledFor preserved, then publishes it once due", async () => {
-      const now = new Date();
-      const scheduledFor = new Date(now.getTime() + HOUR_MS);
+      // 라운드 78 리뷰 M-5: 바로 위 케이스와 같은 이유로 이 `publishing` 픽스처도 먼 미래
+      // 축에 선다(예약 · updatedAt 동반 이동, tick 시각도 함께).
+      const tickAt = new Date(Date.now() + FAR_FUTURE_SCHEDULE_MS);
+      const scheduledFor = new Date(tickAt.getTime() + HOUR_MS);
       // Simulates a worker that claimed the row (in_review -> publishing) and
-      // crashed: no publish, no compensation, updatedAt frozen in the past.
+      // crashed: no publish, no compensation, updatedAt frozen before the tick.
       const stale = await createRevision({
         entityType: "disclosure",
         entityId: null,
@@ -694,13 +718,13 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
         payload: { key: `worker_stale_${randomUUID().slice(0, 8)}`, text: "복구 대상 문구" },
         status: "publishing",
         authorAdminId: randomUUID(),
-        submittedAt: new Date(now.getTime() - 2 * HOUR_MS),
+        submittedAt: new Date(tickAt.getTime() - 2 * HOUR_MS),
         scheduledFor,
-        reviewedAt: new Date(now.getTime() - HOUR_MS),
-        updatedAt: new Date(now.getTime() - HOUR_MS)
+        reviewedAt: new Date(tickAt.getTime() - HOUR_MS),
+        updatedAt: new Date(tickAt.getTime() - HOUR_MS)
       });
 
-      const result = await scheduledPublishJob.run(now);
+      const result = await scheduledPublishJob.run(tickAt);
       expect(result.recovered).toContain(stale.id);
       expect((result.published as string[] | undefined) ?? []).not.toContain(stale.id);
 

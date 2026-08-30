@@ -74,12 +74,50 @@ function readRepoSource(relativePath: string): string {
   return readFileSync(filePath, "utf8");
 }
 
-/** 주석은 화면에 서지 않는다 — 사본을 셀 때도, 게이트를 찾을 때도 코드만 본다. */
+/**
+ * 주석은 화면에 서지 않는다 — 사본을 셀 때도, 게이트를 찾을 때도 코드만 본다.
+ *
+ * ## ⚠️ 라운드 78 리뷰 S-7 — `//`가 늘 주석인 것은 아니다
+ *
+ * 종전에는 `\/\/[^\n]*`를 그대로 지웠다. 그래서 **문자열 안의 `//`** 부터 줄 끝까지가 통째로
+ * 사라졌고, 이 콘솔에는 그런 줄이 실제로 있다(`app/links/page.tsx`의
+ * *"URL은 http:// 또는 https:// 로 시작해야 해요."*). 그 줄에서 사라지는 것은 문장뿐이 아니라
+ * **그 뒤의 코드**(닫는 따옴표·세미콜론·같은 줄의 속성)이고, 이 파일의 그물은 전부 그 결과 위에
+ * 선다 — 편집 컨트롤 하나가 그렇게 조용히 사라지면 "전수" 단언이 아무 말도 하지 않는다.
+ * 트랙 C가 JSX 여닫이 필터에서 배운 그 병이다(강화가 침묵으로 되돌아간다).
+ *
+ * 그래서 줄 주석은 **따옴표를 세면서** 지운다(줄 단위 — 이 저장소의 문자열은 줄을 넘지 않는다).
+ *
+ * ⚠️ **남는 한계도 값으로 적는다**: JSX **텍스트**(따옴표 밖)에 있는 `//`는 여전히 주석으로
+ * 읽힌다(같은 파일의 `<span className={styles.hint}>http:// …</span>`). 그것까지 가르려면 JSX
+ * 파서가 필요하고, 오늘 그 자리가 삼키는 것은 **텍스트뿐**이라(속성·게이트가 아니다) 이 계약이
+ * 보는 값은 바뀌지 않는다. 아래 재현 단언이 두 사실을 함께 못박는다.
+ */
 function codeOnly(source: string): string {
-  return source
-    .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/\/\/[^\n]*/g, " ");
+  const withoutBlocks = source.replace(/\{\/\*[\s\S]*?\*\/\}/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ");
+  return withoutBlocks
+    .split("\n")
+    .map((line) => stripLineComment(line))
+    .join("\n");
+}
+
+/** 한 줄에서 **따옴표 밖의** `//`부터 줄 끝까지를 지운다(리뷰 S-7). */
+function stripLineComment(line: string): string {
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (quote) {
+      if (char === "\\") i += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "/" && line[i + 1] === "/") return `${line.slice(0, i)} `;
+  }
+  return line;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +146,17 @@ type LockedForm = {
   /** 그 폼이 서는 자리 전수(자리마다 하나씩 붙는 식별 조각). */
   mounts: string[];
 };
+
+/**
+ * ⚠️ **라운드 78 리뷰 S-6 — 게이트 안에 선 자리의 자물쇠는 오늘 죽은 값이다.**
+ *
+ * `app/items/page.tsx`·`app/links/page.tsx`의 생성 카드는 `canEdit`이 참인 갈래에서만 그려지는데,
+ * 그 안의 폼도 `readOnly={!canEdit}`를 진다 — 그 식은 그 갈래에서 **언제나 거짓**이다.
+ * **지우지 않는다**는 것이 이 계약의 판정이고, 사유를 값으로 적어 둔다(다음 라운드가 "죽은 prop"
+ * 으로 읽고 지우면 아래 ⓑ가 조용히 사라진다).
+ */
+const GATED_MOUNT_LOCK_REASON =
+  "ⓐ 폼이 서는 자리 전수가 같은 자물쇠 식을 져서 읽는 사람이 '어느 자리가 게이트 안인가'를 따로 판단할 필요가 없다. ⓑ 게이트가 걷히는 날 그 폼은 잠긴 채로 남는다 — 안전한 쪽으로 고장 난다.";
 
 /**
  * 라운드 78 트랙 C — 편집 상태에 들어가는 **문**이 게이트 안이라 렌더 경로가 구조적으로 0건인
@@ -758,6 +807,16 @@ describe("편집 컨트롤도 예외 없이 역할에 갈린다 (라운드 78 �
         for (const needle of form.mounts) {
           expect(mounts.filter((attrs) => attrs.includes(needle)), `${path}: ${needle}가 한 자리다`).toHaveLength(1);
         }
+        // ⚠️ 리뷰 S-6: 게이트 **안**에 선 자리도 예외가 아니다 — 그 자물쇠는 오늘 죽은 값이지만
+        // 그 사실이 이 계약을 약하게 만들지 않는다(사유는 GATED_MOUNT_LOCK_REASON).
+        for (const gated of screen.edits.gated) {
+          if (!form.mounts.includes(gated)) continue;
+          const gatedMount = mounts.find((attrs) => attrs.includes(gated));
+          expect(gatedMount, `${path}: ${gated} 자리를 찾지 못했어요`).toBeDefined();
+          expect(gatedMount, `${path}: 게이트 안의 자리도 자물쇠를 묶는다 — ${GATED_MOUNT_LOCK_REASON}`).toContain(
+            form.bind
+          );
+        }
         // 그 폼 안에 실제로 잠글 것이 있다(빈 그물이 아니다).
         const range = topLevelFunctionRange(source, form.component, path);
         const inside = editableControls(source).filter(
@@ -854,6 +913,42 @@ describe("편집 컨트롤도 예외 없이 역할에 갈린다 (라운드 78 �
     for (const control of controls) {
       expect(control.index, `${path}: 입력칸이 early return보다 앞에 서 있어요`).toBeGreaterThan(earlyReturn);
     }
+  });
+
+  /**
+   * ⚠️ **라운드 78 리뷰 S-7 — 이 파일의 그물이 서는 바닥을 재현으로 못박는다.**
+   * `codeOnly`가 문자열 안의 `//`를 주석으로 먹으면 **그 줄의 나머지 코드**가 사라지고, 그 위에
+   * 선 "전수" 단언들은 아무 말도 하지 않는다. 트랙 C가 여닫이 필터에서 배운 그 규율대로,
+   * 고친 사실과 **남은 한계**를 둘 다 값으로 적는다.
+   */
+  it("codeOnly는 문자열 안의 //를 주석으로 먹지 않는다 (리뷰 S-7의 재현)", () => {
+    const fixture = [
+      'const message = "URL은 http:// 또는 https:// 로 시작해야 해요.";',
+      '<input id="after-string" readOnly={readOnly} /> // 이 줄 주석은 사라진다',
+      "const gate = role === 'admin'; // 따옴표가 닫힌 뒤의 주석도 사라진다"
+    ].join("\n");
+    const stripped = codeOnly(fixture);
+
+    // ⓐ 문자열 안의 `//` 뒤가 살아남는다 — 종전에는 여기서 닫는 따옴표와 세미콜론이 사라졌다.
+    expect(stripped).toContain('"URL은 http:// 또는 https:// 로 시작해야 해요.";');
+    // ⓑ 그리고 같은 파일에서 그 줄 뒤의 편집 컨트롤도 그대로 보인다(그물이 서는 바닥이다).
+    expect(stripped).toContain('readOnly={readOnly}');
+    // ⓒ 진짜 줄 주석은 여전히 사라진다(고친 것이 판정을 뒤집지 않았다).
+    expect(stripped).not.toContain("이 줄 주석은 사라진다");
+    expect(stripped).not.toContain("따옴표가 닫힌 뒤의 주석도 사라진다");
+    expect(stripped).toContain("const gate = role === 'admin';");
+
+    // ⓓ ⚠️ **남은 한계**: JSX 텍스트(따옴표 밖)의 `//`는 오늘도 주석으로 읽힌다. 그 자리가
+    //    삼키는 것은 텍스트뿐이라(속성·게이트가 아니다) 이 계약의 값은 바뀌지 않는다 —
+    //    그 사실을 값으로 적어 둔다(다음 라운드가 다시 발견하지 않도록).
+    const jsxText = codeOnly("<span>http:// 로 시작하는 주소</span>");
+    expect(jsxText).not.toContain("</span>");
+
+    // 그리고 그 한계가 실제 화면 파일에서 무엇을 삼키는지도 못박는다 — 힌트 문장 한 줄이다.
+    const linksSource = codeOnly(readSource("app/links/page.tsx"));
+    const urlInput = linksSource.indexOf('id={`${idPrefix}-url`}');
+    expect(urlInput, "URL 입력칸").toBeGreaterThan(-1);
+    expect(linksSource.slice(urlInput, urlInput + 400)).toContain("readOnly={readOnly}");
   });
 
   it("종전 칸은 한 칸도 바뀌지 않았다 — submits 총합과 캡션 표 (라운드 78 트랙 C ⓒ)", () => {

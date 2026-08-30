@@ -879,10 +879,36 @@ describe("라운드 78 A — 아이 프로필 여정의 실패가 이유를 말�
         "확인 문자열은 앱이 만드는 상수이지 사용자가 치는 값이 아니다(src/api/local-backend.ts의 confirmationText ↔ 서버의 DELETE CHILD/LEAVE HOUSEHOLD/DELETE ACCOUNT). 이 코드가 오면 사용자가 고칠 것이 없는 배선 어긋남이라, 문구를 주는 것이 오히려 거짓 안내가 된다."
     };
 
+    /**
+     * ⚠️ **라운드 78 리뷰 M-2 — 표에는 있지만 이 여정의 한 화면이 앞에서 가로채는 코드.**
+     *
+     * 제외(위)와 단위가 다르다: 이 코드는 표에 **있고** 다른 화면에서는 그 문장이 옳다. 다만
+     * 온보딩에는 그 문장이 가리키는 목적지가 없어서, step-ui가 표보다 앞에서 갈라 자기
+     * 문장을 세운다. 그 사실을 스윕 옆에 값으로 적어 두지 않으면 다음 라운드는 "표에 있으니
+     * 화면에도 선다"고 읽는다 — **이 스윕은 화면 적합성을 판정하지 못한다**(그 한계는
+     * docs/qa/runtime-verification-required.md #124가 실기기 표면으로 진다).
+     */
+    const tableBypassedByScreen: Readonly<Record<string, string>> = {
+      CHILD_NOT_FOUND:
+        "표의 문장이 \"아이 목록에서 확인해 주세요\"로 끝나는데 온보딩에는 그 목적지가 없다(탭도 목록도 아직 서지 않는다). 공동양육자가 그사이 아이를 지우면 ONB-003·004 저장이 이 404를 받으므로 도달 경로는 실재한다 — step-ui가 표보다 앞에서 갈라, 아이 삭제 흐름이 이미 쓰는 문장을 그대로 세운다(src/settings/destructive-flow-messages.ts)."
+    };
+
     const swept = new Set(CHILD_PROFILE_JOURNEY_SERVER_FILES.flatMap(thrownCodesIn));
     // 스윕이 실제로 무언가를 읽었는지부터 확인한다(정규식이 조용히 0건이 되면 계약이 사라진다).
     expect(swept.size).toBeGreaterThanOrEqual(10);
     expect([...swept].filter((code) => code.startsWith("UNRESOLVED:"))).toEqual([]);
+
+    // 가로채는 코드는 ⓐ 이 여정의 서버 파일이 실제로 던지고, ⓑ 표에도 있고(다른 화면의 답이다),
+    // ⓒ 그 화면에 갈래가 실재한다. 셋 중 하나라도 어긋나면 이 기록이 유령이 된다.
+    const stepUiSource = source("src/onboarding/step-ui.tsx");
+    for (const [code, reason] of Object.entries(tableBypassedByScreen)) {
+      expect(swept.has(code), `${code}는 이 여정의 서버 파일이 던지지 않는다`).toBe(true);
+      expect(API_ERROR_MESSAGES[code], code).toBeTruthy();
+      expect(reason.length, code).toBeGreaterThan(20);
+      expect(stepUiSource, code).toContain(`if (hasApiErrorCode(error, "${code}")) return ONBOARDING_CHILD_GONE_MESSAGE;`);
+      // 그 화면은 표의 문장을 사본으로 들고 있지 않다(가로채는 이유가 바로 그 문장이다).
+      expect(stepUiSource, code).not.toContain(API_ERROR_MESSAGES[code]);
+    }
 
     for (const code of swept) {
       const known = Object.prototype.hasOwnProperty.call(API_ERROR_MESSAGES, code);

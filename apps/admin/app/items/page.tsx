@@ -555,6 +555,12 @@ export default function ItemTemplatesPage() {
             (`/categories`가 행의 입력칸을 `canEdit` 뒤 상태에서만 그리는 것과 같은 판정). */}
         {canEdit ? (
           <>
+            {/* ⚠️ 라운드 78 리뷰 S-6: 아래 `readOnly={!canEdit}`는 **오늘 죽은 값**이다(이 갈래는
+                게이트가 참일 때만 그려지므로 `!canEdit`은 언제나 거짓). 그래도 남기는 이유는
+                둘이다 — ⓐ 이 폼이 서는 자리 **전수**가 같은 식을 지므로 읽는 사람이 "어느 자리가
+                게이트 안인가"를 따로 판단할 필요가 없고, ⓑ 게이트가 언젠가 걷히면 폼은 **잠긴
+                채로** 남는다(안전한 쪽으로 고장 난다). 그 사유는 계약에도 값으로 적혀 있다
+                (src/admin-write-role-gate.test.ts의 GATED_MOUNT_LOCK_REASON). */}
             <ItemFormFields
               form={createForm}
               onChange={setCreateForm}

@@ -20,6 +20,8 @@ import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
 // step-ui가 실제로 부르는 그 두 함수를 **그대로 평가해** 값을 확인한다.
 import { apiErrorCodeOf, apiErrorMessageForCode, ApiHttpError, API_ERROR_MESSAGES } from "../api/api-error";
 import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
+// 라운드 78 리뷰 M-2: CHILD_NOT_FOUND의 온보딩 문장은 아이 삭제 흐름의 그 문장 그대로다.
+import { DESTRUCTIVE_FLOW_MESSAGE_BY_CODE } from "../settings/destructive-flow-messages";
 
 /**
  * 라운드 72 트랙 A(#1) — **가입 첫 10분**의 계약.
@@ -454,7 +456,7 @@ describe("계약 ⓒ: 온보딩 저장 실패 문구", () => {
   });
 
   /* -------------------------------------------------------------------------------------- */
-  /* 라운드 78 A — 갈래가 넷이 된다: 전용 둘 → 오프라인 → 표 → 전용 폴백                        */
+  /* 라운드 78 A(+리뷰 M-1·M-2) — 갈래가 다섯이 된다: 전용 셋 → 표 → 오프라인 → 전용 폴백       */
   /* -------------------------------------------------------------------------------------- */
 
   /**
@@ -470,24 +472,99 @@ describe("계약 ⓒ: 온보딩 저장 실패 문구", () => {
    * (`apiErrorMessageForCode(apiErrorCodeOf(error))`)을 **그대로 평가해** 확인한다 — 판정의
    * 사본을 이 파일에 만들지 않는다.
    */
-  it("표 갈래가 오프라인 뒤·폴백 앞에 선다 (갈래 넷의 순서)", () => {
-    const consentIndex = stepUi.indexOf("if (isOnboardingConsentRequired(error)) return ONBOARDING_CONSENT_REQUIRED_MESSAGE;");
-    const forbiddenIndex = stepUi.indexOf("if (isOnboardingSaveForbidden(error)) return ONBOARDING_SAVE_FORBIDDEN_MESSAGE;");
-    const offlineIndex = stepUi.indexOf("if (!isOnline) return OFFLINE_RETRY_NOTICE;");
-    const tableIndex = stepUi.indexOf("const knownByCode = apiErrorMessageForCode(apiErrorCodeOf(error));");
-    const fallbackIndex = stepUi.indexOf("return ONBOARDING_SAVE_FAILED_MESSAGE;");
+  /**
+   * ⚠️ **라운드 78 리뷰 M-1** — 처음 이 갈래는 표를 오프라인 **뒤**에 두고 *"오프라인으로
+   * 판정된 실패에는 서버 코드가 애초에 없다"* 를 근거로 적었다. 그 근거는 거짓이다:
+   * `isOnline`은 실패 값에서 파생한 값이 아니라 카드가 마운트되는 순간 도는 **독립된 폴 한 번**
+   * 이다. 그래서 순서를 **코드 → 오프라인**으로 되돌린다(표를 직접 보는 저장소의 다른 둘 —
+   * `resolveSaveErrorCopy`·`memberMutationErrorMessage` — 이 세운 그 순서다).
+   *
+   * 갈래의 **줄 순서 자체**를 값으로 못 박는다: 화면 모듈을 import할 수 없으므로(이 파일의
+   * 관례) 판정의 사본을 만드는 대신 함수 본문에서 갈래 줄만 뽑아 배열로 비교한다. 한 줄이라도
+   * 자리를 바꾸면 여기가 빨개진다.
+   */
+  it("갈래 다섯의 줄 순서: 전용 셋 → 표 → 오프라인 → 폴백", () => {
+    const start = stepUi.indexOf("export function onboardingSaveErrorMessage(");
+    // 시작·끝의 실재를 먼저 묻는다 — indexOf가 -1이면 구간이 엉뚱한 곳에서 시작한다.
+    expect(start).toBeGreaterThan(-1);
+    const end = stepUi.indexOf("\n}\n", start);
+    expect(end).toBeGreaterThan(start);
+    const body = stepUi.slice(start, end);
+
+    const branchLines = body
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("if (") || line.startsWith("const knownByCode") || line.startsWith("return "));
+
+    expect(branchLines).toEqual([
+      "if (isOnboardingConsentRequired(error)) return ONBOARDING_CONSENT_REQUIRED_MESSAGE;",
+      "if (isOnboardingSaveForbidden(error)) return ONBOARDING_SAVE_FORBIDDEN_MESSAGE;",
+      'if (hasApiErrorCode(error, "CHILD_NOT_FOUND")) return ONBOARDING_CHILD_GONE_MESSAGE;',
+      "const knownByCode = apiErrorMessageForCode(apiErrorCodeOf(error));",
+      "if (knownByCode) return knownByCode;",
+      "if (!isOnline) return OFFLINE_RETRY_NOTICE;",
+      "return ONBOARDING_SAVE_FAILED_MESSAGE;"
+    ]);
 
     expect(stepUi).toContain('import { apiErrorCodeOf, apiErrorMessageForCode } from "../api/api-error";');
-    expect(stepUi).toContain("if (knownByCode) return knownByCode;");
-    expect(tableIndex).toBeGreaterThan(offlineIndex);
-    expect(fallbackIndex).toBeGreaterThan(tableIndex);
-    // 전용 둘은 여전히 표보다 앞이다(그 둘의 출력이 바이트 불변인 이유다).
-    expect(tableIndex).toBeGreaterThan(consentIndex);
-    expect(tableIndex).toBeGreaterThan(forbiddenIndex);
     // 문구를 이 파일에 사본으로 적지 않는다 — 표의 문장이 step-ui에 리터럴로 들어오면 안 된다.
-    for (const code of ["CHILD_BIRTH_DATE_FUTURE", "CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED"]) {
+    for (const code of ["CHILD_BIRTH_DATE_FUTURE", "CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED", "CHILD_NOT_FOUND"]) {
       expect(stepUi, code).not.toContain(API_ERROR_MESSAGES[code]);
     }
+  });
+
+  /**
+   * **재현** — 서버가 400을 주고, 그 직후 폴이 오프라인을 말한다.
+   *
+   * 종전 순서(표가 오프라인 뒤)에서는 이 조합이 *"지금은 오프라인이에요…"* 로 접혔다 —
+   * 서버가 이유를 코드로 말해 준 실패에 연결 이야기를 하는 것이 또 하나의 틀린 안내다.
+   * 두 사실을 함께 못 박는다: ⓐ 표가 그 코드에 문장을 준다(값), ⓑ 그 갈래가 오프라인 줄보다
+   * **먼저** 선다(줄 순서) — 그래서 `isOnline: false`여도 답은 표의 문장이다.
+   */
+  it("400 + 오프라인 폴이 겹쳐도 표의 문장이 선다 (코드가 오프라인보다 먼저다)", () => {
+    const transition = new ApiHttpError(400, {
+      error: { code: "CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED", message: "…", requestId: "req-2" }
+    });
+    const byCode = apiErrorMessageForCode(apiErrorCodeOf(transition));
+    expect(byCode).toBe(API_ERROR_MESSAGES.CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED);
+    // 두 답이 실제로 다르다 — 순서가 값을 바꾸는 자리라는 뜻이다(같으면 이 계약은 무의미하다).
+    expect(byCode).not.toBe(OFFLINE_RETRY_NOTICE);
+
+    const tableIndex = stepUi.indexOf("const knownByCode = apiErrorMessageForCode(apiErrorCodeOf(error));");
+    const offlineIndex = stepUi.indexOf("if (!isOnline) return OFFLINE_RETRY_NOTICE;");
+    expect(tableIndex).toBeGreaterThan(-1);
+    expect(offlineIndex).toBeGreaterThan(tableIndex);
+
+    // 코드를 모르는 실패에서는 종전 그대로 오프라인 문장이 선다(그 갈래는 사라지지 않았다).
+    expect(apiErrorMessageForCode(apiErrorCodeOf(new Error("Network request failed")))).toBeNull();
+  });
+
+  /**
+   * **라운드 78 리뷰 M-2** — 표의 `CHILD_NOT_FOUND` 문장은 *"아이 목록에서 확인해 주세요"* 로
+   * 끝나는데 **온보딩에는 그 목적지가 없다.** 도달 경로는 실재한다(공동양육자가 그사이 아이를
+   * 지우면 ONB-003·004 저장이 404를 받는다). 그래서 이 코드만 표보다 앞에서 가로채고, 문장은
+   * 아이 삭제 흐름이 이미 쓰는 그것을 **그대로 읽는다**(새 한국어 문장 0건).
+   */
+  it("CHILD_NOT_FOUND는 표보다 앞에서 갈리고, 없는 목적지를 가리키지 않는다", () => {
+    expect(stepUi).toContain(
+      "export const ONBOARDING_CHILD_GONE_MESSAGE = DESTRUCTIVE_FLOW_MESSAGE_BY_CODE.child_profile_delete.CHILD_NOT_FOUND;"
+    );
+    const shown = DESTRUCTIVE_FLOW_MESSAGE_BY_CODE.child_profile_delete.CHILD_NOT_FOUND;
+    // 이 화면에 없는 목적지를 가리키지 않는다(표의 문장은 정확히 그것 때문에 못 선다).
+    expect(API_ERROR_MESSAGES.CHILD_NOT_FOUND).toContain("아이 목록에서");
+    expect(shown).not.toContain("아이 목록");
+    expect(shown).not.toContain("탭");
+    // 다시 눌러도 결과가 같은 실패다 — 재시도를 권하지 않는다.
+    expect(shown).not.toContain("다시 시도");
+    // 갈래가 표보다 앞이다(줄 순서는 위 케이스가 전량으로 문다).
+    const childGoneIndex = stepUi.indexOf('if (hasApiErrorCode(error, "CHILD_NOT_FOUND")) return ONBOARDING_CHILD_GONE_MESSAGE;');
+    const tableIndex = stepUi.indexOf("const knownByCode = apiErrorMessageForCode(apiErrorCodeOf(error));");
+    expect(childGoneIndex).toBeGreaterThan(-1);
+    expect(tableIndex).toBeGreaterThan(childGoneIndex);
+
+    // ⚠️ ITEM_NOT_FOUND는 같은 병이 아니다 — 온보딩 저장 셋은 그 코드를 던지는 파일을 지나지
+    // 않는다(ONB-003의 저장은 없는 템플릿 id를 조용히 걸러 낸다). 그래서 갈래를 세우지 않는다.
+    expect(stepUi).not.toContain("ITEM_NOT_FOUND\"");
   });
 
   /**

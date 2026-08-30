@@ -498,6 +498,9 @@ function ProductLinksPageContent() {
                 폼째로 게이트 뒤에 서고, 그 자리에 라운드 77이 만든 캡션 한 줄만 남는다. */}
             {canEdit ? (
               <>
+                {/* ⚠️ 라운드 78 리뷰 S-6: 아래 `readOnly={!canEdit}`는 **오늘 죽은 값**이다(이
+                    갈래는 게이트가 참일 때만 그려진다). 남기는 사유는 준비템 화면의 같은 자리에
+                    적힌 그것과 같고, 계약에도 값으로 있다(GATED_MOUNT_LOCK_REASON). */}
                 <LinkFormFields
                   form={createForm}
                   onChange={setCreateForm}
