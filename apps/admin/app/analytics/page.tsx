@@ -470,9 +470,10 @@ export default function AnalyticsSummaryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {/* 레지스트리 이름(admin-api.ts의 6종 미러)은 0건이어도 항상 표시하고, 그 외 이름이
-                      오면 뒤에 덧붙인다 — ANA-127이 더한 두 이벤트가 이 경로로 들어오고, 라벨은
-                      ANA127_EVENT_LABELS가 채운다. */}
+                  {/* 레지스트리 이름(admin-api.ts의 미러)은 0건이어도 항상 표시하고, 그 외 이름이
+                      오면 뒤에 덧붙인다 — 그 미러 **뒤에 append된 레지스트리 이름 전부**가 이 경로로
+                      들어오고 라벨은 ANA127_EVENT_LABELS가 채운다(둘의 합집합이 레지스트리 전부와
+                      같은지는 src/admin-canonical-mirrors.test.ts가 센다 — 숫자를 여기 적지 않는다). */}
                   {[
                     ...ANALYTICS_EVENT_NAMES.map(
                       (name) => summary.byName.find((entry) => entry.name === name) ?? { name, count: 0 }
