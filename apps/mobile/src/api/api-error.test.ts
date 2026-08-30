@@ -25,6 +25,25 @@ import {
   SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT,
   SYNC_STATUS_PERMANENT_FAILURE_HINT
 } from "../offline/permission-denied";
+/**
+ * 라운드 79 트랙 C — **가족 여정의 네 출구**를 이 파일에서 실제로 물어보기 위한 import 넷.
+ * 코드 목록을 여기 사본으로 적지 않는다(사본을 만드는 순간 다섯째 표가 생긴다).
+ */
+import {
+  OFFLINE_RETRY_NOTICE,
+  OFFLINE_SAVE_NOTICE,
+  resolveSaveErrorCopy,
+  SAVE_ERROR_NOTICE
+} from "../offline/messages";
+import {
+  familyErrorCodeOf,
+  memberMutationErrorMessage,
+  INVITE_CANCEL_FAILED_MESSAGE,
+  MEMBER_MANAGE_FORBIDDEN_MESSAGE,
+  MEMBER_REMOVE_FAILED_MESSAGE
+} from "../family/member-mutation-messages";
+import { inviteCreateErrorMessage, INVITE_CREATE_FAILED_MESSAGE, INVITE_FORBIDDEN_MESSAGE } from "../family/invite-permissions";
+import { isInviteUnavailableError, INVITE_UNAVAILABLE_CODES } from "../family/invite-accept-messages";
 
 /**
  * 라운드 45 UX-Z — 서버 실패 사유가 경계에서 뭉개지지 않는다는 계약.
@@ -1107,5 +1126,332 @@ describe("배선 계약 (source verification)", () => {
     expect(acceptSource).toContain(
       'const acceptFailedText = "가족에 참여하지 못했어요. 잠시 후 다시 시도해 주세요.";'
     );
+  });
+});
+
+/**
+ * 라운드 79 트랙 C — **가족 여정의 세 번째 그물**(known-limitations L-1의 답).
+ *
+ * ## L-1의 질문과, 실측이 낸 답
+ *
+ * 세 라운드 동안 *"세 모듈이 같은 표를 같은 순서로 읽는가"* 로 이월돼 온 질문의 답은
+ * **모듈은 넷이고, 읽지 않으며, 그 분리에는 각각 이유가 있다**이다.
+ *
+ * | 모듈 | 코드 추출 | 판정 순서 | 표 |
+ * | --- | --- | --- | --- |
+ * | `resolveSaveErrorCopy`(src/offline/messages.ts) | `apiErrorCodeOf` | 표 → 오프라인 → 폴백 | `API_ERROR_MESSAGES` |
+ * | `memberMutationErrorMessage`(src/family/member-mutation-messages.ts) | `familyErrorCodeOf`(= 위 + 옛 봉투 JSON) | 403 → **자기 표(넷)** → 오프라인 → 종류별 폴백 | 자기 표 |
+ * | `inviteCreateErrorMessage`(src/family/invite-permissions.ts) | `isInviteForbiddenError`(봉투 JSON 직접) | 403 → 오프라인 → **훅의 답** → 초대 폴백 | 훅을 지난 표 |
+ * | `isInviteUnavailableError`(src/family/invite-accept-messages.ts) | `hasApiErrorCode` | **코드 둘 → 한 문장**(오프라인 갈래 없음) | 코드 목록 둘 |
+ *
+ * ⚠️ **표를 통합하면 안 되는 이유가 이미 소스에 있다.** 서버 원문이 영어이거나
+ * (`HOUSEHOLD_MEMBER_NOT_FOUND: "Household member was not found."`) 이 화면 맥락에서만 뜻이
+ * 통하고(*"이미 가족에서 빠진 구성원이에요"*), 초대 수락은 `INVITE_NOT_FOUND`와
+ * `INVITE_NOT_PENDING`을 **일부러 한 문장으로** 받는다(무인증 공개 조회라 둘을 가르면 앱이
+ * **존재 오라클**이 된다). **표에 넣는 순간 그 판단이 사라진다.**
+ *
+ * ## 그래서 없던 것은 표의 통합이 아니라 **스윕**이다
+ *
+ * 저장소의 여정 스윕은 오늘까지 둘이었다(`IMPORT_JOURNEY_SERVER_FILES` 셋 ·
+ * `CHILD_PROFILE_JOURNEY_SERVER_FILES` 둘). 아웃박스 스윕(`outboxPathFiles` 넷)은 **큐의 단위**라
+ * 가족 여정이 그 안에 없다 — 가족 관리·초대에는 큐가 없다. 즉 **서버에 초대 관련 코드가 하나
+ * 늘어도 오늘은 아무 단언도 깨지지 않은 채 네 모듈 전부의 밖에 선다.** 여기 세 번째 목록이
+ * 선다: 가족 여정 서버 파일이 던지는 4xx 코드는 **네 출구 중 하나**에 있어야 한다.
+ *
+ * ⚠️ **네 출구를 명시하는 것이 이 스윕의 본체다.** 라운드 78 A의 스윕은 출구가 **둘**(표 ·
+ * 이유가 적힌 제외)이었는데 이 여정은 **넷**이고, 그 사실을 적지 않으면 다음 라운드가
+ * *"표에 없다"*를 결함으로 읽어 표를 늘리려 든다 — 그것이 이 트랙이 **하지 않기로 판정한**
+ * 바로 그 일이다(`API_ERROR_MESSAGES`에 줄 0건 · 제품 소스 0건).
+ *
+ * ⚠️ **기존 세 스윕과 합치지 않는다** — 단위가 다르다(가져오기 여정 · 아이 프로필 여정 · 큐).
+ * 라운드 77 A가 얻은 규율 그대로, 제외의 사유는 **이 스윕의 단위로만** 적는다.
+ */
+describe("라운드 79 C — 가족 여정의 세 번째 그물 (네 출구의 합집합)", () => {
+  /**
+   * 이 여정을 만드는 서버 파일 **둘**. 스윕의 단위는 파일이 아니라 여정이다.
+   *
+   * 둘째가 **관문**이다(가져오기 여정이 라운드 76 C에서 배운 그 교훈): 컨트롤러가 오늘 4xx를
+   * 직접 던지지 않아도 목록에 들고 있어야, 그 자리에 코드가 하나 생기는 날 이 스윕이 본다.
+   */
+  const FAMILY_JOURNEY_SERVER_FILES = [
+    // 구성원 조회·삭제 · 초대 생성/목록/취소 · 초대 미리보기 · 수락이 한 서비스에 있다.
+    "households/household-runtime.service.ts",
+    // 앱이 실제로 부르는 일곱 엔드포인트의 관문(무인증 공개 조회 하나가 여기서 갈린다).
+    "households/households.controller.ts"
+  ] as const;
+
+  /** 서버가 코드로 답한 실패의 모양. 원문은 어느 출구로도 화면에 나가지 않는다. */
+  const journeyError = (code: string) => new ApiHttpError(400, envelope(code, "서버 원문(앱은 그대로 쓰지 않는다)"));
+
+  const MEMBER_MUTATION_KINDS = ["remove_member", "cancel_invite"] as const;
+  /** `memberMutationErrorMessage`가 **자기 표 밖**에서 돌려줄 수 있는 문장 전부. */
+  const MEMBER_MUTATION_NON_TABLE_ANSWERS: ReadonlyArray<string> = [
+    MEMBER_REMOVE_FAILED_MESSAGE,
+    INVITE_CANCEL_FAILED_MESSAGE,
+    MEMBER_MANAGE_FORBIDDEN_MESSAGE,
+    OFFLINE_RETRY_NOTICE
+  ];
+
+  /**
+   * **네 출구.** 손으로 적은 코드 목록이 아니라 **각 모듈에 실제로 물어본 답**이다 — 모듈의
+   * 표가 바뀌면 이 판정도 함께 바뀐다(사본을 만들면 그 순간 다섯째 표가 생긴다).
+   */
+  const JOURNEY_EXITS: ReadonlyArray<{ readonly name: string; readonly answers: (code: string) => boolean }> = [
+    {
+      name: "① 공용 표(src/api/api-error.ts의 API_ERROR_MESSAGES)",
+      answers: (code) => apiErrorMessageForCode(code) !== null
+    },
+    {
+      name: "② member-mutation-messages의 자기 표(이 화면 맥락에서만 뜻이 통하는 넷)",
+      answers: (code) =>
+        MEMBER_MUTATION_KINDS.every(
+          (kind) =>
+            !MEMBER_MUTATION_NON_TABLE_ANSWERS.includes(
+              memberMutationErrorMessage(kind, journeyError(code), { isOnline: true })
+            )
+        )
+    },
+    {
+      name: "③ invite-accept-messages의 코드 목록 둘(둘을 일부러 한 문장으로 받는다)",
+      answers: (code) => isInviteUnavailableError(journeyError(code))
+    }
+  ];
+
+  /**
+   * 네 출구 중 **넷째** — 이유가 적힌 제외. 비우면 안 되고, 사유는 **이 스윕의 단위**로만 적는다
+   * (라운드 78 A의 `SETTINGS_CONFIRMATION_REQUIRED` 사유와 같은 모양).
+   */
+  const excludedWithReason: Readonly<Record<string, string>> = {
+    HOUSEHOLD_NOT_FOUND:
+      "가구 행 자체가 사라진 경우다(requireHousehold — 삭제됐거나 active가 아니다). 세션이 그 가구를 들고 있는 한 사용자가 고칠 것이 없는 배선 어긋남이라, 이 여정의 어느 화면도 이 코드를 문구로 받을 필요가 없다 — 저장소 전체에서 소비자가 0건인 것도 그 사실의 결과다."
+  };
+
+  const sweptCodes = () => new Set(FAMILY_JOURNEY_SERVER_FILES.flatMap(thrownCodesIn));
+
+  /** 이 여정 파일 안에서만 센 `코드 → 서로 다른 문장들`(전역 스윕과 단위가 다르다). */
+  function journeyMessagesByCode(): Map<string, Set<string>> {
+    const table = new Map<string, Set<string>>();
+    for (const file of FAMILY_JOURNEY_SERVER_FILES) {
+      for (const match of apiSource(file).matchAll(/\bcode: "([A-Z0-9_]+)",\s*message: (`[^`]*`|"[^"]*")/g)) {
+        if (!table.has(match[1])) table.set(match[1], new Set());
+        table.get(match[1])!.add(match[2]);
+      }
+    }
+    return table;
+  }
+
+  it("ⓐ 전수 — 가족 여정 서버 파일의 4xx 코드는 네 출구 중 하나를 지난다", () => {
+    const swept = sweptCodes();
+    // 스윕이 실제로 무언가를 읽었는지부터 확인한다(정규식이 조용히 0건이 되면 계약이 사라진다).
+    // 2026-08-30 실측: 일곱.
+    expect(swept.size).toBeGreaterThanOrEqual(7);
+    expect([...swept].filter((code) => code.startsWith("UNRESOLVED:"))).toEqual([]);
+
+    for (const code of swept) {
+      const exit = JOURNEY_EXITS.find((candidate) => candidate.answers(code));
+      const excluded = Object.prototype.hasOwnProperty.call(excludedWithReason, code);
+      expect(
+        Boolean(exit) || excluded,
+        `${code}: 네 출구 어디에도 없다. 이 코드를 받은 사용자는 가족 화면에서 "${MEMBER_REMOVE_FAILED_MESSAGE}", 초대 화면에서 "${INVITE_CREATE_FAILED_MESSAGE}"를 보고 다시 눌러도 같은 결과를 얻는다.`
+      ).toBe(true);
+    }
+  });
+
+  it("ⓑ 유령 금지 — 네 출구가 전부 실재하고, 오늘 각각이 답하는 코드가 이것이다", () => {
+    const swept = [...sweptCodes()].sort();
+    const answeredBy = (index: number) => swept.filter((code) => JOURNEY_EXITS[index].answers(code));
+
+    // ⚠️ 합집합을 명시하는 것이 이 스윕의 본체다 — 출구가 넷이라는 사실을 값으로 적는다.
+    expect(answeredBy(0), JOURNEY_EXITS[0].name).toEqual(["FORBIDDEN", "HOUSEHOLD_ALREADY_MEMBER"]);
+    expect(answeredBy(1), JOURNEY_EXITS[1].name).toEqual([
+      "HOUSEHOLD_MEMBER_NOT_FOUND",
+      "HOUSEHOLD_MEMBER_REMOVE_OWNER_FORBIDDEN",
+      "INVITE_NOT_FOUND",
+      "INVITE_NOT_PENDING"
+    ]);
+    expect(answeredBy(2), JOURNEY_EXITS[2].name).toEqual(["INVITE_NOT_FOUND", "INVITE_NOT_PENDING"]);
+    expect(Object.keys(excludedWithReason)).toEqual(["HOUSEHOLD_NOT_FOUND"]);
+
+    // 출구가 겹치는 자리가 있다는 것도 사실이다 — 두 화면이 같은 코드에 각자 답한다
+    // (취소하려던 초대가 이미 끝났다 / 받은 초대 링크가 이미 끝났다).
+    for (const code of ["INVITE_NOT_FOUND", "INVITE_NOT_PENDING"]) {
+      expect(JOURNEY_EXITS[1].answers(code), code).toBe(true);
+      expect(JOURNEY_EXITS[2].answers(code), code).toBe(true);
+    }
+    // 그리고 넷의 합집합이 일곱을 정확히 덮는다(빈틈도, 남는 출구도 없다).
+    const covered = new Set([...answeredBy(0), ...answeredBy(1), ...answeredBy(2), ...Object.keys(excludedWithReason)]);
+    expect([...covered].sort()).toEqual(swept);
+  });
+
+  it("ⓑ 유령 금지 — 제외의 코드를 서버가 실제로 던지고, 어느 출구도 답하지 않는다", () => {
+    const swept = sweptCodes();
+    for (const [code, reason] of Object.entries(excludedWithReason)) {
+      expect(swept.has(code), `${code}는 서버가 더는 던지지 않는다 — 제외 이유가 남을 수 없다`).toBe(true);
+      expect(reason.length, code).toBeGreaterThan(20);
+      // 라운드 77 A의 규율: "그 화면이 자기 문구를 쓴다"는 제외의 근거가 될 수 없다.
+      expect(reason, `${code}의 제외 사유가 "자기 문구"에 기대고 있다`).not.toContain("자기 문구");
+      // 제외인데 출구가 답하고 있으면 그 제외는 이미 낡았다.
+      for (const exit of JOURNEY_EXITS) {
+        expect(exit.answers(code), `${code}는 제외됐는데 ${exit.name}이 답한다`).toBe(false);
+      }
+    }
+  });
+
+  it("ⓑ 유령 금지 — 목록의 두 파일이 실재하고, 던지는 예외가 전부 4xx다", () => {
+    for (const file of FAMILY_JOURNEY_SERVER_FILES) {
+      expect(statSync(join(apiSourceRoot, file)).isFile(), file).toBe(true);
+    }
+    const runtime = apiSource("households/household-runtime.service.ts");
+    const thrownClasses = [...new Set([...runtime.matchAll(/throw new ([A-Za-z]+Exception)\(/g)].map((m) => m[1]))].sort();
+    // 5xx가 섞이면 "4xx 전수"라는 이 스윕의 단위가 조용히 달라진다.
+    expect(thrownClasses).toEqual([
+      "BadRequestException",
+      "ConflictException",
+      "ForbiddenException",
+      "NotFoundException"
+    ]);
+
+    // 관문은 오늘 자기 코드를 던지지 않고 서비스에 위임한다 — 그 사실을 값으로 적는다.
+    // (이 줄이 빨개지는 날은 관문이 스스로 거절하기 시작한 날이고, 위 ⓐ가 그 코드의 출구를 묻는다.)
+    const controller = apiSource("households/households.controller.ts");
+    expect(thrownCodesIn("households/households.controller.ts")).toHaveLength(0);
+    expect(controller).toContain('import { HouseholdRuntimeService } from "./household-runtime.service";');
+    // 앱이 부르는 일곱 엔드포인트가 이 관문에 있다(스캔이 엉뚱한 파일을 걷고 있지 않다).
+    for (const route of [
+      '@Get("households/:householdId/members")',
+      '@Delete("households/:householdId/members/:memberId")',
+      '@Post("households/:householdId/invites")',
+      '@Get("households/:householdId/invites")',
+      '@Delete("households/:householdId/invites/:inviteId")',
+      '@Get("invites/:token")',
+      '@Post("invites/:token/accept")'
+    ]) {
+      expect(controller, route).toContain(route);
+    }
+  });
+
+  /**
+   * ⓒ **판정 순서의 파생 단언 — 넷 중 첫째**(`resolveSaveErrorCopy`).
+   *
+   * 나머지 셋은 각 모듈의 테스트 파일이 진다(member-mutation-messages.test.ts ·
+   * invite-permissions.test.ts · invite-accept-messages.test.ts). 넷이 **다른 순서**라는 사실
+   * 자체가 이 트랙의 판정이므로, 순서를 한 파일에 모으지 않고 각자의 자리에 세운다.
+   */
+  it("ⓒ 모듈 ① resolveSaveErrorCopy의 순서는 표 → 오프라인 → 폴백이다", () => {
+    const tableCode = "HOUSEHOLD_ALREADY_MEMBER";
+    // ① 표가 오프라인보다 앞이다 — 서버가 답했다는 사실이 곧 연결이 있었다는 뜻이다.
+    expect(resolveSaveErrorCopy({ isOnline: false, error: journeyError(tableCode) })).toBe(
+      API_ERROR_MESSAGES[tableCode]
+    );
+    // ② 표가 모르면 오프라인이 폴백보다 앞이다.
+    expect(resolveSaveErrorCopy({ isOnline: false, error: new Error("Network request failed") })).toBe(
+      OFFLINE_SAVE_NOTICE
+    );
+    // ③ 둘 다 아니면 폴백.
+    expect(resolveSaveErrorCopy({ isOnline: true, error: new Error("boom") })).toBe(SAVE_ERROR_NOTICE);
+    // ⚠️ **403 전용 갈래가 없는 것**이 이 모듈과 형제 셋의 차이다 — 같은 코드를 받는 다른 화면들이
+    //    이 문장을 함께 쓰므로 여기서 초대·구성원 관리 쪽으로 좁힐 수 없다.
+    expect(resolveSaveErrorCopy({ isOnline: true, error: journeyError("FORBIDDEN") })).toBe(
+      API_ERROR_MESSAGES.FORBIDDEN
+    );
+    expect(API_ERROR_MESSAGES.FORBIDDEN).not.toBe(MEMBER_MANAGE_FORBIDDEN_MESSAGE);
+    expect(API_ERROR_MESSAGES.FORBIDDEN).not.toBe(INVITE_FORBIDDEN_MESSAGE);
+  });
+
+  /**
+   * ⓒ **네 모듈이 같은 표를 읽지 않는다는 사실은 코드 추출 층에서 이미 참이다.**
+   *
+   * 같은 실패 값을 넷에 먹여 답이 갈리는 것을 값으로 고정한다 — 넷을 한 벌로 합치려는 다음
+   * 라운드는 여기서 먼저 이 사실을 만난다.
+   */
+  it("ⓒ 코드 추출이 넷 다 다르다 — 옛 봉투 JSON에서 답이 갈린다", () => {
+    const legacyEnvelope = new Error(JSON.stringify(envelope("FORBIDDEN", "가족 초대는 관리자만 할 수 있어요.")));
+    // 공용 파서는 옛 모양을 읽지 않는다(ApiHttpError·body·code 셋만 본다).
+    expect(apiErrorCodeOf(legacyEnvelope)).toBeNull();
+    expect(hasApiErrorCode(legacyEnvelope, "FORBIDDEN")).toBe(false);
+    // 구성원 관리는 그 폴백을 갖고 있다(옛 관례로 던져진 값도 같은 판정을 받는다).
+    expect(familyErrorCodeOf(legacyEnvelope)).toBe("FORBIDDEN");
+    // 초대 생성은 봉투 JSON을 직접 판다(그래서 두 모양 다 알아본다).
+    expect(inviteCreateErrorMessage(legacyEnvelope, { isOnline: true })).toBe(INVITE_FORBIDDEN_MESSAGE);
+    expect(inviteCreateErrorMessage(new ApiHttpError(403, envelope("FORBIDDEN", "…")), { isOnline: true })).toBe(
+      INVITE_FORBIDDEN_MESSAGE
+    );
+  });
+
+  /**
+   * ⓓ **관측을 값으로** — 라운드 78 S-1이 열어 둔 질문(*"코드 하나가 문장 여럿을 나르면 코드
+   * 단위 표는 어떻게 하나"*)에 **이 여정이 이미 답을 갖고 있었다**: 답은 *"코드를 나누는 것"*이
+   * 아니라 **"부르는 자리가 가르는 것"**이다.
+   */
+  it("ⓓ 관측 — 이 여정에서 문장을 둘 나르는 코드가 셋이고, 앱은 호출부로 가른다", () => {
+    const messagesByCode = journeyMessagesByCode();
+    const multiMessageCodes = [...messagesByCode]
+      .filter(([, messages]) => messages.size > 1)
+      .map(([code]) => code)
+      .sort();
+    // 2026-08-30 실측: 정찰은 `INVITE_NOT_PENDING` 하나를 적었는데 스윕은 셋을 센다
+    // (`INVITE_NOT_FOUND`도 조회·취소 두 자리에서 다른 원문을 쓴다 — 스윕 쪽이 옳다).
+    expect(multiMessageCodes).toEqual(["FORBIDDEN", "INVITE_NOT_FOUND", "INVITE_NOT_PENDING"]);
+    expect(messagesByCode.get("FORBIDDEN")?.size).toBe(2);
+    expect(messagesByCode.get("INVITE_NOT_PENDING")?.size).toBe(2);
+
+    // ⚠️ **FORBIDDEN 하나가 앱에서 세 갈래로 갈린다 — 가르는 축은 코드가 아니라 호출부다.**
+    const forbidden = journeyError("FORBIDDEN");
+    expect(inviteCreateErrorMessage(forbidden, { isOnline: true })).toBe(INVITE_FORBIDDEN_MESSAGE);
+    expect(memberMutationErrorMessage("remove_member", forbidden, { isOnline: true })).toBe(
+      MEMBER_MANAGE_FORBIDDEN_MESSAGE
+    );
+    expect(resolveSaveErrorCopy({ isOnline: true, error: forbidden })).toBe(API_ERROR_MESSAGES.FORBIDDEN);
+    expect(new Set([INVITE_FORBIDDEN_MESSAGE, MEMBER_MANAGE_FORBIDDEN_MESSAGE, API_ERROR_MESSAGES.FORBIDDEN]).size).toBe(3);
+
+    // 반대 방향의 답도 이 여정에 있다: 초대 수락은 문장 둘을 나르는 두 코드를 **일부러 하나로**
+    // 받는다(무인증 공개 조회라 가르는 순간 존재 오라클이 된다 — invite-accept-messages.ts).
+    for (const code of INVITE_UNAVAILABLE_CODES) {
+      expect(messagesByCode.get(code)?.size, code).toBe(2);
+      expect(isInviteUnavailableError(journeyError(code)), code).toBe(true);
+    }
+  });
+
+  /**
+   * ⓓ **관측을 값으로** — `HOUSEHOLD_NOT_FOUND`의 소비자는 저장소 전체에서 **0건**이다.
+   *
+   * 제외 사유가 기대는 사실이 그것이라, 사유 옆에 산문으로 적는 대신 **세어서** 고정한다.
+   * 소비자가 하나라도 생기는 날 이 줄이 빨개지고, 그때 그 제외 사유를 다시 봐야 한다.
+   */
+  it("ⓓ 관측 — HOUSEHOLD_NOT_FOUND를 읽는 앱 코드가 0건이다 (제외 사유의 근거)", () => {
+    const scanRoots = [
+      join(mobileRoot, "src"),
+      join(mobileRoot, "app"),
+      join(mobileRoot, "../../apps/admin/src"),
+      join(mobileRoot, "../../apps/admin/app"),
+      join(mobileRoot, "../../packages")
+    ];
+    /**
+     * ⚠️ **테스트 파일은 소비자가 아니다.** 이 트랙의 계약 넷이 그 코드를 이름으로 들고 있고
+     * (스윕의 제외 목록 · 세 모듈의 판정 단언), 계약이 코드를 부르는 것과 **제품 소스가 그
+     * 코드를 읽어 문구를 고르는 것**은 다른 사건이다. 세는 것은 뒤엣것이다.
+     */
+    const consumers: string[] = [];
+    let scannedFiles = 0;
+    const walk = (directory: string) => {
+      for (const name of readdirSync(directory)) {
+        if (name === "node_modules" || name === "dist" || name.startsWith(".")) continue;
+        const fullPath = join(directory, name);
+        if (statSync(fullPath).isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) continue;
+        scannedFiles += 1;
+        if (readFileSync(fullPath, "utf8").includes("HOUSEHOLD_NOT_FOUND")) consumers.push(fullPath);
+      }
+    };
+    for (const root of scanRoots) walk(root);
+
+    // 스캔이 조용히 0건이 되면 이 관측도 함께 죽는다(2026-08-30 실측: 제품 소스 326).
+    expect(scannedFiles).toBeGreaterThan(300);
+    expect(consumers, "HOUSEHOLD_NOT_FOUND에 소비자가 생겼다 — 제외 사유를 다시 봐야 한다").toEqual([]);
+    // 그리고 서버는 그 코드를 여전히 던진다(제외가 유령이 아니라는 반대 방향의 확인).
+    expect([...sweptCodes()]).toContain("HOUSEHOLD_NOT_FOUND");
   });
 });

@@ -201,6 +201,83 @@ describe("라운드 70 A — 앱 문장과 초대 랜딩 페이지가 같은 사
   });
 });
 
+/**
+ * 라운드 79 트랙 C — **네 모듈 중 넷째의 판정 순서**(known-limitations L-1의 답).
+ *
+ * 이 모듈의 순서는 **한 칸**이다: **코드 둘 → 한 문장.** 형제 셋에 다 있는 오프라인 갈래가
+ * 여기에는 없고, 표도 없다(코드 목록 둘이 전부다). 그 셋과 다른 이유가 각각 있다.
+ *  ⓐ **오프라인 갈래가 없는 이유** — 이 모듈이 하는 일은 하나다: *재시도로 절대 풀리지 않는*
+ *     두 코드를 가려내는 것. 나머지 실패(네트워크·5xx)는 **호출부의 종전 문구 그대로**이고,
+ *     오프라인은 그 호출부가 훅으로 앞에서 가른다(화면의 `acceptSaveErrorCopy` 갈래).
+ *     여기서 새 문구를 하나라도 끼우면 라운드 70의 회귀 계약이 깨진다.
+ *  ⓑ **표가 아니라 코드 목록인 이유** — 두 코드를 **일부러 한 문장으로** 받는다. 조회
+ *     엔드포인트가 무인증 공개라, 문장을 가르는 순간 앱이 *존재 오라클*이 된다.
+ *     ⚠️ 그래서 이 여정은 라운드 78 S-1의 질문(*"코드 하나가 문장 여럿을 나르면?"*)의 **반대편
+ *     답**도 갖고 있다: 서버가 두 코드로 문장 **넷**을 나르는데 앱은 **하나**로 받는다.
+ *     가르는 것도 합치는 것도 **부르는 자리의 판단**이지 표의 단위가 아니다.
+ *
+ * 여정 전체의 코드 스윕(네 출구의 합집합)은 `src/api/api-error.test.ts`가 진다.
+ */
+describe("라운드 79 트랙 C — 모듈 ④의 순서(한 칸)와, 오프라인 갈래가 없는 이유", () => {
+  const journeyError = (code: string) => httpError(400, code, "서버 원문(앱은 그대로 쓰지 않는다)");
+
+  it("ⓒ 순서가 한 칸이다 — 판정에 연결 상태가 들어올 자리가 없다", () => {
+    // 형제 셋은 전부 `{ isOnline }`을 받는다. 이 판정은 인자가 **하나**다(구조로 고정한다).
+    expect(isInviteUnavailableError.length).toBe(1);
+    // 같은 실패의 답이 연결 상태와 무관하다 — 넘길 자리가 없으므로 갈릴 자리도 없다.
+    for (const code of INVITE_UNAVAILABLE_CODES) {
+      expect(isInviteUnavailableError(journeyError(code)), code).toBe(true);
+    }
+    // 재시도로 풀리는 실패는 이 갈래가 아니고, 그 문장은 호출부의 것이다(이 모듈은 답하지 않는다).
+    expect(isInviteUnavailableError(new Error("Network request failed"))).toBe(false);
+    expect(isInviteUnavailableError(journeyError("HOUSEHOLD_NOT_FOUND"))).toBe(false);
+  });
+
+  it("ⓒ 오프라인 갈래는 호출부가 **앞에서** 가른다 — 이 모듈이 그 문장을 알지 못한다", () => {
+    const moduleSource = source("src/family/invite-accept-messages.ts");
+    // 이 모듈에는 오프라인 문구도, 그 문구를 만드는 모듈로 가는 길도 없다.
+    expect(moduleSource).not.toContain("OFFLINE");
+    expect(moduleSource).not.toContain("offline/messages");
+    // 그 갈래는 화면에 있다(라운드 73 E가 세운 그 한 줄) — 아는 코드가 없을 때만 참이다.
+    expect(acceptSource()).toContain(
+      "{acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)}"
+    );
+    // 그리고 공용 훅의 순서가 그 사실을 보증한다: 아는 코드는 오프라인보다 앞에서 갈라진다.
+    expect(resolveSaveErrorCopy({ isOnline: false, error: httpError(409, "HOUSEHOLD_ALREADY_MEMBER", "서버 원문") })).toBe(
+      "이미 이 가족의 구성원이에요."
+    );
+  });
+
+  it("ⓓ 관측 — 서버는 두 코드로 문장 넷을 나르고, 앱은 하나로 받는다 (오라클 금지의 대가이자 근거)", () => {
+    const runtime = runtimeSource();
+    const messagesOf = (code: string) =>
+      new Set(
+        [...runtime.matchAll(new RegExp(`\\bcode: "${code}",\\s*message: ("[^"]*")`, "g"))].map((match) => match[1])
+      );
+    // 2026-08-30 실측: 각 코드가 이 여정에서 서로 다른 문장 둘을 나른다(합계 넷).
+    expect(messagesOf("INVITE_NOT_FOUND").size).toBe(2);
+    expect(messagesOf("INVITE_NOT_PENDING").size).toBe(2);
+    expect([...messagesOf("INVITE_NOT_PENDING")].sort()).toEqual([
+      '"사용할 수 없는 초대 링크예요."',
+      '"이미 사용했거나 만료된 초대예요."'
+    ]);
+    // 앱이 그 넷에 주는 답은 **한 벌**이다 — 코드로도, 원문으로도 갈리지 않는다.
+    const answers = new Set(
+      INVITE_UNAVAILABLE_CODES.flatMap((code) =>
+        ["이미 사용했거나 만료된 초대예요.", "사용할 수 없는 초대 링크예요.", "초대를 찾을 수 없어요."].map((serverText) =>
+          isInviteUnavailableError(httpError(400, code, serverText))
+            ? `${INVITE_UNAVAILABLE_TITLE}|${INVITE_UNAVAILABLE_DETAIL}|${INVITE_UNAVAILABLE_NEXT_STEP}`
+            : "종전 문구"
+        )
+      )
+    );
+    expect([...answers]).toEqual([`${INVITE_UNAVAILABLE_TITLE}|${INVITE_UNAVAILABLE_DETAIL}|${INVITE_UNAVAILABLE_NEXT_STEP}`]);
+    // 그 결정의 근거는 **무인증 공개 조회**다(서버가 그 사실을 값으로 들고 있다 — 읽기만).
+    expect(apiSource("src/households/households.controller.ts")).toContain('@Get("invites/:token")');
+    expect(landingSource()).toContain("No existence oracle");
+  });
+});
+
 /** 화면은 vitest에서 렌더할 수 없으므로 배선은 소스 계약으로 고정한다(member-mutation-messages와 같은 관례). */
 describe("라운드 70 A — FAM-003 네 갈래 배선 (source contract)", () => {
   it("갈래 1·2·3(조회 404 · 조회 400 · 수락 400)이 **같은 노드 하나**를 본다", () => {
@@ -217,7 +294,9 @@ describe("라운드 70 A — FAM-003 네 갈래 배선 (source contract)", () =>
       expect(card).toContain(`{${constant}}`);
     }
     // 낭독: 실패 카드는 alert로 읽힌다(라운드 60 재시도 카드와 같은 관례).
-    expect(card).toContain('<View accessibilityRole="alert">');
+    // ⚠️ 계약은 **그 카드가 alert로 읽힌다**는 사실이지 여는 태그의 프롭 목록이 아니다 —
+    // 같은 노드에 live region이 함께 걸려도(형제 카드들이 이미 그렇다) 이 사실은 그대로다.
+    expect(card).toMatch(/<View[^>]*accessibilityRole="alert"/);
   });
 
   it("그 갈래에서 [다시 시도]가 사라진다 — 다시 눌러 풀리는 것이 없다", () => {

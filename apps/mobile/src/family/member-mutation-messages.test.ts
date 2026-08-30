@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ApiHttpError } from "../api/api-error";
+import { API_ERROR_MESSAGES, ApiHttpError } from "../api/api-error";
 import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
 import {
   INVITE_CANCEL_FAILED_ALERT_TITLE,
@@ -16,6 +16,8 @@ import {
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+/** 서버 소스는 **읽기만** 한다(이 트랙은 서버 0건 · 제품 소스 0건). */
+const apiSource = (relativePath: string) => readFileSync(join(mobileRoot, "../../apps/api/src", relativePath), "utf8");
 
 const online = { isOnline: true };
 const offline = { isOnline: false };
@@ -122,6 +124,124 @@ describe("라운드 52 C-05 구성원 삭제·초대 취소 실패 문구", () =
       expect(copy, copy).toMatch(/(요|요\.)$/);
       expect(copy, copy).not.toMatch(/확인하세요|하십시오|오류|에러|네트워크|error|forbidden/i);
     }
+  });
+});
+
+/**
+ * 라운드 79 트랙 C — **네 모듈 중 둘째의 판정 순서**(known-limitations L-1의 답).
+ *
+ * L-1은 세 라운드 동안 *"세 모듈이 같은 표를 같은 순서로 읽는가"* 를 물어 왔고, 실측의 답은
+ * **모듈은 넷이고, 읽지 않으며, 그 분리에는 각각 이유가 있다**였다. 이 모듈의 이유가 가장
+ * 또렷하다: 자기 표의 네 문장은 **서버 원문이 영어이거나 이 화면 맥락에서만 뜻이 통한다.**
+ * 공용 표(`API_ERROR_MESSAGES`)는 앱 전역에서 중립적으로 읽혀야 하는 코드만 담으므로
+ * **넷을 그리로 옮기는 순간 그 판단이 사라진다.**
+ *
+ * 여정 전체의 코드 스윕(`FAMILY_JOURNEY_SERVER_FILES` — 네 출구의 합집합)은
+ * `src/api/api-error.test.ts`가 진다. 여기서 지는 것은 **이 모듈의 순서**다:
+ * **403 → 자기 표(넷) → 오프라인 → 종류별 폴백.** 넷이 서로 다른 순서를 갖는다는 사실 자체가
+ * 이 트랙의 판정이라, 순서를 한 파일에 모으지 않고 각자의 자리에 세운다.
+ */
+describe("라운드 79 트랙 C — 모듈 ②의 판정 순서와, 표를 합치지 않는 이유", () => {
+  const journeyError = (code: string) => httpError(400, code, "서버 원문(앱은 그대로 쓰지 않는다)");
+  /** 이 모듈이 **자기 표 밖**에서 돌려줄 수 있는 문장 전부. */
+  const nonTableAnswers = [
+    MEMBER_REMOVE_FAILED_MESSAGE,
+    INVITE_CANCEL_FAILED_MESSAGE,
+    MEMBER_MANAGE_FORBIDDEN_MESSAGE,
+    OFFLINE_RETRY_NOTICE
+  ];
+  const answeredByOwnTable = (code: string) =>
+    (["remove_member", "cancel_invite"] as const).every(
+      (kind) => !nonTableAnswers.includes(memberMutationErrorMessage(kind, journeyError(code), online))
+    );
+
+  it("ⓒ 순서는 네 칸이다 — 403 → 자기 표 → 오프라인 → 종류별 폴백", () => {
+    // ① 403은 나머지 셋 전부보다 앞이다(서버가 답했다는 사실이 곧 연결이 있었다는 뜻).
+    expect(memberMutationErrorMessage("remove_member", journeyError("FORBIDDEN"), offline)).toBe(
+      MEMBER_MANAGE_FORBIDDEN_MESSAGE
+    );
+    // ② 자기 표는 오프라인보다 앞이다 — 같은 근거다.
+    expect(memberMutationErrorMessage("cancel_invite", journeyError("INVITE_NOT_FOUND"), offline)).toBe(
+      "이미 없는 초대예요."
+    );
+    // ③ 표가 모르면 오프라인이 폴백보다 앞이다.
+    expect(memberMutationErrorMessage("remove_member", journeyError("HOUSEHOLD_ALREADY_MEMBER"), offline)).toBe(
+      OFFLINE_RETRY_NOTICE
+    );
+    // ④ 그 밖은 종류별 폴백이고, 두 종류가 서로 다른 문장을 받는다.
+    expect(memberMutationErrorMessage("remove_member", journeyError("HOUSEHOLD_ALREADY_MEMBER"), online)).toBe(
+      MEMBER_REMOVE_FAILED_MESSAGE
+    );
+    expect(memberMutationErrorMessage("cancel_invite", journeyError("HOUSEHOLD_ALREADY_MEMBER"), online)).toBe(
+      INVITE_CANCEL_FAILED_MESSAGE
+    );
+  });
+
+  it("ⓒ 자기 표가 답하는 여정 코드는 넷이고, 그 넷은 공용 표에 없다", () => {
+    // 서버가 이 여정에서 던지는 일곱(api-error.test.ts의 스윕이 세는 그 집합).
+    const journeyCodes = [
+      "FORBIDDEN",
+      "HOUSEHOLD_ALREADY_MEMBER",
+      "HOUSEHOLD_MEMBER_NOT_FOUND",
+      "HOUSEHOLD_MEMBER_REMOVE_OWNER_FORBIDDEN",
+      "HOUSEHOLD_NOT_FOUND",
+      "INVITE_NOT_FOUND",
+      "INVITE_NOT_PENDING"
+    ];
+    expect(journeyCodes.filter(answeredByOwnTable)).toEqual([
+      "HOUSEHOLD_MEMBER_NOT_FOUND",
+      "HOUSEHOLD_MEMBER_REMOVE_OWNER_FORBIDDEN",
+      "INVITE_NOT_FOUND",
+      "INVITE_NOT_PENDING"
+    ]);
+    // ⚠️ 표를 합치지 않는다는 판정의 오늘 모습: 그 넷은 공용 표에 **한 줄도 없다**.
+    for (const code of journeyCodes.filter(answeredByOwnTable)) {
+      expect(API_ERROR_MESSAGES[code], `${code}가 공용 표에 생겼다 — 두 표가 같은 코드에 각자 답한다`).toBeUndefined();
+    }
+    // 반대로 공용 표가 답하는 둘은 이 모듈의 표에 없다(중복 없이 갈라져 있다).
+    expect(answeredByOwnTable("FORBIDDEN")).toBe(false);
+    expect(answeredByOwnTable("HOUSEHOLD_ALREADY_MEMBER")).toBe(false);
+    expect(API_ERROR_MESSAGES.HOUSEHOLD_ALREADY_MEMBER).toBeTruthy();
+  });
+
+  it("ⓒ 합치면 안 되는 이유가 서버 원문에 있다 — 영문 둘 · 화면 맥락 전용 넷 (서버는 읽기만)", () => {
+    const runtime = apiSource("households/household-runtime.service.ts");
+    // ⓐ 서버 원문이 영어인 두 자리. 공용 표로 올리면 이 문장이 그대로 사용자에게 갈 위험이 아니라,
+    //    **이 화면 밖에서도 같은 문장을 쓰게 되는 것**이 문제다(그 문장은 이 화면의 말이다).
+    expect(runtime).toContain('code: "HOUSEHOLD_MEMBER_NOT_FOUND", message: "Household member was not found."');
+    expect(runtime).toContain('code: "HOUSEHOLD_MEMBER_REMOVE_OWNER_FORBIDDEN",');
+    expect(runtime).toContain("Owners cannot remove themselves.");
+    // ⓑ 앱의 네 문장은 서버 원문을 그대로 쓰지 않는다(영문도, 한국어 원문도).
+    for (const [code, serverText] of [
+      ["HOUSEHOLD_MEMBER_NOT_FOUND", "Household member was not found."],
+      ["HOUSEHOLD_MEMBER_REMOVE_OWNER_FORBIDDEN", "Owners cannot remove themselves."],
+      ["INVITE_NOT_FOUND", "초대를 찾을 수 없어요."]
+    ] as const) {
+      const shown = memberMutationErrorMessage("remove_member", journeyError(code), online);
+      expect(shown, code).not.toContain(serverText);
+      expect(shown, code).toMatch(/요\.$/);
+    }
+    // ⓒ 그리고 그 문장들은 **이 화면 맥락**을 말한다 — 다른 화면에 그대로 세울 수 없는 말이다.
+    expect(memberMutationErrorMessage("remove_member", journeyError("HOUSEHOLD_MEMBER_NOT_FOUND"), online)).toBe(
+      "이미 가족에서 빠진 구성원이에요."
+    );
+    expect(memberMutationErrorMessage("cancel_invite", journeyError("INVITE_NOT_PENDING"), online)).toBe(
+      "이미 사용했거나 만료된 초대예요."
+    );
+  });
+
+  it("ⓓ 관측 — FORBIDDEN은 이 여정에서 문장 둘을 나르고, 이 자리는 호출부로 갈린 셋 중 하나다", () => {
+    const runtime = apiSource("households/household-runtime.service.ts");
+    // 서버 문장 둘(가족 접근 · 초대 권한). 코드는 하나다.
+    expect(runtime).toContain('code: "FORBIDDEN", message: "가족 접근 권한이 없어요."');
+    expect(runtime).toContain('code: "FORBIDDEN", message: "가족 초대는 관리자만 할 수 있어요."');
+    // 앱은 코드를 나누지 않고 **부르는 자리**로 가른다 — 여기는 구성원 관리 갈래다.
+    expect(memberMutationErrorMessage("remove_member", journeyError("FORBIDDEN"), online)).toBe(
+      MEMBER_MANAGE_FORBIDDEN_MESSAGE
+    );
+    expect(MEMBER_MANAGE_FORBIDDEN_MESSAGE).not.toBe(API_ERROR_MESSAGES.FORBIDDEN);
+    // 그 전용 문장은 재시도를 권하지 않는다(다시 눌러도 결과가 같다).
+    expect(MEMBER_MANAGE_FORBIDDEN_MESSAGE).not.toContain("잠시 후 다시");
   });
 });
 
