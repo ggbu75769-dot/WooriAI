@@ -8,8 +8,13 @@ import {
   CHILDREN_WRITE_APIS,
   CHILDREN_WRITE_APIS_EXCLUDED,
   CHILDREN_WRITE_LEDGER,
+  EXPENSE_WRITE_APIS,
+  EXPENSE_WRITE_APIS_EXCLUDED,
+  EXPENSE_WRITE_LEDGER,
   LONG_SHARED_STALE_TIME_MS,
-  SHARED_CACHE_POLICIES
+  NON_LITERAL_QUERY_KEY_SITES,
+  SHARED_CACHE_POLICIES,
+  SHARED_KEY_COVERAGE
 } from "./shared-cache-policy";
 
 /**
@@ -482,5 +487,420 @@ describe("ⓔ 바이트 불변 — 이 트랙이 건드리지 않기로 한 것�
     expect(readFileSync(join(MOBILE_ROOT, "src/query/shared-cache-policy.ts"), "utf8")).not.toContain(
       "clearAppQueryCache("
     );
+  });
+});
+
+/* ===========================================================================================
+ * 라운드 84 트랙 D(GAP-084 #4) — 무효화 대장의 모집단(공유 키 전수) · 지출 쓰기 대장(다섯 경로) ·
+ * 갈린 이유와 **그 이유의 참**.
+ *
+ * 위 라운드 83의 계약 다섯은 한 글자도 바뀌지 않는다(그 ⓐ 재현이 이 트랙의 전제이기도 하다).
+ * 아래 넷이 세는 것은 신선도가 아니라 **무효화**다.
+ * =========================================================================================== */
+
+/** `저장소 루트 기준 상대경로`의 소스에서 한 구간을 자른다(파일 단위 검사를 막는다 — 라운드 83 M-5). */
+function sliceBetween(file: string, sliceStart: string, sliceEnd: string): string {
+  const source = readFileSync(join(MOBILE_ROOT, file), "utf8");
+  const start = source.indexOf(sliceStart);
+  // ⚠️ 실재 확인 가드: 표시가 사라지면 slice가 조용히 파일 전체(또는 빈 문자열)가 되어
+  // 아래 단언들이 공허하게 통과한다.
+  expect(start, `${file}: 구간 시작 "${sliceStart}" 이 없다`).toBeGreaterThan(-1);
+  const end = source.indexOf(sliceEnd, start + sliceStart.length);
+  expect(end, `${file}: 구간 끝 "${sliceEnd}" 이 시작 뒤에 없다`).toBeGreaterThan(start);
+  return source.slice(start, end);
+}
+
+/** 그 구간이 **리터럴로** 무효화하는 키의 첫 칸 전수(주석 줄은 세지 않는다). */
+function invalidatedKeyHeads(slice: string): string[] {
+  const heads = new Set<string>();
+  for (const line of slice.split("\n")) {
+    if (isCommentLine(line)) continue;
+    const match = line.match(/invalidateQueries\(\{\s*queryKey:\s*\["([a-z-]+)"/);
+    if (match) heads.add(match[1]);
+  }
+  return [...heads].sort();
+}
+
+/**
+ * 이 이름들을 실제로 **부르는** 소스 전수.
+ *
+ * 정의하는 자리는 호출부가 아니다: `src/api/**`(계약 클라이언트) · `src/offline/**`(로컬 우선
+ * 쓰기의 정의 · flush 자신) · `src/query/**`(이 대장 자신 — 이름을 문자열로 들고 있다).
+ */
+function apiCallSites(apis: readonly string[]): string[] {
+  if (apis.length === 0) return [];
+  const pattern = new RegExp(`\\b(${apis.join("|")})\\s*\\(`);
+  const found = new Set<string>();
+  for (const file of productionSources()) {
+    const rel = relative(file);
+    if (rel.startsWith("src/api/") || rel.startsWith("src/offline/") || rel.startsWith("src/query/")) continue;
+    const hit = readFileSync(file, "utf8")
+      .split("\n")
+      .some((line) => !isCommentLine(line) && pattern.test(line));
+    if (hit) found.add(rel);
+  }
+  return [...found].sort();
+}
+
+/** 그 키를 **리터럴로** 무효화하는 소스 전수(`src/query/**`는 문자열로 들고 있을 뿐이라 뺀다). */
+function literalInvalidationSites(keyHead: string): string[] {
+  const pattern = new RegExp(`invalidateQueries\\(\\{\\s*queryKey:\\s*\\["${keyHead}"`);
+  const found = new Set<string>();
+  for (const file of productionSources()) {
+    const rel = relative(file);
+    if (rel.startsWith("src/query/")) continue;
+    const hit = readFileSync(file, "utf8")
+      .split("\n")
+      .some((line) => !isCommentLine(line) && pattern.test(line));
+    if (hit) found.add(rel);
+  }
+  return [...found].sort();
+}
+
+/** 세부를 대신 세는 대장이 아는 자리(쓰기 자리 + 무효화 자리). */
+const DETAIL_LEDGER_SITES: Record<string, readonly string[]> = {
+  CHILDREN_WRITE_LEDGER: CHILDREN_WRITE_LEDGER.flatMap((row) => [row.writeSite, row.invalidatedIn]),
+  EXPENSE_WRITE_LEDGER: EXPENSE_WRITE_LEDGER.map((row) => row.writeSite)
+};
+
+describe("라운드 84 ⓐ 무효화 대장의 모집단 = 공유 키 전수 (두 방향)", () => {
+  it("공유 키 전수가 무효화 대장에 있고, 대장에 낡은 줄이 없다", () => {
+    const shared = sharedKeyHeads(collectQuerySites());
+    const ledger = SHARED_KEY_COVERAGE.map((row) => row.queryKeyPrefix[0]).sort();
+
+    // 방향 1: 공유 키인데 무효화 대장에 없으면 빨강(둘째 소비처가 생긴 키를 아무도 안 본다).
+    expect(shared.filter((key) => !ledger.includes(key)), "무효화 대장에 없는 공유 키").toEqual([]);
+    // 방향 2: 대장에 있는데 더는 공유 키가 아니면 빨강(낡은 줄).
+    expect(ledger.filter((key) => !shared.includes(key)), "더는 공유 키가 아닌 무효화 대장의 줄").toEqual([]);
+    // 그리고 정책 대장과 **같은 모집단**이다 — 한쪽에만 줄이 늘면 두 표가 갈린다.
+    expect(ledger).toEqual(SHARED_CACHE_POLICIES.map((policy) => policy.queryKeyPrefix[0]).sort());
+  });
+
+  it("각 키가 ① 앱 안 쓰기 0건 또는 ② 쓰기 전수 + 무효화 자리를 값으로 갖는다", () => {
+    for (const row of SHARED_KEY_COVERAGE) {
+      const key = row.queryKeyPrefix[0];
+      expect(row.queryKeyPrefix, `${key} 접두사`).toHaveLength(1);
+      expect(row.why.length, `${key} 이유`).toBeGreaterThan(40);
+      if (row.hasNoAppWrites) {
+        // ①: 쓰기 0건이라고 말했으면 쓰기 칸이 전부 비어 있어야 한다(말과 값이 갈리지 않는다).
+        expect(row.writeApis, `${key} 쓰기 0건인데 API가 적혀 있다`).toEqual([]);
+        expect(row.writes, `${key} 쓰기 0건인데 경로가 적혀 있다`).toEqual([]);
+        expect(row.detailLedger, `${key} 쓰기 0건인데 세부 대장을 가리킨다`).toBeNull();
+      } else {
+        // ②: 이 파일이 세든(writeApis) 다른 대장이 세든(detailLedger) **누군가는 세야 한다**.
+        expect(
+          row.writeApis.length > 0 || row.detailLedger !== null,
+          `${key} 쓰기 0건도 아닌데 쓰기 전수를 세는 자리가 없다`
+        ).toBe(true);
+      }
+      for (const site of row.otherInvalidationSites) {
+        expect(site.why.length, `${key} 의 ${site.file} 무효화 이유`).toBeGreaterThan(10);
+      }
+    }
+  });
+
+  it("쓰기 API의 호출부 전수가 대장의 쓰기 자리와 같다 (두 방향)", () => {
+    for (const row of SHARED_KEY_COVERAGE) {
+      const key = row.queryKeyPrefix[0];
+      const actual = apiCallSites(row.writeApis);
+      const ledger = [...new Set(row.writes.map((write) => write.writeSite))].sort();
+      // 방향 1: 소스에 있는데 대장에 없으면 빨강 — 무효화를 잊은 새 쓰기 경로가 여기 걸린다.
+      expect(actual.filter((file) => !ledger.includes(file)), `${key} 대장에 없는 쓰기 경로`).toEqual([]);
+      // 방향 2: 대장에 있는데 소스에 없으면 빨강(낡은 줄).
+      expect(ledger.filter((file) => !actual.includes(file)), `${key} 실재하지 않는 대장의 경로`).toEqual([]);
+    }
+  });
+
+  it("대장의 모든 쓰기가 무효화 자리를 갖거나, 없는 이유를 값으로 갖는다 (뮤테이션 구간 단위)", () => {
+    const keySets: Record<string, ReadonlyArray<ReadonlyArray<string>>> = {
+      CHILD_REMOVAL_INVALIDATE_KEYS,
+      HOUSEHOLD_JOIN_INVALIDATE_KEYS
+    };
+
+    for (const row of SHARED_KEY_COVERAGE) {
+      const key = row.queryKeyPrefix[0];
+      for (const write of row.writes) {
+        expect(write.why.length, `${write.writeSite} (${write.mutation}) 이유`).toBeGreaterThan(20);
+        // 쓰기 자리가 정말 이 키의 쓰기 API를 부른다(대장이 낡으면 여기서 걸린다).
+        const writeSource = readFileSync(join(MOBILE_ROOT, write.writeSite), "utf8");
+        expect(
+          row.writeApis.some((api) => new RegExp(`\\b${api}\\s*\\(`).test(writeSource)),
+          `${write.writeSite} 가 ${key} 의 쓰기 API를 부르지 않는다`
+        ).toBe(true);
+
+        if (write.invalidatedIn === null) {
+          // 무효화 0건은 **숨기지 않고** 이유로 남긴다(그 이유에는 재개 조건이 있다).
+          expect(write.invalidation, `${write.mutation} 무효화 0건인데 표현식이 적혀 있다`).toBeNull();
+          expect(write.why.length, `${write.mutation} 무효화 0건의 이유`).toBeGreaterThan(60);
+          continue;
+        }
+
+        const slice = sliceBetween(write.invalidatedIn, write.sliceStart, write.sliceEnd);
+        const invalidationSource = readFileSync(join(MOBILE_ROOT, write.invalidatedIn), "utf8");
+        if (write.via) {
+          // 2단계 ①: 이 구간이 실제로 그 헬퍼를 부른다.
+          expect(slice, `${write.invalidatedIn} (${write.mutation}) 가 ${write.via} 를 부르지 않는다`).toMatch(
+            new RegExp(`\\b${write.via}\\s*\\(`)
+          );
+          // 2단계 ②: 그 헬퍼 **정의**가 무효화를 담고 있다(이름만 맞고 속이 빈 헬퍼는 통과하지 못한다).
+          const helperStart = Math.max(
+            invalidationSource.indexOf(`function ${write.via}(`),
+            invalidationSource.indexOf(`const ${write.via} = `)
+          );
+          expect(helperStart, `${write.invalidatedIn} 에 ${write.via} 정의가 없다`).toBeGreaterThan(-1);
+          const helperEnd = invalidationSource.indexOf("\n  }", helperStart);
+          expect(helperEnd, `${write.via} 정의의 끝을 찾지 못했다`).toBeGreaterThan(helperStart);
+          expect(
+            invalidationSource.slice(helperStart, helperEnd),
+            `${write.via} 정의에 명시 무효화가 없다`
+          ).toContain(write.invalidation!);
+        } else {
+          expect(slice, `${write.invalidatedIn} (${write.mutation}) 구간에 명시 무효화가 없다`).toContain(
+            write.invalidation!
+          );
+        }
+        if (write.invalidation!.includes(`["${key}"]`)) continue;
+        // 키 집합 상수를 거치는 경로는 **그 상수의 실제 값**으로 확인한다(이름만 맞고 속이 빈
+        // 상수도 문자열 검사는 통과한다).
+        const usedKeySet = Object.keys(keySets).find((name) => write.invalidation!.includes(name));
+        expect(usedKeySet, `${write.invalidatedIn} 의 무효화가 ["${key}"]도 아는 키 집합도 아니다`).toBeDefined();
+        expect(
+          keySets[usedKeySet!].some((entry) => entry.length === 1 && entry[0] === key),
+          `${usedKeySet} 가 ["${key}"]을 포함하지 않는다`
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("세부를 대신 세는 대장이 실재하고, 비어 있지 않다", () => {
+    for (const row of SHARED_KEY_COVERAGE) {
+      if (row.detailLedger === null) continue;
+      const sites = DETAIL_LEDGER_SITES[row.detailLedger];
+      expect(sites, `${row.detailLedger} 라는 대장이 이 파일에 없다`).toBeDefined();
+      expect(sites.length, `${row.detailLedger} 가 비어 있다`).toBeGreaterThan(0);
+    }
+  });
+
+  it("그 키를 무효화하는 자리 전수가 대장이 아는 자리이고, 쓰기 뒤처리가 아닌 자리는 이유와 함께 있다", () => {
+    for (const row of SHARED_KEY_COVERAGE) {
+      const key = row.queryKeyPrefix[0];
+      const actual = literalInvalidationSites(key);
+      const known = new Set<string>([
+        ...row.writes.flatMap((write) => (write.invalidatedIn ? [write.invalidatedIn] : [])),
+        ...(row.detailLedger ? DETAIL_LEDGER_SITES[row.detailLedger] : [])
+      ]);
+      const explained = new Set(row.otherInvalidationSites.map((site) => site.file));
+
+      // 방향 1: 이 키를 무효화하는데 대장이 모르는 자리가 있으면 빨강 — 새 쓰기 경로가
+      // 이유 없이 생긴 자리이거나, 당김 새로고침처럼 이유를 적어 둬야 하는 자리다.
+      expect(
+        actual.filter((file) => !known.has(file) && !explained.has(file)),
+        `${key} 를 무효화하는데 대장이 모르는 자리 — 쓰기면 writes에, 아니면 이유와 함께 otherInvalidationSites에`
+      ).toEqual([]);
+      // 방향 2: 이유가 적힌 자리가 더는 무효화하지 않으면 빨강(낡은 줄).
+      expect(
+        [...explained].filter((file) => !actual.includes(file)),
+        `${key} 를 더는 무효화하지 않는 otherInvalidationSites의 줄`
+      ).toEqual([]);
+    }
+  });
+});
+
+describe("라운드 84 ⓑ 지출 쓰기 대장 (다섯 경로 · 두 방향)", () => {
+  const screenRows = EXPENSE_WRITE_LEDGER.filter((row) => row.kind === "screen");
+  const flushRows = EXPENSE_WRITE_LEDGER.filter((row) => row.kind === "flush");
+
+  it("지출 한 건을 바꾸는 쓰기 API의 호출부 전수가 대장의 화면 줄과 같다 (두 방향)", () => {
+    const actual = apiCallSites(EXPENSE_WRITE_APIS);
+    const ledger = [...new Set(screenRows.map((row) => row.writeSite))].sort();
+    // 방향 1: 소스에 있는데 대장에 없으면 빨강(무효화 집합을 아무도 세지 않는 새 경로).
+    expect(actual.filter((file) => !ledger.includes(file)), "대장에 없는 지출 쓰기 경로").toEqual([]);
+    // 방향 2: 대장에 있는데 소스에 없으면 빨강(낡은 줄).
+    expect(ledger.filter((file) => !actual.includes(file)), "실재하지 않는 대장의 경로").toEqual([]);
+  });
+
+  it("대장은 다섯 줄이고, flush 줄 하나가 확정 시점을 진다", () => {
+    // 수를 손으로 적는 것이 아니라 **모집단의 모양**을 못 박는다: 화면 넷(파일 셋 · 뮤테이션 넷)
+    // + 확정 하나. 경로가 늘면 위 두 방향 단언이 먼저 빨개진다.
+    expect(flushRows.map((row) => row.writeSite)).toEqual(["src/offline/sync-controller.ts"]);
+    expect(EXPENSE_WRITE_LEDGER.length).toBe(screenRows.length + flushRows.length);
+    for (const row of EXPENSE_WRITE_LEDGER) {
+      expect(row.why.length, `${row.label} 이유`).toBeGreaterThan(40);
+      expect(row.label.length, `${row.label} 이름`).toBeGreaterThan(1);
+    }
+  });
+
+  it("다섯 경로의 무효화 키 집합이 소스에서 센 것과 정확히 같다", () => {
+    for (const row of EXPENSE_WRITE_LEDGER) {
+      const counted = invalidatedKeyHeads(sliceBetween(row.writeSite, row.sliceStart, row.sliceEnd));
+      expect(counted.length, `${row.label} 구간에 무효화가 0건이다(구간을 잘못 잘랐다)`).toBeGreaterThan(0);
+      expect(counted, `${row.label} (${row.writeSite}) 의 무효화 키 집합`).toEqual(
+        [...row.invalidatedKeyHeads].sort()
+      );
+    }
+  });
+
+  it("flush 줄은 쓰기 API를 **정의**하는 자리라 호출부 스윕에 잡히지 않는다", () => {
+    const source = readFileSync(join(MOBILE_ROOT, "src/offline/sync-controller.ts"), "utf8");
+    for (const api of EXPENSE_WRITE_APIS) {
+      expect(source, `${api} 정의가 sync-controller에 없다`).toContain(`export async function ${api}(`);
+    }
+    expect(apiCallSites(EXPENSE_WRITE_APIS)).not.toContain("src/offline/sync-controller.ts");
+  });
+
+  it("모집단에서 뺀 이름은 이유와 함께 적혀 있고, 실제로 쓰기 API 목록에 없다", () => {
+    expect(EXPENSE_WRITE_APIS_EXCLUDED.length).toBeGreaterThanOrEqual(1);
+    for (const excluded of EXPENSE_WRITE_APIS_EXCLUDED) {
+      expect(EXPENSE_WRITE_APIS).not.toContain(excluded.api);
+      expect(excluded.why.length, `${excluded.api} 제외 이유`).toBeGreaterThan(10);
+      // 뺀 이름도 **어딘가는 세야 한다** — 공유 키 대장의 ["expenses"] 줄이 센다.
+      const coverage = SHARED_KEY_COVERAGE.find((row) => row.queryKeyPrefix[0] === "expenses")!;
+      expect(coverage.writeApis, `${excluded.api} 를 세는 자리가 0건이다`).toContain(excluded.api);
+    }
+  });
+});
+
+describe("라운드 84 ⓒ·ⓓ 갈린 이유와 그 이유의 참 (이유 없이 갈린 집합 0건)", () => {
+  /** 확정 시점의 집합 — 소스에서 센다(대장에 적힌 배열이 아니라). */
+  function confirmBaseline(): string[] {
+    const flush = EXPENSE_WRITE_LEDGER.find((row) => row.kind === "flush")!;
+    return invalidatedKeyHeads(sliceBetween(flush.writeSite, flush.sliceStart, flush.sliceEnd));
+  }
+
+  it("확정 시점 집합과 갈리는 자리 전수가 대장의 이유와 정확히 같다 (두 방향 = 래칫)", () => {
+    const baseline = confirmBaseline();
+    for (const row of EXPENSE_WRITE_LEDGER) {
+      const counted = invalidatedKeyHeads(sliceBetween(row.writeSite, row.sliceStart, row.sliceEnd));
+      const actual = [
+        ...baseline.filter((key) => !counted.includes(key)).map((key) => `missing:${key}`),
+        ...counted.filter((key) => !baseline.includes(key)).map((key) => `extra:${key}`)
+      ].sort();
+      const declared = row.divergences.map((entry) => `${entry.direction}:${entry.keyHead}`).sort();
+
+      // 방향 1 = 래칫: 소스에서 갈렸는데 이유가 없으면 빨강. **이유 없이 갈린 집합은 0건이다.**
+      expect(
+        actual.filter((entry) => !declared.includes(entry)),
+        `${row.label}: 확정 시점 집합과 갈렸는데 이유가 0건이다 — shared-cache-policy.ts에 이유와 함께 등재할 것`
+      ).toEqual([]);
+      // 방향 2: 이유가 적혔는데 더는 갈리지 않으면 빨강(낡은 이유).
+      expect(
+        declared.filter((entry) => !actual.includes(entry)),
+        `${row.label}: 더는 갈리지 않는 이유`
+      ).toEqual([]);
+
+      for (const divergence of row.divergences) {
+        expect(divergence.why.length, `${row.label} ${divergence.keyHead} 이유`).toBeGreaterThan(40);
+      }
+    }
+  });
+
+  it('⚠️ 이유의 참 ①(flush-confirm) — sync-controller의 `summary.synced > 0` 갈래가 그 키를 무효화한다', () => {
+    const source = readFileSync(join(MOBILE_ROOT, "src/offline/sync-controller.ts"), "utf8");
+    // 그 갈래가 정말 flush 확정 함수 안에 있다(다른 곳의 같은 이름 갈래를 재지 않는다).
+    const attemptFlushAt = source.indexOf("async function attemptFlush(");
+    expect(attemptFlushAt, "sync-controller에 attemptFlush 정의가 없다").toBeGreaterThan(-1);
+    const branchAt = source.indexOf("if (summary.synced > 0) {", attemptFlushAt);
+    expect(branchAt, "attemptFlush 안에 summary.synced > 0 갈래가 없다").toBeGreaterThan(attemptFlushAt);
+
+    const flush = EXPENSE_WRITE_LEDGER.find((row) => row.kind === "flush")!;
+    const branch = sliceBetween(flush.writeSite, flush.sliceStart, flush.sliceEnd);
+    const confirmed = invalidatedKeyHeads(branch);
+
+    const claims = EXPENSE_WRITE_LEDGER.flatMap((row) =>
+      row.divergences.filter((entry) => entry.provenBy === "flush-confirm").map((entry) => ({ row, entry }))
+    );
+    // 오늘 이 이유에 기대는 자리가 실재한다(0건이면 이 검증기 자체가 죽은 코드가 된다).
+    expect(claims.length, "flush-confirm 이유가 0건이다").toBeGreaterThan(0);
+    for (const { row, entry } of claims) {
+      expect(entry.direction, `${row.label} ${entry.keyHead}: flush가 덮는다는 이유는 missing에만 선다`).toBe(
+        "missing"
+      );
+      expect(
+        confirmed,
+        `${row.label} 의 이유가 거짓이 됐다 — 확정 갈래가 ["${entry.keyHead}"]을 더는 무효화하지 않는다`
+      ).toContain(entry.keyHead);
+    }
+    // 이 트랙 전체가 서 있는 그 한 줄을 문자 그대로도 못 박는다.
+    expect(branch, "확정 갈래의 [\"home\"] 무효화가 사라졌다").toContain('invalidateQueries({ queryKey: ["home"] })');
+  });
+
+  it("이유의 참 ②(single-file-key) — 그 키를 켜는 파일이 그 경로 하나뿐이고, 공유 키가 아니다", () => {
+    const sites = collectQuerySites();
+    const shared = new Set(sharedKeyHeads(sites));
+    const claims = EXPENSE_WRITE_LEDGER.flatMap((row) =>
+      row.divergences.filter((entry) => entry.provenBy === "single-file-key").map((entry) => ({ row, entry }))
+    );
+    expect(claims.length, "single-file-key 이유가 0건이다").toBeGreaterThan(0);
+    for (const { row, entry } of claims) {
+      expect(entry.direction, `${row.label} ${entry.keyHead}: 단일 파일 키 이유는 extra에만 선다`).toBe("extra");
+      const files = [...new Set(sites.filter((site) => site.keyHead === entry.keyHead).map((site) => site.file))];
+      expect(files, `["${entry.keyHead}"] 를 켜는 파일`).toEqual([row.writeSite]);
+      expect(shared.has(entry.keyHead), `["${entry.keyHead}"] 가 공유 키가 됐다 — 정책 대장이 세야 한다`).toBe(false);
+    }
+  });
+
+  it('오늘의 그림: `["home"]`은 확정 시점에만 있고 화면 셋에는 없다 (그 셋이 flush에 기대고 있다)', () => {
+    const withoutHome = EXPENSE_WRITE_LEDGER.filter(
+      (row) => !invalidatedKeyHeads(sliceBetween(row.writeSite, row.sliceStart, row.sliceEnd)).includes("home")
+    ).map((row) => row.label);
+    // ⚠️ 이 수가 줄면(= 화면이 ["home"]을 스스로 무효화하기 시작하면) 그것은 개선이 아니라
+    // **로컬 우선 쓰기에서 서버의 옛 값을 다시 받아오는 변경**이다 — 이 줄이 그 판단을 세운다.
+    expect(withoutHome, '["home"]을 무효화하지 않는 지출 쓰기 경로').toEqual([
+      "상세 수정",
+      "상세 삭제",
+      "기록 탭 행 삭제"
+    ]);
+  });
+});
+
+describe("라운드 84 ⓔ 리터럴이 아닌 queryKey 자리 (정책 대장 스윕의 사각)", () => {
+  /** `queryKey:` 로 시작하는 선언 줄 중 리터럴 배열이 **아닌** 것 전수(스윕이 세지 못하는 자리). */
+  function nonLiteralQueryKeyLines(): { file: string; constantName: string }[] {
+    const found: { file: string; constantName: string }[] = [];
+    for (const file of productionSources()) {
+      const lines = readFileSync(file, "utf8").split("\n");
+      for (const line of lines) {
+        if (isCommentLine(line)) continue;
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("queryKey:")) continue;
+        if (/^queryKey:\s*\["([a-z-]+)"/.test(trimmed)) continue;
+        const name = trimmed.replace(/^queryKey:\s*/, "").replace(/[,\s]+$/, "");
+        found.push({ file: relative(file), constantName: name });
+      }
+    }
+    return found.sort((a, b) => `${a.file}${a.constantName}`.localeCompare(`${b.file}${b.constantName}`));
+  }
+
+  it("리터럴이 아닌 선언 전수가 대장에 이름으로 있고, 대장에 낡은 줄이 없다 (두 방향)", () => {
+    const actual = nonLiteralQueryKeyLines().map((site) => `${site.file}:${site.constantName}`);
+    const ledger = NON_LITERAL_QUERY_KEY_SITES.map((site) => `${site.file}:${site.constantName}`).sort();
+    expect(actual.filter((entry) => !ledger.includes(entry)), "대장에 없는 비리터럴 queryKey 자리").toEqual([]);
+    expect(ledger.filter((entry) => !actual.includes(entry)), "실재하지 않는 대장의 줄").toEqual([]);
+  });
+
+  it("각 줄의 선언이 실재하고, 그 키가 오늘도 단일 파일이라 값이 0건이다", () => {
+    const sites = collectQuerySites();
+    const shared = new Set(sharedKeyHeads(sites));
+    for (const site of NON_LITERAL_QUERY_KEY_SITES) {
+      expect(site.why.length, `${site.constantName} 이유`).toBeGreaterThan(40);
+      const source = readFileSync(join(MOBILE_ROOT, site.file), "utf8");
+      expect(source, `${site.file} 에 ${site.constantName} 선언이 없다`).toContain(site.declaration);
+      expect(site.declaration, `${site.constantName} 선언이 ["${site.keyHead}"] 를 가리키지 않는다`).toContain(
+        `["${site.keyHead}"`
+      );
+      // ⚠️ 이 키가 둘째 파일을 얻는 날 값이 0건이 아니게 된다 — 정책 대장의 스윕은 그것을
+      // 세지 못하므로(리터럴만 센다) 여기가 그 사실을 알리는 유일한 자리다.
+      const declaringFiles = new Set<string>();
+      for (const file of productionSources()) {
+        // `src/query/**`는 이 대장 자신 — 선언 문자열을 값으로 들고 있을 뿐이다.
+        if (relative(file).startsWith("src/query/")) continue;
+        const hit = readFileSync(file, "utf8")
+          .split("\n")
+          .some((line) => !isCommentLine(line) && line.includes(`["${site.keyHead}"`));
+        if (hit) declaringFiles.add(relative(file));
+      }
+      expect([...declaringFiles].sort(), `["${site.keyHead}"] 를 선언하는 파일`).toEqual([site.file]);
+      expect(shared.has(site.keyHead), `["${site.keyHead}"] 가 공유 키가 됐다`).toBe(false);
+    }
   });
 });
