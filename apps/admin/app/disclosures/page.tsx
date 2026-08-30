@@ -11,6 +11,7 @@ import {
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import { disclosureKeyBadge } from "../../src/lib/disclosure-keys";
 import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
+import { writeErrorMessage } from "../../src/lib/write-error-copy";
 import styles from "../../src/components/admin-page.module.css";
 
 // COM-103: an editor's save goes through draft -> submit for review instead of
@@ -59,7 +60,7 @@ function DisclosureRow({
         onAuthError();
         return;
       }
-      setError("저장하지 못했어요. 다시 시도해 주세요.");
+      setError(writeErrorMessage(err, "저장하지 못했어요. 다시 시도해 주세요."));
     } finally {
       setSaving(false);
     }
@@ -159,7 +160,7 @@ export default function DisclosuresPage() {
         clearSession();
         return;
       }
-      setCreateError("저장하지 못했어요. 다시 시도해 주세요.");
+      setCreateError(writeErrorMessage(error, "저장하지 못했어요. 다시 시도해 주세요."));
     } finally {
       setCreating(false);
     }

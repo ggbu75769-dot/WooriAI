@@ -25,6 +25,7 @@ import {
   type CategoryFilter
 } from "../../src/lib/category-rows";
 import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
+import { writeErrorMessage } from "../../src/lib/write-error-copy";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
@@ -129,10 +130,13 @@ export default function CategoriesPage() {
         setRowError("저장 결과를 확인하지 못했어요. 목록을 새로고침해 반영 여부를 확인해 주세요.");
         return;
       }
+      // 라운드 76 트랙 B(GAP-076 #2ⓓ와 같은 모양): 403 갈래는 **이 화면의 판정으로 남고**
+      // (역할 문제라는 사실을 운영자가 바로 알아야 한다 — 문장 바이트 불변), 그 아래 폴백만
+      // 공용 한 벌을 지난다. 위 타임아웃 갈래는 라운드 73이 세운 그대로다.
       setRowError(
         error instanceof AdminApiError && error.status === 403
           ? "카테고리 수정은 관리자(admin) 권한에서만 할 수 있어요."
-          : "카테고리를 수정하지 못했어요. 입력값을 확인하고 다시 시도해 주세요."
+          : writeErrorMessage(error, "카테고리를 수정하지 못했어요. 입력값을 확인하고 다시 시도해 주세요.")
       );
     } finally {
       setSaving(false);

@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   importFailureMessage,
@@ -22,9 +22,13 @@ import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
  * 세 층으로 나눠 고정한다.
  *  1. 순수 단위 — 회귀 여섯 좌표(업로드 400 파일 오류 · 행 편집 NOT_EDITABLE · 확정
  *     NOT_CONFIRMABLE · 되돌리기 NOT_UNDOABLE · 403 보기 전용 · 오프라인)와 부정 단언.
- *  2. **여정 스윕 소스 계약** — import 서버 파일 둘을 실제로 읽어 `code: "…"`를 전부 긁고,
+ *  2. **여정 스윕 소스 계약** — import 서버 파일 **셋**을 실제로 읽어 `code: "…"`를 전부 긁고,
  *     각 코드가 이 트랙의 표에 있거나 **이유가 적힌 제외 목록**에 있는지 묻는다
  *     (api-error.test.ts가 아웃박스 파일 넷에 대해 하는 그 스윕의 형제).
+ *  2-1. **여정 파일 목록의 파생 계약**(라운드 76 트랙 C) — 위 목록은 손으로 든 목록이라
+ *     **목록 밖 파일이 구조적으로 보이지 않는다**. 그래서 목록 자신을 한 겹 더 묻는다:
+ *     컨트롤러 트리를 전수로 훑어 **여정 파일을 import하는 컨트롤러**를 뽑고, 그 집합이
+ *     목록에 있거나 **이유와 함께 제외**돼 있는지 본다.
  *  3. 배선 계약 — 화면은 vitest에서 렌더할 수 없으므로 이 저장소의 관례대로 소스 grep이다.
  */
 
@@ -39,8 +43,21 @@ const serverError = (status: number, code: string, message: string) => new ApiHt
 const uploadScreen = () => source("app/import/index.tsx");
 const reviewScreen = () => source("app/import/[importJobId].tsx");
 
-/** 이 여정을 만드는 서버 파일 **둘**. 스윕의 단위는 파일이 아니라 여정이다. */
-const IMPORT_JOURNEY_SERVER_FILES = ["imports/import-parser.ts", "onboarding/import-pipeline.service.ts"] as const;
+/**
+ * 이 여정을 만드는 서버 파일 **셋**. 스윕의 단위는 파일이 아니라 여정이다.
+ *
+ * 라운드 76 트랙 C — 셋째가 **업로드 관문**이다. `imports/imports.controller.ts`가
+ * `FileInterceptor`의 `fileFilter`에서 mimetype 화이트리스트를 어긴 파일을 거절한다(그 여정에서
+ * 사용자가 **가장 먼저** 만나는 거절이다). 오늘 그 코드는 앱 전역 표가 이미 답하지만
+ * (그래서 아래 제외 목록에 이유와 함께 있다), 목록이 그 파일을 들고 있지 않던 동안에는
+ * **그 자리에 코드가 하나 더 들어와도 이 스윕이 초록인 채로 놓쳤다.**
+ * 아래 파생 계약이 "목록이 자기 여정의 컨트롤러를 빠뜨렸는가"를 대신 묻는다.
+ */
+const IMPORT_JOURNEY_SERVER_FILES = [
+  "imports/import-parser.ts",
+  "onboarding/import-pipeline.service.ts",
+  "imports/imports.controller.ts"
+] as const;
 
 /**
  * 라운드 71 리뷰 M-2 — **`code:` 뒤에 오는 것이 문자열 리터럴만은 아니다.**
@@ -97,6 +114,66 @@ function thrownCodesIn(relativePath: string): string[] {
     const identifier = match[2];
     return localConstants.get(identifier) ?? codeConstants().get(identifier) ?? `UNRESOLVED:${identifier}`;
   });
+}
+
+/**
+ * 라운드 76 트랙 C — **여정 파일 목록을 파생으로 되묻는 장치.**
+ *
+ * `*.controller.ts`를 전수로 모아, 각 파일의 상대 경로 import를 `apps/api/src` 기준 경로로
+ * 되돌린다. 그 결과가 여정 파일을 가리키면 그 컨트롤러는 **이 여정의 일부**다.
+ *
+ * ⚠️ 형제 스윕과 단위가 다르다는 사실을 여기 값으로 적어 둔다:
+ * `src/settings/destructive-flow-messages.test.ts`의 스윕은 단위가 **메서드**라 컨트롤러 파생이
+ * 그 단위에 맞지 않고, `src/api/api-error.test.ts`의 교집합 계약은 단위가 **아웃박스 파일 넷**이다.
+ * 그래서 이 파생은 이 파일에만 선다.
+ */
+function apiControllerFiles(): string[] {
+  const found: string[] = [];
+  const walk = (directory: string, prefix: string) => {
+    for (const name of readdirSync(directory)) {
+      if (name === "node_modules" || name.startsWith(".")) continue;
+      const fullPath = join(directory, name);
+      const relativePath = prefix ? `${prefix}/${name}` : name;
+      if (statSync(fullPath).isDirectory()) {
+        walk(fullPath, relativePath);
+        continue;
+      }
+      if (name.endsWith(".controller.ts")) found.push(relativePath);
+    }
+  };
+  walk(apiSourceRoot, "");
+  return found.sort();
+}
+
+/** 한 파일의 **상대 경로 import**를 `apps/api/src` 기준 `.ts` 경로 후보로 되돌린다. */
+function resolvedRelativeImports(relativePath: string): string[] {
+  const directory = posix.dirname(relativePath);
+  const resolved: string[] = [];
+  for (const match of apiSource(relativePath).matchAll(/\bfrom\s+"(\.[^"]*)"/g)) {
+    const target = posix.normalize(posix.join(directory, match[1]));
+    if (target.endsWith(".ts")) {
+      resolved.push(target);
+      continue;
+    }
+    // 확장자 없는 지정자는 파일과 디렉터리(index) 둘 다 가능하다.
+    resolved.push(`${target}.ts`, `${target}/index.ts`);
+  }
+  return resolved;
+}
+
+/**
+ * 여정 서버 파일을 import하는 컨트롤러(=이 여정의 일부인 컨트롤러) 전수.
+ *
+ * ⚠️ **이 파생의 시야는 "직접 상대 import" 한 겹까지다**(라운드 76 리뷰 P-4): 컨트롤러가 여정
+ * 파일을 **다른 모듈을 경유해** 쓰거나, 패키지 별칭·동적 import로 들면 여기서 보이지 않는다.
+ * 그래서 이 계약은 목록의 대체가 아니라 **목록이 놓친 자리를 한 종류만** 잡는 그물이고,
+ * 여정 목록 자체를 세우는 큰 질문은 known-limitations L-1에 그대로 열려 있다.
+ */
+function controllersImportingJourneyFiles(): string[] {
+  const journey = new Set<string>(IMPORT_JOURNEY_SERVER_FILES);
+  return apiControllerFiles().filter((controller) =>
+    resolvedRelativeImports(controller).some((target) => journey.has(target))
+  );
 }
 
 describe("importFailureMessage — 회귀 여섯 좌표", () => {
@@ -301,12 +378,12 @@ describe("문구 규율 (DNC-018)", () => {
  *
  * `api-error.test.ts`의 교집합 계약이 훑는 서버 파일 넷은 전부 **아웃박스·상태 큐가 지나는**
  * 파일이라, 큐를 타지 않는 여정은 그 계약의 시야 밖이다(라운드 71 정찰의 구조적 발견).
- * 가져오기는 전부 즉시 요청이다. 그래서 이 여정이 자기 스윕을 갖는다: 서버 파일 둘을 읽어
+ * 가져오기는 전부 즉시 요청이다. 그래서 이 여정이 자기 스윕을 갖는다: 서버 파일 셋을 읽어
  * `code: "…"`를 전부 긁고, 각 코드는 둘 중 하나여야 한다 — 문구를 갖거나, **이유가 적힌 제외
  * 목록**에 있거나. 서버에 코드를 새로 만들면 이 단언이 빨개지고, 만든 사람이 "이 코드는
  * 가져오기 화면에서 어떻게 보이는가"에 답해야 한다.
  */
-describe("여정 스윕 소스 계약 (import 서버 파일 둘)", () => {
+describe("여정 스윕 소스 계약 (import 서버 파일 셋)", () => {
   /** 이 트랙의 표에 넣지 않는 코드와 그 이유. 비우면 안 된다 — 이유 없는 제외가 바로 그 병이었다. */
   const excludedWithReason: Readonly<Record<string, string>> = {
     IMPORT_TOO_MANY_ROWS:
@@ -319,7 +396,7 @@ describe("여정 스윕 소스 계약 (import 서버 파일 둘)", () => {
       "10MB 상한이고, 앱 전역 표(src/api/api-error.ts)에 이미 문구가 있다. 서버가 이 코드를 상수 식별자로 던지는 유일한 자리라(global-exception.filter.ts의 IMPORT_FILE_TOO_LARGE_CODE) 스윕이 식별자를 해석하게 된 뒤에야 보였다."
   };
 
-  it("두 서버 파일의 코드는 이 트랙의 표에 있거나, 이유가 적힌 제외 목록에 있다", () => {
+  it("여정 서버 파일들의 코드는 이 트랙의 표에 있거나, 이유가 적힌 제외 목록에 있다", () => {
     const swept = new Set(IMPORT_JOURNEY_SERVER_FILES.flatMap((file) => thrownCodesIn(file)));
     // 스윕이 실제로 무언가를 읽었는지부터 확인한다(정규식이 조용히 0건이 되면 계약이 사라진다).
     // 라운드 71 리뷰 M-2: 식별자 형태를 해석하면서 아홉에서 **열**이 됐다.
@@ -375,6 +452,80 @@ describe("여정 스윕 소스 계약 (import 서버 파일 둘)", () => {
     // 서버가 이미 한국어로 말하던 자리도 그대로다.
     expect(pipeline).toContain('message: "되돌릴 수 있는 가져오기가 아니에요."');
     expect(apiSource("imports/import-parser.ts")).toContain('message: "엑셀 파일에 시트가 없어요."');
+  });
+});
+
+/**
+ * **여정 파일 목록의 파생 계약** (라운드 76 트랙 C · known-limitations L-1 잔여).
+ *
+ * 위 스윕의 단위는 **파일**이고, 그 파일 목록은 손으로 들었다 — 그래서 **목록 밖 파일은
+ * 구조적으로 보이지 않는다**(라운드 74 O-4가 이름 붙인 그 모양이 파일 목록 층에서 다시 난
+ * 것이다). 실제로 라운드 75가 실측한 대로, 목록은 이 여정의 **업로드 관문 컨트롤러**를
+ * 빠뜨리고 있었다: `imports/imports.controller.ts`가 `fileFilter`에서 던지는
+ * `IMPORT_FILE_TYPE_INVALID`는 오늘 앱 전역 표가 답하므로 사용자에게는 아무 일도 일어나지
+ * 않았지만, **그 자리에 코드가 하나 더 들어오면 스윕은 초록인 채로 놓쳤다.**
+ *
+ * L-1의 큰 질문("여정 목록을 만들지, 발견할 때마다 세울지")은 여전히 열려 있다. 여기서 내는
+ * 것은 **중간 크기 답 하나**다 — *"여정 파일 목록이 그 여정의 컨트롤러를 빠뜨렸는가"* 는
+ * 목록을 새로 만들지 않고도 **파생으로** 물을 수 있다.
+ */
+describe("여정 파일 목록의 파생 계약 (컨트롤러 전수)", () => {
+  /**
+   * 여정 파일을 import하지만 목록에 넣지 않는 컨트롤러와 그 이유. **오늘은 비어 있다**
+   * (파생 집합이 정확히 하나이고, 그 하나가 목록에 있다). 비우지 않고 채울 때는 이유를 적어야
+   * 한다 — 이유 없는 제외가 바로 이 스윕이 막으려는 병이다.
+   */
+  const journeyControllersExcludedWithReason: Readonly<Record<string, string>> = {};
+
+  it("컨트롤러 트리를 실제로 훑는다 (정규식이 조용히 0건이 되지 않게 — 오늘 서른둘)", () => {
+    const controllers = apiControllerFiles();
+    expect(controllers.length).toBeGreaterThanOrEqual(30);
+    for (const controller of controllers) {
+      expect(controller.endsWith(".controller.ts"), controller).toBe(true);
+    }
+    // 이 여정의 컨트롤러가 그 전수 안에 실재한다(스캔이 엉뚱한 뿌리를 걷고 있지 않다).
+    expect(controllers).toContain("imports/imports.controller.ts");
+  });
+
+  it("여정 파일을 import하는 컨트롤러는 목록에 있거나, 이유와 함께 제외돼 있다 (오늘 답은 하나)", () => {
+    const derived = controllersImportingJourneyFiles();
+    // 파생이 조용히 0건이 되면 이 계약도 함께 죽는다.
+    expect(derived.length).toBeGreaterThanOrEqual(1);
+    // 오늘의 실측: `import-pipeline.service`에서 ImportPipelineService·IMPORT_MAX_FILE_SIZE_BYTES를
+    // 드는 컨트롤러가 정확히 하나다.
+    expect(derived).toContain("imports/imports.controller.ts");
+
+    const listed = new Set<string>(IMPORT_JOURNEY_SERVER_FILES);
+    for (const controller of derived) {
+      const excluded = Object.prototype.hasOwnProperty.call(journeyControllersExcludedWithReason, controller);
+      expect(
+        listed.has(controller) || excluded,
+        `${controller}: 이 여정을 만드는 컨트롤러인데 IMPORT_JOURNEY_SERVER_FILES에도, 이유가 적힌 제외 목록에도 없다. 이 파일이 던지는 코드는 위 스윕이 세지 않는다 — 목록 밖 파일은 구조적으로 보이지 않는다.`
+      ).toBe(true);
+    }
+  });
+
+  it("제외 목록은 유령을 들고 있지 않다 — 이유는 비어 있을 수 없다", () => {
+    const derived = new Set(controllersImportingJourneyFiles());
+    for (const [controller, reason] of Object.entries(journeyControllersExcludedWithReason)) {
+      expect(derived.has(controller), `${controller}는 더는 여정 파일을 import하지 않는다 — 제외 이유가 남을 수 없다`).toBe(
+        true
+      );
+      expect(
+        IMPORT_JOURNEY_SERVER_FILES.includes(controller as (typeof IMPORT_JOURNEY_SERVER_FILES)[number]),
+        `${controller}는 목록에 있으면서 동시에 제외될 수 없다`
+      ).toBe(false);
+      expect(reason.length, controller).toBeGreaterThan(20);
+    }
+  });
+
+  it("목록의 셋은 전부 실재하는 서버 파일이다", () => {
+    for (const file of IMPORT_JOURNEY_SERVER_FILES) {
+      expect(statSync(join(apiSourceRoot, file)).isFile(), file).toBe(true);
+    }
+    // 편입된 업로드 관문이 실제로 그 코드를 던진다(위 스윕이 이 자리를 세기 시작했다는 증거 —
+    // 그 코드의 제외 이유는 앱 전역 표에 있고, 그 사실은 스윕의 제외 목록이 이미 적어 두었다).
+    expect(thrownCodesIn("imports/imports.controller.ts")).toContain("IMPORT_FILE_TYPE_INVALID");
   });
 });
 

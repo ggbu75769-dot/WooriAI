@@ -385,9 +385,14 @@ function errorMessage(error: unknown): string {
  *    (HouseholdInvite.invitedByUserId is a NOT NULL FK, and a stale invite is
  *    worthless). AnalyticsEvent rows are left untouched: they only carry HMAC
  *    anon hashes (userAnonId/householdAnonId), no raw ids. AuditLog rows are
- *    KEPT as the legal/ops record, but actorUserId (the only raw user
- *    identifier on them; ipHash is already a salted one-way hash) is
- *    nullified. AffiliateClick.userId is nullified for the same reason as
+ *    KEPT as the legal/ops record, but actorUserId is nullified (ipHash is
+ *    already a salted one-way hash). NOTE: that does NOT leave the row free of
+ *    user references — targetId survives and, for the rows whose targetType is
+ *    "users", it still holds that user's id. It is an internal UUID, not a
+ *    provider/contact identifier, and the users row it points at is by then
+ *    hard-deleted or anonymized, so it links to no stored personal data; but
+ *    "actorUserId is the only raw user identifier on audit rows" would be
+ *    wrong. AffiliateClick.userId is nullified for the same reason as
  *    childId above.
  *
  *    Orphaned households: after deleting the purged users' membership rows, a

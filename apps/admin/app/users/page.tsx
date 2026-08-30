@@ -16,6 +16,7 @@ import {
   type AdminUserAccount
 } from "../../src/lib/admin-api";
 import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
+import { writeErrorMessage } from "../../src/lib/write-error-copy";
 import { isBlank, isEmailLike } from "../../src/lib/validation";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
@@ -38,12 +39,18 @@ function validateCreateForm(form: CreateFormState): string | null {
 
 const SELF_UPDATE_MESSAGE = "본인 계정의 권한을 낮추거나 비활성화할 수 없어요. 다른 관리자에게 요청해 주세요.";
 
+/**
+ * 라운드 76 트랙 B(GAP-076 #2ⓓ): 코드 둘의 매핑은 **이 화면의 판정으로 남는다**
+ * (`ADMIN_SELF_UPDATE_FORBIDDEN`은 다음 걸음까지 말하고, `ADMIN_EMAIL_EXISTS`는 서버 문장보다
+ * 짧다 — 문장 셋 바이트 불변). 그 아래 폴백만 공용 한 벌을 지나, 서버가 다른 이유를 줬을 때
+ * (400 검증·403·5xx·쓰기 타임아웃 60초) 그 문장이 그대로 서게 한다.
+ */
 function mutationErrorMessage(error: unknown, fallback: string): string {
   if (isSelfUpdateForbiddenError(error)) return SELF_UPDATE_MESSAGE;
   if (error instanceof AdminApiError && error.code === "ADMIN_EMAIL_EXISTS") {
     return "이미 등록된 관리자 이메일이에요.";
   }
-  return fallback;
+  return writeErrorMessage(error, fallback);
 }
 
 function formatDate(value: string | null): string {

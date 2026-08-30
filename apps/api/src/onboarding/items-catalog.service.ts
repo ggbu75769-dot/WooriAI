@@ -11,6 +11,7 @@ import { type StageBandLabel } from "../items-commerce/stage-bands";
 import { withCommissionDisclosure } from "../items-commerce/share-disclosure";
 import type { LinkHealthStatus } from "../worker/jobs/link-health.job";
 import { rankItemsForTab, type ItemTab } from "./item-ranking";
+import { ITEM_TIMING_LABEL_MISMATCH_CODE, judgeTimingLabelAgainstStages } from "./timing-label-range";
 import { ChildAccessService } from "./child-access.service";
 import { ExpensesStoreService } from "./expenses-store.service";
 import { cleanOptionalText, fromDateOnly, toChildDto, type DbClient } from "./store-shared";
@@ -234,6 +235,37 @@ function publicRedirectShareUrl(redirectCode: string): string {
  * 적재되지 않는다).
  */
 const PRODUCT_LINK_HEALTH_BROKEN: LinkHealthStatus = "broken";
+
+/**
+ * 라운드 76 트랙 E — 어드민이 시기를 하나도 고르지 않고 준비템을 만들 때 서는 기본 스테이지.
+ *
+ * 종전에는 `adminCreateItemTemplate` 안에 리터럴로 박혀 있었다. 값은 한 글자도 바뀌지 않고,
+ * 이름이 생긴 이유는 둘이다: ⓐ 저장 경로의 "준비 시기" 판정이 **실제로 저장될 시기 집합**을
+ * 봐야 하고(생성에서 시기가 비면 그 집합이 이 기본값이다), ⓑ 검토(초안) 경로가 발행 시점과
+ * **같은 기본값**으로 판정해야 우회로가 생기지 않는다(admin/content-revisions.service.ts).
+ */
+export const DEFAULT_ADMIN_ITEM_STAGE_CODES: ChildStageCode[] = ["infant_4_6"];
+
+/**
+ * 라운드 76 트랙 E — **"준비 시기"가 시기 선택과 명백히 어긋나면 그 자리에서 400.**
+ *
+ * 판정 자체는 `timing-label-range.ts`(순수 모듈 · 시드 계약과 같은 로직)가 하고, 여기서는 그
+ * 사유를 HTTP 모양으로 바꾸기만 한다. 저장 경로와 검토(초안) 경로가 **같은 이 함수**를 부른다
+ * — 검토가 우회로가 되지 않게 하려면 사유를 만드는 자리가 하나여야 한다.
+ *
+ * ⚠️ 메시지는 어긋난 구간을 그대로 말하고 **재시도를 권하지 않는다**: 운영자가 값을 고쳐야만
+ * 통과하는 유일한 실패라 "다시 시도해 주세요"는 거짓 안내가 된다(R19-F와 같은 판단).
+ * ⚠️ 빈 라벨·파싱되지 않는 라벨(서술·임신·세 표기)은 판정 대상이 아니라 오늘과 똑같이 저장된다.
+ */
+export function requireTimingLabelMatchesStages(timingLabel: string | null | undefined, stageCodes: readonly string[]) {
+  const mismatch = judgeTimingLabelAgainstStages(timingLabel, stageCodes);
+  if (!mismatch) return;
+  throw new BadRequestException({
+    code: ITEM_TIMING_LABEL_MISMATCH_CODE,
+    message: mismatch.message,
+    details: { reason: mismatch.reason }
+  });
+}
 
 /**
  * 라운드 68 C(#4) — **밖으로 내보내도 되는 주소인가.**
@@ -524,7 +556,7 @@ export class ItemsCatalogService {
           active: normalized.active ?? true
         }
       });
-      await this.replaceItemTemplateStages(tx, item.id, normalized.stageCodes ?? (["infant_4_6"] as ChildStageCode[]));
+      await this.replaceItemTemplateStages(tx, item.id, normalized.stageCodes ?? DEFAULT_ADMIN_ITEM_STAGE_CODES);
       return item;
     });
 
@@ -1019,10 +1051,18 @@ export class ItemsCatalogService {
         message: "Non-essential preparation items need skip guidance."
       });
     }
+    const timingLabel = cleanOptionalText(input.timingLabel ?? existing.timingLabel ?? undefined) ?? "";
+    const stageCodes = input.stageCodes?.length ? input.stageCodes : existing.stageCodes;
+    // 라운드 76 트랙 E — **저장되기 전에 "준비 시기"가 시기 선택과 같은 나이를 말하는지 본다.**
+    // 판정 대상은 실제로 저장될 조합이다: 생성·수정 어느 쪽이든 여기서 합쳐진 값이 그대로
+    // 행이 되고, 시기가 비면 `adminCreateItemTemplate`이 세우는 기본값이 그 자리를 채운다.
+    // 검토(초안) 경로도 같은 판정을 지난다(admin/content-revisions.service.ts) — 발행이
+    // 결국 이 함수를 지나므로 어느 쪽으로 들어와도 어긋난 값은 저장되지 않는다.
+    requireTimingLabelMatchesStages(timingLabel, stageCodes ?? DEFAULT_ADMIN_ITEM_STAGE_CODES);
     return {
       name: name.trim(),
       necessityLevel,
-      timingLabel: cleanOptionalText(input.timingLabel ?? existing.timingLabel ?? undefined) ?? "",
+      timingLabel,
       // ADM-124: undefined(필드 미전송) = 그대로 두기, null = 지우기. 예전에는 `??`라
       // null도 "미전송"과 똑같이 기존 값으로 되돌아가서, 한 번 넣은 가격대를 지울 방법이
       // 아예 없었다(timingLabel/safetyNote가 ""→null로 지워지는 것과 어긋났다).
@@ -1036,7 +1076,7 @@ export class ItemsCatalogService {
       // 기본값은 false(스키마 default와 동일).
       medicalDisclaimerRequired: input.medicalDisclaimerRequired ?? existing.medicalDisclaimerRequired ?? false,
       active: input.active ?? existing.active ?? true,
-      stageCodes: input.stageCodes?.length ? input.stageCodes : existing.stageCodes
+      stageCodes
     };
   }
 

@@ -12,7 +12,9 @@ import type { Prisma } from "@prisma/client";
 import { AuditLoggerService } from "../common/audit/audit-logger.service";
 import type { AuthenticatedAdmin } from "../common/types/authenticated-request";
 import {
+  DEFAULT_ADMIN_ITEM_STAGE_CODES,
   ItemsCatalogService,
+  requireTimingLabelMatchesStages,
   type AdminItemTemplateInput,
   type AdminProductLinkInput
 } from "../onboarding/items-catalog.service";
@@ -137,7 +139,7 @@ export class ContentRevisionsService {
   }
 
   async create(admin: AuthenticatedAdmin, dto: CreateContentRevisionDto) {
-    const payload = await this.validatePayload(dto.entityType, dto.payload);
+    const payload = await this.validatePayload(dto.entityType, dto.payload, dto.entityId ?? null);
     if (dto.entityId) {
       // L-4: disclosures are upserted by `key` on publish, not by id -- if
       // entityId names disclosure A but payload.key names disclosure B, B is
@@ -179,7 +181,11 @@ export class ContentRevisionsService {
       throw new ForbiddenException({ code: "CONTENT_REVISION_FORBIDDEN", message: "본인이 작성한 초안만 수정할 수 있어요." });
     }
 
-    const payload = await this.validatePayload(revision.entityType as ContentRevisionEntityType, dto.payload);
+    const payload = await this.validatePayload(
+      revision.entityType as ContentRevisionEntityType,
+      dto.payload,
+      revision.entityId
+    );
     // L-4: same entityId/payload.key consistency guard as create() -- an
     // editor could otherwise retarget an in-place draft edit at a different
     // disclosure key than the one entityId still points at.
@@ -916,7 +922,8 @@ export class ContentRevisionsService {
 
   private async validatePayload(
     entityType: ContentRevisionEntityType,
-    payload: unknown
+    payload: unknown,
+    entityId: string | null
   ): Promise<Record<string, unknown>> {
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
       throw new BadRequestException({
@@ -944,7 +951,64 @@ export class ContentRevisionsService {
       });
     }
 
-    return JSON.parse(JSON.stringify(instance)) as Record<string, unknown>;
+    const clean = JSON.parse(JSON.stringify(instance)) as Record<string, unknown>;
+    if (entityType === "item_template") {
+      requireTimingLabelMatchesStages(
+        await this.draftTimingLabel(clean, entityId),
+        await this.draftStageCodes(clean, entityId)
+      );
+    }
+    return clean;
+  }
+
+  /**
+   * 라운드 76 적대적 리뷰 M-4 — 초안이 **발행되면 실제로 서게 될** 준비 시기 표기.
+   *
+   * `draftStageCodes`와 **대칭**이어야 한다. 종전에는 시기만 라이브 행 폴백이 있고 라벨에는
+   * 없어서, 수정 초안이 `timingLabel`을 **보내지 않으면** 검토는 "라벨 없음 = 판정 대상 아님"으로
+   * 통과시키고 발행은 `normalizeAdminItemTemplateInput`의
+   * `input.timingLabel ?? existing.timingLabel`이 살려 낸 **라이브 라벨**로 400을 냈다 —
+   * 운영자가 사유를 **고칠 수 없는 자리**(발행 버튼)에서 처음 듣는 갈림이다.
+   */
+  private async draftTimingLabel(payload: Record<string, unknown>, entityId: string | null): Promise<string | null> {
+    if (typeof payload.timingLabel === "string") {
+      return payload.timingLabel;
+    }
+    if (entityId) {
+      const live = await this.prisma.itemTemplate.findUnique({
+        where: { id: entityId },
+        select: { timingLabel: true }
+      });
+      if (live) return live.timingLabel;
+    }
+    // 생성 초안이 라벨을 안 보내면 발행도 빈 라벨로 저장한다(`?? ""` 갈래) — 판정 대상이 아니다.
+    return null;
+  }
+
+  /**
+   * 라운드 76 트랙 E — 초안이 **발행되면 실제로 서게 될** 시기 집합.
+   *
+   * 검토 경로가 저장 경로와 같은 판정을 지나려면 같은 값을 봐야 한다. `publishToLive`는 이
+   * payload를 그대로 `adminCreate/UpdateItemTemplate`에 넘기고, 거기서 시기는
+   * `payload.stageCodes` → (수정이면) 라이브 행의 시기 → (생성이면) 기본값 순으로 정해진다.
+   * 여기서도 정확히 그 순서를 따른다 — 순서가 갈리면 초안에서 통과한 값이 발행에서 막히거나
+   * 그 반대가 되어, 운영자가 사유를 **고칠 수 없는 자리**에서 듣게 된다.
+   */
+  private async draftStageCodes(payload: Record<string, unknown>, entityId: string | null): Promise<string[]> {
+    const fromPayload = payload.stageCodes;
+    if (Array.isArray(fromPayload) && fromPayload.length > 0) {
+      return fromPayload.filter((code): code is string => typeof code === "string");
+    }
+    if (entityId) {
+      const stages = await this.prisma.itemTemplateStage.findMany({
+        where: { itemTemplateId: entityId },
+        select: { stageCode: true }
+      });
+      if (stages.length > 0) {
+        return stages.map((stage) => stage.stageCode);
+      }
+    }
+    return [...DEFAULT_ADMIN_ITEM_STAGE_CODES];
   }
 
   private toDto(revision: ContentRevisionRow) {
