@@ -119,18 +119,29 @@ describe("admin analytics summary API client (ADM-009)", () => {
     expect((error as AdminApiError).message).toBe("days는 7 또는 30만 지원해요.");
   });
 
-  // admin-api.ts는 레지스트리 초기 6종의 미러다. ANA-127이 더한 두 이벤트와 라운드 39 UX-P가
-  // 더한 report_share_tapped는 이 목록이 아니라 응답의 byName(레지스트리 생성)으로 들어와
-  // 페이지의 ANA127_EVENT_LABELS가 라벨을 채운다.
-  it("exposes the six mirrored registry event names with Korean labels (0건도 항상 표에 표시)", () => {
-    expect(ANALYTICS_EVENT_NAMES).toEqual([
-      "app_opened",
-      "onboarding_completed",
-      "expense_recorded",
-      "expense_synced",
-      "item_status_changed",
-      "affiliate_link_clicked"
-    ]);
+  // admin-api.ts는 레지스트리 **앞부분**의 미러다. 그 뒤에 append된 이름들은 이 목록이 아니라
+  // 응답의 byName(레지스트리 생성)으로 들어와 페이지의 ANA127_EVENT_LABELS가 라벨을 채운다.
+  //
+  // GAP-075 #5: 예전에는 이 단언이 **테스트 안에 손으로 적은 리터럴**과 대조했다 — 사본이
+  // 사본을 지키는 모양이었고, 그래서 레지스트리가 여섯에서 열로 자라는 동안 아무것도 빨개지지
+  // 않았다. 이제 계약 파일을 읽어 **레지스트리에서 파생**한다. 6 + 4 합집합이 레지스트리
+  // 전부와 같은지(라벨 없는 이름 0건 · 유령 라벨 0건)는 admin-canonical-mirrors.test.ts가
+  // 세므로, 여기서도 숫자를 손으로 적지 않는다.
+  it("mirrors the registry's leading event names in order, with Korean labels (0건도 항상 표에 표시)", () => {
+    const contractsSource = readSource(join("..", "..", "packages", "contracts", "src", "analytics.ts"));
+    const registryBlock =
+      /export const analyticsEventRegistry: readonly AnalyticsEventRegistryEntry\[\] = \[([\s\S]*?)\n\];/.exec(
+        contractsSource
+      )?.[1];
+    expect(registryBlock, "packages/contracts/src/analytics.ts should declare analyticsEventRegistry").toBeTruthy();
+    const registryNames = [...registryBlock!.matchAll(/eventName: "([a-z_]+)"/g)].map((match) => match[1]);
+    expect(registryNames.length).toBeGreaterThan(0);
+
+    expect(ANALYTICS_EVENT_NAMES.length).toBeGreaterThan(0);
+    expect(
+      ANALYTICS_EVENT_NAMES,
+      `어드민의 이벤트 이름 미러(${ANALYTICS_EVENT_NAMES.join(", ")})가 레지스트리 앞부분과 달라요`
+    ).toEqual(registryNames.slice(0, ANALYTICS_EVENT_NAMES.length));
     for (const name of ANALYTICS_EVENT_NAMES) {
       expect(ANALYTICS_EVENT_LABELS[name]).toBeTruthy();
     }

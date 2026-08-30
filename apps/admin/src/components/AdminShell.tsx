@@ -12,9 +12,11 @@ import {
   adminMfaSetupStart,
   adminMfaSetupVerify,
   adminVerifyMfaLogin,
+  isAuthError,
   type AdminRole
 } from "../lib/admin-api";
 import { useAdminSession } from "../lib/admin-token-context";
+import { loadErrorCopy, type LoadErrorCopy } from "../lib/load-error-copy";
 import { recoveryCodesNotice } from "../lib/recovery-codes-view";
 import styles from "./admin-shell.module.css";
 
@@ -424,12 +426,29 @@ function LoginScreen() {
   );
 }
 
-/** SEC-101: forced enrollment screen shown whenever `session.mfaEnabled` is false. */
+/**
+ * SEC-101: forced enrollment screen shown whenever `session.mfaEnabled` is false.
+ *
+ * 라운드 75 트랙 D(GAP-075 #4) — **관문 화면도 조회 실패 판정을 읽는다.**
+ *
+ * 이 화면은 처음 로그인한 관리자가 반드시 지나야 하는 관문이고, 어드민 전체가 그 뒤에 있다.
+ * 종전에는 `adminMfaSetupStart()`가 실패하면 오류 한 줄만 뜨고 — [다시 시도]도 없고, 등록
+ * 버튼은 `!secret`이라 눌리지 않고, QR도 수동 키도 조건부라 그려지지 않았다 — 남은 조작이
+ * "다른 계정으로 로그인"(= 로그아웃)뿐이었다. 읽기 타임아웃 한 번(10초)으로 운영자가
+ * 어드민에 들어가지 못하는 화면에 갇혔다(브라우저 새로고침을 아는 사람만 빠져나왔다).
+ *
+ * 라운드 73 트랙 D가 `app/**` 열다섯 자리에서 고친 모양을 여기에도 그대로 쓴다 — 새로 만든
+ * 판정도 새로 지은 문구도 없다. `loadErrorCopy`가 이미 답을 갖고 있었고, 없던 것은 **그
+ * 판정을 이 자리에서 읽는 한 줄**이었다. 종전 폴백 문장은 한 글자도 바뀌지 않는다.
+ */
 function MfaSetupScreen() {
   const { session, setSession, clearSession } = useAdminSession();
 
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
+  // [다시 시도]가 누르는 것. 등록 시작 호출·QR 생성은 종전 그대로이고, 이 값이 바뀌면
+  // 아래 이펙트가 같은 절차를 처음부터 다시 밟는다(재시도가 곧 첫 시도와 같은 경로다).
+  const [reloadKey, setReloadKey] = useState(0);
   const [otpauthUrl, setOtpauthUrl] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -444,6 +463,8 @@ function MfaSetupScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
     (async () => {
       try {
         const result = await adminMfaSetupStart();
@@ -454,9 +475,16 @@ function MfaSetupScreen() {
         const dataUrl = await QRCode.toDataURL(result.otpauthUrl);
         if (!cancelled) setQrDataUrl(dataUrl);
       } catch (error) {
-        if (!cancelled) {
-          setLoadError(error instanceof AdminApiError ? error.message : "MFA 등록 정보를 불러오지 못했어요.");
+        if (cancelled) return;
+        // 401은 여기서도 **첫 갈래**다(열다섯 자리와 같은 규율). 이 화면은 로그인은 끝났고
+        // 등록만 남은 자리라, 401은 "세션 자체가 더 이상 유효하지 않다"는 뜻이다 — 그 실패에
+        // [다시 시도]를 세우면 같은 401을 몇 번이고 다시 받는다. 세션을 지우면 셸이 곧바로
+        // 로그인 화면으로 돌아가고, 거기서부터가 실제 다음 걸음이다.
+        if (isAuthError(error)) {
+          clearSession();
+          return;
         }
+        setLoadError(loadErrorCopy(error, "MFA 등록 정보를 불러오지 못했어요."));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -464,7 +492,8 @@ function MfaSetupScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey]);
 
   const handleVerify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -529,7 +558,25 @@ function MfaSetupScreen() {
         <h1>2단계 인증(MFA) 등록</h1>
         <p>처음 로그인한 관리자는 계속 진행하기 전에 2단계 인증을 등록해야 해요.</p>
         {loading ? <p className={styles.hint}>불러오는 중...</p> : null}
-        {loadError ? <p className={styles.errorText}>{loadError}</p> : null}
+        {/* 라운드 75 트랙 D: 이유는 한 벌에서 오고, [다시 시도]는 그 판정(canRetry)에서
+            파생된다 — 다시 눌러도 같은 답이 오는 실패에는 서지 않는다. 라벨은 열한 자리가
+            이미 쓰는 그 문자열이다(새 문구 0건). 적대적 리뷰 S-6: 모양도 그 열한 자리와 같은
+            `.retryButton`이다 — 종전에 빌려 쓰던 `.legacyToggle`은 회색 #7a7a7a라 대비가
+            4.29:1(AA 미달)이었고 여백이 0이라 오류 문장에 붙어 렌더됐다. */}
+        {loadError ? (
+          <p className={styles.errorText}>
+            {loadError.message}
+            {loadError.canRetry ? (
+              <button
+                type="button"
+                className={styles.retryButton}
+                onClick={() => setReloadKey((key) => key + 1)}
+              >
+                다시 시도
+              </button>
+            ) : null}
+          </p>
+        ) : null}
         {qrDataUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={qrDataUrl} alt="MFA 등록 QR 코드" width={200} height={200} />

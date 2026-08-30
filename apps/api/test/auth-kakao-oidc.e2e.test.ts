@@ -18,6 +18,13 @@ import { PrismaService } from "../src/prisma/prisma.service";
 const KAKAO_ISSUER = "https://kauth.kakao.com";
 const CLIENT_ID = "test-kakao-client-id";
 const ALLOWED_REDIRECT_URI = "https://app.wooriai.test/oauth/kakao";
+/**
+ * GAP-075 A: a fixed past `updated_at`/`last_login_at` for the rejected-login
+ * fixtures below. Both columns are written explicitly at create time so the
+ * "nothing moved" assertions compare against a value the request itself could
+ * never produce.
+ */
+const STALE_ROW_TIMESTAMP = new Date("2026-01-02T03:04:05.000Z");
 
 /**
  * Test double for KakaoOidcClient (AUTH-101 requires the real implementation be
@@ -174,6 +181,16 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
     });
     const firstUserId = first.body.user.id as string;
 
+    // GAP-075 A ⓒ: an ACTIVE account's login must still stamp lastLoginAt (and,
+    // through Prisma's @updatedAt, users.updated_at). Rewind the row to a fixed
+    // past value first so the assertion below doesn't depend on clock resolution
+    // between two requests.
+    const rewound = new Date("2026-01-01T00:00:00.000Z");
+    await prisma.user.update({
+      where: { id: firstUserId },
+      data: { lastLoginAt: rewound, updatedAt: rewound }
+    });
+
     // Second login, same sub -> same user, and now a returning user (not new).
     const { transactionId: transactionId2, state: state2, nonce: nonce2 } = await prepare();
     const { token: token2 } = await signIdToken(signingKey, { sub, nonce: nonce2 });
@@ -186,6 +203,10 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
 
     expect(second.body.user.id).toBe(firstUserId);
     expect(second.body.onboardingRequired).toBe(false);
+
+    const rowAfterSecondLogin = await prisma.user.findUniqueOrThrow({ where: { id: firstUserId } });
+    expect(rowAfterSecondLogin.lastLoginAt?.getTime() ?? 0).toBeGreaterThan(rewound.getTime());
+    expect(rowAfterSecondLogin.updatedAt.getTime()).toBeGreaterThan(rewound.getTime());
 
     // The issued refresh token rotates through the existing /auth/refresh route.
     const refreshed = await request(app.getHttpServer())
@@ -349,14 +370,16 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
     expect(retry.body.tokens.accessToken).toEqual(expect.any(String));
   });
 
-  it("rejects login for a blocked user", async () => {
+  it("rejects login for a blocked user without touching updated_at / last_login_at", async () => {
     const sub = `kakao-sub-blocked-${randomUUID()}`;
-    await prisma.user.create({
+    const created = await prisma.user.create({
       data: {
         authProvider: "kakao",
         providerUserId: sub,
         displayName: "차단된 사용자",
-        status: "blocked"
+        status: "blocked",
+        lastLoginAt: STALE_ROW_TIMESTAMP,
+        updatedAt: STALE_ROW_TIMESTAMP
       }
     });
 
@@ -371,16 +394,24 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
       .expect(({ body }) => {
         expect(body.error.code).toBe("USER_BLOCKED");
       });
+
+    // GAP-075 A ⓐ (negative assertion): the rejected attempt wrote nothing.
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: created.id } });
+    expect(after.updatedAt).toEqual(STALE_ROW_TIMESTAMP);
+    expect(after.lastLoginAt).toEqual(STALE_ROW_TIMESTAMP);
+    expect(after.status).toBe("blocked");
   });
 
-  it("rejects login for a withdrawn user", async () => {
+  it("rejects login for a withdrawn user without rewinding the retention clock", async () => {
     const sub = `kakao-sub-withdrawn-${randomUUID()}`;
-    await prisma.user.create({
+    const created = await prisma.user.create({
       data: {
         authProvider: "kakao",
         providerUserId: sub,
         displayName: "탈퇴한 사용자",
-        status: "withdrawn"
+        status: "withdrawn",
+        lastLoginAt: STALE_ROW_TIMESTAMP,
+        updatedAt: STALE_ROW_TIMESTAMP
       }
     });
 
@@ -395,6 +426,18 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
       .expect(({ body }) => {
         expect(body.error.code).toBe("USER_WITHDRAWN");
       });
+
+    // GAP-075 A ⓐ (negative assertion): `users.updated_at` is the 30-day purge
+    // clock for withdrawn accounts (worker/jobs/data-retention-purge.job.ts,
+    // phase 3), and the privacy policy / Play account-deletion page promise those
+    // 30 days with no "unless you try to log in" caveat. A turned-away attempt
+    // must therefore leave both timestamps exactly where they were — otherwise a
+    // monthly login attempt keeps the account alive forever. (The purge-side half
+    // of this contract lives in data-retention-purge.db.test.ts.)
+    const after = await prisma.user.findUniqueOrThrow({ where: { id: created.id } });
+    expect(after.updatedAt).toEqual(STALE_ROW_TIMESTAMP);
+    expect(after.lastLoginAt).toEqual(STALE_ROW_TIMESTAMP);
+    expect(after.status).toBe("withdrawn");
   });
 
   it("does not persist the raw Kakao id_token or leak provider tokens in the response", async () => {

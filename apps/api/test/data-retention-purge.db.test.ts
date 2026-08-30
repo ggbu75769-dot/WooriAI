@@ -4,6 +4,7 @@ import { Test } from "@nestjs/testing";
 import { PrismaClient } from "@prisma/client";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../src/app.module";
+import { HouseholdRuntimeService } from "../src/households/household-runtime.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { DataRetentionPurgeJob, DataRetentionPurgePhaseFailureError } from "../src/worker/jobs/data-retention-purge.job";
 import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
@@ -101,6 +102,9 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
   let app: INestApplication;
   let prisma: PrismaClient;
   let job: DataRetentionPurgeJob;
+  // GAP-075 A: drives the real find-or-create login path (the one the Kakao
+  // exchange runs before it decides on a 403) against a withdrawn row.
+  let householdRuntime: HouseholdRuntimeService;
   let categoryId: string;
   let itemTemplateId: string;
   let productLinkId: string;
@@ -122,6 +126,7 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
     app = moduleRef.createNestApplication();
     await app.init();
     job = moduleRef.get(DataRetentionPurgeJob, { strict: false });
+    householdRuntime = moduleRef.get(HouseholdRuntimeService, { strict: false });
 
     // Shared FK fixtures (expenses/statuses/clicks reference these).
     const suffix = randomUUID().slice(0, 8);
@@ -435,6 +440,37 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       await prisma.householdMember.deleteMany({ where: { householdId: household.id } });
       await prisma.household.deleteMany({ where: { id: household.id } });
       await prisma.user.deleteMany({ where: { id: { in: [withdrawnRecent.id, active.id] } } });
+    });
+
+    it("still purges a withdrawn user past the window after a rejected login attempt (GAP-075 A)", async () => {
+      const now = new Date();
+      const withdrawnOld = await createUser({ status: "withdrawn", updatedAt: daysAgo(now, 40) });
+
+      // The real rejected-login path: the Kakao exchange calls this *before* it
+      // raises USER_WITHDRAWN (auth/kakao/kakao-auth.service.ts), so this is the
+      // one write that used to rewind the retention clock this phase reads.
+      const attempt = await householdRuntime.findOrCreateProviderUser({
+        provider: "kakao",
+        providerUserId: withdrawnOld.providerUserId,
+        displayName: "탈퇴한 사용자",
+        email: "purge-test-rejoin@example.com"
+      });
+      expect(attempt.isNewUser).toBe(false);
+      // The caller still reads a withdrawn row and raises the same 403.
+      expect(attempt.user.status).toBe("withdrawn");
+
+      const afterAttempt = await prisma.user.findUniqueOrThrow({ where: { id: withdrawnOld.id } });
+      expect(afterAttempt.updatedAt).toEqual(withdrawnOld.updatedAt);
+      expect(afterAttempt.lastLoginAt).toEqual(withdrawnOld.lastLoginAt);
+
+      // Derived assertion: the account is still 40 days withdrawn, so the very
+      // next batch must purge it. Before the fix the attempt above moved
+      // updatedAt to "now" and this row survived every future batch.
+      const result = await job.run(now);
+      expect(result.usersPurged as number).toBeGreaterThanOrEqual(1);
+      expect(await prisma.user.findUnique({ where: { id: withdrawnOld.id } })).toBeNull();
+
+      await prisma.user.deleteMany({ where: { id: withdrawnOld.id } });
     });
 
     it("anonymizes (instead of deleting) a withdrawn user whose shared-household data survives, and never reprocesses the stub", async () => {

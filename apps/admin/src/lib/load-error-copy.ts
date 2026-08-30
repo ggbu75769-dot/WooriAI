@@ -97,16 +97,24 @@ export function loadErrorMessage(error: unknown, fallbackMessage: string): strin
  * **조회 실패 판정을 소비하는 자리 집합**(라운드 73 트랙 D 계약 ⓐ).
  *
  * 키는 어드민 루트 기준 경로, 값은 그 파일 안에서 이 한 벌을 부르는 자리 수다.
- * `src/admin-load-error-copy.test.ts`가 `app/**`을 훑어 이 표와 **정확히 일치**하는지 본다.
+ * `src/admin-load-error-copy.test.ts`가 이 표와 **정확히 일치**하는지 본다.
+ *
+ * ⚠️ **스윕 범위**(라운드 75 트랙 D ⓐ): `app/**` + `src/components/**`. 라운드 73~74 동안
+ * 스윕은 `app/**`만 걸었고, 그래서 어드민의 화면 소스 중 **하나**가 구조적으로 보이지 않았다 —
+ * `src/components/AdminShell.tsx`의 MFA 등록 관문이다(그 자리는 한 벌을 부르지 않아 목록에도
+ * 면제 목록에도 없었고, 양쪽이 일치한 채 통과했다). 어드민의 화면 소스는 그 두 뿌리가 전부이고,
+ * `src/lib/**`는 화면이 아니라 **판정·API 래퍼·세션 컨텍스트 모듈**이라 범위 밖이다
+ * (`src/lib/admin-token-context.tsx`가 `.tsx`이지만 화면을 그리지 않는 이유가 그것이다).
  *
  * ⚠️ 그 스윕이 잡는 것은 **목록 ↔ 사용 집합의 불일치**다(부르는데 목록에 없다 · 목록에 있는데
  * 안 부른다 · 자리 수가 달라졌다). 새 화면이 이 한 벌을 **아예 부르지 않고** 자기 문장을 손으로
  * 적으면 사용 집합에도 목록에도 없어 통과한다 — 새 리터럴을 감지하는 단언이 아니다
  * (판정 범위: `docs/operations/known-limitations.md` N-3).
  *
- * 오늘의 합은 **열다섯**이다. 라운드 73 전에는 이 중 **열**이 이유를 통째로 버렸고
+ * 오늘의 합은 **열여섯**이다. 라운드 73 전에는 그중 열이 이유를 통째로 버렸고
  * (`"…를 불러오지 못했어요."` 한 문장으로 수렴), 넷은 각자 다른 타임아웃 문장을
- * 손으로 지어 갈랐다(카테고리·감사 로그 둘·사용자 조회). 이제 열다섯이 같은 판정을 읽는다.
+ * 손으로 지어 갈랐다(카테고리·감사 로그 둘·사용자 조회). 라운드 75가 스윕 밖에 있던
+ * 열여섯 번째(MFA 등록 관문)를 더했다. 이제 열여섯이 같은 판정을 읽는다.
  */
 export const LOAD_ERROR_COPY_SITES: Readonly<Record<string, number>> = {
   // 대시보드 요약 · 워커 상태 한 줄.
@@ -123,7 +131,10 @@ export const LOAD_ERROR_COPY_SITES: Readonly<Record<string, number>> = {
   "app/categories/page.tsx": 1,
   // 감사 로그 목록 · CSV 내보내기(같은 목록 API를 페이지 순회한다).
   "app/audit-logs/page.tsx": 2,
-  "app/users-lookup/page.tsx": 1
+  "app/users-lookup/page.tsx": 1,
+  // MFA 등록 관문(`MfaSetupScreen`)의 등록 정보 조회. 같은 파일의 나머지 다섯 catch는
+  // 전부 **쓰기** 실패라 이 한 벌의 대상이 아니다(R19-F의 `WRITE_TIMEOUT_MESSAGE` 경계).
+  "src/components/AdminShell.tsx": 1
 };
 
 /**

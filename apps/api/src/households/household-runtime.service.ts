@@ -140,11 +140,26 @@ export class HouseholdRuntimeService {
         }
       });
 
+      // GAP-075 A: a login that is about to be REJECTED must not write to the row.
+      // The withdrawn/blocked decision is made *after* this call returns
+      // (auth/kakao/kakao-auth.service.ts — USER_BLOCKED / USER_WITHDRAWN 403), so an
+      // unconditional `lastLoginAt` write here bumped `users.updated_at` (Prisma
+      // `@updatedAt`) for accounts that never actually got in. That column is the
+      // retention clock phase 3 of the purge job reads for withdrawn users
+      // (worker/jobs/data-retention-purge.job.ts), so every rejected attempt reset the
+      // 30-day window the privacy policy promises without conditions — a withdrawn
+      // account could be kept forever by merely trying to log in once a month. It also
+      // made the admin CS screen's "마지막 활동" (lastLoginAt) report activity for
+      // someone who was turned away at the door. So only an `active` row is touched;
+      // any other status is returned as found, and the caller still reads that same row
+      // and raises the byte-identical 403 it always did.
       const user = existing
-        ? await tx.user.update({
-            where: { id: existing.id },
-            data: { lastLoginAt: new Date() }
-          })
+        ? existing.status === "active"
+          ? await tx.user.update({
+              where: { id: existing.id },
+              data: { lastLoginAt: new Date() }
+            })
+          : existing
         : await (async () => {
             isNewUser = true;
             return tx.user.create({

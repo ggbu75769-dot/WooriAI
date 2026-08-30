@@ -25,14 +25,25 @@
 // 타임아웃을 "실패"로 단정하지 않는다 — 아래 WRITE_FETCH_TIMEOUT_MS 분기와
 // AdminApiTimeoutError.retryUnsafe 참고.
 
+// GAP-075 #5: 아래 상수 표들은 전부 **손 미러**다 — 어드민은 `@wooriai/domain`·
+// `@wooriai/contracts`를 의존성으로 들지 않으므로(라운드 60 P2-8의 근거: 번들에 딸려 오는
+// 트랜지티브 의존성 + domain의 raw TS `main`이 요구하는 `transpilePackages`는 빌드 설정 변경)
+// 정본을 import하지 못하고 값을 옮겨 적는다. 그 대신 `src/admin-canonical-mirrors.test.ts`가
+// 정본 파일을 **소스 텍스트로 읽어** 리터럴과 순서를 대조한다. 갈리면 그 계약이 빨개지고,
+// 고칠 곳은 여기 사본 하나다. **새 상수 표를 더하면 그 계약의 전수 단언이 먼저 걸린다** —
+// 정본을 대장에 적고 대조 단언을 함께 더해야 통과한다.
+
+/** 정본: `packages/domain/src/enums.ts`의 `NECESSITY_LEVELS`. */
 export type NecessityLevel = "essential" | "convenience" | "optional";
 export const NECESSITY_LEVELS: NecessityLevel[] = ["essential", "convenience", "optional"];
+/** 라벨은 **어드민의 말**이다(정본과 대조하는 것은 문자열이 아니라 키 집합). */
 export const NECESSITY_LEVEL_LABELS: Record<NecessityLevel, string> = {
   essential: "필수",
   convenience: "편의",
   optional: "선택"
 };
 
+/** 정본: `packages/domain/src/enums.ts`의 `CHILD_STAGE_CODES`(리터럴과 순서 그대로). */
 export type ChildStageCode =
   | "pregnancy_early"
   | "pregnancy_mid"
@@ -58,6 +69,11 @@ export const CHILD_STAGE_CODES: ChildStageCode[] = [
   "middle_school"
 ];
 
+/**
+ * ⚠️ 이 문구들은 앱의 것과 **일부러 다르다** — 도메인 `MANUAL_STAGE_LABELS`는 `"0~3개월"`이고
+ * 여기는 `"신생아 (0~3개월)"`이다. 운영자 표는 코드가 무엇인지를 함께 말해야 하기 때문이고,
+ * 그래서 대조 계약은 이 표에서 **키 집합만** 묻는다(면제가 아니라 판정이다).
+ */
 export const CHILD_STAGE_LABELS: Record<ChildStageCode, string> = {
   pregnancy_early: "임신 초기",
   pregnancy_mid: "임신 중기",
@@ -71,6 +87,7 @@ export const CHILD_STAGE_LABELS: Record<ChildStageCode, string> = {
   middle_school: "중학생"
 };
 
+/** 정본: `packages/domain/src/enums.ts`의 `PRODUCT_PLATFORMS`. */
 export type ProductPlatform = "coupang" | "naver" | "custom";
 export const PRODUCT_PLATFORMS: ProductPlatform[] = ["coupang", "naver", "custom"];
 export const PRODUCT_PLATFORM_LABELS: Record<ProductPlatform, string> = {
@@ -80,6 +97,8 @@ export const PRODUCT_PLATFORM_LABELS: Record<ProductPlatform, string> = {
 };
 
 // COM-105: 워커 헬스체크 판정. null = 아직 확인 전(미확인).
+// 정본: `apps/api/src/worker/jobs/link-health.job.ts`의 `LinkHealthStatus`
+// (NULL은 그 유니온 밖이라 아래 LINK_HEALTH_UNKNOWN_LABEL은 표의 키가 아니다).
 export type LinkHealthStatus = "ok" | "broken" | "unstable";
 
 export const LINK_HEALTH_LABELS: Record<LinkHealthStatus, string> = {
@@ -187,6 +206,8 @@ export type Disclosure = { id: string | null; key: string; text: string };
 // 확장으로 같은 엔드포인트에 덧붙인다.
 export type ClickSummaryDays = 7 | 30;
 
+/** 정본: `apps/api/src/admin/affiliate-click-breakdown.service.ts`의 `CLICK_BREAKDOWN_WINDOWS`
+ * (서버가 실제로 받는 창 — 여기 없는 값을 화면이 고르면 400이 돌아온다). */
 export const CLICK_SUMMARY_DAYS_OPTIONS: ClickSummaryDays[] = [7, 30];
 
 /** 상위 링크 한 줄. 링크가 삭제되면 이름/리테일러가 null로 떨어지지만
@@ -706,7 +727,14 @@ export function getWorkerHealth() {
 export type AnalyticsSummaryDays = 7 | 30;
 
 /** Canonical registry event names (packages/contracts/src/analytics.ts), in
- * registry order. The API's `byName` always contains all six (0 included). */
+ * registry order. The API's `byName` always contains all six (0 included).
+ *
+ * ⚠️ 이 목록은 레지스트리의 **앞부분**만 든다 — 뒤에 append된 이름들의 한국어 라벨은
+ * `app/analytics/page.tsx`의 `ANA127_EVENT_LABELS`가 진다(0건이어도 표에 서는 것은 앞부분,
+ * 나머지는 응답 `byName`으로 들어온다는 렌더 규칙이 라운드 60·39의 자리다).
+ * 그 **둘의 합집합이 레지스트리 전부와 같은지**를 `src/admin-canonical-mirrors.test.ts`가
+ * 센다(라벨 없는 이름 0건 · 유령 라벨 0건). 새 이벤트가 레지스트리 뒤에 붙으면 그 계약이
+ * 빨개지고, 고칠 곳은 이 목록이 아니라 페이지의 라벨 표다. */
 export type AnalyticsEventName =
   | "app_opened"
   | "onboarding_completed"
@@ -820,6 +848,7 @@ export function isAuthError(error: unknown): boolean {
   return error instanceof AdminApiError && error.status === 401;
 }
 
+/** 정본: `apps/api/prisma/schema.prisma`의 `enum AdminRole`(선언 순서 그대로). */
 export type AdminRole = "admin" | "editor" | "analyst";
 export const ADMIN_ROLES: AdminRole[] = ["admin", "editor", "analyst"];
 export const ADMIN_ROLE_LABELS: Record<AdminRole, string> = {
