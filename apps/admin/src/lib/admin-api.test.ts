@@ -412,6 +412,153 @@ describe("admin API write timeout separation (FIX-118C)", () => {
   });
 });
 
+/* ------------------------------------------------------------------------- *
+ * GAP-078 트랙 D(#4) — `admin-api.ts`를 **함수 단위**로 읽는 표.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * 라운드 77까지 이 파일의 수치 셋은 **서로 다른 단위**로 세어졌다: 쓰기 호출과
+ * `retrySafe`는 파일 전체의 **호출부**를, 멱등키는 **함수 시그니처**를 셌고,
+ * 그 뺄셈(24 − 8 − 6 = 10)이 참인 것은 *"함수 하나가 `request()`를 정확히 한 번
+ * 부른다"* 는 **적히지 않은 가정** 덕분이었다. 오늘 그 가정은 참이고(2026-08-30 실측),
+ * **어긋나는 날에도 아무 단언도 깨지지 않는다** — 한 함수가 `request()`를 두 번 부르면
+ * 비멱등 쓰기가 하나 늘어난 것처럼 보이고, **숫자만 고치면 다시 초록**이 된다.
+ * 그 순간 *"멱등키 없는 진짜 쓰기 열"* 이라는 문장은 실제 자리를 가리키지 않게 되고,
+ * 연결 실패·타임아웃의 문장 선택이 옳은지 묻는 **유일한 수치**(R-2의 본체)가 뜻을 잃는다.
+ *
+ * 그래서 셋을 **한 단위(함수)** 로 옮긴다. 이 표가 함수마다 넷을 읽고
+ * (`writeCalls` · `retrySafeCalls` · `idempotencyKeyParam` · `idempotencyKeyForwarded`),
+ * 분류 셋(retrySafe / 멱등 / 비멱등 쓰기)은 전부 **이 표에서 파생**된다.
+ * ⚠️ **수치 넷(24·8·6·10)과 이름 목록은 바이트 불변**이다 — 세는 방법만 바뀌고
+ * **답이 같다는 것**이 이 트랙의 안전망이다(제품 소스 `admin-api.ts`는 0건 변경).
+ *
+ * ⚠️ **왜 사본인가.** 같은 워크스페이스의 `src/admin-write-role-gate.test.ts`의
+ * `adminApiWriteFunctions()`가 이미 이 분할(`\nexport (?:async )?function `)을 한다 —
+ * **그것이 이 파서의 본보기다.** 공용 모듈로 추출하면 라운드 78의 두 트랙(C·D)이 같은
+ * 파일을 열게 되므로 **이번 라운드는 사본 하나를 허용**하고, 그 판단을 여기 값으로 남긴다
+ * (추출은 다음 라운드의 결정이다).
+ * ⚠️ 그리고 두 파서는 **단위가 다르다**: 옆 파일의 단위는 *"역할 게이트가 지켜야 할 쓰기
+ * 함수"* 라서 합성 함수(`draftAndSubmitContentRevision` = create + submit)를 **한 겹
+ * 승계**하고, 이 표의 단위는 *"`request()`가 쓰기 메서드를 싣는 자리"* 라서 그 합성 함수는
+ * **쓰기 0건**이다. 두 값이 다른 것은 결함이 아니라 단위의 차이다.
+ */
+type AdminApiFunction = {
+  name: string;
+  /** `request()`의 첫 인자(경로) — 리터럴 그대로. 부르지 않으면 `null`. */
+  path: string | null;
+  writeCalls: number;
+  retrySafeCalls: number;
+  requestCalls: number;
+  /** 시그니처가 `idempotencyKey?: string`을 받는가. */
+  idempotencyKeyParam: boolean;
+  /** 그 값이 실제로 `request()`의 인자로 실려 나가는가(⚠️ 받기만 하는 함수를 잡는 칸). */
+  idempotencyKeyForwarded: boolean;
+};
+
+const WRITE_CALL_PATTERN = /method: "(?:POST|PUT|PATCH|DELETE)"/g;
+const RETRY_SAFE_PATTERN = /\{ retrySafe: true \}/g;
+const REQUEST_CALL_PATTERN = /\brequest\s*[<(]/g;
+const EXPORTED_FUNCTION_SPLIT = /\nexport (?:async )?function /;
+/**
+ * 함수 선언의 끝 — **줄 첫 칸의 `}` 뒤가 줄바꿈인 자리**.
+ * ⚠️ `\n}`만으로는 부족하다: `createContentRevision`의 인라인 인자 타입이 `\n})`로 닫혀
+ * 시그니처 한가운데를 끝으로 읽고 그 함수의 쓰기 한 자리를 **조용히 잃는다**(실측으로 만난 값).
+ */
+const DECLARATION_END_PATTERN = /\n\}(?=\r?\n|$)/;
+
+/**
+ * `request(...)`의 **최상위 인자 목록**. 괄호·중괄호·대괄호와 문자열·템플릿을 건너뛰며
+ * 콤마로 가르므로, `{ method: "POST", body: JSON.stringify(input) }`가 한 인자로 남고
+ * 셋째 자리의 `idempotencyKey`가 **넘겨졌는지**를 문자열 포함이 아니라 자리로 읽는다.
+ */
+function requestCallArguments(body: string): string[] {
+  const call = /\brequest\s*(?:<[\s\S]*?>)?\s*\(/.exec(body);
+  if (!call) return [];
+  const open = call.index + call[0].length - 1;
+  const args: string[] = [];
+  let depth = 0;
+  let start = open + 1;
+  let quote: string | null = null;
+  for (let cursor = open; cursor < body.length; cursor += 1) {
+    const char = body[cursor];
+    if (quote) {
+      if (char === "\\") cursor += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") quote = char;
+    else if (char === "(" || char === "{" || char === "[") depth += 1;
+    else if (char === ")" || char === "}" || char === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        args.push(body.slice(start, cursor));
+        break;
+      }
+    } else if (char === "," && depth === 1) {
+      args.push(body.slice(start, cursor));
+      start = cursor + 1;
+    }
+  }
+  return args.map((argument) => argument.trim()).filter((argument) => argument.length > 0);
+}
+
+/** `admin-api.ts`가 내보내는 함수 전수의 표(손 목록이 아니라 **파생**이다). */
+function adminApiFunctionTable(source: string): AdminApiFunction[] {
+  const table: AdminApiFunction[] = [];
+  for (const chunk of source.split(EXPORTED_FUNCTION_SPLIT).slice(1)) {
+    const name = /^([A-Za-z0-9_]+)/.exec(chunk)?.[1];
+    if (!name) continue;
+    const end = DECLARATION_END_PATTERN.exec(chunk);
+    const declaration = end ? chunk.slice(0, end.index + 2) : chunk;
+
+    // 시그니처의 끝 = 이름 뒤 `(`의 짝(인자에 인라인 객체 타입이 와도 흔들리지 않는다).
+    let depth = 0;
+    let cursor = declaration.indexOf("(");
+    for (; cursor < declaration.length; cursor += 1) {
+      const char = declaration[cursor];
+      if (char === "(") depth += 1;
+      else if (char === ")") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    const bodyStart = declaration.indexOf("{", cursor);
+    const signature = declaration.slice(0, bodyStart);
+    const body = declaration.slice(bodyStart);
+    const args = requestCallArguments(body);
+
+    table.push({
+      name,
+      path: args[0] ? args[0].replace(/^[`"]/, "").replace(/[`"]$/, "") : null,
+      writeCalls: (declaration.match(WRITE_CALL_PATTERN) ?? []).length,
+      retrySafeCalls: (declaration.match(RETRY_SAFE_PATTERN) ?? []).length,
+      requestCalls: (declaration.match(REQUEST_CALL_PATTERN) ?? []).length,
+      idempotencyKeyParam: /idempotencyKey\?: string/.test(signature),
+      idempotencyKeyForwarded: args.slice(1).some((argument) => argument === "idempotencyKey")
+    });
+  }
+  return table;
+}
+
+/**
+ * 분류 셋 — 전부 위 표에서 **파생**한다(호출부 세기와 시그니처 세기를 섞지 않는다).
+ *
+ * ⚠️ 멱등의 기준은 시그니처가 아니라 **실려 나갔는가**(`idempotencyKeyForwarded`)다.
+ * 서버 `IdempotencyInterceptor`가 보는 것이 헤더 하나이므로 그것이 유일하게 참인 값이고,
+ * 시그니처만 세면 *"받되 넘기지 않는"* 함수가 멱등으로, *"안에서 만들어 넘기는"* 함수가
+ * 비멱등으로 떨어진다. 오늘 두 칸은 같은 여섯을 가리키고(계약 ⓒ가 그것을 못 박는다),
+ * 어긋나는 날은 계약 ⓒ가 먼저 빨개진다.
+ */
+function classifyAdminApiWrites(table: AdminApiFunction[]) {
+  const writes = table.filter((fn) => fn.writeCalls > 0);
+  return {
+    writes,
+    retrySafe: writes.filter((fn) => fn.retrySafeCalls > 0),
+    idempotent: writes.filter((fn) => fn.idempotencyKeyForwarded),
+    plain: writes.filter((fn) => fn.retrySafeCalls === 0 && !fn.idempotencyKeyForwarded)
+  };
+}
+
 /**
  * GAP-077 트랙 B(#2) — **연결 실패도 R19-F 판정을 지난다.**
  *
@@ -668,24 +815,39 @@ describe("어드민 연결 실패의 세 갈래 (GAP-077 트랙 B)", () => {
    * 뿌리였다 — 열여덟 안에 **반영을 확인할 목록이 아예 없는 POST 여덟**이 섞여 있었다.
    * 오늘의 분류는 셋이다: **retrySafe 여덟** · **멱등 여섯** · **멱등키 없는 진짜 쓰기 열**.
    * *"멱등키 없는 쓰기"* 라는 말이 가리키는 자리는 열여덟이 아니라 **열**이다.
+   *
+   * ⚠️ GAP-078 트랙 D(계약 ⓐ): **수치 넷은 그대로고 단위만 하나로 모았다.** 라운드 77까지
+   * 이 단언은 호출부 둘(`writeCalls`·`retrySafeCalls`)에서 시그니처 하나(`idempotentCallers`)를
+   * **뺄셈**했다 — 단위가 섞인 그 뺄셈이 참인 것은 적히지 않은 가정 하나 덕분이었다.
+   * 오늘은 셋 다 `adminApiFunctionTable()`의 **함수 표에서 파생**한다.
    */
   it("쓰기 스물넷이 셋으로 갈린다 — retrySafe 여덟 · 멱등 여섯 · 비멱등 쓰기 열 (수치를 값으로)", () => {
     const source = readApiSource();
-    const writeCalls = [...source.matchAll(/method: "(?:POST|PUT|PATCH|DELETE)"/g)];
-    // 멱등키를 받아 `request()`에 넘기는 공개 함수 전수.
-    const idempotentCallers = [...source.matchAll(/^export function \w+\([^)]*idempotencyKey\?: string\)/gm)].map(
-      (match) => match[0]
-    );
-    // 라운드 77 리뷰 M-1: 호출부가 **명시**한 자리 전수(추론하지 않는다).
-    const retrySafeCalls = [...source.matchAll(/\{ retrySafe: true \}/g)];
+    const table = adminApiFunctionTable(source);
+    const { writes, retrySafe, idempotent, plain } = classifyAdminApiWrites(table);
 
-    expect(writeCalls.length, "쓰기 호출 수").toBe(24);
-    expect(retrySafeCalls.length, "retrySafe를 명시한 쓰기 수").toBe(8);
-    expect(idempotentCallers.length, "멱등키를 싣는 쓰기 수").toBe(6);
+    // ⚠️ 파싱 손실 0건 — 표가 세는 값이 파일 전체가 세는 값과 같다(함수 밖 쓰기도 0건).
     expect(
-      writeCalls.length - retrySafeCalls.length - idempotentCallers.length,
-      "멱등키 없는 진짜 쓰기 수"
-    ).toBe(10);
+      writes.reduce((sum, fn) => sum + fn.writeCalls, 0),
+      "표가 센 쓰기 호출 = 파일 전체가 센 쓰기 호출"
+    ).toBe((source.match(WRITE_CALL_PATTERN) ?? []).length);
+    expect(
+      retrySafe.reduce((sum, fn) => sum + fn.retrySafeCalls, 0),
+      "표가 센 retrySafe = 파일 전체가 센 retrySafe"
+    ).toBe((source.match(RETRY_SAFE_PATTERN) ?? []).length);
+
+    expect(writes.length, "쓰기 호출 수").toBe(24);
+    expect(retrySafe.length, "retrySafe를 명시한 쓰기 수").toBe(8);
+    expect(idempotent.length, "멱등키를 싣는 쓰기 수").toBe(6);
+    expect(plain.length, "멱등키 없는 진짜 쓰기 수").toBe(10);
+    // 분류 셋은 서로 겹치지 않고 쓰기 전수를 덮는다(뺄셈이 아니라 **분할**이다).
+    expect(retrySafe.length + idempotent.length + plain.length, "분류 셋의 합").toBe(writes.length);
+    expect(
+      retrySafe.filter((fn) => fn.idempotencyKeyParam || fn.idempotencyKeyForwarded).map((fn) => fn.name),
+      "retrySafe이면서 멱등키까지 싣는 함수"
+    ).toEqual([]);
+
+    const idempotentNames = idempotent.map((fn) => fn.name);
     for (const name of [
       "createItemTemplate",
       "createProductLink",
@@ -694,9 +856,12 @@ describe("어드민 연결 실패의 세 갈래 (GAP-077 트랙 B)", () => {
       "rollbackContentRevision",
       "createAdminUser"
     ]) {
-      expect(idempotentCallers.join("\n"), `멱등 쓰기 여섯: ${name}`).toContain(`export function ${name}(`);
+      expect(idempotentNames, `멱등 쓰기 여섯: ${name}`).toContain(name);
     }
     // retrySafe 여덟의 이름도 값으로 남긴다 — `/admin/auth/**` 일곱 + 검증 전용 미리보기 하나.
+    // ⚠️ 경로는 그 함수가 실제로 `request()`에 넘긴 첫 인자에서 읽는다(파일 어딘가에 그
+    // 문자열이 있다가 아니라, **그 경로를 부르는 함수가 retrySafe를 명시한다**를 묻는다).
+    const retrySafePaths = retrySafe.map((fn) => fn.path);
     for (const path of [
       "/admin/auth/login",
       "/admin/auth/mfa/verify-login",
@@ -707,9 +872,7 @@ describe("어드민 연결 실패의 세 갈래 (GAP-077 트랙 B)", () => {
       "/admin/auth/mfa/disable",
       "/admin/product-links/bulk-preview"
     ]) {
-      const at = source.indexOf(`"${path}"`);
-      expect(at, `retrySafe 여덟: ${path}`).toBeGreaterThan(-1);
-      expect(source.slice(at, at + 400), `${path}가 retrySafe를 명시한다`).toContain("{ retrySafe: true }");
+      expect(retrySafePaths, `retrySafe 여덟: ${path}`).toContain(path);
     }
     // ⚠️ 부정 단언: 반영을 확인할 목록이 있는 진짜 쓰기는 한 자리도 retrySafe가 아니다.
     for (const name of [
@@ -720,11 +883,128 @@ describe("어드민 연결 실패의 세 갈래 (GAP-077 트랙 B)", () => {
       "updateAdminUser",
       "updateAdminCategory"
     ]) {
-      const at = source.indexOf(`export function ${name}(`);
-      expect(at, `진짜 쓰기: ${name}`).toBeGreaterThan(-1);
-      const body = source.slice(at, source.indexOf("\n}", at));
-      expect(body, `${name}에 retrySafe가 붙었다`).not.toContain("retrySafe");
+      const fn = writes.find((candidate) => candidate.name === name);
+      expect(fn, `진짜 쓰기: ${name}`).toBeDefined();
+      expect(fn?.retrySafeCalls, `${name}에 retrySafe가 붙었다`).toBe(0);
     }
+  });
+
+  /**
+   * 계약 ⓑ **가정의 승격** — *"쓰기 함수 하나가 `request()`를 정확히 한 번 부른다."*
+   *
+   * 라운드 77까지 이 문장은 **어디에도 적혀 있지 않았고**, 그 위에서 뺄셈 하나가 답을 냈다.
+   * 오늘 실측으로 참이라(쓰기 함수 24 = `request()` 호출 24) **아무도 이 가정을 볼 수 없다** —
+   * 그것이 이 단언의 이유다. 어긋나는 날 조용히 숫자만 바뀌는 대신 **여기가 먼저 빨개진다.**
+   * ⚠️ 어겨도 되는 날이 오면 그때 분류 규칙을 다시 정하면 된다. 지금 필요한 것은
+   * **조용하지 않은 것**이다.
+   */
+  it("쓰기 함수 전수가 request()를 정확히 한 번 부른다 (계약 ⓑ · 적히지 않았던 가정)", () => {
+    const { writes } = classifyAdminApiWrites(adminApiFunctionTable(readApiSource()));
+
+    expect(writes.length, "쓰기 함수 수").toBe(24);
+    expect(
+      writes.filter((fn) => fn.requestCalls !== 1).map((fn) => `${fn.name}: request() ${fn.requestCalls}회`),
+      "request()를 한 번이 아니게 부르는 쓰기 함수"
+    ).toEqual([]);
+    expect(
+      writes.filter((fn) => fn.writeCalls !== 1).map((fn) => `${fn.name}: 쓰기 ${fn.writeCalls}회`),
+      "쓰기 메서드를 한 번이 아니게 싣는 쓰기 함수"
+    ).toEqual([]);
+  });
+
+  /**
+   * 계약 ⓒ — **멱등키가 시그니처에만 있고 실려 나가지 않는 함수가 0건.**
+   *
+   * 시그니처만 세던 라운드 77의 단위에서는 `idempotencyKey?: string`을 받되 `request()`에
+   * **넘기지 않는** 함수가 멱등으로 세어졌고, 반대로 키를 **안에서 만드는** 함수는
+   * 비멱등으로 세어졌다. 둘 다 어느 단언도 깨지 않았다.
+   */
+  it("멱등키는 받은 자리와 실려 나간 자리가 같다 (계약 ⓒ)", () => {
+    const table = adminApiFunctionTable(readApiSource());
+
+    expect(
+      table.filter((fn) => fn.idempotencyKeyParam && !fn.idempotencyKeyForwarded).map((fn) => fn.name),
+      "멱등키를 받고 request()에 넘기지 않는 함수"
+    ).toEqual([]);
+    expect(
+      table.filter((fn) => fn.idempotencyKeyForwarded && !fn.idempotencyKeyParam).map((fn) => fn.name),
+      "멱등키를 시그니처 밖에서 만들어 넘기는 함수(오늘 0건 — 생기면 분류 규칙을 다시 정한다)"
+    ).toEqual([]);
+    // 멱등 여섯은 받고 넘기는 자리 전수와 같은 집합이다.
+    expect(table.filter((fn) => fn.idempotencyKeyForwarded).length, "멱등키가 실려 나가는 함수 수").toBe(6);
+  });
+
+  /**
+   * ⚠️ **강화가 침묵으로 되돌아가지 않게** — 어긋나는 날의 세 모양을 **합성 소스**로 재현한다.
+   *
+   * 라운드 77의 세는 법이 조용히 통과시키던 셋이고(정찰 후보 4의 ⓐⓑⓒ), 오늘의 함수 표가
+   * 그 셋을 **각각 다른 칸으로** 읽는다는 것을 여기서 못 박는다. 이 테스트는
+   * `admin-api.ts`를 읽지 않는다 — 읽는 것은 **파서 자신**이다.
+   */
+  it("어긋나는 날의 세 모양을 함수 표가 읽는다 (재현 단언)", () => {
+    const drifted = [
+      "// ⓐ 한 함수가 request()를 두 번 부른다(생성 후 즉시 재조회).",
+      "export async function applyThenRefetch(csv: string) {",
+      '  await request<Applied>("/admin/product-links/bulk-apply", { method: "POST", body: csv });',
+      '  return request<List>("/admin/product-links");',
+      "}",
+      "",
+      "// ⓑ 멱등키를 인자로 받지 않고 함수 안에서 만든다.",
+      "export function createThingWithOwnKey(input: ThingInput) {",
+      "  const idempotencyKey = newIdempotencyKey();",
+      '  return request<Thing>("/admin/things", { method: "POST", body: JSON.stringify(input) }, idempotencyKey);',
+      "}",
+      "",
+      "// ⓒ 멱등키를 받되 request()에 넘기지 않는다.",
+      "export function updateThingDroppingKey(id: string, idempotencyKey?: string) {",
+      "  return request<Thing>(`/admin/things/${id}`, {",
+      '    method: "PATCH",',
+      "    body: JSON.stringify({ id })",
+      "  });",
+      "}",
+      ""
+    ].join("\n");
+
+    const table = adminApiFunctionTable(`\n${drifted}`);
+    const byName = new Map(table.map((fn) => [fn.name, fn]));
+    expect([...byName.keys()]).toEqual(["applyThenRefetch", "createThingWithOwnKey", "updateThingDroppingKey"]);
+
+    // ⓐ 쓰기는 하나인데 `request()`는 둘 — 뺄셈은 못 보던 자리를 계약 ⓑ가 본다.
+    const twoCalls = byName.get("applyThenRefetch");
+    expect(twoCalls?.writeCalls).toBe(1);
+    expect(twoCalls?.requestCalls).toBe(2);
+
+    // ⓑ 시그니처에는 없고 실려 나가기만 한다 — 시그니처만 세면 비멱등으로 떨어진다.
+    const ownKey = byName.get("createThingWithOwnKey");
+    expect(ownKey?.idempotencyKeyParam).toBe(false);
+    expect(ownKey?.idempotencyKeyForwarded).toBe(true);
+
+    // ⓒ 시그니처에는 있고 실려 나가지 않는다 — 시그니처만 세면 멱등으로 세어진다.
+    const droppedKey = byName.get("updateThingDroppingKey");
+    expect(droppedKey?.idempotencyKeyParam).toBe(true);
+    expect(droppedKey?.idempotencyKeyForwarded).toBe(false);
+
+    // ⚠️ 그리고 옛 뺄셈은 셋 전부를 **조용히** 통과한다 — 수치가 그럴듯하게 남기 때문이다.
+    const legacyWriteCalls = (drifted.match(WRITE_CALL_PATTERN) ?? []).length;
+    const legacyIdempotentCallers = [
+      ...drifted.matchAll(/^export function \w+\([^)]*idempotencyKey\?: string\)/gm)
+    ].length;
+    expect(legacyWriteCalls, "옛 단위: 쓰기 호출").toBe(3);
+    expect(legacyIdempotentCallers, "옛 단위: 멱등 시그니처").toBe(1);
+    expect(legacyWriteCalls - legacyIdempotentCallers, "옛 단위가 내는 '비멱등 쓰기' 수").toBe(2);
+
+    // 함수 표도 둘을 내지만 **가리키는 자리가 다르다**: 옛 단위는 키가 실제로 실려 나가는
+    // `createThingWithOwnKey`를 비멱등으로 세고, 키를 버리는 `updateThingDroppingKey`를
+    // 멱등으로 센다. **수치가 같아서 아무도 그 뒤바뀜을 보지 못한다** — 그것이 이 트랙이
+    // 단위를 하나로 모은 이유다.
+    const drift = classifyAdminApiWrites(table);
+    expect(drift.plain.map((fn) => fn.name), "함수 단위가 가리키는 비멱등 쓰기").toEqual([
+      "applyThenRefetch",
+      "updateThingDroppingKey"
+    ]);
+    expect(drift.idempotent.map((fn) => fn.name), "함수 단위가 가리키는 멱등 쓰기").toEqual([
+      "createThingWithOwnKey"
+    ]);
   });
 
   it("타임아웃 갈래 셋과 상한 두 값은 한 글자도 바뀌지 않았다 (무변경)", () => {
