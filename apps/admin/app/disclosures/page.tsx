@@ -8,6 +8,7 @@ import {
   updateDisclosure,
   type Disclosure
 } from "../../src/lib/admin-api";
+import { ADMIN_WRITE_ROLE_NOTICE } from "../../src/lib/admin-role-copy";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import { disclosureKeyBadge } from "../../src/lib/disclosure-keys";
 import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
@@ -19,12 +20,15 @@ import styles from "../../src/components/admin-page.module.css";
 function DisclosureRow({
   disclosure,
   isEditor,
+  canEdit,
   onSaved,
   onDraftSubmitted,
   onAuthError
 }: {
   disclosure: Disclosure;
   isEditor: boolean;
+  /** 라운드 77 트랙 D: 이 카드의 제출 컨트롤이 서는 조건(admin 직접 저장 · editor 검토 요청). */
+  canEdit: boolean;
   onSaved: (next: Disclosure) => void;
   onDraftSubmitted: () => void;
   onAuthError: () => void;
@@ -83,11 +87,17 @@ function DisclosureRow({
       </div>
       {error ? <p className={styles.errorBanner}>{error}</p> : null}
       {saved ? <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p> : null}
-      <div className={styles.actions}>
-        <button type="button" className={styles.primaryButton} onClick={handleSave} disabled={saving}>
-          {saving ? "저장 중..." : isEditor ? "검토 요청" : "저장"}
-        </button>
-      </div>
+      {/* 라운드 77 트랙 D(GAP-077 #4ⓑ): 문구 자체는 읽기 권한자에게도 그대로 보인다
+          (textarea가 남는다 — 값을 보는 것은 정당하다). 내려가는 것은 제출 컨트롤뿐이다. */}
+      {canEdit ? (
+        <div className={styles.actions}>
+          <button type="button" className={styles.primaryButton} onClick={handleSave} disabled={saving}>
+            {saving ? "저장 중..." : isEditor ? "검토 요청" : "저장"}
+          </button>
+        </div>
+      ) : (
+        <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p>
+      )}
     </div>
   );
 }
@@ -127,6 +137,13 @@ export default function DisclosuresPage() {
   // COM-103: an editor's save goes through draft -> submit for review instead
   // of writing disclosures directly.
   const isEditor = session.admin.role === "editor";
+  /**
+   * 라운드 77 트랙 D(GAP-077 #4ⓑ): 화면이 서버와 같은 기준을 읽는다 — 직접 저장(PUT
+   * /admin/disclosures/:key)은 `@RequireAdminRoles("admin")`, 검토 요청은 `editor`,
+   * `analyst`에게 열린 쓰기 경로는 0건이다. 종전에는 `isEditor` 한 칸뿐이라 `analyst`가
+   * `admin`과 같은 저장 UI를 보고 눌러 봐야 403만 받았다.
+   */
+  const canEdit = session.admin.role === "admin" || session.admin.role === "editor";
 
   const handleAddKey = async () => {
     const key = newKey.trim();
@@ -192,11 +209,15 @@ export default function DisclosuresPage() {
         {createSuccess ? (
           <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
         ) : null}
-        <div className={styles.actions}>
-          <button type="button" className={styles.primaryButton} onClick={handleAddKey} disabled={creating}>
-            {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
-          </button>
-        </div>
+        {canEdit ? (
+          <div className={styles.actions}>
+            <button type="button" className={styles.primaryButton} onClick={handleAddKey} disabled={creating}>
+              {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
+            </button>
+          </div>
+        ) : (
+          <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p>
+        )}
       </section>
 
       {disclosures === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
@@ -217,6 +238,7 @@ export default function DisclosuresPage() {
           key={disclosure.key}
           disclosure={disclosure}
           isEditor={isEditor}
+          canEdit={canEdit}
           onAuthError={clearSession}
           onDraftSubmitted={() => {}}
           onSaved={(next) =>

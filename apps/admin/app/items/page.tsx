@@ -19,6 +19,7 @@ import {
   type ItemTemplateInput,
   type NecessityLevel
 } from "../../src/lib/admin-api";
+import { ADMIN_WRITE_ROLE_NOTICE } from "../../src/lib/admin-role-copy";
 import { itemCategoryOptions, type ItemCategoryOption } from "../../src/lib/item-category-options";
 import { loadErrorCopy, loadErrorMessage, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import { writeErrorMessage } from "../../src/lib/write-error-copy";
@@ -418,6 +419,15 @@ export default function ItemTemplatesPage() {
   // COM-103: an editor's save goes through draft -> submit for review instead
   // of writing item_templates directly (that endpoint is admin-only now).
   const isEditor = session.admin.role === "editor";
+  /**
+   * 라운드 77 트랙 D(GAP-077 #4ⓑ): 역할을 `isEditor` 하나로만 읽으면 갈래가 둘뿐이라
+   * `analyst`가 "편집자가 아니다" 쪽에 떨어져 `admin`과 같은 저장 UI를 봤다 — 눌러 봐야
+   * 서버가 403이다. 화면이 이제 **서버와 같은 기준**을 읽는다: 직접 저장은 `admin`
+   * (`@RequireAdminRoles("admin")`), 검토 요청은 `editor`(content-revisions = `admin, editor`),
+   * `analyst`에게 열린 쓰기 경로는 0건. ⚠️ 폼·표는 그대로 남는다(읽기 권한자가 값을 보는 것은
+   * 정당하다 — `/categories`가 표를 남기는 것과 같은 판정). 사라지는 것은 제출 컨트롤뿐이다.
+   */
+  const canEdit = session.admin.role === "admin" || session.admin.role === "editor";
 
   const filteredItems = items ? filterItemTemplates(items, filters) : null;
   const createCategoryOptions = itemCategoryOptions(categories, createForm.categoryId);
@@ -523,11 +533,15 @@ export default function ItemTemplatesPage() {
         {createSuccess ? (
           <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
         ) : null}
-        <div className={styles.actions}>
-          <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
-            {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
-          </button>
-        </div>
+        {canEdit ? (
+          <div className={styles.actions}>
+            <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
+              {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
+            </button>
+          </div>
+        ) : (
+          <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p>
+        )}
       </section>
 
       <section className={styles.card}>
@@ -653,19 +667,25 @@ export default function ItemTemplatesPage() {
                           />
                           {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
                           {editError ? <p className={styles.errorBanner}>{editError}</p> : null}
-                          <div className={styles.actions}>
-                            <button
-                              type="button"
-                              className={styles.primaryButton}
-                              onClick={handleEditSave}
-                              disabled={editSubmitting}
-                            >
-                              {editSubmitting ? "저장 중..." : isEditor ? "검토 요청" : "저장"}
-                            </button>
-                            <button type="button" className={styles.secondaryButton} onClick={cancelEdit} disabled={editSubmitting}>
-                              취소
-                            </button>
-                          </div>
+                          {/* 표의 [수정]/[닫기] 토글이 이 폼을 여닫으므로, 컨트롤이 내려가도
+                              읽기 권한자가 갇히는 자리가 없다. */}
+                          {canEdit ? (
+                            <div className={styles.actions}>
+                              <button
+                                type="button"
+                                className={styles.primaryButton}
+                                onClick={handleEditSave}
+                                disabled={editSubmitting}
+                              >
+                                {editSubmitting ? "저장 중..." : isEditor ? "검토 요청" : "저장"}
+                              </button>
+                              <button type="button" className={styles.secondaryButton} onClick={cancelEdit} disabled={editSubmitting}>
+                                취소
+                              </button>
+                            </div>
+                          ) : (
+                            <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p>
+                          )}
                         </td>
                       </tr>
                     ) : null}

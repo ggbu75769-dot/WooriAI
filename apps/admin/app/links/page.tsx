@@ -20,6 +20,7 @@ import {
   type ProductLinkInput,
   type ProductPlatform
 } from "../../src/lib/admin-api";
+import { ADMIN_WRITE_ROLE_NOTICE } from "../../src/lib/admin-role-copy";
 import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import { writeErrorMessage } from "../../src/lib/write-error-copy";
 import {
@@ -332,6 +333,14 @@ function ProductLinksPageContent() {
   // COM-103: an editor's save goes through draft -> submit for review instead
   // of writing product_links directly (that endpoint is admin-only now).
   const isEditor = session.admin.role === "editor";
+  /**
+   * 라운드 77 트랙 D(GAP-077 #4ⓑ): 화면이 서버와 같은 기준을 읽는다 — 직접 저장은 `admin`
+   * (`@RequireAdminRoles("admin")`), 검토 요청은 `editor`, `analyst`에게 열린 쓰기 경로는 0건.
+   * 종전에는 `isEditor` 한 칸뿐이라 `analyst`가 `admin`과 같은 저장 UI를 보고 403만 받았다.
+   * ⚠️ 폼·표·필터는 그대로다(읽는 것이 분석가의 일이다). 사라지는 것은 제출 컨트롤뿐이고,
+   * 아래 CSV 일괄 교체 패널의 `role === "admin"` 조건은 종전 그대로다(패널 자체가 admin 전용).
+   */
+  const canEdit = session.admin.role === "admin" || session.admin.role === "editor";
 
   const itemNameById = (id: string) => itemTemplates.find((item) => item.id === id)?.name ?? id;
 
@@ -465,11 +474,15 @@ function ProductLinksPageContent() {
             {createSuccess ? (
               <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
             ) : null}
-            <div className={styles.actions}>
-              <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
-                {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
-              </button>
-            </div>
+            {canEdit ? (
+              <div className={styles.actions}>
+                <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
+                  {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
+                </button>
+              </div>
+            ) : (
+              <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p>
+            )}
           </>
         )}
       </section>
@@ -677,19 +690,25 @@ function ProductLinksPageContent() {
                           />
                           {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
                           {editError ? <p className={styles.errorBanner}>{editError}</p> : null}
-                          <div className={styles.actions}>
-                            <button
-                              type="button"
-                              className={styles.primaryButton}
-                              onClick={handleEditSave}
-                              disabled={editSubmitting}
-                            >
-                              {editSubmitting ? "저장 중..." : isEditor ? "검토 요청" : "저장"}
-                            </button>
-                            <button type="button" className={styles.secondaryButton} onClick={cancelEdit} disabled={editSubmitting}>
-                              취소
-                            </button>
-                          </div>
+                          {/* 표의 [수정]/[닫기] 토글이 이 폼을 여닫으므로, 컨트롤이 내려가도
+                              읽기 권한자가 갇히는 자리가 없다. */}
+                          {canEdit ? (
+                            <div className={styles.actions}>
+                              <button
+                                type="button"
+                                className={styles.primaryButton}
+                                onClick={handleEditSave}
+                                disabled={editSubmitting}
+                              >
+                                {editSubmitting ? "저장 중..." : isEditor ? "검토 요청" : "저장"}
+                              </button>
+                              <button type="button" className={styles.secondaryButton} onClick={cancelEdit} disabled={editSubmitting}>
+                                취소
+                              </button>
+                            </div>
+                          ) : (
+                            <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p>
+                          )}
                         </td>
                       </tr>
                     ) : null}
