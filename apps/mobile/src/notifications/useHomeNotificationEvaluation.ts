@@ -2,7 +2,12 @@ import { useEffect } from "react";
 import type { Expense, HomeSummary } from "../api/client";
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
 import { previousYearMonth } from "../home/last-month-comparison";
-import { evaluateHomeNotifications, latestRecordedOn, type WeeklySpendResolution } from "./generators";
+import {
+  evaluateHomeNotifications,
+  latestRecordedOn,
+  type PendingRecordRowLike,
+  type WeeklySpendResolution
+} from "./generators";
 import { seoulCalendarDate } from "./iso-week";
 import { useNotificationPreferencesStore } from "./notification-preferences.store";
 import { useNotificationStore } from "./notification.store";
@@ -64,6 +69,20 @@ import { useNotificationStore } from "./notification.store";
  * 넘겨준다 — 리포트 탭의 대기 건수 고지가 쓰는 것과 같은 주입 방식이고, 새 요청도 새 구독도
  * 없다. 대기 행이 하나라도 있으면 record_gap은 **발화하지 않는다**(generators.ts).
  *
+ * ## 라운드 80 B (GAP-080 #2) — 넘어오는 것이 boolean에서 **행**으로 바뀌었다
+ *
+ * 그 게이트에는 범위가 없었다: 상태 집합에 `failed`·`conflict`가 들어 있는데(큐가 스스로 다시
+ * 보내지 않는 종점) 달도 시점도 가리지 않아, 4xx로 거절된 한 행이 남은 기기에서 record_gap과
+ * monthly_wrapup이 **영영** 발화하지 않았다. 억제는 dedupeKey를 태우지 않으므로 문제는 dedupe가
+ * 아니라 **평가 자체가 영원히 null을 낸다**는 것이었다 — 지연이 아니라 정지다.
+ *
+ * 좁히는 축은 **상태가 아니라 범위**다(generators.ts의 `PendingRecordScope`): 두 알림이 각자
+ * 단언하는 것이 어떤 행이 판정을 바꿀 수 있는지를 정한다(record_gap = `lastRecordedOn` 뒤 ·
+ * monthly_wrapup = 지난달). 그 범위는 **이 평가가 이미 알고 있는 값**이라(같은 곳에서 뽑는
+ * `lastRecordedOn`·`lastYearMonth`) 훅이 받는 것은 boolean 대신 스냅샷 행 그대로이고, 인자 수는
+ * 한 칸도 늘지 않았다. 판정은 여전히 알림 층의 순수 함수가 한다 — 이 훅은 offline 모듈을
+ * import하지 않고, 새 요청도 새 구독도 없다.
+ *
  * 두 번째 겹은 문구다: 제목이 "마지막 지출 기록이 N일 전이에요"로, **판정이 실제로 세는 것**
  * (지출 날짜)을 말한다. 소급 입력 직후에도 참인 문장이다(generators.ts의 P1-3 주석).
  *
@@ -116,14 +135,18 @@ export function useHomeNotificationEvaluation(
   home: HomeSummary | undefined,
   weekly: WeeklySpendResolution,
   /**
-   * GAP-054 라운드 54 P1-3: 이 기기에 아직 올라가지 않은 **이 아이의** 지출 행이 있는가.
-   * 호출부(홈 화면)가 이미 구독 중인 오프라인 스냅샷에서 `hasPendingRecordsForChild`로 계산해
-   * 넘긴다. `true`면 **둘**이 발화하지 않는다 — record_gap(P1-3) · monthly_wrapup(GAP-066 #8).
-   * 둘 다 키를 태우지 않아 동기화 뒤 정확히 한 번 뜨고, 나머지(시기 전환 · 구매 확인 · 주간
-   * 요약)는 종전 그대로다 — 갈래별 이유는 generators.ts에 있다.
-   * ⚠️ 라운드 79 리뷰(M-3): **예산 경계 둘은 이 값이 아니라 아래 값을 본다**(단위가 다르다).
+   * GAP-054 라운드 54 P1-3 + 라운드 80 B: 이 기기에 아직 올라가지 않은 지출 행 **그 자체**
+   * (홈 화면이 **이미 구독 중인** 오프라인 스냅샷의 행 — 새 요청도 새 구독도 0건).
+   *
+   * 종전에는 화면이 `hasPendingRecordsForChild`로 미리 접은 `hasPendingLocalRecords` boolean을
+   * 넘겼다. 그 boolean에는 범위가 없어, 형제 둘(record_gap · monthly_wrapup)이 **어떤 행이 자기
+   * 판정을 바꿀 수 있는지**를 물을 수 없었다 — 종점 상태(`failed`·`conflict`) 한 행이 두 알림을
+   * 영영 멈추던 자리다(위 머리말). 행을 그대로 받으면 각 알림이 자기 범위로 좁혀 세고
+   * (generators.ts의 `PendingRecordScope`), 상태 집합·문구·dedupeKey는 한 글자도 바뀌지 않는다.
+   * 아이 판정도 여기서 하지 않는다 — 순수 함수가 `home.child.id`로 거른다.
+   * ⚠️ 라운드 79 리뷰(M-3): **예산 경계 둘은 이 값이 아니라 아래 값을 본다**(상태 축도 다르다).
    */
-  hasPendingLocalRecords: boolean,
+  pendingRecordRows: ReadonlyArray<PendingRecordRowLike>,
   /**
    * GAP-066 #8 + 라운드 66 적대 리뷰(S-2): 홈이 이미 조회해 둔 **지난달 지출 행**과 그 배열이
    * 어느 달의 것인가(`["expenses", childId, 지난달]` 쿼리의 결과와 그 키의 달). 아직 없으면
@@ -137,6 +160,12 @@ export function useHomeNotificationEvaluation(
    * (회복 가능한 상태 × 그 달). 홈 배너가 재조정 캐시를 고르는 조건과 **같은 달 단위**이고,
    * 종점 상태(failed·conflict)는 세지 않는다(그 한 행이 그 달의 알림을 영영 막지 않게).
    * 여기서도 새 요청·새 구독은 0건이다.
+   *
+   * ⚠️ 라운드 80 B — **그 달은 `home.monthly.yearMonth`다**(기기 서울 달력이 아니라). 이 게이트가
+   * 막는 알림이 태우는 키가 `budget_100:{childId}:{yearMonth}`이고 그 `yearMonth`가 바로 이 값이라,
+   * 두 달이 갈리면 게이트가 **엉뚱한 달의 알림을 막거나 통과시킨다**(자정·월초 경계, 지난달
+   * `/home` 캐시로 그리는 콜드 스타트). 화면이 그 사실을 지키므로(app/(tabs)/index.tsx — 게이트의
+   * 달을 `home.data?.monthly.yearMonth`에서 뽑는다) 여기서는 값만 흘린다.
    */
   hasRecoverablePendingMonthRecords: boolean
 ) {
@@ -171,8 +200,10 @@ export function useHomeNotificationEvaluation(
         // "기록이 하나도 없다"라, 신규 사용자에게는 발화하지 않는다 -- generators.ts 참고.
         lastRecordedOn: latestRecordedOn(home.recentExpenses),
         // P1-3: 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 공백을 단언하지 않는다.
-        // (GAP-066 #8: 지난달 정리도 같은 이유로 같은 값을 본다 -- 금액을 단언하지 않는다.)
-        hasPendingLocalRecords,
+        // (GAP-066 #8: 지난달 정리도 같은 이유로 같은 행을 본다 -- 금액을 단언하지 않는다.)
+        // 라운드 80 B: 종전의 `hasPendingLocalRecords` boolean 대신 **행**을 넘긴다 -- 그래야
+        // 두 알림이 각자 자기 범위(시점 / 지난달)로 좁혀 셀 수 있다(generators.ts).
+        pendingRecordRows,
         // 라운드 79 B + 리뷰(M-3): 예산 경계는 자기 술어를 본다(회복 가능한 상태 × 그 달).
         hasRecoverablePendingMonthRecords,
         // GAP-066 #8: 홈이 이미 받아 둔 지난달 캐시. 없으면 지난달 정리만 만들어지지 않고
@@ -209,10 +240,12 @@ export function useHomeNotificationEvaluation(
     };
     // S-2: 지난달 값이 **deps에 있다** — 캐시가 도착한 그 순간이 재평가를 깨운다(우연에 기대지
     // 않는다). react-query의 `data` 참조는 새 결과 전까지 안정적이라 늘어나는 평가는 그 한 번뿐이다.
+    // 라운드 80 B: 대기 행도 deps에 있다 — 그 배열은 오프라인 스냅샷이 새로 실릴 때만 바뀌고
+    // (src/offline/sync-controller.ts의 latestSnapshot), 늘어난 평가는 dedupe로 무해하다.
   }, [
     home,
     weekly,
-    hasPendingLocalRecords,
+    pendingRecordRows,
     lastMonthYearMonth,
     lastMonthExpenses,
     hasRecoverablePendingMonthRecords

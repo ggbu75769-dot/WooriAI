@@ -101,7 +101,7 @@ import type { LocalExpenseRow } from "../../src/offline/types";
 import { formatKrw } from "../../src/money";
 import { resolveWeeklySpendForNotification } from "../../src/notifications/generators";
 import { NotificationBell } from "../../src/notifications/NotificationBell";
-import { hasPendingRecordsForChild, hasRecoverablePendingRecordsForMonth } from "../../src/notifications/generators";
+import { hasRecoverablePendingRecordsForMonth } from "../../src/notifications/generators";
 import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
@@ -1247,26 +1247,41 @@ export default function HomeScreen() {
    * 행을 모른다. 며칠째 연결 없이 로컬로만 적어 온 사용자에게 "마지막 지출 기록이 N일 전"이라고
    * 말하면 방금 적은 기록을 앱이 부정하는 셈이라, 대기 행이 하나라도 있으면 발화를 막는다.
    *
-   * 값은 **이미 구독 중인** 오프라인 스냅샷(위 `offlineSyncSnapshot`)에서 순수 함수로 나온다 —
-   * 새 요청도 새 구독도 없고, 훅은 여전히 offline 모듈을 import하지 않는다(그 모듈이
-   * react-native를 정적으로 끌고 들어와 알림 계약 테스트가 깨진다). 리포트 탭의 대기 건수
-   * 고지가 쓰는 것과 같은 주입 방식이다.
+   * 값은 **이미 구독 중인** 오프라인 스냅샷(위 `offlineSyncSnapshot`)에서 나온다 — 새 요청도
+   * 새 구독도 없고, 훅은 여전히 offline 모듈을 import하지 않는다(그 모듈이 react-native를
+   * 정적으로 끌고 들어와 알림 계약 테스트가 깨진다). 리포트 탭의 대기 건수 고지가 쓰는 것과 같은
+   * 주입 방식이다.
+   *
+   * ⚠️ 라운드 80 B (GAP-080 #2) — 넘기는 것이 boolean이 아니라 **행**이다. 종전의
+   * `hasPendingRecordsForChild(rows, childId)` 한 칸에는 범위가 없어, 4xx로 거절돼 `failed`로
+   * 남은 한 행이 record_gap·monthly_wrapup을 그 기기에서 **영영** 멈췄다(억제는 dedupeKey를
+   * 태우지 않으므로 지연이 아니라 정지였다). 행을 그대로 넘기면 두 알림이 각자 **자기가 단언하는
+   * 범위**(마지막 기록 시점 뒤 / 지난달)로 좁혀 세고, 그 판정은 여전히 알림 층의 순수 함수가
+   * 한다(src/notifications/generators.ts의 `PendingRecordScope`). 화면은 한 픽셀도 바뀌지 않는다.
    */
-  const hasPendingLocalRecords = hasPendingRecordsForChild(offlineSyncSnapshot.rows, childId);
+  const pendingRecordRows = offlineSyncSnapshot.rows;
   /**
    * 라운드 79 B + 리뷰(M-3·S-1) — 예산 경계 알림의 게이트는 **같은 스냅샷, 다른 술어**다.
    *
-   * 위 값은 상태 전부(종점 포함) · 달 무관이라 record_gap의 "마지막 기록 시점" 판정에 맞다.
-   * 예산은 그렇지 않다: 실패·충돌 행은 사용자가 폐기하기 전까지 남으므로 그것까지 세면 그 달의
-   * 예산 알림이 **영영** 오지 않고, 다른 달의 대기 행이 이번 달 경계를 막을 이유도 없다.
-   * 그래서 회복 가능한 상태(pending·syncing) × **이번 달**로 좁힌다 — 바로 아래 배너·진행바가
+   * 위 행들은 상태 전부(종점 포함)를 담고, 형제 둘은 각자의 범위로 좁혀 센다. 예산은 그럴 수
+   * 없다: 실패·충돌 행은 사용자가 폐기하기 전까지 남으므로 그것까지 세면 그 달의 예산 알림이
+   * **영영** 오지 않고(dedupe가 달 단위다), 다른 달의 대기 행이 이번 달 경계를 막을 이유도 없다.
+   * 그래서 회복 가능한 상태(pending·syncing) × **그 달**로 좁힌다 — 바로 아래 배너·진행바가
    * 재조정 값을 고르는 조건(`hasPendingMonthAdjustments`)과 **같은 달 단위**다.
    * 값은 여전히 이미 구독 중인 스냅샷에서 나온 순수 판정이라 새 요청·새 구독은 0건이다.
+   *
+   * ⚠️ 라운드 80 B — **그 "그 달"은 `/home` 응답의 달이다**(기기 서울 달력 `thisYearMonth`가
+   * 아니라). 이 게이트가 막는 알림이 태우는 키는 `budget_100:{childId}:{yearMonth}`이고 그
+   * `yearMonth`는 `monthly.yearMonth`(서버의 달)라, 둘이 갈리는 창(자정·월초 경계 · 지난달
+   * `/home` 캐시로 그리는 콜드 스타트)에서는 게이트가 8월 대기 행을 보고 **7월 알림을 막거나**
+   * 그 반대를 했다. 게이트의 달을 **그 알림이 키를 태우는 달**로 맞추면 그 창이 닫힌다(둘이
+   * 갈리지 않는 대다수 경로에서는 값이 같다). 배너·진행바는 화면의 달을 계속 본다 — 그쪽은
+   * 라이브 표면이라 기기 달력이 맞는 단위다.
    */
   const hasRecoverablePendingMonthRecords = hasRecoverablePendingRecordsForMonth(
     offlineSyncSnapshot.rows,
     childId,
-    thisYearMonth
+    home.data?.monthly.yearMonth
   );
   // GAP-066 #8 + 라운드 66 적대 리뷰(S-2): 지난달 정리 알림이 쓰는 지난달 행을 **이 화면이 이미
   // 조회해 둔 쿼리**(위 lastMonthExpenses -- 한 줄 인사이트·주간 카드가 쓰는 그것)에서 그대로
@@ -1275,7 +1290,7 @@ export default function HomeScreen() {
   useHomeNotificationEvaluation(
     hasSession ? home.data : undefined,
     weeklySpendForNotification,
-    hasPendingLocalRecords,
+    pendingRecordRows,
     lastYearMonth,
     lastMonthExpenses.data?.expenses,
     hasRecoverablePendingMonthRecords

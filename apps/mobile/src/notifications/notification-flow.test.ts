@@ -20,7 +20,9 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
         "useHomeNotificationEvaluation(",
         "    hasSession ? home.data : undefined,",
         "    weeklySpendForNotification,",
-        "    hasPendingLocalRecords,",
+        // 라운드 80 B: 셋째 인자는 boolean이 아니라 **스냅샷 행**이다(형제 둘의 게이트가 각자의
+        // 범위로 좁혀 센다 — generators.ts). 여기서도 새 요청·새 구독은 0건이고 인자 수는 그대로다.
+        "    pendingRecordRows,",
         "    lastYearMonth,",
         "    lastMonthExpenses.data?.expenses,",
         // 라운드 79 리뷰(M-3): 여섯째는 예산 경계 게이트의 술어다 — 같은 스냅샷에서 나오지만

@@ -212,7 +212,8 @@ describe("GAP-066 #8 홈 평가 합류 (새 요청 0건)", () => {
     for (const dep of [
       "home",
       "weekly",
-      "hasPendingLocalRecords",
+      // 라운드 80 B: 그 자리는 boolean이 아니라 **스냅샷 행**이 됐다(범위로 좁혀 세기 위해서다).
+      "pendingRecordRows",
       "lastMonthYearMonth",
       "lastMonthExpenses",
       "hasRecoverablePendingMonthRecords"

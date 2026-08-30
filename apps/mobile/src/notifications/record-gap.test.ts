@@ -191,13 +191,15 @@ describe("GAP-054 #6 기존 알림 평가 경로 합류(새 백그라운드 작�
     // 홈 화면 호출부는 손대지 않았다(인자 2개 그대로).
     // 라운드 54 P1-3에서 인자가 셋이 됐다 — 세 번째는 홈이 **이미 구독 중인** 스냅샷에서
     // 나온 순수 판정이라, 화면이 새로 부르는 요청·구독은 여전히 0건이다.
+    // 라운드 80 B: 넘어가는 것이 boolean이 아니라 **스냅샷 행**이다(형제 둘이 각자의 범위로
+    // 좁혀 세기 위해서다 — generators.ts의 PendingRecordScope). 묻는 것은 그대로다: 그 값이
+    // 화면이 **이미 구독 중인** 스냅샷에서 오는가(새 요청·새 구독 0건). 바이트가 아니라 모양을
+    // 묻는다 — 범위 판정 자체는 generators.test.ts의 라운드 80 B 절이 값으로 고정한다.
     const homeScreen = source("app/(tabs)/index.tsx");
-    expect(homeScreen).toContain(
-      "const hasPendingLocalRecords = hasPendingRecordsForChild(offlineSyncSnapshot.rows, childId);"
-    );
+    expect(homeScreen).toContain("const pendingRecordRows = offlineSyncSnapshot.rows;");
     // 라운드 66 적대 리뷰(S-2)에서 인자가 다섯이 됐다 — 뒤의 둘도 홈이 **이미 조회 중인**
     // 쿼리의 값이라, 화면이 새로 부르는 요청·구독은 여전히 0건이다.
-    expect(homeScreen).toContain("    hasPendingLocalRecords,\n    lastYearMonth,");
+    expect(homeScreen).toContain("    pendingRecordRows,\n    lastYearMonth,");
   });
 });
 
