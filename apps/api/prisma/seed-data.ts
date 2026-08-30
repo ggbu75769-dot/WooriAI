@@ -2148,5 +2148,105 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     displayOrder: 620,
     active: true,
     disclosureText: null
+  },
+  /* -------------------------------------------------- 라운드 83 트랙 A: 일반 링크 다섯
+   *
+   * 고치는 문제: 아래 다섯 품목은 **유일한 링크가 스폰서**였다. 상세 화면의 강조 판정은
+   * "링크가 있는가"가 아니라 "비스폰서 링크가 있는가"다 —
+   * `apps/mobile/src/items/link-marker.ts`의 `primaryPurchaseLinkIndex`가
+   * `links.findIndex((link) => !link.isSponsored)`이고, 전부 스폰서면 **-1**이다. 그 -1이
+   * 판매처 행의 채움(`filledPurchaseRowIndex`)과 전폭 CTA(`primaryPurchaseLink`)를 **동시에**
+   * 끄므로, 그 다섯 화면에는 외곽선 "구매" 행 하나만 서고 이 앱이 핵심 루프 4단계(구매 링크
+   * 클릭)를 여는 **유일한 큰 버튼**이 아예 렌더되지 않았다. 그중 `wipes_bulk`는 카탈로그가
+   * 스스로 `essential`이라고 부르는 품목이다.
+   *
+   * ⚠️ 라운드 82 B가 세운 계약("링크 ≥1" · 링크 0건 대장)은 이 자리를 묻지 않는다 —
+   * 그 계약은 링크의 **개수**를 세고 화면은 링크의 **종별**을 본다. 그래서 다섯 품목이
+   * 그 사이에 있었고 계약은 초록이었다. `apps/api/test/seed-data.test.ts`의
+   * `ITEM_CODES_WITHOUT_NON_SPONSORED_LINK` 대장이 오늘부터 화면과 같은 술어로 묻는다.
+   *
+   * 모양은 오늘 카탈로그의 38건이 이미 쓰는 **일반 링크** 그대로다(`platform: "custom"` ·
+   * `https://example.com/dev/…` · `isAffiliate: false` · `isSponsored: false` ·
+   * `sponsorLabel: null` · `disclosureText: null` · `active: true`).
+   * ⚠️ 일반 링크에는 고지할 대상 자체가 없으므로 **DNC-010 문장도 DNC-011 배지도 늘지 않는다**
+   * (`link-marker.ts`가 문구를 링크 **집합**으로 정한다 — 스폰서 링크는 그 집합에 그대로 남아
+   * 배지와 캡션을 계속 단다). 제목에는 효능·효과를 적지 않는다(DNC-020).
+   * ⚠️ 정렬·점수는 한 글자도 건드리지 않는다(DNC-009) — `displayOrder`는 스폰서 링크보다
+   * 뒤이고, 강조가 앞줄이 아니라 **첫 비스폰서 줄**로 가는 것은 라운드 64 #1이 세운 판정이다.
+   */
+  {
+    itemTemplateCode: "wipes_bulk",
+    platform: "custom",
+    title: "개발용 물티슈 대량 구매 링크",
+    url: "https://example.com/dev/wipes-bulk-general",
+    affiliateUrl: null,
+    affiliatePartnerCode: null,
+    isAffiliate: false,
+    isSponsored: false,
+    sponsorLabel: null,
+    priceSnapshotKrw: 32000,
+    displayOrder: 630,
+    active: true,
+    disclosureText: null
+  },
+  {
+    itemTemplateCode: "stroller",
+    platform: "custom",
+    title: "개발용 유모차 링크",
+    url: "https://example.com/dev/stroller-general",
+    affiliateUrl: null,
+    affiliatePartnerCode: null,
+    isAffiliate: false,
+    isSponsored: false,
+    sponsorLabel: null,
+    priceSnapshotKrw: 290000,
+    displayOrder: 640,
+    active: true,
+    disclosureText: null
+  },
+  {
+    itemTemplateCode: "pregnancy_diary",
+    platform: "custom",
+    title: "개발용 태교 일기장 링크",
+    url: "https://example.com/dev/pregnancy-diary-general",
+    affiliateUrl: null,
+    affiliatePartnerCode: null,
+    isAffiliate: false,
+    isSponsored: false,
+    sponsorLabel: null,
+    priceSnapshotKrw: 12000,
+    displayOrder: 650,
+    active: true,
+    disclosureText: null
+  },
+  {
+    itemTemplateCode: "push_walker",
+    platform: "custom",
+    title: "개발용 걸음마 보조 장난감 링크",
+    url: "https://example.com/dev/push-walker-general",
+    affiliateUrl: null,
+    affiliatePartnerCode: null,
+    isAffiliate: false,
+    isSponsored: false,
+    sponsorLabel: null,
+    priceSnapshotKrw: 68000,
+    displayOrder: 660,
+    active: true,
+    disclosureText: null
+  },
+  {
+    itemTemplateCode: "kids_bicycle",
+    platform: "custom",
+    title: "개발용 네발 자전거와 헬멧 링크",
+    url: "https://example.com/dev/kids-bicycle-general",
+    affiliateUrl: null,
+    affiliatePartnerCode: null,
+    isAffiliate: false,
+    isSponsored: false,
+    sponsorLabel: null,
+    priceSnapshotKrw: 189000,
+    displayOrder: 670,
+    active: true,
+    disclosureText: null
   }
 ];

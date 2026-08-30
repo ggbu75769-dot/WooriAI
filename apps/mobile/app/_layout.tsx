@@ -6,6 +6,7 @@ import { ErrorBoundary } from "../src/errors/ErrorBoundary";
 import { useOfflineSyncLifecycle } from "../src/offline/sync-controller";
 import { installAppQueryRefetchWiring } from "../src/query/install-app-refetch";
 import { registerAppQueryClient } from "../src/query/query-client-registry";
+import { SHARED_CACHE_POLICIES } from "../src/query/shared-cache-policy";
 import { AppLockOverlay, AppLockScreenShield } from "../src/security/AppLockOverlay";
 import { useSessionStore } from "../src/stores/session.store";
 
@@ -29,6 +30,21 @@ const queryClient = new QueryClient({
     }
   }
 });
+
+/**
+ * 라운드 83 트랙 D(GAP-083 #3) — **공유 캐시 키의 신선도를 키별로 한 벌씩 등록하는 유일한 자리.**
+ *
+ * 값도 이유도 여기에 적지 않는다 — 표는 src/query/shared-cache-policy.ts 한 곳에 있고 여기서는
+ * 그것을 훑기만 한다(정책 원천이 둘이 되면 shared-cache-policy.test.ts의 ⓓ가 빨개진다).
+ *
+ * 우선순위는 `defaultOptions.queries` < 이 키별 기본 < 호출부 인라인 옵션이라, 위 전역 30초는
+ * 표에 없는 모든 키에 종전 그대로 적용되고 화면이 직접 적은 staleTime도 여전히 이긴다.
+ * `staleTimeMs: null`인 줄은 "전역 30초를 그대로 둔다"는 판정이라 등록하지 않는다.
+ */
+for (const policy of SHARED_CACHE_POLICIES) {
+  if (policy.staleTimeMs === null) continue;
+  queryClient.setQueryDefaults([...policy.queryKeyPrefix], { staleTime: policy.staleTimeMs });
+}
 
 // FIX-118A (M-3): 사용자 스코프 쿼리 키(["children"], ["my-devices"] 등)에는 사용자 식별자가
 // 없어서, 로그아웃/계정 전환 teardown이 zustand·SQLite만 지우면 위 staleTime(30초) 동안 이전

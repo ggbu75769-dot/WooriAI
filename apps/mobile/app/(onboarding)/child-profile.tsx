@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { CHILD_STAGE_CODES, getSeoulToday, type ChildStageCode } from "@wooriai/domain";
@@ -72,6 +72,7 @@ export default function ChildProfileScreen() {
   );
   const clearChildCreateIdempotencyKey = useOnboardingProgressStore((state) => state.clearChildCreateIdempotencyKey);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
+  const queryClient = useQueryClient();
 
   // 라운드 60 #9: 단계 진입 계측(onboarding_step_viewed). 동의 OFF면 완전한 no-op이다.
   useOnboardingStepAnalytics("ONB-002");
@@ -154,6 +155,21 @@ export default function ChildProfileScreen() {
       setSelectedChildId(child.id);
       completeStep("ONB-002");
       clearChildCreateIdempotencyKey();
+      /**
+       * 라운드 83 트랙 D(GAP-083 #3) — **방금 만든 아이를 목록 캐시에도 알린다.**
+       *
+       * `["children"]`을 바꾸는 쓰기 경로 중 이 자리만 성공 뒤 아무것도 무효화하지 않았다
+       * (설정 > 아이 관리·아이 삭제·가구 탈퇴·초대 수락은 전부 한다 —
+       * src/query/shared-cache-policy.ts의 CHILDREN_WRITE_LEDGER). 이 화면 자신은 그 키를
+       * 읽지 않아 증상이 없었고, 전역 기본 30초가 그 뒤를 덮고 있었다. 그래서 **기본값을
+       * 늘리려는 사람이 처음 만나는 구멍**이었다 — 같은 트랙이 이 키를 5분으로 올리므로
+       * 이 한 줄이 먼저 서야 한다.
+       *
+       * `await`하지 않는다: 이 화면에는 `["children"]` 활성 관찰자가 없어 기다릴 재조회가
+       * 없고, 저장 성공 후의 이동 타이밍(ONB-002 → ONB-003)을 한 틱도 바꾸지 않기 위해서다.
+       * 저장·재시도·동의 복구·Idempotency-Key 규칙은 이 줄 위로 한 글자도 달라지지 않았다.
+       */
+      void queryClient.invalidateQueries({ queryKey: ["children"] });
       router.push("/onboarding/prepared-items");
     }
   });

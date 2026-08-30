@@ -181,6 +181,22 @@ describe("라운드 82 D(#4) `/home` 응답 구독 대장", () => {
  *
  * ⚠️ 수치는 손으로 적지 않는다: 아래 목록은 소스에서 뽑은 쿼리 이름 · 키 · `enabled` 식과
  * 대조되고(그래서 쿼리가 하나 늘면 이 파일이 먼저 빨개진다), 첫 페인트 수는 목록에서 **센다**.
+ *
+ * ## 라운드 83 B(#2) — 모집단이 **탭 다섯**이다 (W-4의 이행)
+ *
+ * 라운드 82 D가 이 대장을 세울 때 모집단은 그 라운드가 만진 세 탭(홈 · 리포트 · 더보기)뿐이었다.
+ * 그래서 "어느 탭이 콜드 스타트에 무엇을 켜는가"라는 질문에 답이 있는 탭과 없는 탭이 갈렸고,
+ * 실제로 기록 탭은 홈이 UX-W(C8)로 이미 미뤄 둔 지난달 지출 쿼리(`["expenses", childId, 지난달]`
+ * — 홈과 **같은 키**다)를 첫 페인트에 이번 달 쿼리와 나란히 켜고 있었다. 그 응답의 유일한
+ * 소비자(`lastMonthInsight`)는 이미 `expenses.data`를 기다리므로, 지난달이 먼저 도착해도 그 줄은
+ * 그려지지 않는다 — 먼저 받아 봐야 그릴 것이 0건인 왕복이었다.
+ *
+ * 라운드 83 B가 기록 탭의 그 한 줄을 홈과 같은 모양(`expenses.isFetched` 뒤)으로 미루면서,
+ * 이 대장의 모집단을 **탭 다섯 전부**로 넓힌다. 이제 탭 하나가 새 쿼리를 켜면 어느 탭이든
+ * 이 파일이 먼저 빨개진다(종전에는 기록 · 준비물 탭이 그 스윕 밖이었다).
+ *
+ * ⚠️ 준비물 탭(`app/(tabs)/items.tsx`)은 이 라운드에서 **읽기만** 한다 — 대장에 들어올 뿐
+ * 변경 0건이다. 홈 · 리포트 · 더보기 세 항목도 라운드 82 D가 적은 그대로 바이트 불변이다.
  */
 type FirstPaintQuery = {
   /** 화면 안의 변수명. */
@@ -238,6 +254,66 @@ const FIRST_PAINT_QUERY_LEDGER: Readonly<Record<string, readonly FirstPaintQuery
       enabled: "Boolean(authToken)",
       firesOnFirstPaint: true,
       reason: "아이 전환 칩·헤더 라벨의 원천이고 아이가 정해지지 않은 창에서도 필요하다(게이트가 토큰 하나다)."
+    }
+  ],
+  "app/(tabs)/records.tsx": [
+    {
+      name: "expenses",
+      key: '["expenses", childId, recordsYearMonth]',
+      enabled: "Boolean(authToken && childId)",
+      firesOnFirstPaint: true,
+      reason: "이 탭의 목록 · 건수 · 월 합계 · 카테고리 집계가 전부 이 한 응답이다 — 기록 탭의 첫 페인트가 곧 이 응답이다."
+    },
+    {
+      name: "lastMonthExpenses",
+      key: '["expenses", childId, lastYearMonth]',
+      enabled: "Boolean(authToken && childId && lastYearMonth && isCurrentMonth && expenses.isFetched)",
+      firesOnFirstPaint: false,
+      reason: "라운드 83 B가 홈(UX-W C8)과 같은 순서로 미뤘다 — 이번 달 조회가 끝나야 켜진다. 소비자인 '지난달 같은 시점 대비' 한 줄이 이미 expenses.data를 기다리므로, 먼저 받아도 그 프레임에 그릴 것이 0건이다(키는 홈과 공유하는 그대로다)."
+    },
+    {
+      name: "categories",
+      key: '["categories"]',
+      enabled: "Boolean(authToken)",
+      firesOnFirstPaint: true,
+      reason: "카테고리 필터 칩과 행 부제의 이름 해석이 이 목록에서 온다. 홈 · 리포트 · 지출 화면과 같은 키라 대개 이미 채워진 캐시를 읽는다."
+    },
+    {
+      name: "childrenQuery",
+      key: '["children"]',
+      enabled: "Boolean(authToken)",
+      firesOnFirstPaint: true,
+      reason: "헤더의 아이 라벨과 작성자 라벨이 쓸 가구 판정(resolveExpenseHouseholdId)의 원천이고, 아이가 정해지지 않은 창에서도 필요하다(게이트가 토큰 하나다)."
+    },
+    {
+      name: "householdMembers",
+      key: '["household-members", householdId]',
+      enabled: "Boolean(authToken && householdId)",
+      firesOnFirstPaint: false,
+      reason: "가구는 ['children']이 끝나야 정해진다(resolveExpenseHouseholdId는 목록이 없으면 null을 준다) — 첫 페인트 다음 프레임이다. 목록이 없는 동안 작성자 라벨은 종전처럼 생략된다."
+    }
+  ],
+  "app/(tabs)/items.tsx": [
+    {
+      name: "childrenQuery",
+      key: '["children"]',
+      enabled: "Boolean(authToken)",
+      firesOnFirstPaint: true,
+      reason: "시기 밴드의 원천이다 — 라운드 69 C가 이 화면의 단계 판정을 ['home']에서 이 한 행으로 옮겼고(그래서 이 탭은 홈 응답을 무효화만 한다), 게이트가 토큰 하나다."
+    },
+    {
+      name: "items",
+      key: '["items", childId, "catalog"]',
+      enabled: "Boolean(authToken && childId)",
+      firesOnFirstPaint: true,
+      reason: "준비물 카탈로그 전량과 그 아이의 상태 행이 이 한 응답이다 — 이 탭의 본문이 곧 이 응답이라 미룰 자리가 없다."
+    },
+    {
+      name: "categories",
+      key: '["categories"]',
+      enabled: "Boolean(authToken && childId)",
+      firesOnFirstPaint: true,
+      reason: "분류 섹션의 이름·아이콘을 정한다. 새 화면 데이터가 아니라 기록 탭·리포트가 이미 채워 두는 그 공유 캐시다."
     }
   ],
   "app/(tabs)/reports.tsx": [
@@ -356,13 +432,21 @@ const FIRST_PAINT_FRAME: Readonly<Record<string, FirstPaintValue>> = {
   childId: { value: true, reason: "기준 프레임이 '아이가 정해진' 콜드 스타트다." },
   householdId: {
     value: false,
-    reason: "관리 대상 가구는 ['children'] 응답이 정한다 — 첫 렌더에는 아직 없다(resolveManagedHouseholdId가 null)."
+    reason: "가구는 ['children'] 응답이 정한다 — 첫 렌더에는 아직 없다(더보기의 resolveManagedHouseholdId도, 기록 탭의 resolveExpenseHouseholdId도 목록이 없으면 null을 준다)."
   },
   lastYearMonth: { value: true, reason: "지난달 키는 오늘 날짜로 만드는 문자열이라 첫 렌더에 이미 있다." },
   period: { value: "월간", reason: "리포트 탭의 기본 세그먼트다(useState 초기값)." },
+  isCurrentMonth: {
+    value: true,
+    reason: "기록 탭이 보고 있는 달 — 달 이동(monthOffset)의 초기값이 0이라 첫 렌더는 언제나 이번 달이다."
+  },
   "thisMonthExpenses.isFetched": {
     value: false,
     reason: "같은 프레임에서 막 켜진 쿼리라 아직 끝나지 않았다(UX-W C8이 미룬 근거 그 자체)."
+  },
+  "expenses.isFetched": {
+    value: false,
+    reason: "기록 탭의 이번 달 쿼리 — 같은 프레임에서 막 켜졌으므로 아직 끝나지 않았다(라운드 83 B가 지난달을 그 뒤로 미룬 근거 그 자체)."
   },
   homeHasNoBudgetThisMonth: {
     value: false,
@@ -513,6 +597,21 @@ describe("라운드 82 D(#4) 화면별 첫 페인트 요청 구성", () => {
     );
   });
 
+  /**
+   * 라운드 83 B(#2) 계약 ⓑ — **모집단이 탭 다섯이다.**
+   *
+   * 대장이 세 탭만 덮던 동안 기록 · 준비물 탭의 첫 페인트 구성은 어디에도 적히지 않았고, 그래서
+   * 홈이 이미 미뤄 둔 같은 키를 기록 탭이 첫 페인트에 켜고 있다는 사실이 아무 데서도 빨개지지
+   * 않았다. 이제 탭이 하나라도 쿼리를 늘리면 위 ⓔ 스윕이 먼저 깨진다.
+   */
+  it("ⓑ 모집단: 대장의 화면이 app/(tabs)의 탭 다섯 전부다", () => {
+    const tabScreens = appScreenPaths().filter(
+      (path) => path.startsWith("app/(tabs)/") && !path.endsWith("/_layout.tsx")
+    );
+    expect(tabScreens).toHaveLength(5);
+    expect(Object.keys(FIRST_PAINT_QUERY_LEDGER).sort()).toEqual(tabScreens);
+  });
+
   it("ⓔ 미룬 쿼리는 대장에도 미룬 것으로 적히고, 그 계약은 홈이 그대로 진다", () => {
     const deferred = FIRST_PAINT_QUERY_LEDGER["app/(tabs)/index.tsx"].find(
       (entry) => entry.name === "lastMonthExpenses"
@@ -522,5 +621,72 @@ describe("라운드 82 D(#4) 화면별 첫 페인트 요청 구성", () => {
     expect(source("src/home/home-cold-start-defer.test.ts")).toContain(
       "enabled: Boolean(authToken && childId && lastYearMonth && thisMonthExpenses.isFetched)"
     );
+  });
+});
+
+/**
+ * 라운드 83 B(#2) — **기록 탭이 홈과 같은 순서로 기다린다.**
+ *
+ * 홈은 UX-W(C8)에서 지난달 지출 쿼리를 `thisMonthExpenses.isFetched` 뒤로 미뤘는데, 기록 탭은
+ * **같은 캐시 키**(`["expenses", childId, 지난달]`)를 첫 페인트에 이번 달 쿼리와 나란히 켜고
+ * 있었다. 그 응답을 쓰는 자리는 "지난달 같은 시점 대비" 한 줄 하나이고, 그 줄은 이미
+ * `expenses.data`(이번 달 목록)가 있어야만 계산된다 — 지난달이 먼저 도착한 프레임에는 그릴
+ * 것이 애초에 0건이라, 첫 페인트를 두 달치 커서 루프가 함께 붙잡을 이유가 없었다.
+ *
+ * 고친 것은 `enabled` 한 줄뿐이다: 키 · 페처 · 소비자 · 문구 · 렌더 노드가 모두 그대로이고,
+ * 쿼리는 **미뤄지기만** 한다(과거 달을 볼 때 비활성이던 `isCurrentMonth` 게이트도 그대로다).
+ * 홈의 계약은 여전히 src/home/home-cold-start-defer.test.ts가 지고, 이 describe는 기록 탭 쪽의
+ * 같은 두 단언(배선 · 선언 순서)과 그 defer가 **새 창을 만들지 않는다**는 사실을 붙든다.
+ */
+describe("라운드 83 B(#2) 기록 탭 첫 페인트 defer", () => {
+  const recordsSource = () => source("app/(tabs)/records.tsx");
+
+  it("ⓐ 배선: 지난달 지출 쿼리는 이번 달 쿼리가 끝난 뒤에야 켜진다(홈과 같은 두 단언)", () => {
+    expect(recordsSource()).toContain(
+      "enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth && expenses.isFetched)"
+    );
+    // 선언 순서도 계약이다 — 지난달 쿼리가 위에 있으면 `expenses`를 참조할 수 없다.
+    expect(recordsSource().indexOf("const expenses = useQuery({")).toBeLessThan(
+      recordsSource().indexOf("const lastMonthExpenses = useQuery({")
+    );
+  });
+
+  it("ⓐ 이번 달 쿼리는 미루지 않는다 — 목록·건수·월 합계가 첫 페인트에 쓰는 데이터다", () => {
+    const src = recordsSource();
+    const start = src.indexOf("const expenses = useQuery({");
+    expect(start, "이번 달 쿼리 선언이 소스에 없다").toBeGreaterThan(-1);
+    const end = src.indexOf("});", start);
+    expect(end, "이번 달 쿼리 선언의 닫는 괄호가 없다").toBeGreaterThan(start);
+    const thisMonthQuery = src.slice(start, end);
+    expect(thisMonthQuery).toContain("enabled: Boolean(authToken && childId)");
+    expect(thisMonthQuery).not.toContain("isFetched");
+  });
+
+  it("ⓔ 부정: 새 창이 0건이다 — 비교 줄의 게이트는 종전과 같이 이번 달 응답이다", () => {
+    const src = recordsSource();
+    // 지난달 응답만 있고 이번 달이 없는 프레임에서 비교 줄이 그려진 적이 없다(그 게이트가 이미
+    // expenses.data다). 그래서 이 defer가 "보이던 것이 사라지는" 창을 새로 만들지 않는다.
+    expect(src).toContain("isCurrentMonth && expenses.data");
+    expect(src).toContain("if (!lastYearMonth || !lastMonthServerExpenses) return null;");
+    // 캐시 키는 홈과 공유하는 그대로다 — 추가 왕복 0건이고 ["expenses"] 무효화에 그대로 걸린다.
+    expect(src).toContain('queryKey: ["expenses", childId, lastYearMonth]');
+    expect(src).toContain('queryKey: ["expenses", childId, recordsYearMonth]');
+    // 페처도 그대로 전량 수집이다(REC-124 H1) — 미룬 것이지 잘라 온 것이 아니다.
+    expect(src).toContain(
+      "queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, lastYearMonth!, page))"
+    );
+  });
+
+  it("ⓓ 대소: 기록 탭의 첫 페인트 요청이 종전(넷)보다 작다", () => {
+    const firstPaintCount = (path: string) =>
+      FIRST_PAINT_QUERY_LEDGER[path].filter((entry) => entry.firesOnFirstPaint).length;
+    // 종전 넷: 이번 달 지출 · 지난달 지출 · 카테고리 · 아이 목록. 값은 손으로 적지 않고 대장에서
+    // 센다(그 대장의 불리언은 위 ⓔ 스윕이 `enabled` 식 평가와 대조한다).
+    expect(firstPaintCount("app/(tabs)/records.tsx")).toBeLessThan(4);
+    // 미룬 것은 지난달 한 줄뿐이다 — 나머지 셋은 그대로 첫 페인트에 선다.
+    const deferred = FIRST_PAINT_QUERY_LEDGER["app/(tabs)/records.tsx"].filter(
+      (entry) => !entry.firesOnFirstPaint
+    );
+    expect(deferred.map((entry) => entry.name)).toEqual(["lastMonthExpenses", "householdMembers"]);
   });
 });

@@ -248,7 +248,7 @@ describe("상품 링크 가격 정직 계약 (라운드 51 #9)", () => {
 
   /**
    * 시드가 심는 가격은 확인 시각과 함께 유효화된다(prisma/seed.ts resolveSeedPriceCheckedAt).
-   * 이게 없으면 시드된 링크 전부(`productLinkSeeds.length` — 라운드 82 B 이후 62건)의 가격은
+   * 이게 없으면 시드된 링크 전부(`productLinkSeeds.length` — 라운드 82 B 이후 62건, 라운드 83 A 이후 67건)의 가격은
    * 규칙상 영원히 표시되지 않는 죽은 값이 된다.
    * 읽기만 하므로 다른 스위트와 겹쳐 돌아도 안전하다.
    */

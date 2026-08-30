@@ -809,6 +809,10 @@ export type AdminDashboardSummary = {
   productLinksBrokenCount: number;
   productLinksActiveCount: number;
   productLinksUncheckedCount: number;
+  // 라운드 83 트랙 C: 활성 준비템 수 = 카탈로그의 크기. 저장소의 판정이 이 수에 기대는데
+  // (docs/operations/known-limitations.md N-4의 재개 트리거 "카탈로그 200건") 세는 자리가
+  // 0건이라 문턱이 조용히 넘어가던 값이다. 문턱의 인용은 catalog-size-view.ts가 진다.
+  itemTemplatesActiveCount: number;
 };
 
 export function getAdminDashboardSummary() {

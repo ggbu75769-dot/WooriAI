@@ -54,6 +54,9 @@ async function loadSeedData() {
       isAffiliate: boolean;
       isSponsored: boolean;
       sponsorLabel?: string | null;
+      // 라운드 83 트랙 A: 비스폰서 대장은 **활성** 링크만 센다(화면이 받는 집합이 그것이다 —
+      // items-catalog.service.getItemDetail의 `where: { active: true }`).
+      active: boolean;
       disclosureText?: string | null;
     }>;
   }>;
@@ -91,6 +94,44 @@ const ITEM_CODES_WITHOUT_PRODUCT_LINK: Record<string, string> = {};
  * 그 손은 왜 그 품목이 구매 경로 없이 목록에 서는지를 위 대장에 값으로 적게 된다.
  */
 const ITEM_CODES_WITHOUT_PRODUCT_LINK_MAX = 0;
+
+/**
+ * 라운드 83 트랙 A — **계약이 화면과 같은 술어를 쓴다.**
+ *
+ * 바로 위 대장은 *"링크가 몇 개인가"* 를 묻는다. 그런데 상세 화면의 강조 판정은 그 질문을
+ * 하지 않는다 — `apps/mobile/src/items/link-marker.ts`의 `primaryPurchaseLinkIndex`가
+ * `links.findIndex((link) => !link.isSponsored)`이고, **전부 스폰서면 -1**이다. 그 -1 하나가
+ * `apps/mobile/app/items/[itemTemplateId].tsx`의 판매처 행 채움(`filledPurchaseRowIndex`)과
+ * 전폭 CTA(`primaryPurchaseLink`)를 **동시에** 끈다. 즉 화면이 묻는 것은
+ * *"비스폰서 링크가 있는가"* 다.
+ *
+ * ⚠️ 두 질문의 답이 갈리는 품목이 라운드 82 시드에 **다섯** 있었다
+ * (`wipes_bulk`·`stroller`·`pregnancy_diary`·`push_walker`·`kids_bicycle` — 전부 링크가
+ * 정확히 하나였고 그 하나가 스폰서였다). 링크 개수를 세는 위 대장은 다섯 전부에 대해
+ * **초록**이었고, 그동안 그 다섯 화면에서는 이 앱이 핵심 루프 4단계를 여는 **유일한 큰
+ * 버튼**이 서지 않았다. 그중 하나(`wipes_bulk`)는 카탈로그가 스스로 `essential`이라고
+ * 부르는 품목이다.
+ *
+ * 그래서 위 대장을 지우지 않고(둘은 **다른 질문**이다 — 지우면 다음 라운드가 링크 0건을
+ * 새 결함으로 다시 줍는다) 같은 형식의 대장을 하나 더 세운다: 키 = **활성 비스폰서 링크가
+ * 0건인 품목**, 값 = 그 이유. 무는 계약도 같은 셋이다 — ① 두 방향 대조, ② 빈 문자열이 아닌
+ * 이유, ③ 래칫.
+ *
+ * ⚠️ 오늘 이 대장은 **비어 있다**(래칫 0). 지워서 빈 것이 아니라 **재서** 빈 것이다 —
+ * 트랙 A가 그 다섯에 일반 링크(비제휴·비스폰서) 다섯을 더했고, 그래서 62개 품목이 전부
+ * 강조를 받을 수 있는 링크를 갖는다(활성 링크 62건 → 67건 · 그중 일반이 38건 → 43건).
+ * 스폰서 링크는 한 건도 지우지 않았다(다섯 그대로) — 없어졌던 것은 구매 **경로**가 아니라
+ * **강조**였고, 그 경로는 스폰서 배지와 함께 판매처 행에 그대로 남는다(DNC-011).
+ */
+const ITEM_CODES_WITHOUT_NON_SPONSORED_LINK: Record<string, string> = {};
+
+/**
+ * 래칫 상한 — **오늘 실측값**이다. ⚠️ 라운드 82 소스에서 이 대장은 **다섯**이었으므로 이 줄은
+ * 그 시드에서 빨갛다. 다시 하나라도 생기면 ①이 "대장에 없는 비스폰서 0건 품목"으로 먼저
+ * 빨개지고, 그것을 대장에 적어 면제하려 하면 이 줄이 그 다음에 빨개진다 — 그 손은 왜 어떤
+ * 품목이 **광고 링크 하나만** 걸고 목록에 서는지를 값으로 적게 된다.
+ */
+const ITEM_CODES_WITHOUT_NON_SPONSORED_LINK_MAX = 0;
 
 /**
  * 라운드 81까지 이름으로 면제되던 일곱. **지우지 않는다** — 이 이름들이 사라지면 다음 라운드가
@@ -335,6 +376,48 @@ describe("Batch 03 seed data", () => {
     expect(ledger.length).toBeLessThanOrEqual(ITEM_CODES_WITHOUT_PRODUCT_LINK_MAX);
   });
 
+  it("비스폰서 링크 0건 대장이 실측과 두 방향으로 일치하고, 크기가 오늘 값을 넘지 않는다", async () => {
+    const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
+
+    // 화면이 받는 집합과 같은 술어다: **활성**이면서 **스폰서가 아닌** 링크.
+    const codesWithNonSponsoredLink = new Set(
+      productLinkSeeds.filter((link) => link.active && !link.isSponsored).map((link) => link.itemTemplateCode)
+    );
+    const measured = itemTemplateSeeds
+      .filter((item) => !codesWithNonSponsoredLink.has(item.code))
+      .map((item) => item.code)
+      .sort();
+    const ledger = Object.keys(ITEM_CODES_WITHOUT_NON_SPONSORED_LINK).sort();
+
+    // 방향 1 — 대장에 없는데 실제로 비스폰서 링크가 0건인 품목(강조 0건이 조용히 들어온 경우).
+    expect(
+      measured.filter((code) => !(code in ITEM_CODES_WITHOUT_NON_SPONSORED_LINK)),
+      "비스폰서 링크가 0건인데 대장에 없다 — 전폭 CTA가 서지 않는다(일반 링크를 더하거나 이유를 값으로 적을 것)"
+    ).toEqual([]);
+    // 방향 2 — 대장에 적혀 있는데 이미 비스폰서 링크가 있는 품목(낡은 면제).
+    expect(
+      ledger.filter((code) => codesWithNonSponsoredLink.has(code)),
+      "대장에 적혀 있는데 이미 비스폰서 링크가 있다 — 낡은 면제는 지울 것"
+    ).toEqual([]);
+    const itemCodes = new Set(itemTemplateSeeds.map((item) => item.code));
+    expect(ledger.filter((code) => !itemCodes.has(code)), "대장에 없는 품목 코드가 있다").toEqual([]);
+    expect(ledger).toEqual(measured);
+
+    for (const [code, reason] of Object.entries(ITEM_CODES_WITHOUT_NON_SPONSORED_LINK)) {
+      expect(reason.trim().length, `${code}: 대장의 이유가 비어 있다`).toBeGreaterThan(0);
+    }
+
+    // 래칫 — 늘 수 없다(라운드 82 소스에서 다섯이었다).
+    expect(ledger.length).toBeLessThanOrEqual(ITEM_CODES_WITHOUT_NON_SPONSORED_LINK_MAX);
+
+    // no-op 방지: 이 절이 실제로 무언가를 세고 있다는 사실(스폰서 링크는 여전히 존재하고,
+    // 술어가 링크 유무가 아니라 **종별**을 본다는 것이 그 존재로 확인된다).
+    expect(
+      productLinkSeeds.some((link) => link.active && link.isSponsored),
+      "활성 스폰서 링크가 하나도 없으면 이 절은 위의 '링크 ≥1' 대장과 같은 질문이 된다"
+    ).toBe(true);
+  });
+
   it("이름으로 면제되던 일곱이 전부 링크를 갖는다 (예외 목록의 은퇴)", async () => {
     const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
 
@@ -368,6 +451,35 @@ describe("Batch 03 seed data", () => {
       expect(
         linkedCodes.has(item.code),
         `${item.code}는 essential인데 구매 링크가 0건이다 (예외 없음)`
+      ).toBe(true);
+    }
+  });
+
+  /**
+   * 라운드 83 트랙 A ⓒ — **위 규칙을 화면의 술어로 한 칸 좁힌다.**
+   *
+   * 바로 위 절은 `essential`에 판매처 행이 하나라도 있는지를 묻는다. 그런데 그 행이 **전부
+   * 광고**면 화면은 채워진 버튼도 전폭 CTA도 그리지 않는다(`primaryPurchaseLinkIndex` → -1).
+   * 이 앱이 "이건 꼭 준비하세요"라고 부르는 등급에서, 준비를 실행할 가장 큰 버튼이 없고
+   * 사용자에게는 그 이유를 말해 주는 문장조차 없다.
+   *
+   * ⚠️ 이 단언은 라운드 82 시드에서 **하나**(`wipes_bulk` — 유일한 링크가 스폰서)로 빨갰다.
+   * 위 *"essential 품목은 예외 없이 링크 ≥1"* 은 **지우지 않는다**: 둘은 다른 질문이고,
+   * 지우면 다음 라운드가 링크 0건을 새 결함으로 다시 줍는다.
+   */
+  it("essential 품목은 예외 없이 비스폰서 링크 ≥1", async () => {
+    const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
+
+    const codesWithNonSponsoredLink = new Set(
+      productLinkSeeds.filter((link) => link.active && !link.isSponsored).map((link) => link.itemTemplateCode)
+    );
+    const essentials = itemTemplateSeeds.filter((item) => item.necessityLevel === "essential");
+
+    expect(essentials.length, "essential 품목이 없으면 이 절은 아무것도 묻지 않는다").toBeGreaterThan(0);
+    for (const item of essentials) {
+      expect(
+        codesWithNonSponsoredLink.has(item.code),
+        `${item.code}는 essential인데 비스폰서 링크가 0건이다 — 전폭 구매 CTA가 렌더되지 않는다 (예외 없음)`
       ).toBe(true);
     }
   });
@@ -487,6 +599,89 @@ describe("Batch 03 seed data", () => {
     expect(judgedTopItems).toBeGreaterThanOrEqual(20);
     // 그리고 `stageMatches`가 **실제로 갈린 창**이 존재한다 — 이것이 없으면 위 ⓑ는 다시 항진명제다.
     expect(bandsWithSplitAxis, "stageMatches가 참·거짓으로 갈린 (시기, 밴드) 조합이 없다").toBeGreaterThan(0);
+  });
+
+  /**
+   * 라운드 83 트랙 A ⓓ — **같은 파생을 화면의 술어로 한 번 더 문다.**
+   *
+   * 위 절은 머리에 서는 품목에 링크가 **있는지**를 묻는다. 이 절은 그 링크가 **강조를 받을 수
+   * 있는지**를 묻는다 — 홈의 추천 카드 첫 줄에서 상세로 들어간 사용자가 만나는 것이 그 판정이다.
+   *
+   * ⚠️ 순위도 점수도 여기서 새로 매기지 않는다(두 번째 채점기 금지 · DNC-009 인접). 순서는
+   * 화면이 부르는 그 랭커(`rankItemsForTab`)가, 점수는 도메인의 `calculateRecommendationScore`가
+   * 낸다. 링크 종별은 **점수에 들어가지 않는다** — 이 절은 점수를 읽기만 하고, 링크 종별은
+   * 그 결과를 걸러 보는 데만 쓴다. 정찰이 잰 수치는 이 파일에 한 자리도 적히지 않는다.
+   *
+   * ⚠️ 라운드 82 시드에서 이 단언은 빨갰다(`wipes_bulk`가 `essential`이라 자기 세 시기의
+   * 최고점 무리에 선다 — 그리고 그 품목의 유일한 링크가 스폰서였다).
+   */
+  it("각 시기 '지금 필요' 최고점 무리에 비스폰서 링크 0건 품목이 없다 (화면의 랭커 파생)", async () => {
+    const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
+
+    const codesWithNonSponsoredLink = new Set(
+      productLinkSeeds.filter((link) => link.active && !link.isSponsored).map((link) => link.itemTemplateCode)
+    );
+    const catalog = itemTemplateSeeds
+      .filter((item) => item.active)
+      .map((item, index) => ({
+        id: item.code,
+        stageCodes: item.stageCodes as ChildStageCode[],
+        necessityLevel: item.necessityLevel as NecessityLevel,
+        status: "not_prepared" as ItemStatus,
+        displayOrder: index
+      }));
+    expect(catalog.length, "활성 준비템이 없으면 이 절은 아무것도 묻지 않는다").toBeGreaterThan(0);
+
+    const topTierOf = (ranked: typeof catalog, stageCode: ChildStageCode) => {
+      const scoreOf = (entry: (typeof catalog)[number]) =>
+        calculateRecommendationScore({
+          stageMatches: entry.stageCodes.includes(stageCode),
+          necessityLevel: entry.necessityLevel,
+          status: entry.status
+        });
+      const topScore = scoreOf(ranked[0]);
+      return { topScore, topTier: ranked.filter((entry) => scoreOf(entry) === topScore) };
+    };
+
+    let judgedStages = 0;
+    let judgedTopItems = 0;
+
+    for (const stageCode of ALL_STAGE_CODES as ChildStageCode[]) {
+      const now = rankItemsForTab(catalog, { tab: "now", stageCode });
+      expect(now.length, `stage ${stageCode}의 "지금 필요"가 비어 있다`).toBeGreaterThan(0);
+
+      const { topScore, topTier } = topTierOf(now, stageCode);
+      judgedStages += 1;
+      judgedTopItems += topTier.length;
+      for (const entry of topTier) {
+        expect(
+          codesWithNonSponsoredLink.has(entry.id),
+          `${stageCode}의 "지금 필요" 머리(${entry.id} · ${topScore}점)에 비스폰서 링크가 0건이다 — ` +
+            `그 상세에는 전폭 구매 CTA가 서지 않는다`
+        ).toBe(true);
+      }
+
+      // 시기 칩으로 다른 밴드를 미리 보는 창에서도 같은 사실을 묻는다.
+      for (const stageBand of STAGE_BAND_LABELS) {
+        const banded = rankItemsForTab(catalog, { tab: "now", stageCode, stageBand });
+        if (banded.length === 0) continue;
+        const bandTop = topTierOf(banded, stageCode);
+        for (const entry of bandTop.topTier) {
+          expect(
+            codesWithNonSponsoredLink.has(entry.id),
+            `${stageCode}/${stageBand} 머리(${entry.id} · ${bandTop.topScore}점)에 비스폰서 링크가 0건이다`
+          ).toBe(true);
+        }
+      }
+    }
+
+    // no-op 방지: 열 시기가 전부 판정되고, 최고점 무리가 실제로 세어진다.
+    expect(judgedStages).toBe(ALL_STAGE_CODES.length);
+    expect(judgedTopItems).toBeGreaterThanOrEqual(20);
+    // 그리고 이 절이 위 절과 **다른 질문**이라는 사실: 링크는 있는데 전부 스폰서인 품목이
+    // 생기면 위 절은 초록인 채로 이 절만 빨개진다(그 갈래가 살아 있다는 증거로 스폰서 링크의
+    // 존재를 함께 못 박는다).
+    expect(productLinkSeeds.some((link) => link.active && link.isSponsored)).toBe(true);
   });
 
   it("has no duplicate item template codes", async () => {

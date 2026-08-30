@@ -785,9 +785,18 @@ export default function RecordsScreen() {
   // REC-124(H1): 비교 기준이 되는 지난달도 전량을 모은다. 첫 페이지만 읽으면 200건을 넘는 달의
   // 앞날짜가 통째로 잘려 기준 합계가 0이 되고, "지난달 같은 시점까지는 지출 기록이 없었어요"라는
   // 사실이 아닌 문장이 나온다. 홈도 같은 페처를 쓰므로 두 화면의 캐시 내용이 계속 같다.
+  //
+  // UX-W(C8) — 이 쿼리는 **첫 페인트 이후로 미룬다**(`expenses.isFetched`). 콜드 스타트에 이 탭은
+  // 달 전량 커서 루프 **둘**(보고 있는 달 + 지난달)을 동시에 켰고, 그 경합은 목록 자신이 서는
+  // 시점을 늦춘다 — 홈이 같은 성질의 쿼리에 이미 걸어 둔 그 게이트를 여기에도 건다.
+  // 미루는 비용이 0인 근거는 **소비자가 이미 이번 달 응답을 기다린다**는 사실이다: 이 데이터를
+  // 쓰는 자리는 아래 비교 한 줄뿐이고, 그 줄의 다른 항(monthlyTotalKrw)이 `expenses` 응답에서
+  // 나오므로 이번 달이 도착하기 전에는 어차피 그려지지 않는다(그래서 새로 생기는 빈 창이 0건이다).
+  // 라운드 37 G-1과 같은 상호작용: `isError`는 비활성 쿼리에서 false이고, 이번 달 쿼리가 확정
+  // 실패해도 `isFetched`는 true가 되므로(에러도 fetch 완료다) 이 쿼리가 영영 잠기지 않는다.
   const lastMonthExpenses = useQuery({
     queryKey: ["expenses", childId, lastYearMonth],
-    enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth),
+    enabled: Boolean(authToken && childId && lastYearMonth && isCurrentMonth && expenses.isFetched),
     queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken!, childId!, lastYearMonth!, page))
   });
 
@@ -810,8 +819,12 @@ export default function RecordsScreen() {
   // FAM-127: 작성자 이름 해석용 구성원 목록. **새 엔드포인트를 부르지 않는다** -- 가족 관리
   // (app/family/index.tsx)·설정(app/settings/index.tsx)이 이미 쓰는 ["household-members",
   // householdId] 캐시를 그대로 재사용하므로, 그 화면들을 거친 사용자에게는 요청이 0건이다.
-  // 카테고리 캐시와 같은 이유로 staleTime을 길게 둔다(구성원은 거의 바뀌지 않고, 초대 수락·
-  // 내보내기 경로가 이미 이 키를 invalidate한다).
+  // ⚠️ 라운드 83 리뷰 M-3: 여기 있던 `staleTime: 5 * 60 * 1000` 한 줄을 **지운다**. 이 화면에서
+  // 구성원 목록은 작성자 라벨 하나를 위한 표시 입력이지만, **같은 캐시 항목**을 가족 관리·아이
+  // 관리가 **역할 게이트의 입력**으로 읽는다. 신선도는 이제 키가 정한다
+  // (src/query/shared-cache-policy.ts — 전역 30초). 실효 주기는 종전에도 30초였으므로
+  // (짧은 관찰자가 이긴다 — 그 재현이 shared-cache-policy.test.ts ⓐ에 있다) **화면 동작은 불변**이고,
+  // 사라진 것은 지켜지지도 않던 5분이라는 선언뿐이다.
   //
   // 라운드 27 L-4: 물어볼 가구는 세션의 기본 가구가 아니라 **보고 있는 아이의 가구**다. 아이의
   // householdId도 새 엔드포인트 없이 아이 관리·설정·리포트 화면과 같은 ["children"] 캐시에서
@@ -830,7 +843,6 @@ export default function RecordsScreen() {
   const householdMembers = useQuery({
     queryKey: ["household-members", householdId],
     enabled: Boolean(authToken && householdId),
-    staleTime: 5 * 60 * 1000,
     queryFn: () => listHouseholdMembers(authToken!, householdId!)
   });
   // 목록이 아직 없으면(로딩·실패·1인 가구) undefined가 그대로 흘러가 라벨이 생략된다 --

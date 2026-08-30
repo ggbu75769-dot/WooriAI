@@ -564,7 +564,8 @@ async function main() {
     const cards = page.locator("section:has(h2:text('운영 현황 요약')) article");
     await cards.first().waitFor({ timeout: STEP_TIMEOUT });
     const count = await cards.count();
-    if (count !== 8) throw new Error(`expected 8 summary cards, got ${count}`);
+    // 라운드 83 트랙 C: 카탈로그 크기 카드(활성 준비템)가 아홉 번째로 붙었다.
+    if (count !== 9) throw new Error(`expected 9 summary cards, got ${count}`);
     const values = [];
     for (let i = 0; i < count; i++) {
       const label = (await cards.nth(i).locator("p").nth(0).innerText()).trim();

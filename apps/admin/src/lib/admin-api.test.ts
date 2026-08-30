@@ -184,7 +184,8 @@ describe("admin users API client (ADM-006)", () => {
       pendingContentRevisions: 3,
       productLinksBrokenCount: 2,
       productLinksActiveCount: 58,
-      productLinksUncheckedCount: 34
+      productLinksUncheckedCount: 34,
+      itemTemplatesActiveCount: 62
     };
     fetchMock.mockResolvedValueOnce(jsonResponse(200, summary));
 
