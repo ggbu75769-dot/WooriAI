@@ -632,6 +632,26 @@ export default function ItemTemplatesPage() {
                 사용자 화면에서는 구매처가 0이라 함께 걸린다. */}
             <span className={styles.hint}>링크가 전부 비활성인 준비템도 함께 나와요.</span>
 
+            {/* 라운드 84 트랙 A: 위 필터와 다른 질문이다 — 구매처가 0인 자리가 아니라,
+                앱에서 **가장 강조되는 구매 버튼**을 받을 링크(활성·비스폰서)가 없는 자리다.
+                판정은 src/lib/item-filters.ts의 activeNonSponsoredLinkCount 한 곳에 있고,
+                그 술어의 정본은 모바일 link-marker.ts의 primaryPurchaseLinkIndex다.
+                스폰서 링크를 숨기거나 내리지 않는다 — 세어서 고를 뿐이다(DNC-011). */}
+            <div className={styles.checkboxRow}>
+              <input
+                id="item-filter-missing-non-sponsored-links"
+                type="checkbox"
+                checked={filters.missingNonSponsoredLinksOnly ?? false}
+                onChange={(event) =>
+                  setFilters({ ...filters, missingNonSponsoredLinksOnly: event.target.checked })
+                }
+              />
+              <label htmlFor="item-filter-missing-non-sponsored-links">스폰서 아닌 상품 링크 없음만 보기</label>
+            </div>
+            <span className={styles.hint}>
+              앱에서 강조되는 구매 버튼은 스폰서가 아닌 활성 링크가 받는데, 그 링크가 없는 준비템만 나와요.
+            </span>
+
             {filtersApplied ? (
               <div className={styles.actions}>
                 <button type="button" className={styles.secondaryButton} onClick={() => setFilters(EMPTY_ITEM_FILTERS)}>

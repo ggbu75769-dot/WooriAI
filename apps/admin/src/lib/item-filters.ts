@@ -6,6 +6,10 @@ import { linkFilterSummary } from "./link-filters";
 // 목적은 두 가지다: (1) 이름으로 바로 찾기, (2) "상품 링크가 하나도 없는 준비템"
 // 골라내기 — 링크가 없는 준비템은 구매 링크 클릭으로 이어지지 않아 핵심 루프가
 // 그 지점에서 끊긴다.
+//
+// 라운드 84 트랙 A가 세 번째를 더한다: (3) "앱에서 가장 강조되는 구매 버튼이 서지
+// 않는 준비템"(= 활성 비스폰서 링크 0건) 골라내기. (2)와는 다른 질문이다 — 광고
+// 링크 하나만 걸린 준비템은 구매처가 0이 아니지만 그 버튼은 서지 않는다.
 
 /** 필터가 실제로 읽는 필드만 요구한다(테스트가 ItemTemplate 전체를 만들 필요 없게). */
 export type FilterableItem = Pick<ItemTemplate, "name" | "productLinks" | "activeLinkCount">;
@@ -13,6 +17,13 @@ export type FilterableItem = Pick<ItemTemplate, "name" | "productLinks" | "activ
 export type ItemFilterState = {
   query?: string;
   missingLinksOnly?: boolean;
+  /**
+   * 라운드 84 트랙 A: "앱에서 **강조되는 구매 버튼**이 서지 않는 준비템만" 보기.
+   * 위 missingLinksOnly와는 **다른 질문**이다 — 저쪽은 구매처가 0인 자리를 묻고, 이쪽은
+   * 구매처는 있는데 그 전부가 스폰서(광고)라 화면에서 채워진 버튼을 받는 링크가 없는
+   * 자리까지 함께 묻는다. 링크 0건인 준비템은 두 필터 모두에 걸린다.
+   */
+  missingNonSponsoredLinksOnly?: boolean;
 };
 
 export const EMPTY_ITEM_FILTERS: ItemFilterState = {};
@@ -51,6 +62,27 @@ export function activeProductLinkCount(item: Pick<ItemTemplate, "productLinks" |
 }
 
 /**
+ * 라운드 84 트랙 A: 앱 상세 화면에서 **채워진(가장 강조되는) "구매하기" 버튼**을 받을 수 있는
+ * 링크의 수 — 활성이면서 스폰서가 아닌 링크다.
+ *
+ * 판정을 새로 만들지 않는다. 모바일의 정본은 `apps/mobile/src/items/link-marker.ts`의
+ * `primaryPurchaseLinkIndex`이고, 그 술어가 `findIndex((link) => !link.isSponsored)`다
+ * (스폰서 링크는 순서와 무관하게 외곽선 버튼이고, 전부 스폰서면 채워진 버튼이 하나도 없다 —
+ * 구분이 우대가 되지 않게 한다는 DNC-011의 자리). 앱이 그 술어를 먹이는 목록에는 **활성 링크만**
+ * 실리므로(items-catalog.service.ts의 상세 조회가 `active: true`로 좁힌다) 어드민에서 같은 질문을
+ * 하려면 활성 조건이 함께 붙는다. 술어가 갈리면 item-filters.test.ts의 동치 대조가 먼저 빨개진다.
+ *
+ * ⚠️ 이 수는 **세고 고르는** 데만 쓴다 — 스폰서 링크를 숨기거나 뒤로 미는 일은 여기서도, 이
+ * 화면 어디에서도 하지 않는다(DNC-011). 정렬·추천 점수와도 무관하다(DNC-009).
+ *
+ * productLinks가 통째로 비어 오는 응답(구버전)에서는 0이 된다 — activeProductLinkCount의 N-8
+ * 폴백과 방향이 같다: 링크가 정말 없으면 화면에도 큰 버튼이 서지 않는 것이 사실이다.
+ */
+export function activeNonSponsoredLinkCount(item: Pick<ItemTemplate, "productLinks">): number {
+  return (item.productLinks ?? []).filter((link) => link.active && !link.isSponsored).length;
+}
+
+/**
  * 주어진 필터를 모두 만족하는 준비템만 남긴다(AND 결합, 원본 순서 유지).
  * 비어 있는(undefined / 공백뿐인 query) 필터 항목은 무시한다.
  */
@@ -64,6 +96,8 @@ export function filterItemTemplates<T extends FilterableItem>(
     // '상품 링크 없음만 보기'는 사용자 관점이다: 링크가 전부 비활성인 준비템도
     // 상세 화면에서는 구매처 0이라 핵심 루프가 거기서 끊긴다 — 함께 걸러 낸다.
     if (filters.missingLinksOnly && activeProductLinkCount(item) > 0) return false;
+    // 라운드 84 트랙 A: 강조되는 구매 버튼을 받을 링크(활성 · 비스폰서)가 0건인 준비템만.
+    if (filters.missingNonSponsoredLinksOnly && activeNonSponsoredLinkCount(item) > 0) return false;
     if (normalizedQuery && !item.name.toLowerCase().includes(normalizedQuery)) return false;
     return true;
   });
@@ -73,5 +107,7 @@ export function filterItemTemplates<T extends FilterableItem>(
 export const itemFilterSummary = linkFilterSummary;
 
 export function hasAnyItemFilter(filters: ItemFilterState): boolean {
-  return Boolean(filters.missingLinksOnly || (filters.query ?? "").trim());
+  return Boolean(
+    filters.missingLinksOnly || filters.missingNonSponsoredLinksOnly || (filters.query ?? "").trim()
+  );
 }

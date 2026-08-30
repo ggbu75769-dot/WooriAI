@@ -226,7 +226,9 @@ const ADMIN_WRITE_SCREENS: Readonly<Record<string, WriteScreen>> = {
         'id="item-filter-query"':
           "준비템 이름 부분 일치 검색 — 이미 받아온 목록을 좁히는 조회 입력이고 서버로 나가는 값이 없다.",
         'id="item-filter-missing-links"':
-          "상품 링크 없는 준비템만 보기 — 같은 조회 필터다. 조회를 잠그면 analyst의 일 자체가 막힌다."
+          "상품 링크 없는 준비템만 보기 — 같은 조회 필터다. 조회를 잠그면 analyst의 일 자체가 막힌다.",
+        'id="item-filter-missing-non-sponsored-links"':
+          "스폰서 아닌 활성 링크가 없는 준비템만 보기(라운드 84 트랙 A) — 받아온 목록을 좁히는 같은 조회 필터이고 서버로 나가는 값이 없다."
       }
     },
     href: "/items",
