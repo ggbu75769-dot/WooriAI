@@ -199,6 +199,9 @@ describe("ⓐ 선행 재현 — 한 키에 staleTime이 다른 관찰자 둘이 
   it("키별 기본(setQueryDefaults)은 인라인 staleTime이 없는 관찰자에게 그대로 닿고, 접두사 부분 일치로 [key, id]까지 덮는다", async () => {
     const client = appLikeClient();
     client.setQueryDefaults(["children"], { staleTime: LONG_SHARED_STALE_TIME_MS });
+    // ⚠️ 아래 ["household-members"] 등록은 **react-query의 접두사 규칙을 재는 자리**이지 오늘의
+    // 정책이 아니다 — 그 키는 리뷰 M-3 뒤로 전역 30초(staleTimeMs: null)라 등록되지 않는다.
+    // `[key, id]` 꼴을 한 칸 접두사가 덮는다는 사실 자체는 표가 기대는 규칙이므로 계속 잰다.
     client.setQueryDefaults(["household-members"], { staleTime: LONG_SHARED_STALE_TIME_MS });
 
     expect(client.getQueryDefaults(["household-members", "household-1"])).toEqual({
@@ -309,7 +312,25 @@ describe("ⓒ 무효화 대장 (두 방향)", () => {
     expect(ledger.filter((file) => !actual.includes(file)), "실재하지 않는 대장의 경로").toEqual([]);
   });
 
-  it("대장의 모든 쓰기 경로가 성공 뒤 명시 무효화를 갖는다", () => {
+  /**
+   * 한 뮤테이션의 구간 — `const <name> = useMutation(`부터 **다음 useMutation 선언**(또는 파일 끝)까지.
+   *
+   * ⚠️ 라운드 83 리뷰 M-5: 종전 이 검사는 **파일 전체**를 봤다. 그래서 형제 뮤테이션이 적어 둔
+   * 무효화 한 줄이 같은 파일의 **다른** 뮤테이션까지 초록으로 만들었다(app/settings/children.tsx의
+   * 세 줄이 정확히 그 모양이다 — 셋 다 같은 문자열을 대장에 적고 있었고, 그 문자열은 셋 중 어느
+   * 뮤테이션에도 직접 적혀 있지 않다). 구간으로 자르면 그 창이 닫힌다.
+   */
+  function mutationSlice(source: string, mutation: string): string {
+    const marker = `const ${mutation} = useMutation(`;
+    const start = source.indexOf(marker);
+    expect(start, `${mutation} 뮤테이션 선언이 없다`).toBeGreaterThan(-1);
+    const next = source.indexOf("= useMutation(", start + marker.length);
+    // 다음 선언의 `const`부터가 다음 구간이다 — 그 앞줄까지가 이 뮤테이션의 몸통(실재 가드 포함).
+    const end = next === -1 ? source.length : source.lastIndexOf("const ", next);
+    return source.slice(start, end === -1 ? source.length : end);
+  }
+
+  it("대장의 모든 쓰기 경로가 성공 뒤 명시 무효화를 갖는다 (뮤테이션 구간 단위)", () => {
     const keySets: Record<string, ReadonlyArray<ReadonlyArray<string>>> = {
       CHILD_REMOVAL_INVALIDATE_KEYS,
       HOUSEHOLD_JOIN_INVALIDATE_KEYS
@@ -324,13 +345,27 @@ describe("ⓒ 무효화 대장 (두 방향)", () => {
       }
 
       const invalidationSource = readFileSync(join(MOBILE_ROOT, row.invalidatedIn), "utf8");
-      expect(invalidationSource, `${row.invalidatedIn} 에 ${row.mutation} 뮤테이션이 없다`).toContain(
-        `const ${row.mutation} = useMutation(`
-      );
-      expect(
-        invalidationSource,
-        `${row.invalidatedIn} (${row.mutation}) 에 명시 무효화가 없다`
-      ).toContain(row.invalidation);
+      const slice = mutationSlice(invalidationSource, row.mutation);
+
+      if (row.via) {
+        // 2단계 ①: 이 뮤테이션 구간이 실제로 그 헬퍼를 부른다.
+        expect(slice, `${row.invalidatedIn} (${row.mutation}) 가 ${row.via} 를 부르지 않는다`).toMatch(
+          new RegExp(`\\b${row.via}\\s*\\(`)
+        );
+        // 2단계 ②: 그 헬퍼 **정의**가 무효화를 담고 있다(이름만 맞고 속이 빈 헬퍼는 통과하지 못한다).
+        const helperStart = invalidationSource.indexOf(`const ${row.via} = `);
+        expect(helperStart, `${row.invalidatedIn} 에 ${row.via} 정의가 없다`).toBeGreaterThan(-1);
+        const helperEnd = invalidationSource.indexOf("\n  };", helperStart);
+        expect(helperEnd, `${row.via} 정의의 끝을 찾지 못했다`).toBeGreaterThan(helperStart);
+        expect(
+          invalidationSource.slice(helperStart, helperEnd),
+          `${row.via} 정의에 명시 무효화가 없다`
+        ).toContain(row.invalidation);
+      } else {
+        expect(slice, `${row.invalidatedIn} (${row.mutation}) 에 명시 무효화가 없다`).toContain(
+          row.invalidation
+        );
+      }
 
       if (row.invalidation.includes('["children"]')) continue;
       // 키 집합 상수를 거치는 경로는 **그 상수의 실제 값**으로 확인한다(문자열만 보면 이름이
@@ -341,6 +376,19 @@ describe("ⓒ 무효화 대장 (두 방향)", () => {
         keySets[usedKeySet!].some((key) => key.length === 1 && key[0] === "children"),
         `${usedKeySet} 가 ["children"]을 포함하지 않는다`
       ).toBe(true);
+    }
+  });
+
+  it("via로 적힌 헬퍼가 실재하고, 직접 무효화하는 줄에는 via가 없다 (대장이 두 형식을 섞지 않는다)", () => {
+    for (const row of CHILDREN_WRITE_LEDGER) {
+      const source = readFileSync(join(MOBILE_ROOT, row.invalidatedIn), "utf8");
+      const slice = mutationSlice(source, row.mutation);
+      const direct = slice.includes(row.invalidation);
+      if (row.via) {
+        expect(direct, `${row.mutation} 는 구간 안에서 직접 무효화하므로 via 칸이 필요 없다`).toBe(false);
+      } else {
+        expect(direct, `${row.mutation} 는 via 없이 구간 안 직접 무효화여야 한다`).toBe(true);
+      }
     }
   });
 

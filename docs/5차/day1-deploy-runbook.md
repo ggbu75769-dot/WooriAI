@@ -55,8 +55,12 @@ curl -s https://<앱이름>.fly.dev/api/v1/health/ready   # {"status":"ok"...} �
 
 ### A-5. 시드·관리자 부트스트랩 (10분)
 ```bash
-fly ssh console -C "pnpm --filter api seed"   # 카테고리 12·준비템 62·상품링크 62 + ADMIN_SEED_* 관리자
+fly ssh console -C "pnpm --filter api seed"   # 카테고리 12·준비템 62·상품링크 67 + ADMIN_SEED_* 관리자
 ```
+상품링크 수는 손으로 적지 않는다(근거: `grep -c '^    url:' apps/api/prisma/seed-data.ts` → **67**건 ·
+그중 제휴 URL을 함께 가진 것이 근거: `grep -c 'affiliateUrl: "https' apps/api/prisma/seed-data.ts` →
+**19**건이라 example.com 문자열은 67 + 19 = **86곳**이다). 두 시점: 라운드 82 B 이후 **62건 / 81곳**
+→ 라운드 83 A 이후 **67건 / 86곳**.
 어드민 콘솔 접속 → `ADMIN_SEED_EMAIL`/`ADMIN_SEED_PASSWORD` 로그인 → **즉시 비밀번호 변경**(ADM-007) → MFA(TOTP) 등록(강제 흐름).
 필요하면 /users에서 팀원 계정 발급.
 
@@ -120,6 +124,7 @@ curl -si $BASE/../r/AAAAAAAAAAAA | head -1
 - `WORKER_ENABLED=1`은 **머신 1대일 때만**. 수평 확장 시 워커 전용 머신 1대에만 켜세요(중복 실행 방지).
 - `TRUST_PROXY=1`은 `fly.toml [env]`에 이미 포함(Fly 엣지 프록시 1홉 뒤 실 클라이언트 IP 인식 — per-IP rate limit 필수 조건). 셀프호스트(B)도 리버스 프록시 뒤라면 동일하게 설정하세요.
 - Dockerfile은 이 저장소의 tsx 구동 방식에 맞춘 것으로, 로컬 검증 환경에 Docker 데몬이 없어 **이미지 빌드는 `fly deploy` 시점에 처음 검증됩니다** — 빌드 오류가 나면 로그를 그대로 전달해 주세요.
-- 시드의 상품링크 **62개**(라운드 82 B 이후 58 → 62)는 전부 example.com 플레이스홀더 — 출시 전 admin CSV 도구로 교체(72h 계획 §5).
+- 시드의 상품링크 **67개**(두 시점: 라운드 82 B 이후 58 → 62 · 라운드 83 A 이후 62 → 67 — 수를 세는 자리는 위 A-5의 실행되는 인용이다)는 전부 example.com 플레이스홀더 — 출시 전 admin CSV 도구로 교체(72h 계획 §5).
   ⚠️ 교체 전에는 이 링크들이 **죽은 CTA**다: 그중 넷은 종전에 "구매처 없음"으로 정직하게 비어 있던 자리였고,
   둘(`pregnancy_vitamin`·`diaper_stock`)은 `essential`이라 홈 추천 카드의 머리에 선다(리뷰 M-7 · 확인의 표 `#140` ⓕ).
+  ⚠️ 라운드 83 A가 더한 다섯은 스폰서 링크만 있던 품목의 **비스폰서** 경로다 — 교체 전에는 그 다섯의 전폭 구매 CTA도 같은 뜻으로 죽어 있다(확인의 표 `#143` ⓖ).

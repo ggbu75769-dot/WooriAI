@@ -96,11 +96,6 @@ const ITEM_CODES_WITHOUT_PRODUCT_LINK: Record<string, string> = {};
 const ITEM_CODES_WITHOUT_PRODUCT_LINK_MAX = 0;
 
 /**
- * 라운드 81까지 이름으로 면제되던 일곱. **지우지 않는다** — 이 이름들이 사라지면 다음 라운드가
- * 같은 넷을 "새 결함"으로 다시 줍고, 면제가 있었다는 사실도 함께 없어진다. 이제 이 목록이 지는
- * 계약은 면제가 아니라 그 반대다: **일곱이 전부 링크를 갖는다**(= 예외 목록의 은퇴 증서).
- */
-/**
  * 라운드 83 트랙 A — **계약이 화면과 같은 술어를 쓴다.**
  *
  * 바로 위 대장은 *"링크가 몇 개인가"* 를 묻는다. 그런데 상세 화면의 강조 판정은 그 질문을
@@ -138,6 +133,11 @@ const ITEM_CODES_WITHOUT_NON_SPONSORED_LINK: Record<string, string> = {};
  */
 const ITEM_CODES_WITHOUT_NON_SPONSORED_LINK_MAX = 0;
 
+/**
+ * 라운드 81까지 이름으로 면제되던 일곱. **지우지 않는다** — 이 이름들이 사라지면 다음 라운드가
+ * 같은 넷을 "새 결함"으로 다시 줍고, 면제가 있었다는 사실도 함께 없어진다. 이제 이 목록이 지는
+ * 계약은 면제가 아니라 그 반대다: **일곱이 전부 링크를 갖는다**(= 예외 목록의 은퇴 증서).
+ */
 const LEGACY_ITEM_CODES_WITHOUT_LINK_REQUIREMENT = [
   "pregnancy_vitamin",
   "car_seat",

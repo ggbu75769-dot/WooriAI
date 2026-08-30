@@ -232,6 +232,11 @@ export default function ExpenseDetailScreen() {
   // householdId] 캐시를 그대로 재사용한다(대개 이미 채워져 있어 추가 요청이 없다). 실패하거나
   // 1인 가구면 아래 authorLabel이 null이 되어 이 화면은 예전과 똑같이 그려진다.
   //
+  // ⚠️ 라운드 83 리뷰 M-3: 여기 있던 `staleTime: 5 * 60 * 1000` 한 줄을 **지운다**. 같은 캐시 항목을
+  // 가족 관리·아이 관리가 **역할 게이트의 입력**으로 읽으므로 신선도는 키가 정한다
+  // (src/query/shared-cache-policy.ts — 전역 30초). 실효 주기는 종전에도 30초였다(짧은 관찰자가
+  // 이긴다) -- 화면 동작은 불변이고 사라진 것은 지켜지지 않던 선언이다.
+  //
   // 라운드 27 L-4: 구성원을 물어볼 가구는 세션의 기본 가구가 아니라 **이 지출이 속한 아이의
   // 가구**다(다가구 계정에서 두 값이 갈린다 -- resolveExpenseHouseholdId 주석 참고). 아이의
   // householdId는 새 엔드포인트 없이 같은 ["children"] 캐시에서 읽는다.
@@ -275,7 +280,6 @@ export default function ExpenseDetailScreen() {
   const householdMembers = useQuery({
     queryKey: ["household-members", householdId],
     enabled: Boolean(authToken && householdId),
-    staleTime: 5 * 60 * 1000,
     queryFn: () => listHouseholdMembers(authToken!, householdId!)
   });
   const authorLabel = resolveExpenseAuthorLabel(
