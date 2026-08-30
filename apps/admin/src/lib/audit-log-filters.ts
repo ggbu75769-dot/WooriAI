@@ -162,6 +162,11 @@ export type AuditLogActionPreset = {
  *   답한다. 예약 발행은 **사람이 자리에 없는 순간** 라이브가 바뀌는 유일한 경로라 행위자가
  *   시스템/알 수 없음으로 찍힌다 — 봉투의 `scheduledFor`가 언제로 예약됐던 것인지 답한다)
  * - auth.login / auth.logout: apps/api/src/auth/auth.service.ts (카카오는 kakao-auth.service.ts)
+ * - auth.login_rejected: apps/api/src/auth/kakao/kakao-auth.service.ts (GAP-076 #4 — 차단·탈퇴
+ *   계정의 **거절된** 로그인. "앱에 못 들어가요" 문의에서 시도가 있었는지·왜 막혔는지를 답하는
+ *   유일한 행이다: 거절은 인증 전이라 요청 로그의 4xx에 userId가 없고, `users` 행은 일부러
+ *   만지지 않는다(파기 시계인 `updated_at`이 밀리지 않게 — 라운드 75 P-1). 봉투에는
+ *   provider와 사유(blocked·withdrawn)만 있다 — 카카오 식별자·이메일·닉네임은 싣지 않는다)
  * - admin.*: apps/api/src/admin/* (admin-auth / admin-users / admin-categories /
  *   content-revisions / admin.controller / admin-users-lookup)
  * 목록은 "전부"가 아니라 "자주 쓰는 것"이다 — 다른 액션도 직접 입력하면 조회된다.
@@ -178,6 +183,10 @@ export const AUDIT_LOG_ACTION_PRESETS: readonly AuditLogActionPreset[] = [
   { action: "account.delete", label: "계정 삭제 (탈퇴)" },
   { action: "auth.login", label: "앱 로그인" },
   { action: "auth.logout", label: "앱 로그아웃" },
+  // GAP-076 #4: 어드민 계정의 실패한 로그인은 세 액션으로 세면서(admin.login_failed ·
+  // admin.mfa_login_failed · admin.password_change_failed) 이용자의 거절은 아무것도 세지
+  // 않았다. 서버가 새로 기록하기 시작한 값이고, CS가 이 문의를 받는 순간 필요한 필터다.
+  { action: "auth.login_rejected", label: "앱 로그인 거절 (차단·탈퇴 계정)" },
   { action: "admin.login", label: "어드민 로그인" },
   // GAP-063 #3: 인증 앱 재등록 입구가 생기면서 이 두 액션이 실제 CS 동선(운영자가
   // 인증 앱을 잃음)에 등장한다 — 해제가 있었는지, 복구 코드가 언제 소진됐는지를 여기서 본다.

@@ -156,6 +156,34 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
     return response.body as { transactionId: string; state: string; nonce: string };
   }
 
+  /**
+   * GAP-076 D ⓐ·ⓒ: a turned-away login leaves **exactly one** `auth.login_rejected`
+   * row, and that row carries only the provider and the reason — no Kakao `sub`,
+   * no email, no nickname, no token anywhere in the envelope (round5a-sprint2-plan
+   * §2's PII-log ban / DNC-019, the same rule `auth.login` keeps).
+   */
+  async function expectLoginRejectedRow(
+    userId: string,
+    reason: "blocked" | "withdrawn",
+    forbidden: { sub: string; idToken: string; displayName: string }
+  ) {
+    const rows = await prisma.auditLog.findMany({ where: { actorUserId: userId } });
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.action).toBe("auth.login_rejected");
+    expect(row.targetType).toBe("users");
+    expect(row.targetId).toBe(userId);
+    expect(row.householdId).toBeNull();
+    expect(row.beforeJson).toBeNull();
+    expect(row.afterJson).toEqual({ provider: "kakao", reason });
+
+    const rowJson = JSON.stringify(row);
+    expect(rowJson).not.toContain(forbidden.sub);
+    expect(rowJson).not.toContain(forbidden.idToken);
+    expect(rowJson).not.toContain(forbidden.displayName);
+    expect(rowJson).not.toContain("@example.com");
+  }
+
   it("logs a brand-new user in, then logs the same sub in again as a returning user", async () => {
     const { transactionId, state, nonce } = await prepare();
     const { token, sub } = await signIdToken(signingKey, {
@@ -180,6 +208,11 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
       onboardingRequired: true
     });
     const firstUserId = first.body.user.id as string;
+
+    // GAP-076 D ⓐ (negative half): a successful login records `auth.login` and
+    // never the rejection row — the new action must not appear on the happy path.
+    const successRows = await prisma.auditLog.findMany({ where: { actorUserId: firstUserId } });
+    expect(successRows.map((row) => row.action)).toEqual(["auth.login"]);
 
     // GAP-075 A ⓒ: an ACTIVE account's login must still stamp lastLoginAt (and,
     // through Prisma's @updatedAt, users.updated_at). Rewind the row to a fixed
@@ -384,7 +417,12 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
     });
 
     const { transactionId, state, nonce } = await prepare();
-    const { token } = await signIdToken(signingKey, { sub, nonce });
+    const { token } = await signIdToken(signingKey, {
+      sub,
+      nonce,
+      email: "blocked-parent@example.com",
+      nickname: "차단된닉네임"
+    });
     kakaoClient.nextIdToken = token;
 
     await request(app.getHttpServer())
@@ -396,10 +434,21 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
       });
 
     // GAP-075 A ⓐ (negative assertion): the rejected attempt wrote nothing.
+    // GAP-076 D ⓑ re-confirms it — the new audit row must not have reopened the
+    // `users` write path that round 75 closed (the purge clock is `updated_at`).
     const after = await prisma.user.findUniqueOrThrow({ where: { id: created.id } });
     expect(after.updatedAt).toEqual(STALE_ROW_TIMESTAMP);
     expect(after.lastLoginAt).toEqual(STALE_ROW_TIMESTAMP);
     expect(after.status).toBe("blocked");
+    expect(after.displayName).toBe("차단된 사용자");
+    expect(after.email).toBeNull();
+
+    // GAP-076 D ⓐ: …and it now leaves a row CS can actually find.
+    await expectLoginRejectedRow(created.id, "blocked", {
+      sub,
+      idToken: token,
+      displayName: "차단된닉네임"
+    });
   });
 
   it("rejects login for a withdrawn user without rewinding the retention clock", async () => {
@@ -416,7 +465,12 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
     });
 
     const { transactionId, state, nonce } = await prepare();
-    const { token } = await signIdToken(signingKey, { sub, nonce });
+    const { token } = await signIdToken(signingKey, {
+      sub,
+      nonce,
+      email: "withdrawn-parent@example.com",
+      nickname: "탈퇴한닉네임"
+    });
     kakaoClient.nextIdToken = token;
 
     await request(app.getHttpServer())
@@ -438,6 +492,23 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
     expect(after.updatedAt).toEqual(STALE_ROW_TIMESTAMP);
     expect(after.lastLoginAt).toEqual(STALE_ROW_TIMESTAMP);
     expect(after.status).toBe("withdrawn");
+    expect(after.displayName).toBe("탈퇴한 사용자");
+    expect(after.email).toBeNull();
+
+    /**
+     * GAP-076 D ⓐ: until this round the attempt above left **no queryable trace at
+     * all** — CS could not tell a withdrawn account's monthly login attempt from
+     * someone who never signed up (the 4xx in the request log has no userId; it is
+     * pre-auth). The fix is one `audit_logs` row, not a `users` write: `audit_logs`
+     * has no FK to `users` and the purge job's phase 3 anonymizes a withdrawn
+     * account's audit rows, so this row does not reopen P-1 (the two timestamp
+     * assertions right above are that contract, re-checked from this track).
+     */
+    await expectLoginRejectedRow(created.id, "withdrawn", {
+      sub,
+      idToken: token,
+      displayName: "탈퇴한닉네임"
+    });
   });
 
   it("does not persist the raw Kakao id_token or leak provider tokens in the response", async () => {

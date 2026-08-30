@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AUDIT_LOG_ACTION_MAX_LENGTH,
@@ -24,6 +26,54 @@ function makeFilters(overrides: Partial<AuditLogFilters> = {}): AuditLogFilters 
 /** 검색 파라미터 스텁 (URLSearchParams와 같은 get 시그니처). */
 function params(record: Record<string, string>) {
   return { get: (name: string) => record[name] ?? null };
+}
+
+/**
+ * GAP-076 #4 ⓓ — **유령 프리셋 부정 단언**을 위한 서버 소스 읽기.
+ *
+ * 정본은 import하지 않고 **소스 텍스트로 읽어 파싱한다**: apps/admin은 apps/api를 의존성으로
+ * 들지 않는다(라운드 60 P2-8의 근거 그대로 · `admin-canonical-mirrors.test.ts`가 쓰는 그 방법).
+ */
+const adminRoot = process.cwd();
+const apiSrcDir = join(adminRoot, "..", "api", "src");
+
+/** `apps/api/src/**`의 `.ts` 전수(테스트·d.ts 제외). */
+function apiSourcePaths(): string[] {
+  const found: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+        continue;
+      }
+      if (!entry.name.endsWith(".ts")) continue;
+      if (entry.name.endsWith(".d.ts") || /\.(?:test|spec)\.ts$/.test(entry.name)) continue;
+      found.push(relative(apiSrcDir, fullPath).split(sep).join("/"));
+    }
+  };
+  walk(apiSrcDir);
+  return found.sort();
+}
+
+/** 주석은 걷어낸다 — 주석 안에 인용된 액션 문자열은 "서버가 기록하는 값"이 아니다. */
+function codeOnly(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+}
+
+/** `AuditLoggerService.record({ … action: "x" … })`가 쓰는 액션 문자열 전수. */
+const AUDIT_ACTION_LITERAL = /\baction:\s*"([^"]+)"/g;
+
+function serverRecordedActions(): Set<string> {
+  const actions = new Set<string>();
+  for (const path of apiSourcePaths()) {
+    const source = codeOnly(readFileSync(join(apiSrcDir, ...path.split("/")), "utf8"));
+    for (const match of source.matchAll(AUDIT_ACTION_LITERAL)) {
+      // `action: string;`(타입 선언)·`action: query.action`(전달)은 리터럴이 아니라 안 걸린다.
+      if (match[1].includes(".")) actions.add(match[1]);
+    }
+  }
+  return actions;
 }
 
 describe("isAuditLogActorId (CS-101)", () => {
@@ -245,6 +295,24 @@ describe("AUDIT_LOG_ACTION_PRESETS (CS-101)", () => {
    * 문자열을 외워 손으로 쳐야 찾을 수 있었다(GAP-066 #7이 그 봉투에 before를 채워도
    * 찾을 수 없으면 소용이 없다). 두 발행 경로가 나란히 후보로 서야 한다.
    */
+  /**
+   * GAP-076 #4: 어드민 계정의 **실패한** 로그인은 서버가 세 액션으로 세는데
+   * (`admin.login_failed`·`admin.mfa_login_failed`·`admin.password_change_failed`) 앱 이용자의
+   * 거절은 아무것도 세지 않았다 — 차단·탈퇴 계정의 로그인 시도가 조회 가능한 흔적을 하나도
+   * 남기지 않았다는 뜻이다(라운드 75 P-1이 `users` 행 쓰기를 막은 것은 옳았고, 그래서 남은
+   * 답이 `audit_logs` 행이었다). "앱에 못 들어가요" 문의에서 시도가 있었는지·왜 막혔는지를
+   * 답할 수 있는 유일한 액션이므로 프리셋에도 서야 한다.
+   */
+  it("covers the rejected app login CS asks about (차단·탈퇴 계정의 로그인 거절)", () => {
+    const actions = AUDIT_LOG_ACTION_PRESETS.map((preset) => preset.action);
+    expect(actions).toContain("auth.login_rejected");
+    // 성공한 로그인과 뭉뚱그리지 않는다 — 들어간 사람과 막힌 사람은 정반대의 문의다.
+    const labels = AUDIT_LOG_ACTION_PRESETS.filter((preset) =>
+      ["auth.login", "auth.login_rejected"].includes(preset.action)
+    ).map((preset) => preset.label);
+    expect(new Set(labels).size).toBe(2);
+  });
+
   it("covers both publish paths CS asks about (승인 발행·예약 발행)", () => {
     const actions = AUDIT_LOG_ACTION_PRESETS.map((preset) => preset.action);
     expect(actions).toContain("admin.content_revision.approve_publish");
@@ -254,6 +322,48 @@ describe("AUDIT_LOG_ACTION_PRESETS (CS-101)", () => {
       ["admin.content_revision.approve_publish", "admin.content_revision.scheduled_publish"].includes(preset.action)
     ).map((preset) => preset.label);
     expect(new Set(labels).size).toBe(2);
+  });
+});
+
+/**
+ * GAP-076 #4 ⓓ — **유령 프리셋 부정 단언.**
+ *
+ * 오늘까지 이 표를 무는 단언은 중복·라벨·필터 검증 통과·특정 넷의 존재뿐이었다 —
+ * **각 액션이 서버가 실제로 기록하는 문자열인지는 아무도 묻지 않았다.** 라운드 75 P-4의
+ * 대장(`admin-canonical-mirrors.test.ts`)은 이 표를 *"부분집합이라 전수 대조 대상이 아니다"* 로
+ * 면제해 뒀는데, 그 판정은 **한 방향에만** 옳다: "서버의 전부가 여기 있어야 한다"는 틀리지만
+ * (프리셋은 의도된 부분집합이다), **"여기 있는 것은 서버에 있어야 한다"는 여전히 참이어야
+ * 한다.** 오타 하나·서버에서 사라진 액션 하나는 CS에게 **0건짜리 후보**를 주는데, 0건은
+ * "기록이 없다"와 화면에서 구별되지 않는다 — 오늘의 스물셋은 전부 실재하므로 이 단언이
+ * 하는 일은 그 사실을 **묶어 두는 것**이다.
+ *
+ * ⚠️ **반대 방향은 세우지 않는다**(서버의 액션 전부가 프리셋에 있어야 한다 — 아니다).
+ */
+describe("AUDIT_LOG_ACTION_PRESETS의 유령 없음 (GAP-076 #4)", () => {
+  it("스윕이 실제로 서버 소스를 훑는다 (빈 답이 조용히 통과하지 않게)", () => {
+    expect(existsSync(apiSrcDir), "apps/api/src should exist").toBe(true);
+    expect(apiSourcePaths().length).toBeGreaterThan(100);
+    // 바늘 검증: 주석 안의 인용은 놓아주고, 타입 선언·값 전달은 애초에 리터럴이 아니다.
+    expect(serverRecordedActions().size).toBeGreaterThan(30);
+    expect([...codeOnly('// action: "ghost.action"').matchAll(AUDIT_ACTION_LITERAL)]).toHaveLength(0);
+    expect([...codeOnly('action: "auth.login"').matchAll(AUDIT_ACTION_LITERAL)]).toHaveLength(1);
+  });
+
+  it("모든 프리셋의 action이 서버 소스에 실재한다", () => {
+    const recorded = serverRecordedActions();
+    const ghosts = AUDIT_LOG_ACTION_PRESETS.map((preset) => preset.action).filter(
+      (action) => !recorded.has(action)
+    );
+    expect(ghosts, "서버가 기록하지 않는 프리셋(=조회하면 언제나 0건)").toEqual([]);
+  });
+
+  it("어드민의 실패 로그인 세 액션이 앱 쪽 거절 액션의 대칭 근거로 살아 있다", () => {
+    const recorded = serverRecordedActions();
+    // 이 셋이 있는데 앱 쪽에 대응 액션이 0건이던 것이 GAP-076 #4의 근거였다.
+    for (const action of ["admin.login_failed", "admin.mfa_login_failed", "admin.password_change_failed"]) {
+      expect(recorded.has(action), `${action}가 서버에 있다`).toBe(true);
+    }
+    expect(recorded.has("auth.login_rejected"), "앱 로그인 거절도 이제 기록된다").toBe(true);
   });
 });
 
