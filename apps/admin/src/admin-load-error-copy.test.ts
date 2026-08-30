@@ -461,6 +461,53 @@ describe("트랙 D의 무접촉 계약", () => {
     }
   });
 
+  /**
+   * 라운드 74 적대적 리뷰 E-2 — **"18스텝"이 문장이 아니라 값이 된다.**
+   *
+   * 아래 앵커 테스트는 화면 쪽 앵커(문구·구조)만 봤고, 스텝이 **몇 개인지**와 **이름·순서가
+   * 보존됐는지**는 아무도 세지 않았다. 그런데 라운드 74 트랙 E가 내건 약속이 정확히 그것이다:
+   * *"새 스텝은 맨 뒤에 붙고 앞의 열일곱은 이름도 순서도 그대로다"* — 실패 리포트의 스텝
+   * 이름으로 과거 실행 기록을 대조하는 규율이라, 이름 하나가 바뀌면 그 대조가 조용히 끊긴다.
+   *
+   * 그래서 하네스 소스에서 스텝 이름을 **순서대로** 읽어 값과 맞춘다. 브라우저를 띄우지 않는다.
+   */
+  it("admin-e2e의 스텝이 열여덟이고, 앞의 열일곱은 이름도 순서도 그대로다 (E-2)", () => {
+    const harness = readSource(join("..", "..", "scripts", "qa", "admin-e2e.mjs"));
+    const stepNames = [...harness.matchAll(/\brunStep\("([^"]+)"/g)].map((match) => match[1]);
+
+    // 라운드 73까지의 열일곱 — 이름도 순서도 이 배열이 값으로 진다.
+    const ROUND73_STEPS = [
+      "login-mfa-dashboard",
+      "dashboard-summary-cards",
+      "items-table",
+      "links-table-and-bulk-preview",
+      "analytics-toggle-and-tables",
+      "analytics-onboarding-dropoff-card",
+      "users-self-marker",
+      "reviews-page-loads",
+      "audit-logs-table-and-pagination",
+      "audit-logs-action-filter",
+      "audit-logs-csv-export",
+      "users-lookup-search-and-audit-deeplink",
+      "categories-table-and-filter",
+      "disclosures-page-loads",
+      "clicks-summary-and-range-toggle",
+      "mfa-reenroll-entry-point",
+      "audit-logs-editor-role-gate"
+    ];
+
+    expect(stepNames).toHaveLength(18);
+    expect(stepNames.slice(0, ROUND73_STEPS.length)).toEqual(ROUND73_STEPS);
+    expect(stepNames.at(-1)).toBe("header-recovery-codes-remaining");
+    expect(new Set(stepNames).size).toBe(stepNames.length);
+
+    // 스텝이 SKIP으로 빠지는 두 자리는 runStep을 우회하므로 이름이 **결과 배열에** 따로 실린다.
+    // 그 이름이 runStep 쪽 이름과 갈리면 실패 리포트에서 같은 스텝이 둘로 보인다.
+    const skipNames = [...harness.matchAll(/results\.push\(\{\s*\n?\s*name: "([^"]+)"/g)].map((m) => m[1]);
+    expect(skipNames.sort()).toEqual(["audit-logs-editor-role-gate", "header-recovery-codes-remaining"]);
+    for (const name of skipNames) expect(stepNames, `${name}의 SKIP 갈래`).toContain(name);
+  });
+
   it("admin-e2e의 18스텝 앵커가 그대로다", () => {
     const home = readSource("app/page.tsx");
     // 요약 카드는 링크 여부와 상관없이 <article>로 남는다(스텝 2가 8개를 센다).

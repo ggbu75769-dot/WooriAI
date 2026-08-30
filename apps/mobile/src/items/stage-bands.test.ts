@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CHILD_STAGE_CODES, getSeoulToday, type ChildStageCode } from "@wooriai/domain";
+import { CHILD_STAGE_CODES, calculateChildStage, getSeoulToday, type ChildStageCode } from "@wooriai/domain";
+import { localItemTemplateFixtures } from "../api/local-fixtures";
 import {
   bandDefinitions,
   bandForStage,
@@ -326,10 +329,200 @@ describe("라운드 74 B: 겹치는 밴드에서 기본 칩이 나이로 갈린�
     });
   });
 
+  /**
+   * 라운드 74 적대적 리뷰 B-1 — **수동으로 고른 시기는 "확인하지 못한 시기"가 아니다.**
+   *
+   * 위 절이 세운 "겹치는 밴드 + 나이 모름 → resolved: false"는 한 갈래에서 거짓이었다.
+   * `stageMode: "manual"`인 아이에게는 **설계상 생년월일이 없다**
+   * (src/children/child-form.ts의 `buildCreateChildBody` — `birthDate`는 `"born"`일 때만 실린다).
+   * 그래서 수동으로 `toddler_1_3`을 고른 사용자는 화면에서 곧바로 "지금 시기를 확인하지
+   * 못했어요. 시기를 직접 골라 주세요."를 받았다 — **방금 직접 고른 사람에게** 하는 말이다.
+   *
+   * 아래는 그 축을 전수로 판정한다: `stageMode`(manual/born/pregnant/모름) × `birthDate`(있음/없음).
+   */
+  describe("라운드 74 리뷰 B-1: stageMode 축 (수동 입력 아이의 정직성)", () => {
+    const base = {
+      currentStage: "toddler_1_3" as ChildStageCode,
+      isPixelLockMode: false,
+      hasManualSelection: false,
+      fallback: "12-24개월" as const
+    };
+
+    it("수동 입력 아이는 나이가 없어도 resolved: true다 (그 갈래에 birthDate가 없는 것이 정상이다)", () => {
+      for (const birthDate of [undefined, null, ""]) {
+        expect(
+          resolveDefaultStageLabel({ ...base, stageMode: "manual", birthDate }),
+          String(birthDate)
+        ).toEqual({ label: "12-24개월", resolved: true });
+      }
+    });
+
+    it("자동 갈래(born·pregnant·모름)는 종전 판정 그대로다 (모름이 번지지 않는다)", () => {
+      for (const stageMode of ["born", "pregnant", undefined, null, "manual_typo"]) {
+        expect(resolveDefaultStageLabel({ ...base, stageMode }), String(stageMode)).toEqual({
+          label: "12-24개월",
+          resolved: false
+        });
+      }
+    });
+
+    it("나이를 알면 stageMode와 무관하게 나이가 칩을 고른다 (수동이 나이를 덮지 않는다)", () => {
+      for (const stageMode of ["manual", "born", undefined]) {
+        expect(
+          resolveDefaultStageLabel({ ...base, stageMode, birthDate: birthDateAtAgeMonths(30) }),
+          String(stageMode)
+        ).toEqual({ label: "24개월+", resolved: true });
+      }
+    });
+
+    it("겹치지 않는 스테이지는 stageMode가 한 글자도 바꾸지 않는다", () => {
+      for (const stage of CHILD_STAGE_CODES.filter((code) => bandsForStage(code).length === 1)) {
+        const auto = resolveDefaultStageLabel({ ...base, currentStage: stage });
+        const manual = resolveDefaultStageLabel({ ...base, currentStage: stage, stageMode: "manual" });
+        expect(manual, stage).toEqual(auto);
+        expect(manual.resolved, stage).toBe(true);
+      }
+    });
+
+    it("픽셀락·수동 칩 선택은 여전히 stageMode보다 앞선다 (게이트 순서 불변)", () => {
+      expect(resolveDefaultStageLabel({ ...base, stageMode: "manual", isPixelLockMode: true })).toEqual({
+        label: "12-24개월",
+        resolved: false
+      });
+      expect(resolveDefaultStageLabel({ ...base, stageMode: "manual", hasManualSelection: true })).toEqual({
+        label: "12-24개월",
+        resolved: false
+      });
+      // 시기 자체를 모르면 stageMode가 있어도 폴백이다(수동이 없는 값을 만들어 내지 않는다).
+      expect(resolveDefaultStageLabel({ ...base, stageMode: "manual", currentStage: undefined })).toEqual({
+        label: "12-24개월",
+        resolved: false
+      });
+    });
+
+    it("화면이 그 값을 실제로 넘긴다 (배선 — items.tsx)", () => {
+      const screen = readFileSync(join(process.cwd(), "app/(tabs)/items.tsx"), "utf8");
+      expect(screen).toContain("stageMode: stageSourceChild?.stageMode");
+    });
+  });
+
   it("밴드 라벨 네 문자열은 이 트랙에 한 바이트도 끌려가지 않는다", () => {
     // ITEM-001 픽셀락 캡처의 칩 라벨 · packages/contracts의 STAGE_BAND_LABELS · 서버 쿼리
     // 파라미터가 같은 네 문자열이다(대조는 apps/api/test/mobile-stage-band-contract.test.ts).
     expect(bandDefinitions.map((band) => band.label)).toEqual(["0-6개월", "6-12개월", "12-24개월", "24개월+"]);
+  });
+});
+
+/**
+ * 라운드 74 적대적 리뷰 B-2(제안 채택) — **데모 카탈로그의 `timingLabel`도 같은 계약을 진다.**
+ *
+ * 시드 쪽에는 "라벨이 말하는 개월 구간과 `stageCodes`가 덮는 구간이 서로 겹친다"는 대칭 계약이
+ * 섰는데(apps/api/test/seed-data.test.ts), 로그인 없이 앱을 여는 사람이 실제로 읽는 데모
+ * 카탈로그(src/api/local-fixtures.ts)에는 그 단언이 하나도 없었다. 데모도 상세에서 같은
+ * "준비 시기" 줄을 읽어 주므로, 같은 어긋남이 같은 방식으로 생길 수 있는 자리다.
+ *
+ * 개월 경계는 여기서도 손으로 적지 않는다 — `calculateChildStage`를 나이로 훑어 파생시킨다.
+ */
+describe("라운드 74 리뷰 B-2: 데모 카탈로그의 timingLabel ↔ stageCodes 대칭 겹침", () => {
+  const PROBE_TODAY = "2100-01-15";
+  const PROBE_MAX_AGE_MONTHS = 600;
+
+  type MonthRange = { from: number; to: number };
+
+  const probeBirthDate = (ageMonths: number): string => {
+    const [year, month, day] = PROBE_TODAY.split("-").map(Number);
+    const totalMonths = year * 12 + (month - 1) - ageMonths;
+    return [
+      String(Math.floor(totalMonths / 12)).padStart(4, "0"),
+      String((totalMonths % 12) + 1).padStart(2, "0"),
+      String(day).padStart(2, "0")
+    ].join("-");
+  };
+
+  /** 출생 이후 스테이지의 표기 구간(개월). 시드 계약과 같은 관례로 파생한다. */
+  const stageNotationRanges = (): Map<ChildStageCode, MonthRange> => {
+    const completed = new Map<ChildStageCode, MonthRange>();
+    for (let ageMonths = 0; ageMonths <= PROBE_MAX_AGE_MONTHS; ageMonths += 1) {
+      const stage = calculateChildStage({
+        stageMode: "born",
+        birthDate: probeBirthDate(ageMonths),
+        today: PROBE_TODAY
+      }).stageCode;
+      const seen = completed.get(stage);
+      completed.set(stage, { from: seen?.from ?? ageMonths, to: ageMonths });
+    }
+    const openEnded = [...completed.keys()].at(-1) as ChildStageCode;
+    const notation = new Map<ChildStageCode, MonthRange>();
+    for (const [stage, range] of completed) {
+      notation.set(stage, {
+        from: range.from === 0 ? 0 : range.from - 1,
+        to: stage === openEnded ? Number.POSITIVE_INFINITY : range.to
+      });
+    }
+    return notation;
+  };
+
+  /**
+   * 데모 라벨은 시드와 표기가 조금 다르다(물결표 대신 하이픈을 쓰고, 칩 이름을 그대로 쓰기도
+   * 한다 — `"12-24개월"` · `"24개월+"`). 세 표기를 같은 구간으로 읽는다. 임신·서술 표기는 null.
+   */
+  const parseLabelMonths = (label: string): MonthRange | null => {
+    const span = /^(\d+)[~-](\d+)개월(?: 전후)?$/.exec(label);
+    if (span) return { from: Number(span[1]), to: Number(span[2]) };
+    const openEnded = /^(\d+)개월(?: 이후|\+)$/.exec(label);
+    if (openEnded) return { from: Number(openEnded[1]), to: Number.POSITIVE_INFINITY };
+    return null;
+  };
+
+  const overlaps = (a: MonthRange, b: MonthRange) => a.from <= b.to && b.from <= a.to;
+
+  it("개월을 말하는 데모 라벨은 자기 stageCodes의 스테이지 **전부**와 겹친다 (뒤 방향)", () => {
+    const notation = stageNotationRanges();
+    let judged = 0;
+
+    for (const item of localItemTemplateFixtures) {
+      const labelRange = parseLabelMonths(item.timingLabel);
+      if (!labelRange) continue;
+      const bornStages = item.stageCodes.filter((code): code is ChildStageCode =>
+        notation.has(code as ChildStageCode)
+      );
+      expect(
+        bornStages.length,
+        `${item.name}: "${item.timingLabel}"이 개월을 말하는데 출생 이후 스테이지가 없다`
+      ).toBeGreaterThan(0);
+
+      for (const stage of bornStages) {
+        const stageRange = notation.get(stage) as MonthRange;
+        judged += 1;
+        expect(
+          overlaps(labelRange, stageRange),
+          `${item.name}: "${item.timingLabel}" = [${labelRange.from}, ${labelRange.to}]이 ` +
+            `${stage} = [${stageRange.from}, ${stageRange.to}]와 한 달도 겹치지 않는다`
+        ).toBe(true);
+      }
+    }
+
+    // 정규식이 조용히 아무것도 못 잡는 no-op이 되지 않게(오늘 실측 다섯 쌍).
+    expect(judged).toBeGreaterThanOrEqual(5);
+  });
+
+  it("데모 라벨은 자기가 서는 칩 밴드와도 겹친다 (앞 방향 — 목록과 상세가 같은 나이를 말한다)", () => {
+    let judged = 0;
+    for (const item of localItemTemplateFixtures) {
+      const labelRange = parseLabelMonths(item.timingLabel);
+      if (!labelRange) continue;
+      for (const stage of item.stageCodes as ChildStageCode[]) {
+        for (const band of bandsForStage(stage)) {
+          const bandRange = parseLabelMonths(band) as MonthRange;
+          judged += 1;
+          expect(
+            overlaps(labelRange, bandRange),
+            `${item.name}: "${item.timingLabel}"이 ${band} 칩에 서는데 그 칩의 개월과 겹치지 않는다`
+          ).toBe(true);
+        }
+      }
+    }
+    expect(judged).toBeGreaterThanOrEqual(5);
   });
 });
 

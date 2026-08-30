@@ -151,6 +151,37 @@ export function isSecretCandidateParamName(paramName: string): boolean {
 }
 
 /**
+ * `requestId`가 넘을 수 없는 길이와 모양.
+ *
+ * ── 라운드 74 적대적 리뷰 A-3 ──
+ *
+ * 이 모듈의 이웃(`request-logger.middleware.ts`)은 *"헤더·본문·질의 문자열은 로그에 없다"*
+ * 를 약속하고 그 약속을 계약이 센다. 그런데 `requestId`는 **클라이언트가 보낸 헤더**
+ * (`x-request-id`)를 그대로 옮겨 적는 필드다 — 즉 그 약속 **안에 서 있는 예외**이고,
+ * 예외가 조용하면 그것은 예외가 아니라 구멍이다. 아무나 보낼 수 있는 값이므로:
+ *  - **길이**: 로그 한 줄을 임의로 부풀리지 못하게 상한을 둔다(로그 파일은 10MB × 3개로
+ *    회전하므로, 긴 헤더 한 벌이면 조사에 필요한 옛 줄을 밀어낼 수 있다).
+ *  - **문자셋**: 줄바꿈·따옴표·제어문자가 들어오면 JSON 한 줄 로그를 **여러 줄처럼 보이게**
+ *    만들거나 grep 결과를 흐린다(줄 단위로 읽는 도구가 곧 운영 절차다 —
+ *    `incident-response.md` §초동 2).
+ * 상한과 문자셋을 넘으면 **버린다**(자르지 않는다 — 잘린 id는 있지도 않은 요청을 가리키는
+ * 새 거짓말이고, 없는 것은 없다고 말하는 편이 정직하다).
+ *
+ * 128자·`[A-Za-z0-9_.:-]`는 실제로 오가는 모양을 전부 담는다(UUID 36 · nginx `$request_id` 32 ·
+ * W3C traceparent 55).
+ */
+export const MAX_LOGGABLE_REQUEST_ID_LENGTH = 128;
+export const LOGGABLE_REQUEST_ID_PATTERN = /^[A-Za-z0-9_.:-]+$/;
+
+/** 로그에 남길 `requestId`(모양이 어긋나면 `undefined` — 지어내거나 자르지 않는다). */
+export function loggableRequestId(rawRequestId: unknown): string | undefined {
+  const value = Array.isArray(rawRequestId) ? rawRequestId[0] : rawRequestId;
+  if (typeof value !== "string") return undefined;
+  if (value.length === 0 || value.length > MAX_LOGGABLE_REQUEST_ID_LENGTH) return undefined;
+  return LOGGABLE_REQUEST_ID_PATTERN.test(value) ? value : undefined;
+}
+
+/**
  * 로그에 남길 경로.
  *
  * @param rawPath Express의 `req.path`(질의 문자열이 없는 경로). 요청 로거는 `req.path`가
@@ -159,7 +190,7 @@ export function isSecretCandidateParamName(paramName: string): boolean {
  * 남는다(그리고 요청 로거는 애초에 질의 문자열을 남기지 않겠다고 약속한 자리다).
  */
 export function loggablePath(rawPath: string): string {
-  const path = pathOnly(typeof rawPath === "string" ? rawPath : "");
+  const path = normalizeSlashes(pathOnly(typeof rawPath === "string" ? rawPath : ""));
   for (const rule of MASKED_SECRET_PATHS) {
     if (rule.pattern.test(path)) {
       return rule.routeShape;
@@ -171,4 +202,20 @@ export function loggablePath(rawPath: string): string {
 function pathOnly(value: string): string {
   const cut = value.search(/[?#]/);
   return cut === -1 ? value : value.slice(0, cut);
+}
+
+/**
+ * 이어진 슬래시를 하나로 줄인다 — **규칙을 태우기 전에** 지나야 하는 자리다.
+ *
+ * 라운드 74 적대적 리뷰 A-1: 규칙 셋은 `^\/invite\/…` 같은 **정확한 모양**을 보는데,
+ * Express는 `//invite/<토큰>`이나 `/api/v1//invites/<토큰>` 같은 경로도 같은 핸들러에
+ * 닿게 한다(404가 되는 조합도 있지만, 404는 `warn`이라 기본 `LOG_LEVEL=info`에서 **더 잘**
+ * 남는다). 그래서 슬래시를 하나 더 붙이는 것만으로 마스킹을 통째로 우회해 48자 토큰이
+ * 평문으로 쌓일 수 있었다 — 라우팅이 관대한 자리에서 규칙만 엄격하면 그 차이가 곧 구멍이다.
+ *
+ * 정규화한 값이 **로그에 남는 값**이기도 하다(가려지지 않는 경로도 이 모양으로 남는다):
+ * 같은 라우트가 슬래시 수만 다른 여러 줄로 흩어지지 않는 편이 운영자에게도 낫다.
+ */
+function normalizeSlashes(value: string): string {
+  return value.replace(/\/{2,}/g, "/");
 }

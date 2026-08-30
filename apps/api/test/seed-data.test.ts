@@ -140,6 +140,31 @@ function parseTimingLabelMonths(label: string): MonthRange | null {
   return null;
 }
 
+/** 두 구간이 한 달이라도 겹치는가(표기 관례상 경계값은 앞뒤 구간이 함께 갖는다). */
+function overlaps(a: MonthRange, b: MonthRange): boolean {
+  return a.from <= b.to && b.from <= a.to;
+}
+
+/**
+ * 구간들의 **합집합**(맞물리는 것끼리 이어 붙인다).
+ *
+ * 라운드 74 리뷰(제안 채택): 종전 검사는 `min(from)`·`max(to)` 하나로 뭉쳐서, 불연속한
+ * `stageCodes` 조합(예: 신생아 + 네 살)의 **사이 빈 구간까지** 덮은 것으로 셌다.
+ */
+function mergeRanges(ranges: MonthRange[]): MonthRange[] {
+  const sorted = [...ranges].sort((a, b) => a.from - b.from);
+  const merged: MonthRange[] = [];
+  for (const range of sorted) {
+    const last = merged.at(-1);
+    if (last && range.from <= last.to) {
+      last.to = Math.max(last.to, range.to);
+      continue;
+    }
+    merged.push({ ...range });
+  }
+  return merged;
+}
+
 /** 밴드 라벨 네 문자열이 스스로 말하는 개월 구간(`"24개월+"`는 열린 구간). */
 function parseBandLabelMonths(label: string): MonthRange {
   const span = /^(\d+)-(\d+)개월$/.exec(label);
@@ -182,6 +207,16 @@ const TIMING_LABEL_VOCABULARY_ROUND73 = [
   "초등~중등",
   "중학생 시기"
 ];
+
+/**
+ * 라운드 74 적대적 리뷰 B-2 — **이 라운드가 들여온 새 어휘 전부**(오늘 하나).
+ *
+ * 어휘 선택 근거(한 줄): `["toddler_1_3", "kid_4_7"]`을 함께 지는 다섯은 `12-24개월` 칩과
+ * `24개월+` 칩 **양쪽에 서므로**, 사전 안의 어떤 닫힌 표기(`"12~24개월"`)도 뒤 칩과, 어떤 늦은
+ * 표기(`"24개월 이후"`)도 앞 칩과 어긋난다 — 두 칩을 함께 덮는 열린 표기가 필요했고, 그 표기는
+ * 사전이 이미 쓰는 `"N개월 이후"` **꼴을 그대로** 따른다(새 꼴이 아니라 새 숫자 하나다).
+ */
+const TIMING_LABEL_VOCABULARY_ROUND74_ADDED = ["12개월 이후"];
 
 describe("Batch 03 seed data", () => {
   it("defines the locked 12 categories without duplicates", async () => {
@@ -379,20 +414,98 @@ describe("준비템 timingLabel ↔ stageCodes (라운드 74 트랙 B)", () => {
         `${item.code}: timingLabel "${item.timingLabel}"이 개월을 말하는데 출생 이후 스테이지가 없다`
       ).toBeGreaterThan(0);
 
-      const covered: MonthRange = {
-        from: Math.min(...bornStages.map((stage) => notation.get(stage)!.from)),
-        to: Math.max(...bornStages.map((stage) => notation.get(stage)!.to))
-      };
+      // 라운드 74 리뷰(제안 채택): 종전에는 min/max로 **하나의 구간**을 만들었다. 그래서
+      // `["newborn_0_3", "kid_4_7"]`처럼 **불연속한** 스테이지 조합에서 그 사이의 빈 구간까지
+      // "덮은 것"으로 세었다. 이제 실제 구간들의 **합집합**을 쓰고, 라벨은 그 조각 하나 안에
+      // 들어와야 한다(오늘 두 방식의 판정이 갈리는 품목은 0건이다 — 그래서 지금 고쳐 둔다).
+      const covered = mergeRanges(bornStages.map((stage) => notation.get(stage) as MonthRange));
+
+      // 열린 라벨(`"N개월 이후"`)은 **끝을 말하지 않는다** — 말하지 않은 끝은 검사할 수 없다.
+      // 그 라벨이 주장하는 것은 시작 하나이고, 오른쪽의 과잉 주장은 아래 대칭 절이 다시 문다
+      // (스테이지 하나하나가 라벨과 겹쳐야 하므로, 라벨이 스테이지 전체를 앞질러 갈 수 없다).
+      const withinSegment = covered.some((segment) =>
+        Number.isFinite(labelRange.to)
+          ? labelRange.from >= segment.from && labelRange.to <= segment.to
+          : labelRange.from >= segment.from && labelRange.from < segment.to
+      );
 
       expect(
-        labelRange.from >= covered.from && labelRange.to <= covered.to,
+        withinSegment,
         `${item.code}: "${item.timingLabel}" = [${labelRange.from}, ${labelRange.to}] ` +
-          `is outside the months its stageCodes cover [${covered.from}, ${covered.to}] (${item.stageCodes.join(", ")})`
+          `is outside the months its stageCodes cover ` +
+          `[${covered.map((segment) => `${segment.from}, ${segment.to}`).join("] [")}] (${item.stageCodes.join(", ")})`
       ).toBe(true);
       judged += 1;
     }
 
     // 정규식이 조용히 아무것도 못 잡는 no-op이 되지 않게(오늘 실측 27건).
+    expect(judged).toBeGreaterThanOrEqual(20);
+  });
+
+  /**
+   * 라운드 74 적대적 리뷰 B-2 — **겹침은 대칭이다: 앞뒤 양방향으로 본다.**
+   *
+   * 위 절은 한 방향만 봤다(라벨이 스테이지가 덮는 구간 **안에** 있는가). 그래서 트랙 B가
+   * `"24개월 이후"` 다섯을 `"12~24개월"`로 내리면서 그 다섯이 지고 있던 `kid_4_7`
+   * (47~95개월)을 **라벨이 한 달도 말하지 않게** 만들었는데 초록으로 통과했다. 그 다섯은
+   * `24개월+` 칩에도 서므로, 네 살 아이의 부모가 그 칩에서 열어 본 상세가 "준비 시기:
+   * 12~24개월"이라고 말하는 자리가 그대로 남아 있었던 것이다 — 트랙 B가 고치겠다고 한 바로
+   * 그 모양(목록과 상세가 서로 다른 나이를 말한다)이 방향만 뒤집힌 채였다.
+   *
+   * 그래서 반대 방향을 함께 문다: **품목이 지는 스테이지 하나하나가 라벨과 겹쳐야 한다.**
+   * `toddler_1_3`이 `12-24개월`·`24개월+` 두 칩에 함께 들어가는 **의도된 중복**은 이 형태에서
+   * 자연히 면제된다(그 스테이지 자신이 라벨과 겹치기 때문이다 — 면제를 따로 적을 필요가 없다).
+   */
+  it("품목이 지는 스테이지 하나하나가 timingLabel과 겹친다 (뒤 방향 · 대칭 겹침 계약)", async () => {
+    const { itemTemplateSeeds } = await loadSeedData();
+    const notation = stageNotationRanges();
+    let judged = 0;
+
+    for (const item of itemTemplateSeeds) {
+      const labelRange = parseTimingLabelMonths(item.timingLabel);
+      if (!labelRange) continue;
+
+      for (const code of item.stageCodes) {
+        const stageRange = notation.get(code as ChildStageCode);
+        if (!stageRange) continue; // 임신 시기 스테이지는 개월 표기의 판정 대상이 아니다.
+        judged += 1;
+        expect(
+          overlaps(labelRange, stageRange),
+          `${item.code}: "${item.timingLabel}" = [${labelRange.from}, ${labelRange.to}]이 ` +
+            `${code} = [${stageRange.from}, ${stageRange.to}]와 한 달도 겹치지 않는다 — ` +
+            `그 시기의 목록에 서면서 상세는 다른 나이를 말한다`
+        ).toBe(true);
+      }
+    }
+
+    // no-op 방지(오늘 실측 39쌍).
+    expect(judged).toBeGreaterThanOrEqual(30);
+  });
+
+  /**
+   * 같은 계약을 **칩 밴드** 쪽에서 한 번 더 본다. 사용자가 실제로 보는 단위는 스테이지가 아니라
+   * 칩이고, 칩은 스테이지 집합이라(`STAGE_BAND_STAGES`) 위 절과 같은 사실을 다른 낱말로 묻는다:
+   * 라벨은 그 품목이 서는 칩 중 **적어도 하나**의 개월과 겹쳐야 하고, 그 칩이 라벨을 담는다.
+   */
+  it("timingLabel이 자기가 서는 칩 밴드 중 하나와는 반드시 겹친다 (앞 방향)", async () => {
+    const { itemTemplateSeeds } = await loadSeedData();
+    let judged = 0;
+
+    for (const item of itemTemplateSeeds) {
+      const labelRange = parseTimingLabelMonths(item.timingLabel);
+      if (!labelRange) continue;
+
+      const standingBands = [...STAGE_BAND_LABELS].filter((band) =>
+        item.stageCodes.some((code) => STAGE_BAND_STAGES[band].includes(code as ChildStageCode))
+      );
+      expect(standingBands.length, `${item.code}: 어느 칩에도 서지 않는다`).toBeGreaterThan(0);
+      judged += 1;
+      expect(
+        standingBands.some((band) => overlaps(labelRange, parseBandLabelMonths(band))),
+        `${item.code}: "${item.timingLabel}"이 자기가 서는 칩(${standingBands.join("·")}) 어느 것과도 겹치지 않는다`
+      ).toBe(true);
+    }
+
     expect(judged).toBeGreaterThanOrEqual(20);
   });
 
@@ -425,19 +538,33 @@ describe("준비템 timingLabel ↔ stageCodes (라운드 74 트랙 B)", () => {
       }
     }
 
-    // no-op 방지: 오늘은 칩 이름을 그대로 말하는 라벨 아홉 건에서 열넷 쌍이 실제로 판정된다
-    // (`"12~24개월"` 일곱 × 이른 칩 둘). 라벨과 칩의 표기가 함께 어긋나면 이 수가 먼저 0이 된다.
-    expect(judgedPairs).toBeGreaterThanOrEqual(10);
+    // no-op 방지: 오늘은 칩 이름을 그대로 말하는 라벨에서 네 쌍이 실제로 판정된다
+    // (`"12~24개월"` 둘 × 이른 칩 둘). 라벨과 칩의 표기가 함께 어긋나면 이 수가 먼저 0이 된다.
+    //
+    // 라운드 74 리뷰 B-2: 종전 값은 열넷이었다 — `kid_4_7`까지 지면서 `"12~24개월"`이라고 적던
+    // 다섯이 `"12개월 이후"`로 정정되며 이 절의 판정 대상에서 빠졌다(그 다섯은 이제 칩 이름을
+    // 그대로 말하지 않는다). 그 다섯을 무는 것은 위의 **대칭 겹침** 절이다.
+    expect(judgedPairs).toBeGreaterThanOrEqual(4);
   });
 
-  it("정정한 라벨이 종전 라벨 사전 안에 있다 (새 어휘 0건)", async () => {
+  it("정정한 라벨이 라벨 사전 안에 있다 (새 어휘는 값으로 적힌 하나뿐)", async () => {
     const { itemTemplateSeeds } = await loadSeedData();
+    const vocabulary = [...TIMING_LABEL_VOCABULARY_ROUND73, ...TIMING_LABEL_VOCABULARY_ROUND74_ADDED];
 
     for (const item of itemTemplateSeeds) {
       expect(
-        TIMING_LABEL_VOCABULARY_ROUND73,
-        `${item.code}: "${item.timingLabel}"은 종전 라벨 사전에 없는 새 어휘다`
+        vocabulary,
+        `${item.code}: "${item.timingLabel}"은 라벨 사전에 없는 새 어휘다`
       ).toContain(item.timingLabel);
+    }
+    // 새 어휘는 **최소**여야 한다: 늘어나는 순간 이 줄이 먼저 빨개지고, 늘린 사람이 위 주석에
+    // 근거 한 줄을 적게 된다(사전을 조용히 넓히는 길을 막는다).
+    expect(TIMING_LABEL_VOCABULARY_ROUND74_ADDED).toHaveLength(1);
+    for (const added of TIMING_LABEL_VOCABULARY_ROUND74_ADDED) {
+      expect(TIMING_LABEL_VOCABULARY_ROUND73, `${added}는 이미 사전에 있다`).not.toContain(added);
+      // 새 어휘도 사전이 이미 쓰는 **꼴**을 따른다(새 문법이 아니라 새 숫자 하나다).
+      expect(added).toMatch(/^\d+개월 이후$/);
+      expect(itemTemplateSeeds.some((item) => item.timingLabel === added), `${added}가 쓰이지 않는다`).toBe(true);
     }
     // 사전 자체가 라벨을 다 담고 있다는 것만으로는 부족하다 — 사전에 없는 표기가 실제로
     // 걸리는지(= 이 단언이 no-op이 아닌지)를 값으로 남긴다.

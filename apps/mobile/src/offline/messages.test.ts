@@ -857,9 +857,9 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
   const OLD_LOAD_FAILURE_PHRASE = firstSentenceOf(LOAD_ERROR_NOTICE);
   const OLD_SAVE_FAILURE_PHRASE = firstSentenceOf(SAVE_ERROR_NOTICE);
 
-  /** `app/**`의 화면 중 코드(주석 제외)에 그 문장이 살아 있는 것들. */
-  const appScreensWithPhrase = (phrase: string): string[] => {
-    const found: string[] = [];
+  /** `app/**`의 화면별 **출현 횟수**(코드만 — 0건인 화면은 담지 않는다). */
+  const appScreenPhraseCounts = (phrase: string): Map<string, number> => {
+    const found = new Map<string, number>();
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const fullPath = join(dir, entry.name);
@@ -868,13 +868,17 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
           continue;
         }
         if (!entry.name.endsWith(".tsx")) continue;
-        if (!codeOnly(readFileSync(fullPath, "utf8")).includes(phrase)) continue;
-        found.push(relative(mobileRoot, fullPath).split(sep).join("/"));
+        const count = codeOnly(readFileSync(fullPath, "utf8")).split(phrase).length - 1;
+        if (count === 0) continue;
+        found.set(relative(mobileRoot, fullPath).split(sep).join("/"), count);
       }
     };
     walk(join(mobileRoot, "app"));
-    return found.sort();
+    return new Map([...found].sort(([a], [b]) => (a < b ? -1 : 1)));
   };
+
+  /** `app/**`의 화면 중 코드(주석 제외)에 그 문장이 살아 있는 것들. */
+  const appScreensWithPhrase = (phrase: string): string[] => [...appScreenPhraseCounts(phrase).keys()];
 
   /**
    * 스윕 자신의 계약. 저장 쪽 답이 오늘 0건이라, **그물이 찢어져 있어도 통과하는** 형태가 될 수
@@ -915,6 +919,62 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
     // destructive-flow-messages · step-ui · app-lock). 손으로 적는 화면이 하나 생기는 날 위
     // 단언이 먼저 빨개진다.
     expect(screens).toEqual([]);
+  });
+
+  /**
+   * 라운드 74 적대적 리뷰 D-1 — **스윕이 파일 단위라 "이미 이름이 있는 화면"은 자유롭다.**
+   *
+   * 위 두 단언은 "그 문장이 살아 있는 화면이 목록 안에 있는가"만 묻는다. 그래서 **이미 배선돼
+   * 목록에 있는 화면**이 옛 리터럴을 자리 하나에 손으로 다시 적으면(공용 훅은 그대로 부르면서)
+   * 그물이 그것을 보고도 통과시킨다 — 이 라운드가 실제로 고친 자리가 정확히 그 모양이었다
+   * (개인정보 화면은 훅을 부르면서도 고정 문자열 하나를 넷이 나눠 쓰고 있었다).
+   *
+   * 그래서 **횟수**를 고정한다. 오늘 살아 있는 세 자리는 전부 "그 문장이어야 하는 이유"가 있는
+   * 자리이고, 그 이유를 여기 값으로 적는다. 자리가 하나라도 늘면 이 단언이 먼저 빨개진다.
+   */
+  const LOAD_PHRASE_EXPECTED_OCCURRENCES: Readonly<Record<string, { count: number; reason: string }>> = {
+    "app/(onboarding)/prepared-items.tsx": {
+      count: 1,
+      reason:
+        "배선하지 않기로 한 자리(제외 목록). 공용 문장이 가리키는 [다시 시도]가 그 화면에 없고 " +
+        "이미 더 구체적인 탈출구 문장을 갖고 있다 — 그 한 줄이 그 이유의 본체다."
+    },
+    "app/settings/index.tsx": {
+      count: 1,
+      reason:
+        "설정 요약 줄의 **온라인 갈래**는 종전 문자열 바이트 불변이다(`summaryUnavailableText`). " +
+        "오프라인 갈래는 공용 문장에서 잘라 만들어 리터럴이 없다."
+    },
+    "app/family/index.tsx": {
+      count: 1,
+      reason:
+        "대기 초대 줄은 줄 자체가 눌리는 자리라 뒷절이 '눌러서'다 — 온라인 갈래가 공용 카드 " +
+        "문구가 아니라 자기 문장 그대로여야 한다(`FAMILY_PENDING_INVITE_LOAD_ERROR_TEXT`)."
+    }
+  };
+
+  it("ⓓ 조회: 화면별 옛 리터럴 **출현 횟수**가 값과 정확히 일치한다 (파일 단위 스윕의 사각)", () => {
+    const counts = appScreenPhraseCounts(OLD_LOAD_FAILURE_PHRASE);
+    expect(Object.fromEntries(counts)).toEqual(
+      Object.fromEntries(
+        Object.entries(LOAD_PHRASE_EXPECTED_OCCURRENCES).map(([path, entry]) => [path, entry.count])
+      )
+    );
+    // 이유가 값으로 남아 있을 때만 그 자리가 허용된다(빈 문자열로 표를 늘릴 수 없다).
+    for (const [path, entry] of Object.entries(LOAD_PHRASE_EXPECTED_OCCURRENCES)) {
+      expect(entry.reason.trim().length, `${path}의 사유가 값으로 남아 있다`).toBeGreaterThan(30);
+      expect(entry.count, `${path}의 기대 출현 수`).toBeGreaterThan(0);
+    }
+    // 배선된 화면 열넷 중 이 표에 이름이 있는 것은 둘뿐이다 — 나머지 열둘은 **0건**이고,
+    // 그중 하나라도 리터럴을 손으로 되쓰면 위 `toEqual`이 먼저 빨개진다.
+    const wiredWithLiteral = OFFLINE_AWARE_LOAD_ERROR_SCREENS.filter((path) =>
+      Object.hasOwn(LOAD_PHRASE_EXPECTED_OCCURRENCES, path)
+    );
+    expect(wiredWithLiteral.sort()).toEqual(["app/family/index.tsx", "app/settings/index.tsx"]);
+  });
+
+  it("ⓓ 저장: 옛 저장 실패 리터럴은 화면 어디에도 0건이다 (같은 형태의 횟수 고정)", () => {
+    expect(Object.fromEntries(appScreenPhraseCounts(OLD_SAVE_FAILURE_PHRASE))).toEqual({});
   });
 
   it("ⓔ 두 제외 목록의 이유는 빈 문자열일 수 없고, 배선 목록과 겹치지 않는다", () => {

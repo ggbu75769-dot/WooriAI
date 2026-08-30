@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import type { AuthenticatedRequest } from "../types/authenticated-request";
-import { loggablePath } from "./loggable-path";
+import { loggablePath, loggableRequestId } from "./loggable-path";
 
 const LEVEL_ORDER = { error: 0, warn: 1, info: 2, debug: 3 } as const;
 type LogLevel = keyof typeof LEVEL_ORDER;
@@ -31,6 +31,12 @@ function shouldLog(): boolean {
  *
  * `userId`만 선택이다(인증된 요청에서만 붙는다). 헤더·본문·질의 문자열·인증 자료는 여기에
  * 없고, `path`에 실려 들어오던 초대 토큰은 `loggablePath`가 라우트 모양으로 가린다.
+ *
+ * ⚠️ **`requestId`는 그 약속의 명시적 예외다**(라운드 74 리뷰 A-3): 값의 출처가 클라이언트가
+ * 보낸 `x-request-id` 헤더다. 운영자가 그 값으로 요청을 추적하는 절차가 이미 문서에 있어
+ * (`incident-response.md` §초동 2) 남기는 것이 답이지만, **아무나 보낼 수 있는 값**이므로
+ * 길이·문자셋을 지난 뒤에만 남는다(`loggableRequestId`). 예외가 있다는 사실 자체를 여기 적어
+ * 두는 것이 이 문단의 몫이다 — 조용한 예외는 예외가 아니다.
  */
 export const REQUEST_LOG_FIELDS = [
   "ts",
@@ -81,13 +87,15 @@ export function requestLoggerMiddleware() {
       const level: LogLevel = res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info";
       if (LEVEL_ORDER[level] > LEVEL_ORDER[configuredLevel()]) return;
 
-      const requestIdHeader = req.headers["x-request-id"];
       const authenticated = req as AuthenticatedRequest;
 
       const entry: RequestLogEntry = {
         ts: new Date().toISOString(),
         level,
-        requestId: Array.isArray(requestIdHeader) ? requestIdHeader[0] : requestIdHeader,
+        // ⚠️ 이 한 필드만 **클라이언트가 보낸 헤더**에서 온다(`x-request-id`) — 위 약속의
+        // 유일한 예외다. 그래서 그대로 옮겨 적지 않고 길이·문자셋을 지난다(loggable-path.ts의
+        // `loggableRequestId` — 모양이 어긋나면 없는 것으로 남긴다).
+        requestId: loggableRequestId(req.headers["x-request-id"]),
         method: req.method,
         path: loggablePath(req.path ?? req.url),
         status: res.statusCode,

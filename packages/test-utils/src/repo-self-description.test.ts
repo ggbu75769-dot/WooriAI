@@ -97,18 +97,67 @@ function allCitations(): Citation[] {
 /** 이 계약이 돌려도 되는 명령: 읽기만 하는 파이프라인. */
 const READ_ONLY_TOOLS = ["grep", "awk", "sed", "wc", "sort", "uniq", "cat", "head", "tail"];
 
-function isReadOnlyPipeline(command: string): boolean {
-  // 인용된 인자(정규식·패턴)에는 `;` 같은 글자가 자연스럽게 들어간다 — 위험한 글자는
-  // **따옴표 밖**에서만 위험하다. 그래서 작은따옴표 구간을 먼저 걷어내고 본다.
+/**
+ * **도구 이름만으로는 부족하다.**
+ *
+ * 위 목록의 이름 중 둘은 스스로 셸을 부르거나 파일을 고칠 수 있다: `awk 'BEGIN{system("…")}'`는
+ * 셸을 열고, `sed -i`는 파일을 제자리에서 덮어쓴다. 둘 다 **따옴표 안**에 있어서 종전 검사
+ * (따옴표를 걷어낸 뒤 첫 낱말만 보는)를 그대로 지나갔다. 그래서 이 표는 **원문 그대로**를 본다 —
+ * 위험한 모양은 인용 안에 있어도 위험하다.
+ *
+ * 문서가 이 저장소의 파일이라는 사실은 이 검사를 무르게 하는 이유가 아니다: 이 계약은 문서가
+ * 적은 문자열을 실행하므로, 문서를 고칠 수 있는 사람은 곧 이 계약이 무엇을 실행할지 고를 수 있다.
+ */
+const FORBIDDEN_COMMAND_PATTERNS: readonly { readonly pattern: RegExp; readonly reason: string }[] = [
+  { pattern: /\bsystem\s*\(/, reason: "awk의 system()은 셸을 연다" },
+  { pattern: /\bENVIRON\b|\bgetline\b|\bclose\s*\(|\|\s*&/, reason: "awk가 외부 입력·명령과 이야기한다" },
+  // awk의 `print > "파일"`은 **인용 안**에 있어도 awk가 실제로 파일을 연다(셸 리다이렉트가 아니다).
+  { pattern: /(^|\s)awk\b[^|]*>/, reason: "awk의 리다이렉트는 파일을 쓴다" },
+  {
+    pattern: /(^|\s)sed\b[^|]*(\s-[a-zA-Z]*i\b|\s--in-place\b)/,
+    reason: "sed의 제자리 편집(-i / --in-place)은 읽기가 아니다"
+  },
+  { pattern: /(^|\s)(sed|awk)\b[^|]*\s-{1,2}f(ile)?\b/, reason: "스크립트 파일을 읽어 실행한다" },
+  // `sed`의 `w` 명령/플래그는 파일을 쓴다(`sed 's/a/b/w out'` · `sed 'w out'`).
+  { pattern: /(^|\s)sed\b[^|]*'[^']*\bw[ \t]+[^']+'/, reason: "sed의 w는 파일을 쓴다" },
+  { pattern: /\bexec\b|\bxargs\b|\beval\b/, reason: "다른 명령을 실행시키는 낱말" }
+];
+
+/** 왜 거절했는지(초록일 때는 null). 문장은 실패 메시지에 그대로 실린다. */
+function readOnlyPipelineRejection(command: string): string | null {
+  if (typeof command !== "string" || command.trim().length === 0) return "빈 명령이에요";
+  // 작은따옴표의 짝이 맞지 않으면 아래 걷어내기가 명령의 꼬리를 통째로 놓친다(우회로였다).
+  if ((command.match(/'/g) ?? []).length % 2 !== 0) return "작은따옴표의 짝이 맞지 않아요";
+
+  for (const rule of FORBIDDEN_COMMAND_PATTERNS) {
+    if (rule.pattern.test(command)) return rule.reason;
+  }
+
+  // 인용된 인자(정규식·패턴)에는 `;` 같은 글자가 자연스럽게 들어간다 — 그 글자들은
+  // **따옴표 밖**에서만 셸 메타문자다. 그래서 작은따옴표 구간을 걷어내고 본다.
   const outsideQuotes = command.replace(/'[^']*'/g, "''");
-  if (/[;&><$`]|\|\|/.test(outsideQuotes)) return false;
-  return outsideQuotes
-    .split("|")
-    .map((segment) => segment.trim().split(/\s+/)[0])
-    .every((tool) => READ_ONLY_TOOLS.includes(tool));
+  if (/["`;&$<>]|\|\|/.test(outsideQuotes)) return "따옴표 밖에 셸 메타문자가 있어요";
+
+  const segments = outsideQuotes.split("|").map((segment) => segment.trim());
+  if (segments.some((segment) => segment.length === 0)) return "빈 파이프 구간이 있어요";
+  const tools = segments.map((segment) => segment.split(/\s+/)[0]);
+  const unknown = tools.filter((tool) => !READ_ONLY_TOOLS.includes(tool));
+  return unknown.length === 0 ? null : `읽기 전용 도구가 아니에요: ${unknown.join("·")}`;
+}
+
+function isReadOnlyPipeline(command: string): boolean {
+  return readOnlyPipelineRejection(command) === null;
 }
 
 function runCitedCommand(command: string): number {
+  // ⚠️ **가드가 먼저다.** 종전에는 이 검사가 별도의 `it` 하나에만 있었고, vitest의 `it` 순서에
+  // 실행 순서를 기대는 형태라 "돌린 뒤에 검사하는" 창이 실제로 열려 있었다. 이제 실행 자체가
+  // 가드를 통과하지 못하면 일어나지 않는다(아래 `spawnSync`는 이 줄 다음에만 도달한다).
+  const rejection = readOnlyPipelineRejection(command);
+  if (rejection !== null) {
+    throw new Error(`읽기 전용이 아닌 명령은 돌리지 않아요 (${rejection}): \`${command}\``);
+  }
+
   const result = spawnSync("/bin/sh", ["-c", command], {
     cwd: repoRoot,
     encoding: "utf8",
@@ -165,6 +214,52 @@ describe("문서가 인용한 근거를 계약이 실제로 돌린다 (라운드
         isReadOnlyPipeline(citation.command),
         `${citation.doc}의 \`${citation.command}\`는 읽기 전용 명령이 아니에요`
       ).toBe(true);
+    }
+  });
+
+  /**
+   * 라운드 74 적대적 리뷰 C-1 — **가드가 실행보다 먼저 선다.**
+   *
+   * 종전에는 위 부정 단언이 별도의 `it` 하나에만 있었다. 그런데 명령을 **실제로 돌리는** 것은
+   * 다른 `it`이라, 둘의 순서에 안전이 걸려 있었다(vitest는 `it` 순서를 계약으로 주지 않는다).
+   * 게다가 그 판정은 도구 이름만 봤기 때문에 `awk 'BEGIN{system("…")}'`·`sed -i`처럼 **허용
+   * 목록 안의 이름이 스스로 셸을 열거나 파일을 고치는** 모양을 그대로 통과시켰다.
+   *
+   * 이제 `runCitedCommand`의 첫 줄이 가드다 — 아래 두 단언은 그 사실을 **거절이 실행을 대신한다**는
+   * 형태로 못 박는다(던지는 것이 판정이고, 던지지 않으면 그 명령은 이미 돌아간 것이다).
+   */
+  it("우회 시도는 판정에서 걸리고, 실행 자체가 거부된다 (부정 단언 · C-1)", () => {
+    const bypasses = [
+      // ① awk의 system(): 목록 안의 이름이고 위험한 부분이 전부 작은따옴표 안에 있다.
+      `awk 'BEGIN{system("touch /tmp/wooriai-guard-breach")}' scripts/check-env.ts`,
+      // ② sed의 제자리 편집: 셸 메타문자가 하나도 없다.
+      "sed -i 's/37/1/' scripts/qa/server-smoke.sh",
+      "sed --in-place 's/37/1/' scripts/qa/server-smoke.sh",
+      // ③ sed/awk가 파일을 쓰는 다른 입구들.
+      "sed -n 's/a/b/w /tmp/wooriai-guard-breach' README.md",
+      `awk '{print > "/tmp/wooriai-guard-breach"}' README.md`,
+      "awk -f /tmp/evil.awk README.md",
+      // ④ 작은따옴표 짝을 깨서 걷어내기를 지나가려는 모양.
+      "grep -c 'chk README.md; touch /tmp/wooriai-guard-breach",
+      // ⑤ 종전 판정이 이미 막던 것들(좁아지지 않았다는 확인).
+      "grep -c chk README.md; rm -rf .",
+      "cat README.md && rm -rf .",
+      "grep -c chk README.md > /tmp/wooriai-guard-breach",
+      "echo hi",
+      "grep -c chk README.md | node -e 'process.exit(0)'"
+    ];
+
+    for (const command of bypasses) {
+      expect(isReadOnlyPipeline(command), `\`${command}\`가 읽기 전용으로 판정됐어요`).toBe(false);
+      // 판정만 있고 실행이 그것을 읽지 않으면 판정은 장식이다 — 실행 경로 자체가 거절한다.
+      expect(() => runCitedCommand(command), `\`${command}\`가 실행 경로에서 거부되지 않았어요`).toThrow(
+        /읽기 전용이 아닌 명령은 돌리지 않아요/
+      );
+    }
+
+    // 그리고 오늘의 인용 넷은 여전히 통과한다(가드가 계약 자신을 잠그지 않는다).
+    for (const citation of allCitations()) {
+      expect(isReadOnlyPipeline(citation.command), citation.command).toBe(true);
     }
   });
 

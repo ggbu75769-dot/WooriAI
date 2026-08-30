@@ -325,6 +325,10 @@ export default function ItemsScreen() {
   const defaultStageBand = resolveDefaultStageLabel({
     currentStage: stageSourceChild?.currentStage,
     birthDate: stageSourceChild?.birthDate,
+    // 라운드 74 리뷰 B-1: 수동 입력 아이에게는 설계상 birthDate가 없다 — 나이를 모르는 것이
+    // 그 갈래의 정상이라, "시기를 확인하지 못했어요" 안내가 그 자리에 서면 안 된다.
+    // 같은 `["children"]` 응답에 이미 실려 오는 필드라 새 요청은 여전히 0건이다.
+    stageMode: stageSourceChild?.stageMode,
     isPixelLockMode,
     hasManualSelection: false,
     fallback: "12-24개월"

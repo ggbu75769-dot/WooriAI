@@ -5,10 +5,12 @@ import { join, relative, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MASKED_SECRET_PATHS,
+  MAX_LOGGABLE_REQUEST_ID_LENGTH,
   SECRET_CANDIDATE_PARAM_NAME,
   UNMASKED_SECRET_CANDIDATE_PATHS,
   isSecretCandidateParamName,
-  loggablePath
+  loggablePath,
+  loggableRequestId
 } from "../src/common/logging/loggable-path";
 import { REQUEST_LOG_FIELDS, requestLoggerMiddleware } from "../src/common/logging/request-logger.middleware";
 
@@ -272,6 +274,47 @@ function globalPrefixConfig(): { prefix: string; excluded: Set<string> } {
   return { prefix, excluded };
 }
 
+/**
+ * Nest가 라우트를 만드는 **HTTP 메서드 데코레이터 전부**.
+ *
+ * 라운드 74 적대적 리뷰 A-2: 종전 스윕은 다섯(`Get`·`Post`·`Put`·`Patch`·`Delete`)만 봤다.
+ * `@All`·`@Head`·`@Options`·`@Search`는 Nest가 똑같이 라우트로 만드는데도 이 그물 밖이라,
+ * 그중 하나로 `:token` 라우트를 하나 더 만들면 **판정 없이** 지나갔다 — "전수 스윕"이라는
+ * 이름이 사실이 아니었던 셈이다. 목록을 여기 값으로 두고, 아래 패리티 단언이 이 목록과
+ * 소스에서 센 원시 개수를 대조한다(정규식이 조용히 늙는 것을 그 단언이 잡는다).
+ */
+const ROUTE_METHOD_DECORATORS = [
+  "Get",
+  "Post",
+  "Put",
+  "Patch",
+  "Delete",
+  "All",
+  "Head",
+  "Options",
+  "Search"
+] as const;
+
+/**
+ * 하나의 데코레이터 인자에서 경로들을. 배열 인자(`@Get(["a", "b"])`)는 **라우트 둘**이고,
+ * 인자가 없으면 컨트롤러 경로 자체다.
+ */
+function decoratorPaths(argument: string): string[] {
+  const trimmed = argument.trim();
+  if (trimmed.length === 0) return [""];
+  const quoted = [...trimmed.matchAll(/"([^"]*)"|'([^']*)'/g)].map((match) => match[1] ?? match[2] ?? "");
+  return quoted.length > 0 ? quoted : [""];
+}
+
+/** 스윕이 세는 것과 **같은 규칙**으로 소스에서 데코레이터 출현만 센다(패리티의 반대편). */
+function rawDecoratorCount(): number {
+  const pattern = new RegExp(`@(?:${ROUTE_METHOD_DECORATORS.join("|")})\\s*\\(`, "g");
+  return sourceFiles(SRC_DIR).reduce(
+    (total, file) => total + [...stripComments(readFileSync(file, "utf8")).matchAll(pattern)].length,
+    0
+  );
+}
+
 function sweepRoutes(): SweptRoute[] {
   const { prefix, excluded } = globalPrefixConfig();
   const found: SweptRoute[] = [];
@@ -280,23 +323,29 @@ function sweepRoutes(): SweptRoute[] {
     const source = stripComments(readFileSync(file, "utf8"));
     const relativePath = relative(API_DIR, file).split(sep).join("/");
     let controllerPrefix: string | null = null;
-    const decorator = /@(Controller|Get|Post|Put|Patch|Delete)\(\s*(?:"([^"]*)"|'([^']*)')?\s*\)/g;
+    // 인자 자리를 통째로 잡는다(문자열 하나 · 배열 · 빈 인자를 한 패턴으로 — 배열 인자는
+    // `decoratorPaths`가 라우트 여럿으로 편다).
+    const decorator = new RegExp(
+      `@(Controller|${ROUTE_METHOD_DECORATORS.join("|")})\\s*\\(([^)]*)\\)`,
+      "g"
+    );
     let match: RegExpExecArray | null;
 
     while ((match = decorator.exec(source)) !== null) {
-      const [, kind, doubleQuoted, singleQuoted] = match;
-      const argument = doubleQuoted ?? singleQuoted ?? "";
+      const [, kind, rawArgument] = match;
       if (kind === "Controller") {
-        controllerPrefix = argument;
+        controllerPrefix = decoratorPaths(rawArgument)[0];
         continue;
       }
       expect(
         controllerPrefix,
         `${relativePath}: @Controller 밖에서 @${kind} 데코레이터를 찾았어요 — 스윕이 이 라우트의 경로를 모릅니다`
       ).not.toBeNull();
-      const joined = [controllerPrefix, argument].filter((part) => part && part.length > 0).join("/");
-      const path = excluded.has(joined) ? `/${joined}` : `/${prefix}/${joined}`;
-      found.push({ path, method: kind.toUpperCase(), file: relativePath });
+      for (const argument of decoratorPaths(rawArgument)) {
+        const joined = [controllerPrefix, argument].filter((part) => part && part.length > 0).join("/");
+        const path = excluded.has(joined) ? `/${joined}` : `/${prefix}/${joined}`;
+        found.push({ path, method: kind.toUpperCase(), file: relativePath });
+      }
     }
   }
 
@@ -385,6 +434,48 @@ describe("라우트 전수 스윕 (라운드 74 A 계약 ⓑ)", () => {
     for (const rule of MASKED_SECRET_PATHS) {
       expect(rule.reason.trim().length, `${rule.routeShape}의 마스킹 사유가 비어 있어요`).toBeGreaterThan(20);
     }
+  });
+
+  /**
+   * 라운드 74 적대적 리뷰 A-2 — **"전수"가 사실인지 값으로 센다.**
+   *
+   * 스윕의 정규식은 조용히 늙는다: 종전에는 다섯 메서드만 보고 `@All`·`@Head`·`@Options`·
+   * `@Search`를 지나쳤고, 배열 인자(`@Get(["a", "b"])`)를 라우트 하나로 셌다. 그래서 이 절은
+   * **같은 소스를 두 방식으로 센다** — 스윕이 모은 수와, 데코레이터 출현만 원시로 센 수.
+   * 둘이 갈리는 순간은 파서가 뭔가를 놓치기 시작한 순간이다.
+   */
+  it("데코레이터 커버리지: 스윕 수집 수가 소스의 원시 데코레이터 수와 일치한다 (패리티)", () => {
+    const raw = rawDecoratorCount();
+    expect(raw, "라우트 데코레이터를 하나도 세지 못했어요 — 파서가 깨졌을 수 있어요").toBeGreaterThanOrEqual(90);
+
+    // 배열 인자는 데코레이터 하나가 라우트 여럿이므로, 수집 수는 원시 수보다 작을 수 없다.
+    expect(routes().length).toBeGreaterThanOrEqual(raw);
+    const arrayArgumentExtras = routes().length - raw;
+    // 오늘 이 저장소에는 배열 path 데코레이터가 0건이다 — 생기면 이 줄이 먼저 빨개지고,
+    // 만든 사람이 "그 데코레이터가 만드는 라우트가 몇 개인가"에 답하게 된다.
+    expect(arrayArgumentExtras).toBe(0);
+
+    // 그리고 목록 자체가 Nest의 메서드 데코레이터 전부를 담는다(다섯에서 아홉으로).
+    expect([...ROUTE_METHOD_DECORATORS].sort()).toEqual(
+      ["All", "Delete", "Get", "Head", "Options", "Patch", "Post", "Put", "Search"].sort()
+    );
+    // 실제로 쓰이는 메서드는 그 목록의 부분집합이다(스윕이 목록 밖 낱말을 지어내지 않는다).
+    const swept = new Set(routes().map((route) => route.method));
+    for (const method of swept) {
+      expect(
+        ROUTE_METHOD_DECORATORS.map((name) => name.toUpperCase()),
+        `${method}가 데코레이터 목록 밖이에요`
+      ).toContain(method);
+    }
+  });
+
+  it("배열 path·인자 없는 데코레이터를 파서가 실제로 편다 (파서 단위 확인)", () => {
+    // 위 패리티는 오늘 배열 인자가 0건이라 그 갈래를 밟지 않는다 — 파서 쪽을 직접 센다.
+    expect(decoratorPaths('["a", "b"]')).toEqual(["a", "b"]);
+    expect(decoratorPaths("'single'")).toEqual(["single"]);
+    expect(decoratorPaths('"double"')).toEqual(["double"]);
+    expect(decoratorPaths("")).toEqual([""]);
+    expect(decoratorPaths("   ")).toEqual([""]);
   });
 
   it("판정 규칙이 조용히 좁아지지 않는다", () => {
@@ -500,6 +591,113 @@ describe("로그용 경로 마스킹 (라운드 74 A 계약 ⓒ·ⓓ)", () => {
     expect(loggablePath("")).toBe("");
     expect(loggablePath("/")).toBe("/");
     expect(loggablePath(undefined as unknown as string)).toBe("");
+  });
+
+  /**
+   * 라운드 74 적대적 리뷰 A-1 — **슬래시 하나로 마스킹을 지나가지 못한다.**
+   *
+   * 규칙 셋은 정확한 모양(`^\/invite\/…`)을 보는데 Express의 라우팅은 이어진 슬래시에 관대하다.
+   * 그래서 `//invite/<토큰>`·`/api/v1//invites/<토큰>`은 어느 패턴에도 걸리지 않아 **평문으로**
+   * 남았다(404가 되는 조합도 있지만 404는 `warn`이라 기본 LOG_LEVEL에서 더 잘 남는다).
+   */
+  it("이어진 슬래시로 마스킹을 우회하지 못한다", () => {
+    for (const rule of MASKED_SECRET_PATHS) {
+      const token = sampleInviteToken();
+      const actualPath = fillParams(rule.routeShape, token);
+      for (const variant of [
+        `/${actualPath}`,
+        actualPath.replace("/", "//"),
+        actualPath.replace(/\//g, "//"),
+        `${actualPath}//`,
+        `/${actualPath}?utm=1`
+      ]) {
+        const logged = loggablePath(variant);
+        expect(logged, `${variant}가 가려지지 않았어요`).toBe(rule.routeShape);
+        expect(logged).not.toContain(token);
+        expect(logged).not.toContain(token.slice(0, 4));
+      }
+    }
+  });
+
+  it("가리지 않는 경로도 슬래시가 정규화된 한 모양으로 남는다 (줄이 흩어지지 않게)", () => {
+    expect(loggablePath("//api/v1//health")).toBe("/api/v1/health");
+    expect(loggablePath("/api/v1/health")).toBe("/api/v1/health");
+    // 공개 공유 코드는 여전히 값 그대로다(예외가 예외로 남는다).
+    const code = randomBytes(6).toString("hex");
+    expect(loggablePath(`/api/v1//r/${code}`)).toBe(`/api/v1/r/${code}`);
+  });
+});
+
+/**
+ * 라운드 74 적대적 리뷰 A-3 — **`requestId`는 "헤더를 로그하지 않는다"의 명시적 예외다.**
+ *
+ * 그 한 필드만 클라이언트가 보낸 헤더에서 온다. 남기는 것 자체는 결정이고 문서가 그 값으로
+ * 추적하라고 적어 두었지만(`incident-response.md` §초동 2), **아무나 보낼 수 있는 값**이라
+ * 길이·문자셋을 지나야 한다: 줄바꿈·따옴표가 섞이면 줄 단위로 읽는 운영 절차가 흐려지고,
+ * 긴 헤더 한 벌이면 회전하는 로그 창에서 조사에 필요한 옛 줄이 밀려난다.
+ */
+describe("requestId는 검증을 지나 남는다 (클라이언트 제어 값의 유일한 예외)", () => {
+  it("정상적인 모양은 그대로 남는다 (UUID · nginx $request_id · traceparent)", () => {
+    for (const value of [
+      "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+      "9c1f4e7a2b3d4e5f6a7b8c9d0e1f2a3b",
+      "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+      "req-1"
+    ]) {
+      expect(loggableRequestId(value), value).toBe(value);
+      expect(captureLogEntry({ path: "/api/v1/health", requestId: value }).requestId).toBe(value);
+    }
+    expect(MAX_LOGGABLE_REQUEST_ID_LENGTH).toBe(128);
+  });
+
+  it("상한을 넘거나 문자셋 밖이면 남기지 않는다 (자르지 않는다 — 잘린 id는 새 거짓말이다)", () => {
+    const tooLong = "a".repeat(MAX_LOGGABLE_REQUEST_ID_LENGTH + 1);
+    expect(loggableRequestId(tooLong)).toBeUndefined();
+    expect(loggableRequestId("a".repeat(MAX_LOGGABLE_REQUEST_ID_LENGTH))).toHaveLength(
+      MAX_LOGGABLE_REQUEST_ID_LENGTH
+    );
+
+    for (const bad of [
+      'req"1',
+      "req\n{\"level\":\"info\"}",
+      "req 1",
+      "req\t1",
+      "req/1",
+      "req ",
+      "요청-1",
+      "",
+      undefined,
+      null,
+      42,
+      {}
+    ]) {
+      expect(loggableRequestId(bad as unknown), JSON.stringify(bad)).toBeUndefined();
+    }
+  });
+
+  it("헤더가 배열로 와도 첫 값 하나만, 그것도 검증을 지나 남는다", () => {
+    expect(loggableRequestId(["req-1", "req-2"])).toBe("req-1");
+    expect(loggableRequestId(['req"1', "req-2"])).toBeUndefined();
+  });
+
+  it("거절된 값은 줄 원문 어디에도 나타나지 않고, 나머지 필드는 그대로다", () => {
+    const injected = 'x"}\n{"level":"error","path":"/spoofed';
+    const line = captureLogLine({ path: "/api/v1/health", requestId: injected });
+    expect(line).not.toBeNull();
+    expect(line as string).not.toContain("spoofed");
+    // 한 줄이 여전히 **한 줄**이고 그대로 파싱된다(주입이 로그 형식을 흔들지 못한다).
+    expect((line as string).split("\n")).toHaveLength(1);
+    const entry = JSON.parse(line as string) as Record<string, unknown>;
+    expect(entry.requestId).toBeUndefined();
+    expect(entry.path).toBe("/api/v1/health");
+    expect(Object.keys(entry).every((key) => (REQUEST_LOG_FIELDS as readonly string[]).includes(key))).toBe(true);
+  });
+
+  it("미들웨어가 헤더 값을 다시 그대로 옮겨 적기 시작하면 잡힌다 (소스 회귀 가드)", () => {
+    const source = readFileSync(join(SRC_DIR, "common", "logging", "request-logger.middleware.ts"), "utf8");
+    expect(source).toContain("loggableRequestId(req.headers[\"x-request-id\"])");
+    // 종전의 손배선(`Array.isArray(requestIdHeader) ? … : …`)이 되살아나지 않는다.
+    expect(source).not.toContain("Array.isArray(requestIdHeader)");
   });
 });
 

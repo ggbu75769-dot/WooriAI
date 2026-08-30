@@ -125,6 +125,22 @@ export type ResolveDefaultStageLabelInput = {
    * 그대로 돌려주되 `resolved: false`로 그 사실을 말한다.
    */
   birthDate?: unknown;
+  /**
+   * 아이의 시기 입력 방식(`"pregnant"` · `"born"` · `"manual"`). 같은 `["children"]` 응답에
+   * 이미 실려 오는 필드다(서버의 `toChildDto` — apps/api/src/onboarding/store-shared.ts).
+   *
+   * ⚠️ 라운드 74 적대적 리뷰 B-1 — **`"manual"`에는 설계상 `birthDate`가 없다.**
+   * 수동 입력은 사용자가 시기를 **직접 고르는** 갈래이고, 그래서 폼이 서버로 보내는 것은
+   * `manualStage` 하나다(apps/mobile/src/children/child-form.ts의 `buildCreateChildBody`:
+   * `birthDate`는 `stageMode === "born"`일 때만 실린다). 즉 이 갈래에서 나이를 모르는 것은
+   * **결함이 아니라 그 갈래의 정상**이다.
+   *
+   * 그런데 아래 "겹치는 밴드" 절은 나이를 모른다는 이유로 `resolved: false`를 붙였고, 화면은
+   * 그때 "지금 시기를 확인하지 못했어요. 시기를 직접 골라 주세요."를 세운다 — **방금 시기를
+   * 직접 고른 사람에게** 시기를 직접 고르라고 말하는 자리였다(수동 `toddler_1_3` 한 갈래).
+   * 모름을 정직하게 만드는 장치가 아는 것을 모른다고 말하면 그것도 허위 표시다.
+   */
+  stageMode?: unknown;
   /** True while a pixel-lock capture run is in progress -- must render deterministically. */
   isPixelLockMode: boolean;
   /** True once the user has tapped a chip -- their choice must not be overridden. */
@@ -209,10 +225,14 @@ export function resolveDefaultStageLabel(input: ResolveDefaultStageLabelInput): 
   const ageMonths = childAgeMonths(input.birthDate);
   const label = bandForStage(input.currentStage, ageMonths);
 
-  if (ageMonths === null && bandsForStage(input.currentStage).length > 1) {
+  if (ageMonths === null && bandsForStage(input.currentStage).length > 1 && input.stageMode !== "manual") {
     // 밴드 둘이 이 스테이지를 나눠 갖는데 나이를 모른다 — 라벨은 종전 값 그대로 두고,
     // 그것이 아이의 시기에서 갈라 나온 값이 아니라는 사실만 말한다(화면은 그때 칩을 직접
     // 고르라고 안내한다 — STAGE_BAND_UNRESOLVED_NOTICE).
+    //
+    // ⚠️ 수동 입력(`stageMode === "manual"`)은 이 갈래가 아니다: 그 아이에게는 설계상
+    // 생년월일이 없고(위 `stageMode` 주석), 사용자가 **방금 고른** 시기가 곧 원천이다.
+    // 나이가 없다는 것이 "시기를 확인하지 못했다"는 뜻이 되지 않는 유일한 갈래다.
     return { label, resolved: false };
   }
 
