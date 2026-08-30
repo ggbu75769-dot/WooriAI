@@ -12,7 +12,8 @@ import { AdminSessionCleanupJob } from "../src/worker/jobs/admin-session-cleanup
 import { IdempotencyKeyCleanupJob } from "../src/worker/jobs/idempotency-key-cleanup.job";
 import { OauthTransactionCleanupJob } from "../src/worker/jobs/oauth-transaction-cleanup.job";
 import { RefreshTokenCleanupJob } from "../src/worker/jobs/refresh-token-cleanup.job";
-import { ScheduledPublishJob } from "../src/worker/jobs/scheduled-publish.job";
+import { ScheduledPublishFailureError, ScheduledPublishJob } from "../src/worker/jobs/scheduled-publish.job";
+import { WorkerStatusService } from "../src/worker/worker-status.service";
 import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
 
 const dbAvailable = await isDatabaseAvailable();
@@ -20,6 +21,20 @@ const dbAvailable = await isDatabaseAvailable();
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * GAP-078 #2: **발행에 실패하는 리비전**을 세우는 픽스처는 이 값만큼 미래로 예약하고,
+ * 이 파일만 그 시각을 넘긴 `now`로 잡을 돌린다.
+ *
+ * 이유: 실패 픽스처는 `in_review` + 과거 `scheduledFor`이므로 **스코프되지 않은 잡**의
+ * due 그물에도 걸린다 — content-revisions.e2e.test.ts는 DI에서 꺼낸 잡을
+ * `run(new Date())` / `run(Date.now() + 2시간)`으로 부른다. 예전에는 그 행이 남의 tick
+ * 요약에 `failed` 한 줄로 조용히 섞였지만(파일 머리말 C-11g가 적은 그 경합의 반대 방향),
+ * 이번 라운드부터 실패는 **throw**로 나가므로 그 행이 남의 tick 자체를 깨뜨린다.
+ * 잡의 due 판정(`scheduledFor <= now`)은 그대로 쓰면서 **모집단만 시간축으로 가른다** —
+ * 스코프된 Prisma가 공간축으로 가르는 것과 같은 기법이다.
+ */
+const FAR_FUTURE_SCHEDULE_MS = 10 * 365 * DAY_MS;
 
 // INF-006-lite: unit tests for each worker job against the real test database
 // (create rows -> run(now) -> assert), without timers or the scheduler loop.
@@ -449,27 +464,82 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
       await prisma.contentRevision.deleteMany({ where: { id: { in: [futureRevision.id, unscheduledRevision.id] } } });
     });
 
-    it("compensates a failed publish back to in_review (scheduledFor preserved for retry) without aborting the batch", async () => {
-      const now = new Date();
-      const scheduledFor = new Date(now.getTime() - MINUTE_MS);
-      // entityId points at a nonexistent item template, so publishToLive throws.
-      const failing = await createRevision({
+    /**
+     * 발행이 반드시 던지는 리비전을 만든다: entityId가 존재하지 않는 준비템을 가리키므로
+     * publishToLive가 예외를 낸다(정찰이 "the permanently-failing row"라고 부른 그 행).
+     * scheduledFor는 FAR_FUTURE_SCHEDULE_MS 주석의 이유로 먼 미래에 두고, 부르는 쪽이
+     * 그 시각을 넘긴 tick 시각을 받아 간다.
+     */
+    async function createFailingRevision(scheduledFor: Date) {
+      return createRevision({
         entityType: "item_template",
         entityId: randomUUID(),
         revisionNo: 1,
         payload: { name: "존재하지 않는 준비템", necessityLevel: "situational", reasonText: "테스트" },
         status: "in_review",
         authorAdminId: randomUUID(),
-        submittedAt: now,
+        submittedAt: new Date(),
         scheduledFor
+      });
+    }
+
+    /** run()이 던진 것을 잡아 돌려준다(던지지 않으면 undefined). */
+    async function runCatching(at: Date): Promise<unknown> {
+      try {
+        await scheduledPublishJob.run(at);
+        return undefined;
+      } catch (error) {
+        return error;
+      }
+    }
+
+    // GAP-078 #2 ⓐ 부정 단언: 실패가 0건인 틱은 **던지지 않고**, 요약도 종전과 글자
+    // 그대로다. 이 트랙이 바꾼 것은 실패 틱뿐이라는 것을 요약 전체 비교로 못박는다
+    // (키가 하나라도 늘거나 줄면 여기서 빨개진다).
+    it("does not throw on a tick with no failures, and returns the same summary as before", async () => {
+      const key = `worker_ok_${randomUUID().slice(0, 8)}`;
+      const now = new Date();
+      const revision = await createRevision({
+        entityType: "disclosure",
+        entityId: null,
+        revisionNo: 1,
+        payload: { key, text: "실패 없는 틱의 문구" },
+        status: "in_review",
+        authorAdminId: randomUUID(),
+        submittedAt: new Date(now.getTime() - HOUR_MS),
+        scheduledFor: new Date(now.getTime() - MINUTE_MS)
       });
 
       const result = await scheduledPublishJob.run(now);
-      const failure = (result.failed as { id: string; error: string }[] | undefined)?.find(
+      expect(result).toEqual({
+        publishedCount: 1,
+        failedCount: 0,
+        recoveredCount: 0,
+        published: [revision.id]
+      });
+    });
+
+    it("compensates a failed publish back to in_review (scheduledFor preserved for retry), then throws so the failure reaches the worker status", async () => {
+      const scheduledFor = new Date(Date.now() + FAR_FUTURE_SCHEDULE_MS);
+      const tickAt = new Date(scheduledFor.getTime() + MINUTE_MS);
+      const failing = await createFailingRevision(scheduledFor);
+
+      // GAP-078 #2: 실패는 이제 요약에 담겨 정상 종료하지 않는다 — 요약을 메시지에 실은
+      // 터미널 래퍼로 나간다(data-retention-purge.job.ts의 M1b와 같은 모양). 예전에는
+      // 이 자리가 `resolve`였고, 그래서 스케줄러가 영원히 status=ok를 적었다.
+      const thrown = await runCatching(tickAt);
+      expect(thrown).toBeInstanceOf(ScheduledPublishFailureError);
+      const wrapper = thrown as ScheduledPublishFailureError;
+      expect(wrapper.failedRevisionIds).toEqual([failing.id]);
+      expect(wrapper.summary.failedCount).toBe(1);
+      const failure = (wrapper.summary.failed as { id: string; error: string }[]).find(
         (entry) => entry.id === failing.id
       );
       expect(failure).toBeDefined();
-      expect((result.published as string[] | undefined) ?? []).not.toContain(failing.id);
+      expect((wrapper.summary.published as string[] | undefined) ?? []).not.toContain(failing.id);
+      // 요약이 메시지에 통째로 실린다 = 실패 틱에도 카운트가 운영 로그에는 남는다(ⓔ의 짝).
+      expect(wrapper.message).toContain(failing.id);
+      expect(wrapper.message).toContain('"failedCount":1');
 
       const row = await prisma.contentRevision.findUniqueOrThrow({ where: { id: failing.id } });
       expect(row.status).toBe("in_review");
@@ -480,6 +550,136 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
       // Remove the permanently-failing row so it doesn't show up as noise in
       // later runs against the shared test database.
       await prisma.contentRevision.delete({ where: { id: failing.id } });
+    });
+
+    // GAP-078 #2 ⓑ 격리 불변: 던지는 자리가 **배치 뒤**라는 것이 이 트랙의 조건이다.
+    // 실패 하나가 뒤 초안의 발행을 막으면(=예전 파기 잡이 피하려던 그 모양) 가시성을
+    // 얻는 대가로 격리를 잃는다. 둘은 배타가 아니다.
+    it("attempts every due revision and finishes the compensation before throwing (one bad draft never blocks the rest of the batch)", async () => {
+      const scheduledFor = new Date(Date.now() + FAR_FUTURE_SCHEDULE_MS);
+      const tickAt = new Date(scheduledFor.getTime() + MINUTE_MS);
+      // 정렬은 scheduledFor asc, createdAt asc — 같은 시각이면 먼저 만든 쪽이 앞이다.
+      // 그래서 실패 초안이 **먼저** 시도되고, 그 뒤 초안이 살아남는지를 본다.
+      const failing = await createFailingRevision(scheduledFor);
+      const key = `worker_batch_${randomUUID().slice(0, 8)}`;
+      const healthy = await createRevision({
+        entityType: "disclosure",
+        entityId: null,
+        revisionNo: 1,
+        payload: { key, text: "앞 초안이 실패해도 나가는 문구" },
+        status: "in_review",
+        authorAdminId: randomUUID(),
+        submittedAt: new Date(),
+        scheduledFor
+      });
+
+      const thrown = await runCatching(tickAt);
+      expect(thrown).toBeInstanceOf(ScheduledPublishFailureError);
+      const wrapper = thrown as ScheduledPublishFailureError;
+      expect(wrapper.failedRevisionIds).toEqual([failing.id]);
+      expect(wrapper.summary.publishedCount).toBe(1);
+      expect(wrapper.summary.published).toContain(healthy.id);
+
+      // 뒤 초안은 라이브까지 반영됐다 — throw는 배치가 다 돌고 난 뒤에 나간다.
+      const published = await prisma.contentRevision.findUniqueOrThrow({ where: { id: healthy.id } });
+      expect(published.status).toBe("published");
+      expect((await prisma.disclosure.findUnique({ where: { key } }))?.text).toBe("앞 초안이 실패해도 나가는 문구");
+
+      // 앞 초안의 보상도 이미 끝나 있다 — "publishing"에 갇힌 행을 남긴 채 던지지 않는다.
+      const compensated = await prisma.contentRevision.findUniqueOrThrow({ where: { id: failing.id } });
+      expect(compensated.status).toBe("in_review");
+      expect(compensated.reviewedAt).toBeNull();
+
+      await prisma.contentRevision.delete({ where: { id: failing.id } });
+    });
+
+    // GAP-078 #2 ⓒ: 크래시 복구는 이 잡이 **제 일을 한 것**이지 실패가 아니다.
+    // recovered만 있는 틱이 던지면 워커가 정상인데 degraded가 서는 거짓이 생긴다.
+    it("does not throw on a tick that only recovered a stale 'publishing' row (recovery is success, not failure)", async () => {
+      const now = new Date();
+      const scheduledFor = new Date(now.getTime() + HOUR_MS);
+      const stale = await createRevision({
+        entityType: "disclosure",
+        entityId: null,
+        revisionNo: 1,
+        payload: { key: `worker_recover_only_${randomUUID().slice(0, 8)}`, text: "복구만 한 틱" },
+        status: "publishing",
+        authorAdminId: randomUUID(),
+        submittedAt: new Date(now.getTime() - 2 * HOUR_MS),
+        scheduledFor,
+        reviewedAt: new Date(now.getTime() - HOUR_MS),
+        updatedAt: new Date(now.getTime() - HOUR_MS)
+      });
+
+      const result = await scheduledPublishJob.run(now);
+      expect(result).toEqual({
+        publishedCount: 0,
+        failedCount: 0,
+        recoveredCount: 1,
+        recovered: [stale.id]
+      });
+
+      await prisma.contentRevision.delete({ where: { id: stale.id } });
+    });
+
+    // GAP-078 #2 ⓓ 파생 단언: 던지는 것만으로는 값이 아니다 — 그 throw가 실제로
+    // WorkerStatusService의 `degraded`까지 도달하는지를 **서버 쪽에서** 못박는다.
+    // (어드민 파일은 이 트랙이 열지 않는다. 대시보드가 이름을 말하는 근거인
+    //  apps/admin/src/lib/worker-health-view.ts의 `failingJobNames`는
+    //  `consecutiveFailures >= failureThreshold` 필터이므로 아래에서 같은 술어를 쓴다.)
+    it("reaches WorkerStatusService: consecutive failing ticks flip `degraded` and name cms_scheduled_publish", async () => {
+      const scheduledFor = new Date(Date.now() + FAR_FUTURE_SCHEDULE_MS);
+      const failing = await createFailingRevision(scheduledFor);
+
+      const status = new WorkerStatusService();
+      const threshold = 3;
+      const snapshotOptions = { enabled: true, intervalMs: 60_000, failureThreshold: threshold };
+
+      // scheduler.service.ts의 잡별 try/catch를 그대로 흉내 낸다(그 파일은 이 트랙이
+      // 열지 않으므로 계약만 복제한다 — 실패 시 요약 자리에 `{}`를 넘기는 것까지 같다).
+      async function tick(at: Date) {
+        status.recordTickStart(at);
+        try {
+          const result = await scheduledPublishJob.run(at);
+          status.recordJobResult(scheduledPublishJob.name, "ok", at, 1, result);
+        } catch {
+          status.recordJobResult(scheduledPublishJob.name, "failed", at, 1, {});
+        }
+        status.recordTickFinish(new Date());
+      }
+
+      for (let i = 1; i <= threshold; i += 1) {
+        await tick(new Date(scheduledFor.getTime() + i * MINUTE_MS));
+      }
+
+      const snapshot = status.snapshot({ ...snapshotOptions, now: new Date() });
+      expect(snapshot.degraded).toBe(true);
+      // degraded는 stale과 직교한다 — 틱 자체는 멀쩡히 돌고 있다(정찰 ⓑ가 적은 그 자리).
+      expect(snapshot.stale).toBe(false);
+      const failingNames = snapshot.jobs
+        .filter((job) => job.consecutiveFailures >= snapshot.failureThreshold)
+        .map((job) => job.name);
+      expect(failingNames).toContain("cms_scheduled_publish");
+
+      const entry = snapshot.jobs.find((job) => job.name === "cms_scheduled_publish");
+      expect(entry?.lastStatus).toBe("failed");
+      expect(entry?.consecutiveFailures).toBe(threshold);
+      // ⓔ 대가를 값으로: 실패 틱의 요약은 `{}`가 되므로 그 틱의 publishedCount는
+      // /health/worker에서 사라진다(스케줄러가 실패 시 빈 요약을 기록한다 —
+      // 파기 잡이 이미 치른 대가다). 진행 여부는 lastStatus·consecutiveFailures로 읽는다.
+      expect(entry?.lastSummary).toEqual({});
+
+      // 그리고 되돌아온다: 실패 원인이 사라지면 성공 틱 하나가 연속 실패를 0으로 리셋하고
+      // degraded가 내려간다 — 이 신호는 갇히지 않는다.
+      await prisma.contentRevision.delete({ where: { id: failing.id } });
+      await tick(new Date(scheduledFor.getTime() + (threshold + 1) * MINUTE_MS));
+
+      const healed = status.snapshot({ ...snapshotOptions, now: new Date() });
+      expect(healed.degraded).toBe(false);
+      const healedEntry = healed.jobs.find((job) => job.name === "cms_scheduled_publish");
+      expect(healedEntry?.lastStatus).toBe("ok");
+      expect(healedEntry?.consecutiveFailures).toBe(0);
+      expect(healedEntry?.lastSummary).toEqual({ publishedCount: 0, failedCount: 0, recoveredCount: 0 });
     });
 
     it("recovers a stale 'publishing' row (worker crash between claim and publish) back to in_review with scheduledFor preserved, then publishes it once due", async () => {
