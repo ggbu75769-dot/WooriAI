@@ -510,8 +510,16 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
       expect(src).not.toContain("const loadFailedText =");
       // ⚠️ 일괄 선택의 **중간 실패**는 이 배선의 대상이 아니다(K-10: 앞부분은 이미 서버에 남아
       // 있다 — 조회 문구를 돌려 쓰면 그 사실을 감춘다). 그 자리는 자기 문장을 그대로 지킨다.
-      expect(src).toContain(
-        "<Text style={{ color: theme.colors.danger }}>{IMPORT_BULK_PARTIAL_FAILURE_TEXT}</Text>"
+      //
+      // 라운드 80 통합: 이 핀을 **바이트에서 모양으로** 푼다(라운드 79 트랙 C·통합이 가족·아이
+      // 관리 다섯 자리에서 지나간 그 형식 그대로). 여는 태그의 **프롭만** 관대하고, 이 핀이
+      // 실제로 지키는 것 — 스타일(danger 색)·문장 이름(IMPORT_BULK_PARTIAL_FAILURE_TEXT)·태그
+      // 구조 — 은 그대로 엄격하다. 조회 문구를 돌려 쓰면(K-10 위반) 여기가 그대로 빨개진다.
+      // 관대해진 그 한 칸에 라운드 80이 낭독 프롭 둘을 세웠다(src/a11y-contract.test.ts의
+      // `ROUND80_RELAXED_PIN_DEPENDENCY`가 이 완화의 실재를 값으로 진다). 프롭이 늘면 그 자식이
+      // 제 줄로 내려가므로 태그 사이 **공백**만 함께 관대하다 — 문장 이름이 갈리는 것은 여전히 잡는다.
+      expect(src).toMatch(
+        /<Text[^>]*style=\{\{ color: theme\.colors\.danger \}\}>\s*\{IMPORT_BULK_PARTIAL_FAILURE_TEXT\}\s*<\/Text>/
       );
       // 저장 셋의 배선(라운드 71 A · 72 E)과 그 여정의 문구 판정은 무변경이다.
       expect(src).toContain("const toggleFailureOnline = useErrorTimeConnectivity(toggleRow.isError);");

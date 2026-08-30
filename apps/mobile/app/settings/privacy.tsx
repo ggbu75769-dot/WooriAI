@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, Switch, Text, View } from "react-native";
@@ -684,6 +685,47 @@ export default function PrivacySettingsScreen() {
   );
 
   /**
+   * 라운드 80 트랙 A(GAP-080 #1) — **같은 화면이 성공은 읽어 주고 실패는 읽어 주지 않았다.**
+   *
+   * 이 화면은 `announceForA11y`를 이미 두 번 부른다 — 아이 삭제 완료(`finishChildRemoval`의
+   * `plan.notice`)와 동의 재수집 완료(`reconsent.onSuccess`). **둘 다 성공이다.** 그런데 아래
+   * 일곱 자리는 눌린 버튼 바로 밑에 서는 **실패** 문장인데도 맨 `<Text>`였다: 되돌릴 수 없는
+   * 흐름 넷의 확정 실패 셋(아이 삭제 · 가구 탈퇴 · 계정 삭제) · 동의 갱신 실패 하나 ·
+   * 파기 미리보기 셋(그 셋은 `useLoadErrorCopy`의 문장을 쓰지만 방아쇠는 `.mutate()`다 —
+   * 재시도 수단이 바로 위 [확인] 버튼이라 포커스가 그 버튼에 남는다).
+   *
+   * 즉 낭독이 기대는 축은 **조회/저장 대장**이 아니라 **방아쇠**(쿼리/뮤테이션)였다. 관례는
+   * 라운드 79가 세운 그대로다 — 프롭 둘(`accessibilityRole="alert"` +
+   * `accessibilityLiveRegion="polite"`)은 안드로이드의 답이고, `announceForA11y`가 iOS까지
+   * 답한다(app/(auth)/login.tsx · app/settings/children.tsx가 같은 이유로 쓰는 그 한 벌).
+   * **문장·조건·스타일은 한 글자도 바뀌지 않는다 — 더하는 것은 프롭과 이 effect뿐이다.**
+   *
+   * 렌더 도중이 아니라 effect 안에서 부르고, 의존 배열이 문장 값을 들고 있어 같은 자리에서
+   * 사유만 갈리는 두 번째 실패도 다시 읽힌다.
+   */
+  useEffect(() => {
+    if (reconsent.isError || consentToggle.isError) announceForA11y(consentUpdateFailureText);
+  }, [reconsent.isError, consentToggle.isError, consentUpdateFailureText]);
+  useEffect(() => {
+    if (childPreview.isError) announceForA11y(childPreviewLoadErrorCopy.title);
+  }, [childPreview.isError, childPreviewLoadErrorCopy.title]);
+  useEffect(() => {
+    if (childDelete.isError) announceForA11y(childDeleteFailureText);
+  }, [childDelete.isError, childDeleteFailureText]);
+  useEffect(() => {
+    if (householdPreview.isError) announceForA11y(householdPreviewLoadErrorCopy.title);
+  }, [householdPreview.isError, householdPreviewLoadErrorCopy.title]);
+  useEffect(() => {
+    if (householdLeave.isError) announceForA11y(householdLeaveFailureText);
+  }, [householdLeave.isError, householdLeaveFailureText]);
+  useEffect(() => {
+    if (accountPreview.isError) announceForA11y(accountPreviewLoadErrorCopy.title);
+  }, [accountPreview.isError, accountPreviewLoadErrorCopy.title]);
+  useEffect(() => {
+    if (accountDelete.isError) announceForA11y(accountDeleteFailureText);
+  }, [accountDelete.isError, accountDeleteFailureText]);
+
+  /**
    * 라운드 71 리뷰 S-2: 여는 규칙은 화면 셋이 공유하는 한 벌이고(src/settings/open-external-url.ts),
    * 이 화면이 더하는 것은 실패 문구 두 줄뿐이다 — 동작·문구 모두 종전 그대로다.
    */
@@ -770,7 +812,7 @@ export default function PrivacySettingsScreen() {
             ))}
 
             {reconsent.isError || consentToggle.isError ? (
-              <Text style={{ color: theme.colors.danger }}>{consentUpdateFailureText}</Text>
+              <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{consentUpdateFailureText}</Text>
             ) : null}
           </Card>
         ) : null}
@@ -796,7 +838,7 @@ export default function PrivacySettingsScreen() {
             onPress={() => childPreview.mutate()}
           />
           {childPreview.isError ? (
-            <Text style={{ color: theme.colors.danger }}>{childPreviewLoadErrorCopy.title}</Text>
+            <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{childPreviewLoadErrorCopy.title}</Text>
           ) : null}
           <PreviewSummary preview={childPreview.data} />
           {childPreview.data ? (
@@ -807,7 +849,7 @@ export default function PrivacySettingsScreen() {
             />
           ) : null}
           {childDelete.isError ? (
-            <Text style={{ color: theme.colors.danger }}>{childDeleteFailureText}</Text>
+            <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{childDeleteFailureText}</Text>
           ) : null}
         </Card>
 
@@ -825,7 +867,7 @@ export default function PrivacySettingsScreen() {
             onPress={() => householdPreview.mutate()}
           />
           {householdPreview.isError ? (
-            <Text style={{ color: theme.colors.danger }}>{householdPreviewLoadErrorCopy.title}</Text>
+            <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{householdPreviewLoadErrorCopy.title}</Text>
           ) : null}
           <PreviewSummary preview={householdPreview.data} />
           {householdPreview.data ? (
@@ -836,7 +878,7 @@ export default function PrivacySettingsScreen() {
             />
           ) : null}
           {householdLeave.isError ? (
-            <Text style={{ color: theme.colors.danger }}>{householdLeaveFailureText}</Text>
+            <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{householdLeaveFailureText}</Text>
           ) : null}
         </Card>
 
@@ -853,7 +895,7 @@ export default function PrivacySettingsScreen() {
             onPress={() => accountPreview.mutate()}
           />
           {accountPreview.isError ? (
-            <Text style={{ color: theme.colors.danger }}>{accountPreviewLoadErrorCopy.title}</Text>
+            <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{accountPreviewLoadErrorCopy.title}</Text>
           ) : null}
           <PreviewSummary preview={accountPreview.data} />
           {accountPreview.data ? (
@@ -864,7 +906,7 @@ export default function PrivacySettingsScreen() {
             />
           ) : null}
           {accountDelete.isError ? (
-            <Text style={{ color: theme.colors.danger }}>{accountDeleteFailureText}</Text>
+            <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{accountDeleteFailureText}</Text>
           ) : null}
         </Card>
       </View>

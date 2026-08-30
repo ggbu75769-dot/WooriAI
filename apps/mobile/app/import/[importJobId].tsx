@@ -93,6 +93,7 @@ import { useImportResumeStore } from "../../src/stores/import-resume.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import {
+  announceForA11y,
   Card,
   CategoryChip,
   EmptyStateCard,
@@ -1129,7 +1130,9 @@ export default function ImportPreviewScreen() {
               라운드 74 트랙 D: 그 문구가 고정 문자열에서 공용 훅의 값으로 바뀌었을 뿐, 이 자리가
               그것을 돌려 쓰면 안 된다는 근거는 그대로다 — 여기는 배선 대상이 아니다. */}
           {bulkOutcome === "failed" ? (
-            <Text style={{ color: theme.colors.danger }}>{IMPORT_BULK_PARTIAL_FAILURE_TEXT}</Text>
+            <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>
+              {IMPORT_BULK_PARTIAL_FAILURE_TEXT}
+            </Text>
           ) : null}
           {bulkOutcome === "cancelled" ? <Text style={mutedTextStyle}>{IMPORT_BULK_CANCELLED_TEXT}</Text> : null}
           {/* L-4: 실행권을 못 받아 아무 일도 일어나지 않은 그 한 번을 설명한다. 이전 루프가
@@ -1170,6 +1173,50 @@ export default function ImportPreviewScreen() {
       ? { error: updateCategory.error, isOnline: categoryFailureOnline }
       : null;
 
+  /**
+   * 라운드 80 트랙 A(GAP-080 #1) — **눌러서 나타난 실패가 소리로 온다.**
+   *
+   * 이 화면의 편집·확정·일괄 중간 실패 셋은 사용자가 방금 누른 것(행 체크·분류 칩·[선택한 항목
+   * 가져오기]·일괄 선택 버튼) 바로 아래에 선다 — 포커스가 그 자리에 남으므로, 스크린리더가
+   * 스스로 읽지 않으면 실패했다는
+   * 사실 자체가 전달되지 않은 채 같은 것을 다시 누르게 된다(일괄 중간 실패는 특히 그렇다 —
+   * 앞부분은 이미 서버에 남아 있는데 그 사실이 눈에만 있으면 처음부터 다시 하게 된다). 프롭 둘은 안드로이드의 답이고
+   * (`accessibilityLiveRegion`은 @platform android) `announceForA11y`가 iOS까지 답한다 —
+   * app/settings/children.tsx가 저장 실패 셋에 세운 그 한 벌 그대로다.
+   *
+   * 읽는 문장은 화면이 그리는 **그 식 그대로**이고(여정 전용 순수 모듈 —
+   * src/import/import-failure-messages.ts), 조건도 그 자리의 조건 그대로다. 문구·판정·구조는
+   * 한 글자도 바뀌지 않는다.
+   *
+   * 라운드 80 통합 — 트랙 A가 열지 못했던 **일괄 중간 실패**(`bulkOutcome === "failed"`)가 이
+   * 걸음에서 닫힌다. 그 자리의 여는 태그를 소유 밖 계약(src/offline/messages.test.ts)이 바이트로
+   * 붙들고 있었는데, 라운드 79의 선례대로 **그 핀을 모양으로 풀고 같은 걸음에** 프롭 둘을
+   * 걸었다. 핀이 지키던 것(danger 색 · K-10의 자기 문장 `IMPORT_BULK_PARTIAL_FAILURE_TEXT`)은
+   * 여전히 엄격하게 잡히고, 관대해진 것은 여는 태그의 프롭 한 칸뿐이다. 그 완화에 대한 의존은
+   * src/a11y-contract.test.ts의 `ROUND80_RELAXED_PIN_DEPENDENCY`에 값으로 서 있다 — 핀이
+   * 바이트로 되돌아가는 날 그 줄이 먼저 빨개진다.
+   */
+  useEffect(() => {
+    if (rowEditFailure) {
+      announceForA11y(importFailureMessage("row_edit", rowEditFailure.error, { isOnline: rowEditFailure.isOnline }));
+    }
+    // ⚠️ 의존은 **그 안의 값**이다 — `rowEditFailure`는 실패가 있을 때마다 새 객체라(위 삼항이
+    // 매 렌더 새로 짓는다) 그 자체를 의존으로 두면 같은 실패를 렌더마다 다시 읽는다. 두 값은
+    // 뮤테이션이 들고 있는 그 참조·불리언이라 실패가 바뀔 때만 움직인다.
+  }, [rowEditFailure?.error, rowEditFailure?.isOnline]);
+  useEffect(() => {
+    if (confirm.isError) {
+      announceForA11y(importFailureMessage("confirm", confirm.error, { isOnline: confirmFailureOnline }));
+    }
+  }, [confirm.isError, confirm.error, confirmFailureOnline]);
+  useEffect(() => {
+    if (bulkOutcome === "failed") {
+      announceForA11y(IMPORT_BULK_PARTIAL_FAILURE_TEXT);
+    }
+    // 의존은 그 자리의 조건 그대로다 — 다음 일괄이 다시 중간에 깨지면(상태가 null을 거쳐 다시
+    // "failed"가 된다) 그 실패도 소리로 온다.
+  }, [bulkOutcome]);
+
   const listFooter = (
     <View style={{ gap: theme.spacing.gap, marginTop: theme.spacing.section }}>
       {/* 라운드 71 트랙 A: 체크·분류 편집 실패는 **저장** 실패다. 종전에는 조회 실패 문구가
@@ -1177,7 +1224,7 @@ export default function ImportPreviewScreen() {
           올려 앞 잡이 cancelled로 내려간" 경우(IMPORT_NOT_EDITABLE)가 하필 가장 조용했다.
           이제 서버가 준 이름마다 정직한 문장과 다음 할 일이 선다. */}
       {rowEditFailure ? (
-        <Text style={{ color: theme.colors.danger }}>
+        <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>
           {importFailureMessage("row_edit", rowEditFailure.error, { isOnline: rowEditFailure.isOnline })}
         </Text>
       ) : null}
@@ -1207,7 +1254,7 @@ export default function ImportPreviewScreen() {
           (상태 검사 · 확정 CAS 두 자리)은 다시 눌러도 같은 답이 오는 사실이라, 재시도를 권하는
           대신 검수 내용이 남지 않는다는 것과 다음에 할 일을 말한다. 버튼·카드 구조는 무변경이다. */}
       {confirm.isError ? (
-        <Text style={{ color: theme.colors.danger }}>
+        <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>
           {importFailureMessage("confirm", confirm.error, { isOnline: confirmFailureOnline })}
         </Text>
       ) : null}

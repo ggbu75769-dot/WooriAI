@@ -375,8 +375,8 @@ export function latestRecordedOn(records: ReadonlyArray<RecordedExpenseLike | nu
 /**
  * `LocalExpenseRow`(src/offline/types.ts)에서 이 판정에 필요한 것만 — 구조 호환.
  *
- * `payload.spentOn`은 **달 단위 판정에만** 쓴다(아래 `hasRecoverablePendingRecordsForMonth`).
- * 선택 필드라 record_gap 쪽 호출부는 종전 그대로다.
+ * `payload.spentOn`은 **범위 판정에만** 쓴다(아래 `PendingRecordScope` ·
+ * `hasRecoverablePendingRecordsForMonth`). 선택 필드라 범위 없이 부르는 호출부는 종전 그대로다.
  */
 export type PendingRecordRowLike = {
   childId?: string | null;
@@ -385,23 +385,78 @@ export type PendingRecordRowLike = {
 };
 
 /**
+ * 라운드 80 B (GAP-080 #2) — 대기 행을 **어느 범위에서** 세는가.
+ *
+ * 라운드 79까지 형제 둘(record_gap·monthly_wrapup)의 게이트는 범위가 없었다: 이 아이의
+ * 미동기화 행이 **하나라도** 있으면 침묵했다. 그 게이트가 세는 상태에는 `failed`·`conflict`가
+ * 들어 있고(큐가 스스로 다시 보내지 않는 **종점**), 그 행은 사용자가 재시도하거나 폐기할
+ * 때까지 남는다 — 그래서 4xx로 거절된 한 행이 남은 기기에서 두 알림은 **영영** 발화하지
+ * 않았다(그 사이 dedupeKey는 태워지지 않으므로 문제는 dedupe가 아니라 평가 자체다).
+ *
+ * ⚠️ 답은 "상태를 좁힌다"가 아니다(그 행도 사용자가 실제로 만든 기록이다 — 예산 게이트가
+ * 상태로 좁힌 것은 그 알림의 대가가 *그 달 전체*였기 때문이고, 그 판단은 그대로다).
+ * **좁히는 축은 범위다**: 그 알림이 단언하는 것을 보면 **어떤 행이 판정을 바꿀 수 있는지**가
+ * 정해진다.
+ *  - `record_gap`은 *"마지막 기록 이후 N일"* 을 말한다 → `lastRecordedOn`보다 **뒤인** 행만
+ *    그 판정을 바꾼다. 3월에 실패한 행은 8월의 공백 판정을 바꿀 수 없다.
+ *  - `monthly_wrapup`은 *"지난달 총액"* 을 말한다 → **지난달** 행만 그 판정을 바꾼다.
+ *
+ * 좁혀도 규율("서버가 모르는 기록을 두고 단언하지 않는다")은 한 글자도 약해지지 않는다 —
+ * 오히려 그 규율이 원래 뜻하던 것에 정확해진다. 범위 **안**의 행은 종점 상태여도 여전히
+ * 침묵시킨다(상태 집합은 형제 둘에서 종전 그대로다).
+ */
+export type PendingRecordScope =
+  /**
+   * record_gap — 그 알림이 말하는 시점(`lastRecordedOn`) **뒤**의 행만 센다.
+   *
+   * ⚠️ 라운드 80 리뷰 M-3 — **상한(`until`)이 함께 있어야 범위가 닫힌다.** `after` 하나만으로는
+   * 서울 기준 **미래 날짜**의 대기 행이 언제나 범위 안이다(그 날짜는 정의상 `lastRecordedOn`보다
+   * 뒤다). 그런데 그 행은 서버가 **`EXPENSE_FUTURE_DATE`(400)로 영구 거절**하는 행이라
+   * (`apps/api/src/onboarding/store-shared.ts` · `src/expenses/failed-row-prefill.ts`) 종점
+   * `failed`로 굳고, 그 기기의 `record_gap`은 라운드 80 B 뒤에도 **영영 멈춘 채로 남았다** —
+   * 이 트랙이 닫으려던 바로 그 영구 정지가 한 갈래만 남아 있었다.
+   * 상한은 **오늘(서울)** 이다: 서버가 받아 줄 수 있는 날짜의 끝이 오늘이고, 이 알림이 세는
+   * "마지막 기록"도 오늘까지의 사실이다. 상한을 주지 않으면 종전과 정확히 같은 답이다.
+   */
+  | { kind: "after"; date: string; until?: string | null }
+  /** monthly_wrapup — 그 알림이 말하는 달(지난달)의 행만 센다. */
+  | { kind: "month"; yearMonth: string };
+
+/**
  * GAP-054 라운드 54 P1-3 — 이 기기에 **아직 서버가 모르는 이 아이의 지출 행**이 있는가.
  *
  * 판정 규칙은 리포트 탭 고지(src/reports/pending-scope-notice.ts)·예산 화면
  * (src/home/budget-edit.ts의 `hasPendingMonthAdjustments`)과 **같다**: `syncState !== "synced"`
  * 인 행(대기 중인 생성·수정, 삭제 대기, 실패, 충돌)이 하나라도 있으면 서버 스냅샷은 이 기기가
- * 아는 사실을 아직 모른다. 달로 좁히지 않는 이유는 record_gap이 달 경계와 무관한 "마지막 기록
- * 시점" 판정이기 때문이다.
+ * 아는 사실을 아직 모른다. **상태 축은 라운드 80에서도 한 글자도 바뀌지 않았다.**
+ *
+ * 라운드 80 B — 셋째 인자로 **범위**를 받는다(`PendingRecordScope`). 범위를 주지 않으면 종전과
+ * 정확히 같은 답이고(달 무관·시점 무관), 주면 그 범위 안의 행만 센다. 날짜를 읽을 수 없는 행은
+ * 범위가 있을 때 **세지 않는다** — 예산 게이트(`hasRecoverablePendingRecordsForMonth`)·배너의
+ * 재조정 술어와 같은 태도다(모르는 것을 참으로 세지 않는다).
  *
  * react-native·expo-router에 의존하지 않는 순수 함수다(이 모듈의 규율) — 호출부(홈 화면)가
  * 이미 구독 중인 스냅샷 행을 그대로 넘긴다. 새 요청도 새 구독도 없다.
  */
 export function hasPendingRecordsForChild(
   rows: ReadonlyArray<PendingRecordRowLike | null | undefined> | null | undefined,
-  childId: string | null | undefined
+  childId: string | null | undefined,
+  scope?: PendingRecordScope | null
 ): boolean {
   if (!childId || !rows) return false;
-  return rows.some((row) => row?.childId === childId && typeof row?.syncState === "string" && row.syncState !== "synced");
+  return rows.some((row) => {
+    if (row?.childId !== childId) return false;
+    if (typeof row?.syncState !== "string" || row.syncState === "synced") return false;
+    if (!scope) return true;
+    const spentOn = row.payload?.spentOn;
+    if (!isIsoCalendarDate(spentOn)) return false;
+    // 사전식 비교 = 시간순(YYYY-MM-DD) — latestRecordedOn이 최댓값을 고르는 것과 같은 근거다.
+    if (scope.kind !== "after") return spentOn.startsWith(scope.yearMonth);
+    if (spentOn <= scope.date) return false;
+    // 라운드 80 리뷰 M-3: 상한 밖(= 서울 기준 미래 날짜)은 세지 않는다 — 서버가 영구 거절하는
+    // 행이라 그 행이 동기화돼 판정을 바꾸는 일이 **없다**.
+    return !isIsoCalendarDate(scope.until) || spentOn <= scope.until;
+  });
 }
 
 /**
@@ -428,6 +483,12 @@ export const RECOVERABLE_PENDING_SYNC_STATES = ["pending", "syncing"] as const;
  *     (generators.test.ts — 두 술어를 같은 행으로 나란히 돌린다).
  *
  * 달을 모르면(`yearMonth`가 없으면) false다 — 판정할 수 없는 것을 참으로 세지 않는다.
+ *
+ * ⚠️ 라운드 80 B — **오늘 두 술어가 갈리는 축은 상태 하나다.** 형제 둘도 이제 범위를 갖고
+ * (`PendingRecordScope` — 시점 / 지난달), 그 범위는 각자의 알림이 단언하는 것에서 나온다.
+ * 예산만 상태로도 좁히는 이유는 그대로다: 그 알림의 dedupe 단위가 **달**이라 종점 상태 한 행의
+ * 대가가 "지연"이 아니라 그 달 전체였다(형제 둘의 대가는 범위를 좁힌 지금 각자의 재무장 주기다).
+ * 세 게이트의 단위는 계약이 한 표로 나란히 돌린다(generators.test.ts — 라운드 80 B ⓐ).
  */
 export function hasRecoverablePendingRecordsForMonth(
   rows: ReadonlyArray<PendingRecordRowLike | null | undefined> | null | undefined,
@@ -466,8 +527,29 @@ export type RecordGapInput = {
    * 사용자가 반박할 수 있는 거짓말이 가장 나쁜 종류다. 모르는 동안에는 침묵하고, 아웃박스가
    * 확정돼 `["home"]`이 무효화되면 다음 평가가 정확한 값으로 판단한다(같은 주에는 dedupe가
    * 한 번만 허용하므로 뒤늦게 두 번 뜨지도 않는다).
+   *
+   * ⚠️ 라운드 80 B: **행을 넘기는 호출부(실제 앱 경로)에서는 아래 `pendingRecordRows`가 이긴다.**
+   * 이 boolean은 행을 쥐고 있지 않은 호출부(모듈 테스트 등)의 종전 갈래로 남는다.
    */
   hasPendingLocalRecords?: boolean;
+  /**
+   * 라운드 80 B (GAP-080 #2) — 위 게이트를 **범위로 좁히는** 대기 행들(홈이 이미 구독 중인
+   * 오프라인 스냅샷 그대로 — 새 요청·새 구독 0건).
+   *
+   * 이 알림이 단언하는 것은 *"마지막 기록 이후 N일"* 이므로, 그 판정을 바꿀 수 있는 행은
+   * **`lastRecordedOn`보다 뒤인 행**뿐이다(`PendingRecordScope` 주석). 그래서 행을 받으면
+   * 게이트를 그 범위로 좁힌다 — 3월에 실패한 한 행이 8월의 공백 리마인더를 영영 막던 자리다.
+   * 범위 **안**의 행은 상태를 가리지 않고(종점 포함) 종전처럼 침묵시킨다.
+   *
+   * ⚠️ 경계는 **엄격히 뒤**(`>`)다. 같은 날의 행은 "N일"을 바꾸지 못하기 때문이고, 그 하루를
+   * 범위에 넣으면 그날의 종점 상태 행 하나가 이 알림을 다시 영구히 멈출 수 있다. 남는 자리
+   * 하나는 값으로 적어 둔다: **마지막 기록 자신의 삭제 대기**는 실제 공백을 더 길게 만드는데
+   * 범위 밖이라 세지 않는다 — 그때도 이 문장은 서버가 아는 기록을 그대로 말하므로 없는 기록을
+   * 지어내지 않고(공백을 과장하지도 않는다), 그 행이 확정되면 다음 평가가 더 긴 공백으로 말한다.
+   *
+   * 값이 없으면(`undefined`) 위 boolean 그대로다 — 종전 호출부의 답은 한 글자도 바뀌지 않는다.
+   */
+  pendingRecordRows?: ReadonlyArray<PendingRecordRowLike | null | undefined> | null;
   /** Epoch ms "now" -- 서울 달력 날짜와 주 식별자를 여기서 뽑는다. */
   now: number;
 };
@@ -501,6 +583,12 @@ export type RecordGapInput = {
  * - 미래 날짜의 지출을 적어 둔 경우 차이가 음수라 역시 뜨지 않는다.
  * - **이 기기에 아직 올라가지 않은 이 아이의 지출 행이 있으면 뜨지 않는다**
  *   (`hasPendingLocalRecords` 주석 -- 서버 스냅샷이 모르는 기록을 두고 단언하지 않는다).
+ *   ⚠️ 라운드 80 B: 그 게이트가 세는 범위는 **`lastRecordedOn`보다 뒤인 행**이다
+ *   (`pendingRecordRows` 주석). 같은 날 이전의 행은 이 문장의 "N일"을 바꾸지 못하므로 세지
+ *   않는다 -- 그 행이 종점 상태(`failed`·`conflict`)로 남아 이 알림을 영영 멈추던 자리다.
+ *   ⚠️ 라운드 80 리뷰 M-3: 범위에는 **상한(오늘 · 서울)** 도 있다. 미래 날짜 행은 서버가
+ *   `EXPENSE_FUTURE_DATE`로 영구 거절하므로 동기화될 일이 없는데, `lastRecordedOn`보다는
+ *   언제나 뒤라 상한이 없으면 그 한 행이 이 알림을 **여전히 영영 멈췄다**.
  *
  * ## 주 1회 (dedupe)
  *
@@ -510,10 +598,22 @@ export type RecordGapInput = {
  * 잊힌 채로 두지도 않는 간격이다.
  */
 export function recordGapNotification(input: RecordGapInput): AppNotificationCandidate | null {
-  const { childId, lastRecordedOn, hasPendingLocalRecords, now } = input;
+  const { childId, lastRecordedOn, hasPendingLocalRecords, pendingRecordRows, now } = input;
   if (!lastRecordedOn) return null;
   // P1-3: 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 아무 말도 하지 않는다.
-  if (hasPendingLocalRecords) return null;
+  // 라운드 80 B: "남아 있다"의 범위는 **이 문장이 말하는 시점 뒤**다 -- 행을 받은 호출부에서는
+  // 그 범위로 좁히고(상태는 종전 그대로 전부), 행이 없으면 종전 boolean 그대로다.
+  // 라운드 80 리뷰 M-3: 범위의 상한은 **오늘(서울)** 이다. 미래 날짜 행은 서버가
+  // EXPENSE_FUTURE_DATE로 영구 거절하므로 동기화돼 이 판정을 바꾸는 일이 없다 — 그 행 하나가
+  // 남은 기기에서 이 알림이 영영 멈추던 잔여 갈래를 여기서 닫는다.
+  const hasPendingInScope = pendingRecordRows
+    ? hasPendingRecordsForChild(pendingRecordRows, childId, {
+        kind: "after",
+        date: lastRecordedOn,
+        until: seoulCalendarDate(now)
+      })
+    : hasPendingLocalRecords;
+  if (hasPendingInScope) return null;
   const days = isoCalendarDaysBetween(lastRecordedOn, seoulCalendarDate(now));
   if (days === null || days < RECORD_GAP_MIN_DAYS) return null;
   return {
@@ -582,8 +682,23 @@ export type MonthlyWrapupInput = {
    * 위 캐시는 서버가 아는 행뿐이라, 로컬로만 적어 온 기록이 있는 동안 합계를 말하면 사용자가 그
    * 자리에서 반박할 수 있는 금액을 알림에 얼려 두게 된다. 아웃박스가 확정되면 `["expenses"]`가
    * 무효화되고 다음 평가가 정확한 값으로 판단한다(키를 안 썼으므로 그 달 안에 그대로 뜬다).
+   *
+   * ⚠️ 라운드 80 B: **행을 넘기는 호출부(실제 앱 경로)에서는 아래 `pendingRecordRows`가 이긴다.**
    */
   hasPendingLocalRecords?: boolean;
+  /**
+   * 라운드 80 B (GAP-080 #2) — 위 게이트를 **범위로 좁히는** 대기 행들.
+   *
+   * 이 알림이 단언하는 것은 *"지난달 총액"* 이므로 그 판정을 바꿀 수 있는 행은 **지난달 행**
+   * 뿐이다. 그래서 행을 받으면 게이트를 그 달로 좁힌다 — 4월에 400으로 거절돼 `failed`로 남은
+   * 한 행이 5월·6월·12월의 "지난달 정리"까지 영영 막던 자리다(dedupeKey가 달 단위라 그 달에
+   * 다시 올 기회 자체가 없었고, 억제는 키를 태우지 않으므로 문제는 dedupe가 아니라 평가였다).
+   * 그 달 **안**의 행은 상태를 가리지 않고(종점 포함) 종전처럼 침묵시킨다 — 합계를 바꿀 수 있는
+   * 행이기 때문이다.
+   *
+   * 값이 없으면(`undefined`) 위 boolean 그대로다.
+   */
+  pendingRecordRows?: ReadonlyArray<PendingRecordRowLike | null | undefined> | null;
 };
 
 /**
@@ -601,7 +716,9 @@ export type MonthlyWrapupInput = {
  * - **지난달 합계가 0원이면 만들지 않는다.** 주간 요약의 규칙 그대로다 — 0원 요약은 소음이고,
  *   그 사람에게는 정리할 것이 애초에 없다.
  * - 지난달 캐시가 아직 없으면 만들지 않는다(위 `lastMonthRecords` 주석 — 키를 태우지 않는다).
- * - 이 기기에 미동기화 지출 행이 있으면 만들지 않는다(위 `hasPendingLocalRecords` 주석).
+ * - 이 기기에 **그 달의** 미동기화 지출 행이 있으면 만들지 않는다(위 `hasPendingLocalRecords`·
+ *   `pendingRecordRows` 주석 — 라운드 80 B에서 범위가 "지난달"로 좁혀졌다. 다른 달의 행은 이
+ *   합계를 바꿀 수 없다).
  *
  * ## 문구 (DNC-018)
  * 새 어휘를 짓지 않는다. 금액 줄은 공유 카드가 이미 쓰는 문장 그대로이고(`shareTotalLine` —
@@ -616,12 +733,17 @@ export type MonthlyWrapupInput = {
  * 선물·환불 제외)로 그 달 마지막 날까지 더한다.
  */
 export function monthlyWrapupNotification(input: MonthlyWrapupInput): AppNotificationCandidate | null {
-  const { childId, now, lastMonthRecords, hasPendingLocalRecords } = input;
-  // 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 금액을 단언하지 않는다(P1-3와 같은 규율).
-  if (hasPendingLocalRecords) return null;
-  if (!lastMonthRecords) return null;
+  const { childId, now, lastMonthRecords, hasPendingLocalRecords, pendingRecordRows } = input;
   const lastYearMonth = previousYearMonth(seoulCalendarDate(now));
   if (!lastYearMonth) return null;
+  // 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 금액을 단언하지 않는다(P1-3와 같은 규율).
+  // 라운드 80 B: 그 범위는 **이 알림이 말하는 달**이다 -- 행을 받은 호출부에서는 지난달로 좁히고
+  // (상태는 종전 그대로 전부), 행이 없으면 종전 boolean 그대로다.
+  const hasPendingInScope = pendingRecordRows
+    ? hasPendingRecordsForChild(pendingRecordRows, childId, { kind: "month", yearMonth: lastYearMonth })
+    : hasPendingLocalRecords;
+  if (hasPendingInScope) return null;
+  if (!lastMonthRecords) return null;
   const totalKrw = sumMonthExpensesThroughDay(lastMonthRecords, lastYearMonth, daysInYearMonth(lastYearMonth));
   // 0원인 달은 정리할 것이 없다(주간 요약의 0원 규칙 그대로).
   if (totalKrw <= 0) return null;
@@ -670,10 +792,23 @@ export type HomeNotificationInput = {
    *
    * ⚠️ 라운드 79 리뷰(M-3): **예산 경계는 이 값을 보지 않는다.** 그 게이트는 아래
    * `hasRecoverablePendingMonthRecords`(회복 가능한 상태 × 그 달)를 본다 — 종점 상태 한 행이
-   * 그 달의 알림을 영영 막지 않게 하려면 술어가 달라야 한다. 이 값의 뜻과 두 형제의 동작은
-   * 종전 그대로다.
+   * 그 달의 알림을 영영 막지 않게 하려면 술어가 달라야 한다.
+   *
+   * ⚠️ 라운드 80 B: 실제 앱 경로는 이제 boolean 대신 아래 `pendingRecordRows`를 넘긴다 — 형제
+   * 둘이 각자의 **범위**(시점 / 지난달)로 게이트를 좁히기 위해서다. 이 값은 행을 쥐고 있지 않은
+   * 호출부의 종전 갈래로 남고, 그 답도 종전 그대로다.
    */
   hasPendingLocalRecords?: boolean;
+  /**
+   * 라운드 80 B (GAP-080 #2) — 형제 둘의 게이트를 **범위로 좁히는** 대기 행들. 홈 화면이 **이미
+   * 구독 중인** 오프라인 스냅샷 행을 그대로 넘긴다(새 요청·새 구독 0건 — 위 값과 같은 주입 방식).
+   *
+   * 두 알림이 각자 자기 범위를 고른다: record_gap은 `lastRecordedOn` **뒤**, monthly_wrapup은
+   * **지난달**(`PendingRecordScope`). 종전에는 범위가 없어 4xx로 거절된 한 행이 그 기기에서 두
+   * 알림을 **영영** 멈췄다 — 핵심 루프의 재진입 유도 둘이 조용히 죽는 자리였다.
+   * ⚠️ 예산 경계는 이 값이 아니라 `hasRecoverablePendingMonthRecords`를 본다(상태 축도 다르다).
+   */
+  pendingRecordRows?: ReadonlyArray<PendingRecordRowLike | null | undefined> | null;
   /**
    * 라운드 79 B (GAP-079 #2) + 리뷰(M-3·S-1) — **예산 경계 둘(budget_80·budget_100)의 게이트.**
    *
@@ -734,21 +869,25 @@ export function evaluateHomeNotifications(input: HomeNotificationInput): AppNoti
   if (weeklyCandidate) candidates.push(weeklyCandidate);
   // GAP-054 #6: 기록 공백. 같은 홈 스냅샷(recentExpenses)에서 나오므로 새 요청도, 새 백그라운드
   // 작업도 없다 -- 다른 네 종류와 같은 평가 한 번에 합류한다. 기록이 0건이면 만들지 않는다.
+  // 라운드 80 B: 게이트의 범위는 이 알림이 단언하는 것과 같은 단위다(lastRecordedOn 뒤).
   const recordGapCandidate = recordGapNotification({
     childId: input.child.id,
     lastRecordedOn: input.lastRecordedOn,
     hasPendingLocalRecords: input.hasPendingLocalRecords,
+    pendingRecordRows: input.pendingRecordRows,
     now: input.now
   });
   if (recordGapCandidate) candidates.push(recordGapCandidate);
   // GAP-066 #8: 지난달 정리. 홈이 이미 받아 둔 지난달 캐시에서 나오므로 여기서도 새 요청은 0건이고,
   // 다른 여섯 종류와 같은 평가 한 번에 합류한다. 지난달 합계가 0원이거나 캐시가 아직 없으면
   // 만들지 않는다(둘 다 키를 태우지 않는다).
+  // 라운드 80 B: 여기서도 범위가 알림의 단언과 같은 단위다(지난달).
   const monthlyWrapupCandidate = monthlyWrapupNotification({
     childId: input.child.id,
     now: input.now,
     lastMonthRecords: input.lastMonthRecords,
-    hasPendingLocalRecords: input.hasPendingLocalRecords
+    hasPendingLocalRecords: input.hasPendingLocalRecords,
+    pendingRecordRows: input.pendingRecordRows
   });
   if (monthlyWrapupCandidate) candidates.push(monthlyWrapupCandidate);
   return candidates;

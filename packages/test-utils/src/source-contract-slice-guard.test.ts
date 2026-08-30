@@ -16,7 +16,7 @@
 // M-3은 그 자리 하나를 고쳤다(`src/commerce/purchase-followup-flow.test.ts`). 라운드 78 정찰이
 // 같은 모양을 저장소 전체에서 세어 보니 일반형이었고, 트랙 E는 **가장 먼저 끊어질 자리 열둘**에
 // 실재 확인을 세운 뒤(가드는 판정을 바꾸지 않는다 — 잘라 낸 구간은 바이트 그대로다) 나머지를
-// 이 대장에 얼렸다. 이 파일이 묻는 것은 여섯이다(⑤·⑥은 라운드 78 리뷰가 더했다).
+// 이 대장에 얼렸다. 이 파일이 묻는 것은 일곱이다(⑤·⑥은 라운드 78 리뷰가 더했고, ⑦은 라운드 80이다).
 //  ① **전수 스윕 + 래칫**: 파일별 미가드 자리 수가 대장의 값보다 **늘지 않는다**.
 //  ② **새 자리 금지**: 대장에 없는 파일에서 이 모양이 새로 나면 빨개진다.
 //  ③ **가드 하한**: 라운드 77 M-3과 라운드 78 트랙 E가 세운 실재 확인이 조용히 사라지지 않는다.
@@ -27,6 +27,23 @@
 //  ⑥ **인라인 자리 하한**(리뷰 M-4): `expect(…)` 안에서 곧바로 자른 자리를 그물이 잡는가.
 //     그 그물이 없던 동안 `recommendation-order-mirror.test.ts`의 **DNC-009 부정 단언**이
 //     스윕 밖에 있었다.
+//  ⑦ **모집단이 이름이 아니라 하는 일인가**(라운드 80 트랙 E · 라운드 79 리뷰 S-5의 결정):
+//     테스트 전용 뿌리는 파일 이름과 무관하게 전수가 모집단이고, 그 뿌리가 데려온 자리는
+//     가드되거나 **이유가 적힌 제외**에 선다.
+//
+// ## ⚠️ 라운드 80 트랙 E — 자르기를 실제로 하는 코드가 모집단 밖에 있었다
+//
+// 라운드 79 트랙 E가 두 어드민 계약이 함께 쓰는 파서를 `apps/admin/test/`(앱 번들 밖 · 테스트
+// 전용)로 뺐다. 그 판단은 옳았지만, **바로 그 "어느 스윕도 걷지 않는다"가 이 대장에는 구멍**
+// 이었다 — 뿌리도 밖이고 이름도 `*.test.ts`가 아니라 스윕이 읽지 않았다. 라운드 79 리뷰(S-5)는
+// 예외를 값으로 적고 **같은 검출기를 그 한 파일에 직접 한 번 더 돌리는** 임시안으로 닫으며
+// 모집단 결정을 이 라운드로 넘겼고, 그 임시안의 비용도 함께 적었다: 검출기가 두 벌로 돌고,
+// 테스트 전용 헬퍼가 하나 늘 때마다 **사람이 그 예외를 기억해야** 한다.
+//
+// 결정은 **하는 일**이다. `*.test.ts`는 이름이고, *"소스를 문자열로 읽어 잘라 내는 파일"* 은
+// 하는 일이다. 그래서 스윕 범위가 뿌리 이름의 나열에서 **뿌리 + 그 뿌리의 모집단 단위 + 이유**
+// 로 바뀌었고(`SCAN_ROOTS`), 라운드 79의 한 파일 예외는 **뿌리 한 줄로 승격**됐다.
+// 검출기는 다시 한 벌만 돈다.
 //
 // ⚠️ 이 계약은 **수치를 줄 번호로 적지 않는다**. 단위는 `파일 → 개수`다 — 줄 번호로 적으면 그
 // 파일을 여는 모든 트랙이 이 대장을 함께 고쳐야 하고, 그러면 대장이 병목이 된다.
@@ -36,12 +53,72 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = join(process.cwd(), "..", "..");
 
+/** 한 뿌리의 모집단 단위 — 이름으로 가르는가, 뿌리째 세는가. */
+type ScanPopulation = "test-file" | "test-only-root";
+
+type ScanRoot = {
+  readonly root: string;
+  /**
+   * · `"test-file"` — 그 뿌리에는 **제품 소스가 섞여 있다.** 비제품을 가르는 것은 파일 이름뿐이라
+   *   `*.test.ts(x)`만 센다.
+   * · `"test-only-root"` — 그 뿌리 **아래가 통째로 테스트 전용**이다. 이름과 무관하게 `.ts(x)`
+   *   전수를 센다(라운드 80 트랙 E — 모집단은 이름이 아니라 하는 일이다).
+   */
+  readonly population: ScanPopulation;
+  /** 왜 이 단위인가 — **빈 문자열일 수 없다.** 뿌리도 값이고, 값에는 이유가 붙는다. */
+  readonly reason: string;
+};
+
 /**
- * 스윕 범위 — 정찰이 잰 그 범위 그대로다(모바일·어드민의 `src` + 워크스페이스 패키지 전부).
- * `apps/api`는 범위 밖이다: 서버 테스트는 소스를 문자열로 읽는 대신 실 PostgreSQL 위에서 돌고,
- * 오늘 그 워크스페이스에는 이 모양이 서지 않는다(범위를 넓히는 것은 다음 라운드의 결정이다).
+ * 스윕 범위 — 뿌리마다 **무엇을 비제품 소스로 볼 것인가**가 함께 적힌다(라운드 80 트랙 E).
+ *
+ * ⚠️ `apps/api`는 여전히 범위 밖이다: 서버 테스트는 소스를 문자열로 읽는 대신 실 PostgreSQL
+ * 위에서 돌고, 오늘 그 워크스페이스에는 이 모양이 서지 않는다(그 확장은 또 다른 결정이다 —
+ * 이 라운드가 옮긴 축은 **`.test.ts`라는 이름**이지 `apps/api`라는 뿌리가 아니다).
  */
-const SCAN_ROOTS = ["apps/mobile/src", "apps/admin/src", "packages"] as const;
+const SCAN_ROOTS: readonly ScanRoot[] = [
+  {
+    root: "apps/mobile/src",
+    population: "test-file",
+    reason:
+      "화면·훅·모듈 소스와 그 계약이 한 뿌리에 산다 — 이 뿌리에서 비제품을 가르는 것은 파일 이름뿐이다."
+  },
+  {
+    root: "apps/admin/src",
+    population: "test-file",
+    reason: "어드민 번들에 실리는 소스와 계약이 한 뿌리에 산다 — 같은 이유로 이름으로 가른다."
+  },
+  {
+    root: "packages",
+    population: "test-file",
+    reason:
+      "워크스페이스 패키지 뿌리에는 제품 코드(도메인·계약·UI·config)가 산다 — 뿌리째 세면 제품 소스가 대장에 오른다."
+  },
+  {
+    root: "apps/admin/test",
+    population: "test-only-root",
+    reason:
+      "라운드 79 트랙 E가 두 계약(admin-api.test.ts · admin-write-role-gate.test.ts)이 함께 쓰는 파서를 앱 번들 밖으로 뺀 자리다. " +
+      "이 뿌리는 통째로 테스트 전용이고(번들에 실리지 않는다는 사실은 admin-api.test.ts가 따로 못 박는다), " +
+      "소스를 문자열로 읽어 잘라 내는 코드가 여기 산다 — 그래서 이름이 아니라 하는 일로 센다."
+  },
+  {
+    root: "packages/test-utils/src",
+    population: "test-only-root",
+    reason:
+      "저장소 계약 전용 패키지다(제품 번들에 실리지 않는다) — 여기에 `*.test.ts`가 아닌 헬퍼가 생겨도 같은 그물 안에 들어야 한다."
+  }
+];
+
+/** 테스트 전용 뿌리가 없으면 이 라운드의 승격이 통째로 사라진 것이다 — 파생으로만 쓴다. */
+const TEST_ONLY_ROOTS = SCAN_ROOTS.filter((scanRoot) => scanRoot.population === "test-only-root");
+
+function isInTestOnlyRoot(file: string): boolean {
+  return TEST_ONLY_ROOTS.some((scanRoot) => file.startsWith(`${scanRoot.root}/`));
+}
+
+/** 이 계약 자신의 자리 — 자기 무효화 단언이 읽는다(⑦). */
+const SELF_FILE = "packages/test-utils/src/source-contract-slice-guard.test.ts";
 
 type SliceGuardSite = {
   /** 잘라 낸 구간을 담는 상수 이름(인라인 자리는 `expect(<식>)` 안의 그 식이다). */
@@ -52,8 +129,14 @@ type SliceGuardSite = {
   readonly inline: boolean;
 };
 
-function listTestFiles(root: string): string[] {
+/** 이름으로 가르는 뿌리의 모집단. */
+const TEST_FILE_NAME = /\.test\.tsx?$/;
+/** 뿌리째 세는 뿌리의 모집단 — 타입 선언 파일은 코드가 아니므로 뺀다. */
+const SOURCE_FILE_NAME = /(?<!\.d)\.tsx?$/;
+
+function listScanFiles(scanRoot: ScanRoot): string[] {
   const found: string[] = [];
+  const pattern = scanRoot.population === "test-file" ? TEST_FILE_NAME : SOURCE_FILE_NAME;
   const walk = (dir: string) => {
     let entries;
     try {
@@ -65,11 +148,28 @@ function listTestFiles(root: string): string[] {
       if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
       const path = join(dir, entry.name);
       if (entry.isDirectory()) walk(path);
-      else if (/\.test\.tsx?$/.test(entry.name)) found.push(path);
+      else if (pattern.test(entry.name)) found.push(path);
     }
   };
-  walk(join(repoRoot, root));
+  walk(join(repoRoot, scanRoot.root));
   return found.sort();
+}
+
+/**
+ * 모집단 전수 — **한 파일은 한 번만 센다.** 테스트 전용 뿌리는 다른 뿌리 아래에 있을 수 있고
+ * (`packages/test-utils/src` ⊂ `packages`), 그때 같은 파일이 두 줄로 서면 대장이 제 값을 두 번
+ * 세게 된다.
+ */
+function listScannedFiles(): string[] {
+  const seen = new Set<string>();
+  for (const scanRoot of SCAN_ROOTS) {
+    for (const path of listScanFiles(scanRoot)) seen.add(path);
+  }
+  return [...seen].sort();
+}
+
+function toRepoPath(absolutePath: string): string {
+  return relative(repoRoot, absolutePath).split(sep).join("/");
 }
 
 /** `(`에서 시작해 짝이 맞는 `)`까지를 읽는다 — 문자열 리터럴 안의 괄호는 세지 않는다. */
@@ -284,17 +384,15 @@ type SweepRow = {
 
 function sweep(): SweepRow[] {
   const rows: SweepRow[] = [];
-  for (const root of SCAN_ROOTS) {
-    for (const absolutePath of listTestFiles(root)) {
-      const sites = sliceGuardSites(readFileSync(absolutePath, "utf8"));
-      if (sites.length === 0) continue;
-      rows.push({
-        file: relative(repoRoot, absolutePath).split(sep).join("/"),
-        guarded: sites.filter((site) => site.guarded).length,
-        inline: sites.filter((site) => site.inline).length,
-        unguarded: sites.filter((site) => !site.guarded).length
-      });
-    }
+  for (const absolutePath of listScannedFiles()) {
+    const sites = sliceGuardSites(readFileSync(absolutePath, "utf8"));
+    if (sites.length === 0) continue;
+    rows.push({
+      file: toRepoPath(absolutePath),
+      guarded: sites.filter((site) => site.guarded).length,
+      inline: sites.filter((site) => site.inline).length,
+      unguarded: sites.filter((site) => !site.guarded).length
+    });
   }
   return rows;
 }
@@ -317,6 +415,10 @@ function sweep(): SweepRow[] {
  * ⚠️ **④·⑤가 더한 것은 다섯 자리**(81 → 86)이고, 그중 둘은 새 파일이다
  * (`entry-screen-visual-restore` · `session-teardown`). 반대로 M-4가 가드를 세운
  * `recommendation-order-mirror.test.ts`는 **대장에 오르지 않는다** — 두 인덱스의 실재를 먼저 묻는다.
+ *
+ * ⚠️ **라운드 80 트랙 E는 이 표를 한 값도 움직이지 않는다.** 모집단이 테스트 전용 뿌리로
+ * 넓어졌지만 그 뿌리가 데려온 파일에는 이 모양이 **0건**이다(자르기 전에 널 검사를 한다).
+ * 늘어난 모집단이 데려오는 자리의 규율은 이 표가 아니라 아래 ⓒ의 케이스가 진다.
  *
  * 대장은 **비증가**다. 자리를 없앤 뒤에는 값을 줄여도 되고(권장), 그대로 둬도 초록이다.
  * ⚠️ **합계를 손으로 적지 않는다**(리뷰 P-1) — `LEDGER_TOTAL`은 이 표에서 파생한다.
@@ -408,11 +510,7 @@ describe("소스 계약의 잘라 낸 구간 — 실재를 먼저 묻는가 (라
   const guardedByFile = new Map(rows.map((row) => [row.file, row.guarded]));
   const inlineByFile = new Map(rows.map((row) => [row.file, row.inline]));
   /** 스윕이 실제로 읽은 파일 전부 — 대장·하한의 키가 유령이 아닌지 여기서 확인한다. */
-  const scannedFiles = new Set(
-    SCAN_ROOTS.flatMap((root) => listTestFiles(root)).map((absolutePath) =>
-      relative(repoRoot, absolutePath).split(sep).join("/")
-    )
-  );
+  const scannedFiles = new Set(listScannedFiles().map(toRepoPath));
 
   /**
    * ⚠️ **라운드 78 리뷰 P-1 — 유령 방지.** 대장과 하한의 키는 **실재하는 테스트 파일**이어야
@@ -474,43 +572,74 @@ describe("소스 계약의 잘라 낸 구간 — 실재를 먼저 묻는가 (라
   });
 
   /**
-   * ⚠️ **라운드 79 리뷰(S-5) — 스윕 밖의 자리를 값으로 적는다.**
+   * ⚠️ **라운드 80 트랙 E ⓒ — 늘어난 모집단이 데려온 자리와 그 이유.**
    *
-   * 이 스윕의 모집단은 `SCAN_ROOTS` 아래의 **`*.test.ts(x)`** 다. 라운드 79 트랙 E가 두 계약이
-   * 함께 쓰는 파서를 `apps/admin/test/`(번들 밖 · 테스트 전용)로 뺐는데, 그 파일은 두 조건 다
-   * 밖이다 — 뿌리도 밖이고 이름도 `.test.ts`가 아니다. 즉 **소스 계약의 자르기를 실제로 하는
-   * 코드**가 그물 밖에 있다.
+   * 이름으로 가르던 그물이 놓치던 자리(= 모집단 안이지만 `*.test.ts(x)`가 아닌 파일)에 가드 없는
+   * 자르기가 서면, 그것은 **가드되거나 이 목록에 이유와 함께** 있어야 한다. 라운드 78 E의 대장
+   * 형식 그대로다 — 이유가 없는 제외는 제외가 아니고, 줄은 **자기 무효화**된다(파일이 사라지면
+   * 유령으로 빨개지고, 자리가 가드되면 목록에서 빠져야 한다).
    *
-   * 모집단을 넓히는 대신(넓히면 이 대장이 헬퍼·픽스처까지 세게 되고, 그 결정은 다음 라운드의
-   * 것이다) **예외를 값으로 적고 같은 검출기를 그 파일에 직접 돌린다.** 라운드 78 E의 대장 형식
-   * 그대로다: 이유가 없는 예외는 예외가 아니고, 예외 줄은 **자기 무효화**된다(파일이 사라지거나
-   * 미가드 자리가 생기면 여기가 빨개진다).
+   * 오늘 **0건**이다: 테스트 전용 뿌리의 자르기는 전부 실재를 먼저 묻는다. ⚠️ 목록이 비어 있다는
+   * 사실 자체는 단언이 아니다 — 아래 케이스가 묻는 것은 *"제외되지 않은 미가드 자리가 0건인가"* 다.
    */
-  const SCAN_SCOPE_EXCEPTIONS: ReadonlyArray<{ readonly file: string; readonly reason: string }> = [
-    {
-      file: "apps/admin/test/admin-api-source-parser.ts",
-      reason:
-        "라운드 79 트랙 E가 두 계약(admin-api.test.ts · admin-write-role-gate.test.ts)이 함께 쓰는 파서를 " +
-        "앱 번들 밖으로 뺀 자리다. 테스트 전용이지만 파일명이 *.test.ts가 아니고 뿌리도 SCAN_ROOTS 밖이라 " +
-        "스윕이 읽지 않는다 — 그래서 같은 검출기를 이 줄이 직접 돌린다."
-    }
-  ];
+  const WIDENED_POPULATION_EXCLUSIONS: ReadonlyArray<{ readonly file: string; readonly reason: string }> = [];
 
-  it("스윕 밖의 예외는 값으로 적히고, 같은 검출기가 그 자리를 대신 본다 (S-5)", () => {
-    expect(SCAN_SCOPE_EXCEPTIONS.length, "예외 목록").toBeGreaterThan(0);
-    for (const exception of SCAN_SCOPE_EXCEPTIONS) {
-      expect(exception.reason.length, `${exception.file}의 예외 사유`).toBeGreaterThan(0);
-      // 유령 방지: 스윕이 읽지 않는 파일이라는 사실과, 그 파일이 **실재한다**는 사실을 함께 본다.
-      expect(scannedFiles.has(exception.file), `${exception.file}은 스윕의 모집단 밖이다`).toBe(false);
-      const source = readFileSync(join(repoRoot, exception.file), "utf8");
-      expect(source.length, `${exception.file}이 실재한다`).toBeGreaterThan(0);
-      // ⚠️ 그 파일의 자르기가 -1을 위치로 읽지 않는다. 오늘 이 파일의 `slice`는 정규식 `exec`의
-      // 결과를 **널 검사한 뒤**의 index만 쓰므로 미가드 자리는 0건이다(가드 없는 indexOf 자르기가
-      // 생기는 날 여기가 빨개진다).
-      const unguarded = sliceGuardSites(source).filter((site) => !site.guarded);
-      expect(unguarded.map((site) => site.name), `${exception.file}의 가드 없는 자르기`).toEqual([]);
-      expect(source, `${exception.file}: 자르기 전에 끝점을 널 검사한다`).toContain("end ? chunk.slice(");
+  /**
+   * ⚠️ **라운드 79 리뷰(S-5)가 넘긴 결정의 답 — 모집단은 이름이 아니라 하는 일이다.**
+   *
+   * 종전에는 이 자리에 **예외 한 줄 + 그 한 파일에 검출기를 다시 돌리는 한 벌**이 서 있었다.
+   * 검출기가 두 벌로 도는 동안 새 테스트 전용 헬퍼가 생길 때마다 사람이 그 예외를 기억해야 했고,
+   * 그것은 라운드 78 E가 래칫을 세운 이유(*"기억이 아니라 대장이 센다"*)와 정확히 반대였다.
+   * 이제 그 파일은 **뿌리로** 모집단 안에 있고, 검출기는 한 벌만 돈다.
+   */
+  it("라운드 79의 한 파일 예외가 뿌리 한 줄로 승격됐다 (S-5 종결 · 자기 무효화)", () => {
+    const promoted = "apps/admin/test/admin-api-source-parser.ts";
+    expect(scannedFiles.has(promoted), `${promoted}이 스윕의 모집단 안이다`).toBe(true);
+    // ⚠️ 승격의 근거가 **하는 일**이라는 사실 — 이름으로 갈랐다면 이 파일은 오늘도 밖이다.
+    expect(TEST_FILE_NAME.test(promoted), "이름으로 가르는 그물은 이 파일을 잡지 못한다").toBe(false);
+    expect(isInTestOnlyRoot(promoted), "테스트 전용 뿌리가 이 파일을 데려온다").toBe(true);
+
+    // 자기 무효화: 임시 예외가 소스에 남아 있으면 빨개진다(검출기가 두 벌로 돌던 흔적).
+    // ⚠️ 옛 이름을 조각으로 짓는 이유는 하나다 — 글자 그대로 적으면 이 단언이 **자기 자신**을
+    // 찾아내 영원히 빨갛다.
+    const retiredException = ["SCAN", "SCOPE", "EXCEPTIONS"].join("_");
+    const selfSource = readFileSync(join(repoRoot, SELF_FILE), "utf8");
+    expect(selfSource.length, `${SELF_FILE}이 실재한다`).toBeGreaterThan(0);
+    expect(scannedFiles.has(SELF_FILE), "이 계약도 제 스윕의 모집단 안이다").toBe(true);
+    expect(
+      selfSource.includes(retiredException),
+      "라운드 79의 임시 예외가 남아 있어요 — 승격됐다면 그 줄은 사라져야 합니다"
+    ).toBe(false);
+  });
+
+  it("스윕 범위가 값이고, 뿌리마다 모집단 단위와 이유가 적혀 있다", () => {
+    expect(TEST_ONLY_ROOTS.length, "테스트 전용 뿌리").toBeGreaterThan(0);
+    for (const scanRoot of SCAN_ROOTS) {
+      expect(scanRoot.reason.trim().length, `${scanRoot.root}의 모집단 사유`).toBeGreaterThan(0);
+      // 유령 방지(리뷰 P-1의 규율을 뿌리에도): 걷지 않는 뿌리는 아무것도 막지 않는다.
+      expect(listScanFiles(scanRoot).length, `${scanRoot.root}에서 읽은 파일`).toBeGreaterThan(0);
     }
+    // `apps/api`는 값으로 범위 밖이다 — 그 확장은 또 다른 결정이다.
+    expect(SCAN_ROOTS.map((scanRoot) => scanRoot.root)).not.toContain("apps/api");
+  });
+
+  it("늘어난 모집단이 데려온 자리는 가드되거나 이유가 적힌 제외에 있다", () => {
+    for (const exclusion of WIDENED_POPULATION_EXCLUSIONS) {
+      expect(exclusion.reason.trim().length, `${exclusion.file}의 제외 사유`).toBeGreaterThan(0);
+      expect(scannedFiles.has(exclusion.file), `${exclusion.file}은 스윕의 모집단 안이다`).toBe(true);
+    }
+    const excluded = new Set(WIDENED_POPULATION_EXCLUSIONS.map((exclusion) => exclusion.file));
+    // 이름으로 가르던 그물이 놓치던 자리 = 모집단 안이면서 `*.test.ts(x)`가 아닌 파일.
+    const widenedFiles = [...scannedFiles].filter((file) => !TEST_FILE_NAME.test(file));
+    expect(widenedFiles.length, "이름 밖 모집단").toBeGreaterThan(0);
+    const offenders = rows
+      .filter((row) => widenedFiles.includes(row.file) && row.unguarded > 0 && !excluded.has(row.file))
+      .map((row) => `${row.file}: 미가드 ${row.unguarded}`)
+      .sort();
+    expect(
+      offenders,
+      "테스트 전용 헬퍼가 가드 없는 자르기를 들고 왔어요. 두 인덱스에 toBeGreaterThan을 세우거나 이유와 함께 제외해 주세요"
+    ).toEqual([]);
   });
 
   it("라운드 77 M-3과 라운드 78 트랙 E가 세운 실재 확인이 사라지지 않는다", () => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
@@ -41,6 +41,8 @@ import { useImportResumeStore } from "../../src/stores/import-resume.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
+// 라운드 80 트랙 A(GAP-080 #1): 눌러서 나타난 실패를 소리로도 내보내는 공용 한 벌(저장소 관례).
+import { announceForA11y } from "../../src/ui";
 import { ExcelPreviewPixelStyles } from "../../src/pixelLock/styles";
 
 // No "application/vnd.ms-excel" (.xls): validateImportFile only accepts .csv/.xlsx, so
@@ -175,6 +177,29 @@ export default function ImportUploadScreen() {
    * 실패 상태가 풀리면(다시 시도) 훅이 초기값 true로 되돌리므로 종전 `onMutate`의 무장도 그대로다.
    */
   const uploadFailureOnline = useErrorTimeConnectivity(upload.isError);
+
+  /**
+   * 라운드 80 트랙 A(GAP-080 #1) — **눌러서 나타난 실패 둘이 소리로 온다.**
+   *
+   * 이 화면의 실패 문장 둘은 전부 [엑셀 파일 선택하기]를 누른 **그 손** 아래에 선다:
+   * 파일 검증 실패(고른 파일이 조건에 맞지 않는다)와 업로드 실패다. 포커스는 눌린 CTA에
+   * 남으므로 스크린리더가 스스로 읽지 않으면 사용자는 실패했다는 사실을 모른 채 같은 버튼을
+   * 다시 누른다 — app/settings/children.tsx·app/(auth)/login.tsx가 같은 조건에서 쓰는 그
+   * 관례(프롭 둘 + `announceForA11y`)를 그대로 얹는다.
+   *
+   * 문구·판정은 한 글자도 바뀌지 않는다: 검증 문장은 그 자리의 state 값 그대로이고, 업로드
+   * 실패는 화면이 그리는 **그 식 그대로**를 읽는다(여정 전용 순수 모듈 —
+   * src/import/import-failure-messages.ts). 렌더 도중이 아니라 effect 안이라 같은 문장을 매
+   * 렌더 다시 읽지 않는다.
+   */
+  useEffect(() => {
+    if (validationMessage) announceForA11y(validationMessage);
+  }, [validationMessage]);
+  useEffect(() => {
+    if (upload.error) {
+      announceForA11y(importFailureMessage("upload", upload.error, { isOnline: uploadFailureOnline }));
+    }
+  }, [upload.error, uploadFailureOnline]);
 
   /**
    * 라운드 67 #3 — **확정한 가져오기 되돌리기.**
@@ -475,7 +500,11 @@ export default function ImportUploadScreen() {
           {upload.isPending ? "분석 중..." : canUpload ? "엑셀 파일 선택하기" : "적용하고 리포트 보기"}
         </Text>
       </Pressable>
-      {validationMessage ? <Text style={{ color: theme.colors.danger }}>{validationMessage}</Text> : null}
+      {validationMessage ? (
+        <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>
+          {validationMessage}
+        </Text>
+      ) : null}
       {/* 라운드 45 UX-Z: 예전에는 어떤 실패든 "잠시 후 다시 시도해 주세요."였다. 그런데 서버가
           거절하는 대표적인 이유(2,000행 초과 · csv/xlsx 아님 · 10MB 초과)는 **다시 눌러도 절대
           성공하지 않는다** -- 그 사람에게 필요한 것은 재시도가 아니라 파일을 나누거나 바꾸라는
@@ -486,7 +515,7 @@ export default function ImportUploadScreen() {
           ⚠️ IMP-003 픽셀락: 이 텍스트 노드는 업로드 실패 상태에서만 서고 캡처는 비로그인
           경로라(upload.error가 없다) 캡처 화면은 한 픽셀도 바뀌지 않는다. */}
       {upload.error ? (
-        <Text style={{ color: theme.colors.danger }}>
+        <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>
           {importFailureMessage("upload", upload.error, { isOnline: uploadFailureOnline })}
         </Text>
       ) : null}
