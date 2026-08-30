@@ -8,7 +8,6 @@ import { buildReportShareTappedPayload } from "../../src/analytics/events";
 import {
   getCategoryReport,
   getCumulativeReport,
-  getHome,
   getMilestoneReport,
   getMonthlyReport,
   getTrendReport,
@@ -77,6 +76,10 @@ import {
 // 서고, 현재 기간은 종전 그대로다 -- 문장 틀은 기록 탭의 순수 모듈에서 온다(문장 한 벌).
 import { buildReportEmptyPeriodCard } from "../../src/reports/empty-period-card";
 import { buildMonthlyInsight, resolveMonthStatus } from "../../src/reports/monthly-insight";
+// 라운드 82 트랙 A: 분기·연간 세그먼트의 한 문장. 월간 문장은 위 monthly-insight 하나가
+// 소유하고(이 모듈의 unit에는 월간이 없다), 두 모듈은 카테고리 퍼센트를 **같은**
+// computeCategoryShares에서 낸다 -- src/reports/period-insight.ts 머리말 참고.
+import { buildPeriodInsight } from "../../src/reports/period-insight";
 import {
   evaluateReportPendingScopeNotice,
   REPORT_PENDING_SCOPE_NOTICE_TEST_ID
@@ -222,14 +225,17 @@ export default function ReportsScreen() {
   const hasSession = Boolean(authToken && childId);
 
   // MOB-117 당겨서 새로고침: 이 화면의 쿼리 키는 모두 ["report", ...]로 시작한다(월간/이전달/
-  // 누적/카테고리/분기/연간/추이/100일). ["home"]은 100일 리포트 공유 문구의 아이 닉네임이
-  // 읽는 캐시라 함께 갱신한다. invalidate는 활성 쿼리 refetch 완료까지 resolve된다.
+  // 누적/카테고리/분기/연간/추이/100일). invalidate는 활성 쿼리 refetch 완료까지 resolve된다.
+  //
+  // 라운드 82 트랙 A: 종전에는 여기서 ["home"]도 함께 갱신했다 -- 공유 문구의 태명이 그 응답의
+  // `child.nickname`에서 왔기 때문이다. 그 원천이 ["children"] 하나로 합쳐지면서(아래
+  // shareChildName) 이 화면은 그 응답을 더 이상 읽지 않으므로, 읽지 않는 캐시를 당김마다
+  // 무효화하지 않는다. 아이 프로필은 그것을 **바꾸는 화면들**이 이미 ["children"]을 무효화하므로
+  // (아이 관리·설정·전환) 이 화면이 당길 이유가 없다 -- 여기서 당겨 새로 받아야 하는 것은
+  // 기간 집계뿐이다.
   const queryClient = useQueryClient();
   const { refreshing, onRefresh } = usePullToRefresh(() =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["report"] }),
-      queryClient.invalidateQueries({ queryKey: ["home"] })
-    ])
+    Promise.all([queryClient.invalidateQueries({ queryKey: ["report"] })])
   );
 
   // Reset navigation offset whenever the selected period changes so "다음/이전"
@@ -555,13 +561,6 @@ export default function ReportsScreen() {
     retry: false,
     queryFn: () => getMilestoneReport(authToken!, childId!, milestoneType)
   });
-  // Shares the home screen's query cache entry -- only used for the child nickname in the
-  // 공유 문구(마일스톤 카드 + UX-H 월간 요약). 새 요청이 아니라 홈 탭이 이미 채워 둔 캐시다.
-  const home = useQuery({
-    queryKey: ["home", childId],
-    enabled: Boolean(authToken && childId),
-    queryFn: () => getHome(authToken!, childId!)
-  });
   const milestoneReport = milestone.data;
   // 라운드 45 UX-AA: 카드가 그리는 세 줄. 예전에는 1위 카테고리 이름 하나(milestoneTopCategory)만
   // 쓰고 기록 수 · 하루 평균 · 2~3위 카테고리를 버렸다 -- 전부 같은 응답 안에 있던 값이다.
@@ -570,7 +569,17 @@ export default function ReportsScreen() {
   const milestoneRestLine = milestoneReport ? milestoneOtherCategoriesLine(milestoneReport) : null;
   // UX-H: 두 공유 카드(마일스톤·월간)가 같은 이름을 쓴다. 닉네임/태명은 사용자가 스스로
   // 보내는 값이고, 이 화면이 공유 문구에 싣는 유일한 식별 정보다(이메일·계정 식별자 없음).
-  const shareChildName = home.data?.child.nickname ?? "우리 아이";
+  //
+  // 라운드 82 트랙 A: 그 이름의 원천은 **이 화면이 이미 조회하는 ["children"] 하나**다
+  // (`selectedChild` = 위 목록에서 childId로 찾은 행). 종전에는 같은 화면이 아이를 두 원천으로
+  // 불렀다 -- 제목의 아이 라벨은 ["children"]에서, 공유 문구의 태명은 ["home", childId]에서.
+  // 그래서 `/home`이 아직 안 왔거나 실패한 프레임에서는 화면 맨 위가 "다온이 — 리포트"라고
+  // 말하는 동안 그 화면이 내보내는 문장이 "우리 아이"였다. 원천이 하나면 그 어긋남이 없고,
+  // 이 화면에서 가장 무거운 읽기(홈 요약 응답 — 예산·월 합계·전 기간 합계·최근 3건 + 활성
+  // 카탈로그 전량을 훑는 추천 셋)가 통째로 빠진다(첫 페인트 요청 여덟 → 일곱).
+  // 폴백 문구는 바이트 불변이고, 아이를 아직 모르는 창에서는 행이 없으므로 남의 이름을 그리지
+  // 않는다는 라운드 49 QA(P2-3)의 규율이 오히려 강해진다.
+  const shareChildName = selectedChild?.nickname ?? "우리 아이";
   // REP-127: 제목·공유 라벨은 요청한 타입이 아니라 **응답의 type**에서 파생한다. 요청 타입이
   // 바뀌는 사이(첫돌 도달 직후 재조회)에도 화면에 남아 있는 데이터와 제목이 어긋나지 않는다.
   const milestoneCardTitle = milestoneReport ? milestoneReportTitle(milestoneReport.type) : "";
@@ -775,6 +784,33 @@ export default function ReportsScreen() {
           categoryLabel: categoryName,
           // 지난달 **월 전체** 합계. 진행 중인 달에서는 모듈이 비교 문장을 스스로 생략한다.
           previousMonthTotalKrw: previousMonth.isSuccess ? previousMonth.data.totalExpenseKrw : null
+        })
+      : null;
+
+  /**
+   * 라운드 82 트랙 A — **분기·연간도 한 문장을 말한다**(같은 peach 카드 자리 = 구획 ⑤).
+   *
+   * 종전에는 위 게이트(`period === "월간"`)가 카드 **전체**를 껐다. 그래서 [분기]를 누르면
+   * 총액과 도넛은 바뀌는데 방금까지 있던 한 줄이 사라졌다 -- 화면이 더 넓은 기간을 보여 주면서
+   * 말은 **덜** 했고, 사용자는 범례에서 퍼센트를 눈으로 읽어 앱이 월간에서 대신 해 주던 일을
+   * 스스로 했다.
+   *
+   * 새 요청·새 캐시 키·새 집계는 0건이다: `categoryPeriod`가 세그먼트를 그대로 따라가므로
+   * `categorySegments`는 **보고 있는 기간의** 분해이고, 그것이 바로 위 도넛이 그리는 그 배열이다.
+   * 조립기에 **그 배열을 그대로** 넘겨(라벨을 다시 만들지 않는다) 문장의 퍼센트가 범례 1위와
+   * 같은 `computeCategoryShares`를 지나게 한다.
+   *
+   * 이름 캐시 게이트는 월간과 같다 -- 카테고리 이름이 아직 없으면 "기타" 폴백으로 엉뚱한
+   * 카테고리를 지목하느니 문장을 만들지 않는다. 예산 문장·비교 문장·공유 버튼은 이 카드에
+   * 서지 않는다(이유는 순수 모듈 머리말 · 아래 렌더 주석).
+   */
+  const periodInsight =
+    hasSession && period !== "월간"
+      ? buildPeriodInsight({
+          unit: period === "분기" ? "quarter" : "year",
+          periodLabel,
+          totalExpenseKrw: activeTotal,
+          segments: categories.isSuccess ? categorySegments : undefined
         })
       : null;
 
@@ -1150,6 +1186,23 @@ export default function ReportsScreen() {
                       <Text style={reportShareButtonTextStyle}>공유하기</Text>
                     </Pressable>
                   ) : null}
+                </Card>
+              ) : null}
+
+              {/* 라운드 82 트랙 A: 분기·연간도 같은 자리(구획 ⑤)에서 한 문장을 말한다. 위
+                  월간 카드와 **같은 peach 카드·같은 18/800 제목 줄·같은 accessible 그룹**이고,
+                  두 카드는 서로 배타다(월간이면 위, 분기·연간이면 이 카드) -- 캡처의 구획 순서와
+                  "peach 카드 두 장이 연달아 서는 아래쪽 리듬"이 세 세그먼트에서 같아진다.
+
+                  이 카드에는 **공유 버튼이 서지 않는다**: 분기·연간 공유 문구는 별도 결정이고
+                  (src/reports/share-text.ts 머리말의 "세 번째 벌" 경고), 예산 문장·비교 문장도
+                  없다(합친 예산이라는 것이 없고, 직전 분기/해의 합계를 이 화면이 갖고 있지
+                  않다). 말할 근거가 없으면 카드 자체가 렌더되지 않는 것도 월간과 같다. */}
+              {periodInsight ? (
+                <Card style={reportInsightCardStyle}>
+                  <View accessible accessibilityLabel={periodInsight.accessibilityLabel} style={reportInsightTextGroupStyle}>
+                    <Text style={reportInsightHeadlineStyle}>{periodInsight.headline}</Text>
+                  </View>
                 </Card>
               ) : null}
 

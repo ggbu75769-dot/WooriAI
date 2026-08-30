@@ -33,13 +33,48 @@ describe("UX-H 리포트 공유 배선", () => {
     // (실명·childId 같은 것)을 슬쩍 끼워 넣지 못하게 배선을 여기서 못 박는다
     // (마일스톤 쪽 milestone-report-flow.test.ts의 shareChildName 계약과 같은 기준).
     expect(reportSource).toContain("childName: shareChildName");
-    expect(reportSource).toContain('const shareChildName = home.data?.child.nickname ?? "우리 아이";');
+    // 라운드 82 트랙 A: 그 이름의 원천이 **하나**다 — 이 화면이 이미 조회하는 ["children"]에서
+    // childId로 찾은 행(`selectedChild`). 종전에는 ["home", childId]가 두 번째 원천이라, 그
+    // 응답이 늦거나 실패한 프레임에서 화면 제목은 "다온이 — 리포트"인데 그 화면이 내보내는
+    // 문장만 "우리 아이"였다. 폴백 문구는 바이트 불변이다.
+    expect(reportSource).toContain('const shareChildName = selectedChild?.nickname ?? "우리 아이";');
+    expect(reportSource).toContain(
+      "const selectedChild = childrenQuery.data?.children.find((child) => child.id === childId) ?? null;"
+    );
     // 인사이트를 만들 때만 yearMonth/todayIso를 쓴다 -- 공유 조립기에는 넘기지 않는다.
     expect(reportSource).toContain("yearMonth: reportYearMonth");
     expect(reportSource).toContain("todayIso: seoulToday");
     // 공유를 위해 새 요청을 만들지 않는다(요청 예산 그대로 — GAP-067 트랙 A(#6) 이후
     // getMonthlyReport 호출부는 이번 달·지난 달 카드 둘이다).
     expect(reportSource.match(/getMonthlyReport\(/g) ?? []).toHaveLength(2);
+  });
+
+  /**
+   * 라운드 82 트랙 A(계약 ⓔ) — **아이 이름의 원천이 하나다.**
+   *
+   * 이 화면은 아이를 두 번 불렀다: 제목의 아이 라벨·마일스톤 타입·월 시트 하한은 `["children"]`
+   * 에서, 공유 문구의 태명만 `["home", childId]`에서. 그런데 뒤의 응답에서 이 화면이 읽는 것은
+   * `child.nickname` **한 칸**이었고, 그 칸은 앞 목록이 이미 주는 값의 진부분집합이다
+   * (`Child`는 `HomeSummary.child`의 넷에 `stageMode`·`dueDate`·`birthDate` 등을 **더** 갖는다).
+   * 좁은 원천을 기다리느라 `getHome`(이 앱에서 가장 무거운 읽기 — 예산·월 합계·전 기간 합계·
+   * 최근 3건 + 활성 카탈로그 전량을 훑는 추천 셋)이 리포트 첫 페인트에 통째로 실려 있었다.
+   *
+   * 대장으로 고정하는 것은 둘이다: 이 화면에 `getHome` 호출이 **0건**이고, `["home", childId]`
+   * 구독도 **0건**이라는 것. 두 번째 원천이 다시 생기면 여기서 걸린다.
+   */
+  it("ⓔ 아이 이름의 원천이 ['children'] 하나이고, 이 화면은 getHome을 부르지 않는다", () => {
+    const reportSource = source("app/(tabs)/reports.tsx");
+
+    expect(reportSource).not.toContain("getHome");
+    expect(reportSource).not.toContain('queryKey: ["home", childId]');
+    expect(reportSource).not.toContain("home.data");
+    // 아이 행을 찾는 자리도 하나다(두 번째 find가 생기면 원천이 다시 갈린다).
+    expect(reportSource.match(/childrenQuery\.data\?\.children/g) ?? []).toHaveLength(3);
+    expect(reportSource).toContain('queryKey: ["children"]');
+    // 당겨서 새로고침도 **이 화면이 실제로 읽는 캐시**만 갱신한다 -- 읽지 않는 응답을 당김마다
+    // 무효화하던 자리가 함께 사라진다.
+    expect(reportSource).toContain('queryClient.invalidateQueries({ queryKey: ["report"] })');
+    expect(reportSource).not.toContain('queryClient.invalidateQueries({ queryKey: ["home"] })');
   });
 
   /**
