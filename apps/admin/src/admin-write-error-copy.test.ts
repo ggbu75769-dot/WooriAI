@@ -58,11 +58,21 @@ function readRepoSource(relativePath: string): string {
  * 뿌리 그대로). `src/lib/**`가 밖인 이유도 같은 값이다 — 화면이 아니라 판정·API 래퍼·세션
  * 컨텍스트 모듈이고, 쓰기 실패 문장이 서는 자리가 아니다.
  *
- * 오늘의 합은 **열넷**이다. 그중 아홉이 정찰 노트가 센 "사유를 통째로 버리던" 자리이고
+ * 오늘의 합은 **열다섯**이다. 그중 아홉이 정찰 노트가 센 "사유를 통째로 버리던" 자리이고
  * (`reviews` 셋 · `items` 둘 · `links` 둘 · `disclosures` 둘), 넷은 "부분만 말하던" 자리이며
  * (`users` 셋 · `categories` 하나 — 그 화면들의 코드 매핑·403·타임아웃 갈래는 **그대로 남고**
  * 그 아래 폴백만 한 벌을 지난다), 하나는 ⚠️ **정찰의 열아홉에 없던 자리**다
  * (`ProductLinkBulkReplace`의 일괄 적용 — 이 스윕이 찾아냈고, 폴백 문장은 바이트 그대로다).
+ * 그리고 **열다섯째가 라운드 77 트랙 C**다(같은 패널의 **미리보기** — 아래 면제 목록에서
+ * 올라온 자리다).
+ *
+ * ⚠️ **그 이동이 이 대장에 남기는 판정 한 줄**: 이 표의 단위는 "쓰기"이지만, 열다섯 중 하나는
+ * **읽기 의미의 POST**다(`POST /bulk-preview`는 검증만 하고 아무것도 쓰지 않는다). *"쓰기가
+ * 아니다"* 와 *"서버 사유를 버려도 된다"* 는 **다른 말**이고, 종전 면제 사유는 그 둘을 한
+ * 낱말로 적어 자리를 닫아 두었다(라운드 76 Q-1의 그 교훈 — 면제는 "판정을 안 지난다"가 아니라
+ * "이 스윕이 요구하는 배선이 없어도 된다"이다). 사유를 나르는 한 벌은 쓰기·읽기를 가리지 않고
+ * **서버 문장 → 폴백**일 뿐이므로 이 자리도 같은 규칙을 지난다. 다만 그 POST에 **R19-F의 쓰기
+ * 타임아웃 문장이 서면 거짓**이라, 그 갈래만 패널이 자기 판정으로 갈라 낸다(아래 트랙 C 계약).
  */
 const WRITE_ERROR_COPY_SITES: Readonly<Record<string, number>> = {
   // 승인 게시 · 반려 · 롤백. (예약 게시는 아래 면제 목록 — 이미 손 사본으로 사유를 말한다.)
@@ -77,8 +87,9 @@ const WRITE_ERROR_COPY_SITES: Readonly<Record<string, number>> = {
   "app/users/page.tsx": 3,
   // 카테고리 수정(타임아웃·403 갈래는 화면의 판정으로 남는다).
   "app/categories/page.tsx": 1,
-  // CSV 일괄 적용(멱등·비멱등 타임아웃 두 갈래는 패널의 판정으로 남는다).
-  "src/components/ProductLinkBulkReplace.tsx": 1
+  // CSV 일괄 적용(멱등·비멱등 타임아웃 두 갈래는 패널의 판정으로 남는다) ·
+  // CSV 미리보기(라운드 77 트랙 C — 타임아웃 한 갈래만 패널의 판정으로 남는다).
+  "src/components/ProductLinkBulkReplace.tsx": 2
 };
 
 /**
@@ -180,13 +191,9 @@ const WRITE_ERROR_COPY_EXEMPT_SITES: Readonly<Record<string, { marker: string; r
     marker: "클립보드 권한이 없으면",
     reason: "CSV 헤더 복사의 클립보드 실패다. 서버 응답도 없고 화면에 세우는 문장도 없다."
   },
-  "src/components/ProductLinkBulkReplace.tsx#bulk-preview": {
-    marker: "미리보기에 실패했어요.",
-    reason:
-      "미리보기(POST /bulk-preview)는 서버가 **검증만 하고 아무것도 쓰지 않는** 요청이라 이 대장의 " +
-      "단위(쓰기)가 아니다 — R19-F의 쓰기 타임아웃 판정도 이 자리에는 서지 않는다. 서버의 CSV " +
-      "검증 사유를 이 자리까지 나르는 일은 다음 라운드의 값으로 남긴다."
-  },
+  // ⚠️ `#bulk-preview`는 라운드 77 트랙 C가 **대장으로 올렸다**(위 머리말의 판정 한 줄).
+  // 종전 사유는 *"쓰기가 아니라서 이 대장의 단위가 아니다"* 였고 그 절반은 오늘도 참이지만,
+  // 나머지 절반(*"그래서 서버 사유를 버려도 된다"*)이 화면에 거짓을 세우고 있었다.
   "src/components/ProductLinkBulkReplace.tsx#recheck-current-state": {
     marker: "재조회까지 실패하면",
     reason:
@@ -321,9 +328,27 @@ describe("쓰기 타임아웃 두 문장이 화면까지 닿는다 (라운드 76
     expect(message).toContain("같은 요청을 다시 보내면 중복 없이 처리돼요");
   });
 
-  it("연결 실패도 admin-api.ts가 만든 문장 그대로 닿는다", () => {
+  /**
+   * ⚠️ 이름을 갈래에 매어 두지 않는다(라운드 77 트랙 C가 정리한 한 줄).
+   *
+   * 종전 이름은 *"연결 실패도 admin-api.ts가 만든 문장 그대로 닿는다"* 였고, 그때 연결 실패의
+   * 문장은 **하나**였다(`request()`의 `status 0` 한 줄). 라운드 77 트랙 B가 그 자리를 R19-F
+   * 판정으로 갈라 **읽기·비멱등 쓰기·멱등 쓰기 셋**으로 만들면 그 이름은 절반만 맞는다.
+   * 이 단언이 무는 것은 애초에 갈래 수가 아니라 **한 벌이 status 0 문장을 손대지 않는다**는
+   * 사실이라, 오류를 손으로 만들어 검사하는 이 테스트는 트랙 B가 머지돼도 초록이다.
+   */
+  it("status 0(연결 실패)의 문장도 한 벌이 손대지 않는다 — 갈래가 몇이든 나르기만 한다", () => {
+    // 오늘의 GET 갈래 문장(트랙 B의 부정 단언 ⓒ가 **바이트 불변**으로 못박는 그 리터럴).
     const error = new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.");
     expect(writeErrorMessage(error, "저장하지 못했어요. 다시 시도해 주세요.")).toBe(error.message);
+    // 그리고 쓰기 갈래가 재시도를 권하지 않는 모양으로 갈라져도 한 벌은 그 문장을 그대로
+    // 나른다(이 한 벌에는 갈래 판정이 없다 — 문장을 고르는 자리는 admin-api.ts 하나다).
+    // ⚠️ 아래 리터럴은 **대역**이다: 트랙 B의 문장을 여기 적어 두면 사본이 하나 더 생긴다.
+    const writeShaped = new AdminApiError(
+      0,
+      "서버에 연결하지 못했어요. 반영 여부가 확실하지 않으니 목록을 새로고침해 확인해 주세요."
+    );
+    expect(writeErrorMessage(writeShaped, "저장하지 못했어요. 다시 시도해 주세요.")).toBe(writeShaped.message);
   });
 });
 
@@ -438,9 +463,23 @@ describe("쓰기 실패 판정의 소비 집합 (라운드 76 트랙 B ⓐ·ⓑ)
     expect(stale, `면제 목록에만 있고 소스에는 없는 자리: ${stale.join(", ")}`).toEqual([]);
   });
 
-  it("오늘의 자리는 열넷이다 (아홉 + 부분 넷 + 스윕이 찾은 하나)", () => {
+  it("오늘의 자리는 열다섯이다 (아홉 + 부분 넷 + 스윕이 찾은 하나 + 미리보기 하나)", () => {
     const total = Object.values(WRITE_ERROR_COPY_SITES).reduce((sum, count) => sum + count, 0);
-    expect(total).toBe(14);
+    expect(total).toBe(15);
+    // 라운드 77 트랙 C가 면제에서 대장으로 올린 그 한 자리(같은 패널의 미리보기).
+    expect(WRITE_ERROR_COPY_SITES["src/components/ProductLinkBulkReplace.tsx"]).toBe(2);
+    expect(Object.keys(WRITE_ERROR_COPY_EXEMPT_SITES)).not.toContain(
+      "src/components/ProductLinkBulkReplace.tsx#bulk-preview"
+    );
+    // 그 패널에 남는 면제 둘은 그대로다(둘 다 화면에 세우는 문장이 없다).
+    expect(
+      Object.keys(WRITE_ERROR_COPY_EXEMPT_SITES).filter((site) =>
+        site.startsWith("src/components/ProductLinkBulkReplace.tsx#")
+      )
+    ).toEqual([
+      "src/components/ProductLinkBulkReplace.tsx#copy-csv-header",
+      "src/components/ProductLinkBulkReplace.tsx#recheck-current-state"
+    ]);
     // 정찰 노트가 "사유를 통째로 버린다"고 센 아홉이 네 화면에 있다.
     const discardingScreens = ["app/reviews/page.tsx", "app/items/page.tsx", "app/links/page.tsx", "app/disclosures/page.tsx"];
     expect(discardingScreens.reduce((sum, path) => sum + WRITE_ERROR_COPY_SITES[path], 0)).toBe(9);
@@ -589,7 +628,15 @@ describe("어떤 쓰기 폴백도 원인을 단정하지 않는다 (라운드 76
     expect(fallbacks.length).toBe(Object.values(WRITE_ERROR_COPY_SITES).reduce((sum, count) => sum + count, 0));
     for (const { path, fallback } of fallbacks) {
       const [head, ...rest] = fallback.split(/(?<=\.)\s+/);
-      expect(head, `${path}: "${fallback}"의 첫 문장은 무엇이 실패했는지다`).toMatch(/못했어요\.$/);
+      // ⚠️ 첫 문장의 모양은 둘이다 — "…하지 **못했어요.**"(쓰기 열넷)와 "…에 **실패했어요.**"
+      // (라운드 77 트랙 C가 올린 미리보기 하나). 둘 다 **무엇이 실패했는가**만 말한다는 점에서
+      // 같고, 이 단언이 무는 것은 그 사실이다(원인은 꼬리 화이트리스트가 따로 문다).
+      // 미리보기 자리가 종전 문장의 머리를 그대로 지키는 것이 이 트랙의 값이다 — 바뀐 것은
+      // **원인을 단정하던 가운데 한 절**뿐이고, 머리를 "미리보기하지 못했어요"로 고쳐 적었다면
+      // 이 라운드가 새 한국어 문구를 하나 더 만드는 셈이 된다.
+      expect(head, `${path}: "${fallback}"의 첫 문장은 무엇이 실패했는지다`).toMatch(
+        /(?:못했어요|실패했어요)\.$/
+      );
       const tail = rest.join(" ");
       if (tail !== "") {
         expect(
@@ -610,6 +657,112 @@ describe("어떤 쓰기 폴백도 원인을 단정하지 않는다 (라운드 76
     // 그 문장은 서버가 그 조건(CONTENT_REVISION_SELF_APPROVAL)일 때만 하는 말이고, 오늘도 그렇다.
     const service = readRepoSource("apps/api/src/admin/content-revisions.service.ts");
     expect(service).toContain('code: "CONTENT_REVISION_SELF_APPROVAL", message: "본인이 작성한 초안은 승인할 수 없어요."');
+  });
+});
+
+/**
+ * 라운드 77 트랙 C — **미리보기 실패가 원인을 단정하지 않는다.**
+ *
+ * `handlePreview`의 catch는 `err`를 401 판정에만 쓰고 버렸다. 그래서 한 문장이 **모든 실패**에
+ * 섰다 — 403(`RequireAdminRoles("admin")`) · 5xx · 연결 실패 · 60초 타임아웃 · DTO 검증 400.
+ * 그중 CSV 형식이 원인인 것은 하나뿐인데 문장은 *"CSV 형식을 확인하고"* 라고 말했다.
+ * (`analyst` 계정의 운영자는 그 문장을 읽고 30분 동안 파일을 고친다 — 그가 해야 할 일은
+ * 관리자에게 권한을 부탁하는 것이다.)
+ *
+ * ⚠️ **그런데 사유를 그냥 나르면 새 거짓이 선다**: `POST /bulk-preview`는 `timeoutMsForMethod`가
+ * **쓰기(60초)** 로 분류하고 멱등키가 없어, 타임아웃이면 한 벌이 `WRITE_TIMEOUT_MESSAGE`
+ * (*"반영 여부가 확실하지 않으니…"*)를 그대로 나른다 — **아무것도 쓰지 않는 요청**에 대한
+ * 거짓이다. 오늘 그 문장이 화면에 서지 않던 유일한 이유가 catch가 사유를 통째로 버렸기
+ * 때문이라는 것이 이 트랙의 관측이다: **버리는 것이 우연히 방패 노릇을 하고 있었다.**
+ * 그래서 나르기 **전에** 갈래를 세운다 — 30줄 아래 `handleApply`가 이미 쓰는 그 순서다.
+ */
+describe("미리보기 실패가 원인을 단정하지 않는다 (라운드 77 트랙 C)", () => {
+  const panelPath = "src/components/ProductLinkBulkReplace.tsx";
+  const PREVIEW_FALLBACK = "미리보기에 실패했어요. 다시 시도해 주세요.";
+
+  /** `handlePreview`의 catch 블록 하나(다음 함수 선언 전까지가 그 범위다). */
+  function previewCatchBlock(): string {
+    const source = readSource(panelPath);
+    const start = source.indexOf("const handlePreview");
+    expect(start, "handlePreview가 실재한다").toBeGreaterThan(-1);
+    const end = source.indexOf("const recheckCurrentState", start);
+    expect(end, "recheckCurrentState가 그 뒤에 온다").toBeGreaterThan(start);
+    const blocks = catchBlocks(source.slice(start, end));
+    expect(blocks, "미리보기의 catch는 하나다").toHaveLength(1);
+    return blocks[0].body;
+  }
+
+  /** 그 블록에서 **화면에 서는 것**만 남긴다(주석은 근거를 적는 자리라 거짓 문장을 인용한다). */
+  function previewCatchCode(): string {
+    return previewCatchBlock().replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+  }
+
+  it("catch가 갈래 셋을 지난다 — 401 → 타임아웃 전용 안내 → 서버 사유/폴백 (ⓐ)", () => {
+    const block = previewCatchCode();
+    const auth = block.indexOf("isAuthError(err)");
+    const timeout = block.indexOf("isTimeoutError(err)");
+    const copy = block.indexOf("writeErrorMessage(err,");
+    for (const [name, index] of [["401", auth], ["타임아웃", timeout], ["한 벌", copy]] as const) {
+      expect(index, `미리보기 catch에 ${name} 갈래가 있다`).toBeGreaterThan(-1);
+    }
+    // 순서가 값이다 — 타임아웃 갈래가 한 벌 **뒤에** 서면 거짓 문장이 먼저 화면에 선다.
+    expect(auth, "401이 첫째다").toBeLessThan(timeout);
+    expect(timeout, "타임아웃이 한 벌보다 먼저다").toBeLessThan(copy);
+    // 401은 종전 그대로 세션을 지우고 문장을 세우지 않는다.
+    expect(block).toContain("clearSession();");
+    // 판정을 새로 만들지 않는다 — 셋 다 admin-api.ts가 이미 내는 판정이다(읽기만).
+    const panel = readSource(panelPath);
+    expect(panel).toMatch(/isTimeoutError,?\n/);
+    expect(panel, "패널이 타임아웃 판정을 다시 적었다").not.toContain("AdminApiTimeoutError");
+    expect(panel, "패널이 상태 코드로 갈래를 만들었다").not.toContain("status === 0");
+  });
+
+  it("미리보기 실패에 쓰기 타임아웃 문장이 서지 않는다 (ⓑ · 부정 단언)", () => {
+    // ⚠️ 갈래가 없었다면 한 벌이 나를 문장이 이것이다 — bulk-preview는 POST라
+    // AdminApiTimeoutError가 쓰기(60초)로 문장을 고른다. "반영 여부"는 아무것도 쓰지 않는
+    // 요청에 대한 거짓이고, 이 한 줄이 그 갈래가 존재하는 이유를 값으로 남긴다.
+    const carried = writeErrorMessage(timeoutError("POST"), PREVIEW_FALLBACK);
+    expect(carried).toContain("반영 여부가 확실하지 않으니");
+
+    // 그래서 패널은 그 자리에 자기 안내를 세운다: 미리보기는 **다시 눌러도 안전하다**.
+    const code = previewCatchCode();
+    expect(code, "미리보기 안내가 반영 여부를 말한다").not.toContain("반영 여부");
+    expect(code, "미리보기 안내가 새로고침을 권한다").not.toContain("새로고침");
+    expect(code).toContain("미리보기는 검증만 하고 아무것도 바꾸지 않으니");
+    // 그 문장은 이 패널 안에서만 산다(한 벌·admin-api.ts는 이 트랙에서 한 글자도 안 바뀐다).
+    expect(readSource("src/lib/write-error-copy.ts"), "한 벌에 미리보기 문구가 들어갔다").not.toContain(
+      "미리보기"
+    );
+  });
+
+  it("원인 단정 한 절이 사라졌고, CSV 형식이 원인이면 서버가 말한다 (ⓒ)", () => {
+    // ⚠️ 이 단언은 고치기 **전에** 빨갛다(꼬리 화이트리스트가 "CSV 형식을 확인하고"를 거른다).
+    for (const path of screenPaths()) {
+      expect(readSource(path), `${path}에 원인 단정이 남아 있다`).not.toContain("CSV 형식을 확인하고");
+    }
+    // 남은 것은 "무엇이 실패했는가" + 화이트리스트의 꼬리 하나다.
+    expect(readSource(panelPath)).toContain(`writeErrorMessage(err, "${PREVIEW_FALLBACK}")`);
+    // 그리고 CSV 형식이 실제 원인일 때는 서버 사유가 그대로 선다(400 · 403 · 5xx 전부 같다).
+    expect(
+      writeErrorMessage(new AdminApiError(400, "CSV 헤더가 올바르지 않아요."), PREVIEW_FALLBACK)
+    ).toBe("CSV 헤더가 올바르지 않아요.");
+    expect(
+      writeErrorMessage(new AdminApiError(403, "Admin access is required.", "ADMIN_FORBIDDEN"), PREVIEW_FALLBACK)
+    ).toBe(PREVIEW_FALLBACK); // 영문 403은 라운드 76 M-1의 갈래로 간다(폴백이 선다).
+  });
+
+  it("적용 쪽 세 갈래·멱등키 회전·재조회 안내는 한 글자도 바뀌지 않았다 (무변경)", () => {
+    const panel = readSource(panelPath);
+    expect(panel).toContain("isIdempotentTimeoutError(err)");
+    expect(panel).toContain("isRetryUnsafeTimeoutError(err)");
+    expect(panel).toContain(
+      "적용 요청이 오래 걸려 결과를 확인하지 못했어요. 같은 요청을 다시 보내면 중복 없이 처리되니, '적용'을 한 번 더 눌러 주세요. 이미 반영됐다면 첫 결과가 그대로 표시돼요."
+    );
+    expect(panel).toContain("이미 반영됐을 수 있으니 바로 다시 적용하지 마세요.");
+    expect(panel).toContain('writeErrorMessage(err, "적용하지 못했어요. 다시 미리보기 후 시도해 주세요.")');
+    expect(panel.match(/applyKey\.rotate\(\)/g) ?? []).toHaveLength(1);
+    // 재조회는 여전히 bulk-preview로 하고(쓰기가 없다), 실패해도 새 문장을 세우지 않는다.
+    expect((panel.match(/bulkPreviewProductLinks\(csv\)/g) ?? []).length).toBe(2);
   });
 });
 

@@ -15,6 +15,7 @@ import {
   isAuthError,
   isIdempotentTimeoutError,
   isRetryUnsafeTimeoutError,
+  isTimeoutError,
   type ProductLinkBulkApplyResult,
   type ProductLinkBulkPreviewResult
 } from "../lib/admin-api";
@@ -95,7 +96,28 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
         clearSession();
         return;
       }
-      setError("미리보기에 실패했어요. CSV 형식을 확인하고 다시 시도해 주세요.");
+      // 라운드 77 트랙 C ①: 타임아웃은 **미리보기 전용** 안내로 갈라 낸다.
+      // ⚠️ 이 갈래가 없으면 아래 한 벌이 admin-api.ts의 쓰기 타임아웃 문장을 그대로 나른다 —
+      // *"반영 여부가 확실하지 않으니 목록을 새로고침해 확인한 뒤 다시 시도하세요"*. bulk-preview는
+      // **검증만 하고 아무것도 쓰지 않는** POST라 그 문장은 거짓이다(그 POST가 쓰기로 분류되는
+      // 것은 timeoutMsForMethod의 상한 판정 하나뿐이다 — 60초). 미리보기는 **다시 눌러도 안전**
+      // 하므로 문장도 그렇게 말한다. 어법은 이 패널이 이미 들고 있는 타임아웃 안내 둘을 따르되,
+      // 그 둘을 그대로 쓰지 않는 이유는 둘 다 "적용 요청"의 **반영 여부**를 말하기 때문이다.
+      if (isTimeoutError(err)) {
+        setError(
+          "미리보기 요청이 오래 걸려 결과를 받지 못했어요. 미리보기는 검증만 하고 아무것도 바꾸지 않으니, '미리보기'를 한 번 더 눌러 주세요."
+        );
+        return;
+      }
+      // 라운드 77 트랙 C ②: 남은 실패(403 · 5xx · 400 검증 · 연결 실패)의 서버 사유를 그대로
+      // 나른다 — 종전에는 err를 401 판정에만 쓰고 버려서 **모든 실패**가 CSV 형식을 지목했다
+      // (analyst 계정의 403도, 죽은 서버도). 폴백에서 그 원인을 단정하던 가운데 한 절이 빠진
+      // 이유가 그것이고, CSV 형식이 실제 원인일 때는 **서버가 그 사유를 말한다**.
+      // ⚠️ 관측(다음 라운드의 값): 라운드 77 트랙 B가 연결 실패를 R19-F 판정으로 가르면
+      // 비멱등 쓰기 갈래의 문장이 이 자리에도 흘러든다 — bulk-preview는 멱등키가 없는 POST라
+      // 그 갈래에 떨어지는데, 이 요청은 반영할 것이 없다. 그 자리는 이 트랙의 축(타임아웃)이
+      // 아니어서 오늘 열지 않고, 사실만 여기 적어 둔다.
+      setError(writeErrorMessage(err, "미리보기에 실패했어요. 다시 시도해 주세요."));
     } finally {
       setPreviewing(false);
     }
