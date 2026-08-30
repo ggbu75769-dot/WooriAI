@@ -9,6 +9,15 @@ import type { WorkerHealth, WorkerHealthJob } from "./admin-api";
 /** 워커 잡 이름 (apps/api/src/worker/jobs/link-health.job.ts). */
 export const LINK_HEALTH_JOB_NAME = "link_health";
 
+/**
+ * 워커 잡 이름 (apps/api/src/worker/jobs/scheduled-publish.job.ts의 `readonly name`).
+ *
+ * 라운드 79 트랙 D: `degraded`는 "어떤 잡이 연속 실패 중"이라는 사실이고, **어느 잡인지**는
+ * `failingJobNames()`가 이미 말한다. 이름이 값으로 있으면 "예약 게시 잡이 실패 중인가"를
+ * 링크 검사와 섞지 않고 정확히 물을 수 있다(revision-rows.ts의 지난 예약 배지).
+ */
+export const SCHEDULED_PUBLISH_JOB_NAME = "cms_scheduled_publish";
+
 export type WorkerHealthState = "off" | "stale" | "degraded" | "ok";
 
 export const WORKER_HEALTH_STATE_LABELS: Record<WorkerHealthState, string> = {
