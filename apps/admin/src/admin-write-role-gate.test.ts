@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_ROLES, type AdminRole } from "./lib/admin-api";
-import { ADMIN_WRITE_ROLE_NOTICE } from "./lib/admin-role-copy";
+import { ADMIN_EDITOR_WRITE_ROLE_NOTICE, ADMIN_WRITE_ROLE_NOTICE } from "./lib/admin-role-copy";
 
 /**
  * 라운드 77 트랙 D(GAP-077 #4) — **통하지 않는 저장 UI를 세우지 않는다.**
@@ -140,6 +140,21 @@ const ADMIN_WRITE_SCREENS: Readonly<Record<string, WriteScreen>> = {
 };
 
 /**
+ * 캡션을 세우는 화면과 **그 화면이 부르는 상수**(라운드 77 리뷰 S-1).
+ *
+ * 값은 대장의 `allows`에서 파생되어야 한다 — 게이트가 editor를 통과시키는 화면이
+ * *"관리자(admin) 권한이 필요해요"* 라고 말하면 캡션이 화면 자신의 게이트보다 한 칸 위를
+ * 요구한다. `app/reviews`·`app/users`는 캡션을 세우지 않는다(전자는 버튼만 감추고,
+ * 후자는 화면 전체가 자기 문장을 지고 돌아선다).
+ */
+const SCREEN_NOTICE_CONSTANTS: Readonly<Record<string, string>> = {
+  "app/categories/page.tsx": "ADMIN_WRITE_ROLE_NOTICE",
+  "app/items/page.tsx": "ADMIN_EDITOR_WRITE_ROLE_NOTICE",
+  "app/links/page.tsx": "ADMIN_EDITOR_WRITE_ROLE_NOTICE",
+  "app/disclosures/page.tsx": "ADMIN_EDITOR_WRITE_ROLE_NOTICE"
+};
+
+/**
  * 스윕이 걷는 뿌리와 **걷지 않는 뿌리·이유**(라운드 75 D가 조회 쪽에, 라운드 76 B가 쓰기 쪽에
  * 세운 그 형식).
  */
@@ -199,24 +214,102 @@ function adminApiWriteFunctions(): string[] {
 }
 
 /**
- * `index` 자리를 감싸는 JSX 표현식 블록들의 **머리말**(여는 `{` 바로 뒤 조각).
+ * `index` 자리를 감싸는 JSX 표현식 블록들의 여는 `{` 위치(가장 안쪽부터).
  *
  * 뒤에서 앞으로 걸으며 깊이를 세므로, 게이트가 어느 깊이에 있든(카드 안 · 표의 셀 안) 찾는다.
  * "게이트 문자열이 파일 어딘가에 있다"가 아니라 **그 컨트롤이 실제로 그 조건 안에 있다**를
  * 묻는 것이 이 함수의 요점이다.
  */
-function enclosingExpressionHeaders(source: string, index: number, headerLength = 200): string[] {
-  const headers: string[] = [];
+function enclosingExpressionOpeners(source: string, index: number): number[] {
+  const openers: number[] = [];
   let depth = 0;
   for (let cursor = index; cursor >= 0; cursor -= 1) {
     const char = source[cursor];
     if (char === "}") depth += 1;
     else if (char === "{") {
-      if (depth === 0) headers.push(source.slice(cursor + 1, cursor + 1 + headerLength));
+      if (depth === 0) openers.push(cursor);
       else depth -= 1;
     }
   }
-  return headers;
+  return openers;
+}
+
+/** `open`의 `{`와 짝을 이루는 `}`의 위치. */
+function matchingBrace(source: string, open: number): number {
+  let depth = 0;
+  for (let cursor = open; cursor < source.length; cursor += 1) {
+    if (source[cursor] === "{") depth += 1;
+    else if (source[cursor] === "}") {
+      depth -= 1;
+      if (depth === 0) return cursor;
+    }
+  }
+  return -1;
+}
+
+/**
+ * 표현식 하나의 **최상위 삼항**(`조건 ? 참갈래 : 거짓갈래`)을 가른다.
+ * 옵셔널 체이닝(`?.`)과 널 병합(`??`)은 삼항이 아니므로 건너뛴다.
+ * 삼항이 아니면(`조건 && (…)`) 갈림점을 끝으로 둔다 — 그 경우 갈래는 "참" 하나다.
+ */
+function splitTopLevelTernary(expression: string): { question: number; colon: number } {
+  let depth = 0;
+  let question = -1;
+  let nested = 0;
+  for (let cursor = 0; cursor < expression.length; cursor += 1) {
+    const char = expression[cursor];
+    if (char === "(" || char === "[" || char === "{") depth += 1;
+    else if (char === ")" || char === "]" || char === "}") depth -= 1;
+    else if (depth === 0 && char === "?") {
+      if (expression[cursor + 1] === "." || expression[cursor + 1] === "?") {
+        cursor += 1;
+        continue;
+      }
+      if (question === -1) question = cursor;
+      else nested += 1;
+    } else if (depth === 0 && char === ":" && question !== -1) {
+      if (nested > 0) {
+        nested -= 1;
+        continue;
+      }
+      return { question, colon: cursor };
+    }
+  }
+  return { question: question === -1 ? expression.length : question, colon: expression.length };
+}
+
+/**
+ * 라운드 77 적대적 리뷰 S-2 — **게이트 판정은 부분 문자열이 아니다.**
+ *
+ * 종전 판정은 머리말이 게이트 **이름을 담기만** 하면 통과였다. 그래서 갈래가 뒤집혀도
+ * (`{!canEdit ? <저장 버튼/> : <캡션/>}`) 초록이었다 — 정확히 이 계약이 막으려던 결함을
+ * 재현해도 아무것도 빨개지지 않는다. 이제 **컨트롤이 어느 갈래에 있는지**까지 읽는다:
+ * 조건이 긍정(`canEdit ? …`)이면 참 갈래에, 부정(`!canEdit ? …`)이면 거짓 갈래에 있어야
+ * 통과한다(카테고리 화면이 실제로 쓰는 모양이 후자다).
+ */
+function submitIsInsideGate(source: string, index: number, gate: string): boolean {
+  const identifier = new RegExp(`(^|[^A-Za-z0-9_$.])${gate}\\b`);
+  const negated = new RegExp(`(^|[^A-Za-z0-9_$.])!\\s*\\(?\\s*${gate}\\b`);
+  for (const open of enclosingExpressionOpeners(source, index)) {
+    const close = matchingBrace(source, open);
+    if (close < 0 || close < index) continue;
+    const expression = source.slice(open + 1, close);
+    const offset = index - (open + 1);
+    let { question, colon } = splitTopLevelTernary(expression);
+    // 삼항이 아니면 `조건 && (…)` 모양을 본다 — 갈래는 "참" 하나이고 거짓 갈래가 없다.
+    if (question === expression.length) {
+      const and = expression.indexOf("&&");
+      if (and < 0) continue;
+      question = and;
+      colon = expression.length;
+    }
+    const condition = expression.slice(0, question);
+    if (!identifier.test(condition)) continue;
+    const inTrueBranch = offset > question && offset < colon;
+    const inFalseBranch = offset > colon;
+    if (negated.test(condition) ? inFalseBranch : inTrueBranch) return true;
+  }
+  return false;
 }
 
 /**
@@ -288,13 +381,34 @@ describe("제출 컨트롤은 예외 없이 역할 게이트를 지난다 (라�
         const index = source.indexOf(submit);
         expect(index, `${path}: ${submit} 바인딩이 실재한다`).toBeGreaterThan(-1);
         expect(source.indexOf(submit, index + 1), `${path}: ${submit}가 한 자리다`).toBe(-1);
-        const headers = enclosingExpressionHeaders(source, index);
         expect(
-          headers.some((header) => header.includes(screen.gate)),
-          `${path}: ${submit}가 역할 게이트(${screen.gate}) 밖에 서 있어요`
+          submitIsInsideGate(source, index, screen.gate),
+          `${path}: ${submit}가 역할 게이트(${screen.gate})가 참인 갈래 밖에 서 있어요`
         ).toBe(true);
       }
     }
+  });
+
+  /**
+   * 라운드 77 적대적 리뷰 S-2 — **뒤집힌 게이트가 실제로 빨개진다.**
+   *
+   * 판정이 부분 문자열이던 동안에는 이 재현이 초록이었다(머리말에 `canEdit`이 들어 있으니까).
+   * 계약이 무는 것이 "이름이 근처에 있다"가 아니라 **"컨트롤이 참 갈래에 있다"** 라는 사실을
+   * 뒤집힌 소스로 못박는다 — 이 단언이 없으면 강화 자체가 침묵으로 되돌아갈 수 있다.
+   */
+  it("갈래가 뒤집히면 판정이 거짓이 된다 (재현 · 부정 단언)", () => {
+    const submit = "onClick={handleCreate}";
+    const honest = `<div>{canEdit ? (<button ${submit}>추가</button>) : (<p>캡션</p>)}</div>`;
+    const flipped = `<div>{!canEdit ? (<button ${submit}>추가</button>) : (<p>캡션</p>)}</div>`;
+    // 카테고리 화면이 실제로 쓰는 모양 — 부정이 앞에 서고 컨트롤은 거짓 갈래에 있다.
+    const negatedHonest = `<div>{!canEdit ? (<span>-</span>) : (<button ${submit}>저장</button>)}</div>`;
+    // 게이트 이름이 근처에 있기만 한 자리(종전 판정이 통과시키던 모양).
+    const bare = `<div>{canEdit ? null : null}</div><button ${submit}>추가</button>`;
+
+    expect(submitIsInsideGate(honest, honest.indexOf(submit), "canEdit")).toBe(true);
+    expect(submitIsInsideGate(negatedHonest, negatedHonest.indexOf(submit), "canEdit")).toBe(true);
+    expect(submitIsInsideGate(flipped, flipped.indexOf(submit), "canEdit"), "뒤집힌 게이트가 통과했어요").toBe(false);
+    expect(submitIsInsideGate(bare, bare.indexOf(submit), "canEdit"), "게이트 밖 컨트롤이 통과했어요").toBe(false);
   });
 
   it("컨트롤 게이트는 다섯이고, 나머지 한 자리는 화면 전체가 역할 뒤다", () => {
@@ -424,28 +538,51 @@ describe("캡션의 사본은 하나뿐이다 (라운드 77 트랙 D ⓒ)", () =
     return found.sort();
   }
 
-  it("문장이 사는 자리는 admin-role-copy.ts 하나다 (부정 단언)", () => {
-    const holders = repoCopyPaths().filter((path) => codeOnly(readSource(path)).includes(ADMIN_WRITE_ROLE_NOTICE));
-    expect(holders, "화면이 캡션을 손으로 되쓰고 있어요 — ADMIN_WRITE_ROLE_NOTICE를 import하세요").toEqual([
-      "src/lib/admin-role-copy.ts"
-    ]);
-    // 종전에 인라인이 있던 자리도 이제 상수를 부른다(문자열은 바이트 불변).
+  it("두 문장이 사는 자리는 admin-role-copy.ts 하나다 (부정 단언)", () => {
+    for (const notice of [ADMIN_WRITE_ROLE_NOTICE, ADMIN_EDITOR_WRITE_ROLE_NOTICE]) {
+      const holders = repoCopyPaths().filter((path) => codeOnly(readSource(path)).includes(notice));
+      expect(holders, `화면이 캡션을 손으로 되쓰고 있어요 — 상수를 import하세요: ${notice}`).toEqual([
+        "src/lib/admin-role-copy.ts"
+      ]);
+    }
+    // 종전에 인라인이 있던 자리도 이제 상수를 부른다(카테고리 문장은 바이트 불변).
     expect(ADMIN_WRITE_ROLE_NOTICE).toBe("지금 계정은 조회만 할 수 있어요. 수정은 관리자(admin) 권한이 필요해요.");
-    for (const path of [
-      "app/categories/page.tsx",
-      "app/items/page.tsx",
-      "app/links/page.tsx",
-      "app/disclosures/page.tsx"
-    ]) {
-      expect(readSource(path), `${path}가 한 자리를 부른다`).toContain("{ADMIN_WRITE_ROLE_NOTICE}");
+    expect(ADMIN_EDITOR_WRITE_ROLE_NOTICE).toBe(
+      "지금 계정은 조회만 할 수 있어요. 수정은 편집자(editor) 이상 권한이 필요해요."
+    );
+    for (const [path, constant] of Object.entries(SCREEN_NOTICE_CONSTANTS)) {
+      expect(readSource(path), `${path}가 한 자리를 부른다`).toContain(`{${constant}}`);
       expect(readSource(path)).toContain('from "../../src/lib/admin-role-copy"');
     }
   });
 
+  /**
+   * 라운드 77 적대적 리뷰 S-1 — **캡션이 화면 자신의 게이트보다 위를 말하지 않는다.**
+   *
+   * 한 문장을 다섯 화면이 나눠 쓰면 그중 셋에서 거짓이 됐다: 준비템·링크·고지 문구의 게이트는
+   * `admin || editor`인데 캡션은 *"수정은 관리자(admin) 권한이 필요해요"* 라고 요구 역할을
+   * **한 칸 과장**했다. 이제 캡션은 대장의 `allows`에서 **파생**된다 — 게이트가 editor를
+   * 통과시키면 editor 문장, `admin` 하나면 admin 문장이다.
+   */
+  it("캡션이 그 화면의 게이트에서 파생된다 (요구 역할 과장 0건)", () => {
+    for (const [path, constant] of Object.entries(SCREEN_NOTICE_CONSTANTS)) {
+      const screen = ADMIN_WRITE_SCREENS[path];
+      expect(screen, `${path}는 대장에 있다`).toBeTruthy();
+      const expected = screen.allows.includes("editor") ? "ADMIN_EDITOR_WRITE_ROLE_NOTICE" : "ADMIN_WRITE_ROLE_NOTICE";
+      expect(constant, `${path}의 캡션이 게이트(${screen.allows.join("|")})와 어긋나요`).toBe(expected);
+      expect(readSource(path), `${path}가 다른 캡션을 부른다`).not.toContain(
+        `{${expected === "ADMIN_WRITE_ROLE_NOTICE" ? "ADMIN_EDITOR_WRITE_ROLE_NOTICE" : "ADMIN_WRITE_ROLE_NOTICE"}}`
+      );
+    }
+    // 그리고 캡션을 세우는 화면 전수가 이 표와 같다(새 화면이 생기면 여기가 먼저 빨개진다).
+    const wired = repoCopyPaths().filter((path) => /\{ADMIN_(?:EDITOR_)?WRITE_ROLE_NOTICE\}/.test(readSource(path)));
+    expect(wired.sort()).toEqual(Object.keys(SCREEN_NOTICE_CONSTANTS).sort());
+  });
+
   it("신설 모듈은 상수 표가 아니다 — 미러 스크레이프의 단위가 아닌 이유가 적혀 있다", () => {
     const module = readSource("src/lib/admin-role-copy.ts");
-    // 문자열 상수 하나다(배열도 Record도 없다 — 있으면 admin-canonical-mirrors의 대장이 필요하다).
-    expect((module.match(/^export /gm) ?? []).length, "내보내는 값은 하나다").toBe(1);
+    // 문자열 상수 둘이다(배열도 Record도 없다 — 있으면 admin-canonical-mirrors의 대장이 필요하다).
+    expect((module.match(/^export /gm) ?? []).length, "내보내는 값은 둘이다").toBe(2);
     expect(codeOnly(module)).not.toMatch(/=\s*[[{]/);
     expect(module, "스크레이프 단위가 아닌 이유가 값으로 적혀 있다").toContain("scrapeConstantTables");
   });

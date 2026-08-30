@@ -13,7 +13,14 @@
  *
  * 이 모듈은 그 한 줄이 사는 **한 자리**다. 종전에는 `app/categories/page.tsx`에 인라인으로
  * 있었고, 화면 셋이 그것을 각자 베끼면 사본이 넷이 된다 — 라운드 75 P-4가 경고한 드리프트의
- * 씨앗이 정확히 그 모양이다. ⚠️ **문자열은 바이트 불변**이다(새 한국어 문구 0건).
+ * 씨앗이 정확히 그 모양이다.
+ *
+ * ⚠️ **문장은 둘이고, 그 둘을 가르는 것은 화면의 게이트다**(라운드 77 리뷰 S-1). 한 문장을
+ * 다섯 화면이 나눠 쓰면 그중 셋에서 거짓이 된다: 준비템·링크·고지 문구의 게이트는
+ * `admin || editor`라(편집자는 검토 요청 경로가 **실제로 통한다**) *"수정은 관리자(admin)
+ * 권한이 필요해요"* 는 요구 역할을 **한 칸 과장한다** — 그 캡션을 읽은 편집자가 자기에게
+ * 없는 권한을 관리자에게 요청하러 간다. 카테고리는 검토 경로가 없어 정말 `admin` 전용이므로
+ * 종전 문장 그대로다. ⚠️ 카테고리 쪽 문자열은 **바이트 불변**이다.
  *
  * ⚠️ **이 모듈은 문자열 상수 하나다** — `Record` 표도 배열도 아니라서 라운드 75 트랙 E의
  * 상수 표 전수 스크레이프(`src/admin-canonical-mirrors.test.ts`의 `scrapeConstantTables`)가
@@ -25,11 +32,24 @@
  */
 
 /**
- * 쓰기가 `admin` 전용인 화면에서 **조회 권한자에게 서는 한 줄**.
+ * 게이트가 **`admin` 하나**인 화면에서 조회 권한자에게 서는 한 줄(오늘 카테고리 관리).
  *
- * 서버 기준과 같은 말을 한다 — 준비템·링크·고지 문구·카테고리의 직접 쓰기는
- * `@RequireAdminRoles("admin")`이고(`apps/api/src/admin/admin.controller.ts` ·
- * `admin-categories.controller.ts`), 편집자는 콘텐츠 검토 경로로 돌아간다
- * (`content-revisions.controller.ts` = `admin, editor`). `analyst`에게 열린 쓰기 경로는 0건이다.
+ * 서버 기준과 같은 말을 한다 — 카테고리 수정은 `@RequireAdminRoles("admin")`이고
+ * (`apps/api/src/admin/admin-categories.controller.ts`), 그 화면에는 편집자가 돌아갈 검토
+ * 경로가 **없다**(카테고리는 콘텐츠 리비전의 `entityType`이 아니다). 그래서 여기서는
+ * *"관리자(admin) 권한"* 이 요구 역할과 정확히 같다.
  */
 export const ADMIN_WRITE_ROLE_NOTICE = "지금 계정은 조회만 할 수 있어요. 수정은 관리자(admin) 권한이 필요해요.";
+
+/**
+ * 게이트가 **`admin || editor`** 인 화면에서 조회 권한자에게 서는 한 줄
+ * (오늘 준비템·링크·고지 문구 셋). 오늘 이 문장을 읽는 역할은 `analyst` 하나다.
+ *
+ * ⚠️ *"편집자(editor) 이상"* 이라고 말하는 이유가 이 상수의 본체다 — 그 셋의 직접 쓰기는
+ * `admin` 전용이지만(`apps/api/src/admin/admin.controller.ts`), 편집자는 **검토 요청 경로가
+ * 실제로 통한다**(`content-revisions.controller.ts` = `admin, editor`). 화면이 그 갈래를
+ * 열어 두고 캡션만 `admin`을 요구하면, 캡션이 화면 자신의 게이트보다 한 칸 위를 말한다.
+ * `analyst`에게 열린 쓰기 경로는 서버에도 화면에도 0건이다.
+ */
+export const ADMIN_EDITOR_WRITE_ROLE_NOTICE =
+  "지금 계정은 조회만 할 수 있어요. 수정은 편집자(editor) 이상 권한이 필요해요.";

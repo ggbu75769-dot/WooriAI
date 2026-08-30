@@ -58,10 +58,17 @@ describe("COM-108 purchase follow-up source contract", () => {
     const retryBlock = detailSource.slice(retryIndex, detailSource.indexOf("const shareFallbackLink", retryIndex));
     expect(retryBlock).toContain("registerPurchaseFollowup(linkOpenFallback.link);");
     // 실패 분기(catch)는 아무것도 등록하지 않는다.
-    const failureBranch = detailSource.slice(
-      detailSource.indexOf("      } catch {", detailSource.indexOf("onSuccess: async (result, link) => {")),
-      detailSource.indexOf("onError: () => {")
-    );
+    //
+    // ⚠️ 라운드 77 리뷰 M-3: 끝점을 **시그니처 전체**(`"onError: () => {"`)로 적어 두었더니,
+    // 라운드 77 A가 그 핸들러에 `error` 인자를 달자 끝점이 사라져 `indexOf`가 -1이 됐다.
+    // `slice(start, -1)`은 실패가 아니라 **파일 끝까지**를 뜻하므로, 이 단언은 조용히 파일
+    // 절반을 훑는 다른 단언이 되어 있었다(초록인 채로). 끝점을 인자 모양에 매이지 않는
+    // 접두로 바꾸고, 두 자리 모두 위 42-44행과 같은 형식으로 실재를 먼저 확인한다.
+    const catchIndex = detailSource.indexOf("      } catch {", detailSource.indexOf("onSuccess: async (result, link) => {"));
+    const onErrorIndex = detailSource.indexOf("onError: (", catchIndex);
+    expect(catchIndex, "onSuccess의 열기 실패 catch를 찾지 못했어요").toBeGreaterThan(-1);
+    expect(onErrorIndex, "clickLink의 onError 핸들러를 찾지 못했어요").toBeGreaterThan(catchIndex);
+    const failureBranch = detailSource.slice(catchIndex, onErrorIndex);
     expect(failureBranch).not.toContain("registerPurchaseFollowup(");
 
     // COM-106/COM-101 pins stay intact: exact react-native import line and CTA ordering.

@@ -19,7 +19,7 @@ import {
   type ItemTemplateInput,
   type NecessityLevel
 } from "../../src/lib/admin-api";
-import { ADMIN_WRITE_ROLE_NOTICE } from "../../src/lib/admin-role-copy";
+import { ADMIN_EDITOR_WRITE_ROLE_NOTICE } from "../../src/lib/admin-role-copy";
 import { itemCategoryOptions, type ItemCategoryOption } from "../../src/lib/item-category-options";
 import { loadErrorCopy, loadErrorMessage, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import { writeErrorMessage } from "../../src/lib/write-error-copy";
@@ -540,7 +540,7 @@ export default function ItemTemplatesPage() {
             </button>
           </div>
         ) : (
-          <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p>
+          <p className={styles.hint}>{ADMIN_EDITOR_WRITE_ROLE_NOTICE}</p>
         )}
       </section>
 
@@ -684,7 +684,7 @@ export default function ItemTemplatesPage() {
                               </button>
                             </div>
                           ) : (
-                            <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p>
+                            <p className={styles.hint}>{ADMIN_EDITOR_WRITE_ROLE_NOTICE}</p>
                           )}
                         </td>
                       </tr>

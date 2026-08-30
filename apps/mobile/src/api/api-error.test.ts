@@ -631,7 +631,11 @@ describe("라운드 77 A — 구매 링크 클릭 실패가 이유를 말한다"
       }
       // 사실 한 문장 + 다음에 할 일 한 문장(ITEM_NOT_FOUND 계열의 문형).
       expect(message.split("요.").filter(Boolean).length, code).toBeGreaterThanOrEqual(2);
-      expect(message, code).toContain("다른 구매 링크를 확인해 주세요.");
+      // ⚠️ 라운드 77 리뷰 S-4: 꼬리가 **"다른 구매 링크"를 단정하지 않는다.** 이 표는 코드만
+      // 보고 답하므로 그 상세에 다른 판매처 링크가 있는지 모르고, 링크가 하나뿐인 준비템에서는
+      // 없는 것을 가리키는 안내가 된다(막다른 문장을 문형만 바꿔 되풀이하는 꼴).
+      expect(message, code).toContain("이 준비템의 구매 링크를 다시 확인해 주세요.");
+      expect(message, `${code}는 다른 링크의 존재를 단정하지 않는다`).not.toContain("다른 구매 링크");
       // 표기 방언(P3): 새 문장은 **띄어 쓴 쪽**을 쓴다 — 붙여 쓴 파일 셋에 넷째를 더하지 않는다.
       expect(message, code).not.toContain("확인해주세요");
       expect(message, code).not.toContain("시도해주세요");

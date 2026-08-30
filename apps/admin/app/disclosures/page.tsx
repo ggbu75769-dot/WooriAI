@@ -8,7 +8,7 @@ import {
   updateDisclosure,
   type Disclosure
 } from "../../src/lib/admin-api";
-import { ADMIN_WRITE_ROLE_NOTICE } from "../../src/lib/admin-role-copy";
+import { ADMIN_EDITOR_WRITE_ROLE_NOTICE } from "../../src/lib/admin-role-copy";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import { disclosureKeyBadge } from "../../src/lib/disclosure-keys";
 import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
@@ -96,7 +96,7 @@ function DisclosureRow({
           </button>
         </div>
       ) : (
-        <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p>
+        <p className={styles.hint}>{ADMIN_EDITOR_WRITE_ROLE_NOTICE}</p>
       )}
     </div>
   );
@@ -216,7 +216,7 @@ export default function DisclosuresPage() {
             </button>
           </div>
         ) : (
-          <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p>
+          <p className={styles.hint}>{ADMIN_EDITOR_WRITE_ROLE_NOTICE}</p>
         )}
       </section>
 

@@ -134,8 +134,28 @@ export class ApiHttpError extends Error {
  * 적는다. 그 밖의 사실은 사유가 아니라 관측이다(api-error.test.ts의 제외 목록 주석).
  *
  * ⚠️ 표에 들어왔다고 **아웃박스가 지나는 것은 아니다** — 클릭은 지금도 큐를 타지 않는 즉시
- * 요청이고, 이 표는 "코드가 오면 무엇을 말하는가"만 정한다. 표를 읽는 자리는 화면의
- * `clickLink.onError` 하나다(app/items/[itemTemplateId].tsx).
+ * 요청이고, 이 표는 "코드가 오면 무엇을 말하는가"만 정한다.
+ *
+ * ⚠️ **범위 정정**(라운드 77 리뷰 S-3): 이 문단이 *"표를 읽는 자리는 `clickLink.onError`
+ * 하나다"* 라고 적고 있었는데 그것은 거짓이다 — 이 **표 전체**를 읽는 소비자는 여럿이다
+ * (`apiErrorMessage` 한 줄을 지나는 화면들 · `useSaveErrorCopy`/`resolveSaveErrorCopy`가 쓰는
+ * 저장 실패 경로 · 동기화 상태 화면의 실패 행 · `accountStatusErrorMessage`의 로그인 화면).
+ * 참인 것은 **이 두 줄**에 대한 문장이다: `PRODUCT_LINK_NOT_FOUND` ·
+ * `PRODUCT_LINK_URL_SCHEME_INVALID`를 실제로 받는 자리는 오늘 `clickLink.onError`
+ * 하나다(app/items/[itemTemplateId].tsx — 클릭은 큐를 타지 않으므로 아웃박스 경로에는
+ * 이 두 코드가 오지 않는다).
+ *
+ * ⚠️ **그 화면에 닿는 코드는 이 둘만이 아니다**(같은 리뷰의 기록): `clickProductLink`는
+ * `requireChildAccess`(→ `CHILD_NOT_FOUND` · `FORBIDDEN`)와
+ * `requireItemTemplate`(→ `ITEM_NOT_FOUND`)를 먼저 지나므로, 그 셋도 이 표를 지나 같은
+ * 토스트에 선다. 셋의 문장을 **이 맥락에서 다시 읽어 본 판정**을 값으로 남긴다:
+ *  - `CHILD_NOT_FOUND`·`FORBIDDEN`은 그대로 옳다(아이가 사라졌다 · 권한이 없다 — 링크와
+ *    무관한 사실이고, 다음에 할 일도 그 문장이 가리키는 곳에 있다).
+ *  - `ITEM_NOT_FOUND`의 *"준비템 탭에서 확인해 주세요"* 는 **준비템 상세 안에서 들으면 한
+ *    박자 어색하지만 거짓이 아니고, 다음 행동으로도 옳다** — 그 상세가 가리키던 준비템이
+ *    방금 목록에서 내려갔다는 뜻이라 사용자가 갈 곳은 실제로 목록이다. ⚠️ 문장을 이 화면
+ *    전용으로 가르지 **않는다**: 같은 코드가 아웃박스·준비템 상태 큐에서도 이 문장을 쓰고
+ *    (그쪽에서는 정확히 옳다), 화면마다 문장을 가르는 순간 이 표가 코드 단위라는 성질을 잃는다.
  */
 export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   // --- 지출 저장/수정 (apps/api/src/onboarding/store-shared.ts, expenses-store.service.ts,
@@ -230,9 +250,18 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
    * 서버 원문("상품 링크를 찾을 수 없어요." · "상품 링크 주소는 http 또는 https로 시작해야
    * 해요.")을 그대로 쓰지 않는 이유도 이 표의 존재 이유 그대로다: 앞은 다음에 할 일이 없고,
    * 뒤는 어드민이 읽을 문장이다(주소를 고칠 수 있는 사람은 사용자가 아니다).
+   *
+   * ⚠️ **꼬리가 "다른 구매 링크"를 단정하지 않는 이유**(라운드 77 리뷰 S-4): 이 표는 코드만
+   * 보고 답하므로 **그 상세에 다른 판매처 링크가 있는지 모른다.** 링크가 하나뿐인 준비템도
+   * 있고(오늘 시드에도 있다), 그때 *"다른 구매 링크를 확인해 주세요"* 는 없는 것을 가리키는
+   * 안내가 된다 — 고치려던 그 결함(막다른 문장)을 문형만 바꿔 되풀이하는 꼴이다. 그래서
+   * 꼬리는 **있는지 없는지를 사용자가 지금 화면에서 볼 수 있는 것**을 가리킨다:
+   * *"이 준비템의 구매 링크를 다시 확인해 주세요."* — 링크 목록은 그 상세에 이미 떠 있다.
    */
-  PRODUCT_LINK_NOT_FOUND: "이 구매 링크는 더 이상 열 수 없어요. 내려간 링크일 수 있으니 다른 구매 링크를 확인해 주세요.",
-  PRODUCT_LINK_URL_SCHEME_INVALID: "이 구매 링크의 주소가 올바르지 않아 열 수 없어요. 다른 구매 링크를 확인해 주세요.",
+  PRODUCT_LINK_NOT_FOUND:
+    "이 구매 링크는 더 이상 열 수 없어요. 내려간 링크일 수 있으니 이 준비템의 구매 링크를 다시 확인해 주세요.",
+  PRODUCT_LINK_URL_SCHEME_INVALID:
+    "이 구매 링크의 주소가 올바르지 않아 열 수 없어요. 이 준비템의 구매 링크를 다시 확인해 주세요.",
 
   /**
    * --- 대상이 사라진 404 셋 (라운드 69 B) ---
