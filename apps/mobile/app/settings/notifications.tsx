@@ -310,7 +310,7 @@ export default function NotificationSettingsScreen() {
             })}
 
             {toggleDevice.isError ? (
-              <Text style={errorTextStyle}>{deviceToggleSaveErrorText}</Text>
+              <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>{deviceToggleSaveErrorText}</Text>
             ) : null}
           </View>
         ) : null}

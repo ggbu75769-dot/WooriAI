@@ -3059,21 +3059,25 @@ function saveErrorAnnounceSitesOf(sourceText: string): SaveErrorAnnounceSite[] {
 const saveErrorAnnounceSites = (screen: string) => saveErrorAnnounceSitesOf(source(screen));
 
 /**
- * ⚠️ **오늘 프롭을 걸 수 없는 자리와 그 이유 — 값으로 적는다.**
+ * ⚠️ **오늘 프롭을 걸 수 없는 자리와 그 이유 — 값으로 적는다. (오늘 그런 자리는 0건이다.)**
  *
- * 라운드 79 트랙 A의 소유는 화면 다섯과 계약 하나다. 그런데 아래 네 자리의 `<Text>` 여는
- * 태그는 **트랙 A의 소유 밖 테스트 파일이 바이트 단위로 핀해 두었다** — 프롭을 한 칸 더하면
- * 그 핀이 먼저 빨개진다. 화면과 그 핀은 **함께** 움직여야 하고, 그 파일들은 이 트랙의 것이
- * 아니다(`src/offline/**`는 트랙 A의 명시적 무접촉이다).
+ * 라운드 79 트랙 A의 소유는 화면 다섯과 계약 하나였다. 그때 네 자리
+ * (`app/settings/children.tsx`의 편집·출생 전환·추가 셋 · `app/settings/notifications.tsx`의
+ * 기기 토글 하나)의 `<Text>` 여는 태그는 **소유 밖 테스트 파일이 바이트 단위로 핀해 두어서**
+ * 프롭을 한 칸도 더할 수 없었다 — 더하면 그 핀이 먼저 빨개진다. 그래서 그 넷은 이유를 값으로
+ * 단 채 이 목록에 남았고, 목록이 다음 라운드에 넘긴 답은 한 줄이었다:
+ * **핀을 모양으로 적으면 낭독 프롭이 설 수 있다**(트랙 C가 가족 여정의 두 자리에서 먼저 보인
+ * 그 답 — 아래 `ROUND79_RELAXED_PIN_DEPENDENCY`).
  *
- * ⚠️ **가족 여정의 두 자리는 이 목록에 없다** — 트랙 C가 같은 라운드에 그 핀을 바이트에서
- * 모양으로 풀어 주어 프롭이 설 수 있었다(아래 `ROUND79_RELAXED_PIN_DEPENDENCY`).
- * **핀을 모양으로 적으면 낭독 프롭이 설 수 있다**는 것이 이 목록이 다음 라운드에 넘기는 답이다.
+ * 라운드 79 통합이 그 답을 그대로 실행했다: 세 바이트 핀을 모양 핀으로 풀고
+ * (`src/offline/messages.test.ts` 둘 · `src/children/child-born-transition.test.ts` 하나)
+ * **같은 걸음에** 네 자리에 프롭 둘을 걸었다. 화면과 핀이 함께 움직였으므로 이 목록은 비었다.
  *
- * 그래서 제외를 **자기 무효화되는 값**으로 적는다: 아래 각 줄은 ⓐ 화면에 그 구간이 실재하고
- * ⓑ 그 구간을 붙드는 핀이 named 파일에 실재한다는 것을 함께 단언한다. **핀이 사라지는 순간
- * 이 줄이 빨개져** 다음 사람이 프롭 둘을 거는 것을 잊을 수 없게 된다. 라운드 74 D가 조회 쪽
- * 제외를 산문에서 값으로 옮긴 그 규율 그대로이고, 이유는 빈 문자열일 수 없다.
+ * ⚠️ **비었어도 이 값과 그 형식이 남는 이유**: 다음에 같은 일이 생기면 제외가 산문이 아니라
+ * **자기 무효화되는 값**으로 적혀야 한다. 각 줄은 ⓐ 화면에 그 구간이 실재하고 ⓑ 그 구간을
+ * 붙드는 핀이 named 파일에 실재한다는 것을 함께 단언한다 — **핀이 사라지는 순간 그 줄이
+ * 빨개져** 다음 사람이 프롭 둘을 거는 것을 잊을 수 없게 된다. 라운드 74 D가 조회 쪽 제외를
+ * 산문에서 값으로 옮긴 그 규율 그대로이고, 이유는 빈 문자열일 수 없다.
  */
 const SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN: Readonly<
   Record<
@@ -3086,56 +3090,17 @@ const SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN: Readonly<
       readonly reason: string;
     }
   >
-> = {
-  "app/settings/children.tsx bornFailedText": {
-    screenPin:
-      "{markChildBorn.isError ? <Text style={{ color: theme.colors.danger }}>{bornFailedText}</Text> : null}",
-    pinnedBy: [
-      {
-        file: "src/offline/messages.test.ts",
-        needle: "{${mutation}.isError ? <Text style={{ color: theme.colors.danger }}>{${variable}}</Text> : null}"
-      },
-      {
-        file: "src/children/child-born-transition.test.ts",
-        needle:
-          "{markChildBorn.isError ? <Text style={{ color: theme.colors.danger }}>{bornFailedText}</Text> : null}"
-      }
-    ],
-    reason:
-      "라운드 70 리뷰 M-2가 '그리는 자리의 조건도 같은 뮤테이션이다'를 여는 태그까지 포함한 한 구간으로 핀했다. 두 파일 다 트랙 A의 소유 밖이라(src/offline/** 무접촉 · src/children/**), 화면과 핀을 함께 움직일 수 있는 라운드가 프롭 둘을 건다."
-  },
-  "app/settings/children.tsx editFailedText": {
-    screenPin: "{saveEdit.isError ? <Text style={{ color: theme.colors.danger }}>{editFailedText}</Text> : null}",
-    pinnedBy: [
-      {
-        file: "src/offline/messages.test.ts",
-        needle: "{${mutation}.isError ? <Text style={{ color: theme.colors.danger }}>{${variable}}</Text> : null}"
-      }
-    ],
-    reason: "위와 같은 핀(같은 루프가 세 자리를 함께 붙든다) — src/offline/**는 트랙 A의 명시적 무접촉이다."
-  },
-  "app/settings/children.tsx addFailedText": {
-    screenPin: "{addChild.isError ? <Text style={{ color: theme.colors.danger }}>{addFailedText}</Text> : null}",
-    pinnedBy: [
-      {
-        file: "src/offline/messages.test.ts",
-        needle: "{${mutation}.isError ? <Text style={{ color: theme.colors.danger }}>{${variable}}</Text> : null}"
-      }
-    ],
-    reason: "위와 같은 핀(같은 루프가 세 자리를 함께 붙든다) — src/offline/**는 트랙 A의 명시적 무접촉이다."
-  },
-  "app/settings/notifications.tsx deviceToggleSaveErrorText": {
-    screenPin: "<Text style={errorTextStyle}>{deviceToggleSaveErrorText}</Text>",
-    pinnedBy: [
-      {
-        file: "src/offline/messages.test.ts",
-        needle: "<Text style={errorTextStyle}>{deviceToggleSaveErrorText}</Text>"
-      }
-    ],
-    reason:
-      "라운드 73 E가 '주어만 더한다'를 여는 태그까지 포함해 핀했다. 같은 화면의 손으로 적은 푸시 실패 한 줄은 핀이 없어 이 라운드가 프롭 둘을 걸었다(아래 ⓓ)."
-  },
-};
+> = {};
+
+/**
+ * ⚠️ 빈 목록은 조용하다 — **비었다는 사실과 그 경위**를 값으로 남긴다(빈 목록이 "아무도 세지
+ * 않았다"로 읽히지 않게). 라운드 79 트랙 A가 넷을 남겼고, 같은 라운드의 통합이 핀과 화면을
+ * 함께 움직여 그 넷을 완결했다.
+ */
+const SAVE_ERROR_ANNOUNCE_NO_BLOCKED_SITES_REASON =
+  "라운드 79 트랙 A가 소유 밖 바이트 핀 때문에 넷을 남겼고(children 셋 · notifications 하나), 같은 라운드의 통합이 " +
+  "세 핀(src/offline/messages.test.ts 둘 · src/children/child-born-transition.test.ts 하나)을 모양 핀으로 풀면서 " +
+  "같은 걸음에 그 네 자리에 낭독 프롭 둘을 걸었다. 그래서 대장 다섯 화면의 저장 실패 자리 일곱은 전부 낭독 출구를 가진다.";
 
 /**
  * ⚠️ **다른 트랙이 바이트 핀을 모양 핀으로 풀어 준 자리 — 그 의존을 값으로 적는다.**
@@ -3144,6 +3109,10 @@ const SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN: Readonly<
  * 초대 카드)는 종전에 **여는 태그까지 포함한 바이트**로 핀돼 있었다. 라운드 79 트랙 C가 그 둘을
  * *"태그의 바이트가 아니라 모양을 묻는다"* 로 바꾸면서(`<Text[^>]*style=…` · `<View[^>]*
  * accessibilityRole="alert"`) 이 트랙이 프롭을 걸 수 있게 됐다.
+ *
+ * 라운드 79 통합이 **같은 형식으로 세 자리를 더 풀었다** — 아이 관리 셋을 함께 붙들던 루프 핀,
+ * 그 가운데 출생 전환 한 자리를 따로 붙들던 핀, 그리고 기기 토글 한 자리의 핀. 그 셋이 풀린
+ * 덕에 위 `SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN`이 비었다.
  *
  * ⚠️ 그 완화가 사라지면 이 화면들은 다시 침묵으로 되돌아가야 한다 — 그래서 **의존을 단언으로**
  * 세운다. 되돌아가는 날 여기가 먼저 빨개져서, 그것이 사고가 아니라 결정이 되게 한다.
@@ -3158,6 +3127,25 @@ const ROUND79_RELAXED_PIN_DEPENDENCY: ReadonlyArray<{ readonly file: string; rea
     file: "src/family/invite-accept-messages.test.ts",
     needle: 'expect(card).toMatch(/<View[^>]*accessibilityRole="alert"/);',
     why: "끝난 초대 카드에 live region 한 칸이 설 수 있는 근거"
+  },
+  {
+    file: "src/offline/messages.test.ts",
+    // 라운드 70 리뷰 M-2의 루프 핀 — 세 뮤테이션 자리를 한 번에 붙들던 그 한 줄이다.
+    // ⚠️ 그 핀은 템플릿 리터럴로 정규식을 만든다(백슬래시가 소스에 둘씩 적힌다) — 그래서 이
+    // needle도 소스 바이트 그대로다: `String.raw`가 아니면 이 값이 소스와 어긋난다.
+    needle: String.raw`<Text[^>]*style=\\{\\{ color: theme\\.colors\\.danger \\}\\}>`,
+    why: "아이 관리 셋(편집·출생 전환·추가)의 실패 줄에 낭독 프롭 둘이 설 수 있는 근거"
+  },
+  {
+    file: "src/children/child-born-transition.test.ts",
+    needle:
+      "/\\{markChildBorn\\.isError \\? <Text[^>]*style=\\{\\{ color: theme\\.colors\\.danger \\}\\}>\\{bornFailedText\\}<\\/Text> : null\\}/",
+    why: "출생 전환 실패 줄을 따로 붙들던 두 번째 핀 — 셋 가운데 이 자리만 핀이 둘이었다"
+  },
+  {
+    file: "src/offline/messages.test.ts",
+    needle: "expect(src).toMatch(/<Text[^>]*style=\\{errorTextStyle\\}>\\{deviceToggleSaveErrorText\\}<\\/Text>/);",
+    why: "기기 알림 토글 저장 실패 줄에 낭독 프롭 둘이 설 수 있는 근거"
   }
 ];
 
@@ -3168,6 +3156,11 @@ const ROUND79_RELAXED_PIN_DEPENDENCY: ReadonlyArray<{ readonly file: string; rea
  * `app/family/accept/[token].tsx` 둘 · `app/(tabs)/items.tsx`). 이 라운드가 앞의 셋에 live
  * region을 걸었고 — **하필 그 셋이 라운드 70·78이 문장을 정확하게 만든 바로 그 카드들이다** —
  * 남는 하나는 실패가 아니라서 남는다. **이유가 값으로 있을 때만 제외다.**
+ *
+ * ⚠️ 라운드 79 통합이 더한 네 자리(`app/settings/children.tsx` 셋 ·
+ * `app/settings/notifications.tsx` 하나)는 이 대장을 **한 줄도 바꾸지 않는다** — 관례는 언제나
+ * **둘 다**이고, 넷 다 role과 live region을 한 걸음에 함께 걸었기 때문이다. 반쪽만 거는 날
+ * 이 대장이 먼저 빨개지는 것이 이 부정 단언의 값이다.
  */
 const ALERT_ROLE_WITHOUT_LIVE_REGION: Readonly<Record<string, { readonly places: number; readonly reason: string }>> = {
   "app/(tabs)/items.tsx": {
@@ -3214,11 +3207,18 @@ const ROUND79_ANNOUNCE_PROPS_ADDED: ReadonlyArray<{
     what: "초대 링크 만들기(POST) 저장 실패 줄 — 대장 다섯 화면 중 하나"
   },
   {
+    file: "app/settings/children.tsx",
+    before: "<Text style={{ color: theme.colors.danger }}>",
+    after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>',
+    added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
+    what: "아이 관리 뮤테이션 실패 셋(편집·출생 전환·추가) — 대장 다섯 화면 중 하나. 라운드 79 통합이 루프 핀을 모양으로 풀며 함께 걸었다"
+  },
+  {
     file: "app/settings/notifications.tsx",
     before: "<Text style={errorTextStyle}>",
     after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>',
     added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
-    what: "손으로 적은 푸시 설정 저장 실패 한 줄(대장 밖이지만 같은 모양의 실패 문장이다)"
+    what: "같은 모양의 실패 줄 둘 — 손으로 적은 푸시 설정 저장 실패 한 줄(대장 밖)과, 라운드 79 통합이 핀을 푼 뒤 걸린 기기 토글 저장 실패 한 줄(대장 안)"
   },
   {
     file: "src/onboarding/step-ui.tsx",
@@ -3247,15 +3247,26 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
       }
     }
 
-    // 오늘의 실측: 일곱 자리(맨 Text 여섯 + Toast 하나).
+    // 오늘의 실측: 일곱 자리(맨 Text 여섯 + Toast 하나) — 자리 수는 라운드 79 트랙 A 때와 같다.
+    // 더한 것이 프롭뿐이라 **자리는 하나도 늘거나 줄지 않았다**(아래 ⓓ가 그 사실을 따로 진다).
     expect(total, "대장 다섯 화면이 그리는 저장 실패 자리 합계").toBe(7);
-    // 낭독 밖에 남은 자리는 **이유가 값으로 적힌 그 넷**뿐이다(그 밖의 자리가 생기면 빨개진다).
+    // 오늘의 값: 낭독 밖은 **0건**이다(트랙 A 뒤 넷 → 통합이 핀과 화면을 함께 움직여 0).
+    expect(silent.sort(), "낭독 밖에 남은 저장 실패 자리").toEqual([]);
+    // 그 0은 손으로 적은 값이 아니라 위 제외 목록에서 파생한다 — 제외가 다시 생기면 그 목록에
+    // 이유가 값으로 적혀야 하고, 적히지 않은 침묵은 여기서 빨개진다.
     expect(silent.sort(), "낭독 밖에 남은 저장 실패 자리").toEqual(
       Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN).sort()
     );
   });
 
-  it("ⓐ-2 제외는 자기 무효화된다 — 화면의 그 구간과 그것을 붙드는 핀이 **둘 다** 실재한다", () => {
+  it("ⓐ-2 제외는 자기 무효화된다 — 오늘 제외는 0건이고, 생기면 화면의 그 구간과 핀이 **둘 다** 실재해야 한다", () => {
+    // 오늘의 값: 목록은 비었다(라운드 79 통합이 네 자리를 완결했다). 비었다는 **사실**도 값으로
+    // 선다 — 형식만 남고 아무도 세지 않는 목록이 되지 않게.
+    expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "낭독 밖으로 남겨 둔 자리").toEqual([]);
+    expect(SAVE_ERROR_ANNOUNCE_NO_BLOCKED_SITES_REASON.length, "비어 있는 경위").toBeGreaterThan(0);
+    expect(SAVE_ERROR_ANNOUNCE_NO_BLOCKED_SITES_REASON).toContain("모양 핀");
+
+    // 아래 규율은 제외가 다시 생기는 날을 위해 그대로 선다(줄이 생기면 곧바로 그 줄을 검사한다).
     for (const [key, entry] of Object.entries(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN)) {
       const screen = key.slice(0, key.lastIndexOf(" "));
       expect(entry.reason.length, `${key}의 제외 사유`).toBeGreaterThan(0);
@@ -3268,7 +3279,9 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
     }
   });
 
-  it("ⓐ-3 프롭이 설 수 있었던 근거도 값이다 — 모양으로 풀린 핀 둘이 실재한다", () => {
+  it("ⓐ-3 프롭이 설 수 있었던 근거도 값이다 — 모양으로 풀린 핀 다섯이 실재한다", () => {
+    // 트랙 C가 푼 둘 + 라운드 79 통합이 푼 셋. 하나라도 바이트 핀으로 되돌아가면 여기가 빨개진다.
+    expect(ROUND79_RELAXED_PIN_DEPENDENCY, "모양으로 풀린 핀").toHaveLength(5);
     for (const dependency of ROUND79_RELAXED_PIN_DEPENDENCY) {
       expect(dependency.why.length, `${dependency.file}의 의존 사유`).toBeGreaterThan(0);
       // ⚠️ 바이트 핀으로 되돌아가는 날 여기가 먼저 빨개진다 — 그것이 사고가 아니라 결정이 되게.
@@ -3374,6 +3387,31 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
     const notificationsScreen = source("app/settings/notifications.tsx");
     expect(notificationsScreen).toContain("{toggleCurrentDevice.isError ? (");
     expect(notificationsScreen).toContain("푸시 설정을 바꾸지 못했어요. 알림 권한을 확인한 뒤 다시 시도해 주세요.");
+    // 라운드 79 통합이 연 자리의 조건도 그대로다(문장 이름·갈래 한 글자도 바뀌지 않았다).
+    expect(notificationsScreen).toContain("{toggleDevice.isError ? (");
+    // 프롭 쌍은 이 화면에 **둘**이다 — 푸시 설정 한 줄과 기기 토글 한 줄. 같은 화면의 **조회**
+    // 실패 줄(devicesLoadErrorText)은 이 트랙의 범위가 아니라 그대로 두었다는 사실이 수로 선다.
+    expect(
+      notificationsScreen.match(/accessibilityLiveRegion="polite" accessibilityRole="alert"/g) ?? [],
+      "알림 화면의 프롭 쌍"
+    ).toHaveLength(2);
+
+    // 아이 관리 화면: 세 자리의 조건·문장·스타일이 그대로이고, 더한 것은 프롭 쌍뿐이다.
+    const childrenScreen = source("app/settings/children.tsx");
+    for (const [mutation, variable] of [
+      ["markChildBorn", "bornFailedText"],
+      ["saveEdit", "editFailedText"],
+      ["addChild", "addFailedText"]
+    ] as const) {
+      expect(childrenScreen, `${variable} 자리의 조건·문장`).toContain(
+        `{${mutation}.isError ? <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{${variable}}</Text> : null}`
+      );
+    }
+    // 프롭 쌍은 **셋**이다 — 같은 화면의 조회 실패 줄(loadErrorCopy.title)은 열지 않았다.
+    expect(
+      childrenScreen.match(/accessibilityLiveRegion="polite" accessibilityRole="alert"/g) ?? [],
+      "아이 관리 화면의 프롭 쌍"
+    ).toHaveLength(3);
 
     const stepUiSource = source("src/onboarding/step-ui.tsx");
     expect(stepUiSource).toContain(

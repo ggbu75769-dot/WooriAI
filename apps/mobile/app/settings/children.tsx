@@ -749,7 +749,7 @@ export default function ManageChildrenScreen() {
                       showErrors={bornShowErrors}
                       onChange={setBornDateText}
                     />
-                    {markChildBorn.isError ? <Text style={{ color: theme.colors.danger }}>{bornFailedText}</Text> : null}
+                    {markChildBorn.isError ? <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{bornFailedText}</Text> : null}
                     <PrimaryButton
                       disabled={markChildBorn.isPending}
                       label={markChildBorn.isPending ? "바꾸는 중" : "출생일로 바꾸기"}
@@ -767,7 +767,7 @@ export default function ManageChildrenScreen() {
                       onChange={setForm}
                       showErrors={showErrors}
                     />
-                    {saveEdit.isError ? <Text style={{ color: theme.colors.danger }}>{editFailedText}</Text> : null}
+                    {saveEdit.isError ? <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{editFailedText}</Text> : null}
                     <PrimaryButton
                       disabled={saveEdit.isPending}
                       label={saveEdit.isPending ? "저장하는 중" : "저장"}
@@ -820,7 +820,7 @@ export default function ManageChildrenScreen() {
               </View>
             </View>
             <ChildFormFields stageMode={addStageMode} values={form} onChange={setForm} showErrors={showErrors} />
-            {addChild.isError ? <Text style={{ color: theme.colors.danger }}>{addFailedText}</Text> : null}
+            {addChild.isError ? <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{addFailedText}</Text> : null}
             <PrimaryButton
               disabled={addChild.isPending}
               label={addChild.isPending ? "추가하는 중" : "추가하기"}
