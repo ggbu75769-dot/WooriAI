@@ -468,6 +468,11 @@ export default function ExpenseDetailScreen() {
       buildItemHistory({
         cachedMonthExpenses,
         cacheYearMonth: currentYearMonth,
+        // 라운드 85 B: 바로 위 판매처 칩이 이미 읽고 있는 그 배열이다(새 요청 0건). 이 섹션만
+        // 못 보던 탓에 매달 1일에는 이력이 통째로 사라졌다 -- 근거는 화면 안에 있었는데도.
+        // 달마다 따로 재조정하고 범위 고지도 실제로 센 달에서 파생하는 일은 순수 모듈이 한다.
+        cachedPreviousMonthExpenses,
+        previousCacheYearMonth: previousMonth,
         itemName,
         currentExpenseId: expenseId,
         // 라운드 41 K-11: "이번 달 기록 기준"이라고 말하려면 이 기기가 아는 이번 달 기록이 전부
@@ -478,7 +483,7 @@ export default function ExpenseDetailScreen() {
       }),
     // itemName 자체가 아니라 정규화 값이 의존성이다(위 근거) -- 두 값은 같은 함수로 이어져 있다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cachedMonthExpenses, currentYearMonth, normalizedHistoryItemName, expenseId, offlineSyncSnapshot.rows, historyChildId]
+    [cachedMonthExpenses, currentYearMonth, normalizedHistoryItemName, expenseId, offlineSyncSnapshot.rows, historyChildId, cachedPreviousMonthExpenses, previousMonth]
   );
 
   /**
