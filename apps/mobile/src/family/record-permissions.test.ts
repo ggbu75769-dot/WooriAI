@@ -319,10 +319,17 @@ describe("UX-R(M) 세션 스토어 배선 (source contract)", () => {
   });
 
   it("라운드 40 J-2: setHouseholdRole은 한 가구 사실만 담고 '가구 목록 전체'로 넓히지 않는다", () => {
-    const setOne = sessionStoreSource.slice(
-      sessionStoreSource.indexOf("setHouseholdRole: (householdId, role) =>"),
-      sessionStoreSource.indexOf("setHouseholdRoles: (households) =>")
-    );
+    // 라운드 78 트랙 E: 두 표식이 **인자 이름**을 그대로 담고 있어(`(householdId, role)`),
+    // 인자 하나만 이름이 바뀌어도 -1이 됐다. 접두로 줄이되, 같은 이름이 위 타입 선언에도
+    // 있으므로(`setHouseholdRole: (householdId: string, …)`) **구현 블록부터** 찾는다 —
+    // 그러지 않으면 끝점이 시작점보다 앞이 되어 구간이 비고, 아래 부정 단언이 늘 통과한다.
+    const storeImplStart = sessionStoreSource.indexOf("export const useSessionStore = create<");
+    const setOneStart = sessionStoreSource.indexOf("setHouseholdRole: (", storeImplStart);
+    const setOneEnd = sessionStoreSource.indexOf("setHouseholdRoles: (", setOneStart);
+    expect(storeImplStart, "세션 스토어 구현 시작을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(setOneStart, "setHouseholdRole 구현을 찾지 못했어요").toBeGreaterThan(storeImplStart);
+    expect(setOneEnd, "setHouseholdRoles 구현을 찾지 못했어요").toBeGreaterThan(setOneStart);
+    const setOne = sessionStoreSource.slice(setOneStart, setOneEnd);
     // 이미 아는 목록에 없는 가구면 그 하나만 더한다 -- 모르는 목록(null)을 지어내지 않는다.
     expect(setOne).toContain("state.householdIds && !state.householdIds.includes(householdId)");
     expect(setOne).not.toContain("householdIds: [householdId]");

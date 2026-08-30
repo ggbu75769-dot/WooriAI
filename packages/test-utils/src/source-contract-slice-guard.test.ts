@@ -1,0 +1,394 @@
+// 라운드 78 트랙 E (GAP-078 #5) — "잘라 낸 구간이 실재하는지 먼저 묻는다"를 세우는 계약.
+//
+// 저장소의 소스 계약(테스트가 제품 소스를 문자열로 읽어 무엇이 있는지/없는지를 묻는 자리)은
+// 거의 언제나 이 모양을 쓴다:
+//
+//   const 구간 = 소스.slice(소스.indexOf("<시작 표식>"), 소스.indexOf("<끝 표식>"));
+//   expect(구간).not.toContain("<있으면 안 되는 것>");
+//
+// 표식이 사라지면 `indexOf`는 -1을 돌려주는데, `slice`는 -1을 **실패가 아니라 위치로** 읽는다.
+// 실패 방향이 둘이고, 둘은 서로 다르게 위험하다.
+//  · **끝점이 -1**이면 구간이 파일 끝까지 넓어진다 — 그물이 넓어지므로 언젠가 빨개질 수 있다
+//    (라운드 77 리뷰 M-3이 만난 경우다. 답이 우연히 맞아 초록이었다).
+//  · **시작점이 -1**이면 구간이 **빈 문자열**이 되고, 빈 문자열 위에서는 어떤 부정 단언도
+//    통과한다 — 계약이 아무것도 검사하지 않은 채 **영원히 초록**이다. ⚠️ 뒤엣것이 더 조용하다.
+//
+// M-3은 그 자리 하나를 고쳤다(`src/commerce/purchase-followup-flow.test.ts`). 라운드 78 정찰이
+// 같은 모양을 저장소 전체에서 세어 보니 일반형이었고, 트랙 E는 **가장 먼저 끊어질 자리 열둘**에
+// 실재 확인을 세운 뒤(가드는 판정을 바꾸지 않는다 — 잘라 낸 구간은 바이트 그대로다) 나머지를
+// 이 대장에 얼렸다. 이 파일이 묻는 것은 넷이다.
+//  ① **전수 스윕 + 래칫**: 파일별 미가드 자리 수가 대장의 값보다 **늘지 않는다**.
+//  ② **새 자리 금지**: 대장에 없는 파일에서 이 모양이 새로 나면 빨개진다.
+//  ③ **가드 하한**: 라운드 77 M-3과 라운드 78 트랙 E가 세운 실재 확인이 조용히 사라지지 않는다.
+//  ④ **두 실패 방향의 재현**: -1이 만드는 빈 구간·넓어진 구간을 픽스처로 실제로 보여 준다
+//     (⚠️ 값이 주석에만 적히면 다음 사람이 그 사실을 다시 발견해야 한다).
+//
+// ⚠️ 이 계약은 **수치를 줄 번호로 적지 않는다**. 단위는 `파일 → 개수`다 — 줄 번호로 적으면 그
+// 파일을 여는 모든 트랙이 이 대장을 함께 고쳐야 하고, 그러면 대장이 병목이 된다.
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const repoRoot = join(process.cwd(), "..", "..");
+
+/**
+ * 스윕 범위 — 정찰이 잰 그 범위 그대로다(모바일·어드민의 `src` + 워크스페이스 패키지 전부).
+ * `apps/api`는 범위 밖이다: 서버 테스트는 소스를 문자열로 읽는 대신 실 PostgreSQL 위에서 돌고,
+ * 오늘 그 워크스페이스에는 이 모양이 서지 않는다(범위를 넓히는 것은 다음 라운드의 결정이다).
+ */
+const SCAN_ROOTS = ["apps/mobile/src", "apps/admin/src", "packages"] as const;
+
+type SliceGuardSite = {
+  /** 잘라 낸 구간을 담는 상수 이름. */
+  readonly name: string;
+  /** 시작·끝 두 자리 모두 이름 붙은 인덱스이고, 자르기 **전에** 실재를 물었는가. */
+  readonly guarded: boolean;
+};
+
+function listTestFiles(root: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (/\.test\.tsx?$/.test(entry.name)) found.push(path);
+    }
+  };
+  walk(join(repoRoot, root));
+  return found.sort();
+}
+
+/** `(`에서 시작해 짝이 맞는 `)`까지를 읽는다 — 문자열 리터럴 안의 괄호는 세지 않는다. */
+function readCallArguments(source: string, openIndex: number): { text: string; end: number } | null {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openIndex; i < source.length; i += 1) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\") i += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") quote = char;
+    else if (char === "(") depth += 1;
+    else if (char === ")") {
+      depth -= 1;
+      if (depth === 0) return { text: source.slice(openIndex + 1, i), end: i };
+    }
+  }
+  return null;
+}
+
+/** 최상위 쉼표로만 인자를 가른다(중첩 호출·객체·문자열 안의 쉼표는 가르지 않는다). */
+function splitTopLevelArguments(argumentText: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let current = "";
+  for (let i = 0; i < argumentText.length; i += 1) {
+    const char = argumentText[i];
+    if (quote) {
+      current += char;
+      if (char === "\\") {
+        current += argumentText[i + 1] ?? "";
+        i += 1;
+      } else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      current += char;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{") depth += 1;
+    if (char === ")" || char === "]" || char === "}") depth -= 1;
+    if (char === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim().length > 0) parts.push(current);
+  return parts.map((part) => part.trim());
+}
+
+/** `indexOf`와 `lastIndexOf`는 같은 위험이다 — 둘 다 못 찾으면 -1을 돌려준다. */
+const INDEX_CALL = /\b(?:lastIndexOf|indexOf)\s*\(/;
+/** `const <이름> = <소스>.slice(` — `=`와 `.slice(` 사이에 `{`·`}`·`;`가 없는 것만 한 문장으로 본다. */
+const SLICE_DECLARATION = /const\s+([A-Za-z0-9_$]+)\s*=\s*([^;{}]*?)\.slice\(/g;
+/** 한 테스트의 경계 — 가드는 **같은 테스트 안**에서만 유효하다. */
+const TEST_BOUNDARY = /\n\s{0,8}(?:it|test)(?:\.\w+)?\s*\(/g;
+/** 정찰이 쓴 근접 창과 같은 값 — 자르는 자리에서 이만큼 앞까지가 "먼저 물었다"로 인정된다. */
+const GUARD_WINDOW = 1500;
+
+/**
+ * 한 테스트 파일에서 "잘라 낸 구간 위의 부정 단언" 자리를 전부 찾는다.
+ *
+ * 자리로 세는 조건은 셋이다.
+ *  ⓐ `const <이름> = <소스>.slice(…)`이고,
+ *  ⓑ 시작·끝 가운데 하나 이상이 **-1이 될 수 있는 자리**(그 자리에서 부른 `indexOf`거나,
+ *     `indexOf`로 만든 이름 붙은 인덱스)이며,
+ *  ⓒ 그 상수 위에 `expect(<이름>).not.toContain/.not.toMatch`가 **같은 테스트 안에** 선다.
+ *
+ * 그중 **가드가 선 자리**는, -1이 될 수 있는 자리가 전부 이름 붙은 인덱스이고 그 이름들이
+ * 자르기 전에 `expect(<인덱스>).toBeGreaterThan(…)`으로 실재를 확인받은 경우다.
+ * ⚠️ `slice(` 안에서 곧바로 부른 `indexOf`는 **가드가 설 수 없다** — 확인할 이름이 없다.
+ */
+function sliceGuardSites(source: string): SliceGuardSite[] {
+  const indexNames = new Set<string>();
+  const indexDeclaration = /const\s+([A-Za-z0-9_$]+)\s*=\s*[^;{}]*?(?:lastIndexOf|indexOf)\(/g;
+  let declared: RegExpExecArray | null;
+  while ((declared = indexDeclaration.exec(source))) indexNames.add(declared[1]);
+
+  const sites: SliceGuardSite[] = [];
+  SLICE_DECLARATION.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = SLICE_DECLARATION.exec(source))) {
+    const name = match[1];
+    const call = readCallArguments(source, match.index + match[0].length - 1);
+    if (!call) continue;
+    const endpoints = splitTopLevelArguments(call.text)
+      .slice(0, 2)
+      .map((expression) => {
+        if (INDEX_CALL.test(expression)) return { expression, named: false };
+        if (/^[A-Za-z0-9_$]+$/.test(expression) && indexNames.has(expression)) {
+          return { expression, named: true };
+        }
+        return null;
+      })
+      .filter((endpoint): endpoint is { expression: string; named: boolean } => endpoint !== null);
+    if (endpoints.length === 0) continue;
+
+    // 이 상수의 유효 범위: 같은 이름을 다시 선언하는 자리 전까지, 그리고 다음 테스트 전까지.
+    // (모듈 최상위에 선 상수는 파일 전체가 범위다 — vitest는 테스트 밖의 `expect`를 허락하지
+    // 않으므로, 그런 자리에는 애초에 가드를 세울 수 없다. 그래서 대장에 남는다.)
+    const moduleScope = match.index === 0 || source[match.index - 1] === "\n";
+    TEST_BOUNDARY.lastIndex = call.end;
+    const nextTest = moduleScope ? null : TEST_BOUNDARY.exec(source);
+    const redeclaration = new RegExp(`const\\s+${name}\\s*=`, "g");
+    redeclaration.lastIndex = call.end;
+    const nextRedeclaration = redeclaration.exec(source);
+    const scopeEnd = Math.min(
+      nextTest ? nextTest.index : source.length,
+      nextRedeclaration ? nextRedeclaration.index : source.length
+    );
+    const negativeAssertion = new RegExp(
+      `expect\\(\\s*${name}\\s*[,)][\\s\\S]{0,200}?\\.not\\.to(?:Contain|Match)\\(`
+    );
+    if (!negativeAssertion.test(source.slice(call.end, scopeEnd))) continue;
+
+    TEST_BOUNDARY.lastIndex = 0;
+    let enclosingTestStart = 0;
+    let boundary: RegExpExecArray | null;
+    while ((boundary = TEST_BOUNDARY.exec(source)) && boundary.index < match.index) {
+      enclosingTestStart = boundary.index;
+    }
+    const windowStart = moduleScope
+      ? Math.max(0, match.index - GUARD_WINDOW)
+      : Math.max(0, match.index - GUARD_WINDOW, enclosingTestStart);
+    const before = source.slice(windowStart, match.index);
+    const guarded = endpoints.every(
+      (endpoint) =>
+        endpoint.named &&
+        new RegExp(
+          `expect\\(\\s*${endpoint.expression}\\s*[,)][\\s\\S]{0,200}?\\.toBeGreaterThan\\(`
+        ).test(before)
+    );
+    sites.push({ name, guarded });
+  }
+  return sites;
+}
+
+type SweepRow = { readonly file: string; readonly unguarded: number; readonly guarded: number };
+
+function sweep(): SweepRow[] {
+  const rows: SweepRow[] = [];
+  for (const root of SCAN_ROOTS) {
+    for (const absolutePath of listTestFiles(root)) {
+      const sites = sliceGuardSites(readFileSync(absolutePath, "utf8"));
+      if (sites.length === 0) continue;
+      rows.push({
+        file: relative(repoRoot, absolutePath).split(sep).join("/"),
+        guarded: sites.filter((site) => site.guarded).length,
+        unguarded: sites.filter((site) => !site.guarded).length
+      });
+    }
+  }
+  return rows;
+}
+
+/**
+ * 파일별 **미가드 자리 수** 대장 (2026-08-30 · 라운드 78 트랙 E 머지 시점 · 트랙 A 머지 뒤).
+ *
+ * ⚠️ 값은 **이 스윕 자신이 센 것**이다. 정찰의 어림 스윕은 74자리 / 41파일(트랙 E 뒤 63 / 38)로
+ * 적었는데, 이 스윕은 같은 시점에 **81자리 / 54파일**을 센다. 차이의 이유는 셋이고, 셋 다 이
+ * 스윕이 **더 넓게** 잡기 때문이다.
+ *  ① `lastIndexOf`도 센다 — 못 찾으면 똑같이 -1이다.
+ *  ② 끝점을 `slice(` 안에서 곧바로 부르지 않고 **이름 붙은 인덱스**로 빼 둔 자리도 센다
+ *     (이름이 있어도 실재를 묻지 않으면 위험은 같다).
+ *  ③ 가드를 **자리별**로 본다 — 근처에 `toBeGreaterThan`이 하나 있는 것으로는 모자라고,
+ *     -1이 될 수 있는 **두 끝 모두**가 이름으로 확인돼야 가드로 친다.
+ *
+ * 대장은 **비증가**다. 자리를 없앤 뒤에는 값을 줄여도 되고(권장), 그대로 둬도 초록이다.
+ * 줄일 때는 이 주석의 합계도 함께 줄인다 — 합계는 81이다.
+ */
+const UNGUARDED_SITE_LEDGER: Readonly<Record<string, number>> = {
+  "apps/admin/src/admin-recovery-codes-remaining.test.ts": 1,
+  "apps/mobile/src/a11y-contract.test.ts": 6,
+  "apps/mobile/src/analytics/screen-events.test.ts": 1,
+  "apps/mobile/src/android-release-aab.test.ts": 1,
+  "apps/mobile/src/children/child-born-transition.test.ts": 1,
+  "apps/mobile/src/children/child-switch.test.ts": 1,
+  "apps/mobile/src/consent/legal-links.test.ts": 1,
+  "apps/mobile/src/design-restore-p2d.test.ts": 1,
+  "apps/mobile/src/expenses/auto-fill-wiring.test.ts": 2,
+  "apps/mobile/src/expenses/date-picker-month.test.ts": 2,
+  "apps/mobile/src/expenses/entry-form-guards.test.ts": 1,
+  "apps/mobile/src/expenses/expense-detail-rows.test.ts": 1,
+  "apps/mobile/src/expenses/expense-source-line.test.ts": 1,
+  "apps/mobile/src/expenses/failed-row-prefill.test.ts": 2,
+  "apps/mobile/src/expenses/item-history.test.ts": 1,
+  "apps/mobile/src/expenses/records-calendar.test.ts": 6,
+  "apps/mobile/src/expenses/save-error-wiring.test.ts": 2,
+  "apps/mobile/src/expenses/text-limits.test.ts": 1,
+  "apps/mobile/src/export-flow.test.ts": 1,
+  "apps/mobile/src/family/invite-accept-messages.test.ts": 2,
+  "apps/mobile/src/family/invite-flow.test.ts": 1,
+  "apps/mobile/src/family/record-permissions.test.ts": 1,
+  "apps/mobile/src/home/budget-edit.test.ts": 1,
+  "apps/mobile/src/home/cumulative-total.test.ts": 2,
+  "apps/mobile/src/home/home-cold-start-defer.test.ts": 1,
+  "apps/mobile/src/home/home-section-priority.test.ts": 1,
+  "apps/mobile/src/home/home-sync-status.test.ts": 1,
+  "apps/mobile/src/home/prep-nudge.test.ts": 1,
+  "apps/mobile/src/import/import-resume.test.ts": 1,
+  "apps/mobile/src/import/preview-rows.test.ts": 1,
+  "apps/mobile/src/items/gifted-status-flow.test.ts": 2,
+  "apps/mobile/src/items/item-labels.test.ts": 1,
+  "apps/mobile/src/items/link-marker.test.ts": 2,
+  "apps/mobile/src/items/link-price.test.ts": 2,
+  "apps/mobile/src/items/pre-birth-filter.test.ts": 1,
+  "apps/mobile/src/items/status-mutation-messages.test.ts": 2,
+  "apps/mobile/src/notifications/generators.test.ts": 1,
+  "apps/mobile/src/notifications/new-notification-marks.test.ts": 1,
+  "apps/mobile/src/notifications/notification-row-actions.test.ts": 2,
+  "apps/mobile/src/offline/delete-conflict-recovery.test.ts": 1,
+  "apps/mobile/src/offline/item-status-outbox.test.ts": 1,
+  "apps/mobile/src/offline/permission-denied.test.ts": 2,
+  "apps/mobile/src/offline/sync-engine.test.ts": 1,
+  "apps/mobile/src/offline/sync-status-bulk-actions.test.ts": 2,
+  "apps/mobile/src/onboarding/local-progress.test.ts": 2,
+  "apps/mobile/src/onboarding/selected-child-recovery.test.ts": 1,
+  "apps/mobile/src/preparation/preparation-restore.test.ts": 1,
+  "apps/mobile/src/reports/empty-period-card.test.ts": 1,
+  "apps/mobile/src/reports/report-trust-drilldown-flow.test.ts": 3,
+  "apps/mobile/src/reports/share-flow.test.ts": 1,
+  "apps/mobile/src/screen-header-back.test.ts": 1,
+  "apps/mobile/src/settings/more-menu.test.ts": 2,
+  "packages/test-utils/src/public-surface-brand.test.ts": 1,
+  "packages/test-utils/src/store-brand-and-asset-provenance.test.ts": 1
+};
+
+const LEDGER_TOTAL = Object.values(UNGUARDED_SITE_LEDGER).reduce((sum, count) => sum + count, 0);
+
+/**
+ * **가드 하한** — 라운드 77 M-3(본보기 한 파일)과 라운드 78 트랙 E(열두 자리)가 세운 실재 확인이
+ * 조용히 사라지지 않게 한다. 값은 "이 파일에 가드가 선 자리가 최소 몇이어야 하는가"다.
+ * ⚠️ `reports/share-flow.test.ts`의 둘 중 하나는 라운드 64 S-3이 먼저 세운 자리다(트랙 E는 그
+ * 쌍둥이 자리를 같은 형식으로 맞췄다) — 형식이 한 벌뿐이라는 사실이 이 표의 값이다.
+ */
+const EXISTENCE_GUARD_FLOOR: Readonly<Record<string, number>> = {
+  "apps/mobile/src/commerce/purchase-followup-flow.test.ts": 2,
+  "apps/mobile/src/expenses/failed-row-prefill.test.ts": 4,
+  "apps/mobile/src/family/household-scope.test.ts": 1,
+  "apps/mobile/src/family/record-permissions.test.ts": 1,
+  "apps/mobile/src/home/home-section-priority.test.ts": 2,
+  "apps/mobile/src/import/import-resume.test.ts": 1,
+  "apps/mobile/src/items/item-expense-roundtrip-wiring.test.ts": 1,
+  "apps/mobile/src/items/item-trust-notes.test.ts": 1,
+  "apps/mobile/src/reports/share-flow.test.ts": 2
+};
+
+describe("소스 계약의 잘라 낸 구간 — 실재를 먼저 묻는가 (라운드 78 트랙 E)", () => {
+  const rows = sweep();
+  const unguardedByFile = new Map(rows.filter((row) => row.unguarded > 0).map((row) => [row.file, row.unguarded]));
+  const guardedByFile = new Map(rows.map((row) => [row.file, row.guarded]));
+
+  it("파일별 미가드 자리 수가 대장의 값보다 늘지 않는다 (래칫)", () => {
+    const grown: string[] = [];
+    for (const [file, recorded] of Object.entries(UNGUARDED_SITE_LEDGER)) {
+      const actual = unguardedByFile.get(file) ?? 0;
+      if (actual > recorded) grown.push(`${file}: 대장 ${recorded} → 실측 ${actual}`);
+    }
+    expect(grown, "가드 없는 구간이 늘었어요. 자리를 늘리는 대신 실재 확인을 세워 주세요").toEqual([]);
+  });
+
+  it("대장에 없는 파일에는 이 모양이 새로 서지 않는다", () => {
+    const newcomers = [...unguardedByFile.keys()].filter((file) => !(file in UNGUARDED_SITE_LEDGER)).sort();
+    expect(
+      newcomers,
+      "새 파일이 가드 없는 구간을 들고 왔어요. 두 인덱스에 toBeGreaterThan을 세우면 목록에서 빠집니다"
+    ).toEqual([]);
+  });
+
+  it("총계도 비증가다 — 대장의 합계가 저장소의 답이다", () => {
+    const total = [...unguardedByFile.values()].reduce((sum, count) => sum + count, 0);
+    expect(LEDGER_TOTAL).toBe(81);
+    expect(total).toBeLessThanOrEqual(LEDGER_TOTAL);
+  });
+
+  it("라운드 77 M-3과 라운드 78 트랙 E가 세운 실재 확인이 사라지지 않는다", () => {
+    const lost: string[] = [];
+    for (const [file, floor] of Object.entries(EXISTENCE_GUARD_FLOOR)) {
+      const actual = guardedByFile.get(file) ?? 0;
+      if (actual < floor) lost.push(`${file}: 하한 ${floor} → 실측 ${actual}`);
+    }
+    expect(lost, "자르기 전에 실재를 묻던 자리가 사라졌어요").toEqual([]);
+    // 스윕이 세어야 할 것을 세고 있다는 확인 — 본보기 파일이 실제로 잡힌다.
+    expect(guardedByFile.has("apps/mobile/src/commerce/purchase-followup-flow.test.ts")).toBe(true);
+    expect(rows.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * ⓓ 두 실패 방향을 **재현**한다. 이 테스트는 저장소를 읽지 않는다 — 픽스처 위에서 `slice`가
+   * -1을 어떻게 읽는지를 보여 주는 것이 값이다.
+   *
+   * ⚠️ 아래 두 구간은 일부러 이 계약이 세는 모양(`const 구간 = 소스.slice(…)` + 부정 단언)을
+   * 피해 객체 속성으로 담는다. 픽스처는 "가드가 없어야" 이야기가 되는데, 스윕이 그것을 진짜
+   * 계약 자리로 세면 대장이 제 꼬리를 물기 때문이다.
+   */
+  it("시작점 -1은 빈 구간을 만들고, 그 위에서는 부정 단언이 언제나 통과한다", () => {
+    const fixture = ["const gate = () => {", "  forbiddenCall();", "};", "const next = () => {};"].join("\n");
+    const start = fixture.indexOf("const gate = (");
+    const end = fixture.indexOf("const next = (");
+    const missing = fixture.indexOf("const gate = (payload) => {"); // 인자가 하나 붙는 순간 이렇게 된다.
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(missing).toBe(-1);
+
+    const nets = {
+      // 살아 있는 그물: 금지된 호출이 그 안에 있어 부정 단언이 **빨개진다**.
+      alive: fixture.slice(start, end),
+      // 시작점이 -1이면 slice는 그것을 "끝에서 한 글자 앞"으로 읽고, 끝점이 그보다 앞이라
+      // 구간은 **빈 문자열**이 된다 — 조용한 쪽이다.
+      empty: fixture.slice(missing, end),
+      // 끝점이 -1이면 구간은 **파일 끝(마지막 한 글자 앞)까지** 넓어진다 — 시끄러운 쪽이다.
+      widened: fixture.slice(start, missing)
+    };
+
+    expect(nets.alive).toContain("forbiddenCall();");
+    expect(nets.empty).toBe("");
+    // ⚠️ 이 한 줄이 이 트랙의 이유다: 아무것도 검사하지 않은 채 초록이다.
+    expect(nets.empty).not.toContain("forbiddenCall();");
+    expect(nets.widened.length).toBeGreaterThan(nets.alive.length);
+    expect(nets.widened).toContain("const next = (");
+  });
+});

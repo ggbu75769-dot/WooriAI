@@ -376,7 +376,14 @@ describe("라운드 67 #3 되돌리기 배선", () => {
 
   it("되돌린 뒤 **확정이 태우는 그 넷**을 그대로 무효화하고 카드를 지운다", () => {
     const src = uploadScreen();
-    const undoBlock = src.slice(src.indexOf("const undo = useMutation({"), src.indexOf("const confirmUndo ="));
+    // 라운드 78 트랙 E: 시작 표식이 `useMutation({` 호출 모양에 매여 있었다 — 접두로 줄이고,
+    // 자르기 전에 두 표식의 실재를 묻는다(시작이 -1이면 구간이 비어 아래 단언들이 조용히
+    // 통과하고, 끝이 -1이면 구간이 파일 끝까지 넓어진다).
+    const undoStart = src.indexOf("const undo = useMutation(");
+    const undoEnd = src.indexOf("const confirmUndo =", undoStart);
+    expect(undoStart, "되돌리기 뮤테이션을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(undoEnd, "되돌리기 확인 핸들러를 찾지 못했어요").toBeGreaterThan(undoStart);
+    const undoBlock = src.slice(undoStart, undoEnd);
     expect(undoBlock).toContain("forgetImportReview(jobId)");
     for (const key of ["report", "home", "expenses", "budget"]) {
       expect(undoBlock, key).toContain(`queryKey: ["${key}"]`);

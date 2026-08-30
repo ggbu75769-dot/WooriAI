@@ -158,7 +158,14 @@ describe("C-07 목록 프리뷰 게이트 정직화", () => {
   it("토큰이 있는데 아이가 없으면 픽스처 대신 안내 상태를 보여준다", () => {
     const items = itemsSource();
     expect(items).toContain("if (authToken && !childId) {");
-    const gate = items.slice(items.indexOf("if (authToken && !childId) {"), items.indexOf("if (hasSession && itemsPhase === \"error\")"));
+    // 라운드 78 트랙 E: 끝 표식이 조건식 **전체**여서(`=== "error")`) 비교값이 상수로
+    // 승격되기만 해도 -1이 됐다. 접두로 줄이고, 자르기 전에 두 표식의 실재를 묻는다
+    // (시작이 -1이면 구간이 비어 아래 `not.toContain`이 영원히 초록이다).
+    const gateStart = items.indexOf("if (authToken && !childId) {");
+    const gateEnd = items.indexOf("if (hasSession && itemsPhase === ", gateStart);
+    expect(gateStart, "아이 미선택 게이트를 찾지 못했어요").toBeGreaterThan(-1);
+    expect(gateEnd, "목록 오류 갈래를 찾지 못했어요").toBeGreaterThan(gateStart);
+    const gate = items.slice(gateStart, gateEnd);
     expect(gate).toContain("아이를 먼저 선택해 주세요.");
     expect(gate).toContain('router.push("/settings/children")');
     expect(gate).not.toContain("previewItems");

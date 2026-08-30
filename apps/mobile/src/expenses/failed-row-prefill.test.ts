@@ -469,10 +469,14 @@ describe("라운드 58 #5 sync-status 화면 배선 (소스 계약)", () => {
 
   it("403 권한 거절 행에는 내밀지 않는다 — 고칠 내용이 아니라 권한이 문제다", () => {
     const src = screen();
-    const branchStart = src.indexOf("if (isPermissionDeniedSyncError(row)) {");
-    expect(branchStart).toBeGreaterThan(-1);
+    // 라운드 78 트랙 E: 두 표식을 **인자 이름에 매이지 않는 접두**로 적고, 자르기 전에 둘의
+    // 실재를 먼저 묻는다(`(row)`를 `(failedRow)`로 바꾸는 리팩터 한 번에 끊기던 자리다).
+    const branchStart = src.indexOf("if (isPermissionDeniedSyncError(");
+    const branchEnd = src.indexOf("if (!isRetryableSyncFailureRow(", branchStart);
+    expect(branchStart, "403 갈래의 시작을 찾지 못했어요").toBeGreaterThan(-1);
     // 403 갈래는 **그 다음 갈래가 시작하기 전까지**다(재시도 무익 4xx 갈래가 바로 뒤에 온다).
-    const branch = src.slice(branchStart, src.indexOf("if (!isRetryableSyncFailureRow(row)) {", branchStart));
+    expect(branchEnd, "재시도 무익 4xx 갈래의 시작을 찾지 못했어요").toBeGreaterThan(branchStart);
+    const branch = src.slice(branchStart, branchEnd);
     expect(branch.length).toBeGreaterThan(0);
     expect(branch).not.toContain("SYNC_STATUS_FIX_AND_RESEND_LABEL");
     expect(branch).not.toContain("buildFailedRowPrefillParams");
@@ -551,7 +555,14 @@ describe("라운드 58 #5 기록 시트 배선 — 저장 확정 후에만 원�
   it("폐기는 onSuccess에서 단 한 번, 저장 확정을 붙잡지 않고(void) 일어난다", () => {
     const src = newExpense();
     expect(src.match(/discardOfflineMutation\(/g) ?? []).toHaveLength(1);
-    const onSuccess = src.slice(src.indexOf("onSuccess: async () => {"), src.indexOf("const isPixelLockAmountCapture"));
+    // 라운드 78 트랙 E: 시작 표식이 콜백 **시그니처**였다(`onSuccess: async () => {`).
+    // 인자 하나만 달려도 -1이 되고, 그때 `slice(-1, …)`은 빈 구간이라 아래 부정 단언이
+    // 영원히 초록이 된다. 접두로 줄이고 두 표식의 실재를 먼저 묻는다.
+    const onSuccessStart = src.indexOf("onSuccess: async (");
+    const onSuccessEnd = src.indexOf("const isPixelLockAmountCapture", onSuccessStart);
+    expect(onSuccessStart, "저장 뮤테이션의 onSuccess를 찾지 못했어요").toBeGreaterThan(-1);
+    expect(onSuccessEnd, "onSuccess 다음 표식을 찾지 못했어요").toBeGreaterThan(onSuccessStart);
+    const onSuccess = src.slice(onSuccessStart, onSuccessEnd);
     expect(onSuccess).toContain("if (failedLocalId) {");
     expect(onSuccess).toContain("void discardOfflineMutation(failedLocalId).catch(() => {");
     // 저장 확정 뒤에만 도는 자리라는 사실 자체가 계약이다 — 다른 콜백에는 없다.
@@ -609,8 +620,20 @@ describe("라운드 58 #5 기록 시트 배선 — 저장 확정 후에만 원�
 
   it("저장 실패 경로는 원본을 건드리지 않는다 (이중 손실 금지)", () => {
     const src = newExpense();
-    const mutationFn = src.slice(src.indexOf("const saveExpense = useMutation({"), src.indexOf("onMutate: () => {"));
-    const onError = src.slice(src.indexOf("onError: (error) => {"), src.indexOf("onSuccess: async () => {"));
+    // 라운드 78 트랙 E(R-1 리뷰 M-3의 일반형): 네 표식이 전부 콜백 시그니처였다 —
+    // 특히 `onError: (error) => {`는 인자 이름을 `err`로 바꾸는 리팩터 한 번에 -1이 되고,
+    // 그러면 `onError` 구간이 **빈 문자열**이 되어 아래 부정 단언 둘이 아무것도 검사하지
+    // 않은 채 통과한다. 접두로 줄이고, 네 자리를 앞에서부터 이어 찾아 실재를 먼저 묻는다.
+    const mutationStart = src.indexOf("const saveExpense = useMutation(");
+    const onMutateStart = src.indexOf("onMutate: (", mutationStart);
+    const onErrorStart = src.indexOf("onError: (", onMutateStart);
+    const onSuccessStart = src.indexOf("onSuccess: async (", onErrorStart);
+    expect(mutationStart, "저장 뮤테이션 선언을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(onMutateStart, "onMutate 콜백을 찾지 못했어요").toBeGreaterThan(mutationStart);
+    expect(onErrorStart, "onError 콜백을 찾지 못했어요").toBeGreaterThan(onMutateStart);
+    expect(onSuccessStart, "onSuccess 콜백을 찾지 못했어요").toBeGreaterThan(onErrorStart);
+    const mutationFn = src.slice(mutationStart, onMutateStart);
+    const onError = src.slice(onErrorStart, onSuccessStart);
     expect(mutationFn).not.toContain("discardOfflineMutation");
     expect(onError).not.toContain("discardOfflineMutation");
   });
