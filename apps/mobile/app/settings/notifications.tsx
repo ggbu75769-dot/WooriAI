@@ -185,6 +185,23 @@ export default function NotificationSettingsScreen() {
     if (toggleDevice.isError) announceForA11y(deviceToggleSaveErrorText);
   }, [toggleDevice.isError, deviceToggleSaveErrorText]);
 
+  /**
+   * 라운드 80 트랙 A(GAP-080 #1) — **이 화면에 남아 있던 반쪽 한 자리.**
+   *
+   * 바로 위 기기 토글은 라운드 79가 프롭 둘 + 이 배선으로 닫았는데, 마스터 토글(푸시 설정)의
+   * 실패 줄은 **프롭만** 걸린 채였다 — 안드로이드는 읽고 iOS는 조용한 그 상태다(라운드 79
+   * 리뷰 M-1이 이름 붙인 정확한 잔여). 그 자리도 되돌아간 스위치 바로 아래라 포커스가 그
+   * 스위치에 남는다: 같은 화면, 같은 조건, 같은 관례.
+   *
+   * ⚠️ 문장은 그 자리의 것을 그대로 읽는다 — **새 한국어 문장 0건**이고 JSX는 한 바이트도
+   * 바뀌지 않는다(문구를 상수로 빼면 그 자리의 바이트가 바뀐다).
+   */
+  useEffect(() => {
+    if (toggleCurrentDevice.isError) {
+      announceForA11y("푸시 설정을 바꾸지 못했어요. 알림 권한을 확인한 뒤 다시 시도해 주세요.");
+    }
+  }, [toggleCurrentDevice.isError]);
+
   return (
     <AppScreen>
       <View testID="screen-SET-006" style={{ gap: theme.spacing.section }}>
