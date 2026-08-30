@@ -736,8 +736,13 @@ export default function ItemDetailScreen() {
   const statusBadgeLabel = itemStatusBadgeLabel(displayStatus);
   const isGifted = displayStatus === "gifted";
   /**
-   * 라운드 43 UX-V (C2): 구매처가 하나도 없는 준비템 — 시드 62개 품목 중 4개
-   * (영양제·기저귀 재고·이유식 메이커·첫 그림책)가 링크 0개다. 예전에는 그 화면에서도
+   * 라운드 43 UX-V (C2): 구매처가 하나도 없는 준비템 — **라운드 43 당시** 시드 62개 품목 중 4개
+   * (영양제·기저귀 재고·이유식 메이커·첫 그림책)가 링크 0개였다. ⚠️ 라운드 82 리뷰 M-4:
+   * **라운드 82 B 이후 시드는 62/62로 링크 0건 품목이 없다**(그 넷에 일반 링크를 채웠고,
+   * `apps/api/test/seed-data.test.ts`의 링크 0건 대장이 래칫 0으로 그 사실을 지킨다). 그래도 이
+   * 분기는 죽은 코드가 아니다 — 어드민이 링크를 비활성화하거나 운영 데이터가 시드와 다른 창에서는
+   * 여전히 도달한다(같은 사실이 src/items/link-marker.ts의 EMPTY_PRODUCT_LINKS_TEXT에도 적혀 있다).
+   * 예전에는 그 화면에서도
    * 구매 CTA가 그대로 서 있었고(누르면 productLinks[0]이 없어 **아무 일도 일어나지 않는**
    * 죽은 버튼), 제휴 고지도 기본 문구로 렌더됐다.
    *
@@ -751,7 +756,8 @@ export default function ItemDetailScreen() {
    * 라운드 43 리뷰 M-1/M-2: 고지 문구는 **링크 집합**이 정한다(src/items/link-marker.ts).
    *
    * 예전에는 `productLinks[0]?.disclosureText`를 읽고 값이 없으면 컴포넌트 기본 문구를
-   * 그렸다 — (1) 제휴도 스폰서도 아닌 일반 링크뿐인 화면(시드 링크 58개 중 34개)이
+   * 그렸다 — (1) 제휴도 스폰서도 아닌 일반 링크뿐인 화면(시드 링크 중 그런 링크가 라운드 43 당시
+   * 58개 중 34개 · 라운드 82 B 이후 62개 중 38개)이
    * "수수료를 받을 수 있어요"라고 말했고, (2) 문구가 맨 앞 링크에 매여 있어 워커 헬스 기반
    * 정렬(UX-W)이 순서를 바꾸면 고지 문구까지 조용히 따라 바뀌었다.
    *

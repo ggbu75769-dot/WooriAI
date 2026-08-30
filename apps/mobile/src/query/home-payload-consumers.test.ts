@@ -330,6 +330,114 @@ const FIRST_PAINT_QUERY_LEDGER: Readonly<Record<string, readonly FirstPaintQuery
   ]
 };
 
+/**
+ * 라운드 82 리뷰 L-14 — **`firesOnFirstPaint`를 손으로 믿지 않는다.**
+ *
+ * 종전에는 그 칸이 대장에 적힌 **불리언**이었고 어디와도 대조되지 않았다. 그래서 "첫 페인트 수가
+ * 여덟보다 작다"는 단언은 *그 불리언들의 합*만 셌고, 누군가 `enabled`를 손대지 않은 채 불리언만
+ * 뒤집으면(또는 게이트를 넓히고 불리언을 그대로 두면) 조용히 통과했다 — 대장이 소스에서 뽑은
+ * 이름·키·`enabled` 셋만 대조하고 정작 **판정**은 대조하지 않는 자리였다.
+ *
+ * 이제 그 칸은 **`enabled` 식에서 계산된다**: 아래 프레임(콜드 스타트 첫 렌더)에서 식을 평가한
+ * 값과 대장의 불리언이 같아야 한다. 불리언만 뒤집으면 빨개지고, `enabled`가 바뀌면 그 변화가
+ * 곧바로 첫 페인트 수에 반영된다.
+ */
+type FirstPaintValue = { value: string | boolean; reason: string };
+
+/**
+ * **첫 페인트 프레임** — 세션이 있고(`authToken`) 아이도 정해져 있으며(`childId`) 캐시가 비어 있는
+ * 콜드 스타트의 첫 렌더에서 각 이름이 갖는 값. 이름마다 왜 그 값인지가 함께 적힌다.
+ *
+ * 모르는 이름이 `enabled`에 나타나면 평가가 **던진다** — 새 게이트가 들어오면 그 이름의 첫 페인트
+ * 값을 여기에 값으로 적게 하려는 것이 이 사전의 규율이다.
+ */
+const FIRST_PAINT_FRAME: Readonly<Record<string, FirstPaintValue>> = {
+  authToken: { value: true, reason: "기준 프레임이 '세션이 있는' 콜드 스타트다." },
+  childId: { value: true, reason: "기준 프레임이 '아이가 정해진' 콜드 스타트다." },
+  householdId: {
+    value: false,
+    reason: "관리 대상 가구는 ['children'] 응답이 정한다 — 첫 렌더에는 아직 없다(resolveManagedHouseholdId가 null)."
+  },
+  lastYearMonth: { value: true, reason: "지난달 키는 오늘 날짜로 만드는 문자열이라 첫 렌더에 이미 있다." },
+  period: { value: "월간", reason: "리포트 탭의 기본 세그먼트다(useState 초기값)." },
+  "thisMonthExpenses.isFetched": {
+    value: false,
+    reason: "같은 프레임에서 막 켜진 쿼리라 아직 끝나지 않았다(UX-W C8이 미룬 근거 그 자체)."
+  },
+  homeHasNoBudgetThisMonth: {
+    value: false,
+    reason: "['home'] 응답에서 파생되는 값이라 첫 렌더에는 응답이 없다(그래서 거짓)."
+  },
+  childrenSettled: {
+    value: false,
+    reason: "['children'] 조회가 끝났는가 — 같은 프레임에서 막 켜졌으므로 아직 아니다."
+  }
+};
+
+/**
+ * `enabled` 식을 첫 페인트 프레임에서 평가한다.
+ *
+ * 지원하는 모양은 오늘 소스에 실재하는 것뿐이다 — `Boolean(...)` 감싸기, `&&` 연쇄,
+ * `이름`/`이름.속성`, `이름 === "리터럴"`. `||`·`!`·삼항 같은 모양이 새로 들어오면 여기서
+ * 던진다(그 모양의 첫 페인트 판정은 사람이 한 번 더 재야 한다는 뜻이다).
+ */
+function evaluateFirstPaint(expression: string): boolean {
+  const trimmed = expression.trim();
+  if (trimmed.startsWith("Boolean(") && trimmed.endsWith(")")) {
+    const inner = trimmed.slice("Boolean(".length, -1);
+    // 바깥 괄호가 실제로 짝이 맞을 때만 벗긴다(`Boolean(a) && b`는 벗기면 안 된다).
+    if (isBalanced(inner)) return evaluateFirstPaint(inner);
+  }
+  if (trimmed.includes("||") || trimmed.startsWith("!") || trimmed.includes("?")) {
+    throw new Error(`첫 페인트 평가가 모르는 모양이다: ${expression}`);
+  }
+
+  const parts = splitTopLevel(trimmed, "&&");
+  if (parts.length > 1) return parts.every((part) => evaluateFirstPaint(part));
+
+  const comparison = trimmed.match(/^([\w.]+)\s*===\s*"([^"]*)"$/);
+  if (comparison) return lookup(comparison[1]).value === comparison[2];
+  if (/^[\w.]+$/.test(trimmed)) return Boolean(lookup(trimmed).value);
+  throw new Error(`첫 페인트 평가가 모르는 모양이다: ${expression}`);
+}
+
+function lookup(name: string): FirstPaintValue {
+  const entry = FIRST_PAINT_FRAME[name];
+  if (!entry) throw new Error(`첫 페인트 프레임에 ${name}의 값이 적혀 있지 않다`);
+  return entry;
+}
+
+function isBalanced(source: string): boolean {
+  let depth = 0;
+  for (const char of source) {
+    if (char === "(") depth += 1;
+    else if (char === ")") {
+      depth -= 1;
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0;
+}
+
+/** 괄호 깊이 0에서만 연산자로 가른다. */
+function splitTopLevel(source: string, operator: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "(") depth += 1;
+    else if (char === ")") depth -= 1;
+    else if (depth === 0 && source.startsWith(operator, index)) {
+      parts.push(source.slice(start, index));
+      index += operator.length - 1;
+      start = index + 1;
+    }
+  }
+  parts.push(source.slice(start));
+  return parts.map((part) => part.trim()).filter((part) => part.length > 0);
+}
+
 /** 소스에서 쿼리 선언을 뽑는다 — 손배열이 아니라 스윕이 센다. */
 function parseQueries(src: string): Array<{ name: string; key: string; enabled: string | null }> {
   const pattern = /const (\w+) = useQuery\(\{\s*\n\s*queryKey: (\[[^\n]*\]),\s*\n(?:\s*enabled: (.*),\s*\n)?/g;
@@ -356,6 +464,37 @@ describe("라운드 82 D(#4) 화면별 첫 페인트 요청 구성", () => {
         expect(entry.reason.length, `${path}:${entry.name}의 사유가 값으로 남아 있다`).toBeGreaterThan(30);
       }
     }
+  });
+
+  /**
+   * 라운드 82 리뷰 L-14 — 대장의 `firesOnFirstPaint`가 **`enabled` 식과 대조된다**. 불리언만
+   * 뒤집으면 여기가 먼저 빨개지므로, 아래 "여덟보다 작다"가 무력화될 수 없다.
+   */
+  it("ⓔ 첫 페인트 여부는 손으로 적은 불리언이 아니라 `enabled` 식이 정한다", () => {
+    const used = new Set<string>();
+    for (const [path, ledger] of Object.entries(FIRST_PAINT_QUERY_LEDGER)) {
+      for (const entry of ledger) {
+        const enabled = entry.enabled;
+        expect(enabled, `${path}:${entry.name}의 enabled 식`).not.toBeNull();
+        for (const name of enabled!.match(/[A-Za-z_$][\w$.]*/g) ?? []) {
+          if (name !== "Boolean") used.add(name);
+        }
+        expect(evaluateFirstPaint(enabled!), `${path}:${entry.name} — ${enabled}`).toBe(entry.firesOnFirstPaint);
+      }
+    }
+
+    // 프레임에 낡은 줄이 남지 않는다(양방향) — 쓰이지 않는 이름은 지운다.
+    expect(Object.keys(FIRST_PAINT_FRAME).filter((name) => !used.has(name))).toEqual([]);
+    for (const [name, entry] of Object.entries(FIRST_PAINT_FRAME)) {
+      expect(entry.reason.length, `${name}의 사유가 값으로 남아 있다`).toBeGreaterThan(20);
+    }
+
+    // 평가기 자신이 무언가를 실제로 가른다(전부 참/전부 거짓으로 통과하지 않는다).
+    expect(evaluateFirstPaint("Boolean(authToken && childId)")).toBe(true);
+    expect(evaluateFirstPaint('Boolean(authToken && childId && period === "분기")')).toBe(false);
+    // 모르는 이름·모르는 모양은 던진다 — 새 게이트가 조용히 참으로 세어지지 않는다.
+    expect(() => evaluateFirstPaint("Boolean(authToken && somethingNew)")).toThrow();
+    expect(() => evaluateFirstPaint("Boolean(authToken || childId)")).toThrow();
   });
 
   it("ⓔ 리포트 탭의 첫 페인트 요청이 종전(여덟)보다 작다", () => {

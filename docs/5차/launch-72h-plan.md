@@ -37,7 +37,7 @@ Android 단독 출시입니다(iOS는 다음 사이클 — D-04 결정 반영).
 - [ ] PostgreSQL 15+ 인스턴스 생성 → `DATABASE_URL`
 - [ ] API 배포 (NestJS, `PORT=3000`). 헬스체크 경로: `GET /api/v1/health/ready`
 - [ ] 도메인 연결 + HTTPS (플랫폼 자동 인증서)
-- [ ] `pnpm --filter api prisma:deploy && pnpm --filter api seed` (마이그레이션 13개, 시드: 카테고리 12·준비템 62·링크 58)
+- [ ] `pnpm --filter api prisma:deploy && pnpm --filter api seed` (마이그레이션 13개, 시드: 카테고리 12·준비템 62·링크 **62** — 라운드 82 B가 링크 0건 품목 넷에 링크를 채워 58 → 62)
 - ⚠️ **API·앱 동시 배포 전제 (CAT-124)**: `GET /categories` 기본 응답이 21행 → 12행(selectable만)으로 줄었고, 별칭/스텁 행이 필요한 클라이언트는 `?includeAll=1`을 보낸다. includeAll을 모르는 구버전 앱이 신버전 API를 만나면 8타일 빠른 입력 지출이 기록 탭 어떤 필터 칩에도 안 걸리고 가져오기 스텁 라벨이 "기타"로 무너진다. **첫 스토어 출시 전인 지금은 실사용 영향이 없지만, 출시 후 이런 종류의 기본 응답 축소는 앱 강제 업데이트나 버전 게이트 없이는 금지** — 이 배포에서는 API와 AAB를 같은 사이클에 내보내면 된다.
 
 ### 2.2 프로덕션 환경변수 (부트 시 `assertRequiredSecretsConfigured`가 누락을 즉시 잡음)
@@ -114,7 +114,14 @@ FCM_SERVICE_ACCOUNT_PATH=<Firebase 서비스 계정 JSON "파일 경로"> ← PU
 
 ## 5. 제휴 링크 전략 (쿠팡 승인 대기와 무관하게 출시)
 
-시드 58개 링크가 example.com이므로 그대로는 출시 불가. 승인 타이밍별 플랜:
+시드 **62개** 링크가 전부 example.com이므로 그대로는 출시 불가(라운드 82 B 이후 58 → 62 · URL 문자열
+기준으로는 81곳 = 링크 62의 `url` + 제휴 19의 `affiliateUrl`). 승인 타이밍별 플랜:
+
+⚠️ **교체 전에는 이 링크들이 전부 죽은 CTA다**(라운드 82 리뷰 M-7). 라운드 82 B가 채운 넷 중
+둘(`pregnancy_vitamin`·`diaper_stock`)은 `essential`이라 임신 초기·중기 사용자의 홈 추천 카드 **머리**에
+서고, 그 화면은 이제 "아직 등록된 구매처가 없어요"라는 정직한 문구 대신 **example.com으로 가는 구매
+버튼**을 그린다. 즉 링크 0건이라는 공백이 **죽은 CTA로 모양만 바뀐 채** 이 교체 단계에 넘어와 있다 —
+CSV 교체는 "있으면 좋은 마감"이 아니라 **출시 차단 조건**이다(확인의 표 `#140` ⓕ).
 
 - **승인 완료 시**: admin의 CSV 일괄 교체 도구로 쿠팡 파트너스 딥링크 투입 (미리보기→적용, 도메인 allowlist 검증 자동)
 - **승인 전 출시 시**: 같은 CSV 도구로 **일반(비제휴) 쿠팡/네이버 검색 링크** 투입 + admin에서 해당 링크 `isAffiliate=false` 유지 → 제휴 고지 미표시(DNC 규칙과 정합). 승인 후 CSV 재업로드로 무중단 전환.

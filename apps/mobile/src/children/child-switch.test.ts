@@ -297,7 +297,13 @@ describe("라운드 48 T4(D3) → 49 C-08/C-09 화면 배선", () => {
     expect(reportSource.match(/<Text style=\{reportReferenceHeaderStyle\}>\{withChildScopeLabel\("리포트", childScopeLabel\)\}<\/Text>/g) ?? []).toHaveLength(2);
     // 아이 목록 쿼리는 세션이 있을 때만 돈다 -- 비세션 미리보기에서는 라벨이 나올 수 없다.
     expect(reportSource).toContain('queryKey: ["children"],\n    enabled: Boolean(authToken),');
-    expect(reportSource.match(/queryKey: \["children"\]/g) ?? []).toHaveLength(1);
+    // 라운드 82 리뷰 L-12: 홈이 GAP-060 #10에서 한 것과 **같은 정정**이다 -- 문자열 전체 개수가
+    // 아니라 **쿼리 선언**(useQuery 옵션 형태, 줄머리에 오는 `queryKey:`)만 센다. 당겨서
+    // 새로고침이 같은 키를 인라인으로 무효화하기 시작했고
+    // (`invalidateQueries({ queryKey: ["children"] })`), 그것은 새 요청이 아니라 이미 켜져 있는 그
+    // 쿼리를 다시 받는 일이다. 규칙 자체는 그대로다: 리포트에 ["children"] 쿼리는 하나뿐.
+    expect(reportSource.match(/^\s+queryKey: \["children"\]/gm) ?? []).toHaveLength(1);
+    expect(reportSource.match(/queryFn: \(\) => listChildren\(/g) ?? []).toHaveLength(1);
   });
 });
 

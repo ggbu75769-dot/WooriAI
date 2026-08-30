@@ -138,16 +138,56 @@ function listSourceFiles(dir: string): string[] {
 }
 
 /**
- * 소스에서 코드가 아닌 구간(줄 주석·블록 주석·따옴표 문자열·템플릿 리터럴)을 공백으로
- * 지운 사본을 만든다. 길이와 줄 바꿈을 보존하므로 인덱스와 줄 번호가 원본과 그대로 맞는다.
+ * `/` 앞의 이 토큰들 뒤에서는 슬래시가 **나눗셈이 아니라 정규식 리터럴**의 시작이다.
+ * (구두점 판정만으로는 `return /x/.test(v)` 같은 자리를 가르지 못한다.)
+ */
+const REGEX_ALLOWED_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "case",
+  "do",
+  "else",
+  "yield",
+  "await"
+]);
+
+/**
+ * 소스에서 코드가 아닌 구간(줄 주석·블록 주석·따옴표 문자열·템플릿 리터럴·**정규식 리터럴**)을
+ * 공백으로 지운 사본을 만든다. 길이와 줄 바꿈을 보존하므로 인덱스와 줄 번호가 원본과 그대로 맞는다.
+ *
+ * ⚠️ 라운드 82 리뷰 M-8 — **정규식 리터럴을 건너뛰지 않으면 극성이 뒤집힌다.** 실증:
+ * `src/admin/product-link-bulk-csv.util.ts`의 `.replace(/["\s]/g, "")`. 종전 훑기는 그 정규식 안의
+ * `"`를 문자열 시작으로 읽어 **거기서부터 다음 따옴표까지**를 지웠고, 그 뒤로는 문자열 안과 밖이
+ * 통째로 뒤바뀐 채 파일 끝까지 갔다 — 진짜 코드가 지워지고(= `$transaction` 자리를 놓친다) 문자열
+ * 안이 코드로 남는다(= 없는 자리를 세거나 괄호 세기가 어긋난다). 전수를 자처하는 그물에서 이것은
+ * 정확히 "조용히 통과"의 모양이라, 아래 계약에 그 파일을 근거로 한 회귀 단언을 함께 세운다.
+ *
+ * 나눗셈과 정규식은 **직전 유의미 토큰**으로 가른다(값 뒤의 `/`는 나눗셈, 그 외에는 정규식).
  */
 function blankNonCode(source: string): string {
   const out = source.split("");
   let index = 0;
+  /** 직전 유의미 토큰의 마지막 글자. 문자열·정규식을 지난 직후에는 "값"을 뜻하는 표식을 둔다. */
+  let previous = "";
   const blankTo = (end: number) => {
     for (; index < end && index < source.length; index += 1) {
       if (source[index] !== "\n") out[index] = " ";
     }
+  };
+  const regexCanStartHere = (): boolean => {
+    if (previous === "") return true;
+    // 값(식별자·숫자·닫는 괄호·문자열) 뒤의 `/`는 나눗셈이다.
+    if (/[\w$)\]]/.test(previous)) {
+      const identifier = source.slice(0, index).match(/([A-Za-z_$][\w$]*)\s*$/);
+      return identifier !== null && REGEX_ALLOWED_KEYWORDS.has(identifier[1]);
+    }
+    return true;
   };
   while (index < source.length) {
     const char = source[index];
@@ -160,6 +200,37 @@ function blankNonCode(source: string): string {
     if (char === "/" && next === "*") {
       const end = source.indexOf("*/", index + 2);
       blankTo(end === -1 ? source.length : end + 2);
+      continue;
+    }
+    if (char === "/" && regexCanStartHere()) {
+      // 정규식 리터럴: `\` 이스케이프와 `[...]` 문자 클래스 안의 `/`는 종결자가 아니다.
+      let cursor = index + 1;
+      let inClass = false;
+      let closed = false;
+      while (cursor < source.length && source[cursor] !== "\n") {
+        const inner = source[cursor];
+        if (inner === "\\") {
+          cursor += 2;
+          continue;
+        }
+        if (inner === "[") inClass = true;
+        else if (inner === "]") inClass = false;
+        else if (inner === "/" && !inClass) {
+          cursor += 1;
+          closed = true;
+          break;
+        }
+        cursor += 1;
+      }
+      if (closed) {
+        while (cursor < source.length && /[a-z]/.test(source[cursor])) cursor += 1;
+        blankTo(cursor);
+        previous = "x";
+        continue;
+      }
+      // 닫히지 않으면 정규식이 아니었다는 뜻이라 나눗셈으로 되돌린다.
+      previous = "/";
+      index += 1;
       continue;
     }
     if (char === '"' || char === "'" || char === "`") {
@@ -177,26 +248,61 @@ function blankNonCode(source: string): string {
         cursor += 1;
       }
       blankTo(cursor);
+      previous = "x";
       continue;
     }
+    if (!/\s/.test(char)) previous = char;
     index += 1;
   }
   return out.join("");
 }
 
-/** 호출 인자 목록이 닫히는 지점까지 훑어 **깊이 1의 쉼표**(= 두 번째 인자) 유무를 본다. */
-function hasSecondArgument(code: string, openParenIndex: number): boolean {
+/**
+ * 두 번째 인자 자리의 **식 그대로**. 없으면 null.
+ * (인자 목록이 닫히는 지점까지 훑어 **깊이 1의 쉼표** 뒤를 잘라 낸다.)
+ */
+function secondArgument(code: string, openParenIndex: number): string | null {
   let depth = 0;
-  let sawTopLevelComma = false;
+  let commaIndex = -1;
   for (let cursor = openParenIndex; cursor < code.length; cursor += 1) {
     const char = code[cursor];
     if (char === "(" || char === "[" || char === "{") depth += 1;
     else if (char === ")" || char === "]" || char === "}") {
       depth -= 1;
-      if (depth === 0) return sawTopLevelComma;
-    } else if (char === "," && depth === 1) sawTopLevelComma = true;
+      if (depth === 0) return commaIndex === -1 ? null : code.slice(commaIndex + 1, cursor).trim();
+    } else if (char === "," && depth === 1 && commaIndex === -1) commaIndex = cursor;
   }
-  return sawTopLevelComma;
+  return null;
+}
+
+/** `timeout`/`maxWait`를 실제로 담은 객체 리터럴의 이름들(예: `PURGE_TX_OPTIONS`). */
+function collectBoundsConstants(sources: ReadonlyArray<string>): Set<string> {
+  const names = new Set<string>();
+  for (const code of sources) {
+    const declaration = /\b(?:const|let|var|readonly)\s+([A-Za-z_$][\w$]*)[^=\n]*=\s*(\{[^{}]*\})/g;
+    for (let match = declaration.exec(code); match !== null; match = declaration.exec(code)) {
+      if (TX_BOUNDS_KEYS.test(match[2])) names.add(match[1]);
+    }
+  }
+  return names;
+}
+
+/** 인터랙티브 트랜잭션의 상한 옵션 키. 이 둘 말고는 예산을 정하지 않는다. */
+const TX_BOUNDS_KEYS = /\b(timeout|maxWait)\s*:/;
+
+/**
+ * 그 호출이 **명시 상한**을 가졌는가.
+ *
+ * ⚠️ 라운드 82 리뷰 M-8 — 종전에는 *"두 번째 인자가 있는가"* 만 물었다. 그러면 상한과 무관한
+ * 두 번째 인자(`isolationLevel`만 준 자리 등)도 "명시 상한"으로 분류돼 대장 밖으로 빠져나간다.
+ * 이제 그 인자에 `timeout`/`maxWait`가 실제로 있는지를 본다 — 상수로 넘긴 자리
+ * (`PREPARED_ITEMS_TX_OPTIONS` 같은 이름)는 그 상수의 선언에서 같은 키를 확인한다.
+ */
+function hasExplicitBounds(code: string, openParenIndex: number, boundsConstants: ReadonlySet<string>): boolean {
+  const argument = secondArgument(code, openParenIndex);
+  if (argument === null) return false;
+  if (TX_BOUNDS_KEYS.test(argument)) return true;
+  return (argument.match(/[A-Za-z_$][\w$]*/g) ?? []).some((name) => boundsConstants.has(name));
 }
 
 /** 호출 앞쪽에서 가장 가까운 **메서드 선언 줄**을 찾아 그 이름을 돌려준다. */
@@ -249,10 +355,14 @@ function enclosingMember(code: string, callIndex: number): string {
 }
 
 function collectTransactionSites(): TransactionSite[] {
+  const files = listSourceFiles(API_SRC).sort();
+  const codeByFile = new Map(files.map((file) => [file, blankNonCode(readFileSync(file, "utf8"))]));
+  // 상한을 담은 상수 이름은 파일 하나가 아니라 **전수**에서 모은다(선언과 사용처가 다른 파일이다).
+  const boundsConstants = collectBoundsConstants([...codeByFile.values()]);
+
   const sites: TransactionSite[] = [];
-  for (const file of listSourceFiles(API_SRC).sort()) {
-    const source = readFileSync(file, "utf8");
-    const code = blankNonCode(source);
+  for (const file of files) {
+    const code = codeByFile.get(file)!;
     const relativePath = ["src", relative(API_SRC, file)].join(sep).split(sep).join("/");
     let ordinal = 0;
     for (
@@ -266,7 +376,7 @@ function collectTransactionSites(): TransactionSite[] {
         file: relativePath,
         line: code.slice(0, found).split("\n").length,
         member: enclosingMember(code, found),
-        bounded: hasSecondArgument(code, openParen)
+        bounded: hasExplicitBounds(code, openParen, boundsConstants)
       });
       ordinal += 1;
     }
@@ -321,6 +431,76 @@ describe("라운드 82 C — apps/api/src의 $transaction 상한 대장", () => 
     const stale = Object.keys(UNBOUNDED_LEDGER).filter((key) => !unbounded.has(key));
     // 이유가 사라진 줄이 남으면 다음 라운드가 그것을 근거로 인용한다 — 대장은 양방향이다.
     expect(stale).toEqual([]);
+  });
+
+  /**
+   * 라운드 82 리뷰 M-8 — **그물 자신의 계약.** 전수를 자처하는 훑기가 소스의 한 모양(정규식
+   * 리터럴)에서 극성을 뒤집으면, 그 뒤의 모든 판정이 조용히 틀린 채 초록으로 남는다.
+   */
+  it("M-8: 훑기가 정규식 리터럴을 코드가 아닌 구간으로 건너뛴다", () => {
+    // ⓐ 실증 자리 — 종전 훑기가 이 파일의 `/["\s]/g`에서 문자열 안팎을 뒤집었다.
+    const csvUtil = blankNonCode(
+      readFileSync(join(API_SRC, "admin", "product-link-bulk-csv.util.ts"), "utf8")
+    );
+    // 정규식 안의 문자 클래스는 지워지고, 그 뒤의 **진짜 코드**는 살아 있다.
+    expect(csvUtil).not.toContain('["\\s]');
+    expect(csvUtil).toContain("const columnByIndex = new Map");
+    expect(csvUtil).toContain("throw new BadRequestException");
+    // 문자열 리터럴의 내용은 여전히 지워진다(코드로 오인되지 않는다).
+    expect(csvUtil).not.toContain("ADMIN_BULK_CSV_HEADER_INVALID");
+
+    // ⓑ 나눗셈은 정규식이 아니다 — 값 뒤의 `/`는 그대로 코드로 남는다.
+    const division = blankNonCode('const half = (a + b) / 2;\nconst rate = total / count;\nconst x = "keep";');
+    expect(division).toContain("(a + b) / 2");
+    expect(division).toContain("total / count");
+    expect(division).not.toContain("keep");
+
+    // ⓒ 키워드 뒤의 `/`는 정규식이다.
+    const afterKeyword = blankNonCode('function f(v) { return /a"b/.test(v); }\nconst tail = "지워진다";');
+    expect(afterKeyword).toContain("return");
+    expect(afterKeyword).toContain(".test(v)");
+    expect(afterKeyword).not.toContain('a"b');
+    expect(afterKeyword).not.toContain("지워진다");
+
+    // ⓓ 길이·줄 번호는 보존된다(인덱스 계산의 전제).
+    for (const sample of ['const r = /["\\s]/g;\nconst s = "x";', "const half = (a + b) / 2;"]) {
+      expect(blankNonCode(sample)).toHaveLength(sample.length);
+      expect(blankNonCode(sample).split("\n")).toHaveLength(sample.split("\n").length);
+    }
+  });
+
+  /**
+   * 라운드 82 리뷰 M-8 — **"두 번째 인자가 있다"는 "상한이 있다"가 아니다.**
+   * 상한 판정은 `timeout`/`maxWait`가 실제로 있는지를 보고, 상수로 넘긴 자리는 그 상수의 선언까지
+   * 따라간다(오늘 `setPreparedItems`가 그 모양이다).
+   */
+  it("M-8: 상한 판정이 timeout/maxWait의 실재를 본다 (상수 참조 포함)", () => {
+    const boundsConstants = collectBoundsConstants([
+      "const PREPARED_ITEMS_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 } as const;",
+      "const OTHER = { isolationLevel: 'Serializable' };"
+    ]);
+    expect([...boundsConstants]).toEqual(["PREPARED_ITEMS_TX_OPTIONS"]);
+
+    const boundsOf = (call: string) => hasExplicitBounds(call, call.indexOf("$transaction(") + "$transaction".length, boundsConstants);
+    expect(boundsOf("await this.prisma.$transaction(async (tx) => { await tx.a.b(); });")).toBe(false);
+    expect(boundsOf("await this.prisma.$transaction(async (tx) => { await tx.a.b(); }, { timeout: 30_000 });")).toBe(true);
+    expect(boundsOf("await this.prisma.$transaction(async (tx) => { await tx.a.b(); }, PREPARED_ITEMS_TX_OPTIONS);")).toBe(
+      true
+    );
+    // 두 번째 인자가 있어도 상한 키가 없으면 **대장에 있어야 하는 자리**다(종전에는 빠져나갔다).
+    expect(
+      boundsOf("await this.prisma.$transaction(async (tx) => { await tx.a.b(); }, { isolationLevel: 'Serializable' });")
+    ).toBe(false);
+    // 배열형은 두 번째 인자 자체가 없다(대장의 product-link-bulk 항목이 그 근거다).
+    expect(boundsOf("await this.prisma.$transaction([one, two, three]);")).toBe(false);
+
+    // 오늘 소스의 상한 상수가 실제로 그 이름들로 잡힌다(단위 표본이 아니라 전수에서).
+    const declared = collectBoundsConstants(
+      listSourceFiles(API_SRC).map((file) => blankNonCode(readFileSync(file, "utf8")))
+    );
+    for (const name of ["PURGE_TX_OPTIONS", "IMPORT_TX_OPTIONS", "PREPARED_ITEMS_TX_OPTIONS"]) {
+      expect(declared.has(name), `${name}이 상한 상수로 잡히지 않았다`).toBe(true);
+    }
   });
 
   it("모든 자리가 둘 중 하나에 속한다 (명시 상한 또는 대장)", () => {

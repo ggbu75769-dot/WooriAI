@@ -4,12 +4,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   calculateRecommendationScore,
-  sortRecommendedItems,
   type ChildStageCode,
   type ItemStatus,
   type NecessityLevel
 } from "@wooriai/domain";
 import { STAGE_BAND_LABELS, STAGE_BAND_STAGES } from "../src/items-commerce/stage-bands";
+// 라운드 82 리뷰 L-9: 순서는 **화면이 부르는 그 랭커**가 낸다(테스트가 두 번째 사본을 만들지 않는다).
+import { rankItemsForTab } from "../src/onboarding/item-ranking";
 import {
   mergeRanges,
   overlaps,
@@ -374,11 +375,26 @@ describe("Batch 03 seed data", () => {
   /**
    * 라운드 82 트랙 B ⓓ — **"지금 필요"의 머리에 서는 품목이 링크 0건이면 빨개진다.**
    *
-   * ⚠️ 여기서 순위를 새로 매기지 않는다. 점수는 도메인(`packages/domain/src/recommendation.ts`)의
-   * `sortRecommendedItems`·`calculateRecommendationScore`를 **불러서** 나오고, 이 파일에는
+   * ⚠️ 여기서 순위를 새로 매기지 않는다. 순서는 **화면이 부르는 그 함수**(`rankItemsForTab` →
+   * 도메인 `sortRecommendedItems`)를 불러서 나오고, 점수도 도메인
+   * (`packages/domain/src/recommendation.ts`)의 `calculateRecommendationScore`가 낸다. 이 파일에는
    * 정찰이 잰 수치가 한 자리도 적히지 않는다(두 번째 채점기를 만드는 순간 두 순서가 갈린다).
    * 링크 유무는 **점수에 들어가지 않는다** — 그것은 DNC-009의 인접 영역이고, 이 절은 점수를
    * 읽기만 한다.
+   *
+   * ⚠️ **라운드 82 리뷰 L-9 정정 — 후보 집합을 손으로 좁히지 않는다.** 종전 이 절은 후보를
+   * `stageCodes.includes(stageCode)`로 **미리 걸러서** 넘겼다. 그러면 `stageMatches`가 전원 참인
+   * 상수가 되어 점수의 축 셋 중 하나가 접히고, 최고점 무리는 정의상 "그 시기의 `essential` 전부"가
+   * 된다 — 바로 위 *"essential 품목은 예외 없이 링크 ≥1"* 이 이미 단언한 집합이라 **항진명제**였다.
+   * 게다가 그 필터는 화면의 후보 집합을 **테스트가 다시 구현한 두 번째 사본**이기도 했다.
+   * 이제 `itemsForChild`가 하는 것과 **똑같이** 활성 카탈로그 전체를 `rankItemsForTab`에 넘기고,
+   * 탭 술어(`now`)와 `stageMatches` 계산은 그 모듈이 한다.
+   *
+   * 그리고 축이 **실제로 갈리는 창**을 함께 문다: 시기 밴드(ITEM-121 `stageBand`)로 다음 시기를
+   * 미리 보는 화면에서는 후보에 "지금 시기가 아닌" 항목이 섞이므로 `stageMatches`가 참·거짓으로
+   * 나뉜다. 그 창에서 이 절이 새로 묻는 것이 있다 — **머리에 서는 것은 언제나 시기가 맞는
+   * 항목이다**(시기 일치 35점이 필수도 한 칸 10점보다 크다는 계약의 화면판). 점수에서
+   * `stageMatches`가 빠지거나 후보 집합이 밴드로 잘못 좁혀지면 이 단언이 빨개진다.
    *
    * 왜 "1위 하나"가 아니라 **동점 무리 전부**인가: 도메인의 동점 파괴자는 `id.localeCompare`이고
    * 그 `id`는 DB가 만드는 UUID다(시드에는 없다). 시드에서 1위를 하나로 못 박으면 그것은 실제
@@ -387,30 +403,47 @@ describe("Batch 03 seed data", () => {
    *
    * 상태는 `not_prepared`(모든 항목의 기본값 · 온보딩 직후 홈이 보는 상태)로 고정한다.
    */
-  it("각 시기 '지금 필요' 최고점 무리에 링크 0건 품목이 없다 (도메인 점수 파생)", async () => {
+  it("각 시기 '지금 필요' 최고점 무리에 링크 0건 품목이 없다 (화면의 랭커 파생)", async () => {
     const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
 
     const linkedCodes = new Set(productLinkSeeds.map((link) => link.itemTemplateCode));
+    // `itemsForChild`가 넘기는 것과 같은 모양 — **활성 카탈로그 전체**다(코드를 id 자리에 쓰는 것만
+    // 다르다: 시드에는 UUID가 없고, 동점 파괴자는 아래에서 무리 전체를 무는 것으로 우회한다).
+    const catalog = itemTemplateSeeds
+      .filter((item) => item.active)
+      .map((item, index) => ({
+        id: item.code,
+        stageCodes: item.stageCodes as ChildStageCode[],
+        necessityLevel: item.necessityLevel as NecessityLevel,
+        status: "not_prepared" as ItemStatus,
+        displayOrder: index
+      }));
+    expect(catalog.length, "활성 준비템이 없으면 이 절은 아무것도 묻지 않는다").toBeGreaterThan(0);
+
+    const topTierOf = (ranked: typeof catalog, stageCode: ChildStageCode) => {
+      // 점수는 도메인 함수가 낸다 — 랭커가 넘긴 것과 **같은 세 입력**이다(item-ranking.ts).
+      const scoreOf = (entry: (typeof catalog)[number]) =>
+        calculateRecommendationScore({
+          stageMatches: entry.stageCodes.includes(stageCode),
+          necessityLevel: entry.necessityLevel,
+          status: entry.status
+        });
+      const topScore = scoreOf(ranked[0]);
+      return { topScore, topTier: ranked.filter((entry) => scoreOf(entry) === topScore) };
+    };
+
     let judgedStages = 0;
     let judgedTopItems = 0;
+    let bandsWithSplitAxis = 0;
 
-    for (const stageCode of ALL_STAGE_CODES) {
-      const candidates = itemTemplateSeeds.filter(
-        (item) => item.active && item.stageCodes.includes(stageCode)
-      );
-      expect(candidates.length, `stage ${stageCode}에 활성 품목이 없다`).toBeGreaterThan(0);
+    for (const stageCode of ALL_STAGE_CODES as ChildStageCode[]) {
+      // ⓐ 홈의 추천 셋이 곧 이 목록의 앞 셋이다(recommendedItemsForChild → tab="now").
+      const now = rankItemsForTab(catalog, { tab: "now", stageCode });
+      expect(now.length, `stage ${stageCode}의 "지금 필요"가 비어 있다`).toBeGreaterThan(0);
+      // 후보를 손으로 좁히지 않았다는 사실 자체를 고정한다 — 탭 술어가 실제로 걸렀다.
+      expect(now.length, `stage ${stageCode}: 탭 술어가 아무것도 거르지 않았다`).toBeLessThan(catalog.length);
 
-      const ranked = sortRecommendedItems(
-        candidates.map((item) => ({
-          id: item.code,
-          stageMatches: item.stageCodes.includes(stageCode),
-          necessityLevel: item.necessityLevel as NecessityLevel,
-          status: "not_prepared" as ItemStatus
-        }))
-      );
-      const topScore = calculateRecommendationScore(ranked[0]);
-      const topTier = ranked.filter((entry) => calculateRecommendationScore(entry) === topScore);
-
+      const { topScore, topTier } = topTierOf(now, stageCode);
       judgedStages += 1;
       judgedTopItems += topTier.length;
       for (const entry of topTier) {
@@ -420,11 +453,40 @@ describe("Batch 03 seed data", () => {
             `홈의 추천 카드가 곧 이 목록의 앞 셋이다`
         ).toBe(true);
       }
+
+      // ⓑ 시기 칩으로 다른 밴드를 미리 보는 창 — 여기서 `stageMatches`가 실제로 갈린다.
+      for (const stageBand of STAGE_BAND_LABELS) {
+        const banded = rankItemsForTab(catalog, { tab: "now", stageCode, stageBand });
+        if (banded.length === 0) continue;
+        const matching = banded.filter((entry) => entry.stageCodes.includes(stageCode));
+        const bandTop = topTierOf(banded, stageCode);
+
+        for (const entry of bandTop.topTier) {
+          expect(
+            linkedCodes.has(entry.id),
+            `${stageCode}/${stageBand} 머리(${entry.id} · ${bandTop.topScore}점)가 구매 링크 0건이다`
+          ).toBe(true);
+        }
+
+        if (matching.length > 0 && matching.length < banded.length) {
+          bandsWithSplitAxis += 1;
+          // 축이 살아 있다: 시기가 맞지 않는 항목은 필수도가 무엇이든 머리에 서지 못한다
+          // (시기 일치 35 > 필수도 한 칸 10 — 도메인 계약의 화면판).
+          for (const entry of bandTop.topTier) {
+            expect(
+              entry.stageCodes.includes(stageCode),
+              `${stageCode}/${stageBand}: 시기가 맞지 않는 ${entry.id}가 머리에 섰다`
+            ).toBe(true);
+          }
+        }
+      }
     }
 
-    // no-op 방지: 열 시기가 전부 판정되고, 최고점 무리가 실제로 세어진다(오늘 실측 43건).
+    // no-op 방지: 열 시기가 전부 판정되고, 최고점 무리가 실제로 세어진다.
     expect(judgedStages).toBe(ALL_STAGE_CODES.length);
     expect(judgedTopItems).toBeGreaterThanOrEqual(20);
+    // 그리고 `stageMatches`가 **실제로 갈린 창**이 존재한다 — 이것이 없으면 위 ⓑ는 다시 항진명제다.
+    expect(bandsWithSplitAxis, "stageMatches가 참·거짓으로 갈린 (시기, 밴드) 조합이 없다").toBeGreaterThan(0);
   });
 
   it("has no duplicate item template codes", async () => {

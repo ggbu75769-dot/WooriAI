@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { computeCategoryShares } from "./category-share";
-import { buildPeriodInsight, PERIOD_INSIGHT_MAX_SENTENCES } from "./period-insight";
+import {
+  buildPeriodInsight,
+  PERIOD_INSIGHT_MAX_SENTENCES,
+  PERIOD_INSIGHT_TOTAL_TOLERANCE_KRW
+} from "./period-insight";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
@@ -141,6 +145,52 @@ describe("분기·연간 인사이트 조립기", () => {
   });
 
   /**
+   * 라운드 82 리뷰 L-13 — **"전체의 47%"의 *전체*는 화면의 "총 지출"과 같은 수여야 한다.**
+   *
+   * 분기·연간은 총액과 분해가 **엔드포인트 둘**에서 온다. 두 응답이 서로 다른 시점의 스냅숏이면
+   * 문장의 분모(조각 합)와 바로 위 카드의 숫자가 갈리는데, 종전에는 `totalExpenseKrw`를 "0원인가"
+   * 판정에만 썼기 때문에 그 어긋남이 화면에 그대로 나갔다.
+   */
+  describe("ⓑ 분모와 화면 총액이 갈리면 말하지 않는다 (L-13)", () => {
+    it("허용 오차는 0원이다 — 두 집계는 같은 술어·같은 경계의 정수 합계다", () => {
+      expect(PERIOD_INSIGHT_TOTAL_TOLERANCE_KRW).toBe(0);
+    });
+
+    it("조각 합이 기간 총액과 1원이라도 다르면 null", () => {
+      const denominator = 분기분해.reduce((sum, segment) => sum + segment.amountKrw, 0);
+      for (const totalExpenseKrw of [denominator + 1, denominator - 1, denominator * 2]) {
+        expect(
+          buildPeriodInsight({ unit: "quarter", periodLabel: "2026년 3분기", totalExpenseKrw, segments: 분기분해 })
+        ).toBeNull();
+      }
+      // 같은 수이면 종전 그대로 문장이 선다(위 단언이 "언제나 null"이라 통과한 것이 아님).
+      expect(
+        buildPeriodInsight({
+          unit: "quarter",
+          periodLabel: "2026년 3분기",
+          totalExpenseKrw: denominator,
+          segments: 분기분해
+        })
+      ).not.toBeNull();
+    });
+
+    it("분모는 범례가 세는 조각만 더한 값이다(0원 조각이 섞여도 문장이 사라지지 않는다)", () => {
+      const segments = [...분기분해, { label: "기타", amountKrw: 0, categoryId: "cat-etc" }];
+      const denominator = computeCategoryShares(segments).reduce((sum, slice) => sum + slice.amountKrw, 0);
+
+      const insight = buildPeriodInsight({
+        unit: "quarter",
+        periodLabel: "2026년 3분기",
+        totalExpenseKrw: denominator,
+        segments
+      });
+
+      expect(insight).not.toBeNull();
+      expect(insight!.topCategoryLabel).toBe("기저귀/위생");
+    });
+  });
+
+  /**
    * ⓒ 이 모듈이 **말하지 않기로 한 것**. 예산·비교는 이 화면에 근거가 없는 값이고(합친 예산이
    * 존재하지 않고, 직전 분기/해의 합계를 화면이 갖고 있지 않다), 공유 문구는 별도 결정이다.
    * 문장 상한이 1인 것이 그 규율의 값이다.
@@ -192,12 +242,37 @@ describe("라운드 82 트랙 A 리포트 인사이트 배선", () => {
     expect(src).toContain("periodLabel,");
     expect(src).toContain("totalExpenseKrw: activeTotal,");
     // 도넛이 받는 그 변수 그대로다 -- 라벨을 다시 만들면 문장과 범례가 갈릴 수 있다.
-    expect(src).toContain("segments: categories.isSuccess ? categorySegments : undefined");
+    expect(src).toContain("segments: categories.isSuccess && activeCategory.isSuccess ? categorySegments : undefined");
     expect(src).toContain("segments={categorySegments}");
     // 카테고리 조회는 한 벌 그대로다(분기·연간 문장을 위해 새로 부르지 않는다).
     expect(src.match(/getCategoryReport\(/g) ?? []).toHaveLength(1);
     // ⓔ 쿼리는 **줄어들기만** 한다: 종전 열하나에서 ["home", childId] 하나가 빠진 열이다.
     expect(src.match(/useQuery\(\{/g) ?? []).toHaveLength(10);
+  });
+
+  /**
+   * 라운드 82 리뷰 M-1 — **성공 게이트가 월간과 같은 모양이다.**
+   *
+   * 종전에는 이 카드가 `hasSession && period !== "월간"` 뒤에만 서서, 도넛이 에러 카드를 그리는
+   * 화면에서도 아래 peach 카드가 **같은 실패 쿼리의 옛 캐시**로 문장을 단언했다(react-query는
+   * 재조회가 실패해도 마지막 성공 `data`를 남긴다). 월간 카드는 처음부터 `monthly.isSuccess` 뒤에
+   * 있었으므로 비대칭이었다.
+   */
+  it("M-1: 총액 쿼리와 분해 쿼리가 **둘 다 성공**했을 때만 문장을 만든다", () => {
+    const src = reportSource();
+
+    // ① 기간 총액 쿼리 — 월간의 monthly.isSuccess와 같은 자리를 세그먼트별로 고른 값 하나.
+    expect(src).toContain(
+      'period === "월간" ? monthly.isSuccess : period === "분기" ? quarterTrend.isSuccess : yearly.isSuccess'
+    );
+    expect(src).toContain('hasSession && period !== "월간" && activeIsSuccess');
+    // ② 분해 쿼리 — 바로 위 도넛이 에러 카드를 그리는 그 판정.
+    expect(src).toContain("categories.isSuccess && activeCategory.isSuccess ? categorySegments : undefined");
+    // 종전의 비대칭 형태가 남아 있지 않다.
+    expect(src).not.toContain("segments: categories.isSuccess ? categorySegments : undefined");
+
+    // 도넛의 에러 분기는 종전 그대로다 — 같은 쿼리의 실패를 두 카드가 같은 판정으로 읽는다.
+    expect(src).toContain("activeCategory.isError ? (");
   });
 
   it("ⓒ 분기·연간 카드에는 공유 버튼도 예산 줄도 서지 않는다", () => {

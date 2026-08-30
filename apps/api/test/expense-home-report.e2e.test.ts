@@ -17,6 +17,7 @@ import { configureApiApp } from "../src/bootstrap";
 import { TokenService } from "../src/auth/token.service";
 import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 import { ExpensesStoreService } from "../src/onboarding/expenses-store.service";
+import { PrismaService } from "../src/prisma/prisma.service";
 
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -1452,26 +1453,40 @@ describe("Expense, budget, home, and report API", () => {
     ).body.items as Array<{ id: string }>;
     expect(items.length).toBeGreaterThan(0);
 
-    // 이 아이의 준비템에 실제로 달려 있는 제휴 링크 하나를 그대로 쓴다(FK가 요구하는 것은
-    // product_links에 존재하는 id다). 어느 시드 항목에 링크가 달려 있는지는 카탈로그 사정이라
-    // 첫 항목으로 단정하지 않고, 링크가 있는 항목을 찾을 때까지 훑는다.
-    let linkedItemTemplateId = "";
-    let linkedProductLinkId = "";
-    for (const item of items) {
-      const detail = (
-        await request(app.getHttpServer())
-          .get(`/api/v1/children/${childId}/items/${item.id}`)
-          .set("Authorization", `Bearer ${accessToken}`)
-          .expect(200)
-      ).body as { productLinks?: Array<{ id: string }> };
-      const link = detail.productLinks?.[0];
-      if (link) {
-        linkedItemTemplateId = item.id;
-        linkedProductLinkId = link.id;
-        break;
-      }
-    }
-    expect(linkedProductLinkId, "시드 준비템 중 최소 하나에는 제휴 링크가 있어야 한다").toBeTruthy();
+    // 이 아이의 준비템에 실제로 달려 있는 링크 하나를 그대로 쓴다(FK가 요구하는 것은
+    // product_links에 존재하는 id다). 어느 항목에 링크가 달려 있는지는 카탈로그 사정이라 첫
+    // 항목으로 단정하지 않고, **링크를 가진 항목의 집합을 먼저 물어** 그중 목록에 있는 하나를
+    // 고른다.
+    //
+    // ⚠️ 라운드 82 리뷰 추가-15 — 종전에는 "링크가 나올 때까지 항목 상세를 하나씩 열어 보는"
+    // 루프였다. 이 스위트가 쓰는 테스트 DB는 라운드마다 **누적**되고(어드민 카탈로그 스위트가
+    // 만든 품목이 지워지지 않는다) 그 품목들에는 링크가 없다 — 실측으로 `tab=now` 목록이
+    // **2,651건**이었고 상세 한 건이 ~40ms라, 링크 없는 항목이 코드 순서 앞쪽에 몰리면 루프
+    // 하나가 20초를 넘겼다(단독 실행 23.0s / 병렬 실행에서는 30초 문턱을 넘겨 빨개졌다).
+    // 즉 **테스트가 느린 원인이 시드가 아니라 왕복 수**였고, 그 수는 앞으로도 계속 자란다.
+    // 이제 왕복은 상세 **한 번**이다(아래 조회는 SQL 한 문장).
+    const linkedTemplateIds = new Set(
+      (
+        await moduleRef.get(PrismaService).productLink.findMany({
+          where: { active: true },
+          select: { itemTemplateId: true },
+          distinct: ["itemTemplateId"]
+        })
+      ).map((row) => row.itemTemplateId)
+    );
+    const linkedItem = items.find((item) => linkedTemplateIds.has(item.id));
+    expect(linkedItem, "시드 준비템 중 최소 하나에는 구매 링크가 있어야 한다").toBeDefined();
+
+    const linkedItemTemplateId = linkedItem!.id;
+    const detail = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items/${linkedItemTemplateId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body as { productLinks?: Array<{ id: string }> };
+    // 응답이 실제로 그 링크를 싣는지도 함께 본다(종전 루프가 지키던 성질 그대로).
+    expect(detail.productLinks?.length, "링크를 가진 항목의 상세가 판매처를 싣지 않았다").toBeGreaterThan(0);
+    const linkedProductLinkId = detail.productLinks![0].id;
 
     const created = (
       await request(app.getHttpServer())

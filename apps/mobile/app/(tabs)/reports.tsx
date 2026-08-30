@@ -230,12 +230,22 @@ export default function ReportsScreen() {
   // 라운드 82 트랙 A: 종전에는 여기서 ["home"]도 함께 갱신했다 -- 공유 문구의 태명이 그 응답의
   // `child.nickname`에서 왔기 때문이다. 그 원천이 ["children"] 하나로 합쳐지면서(아래
   // shareChildName) 이 화면은 그 응답을 더 이상 읽지 않으므로, 읽지 않는 캐시를 당김마다
-  // 무효화하지 않는다. 아이 프로필은 그것을 **바꾸는 화면들**이 이미 ["children"]을 무효화하므로
-  // (아이 관리·설정·전환) 이 화면이 당길 이유가 없다 -- 여기서 당겨 새로 받아야 하는 것은
-  // 기간 집계뿐이다.
+  // 무효화하지 않는다.
+  //
+  // ⚠️ 라운드 82 리뷰 L-12: 그때 ["children"]을 **함께 넣지 않은 것**이 신선도 회귀였다. 그 트랙의
+  // 근거는 "아이 프로필을 바꾸는 화면들이 이미 ["children"]을 무효화한다"였는데, 그 말이 참인
+  // 범위는 **이 기기**다 -- 가족의 다른 기기(또는 웹)에서 태명을 바꾸면 이 화면의 제목 라벨과
+  // 공유 문구는 당겨도 옛 이름을 그대로 들고 있었다. 당김은 "지금 보이는 것을 다시 받아라"라는
+  // 사용자의 명시적 요청이고, 이 화면이 실제로 **그리는** 값이 그 응답에서 온다(제목의 아이 라벨 ·
+  // 마일스톤 타입 · 공유 문구의 태명). 홈이 같은 이유로 ["children"]을 당김에 싣는다
+  // (app/(tabs)/index.tsx -- GAP-060 #10). 새 쿼리는 0건이다: 이미 켜져 있는 그 쿼리를 다시 받을
+  // 뿐이라 화면의 요청 구성(첫 페인트 대장)은 한 줄도 달라지지 않는다.
   const queryClient = useQueryClient();
   const { refreshing, onRefresh } = usePullToRefresh(() =>
-    Promise.all([queryClient.invalidateQueries({ queryKey: ["report"] })])
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["report"] }),
+      queryClient.invalidateQueries({ queryKey: ["children"] })
+    ])
   );
 
   // Reset navigation offset whenever the selected period changes so "다음/이전"
@@ -630,6 +640,10 @@ export default function ReportsScreen() {
 
   const activeIsLoading = period === "월간" ? monthly.isLoading : period === "분기" ? quarterIsLoading : yearly.isLoading;
   const activeIsError = period === "월간" ? monthly.isError : period === "분기" ? quarterIsError : yearly.isError;
+  // 라운드 82 리뷰 M-1: 보고 있는 기간의 **총액 쿼리가 성공했는가**. 월간 카드가 `monthly.isSuccess`
+  // 뒤에 서는 것과 같은 값이고, 분기·연간 인사이트가 그 대칭을 갖도록 여기서 한 번만 고른다.
+  const activeIsSuccess =
+    period === "월간" ? monthly.isSuccess : period === "분기" ? quarterTrend.isSuccess : yearly.isSuccess;
   const activeTotal = period === "월간" ? monthly.data?.totalExpenseKrw : period === "분기" ? quarterTotal : yearly.data?.totalExpenseKrw;
   const refetchActive = () => {
     if (period === "월간") monthly.refetch();
@@ -803,14 +817,23 @@ export default function ReportsScreen() {
    * 이름 캐시 게이트는 월간과 같다 -- 카테고리 이름이 아직 없으면 "기타" 폴백으로 엉뚱한
    * 카테고리를 지목하느니 문장을 만들지 않는다. 예산 문장·비교 문장·공유 버튼은 이 카드에
    * 서지 않는다(이유는 순수 모듈 머리말 · 아래 렌더 주석).
+   *
+   * ⚠️ 라운드 82 리뷰 M-1 — **성공 게이트가 월간과 같은 모양이어야 한다.** 종전에는 이 카드가
+   * `hasSession && period !== "월간"` 뒤에만 서서, 도넛이 에러 카드로 바뀐 화면에서도 그 아래
+   * peach 카드가 **같은 실패 쿼리의 옛 캐시**로 "이 분기에는 …에 가장 많이 썼어요"를 단언했다
+   * (react-query는 재조회가 실패해도 `data`에 마지막 성공값을 남긴다 — `isError`와 `data`가
+   * 동시에 있는 창이다). 월간 카드는 처음부터 `monthly.isSuccess` 뒤에 서 있었으므로 이것은
+   * 비대칭이었다. 이제 게이트가 둘이다: **기간 총액 쿼리**(`activeIsSuccess` — 월간의
+   * `monthly.isSuccess`와 같은 자리)와 **카테고리 분해 쿼리**(`activeCategory.isSuccess` — 바로 위
+   * 도넛이 에러 카드를 그리는 그 판정). 실패한 쿼리의 옛 값으로 문장을 만들지 않는다.
    */
   const periodInsight =
-    hasSession && period !== "월간"
+    hasSession && period !== "월간" && activeIsSuccess
       ? buildPeriodInsight({
           unit: period === "분기" ? "quarter" : "year",
           periodLabel,
           totalExpenseKrw: activeTotal,
-          segments: categories.isSuccess ? categorySegments : undefined
+          segments: categories.isSuccess && activeCategory.isSuccess ? categorySegments : undefined
         })
       : null;
 

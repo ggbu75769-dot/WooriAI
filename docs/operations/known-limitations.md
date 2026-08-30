@@ -46,7 +46,7 @@
 | 실 소셜 로그인 | Kakao는 서버 검증 OIDC 플로(prepare/exchange, JWKS 서명·iss/aud/exp·nonce 검증)와 모바일 플로(AUTH-102)까지 구현 완료 — env 키(`OAUTH_KAKAO_*`, `EXPO_PUBLIC_KAKAO_*`)가 없으면 비활성 (`apps/api/src/auth/kakao/kakao-auth.service.ts`, `apps/mobile/src/auth/kakao-login.ts`). Apple/Google 검증 어댑터는 미구현(`apps/api/src/auth/`에 kakao 디렉터리만 존재). dev provider(`/auth/oauth-login`)는 dev/test 한정 (`apps/api/src/auth/auth.service.ts`) | Kakao 콘솔 키 발급 → env 설정. Apple/Google은 검증 어댑터 구현 + 콘솔 키 필요 |
 | 운영 PostgreSQL | 로컬 docker/포터블로만 검증됨 (`scripts/db.ts`) | 운영 `DATABASE_URL` 주입 후 `prisma migrate deploy` |
 | 릴리즈 서명 keystore | signingConfig 주입은 자동화됨 — config plugin(REL-011)이 `WOORIAI_UPLOAD_KEYSTORE` env 존재 시 release 서명, 부재 시 debug 서명으로 빌드 (`apps/mobile/plugins/with-wooriai-android-release.js`) | 업로드 keystore 발급 + `WOORIAI_UPLOAD_KEYSTORE` 등 env 주입 |
-| 실 제휴 링크 | 시드는 비제휴 dev 샘플(`https://example.com/dev/...` 77곳, `apps/api/prisma/seed-data.ts` productLinkSeeds) | 제휴 계약 + 관리자 CMS(`apps/api/src/admin/product-link-bulk.controller.ts` 포함)에서 실 URL 등록 |
+| 실 제휴 링크 | 시드는 비제휴 dev 샘플(`https://example.com/dev/...` **81곳** — 링크 62건의 `url` 62 + 제휴 링크의 `affiliateUrl` 19, `apps/api/prisma/seed-data.ts` productLinkSeeds. 라운드 82 리뷰 M-2 실측 정정: 종전 "77곳"은 라운드 82 B가 링크 넷을 더하기 전의 값이다) | 제휴 계약 + 관리자 CMS(`apps/api/src/admin/product-link-bulk.controller.ts` 포함)에서 실 URL 등록 |
 | 크래시·성능 모니터링 | 구조화 로그 + 모바일 자체 ErrorBoundary만 존재 (`apps/mobile/src/errors/ErrorBoundary.tsx` — "No crash pipeline yet (Sentry 추후)") — 외부 SDK 미연동 | Sentry 등 SDK 키 연동 |
 | 푸시 알림 (실 단말 수신 활성화) | **서버·클라이언트 코드는 양쪽 다 구현 완료**: 서버는 FCM HTTP v1 발송·토큰 등록 API·예산 경계(80/100%) 디스패치 (`apps/api/src/push/`, `apps/api/src/devices/devices.controller.ts`), 모바일은 토큰 소스·부팅 등록 훅·알림 설정 화면 (PUSH-116, 위 "라운드 16~18에서 해소됨" 참고). 남은 것은 자산 3종뿐이다 — ① `expo-notifications` 의존성 미설치(`apps/mobile/package.json`에 부재 — 새 의존성 추가는 사용자 몫), ② Firebase `google-services.json` 부재(`apps/mobile/`에 없음, app.json에 `googleServicesFile` 미지정), ③ env(`PUSH_ENABLED=1` + `FCM_SERVICE_ACCOUNT_PATH`, `EXPO_PUBLIC_PUSH_ENABLED=1`). 셋 중 하나라도 없으면 서버는 no-op(`apps/api/src/push/push-config.service.ts`), 클라이언트는 토큰 `null` → 전 경로 무동작 | FCM(Firebase) 계정 + 서비스 계정 키 발급·env 주입 + `npx expo install expo-notifications` + `expo prebuild` (활성 절차 전문: `apps/mobile/src/notifications/push-token-source.ts` 모듈 주석) |
 | 법적 운영자 정보 | 정책 문구에 실 사업자 정보 없음(코드베이스에 사업자 등록 정보 부재) | 실 사업자 정보로 교체 |
@@ -3189,15 +3189,18 @@ TalkBack 투과)은 오늘로 열다섯 라운드 연속 미확인**이고, 이 
   라운드에 같은 방식으로 낡을 수 있다.**
 - **일반형.** **전수라는 단어는 그 스윕이 코드로 남았을 때만 참으로 유지된다.** 산문으로 적힌 전수는
   그것을 읽은 사람이 *"이미 세어 봤다"* 고 믿게 만들어, **다시 세는 일 자체를 막는다.**
-- ⚠️ **갱신 (2026-08-30 · 라운드 82) — census 재실측: 모양은 **열여섯**이고, 항목 수에 비례하면서
-  인터랙티브 트랜잭션 **안**인 자리는 **하나**였다(`setPreparedItems`) — **트랙 C가 그것을 닫았다.**
-  `apps/api/src` 전수에서 `for` 안 `await`의 모양은 열여섯이고(위 "열다섯"에서 하나 늘었다 — 라운드 81 E가
-  가져오기 확정에 올린 누락 분류 확인 루프가 그 하나이고, 실패 경로에서만 도는 자리다), 그중
+- ⚠️ **갱신 (2026-08-30 · 라운드 82) — census 재실측: 트랙 C **직전**의 모양은 **열여섯**이었고, 항목
+  수에 비례하면서 인터랙티브 트랜잭션 **안**인 자리는 **하나**였다(`setPreparedItems`) — **트랙 C가
+  그것을 닫았다.** 라운드 81 census가 센 열다섯에서 하나 늘어 열여섯이 됐고(라운드 81 E가 가져오기
+  확정에 올린 누락 분류 확인 루프가 그 하나이고, 실패 경로에서만 도는 자리다), 그중
   `setPreparedItems`의 `upsert` 루프(문장 수 **N + 1**)가 배치 둘로 접혔다 —
   `updateMany` + `createMany({ skipDuplicates: true })`로 **문장 셋 고정**이고, 접을 수 있었던 근거는
-  스키마의 `@@unique([childId, itemTemplateId])`가 upsert의 판정 키와 같은 칸이라는 사실이다. 남은 열여섯은
-  전부 **항목 수에 비례하지 않거나 인터랙티브 트랜잭션 밖**이다(워커 잡 · 스케줄러 · 재시도 루프 ·
-  단계 코드 배치 · 동의 정의 순회).
+  스키마의 `@@unique([childId, itemTemplateId])`가 upsert의 판정 키와 같은 칸이라는 사실이다.
+  ⚠️ **라운드 82 리뷰 M-3 정정 — 오늘(머지 후) 실측은 열여섯이 아니라 열다섯이다**: 접힌 그 루프가
+  `for` 안 `await`의 모양에서 **사라졌기 때문**이다(라운드 82 이전 16 → 오늘 15). 종전 이 문단은
+  "모양은 열여섯"과 "남은 열여섯"을 같은 수로 적어 **접기 전과 접은 뒤가 같다고 말하는 자기모순**이
+  었다. 남은 **열다섯**은 전부 **항목 수에 비례하지 않거나 인터랙티브 트랜잭션 밖**이다(워커 잡 ·
+  스케줄러 · 재시도 루프 · 단계 코드 배치 · 동의 정의 순회).
   ⚠️⚠️ **그리고 이 절이 문턱의 근거로 적은 그 62는 계약이 아니라 시드 값이다**(W-3). *"상한이 카탈로그
   62건"* 이라고 적었을 때 62를 정하는 것은 코드가 아니라 어드민 화면이고
   (`items-catalog.service.ts`의 `adminCreateItemTemplate`), **그 수를 세는 자리는 저장소에 0건**이다.
@@ -3425,7 +3428,14 @@ TalkBack 투과)은 오늘로 열다섯 라운드 연속 미확인**이고, 이 
   늘리지 않는다**(고지 판정은 링크 **집합**에서 나오고 넷 다 비제휴·비스폰서다) — 추천 점수
   (`calculateRecommendationScore`)도 링크 수를 보지 않으므로 **순서가 한 칸도 바뀌지 않는다**(DNC-009).
   C는 `updatedCount`의 의미(라운드 45 UX-Y)·`active` 유효 판정(라운드 46 Q-1)·`gifted`를 덮는 성질이
-  **한 글자도 움직이지 않았고**, 그것을 세는 동치 계약이 배치 계약과 나란히 선다. D는 라운드 49 QA(P2-3)의
+  **한 글자도 움직이지 않았고**, 그것을 세는 동치 계약이 배치 계약과 나란히 선다.
+  ⚠️ **라운드 82 리뷰 L-11 — C의 동치는 "단일 요청 기준"이다**(주장을 그만큼 좁혀 적는다):
+  `updateMany` → `createMany({ skipDuplicates: true })` **사이**에 다른 트랜잭션이 같은
+  `(childId, itemTemplateId)` 행을 **새로 만들어 커밋하면** 그 한 항목은 종전 upsert(단일
+  `INSERT ... ON CONFLICT DO UPDATE`)와 달리 덮이지 않는다. 그 창까지 닫는 방법은 알려져 있고
+  (`createMany` 뒤에 `updateMany` 한 번 더 — 문장 넷 고정), 채택하지 않은 이유는 그 창에서 살아남는
+  값이 사용자가 방금 직접 누른 더 구체적인 상태라는 판단과, 문장 셋을 인용하는 문서 넷이다
+  (근거는 `setPreparedItems` 주석). D는 라운드 49 QA(P2-3)의
   규율이 **약해지지 않고 강해졌다** — 목록에서 `childId`로 찾으므로 아이를 모르는 창에서는 행이 아예 없고
   종전처럼 `loadingProfile`("...")이 그려진다. **남의 이름이 그려질 자리가 구조적으로 없다.**
 - ⚠️ **비세션 미리보기는 넷 다 무접촉이다** — A는 게이트 위쪽(월간 렌더)이 바이트 불변이고, D의
@@ -3552,7 +3562,13 @@ TalkBack 투과)은 오늘로 열다섯 라운드 연속 미확인**이고, 이 
   같은 뜻인가"* 를 묻지 않았다. **"문제다"라고 적힌 문장은 누군가 고치러 오지만, "문제가 아니다"라고
   적힌 문장은 그 자체가 재론을 닫는다** — V-2가 라운드 58 E의 보류에서 발견한 것과 같은 성질이고,
   여기서는 그것이 **기각이 아니라 관측의 형태**로 나타났다.
-- **오늘의 값.** 셋 다 주석을 **지우지 않았다** — 셋 다 오늘도 참이기 때문이다. 대신 각 주석이 답하지
+- **오늘의 값.** 셋 다 주석을 **지우지 않았다** — 셋 다 그 자리의 판정으로는 오늘도 참이기 때문이다.
+  ⚠️ **라운드 82 리뷰 M-4 정정 — 그중 하나는 *수치*가 이미 낡아 있었다.** 구매처 0건 주석의
+  *"넷이 링크 0개다"* 는 **트랙 B가 그 넷을 채운 뒤** 거짓이 됐는데(같은 라운드 안에서), 그 주석은
+  트랙 B의 손이 닿지 않는 파일에 있어 그대로 남았다 — *"셋 다 오늘도 참"* 이라고 적은 이 문단이
+  그 사실을 덮었다. 이제 그 주석은 `link-marker.ts:97`과 **같은 방식**(당시 수치 + 라운드 82 B
+  이후 수치)으로 두 시점을 함께 적고, 그 분기가 왜 여전히 죽은 코드가 아닌지(어드민 비활성화 ·
+  운영 데이터)도 함께 적는다. **판정은 그대로 참이고, 낡은 것은 그 판정이 인용한 수치였다.** 대신 각 주석이 답하지
   않은 절반을 **다른 형식으로** 세웠다: 구매처 0건은 **대장 + 래칫**으로(W-2), 예산 문장은 새 모듈의
   *"말하지 않는 것"* 목록으로(예산 문장 없음 · 비교 문장 없음 · 공유 문구 없음 · 월간 문장 없음 —
   **각각 왜 없는지가 함께 적혀 있다**), 원천은 **구독 대장**으로(W-4).

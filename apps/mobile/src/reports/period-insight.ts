@@ -90,6 +90,25 @@ export type PeriodInsight = {
 /** 카드가 담는 문장 수 상한 — "숫자 나열"로 되돌아가지 않으면서, 없는 값으로 늘리지도 않는다. */
 export const PERIOD_INSIGHT_MAX_SENTENCES = 1;
 
+/**
+ * 라운드 82 리뷰 L-13 — **"전체의 47%"의 *전체*가 무엇인지 재고 말한다.**
+ *
+ * 문장의 퍼센트는 `computeCategoryShares`가 내고, 그 함수의 분모는 **조각들의 합**이다. 그런데
+ * 문장이 서는 카드 바로 위에는 "총 지출" 카드가 있고 그 숫자는 `totalExpenseKrw`다 — 월간에서는
+ * 두 값이 **한 응답**에서 오지만(월간 리포트가 총액과 categoryTop을 함께 준다), 분기·연간에서는
+ * **엔드포인트가 둘**이다(총액은 trend/yearly · 분해는 category). 종전에는 `totalExpenseKrw`를
+ * "0원인가"를 가리는 데만 쓰고 분모로는 쓰지 않았으므로, 두 응답이 서로 다른 시점의 스냅숏일 때
+ * 문장의 *전체*와 화면의 *총 지출*이 조용히 다른 수를 뜻할 수 있었다.
+ *
+ * 두 수는 **구조적으로 같아야 한다**: 서버의 두 집계는 같은 술어(`deletedAt: null` ·
+ * `expenseType: "expense"` — DNC-015)와 같은 기간 경계 위에서 도는 정수 원화 합계다
+ * (`reporting-store.service.ts`의 getTrendReport·getYearlyReport·categoryBreakdown, 데모 거울도
+ * 같다). 그래서 **허용 오차가 0원인 것이 이 검산의 정답**이다 — 1원이라도 갈렸다면 그것은
+ * 반올림 오차가 아니라 두 응답 사이에 기록이 하나 들어왔다는 뜻이고, 그 창에서는 문장이 화면과
+ * 다른 모집단을 말하게 된다. 그때는 말하지 않는다(카드 없음 — 다음 갱신에서 다시 선다).
+ */
+export const PERIOD_INSIGHT_TOTAL_TOLERANCE_KRW = 0;
+
 function normalizedAmount(value: number | null | undefined): number | null {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
   return value;
@@ -102,7 +121,11 @@ function normalizedAmount(value: number | null | undefined): number | null {
 function topShare(segments: readonly CategoryShareInput[]) {
   const shares = computeCategoryShares(segments);
   if (shares.length === 0) return null;
-  return shares.reduce((best, slice) => (slice.amountKrw > best.amountKrw ? slice : best), shares[0]);
+  return {
+    top: shares.reduce((best, slice) => (slice.amountKrw > best.amountKrw ? slice : best), shares[0]),
+    // 퍼센트의 **분모** 그대로다 — 그 함수가 세는 조각(0·음수·비유한 값 제외)만 더한다.
+    denominator: shares.reduce((sum, slice) => sum + slice.amountKrw, 0)
+  };
 }
 
 /**
@@ -118,8 +141,13 @@ export function buildPeriodInsight(input: PeriodInsightInput): PeriodInsight | n
   const totalExpenseKrw = normalizedAmount(input.totalExpenseKrw);
   if (totalExpenseKrw === null || totalExpenseKrw <= 0) return null;
 
-  const top = topShare(input.segments ?? []);
-  if (top === null) return null;
+  const breakdown = topShare(input.segments ?? []);
+  if (breakdown === null) return null;
+  const { top, denominator } = breakdown;
+
+  // 라운드 82 리뷰 L-13: 문장이 말하는 "전체"와 화면의 "총 지출"이 같은 수일 때만 말한다
+  // (근거·허용 오차의 이유는 PERIOD_INSIGHT_TOTAL_TOLERANCE_KRW 주석).
+  if (Math.abs(denominator - totalExpenseKrw) > PERIOD_INSIGHT_TOTAL_TOLERANCE_KRW) return null;
 
   const sentence = `${periodLabel}에는 ${top.label}에 가장 많이 썼어요 (${formatKrw(top.amountKrw)} · 전체의 ${top.percentLabel})`;
   const sentences = [sentence].slice(0, PERIOD_INSIGHT_MAX_SENTENCES);
