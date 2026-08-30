@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, Share, Text, View } from "react-native";
@@ -33,7 +33,7 @@ import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
+import { announceForA11y, AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
 
 // 라운드 52 C-04: 역할 표는 src/family/invite-flow.ts가 단일 소스다 -- 이 화면의 라디오 목록과
 // 가족 화면의 역할 Alert이 같은 표를 읽는다(문구·순서는 여기 있던 것 그대로다).
@@ -181,6 +181,16 @@ export default function FamilyInviteScreen() {
     serverCopy: inviteSaveErrorCopy
   });
 
+  /**
+   * 라운드 79 리뷰(M-1) — 프롭 둘은 **안드로이드에서만** 자동 낭독을 만든다
+   * (`accessibilityLiveRegion`은 @platform android · alert 역할에 대응하는 VoiceOver 트레이트가
+   * 없다). 이 줄은 눌린 [초대 링크 만들기] 버튼 바로 위라 포커스가 그 버튼에 남는다 —
+   * (auth)/login.tsx가 같은 이유로 쓰는 크로스플랫폼 관례를 그대로 얹는다.
+   */
+  useEffect(() => {
+    if (invite.isError) announceForA11y(inviteCreateErrorText);
+  }, [invite.isError, inviteCreateErrorText]);
+
   const handleShare = async () => {
     if (!invite.data) return;
     try {
@@ -243,7 +253,7 @@ export default function FamilyInviteScreen() {
         />
 
         {invite.isError ? (
-          <Text style={{ color: theme.colors.danger }}>{inviteCreateErrorText}</Text>
+          <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{inviteCreateErrorText}</Text>
         ) : null}
 
         {invite.data ? (

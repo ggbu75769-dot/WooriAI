@@ -246,6 +246,98 @@ describe("라운드 77 트랙 E 초대 생성 실패가 서버 문장까지 지�
   });
 });
 
+/**
+ * 라운드 79 트랙 C — **네 모듈 중 셋째의 판정 순서**(known-limitations L-1의 답).
+ *
+ * 넷 중 **이 모듈만 오프라인이 표보다 앞**이다. 그것이 오늘 결함이 아닌 이유는 하나뿐이고,
+ * 그 이유는 이 파일이 아니라 **화면**에 있다: 이 자리의 `isOnline`은 독립된 연결 폴이 아니라
+ * `inviteSaveErrorCopy !== OFFLINE_SAVE_NOTICE` — **훅의 답에서 파생한 값**이다
+ * (`app/family/invite.tsx`). 훅의 순서가 **아는 코드 → 오프라인 → 모르는 실패**라, 서버가 코드를
+ * 준 실패는 훅에서 이미 표의 문장으로 갈라져 나오고 그 비교는 참이 된다 — 그래서 오프라인
+ * 갈래를 지나간다.
+ *
+ * ⚠️ **화면이 그 파생을 독립 폴로 바꾸는 날, 이 순서는 즉시 결함이 된다**(서버가 403을 준
+ * 실패가 어긋난 폴 한 번 때문에 오프라인 문장으로 접힌다). 아래 단언이 그날 빨개진다.
+ *
+ * 여정 전체의 코드 스윕(네 출구의 합집합)은 `src/api/api-error.test.ts`가 진다.
+ */
+describe("라운드 79 트랙 C — 모듈 ③의 순서와, 오프라인이 앞이어도 되는 유일한 근거", () => {
+  const journeyError = (code: string) =>
+    new ApiHttpError(400, { error: { code, message: "서버 원문(앱은 그대로 쓰지 않는다)", requestId: "req-1" } });
+  /** 화면의 배선 그대로 — 훅을 **한 번** 부르고 그 답 하나에서 두 인자가 나온다. */
+  const asScreenWires = (error: unknown, polledOnline: boolean) => {
+    const serverCopy = resolveSaveErrorCopy({ isOnline: polledOnline, error });
+    return inviteCreateErrorMessage(error, { isOnline: serverCopy !== OFFLINE_SAVE_NOTICE, serverCopy });
+  };
+
+  it("ⓒ 순서는 403 → 오프라인 → 훅의 답 → 초대 폴백이고, 넷 중 이 모듈만 오프라인이 표보다 앞이다", () => {
+    const forbidden = journeyError("FORBIDDEN");
+    const tableCode = "HOUSEHOLD_ALREADY_MEMBER";
+    // ① 403이 맨 앞이다.
+    expect(inviteCreateErrorMessage(forbidden, { isOnline: false, serverCopy: API_ERROR_MESSAGES[tableCode] })).toBe(
+      INVITE_FORBIDDEN_MESSAGE
+    );
+    // ② 오프라인이 **훅의 답보다 앞**이다 — 형제 셋(표가 오프라인보다 앞)과 정반대 순서다.
+    expect(
+      inviteCreateErrorMessage(new Error("boom"), { isOnline: false, serverCopy: API_ERROR_MESSAGES[tableCode] })
+    ).toBe(OFFLINE_RETRY_NOTICE);
+    // ③ 훅의 답이 초대 폴백보다 앞이다. ④ 훅도 모르면 초대 폴백이다.
+    expect(
+      inviteCreateErrorMessage(new Error("boom"), { isOnline: true, serverCopy: API_ERROR_MESSAGES[tableCode] })
+    ).toBe(API_ERROR_MESSAGES[tableCode]);
+    expect(inviteCreateErrorMessage(new Error("boom"), { isOnline: true, serverCopy: SAVE_ERROR_NOTICE })).toBe(
+      INVITE_CREATE_FAILED_MESSAGE
+    );
+  });
+
+  it("ⓒ 그 순서가 결함이 아닌 이유 — isOnline이 훅의 답에서 파생하므로 코드 있는 실패는 오프라인으로 접히지 않는다", () => {
+    // 연결 폴이 **오프라인이라고 답한 창**에서도, 서버가 코드를 준 실패는 훅에서 먼저 갈라진다.
+    expect(asScreenWires(journeyError("FORBIDDEN"), false)).toBe(INVITE_FORBIDDEN_MESSAGE);
+    expect(asScreenWires(journeyError("HOUSEHOLD_ALREADY_MEMBER"), false)).toBe(
+      API_ERROR_MESSAGES.HOUSEHOLD_ALREADY_MEMBER
+    );
+    // ⚠️ **독립 폴이었다면** 같은 실패가 오프라인 문장으로 접힌다 — 그 차이가 이 갈래의 전부다.
+    expect(inviteCreateErrorMessage(journeyError("HOUSEHOLD_ALREADY_MEMBER"), { isOnline: false })).toBe(
+      OFFLINE_RETRY_NOTICE
+    );
+    // 코드가 없는 실패에서만 오프라인 갈래가 선다(그때는 그 문장이 유일하게 옳다).
+    expect(asScreenWires(new Error("Network request failed"), false)).toBe(OFFLINE_RETRY_NOTICE);
+  });
+
+  it("ⓒ 그 파생이 화면에 실재한다 — 독립 폴로 바뀌는 날 여기가 빨개진다", () => {
+    const inviteSource = source("app/family/invite.tsx");
+    // 훅은 한 번만 부른다 — 두 인자는 **같은 답 하나**에서 나온다.
+    expect(inviteSource.match(/useSaveErrorCopy\(/g) ?? []).toHaveLength(1);
+    expect(inviteSource).toContain("const inviteSaveErrorCopy = useSaveErrorCopy(invite.isError, invite.error);");
+    expect(inviteSource).toContain("isOnline: inviteSaveErrorCopy !== OFFLINE_SAVE_NOTICE,");
+    // ⚠️ 독립된 연결 판정이 이 화면에 0건이라는 것이 위 근거의 전부다(셋 중 하나라도 생기면 빨개진다).
+    for (const independentPoll of ["isCurrentlyOnline", "useErrorTimeConnectivity", "NetInfo"]) {
+      expect(inviteSource, `${independentPoll}가 이 화면에 생겼다 — 오프라인이 앞인 순서를 다시 봐야 한다`).not.toContain(
+        independentPoll
+      );
+    }
+  });
+
+  it("ⓓ 관측 — 초대 생성 경로에 닿는 서버 코드는 둘이고, 앱이 답을 가진 것은 하나다", () => {
+    const runtime = readFileSync(join(mobileRoot, "../../apps/api/src/households/household-runtime.service.ts"), "utf8");
+    // createInvite는 두 관문을 지난다: 역할(assertOwner) → 가구 실재(requireHousehold).
+    expect(runtime).toContain("async createInvite(user: AuthenticatedUser, householdId: string,");
+    expect(runtime).toContain('code: "FORBIDDEN", message: "가족 초대는 관리자만 할 수 있어요."');
+    expect(runtime).toContain('code: "HOUSEHOLD_NOT_FOUND", message: "가족을 찾을 수 없어요."');
+
+    // 앞은 전용 문장을 받고, 뒤는 **아무 출구도 없어** 초대 폴백으로 접힌다 — 그 코드가 여정
+    // 스윕에서 이유와 함께 제외된 그것이고(api-error.test.ts), 이 줄이 그 제외의 **대가**다.
+    expect(asScreenWires(journeyError("FORBIDDEN"), true)).toBe(INVITE_FORBIDDEN_MESSAGE);
+    expect(asScreenWires(journeyError("HOUSEHOLD_NOT_FOUND"), true)).toBe(INVITE_CREATE_FAILED_MESSAGE);
+    expect(API_ERROR_MESSAGES.HOUSEHOLD_NOT_FOUND).toBeUndefined();
+
+    // ⓓ FORBIDDEN 하나가 앱에서 세 갈래로 갈린다 — 가르는 축은 코드가 아니라 **호출부**다.
+    // 여기는 그 셋 중 초대 생성 갈래이고, 중립 문장과 반드시 다른 문장이어야 한다.
+    expect(INVITE_FORBIDDEN_MESSAGE).not.toBe(API_ERROR_MESSAGES.FORBIDDEN);
+    expect(INVITE_FORBIDDEN_MESSAGE).toContain("가족 관리자에게");
+  });
+});
+
 describe("UX-Q(A) 화면 배선 (source contract — 화면은 vitest에서 렌더할 수 없다)", () => {
   it("가족 화면이 세 진입점을 같은 판정 하나로 잠근다", () => {
     const familySource = source("app/family/index.tsx");
@@ -286,7 +378,13 @@ describe("UX-Q(A) 화면 배선 (source contract — 화면은 vitest에서 렌�
   it("초대 만들기 화면이 403을 일반 재시도 문구와 분리해서 말한다", () => {
     const inviteSource = source("app/family/invite.tsx");
     expect(inviteSource).toContain('import { inviteCreateErrorMessage } from "../../src/family/invite-permissions";');
-    expect(inviteSource).toContain("<Text style={{ color: theme.colors.danger }}>{inviteCreateErrorText}</Text>");
+    /**
+     * 계약은 **한 쌍**이다: 실패 색 노드 하나가 이 모듈이 고른 값을 그린다. ⚠️ 그 노드에 붙는
+     * **접근성 프롭은 이 계약의 단위가 아니다**(레이아웃도 문장도 아니다 — 낭독 여부의 계약은
+     * `src/a11y-contract.test.ts`가 대장에서 파생해 따로 진다). 그래서 여는 태그의 프롭에
+     * 관대하고, 쌍 자체에는 그대로 엄격하다.
+     */
+    expect(inviteSource).toMatch(/<Text[^>]*style=\{\{ color: theme\.colors\.danger \}\}>\{inviteCreateErrorText\}<\/Text>/);
     // 문구 복제본은 남기지 않는다 — 단일 소스는 invite-permissions.ts다.
     expect(inviteSource).not.toContain('const createFailedText = "');
   });

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import { adminApiWriteFunctionNames } from "../test/admin-api-source-parser";
 import { ADMIN_ROLES, type AdminRole } from "./lib/admin-api";
 import { ADMIN_EDITOR_WRITE_ROLE_NOTICE, ADMIN_WRITE_ROLE_NOTICE } from "./lib/admin-role-copy";
 
@@ -391,23 +392,25 @@ function screenPaths(): string[] {
  *
  * 상태를 바꾸는 메서드를 실어 보내는 함수와, 그것을 부르는 한 겹 합성 함수
  * (`draftAndSubmitContentRevision` = create + submit)가 전부다.
+ *
+ * ## ⚠️ 라운드 79 트랙 E(GAP-079 #5) — 파서는 이제 한 벌이고, **단위는 인자다**
+ *
+ * 라운드 78까지 이 분할(`\nexport (?:async )?function `)은 **사본 둘**이었다 — 여기와
+ * `src/lib/admin-api.test.ts`의 함수 표. 두 사본은 **단위가 다르고**(여기는 *"역할 게이트가
+ * 지켜야 할 쓰기 함수"* 라 한 겹 합성을 승계하고, 저기는 *"`request()`가 쓰기 메서드를 싣는
+ * 자리"* 라 그 합성 함수를 쓰기 0건으로 읽는다), 그 차이는 오늘 정확히 하나
+ * (`draftAndSubmitContentRevision`)다.
+ *
+ * ⚠️ **합치는 순서가 이 트랙의 본체였다.** 먼저 `admin-api.test.ts`의 교차 단언이 *"두 단위가
+ * 오늘 같은 답을 낸다"* 를 못 박았고(차집합이 한 방향으로 하나 · 반대는 0건), **그 단언이
+ * 초록인 채로** 분할이 `test/admin-api-source-parser.ts`로 옮겨졌다. 순서가 반대였다면 공용
+ * 모듈이 저쪽 단위로 서고, 이 대장은 **아무 단언도 깨지 않은 채** 합성 함수를 쓰기 함수로
+ * 세지 않게 됐을 것이다 — 그 함수는 편집자의 검토 요청 경로이므로, 그때부터 역할 구멍이
+ * 생겨도 아무도 모른다. **그래서 공용 파서에는 기본 단위가 없다** — 이 자리가 자기 단위를
+ * 말하지 않고는 답을 받을 수 없다.
  */
 function adminApiWriteFunctions(): string[] {
-  const api = readSource("src/lib/admin-api.ts");
-  const bodies = new Map<string, string>();
-  for (const chunk of api.split(/\nexport (?:async )?function /).slice(1)) {
-    const name = /^([A-Za-z0-9_]+)/.exec(chunk)?.[1];
-    if (name) bodies.set(name, chunk);
-  }
-  const writes = new Set<string>();
-  for (const [name, body] of bodies) {
-    if (/method: "(?:POST|PATCH|PUT|DELETE)"/.test(body)) writes.add(name);
-  }
-  for (const [name, body] of bodies) {
-    if (writes.has(name)) continue;
-    if ([...writes].some((write) => new RegExp(`\\b${write}\\(`).test(body))) writes.add(name);
-  }
-  return [...writes].sort();
+  return adminApiWriteFunctionNames(readSource("src/lib/admin-api.ts"), "role-gate-write-function");
 }
 
 /**
@@ -650,6 +653,34 @@ describe("제출 컨트롤은 예외 없이 역할 게이트를 지난다 (라�
       callsWrite.sort(),
       "쓰기를 부르는 화면이 대장과 다릅니다 — 새 화면이면 게이트를 세우고 대장에 적으세요"
     ).toEqual(Object.keys(ADMIN_WRITE_SCREENS).sort());
+  });
+
+  /**
+   * 라운드 79 트랙 E — **이 호출부의 단위가 옆 파일의 단위로 덮이지 않는다.**
+   *
+   * 공용 파서가 두 단위를 든 뒤, 이 자리가 지켜야 할 것은 *"내 단위로 물었고 그 답을 받았다"*
+   * 하나다. 그래서 셋을 함께 묻는다 — 이 단위의 수(25) · 다른 단위(24)와 **정확히 하나 차이** ·
+   * 그 하나가 **합성 함수**라는 사실. ⚠️ 그 하나를 잃는 날 이 대장은 조용히 작아지고, 편집자의
+   * 검토 요청 경로가 역할 게이트의 그물 밖으로 나간다.
+   */
+  it("이 대장이 부르는 단위가 함수 표의 단위와 정확히 하나 다르다 (트랙 E ⓐ · 교차 단언)", () => {
+    const api = readSource("src/lib/admin-api.ts");
+    const gate = adminApiWriteFunctions();
+    const requestWriteSites = adminApiWriteFunctionNames(api, "request-write-site");
+
+    expect(gate, "이 자리가 받는 답 = `role-gate-write-function` 단위").toEqual(
+      adminApiWriteFunctionNames(api, "role-gate-write-function")
+    );
+    expect(gate.length, "역할 게이트가 지켜야 할 쓰기 함수").toBe(25);
+    expect(requestWriteSites.length, "`request()`가 쓰기 메서드를 싣는 자리").toBe(24);
+    expect(
+      gate.filter((name) => !requestWriteSites.includes(name)),
+      "역할 게이트만 세는 함수 — 한 겹 합성 하나뿐이다"
+    ).toEqual(["draftAndSubmitContentRevision"]);
+    expect(
+      requestWriteSites.filter((name) => !gate.includes(name)),
+      "함수 표만 세는 함수(반대 방향 차이는 0건이어야 한다)"
+    ).toEqual([]);
   });
 
   it("대장의 모든 제출 컨트롤이 자기 화면의 역할 게이트 **안**에 있다", () => {

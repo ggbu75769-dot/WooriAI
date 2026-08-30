@@ -41,6 +41,10 @@ import { notificationRowAccessibilityLabel } from "./notifications/notification-
 // 쓰는 문자열까지 전부 이 두 모듈에서 오므로, 트랙 A·C가 문구를 다듬어도 이 파일은 그대로다.
 import { STAGE_BAND_UNRESOLVED_NOTICE } from "./items/stage-bands";
 import { logoutConfirmMessage } from "./offline/messages";
+// GAP-079 트랙 A(#1): 저장 실패 낭독 스윕의 모집단은 **대장에서 파생**한다 — 손 목록이 아니라
+// `src/offline/offline-aware-screens.ts`의 그 배열이라, 대장에 화면이 하나 늘면 그 화면도
+// 자동으로 "그 문장이 소리로 오는가"를 받는다(읽기만 — 이 트랙은 대장을 한 줄도 고치지 않는다).
+import { OFFLINE_AWARE_LOAD_ERROR_SCREENS, OFFLINE_AWARE_SAVE_ERROR_SCREENS } from "./offline/offline-aware-screens";
 // GAP-070 트랙 E(A·B·C가 만든 새 문구): 값·문구 계약은 각 트랙의 모듈 테스트가 진다. 여기서는
 // **그 문장이 낭독되는 자리에 걸려 있는가**만 보므로, 비교에 쓰는 문자열까지 전부 모듈에서
 // 읽어 온다 — 트랙이 문구를 다듬어도 이 파일은 그대로다(라운드 66~69의 형식).
@@ -2278,7 +2282,9 @@ describe("GAP-070 #1 끝난 초대 카드의 낭독 계약 (FAM-003)", () => {
 
   it("세 갈래가 보는 카드가 alert로 뜬다 (같은 화면 안에서 나타나는 자리다)", () => {
     const block = unavailableCardBlock();
-    expect(block, "끝난 초대 카드").toContain('<View accessibilityRole="alert">');
+    // 라운드 79 트랙 A: 프롭 한 칸이 늘 수 있으므로(live region) 여는 태그를 바이트로 붙들지
+    // 않는다 — 이 자리가 묻는 것은 **alert로 뜨는가**이지 태그의 바이트가 아니다.
+    expect(block, "끝난 초대 카드").toMatch(/<View[^>]*accessibilityRole="alert"/);
     // 판정이 하나이므로 카드도 하나다 — 세 갈래가 같은 문자열이 아니라 **같은 노드**를 본다.
     expect((block.match(/accessibilityRole="alert"/g) ?? []).length, "카드 수").toBe(1);
   });
@@ -2851,5 +2857,768 @@ describe("GAP-072 ⓓ 로그인 링크 실패의 낭독 자리 (Alert 본문)", 
     const src = loginScreen();
     expect(src, "URL이 없으면 링크도 감싸는 View도 없다").toContain("if (!documentUrl) return row;");
     expect(src, "링크의 낭독 라벨").toContain('accessibilityLabel={`${label} 전문 보기`}');
+  });
+});
+
+/* ============================================================================================ */
+/* GAP-079 트랙 A(#1) — **정확해진 저장 실패 문장이 소리로도 오는가**                                */
+/* ============================================================================================ */
+
+/**
+ * ## 다섯 라운드가 올린 것은 정확도였고, 도달은 한 번도 세어지지 않았다
+ *
+ * 라운드 70 B가 저장 실패 문구에 표를 물렸고(`resolveSaveErrorCopy`), 73 E가 초대 참여·기기
+ * 알림을, 76 A가 초대 생성을, 77 E가 훅의 문장을 버리지 않게, 78 A가 온보딩 갈래를 다섯으로
+ * 만들었다. **문장의 정확도만 다섯 번 올랐다.** 그런데 그 문장이 서는 자리가 **소리로 오는지**를
+ * 세는 계약은 오늘까지 없었다.
+ *
+ * 이 저장소는 그 관례를 이미 자기 소스에 문장으로 적어 두고 있다 —
+ * `app/expenses/new.tsx`의 날짜 입력 오류 자리: *"입력 도중 나타나는 오류라 포커스가 TextInput에
+ * 남아 있다 — 스크린리더가 스스로 읽어 주지 않으면 조용히 막힌다."* 그 조합은
+ * `accessibilityRole="alert"` + `accessibilityLiveRegion="polite"` **둘 다**이고,
+ * `src/ui.tsx`의 Toast는 거기에 `announceForA11y(message)`까지 얹는다(위 A11Y-115 스윕).
+ * **이 블록은 새 관례를 만들지 않는다 — 있는 것을 대장에 연결한다.**
+ *
+ * ## 왜 **저장** 실패 대장만인가(조회 실패 대장 열넷은 이번에 열지 않는다)
+ *
+ * 가르는 근거는 **포커스가 어디 남는가** 하나다. 저장 실패는 눌린 [저장]·[초대 링크 만들기]
+ * 버튼에 포커스가 남은 채로 문장이 그 버튼 **바로 위**에 서므로, 스크린리더가 스스로 읽지
+ * 않으면 사용자는 실패했다는 사실 자체를 모른 채 같은 버튼을 다시 누른다. 조회 실패는 화면
+ * 영역이 통째로 바뀌어 사용자가 다시 훑는다 — 자동 낭독이 실제로 필요한지가 다르다.
+ * 그 답은 **실기기 확인 항목**이고(A-19/A-20), "필요하다"로 나오면 다음 라운드가 같은 형식으로
+ * 조회 대장을 연다. ⚠️ **이 문단이 값으로 남는 이유**: 적지 않으면 다음 라운드가 같은 스윕을
+ * 산문으로 다시 센다.
+ */
+const LOAD_ERROR_ANNOUNCE_OUT_OF_SCOPE_REASON =
+  "조회 실패는 화면 영역이 통째로 바뀌어 사용자가 다시 훑는다 — 저장 실패는 눌린 버튼에 포커스가 " +
+  "남은 채로 문장이 그 버튼 바로 위에 선다. 자동 낭독이 실제로 필요한지는 실기기 확인 항목(A-20)이고, " +
+  "답이 '필요하다'면 다음 라운드가 같은 형식으로 조회 대장을 연다.";
+
+/** 저장소의 낭독 관례 — 이 둘을 **함께** 걸어야 포커스가 남은 자리에서 문장이 소리가 된다. */
+const ANNOUNCED_ALERT_PROPS = ['accessibilityRole="alert"', 'accessibilityLiveRegion="polite"'] as const;
+
+/** 주석을 지우되 **자리(인덱스)는 그대로 둔다** — 구간 계산이 원본과 같은 좌표 위에서 이뤄져야 한다. */
+function maskComments(sourceText: string): string {
+  return sourceText
+    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, " "))
+    .replace(/(^|[^:])(\/\/[^\n]*)/g, (_all, prefix: string, line: string) => prefix + line.replace(/./g, " "));
+}
+
+/** 여는 태그의 끝 `>` — 중괄호·따옴표 안의 `>`(화살표 함수·비교)는 세지 않는다. */
+function openingTagEnd(masked: string, tagStart: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = tagStart; i < masked.length; i += 1) {
+    const char = masked[i];
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") quote = char;
+    else if (char === "{") depth += 1;
+    else if (char === "}") depth -= 1;
+    else if (char === ">" && depth === 0) return i;
+  }
+  return -1;
+}
+
+type JsxElement = {
+  readonly openTag: string;
+  /** 여는 태그의 시작 자리(태그 안의 자리를 묻는 데 쓴다). */
+  readonly tagStart: number;
+  /** 본문 구간 — 자기 닫힘 태그는 빈 구간이다. */
+  readonly bodyStart: number;
+  readonly bodyEnd: number;
+};
+
+/** 한 이름의 JSX 요소를 전부 모은다(같은 이름의 중첩을 센다 — 안쪽이 바깥쪽을 덮지 않게). */
+function jsxElementsOf(masked: string, tagName: string): JsxElement[] {
+  const found: JsxElement[] = [];
+  const openPattern = new RegExp(`<${tagName}(?![A-Za-z0-9_])`, "g");
+  const closeTag = `</${tagName}>`;
+  let opened: RegExpExecArray | null;
+  while ((opened = openPattern.exec(masked))) {
+    const tagEnd = openingTagEnd(masked, opened.index);
+    if (tagEnd < 0) continue;
+    const openTag = masked.slice(opened.index, tagEnd + 1);
+    if (openTag.endsWith("/>")) {
+      found.push({ openTag, tagStart: opened.index, bodyStart: tagEnd + 1, bodyEnd: tagEnd + 1 });
+      continue;
+    }
+    let level = 1;
+    let cursor = tagEnd + 1;
+    let bodyEnd = masked.length;
+    while (level > 0) {
+      const nextClose = masked.indexOf(closeTag, cursor);
+      if (nextClose < 0) break;
+      const nestedPattern = new RegExp(`<${tagName}(?![A-Za-z0-9_])`, "g");
+      nestedPattern.lastIndex = cursor;
+      const nested = nestedPattern.exec(masked);
+      if (nested && nested.index < nextClose) {
+        // 라운드 79 리뷰(P-1): **자기 닫힘 중첩은 중첩이 아니다.** `<Text …/>`는 닫는 태그를
+        // 소비하지 않으므로 level을 올리면 바깥 요소의 본문 끝이 한 칸 밀리고, 그 뒤의 자리가
+        // 통째로 바깥 본문에 삼켜진다(위 여는 태그 판정과 **같은 기준**을 여기에도 적용한다).
+        const nestedEnd = openingTagEnd(masked, nested.index);
+        if (nestedEnd >= 0 && masked.slice(nested.index, nestedEnd + 1).endsWith("/>")) {
+          cursor = nestedEnd + 1;
+          continue;
+        }
+        level += 1;
+        cursor = nested.index + 1;
+        continue;
+      }
+      level -= 1;
+      cursor = nextClose + closeTag.length;
+      if (level === 0) bodyEnd = nextClose;
+    }
+    found.push({ openTag, tagStart: opened.index, bodyStart: tagEnd + 1, bodyEnd });
+  }
+  return found;
+}
+
+/** 그 자리를 감싸는 **여는 태그** 하나(없으면 빈 문자열 — 태그 밖이라는 뜻이다). */
+function enclosingOpenTag(masked: string, at: number): string {
+  for (let i = at; i >= 0; i -= 1) {
+    if (masked[i] !== "<") continue;
+    if (!/[A-Za-z]/.test(masked[i + 1] ?? "")) continue;
+    const end = openingTagEnd(masked, i);
+    return end >= at ? masked.slice(i, end + 1) : "";
+  }
+  return "";
+}
+
+/**
+ * 화면이 저장 실패 문장을 담는 이름들 — 훅의 답과 **그 답에서 파생한 이름**까지 따라간다.
+ *
+ * 손으로 적지 않는 이유가 이 트랙의 본체다: `useSaveErrorCopy(`의 답을 그대로 그리는 화면도 있고
+ * (`app/settings/children.tsx` 셋), 주어 한 조각을 앞에 붙여 파생하는 화면도 있으며
+ * (`app/settings/notifications.tsx`), 그 답을 모듈에 넘겨 받은 문장을 그리는 화면도 있다
+ * (`app/family/invite.tsx`). 셋을 손 목록으로 적으면 넷째 모양이 생기는 날 조용히 새어 나간다.
+ */
+function saveErrorCopyNames(masked: string): string[] {
+  const names = new Set<string>();
+  const hookBinding = /const\s+([A-Za-z0-9_$]+)\s*=\s*useSaveErrorCopy\(/g;
+  let bound: RegExpExecArray | null;
+  while ((bound = hookBinding.exec(masked))) names.add(bound[1]);
+
+  const declaration = /const\s+([A-Za-z0-9_$]+)\s*=\s*([^;]*?);/g;
+  for (let pass = 0; pass < 2; pass += 1) {
+    declaration.lastIndex = 0;
+    let declared: RegExpExecArray | null;
+    while ((declared = declaration.exec(masked))) {
+      const [, declaredName, rightHandSide] = declared;
+      if (names.has(declaredName)) continue;
+      if ([...names].some((name) => new RegExp(`\\b${name}\\b`).test(rightHandSide))) names.add(declaredName);
+    }
+  }
+  return [...names].sort();
+}
+
+/**
+ * ⚠️ **라운드 79 리뷰(M-1) — 프롭 둘은 한 플랫폼의 답이다.**
+ *
+ * `accessibilityLiveRegion`은 React Native 문서가 **`@platform android`** 로 표시한 프롭이고,
+ * `accessibilityRole="alert"`에는 iOS/VoiceOver에서 대응하는 트레이트가 없다. 그래서 프롭
+ * 조합만 걸린 자리의 "낭독 밖 0건"은 **안드로이드 한정**이었다 — iOS에서는 화면에 문장이 서도
+ * 아무 소리가 나지 않는다.
+ *
+ * 이 저장소의 크로스플랫폼 답은 이미 있었다: `announceForA11y`(`src/ui.tsx` — `AccessibilityInfo.
+ * announceForAccessibility`를 best-effort로 감싼다)이고, `app/(auth)/login.tsx`가 **같은 이유**로
+ * (포커스가 눌린 버튼에 남는다) 실패 문장에 그것을 건다. Toast는 프롭과 announce를 **둘 다** 진다.
+ */
+const ANDROID_ONLY_LIVE_REGION_REASON =
+  "accessibilityLiveRegion은 @platform android 프롭이고 accessibilityRole=\"alert\"에 대응하는 VoiceOver 트레이트가 " +
+  "없다 — 프롭 조합만으로는 iOS에서 아무 소리도 나지 않는다. 크로스플랫폼 출구는 announceForA11y이고, " +
+  "app/(auth)/login.tsx가 같은 이유(포커스가 눌린 버튼에 남는다)로 이미 그 관례를 쓴다.";
+
+/** 저장 실패 문장이 **그려지는** 한 자리와, 그 자리가 소리로 나가는 출구. */
+type SaveErrorAnnounceSite = {
+  readonly name: string;
+  /**
+   * `announce` = 관례 조합 + `announceForA11y` 배선(**두 플랫폼 다**) ·
+   * `live-region` = 프롭 조합만(**안드로이드 한정** — 위 `ANDROID_ONLY_LIVE_REGION_REASON`) ·
+   * `toast` = 두 번째 출구(Toast가 프롭과 announce를 스스로 진다) · `silent` = 낭독 밖.
+   */
+  readonly exit: "announce" | "live-region" | "toast" | "silent";
+};
+
+/**
+ * `이름(` 호출 하나의 **괄호 구간**(문자열 안의 괄호는 세지 않는다). 낭독 배선이 실제로
+ * `useEffect` 안에 있는지를 묻는 데 쓴다 — 렌더 도중 부르면 같은 문장을 매 렌더 다시 읽는다.
+ */
+function callBlocksOf(masked: string, calleeName: string): string[] {
+  const blocks: string[] = [];
+  const pattern = new RegExp(`\\b${calleeName}\\(`, "g");
+  let found: RegExpExecArray | null;
+  while ((found = pattern.exec(masked))) {
+    const open = found.index + found[0].length - 1;
+    let depth = 0;
+    let quote: string | null = null;
+    for (let i = open; i < masked.length; i += 1) {
+      const char = masked[i];
+      if (quote) {
+        if (char === quote) quote = null;
+        continue;
+      }
+      if (char === '"' || char === "'" || char === "`") quote = char;
+      else if (char === "(") depth += 1;
+      else if (char === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          blocks.push(masked.slice(open, i + 1));
+          break;
+        }
+      }
+    }
+  }
+  return blocks;
+}
+
+/** `useEffect` 안에서 `announceForA11y(...)`로 실제로 읽히는 이름들. */
+function announcedSaveErrorNames(masked: string, names: readonly string[]): Set<string> {
+  const announced = new Set<string>();
+  for (const block of callBlocksOf(masked, "useEffect")) {
+    if (!block.includes("announceForA11y(")) continue;
+    for (const name of names) {
+      if (new RegExp(`announceForA11y\\([^;]*\\b${name}\\b`).test(block)) announced.add(name);
+    }
+  }
+  return announced;
+}
+
+/**
+ * 한 화면 소스에서 "저장 실패 문장이 그려지는 자리"를 전부 찾아 출구를 매긴다.
+ *
+ * 자리로 세는 조건은 하나다: 위 이름 가운데 하나가 **`<Text>`의 본문 안**이거나
+ * **`<Toast …/>`의 여는 태그 안**에 있는 것. 선언 자리(그 이름을 만드는 줄)는 어느 요소 안에도
+ * 없으므로 저절로 빠진다. ⚠️ 한 요소가 같은 이름을 두 번 실어도 **자리는 하나**다
+ * (`app/family/accept/[token].tsx`의 오프라인 갈래가 그 모양이다).
+ */
+function saveErrorAnnounceSitesOf(sourceText: string): SaveErrorAnnounceSite[] {
+  const masked = maskComments(sourceText);
+  const names = saveErrorCopyNames(masked);
+  const announced = announcedSaveErrorNames(masked, names);
+  const texts = jsxElementsOf(masked, "Text");
+  const toasts = jsxElementsOf(masked, "Toast");
+  const seen = new Set<string>();
+  const sites: SaveErrorAnnounceSite[] = [];
+
+  for (const name of names) {
+    const usage = new RegExp(`\\b${name}\\b`, "g");
+    let used: RegExpExecArray | null;
+    while ((used = usage.exec(masked))) {
+      const at = used.index;
+      const inText = texts
+        .filter((element) => at >= element.bodyStart && at < element.bodyEnd)
+        .sort((left, right) => right.bodyStart - left.bodyStart)[0];
+      const inToast = toasts.find((element) => at >= element.tagStart && at < element.bodyStart);
+      const host = inText ?? inToast;
+      if (!host) continue;
+      const key = `${name}@${host.tagStart}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (inText) {
+        const hasProps = ANNOUNCED_ALERT_PROPS.every((prop) => inText.openTag.includes(prop));
+        // 라운드 79 리뷰(M-1): 출구는 **세 칸**이다 — 프롭만이면 안드로이드 한정(`live-region`),
+        // announce까지 서 있어야 두 플랫폼 다(`announce`)다.
+        sites.push({ name, exit: hasProps ? (announced.has(name) ? "announce" : "live-region") : "silent" });
+        continue;
+      }
+      sites.push({ name, exit: "toast" });
+    }
+  }
+  return sites;
+}
+
+const saveErrorAnnounceSites = (screen: string) => saveErrorAnnounceSitesOf(source(screen));
+
+/**
+ * ⚠️ **오늘 프롭을 걸 수 없는 자리와 그 이유 — 값으로 적는다. (오늘 그런 자리는 0건이다.)**
+ *
+ * 라운드 79 트랙 A의 소유는 화면 다섯과 계약 하나였다. 그때 네 자리
+ * (`app/settings/children.tsx`의 편집·출생 전환·추가 셋 · `app/settings/notifications.tsx`의
+ * 기기 토글 하나)의 `<Text>` 여는 태그는 **소유 밖 테스트 파일이 바이트 단위로 핀해 두어서**
+ * 프롭을 한 칸도 더할 수 없었다 — 더하면 그 핀이 먼저 빨개진다. 그래서 그 넷은 이유를 값으로
+ * 단 채 이 목록에 남았고, 목록이 다음 라운드에 넘긴 답은 한 줄이었다:
+ * **핀을 모양으로 적으면 낭독 프롭이 설 수 있다**(트랙 C가 가족 여정의 두 자리에서 먼저 보인
+ * 그 답 — 아래 `ROUND79_RELAXED_PIN_DEPENDENCY`).
+ *
+ * 라운드 79 통합이 그 답을 그대로 실행했다: 세 바이트 핀을 모양 핀으로 풀고
+ * (`src/offline/messages.test.ts` 둘 · `src/children/child-born-transition.test.ts` 하나)
+ * **같은 걸음에** 네 자리에 프롭 둘을 걸었다. 화면과 핀이 함께 움직였으므로 이 목록은 비었다.
+ *
+ * ⚠️ **비었어도 이 값과 그 형식이 남는 이유**: 다음에 같은 일이 생기면 제외가 산문이 아니라
+ * **자기 무효화되는 값**으로 적혀야 한다. 각 줄은 ⓐ 화면에 그 구간이 실재하고 ⓑ 그 구간을
+ * 붙드는 핀이 named 파일에 실재한다는 것을 함께 단언한다 — **핀이 사라지는 순간 그 줄이
+ * 빨개져** 다음 사람이 프롭 둘을 거는 것을 잊을 수 없게 된다. 라운드 74 D가 조회 쪽 제외를
+ * 산문에서 값으로 옮긴 그 규율 그대로이고, 이유는 빈 문자열일 수 없다.
+ */
+const SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN: Readonly<
+  Record<
+    string,
+    {
+      /** 화면 소스에 실재하는 그 구간 — 프롭을 한 칸 더하면 이 바이트가 사라진다. */
+      readonly screenPin: string;
+      /** 그 바이트를 붙들고 있는 **소유 밖** 소스 계약들. */
+      readonly pinnedBy: ReadonlyArray<{ readonly file: string; readonly needle: string }>;
+      readonly reason: string;
+    }
+  >
+> = {};
+
+/**
+ * ⚠️ 빈 목록은 조용하다 — **비었다는 사실과 그 경위**를 값으로 남긴다(빈 목록이 "아무도 세지
+ * 않았다"로 읽히지 않게). 라운드 79 트랙 A가 넷을 남겼고, 같은 라운드의 통합이 핀과 화면을
+ * 함께 움직여 그 넷을 완결했다.
+ */
+const SAVE_ERROR_ANNOUNCE_NO_BLOCKED_SITES_REASON =
+  "라운드 79 트랙 A가 소유 밖 바이트 핀 때문에 넷을 남겼고(children 셋 · notifications 하나), 같은 라운드의 통합이 " +
+  "세 핀(src/offline/messages.test.ts 둘 · src/children/child-born-transition.test.ts 하나)을 모양 핀으로 풀면서 " +
+  "같은 걸음에 그 네 자리에 낭독 프롭 둘을 걸었다. 그래서 대장 다섯 화면의 저장 실패 자리 일곱은 전부 낭독 출구를 가진다.";
+
+/**
+ * ⚠️ **다른 트랙이 바이트 핀을 모양 핀으로 풀어 준 자리 — 그 의존을 값으로 적는다.**
+ *
+ * 가족 여정의 두 자리(`app/family/invite.tsx`의 실패 줄 · `app/family/accept/[token].tsx`의 끝난
+ * 초대 카드)는 종전에 **여는 태그까지 포함한 바이트**로 핀돼 있었다. 라운드 79 트랙 C가 그 둘을
+ * *"태그의 바이트가 아니라 모양을 묻는다"* 로 바꾸면서(`<Text[^>]*style=…` · `<View[^>]*
+ * accessibilityRole="alert"`) 이 트랙이 프롭을 걸 수 있게 됐다.
+ *
+ * 라운드 79 통합이 **같은 형식으로 세 자리를 더 풀었다** — 아이 관리 셋을 함께 붙들던 루프 핀,
+ * 그 가운데 출생 전환 한 자리를 따로 붙들던 핀, 그리고 기기 토글 한 자리의 핀. 그 셋이 풀린
+ * 덕에 위 `SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN`이 비었다.
+ *
+ * ⚠️ 그 완화가 사라지면 이 화면들은 다시 침묵으로 되돌아가야 한다 — 그래서 **의존을 단언으로**
+ * 세운다. 되돌아가는 날 여기가 먼저 빨개져서, 그것이 사고가 아니라 결정이 되게 한다.
+ */
+const ROUND79_RELAXED_PIN_DEPENDENCY: ReadonlyArray<{ readonly file: string; readonly needle: string; readonly why: string }> = [
+  {
+    file: "src/family/invite-permissions.test.ts",
+    needle: "expect(inviteSource).toMatch(/<Text[^>]*style=\\{\\{ color: theme\\.colors\\.danger \\}\\}>\\{inviteCreateErrorText\\}<\\/Text>/);",
+    why: "초대 생성 실패 줄에 낭독 프롭 둘이 설 수 있는 근거"
+  },
+  {
+    file: "src/family/invite-accept-messages.test.ts",
+    needle: 'expect(card).toMatch(/<View[^>]*accessibilityRole="alert"/);',
+    why: "끝난 초대 카드에 live region 한 칸이 설 수 있는 근거"
+  },
+  {
+    file: "src/offline/messages.test.ts",
+    // 라운드 70 리뷰 M-2의 루프 핀 — 세 뮤테이션 자리를 한 번에 붙들던 그 한 줄이다.
+    // ⚠️ 그 핀은 템플릿 리터럴로 정규식을 만든다(백슬래시가 소스에 둘씩 적힌다) — 그래서 이
+    // needle도 소스 바이트 그대로다: `String.raw`가 아니면 이 값이 소스와 어긋난다.
+    needle: String.raw`<Text[^>]*style=\\{\\{ color: theme\\.colors\\.danger \\}\\}>`,
+    why: "아이 관리 셋(편집·출생 전환·추가)의 실패 줄에 낭독 프롭 둘이 설 수 있는 근거"
+  },
+  {
+    file: "src/children/child-born-transition.test.ts",
+    needle:
+      "/\\{markChildBorn\\.isError \\? <Text[^>]*style=\\{\\{ color: theme\\.colors\\.danger \\}\\}>\\{bornFailedText\\}<\\/Text> : null\\}/",
+    why: "출생 전환 실패 줄을 따로 붙들던 두 번째 핀 — 셋 가운데 이 자리만 핀이 둘이었다"
+  },
+  {
+    file: "src/offline/messages.test.ts",
+    needle: "expect(src).toMatch(/<Text[^>]*style=\\{errorTextStyle\\}>\\{deviceToggleSaveErrorText\\}<\\/Text>/);",
+    why: "기기 알림 토글 저장 실패 줄에 낭독 프롭 둘이 설 수 있는 근거"
+  }
+];
+
+/**
+ * ⚠️ **`accessibilityRole="alert"`가 홀로 선 자리와 그 이유** — 부정 단언의 제외 목록.
+ *
+ * 2026-08-30 실측으로 role 단독인 자리는 넷이었다(`src/onboarding/step-ui.tsx` ·
+ * `app/family/accept/[token].tsx` 둘 · `app/(tabs)/items.tsx`). 이 라운드가 앞의 셋에 live
+ * region을 걸었고 — **하필 그 셋이 라운드 70·78이 문장을 정확하게 만든 바로 그 카드들이다** —
+ * 남는 하나는 실패가 아니라서 남는다. **이유가 값으로 있을 때만 제외다.**
+ *
+ * ⚠️ 라운드 79 통합이 더한 네 자리(`app/settings/children.tsx` 셋 ·
+ * `app/settings/notifications.tsx` 하나)는 이 대장을 **한 줄도 바꾸지 않는다** — 관례는 언제나
+ * **둘 다**이고, 넷 다 role과 live region을 한 걸음에 함께 걸었기 때문이다. 반쪽만 거는 날
+ * 이 대장이 먼저 빨개지는 것이 이 부정 단언의 값이다.
+ */
+const ALERT_ROLE_WITHOUT_LIVE_REGION: Readonly<Record<string, { readonly places: number; readonly reason: string }>> = {
+  "app/(tabs)/items.tsx": {
+    places: 1,
+    reason:
+      "준비템 100% 축하 배너다 — 실패 문장이 아니다. 눌린 버튼에 포커스가 남은 자리도 아니고, 자동으로 끼어들어 읽어야 할 사실도 아니다(DNC-018: 구매를 재촉하지 않는다)."
+  }
+};
+
+/**
+ * ⚠️ **이 라운드가 실제로 더한 것 — 프롭뿐이다.**
+ *
+ * 여는 태그의 "이전 바이트"를 값으로 들고, 더한 프롭을 빼면 그것과 **정확히 같아진다**는 것을
+ * 본다. 문장·스타일·조건은 한 글자도 손대지 않았다는 사실이 이 단언 하나로 선다
+ * (`accessibilityRole`·`accessibilityLiveRegion`은 레이아웃 속성이 아니다 — 보이는 화면은
+ * 한 픽셀도 바뀌지 않는다. 라운드 65가 hitSlop에서 쓴 그 판단과 같은 근거다).
+ */
+const ROUND79_ANNOUNCE_PROPS_ADDED: ReadonlyArray<{
+  readonly file: string;
+  readonly before: string;
+  readonly after: string;
+  readonly added: ReadonlyArray<string>;
+  readonly what: string;
+}> = [
+  {
+    file: "app/family/accept/[token].tsx",
+    before: "<Text style={{ color: theme.colors.danger }}>",
+    after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>',
+    added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
+    what: "초대 수락(POST) 저장 실패 줄 — 대장 다섯 화면 중 하나"
+  },
+  {
+    file: "app/family/accept/[token].tsx",
+    before: '<View accessibilityRole="alert">',
+    after: '<View accessibilityLiveRegion="polite" accessibilityRole="alert">',
+    added: ['accessibilityLiveRegion="polite"'],
+    what: "끝난 초대 카드(라운드 70 A)와 수락 성공 후 뒤처리 실패 카드(라운드 60 #3) — role만 있고 live region이 없던 자리 둘"
+  },
+  {
+    file: "app/family/invite.tsx",
+    before: "<Text style={{ color: theme.colors.danger }}>",
+    after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>',
+    added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
+    what: "초대 링크 만들기(POST) 저장 실패 줄 — 대장 다섯 화면 중 하나"
+  },
+  {
+    file: "app/settings/children.tsx",
+    before: "<Text style={{ color: theme.colors.danger }}>",
+    after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>',
+    added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
+    what: "아이 관리 뮤테이션 실패 셋(편집·출생 전환·추가) — 대장 다섯 화면 중 하나. 라운드 79 통합이 루프 핀을 모양으로 풀며 함께 걸었다"
+  },
+  {
+    file: "app/settings/notifications.tsx",
+    before: "<Text style={errorTextStyle}>",
+    after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>',
+    added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
+    what: "같은 모양의 실패 줄 둘 — 손으로 적은 푸시 설정 저장 실패 한 줄(대장 밖)과, 라운드 79 통합이 핀을 푼 뒤 걸린 기기 토글 저장 실패 한 줄(대장 안)"
+  },
+  {
+    file: "src/onboarding/step-ui.tsx",
+    before: '<View accessibilityRole="alert">',
+    after: '<View accessibilityLiveRegion="polite" accessibilityRole="alert">',
+    added: ['accessibilityLiveRegion="polite"'],
+    what: "OnboardingSaveErrorCard — 라운드 78 A가 갈래를 다섯으로 만든 그 카드(모듈 층의 한 자리)"
+  }
+];
+
+describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)", () => {
+  it("ⓐ 대장 화면 전수 — 저장 실패 문장은 낭독되는 노드 안에 선다 (출구 둘: live region · Toast)", () => {
+    // 모집단이 손 목록이 아니라 대장이라, 화면이 하나 늘면 그 화면도 이 질문을 자동으로 받는다.
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS.length, "대장이 비면 이 스윕이 조용히 죽는다").toBeGreaterThan(0);
+
+    const silent: string[] = [];
+    const androidOnly: string[] = [];
+    const exits: Record<string, number> = {};
+    let total = 0;
+    for (const screen of OFFLINE_AWARE_SAVE_ERROR_SCREENS) {
+      const sites = saveErrorAnnounceSites(screen);
+      // 유령 방지: 대장의 화면은 저장 실패 문장을 **실제로 그린다**. 0건이면 스캔이 끊긴 것이고,
+      // 끊긴 스캔 위에서는 아래 부정 단언이 영원히 초록이다(라운드 78 E가 이름 붙인 그 모양).
+      expect(sites.length, `${screen}이 그리는 저장 실패 자리`).toBeGreaterThan(0);
+      total += sites.length;
+      for (const site of sites) {
+        exits[site.exit] = (exits[site.exit] ?? 0) + 1;
+        if (site.exit === "silent") silent.push(`${screen} ${site.name}`);
+        if (site.exit === "live-region") androidOnly.push(`${screen} ${site.name}`);
+      }
+    }
+
+    // 오늘의 실측: 일곱 자리(맨 Text 여섯 + Toast 하나) — 자리 수는 라운드 79 트랙 A 때와 같다.
+    // 더한 것이 프롭뿐이라 **자리는 하나도 늘거나 줄지 않았다**(아래 ⓓ가 그 사실을 따로 진다).
+    expect(total, "대장 다섯 화면이 그리는 저장 실패 자리 합계").toBe(7);
+    // 오늘의 값: 낭독 밖은 **0건**이다(트랙 A 뒤 넷 → 통합이 핀과 화면을 함께 움직여 0).
+    expect(silent.sort(), "낭독 밖에 남은 저장 실패 자리").toEqual([]);
+    // 그 0은 손으로 적은 값이 아니라 위 제외 목록에서 파생한다 — 제외가 다시 생기면 그 목록에
+    // 이유가 값으로 적혀야 하고, 적히지 않은 침묵은 여기서 빨개진다.
+    expect(silent.sort(), "낭독 밖에 남은 저장 실패 자리").toEqual(
+      Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN).sort()
+    );
+
+    // ⚠️ 라운드 79 리뷰(M-1) — **한 플랫폼만 답하는 자리도 0건이다.** 프롭 조합은 안드로이드의
+    // 답이고, iOS는 `announceForA11y`가 답한다. 일곱 자리 전부가 두 플랫폼 다 도달하는 출구를
+    // 가진다: 맨 Text 여섯은 `announce`(프롭 + useEffect 배선), Toast 하나는 자기가 진다.
+    expect(androidOnly.sort(), "프롭만 걸려 안드로이드에서만 읽히는 자리").toEqual([]);
+    expect(ANDROID_ONLY_LIVE_REGION_REASON, "한 플랫폼만 답하는 자리를 세는 이유").toContain("@platform android");
+    expect(exits, "출구별 자리 수").toEqual({ announce: 6, toast: 1 });
+  });
+
+  it("ⓐ-4 일곱 자리 전부 announce 배선이 소스에 실재한다 (맨 Text 여섯 = useEffect · Toast 하나 = 컴포넌트)", () => {
+    // 파생 스윕이 답을 내는 근거가 실제 소스 바이트라는 것을 자리별로 한 번 더 못박는다 —
+    // 스캐너가 끊겨도(위 유령 방지가 놓쳐도) 여기가 빨개진다.
+    const wiredByEffect: ReadonlyArray<{ readonly file: string; readonly guard: string; readonly announced: string }> = [
+      { file: "app/settings/children.tsx", guard: "markChildBorn.isError", announced: "bornFailedText" },
+      { file: "app/settings/children.tsx", guard: "saveEdit.isError", announced: "editFailedText" },
+      { file: "app/settings/children.tsx", guard: "addChild.isError", announced: "addFailedText" },
+      {
+        file: "app/settings/notifications.tsx",
+        guard: "toggleDevice.isError",
+        announced: "deviceToggleSaveErrorText"
+      },
+      {
+        file: "app/family/accept/[token].tsx",
+        guard: "accept.isError && !inviteUnavailable",
+        announced: "acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)"
+      },
+      { file: "app/family/invite.tsx", guard: "invite.isError", announced: "inviteCreateErrorText" }
+    ];
+    expect(wiredByEffect, "맨 Text 자리").toHaveLength(6);
+    for (const entry of wiredByEffect) {
+      const masked = maskComments(source(entry.file));
+      const effects = callBlocksOf(masked, "useEffect").filter((block) => block.includes("announceForA11y("));
+      const wired = effects.find(
+        (block) => block.includes(`if (${entry.guard})`) && block.includes(`announceForA11y(${entry.announced})`)
+      );
+      // ⚠️ 배선이 사라지면(또는 조건이 화면의 갈래와 갈리면) 여기가 먼저 빨개진다.
+      expect(wired, `${entry.file}: ${entry.announced} 낭독 배선`).toBeTruthy();
+      // 렌더 도중이 아니라 **effect 안**이고, 문장이 바뀌면 다시 읽도록 의존 배열이 그 값을 든다
+      // (들지 않으면 두 번째 실패가 조용해진다 — 같은 화면에서 사유만 갈리는 자리들이다).
+      const deps = wired!.slice(wired!.lastIndexOf(", ["));
+      expect(deps, `${entry.file}: ${entry.announced}의 의존 배열`).toContain(entry.announced.split(" ")[0]);
+    }
+
+    // 눈과 귀가 같은 말을 한다: 초대 수락 자리는 화면이 그리는 **그 식 그대로**를 읽는다
+    // (이 화면만 파생 변수 없이 갈래를 인라인으로 그리므로, 두 자리의 식이 갈리는 날 빨개진다).
+    const acceptScreenSource = source("app/family/accept/[token].tsx");
+    const acceptExpression =
+      "acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)";
+    expect(acceptScreenSource, "화면이 그리는 식").toContain(`{${acceptExpression}}`);
+    expect(acceptScreenSource, "낭독하는 식").toContain(`announceForA11y(${acceptExpression})`);
+
+    // Toast는 프롭이 아니라 자기가 announce해서 통과한다(두 번째 출구의 실재 확인).
+    const uiSource = source("src/ui.tsx");
+    expect(uiSource).toContain("export function announceForA11y");
+    const toastAt = uiSource.indexOf("export function Toast");
+    expect(toastAt, "Toast 컴포넌트").toBeGreaterThan(-1);
+    expect(uiSource.slice(toastAt)).toContain("announceForA11y(message)");
+  });
+
+  it("ⓐ-2 제외는 자기 무효화된다 — 오늘 제외는 0건이고, 생기면 화면의 그 구간과 핀이 **둘 다** 실재해야 한다", () => {
+    // 오늘의 값: 목록은 비었다(라운드 79 통합이 네 자리를 완결했다). 비었다는 **사실**도 값으로
+    // 선다 — 형식만 남고 아무도 세지 않는 목록이 되지 않게.
+    expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "낭독 밖으로 남겨 둔 자리").toEqual([]);
+    expect(SAVE_ERROR_ANNOUNCE_NO_BLOCKED_SITES_REASON.length, "비어 있는 경위").toBeGreaterThan(0);
+    expect(SAVE_ERROR_ANNOUNCE_NO_BLOCKED_SITES_REASON).toContain("모양 핀");
+
+    // 아래 규율은 제외가 다시 생기는 날을 위해 그대로 선다(줄이 생기면 곧바로 그 줄을 검사한다).
+    for (const [key, entry] of Object.entries(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN)) {
+      const screen = key.slice(0, key.lastIndexOf(" "));
+      expect(entry.reason.length, `${key}의 제외 사유`).toBeGreaterThan(0);
+      expect(source(screen), `${key}: 화면의 그 구간`).toContain(entry.screenPin);
+      expect(entry.pinnedBy.length, `${key}를 붙드는 핀`).toBeGreaterThan(0);
+      for (const pin of entry.pinnedBy) {
+        // ⚠️ 핀이 사라지면 이 줄이 빨개진다 — 그때가 프롭 둘을 거는 라운드다.
+        expect(source(pin.file), `${key}를 붙드는 핀이 ${pin.file}에 실재한다`).toContain(pin.needle);
+      }
+    }
+  });
+
+  it("ⓐ-3 프롭이 설 수 있었던 근거도 값이다 — 모양으로 풀린 핀 다섯이 실재한다", () => {
+    // 트랙 C가 푼 둘 + 라운드 79 통합이 푼 셋. 하나라도 바이트 핀으로 되돌아가면 여기가 빨개진다.
+    expect(ROUND79_RELAXED_PIN_DEPENDENCY, "모양으로 풀린 핀").toHaveLength(5);
+    for (const dependency of ROUND79_RELAXED_PIN_DEPENDENCY) {
+      expect(dependency.why.length, `${dependency.file}의 의존 사유`).toBeGreaterThan(0);
+      // ⚠️ 바이트 핀으로 되돌아가는 날 여기가 먼저 빨개진다 — 그것이 사고가 아니라 결정이 되게.
+      expect(source(dependency.file), `${dependency.file}: 모양으로 적힌 핀`).toContain(dependency.needle);
+    }
+  });
+
+  it("ⓑ 부정 단언 — 실패 문장 위에 role=\"alert\" **단독**인 자리가 0건이다 (남는 하나는 실패가 아니다)", () => {
+    const roleOnly: Record<string, number> = {};
+    const files = listComponentSources();
+    expect(files.length, "컴포넌트 소스 스윕").toBeGreaterThan(20);
+    for (const relativePath of files) {
+      const masked = maskComments(source(relativePath));
+      const pattern = /accessibilityRole="alert"/g;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(masked))) {
+        const tag = enclosingOpenTag(masked, match.index);
+        // 유령 방지: role은 언제나 여는 태그 안에 있다. 빈 문자열이면 스캐너가 끊긴 것이다.
+        expect(tag.length, `${relativePath}: role을 감싸는 여는 태그`).toBeGreaterThan(0);
+        if (tag.includes('accessibilityLiveRegion="polite"')) continue;
+        roleOnly[relativePath] = (roleOnly[relativePath] ?? 0) + 1;
+      }
+    }
+
+    const expected = Object.fromEntries(
+      Object.entries(ALERT_ROLE_WITHOUT_LIVE_REGION).map(([file, entry]) => [file, entry.places])
+    );
+    expect(roleOnly, "role만 걸린 자리").toEqual(expected);
+    for (const [file, entry] of Object.entries(ALERT_ROLE_WITHOUT_LIVE_REGION)) {
+      expect(entry.reason.length, `${file}의 제외 사유`).toBeGreaterThan(0);
+    }
+  });
+
+  it("ⓒ 재현 — 프롭을 뺀 소스가 실제로 빨개진다 (강화가 침묵으로 되돌아가지 않게)", () => {
+    const screen = (tag: string) => `
+      const failText = useSaveErrorCopy(save.isError, save.error);
+      export default function Screen() {
+        return (
+          <View style={{ gap: 12 }}>
+            {save.isError ? ${tag}{failText}</Text> : null}
+          </View>
+        );
+      }
+    `;
+    /** 라운드 79 리뷰(M-1): 같은 화면에 낭독 배선(useEffect)까지 선 모양. */
+    const announcedScreen = (tag: string) => `
+      const failText = useSaveErrorCopy(save.isError, save.error);
+      useEffect(() => {
+        if (save.isError) announceForA11y(failText);
+      }, [save.isError, failText]);
+      export default function Screen() {
+        return (
+          <View style={{ gap: 12 }}>
+            {save.isError ? ${tag}{failText}</Text> : null}
+          </View>
+        );
+      }
+    `;
+    // 프롭이 없으면 침묵이고, 관례 조합이 서면 **안드로이드까지**이며, announce까지 서야 두
+    // 플랫폼 다다 — 그물이 실제로 세 답을 가른다.
+    expect(saveErrorAnnounceSitesOf(screen("<Text style={{ color: theme.colors.danger }}>"))).toEqual([
+      { name: "failText", exit: "silent" }
+    ]);
+    expect(
+      saveErrorAnnounceSitesOf(
+        screen('<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>')
+      )
+    ).toEqual([{ name: "failText", exit: "live-region" }]);
+    expect(
+      saveErrorAnnounceSitesOf(
+        announcedScreen(
+          '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>'
+        )
+      )
+    ).toEqual([{ name: "failText", exit: "announce" }]);
+    // ⚠️ announce만 있고 프롭이 없으면 여전히 `silent`가 아니라 침묵으로 센다 — 관례는 **둘 다**이고
+    // (안드로이드에서 live region이 하는 일을 announce가 대신하지 않는다) 반쪽은 통과가 아니다.
+    expect(saveErrorAnnounceSitesOf(announcedScreen("<Text style={{}}>"))).toEqual([
+      { name: "failText", exit: "silent" }
+    ]);
+    // ⚠️ 한 짝만 걸면 여전히 침묵이다(관례는 **둘 다**이고, 반쪽은 라운드 78까지의 그 자리다).
+    expect(saveErrorAnnounceSitesOf(screen('<Text accessibilityRole="alert" style={{}}>'))).toEqual([
+      { name: "failText", exit: "silent" }
+    ]);
+    expect(saveErrorAnnounceSitesOf(screen('<Text accessibilityLiveRegion="polite" style={{}}>'))).toEqual([
+      { name: "failText", exit: "silent" }
+    ]);
+
+    // 두 번째 출구도 같은 그물이 센다 — Toast는 프롭이 아니라 자기가 announce해서 통과한다.
+    const toastScreen = `
+      const saveErrorText = useSaveErrorCopy(save.isError, save.error);
+      export default function Screen() {
+        return <View>{save.isError ? <Toast message={saveErrorText} tone="error" /> : null}</View>;
+      }
+    `;
+    expect(saveErrorAnnounceSitesOf(toastScreen)).toEqual([{ name: "saveErrorText", exit: "toast" }]);
+
+    /*
+     * 라운드 79 리뷰(P-1) — **자기 닫힘 중첩을 중첩으로 세면 그 뒤가 통째로 삼켜진다.**
+     *
+     * `<Text …/>`는 닫는 태그를 소비하지 않는다. 그것을 중첩으로 세던 스캐너는 바깥 요소의
+     * 닫는 태그를 그 중첩의 것으로 써 버려 본문 끝을 **파일 끝까지** 밀었고, 그 뒤에 오는 자리는
+     * 전부 그 요소 안으로 들어갔다. 아래 화면에서 실패 문장이 실제로 서는 곳은 Toast인데,
+     * 종전 스캐너는 그 자리를 앞선 `<Text>`의 본문으로 읽어 **출구를 잘못 매겼다**.
+     */
+    const selfClosingNesting = `
+      const failText = useSaveErrorCopy(save.isError, save.error);
+      export default function Screen() {
+        return (
+          <View>
+            <Text accessibilityLiveRegion="polite" accessibilityRole="alert">
+              <Text style={{ fontWeight: "700" }} />
+            </Text>
+            {save.isError ? <Toast message={failText} tone="error" /> : null}
+          </View>
+        );
+      }
+    `;
+    expect(saveErrorAnnounceSitesOf(selfClosingNesting)).toEqual([{ name: "failText", exit: "toast" }]);
+    // 그 출구가 실제로 소리를 내는가 — 값으로 확인한다(위 A11Y-115 스윕과 같은 사실).
+    const uiSource = source("src/ui.tsx");
+    const toastAt = uiSource.indexOf("export function Toast");
+    expect(toastAt, "Toast 컴포넌트").toBeGreaterThan(-1);
+    const toastBlock = uiSource.slice(toastAt);
+    expect(toastBlock).toContain("announceForA11y(message)");
+    expect(toastBlock).toContain('accessibilityLiveRegion="polite"');
+  });
+
+  it("ⓓ 바이트 불변 — 더한 것은 프롭뿐이다 (문장·스타일·조건 무접촉)", () => {
+    for (const entry of ROUND79_ANNOUNCE_PROPS_ADDED) {
+      expect(source(entry.file), `${entry.file}: ${entry.what}`).toContain(entry.after);
+      const stripped = entry.added.reduce((tag, prop) => tag.replace(` ${prop}`, ""), entry.after);
+      expect(stripped, `${entry.file}: 프롭을 빼면 종전 바이트다`).toBe(entry.before);
+      // 레이아웃 속성은 한 칸도 늘지 않았다(픽셀락과 무관한 변경이라는 근거).
+      for (const prop of entry.added) {
+        expect(prop, "레이아웃 속성 금지").toMatch(/^accessibility(Role|LiveRegion)="/);
+      }
+    }
+
+    // 조건과 문장은 그대로다 — 네 자리의 갈래·문구가 한 글자도 바뀌지 않았다.
+    const acceptScreen = source("app/family/accept/[token].tsx");
+    expect(acceptScreen).toContain("{accept.isError && !inviteUnavailable ? (");
+    expect(acceptScreen).toContain(
+      "{acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)}"
+    );
+    expect(acceptScreen).toContain("{joinRetryNotice && joinedResult ? (");
+    expect(acceptScreen).toContain("<Text style={{ color: theme.colors.danger }}>{joinRetryNotice}</Text>");
+
+    const inviteScreenSource = source("app/family/invite.tsx");
+    expect(inviteScreenSource).toContain("{invite.isError ? (");
+    expect(inviteScreenSource.match(/\{inviteCreateErrorText\}/g) ?? [], "실패 줄은 여전히 하나다").toHaveLength(1);
+
+    const notificationsScreen = source("app/settings/notifications.tsx");
+    expect(notificationsScreen).toContain("{toggleCurrentDevice.isError ? (");
+    expect(notificationsScreen).toContain("푸시 설정을 바꾸지 못했어요. 알림 권한을 확인한 뒤 다시 시도해 주세요.");
+    // 라운드 79 통합이 연 자리의 조건도 그대로다(문장 이름·갈래 한 글자도 바뀌지 않았다).
+    expect(notificationsScreen).toContain("{toggleDevice.isError ? (");
+    // 프롭 쌍은 이 화면에 **둘**이다 — 푸시 설정 한 줄과 기기 토글 한 줄. 같은 화면의 **조회**
+    // 실패 줄(devicesLoadErrorText)은 이 트랙의 범위가 아니라 그대로 두었다는 사실이 수로 선다.
+    expect(
+      notificationsScreen.match(/accessibilityLiveRegion="polite" accessibilityRole="alert"/g) ?? [],
+      "알림 화면의 프롭 쌍"
+    ).toHaveLength(2);
+
+    // 아이 관리 화면: 세 자리의 조건·문장·스타일이 그대로이고, 더한 것은 프롭 쌍뿐이다.
+    const childrenScreen = source("app/settings/children.tsx");
+    for (const [mutation, variable] of [
+      ["markChildBorn", "bornFailedText"],
+      ["saveEdit", "editFailedText"],
+      ["addChild", "addFailedText"]
+    ] as const) {
+      expect(childrenScreen, `${variable} 자리의 조건·문장`).toContain(
+        `{${mutation}.isError ? <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{${variable}}</Text> : null}`
+      );
+    }
+    // 프롭 쌍은 **셋**이다 — 같은 화면의 조회 실패 줄(loadErrorCopy.title)은 열지 않았다.
+    expect(
+      childrenScreen.match(/accessibilityLiveRegion="polite" accessibilityRole="alert"/g) ?? [],
+      "아이 관리 화면의 프롭 쌍"
+    ).toHaveLength(3);
+
+    const stepUiSource = source("src/onboarding/step-ui.tsx");
+    expect(stepUiSource).toContain(
+      "<Card style={{ borderColor: theme.colors.danger, borderWidth: 1, gap: theme.spacing.gap }}>"
+    );
+    // 그 카드의 갈래·문장은 순수 모듈이 만든다 — 이 트랙은 그 자리를 열지 않았다.
+    expect(stepUiSource).toContain("const text = message ?? onboardingSaveErrorMessage(error, { isOnline });");
+    // 그 파일에 role 단독인 자리는 더 이상 없다(위 부정 단언의 화면 단위 확인).
+    expect(maskComments(stepUiSource), "step-ui의 role 단독 자리").not.toContain('<View accessibilityRole="alert">');
+  });
+
+  it("ⓔ 조회 실패 대장을 이번에 열지 않는 이유가 값으로 적혀 있다 (포커스가 어디 남는가)", () => {
+    // 두 대장은 겹치지 않는다 — 이 스윕의 모집단이 **저장** 쪽이라는 사실이 파생으로 선다.
+    const loadOnly = OFFLINE_AWARE_LOAD_ERROR_SCREENS.filter(
+      (screen) => !OFFLINE_AWARE_SAVE_ERROR_SCREENS.includes(screen)
+    );
+    expect(loadOnly.length, "조회 전용 화면").toBeGreaterThan(0);
+    expect(LOAD_ERROR_ANNOUNCE_OUT_OF_SCOPE_REASON).toContain("포커스");
+    expect(LOAD_ERROR_ANNOUNCE_OUT_OF_SCOPE_REASON).toContain("실기기");
+    // 이 트랙은 조회 대장을 한 화면도 열지 않았다(범위 밖이라는 사실이 단언으로도 선다).
+    for (const entry of ROUND79_ANNOUNCE_PROPS_ADDED) {
+      expect(loadOnly, `${entry.file}은 조회 대장의 화면이 아니다`).not.toContain(entry.file);
+    }
   });
 });

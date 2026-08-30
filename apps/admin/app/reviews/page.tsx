@@ -23,6 +23,7 @@ import { loadErrorCopy, loadErrorMessage, type LoadErrorCopy } from "../../src/l
 import { writeErrorMessage } from "../../src/lib/write-error-copy";
 import {
   REVISION_STATUS_FILTERS,
+  overdueScheduleBadge,
   overdueScheduleNote,
   revisionStatusFilterFromSearchParams,
   revisionTargetLabel,
@@ -380,8 +381,13 @@ function ContentReviewsPageContent() {
                      `overdueScheduleNote()`의 기준 시각은 인자를 주지 않으면 호출 시점의
                      `Date.now()`라, 같은 행에서 두 번 부르면 두 순간을 비교하게 된다 —
                      예약 시각을 막 지나는 경계에서 배지가 없는 판정과 있는 판정이 한 행 안에
-                     엇갈릴 수 있다. 값 하나를 만들어 조건과 본문이 같은 순간을 본다. */
-                  const overdueNote = overdueScheduleNote(revision);
+                     엇갈릴 수 있다. 값 하나를 만들어 조건과 본문이 같은 순간을 본다.
+
+                     라운드 79 트랙 D(GAP-079 #4): 그 판정에 **이미 손에 든 워커 상태**를 함께
+                     넘긴다 — 예약 게시 잡이 연속 실패 중이면 배지가 "아직 시도되지 않았다"가
+                     아니라 그 사실을 말한다. 새 요청·새 상태 0건이고, 워커를 모르면(null)
+                     종전 문장 그대로다. */
+                  const overdueNote = overdueScheduleBadge(overdueScheduleNote(revision), worker);
                   return (
                     <tr key={revision.id}>
                       <td>{ENTITY_TYPE_LABELS[revision.entityType]}</td>

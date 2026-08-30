@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Text, View } from "react-native";
@@ -209,6 +209,20 @@ export default function AcceptInviteScreen() {
   const acceptSaveErrorCopy = useSaveErrorCopy(accept.isError, accept.error);
 
   /**
+   * 라운드 79 리뷰(M-1) — 프롭 둘(`accessibilityLiveRegion` + `accessibilityRole="alert"`)은
+   * **안드로이드에서만** 자동 낭독을 만든다. iOS/VoiceOver에는 live region이 없고 alert 역할에
+   * 대응하는 트레이트도 없어, 프롭만으로는 [참여하기]를 누른 사람이 실패를 소리로 듣지 못한다.
+   * 크로스플랫폼 관례는 `announceForA11y`다((auth)/login.tsx와 같은 조건 — 포커스가 눌린 버튼에
+   * 남는다). 읽어 주는 문장은 아래 갈래가 그리는 것과 **같은 식**이다(눈과 귀가 다른 말을 하지
+   * 않는다 — a11y-contract.test.ts가 두 자리의 식이 같은지를 계약으로 문다).
+   */
+  useEffect(() => {
+    if (accept.isError && !inviteUnavailable) {
+      announceForA11y(acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error));
+    }
+  }, [accept.isError, accept.error, acceptSaveErrorCopy, inviteUnavailable]);
+
+  /**
    * 참여 성공 **이후**의 뒤처리 한 벌: 아이 목록 조회 -> 캐시 무효화 -> 계획대로 착지.
    * 조회 실패("retry" 계획) 때 버튼 하나로 이 함수만 다시 태울 수 있게 mutation 밖으로 뺐다.
    */
@@ -309,7 +323,7 @@ export default function AcceptInviteScreen() {
             아무것도 없는 실패에 재시도 버튼을 세우는 것은 안내가 아니라 시간 낭비다. 대신
             "새 링크를 요청하세요"라는 사실과, 지금 이 자리에서 할 수 있는 행동 하나를 준다. */}
         {inviteUnavailable ? (
-          <View accessibilityRole="alert">
+          <View accessibilityLiveRegion="polite" accessibilityRole="alert">
             <Card style={{ gap: 8 }}>
               <Text style={{ color: theme.colors.danger }}>{INVITE_UNAVAILABLE_TITLE}</Text>
               <Text style={mutedTextStyle}>{INVITE_UNAVAILABLE_DETAIL}</Text>
@@ -363,7 +377,7 @@ export default function AcceptInviteScreen() {
         {/* 끝난 초대(수락 400)는 위 카드가 말한다 — 여기 남는 것은 재시도로 풀리는 실패와
             HOUSEHOLD_ALREADY_MEMBER이고, 그 둘의 문구·판정은 종전 그대로다. */}
         {accept.isError && !inviteUnavailable ? (
-          <Text style={{ color: theme.colors.danger }}>
+          <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>
             {acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)}
           </Text>
         ) : null}
@@ -372,7 +386,7 @@ export default function AcceptInviteScreen() {
             단정하지 않고 사실만 말한 뒤, 같은 뒤처리만 다시 태우는 [다시 시도]를 준다 --
             초대 수락(POST)은 이미 성공했으므로 다시 부르지 않는다(409만 남는다). */}
         {joinRetryNotice && joinedResult ? (
-          <View accessibilityRole="alert">
+          <View accessibilityLiveRegion="polite" accessibilityRole="alert">
             <Card style={{ gap: 10 }}>
               <Text style={{ color: theme.colors.brown }}>{`${joinedResult.household.name}과 함께해요.`}</Text>
               <Text style={{ color: theme.colors.danger }}>{joinRetryNotice}</Text>

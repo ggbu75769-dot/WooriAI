@@ -202,9 +202,23 @@ describe("GAP-066 #8 홈 평가 합류 (새 요청 0건)", () => {
     expect(hookSource).toContain("lastMonthExpenses: Expense[] | undefined");
     expect(hookSource).toContain("lastMonthRecords");
     // 값이 실제로 deps에 있다 -- 도착 자체가 재평가를 깨운다.
-    expect(hookSource).toContain(
-      "}, [home, weekly, hasPendingLocalRecords, lastMonthYearMonth, lastMonthExpenses]);"
-    );
+    // 라운드 79 리뷰(M-3): 인자가 여섯이 되며 deps가 여러 줄로 나뉘었다 -- 바이트가 아니라
+    // **그 배열에 무엇이 들어 있는가**를 묻는다(실재 확인을 함께 세운다 -- 라운드 78 E).
+    const depsAt = hookSource.lastIndexOf("  }, [");
+    expect(depsAt, "평가 effect의 의존 배열").toBeGreaterThan(-1);
+    const depsEnd = hookSource.indexOf("]);", depsAt);
+    expect(depsEnd, "의존 배열의 끝").toBeGreaterThan(depsAt);
+    const deps = hookSource.slice(depsAt, depsEnd);
+    for (const dep of [
+      "home",
+      "weekly",
+      "hasPendingLocalRecords",
+      "lastMonthYearMonth",
+      "lastMonthExpenses",
+      "hasRecoverablePendingMonthRecords"
+    ]) {
+      expect(deps, `${dep}가 deps에 있다`).toContain(dep);
+    }
     // 읽기 전용이다: 이 훅은 쿼리를 만들지도, 무효화하지도 않는다.
     expect(hookSource).not.toContain("useQuery(");
     expect(hookSource).not.toContain("invalidateQueries");
@@ -216,7 +230,9 @@ describe("GAP-066 #8 홈 평가 합류 (새 요청 0건)", () => {
     expect(hookSource).toContain("lastYearMonth === lastMonthYearMonth");
     // 홈 화면은 **이미 조회 중인 쿼리**의 결과를 넘긴다 -- 새 쿼리를 만들지 않는다.
     const homeSource = source("app/(tabs)/index.tsx");
-    expect(homeSource).toContain("    lastYearMonth,\n    lastMonthExpenses.data?.expenses\n  );");
+    // 라운드 79 리뷰(M-3): 뒤에 인자가 하나 더 붙었다 — 이 단언이 묻는 것은 그대로다
+    // (지난달 쿼리의 결과가 **인자로** 넘어간다).
+    expect(homeSource).toContain("    lastYearMonth,\n    lastMonthExpenses.data?.expenses,\n");
     // 지난달 쿼리는 이 화면에 **하나뿐**이다(나머지 한 자리는 당겨서 새로고침의 무효화다).
     expect(homeSource.match(/useQuery\(\{\n\s+queryKey: \["expenses", childId, lastYearMonth\]/g) ?? []).toHaveLength(
       1

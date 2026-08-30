@@ -534,6 +534,28 @@ export default function ManageChildrenScreen() {
   const addFailedText = useSaveErrorCopy(addChild.isError, addChild.error);
 
   /**
+   * 라운드 79 리뷰(M-1) — **프롭 둘만으로는 iOS에서 아무 소리도 나지 않는다.**
+   *
+   * 세 자리에 걸린 조합(`accessibilityLiveRegion="polite"` + `accessibilityRole="alert"`)은
+   * 안드로이드에서만 자동 낭독을 만든다: `accessibilityLiveRegion`은 RN 문서가 `@platform android`로
+   * 표시한 프롭이고, `accessibilityRole="alert"`에는 iOS에서 대응하는 VoiceOver 트레이트가 없다.
+   * 즉 프롭만 건 상태의 "낭독 밖 0건"은 **안드로이드 한정**이었다.
+   *
+   * 이 저장소의 크로스플랫폼 관례는 `announceForA11y`이고((auth)/login.tsx가 **같은 이유**로
+   * 로그인 실패 문장에 쓴다 — 포커스가 눌린 버튼에 남는 자리), 여기 셋도 [저장]·[아이가
+   * 태어났어요] 버튼 바로 위라 같은 자리다. 프롭은 그대로 두고(안드로이드의 답) 그 위에 얹는다.
+   */
+  useEffect(() => {
+    if (markChildBorn.isError) announceForA11y(bornFailedText);
+  }, [markChildBorn.isError, bornFailedText]);
+  useEffect(() => {
+    if (saveEdit.isError) announceForA11y(editFailedText);
+  }, [saveEdit.isError, editFailedText]);
+  useEffect(() => {
+    if (addChild.isError) announceForA11y(addFailedText);
+  }, [addChild.isError, addFailedText]);
+
+  /**
    * 라운드 72 트랙 B(GAP-072 #2) — **조회** 실패 문구도 같은 단일 소스로 들어온다.
    *
    * 저장 실패 세 자리는 라운드 52 C-07에 이미 오프라인을 인지하게 됐는데, 바로 위 조회 실패
@@ -749,7 +771,7 @@ export default function ManageChildrenScreen() {
                       showErrors={bornShowErrors}
                       onChange={setBornDateText}
                     />
-                    {markChildBorn.isError ? <Text style={{ color: theme.colors.danger }}>{bornFailedText}</Text> : null}
+                    {markChildBorn.isError ? <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{bornFailedText}</Text> : null}
                     <PrimaryButton
                       disabled={markChildBorn.isPending}
                       label={markChildBorn.isPending ? "바꾸는 중" : "출생일로 바꾸기"}
@@ -767,7 +789,7 @@ export default function ManageChildrenScreen() {
                       onChange={setForm}
                       showErrors={showErrors}
                     />
-                    {saveEdit.isError ? <Text style={{ color: theme.colors.danger }}>{editFailedText}</Text> : null}
+                    {saveEdit.isError ? <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{editFailedText}</Text> : null}
                     <PrimaryButton
                       disabled={saveEdit.isPending}
                       label={saveEdit.isPending ? "저장하는 중" : "저장"}
@@ -820,7 +842,7 @@ export default function ManageChildrenScreen() {
               </View>
             </View>
             <ChildFormFields stageMode={addStageMode} values={form} onChange={setForm} showErrors={showErrors} />
-            {addChild.isError ? <Text style={{ color: theme.colors.danger }}>{addFailedText}</Text> : null}
+            {addChild.isError ? <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{addFailedText}</Text> : null}
             <PrimaryButton
               disabled={addChild.isPending}
               label={addChild.isPending ? "추가하는 중" : "추가하기"}

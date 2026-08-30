@@ -101,7 +101,7 @@ import type { LocalExpenseRow } from "../../src/offline/types";
 import { formatKrw } from "../../src/money";
 import { resolveWeeklySpendForNotification } from "../../src/notifications/generators";
 import { NotificationBell } from "../../src/notifications/NotificationBell";
-import { hasPendingRecordsForChild } from "../../src/notifications/generators";
+import { hasPendingRecordsForChild, hasRecoverablePendingRecordsForMonth } from "../../src/notifications/generators";
 import { useHomeNotificationEvaluation } from "../../src/notifications/useHomeNotificationEvaluation";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
@@ -1253,6 +1253,21 @@ export default function HomeScreen() {
    * 고지가 쓰는 것과 같은 주입 방식이다.
    */
   const hasPendingLocalRecords = hasPendingRecordsForChild(offlineSyncSnapshot.rows, childId);
+  /**
+   * 라운드 79 B + 리뷰(M-3·S-1) — 예산 경계 알림의 게이트는 **같은 스냅샷, 다른 술어**다.
+   *
+   * 위 값은 상태 전부(종점 포함) · 달 무관이라 record_gap의 "마지막 기록 시점" 판정에 맞다.
+   * 예산은 그렇지 않다: 실패·충돌 행은 사용자가 폐기하기 전까지 남으므로 그것까지 세면 그 달의
+   * 예산 알림이 **영영** 오지 않고, 다른 달의 대기 행이 이번 달 경계를 막을 이유도 없다.
+   * 그래서 회복 가능한 상태(pending·syncing) × **이번 달**로 좁힌다 — 바로 아래 배너·진행바가
+   * 재조정 값을 고르는 조건(`hasPendingMonthAdjustments`)과 **같은 달 단위**다.
+   * 값은 여전히 이미 구독 중인 스냅샷에서 나온 순수 판정이라 새 요청·새 구독은 0건이다.
+   */
+  const hasRecoverablePendingMonthRecords = hasRecoverablePendingRecordsForMonth(
+    offlineSyncSnapshot.rows,
+    childId,
+    thisYearMonth
+  );
   // GAP-066 #8 + 라운드 66 적대 리뷰(S-2): 지난달 정리 알림이 쓰는 지난달 행을 **이 화면이 이미
   // 조회해 둔 쿼리**(위 lastMonthExpenses -- 한 줄 인사이트·주간 카드가 쓰는 그것)에서 그대로
   // 넘긴다. 훅이 캐시를 명령형으로 읽던 시절에는 그 도착이 재평가를 깨우지 못해, 달을 걸치지 않는
@@ -1262,7 +1277,8 @@ export default function HomeScreen() {
     weeklySpendForNotification,
     hasPendingLocalRecords,
     lastYearMonth,
-    lastMonthExpenses.data?.expenses
+    lastMonthExpenses.data?.expenses,
+    hasRecoverablePendingMonthRecords
   );
   /**
    * MOB-117 당겨서 새로고침 → GAP-060 #10: **이 화면이 실제로 읽는 캐시 전부**를 갱신한다.

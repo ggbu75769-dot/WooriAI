@@ -1,6 +1,10 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { WorkerHealth, WorkerHealthJob } from "./admin-api";
 import {
+  LINK_HEALTH_JOB_NAME,
+  SCHEDULED_PUBLISH_JOB_NAME,
   WORKER_HEALTH_STATE_LABELS,
   brokenLinkCountCaption,
   failingJobNames,
@@ -12,6 +16,13 @@ import {
   workerHealthState,
   workerHealthStateNote
 } from "./worker-health-view";
+
+/** 저장소 루트 기준 소스 읽기 — 없는 파일을 조용히 통과시키지 않는다(실재 확인). */
+function readRepoSource(relativePath: string): string {
+  const filePath = join(process.cwd(), "..", "..", ...relativePath.split("/"));
+  expect(existsSync(filePath), `${relativePath} should exist`).toBe(true);
+  return readFileSync(filePath, "utf8");
+}
 
 function makeJob(overrides: Partial<WorkerHealthJob> = {}): WorkerHealthJob {
   return {
@@ -66,6 +77,40 @@ describe("workerHealthState (UX-X C5)", () => {
     expect(workerHealthStateNote(makeHealth({ enabled: false }))).toContain("WORKER_ENABLED=0");
     expect(workerHealthStateNote(makeHealth({ stale: true }))).toContain("실행 기록이 없어요");
     expect(workerHealthStateNote(makeHealth())).toBe("");
+  });
+});
+
+/*
+ * 라운드 79 트랙 D(GAP-079 #4ⓓ) — 잡 이름이 값으로 있으면 `degraded`("어떤 잡이 실패 중")를
+ * 잡 단위로 정확히 물을 수 있다. 그 이름이 서버의 진짜 잡 이름이 아니면 배지는 영원히
+ * 침묵하므로(조용한 실패), 두 이름을 서버 소스에 대고 못박는다.
+ */
+describe("워커 잡 이름 상수 (라운드 79 트랙 D)", () => {
+  it("두 잡 이름이 서버 잡의 name과 글자까지 같다 (유령 금지)", () => {
+    expect(readRepoSource("apps/api/src/worker/jobs/scheduled-publish.job.ts")).toContain(
+      `readonly name = "${SCHEDULED_PUBLISH_JOB_NAME}";`
+    );
+    expect(readRepoSource("apps/api/src/worker/jobs/link-health.job.ts")).toContain(
+      `readonly name = "${LINK_HEALTH_JOB_NAME}";`
+    );
+    // 둘은 서로 다른 잡이다 — 이 구분이 지난 예약 배지의 부정 단언(링크 검사뿐이면 종전
+    // 그대로)이 서는 근거다.
+    expect(SCHEDULED_PUBLISH_JOB_NAME).not.toBe(LINK_HEALTH_JOB_NAME);
+  });
+
+  it("예약 게시 잡이 임계치에 닿으면 이름으로 불리고, 그 전에는 불리지 않는다", () => {
+    const failing = makeHealth({
+      degraded: true,
+      jobs: [makeJob({ name: SCHEDULED_PUBLISH_JOB_NAME, lastStatus: "failed", consecutiveFailures: 3, lastSummary: {} })]
+    });
+    expect(failingJobNames(failing)).toEqual([SCHEDULED_PUBLISH_JOB_NAME]);
+    // 대시보드 한 줄이 말하는 그 사실 그대로다(라운드 78 B).
+    expect(workerHealthStateNote(failing)).toContain(SCHEDULED_PUBLISH_JOB_NAME);
+
+    const belowThreshold = makeHealth({
+      jobs: [makeJob({ name: SCHEDULED_PUBLISH_JOB_NAME, lastStatus: "failed", consecutiveFailures: 2, lastSummary: {} })]
+    });
+    expect(failingJobNames(belowThreshold)).toEqual([]);
   });
 });
 

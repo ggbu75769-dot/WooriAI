@@ -647,8 +647,12 @@ describe("UX/C-07 저장 실패 문구", () => {
         `const ${variable} = useSaveErrorCopy(${mutation}.isError, ${mutation}.error);`
       );
       // 그리는 자리의 조건도 같은 뮤테이션이다(조건과 문장이 갈리면 그 자리가 남의 사유를 그린다).
-      expect(screen, `${variable}가 그려지는 자리`).toContain(
-        `{${mutation}.isError ? <Text style={{ color: theme.colors.danger }}>{${variable}}</Text> : null}`
+      // ⚠️ 라운드 79 통합: 묻는 것은 **바이트가 아니라 모양**이다 — 조건·스타일·문장은 그대로
+      // 엄격하고, 여는 태그에 붙는 **접근성 프롭에는 관대하다**(낭독 여부의 계약은 이 파일이
+      // 아니라 `src/a11y-contract.test.ts`가 대장에서 파생해 따로 진다). 트랙 C가 같은 라운드에
+      // invite-permissions.test.ts·invite-accept-messages.test.ts에 쓴 완화와 같은 형식이다.
+      expect(screen, `${variable}가 그려지는 자리`).toMatch(
+        new RegExp(`\\{${mutation}\\.isError \\? <Text[^>]*style=\\{\\{ color: theme\\.colors\\.danger \\}\\}>\\{${variable}\\}</Text> : null\\}`)
       );
       // 각 문장은 자기 자리에서 한 번씩만 쓰인다.
       expect(screen.match(new RegExp(`\\{${variable}\\}`, "g")) ?? [], variable).toHaveLength(1);
@@ -743,7 +747,9 @@ describe("UX/C-07 저장 실패 문구", () => {
       expect(src).toContain("const deviceToggleSaveErrorCopy = useSaveErrorCopy(toggleDevice.isError);");
       expect(src).toContain("? deviceToggleSaveErrorCopy");
       expect(src).toContain(": `알림 설정을 ${deviceToggleSaveErrorCopy}`");
-      expect(src).toContain("<Text style={errorTextStyle}>{deviceToggleSaveErrorText}</Text>");
+      // ⚠️ 라운드 79 통합: 여는 태그의 바이트가 아니라 **모양**을 묻는다 — 스타일·문장 이름은
+      // 그대로 엄격하고, 접근성 프롭에는 관대하다(낭독 계약은 src/a11y-contract.test.ts).
+      expect(src).toMatch(/<Text[^>]*style=\{errorTextStyle\}>\{deviceToggleSaveErrorText\}<\/Text>/);
       // 온라인 갈래 바이트 불변: 접두 + 공용 문장이 종전 문자열과 정확히 같다.
       expect(`알림 설정을 ${SAVE_ERROR_NOTICE}`).toBe("알림 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.");
       expect(`알림 설정을 ${resolveSaveErrorCopy({ isOnline: true })}`).toBe(

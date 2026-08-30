@@ -473,6 +473,46 @@ describe("소스 계약의 잘라 낸 구간 — 실재를 먼저 묻는가 (라
     expect(inlineByFile.get("apps/mobile/src/commerce/purchase-followup-flow.test.ts")).toBeGreaterThanOrEqual(1);
   });
 
+  /**
+   * ⚠️ **라운드 79 리뷰(S-5) — 스윕 밖의 자리를 값으로 적는다.**
+   *
+   * 이 스윕의 모집단은 `SCAN_ROOTS` 아래의 **`*.test.ts(x)`** 다. 라운드 79 트랙 E가 두 계약이
+   * 함께 쓰는 파서를 `apps/admin/test/`(번들 밖 · 테스트 전용)로 뺐는데, 그 파일은 두 조건 다
+   * 밖이다 — 뿌리도 밖이고 이름도 `.test.ts`가 아니다. 즉 **소스 계약의 자르기를 실제로 하는
+   * 코드**가 그물 밖에 있다.
+   *
+   * 모집단을 넓히는 대신(넓히면 이 대장이 헬퍼·픽스처까지 세게 되고, 그 결정은 다음 라운드의
+   * 것이다) **예외를 값으로 적고 같은 검출기를 그 파일에 직접 돌린다.** 라운드 78 E의 대장 형식
+   * 그대로다: 이유가 없는 예외는 예외가 아니고, 예외 줄은 **자기 무효화**된다(파일이 사라지거나
+   * 미가드 자리가 생기면 여기가 빨개진다).
+   */
+  const SCAN_SCOPE_EXCEPTIONS: ReadonlyArray<{ readonly file: string; readonly reason: string }> = [
+    {
+      file: "apps/admin/test/admin-api-source-parser.ts",
+      reason:
+        "라운드 79 트랙 E가 두 계약(admin-api.test.ts · admin-write-role-gate.test.ts)이 함께 쓰는 파서를 " +
+        "앱 번들 밖으로 뺀 자리다. 테스트 전용이지만 파일명이 *.test.ts가 아니고 뿌리도 SCAN_ROOTS 밖이라 " +
+        "스윕이 읽지 않는다 — 그래서 같은 검출기를 이 줄이 직접 돌린다."
+    }
+  ];
+
+  it("스윕 밖의 예외는 값으로 적히고, 같은 검출기가 그 자리를 대신 본다 (S-5)", () => {
+    expect(SCAN_SCOPE_EXCEPTIONS.length, "예외 목록").toBeGreaterThan(0);
+    for (const exception of SCAN_SCOPE_EXCEPTIONS) {
+      expect(exception.reason.length, `${exception.file}의 예외 사유`).toBeGreaterThan(0);
+      // 유령 방지: 스윕이 읽지 않는 파일이라는 사실과, 그 파일이 **실재한다**는 사실을 함께 본다.
+      expect(scannedFiles.has(exception.file), `${exception.file}은 스윕의 모집단 밖이다`).toBe(false);
+      const source = readFileSync(join(repoRoot, exception.file), "utf8");
+      expect(source.length, `${exception.file}이 실재한다`).toBeGreaterThan(0);
+      // ⚠️ 그 파일의 자르기가 -1을 위치로 읽지 않는다. 오늘 이 파일의 `slice`는 정규식 `exec`의
+      // 결과를 **널 검사한 뒤**의 index만 쓰므로 미가드 자리는 0건이다(가드 없는 indexOf 자르기가
+      // 생기는 날 여기가 빨개진다).
+      const unguarded = sliceGuardSites(source).filter((site) => !site.guarded);
+      expect(unguarded.map((site) => site.name), `${exception.file}의 가드 없는 자르기`).toEqual([]);
+      expect(source, `${exception.file}: 자르기 전에 끝점을 널 검사한다`).toContain("end ? chunk.slice(");
+    }
+  });
+
   it("라운드 77 M-3과 라운드 78 트랙 E가 세운 실재 확인이 사라지지 않는다", () => {
     const lost: string[] = [];
     for (const [file, floor] of Object.entries(EXISTENCE_GUARD_FLOOR)) {
