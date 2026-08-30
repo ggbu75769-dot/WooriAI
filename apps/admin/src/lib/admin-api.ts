@@ -401,8 +401,56 @@ const WRITE_TIMEOUT_MESSAGE =
 const IDEMPOTENT_WRITE_TIMEOUT_MESSAGE =
   "요청이 오래 걸리고 있어요(60초). 같은 요청을 다시 보내면 중복 없이 처리돼요 — 다시 시도해 주세요.";
 
+/**
+ * GAP-077 트랙 B(R19-F 후속) — **연결 실패도 타임아웃과 같은 판정을 지난다.**
+ *
+ * 바로 위 타임아웃 세 문장은 `method`·`idempotent` 둘로 갈린다. 연결 실패(`fetch` 자체의
+ * 거절)는 오늘까지 그 판정을 지나지 않고 **한 문장**이었고, 그 문장이 GET·POST·PATCH·
+ * DELETE에 똑같이 서면서 *"다시 시도해 주세요"* 라고 말했다.
+ *
+ * ⚠️ **판정이 필요한 이유가 타임아웃과 정확히 같다.** `fetch`의 거절은 *"보내지 못했다"* 와
+ * *"보냈는데 답을 못 받았다"* 를 **구분하지 않는다** — 연결이 서기 전에 죽으면 서버는
+ * 아무것도 모르지만, 요청 본문이 나간 뒤 커넥션이 끊기면(리셋 · TLS 종료 · 중간 프록시)
+ * 서버는 이미 처리했을 수 있다. 클라이언트가 그 둘을 가를 방법은 없고, 그것이 바로
+ * `WRITE_TIMEOUT_MESSAGE`가 존재하는 이유다. 같은 불확실성에 타임아웃은 보수적으로,
+ * 연결 실패는 낙관적으로 말하고 있었다.
+ *
+ * ⚠️ **타임아웃 상수를 재활용하지 않는 이유**: 그 셋은 *"(10초)"* · *"(60초)"* 를 문장에
+ * 못박고 있어 연결 실패에 그대로 쓰면 거짓이다. 그래서 **같은 규율의 새 문장 둘**을 짓는다
+ * (읽기 문장은 오늘의 것 그대로 — 바이트 불변).
+ */
+
+/** 멱등키 없는 쓰기의 연결 실패. `WRITE_TIMEOUT_MESSAGE`와 **같은 모양**이다 — 반영 여부를
+ * 단정하지 않고, 재시도보다 **새로고침 확인을 먼저** 권한다. ⚠️ 꼬리가 `"다시 시도해
+ * 주세요"`가 아닌 것이 이 문장의 본체다(오늘 멱등키 없는 쓰기가 **열여덟**이라, 서버가
+ * 중복을 걸러 주지 않는 자리에 재시도를 권하면 이중 반영을 유도하는 안내가 된다). */
+const WRITE_CONNECTION_FAILURE_MESSAGE =
+  "서버에 연결하지 못했어요. 반영 여부가 확실하지 않으니 네트워크 상태를 확인하고, 목록을 새로고침해 확인한 뒤 다시 시도하세요.";
+
+/** 멱등키를 실어 보낸 쓰기(오늘 **여섯**)의 연결 실패. 서버가 중복을 걸러 주므로
+ * `IDEMPOTENT_WRITE_TIMEOUT_MESSAGE`와 같은 규율로 재시도를 권해도 된다 — 단,
+ * 재시도는 **같은 키**로 보내야 한다(`IdempotencyKeyHolder` 참고). */
+const IDEMPOTENT_WRITE_CONNECTION_FAILURE_MESSAGE =
+  "서버에 연결하지 못했어요. 같은 요청을 다시 보내면 중복 없이 처리되니, 네트워크 상태를 확인하고 다시 시도해 주세요.";
+
+/**
+ * 쓰기의 연결 실패 문장을 고른다. ⚠️ **판정을 새로 만들지 않는다** —
+ * `AdminApiTimeoutError`의 생성자가 쓰는 그 두 값(`STATE_CHANGING_METHODS.has(method)` ·
+ * `Boolean(idempotencyKey)`에서 온 `idempotent`)으로만 갈리고, 갈래의 모양도 같다.
+ *
+ * ⚠️ **읽기 갈래는 이 함수가 아니라 `request()`의 catch 자리에 리터럴로 남는다.** 조회 실패
+ * 한 벌(라운드 73~75 트랙 D)의 테스트가 그 한 줄을 **소스에서 정규식으로** 읽어 네트워크
+ * 갈래의 에러를 재현하기 때문이다. 그 파일은 이 트랙의 무접촉 대상이고, 그 스크레이프가 곧
+ * **"읽기 문장 바이트 불변"의 안전망**이다 — 문장을 여기 상수로 올리면 그 그물이 조용히
+ * 찢어진다(읽기 갈래가 상수 이름으로 바뀌어 정규식이 아무것도 못 찾는다).
+ */
+function writeConnectionFailureMessage(idempotent: boolean): string {
+  return idempotent ? IDEMPOTENT_WRITE_CONNECTION_FAILURE_MESSAGE : WRITE_CONNECTION_FAILURE_MESSAGE;
+}
+
 /** Thrown when fetchWithTimeout's OWN timeout bound fires (never for genuine
- * network failures -- those keep the "서버에 연결하지 못했어요" mapping below).
+ * network failures -- those take the `connectionFailureMessage` mapping above,
+ * which splits on the same two values this class does).
  * Extends AdminApiError (status 0, code "TIMEOUT") so every existing
  * `error instanceof AdminApiError`/`error.message` display path shows the
  * Korean timeout guidance without changes. `cause` carries the original abort
@@ -518,10 +566,21 @@ async function request<T>(path: string, init?: RequestInit, idempotencyKey?: str
       idempotent
     );
   } catch (error) {
-    // The timeout keeps its own typed error (and Korean guidance); every
-    // other rejection stays the generic connection failure, exactly as before.
+    // The timeout keeps its own typed error (and Korean guidance); every other
+    // rejection is the connection failure -- which now runs through R19-F's
+    // judgment on the SAME two values the timeout branch already computed
+    // (`method`, `idempotent`), instead of one sentence for GET/POST/PATCH/DELETE.
+    // 타입은 종전 그대로 `AdminApiError(0, …)`이라 `writeErrorMessage`/`loadErrorCopy`가
+    // 한 글자도 바뀌지 않고 이 문장을 나른다(새 클래스 0건).
     if (error instanceof AdminApiTimeoutError) throw error;
-    throw new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.");
+    if (!STATE_CHANGING_METHODS.has(method)) {
+      // 읽기(GET·HEAD)는 **오늘의 문장 그대로다 — 바이트 불변.** 조회는 다시 눌러도
+      // 안전하므로 재시도 안내가 그대로 옳다(쓰기와 정반대라는 것이 R19-F의 값이다).
+      // ⚠️ 이 갈래만 문장이 리터럴로 여기에 남는 이유는 writeConnectionFailureMessage의
+      // 주석 참고(무접촉 파일의 소스 스크레이프가 이 꼴을 읽는다).
+      throw new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.");
+    }
+    throw new AdminApiError(0, writeConnectionFailureMessage(idempotent));
   }
 
   let text = "";
