@@ -6,6 +6,10 @@ import { linkFilterSummary } from "./link-filters";
 // 목적은 두 가지다: (1) 이름으로 바로 찾기, (2) "상품 링크가 하나도 없는 준비템"
 // 골라내기 — 링크가 없는 준비템은 구매 링크 클릭으로 이어지지 않아 핵심 루프가
 // 그 지점에서 끊긴다.
+//
+// 라운드 84 트랙 A가 세 번째를 더한다: (3) "앱에서 가장 강조되는 구매 버튼이 서지
+// 않는 준비템"(= 활성 비스폰서 링크 0건) 골라내기. (2)와는 다른 질문이다 — 광고
+// 링크 하나만 걸린 준비템은 구매처가 0이 아니지만 그 버튼은 서지 않는다.
 
 /** 필터가 실제로 읽는 필드만 요구한다(테스트가 ItemTemplate 전체를 만들 필요 없게). */
 export type FilterableItem = Pick<ItemTemplate, "name" | "productLinks" | "activeLinkCount">;
@@ -13,6 +17,13 @@ export type FilterableItem = Pick<ItemTemplate, "name" | "productLinks" | "activ
 export type ItemFilterState = {
   query?: string;
   missingLinksOnly?: boolean;
+  /**
+   * 라운드 84 트랙 A: "앱에서 **강조되는 구매 버튼**이 서지 않는 준비템만" 보기.
+   * 위 missingLinksOnly와는 **다른 질문**이다 — 저쪽은 구매처가 0인 자리를 묻고, 이쪽은
+   * 구매처는 있는데 그 전부가 스폰서(광고)라 화면에서 채워진 버튼을 받는 링크가 없는
+   * 자리까지 함께 묻는다. 링크 0건인 준비템은 두 필터 모두에 걸린다.
+   */
+  missingNonSponsoredLinksOnly?: boolean;
 };
 
 export const EMPTY_ITEM_FILTERS: ItemFilterState = {};
@@ -51,6 +62,40 @@ export function activeProductLinkCount(item: Pick<ItemTemplate, "productLinks" |
 }
 
 /**
+ * 라운드 84 트랙 A: 앱 상세 화면에서 **채워진(가장 강조되는) "구매하기" 버튼**을 받을 수 있는
+ * 링크의 수 — 활성이면서 스폰서가 아닌 링크다.
+ *
+ * 판정을 새로 만들지 않는다. 모바일의 정본은 `apps/mobile/src/items/link-marker.ts`의
+ * `primaryPurchaseLinkIndex`이고, 그 술어가 `findIndex((link) => !link.isSponsored)`다
+ * (스폰서 링크는 순서와 무관하게 외곽선 버튼이고, 전부 스폰서면 채워진 버튼이 하나도 없다 —
+ * 구분이 우대가 되지 않게 한다는 DNC-011의 자리). 앱이 그 술어를 먹이는 목록에는 **활성 링크만**
+ * 실리므로(items-catalog.service.ts의 상세 조회가 `active: true`로 좁힌다) 어드민에서 같은 질문을
+ * 하려면 활성 조건이 함께 붙는다. 술어가 갈리면 item-filters.test.ts의 동치 대조가 먼저 빨개진다.
+ *
+ * ⚠️ 이 수는 **세고 고르는** 데만 쓴다 — 스폰서 링크를 숨기거나 뒤로 미는 일은 여기서도, 이
+ * 화면 어디에서도 하지 않는다(DNC-011). 정렬·추천 점수와도 무관하다(DNC-009).
+ *
+ * ⚠️ **라운드 84 리뷰 L-12 — 필드 부재 폴백의 방향이 N-8과 반대다(값으로 적어 둔다).**
+ * 종전 이 문단은 *"activeProductLinkCount의 N-8 폴백과 방향이 같다"* 고 적었는데 그것은 틀렸다.
+ * `productLinks`가 통째로 비어 오는 응답에서 두 함수가 가는 방향은 정확히 반대다:
+ *   - `activeProductLinkCount`는 **없는 문제를 만들지 않는** 쪽으로 떨어진다(등록 링크 수 → 필터에
+ *     걸리지 않는다). 그것이 N-8이 고른 방향이다.
+ *   - 이 함수는 0으로 떨어져 **없는 문제를 만드는** 쪽이다 — 링크가 멀쩡히 있어도 "강조 버튼이
+ *     서지 않는 준비템"으로 목록에 남는다.
+ *
+ * 그래도 오늘 코드 동작을 바꾸지 않는 이유: `productLinks`는 목록 응답의 **필수 필드**이고
+ * (admin-api.ts의 ItemTemplate), 이 판정은 그 배열의 `active`·`isSponsored`를 **직접 읽어야만**
+ * 성립한다 — 서버가 세어 준 요약 수(activeLinkCount) 같은 대체 근거가 없다. 즉 배열이 없으면
+ * 어느 방향으로 떨어져도 근거 없는 단정이고, 그 상태에서 "링크가 있다"고 가정하는 폴백은 **필터가
+ * 존재 이유를 잃는 방향**(스폰서만 걸린 자리를 영영 못 찾는다)이다. 그래서 방향을 여기 적어 두고,
+ * 그 사실 자체는 테스트가 값으로 고정한다(item-filters.test.ts의 L-12 줄). 배열이 정말 선택 필드가
+ * 되는 날 그 줄이 먼저 이 판단을 다시 하게 만든다.
+ */
+export function activeNonSponsoredLinkCount(item: Pick<ItemTemplate, "productLinks">): number {
+  return (item.productLinks ?? []).filter((link) => link.active && !link.isSponsored).length;
+}
+
+/**
  * 주어진 필터를 모두 만족하는 준비템만 남긴다(AND 결합, 원본 순서 유지).
  * 비어 있는(undefined / 공백뿐인 query) 필터 항목은 무시한다.
  */
@@ -64,6 +109,8 @@ export function filterItemTemplates<T extends FilterableItem>(
     // '상품 링크 없음만 보기'는 사용자 관점이다: 링크가 전부 비활성인 준비템도
     // 상세 화면에서는 구매처 0이라 핵심 루프가 거기서 끊긴다 — 함께 걸러 낸다.
     if (filters.missingLinksOnly && activeProductLinkCount(item) > 0) return false;
+    // 라운드 84 트랙 A: 강조되는 구매 버튼을 받을 링크(활성 · 비스폰서)가 0건인 준비템만.
+    if (filters.missingNonSponsoredLinksOnly && activeNonSponsoredLinkCount(item) > 0) return false;
     if (normalizedQuery && !item.name.toLowerCase().includes(normalizedQuery)) return false;
     return true;
   });
@@ -73,5 +120,7 @@ export function filterItemTemplates<T extends FilterableItem>(
 export const itemFilterSummary = linkFilterSummary;
 
 export function hasAnyItemFilter(filters: ItemFilterState): boolean {
-  return Boolean(filters.missingLinksOnly || (filters.query ?? "").trim());
+  return Boolean(
+    filters.missingLinksOnly || filters.missingNonSponsoredLinksOnly || (filters.query ?? "").trim()
+  );
 }

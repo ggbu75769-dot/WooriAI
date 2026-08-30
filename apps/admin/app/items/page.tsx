@@ -25,6 +25,7 @@ import { loadErrorCopy, loadErrorMessage, type LoadErrorCopy } from "../../src/l
 import { writeErrorMessage } from "../../src/lib/write-error-copy";
 import {
   EMPTY_ITEM_FILTERS,
+  activeNonSponsoredLinkCount,
   activeProductLinkCount,
   filterItemTemplates,
   hasAnyItemFilter,
@@ -632,6 +633,30 @@ export default function ItemTemplatesPage() {
                 사용자 화면에서는 구매처가 0이라 함께 걸린다. */}
             <span className={styles.hint}>링크가 전부 비활성인 준비템도 함께 나와요.</span>
 
+            {/* 라운드 84 트랙 A: 위 필터와 다른 질문이다 — 구매처가 0인 자리가 아니라,
+                앱에서 **가장 강조되는 구매 버튼**을 받을 링크(활성·비스폰서)가 없는 자리다.
+                판정은 src/lib/item-filters.ts의 activeNonSponsoredLinkCount 한 곳에 있고,
+                그 술어의 정본은 모바일 link-marker.ts의 primaryPurchaseLinkIndex다.
+                스폰서 링크를 숨기거나 내리지 않는다 — 세어서 고를 뿐이다(DNC-011). */}
+            <div className={styles.checkboxRow}>
+              <input
+                id="item-filter-missing-non-sponsored-links"
+                type="checkbox"
+                checked={filters.missingNonSponsoredLinksOnly ?? false}
+                onChange={(event) =>
+                  setFilters({ ...filters, missingNonSponsoredLinksOnly: event.target.checked })
+                }
+              />
+              <label htmlFor="item-filter-missing-non-sponsored-links">활성 비스폰서 링크가 없는 준비템만 보기</label>
+            </div>
+            {/* 라운드 84 리뷰 L-9·L-11: 라벨은 **무엇을 세는지**를 그대로 말한다(종전 "스폰서 아닌
+                상품 링크 없음만 보기"는 "스폰서 아닌 (상품 링크 없음)"으로도 읽혔고 활성 조건을
+                말하지 않았다). 힌트는 그 이유 + 위 필터와의 **포함 관계** 한 줄이다. */}
+            <span className={styles.hint}>
+              앱에서 강조되는 구매 버튼은 스폰서가 아닌 활성 링크가 받는데, 그 링크가 없는 준비템만 나와요.{" "}
+              위 필터에 걸리는 준비템은 여기에도 모두 나와요 — 이 필터가 위 필터를 포함해요.
+            </span>
+
             {filtersApplied ? (
               <div className={styles.actions}>
                 <button type="button" className={styles.secondaryButton} onClick={() => setFilters(EMPTY_ITEM_FILTERS)}>
@@ -671,6 +696,10 @@ export default function ItemTemplatesPage() {
                       {/* UX-X(R43) M-5: 표시 기준은 사용자에게 보이는 활성 링크 수다.
                           비활성 링크가 있으면 그 수를 옆에 덧붙인다 — "링크 자체가 없음"과
                           "있는데 전부 내려가 있음"은 운영자가 할 일이 다르다. */}
+                      {/* 라운드 84 리뷰 L-10: 새 필터가 **무엇을 보고 골랐는지**를 같은 열에 드러낸다.
+                          열의 의미(활성 링크 수)는 그대로이고, 활성 링크가 있는데 그 전부가 스폰서인
+                          자리에만 괄호 한 칸이 는다 — 필터를 켜지 않아도 그 자리가 보인다.
+                          ⚠️ 스폰서 링크를 숨기거나 뒤로 미는 것이 아니라 **세어서 보여 줄 뿐**이다(DNC-011). */}
                       <td>
                         {activeProductLinkCount(item)}
                         {productLinkCount(item) > activeProductLinkCount(item) ? (
@@ -678,6 +707,9 @@ export default function ItemTemplatesPage() {
                             {" "}
                             (비활성 {productLinkCount(item) - activeProductLinkCount(item)})
                           </span>
+                        ) : null}
+                        {activeProductLinkCount(item) > 0 && activeNonSponsoredLinkCount(item) === 0 ? (
+                          <span className={styles.hint}> (비스폰서 0)</span>
                         ) : null}
                       </td>
                       <td>
