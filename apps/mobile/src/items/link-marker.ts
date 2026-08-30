@@ -72,8 +72,10 @@ export function productPlatformLabel(platform: string | undefined | null): strin
 }
 
 /**
- * C2: 구매처가 하나도 없는 준비템에서 화면이 말해야 할 것. 시드 62개 품목 중 4개
- * (pregnancy_vitamin·diaper_stock·baby_food_maker·first_books)가 링크 0개다.
+ * C2: 구매처가 하나도 없는 준비템에서 화면이 말해야 할 것. 이 문구가 처음 선 라운드에는
+ * 시드 62개 품목 중 4개(pregnancy_vitamin·diaper_stock·baby_food_maker·first_books)가
+ * 링크 0개였다 — 라운드 82 B가 그 넷에 일반 링크를 채워 시드는 이제 62/62이지만,
+ * 어드민이 링크를 비활성화하거나 운영 데이터가 시드와 다른 창에서는 여전히 도달한다.
  */
 export const EMPTY_PRODUCT_LINKS_TEXT = "아직 등록된 구매처가 없어요.";
 
@@ -91,7 +93,8 @@ export function hasPurchasableLink(links: ReadonlyArray<unknown> | undefined | n
  * 기본 문구("이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.")를 그렸다. 그래서
  * 두 가지가 동시에 틀렸다.
  *
- *  - 허위 고지: 시드 링크 58개 중 34개가 제휴도 스폰서도 아닌 **일반 링크**다. 그런 링크만
+ *  - 허위 고지: 시드 링크 중 절반 이상이 제휴도 스폰서도 아닌 **일반 링크**다
+ *    (라운드 43 당시 58개 중 34개 · 라운드 82 B 이후 62개 중 38개). 그런 링크만
  *    달린 화면이 "수수료를 받을 수 있어요"라고 말했다 — 받지 않는 돈을 받는다고 말하는 쪽도
  *    사실과 다른 표시다(DNC-010은 고지를 숨기지 말라는 계약이지, 고지 대상이 없는 자리에도
  *    띄우라는 계약이 아니다. 고지 대상 자체가 없을 때 렌더하지 않는 것은 C2의 "구매처 0개"
