@@ -4085,11 +4085,17 @@ const mutationTriggerSites = (screen: string) => {
  *
  * 라운드 79 트랙 A가 남긴 그 형식 그대로다(`SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN`의 머리말:
  * *"다음에 같은 일이 생기면 제외가 산문이 아니라 **자기 무효화되는 값**으로 적혀야 한다"*).
- * 이번에 그 일이 한 자리에서 생겼다 — 일괄 선택의 중간 실패 줄은 **소유 밖 계약**이 여는 태그를
- * 바이트로 붙들고 있어(K-10을 지키는 그 핀), 프롭을 한 칸 더하면 그 핀이 먼저 빨개진다.
+ * 트랙 A 때 그 일이 한 자리에서 생겼다 — 일괄 선택의 중간 실패 줄은 **소유 밖 계약**이 여는
+ * 태그를 바이트로 붙들고 있어(K-10을 지키는 그 핀), 프롭을 한 칸 더하면 그 핀이 먼저 빨개졌다.
  *
- * 반쪽(announce만)으로 닫지 않는 이유: 관례는 **프롭 둘 + announce 한 벌**이고, 반쪽만 세우면
- * 같은 자리가 두 그물에서 서로 다른 답을 낸다. 핀이 모양으로 풀리는 라운드가 이 줄을 지운다.
+ * 반쪽(announce만)으로 닫지 않은 이유: 관례는 **프롭 둘 + announce 한 벌**이고, 반쪽만 세우면
+ * 같은 자리가 두 그물에서 서로 다른 답을 낸다. **라운드 80 통합이 그 라운드가 됐다** — 라운드
+ * 79의 선례대로 핀을 모양으로 풀고 같은 걸음에 프롭 둘 + announce 한 벌을 걸어, 이 목록이
+ * 비었다(그 완화에 대한 의존은 아래 `ROUND80_RELAXED_PIN_DEPENDENCY`가 값으로 진다).
+ *
+ * ⚠️ **비었어도 이 값과 그 형식이 남는 이유**는 라운드 79의 그것과 같다: 다음에 같은 일이
+ * 생기면 제외가 산문이 아니라 자기 무효화되는 값으로 적혀야 한다 — 각 줄은 ⓐ 화면에 그 구간이
+ * 실재하고 ⓑ 그 구간을 붙드는 핀이 named 파일에 실재한다는 것을 함께 단언한다.
  */
 const MUTATION_ANNOUNCE_BLOCKED_BY_SOURCE_PIN: Readonly<
   Record<
@@ -4102,19 +4108,42 @@ const MUTATION_ANNOUNCE_BLOCKED_BY_SOURCE_PIN: Readonly<
       readonly reason: string;
     }
   >
-> = {
-  'app/import/[importJobId].tsx bulkOutcome === "failed"': {
-    screenPin: "<Text style={{ color: theme.colors.danger }}>{IMPORT_BULK_PARTIAL_FAILURE_TEXT}</Text>",
-    pinnedBy: [
-      {
-        file: "src/offline/messages.test.ts",
-        needle: '"<Text style={{ color: theme.colors.danger }}>{IMPORT_BULK_PARTIAL_FAILURE_TEXT}</Text>"'
-      }
-    ],
-    reason:
-      "K-10(일괄 중간 실패는 조회 문구를 돌려 쓰지 않는다)을 지키는 핀이 이 자리의 **여는 태그까지 포함한 바이트**로 적혀 있고, 그 파일은 이 트랙의 소유가 아니다. 프롭 둘을 더하면 그 핀이 먼저 빨개진다 — 핀을 모양으로 푸는 걸음과 프롭을 거는 걸음이 같은 라운드여야 한다(라운드 79가 children·notifications 넷에서 지나간 그 순서)."
+> = {};
+
+/**
+ * ⚠️ 빈 목록은 조용하다 — **비었다는 사실과 그 경위**를 값으로 남긴다(빈 목록이 "아무도 세지
+ * 않았다"로 읽히지 않게). 라운드 79 트랙 A가 남긴 `SAVE_ERROR_ANNOUNCE_NO_BLOCKED_SITES_REASON`과
+ * 같은 형식이고, 이 줄이 말하는 것은 **트랙 A가 남긴 하나를 같은 라운드의 통합이 닫았다**는 것이다.
+ */
+const MUTATION_ANNOUNCE_NO_BLOCKED_SITES_REASON =
+  "라운드 80 트랙 A가 소유 밖 바이트 핀 때문에 한 자리를 남겼고(app/import/[importJobId].tsx의 일괄 중간 실패 — K-10을 " +
+  "지키는 src/offline/messages.test.ts의 핀), 같은 라운드의 통합이 그 핀을 모양 핀으로 풀면서 같은 걸음에 그 자리에 " +
+  "낭독 프롭 둘 + announce 한 벌을 걸었다. 그래서 뮤테이션 방아쇠 스무 자리는 전부 낭독 출구를 가진다.";
+
+/**
+ * ⚠️ **바이트 핀이 모양 핀으로 풀려 준 자리 — 그 의존을 값으로 적는다.**
+ *
+ * 라운드 79 트랙 A의 `ROUND79_RELAXED_PIN_DEPENDENCY`와 같은 형식이다. 일괄 중간 실패 줄은
+ * 종전에 **여는 태그까지 포함한 바이트**로 핀돼 있었다. 이 라운드의 통합이 그 핀을
+ * *"태그의 바이트가 아니라 모양을 묻는다"* 로 바꾸면서(`<Text[^>]*style=…>{그 문장}</Text>`)
+ * 프롭 둘이 설 수 있게 됐다 — 완화된 것은 여는 태그의 프롭 한 칸뿐이고, 그 핀이 실제로 지키는
+ * 것(K-10의 자기 문장 이름 · danger 색 · 태그 구조)은 그대로 엄격하다.
+ *
+ * ⚠️ 그 완화가 바이트로 되돌아가면 이 화면은 다시 침묵으로 돌아가야 한다 — 그래서 **의존을
+ * 단언으로** 세운다. 되돌아가는 날 여기가 먼저 빨개져서, 그것이 사고가 아니라 결정이 되게 한다.
+ */
+const ROUND80_RELAXED_PIN_DEPENDENCY: ReadonlyArray<{
+  readonly file: string;
+  readonly needle: string;
+  readonly why: string;
+}> = [
+  {
+    file: "src/offline/messages.test.ts",
+    needle:
+      "/<Text[^>]*style=\\{\\{ color: theme\\.colors\\.danger \\}\\}>\\s*\\{IMPORT_BULK_PARTIAL_FAILURE_TEXT\\}\\s*<\\/Text>/",
+    why: "일괄 중간 실패 줄에 낭독 프롭 둘이 설 수 있는 근거 — 트랙 A가 남긴 그 한 자리"
   }
-};
+];
 
 /**
  * ⚠️ **이 라운드가 실제로 더한 것 — 프롭뿐이다**(announce 배선은 아래 ⓒ가 따로 진다).
@@ -4153,8 +4182,9 @@ const ROUND80_ANNOUNCE_PROPS_ADDED: ReadonlyArray<{
     before: "<Text style={{ color: theme.colors.danger }}>",
     after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>',
     added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
-    places: 2,
-    what: "행 편집 실패와 확정 실패 — 일괄 중간 실패 한 자리는 소유 밖 바이트 핀 때문에 남았다(위 목록)"
+    places: 3,
+    what:
+      "행 편집 실패 · 확정 실패 · 일괄 중간 실패 — 셋째 자리는 트랙 A가 소유 밖 바이트 핀 때문에 남긴 것이고, 같은 라운드의 통합이 그 핀을 모양으로 풀며 함께 걸었다"
   }
 ];
 
@@ -4208,6 +4238,12 @@ const ROUND80_ANNOUNCE_WIRING: ReadonlyArray<{
     file: "app/import/[importJobId].tsx",
     guard: "confirm.isError",
     announced: 'importFailureMessage("confirm", confirm.error, { isOnline: confirmFailureOnline })'
+  },
+  // 라운드 80 통합이 더한 열셋째 — K-10의 자기 문장을 그대로 읽는다(조회 문구를 돌려 쓰지 않는다).
+  {
+    file: "app/import/[importJobId].tsx",
+    guard: 'bulkOutcome === "failed"',
+    announced: "IMPORT_BULK_PARTIAL_FAILURE_TEXT"
   }
 ];
 
@@ -4264,15 +4300,18 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
     for (const screen of OFFLINE_AWARE_SAVE_ERROR_SCREENS) {
       expect(byScreen[screen], `${screen}은 방아쇠 모집단 안에 있다`).toBeGreaterThan(0);
     }
-    // 오늘의 실측: 스무 자리(맨 Text 열아홉 + Toast 하나).
+    // 오늘의 실측: 스무 자리(맨 Text 열아홉 + Toast 하나). 자리 수는 트랙 A 때와 같다 —
+    // 통합이 더한 것은 프롭·announce뿐이라 자리는 하나도 늘거나 줄지 않았다(아래 ⓕ가 그 사실을 진다).
     expect(mutationSites.length, "뮤테이션 방아쇠 자리 합계").toBe(20);
 
     const exits: Record<string, number> = {};
     for (const site of mutationSites) exits[site.exit] = (exits[site.exit] ?? 0) + 1;
-    expect(exits, "출구별 자리 수").toEqual({ announce: 18, silent: 1, toast: 1 });
+    // 오늘의 값: 낭독 밖은 **0건**이다(트랙 A 뒤 하나 → 통합이 핀과 화면을 함께 움직여 0).
+    // 열아홉은 프롭 + useEffect로, 나머지 하나(Toast)는 자기가 announce해서 출구를 가진다.
+    expect(exits, "출구별 자리 수").toEqual({ announce: 19, toast: 1 });
   });
 
-  it("ⓑ 부정 단언 — 프롭만 걸린 자리 0건(iOS 침묵 0건) · 낭독 밖은 이유가 적힌 그 하나뿐이다", () => {
+  it("ⓑ 부정 단언 — 프롭만 걸린 자리 0건(iOS 침묵 0건) · 낭독 밖 0건이고 그 0이 값에서 파생한다", () => {
     const mutationSites = allSites().filter((site) => site.trigger === "mutation");
     const androidOnly = mutationSites.filter((site) => site.exit === "live-region").map((site) => `${site.screen} ${site.guard}`);
     // 프롭 조합은 안드로이드의 답이고 iOS는 announce가 답한다 — 반쪽으로 닫힌 자리가 0건이다.
@@ -4280,8 +4319,25 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
     expect(ANDROID_ONLY_LIVE_REGION_REASON, "한 플랫폼만 답하는 자리를 세는 이유").toContain("@platform android");
 
     const silent = mutationSites.filter((site) => site.exit === "silent").map((site) => `${site.screen} ${site.guard}`);
-    // 그 0이 아닌 하나는 손으로 적은 값이 아니라 **자기 무효화되는 제외 목록**에서 파생한다.
+    // 오늘의 값: 낭독 밖은 0건이다. 그 0은 손으로 적은 값이 아니라 **자기 무효화되는 제외
+    // 목록**에서 파생한다 — 제외가 다시 생기면 그 목록에 이유가 값으로 적혀야 하고, 적히지
+    // 않은 침묵은 여기서 빨개진다.
+    expect(silent.sort(), "낭독 밖에 남은 자리").toEqual([]);
     expect(silent.sort(), "낭독 밖에 남은 자리").toEqual(Object.keys(MUTATION_ANNOUNCE_BLOCKED_BY_SOURCE_PIN).sort());
+    // ⚠️ 비었다는 **사실과 그 경위**도 값으로 선다(형식만 남고 아무도 세지 않는 목록이 되지 않게).
+    expect(Object.keys(MUTATION_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "낭독 밖으로 남겨 둔 자리").toEqual([]);
+    expect(MUTATION_ANNOUNCE_NO_BLOCKED_SITES_REASON.length, "비어 있는 경위").toBeGreaterThan(0);
+    expect(MUTATION_ANNOUNCE_NO_BLOCKED_SITES_REASON).toContain("모양 핀");
+
+    // ⚠️ 그 0을 떠받치는 근거 — 바이트 핀을 모양으로 푼 그 완화가 **소유 밖 파일에 실재한다**.
+    // 바이트로 되돌아가는 날 여기가 먼저 빨개진다(그러면 이 자리는 다시 침묵이어야 한다).
+    expect(ROUND80_RELAXED_PIN_DEPENDENCY.length, "모양으로 풀린 핀").toBe(1);
+    for (const pin of ROUND80_RELAXED_PIN_DEPENDENCY) {
+      expect(source(pin.file), `${pin.file}: ${pin.why}`).toContain(pin.needle);
+      expect(pin.why.length, `${pin.file} 완화의 근거`).toBeGreaterThan(0);
+    }
+
+    // 아래 규율은 제외가 다시 생기는 날을 위해 그대로 선다(줄이 생기면 곧바로 그 줄을 검사한다).
     for (const [key, entry] of Object.entries(MUTATION_ANNOUNCE_BLOCKED_BY_SOURCE_PIN)) {
       const screen = key.slice(0, key.indexOf(" "));
       expect(entry.reason.length, `${key}의 제외 사유`).toBeGreaterThan(0);
@@ -4295,7 +4351,7 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
   });
 
   it("ⓒ 낭독 배선이 소스에 실재한다 (조건은 그 자리의 조건 그대로다)", () => {
-    expect(ROUND80_ANNOUNCE_WIRING, "이 라운드가 세운 낭독 자리").toHaveLength(12);
+    expect(ROUND80_ANNOUNCE_WIRING, "이 라운드가 세운 낭독 자리").toHaveLength(13);
     for (const entry of ROUND80_ANNOUNCE_WIRING) {
       const masked = maskComments(source(entry.file));
       const effects = callBlocksOf(masked, "useEffect").filter((block) => block.includes("announceForA11y("));
@@ -4465,6 +4521,9 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
       '{importFailureMessage("row_edit", rowEditFailure.error, { isOnline: rowEditFailure.isOnline })}'
     );
     expect(reviewScreen).toContain('{importFailureMessage("confirm", confirm.error, { isOnline: confirmFailureOnline })}');
+    // 일괄 중간 실패도 조건·문장이 그대로다 — K-10의 자기 문장이지 조회 문구가 아니다.
+    expect(reviewScreen).toContain('{bulkOutcome === "failed" ? (');
+    expect(reviewScreen).toContain("{IMPORT_BULK_PARTIAL_FAILURE_TEXT}");
 
     // 알림 화면은 announce 한 칸만 늘었다 — 프롭 쌍은 라운드 79가 세운 **둘** 그대로다.
     const notificationsScreen = source("app/settings/notifications.tsx");
