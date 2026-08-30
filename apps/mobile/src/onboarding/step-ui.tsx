@@ -272,7 +272,7 @@ export function OnboardingSaveErrorCard({
   const isOnline = useOnboardingSaveFailureConnectivity();
   const text = message ?? onboardingSaveErrorMessage(error, { isOnline });
   return (
-    <View accessibilityRole="alert">
+    <View accessibilityLiveRegion="polite" accessibilityRole="alert">
       <Card style={{ borderColor: theme.colors.danger, borderWidth: 1, gap: theme.spacing.gap }}>
         <View style={{ alignItems: "center", flexDirection: "row", gap: 10 }}>
           {/* D1 후속(실기기 피드백 2) 마무리: 마지막까지 남아 있던 텍스트 글리프(⚠)를 다른

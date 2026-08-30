@@ -593,13 +593,18 @@ export default function ItemDetailScreen() {
    * ⚠️ **자리 이동 한 번**(라운드 77 A — 동작 0건 변경, 훅 순서도 그대로다: 옮겨 온 구간에는
    * 훅이 하나도 없다). 이 뮤테이션은 자기가 쓰는 헬퍼들(`showLinkNotice`·`showLinkFailure`·
    * `registerPurchaseFollowup`·`retryOpenFallbackLink`·`shareFallbackLink`) **뒤**로 내려왔다.
-   * 읽는 순서로도 그쪽이 맞지만, 진짜 이유는 아래 onError가 `error`를 받게 되면서 **다른 파일의
-   * 소스 계약이 끝점을 잃기 때문**이다: `src/commerce/purchase-followup-flow.test.ts`는
-   * *"열기 실패(catch) 분기는 구매 확인 대기를 등록하지 않는다"* 를 onSuccess의 `} catch {`부터
-   * 옛 `onError` 시그니처 문자열까지를 잘라 확인해 왔다. 그 끝점이 사라지면 잘린 구간이 파일
-   * 끝까지 늘어나므로, **구매 확인 대기 등록이 전부 이 뮤테이션 앞에 오도록** 자리를 옮겨 그
-   * 단언이 더 넓은 범위에서 참이 되게 했다. 옮긴 것은 이 블록뿐이고 헬퍼들은 한 글자도 바뀌지
-   * 않았다(라운드 77 A의 소유 파일은 셋이고 그 테스트 파일은 그중에 없다).
+   * 사유는 둘이고 둘 다 이 파일 안에서 확인된다: **읽는 순서**(헬퍼가 먼저, 그것을 쓰는
+   * 소비자가 뒤)와, **구매 확인 대기 등록이 전부 이 뮤테이션 앞에 모인다**는 사실
+   * (`onSuccess`의 성공 자리와 폴백 재시도 자리 둘뿐이다).
+   *
+   * ⚠️ **라운드 79 정정(P3 · S-5 잔여) — 종전 주석이 적어 둔 세 번째 사유는 오늘 존재하지
+   * 않는다.** 그 주석은 *"다른 파일의 소스 계약이 끝점을 잃기 때문"* 이라며
+   * `src/commerce/purchase-followup-flow.test.ts`가 옛 `onError` **시그니처 문자열**까지를 잘라
+   * 확인한다고 적었는데, 그 끝점은 이미 접두(`"onError: ("`)로 바뀌었고 시작·끝 두 인덱스의
+   * 실재 확인까지 함께 서 있다(라운드 77 리뷰 M-3). 그리고 오늘 그 단언이 자르는 구간은
+   * **onSuccess의 `} catch {`부터 같은 뮤테이션의 onError까지**라 **이 블록이 파일 어디에 있든
+   * 참**이다. 즉 그 주석이 말하던 제약은 사라졌다 — **되돌리지 않는다는 판정은 그대로**이고
+   * (라운드 78 S-5), 고친 것은 사유 한 문단뿐이다(**코드 0줄 · 동작 0건**).
    */
   const clickLink = useMutation({
     mutationFn: (link: ProductLink) => clickProductLink(authToken!, link.id, childId!, "ITEM-003"),

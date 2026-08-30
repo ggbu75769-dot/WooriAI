@@ -309,7 +309,7 @@ export default function AcceptInviteScreen() {
             아무것도 없는 실패에 재시도 버튼을 세우는 것은 안내가 아니라 시간 낭비다. 대신
             "새 링크를 요청하세요"라는 사실과, 지금 이 자리에서 할 수 있는 행동 하나를 준다. */}
         {inviteUnavailable ? (
-          <View accessibilityRole="alert">
+          <View accessibilityLiveRegion="polite" accessibilityRole="alert">
             <Card style={{ gap: 8 }}>
               <Text style={{ color: theme.colors.danger }}>{INVITE_UNAVAILABLE_TITLE}</Text>
               <Text style={mutedTextStyle}>{INVITE_UNAVAILABLE_DETAIL}</Text>
@@ -363,7 +363,7 @@ export default function AcceptInviteScreen() {
         {/* 끝난 초대(수락 400)는 위 카드가 말한다 — 여기 남는 것은 재시도로 풀리는 실패와
             HOUSEHOLD_ALREADY_MEMBER이고, 그 둘의 문구·판정은 종전 그대로다. */}
         {accept.isError && !inviteUnavailable ? (
-          <Text style={{ color: theme.colors.danger }}>
+          <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>
             {acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error)}
           </Text>
         ) : null}
@@ -372,7 +372,7 @@ export default function AcceptInviteScreen() {
             단정하지 않고 사실만 말한 뒤, 같은 뒤처리만 다시 태우는 [다시 시도]를 준다 --
             초대 수락(POST)은 이미 성공했으므로 다시 부르지 않는다(409만 남는다). */}
         {joinRetryNotice && joinedResult ? (
-          <View accessibilityRole="alert">
+          <View accessibilityLiveRegion="polite" accessibilityRole="alert">
             <Card style={{ gap: 10 }}>
               <Text style={{ color: theme.colors.brown }}>{`${joinedResult.household.name}과 함께해요.`}</Text>
               <Text style={{ color: theme.colors.danger }}>{joinRetryNotice}</Text>

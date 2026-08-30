@@ -243,7 +243,7 @@ export default function FamilyInviteScreen() {
         />
 
         {invite.isError ? (
-          <Text style={{ color: theme.colors.danger }}>{inviteCreateErrorText}</Text>
+          <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{inviteCreateErrorText}</Text>
         ) : null}
 
         {invite.data ? (

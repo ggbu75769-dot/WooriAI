@@ -247,7 +247,7 @@ export default function NotificationSettingsScreen() {
               </Text>
             ) : null}
             {toggleCurrentDevice.isError ? (
-              <Text style={errorTextStyle}>
+              <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>
                 푸시 설정을 바꾸지 못했어요. 알림 권한을 확인한 뒤 다시 시도해 주세요.
               </Text>
             ) : null}
