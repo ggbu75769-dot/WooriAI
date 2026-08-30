@@ -1,6 +1,6 @@
 import { LINK_HEALTH_LABELS, LINK_HEALTH_UNKNOWN_LABEL, type LinkHealthStatus, type ProductLink } from "./admin-api";
 
-// ADM-125: 상품 링크 목록의 클라이언트 필터. 링크는 시드 기준 77개라 서버
+// ADM-125: 상품 링크 목록의 클라이언트 필터. 링크는 시드 기준 67개라 서버
 // 쿼리를 늘리지 않고 이미 받아온 배열을 그대로 좁힌다 — 깨진 링크를 눈으로
 // 훑는 대신 헬스 상태 칩 하나로 골라내는 게 목적.
 

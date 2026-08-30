@@ -228,7 +228,9 @@ const ADMIN_WRITE_SCREENS: Readonly<Record<string, WriteScreen>> = {
         'id="item-filter-missing-links"':
           "상품 링크 없는 준비템만 보기 — 같은 조회 필터다. 조회를 잠그면 analyst의 일 자체가 막힌다.",
         'id="item-filter-missing-non-sponsored-links"':
-          "스폰서 아닌 활성 링크가 없는 준비템만 보기(라운드 84 트랙 A) — 받아온 목록을 좁히는 같은 조회 필터이고 서버로 나가는 값이 없다."
+          "스폰서 아닌 활성 링크가 없는 준비템만 보기(라운드 84 트랙 A) — 받아온 목록을 좁히는 같은 조회 필터이고 서버로 나가는 값이 없다.",
+        'id="item-filter-missing-category"':
+          "분류 없는 준비템만 보기(라운드 85 트랙 D) — 받아온 목록의 categoryId만 보고 좁히는 조회 필터다. 분류를 고치는 칸은 폼의 select 하나뿐이고 그것은 잠긴 채로 남는다."
       }
     },
     href: "/items",

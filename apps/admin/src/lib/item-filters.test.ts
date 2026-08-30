@@ -8,6 +8,7 @@ import {
   activeProductLinkCount,
   filterItemTemplates,
   hasAnyItemFilter,
+  isUncategorizedItem,
   itemFilterSummary,
   productLinkCount,
   type FilterableItem
@@ -438,5 +439,335 @@ describe("새 필터의 문구 (라운드 84 트랙 A ⓓ)", () => {
     expect(page).toContain("필터 초기화");
     // 요약 문구도 그대로다(itemFilterSummary = linkFilterSummary).
     expect(page).toContain("itemFilterSummary(items.length, filteredItems?.length ?? 0)");
+  });
+});
+
+/* ------------------------------------------------------------------ 라운드 85 트랙 D */
+
+/**
+ * 라운드 85 트랙 D(GAP-085 #4) — **운영자의 목록이 앱과 같은 축(분류)을 본다.**
+ *
+ * 고치는 문제: 앱은 준비템 목록을 **분류로 묶어** 그리고(app/(tabs)/items.tsx의 groupKeyOf →
+ * 그룹 헤더 "위생·목욕 3/6 보유") 라운드 81 D부터는 **그 이름으로 검색까지** 한다
+ * (apps/mobile/src/items/item-filters.ts의 itemMatchesSearch). 그런데 운영자의 목록에는 그
+ * 축이 통째로 없었다 — 열 여섯(이름·단계·필수도·가격대·링크 수·활성)에 분류가 없고, 필터
+ * 셋 어디에도 분류가 없으며, 검색은 이름 하나만 봤다. **그리고 분류를 비울 수 있는 손이
+ * 정확히 그 화면의 폼이다**(`<option value="">분류 없음</option>`이 기본값이다).
+ *
+ * 분류가 빈 준비템은 앱에서 "분류 없음" 그룹으로 떨어지고, 그 품목을 산 사용자는 기록 시트에서
+ * 분류를 손으로 고른다(상세의 프리필이 `categoryId`를 그대로 넘기기 때문이다). 운영자가 자기
+ * 화면에서 그 사실을 볼 자리가 0건이었다.
+ *
+ * ⚠️ 서버 0건 · 새 요청 0건 · 시드 0건(오늘 시드 62 전부가 분류를 갖는다 — 그래서 아래는
+ * **픽스처로 센다**) · 정렬·점수 0건(DNC-009) · 분류를 필수 입력으로 만들지 않는다.
+ */
+const CATEGORY_NAMES: Record<string, string> = {
+  "cat-hygiene": "위생·목욕",
+  "cat-feeding": "수유·이유식",
+  // 대소문자 정규화를 값으로 세기 위한 라틴 문자 포함 이름.
+  "cat-outing": "외출 Outdoor"
+};
+
+/** 화면의 해석기와 같은 모양 — 이름은 받아 둔 분류 목록 하나에서만 나오고, 모르면 null이다. */
+const categoryNameOf = (item: FilterableItem): string | null =>
+  item.categoryId ? CATEGORY_NAMES[item.categoryId] ?? null : null;
+
+function categorized(name: string, categoryId: string | null): FilterableItem {
+  return { ...item(name, [link("p")]), categoryId };
+}
+
+const gauze = categorized("가제 손수건", "cat-hygiene");
+const bottle = categorized("젖병", "cat-feeding");
+const carrier = categorized("아기띠", "cat-outing");
+// 오늘 시드에 0건인 갈래 — 캠페인으로 급히 올려 분류 칸을 비운 채 저장된 준비템 둘.
+const campaignSet = categorized("신학기 준비 세트", null);
+const campaignGift = categorized("입학 축하 선물", null);
+// 폼의 "고르지 않음"은 빈 문자열이다 — 그 값으로 저장된 자리도 같은 답이어야 한다.
+const blankCategory = categorized("빈 문자열 분류 품목", "");
+// 분류는 있는데 그 이름을 이 화면이 모른다(목록에 없는 분류 · 분류 목록 조회 실패).
+const strayCategory = categorized("이름을 모르는 분류 품목", "cat-gone");
+// categoryId 키 자체가 없는 응답 = "모름"(이 필드 이전에 캐시된 응답).
+const legacyRow = item("구버전 응답 품목", [link("q")]);
+
+const catalog = [gauze, bottle, carrier, campaignSet, campaignGift, blankCategory, strayCategory, legacyRow];
+
+describe("분류 없는 준비템만 보기 (라운드 85 트랙 D ⓐ)", () => {
+  it("분류가 비어 있는 준비템만 남긴다 (픽스처로 센다 — 오늘 시드에는 0건이다)", () => {
+    expect(filterItemTemplates(catalog, { missingCategoryOnly: true })).toEqual([
+      campaignSet,
+      campaignGift,
+      blankCategory
+    ]);
+  });
+
+  it("분류 없음(null·빈 문자열)과 모름(키 부재)을 구분한다", () => {
+    expect(isUncategorizedItem(campaignSet)).toBe(true);
+    expect(isUncategorizedItem(blankCategory)).toBe(true);
+    expect(isUncategorizedItem(gauze)).toBe(false);
+    // 이름을 모를 뿐 분류는 붙어 있다 — 채워야 할 빈 자리가 아니다.
+    expect(isUncategorizedItem(strayCategory)).toBe(false);
+    // ⚠️ 키가 없는 응답은 "모름"이다. 이것을 분류 없음으로 세면 멀쩡한 준비템 전부가 걸려
+    // 운영자가 이미 있는 분류를 다시 고르러 간다(N-8이 고른 방향의 반대).
+    expect(isUncategorizedItem(legacyRow)).toBe(false);
+    expect(filterItemTemplates([legacyRow], { missingCategoryOnly: true })).toEqual([]);
+  });
+
+  it("세 필터를 함께 켜도 결과가 좁아지기만 한다 (AND 결합의 기존 규율)", () => {
+    // 링크가 없고 분류도 없는 준비템 하나를 픽스처로 세운다(세 필터가 동시에 무는 자리).
+    const orphan: FilterableItem = { ...item("분류·링크 둘 다 없는 품목", []), categoryId: null };
+    const all = [...catalog, orphan];
+    const onlyCategory = filterItemTemplates(all, { missingCategoryOnly: true });
+    const onlyLinks = filterItemTemplates(all, { missingLinksOnly: true });
+    const onlyNonSponsored = filterItemTemplates(all, { missingNonSponsoredLinksOnly: true });
+    const three = filterItemTemplates(all, {
+      missingCategoryOnly: true,
+      missingLinksOnly: true,
+      missingNonSponsoredLinksOnly: true
+    });
+
+    for (const entry of three) {
+      expect(onlyCategory).toContain(entry);
+      expect(onlyLinks).toContain(entry);
+      expect(onlyNonSponsored).toContain(entry);
+    }
+    expect(three).toEqual([orphan]);
+    // 원본 순서도 그대로다(정렬 0건 — DNC-009).
+    expect(filterItemTemplates(all, { missingCategoryOnly: true })).toEqual([
+      campaignSet,
+      campaignGift,
+      blankCategory,
+      orphan
+    ]);
+  });
+
+  it("종전 두 필터의 답은 새 필터가 생겨도 그대로다", () => {
+    expect(filterItemTemplates(catalog, { missingLinksOnly: true })).toEqual([]);
+    expect(filterItemTemplates(catalog)).toEqual(catalog);
+    expect(hasAnyItemFilter({ missingCategoryOnly: true })).toBe(true);
+    expect(hasAnyItemFilter({ missingCategoryOnly: false })).toBe(false);
+    expect(hasAnyItemFilter(EMPTY_ITEM_FILTERS)).toBe(false);
+  });
+
+  it("새 필터도 서버로 나가지 않는다 — 이미 받아온 배열만 좁힌다", () => {
+    const source = readAdminSource("src/lib/item-filters.ts");
+    expect(source).not.toMatch(/\bawait\b|\bfetch\(|listItemTemplates/);
+    const page = readAdminSource("app/items/page.tsx");
+    expect((page.match(/listItemTemplates\(/g) ?? []).length).toBe(1);
+    expect(page).toContain("setFilters({ ...filters, missingCategoryOnly: event.target.checked })");
+  });
+});
+
+describe("검색이 분류 표시명도 본다 (라운드 85 트랙 D ⓑ)", () => {
+  const search = (query: string) => filterItemTemplates(catalog, { query }, categoryNameOf);
+
+  it("이름 ∨ 분류 표시명으로 찾는다", () => {
+    expect(search("가제")).toEqual([gauze]);
+    // 화면이 그 항목 위에 그리는 분류 이름 — 앱에서 그러듯 그 글자로도 찾힌다.
+    expect(search("위생")).toEqual([gauze]);
+    expect(search("수유")).toEqual([bottle]);
+  });
+
+  it("정규화는 이 파일의 기존 규칙 하나(trim + 소문자)를 그대로 쓴다", () => {
+    expect(search("  위생  ")).toEqual([gauze]);
+    // 두 갈래가 같은 규칙을 쓴다 — 이름 쪽도 분류 쪽도 대소문자를 가리지 않는다.
+    expect(search("outdoor")).toEqual([carrier]);
+    expect(search("OUTDOOR")).toEqual([carrier]);
+    expect(search("tub")).toEqual([]);
+    expect(search("   ")).toEqual(catalog);
+  });
+
+  it("분류 이름을 모르는 항목은 종전과 같이 동작한다", () => {
+    // 이름으로는 찾힌다.
+    expect(search("이름을 모르는")).toEqual([strayCategory]);
+    expect(search("구버전")).toEqual([legacyRow]);
+    // 있지도 않은 분류 이름으로 걸리지는 않는다(이름을 지어내지 않는다).
+    expect(search("위생")).not.toContain(strayCategory);
+    expect(search("위생")).not.toContain(legacyRow);
+  });
+
+  it("해석기를 주지 않으면 술어가 종전과 정확히 같다(이름만 본다)", () => {
+    expect(filterItemTemplates(catalog, { query: "위생" })).toEqual([]);
+    expect(filterItemTemplates(catalog, { query: "가제" })).toEqual([gauze]);
+  });
+
+  it("검색과 새 필터가 AND로 겹친다", () => {
+    expect(filterItemTemplates(catalog, { missingCategoryOnly: true, query: "신학기" }, categoryNameOf)).toEqual([
+      campaignSet
+    ]);
+    // 분류가 있는 항목은 분류 이름으로 찾아도 '분류 없음' 필터를 통과하지 못한다.
+    expect(filterItemTemplates(catalog, { missingCategoryOnly: true, query: "위생" }, categoryNameOf)).toEqual([]);
+  });
+});
+
+/**
+ * ⓒ **술어 동치(파생)** — 이 검색은 자기 질문을 새로 정의하지 않는다. 정본은 모바일의
+ * `itemMatchesSearch`(이름 ∨ 분류 표시명)이고, 그 술어가 바뀌면 여기가 먼저 빨개져야 한다.
+ * 정본은 **소스 텍스트로 읽는다** — `admin-canonical-mirrors.test.ts`가 손 미러를 대조하는 그
+ * 관례 그대로다(apps/admin은 모바일을 의존성으로 들지 않는다).
+ */
+describe("모바일 검색 술어와의 동치 (라운드 85 트랙 D ⓒ)", () => {
+  const mobileSource = readRepoSource("apps/mobile/src/items/item-filters.ts");
+
+  it("정본이 오늘도 두 갈래(이름 ∨ 분류 표시명)를 그대로 둔다", () => {
+    expect(mobileSource).toContain("export function itemMatchesSearch<TItem extends FilterableItem>(");
+    for (const branch of [
+      "if (item.name.toLowerCase().includes(normalizedSearch)) return true;",
+      "const categoryName = categoryNameOf?.(item);",
+      "return categoryName.toLowerCase().includes(normalizedSearch);"
+    ]) {
+      expect(mobileSource, "앱의 검색 술어가 갈렸어요 — 어드민 검색도 같이 옮겨야 합니다").toContain(branch);
+    }
+    // 정규화도 같은 규칙 하나다(trim + 소문자).
+    expect(mobileSource).toContain("return searchText.trim().toLowerCase();");
+  });
+
+  it("어드민의 술어가 같은 두 갈래를 같은 순서로 쓴다", () => {
+    const source = readAdminSource("src/lib/item-filters.ts");
+    expect(source).toContain("if (item.name.toLowerCase().includes(normalizedQuery)) return true;");
+    expect(source).toContain("const categoryName = categoryNameOf?.(item);");
+    expect(source).toContain("return categoryName.toLowerCase().includes(normalizedQuery);");
+    expect(source).toContain('const normalizedQuery = (filters.query ?? "").trim().toLowerCase();');
+    // 검색이 정렬을 건드리지 않는다(DNC-009).
+    expect(source).not.toContain(".sort(");
+  });
+
+  it("같은 항목·같은 검색어에서 두 술어의 답이 같다", () => {
+    /** 모바일 술어를 그 소스 그대로 옮겨 놓은 것(위 단언이 그 소스를 오늘도 확인한다). */
+    const appMatches = (entry: FilterableItem, raw: string): boolean => {
+      const normalizedSearch = raw.trim().toLowerCase();
+      if (!normalizedSearch) return true;
+      if (entry.name.toLowerCase().includes(normalizedSearch)) return true;
+      const categoryName = categoryNameOf(entry);
+      if (!categoryName) return false;
+      return categoryName.toLowerCase().includes(normalizedSearch);
+    };
+
+    for (const raw of ["", "  ", "위생", "WOORI", "outdoor", "OUTDOOR", "젖병", "분류", "이름을", "수유·이유식"]) {
+      for (const entry of catalog) {
+        expect(
+          filterItemTemplates([entry], { query: raw }, categoryNameOf).length === 1,
+          `${entry.name} / "${raw}"`
+        ).toBe(appMatches(entry, raw));
+      }
+    }
+  });
+});
+
+/**
+ * ⓓ **열** — 분류 열이 값 없음을 다른 열과 같은 관례(`-`)로 그리고, 이름 해석기는 이 화면에
+ * 하나뿐이다(두 번째 조립기를 만들면 검색이 화면에 없는 이름을 찾거나 화면에 있는 이름을
+ * 못 찾게 된다 — 라운드 81 D가 모바일에서 내린 그 판단의 반복).
+ */
+describe("분류 열 (라운드 85 트랙 D ⓓ)", () => {
+  const page = readAdminSource("app/items/page.tsx");
+
+  it("표에 분류 열이 있고 값 없음을 `-`로 그린다", () => {
+    expect(page).toContain("<th>분류</th>");
+    expect(page).toContain('categoryNameOf(item) ?? (isUncategorizedItem(item) ? "-" : UNKNOWN_ITEM_CATEGORY_LABEL)');
+    // 다른 열도 같은 관례를 쓴다(형식이 두 벌이 되지 않는다).
+    expect(page).toContain('.join(", ") || "-"');
+    expect(page).toContain('{item.priceBandText ?? "-"}');
+    // 편집 폼이 깔고 앉는 칸 수가 열 수와 같다(열이 하나 늘었다).
+    expect(page).toContain("colSpan={8}");
+  });
+
+  it("이름 해석기가 이 화면에 하나뿐이고, 열과 검색이 그 하나를 본다", () => {
+    expect((page.match(/const categoryNameOf =/g) ?? []).length).toBe(1);
+    expect((page.match(/categoryNameById/g) ?? []).length).toBe(2);
+    expect(page).toContain("filterItemTemplates(items, filters, categoryNameOf)");
+  });
+
+  it("분류는 있는데 이름을 모르는 자리를 `분류 없음`으로 단정하지 않는다", () => {
+    // 화면의 판정과 같은 식을 값으로 센다: 이름을 모르는 항목은 `-`로 떨어지지 않는다.
+    const cell = (entry: FilterableItem) =>
+      categoryNameOf(entry) ?? (isUncategorizedItem(entry) ? "-" : "(목록에 없는 분류)");
+    expect(cell(gauze)).toBe("위생·목욕");
+    expect(cell(campaignSet)).toBe("-");
+    expect(cell(blankCategory)).toBe("-");
+    expect(cell(strayCategory)).toBe("(목록에 없는 분류)");
+    expect(cell(legacyRow)).toBe("(목록에 없는 분류)");
+    // 그 라벨은 이 화면이 이미 쓰던 것 하나다(새 문구를 만들지 않는다).
+    expect(readAdminSource("src/lib/item-category-options.ts")).toContain(
+      'export const UNKNOWN_ITEM_CATEGORY_LABEL = "(목록에 없는 분류)"'
+    );
+  });
+});
+
+/**
+ * ⓔ **문구** — 새 한국어 문장은 **둘**(라벨 · 힌트)이고 해요체이며, 무엇이 *"잘못됐다"* 고
+ * 단정하지 않는다. 분류를 비워 둔 것은 운영의 결정일 수 있고(서버는 생략을 "분류 없음"과
+ * "그대로 둠"으로 나눠 읽는다), 이 화면이 하는 일은 그 자리를 **찾을 수 있게** 하는 것뿐이다.
+ */
+describe("새 필터의 문구 (라운드 85 트랙 D ⓔ)", () => {
+  const page = readAdminSource("app/items/page.tsx");
+  const LABEL = "분류 없는 준비템만 보기";
+  const HINT = "분류가 비어 있으면 앱 목록에서 분류 없음 그룹으로 묶이고, 지출을 기록할 때 분류가 미리 채워지지 않아요.";
+
+  it("라벨과 힌트가 그 자리에 있다", () => {
+    expect(page).toContain(LABEL);
+    expect(page).toContain(HINT);
+    expect(page).toContain('id="item-filter-missing-category"');
+  });
+
+  it("해요체이고, 무엇이 잘못됐다고 말하지 않는다", () => {
+    expect(HINT.endsWith("요.")).toBe(true);
+    for (const banned of ["잘못", "오류", "위반", "문제", "실수", "고쳐", "필수"]) {
+      expect(`${LABEL} ${HINT}`, `단정하는 낱말(${banned})`).not.toContain(banned);
+    }
+  });
+
+  it("힌트가 말하는 앱 쪽 사실이 오늘도 참이다", () => {
+    const itemsTab = readRepoSource("apps/mobile/app/(tabs)/items.tsx");
+    // "분류 없음" 그룹으로 묶인다 — 그 이름과 조립기가 오늘도 그 자리에 있다.
+    expect(itemsTab).toContain('const UNCATEGORIZED_GROUP_NAME = "분류 없음";');
+    expect(itemsTab).toContain("item.categoryId ? categoryNameOf(item.categoryId) : UNCATEGORIZED_GROUP_NAME");
+    // 기록 시트의 분류 프리필이 상세의 categoryId를 그대로 넘긴다.
+    expect(readRepoSource("apps/mobile/app/items/[itemTemplateId].tsx")).toContain(
+      "categoryId: visibleDetail.categoryId"
+    );
+  });
+
+  it("입력 방식을 바꾸지 않는다 — 체크박스 하나가 는다(라디오 0건)", () => {
+    expect(page).not.toContain('type="radio"');
+    expect((page.match(/id="item-filter-[a-z-]+"/g) ?? []).length).toBe(4);
+  });
+});
+
+/**
+ * ⓕ **바이트 불변** — 이 트랙이 건드리지 않은 것들. 종전 두 필터의 의미·이름·문구,
+ * `activeProductLinkCount`의 폴백 규율(N-8), `activeNonSponsoredLinkCount`의 방향 판정(L-12),
+ * 요약 문구. 셋은 서로 다른 질문이고, 하나가 늘었다고 나머지 둘의 답이 달라지지 않는다.
+ */
+describe("종전 필터 바이트 불변 (라운드 85 트랙 D ⓕ)", () => {
+  const page = readAdminSource("app/items/page.tsx");
+  const source = readAdminSource("src/lib/item-filters.ts");
+
+  it("기존 두 필터의 이름과 문구가 한 글자도 바뀌지 않았다", () => {
+    expect(page).toContain("상품 링크 없음만 보기");
+    expect(page).toContain("링크가 전부 비활성인 준비템도 함께 나와요.");
+    expect(page).toContain("활성 비스폰서 링크가 없는 준비템만 보기");
+    expect(page).toContain(
+      "앱에서 강조되는 구매 버튼은 스폰서가 아닌 활성 링크가 받는데, 그 링크가 없는 준비템만 나와요."
+    );
+    expect(page).toContain("위 필터에 걸리는 준비템은 여기에도 모두 나와요 — 이 필터가 위 필터를 포함해요.");
+    expect(page).toContain("대소문자를 가리지 않고 부분 일치로 찾아요.");
+    expect(page).toContain("필터 초기화");
+    expect(page).toContain("itemFilterSummary(items.length, filteredItems?.length ?? 0)");
+  });
+
+  it("두 폴백 규율(N-8 · L-12)이 그대로다", () => {
+    expect(source).toContain("필드 부재 폴백의 방향이 N-8과 반대다");
+    const legacy = { name: "신생아 속싸개", productLinks: [link("a"), link("b")] } as unknown as FilterableItem;
+    expect(activeProductLinkCount(legacy)).toBe(2);
+    expect(filterItemTemplates([legacy], { missingLinksOnly: true })).toEqual([]);
+    const noArray = { name: "신생아 속싸개", activeLinkCount: 2 } as unknown as FilterableItem;
+    expect(activeNonSponsoredLinkCount(noArray)).toBe(0);
+  });
+
+  it("역할 게이트가 새 컨트롤을 조회 입력으로 알고 있다", () => {
+    const gate = readAdminSource("src/admin-write-role-gate.test.ts");
+    expect(gate).toContain("'id=\"item-filter-missing-category\"'");
+    // 쓰기 동선은 그대로다 — 폼의 여섯 자리가 여전히 잠긴다.
+    expect((page.match(/disabled=\{readOnly\}/g) ?? []).length).toBe(6);
   });
 });

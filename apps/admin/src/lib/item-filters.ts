@@ -10,9 +10,30 @@ import { linkFilterSummary } from "./link-filters";
 // 라운드 84 트랙 A가 세 번째를 더한다: (3) "앱에서 가장 강조되는 구매 버튼이 서지
 // 않는 준비템"(= 활성 비스폰서 링크 0건) 골라내기. (2)와는 다른 질문이다 — 광고
 // 링크 하나만 걸린 준비템은 구매처가 0이 아니지만 그 버튼은 서지 않는다.
+//
+// 라운드 85 트랙 D가 네 번째를 더한다: (4) "분류가 비어 있는 준비템" 골라내기, 그리고
+// 검색이 이름뿐 아니라 **분류 표시명**도 보게 하기. 앱은 준비템 목록을 분류로 **묶어**
+// 그리고(app/(tabs)/items.tsx의 groupKeyOf) 그 이름으로 **검색까지** 하는데
+// (apps/mobile/src/items/item-filters.ts의 itemMatchesSearch), 운영자의 목록에는 그 축이
+// 통째로 없었다 — 분류를 비울 수 있는 폼이 바로 그 화면인데도.
 
 /** 필터가 실제로 읽는 필드만 요구한다(테스트가 ItemTemplate 전체를 만들 필요 없게). */
-export type FilterableItem = Pick<ItemTemplate, "name" | "productLinks" | "activeLinkCount">;
+export type FilterableItem = Pick<ItemTemplate, "name" | "productLinks" | "activeLinkCount" | "categoryId">;
+
+/**
+ * 항목 하나가 **화면에서** 어떤 분류 이름으로 그려지는지 알려 주는 함수.
+ *
+ * 모바일의 `ItemCategoryNameResolver`와 같은 모양이고 같은 이유다: 이 파일은 분류 id에서
+ * 이름을 **조립하지 않는다**. 이름은 화면이 이미 들고 있는 목록(listAdminCategories의 응답)
+ * 하나에서 나오고, 그 해석기를 그대로 받는다 — 여기에 두 번째 조립기를 두면 검색이 화면에
+ * 없는 이름을 찾거나 화면에 있는 이름을 못 찾게 된다.
+ *
+ * 이름을 알 수 없으면(분류 없음 · 목록에 없는 분류) null/undefined를 돌려준다 —
+ * 그때 검색은 종전과 정확히 같게 이름만 본다.
+ */
+export type ItemCategoryNameResolver<TItem extends FilterableItem = FilterableItem> = (
+  item: TItem
+) => string | null | undefined;
 
 export type ItemFilterState = {
   query?: string;
@@ -24,6 +45,12 @@ export type ItemFilterState = {
    * 자리까지 함께 묻는다. 링크 0건인 준비템은 두 필터 모두에 걸린다.
    */
   missingNonSponsoredLinksOnly?: boolean;
+  /**
+   * 라운드 85 트랙 D: "분류가 비어 있는 준비템만" 보기. 위 둘과 또 **다른 질문**이다 —
+   * 저 둘은 구매처(링크)를 묻고, 이쪽은 앱이 목록을 **묶는 축**이 그 준비템에 있는지 묻는다.
+   * 분류가 없으면 앱에서 "기타" 그룹으로 떨어지고, 지출 기록 시트의 분류 프리필도 비어 온다.
+   */
+  missingCategoryOnly?: boolean;
 };
 
 export const EMPTY_ITEM_FILTERS: ItemFilterState = {};
@@ -96,12 +123,53 @@ export function activeNonSponsoredLinkCount(item: Pick<ItemTemplate, "productLin
 }
 
 /**
+ * 라운드 85 트랙 D: 저장된 분류가 **비어 있는가**.
+ *
+ * ⚠️ 판정이 `!item.categoryId`가 아니라 `=== null`인 이유(폴백 방향을 값으로 적어 둔다).
+ * 어드민 응답은 **"분류 없음"과 "모름"을 일부러 구분해서** 싣는다 — 서버가 그렇게 적어 두었다
+ * (items-catalog.service.ts의 toAdminItemDetailDto: *"어드민 응답은 '분류 없음'과 '모름'을
+ * 구분해야 하므로 null을 그대로 싣는다"*). 그래서 `null`은 근거 있는 "분류 없음"이고,
+ * **키가 아예 없는 응답**(이 필드 이전에 캐시된 응답 — 타입이 optional인 이유)은 "모름"이다.
+ *
+ * 모름을 "분류 없음"으로 세면 N-8이 고른 방향의 반대로 떨어진다 — 멀쩡히 분류가 붙은 준비템
+ * 전부가 이 필터에 걸리고, 운영자는 이미 있는 분류를 다시 고르러 간다. 그래서 모름은 걸리지
+ * 않는다(없는 문제를 만들지 않는 쪽). 빈 문자열도 함께 받는 이유는 폼의 "고르지 않음"이
+ * `""`이기 때문이다(page.tsx의 ItemFormState.categoryId).
+ */
+export function isUncategorizedItem(item: Pick<ItemTemplate, "categoryId">): boolean {
+  return item.categoryId === null || item.categoryId === "";
+}
+
+/**
+ * 검색어 한 갈래. **이름 ∨ 분류 표시명** — 앱의 술어(itemMatchesSearch)와 같은 질문이고,
+ * 갈래의 순서도 같다(이름이 먼저 걸리면 해석기를 부르지 않는다).
+ *
+ * 정규화 규칙은 이 파일의 기존 것 하나(trim + 소문자)를 그대로 쓴다 — 갈래마다 다른 규칙을
+ * 쓰면 같은 글자가 자리에 따라 다르게 걸린다. 해석기가 없거나 이름을 모르면 종전과 정확히
+ * 같게 이름만 본다.
+ */
+function matchesItemQuery<T extends FilterableItem>(
+  item: T,
+  normalizedQuery: string,
+  categoryNameOf?: ItemCategoryNameResolver<T>
+): boolean {
+  if (item.name.toLowerCase().includes(normalizedQuery)) return true;
+  const categoryName = categoryNameOf?.(item);
+  if (!categoryName) return false;
+  return categoryName.toLowerCase().includes(normalizedQuery);
+}
+
+/**
  * 주어진 필터를 모두 만족하는 준비템만 남긴다(AND 결합, 원본 순서 유지).
  * 비어 있는(undefined / 공백뿐인 query) 필터 항목은 무시한다.
+ *
+ * `categoryNameOf`는 선택이다 — 주면 검색이 분류 표시명까지 보고, 주지 않으면 술어는
+ * 종전과 정확히 같게 이름만 본다(모바일 `ItemFilterInput.categoryNameOf`와 같은 관례).
  */
 export function filterItemTemplates<T extends FilterableItem>(
   items: readonly T[],
-  filters: ItemFilterState = EMPTY_ITEM_FILTERS
+  filters: ItemFilterState = EMPTY_ITEM_FILTERS,
+  categoryNameOf?: ItemCategoryNameResolver<T>
 ): T[] {
   const normalizedQuery = (filters.query ?? "").trim().toLowerCase();
 
@@ -111,7 +179,10 @@ export function filterItemTemplates<T extends FilterableItem>(
     if (filters.missingLinksOnly && activeProductLinkCount(item) > 0) return false;
     // 라운드 84 트랙 A: 강조되는 구매 버튼을 받을 링크(활성 · 비스폰서)가 0건인 준비템만.
     if (filters.missingNonSponsoredLinksOnly && activeNonSponsoredLinkCount(item) > 0) return false;
-    if (normalizedQuery && !item.name.toLowerCase().includes(normalizedQuery)) return false;
+    // 라운드 85 트랙 D: 분류가 비어 있는 준비템만. 판정은 저장된 값 하나(categoryId)만 보므로
+    // 분류 **이름** 목록을 못 불러온 화면에서도 답이 달라지지 않는다.
+    if (filters.missingCategoryOnly && !isUncategorizedItem(item)) return false;
+    if (normalizedQuery && !matchesItemQuery(item, normalizedQuery, categoryNameOf)) return false;
     return true;
   });
 }
@@ -121,6 +192,9 @@ export const itemFilterSummary = linkFilterSummary;
 
 export function hasAnyItemFilter(filters: ItemFilterState): boolean {
   return Boolean(
-    filters.missingLinksOnly || filters.missingNonSponsoredLinksOnly || (filters.query ?? "").trim()
+    filters.missingLinksOnly ||
+      filters.missingNonSponsoredLinksOnly ||
+      filters.missingCategoryOnly ||
+      (filters.query ?? "").trim()
   );
 }

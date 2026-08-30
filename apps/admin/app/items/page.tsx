@@ -20,7 +20,11 @@ import {
   type NecessityLevel
 } from "../../src/lib/admin-api";
 import { ADMIN_EDITOR_WRITE_ROLE_NOTICE } from "../../src/lib/admin-role-copy";
-import { itemCategoryOptions, type ItemCategoryOption } from "../../src/lib/item-category-options";
+import {
+  UNKNOWN_ITEM_CATEGORY_LABEL,
+  itemCategoryOptions,
+  type ItemCategoryOption
+} from "../../src/lib/item-category-options";
 import { loadErrorCopy, loadErrorMessage, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import { writeErrorMessage } from "../../src/lib/write-error-copy";
 import {
@@ -29,6 +33,7 @@ import {
   activeProductLinkCount,
   filterItemTemplates,
   hasAnyItemFilter,
+  isUncategorizedItem,
   itemFilterSummary,
   productLinkCount,
   type ItemFilterState
@@ -458,7 +463,17 @@ export default function ItemTemplatesPage() {
    */
   const canEdit = session.admin.role === "admin" || session.admin.role === "editor";
 
-  const filteredItems = items ? filterItemTemplates(items, filters) : null;
+  /**
+   * 라운드 85 트랙 D: 이 화면의 **분류 이름 해석기 — 하나뿐이다.** 표의 분류 열과 검색의
+   * 분류 갈래가 같은 답을 보고, 그 답은 폼의 select가 이미 쓰고 있는 목록(categories)에서만
+   * 나온다. 이름을 지어내지 않으므로 목록에 없는 분류는 null이고(그때 검색은 종전대로
+   * 이름만 본다), 분류 자체가 없는 준비템도 null이다.
+   */
+  const categoryNameById = new Map(categories.map((category) => [category.id, category.name]));
+  const categoryNameOf = (item: ItemTemplate): string | null =>
+    item.categoryId ? categoryNameById.get(item.categoryId) ?? null : null;
+
+  const filteredItems = items ? filterItemTemplates(items, filters, categoryNameOf) : null;
   const createCategoryOptions = itemCategoryOptions(categories, createForm.categoryId);
   const editCategoryOptions = itemCategoryOptions(categories, editForm.categoryId);
   const filtersApplied = hasAnyItemFilter(filters);
@@ -607,6 +622,11 @@ export default function ItemTemplatesPage() {
           <div className={styles.form}>
             <div className={styles.formGrid}>
               <div className={styles.field}>
+                {/* 라운드 85 트랙 D: 이 검색은 이제 이름 ∨ **분류 표시명**을 본다(앱의
+                    itemMatchesSearch와 같은 질문 · 정규화 규칙은 종전 하나 그대로).
+                    ⚠️ placeholder와 아래 힌트는 바이트 불변이다 — 계약이 그 문구를 물고
+                    있고, 분류 이름이 검색어가 된다는 사실은 아래 표의 **분류 열**이 이미
+                    말한다(화면이 그린 이름을 그대로 쳐서 찾는 것이 앱 쪽 판단이었다). */}
                 <label htmlFor="item-filter-query">검색</label>
                 <input
                   id="item-filter-query"
@@ -657,6 +677,24 @@ export default function ItemTemplatesPage() {
               위 필터에 걸리는 준비템은 여기에도 모두 나와요 — 이 필터가 위 필터를 포함해요.
             </span>
 
+            {/* 라운드 85 트랙 D: 위 둘과 또 다른 질문이다 — 구매처(링크)가 아니라 앱이 준비템
+                목록을 **묶는 축**(분류)이 비어 있는 자리를 묻는다. 판정은 저장된 categoryId
+                하나만 보므로(src/lib/item-filters.ts의 isUncategorizedItem) 분류 이름 목록을
+                못 불러온 화면에서도 답이 달라지지 않는다. 분류를 필수 입력으로 만들지 않고,
+                이미 저장된 값도 건드리지 않는다 — 빈 자리를 **찾을 수 있게** 할 뿐이다. */}
+            <div className={styles.checkboxRow}>
+              <input
+                id="item-filter-missing-category"
+                type="checkbox"
+                checked={filters.missingCategoryOnly ?? false}
+                onChange={(event) => setFilters({ ...filters, missingCategoryOnly: event.target.checked })}
+              />
+              <label htmlFor="item-filter-missing-category">분류 없는 준비템만 보기</label>
+            </div>
+            <span className={styles.hint}>
+              분류가 비어 있으면 앱 목록에서 분류 없음 그룹으로 묶이고, 지출을 기록할 때 분류가 미리 채워지지 않아요.
+            </span>
+
             {filtersApplied ? (
               <div className={styles.actions}>
                 <button type="button" className={styles.secondaryButton} onClick={() => setFilters(EMPTY_ITEM_FILTERS)}>
@@ -677,6 +715,9 @@ export default function ItemTemplatesPage() {
               <thead>
                 <tr>
                   <th>이름</th>
+                  {/* 라운드 85 트랙 D: 앱이 준비템 목록을 묶는 축. 값이 없으면 다른 열과 같은
+                      관례로 `-`이고, 이름은 이 화면의 해석기 하나(categoryNameOf)가 낸다. */}
+                  <th>분류</th>
                   <th>단계</th>
                   <th>필수도</th>
                   <th>가격대</th>
@@ -690,6 +731,11 @@ export default function ItemTemplatesPage() {
                   <Fragment key={item.id}>
                     <tr>
                       <td>{item.name}</td>
+                      {/* 분류가 정말 비어 있을 때만 `-`다. 분류는 있는데 이름을 모르는 경우
+                          (분류 목록 조회 실패 · 목록에 없는 분류)까지 `-`로 그리면 화면이
+                          "분류 없음"이라고 **없는 사실을 단정**하게 되고, 바로 위 필터와도
+                          다른 말을 한다 — 그 자리는 폼의 select가 쓰는 라벨을 그대로 쓴다. */}
+                      <td>{categoryNameOf(item) ?? (isUncategorizedItem(item) ? "-" : UNKNOWN_ITEM_CATEGORY_LABEL)}</td>
                       <td>{item.stageCodes.map((code) => CHILD_STAGE_LABELS[code]).join(", ") || "-"}</td>
                       <td>{NECESSITY_LEVEL_LABELS[item.necessityLevel]}</td>
                       <td>{item.priceBandText ?? "-"}</td>
@@ -732,7 +778,7 @@ export default function ItemTemplatesPage() {
                     </tr>
                     {editingId === item.id ? (
                       <tr>
-                        <td colSpan={7}>
+                        <td colSpan={8}>
                           <ItemFormFields
                             form={editForm}
                             onChange={setEditForm}
