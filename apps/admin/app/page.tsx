@@ -11,6 +11,7 @@ import {
   type AdminRole,
   type WorkerHealth
 } from "../src/lib/admin-api";
+import { catalogSizeCaption } from "../src/lib/catalog-size-view";
 import { loadErrorCopy, type LoadErrorCopy } from "../src/lib/load-error-copy";
 import {
   WORKER_HEALTH_STATE_LABELS,
@@ -41,7 +42,11 @@ const SUMMARY_CARDS: { key: keyof AdminDashboardSummary; label: string; href?: s
   // 라운드 44 리뷰 N-5: `active=1`을 함께 넘긴다. 이 카드의 숫자는 서버가 활성 링크
   // 안에서만 센 값인데(dashboard-summary.service.ts) 목록은 비활성까지 보여 줘서,
   // 카드의 수와 넘어간 목록의 줄 수가 어긋났다. 목록도 같은 모집단으로 열린다.
-  { key: "productLinksBrokenCount", label: "깨진 상품 링크", href: "/links?health=broken&active=1" }
+  { key: "productLinksBrokenCount", label: "깨진 상품 링크", href: "/links?health=broken&active=1" },
+  // 라운드 83 트랙 C: 카탈로그의 크기. ⚠️ **`href`가 없는 것이 판정이다** — 이 수의 모집단은
+  // `active=true` 전수인데 준비템 목록 화면의 모집단이 그것과 같다고 말할 수 없어, 넘어간
+  // 목록의 줄 수가 카드의 수와 어긋난다(라운드 44 N-5가 깨진 링크 카드에서 겪은 그 어긋남).
+  { key: "itemTemplatesActiveCount", label: "활성 준비템" }
 ];
 
 /**
@@ -197,7 +202,9 @@ export default function AdminHomePage() {
                       unchecked: summary.productLinksUncheckedCount,
                       broken: summary.productLinksBrokenCount
                     })
-                  : null;
+                  : card.key === "itemTemplatesActiveCount"
+                    ? catalogSizeCaption(summary.itemTemplatesActiveCount)
+                    : null;
               const body = (
                 <>
                   <p style={{ color: "#7A7A7A", fontSize: 13, margin: 0 }}>{card.label}</p>

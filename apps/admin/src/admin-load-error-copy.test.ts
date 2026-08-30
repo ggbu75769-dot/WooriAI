@@ -702,11 +702,15 @@ describe("트랙 D의 무접촉 계약", () => {
 
   it("admin-e2e의 18스텝 앵커가 그대로다", () => {
     const home = readSource("app/page.tsx");
-    // 요약 카드는 링크 여부와 상관없이 <article>로 남는다(스텝 2가 8개를 센다).
+    // 요약 카드는 링크 여부와 상관없이 <article>로 남는다(스텝 2가 카드 수를 센다).
+    // 라운드 83 트랙 C: 카탈로그 크기 카드가 아홉 번째로 붙어 하네스의 기대 수도 함께 올랐다 —
+    // 카드 수는 두 자리(화면·하네스)에 적히므로 여기서 **둘이 같은 수인지**를 함께 묻는다.
     expect(home).toContain("scripts/qa/admin-e2e.mjs가 요약 카드를 article로 세고 있어서다.");
     expect((home.match(/<article key=\{card\.key\}/g) ?? []).length).toBe(1);
     const summaryCards = /const SUMMARY_CARDS[^=]*=\s*\[([\s\S]*?)\n\];/.exec(home)?.[1];
-    expect([...(summaryCards as string).matchAll(/\{ key:/g)]).toHaveLength(8);
+    expect([...(summaryCards as string).matchAll(/\{ key:/g)]).toHaveLength(9);
+    const harnessSource = readSource(join("..", "..", "scripts", "qa", "admin-e2e.mjs"));
+    expect(harnessSource).toContain("if (count !== 9) throw new Error(`expected 9 summary cards");
 
     // 스텝 7(검토 화면)이 기다리는 앵커 셋.
     const reviews = readSource("app/reviews/page.tsx");

@@ -47,7 +47,11 @@ const SUMMARY_KEYS = [
   // 검사되지 않은 활성 링크" 수를 함께 내려준다 — 어드민 대시보드가 "깨짐 0"을
   // 전수 검사 결과인 양 보여주지 않으려면 미검사 수가 필요하다.
   "productLinksActiveCount",
-  "productLinksUncheckedCount"
+  "productLinksUncheckedCount",
+  // 라운드 83 트랙 C(W-3): 카탈로그의 크기 — known-limitations N-4의 재개 트리거
+  // ("카탈로그 200건")가 기대는 수다. 세는 자리가 없어 문턱이 조용히 넘어가던 자리라
+  // 요약이 활성 준비템 수를 함께 내려준다(어드민 대시보드 catalog-size-view.ts가 인용).
+  "itemTemplatesActiveCount"
 ] as const;
 
 type Summary = Record<(typeof SUMMARY_KEYS)[number], number>;
@@ -300,6 +304,27 @@ describe("Admin dashboard summary (ADM-008)", () => {
       }
     });
 
+    // 준비템 카탈로그. 라운드 83 트랙 C: 링크와 같은 규율로 **활성만** 센다 —
+    // 비활성 준비템은 앱의 어느 목록에도 서지 않으므로 카탈로그의 크기가 아니다.
+    await prisma.itemTemplate.create({
+      data: {
+        code: `adm008-active-item-${randomUUID()}`,
+        name: "adm008 활성 준비템",
+        necessityLevel: "optional",
+        reasonText: "adm008 카운트용",
+        active: true
+      }
+    });
+    await prisma.itemTemplate.create({
+      data: {
+        code: `adm008-retired-item-${randomUUID()}`,
+        name: "adm008 비활성 준비템",
+        necessityLevel: "optional",
+        reasonText: "adm008 카운트용(비활성)",
+        active: false
+      }
+    });
+
     const after = await fetchSummary(admin.cookie);
 
     // Delta assertions: every counter here is a database-wide `count()` with no
@@ -318,5 +343,40 @@ describe("Admin dashboard summary (ADM-008)", () => {
     expect(after.productLinksBrokenCount - before.productLinksBrokenCount).toBe(1);
     expect(after.productLinksActiveCount - before.productLinksActiveCount).toBe(3);
     expect(after.productLinksUncheckedCount - before.productLinksUncheckedCount).toBe(1);
+    // 비활성 준비템은 세지 않는다 — 둘을 만들었지만 활성은 하나뿐이다.
+    expect(after.itemTemplatesActiveCount - before.itemTemplatesActiveCount).toBe(1);
+  });
+
+  /**
+   * 라운드 83 트랙 C 계약 ⓐ — **응답이 실제로 센 값이다.**
+   *
+   * 이 파일의 다른 단언은 전부 before/after 차분인데, 카탈로그 크기는 문턱(N-4의 재개
+   * 트리거 "카탈로그 200건")이 기대는 **절대값**이라 차분만으로는 부족하다. 기대값을 손으로
+   * 적지 않고 DB에 같은 질문을 다시 던져 대조한다 — 시드 수가 바뀌어도 이 계약은 낡지 않는다.
+   */
+  it("reports the live active item_templates count (catalog size, not a hand-written number)", async () => {
+    const adminEmail = freshEmail("adm008-catalog");
+    await createAdmin(adminEmail, "admin");
+    const admin = await loginAndEnroll(adminEmail);
+
+    const seeded = await fetchSummary(admin.cookie);
+    expect(seeded.itemTemplatesActiveCount).toBe(await prisma.itemTemplate.count({ where: { active: true } }));
+    // 시드가 비어 있으면 위 단언은 0 = 0으로 조용히 참이 된다 — 실제로 세고 있음을 함께 못 박는다.
+    expect(seeded.itemTemplatesActiveCount).toBeGreaterThan(0);
+
+    // 어드민이 카탈로그를 늘리는 그 동선(items-catalog.service.ts의 adminCreateItemTemplate)이
+    // 늘리는 것과 같은 표다 — 한 행이 늘면 다음 요청의 수도 함께 는다.
+    await prisma.itemTemplate.create({
+      data: {
+        code: `adm008-catalog-item-${randomUUID()}`,
+        name: "adm008 카탈로그 크기 확인용",
+        necessityLevel: "optional",
+        reasonText: "adm008 카운트용"
+      }
+    });
+
+    const grown = await fetchSummary(admin.cookie);
+    expect(grown.itemTemplatesActiveCount).toBe(await prisma.itemTemplate.count({ where: { active: true } }));
+    expect(grown.itemTemplatesActiveCount - seeded.itemTemplatesActiveCount).toBe(1);
   });
 });
