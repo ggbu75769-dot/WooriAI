@@ -117,6 +117,27 @@ export const IMPORT_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const importMaxRows = 2000;
 
 /**
+ * 라운드 81 E — **두 가져오기 트랜잭션의 상한을 명시한다.**
+ *
+ * 무엇이 문제였나: 미리보기 생성(`createImportJob`)과 확정(`confirmImport`)의 `$transaction`
+ * 둘 다 옵션 인자가 없었고 `PrismaService`에도 `transactionOptions`가 없었다 — 즉 인터랙티브
+ * 트랜잭션의 상한이 Prisma 기본값(5초)이었다. 그런데 이 파이프라인이 **지원한다고 약속한**
+ * 입력의 끝값은 `importMaxRows` = 2,000행이다(AC-IMP-001). 상한이 계약인데 그 상한을 다 채운
+ * 파일이 기본 5초 안에 끝난다는 근거는 어디에도 없었고, 넘기면 P2028로 롤백돼 사용자는
+ * "업로드 실패" 한 문장만 본다(확정에서 터지면 검수에 쓴 시간까지 함께 사라진다).
+ *
+ * 그래서 값이 아니라 **근거**를 함께 둔다: 이 트랜잭션들의 일감은 이제 행 수에 비례하지
+ * **않고**(아래 두 `createMany`), 남는 것은 배치 INSERT 두어 문장 + 잡 UPDATE 몇 개다.
+ * 30초는 그 일감이 느린 디스크·경합 중인 DB에서도 끝나기에 충분하면서, 무언가 정말 잘못됐을
+ * 때(락 대기 등) 연결을 무한정 붙잡지는 않는 값이다. 파기 잡이 같은 이유로 고른 값과 같다
+ * (`data-retention-purge.job.ts`의 `PURGE_TX_OPTIONS` — 그 주석이 근거의 원본이다).
+ * `maxWait`(풀에서 연결을 얻기까지 기다리는 시간)는 기본 2초보다 넉넉한 10초로 둔다 —
+ * 가져오기는 사용자가 버튼을 누르고 기다리는 단발 요청이라, 붐빌 때 즉시 실패하는 것보다
+ * 잠깐 기다리는 편이 낫다.
+ */
+const IMPORT_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 } as const;
+
+/**
  * REF-118: Excel/CSV import pipeline (job creation -> preview rows -> confirm)
  * split out of the former onboarding-store.service.ts god service. Public HTTP
  * contract, error codes and response shapes are unchanged. Row-to-expense
@@ -209,32 +230,46 @@ export class ImportPipelineService {
         }
       });
 
-      for (const row of rows) {
-        await tx.importRow.create({
-          data: {
-            id: row.id,
-            importJobId: created.id,
-            rowIndex: row.rowIndex,
-            rawJson: {},
-            parsedDate: row.parsedDate,
-            parsedItemName: row.parsedItemName,
-            parsedAmountKrw: row.parsedAmountKrw,
-            categoryId: row.categoryId,
-            confidence: row.confidence,
-            duplicateCandidateExpenseId: row.duplicateCandidateExpenseId ?? null,
-            selected: row.selected,
-            userReviewed: row.userReviewed,
-            validationStatus: row.validationStatus
-          }
-        });
-      }
+      /**
+       * 라운드 81 E — **행마다 한 문장이 아니라 배치 한 문장.**
+       *
+       * 종전에는 `for (const row of rows) await tx.importRow.create(...)` 였다. 파일이 2,000행이면
+       * 이 트랜잭션 하나가 2,000번 왕복했고(문장 수 = N + 3), 그 전부가 **한 트랜잭션 예산**
+       * 안에서 직렬로 돌았다 — 상한이 계약인 입력(`importMaxRows`)이 그 상한 때문에 실패할 수
+       * 있는 모양이다. 행 값은 이미 `buildImportRowsFromParsed`가 전부 만들어 두었고(id도 그쪽에서
+       * 부여한다) 행끼리 의존이 없으므로 한 문장으로 모을 수 있다. **문장 수 = 4.**
+       *
+       * 저장소 관례가 이미 있다: `analytics/analytics.service.ts`가 같은 이유로 `createMany`를 쓴다.
+       * 관측되는 결과는 바이트 불변이다 — 같은 행·같은 id·같은 컬럼값이 같은 트랜잭션 안에서
+       * 들어가고, 실패하면 종전처럼 파일 전체가 롤백된다(길이·금액 초과 행을 미리 떨궈 두는
+       * 규율은 `buildImportRowsFromParsed`가 그대로 들고 있다 — 라운드 54 P1-1 · 57 P2-13).
+       * `skipDuplicates`는 쓰지 않는다: 여기서 중복 id가 나온다면 그것은 사실이 아니라 버그이고,
+       * 조용히 건너뛰면 "몇 건이 사라졌다"가 된다.
+       */
+      await tx.importRow.createMany({
+        data: rows.map((row) => ({
+          id: row.id,
+          importJobId: created.id,
+          rowIndex: row.rowIndex,
+          rawJson: {},
+          parsedDate: row.parsedDate,
+          parsedItemName: row.parsedItemName,
+          parsedAmountKrw: row.parsedAmountKrw,
+          categoryId: row.categoryId,
+          confidence: row.confidence,
+          duplicateCandidateExpenseId: row.duplicateCandidateExpenseId ?? null,
+          selected: row.selected,
+          userReviewed: row.userReviewed,
+          validationStatus: row.validationStatus
+        }))
+      });
 
       const candidateCount = rows.filter((row) => Number(row.confidence) >= 0.7).length;
       return tx.importJob.update({
         where: { id: created.id },
         data: { rowCount: rows.length, candidateCount }
       });
-    });
+    }, IMPORT_TX_OPTIONS);
 
     return this.toImportJobDto(job);
   }
@@ -381,20 +416,7 @@ export class ImportPipelineService {
         throw new BadRequestException({ code: "IMPORT_NOT_CONFIRMABLE", message: "Import job is not ready to confirm." });
       }
 
-      for (const row of importableRows) {
-        await this.expensesStore.insertExpense(tx, job.householdId, job.childId, user, {
-          categoryId: row.categoryId!,
-          amountKrw: row.parsedAmountKrw!,
-          spentOn: fromDateOnly(row.parsedDate!),
-          itemName: row.parsedItemName!,
-          paymentMethod: "unknown",
-          source: "excel_import",
-          // GAP-066 #5: 이 행의 **출처 파일**을 남긴다. 같은 트랜잭션 안이라 확정이
-          // 롤백되면 지출도 이 값도 없다. 판정 규칙(`validationStatusForImportRow`)·
-          // 선택 규칙은 손대지 않았다 — 채우는 것은 이 한 칸뿐이다.
-          importJobId
-        });
-      }
+      await this.insertImportedExpenses(tx, job, user, importableRows, importJobId);
 
       await tx.importJob.update({
         where: { id: importJobId },
@@ -402,7 +424,7 @@ export class ImportPipelineService {
       });
 
       return importableRows.length;
-    });
+    }, IMPORT_TX_OPTIONS);
 
     // PUSH-113 후속(리뷰 m-2): 가져오기 커밋은 insertExpense를 직접 호출해
     // ExpensesVersionService의 지출 생성 훅을 타지 않으므로, 배치 커밋 완료 후
@@ -550,6 +572,109 @@ export class ImportPipelineService {
   // ---------------------------------------------------------------------------
   // internal helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * 라운드 81 E — **확정의 지출 삽입을 행 수와 무관한 문장 수로 만든다.**
+   *
+   * ## 종전 모양과 그 비용
+   * 확정 트랜잭션 안이 `for (const row of importableRows) await insertExpense(tx, …)` 였다.
+   * 그런데 `insertExpense`는 **행마다 조회를 하나 먼저 한다** — `requireExistingCategory` →
+   * `category.findUnique`(expenses-store.service.ts). 그래서 확정 한 번의 문장 수가
+   * **2N + 2**였고, 상한을 다 채운 파일(2,000행)이면 한 트랜잭션이 4,002번 왕복했다.
+   * 그 조회의 인자는 같은 값이 계속 반복된다(분류 표는 잠긴 시드 열둘을 중심으로 한 작은
+   * 표이고, 한 파일의 행은 그중 소수를 반복해 가리킨다) — 교과서적인 N+1이다.
+   *
+   * ## 지금 모양
+   * ① **분류 존재 확인을 루프 밖으로** 올린다 — 이 배치의 **고유 분류 id 집합**을 한 번 묻는다.
+   * ② **삽입을 배치 한 문장**으로 모은다(`createMany`). **문장 수 = 2**(실패 경로에서만 +1).
+   *
+   * ## 왜 관측 결과가 바이트 불변인가
+   * - **오류 계약**: 없는 분류가 하나라도 있으면 오늘과 **같은 코드·같은 문장·같은 400**이
+   *   나간다(`EXPENSE_CATEGORY_INVALID`). 그 문장을 여기서 베끼지 않고 지출 생성의 단일
+   *   소스에게 그대로 묻는다(`expensesStore.requireExistingCategory`) — 실패 경로에서만 도는
+   *   왕복 하나다. 던지는 **시점**만 앞당겨지고 결과는 같다: 실패는 같은 트랜잭션의
+   *   롤백이라 종전에도 지출은 0건 생겼고 잡도 `preview_ready`로 남았다.
+   * - **CAS 우선순위 보존**: 이 호출은 확정 CAS(`updateMany`) **뒤**에 있다. 확정할 수 없는
+   *   잡이면 종전처럼 `IMPORT_NOT_CONFIRMABLE`이 먼저 나간다.
+   * - **행별 판정 규칙 무변경**: 어떤 행이 지출이 되는가는 여전히
+   *   `validationStatusForImportRow` 하나가 정한다. 여기서 도는 것은 그 판정을 이미 통과한
+   *   행들(`importableRows`)뿐이고, 이 메서드는 행을 더 넣지도 빼지도 않는다.
+   *
+   * ## `insertExpense`를 지나지 않는 것에 대하여
+   * 그 함수는 지출 생성의 단일 소스다(수동 기록·아웃박스·"샀어요"·가져오기). 그래서 여기서
+   * 우회하는 것은 **왕복 두 갈래뿐**이고, 그 함수가 하던 **순수 판정은 같은 술어로 같은 순서로**
+   * 여기서 다시 지난다(품목명 trim·빈 값 → `EXPENSE_ITEM_NAME_REQUIRED`,
+   * `assertExpenseDateWithinRange`, `requireMoneyKrw`). 우회되는 나머지 둘은 이 경로에서
+   * **도달할 수 없는 갈래**다:
+   * - `requireExistingItemTemplateAnyStatus`·`markLinkedItemPrepared` — 가져오기 행에는
+   *   `linkedItemTemplateId`가 없다(확정은 그 값을 넘긴 적이 없다).
+   * - `createExpenseRowOrTranslateFk`의 `LINKED_PRODUCT_LINK_NOT_FOUND` 번역 —
+   *   `linkedProductLinkId`가 언제나 null이라 그 FK가 걸릴 수 없다.
+   *
+   * ⚠️ **`expenses` 행의 모양이 이 파일에도 적히게 된 것이 이 변경의 값 비싼 절반이다.**
+   * 지출에 새 칸이 생기고 그 기본값을 `insertExpense`가 계산하게 되는 날, **여기도 함께**
+   * 고쳐야 한다(가져오기로 들어온 행만 조용히 그 칸을 비운 채로 남는다). 그 사실을 아래
+   * `data` 리터럴 바로 위에 한 번 더 적어 둔다.
+   */
+  private async insertImportedExpenses(
+    tx: Prisma.TransactionClient,
+    job: { householdId: string; childId: string },
+    user: AuthenticatedUser,
+    rows: ImportRowRow[],
+    importJobId: string
+  ): Promise<void> {
+    if (rows.length === 0) return;
+
+    // ① 고유 분류 id 집합 한 번. 이 집합의 크기는 **행 수가 아니라 분류 표의 크기**로 막힌다
+    //    (2,000행이라도 서로 다른 분류가 그보다 많을 수는 없다) — 조회는 한 문장이고 그 인자
+    //    개수도 행 수에 비례하지 않는다.
+    const categoryIds = [...new Set(rows.map((row) => row.categoryId!))];
+    const existingCategories = await tx.category.findMany({ where: { id: { in: categoryIds } }, select: { id: true } });
+    if (existingCategories.length !== categoryIds.length) {
+      const found = new Set(existingCategories.map((category) => category.id));
+      const missing = categoryIds.find((categoryId) => !found.has(categoryId))!;
+      // 코드·문장의 단일 소스는 여전히 expenses-store다 — 여기서 베끼면 두 문장이 갈라진다.
+      await this.expensesStore.requireExistingCategory(missing, tx);
+    }
+
+    // ② 배치 한 문장. ⚠️ 아래 리터럴은 `ExpensesStoreService.insertExpense`가 만드는 지출 행과
+    //    **같은 모양이어야 한다** — 그쪽에 칸이 생기면 여기도 같이 고친다(위 주석 마지막 문단).
+    await tx.expense.createMany({
+      data: rows.map((row) => {
+        // insertExpense와 같은 술어·같은 순서의 순수 판정. `importableRows`는 이미
+        // validationStatusForImportRow를 통과한 행이라 여기서 던지는 일은 실제로는 없지만,
+        // "지출이 되는 값의 조건"을 이 경로만 느슨하게 두지 않기 위해 그대로 지난다.
+        const itemName = row.parsedItemName!.trim();
+        if (!itemName) {
+          throw new BadRequestException({ code: "EXPENSE_ITEM_NAME_REQUIRED", message: "품목명을 입력해 주세요." });
+        }
+        const spentOn = fromDateOnly(row.parsedDate!);
+        assertExpenseDateWithinRange(spentOn);
+
+        return {
+          householdId: job.householdId,
+          childId: job.childId,
+          createdByUserId: user.id,
+          categoryId: row.categoryId!,
+          amountKrw: requireMoneyKrw(row.parsedAmountKrw ?? undefined),
+          spentOn: toDateOnly(spentOn),
+          itemName,
+          // 가져오기 행에는 판매처·메모가 없다(파서가 `merchant`를 만들지 않는다 —
+          // IMPORT_ITEM_NAME_MAX_LENGTH 주석). insertExpense도 이 경로에서는 같은 값을 썼다.
+          merchant: null,
+          memo: null,
+          paymentMethod: "unknown" as const,
+          linkedItemTemplateId: null,
+          linkedProductLinkId: null,
+          expenseType: "expense" as const,
+          source: "excel_import" as const,
+          // GAP-066 #5: 이 행의 **출처 파일**을 남긴다. 같은 트랜잭션 안이라 확정이
+          // 롤백되면 지출도 이 값도 없다.
+          importJobId
+        };
+      })
+    });
+  }
 
   private async requireImportJobAccess(user: AuthenticatedUser, importJobId: string, edit = false) {
     const job = await this.prisma.importJob.findUnique({ where: { id: importJobId } });
