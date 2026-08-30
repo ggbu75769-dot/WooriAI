@@ -884,6 +884,38 @@ export default function NewExpenseScreen() {
     };
   }, [itemName, amountText, memo, selectedCategoryId, expenseDateIso, isGift, authToken, childId]);
 
+  /**
+   * GAP-081 #1 — **서버 월 캐시 두 달치 한 벌**. 아래 자동 분류 effect와 최근 품목 칩(EXP-113)이
+   * 함께 읽는다.
+   *
+   * ⚠️ 계산도 값도 라운드 58 E가 최근 칩을 위해 만든 그때 그대로다 — 이 라운드가 옮긴 것은
+   * **선언의 자리** 하나뿐이라 새 배열도 새 useMemo도 새 요청도 0건이다(둘 다 getQueryData로
+   * 이미 읽어 둔 캐시다).
+   *
+   * 자동 분류가 이 배열을 읽게 된 이유: 종전 원천은 이번 달 캐시 하나(expenseHistory)였고, 그
+   * 배열은 **매달 1일 아침에 정의상 비어 있다**. 그러면 1순위(과거 기록) 갈래는 입력이 없어
+   * 반드시 실패하고, 남는 것은 2순위 정적 키워드 사전 하나다. 그것도 안 걸리면 분류는 미선택이라
+   * 저장 버튼이 막힌다(isCategoryMissingForSave) — 어제까지 자동으로 눌리던 타일이 오늘은
+   * 사용자의 탭을 요구한다. **사용자의 이력은 하나도 사라지지 않았는데도**(형제 둘에 대해 이미
+   * 적어 둔 위 GAP-058 #6 주석과 같은 사실이다).
+   *
+   * ⚠️ **판정 규칙은 한 글자도 바뀌지 않는다.** 넓어진 것은 원천의 **범위**(한 달 → 두 달)뿐이고
+   * **성격**은 그대로다 — 둘 다 서버가 확정한 행이다. 같은 품목명의 과거 분류가 여럿일 때 누가
+   * 이기는지는 순수 모듈이 이미 답을 갖고 있다(매칭 등급 우선, 동률이면 sortByRecency의 최신 행 —
+   * item-name-match.ts). 두 달을 이어 붙여도 그 규칙이 답을 정한다.
+   *
+   * ⚠️ **오프라인 스냅숏(통합 원천 suggestRows)은 여기 넣지 않는다 — 여전히 별도 결정이다.**
+   * 라운드 58 E가 미룬 질문은 둘이었는데(원천을 넓히면 판정이 달라지는가 · 아직 안 올라간 로컬
+   * 행이 그 다툼에 끼는가) 이번에 닫는 것은 앞엣것 하나다. 로컬 대기 행은 서버 확정 행과 성격이
+   * 다르고(플러시 전이라 취소·수정·영구 실패로 사라질 수 있다), 그런 행이 사용자 대신 타일을
+   * **눌러 주는** 판정에 끼어도 되는지는 아직 아무도 재지 않았다. 그래서 자동 분류가 받는 것은
+   * **성격이 같은 원천 두 달**이고, 그 사실을 계약이 부정 단언으로 지킨다(auto-fill-wiring.test.ts).
+   */
+  const recentItemServerRows = useMemo(
+    () => [...expenseHistory, ...(cachedPreviousMonthExpenses ?? noExpenseHistory)],
+    [expenseHistory, cachedPreviousMonthExpenses]
+  );
+
   // UX-C(2/2): 품목명 -> 카테고리 자동 추천. 순수 계산(src/expenses/category-suggestion.ts)이라
   // 디바운스 없이 타이핑마다 돌려도 가볍고, 규칙은 1순위 과거 기록 / 2순위 정적 키워드 사전이다.
   // 세션이 없을 때(픽셀 락 캡처)는 아예 돌지 않는다.
@@ -906,15 +938,16 @@ export default function NewExpenseScreen() {
     const nextSelection = resolveAutoCategorySelection({
       itemName,
       /**
-       * 라운드 58 E — 여기만 **이번 달 서버 캐시 그대로**다(통합 원천 suggestRows로 바꾸지 않았다).
+       * GAP-081 #1 — 원천은 **서버 월 캐시 두 달치**(최근 품목 칩과 같은 배열 하나)다.
        *
-       * 자동 분류는 후보를 제안하는 것이 아니라 사용자가 손대지 않은 타일을 **대신 누르는** 판정이라,
-       * 원천을 넓히면 판정 자체가 달라진다(같은 품목명의 과거 분류가 여러 개일 때 어느 것이 이기는지,
-       * 아직 안 올라간 로컬 행이 그 다툼에 끼는지). 그것은 이 티켓이 고치려는 "세 보조가 서로 다른
-       * 데이터를 본다"와 **별개의 판단**이고, 판정 규칙과 함께 따로 다뤄야 한다. 넓힐 근거가 설
-       * 때까지 이 화면의 저장 결과를 바꾸지 않는 쪽을 고른다.
+       * 라운드 58 E는 이 자리만 이번 달 캐시로 남겨 두고 그 이유를 적었다 — 자동 분류는 후보를
+       * 제안하는 것이 아니라 사용자가 손대지 않은 타일을 **대신 누르는** 판정이라 원천을 넓히면
+       * 저장 결과가 달라진다는 것이었고, 넓힐 근거가 설 때까지 미룬다고 했다. 그 근거가 달력에
+       * 있었다(매달 1일에 1순위 갈래가 정의상 죽는다 — 위 recentItemServerRows 주석). 넓힌 축은
+       * **성격이 같은 원천 한 달**이라 판정 규칙은 그대로이고, 성격이 다른 원천(오프라인 스냅숏의
+       * 로컬 대기 행)은 **여전히 별도 결정**이라 여기에 오지 않는다.
        */
-      history: expenseHistory,
+      history: recentItemServerRows,
       currentCategoryId: selectedCategoryId,
       autoPicked: autoPickedCategory,
       defaultCategoryId: null
@@ -930,7 +963,7 @@ export default function NewExpenseScreen() {
     if (!isSameAutoPickedCategory(autoPickedCategory, nextSelection.autoPicked)) {
       setAutoPickedCategory(nextSelection.autoPicked);
     }
-  }, [authToken, itemName, expenseHistory, selectedCategoryId, autoPickedCategory]);
+  }, [authToken, itemName, recentItemServerRows, selectedCategoryId, autoPickedCategory]);
 
   // 타이핑 연동 자동완성 후보(상위 3개). 칩으로 한 번 채운 뒤에는 다시 타이핑할 때까지 접힌다.
   //
@@ -1013,10 +1046,9 @@ export default function NewExpenseScreen() {
   // RecentItemChipOptions 주석), 이어 붙이는 것 말고 새 인자도 새 요청도 필요 없다.
   // 스냅숏(offlineSnapshot.rows)을 그대로 넘기는 것은 종전 그대로다 -- 이 칩은 로컬 우선이라
   // 통합 목록(suggestRows)이 아니라 두 원천을 **갈라서** 받아야 한다.
-  const recentItemServerRows = useMemo(
-    () => [...expenseHistory, ...(cachedPreviousMonthExpenses ?? noExpenseHistory)],
-    [expenseHistory, cachedPreviousMonthExpenses]
-  );
+  //
+  // GAP-081 #1: 그 서버 두 달치 배열(recentItemServerRows)의 선언이 **자동 분류 effect 위로**
+  // 올라갔다 -- 그 effect가 같은 배열을 읽게 됐기 때문이고, 계산도 값도 종전 그대로다.
   const recentItemChips =
     authToken && childId
       ? buildRecentItemChips(offlineSnapshot.rows, childId, { serverRows: recentItemServerRows })
