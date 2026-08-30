@@ -56,12 +56,44 @@ function walkFiles(dir: string): string[] {
 /** `app/` 아래의 상대 경로(POSIX 표기) — 대장의 키다. */
 const appRelative = (absolutePath: string) => relative(appRoot, absolutePath).split(sep).join("/");
 
-const isRouteModule = (file: string) => /\.tsx?$/.test(file);
+/**
+ * 라우트 모듈 = `app/**`의 `.ts(x)` 중 **테스트가 아닌 것**.
+ *
+ * ⚠️ 라운드 80 리뷰 P-1: 종전 판정(`/\.tsx?$/`)에는 테스트 제외가 없었다. 이 저장소는 오늘
+ * `app/**` 아래에 테스트를 두지 않지만(그래서 값이 같다), 하나라도 생기는 날 그 파일이 **라우트
+ * 파일로 세어져** 대장·겹침 스윕이 통째로 어긋난다 — `src/a11y-contract.test.ts`의 라우트 전수가
+ * 같은 제외를 이미 진다(같은 모집단은 같은 규칙으로 센다).
+ */
+const isRouteModule = (file: string) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file);
 const isLayout = (file: string) => /(^|\/)_layout\.tsx?$/.test(file);
 
 /** 라우트 파일 전수 — 레이아웃(`_layout`)은 화면이 아니라 껍데기라 뺀다(아래에서 따로 센다). */
 const routeFiles = walkFiles(appRoot).map(appRelative).filter(isRouteModule).filter((f) => !isLayout(f)).sort();
 const layoutFiles = walkFiles(appRoot).map(appRelative).filter(isRouteModule).filter(isLayout).sort();
+
+/**
+ * `<Tabs.Screen … />` 태그 전수.
+ *
+ * ⚠️ 라운드 80 리뷰 P-1 — **이 파싱은 자기 닫힘 태그를 가정한다.** `[\s\S]*?\/>`는 게으른
+ * 매칭이라, 누군가 `<Tabs.Screen …>자식</Tabs.Screen>` 형태로 바꾸면 그 태그는 **다음에 나오는
+ * 아무 `/>`까지** 삼켜 이름·`href: null` 판정이 조용히 어긋난다(빨개지지 않는다 — 이 계약이
+ * 가장 싫어하는 실패 모양이다). 그래서 **여는 `<Tabs.Screen` 수와 매칭 수가 같은지**를 함께
+ * 묻는다: 자기 닫힘이 아닌 태그가 하나라도 생기면 그 자리에서 빨개지고, 그때 이 함수를 고치는
+ * 것이 결정이 된다.
+ */
+function tabScreenTags(layout: string): string[] {
+  const tags = [...layout.matchAll(/<Tabs\.Screen\b[\s\S]*?\/>/g)].map((match) => match[0]);
+  const opens = layout.match(/<Tabs\.Screen\b/g) ?? [];
+  expect(
+    tags.length,
+    `<Tabs.Screen>이 자기 닫힘 태그가 아니다(여는 태그 ${opens.length} · 자기 닫힘 ${tags.length}) — 이 파싱은 그 가정 위에 있다`
+  ).toBe(opens.length);
+  // 삼킴 방지: 한 태그 안에 여는 태그가 두 번 나오면 게으른 매칭이 이미 어긋난 것이다.
+  for (const tag of tags) {
+    expect((tag.match(/<Tabs\.Screen\b/g) ?? []).length, `한 태그가 다른 태그를 삼켰다: ${tag.slice(0, 120)}`).toBe(1);
+  }
+  return tags;
+}
 
 const GROUP_SEGMENT = /^\(.+\)$/;
 
@@ -346,7 +378,7 @@ describe("GAP-080 #4 라우트 표면 계약 (트랙 D) — 열거·겹침·유�
 
   it("ⓑ DNC-003 — 탭 바에 서는 `Tabs.Screen`이 정확히 넷이고 그 이름이 홈·기록·준비템·리포트다", () => {
     const layout = readSource("app/(tabs)/_layout.tsx");
-    const screens = [...layout.matchAll(/<Tabs\.Screen\b[\s\S]*?\/>/g)].map((match) => match[0]);
+    const screens = tabScreenTags(layout);
     // 실재 확인: 표식이 사라졌는데 조용히 초록인 일이 없게 한다.
     expect(screens.length, "`<Tabs.Screen …/>`을 하나도 못 찾았다 = 파싱이 끊어졌다").toBeGreaterThan(0);
 
@@ -367,7 +399,7 @@ describe("GAP-080 #4 라우트 표면 계약 (트랙 D) — 열거·겹침·유�
 
   it("ⓑ 탭 다섯의 이름이 전부 실재하는 라우트 파일이고, 탭 바 넷의 URL이 그 넷이다", () => {
     const layout = readSource("app/(tabs)/_layout.tsx");
-    const screens = [...layout.matchAll(/<Tabs\.Screen\b[\s\S]*?\/>/g)].map((match) => match[0]);
+    const screens = tabScreenTags(layout);
     expect(screens.length).toBe(5);
 
     const tabRouteFiles = routeFiles.filter((file) => file.startsWith("(tabs)/"));

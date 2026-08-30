@@ -464,6 +464,48 @@ async function waitForAuditTotal(page, predicate, options) {
   );
 }
 
+/**
+ * 라운드 80 리뷰 M-2(두 번째 창): **목록을 실제로 다시 불러** 총계를 다시 읽는다.
+ *
+ * ⚠️ **내보내기는 총계 heading을 갱신하지 않는다** — `exportCsv`는 자기 요청으로 행을 모아
+ * Blob을 내려줄 뿐 `pageInfo`를 건드리지 않는다(`apps/admin/app/audit-logs/page.tsx`).
+ * 그래서 내보내기 직후에 heading을 다시 읽으면 **언제나 직전과 같은 값**이 오고, 그 값으로
+ * "내보내기 직후의 총계"라고 부르면 두 번째 창은 닫힌 것처럼 보일 뿐 아무것도 재확인하지 않는다.
+ *
+ * 다시 부르는 수단은 **[초기화]** 다: `resetFilters`는 언제나 **새 필터 객체**를 세우므로
+ * (`emptyAuditLogFilters()`) 조건이 같아도 목록 조회가 다시 돌고 heading이 새 값으로 그려진다
+ * (같은 값을 다시 `setState`하면 React가 걸러 내 재조회가 일어나지 않는다 — [필터 적용]을 다시
+ * 누르는 방법이 통하지 않는 이유다). 필터가 걸려 있던 자리는 초기화 뒤 **그 필터를 다시 적용해**
+ * 같은 목록으로 돌아온다 — 스텝이 이어서 보는 화면은 종전과 같다.
+ *
+ * @param {import("playwright-core").Page} page
+ * @param {{ unfilteredAtLeast: number, action?: string|null }} options
+ */
+async function reloadAuditTotal(page, options) {
+  const { unfilteredAtLeast, action = null } = options;
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/admin/audit-logs") && !r.url().includes("action="), { timeout: STEP_TIMEOUT }),
+    page.getByRole("button", { name: "초기화" }).click()
+  ]);
+  const unfilteredTotal = await waitForAuditTotal(page, (value) => value >= unfilteredAtLeast, {
+    expectation: `총계가 무필터 값(${unfilteredAtLeast}) 이상으로 돌아온다`,
+    describe: (value) =>
+      `내보내기 뒤 목록을 다시 불렀지만 무필터 총계가 돌아오지 않았어요: ${value ?? "읽지 못함"}`
+  });
+  if (!action) return unfilteredTotal;
+  await page.locator("#filter-action").fill(action);
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/admin/audit-logs") && r.url().includes(`action=${action}`), { timeout: STEP_TIMEOUT }),
+    page.getByRole("button", { name: "필터 적용" }).click()
+  ]);
+  return await waitForAuditTotal(page, (value) => value !== unfilteredTotal, {
+    expectation: `총계가 무필터 값(${unfilteredTotal})에서 다시 좁혀진다`,
+    describe: (value) =>
+      `내보내기 뒤 ${action} 필터를 다시 적용했지만 총계가 좁혀지지 않았어요: ${value ?? "읽지 못함"}`,
+    verdict: narrowedTableVerdict(action)
+  });
+}
+
 /** 필터를 건 뒤의 판정 도우미: 표는 이미 좁혀졌는데 총계만 그대로면 stale heading(ⓑ)이다. */
 function narrowedTableVerdict(action) {
   return (state) => {
@@ -893,20 +935,30 @@ async function main() {
     // just-arrived response frame.
     const total = await readAuditTotal(page);
     const unfiltered = await exportAndRead("audit-logs-export-unfiltered.csv");
-    // 라운드 80 트랙 C ⓑ(두 번째 창): 기대 행 수는 **내보내기 직후에 다시 읽은 총계**와 비교한다 —
-    // 총계를 읽은 시점과 내보낸 시점 사이에 감사 로그가 한 줄이라도 쌓이면 두 값이 갈린다
-    // (이 e2e 자신이 admin.login·user_lookup 행을 만든다).
-    const totalAtExport = await readAuditTotal(page);
-    const expectedRows = Math.min(totalAtExport, MAX_EXPORT_ROWS);
-    if (unfiltered.dataRows.length !== expectedRows) {
-      const drift = totalAtExport === total ? "" : ` — 내보내기 전 총계는 ${total}이었어요(그 사이 감사 로그가 쌓였어요)`;
+    // 라운드 80 트랙 C ⓑ(두 번째 창) — ⚠️ **리뷰 M-2가 이 자리를 정정했다.** 종전에는 내보내기
+    // 직후에 heading을 그대로 다시 읽어 "내보내기 시점의 총계"라고 불렀는데, `exportCsv`는
+    // `pageInfo`를 건드리지 않으므로 그 값은 **언제나 직전과 같은 값**이었다(= 두 번째 창이
+    // 실제로는 열려 있었다). 이제 목록을 **실제로 다시 불러** 총계를 다시 읽고, 두 시점 사이의
+    // 드리프트를 **범위**로 허용한다(이 e2e 자신이 admin.login·user_lookup 행을 만든다).
+    const totalAfterExport = await reloadAuditTotal(page, { unfilteredAtLeast: total });
+    const exportedRows = unfiltered.dataRows.length;
+    const lowerRows = Math.min(total, MAX_EXPORT_ROWS);
+    const upperRows = Math.min(totalAfterExport, MAX_EXPORT_ROWS);
+    if (exportedRows < lowerRows || exportedRows > upperRows) {
+      const drift =
+        totalAfterExport === total
+          ? ""
+          : ` — 내보내기 전 총계 ${total} · 내보내기 뒤 다시 불러 읽은 총계 ${totalAfterExport}(그 사이 감사 로그가 쌓였어요)`;
       throw new Error(
-        `unfiltered export rows: ${unfiltered.dataRows.length}, expected ${expectedRows} (total ${totalAtExport})${drift}`
+        `unfiltered export rows: ${exportedRows}, expected ` +
+          `${lowerRows === upperRows ? lowerRows : `${lowerRows}~${upperRows}`}${drift}`
       );
     }
-    const expectedNotice = totalAtExport > MAX_EXPORT_ROWS
+    // 안내 문구는 화면이 **내보낸 행 수 자신**으로 짓는다(`entries.length`) — 그 값과 비교한다.
+    const truncated = exportedRows >= MAX_EXPORT_ROWS && Math.max(total, totalAfterExport) > MAX_EXPORT_ROWS;
+    const expectedNotice = truncated
       ? "상위 1,000건만 내보냈어요"
-      : `${expectedRows.toLocaleString("ko-KR")}건을 내보냈어요.`;
+      : `${exportedRows.toLocaleString("ko-KR")}건을 내보냈어요.`;
     await page.locator("p", { hasText: expectedNotice }).waitFor({ timeout: STEP_TIMEOUT });
 
     // (2) Filter linkage: the export honors the currently APPLIED filter — the
@@ -928,16 +980,23 @@ async function main() {
       throw new Error(`admin.login total (${filteredTotal}) not a strict narrowing of ${total}`);
     }
     const filtered = await exportAndRead("audit-logs-export-admin-login.csv");
-    // 두 번째 창(같은 종류): 필터 총계도 **내보내기 직후에 다시 읽은 값**과 비교한다.
-    const filteredTotalAtExport = await readAuditTotal(page);
-    const expectedFilteredRows = Math.min(filteredTotalAtExport, MAX_EXPORT_ROWS);
-    if (filtered.dataRows.length !== expectedFilteredRows) {
+    // 두 번째 창(같은 종류 · 같은 정정): 필터가 걸린 목록도 **다시 불러** 총계를 다시 읽고,
+    // 두 시점 사이의 드리프트를 범위로 허용한다.
+    const filteredTotalAfterExport = await reloadAuditTotal(page, {
+      unfilteredAtLeast: totalAfterExport,
+      action: "admin.login"
+    });
+    const exportedFilteredRows = filtered.dataRows.length;
+    const lowerFilteredRows = Math.min(filteredTotal, MAX_EXPORT_ROWS);
+    const upperFilteredRows = Math.min(filteredTotalAfterExport, MAX_EXPORT_ROWS);
+    if (exportedFilteredRows < lowerFilteredRows || exportedFilteredRows > upperFilteredRows) {
       const drift =
-        filteredTotalAtExport === filteredTotal
+        filteredTotalAfterExport === filteredTotal
           ? ""
-          : ` — 내보내기 전 총계는 ${filteredTotal}이었어요(그 사이 admin.login 행이 쌓였어요)`;
+          : ` — 내보내기 전 총계 ${filteredTotal} · 내보내기 뒤 다시 불러 읽은 총계 ${filteredTotalAfterExport}(그 사이 admin.login 행이 쌓였어요)`;
       throw new Error(
-        `filtered export rows: ${filtered.dataRows.length}, expected ${expectedFilteredRows} (total ${filteredTotalAtExport})${drift}`
+        `filtered export rows: ${exportedFilteredRows}, expected ` +
+          `${lowerFilteredRows === upperFilteredRows ? lowerFilteredRows : `${lowerFilteredRows}~${upperFilteredRows}`}${drift}`
       );
     }
     // The action column (6th) sits between unquoted uuid/timestamp/email cells,
@@ -955,15 +1014,15 @@ async function main() {
       page.getByRole("button", { name: "초기화" }).click()
     ]);
     await page.locator("table tbody tr").first().waitFor({ timeout: STEP_TIMEOUT });
-    await waitForAuditTotal(page, (value) => value >= totalAtExport, {
-      expectation: `총계가 무필터 값(${totalAtExport}) 이상으로 돌아온다`,
+    await waitForAuditTotal(page, (value) => value >= totalAfterExport, {
+      expectation: `총계가 무필터 값(${totalAfterExport}) 이상으로 돌아온다`,
       describe: (value) =>
-        `초기화 뒤 총계가 돌아오지 않았어요: ${value ?? "읽지 못함"} (무필터 ${totalAtExport}, 필터 ${filteredTotalAtExport})`
+        `초기화 뒤 총계가 돌아오지 않았어요: ${value ?? "읽지 못함"} (무필터 ${totalAfterExport}, 필터 ${filteredTotalAfterExport})`
     });
 
     return (
-      `download ${unfiltered.suggested}: header 11 cols, ${unfiltered.dataRows.length}/${totalAtExport} rows (BOM+CRLF OK); ` +
-      `admin.login filter: ${filtered.dataRows.length}/${filteredTotalAtExport} rows, all admin.login`
+      `download ${unfiltered.suggested}: header 11 cols, ${exportedRows}/${totalAfterExport} rows (BOM+CRLF OK, 재조회 총계와 대조); ` +
+      `admin.login filter: ${exportedFilteredRows}/${filteredTotalAfterExport} rows, all admin.login`
     );
   });
 

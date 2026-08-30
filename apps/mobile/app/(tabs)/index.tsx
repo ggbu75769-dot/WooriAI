@@ -1277,10 +1277,16 @@ export default function HomeScreen() {
    * 그 반대를 했다. 게이트의 달을 **그 알림이 키를 태우는 달**로 맞추면 그 창이 닫힌다(둘이
    * 갈리지 않는 대다수 경로에서는 값이 같다). 배너·진행바는 화면의 달을 계속 본다 — 그쪽은
    * 라이브 표면이라 기기 달력이 맞는 단위다.
+   *
+   * ⚠️ 라운드 80 리뷰 S-1 — **아이 축도 같은 논리다.** 그 키의 `childId`는 평가가 `home.child.id`
+   * (= `/home` 응답의 아이)로 태우는데, 게이트만 선택 스토어의 `childId`(기기가 고른 아이)를
+   * 봤다. 아이를 전환한 직후처럼 둘이 갈리는 순간에는 게이트가 **다른 아이의 대기 행**을 보고
+   * 이 아이의 알림을 막거나 통과시킨다 — 달과 같은 모양의 창이다. 그래서 아이도 **그 알림이
+   * 키를 태우는 아이**에서 뽑는다(둘이 갈리지 않는 대다수 경로에서는 값이 같다).
    */
   const hasRecoverablePendingMonthRecords = hasRecoverablePendingRecordsForMonth(
     offlineSyncSnapshot.rows,
-    childId,
+    home.data?.child.id,
     home.data?.monthly.yearMonth
   );
   // GAP-066 #8 + 라운드 66 적대 리뷰(S-2): 지난달 정리 알림이 쓰는 지난달 행을 **이 화면이 이미

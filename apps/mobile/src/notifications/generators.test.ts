@@ -1073,9 +1073,10 @@ describe("라운드 79 B: 예산 알림은 그 달의 회복 가능한 대기 �
     it("훅·화면 배선: 예산 게이트는 그 알림의 달을 보고, 형제 둘은 같은 스냅샷의 행을 받는다", () => {
       const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
       // ⚠️ 라운드 80 B에서 셋째 인자가 기기 달력(`thisYearMonth`)에서 **그 알림이 키를 태우는 달**
-      // (`/home` 응답의 달)로 바뀌었다 — 아래 "ⓓ 달의 정합" 절이 그 이유를 값으로 적는다.
+      // (`/home` 응답의 달)로 바뀌었고, 라운드 80 리뷰 S-1에서 둘째 인자도 같은 논리로 **그 알림이
+      // 키를 태우는 아이**(`home.data?.child.id`)가 됐다 — 아래 "ⓓ 달의 정합" 절이 그 이유를 적는다.
       expect(homeSource).toContain(
-        "const hasRecoverablePendingMonthRecords = hasRecoverablePendingRecordsForMonth(\n    offlineSyncSnapshot.rows,\n    childId,\n    home.data?.monthly.yearMonth\n  );"
+        "const hasRecoverablePendingMonthRecords = hasRecoverablePendingRecordsForMonth(\n    offlineSyncSnapshot.rows,\n    home.data?.child.id,\n    home.data?.monthly.yearMonth\n  );"
       );
       // 형제 둘의 상태 축은 그대로다(라운드 54 P1-3) — 바뀐 것은 **화면이 boolean이 아니라 행을
       // 넘긴다**는 것뿐이고, 범위 판정은 알림 층의 순수 함수가 한다(라운드 80 B).
@@ -1294,6 +1295,54 @@ describe("라운드 80 B: 게이트의 범위를 그 알림이 단언하는 것�
   });
 
   /**
+   * ⓒ **잔여 갈래 하나 — 라운드 80 적대적 리뷰 M-3의 재현.**
+   *
+   * `after` 범위만으로는 **서울 기준 미래 날짜**의 대기 행이 언제나 범위 안이다(그 날짜는
+   * 정의상 `lastRecordedOn`보다 뒤다). 그런데 그 행은 서버가 `EXPENSE_FUTURE_DATE`(400)로
+   * **영구 거절**하는 행이라 종점 `failed`로 굳고 동기화될 일이 없다 — 그래서 위 ⓒ가 닫았다고
+   * 적은 영구 정지가 **이 한 갈래에서는 그대로 남아 있었다.** 범위에 상한(오늘 · 서울)을 더해
+   * 닫는다.
+   */
+  it("ⓒ 미래 날짜의 종점 행은 record_gap을 멈추지 않는다 (범위의 상한 — 리뷰 M-3)", () => {
+    const futureFailure = [row("2026-08-25", "failed")];
+    // 종전(상한 없음): 마지막 기록보다 뒤라 범위 **안**이다 → 그 기기에서 record_gap은 영영 멈췄다.
+    expect(hasPendingRecordsForChild(futureFailure, "child-1", { kind: "after", date: LAST_RECORDED_ON })).toBe(true);
+    // 상한을 함께 주면 범위 **밖**이다 — 서버가 받아 줄 수 없는 날짜라 판정을 바꿀 수 없다.
+    expect(
+      hasPendingRecordsForChild(futureFailure, "child-1", {
+        kind: "after",
+        date: LAST_RECORDED_ON,
+        until: "2026-08-20"
+      })
+    ).toBe(false);
+    // 생성기는 오늘을 스스로 안다(`now`) — 그 행 하나가 남아도 종전 문구 그대로 발화한다.
+    expect(recordGapNotification({ ...gapBase, pendingRecordRows: futureFailure })!.title).toBe(
+      "마지막 지출 기록이 4일 전이에요"
+    );
+    // ⚠️ 상한은 **포함**이다 — 오늘 날짜 행은 서버가 받아 줄 수 있으므로 여전히 침묵시킨다.
+    expect(recordGapNotification({ ...gapBase, pendingRecordRows: [row("2026-08-20", "pending")] })).toBeNull();
+    // monthly_wrapup의 달 범위는 한 글자도 바뀌지 않았다(미래 달 행은 애초에 지난달이 아니다).
+    expect(monthlyWrapupNotification({ ...wrapupBase, pendingRecordRows: futureFailure })!.title).toBe(
+      "7월 함께한 지출 1,245,700원"
+    );
+    // 홈 평가 한 번에서도 같다 — 미래 날짜 실패 한 행이 형제 둘을 멈추지 않는다.
+    const home = {
+      child: { id: "child-1", nickname: "다온이", stageLabel: "24개월" },
+      monthly: { yearMonth: THIS_YEAR_MONTH, amountKrw: 1_000_000, usedAmountKrw: 100_000 },
+      lastSeenStageLabel: "24개월",
+      followupEntries: [],
+      now,
+      weekly: undefined as WeeklySpendResolution,
+      lastRecordedOn: LAST_RECORDED_ON,
+      lastMonthRecords: julyRecords
+    };
+    expect(evaluateHomeNotifications({ ...home, pendingRecordRows: futureFailure }).map((c) => c.type)).toEqual([
+      "record_gap",
+      "monthly_wrapup"
+    ]);
+  });
+
+  /**
    * ⓓ **달의 정합.** 예산 게이트가 보는 달과 그 알림이 태우는 키의 달이 갈리면, 게이트는
    * 8월 대기 행을 보고 **7월 알림을 막거나** 그 반대를 한다. 갈리는 창은 실재한다: 자정·월초
    * 경계와 **지난달 `/home` 캐시로 그리는 콜드 스타트**다(기기 서울 달력은 이미 8월인데 화면이
@@ -1334,12 +1383,42 @@ describe("라운드 80 B: 게이트의 범위를 그 알림이 단언하는 것�
     ).toEqual(["budget_80:child-1:2026-08"]);
   });
 
+  /**
+   * ⚠️ 라운드 80 리뷰 S-1 — **같은 창이 아이 축에도 있었다.** 키가 태우는 아이는 평가가
+   * `home.child.id`(= `/home` 응답의 아이)로 정하는데, 게이트만 선택 스토어의 아이를 봤다.
+   * 아이를 전환한 직후처럼 둘이 갈리는 순간에는 **다른 아이의 대기 행**이 이 아이의 알림을
+   * 막거나 통과시킨다. 아래 재현은 달 축의 그것과 같은 모양이다.
+   */
+  it("ⓓ 게이트의 아이가 알림의 아이와 다르면 엉뚱한 아이를 막는다 (리뷰 S-1)", () => {
+    const otherChildPending = [row("2026-08-02", "pending", "child-2")];
+    const budgetInput = { budgetKrw: 1_000_000, spentKrw: 900_000, yearMonth: THIS_YEAR_MONTH };
+    // 아이를 막 전환해 선택 스토어는 child-2인데 화면이 든 /home 응답은 아직 child-1인 창.
+    const selectedChildGate = hasRecoverablePendingRecordsForMonth(otherChildPending, "child-2", THIS_YEAR_MONTH);
+    const notificationChildGate = hasRecoverablePendingRecordsForMonth(otherChildPending, "child-1", THIS_YEAR_MONTH);
+    expect([selectedChildGate, notificationChildGate]).toEqual([true, false]);
+    // 선택 스토어의 아이로 만든 게이트는 **child-1의 알림을 막는다** — 그 행은 child-2의 것인데도.
+    expect(
+      budgetNotifications({ ...budgetInput, childId: "child-1", hasRecoverablePendingMonthRecords: selectedChildGate })
+    ).toEqual([]);
+    // 알림의 아이로 맞춘 게이트는 그 알림을 막지 않고, 키도 그 아이의 것이다.
+    expect(
+      budgetNotifications({
+        ...budgetInput,
+        childId: "child-1",
+        hasRecoverablePendingMonthRecords: notificationChildGate
+      }).map((candidate) => candidate.dedupeKey)
+    ).toEqual(["budget_80:child-1:2026-08"]);
+  });
+
   it("ⓓ 게이트의 달과 키의 달이 **같은 출처**다 (화면 배선 — 새 요청 0건)", () => {
     const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
-    // 게이트의 달: /home 응답의 달(기기 달력 thisYearMonth가 아니다).
+    // 게이트의 달·아이: /home 응답의 것(기기 달력 thisYearMonth·선택 스토어 childId가 아니다).
     expect(homeSource).toContain(
-      "const hasRecoverablePendingMonthRecords = hasRecoverablePendingRecordsForMonth(\n    offlineSyncSnapshot.rows,\n    childId,\n    home.data?.monthly.yearMonth\n  );"
+      "const hasRecoverablePendingMonthRecords = hasRecoverablePendingRecordsForMonth(\n    offlineSyncSnapshot.rows,\n    home.data?.child.id,\n    home.data?.monthly.yearMonth\n  );"
     );
+    // 키의 아이: 같은 응답의 child.id가 평가로 그대로 들어간다(순수 함수가 그 값으로 키를 태운다).
+    const hookChildSource = readFileSync(join(process.cwd(), "src/notifications/useHomeNotificationEvaluation.ts"), "utf8");
+    expect(hookChildSource).toContain("child: { id: home.child.id,");
     // 키의 달: 같은 응답의 monthly가 훅으로 그대로 들어간다(첫 인자).
     expect(homeSource).toContain("useHomeNotificationEvaluation(\n    hasSession ? home.data : undefined,");
     const hookSource = readFileSync(join(process.cwd(), "src/notifications/useHomeNotificationEvaluation.ts"), "utf8");

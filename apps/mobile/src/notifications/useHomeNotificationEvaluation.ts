@@ -65,9 +65,12 @@ import { useNotificationStore } from "./notification.store";
  * 이 훅이 오프라인 스냅샷(src/offline/sync-controller.ts)을 **직접 구독하지는 않는다**: 그
  * 모듈은 expo-router·react-native를 정적으로 끌고 들어와 이 파일을 vitest에서 import할 수 없게
  * 만든다(알림 계약 테스트들이 실제로 그것을 검증한다). 대신 홈 화면이 **이미 구독 중인** 그
- * 스냅샷에서 순수 함수(`hasPendingRecordsForChild`)로 판정해 `hasPendingLocalRecords`로
- * 넘겨준다 — 리포트 탭의 대기 건수 고지가 쓰는 것과 같은 주입 방식이고, 새 요청도 새 구독도
- * 없다. 대기 행이 하나라도 있으면 record_gap은 **발화하지 않는다**(generators.ts).
+ * 스냅샷의 값을 인자로 넘긴다 — 리포트 탭의 대기 건수 고지가 쓰는 것과 같은 주입 방식이고,
+ * 새 요청도 새 구독도 없다.
+ * ⚠️ **이 문단의 그 다음 두 줄은 라운드 79까지의 사실이었다**(라운드 80 리뷰 S-4 — 현재형으로
+ * 남아 있었다): 종전에는 화면이 `hasPendingRecordsForChild`로 미리 접은 `hasPendingLocalRecords`
+ * boolean을 넘겼고 **대기 행이 하나라도 있으면** record_gap이 발화하지 않았다. 오늘 넘어오는
+ * 것은 **행**이고 판정은 각 알림의 범위로 좁혀진다 — 아래 "라운드 80 B" 절이 그 답이다.
  *
  * ## 라운드 80 B (GAP-080 #2) — 넘어오는 것이 boolean에서 **행**으로 바뀌었다
  *
@@ -240,8 +243,12 @@ export function useHomeNotificationEvaluation(
     };
     // S-2: 지난달 값이 **deps에 있다** — 캐시가 도착한 그 순간이 재평가를 깨운다(우연에 기대지
     // 않는다). react-query의 `data` 참조는 새 결과 전까지 안정적이라 늘어나는 평가는 그 한 번뿐이다.
-    // 라운드 80 B: 대기 행도 deps에 있다 — 그 배열은 오프라인 스냅샷이 새로 실릴 때만 바뀌고
-    // (src/offline/sync-controller.ts의 latestSnapshot), 늘어난 평가는 dedupe로 무해하다.
+    // 라운드 80 B: 대기 행도 deps에 있다. ⚠️ 라운드 80 리뷰 S-3 — **그 배열의 참조는 스냅샷이
+    // 새로 실릴 때마다 바뀐다(내용이 같아도).** `refreshSnapshot()`이 매번 저장소에서 새 배열을
+    // 읽어 싣기 때문이다(src/offline/sync-controller.ts) — 즉 이 dep가 재평가를 깨우는 빈도는
+    // "내용이 바뀐 횟수"가 아니라 "스냅샷을 새로 읽은 횟수"다(포커스·당겨서 새로고침·flush).
+    // 그래도 useMemo로 접지 않는 이유: 늘어난 평가는 dedupe 메모리 덕에 결과가 같고 새 요청도
+    // 0건이라, 안정화가 사는 것은 헛도는 순수 계산 한 번뿐이다(비용보다 배선이 크다).
   }, [
     home,
     weekly,

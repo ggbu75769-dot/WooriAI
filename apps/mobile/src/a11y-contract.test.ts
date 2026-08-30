@@ -3698,7 +3698,8 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
  *
  * ⚠️ **이 블록은 GAP-079를 고치지 않는다 — 그 옆에 한 겹 넓은 모집단을 세운다.** 대장 스윕은
  * 오늘도 참이고(`ROUND79_ANNOUNCE_PROPS_ADDED`·`SAVE_ERROR_ANNOUNCE_*` 값 그대로), 이 스윕은
- * 그 일곱 자리를 **포함하는** 스무 자리를 센다.
+ * 그 일곱 자리를 **포함하는** 스물다섯 자리를 센다(라운드 80 리뷰 M-1 재실측 — 종전 값은 스물이었고
+ * 그 차이는 화면이 아니라 스캐너의 구멍 셋에서 나왔다. 아래 `MUTATION_TRIGGER_SITES_BY_SCREEN` 머리말).
  */
 const ANNOUNCE_UNIT_IS_THE_TRIGGER_REASON =
   "낭독이 필요한지를 정하는 것은 그 문장이 어느 대장에 있는가가 아니라 무엇이 그 문장을 세웠는가다 — " +
@@ -3861,15 +3862,57 @@ function identifiersIn(text: string): string[] {
 }
 
 /**
+ * 여는 태그의 `style={…}` **안쪽**(중괄호 균형을 맞춰 자른다).
+ *
+ * ⚠️ 인라인 객체(`style={{ color: theme.colors.danger }}`)만 보던 종전 판정은 저장소의 다른
+ * 관례 둘을 놓쳤다 — `style={styles.errorText}`(StyleSheet 이름)와 배열 스타일
+ * (`style={[styles.a, styles.errorText]}`). 셋 다 같은 danger 색을 입는다.
+ */
+function styleExpressionOf(openTag: string): string {
+  const at = openTag.indexOf("style={");
+  if (at < 0) return "";
+  const from = at + "style=".length;
+  let depth = 0;
+  for (let i = from; i < openTag.length; i += 1) {
+    const char = openTag[i];
+    if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return openTag.slice(from + 1, i);
+    }
+  }
+  return "";
+}
+
+/**
+ * 조건과 그 자리 **사이의 가장 안쪽 여는 태그**. 저장소 관례에서 낭독 프롭 쌍은 문장 자신이
+ * 아니라 **alert 컨테이너**에 서기도 한다(`app/(auth)/login.tsx`의 `<View accessibilityRole=
+ * "alert" …><Text style={styles.errorText}>`). 그 자리를 프롭 없음으로 세면 이미 소리가 나는
+ * 자리가 침묵으로 집계된다.
+ */
+function innermostOpenTagBetween(masked: string, from: number, to: number): string {
+  if (to <= from) return "";
+  const between = masked.slice(from, to);
+  const opens = [...between.matchAll(/<[A-Za-z][A-Za-z0-9_.]*(?![A-Za-z0-9_])/g)];
+  if (opens.length === 0) return "";
+  const last = opens[opens.length - 1];
+  const end = openingTagEnd(between, last.index);
+  return end < 0 ? "" : between.slice(last.index, end + 1);
+}
+
+/**
  * **눌러서 세워지는 문장 state** — 방아쇠가 뮤테이션인데 화면이 그 답을 state로 들고 있는 자리.
  *
  * 두 성질을 **함께** 요구한다:
  *  ⓐ 그 state는 **값을 담는다** — `set…(true)`/`set…(false)`만 쓰는 보이기 스위치는 문장이 아니다
  *    (`showErrors` 같은 자리가 그렇고, 그 자리가 그리는 것은 입력 검증이지 요청 실패가 아니다).
  *  ⓑ 그 setter가 **누름 핸들러 안**에서 불린다 — 그 함수 몸통이 뮤테이션의 `.mutate(`를 부르거나
- *    (파일 검증 → 업로드), 뮤테이션이 쓰는 그 서버 쓰기 함수를 직접 부른다(일괄 PATCH 루프).
- *    ⚠️ `useMutation({ … })` 옵션 객체 안은 제외한다 — 거기서 세워지는 state는 **성공 뒤처리**가
- *    대부분이고(참여 결과 · 착지 월), 그것을 방아쇠로 세면 실패가 아닌 자리가 끌려 들어온다.
+ *    (파일 검증 → 업로드), 요청 모듈에서 들여온 쓰기 함수를 직접 부른다(일괄 PATCH 루프 ·
+ *    오프라인 큐 `updateItemStatusOffline` · 로그인의 `oauthLogin`).
+ *    ⚠️ `useMutation({ … })` 옵션 객체 안의 제외는 **`onSuccess`·`onSettled`로 좁힌다** — 거기서
+ *    세워지는 state가 성공 뒤처리(참여 결과 · 착지 월)이고, `onError`는 제외가 아니라 **방아쇠
+ *    자신**이다. 종전에는 옵션 객체 전부를 제외해 `onError`가 세우는 저장 실패 문장이
+ *    (`app/expenses/new.tsx`·`[expenseId].tsx`의 `saveErrorMessage`) 모집단 밖으로 빠졌다.
  */
 function pressedMessageStates(
   masked: string,
@@ -3880,17 +3923,34 @@ function pressedMessageStates(
   const mutationOptionRanges = callRangesOf(masked, "useMutation");
   const bodies = functionBodyRanges(masked);
   const writeRegexes = [...serverWrites].map((write) => new RegExp(`\\b${write}\\(`));
+  /** 그 몸통이 어느 옵션의 값인가 — 여는 `{` 바로 앞의 `onXxx:` 하나(없으면 빈 문자열). */
+  const optionKeyBefore = (lead: string): string => {
+    const keys = [...lead.matchAll(/\b(on[A-Z][A-Za-z0-9_$]*)\s*:/g)];
+    return keys.length > 0 ? keys[keys.length - 1][1] : "";
+  };
   // 판정은 **구간마다 한 번**이다(setter 호출마다 다시 자르면 같은 몸통을 수십 번 훑는다).
   const verdicts = new Map<number, boolean>();
   const isPressBody = (start: number, end: number): boolean => {
     const cached = verdicts.get(start);
     if (cached !== undefined) return cached;
     const body = masked.slice(start, end + 1);
+    const lead = masked.slice(Math.max(0, start - 160), start);
     let verdict: boolean;
     if (/\buse(State|Mutation|Query|Effect|Memo|Ref|Callback)\(/.test(body)) verdict = false;
+    // ⚠️ **실패 갈래**는 그 자체가 방아쇠다 — `try/catch`의 catch 블록과 `.catch(…)` 콜백은
+    // 정의상 **앞선 요청이 있었다**는 뜻이라 그 안에서 세워지는 문장은 눌러서 나타난 실패다.
+    // 이 한 줄이 종전에 통째로 빠져 있던 두 모양을 모집단에 넣는다: 오프라인 큐를 직접 부르는
+    // 화면(`updateItemStatusOffline(...).catch(() => set…)`)과 훅 없이 요청하는 로그인 화면.
+    else if (/\bcatch\s*(\([^)]*\))?\s*$/.test(lead) || /\.catch\(\s*(\([^)]*\)|[A-Za-z0-9_$]+)\s*=>\s*$/.test(lead))
+      verdict = true;
     else if ([...mutationNames].some((mutation) => body.includes(`${mutation}.mutate(`))) verdict = true;
-    else if (mutationOptionRanges.some(([from, to]) => start >= from && start <= to)) verdict = false;
-    else verdict = writeRegexes.some((write) => write.test(body));
+    else if (mutationOptionRanges.some(([from, to]) => start >= from && start <= to)) {
+      const key = optionKeyBefore(lead);
+      // ⚠️ 제외는 **성공 뒤처리**뿐이다. `onError`는 눌린 요청이 실패한 바로 그 갈래다.
+      if (key === "onError") verdict = true;
+      else if (key === "onSuccess" || key === "onSettled") verdict = false;
+      else verdict = writeRegexes.some((write) => write.test(body));
+    } else verdict = writeRegexes.some((write) => write.test(body));
     verdicts.set(start, verdict);
     return verdict;
   };
@@ -3910,7 +3970,15 @@ function pressedMessageStates(
   return qualified;
 }
 
-/** 그 자리를 감싸는 JSX 조건들(안쪽부터). 각 항목은 조건 문자열과 `?` **바로 뒤 자리**를 든다. */
+/**
+ * 그 자리를 감싸는 JSX 조건들(안쪽부터). 각 항목은 조건 문자열과 `?` **바로 뒤 자리**를 든다.
+ *
+ * ⚠️ **`?` 뒤의 깊이 0 `:` 를 함께 잰다 — 그 콜론보다 뒤에 선 자리는 조건의 then이 아니라 else다.**
+ * 종전에는 else 가지가 then 조건에 귀속됐고, 그래서 화면 하단이 통째로 상단 로딩/오류 삼항의
+ * else인 화면(`app/expenses/[expenseId].tsx`의 `canLoadExpense && expensePhase === "error" ? … :
+ * … : (…)`)에서 **입력 검증·버튼 라벨·뮤테이션 Toast가 전부 "쿼리 조건"에 매달렸다.**
+ * else 가지면 그 조건을 채택하지 않고 한 겹 밖으로 나간다 — 모르는 것을 지어내지 않는다.
+ */
 function enclosingJsxGuards(masked: string, at: number): Array<{ readonly guard: string; readonly after: number }> {
   const guards: Array<{ readonly guard: string; readonly after: number }> = [];
   let cursor = at;
@@ -3942,9 +4010,28 @@ function enclosingJsxGuards(masked: string, at: number): Array<{ readonly guard:
       }
     }
     if (question > 0) {
+      // 그 `?`에 대응하는 깊이 0의 `:`(중첩 삼항은 함께 센다). 그 콜론이 자리보다 앞에 있으면
+      // 이 자리는 **else 가지**이고, 앞 조건은 이 자리의 조건이 아니다.
+      let pending = 1;
+      let branchDepth = 0;
+      let elseAt = -1;
+      for (let i = question + 1; i < segment.length; i += 1) {
+        const char = segment[i];
+        if (char === "(" || char === "{" || char === "[") branchDepth += 1;
+        else if (char === ")" || char === "}" || char === "]") branchDepth -= 1;
+        else if (branchDepth !== 0) continue;
+        else if (char === "?" && segment[i + 1] !== "." && segment[i + 1] !== "?" && segment[i - 1] !== "?") pending += 1;
+        else if (char === ":") {
+          pending -= 1;
+          if (pending === 0) {
+            elseAt = i;
+            break;
+          }
+        }
+      }
       const guard = segment.slice(0, question).replace(/\s+/g, " ").trim();
       // 조건은 짧고 문장이 아니다 — `;`나 `return`이 섞이면 그것은 컴포넌트 몸통이지 조건이 아니다.
-      if (guard.length > 0 && guard.length <= 160 && !guard.includes(";") && !guard.includes("return ")) {
+      if (elseAt < 0 && guard.length > 0 && guard.length <= 160 && !guard.includes(";") && !guard.includes("return ")) {
         guards.push({ guard, after: open + 1 + question + 1 });
       }
     }
@@ -4053,19 +4140,24 @@ function mutationTriggerSitesOf(sourceText: string, screen: string): MutationTri
       let exit: MutationTriggerSite["exit"];
       if (tagName === "Toast") exit = "toast";
       else {
-        const hasProps = ANNOUNCED_ALERT_PROPS.every((prop) => openTag.includes(prop));
+        // 프롭 쌍은 문장 자신이나 그 자리를 감싼 alert 컨테이너, **둘 중 한 요소에 함께** 서야 한다.
+        const wrapper = innermostOpenTagBetween(masked, matched.after, found.index);
+        const hasProps =
+          ANNOUNCED_ALERT_PROPS.every((prop) => openTag.includes(prop)) ||
+          ANNOUNCED_ALERT_PROPS.every((prop) => wrapper.includes(prop));
         const announced = announceEffects.some((block) => block.includes(`if (${matched!.guard})`));
         exit = hasProps ? (announced ? "announce" : "live-region") : "silent";
       }
       sites.push({ screen, guard: matched.guard, trigger, shape, exit });
     }
   };
-  scan(
-    "Text",
-    (openTag) =>
-      openTag.includes("theme.colors.danger") ||
-      [...dangerStyleNames].some((name) => openTag.includes(`style={${name}}`))
-  );
+  scan("Text", (openTag) => {
+    if (openTag.includes("theme.colors.danger")) return true;
+    const styleExpression = styleExpressionOf(openTag);
+    if (styleExpression.length === 0) return false;
+    // 이름·`styles.이름`·배열 원소 — 셋 다 같은 식별자로 읽힌다.
+    return [...dangerStyleNames].some((name) => new RegExp(`\\b${name}\\b`).test(styleExpression));
+  });
   scan("Toast", (openTag) => openTag.includes('tone="error"'));
   return sites;
 }
@@ -4118,7 +4210,8 @@ const MUTATION_ANNOUNCE_BLOCKED_BY_SOURCE_PIN: Readonly<
 const MUTATION_ANNOUNCE_NO_BLOCKED_SITES_REASON =
   "라운드 80 트랙 A가 소유 밖 바이트 핀 때문에 한 자리를 남겼고(app/import/[importJobId].tsx의 일괄 중간 실패 — K-10을 " +
   "지키는 src/offline/messages.test.ts의 핀), 같은 라운드의 통합이 그 핀을 모양 핀으로 풀면서 같은 걸음에 그 자리에 " +
-  "낭독 프롭 둘 + announce 한 벌을 걸었다. 그래서 뮤테이션 방아쇠 스무 자리는 전부 낭독 출구를 가진다.";
+  "낭독 프롭 둘 + announce 한 벌을 걸었다. 그래서 뮤테이션 방아쇠 자리는 전부 낭독 출구를 가진다(오늘 스물다섯 — " +
+  "리뷰 M-1 재실측 뒤에도 이 목록은 비어 있다: 넓어진 모집단이 새로 들인 다섯은 전부 이미 출구가 있었다).";
 
 /**
  * ⚠️ **바이트 핀이 모양 핀으로 풀려 준 자리 — 그 의존을 값으로 적는다.**
@@ -4259,28 +4352,65 @@ const QUERY_TRIGGER_OUT_OF_SCOPE_REASON =
   "포커스가 눌린 컨트롤에 남은 채 맨 줄이 서는 뮤테이션 자리와 조건이 다르다. 자동 낭독이 실제로 필요한지는 " +
   "실기기 확인 항목(A-20 #85)이고, 답이 '필요하다'면 다음 라운드가 같은 형식으로 그 모집단을 연다.";
 
-/** 오늘의 실측(2026-08-30). 화면별 자리 수가 값으로 서 있어야 하나가 늘거나 줄 때 빨개진다. */
+/**
+ * 오늘의 실측(2026-08-30 · 라운드 80 리뷰 M-1 재실측). 화면별 자리 수가 값으로 서 있어야
+ * 하나가 늘거나 줄 때 빨개진다.
+ *
+ * ⚠️ **종전 값 여덟 화면 스무 자리는 스캐너의 답이지 소스의 답이 아니었다.** 세 구멍이 있었다:
+ *  ⓐ 삼항의 **else 가지**가 then 조건에 귀속돼(`enclosingJsxGuards`), 화면 하단이 통째로 상단
+ *    로딩/오류 삼항의 else인 화면에서 입력 검증·버튼 라벨·저장 실패 Toast가 "쿼리 조건"에 매달렸다.
+ *  ⓑ `useMutation` 옵션 객체를 통째로 제외해 **`onError`가 세우는 저장 실패 문장**이 빠졌다.
+ *  ⓒ **실패 갈래**(`try/catch` · `.catch(…)`)와 `style={styles.…}`·배열 스타일을 세지 않아
+ *    로그인·준비템 상태 변경의 실패 문장이 통째로 모집단 밖이었다.
+ * 정정 뒤 자리는 여덟 화면 스무 개에서 **열세 화면 스물다섯 개**가 됐고, 늘어난 다섯은 전부
+ * 이미 출구를 가진 자리였다(Toast 넷 + 로그인의 announce 하나 — 새로 뚫은 침묵은 0건이다).
+ */
 const MUTATION_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
+  "app/(auth)/login.tsx": 1,
+  "app/(tabs)/items.tsx": 1,
   "app/budget.tsx": 1,
+  "app/expenses/[expenseId].tsx": 1,
+  "app/expenses/new.tsx": 1,
   "app/family/accept/[token].tsx": 1,
   "app/family/invite.tsx": 1,
   "app/import/[importJobId].tsx": 3,
   "app/import/index.tsx": 2,
+  "app/items/[itemTemplateId].tsx": 1,
   "app/settings/children.tsx": 3,
   "app/settings/notifications.tsx": 2,
   "app/settings/privacy.tsx": 7
 };
 
-/** 같은 스윕이 세는 쿼리 방아쇠 자리(제외 쪽). 값이 있어야 "0건"이 스캔이 끊긴 결과가 아니다. */
+/**
+ * 같은 스윕이 세는 쿼리 방아쇠 자리(제외 쪽). 값이 있어야 "0건"이 스캔이 끊긴 결과가 아니다.
+ *
+ * ⚠️ **이 칸은 "실패 문장"이 아니라 *이 스캐너가 쿼리 조건 아래 danger 색 글자로 분류한 자리*다.**
+ * `app/family/index.tsx`의 넷 중 셋은 실패 문장이 아니라 **파괴적 동작의 버튼 라벨**
+ * (`삭제`·가구 추가·탈퇴)이고, 그 자리들이 여기 서 있는 이유는 danger 색을 입기 때문이다.
+ * 그래도 판정은 같다 — 이 칸은 통째로 범위 밖이고(아래 `QUERY_TRIGGER_OUT_OF_SCOPE_REASON`),
+ * 값이 서 있는 목적은 "0건"이 스캔이 끊긴 결과가 아님을 보이는 것 하나다.
+ */
 const QUERY_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
-  "app/budget.tsx": 1,
-  "app/expenses/[expenseId].tsx": 7,
   "app/family/accept/[token].tsx": 2,
   "app/family/index.tsx": 4,
   "app/import/[importJobId].tsx": 2,
   "app/settings/children.tsx": 1,
   "app/settings/notifications.tsx": 1,
   "app/settings/privacy.tsx": 1
+};
+
+/**
+ * ⚠️ **영역 안에 선 뮤테이션 자리 — 오늘 하나이고 그 하나는 침묵이 아니다.**
+ *
+ * 라운드 80 트랙 A는 *"뮤테이션 자리는 전부 맨 줄"* 을 부정 단언으로 세웠는데, 그 값은 모집단이
+ * 다섯 자리 좁던 때의 값이었다. 재실측에서 하나가 영역 안에 선다: `app/(auth)/login.tsx`는
+ * 문장을 **alert 컨테이너 `<View>` 안**에 두고 프롭 쌍을 그 컨테이너에 건다(관례의 본보기 —
+ * `ANDROID_ONLY_LIVE_REGION_REASON`이 인용하는 그 화면이다). 모양은 `contained`지만 포커스
+ * 조건은 같고(눌린 [로그인] 버튼 아래), 출구는 `announce`다.
+ */
+const CONTAINED_MUTATION_SITES: Readonly<Record<string, string>> = {
+  "app/(auth)/login.tsx loginError":
+    "문장이 alert 컨테이너 <View accessibilityRole=\"alert\" accessibilityLiveRegion=\"polite\"> 안에 선다 — 프롭 쌍은 그 컨테이너의 것이고 announceForA11y 배선도 이미 있다"
 };
 
 describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에서 파생)", () => {
@@ -4300,15 +4430,18 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
     for (const screen of OFFLINE_AWARE_SAVE_ERROR_SCREENS) {
       expect(byScreen[screen], `${screen}은 방아쇠 모집단 안에 있다`).toBeGreaterThan(0);
     }
-    // 오늘의 실측: 스무 자리(맨 Text 열아홉 + Toast 하나). 자리 수는 트랙 A 때와 같다 —
-    // 통합이 더한 것은 프롭·announce뿐이라 자리는 하나도 늘거나 줄지 않았다(아래 ⓕ가 그 사실을 진다).
-    expect(mutationSites.length, "뮤테이션 방아쇠 자리 합계").toBe(20);
+    // 오늘의 실측(리뷰 M-1 재실측): **스물다섯 자리**(Text 스물 + Toast 다섯).
+    // 종전 값은 스물이었고 늘어난 다섯은 스캐너가 놓치던 자리다 — 지출 저장 실패 Toast 둘
+    // (`new.tsx`·`[expenseId].tsx`) · 준비템 상태 변경 실패 Toast 둘(`(tabs)/items.tsx`·
+    // `items/[itemTemplateId].tsx`) · 로그인 실패 카드 하나(`(auth)/login.tsx`).
+    expect(mutationSites.length, "뮤테이션 방아쇠 자리 합계").toBe(25);
 
     const exits: Record<string, number> = {};
     for (const site of mutationSites) exits[site.exit] = (exits[site.exit] ?? 0) + 1;
-    // 오늘의 값: 낭독 밖은 **0건**이다(트랙 A 뒤 하나 → 통합이 핀과 화면을 함께 움직여 0).
-    // 열아홉은 프롭 + useEffect로, 나머지 하나(Toast)는 자기가 announce해서 출구를 가진다.
-    expect(exits, "출구별 자리 수").toEqual({ announce: 19, toast: 1 });
+    // 오늘의 값: 낭독 밖은 **0건**이다. 스물은 프롭 + useEffect로, 다섯(Toast)은 자기가
+    // announce해서 출구를 가진다. ⚠️ 재실측이 더한 다섯 자리는 **전부 이미 출구가 있었다** —
+    // 넓어진 모집단이 새로 뚫은 침묵은 0건이다.
+    expect(exits, "출구별 자리 수").toEqual({ announce: 20, toast: 5 });
   });
 
   it("ⓑ 부정 단언 — 프롭만 걸린 자리 0건(iOS 침묵 0건) · 낭독 밖 0건이고 그 0이 값에서 파생한다", () => {
@@ -4363,6 +4496,21 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
       const deps = wired!.slice(wired!.lastIndexOf(", ["));
       expect(deps, `${entry.file}: ${entry.guard}의 의존 배열`).toContain(entry.guard.split(" ")[0]);
     }
+
+    // ⚠️ **리뷰 S-5 — 문장이 두 벌 리터럴로 사는 자리는 그 둘이 같아야 한다.**
+    // `app/settings/notifications.tsx`의 푸시 실패 줄은 문구를 상수로 빼지 않았다(빼면 그 자리의
+    // 바이트가 바뀐다 — 그 판단은 그대로다). 대가는 **같은 문장이 JSX와 announce에 각각** 있다는
+    // 것이고, 둘이 갈리면 **화면과 소리가 다른 말을 한다.** 그 대가를 여기서 단언이 진다.
+    const twoCopySites = ROUND80_ANNOUNCE_WIRING.filter((entry) => entry.announced.startsWith('"'));
+    expect(twoCopySites, "문장을 두 벌 리터럴로 두는 자리").toHaveLength(1);
+    for (const entry of twoCopySites) {
+      const sentence = JSON.parse(entry.announced) as string;
+      const masked = maskComments(source(entry.file));
+      const guardAt = masked.indexOf(`{${entry.guard} ? (`);
+      expect(guardAt, `${entry.file}: ${entry.guard} 갈래`).toBeGreaterThan(-1);
+      const branch = masked.slice(guardAt, masked.indexOf(") : null}", guardAt));
+      expect(branch, `${entry.file}: JSX 문장과 announce 문장이 같다`).toContain(sentence);
+    }
   });
 
   it("ⓓ 제외는 이유가 적힌 값이고, 그 이유가 소스에서 파생으로 확인된다 (쿼리 자리는 맨 줄로 서지 않는다)", () => {
@@ -4376,11 +4524,22 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
       querySites.filter((site) => site.shape === "bare").map((site) => `${site.screen} ${site.guard}`),
       "맨 줄로 서는 쿼리 자리"
     ).toEqual([]);
-    // 반대 방향도 값이다 — 뮤테이션 자리는 **전부** 맨 줄이다(그래서 포커스가 눌린 컨트롤에 남는다).
+    // 반대 방향도 값이다 — 뮤테이션 자리는 **하나만 빼고** 맨 줄이고(그래서 포커스가 눌린
+    // 컨트롤에 남는다), 그 하나는 이유가 적힌 값으로 서 있다(alert 컨테이너 관례 · 침묵 아님).
+    // ⚠️ 종전 이 단언은 `[]`였다 — 모집단이 다섯 자리 좁던 때의 값이라 재실측이 정정한다.
     expect(
-      sites.filter((site) => site.trigger === "mutation" && site.shape === "contained"),
+      sites
+        .filter((site) => site.trigger === "mutation" && site.shape === "contained")
+        .map((site) => `${site.screen} ${site.guard}`)
+        .sort(),
       "영역 안에 선 뮤테이션 자리"
-    ).toEqual([]);
+    ).toEqual(Object.keys(CONTAINED_MUTATION_SITES).sort());
+    for (const [key, why] of Object.entries(CONTAINED_MUTATION_SITES)) {
+      expect(why.length, `${key}가 영역 안에 서는 이유`).toBeGreaterThan(0);
+      const site = sites.find((candidate) => `${candidate.screen} ${candidate.guard}` === key);
+      // 영역 안이어도 **침묵은 아니다** — 프롭 쌍이 컨테이너에 서 있고 announce도 있다.
+      expect(site?.exit, `${key}의 출구`).toBe("announce");
+    }
     expect(QUERY_TRIGGER_OUT_OF_SCOPE_REASON, "제외 사유").toContain("포커스");
     expect(QUERY_TRIGGER_OUT_OF_SCOPE_REASON, "제외 사유").toContain("실기기");
     expect(QUERY_TRIGGER_OUT_OF_SCOPE_REASON.length, "이유는 빈 문자열일 수 없다").toBeGreaterThan(0);
@@ -4467,6 +4626,103 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
       }
     `;
     expect(mutationTriggerSitesOf(toggleScreen, "fixture")).toEqual([]);
+
+    // ⚠️ **리뷰 M-1 ⓐ의 재현 — 삼항의 else 가지는 그 조건의 자리가 아니다.**
+    // 종전 스캐너는 아래 Toast를 `load.isError`(쿼리)에 매달아 "쿼리 자리"로 셌다.
+    const elseBranchScreen = `
+      const load = useQuery({ queryKey: ["thing"] });
+      const save = useMutation({ mutationFn: (input) => updateThing(input) });
+      export default function Screen() {
+        return (
+          <View>
+            {load.isError ? (
+              <Card><Text style={{ color: theme.colors.danger }}>{loadErrorCopy.title}</Text></Card>
+            ) : (
+              <View>
+                {save.isError ? <Toast message={saveErrorText} tone="error" /> : null}
+              </View>
+            )}
+          </View>
+        );
+      }
+    `;
+    expect(mutationTriggerSitesOf(elseBranchScreen, "fixture")).toEqual([
+      { screen: "fixture", guard: "load.isError", trigger: "query", shape: "contained", exit: "silent" },
+      { screen: "fixture", guard: "save.isError", trigger: "mutation", shape: "bare", exit: "toast" }
+    ]);
+
+    // ⚠️ **리뷰 M-1 ⓑ의 재현 ① — `onError`는 제외가 아니라 방아쇠다**(성공 뒤처리만 제외한다).
+    const mutationCallbackScreen = (option: string) => `
+      const [saveErrorMessage, setSaveErrorMessage] = useState(null);
+      const save = useMutation({
+        mutationFn: (input) => updateThing(input),
+        ${option}: (error) => {
+          setSaveErrorMessage(mutationErrorMessage(error));
+        }
+      });
+      export default function Screen() {
+        return <View>{saveErrorMessage ? <Toast message={saveErrorMessage} tone="error" /> : null}</View>;
+      }
+    `;
+    expect(mutationTriggerSitesOf(mutationCallbackScreen("onError"), "fixture")).toEqual([
+      { screen: "fixture", guard: "saveErrorMessage", trigger: "mutation", shape: "bare", exit: "toast" }
+    ]);
+    expect(mutationTriggerSitesOf(mutationCallbackScreen("onSuccess"), "fixture")).toEqual([]);
+
+    // ⚠️ **리뷰 M-1 ⓑ의 재현 ② — 실패 갈래(`.catch`)는 그 자체가 방아쇠다.**
+    // 바깥 핸들러가 api/client가 아닌 오프라인 큐를 부르는 모양이고, 종전에는 통째로 빠졌다.
+    const offlineQueueScreen = `
+      const [statusErrorMessage, setStatusErrorMessage] = useState(null);
+      const applyStatusChange = (variables) => {
+        setStatusErrorMessage(null);
+        void updateItemStatusOffline(authToken, queryClient, variables)
+          .then(() => trackAndFlushAnalyticsEvent(authToken, {}))
+          .catch(() => {
+            setStatusErrorMessage(ITEM_STATUS_LOCAL_SAVE_FAILED_MESSAGE);
+          });
+      };
+      export default function Screen() {
+        return <View>{statusErrorMessage ? <Toast message={statusErrorMessage} tone="error" /> : null}</View>;
+      }
+    `;
+    expect(mutationTriggerSitesOf(offlineQueueScreen, "fixture")).toEqual([
+      { screen: "fixture", guard: "statusErrorMessage", trigger: "mutation", shape: "bare", exit: "toast" }
+    ]);
+
+    // ⚠️ **리뷰 M-1 ⓑ의 재현 ③ — `style={styles.…}`·배열 스타일도 danger 글자다**, 그리고
+    // 프롭 쌍이 **alert 컨테이너**에 서 있으면 그 자리는 침묵이 아니다(로그인 화면의 관례).
+    const styleSheetScreen = (style: string) => `
+      const [loginError, setLoginError] = useState(null);
+      useEffect(() => {
+        if (loginError) announceForA11y(loginError);
+      }, [loginError]);
+      async function login() {
+        try {
+          await oauthLogin("kakao");
+        } catch (error) {
+          setLoginError(loginFailureMessage(error));
+        }
+      }
+      export default function Screen() {
+        return (
+          <View>
+            {loginError ? (
+              <View accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.errorCard}>
+                <Text style=${style}>{loginError}</Text>
+              </View>
+            ) : null}
+          </View>
+        );
+      }
+      const styles = StyleSheet.create({
+        errorText: { color: theme.colors.danger, fontSize: 12 }
+      });
+    `;
+    for (const style of ["{styles.errorText}", "{[styles.errorText, styles.centered]}"]) {
+      expect(mutationTriggerSitesOf(styleSheetScreen(style), "fixture"), style).toEqual([
+        { screen: "fixture", guard: "loginError", trigger: "mutation", shape: "contained", exit: "announce" }
+      ]);
+    }
 
     // 두 번째 출구도 같은 그물이 센다 — Toast는 프롭이 아니라 자기가 announce해서 통과한다.
     const toastScreen = `

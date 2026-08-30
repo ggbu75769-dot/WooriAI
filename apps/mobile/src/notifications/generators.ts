@@ -406,8 +406,19 @@ export type PendingRecordRowLike = {
  * 침묵시킨다(상태 집합은 형제 둘에서 종전 그대로다).
  */
 export type PendingRecordScope =
-  /** record_gap — 그 알림이 말하는 시점(`lastRecordedOn`) **뒤**의 행만 센다. */
-  | { kind: "after"; date: string }
+  /**
+   * record_gap — 그 알림이 말하는 시점(`lastRecordedOn`) **뒤**의 행만 센다.
+   *
+   * ⚠️ 라운드 80 리뷰 M-3 — **상한(`until`)이 함께 있어야 범위가 닫힌다.** `after` 하나만으로는
+   * 서울 기준 **미래 날짜**의 대기 행이 언제나 범위 안이다(그 날짜는 정의상 `lastRecordedOn`보다
+   * 뒤다). 그런데 그 행은 서버가 **`EXPENSE_FUTURE_DATE`(400)로 영구 거절**하는 행이라
+   * (`apps/api/src/onboarding/store-shared.ts` · `src/expenses/failed-row-prefill.ts`) 종점
+   * `failed`로 굳고, 그 기기의 `record_gap`은 라운드 80 B 뒤에도 **영영 멈춘 채로 남았다** —
+   * 이 트랙이 닫으려던 바로 그 영구 정지가 한 갈래만 남아 있었다.
+   * 상한은 **오늘(서울)** 이다: 서버가 받아 줄 수 있는 날짜의 끝이 오늘이고, 이 알림이 세는
+   * "마지막 기록"도 오늘까지의 사실이다. 상한을 주지 않으면 종전과 정확히 같은 답이다.
+   */
+  | { kind: "after"; date: string; until?: string | null }
   /** monthly_wrapup — 그 알림이 말하는 달(지난달)의 행만 센다. */
   | { kind: "month"; yearMonth: string };
 
@@ -440,7 +451,11 @@ export function hasPendingRecordsForChild(
     const spentOn = row.payload?.spentOn;
     if (!isIsoCalendarDate(spentOn)) return false;
     // 사전식 비교 = 시간순(YYYY-MM-DD) — latestRecordedOn이 최댓값을 고르는 것과 같은 근거다.
-    return scope.kind === "after" ? spentOn > scope.date : spentOn.startsWith(scope.yearMonth);
+    if (scope.kind !== "after") return spentOn.startsWith(scope.yearMonth);
+    if (spentOn <= scope.date) return false;
+    // 라운드 80 리뷰 M-3: 상한 밖(= 서울 기준 미래 날짜)은 세지 않는다 — 서버가 영구 거절하는
+    // 행이라 그 행이 동기화돼 판정을 바꾸는 일이 **없다**.
+    return !isIsoCalendarDate(scope.until) || spentOn <= scope.until;
   });
 }
 
@@ -571,6 +586,9 @@ export type RecordGapInput = {
  *   ⚠️ 라운드 80 B: 그 게이트가 세는 범위는 **`lastRecordedOn`보다 뒤인 행**이다
  *   (`pendingRecordRows` 주석). 같은 날 이전의 행은 이 문장의 "N일"을 바꾸지 못하므로 세지
  *   않는다 -- 그 행이 종점 상태(`failed`·`conflict`)로 남아 이 알림을 영영 멈추던 자리다.
+ *   ⚠️ 라운드 80 리뷰 M-3: 범위에는 **상한(오늘 · 서울)** 도 있다. 미래 날짜 행은 서버가
+ *   `EXPENSE_FUTURE_DATE`로 영구 거절하므로 동기화될 일이 없는데, `lastRecordedOn`보다는
+ *   언제나 뒤라 상한이 없으면 그 한 행이 이 알림을 **여전히 영영 멈췄다**.
  *
  * ## 주 1회 (dedupe)
  *
@@ -585,8 +603,15 @@ export function recordGapNotification(input: RecordGapInput): AppNotificationCan
   // P1-3: 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 아무 말도 하지 않는다.
   // 라운드 80 B: "남아 있다"의 범위는 **이 문장이 말하는 시점 뒤**다 -- 행을 받은 호출부에서는
   // 그 범위로 좁히고(상태는 종전 그대로 전부), 행이 없으면 종전 boolean 그대로다.
+  // 라운드 80 리뷰 M-3: 범위의 상한은 **오늘(서울)** 이다. 미래 날짜 행은 서버가
+  // EXPENSE_FUTURE_DATE로 영구 거절하므로 동기화돼 이 판정을 바꾸는 일이 없다 — 그 행 하나가
+  // 남은 기기에서 이 알림이 영영 멈추던 잔여 갈래를 여기서 닫는다.
   const hasPendingInScope = pendingRecordRows
-    ? hasPendingRecordsForChild(pendingRecordRows, childId, { kind: "after", date: lastRecordedOn })
+    ? hasPendingRecordsForChild(pendingRecordRows, childId, {
+        kind: "after",
+        date: lastRecordedOn,
+        until: seoulCalendarDate(now)
+      })
     : hasPendingLocalRecords;
   if (hasPendingInScope) return null;
   const days = isoCalendarDaysBetween(lastRecordedOn, seoulCalendarDate(now));
