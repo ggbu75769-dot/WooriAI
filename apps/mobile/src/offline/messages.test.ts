@@ -8,11 +8,14 @@ import { CHILD_BIRTH_DATE_TOO_OLD_ERROR } from "../children/child-form";
 // 라운드 69 트랙 A(#1): 같은 사실을 말하는 두 자리 — 정기 지출 관리 화면의 고지와 로그아웃 줄.
 import { RECURRING_DEVICE_ONLY_NOTICE } from "../expenses/recurring-template";
 import {
+  FAILURE_COPY_SWEEP_DEFINITIONAL_MODULES,
+  OFFLINE_AWARE_FAILURE_COPY_MODULES,
   OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS,
   OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS,
   OFFLINE_AWARE_LOAD_ERROR_SCREENS,
   OFFLINE_AWARE_SAVE_ERROR_EXEMPT_SCREENS,
-  OFFLINE_AWARE_SAVE_ERROR_SCREENS
+  OFFLINE_AWARE_SAVE_ERROR_SCREENS,
+  OFFLINE_UNAWARE_FAILURE_COPY_MODULES
 } from "./offline-aware-screens";
 import {
   CONFLICT_BANNER_MESSAGE,
@@ -691,8 +694,9 @@ describe("UX/C-07 저장 실패 문구", () => {
     walk(appRoot);
 
     expect(wired.sort()).toEqual([...OFFLINE_AWARE_SAVE_ERROR_SCREENS].sort());
-    // 오늘의 값: 라운드 72까지 둘 → 이 트랙 뒤 넷.
-    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(4);
+    // 오늘의 값: 라운드 72까지 둘 → 라운드 73 트랙 E 뒤 넷 → 라운드 76 트랙 A 뒤 **다섯**
+    // (초대 만들기 — 가족 참여 여정의 첫 단추).
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(5);
   });
 
   /**
@@ -995,11 +999,13 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
    * "P3 0개"를 선언했으므로, 이번 라운드가 만든 값도 여기 남긴다 — 다음 라운드가 문서의 산문이
    * 아니라 이 줄과 대조하게 된다.
    */
-  it("ⓑ 조회 목록 열넷 · 카드가 아닌 자리 여섯(다섯 이상) · 저장 목록 넷", () => {
+  it("ⓑ 조회 목록 열넷 · 카드가 아닌 자리 여섯(다섯 이상) · 저장 목록 다섯", () => {
     expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toHaveLength(14);
     expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS).length).toBeGreaterThanOrEqual(5);
     expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)).toHaveLength(6);
-    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(4);
+    // 라운드 76 트랙 A: 저장 목록만 넷 → 다섯이다. **조회 쪽 값 셋은 한 글자도 바뀌지 않는다**
+    // (두 라운드가 서로 다른 축을 열었다는 사실이 이 줄에 값으로 남는다).
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(5);
     // 이번 라운드가 더한 셋이 실제로 목록 안에 있다(스윕이 통과한 이유가 목록이지 예외가 아니다).
     for (const path of [
       "app/expenses/[expenseId].tsx",
@@ -1009,6 +1015,178 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
       expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toContain(path);
       expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS)).not.toContain(path);
     }
+  });
+});
+
+/**
+ * 라운드 76 트랙 A(GAP-076 #1) — **모듈 층의 실패 문구 대장.**
+ *
+ * ## 무엇이 새는 축이었나
+ *
+ * 위 스윕들(라운드 38 H-12 · 73 E · 74 D)은 전부 `join(mobileRoot, "app")` **한 뿌리**를,
+ * 그것도 `.tsx`만 걷는다. 그런데 이 저장소에서 저장 실패 문장이 실제로 사는 곳은 화면이 아니라
+ * **모듈**이다 — 바로 위 "ⓓ 저장" 단언이 "화면 어디에도 0건"이라고 답할 수 있는 이유가 정확히
+ * 그것이다. 그래서 `src/**`에는 오늘까지 **목록이 하나도 없었다.**
+ *
+ * 그 사각에 `src/family/invite-permissions.ts`가 서 있었다: 초대 생성 실패 문구가 `isOnline`을
+ * 받지 않아 오프라인에서 "잠시 후 다시 시도해 주세요."라고 말했고, ⓐ 파일이 `app/**` 밖이라
+ * 화면 스윕에 안 걸렸으며, ⓑ 그 문장이 `"초대 링크를 만들지 못했어요"`라 `SAVE_ERROR_NOTICE`의
+ * 앞 문장 바늘에도 **모양으로** 안 걸렸다. 두 스윕 사이의 한 칸이다.
+ *
+ * ## 이 describe가 세우는 것
+ *
+ * **`src/**`(.ts·.tsx, 테스트 제외)에서 실패 문구의 바늘을 코드에 들고 있는 모듈은 예외 없이
+ * 셋 중 하나에 이름이 있어야 한다** — 오프라인 판정을 받거나, 이유가 적힌 면제 목록에 있거나,
+ * 정의상 밖인 둘이거나. 화면 쪽 스윕과 목록은 **한 글자도 바뀌지 않는다**(두 스윕이 서로 다른
+ * 뿌리를 걷는다는 사실이 그 자체로 값이다).
+ */
+describe("라운드 76 A: 모듈 층의 실패 문구 대장 (src/** 스윕)", () => {
+  const mobileRoot = process.cwd();
+  const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+
+  /** 화면 스윕과 **같은 관례**다 — 잡으려는 것은 코드의 문자열이지 주석의 인용이 아니다. */
+  const codeOnly = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+
+  /**
+   * 바늘 셋은 전부 공용 상수에서 **파생**한다(손으로 적지 않는다).
+   *
+   * 앞 문장 둘은 화면 스윕이 쓰는 그 바늘이고, 셋째는 두 문장이 공유하는 **꼬리 조각**이다 —
+   * 앞 문장만으로는 `"초대 링크를 만들지 못했어요"`처럼 동사가 다른 계열을 한 건도 못 본다.
+   */
+  const firstSentenceOf = (notice: string) => notice.slice(0, notice.indexOf("."));
+  const retryTailOf = (notice: string) => {
+    const tail = notice.slice(notice.indexOf(".") + 1).trim();
+    return tail.slice(0, tail.indexOf("시도")).trim();
+  };
+  const RETRY_TAIL_PHRASE = retryTailOf(LOAD_ERROR_NOTICE);
+  const MODULE_FAILURE_NEEDLES = [
+    firstSentenceOf(LOAD_ERROR_NOTICE),
+    firstSentenceOf(SAVE_ERROR_NOTICE),
+    RETRY_TAIL_PHRASE
+  ] as const;
+
+  /** `src/**`의 모듈 중 코드(주석 제외)에 바늘 하나라도 살아 있는 것들. */
+  const modulesWithFailureCopy = (): string[] => {
+    const found: string[] = [];
+    const walk = (directory: string) => {
+      for (const name of readdirSync(join(mobileRoot, directory))) {
+        if (name === "node_modules" || name.startsWith(".")) continue;
+        const relativePath = `${directory}/${name}`;
+        if (statSync(join(mobileRoot, relativePath)).isDirectory()) {
+          walk(relativePath);
+          continue;
+        }
+        if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) continue;
+        const code = codeOnly(source(relativePath));
+        if (MODULE_FAILURE_NEEDLES.some((needle) => code.includes(needle))) found.push(relativePath);
+      }
+    };
+    walk("src");
+    return found.sort();
+  };
+
+  /**
+   * 스윕 자신의 계약. 바늘이 파생값이라 **문구가 다듬어지면 그물도 따라가는데**, 파생이 조용히
+   * 어긋나면(예: 꼬리를 문장 전체로 잡으면) 그물이 찢어진 채 초록으로 남는다.
+   */
+  it("바늘 셋은 파생값이고, 꼬리는 **문장 전체가 아니다** (표기 방언 셋이 그물에 남는 이유)", () => {
+    expect(MODULE_FAILURE_NEEDLES).toEqual(["불러오지 못했어요", "저장하지 못했어요", "잠시 후 다시"]);
+    // 두 공용 상수는 같은 꼬리를 쓴다 — 어느 쪽에서 파생시켜도 같은 바늘이다.
+    expect(retryTailOf(SAVE_ERROR_NOTICE)).toBe(RETRY_TAIL_PHRASE);
+    // 앞 문장 바늘만으로는 동사가 다른 계열을 못 본다 — 꼬리 조각이 그것을 잡는다.
+    const inviteFailure = "초대 링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
+    expect(inviteFailure).not.toContain(firstSentenceOf(SAVE_ERROR_NOTICE));
+    expect(inviteFailure).toContain(RETRY_TAIL_PHRASE);
+    // ⚠️ 꼬리를 문장 전체로 잡으면 붙여 쓴 방언(P3 — auth/kakao-login · export 둘)이 구조적으로
+    // 안 보인다. 조각까지만 잡는 것이 그 셋을 그물 안에 남기는 유일한 방법이다.
+    const dialect = "잠시 후 다시 시도해주세요.";
+    expect(dialect).toContain(RETRY_TAIL_PHRASE);
+    expect(dialect).not.toContain(LOAD_ERROR_NOTICE.slice(LOAD_ERROR_NOTICE.indexOf(".") + 1).trim());
+    // 살아 있는 문자열은 잡고, 같은 문장의 주석 인용은 놓아준다(화면 스윕과 같은 관례).
+    expect(codeOnly(`const t = "${SAVE_ERROR_NOTICE}";`)).toContain(RETRY_TAIL_PHRASE);
+    expect(codeOnly(`// 종전 문장은 "${SAVE_ERROR_NOTICE}"였다`)).not.toContain(RETRY_TAIL_PHRASE);
+  });
+
+  it("ⓐ 전수: 바늘을 든 src/** 모듈은 예외 없이 대장 셋 중 하나에 있다", () => {
+    const modules = modulesWithFailureCopy();
+    // 그물이 실제로 src 트리를 훑고 있다는 증거(빈 답이 조용히 통과하지 않게).
+    expect(modules.length).toBeGreaterThan(10);
+    const named = new Set<string>([
+      ...OFFLINE_AWARE_FAILURE_COPY_MODULES,
+      ...Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES),
+      ...Object.keys(FAILURE_COPY_SWEEP_DEFINITIONAL_MODULES)
+    ]);
+    expect(modules.filter((path) => !named.has(path))).toEqual([]);
+    // 반대 방향: 대장에 유령이 없다(목록에 적어 놓고 그 문장이 사라지면 여기서 걸린다).
+    expect([...named].sort().filter((path) => !modules.includes(path))).toEqual([]);
+  });
+
+  it("ⓑ 오늘의 값 — 열여섯(배선 여섯 · 면제 여덟 · 정의상 밖 둘)", () => {
+    expect(modulesWithFailureCopy()).toHaveLength(16);
+    expect(OFFLINE_AWARE_FAILURE_COPY_MODULES).toHaveLength(6);
+    expect(Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES)).toHaveLength(8);
+    expect(Object.keys(FAILURE_COPY_SWEEP_DEFINITIONAL_MODULES)).toHaveLength(2);
+    // 이 트랙의 대상이 실제로 배선 쪽에 있다(통과한 이유가 목록이지 예외가 아니다).
+    expect(OFFLINE_AWARE_FAILURE_COPY_MODULES).toContain("src/family/invite-permissions.ts");
+    expect(Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES)).not.toContain("src/family/invite-permissions.ts");
+    // 본보기(라운드 52 C-05)는 무접촉인 채로 같은 목록에 선다.
+    expect(OFFLINE_AWARE_FAILURE_COPY_MODULES).toContain("src/family/member-mutation-messages.ts");
+  });
+
+  it("ⓒ 파생: 배선 목록의 모듈은 전부 실제로 오프라인 판정을 받는다", () => {
+    for (const path of OFFLINE_AWARE_FAILURE_COPY_MODULES) {
+      expect(codeOnly(source(path)), `${path}가 연결 사실을 받는다`).toContain("isOnline");
+    }
+  });
+
+  it("ⓓ 면제·정의상 밖의 이유는 빈 문자열일 수 없고, 세 목록은 서로 겹치지 않는다", () => {
+    const reasoned = [
+      ["면제", OFFLINE_UNAWARE_FAILURE_COPY_MODULES],
+      ["정의상 밖", FAILURE_COPY_SWEEP_DEFINITIONAL_MODULES]
+    ] as const;
+    for (const [label, list] of reasoned) {
+      for (const [path, reason] of Object.entries(list)) {
+        expect(reason.trim().length, `${label} ${path}의 사유가 값으로 남아 있다`).toBeGreaterThan(30);
+        expect(OFFLINE_AWARE_FAILURE_COPY_MODULES, `${label} ${path}는 배선 목록 밖이다`).not.toContain(path);
+      }
+    }
+    for (const path of Object.keys(FAILURE_COPY_SWEEP_DEFINITIONAL_MODULES)) {
+      expect(Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES), `${path}는 면제 목록 밖이다`).not.toContain(path);
+    }
+  });
+
+  /**
+   * ⚠️ 면제 중 **하나**는 이미 연결을 묻는다 — 라운드 75 선행 확인 6이 판정해 둔
+   * `selected-child-recovery.ts`다(바늘에 걸리는 문장이 온라인 갈래이고, 오프라인은 같은 자리에서
+   * `OFFLINE_RETRY_NOTICE`로 갈린다). 그 사실을 값으로 못박아 둔다: 다른 면제 모듈이 조용히
+   * 오프라인 판정을 갖게 되면(= 배선 목록으로 옮겨야 하는 순간) 이 단언이 먼저 빨개진다.
+   */
+  it("ⓔ 면제 목록에서 연결을 묻는 모듈은 오늘 하나뿐이다 (조용한 이사를 막는다)", () => {
+    const withJudgment = Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES).filter((path) =>
+      codeOnly(source(path)).includes("isOnline")
+    );
+    expect(withJudgment).toEqual(["src/onboarding/selected-child-recovery.ts"]);
+  });
+
+  /**
+   * ⚠️ **화면 쪽 스윕과 이 스윕은 서로 다른 뿌리를 걷는다.** 이 트랙이 모듈 층을 열면서 화면 층의
+   * 값이 함께 흔들리지 않았다는 사실을 여기서도 한 번 확인한다 — 목록 모듈은 `app/**`에 없고,
+   * 대장의 모듈들은 `src/**`에만 있다.
+   */
+  it("ⓕ 두 스윕의 뿌리가 겹치지 않는다 (모듈 대장에 화면이, 화면 목록에 모듈이 없다)", () => {
+    const allModules = [
+      ...OFFLINE_AWARE_FAILURE_COPY_MODULES,
+      ...Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES),
+      ...Object.keys(FAILURE_COPY_SWEEP_DEFINITIONAL_MODULES)
+    ];
+    for (const path of allModules) expect(path.startsWith("src/"), `${path}`).toBe(true);
+    const allScreens = [
+      ...OFFLINE_AWARE_LOAD_ERROR_SCREENS,
+      ...Object.keys(OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS),
+      ...OFFLINE_AWARE_SAVE_ERROR_SCREENS,
+      ...Object.keys(OFFLINE_AWARE_SAVE_ERROR_EXEMPT_SCREENS)
+    ];
+    for (const path of allScreens) expect(path.startsWith("app/"), `${path}`).toBe(true);
   });
 });
 

@@ -25,9 +25,28 @@
  * 2) **403은 재시도로 풀리지 않는다** — 일반 실패("잠시 후 다시 시도해 주세요")와 분리한
  *    전용 문구를 쓴다. 권한이 없어서 막힌 사람에게 다시 눌러 보라고 하는 것은 두 번째 거짓말이다.
  *
+ * ## 라운드 76 트랙 A(GAP-076 #1) — 3) **오프라인도 재시도로 풀리지 않는다**
+ *
+ * 위 2)의 논리에는 한 갈래가 빠져 있었다. 요청이 서버에 **닿지도 못한** 실패에서도 이 모듈은
+ * 일반 문구("초대 링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.")를 말했다. 기다릴 대상이
+ * 없는 사람에게 기다리라고 하는 것이라 403에 재시도를 권하던 그 거짓말과 같은 모양이고, 하필
+ * 여기가 **가족 참여 여정의 첫 단추**다 — 지하철에서 배우자를 부르려던 사람은 이 한 문장 앞에서
+ * 멈추고, 초대 수락 화면·역할·공동 기록을 한 번도 보지 못한다.
+ *
+ * 형제 모듈은 이미 그 갈래를 지나 있었다: 같은 폴더의 `member-mutation-messages.ts`가
+ * `{ isOnline }`을 받아 **아는 코드 → 오프라인 → 일반** 순서로 답한다. 그 관례를 그대로 들여온다
+ * (새 문구 0건 — 오프라인 문장은 `src/offline/messages.ts`의 `OFFLINE_RETRY_NOTICE` 한 벌이다).
+ *
+ * ⚠️ 403이 오프라인보다 **먼저**인 것이 계약이다. 연결 판정은 point-in-time 폴 하나라 어긋날 수
+ * 있는데(src/offline/connectivity.ts), 서버가 403을 돌려줬다는 사실 자체가 연결이 있었다는 뜻이다 —
+ * 그 경우까지 오프라인으로 말하면 그것이 또 하나의 틀린 안내가 된다(member-mutation-messages.ts의
+ * 판정 순서 머리말과 같은 근거).
+ *
  * 화면(react-native)은 이 repo의 vitest에서 렌더할 수 없으므로 판정은 여기서 단위 테스트하고,
  * 배선은 소스 grep 계약 테스트가 맡는다(invite-permissions.test.ts).
  */
+
+import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
 
 /** 비활성 진입점에 붙는 캡션 — more.tsx의 "캡션 + onPress 없음" 비활성 행 관례를 따른다. */
 export const INVITE_OWNER_ONLY_CAPTION = "가족 초대는 관리자만 할 수 있어요";
@@ -102,13 +121,19 @@ export function isInviteForbiddenError(error: unknown): boolean {
 }
 
 /**
- * 초대 생성 실패 → 사용자에게 보여줄 문구. 403만 전용 문구로 갈라내고, 나머지 실패는 일반
- * 재시도 문구로 남긴다(원인을 사용자가 알 수도 고칠 수도 없는 실패에 원문/스택을 그대로
- * 노출하지 않는다 — save-error-messages.ts와 같은 규칙).
+ * 초대 생성 실패 → 사용자에게 보여줄 문구. 원인을 사용자가 알 수도 고칠 수도 없는 실패에
+ * 원문/스택을 그대로 노출하지 않는다(save-error-messages.ts와 같은 규칙).
+ *
+ * 판정 순서는 **아는 코드(403) → 오프라인 → 일반**이다(member-mutation-messages.ts와 같다 —
+ * 근거는 이 파일 머리말 3)). 연결 상태는 화면이 실패 시점에 한 번 확인해 넘긴다: 공용 배선
+ * 한 벌(`useSaveErrorCopy` → `useErrorTimeConnectivity`)이 그 폴을 대신하므로 화면은 직접
+ * `isCurrentlyOnline()`을 부르지 않는다.
+ *
+ * ⚠️ 두 문구(`INVITE_FORBIDDEN_MESSAGE`·`INVITE_CREATE_FAILED_MESSAGE`)는 바이트 불변이고,
+ * `isOnline: true`에서의 답은 종전과 **한 글자도 다르지 않다** — 갈라지는 것은 오프라인 갈래뿐이다.
  */
-export function inviteCreateErrorMessage(
-  error: unknown,
-  fallbackMessage: string = INVITE_CREATE_FAILED_MESSAGE
-): string {
-  return isInviteForbiddenError(error) ? INVITE_FORBIDDEN_MESSAGE : fallbackMessage;
+export function inviteCreateErrorMessage(error: unknown, { isOnline }: { isOnline: boolean }): string {
+  if (isInviteForbiddenError(error)) return INVITE_FORBIDDEN_MESSAGE;
+  if (!isOnline) return OFFLINE_RETRY_NOTICE;
+  return INVITE_CREATE_FAILED_MESSAGE;
 }

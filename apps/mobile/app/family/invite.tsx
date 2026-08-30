@@ -28,6 +28,8 @@ import {
 } from "../../src/family/invite-flow";
 import { inviteCreateErrorMessage } from "../../src/family/invite-permissions";
 import { formatInviteExpiry } from "../../src/family/memberLabels";
+import { OFFLINE_SAVE_NOTICE } from "../../src/offline/messages";
+import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -40,6 +42,10 @@ import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from ".
 // (INVITE_CREATE_FAILED_MESSAGE)와 403(가족 초대는 관리자만) 전용 문구가 갈라져 있고, 초대 생성이
 // 일어나는 자리가 이 화면 하나뿐이므로 두 문구가 나가는 자리도 아래 에러 줄 하나다 --
 // 권한이 없어서 막힌 사람에게 "다시 시도해 주세요"는 거짓말이다.
+//
+// 라운드 76 트랙 A(GAP-076 #1): 그 한 자리가 **연결도 확인한다**. 이 화면으로 들어오기 직전의
+// 가족 화면은 이미 정직하게 "지금은 오프라인이에요…"라고 말하고 있었는데, [초대 링크 만들기]를
+// 누른 다음 화면만 그 사실을 잊고 기다리라고 말했다 -- 한 여정 안에서 앱이 두 가지를 말하던 자리다.
 
 export default function FamilyInviteScreen() {
   // 가족 화면에서 고른 역할을 그대로 이어받는다. 딥링크로 무엇이든 들어올 수 있으므로 아는
@@ -137,6 +143,25 @@ export default function FamilyInviteScreen() {
     }
   });
 
+  /**
+   * 라운드 76 트랙 A(GAP-076 #1) — 실패 문구가 **연결을 확인한다**(그것만 바뀐다).
+   *
+   * 판정은 공용 훅 한 벌이고(에러로 전환되는 순간 연결을 한 번 묻는다 — 화면이 직접 폴을 띄우지
+   * 않는다), 문구는 종전 그대로 `inviteCreateErrorMessage` 한 곳에서 나온다. 화면이 더하는 것은
+   * **연결 사실 하나**이고 문장은 하나도 고르지 않는다.
+   *
+   * ⚠️ 연결 사실을 `!== OFFLINE_SAVE_NOTICE`로 읽는 것이 계약이다(app/family/accept/[token].tsx가
+   * 라운드 73 E에서 쓴 그 비교와 같은 판정이고, 이 화면은 부정만 뒤집어 **연결 사실**로 읽는다).
+   * `resolveSaveErrorCopy`의 순서는 **아는 코드 → 오프라인 →
+   * 모르는 실패**라, 그 비교가 참인 순간은 "서버가 아무 코드도 주지 않았다"가 이미 참인 순간이다 —
+   * 그래서 403은 연결 판정이 어긋난 창에서도 오프라인 문장에 가려지지 않는다(모듈 쪽 판정 순서가
+   * 403을 먼저 보는 것과 함께 두 겹으로 막는다).
+   */
+  const inviteSaveErrorCopy = useSaveErrorCopy(invite.isError, invite.error);
+  const inviteCreateErrorText = inviteCreateErrorMessage(invite.error, {
+    isOnline: inviteSaveErrorCopy !== OFFLINE_SAVE_NOTICE
+  });
+
   const handleShare = async () => {
     if (!invite.data) return;
     try {
@@ -199,7 +224,7 @@ export default function FamilyInviteScreen() {
         />
 
         {invite.isError ? (
-          <Text style={{ color: theme.colors.danger }}>{inviteCreateErrorMessage(invite.error)}</Text>
+          <Text style={{ color: theme.colors.danger }}>{inviteCreateErrorText}</Text>
         ) : null}
 
         {invite.data ? (
