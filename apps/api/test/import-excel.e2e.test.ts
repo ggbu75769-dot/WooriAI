@@ -11,6 +11,11 @@ import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { PrismaService } from "../src/prisma/prisma.service";
 import {
+  attachQueryStatementCounter,
+  QueryCountingPrismaService,
+  type QueryStatementCounter
+} from "./helpers/query-statement-counter";
+import {
   buildImportRowCreateData,
   buildImportedExpenseCreateData,
   importMaxRows,
@@ -1404,6 +1409,11 @@ describe("Excel import beta API", () => {
 /**
  * 라운드 81 E — **왕복을 세는 그물.**
  *
+ * ⚠️ 라운드 82 C: 계측 하네스(`QueryCountingPrismaService` · 문장 수 측정 창)는 이 파일에서
+ * `test/helpers/query-statement-counter.ts`로 올라갔다 — **두 스위트가 같은 한 벌을 쓴다**
+ * (준비템 저장의 문장 수 계약이 두 번째 모집단이다: onboarding.e2e.test.ts). 아래 단언과
+ * 수치는 한 글자도 달라지지 않았다.
+ *
  * ## 왜 이 자리에 계약이 필요한가
  * 이 파이프라인의 상한은 `importMaxRows` = 2,000행이고 그 값은 **계약**이다(AC-IMP-001 ·
  * source-lock IMPAPI-001 · QA 런북 QR-10). 그런데 두 트랜잭션의 문장 수가 행 수에 비례했다 —
@@ -1413,7 +1423,7 @@ describe("Excel import beta API", () => {
  *
  * ## 세는 방법을 계약이 정한다
  * ⚠️ 이 저장소에는 왕복을 세는 자리가 **한 곳도 없었다**. 그래서 세는 방법부터 정한다:
- * `PrismaService`를 **query 이벤트를 내보내는 인스턴스로 갈아 끼우고**(아래 서브클래스 —
+ * `PrismaService`를 **query 이벤트를 내보내는 인스턴스로 갈아 끼우고**(공유 헬퍼의 서브클래스 —
  * Prisma 6에는 `$use` 미들웨어가 없다) 요청 하나가 내보낸 **SQL 문장 수를 실측**한다.
  * BEGIN/COMMIT과 인증·권한 조회까지 전부 세지만, 그 몫은 **행 수와 무관한 상수**라 아래
  * 두 단언에서 서로 상쇄된다.
@@ -1435,25 +1445,13 @@ describe("Excel import beta API", () => {
  * (`onBudgetRelevantChange`)가 **행 수와 무관한** 몇 문장을 측정 창 안팎에 흘릴 수 있기
  * 때문이다 — 그 흔들림은 한 자릿수이고, 비례/비비례를 가르는 300과는 자릿수가 다르다.
  */
-class QueryCountingPrismaService extends PrismaService {
-  constructor() {
-    // 기본 PrismaService는 로그 설정이 없어 query 이벤트를 내보내지 않는다. 서브클래스가
-    // 생성 인자만 바꾼다(동작·연결 방식은 그대로 상속한다).
-    super({ log: [{ level: "query", emit: "event" }] });
-  }
-}
-
-/** `$on("query")`는 로그를 이벤트로 설정한 클라이언트에서만 타입이 열린다(생성 옵션이 타입에
- *  실리지 않는 서브클래스라 이 좁은 모양으로 받는다). */
-type QueryLogEmitter = { $on(eventType: "query", callback: (event: { query: string }) => void): unknown };
-
 describe("라운드 81 E — 가져오기 트랜잭션의 왕복 수 계약", () => {
   /** 비교의 작은 쪽/큰 쪽 행 수. 큰 쪽이 작은 쪽의 4배라는 것 말고 다른 뜻은 없다. */
   const SMALL_ROWS = 100;
   const LARGE_ROWS = 400;
 
   let app: INestApplication;
-  const statements: string[] = [];
+  let counter: QueryStatementCounter;
 
   beforeEach(async () => {
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
@@ -1469,34 +1467,17 @@ describe("라운드 81 E — 가져오기 트랜잭션의 왕복 수 계약", ()
     configureApiApp(app);
     await app.init();
 
-    (app.get(PrismaService) as unknown as QueryLogEmitter).$on("query", (event) => {
-      statements.push(event.query);
-    });
+    counter = attachQueryStatementCounter(app);
   });
 
   afterEach(async () => {
     delete process.env.WOORIAI_STAGE_TODAY;
-    statements.length = 0;
+    counter.reset();
     await app.close();
   });
 
-  /**
-   * query 이벤트는 엔진에서 올라오므로 HTTP 응답보다 조금 늦게 도착할 수 있다. 측정 앞뒤로
-   * 같은 시간을 기다려 창의 경계를 맞춘다(앞의 대기는 직전 요청의 잔여 이벤트를 비우는 몫).
-   */
-  async function settleQueryLog() {
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
   async function countStatements(run: () => Promise<void>): Promise<number> {
-    await settleQueryLog();
-    statements.length = 0;
-    await run();
-    await settleQueryLog();
-    // 다음 라운드가 실측값을 다시 보고 싶을 때 쓰는 창(단언은 이 값을 쓰지 않는다):
-    // `WOORIAI_LOG_STATEMENT_COUNTS=1 npx vitest run test/import-excel.e2e.test.ts`.
-    if (process.env.WOORIAI_LOG_STATEMENT_COUNTS) console.log(`[statements] ${statements.length}`);
-    return statements.length;
+    return await counter.count(run);
   }
 
   /** 전부 유효·고신뢰(품목명이 키워드에 걸린다)이고 금액만 다른 행 N개. */

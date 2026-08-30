@@ -73,7 +73,11 @@ describe("Real session data integrity contract", () => {
     // 메뉴에 닿는 조건을 둘 다 `!authToken`으로 좁히고, 그 사이에는 스켈레톤 + 아이 선택 안내를
     // 둔다.
     const moreSource = source("app/(tabs)/more.tsx");
-    expect(moreSource).toContain("const visibleProfile = authToken ? (home.data?.child ?? loadingProfile) : previewProfile;");
+    // 라운드 82 D(#4): 게이트(`authToken ? … : previewProfile`)는 그대로이고 **원천만** 한 벌이
+    // 됐다 — `/home` 응답의 child 대신 이미 켜 둔 `["children"]`에서 childId로 찾은 행이다.
+    // 아이를 모르면 행이 없으므로 이 계약(픽스처 프로필에 닿는 길은 `!authToken` 하나)은
+    // 약해지지 않고 강해진다(더보기 화면 계약은 src/settings/more-menu.test.ts).
+    expect(moreSource).toContain("const visibleProfile = authToken ? (selectedChild ?? loadingProfile) : previewProfile;");
     expect(moreSource).toContain("const visibleMenuRows = authToken ? sessionMenuRows : previewMenuRowActions;");
     expect(moreSource).toContain("const isChildPending = Boolean(authToken) && !childId;");
     expect(moreSource).toContain('testID="more-child-pending"');

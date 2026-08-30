@@ -4,13 +4,7 @@ import { getSeoulToday } from "@wooriai/domain";
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import { Alert, Image, Pressable, Text, View } from "react-native";
-import {
-  getHome,
-  listChildren,
-  listHouseholdMembers,
-  LOCAL_HOUSEHOLD_ID,
-  LOCAL_SESSION_TOKEN
-} from "../../src/api/client";
+import { listChildren, listHouseholdMembers, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 // EXP-106 내보내기 흐름은 설정 화면과 공유하는 공용 모듈에 있다 (CLEAN-123/A3).
 import {
   EXPORT_MENU_TITLE,
@@ -141,11 +135,26 @@ export default function MoreScreen() {
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const hasSession = Boolean(authToken && childId);
-  const home = useQuery({
-    queryKey: ["home", childId],
-    enabled: hasSession,
-    queryFn: () => getHome(authToken!, childId!)
-  });
+  /**
+   * 라운드 82 트랙 D(#4) — **이 화면은 `/home` 응답을 구독하지 않는다.**
+   *
+   * 종전에는 여기서 `["home", childId]`를 켜 두고 그 응답의 `child` 네 칸 중 둘(닉네임 ·
+   * 단계 라벨)만 읽었다. 그 넷은 아래 `["children"]` 행의 **진부분집합**이다 — 서버는 두 응답의
+   * 아이를 **같은 함수**로 만든다(apps/api/src/onboarding/store-shared.ts의 `toChildDto`,
+   * 데모 세션도 같은 모양이다). 즉 이 화면은 더 넓은 원천을 이미 켜 둔 채로 좁은 원천을 하나
+   * 더 기다리고 있었고, 그 좁은 쪽이 이 앱에서 가장 무거운 읽기다(예산 · 월 합계 · 전 기간
+   * 합계 · 최근 3건 + 활성 카탈로그 전량을 훑는 추천 셋).
+   *
+   * 그래서 눈에 보이던 어긋남 하나가 사라진다: 가구 카드가 `["children"]`으로 "보호자 2명 ·
+   * 아이 2명"을 이미 그리고 있는 프레임에서, 바로 위 프로필 카드만 `/home`을 기다리며 "..."로
+   * 남던 자리다. 새 요청 · 새 캐시 키는 0건이고(이미 켜 둔 조회를 읽기만 한다), 이 화면의 첫
+   * 페인트 요청은 둘에서 하나가 된다.
+   *
+   * 대장은 `src/query/home-payload-consumers.test.ts`에 있다 — `getHome`을 부르거나
+   * `["home", childId]`를 구독하는 `app/**` 화면은 **홈 하나**이고, 그 밖에서 그 키를 만지는
+   * 자리(무효화 · 캐시 읽기 · 주석)는 전부 이유와 함께 그 대장에 등재된다.
+   */
+
   /**
    * DSN-053 P2-D — 가구 카드의 "보호자 N명 · 아이 M명".
    *
@@ -205,7 +214,20 @@ export default function MoreScreen() {
    * 스켈레톤 + 아이 선택 안내로 바꾸고, 메뉴는 토큰 기준으로 그대로 세션 메뉴를 쓴다.
    */
   const isChildPending = Boolean(authToken) && !childId;
-  const visibleProfile = authToken ? (home.data?.child ?? loadingProfile) : previewProfile;
+  /**
+   * 라운드 82 트랙 D(#4) — **프로필 카드가 말하는 아이의 원천은 `["children"]` 하나다.**
+   *
+   * 종전에는 이름이 `/home` 응답에서, 단계 판정의 재료(`stageMode`/`dueDate`)가 `["children"]`
+   * 에서 왔다 — 한 카드가 같은 아이를 두 원천으로 불렀고, 아래 판정의 게이트도 그래서 둘이었다.
+   * `childId`로 목록에서 행을 찾으면 이름 · 단계 · 판정 재료가 **같은 한 행**에서 온다.
+   *
+   * ⚠️ 라운드 49 QA(P2-3)의 규율은 약해지지 않고 **강해진다**: 목록에서 `childId`로 찾으므로
+   * 아이를 모르면 행이 아예 없고, 그때 카드는 종전처럼 `loadingProfile`("...")을 그린다 —
+   * 남의 이름이 그려질 자리가 없다. 비로그인 미리보기 경로(`!authToken` → `previewProfile`)는
+   * 한 노드도 바뀌지 않는다(SET-001 픽셀락).
+   */
+  const selectedChild = childId ? children.data?.children.find((child) => child.id === childId) : undefined;
+  const visibleProfile = authToken ? (selectedChild ?? loadingProfile) : previewProfile;
   /**
    * GAP-062 #6 — **세션 카드의 단계 라벨.**
    *
@@ -220,17 +242,19 @@ export default function MoreScreen() {
    * (src/api/client.ts) 홈 응답만으로는 판정할 수 없다. 이 화면은 그 캐시를 가구 카드의
    * "아이 M명" 때문에 **이미 조회하고 있으므로**(위 `children`) 새 요청은 0건이다.
    *
-   * `home.data`가 아직 없으면 판정을 태우지 않는다 — 그동안 카드는 `loadingProfile`("...")을
-   * 그리는 중이고, 이름은 "..."인데 단계만 참말로 바뀌면 반쯤 로드된 카드가 된다. 아이를
-   * 못 찾거나(캐시 없음·다른 가구) 날짜를 모르면 판정은 서버 라벨을 **그대로** 돌려준다.
+   * 라운드 82 트랙 D(#4): 게이트가 **하나**가 됐다. 종전에는 `/home` 응답이 도착해야 판정을
+   * 태웠는데(이름은 `/home`, 재료는 `["children"]`이라 반쯤 로드된 카드를 막으려던 것이다),
+   * 이제 이름과 재료가 같은 행에서 오므로 **그 행이 있는가** 하나만 남는다 — 행이 없으면
+   * 이름도 라벨도 `loadingProfile`("...")이라 두 줄이 같은 시점을 말한다. 판정 자체
+   * (`resolveStageDisplayLabel`)와 도메인·서버 DTO는 한 줄도 바뀌지 않는다. 아이를 못 찾거나
+   * (캐시 없음·다른 가구) 날짜를 모르면 판정은 서버 라벨을 **그대로** 돌려준다.
    *
    * SET-001 픽셀락: 이 값은 **세션 렌더에서만** 쓴다. 비로그인 미리보기 카드는 아래에서
    * 예전 그대로 `visibleProfile.stageLabel`을 그린다(한 노드도 달라지지 않는다).
    */
-  const stageSourceChild = home.data ? children.data?.children.find((child) => child.id === childId) : undefined;
   const sessionStageLabel = resolveStageDisplayLabel({
-    stageMode: stageSourceChild?.stageMode,
-    dueDate: stageSourceChild?.dueDate,
+    stageMode: selectedChild?.stageMode,
+    dueDate: selectedChild?.dueDate,
     todayIso: getSeoulToday(),
     stageLabel: visibleProfile.stageLabel
   });

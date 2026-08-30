@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { resolveStageDisplayLabel } from "../home/stage-display-label";
 import { APP_LOCK_LOCK_NOW_A11Y_LABEL, APP_LOCK_LOCK_NOW_LABEL } from "../security/app-lock";
 import {
   buildMoreSessionMenuRows,
@@ -417,5 +418,101 @@ describe("라운드 71 D(#4) 도움으로 가는 두 행", () => {
       'const appInfoText = `버전 ${Constants.expoConfig?.version ?? "알 수 없음"}`;'
     );
     expect(moreSource).toContain('() => Alert.alert("앱 정보", appInfoText)');
+  });
+});
+
+/**
+ * 라운드 82 트랙 D(GAP-082 #4) — **프로필 카드가 아이를 두 원천으로 부르던 자리.**
+ *
+ * 이 화면은 `/home` 전체를 구독하면서 그 응답의 `child` 네 칸 중 둘(닉네임 · 단계 라벨)만
+ * 읽었다. 그 넷은 같은 화면이 가구 카드("아이 M명") 때문에 **이미 켜 둔** `["children"]` 행의
+ * 진부분집합이고(서버가 두 응답의 아이를 같은 `toChildDto`로 만든다), 그 좁은 쪽이 이 앱에서
+ * 가장 무거운 읽기였다. 그래서 가구 카드가 "보호자 2명 · 아이 2명"을 이미 그리는 프레임에서
+ * 바로 위 프로필 카드만 "..."로 남는 어긋남이 눈에 보였다.
+ *
+ * 원천을 하나로 합치면 이 화면의 첫 페인트 요청이 둘에서 하나가 되고, 카드의 두 줄이 같은
+ * 시점을 말한다. `/home` 구독 대장과 화면별 첫 페인트 구성은
+ * src/query/home-payload-consumers.test.ts에 있다 — 여기서는 **이 화면의 렌더 계약**만 진다.
+ */
+describe("라운드 82 D(#4) 더보기 프로필 카드의 원천 단일화", () => {
+  const moreSource = () => source("app/(tabs)/more.tsx");
+
+  it("ⓑ 이름 · 단계 · 판정 재료가 ['children'] 한 행에서 온다", () => {
+    const src = moreSource();
+    expect(src).toContain(
+      "const selectedChild = childId ? children.data?.children.find((child) => child.id === childId) : undefined;"
+    );
+    expect(src).toContain("const visibleProfile = authToken ? (selectedChild ?? loadingProfile) : previewProfile;");
+    // 단계 라벨의 재료도 같은 행이다(두 번째 원천 0건).
+    expect(src).toContain("stageMode: selectedChild?.stageMode,");
+    expect(src).toContain("dueDate: selectedChild?.dueDate,");
+    // ⓐ 이 화면은 그 응답을 부르지도 켜지도 않는다(대장이 세는 두 마커 그대로 — 남은
+    // `getHome`은 그 대장을 가리키는 주석 한 줄뿐이라 호출 형태로 본다).
+    expect(src).not.toContain("getHome(");
+    expect(src).toContain(
+      'import { listChildren, listHouseholdMembers, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN } from "../../src/api/client";'
+    );
+    expect(src).not.toContain('queryKey: ["home"');
+    expect(src).not.toContain("home.data");
+  });
+
+  it("ⓑ 판정은 무접촉이다 — 게이트가 하나로 줄었을 뿐 같은 함수가 같은 값을 받는다", () => {
+    const src = moreSource();
+    // 표시층 판정은 여전히 공용 모듈 한 자리에서 온다(이 화면은 부르기만 한다).
+    expect(src).toContain('import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";');
+    expect(src).toContain("const sessionStageLabel = resolveStageDisplayLabel({");
+    expect(src).toContain("todayIso: getSeoulToday(),");
+    expect(src).toContain("stageLabel: visibleProfile.stageLabel");
+    // 관리 대상 가구 판정(라운드 60 A)도 그대로 같은 모듈에서 온다.
+    expect(src).toContain("const householdId = resolveManagedHouseholdId({");
+    // 행이 없으면 판정은 서버 라벨(=여기서는 로딩 문자열)을 그대로 돌려준다 — 반쯤 로드된
+    // 카드가 생기지 않는다는 뜻이다(이름도 라벨도 "...").
+    expect(
+      resolveStageDisplayLabel({ stageMode: undefined, dueDate: undefined, todayIso: "2026-08-30", stageLabel: "..." })
+    ).toBe("...");
+  });
+
+  it("ⓒ 비세션 미리보기 렌더는 한 노드도 바뀌지 않는다(SET-001 픽셀락)", () => {
+    const src = moreSource();
+    expect(src).toContain('const previewProfile = { nickname: "다온이", stageLabel: "24개월" };');
+    expect(src).toContain('const loadingProfile = { nickname: "...", stageLabel: "..." };');
+    // 미리보기 픽스처에 닿는 유일한 경로는 여전히 `!authToken` 하나다.
+    expect(src).toContain("const visibleMenuRows = authToken ? sessionMenuRows : previewMenuRowActions;");
+    // 비로그인 카드의 노드 구성(아바타 + 이름 + 개월수)도 그대로다.
+    const previewCardMarker = "accessibilityLabel={`${visibleProfile.nickname} 프로필 관리`}";
+    expect(src.indexOf(previewCardMarker), "비로그인 카드 마커가 실재한다").toBeGreaterThan(-1);
+    const previewCard = src.slice(src.indexOf(previewCardMarker));
+    expect(previewCard).toContain("<Image source={moreAvatarImage} style={moreAvatarStyle()} resizeMode=\"cover\" />");
+    expect(previewCard).toContain("<Text style={moreChildNameStyle}>{visibleProfile.nickname}</Text>");
+    expect(previewCard).toContain("<Text style={moreChildAgeStyle}>{visibleProfile.stageLabel}</Text>");
+  });
+
+  it("ⓒ 온라인 성공 경로의 세션 카드도 종전과 같은 값을 그린다", () => {
+    const src = moreSource();
+    // 가구 카드의 세 자리(이름 · 캡션 · 배지)와 낭독 문장은 바이트 불변이다 — 바뀐 것은
+    // `visibleProfile`이 어느 캐시에서 오는가 하나뿐이고, 서버는 두 응답의 아이를 같은
+    // 함수로 만들므로(toChildDto) 닉네임 · 단계 라벨의 값이 같다.
+    expect(src).toContain("<Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>");
+    expect(src).toContain("{householdCaption ? <Text style={moreHouseholdMetaStyle}>{householdCaption}</Text> : null}");
+    expect(src).toContain("<StageBadge label={sessionStageLabel} />");
+    expect(src).toContain("? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`");
+    expect(src).toContain(": `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`");
+    // 가구 카드 캡션의 문구도 그대로다(세지 않은 수를 세었다고 말하지 않는 폴백 금지 규율 포함).
+    expect(src).toContain(
+      'activeMemberCount !== null && childCount !== null ? `보호자 ${activeMemberCount}명 · 아이 ${childCount}명` : null;'
+    );
+  });
+
+  it("ⓓ 아이를 모르는 창에서 남의 이름을 그리지 않는다(라운드 49 QA P2-3이 강해진다)", () => {
+    const src = moreSource();
+    // 토큰은 있는데 아이를 모르는 창은 종전처럼 스켈레톤 + 아이 선택 안내다.
+    expect(src).toContain("const isChildPending = Boolean(authToken) && !childId;");
+    expect(src).toContain('<View testID="more-child-pending" style={{ gap: theme.spacing.gap }}>');
+    expect(src).toContain('title="아이 정보를 불러오고 있어요"');
+    // 그리고 이제는 **찾을 행 자체가 없다**: 목록에서 childId로 찾으므로 다른 아이의 이름이
+    // 들어올 자리가 없고(목록의 첫 행을 집는 폴백 0건), 없으면 loadingProfile로 떨어진다.
+    expect(src).not.toContain("children.data?.children[0]");
+    expect(src).not.toContain("children.data?.children.at(0)");
+    expect(src).toContain("child.id === childId");
   });
 });

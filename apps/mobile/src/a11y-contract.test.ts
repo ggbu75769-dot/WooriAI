@@ -853,9 +853,12 @@ describe("GAP-062 #6 단계 라벨 표시층 배선 (더보기 · 온보딩 이�
 
   it("판정의 원천은 이미 조회 중인 ['children'] 캐시이고, 화면이 주차를 다시 세지 않는다", () => {
     const moreSource = source("app/(tabs)/more.tsx");
+    // 라운드 82 D(#4): 판정의 원천은 종전과 같은 `["children"]` 캐시이고, **게이트만** 하나가
+    // 됐다 — 이름도 같은 행에서 오므로 `/home` 응답이 도착할 때까지 기다릴 이유가 사라졌다.
     expect(moreSource).toContain(
-      "const stageSourceChild = home.data ? children.data?.children.find((child) => child.id === childId) : undefined;"
+      "const selectedChild = childId ? children.data?.children.find((child) => child.id === childId) : undefined;"
     );
+    expect(moreSource).toContain("stageMode: selectedChild?.stageMode,");
     // 판정은 재사용만 한다 -- 유예 일수·주차 계산이 화면에 복제되면 규칙이 두 벌이 된다.
     expect(moreSource).not.toContain("PREGNANCY_OVERDUE");
     expect(moreSource).not.toContain("isPregnancyWeekLabelStale");

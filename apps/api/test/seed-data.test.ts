@@ -2,8 +2,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { ChildStageCode } from "@wooriai/domain";
+import {
+  calculateRecommendationScore,
+  type ChildStageCode,
+  type ItemStatus,
+  type NecessityLevel
+} from "@wooriai/domain";
 import { STAGE_BAND_LABELS, STAGE_BAND_STAGES } from "../src/items-commerce/stage-bands";
+// 라운드 82 리뷰 L-9: 순서는 **화면이 부르는 그 랭커**가 낸다(테스트가 두 번째 사본을 만들지 않는다).
+import { rankItemsForTab } from "../src/onboarding/item-ranking";
 import {
   mergeRanges,
   overlaps,
@@ -52,9 +59,44 @@ async function loadSeedData() {
   }>;
 }
 
-// Original 7 batch-03 items were seeded before every item was required to have a
-// product link; they're grandfathered out of the "every item needs a link" rule
-// added when the catalog was expanded to cover all life stages (see below).
+/**
+ * 라운드 82 트랙 B — **이름으로 적은 예외 목록을 측정 대장 + 래칫으로 바꾼다.**
+ *
+ * 종전(라운드 81까지)의 모양: 아래 `LEGACY_…` 일곱 이름이 "링크 ≥1" 규칙에서 면제됐다.
+ * 그 목록이 진 세 가지 문제 —
+ *
+ *  1. **실측과 어긋났다.** 일곱 중 셋(`car_seat`·`baby_bath`·`stroller`)은 이미 링크가 있었다.
+ *     목록은 "링크가 없는 품목"이 아니라 "언젠가 링크가 없던 품목의 이름"이었다.
+ *  2. **래칫이 없었다.** 새 품목이 링크 없이 들어와도 목록에 이름 한 줄만 더하면 초록이었다.
+ *  3. ⚠️ **그래서 실제 공백이 보이지 않았다.** 링크 0건 넷 중 둘(`pregnancy_vitamin`·
+ *     `diaper_stock`)이 `essential`이고, 도메인 점수(`packages/domain/src/recommendation.ts`)로
+ *     재면 자기 시기 "지금 필요" 목록의 **머리**에 선다 — 홈의 추천 카드 첫 줄이 곧 그것이다.
+ *     핵심 루프 4단계(구매 링크 클릭)가 임신 초기·중기의 1순위에서 시작되지 않았는데
+ *     이 파일은 초록이었고, 그 초록의 이유가 **그 품목의 이름이 여기 적혀 있어서**였다.
+ *
+ * 새 모양은 **대장**이다: 키가 링크 0건 품목의 집합이고, 값이 그 이유다.
+ * 세 계약이 이 대장을 문다(라운드 73 E의 두 방향 계약 · 라운드 78 E → 80 E의 슬라이스 가드
+ * 래칫과 같은 규율) — ① 대장의 키 집합 = **실측한** 링크 0건 집합(어느 방향으로 어긋나도
+ * 빨개진다), ② 각 항목에 빈 문자열이 아닌 이유, ③ 대장의 크기는 오늘 값을 **넘을 수 없다**.
+ *
+ * ⚠️ 오늘 이 대장은 **비어 있다**(래칫 0). 지워서 빈 것이 아니라 **재서** 빈 것이다 —
+ * 트랙 B가 링크 0건 넷에 일반 링크(비제휴·비스폰서) 넷을 더했고, 그래서 62개 품목이
+ * 전부 링크를 갖는다. 다시 하나라도 비면 ①이 "대장에 없는 링크 0건 품목"으로 먼저 빨개지고,
+ * 그것을 대장에 적어 면제하려 하면 ③이 그 다음에 빨개진다.
+ */
+const ITEM_CODES_WITHOUT_PRODUCT_LINK: Record<string, string> = {};
+
+/**
+ * 래칫 상한 — **오늘 실측값**이다. 늘리는 변경은 이 숫자를 고치는 손이 함께 있어야 하고,
+ * 그 손은 왜 그 품목이 구매 경로 없이 목록에 서는지를 위 대장에 값으로 적게 된다.
+ */
+const ITEM_CODES_WITHOUT_PRODUCT_LINK_MAX = 0;
+
+/**
+ * 라운드 81까지 이름으로 면제되던 일곱. **지우지 않는다** — 이 이름들이 사라지면 다음 라운드가
+ * 같은 넷을 "새 결함"으로 다시 줍고, 면제가 있었다는 사실도 함께 없어진다. 이제 이 목록이 지는
+ * 계약은 면제가 아니라 그 반대다: **일곱이 전부 링크를 갖는다**(= 예외 목록의 은퇴 증서).
+ */
 const LEGACY_ITEM_CODES_WITHOUT_LINK_REQUIREMENT = [
   "pregnancy_vitamin",
   "car_seat",
@@ -259,17 +301,192 @@ describe("Batch 03 seed data", () => {
     }
   });
 
-  it("gives every non-legacy item at least one product link", async () => {
+  it("링크 0건 대장이 실측과 두 방향으로 일치하고, 크기가 오늘 값을 넘지 않는다", async () => {
     const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
 
     const linkedCodes = new Set(productLinkSeeds.map((link) => link.itemTemplateCode));
-    const itemsRequiringLinks = itemTemplateSeeds.filter(
-      (item) => !LEGACY_ITEM_CODES_WITHOUT_LINK_REQUIREMENT.includes(item.code)
-    );
+    const measured = itemTemplateSeeds
+      .filter((item) => !linkedCodes.has(item.code))
+      .map((item) => item.code)
+      .sort();
+    const ledger = Object.keys(ITEM_CODES_WITHOUT_PRODUCT_LINK).sort();
 
-    for (const item of itemsRequiringLinks) {
-      expect(linkedCodes.has(item.code), `${item.code} should have >=1 product link`).toBe(true);
+    // 방향 1 — 대장에 없는데 실제로 링크가 0건인 품목(공백이 조용히 들어온 경우).
+    expect(
+      measured.filter((code) => !(code in ITEM_CODES_WITHOUT_PRODUCT_LINK)),
+      "링크가 0건인데 대장에 없다 — 이유를 값으로 적거나 링크를 더할 것"
+    ).toEqual([]);
+    // 방향 2 — 대장에 적혀 있는데 이미 링크가 있는 품목(라운드 81까지 셋이 이 상태였다).
+    expect(
+      ledger.filter((code) => linkedCodes.has(code)),
+      "대장에 적혀 있는데 이미 링크가 있다 — 낡은 면제는 지울 것"
+    ).toEqual([]);
+    // 대장의 키는 실재하는 품목 코드여야 한다(오타 하나가 면제를 통째로 무력화하지 않게).
+    const itemCodes = new Set(itemTemplateSeeds.map((item) => item.code));
+    expect(ledger.filter((code) => !itemCodes.has(code)), "대장에 없는 품목 코드가 있다").toEqual([]);
+    expect(ledger).toEqual(measured);
+
+    // 각 항목에 빈 문자열이 아닌 이유.
+    for (const [code, reason] of Object.entries(ITEM_CODES_WITHOUT_PRODUCT_LINK)) {
+      expect(reason.trim().length, `${code}: 대장의 이유가 비어 있다`).toBeGreaterThan(0);
     }
+
+    // 래칫 — 늘 수 없다.
+    expect(ledger.length).toBeLessThanOrEqual(ITEM_CODES_WITHOUT_PRODUCT_LINK_MAX);
+  });
+
+  it("이름으로 면제되던 일곱이 전부 링크를 갖는다 (예외 목록의 은퇴)", async () => {
+    const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
+
+    const linkedCodes = new Set(productLinkSeeds.map((link) => link.itemTemplateCode));
+    const itemCodes = new Set(itemTemplateSeeds.map((item) => item.code));
+
+    // no-op 방지: 일곱이 전부 실재하는 품목이어야 이 절이 무언가를 문다.
+    expect(LEGACY_ITEM_CODES_WITHOUT_LINK_REQUIREMENT).toHaveLength(7);
+    for (const code of LEGACY_ITEM_CODES_WITHOUT_LINK_REQUIREMENT) {
+      expect(itemCodes.has(code), `${code}가 카탈로그에 없다`).toBe(true);
+      expect(linkedCodes.has(code), `${code}는 더 이상 면제 대상이 아니다 — 링크가 있어야 한다`).toBe(true);
+    }
+  });
+
+  /**
+   * 라운드 82 트랙 B ⓒ — **이 앱이 스스로 "필수"라고 부르는 등급에는 구매 경로가 있다.**
+   *
+   * 필수도는 카탈로그가 사용자에게 "이건 꼭 준비하세요"라고 말하는 등급이다. 그 등급에
+   * 판매처 행이 하나도 없으면 화면은 정직하게 "아직 등록된 구매처가 없어요"라고 말하고
+   * (apps/mobile/src/items/link-marker.ts) 사용자가 이 앱에 온 이유의 절반이 거기서 끝난다.
+   * ⚠️ 이 단언은 라운드 82 이전 시드에서 **둘**(`pregnancy_vitamin`·`diaper_stock`)로 빨갰다.
+   */
+  it("essential 품목은 예외 없이 링크 ≥1", async () => {
+    const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
+
+    const linkedCodes = new Set(productLinkSeeds.map((link) => link.itemTemplateCode));
+    const essentials = itemTemplateSeeds.filter((item) => item.necessityLevel === "essential");
+
+    expect(essentials.length, "essential 품목이 없으면 이 절은 아무것도 묻지 않는다").toBeGreaterThan(0);
+    for (const item of essentials) {
+      expect(
+        linkedCodes.has(item.code),
+        `${item.code}는 essential인데 구매 링크가 0건이다 (예외 없음)`
+      ).toBe(true);
+    }
+  });
+
+  /**
+   * 라운드 82 트랙 B ⓓ — **"지금 필요"의 머리에 서는 품목이 링크 0건이면 빨개진다.**
+   *
+   * ⚠️ 여기서 순위를 새로 매기지 않는다. 순서는 **화면이 부르는 그 함수**(`rankItemsForTab` →
+   * 도메인 `sortRecommendedItems`)를 불러서 나오고, 점수도 도메인
+   * (`packages/domain/src/recommendation.ts`)의 `calculateRecommendationScore`가 낸다. 이 파일에는
+   * 정찰이 잰 수치가 한 자리도 적히지 않는다(두 번째 채점기를 만드는 순간 두 순서가 갈린다).
+   * 링크 유무는 **점수에 들어가지 않는다** — 그것은 DNC-009의 인접 영역이고, 이 절은 점수를
+   * 읽기만 한다.
+   *
+   * ⚠️ **라운드 82 리뷰 L-9 정정 — 후보 집합을 손으로 좁히지 않는다.** 종전 이 절은 후보를
+   * `stageCodes.includes(stageCode)`로 **미리 걸러서** 넘겼다. 그러면 `stageMatches`가 전원 참인
+   * 상수가 되어 점수의 축 셋 중 하나가 접히고, 최고점 무리는 정의상 "그 시기의 `essential` 전부"가
+   * 된다 — 바로 위 *"essential 품목은 예외 없이 링크 ≥1"* 이 이미 단언한 집합이라 **항진명제**였다.
+   * 게다가 그 필터는 화면의 후보 집합을 **테스트가 다시 구현한 두 번째 사본**이기도 했다.
+   * 이제 `itemsForChild`가 하는 것과 **똑같이** 활성 카탈로그 전체를 `rankItemsForTab`에 넘기고,
+   * 탭 술어(`now`)와 `stageMatches` 계산은 그 모듈이 한다.
+   *
+   * 그리고 축이 **실제로 갈리는 창**을 함께 문다: 시기 밴드(ITEM-121 `stageBand`)로 다음 시기를
+   * 미리 보는 화면에서는 후보에 "지금 시기가 아닌" 항목이 섞이므로 `stageMatches`가 참·거짓으로
+   * 나뉜다. 그 창에서 이 절이 새로 묻는 것이 있다 — **머리에 서는 것은 언제나 시기가 맞는
+   * 항목이다**(시기 일치 35점이 필수도 한 칸 10점보다 크다는 계약의 화면판). 점수에서
+   * `stageMatches`가 빠지거나 후보 집합이 밴드로 잘못 좁혀지면 이 단언이 빨개진다.
+   *
+   * 왜 "1위 하나"가 아니라 **동점 무리 전부**인가: 도메인의 동점 파괴자는 `id.localeCompare`이고
+   * 그 `id`는 DB가 만드는 UUID다(시드에는 없다). 시드에서 1위를 하나로 못 박으면 그것은 실제
+   * 화면의 1위가 아니라 코드 문자열이 정한 가짜 1위가 된다. 그래서 최고점 무리를 통째로 문다 —
+   * 실제 1위는 반드시 그 안에 있다.
+   *
+   * 상태는 `not_prepared`(모든 항목의 기본값 · 온보딩 직후 홈이 보는 상태)로 고정한다.
+   */
+  it("각 시기 '지금 필요' 최고점 무리에 링크 0건 품목이 없다 (화면의 랭커 파생)", async () => {
+    const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
+
+    const linkedCodes = new Set(productLinkSeeds.map((link) => link.itemTemplateCode));
+    // `itemsForChild`가 넘기는 것과 같은 모양 — **활성 카탈로그 전체**다(코드를 id 자리에 쓰는 것만
+    // 다르다: 시드에는 UUID가 없고, 동점 파괴자는 아래에서 무리 전체를 무는 것으로 우회한다).
+    const catalog = itemTemplateSeeds
+      .filter((item) => item.active)
+      .map((item, index) => ({
+        id: item.code,
+        stageCodes: item.stageCodes as ChildStageCode[],
+        necessityLevel: item.necessityLevel as NecessityLevel,
+        status: "not_prepared" as ItemStatus,
+        displayOrder: index
+      }));
+    expect(catalog.length, "활성 준비템이 없으면 이 절은 아무것도 묻지 않는다").toBeGreaterThan(0);
+
+    const topTierOf = (ranked: typeof catalog, stageCode: ChildStageCode) => {
+      // 점수는 도메인 함수가 낸다 — 랭커가 넘긴 것과 **같은 세 입력**이다(item-ranking.ts).
+      const scoreOf = (entry: (typeof catalog)[number]) =>
+        calculateRecommendationScore({
+          stageMatches: entry.stageCodes.includes(stageCode),
+          necessityLevel: entry.necessityLevel,
+          status: entry.status
+        });
+      const topScore = scoreOf(ranked[0]);
+      return { topScore, topTier: ranked.filter((entry) => scoreOf(entry) === topScore) };
+    };
+
+    let judgedStages = 0;
+    let judgedTopItems = 0;
+    let bandsWithSplitAxis = 0;
+
+    for (const stageCode of ALL_STAGE_CODES as ChildStageCode[]) {
+      // ⓐ 홈의 추천 셋이 곧 이 목록의 앞 셋이다(recommendedItemsForChild → tab="now").
+      const now = rankItemsForTab(catalog, { tab: "now", stageCode });
+      expect(now.length, `stage ${stageCode}의 "지금 필요"가 비어 있다`).toBeGreaterThan(0);
+      // 후보를 손으로 좁히지 않았다는 사실 자체를 고정한다 — 탭 술어가 실제로 걸렀다.
+      expect(now.length, `stage ${stageCode}: 탭 술어가 아무것도 거르지 않았다`).toBeLessThan(catalog.length);
+
+      const { topScore, topTier } = topTierOf(now, stageCode);
+      judgedStages += 1;
+      judgedTopItems += topTier.length;
+      for (const entry of topTier) {
+        expect(
+          linkedCodes.has(entry.id),
+          `${stageCode}의 "지금 필요" 머리(${entry.id} · ${topScore}점)가 구매 링크 0건이다 — ` +
+            `홈의 추천 카드가 곧 이 목록의 앞 셋이다`
+        ).toBe(true);
+      }
+
+      // ⓑ 시기 칩으로 다른 밴드를 미리 보는 창 — 여기서 `stageMatches`가 실제로 갈린다.
+      for (const stageBand of STAGE_BAND_LABELS) {
+        const banded = rankItemsForTab(catalog, { tab: "now", stageCode, stageBand });
+        if (banded.length === 0) continue;
+        const matching = banded.filter((entry) => entry.stageCodes.includes(stageCode));
+        const bandTop = topTierOf(banded, stageCode);
+
+        for (const entry of bandTop.topTier) {
+          expect(
+            linkedCodes.has(entry.id),
+            `${stageCode}/${stageBand} 머리(${entry.id} · ${bandTop.topScore}점)가 구매 링크 0건이다`
+          ).toBe(true);
+        }
+
+        if (matching.length > 0 && matching.length < banded.length) {
+          bandsWithSplitAxis += 1;
+          // 축이 살아 있다: 시기가 맞지 않는 항목은 필수도가 무엇이든 머리에 서지 못한다
+          // (시기 일치 35 > 필수도 한 칸 10 — 도메인 계약의 화면판).
+          for (const entry of bandTop.topTier) {
+            expect(
+              entry.stageCodes.includes(stageCode),
+              `${stageCode}/${stageBand}: 시기가 맞지 않는 ${entry.id}가 머리에 섰다`
+            ).toBe(true);
+          }
+        }
+      }
+    }
+
+    // no-op 방지: 열 시기가 전부 판정되고, 최고점 무리가 실제로 세어진다.
+    expect(judgedStages).toBe(ALL_STAGE_CODES.length);
+    expect(judgedTopItems).toBeGreaterThanOrEqual(20);
+    // 그리고 `stageMatches`가 **실제로 갈린 창**이 존재한다 — 이것이 없으면 위 ⓑ는 다시 항진명제다.
+    expect(bandsWithSplitAxis, "stageMatches가 참·거짓으로 갈린 (시기, 밴드) 조합이 없다").toBeGreaterThan(0);
   });
 
   it("has no duplicate item template codes", async () => {
