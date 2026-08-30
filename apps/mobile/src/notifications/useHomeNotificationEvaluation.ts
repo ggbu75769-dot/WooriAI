@@ -118,7 +118,9 @@ export function useHomeNotificationEvaluation(
   /**
    * GAP-054 라운드 54 P1-3: 이 기기에 아직 올라가지 않은 **이 아이의** 지출 행이 있는가.
    * 호출부(홈 화면)가 이미 구독 중인 오프라인 스냅샷에서 `hasPendingRecordsForChild`로 계산해
-   * 넘긴다. `true`면 record_gap만 발화하지 않고, 나머지 알림은 종전 그대로다.
+   * 넘긴다. `true`면 **셋**이 발화하지 않는다 — record_gap(P1-3) · monthly_wrapup(GAP-066 #8) ·
+   * 예산 경계 둘(라운드 79 B). 셋 다 키를 태우지 않아 동기화 뒤 정확히 한 번 뜨고, 나머지
+   * (시기 전환 · 구매 확인 · 주간 요약)는 종전 그대로다 — 갈래별 이유는 generators.ts에 있다.
    */
   hasPendingLocalRecords: boolean,
   /**
