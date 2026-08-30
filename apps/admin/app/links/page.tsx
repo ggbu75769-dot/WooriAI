@@ -147,16 +147,31 @@ function toProductLinkInput(form: LinkFormState, mode: "create" | "edit"): Produ
   return input;
 }
 
+/**
+ * 라운드 78 트랙 C(GAP-078 #3ⓑ) — 읽기 권한자의 편집 폼은 **남기고 잠근다.**
+ *
+ * 라운드 77 트랙 D가 감춘 것은 제출 컨트롤뿐이라, `analyst`는 [수정]을 눌러 폼을 열고 값을
+ * 고친 **뒤에야** 저장 버튼이 없다는 것을 알았다. 값을 보는 것은 그대로 정당하므로
+ * (R-4의 판정) 폼은 남기고, 고칠 수 있다는 **거짓 신호**만 거둔다.
+ *
+ * ⚠️ 두 속성으로 갈리는 이유를 값으로 적어 둔다: `readOnly`는 값을 **읽고 복사할 수 있게**
+ * 남기지만, `<select>`와 `<input type="checkbox">`에는 readOnly 속성이 없다(HTML 명세 —
+ * 걸어도 무시된다). 선택형에서 같은 뜻을 내는 것은 `disabled`뿐이라 그 둘에만 disabled를
+ * 건다. 다음 라운드가 이 비대칭을 결함으로 읽지 않도록 한 자리에 적는다.
+ */
 function LinkFormFields({
   form,
   onChange,
   itemTemplates,
-  idPrefix
+  idPrefix,
+  readOnly
 }: {
   form: LinkFormState;
   onChange: (next: LinkFormState) => void;
   itemTemplates: ItemTemplate[];
   idPrefix: string;
+  /** 참이면 값은 그대로 보이고 고칠 수만 없다(위 주석의 readOnly/disabled 비대칭). */
+  readOnly: boolean;
 }) {
   return (
     <div className={styles.form}>
@@ -166,6 +181,7 @@ function LinkFormFields({
           <select
             id={`${idPrefix}-item`}
             value={form.itemTemplateId}
+            disabled={readOnly}
             onChange={(event) => onChange({ ...form, itemTemplateId: event.target.value })}
           >
             <option value="">선택해 주세요</option>
@@ -181,6 +197,7 @@ function LinkFormFields({
           <select
             id={`${idPrefix}-platform`}
             value={form.platform}
+            disabled={readOnly}
             onChange={(event) => onChange({ ...form, platform: event.target.value as ProductPlatform })}
           >
             {PRODUCT_PLATFORMS.map((platform) => (
@@ -197,6 +214,7 @@ function LinkFormFields({
             type="text"
             maxLength={160}
             value={form.title}
+            readOnly={readOnly}
             onChange={(event) => onChange({ ...form, title: event.target.value })}
           />
         </div>
@@ -206,6 +224,7 @@ function LinkFormFields({
             id={`${idPrefix}-url`}
             type="url"
             value={form.url}
+            readOnly={readOnly}
             onChange={(event) => onChange({ ...form, url: event.target.value })}
           />
           <span className={styles.hint}>http:// 또는 https:// 로 시작하는 주소만 등록할 수 있어요.</span>
@@ -216,6 +235,7 @@ function LinkFormFields({
             id={`${idPrefix}-affiliate-url`}
             type="url"
             value={form.affiliateUrl}
+            readOnly={readOnly}
             onChange={(event) => onChange({ ...form, affiliateUrl: event.target.value })}
           />
         </div>
@@ -226,6 +246,7 @@ function LinkFormFields({
         <textarea
           id={`${idPrefix}-disclosure`}
           value={form.disclosureText}
+          readOnly={readOnly}
           onChange={(event) => onChange({ ...form, disclosureText: event.target.value })}
         />
         <span className={styles.hint}>비워두면 기본 제휴/스폰서 고지 문구가 표시돼요.</span>
@@ -236,6 +257,7 @@ function LinkFormFields({
           id={`${idPrefix}-affiliate`}
           type="checkbox"
           checked={form.isAffiliate}
+          disabled={readOnly}
           onChange={(event) => onChange({ ...form, isAffiliate: event.target.checked })}
         />
         <label htmlFor={`${idPrefix}-affiliate`}>제휴 링크</label>
@@ -246,6 +268,7 @@ function LinkFormFields({
           id={`${idPrefix}-sponsored`}
           type="checkbox"
           checked={form.isSponsored}
+          disabled={readOnly}
           onChange={(event) => onChange({ ...form, isSponsored: event.target.checked })}
         />
         <label htmlFor={`${idPrefix}-sponsored`}>스폰서 상품</label>
@@ -256,6 +279,7 @@ function LinkFormFields({
           id={`${idPrefix}-active`}
           type="checkbox"
           checked={form.active}
+          disabled={readOnly}
           onChange={(event) => onChange({ ...form, active: event.target.checked })}
         />
         <label htmlFor={`${idPrefix}-active`}>활성</label>
@@ -469,17 +493,28 @@ function ProductLinksPageContent() {
         ) : (
           <>
             {isEditor ? <p className={styles.hint}>편집자 계정은 바로 저장하지 않고, 검토 요청을 관리자에게 보내요.</p> : null}
-            <LinkFormFields form={createForm} onChange={setCreateForm} itemTemplates={itemTemplates} idPrefix="create" />
-            {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
-            {createSuccess ? (
-              <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
-            ) : null}
+            {/* 라운드 78 트랙 C(GAP-078 #3ⓐ): **빈 생성 폼에는 읽을 데이터가 0건**이다 — 편집 폼을
+                남기는 근거("값을 보는 것은 정당하다")가 여기에는 적용되지 않는다. 그래서 이 카드는
+                폼째로 게이트 뒤에 서고, 그 자리에 라운드 77이 만든 캡션 한 줄만 남는다. */}
             {canEdit ? (
-              <div className={styles.actions}>
-                <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
-                  {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
-                </button>
-              </div>
+              <>
+                <LinkFormFields
+                  form={createForm}
+                  onChange={setCreateForm}
+                  itemTemplates={itemTemplates}
+                  idPrefix="create"
+                  readOnly={!canEdit}
+                />
+                {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
+                {createSuccess ? (
+                  <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
+                ) : null}
+                <div className={styles.actions}>
+                  <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
+                    {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
+                  </button>
+                </div>
+              </>
             ) : (
               <p className={styles.hint}>{ADMIN_EDITOR_WRITE_ROLE_NOTICE}</p>
             )}
@@ -670,12 +705,15 @@ function ProductLinksPageContent() {
                         )}
                       </td>
                       <td>
+                        {/* 라운드 78 트랙 C(GAP-078 #3ⓒ): 토글은 남는다(폼을 열어 값을 보는 것이
+                            읽기 권한자의 일이다) — 대신 **라벨이 사실을 말한다**. "보기"는 이미 이
+                            콘솔에 있는 낱말이라 새 문장도 새 낱말도 늘지 않는다. */}
                         <button
                           type="button"
                           className={styles.secondaryButton}
                           onClick={() => (editingId === link.id ? cancelEdit() : startEdit(link))}
                         >
-                          {editingId === link.id ? "닫기" : "수정"}
+                          {editingId === link.id ? "닫기" : canEdit ? "수정" : "보기"}
                         </button>
                       </td>
                     </tr>
@@ -687,6 +725,7 @@ function ProductLinksPageContent() {
                             onChange={setEditForm}
                             itemTemplates={itemTemplates}
                             idPrefix={`edit-${link.id}`}
+                            readOnly={!canEdit}
                           />
                           {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
                           {editError ? <p className={styles.errorBanner}>{editError}</p> : null}

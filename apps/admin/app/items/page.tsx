@@ -157,13 +157,26 @@ function toggleStage(codes: ChildStageCode[], code: ChildStageCode): ChildStageC
   return codes.includes(code) ? codes.filter((entry) => entry !== code) : [...codes, code];
 }
 
+/**
+ * 라운드 78 트랙 C(GAP-078 #3ⓑ) — 읽기 권한자의 편집 폼은 **남기고 잠근다.**
+ *
+ * 라운드 77 트랙 D가 감춘 것은 제출 컨트롤뿐이라, `analyst`는 [수정]을 눌러 폼을 열고 값을
+ * 세 개쯤 고친 **뒤에야** 저장 버튼이 없다는 것을 알았다. 값을 보는 것은 그대로 정당하므로
+ * (R-4의 판정) 폼은 남기고, 고칠 수 있다는 **거짓 신호**만 거둔다.
+ *
+ * ⚠️ 두 속성으로 갈리는 이유를 값으로 적어 둔다: `readOnly`는 값을 **읽고 복사할 수 있게**
+ * 남기지만, `<select>`와 `<input type="checkbox">`에는 readOnly 속성이 없다(HTML 명세 —
+ * 걸어도 무시된다). 선택형에서 같은 뜻을 내는 것은 `disabled`뿐이라 그 둘에만 disabled를
+ * 건다. 다음 라운드가 이 비대칭을 결함으로 읽지 않도록 한 자리에 적는다.
+ */
 function ItemFormFields({
   form,
   onChange,
   idPrefix,
   mode,
   categoryOptions,
-  categoryLoadError
+  categoryLoadError,
+  readOnly
 }: {
   form: ItemFormState;
   onChange: (next: ItemFormState) => void;
@@ -172,6 +185,8 @@ function ItemFormFields({
   categoryOptions: ItemCategoryOption[];
   /** 분류 목록 조회가 실패한 이유(라운드 73 트랙 D의 한 벌이 만든 문장). 성공이면 null. */
   categoryLoadError: string | null;
+  /** 참이면 값은 그대로 보이고 고칠 수만 없다(위 주석의 readOnly/disabled 비대칭). */
+  readOnly: boolean;
 }) {
   // ADM-124: 수정 폼에서 빈칸은 이제 "지움"이다(예전 안내 "비워두면 값을 바꾸지 않아요"는
   // 실제 동작과 어긋난 데다, 지우는 방법 자체가 없었다).
@@ -193,6 +208,7 @@ function ItemFormFields({
             type="text"
             maxLength={120}
             value={form.name}
+            readOnly={readOnly}
             onChange={(event) => onChange({ ...form, name: event.target.value })}
           />
         </div>
@@ -201,6 +217,7 @@ function ItemFormFields({
           <select
             id={`${idPrefix}-necessity`}
             value={form.necessityLevel}
+            disabled={readOnly}
             onChange={(event) => onChange({ ...form, necessityLevel: event.target.value as NecessityLevel })}
           >
             {NECESSITY_LEVELS.map((level) => (
@@ -218,6 +235,7 @@ function ItemFormFields({
           <select
             id={`${idPrefix}-category`}
             value={form.categoryId}
+            disabled={readOnly}
             onChange={(event) => onChange({ ...form, categoryId: event.target.value })}
           >
             <option value="">분류 없음</option>
@@ -236,6 +254,7 @@ function ItemFormFields({
             id={`${idPrefix}-timing`}
             type="text"
             value={form.timingLabel}
+            readOnly={readOnly}
             onChange={(event) => onChange({ ...form, timingLabel: event.target.value })}
           />
         </div>
@@ -246,6 +265,7 @@ function ItemFormFields({
             type="number"
             min={0}
             value={form.priceMinKrw}
+            readOnly={readOnly}
             onChange={(event) => onChange({ ...form, priceMinKrw: event.target.value })}
           />
           <span className={styles.hint}>{priceHint}</span>
@@ -257,6 +277,7 @@ function ItemFormFields({
             type="number"
             min={0}
             value={form.priceMaxKrw}
+            readOnly={readOnly}
             onChange={(event) => onChange({ ...form, priceMaxKrw: event.target.value })}
           />
           <span className={styles.hint}>{priceHint}</span>
@@ -268,6 +289,7 @@ function ItemFormFields({
         <textarea
           id={`${idPrefix}-reason`}
           value={form.reasonText}
+          readOnly={readOnly}
           onChange={(event) => onChange({ ...form, reasonText: event.target.value })}
         />
       </div>
@@ -277,6 +299,7 @@ function ItemFormFields({
         <textarea
           id={`${idPrefix}-skip-reason`}
           value={form.skipReasonText}
+          readOnly={readOnly}
           onChange={(event) => onChange({ ...form, skipReasonText: event.target.value })}
         />
         {form.necessityLevel !== "essential" ? (
@@ -289,6 +312,7 @@ function ItemFormFields({
         <textarea
           id={`${idPrefix}-safety`}
           value={form.safetyNote}
+          readOnly={readOnly}
           onChange={(event) => onChange({ ...form, safetyNote: event.target.value })}
         />
       </div>
@@ -301,6 +325,7 @@ function ItemFormFields({
               <input
                 type="checkbox"
                 checked={form.stageCodes.includes(code)}
+                disabled={readOnly}
                 onChange={() => onChange({ ...form, stageCodes: toggleStage(form.stageCodes, code) })}
               />
               {CHILD_STAGE_LABELS[code]}
@@ -314,6 +339,7 @@ function ItemFormFields({
           id={`${idPrefix}-secondhand`}
           type="checkbox"
           checked={form.usedSecondhandOk}
+          disabled={readOnly}
           onChange={(event) => onChange({ ...form, usedSecondhandOk: event.target.checked })}
         />
         <label htmlFor={`${idPrefix}-secondhand`}>중고 구매 가능</label>
@@ -327,6 +353,7 @@ function ItemFormFields({
           id={`${idPrefix}-medical-disclaimer`}
           type="checkbox"
           checked={form.medicalDisclaimerRequired}
+          disabled={readOnly}
           onChange={(event) => onChange({ ...form, medicalDisclaimerRequired: event.target.checked })}
         />
         <label htmlFor={`${idPrefix}-medical-disclaimer`}>의료 상담 안내 필요</label>
@@ -337,6 +364,7 @@ function ItemFormFields({
           id={`${idPrefix}-active`}
           type="checkbox"
           checked={form.active}
+          disabled={readOnly}
           onChange={(event) => onChange({ ...form, active: event.target.checked })}
         />
         <label htmlFor={`${idPrefix}-active`}>활성</label>
@@ -521,24 +549,31 @@ export default function ItemTemplatesPage() {
       <section className={styles.card}>
         <h2>새 준비템 추가</h2>
         {isEditor ? <p className={styles.hint}>편집자 계정은 바로 저장하지 않고, 검토 요청을 관리자에게 보내요.</p> : null}
-        <ItemFormFields
-          form={createForm}
-          onChange={setCreateForm}
-          idPrefix="create"
-          mode="create"
-          categoryOptions={createCategoryOptions}
-          categoryLoadError={categoryLoadError}
-        />
-        {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
-        {createSuccess ? (
-          <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
-        ) : null}
+        {/* 라운드 78 트랙 C(GAP-078 #3ⓐ): **빈 생성 폼에는 읽을 데이터가 0건**이다 — 편집 폼을
+            남기는 근거("값을 보는 것은 정당하다")가 여기에는 적용되지 않는다. 그래서 이 카드는
+            폼째로 게이트 뒤에 서고, 그 자리에 라운드 77이 만든 캡션 한 줄만 남는다
+            (`/categories`가 행의 입력칸을 `canEdit` 뒤 상태에서만 그리는 것과 같은 판정). */}
         {canEdit ? (
-          <div className={styles.actions}>
-            <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
-              {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
-            </button>
-          </div>
+          <>
+            <ItemFormFields
+              form={createForm}
+              onChange={setCreateForm}
+              idPrefix="create"
+              mode="create"
+              categoryOptions={createCategoryOptions}
+              categoryLoadError={categoryLoadError}
+              readOnly={!canEdit}
+            />
+            {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
+            {createSuccess ? (
+              <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
+            ) : null}
+            <div className={styles.actions}>
+              <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
+                {creating ? "저장 중..." : isEditor ? "검토 요청" : "추가"}
+              </button>
+            </div>
+          </>
         ) : (
           <p className={styles.hint}>{ADMIN_EDITOR_WRITE_ROLE_NOTICE}</p>
         )}
@@ -645,12 +680,15 @@ export default function ItemTemplatesPage() {
                         </span>
                       </td>
                       <td>
+                        {/* 라운드 78 트랙 C(GAP-078 #3ⓒ): 토글은 남는다(폼을 열어 값을 보는 것이
+                            읽기 권한자의 일이다) — 대신 **라벨이 사실을 말한다**. "보기"는 이미 이
+                            콘솔에 있는 낱말이라 새 문장도 새 낱말도 늘지 않는다. */}
                         <button
                           type="button"
                           className={styles.secondaryButton}
                           onClick={() => (editingId === item.id ? cancelEdit() : startEdit(item))}
                         >
-                          {editingId === item.id ? "닫기" : "수정"}
+                          {editingId === item.id ? "닫기" : canEdit ? "수정" : "보기"}
                         </button>
                       </td>
                     </tr>
@@ -664,6 +702,7 @@ export default function ItemTemplatesPage() {
                             mode="edit"
                             categoryOptions={editCategoryOptions}
                             categoryLoadError={categoryLoadError}
+                            readOnly={!canEdit}
                           />
                           {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
                           {editError ? <p className={styles.errorBanner}>{editError}</p> : null}

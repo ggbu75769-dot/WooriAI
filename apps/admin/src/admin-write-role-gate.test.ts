@@ -28,6 +28,35 @@ import { ADMIN_EDITOR_WRITE_ROLE_NOTICE, ADMIN_WRITE_ROLE_NOTICE } from "./lib/a
  *
  * ⚠️ 그리고 **바뀌지 않은 것**도 값으로 남는다: `isEditor` 갈래의 문안 전부와 쓰기 catch
  * 자리 수(2·2·2 — 라운드 76 B의 `WRITE_ERROR_COPY_SITES`가 세는 그 수).
+ *
+ * ---------------------------------------------------------------------------
+ * 라운드 78 트랙 C(GAP-078 #3) — **통하지 않는 편집 UI를 세우지 않는다.**
+ *
+ * 라운드 77이 감춘 것은 **제출 컨트롤뿐**이었고, 그 사실을 이 대장이 스스로 적고 있었다:
+ * `submits`(제출 컨트롤)를 세는 칸은 있는데 **편집 컨트롤을 세는 칸이 없었다.** 그래서
+ * `analyst`는 오늘도 [수정]을 눌러 편집 폼을 열고, 라벨·분류·가격대를 고치고, **저장 버튼을
+ * 찾다가** 그 자리의 캡션 한 줄을 읽었다 — *누르기 전에 말한다* 가 **고친 뒤**로 밀려 있었다.
+ * 빈 생성 폼은 더 조용했다: **읽을 데이터가 0건**이라 "값을 보는 것은 정당하다"는 근거가
+ * 아예 적용되지 않는데도 폼 전체가 그려졌다.
+ *
+ * 답은 이번에도 옆 탭이 이미 갖고 있었다 — `app/categories/page.tsx`는 행의 입력칸을
+ * `isEditing`일 때만 그리고, `isEditing`에 들어가는 문을 `canEdit` 뒤에 둔다. 그래서 그
+ * 화면에서 `analyst`가 편집 가능한 입력칸을 보는 경로가 **구조적으로 0건**이다.
+ *
+ * 이 트랙이 더하는 것은 대장의 칸 하나(`edits`)와 그것을 무는 단언 넷이다.
+ *  ⓔ **전수 단언** — 쓰기가 역할로 갈리는 화면의 **편집 가능 컨트롤 전수**가 넷 중 하나로
+ *    갈린다: 게이트 안(`gated`) · 자물쇠(`locked`) · 편집 상태의 문이 게이트 안(`stateGates`) ·
+ *    **조회용이라 잠그지 않는다**(`viewOnly` — 이유가 함께 적힌다). ⚠️ 판정은 라운드 77 리뷰
+ *    S-2가 세운 **갈래 위치 판정**(`submitIsInsideGate`) 그대로다 — 부분 문자열이 아니다.
+ *  ⓕ **재현 단언** — 자물쇠가 풀리거나 갈래가 뒤집힌 소스가 **실제로 빨개진다**(S-2의 규율).
+ *  ⓖ **여닫이 토글의 라벨이 사실을 말한다** — `!canEdit`이면 `"수정"`이 아니라 `"보기"`이고,
+ *    ⚠️ 그 낱말은 **이미 이 콘솔에 있던 것**이다(새 문장 0건 · 새 낱말 0건).
+ *  ⓗ ⚠️ `<select>`·체크박스에 `readOnly`가 없어 `disabled`로 갈리는 이유가 **주석에 값으로**
+ *    적혀 있다(다음 라운드가 그 비대칭을 결함으로 읽지 않도록).
+ *
+ * ⚠️ 여기서도 **바뀌지 않은 것**이 값이다: `submits`·`allows`·`kind`·`SCREEN_NOTICE_CONSTANTS`는
+ * 한 칸도 바뀌지 않았고(아래 총합 단언), **필터·검색 입력칸은 잠기지 않는다** — 조회는
+ * `analyst`의 일이고, 자물쇠가 가는 자리는 **폼 컴포넌트 안**뿐이라는 것이 이 트랙의 경계다.
  */
 
 const adminRoot = process.cwd();
@@ -63,6 +92,48 @@ type GateKind =
   /** 화면 전체가 역할 뒤에 있다(렌더 전에 early return — 안내 한 줄만 남는다). */
   | "screen";
 
+/**
+ * 라운드 78 트랙 C — 폼 컴포넌트 하나에 걸리는 **자물쇠**.
+ *
+ * 그 함수 안의 편집 컨트롤 **전수**가 자물쇠 하나를 지고, 그 폼이 서는 자리 전수가 자물쇠를
+ * 게이트에 묶는다. 폼은 그대로 렌더되므로 읽기 권한자가 **값을 보는 것**은 종전과 같다.
+ */
+type LockedForm = {
+  /** 같은 파일 안의 폼 컴포넌트 함수 이름. */
+  component: string;
+  /** 그 함수 안에서 자물쇠로 쓰이는 식(`readOnly={<lock>}` · `disabled={<lock>}`). */
+  lock: string;
+  /** 그 폼이 서는 자리가 자물쇠를 **게이트에** 묶는 속성(전수가 이 속성을 진다). */
+  bind: string;
+  /** 그 폼이 서는 자리 전수(자리마다 하나씩 붙는 식별 조각). */
+  mounts: string[];
+};
+
+/**
+ * 라운드 78 트랙 C — 편집 상태에 들어가는 **문**이 게이트 안이라 렌더 경로가 구조적으로 0건인
+ * 자리(오늘 `/categories` 하나 — 이 트랙이 나머지에 옮겨 심은 그 답의 원본이다).
+ */
+type StateGate = {
+  /** 그 입력칸을 그리는 상태 식별자(입력칸은 이 상태가 참인 갈래에만 있다). */
+  state: string;
+  /** 그 상태로 들어가는 유일한 문(게이트가 참인 갈래 안에 있어야 한다). */
+  entry: string;
+};
+
+/** 라운드 78 트랙 C — 값을 고칠 수 있는 자리 전수와, 그 자리가 역할에 갈리는 방법. */
+type EditControls = {
+  /** 게이트가 참인 갈래 안에서만 렌더되는 자리(빈 생성 폼 — 읽을 데이터가 0건이다). */
+  gated: string[];
+  /** 렌더되지만 잠기는 폼(편집 폼 — 값을 보는 것은 정당하다). */
+  locked: LockedForm[];
+  /** 편집 상태의 문이 게이트 안이라 입력칸이 아예 그려지지 않는 자리. */
+  stateGates: StateGate[];
+  /** 렌더되고 눌리지만 **라벨이 역할을 말하는** 여닫이 토글. */
+  toggles: string[];
+  /** ⚠️ 잠그지 않는 입력칸과 그 이유 — 조회는 `analyst`의 일이다(제외 사유는 이 스윕의 단위로). */
+  viewOnly: Readonly<Record<string, string>>;
+};
+
 type WriteScreen = {
   /** 그 화면이 세운 게이트 식별자(`const <gate> = …`). */
   gate: string;
@@ -71,11 +142,16 @@ type WriteScreen = {
   allows: AdminRole[];
   /** 그 게이트를 지나야 하는 **제출 컨트롤**의 onClick 바인딩 전수. */
   submits: string[];
+  /** 라운드 78 트랙 C — 그 화면의 **편집 컨트롤** 전수(ⓔ). */
+  edits: EditControls;
   /** 내비에서의 자리(ⓓ가 두 축이 다르다는 것을 여기서 읽는다). */
   href: string;
   /** 서버 쪽 근거 — 그 쓰기를 지키는 데코레이터가 사는 파일. */
   server: string;
 };
+
+/** 편집 컨트롤이 하나도 없는 화면(오늘 `app/users/page.tsx` — 화면 전체가 게이트 뒤다). */
+const NO_EDIT_CONTROLS: EditControls = { gated: [], locked: [], stateGates: [], toggles: [], viewOnly: {} };
 
 const ADMIN_WRITE_SCREENS: Readonly<Record<string, WriteScreen>> = {
   // 이 트랙이 연 셋. 편집자는 검토 요청 경로가 **실제로 통하므로** 게이트를 지난다.
@@ -84,6 +160,25 @@ const ADMIN_WRITE_SCREENS: Readonly<Record<string, WriteScreen>> = {
     kind: "control",
     allows: ["admin", "editor"],
     submits: ["onClick={handleCreate}", "onClick={handleEditSave}"],
+    edits: {
+      gated: ['idPrefix="create"'],
+      locked: [
+        {
+          component: "ItemFormFields",
+          lock: "readOnly",
+          bind: "readOnly={!canEdit}",
+          mounts: ['idPrefix="create"', "idPrefix={`edit-${item.id}`}"]
+        }
+      ],
+      stateGates: [],
+      toggles: ['{editingId === item.id ? "닫기" : canEdit ? "수정" : "보기"}'],
+      viewOnly: {
+        'id="item-filter-query"':
+          "준비템 이름 부분 일치 검색 — 이미 받아온 목록을 좁히는 조회 입력이고 서버로 나가는 값이 없다.",
+        'id="item-filter-missing-links"':
+          "상품 링크 없는 준비템만 보기 — 같은 조회 필터다. 조회를 잠그면 analyst의 일 자체가 막힌다."
+      }
+    },
     href: "/items",
     server: "apps/api/src/admin/admin.controller.ts"
   },
@@ -92,6 +187,24 @@ const ADMIN_WRITE_SCREENS: Readonly<Record<string, WriteScreen>> = {
     kind: "control",
     allows: ["admin", "editor"],
     submits: ["onClick={handleCreate}", "onClick={handleEditSave}"],
+    edits: {
+      gated: ['idPrefix="create"'],
+      locked: [
+        {
+          component: "LinkFormFields",
+          lock: "readOnly",
+          bind: "readOnly={!canEdit}",
+          mounts: ['idPrefix="create"', "idPrefix={`edit-${link.id}`}"]
+        }
+      ],
+      stateGates: [],
+      toggles: ['{editingId === link.id ? "닫기" : canEdit ? "수정" : "보기"}'],
+      viewOnly: {
+        'id="link-filter-query"': "제목·URL 부분 일치 검색 — 받아온 목록을 좁히는 조회 입력이다.",
+        'id="link-filter-item"': "준비템별 좁히기 — 같은 조회 필터이고 어떤 쓰기 경로에도 실리지 않는다.",
+        'id="link-filter-active"': "활성 링크만 보기 — 같은 조회 필터다."
+      }
+    },
     href: "/links",
     server: "apps/api/src/admin/admin.controller.ts"
   },
@@ -100,6 +213,17 @@ const ADMIN_WRITE_SCREENS: Readonly<Record<string, WriteScreen>> = {
     kind: "control",
     allows: ["admin", "editor"],
     submits: ["onClick={handleSave}", "onClick={handleAddKey}"],
+    edits: {
+      // 이 화면의 생성 카드는 폼 컴포넌트가 아니라 인라인이라, 두 칸이 각각 게이트 안에 선다.
+      gated: ['id="new-disclosure-key"', 'id="new-disclosure-text"'],
+      locked: [
+        { component: "DisclosureRow", lock: "!canEdit", bind: "canEdit={canEdit}", mounts: ["key={disclosure.key}"] }
+      ],
+      stateGates: [],
+      // 목록의 문구는 카드마다 늘 펼쳐져 있다 — 여닫이 토글이 없는 유일한 화면이다.
+      toggles: [],
+      viewOnly: {}
+    },
     href: "/disclosures",
     server: "apps/api/src/admin/admin.controller.ts"
   },
@@ -110,6 +234,20 @@ const ADMIN_WRITE_SCREENS: Readonly<Record<string, WriteScreen>> = {
     kind: "control",
     allows: ["admin"],
     submits: ["onClick={() => saveEdit(category)}"],
+    // ⚠️ **이 화면이 답의 원본이다**(라운드 78 트랙 C가 나머지 셋에 옮겨 심은 그 모양).
+    // 행의 입력칸은 `isEditing`일 때만 그려지고, `isEditing`에 들어가는 문은 `canEdit` 뒤에
+    // 있다 — 그래서 analyst가 편집 가능한 입력칸을 보는 경로가 **구조적으로 0건**이다.
+    edits: {
+      gated: [],
+      locked: [],
+      stateGates: [{ state: "isEditing", entry: "onClick={() => startEdit(category)}" }],
+      // 토글 자체가 게이트 안이라(‘-’ 한 글자가 그 자리에 선다) 라벨을 바꿀 자리가 없다.
+      toggles: [],
+      viewOnly: {
+        'id="category-search"': "코드·이름 검색 — 전량(시드 21행)을 좁히는 조회 입력이다.",
+        'id="category-group"': "구분 필터 — 같은 조회 입력이고 저장 경로에 실리지 않는다."
+      }
+    },
     href: "/categories",
     server: "apps/api/src/admin/admin-categories.controller.ts"
   },
@@ -124,6 +262,14 @@ const ADMIN_WRITE_SCREENS: Readonly<Record<string, WriteScreen>> = {
       "onClick={() => handleSchedule(null)}",
       "onClick={() => handleRollback(revision.id)}"
     ],
+    // 예약 시각·반려 사유 두 칸은 승인/반려 블록 안에 있고, 그 블록이 통째로 `isAdmin` 뒤다.
+    edits: {
+      gated: ['id="schedule-at"', 'id="reject-note"'],
+      locked: [],
+      stateGates: [],
+      toggles: [],
+      viewOnly: { 'id="status-filter"': "검토 목록의 상태 필터 — 목록 조회 인자이지 리비전을 고치는 값이 아니다." }
+    },
     href: "/reviews",
     server: "apps/api/src/admin/content-revisions.controller.ts"
   },
@@ -134,6 +280,8 @@ const ADMIN_WRITE_SCREENS: Readonly<Record<string, WriteScreen>> = {
     kind: "screen",
     allows: ["admin"],
     submits: [],
+    // 렌더 전에 돌아서므로 감출 컨트롤도, 잠글 폼도 남지 않는다(아래 단언이 그 순서를 읽는다).
+    edits: NO_EDIT_CONTROLS,
     href: "/users",
     server: "apps/api/src/admin/admin-users.controller.ts"
   }
@@ -214,6 +362,27 @@ function adminApiWriteFunctions(): string[] {
 }
 
 /**
+ * 라운드 78 트랙 C — 그 `{`가 **JSX 표현식 컨테이너**의 것인가.
+ *
+ * 종전에는 감싸는 `{` 전부를 후보로 삼았는데, 그중에는 **함수 본문**의 `{`도 있었다
+ * (`function ContentReviewsPageContent() {`). 본문 전체를 하나의 표현식으로 읽으면 최상위
+ * 삼항이 없어 `&&` 갈래로 떨어지고, 그 `&&` 앞쪽에 `const isAdmin = …` 선언이 있기만 하면
+ * **본문 안의 아무 자리나** "게이트 안"으로 읽혔다 — S-2가 부분 문자열에서 잡은 그 병의
+ * 블록 판이다(편집 컨트롤을 세기 시작하자 `/reviews`의 상태 필터에서 드러났다).
+ *
+ * JSX 컨테이너의 `{` 앞에 오는 비공백 문자는 `>`(태그의 끝) · `(`(갈래를 감싼 괄호) ·
+ * `}`(앞선 컨테이너)뿐이다. ⚠️ `=>`의 `>`는 화살표 함수 **본문**이라 제외한다.
+ */
+function opensJsxExpression(source: string, open: number): boolean {
+  let cursor = open - 1;
+  while (cursor >= 0 && /\s/.test(source[cursor])) cursor -= 1;
+  if (cursor < 0) return true;
+  const previous = source[cursor];
+  if (previous === ">") return source[cursor - 1] !== "=";
+  return previous === "(" || previous === "}";
+}
+
+/**
  * `index` 자리를 감싸는 JSX 표현식 블록들의 여는 `{` 위치(가장 안쪽부터).
  *
  * 뒤에서 앞으로 걸으며 깊이를 세므로, 게이트가 어느 깊이에 있든(카드 안 · 표의 셀 안) 찾는다.
@@ -227,8 +396,9 @@ function enclosingExpressionOpeners(source: string, index: number): number[] {
     const char = source[cursor];
     if (char === "}") depth += 1;
     else if (char === "{") {
-      if (depth === 0) openers.push(cursor);
-      else depth -= 1;
+      if (depth === 0) {
+        if (opensJsxExpression(source, cursor)) openers.push(cursor);
+      } else depth -= 1;
     }
   }
   return openers;
@@ -310,6 +480,66 @@ function submitIsInsideGate(source: string, index: number, gate: string): boolea
     if (negated.test(condition) ? inFalseBranch : inTrueBranch) return true;
   }
   return false;
+}
+
+/** 값을 고칠 수 있는 JSX 태그 셋(버튼은 제출 쪽 대장이 `submits`로 이미 센다). */
+const EDITABLE_TAGS = ["input", "textarea", "select"] as const;
+
+type EditableControl = { tag: string; index: number; attrs: string };
+
+/**
+ * 여는 태그 하나의 속성 문자열. `[^>]*`로 자를 수 없다 — 속성 값 안의 화살표 함수
+ * (`onChange={(event) => …}`)가 `>`를 품기 때문이다. 그래서 중괄호 깊이를 세며 걷는다.
+ */
+function jsxTagAttributes(source: string, start: number): string {
+  let depth = 0;
+  for (let cursor = start; cursor < source.length; cursor += 1) {
+    const char = source[cursor];
+    if (char === "{") depth += 1;
+    else if (char === "}") depth -= 1;
+    else if (char === ">" && depth === 0 && source[cursor - 1] !== "=") return source.slice(start, cursor);
+  }
+  return source.slice(start);
+}
+
+/** 소스 안의 편집 가능 컨트롤 전수(⚠️ 주석을 지운 소스에 걸어야 한다 — 주석에도 태그가 적힌다). */
+function editableControls(source: string): EditableControl[] {
+  const found: EditableControl[] = [];
+  for (const tag of EDITABLE_TAGS) {
+    for (const match of source.matchAll(new RegExp(`<${tag}\\b`, "g"))) {
+      const index = match.index ?? -1;
+      found.push({ tag, index, attrs: jsxTagAttributes(source, index + tag.length + 1) });
+    }
+  }
+  return found.sort((left, right) => left.index - right.index);
+}
+
+/**
+ * 그 컨트롤에 걸려야 하는 **자물쇠 속성**.
+ *
+ * ⚠️ 두 속성으로 갈리는 이유가 이 함수의 본체다: `readOnly`는 값을 읽고 복사할 수 있게
+ * 남기지만 `<select>`와 `<input type="checkbox">`에는 그 속성이 없다(HTML 명세 — 걸어도
+ * 무시된다). 선택형에서 같은 뜻을 내는 것은 `disabled`뿐이다.
+ */
+function lockAttributeFor(control: EditableControl, lock: string): string {
+  const selectLike = control.tag === "select" || /type="checkbox"/.test(control.attrs);
+  return selectLike ? `disabled={${lock}}` : `readOnly={${lock}}`;
+}
+
+/** 같은 파일 안의 최상위 함수 하나가 차지하는 구간(다음 최상위 함수 앞까지). */
+function topLevelFunctionRange(source: string, name: string, where: string): { start: number; end: number } {
+  const start = source.indexOf(`function ${name}(`);
+  expect(start, `${where}에서 function ${name}(를 찾지 못했어요`).toBeGreaterThan(-1);
+  const next = source.slice(start + 1).search(/\n(?:export )?(?:default )?function \w+\(/);
+  return { start, end: next < 0 ? source.length : start + 1 + next };
+}
+
+/** 주석만 남긴 소스(ⓗ가 사유를 찾는 자리 · 줄바꿈·들여쓰기는 한 칸으로 접는다). */
+function commentsOnly(source: string): string {
+  return [...source.matchAll(/\/\*([\s\S]*?)\*\//g), ...source.matchAll(/\/\/([^\n]*)/g)]
+    .map((match) => match[1])
+    .join("\n")
+    .replace(/\s+/g, " ");
 }
 
 /**
@@ -453,6 +683,188 @@ describe("제출 컨트롤은 예외 없이 역할 게이트를 지난다 (라�
       const server = readRepoSource(screen.server);
       expect(server, `${path}의 근거 ${screen.server}에 역할 데코레이터가 있다`).toContain('@RequireAdminRoles("admin")');
     }
+  });
+});
+
+describe("편집 컨트롤도 예외 없이 역할에 갈린다 (라운드 78 트랙 C ⓔ)", () => {
+  /**
+   * 화면 하나의 편집 가능 컨트롤 전수를 대장의 **네 방법**으로 갈라 본다.
+   * `how`가 null인 자리가 하나라도 있으면 그 화면에는 `analyst`가 고칠 수 있는 칸이 남아 있다.
+   */
+  function classifyEditControls(path: string, screen: WriteScreen) {
+    const source = codeOnly(readSource(path));
+    const lockedRanges = screen.edits.locked.map((form) => ({
+      form,
+      range: topLevelFunctionRange(source, form.component, path)
+    }));
+    return editableControls(source).map((control) => {
+      const locked = lockedRanges.find(({ range }) => control.index > range.start && control.index < range.end);
+      if (locked) {
+        const attribute = lockAttributeFor(control, locked.form.lock);
+        return { control, how: "locked" as const, ok: control.attrs.includes(attribute), detail: attribute };
+      }
+      if (submitIsInsideGate(source, control.index, screen.gate)) {
+        return { control, how: "gated" as const, ok: true, detail: screen.gate };
+      }
+      const stateGate = screen.edits.stateGates.find((gate) => submitIsInsideGate(source, control.index, gate.state));
+      if (stateGate) {
+        // 상태가 입력칸을 그리고, **그 상태로 들어가는 문**이 게이트 안이어야 뜻이 있다.
+        const entry = source.indexOf(stateGate.entry);
+        return {
+          control,
+          how: "state" as const,
+          ok: entry > -1 && submitIsInsideGate(source, entry, screen.gate),
+          detail: stateGate.entry
+        };
+      }
+      const exempt = Object.entries(screen.edits.viewOnly).find(([needle]) => control.attrs.includes(needle));
+      if (exempt) return { control, how: "view" as const, ok: exempt[1].trim().length > 20, detail: exempt[0] };
+      return { control, how: null, ok: false, detail: "" };
+    });
+  }
+
+  it("편집 가능 컨트롤 전수가 넷 중 하나로 갈린다 (전수 단언 · 대장이 모르는 자리 0건)", () => {
+    for (const [path, screen] of Object.entries(ADMIN_WRITE_SCREENS)) {
+      if (screen.kind !== "control") continue;
+      const classified = classifyEditControls(path, screen);
+      // 그물이 실제로 쳐졌다는 증거(태그 파싱이 죽으면 이 하한이 먼저 빨개진다).
+      expect(classified.length, `${path}의 편집 가능 컨트롤`).toBeGreaterThan(0);
+      for (const entry of classified) {
+        const where = `<${entry.control.tag} ${entry.control.attrs.trim().slice(0, 60)}`;
+        expect(entry.how, `${path}: 대장이 모르는 편집 컨트롤이 있어요 — ${where}`).not.toBeNull();
+        expect(entry.ok, `${path}: ${where}가 ${entry.how}(${entry.detail})의 조건을 지키지 않아요`).toBe(true);
+      }
+      // 제외 목록이 낡지 않았다 — 이유가 적힌 칸이 오늘도 그 화면에 실재한다.
+      for (const needle of Object.keys(screen.edits.viewOnly)) {
+        expect(
+          classified.some((entry) => entry.how === "view" && entry.detail === needle),
+          `${path}: ${needle}는 이제 없는 칸이에요 — 제외 목록에서 지우세요`
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("잠긴 폼은 서는 자리 전수가 자물쇠를 게이트에 묶는다", () => {
+    for (const [path, screen] of Object.entries(ADMIN_WRITE_SCREENS)) {
+      const source = codeOnly(readSource(path));
+      for (const form of screen.edits.locked) {
+        const mounts = [...source.matchAll(new RegExp(`<${form.component}\\b`, "g"))].map((match) =>
+          jsxTagAttributes(source, (match.index ?? 0) + form.component.length + 1)
+        );
+        expect(mounts.length, `${path}: ${form.component}가 서는 자리`).toBe(form.mounts.length);
+        for (const attrs of mounts) {
+          expect(attrs, `${path}: ${form.component} 한 자리가 자물쇠(${form.bind})를 묶지 않아요`).toContain(form.bind);
+        }
+        for (const needle of form.mounts) {
+          expect(mounts.filter((attrs) => attrs.includes(needle)), `${path}: ${needle}가 한 자리다`).toHaveLength(1);
+        }
+        // 그 폼 안에 실제로 잠글 것이 있다(빈 그물이 아니다).
+        const range = topLevelFunctionRange(source, form.component, path);
+        const inside = editableControls(source).filter(
+          (control) => control.index > range.start && control.index < range.end
+        );
+        expect(inside.length, `${path}: ${form.component} 안의 편집 컨트롤`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("빈 생성 폼은 게이트 안에 있다 — 거기에는 읽을 데이터가 0건이기 때문이다", () => {
+    for (const [path, screen] of Object.entries(ADMIN_WRITE_SCREENS)) {
+      const source = codeOnly(readSource(path));
+      for (const needle of screen.edits.gated) {
+        const index = source.indexOf(needle);
+        expect(index, `${path}: ${needle} 바인딩이 실재한다`).toBeGreaterThan(-1);
+        expect(source.indexOf(needle, index + 1), `${path}: ${needle}가 한 자리다`).toBe(-1);
+        expect(
+          submitIsInsideGate(source, index, screen.gate),
+          `${path}: ${needle}가 역할 게이트(${screen.gate})가 참인 갈래 밖에 서 있어요`
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("여닫이 토글의 라벨이 사실을 말한다 — 그 낱말은 이미 이 콘솔에 있었다 (ⓖ)", () => {
+    for (const [path, screen] of Object.entries(ADMIN_WRITE_SCREENS)) {
+      const source = readSource(path);
+      for (const toggle of screen.edits.toggles) {
+        expect(source, `${path}: ${toggle}`).toContain(toggle);
+        expect(toggle, `${path}: 토글이 게이트(${screen.gate})를 읽는다`).toContain(screen.gate);
+        expect(toggle, `${path}: 읽기 권한자에게는 "보기"다`).toContain('"보기"');
+        expect(toggle, `${path}: 닫기는 그대로다`).toContain('"닫기"');
+      }
+      if (!screen.edits.toggles.length) continue;
+      // 새 낱말 0건 — "보기"는 이 화면이 필터 라벨로 이미 쓰던 낱말이다.
+      expect(
+        (codeOnly(source).match(/보기/g) ?? []).length,
+        `${path}: "보기"가 이 화면의 새 낱말이 됐어요`
+      ).toBeGreaterThan(screen.edits.toggles.length);
+    }
+  });
+
+  /**
+   * 라운드 77 적대적 리뷰 S-2의 규율을 편집 컨트롤 쪽에도 — **강화가 침묵으로 되돌아가지 않게.**
+   * 자물쇠가 풀린 폼과 갈래가 뒤집힌 생성 폼이 실제로 빨개지는 것을 뒤집힌 소스로 못박는다.
+   */
+  it("자물쇠가 풀리거나 갈래가 뒤집히면 판정이 거짓이 된다 (재현 · 부정 단언)", () => {
+    const honest = `<div>{canEdit ? (<input id="new-key" type="text" />) : (<p>캡션</p>)}</div>`;
+    const flipped = `<div>{!canEdit ? (<input id="new-key" type="text" />) : (<p>캡션</p>)}</div>`;
+    expect(submitIsInsideGate(honest, editableControls(honest)[0].index, "canEdit")).toBe(true);
+    expect(
+      submitIsInsideGate(flipped, editableControls(flipped)[0].index, "canEdit"),
+      "뒤집힌 생성 폼이 통과했어요"
+    ).toBe(false);
+
+    // ⚠️ 함수 본문의 `{`는 게이트 컨테이너가 아니다. 종전 판정으로는 선언이 앞에 있기만 하면
+    // 본문 **전체**가 "게이트 안"이었다(`/reviews`의 상태 필터가 그 첫 사례였다).
+    const body = 'function Screen() {\n  const canEdit = a && b;\n  return (<div><input id="filter" /></div>);\n}';
+    expect(
+      submitIsInsideGate(body, body.indexOf('id="filter"'), "canEdit"),
+      "함수 본문이 게이트 갈래로 읽혔어요"
+    ).toBe(false);
+
+    // 자물쇠는 태그마다 다르다 — 선택형에 readOnly를 걸면 브라우저가 무시하므로 통과하지 않는다.
+    const select = editableControls(`<select disabled={readOnly}>`)[0];
+    expect(select.attrs).toContain(lockAttributeFor(select, "readOnly"));
+    const checkbox = editableControls(`<input type="checkbox" readOnly={readOnly} />`)[0];
+    expect(checkbox.attrs, "체크박스에 readOnly는 자물쇠가 아니다").not.toContain(lockAttributeFor(checkbox, "readOnly"));
+    const unlocked = editableControls(`<input type="text" value={form.name} />`)[0];
+    expect(unlocked.attrs, "자물쇠 없는 입력칸이 통과했어요").not.toContain(lockAttributeFor(unlocked, "readOnly"));
+    // 화살표 함수의 `>`에서 속성 읽기가 끊기지 않는다(끊기면 자물쇠를 못 보고 조용히 초록이 된다).
+    const arrow = editableControls(`<input type="text" onChange={(event) => set(event.target.value)} readOnly={readOnly} />`)[0];
+    expect(arrow.attrs, "화살표 함수 뒤의 속성을 놓쳤어요").toContain("readOnly={readOnly}");
+  });
+
+  it("readOnly와 disabled로 갈리는 이유가 주석에 값으로 적혀 있다 (ⓗ)", () => {
+    for (const [path, screen] of Object.entries(ADMIN_WRITE_SCREENS)) {
+      if (!screen.edits.locked.length) continue;
+      const comments = commentsOnly(readSource(path));
+      expect(comments, `${path}: <select>에 readOnly가 없다는 사실`).toContain("readOnly 속성이 없다");
+      expect(comments, `${path}: 그래서 disabled로 갈린다는 사실`).toContain("disabled");
+    }
+  });
+
+  it("화면 전체가 게이트 뒤인 화면에는 감출 편집 컨트롤이 남지 않는다 (users)", () => {
+    const path = "app/users/page.tsx";
+    expect(ADMIN_WRITE_SCREENS[path].edits).toEqual(NO_EDIT_CONTROLS);
+    const source = codeOnly(readSource(path));
+    const earlyReturn = source.indexOf("if (!isAdmin) {");
+    expect(earlyReturn, "users 화면의 early return").toBeGreaterThan(-1);
+    const controls = editableControls(source);
+    expect(controls.length, "그 화면에도 입력칸은 있다").toBeGreaterThan(0);
+    for (const control of controls) {
+      expect(control.index, `${path}: 입력칸이 early return보다 앞에 서 있어요`).toBeGreaterThan(earlyReturn);
+    }
+  });
+
+  it("종전 칸은 한 칸도 바뀌지 않았다 — submits 총합과 캡션 표 (라운드 78 트랙 C ⓒ)", () => {
+    const submitTotal = Object.values(ADMIN_WRITE_SCREENS).reduce((sum, screen) => sum + screen.submits.length, 0);
+    expect(submitTotal, "제출 컨트롤 총합(라운드 77이 센 값)").toBe(12);
+    expect(Object.keys(SCREEN_NOTICE_CONSTANTS).sort()).toEqual([
+      "app/categories/page.tsx",
+      "app/disclosures/page.tsx",
+      "app/items/page.tsx",
+      "app/links/page.tsx"
+    ]);
   });
 });
 
