@@ -6,8 +6,10 @@ import {
   PURCHASE_FOLLOWUP_MIN_AGE_MS,
   type PurchaseFollowupEntry
 } from "../commerce/purchase-followup.store";
+import { resolveThisMonthUsedKrw } from "../home/budget-edit";
 import { evaluateBudgetWarning } from "../home/budget-warning";
 import { evaluateWeeklySummary } from "../home/weekly-summary";
+import type { LocalExpenseRow } from "../offline/types";
 import {
   budgetNotifications,
   evaluateHomeNotifications,
@@ -606,6 +608,11 @@ describe("라운드 37 G-1: 콜드 스타트 경합 (스토어 통합)", () => {
  * 키로 정확히 한 번 뜬다. 아래 테스트가 그 두 갈래(정상 경로 · 되돌릴 수 없는 허위 경고)를
  * 스토어까지 재생해 고정한다. 라운드 37 G-1(주간 알림이 잠정값으로 키를 태우지 않게 미룬 판단)과
  * 같은 규율이다.
+ *
+ * ⚠️ 라운드 79 B(이 파일의 마지막 절)가 그 판단의 **다른 한 쪽**을 마저 세운다: 입력을 서버
+ * 확정값으로 두면, 대기 행이 있는 동안 화면(재조정 값)과 알림이 서로 다른 수를 보게 된다.
+ * 그래서 **입력을 바꾸는 대신**(그러면 위 "되돌릴 수 없는 허위 경고"가 되살아난다) 대기 행이
+ * 있는 동안에는 아예 말하지 않는다 — 형제 알림 둘이 이미 지고 있는 규율이다.
  */
 describe("라운드 51 #7: 예산 알림은 확정(서버) 사용액으로만 발화한다", () => {
   const kst = (year: number, month1: number, day: number, hour = 12) =>
@@ -675,5 +682,250 @@ describe("라운드 51 #7: 예산 알림은 확정(서버) 사용액으로만 �
     const callAt = homeSource.indexOf("useHomeNotificationEvaluation(\n");
     const call = homeSource.slice(callAt, homeSource.indexOf(");", callAt));
     expect(call).not.toContain("monthlyUsed");
+  });
+});
+
+/**
+ * 라운드 79 B (GAP-079 #2) — **같은 함수, 다른 입력**: 예산 알림은 서버가 모르는 사실 위에서
+ * 단언하지 않는다.
+ *
+ * 위 라운드 51 #7이 고정한 판단("알림 입력은 서버 확정값이다")은 그대로다. 이번 라운드가 세는
+ * 것은 그 판단의 **다른 한 쪽**이다: 같은 화면의 예산 배너·진행바·히어로는 대기 행까지 재조정한
+ * 값(`resolveThisMonthUsedKrw` — src/home/budget-edit.ts)을 읽으므로, 대기 행이 있는 순간 두
+ * 표면이 서로 다른 "이번 달"을 본다. 판정 함수는 세 표면이 공유한다(@wooriai/domain의
+ * `reachedBudgetBoundaries` — 서버 푸시·홈 배너·인앱 알림. apps/api/src/push/push-dispatch.
+ * service.ts가 *"규칙이 갈라질 수 없다"* 고 적어 둔 그 함수다). ⚠️ **갈라지는 것은 규칙이 아니라
+ * 입력이다.**
+ *
+ * 답은 형제 알림 둘이 이미 갖고 있었다 — record_gap(라운드 54 P1-3)과 monthly_wrapup(GAP-066 #8)은
+ * `hasPendingLocalRecords`가 참이면 **발화하지 않는다**(*"서버 스냅샷이 모르는 기록을 두고
+ * 단언하지 않는다"*). 예산이 **같은 갈래 형식**으로 그 규율에 든다. 배선은 0건이다: 그 값은
+ * P1-3부터 이미 `evaluateHomeNotifications`의 입력에 있고, 홈 화면은 한 글자도 바뀌지 않는다
+ * (이 파일의 "홈 배선 계약" 테스트가 그 사실을 계속 지킨다).
+ *
+ * 이 절이 고정하는 다섯:
+ *  ⓐ 대기 행이 있으면 `budget_80`·`budget_100` 후보가 **0건**(형제 둘과 같은 갈래).
+ *  ⓑ 억제가 **키를 태우지 않는다** — 동기화 뒤 다음 평가가 **정확히 한 번** 발화한다.
+ *  ⓒ 대기 행이 0건이면 답이 **종전과 바이트 불변**(오늘 대다수 경로다).
+ *  ⓓ 두 표면의 입력이 실제로 갈린다는 **오늘의 사실**(양방향 — 값으로 재현한다).
+ *  ⓔ 주간 요약은 이 게이트 **밖**이라는 대조(1순위가 화면이 만든 재조정 값이다).
+ */
+describe("라운드 79 B: 예산 알림은 대기 행이 있는 동안 침묵한다 (hasPendingLocalRecords 게이트)", () => {
+  const kst = (year: number, month1: number, day: number, hour = 12) =>
+    Date.UTC(year, month1 - 1, day, hour) - SEOUL_UTC_OFFSET_MS;
+  /** 2026-08-03(월) KST — 8월 초라 지난달 정리(7월)도 함께 평가되는 시점이다. */
+  const now = kst(2026, 8, 3);
+  const BUDGET = 1_000_000;
+  const base = { childId: "child-1", yearMonth: "2026-08", budgetKrw: BUDGET };
+  /** 7월 캐시 두 건(합계 1,245,700원) — 지난달 정리가 실제로 발화하는 값. */
+  const julyRecords = [
+    { amountKrw: 84_200, spentOn: "2026-07-02", expenseType: "expense" },
+    { amountKrw: 1_161_500, spentOn: "2026-07-28", expenseType: "expense" }
+  ];
+  /** 다섯 종류가 **동시에** 후보가 되는 홈 입력(주간만 판정 불가로 빼 둔다 — G-1). */
+  const noisyHome = {
+    child: { id: "child-1", nickname: "다온이", stageLabel: "24개월" },
+    monthly: { yearMonth: "2026-08", amountKrw: BUDGET, usedAmountKrw: 900_000 },
+    lastSeenStageLabel: "12개월",
+    followupEntries: [followupEntry({ clickedAt: now - PURCHASE_FOLLOWUP_MIN_AGE_MS })],
+    now,
+    weekly: undefined as WeeklySpendResolution,
+    lastRecordedOn: "2026-07-20",
+    lastMonthRecords: julyRecords
+  };
+
+  beforeEach(() => {
+    useNotificationStore.getState().resetAll();
+  });
+
+  it("ⓐ 대기 행이 있으면 예산 후보가 0건이다 (80% · 정확히 100% · 초과 전부)", () => {
+    for (const spentKrw of [800_000, 999_999, 1_000_000, 1_000_001, 3_000_000]) {
+      expect(budgetNotifications({ ...base, spentKrw, hasPendingLocalRecords: true })).toEqual([]);
+    }
+  });
+
+  it("ⓐ 형제 둘과 같은 갈래다: 서버 스냅샷을 근거로 하는 셋만 함께 침묵한다", () => {
+    // 대기 행이 없을 때는 다섯 종류가 모두 후보가 된다(평가 순서는 evaluateHomeNotifications 그대로).
+    expect(evaluateHomeNotifications(noisyHome).map((candidate) => candidate.type)).toEqual([
+      "budget_80",
+      "stage_transition",
+      "purchase_pending",
+      "record_gap",
+      "monthly_wrapup"
+    ]);
+    // 대기 행이 있으면 **서버가 모르는 수를 말하는 셋**만 빠진다. 시기 전환·구매 확인은 서버
+    // 집계와 무관한 사실(단계 라벨 · 이 기기의 클릭 로그)이라 종전 그대로 말한다.
+    expect(
+      evaluateHomeNotifications({ ...noisyHome, hasPendingLocalRecords: true }).map((candidate) => candidate.type)
+    ).toEqual(["stage_transition", "purchase_pending"]);
+  });
+
+  it("ⓑ 억제는 키를 태우지 않는다: 동기화가 끝난 다음 평가가 정확히 한 번 발화한다", () => {
+    const budgetEntries = () =>
+      useNotificationStore.getState().entries.filter((entry) => entry.type.startsWith("budget_"));
+    // 이 절의 관심사는 예산 하나다 — 나머지 넷은 후보가 되지 않게 둔다.
+    const home = {
+      ...noisyHome,
+      lastSeenStageLabel: "24개월",
+      followupEntries: [],
+      lastRecordedOn: undefined,
+      lastMonthRecords: undefined
+    };
+
+    // 1차: 지하철에서 세 건을 오프라인으로 적은 직후. 서버 집계는 이미 90%지만 이 기기에는 아직
+    // 올라가지 않은 행이 있다 -> 아무 말도 하지 않고, 키도 쓰지 않는다.
+    useNotificationStore.getState().ingest(evaluateHomeNotifications({ ...home, hasPendingLocalRecords: true }), now);
+    expect(budgetEntries()).toEqual([]);
+    expect(useNotificationStore.getState().seenDedupeKeys).not.toContain("budget_80:child-1:2026-08");
+
+    // 2차: 아웃박스가 확정돼 대기 행이 사라졌다 -> 키가 살아 있으므로 그대로 발화한다.
+    useNotificationStore.getState().ingest(evaluateHomeNotifications({ ...home, hasPendingLocalRecords: false }), now);
+    expect(budgetEntries().map((entry) => entry.title)).toEqual(["이번 달 예산의 80%를 사용했어요"]);
+
+    // 3차(같은 달 재평가): dedupe가 막아 한 달에 한 번이다 — 미뤄진 것이지 두 번 뜨는 것이 아니다.
+    useNotificationStore.getState().ingest(evaluateHomeNotifications({ ...home, hasPendingLocalRecords: false }), now);
+    expect(budgetEntries()).toHaveLength(1);
+  });
+
+  it("ⓒ 대기 행이 0건이면 답이 종전과 바이트 불변이다 (false·미전달 둘 다)", () => {
+    for (const spentKrw of [0, 799_999, 800_000, 999_999, 1_000_000, 1_000_001, 3_000_000]) {
+      const answer = budgetNotifications({ ...base, spentKrw });
+      expect(budgetNotifications({ ...base, spentKrw, hasPendingLocalRecords: false })).toEqual(answer);
+      expect(budgetNotifications({ ...base, spentKrw, hasPendingLocalRecords: undefined })).toEqual(answer);
+    }
+    // 문구·키·legacy 키까지 한 글자도 바뀌지 않았다(게이트는 갈래를 하나 더할 뿐이다).
+    expect(budgetNotifications({ ...base, spentKrw: 800_000, hasPendingLocalRecords: false })).toEqual([
+      {
+        type: "budget_80",
+        title: "이번 달 예산의 80%를 사용했어요",
+        body: "남은 예산을 확인해보세요.",
+        dedupeKey: "budget_80:child-1:2026-08",
+        legacyDedupeKeys: ["budget_80:2026-08"],
+        childId: "child-1"
+      }
+    ]);
+    expect(budgetNotifications({ ...base, spentKrw: 1_000_000, hasPendingLocalRecords: false })).toEqual([
+      {
+        type: "budget_100",
+        title: "이번 달 예산을 모두 사용했어요",
+        body: "이번 달 지출을 확인해 볼까요?",
+        dedupeKey: "budget_100:child-1:2026-08",
+        legacyDedupeKeys: ["budget_100:2026-08"],
+        childId: "child-1"
+      }
+    ]);
+  });
+
+  /**
+   * ⓓ **오늘의 사실을 값으로.** 두 표면의 입력이 실제로 갈리는지를 산문이 아니라 두 모듈을
+   * 나란히 돌려서 확인한다 — 배너는 `resolveThisMonthUsedKrw`(재조정), 알림은 `/home`의
+   * `monthly.usedAmountKrw`(서버 집계).
+   */
+  describe("ⓓ 배너와 알림이 서로 다른 '이번 달'을 본다 (양방향 재현)", () => {
+    const yearMonth = "2026-08";
+    /** 오프라인 저장소 행 하나(src/home/budget-edit.test.ts와 같은 관례). */
+    const offlineRow = (partial: {
+      localId: string;
+      canonicalId?: string | null;
+      syncState?: LocalExpenseRow["syncState"];
+      pendingDelete?: boolean;
+      spentOn: string;
+      amountKrw: number;
+    }): LocalExpenseRow => ({
+      localId: partial.localId,
+      canonicalId: partial.canonicalId ?? null,
+      childId: "child-1",
+      payload: {
+        childId: "child-1",
+        categoryId: "c0a7e901-0000-4c01-8c01-c47e900ec001",
+        amountKrw: partial.amountKrw,
+        spentOn: partial.spentOn,
+        itemName: "기저귀",
+        expenseType: "expense"
+      },
+      version: null,
+      syncState: partial.syncState ?? "pending",
+      pendingDelete: partial.pendingDelete ?? false,
+      conflictCurrent: null,
+      lastError: null,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-08-01T00:00:00.000Z"
+    });
+
+    it("오프라인 기록 방향: 배너는 82%로 서는데 서버 집계는 79%라 알림이 없다", () => {
+      const serverUsedKrw = 790_000;
+      const cachedExpenses = [{ id: "expense-1", amountKrw: serverUsedKrw, expenseType: "expense" }];
+      const pendingRow = offlineRow({ localId: "local-1", amountKrw: 30_000, spentOn: "2026-08-02" });
+
+      const monthlyUsed = resolveThisMonthUsedKrw({
+        cachedExpenses,
+        offline: { rows: [pendingRow], childId: "child-1", yearMonth },
+        homeUsedKrw: serverUsedKrw
+      });
+      expect(monthlyUsed).toBe(820_000);
+      // 화면(배너)은 재조정 값을 본다 -> 경고가 선다.
+      expect(evaluateBudgetWarning({ budgetKrw: BUDGET, spentKrw: monthlyUsed! })?.level).toBe("approaching");
+      // 같은 순간의 알림은 서버 집계를 본다 -> 침묵. 게이트 유무와 무관하게 같은 답이고,
+      // 이 방향의 대가는 "하루 늦게"뿐이다(라운드 51 #7의 판단 그대로).
+      expect(budgetNotifications({ ...base, spentKrw: serverUsedKrw })).toEqual([]);
+      expect(budgetNotifications({ ...base, spentKrw: serverUsedKrw, hasPendingLocalRecords: true })).toEqual([]);
+    });
+
+    it("삭제 대기 방향(더 나쁜 쪽): 배너는 서지 않는데 알림만 뜨고 그 달의 키를 태우던 자리", () => {
+      const serverUsedKrw = 800_000;
+      const cachedExpenses = [
+        { id: "expense-1", amountKrw: 770_000, expenseType: "expense" },
+        { id: "expense-2", amountKrw: 30_000, expenseType: "expense" }
+      ];
+      // 서버에는 아직 살아 있는 30,000원 지출의 삭제가 이 기기에서 대기 중이다.
+      const pendingDelete = offlineRow({
+        localId: "local-2",
+        canonicalId: "expense-2",
+        amountKrw: 30_000,
+        spentOn: "2026-08-02",
+        pendingDelete: true
+      });
+
+      const monthlyUsed = resolveThisMonthUsedKrw({
+        cachedExpenses,
+        offline: { rows: [pendingDelete], childId: "child-1", yearMonth },
+        homeUsedKrw: serverUsedKrw
+      });
+      expect(monthlyUsed).toBe(770_000);
+      // 배너는 서지 않는다(77%).
+      expect(evaluateBudgetWarning({ budgetKrw: BUDGET, spentKrw: monthlyUsed! })).toBeNull();
+      // 게이트가 없던 종전에는 같은 순간 알림이 떴고, 그 달의 dedupeKey를 태워 **나중에 진짜로
+      // 80%를 넘겨도 다시 오지 않았다**. 게이트가 그 자리를 침묵으로 바꾼다.
+      expect(budgetNotifications({ ...base, spentKrw: serverUsedKrw }).map((candidate) => candidate.type)).toEqual([
+        "budget_80"
+      ]);
+      expect(budgetNotifications({ ...base, spentKrw: serverUsedKrw, hasPendingLocalRecords: true })).toEqual([]);
+    });
+
+    it("화면 배선의 오늘 값: 배너·진행바가 읽는 것은 재조정 값이다 (읽기만 — 홈은 무접촉)", () => {
+      const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
+      expect(homeSource).toContain("  const monthlyUsed = hasSession\n    ? resolveThisMonthUsedKrw({");
+      expect(homeSource).toContain(
+        "  const budgetWarning = hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null;"
+      );
+      // 알림 쪽 입력(= /home 응답 그대로)은 위 "홈 배선 계약" 테스트가 이미 고정한다.
+    });
+  });
+
+  it("ⓔ 대조: 주간 요약은 이 게이트 밖이다 (1순위가 화면이 만든 재조정 값이라 이미 정합이다)", () => {
+    const weekly = { totalKrw: 84_200, text: "이번 주 84,200원 · 지난주 같은 요일까지보다 12,000원 적게 썼어요" };
+    const candidates = evaluateHomeNotifications({
+      ...noisyHome,
+      lastSeenStageLabel: "24개월",
+      followupEntries: [],
+      lastRecordedOn: undefined,
+      lastMonthRecords: undefined,
+      hasPendingLocalRecords: true,
+      weekly
+    });
+    // 예산은 침묵하지만 주간 요약은 그대로 뜬다 — 그 문구의 숫자는 홈 주간 카드가 대기 행까지
+    // 재조정해 이미 만든 값이라, 화면과 다른 수를 말할 자리가 없다.
+    expect(candidates.map((candidate) => candidate.type)).toEqual(["weekly_summary"]);
+    expect(candidates[0]!.title).toBe(weekly.text);
   });
 });

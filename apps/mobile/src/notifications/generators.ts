@@ -48,6 +48,27 @@ export type BudgetNotificationInput = {
   yearMonth: string;
   budgetKrw: number;
   spentKrw: number;
+  /**
+   * 라운드 79 B (GAP-079 #2) — 이 기기에 아직 올라가지 않은 **이 아이의** 지출 행이 있는가
+   * (`hasPendingRecordsForChild`). `true`면 **발화하지 않는다**: record_gap(라운드 54 P1-3)·
+   * monthly_wrapup(GAP-066 #8)이 이미 지고 있는 것과 **같은 판단**이고, 같은 갈래 형식이다.
+   *
+   * 이유: 이 판정의 입력(`spentKrw`)은 `/home`의 **서버 집계**(`monthly.usedAmountKrw`)다.
+   * 같은 화면의 예산 배너·진행바·히어로는 그 값이 아니라 대기 행까지 재조정한 값을 읽으므로
+   * (`src/home/budget-edit.ts`의 `resolveThisMonthUsedKrw`), 대기 행이 있는 순간 두 표면이
+   * 서로 다른 "이번 달"을 본다. 판정 함수는 셋이 공유하지만(@wooriai/domain의
+   * `reachedBudgetBoundaries` — 서버 푸시·홈 배너·인앱 알림) **먹이는 수가 다르다.**
+   * 그 어긋남은 양방향이다: 재조정 합계만 82%면 배너는 서고 알림함은 비어 있고, 반대로 이 기기에
+   * 삭제 대기 행이 있어 재조정 합계가 79%인데 서버가 80%면 **배너 없이 알림만 뜨면서 그 달의
+   * dedupeKey를 태운다**(그 뒤 진짜로 넘겨도 그 달에는 다시 오지 않는다).
+   *
+   * 대가는 **손실이 아니라 지연**이다: 억제된 평가는 키를 쓰지 않으므로(형제 둘과 같은 성질)
+   * 아웃박스가 확정돼 서버 집계가 올라오면 다음 평가가 정확한 값으로 **정확히 한 번** 발화한다.
+   * 그동안에도 사용자가 사실을 못 보는 것이 아니다 — 같은 순간 홈 배너가 재조정 값으로 화면에서
+   * 말하고 있고, 서버 푸시는 지출 커밋 시점에 `push_boundary_marks` 클레임으로 따로 간다
+   * (at-most-once — apps/api/src/push/push-dispatch.service.ts).
+   */
+  hasPendingLocalRecords?: boolean;
 };
 
 /**
@@ -74,13 +95,22 @@ export type BudgetNotificationInput = {
  * (FIX-119B/F4로 억제 시 새 키도 dedupe 메모리에 기록되지만, 그것은 억제를 legacy 키 수명에서
  * 독립시킬 뿐 억제 범위를 넓히지도 좁히지도 않는다.)
  *
+ * 라운드 79 B (GAP-079 #2): 판정 앞에 **게이트 하나**가 섰다 — 이 기기에 서버가 모르는 이 아이의
+ * 지출 행이 있으면(`hasPendingLocalRecords`) 후보를 만들지 않는다. 규칙이 아니라 **입력**이
+ * 갈리던 자리이고, 형제 알림 둘이 이미 같은 이유로 침묵한다(위 필드 주석 · `RecordGapInput`의
+ * `hasPendingLocalRecords` 주석 — "서버 스냅샷이 모르는 기록을 두고 단언하지 않는다").
+ * 대기 행이 없으면 종전과 한 글자도 다르지 않다.
+ *
  * Copy note: unlike the live banner, an in-app notification is a SNAPSHOT that stays in the list,
  * so the 초과 case deliberately keeps the amount-free "이번 달 예산을 초과했어요" -- a frozen
  * "1원 초과했어요" row would read as stale once the month runs on. The banner (live) and the push
  * (delivered immediately) do name the amount.
  */
 export function budgetNotifications(input: BudgetNotificationInput): AppNotificationCandidate[] {
-  const { childId, yearMonth, budgetKrw, spentKrw } = input;
+  const { childId, yearMonth, budgetKrw, spentKrw, hasPendingLocalRecords } = input;
+  // 라운드 79 B: 서버가 모르는 기록이 이 기기에 남아 있는 동안에는 경계를 단언하지 않는다
+  // (record_gap·monthly_wrapup과 같은 규율 -- 키를 태우지 않으므로 동기화 뒤 정확히 한 번 뜬다).
+  if (hasPendingLocalRecords) return [];
   const status = reachedBudgetBoundaries({ budgetKrw, spentKrw });
   if (!status.reached80) return [];
   if (status.reached100) {
@@ -570,6 +600,14 @@ export type HomeNotificationInput = {
    *
    * GAP-066 #8: **지난달 정리도 같은 값을 본다.** 두 알림 다 "서버 스냅숏이 이 기기가 아는 사실을
    * 아직 모른다"는 같은 이유로 침묵하므로, 판정을 두 벌로 만들지 않는다.
+   *
+   * 라운드 79 B (GAP-079 #2): **예산 알림(budget_80·budget_100)도 같은 값을 본다** — 셋째다.
+   * 같은 화면의 배너·진행바·히어로는 재조정 값(`resolveThisMonthUsedKrw`)을 읽는데 이 알림만
+   * 서버 집계(`monthly.usedAmountKrw`)를 읽어, 대기 행이 있는 동안 두 표면이 서로 다른 수 위에서
+   * 말했다(`BudgetNotificationInput.hasPendingLocalRecords` 주석에 방향까지 값으로 적어 둔다).
+   * ⚠️ 주간 요약은 이 게이트 밖이다 — 1순위가 **홈 주간 카드가 재조정 캐시로 이미 만든 값**이라
+   * 화면과 같은 수를 말하고, 서버 집계는 그 캐시가 확정 실패했을 때의 폴백뿐이다(그때는 서버 값이
+   * 유일하게 아는 사실이다).
    */
   hasPendingLocalRecords?: boolean;
   /**
@@ -589,7 +627,10 @@ export function evaluateHomeNotifications(input: HomeNotificationInput): AppNoti
       childId: input.child.id,
       yearMonth: input.monthly.yearMonth,
       budgetKrw: input.monthly.amountKrw,
-      spentKrw: input.monthly.usedAmountKrw
+      spentKrw: input.monthly.usedAmountKrw,
+      // 라운드 79 B (GAP-079 #2): 형제 둘과 **같은 값**을 본다 — 새 인자도 새 배선도 없다
+      // (이 값은 P1-3부터 이미 이 입력에 있었고, 홈 화면은 한 글자도 바뀌지 않는다).
+      hasPendingLocalRecords: input.hasPendingLocalRecords
     })
   ];
   const stage = stageTransitionNotification({
