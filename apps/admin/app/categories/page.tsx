@@ -26,6 +26,7 @@ import {
 } from "../../src/lib/category-rows";
 import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
 import { writeErrorMessage } from "../../src/lib/write-error-copy";
+import { ADMIN_WRITE_ROLE_NOTICE } from "../../src/lib/admin-role-copy";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
@@ -167,9 +168,14 @@ export default function CategoriesPage() {
           카테고리는 추가하거나 지울 수 없어요. 이미 기록된 지출이 이 카테고리들을 가리키고 있어서, 이름·순서·노출만 바꿀 수
           있게 해 두었어요.
         </p>
-        {!canEdit ? (
-          <p className={styles.hint}>지금 계정은 조회만 할 수 있어요. 수정은 관리자(admin) 권한이 필요해요.</p>
-        ) : null}
+        {/* 라운드 77 트랙 D(GAP-077 #4ⓐ): 이 화면이 먼저 고른 답 — "지금 계정은 조회만 할 수
+            있어요. 수정은 관리자(admin) 권한이 필요해요." — 을 이제 준비템·링크·고지 문구
+            화면도 함께 쓴다. 문자열은 바이트 불변이고 사는 자리만 한 곳(admin-role-copy.ts)이
+            됐다(사본 넷이 드리프트의 씨앗이라는 라운드 75 P-4의 교훈).
+            ⚠️ 위 인용은 ADM-127의 계약(src/admin-categories-users-lookup.test.ts — 이 화면의
+            소스에서 그 문장을 찾는다)이 문장을 잃지 않게 남겨 둔 닻이고, 화면에 서는 사본이
+            아니다. 인용과 상수가 갈리면 admin-write-role-gate.test.ts가 빨개진다. */}
+        {!canEdit ? <p className={styles.hint}>{ADMIN_WRITE_ROLE_NOTICE}</p> : null}
       </section>
 
       <section className={styles.card}>

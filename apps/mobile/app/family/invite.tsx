@@ -158,10 +158,27 @@ export default function FamilyInviteScreen() {
    * 코드를 준 실패는 그 앞 갈래에서 이미 갈라져 비교가 참이 된다. 그래서 403은 연결 판정이
    * 어긋난 창에서도 오프라인 문장에 가려지지 않는다(모듈 쪽 판정 순서가 403을 먼저 보는 것과
    * 함께 두 겹으로 막는다).
+   *
+   * 라운드 77 트랙 E(GAP-077 #5) — **훅이 만든 문장을 버리지 않는다.**
+   *
+   * 위 비교는 훅의 **완성된 문장**을 불리언 한 칸으로 접는다. 종전에는 그 한 칸만 넘기고 문장은
+   * 버렸는데, 훅의 순서가 아는 코드 → 오프라인 → 모르는 실패라 **서버가 코드로 말한 실패의
+   * 문장**(src/api/api-error.ts의 표)은 그 자리에서 함께 버려졌다 — 그 실패는 언제나
+   * `isOnline: true`가 되어 모듈의 일반 폴백으로 접혔다. 오늘 초대 생성이 받는 코드는 403 하나뿐이고
+   * 그것은 모듈의 첫 갈래가 먼저 답하므로 결함이 아니었지만, 표에 초대 관련 코드가 하나 오르는 날
+   * 이 화면만 조용히 다른 말을 하게 된다.
+   *
+   * ⚠️ 그래서 화면이 더하는 것은 여전히 **판정 0건**이다: 이미 계산해 둔 같은 값을 `serverCopy`로
+   * 함께 넘길 뿐이고(`isOnline` 파생은 한 글자도 바뀌지 않는다), 문장을 고르는 것은 종전대로
+   * `inviteCreateErrorMessage` 한 곳이다. 형제 화면(app/family/accept/[token].tsx)이 라운드 73 E부터
+   * 훅의 문장을 **그대로 그려** 온 것과 이제 같은 축이다 — 한 여정의 두 화면이 같은 훅을 정반대로
+   * 쓰던 것이 이 갈래가 없던 이유다(그쪽은 훅의 문장을 그대로, 이쪽은 초대 전용 폴백이 있는
+   * 자리만 모듈이 고른다).
    */
   const inviteSaveErrorCopy = useSaveErrorCopy(invite.isError, invite.error);
   const inviteCreateErrorText = inviteCreateErrorMessage(invite.error, {
-    isOnline: inviteSaveErrorCopy !== OFFLINE_SAVE_NOTICE
+    isOnline: inviteSaveErrorCopy !== OFFLINE_SAVE_NOTICE,
+    serverCopy: inviteSaveErrorCopy
   });
 
   const handleShare = async () => {

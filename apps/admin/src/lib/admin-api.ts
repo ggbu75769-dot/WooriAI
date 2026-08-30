@@ -401,8 +401,94 @@ const WRITE_TIMEOUT_MESSAGE =
 const IDEMPOTENT_WRITE_TIMEOUT_MESSAGE =
   "요청이 오래 걸리고 있어요(60초). 같은 요청을 다시 보내면 중복 없이 처리돼요 — 다시 시도해 주세요.";
 
+/**
+ * 라운드 77 리뷰 M-1 — **문장의 축은 HTTP 메서드가 아니라 "이 요청이 다시 보내도 안전한가"다.**
+ *
+ * 위 판정 셋이 `STATE_CHANGING_METHODS` **하나로만** 갈리면, 반영을 확인할 **목록**이 아예
+ * 없거나 아무것도 쓰지 않는 POST까지 *"반영 여부가 확실하지 않으니 목록을 새로고침해 확인한
+ * 뒤 다시 시도하세요"* 를 받는다 — **로그인 화면이 그 첫 자리다**(운영자가 아직 목록을 본
+ * 적도 없다). 그래서 그런 요청은 호출부가 `retrySafe`를 **명시**하고, 연결 실패·타임아웃
+ * 양쪽에서 읽기와 **같은 규율**의 문장을 받는다(메서드로 추론하지 않는다 — 추론하면 다음
+ * 라운드의 새 POST가 조용히 어느 한쪽에 떨어진다).
+ *
+ * 오늘 이 플래그를 다는 자리는 **여덟**이다: `/admin/auth/**`의 POST **일곱**(로그인 ·
+ * MFA 로그인 확인 · 로그아웃 · 비밀번호 변경 · MFA 등록 시작 · MFA 등록 확인 · MFA 해제)과
+ * 검증만 하는 `POST /admin/product-links/bulk-preview` **하나**. 여덟 모두 ⓐ 반영 여부를
+ * 확인할 목록이 없고, ⓑ 다시 보내도 **이중 반영이 없다** — 세션 발급·MFA 상태·비밀번호는
+ * 같은 입력에 같은 결과이고, 미리보기는 아무것도 쓰지 않는다.
+ *
+ * ⚠️ 그중 하나(`adminMfaSetupStart`)는 **조회 실패 한 벌의 열여섯 자리 중 하나**가 부르는
+ * 요청이다(`AdminShell`의 MFA 등록 관문 — 등록 정보 조회). 메서드만 보는 판정은 그 조회
+ * 자리 하나의 배너 문장을 쓰기 문장으로 바꿔 "조회 열여섯 무변경"을 조용히 깨뜨렸다.
+ * 이 플래그가 그 불변식의 안전핀이다.
+ */
+
+/** `retrySafe` 쓰기 메서드의 타임아웃. 규율은 `READ_TIMEOUT_MESSAGE`와 같고(다시 눌러도
+ * 안전하다), 다른 것은 괄호 안의 상한 하나뿐이다 — 이 여덟도 `timeoutMsForMethod`가
+ * 쓰기(60초)로 재므로 읽기 문장을 그대로 쓰면 *"(10초)"* 가 거짓이 된다. ⚠️ 상한 두 값은
+ * 한 글자도 바뀌지 않는다(bulk-preview 500행은 실제로 10초를 넘길 수 있다). */
+const RETRY_SAFE_TIMEOUT_MESSAGE = "요청 시간이 초과됐어요(60초). 네트워크 상태를 확인하고 다시 시도해 주세요.";
+
+/**
+ * GAP-077 트랙 B(R19-F 후속) — **연결 실패도 타임아웃과 같은 판정을 지난다.**
+ *
+ * 바로 위 타임아웃 세 문장은 `method`·`idempotent` 둘로 갈린다. 연결 실패(`fetch` 자체의
+ * 거절)는 오늘까지 그 판정을 지나지 않고 **한 문장**이었고, 그 문장이 GET·POST·PATCH·
+ * DELETE에 똑같이 서면서 *"다시 시도해 주세요"* 라고 말했다.
+ *
+ * ⚠️ **판정이 필요한 이유가 타임아웃과 정확히 같다.** `fetch`의 거절은 *"보내지 못했다"* 와
+ * *"보냈는데 답을 못 받았다"* 를 **구분하지 않는다** — 연결이 서기 전에 죽으면 서버는
+ * 아무것도 모르지만, 요청 본문이 나간 뒤 커넥션이 끊기면(리셋 · TLS 종료 · 중간 프록시)
+ * 서버는 이미 처리했을 수 있다. 클라이언트가 그 둘을 가를 방법은 없고, 그것이 바로
+ * `WRITE_TIMEOUT_MESSAGE`가 존재하는 이유다. 같은 불확실성에 타임아웃은 보수적으로,
+ * 연결 실패는 낙관적으로 말하고 있었다.
+ *
+ * ⚠️ **타임아웃 상수를 재활용하지 않는 이유**: 그 셋은 *"(10초)"* · *"(60초)"* 를 문장에
+ * 못박고 있어 연결 실패에 그대로 쓰면 거짓이다. 그래서 **같은 규율의 새 문장 둘**을 짓는다
+ * (읽기 문장은 오늘의 것 그대로 — 바이트 불변).
+ */
+
+/** 멱등키 없는 쓰기의 연결 실패. `WRITE_TIMEOUT_MESSAGE`와 **같은 모양**이다 — 반영 여부를
+ * 단정하지 않고, 재시도보다 **새로고침 확인을 먼저** 권한다. ⚠️ 꼬리가 `"다시 시도해
+ * 주세요"`가 아닌 것이 이 문장의 본체다(오늘 멱등키 없는 쓰기가 **열여덟**이라, 서버가
+ * 중복을 걸러 주지 않는 자리에 재시도를 권하면 이중 반영을 유도하는 안내가 된다). */
+const WRITE_CONNECTION_FAILURE_MESSAGE =
+  "서버에 연결하지 못했어요. 반영 여부가 확실하지 않으니 네트워크 상태를 확인하고, 목록을 새로고침해 확인한 뒤 다시 시도하세요.";
+
+/** 멱등키를 실어 보낸 쓰기(오늘 **여섯**)의 연결 실패. 서버가 중복을 걸러 주므로
+ * `IDEMPOTENT_WRITE_TIMEOUT_MESSAGE`와 같은 규율로 재시도를 권해도 된다 — 단,
+ * 재시도는 **같은 키**로 보내야 한다(`IdempotencyKeyHolder` 참고). */
+const IDEMPOTENT_WRITE_CONNECTION_FAILURE_MESSAGE =
+  "서버에 연결하지 못했어요. 같은 요청을 다시 보내면 중복 없이 처리되니, 네트워크 상태를 확인하고 다시 시도해 주세요.";
+
+/**
+ * 쓰기의 연결 실패 문장을 고른다. ⚠️ **판정을 새로 만들지 않는다** —
+ * `AdminApiTimeoutError`의 생성자가 쓰는 그 두 값(`STATE_CHANGING_METHODS.has(method)` ·
+ * `Boolean(idempotencyKey)`에서 온 `idempotent`)으로만 갈리고, 갈래의 모양도 같다.
+ *
+ * ⚠️ **읽기 갈래는 이 함수가 아니라 `request()`의 catch 자리에 리터럴로 남는다.** 조회 실패
+ * 한 벌(라운드 73~75 트랙 D)의 테스트가 그 한 줄을 **소스에서 정규식으로** 읽어 네트워크
+ * 갈래의 에러를 재현하기 때문이다. 그 파일은 이 트랙의 무접촉 대상이고, 그 스크레이프가 곧
+ * **"읽기 문장 바이트 불변"의 안전망**이다 — 문장을 여기 상수로 올리면 그 그물이 조용히
+ * 찢어진다(읽기 갈래가 상수 이름으로 바뀌어 정규식이 아무것도 못 찾는다).
+ */
+function writeConnectionFailureMessage(idempotent: boolean): string {
+  return idempotent ? IDEMPOTENT_WRITE_CONNECTION_FAILURE_MESSAGE : WRITE_CONNECTION_FAILURE_MESSAGE;
+}
+
+/**
+ * 연결 실패(`fetch` 자체의 거절)에 붙는 code. 타임아웃의 `"TIMEOUT"`과 같은 축이다.
+ *
+ * ⚠️ **술어가 `status === 0`을 읽지 않는 이유**(라운드 77 리뷰 P-2): status 0은
+ * "응답이 아예 없었다"는 뜻일 뿐이라 만드는 자리가 늘 수 있고, 오늘 이미 둘이다
+ * (연결 실패 · 타임아웃). 셋째가 생기는 날 status만 보는 술어는 그것을 **연결 실패로
+ * 오분류**하고 아무 단언도 깨지 않는다. code는 만든 자리가 스스로 붙이는 값이라 그 사각이 없다.
+ */
+export const CONNECTION_FAILURE_CODE = "CONNECTION_FAILURE";
+
 /** Thrown when fetchWithTimeout's OWN timeout bound fires (never for genuine
- * network failures -- those keep the "서버에 연결하지 못했어요" mapping below).
+ * network failures -- those take the `connectionFailureMessage` mapping above,
+ * which splits on the same two values this class does).
  * Extends AdminApiError (status 0, code "TIMEOUT") so every existing
  * `error instanceof AdminApiError`/`error.message` display path shows the
  * Korean timeout guidance without changes. `cause` carries the original abort
@@ -423,15 +509,19 @@ export class AdminApiTimeoutError extends AdminApiError {
   /** 이 요청이 `Idempotency-Key`를 실어 보냈는지 (= 같은 키로 재시도해도 안전). */
   readonly idempotent: boolean;
 
-  constructor(cause: unknown, method: string = "GET", idempotent: boolean = false) {
+  constructor(cause: unknown, method: string = "GET", idempotent: boolean = false, retrySafe: boolean = false) {
     const normalized = method.toUpperCase();
-    const isWrite = STATE_CHANGING_METHODS.has(normalized);
+    const stateChanging = STATE_CHANGING_METHODS.has(normalized);
+    // 라운드 77 리뷰 M-1: 쓰기 메서드여도 호출부가 retrySafe를 명시했으면 읽기와 같은 규율이다.
+    const isWrite = stateChanging && !retrySafe;
     const retryUnsafe = isWrite && !idempotent;
     const message = isWrite
       ? idempotent
         ? IDEMPOTENT_WRITE_TIMEOUT_MESSAGE
         : WRITE_TIMEOUT_MESSAGE
-      : READ_TIMEOUT_MESSAGE;
+      : stateChanging
+        ? RETRY_SAFE_TIMEOUT_MESSAGE
+        : READ_TIMEOUT_MESSAGE;
     super(0, message, "TIMEOUT");
     this.name = "AdminApiTimeoutError";
     this.method = normalized;
@@ -443,6 +533,13 @@ export class AdminApiTimeoutError extends AdminApiError {
 
 export function isTimeoutError(error: unknown): boolean {
   return error instanceof AdminApiTimeoutError;
+}
+
+/** 연결 실패(fetch 거절) 판별. 화면이 status 코드를 손으로 읽지 않고 이 술어를 읽게
+ * 하려고 판정을 이 파일에 둔다(라운드 77 B·C 접점). ⚠️ 판정 재료는 status가 아니라
+ * `CONNECTION_FAILURE_CODE`다 — 그 이유는 그 상수의 주석(라운드 77 리뷰 P-2). */
+export function isConnectionFailureError(error: unknown): boolean {
+  return error instanceof AdminApiError && error.code === CONNECTION_FAILURE_CODE;
 }
 
 /** 쓰기 타임아웃(반영 여부 불명 → 재시도 시 이중 반영 위험) 판별. 읽기 타임아웃,
@@ -470,7 +567,8 @@ function fetchWithTimeout(
   init: RequestInit,
   timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS,
   method: string = "GET",
-  idempotent: boolean = false
+  idempotent: boolean = false,
+  retrySafe: boolean = false
 ): Promise<Response> {
   const controller = new AbortController();
   let timedOut = false;
@@ -481,7 +579,7 @@ function fetchWithTimeout(
   return fetch(input, { ...init, signal: controller.signal })
     .catch((error: unknown) => {
       if (timedOut && (error as { name?: unknown } | null)?.name === "AbortError") {
-        throw new AdminApiTimeoutError(error, method, idempotent);
+        throw new AdminApiTimeoutError(error, method, idempotent, retrySafe);
       }
       throw error;
     })
@@ -491,9 +589,19 @@ function fetchWithTimeout(
 /**
  * @param idempotencyKey R19-F: 서버 IdempotencyInterceptor가 붙은 쓰기 경로에서만
  * 넘긴다. 재시도 시 **같은 값**을 다시 넘겨야 중복이 걸러진다.
+ * @param options.retrySafe 라운드 77 리뷰 M-1: 이 요청이 **반영을 확인할 목록도 없고
+ * 다시 보내도 이중 반영이 없는** POST인지(위 `RETRY_SAFE_TIMEOUT_MESSAGE` 위 문단의 여덟).
+ * 연결 실패·타임아웃 모두에서 읽기와 같은 규율의 문장을 받는다. 기본은 false다 —
+ * **명시하지 않은 쓰기는 보수적인 쪽(반영 여부 불명)으로 남는다.**
  */
-async function request<T>(path: string, init?: RequestInit, idempotencyKey?: string): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  idempotencyKey?: string,
+  options?: { retrySafe?: boolean }
+): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
+  const retrySafe = options?.retrySafe === true;
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(init?.headers as Record<string, string> ?? {}) };
   const idempotent = STATE_CHANGING_METHODS.has(method) && Boolean(idempotencyKey);
   if (STATE_CHANGING_METHODS.has(method)) {
@@ -515,13 +623,26 @@ async function request<T>(path: string, init?: RequestInit, idempotencyKey?: str
       // 운영자가 재시도해 이중 반영될 수 있어서다.
       timeoutMsForMethod(method),
       method,
-      idempotent
+      idempotent,
+      retrySafe
     );
   } catch (error) {
-    // The timeout keeps its own typed error (and Korean guidance); every
-    // other rejection stays the generic connection failure, exactly as before.
+    // The timeout keeps its own typed error (and Korean guidance); every other
+    // rejection is the connection failure -- which now runs through R19-F's
+    // judgment on the SAME two values the timeout branch already computed
+    // (`method`, `idempotent`), instead of one sentence for GET/POST/PATCH/DELETE.
+    // 타입은 종전 그대로 `AdminApiError(0, …)`이라 `writeErrorMessage`/`loadErrorCopy`가
+    // 한 글자도 바뀌지 않고 이 문장을 나른다(새 클래스 0건).
     if (error instanceof AdminApiTimeoutError) throw error;
-    throw new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.");
+    if (!STATE_CHANGING_METHODS.has(method) || retrySafe) {
+      // 읽기(GET·HEAD)와 **retrySafe 여덟**은 **오늘의 문장 그대로다 — 바이트 불변.**
+      // 다시 눌러도 안전하므로 재시도 안내가 그대로 옳다(멱등키 없는 쓰기와 정반대라는
+      // 것이 R19-F의 값이고, 그 축이 메서드가 아니라는 것이 라운드 77 리뷰 M-1이다).
+      // ⚠️ 이 갈래만 문장이 리터럴로 여기에 남는 이유는 writeConnectionFailureMessage의
+      // 주석 참고(무접촉 파일의 소스 스크레이프가 이 꼴을 읽는다).
+      throw new AdminApiError(0, "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.", CONNECTION_FAILURE_CODE);
+    }
+    throw new AdminApiError(0, writeConnectionFailureMessage(idempotent), CONNECTION_FAILURE_CODE);
   }
 
   let text = "";
@@ -629,11 +750,17 @@ export type ProductLinkBulkApplyResult = { applied: number; skipped: number; err
 /** CSV 템플릿 헤더: productLinkId 또는 itemTemplate(코드/이름)+platform 중 하나로 대상을 지정한다. */
 export const PRODUCT_LINK_BULK_CSV_HEADER = "productLinkId,itemTemplate,platform,affiliateUrl,priceSnapshotKrw";
 
+/** ⚠️ `retrySafe`: 이 POST는 **검증만 하고 아무것도 쓰지 않는다.** 쓰기로 분류되는 것은
+ * `timeoutMsForMethod`의 상한 하나뿐이고(60초 — 500행이 실제로 10초를 넘긴다), 반영을
+ * 확인할 목록도 없다. 플래그가 없으면 연결 실패·타임아웃에 *"반영 여부가 확실하지 않으니
+ * 목록을 새로고침해…"* 가 서는데, 그 문장은 여기서 통째로 거짓이다(라운드 77 리뷰 M-1). */
 export function bulkPreviewProductLinks(csv: string) {
-  return request<ProductLinkBulkPreviewResult>("/admin/product-links/bulk-preview", {
-    method: "POST",
-    body: JSON.stringify({ csv })
-  });
+  return request<ProductLinkBulkPreviewResult>(
+    "/admin/product-links/bulk-preview",
+    { method: "POST", body: JSON.stringify({ csv }) },
+    undefined,
+    { retrySafe: true }
+  );
 }
 
 /** R19-F: admin 쓰기 중 재시도 위험이 가장 큰 경로라 서버 멱등키가 붙어 있다.
@@ -870,15 +997,28 @@ export type AdminLoginResult =
   | { mfaRequired: true; mfaToken: string; expiresIn: number }
   | { mfaRequired: false; admin: AdminProfile; mfaEnabled: boolean; mfaRecoveryCodesRemaining?: number };
 
+/**
+ * ⚠️ 아래 `/admin/auth/**` POST **일곱**은 전부 `retrySafe`다(라운드 77 리뷰 M-1).
+ * 세션 발급·해제, MFA 등록/해제, 비밀번호 변경은 ⓐ 반영을 확인할 **목록이 없고**
+ * (로그인 화면에는 새로고침할 목록이라는 것이 존재하지 않는다), ⓑ 같은 입력으로 다시
+ * 보내도 **이중 반영이 없다**. 그래서 연결 실패·타임아웃 문장은 읽기와 같은 규율을 쓴다.
+ */
 export function adminLogin(email: string, password: string) {
-  return request<AdminLoginResult>("/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+  return request<AdminLoginResult>(
+    "/admin/auth/login",
+    { method: "POST", body: JSON.stringify({ email, password }) },
+    undefined,
+    { retrySafe: true }
+  );
 }
 
 export function adminVerifyMfaLogin(mfaToken: string, code: string) {
-  return request<Extract<AdminLoginResult, { mfaRequired: false }>>("/admin/auth/mfa/verify-login", {
-    method: "POST",
-    body: JSON.stringify({ mfaToken, code })
-  });
+  return request<Extract<AdminLoginResult, { mfaRequired: false }>>(
+    "/admin/auth/mfa/verify-login",
+    { method: "POST", body: JSON.stringify({ mfaToken, code }) },
+    undefined,
+    { retrySafe: true }
+  );
 }
 
 export function adminMe() {
@@ -886,7 +1026,7 @@ export function adminMe() {
 }
 
 export function adminLogout() {
-  return request<{ success: true }>("/admin/auth/logout", { method: "POST" });
+  return request<{ success: true }>("/admin/auth/logout", { method: "POST" }, undefined, { retrySafe: true });
 }
 
 /** ADM-007: change the logged-in admin's own password. MFA-exempt on the API
@@ -895,27 +1035,42 @@ export function adminLogout() {
  * success the API revokes every OTHER session of the admin; the session that
  * performed the change stays valid. */
 export function adminChangePassword(currentPassword: string, newPassword: string) {
-  return request<{ success: true }>("/admin/auth/change-password", {
-    method: "POST",
-    body: JSON.stringify({ currentPassword, newPassword })
-  });
+  return request<{ success: true }>(
+    "/admin/auth/change-password",
+    { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) },
+    undefined,
+    { retrySafe: true }
+  );
 }
 
+/** ⚠️ 등록 정보 **조회**에 가까운 POST다(서버가 새 시크릿을 발급해 돌려준다). 이 한 자리가
+ * 조회 실패 한 벌의 열여섯 중 하나(`AdminShell`의 MFA 등록 관문)라, 여기서 쓰기 문장이
+ * 나오면 "조회 열여섯 무변경"이 조용히 깨진다 — 위 `retrySafe` 문단의 안전핀이 이것이다. */
 export function adminMfaSetupStart() {
-  return request<{ otpauthUrl: string; secret: string; email: string }>("/admin/auth/mfa/setup/start", {
-    method: "POST"
-  });
+  return request<{ otpauthUrl: string; secret: string; email: string }>(
+    "/admin/auth/mfa/setup/start",
+    { method: "POST" },
+    undefined,
+    { retrySafe: true }
+  );
 }
 
 export function adminMfaSetupVerify(code: string) {
-  return request<{ recoveryCodes: string[] }>("/admin/auth/mfa/setup/verify", {
-    method: "POST",
-    body: JSON.stringify({ code })
-  });
+  return request<{ recoveryCodes: string[] }>(
+    "/admin/auth/mfa/setup/verify",
+    { method: "POST", body: JSON.stringify({ code }) },
+    undefined,
+    { retrySafe: true }
+  );
 }
 
 export function adminMfaDisable(code: string) {
-  return request<{ success: true }>("/admin/auth/mfa/disable", { method: "POST", body: JSON.stringify({ code }) });
+  return request<{ success: true }>(
+    "/admin/auth/mfa/disable",
+    { method: "POST", body: JSON.stringify({ code }) },
+    undefined,
+    { retrySafe: true }
+  );
 }
 
 // COM-103: CMS draft -> review -> publish workflow. editor sessions route

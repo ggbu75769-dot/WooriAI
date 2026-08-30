@@ -13,8 +13,10 @@ import {
   bulkPreviewProductLinks,
   createIdempotencyKeyHolder,
   isAuthError,
+  isConnectionFailureError,
   isIdempotentTimeoutError,
   isRetryUnsafeTimeoutError,
+  isTimeoutError,
   type ProductLinkBulkApplyResult,
   type ProductLinkBulkPreviewResult
 } from "../lib/admin-api";
@@ -95,7 +97,39 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
         clearSession();
         return;
       }
-      setError("미리보기에 실패했어요. CSV 형식을 확인하고 다시 시도해 주세요.");
+      // 라운드 77 트랙 C ①: 타임아웃은 **미리보기 전용** 안내로 갈라 낸다.
+      // ⚠️ 라운드 77 리뷰 M-1 뒤로 `bulkPreviewProductLinks`가 `retrySafe`를 명시하므로
+      // admin-api.ts는 이제 쓰기 문장(*"반영 여부가 확실하지 않으니…"*)이 아니라 읽기와 같은
+      // 규율의 문장(*"요청 시간이 초과됐어요(60초). …"*)을 만든다 — **원천이 이미 정직하다.**
+      // 그래도 이 갈래를 남기는 이유는 그 문장이 여전히 **일반적**이기 때문이다: 미리보기가
+      // 아무것도 쓰지 않는다는 사실과 [미리보기]를 한 번 더 누르면 된다는 다음 행동은
+      // 이 패널만 알고, 그 둘이 운영자가 실제로 필요로 하는 값이다(원천 문장은 그 자리에서
+      // 거짓은 아니지만 덜 말한다). 어법은 이 패널이 이미 들고 있는 타임아웃 안내 둘을 따르되,
+      // 그 둘을 그대로 쓰지 않는 이유는 둘 다 "적용 요청"의 **반영 여부**를 말하기 때문이다.
+      if (isTimeoutError(err)) {
+        setError(
+          "미리보기 요청이 오래 걸려 결과를 받지 못했어요. 미리보기는 검증만 하고 아무것도 바꾸지 않으니, '미리보기'를 한 번 더 눌러 주세요."
+        );
+        return;
+      }
+      // 라운드 77 B·C 접점: 연결 실패도 **미리보기 전용** 안내로 갈라 낸다.
+      // ⚠️ 리뷰 M-1 뒤로 원천이 여기에 흘려보내는 것은 비멱등 쓰기 문장이 아니라 **읽기
+      // 문장**이다(`retrySafe`). 위 타임아웃 갈래와 같은 이유로 이 갈래는 그대로 남는다 —
+      // 원천의 문장은 거짓이 아니지만 "아무것도 바꾸지 않았다 · 한 번 더 누르면 된다"를
+      // 말하지 못하고, 그 둘이 이 자리에서 운영자가 필요로 하는 값이다. 죽은 코드도 아니다:
+      // 이 갈래가 없으면 한 벌이 그 **일반 문장**을 그대로 세운다.
+      // 판정은 admin-api.ts의 술어를 읽는다(라운드 77 리뷰 P-2 뒤로 재료는 code 하나다).
+      if (isConnectionFailureError(err)) {
+        setError(
+          "서버에 연결하지 못했어요. 미리보기는 검증만 하고 아무것도 바꾸지 않으니, 네트워크 상태를 확인하고 '미리보기'를 한 번 더 눌러 주세요."
+        );
+        return;
+      }
+      // 라운드 77 트랙 C ②: 남은 실패(403 · 5xx · 400 검증)의 서버 사유를 그대로
+      // 나른다 — 종전에는 err를 401 판정에만 쓰고 버려서 **모든 실패**가 CSV 형식을 지목했다
+      // (analyst 계정의 403도, 죽은 서버도). 폴백에서 그 원인을 단정하던 가운데 한 절이 빠진
+      // 이유가 그것이고, CSV 형식이 실제 원인일 때는 **서버가 그 사유를 말한다**.
+      setError(writeErrorMessage(err, "미리보기에 실패했어요. 다시 시도해 주세요."));
     } finally {
       setPreviewing(false);
     }

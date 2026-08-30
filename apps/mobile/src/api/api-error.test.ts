@@ -438,10 +438,22 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
       "onboarding/items-catalog.service.ts"
     ];
 
-    /** 표에 넣지 않는 코드와 그 이유. 비우면 안 된다 — 이유 없는 제외가 바로 이 표의 병이었다. */
+    /**
+     * 표에 넣지 않는 코드와 그 이유. 비우면 안 된다 — 이유 없는 제외가 바로 이 표의 병이었다.
+     *
+     * ⚠️ 라운드 77 A — **사유는 이 스윕의 단위(아웃박스·준비템 상태 큐)로만 적는다.** 그 밖의
+     * 사실은 사유가 아니라 **관측**이다. 이 목록은 구매 링크 클릭의 두 코드를 제외하며 이유를
+     * **둘** 적었었다: *"클릭은 아웃박스를 타지 않는 즉시 요청이다"*(참이고, 이 스윕의 단위다)와
+     * *"그 화면이 자기 문구를 쓴다"*. 뒤 절은 **오늘 거짓을 날랐다** — 그 "자기 문구"는 영원히
+     * 통하지 않을 실패 앞에서 *"링크를 열지 못했어요. 잠시 후 다시 시도해 주세요."* 였다.
+     * **제외의 이유가 둘이면 하나가 거짓이 되어도 이 계약은 조용하다.** 그래서 두 코드
+     * (`PRODUCT_LINK_NOT_FOUND` · `PRODUCT_LINK_URL_SCHEME_INVALID`)는 이제 표에 있고
+     * (아래 "라운드 77 A" 블록이 그 문구를 문다), 여기 남은 사유는 전부 **"이 스윕이 요구하는
+     * 배선이 없어도 되는 이유"** 하나만 말한다. 라운드 76 Q-1이 얻은 그 문장의 쌍둥이다.
+     */
     const excludedWithReason: Readonly<Record<string, string>> = {
       EXPENSE_CURSOR_INVALID:
-        "목록 조회 전용이다. 커서는 앱이 만든 값이고 그 화면이 자기 폴백으로 처리한다 — 아웃박스·상태 큐가 지나지 않는다.",
+        "목록 조회 전용 코드다 — 아웃박스도 준비템 상태 큐도 이 엔드포인트를 지나지 않는다(커서는 앱이 만든 값이고, 그 화면이 자기 폴백을 쓴다는 사실은 사유가 아니라 관측이다).",
       EXPENSE_CHILD_MISMATCH:
         "준비템 상태 PATCH가 expenseId를 함께 보낼 때만 나오는 403인데, 상태 큐가 보내는 것은 상태값 하나다(src/offline/remote-api.ts의 updateItemStatus).",
       VALIDATION_ERROR:
@@ -460,12 +472,11 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
       ADMIN_SKIP_REASON_REQUIRED:
         "어드민 준비템 저장에서 필수가 아닌 템플릿에 건너뛰기 안내를 요구하는 검증이다. 앱은 이 엔드포인트를 호출하지 않는다.",
       ITEM_TIMING_LABEL_MISMATCH:
-        "어드민 준비템 저장·검토 초안의 시기 라벨↔스테이지 정합 검증이다(라운드 76 E, requireTimingLabelMatchesStages). 앱은 카탈로그를 읽기만 하고 저장 엔드포인트를 호출하지 않는다.",
-      // --- 앱이 지나지만 **큐가 아닌** 갈래 (구매 링크 클릭은 즉시 요청이다) ---
-      PRODUCT_LINK_NOT_FOUND:
-        "구매 링크 클릭(clickProductLink)의 404와 어드민 링크 조회의 404다. 클릭은 아웃박스를 타지 않는 즉시 요청이라 실패해도 큐 행이 남지 않고, 그 화면이 자기 문구를 쓴다(app/items/[itemTemplateId].tsx의 showLinkFailure). 아웃박스가 지나는 '연결하려던 링크가 없다'는 별도 코드 LINKED_PRODUCT_LINK_NOT_FOUND이고 그쪽은 표에 있다.",
-      PRODUCT_LINK_URL_SCHEME_INVALID:
-        "어드민이 넣은 링크 주소의 스킴 검증(requireHttpUrl)이다. 클릭 경로에서도 같은 함수가 저장된 주소를 방어적으로 다시 보지만, 그때 잘못된 값은 사용자가 고칠 수 있는 것이 아니고 클릭은 큐를 타지 않는다."
+        "어드민 준비템 저장·검토 초안의 시기 라벨↔스테이지 정합 검증이다(라운드 76 E, requireTimingLabelMatchesStages). 앱은 카탈로그를 읽기만 하고 저장 엔드포인트를 호출하지 않는다."
+      // --- 라운드 77 A: 구매 링크 클릭의 두 코드(PRODUCT_LINK_NOT_FOUND ·
+      //     PRODUCT_LINK_URL_SCHEME_INVALID)는 이 목록을 떠나 표로 갔다. 클릭이 아웃박스를 타지
+      //     않는다는 사실은 그대로이고(이 스윕의 단위로는 여전히 제외해도 될 코드다), 표에
+      //     들어간 이유는 **화면이 그 코드를 읽어 문구를 고르기 때문**이다 — 위 doc 참고.
     };
 
     const swept = new Set(outboxPathFiles.flatMap(thrownCodesIn));
@@ -486,6 +497,23 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
     // 제외 목록이 유령을 들고 있지 않은지도 본다 — 서버에서 사라진 코드의 이유는 남을 수 없다.
     for (const code of Object.keys(excludedWithReason)) {
       expect(excludedWithReason[code].length, code).toBeGreaterThan(20);
+    }
+
+    // 라운드 77 A ⓓ — 남은 사유는 **이 스윕의 단위**로만 적힌다. "그 화면이 자기 문구를 쓴다"는
+    // 제외의 근거가 될 수 없다(그 문구가 오안내가 되는 날 이 계약은 아무 말도 하지 않는다).
+    for (const [code, reason] of Object.entries(excludedWithReason)) {
+      expect(reason, `${code}의 제외 사유가 "자기 문구"에 기대고 있다`).not.toContain("자기 문구");
+    }
+
+    // 그리고 구매 링크 클릭의 두 코드는 이제 제외가 아니라 **표**가 답한다.
+    for (const code of ["PRODUCT_LINK_NOT_FOUND", "PRODUCT_LINK_URL_SCHEME_INVALID"]) {
+      expect(Object.prototype.hasOwnProperty.call(excludedWithReason, code), `${code}는 제외 목록을 떠났다`).toBe(
+        false
+      );
+      expect(API_ERROR_MESSAGES[code], code).toBeTruthy();
+      // 스윕이 실제로 그 코드를 봤다는 것도 함께 못 박는다(제외를 지우기만 하고 표에 없으면
+      // 위 루프가 빨개지지만, 스윕이 코드를 놓치면 아무도 모른다).
+      expect([...swept], code).toContain(code);
     }
   });
 
@@ -548,6 +576,111 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
     expect(ACCOUNT_STATUS_ERROR_CODES).toEqual(["USER_WITHDRAWN", "USER_BLOCKED"]);
     // 삭제-404 수렴은 코드로 판정한다 — 표에 문구가 생겼다고 그 경로가 바뀌지 않는다.
     expect(source("src/offline/sync-engine.ts")).toContain('body?.error?.code === "EXPENSE_NOT_FOUND"');
+  });
+});
+
+/**
+ * 라운드 77 A — **핵심 루프 4단계(구매 링크 클릭)가 막다른 문장으로 끝나지 않는다.**
+ *
+ * 서버는 이 실패의 이유를 오래전부터 코드로 말해 왔다: 링크가 내려갔거나 허용 도메인 밖이면
+ * 404 `PRODUCT_LINK_NOT_FOUND`, 저장된 주소의 스킴이 http/https가 아니면 400
+ * `PRODUCT_LINK_URL_SCHEME_INVALID`. **셋 다 다시 눌러도 결과가 같은데**, 화면은 그 코드를
+ * 보지 않고 *"링크를 열지 못했어요. 잠시 후 다시 시도해 주세요."* 한 문장만 말했다 — 그 상세에
+ * 다른 판매처 링크가 두 개 더 서 있어도 사용자는 그것을 눌러 볼 이유를 얻지 못했다.
+ *
+ * 이 블록이 고정하는 것은 셋이다: 표의 두 문구가 **말해야 하는 것을 말하는가**, 그 코드가
+ * **실제 서버 파일에서 오는가**, 그리고 화면이 그 표를 **어떻게 지나는가**(아는 코드면 폴 없이
+ * 표의 문구, 모르는 실패면 종전 문장 그대로).
+ */
+describe("라운드 77 A — 구매 링크 클릭 실패가 이유를 말한다", () => {
+  const clickCodes = ["PRODUCT_LINK_NOT_FOUND", "PRODUCT_LINK_URL_SCHEME_INVALID"];
+  /** 화면이 모르는 실패에 쓰는 문장. 이 라운드가 **바이트 하나도 바꾸지 않은** 폴백이다. */
+  const screenFallback = "링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.";
+
+  it("서버가 코드로 말한 두 실패가 표를 지나 화면 문구가 된다", () => {
+    // 어드민이 링크를 내렸다 / 허용 도메인 밖이다 — 서버는 두 갈래에 같은 404를 준다.
+    const notFound = new ApiHttpError(404, envelope("PRODUCT_LINK_NOT_FOUND", "상품 링크를 찾을 수 없어요."));
+    const notFoundShown = apiErrorMessage(notFound, screenFallback);
+    expect(notFoundShown).toBe(API_ERROR_MESSAGES.PRODUCT_LINK_NOT_FOUND);
+    expect(notFoundShown).not.toBe(screenFallback);
+
+    // 저장된 주소의 스킴이 깨졌다(requireHttpUrl). 사용자가 고칠 수 있는 값이 아니다.
+    const badScheme = new ApiHttpError(
+      400,
+      envelope("PRODUCT_LINK_URL_SCHEME_INVALID", "상품 링크 주소는 http 또는 https로 시작해야 해요.")
+    );
+    const badSchemeShown = apiErrorMessage(badScheme, screenFallback);
+    expect(badSchemeShown).toBe(API_ERROR_MESSAGES.PRODUCT_LINK_URL_SCHEME_INVALID);
+    // 서버 원문은 **어드민이 읽을 문장**이다 — 주소를 고칠 수 있는 사람은 사용자가 아니다.
+    expect(badSchemeShown).not.toContain("http 또는 https");
+
+    // 모르는 실패는 종전 그대로 화면의 문장이다(표가 새 폴백을 만들지 않는다).
+    expect(apiErrorMessage(new ApiHttpError(500, envelope("INTERNAL_ERROR", "…")), screenFallback)).toBe(
+      screenFallback
+    );
+    expect(apiErrorMessage(new Error("Network request failed"), screenFallback)).toBe(screenFallback);
+  });
+
+  it("두 문구는 재시도를 권하지 않고, 지금 눌러 볼 것을 말한다", () => {
+    for (const code of clickCodes) {
+      const message = API_ERROR_MESSAGES[code];
+      expect(message, code).toBeTruthy();
+      // LINKED_PRODUCT_LINK_NOT_FOUND가 지는 그 부정 단언과 같은 모양이다.
+      for (const retryPhrase of ["잠시 후 다시", "다시 시도"]) {
+        expect(message, `${code}는 "${retryPhrase}"를 쓰지 않는다`).not.toContain(retryPhrase);
+      }
+      // 사실 한 문장 + 다음에 할 일 한 문장(ITEM_NOT_FOUND 계열의 문형).
+      expect(message.split("요.").filter(Boolean).length, code).toBeGreaterThanOrEqual(2);
+      // ⚠️ 라운드 77 리뷰 S-4: 꼬리가 **"다른 구매 링크"를 단정하지 않는다.** 이 표는 코드만
+      // 보고 답하므로 그 상세에 다른 판매처 링크가 있는지 모르고, 링크가 하나뿐인 준비템에서는
+      // 없는 것을 가리키는 안내가 된다(막다른 문장을 문형만 바꿔 되풀이하는 꼴).
+      expect(message, code).toContain("이 준비템의 구매 링크를 다시 확인해 주세요.");
+      expect(message, `${code}는 다른 링크의 존재를 단정하지 않는다`).not.toContain("다른 구매 링크");
+      // 표기 방언(P3): 새 문장은 **띄어 쓴 쪽**을 쓴다 — 붙여 쓴 파일 셋에 넷째를 더하지 않는다.
+      expect(message, code).not.toContain("확인해주세요");
+      expect(message, code).not.toContain("시도해주세요");
+    }
+    // 두 문구는 서로 다른 사실을 말한다(같은 문장을 두 코드에 붙이면 코드가 둘일 이유가 없다).
+    expect(API_ERROR_MESSAGES.PRODUCT_LINK_NOT_FOUND).not.toBe(API_ERROR_MESSAGES.PRODUCT_LINK_URL_SCHEME_INVALID);
+  });
+
+  it("두 코드는 실제 서버가 던지는 코드다 — 404는 갈래가 둘이고 코드는 하나다", () => {
+    const catalog = thrownCodesIn("onboarding/items-catalog.service.ts");
+    for (const code of clickCodes) {
+      expect(catalog, `${code} ← onboarding/items-catalog.service.ts`).toContain(code);
+    }
+    const catalogSource = apiSource("onboarding/items-catalog.service.ts");
+    // 갈래 ⓐ: 링크가 없거나 active:false. 갈래 ⓑ: 허용 도메인 밖(같은 404를 재사용한다).
+    expect(catalogSource).toContain('code: "PRODUCT_LINK_NOT_FOUND", message: "상품 링크를 찾을 수 없어요."');
+    expect(catalogSource).toContain("throw new NotFoundException(PRODUCT_LINK_NOT_FOUND_ERROR);");
+    expect(apiSource("items-commerce/affiliate-link-guard.util.ts")).toContain('code: "PRODUCT_LINK_NOT_FOUND"');
+    // 스킴 검증은 클릭 경로와 어드민 저장이 같은 함수를 쓴다(requireHttpUrl).
+    expect(catalogSource).toContain('code: "PRODUCT_LINK_URL_SCHEME_INVALID"');
+    expect(catalogSource).toContain("this.requireHttpUrl(redirectUrl);");
+  });
+
+  /**
+   * 배선 계약 — 화면은 vitest에서 렌더할 수 없으므로 이 파일의 관례대로 소스로 확인한다.
+   * 계약 ⓐ: **아는 코드면 표의 문구가, 모르면 종전 문장이** 선다. 그리고 오프라인 폴은
+   * **모르는 실패에서만** 돈다 — 서버가 코드로 답했다는 사실이 곧 연결이 있었다는 뜻이라,
+   * 그때 연결 안내로 갈아 끼우면 오안내 하나를 다른 오안내로 바꾸는 것이 된다.
+   */
+  it("화면이 표를 지난다 — 아는 코드는 폴 없이, 모르는 실패는 종전 그대로", () => {
+    const detailSource = source("app/items/[itemTemplateId].tsx");
+    expect(detailSource).toContain('import { apiErrorCodeOf, apiErrorMessageForCode } from "../../src/api/api-error";');
+    // 종전에는 인자를 **받지도 않았다**(onError: () => {) — 그것이 이 후보의 본체였다.
+    expect(detailSource).toContain("onError: (error) => {");
+    expect(detailSource).toContain("const knownFailureReason = apiErrorMessageForCode(apiErrorCodeOf(error));");
+    expect(detailSource).toContain("if (knownFailureReason) showLinkNotice(knownFailureReason);");
+    // 모르는 실패의 문장은 **바이트 불변**이고, 그 갈래만 오프라인 폴을 지난다.
+    expect(detailSource).toContain(`else showLinkFailure("${screenFallback}");`);
+    expect(detailSource).toContain("const showLinkFailure = (onlineNotice: string) => {");
+    expect(detailSource).toContain("if (!online) setClickedTitle(OFFLINE_RETRY_NOTICE);");
+    expect(detailSource).toContain("if (linkNoticeSeqRef.current !== seq) return;");
+    // 화면은 문구를 새로 짓지 않는다 — 표의 두 문장이 이 파일에 사본으로 적히면 안 된다.
+    for (const code of clickCodes) {
+      expect(detailSource, code).not.toContain(API_ERROR_MESSAGES[code]);
+    }
   });
 });
 

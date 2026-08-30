@@ -1,18 +1,35 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AdminApiError,
   AdminApiTimeoutError,
   adminChangePassword,
+  adminLogin,
+  adminLogout,
+  adminMfaDisable,
+  adminMfaSetupStart,
+  adminMfaSetupVerify,
+  adminVerifyMfaLogin,
+  bulkPreviewProductLinks,
+  CONNECTION_FAILURE_CODE,
+  isConnectionFailureError,
   createAdminUser,
+  createItemTemplate,
+  createProductLink,
   DEFAULT_FETCH_TIMEOUT_MS,
   getAdminDashboardSummary,
   isAuthError,
+  isIdempotentTimeoutError,
   isRetryUnsafeTimeoutError,
   isSelfUpdateForbiddenError,
   isTimeoutError,
   listAdminUsers,
   listAuditLogs,
+  listProductLinks,
   updateAdminUser,
+  updateDisclosure,
+  updateItemTemplate,
   WRITE_FETCH_TIMEOUT_MS,
   bulkApplyProductLinks,
   timeoutMsForMethod,
@@ -392,5 +409,377 @@ describe("admin API write timeout separation (FIX-118C)", () => {
     expect(isRetryUnsafeTimeoutError(new AdminApiError(500, "서버 오류"))).toBe(false);
     expect(isRetryUnsafeTimeoutError(new Error("AbortError"))).toBe(false);
     expect(isRetryUnsafeTimeoutError(null)).toBe(false);
+  });
+});
+
+/**
+ * GAP-077 트랙 B(#2) — **연결 실패도 R19-F 판정을 지난다.**
+ *
+ * 라운드 76까지 같은 함수 안에서 두 갈래가 갈려 있었다. 타임아웃은 `method`·`idempotent`로
+ * 문장 **셋**을 고르는데(읽기 / 비멱등 쓰기 / 멱등 쓰기), 바로 아래 연결 실패 갈래는 그 두
+ * 값이 **스코프에 이미 있는데도** 읽지 않고 한 문장을 던졌다 — GET·POST·PATCH·DELETE가
+ * 전부 *"…다시 시도해 주세요."* 를 받았다.
+ *
+ * ⚠️ **왜 같은 판정이 필요한가.** `fetch`의 거절은 *"보내지 못했다"* 와 *"보냈는데 답을 못
+ * 받았다"* 를 **구분하지 않는다**. 요청 본문이 나간 뒤 커넥션이 끊기면(리셋 · TLS 종료 ·
+ * 중간 프록시) 서버는 이미 처리했을 수 있고, 클라이언트가 그 둘을 가를 방법은 없다 —
+ * **그것이 정확히 `WRITE_TIMEOUT_MESSAGE`가 존재하는 이유다.** 같은 불확실성에 타임아웃은
+ * 보수적으로, 연결 실패는 낙관적으로 말하고 있었다.
+ *
+ * 이 트랙이 만드는 것은 **문장 둘**뿐이다(새 판정 0건 · 새 클래스 0건 · 서버 0건).
+ */
+describe("어드민 연결 실패의 세 갈래 (GAP-077 트랙 B)", () => {
+  const fetchMock = vi.fn();
+
+  /** ⚠️ 오늘의 읽기 문장 — 바이트 불변이어야 한다(계약 ⓒ). */
+  const READ_CONNECTION_FAILURE = "서버에 연결하지 못했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.";
+
+  const adminRoot = process.cwd();
+  const readApiSource = (): string => readFileSync(join(adminRoot, "src", "lib", "admin-api.ts"), "utf8");
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("document", { cookie: "admin_csrf=csrf-token-123" });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** 진짜 네트워크 실패(연결이 서지 못했거나, 나간 뒤 끊겼거나 — 구분할 수 없다). */
+  async function connectionFailure(call: () => Promise<unknown>): Promise<AdminApiError> {
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const failure = await call().catch((error: unknown) => error);
+    expect(failure, "연결 실패는 AdminApiError로 온다").toBeInstanceOf(AdminApiError);
+    // 타임아웃 타입으로 승격되지 않는다 — 두 실패는 끝까지 구분된다.
+    expect(failure).not.toBeInstanceOf(AdminApiTimeoutError);
+    return failure as AdminApiError;
+  }
+
+  it("GET의 연결 실패는 오늘의 문장 그대로다 (계약 ⓒ · 바이트 불변)", async () => {
+    for (const call of [
+      () => listAdminUsers(),
+      () => listProductLinks(),
+      () => listAuditLogs(),
+      () => getAdminDashboardSummary()
+    ]) {
+      const failure = await connectionFailure(call);
+      expect(failure.message).toBe(READ_CONNECTION_FAILURE);
+      expect(failure.status).toBe(0);
+      // 연결 실패는 세션 만료가 아니다 — 로그아웃 갈래로 새지 않는다.
+      expect(isAuthError(failure)).toBe(false);
+      expect(isTimeoutError(failure)).toBe(false);
+    }
+
+    // ⚠️ 그 문장이 **throw 자리에 리터럴로** 남아 있어야 한다: 이웃 파일
+    // `admin-load-error-copy.test.ts`의 `networkError()`가 그 꼴을 소스에서 정규식으로 읽어
+    // 조회 한 벌의 네트워크 갈래를 재현한다. 상수로 올리면 그 그물이 조용히 찢어진다.
+    // (라운드 77 리뷰 P-2가 그 뒤에 code 하나를 더했고, 그쪽 정규식도 함께 넓혔다.)
+    expect(readApiSource()).toContain(
+      `throw new AdminApiError(0, "${READ_CONNECTION_FAILURE}", CONNECTION_FAILURE_CODE)`
+    );
+  });
+
+  /**
+   * 라운드 77 적대적 리뷰 M-1 — **인증·검증 POST는 읽기 문장을 받는다.**
+   *
+   * 갈래를 HTTP 메서드로만 가르면, 반영을 확인할 **목록이 아예 없는** POST까지
+   * *"반영 여부가 확실하지 않으니 목록을 새로고침해 확인한 뒤 다시 시도하세요"* 를 받는다 —
+   * 로그인 화면이 그 첫 자리다(운영자가 아직 목록을 본 적도 없다). 축은 메서드가 아니라
+   * **"다시 보내도 이중 반영이 없는가"** 이고, 그것은 추론이 아니라 호출부의 **명시**다.
+   */
+  it("인증·검증 POST 여덟의 연결 실패는 읽기 문장 그대로다 (M-1 · retrySafe)", async () => {
+    for (const [name, call] of [
+      ["adminLogin", () => adminLogin("ops@example.com", "password-1")],
+      ["adminVerifyMfaLogin", () => adminVerifyMfaLogin("mfa-token", "123456")],
+      ["adminLogout", () => adminLogout()],
+      ["adminChangePassword", () => adminChangePassword("old-password-1", "new-password-2")],
+      ["adminMfaSetupStart", () => adminMfaSetupStart()],
+      ["adminMfaSetupVerify", () => adminMfaSetupVerify("123456")],
+      ["adminMfaDisable", () => adminMfaDisable("123456")],
+      ["bulkPreviewProductLinks", () => bulkPreviewProductLinks("productLinkId,affiliateUrl\nid-1,https://x.test/a")]
+    ] as const) {
+      const failure = await connectionFailure(call);
+      expect(failure.message, `${name}의 연결 실패 문장`).toBe(READ_CONNECTION_FAILURE);
+      // ⚠️ 본체: 목록이 없는 자리에 목록을 새로고침하라고 말하지 않는다.
+      expect(failure.message, name).not.toContain("목록을 새로고침해");
+      expect(failure.message, name).not.toContain("반영 여부가 확실하지 않으니");
+      expect(isAuthError(failure), name).toBe(false);
+    }
+  });
+
+  it("인증·검증 POST 여덟의 타임아웃도 읽기와 같은 규율이다 — 다만 상한은 60초다 (M-1)", async () => {
+    function hangingFetch(_url: string, init: RequestInit): Promise<Response> {
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => {
+          const abortError = new Error("The operation was aborted.");
+          abortError.name = "AbortError";
+          reject(abortError);
+        });
+      });
+    }
+
+    for (const [name, call] of [
+      ["adminLogin", () => adminLogin("ops@example.com", "password-1")],
+      ["adminLogout", () => adminLogout()],
+      ["adminChangePassword", () => adminChangePassword("old-password-1", "new-password-2")],
+      ["adminMfaSetupStart", () => adminMfaSetupStart()],
+      ["bulkPreviewProductLinks", () => bulkPreviewProductLinks("productLinkId,affiliateUrl\nid-1,https://x.test/a")]
+    ] as const) {
+      vi.useFakeTimers();
+      fetchMock.mockReset();
+      fetchMock.mockImplementationOnce(hangingFetch);
+      const pending = call().catch((error: unknown) => error);
+      // ⚠️ 상한은 종전 그대로 쓰기 60초다(bulk-preview 500행이 실제로 10초를 넘긴다).
+      await vi.advanceTimersByTimeAsync(WRITE_FETCH_TIMEOUT_MS);
+      const failure = (await pending) as AdminApiTimeoutError;
+      vi.useRealTimers();
+
+      expect(isTimeoutError(failure), `${name}은 타임아웃으로 끝난다`).toBe(true);
+      // 읽기와 같은 규율: 재시도가 안전하고, 반영 여부를 말하지 않는다.
+      expect(isRetryUnsafeTimeoutError(failure), name).toBe(false);
+      expect(isIdempotentTimeoutError(failure), name).toBe(false);
+      expect(failure.retryUnsafe, name).toBe(false);
+      expect(failure.message, name).not.toContain("반영 여부가 확실하지 않으니");
+      expect(failure.message, name).not.toContain("목록을 새로고침해");
+      // ⚠️ 그러나 "(10초)"를 그대로 쓰면 거짓이다 — 이 여덟도 60초에서 끊긴다.
+      expect(failure.message, name).toBe("요청 시간이 초과됐어요(60초). 네트워크 상태를 확인하고 다시 시도해 주세요.");
+      expect(failure.message.endsWith("다시 시도해 주세요."), name).toBe(true);
+    }
+  });
+
+  it("멱등키 없는 쓰기의 연결 실패는 재시도를 권하며 끝나지 않는다 (계약 ⓑ · 부정 단언)", async () => {
+    for (const call of [
+      // PATCH — 오늘 멱등키가 없는 열여덟 중 하나(실패 시나리오의 그 자리다).
+      () => updateItemTemplate("item-1", { timingLabel: "6-12개월" }),
+      // PUT
+      () => updateDisclosure("product_links", "제휴 고지 문구"),
+      // POST(키 없이 부른다)
+      () => createItemTemplate({ name: "아기 식판" }),
+      () => bulkApplyProductLinks("productLinkId,affiliateUrl\nid-1,https://link.coupang.com/a/x")
+    ]) {
+      const failure = await connectionFailure(call);
+      expect(failure.message).not.toBe(READ_CONNECTION_FAILURE);
+      // 반영 여부를 단정하지 않고, 재시도보다 새로고침 확인을 **먼저** 권한다.
+      expect(failure.message).toContain("반영 여부가 확실하지 않으니");
+      expect(failure.message).toContain("목록을 새로고침해 확인한 뒤");
+      // ⚠️ 이 트랙의 본체: 꼬리가 재시도 권유가 아니다.
+      expect(failure.message.endsWith("다시 시도해 주세요.")).toBe(false);
+      expect(failure.message.endsWith("다시 시도하세요.")).toBe(true);
+      // 타임아웃 상수를 재활용하지 않은 이유 — 연결 실패에 "(60초)"는 거짓이다.
+      expect(failure.message).not.toContain("(60초)");
+      expect(failure.message).not.toContain("(10초)");
+    }
+  });
+
+  it("멱등키를 실어 보낸 쓰기의 연결 실패는 중복 없이 처리된다고 말한다 (계약 ⓓ)", async () => {
+    for (const call of [
+      () => createItemTemplate({ name: "아기 식판" }, "idem-key-1"),
+      () => createProductLink({ title: "쿠팡" }, "idem-key-2"),
+      () => bulkApplyProductLinks("productLinkId,affiliateUrl\nid-1,https://link.coupang.com/a/x", "idem-key-3"),
+      () => createAdminUser({ email: "new-admin@example.com", role: "editor" }, "idem-key-4")
+    ]) {
+      const failure = await connectionFailure(call);
+      expect(failure.message).toContain("같은 요청을 다시 보내면 중복 없이 처리되니");
+      // 서버가 중복을 걸러 주므로 여기서는 재시도를 권해도 된다(읽기와 같은 규율).
+      expect(failure.message.endsWith("다시 시도해 주세요.")).toBe(true);
+      expect(failure.message).not.toContain("반영 여부가 확실하지 않으니");
+      expect(failure.message).not.toContain("(60초)");
+    }
+  });
+
+  it("두 번째 축은 멱등키 하나다 — 같은 함수·같은 메서드가 키 유무로 갈린다 (계약 ⓐ)", async () => {
+    const withKey = await connectionFailure(() => createItemTemplate({ name: "아기 식판" }, "idem-key-1"));
+    const withoutKey = await connectionFailure(() => createItemTemplate({ name: "아기 식판" }));
+
+    expect(withKey.message).not.toBe(withoutKey.message);
+    expect(withKey.message).toContain("중복 없이 처리되니");
+    expect(withoutKey.message).toContain("반영 여부가 확실하지 않으니");
+    // 메서드는 둘 다 POST다 — 갈린 값은 `Boolean(idempotencyKey)` 하나뿐이다.
+    const methods = fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method);
+    expect(methods).toEqual(["POST", "POST"]);
+  });
+
+  /**
+   * 계약 ⓐ **파생 단언** — 연결 실패가 **타임아웃과 같은 셋**으로 갈린다. 판정을 새로 만들지
+   * 않았다는 사실을 문장이 아니라 **분할(partition)** 로 못박는다: 같은 호출에 대해 두 실패의
+   * 갈래 이름이 언제나 같아야 한다.
+   */
+  it("연결 실패의 분할이 타임아웃의 분할과 같다 (판정 신설 0건)", async () => {
+    type Branch = "read" | "write" | "idempotent-write";
+    const cases: { name: string; branch: Branch; call: () => Promise<unknown> }[] = [
+      { name: "GET /admin/users", branch: "read", call: () => listAdminUsers() },
+      { name: "PATCH /admin/item-templates/:id", branch: "write", call: () => updateItemTemplate("item-1", {}) },
+      { name: "PUT /admin/disclosures/:key", branch: "write", call: () => updateDisclosure("product_links", "문구") },
+      {
+        name: "POST /admin/item-templates (멱등키)",
+        branch: "idempotent-write",
+        call: () => createItemTemplate({ name: "아기 식판" }, "idem-key-1")
+      }
+    ];
+
+    function hangingFetch(_url: string, init: RequestInit): Promise<Response> {
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => {
+          const abortError = new Error("The operation was aborted.");
+          abortError.name = "AbortError";
+          reject(abortError);
+        });
+      });
+    }
+
+    for (const { name, branch, call } of cases) {
+      // ⓐ 연결 실패의 갈래 — 문장에서 읽는다.
+      const connection = await connectionFailure(call);
+      const connectionBranch: Branch =
+        connection.message === READ_CONNECTION_FAILURE
+          ? "read"
+          : connection.message.includes("중복 없이 처리되니")
+            ? "idempotent-write"
+            : "write";
+      expect(connectionBranch, `${name}의 연결 실패 갈래`).toBe(branch);
+
+      // ⓑ 타임아웃의 갈래 — R19-F가 이미 세운 판정 함수에서 읽는다.
+      vi.useFakeTimers();
+      fetchMock.mockReset();
+      fetchMock.mockImplementationOnce(hangingFetch);
+      const pending = call().catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(WRITE_FETCH_TIMEOUT_MS);
+      const timeout = await pending;
+      vi.useRealTimers();
+
+      expect(isTimeoutError(timeout), `${name}은 타임아웃으로 끝나야 한다`).toBe(true);
+      const timeoutBranch: Branch = isIdempotentTimeoutError(timeout)
+        ? "idempotent-write"
+        : isRetryUnsafeTimeoutError(timeout)
+          ? "write"
+          : "read";
+      expect(timeoutBranch, `${name}의 타임아웃 갈래`).toBe(branch);
+    }
+  });
+
+  /**
+   * 계약 ⓓ의 수치 — **왜 비멱등 쓰기에 재시도를 권하면 안 되는가**를 값으로 남긴다.
+   *
+   * 2026-08-30 실측: `request()`를 부르는 쓰기 메서드 호출은 **스물넷**이다. 라운드 77까지
+   * 그 스물넷이 "멱등 여섯 / 나머지 열여덟"으로만 갈렸고, 그 분류가 리뷰 M-1이 잡은 결함의
+   * 뿌리였다 — 열여덟 안에 **반영을 확인할 목록이 아예 없는 POST 여덟**이 섞여 있었다.
+   * 오늘의 분류는 셋이다: **retrySafe 여덟** · **멱등 여섯** · **멱등키 없는 진짜 쓰기 열**.
+   * *"멱등키 없는 쓰기"* 라는 말이 가리키는 자리는 열여덟이 아니라 **열**이다.
+   */
+  it("쓰기 스물넷이 셋으로 갈린다 — retrySafe 여덟 · 멱등 여섯 · 비멱등 쓰기 열 (수치를 값으로)", () => {
+    const source = readApiSource();
+    const writeCalls = [...source.matchAll(/method: "(?:POST|PUT|PATCH|DELETE)"/g)];
+    // 멱등키를 받아 `request()`에 넘기는 공개 함수 전수.
+    const idempotentCallers = [...source.matchAll(/^export function \w+\([^)]*idempotencyKey\?: string\)/gm)].map(
+      (match) => match[0]
+    );
+    // 라운드 77 리뷰 M-1: 호출부가 **명시**한 자리 전수(추론하지 않는다).
+    const retrySafeCalls = [...source.matchAll(/\{ retrySafe: true \}/g)];
+
+    expect(writeCalls.length, "쓰기 호출 수").toBe(24);
+    expect(retrySafeCalls.length, "retrySafe를 명시한 쓰기 수").toBe(8);
+    expect(idempotentCallers.length, "멱등키를 싣는 쓰기 수").toBe(6);
+    expect(
+      writeCalls.length - retrySafeCalls.length - idempotentCallers.length,
+      "멱등키 없는 진짜 쓰기 수"
+    ).toBe(10);
+    for (const name of [
+      "createItemTemplate",
+      "createProductLink",
+      "bulkApplyProductLinks",
+      "approvePublishContentRevision",
+      "rollbackContentRevision",
+      "createAdminUser"
+    ]) {
+      expect(idempotentCallers.join("\n"), `멱등 쓰기 여섯: ${name}`).toContain(`export function ${name}(`);
+    }
+    // retrySafe 여덟의 이름도 값으로 남긴다 — `/admin/auth/**` 일곱 + 검증 전용 미리보기 하나.
+    for (const path of [
+      "/admin/auth/login",
+      "/admin/auth/mfa/verify-login",
+      "/admin/auth/logout",
+      "/admin/auth/change-password",
+      "/admin/auth/mfa/setup/start",
+      "/admin/auth/mfa/setup/verify",
+      "/admin/auth/mfa/disable",
+      "/admin/product-links/bulk-preview"
+    ]) {
+      const at = source.indexOf(`"${path}"`);
+      expect(at, `retrySafe 여덟: ${path}`).toBeGreaterThan(-1);
+      expect(source.slice(at, at + 400), `${path}가 retrySafe를 명시한다`).toContain("{ retrySafe: true }");
+    }
+    // ⚠️ 부정 단언: 반영을 확인할 목록이 있는 진짜 쓰기는 한 자리도 retrySafe가 아니다.
+    for (const name of [
+      "updateItemTemplate",
+      "updateProductLink",
+      "updateDisclosure",
+      "bulkApplyProductLinks",
+      "updateAdminUser",
+      "updateAdminCategory"
+    ]) {
+      const at = source.indexOf(`export function ${name}(`);
+      expect(at, `진짜 쓰기: ${name}`).toBeGreaterThan(-1);
+      const body = source.slice(at, source.indexOf("\n}", at));
+      expect(body, `${name}에 retrySafe가 붙었다`).not.toContain("retrySafe");
+    }
+  });
+
+  it("타임아웃 갈래 셋과 상한 두 값은 한 글자도 바뀌지 않았다 (무변경)", () => {
+    const source = readApiSource();
+    for (const message of [
+      "요청 시간이 초과됐어요(10초). 네트워크 상태를 확인하고 다시 시도해 주세요.",
+      "요청이 오래 걸리고 있어요(60초). 반영 여부가 확실하지 않으니 목록을 새로고침해 확인한 뒤 다시 시도하세요.",
+      "요청이 오래 걸리고 있어요(60초). 같은 요청을 다시 보내면 중복 없이 처리돼요 — 다시 시도해 주세요."
+    ]) {
+      expect(source, `타임아웃 문장: ${message}`).toContain(message);
+    }
+    expect(DEFAULT_FETCH_TIMEOUT_MS).toBe(10_000);
+    expect(WRITE_FETCH_TIMEOUT_MS).toBe(60_000);
+    expect(timeoutMsForMethod("GET")).toBe(DEFAULT_FETCH_TIMEOUT_MS);
+    expect(timeoutMsForMethod("PATCH")).toBe(WRITE_FETCH_TIMEOUT_MS);
+  });
+
+  it("연결 실패의 타입·상태는 종전 그대로고, code 하나가 판정을 진다 (소비 쪽 무변경 · 새 클래스 0건)", async () => {
+    const read = await connectionFailure(() => listAdminUsers());
+    const write = await connectionFailure(() => updateItemTemplate("item-1", {}));
+
+    for (const failure of [read, write]) {
+      // 종전처럼 `AdminApiError(0, …)`이다 — writeErrorMessage/loadErrorCopy가 한 글자도
+      // 바뀌지 않고 이 문장을 나른다(라운드 76 B·라운드 73~75 D의 파일 무접촉).
+      expect(failure).toBeInstanceOf(AdminApiError);
+      expect(failure.constructor.name).toBe("AdminApiError");
+      expect(failure.status).toBe(0);
+      // 라운드 77 리뷰 P-2: 술어의 재료가 status가 아니라 이 code다.
+      expect(failure.code).toBe(CONNECTION_FAILURE_CODE);
+      expect(isConnectionFailureError(failure)).toBe(true);
+      expect(isTimeoutError(failure)).toBe(false);
+      expect(isRetryUnsafeTimeoutError(failure)).toBe(false);
+      expect(isIdempotentTimeoutError(failure)).toBe(false);
+      expect(isAuthError(failure)).toBe(false);
+    }
+  });
+
+  /**
+   * 라운드 77 리뷰 P-2 — **status 0을 만드는 자리가 셋째로 늘어도 오분류가 없다.**
+   *
+   * status 0은 "응답이 아예 없었다"는 뜻일 뿐이고, 오늘 그 값을 만드는 자리는 둘이다
+   * (연결 실패 · 타임아웃). 술어가 status를 읽으면 셋째 자리가 생기는 날 그것을 연결
+   * 실패로 읽고 **아무 단언도 깨지 않는다**. 그래서 판정 재료를 code로 옮겼다.
+   */
+  it("isConnectionFailureError는 code로 갈린다 — 새 status 0 생성처를 삼키지 않는다 (P-2)", () => {
+    expect(isConnectionFailureError(new AdminApiError(0, "연결 실패", CONNECTION_FAILURE_CODE))).toBe(true);
+    // 타임아웃은 같은 status 0이지만 code가 "TIMEOUT"이다.
+    expect(isConnectionFailureError(new AdminApiTimeoutError(new Error("aborted"), "GET"))).toBe(false);
+    // ⚠️ 셋째 자리의 대역 — status만 보던 술어는 이것을 연결 실패라고 답했다.
+    expect(isConnectionFailureError(new AdminApiError(0, "응답 본문을 읽지 못했어요.", "RESPONSE_UNREADABLE"))).toBe(
+      false
+    );
+    expect(isConnectionFailureError(new AdminApiError(0, "code가 아예 없는 status 0"))).toBe(false);
+    expect(isConnectionFailureError(new AdminApiError(500, "서버 오류"))).toBe(false);
+    expect(isConnectionFailureError(new Error("network"))).toBe(false);
+    expect(isConnectionFailureError(null)).toBe(false);
   });
 });

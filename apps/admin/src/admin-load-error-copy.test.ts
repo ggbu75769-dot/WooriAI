@@ -119,10 +119,13 @@ function timeoutError(method = "GET"): AdminApiTimeoutError {
   return new AdminApiTimeoutError(new Error("aborted"), method);
 }
 
-/** admin-api.ts의 request()가 fetch 거절에 씌우는 그 에러(연결 실패). */
+/** admin-api.ts의 request()가 fetch 거절에 씌우는 그 에러(연결 실패).
+ * ⚠️ 꼬리를 `[,)]`로 여는 이유: 라운드 77 리뷰 P-2가 그 throw에 `CONNECTION_FAILURE_CODE`
+ * 하나를 더했다(술어가 status 0이 아니라 code를 읽게 하려고). 이 헬퍼가 읽는 것은
+ * **문장**이고 그것은 바이트 불변이다 — 인자 수가 아니라 그 문장이 이 그물의 단위다. */
 function networkError(): AdminApiError {
   const api = readSource("src/lib/admin-api.ts");
-  const message = /throw new AdminApiError\(0, "([^"]+)"\)/.exec(api)?.[1];
+  const message = /throw new AdminApiError\(0, "([^"]+)"[,)]/.exec(api)?.[1];
   expect(message, "admin-api.ts의 연결 실패 문장을 찾지 못했어요").toBeTruthy();
   return new AdminApiError(0, message as string);
 }

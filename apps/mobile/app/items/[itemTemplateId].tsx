@@ -13,6 +13,9 @@ import {
   buildItemStatusChangedPayload
 } from "../../src/analytics/events";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
+// 라운드 77 A: 클릭 실패가 서버 코드를 들고 왔을 때 그 문구를 앱 전역 표에서 받는다
+// (문구를 이 화면에서 새로 짓지 않는다 — src/api/api-error.ts가 단일 소스다).
+import { apiErrorCodeOf, apiErrorMessageForCode } from "../../src/api/api-error";
 import { clickProductLink, getItemDetail, LOCAL_SESSION_TOKEN, type Child, type ItemDetail, type ItemStatus, type ProductLink } from "../../src/api/client";
 import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";
 import { usePurchaseFollowupStore } from "../../src/commerce/purchase-followup.store";
@@ -521,34 +524,6 @@ export default function ItemDetailScreen() {
     });
   };
 
-  const clickLink = useMutation({
-    mutationFn: (link: ProductLink) => clickProductLink(authToken!, link.id, childId!, "ITEM-003"),
-    onSuccess: async (result, link) => {
-      showLinkNotice(result.disclosureText ?? "구매 링크");
-      setLinkOpenFallback(null);
-      try {
-        const canOpen = await Linking.canOpenURL(result.redirectUrl);
-        if (!canOpen) throw new Error("cannot-open-url");
-        await Linking.openURL(result.redirectUrl);
-        registerPurchaseFollowup(link);
-      } catch {
-        // 라운드 68 C: 문구도 **공유 가능 여부와 같은 판정**에서 갈린다 — 공유 버튼이 서지
-        // 않는 상태에서 "링크를 공유하거나"라고 말하면 화면의 두 주장이 어긋난다.
-        showLinkFailure(linkOpenFailureNotice(result.shareUrl));
-        setLinkOpenFallback({
-          redirectUrl: result.redirectUrl,
-          shareUrl: result.shareUrl,
-          disclosureText: result.disclosureText,
-          link
-        });
-      }
-    },
-    onError: () => {
-      showLinkFailure("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");
-      setLinkOpenFallback(null);
-    }
-  });
-
   const retryOpenFallbackLink = async () => {
     if (!linkOpenFallback) return;
     try {
@@ -611,6 +586,68 @@ export default function ItemDetailScreen() {
       })
     });
   };
+
+  /**
+   * 서버 클릭 기록(POST /product-links/:id/click) — 성공하면 그 응답의 리다이렉트 주소를 연다.
+   *
+   * ⚠️ **자리 이동 한 번**(라운드 77 A — 동작 0건 변경, 훅 순서도 그대로다: 옮겨 온 구간에는
+   * 훅이 하나도 없다). 이 뮤테이션은 자기가 쓰는 헬퍼들(`showLinkNotice`·`showLinkFailure`·
+   * `registerPurchaseFollowup`·`retryOpenFallbackLink`·`shareFallbackLink`) **뒤**로 내려왔다.
+   * 읽는 순서로도 그쪽이 맞지만, 진짜 이유는 아래 onError가 `error`를 받게 되면서 **다른 파일의
+   * 소스 계약이 끝점을 잃기 때문**이다: `src/commerce/purchase-followup-flow.test.ts`는
+   * *"열기 실패(catch) 분기는 구매 확인 대기를 등록하지 않는다"* 를 onSuccess의 `} catch {`부터
+   * 옛 `onError` 시그니처 문자열까지를 잘라 확인해 왔다. 그 끝점이 사라지면 잘린 구간이 파일
+   * 끝까지 늘어나므로, **구매 확인 대기 등록이 전부 이 뮤테이션 앞에 오도록** 자리를 옮겨 그
+   * 단언이 더 넓은 범위에서 참이 되게 했다. 옮긴 것은 이 블록뿐이고 헬퍼들은 한 글자도 바뀌지
+   * 않았다(라운드 77 A의 소유 파일은 셋이고 그 테스트 파일은 그중에 없다).
+   */
+  const clickLink = useMutation({
+    mutationFn: (link: ProductLink) => clickProductLink(authToken!, link.id, childId!, "ITEM-003"),
+    onSuccess: async (result, link) => {
+      showLinkNotice(result.disclosureText ?? "구매 링크");
+      setLinkOpenFallback(null);
+      try {
+        const canOpen = await Linking.canOpenURL(result.redirectUrl);
+        if (!canOpen) throw new Error("cannot-open-url");
+        await Linking.openURL(result.redirectUrl);
+        registerPurchaseFollowup(link);
+      } catch {
+        // 라운드 68 C: 문구도 **공유 가능 여부와 같은 판정**에서 갈린다 — 공유 버튼이 서지
+        // 않는 상태에서 "링크를 공유하거나"라고 말하면 화면의 두 주장이 어긋난다.
+        showLinkFailure(linkOpenFailureNotice(result.shareUrl));
+        setLinkOpenFallback({
+          redirectUrl: result.redirectUrl,
+          shareUrl: result.shareUrl,
+          disclosureText: result.disclosureText,
+          link
+        });
+      }
+    },
+    /**
+     * 라운드 77 A — **서버가 이미 말해 준 이유를 이 자리에서 뭉개지 않는다**(핵심 루프 4단계).
+     *
+     * 종전 이 핸들러는 `error`를 **받지도 않았다.** 그래서 어드민이 내린 링크(404
+     * PRODUCT_LINK_NOT_FOUND) · 허용 도메인 밖 주소(같은 404) · 깨진 스킴(400
+     * PRODUCT_LINK_URL_SCHEME_INVALID)이 전부 *"잠시 후 다시 시도해 주세요."* 를 받았다.
+     * 셋 다 **다시 눌러도 결과가 같다** — 그 상세에 다른 판매처 링크가 두 개 더 서 있는데도
+     * 앱이 "기다리면 된다"고 말했으므로 사용자는 그것을 눌러 볼 이유를 얻지 못했다.
+     *
+     * 문구는 여기서 짓지 않는다: 아는 코드면 앱 전역 표(src/api/api-error.ts)가 답하고,
+     * 모르는 실패는 **종전 그대로**(문장 바이트 불변) `showLinkFailure`의 오프라인 갈래로 간다.
+     *
+     * ⚠️ 아는 코드일 때 **오프라인 폴을 돌리지 않는다**: 서버가 코드로 답했다는 사실이 곧
+     * 연결이 있었다는 뜻이라, 그때 "인터넷 연결을 확인해 주세요"로 갈아 끼우면 새 오안내가
+     * 선다(src/family/invite-permissions.ts가 403을 연결 판정보다 앞에 두는 그 근거 그대로).
+     * 그래서 아는 코드는 `showLinkNotice` 한 자리로 간다 — 그 함수가 seq를 올리므로
+     * 앞선 폴이 늦게 돌아와 이 문구를 덮는 일도 없다.
+     */
+    onError: (error) => {
+      const knownFailureReason = apiErrorMessageForCode(apiErrorCodeOf(error));
+      if (knownFailureReason) showLinkNotice(knownFailureReason);
+      else showLinkFailure("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");
+      setLinkOpenFallback(null);
+    }
+  });
 
   const hasSession = Boolean(authToken && childId && itemTemplateId);
 
