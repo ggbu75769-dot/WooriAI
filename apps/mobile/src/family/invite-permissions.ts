@@ -42,11 +42,35 @@
  * 그 경우까지 오프라인으로 말하면 그것이 또 하나의 틀린 안내가 된다(member-mutation-messages.ts의
  * 판정 순서 머리말과 같은 근거).
  *
+ * ## 라운드 77 트랙 E(GAP-077 #5) — 4) **서버가 코드로 말한 실패도 이 자리에서 말한다**
+ *
+ * 라운드 76이 세운 배선에는 절반이 버려지고 있었다. 화면은 공용 훅(`useSaveErrorCopy` →
+ * `resolveSaveErrorCopy`)이 만든 **완성된 문장**을 받아 놓고, 그것을 `!== OFFLINE_SAVE_NOTICE`로
+ * **한 번 비교해 불리언 한 칸으로 접은 뒤 버렸다.** 훅의 판정 순서가 **아는 코드 → 오프라인 →
+ * 모르는 실패**라, 서버가 코드를 준 실패는 훅에서 이미 표의 문장으로 갈라져 나오는데도 그 사실은
+ * `isOnline: true` 하나로만 전달됐고, 이 모듈은 그 실패를 **모르는 실패**로 취급해 일반 폴백을
+ * 돌려줬다. 즉 **"서버가 코드로 말한 실패"의 문장은 이 화면에 구조적으로 설 수 없었다.**
+ *
+ * 오늘 결함이 아닌 이유는 하나뿐이다: 초대 생성이 서버에서 얻는 코드가 `FORBIDDEN` 하나이고
+ * (household-runtime.service.ts — owner 전용 403), 그것은 위 2)의 **첫 갈래**가 이미 전용 문장으로
+ * 답한다. 두 판정이 오늘 같은 값으로 수렴할 뿐이다. 그런데 `API_ERROR_MESSAGES`(src/api/api-error.ts)는
+ * 라운드마다 코드를 받아 왔다 — 초대 경로에 코드가 하나 생기는 날(초대 개수 상한·이미 구성원 …)
+ * 이 화면은 **아무 단언도 깨지 않은 채** 일반 문장을 말하고, 사용자는 정리해야 할 대기 초대가
+ * 바로 전 화면에 떠 있는 줄도 모른 채 30초 뒤 같은 버튼을 다시 누른다.
+ *
+ * 그래서 판정이 인자를 하나 더 받는다(`serverCopy`) — **버리던 그 값**이다. 갈래는 넷이 된다:
+ * **403 → 오프라인 → 서버가 말한 문장 → 초대 전용 폴백.** 새 문구는 0건이고 오늘 도달 가능한
+ * 모든 입력의 답은 바이트 불변이다(늘어난 것은 갈래 하나뿐).
+ *
+ * ⓓ 형제 화면(`app/family/accept/[token].tsx:367`)은 라운드 73 E부터 훅의 문장을 **그대로 그려**
+ * 왔다 — 한 여정의 두 화면이 같은 훅을 정반대로 쓰던 것이 이 갈래가 없던 이유이고, 이제 둘은
+ * 같은 축에 선다(초대 화면은 자기 폴백 문장이 따로 있어 그 자리만 이 모듈이 고른다).
+ *
  * 화면(react-native)은 이 repo의 vitest에서 렌더할 수 없으므로 판정은 여기서 단위 테스트하고,
  * 배선은 소스 grep 계약 테스트가 맡는다(invite-permissions.test.ts).
  */
 
-import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
+import { OFFLINE_RETRY_NOTICE, OFFLINE_SAVE_NOTICE, SAVE_ERROR_NOTICE } from "../offline/messages";
 
 /** 비활성 진입점에 붙는 캡션 — more.tsx의 "캡션 + onPress 없음" 비활성 행 관례를 따른다. */
 export const INVITE_OWNER_ONLY_CAPTION = "가족 초대는 관리자만 할 수 있어요";
@@ -121,19 +145,41 @@ export function isInviteForbiddenError(error: unknown): boolean {
 }
 
 /**
+ * 공용 훅이 "이 실패의 사유를 나도 모른다"고 답할 때 쓰는 두 문장.
+ *
+ * `resolveSaveErrorCopy`가 돌려줄 수 있는 값은 셋뿐이다 — 표의 문장(아는 코드) · 이 둘 중 하나.
+ * 그래서 훅의 답이 이 둘 **밖**이라는 사실이 곧 "서버가 코드로 사유를 말했다"는 뜻이고, 그때만
+ * 그 문장을 이 자리에 세운다. 두 문장 자체는 여기서 절대 돌려주지 않는다: `SAVE_ERROR_NOTICE`는
+ * 초대 전용 폴백(`INVITE_CREATE_FAILED_MESSAGE`)이 이미 같은 뜻을 이 여정의 말로 하고 있고,
+ * `OFFLINE_SAVE_NOTICE`는 *"연결된 뒤 다시 **저장**해 주세요"* 라서 "만들기"인 이 자리에서는
+ * 틀린 안내다(그래서 오프라인 갈래는 `OFFLINE_RETRY_NOTICE`다 — 라운드 76이 그 갈래를 고른 이유).
+ */
+const HOOK_FALLBACK_COPIES: ReadonlyArray<string> = [SAVE_ERROR_NOTICE, OFFLINE_SAVE_NOTICE];
+
+/**
  * 초대 생성 실패 → 사용자에게 보여줄 문구. 원인을 사용자가 알 수도 고칠 수도 없는 실패에
  * 원문/스택을 그대로 노출하지 않는다(save-error-messages.ts와 같은 규칙).
  *
- * 판정 순서는 **아는 코드(403) → 오프라인 → 일반**이다(member-mutation-messages.ts와 같다 —
- * 근거는 이 파일 머리말 3)). 연결 상태는 화면이 실패 시점에 한 번 확인해 넘긴다: 공용 배선
- * 한 벌(`useSaveErrorCopy` → `useErrorTimeConnectivity`)이 그 폴을 대신하므로 화면은 직접
- * `isCurrentlyOnline()`을 부르지 않는다.
+ * 판정 순서는 **403 → 오프라인 → 서버가 말한 문장 → 초대 전용 폴백** 네 칸이다
+ * (앞 두 칸은 member-mutation-messages.ts와 같다 — 근거는 이 파일 머리말 3), 셋째 칸이
+ * 라운드 77 트랙 E가 더한 갈래다 — 근거는 머리말 4)).
+ *
+ * 화면이 넘기는 값 둘은 **같은 공용 훅 한 벌**에서 온다(`useSaveErrorCopy` →
+ * `useErrorTimeConnectivity`가 실패 시점에 연결을 한 번 묻는다 — 화면은 직접 `isCurrentlyOnline()`을
+ * 부르지 않는다). `isOnline`은 그 훅의 답에서 파생한 **연결 사실**이고(`!== OFFLINE_SAVE_NOTICE`),
+ * `serverCopy`는 **그 답 자체**다. 종전에는 앞의 하나만 넘어와 뒤의 문장이 버려졌다.
  *
  * ⚠️ 두 문구(`INVITE_FORBIDDEN_MESSAGE`·`INVITE_CREATE_FAILED_MESSAGE`)는 바이트 불변이고,
- * `isOnline: true`에서의 답은 종전과 **한 글자도 다르지 않다** — 갈라지는 것은 오프라인 갈래뿐이다.
+ * **오늘 도달 가능한 모든 입력의 답이 종전과 한 글자도 다르지 않다** — 서버가 초대 생성에 주는
+ * 코드는 `FORBIDDEN` 하나이고 그것은 첫 갈래가 먼저 잡는다. 셋째 칸은 표가 자라는 날을 위한
+ * 자리이고, `serverCopy`를 넘기지 않으면(구 호출부·단위 테스트) 판정은 종전 셋 그대로다.
  */
-export function inviteCreateErrorMessage(error: unknown, { isOnline }: { isOnline: boolean }): string {
+export function inviteCreateErrorMessage(
+  error: unknown,
+  { isOnline, serverCopy }: { isOnline: boolean; serverCopy?: string }
+): string {
   if (isInviteForbiddenError(error)) return INVITE_FORBIDDEN_MESSAGE;
   if (!isOnline) return OFFLINE_RETRY_NOTICE;
+  if (serverCopy && !HOOK_FALLBACK_COPIES.includes(serverCopy)) return serverCopy;
   return INVITE_CREATE_FAILED_MESSAGE;
 }

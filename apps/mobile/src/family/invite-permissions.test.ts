@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ApiHttpError } from "../api/api-error";
+import { API_ERROR_MESSAGES, ApiHttpError } from "../api/api-error";
 import { OFFLINE_RETRY_NOTICE, OFFLINE_SAVE_NOTICE, resolveSaveErrorCopy, SAVE_ERROR_NOTICE } from "../offline/messages";
 import {
   INVITE_CREATE_FAILED_MESSAGE,
@@ -157,6 +157,95 @@ describe("라운드 76 트랙 A 초대 생성 실패의 오프라인 갈래", ()
   });
 });
 
+/**
+ * 라운드 77 트랙 E(GAP-077 #5) — **화면이 훅의 문장을 쓴다.**
+ *
+ * 바로 위 단언("서버가 코드를 준 실패는 오프라인으로 읽히지 않는다")은 참이고, **참인 채로
+ * 문장을 버렸다.** 화면은 훅이 만든 완성 문장을 `!== OFFLINE_SAVE_NOTICE`로 한 번 비교해 불리언
+ * 한 칸으로 접은 뒤 버렸고, 그래서 서버가 코드로 말한 실패는 언제나 `isOnline: true`로만 도착해
+ * 이 모듈의 **일반 폴백**으로 접혔다. 오늘 결함이 아닌 이유는 초대 생성이 받는 코드가 `FORBIDDEN`
+ * 하나이고 그것을 **첫 갈래**가 이미 전용 문장으로 잡기 때문이다 — 두 판정이 오늘 같은 값으로
+ * 수렴할 뿐, 표에 초대 관련 코드가 하나 오르는 날 이 화면만 조용히 어긋난다.
+ *
+ * 그래서 아래 단언들은 둘을 함께 고정한다: **오늘의 답이 바이트 불변**이라는 것과, **표가 자라면
+ * 그 문장이 실제로 선다**는 것(후자가 이 트랙의 본체다). 라운드 76의 단언 문장들은 위에 그대로
+ * 남아 있고 — 갈래만 하나 늘었다.
+ */
+describe("라운드 77 트랙 E 초대 생성 실패가 서버 문장까지 지난다", () => {
+  const forbidden403 = new ApiHttpError(403, {
+    error: { code: "FORBIDDEN", message: "가족 초대는 관리자만 할 수 있어요.", requestId: "req-1" }
+  });
+  const envelopeOf = (code: string) =>
+    new ApiHttpError(400, { error: { code, message: "서버 원문(화면에 그대로 쓰지 않는다)", requestId: "req-1" } });
+
+  /**
+   * **화면의 배선 그대로**다: 훅을 한 번 부르고(`useSaveErrorCopy` → `resolveSaveErrorCopy`),
+   * 그 답 하나에서 두 인자가 나온다 — 연결 사실(파생)과 문장(그 답 자체).
+   */
+  const asScreenWires = (error: unknown, isOnline: boolean) => {
+    const serverCopy = resolveSaveErrorCopy({ isOnline, error });
+    return inviteCreateErrorMessage(error, { isOnline: serverCopy !== OFFLINE_SAVE_NOTICE, serverCopy });
+  };
+
+  it("ⓐ 오늘 도달 가능한 모든 입력에서 답이 바이트 불변이다", () => {
+    // 403 — 연결 판정이 어느 쪽이든 전용 문장이다(서버가 답했다는 사실이 곧 연결이 있었다는 뜻).
+    expect(asScreenWires(forbidden403, true)).toBe(INVITE_FORBIDDEN_MESSAGE);
+    expect(asScreenWires(forbidden403, false)).toBe(INVITE_FORBIDDEN_MESSAGE);
+    // client.ts의 requestJson이 던지던 옛 모양(봉투 JSON 문자열)도 같은 답이다.
+    expect(asScreenWires(new Error(JSON.stringify({ error: { code: "FORBIDDEN" } })), true)).toBe(
+      INVITE_FORBIDDEN_MESSAGE
+    );
+    // 모르는 실패 — 온라인이면 초대 전용 폴백, 오프라인이면 공용 오프라인 문장(라운드 76 그대로).
+    for (const error of [new Error("boom"), new Error("Network request failed"), undefined, null, "FORBIDDEN"]) {
+      expect(asScreenWires(error, true)).toBe(INVITE_CREATE_FAILED_MESSAGE);
+      expect(asScreenWires(error, false)).toBe(OFFLINE_RETRY_NOTICE);
+    }
+    // 훅의 두 폴백 문장은 이 자리에 서지 않는다 — 이 여정의 말은 위 두 문장이다.
+    expect(asScreenWires(new Error("boom"), true)).not.toBe(SAVE_ERROR_NOTICE);
+    expect(asScreenWires(new Error("boom"), false)).not.toBe(OFFLINE_SAVE_NOTICE);
+  });
+
+  it("ⓑ 표에 코드가 하나 늘면 그 문장이 화면에 실제로 선다 (이 트랙의 본체)", () => {
+    // 오늘 초대 생성 경로에는 오지 않는 코드로 재현한다 — 내일 표에 오를 코드가 지날 길이 이 길이다.
+    const alreadyMember = envelopeOf("HOUSEHOLD_ALREADY_MEMBER");
+    expect(asScreenWires(alreadyMember, true)).toBe(API_ERROR_MESSAGES.HOUSEHOLD_ALREADY_MEMBER);
+    // ⚠️ 종전 배선(문장을 버리고 불리언 한 칸만 넘기던 그 모양)이었다면 같은 실패가 일반 폴백으로
+    // 접혔다 — 이 한 줄이 이 트랙이 무엇을 고쳤는지를 값으로 남긴다.
+    expect(inviteCreateErrorMessage(alreadyMember, { isOnline: true })).toBe(INVITE_CREATE_FAILED_MESSAGE);
+    // 연결 판정이 어긋난 창에서도 같다(훅의 순서가 아는 코드를 먼저 갈라 놓는다).
+    expect(asScreenWires(alreadyMember, false)).toBe(API_ERROR_MESSAGES.HOUSEHOLD_ALREADY_MEMBER);
+
+    // 전수: 표의 **아무 코드로나** 재현된다(표가 자라도 이 사실이 함께 따라온다).
+    for (const [code, copy] of Object.entries(API_ERROR_MESSAGES)) {
+      if (code === "FORBIDDEN") continue;
+      expect(asScreenWires(envelopeOf(code), true), code).toBe(copy);
+    }
+    // 그 표에서 403만 예외다 — 초대 자리의 전용 문장이 표의 중립 문구보다 앞선다(첫 갈래).
+    expect(API_ERROR_MESSAGES.FORBIDDEN).not.toBe(INVITE_FORBIDDEN_MESSAGE);
+    expect(asScreenWires(envelopeOf("FORBIDDEN"), true)).toBe(INVITE_FORBIDDEN_MESSAGE);
+  });
+
+  it("ⓒ 판정 순서는 네 칸이다 — 403 → 오프라인 → 서버 문장 → 초대 전용 폴백", () => {
+    const tableCopy = API_ERROR_MESSAGES.HOUSEHOLD_ALREADY_MEMBER;
+    // ① 403은 나머지 셋 전부보다 앞이다.
+    expect(inviteCreateErrorMessage(forbidden403, { isOnline: false, serverCopy: tableCopy })).toBe(
+      INVITE_FORBIDDEN_MESSAGE
+    );
+    // ② 오프라인은 서버 문장보다 앞이다 — 연결이 없었다면 그 문장은 이 실패의 것이 아니다.
+    expect(inviteCreateErrorMessage(new Error("boom"), { isOnline: false, serverCopy: tableCopy })).toBe(
+      OFFLINE_RETRY_NOTICE
+    );
+    // ③ 서버 문장은 초대 전용 폴백보다 앞이다(라운드 77이 더한 칸).
+    expect(inviteCreateErrorMessage(new Error("boom"), { isOnline: true, serverCopy: tableCopy })).toBe(tableCopy);
+    // ④ 훅도 모르는 실패면 종전 폴백 그대로다 — 훅의 두 문장·빈 값은 셋째 칸을 통과하지 못한다.
+    for (const serverCopy of [SAVE_ERROR_NOTICE, OFFLINE_SAVE_NOTICE, undefined, ""]) {
+      expect(inviteCreateErrorMessage(new Error("boom"), { isOnline: true, serverCopy })).toBe(
+        INVITE_CREATE_FAILED_MESSAGE
+      );
+    }
+  });
+});
+
 describe("UX-Q(A) 화면 배선 (source contract — 화면은 vitest에서 렌더할 수 없다)", () => {
   it("가족 화면이 세 진입점을 같은 판정 하나로 잠근다", () => {
     const familySource = source("app/family/index.tsx");
@@ -222,5 +311,29 @@ describe("UX-Q(A) 화면 배선 (source contract — 화면은 vitest에서 렌�
     const rendered = inviteSource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
     expect(rendered).not.toContain("지금은 오프라인이에요");
     expect(rendered).not.toContain("초대 링크를 만들지 못했어요");
+  });
+
+  /**
+   * 라운드 77 트랙 E(GAP-077 #5) — **버리던 값을 넘긴다(한 줄).**
+   *
+   * 훅 호출은 여전히 하나이고 판정도 여전히 모듈 하나다. 달라지는 것은 그 답을 **두 번** 쓴다는
+   * 사실뿐이다: 라운드 76의 파생(`!== OFFLINE_SAVE_NOTICE` — 연결 사실)은 한 글자도 바뀌지 않고,
+   * 같은 값이 `serverCopy`로 함께 간다. 이 자리가 다시 불리언 한 칸으로 좁아지면 여기서 걸린다.
+   */
+  it("라운드 77 트랙 E: 화면이 훅의 문장을 버리지 않고 함께 넘긴다", () => {
+    const inviteSource = source("app/family/invite.tsx");
+
+    // 훅은 한 번만 부른다 — 두 인자는 **같은 답 하나**에서 나온다(두 번 물으면 서로 어긋난다).
+    expect(inviteSource.match(/useSaveErrorCopy\(/g) ?? []).toHaveLength(1);
+    expect(inviteSource).toContain("isOnline: inviteSaveErrorCopy !== OFFLINE_SAVE_NOTICE,");
+    expect(inviteSource).toContain("serverCopy: inviteSaveErrorCopy");
+    // 그리는 자리는 종전 그대로 하나다(실패 줄이 늘지도 갈라지지도 않는다).
+    expect(inviteSource.match(/\{inviteCreateErrorText\}/g) ?? []).toHaveLength(1);
+
+    // 화면은 여전히 판정을 하지 않는다 — 표를 직접 뒤지거나 공용 판정을 다시 부르지 않는다.
+    const rendered = inviteSource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+    expect(rendered).not.toContain("resolveSaveErrorCopy(");
+    expect(rendered).not.toContain("apiErrorMessageForCode(");
+    expect(rendered).not.toContain("hasApiErrorCode(");
   });
 });
