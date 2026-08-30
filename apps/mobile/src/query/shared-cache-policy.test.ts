@@ -348,7 +348,9 @@ describe("ⓒ 무효화 대장 (두 방향)", () => {
     const row = CHILDREN_WRITE_LEDGER.find((entry) => entry.invalidatedIn.includes("(onboarding)/child-profile"));
     expect(row, "온보딩 아이 생성이 대장에서 사라졌다").toBeDefined();
     const source = readFileSync(join(MOBILE_ROOT, row!.invalidatedIn), "utf8");
-    const successBranch = source.slice(source.indexOf("onSuccess:"));
+    const successStart = source.indexOf("onSuccess:");
+    expect(successStart, "온보딩 저장 뮤테이션에 onSuccess 분기가 없다").toBeGreaterThan(-1);
+    const successBranch = source.slice(successStart);
     // 무효화는 성공 분기 안에 있어야 하고, 이동보다 먼저 선다.
     const invalidateAt = successBranch.indexOf('invalidateQueries({ queryKey: ["children"] })');
     const navigateAt = successBranch.indexOf('router.push("/onboarding/prepared-items")');
@@ -405,7 +407,13 @@ describe("ⓔ 바이트 불변 — 이 트랙이 건드리지 않기로 한 것�
   it("전역 기본은 30초 그대로이고 다른 기본 옵션은 여전히 0건이다", () => {
     const source = layout();
     expect(source).toContain("staleTime: 30_000");
-    const defaults = source.slice(source.indexOf("defaultOptions:"), source.indexOf("registerAppQueryClient"));
+    const defaultsStart = source.indexOf("defaultOptions:");
+    expect(defaultsStart, "_layout에 defaultOptions 선언이 없다").toBeGreaterThan(-1);
+    // fromIndex 없이 찾으면 파일 상단 import의 이름이 걸려 slice가 빈 문자열이 되고
+    // 아래 not.toContain 단언이 공허하게 통과한다(가드를 세우다 드러난 잠재 결함).
+    const defaultsEnd = source.indexOf("registerAppQueryClient(", defaultsStart);
+    expect(defaultsEnd, "_layout에 defaultOptions 뒤 registerAppQueryClient 호출이 없다").toBeGreaterThan(defaultsStart);
+    const defaults = source.slice(defaultsStart, defaultsEnd);
     for (const untouched of ["refetchOnWindowFocus", "gcTime", "retry", "refetchOnReconnect"]) {
       expect(defaults, `전역 기본에 ${untouched}가 생겼다`).not.toContain(`${untouched}:`);
     }

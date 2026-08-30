@@ -654,7 +654,10 @@ describe("라운드 83 B(#2) 기록 탭 첫 페인트 defer", () => {
   it("ⓐ 이번 달 쿼리는 미루지 않는다 — 목록·건수·월 합계가 첫 페인트에 쓰는 데이터다", () => {
     const src = recordsSource();
     const start = src.indexOf("const expenses = useQuery({");
-    const thisMonthQuery = src.slice(start, src.indexOf("});", start));
+    expect(start, "이번 달 쿼리 선언이 소스에 없다").toBeGreaterThan(-1);
+    const end = src.indexOf("});", start);
+    expect(end, "이번 달 쿼리 선언의 닫는 괄호가 없다").toBeGreaterThan(start);
+    const thisMonthQuery = src.slice(start, end);
     expect(thisMonthQuery).toContain("enabled: Boolean(authToken && childId)");
     expect(thisMonthQuery).not.toContain("isFetched");
   });
