@@ -218,6 +218,28 @@ function assertDueDateWithinFullTerm(dueDate: string) {
 }
 
 /**
+ * 라운드 82 C — 준비템 저장(`setPreparedItems`)의 인터랙티브 트랜잭션 상한.
+ *
+ * 이 값은 **새로 발명한 것이 아니라 인용한 것이다**. 근거의 원본은 파기 잡의
+ * `PURGE_TX_OPTIONS`(`worker/jobs/data-retention-purge.job.ts`) 주석이고, 가져오기의
+ * `IMPORT_TX_OPTIONS`(`onboarding/import-pipeline.service.ts`)가 이미 그 주석을 인용해
+ * 같은 두 값을 세웠다. 여기서 하는 일은 값을 고르는 것이 아니라 **Prisma 기본값(timeout 5초 ·
+ * maxWait 2초)에 기대는 것을 그만두는 것**이다.
+ *
+ * 왜 기본값에 기댈 수 없는가: 이 트랜잭션의 일감은 이제 행 수에 비례하지 **않지만**
+ * (아래 `setPreparedItems`의 `updateMany` + `createMany` — 문장 셋 고정), 그 사실을 기본값이
+ * 알지는 못한다. 그리고 이 자리의 N은 계약이 정하지 않는다 — 활성 카탈로그의 크기는
+ * 어드민이 늘리는 값이고(`items-catalog.service.ts`의 `adminCreateItemTemplate`), 시드의
+ * 오늘 값은 계약이 아니다. 5초를 넘기면 P2028로 롤백이고, 이 화면은 온보딩의 마지막에서
+ * 둘째라(모바일 ONB-003) 실패한 사용자는 고른 항목을 전부 버리지 않는 한 홈에 도달하지
+ * 못한다. 30초는 배치 두 문장 + 아이 행 UPDATE 하나가 느린 디스크·경합 중인 DB에서도
+ * 끝나기에 충분하면서 연결을 무한정 붙잡지는 않는 값이고, `maxWait` 10초는 가져오기와
+ * 같은 이유다 — **사용자가 버튼을 누르고 기다리는 단발 요청**이라 붐빌 때 즉시 실패하는
+ * 것보다 풀에서 잠깐 기다리는 편이 낫다.
+ */
+const PREPARED_ITEMS_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 } as const;
+
+/**
  * REF-118: onboarding lifecycle core split out of the former
  * onboarding-store.service.ts god service — consents, onboarding progress
  * status, child profile CRUD + prepared-items step, monthly budgets, and the
@@ -537,15 +559,49 @@ export class OnboardingCoreService {
 
     await this.prisma.$transaction(async (tx) => {
       await tx.child.update({ where: { id: childId }, data: { preparedItemsSetAt: new Date() } });
-      for (const itemTemplateId of appliedItemTemplateIds) {
-        await tx.childItemStatus.upsert({
-          where: { childId_itemTemplateId: { childId, itemTemplateId } },
-          update: { status: "prepared", updatedByUserId: user.id },
-          create: { childId, itemTemplateId, status: "prepared", updatedByUserId: user.id }
+      if (appliedItemTemplateIds.length > 0) {
+        // 라운드 82 C — 항목마다 한 문장이던 upsert 루프(문장 수 N + 1)를 두 문장으로 접는다
+        // (문장 수 3 고정). 접을 수 있는 근거는 스키마에 있다: `child_item_statuses`의
+        // `@@unique([childId, itemTemplateId], map: "uq_child_item_status")`가 upsert의
+        // 판정 키와 같은 칸이므로, "있으면 갱신 · 없으면 생성"이 그 유니크를 타고
+        // `updateMany` + `createMany({ skipDuplicates: true })` 둘로 정확히 나뉜다.
+        //
+        // ⚠️ **덮어쓰기 성질이 종전과 같다.** 오늘의 upsert도 조건 없이 `prepared`를 쓰므로
+        // `gifted`/`not_needed` 행을 덮었고, `updateMany`가 하는 일이 정확히 그것이다
+        // (여기는 사용자가 준비템 화면에서 **직접 고른** 경로다 — 지출 기록이 자동으로
+        // 표시하는 경로만 이미 정리된 상태를 보존한다: store-shared.ts의
+        // `markLinkedItemPrepared`). 요청에 없는 항목의 행은 양쪽 다 건드리지 않는다.
+        //
+        // 값으로만 남기는 관측(범위 밖): 배치 한 문장의 천장은 항목 수가 아니라 **바인드
+        // 파라미터 수**다(PostgreSQL 프로토콜 65,535 — 라운드 81 리뷰 L-9가 가져오기 쪽에
+        // 세운 그 사실). 여기서 실리는 것은 `updateMany`의 id 목록 N개와 `createMany`의
+        // N × 네 칸이고, N은 **활성 카탈로그로 잘린 수**다(요청 배열이 아무리 길어도 그렇다).
+        // 그 곱이 천장에 닿으려면 활성 준비템이 만 단위여야 하고, 오늘 그 표는 세 자리다.
+        // ⚠️ 카탈로그를 그 자릿수로 키우는 라운드는 이 줄을 계약으로 바꿔야 한다.
+        await tx.childItemStatus.updateMany({
+          where: { childId, itemTemplateId: { in: appliedItemTemplateIds } },
+          data: { status: "prepared", updatedByUserId: user.id }
+        });
+        await tx.childItemStatus.createMany({
+          data: appliedItemTemplateIds.map((itemTemplateId) => ({
+            childId,
+            itemTemplateId,
+            status: "prepared" as const,
+            updatedByUserId: user.id
+          })),
+          skipDuplicates: true
         });
       }
-    });
+    }, PREPARED_ITEMS_TX_OPTIONS);
 
+    // ⚠️ 라운드 82 C — `updatedCount`는 `createMany`가 돌려주는 count에서 오지 **않는다**.
+    // 그 count는 **이미 있던 행을 세지 않으므로**(skipDuplicates), 그것으로 바꾸면 같은
+    // 목록을 다시 저장하는 재실행에서 0이 되어 바로 다음 화면인 온보딩 이어하기의 요약
+    // (`preparedItemsCount`)과 정면으로 어긋난다. 이 값의 계약은 라운드 45 UX-Y가
+    // **"실제로 반영된 건수"** 로 못 박은 것이고(위 주석), 그 수는 유효 판정을 통과한
+    // id의 개수 — 즉 오늘 이 줄이 돌려주는 값 — 이 이미 옳다.
+    // 가져오기 쪽(라운드 81 E 후속)이 "넣으려던 수"를 사실로 적던 것을 고친 것과 갈리는
+    // 지점이 여기다: 그쪽은 세는 대상이 틀렸었고, 여기는 세는 대상이 처음부터 맞다.
     return { updatedCount: appliedItemTemplateIds.length };
   }
 

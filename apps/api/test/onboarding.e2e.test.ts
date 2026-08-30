@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { PrismaService } from "../src/prisma/prisma.service";
+import {
+  attachQueryStatementCounter,
+  QueryCountingPrismaService,
+  type QueryStatementCounter
+} from "./helpers/query-statement-counter";
 
 // Round 4: dev-login persists a real users/households row per providerToken, and
 // this helper is called from two separate `it` blocks in this file plus reused
@@ -19,6 +24,39 @@ async function login(app: INestApplication) {
     .expect(200);
 
   return response.body.tokens.accessToken as string;
+}
+
+/**
+ * 라운드 82 C: 준비템 저장까지 가려면 매번 지나야 하는 앞 단계 둘(필수 동의 · 아이 프로필)을
+ * 한 자리에 모은다. 위 `it`들이 그 단계를 한 줄씩 펼쳐 두는 것은 **그 단계 자체가 계약이기
+ * 때문**이라 그대로 두고, 준비템 계약 스위트만 이 헬퍼를 쓴다(같은 사용자로 여러 번 불러
+ * 아이를 여럿 만들 수 있다 — 동의 PUT은 멱등이다).
+ */
+async function consentAndCreateChild(app: INestApplication, accessToken: string) {
+  const householdId = (
+    await request(app.getHttpServer()).get("/api/v1/me").set("Authorization", `Bearer ${accessToken}`).expect(200)
+  ).body.households[0].id as string;
+
+  await request(app.getHttpServer())
+    .put("/api/v1/consents")
+    .set("Authorization", `Bearer ${accessToken}`)
+    .send({
+      consents: [
+        { type: "terms", version: "2026-07-06", accepted: true },
+        { type: "privacy", version: "2026-07-06", accepted: true }
+      ]
+    })
+    .expect(200);
+
+  const childId = (
+    await request(app.getHttpServer())
+      .post("/api/v1/children")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ householdId, nickname: "튼튼이", stageMode: "pregnant", dueDate: "2026-08-31" })
+      .expect(200)
+  ).body.id as string;
+
+  return { householdId, childId };
 }
 
 describe("Auth and onboarding API", () => {
@@ -714,5 +752,270 @@ describe("Auth and onboarding API", () => {
       .expect(({ body }) => {
         expect(body.error.code).toBe("VALIDATION_ERROR");
       });
+  });
+});
+
+/**
+ * 라운드 82 C — 준비템 저장(`POST /children/:childId/prepared-items`)의 계약 둘.
+ *
+ * ## 무엇이 문제였나
+ * 이 엔드포인트의 트랜잭션은 **고른 항목 수 N에 문장 수가 비례**했다(`child.update` 하나 +
+ * 항목마다 `childItemStatus.upsert` 하나 = **N + 1**). 그리고 그 N의 상한을 계약이 정하지
+ * 않는다 — 유효 판정은 `itemTemplate.findMany({ active: true })`이고 그 표는 **어드민이
+ * 늘린다**(`items-catalog.service.ts`의 `adminCreateItemTemplate`). 카탈로그가 자란 다음 날
+ * 준비물 화면에서 여든 개를 체크한 사용자는 여든한 문장을 **Prisma 기본 5초** 예산 안에서
+ * 직렬로 돌리게 되고, 넘기면 P2028 롤백이다. 이 화면은 온보딩의 마지막에서 둘째라
+ * (모바일 ONB-003) 실패한 사람은 홈에 도달하지 못하고, 라운드 72 A가 만든 로컬 탈출구는
+ * **체크가 0건일 때만** 열린다 — 즉 **항목을 실제로 고른 사람일수록 막힌다**.
+ *
+ * ## 두 계약이 서로를 지킨다
+ * 아래 첫 스위트는 **문장 수가 항목 수에 비례하지 않는다**를 실측으로 세우고(가져오기와 같은
+ * 하네스 한 벌 — `test/helpers/query-statement-counter.ts`), 둘째 스위트는 그렇게 접은 결과가
+ * **종전과 한 칸도 다르지 않다**를 세운다. 뒤엣것이 이 트랙의 성패다: 배치로 접으면서
+ * `updatedCount`의 의미(라운드 45 UX-Y)·`active` 유효 판정(라운드 46 Q-1)·`gifted`를 덮는
+ * 성질 중 하나라도 움직이면, 빨라진 대가로 화면이 거짓말을 하게 된다.
+ */
+describe("라운드 82 C — 준비템 저장의 왕복 수 계약", () => {
+  /**
+   * 비교의 작은 쪽/큰 쪽 항목 수. 큰 쪽이 작은 쪽의 **두 배**라는 것 말고 다른 뜻은 없다
+   * (정찰이 적은 그대로: "항목 수를 두 배로 해도 문장 수가 두 배가 되지 않을 것").
+   * ⚠️ 카탈로그의 크기를 뜻하지 않는다 — 그 수는 시드 값이지 계약이 아니고, 여기서는
+   * **측정점 둘**을 고르는 데만 쓴다.
+   */
+  const SMALL_ITEMS = 20;
+  const LARGE_ITEMS = 40;
+
+  let app: INestApplication;
+  let prisma: PrismaService;
+  let counter: QueryStatementCounter;
+
+  beforeEach(async () => {
+    process.env.JWT_ACCESS_SECRET = "test-access-secret";
+    process.env.JWT_REFRESH_SECRET = "test-refresh-secret";
+    process.env.WOORIAI_STAGE_TODAY = "2026-07-06";
+
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(PrismaService)
+      .useClass(QueryCountingPrismaService)
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    configureApiApp(app);
+    await app.init();
+    prisma = app.get(PrismaService);
+    counter = attachQueryStatementCounter(app);
+  });
+
+  afterEach(async () => {
+    delete process.env.WOORIAI_STAGE_TODAY;
+    counter.reset();
+    await app.close();
+  });
+
+  it("고른 항목 수를 두 배로 해도 문장 수는 두 배가 되지 않는다", async () => {
+    const accessToken = await login(app);
+
+    // ⚠️ 아이를 둘로 나눈다: 같은 아이로 두 번 재면 두 번째 측정에는 이미 상태 행이 있어
+    // 두 측정이 서로 다른 일을 하게 된다(종전 소스의 upsert도, 오늘의 배치도 마찬가지다).
+    const { childId: smallChildId } = await consentAndCreateChild(app, accessToken);
+    const { childId: largeChildId } = await consentAndCreateChild(app, accessToken);
+
+    // 실제로 저장 가능한 id를 서비스가 보는 것과 같은 기준(`active: true`)으로 고른다.
+    // 목록의 **크기**는 단언하지 않는다 — 필요한 것은 측정점 둘을 채울 만큼 있다는 사실뿐이다.
+    const activeIds = (
+      await prisma.itemTemplate.findMany({
+        where: { active: true },
+        select: { id: true },
+        orderBy: { code: "asc" },
+        take: LARGE_ITEMS
+      })
+    ).map((row) => row.id);
+    expect(activeIds).toHaveLength(LARGE_ITEMS);
+
+    async function saveStatements(childId: string, itemTemplateIds: string[]): Promise<number> {
+      return await counter.count(async () => {
+        await request(app.getHttpServer())
+          .post(`/api/v1/children/${childId}/prepared-items`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ itemTemplateIds })
+          .expect(200)
+          .expect(({ body }) => {
+            // 값 계약이 먼저다 — 고른 항목이 전부 반영됐을 때만 문장 수 비교가 뜻을 가진다.
+            expect(body).toEqual({ updatedCount: itemTemplateIds.length });
+          });
+      });
+    }
+
+    const smallStatements = await saveStatements(smallChildId, activeIds.slice(0, SMALL_ITEMS));
+    const largeStatements = await saveStatements(largeChildId, activeIds);
+
+    // ⓐ 문장 수 자체가 항목 수보다 적다. 종전 소스(항목마다 upsert 한 문장)에서는
+    //    트랜잭션 안에서만 LARGE_ITEMS + 1이고 여기에 인증·권한 조회와 BEGIN/COMMIT 같은
+    //    **항목 수와 무관한 상수 오버헤드**가 더해지므로 반드시 빨개진다.
+    expect(largeStatements).toBeLessThan(LARGE_ITEMS);
+    // ⓑ 항목 수를 두 배로 늘렸을 때의 **증가분**이 늘어난 항목 수의 10분의 1 미만이다.
+    //    비례하는 구현에서는 증가분이 늘어난 항목 수와 같아지므로(20) 반드시 빨개진다.
+    //    여유를 두는 것은 상수 오버헤드가 요청마다 한두 문장씩 흔들릴 수 있기 때문이고,
+    //    그 흔들림은 비례/비비례를 가르는 20과 자릿수가 다르다.
+    expect(largeStatements - smallStatements).toBeLessThan((LARGE_ITEMS - SMALL_ITEMS) / 10);
+  });
+});
+
+describe("라운드 82 C — 준비템 저장의 동치 계약", () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+
+  beforeEach(async () => {
+    process.env.JWT_ACCESS_SECRET = "test-access-secret";
+    process.env.JWT_REFRESH_SECRET = "test-refresh-secret";
+    process.env.WOORIAI_STAGE_TODAY = "2026-07-06";
+
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = moduleRef.createNestApplication();
+    configureApiApp(app);
+    await app.init();
+    prisma = moduleRef.get(PrismaService);
+  });
+
+  afterEach(async () => {
+    delete process.env.WOORIAI_STAGE_TODAY;
+    await app.close();
+  });
+
+  /** 이 아이의 상태 행 전부를 **비교 가능한 모양**으로 (item id 순서 고정). */
+  async function statusRowsOf(childId: string) {
+    const rows = await prisma.childItemStatus.findMany({ where: { childId } });
+    return rows
+      .map((row) => ({ itemTemplateId: row.itemTemplateId, status: row.status, updatedByUserId: row.updatedByUserId }))
+      .sort((left, right) => left.itemTemplateId.localeCompare(right.itemTemplateId));
+  }
+
+  async function preparedItemsSetAtOf(childId: string) {
+    const child = await prisma.child.findUniqueOrThrow({
+      where: { id: childId },
+      select: { preparedItemsSetAt: true }
+    });
+    return child.preparedItemsSetAt;
+  }
+
+  /**
+   * 배치로 접은 뒤에도 **같은 입력이 같은 결과를 낸다**를 한 시나리오 안에서 넷 다 지난다:
+   * 모르는 id 섞기 · 비활성 항목 섞기 · 재실행 · 이미 `gifted`인 행 덮기.
+   * ⚠️ 넷 중 하나라도 움직이면 빨라진 대가로 화면이 거짓말을 한다 — 그래서 응답의
+   * `updatedCount`만이 아니라 **최종 행 집합 · 상태 값 · `preparedItemsSetAt`** 를 함께 본다.
+   */
+  it("모르는 id·비활성·재실행·gifted 덮기에서 결과가 종전과 같다", async () => {
+    const accessToken = await login(app);
+    const { childId } = await consentAndCreateChild(app, accessToken);
+    const userId = (
+      await request(app.getHttpServer()).get("/api/v1/me").set("Authorization", `Bearer ${accessToken}`).expect(200)
+    ).body.user.id as string;
+
+    const realItemIds = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/items?tab=now`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+    ).body.items.slice(0, 3).map((item: { id: string }) => item.id) as string[];
+    expect(realItemIds).toHaveLength(3);
+    const [firstItemId, secondItemId, untouchedItemId] = realItemIds;
+
+    // 시드 행을 건드리지 않는 전용 비활성 템플릿(위 라운드 46 Q-1 테스트와 같은 장치).
+    const inactive = await prisma.itemTemplate.create({
+      data: {
+        code: `r82c_inactive_${randomUUID().slice(0, 8)}`,
+        name: "비활성 준비템",
+        necessityLevel: "optional",
+        reasonText: "라운드 82 C 동치 계약용 비활성 템플릿이에요.",
+        skipReasonText: "이 항목은 목록에서 내려갔어요.",
+        displayOrder: 90_000,
+        active: false
+      }
+    });
+
+    async function savePrepared(itemTemplateIds: string[]) {
+      const response = await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/prepared-items`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ itemTemplateIds })
+        .expect(200);
+      return response.body as { updatedCount: number };
+    }
+
+    try {
+      // (1) 모르는 id · 중복 · 비활성이 섞인 첫 저장.
+      const unknownItemId = randomUUID();
+      expect(await savePrepared([firstItemId, firstItemId, unknownItemId, inactive.id, secondItemId])).toEqual({
+        updatedCount: 2
+      });
+      // 중복은 접히고, 모르는 id도 비활성도 세지 않는다 — 그리고 **행 자체가 생기지 않는다**.
+      expect(await statusRowsOf(childId)).toEqual([
+        { itemTemplateId: firstItemId, status: "prepared", updatedByUserId: userId },
+        { itemTemplateId: secondItemId, status: "prepared", updatedByUserId: userId }
+      ].sort((left, right) => left.itemTemplateId.localeCompare(right.itemTemplateId)));
+      const firstSetAt = await preparedItemsSetAtOf(childId);
+      expect(firstSetAt).not.toBeNull();
+
+      // (2) 사용자가 한 항목을 `gifted`로 바꾸고, **요청에 담기지 않을** 항목 하나도 `gifted`로 둔다.
+      for (const itemTemplateId of [firstItemId, untouchedItemId]) {
+        await request(app.getHttpServer())
+          .patch(`/api/v1/children/${childId}/items/${itemTemplateId}/status`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .send({ status: "gifted" })
+          .expect(200);
+      }
+      expect(await statusRowsOf(childId)).toEqual(
+        [
+          { itemTemplateId: firstItemId, status: "gifted", updatedByUserId: userId },
+          { itemTemplateId: secondItemId, status: "prepared", updatedByUserId: userId },
+          { itemTemplateId: untouchedItemId, status: "gifted", updatedByUserId: userId }
+        ].sort((left, right) => left.itemTemplateId.localeCompare(right.itemTemplateId))
+      );
+
+      // (3) 같은 목록으로 **재실행**. `updatedCount`는 반영된 건수라 재실행에서도 2다
+      //     (⚠️ `createMany`의 count로 바꾸면 여기서 0이 되어 온보딩 이어하기의 요약이
+      //     거짓말을 한다 — 라운드 45 UX-Y의 계약이 지켜지는 자리가 여기다).
+      expect(await savePrepared([firstItemId, secondItemId, unknownItemId, inactive.id])).toEqual({
+        updatedCount: 2
+      });
+      // gifted였던 항목은 **덮인다**(사용자가 준비템 화면에서 직접 고른 경로라 종전 upsert도
+      // 조건 없이 덮었다). 요청에 없던 항목의 gifted는 그대로 남는다.
+      expect(await statusRowsOf(childId)).toEqual(
+        [
+          { itemTemplateId: firstItemId, status: "prepared", updatedByUserId: userId },
+          { itemTemplateId: secondItemId, status: "prepared", updatedByUserId: userId },
+          { itemTemplateId: untouchedItemId, status: "gifted", updatedByUserId: userId }
+        ].sort((left, right) => left.itemTemplateId.localeCompare(right.itemTemplateId))
+      );
+      // 비활성 항목에는 재실행에서도 행이 생기지 않는다.
+      expect(await prisma.childItemStatus.findFirst({ where: { childId, itemTemplateId: inactive.id } })).toBeNull();
+
+      const secondSetAt = await preparedItemsSetAtOf(childId);
+      expect(secondSetAt).not.toBeNull();
+      expect(secondSetAt!.getTime()).toBeGreaterThanOrEqual(firstSetAt!.getTime());
+
+      // (4) 아무것도 고르지 않은 저장(0건)에서도 단계 완료 표시는 남고, 기존 행은 하나도
+      //     달라지지 않는다 — "아무것도 준비하지 않았다"도 이 단계를 끝냈다는 사실이다.
+      const beforeEmpty = await statusRowsOf(childId);
+      expect(await savePrepared([])).toEqual({ updatedCount: 0 });
+      expect(await statusRowsOf(childId)).toEqual(beforeEmpty);
+      const thirdSetAt = await preparedItemsSetAtOf(childId);
+      expect(thirdSetAt).not.toBeNull();
+      expect(thirdSetAt!.getTime()).toBeGreaterThanOrEqual(secondSetAt!.getTime());
+
+      // 응답과 다음 화면의 요약이 계속 같은 수를 말한다(준비/선물 둘 다 준비템 탭에 속한다).
+      await request(app.getHttpServer())
+        .get(`/api/v1/onboarding/status?childId=${childId}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.summary.preparedItemsCount).toBe(3);
+        });
+    } finally {
+      // 공유 DB에 남기지 않는다(라운드 45 오염 사고 재발 차단). 상태 행이 먼저다.
+      await prisma.childItemStatus.deleteMany({ where: { itemTemplateId: inactive.id } });
+      await prisma.itemTemplateStage.deleteMany({ where: { itemTemplateId: inactive.id } });
+      await prisma.itemTemplate.deleteMany({ where: { id: inactive.id } });
+    }
   });
 });
