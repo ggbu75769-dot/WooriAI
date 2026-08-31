@@ -38,24 +38,27 @@
 // 대장은 바늘을 이름으로 갈라 각각의 수를 따로 든다(`NeedleTally` · `tallyNeedles`).
 //
 //  · **괄호 바늘**(`paren`) — `재개 조건(…)`의 **괄호 안**에 형이 적힌 자리만 센다. AA-3의 관례가
-//    실제로 요구하는 모양이고, **이 대장의 축(ⓒ)이 무는 바늘이다**. 당시 **61** · 오늘 **80**.
+//    실제로 요구하는 모양이고, **이 대장의 축(ⓒ)이 무는 바늘이다**. 당시 **61** · 라운드 89 리뷰
+//    **80** · 오늘(라운드 91 D) **97**.
 //  · **줄 바늘**(`line`) — 줄 어디에든 *사건형|결정형* 이라는 낱말이 있으면 센다. 당시 **84** ·
-//    오늘 **107**. ⚠️ **이 수는 표기가 아니라 언급까지 센다** — 차이(당시 스물셋 · 오늘 스물일곱)
-//    대부분은 *"재개 조건에는 사건형과 결정형이 있고…"* 같은 **관례를 논하는 산문**이다.
+//    라운드 89 리뷰 **107** · 오늘 **129**. ⚠️ **이 수는 표기가 아니라 언급까지 센다** — 차이
+//    (당시 스물셋 · 오늘 서른둘)의 대부분은 *"재개 조건에는 사건형과 결정형이 있고…"* 같은
+//    **관례를 논하는 산문**이다.
 //    그래서 축은 이 바늘을 쓰지 않는다.
 //  · **접힘 바늘**(`window`) — 줄 바늘에 **앞뒤 한 줄**을 더해 본다. 표기가 두 줄로 접힌 자리를
-//    회수한다. 손의 위치는 당시 줄 바늘 **12**·접힘 바늘 **14**, 오늘 줄 바늘 **19**·접힘 바늘 **21**
-//    (접힘의 크기 둘은 그때도 오늘도 같다).
+//    회수한다. 손의 위치는 당시 줄 바늘 **12**·접힘 바늘 **14**, 라운드 89 리뷰 **19**·**21**,
+//    오늘 줄 바늘 **26**·접힘 바늘 **28** (⚠️ 접힘의 크기 둘은 세 시점 내내 같다).
 //
-// ⚠️⚠️ **두 시점을 함께 적는 이유**(라운드 89 리뷰 M-4): 위의 *당시* 는 트랙 D가 이 대장을 세운
-// 커밋(`1b597c4`)의 워킹트리이고, *오늘* 은 **같은 라운드의 HEAD**다. D 뒤에 머지된 트랙 C와
-// 트랙 F가 판정 문서·소스에 재개 조건을 더 얹어 **한 라운드 안에서 실측이 전부 낡았다.**
+// ⚠️⚠️ **세 시점을 함께 적는 이유**: *당시* 는 트랙 D가 이 대장을 세운 커밋(`1b597c4`)의
+// 워킹트리, *라운드 89 리뷰* 는 그 라운드의 HEAD(M-4의 재실측), *오늘* 은 **라운드 91 트랙 D**다.
+// 한 라운드 안에서도 문서가 자라 실측이 전부 낡았고, 두 라운드가 더 지나 또 낡았다.
 // 그동안 계약은 내내 초록이었다 — 무는 것이 하한뿐이기 때문이고, 그것이 이 설계의 첫 증거다.
 //
 // ## ⓒ 축 — 결정형이면 손의 위치를 함께 적었을 것
 //
-// 괄호 바늘의 결정형 자리는 당시 **열둘**·오늘 **열아홉**이고, 손의 위치를 함께 적은 자리는
-// 당시 **열하나**·오늘 **열여덟**이다 — **어긋난 하나는 그때도 오늘도 같은 하나**다.
+// 괄호 바늘의 결정형 자리는 당시 **열둘** · 라운드 89 리뷰 **열아홉** · 오늘 **스물넷**이고, 손의
+// 위치를 함께 적은 자리는 **열하나 · 열여덟 · 스물셋**이다 — **어긋난 하나는 세 시점 내내 같은
+// 하나**다(문서가 자라는 동안 관례를 어긴 자리는 늘지 않았다).
 // 그 하나(라운드 86 Z-1의 기록)는 `DECISIVE_HAND_EXEMPTIONS`에 이유·재개 조건과 함께 선다.
 //
 // ⚠️ **면제는 줄 번호로 신원을 삼지 않는다.** 줄 번호는 F가 위쪽에 한 문단만 더해도 밀리고,
@@ -70,19 +73,25 @@
 // 오늘의 어긋남 수를 값으로 적어 두고(`DECISIVE_MISSING_HAND_TODAY`), 그 수가 0이 되는 날 이
 // 면제 줄을 지우는 것이 다음 라운드의 일이라고 면제 줄 자신이 적는다.
 //
-// ## ⓓ 소스 축 — 관례는 문서 밖에도 산다
+// ## ⓓ 소스 축 — 관례는 문서 밖에도 산다 (⚠️⚠️ 라운드 91 D: 손 하나 → 전수 파생)
 //
-// 라운드 87 트랙 E가 AA-3의 표기를 **소스로** 처음 가져갔고, 오늘 그 관례를 소스에 지고 있는
-// 파일은 `dead-export-ledger.ts` 하나다(⚠️ 표기 — 당시 **넷** · 오늘 **다섯**). 같은 조항이 그
-// 전부에 걸린다.
-// ⚠️ **그 파일은 이 라운드 트랙 C의 소유라 이 대장은 읽기만 한다** — 그래서 소스 축의 하한은
-// **셋**이다: C가 도래한 결정형 조건(`export-const-axis`)을 소진하며 그 한 줄을 지울 수 있고,
-// **도래한 조건을 지우는 것은 옳은 손이다.** 그물이 그것을 막으면 족쇄가 된다
-// (`SOURCE_AXIS_FILES[].floor`).
-// ⚠️⚠️ **그 예측은 빗나갔고 방향이 반대였다**(라운드 89 리뷰 M-4): 당시 이 자리는 **4→3**을
-// 내다봤지만 실제로 일어난 것은 **4→5**다 — C는 예상대로 그 결정형 하나를 소진했으나 같은
-// 걸음에 **사건형 둘을 새로 적었다.** 관례를 지키는 손은 조건을 닫으면서 새 조건을 남긴다.
-// **하한은 그래도 셋 그대로다**(빗나간 방향이 위쪽이므로 하한은 여전히 아래쪽만 막는다).
+// 라운드 87 트랙 E가 AA-3의 표기를 **소스로** 처음 가져갔다. 라운드 89·90의 이 축은 그 사실을
+// **손으로 적은 한 줄**로 졌다 — `SOURCE_AXIS_FILES = [dead-export-ledger.ts]`. 그 모양은
+// *"적어 둔 그 파일이 관례를 지키는가"* 만 묻고 *"관례를 지고 있는 소스가 이것뿐인가"* 는 묻지
+// 못한다. **라운드 91 트랙 D가 그 손 목록을 지우고 뿌리를 건다**(`apps/**` · `packages/**`).
+//
+// ⚠️ **그리고 뿌리를 열자 곧바로 둘째 자리가 나왔다**: `contract-net-ledger.test.ts` — 라운드 90
+// E가 자기 계약에 *"도래한 조건·처분은 다음 라운드 몫"* 이라고 적으며 남긴 표기다. **손 목록이
+// 계속 서 있었다면 이 대장은 그 자리를 오늘도 몰랐다** — 그것이 고치려던 병의 실물이다.
+// 오늘의 파생 결과는 **둘**이고(좁은 바늘 6+1=7 · 넓은 바늘 9+2=11), 걷은 파일은 **966**이다
+// (⚠️ 걷은 수는 다른 트랙이 파일을 더하는 동안에도 움직인다 — 그래서 계약은 하한만 문다).
+//
+// ⚠️ **두 파일 다 이 대장은 읽기만 한다** — 그래서 자리별 하한은 여전히 아래쪽만 막는다
+// (`SOURCE_AXIS_FLOORS`: `dead-export-ledger.ts` **셋**, 오늘 처음 걸린 자리는 **0**). 대신
+// 뿌리를 걷는 축에는 손 목록에 없던 조항이 하나 붙는다 — **표기를 지닌 소스 수의 래칫**
+// (`SOURCE_COUNT_RATCHET` = 2): 관례가 지워지는 날 목록에서 줄을 지워 조용해질 곳이 없다.
+// ⚠️⚠️ **자리별 하한의 예측은 세 번 빗나갔고 방향은 매번 위쪽이었다**(4 → 5 → 6): 관례를 지키는
+// 손은 조건을 닫으면서 새 조건을 남긴다. **하한은 그래도 셋 그대로다.**
 //
 // ## ⓕ 자기 배제 — 대장은 자기를 세지 않는다
 //
@@ -96,8 +105,11 @@
 // AB-5의 규율을 태어날 때부터 진다(`LEDGER_BLIND_SPOTS`). 이 대장이 세는 예순하나는 *"저장소에
 // 형을 밝힌 재개 조건이 예순하나뿐이다"* 가 아니라 *"이 모집단·이 바늘 안에서 예순하나가
 // 풀렸다"* 는 뜻이다. 밖에 남은 것은 사각마다 오늘 잰 값과 하한을 진다 — 가장 큰 것이
-// **형 표기가 아예 없는 산문 조건**(당시 119 · 오늘 **145**)이고, 그다음이
-// **라운드 노트(`docs/5차/**`) 221**이다.
+// **라운드 노트(`docs/5차/**`) 319**이고, 그다음이 **형 표기가 아예 없는 산문 조건**
+// (당시 119 · 라운드 89 리뷰 145 · 오늘 **165**)이다.
+// ⚠️ **라운드 91 D가 소스 축을 넓히며 사각이 여섯에서 여덟이 됐다** — 넓힌 축은 넓힌 만큼 새
+// 사각을 진다: **표기의 실재만 셀 뿐 조건의 도래를 묻지 않는다**(`source-notation-existence` 7) ·
+// **표기 없는 소스의 산문 조건은 이 뿌리 밖이다**(`unmarked-source-prose` 48).
 //
 // ## ⚠️ 전제 재실측 — 정찰의 다섯 수 중 넷이 그대로이고 하나는 바늘이 갈렸다
 //
@@ -109,7 +121,7 @@
 // 바늘 셋을 갈라 낸 근거다). 같은 라운드 HEAD의 실측은 **252 · 80 · 107 · 18 · 21**이고, 그 값은
 // `MEASURED_TODAY`가 진다 — 두 표가 서로 다른 시점을 말한다는 사실 자체를 값으로 남긴다
 // (라운드 89 리뷰 M-4).
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /** `vitest`가 `packages/test-utils`에서 돌 때의 저장소 뿌리(다른 계약들과 같은 관례). */
@@ -118,8 +130,12 @@ export const repoRoot = join(process.cwd(), "..", "..");
 /**
  * 이 대장 자신의 두 파일 — ⓕ **모집단에 넣지 않는다.**
  *
- * 오늘 이 배제는 **모집단 정의에서 이미 참이다**(모집단은 판정 문서 하나와 소스 축 한 파일이고
- * 둘 다 이 파일이 아니다). 그래도 값으로 적어 둔다 — 모집단이 넓어지는 날 이 줄이 먼저 읽힌다.
+ * ⚠️⚠️ **라운드 91 트랙 D에서 이 줄이 일을 하기 시작했다.** 라운드 89·90에는 이 배제가
+ * *모집단 정의에서 이미 참*이었다(모집단이 판정 문서 하나와 손으로 적은 소스 하나뿐이라 이
+ * 파일들이 들어올 길이 없었다) — **우연이었다.** 오늘 소스 축이 `apps/**`·`packages/**`를
+ * 걷자 그 우연이 끝났다: 이 두 파일은 `⚠️ 재개 조건(…)` 표기를 실제로 지고 있어서, 배제가
+ * 없으면 파생 결과가 **둘이 아니라 넷**이 되고 이 대장은 **자기를 세는 축**이 된다.
+ * 배제는 `readSourceAxisEntries`가 **걷는 자리에서** 진다(모집단마다 따로 적지 않는다).
  */
 export const LEDGER_SELF_FILES = [
   "packages/test-utils/src/resume-condition-ledger.ts",
@@ -405,6 +421,12 @@ export function ratchetViolations(
  *    트랙 C(사문 대장의 `export const` 축)와 트랙 F(AD절 판정 다섯)가 판정 문서와 소스에 재개
  *    조건을 더 얹었기 때문이다. 문서는 라운드마다 자라고, **한 라운드 안에서도 자란다.**
  *
+ * ⚠️⚠️ **세 시점 — 라운드 91 트랙 D가 다시 쟀고 또 낡아 있었다**: `294 · 312 · 97 · 23 · 24 ·
+ * 129 · 26 · 28 · 165 · 32`. 라운드 90의 F가 판정 문서에 절을 더하며 자리가 `252 → 294`,
+ * 괄호 바늘이 `80 → 97`, 결정형이 `19 → 24`로 또 올랐다. **어긋난 하나는 여전히 하나다**
+ * (`DECISIVE_MISSING_HAND_TODAY`) — 문서가 세 라운드를 자라는 동안 관례를 어긴 자리는 늘지
+ * 않았다는 뜻이고, 그것이 이 축이 지키는 것의 전부다.
+ *
  * ⚠️ **그리고 그 사이에도 계약은 초록이었다 — 하한 설계 덕이다.** 이 대장이 `MEASURED_TODAY`를
  * 등호로 물었다면 D 다음 커밋에서 곧바로 빨개졌을 것이고, 그때 다음 사람이 고르는 쉬운 길은
  * **문서를 계약에 맞추는 것**이다(이 대장이 태어날 때부터 막으려던 그 뒤집힘). 실측이 낡는 것이
@@ -412,16 +434,16 @@ export function ratchetViolations(
  * 그래서 리뷰는 **하한(`NOTATION_RATCHET`·`floor`)은 한 칸도 올리지 않고** 이 기록만 갱신한다.
  */
 export const MEASURED_TODAY = {
-  sites: 252,
-  mentions: 264,
-  parenTyped: 80,
-  parenHand: 18,
-  parenDecisive: 19,
-  lineTyped: 107,
-  lineHand: 19,
-  windowHand: 21,
-  prose: 145,
-  lineTypedOnly: 27
+  sites: 294,
+  mentions: 312,
+  parenTyped: 97,
+  parenHand: 23,
+  parenDecisive: 24,
+  lineTyped: 129,
+  lineHand: 26,
+  windowHand: 28,
+  prose: 165,
+  lineTypedOnly: 32
 } as const;
 
 // ── ⓒ 축: 결정형이면 손의 위치를 함께 ────────────────────────────────────────
@@ -492,57 +514,132 @@ export function exemptionFor(site: ResumeSite): DecisiveHandExemption | undefine
 /** 오늘의 어긋남 수 — 값으로 적어 둔다(0이 되는 날 면제 줄을 지운다). */
 export const DECISIVE_MISSING_HAND_TODAY = 1;
 
-// ── ⓓ 소스 축 ────────────────────────────────────────────────────────────────
-
-export type SourceAxisFile = {
-  readonly path: string;
-  /** 왜 이 파일인가 — **빈 문자열일 수 없다.** */
-  readonly reason: string;
-  /** 이 라운드에 그 파일을 여는 트랙(이 대장은 **읽기만** 한다). */
-  readonly owner: string;
-  /** 오늘 실측한 표기 수. */
-  readonly valueToday: number;
-  /** ⚠️ 하한 — **오늘의 값보다 낮게** 잡는다(사유는 아래). */
-  readonly floor: number;
-  /** 하한을 값보다 낮게 잡은 이유. */
-  readonly floorReason: string;
-};
+// ── ⓓ 소스 축 — ⚠️⚠️ 손 하나가 아니라 뿌리에서 전수 파생(라운드 91 트랙 D) ────
 
 /**
- * 소스에 사는 재개 조건 — 오늘 그 관례를 지고 있는 파일은 하나다.
+ * 소스 축의 **뿌리** — ⚠️⚠️ **파일 목록이 아니다.**
  *
- * ⚠️ **읽기만 한다.** `dead-export-ledger.ts`는 이 라운드 트랙 C의 소유다.
+ * 라운드 89·90의 이 축은 `SOURCE_AXIS_FILES`를 **손으로 적은 한 줄**이었다
+ * (`dead-export-ledger.ts` 하나). 그 모양의 병은 계약이 *"그 파일이 관례를 지키는가"* 만
+ * 묻고 *"관례를 지고 있는 소스가 이것뿐인가"* 는 묻지 못한다는 것이다 — 새 파일이 표기를
+ * 지기 시작해도 이 대장은 그 사실을 **모른다**(AB-4가 적은 *"목록에 이름이 있다는 사실이
+ * 그 자리는 세어졌다로 읽힌다"* 의 소스판). 오늘 그 손 목록을 지우고 **뿌리를 걷는다.**
  */
-export const SOURCE_AXIS_FILES: readonly SourceAxisFile[] = [
-  {
-    path: "packages/test-utils/src/dead-export-ledger.ts",
-    reason:
-      "라운드 87 트랙 E가 AA-3의 표기 관례를 소스로 처음 가져간 파일이고, 오늘 저장소에서 " +
-      "그 표기를 지고 있는 유일한 소스다(사각의 재개 조건 넷). 문서만 무는 계약은 관례의 절반만 " +
-      "지킨다 — 그래서 같은 조항이 이 넷에도 걸린다.",
-    owner: "트랙 C(라운드 89) — 이 대장은 읽기만 한다",
-    valueToday: 6,
-    floor: 3,
-    floorReason:
-      "⚠️⚠️ **두 시점 — 이 칸의 예측이 빗나갔고, 빗나간 방향까지 값으로 적는다.** 당시(트랙 D " +
-      "시점) 표기는 넷이었고 이 칸은 *'그 넷 중 하나(export-const-axis의 결정형 · 손은 안)는 " +
-      "오늘 도래한 조건이라 트랙 C가 소진하며 지울 수 있으니 하한은 넷이 아니라 셋'* 이라고 " +
-      "적었다 — 즉 **4→3을 내다봤다.** 실제로 일어난 것은 **4→5**다: C는 예상대로 그 결정형 " +
-      "하나를 소진했지만(사문 대장이 export const 축을 들이며 그 조건이 닫혔다), 같은 걸음에 " +
-      "**사건형 둘을 새로 적었다**(면제가 늘면 판정을 좁힌다 · 세지 않는 뿌리를 세는 라운드). " +
-      "⚠️ **관례를 지키는 손은 조건을 소진하면서 동시에 새 조건을 남긴다** — 그래서 소스 축의 " +
-      "수는 줄지 않고 늘었다. 하한은 그래도 **셋 그대로 둔다**: 예측이 빗나간 방향은 위쪽이고, " +
-      "하한이 막아야 하는 것은 아래쪽(관례가 지워지는 날)이다. 하한을 오늘의 값으로 올리면 " +
-      "다음 라운드가 도래한 조건 셋을 정직하게 소진하는 순간 그 옳은 손이 빨강을 맞는다. " +
-      "⚠️ **세 시점 — 그 위쪽 어긋남이 한 번 더 났다**(라운드 90 리뷰 M-3): 4 → 5 → **6**. " +
-      "리뷰가 사문 대장에 사각 하나를 새로 열며(`jsx-apostrophe-string-masking`) 사건형 조건 " +
-      "하나를 또 남겼다 — **관례를 지키는 손은 조건을 소진하면서 동시에 새 조건을 남긴다**가 세 " +
-      "번째로 참이 됐다. 하한은 여전히 셋이고, 계약이 무는 것은 그 하한뿐이라 세 번 다 초록이었다."
-  }
+export const SOURCE_AXIS_ROOTS = ["apps", "packages"] as const;
+
+/**
+ * 걷지 않는 디렉터리 — **산출물·의존성은 소스가 아니라 사본이다.**
+ *
+ * 계약 그물 대장(`contract-net-ledger.test.ts`)이 같은 뿌리를 걸으며 쓴 대역 그대로다
+ * (두 그물이 같은 저장소를 다른 바늘로 보되 **대역은 같게** 둔다).
+ */
+export const SOURCE_AXIS_SKIPPED_DIRECTORIES: readonly string[] = [
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  "generated",
+  ".next",
+  ".expo",
+  ".turbo",
+  ".git",
+  "android",
+  "ios"
 ];
 
 /**
- * 소스에서 **오늘 이 파일이 지고 있는** 표기만 세는 바늘.
+ * **읽지 않는** 확장자 — 이진·산출물.
+ *
+ * ⚠️ 소스 확장자를 **허용 목록**으로 적지 않는다: 허용 목록은 그 자체로 또 하나의 손 목록이라
+ * `.kt`·`.java`·`.sql`처럼 나중에 붙는 소스를 조용히 밖에 둔다. 여기서는 *읽을 수 없는 것*만
+ * 이름으로 덜어 내고, 나머지는 전부 읽는다.
+ */
+export const SOURCE_AXIS_BINARY_EXTENSIONS: readonly string[] = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".ico",
+  ".pdf",
+  ".zip",
+  ".gz",
+  ".pack",
+  ".jar",
+  ".class",
+  ".bin",
+  ".keystore",
+  ".jks",
+  ".ttf",
+  ".otf",
+  ".woff",
+  ".woff2",
+  ".map",
+  ".tsbuildinfo",
+  ".log",
+  ".lock"
+];
+
+/** 읽지 않는 크기 — 이 위는 소스가 아니라 자료다(오늘 걸린 파일 0건). */
+export const SOURCE_AXIS_MAX_BYTES = 1_048_576;
+
+export type SourceAxisEntry = {
+  /** 저장소 상대 경로. */
+  readonly path: string;
+  /** 파일 원문. */
+  readonly text: string;
+};
+
+/**
+ * 뿌리를 걸어 **읽을 수 있는 소스 전수**를 낸다 — ⓕ **대장 자신의 두 파일은 여기서 빠진다.**
+ *
+ * ⚠️ 자기 배제가 이 자리에 있는 이유: 배제를 *모집단 정의*가 아니라 *걷기*가 지면, 모집단이
+ * 넓어져도 배제가 함께 넓어진다. 라운드 89의 배제는 *"모집단이 문서 하나와 손으로 적은 소스
+ * 하나라 자기 파일이 들어올 길이 없다"* 는 **우연**이었고, 오늘 뿌리를 열자 그 우연이 끝났다 —
+ * 이 대장의 두 파일은 `⚠️ 재개 조건(…)` 표기를 실제로 지고 있어서, 배제가 없으면 이 축은
+ * **자기를 세는 축**이 된다.
+ */
+export function readSourceAxisEntries(baseDir: string = repoRoot): readonly SourceAxisEntry[] {
+  const entries: SourceAxisEntry[] = [];
+  const selfFiles = LEDGER_SELF_FILES as readonly string[];
+
+  const walk = (relative: string): void => {
+    let listing;
+    try {
+      listing = readdirSync(join(baseDir, relative), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of listing) {
+      const next = `${relative}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (SOURCE_AXIS_SKIPPED_DIRECTORIES.includes(entry.name)) continue;
+        walk(next);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const lower = entry.name.toLowerCase();
+      if (SOURCE_AXIS_BINARY_EXTENSIONS.some((extension) => lower.endsWith(extension))) continue;
+      if (selfFiles.includes(next)) continue; // ⓕ 자기 배제
+      const absolute = join(baseDir, next);
+      try {
+        if (statSync(absolute).size > SOURCE_AXIS_MAX_BYTES) continue;
+        entries.push({ path: next, text: readFileSync(absolute, "utf8") });
+      } catch {
+        continue;
+      }
+    }
+  };
+
+  for (const root of SOURCE_AXIS_ROOTS) {
+    if (!existsSync(join(baseDir, root))) continue;
+    walk(root);
+  }
+  return entries;
+}
+
+/**
+ * 소스에서 **오늘 그 파일이 지고 있는** 표기만 세는 바늘.
  *
  * ⚠️ `⚠️` 표식을 함께 무는 이유: 같은 파일이 **과거의 조건을 인용**하기도 하는데
  * (*"라운드 87의 문장은 … 재개 조건(사건형): … 이었고"*), 인용은 오늘의 약속이 아니다.
@@ -558,6 +655,137 @@ export function anyParenSourceNeedle(): RegExp {
   return /재개\s*(?:조건|트리거)\s*[（(]([^）)]*)[）)]/g;
 }
 
+/** 한 텍스트에서 바늘에 걸린 **형이 밝혀진** 괄호 안 내용들. */
+export function typedInners(text: string, needle: RegExp): readonly string[] {
+  const inners: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = needle.exec(text)) !== null) {
+    if (TYPE_WORD.test(match[1])) inners.push(match[1]);
+  }
+  return inners;
+}
+
+export type SourceAxisFile = {
+  readonly path: string;
+  /** 왜 이 파일인가 — **빈 문자열일 수 없다.** ⚠️ 손이 아니라 실측에서 파생된다. */
+  readonly reason: string;
+  /** 그 축이 **누구의 것인가**(이 대장은 **읽기만** 한다) — ⓒ **빈 문자열 금지.** */
+  readonly owner: string;
+  /** 오늘 실측한 표기 수(좁은 바늘) — ⚠️ 손으로 적지 않는다. */
+  readonly valueToday: number;
+  /** 오늘 실측한 괄호 전수(넓은 바늘 · 인용 포함). */
+  readonly anyParenToday: number;
+  /** ⚠️ 하한 — **오늘의 값보다 낮다**(사유는 아래). */
+  readonly floor: number;
+  /** 하한을 값보다 낮게 잡은 이유. */
+  readonly floorReason: string;
+};
+
+/**
+ * 자리별 **하한**의 역사 — ⚠️ **이 표는 뿌리가 아니다.**
+ *
+ * 모집단은 뿌리에서 파생되고, 이 표는 *"이미 서 있던 자리의 하한을 낮추지 않는다"* 만 진다.
+ * 여기에 이름이 없는 파일은 **오늘 처음 걸린 자리**라 역사가 없고, 그래서 하한이
+ * `SOURCE_AXIS_DEFAULT_FLOOR`(0)이다 — 그 자리를 지키는 것은 자리별 하한이 아니라
+ * **표기 소스 수의 래칫**(`SOURCE_COUNT_RATCHET`)이다.
+ *
+ * ⚠️⚠️ **이 수를 내리지 말 것**(라운드 89 D가 셋으로 세운 이유 그대로).
+ */
+export const SOURCE_AXIS_FLOORS: Readonly<Record<string, number>> = {
+  "packages/test-utils/src/dead-export-ledger.ts": 3
+};
+
+/** 오늘 처음 걸린 자리의 하한 — 역사가 없으므로 0. */
+export const SOURCE_AXIS_DEFAULT_FLOOR = 0;
+
+/** 자리별 하한의 사유(역사) — 표에 없는 자리는 아래 기본 사유를 진다. */
+export const SOURCE_AXIS_FLOOR_NOTES: Readonly<Record<string, string>> = {
+  "packages/test-utils/src/dead-export-ledger.ts":
+    "⚠️⚠️ **네 시점 — 이 칸의 예측이 빗나갔고, 빗나간 방향까지 값으로 적는다.** 라운드 89 D " +
+    "시점 표기는 넷이었고 이 칸은 *'그 넷 중 하나(export-const-axis의 결정형 · 손은 안)는 도래한 " +
+    "조건이라 트랙 C가 소진하며 지울 수 있으니 하한은 넷이 아니라 셋'* 이라고 적었다 — 즉 " +
+    "**4→3을 내다봤다.** 실제로는 **4 → 5 → 6**이다: C는 그 결정형을 소진하면서 사건형 둘을 " +
+    "새로 적었고, 라운드 90 리뷰가 사각 하나를 더 열며(`jsx-apostrophe-string-masking`) 또 " +
+    "하나를 남겼다. ⚠️ **관례를 지키는 손은 조건을 소진하면서 동시에 새 조건을 남긴다** — 그래서 " +
+    "이 수는 줄지 않고 늘었다. 하한은 그래도 **셋 그대로 둔다**: 빗나간 방향은 위쪽이고 하한이 " +
+    "막아야 하는 것은 아래쪽(관례가 지워지는 날)이다. 하한을 오늘의 값으로 올리면 다음 라운드가 " +
+    "도래한 조건 셋을 정직하게 소진하는 순간 그 옳은 손이 빨강을 맞는다."
+};
+
+/**
+ * 자리별 **소유자**의 주석 — ⚠️ 이것도 뿌리가 아니다.
+ *
+ * 표에 이름이 없어도 소유자 칸은 **빈 문자열일 수 없다**(ⓒ). 이름이 없는 자리는 경로에서
+ * 파생한 소유를 지고, *"이 대장은 읽기만 한다"* 는 사실만은 어느 자리에나 선다.
+ */
+export const SOURCE_AXIS_OWNER_NOTES: Readonly<Record<string, string>> = {
+  "packages/test-utils/src/dead-export-ledger.ts":
+    "사문 대장 — 라운드 87 트랙 E가 AA-3의 표기를 소스로 처음 가져간 파일이고 라운드 89 C가 " +
+    "`export const` 축을 얹었다. 이 대장은 읽기만 한다.",
+  "packages/test-utils/src/contract-net-ledger.test.ts":
+    "계약 그물 대장 — 라운드 90 E의 짝 계약이 이 파일의 목록을 문다. 이 대장은 읽기만 한다."
+};
+
+/** 경로에서 소유를 파생한다 — **어떤 경로에도 빈 문자열을 돌려주지 않는다**(ⓒ). */
+export function ownerForSourcePath(path: string): string {
+  const note = SOURCE_AXIS_OWNER_NOTES[path];
+  if (note) return note;
+  const [root, workspace] = path.split("/");
+  return (
+    `${root}/${workspace ?? "?"}의 손 — 오늘 처음 이 뿌리에 걸린 자리라 이 대장에 이름이 아직 ` +
+    "적히지 않았다(적는 것은 다음 라운드의 청소다). 이 대장은 읽기만 한다."
+  );
+}
+
+/**
+ * ⚠️⚠️ **전수 파생의 자리** — 걷어 온 소스에서 표기를 지닌 파일만 남긴다.
+ *
+ * `ownerFor`를 인자로 받는 이유는 계약이 **소유자 칸이 비는 날**을 픽스처로 재현할 수 있게
+ * 하기 위해서다(빈 칸이 실제로 빨개지는지를 산문이 아니라 값으로 보인다).
+ */
+export function sourceAxisFilesFrom(
+  entries: readonly SourceAxisEntry[],
+  ownerFor: (path: string) => string = ownerForSourcePath
+): readonly SourceAxisFile[] {
+  const files: SourceAxisFile[] = [];
+  for (const entry of entries) {
+    const marked = typedInners(entry.text, markedSourceNeedle());
+    if (marked.length === 0) continue;
+    const anyParen = typedInners(entry.text, anyParenSourceNeedle());
+    files.push({
+      path: entry.path,
+      reason:
+        `뿌리 ${SOURCE_AXIS_ROOTS.join(" · ")} 를 걸어 나온 자리다 — ⚠️ 표식이 선 재개 조건 ` +
+        `표기를 ${marked.length}건 지고 있어(괄호 전수 ${anyParen.length}건) AA-3의 같은 조항이 ` +
+        "그 전부에 걸린다. 문서만 무는 계약은 관례의 절반만 지킨다.",
+      owner: ownerFor(entry.path),
+      valueToday: marked.length,
+      anyParenToday: anyParen.length,
+      floor: SOURCE_AXIS_FLOORS[entry.path] ?? SOURCE_AXIS_DEFAULT_FLOOR,
+      floorReason:
+        SOURCE_AXIS_FLOOR_NOTES[entry.path] ??
+        "오늘 처음 뿌리에 걸린 자리라 역사가 없다 — 그래서 자리별 하한은 0이고, 이 파일이 표기를 " +
+          "잃는 날 무는 것은 자리별 하한이 아니라 **표기 소스 수의 래칫**이다. ⚠️ 하한을 오늘의 " +
+          "값으로 올리면 도래한 조건을 정직하게 소진하는 손이 빨강을 맞는다(라운드 89 D의 판단 그대로)."
+    });
+  }
+  return files.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+/** 뿌리를 걸어 소스 축을 전수로 낸다. */
+export function deriveSourceAxisFiles(baseDir: string = repoRoot): readonly SourceAxisFile[] {
+  return sourceAxisFilesFrom(readSourceAxisEntries(baseDir));
+}
+
+/**
+ * 오늘의 소스 축 — **손으로 적은 목록이 아니라 파생 결과다.**
+ *
+ * 오늘 걸린 자리는 **둘**이다(`dead-export-ledger.ts` · `contract-net-ledger.test.ts`).
+ * 둘째 자리는 라운드 90 E가 *"도래한 조건·처분은 다음 라운드 몫"* 이라고 적으며 표기를 남긴
+ * 자리이고, **손 목록이었다면 이 대장은 그 자리를 오늘도 몰랐다.**
+ */
+export const SOURCE_AXIS_FILES: readonly SourceAxisFile[] = deriveSourceAxisFiles();
+
 export type SourceNotation = {
   readonly file: string;
   /** 괄호 안 내용. */
@@ -566,20 +794,15 @@ export type SourceNotation = {
   readonly hand: boolean;
 };
 
-/** 소스 축의 표기를 걷는다(⚠️ 표식이 선 것만). */
-export function collectSourceNotations(baseDir: string = repoRoot): readonly SourceNotation[] {
+/** 걷어 온 소스에서 표기를 걷는다(⚠️ 표식이 선 것만). */
+export function collectSourceNotationsFrom(
+  entries: readonly SourceAxisEntry[]
+): readonly SourceNotation[] {
   const found: SourceNotation[] = [];
-  for (const file of SOURCE_AXIS_FILES) {
-    const absolute = join(baseDir, file.path);
-    if (!existsSync(absolute)) continue;
-    const source = readFileSync(absolute, "utf8");
-    const needle = markedSourceNeedle();
-    let match: RegExpExecArray | null;
-    while ((match = needle.exec(source)) !== null) {
-      const inner = match[1];
-      if (!TYPE_WORD.test(inner)) continue;
+  for (const entry of entries) {
+    for (const inner of typedInners(entry.text, markedSourceNeedle())) {
       found.push({
-        file: file.path,
+        file: entry.path,
         inner,
         decisive: DECISIVE_WORD.test(inner),
         hand: HAND_PHRASE.test(inner)
@@ -589,21 +812,106 @@ export function collectSourceNotations(baseDir: string = repoRoot): readonly Sou
   return found;
 }
 
-/** 넓은 바늘로 센 수(인용 포함) — 사각의 값을 내는 자. */
+/** 소스 축의 표기를 걷는다(⚠️ 표식이 선 것만) — 뿌리에서 전수로. */
+export function collectSourceNotations(baseDir: string = repoRoot): readonly SourceNotation[] {
+  return collectSourceNotationsFrom(readSourceAxisEntries(baseDir));
+}
+
+/**
+ * 넓은 바늘로 센 수(인용 포함) — 사각의 값을 내는 자.
+ *
+ * ⚠️ **모집단 안에서만 센다**: 표기를 지니지 않은 소스가 옛 문장을 인용하는 자리까지 세면
+ * 이 수는 이 축이 아니라 저장소 전체의 인용 습관을 재게 된다(그 수는 사각 `unmarked-source-prose`).
+ */
 export function countAnyParenSourceNotations(baseDir: string = repoRoot): number {
-  let total = 0;
-  for (const file of SOURCE_AXIS_FILES) {
-    const absolute = join(baseDir, file.path);
-    if (!existsSync(absolute)) continue;
-    const source = readFileSync(absolute, "utf8");
-    const needle = anyParenSourceNeedle();
-    let match: RegExpExecArray | null;
-    while ((match = needle.exec(source)) !== null) {
-      if (TYPE_WORD.test(match[1])) total += 1;
+  return deriveSourceAxisFiles(baseDir).reduce((sum, file) => sum + file.anyParenToday, 0);
+}
+
+// ── ⓓ-② 전수 파생이 실제로 무는 자리 ─────────────────────────────────────────
+
+/**
+ * ⚠️ **표기를 지닌 소스 수의 래칫** — 오늘 **둘**, 그리고 **줄지 않는다.**
+ *
+ * 이것이 손 목록에는 없던 조항이다: 손 목록 시절 이 축은 *"적어 둔 그 파일이 관례를 지키는가"*
+ * 만 물었고, 관례가 **지워지는** 날에도 목록에서 그 줄을 지우면 초록이었다. 뿌리를 걷는 오늘은
+ * 그 줄을 지울 곳이 없다 — 표기가 사라지면 파생 수가 떨어지고 이 래칫이 먼저 빨개진다.
+ */
+export const SOURCE_COUNT_RATCHET = 2;
+
+/** 걷은 파일 수의 하한 — 유령 방지(뿌리가 통째로 빈 날 먼저 빨개진다). */
+export const SOURCE_AXIS_WALKED_FLOOR = 400;
+
+export type SourceCountViolation = {
+  readonly floor: number;
+  readonly measured: number;
+  readonly files: readonly string[];
+};
+
+/** 표기 소스 수가 하한을 깼는가 — **`undefined`여야 초록이다.** */
+export function sourceCountViolation(
+  files: readonly SourceAxisFile[],
+  floor: number = SOURCE_COUNT_RATCHET
+): SourceCountViolation | undefined {
+  if (files.length >= floor) return undefined;
+  return { floor, measured: files.length, files: files.map((file) => file.path) };
+}
+
+export type SourceAxisDefect = {
+  readonly path: string;
+  readonly field: "owner" | "reason" | "floorReason" | "floor" | "valueToday";
+  readonly detail: string;
+};
+
+/**
+ * 자리마다 **칸이 실제로 채워졌는가** — ⓒ의 *빈 문자열 금지*를 값으로 무는 자.
+ *
+ * **비어 있어야 초록이다.**
+ */
+export function sourceAxisDefects(files: readonly SourceAxisFile[]): readonly SourceAxisDefect[] {
+  const defects: SourceAxisDefect[] = [];
+  for (const file of files) {
+    if (file.owner.trim().length === 0) {
+      defects.push({ path: file.path, field: "owner", detail: "소유자 칸이 비었다" });
+    }
+    if (file.reason.trim().length <= 40) {
+      defects.push({ path: file.path, field: "reason", detail: "이 자리가 왜 모집단인지가 없다" });
+    }
+    if (file.floorReason.trim().length <= 40) {
+      defects.push({ path: file.path, field: "floorReason", detail: "하한의 사유가 없다" });
+    }
+    if (file.floor >= file.valueToday) {
+      defects.push({
+        path: file.path,
+        field: "floor",
+        detail: `하한 ${file.floor}이 오늘의 값 ${file.valueToday}보다 낮지 않다`
+      });
+    }
+    if (file.valueToday < 1) {
+      defects.push({ path: file.path, field: "valueToday", detail: "표기가 0건인 자리가 모집단에 들었다" });
     }
   }
-  return total;
+  return defects;
 }
+
+/**
+ * 오늘 소스 축의 실측 — **기록이지 계약이 아니다**(계약이 무는 것은 래칫과 자리별 하한뿐).
+ *
+ * ⚠️ 라운드 91 트랙 D가 뿌리를 열며 처음 잰 값이다.
+ */
+export const SOURCE_AXIS_MEASURED_TODAY = {
+  /** 걷은 파일 수(자기 두 파일 제외). */
+  walked: 966,
+  /** 표기를 지닌 소스 수 — **둘**. */
+  files: 2,
+  /** 좁은 바늘의 표기 전수(6 + 1). */
+  marked: 7,
+  /** 넓은 바늘의 괄호 전수(9 + 2). */
+  anyParen: 11,
+  /** 자리별 좁은 바늘 — `dead-export-ledger.ts` **6** · `contract-net-ledger.test.ts` **1**. */
+  markedTopFile: 6,
+  /** 자리별 넓은 바늘 — `dead-export-ledger.ts` **9**. */
+  anyParenTopFile: 9
+} as const;
 
 // ── ⓔ 사각 ───────────────────────────────────────────────────────────────────
 
@@ -665,7 +973,9 @@ export const SIBLING_DOCUMENTS = [
  * ⚠️⚠️ **이 대장의 수는 상한이 아니라 하한이다**(AB-5의 규율을 태어날 때부터).
  *
  * 예순하나는 *"저장소에 형을 밝힌 재개 조건이 예순하나뿐이다"* 가 아니라 *"이 모집단·이 바늘
- * 안에서 예순하나가 풀렸다"* 는 뜻이다. 밖은 아래 여섯으로 갈리고 하나하나가 오늘의 값과 하한을 진다.
+ * 안에서 예순하나가 풀렸다"* 는 뜻이다. 밖은 아래 **여덟**으로 갈리고 하나하나가 오늘의 값과
+ * 하한을 진다 — 앞의 여섯은 문서 축의 사각이고, 뒤의 둘은 **라운드 91 D가 소스 축을 넓히며
+ * 새로 진 사각**이다.
  */
 export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   {
@@ -677,14 +987,14 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "산문에는 문법이 없어 '이것이 사건형인가 결정형인가'를 기계가 가를 수 없다. 가르려면 " +
       "문장의 뜻을 읽어야 하고, 그것은 이 그물의 일이 아니라 사람의 일이다 — 그리고 그 사람은 " +
       "F다(이 트랙은 문서를 고치지 않는다).",
-    valueToday: 145,
+    valueToday: 165,
     floor: 60,
     measure: (baseDir) => collectDocumentSites(baseDir).filter((site) => site.bucket === "prose").length,
     reopenCondition:
       "재개 조건(결정형 · 손은 저장소 안): 관례를 소급해 적용할지를 F가 정하는 날 — " +
-      "그날 이 145가 줄기 시작하고, 이 대장의 하한이 그 방향을 값으로 보여 준다. " +
-      "⚠️ 두 시점: 트랙 D 시점의 값은 119였고 같은 라운드의 C·F가 산문 조건을 더해 오늘 145다 " +
-      "(라운드 89 리뷰 M-4 재실측) — **가장 큰 사각은 라운드가 지나며 줄지 않고 늘고 있다.**"
+      "그날 이 165가 줄기 시작하고, 이 대장의 하한이 그 방향을 값으로 보여 준다. " +
+      "⚠️ 세 시점: 트랙 D 시점 119 · 라운드 89 리뷰 145 · 라운드 91 D 재실측 **165** — " +
+      "**가장 큰 사각은 라운드가 지나며 줄지 않고 늘고 있다.**"
   },
   {
     id: "folded-notation",
@@ -708,12 +1018,15 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   },
   {
     id: "round-notes",
-    what: "`docs/5차/**` 라운드 노트의 재개 조건 자리 전수(오늘 정찰 노트 아홉이 지고 있다).",
+    what:
+      "`docs/5차/**` 라운드 노트의 재개 조건 자리 전수 — 오늘 노트 쉰 벌이 **319**를 지고 있다. " +
+      "⚠️ 라운드 91 정찰이 적은 265와 갈리는데, 그 갈림의 자리는 **정찰 노트 자신**이다" +
+      "(`round91-scout.md` 54 · 265 + 54 = 319): 정찰은 자기가 쓰고 있던 문서를 세지 못했다.",
     why:
       "⚠️ 라운드별 **작업 기록**이지 판정 문서가 아니다. 모집단에 넣으면 이 대장의 수가 매 라운드 " +
       "통째로 흔들리고(라운드마다 노트가 한 벌씩 늘어난다) 래칫이 뜻을 잃는다 — 넓히는 대신 " +
       "값으로 적는다.",
-    valueToday: 221,
+    valueToday: 319,
     floor: 100,
     measure: (baseDir) =>
       roundNoteFiles(baseDir).reduce((sum, path) => sum + countSitesIn(baseDir, path), 0),
@@ -724,18 +1037,18 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   {
     id: "sibling-documents",
     what:
-      "짝 문서 둘(`runtime-verification-required.md` 다섯 · `accessibility-offline-checklist.md` 넷)의 " +
-      "재개 조건 자리 **아홉** — 그중 형을 괄호로 밝힌 것은 **하나뿐**(C-12의 사건형)이고 " +
+      "짝 문서 둘(`runtime-verification-required.md` 다섯 · `accessibility-offline-checklist.md` 여섯)의 " +
+      "재개 조건 자리 **열하나** — 그중 형을 괄호로 밝힌 것은 **하나뿐**(C-12의 사건형)이고 " +
       "⚠️ **이 계약의 축이 무는 결정형은 오늘도 0건**이다. " +
-      "⚠️ 두 시점: 트랙 D 시점에는 자리가 하나·셋(합 넷)이었고 오늘은 다섯·넷(합 아홉)이다 — " +
-      "**자리는 배를 넘게 늘었는데 괄호로 형을 밝힌 것은 여전히 하나이고 결정형은 여전히 0건**이라, " +
-      "이 사각을 모집단에 넣지 않기로 한 판단은 오늘도 같다(라운드 89 리뷰 M-4 재실측).",
+      "⚠️ 세 시점: 트랙 D 시점 하나·셋(합 넷) · 라운드 89 리뷰 다섯·넷(합 아홉) · 라운드 91 D " +
+      "다섯·여섯(합 **열하나**) — **자리는 세 배 가까이 늘었는데 괄호로 형을 밝힌 것은 여전히 " +
+      "하나이고 결정형은 여전히 0건**이라, 이 사각을 모집단에 넣지 않기로 한 판단은 오늘도 같다.",
     why:
       "자리가 넷이고 결정형이 0건이라, 모집단에 넣어도 축은 아무것도 지키지 못하면서 하한만 " +
       "0인 뿌리가 하나 늘어난다(주석 관용 앵커 대장이 `ZERO_YIELD_ROOTS`에 적은 그 규율). " +
       "⚠️ **그리고 이 라운드에 그 둘을 여는 트랙이 있다**(E가 접근성 표를 읽는다) — " +
       "한 문서에 축 둘을 얹지 않는다.",
-    valueToday: 9,
+    valueToday: 11,
     floor: 1,
     measure: (baseDir) => SIBLING_DOCUMENTS.reduce((sum, path) => sum + countSitesIn(baseDir, path), 0),
     reopenCondition:
@@ -745,14 +1058,14 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   {
     id: "quoted-source-conditions",
     what:
-      "소스 축에서 **인용된 과거 조건** — `dead-export-ledger.ts`가 라운드 87의 문장을 인용하며 " +
-      "적어 둔 표기 둘(⚠️ 표식이 없다).",
+      "소스 축에서 **인용된 과거 조건** — 두 파일이 옛 문장을 인용하며 적어 둔 표기 넷" +
+      "(⚠️ 표식이 없다).",
     why:
       "인용은 오늘의 약속이 아니라 어제의 기록이다. 인용까지 조항으로 물면 '옛 문장을 인용하려면 " +
       "그 문장을 고쳐 적어야 한다'가 되고, 그것은 기록을 지우는 일이다. ⚠️ 대신 넓은 바늘의 수를 " +
-      "값으로 든다(오늘 좁은 바늘 **다섯** · 넓은 바늘 **일곱** — 두 시점: 트랙 D 시점에는 넷·여섯이었고 " +
-      "차이는 그때도 오늘도 둘이다).",
-    valueToday: 2,
+      "값으로 든다(오늘 좁은 바늘 **일곱** · 넓은 바늘 **열하나** — 세 시점: 트랙 D 넷·여섯 · " +
+      "라운드 90 다섯·일곱 · 라운드 91 D가 뿌리를 열어 둘째 파일이 들어오며 일곱·열하나).",
+    valueToday: 4,
     floor: 0,
     measure: (baseDir) => countAnyParenSourceNotations(baseDir) - collectSourceNotations(baseDir).length,
     reopenCondition:
@@ -764,11 +1077,11 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     what: "한 줄에 재개 조건이 둘 이상 적힌 자리 — 줄 바늘이 그것을 **하나로** 센다.",
     why:
       "이 대장의 자리 단위는 **줄**이다(문장 단위로 가르려면 문장 경계를 알아야 하고, 마크다운 " +
-      "강조·인용이 섞인 줄에서 그것은 다른 그물의 일이다). 오늘 언급 264와 자리 252의 차이가 " +
+      "강조·인용이 섞인 줄에서 그것은 다른 그물의 일이다). 오늘 언급 312와 자리 294의 차이가 " +
       "그 수이고, 판정이 갈리는 자리는 0건이다(둘 다 형 표기가 없거나 같은 형이다). " +
-      "⚠️ 두 시점: 트랙 D 시점에는 언급 210 · 자리 203 · 차이 일곱이었고, 오늘은 264 · 252 · " +
-      "**열둘**이다(라운드 89 리뷰 M-4 재실측).",
-    valueToday: 12,
+      "⚠️ 세 시점: 트랙 D 언급 210 · 자리 203 · 차이 일곱 → 라운드 89 리뷰 264 · 252 · 열둘 → " +
+      "라운드 91 D **312 · 294 · 열여덟**.",
+    valueToday: 18,
     floor: 0,
     measure: (baseDir) => {
       const absolute = join(baseDir, LEDGER_DOCUMENT.path);
@@ -777,6 +1090,55 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     reopenCondition:
       "재개 조건(사건형): 한 줄 안에서 두 조건의 **형이 갈리는** 자리가 생기는 날 — " +
       "그날 이 대장은 자리를 문장으로 세는 법을 배워야 한다."
+  },
+  // ── ⚠️ 아래 둘은 **라운드 91 트랙 D가 소스 축을 넓히며 새로 생긴 사각**이다.
+  //    넓힌 축은 넓힌 만큼 새 사각을 지고, 그 사각도 값과 하한으로 선다(AB-5).
+  {
+    id: "source-notation-existence",
+    what:
+      "이 축이 세는 것은 **표기의 실재**뿐이다 — 오늘 소스에 선 표기 일곱이 *그 조건이 오늘 참인가* " +
+      "는 **묻지 않은 채** 세어진다. 도래한 조건도, 아직 먼 조건도 이 축에서는 같은 한 건이다.",
+    why:
+      "*'그 조건이 오늘 참인가'* 를 기계가 가르려면 조건의 뜻을 읽어야 한다 — *'그 관계 필드가 " +
+      "생기는 날'* 이 오늘인지 아닌지는 문장이 아니라 저장소의 상태가 답하고, 그 답은 조건마다 " +
+      "다른 그물에 있다. 이 축이 그것까지 물면 표기 하나가 늘 때마다 새 그물이 하나 필요해진다. " +
+      "⚠️ 그래서 이 대장은 **관례가 지켜지는가**만 묻고, 도래 여부는 조건을 적은 손이 진다.",
+    valueToday: 7,
+    floor: 2,
+    measure: (baseDir) => collectSourceNotations(baseDir).length,
+    reopenCondition:
+      "⚠️ 재개 조건(결정형 · 손은 저장소 안): 조건의 **도래**를 값으로 가르는 관례가 서는 날 — " +
+      "그날 이 축은 표기마다 *오늘 참인가* 를 함께 물 수 있고, 그 관례를 세우는 것은 이 대장이 " +
+      "아니라 라운드의 결정이다(그 결정을 내릴 손은 저장소 안에 있다)."
+  },
+  {
+    id: "unmarked-source-prose",
+    what:
+      "**표기를 지니지 않은 소스의 산문 조건** — 뿌리를 걸어 읽은 소스 가운데 `재개 조건`을 " +
+      "말하되 괄호로 형을 밝히지 않은 자리(오늘 파일 열여덟이 자리 **마흔여덟**을 지고 있다). " +
+      "⚠️ 이 뿌리는 그 자리를 **세지 않고 지나간다** — 문서 축의 `prose-only`와 같은 사각의 소스판이다.",
+    why:
+      "형이 없는 산문에는 문법이 없어 사건형·결정형을 기계가 가를 수 없고(문서 축이 같은 이유로 " +
+      "165를 밖에 둔다), 소스에서는 그 자리 대부분이 *조건을 적은 것*이 아니라 *관례를 말한 것*이다. " +
+      "⚠️ 그리고 이 뿌리에는 대역도 있다: 산출물·의존성 디렉터리와 이진 확장자, 1MB 위의 파일은 " +
+      "걷지 않는다(`SOURCE_AXIS_SKIPPED_DIRECTORIES` · `SOURCE_AXIS_BINARY_EXTENSIONS` · " +
+      "`SOURCE_AXIS_MAX_BYTES`) — 그 대역의 이름이 값으로 서 있다는 사실이 이 사각의 크기다.",
+    valueToday: 48,
+    floor: 10,
+    measure: (baseDir) => {
+      const entries = readSourceAxisEntries(baseDir);
+      const population = new Set(sourceAxisFilesFrom(entries).map((file) => file.path));
+      return entries
+        .filter((entry) => !population.has(entry.path))
+        .reduce(
+          (sum, entry) => sum + entry.text.split("\n").filter((line) => RESUME_SITE.test(line)).length,
+          0
+        );
+    },
+    reopenCondition:
+      "⚠️ 재개 조건(사건형): 소스의 산문 조건이 표기 관례를 지고 다시 쓰이기 시작하는 날 — " +
+      "그날 이 마흔여덟이 줄고 소스 축의 파생 수가 오르며, 두 수가 함께 움직인다는 사실이 " +
+      "이 사각이 닫히고 있다는 신호다."
   }
 ];
 
