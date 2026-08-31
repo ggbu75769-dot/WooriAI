@@ -142,7 +142,16 @@ export const OFFLINE_DB_MIGRATIONS: readonly OfflineDbMigration[] = [
   }
 ];
 
-/** 이 빌드가 기대하는 스키마 버전 = 목록의 마지막 번호. */
+/**
+ * 이 빌드가 기대하는 스키마 버전 = 목록의 마지막 번호.
+ *
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 89 트랙 C가 사문 대장의 모집단에
+ * `export const` 축을 들이며 적는다). 제품 경로에는 이 이름을 읽는 자리가 없다 — 마이그레이션
+ * 러너는 `OFFLINE_DB_MIGRATIONS`를 직접 돌며 `PRAGMA user_version`과 맞추지 "기대 버전"을 따로
+ * 묻지 않는다(묻는 순간 진실이 두 곳이 된다). 부르는 것은 `sqlite-migrations.test.ts` 하나다.
+ * **지우지 않는다**: 그 계약이 이 값으로 *"목록과 빌드가 같은 버전을 말하는가"* 를 세고, 값이
+ * 파생식이라 목록에 한 벌을 더해도 저절로 따라온다 — 테스트에 숫자를 옮겨 적으면 그 자동이 사라진다.
+ */
 export const OFFLINE_DB_SCHEMA_VERSION =
   OFFLINE_DB_MIGRATIONS[OFFLINE_DB_MIGRATIONS.length - 1]?.version ?? 0;
 
