@@ -343,7 +343,7 @@ function AuditLogsPageContent() {
       </section>
 
       <section className={styles.card}>
-        <h2>기록 {pageInfo ? `(총 ${pageInfo.total.toLocaleString("ko-KR")}건)` : ""}</h2>
+        <h2 id="admin-audit-log-list-heading">기록 {pageInfo ? `(총 ${pageInfo.total.toLocaleString("ko-KR")}건)` : ""}</h2>
         <div className={styles.actions}>
           <button
             type="button"
@@ -381,7 +381,7 @@ function AuditLogsPageContent() {
         ) : null}
         {logs && logs.length > 0 ? (
           <div className={styles.tableWrap}>
-            <table className={styles.table}>
+            <table className={styles.table} aria-labelledby="admin-audit-log-list-heading">
               <thead>
                 <tr>
                   <th>시각</th>

@@ -24,6 +24,7 @@ import {
   INVITE_UNAVAILABLE_ESCAPE_LABEL,
   INVITE_UNAVAILABLE_NEXT_STEP,
   INVITE_UNAVAILABLE_TITLE,
+  inviteUnavailableAnnouncement,
   isInviteUnavailableError
 } from "../../../src/family/invite-accept-messages";
 import { formatInviteExpiry } from "../../../src/family/memberLabels";
@@ -221,6 +222,58 @@ export default function AcceptInviteScreen() {
       announceForA11y(acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error));
     }
   }, [accept.isError, accept.error, acceptSaveErrorCopy, inviteUnavailable]);
+
+  /**
+   * 라운드 89 A — **끝난 초대 카드도 두 플랫폼 다 소리로 나간다.**
+   *
+   * 아래 `inviteUnavailable` 갈래의 카드에는 라운드 79가 건 프롭 조합만 있었고, 그 조합은 위
+   * 주석이 적어 둔 그대로 **안드로이드 한정**이다. 이 화면은 초대 링크를 타고 들어오는 자리라
+   * (딥링크로 열면 첫 프레임에 이 카드가 선다) VoiceOver 사용자에게는 *아무 일도 일어나지
+   * 않은 것*처럼 들렸다 — 무엇을 해야 하는지(`INVITE_UNAVAILABLE_NEXT_STEP`)가 소리로 닿지 않았다.
+   *
+   * ⚠️ 이 `if`의 조건은 그 카드를 세우는 갈래와 **글자로 같아야** 한다 —
+   * a11y-contract.test.ts의 파생 판정이 그 자리를 세우는 최내곽 JSX 갈래와 effect 배선의 조건을
+   * **문자열로** 맞춰 보고, 갈리면 배선이 있어도 `live-region`(= 안드로이드 한정)으로 센다
+   * (라운드 88 리뷰 L-1이 이름 붙인 그 사각의 첫 소비자가 이 자리다).
+   *
+   * 읽어 주는 문장은 화면이 짓지 않는다 — 카드가 그리는 상수들에서 문구 모듈이 짓는다
+   * (`hasSession` 축은 카드가 세션으로 한 줄을 더 그리는 그 축 그대로다).
+   *
+   * ⚠️⚠️ **이 배선이 소스만으로는 답할 수 없는 것 둘 — 값으로 적어 두고 실기기에 넘긴다**
+   * (라운드 89 리뷰 L-3·L-4. **이 라운드는 화면 코드를 한 바이트도 바꾸지 않는다** — 아래 둘은
+   * 결함 판정이 아니라 *"소스로는 여기까지"* 라는 경계이고, 그 경계 밖의 답은 폰이 낸다).
+   *
+   *  · **ⓑ 안드로이드 이중 낭독 가능성**(L-3). 아래 카드에는 라운드 79가 건 프롭 조합
+   *    (`accessibilityLiveRegion="polite"` + `accessibilityRole="alert"`)이 **그대로 남아 있고**,
+   *    이 effect가 같은 조건에서 `announceForA11y`를 부른다. 안드로이드/TalkBack에서는 **둘 다
+   *    소리를 낸다** — 라이브 리전이 카드 본문을 읽고, 이 배선이 이어 붙인 문장을 읽는다.
+   *    큐가 겹치는지·앞의 것이 잘리는지·같은 말이 두 번 들리는지는 **런타임 큐잉의 몫이라
+   *    소스로 잴 수 없다.** ⚠️ 프롭을 빼서 이 가능성을 없애는 손은 **여기서 쓰지 않는다**:
+   *    프롭 조합은 라운드 79의 기록이고 그 바이트가 움직이지 않았다는 사실을 a11y 계약이
+   *    `before`/`after`로 물고 있으며, iOS에서 들리게 만드는 것이 이 자리의 목적이지 안드로이드에서
+   *    들리던 것을 끄는 것이 아니다. **이 물음은 짝 문서 `#162`의 ⓑ가 이미 지고 있다**
+   *    (*"라이브 리전 낭독과 새 낭독이 겹쳐 두 번 읽히지는 않는지"*) — 답이 *"두 번 들린다"* 로
+   *    오는 날, 고치는 자리는 이 배선이 아니라 **그때의 판단**이다.
+   *  · **ⓒ `authToken` 리하이드레이션 전이 시 재낭독 가능성**(L-4). 이 effect의 deps는
+   *    `[authToken, inviteUnavailable]`이고, 세션 토큰은 **저장소에서 늦게 살아난다**
+   *    (`authToken`이 `null` → 토큰으로 한 번 바뀐다). 끝난 초대 링크를 **딥링크로 열어**
+   *    카드가 먼저 서고 그 뒤에 세션이 붙는 순서면, `inviteUnavailable`이 참인 채로 `authToken`만
+   *    바뀌므로 **이 effect가 두 번 돈다** — 첫 번째는 세 문장(`hasSession: false`), 두 번째는
+   *    `INVITE_UNAVAILABLE_ALREADY_JOINED_HINT`까지 **네 문장**이다. ⚠️ 그 순서가 실제로 일어나는지
+   *    (그리고 일어날 때 사람에게 *같은 말을 두 번*으로 들리는지)는 세션 복원 타이밍이 정하고,
+   *    그것 역시 소스로 잴 수 없다. **이 물음의 자리는 `#162`의 ⓒ(세션 축)다** — 그 항목이
+   *    *"로그인한 계정으로 같은 링크를 열면 그 한 줄이 눈에도 귀에도 서는지"* 를 묻고, 이 전이는
+   *    정확히 그 축 위에서 관찰된다.
+   *  · ⚠️ **그리고 두 물음이 같은 자리에서 만나는 이유**: `hasSession: true`의 문장이 이 화면이
+   *    한 번에 읽어 주는 **가장 긴 조합**(상수 넷을 이어 붙인 네 문장)이다. 낭독이 겹치거나
+   *    다시 시작될 때 사람이 가장 먼저 알아채는 것도, 잘림이 생긴다면 잘리는 것도 이 조합이다 —
+   *    그래서 실기기 확인은 **로그인 상태의 딥링크**를 먼저 밟는 것이 값이 크다.
+   */
+  useEffect(() => {
+    if (inviteUnavailable) {
+      announceForA11y(inviteUnavailableAnnouncement({ hasSession: Boolean(authToken) }));
+    }
+  }, [authToken, inviteUnavailable]);
 
   /**
    * 참여 성공 **이후**의 뒤처리 한 벌: 아이 목록 조회 -> 캐시 무효화 -> 계획대로 착지.

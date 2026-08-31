@@ -161,7 +161,7 @@ export default function UsersLookupPage() {
                   <h2>{userDisplayLabel(user)}</h2>
                   <p className={styles.hint}>{userActivitySummary(user)}</p>
                   <div className={styles.tableWrap}>
-                    <table className={styles.table}>
+                    <table className={styles.table} aria-label={`${userDisplayLabel(user)} 계정 정보`}>
                       <tbody>
                         <tr>
                           <th>이메일</th>
@@ -224,7 +224,7 @@ export default function UsersLookupPage() {
                     <p className={styles.emptyState}>속한 가구가 없어요.</p>
                   ) : (
                     <div className={styles.tableWrap}>
-                      <table className={styles.table}>
+                      <table className={styles.table} aria-label={`${userDisplayLabel(user)} 가구 표`}>
                         <thead>
                           <tr>
                             <th>가구</th>

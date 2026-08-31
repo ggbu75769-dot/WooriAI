@@ -69,6 +69,13 @@ export function bucketExpenseAmountKrw(amountKrw: number): ExpenseAmountBucket {
  * Runtime mirror of `AnalyticsCategoryCode` above (the type stays the compile-time source of
  * truth). Order and contents mirror packages/contracts/src/analytics.ts's ANALYTICS_CATEGORY_CODES
  * -- events.test.ts asserts that against the contracts file so the two cannot drift.
+ *
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 89 트랙 C가 사문 대장의 모집단에
+ * `export const` 축을 들이며 적는다). 화면은 분류 코드를 **타입으로** 받아 하나씩 넘기지
+ * `ANALYTICS_CATEGORY_CODES` 목록을 돌지 않는다 — 그래서 제품 소스에는 이 이름을 부르는 자리가
+ * 없고, 부르는 것은 바로 위 문단이 말한 대조 계약 하나뿐이다.
+ * **지우지 않는다**: 이 배열이 없으면 두 벌(모바일의 타입과 contracts의 목록)이 갈라져도 아무
+ * 단언이 깨지지 않는다. 목록을 테스트에 옮겨 적는 순간 그 대조는 **자기 자신과의 대조**가 된다.
  */
 export const ANALYTICS_CATEGORY_CODES: readonly AnalyticsCategoryCode[] = [
   "pregnancy_mother",

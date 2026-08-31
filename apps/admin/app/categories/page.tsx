@@ -179,7 +179,7 @@ export default function CategoriesPage() {
       </section>
 
       <section className={styles.card}>
-        <h2>카테고리 목록</h2>
+        <h2 id="admin-category-list-heading">카테고리 목록</h2>
         <div className={styles.form}>
           <div className={styles.formGrid}>
             <div className={styles.field}>
@@ -227,7 +227,7 @@ export default function CategoriesPage() {
 
         {categories && visible.length > 0 ? (
           <div className={styles.tableWrap}>
-            <table className={styles.table}>
+            <table className={styles.table} aria-labelledby="admin-category-list-heading">
               <thead>
                 <tr>
                   <th>코드</th>

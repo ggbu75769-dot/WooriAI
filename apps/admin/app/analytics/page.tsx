@@ -335,7 +335,7 @@ export default function AnalyticsSummaryPage() {
           <section className={styles.card}>
             <h2>KPI 퍼널</h2>
             <div className={styles.tableWrap}>
-              <table className={styles.table}>
+              <table className={styles.table} aria-label="KPI 퍼널 표">
                 <thead>
                   <tr>
                     <th>단계</th>
@@ -383,7 +383,7 @@ export default function AnalyticsSummaryPage() {
           {/* ANA-128: 3갈래 분해. 응답률(클릭 대비 응답)과 구매율(클릭 대비 "샀어요")을 각각
               분리해서, 어느 쪽이 새는지 — 답을 안 하는 건지, 답은 하는데 안 사는 건지 — 보이게 한다. */}
           <section className={styles.card}>
-            <h2>구매 확인 응답 (링크 클릭 → 샀어요 응답)</h2>
+            <h2 id="admin-analytics-purchase-followup-heading">구매 확인 응답 (링크 클릭 → 샀어요 응답)</h2>
             {(() => {
               const followup = summary.purchaseFollowup;
               const clicks = eventCount(summary, "affiliate_link_clicked");
@@ -414,7 +414,7 @@ export default function AnalyticsSummaryPage() {
                   </div>
 
                   <div className={styles.tableWrap}>
-                    <table className={styles.table}>
+                    <table className={styles.table} aria-labelledby="admin-analytics-purchase-followup-heading">
                       <thead>
                         <tr>
                           <th>답변</th>
@@ -464,9 +464,9 @@ export default function AnalyticsSummaryPage() {
           </section>
 
           <section className={styles.card}>
-            <h2>이벤트별 카운트</h2>
+            <h2 id="admin-analytics-event-count-heading">이벤트별 카운트</h2>
             <div className={styles.tableWrap}>
-              <table className={styles.table}>
+              <table className={styles.table} aria-labelledby="admin-analytics-event-count-heading">
                 <thead>
                   <tr>
                     <th>이벤트</th>

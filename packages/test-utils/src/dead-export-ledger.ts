@@ -30,17 +30,49 @@
 //
 // ## ⚠️ 결정 ② — 무엇을 **모집단**으로 볼 것인가 (`POPULATION_DEFINITION`)
 //
-// 모집단은 **`export function` 선언**이다: 모바일 `apps/mobile/src/**/*.ts`(테스트 · `local-backend` ·
-// `local-fixtures` 제외)와 어드민 `apps/admin/src/lib/**/*.ts`(테스트 제외).
+// 모집단은 **`export function` 선언 + `export const` 선언**이다: 모바일 `apps/mobile/src/**/*.ts`
+// (테스트 · `local-backend` · `local-fixtures` 제외)와 어드민 `apps/admin/src/lib/**/*.ts`(테스트 제외).
 //
-// ⚠️ **`export const` 축은 오늘 모집단에 넣지 않는다.** 넣으면 **계약 전용 데이터 모듈 열하나가
-// 첫날부터 면제부**가 되기 때문이다 — 그 모듈들은 *"테스트만 읽는 것이 설계"* 라고 자기 머리말에
-// 적어 두었고(`offline-aware-screens.ts:13`), 면제 줄 열하나로 시작하는 대장은 세는 자리가 아니라
-// 문이다. ⚠️ 다만 **그 사실을 산문이 아니라 값으로 적는다**(`LEDGER_BLIND_SPOTS`) — 적어 두지
-// 않으면 다음 라운드가 같은 축을 다시 세고, 세어 놓고 어디에도 적지 못한다(AA-4의 규율).
+// ⚠️ **라운드 89 트랙 C가 `export const` 축을 모집단으로 들였다** — 라운드 87·88이 그 축을 밖에
+// 둔 이유(*"넣으면 계약 전용 데이터 모듈이 첫날부터 면제부가 된다"*)는 사라지지 않았고, 대신
+// **그 면제가 손 목록이 아니라 파생 판정이 됐다**(아래 결정 ③). 그 두 라운드가 사각 칸에 적어 둔
+// 재개 조건 *"계약 전용 데이터 모듈을 **뿌리에서** 가르는 판정이 서는 날 — 그날 이 축이 모집단으로
+// 들어온다"* 가 오늘 발동했다.
 //
 // ⚠️ **먼저 모집단, 그다음 바늘.** 뿌리는 계약이 **실재와 산출을 함께 확인한다** — 손으로 배열한
-// 목록은 뿌리가 아니고, 빈 모집단 위에서는 *"사문이 열여섯을 넘지 않는다"* 가 언제나 참이다.
+// 목록은 뿌리가 아니고, 빈 모집단 위에서는 *"사문이 스물둘을 넘지 않는다"* 가 언제나 참이다.
+//
+// ## ⚠️⚠️ 결정 ③ — 무엇을 **계약 전용 데이터**로 볼 것인가 (`CONTRACT_ONLY_AXES`) · 라운드 89 트랙 C
+//
+// 라운드 88까지 이 판정은 `CONTRACT_ONLY_DATA_MODULES` **손 목록**이었다: 경로 다섯과 이유 다섯을
+// 사람이 적고, 계약은 *"그 다섯이 실재하는가"* 만 물었다. 그것이 AB-4가 이름 붙인 착시의 모양이다 —
+// **적은 사람이 옳았는지는 아무도 묻지 않는다.** 실제로 그 손 목록의 이유 한 줄은 오늘 거짓이었다
+// (`offline/messages.ts`의 이유가 *"여기 남은 사문 셋은 문장 자체가 아니라 무엇을 세는지 말하는
+// 값"* 이라고 적었는데, 그 셋 중 `SYNC_STATUS_RETRY_ALL_LABEL`은 **사용자에게 그려지는 라벨**이다).
+//
+// 그래서 오늘의 판정은 **모듈 자신의 소스에서 파생**하고, 근거를 값으로 들고 다닌다. 축은 둘이고
+// **둘 중 하나라도 서면 면제**다(`contractOnlyDataProof`):
+//
+//  ⓐ **번들 밖**(`bundle-excluded` · 모듈 축) — **제품 소스 어느 파일도 이 모듈을 import하지
+//    않는다**(정적 `from` · 동적 `import(…)` · `require(…)` 전수 · 주석은 마스킹). 그러면서
+//    **계약 파일은 import한다.** 즉 이 모듈은 앱 번들에 실리지 않고 계약만 읽는다 —
+//    `offline-aware-screens.ts` 머리말이 *"화면 코드가 import하지 않는다(계약 전용 데이터라 앱
+//    번들에 실리지 않는다)"* 고 적어 둔 그 사실을, **그 문장을 믿지 않고 import 그래프로** 확인한다.
+//    ⚠️ 이 축이 손 목록과 다른 점이 정확히 여기다: 머리말에 같은 문장을 복사해 붙여도 화면이 그
+//    모듈을 import하는 순간 면제가 사라진다. **표식이 아니라 사실이 판정한다.**
+//
+//  ⓑ **자리 표**(`locator-table` · 선언 축) — 이 상수의 **최상위 원소 전수**가 **제품 소스의 한
+//    자리를 가리킨다**: 실재하는 소스 파일 경로(`app/(tabs)/reports.tsx`) · 실재하는 라우트
+//    (`/settings/privacy`) · 제품 소스가 `export`로 선언한 식별자(`createExpenseOffline`).
+//    그런 값은 *제품이 쓰는 값*이 아니라 **계약이 제품을 재려고 드는 자**다. ⚠️ 원소 하나라도
+//    풀리지 않으면 표가 아니다 — 그래서 도메인 코드 목록(`ANALYTICS_CATEGORY_CODES`)이나 걸음
+//    이름(`IMPORT_FAILURE_KINDS`)은 이 축으로 면제되지 않는다(그 문자열들은 제품 소스의 자리를
+//    가리키지 않는다). ⚠️ 근거(`evidence`)는 **풀린 자리 전수**이고, 계약이 그 자리들이 오늘도
+//    실재하는지 다시 본다 — 유령 근거는 면제가 아니다.
+//
+// ⚠️ **면제는 지우는 판단이 아니다.** 면제된 자리는 대장에 줄을 갖지 않지만 사문 전수
+// (`findDeadExports`)에는 그대로 남고, 그 수·모듈 수·중복이 ⓓ에서 함께 대조된다. 면제되지 않은
+// 자리는 **이유가 소스에 있거나 대장에 줄이 있어야 한다** — 그 규율은 `export function` 축과 같다.
 //
 // ## ⚠️ 열여섯이 갈리는 셋 (`DeadExportReasonKind`)
 //
@@ -82,6 +114,29 @@
 //    148이다**(모집단 전체로는 1018) — 같은 라운드의 트랙 A가 어드민 `src/lib`에 계속 더하는 중이라
 //    **이 수는 라운드가 끝나기 전에는 굳지 않는다.** 그래서 계약이 무는 것은 이 수가 아니라 하한이다.
 //
+// ## ⚠️ 라운드 89 트랙 C — 모집단이 **1019 → 1671**, 대장이 **16 → 22**가 됐다
+//
+// ⚠️⚠️ **늘어난 여섯은 새 부채가 아니라 세는 자리가 늘어난 것이다**(라운드 88 트랙 D가 세운 형식).
+// 오늘 실측: `export const` **652 중 24**가 호출부 0건이고, 그중 **18**이 결정 ③의 파생 판정으로
+// 면제되며, **남은 여섯**이 대장에 줄을 얻는다. `export function` 축의 열여섯은 **한 줄도 움직이지
+// 않았다** — 지운 export 0건 · 되살린 export 0건이고, 제품 소스에 더한 것은 **주석 두 덩이**뿐이다
+// (`analytics/events.ts` · `offline/sqlite-offline-store.ts` — 코드·문자열·export 값 바이트 불변).
+//
+// ⚠️ **정찰(round89-scout #3)의 전제와 갈린 자리 하나** — 값으로 남긴다:
+//  · 정찰은 면제가 **17 → 19**가 되고 *"사람이 판단할 자리는 다섯"* 이라고 적었다. 오늘 파생
+//    판정의 실측은 **면제 18 · 판단할 자리 여섯**이다. 갈린 이유는 `offline/messages.ts`의
+//    `SYNC_STATUS_RETRY_ALL_LABEL`이다: 정찰은 손 목록의 이유("이 모듈에 남은 사문 셋은 계약이
+//    읽는 값")를 **그대로 믿고** 셋을 다 면제 쪽으로 셌지만, 파생 판정은 그 상수가 제품의 자리를
+//    하나도 가리키지 않는다는 사실을 보고 면제를 **주지 않는다.** ⚠️ 그리고 그 판정이 옳다 —
+//    그 라벨은 `전체 재시도`라는 **사용자 문장**이고, 화면(`app/sync-status.tsx`)은 라운드 58 #4
+//    이후 더 좁은 라벨(*"지출 3건 재시도"*)로 갈아탔다. **손 목록이 가리고 있던 자리가 정확히
+//    하나 있었고, 파생 판정의 첫 산출이 그 하나를 꺼냈다.**
+//
+// ⚠️ **그래서 셋째 갈래(`reason-in-ledger`)가 다시 산다.** 라운드 88 뒤 그 갈래는 0건이었고
+// 계약은 *"사라진 것이 아니라 비어 있다"* 고 적어 두었다. 오늘 그 갈래에 둘이 선다 —
+// `SYNC_STATUS_RETRY_ALL_LABEL`(그 파일은 이 트랙의 소유가 아니라 **읽기만** 한다)과
+// `FAILED_ROW_LOCAL_ID_PARAM`(⚠️ **테스트조차 부르지 않는다** — 아래 ⓒ 참고).
+//
 // ## ⚠️ 이 그물이 무는 것의 한계 — **이름의 텍스트**이지 **해석된 참조**가 아니다
 //
 //  · 이름으로 훑으므로 **흔한 이름을 가르지 못한다**(AA-4가 이름 붙인 그 사각). 속성 접근
@@ -94,10 +149,10 @@
 //    ⚠️ **주석은 라운드 88부터 마스킹한다**(라운드 87 리뷰 L-1이 연 자리 · 사각
 //    `comment-and-string-references`가 그 재측정을 진다 — 오늘 마스킹판 16 · 옛 그물 7).
 //  · `.tsx`의 컴포넌트 export와 `apps/api/**`·`packages/**`는 오늘 모집단 밖이다.
-//  이 한계를 값으로 적어 두는 이유는 다음 사람이 이 파일을 *"사문이 열여섯뿐이라는 증명"* 으로
-//  읽지 않게 하기 위해서다 — 이것은 **열여덟 번째가 생길 때 소리가 나는 자리**다.
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+//  이 한계를 값으로 적어 두는 이유는 다음 사람이 이 파일을 *"사문이 스물둘뿐이라는 증명"* 으로
+//  읽지 않게 하기 위해서다 — 이것은 **스물셋 번째가 생길 때 소리가 나는 자리**다.
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, normalize, relative, sep } from "node:path";
 
 /** `vitest`가 `packages/test-utils`에서 돌 때의 저장소 뿌리(다른 계약들과 같은 관례). */
 export const repoRoot = join(process.cwd(), "..", "..");
@@ -127,10 +182,21 @@ export const CALLSITE_DEFINITION =
 
 /** ⚠️ 결정 ② — 값으로 적힌 모집단의 정의. */
 export const POPULATION_DEFINITION =
-  "모집단은 **`export function` 선언**이다 — 모바일 apps/mobile/src/**/*.ts(테스트·local-backend·local-fixtures 제외)와 " +
-  "어드민 apps/admin/src/lib/**/*.ts(테스트 제외). `export const` 축은 넣지 않는다: 넣으면 계약 전용 데이터 모듈의 " +
-  "상수 열하나가 첫날부터 면제부가 되고, 면제 열하나로 시작하는 대장은 세는 자리가 아니라 문이다. " +
-  ".tsx의 컴포넌트 export와 apps/api/** · packages/** 도 오늘 모집단 밖이고, 그 셋 다 사각으로 적힌다.";
+  "모집단은 **`export function` 선언과 `export const` 선언**이다 — 모바일 apps/mobile/src/**/*.ts" +
+  "(테스트·local-backend·local-fixtures 제외)와 어드민 apps/admin/src/lib/**/*.ts(테스트 제외). " +
+  "⚠️ 라운드 89 트랙 C가 `export const` 축을 들였다: 그 축을 밖에 두던 이유(계약 전용 데이터 모듈이 첫날부터 " +
+  "면제부가 된다)는 사라지지 않았고, 대신 그 면제가 손 목록이 아니라 **모듈 자신의 소스에서 파생하는 판정**이 됐다" +
+  "(결정 ③ · CONTRACT_ONLY_AXES). .tsx의 컴포넌트 export와 apps/api/** · packages/** 는 오늘도 모집단 밖이고, " +
+  "그 셋 다 사각으로 적힌다.";
+
+/** ⚠️ 결정 ③ — 값으로 적힌 계약 전용 데이터 판정의 정의(축 둘의 이름과 왜 손 목록이 아닌가). */
+export const CONTRACT_ONLY_DEFINITION =
+  "계약 전용 데이터 판정은 **모듈 자신의 소스에서 파생한다** — 손으로 적은 경로 목록이 아니다(그것이 AB-4가 " +
+  "이름 붙인 착시의 모양이고, 실제로 그 손 목록의 이유 한 줄이 오늘 거짓이었다). 축은 둘이고 둘 중 하나라도 서면 " +
+  "면제다. ⓐ **번들 밖**(bundle-excluded): 제품 소스 어느 파일도 이 모듈을 import하지 않고(정적 from · 동적 " +
+  "import(…) · require(…) 전수 · 주석 마스킹) 계약 파일은 import한다. ⓑ **자리 표**(locator-table): 이 상수의 " +
+  "최상위 원소 전수가 제품 소스의 한 자리를 가리킨다(실재하는 소스 경로 · 실재하는 라우트 · 제품 소스가 export로 " +
+  "선언한 식별자). ⚠️ 두 축 다 **표식을 복사해서는 얻을 수 없다** — 판정하는 것은 import 그래프와 실재하는 자리다.";
 
 // ── 걷기 ──────────────────────────────────────────────────────────────────────
 
@@ -203,6 +269,9 @@ export function filesUnder(
 
 export type PopulationRootId = "mobile-src" | "admin-src-lib";
 
+/** 모집단의 두 축 — 라운드 89 트랙 C가 `const`를 들이면서 항목마다 값으로 적힌다. */
+export type ExportKind = "function" | "const";
+
 export type PopulationRoot = {
   readonly id: PopulationRootId;
   readonly path: string;
@@ -212,9 +281,12 @@ export type PopulationRoot = {
   readonly minFiles: number;
   /** 이 뿌리가 내놓아야 하는 `export function` 수의 **하한**. */
   readonly minExports: number;
+  /** 이 뿌리가 내놓아야 하는 `export const` 수의 **하한**(라운드 89 트랙 C — 축 둘이 다 하한을 진다). */
+  readonly minConstExports: number;
   /** 오늘 실측(문서용 — 판정은 하한이 한다). */
   readonly measuredFiles: number;
   readonly measuredExports: number;
+  readonly measuredConstExports: number;
   /** 왜 이 뿌리인가 — **빈 문자열일 수 없다.** */
   readonly reason: string;
 };
@@ -234,8 +306,10 @@ export const POPULATION_ROOTS: readonly PopulationRoot[] = [
     excludeSegments: ["local-backend", "local-fixtures"],
     minFiles: 180,
     minExports: 700,
+    minConstExports: 450,
     measuredFiles: 221,
-    measuredExports: 869,
+    measuredExports: 871,
+    measuredConstExports: 591,
     reason:
       "모바일의 순수 판정(문구·파생값·술어)이 사는 자리다 — 화면(`app/**`)은 이 모듈들을 부르기만 하고, " +
       "그래서 '아무도 부르지 않는 판정'이 생길 수 있는 유일한 층이 여기다. " +
@@ -249,8 +323,10 @@ export const POPULATION_ROOTS: readonly PopulationRoot[] = [
     excludeSegments: [],
     minFiles: 15,
     minExports: 110,
+    minConstExports: 40,
     measuredFiles: 22,
     measuredExports: 148,
+    measuredConstExports: 61,
     reason:
       "어드민에서 같은 층에 해당하는 자리다(`src/lib` = API 클라이언트와 뷰 파생). " +
       "⚠️ `src/components`·`app/**`은 모집단이 아니다 — 컴포넌트 export는 JSX로 쓰이고 이 그물의 " +
@@ -329,6 +405,8 @@ export type ExportedFunction = {
   readonly file: string;
   readonly line: number;
   readonly name: string;
+  /** 모집단의 어느 축인가(라운드 89 트랙 C). */
+  readonly kind: ExportKind;
 };
 
 /**
@@ -339,12 +417,13 @@ export type ExportedFunction = {
  */
 const EXPORT_FUNCTION_DECLARATION = /^export\s+(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*[(<]/;
 
-/** `export const NAME =` / `export const NAME:` — 사각 `export-const-axis`가 세는 축. */
+/** `export const NAME =` / `export const NAME:` — 라운드 89 트랙 C가 모집단으로 들인 둘째 축. */
 const EXPORT_CONST_DECLARATION = /^export\s+const\s+([A-Za-z_$][\w$]*)\s*[:=]/;
 
 function collectDeclarations(
   root: PopulationRoot,
   pattern: RegExp,
+  kind: ExportKind,
   baseDir: string
 ): ExportedFunction[] {
   const found: ExportedFunction[] = [];
@@ -354,20 +433,34 @@ function collectDeclarations(
       .forEach((line, index) => {
         const match = pattern.exec(line);
         if (!match) return;
-        found.push({ id: `${file}:${match[1]}`, root: root.id, file, line: index + 1, name: match[1] });
+        found.push({ id: `${file}:${match[1]}`, root: root.id, file, line: index + 1, name: match[1], kind });
       });
   }
   return found;
 }
 
-/** 모집단 전수 — `export function` 선언(결정 ②). */
+/** 모집단의 첫째 축 — `export function` 선언(결정 ②). */
 export function collectExportedFunctions(baseDir: string = repoRoot): ExportedFunction[] {
-  return POPULATION_ROOTS.flatMap((root) => collectDeclarations(root, EXPORT_FUNCTION_DECLARATION, baseDir));
+  return POPULATION_ROOTS.flatMap((root) =>
+    collectDeclarations(root, EXPORT_FUNCTION_DECLARATION, "function", baseDir)
+  );
 }
 
-/** 같은 뿌리의 `export const` 축 — **모집단이 아니다.** 사각을 값으로 재기 위해서만 걷는다. */
+/** 모집단의 둘째 축 — `export const` 선언(라운드 89 트랙 C가 들였다). */
 export function collectExportedConstants(baseDir: string = repoRoot): ExportedFunction[] {
-  return POPULATION_ROOTS.flatMap((root) => collectDeclarations(root, EXPORT_CONST_DECLARATION, baseDir));
+  return POPULATION_ROOTS.flatMap((root) =>
+    collectDeclarations(root, EXPORT_CONST_DECLARATION, "const", baseDir)
+  );
+}
+
+/**
+ * **모집단 전수 — 축 둘을 합친 것**(결정 ②).
+ *
+ * ⚠️ 이 함수가 라운드 89 트랙 C의 본체다. 축을 합치기 전에는 *"사문이 열여섯을 넘지 않는다"* 가
+ * `export const` 652를 **한 자리도 보지 않은 채** 참이었다.
+ */
+export function collectPopulation(baseDir: string = repoRoot): ExportedFunction[] {
+  return [...collectExportedFunctions(baseDir), ...collectExportedConstants(baseDir)];
 }
 
 // ── 호출부 세기 ───────────────────────────────────────────────────────────────
@@ -657,10 +750,21 @@ export function readCallsiteSources(baseDir: string = repoRoot): Map<string, str
   return new Map(collectCallsiteFiles(baseDir).map((file) => [file, readRepoFile(file, baseDir)]));
 }
 
-/** 모집단 중 **호출부 0건**인 것 전수 — 오늘의 열여섯이 여기서 나온다. */
+/**
+ * 모집단(축 둘) 중 **호출부 0건**인 것 전수 — 오늘의 **마흔**이 여기서 나온다.
+ *
+ * ⚠️ 이 마흔 가운데 열여덟은 결정 ③의 파생 판정이 면제하고(대장에 줄이 없다), 스물둘이 대장에
+ * 선다(`ledgerRequiredDeadExports`). **면제된 자리도 여기서는 사라지지 않는다** — 유령 방지(ⓓ)가
+ * 그 둘을 함께 대조하려면 전수가 한 자리에 있어야 한다.
+ */
 export function findDeadExports(baseDir: string = repoRoot): ExportedFunction[] {
   const sources = readCallsiteSources(baseDir);
-  return collectExportedFunctions(baseDir).filter((item) => findProductReferences(item, sources).length === 0);
+  return collectPopulation(baseDir).filter((item) => findProductReferences(item, sources).length === 0);
+}
+
+/** 축 하나만 본 사문 — 축이 갈릴 때 어느 쪽이 움직였는지 값으로 말한다. */
+export function findDeadExportsOfKind(kind: ExportKind, baseDir: string = repoRoot): ExportedFunction[] {
+  return findDeadExports(baseDir).filter((item) => item.kind === kind);
 }
 
 /**
@@ -684,7 +788,7 @@ export function commentOnlyReferenceExports(baseDir: string = repoRoot): Exporte
  */
 export function stringOnlyReferenceExports(baseDir: string = repoRoot): ExportedFunction[] {
   const sources = readCallsiteSources(baseDir);
-  return collectExportedFunctions(baseDir)
+  return collectPopulation(baseDir)
     .filter((item) => findCodeOnlyProductReferences(item, sources).length === 0)
     .filter((item) => findProductReferences(item, sources).length > 0);
 }
@@ -698,7 +802,7 @@ export function stringOnlyReferenceExports(baseDir: string = repoRoot): Exported
  */
 export function namesReferencedInsideStringLiterals(baseDir: string = repoRoot): string[] {
   const sources = readCallsiteSources(baseDir);
-  const found = collectExportedFunctions(baseDir)
+  const found = collectPopulation(baseDir)
     .filter(
       (item) =>
         findCodeOnlyProductReferences(item, sources).length < findProductReferences(item, sources).length
@@ -707,10 +811,368 @@ export function namesReferencedInsideStringLiterals(baseDir: string = repoRoot):
   return [...new Set(found)].sort();
 }
 
-/** 같은 판정을 `export const` 축에 적용한 것 — 사각을 재는 자(모집단이 아니다). */
+/** `export const` 축의 사문만 — 라운드 89 이전에는 사각을 재는 자였고, 오늘은 모집단의 한쪽이다. */
 export function findDeadConstants(baseDir: string = repoRoot): ExportedFunction[] {
   const sources = readCallsiteSources(baseDir);
   return collectExportedConstants(baseDir).filter((item) => findProductReferences(item, sources).length === 0);
+}
+
+// ── 결정 ③ 파생 판정 (라운드 89 트랙 C) ──────────────────────────────────────
+//
+// ⚠️⚠️ **여기 손으로 적은 경로는 하나도 없다.** 아래 두 축은 전부 소스를 읽어서 답을 만든다 —
+// import 그래프(축 ⓐ)와 초기화식이 가리키는 실재하는 자리(축 ⓑ). 라운드 88까지 이 자리에 있던
+// `CONTRACT_ONLY_DATA_MODULES` 손 목록은 **그 이유 한 줄이 오늘 거짓**이었고(머리말 참고), 그것이
+// 이 파생이 대신 서야 하는 이유 전부다.
+
+/** import 지정자 — 정적 `from "…"` · 동적 `import("…")` · `require("…")` 셋 다 한 바늘에 문다. */
+const IMPORT_SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)["']([^"']+)["']/g;
+
+/** 상대 지정자를 저장소 상대 경로로 푼다(확장자·`index` 붙이기 포함). 절대/패키지 지정자는 null. */
+function resolveRelativeSpecifier(fromFile: string, specifier: string, baseDir: string): string | null {
+  if (!specifier.startsWith(".")) return null;
+  const raw = normalize(join(dirname(fromFile), specifier)).split(sep).join("/");
+  for (const candidate of [raw, `${raw}.ts`, `${raw}.tsx`, `${raw}/index.ts`, `${raw}/index.tsx`]) {
+    if (existsSync(join(baseDir, candidate))) return candidate;
+  }
+  return raw;
+}
+
+/**
+ * 주어진 소스 집합에서 이 모듈을 import하는 파일 전수 — **주석은 마스킹한다.**
+ *
+ * ⚠️ 지정자가 풀리지 않아도 **파일 이름이 같으면 import로 센다.** 방향이 중요하다: 이 함수의
+ * 오차는 *"import하는 사람을 더 많이 찾는"* 쪽이어야 하고(면제를 **덜** 준다), 그 반대는 면제를
+ * 근거 없이 주는 쪽이다. 별칭 경로(`@/…`)가 언젠가 들어와도 이 그물은 안전한 쪽으로 틀린다.
+ */
+export function importersOfModule(
+  target: string,
+  sources: ReadonlyMap<string, string>,
+  baseDir: string = repoRoot
+): string[] {
+  const basename = target.replace(/^.*\//, "").replace(/\.tsx?$/, "");
+  const found: string[] = [];
+  for (const [file, source] of sources) {
+    if (file === target) continue;
+    for (const match of maskComments(source).matchAll(IMPORT_SPECIFIER)) {
+      const specifier = match[1];
+      const resolved = resolveRelativeSpecifier(file, specifier, baseDir);
+      if (resolved === target || specifier.replace(/^.*\//, "") === basename) {
+        found.push(file);
+        break;
+      }
+    }
+  }
+  return found.sort();
+}
+
+/** 이 모듈이 사는 앱의 뿌리(`app/…`·`src/…`·라우트가 그 아래에서 풀린다). */
+function appBaseOf(file: string): string {
+  return file.startsWith("apps/admin/") ? "apps/admin" : "apps/mobile";
+}
+
+/** 이 자리가 실재하는 소스 파일인가 — 실재하면 **그 파일의 경로**를 돌려준다(근거가 값이 된다). */
+function resolveSourceFile(relativePath: string, baseDir: string): string | null {
+  for (const candidate of [
+    relativePath,
+    `${relativePath}.ts`,
+    `${relativePath}.tsx`,
+    `${relativePath}/index.ts`,
+    `${relativePath}/index.tsx`
+  ]) {
+    if (existsSync(join(baseDir, candidate)) && statSync(join(baseDir, candidate)).isFile()) return candidate;
+  }
+  return null;
+}
+
+export type ProductLocator = {
+  readonly token: string;
+  readonly kind: "source-file" | "route" | "exported-identifier";
+  /** 그 자리가 실제로 사는 곳 — 유령 근거를 막는 값이다. */
+  readonly at: string;
+};
+
+/**
+ * 이 문자열이 **제품 소스의 한 자리**를 가리키는가 — 가리키면 어디인지까지 돌려준다.
+ *
+ * ⚠️ `#조각`은 떼고 본다(`app/reviews/page.tsx#worker-health`처럼 한 화면 안의 여러 자리를
+ * 가르는 표기가 이 저장소에 있다). ⚠️ 식별자 축은 **`export`로 선언된 것만** 센다 — 아무 낱말이나
+ * 세면 도메인 코드 목록이 표로 둔갑한다.
+ */
+export function resolveProductLocator(
+  token: string,
+  ownerFile: string,
+  productSources: ReadonlyMap<string, string>,
+  baseDir: string = repoRoot
+): ProductLocator | null {
+  const bare = token.split("#")[0].trim();
+  if (bare.length === 0) return null;
+  const base = appBaseOf(ownerFile);
+  if (/^(app|src)\//.test(bare)) {
+    const at = resolveSourceFile(`${base}/${bare}`, baseDir);
+    if (at) return { token, kind: "source-file", at };
+  }
+  if (bare.startsWith("/")) {
+    const at = resolveSourceFile(`${base}/app${bare}`, baseDir);
+    if (at) return { token, kind: "route", at };
+  }
+  if (/^[A-Za-z_$][\w$]*$/.test(bare)) {
+    const declaration = new RegExp(
+      `^export\\s+(?:const|let|function|async\\s+function|class)\\s+${bare}(?![\\w$])`,
+      "m"
+    );
+    for (const [file, source] of productSources) {
+      if (file === ownerFile) continue;
+      if (declaration.test(maskComments(source))) {
+        return { token, kind: "exported-identifier", at: `${file} (export ${bare})` };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * 선언의 **초기화식 원문** — `=` 다음부터 깊이 0의 `;`까지(주석은 지우고 문자열은 남긴다).
+ *
+ * ⚠️ 문자열을 남기는 이유: 축 ⓑ가 읽는 것이 정확히 그 문자열들이다. ⚠️ 주석을 지우는 이유:
+ * 표 안의 설명 주석이 자리를 가리키면 **주석 한 줄로 면제를 살 수 있게** 되기 때문이다.
+ */
+export function initializerText(source: string, declarationLine: number): string {
+  const lines = source.split("\n");
+  const lineStart = lines.slice(0, declarationLine - 1).join("\n").length + (declarationLine > 1 ? 1 : 0);
+  let index = source.indexOf("=", lineStart);
+  if (index === -1) return "";
+  index += 1;
+  let depth = 0;
+  const out: string[] = [];
+  while (index < source.length) {
+    const character = source[index];
+    const next = source[index + 1];
+    if (character === "/" && next === "/") {
+      const end = source.indexOf("\n", index);
+      index = end === -1 ? source.length : end;
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      const end = source.indexOf("*/", index + 2);
+      index = end === -1 ? source.length : end + 2;
+      continue;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      let cursor = index + 1;
+      while (cursor < source.length) {
+        if (source[cursor] === "\\") {
+          cursor += 2;
+          continue;
+        }
+        if (source[cursor] === character) break;
+        cursor += 1;
+      }
+      out.push(source.slice(index, cursor + 1));
+      index = cursor + 1;
+      continue;
+    }
+    if ("([{".includes(character)) depth += 1;
+    if (")]}".includes(character)) depth -= 1;
+    if (character === ";" && depth === 0) break;
+    out.push(character);
+    index += 1;
+  }
+  return out.join("");
+}
+
+/** 초기화식의 **최상위 원소 전수** — 바깥 `[`/`{` 안의 깊이 1 쉼표로 가른다. */
+export function topLevelElements(initializer: string): string[] {
+  const openIndex = initializer.search(/[[{]/);
+  if (openIndex === -1) return [];
+  const open = initializer[openIndex];
+  const close = open === "[" ? "]" : "}";
+  let depth = 0;
+  let index = openIndex;
+  let segmentStart = openIndex + 1;
+  const parts: string[] = [];
+  while (index < initializer.length) {
+    const character = initializer[index];
+    if (character === '"' || character === "'" || character === "`") {
+      let cursor = index + 1;
+      while (cursor < initializer.length) {
+        if (initializer[cursor] === "\\") {
+          cursor += 2;
+          continue;
+        }
+        if (initializer[cursor] === character) break;
+        cursor += 1;
+      }
+      index = cursor + 1;
+      continue;
+    }
+    if ("([{".includes(character)) {
+      depth += 1;
+      if (depth === 1 && character === open) segmentStart = index + 1;
+    } else if (")]}".includes(character)) {
+      depth -= 1;
+      if (depth === 0 && character === close) {
+        parts.push(initializer.slice(segmentStart, index));
+        break;
+      }
+    } else if (character === "," && depth === 1) {
+      parts.push(initializer.slice(segmentStart, index));
+      segmentStart = index + 1;
+    }
+    index += 1;
+  }
+  return parts.map((part) => part.trim()).filter((part) => part.length > 0);
+}
+
+/**
+ * 한 원소가 내미는 후보 낱말 — 맨 앞의 맨몸 키 하나 + 그 안의 문자열 리터럴 전수.
+ *
+ * ⚠️ **한 글자 토큰은 후보에서 뺀다**(라운드 89 리뷰 L-1). `"/"` 한 글자가 `resolveProductLocator`의
+ * 라우트 갈래에 들어가면 `app` + `/` + `/index.tsx` 로 이어져 **`apps/mobile/app//index.tsx`** 를
+ * 자리로 내민다 — 경로 가운데 `//`가 그 오매치의 지문이다. 그런 원소 하나가 표를 통째로
+ * `locator-table` 축에 태워 **면제를 살 수 있다.** 한 글자로 제품의 자리를 정직하게 가리키는 값은
+ * 오늘 저장소에 0건이고(제품 export 이름도 라우트 조각도 두 글자 이상이다), 그래서 이 배제의
+ * 비용은 0이다. ⚠️ 오늘 실피해도 0건이었다 — 이 배제는 **일어난 오매치를 되돌리는 것이 아니라
+ * 열려 있던 표면을 닫는 것**이고, 그 사실은 사각 `derived-exemptions`가 값으로 진다.
+ */
+function locatorCandidates(element: string): string[] {
+  const found: string[] = [];
+  const bareKey = /^([A-Za-z_$][\w$]*)\s*:/.exec(element);
+  if (bareKey) found.push(bareKey[1]);
+  for (const match of element.matchAll(/"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g)) {
+    found.push(match[1] ?? match[2] ?? "");
+  }
+  return found.filter((token) => token.trim().length > 1);
+}
+
+export type ContractOnlyAxisId = "bundle-excluded" | "locator-table";
+
+export type ContractOnlyAxis = {
+  readonly id: ContractOnlyAxisId;
+  /** 이 축이 무엇을 소스에서 읽는가 — **빈 문자열일 수 없다.** */
+  readonly statement: string;
+};
+
+/** 결정 ③의 두 축 — 이름과 문장이 값으로 선다(계약이 둘 다 오늘 산출을 내는지 확인한다). */
+export const CONTRACT_ONLY_AXES: readonly ContractOnlyAxis[] = [
+  {
+    id: "bundle-excluded",
+    statement:
+      "제품 소스 어느 파일도 이 모듈을 import하지 않고(정적 from · 동적 import(…) · require(…) 전수 · 주석 마스킹) " +
+      "계약 파일은 import한다 — 즉 이 모듈은 앱 번들에 실리지 않고 계약만 읽는다. " +
+      "⚠️ 머리말에 같은 문장을 복사해 붙여도 화면이 import하는 순간 이 축은 사라진다."
+  },
+  {
+    id: "locator-table",
+    statement:
+      "이 상수의 최상위 원소 **전수**가 제품 소스의 한 자리를 가리킨다 — 실재하는 소스 파일 경로 · 실재하는 라우트 · " +
+      "제품 소스가 export로 선언한 식별자. 그런 값은 제품이 쓰는 값이 아니라 계약이 제품을 재려고 드는 자다. " +
+      "⚠️ 원소 하나라도 풀리지 않으면 표가 아니다(도메인 코드 목록은 이 축으로 면제되지 않는다)."
+  }
+];
+
+export type ContractOnlyProof = {
+  readonly axis: ContractOnlyAxisId;
+  /** 소스에서 **실제로 찾은** 근거 전수 — 빈 배열일 수 없다. */
+  readonly evidence: readonly string[];
+  /** 왜 이것이 계약 전용 데이터인가(그 항목에 대한 한 문장). */
+  readonly reason: string;
+};
+
+/** 파생 판정이 한 번 걷어 둔 소스들 — 항목마다 저장소를 다시 읽지 않게 한다. */
+export type ContractOnlyContext = {
+  readonly product: ReadonlyMap<string, string>;
+  readonly tests: ReadonlyMap<string, string>;
+  readonly baseDir: string;
+};
+
+export function contractOnlyContext(baseDir: string = repoRoot): ContractOnlyContext {
+  return {
+    product: readCallsiteSources(baseDir),
+    tests: new Map(collectTestFiles(baseDir).map((file) => [file, readRepoFile(file, baseDir)])),
+    baseDir
+  };
+}
+
+/**
+ * ⚠️⚠️ **결정 ③의 본체** — 이 항목이 계약 전용 데이터인가, 그리고 **무엇이 그 근거인가**.
+ *
+ * 축 ⓐ를 먼저 본다(모듈 하나로 끝나는 싼 근거이고, 그래야 갈래가 한 항목에 하나로 정해진다).
+ * 어느 축도 서지 않으면 `null` — 그 자리는 **대장에 줄을 얻어야 한다.**
+ *
+ * ⚠️⚠️ **면제는 새로 들어온 축(`export const`)에만 걸린다.** `export function` 축은 라운드 87·88이
+ * 이미 열여섯 줄을 하나씩 판정해 대장에 세워 둔 자리이고, 파생 판정이 그 줄을 걷어 가면 이 트랙이
+ * 하는 일이 *"모집단을 넓히는 것"* 이 아니라 *"항목을 지우는 것"* 이 된다. 실제로 축 ⓐ는
+ * `offline-aware-screens.ts`의 사문 **함수** 하나(`usesOfflineAwareLoadErrorCopy`)도 면제할 수 있는데,
+ * 그 줄이야말로 지우면 안 되는 값이다 — 그 줄의 이유가 *"`export const` 축의 면제 사유가 `export
+ * function` 축으로 새어 나온 자리"* 라고 적으며 **오늘 이 축이 들어온 이유를 미리 가리키고 있었다.**
+ */
+export function contractOnlyDataProof(
+  item: ExportedFunction,
+  context: ContractOnlyContext
+): ContractOnlyProof | null {
+  if (item.kind !== "const") return null;
+  const { product, tests, baseDir } = context;
+  const productImporters = importersOfModule(item.file, product, baseDir);
+  const contractImporters = importersOfModule(item.file, tests, baseDir);
+  if (productImporters.length === 0 && contractImporters.length > 0) {
+    return {
+      axis: "bundle-excluded",
+      evidence: contractImporters,
+      reason:
+        `${item.file}를 import하는 제품 소스가 0건이고 계약 파일 ${contractImporters.length}건이 import한다 — ` +
+        "이 모듈은 앱 번들에 실리지 않는다(판정은 머리말이 아니라 import 그래프가 했다)."
+    };
+  }
+
+  const source = readRepoFile(item.file, baseDir);
+  const elements = topLevelElements(initializerText(source, item.line));
+  if (elements.length === 0) return null;
+  const evidence: string[] = [];
+  for (const element of elements) {
+    const locator = locatorCandidates(element)
+      .map((token) => resolveProductLocator(token, item.file, product, baseDir))
+      .find((found) => found !== null);
+    if (!locator) return null;
+    evidence.push(`${locator.token} → ${locator.at}`);
+  }
+  return {
+    axis: "locator-table",
+    evidence,
+    reason:
+      `최상위 원소 ${elements.length}이 전부 제품 소스의 자리를 가리킨다 — ` +
+      "이 값은 제품이 쓰는 값이 아니라 계약이 제품을 재려고 드는 자다."
+  };
+}
+
+export type ContractOnlyExemption = {
+  readonly item: ExportedFunction;
+  readonly proof: ContractOnlyProof;
+};
+
+/** 오늘 파생 판정이 면제한 자리 전수 — **크기가 값이다**(계약 ⓒ). */
+export function contractOnlyExemptions(baseDir: string = repoRoot): ContractOnlyExemption[] {
+  const context = contractOnlyContext(baseDir);
+  const found: ContractOnlyExemption[] = [];
+  for (const item of findDeadExports(baseDir)) {
+    const proof = contractOnlyDataProof(item, context);
+    if (proof) found.push({ item, proof });
+  }
+  return found;
+}
+
+/** 그 면제가 걸친 모듈 전수 — 손 목록이 아니라 **파생의 산출**이다(유령 방지 ⓓ가 쓴다). */
+export function contractOnlyDataModules(baseDir: string = repoRoot): string[] {
+  return [...new Set(contractOnlyExemptions(baseDir).map((entry) => entry.item.file))].sort();
+}
+
+/**
+ * **대장에 줄이 있어야 하는 사문 전수** = 사문 − 면제.
+ *
+ * ⚠️ 대장(`DEAD_EXPORT_LEDGER`)과 양방향으로 대조되는 것이 이 집합이고, 래칫이 무는 것도 이 수다.
+ */
+export function ledgerRequiredDeadExports(baseDir: string = repoRoot): ExportedFunction[] {
+  const context = contractOnlyContext(baseDir);
+  return findDeadExports(baseDir).filter((item) => contractOnlyDataProof(item, context) === null);
 }
 
 /** 테스트 파일 전수 — *"계약만 초록"* 이라는 말이 참인지 세는 자리. */
@@ -847,9 +1309,10 @@ export type DeadExportEntry = {
 };
 
 /**
- * ⚠️ **오늘의 열여섯 전수**(모바일 15 · 어드민 1). `MEASURED_ON` 기준 최종 실측이고, 계약이 이 목록을
- * 실측 집합과 **양방향으로** 대조한다 — 새 사문이 생기면 빨개지고(래칫), 항목이 되살아나도
- * 빨개진다(유령 행 금지: 되살아난 줄을 남겨 두면 그 줄이 다음 사문을 가려 준다).
+ * ⚠️ **오늘의 스물둘 전수**(`export function` 16 + `export const` 6 · 모바일 20 · 어드민 2).
+ * `MEASURED_ON` 기준 최종 실측이고, 계약이 이 목록을 **면제를 뺀 실측 집합**
+ * (`ledgerRequiredDeadExports`)과 **양방향으로** 대조한다 — 새 사문이 생기면 빨개지고(래칫),
+ * 항목이 되살아나도 빨개진다(유령 행 금지: 되살아난 줄을 남겨 두면 그 줄이 다음 사문을 가려 준다).
  *
  * ⚠️ **오늘 이 열여섯 중 사용자에게 보이는 결함은 0건이다** — 하나씩 판정했고 그 판정이 각 줄의
  * `reason`이다. 그래서 라운드 87은 **하나도 지우지 않았고**(제품 소스 0건 수정), 라운드 88 트랙 D도
@@ -1028,6 +1491,86 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
       "초안을 만들고 곧바로 제출하는 합성 함수 `draftAndSubmitContentRevision` 하나만 쓴다. " +
       "**'있다'는 단언과 '닿는다'는 사실이 갈렸다.** 서버 PATCH 엔드포인트 자체는 살아 있으므로 이 라운드는 " +
       "지우지 않고 **그 갈림을 값으로 적는다.** 오늘 사용자·운영자에게 보이는 결함 0건."
+  },
+
+  // ── 라운드 89 트랙 C — `export const` 축이 모집단으로 들어오며 선 여섯 줄 ─────────────────
+  //
+  // ⚠️⚠️ **이 여섯은 새 부채가 아니라 세는 자리가 늘어난 것이다.** 오늘 이전에도 여섯 다 호출부
+  // 0건이었고, 다만 **모집단 밖에 살아서 아무도 세지 않았다.** 스물넷 중 열여덟은 결정 ③의 파생
+  // 판정이 면제하고(대장에 줄이 없다 · 근거는 import 그래프와 실재하는 자리), 여기 여섯이 남는다.
+  {
+    id: "apps/mobile/src/analytics/events.ts:ANALYTICS_CATEGORY_CODES",
+    file: "apps/mobile/src/analytics/events.ts",
+    name: "ANALYTICS_CATEGORY_CODES",
+    reasonKind: "reason-in-source",
+    reason:
+      "분류 코드 열둘의 **런타임 거울**이다 — 컴파일 시점의 단일 소스는 바로 위 `AnalyticsCategoryCode` 타입이고, " +
+      "화면은 그 타입을 통해 코드를 넘기지 목록을 돌지 않는다. 이 배열이 있는 이유는 하나뿐이다: " +
+      "`events.test.ts`가 이 열둘을 `packages/contracts/src/analytics.ts`의 같은 이름과 대조해 **두 벌이 갈라지지 " +
+      "않게** 붙잡는다. ⚠️ 자리 표 축(결정 ③ ⓑ)으로는 면제되지 않는다 — 원소가 도메인 코드이지 제품 소스의 " +
+      "자리가 아니다. 라운드 89 트랙 C가 그 사실을 소스 주석으로 적었다. **오늘 사용자에게 보이는 결함 0건.**"
+  },
+  {
+    id: "apps/mobile/src/expenses/failed-row-prefill.ts:FAILED_ROW_LOCAL_ID_PARAM",
+    file: "apps/mobile/src/expenses/failed-row-prefill.ts",
+    name: "FAILED_ROW_LOCAL_ID_PARAM",
+    reasonKind: "reason-in-ledger",
+    reason:
+      "⚠️⚠️ **오늘 대장에서 유일하게 '계약만 초록'조차 아닌 자리다.** 제품 소스도, 계약도, 저장소의 어떤 " +
+      "파일도 이 이름을 부르지 않는다(같은 파일 머리말의 인용 한 줄이 전부다). 화면과 시트는 같은 값을 " +
+      "**리터럴 `failedLocalId`**로 주고받고(`FailedRowPrefillParams`의 키가 그 리터럴이다), 그래서 이 상수는 " +
+      "이름만 남은 편의판이다. ⚠️ **소스에 S-8 관례를 달지 않는다** — 그 관례의 문장은 *'테스트 전용 export'*" +
+      "인데 테스트조차 부르지 않으므로 그 문장이 **거짓**이 된다. 이유가 대장에만 있는 갈래는 정확히 이런 " +
+      "자리를 위해 살아 있었다. 지우는 판단은 URL 파라미터 이름을 리터럴로 둘지 상수로 모을지를 정한 다음이고, " +
+      "그 결정은 이 트랙의 것이 아니다(제품 소스 바이트 불변). **오늘 사용자에게 보이는 결함 0건.**"
+  },
+  {
+    id: "apps/mobile/src/import/import-failure-messages.ts:IMPORT_FAILURE_KINDS",
+    file: "apps/mobile/src/import/import-failure-messages.ts",
+    name: "IMPORT_FAILURE_KINDS",
+    reasonKind: "reason-in-source",
+    reason:
+      "⚠️ **소스에 S-8 관례가 이미 붙어 있던 둘 중 하나**(라운드 88이 사각 칸에 *'그 관례 넷 중 둘이 오늘 " +
+      "모집단 밖에 산다'* 고 적어 둔 그 둘이다 — 오늘 축이 들어오며 둘 다 모집단 안으로 왔고, **주석은 한 " +
+      "글자도 고치지 않았다**). 화면은 걸음 이름을 리터럴로 넘기므로 이 목록을 부르지 않고, 도는 것은 " +
+      "'네 걸음 전부에서 이렇게 보인다'를 세는 계약뿐이다. **오늘 사용자에게 보이는 결함 0건.**"
+  },
+  {
+    id: "apps/mobile/src/offline/messages.ts:SYNC_STATUS_RETRY_ALL_LABEL",
+    file: "apps/mobile/src/offline/messages.ts",
+    name: "SYNC_STATUS_RETRY_ALL_LABEL",
+    reasonKind: "reason-in-ledger",
+    reason:
+      "⚠️⚠️ **손 목록이 가리고 있던 그 한 자리다.** 라운드 87~88의 `CONTRACT_ONLY_DATA_MODULES`는 이 모듈의 " +
+      "사문 셋을 *'문장이 아니라 무엇을 세는지 말하는 값'* 이라며 통째로 면제했는데, 이 상수는 사용자에게 " +
+      "그려지는 문장(`전체 재시도`)이다. 화면이 부르지 않는 이유는 **더 좁은 라벨로 갈아탔기 때문**이다: " +
+      "라운드 58 #4 이후 `app/sync-status.tsx`는 일괄 버튼에 대상과 건수를 직접 적는다(*'지출 3건 재시도'*) — " +
+      "제외 규칙(권한 거절 · 재시도가 무익한 4xx) 때문에 '전체'가 실제로 전체가 아니어서다. 남은 소비자는 " +
+      "그 갈림을 세는 계약 둘이고, 그 둘은 이 상수가 `SYNC_STATUS_RETRY_LABEL`을 그대로 품는지까지 문다. " +
+      "⚠️ 이 트랙은 그 파일을 **읽기만 한다**(바이트 불변) — 그래서 이유가 소스가 아니라 여기 산다. " +
+      "**오늘 사용자에게 보이는 결함 0건**(화면의 라벨이 더 정확한 쪽이다)."
+  },
+  {
+    id: "apps/mobile/src/offline/sqlite-offline-store.ts:OFFLINE_DB_SCHEMA_VERSION",
+    file: "apps/mobile/src/offline/sqlite-offline-store.ts",
+    name: "OFFLINE_DB_SCHEMA_VERSION",
+    reasonKind: "reason-in-source",
+    reason:
+      "마이그레이션 목록의 **마지막 번호에서 파생하는 값**이라 제품 경로에는 이 이름을 읽을 자리가 없다 — " +
+      "러너는 `OFFLINE_DB_MIGRATIONS`를 직접 돌며 `PRAGMA user_version`과 맞추지 기대 버전을 따로 묻지 않는다. " +
+      "부르는 것은 `sqlite-migrations.test.ts` 하나이고, 그 계약이 이 값으로 *'목록과 빌드가 같은 버전을 " +
+      "말하는가'* 를 센다. 라운드 89 트랙 C가 그 사실을 소스 주석으로 적었다. **오늘 사용자에게 보이는 결함 0건.**"
+  },
+  {
+    id: "apps/mobile/src/settings/destructive-flow-messages.ts:DESTRUCTIVE_FLOW_ABSENT_TARGET_BRANCHES",
+    file: "apps/mobile/src/settings/destructive-flow-messages.ts",
+    name: "DESTRUCTIVE_FLOW_ABSENT_TARGET_BRANCHES",
+    reasonKind: "reason-in-source",
+    reason:
+      "⚠️ **소스에 S-8 관례가 이미 붙어 있던 둘 중 둘째**(주석 바이트 불변). 이 표가 담은 것은 사용자 문장이 " +
+      "아니라 **문장이 서지 않는 흐름과 그 근거**다 — 화면은 읽을 것이 없고, 서버가 그 경로에 404 도메인 코드를 " +
+      "만드는 날 계약이 빨개지며 '그때 사용자가 무엇을 보는가'를 묻는다. ⚠️ 자리 표 축으로 면제되지 않는 이유: " +
+      "원소가 흐름 이름과 서버 근거 산문이지 제품 소스의 자리가 아니다. **오늘 사용자에게 보이는 결함 0건.**"
   }
   // ⚠️ 정찰이 열일곱째로 센 `apps/admin/src/lib/audit-log-filters.ts:hasAnyAuditLogFilter`는
   // **오늘 사문이 아니다** — 같은 라운드의 트랙 A가 `apps/admin/src/lib/audit-log-rows.ts`에서
@@ -1045,48 +1588,68 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
  *
  * ⚠️ 이 값을 **늘려서** 통과시키는 것은 래칫을 푸는 일이다. 줄이는 것은 언제나 옳다(항목이 실제로
  * 걷혔을 때 이 값과 그 줄을 함께 내린다).
+ *
+ * ⚠️⚠️ **라운드 89 트랙 C: 16 → 22.** 이 여섯은 **새 부채가 아니라 세는 자리가 늘어난 것**이다
+ * (라운드 88 트랙 D가 세운 형식). `export const` 축이 모집단으로 들어오면서 오늘 이전에도 호출부
+ * 0건이었던 스물넷이 처음 세어졌고, 그중 열여덟은 결정 ③의 파생 판정이 면제했다. **`export
+ * function` 축의 열여섯은 한 줄도 움직이지 않았다** — 지운 export 0건 · 되살린 export 0건이다.
+ * ⚠️ 그래서 이 값은 축을 되돌리는 방식으로 내려서는 안 된다: 내리는 유일한 옳은 길은 항목이
+ * 실제로 걷히거나 호출부를 얻는 것이다.
  */
-export const DEAD_EXPORT_RATCHET = 16;
+export const DEAD_EXPORT_RATCHET = 22;
+
+/**
+ * 래칫이 축을 넓히며 지나온 자리 — **줄어들지 않는다는 사실을 값으로 남긴다.**
+ *
+ * ⚠️ 이 배열이 없으면 다음 라운드가 *"예전에는 16이었는데 왜 22인가"* 를 산문으로만 만나고, 그때
+ * 가장 싼 답은 축을 도로 좁히는 것이다. 무엇이 언제 왜 늘었는지가 값으로 서 있으면 그 답이 막힌다.
+ */
+export const RATCHET_HISTORY: readonly {
+  readonly round: number;
+  readonly value: number;
+  readonly why: string;
+}[] = [
+  { round: 87, value: 16, why: "`export function` 축의 사문 열여섯으로 대장이 섰다(트랙 E)." },
+  {
+    round: 88,
+    value: 16,
+    why: "아홉의 이유를 소스 주석으로 옮겼다 — 먼저 마스킹, 그다음 주석이라 수는 그대로다(트랙 D)."
+  },
+  {
+    round: 89,
+    value: 22,
+    why:
+      "`export const` 축이 모집단으로 들어왔다(트랙 C). 늘어난 여섯은 새 부채가 아니라 **세는 자리가 " +
+      "늘어난 것**이다 — 스물넷 중 열여덟은 결정 ③의 파생 판정이 면제했고, `export function` 축의 " +
+      "열여섯은 한 줄도 움직이지 않았다."
+  }
+];
 
 // ── 사각을 값으로 (AA-4의 규율을 태어날 때부터) ───────────────────────────────
 
 /**
- * `export const` 축의 사문 중 **계약 전용 데이터 모듈**에 사는 것 — 이 목록이 곧 결정 ②의 이유다.
+ * ⚠️⚠️ **라운드 88까지 이 자리에 `CONTRACT_ONLY_DATA_MODULES` 손 목록이 있었다** — 경로 다섯과
+ * 이유 다섯을 사람이 적고, 계약은 *"그 다섯이 실재하는가"* 만 물었다.
  *
- * 이 다섯 모듈은 *"테스트만 읽는 것이 이 모듈의 설계"* 인 자리이고, 그래서 `export const` 축을
- * 모집단에 넣는 순간 **면제 줄 열하나로 시작하는 대장**이 된다.
+ * 라운드 89 트랙 C가 그 목록을 **파생 판정**(결정 ③ · `contractOnlyDataProof`)으로 바꿨다.
+ * 왜 바꿨는지는 값으로 남긴다: 그 손 목록의 이유 한 줄이 **오늘 거짓이었다.**
+ * `offline/messages.ts`의 이유는 *"여기 남은 사문 셋은 문장 자체가 아니라 무엇을 세는지 말하는
+ * 값(teardown 대상 목록·스윕용 라벨)"* 이라고 적었는데, 그 셋 중 `SYNC_STATUS_RETRY_ALL_LABEL`은
+ * **사용자에게 그려지는 문장**(`전체 재시도`)이다. 파생 판정은 그 상수를 면제하지 않고, 그래서
+ * 오늘 그 자리가 **대장의 줄**이 됐다(아래 `DEAD_EXPORT_LEDGER`).
+ *
+ * ⚠️ 그 목록이 걸치던 다섯 모듈은 지금도 전부 면제 쪽에 있고(`contractOnlyDataModules()`가
+ * 파생으로 다시 낸다 · 오늘은 여섯 모듈이다 — `apps/admin/src/lib/load-error-copy.ts`가 같은
+ * 성질로 파생된다), **다른 것은 그 판정을 누가 했는가뿐이다.**
  */
-export const CONTRACT_ONLY_DATA_MODULES: readonly { readonly path: string; readonly reason: string }[] = [
-  {
-    path: "apps/mobile/src/offline/offline-aware-screens.ts",
-    reason:
-      "머리말이 '이 모듈은 화면 코드가 import하지 않는다(계약 전용 데이터라 앱 번들에 실리지 않는다)'고 " +
-      "직접 적어 두었다 — 세 계약 파일이 이 목록을 읽는 것이 이 파일의 존재 이유다."
-  },
-  {
-    path: "apps/mobile/src/query/shared-cache-policy.ts",
-    reason: "쓰기 API와 그 제외 목록의 단일 소스 — 캐시 무효화 계약이 읽는 표이지 화면이 읽는 값이 아니다."
-  },
-  {
-    path: "apps/mobile/src/offline/messages.ts",
-    reason:
-      "오프라인 문장의 단일 소스. 여기 남은 사문 셋은 문장 자체가 아니라 **무엇을 세는지 말하는 값**" +
-      "(teardown 대상 목록·스윕용 라벨)이고, 그 축의 소비자는 계약뿐이다."
-  },
-  {
-    path: "apps/mobile/src/reports/empty-period-card.ts",
-    reason: "'빈 기간 카드를 그리는 화면' 목록 — 화면이 자기 이름을 읽지 않으므로 소비자는 계약뿐이다."
-  },
-  {
-    path: "apps/mobile/src/settings/more-menu.ts",
-    reason: "더보기 메뉴에서 설정 화면에만 있는 경로 목록 — 두 화면의 갈림을 계약이 세는 표다."
-  }
-];
+export const HAND_LIST_REPLACED_BY_DERIVATION =
+  "CONTRACT_ONLY_DATA_MODULES(라운드 87~88의 손 목록 다섯) → contractOnlyDataProof(라운드 89 트랙 C의 파생 판정)";
 
-/** 그 다섯 모듈에 사는 `export const` 사문 전수. */
+/** 파생 판정이 면제한 `export const` 사문 전수 — 옛 손 목록이 세던 그 수의 자리다. */
 export function deadConstantsInContractOnlyModules(baseDir: string = repoRoot): ExportedFunction[] {
-  const modules = CONTRACT_ONLY_DATA_MODULES.map((entry) => entry.path);
-  return findDeadConstants(baseDir).filter((item) => modules.includes(item.file));
+  return contractOnlyExemptions(baseDir)
+    .map((entry) => entry.item)
+    .filter((item) => item.kind === "const");
 }
 
 /**
@@ -1099,7 +1662,7 @@ export function deadConstantsInContractOnlyModules(baseDir: string = repoRoot): 
 export function namesAlsoUsedAsProperty(baseDir: string = repoRoot): string[] {
   const sources = [...readCallsiteSources(baseDir).values()];
   const found: string[] = [];
-  for (const item of collectExportedFunctions(baseDir)) {
+  for (const item of collectPopulation(baseDir)) {
     const pattern = new RegExp(`\\.\\s*${item.name}(?![\\w$])|(?<![\\w$])${item.name}\\s*:`);
     if (sources.some((source) => pattern.test(source))) found.push(item.name);
   }
@@ -1137,47 +1700,87 @@ export type LedgerBlindSpot = {
   readonly measure?: (baseDir: string) => number;
 };
 
-export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
+/**
+ * ⚠️⚠️ **닫힌 사각** — 재개 조건이 발동해 그물 안으로 들어온 자리.
+ *
+ * 지우지 않고 여기로 옮기는 이유: 사각 칸에서 그냥 사라지면 다음 라운드가 *"이 축은 왜 세지 않지"*
+ * 를 다시 묻고 **다시 세고 나서 어디에도 적지 못한다**(AA-4의 규율이 막으려던 그 자리다).
+ * 닫힌 자리는 **무엇이 언제 닫았는지**를 값으로 들고 산다.
+ */
+export const CLOSED_BLIND_SPOTS: readonly {
+  readonly id: string;
+  readonly closedInRound: number;
+  readonly statement: string;
+}[] = [
   {
     id: "export-const-axis",
-    value: 24,
-    floor: 8,
+    closedInRound: 89,
     statement:
-      "같은 뿌리·같은 조건으로 `export const` 축을 재면 652 중 **24**가 호출부 0건이다. " +
-      "⚠️ **라운드 88 트랙 D의 재측정**: 라운드 87의 이 자리는 651 중 13이었는데, 그 13은 **주석을 " +
-      "마스킹하지 않은 옛 그물**의 값이다. 같은 축을 오늘의 그물(주석 마스킹)로 다시 재면 24다 — " +
-      "**늘어난 열하나는 새로 죽은 상수가 아니라, 주석이 이름을 인용한다는 이유로 살아 있는 것처럼 " +
-      "보이던 상수들**이다. 이 축이 모집단이었다면 라운드 87의 계약은 그 열하나를 못 보고 초록이었다. " +
-      "⚠️ **라운드 87 리뷰 M-1의 정정**: 당시 이 자리의 분모는 591이었는데 그것은 모집단 뿌리 **둘 중 " +
-      "모바일 하나만**(`apps/mobile/src`) 센 수라, 바로 앞 문장의 *'같은 뿌리·같은 조건'* 과 코드의 " +
-      "모집단(`collectExportedConstants` = 모바일 591 + 어드민 `src/lib` 60)이 갈려 있었다. " +
-      "**라운드 87 리뷰 이후**의 실측은 651이고, 분자 13은 두 뿌리를 다 세도 그대로다 — 오늘 " +
-      "어드민 `src/lib`의 `export const` 60은 **전부 호출부가 있다**(그래서 정정으로 늘어난 것은 분모뿐이다). " +
-      "**모집단에 넣지 않았다** — " +
-      "그중 열하나가 계약 전용 데이터 모듈 다섯(CONTRACT_ONLY_DATA_MODULES)에 살아서 '테스트만 읽는 것이 그 모듈의 " +
-      "설계'이고, 그러면 이 대장은 첫날부터 면제 줄 열하나로 시작한다. 남은 둘(IMPORT_FAILURE_KINDS · " +
-      "OFFLINE_DB_SCHEMA_VERSION) 중 하나는 이미 소스에 S-8 관례가 붙어 있다 — 즉 **그 관례 넷 중 둘이 오늘 " +
-      "모집단 밖에 산다.** ⚠️ 재개 조건(결정형 · 손은 안): 계약 전용 데이터 모듈을 **뿌리에서** 가르는 " +
-      "판정이 서는 날 — 그날 이 축이 모집단으로 들어온다.",
-    measure: (baseDir) => findDeadConstants(baseDir).length
+      "라운드 87·88의 사각: *'같은 뿌리·같은 조건으로 `export const` 축을 재면 652 중 24가 호출부 0건이다 … " +
+      "모집단에 넣지 않았다'*. 그 칸이 적어 둔 재개 조건은 **결정형**이었다: *'계약 전용 데이터 모듈을 뿌리에서 " +
+      "가르는 판정이 서는 날 — 그날 이 축이 모집단으로 들어온다'*. ⚠️ **라운드 89 트랙 C가 그 판정을 세웠고" +
+      "(결정 ③ · CONTRACT_ONLY_AXES) 축이 들어왔다.** 오늘 그 24는 사각이 아니라 모집단의 산출이다 — " +
+      "열여덟은 파생 판정이 면제하고 여섯은 대장의 줄이다."
   },
   {
     id: "contract-only-data-modules",
-    value: 17,
+    closedInRound: 89,
+    statement:
+      "라운드 87·88의 사각: *'그 스물넷 중 열일곱이 다섯 모듈에 산다'* — 그 열일곱이 `export const` 축을 밖에 " +
+      "두는 이유 전체였다. ⚠️ 오늘 그 수는 사각이 아니라 **면제의 크기**이고, 세는 손이 바뀌었다: 손으로 적은 " +
+      "모듈 다섯이 아니라 파생 판정이 낸 여섯 모듈·열여덟 자리다(`contractOnlyExemptions`). ⚠️ 그리고 그 " +
+      "손 목록의 이유 한 줄은 **거짓이었다** — `SYNC_STATUS_RETRY_ALL_LABEL`은 계약이 읽는 값이 아니라 사용자 " +
+      "문장이고, 파생 판정이 그것을 면제에서 꺼내 대장의 줄로 옮겼다."
+  }
+];
+
+export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
+  {
+    id: "derived-exemptions",
+    value: 18,
     floor: 8,
     statement:
-      "그 스물넷 중 **열일곱**이 다섯 모듈에 산다. ⚠️ 라운드 87의 이 자리는 '열셋 중 열하나'였고 " +
-      "(offline-aware-screens 셋 · shared-cache-policy 셋 · offline/messages 셋 · empty-period-card 하나 · " +
-      "more-menu 하나), 오늘 수가 늘어난 이유는 위 `export-const-axis`와 같다 — **주석 마스킹이 " +
-      "'주석만 이름을 말하던' 상수를 드러냈다**(모듈이 늘어난 것이 아니다). 이 열일곱이 결정 ②의 " +
-      "이유 전체이고, 그 이유는 라운드 87보다 오늘 **더 굵어졌다**.",
-    measure: (baseDir) => deadConstantsInContractOnlyModules(baseDir).length
+      "⚠️ **면제된 열여덟에는 대장의 줄이 없다** — 그 자리를 붙잡고 있는 것은 결정 ③의 파생 판정 하나뿐이다. " +
+      "판정이 언젠가 지나치게 넓어지면(예: `importersOfModule`이 새 별칭 경로를 못 읽어 '번들 밖'을 잘못 세면) " +
+      "그만큼의 사문이 **소리 없이** 대장 밖으로 나간다. 오차의 방향은 다른 사각들과 같은 **거짓 초록**이다. " +
+      "⚠️ 그래서 계약 ⓓ가 면제 수·모듈 수·근거 전수를 사문 전수와 함께 대조하고, 이 줄이 그 수를 값으로 진다. " +
+      "⚠️⚠️ **그리고 그 '소리 없이'는 오늘 사실이 아니다 — 등호 핀이 먼저 막는다**(라운드 89 리뷰 L-1): " +
+      "계약이 면제 수를 `toBe(18)`, 모듈 수를 `toBe(6)`로 **등호**로 못 박고 있어서, 판정이 넓어져 한 자리라도 " +
+      "더 면제하는 순간 **그 등호가 빨개진다**(사문 전수 `toBe(40)`·`면제 + 대장 = 전수`도 같은 걸음에 함께 문다). " +
+      "즉 거짓 초록이 흘러가는 길은 *'대장 밖으로 조용히 나간다'* 가 아니라 *'등호를 사람이 손으로 올린다'* 이고, " +
+      "그 한 줄의 변경이 곧 신호다. 이 사각이 남아 있는 이유는 그 등호가 **수만 보고 신원은 보지 않기** 때문이다 — " +
+      "면제 하나가 빠지고 다른 하나가 들어오면 수는 그대로다. " +
+      "⚠️ **오늘 값으로 든 오매치 표면 하나**: 축 ⓑ의 후보 낱말이 `resolveProductLocator`의 라우트 갈래에 들어갈 때 " +
+      "**`\"/\"` 한 글자가 라우트로 풀렸다** — `app` + `/` + `/index.tsx`가 이어져 근거 경로에 `//`가 박힌 " +
+      "`apps/mobile/app//index.tsx`를 자리로 내민다(그 `//` 오타가 이 오매치의 지문이다). 원소 하나만 그렇게 풀려도 " +
+      "표 전체가 `locator-table` 축에 실려 면제를 살 수 있다. ⚠️ **오늘 실피해는 0건**이었다(면제 열여덟의 근거 " +
+      "전수에 `//`를 지닌 자리 0건). 라운드 89 리뷰가 `locatorCandidates`에서 **한 글자 토큰을 배제**해 그 표면을 " +
+      "닫았고, **닫은 뒤 다시 재도 면제 열여덟·모듈 여섯 그대로**다(등호 핀 둘 다 초록) — 배제의 비용이 0이라는 " +
+      "사실이 그 수로 선다. 두 글자 이상의 슬래시뿐인 토큰(`\"//\"`)은 여전히 같은 갈래로 풀리고, 오늘 그런 원소도 0건이다. " +
+      "⚠️ 재개 조건(사건형): 면제 수가 사문 전수의 절반을 넘는 날 — 그날 이 판정은 다시 좁혀져야 한다" +
+      "(오늘 40 중 18).",
+    measure: (baseDir) => contractOnlyExemptions(baseDir).length
+  },
+  {
+    id: "export-const-axis-outside-population",
+    value: 0,
+    floor: 0,
+    statement:
+      "⚠️ 축이 들어왔지만 **`.tsx`의 `export const`와 `apps/api/**`·`packages/**`의 `export const`는 오늘도 밖이다.** " +
+      "값이 0인 것은 측정값이 아니라 **미측정**이고, 그 사실을 0으로 적어 두는 것이 이 줄의 일이다(아래 " +
+      "`outside-two-apps`와 같은 모양). ⚠️ 재개 조건(사건형): 그 뿌리 중 하나를 세는 라운드가 오는 날."
   },
   {
     id: "common-name",
-    value: 77,
+    value: 226,
     floor: 20,
     statement:
+      "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +
+      "적힌 값(77)과 **넓히기 전 축으로 다시 잰 오늘 값(77)은 정확히 같았다**(정찰 #3의 일곱 자리 대조와도 " +
+      "같다) — 늘어난 149는 `export const` 축 652가 모집단에 들어오며 처음 세어진 자리이고, **새 사각이 " +
+      "아니라 세는 자리가 늘어난 것**이다. 상수 이름은 함수 이름보다 객체 키 자리에 훨씬 자주 서므로(표의 " +
+      "키·설정 객체) 비율이 더 높은 것이 자연스럽고, 그 사실 자체가 이 사각이 왜 하한인지를 말한다. " +
+      "아래는 라운드 87~88이 이 자리에 남긴 문장 그대로다. " +
       "이 그물은 **이름의 텍스트**를 훑지 해석된 참조를 보지 않는다. 모집단 1018 이름 중 77은 제품 소스 " +
       "어딘가에 속성 접근(`api.listItems`)이나 객체 키(`listItems:`) 자리로도 나온다 — 그 이름들에 대해서는 " +
       "한 번의 텍스트 일치가 호출의 증거가 아니다. ⚠️ 오차의 방향은 **사문을 놓치는 쪽**이고(거짓 초록), " +
@@ -1192,9 +1795,13 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   },
   {
     id: "comment-and-string-references",
-    value: 9,
+    value: 20,
     floor: 5,
     statement:
+      "⚠️⚠️ **라운드 89 트랙 C의 재측정: 9 → 20**(함수 축 아홉은 그대로이고 상수 축에서 열하나가 더 나왔다). " +
+      "즉 **마스킹이 없었다면 오늘 모집단의 사문 마흔 중 스물이 조용히 사라졌을 것**이다 — 라운드 88이 " +
+      "주석 마스킹을 먼저 배우지 않았다면 `export const` 축은 들어오는 날 절반이 새는 채로 들어왔다. " +
+      "**순서가 계약이었다는 문장이 축을 넓히며 한 번 더 증명됐다.** 아래는 라운드 88이 남긴 문장 그대로다. " +
       "⚠️ **이 사각의 재개 조건이 라운드 88에 발동했고, 그물이 마스킹을 배웠다.** 라운드 87의 문장은 " +
       "*'`findProductReferences`는 소스를 마스킹 없이 훑는다 … 재개 조건(사건형): 이 재측정이 0을 넘는 날'* " +
       "이었고, 그때의 실측은 **16 → 16 · 참조가 전부 주석뿐인 export 0건**이었다(실피해 0). " +
@@ -1211,19 +1818,35 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   },
   {
     id: "string-literal-references",
-    value: 26,
+    value: 55,
     floor: 10,
     statement:
+      "⚠️⚠️ **라운드 89 트랙 C의 재측정, 그리고 이 사각의 재개 조건이 오늘 발동했다.** 적힌 값 26은 " +
+      "**넓히기 전 축으로 다시 재도 26**이었고(정찰 #3과 같다), 축을 넓히니 **55**다. ⚠️⚠️ 그리고 " +
+      "라운드 88이 *'참조가 전부 문자열뿐인 export는 0건이라 실피해 0'* 이라고 적어 둔 그 수가 **넷**이 " +
+      "됐다 — `shared-cache-policy.ts`의 `CHILDREN_WRITE_APIS` · `CHILDREN_WRITE_LEDGER` · " +
+      "`SHARED_KEY_COVERAGE` · `EXPENSE_WRITE_LEDGER`이고, 넷 다 **같은 파일 안의 표 설명 문자열**이 " +
+      "자기 이름을 인용해서 살아 있다. ⚠️⚠️ **그런데 이 트랙은 그 축을 켜지 않는다**: 한 트랙이 한 " +
+      "그물에 축 둘을 얹지 않는다(오늘 얹은 축은 `export const` 하나다). 대신 **문을 열지 않고 값을 " +
+      "정확히 적는다** — 그 넷이 문자열 마스킹 뒤 사문이 되더라도 넷 다 결정 ③의 자리 표 축이 이미 " +
+      "면제하는 표라 **대장의 줄은 0이 는다**(오늘 `contractOnlyDataProof`로 넷 다 확인했다). " +
+      "그래서 오늘의 실피해는 *'대장이 못 본 사문 넷'* 이 아니라 *'그물이 축 하나를 아직 안 본다'* 이고, " +
+      "**재개 조건은 발동한 채로 다음 라운드에 넘어간다**(문자열 마스킹 · 템플릿 `${…}` 갈래 포함). " +
+      "아래는 라운드 88이 남긴 문장 그대로다. " +
       "⚠️ **문자열 리터럴 축은 오늘도 사각이다** — 그물은 주석만 마스킹하고 문자열은 그대로 훑으므로, " +
       "이름이 문자열 안에 있기만 해도 호출부 1건이다(`registry[\"legalDocumentUrl\"]`도, 로그 문장도). " +
       "오차의 방향은 `common-name`과 같은 **사문을 놓치는 쪽**(거짓 초록)이다. " +
       "라운드 88이 이 축을 그물에 넣지 않은 이유: 문자열 마스킹은 **판정을 바꾸는 일**이고, 템플릿 " +
       "리터럴의 `${…}` 안은 진짜 코드라 통째로 지울 수 없어 그 갈래까지 한 번에 검증해야 한다 — " +
-      "이 라운드의 손은 주석까지다. ⚠️ **하지만 값 없이 두지 않는다**(AB-5의 규율): 오늘 문자열 안에 " +
-      "참조가 하나라도 있는 모집단 이름은 **26**이고(`measure`), 그중 **참조가 전부 문자열뿐인 export는 " +
-      "0건**이다 — 즉 오늘의 실피해는 0이고 **26은 상한이 아니라 하한**이다(이 재측정은 문자열 마스킹을 " +
+      "이 라운드의 손은 주석까지다. ⚠️ **하지만 값 없이 두지 않는다**(AB-5의 규율): 그때 문자열 안에 " +
+      "참조가 하나라도 있는 모집단 이름은 **26**이었고, 그중 **참조가 전부 문자열뿐인 export는 " +
+      "0건**이었다 — 즉 그날의 실피해는 0이고 **26은 상한이 아니라 하한**이다(이 재측정은 문자열 마스킹을 " +
       "재는 자로만 쓰고 판정에는 쓰지 않는다). ⚠️ 재개 조건(사건형): *참조가 전부 문자열뿐인 export*가 " +
-      "0을 넘는 날 — 그날 이 그물은 문자열도 마스킹해야 한다.",
+      "0을 넘는 날 — 그날 이 그물은 문자열도 마스킹해야 한다. " +
+      "— 여기까지가 라운드 88의 문장이다. ⚠️⚠️ **두 시점**(라운드 89 리뷰 L-5): 위 인용의 26과 0건은 " +
+      "**당시의 값**이고, 인용 안에 있던 `` `measure` `` 역참조는 **오늘 살아 있는 함수를 가리켜** 낡은 수를 " +
+      "현재값처럼 읽히게 만들었다 — 그래서 그 역참조를 인용에서 뺐다(인용의 역사 가치는 그대로 둔다). " +
+      "**오늘의 값은 이 줄의 `value`·`measure`가 진다: 55 · 그중 참조가 전부 문자열뿐인 export 넷.**",
     measure: (baseDir) => namesReferencedInsideStringLiterals(baseDir).length
   },
   {
@@ -1233,7 +1856,10 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     statement:
       "`.tsx`의 `export function`(컴포넌트·훅) 141은 모집단 밖이다 — JSX 사용(`<Foo />`)은 이 그물의 이름 " +
       "훑기가 호출과 다르게 읽고, 화면 파일의 default export는 라우터가 경로로 부르므로 텍스트 호출부가 " +
-      "애초에 없다. ⚠️ 재개 조건(결정형 · 손은 안): JSX 사용을 참조로 세는 판정이 서는 날.",
+      "애초에 없다. ⚠️ 재개 조건(결정형 · 손은 안): JSX 사용을 참조로 세는 판정이 서는 날. " +
+      "⚠️ **라운드 89 트랙 C의 재실측: 오늘도 141**(적힌 값과 같다 — 이 축은 `export const`를 들이는 것과 " +
+      "무관하게 움직이지 않았다). ⚠️ **이 트랙은 이 재개 조건을 열지 않는다** — 같은 파일에 축 둘을 " +
+      "얹지 않는 규율이고, 오늘 얹은 축은 `export const` 하나다(정찰 #3의 배정 그대로).",
     measure: (baseDir) => tsxExportFunctionCount(baseDir)
   },
   {
@@ -1263,6 +1889,11 @@ export function deadExportHint(item: ExportedFunction): string {
     "   ① 지운다 — 호출부가 없으니 없어도 됩니다(테스트도 함께 걷습니다).\n" +
     "   ② 이유를 적는다 — 소스 주석에 '⚠ **테스트 전용 export** … **지우지 않는다**'(라운드 71 리뷰 S-8 관례)를\n" +
     "      달거나, 이름을 `…ForTests`로 바꾸거나, dead-export-ledger.ts의 DEAD_EXPORT_LEDGER에 줄을 더하세요.\n" +
+    (item.kind === "const"
+      ? "   ⚠️ `export const`라면 먼저 결정 ③을 보세요 — 이 값이 **계약이 제품을 재려고 드는 자**(제품 소스의\n" +
+        "      자리를 가리키는 표)이거나 그 모듈이 **앱 번들에 실리지 않으면** 파생 판정이 자동으로 면제하고\n" +
+        "      대장의 줄이 필요 없습니다. 면제는 손으로 적는 것이 아니라 소스에서 파생합니다.\n"
+      : "") +
     "  ⚠️ 대장에 줄을 더했다면 DEAD_EXPORT_RATCHET도 함께 올라갑니다 — 그 값은 늘리지 않는 것이 원칙입니다."
   );
 }

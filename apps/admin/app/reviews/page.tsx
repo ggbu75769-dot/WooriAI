@@ -362,7 +362,7 @@ function ContentReviewsPageContent() {
         {revisions && revisions.length === 0 ? <p className={styles.emptyState}>해당 상태의 초안이 없어요.</p> : null}
         {revisions && revisions.length > 0 ? (
           <div className={styles.tableWrap}>
-            <table className={styles.table}>
+            <table className={styles.table} aria-label="검토 목록 표">
               <thead>
                 <tr>
                   <th>종류</th>
@@ -438,7 +438,7 @@ function ContentReviewsPageContent() {
               </p>
 
               <div className={styles.tableWrap}>
-                <table className={styles.table}>
+                <table className={styles.table} aria-label="제출 값과 라이브 값 비교">
                   <thead>
                     <tr>
                       <th>필드</th>
@@ -531,7 +531,7 @@ function ContentReviewsPageContent() {
             <>
               <h2>이력</h2>
               <div className={styles.tableWrap}>
-                <table className={styles.table}>
+                <table className={styles.table} aria-label="게시 이력 표">
                   <thead>
                     <tr>
                       <th>버전</th>

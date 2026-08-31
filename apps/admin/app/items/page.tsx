@@ -610,7 +610,7 @@ export default function ItemTemplatesPage() {
       </section>
 
       <section className={styles.card}>
-        <h2>준비템 목록{items ? ` (${itemFilterSummary(items.length, filteredItems?.length ?? 0)})` : ""}</h2>
+        <h2 id="admin-item-list-heading">준비템 목록{items ? ` (${itemFilterSummary(items.length, filteredItems?.length ?? 0)})` : ""}</h2>
         {items === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
@@ -719,7 +719,7 @@ export default function ItemTemplatesPage() {
         ) : null}
         {filteredItems && filteredItems.length > 0 ? (
           <div className={styles.tableWrap}>
-            <table className={styles.table}>
+            <table className={styles.table} aria-labelledby="admin-item-list-heading">
               <thead>
                 <tr>
                   <th>이름</th>
