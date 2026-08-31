@@ -1349,14 +1349,26 @@ describe("Expense, budget, home, and report API", () => {
     const accessToken = await login(app, `r48t3-expense-writeonly-${randomUUID()}`);
     const { childId } = await completeOnboarding(app, accessToken);
 
-    const items = (
-      await request(app.getHttpServer())
-        .get(`/api/v1/children/${childId}/items?tab=now`)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .expect(200)
-    ).body.items as Array<{ id: string }>;
-    expect(items.length).toBeGreaterThan(0);
-    const linkedItemTemplateId = items[0].id;
+    // ⚠️ 라운드 91 C — 이 자리가 필요로 하는 재료는 **연결할 준비템 id 하나**뿐인데, 종전에는
+    // `GET items?tab=now` **전량 카탈로그**를 받아 `items[0].id`만 꺼냈다. 이 스위트가 쓰는
+    // 테스트 DB는 라운드마다 **누적**되고 지우는 걸음이 없어서(test/global-setup.ts —
+    // harness-catalog-cost.test.ts가 그 사실을 부정 단언으로 못 박는다), 실측으로 그 응답은
+    // 이미 **2,818건 · 579,990바이트 · ~229ms**였다(라운드 82 주석이 적어 둔 2,651건에서 또 자랐고
+    // 앞으로도 자란다). 시험 대상은 **목록이 아니라 지출 응답에 실리는 필드들**이므로,
+    // 재료만 SQL 한 문장으로 얻는다 — 조건은 `tab=now`가 담는 것과 같다(활성 준비템 ∧
+    // 아이의 현재 단계). 아래 판정(expectExposed)과 기대값은 **바이트 그대로**다.
+    const [linkedTemplate] = await moduleRef.get(PrismaService).$queryRaw<Array<{ id: string }>>`
+      SELECT t.id
+      FROM item_templates t
+      JOIN item_template_stages s ON s.item_template_id = t.id
+      WHERE t.active AND s.stage_code::text = 'infant_4_6'
+      ORDER BY t.display_order, t.id
+      LIMIT 1
+    `;
+    // 종전 `expect(items.length).toBeGreaterThan(0)`이 지키던 성질 그대로 — 재료가 비면 여기서
+    // 멈춘다(단계 값 'infant_4_6'은 이 파일의 completeOnboarding이 만드는 아이의 manualStage다).
+    expect(linkedTemplate, "infant_4_6 아이의 tab=now에 담길 활성 준비템이 하나는 있어야 한다").toBeDefined();
+    const linkedItemTemplateId = linkedTemplate.id;
 
     const expectExposed = (body: Record<string, unknown>) => {
       expenseSchema.parse(body);
@@ -1445,18 +1457,9 @@ describe("Expense, budget, home, and report API", () => {
     const accessToken = await login(app, `r49c06-linked-product-${randomUUID()}`);
     const { childId } = await completeOnboarding(app, accessToken);
 
-    const items = (
-      await request(app.getHttpServer())
-        .get(`/api/v1/children/${childId}/items?tab=now`)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .expect(200)
-    ).body.items as Array<{ id: string }>;
-    expect(items.length).toBeGreaterThan(0);
-
     // 이 아이의 준비템에 실제로 달려 있는 링크 하나를 그대로 쓴다(FK가 요구하는 것은
     // product_links에 존재하는 id다). 어느 항목에 링크가 달려 있는지는 카탈로그 사정이라 첫
-    // 항목으로 단정하지 않고, **링크를 가진 항목의 집합을 먼저 물어** 그중 목록에 있는 하나를
-    // 고른다.
+    // 항목으로 단정하지 않고, **링크를 가진 항목** 중 목록에 담기는 하나를 고른다.
     //
     // ⚠️ 라운드 82 리뷰 추가-15 — 종전에는 "링크가 나올 때까지 항목 상세를 하나씩 열어 보는"
     // 루프였다. 이 스위트가 쓰는 테스트 DB는 라운드마다 **누적**되고(어드민 카탈로그 스위트가
@@ -1464,17 +1467,22 @@ describe("Expense, budget, home, and report API", () => {
     // **2,651건**이었고 상세 한 건이 ~40ms라, 링크 없는 항목이 코드 순서 앞쪽에 몰리면 루프
     // 하나가 20초를 넘겼다(단독 실행 23.0s / 병렬 실행에서는 30초 문턱을 넘겨 빨개졌다).
     // 즉 **테스트가 느린 원인이 시드가 아니라 왕복 수**였고, 그 수는 앞으로도 계속 자란다.
-    // 이제 왕복은 상세 **한 번**이다(아래 조회는 SQL 한 문장).
-    const linkedTemplateIds = new Set(
-      (
-        await moduleRef.get(PrismaService).productLink.findMany({
-          where: { active: true },
-          select: { itemTemplateId: true },
-          distinct: ["itemTemplateId"]
-        })
-      ).map((row) => row.itemTemplateId)
-    );
-    const linkedItem = items.find((item) => linkedTemplateIds.has(item.id));
+    //
+    // ⚠️ 라운드 91 C — 그 뒤로도 남아 있던 왕복 하나를 마저 없앤다. 라운드 82가 루프를 없애고도
+    // 목록 **전량**은 계속 받았는데(그 사이 2,651 → **2,818건 · 579,990바이트 · ~217ms**로 또
+    // 자랐다), 이 자리가 그 응답에서 쓰는 것은 **id 하나**다. 목록 요청과 링크 조회 둘을 SQL
+    // 한 문장으로 합친다 — 조건은 `tab=now`가 담는 것(활성 준비템 ∧ 아이의 현재 단계)에
+    // "활성 링크를 가진다"를 더한 것이고, 아래 판정·기대값은 **바이트 그대로**다.
+    // 이제 이 테스트의 목록 왕복은 **0번**, 상세 왕복은 **한 번**이다.
+    const [linkedItem] = await moduleRef.get(PrismaService).$queryRaw<Array<{ id: string }>>`
+      SELECT t.id
+      FROM item_templates t
+      JOIN item_template_stages s ON s.item_template_id = t.id
+      JOIN product_links l ON l.item_template_id = t.id AND l.active
+      WHERE t.active AND s.stage_code::text = 'infant_4_6'
+      ORDER BY t.display_order, t.id
+      LIMIT 1
+    `;
     expect(linkedItem, "시드 준비템 중 최소 하나에는 구매 링크가 있어야 한다").toBeDefined();
 
     const linkedItemTemplateId = linkedItem!.id;
