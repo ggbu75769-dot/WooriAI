@@ -1078,6 +1078,10 @@ export default function NewExpenseScreen() {
     offlineRows: offlineSnapshot.rows,
     childId,
     selectedCategory,
+    // 라운드 85 A: 위 자동완성·판매처 칩이 이미 읽어 둔 지난달 캐시를 그대로 넘긴다(새 요청 0건).
+    // 지난달 날짜로 기록하는 중이면 이 줄이 그 달의 합계를 말하고, 그 캐시가 없으면 종전대로 침묵한다.
+    previousMonthExpenses: cachedPreviousMonthExpenses,
+    previousYearMonth: previousMonth,
     // 라운드 38 H-11: 서버 시드 UUID를 단 행(엑셀 가져오기·수정 화면 경유)도 제 타일에 합산된다.
     // 매핑이 없거나 타일을 확정할 수 없는 행이 남을 때만 카테고리 항을 생략한다(라운드 37 G-4의
     // "모르면 말하지 않는다" + 라운드 39 I-1의 모호한 code).

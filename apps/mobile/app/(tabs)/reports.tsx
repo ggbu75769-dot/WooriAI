@@ -87,6 +87,7 @@ import {
 import { buildPeriodTrendPoints } from "../../src/reports/period-trend-points";
 import { buildMonthlyShareMessage } from "../../src/reports/share-text";
 import { evaluateTrendDirection } from "../../src/reports/trend-direction";
+import { buildTrendPointLabels } from "../../src/reports/trend-point-labels";
 import { canGoToNextPeriod, periodLabelForOffset, type PeriodUnit } from "../../src/period-navigation";
 import { refreshOfflineSyncSnapshot, useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
@@ -748,6 +749,19 @@ export default function ReportsScreen() {
       : undefined;
   const yearlyPoints =
     period === "연간" && yearly.isSuccess ? yearly.data!.monthlyTotals.map((entry) => entry.totalExpenseKrw) : undefined;
+  /**
+   * 라운드 85 트랙 C — 위 세 줄이 버리던 `yearMonth`를 **같은 응답에서 그대로** 들고 나온다.
+   *
+   * 서버는 달마다 `{ yearMonth, totalExpenseKrw }` 둘을 준다. 종전에는 금액만 뽑아 `number[]`로
+   * 접었고, 그래서 차트에는 x축 라벨이 0건이었다(어느 점이 어느 달인지 그림에도 소리에도 없었다).
+   * 새 요청·새 캐시 키는 0건이다 — 게이트도 위 세 줄과 글자 그대로 같은 게이트다.
+   */
+  const monthlyTrendYearMonths =
+    period === "월간" && monthlyTrend.isSuccess ? monthlyTrend.data!.months.map((month) => month.yearMonth) : undefined;
+  const quarterYearMonths =
+    period === "분기" && quarterTrend.isSuccess ? quarterTrend.data!.months.map((month) => month.yearMonth) : undefined;
+  const yearlyYearMonths =
+    period === "연간" && yearly.isSuccess ? yearly.data!.monthlyTotals.map((entry) => entry.yearMonth) : undefined;
 
   // 라운드 52 C-02: 분기·연간의 **미래 달 0원 절벽**을 잘라 낸다.
   //
@@ -780,6 +794,22 @@ export default function ReportsScreen() {
    * 아직 데이터가 없는 동안(로딩·실패)에도 chartNotice는 null이라 종전 렌더 그대로다.
    */
   const trendChartNotice = period === "월간" ? null : periodTrend.chartNotice;
+  /**
+   * 라운드 85 트랙 C — 차트가 그리는 점과 **같은 순서·같은 개수**의 달 목록.
+   *
+   * 분기·연간은 C-02가 아직 오지 않은 달을 잘라 내므로(`periodTrend.points`), 달 목록도 같은
+   * 모듈이 센 `elapsedMonths`만큼 자른다 — 잘려 나간 달에는 라벨도 없다. 짝이 맞지 않으면
+   * 조립기가 축을 통째로 버리므로(지어내지 않는다), 8월 점 위에 12월이 적히는 일은 없다.
+   * 점을 넘기지 않는 빈 상태에서는 라벨도 만들지 않는다(아래 `points` 프롭과 같은 조건).
+   */
+  const activeYearMonths =
+    period === "월간"
+      ? monthlyTrendYearMonths
+      : (period === "분기" ? quarterYearMonths : yearlyYearMonths)?.slice(0, periodTrend.elapsedMonths);
+  const trendPointLabels = buildTrendPointLabels({
+    yearMonths: activeYearMonths,
+    points: trendChartNotice ? undefined : activePoints
+  });
 
   // UX-F: 월간 탭 상단 "이번 달 한 문장" 인사이트. 새 요청 없이 이 화면이 이미 받아 둔 집계값
   // (monthly 응답의 총액·예산·categoryTop + previousMonth 응답의 지난달 월 전체 합계)만 조합한다
@@ -1103,6 +1133,9 @@ export default function ReportsScreen() {
                 // 우상향 선이 사용자의 기록인 척 그려진다. 그 자리에는 사실 한 줄만 남긴다.
                 points={trendChartNotice ? undefined : activePoints}
                 chartNotice={trendChartNotice}
+                // 라운드 85 트랙 C: 점마다의 달 라벨과 낭독 계열. 짝이 맞지 않으면 조립기가
+                // 이미 비워 두므로, 카드는 그때 종전과 똑같이 그린다(축 0건).
+                pointLabels={trendPointLabels}
               />
 
               {/* C-02: 분기·연간 차트가 **어느 달까지**를 그린 것인지 한 줄로 말한다. 잘라 낸

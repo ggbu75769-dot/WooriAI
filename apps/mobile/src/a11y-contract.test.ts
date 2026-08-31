@@ -473,7 +473,17 @@ describe("A11Y-117 accessibility round-2 contract", () => {
   it("summarizes the line chart geometry with one label and keeps the preview-only delta out of it", () => {
     const uiSource = source("src/ui.tsx");
     const chartBlock = uiSource.slice(uiSource.indexOf("export function LineChartCard"), uiSource.indexOf("export function DonutChartCard"));
-    expect(chartBlock).toContain("`${title} 추이 차트, 합계 ${value}${hasRealDelta ? `, 지난 달 대비 ${deltaText}` : \"\"}`");
+    // 라운드 85 트랙 C: 합계에서 멈추던 문장이 **각 점의 달과 값**까지 읽는다 — 접근성
+    // 체크리스트 13행("추세를 문장으로 듣는다")이 그전에는 과장이었다(계열 0건).
+    expect(chartBlock).toContain(
+      "`${title} 추이 차트, 합계 ${value}${hasRealDelta ? `, 지난 달 대비 ${deltaText}` : \"\"}${seriesText ? `, ${seriesText}` : \"\"}`"
+    );
+    // 계열 문구는 이 파일이 짓지 않는다 — 순수 모듈이 yearMonth와 formatKrw로 만든다.
+    expect(chartBlock).toContain("const seriesText = axisLabels ? pointLabels?.accessibilitySeries ?? null : null;");
+    expect(source("src/reports/trend-point-labels.ts")).toContain("export function buildTrendPointLabels");
+    // 실데이터 갈래에만 붙는다: 장식 폴백(점 2개 미만)·빈 상태·비세션은 seriesText가 null이라
+    // 낭독 문자열이 종전과 한 글자도 다르지 않다.
+    expect(chartBlock).toContain("!noticeText && hasRealData && pointLabels && pointLabels.labels");
     expect(chartBlock).toContain('typeof deltaLabel === "string"');
     // 라운드 52 QA P2-3: 선을 그리지 않는 빈 상태에서는 "추이 차트"라고 읽히지 않는다 --
     // 그 자리에 실제로 쓰인 문장을 그대로 읽어, 보이는 것과 읽히는 것이 갈리지 않게 한다.

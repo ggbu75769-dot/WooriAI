@@ -2,7 +2,7 @@
  * 라운드 41 UX-U(B-ⓓ) — 지출 상세(app/expenses/[expenseId].tsx)의 "이 품목 이력" 섹션.
  *
  * 무엇을 위한 것인가: 상세 화면은 지금까지 "수정 폼 + 저장/삭제"뿐이라, 열어 봐야 이미 아는
- * 값만 다시 보였다. 같은 품목을 이번 달에 몇 번 · 얼마에 샀는지가 그 자리에 있으면 "이 금액이
+ * 값만 다시 보였다. 같은 품목을 최근에 몇 번 · 얼마에 샀는지가 그 자리에 있으면 "이 금액이
  * 평소보다 비싼가?"를 화면을 옮기지 않고 판단할 수 있다(핵심 루프의 '총액 확인'을 상세 화면
  * 안으로 당겨오는 것 — 입력 시트의 UX-K(A) 맥락 한 줄과 같은 생각이다).
  *
@@ -12,8 +12,31 @@
  *    같은 방식으로 읽는 app/expenses/new.tsx의 관례를 그대로 따른다.
  *  - 캐시가 없으면(콜드 스타트, 다른 아이, 오프라인 첫 실행) 섹션 **자체를 생략**한다. 없는 것을
  *    "이력 없음"으로 말하면 그건 사실이 아니다 — 아직 모를 뿐이다(entry-context-line.ts와 같은 판단).
- *  - 이번 달 캐시 한 달치만 보므로 **범위를 반드시 밝힌다**(라운드 39 UX-P 검색 범위 고지 관례).
- *    범위를 말하지 않으면 "지난달에 더 싸게 샀는데 안 보인다"가 조용한 허위 표시가 된다.
+ *  - 이 목록은 **가진 캐시만큼만** 보므로 그 범위를 반드시 밝힌다(라운드 39 UX-P 검색 범위 고지
+ *    관례). 범위를 말하지 않으면 "지난달에 더 싸게 샀는데 안 보인다"가 조용한 허위 표시가 된다.
+ *
+ * ## 라운드 85 B — 모집단이 두 달이 된다(넓힌 것은 전제가 아니라 캐시다)
+ * 원래 이 자리에는 *"이번 달 캐시 한 달치만 본다"* 가 이유로 적혀 있었다. 그런데 GAP-058 #6
+ * 이후 **같은 화면이 지난달 캐시를 이미 손에 들고 있다**(app/expenses/[expenseId].tsx의
+ * `cachedPreviousMonthExpenses` — 판매처 칩·자동완성이 그것을 쓴다). 그 값을 이 섹션만 안 보면,
+ * 매달 1일 아침에 30cm 옆의 칩은 지난달 상호를 띄우는데 이력은 통째로 사라진다 — 같은 화면이
+ * 같은 사실을 한 자리에서는 알고 다른 자리에서는 모르는 상태다.
+ *
+ * 그래서 지난달 캐시와 그 달을 **선택 인자**로 받는다. 규율은 그대로다:
+ *  - **새 요청·새 키 0건.** 화면이 이미 `getQueryData`로 읽어 둔 배열을 받을 뿐이고, 없으면
+ *    그냥 안 넘긴다(없는 캐시를 부르지 않는다 — 두 달보다 넓히지도 않는다).
+ *  - **재조정은 달 단위로 각각.** `reconcileMonthlyExpenses`는 한 달에 답하는 함수라(그 달의
+ *    `spentOn`으로 대기 행을 좁힌다) 두 달을 한 번에 넣으면 지난달의 대기 행이 이번 달 모집단에
+ *    섞인다. 달마다 따로 통과시킨 뒤 잇는다 — 그래서 누수가 **양방향으로** 막힌다.
+ *  - **고지는 실제로 센 달에서 파생한다.** 두 달을 보면서 "이번 달 기준"이라고 말하는 것이 이
+ *    모듈이 막으려던 바로 그 허위 표시이고, 지난달 캐시가 없는 날 두 달을 말하는 것도 같은 거짓이다.
+ *    ⚠️ **라운드 85 리뷰 M-1 — "센 달"은 "받은 달"이 아니라 "루프가 실제로 연 달"이다.** 이 모듈은
+ *    상한(3)을 채우면 지난달을 **훑지도 않고** 빠져나오는데(아래 루프의 `break`), 고지가 *받은*
+ *    인자에서 파생하면 그 날 화면은 지난달 기록을 한 줄도 안 보여 주면서 "지난달(8월) 기록 기준"
+ *    이라고 말한다 — 사용자가 "지난달에 더 싸게 산 것이 없다"고 읽게 되는 조용한 허위 표시이고,
+ *    바로 위 줄의 단언과도 정반대다. 그래서 고지는 루프가 채우는 `visitedMonths`에서만 나온다.
+ *  - **상한(3) · 매칭 규칙 · 파생 수치 0건은 그대로.** 두 달을 봐도 이 섹션은 여전히 **나열**이고
+ *    비교가 아니다(평균·최저·"평소보다 비싸요" 같은 판단은 만들지 않는다).
  *
  * ## 무엇을 "같은 품목"으로 보는가 (라운드 41 K-11 ②)
  * **정규화 후 이름이 같은 것만**이다(`normalizeItemName` — 앞뒤/내부 공백 제거 + 소문자화, 그래서
@@ -89,7 +112,14 @@ export type ItemHistoryRow = {
 
 export type ItemHistory = {
   title: string;
-  /** "이번 달(8월) 기록 기준이에요" — 이 목록이 무엇을 보고 만든 것인지 밝히는 줄. */
+  /**
+   * "이번 달(8월) 기록 기준이에요" / "이번 달(9월) · 지난달(8월) 기록 기준이에요" —
+   * 이 목록이 무엇을 보고 만든 것인지 밝히는 줄. **실제로 센 달에서 파생한다**(라운드 85 B).
+   *
+   * ⚠️ 라운드 85 리뷰 M-1: "센 달" = 루프가 **연** 달이다. 이번 달이 상한(3)을 채워 지난달 칸을
+   * 아예 열지 못한 날에는 지난달이 이 줄에 오르지 않는다(그 날 목록에는 지난달 행이 0건이므로,
+   * 두 달을 말하면 "지난달에는 더 싼 기록이 없다"는 없는 사실을 말하는 것이 된다).
+   */
   scopeNotice: string;
   rows: ItemHistoryRow[];
 };
@@ -103,6 +133,21 @@ export type ItemHistoryInput = {
   cachedMonthExpenses: ItemHistoryExpense[] | null | undefined;
   /** 위 캐시가 담고 있는 달("YYYY-MM"). 범위 고지 문구가 이 값에서 나온다. */
   cacheYearMonth: string;
+  /**
+   * 라운드 85 B(선택) — `["expenses", childId, 지난달]` 캐시의 `expenses`. 화면이 이미
+   * `getQueryData`로 읽어 둔 그 배열을 그대로 넘긴다(새 요청 0건). 캐시가 없으면 **넘기지
+   * 않는다** — 빈 배열로 바꿔 넘기면 "지난달을 봤는데 없더라"가 되어 고지가 거짓이 된다.
+   *
+   * 빈 배열을 넘기는 것은 그 자체로 뜻이 있다: 지난달 캐시를 실제로 받았고 그 달에 이 아이의
+   * 기록이 0건이라는 사실이다(그때는 센 달이 둘이므로 고지도 두 달을 말한다).
+   */
+  cachedPreviousMonthExpenses?: ItemHistoryExpense[] | null;
+  /**
+   * 라운드 85 B(선택) — 위 지난달 캐시가 담고 있는 달("YYYY-MM"). 달 경계 계산은 화면이 이미
+   * 한 번 했으므로(`previousYearMonth`) 여기서 다시 하지 않는다 — 12월→1월을 두 곳에서 세면
+   * 언젠가 한쪽이 틀린다. 둘 중 하나라도 없으면 지난달은 세지 않는다.
+   */
+  previousCacheYearMonth?: string | null;
   /** 지금 화면에서 편집 중인 품목명(입력 중인 값). */
   itemName: string;
   /** 지금 보고 있는 지출의 id — 이력에 자기 자신이 끼면 "이력이 있다"는 착시가 생긴다. */
@@ -123,11 +168,28 @@ function formatSpentOnLabel(spentOn: string): string {
   return `${Number(match[2])}월 ${Number(match[3])}일`;
 }
 
-/** "2026-08" -> "이번 달(8월) 기록 기준이에요". 달을 모르면 달 표기 없이 범위만 밝힌다. */
-export function itemHistoryScopeNotice(cacheYearMonth: string): string {
-  const match = /^(\d{4})-(\d{2})$/.exec(cacheYearMonth ?? "");
-  if (!match) return "이번 달 기록 기준이에요";
-  return `이번 달(${Number(match[2])}월) 기록 기준이에요`;
+/** "2026-08" -> 8. 형식이 다르면 null — 틀린 달을 지어내느니 달 표기를 빼는 쪽이 정직하다. */
+function monthNumberOf(yearMonth: string | null | undefined): number | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(yearMonth ?? "");
+  return match ? Number(match[2]) : null;
+}
+
+/**
+ * 범위 고지 한 줄. **부른 대로가 아니라 실제로 센 달에서 파생한다**(라운드 85 B).
+ *
+ * - 한 달만 셌으면: "이번 달(8월) 기록 기준이에요" (지난달 인자가 없으면 종전과 한 글자도 같다)
+ * - 두 달을 셌으면: "이번 달(9월) · 지난달(8월) 기록 기준이에요"
+ *
+ * 달 표기는 형식이 맞을 때만 붙는다("이번 달 기록 기준이에요") — 범위 자체는 언제나 말한다.
+ */
+export function itemHistoryScopeNotice(cacheYearMonth: string, previousCacheYearMonth?: string | null): string {
+  const currentMonth = monthNumberOf(cacheYearMonth);
+  const scopes = [currentMonth === null ? "이번 달" : `이번 달(${currentMonth}월)`];
+  if (typeof previousCacheYearMonth === "string" && previousCacheYearMonth.length > 0) {
+    const previousMonth = monthNumberOf(previousCacheYearMonth);
+    scopes.push(previousMonth === null ? "지난달" : `지난달(${previousMonth}월)`);
+  }
+  return `${scopes.join(" · ")} 기록 기준이에요`;
 }
 
 /**
@@ -171,24 +233,71 @@ function itemHistoryPopulation(
 export function buildItemHistory({
   cachedMonthExpenses,
   cacheYearMonth,
+  cachedPreviousMonthExpenses,
+  previousCacheYearMonth,
   itemName,
   currentExpenseId,
   offline,
   maxRows = ITEM_HISTORY_MAX_ROWS
 }: ItemHistoryInput): ItemHistory | null {
   // 콜드 스타트: 이번 달 목록을 아직 한 번도 못 받았다 -- "이력 없음"이라고 말하지 않고 침묵한다.
+  // 지난달 캐시가 아무리 두둑해도 이 갈래는 그대로다(라운드 85 B ⓕ): 이번 달을 모르는 채로
+  // 지난달만 세면 "이번 달에는 안 샀다"는 말을 한 번도 확인하지 않고 하는 셈이 된다.
   if (!cachedMonthExpenses) return null;
   const normalizedItemName = normalizeItemName(itemName);
   if (normalizedItemName.length === 0) return null;
   if (maxRows <= 0) return null;
 
-  // 라운드 42 L-5: 복사본을 미리 뜨지 않는다 -- `sortByRecency`가 이미 **복사본**을 정렬해
-  // 돌려주고(item-name-match.ts), 그 사이의 어떤 단계도 입력 배열을 제자리에서 바꾸지 않는다.
-  // 500행짜리 캐시에서 한 번의 불필요한 전체 복사가 렌더마다 사라진다.
-  const matched = sortByRecency(itemHistoryPopulation(cachedMonthExpenses, cacheYearMonth, offline))
-    .filter((row) => row.id !== currentExpenseId)
-    .filter((row) => normalizeItemName(row.itemName ?? "") === normalizedItemName)
-    .slice(0, maxRows);
+  /**
+   * 라운드 85 B — **실제로 센 달**. 고지 문구가 이 배열에서 파생하므로(손으로 적지 않는다),
+   * 여기에 넣을 수 있는 달은 이 함수가 실제로 훑은 달뿐이다.
+   *
+   * 지난달이 오르는 조건은 셋이고 전부 필요하다: 캐시 배열이 있을 것(없으면 "아직 모른다"),
+   * 그 달을 알 것(모르면 어느 달로 재조정할지도 모른다), 그리고 이번 달과 다를 것(같은 달이
+   * 두 번 실려 오면 같은 기록이 두 줄로 서고 고지도 같은 달을 두 번 말한다).
+   */
+  const countedMonths: { yearMonth: string; expenses: ItemHistoryExpense[] }[] = [
+    { yearMonth: cacheYearMonth, expenses: cachedMonthExpenses }
+  ];
+  if (
+    cachedPreviousMonthExpenses &&
+    typeof previousCacheYearMonth === "string" &&
+    previousCacheYearMonth.length > 0 &&
+    previousCacheYearMonth !== cacheYearMonth
+  ) {
+    countedMonths.push({ yearMonth: previousCacheYearMonth, expenses: cachedPreviousMonthExpenses });
+  }
+
+  /**
+   * 라운드 42 L-5: 복사본을 미리 뜨지 않는다 -- `sortByRecency`가 이미 **복사본**을 정렬해
+   * 돌려주고(item-name-match.ts), 그 사이의 어떤 단계도 입력 배열을 제자리에서 바꾸지 않는다.
+   *
+   * 라운드 85 B: 달마다 **따로** 재조정하고 따로 정렬한 뒤 이번 달 → 지난달 순으로 잇는다.
+   *  - 재조정을 따로 하는 이유는 `reconcileMonthlyExpenses`가 달 단위 함수이기 때문이다(위 헤더).
+   *  - 정렬을 따로 하는 이유는 순서를 데이터에 맡기지 않기 위해서다: 달 안에서는 최신순이고,
+   *    이번 달 행은 지난달 행보다 언제나 앞선다(ⓓ). 상한(3)에 걸려 잘리는 쪽도 언제나 지난달이다.
+   * 상한을 채우면 지난달은 훑지도 않는다 -- 두 달을 본다고 일이 두 배가 되지는 않는다.
+   */
+  const matched: ItemHistoryExpense[] = [];
+  /**
+   * ⚠️ 라운드 85 리뷰 M-1 — **고지가 파생하는 배열은 위 `countedMonths`가 아니라 이것이다.**
+   * 바로 아래 `break`는 상한을 채운 순간 지난달 칸을 **열지 않고** 빠져나온다. 받은 인자에서
+   * 고지를 만들면 그 날 화면은 지난달 행 0건을 그리면서 "지난달(8월) 기록 기준"이라고 말하고,
+   * 사용자는 그것을 "지난달에는 더 싼 기록이 없더라"로 읽는다 — 이 모듈이 범위 고지를 두는
+   * 이유(라운드 39 UX-P) 자체를 뒤집는 표시다. 여기에는 **루프가 실제로 연 달만** 오른다.
+   */
+  const visitedMonths: string[] = [];
+  for (const month of countedMonths) {
+    if (matched.length >= maxRows) break;
+    visitedMonths.push(month.yearMonth);
+    for (const row of sortByRecency(itemHistoryPopulation(month.expenses, month.yearMonth, offline))) {
+      if (matched.length >= maxRows) break;
+      // 자기 자신 제외는 두 달 어디에서나 같은 한 줄이다(로컬 사본은 canonicalId로 이 id를 든다).
+      if (row.id === currentExpenseId) continue;
+      if (normalizeItemName(row.itemName ?? "") !== normalizedItemName) continue;
+      matched.push(row);
+    }
+  }
 
   if (matched.length === 0) return null;
 
@@ -204,5 +313,12 @@ export function buildItemHistory({
     };
   });
 
-  return { title: ITEM_HISTORY_TITLE, scopeNotice: itemHistoryScopeNotice(cacheYearMonth), rows };
+  return {
+    title: ITEM_HISTORY_TITLE,
+    // 고지는 위 루프가 **연** 달에서만 나온다 -- 지난달을 훑지 못했으면(캐시 부재 · 같은 달 ·
+    // 이번 달이 상한을 채움) 두 번째 칸이 없고, 그때 문구는 종전과 한 글자도 같다
+    // (라운드 85 B ⓔ · 리뷰 M-1).
+    scopeNotice: itemHistoryScopeNotice(cacheYearMonth, visitedMonths[1] ?? null),
+    rows
+  };
 }

@@ -22,12 +22,23 @@
  *    받아 온 상태를 "0원 썼어요"로 말하면 그건 없는 사실을 만드는 것이다. 캐시가 있는데
  *    합계가 0이어도(첫 기록 전, 그 달이 전부 선물) 마찬가지로 줄을 생략한다 — 0원 한 줄은
  *    알려 주는 것이 없고, "0원"이 캐시 없음과 구분되지 않아 오해만 남긴다.
- *  - 기록하려는 **날짜의 달**이 캐시의 달과 다르면(지난달 지출을 뒤늦게 입력하는 경우)
- *    역시 생략한다. 이 화면이 가진 캐시는 이번 달 한 달치뿐이라 지난달 맥락을 말할 수
- *    없고, 지난달 지출을 적는 옆에 이번 달 합계를 붙이면 그 줄이 무엇의 합계인지 오해된다.
+ *  - 기록하려는 **날짜의 달**을 말한다 — 그 달의 캐시를 손에 들고 있을 때만. 지난달 지출을
+ *    적는 옆에 이번 달 합계를 붙이면 그 줄이 무엇의 합계인지 오해되므로, 말하는 달과 기록하는
+ *    달은 언제나 같다. 손에 없는 달은 부르지 않고 그냥 침묵한다(아래 라운드 85 A).
+ *
+ * 라운드 85 A — **손에 든 달이 둘이 됐다**: 종전 주석은 지난달 침묵의 이유로 이 화면의 캐시가
+ * 한 달치밖에 없다고 적어 두었는데, 그 문장은 GAP-058 #6 이후 거짓이다(그래서 지웠다 — 그
+ * 문자열의 부재를 테스트가 문다). 같은
+ * 화면이 `["expenses", childId, 지난달]` 캐시를 이미 `getQueryData`로 읽고 있고(app/expenses/
+ * new.tsx — 자동완성·판매처 칩이 매달 1일에 통째로 사라지던 것을 고치면서 들어온 값 · 새 요청
+ * 0건), 그 캐시를 채워 두는 것은 이 줄이 없앴어야 할 바로 그 이동(기록 탭에서 달 옮기기)이다.
+ * 그래서 지난달 캐시와 그 달을 **선택 인자**로 받아, 기록 날짜가 그 달이면 그 달의 합계로 줄을
+ * 세운다. 인자를 넘기지 않는 호출부의 결과는 종전과 한 글자도 같다(폴백).
+ * ⚠️ **두 달보다 넓히지 않는다** — 셋째 달 캐시를 손에 든 화면은 오늘 0건이고, 없는 캐시를
+ * 부르는 순간 이 모듈의 규칙("새 요청 0건")이 깨진다.
  *
  * 카테고리 항은 **지금 선택되어 있는 타일** 기준이다(화면에서 눌려 보이는 그 타일). 그 분류의
- * 이번 달 합계가 0이면 항 자체를 붙이지 않는다 — 월 합계만 말하면 충분하고, "0원"은 위와
+ * 그 달 합계가 0이면 항 자체를 붙이지 않는다 — 월 합계만 말하면 충분하고, "0원"은 위와
  * 같은 이유로 붙일 값이 아니다.
  *
  * 라운드 37 G-4 — 카테고리 항을 **말할 수 없는 달**: 카테고리 합산은 이 화면의 8타일이 쓰는
@@ -98,10 +109,21 @@ export type EntryContextLineInput = {
    * (라운드 39 I-1, `ambiguous: true`)이 하나라도 있으면 카테고리 항 자체를 생략한다.
    */
   resolveTileCategory?: TileCategoryResolver;
+  /**
+   * 라운드 85 A(선택): `["expenses", childId, previousYearMonth]` 캐시의 `expenses`. 화면이 이미
+   * 읽어 둔 그 값을 그대로 넘긴다(새 요청 0건). 넘기지 않거나 캐시가 없으면(콜드 스타트)
+   * 지난달 갈래 자체가 서지 않는다 — 그때의 동작은 이 인자가 없던 때와 같다.
+   */
+  previousMonthExpenses?: EntryContextServerExpense[] | null;
+  /** 라운드 85 A(선택): 위 캐시가 담고 있는 달("YYYY-MM"). */
+  previousYearMonth?: string | null;
 };
 
 export type EntryContextLine = {
-  /** 화면에 보이는 문자열: "8월 지금까지 1,245,700원 · 기저귀 68,000원" */
+  /**
+   * 화면에 보이는 문자열: "8월 지금까지 1,245,700원 · 기저귀 68,000원"
+   * (지난달 날짜를 적는 중이면 끝난 달 문구다 — "7월에는 1,245,700원 썼어요 · 기저귀 68,000원")
+   */
   text: string;
   /** 스크린리더용: 가운뎃점 대신 쉼표로 끊는다(src/expenses/recent-items.ts와 같은 관례). */
   accessibilityLabel: string;
@@ -144,26 +166,51 @@ export function buildEntryContextLine({
   offlineRows,
   childId,
   selectedCategory,
-  resolveTileCategory
+  resolveTileCategory,
+  previousMonthExpenses,
+  previousYearMonth
 }: EntryContextLineInput): EntryContextLine | null {
-  // 콜드 스타트: 아직 이번 달 목록을 한 번도 못 받았다 -- 0원이라고 말하지 않고 침묵한다.
-  if (!cachedMonthExpenses) return null;
-  if (!/^\d{4}-\d{2}$/.test(cacheYearMonth)) return null;
-  // 지난달 지출을 뒤늦게 적는 중이면 이번 달 합계는 이 화면의 맥락이 아니다.
-  if (entryYearMonth !== cacheYearMonth) return null;
+  // 라운드 85 A — **말할 달을 고르는 한 줄.** 기록 날짜의 달이 지난달이고 그 달의 캐시가 손에
+  // 있을 때만 지난달 갈래다(캐시가 없거나 인자가 없으면 false라 종전 동작 그대로). 그 밖의 달은
+  // 아래에서 여전히 침묵한다 -- 손에 든 캐시가 두 달치뿐이므로 셋째 달은 모른다.
+  const speaksPreviousMonth =
+    entryYearMonth !== cacheYearMonth &&
+    typeof previousYearMonth === "string" &&
+    entryYearMonth === previousYearMonth &&
+    // ⚠️ 라운드 85 리뷰 L-12 — **지난달은 이번 달보다 앞선 달일 때만 지난달이다.**
+    // 이 모듈은 그 갈래에서 **끝난 달의 낱말**("8월에는 … 썼어요")을 쓴다. 인자 이름만 믿고
+    // 순서를 확인하지 않으면, 호출부가 다음 달을 넘기는 날(달 경계 계산이 뒤집히거나 캐시 키가
+    // 어긋나는 날) 화면이 **아직 오지 않은 달을 끝난 달처럼** 말한다 — 그건 이 모듈이 처음부터
+    // 막던 그 종류의 허위 표시다("0원 썼어요"라고 말하지 않는 것과 같은 축). "YYYY-MM"은
+    // 사전순 비교가 곧 시간순이라 한 줄이면 된다(형식이 깨진 값은 아래 정규식이 다시 막는다).
+    previousYearMonth < cacheYearMonth &&
+    Boolean(previousMonthExpenses);
+  const targetYearMonth = speaksPreviousMonth ? (previousYearMonth as string) : cacheYearMonth;
+  const targetMonthExpenses = speaksPreviousMonth ? previousMonthExpenses : cachedMonthExpenses;
+
+  // 콜드 스타트: 아직 그 달 목록을 한 번도 못 받았다 -- 0원이라고 말하지 않고 침묵한다.
+  if (!targetMonthExpenses) return null;
+  if (!/^\d{4}-\d{2}$/.test(targetYearMonth)) return null;
+  // 두 달 밖의 달(더 과거·미래)을 적는 중이면 손에 든 어느 합계도 이 화면의 맥락이 아니다.
+  if (!speaksPreviousMonth && entryYearMonth !== cacheYearMonth) return null;
 
   const childRows = childId ? offlineRows.filter((row) => row.childId === childId) : [];
   // 기록 탭 월 합계와 **같은 함수**. 중복 제거(로컬 변경이 걸린 낡은 서버 행)와 선물·환불
   // 제외(DNC-015)가 여기 한 곳에서만 정해진다.
   const { visibleServerExpenses, offlinePendingRows, monthlyTotalKrw } = reconcileMonthlyExpenses(
-    cachedMonthExpenses,
+    targetMonthExpenses,
     childRows,
-    cacheYearMonth
+    targetYearMonth
   );
   if (monthlyTotalKrw <= 0) return null;
 
-  const monthLabel = `${Number(cacheYearMonth.slice(5, 7))}월`;
-  const monthPart = `${monthLabel} 지금까지 ${formatKrw(monthlyTotalKrw)}`;
+  // 위 정규식이 통과한 뒤에만 잘라 낸다(형식이 깨진 달은 이미 침묵으로 빠졌다).
+  const monthLabel = `${Number(targetYearMonth.slice(5, 7))}월`;
+  // 라운드 85 A — "지금까지"는 **진행 중인 달**의 낱말이다. 이미 끝난 달에 그 말을 붙이면 아직
+  // 늘어날 숫자처럼 읽힌다. 끝난 달은 completed-month-budget.ts의 관례대로 과거로 말한다.
+  const monthPart = speaksPreviousMonth
+    ? `${monthLabel}에는 ${formatKrw(monthlyTotalKrw)} 썼어요`
+    : `${monthLabel} 지금까지 ${formatKrw(monthlyTotalKrw)}`;
 
   if (selectedCategory) {
     // 카테고리 항이 세는 행은 월 합계와 **같은 집합**이다 — 재조정을 거친 서버 행 + 로컬 대기 행,
