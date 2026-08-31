@@ -526,7 +526,7 @@ function ProductLinksPageContent() {
       </section>
 
       <section className={styles.card}>
-        <h2>상품 링크 목록{links ? ` (${linkFilterSummary(links.length, filteredLinks?.length ?? 0)})` : ""}</h2>
+        <h2 id="admin-link-list-heading">상품 링크 목록{links ? ` (${linkFilterSummary(links.length, filteredLinks?.length ?? 0)})` : ""}</h2>
         {/* GAP-064 #4ⓒ: 가격 커버리지 한 줄. 두 수를 **함께** 말하는 것이 요점이다 —
             "가격이 있는 건수"만 말하면 확인 시각이 없거나 만료돼 **앱에서 이미 사라진** 가격이
             그대로 가려진다(그 구간이 이 후보가 든 조용한 만료다). 표에 보이는 행을 세므로
@@ -636,7 +636,7 @@ function ProductLinksPageContent() {
         ) : null}
         {filteredLinks && filteredLinks.length > 0 ? (
           <div className={styles.tableWrap}>
-            <table className={styles.table}>
+            <table className={styles.table} aria-labelledby="admin-link-list-heading">
               <thead>
                 <tr>
                   <th>준비템</th>

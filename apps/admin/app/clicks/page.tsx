@@ -115,12 +115,12 @@ export default function ClickSummaryPage() {
       {summary ? (
         <>
           <section className={styles.card}>
-            <h2>플랫폼별 클릭 수</h2>
+            <h2 id="admin-click-platform-heading">플랫폼별 클릭 수</h2>
             {summary.byPlatform.length === 0 ? (
               <p className={styles.emptyState}>아직 집계된 클릭이 없어요.</p>
             ) : (
               <div className={styles.tableWrap}>
-                <table className={styles.table}>
+                <table className={styles.table} aria-labelledby="admin-click-platform-heading">
                   <thead>
                     <tr>
                       <th>플랫폼</th>
@@ -142,12 +142,12 @@ export default function ClickSummaryPage() {
           </section>
 
           <section className={styles.card}>
-            <h2>상위 상품 링크 (최근 {summary.days}일)</h2>
+            <h2 id="admin-click-top-links-heading">상위 상품 링크 (최근 {summary.days}일)</h2>
             {summary.topLinks.length === 0 ? (
               <p className={styles.emptyState}>이 기간에 집계된 클릭이 없어요.</p>
             ) : (
               <div className={styles.tableWrap}>
-                <table className={styles.table}>
+                <table className={styles.table} aria-labelledby="admin-click-top-links-heading">
                   <thead>
                     <tr>
                       <th>#</th>

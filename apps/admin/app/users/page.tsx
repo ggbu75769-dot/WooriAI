@@ -304,7 +304,7 @@ export default function AdminUsersPage() {
       </section>
 
       <section className={styles.card}>
-        <h2>계정 목록</h2>
+        <h2 id="admin-users-list-heading">계정 목록</h2>
         {users === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
           <p className={styles.errorBanner}>
@@ -322,7 +322,7 @@ export default function AdminUsersPage() {
         {users && users.length === 0 ? <p className={styles.emptyState}>등록된 계정이 없어요.</p> : null}
         {users && users.length > 0 ? (
           <div className={styles.tableWrap}>
-            <table className={styles.table}>
+            <table className={styles.table} aria-labelledby="admin-users-list-heading">
               <thead>
                 <tr>
                   <th>이메일</th>
