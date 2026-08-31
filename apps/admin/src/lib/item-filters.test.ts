@@ -11,8 +11,10 @@ import {
   isUncategorizedItem,
   itemFilterSummary,
   productLinkCount,
+  withDisplayedCategoryFallbacks,
   type FilterableItem
 } from "./item-filters";
+import { NO_ITEM_CATEGORY_LABEL, UNKNOWN_ITEM_CATEGORY_LABEL } from "./item-category-options";
 
 function link(id: string, active = true): ProductLink {
   return {
@@ -631,6 +633,124 @@ describe("모바일 검색 술어와의 동치 (라운드 85 트랙 D ⓒ)", () 
     expect(source).not.toContain(".sort(");
   });
 
+  /**
+   * ⚠️ **라운드 85 리뷰 M-7 — 이 동치 계약에는 구조적 사각이 있었다.**
+   *
+   * 아래 "두 술어의 답이 같다"는 **양쪽에 같은 해석기**(`categoryNameOf`)를 먹였다. 그래서 두
+   * 화면이 *이름을 모르는 자리에서 서로 다른 글자를 그린다*는 사실이 이 계약에 한 번도 들어오지
+   * 못했고, 실제로 어드민만 그 두 자리에서 검색 도달 불가였다(앱은 그 두 자리도 그룹 헤더의
+   * 글자로 찾힌다). 술어의 **모양**이 같다는 것과 그 술어가 **먹는 값**이 같은 성질을 가진다는
+   * 것은 다른 질문이라, 뒤엣것을 여기서 따로 세운다.
+   *
+   * 계약: 두 화면 모두 세 상태 각각에 대해 **자기 화면이 그 항목에 붙여 쓰는 글자**를 검색으로
+   * 찾는다(= 검색이 먹는 해석기에 `null` 갈래가 0건이다). 찾는 글자가 서로 다른 것은 정상이다 —
+   * 각 화면이 그리는 글자가 다르기 때문이고, 같게 맞추면 그 화면에 없는 이름으로 검색이 걸린다.
+   */
+  describe("ⓒ-2 해석기의 null 갈래 (라운드 85 리뷰 M-7)", () => {
+    /** 앱의 조립기를 그 소스 그대로 옮긴 것(아래 단언이 그 소스를 오늘도 확인한다). */
+    const APP_UNCATEGORIZED_GROUP_NAME = "분류 없음";
+    const APP_UNKNOWN_CATEGORY_NAME = "기타";
+    const appGroupKeyOf = (item: FilterableItem): string =>
+      item.categoryId ? CATEGORY_NAMES[item.categoryId] ?? APP_UNKNOWN_CATEGORY_NAME : APP_UNCATEGORIZED_GROUP_NAME;
+
+    /** 어드민의 검색 해석기 — 화면과 같은 조합(열 해석기 + 이 화면의 두 라벨). */
+    const adminSearchNameOf = withDisplayedCategoryFallbacks(categoryNameOf);
+
+    it("앱의 폴백 둘이 오늘도 그 소스에 있다 (옮겨 적은 값이 낡지 않는다)", () => {
+      const itemsTab = readRepoSource("apps/mobile/app/(tabs)/items.tsx");
+      expect(itemsTab).toContain(`const UNCATEGORIZED_GROUP_NAME = "${APP_UNCATEGORIZED_GROUP_NAME}";`);
+      expect(itemsTab).toContain("item.categoryId ? categoryNameOf(item.categoryId) : UNCATEGORIZED_GROUP_NAME");
+      // 목록에 없는 분류는 앱에서 "기타"로 떨어진다(categories.ts의 categoryNameFor 마지막 줄).
+      expect(readRepoSource("apps/mobile/src/categories.ts")).toContain('return "기타";');
+    });
+
+    it("두 해석기 모두 세 상태에서 **글자를 낸다** (null 갈래 0건)", () => {
+      for (const entry of catalog) {
+        expect(appGroupKeyOf(entry).length, `앱: ${entry.name}`).toBeGreaterThan(0);
+        expect(adminSearchNameOf(entry).length, `어드민: ${entry.name}`).toBeGreaterThan(0);
+      }
+      // ⚠️ 열 해석기는 여전히 null을 낸다 — 그것이 열의 정직이고, 검색만 폴백을 진다.
+      expect(categoryNameOf(campaignSet)).toBeNull();
+      expect(categoryNameOf(strayCategory)).toBeNull();
+    });
+
+    /**
+     * ⚠️ 상태는 **넷**이다(셋이 아니다) — 그 넷째가 이 사각에서 가장 조용한 자리다:
+     *
+     * | 상태 | 앱이 그리는 글자 | 어드민 열 | 어드민 검색이 무는 글자 |
+     * |---|---|---|---|
+     * | ① 분류 있음 | 분류 이름 | 분류 이름 | 분류 이름 |
+     * | ② 분류 없음(`null`·`""`) | "분류 없음" | `-` | "분류 없음"(폼의 라벨) |
+     * | ③ 목록에 없는 분류 | "기타" | "(목록에 없는 분류)" | "(목록에 없는 분류)" |
+     * | ④ **모름**(키 부재) | "분류 없음" | "(목록에 없는 분류)" | "(목록에 없는 분류)" |
+     *
+     * ④에서 두 화면이 **정당하게 갈린다**: 어드민 응답은 "분류 없음"과 "모름"을 일부러 구분해
+     * 싣고(서버의 toAdminItemDetailDto), 어드민은 그 구분을 지켜야 운영자가 *채워야 할 빈 자리*
+     * 와 *이미 채워진 자리*를 가른다(위 ⓐ의 N-8 방향). 앱에는 그 구분을 쓸 자리가 없어 둘을 같은
+     * 그룹으로 묶는다. 즉 두 화면이 **같은 글자를 찾는 것**이 계약이 아니라, 각자 **자기가 그린
+     * 글자를 찾는 것**이 계약이다 — 그래서 아래는 화면마다 따로 센다.
+     */
+    it("상태 넷 전부가 두 화면 각각의 검색으로 도달한다 (종전 어드민은 셋이 도달 불가였다)", () => {
+      const adminFinds = (query: string) => filterItemTemplates(catalog, { query }, adminSearchNameOf);
+      /** 앱의 술어를 그 소스 그대로 옮긴 것 + 앱의 조립기(그 화면이 그리는 글자). */
+      const appFinds = (query: string) =>
+        catalog.filter((entry) => {
+          const normalized = query.trim().toLowerCase();
+          return (
+            entry.name.toLowerCase().includes(normalized) || appGroupKeyOf(entry).toLowerCase().includes(normalized)
+          );
+        });
+
+      // ① 분류 있음 — 두 화면 모두 그 이름으로(종전에도 됐다).
+      expect(adminFinds("위생")).toEqual([gauze]);
+      expect(appFinds("위생")).toEqual([gauze]);
+
+      // ②③④ 어드민 — 열/폼이 실제로 그리는 글자로 찾힌다. ⚠️ 종전에는 전부 0건이었다.
+      expect(adminFinds(NO_ITEM_CATEGORY_LABEL)).toEqual([campaignSet, campaignGift, blankCategory]);
+      expect(adminFinds(UNKNOWN_ITEM_CATEGORY_LABEL)).toEqual([strayCategory, legacyRow]);
+      // 종전 동작(열 해석기를 그대로 검색에 먹이던 그것)을 같은 자리에서 재현해 둔다.
+      expect(filterItemTemplates(catalog, { query: NO_ITEM_CATEGORY_LABEL }, categoryNameOf)).toEqual([]);
+      expect(filterItemTemplates(catalog, { query: UNKNOWN_ITEM_CATEGORY_LABEL }, categoryNameOf)).toEqual([]);
+
+      // ②④ 앱 — 그 화면은 둘을 한 그룹("분류 없음")으로 묶으므로 함께 찾힌다.
+      expect(appFinds(APP_UNCATEGORIZED_GROUP_NAME)).toEqual([campaignSet, campaignGift, blankCategory, legacyRow]);
+      // ③ 앱 — 이름을 모르는 분류는 "기타"로 떨어진다.
+      expect(appFinds(APP_UNKNOWN_CATEGORY_NAME)).toEqual([strayCategory]);
+
+      // ④의 갈림이 **의도된 것**임을 값으로 못 박는다(어드민은 모름을 분류 없음으로 세지 않는다).
+      expect(isUncategorizedItem(legacyRow)).toBe(false);
+      expect(adminSearchNameOf(legacyRow)).toBe(UNKNOWN_ITEM_CATEGORY_LABEL);
+      expect(appGroupKeyOf(legacyRow)).toBe(APP_UNCATEGORIZED_GROUP_NAME);
+    });
+
+    it("어드민 검색이 이 화면에 **없는** 글자를 찾지는 않는다 (반대 방향도 막는다)", () => {
+      const adminFinds = (query: string) => filterItemTemplates(catalog, { query }, adminSearchNameOf);
+      // 앱의 폴백 "기타"는 이 화면 어디에도 그려지지 않는다 — 그 글자로 걸리면 그것이 허위다.
+      expect(adminFinds(APP_UNKNOWN_CATEGORY_NAME)).toEqual([]);
+      expect(readAdminSource("app/items/page.tsx")).not.toContain(">기타<");
+      // 폴백 라벨 둘은 이 화면이 실제로 쓰는 글자다(새 문구 0건).
+      expect(readAdminSource("app/items/page.tsx")).toContain(`<option value="">${NO_ITEM_CATEGORY_LABEL}</option>`);
+      expect(readAdminSource("src/lib/item-category-options.ts")).toContain(
+        `export const NO_ITEM_CATEGORY_LABEL = "${NO_ITEM_CATEGORY_LABEL}";`
+      );
+    });
+
+    it("폴백은 검색에만 붙는다 — 종전 세 필터의 답은 한 건도 달라지지 않는다", () => {
+      for (const filters of [
+        { missingCategoryOnly: true },
+        { missingLinksOnly: true },
+        { missingNonSponsoredLinksOnly: true },
+        EMPTY_ITEM_FILTERS
+      ]) {
+        expect(filterItemTemplates(catalog, filters, adminSearchNameOf)).toEqual(
+          filterItemTemplates(catalog, filters, categoryNameOf)
+        );
+      }
+      // 이름으로 걸리는 검색도 그대로다(첫 갈래가 먼저 답하면 해석기를 부르지 않는다).
+      expect(filterItemTemplates(catalog, { query: "가제" }, adminSearchNameOf)).toEqual([gauze]);
+    });
+  });
+
   it("같은 항목·같은 검색어에서 두 술어의 답이 같다", () => {
     /** 모바일 술어를 그 소스 그대로 옮겨 놓은 것(위 단언이 그 소스를 오늘도 확인한다). */
     const appMatches = (entry: FilterableItem, raw: string): boolean => {
@@ -674,7 +794,13 @@ describe("분류 열 (라운드 85 트랙 D ⓓ)", () => {
   it("이름 해석기가 이 화면에 하나뿐이고, 열과 검색이 그 하나를 본다", () => {
     expect((page.match(/const categoryNameOf =/g) ?? []).length).toBe(1);
     expect((page.match(/categoryNameById/g) ?? []).length).toBe(2);
-    expect(page).toContain("filterItemTemplates(items, filters, categoryNameOf)");
+    // 라운드 85 리뷰 M-7: 검색은 그 하나를 **감싼** 값을 본다(두 번째 조립기가 아니다 —
+    // 이름은 여전히 categoryNameOf에서만 나오고, 감싼 함수는 폴백 라벨만 덧댄다).
+    expect(page).toContain("const searchCategoryNameOf = withDisplayedCategoryFallbacks(categoryNameOf);");
+    expect(page).toContain("filterItemTemplates(items, filters, searchCategoryNameOf)");
+    expect((page.match(/withDisplayedCategoryFallbacks\(/g) ?? []).length).toBe(1);
+    // 열 표시는 종전 그대로다(검색 갈래만 갈라졌다).
+    expect(page).toContain('categoryNameOf(item) ?? (isUncategorizedItem(item) ? "-" : UNKNOWN_ITEM_CATEGORY_LABEL)');
   });
 
   it("분류는 있는데 이름을 모르는 자리를 `분류 없음`으로 단정하지 않는다", () => {

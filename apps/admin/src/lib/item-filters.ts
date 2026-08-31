@@ -1,4 +1,5 @@
 import type { ItemTemplate } from "./admin-api";
+import { NO_ITEM_CATEGORY_LABEL, UNKNOWN_ITEM_CATEGORY_LABEL } from "./item-category-options";
 import { linkFilterSummary } from "./link-filters";
 
 // UX-X C7: 준비템 목록의 클라이언트 필터. 링크 목록(link-filters.ts)과 같은 관례 —
@@ -48,7 +49,14 @@ export type ItemFilterState = {
   /**
    * 라운드 85 트랙 D: "분류가 비어 있는 준비템만" 보기. 위 둘과 또 **다른 질문**이다 —
    * 저 둘은 구매처(링크)를 묻고, 이쪽은 앱이 목록을 **묶는 축**이 그 준비템에 있는지 묻는다.
-   * 분류가 없으면 앱에서 "기타" 그룹으로 떨어지고, 지출 기록 시트의 분류 프리필도 비어 온다.
+   * 분류가 없으면 앱에서 **"분류 없음"** 그룹으로 떨어지고, 지출 기록 시트의 분류 프리필도 비어 온다.
+   *
+   * ⚠️ 라운드 85 리뷰 L-9: 종전 이 줄은 그 그룹 이름을 *"기타"* 라고 적었는데, 그것은 **다른
+   * 갈래의 이름**이다 — 앱에서 "기타"는 *분류는 붙어 있는데 그 이름을 모를 때*의 폴백이고
+   * (`categories.ts`의 `categoryNameFor` 마지막 줄), 분류가 아예 없는 항목의 그룹 이름은
+   * `UNCATEGORIZED_GROUP_NAME = "분류 없음"`이다(`app/(tabs)/items.tsx`의 `groupKeyOf`).
+   * 같은 트랙의 화면 힌트는 처음부터 "분류 없음 그룹"이라고 말하고 있었으므로, 이 줄만 다른
+   * 사실을 적고 있었다(그 힌트가 참인지는 item-filters.test.ts ⓔ가 앱 소스로 확인한다).
    */
   missingCategoryOnly?: boolean;
 };
@@ -138,6 +146,40 @@ export function activeNonSponsoredLinkCount(item: Pick<ItemTemplate, "productLin
  */
 export function isUncategorizedItem(item: Pick<ItemTemplate, "categoryId">): boolean {
   return item.categoryId === null || item.categoryId === "";
+}
+
+/**
+ * ⚠️ **라운드 85 리뷰 M-7 — 해석기의 `null` 갈래가 검색을 조용히 막고 있었다.**
+ *
+ * 이 화면의 이름 해석기(page.tsx의 `categoryNameOf`)는 이름을 **모르면 null**이다. 그것은 열
+ * 표시에는 옳다(지어내지 않는다). 그런데 그 함수가 검색에도 그대로 들어가면서, 세 상태 중 둘이
+ * 검색으로 **도달 불가**가 됐다:
+ *
+ * | 항목의 상태 | 앱의 그룹 헤더 | 어드민의 분류 열 | 종전 어드민 검색 |
+ * |---|---|---|---|
+ * | 분류 있음 | 분류 이름 | 분류 이름 | 이름으로 찾힌다 |
+ * | 분류 없음(null·`""`) | "분류 없음" | `-` | ⚠️ **못 찾는다** |
+ * | 목록에 없는 분류 | "기타" | "(목록에 없는 분류)" | ⚠️ **못 찾는다** |
+ *
+ * 앱은 그 둘을 **찾을 수 있다** — 화면이 그 항목 위에 실제로 그리는 글자가 있고 술어가 그 글자를
+ * 보기 때문이다(라운드 81 D: *"화면이 자기가 그린 이름을 자기 검색으로 못 찾았다"*). 어드민만
+ * 그 둘에서 그 성질을 잃고 있었다.
+ *
+ * ## 고른 방향: **검색 갈래에만** 폴백을 태우고 열 표시는 그대로 둔다
+ * 앱과 **글자를 맞추지 않는다**(그쪽 폴백은 "분류 없음"·"기타"다). 두 화면이 지는 계약은
+ * *"같은 문자열을 찾는다"* 가 아니라 *"자기 화면이 그 항목에 붙여 쓰는 글자로 찾힌다"* 이기
+ * 때문이다 — 어드민에 "기타"를 태우면 **이 화면 어디에도 없는 글자**로 검색이 걸리고, 그것은
+ * 라운드 81 D가 막으려던 두 방향 중 나머지 하나("검색이 화면에 없는 이름을 찾는다")다.
+ * 그래서 어드민은 자기 라벨 둘을 쓴다: 폼의 `분류 없음`과 열의 `(목록에 없는 분류)`.
+ * 열 표시(`-`)는 손대지 않는다 — 값 없음의 관례는 다른 열과 같아야 하고, `-`는 이름이 아니다.
+ *
+ * 해석기는 여전히 **하나**다(이 함수는 그 하나를 감쌀 뿐 두 번째 조립기가 아니다).
+ */
+export function withDisplayedCategoryFallbacks<T extends FilterableItem>(
+  categoryNameOf: ItemCategoryNameResolver<T>
+): (item: T) => string {
+  return (item) =>
+    categoryNameOf(item) ?? (isUncategorizedItem(item) ? NO_ITEM_CATEGORY_LABEL : UNKNOWN_ITEM_CATEGORY_LABEL);
 }
 
 /**

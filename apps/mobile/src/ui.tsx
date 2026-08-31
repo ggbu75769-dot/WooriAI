@@ -764,6 +764,51 @@ const lineChartPaddingTop = 10;
 const lineChartPaddingBottom = 20;
 const lineChartFallbackWidth = 280;
 
+/**
+ * 라운드 85 리뷰 M-2 — 추이 차트 x축 라벨의 글꼴 상한.
+ *
+ * 값도 이유도 캘린더 칸(`src/expenses/RecordsCalendar.tsx`의 `CALENDAR_CELL_MAX_FONT_SCALE`)과
+ * 같다: 좁은 칸에 든 짧은 글자는 시스템 배율을 그대로 따르면 **잘려서 틀린 글자**가 된다
+ * ("12월" → "1…"). 그 자리의 판단(라운드 34 M2)을 여기서 다시 하지 않고 같은 값을 쓴다 —
+ * 두 자리가 다른 상한을 쓰면 같은 기기에서 한쪽만 잘린다.
+ */
+const CHART_AXIS_MAX_FONT_SCALE = 1.2;
+
+/**
+ * 라운드 85 리뷰 M-2 — 축 라벨 한 칸의 글자 모양.
+ *
+ * ⚠️ **9px를 되살리지 않는다.** 라운드 34 L9가 앱의 마지막 9px(캘린더 선물 라벨)을 10px로
+ * 올리며 *"새 최소치를 만들지 않는다"* 를 계약으로 세웠는데, 이 축이 그 뒤에 9px로 들어와
+ * 그 계약을 파일 밖에서 되돌리고 있었다(그쪽 계약은 `RecordsCalendar.tsx`만 읽는다 —
+ * 그래서 `src/reports/trend-point-labels.test.ts`가 이 파일에도 같은 부정 단언을 건다).
+ *
+ * ## 밀도 방어: 열두 칸을 **다 그리고** 상한·수축으로 막는다(격단 표기를 택하지 않은 이유)
+ * 이 축이 설 수 있는 가장 빽빽한 갈래는 끝난 해의 연간 탭 **열두 점**이다. 후보는 둘이었다.
+ *  ⓐ 라벨을 격단(짝수 인덱스)으로만 적어 여섯으로 줄이기.
+ *  ⓑ 열둘을 그대로 두고 글자·배율·수축으로 막기. ← **택한 쪽**
+ *
+ * ⓐ를 택하지 않은 이유는 이 축의 유일한 존재 이유와 부딪히기 때문이다. 라벨이 어느 점 위에
+ * 서는지는 지금 `justifyContent: "space-between"`이 **칸의 실제 너비**로 정하므로, 칸 여섯을
+ * 빈 문자열로 비우면 남은 여섯이 자기 점에서 밀려난다 — `trend-point-labels.ts`가 *"8월 점 위에
+ * 12월이라 적힌 축은 허위 표시"* 라며 라벨 수와 점 수가 어긋나면 축을 통째로 버리는 그 자리를,
+ * 밀도를 위해 화면에서 다시 여는 셈이다(칸을 균등 폭으로 바꾸면 오늘의 여섯 점 배치도 함께
+ * 흔들린다 — 픽셀락이 무는 자리다). 게다가 격단은 **보이는 사실만** 줄이고 낭독 계열은 열둘을
+ * 그대로 읽어, 보는 것과 듣는 것이 갈린다.
+ *
+ * ⓑ가 실제로 버티는지는 재어 보면 나온다: 라벨은 최대 세 글자("12월")이고 10px에서 한 칸이
+ * 약 20dp, 배율 상한 1.2에서 약 24dp다. 열둘이면 약 288dp이고, 이 카드의 플롯 폭은 360dp 기기
+ * 에서 약 328dp(화면 - 탭 여백 - 카드 패딩)라 남는다. 더 좁은 기기·더 큰 배율에서 모자라면
+ * `flexShrink: 1`이 칸을 함께 줄여 **행이 카드 밖으로 밀려나지 않게** 하고, 넘치는 글자는
+ * `numberOfLines={1}`이 한 줄로 붙든다. 즉 나빠지는 방향이 "카드가 깨진다"가 아니라 "글자가
+ * 좁아진다"다.
+ */
+const lineChartAxisLabelStyle = {
+  color: theme.colors.gray600,
+  flexShrink: 1,
+  fontSize: 10,
+  lineHeight: 13
+} as const;
+
 const reportCategoryLegend = [
   ["기저귀/위생", "34%"],
   ["식비/간식", "24%"],
@@ -948,8 +993,11 @@ export function LineChartCard({
             {axisLabels.map((label, index) => (
               <Text
                 key={`${label}-${index}`}
+                // 라운드 85 리뷰 M-2: 캘린더 칸과 같은 배율 상한 · 10px · 수축 허용.
+                // 이유는 lineChartAxisLabelStyle 주석에 값으로 적혀 있다(9px 재도입 금지).
+                maxFontSizeMultiplier={CHART_AXIS_MAX_FONT_SCALE}
                 numberOfLines={1}
-                style={{ color: theme.colors.gray600, fontSize: 9, lineHeight: 12 }}
+                style={lineChartAxisLabelStyle}
               >
                 {label}
               </Text>

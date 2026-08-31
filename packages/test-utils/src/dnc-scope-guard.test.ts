@@ -1,8 +1,8 @@
 // 라운드 85 트랙 E (GAP-085 #5) — DNC-016 부정 스윕의 계약.
 //
-// 스윕 자체의 설명(왜 모집단을 먼저 정하는가 · 뿌리 여덟 · 면제 하나 · 이 그물의 한계)은
+// 스윕 자체의 설명(왜 모집단을 먼저 정하는가 · 뿌리 아홉 · 면제 하나 · 이 그물의 한계)은
 // `dnc-scope-guard.ts` 머리말에 있다. 이 파일이 묻는 것은 일곱이다.
-//  ⓐ **뿌리** — 뿌리 여덟의 경로가 **실재**하고, 각각이 실제로 이름을 내놓으며, 이유가 비어 있지 않다.
+//  ⓐ **뿌리** — 뿌리 아홉의 경로가 **실재**하고, 각각이 실제로 이름을 내놓으며, 이유가 비어 있지 않다.
 //     (⚠️ 손으로 배열한 목록은 뿌리가 아니다 — 확인되지 않는 뿌리 위에서는 모든 부정 단언이 통과한다.)
 //  ⓑ **여섯** — 항목마다 **독립된 단언**이 선다(한 덩어리 정규식 하나가 아니다 — 어느 항목이 깨졌는지
 //     말하지 못하는 그물은 그 순간 사람에게 다시 조사를 시킨다).
@@ -40,8 +40,11 @@ import {
   parseOutOfScopePhrases,
   readRepoFile,
   scannedFiles,
+  schedulerJobImportPaths,
   scopeFailureHint,
-  sweptPositionAxes
+  sweptPositionAxes,
+  tsFilesUnder,
+  workerSourceFiles
 } from "./dnc-scope-guard";
 
 /** 모집단 — 이 파일의 모든 판정이 여기서 나온다(한 번만 걷는다). */
@@ -52,8 +55,11 @@ function namesOfKind(kind: ScopeName["kind"]): string[] {
 }
 
 describe("ⓐ 뿌리 — 경로가 실재하고, 이유가 있고, 실제로 이름을 내놓는다", () => {
-  it("뿌리 여덟이 서로 다른 종류이고 각각 이유를 지고 있다", () => {
-    expect(SCOPE_ROOTS.length).toBeGreaterThan(0);
+  it("뿌리 아홉이 서로 다른 종류이고 각각 이유를 지고 있다", () => {
+    // ⚠️ 라운드 85 리뷰 L-8: 종전에는 `toBeGreaterThan(0)`뿐이라 뿌리 수가 줄어도 초록이었고,
+    // 다섯 자리의 산문은 실제 아홉을 두고 "여덟"이라고 적고 있었다(열거형 값 뿌리가 라운드 85
+    // 트랙 E에서 늘 때 산문만 안 따라온 것이다). 이제 **수를 값으로 못 박아** 산문과 함께 움직인다.
+    expect(SCOPE_ROOTS.length, "뿌리 수가 바뀌었어요 — 이 파일과 dnc-scope-guard.ts의 산문('아홉')도 함께 고치세요").toBe(9);
     expect(SCOPE_ROOTS.map((root) => root.kind).sort()).toEqual([...new Set(SCOPE_ROOTS.map((r) => r.kind))].sort());
     for (const root of SCOPE_ROOTS) {
       expect(root.reason.trim().length, `${root.kind} 뿌리의 이유가 비어 있거나 너무 짧아요`).toBeGreaterThan(40);
@@ -210,19 +216,96 @@ describe("ⓓ 면제 — 오늘 걸리는 둘만, 이유와 재개 조건과 증
     ).toEqual(["product_links.price_checked_at", "product_links.price_snapshot_krw"]);
   });
 
-  it("면제의 이유가 참이다 ② 주기적으로 갱신되지 않는다 — 워커의 어느 파일도 그 두 칸을 쓰지 않는다", () => {
-    const jobs = collectWorkerJobNames("apps/api/src/worker/jobs");
-    const jobFiles = [...new Set(jobs.map((job) => job.where))];
+  /**
+   * ⚠️ **라운드 85 리뷰 M-4 — 이 증명이 주장보다 좁았다.**
+   *
+   * 면제의 `provenBy`는 *"`apps/api/src/worker` 아래 **어느 파일도** 이 칸 이름을 쓰지 않는다"*
+   * 라고 적는데, 종전 확인은 `collectWorkerJobNames`가 걷어 온 `*.job.ts`만 읽었다. 그 아래에는
+   * `scheduler.service.ts`·`worker-status.service.ts`·`worker.module.ts`·`worker-job.ts`가 함께
+   * 사는데 전부 증명 밖이었고, **주기 갱신을 스케줄러 틱 안에 직접 적으면** 잡 파일이 하나도
+   * 늘지 않은 채 면제만 거짓이 된다. 이제 디렉터리를 전수로 읽는다.
+   */
+  it("면제의 이유가 참이다 ② 주기적으로 갱신되지 않는다 — 워커 디렉터리의 어느 파일도 그 두 칸을 쓰지 않는다", () => {
+    const workerFiles = workerSourceFiles();
 
-    // 실재 확인 — 잡을 하나도 못 읽었으면 아래 부정은 빈 집합 위에서 통과한다.
-    expect(jobFiles.length, "워커 잡을 하나도 못 읽었어요 = 이 증명이 빈 집합 위에서 돌고 있어요").toBeGreaterThan(0);
+    // 실재 확인 — 파일을 하나도 못 읽었으면 아래 부정은 빈 집합 위에서 통과한다.
+    expect(
+      workerFiles.length,
+      "워커 디렉터리에서 파일을 하나도 못 읽었어요 = 이 증명이 빈 집합 위에서 돌고 있어요"
+    ).toBeGreaterThan(0);
+    // 잡 파일만 읽던 종전 모집단보다 **실제로 넓다**(넓어지지 않았다면 이 정정은 이름뿐이다).
+    const jobFiles = [...new Set(collectWorkerJobNames("apps/api/src/worker/jobs").map((job) => job.where))];
+    expect(jobFiles.length).toBeGreaterThan(0);
+    expect(workerFiles.length).toBeGreaterThan(jobFiles.length);
+    for (const jobFile of jobFiles) expect(workerFiles).toContain(jobFile);
+    // 잡이 아닌 자리도 실제로 들어와 있다(디렉터리 전수라는 말이 값으로 확인된다).
+    expect(workerFiles).toContain("apps/api/src/worker/scheduler.service.ts");
 
-    const touching = jobFiles.filter((file) =>
+    const touching = workerFiles.filter((file) =>
       /priceSnapshotKrw|priceCheckedAt|price_snapshot_krw|price_checked_at/.test(readRepoFile(file))
     );
     expect(
       touching,
-      "워커 잡이 가격 스냅샷 칸을 쓰기 시작했어요 — '현재값 한 벌'이 '이력'이 되는 순간이라 면제를 거두세요"
+      "워커가 가격 스냅샷 칸을 쓰기 시작했어요 — '현재값 한 벌'이 '이력'이 되는 순간이라 면제를 거두세요"
+    ).toEqual([]);
+  });
+});
+
+/**
+ * ⚠️ **라운드 85 리뷰 M-4 — 뿌리가 이름을 걷는 방식 자체가 관례에 기대고 있다.**
+ *
+ * 이 스윕은 값으로 적은 뿌리 위에서만 돈다. 그런데 두 뿌리는 **저장소의 관례가 오늘도 지켜진다는
+ * 전제**를 말하지 않고 깔고 있었다:
+ *  · `worker-job` 뿌리는 `*.job.ts`만 훑는다 — 꼬리 없는 잡 파일 하나면 이름이 앉을 자리가 없다.
+ *  · `api-endpoint` 뿌리는 `@Get("…")`처럼 **큰따옴표**만 읽는다 — 작은따옴표 한 줄이면 경로가
+ *    모집단 밖이다(이 저장소는 큰따옴표 관례이고, 그 사실이 어디에도 세어지지 않았다).
+ * 전제는 값으로 적어 두면 깨지는 날 빨개진다.
+ */
+describe("ⓐ-2 뿌리가 기대는 관례 (라운드 85 리뷰 M-4)", () => {
+  it("스케줄러가 굴리는 잡 파일이 전부 `.job.ts`다 (뿌리가 훑는 그 꼬리)", () => {
+    const schedulerPath = "apps/api/src/worker/scheduler.service.ts";
+    const schedulerSource = readRepoFile(schedulerPath);
+    const imported = schedulerJobImportPaths(schedulerSource);
+
+    // 실재 확인 — 하나도 못 읽었으면 아래 부정이 빈 집합 위에서 통과한다.
+    expect(imported.length, `${schedulerPath}에서 잡 import를 하나도 못 읽었어요`).toBeGreaterThan(0);
+
+    const withoutJobSuffix = imported.filter((path) => !path.endsWith(".job"));
+    expect(
+      withoutJobSuffix,
+      "스케줄러가 `.job.ts`가 아닌 파일을 잡으로 굴려요 — worker-job 뿌리가 그 이름을 걷지 못해요"
+    ).toEqual([]);
+
+    // 그리고 그 import 전부가 뿌리가 실제로 걷어 온 파일이다(양방향 대조 — 유령도 누락도 0건).
+    const collectedFiles = new Set(collectWorkerJobNames("apps/api/src/worker/jobs").map((job) => job.where));
+    expect([...imported].map((path) => `apps/api/src/worker/${path}.ts`).sort()).toEqual([...collectedFiles].sort());
+
+    // 생성자에 주입된 잡 수와 `this.jobs` 배열의 길이도 같다(굴리지 않는 잡이 조용히 남지 않는다).
+    const jobsArray = /this\.jobs = \[([\s\S]*?)\];/.exec(schedulerSource);
+    expect(jobsArray, "스케줄러의 jobs 배열을 못 읽었어요").toBeTruthy();
+    const wired = jobsArray![1]
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0 && !entry.startsWith("//"));
+    expect(wired.length).toBe(imported.length);
+  });
+
+  it("api-endpoint 뿌리가 읽는 큰따옴표 관례가 오늘도 전수다 (작은따옴표 0건)", () => {
+    // ⚠️ 모집단은 `scannedFiles()`가 아니라 **디렉터리 전수**다 — 작은따옴표로 적힌 파일은
+    // 애초에 이름을 못 내놓아 그 목록에 없다(그 목록으로 이 관례를 확인하면 순환 논증이다).
+    const apiFiles = tsFilesUnder("apps/api/src");
+    expect(apiFiles.length, "apps/api/src에서 파일을 하나도 못 읽었어요").toBeGreaterThan(0);
+
+    const singleQuoted: string[] = [];
+    for (const file of apiFiles) {
+      const source = readRepoFile(file);
+      for (const match of source.matchAll(/@(?:Controller|Get|Post|Patch|Put|Delete)\(\s*'/g)) {
+        singleQuoted.push(`${file} — ${match[0].trim()}`);
+      }
+    }
+    expect(
+      singleQuoted,
+      "작은따옴표로 적힌 엔드포인트 경로가 생겼어요 — 이 스윕의 api-endpoint 뿌리가 그 경로를 못 걷어요"
     ).toEqual([]);
   });
 });
@@ -254,6 +337,47 @@ describe("ⓔ 바늘이 실제로 문다 (물지 못하는 스윕은 영원히 �
 
     const violations = findScopeViolations(item, collectSchemaNames(fixture, "(픽스처)"));
     expect(violations.map((violation) => violation.name)).toContain("product_link_price_history");
+  });
+
+  /**
+   * ⚠️ **라운드 85 리뷰 M-3 — 트립 픽스처가 수집기를 우회하고 있었다.**
+   *
+   * used-market의 `tripSample`은 `{ kind: "schema-enum-value", name: "product_platform.danggeun" }`
+   * 를 **손으로 만든 ScopeName**으로 심는다. 그것은 바늘이 무는지는 보이지만 **수집기가 그 이름을
+   * 실제로 걷어 오는지는 한 번도 묻지 않는다** — 그리고 그 자리에 정확히 구멍이 있었다:
+   * `@map`이 붙은 열거형 값은 종전 정규식(`^(\w+)$`)에 걸리지 않아 모집단에서 통째로 빠졌다.
+   * 즉 조항이 말한 *"가장 싼 입구"* 로 값 한 줄이 들어와도 이 스윕은 초록이었다.
+   *
+   * 그래서 여기서는 **스키마 소스 문자열부터** 끝까지 지난다(픽스처 배열이 아니라).
+   */
+  it("스키마 픽스처: `@map`이 붙은 열거형 값도 모집단에 들어와 used-market이 빨개진다", () => {
+    const fixture = [
+      "enum ProductPlatform {",
+      "  coupang",
+      "  naver",
+      // ⚠️ 이름을 감추는 가장 싼 방법 — 선언 이름과 DB 이름이 다르다.
+      '  Danggeun @map("dg")',
+      '  @@map("product_platform")',
+      "}"
+    ].join("\n");
+    const item = OUT_OF_SCOPE_SIX.find((candidate) => candidate.id === "used-market")!;
+
+    const collected = collectSchemaNames(fixture, "(픽스처)");
+    // 세 값이 전부 걷혔고, `@map` 줄은 **두 이름**으로 선다(어느 쪽으로도 새지 않는다).
+    expect(collected.filter((entry) => entry.kind === "schema-enum-value").map((entry) => entry.name)).toEqual([
+      "product_platform.coupang",
+      "product_platform.naver",
+      "product_platform.dg",
+      "product_platform.Danggeun"
+    ]);
+
+    expect(findScopeViolations(item, collected).map((violation) => violation.name)).toEqual([
+      "product_platform.Danggeun"
+    ]);
+
+    // 오늘 스키마에는 `@map`이 붙은 열거형 값이 0건이라 이 확장이 실제 모집단을 늘리지 않는다
+    // (늘어나는 날 그 값은 두 이름으로 서고, 그것이 이 확장의 목적이다).
+    expect(namesOfKind("schema-enum-value")).toContain("product_platform.coupang");
   });
 
   it("정찰이 이름 붙인 실패 시나리오: 스냅샷을 주기적으로 갱신하는 잡이 생기면 price-tracking이 빨개진다", () => {
@@ -324,13 +448,31 @@ describe("ⓕ DNC-001 판정 — 이 스윕이 그 조항의 축을 몇이나 �
     }
   });
 
-  it("판정이 파생값과 어긋나지 않는다 (세 축을 다 걷기 전에는 가드가 아니다)", () => {
+  /**
+   * ⚠️ **라운드 85 리뷰 M-5 — 이 단언은 종전에 자기 자신을 견주고 있었다.**
+   *
+   * 종전 형태는 `toBe(allSwept ? DNC_001_SWEEP_VERDICT : "unguarded")`였다. `allSwept`가 참이
+   * 되는 날 — 즉 **이 판정을 반드시 다시 해야 하는 바로 그 날** — 기대값이 `DNC_001_SWEEP_VERDICT`
+   * 자신이 되어 무엇을 적어 두든 통과한다. 재판정을 강제하려고 세운 줄이 정확히 그 순간 무효가
+   * 되는 모양이다(라운드 78 리뷰 P-1이 "이미 살펴본 자리로 읽히는 초록"이라고 부른 것과 같은 병).
+   *
+   * 그래서 **두 사실을 따로** 묻는다: ① 오늘 세 축을 다 걷지는 못한다 · ② 그래서 판정은 무가드다.
+   * ①이 뒤집히는 날 이 줄은 기대값이 아니라 **사실**에서 빨개지고, 메시지가 재판정을 시킨다.
+   */
+  it("판정이 파생값과 어긋나지 않는다 (오늘의 사실과 판정을 따로 문다)", () => {
     const allSwept = DNC_001_POSITION_AXES.every((axis) => axis.sweptBy !== null);
 
+    // ① 오늘의 사실 — 걷히는 축은 위 단언이 센 하나뿐이고, 셋 전부는 아니다.
     expect(
-      DNC_001_SWEEP_VERDICT,
-      "세 축을 다 걷게 되면 그때 DNC-001을 다시 판정하세요 — 그래도 '포지션 문장 자체를 읽는가'는 따로 물어야 해요"
-    ).toBe(allSwept ? DNC_001_SWEEP_VERDICT : "unguarded");
+      allSwept,
+      "세 축을 다 걷게 됐어요 — DNC-001을 **다시 판정**하세요. " +
+        "걷는다고 해서 가드는 아니에요: 그때도 '이 스윕이 포지션 문장 자체를 읽는가'를 따로 물어야 하고, " +
+        "답이 예이면 DNC_001_SWEEP_VERDICT와 이 줄을 함께 고치세요(대장의 래칫 수도 같이 움직여요)."
+    ).toBe(false);
+
+    // ② 그 사실에서 나오는 판정 — 값으로 따로 선다(①과 서로를 근거로 삼지 않는다).
+    expect(DNC_001_SWEEP_VERDICT).toBe("unguarded");
+    expect(sweptPositionAxes().length).toBeLessThan(DNC_001_POSITION_AXES.length);
   });
 });
 

@@ -11,6 +11,16 @@ export type ItemCategoryOption = { id: string; name: string };
 export const UNKNOWN_ITEM_CATEGORY_LABEL = "(목록에 없는 분류)";
 
 /**
+ * 라운드 85 리뷰 M-7 — 분류가 **비어 있는** 상태를 이 화면이 부르는 이름.
+ *
+ * 새 문구가 아니다: 준비템 폼의 기본 선택지가 이미 이 글자다(`<option value="">분류 없음</option>`,
+ * app/items/page.tsx). 상수로 꺼내는 이유는 **검색이 그 글자를 찾을 수 있어야 하기 때문**이다 —
+ * 표의 분류 열은 값 없음을 다른 열과 같은 관례(`-`)로 그리는데, `-`는 이름이 아니라 자리 표시라
+ * 운영자가 검색칸에 칠 글자가 아니다. 그 상태의 **이름**은 폼이 쓰는 이 글자 하나다.
+ */
+export const NO_ITEM_CATEGORY_LABEL = "분류 없음";
+
+/**
  * 준비템에 붙일 수 있는 분류 선택지.
  *
  * 후보는 **앱이 실제로 내미는 카테고리**(active AND selectable — CAT-124 기준,

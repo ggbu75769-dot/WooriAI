@@ -19,7 +19,7 @@
 // 면제 목록으로 산다**."* 그래서 이 파일은 바늘보다 **뿌리**를 먼저 세운다.
 //
 //  · **뿌리**(`SCOPE_ROOTS`) — 범위 밖 기능이 저장소에 들어온다면 그 이름이 **반드시 앉는 자리**
-//    여덟이다: 스키마의 테이블·열거형·열, API 엔드포인트 경로, 앱·어드민의 라우트 파일,
+//    아홉이다: 스키마의 테이블·열거형·열거형 값·열, API 엔드포인트 경로, 앱·어드민의 라우트 파일,
 //    의존성 이름, 워커 잡 이름. 뿌리마다 **왜 이 뿌리인가**가 빈 문자열일 수 없고
 //    (`reason`), 계약이 그 경로의 **실재**와 그 뿌리가 실제로 이름을 내놓는지를 함께 확인한다
 //    (손으로 배열한 목록은 뿌리가 아니다 — 확인되지 않는 뿌리는 조용한 면제부다).
@@ -50,6 +50,8 @@
 //     가격 열이 그 **둘뿐**이다.
 //  ② *"주기적으로 갱신되지 않는다"* → `apps/api/src/worker` 아래 어느 파일도 그 두 열의 이름을
 //     쓰지 않는다(오늘 그 열을 쓰는 손은 어드민의 대량 적용 하나이고, 그것은 사람의 손이다).
+//     ⚠️ 라운드 85 리뷰 M-4: 그 확인은 **디렉터리 전수**(`workerSourceFiles`)로 한다 — 종전에는
+//     `*.job.ts`만 읽어 주장(*"어느 파일도"*)보다 좁았고, 스케줄러·상태 서비스가 증명 밖이었다.
 // 그리고 **유령 면제**를 막는다 — 면제 줄은 오늘 실제로 걸리는 자리여야 한다. 걸리지 않게 되면
 // (열이 사라지거나 이름이 바뀌면) 그 줄을 지우라고 계약이 빨개진다.
 //
@@ -90,7 +92,7 @@ export function readRepoFile(relativePath: string, baseDir: string = repoRoot): 
 // ── 뿌리 ──────────────────────────────────────────────────────────────────────
 
 /**
- * 이름이 앉는 자리 여덟.
+ * 이름이 앉는 자리 아홉.
  *
  * ⚠️ 이 목록이 **모집단의 결정**이다(DNC-016의 재개 조건이 기다리던 그 결정). 늘리는 것은 다음
  * 라운드의 판단이지만, 줄이는 것은 그물을 좁히는 일이라 이유와 함께 적혀야 한다.
@@ -242,8 +244,28 @@ export function collectSchemaNames(schemaSource: string, where = "apps/api/prism
       const line = rawLine.trim();
       if (line.length === 0 || line.startsWith("//") || line.startsWith("@@") || line.startsWith("*")) continue;
       if (blockKind === "enum") {
-        const value = line.match(/^(\w+)$/);
-        if (value) names.push({ kind: "schema-enum-value", name: `${name}.${value[1]}`, where });
+        /**
+         * ⚠️ **라운드 85 리뷰 M-3 — 종전 `^(\w+)$`는 `@map`이 붙은 값을 통째로 놓쳤다.**
+         *
+         * Prisma의 열거형 값은 열과 똑같이 `danggeun @map("dg")` 꼴을 쓸 수 있는데, 그 줄은
+         * "낱말 하나"가 아니라서 위 정규식에 **한 번도 걸리지 않았다** — 즉 모집단에서 사라졌다.
+         * 하필 이 뿌리는 *"중고 연동이 가장 싸게 들어오는 입구"*(오늘 있는 `product_platform`에
+         * 값 한 줄)로 세운 자리라, 그 한 줄이 `@map`을 달고 들어오면 스윕이 조용히 초록이었다.
+         *
+         * 그래서 **열 갈래와 같은 처리**를 한다(`@map`이 있으면 그 값 = DB의 이름). 더해서
+         * 선언 이름이 다르면 그것도 함께 싣는다: 이 뿌리의 존재 이유가 *"이름이 앉는 가장 싼
+         * 자리"* 인데, 이름을 감추는 가장 싼 방법이 바로 `@map`이기 때문이다(`Danggeun
+         * @map("dg")`처럼 둘이 다르면 어느 한쪽만 세는 그물은 나머지 한쪽으로 새어 나간다).
+         * ⚠️ 열 갈래는 이 확장을 하지 않는다 — 열 바늘과 면제 대장이 전부 DB 이름(snake_case)
+         * 으로 서 있어서, 선언 이름을 함께 실으면 같은 칸이 이름 둘로 세어져 면제가 어긋난다.
+         */
+        const declared = line.match(/^(\w+)\b/);
+        if (!declared) continue;
+        const valueMap = line.match(/@map\("([^"]+)"\)/);
+        const valueNames = valueMap && valueMap[1] !== declared[1] ? [valueMap[1], declared[1]] : [declared[1]];
+        for (const valueName of valueNames) {
+          names.push({ kind: "schema-enum-value", name: `${name}.${valueName}`, where });
+        }
         continue;
       }
       const field = line.match(/^(\w+)\s+\S/);
@@ -334,7 +356,45 @@ function toRepoPath(absolutePath: string, baseDir: string = repoRoot): string {
   return relative(baseDir, absolutePath).split(sep).join("/");
 }
 
-/** 뿌리 여덟이 내놓는 이름 전수 — 스윕이 견주는 모집단이다. */
+/**
+ * ⚠️ **라운드 85 리뷰 M-4 — 워커 면제 증명의 모집단.**
+ *
+ * `collectWorkerJobNames`가 뿌리는 `*.job.ts`만 훑는다(잡 **이름**을 세는 것이 그 함수의 일이므로
+ * 그 자체는 옳다). 그런데 가격 면제의 증명 ②는 *"`apps/api/src/worker` 아래 **어느 파일도** 그
+ * 두 열 이름을 쓰지 않는다"* 라고 주장하면서 그 좁은 목록만 읽고 있었다 — 주장보다 좁은 증명이다.
+ * 스케줄러·상태 서비스·모듈·공용 타입은 전부 그 아래에 있고, 주기 갱신을 그중 어디에 적어도
+ * (예: `scheduler.service.ts`의 틱 안에서 직접 갱신) 그 증명은 초록으로 남았다.
+ *
+ * 그래서 **디렉터리를 전수로 읽는 자리**를 값으로 둔다. 이것은 모집단(`ScopeName`)이 아니라
+ * **증명의 재료**다 — 스윕이 견주는 이름은 여전히 잡 이름뿐이다.
+ */
+export function workerSourceFiles(workerDir = "apps/api/src/worker", baseDir: string = repoRoot): string[] {
+  return tsFilesUnder(workerDir, baseDir);
+}
+
+/**
+ * 디렉터리 아래 `.ts` 전수(저장소 상대 경로). 뿌리가 **어떤 관례에 기대는지**를 계약이 확인할 때
+ * 쓴다 — `collectScopeNames`가 이름을 내놓은 파일만 모은 `scannedFiles`와 다르다: 관례가 깨진
+ * 파일은 애초에 이름을 내놓지 못해 그 목록에 없다(그 목록으로 관례를 확인하면 순환이다).
+ */
+export function tsFilesUnder(relativeDir: string, baseDir: string = repoRoot): string[] {
+  return walkFiles(join(baseDir, relativeDir), (fileName) => fileName.endsWith(".ts")).map((file) =>
+    toRepoPath(file, baseDir)
+  );
+}
+
+/**
+ * 스케줄러가 실제로 굴리는 잡 파일 경로 — `./jobs/…` import에서 읽는다(손으로 적지 않는다).
+ *
+ * ⚠️ 라운드 85 리뷰 M-4: 뿌리가 `*.job.ts`만 훑는다는 사실은 **관례가 오늘도 지켜질 때만** 안전하다.
+ * `./jobs/price-refresh.ts`(꼬리 없이)로 하나 들어오면 뿌리는 그것을 세지 않고, 그 잡은 이름이
+ * 앉는 자리 없이 돌기 시작한다. 그래서 계약이 이 목록과 파일 이름을 대조한다.
+ */
+export function schedulerJobImportPaths(schedulerSource: string): string[] {
+  return [...schedulerSource.matchAll(/from\s+"\.\/(jobs\/[^"]+)"/g)].map((match) => match[1]);
+}
+
+/** 뿌리 아홉이 내놓는 이름 전수 — 스윕이 견주는 모집단이다. */
 export function collectScopeNames(baseDir: string = repoRoot): ScopeName[] {
   const schema = collectSchemaNames(readRepoFile("apps/api/prisma/schema.prisma", baseDir));
   return [

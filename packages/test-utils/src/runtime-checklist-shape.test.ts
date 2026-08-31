@@ -204,6 +204,35 @@ function commentNumbers(marker: string): number[] {
   return numbers;
 }
 
+/**
+ * ⚠️ **라운드 85 리뷰 M-6 — 머리말의 수치도 이 계약이 센다.**
+ *
+ * 이 파일은 §0의 여섯 숫자를 파싱으로 파생시켰는데, **문서 머리말**(3~4행)이 적는 같은 수치
+ * (*"§0 재계산: 실기기 122 · 브라우저 11 · 서버 8 · 작업 1 · 합계 142"*)는 그 그물 밖이었다.
+ * 그래서 라운드 83·84·85가 행을 열아홉 개 더하는 동안 머리말은 **라운드 82·142에 멈춰** 있었고,
+ * 문서를 여는 사람이 가장 먼저 읽는 줄이 §0과 다른 수를 말했다 — 라운드 74 O-3이 이름 붙인
+ * 병("인용이 실측을 대신한다")이 §0 밖 한 줄에서 그대로 재발한 것이다.
+ *
+ * 머리말의 **맨 앞 갱신 줄**(굵게 적힌 그 줄)만 문다. 그 뒤의 `직전 갱신` · `그 앞` 이력은 그때의
+ * 사실이라 지금 수치와 달라야 정상이다.
+ */
+function headlineCounts(): { surfaces: number[]; total: number; round: string } {
+  const headline = lines.slice(0, 12).join("\n");
+  const round = /\*\*갱신:.*?라운드 (\d+) 트랙/.exec(headline);
+  expect(round, "머리말의 굵은 갱신 줄에서 라운드 번호를 찾지 못했어요").toBeTruthy();
+  const recalculated =
+    /§0 재계산: 실기기 (\d+) · 브라우저 (\d+) · 서버 (\d+) · 작업 (\d+) · 합계 (\d+)\)\*\*/.exec(headline);
+  expect(
+    recalculated,
+    "머리말의 굵은 갱신 줄에서 §0 재계산 수치를 찾지 못했어요 — 형식이 바뀌었다면 이 계약도 함께 고치세요"
+  ).toBeTruthy();
+  return {
+    surfaces: recalculated!.slice(1, 5).map(Number),
+    total: Number(recalculated![5]),
+    round: round![1]
+  };
+}
+
 /** §1-1 머리말이 적은 라운드 구간 목록(`13~21은 라운드 49~57` 꼴). */
 function declaredRoundRanges(): { start: number; end: number; round: string }[] {
   return [...section1Intro.matchAll(/(\d+)~(\d+)(?:은|는) 라운드 ([0-9~]+)/g)].map((match) => ({
@@ -343,6 +372,28 @@ describe("§0의 수치는 파싱에서 파생된다 (ⓐ 손으로 적은 숫�
 
   it("§0이 이 계약을 이름으로 가리킨다 (두 방언이 각자 무엇을 하는지 값으로 남는다)", () => {
     expect(section0).toContain("runtime-checklist-shape.test.ts");
+  });
+
+  /**
+   * 라운드 85 리뷰 M-6 — 문서를 여는 사람이 **가장 먼저 읽는 줄**도 같은 파싱에서 파생한다.
+   * 이 줄이 없던 동안 머리말은 세 라운드(83·84·85) 뒤처져 §0과 다른 수를 말했다.
+   */
+  it("머리말의 §0 재계산 수치가 실측과 같다 (인용이 실측을 대신하지 않는다)", () => {
+    const headline = headlineCounts();
+
+    expect(
+      headline.surfaces,
+      "머리말의 표면별 수가 표와 달라요 — 행을 더했으면 머리말의 굵은 갱신 줄도 함께 고치세요"
+    ).toEqual(SURFACES.map((surface) => countBySurface(surface)));
+    expect(headline.total, "머리말의 합계가 표의 행 수와 달라요").toBe(numberedRows.length);
+    // 넷의 합이 합계와 같다는 §0의 전수 확인이 머리말에서도 성립한다.
+    expect(headline.surfaces.reduce((sum, count) => sum + count, 0)).toBe(headline.total);
+  });
+
+  it("머리말이 가리키는 라운드가 §1-1 머리말의 마지막 구간과 같은 라운드다", () => {
+    // 두 자리가 서로 다른 라운드를 말하면 둘 중 하나는 낡은 것이다(어느 쪽인지 사람이 다시 조사한다).
+    const ranges = declaredRoundRanges();
+    expect(headlineCounts().round).toBe(ranges[ranges.length - 1].round);
   });
 });
 

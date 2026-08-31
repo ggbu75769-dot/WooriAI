@@ -392,8 +392,55 @@ describe("라운드 85 B: 이 품목 이력이 두 달을 본다", () => {
       cachedPreviousMonthExpenses: [row({ id: "aug", spentOn: "2026-08-30" })]
     });
     expect(full?.rows.map((entry) => entry.id)).toEqual(["s1", "s2", "s3"]);
-    // 그래도 고지는 두 달을 말한다 — 지난달 캐시를 실제로 손에 들고 훑었다.
-    expect(full?.scopeNotice).toBe("이번 달(9월) · 지난달(8월) 기록 기준이에요");
+    /**
+     * ⚠️ **라운드 85 리뷰 M-1 — 이 기대값은 "두 달"에서 "이번 달"로 바뀌었다(계약 약화가 아니라
+     * 허위 정정이다).**
+     *
+     * 종전 기대는 *"지난달 캐시를 실제로 손에 들고 훑었다"* 를 근거로 두 달을 말했는데, 그
+     * 근거가 사실이 아니었다: 상한(3)을 이번 달이 채우면 루프는 지난달 칸을 **열지도 않고**
+     * 빠져나온다(모듈 주석이 바로 그 한 줄 위에서 그렇게 단언한다 — *"상한을 채우면 지난달은
+     * 훑지도 않는다"*). 즉 그 화면은 지난달 행을 **0건** 그리면서 "지난달(8월) 기록 기준"이라고
+     * 말하고 있었고, 사용자는 그것을 *"지난달에는 더 싸게 산 기록이 없구나"* 로 읽는다 — 이
+     * 모듈이 범위 고지를 두는 이유(라운드 39 UX-P: 말하지 않은 범위는 조용한 허위 표시다)를
+     * 정확히 뒤집는 표시다. 정직한 값은 실제로 센 한 달이다.
+     */
+    expect(full?.scopeNotice).toBe("이번 달(9월) 기록 기준이에요");
+  });
+
+  /**
+   * 라운드 85 리뷰 M-1 — 위 정정을 **시나리오 자체로** 못 박는다(문구 한 줄이 아니라 관계로).
+   * 계약: 고지에 지난달이 오르는 것과 목록에 지난달 행이 서는 것은 **같은 조건**이다.
+   */
+  it("M-1: 지난달 칸을 열지 못한 날에는 고지도 지난달을 말하지 않는다 (표시와 고지가 같은 사실을 본다)", () => {
+    const previous = [row({ id: "aug", spentOn: "2026-08-30" })];
+    const currentMonthRow = (id: string, day: string) => row({ id, spentOn: `2026-09-${day}` });
+
+    // 상한을 한 칸 남긴 이번 달 → 지난달을 열고, 그 줄이 실제로 선다 → 고지도 두 달.
+    const roomLeft = buildItemHistory({
+      ...septBase,
+      cachedMonthExpenses: [currentMonthRow("s1", "05"), currentMonthRow("s2", "04")],
+      cachedPreviousMonthExpenses: previous
+    });
+    expect(roomLeft?.rows.map((entry) => entry.id)).toEqual(["s1", "s2", "aug"]);
+    expect(roomLeft?.scopeNotice).toBe("이번 달(9월) · 지난달(8월) 기록 기준이에요");
+
+    // 이번 달이 상한을 채움 → 지난달을 열지 않는다 → 목록에도 고지에도 지난달이 0건.
+    const noRoom = buildItemHistory({
+      ...septBase,
+      cachedMonthExpenses: [currentMonthRow("s1", "05"), currentMonthRow("s2", "04"), currentMonthRow("s3", "03")],
+      cachedPreviousMonthExpenses: previous
+    });
+    expect(noRoom?.rows.map((entry) => entry.id)).toEqual(["s1", "s2", "s3"]);
+    expect(noRoom?.scopeNotice).toBe("이번 달(9월) 기록 기준이에요");
+
+    // 관계로 못 박는다 — **같은 지난달 캐시**(걸리는 행 하나가 든)를 두 번 넘겼으므로, 이 두
+    // 결과에서는 "고지가 지난달을 말한다"와 "목록에 지난달 행이 있다"가 같은 값이어야 한다.
+    // (지난달을 열었는데 걸리는 행이 0건인 경우는 별개의 정직한 갈래다 — 위 ⓔ의 빈 배열 줄.)
+    for (const history of [roomLeft, noRoom]) {
+      const noticeMentionsPrevious = history!.scopeNotice.includes("지난달");
+      const listHasPreviousRow = history!.rows.some((entry) => entry.id === "aug");
+      expect(noticeMentionsPrevious, history!.scopeNotice).toBe(listHasPreviousRow);
+    }
   });
 
   it("ⓓ 날짜가 같아도 이번 달 행이 지난달 행보다 앞선다(달 경계가 데이터에 흔들리지 않는다)", () => {

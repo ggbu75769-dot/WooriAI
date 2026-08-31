@@ -30,6 +30,11 @@
  *    섞인다. 달마다 따로 통과시킨 뒤 잇는다 — 그래서 누수가 **양방향으로** 막힌다.
  *  - **고지는 실제로 센 달에서 파생한다.** 두 달을 보면서 "이번 달 기준"이라고 말하는 것이 이
  *    모듈이 막으려던 바로 그 허위 표시이고, 지난달 캐시가 없는 날 두 달을 말하는 것도 같은 거짓이다.
+ *    ⚠️ **라운드 85 리뷰 M-1 — "센 달"은 "받은 달"이 아니라 "루프가 실제로 연 달"이다.** 이 모듈은
+ *    상한(3)을 채우면 지난달을 **훑지도 않고** 빠져나오는데(아래 루프의 `break`), 고지가 *받은*
+ *    인자에서 파생하면 그 날 화면은 지난달 기록을 한 줄도 안 보여 주면서 "지난달(8월) 기록 기준"
+ *    이라고 말한다 — 사용자가 "지난달에 더 싸게 산 것이 없다"고 읽게 되는 조용한 허위 표시이고,
+ *    바로 위 줄의 단언과도 정반대다. 그래서 고지는 루프가 채우는 `visitedMonths`에서만 나온다.
  *  - **상한(3) · 매칭 규칙 · 파생 수치 0건은 그대로.** 두 달을 봐도 이 섹션은 여전히 **나열**이고
  *    비교가 아니다(평균·최저·"평소보다 비싸요" 같은 판단은 만들지 않는다).
  *
@@ -110,6 +115,10 @@ export type ItemHistory = {
   /**
    * "이번 달(8월) 기록 기준이에요" / "이번 달(9월) · 지난달(8월) 기록 기준이에요" —
    * 이 목록이 무엇을 보고 만든 것인지 밝히는 줄. **실제로 센 달에서 파생한다**(라운드 85 B).
+   *
+   * ⚠️ 라운드 85 리뷰 M-1: "센 달" = 루프가 **연** 달이다. 이번 달이 상한(3)을 채워 지난달 칸을
+   * 아예 열지 못한 날에는 지난달이 이 줄에 오르지 않는다(그 날 목록에는 지난달 행이 0건이므로,
+   * 두 달을 말하면 "지난달에는 더 싼 기록이 없다"는 없는 사실을 말하는 것이 된다).
    */
   scopeNotice: string;
   rows: ItemHistoryRow[];
@@ -270,8 +279,17 @@ export function buildItemHistory({
    * 상한을 채우면 지난달은 훑지도 않는다 -- 두 달을 본다고 일이 두 배가 되지는 않는다.
    */
   const matched: ItemHistoryExpense[] = [];
+  /**
+   * ⚠️ 라운드 85 리뷰 M-1 — **고지가 파생하는 배열은 위 `countedMonths`가 아니라 이것이다.**
+   * 바로 아래 `break`는 상한을 채운 순간 지난달 칸을 **열지 않고** 빠져나온다. 받은 인자에서
+   * 고지를 만들면 그 날 화면은 지난달 행 0건을 그리면서 "지난달(8월) 기록 기준"이라고 말하고,
+   * 사용자는 그것을 "지난달에는 더 싼 기록이 없더라"로 읽는다 — 이 모듈이 범위 고지를 두는
+   * 이유(라운드 39 UX-P) 자체를 뒤집는 표시다. 여기에는 **루프가 실제로 연 달만** 오른다.
+   */
+  const visitedMonths: string[] = [];
   for (const month of countedMonths) {
     if (matched.length >= maxRows) break;
+    visitedMonths.push(month.yearMonth);
     for (const row of sortByRecency(itemHistoryPopulation(month.expenses, month.yearMonth, offline))) {
       if (matched.length >= maxRows) break;
       // 자기 자신 제외는 두 달 어디에서나 같은 한 줄이다(로컬 사본은 canonicalId로 이 id를 든다).
@@ -297,9 +315,10 @@ export function buildItemHistory({
 
   return {
     title: ITEM_HISTORY_TITLE,
-    // 고지는 위에서 실제로 센 달에서만 나온다 -- 지난달을 못 셌으면 두 번째 칸이 없고, 그때
-    // 문구는 종전과 한 글자도 같다(라운드 85 B ⓔ).
-    scopeNotice: itemHistoryScopeNotice(cacheYearMonth, countedMonths[1]?.yearMonth ?? null),
+    // 고지는 위 루프가 **연** 달에서만 나온다 -- 지난달을 훑지 못했으면(캐시 부재 · 같은 달 ·
+    // 이번 달이 상한을 채움) 두 번째 칸이 없고, 그때 문구는 종전과 한 글자도 같다
+    // (라운드 85 B ⓔ · 리뷰 M-1).
+    scopeNotice: itemHistoryScopeNotice(cacheYearMonth, visitedMonths[1] ?? null),
     rows
   };
 }

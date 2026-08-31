@@ -36,6 +36,7 @@ import {
   isUncategorizedItem,
   itemFilterSummary,
   productLinkCount,
+  withDisplayedCategoryFallbacks,
   type ItemFilterState
 } from "../../src/lib/item-filters";
 import { useAdminSession } from "../../src/lib/admin-token-context";
@@ -472,8 +473,15 @@ export default function ItemTemplatesPage() {
   const categoryNameById = new Map(categories.map((category) => [category.id, category.name]));
   const categoryNameOf = (item: ItemTemplate): string | null =>
     item.categoryId ? categoryNameById.get(item.categoryId) ?? null : null;
+  /**
+   * 라운드 85 리뷰 M-7: **검색이 보는 이름**은 위 해석기에 이 화면의 두 라벨을 덧댄 값이다.
+   * 이름을 모르는 자리(분류 없음 · 목록에 없는 분류)에서 해석기가 null이라, 검색만은 그 둘을
+   * 통째로 못 찾고 있었다 — 앱에서는 그 두 상태도 그룹 헤더의 글자로 찾힌다. 열 표시는 그대로
+   * 아래 `-`/`(목록에 없는 분류)` 관례를 쓴다(이유는 item-filters.ts의 그 함수 주석 참고).
+   */
+  const searchCategoryNameOf = withDisplayedCategoryFallbacks(categoryNameOf);
 
-  const filteredItems = items ? filterItemTemplates(items, filters, categoryNameOf) : null;
+  const filteredItems = items ? filterItemTemplates(items, filters, searchCategoryNameOf) : null;
   const createCategoryOptions = itemCategoryOptions(categories, createForm.categoryId);
   const editCategoryOptions = itemCategoryOptions(categories, editForm.categoryId);
   const filtersApplied = hasAnyItemFilter(filters);

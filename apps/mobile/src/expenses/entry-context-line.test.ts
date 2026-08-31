@@ -594,6 +594,50 @@ describe("buildEntryContextLine — 라운드 85 A: 지난달 갈래", () => {
     });
     expect(line).toBeNull();
   });
+
+  /**
+   * ⚠️ **라운드 85 리뷰 L-12 — `previousYearMonth`가 정말 '지난달'인지 확인하지 않았다.**
+   *
+   * 이 갈래는 `entryYearMonth === previousYearMonth`만 보고 **끝난 달의 낱말**("…에는 … 썼어요")을
+   * 쓴다. 그런데 호출부가 넘기는 값이 이번 달보다 **뒤**인 달이면(달 경계 계산이 뒤집히거나 캐시
+   * 키가 어긋나는 날) 화면은 아직 오지 않은 달을 **끝난 달처럼** 말하게 된다 — 이 모듈이
+   * 처음부터 막던 종류의 허위 표시다(콜드 스타트를 "0원 썼어요"로 말하지 않는 것과 같은 축).
+   * 순서를 한 줄로 확인하고, 아니면 다른 어긋난 달과 똑같이 **침묵한다**.
+   */
+  it("L-12: 이번 달보다 뒤인 달을 '지난달'로 넘기면 말하지 않는다 (미래를 끝난 달로 말하지 않는다)", () => {
+    const future = buildEntryContextLine({
+      ...baseInput,
+      cacheYearMonth: "2026-08",
+      entryYearMonth: "2026-09",
+      previousYearMonth: "2026-09",
+      cachedMonthExpenses: [serverExpense({ id: "e1", amountKrw: 1_200_000 })],
+      previousMonthExpenses: [serverExpense({ id: "p1", amountKrw: 100_000 })]
+    });
+    expect(future).toBeNull();
+
+    // 해가 바뀌는 자리에서도 순서로 판정한다(12월 캐시에 다음 해 1월을 넘기는 경우).
+    expect(
+      buildEntryContextLine({
+        ...baseInput,
+        cacheYearMonth: "2026-12",
+        entryYearMonth: "2027-01",
+        previousYearMonth: "2027-01",
+        cachedMonthExpenses: [serverExpense({ id: "e1", amountKrw: 1_200_000 })],
+        previousMonthExpenses: [serverExpense({ id: "p1", amountKrw: 100_000 })]
+      })
+    ).toBeNull();
+
+    // 반대 방향(진짜 지난달)은 해 경계에서도 그대로 말한다 — 방어가 정상 갈래를 먹지 않는다.
+    const acrossYear = buildEntryContextLine({
+      ...baseInput,
+      cacheYearMonth: "2027-01",
+      entryYearMonth: "2026-12",
+      previousYearMonth: "2026-12",
+      cachedMonthExpenses: [serverExpense({ id: "e1", amountKrw: 1_200_000 })],
+      previousMonthExpenses: [serverExpense({ id: "p1", amountKrw: 100_000 })]
+    });
+    expect(acrossYear?.text).toBe("12월에는 100,000원 썼어요");
+  });
 });
 
 /**

@@ -177,6 +177,13 @@ export function buildEntryContextLine({
     entryYearMonth !== cacheYearMonth &&
     typeof previousYearMonth === "string" &&
     entryYearMonth === previousYearMonth &&
+    // ⚠️ 라운드 85 리뷰 L-12 — **지난달은 이번 달보다 앞선 달일 때만 지난달이다.**
+    // 이 모듈은 그 갈래에서 **끝난 달의 낱말**("8월에는 … 썼어요")을 쓴다. 인자 이름만 믿고
+    // 순서를 확인하지 않으면, 호출부가 다음 달을 넘기는 날(달 경계 계산이 뒤집히거나 캐시 키가
+    // 어긋나는 날) 화면이 **아직 오지 않은 달을 끝난 달처럼** 말한다 — 그건 이 모듈이 처음부터
+    // 막던 그 종류의 허위 표시다("0원 썼어요"라고 말하지 않는 것과 같은 축). "YYYY-MM"은
+    // 사전순 비교가 곧 시간순이라 한 줄이면 된다(형식이 깨진 값은 아래 정규식이 다시 막는다).
+    previousYearMonth < cacheYearMonth &&
     Boolean(previousMonthExpenses);
   const targetYearMonth = speaksPreviousMonth ? (previousYearMonth as string) : cacheYearMonth;
   const targetMonthExpenses = speaksPreviousMonth ? previousMonthExpenses : cachedMonthExpenses;
