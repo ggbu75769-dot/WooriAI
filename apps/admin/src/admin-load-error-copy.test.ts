@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AdminApiError, AdminApiTimeoutError } from "./lib/admin-api";
@@ -420,30 +421,355 @@ describe("조회 실패 판정의 소비 집합 (라운드 73 트랙 D ⓐ)", ()
   });
 });
 
-describe("[다시 시도] 버튼의 렌더 규칙 (라운드 73 트랙 D ⓒ)", () => {
-  /** 조회 실패 배너 아래 [다시 시도]가 서는 열한 자리. */
-  const RETRY_BUTTON_SCREENS = [
-    "app/page.tsx",
-    "app/items/page.tsx",
-    "app/links/page.tsx",
-    "app/clicks/page.tsx",
-    "app/analytics/page.tsx",
-    "app/reviews/page.tsx",
-    "app/disclosures/page.tsx",
-    "app/users/page.tsx",
-    "app/categories/page.tsx",
-    "app/audit-logs/page.tsx"
-  ] as const;
+/**
+ * 라운드 93 트랙 D(GAP-093 #4) — **[다시 시도] 관례의 모집단이 전수가 된다.**
+ *
+ * ⚠️⚠️ **두 시점 — 이 절의 모집단은 손 목록이었다.**
+ *  · **라운드 73~92 시점**: 이 자리에는 `RETRY_BUTTON_SCREENS`라는 **손으로 적은 경로 열 줄**이
+ *    있었고, 그 위의 주석은 *"조회 실패 배너 아래 [다시 시도]가 서는 **열한 자리**"* 라고 적었다.
+ *    ⚠️ **그 두 수는 서로 갈려 있었고 둘 다 참일 수 있었다** — *열*은 [다시 시도]가 선
+ *    **화면(`page.tsx`)** 의 수였고, *열하나*는 `app/**`의 `styles.retryButton` **출현** 수였다
+ *    (대시보드가 배너를 둘 세운다). **두 수를 한 낱말로 적지 않는다.** 그리고 모집단이 손
+ *    목록이었으므로 **조회 실패 배너를 [다시 시도] 없이 세운 열두 번째 화면은 조용히 통과했다.**
+ *  · **오늘(라운드 93 트랙 D)**: 모집단이 `app/**`의 `page.tsx` **전수 걷기**다(오늘 **11** ·
+ *    하한). 자리마다 판정 하나를 소스에서 낸다 — *[다시 시도]가 선다*(오늘 **10**) ·
+ *    *문장만 받는다 + 이유*(오늘 **하나** · `users-lookup`). **손 목록은 없다.**
+ *
+ * ⚠️ **어드민 소스 0바이트** — 이 트랙이 만든 것은 **세는 자 하나**이고 화면·컴포넌트·`lib`은
+ * 한 바이트도 고치지 않았다(아래 ⓔ가 그것을 값으로 문다).
+ *
+ * ⚠️ **재개 조건(결정형 · 축: 이 파일의 *다른* 손 목록)**: 같은 파일의 `discardedSites`(열)와
+ * `FALLBACK_PHRASE_OCCURRENCES`(열둘)도 손으로 적은 모집단이다 — **한 트랙이 한 축을 진다**는
+ * 규율 때문에 이 라운드는 열지 않았다. 그 둘을 누가 전수 파생으로 옮기는지가 정해지는 날 재개한다.
+ */
 
-  it("모든 조회 실패 배너의 [다시 시도]가 canRetry에서 파생된다", () => {
-    for (const path of RETRY_BUTTON_SCREENS) {
-      const source = readSource(path);
-      expect(source, `${path}에 다시 시도 버튼이 있다`).toContain("styles.retryButton");
-      expect(source, `${path}: 버튼이 판정에서 파생된다`).toContain("loadError.canRetry ? (");
-      expect(source, `${path}: 문장도 한 벌에서 온다`).toContain("{loadError.message}");
+/** 오늘의 전수(하한 · 래칫). ⚠️ **줄지 않는다** — 화면이 늘면 이 수를 올려 적는다. */
+const PAGE_ENTRY_FLOOR = 11;
+/** [다시 시도]가 선 **화면** 수(하한 · 래칫). ⚠️ **줄지 않는다.** */
+const RETRY_SCREEN_FLOOR = 10;
+/** 배너를 세우고도 판정에서 파생하지 않는 화면 — **0을 넘지 않는다**(상한). */
+const UNDERIVED_BANNER_CEILING = 0;
+
+/**
+ * 판정을 내는 바늘 셋. ⚠️ 이 셋에는 **한국어 문장이 없다** — 문구가 옳은지는 이 자가 묻지
+ * 않는다(아래 사각 ⓓ가 그 사실을 값으로 잰다).
+ */
+const RETRY_NEEDLES = ["styles.retryButton", "loadError.canRetry ? (", "{loadError.message}"] as const;
+
+/**
+ * `app/**`의 `page.tsx` 전수(뿌리 기준 POSIX 경로 · 정렬). ⚠️ **뿌리를 인자로 받는다** —
+ * 아래 픽스처가 이 자를 실제로 잰다(걷기가 유령이면 부정 단언이 전부 조용해진다).
+ *
+ * ⚠️ `admin-route-surface.test.ts`(라운드 92 C)가 같은 사실을 자기 축으로 파생한다. **사본을
+ * 만들지 않고 각자 파생한다** — 사본이면 두 자리가 조용히 갈린다.
+ */
+function pageEntryPaths(root: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+        continue;
+      }
+      if (entry.name !== "page.tsx") continue;
+      found.push(relative(root, fullPath).split(sep).join("/"));
     }
-    // 대시보드의 워커 한 줄도 같은 규칙을 따른다(두 번째 자리).
+  };
+  walk(join(root, "app"));
+  return found.sort();
+}
+
+/**
+ * 한 화면의 판정. 넷 중 하나이고, **전수가 정확히 이 넷으로 나뉜다**(빠지는 자리가 없다).
+ *  · `retry` — 조회 실패 배너 아래 [다시 시도]가 서고, 그 버튼과 문장이 **판정에서 파생**한다.
+ *  · `message-only` — [다시 시도]가 없고 한 벌의 **문장만** 받는다(이유가 값으로 있어야 한다).
+ *  · `underived-banner` — ⚠️ 배너는 있는데 판정에서 파생하지 않는다(**오늘 0건 · 상한**).
+ *  · `no-load-failure` — 조회 실패를 아예 그리지 않는다(오늘 0건 · 서는 날 이유를 적는다).
+ */
+type RetryVerdict = "retry" | "message-only" | "underived-banner" | "no-load-failure";
+
+function retryVerdictOf(source: string): RetryVerdict {
+  const retryButtons = (source.match(/styles\.retryButton/g) ?? []).length;
+  const derivedBanners = (source.match(/\.canRetry \? \(/g) ?? []).length;
+  const callsCopySet = /loadError(?:Copy|Message)\(/.test(source);
+  if (retryButtons > 0) {
+    // 배너가 여럿이면 **하나도 빠짐없이** 판정에서 나와야 한다(대시보드의 워커 줄이 그 자리다).
+    if (derivedBanners < retryButtons) return "underived-banner";
+    for (const needle of RETRY_NEEDLES) if (!source.includes(needle)) return "underived-banner";
+    return "retry";
+  }
+  return callsCopySet ? "message-only" : "no-load-failure";
+}
+
+type RetryScan = {
+  readonly paths: string[];
+  readonly byVerdict: Record<RetryVerdict, string[]>;
+  /** 화면별 `styles.retryButton` **출현** 수 — 자리(화면)와 다른 수다. */
+  readonly retryButtonOccurrences: Record<string, number>;
+};
+
+function scanRetryVerdicts(root: string): RetryScan {
+  const byVerdict: Record<RetryVerdict, string[]> = {
+    retry: [],
+    "message-only": [],
+    "underived-banner": [],
+    "no-load-failure": []
+  };
+  const retryButtonOccurrences: Record<string, number> = {};
+  const paths = pageEntryPaths(root);
+  for (const path of paths) {
+    const filePath = join(root, ...path.split("/"));
+    if (!existsSync(filePath)) throw new Error(`${path}를 읽지 못했어요`);
+    const source = readFileSync(filePath, "utf8");
+    byVerdict[retryVerdictOf(source)].push(path);
+    const occurrences = (source.match(/styles\.retryButton/g) ?? []).length;
+    if (occurrences > 0) retryButtonOccurrences[path] = occurrences;
+  }
+  return { paths, byVerdict, retryButtonOccurrences };
+}
+
+let retryScanCache: RetryScan | null = null;
+/** 저장소를 한 번만 걷는다(모듈 최상단에서 `expect`를 부르지 않으려고 지연 계산한다). */
+function retryScan(): RetryScan {
+  if (!retryScanCache) retryScanCache = scanRetryVerdicts(adminRoot);
+  return retryScanCache;
+}
+
+/**
+ * **[다시 시도]가 서지 않는 자리와 그 이유.** ⚠️ 결함 목록이 아니라 **판정**이다 —
+ * 예외가 늘면 아래 단언이 먼저 빨개지고, 늘린 라운드가 이유를 적게 된다
+ * (`LOAD_ERROR_COPY_EXEMPT_SITES`·`NON_SCREEN_SOURCE_ROOTS`와 같은 관례).
+ */
+const RETRY_ABSENT_REASONS: Readonly<Record<string, string>> = {
+  "app/users-lookup/page.tsx":
+    "검색형 화면이라 **조회 폼 자체가 재시도**다 — 실패한 요청은 사용자가 방금 입력한 검색어에 매여 " +
+    "있고, 같은 요청을 다시 보내는 버튼은 폼의 [검색]과 같은 것이 되어 한 자리를 둘로 그리게 된다. " +
+    "그래서 이 자리는 `loadErrorMessage`로 **문장만** 받아 `styles.errorBanner`에 세운다. " +
+    "⚠️ **결함이 아니라 판정이다** — 아래 `it`이 그 자리를 이름으로 이미 적고 있었다."
+};
+
+describe("[다시 시도] 버튼의 렌더 규칙 (라운드 73 트랙 D ⓒ · 라운드 93 트랙 D: 모집단이 전수가 된다)", () => {
+  it("ⓐ 모집단이 손 목록이 아니라 app/**의 page.tsx 전수 걷기다 (오늘 11 · 하한)", () => {
+    const scan = retryScan();
+    expect(scan.paths.length, "page.tsx 전수가 하한 아래로 내려갔어요").toBeGreaterThanOrEqual(PAGE_ENTRY_FLOOR);
+    // 걷기가 실제로 파일에서 나온다(유령 방지 — 0이면 아래 부정 단언이 전부 조용해진다).
+    for (const path of scan.paths) {
+      expect(path, `${path}: 걷기가 app/** 밖을 집었어요`).toMatch(/^app\/(?:.+\/)?page\.tsx$/);
+    }
+    expect(scan.paths, "손 목록에 없던 열한째가 모집단 안이다").toContain("app/users-lookup/page.tsx");
+    expect(scan.paths).toContain("app/page.tsx");
+
+    // 판정 넷이 전수를 남김없이 덮는다 — 어느 화면도 판정 없이 빠져나가지 않는다.
+    const judged = Object.values(scan.byVerdict).reduce((sum, paths) => sum + paths.length, 0);
+    expect(judged, "판정이 전수를 덮지 못했어요").toBe(scan.paths.length);
+
+    // ⚠️ 그리고 이 절에 **손 목록이 다시 서지 않는다**(라운드 93 트랙 D가 걷어낸 그 모양).
+    // 바늘을 조각으로 잇는 이유: 통짜로 적으면 이 줄 자신이 그 바늘에 걸려 늘 빨갛다.
+    const handListNeedle = ["const RETRY", "_BUTTON_SCREENS = ["].join("");
+    expect(readSource("src/admin-load-error-copy.test.ts"), "손 목록이 다시 섰어요").not.toContain(handListNeedle);
+  });
+
+  it("ⓑ 판정 하나 — [다시 시도]가 선다: 버튼도 문장도 canRetry에서 파생된다 (오늘 10 · 하한)", () => {
+    const scan = retryScan();
+    expect(scan.byVerdict.retry.length, "[다시 시도]가 선 화면 수가 하한 아래로 내려갔어요").toBeGreaterThanOrEqual(
+      RETRY_SCREEN_FLOOR
+    );
+    for (const path of scan.byVerdict.retry) {
+      const source = readSource(path);
+      for (const needle of RETRY_NEEDLES) {
+        expect(source, `${path}: 판정의 바늘 \`${needle}\``).toContain(needle);
+      }
+    }
+    // 대시보드의 워커 한 줄도 같은 규칙을 따른다(한 화면의 두 번째 배너 — 사각 ⓑ).
     expect(readSource("app/page.tsx")).toContain("workerError.canRetry ? (");
+  });
+
+  it("ⓑ 판정 둘 — 문장만 받는 자리는 이유와 함께 값으로 적혀 있다 (오늘 하나 · users-lookup)", () => {
+    const scan = retryScan();
+    expect(scan.byVerdict["message-only"], "손 목록에 없던 열한째의 판정").toContain("app/users-lookup/page.tsx");
+    for (const path of scan.byVerdict["message-only"]) {
+      const reason = RETRY_ABSENT_REASONS[path];
+      expect(reason, `${path}: [다시 시도]가 없는데 이유가 없어요`).toBeTruthy();
+      expect(reason.trim().length, `${path}의 이유가 짧아요`).toBeGreaterThan(40);
+      const source = readSource(path);
+      expect(source, `${path}: 문장만 받는 자리에 버튼이 생겼어요`).not.toContain("styles.retryButton");
+      expect(source, `${path}: 문장은 한 벌에서 온다`).toMatch(/loadErrorMessage\(error, "/);
+    }
+    // 낡은 이유가 남지 않는다 — 목록의 모든 열쇠가 오늘의 전수 안에 실재하고, 오늘도 그 판정이다.
+    for (const path of Object.keys(RETRY_ABSENT_REASONS)) {
+      expect(scan.paths, `${path}: 이유는 있는데 화면이 없어요`).toContain(path);
+      expect(
+        [...scan.byVerdict["message-only"], ...scan.byVerdict["no-load-failure"]],
+        `${path}: 이제 [다시 시도]가 서는데 이유가 남아 있어요`
+      ).toContain(path);
+    }
+  });
+
+  it("ⓑ 셋째 판정은 0건이다 — 배너를 세우고 판정에서 파생하지 않는 화면 (부정 단언 · 상한)", () => {
+    const scan = retryScan();
+    expect(scan.byVerdict["underived-banner"], "배너가 판정에서 파생하지 않는 화면이 생겼어요").toEqual([]);
+    expect(scan.byVerdict["underived-banner"].length).toBeLessThanOrEqual(UNDERIVED_BANNER_CEILING);
+    // 조회 실패를 아예 그리지 않는 `page.tsx`도 오늘 0건이다 — 서는 날 이 줄이 먼저 빨개지고,
+    // 그 라운드가 `RETRY_ABSENT_REASONS`에 *왜 이 화면은 조회 실패가 없는가*를 적게 된다.
+    expect(scan.byVerdict["no-load-failure"], "조회 실패를 그리지 않는 page.tsx가 생겼어요").toEqual([]);
+  });
+
+  it("ⓔ 이 트랙은 어드민 소스를 0바이트 고쳤다 (부정 단언)", () => {
+    // ⚠️ 이 단언이 재는 것은 **이 트랙의 손자국이 화면에 없다**는 것이다: 라운드 93은 세는 자만
+    // 세웠으므로 어드민 소스 어디에도 이 라운드의 표식이 없어야 한다(있으면 화면을 고친 것이다).
+    const scan = retryScan();
+    for (const path of [...scan.paths, "src/components/AdminShell.tsx", "src/lib/load-error-copy.ts"]) {
+      const source = readSource(path);
+      expect(source, `${path}에 라운드 93의 손자국이 있어요`).not.toContain("라운드 93");
+      expect(source, `${path}에 GAP-093의 손자국이 있어요`).not.toContain("GAP-093");
+    }
+    // 그리고 이 트랙이 읽기만 한 본보기(라운드 92 C)도 이 라운드가 고치지 않았다.
+    expect(readSource("src/admin-route-surface.test.ts"), "라운드 92 C의 계약을 이 트랙이 고쳤어요").not.toContain(
+      "라운드 93"
+    );
+  });
+
+  it("⚠️ 걷기가 유령이 아니다 — 픽스처의 새 page.tsx를 이 자가 실제로 센다", () => {
+    const base = mkdtempSync(join(tmpdir(), "wooriai-retry-population-"));
+    try {
+      mkdirSync(join(base, "app", "새화면"), { recursive: true });
+      mkdirSync(join(base, "app", "deep", "nested"), { recursive: true });
+      writeFileSync(join(base, "app", "page.tsx"), "export default function Page() { return null; }\n");
+      writeFileSync(join(base, "app", "새화면", "page.tsx"), "export default function Page() { return null; }\n");
+      writeFileSync(join(base, "app", "deep", "nested", "page.tsx"), "export default function Page() { return null; }\n");
+      // 바늘 밖 진입(라운드 92 C가 이름 붙인 경계)과 화면 아닌 파일은 세지 않는다.
+      writeFileSync(join(base, "app", "error.tsx"), "export default function Error() { return null; }\n");
+      writeFileSync(join(base, "app", "layout.tsx"), "export default function Layout() { return null; }\n");
+
+      const walked = pageEntryPaths(base);
+      expect(walked).toEqual(["app/deep/nested/page.tsx", "app/page.tsx", "app/새화면/page.tsx"]);
+      expect(walked, "page.tsx가 아닌 진입을 셌어요").not.toContain("app/error.tsx");
+
+      // 그리고 판정 자체 — 넷이 실제로 갈린다(순수 판정).
+      const scanned = scanRetryVerdicts(base);
+      expect(scanned.byVerdict["no-load-failure"]).toEqual(walked);
+      expect(retryVerdictOf('styles.retryButton loadError.canRetry ? ( {loadError.message}')).toBe("retry");
+      expect(retryVerdictOf('setSearchError(loadErrorMessage(error, "…"))')).toBe("message-only");
+      // ⚠️ 배너는 있는데 판정에서 파생하지 않는 모양 — 오늘 저장소에 0건인 그 셋째 판정.
+      expect(retryVerdictOf('<button className={styles.retryButton}>다시 시도</button>')).toBe("underived-banner");
+      // 배너 둘 중 하나만 판정에서 나와도 셋째다(대시보드 모양의 반쪽).
+      expect(
+        retryVerdictOf(
+          'styles.retryButton loadError.canRetry ? ( {loadError.message} styles.retryButton'
+        )
+      ).toBe("underived-banner");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * ⓕ **사각** — 못 보는 것을 값·이유·재개 조건으로 적는다(AD-5 · 옆 파일
+   * `admin-route-surface.test.ts`·`admin-landmark-current.test.ts`의 관례 그대로).
+   *
+   * ⚠️ **자는 진짜 자여야 한다**(라운드 91 리뷰 L-6): 상수를 돌려주는 자는 저장소가 통째로
+   * 바뀌어도 조용하다. 아래 넷은 전부 걷기·소스에서 값을 낸다.
+   */
+  type RetryBlindSpot = {
+    readonly key: string;
+    readonly reason: string;
+    readonly measure: () => number;
+    readonly today: number;
+    readonly resumeCondition: string;
+  };
+
+  const RETRY_BLIND_SPOTS: readonly RetryBlindSpot[] = [
+    {
+      key: "page-only-needle",
+      reason:
+        "바늘은 `page.tsx` 하나다 — `error.tsx`·`global-error.tsx`·`not-found.tsx`(오늘 3)는 라우트 " +
+        "진입이지만 주소를 만들지 않아 이 바늘 밖이고, 그 경계는 **라운드 92 C가 " +
+        "`admin-route-surface.test.ts`의 `NON_PAGE_ENTRY_NAMES`로 이미 이름 붙였다**(발명이 아니라 인용). " +
+        "그 셋 중 `app/error.tsx`는 *\"화면을 불러오지 못했어요\"* 를 실제로 그리는데, [다시 시도] 관례는 " +
+        "그 자리를 보지 않는다 — 그 화면의 재시도는 Next가 주는 `reset()`이라 `canRetry` 판정이 없다",
+      measure: () =>
+        ["error.tsx", "global-error.tsx", "not-found.tsx"].filter((name) =>
+          existsSync(join(adminRoot, "app", name))
+        ).length,
+      today: 3,
+      resumeCondition:
+        "재개 조건(사건형): `error.tsx` 계열이 `canRetry` 꼴의 판정을 쓰기 시작하는 날 — 그날 이 " +
+        "계약의 모집단은 `page.tsx` 전수에서 *배너를 세우는 진입* 전수로 넓어져야 한다"
+    },
+    {
+      key: "second-banner-per-screen",
+      reason:
+        "**자리는 화면 단위이고 배너 단위가 아니다.** 대시보드는 조회 실패 배너를 둘 세우는데" +
+        "(요약 · 워커 한 줄) 이 자는 그 화면을 **하나로** 센다 — 그래서 *열*(화면)과 " +
+        "*열하나*(`styles.retryButton` 출현)가 갈리고, 라운드 73~92의 손 목록과 그 주석이 정확히 " +
+        "그 두 수를 한 낱말로 적어 서로 갈려 있었다. 이 자가 재는 것은 **그 차이 자체**다",
+      measure: () => {
+        const scan = retryScan();
+        const occurrences = Object.values(scan.retryButtonOccurrences).reduce((sum, count) => sum + count, 0);
+        return occurrences - Object.keys(scan.retryButtonOccurrences).length;
+      },
+      today: 1,
+      resumeCondition:
+        "재개 조건(사건형): 한 화면이 배너를 셋 세우거나 두 화면이 둘씩 세우는 날 — 그날 이 수가 1을 " +
+        "벗어나고, 자리의 단위를 화면에서 배너로 내릴지 결정해야 한다(내리면 위 하한 둘이 함께 바뀐다)"
+    },
+    {
+      key: "source-not-browser",
+      reason:
+        "**소스 대조이지 브라우저가 아니다**(#130 계열). 이 자가 아는 것은 *그 문자열이 그 파일에 " +
+        "있다*까지이고, 실패했을 때 그 버튼이 **실제로 그려지는가**는 묻지 않는다 — 조건이 거짓인 " +
+        "가지 안에 있어도 초록이다. 그 축은 `scripts/qa/admin-e2e.mjs`가 브라우저로 진다",
+      // ⚠️ 바늘을 조각으로 잇는다 — 통짜 리터럴로 적으면 이 자가 **자기 자신**을 세어 늘 1 이상이 된다.
+      measure: () => {
+        const self = readSource("src/admin-load-error-copy.test.ts");
+        return ["@testing" + "-library", "play" + "wright", "js" + "dom"].filter((needle) => self.includes(needle))
+          .length;
+      },
+      today: 0,
+      resumeCondition:
+        "재개 조건(결정형 · 손은 저장소 안): 어드민에 컴포넌트 렌더 하네스가 서는 날 — 그날 이 수가 " +
+        "0을 벗어나고, [다시 시도]의 *그려짐*을 소스 대조가 아니라 렌더로 물을 수 있게 된다"
+    },
+    {
+      key: "copy-correctness",
+      reason:
+        "**문장이 옳은지는 이 자가 묻지 않는다.** 판정의 바늘 셋에는 한국어가 한 글자도 없고" +
+        "(`styles.retryButton`·`loadError.canRetry ? (`·`{loadError.message}`), 배너 문장이 그 화면에 " +
+        "맞는 말인지는 이 파일의 **다른 절**(네 갈래 · 폴백 문장 스윕)이 이미 진다. 이 자에게 " +
+        "[다시 시도]는 **모양**이지 문구가 아니다",
+      measure: () => RETRY_NEEDLES.filter((needle) => /[가-힣]/.test(needle)).length,
+      today: 0,
+      resumeCondition:
+        "재개 조건(사건형): 판정의 바늘에 한국어가 처음 들어가는 날 — 그날 이 자는 모양이 아니라 문구를 " +
+        "묻기 시작한 것이고, 그 축이 이 파일의 다른 절과 겹치는지 먼저 확인해야 한다"
+    }
+  ];
+
+  it("ⓕ 사각마다 이유와 재개 조건이 있다 (빈 이유 금지 · 최소 넷)", () => {
+    expect(RETRY_BLIND_SPOTS.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(RETRY_BLIND_SPOTS.map((spot) => spot.key)).size).toBe(RETRY_BLIND_SPOTS.length);
+    for (const spot of RETRY_BLIND_SPOTS) {
+      expect(spot.reason.length, `${spot.key}: 이유가 비어 있어요`).toBeGreaterThan(40);
+      expect(spot.resumeCondition.length, `${spot.key}: 재개 조건이 비어 있어요`).toBeGreaterThan(20);
+      expect(spot.resumeCondition, `${spot.key}: 재개 조건이 형을 밝히지 않았어요`).toMatch(/재개 조건\((사건형|결정형)/);
+    }
+  });
+
+  it("ⓕ 사각의 값이 오늘도 그대로다 (유령 사각 금지)", () => {
+    for (const spot of RETRY_BLIND_SPOTS) {
+      expect(spot.measure(), `${spot.key}: 오늘 다시 잰 값이 갈렸어요`).toBe(spot.today);
+    }
+  });
+
+  it("ⓕ 사각 ⓐ의 경계는 발명이 아니라 인용이다 (라운드 92 C가 이름 붙였다)", () => {
+    const routeSurface = readSource("src/admin-route-surface.test.ts");
+    expect(routeSurface, "라운드 92 C의 경계 이름").toContain("NON_PAGE_ENTRY_NAMES");
+    for (const name of ["error.tsx", "global-error.tsx", "not-found.tsx"]) {
+      expect(routeSurface, `${name}이 그 경계 안에 이름으로 있다`).toContain(name);
+      expect(existsSync(join(adminRoot, "app", name)), `app/${name}이 실재한다`).toBe(true);
+    }
   });
 
   it("[다시 시도]가 없는 자리는 문장만 받는다 (loadErrorMessage)", () => {
@@ -503,7 +829,15 @@ describe("MFA 등록 관문의 조회 실패 (라운드 75 트랙 D)", () => {
 
   /**
    * ⚠️ 새 한국어 문구 0건: 배너 문장은 `admin-api.ts`가 만든 것이거나 종전 폴백이고,
-   * 버튼 라벨은 `app/**`의 열한 자리가 **이미 쓰는** 그 문자열이다.
+   * 버튼 라벨은 `app/**`이 **이미 쓰는** 그 문자열이다.
+   *
+   * ⚠️ **두 시점 — 이 줄은 *"`app/**`의 열한 자리"* 라고 적었다**(라운드 93 트랙 D의 정정).
+   *  · **라운드 75 시점**: *열하나*는 `app/**`의 `styles.retryButton` **출현** 수였다. 같은 날
+   *    윗 절의 손 목록은 **열 줄**이었고, 그 위 주석도 *"열한 자리"* 라고 적었다 — 한 낱말이
+   *    두 수를 가리키고 있었다.
+   *  · **오늘**: 출현은 여전히 **열하나**이고 화면은 **열**이다(대시보드가 배너를 둘 세운다).
+   *    **두 수를 한 낱말로 적지 않는다** — 윗 절의 전수 걷기가 그 둘을 각각 값으로 지고,
+   *    그 차이는 사각 `second-banner-per-screen`이 오늘도 다시 잰다.
    */
   it("[다시 시도] 라벨이 새 문구가 아니다 (새 한국어 문구 0건)", () => {
     const label = "다시 시도";
