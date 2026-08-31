@@ -2,7 +2,7 @@
 //
 // 여섯을 묻는다:
 //  ⓐ **모집단** — 판정 문서의 재개 조건 자리를 **전수로** 세고, **바늘을 값으로** 든다
-//     (⚠️ 괄호 안만 보는 바늘과 줄 전체를 보는 바늘 — 세운 날 61·84, 오늘 **97·129** —
+//     (⚠️ 괄호 안만 보는 바늘과 줄 전체를 보는 바늘 — 세운 날 61·84, 오늘 **111·149** —
 //     **두 수를 한 낱말로 적지 않는다**).
 //  ⓑ **하한 래칫** — 형을 밝힌 자리 수와 손의 위치를 적은 자리 수가 **줄지 않는다**
 //     (⚠️ 상한도 전수 일치도 묻지 않는다 — F가 AD절을 쓰며 줄을 더해도 초록이다).
@@ -13,6 +13,17 @@
 //  ⓔ **사각** — 이 그물이 못 보는 것이 **값과 하한으로** 적혀 있다(오늘 **여덟** — 넓힌 축이 새로
 //     진 둘을 포함한다).
 //  ⓕ **자기 배제** — 대장 자신의 두 파일은 모집단에 들어오지 않는다.
+//  ⓖ **경과 축** — ⚠️⚠️ **라운드 92 트랙 D가 더한 칸.** 자리마다 *몇 라운드째 서 있는가*를
+//     **바늘 둘로 따로** 센다(그 줄 자신 **3** · ±5줄 창 **70** — ⚠️ **한 낱말로 적지 않는다**).
+//     ⚠️ 모집단은 `collectDocumentSites()` 그대로이고(넓히면 축 둘이 된다), 무는 것은 **하한뿐**이다.
+//
+// ## ⚠️⚠️ 라운드 92 트랙 D — 없던 칸 하나(경과)가 값으로 선다
+//
+// 이 대장은 자리마다 형과 손의 위치를 셌지만 **경과 칸이 없었다** — 그래서 *미도래*와 *오래
+// 미배정*이 같은 낯으로 읽혔다(AE-5의 병의 시간 축 판). 라운드 92 정찰이 AF-2의 물음에 값으로
+// 답했고(자리 **333** 중 그 줄이 경과를 적은 것 **셋**), 그 답이 그대로 이 축이 된다. 아래 계약은
+// 교란 둘로 그 축이 실제로 무는지를 보인다: ① **경과를 적은 자리를 지운 픽스처**에서 하한이
+// 빨개진다 · ② **F가 AG절을 쓰며 조건을 더하는 픽스처**에서는 초록이다(하한만 물기 때문이다).
 //
 // ## ⚠️⚠️ 라운드 91 트랙 D — 소스 축이 손 목록을 버린다
 //
@@ -50,6 +61,15 @@ import {
   CONTRACT_NET_COUNT_WITH_THIS_ONE,
   DECISIVE_HAND_EXEMPTIONS,
   DECISIVE_MISSING_HAND_TODAY,
+  ELAPSED_BLIND_SPOTS,
+  ELAPSED_MEASURED_TODAY,
+  ELAPSED_NUMERAL_TABLE,
+  ELAPSED_RATCHET,
+  ELAPSED_SCOUT_VALUES,
+  ELAPSED_STANDALONE,
+  ELAPSED_TENS,
+  ELAPSED_UNITS,
+  ELAPSED_WINDOW_RADIUS,
   HAND_PHRASE,
   LEDGER_BLIND_SPOTS,
   LEDGER_DOCUMENT,
@@ -65,13 +85,19 @@ import {
   SOURCE_AXIS_WALKED_FLOOR,
   SOURCE_COUNT_RATCHET,
   anyParenSourceNeedle,
+  buildElapsedNumeralTable,
   collectDocumentSites,
+  collectElapsedSites,
   collectResumeSites,
   collectSourceNotations,
   countAnyParenSourceNotations,
   countMentions,
   decisiveSites,
   decisiveSitesMissingHand,
+  documentElapsedSites,
+  elapsedMarksIn,
+  elapsedNumeral,
+  elapsedRatchetViolations,
   exemptionFor,
   markedSourceNeedle,
   ownerForSourcePath,
@@ -82,8 +108,10 @@ import {
   sourceAxisDefects,
   sourceAxisFilesFrom,
   sourceCountViolation,
+  tallyElapsed,
   tallyNeedles,
-  typedInners
+  typedInners,
+  unreadableElapsedNumerals
 } from "./resume-condition-ledger";
 
 const documentText = readFileSync(join(repoRoot, LEDGER_DOCUMENT.path), "utf8");
@@ -642,7 +670,7 @@ describe("ⓕ 자기 배제 — 대장 자신의 두 파일은 모집단 밖이�
 // ⓔ' 유령 방지 ② — 소스 축을 넓힌 뒤에도 문서 축이 함께 세어진다
 // ---------------------------------------------------------------------------
 
-describe("⚠️ 유령 방지 ② — 넓힌 뒤에도 문서 축의 넷이 함께 세어진다 (294 · 97 · 24 · 1)", () => {
+describe("⚠️ 유령 방지 ② — 넓힌 뒤에도 문서 축의 넷이 함께 세어진다 (333 · 111 · 30 · 1)", () => {
   const decisive = decisiveSites(sites).length;
   const missing = decisiveSitesMissingHand(sites).length;
 
@@ -690,6 +718,224 @@ describe("⚠️ 유령 방지 ② — 넓힌 뒤에도 문서 축의 넷이 함
 });
 
 // ---------------------------------------------------------------------------
+// ⓖ 경과 축 — *몇 라운드째 서 있는가* (⚠️⚠️ 라운드 92 트랙 D가 더한 칸)
+// ---------------------------------------------------------------------------
+
+describe("ⓖ 경과 축 — 자리마다 몇 라운드째 서 있는지를 바늘 둘로 따로 센다", () => {
+  const elapsed = documentElapsedSites();
+  const tally = tallyElapsed(elapsed);
+
+  it("ⓐ 모집단을 넓히지 않았다 — `collectDocumentSites()`가 파생한 자리 그대로다", () => {
+    // ⚠️ 이 축이 세는 자리는 문서 축의 자리와 **같은 전수**다(넓히면 이 트랙이 축 둘을 진다).
+    expect(elapsed.length).toBe(sites.length);
+    expect(elapsed.map((entry) => entry.site.line)).toEqual(sites.map((site) => site.line));
+    for (const entry of elapsed) expect(entry.site.file).toBe(LEDGER_DOCUMENT.path);
+    // 같은 원문·같은 자리를 손으로 넣어도 같은 수가 나온다(모집단이 이 축의 것이 아니라는 증거).
+    expect(tallyElapsed(collectElapsedSites(documentText, sites))).toEqual(tally);
+  });
+
+  it("ⓔ 유령 방지 — 모집단이 0건이 아니고, **바늘 둘이 서로 다른 수를 낸다**", () => {
+    expect(sites.length).toBeGreaterThanOrEqual(LEDGER_DOCUMENT.minSites);
+    expect(tally.ownLine).toBeGreaterThan(0);
+    expect(tally.window).toBeGreaterThan(0);
+    // ⚠️⚠️ 두 수가 같아지면 바늘 하나가 죽은 것이다 — 그 사실을 단언으로 못 박는다.
+    expect(tally.ownLine).not.toBe(tally.window);
+    expect(tally.ownLine).toBeLessThan(tally.window);
+    expect(tally.window + tally.neither).toBe(elapsed.length);
+  });
+
+  it("ⓑ 두 수를 **한 낱말로 적지 않는다** — 이름이 갈려 있고 합친 수를 드는 자리가 없다", () => {
+    // 라운드 91 D의 `tallyNeedles`가 바늘 셋을 갈라 든 그 형식을 그대로 인용한다.
+    expect(Object.keys(tally).sort()).toEqual(["neither", "ownLine", "window"]);
+    expect(ELAPSED_MEASURED_TODAY.ownLine).not.toBe(ELAPSED_MEASURED_TODAY.window);
+    expect(Object.keys(ELAPSED_RATCHET).sort()).toEqual(["ownLine", "window"]);
+    // 기록은 하한 방향으로만 견준다(등호로 물면 조건을 더하는 손이 빨강을 맞는다).
+    expect(ELAPSED_MEASURED_TODAY.ownLine).toBeLessThanOrEqual(tally.ownLine);
+    expect(ELAPSED_MEASURED_TODAY.window).toBeLessThanOrEqual(tally.window);
+  });
+
+  it("ⓒ 한국어 수사와 아라비아 숫자를 함께 읽고, 그 표는 **소스에서 파생된다**", () => {
+    // ⚠️ 손으로 적은 표가 아니라 열 자리 × 낱 자리의 곱이다.
+    expect(ELAPSED_NUMERAL_TABLE).toEqual(buildElapsedNumeralTable());
+    expect(Object.keys(ELAPSED_NUMERAL_TABLE).length).toBe(
+      Object.keys(ELAPSED_STANDALONE).length +
+        Object.keys(ELAPSED_TENS).length * Object.keys(ELAPSED_UNITS).length
+    );
+    expect(elapsedNumeral("스물다섯")).toBe(25);
+    expect(elapsedNumeral("서른한")).toBe(31); // 손 목록이었다면 빠졌을 자리
+    expect(elapsedNumeral("스무")).toBe(20); // 홀로 설 때의 꼴
+    expect(elapsedNumeral("14")).toBe(14);
+    expect(elapsedNumeral("아무개")).toBeUndefined(); // 모르는 낱말을 0으로 읽지 않는다
+    expect(elapsedMarksIn("C-3이 스물다섯 라운드째 서 있다")[0]).toEqual({
+      numeral: "스물다섯",
+      rounds: 25,
+      unit: "째"
+    });
+    expect(elapsedMarksIn("링크 축이 11 라운드 연속 그대로다")[0].rounds).toBe(11);
+    // ⚠️ 두 꼴 다 **오늘 실제로 읽히고 있다**(한쪽이 0건이면 그 절반은 죽은 바늘이다).
+    const korean = elapsed.filter((entry) =>
+      entry.inWindow.some((mark) => !/^\d+$/.test(mark.numeral))
+    ).length;
+    const arabic = elapsed.filter((entry) =>
+      entry.inWindow.some((mark) => /^\d+$/.test(mark.numeral))
+    ).length;
+    expect(korean).toBeGreaterThan(0);
+    expect(arabic).toBeGreaterThan(0);
+    expect(ELAPSED_MEASURED_TODAY.koreanNumeralSites).toBeLessThanOrEqual(korean);
+    expect(ELAPSED_MEASURED_TODAY.arabicNumeralSites).toBeLessThanOrEqual(arabic);
+    // 읽지 못한 수사는 **값으로만** 든다 — 계약이 등호로 물지 않는다(F의 손을 막지 않는다).
+    expect(Array.isArray(unreadableElapsedNumerals(elapsed))).toBe(true);
+    expect(ELAPSED_MEASURED_TODAY.unreadableNumerals).toBeGreaterThanOrEqual(0);
+  });
+
+  it("ⓓ 래칫은 **하한뿐**이다 — 오늘의 실측이 둘 다 하한을 넘는다", () => {
+    expect(elapsedRatchetViolations(tally)).toEqual([]);
+    expect(ELAPSED_RATCHET.ownLine).toBeLessThanOrEqual(tally.ownLine);
+    expect(ELAPSED_RATCHET.window).toBeLessThanOrEqual(tally.window);
+    // ⚠️⚠️ 창 바늘의 하한은 오늘의 실측이 아니라 **정찰의 61**이다(문단이 끼어들어도 초록이도록).
+    expect(ELAPSED_RATCHET.window).toBeLessThan(ELAPSED_MEASURED_TODAY.window);
+    expect(ELAPSED_RATCHET.window).toBe(61);
+  });
+
+  it("⚠️ 교란 ① — **경과를 적은 자리를 지운 픽스처**에서 하한이 빨개진다", () => {
+    // 문서를 고치지 않는다 — 메모리에서 경과 표기를 산문으로 바꿔 적는다(문서 쓰기 0건).
+    const erasedText = documentText.replace(/(?:[가-힣]+|\d+)\s*라운드\s*(?:연속|째|만에)/g, "오래");
+    const erased = collectElapsedSites(erasedText, collectResumeSites(erasedText, "<픽스처>"));
+    const erasedTally = tallyElapsed(erased);
+    expect(erasedTally.ownLine).toBeLessThan(tally.ownLine);
+    expect(erasedTally.window).toBeLessThan(tally.window);
+    const violations = elapsedRatchetViolations(erasedTally);
+    expect(violations.map((violation) => violation.name).sort()).toEqual(["ownLine", "window"]);
+    for (const violation of violations) expect(violation.measured).toBeLessThan(violation.floor);
+    // ⚠️ 그리고 그 자리들이 사라진 것이 아니라 **산문으로 바뀐 것**이다 — 사각 ⓐ가 그 몫을 진다.
+    expect(erased.length).toBe(elapsed.length);
+  });
+
+  it("⚠️ 교란 ② — **F가 AG절을 쓰며 조건을 더해도** 초록이다 (하한만 물기 때문이다)", () => {
+    const addedText = `${documentText}\n${[
+      "## AG절 — 라운드 92가 답한 자리 (F가 쓰는 절의 모양을 흉내 낸 픽스처)",
+      "- ⚠️ **재개 조건(사건형): 경과 축이 처음으로 빨개지는 날.**",
+      "- ⚠️ **재개 조건(결정형 · 손은 저장소 안): 도래를 값으로 가를지 정하는 날.**",
+      "- ⚠️ **재개 조건: 경과를 적지 않은 산문 조건도 더해 본다.**",
+      "- ⚠️ **재개 조건: 또 하나 — 이 줄도 경과를 적지 않는다.**"
+    ].join("\n")}\n`;
+    const added = collectElapsedSites(addedText, collectResumeSites(addedText, "<픽스처>"));
+    const addedTally = tallyElapsed(added);
+    // 자리는 늘고, 경과를 적은 자리는 줄지 않는다 — 그래서 초록이다.
+    expect(added.length).toBeGreaterThan(elapsed.length);
+    expect(addedTally.ownLine).toBeGreaterThanOrEqual(tally.ownLine);
+    expect(addedTally.window).toBeGreaterThanOrEqual(tally.window);
+    expect(addedTally.neither).toBeGreaterThan(tally.neither);
+    expect(elapsedRatchetViolations(addedTally)).toEqual([]);
+    // ⚠️⚠️ **비율로 물었다면 여기서 빨개졌다** — 경과를 적지 않은 자리가 넷 늘었기 때문이다.
+    expect(addedTally.window / added.length).toBeLessThan(tally.window / elapsed.length);
+  });
+
+  it("⚠️ 창의 폭은 바늘의 일부다 — 값으로 박혀 있고, 좁히면 수가 갈린다", () => {
+    expect(ELAPSED_WINDOW_RADIUS).toBe(5);
+    const narrow = tallyElapsed(collectElapsedSites(documentText, sites, 3));
+    const wide = tallyElapsed(collectElapsedSites(documentText, sites, 7));
+    expect(narrow.window).toBeLessThan(tally.window);
+    expect(wide.window).toBeGreaterThan(tally.window);
+    // ⚠️ 그 줄 자신의 수는 창을 넓혀도 움직이지 않는다(두 바늘이 서로 다른 것을 재는 증거).
+    expect(narrow.ownLine).toBe(tally.ownLine);
+    expect(wide.ownLine).toBe(tally.ownLine);
+  });
+});
+
+describe("ⓖ' 경과 축의 사각 셋 — 값과 하한으로 서고, 남의 사각 목록을 열지 않는다", () => {
+  it("셋이 실재하고 요구된 셋이 이름으로 있다", () => {
+    expect(ELAPSED_BLIND_SPOTS.length).toBeGreaterThanOrEqual(3);
+    const ids = ELAPSED_BLIND_SPOTS.map((spot) => spot.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain("prose-elapsed"); // ⓐ 산문으로 오래됨을 말하는 자리는 밖이다
+    expect(ids).toContain("elapsed-truth"); // ⓑ 적혀 있다는 것과 오늘 참이라는 것은 다르다
+    expect(ids).toContain("elapsed-outside-population"); // ⓒ 짝 문서·라운드 노트는 밖이다
+  });
+
+  it("사각마다 무엇·왜·재개 조건이 빈 문자열이 아니고, 오늘 다시 재도 하한을 넘는다", () => {
+    for (const spot of ELAPSED_BLIND_SPOTS) {
+      expect(spot.what.trim().length, `${spot.id}의 what`).toBeGreaterThan(20);
+      expect(spot.why.trim().length, `${spot.id}의 why`).toBeGreaterThan(40);
+      expect(spot.reopenCondition.trim().length, `${spot.id}의 재개 조건`).toBeGreaterThan(20);
+      expect(spot.floor, `${spot.id}의 하한`).toBeLessThanOrEqual(spot.valueToday);
+      expect(spot.measure(repoRoot), `${spot.id}를 오늘 다시 잰 수`).toBeGreaterThanOrEqual(spot.floor);
+    }
+  });
+
+  it("⚠️⚠️ 사각 ⓑ가 *적힘 ≠ 오늘 참*을 값으로 적고, **결정형 열다섯의 관례를 세우지 않는다**", () => {
+    const truth = ELAPSED_BLIND_SPOTS.find((spot) => spot.id === "elapsed-truth");
+    expect(truth).toBeDefined();
+    expect(truth!.why).toContain("열다섯");
+    expect(truth!.why).toContain("이 트랙은 그 관례를 세우지 않는다");
+    // 그 사각의 크기는 창 바늘이 센 수 그대로다 — 그 전부가 *오늘도 맞는가*를 묻지 않은 채 세어진다.
+    expect(truth!.measure(repoRoot)).toBe(tallyElapsed(documentElapsedSites()).window);
+    // ⓒ 짝 문서·라운드 노트의 경과는 이 모집단 밖이고, 그 수가 0이 아니다(사각이 실재한다).
+    const outside = ELAPSED_BLIND_SPOTS.find((spot) => spot.id === "elapsed-outside-population");
+    expect(outside!.measure(repoRoot)).toBeGreaterThan(0);
+    // ⓐ 산문으로만 오래됨을 말하는 자리도 0건이 아니다 — 이 바늘이 못 보는 것이 실제로 있다.
+    const prose = ELAPSED_BLIND_SPOTS.find((spot) => spot.id === "prose-elapsed");
+    expect(prose!.measure(repoRoot)).toBeGreaterThan(0);
+  });
+
+  it("⚠️ 사각의 재개 조건 자신이 이 대장의 관례를 지킨다 (자기 적용 · AD-5)", () => {
+    for (const spot of ELAPSED_BLIND_SPOTS) {
+      expect(spot.reopenCondition).toContain("재개 조건(");
+      const inner = /재개 조건\(([^)]*)\)/.exec(spot.reopenCondition)?.[1] ?? "";
+      expect(/사건형|결정형/.test(inner), `형을 괄호로 밝혔다: ${spot.id}`).toBe(true);
+      if (inner.includes("결정형")) {
+        expect(HAND_PHRASE.test(inner), `결정형이면 손의 위치를 함께 적었다: ${spot.id}`).toBe(true);
+      }
+    }
+  });
+
+  it("⚠️⚠️ 남의 사각 여덟을 열지 않았다 — 이름이 겹치지 않고 그 목록의 길이도 그대로다", () => {
+    const theirs = LEDGER_BLIND_SPOTS.map((spot) => spot.id);
+    expect(theirs.length).toBe(8);
+    for (const spot of ELAPSED_BLIND_SPOTS) expect(theirs).not.toContain(spot.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 전제 재실측 ② — 라운드 92 정찰의 네 수(333 · 3 · 61 · 272)
+// ---------------------------------------------------------------------------
+
+describe("전제 재실측 ② — 정찰의 333·3·61·272를 다시 센다", () => {
+  const tally = tallyElapsed(documentElapsedSites());
+
+  it("네 수가 전부 값으로 적혀 있고, 갈린 이유가 빈 문자열이 아니다", () => {
+    expect(ELAPSED_SCOUT_VALUES.length).toBe(4);
+    expect(ELAPSED_SCOUT_VALUES.map((entry) => entry.scout)).toEqual([333, 3, 61, 272]);
+    for (const entry of ELAPSED_SCOUT_VALUES) {
+      expect(entry.what.trim().length).toBeGreaterThan(5);
+      expect(entry.divergence.trim().length, `${entry.what}의 갈린 이유`).toBeGreaterThan(10);
+      expect(entry.remeasured).toBeGreaterThan(0);
+    }
+  });
+
+  it("⚠️ 앞의 둘은 그대로이고 뒤의 둘은 **바늘이 갈렸다** — 갈림이 오늘의 실측과 아귀가 맞는다", () => {
+    const [siteCount, ownLine, window, neither] = ELAPSED_SCOUT_VALUES;
+    expect(siteCount.remeasured).toBe(sites.length); // 333 — 정찰과 같다(문서가 자라지 않았다)
+    expect(siteCount.remeasured).toBe(siteCount.scout);
+    expect(ownLine.remeasured).toBe(tally.ownLine); // 3 — 정찰과 같다
+    expect(ownLine.remeasured).toBe(ownLine.scout);
+    expect(window.remeasured).toBe(tally.window); // 70 — 정찰의 61과 갈렸다
+    expect(window.remeasured).not.toBe(window.scout);
+    expect(neither.remeasured).toBe(tally.neither); // 263 — 앞 줄의 갈림이 옮겨 온 수다
+    expect(neither.remeasured).toBe(siteCount.remeasured - window.remeasured);
+    expect(neither.scout).toBe(siteCount.scout - window.scout);
+  });
+
+  it("⚠️⚠️ 갈린 61을 버리지 않고 **하한으로** 든다 (라운드 89 D가 정찰의 14를 셋째 바늘로 든 그 판단)", () => {
+    const window = ELAPSED_SCOUT_VALUES[2];
+    expect(ELAPSED_RATCHET.window).toBe(window.scout);
+    expect(ELAPSED_RATCHET.window).toBeLessThan(window.remeasured);
+    expect(window.divergence).toContain("하한");
+    expect(elapsedRatchetViolations(tally)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 전제 재실측 — 정찰의 다섯 수를 다시 셌다
 // ---------------------------------------------------------------------------
 
@@ -722,7 +968,7 @@ describe("전제 재실측 — 정찰의 203·61·84·11·14를 다시 센다", 
     expect(ratchetViolations(sites, NOTATION_RATCHET)).toEqual([]);
   });
 
-  it("⚠️ 손의 위치는 한 수가 아니라 두 수다 — 당시 줄 12·접힘 14, 오늘 줄 19·접힘 21", () => {
+  it("⚠️ 손의 위치는 한 수가 아니라 두 수다 — 당시 줄 12·접힘 14, 오늘 줄 33·접힘 35", () => {
     expect(MEASURED_TODAY.lineHand).not.toBe(MEASURED_TODAY.windowHand);
     expect(tallies.window.hand).toBeGreaterThan(tallies.line.hand);
     const folded = LEDGER_BLIND_SPOTS.find((spot) => spot.id === "folded-notation");
