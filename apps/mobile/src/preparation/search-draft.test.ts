@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { pendingSearchSubmission, shouldSyncSearchDraft } from "./search-draft";
+import { pendingSearchSubmission, searchResultCountAnnouncement, shouldSyncSearchDraft } from "./search-draft";
 
 const paritySource = readFileSync(join(process.cwd(), "src/preparation/PreparationListParity.tsx"), "utf8");
 
@@ -52,5 +52,38 @@ describe("화면은 이 판정을 그대로 쓴다", () => {
     expect(paritySource).toContain("submittedSearch.current = activeSearchQuery;");
     expect(paritySource).not.toContain("if (!query || query === submittedSearch.current) return;");
     expect(paritySource).not.toContain("if (activeSearchQuery && searchDraft !== activeSearchQuery)");
+  });
+});
+
+describe("검색 결과 개수가 소리로도 나간다 (라운드 90 트랙 A)", () => {
+  it("문장이 화면의 두 값에서만 나온다 — 질의 그대로, 개수 그대로", () => {
+    expect(searchResultCountAnnouncement("젖병", 12)).toBe("‘젖병’ 검색 결과 12개");
+    // 0건도 하나의 결과다 — 목록이 비었다는 사실이 소리로 닿아야 한다(눈으로는 굵은 줄이 선다).
+    expect(searchResultCountAnnouncement("아기욕조", 0)).toBe("‘아기욕조’ 검색 결과 0개");
+    // 질의는 다듬지도 바꾸지도 않는다 — 화면이 그리는 그 글자를 그대로 읽는다.
+    expect(searchResultCountAnnouncement("기저귀 갈이대", 3)).toBe("‘기저귀 갈이대’ 검색 결과 3개");
+  });
+
+  it("같은 문장이면 두 번 읽지 않는다 — 판정의 단위가 문장이다", () => {
+    // 재낭독 금지는 화면의 ref가 지고, 그 ref가 비교하는 것이 이 함수의 산출이다.
+    expect(searchResultCountAnnouncement("젖병", 5)).toBe(searchResultCountAnnouncement("젖병", 5));
+    // ⚠️ 질의가 갈리면 개수가 같아도 다른 문장이다(그때는 다시 읽어야 한다).
+    expect(searchResultCountAnnouncement("젖병", 5)).not.toBe(searchResultCountAnnouncement("분유", 5));
+    // ⚠️ 개수가 갈리면 질의가 같아도 다른 문장이다.
+    expect(searchResultCountAnnouncement("젖병", 5)).not.toBe(searchResultCountAnnouncement("젖병", 4));
+  });
+
+  it("화면이 그 문장을 effect에서 부르고, 렌더 줄은 한 바이트도 움직이지 않았다", () => {
+    // 눈과 귀가 같은 말을 한다 — 렌더 줄과 낭독 문장이 같은 두 값에서 나온다.
+    expect(paritySource).toContain("‘{activeSearchQuery}’ 검색 결과 {displayedItems.length}개");
+    expect(paritySource).toContain(
+      "const announcement = searchResultCountAnnouncement(activeSearchQuery, displayedItems.length);"
+    );
+    // 배선은 갈래 안이고(조건이 거짓인 창은 조용하다), 같은 문장이면 그대로 돌아간다.
+    expect(paritySource).toContain("if (activeSearchQuery) {");
+    expect(paritySource).toContain("if (announcedSearchResult.current === announcement) return;");
+    expect(paritySource).toContain("announceForA11y(announcement);");
+    // 프롭은 그대로 남는다 — 안드로이드에서 들리던 것을 끄는 것이 이 배선의 목적이 아니다.
+    expect(paritySource).toContain('<Text accessibilityLiveRegion="polite" style={{ color: semanticColors.textPrimary');
   });
 });

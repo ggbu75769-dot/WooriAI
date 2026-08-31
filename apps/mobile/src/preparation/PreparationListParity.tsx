@@ -12,7 +12,8 @@ import {
   type AppIconName
 } from "../design-system";
 import { resolvePreparationItemVisual } from "./item-visuals";
-import { pendingSearchSubmission, shouldSyncSearchDraft } from "./search-draft";
+import { pendingSearchSubmission, searchResultCountAnnouncement, shouldSyncSearchDraft } from "./search-draft";
+import { announceForA11y } from "../ui";
 import { resolvePreparationDisplayGroupId, type PreparationDisplayGroupId } from "./preparation-grouping";
 import { compactGridColumnCount, compactGridItemWidth } from "../design-system/responsive";
 
@@ -353,6 +354,16 @@ export function PreparationListParity({
   const [searchDraft, setSearchDraft] = useState("");
   const autoExpandedKey = useRef<string | undefined>(undefined);
   const submittedSearch = useRef("");
+  /**
+   * 라운드 90 트랙 A(#1) — **직전에 소리로 내보낸 검색 결과 문장.**
+   *
+   * 아래 낭독 effect가 같은 문장을 두 번 읽지 않게 하는 유일한 근거다(재낭독 금지). 검색 결과가
+   * 정확히 그 축이다 — 같은 질의가 같은 개수로 다시 서는 창(목록 재조회 · 필터 왕복 · 개발
+   * 모드의 effect 이중 호출)이 실재하고, 그때 화면은 한 글자도 달라지지 않는데 소리만 두 번
+   * 난다. 값이 아니라 **문장**을 기억하는 이유는 사람에게 닿는 단위가 문장이기 때문이다
+   * (질의가 바뀌어도 개수가 같을 수 있고, 그때는 다시 읽어야 한다).
+   */
+  const announcedSearchResult = useRef<string | null>(null);
 
   const categories = useMemo(() => (categoryGroups ?? displayGroups)
     .map((group) => ({
@@ -434,6 +445,43 @@ export function PreparationListParity({
       ? Math.round((completedItems.length / trackedItems.length) * 100)
       : 0;
   const displayedItems = items;
+
+  /**
+   * 라운드 90 트랙 A(#1) — **검색 결과 개수 줄이 두 플랫폼 다 소리로 나간다.**
+   *
+   * 아래 `activeSearchQuery` 갈래의 첫 줄에는 라운드 79~89가 남긴 `accessibilityLiveRegion="polite"`가
+   * **반쪽으로** 걸려 있었다(짝인 `accessibilityRole="alert"`가 없고, 이 파일에 `announceForA11y`도
+   * 0건이었다). 그 프롭은 RN 문서가 `@platform android`로 표시한 것이라 **안드로이드에서만**
+   * 소리가 났다 — 준비템 탭에서 검색을 제출한 사람이 iOS에서는 *몇 개가 남았는지*를 듣지 못한다.
+   * 핵심 루프 안(지출 기록 → 총액 → **준비템** → 구매 링크) 화면이고, 눈으로는 굵은 글씨 한 줄이
+   * 서는데 소리로는 목록이 조용히 줄어들 뿐이었다.
+   *
+   * ⚠️ 이 `if`의 조건은 그 줄을 세우는 갈래와 **글자로 같다**(`activeSearchQuery`) —
+   * a11y-contract.test.ts의 파생 판정이 자리를 감싸는 **최내곽 JSX 갈래**와 이 배선의 `if`
+   * 조건을 문자열로 맞춰 보고, 갈리면 배선이 실재해도 `live-region`(= 안드로이드 한정)으로
+   * 센다(라운드 88 리뷰 L-1이 이름 붙인 사각 · 라운드 89 A가 그 첫 소비자였다).
+   *
+   * ⚠️ **재낭독 금지.** 같은 문장이면 소리를 내지 않는다(위 `announcedSearchResult`). 의존 배열은
+   * 그 갈래가 읽는 두 값뿐이지만, 같은 질의·같은 개수로 다시 서는 창이 실재하므로 조건 하나로는
+   * 부족하다 — 라운드 89 리뷰 L-4가 이름 붙인 그 축이다.
+   *
+   * ⚠️ 읽어 주는 문장은 화면이 짓지 않는다 — 화면이 이미 그리는 두 값(질의 · 결과 수)에서
+   * 문구 모듈이 짓는다(`./search-draft`의 `searchResultCountAnnouncement`). 그래서 이 파일에
+   * 새 한국어는 0글자이고, 아래 렌더 줄은 한 바이트도 움직이지 않았다.
+   *
+   * ⚠️⚠️ **소스로는 여기까지다 — 안드로이드 이중 낭독은 실기기의 몫이다.** 프롭은 그대로 남고
+   * (라운드 79~89의 기록이고, 안드로이드에서 들리던 것을 끄는 것이 이 배선의 목적이 아니다)
+   * TalkBack에서는 라이브 리전과 이 배선이 **둘 다** 소리를 낸다. 큐가 겹치는지·앞의 것이
+   * 잘리는지는 런타임 큐잉이 정하고 소스로 잴 수 없다(라운드 89 리뷰 L-3의 그 물음).
+   */
+  useEffect(() => {
+    if (activeSearchQuery) {
+      const announcement = searchResultCountAnnouncement(activeSearchQuery, displayedItems.length);
+      if (announcedSearchResult.current === announcement) return;
+      announcedSearchResult.current = announcement;
+      announceForA11y(announcement);
+    }
+  }, [activeSearchQuery, displayedItems.length]);
 
   const toggleGroup = (id: string) => setExpandedGroups((current) => {
     const next = new Set(current);
