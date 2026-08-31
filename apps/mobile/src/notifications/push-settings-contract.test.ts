@@ -50,6 +50,12 @@ describe("PUSH-116 push settings contract", () => {
     // A11Y: switches carry role + Korean label.
     expect(screenSource).toContain('accessibilityRole="switch"');
     expect(screenSource).toContain('accessibilityLabel="푸시 알림"');
+    // 라운드 87 D: 기기 행의 제목과 스위치 라벨은 같은 파생값을 읽는다(src/notifications/device-rows.ts).
+    // 같은 플랫폼 기기 둘이 서로 다른 줄·다른 낭독이 되는 자리이고, 파생의 계약은 device-rows.test.ts.
+    expect(screenSource).toContain("deviceRowTitle(platformLabel(device.platform), device.osVersion)");
+    expect(screenSource).toContain(
+      "deviceRowSwitchLabel(platformLabel(device.platform), device.osVersion, isThisDevice)"
+    );
   });
 
   it("adds exactly one settings entry point to the notifications screen", () => {

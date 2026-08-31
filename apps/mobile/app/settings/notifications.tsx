@@ -9,6 +9,7 @@ import {
   LOCAL_SESSION_TOKEN,
   type UserDeviceSummary
 } from "../../src/api/client";
+import { deviceRowSwitchLabel, deviceRowTitle } from "../../src/notifications/device-rows";
 import {
   NOTIFICATION_TYPE_OPTIONS,
   isNotificationTypeEnabled,
@@ -326,12 +327,12 @@ export default function NotificationSettingsScreen() {
                 <Card key={device.id} style={{ gap: 6 }}>
                   <View style={toggleRowStyle}>
                     <View style={{ flex: 1, gap: 3, paddingRight: 12 }}>
-                      <Text style={rowTitleStyle}>{platformLabel(device.platform)}</Text>
+                      <Text style={rowTitleStyle}>{deviceRowTitle(platformLabel(device.platform), device.osVersion)}</Text>
                       {lastUsedText ? <Text style={rowSubtitleStyle}>{lastUsedText}</Text> : null}
                     </View>
                     {isThisDevice ? <StatusBadge label="이 기기" tone="success" /> : null}
                     <Switch
-                      accessibilityLabel={`${platformLabel(device.platform)} 알림`}
+                      accessibilityLabel={deviceRowSwitchLabel(platformLabel(device.platform), device.osVersion, isThisDevice)}
                       accessibilityRole="switch"
                       disabled={toggleDevice.isPending}
                       onValueChange={(next) => toggleDevice.mutate({ deviceId: device.id, enabled: next })}
