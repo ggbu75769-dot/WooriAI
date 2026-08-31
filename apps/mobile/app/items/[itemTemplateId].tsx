@@ -841,8 +841,28 @@ export default function ItemDetailScreen() {
     ]);
   }
   const canCallLinkApi = hasSession;
+  /**
+   * 라운드 91 A — 왕복이 끝나기 전의 **두 번째 탭**을 조용히 떨어뜨린다(핵심 루프 4단계).
+   *
+   * ⚠️⚠️ **두 시점 — 라운드 91 A가 세운 가드는 뮤테이션 단위였고, 라운드 91 리뷰가 링크 단위로
+   * 좁힌다.** A가 적은 줄은 `if (clickLink.isPending) return;` 한 조건이었다. 그 모양은 *"이
+   * 화면에서 왕복이 하나라도 돌고 있으면 아무것도 누를 수 없다"* 는 뜻이라, **누른 적 없는 다른
+   * 판매처 행까지 함께 삼켰다** — 이 화면의 누르는 자리 둘(판매처 비교 행 · 구매 CTA)은 한
+   * 핸들러로 모이지만 **서로 다른 링크**를 넘긴다(`handleProductLinkPress(link)` ·
+   * `handleProductLinkPress(primaryPurchaseLink)`). 느린 망에서 A의 가드는 첫 탭이 도는 동안
+   * 사용자가 *다른 판매처*를 눌러 보는 정당한 행동까지 아무 말 없이 없앴고, 그 자리는 A가 막으려던
+   * 중복 기록(**허위 수치**)과 아무 상관이 없다.
+   *
+   * ⚠️ **그래서 오늘의 조건은 *같은 링크인가*까지 묻는다.** `clickLink.variables`는 방금 `mutate`에
+   * 넘긴 그 링크이므로, 같은 링크를 다시 누른 탭만 떨어지고 **다른 링크는 정당한 별개의 클릭으로
+   * 통과한다**. 중복 기록을 막는 힘은 그대로다 — 두 번 기록되는 자리는 언제나 *같은 링크의 두 번째
+   * 탭*이기 때문이다.
+   *
+   * ⚠️ **여전히 `disabled`가 아니다**: 대기 창 동안 픽셀이 바뀌면 승인 캡처(ITEM-002 · DSN-053)가
+   * 갈리고, `ProductComparisonRow`에는 `disabled` 프롭이 아예 없다.
+   */
   const handleProductLinkPress = (link: ProductLink) => {
-    if (clickLink.isPending) return;
+    if (clickLink.isPending && clickLink.variables?.id === link.id) return;
     if (canCallLinkApi) {
       // ANA-103: affiliate_link_clicked fires on the press itself (the comparison rows and the
       // purchase CTA both funnel through here), alongside the server-side click record

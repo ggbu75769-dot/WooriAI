@@ -29,8 +29,13 @@
 //     받는다*(`material`)를 값으로 가른다. 판정표에 없는 자리는 **`material`로 센다**(fail-closed).
 //  ⓒ **래칫** — `material`의 수는 **늘지 않는다**(오늘 0 · 새 자리가 붙는 날 빨개진다).
 //  ⓓ **유령 방지** — 모집단이 0건이 아님을 값으로 보이고, **걸은 파일 수**를 함께 센다.
-//  ⓔ **누적의 값** — `test/global-setup.ts`가 정리를 **0건** 한다는 사실을 **부정 단언**으로
-//     못 박는다(지우는 걸음이 생기는 날 이 자리가 **먼저** 빨개져 사람이 P3의 결정을 보게 된다).
+//  ⓔ **누적의 값** — 셋업이 정리를 **0건** 한다는 사실을 **부정 단언**으로 못 박는다(지우는
+//     걸음이 생기는 날 이 자리가 **먼저** 빨개져 사람이 P3의 결정을 보게 된다).
+//     ⚠️⚠️ **두 시점(리뷰 M-3)** — 라운드 91 C는 그 부정 단언을 **두 파일**(`global-setup.ts` ·
+//     `helpers/test-db.ts`)에만 걸었다. 그 모양은 *"셋업이 부르는 것이 그 둘뿐인가"* 를 묻지
+//     못해 **새 모듈 하나로 우회할 수 있었고**, 실제로 `helpers/shared-db-lock.ts`가 이미 그
+//     밖에 있었다. 오늘은 `global-setup.ts`의 **상대 import를 전이적으로 따라간 파일 전수**
+//     (`SETUP_CLOSURE`)에 같은 조항을 건다 — 손 목록이 아니라 파생이다.
 //  ⓕ **사각** — 이 계약이 못 보는 것을 값과 재개 조건으로 적는다.
 //
 // ⚠️ **DB를 쓰지 않는다.** 전부 소스 대조라, PostgreSQL 없이도 초록이다.
@@ -264,17 +269,124 @@ function readTestFile(...segments: string[]): string {
  * ⚠️ 이 뗌이 없으면 계약이 첫날부터 거짓 빨강이다: `helpers/test-db.ts`의 마지막 문단이
  * *"Intentionally no table-truncate helper here"* 와 *"A blanket TRUNCATE would …"* 라고
  * **정리가 없는 이유를 산문으로** 적고 있고, 그 산문이야말로 이 계약이 지키려는 근거다.
+ *
+ * ⚠️⚠️ **두 시점(리뷰 L-2) — 종전 이 자는 문자열 안의 `//`도 주석으로 읽고 그 줄을 잘랐다.**
+ * `줄.indexOf("//")` 한 걸음이라 **스킴 구분자가 든 접속 URL 리터럴**을 만나면 그 뒤를 통째로
+ * 버렸고, 버려진 자리에 지우는 걸음이 숨으면 이 부정 단언이 조용해진다(오늘 실제로 잘리는
+ * 자리는 접속 URL 둘이고 그 뒤에 낱말은 없지만, 0인 것은 오늘의 값이지 규율이 아니다).
+ * 오늘은 **따옴표 상태를 세며** 걷는다 — 문자열 안은 보존하고 주석만 뗀다.
  */
 function withoutComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .split("\n")
-    .map((line) => {
-      const marker = line.indexOf("//");
-      return marker === -1 ? line : line.slice(0, marker);
-    })
-    .join("\n");
+  let out = "";
+  let index = 0;
+  let state: "code" | "line" | "block" | '"' | "'" | "`" = "code";
+  while (index < source.length) {
+    const char = source[index];
+    const pair = source.slice(index, index + 2);
+    if (state === "code") {
+      if (pair === "//") {
+        state = "line";
+        index += 2;
+        continue;
+      }
+      if (pair === "/*") {
+        state = "block";
+        index += 2;
+        continue;
+      }
+      if (char === '"' || char === "'" || char === "`") state = char;
+      out += char;
+      index += 1;
+      continue;
+    }
+    if (state === "line") {
+      if (char === "\n") {
+        state = "code";
+        out += char;
+      }
+      index += 1;
+      continue;
+    }
+    if (state === "block") {
+      if (pair === "*/") {
+        state = "code";
+        index += 2;
+      } else {
+        if (char === "\n") out += char;
+        index += 1;
+      }
+      continue;
+    }
+    // 문자열 안 — 내용을 **보존한다**(이 자가 뗄 것은 주석뿐이다).
+    if (char === "\\") {
+      out += source.slice(index, index + 2);
+      index += 2;
+      continue;
+    }
+    if (char === state) state = "code";
+    out += char;
+    index += 1;
+  }
+  return out;
 }
+
+// ---------------------------------------------------------------------------
+// ⓔ의 모집단 — ⚠️⚠️ 손 목록이 아니라 **global-setup의 상대 import 폐포**(리뷰 M-3)
+// ---------------------------------------------------------------------------
+
+/** ⓔ가 시작하는 자리 — vitest가 실제로 부르는 그 파일이다. */
+const SETUP_ENTRY = "global-setup.ts";
+
+/** 폐포의 하한 — 걷기가 깨져 한 파일만 남으면 **부정 단언을 세기 전에** 빨개진다. */
+const SETUP_CLOSURE_FLOOR = 3;
+
+/** 상대 명세를 이 뿌리 안의 파일로 푼다(`.ts` · `/index.ts` 둘 다 본다 · 뿌리 밖이면 null). */
+function resolveRelativeImport(fromRelative: string, specifier: string): string | null {
+  const base = join(TEST_ROOT, fromRelative, "..");
+  const target = join(base, specifier);
+  for (const candidate of [`${target}.ts`, join(target, "index.ts"), target]) {
+    try {
+      if (!statSync(candidate).isFile()) continue;
+    } catch {
+      continue;
+    }
+    const rel = relative(TEST_ROOT, candidate).split("\\").join("/");
+    if (rel.startsWith("..")) return null;
+    return rel;
+  }
+  return null;
+}
+
+/**
+ * ⚠️⚠️ **`global-setup.ts`에서 시작해 상대 import를 전이적으로 따라간 파일 전수.**
+ *
+ * 종전 ⓔ는 **두 파일**(`global-setup.ts` · `helpers/test-db.ts`)을 이름으로 적고 그 둘만 봤다.
+ * 그 모양은 *"오늘 그 둘에 지우는 걸음이 없는가"* 만 묻고 *"셋업이 부르는 것이 그 둘뿐인가"* 는
+ * 묻지 못한다 — **새 모듈 하나를 끼워 넣으면 지우는 걸음이 그 그물 밖으로 나간다**(오늘 이미
+ * `helpers/shared-db-lock.ts`가 그 밖에 있었다). 오늘 그 손 목록을 지우고 **뿌리를 건다.**
+ */
+function setupModuleClosure(): readonly string[] {
+  const seen: string[] = [];
+  const queue: string[] = [SETUP_ENTRY];
+  while (queue.length > 0) {
+    const current = queue.shift() as string;
+    if (seen.includes(current)) continue;
+    seen.push(current);
+    const source = readFileSync(join(TEST_ROOT, current), "utf8");
+    const specifiers = [
+      ...[...source.matchAll(/\bfrom\s+["'](\.[^"']+)["']/g)].map((match) => match[1]),
+      ...[...source.matchAll(/\bimport\s*\(\s*["'](\.[^"']+)["']\s*\)/g)].map((match) => match[1]),
+      ...[...source.matchAll(/\brequire\s*\(\s*["'](\.[^"']+)["']\s*\)/g)].map((match) => match[1])
+    ];
+    for (const specifier of specifiers) {
+      const resolved = resolveRelativeImport(current, specifier);
+      if (resolved !== null) queue.push(resolved);
+    }
+  }
+  return seen.sort();
+}
+
+const SETUP_CLOSURE = setupModuleClosure();
 
 // ---------------------------------------------------------------------------
 // ⓕ 사각 — 이 계약이 **세지 않는** 것들
@@ -394,22 +506,53 @@ describe("하네스 카탈로그 비용 계약 (라운드 91 트랙 C · round91
     expect(owned).toContain('expect(detail.productLinks?.length, "링크를 가진 항목의 상세가 판매처를 싣지 않았다")');
   });
 
-  it("ⓔ 누적의 값: global-setup이 정리를 0건 한다 (부정 단언)", () => {
-    const globalSetup = withoutComments(readTestFile("global-setup.ts"));
-    const testDbSource = readTestFile("helpers", "test-db.ts");
-    const testDb = withoutComments(testDbSource);
+  it("ⓔ 모집단: 셋업이 부르는 파일 전수를 **상대 import를 따라** 파생한다 (리뷰 M-3)", () => {
+    // ⚠️ 유령 방지 — 폐포가 통째로 깨지면 아래 부정 단언이 조용해진다.
+    expect(SETUP_CLOSURE.length).toBeGreaterThanOrEqual(SETUP_CLOSURE_FLOOR);
+    expect(SETUP_CLOSURE).toContain(SETUP_ENTRY);
+    // 손 목록 시절 이 그물이 보던 둘은 오늘도 안에 있고,
+    expect(SETUP_CLOSURE).toContain("helpers/test-db.ts");
+    // ⚠️⚠️ **그 둘 밖에 있던 셋째가 오늘 들어왔다** — 손 목록이었으면 몰랐을 자리다.
+    expect(SETUP_CLOSURE).toContain("helpers/shared-db-lock.ts");
+    for (const file of SETUP_CLOSURE) {
+      expect(file.endsWith(".ts"), `${file}가 .ts가 아니에요`).toBe(true);
+      expect(file.startsWith(".."), `${file}가 뿌리 밖이에요`).toBe(false);
+    }
+    // 손 목록이 아니다 — 폐포는 셋업의 import에서 나온다(그 사실을 소스가 진다).
+    expect(withoutComments(readTestFile(SETUP_ENTRY))).toContain('from "./helpers/shared-db-lock"');
+  });
 
-    for (const token of DESTRUCTIVE_TOKENS) {
-      expect(
-        globalSetup.toLowerCase().includes(token.toLowerCase()),
-        `global-setup.ts에 지우는 걸음(${token})이 생겼어요 — 공유 테스트 DB를 언제 비울지는 ` +
-          "**결정**이고 P3가 재개 조건과 함께 집니다. 이 자리를 초록으로 되돌리기 전에 그 결정을 " +
-          "먼저 문서로 남겨 주세요"
-      ).toBe(false);
-      expect(
-        testDb.toLowerCase().includes(token.toLowerCase()),
-        `helpers/test-db.ts에 지우는 걸음(${token})이 생겼어요 — 같은 결정에 걸립니다`
-      ).toBe(false);
+  it("ⓔ 누적의 값: 셋업 폐포 전체가 정리를 0건 한다 (부정 단언)", () => {
+    const testDbSource = readTestFile("helpers", "test-db.ts");
+    const globalSetup = withoutComments(readTestFile(SETUP_ENTRY));
+
+    for (const file of SETUP_CLOSURE) {
+      const code = withoutComments(readTestFile(...file.split("/"))).toLowerCase();
+      for (const token of DESTRUCTIVE_TOKENS) {
+        expect(
+          code.includes(token.toLowerCase()),
+          `${file}에 지우는 걸음(${token})이 생겼어요 — 공유 테스트 DB를 언제 비울지는 ` +
+            "**결정**이고 P3가 재개 조건과 함께 집니다. 이 자리를 초록으로 되돌리기 전에 그 결정을 " +
+            "먼저 문서로 남겨 주세요(⚠️ 이 그물은 `global-setup.ts`의 상대 import를 따라간 파일 " +
+            "전수를 봅니다 — 새 모듈로 우회할 자리가 없습니다)"
+        ).toBe(false);
+      }
+    }
+
+    // ⚠️ 문자열 보존을 픽스처로 보인다(리뷰 L-2): 스킴 구분자가 든 리터럴은 잘리지 않고,
+    //    같은 줄의 진짜 주석만 떨어진다. ⚠️ 실제 접속 URL을 여기 적지 않는다 — DNC-019의
+    //    비밀값 스윕이 그 모양을 문다(그 스윕이 이 자리를 가르쳐 주었다).
+    const scheme = ["a", "//b"].join(":");
+    expect(withoutComments(`const url = "${scheme}"; // 주석`)).toContain(`"${scheme}"`);
+    expect(withoutComments(`const url = "${scheme}"; // 주석`)).not.toContain("주석");
+    // 그리고 그 보존이 셋업 폐포에서도 참이다 — 잘린 자리가 없으니 아래 부정 단언이 온전하다.
+    for (const file of SETUP_CLOSURE) {
+      const raw = readTestFile(...file.split("/"));
+      const stripped = withoutComments(raw);
+      const rawQuotes = (raw.match(/"/g) ?? []).length;
+      const strippedQuotes = (stripped.match(/"/g) ?? []).length;
+      expect(strippedQuotes, `${file}: 주석을 떼며 문자열이 잘렸어요`).toBeLessThanOrEqual(rawQuotes);
+      expect(strippedQuotes % 2, `${file}: 짝이 맞지 않는 따옴표가 남았어요`).toBe(0);
     }
 
     // globalSetup이 돌려주는 teardown은 락 디렉터리 정리 하나뿐이다(DB를 건드리지 않는다).
@@ -418,6 +561,7 @@ describe("하네스 카탈로그 비용 계약 (라운드 91 트랙 C · round91
     expect(teardown).not.toMatch(/prisma|\$queryRaw|DELETE|TRUNCATE/i);
 
     // 정리 도우미가 **export되지 않는다** — 이름 전수가 오늘 넷이고 그중 지우는 것이 없다.
+    const testDb = withoutComments(testDbSource);
     const exported = [...testDb.matchAll(/^export (?:async )?(?:function|const) (\w+)/gm)].map((m) => m[1]);
     expect(exported.sort()).toEqual([...TEST_DB_EXPORTS_TODAY].sort());
     // 그 사실을 적어 둔 관례 문장도 그대로 선다(라운드 91 C는 이 문장을 근거로 인용한다).

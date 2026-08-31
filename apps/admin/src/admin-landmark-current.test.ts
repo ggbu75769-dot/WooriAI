@@ -47,6 +47,19 @@ import { describe, expect, it } from "vitest";
  *  · 걸은 비테스트 `.tsx` **18** · 여는 `<main>` 전수 **2**(셸 하나 + `global-error` 하나) ·
  *    셸 안에서 다시 서는 `<main>` **0**(어제 셋) · `aria-current` **1**(어제 0) · 내비 링크 **11**.
  *
+ * ## ⚠️⚠️ 라운드 91 리뷰가 이 파일에 한 것 둘 — 사각이 셋에서 **다섯**이 된다
+ *
+ *  · **L-6 — 상수 자를 금지한다.** 사각 넷 가운데 둘(`source-not-runtime` · `route-surface`)의
+ *    `measure`가 `() => 0`이었다. *"오늘 다시 잰 값이 갈렸어요"* 단언이 그 둘에 대해서는 저장소를
+ *    한 번도 읽지 않고 `0 === 0`만 물었으므로, **유령 사각 금지 규율이 그 두 자리에서만 비어
+ *    있었다.** 오늘 둘 다 저장소를 읽는 자로 바꾸고(자기 import 줄 전수 · 라우트 진입 전수),
+ *    *"상수를 돌려주는 자가 0건"* 을 형태로 무는 단언을 더한다.
+ *  · **L-7 — `aria-current`의 정확 일치 한계를 이름으로 적는다.** `isActive`는
+ *    `pathname === item.href`라 **하위 경로에서는 열한 링크 어디에도 표기가 서지 않는다.** 오늘
+ *    그 한계가 보이지 않는 이유는 설계가 아니라 실측이다 — 라우트 진입 **열하나가 전부 평면**이고
+ *    그 경로 집합이 내비 표의 href 열하나와 **같으며** 동적 세그먼트가 **0건**이다. 새 사각
+ *    (`aria-current-exact-match`)이 그 전제를 값과 재개 조건으로 진다.
+ *
  * ⚠️ 이 파일과 짝인 `admin-status-announce.test.ts`(라운드 90 B)는 같은 두 수를 **얼려 두기만**
  * 한다 — 축을 지는 것은 여기다. 그 트랙이 상태 낭독 축을 열 때 이 축을 모르는 채 지나가지
  * 않도록 두 자리가 서로를 부른다(*한 트랙이 한 그물에 축 둘을 얹지 않는다*).
@@ -382,15 +395,62 @@ const OPEN_MAIN_RATCHET = 2;
 type BlindSpot = {
   readonly key: string;
   readonly reason: string;
-  /** 오늘 다시 잰 값. */
+  /**
+   * 오늘 다시 잰 값.
+   *
+   * ⚠️⚠️ **진짜 자여야 한다**(리뷰 L-6). 종전 이 표의 둘(`source-not-runtime` · `route-surface`)은
+   * `() => 0`, 곧 **상수를 돌려주는 자**였다 — 아래 *"오늘 다시 잰 값이 갈렸어요"* 단언이 그 둘에
+   * 대해서는 `0 === 0`을 물었을 뿐이라, **유령 사각 금지 규율이 그 자리에서만 비어 있었다.**
+   * 오늘 둘 다 저장소를 실제로 읽는 자로 바꾼다(자기 import 줄 전수 · 라우트 진입 파일 전수).
+   */
   readonly measure: () => number;
   /** 그 값이 오늘도 이래야 한다는 하한/상한 판정. */
   readonly today: number;
+  /** 이 사각을 배워야 하는 날의 조건 — **빈 문자열일 수 없다**(AB-5). */
+  readonly resumeCondition: string;
 };
 
+/** 이 파일 자신 — 자기 import 줄을 읽어 *렌더를 한 번도 하지 않는다*를 값으로 낸다. */
+const SELF_FILE = "src/admin-landmark-current.test.ts";
+
+/** `app/**`의 라우트 진입 전수(`page.tsx`)와 그 경로 — 손 목록이 아니라 걷기에서 나온다. */
+function routePagePaths(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name === "page.tsx") {
+        const rel = relative(join(adminRoot, "app"), full).split(sep).join("/");
+        out.push(rel === "page.tsx" ? "/" : `/${rel.slice(0, -"/page.tsx".length)}`);
+      }
+    }
+  };
+  walk(join(adminRoot, "app"));
+  return out.sort();
+}
+
+/** 동적 세그먼트를 지닌 디렉터리 전수(`[param]`) — 오늘 0건이고, 그 0이 아래 사각의 전제다. */
+function dynamicSegmentDirectories(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const full = join(dir, entry.name);
+      if (entry.name.startsWith("[")) out.push(relative(adminRoot, full).split(sep).join("/"));
+      walk(full);
+    }
+  };
+  walk(join(adminRoot, "app"));
+  return out.sort();
+}
+
 /**
- * ⓕ **이 스윕이 못 보는 것** — AB-5의 규율대로 **값과 함께** 적는다. 세 자리 전부 오늘 다시
- * 재고(유령 사각 금지), 이유는 빈 문자열일 수 없다.
+ * ⓕ **이 스윕이 못 보는 것** — AB-5의 규율대로 **값과 함께** 적는다. 다섯 자리 전부 오늘 다시
+ * 재고(유령 사각 금지 · ⚠️ 리뷰 L-6부터는 **상수 자를 금지한다**), 이유와 재개 조건은 빈
+ * 문자열일 수 없다.
  */
 const BLIND_SPOTS: readonly BlindSpot[] = [
   {
@@ -406,7 +466,10 @@ const BLIND_SPOTS: readonly BlindSpot[] = [
             .length),
         0
       ),
-    today: 0
+    today: 0,
+    resumeCondition:
+      "재개 조건(사건형): 어드민에 `role=\"main\"` 꼴의 명시 역할이 처음 서는 날 — 그날 이 스윕의 " +
+      "바늘은 여는 태그 하나에서 여는 태그 + 역할 속성 둘로 넓어진다"
   },
   {
     key: "landmark-names",
@@ -418,23 +481,67 @@ const BLIND_SPOTS: readonly BlindSpot[] = [
         (sum, file) => sum + (((CODE.get(file) as string).match(/<(?:nav|form)[^>]*aria-label/g) ?? []).length),
         0
       ),
-    today: 0
+    today: 0,
+    resumeCondition:
+      "재개 조건(사건형): `<nav>`·`<form>`에 이름(aria-label)이 처음 붙는 날 — 그날 그 축은 AD-2의 " +
+      "답을 지는 트랙이 열고, 이 스윕은 그 수를 인용만 한다"
   },
   {
     key: "source-not-runtime",
     reason:
       "소스 대조이지 런타임이 아니다 — 스크린리더의 로터에 실제로 몇 개의 랜드마크가 서고 활성 링크가 " +
-      "'현재 페이지'로 읽히는지는 **브라우저 확인**의 몫이다. 이 파일은 컴포넌트를 한 번도 렌더하지 않는다",
-    measure: () => 0,
-    today: 0
+      "'현재 페이지'로 읽히는지는 **브라우저 확인**의 몫이다. 이 파일은 컴포넌트를 한 번도 렌더하지 않는다. " +
+      "⚠️ **로터에 무엇이 서는지는 소스로 잴 수 없다** — 그래서 이 자가 재는 것은 그 사실이 아니라 " +
+      "**경계**다: 이 파일의 import 줄 가운데 `node:*`·`vitest`가 아닌 것의 수(오늘 0). 렌더 도구가 " +
+      "하나라도 들어오는 날 이 수가 오르고, 그날 이 사각의 문장은 더 이상 참이 아니다. " +
+      "⚠️ 낱말(`render(` 따위)을 문자열로 물지 않는 이유는 그 단언 자신이 그 낱말을 담아 거짓 빨강이 " +
+      "되기 때문이다(하네스 비용 계약이 같은 자리에서 고른 그 형식)",
+    measure: () =>
+      [...read(SELF_FILE).matchAll(/^import .*$/gm)]
+        .map((match) => match[0])
+        .filter((line) => !/from "(?:node:[a-z]+|vitest)";$/.test(line)).length,
+    today: 0,
+    resumeCondition:
+      "재개 조건(사건형): 이 파일이 컴포넌트를 실제로 렌더하기 시작하는 날 — 그날 이 사각은 " +
+      "닫히는 것이 아니라 **다른 계약으로 옮겨 간다**(소스 대조와 렌더 대조를 한 파일이 함께 지지 않는다)"
   },
   {
     key: "route-surface",
     reason:
       "라우트 표면(어느 라우트가 내비에 있고 없는가)의 대조는 **P3의 축**이라 이 스윕이 세지 않는다 — " +
-      "여기서 파생하는 것은 내비 표의 링크 수 하나뿐이고, 라우트 파일과의 짝은 묻지 않는다",
-    measure: () => 0,
-    today: 0
+      "여기서 파생하는 것은 내비 표의 링크 수 하나뿐이고, 라우트 파일과의 짝은 묻지 않는다. " +
+      "⚠️ 이 자가 재는 것은 **그 짝**이 아니라 이 스윕이 짝짓지 않고 지나가는 **표면의 크기**다: " +
+      "`app/**`의 라우트 진입(`page.tsx`) 전수(오늘 11). 라우트가 늘거나 주는 날 이 수가 갈리고, " +
+      "그날 사람이 볼 것은 *내비 표와의 짝을 여전히 P3가 지는가*다",
+    measure: () => routePagePaths().length,
+    today: 11,
+    resumeCondition:
+      "재개 조건(결정형 · 손은 저장소 안): 라우트 표면과 내비 표의 짝을 어느 계약이 지는지를 P3가 " +
+      "정하는 날 — 오늘 그 축은 이 스윕이 아니라 라우트 표면 그물의 것이다"
+  },
+  {
+    // ⚠️⚠️ 리뷰 L-7이 연 다섯째 — `aria-current`의 **정확 일치** 한계를 이름으로 적는다.
+    key: "aria-current-exact-match",
+    reason:
+      "**표기는 `pathname === item.href`의 정확 일치에서만 선다**(`AdminShell`의 `isActive`). " +
+      "그래서 하위 경로가 서는 날 — `/items/42` · `/links?query=…`의 세그먼트 꼴 · 라우트 그룹이 낀 " +
+      "중첩 경로 — **그 화면에서는 열한 링크 어디에도 `aria-current`가 붙지 않고**, 소리로 일하는 " +
+      "운영자는 다시 *지금 어디에 서 있는지* 를 듣지 못한다. 이 스윕은 그 날을 세지 못한다: 무는 것은 " +
+      "*표기가 `isActive`에서 파생하는가*이지 *`isActive`가 오늘의 모든 경로에서 참일 수 있는가*가 아니다. " +
+      "⚠️⚠️ **오늘 그 한계가 보이지 않는 이유는 설계가 아니라 실측이다** — `app/**`의 라우트 진입 " +
+      "**열하나가 전부 평면**이고(`/` 하나 + 한 세그먼트 열), 그 열하나의 경로가 내비 표의 열한 href와 " +
+      "**정확히 같은 집합**이며, 동적 세그먼트(`[param]`) 디렉터리가 **0건**이다. 그래서 오늘의 " +
+      "`pathname`은 언제나 열한 href 중 하나이고, 정확 일치가 전수를 덮는다. 이 자는 그 전제를 다시 잰다",
+    measure: () => {
+      const hrefs = new Set(NAV_ITEMS_TODAY.map((item) => item.href));
+      const unmatched = routePagePaths().filter((path) => !hrefs.has(path));
+      return unmatched.length + dynamicSegmentDirectories().length;
+    },
+    today: 0,
+    resumeCondition:
+      "재개 조건(사건형): 어드민에 하위 경로나 동적 세그먼트가 처음 서는 날 — 그날 이 수가 0을 벗어나고, " +
+      "`isActive`는 정확 일치에서 **접두 일치**(또는 라우트 세그먼트 비교)로 바뀌어야 하며, 그 걸음은 " +
+      "`aria-current`를 두 링크에 동시에 세우지 않도록 *가장 긴 접두 하나*만 고르는 판정을 함께 진다"
   }
 ];
 
@@ -607,11 +714,15 @@ describe("어드민 랜드마크와 현재 위치 (라운드 91 트랙 B)", () =
   });
 
   describe("ⓕ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
-    it("사각마다 이유가 있다 (빈 이유 금지)", () => {
-      expect(BLIND_SPOTS.length).toBeGreaterThanOrEqual(3);
+    it("사각마다 이유와 재개 조건이 있다 (빈 이유 금지)", () => {
+      expect(BLIND_SPOTS.length).toBeGreaterThanOrEqual(5);
       expect(new Set(BLIND_SPOTS.map((spot) => spot.key)).size).toBe(BLIND_SPOTS.length);
       for (const spot of BLIND_SPOTS) {
         expect(spot.reason.length, `${spot.key}: 이유가 비어 있어요`).toBeGreaterThan(40);
+        expect(spot.resumeCondition.length, `${spot.key}: 재개 조건이 비어 있어요`).toBeGreaterThan(20);
+        expect(spot.resumeCondition, `${spot.key}: 재개 조건이 형을 밝히지 않았어요`).toMatch(
+          /재개 조건\((사건형|결정형)/
+        );
       }
     });
 
@@ -619,6 +730,38 @@ describe("어드민 랜드마크와 현재 위치 (라운드 91 트랙 B)", () =
       for (const spot of BLIND_SPOTS) {
         expect(spot.measure(), `${spot.key}: 오늘 다시 잰 값이 갈렸어요`).toBe(spot.today);
       }
+    });
+
+    it("⚠️ 자가 **진짜 자**다 — 상수를 돌려주는 자가 0건이다 (리뷰 L-6)", () => {
+      // ⚠️⚠️ 두 시점. 종전 이 표의 둘은 `() => 0`이라 위 단언이 그 자리에서 `0 === 0`만 물었다 —
+      //    저장소가 통째로 바뀌어도 조용한 자리가 다섯 중 둘이었다는 뜻이다. 오늘은 형태로 막는다.
+      for (const spot of BLIND_SPOTS) {
+        const body = String(spot.measure).replace(/\s+/g, " ");
+        expect(body, `${spot.key}: 자가 상수를 돌려줘요 — 저장소를 읽는 자로 바꿔 주세요`).not.toMatch(
+          /^\( *\) *=> *-?\d+$/
+        );
+      }
+      // 그리고 자들이 실제로 저장소를 읽는지 — 다섯 중 셋 이상이 0이 아닌 자리를 셀 수 있어야 한다.
+      expect(routePagePaths().length, "라우트 진입을 세는 자").toBeGreaterThan(0);
+      expect(SWEPT_FILES.length, "걷기").toBeGreaterThan(0);
+    });
+
+    it("⚠️ `aria-current`의 정확 일치 한계가 값으로 적혀 있다 (리뷰 L-7)", () => {
+      const spot = BLIND_SPOTS.find((entry) => entry.key === "aria-current-exact-match");
+      expect(spot, "정확 일치 사각이 사라졌어요").toBeTruthy();
+      // 오늘의 전제를 다시 잰다 — 라우트 열하나가 전부 평면이고 내비 표와 같은 집합이다.
+      const routes = routePagePaths();
+      expect(routes).toHaveLength(11);
+      expect([...routes].sort()).toEqual([...NAV_ITEMS_TODAY.map((item) => item.href)].sort());
+      expect(dynamicSegmentDirectories(), "동적 세그먼트가 생겼어요 — 정확 일치가 더는 전수를 덮지 못해요").toEqual(
+        []
+      );
+      // 표기가 정확 일치에서 나온다는 사실도 소스에서 다시 읽는다(그 한 줄이 이 사각의 뿌리다).
+      expect(SHELL_CODE).toContain("const isActive = pathname === item.href;");
+      // ⚠️ 교란 — 하위 경로가 하나라도 서면 그 화면에는 표기가 0건이다(정확 일치의 실물).
+      const hrefs = new Set(NAV_ITEMS_TODAY.map((item) => item.href));
+      expect(hrefs.has("/items/42"), "하위 경로는 어떤 href와도 같지 않다").toBe(false);
+      expect(routes.filter((path) => !hrefs.has(path))).toEqual([]);
     });
 
     it("명시 역할 꼴이 실재하게 되는 날 이 스윕은 그것을 세지 않는다는 사실이 값이다", () => {

@@ -18,10 +18,19 @@
 //
 // 라운드 89·90의 소스 축은 `SOURCE_AXIS_FILES`를 **손으로 적은 한 줄**로 졌다. 그 모양은
 // *"적어 둔 그 파일이 관례를 지키는가"* 만 묻고 *"관례를 지고 있는 소스가 이것뿐인가"* 는 묻지
-// 못한다 — 그리고 뿌리를 열자 곧바로 **둘째 자리**가 나왔다(`contract-net-ledger.test.ts`,
-// 라운드 90 E가 *"도래한 조건·처분은 다음 라운드 몫"* 이라고 적으며 남긴 표기). 아래 계약은
+// 못한다 — 그리고 뿌리를 열자 곧바로 **새 자리 둘**이 나왔다(`contract-net-ledger.test.ts`,
+// 라운드 90 E가 *"도래한 조건·처분은 다음 라운드 몫"* 이라고 적으며 남긴 표기 ·
+// `apps/api/test/harness-catalog-cost.test.ts`, 같은 라운드 트랙 C가 남긴 표기 넷). 아래 계약은
 // 그 전수 파생을 **교란 셋으로** 확인한다: ① 표기 소스 하나가 뿌리에서 사라지면 래칫이 빨개진다 ·
 // ② 소유자 칸이 비면 빨개진다 · ③ F가 문서에 줄을 더해도 초록이다(하한 설계).
+//
+// ## ⚠️⚠️ 라운드 91 리뷰 H-1·L-1 — 파생은 옳았고 **그 위에 손으로 얹은 수**가 틀렸다
+//
+// D는 파생 결과를 **둘**로 적었지만 D 커밋 시점의 워킹트리에서도 이미 **셋**이었다: 트랙 C가
+// D보다 세 시간 앞서 머지되며 표기 넷을 지고 있었고, D의 기록이 그것을 세지 못했다. 그래서
+// `SOURCE_COUNT_RATCHET`이 **실측보다 한 칸 낮은 채로** 서서 *셋 중 하나가 표기를 잃어도
+// 조용한 거짓 초록*이 됐다. 오늘 래칫을 셋으로 올리고(오기의 정정이지 하한 인상이 아니다),
+// **기록을 파생 길이에 등호로 묶어**(L-1) 손으로 적은 수가 다시 어긋날 자리를 없앤다.
 //
 // ⚠️ 재개 조건(사건형): 이 계약이 처음으로 빨개지는 날 — 그날 사람이 볼 것은 *"관례가 지워졌는가,
 // 아니면 관례를 지고 있는 소스가 새로 늘었는가"* 이고, 뒤쪽이면 이 파일은 한 글자도 고칠 것이 없다
@@ -347,7 +356,7 @@ describe("ⓓ' 소스 축 — 뿌리를 걸어 표기를 지닌 소스 전수에
     expect(/export const SOURCE_AXIS_FILES[^=\n]*=\s*\[/.test(ledgerSource)).toBe(false);
   });
 
-  it("⚠️ 유령 방지 — 표기를 지닌 소스가 0건이 아니고, 오늘 그 수는 둘 이상이다", () => {
+  it("⚠️ 유령 방지 — 표기를 지닌 소스가 0건이 아니고, 오늘 그 수는 셋 이상이다", () => {
     expect(derived.length).toBeGreaterThan(0);
     expect(derived.length).toBeGreaterThanOrEqual(SOURCE_COUNT_RATCHET);
     expect(sourceCountViolation(derived)).toBeUndefined();
@@ -355,10 +364,50 @@ describe("ⓓ' 소스 축 — 뿌리를 걸어 표기를 지닌 소스 전수에
       expect(existsSync(join(repoRoot, file.path)), `${file.path}가 실재한다`).toBe(true);
     }
     // ⚠️ 오늘의 파생 결과를 **값으로** 적어 둔다 — 모집단이 아니라 사람이 읽는 근거다.
-    //    둘째 자리는 손 목록 시절 이 대장이 몰랐던 자리다.
+    //    둘째·셋째 자리는 손 목록 시절 이 대장이 몰랐던 자리다.
     const paths = derived.map((file) => file.path);
     expect(paths).toContain("packages/test-utils/src/dead-export-ledger.ts");
     expect(paths).toContain("packages/test-utils/src/contract-net-ledger.test.ts");
+    expect(paths).toContain("apps/api/test/harness-catalog-cost.test.ts");
+  });
+
+  it("⚠️⚠️ 기록된 `files`가 **파생 길이를 문다** — 손으로 적은 수가 다시 어긋날 자리가 없다 (리뷰 L-1)", () => {
+    // ⚠️⚠️ 두 시점(리뷰 H-1·L-1). 라운드 91 D는 뿌리를 옳게 걸어 놓고 그 **결과를 손으로 다시**
+    //    적었고(`files: 2`), 그 손이 같은 라운드 트랙 C의 파일 하나를 세지 못했다 — 그래서
+    //    `SOURCE_COUNT_RATCHET`이 실측보다 한 칸 낮은 채로 서서 **셋 중 하나가 표기를 잃어도
+    //    조용한 거짓 초록**이 됐다. 오늘 그 자리를 등호로 묶는다: 기록이 파생과 갈리면 빨개진다.
+    expect(
+      SOURCE_AXIS_MEASURED_TODAY.files,
+      "기록된 표기 소스 수가 오늘의 파생 결과와 갈렸어요 — 파생 쪽이 사실이고, 이 값을 옮겨 주세요"
+    ).toBe(derived.length);
+    // 래칫도 그 파생 위에 선다 — 기록과 래칫이 서로 다른 수를 말하지 않는다.
+    expect(SOURCE_COUNT_RATCHET).toBe(SOURCE_AXIS_MEASURED_TODAY.files);
+    expect(SOURCE_COUNT_RATCHET).toBeLessThanOrEqual(derived.length);
+    // ⚠️ **바늘 둘의 기록은 등호가 아니라 하한이다 — 그리고 그 갈림에 이유가 있다.**
+    //    `files`는 래칫이 딛는 수라 어긋나면 곧바로 거짓 초록이 되지만(H-1이 그 실물이다),
+    //    `marked`·`anyParen`은 **한 파일 안에서 조건이 늘고 주는 수**라 등호로 물면 새 재개
+    //    조건을 정직하게 적는 손이 빨강을 맞는다(이 대장이 `NOTATION_RATCHET`에 박아 둔 판단).
+    expect(SOURCE_AXIS_MEASURED_TODAY.marked).toBeLessThanOrEqual(
+      derived.reduce((sum, file) => sum + file.valueToday, 0)
+    );
+    expect(SOURCE_AXIS_MEASURED_TODAY.anyParen).toBeLessThanOrEqual(
+      derived.reduce((sum, file) => sum + file.anyParenToday, 0)
+    );
+  });
+
+  it("⚠️ 교란 — 표기 소스 셋 가운데 **어느 하나**를 숨겨도 래칫이 빨개진다 (H-1의 재현)", () => {
+    // ⚠️ D의 래칫(2)에서는 이 교란이 셋 중 하나에 대해 **초록**이었다 — 그것이 거짓 초록의 실물이다.
+    expect(derived.length).toBeGreaterThanOrEqual(3);
+    for (const hidden of derived) {
+      const without = sourceAxisFilesFrom(entries.filter((entry) => entry.path !== hidden.path));
+      expect(without.length).toBe(derived.length - 1);
+      expect(
+        sourceCountViolation(without),
+        `${hidden.path}를 숨겼는데 초록이면 이 축은 그 자리를 지키지 않는다`
+      ).toBeDefined();
+      // 그리고 D의 옛 래칫(2)이었다면 같은 교란이 조용히 지나갔다는 사실도 값으로 남긴다.
+      expect(sourceCountViolation(without, 2)).toBeUndefined();
+    }
   });
 
   it("ⓑ 자리별 값이 손이 아니라 소스에서 파생된다 (오늘 marked 6 · anyParen 9)", () => {

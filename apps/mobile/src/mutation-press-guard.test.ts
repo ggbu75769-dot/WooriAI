@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -22,6 +23,13 @@ import { describe, expect, it } from "vitest";
  * `if (…isPending) return;`은 이 저장소에 이미 **일곱 자리**가 서 있다
  * (`app/settings/children.tsx` 셋 · `app/settings/privacy.tsx` 셋 · `app/import/index.tsx` 하나).
  * 트랙 A가 더한 것은 그 여덟째 한 줄이고 **렌더는 바이트 불변**이다.
+ *
+ * ⚠️⚠️ **두 시점 — 라운드 91 리뷰(M-1)가 그 한 줄을 *링크 단위*로 좁혔다.** A의 조건은
+ * `if (clickLink.isPending) return;` 이라 **뮤테이션 단위**였고, 그 모양은 대기 창 동안 *누른 적
+ * 없는 다른 판매처 행까지* 삼켰다(누르는 자리 둘이 한 핸들러로 모이되 **서로 다른 링크**를
+ * 넘긴다). 오늘의 조건은 `clickLink.variables?.id === link.id`를 함께 물어 **같은 링크의 두 번째
+ * 탭만** 떨어뜨린다 — 중복 기록은 언제나 같은 링크에서 나므로 막는 힘은 그대로다. 그 정규형은
+ * `LINK_SCOPED_GUARD`가 값으로 지고, 넓은 조건으로 되돌리면 그 자리가 빨개진다.
  *
  * ⚠️ **`disabled`를 쓰지 않은 이유가 이 계약의 값 절반이다.** `PrimaryButton`은 `disabled`면
  * 배경이 `gray300`이 되어 **대기 창 동안 픽셀이 바뀌고**, 그 버튼은 승인 캡처(ITEM-002 ·
@@ -82,10 +90,22 @@ import { describe, expect, it } from "vitest";
  * 대상으로만** 한 번 읽고(ⓐ의 마지막 단언), 거기서 나오는 값이 이 계약의 값이다:
  * **손 열하나는 전수 서른하나의 부분집합이고 그보다 작다.**
  *
- * ## ⚠️ 이 스윕은 마스킹한 소스만 문다
+ * ## ⚠️ 이 스윕은 마스킹한 소스만 문다 — ⚠️⚠️ **다만 두 뷰가 있다**(리뷰 L-3의 정정)
  *
  * 아래 모든 문자열 앵커는 `maskComments` 를 지난 소스를 본다 — 주석이 남긴 인용 덕에 초록인
  * 자리(라운드 88 C의 주석 관용 앵커)가 **구조적으로 설 수 없다.**
+ *
+ * ⚠️⚠️ **그러나 *"마스킹 소스"* 가 곧 *"문자열까지 걷은 소스"* 는 아니다.** 이 자는 뷰를 **둘**
+ * 낸다:
+ *  · **기본 뷰**(`maskComments(raw)`) — 주석만 걷고 **문자열 내용은 남긴다.** `disabled={…}` 탐색
+ *    (`disabledExpressions`) · `controlPath` · 핸들러 가드 탐색 · 아래 ⓒ~ⓔ의 앵커가 전부 이 뷰를
+ *    본다. 그래서 *"어떤 문자열 리터럴이 `disabled=`를 담고 있으면 컨트롤 판정이 뒤집힐 수 있다"*
+ *    는 사각이 **구조적으로 남는다**(ⓕ의 `control-verdict-is-file-scoped`가 값으로 진다).
+ *  · **문자열까지 걷는 뷰**(`maskComments(raw, { strings: true })`) — **선언 계수에만** 쓴다.
+ *    소스를 인용해 둔 표(`shared-cache-policy.ts`)가 `useMutation` 자리를 만들지 않게 하려는 것이다.
+ *
+ * ⚠️ **오늘 두 뷰의 갈림은 0이다**(`MASKING_DELTA_TODAY` — 아래 "마스킹" 절의 마지막 `it`이 다시
+ * 잰다). **0인 것은 오늘의 값이지 규율이 아니고**, 그 0이 위 사각을 지우지도 않는다.
  */
 
 /** 이 스윕이 걷는 앱 경계. `apps/mobile/` 밖으로는 한 걸음도 나가지 않는다. */
@@ -116,13 +136,30 @@ const DOES_NOT_BLOCK_CEILING = 3;
  * 핵심 루프 4단계의 그 자리 — **이름으로 못 박는다**(ⓒ).
  *
  * 판정이 다시 `does-not-block`으로 떨어지는 날 빨개진다. 그 하나가 이 트랙의 값이다.
+ *
+ * ⚠️⚠️ **두 시점 — 이 값은 라운드 91 A가 적은 줄이 아니라 라운드 91 리뷰가 좁힌 줄이다.**
+ *  · **A 시점**: `if (clickLink.isPending) return;` — 조건이 **뮤테이션 단위**였다.
+ *  · **오늘(리뷰 M-1)**: `if (clickLink.isPending && clickLink.variables?.id === link.id) return;`
+ *    — 조건이 **링크 단위**다.
+ *
+ * ⚠️ **왜 넓은 가드가 틀렸는가.** 이 화면의 누르는 자리 둘은 한 핸들러로 모이지만 **서로 다른
+ * 링크**를 넘긴다(비교 행은 그 행의 `link`, CTA는 `primaryPurchaseLink`). 뮤테이션 단위 조건은
+ * *"이 화면에서 왕복이 하나라도 돌면 아무것도 못 누른다"* 는 뜻이라, 첫 탭의 대기 창에서
+ * **다른 판매처를 눌러 보는 정당한 행동까지** 아무 말 없이 삼켰다 — 그 자리는 A가 막으려던 중복
+ * 기록(**허위 수치**)과 상관이 없다. 오늘의 조건은 *같은 링크인가*까지 물어 **같은 링크의 두 번째
+ * 탭만** 떨어뜨린다. 중복 기록을 막는 힘은 그대로다: 두 번 기록되는 자리는 언제나 같은 링크다.
+ *
+ * ⚠️ 판정 함수(`hasHandlerGuard`)는 조건 안쪽을 **문장 경계까지** 보므로 두 모양을 **둘 다**
+ * 받는다 — 그래서 좁힌 걸음이 판정을 흔들지 않았고, 이 값과 아래 정규형만 함께 옮긴다.
  */
 const CORE_LOOP_SITE = {
   file: "app/items/[itemTemplateId].tsx",
   mutation: "clickLink",
   handler: "handleProductLinkPress",
-  /** 저장소가 일곱 자리에서 이미 고른 관례의 여덟째. */
-  guard: "if (clickLink.isPending) return;"
+  /** 저장소가 일곱 자리에서 이미 고른 관례의 여덟째 — ⚠️ 오늘은 그 관례에 **링크 단위** 한 짝이 붙는다. */
+  guard: "if (clickLink.isPending && clickLink.variables?.id === link.id) return;",
+  /** 그 가드가 무는 **인자의 이름** — 핸들러가 받는 링크다(넓은 가드에는 이 자리가 없었다). */
+  guardArgument: "link"
 } as const;
 
 /** 관례의 본보기 일곱이 사는 자리 — 이 형식이 발명이 아니라 인용임을 값으로 둔다. */
@@ -131,6 +168,9 @@ const GUARD_PRECEDENTS: readonly { readonly file: string; readonly count: number
   { file: "app/settings/privacy.tsx", count: 3 },
   { file: "app/import/index.tsx", count: 1 }
 ];
+
+/** 본보기의 하한 — **실측**이 이 아래로 내려가면 관례가 지워진 것이다(표의 합도 이 수와 같다). */
+const GUARD_PRECEDENT_FLOOR = 7;
 
 type PressVerdict = "control-blocks" | "handler-blocks" | "does-not-block";
 
@@ -225,6 +265,32 @@ const BLIND_SPOTS: readonly {
       "그 확인은 실기기 항목의 몫이고, 이 계약이 초록이라는 사실은 그 항목을 대신하지 않는다.",
     resumeCondition:
       "재개 조건(사건형): 실기기 확인이 이 자리를 항목으로 받는 날 — 그날 이 사각은 그 항목 번호를 함께 든다."
+  },
+  {
+    // ⚠️⚠️ 라운드 91 리뷰 M-2가 연 넷째 사각 — 넓힌 것이 아니라 **처음부터 있던 사각을 이름으로 적는다**.
+    id: "control-verdict-is-file-scoped",
+    // 오늘 `control-blocks`로 세어진 자리 수(아래 `it`이 다시 잰다 — 하한으로만 견준다).
+    measure: 27,
+    floor: 1,
+    reason:
+      "**`control-blocks` 판정은 파일 단위다 — `disabled`가 *그 뮤테이션의 누르는 자리*에 붙었는지는 묻지 않는다.** " +
+      "`controlPath`가 보는 것은 ⓐ 같은 파일 어딘가의 `disabled={…}` 식과 ⓑ 그 식이 그 뮤테이션의 `isPending`에 " +
+      "이름으로 닿는가뿐이고, **그 `disabled`가 붙은 태그가 그 뮤테이션을 부르는 그 태그인가**는 이 자의 바늘 밖이다. " +
+      "그래서 한 파일에 누르는 자리가 여럿이면 *다른 버튼의 `disabled`* 가 이 뮤테이션의 판정을 사 준다. " +
+      "⚠️ 그리고 그 식을 찾는 걸음은 **문자열 내용을 남긴 기본 뷰**를 보므로(L-3), 같은 파일의 어떤 문자열 리터럴이 " +
+      "`disabled=`와 그 이름을 함께 담고 있어도 판정이 사진다. " +
+      "⚠️⚠️ **오염의 실물 한 모양을 함께 적어 둔다**: 핵심 루프의 그 자리(`app/items/[itemTemplateId].tsx`의 " +
+      "`clickLink`)에서 누군가 `const …Disabled = … || clickLink.isPending;` 같은 이름을 세우고 그 이름을 아무 " +
+      "`disabled={…}`에나 쓰면 — 그 태그가 `handleProductLinkPress`를 부르지 않아도 — 이 자는 그 자리를 " +
+      "`handler-blocks`가 아니라 `control-blocks`로 센다. " +
+      "⚠️ **그때 조용해지지는 않는다: ⓒ가 fail-safe다.** ⓒ는 그 자리의 판정이 `handler-blocks`임을 **등호로** 물고 " +
+      "`handler-blocks`가 오늘 그 하나뿐임도 함께 무므로, 오염이 판정을 뒤집는 순간 계약이 **빨개진다** — " +
+      "사람이 보게 되는 것이 이 사각이 조용히 넓어지는 모양이 아니라 빨강이라는 사실이, 이 사각을 값으로만 적고 " +
+      "바늘을 넓히지 않은 이유다(태그 단위로 좁히려면 JSX 트리를 걸어야 하고, 그것은 이 스윕의 자가 아니다).",
+    resumeCondition:
+      "재개 조건(사건형): 한 파일 안에서 뮤테이션 둘 이상이 서로 다른 누르는 자리를 지고 그중 하나만 " +
+      "`disabled`를 받는 자리가 처음 발견되는 날 — 그날 이 자는 판정을 파일 단위에서 **태그 단위**로 좁혀야 하고, " +
+      "그 첫 모집단은 오늘의 27이다."
   }
 ];
 
@@ -450,6 +516,17 @@ function hasHandlerGuard(code: string, mutationName: string): boolean {
 /** 이름을 묻지 않는 같은 바늘 — 관례가 몇 자리에 서 있는지를 센다. */
 const ANY_HANDLER_GUARD = /if\s*\([^;{}]*\.isPending[^;{}]*\)\s*return\s*;/g;
 
+/**
+ * ⚠️⚠️ **핵심 루프 가드의 정규형** — 문자열도 호출도 없고, **링크 단위**다(리뷰 M-1).
+ *
+ * `hasHandlerGuard`는 조건 안쪽을 문장 경계까지 보므로 **뮤테이션 단위 가드도 `handler-blocks`로
+ * 받는다** — 판정만 물면 라운드 91 A의 넓은 조건으로 되돌리는 걸음이 조용히 지나간다. 그래서
+ * 이 정규형이 그 자리를 메운다: 조건이 `…isPending`과 `…variables?.id === <인자>.id`를 **둘 다**
+ * 지녀야 지난다.
+ */
+const LINK_SCOPED_GUARD =
+  /^if \([A-Za-z_$][\w$]*\.isPending && [A-Za-z_$][\w$]*\.variables\?\.id === [A-Za-z_$][\w$]*\.id\) return;$/;
+
 /** ⓐ 모집단 — 손 목록이 아니라 전수에서 파생한다. */
 function collectMutationSites(): MutationSite[] {
   const sites: MutationSite[] = [];
@@ -622,15 +699,25 @@ describe("ⓒ 핵심 루프의 그 자리 — clickLink는 막는 쪽에 선다"
     expect((body ?? "").trim().startsWith(CORE_LOOP_SITE.guard)).toBe(true);
   });
 
-  it("답은 발명이 아니라 인용이다 — 관례 일곱이 오늘도 그 자리에 서 있다", () => {
-    let precedents = 0;
+  it("답은 발명이 아니라 인용이다 — 관례 일곱이 **오늘도 소스에** 서 있다 (실측)", () => {
+    // ⚠️⚠️ 두 시점(리뷰 L-4). 종전 이 자리의 마지막 줄은 `precedents`에 **표에 적힌 수**를 더해
+    //    놓고 그 합이 일곱인지를 물었다 — 표만 읽고 소스를 한 번도 재지 않는 **항진 단언**이라,
+    //    세 파일에서 관례가 통째로 사라져도 초록이었다. 오늘은 **실측 쪽**을 문다.
+    let declared = 0;
+    let measured = 0;
     for (const entry of GUARD_PRECEDENTS) {
       const code = maskComments(readSweptSource(entry.file));
       const found = (code.match(ANY_HANDLER_GUARD) ?? []).length;
-      expect(found).toBeGreaterThanOrEqual(entry.count);
-      precedents += entry.count;
+      expect(found, `${entry.file}에 선 관례 자리`).toBeGreaterThanOrEqual(entry.count);
+      declared += entry.count;
+      measured += found;
     }
-    expect(precedents).toBe(7);
+    // ⚠️ 무는 것은 **소스에서 실제로 센 수**다(하한 — 관례가 늘어도 초록이다).
+    expect(measured, "세 본보기 파일에서 오늘 실제로 센 관례 자리").toBeGreaterThanOrEqual(
+      GUARD_PRECEDENT_FLOOR
+    );
+    // 그리고 아래 한 줄은 **소스가 아니라 표를 검산한다**(표 무결성 — 손으로 적은 수의 합).
+    expect(declared, "GUARD_PRECEDENTS 표에 적힌 수의 합 (표 무결성 검산)").toBe(GUARD_PRECEDENT_FLOOR);
   });
 
   it("핸들러가 막는 자리는 오늘 그 하나다 — 컨트롤이 막는 자리가 더 강한 판정이라 그쪽으로 센다", () => {
@@ -638,7 +725,37 @@ describe("ⓒ 핵심 루프의 그 자리 — clickLink는 막는 쪽에 선다"
   });
 });
 
-describe("ⓓ 렌더 바이트 불변 — 누르는 자리 둘의 속성이 종전 그대로다(부정 단언)", () => {
+/**
+ * ⓓ의 대장 — ⚠️⚠️ **라운드 90 트랙 B의 sha256 형식을 그대로 인용한다**
+ * (`apps/admin/src/admin-landmark-current.test.ts`의 `ELEMENT_LEDGER` · 그 파일 `:337-354`).
+ *
+ * ⚠️⚠️ **두 시점(리뷰 M-4) — 종전 이 절의 머리말은 *"렌더 바이트 불변"* 이라고 적었지만 아래가
+ * 실제로 물던 것은 **속성 이름과 그 순서**뿐이었다.** 이름과 순서를 지키면서 값은 얼마든지
+ * 바꿀 수 있으므로(`style={{ flex: 1 }}` → `style={{ flex: 2 }}`) 그 낱말은 실측보다 넓었다.
+ * 오늘 그 자리를 **한 줄로 실효**시킨다: 누르는 자리 **두 여는 태그의 전체 바이트**를 해시로 문다.
+ *
+ * 각 줄은 `<태그> :: <sha256 앞 12> :: <미리보기>`이고, 해시가 도는 대상은
+ * `<태그이름 + 속성 전체 + '>'`의 **마스킹된 바이트 전부**다 — 속성 이름·순서·값·공백·줄바꿈
+ * 가운데 한 글자라도 달라지면 해시가 갈린다(= 픽셀이 바뀔 수 있는 자리가 바뀌면 빨개진다).
+ *
+ * ⚠️ **값은 손으로 지은 것이 아니라 HEAD(`8daa27f`)의 바이트에서 떴고**, 워킹트리에서 다시 뜬
+ * 해시가 두 자리 다 그것과 같았다(트랙 A도 이번 리뷰도 이 두 태그를 한 글자도 고치지 않았다).
+ * ⚠️ 미리보기는 **읽으라고** 있다 — 해시만 있으면 빨개졌을 때 무엇이 달라졌는지 알 수 없다.
+ */
+const PRESS_SITE_LEDGER: readonly string[] = [
+  "ProductComparisonRow :: 63c08fe2b5a8 :: <ProductComparisonRow primaryAction={hasSession && index === filledPurchaseRowIndex} seller={lin",
+  'PrimaryButton :: f905e44921d0 :: <PrimaryButton label="바로 구매하기" onPress={() => handleProductLinkPress(primaryPurchaseLink)} style'
+];
+
+describe("ⓓ 렌더 바이트 불변 — 누르는 자리 둘의 여는 태그가 종전 바이트와 같다(해시 · 부정 단언)", () => {
+  function sha12(text: string): string {
+    return createHash("sha256").update(text, "utf8").digest("hex").substring(0, 12);
+  }
+
+  function preview(text: string): string {
+    return text.replace(/\s+/g, " ").substring(0, 96);
+  }
+
   /** 여는 태그 전수 — 속성 안의 `{…}`(화살표 함수 포함)를 넘어서 `>`를 찾는다. */
   function openTags(code: string): { tag: string; body: string }[] {
     const out: { tag: string; body: string }[] = [];
@@ -719,7 +836,21 @@ describe("ⓓ 렌더 바이트 불변 — 누르는 자리 둘의 속성이 종�
     expect(pressSites.map((tag) => tag.tag)).toEqual(["ProductComparisonRow", "PrimaryButton"]);
   });
 
-  it("속성 이름과 **순서**가 종전 바이트와 같다", () => {
+  it("⚠️⚠️ 두 여는 태그의 **전체 바이트**가 종전과 같다 (sha256 · 리뷰 M-4)", () => {
+    const rebuilt = pressSites.map((tag) => {
+      const full = `<${tag.tag}${tag.body}>`;
+      return `${tag.tag} :: ${sha12(full)} :: ${preview(full)}`;
+    });
+    expect(rebuilt).toEqual([...PRESS_SITE_LEDGER]);
+    // 유령 방지 — 대장이 비었거나 자리가 사라지면 위 등호가 조용히 통과하지 않게.
+    expect(PRESS_SITE_LEDGER).toHaveLength(2);
+    expect(rebuilt.every((line) => line.split(" :: ")[1].length === 12)).toBe(true);
+    // 그리고 그 해시가 **실제로 바이트를 무는지**를 픽스처로 보인다(한 글자만 바꿔도 갈린다).
+    const nudged = `<${pressSites[1].tag}${pressSites[1].body} >`;
+    expect(sha12(nudged)).not.toBe(sha12(`<${pressSites[1].tag}${pressSites[1].body}>`));
+  });
+
+  it("속성 이름과 **순서**가 종전 그대로다 (해시가 갈렸을 때 어디가 갈렸는지 읽는 자리)", () => {
     expect(attributeNames(pressSites[0].body)).toEqual(["primaryAction", "seller", "price", "caption", "onPress"]);
     expect(attributeNames(pressSites[1].body)).toEqual(["label", "onPress", "style"]);
   });
@@ -751,7 +882,34 @@ describe("ⓔ 소음 금지 — 막힌 탭은 조용히 아무 일도 하지 않
   it("가드 한 줄에 문자열도 호출도 없다", () => {
     expect(code).toContain(CORE_LOOP_SITE.guard);
     // 문자열도 호출도 없는 모양 하나 — 문구를 세울 자리가 구조적으로 없다.
-    expect(CORE_LOOP_SITE.guard).toMatch(/^if \([A-Za-z_$][\w$]*\.isPending\) return;$/);
+    expect(CORE_LOOP_SITE.guard).toMatch(LINK_SCOPED_GUARD);
+  });
+
+  it("⚠️ 가드가 **링크 단위**다 — 대기 창에 다른 판매처를 누르면 그 링크는 통과한다", () => {
+    // ⚠️⚠️ 두 시점(리뷰 M-1). 라운드 91 A의 조건은 뮤테이션 단위라 **누른 적 없는 다른 판매처
+    // 행까지** 삼켰다. 오늘의 조건은 핸들러가 받은 그 링크와 `variables`를 견주어 **같은 링크의
+    // 두 번째 탭만** 떨어뜨린다 — 중복 기록은 언제나 같은 링크에서 나므로 막는 힘은 그대로다.
+    expect(CORE_LOOP_SITE.guard).toContain(`${CORE_LOOP_SITE.mutation}.variables?.id`);
+    expect(CORE_LOOP_SITE.guard).toContain(`=== ${CORE_LOOP_SITE.guardArgument}.id`);
+    // 핸들러가 실제로 그 이름의 인자를 받는다(가드가 무는 것이 유령 이름이 아니다).
+    expect(code).toContain(`const ${CORE_LOOP_SITE.handler} = (${CORE_LOOP_SITE.guardArgument}: `);
+    // 누르는 자리 둘이 **서로 다른 링크**를 넘긴다 — 그래서 뮤테이션 단위 조건이 틀렸다.
+    const pressedArguments = [...code.matchAll(/handleProductLinkPress\(([A-Za-z_$][\w$]*)\)/g)].map(
+      (match) => match[1]
+    );
+    expect(pressedArguments).toEqual(["link", "primaryPurchaseLink"]);
+    expect(new Set(pressedArguments).size).toBe(2);
+  });
+
+  it("⚠️ 교란 — 넓은(뮤테이션 단위) 가드로 되돌리면 이 계약이 빨개진다", () => {
+    const wide = `if (${CORE_LOOP_SITE.mutation}.isPending) return;`;
+    // 되돌린 줄은 오늘의 정규형을 지나지 못한다 — 이 단언이 그 되돌림을 무는 자리다.
+    expect(wide).not.toMatch(LINK_SCOPED_GUARD);
+    expect(wide).not.toContain(`=== ${CORE_LOOP_SITE.guardArgument}.id`);
+    // ⚠️ 그리고 판정 함수는 넓은 모양도 `handler-blocks`로 받는다(문장 경계까지 보는 바늘이다) —
+    //    그래서 판정만 물면 되돌림이 조용히 지나간다. 정규형이 그 자리를 메운다.
+    expect(hasHandlerGuard(wide, CORE_LOOP_SITE.mutation)).toBe(true);
+    expect(hasHandlerGuard(CORE_LOOP_SITE.guard, CORE_LOOP_SITE.mutation)).toBe(true);
   });
 
   it("새 낭독 0건 — 이 화면은 낭독 API를 부르지 않는다", () => {
@@ -762,7 +920,18 @@ describe("ⓔ 소음 금지 — 막힌 탭은 조용히 아무 일도 하지 않
   it("새 한국어 리터럴 0건 — 화면의 한국어 문자열 수가 종전 그대로다", () => {
     const literals = code.match(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g) ?? [];
     const korean = literals.filter((literal) => /[가-힣]/.test(literal));
-    expect(korean).toHaveLength(44);
+    // ⚠️⚠️ **등호다 — 그리고 등호인 것이 이 단언의 뜻이다**(리뷰 L-5). 이 자가 무는 것은
+    //    *"이 트랙이 문구를 더하지 않았다"* 이므로 늘어도 줄어도 소리가 나야 한다. 대신 그 등호가
+    //    **정당한 문구 편집까지** 막으므로, 빨개졌을 때 사람이 무엇을 해야 하는지를 함께 적는다.
+    expect(
+      korean,
+      `이 화면의 한국어 문자열이 44에서 ${korean.length}로 갈렸어요. 연타 가드는 문구를 더하지 ` +
+        "않으므로, 이 수가 움직였다면 (ⓐ 이 트랙이 문구를 더했거나 (ⓑ 다른 라운드가 이 화면의 " +
+        "문구를 정당하게 고친 것입니다. ⓑ라면 **이 대장을 그 라운드가 함께 갱신해야 합니다** — " +
+        "이 줄의 44를 오늘의 값으로 옮기고, 그 편집이 연타 가드와 무관하다는 사실을 커밋 메시지에 " +
+        "적어 주세요(값을 옮기는 것이 이 계약을 무르게 하지 않습니다: 무는 것은 *한 트랙이 문구를 " +
+        "조용히 더하지 않았는가*이지 문구 수 자체가 아닙니다)."
+    ).toHaveLength(44);
   });
 
   it("서버 0건 · 새 요청 0건 — 이 화면의 뮤테이션 수도 종전 그대로다", () => {
@@ -780,13 +949,47 @@ describe("ⓔ 소음 금지 — 막힌 탭은 조용히 아무 일도 하지 않
 });
 
 describe("ⓕ 사각 — 이 스윕이 못 보는 것을 값과 하한으로 적는다", () => {
-  it("사각 셋이 이유와 재개 조건을 함께 진다", () => {
-    expect(BLIND_SPOTS.length).toBeGreaterThanOrEqual(3);
+  it("사각 넷이 이유와 재개 조건을 함께 진다", () => {
+    expect(BLIND_SPOTS.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(BLIND_SPOTS.map((spot) => spot.id)).size).toBe(BLIND_SPOTS.length);
     for (const spot of BLIND_SPOTS) {
       expect(spot.reason.trim().length).toBeGreaterThan(20);
       expect(spot.resumeCondition).toMatch(/재개 조건\((결정형|사건형)/);
       expect(spot.measure).toBeGreaterThanOrEqual(spot.floor);
     }
+  });
+
+  it("⚠️ `control-blocks` 판정이 **파일 단위**라는 사실이 값으로 적혀 있다 (리뷰 M-2)", () => {
+    const spot = BLIND_SPOTS.find((entry) => entry.id === "control-verdict-is-file-scoped");
+    expect(spot).toBeDefined();
+    // ⚠️ 하한으로만 견준다 — 자리가 늘어도 초록이어야 한다(등호는 옳은 손을 막는다).
+    expect(spot!.measure).toBeLessThanOrEqual(byVerdict("control-blocks").length);
+    expect(spot!.measure).toBe(CONTROL_BLOCKING_FLOOR);
+    // 사각이 유령이 아니다 — 그 판정이 실제로 자리를 내고 있다.
+    expect(byVerdict("control-blocks").length).toBeGreaterThan(0);
+
+    // ⚠️⚠️ 사각의 **실물**을 픽스처로 보인다: 핵심 루프의 그 파일에 `clickLink.isPending`을 물린
+    //    이름을 세우고, 그 이름을 **핸들러를 부르지 않는 엉뚱한 태그**의 `disabled`에 쓴다.
+    //    오늘 그 자리는 `null`(컨트롤이 막지 않는다)이고, 오염 뒤에는 길이 열린다 —
+    //    즉 판정이 `handler-blocks`에서 `control-blocks`로 뒤집힌다.
+    const clean = maskComments(readSweptSource(CORE_LOOP_SITE.file));
+    expect(controlPath(clean, CORE_LOOP_SITE.mutation)).toBeNull();
+    const contaminated = maskComments(
+      `${readSweptSource(CORE_LOOP_SITE.file)}\n` +
+        `const ghostDisabled = ${CORE_LOOP_SITE.mutation}.isPending;\n` +
+        "<UnrelatedButton disabled={ghostDisabled} onPress={() => undefined} />\n"
+    );
+    expect(controlPath(contaminated, CORE_LOOP_SITE.mutation)).not.toBeNull();
+
+    // ⚠️ **그리고 그때 조용해지지 않는다 — ⓒ가 fail-safe다.** ⓒ는 그 자리의 판정을 등호로 물고
+    //    `handler-blocks`가 오늘 그 하나뿐임도 함께 무므로, 뒤집히는 순간 계약이 빨개진다.
+    const contaminatedVerdict: PressVerdict =
+      controlPath(contaminated, CORE_LOOP_SITE.mutation) !== null
+        ? "control-blocks"
+        : hasHandlerGuard(contaminated, CORE_LOOP_SITE.mutation)
+          ? "handler-blocks"
+          : "does-not-block";
+    expect(contaminatedVerdict).not.toBe("handler-blocks");
   });
 
   it("`useMutation` 밖의 쓰기는 모집단 밖이다 — 그 수를 값으로 적는다", () => {
