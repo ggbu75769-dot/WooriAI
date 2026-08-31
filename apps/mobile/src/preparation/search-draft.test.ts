@@ -83,6 +83,12 @@ describe("검색 결과 개수가 소리로도 나간다 (라운드 90 트랙 A)
     expect(paritySource).toContain("if (activeSearchQuery) {");
     expect(paritySource).toContain("if (announcedSearchResult.current === announcement) return;");
     expect(paritySource).toContain("announceForA11y(announcement);");
+    // ⚠️ 그리고 갈래가 **닫힐 때** 기억을 지운다(라운드 90 리뷰 H-1) — 검색을 닫았다가 같은
+    // 검색을 다시 걸면 문장이 글자로 같아, 이 한 줄이 없으면 iOS만 조용하고 안드로이드는
+    // 리마운트로 다시 읽어 두 플랫폼이 갈린다. 바이트로 무는 것은 `else` 갈래 전체다.
+    expect(paritySource).toContain(
+      "    } else {\n      announcedSearchResult.current = null;\n    }"
+    );
     // 프롭은 그대로 남는다 — 안드로이드에서 들리던 것을 끄는 것이 이 배선의 목적이 아니다.
     expect(paritySource).toContain('<Text accessibilityLiveRegion="polite" style={{ color: semanticColors.textPrimary');
   });

@@ -54,6 +54,8 @@ import {
   RATCHET_HISTORY,
   SOURCE_REASON_KEEP_MARKER,
   SOURCE_REASON_MARKER,
+  apostropheBearingCallsiteFiles,
+  apostropheMaskedCodeSites,
   classifyDeadExport,
   collectCallsiteFiles,
   collectExportedConstants,
@@ -961,7 +963,10 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     expect(spotOf("derived-exemptions")?.value, "면제 수").toBe(exemptions.length);
     expect(exemptions.length, "오늘의 면제 수").toBe(22);
     expect(dead.length, "오늘의 사문 전수").toBe(44);
-    expect(exemptions.length * 2, "면제 수 × 2 — 사문 전수와 같으면 '절반 도달'이다").toBe(dead.length);
+    // ⚠️ 라운드 90 리뷰 M-4: *"면제 × 2 = 사문 전수"* 를 등호로 고정하던 줄을 지웠다 — 오늘의
+    // 등호는 **우연**(분자와 분모가 마침 넷씩 함께 늘었다)이고, 우연의 등호는 정당한 변화
+    // (사문 하나가 늘거나 면제 하나가 줄어드는 흔한 걸음)에 **거짓 빨강**을 낸다. 이 자리가
+    // 지켜야 하는 것은 등호가 아니라 아래 **문턱 판정**이고, 그것은 그대로 남아 있다.
     // ⚠️⚠️ **문턱은 '절반 초과'이지 '절반 도달'이 아니다** — 그래서 오늘 판정을 좁히지 않는다.
     // 이 단언이 그 판정을 값으로 들고 있고, 면제가 하나만 더 늘면 여기가 먼저 빨개진다.
     expect(
@@ -975,6 +980,17 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // ④ 새로 연 사각도 같은 자리에서 다시 잰다(값 없이 열지 않는다).
     expect(spotOf("string-keyed-dynamic-access")?.value, "적어 둔 값").toBe(55);
     expect(namesReferencedInsideStringLiterals().length, "오늘 다시 잰 값").toBe(55);
+
+    // ⑤ 라운드 90 리뷰 M-3이 연 자리 — **스캐너의 오탐 표면**도 값과 실피해를 함께 든다.
+    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(105);
+    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(105);
+    // ⚠️ 이 등호는 우연이 아니다(M-4의 그 등호와 다르다): 0을 넘는 날 사문 판정 하나가 **거짓
+    // 빨강**이므로, 빨개지는 것이 곧 알려야 할 사실이다. 그때의 답은 대장에 줄을 더하는 것이
+    // 아니라 이 스캐너가 JSX 텍스트를 코드와 가르는 것이다.
+    expect(
+      apostropheMaskedCodeSites(),
+      "어포스트로피 짝이 코드를 지운 자리가 생겼어요 — 그 자리의 사문 판정은 거짓 빨강입니다"
+    ).toEqual([]);
 
     // 그리고 함수 축은 오늘도 열여섯이다 — 늘어난 것이 **함수 축의 부채가 아님**을 값으로 못 박는다.
     expect(findDeadExportsOfKind("function").length, "함수 축의 사문 수가 라운드 88과 갈렸어요").toBe(16);
@@ -1271,6 +1287,34 @@ describe("ⓘ 문자열 리터럴 축 — 글자는 지우고 템플릿 `${…}`
     ).toBe(true);
     // ⚠️ 그리고 그 넷은 대장의 줄을 요구하지 않는다 — 오늘의 실피해가 0이라는 값이다.
     expect(moved.filter((item) => ledgerRequired.some((entry) => entry.id === item.id))).toEqual([]);
+  });
+
+  it("⚠️⚠️ 스캐너의 오탐 표면 — JSX 텍스트의 어포스트로피 **짝**은 코드를 지운다(라운드 90 리뷰 M-3)", () => {
+    // ⚠️ **합성 소스로 증명한다**(계약 ⓐ의 형식): 저장소에 오늘 그 모양이 0건이어도, 이 그물이
+    // 그 갈래에서 무엇을 하는지는 여기서 값으로 선다.
+    const oneApostrophe = "<Text>Don't stop {renderFooter()} now</Text>";
+    const twoApostrophes = "<Text>Don't stop {renderFooter()} it's fine</Text>";
+
+    // ⓐ 한 줄에 **하나**면 줄바꿈에서 문자열이 아님이 드러나 아무것도 지워지지 않는다(한 줄 가두기).
+    expect(maskCommentsAndStrings(oneApostrophe), "한 줄 가두기가 깨졌어요").toBe(oneApostrophe);
+    // ⓑ **짝으로** 서면 그 사이의 진짜 코드가 공백이 된다 — 오차의 방향이 **거짓 빨강**이다.
+    expect(
+      maskCommentsAndStrings(twoApostrophes),
+      "어포스트로피 짝이 코드를 지우지 않게 되었다면 이 사각은 닫힌 것이고, 그 줄을 CLOSED_BLIND_SPOTS로 옮기세요"
+    ).not.toContain("renderFooter");
+    // ⓒ 주석만 지우는 옛 자에서는 그 코드가 살아 있었다 — 방향이 라운드 90에 뒤집혔다는 근거.
+    expect(maskComments(twoApostrophes), "옛 그물은 글자를 지우지 않았다").toContain("renderFooter");
+    // ⓓ 길이·줄은 여전히 보존된다(손상이 그 줄 안에 갇힌다).
+    expect(maskCommentsAndStrings(twoApostrophes).length).toBe(twoApostrophes.length);
+
+    // ⓔ **저장소의 실피해는 0건**이고, 사각이 지는 것은 그 위의 **표면**이다.
+    const spot = LEDGER_BLIND_SPOTS.find((entry) => entry.id === "jsx-apostrophe-string-masking");
+    expect(spot?.statement, "사각의 문장이 실피해를 값으로 말해야 해요").toContain("실피해는 0건");
+    expect(apostropheMaskedCodeSites(), "오늘의 실피해").toEqual([]);
+    expect(spot?.value, "적어 둔 표면").toBe(apostropheBearingCallsiteFiles().length);
+    expect(apostropheBearingCallsiteFiles().length, "표면이 호출부 전수보다 클 수 없다").toBeLessThan(
+      collectCallsiteFiles().length
+    );
   });
 });
 

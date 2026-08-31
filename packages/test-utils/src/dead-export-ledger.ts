@@ -608,7 +608,31 @@ function skipRegexLiteral(source: string, slashIndex: number): number | null {
 /**
  * 따옴표 문자열의 끝. **줄을 넘으면 문자열이 아니다**(JS 문법) — 그때는 아무것도 마스킹하지 않고
  * 한 글자만 넘어간다. ⚠️ 이 한 줄 가두기가 이 스캐너의 안전장치다: 오해가 나도 손상이 **그 줄**에
- * 갇히고, 방향은 *"주석을 덜 지운다"*(옛 그물과 같은 거짓 초록)이지 *"코드를 지운다"* 가 아니다.
+ * 갇힌다.
+ *
+ * ⚠️⚠️ **오차의 방향은 오늘 뒤집혔다 — 옛 주석은 낡았다**(라운드 90 리뷰 M-3).
+ *
+ *  · **라운드 88·89(`maskStrings === false`)**: 이 자는 주석만 지웠고 문자열의 글자는 그대로
+ *    남겼다. 그래서 따옴표를 잘못 읽어도 최악이 *"주석을 덜 지운다"* 였고, 그 방향은 옛 그물과
+ *    같은 **거짓 초록**(사문을 놓친다)이었다.
+ *  · **라운드 90 트랙 C부터(`maskStrings === true`)**: 이 자가 **글자를 지우는 자**가 됐다.
+ *    여는 따옴표를 잘못 잡으면 그 줄 안의 **진짜 코드가 공백이 되고**, 지워진 곳에 살아 있는
+ *    호출부가 있었다면 그 export가 **사문으로 세어진다** — 방향이 **거짓 빨강**이다.
+ *
+ * ⚠️ **실증 사례(합성 소스로 재현되고, 저장소에는 오늘 0건이다)**: JSX 텍스트의 어포스트로피는
+ * 코드가 아니라 글자인데 이 자는 그것을 여는 따옴표로 읽는다. 한 줄에 **짝으로** 서면 그 사이가
+ * 통째로 지워진다 —
+ *
+ * ```
+ * <Text>Don't stop {renderFooter()} it's fine</Text>
+ *   → <Text>Don'                          's fine</Text>   // renderFooter가 사라진다
+ * ```
+ *
+ * 한 줄에 **하나만** 있으면(가장 흔한 모양) 줄바꿈에서 `null`이 돌아와 아무것도 지워지지 않는다 —
+ * 위의 한 줄 가두기가 그 자리를 막는 것이고, **짝이 맞는 둘**이 그 가두기를 빠져나가는 유일한
+ * 모양이다. ⚠️ **오늘 이 저장소의 실피해는 0건**이다(제품 소스의 인용부호는 전각 `‘ ’`이고
+ * ASCII `'`가 JSX 텍스트에 짝으로 선 자리가 0건이다). 그 사실과 표면의 크기는 사각
+ * `jsx-apostrophe-string-masking`이 값과 하한으로 진다.
  */
 function skipQuotedString(state: MaskState, quoteIndex: number): number | null {
   const { source } = state;
@@ -829,6 +853,59 @@ export function findCodeOnlyProductReferences(
 /** 호출부 파일의 내용을 한 번만 읽어 둔다(모집단 천 개 × 파일 삼백 개라 재사용이 필수다). */
 export function readCallsiteSources(baseDir: string = repoRoot): Map<string, string> {
   return new Map(collectCallsiteFiles(baseDir).map((file) => [file, readRepoFile(file, baseDir)]));
+}
+
+/**
+ * ⚠️ **오탐 표면 — 이 스캐너가 어포스트로피를 여는 따옴표로 볼 수 있는 호출부 파일 전수.**
+ *
+ * `skipQuotedString`의 머리말이 든 그 사각의 **크기**다(라운드 90 리뷰 M-3). ASCII `'`가 한 글자도
+ * 없는 파일에서는 그 오해가 아예 일어날 수 없으므로, 이 수가 표면의 상한이자 사각의 하한이 된다.
+ * ⚠️ 이 수가 **피해**는 아니다 — 피해는 아래 `apostropheMaskedCodeSites`가 세고 오늘 0건이다.
+ */
+export function apostropheBearingCallsiteFiles(baseDir: string = repoRoot): string[] {
+  return [...readCallsiteSources(baseDir)]
+    .filter(([, source]) => source.includes("'"))
+    .map(([file]) => file);
+}
+
+/**
+ * ⚠️⚠️ **실피해 — 문자열 마스킹이 어포스트로피 짝을 잘못 읽어 *코드를 지운* 자리 전수(오늘 0건).**
+ *
+ * 두 마스킹의 산출을 겹쳐 본다: 주석만 지운 자에서는 코드였는데 문자열까지 지운 자에서 공백이
+ * 된 구간을 찾고, 그 구간을 연 따옴표가 **ASCII `'`** 이며 그 앞이 코드 구분자가 **아닐 때**만
+ * 센다(구분자 뒤의 `'`는 진짜 문자열 리터럴이다 — 지워지는 것이 옳다). 지워진 구간에 식별자가
+ * 없으면 코드가 아니라 글자였으므로 역시 세지 않는다.
+ *
+ * ⚠️ **0이 미측정이 아니라 실측이라는 사실이 이 자의 값이다**(`outside-two-apps`류의 0과 다르다).
+ * 하루라도 이 수가 0을 넘으면 그날 사문 판정 하나가 **거짓 빨강**일 수 있고, 그때의 답은 대장에
+ * 줄을 더하는 것이 아니라 이 스캐너가 JSX 텍스트를 코드와 가르는 것이다.
+ */
+export function apostropheMaskedCodeSites(baseDir: string = repoRoot): string[] {
+  const CODE_DELIMITER = /[=(,:[{&|?+!;<>]/;
+  const sites: string[] = [];
+  for (const [file, source] of readCallsiteSources(baseDir)) {
+    if (!source.includes("'")) continue;
+    const commentsOnly = maskComments(source);
+    const alsoStrings = maskCommentsAndStrings(source);
+    for (let index = 0; index < commentsOnly.length; index += 1) {
+      if (commentsOnly[index] === " " || alsoStrings[index] !== " ") continue;
+      let open = index - 1;
+      while (open >= 0 && alsoStrings[open] === " " && commentsOnly[open] !== " ") open -= 1;
+      let end = index;
+      while (end < commentsOnly.length && alsoStrings[end] === " " && commentsOnly[end] !== " ") end += 1;
+      const erased = commentsOnly.slice(open, end);
+      index = end;
+      if (commentsOnly[open] !== "'") continue;
+      // 지워진 것이 글자뿐이면 이 사각이 아니다 — 이 자가 세는 것은 **코드**가 사라진 자리다.
+      if (!/[A-Za-z_$][A-Za-z0-9_$]{2,}/.test(erased)) continue;
+      let before = open - 1;
+      while (before >= 0 && /\s/.test(commentsOnly[before])) before -= 1;
+      // 코드 구분자 뒤의 `'`는 진짜 문자열 리터럴이다(지워지는 것이 이 그물의 축이다).
+      if (before < 0 || CODE_DELIMITER.test(commentsOnly[before])) continue;
+      sites.push(`${file}:${source.slice(0, open).split("\n").length}`);
+    }
+  }
+  return sites;
 }
 
 /**
@@ -2005,8 +2082,37 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "사문으로 세어지고, 계약이 그 자리에서 빨개진다. " +
       "⚠️ 재개 조건(사건형): 문자열 열쇠로만 닿는 export가 **대장의 줄을 요구하는 날** — 즉 이 사각이 낸 " +
       "거짓 빨강이 처음 하나 서는 날(오늘 0건). 그날 이 그물은 문자열 안의 이름을 **한 번 더** 갈라야 한다" +
-      "(따옴표만으로는 열쇠와 문장을 가르지 못한다).",
+      "(따옴표만으로는 열쇠와 문장을 가르지 못한다). " +
+      "⚠️⚠️ **거짓 빨강의 문이 이 자리 하나가 아니다**(라운드 90 리뷰 M-3): 이 줄이 세는 것은 *참조를 못 " +
+      "보는* 쪽이고, **스캐너가 문자열의 경계를 잘못 잡아 코드를 지우는** 쪽은 아래 " +
+      "`jsx-apostrophe-string-masking`이 표면 **105**·실피해 **0건**으로 따로 진다 — 방향이 같다고 한 줄로 " +
+      "묶으면 둘 중 하나가 고쳐졌을 때 나머지 하나가 소리 없이 그 줄에 얹혀 산다.",
     measure: (baseDir) => namesReferencedInsideStringLiterals(baseDir).length
+  },
+  {
+    id: "jsx-apostrophe-string-masking",
+    value: 105,
+    floor: 60,
+    statement:
+      "⚠️⚠️ **같은 거짓 빨강의 둘째 문 — 이번엔 참조가 아니라 *스캐너*가 낸다**(라운드 90 리뷰 M-3). " +
+      "위 `string-keyed-dynamic-access`는 *문자열로만 닿는 참조를 못 본다*는 사각이고, 이 줄은 " +
+      "**문자열의 경계를 잘못 잡아 코드를 지워 버릴 수 있다**는 사각이다 — 둘 다 방향이 거짓 빨강이지만 " +
+      "원인이 다르므로 한 낱말로 적지 않는다. " +
+      "⚠️ **기전**: `skipQuotedString`은 ASCII `'`를 여는 따옴표로 읽는데, JSX 텍스트의 어포스트로피는 " +
+      "코드가 아니라 글자다. 한 줄에 **짝으로** 서면 그 사이가 통째로 공백이 되고, 지워진 곳에 살아 있는 " +
+      "호출부가 있었다면 그 export가 **사문으로 세어진다**. 합성 소스로 재현된다: " +
+      "`<Text>Don't stop {renderFooter()} it's fine</Text>` → `renderFooter`가 사라진다. " +
+      "한 줄에 하나만 있으면 줄바꿈에서 `null`이 돌아와 아무것도 지워지지 않는다(한 줄 가두기) — " +
+      "**짝이 맞는 둘**이 그 가두기를 빠져나가는 유일한 모양이다. " +
+      "⚠️⚠️ **오늘 실피해는 0건이다**(`apostropheMaskedCodeSites()` — 미측정의 0이 아니라 **실측의 0**이다). " +
+      "제품 소스의 인용부호가 전각 `‘ ’`이고 ASCII `'`가 JSX 텍스트에 짝으로 선 자리가 오늘 없기 때문이다. " +
+      "⚠️ **아래 `measure`가 세는 것은 피해가 아니라 표면**이다 — 호출부 319 가운데 ASCII `'`를 한 글자라도 " +
+      "지닌 파일 **105**. 그 파일들에서만 이 오해가 일어날 수 있으므로 105가 사각의 크기이고, 0은 그 표면 " +
+      "위에서 오늘 아무 일도 일어나지 않았다는 실측이다. " +
+      "⚠️ 재개 조건(사건형): `apostropheMaskedCodeSites()`가 처음 0을 넘는 날 — 그날의 답은 대장에 줄을 " +
+      "더하는 것이 아니라 **이 스캐너가 JSX 텍스트를 코드와 가르는 것**이다(따옴표만으로는 글자와 리터럴을 " +
+      "가르지 못한다 · 위 사각의 재개 조건과 같은 모양의 문장이고 손도 같은 파일 안이다).",
+    measure: (baseDir) => apostropheBearingCallsiteFiles(baseDir).length
   },
   {
     id: "tsx-components",

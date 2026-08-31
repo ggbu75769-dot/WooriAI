@@ -452,9 +452,15 @@ export function PreparationListParity({
    * 아래 `activeSearchQuery` 갈래의 첫 줄에는 라운드 79~89가 남긴 `accessibilityLiveRegion="polite"`가
    * **반쪽으로** 걸려 있었다(짝인 `accessibilityRole="alert"`가 없고, 이 파일에 `announceForA11y`도
    * 0건이었다). 그 프롭은 RN 문서가 `@platform android`로 표시한 것이라 **안드로이드에서만**
-   * 소리가 났다 — 준비템 탭에서 검색을 제출한 사람이 iOS에서는 *몇 개가 남았는지*를 듣지 못한다.
+   * 소리가 났다 — 준비템 탭에서 검색을 건 사람이 iOS에서는 *몇 개가 남았는지*를 듣지 못한다.
    * 핵심 루프 안(지출 기록 → 총액 → **준비템** → 구매 링크) 화면이고, 눈으로는 굵은 글씨 한 줄이
    * 서는데 소리로는 목록이 조용히 줄어들 뿐이었다.
+   *
+   * ⚠️ **"제출"이 아니라 350ms 디바운스마다다**(라운드 90 리뷰 L-2). 이 배선이 도는 시점은
+   * `activeSearchQuery`가 바뀌는 시점이고, 그 값은 위 디바운스 effect가 **입력이 350ms 멎을
+   * 때마다** 내보낸다(키보드 [검색] 버튼의 `submitSearch`는 그중 한 경로일 뿐이다). 즉 글자를
+   * 지우고 다시 치는 동안에도 문장이 갈릴 때마다 소리가 난다 — 재낭독 가드가 막는 것은 *같은*
+   * 문장이지 *제출하지 않은* 입력이 아니다.
    *
    * ⚠️ 이 `if`의 조건은 그 줄을 세우는 갈래와 **글자로 같다**(`activeSearchQuery`) —
    * a11y-contract.test.ts의 파생 판정이 자리를 감싸는 **최내곽 JSX 갈래**와 이 배선의 `if`
@@ -464,6 +470,13 @@ export function PreparationListParity({
    * ⚠️ **재낭독 금지.** 같은 문장이면 소리를 내지 않는다(위 `announcedSearchResult`). 의존 배열은
    * 그 갈래가 읽는 두 값뿐이지만, 같은 질의·같은 개수로 다시 서는 창이 실재하므로 조건 하나로는
    * 부족하다 — 라운드 89 리뷰 L-4가 이름 붙인 그 축이다.
+   *
+   * ⚠️⚠️ **그리고 갈래가 닫히면 그 기억도 지운다**(`else` 갈래 · 라운드 90 리뷰 H-1). 검색을
+   * 닫았다가(빈 검색어 · 필터 초기화) **같은 검색을 다시** 하면 문장이 글자로 같아 `return`에
+   * 걸린다 — 사용자에게는 *새로 제출한 검색*인데 iOS에서는 아무 소리도 나지 않았다. 안드로이드는
+   * 라이브 리전이 리마운트로 다시 읽어 주므로 **두 플랫폼이 그 창에서 갈렸고**, 그것은 이 배선이
+   * 애초에 없애려던 그 갈림이다. 조건이 거짓인 창은 여전히 조용하다 — 지우는 것은 기억뿐이고
+   * `announceForA11y`는 그 갈래에 0건이다.
    *
    * ⚠️ 읽어 주는 문장은 화면이 짓지 않는다 — 화면이 이미 그리는 두 값(질의 · 결과 수)에서
    * 문구 모듈이 짓는다(`./search-draft`의 `searchResultCountAnnouncement`). 그래서 이 파일에
@@ -480,6 +493,8 @@ export function PreparationListParity({
       if (announcedSearchResult.current === announcement) return;
       announcedSearchResult.current = announcement;
       announceForA11y(announcement);
+    } else {
+      announcedSearchResult.current = null;
     }
   }, [activeSearchQuery, displayedItems.length]);
 

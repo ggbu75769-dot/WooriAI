@@ -139,10 +139,25 @@ const OUTLET_POLICY: readonly { className: StatusClass; outlet: string; side: "�
  *
  * 오늘 면제는 둘이고, 둘 다 `AdminShell` 헤더의 복구 코드 안내다(한 태그의 삼항이 클래스를
  * 둘 부르므로 자리로는 둘이다).
+ *
+ * ⚠️⚠️ **면제의 단위는 클래스가 아니라 여는 태그의 바이트다**(라운드 90 리뷰 L-6). 종전에는
+ * `EXEMPT_CLASSES`(클래스 이름의 집합)로 걸렀는데, 그러면 **같은 클래스를 입은 새 자리가 다른
+ * 파일에 소리 없이 붙어도** ⓑ가 건너뛰고 ⓓ의 *"조용한 자리의 클래스가 면제 목록과 갈려요"* 도
+ * 집합이 같아 초록이었다 — 면제 하나가 클래스 전체에 대한 백지 수표였다. `tag`를 값으로 들면
+ * 면제는 **오늘 소스에 실재하는 그 한 태그**로 좁아지고, 같은 클래스의 새 자리는 `silent`로
+ * 떨어져 ⓑ와 ⓓ가 함께 빨개진다. ⚠️ 그리고 이 바이트가 갈리면(태그가 고쳐지면) 면제 자체가
+ * 유령이 되므로 아래 ⓓ가 그 실재를 따로 문다.
  */
-const EXEMPTIONS: readonly { className: StatusClass; reason: string; provenBy: { file: string; needle: string } }[] = [
+const EXEMPTIONS: readonly {
+  className: StatusClass;
+  /** 면제되는 **그 여는 태그의 바이트** — 클래스가 아니라 이 자리 하나가 면제다. */
+  tag: string;
+  reason: string;
+  provenBy: { file: string; needle: string };
+}[] = [
   {
     className: "recoveryNotice",
+    tag: "<span className={recoveryNotice.low ? styles.recoveryNoticeLow : styles.recoveryNotice}>",
     reason:
       "조작의 결과가 아니라 헤더 크롬이다. 세션이 실어 온 한 값에서 첫 페인트에 파생돼 그 자리에 " +
       "서 있을 뿐이라(누른 것에 대한 답이 아니다) 읽기 순서로 이미 닿는다. 라이브 영역으로 만들면 " +
@@ -154,6 +169,7 @@ const EXEMPTIONS: readonly { className: StatusClass; reason: string; provenBy: {
   },
   {
     className: "recoveryNoticeLow",
+    tag: "<span className={recoveryNotice.low ? styles.recoveryNoticeLow : styles.recoveryNotice}>",
     reason:
       "같은 한 태그의 삼항 반대편이다(장수가 적을 때의 강조 클래스). 자리는 둘이지만 여는 태그가 " +
       "하나라 판정도 하나여야 한다 — 한쪽만 출구를 주면 같은 문장이 남은 장수에 따라 들리다 말다 한다.",
@@ -180,7 +196,18 @@ const EXEMPLAR = {
  */
 const UNNAMED_TABLES_OUTSIDE_ROUND89 = ["src/components/ProductLinkBulkReplace.tsx"] as const;
 
-/** 소리로 닿는 출구 셋. ⚠️ 자리마다 **하나**여야 한다(둘은 어느 쪽으로 읽힐지 갈린다). */
+/**
+ * 소리로 닿는 출구 셋. ⚠️ 자리마다 **하나**여야 한다(둘은 어느 쪽으로 읽힐지 갈린다).
+ *
+ * ⚠️⚠️ **이 규칙은 *벗기기*의 단일 소스이기도 하다**(ⓒ의 두 단언이 이것으로 태그를 벗긴다) —
+ * 그래서 **미래의 정당한 속성 하나가 이 규칙 밖에서 붙으면 그 두 단언이 빨개진다.** 가장
+ * 있음직한 것이 `aria-atomic`이다: `role="alert"`은 암묵 `aria-atomic="true"`를 지니지만
+ * 문장이 부분 갱신되는 자리에서는 그것을 명시하거나 뒤집는 것이 옳을 수 있고, `aria-relevant`·
+ * `aria-busy`도 같은 성질이다. **그때의 옳은 손은 단언을 지우는 것이 아니라 이 규칙(과 짝인
+ * ⓒ의 허용 속성 목록)을 그 속성까지 넓히는 것이다** — 그러면 벗긴 바이트가 다시 종전과 같아져
+ * 문구 대장이 그대로 초록이 되고, 새 속성은 *출구 축의 값*으로 계약 안에 남는다. 반대로 단언을
+ * 지우면 그날부터 여는 태그에 무엇이 붙어도 조용하다.
+ */
 const OUTLET_ATTRIBUTE = /\s(?:role="(?:alert|status)"|aria-live="(?:polite|assertive|off)")/g;
 
 const CLASS_REFERENCE = new RegExp(`styles\\.(${STATUS_CLASSES.join("|")})\\b`, "g");
@@ -318,7 +345,12 @@ function sitesOf(file: string, source: string): Site[] {
 const SWEPT_FILES = listSweptFiles();
 const SOURCES = new Map(SWEPT_FILES.map((file) => [file, read(file)] as const));
 const ALL_SITES = SWEPT_FILES.flatMap((file) => sitesOf(file, SOURCES.get(file) as string));
-const EXEMPT_CLASSES = new Set<StatusClass>(EXEMPTIONS.map((entry) => entry.className));
+/**
+ * ⚠️ **면제의 열쇠 — 여는 태그의 바이트다**(라운드 90 리뷰 L-6). 클래스 단위로 걸렀을 때 열려
+ * 있던 구멍(같은 클래스의 새 자리가 소리 없이 붙어도 ⓑ·ⓓ가 조용하다)을 이 한 줄이 닫는다.
+ */
+const EXEMPT_TAGS = new Set<string>(EXEMPTIONS.map((entry) => entry.tag));
+const isExempt = (site: Site): boolean => EXEMPT_TAGS.has(site.tagText);
 const POLICY_BY_CLASS = new Map(OUTLET_POLICY.map((entry) => [entry.className, entry] as const));
 
 /**
@@ -456,8 +488,10 @@ describe("어드민 상태 문장이 소리로 나간다 (라운드 90 트랙 B)
     it("면제가 아닌 자리는 전부 출구를 갖고, 출구는 정확히 하나다", () => {
       const silent: string[] = [];
       for (const site of ALL_SITES) {
-        if (EXEMPT_CLASSES.has(site.className)) continue;
-        if (site.outlets.length === 0) silent.push(`${site.file} :: ${site.className}`);
+        // ⚠️ 면제는 **그 여는 태그 하나**다(라운드 90 리뷰 L-6) — 같은 클래스의 새 자리는
+        // 여기를 건너뛰지 못하고 아래 `silent`에 들어온다.
+        if (isExempt(site)) continue;
+        if (site.outlets.length === 0) silent.push(`${site.file} :: ${site.className} — ${site.tagText}`);
         expect(
           site.outlets.length,
           `${site.file} :: ${site.className}: 출구가 둘 이상이면 어느 공손함으로 읽힐지 갈려요 — ${site.tagText}`
@@ -468,7 +502,7 @@ describe("어드민 상태 문장이 소리로 나간다 (라운드 90 트랙 B)
 
     it("각 자리의 출구가 판정표와 같다 (표식을 손으로 복사하지 않는다)", () => {
       for (const site of ALL_SITES) {
-        if (EXEMPT_CLASSES.has(site.className)) continue;
+        if (isExempt(site)) continue;
         const policy = POLICY_BY_CLASS.get(site.className);
         expect(policy, `${site.className}: 판정표에 없는 클래스가 모집단에 들어왔어요`).toBeDefined();
         expect(
@@ -495,7 +529,11 @@ describe("어드민 상태 문장이 소리로 나간다 (라운드 90 트랙 B)
         const names = [...attrs.matchAll(/(?:^|\s)([A-Za-z-]+)=/g)].map((match) => match[1]);
         expect(
           names.filter((name) => name !== "className" && name !== "role" && name !== "aria-live"),
-          `${site.file} :: ${site.className}: 상태 문장 태그에 다른 속성이 붙었어요 — ${site.tagText}`
+          `${site.file} :: ${site.className}: 상태 문장 태그에 다른 속성이 붙었어요 — ${site.tagText}\n` +
+            "  ⚠️ 붙은 것이 **미래의 정당한 낭독 속성**(aria-atomic·aria-relevant·aria-busy 따위)이라면 " +
+            "이 단언을 지우지 말고 OUTLET_ATTRIBUTE 규칙과 이 허용 목록을 그 속성까지 넓히세요 — " +
+            "그러면 벗긴 바이트가 다시 종전과 같아져 ⓒ 문구 대장이 그대로 초록입니다. " +
+            "단언을 지우면 그날부터 여는 태그에 무엇이 붙어도 조용합니다."
         ).toEqual([]);
         expect(
           site.tagText,
@@ -505,11 +543,16 @@ describe("어드민 상태 문장이 소리로 나간다 (라운드 90 트랙 B)
     });
 
     it("출구 속성을 빼면 태그가 className 하나만 남는다", () => {
+      // ⚠️ 이 단언과 바로 위 단언은 **OUTLET_ATTRIBUTE 규칙의 소비자**다. 미래에 정당한 낭독
+      // 속성(aria-atomic 등)이 붙는 날 둘 다 빨개지는데, 그때 옳은 손은 단언을 지우는 것이
+      // 아니라 그 규칙을 넓히는 것이다(자세한 이유는 OUTLET_ATTRIBUTE의 주석).
       for (const site of ALL_SITES) {
         const bareTag = site.tagText.replace(OUTLET_ATTRIBUTE, "");
-        expect(bareTag, `${site.file} :: ${site.className}: 벗긴 태그에 출구가 남았어요`).not.toMatch(
-          /role=|aria-live=/
-        );
+        expect(
+          bareTag,
+          `${site.file} :: ${site.className}: 벗긴 태그에 출구가 남았어요 — 새 낭독 속성이 붙었다면 ` +
+            "OUTLET_ATTRIBUTE 규칙을 그 속성까지 넓히는 것이 옳은 손입니다(단언을 지우지 마세요)"
+        ).not.toMatch(/role=|aria-live=/);
         expect(
           (bareTag.match(/className=/g) ?? []).length,
           `${site.file} :: ${site.className}: className이 하나가 아니에요`
@@ -539,22 +582,50 @@ describe("어드민 상태 문장이 소리로 나간다 (라운드 90 트랙 B)
     });
 
     it("면제된 자리는 실제로 출구가 없고, 면제 목록 밖의 조용한 자리는 없다", () => {
-      const silentClasses = new Set(
-        ALL_SITES.filter((site) => site.outlets.length === 0).map((site) => site.className)
+      // ⚠️ **태그 바이트로 견준다**(라운드 90 리뷰 L-6). 클래스 집합으로 견주면 같은 클래스의
+      // 새 조용한 자리가 붙어도 집합이 그대로라 이 단언이 초록이었다 — 면제 하나가 클래스
+      // 전체에 대한 백지 수표였다.
+      const silentTags = new Set(
+        ALL_SITES.filter((site) => site.outlets.length === 0).map((site) => site.tagText)
       );
-      expect([...silentClasses].sort(), "조용한 자리의 클래스가 면제 목록과 갈려요").toEqual(
-        [...EXEMPT_CLASSES].sort()
-      );
-      // 면제 줄이 유령이 되지 않게 — 면제 클래스가 오늘 실제로 모집단에 서 있는가.
-      for (const className of EXEMPT_CLASSES) {
+      expect(
+        [...silentTags].sort(),
+        "조용한 자리의 여는 태그가 면제 목록과 갈려요 — 새 자리가 소리 없이 붙었거나, 면제 태그가 고쳐졌습니다"
+      ).toEqual([...EXEMPT_TAGS].sort());
+      // 면제 줄이 유령이 되지 않게 — 면제 태그가 오늘 실제로 모집단에 서 있는가(클래스까지 함께).
+      for (const entry of EXEMPTIONS) {
         expect(
-          ALL_SITES.some((site) => site.className === className),
-          `${className}: 면제 줄이 가리키는 자리가 사라졌어요 — 그 줄을 지우세요`
+          ALL_SITES.some((site) => site.tagText === entry.tag && site.className === entry.className),
+          `${entry.className}: 면제 줄이 가리키는 자리가 사라졌어요 — 그 줄을 지우세요 (${entry.tag})`
         ).toBe(true);
       }
       // 면제 둘은 한 여는 태그를 나눠 쓴다(자리는 둘 · 태그는 하나).
-      const exemptTags = new Set(ALL_SITES.filter((site) => EXEMPT_CLASSES.has(site.className)).map((s) => s.tagText));
-      expect(exemptTags.size, "면제 둘이 한 태그를 나눠 쓰지 않게 되었어요").toBe(1);
+      expect(EXEMPT_TAGS.size, "면제 둘이 한 태그를 나눠 쓰지 않게 되었어요").toBe(1);
+      expect(
+        ALL_SITES.filter((site) => isExempt(site)).length,
+        "면제 태그가 덮는 자리 수"
+      ).toBe(EXEMPTIONS.length);
+    });
+
+    it("면제는 클래스가 아니라 태그 하나다 — 같은 클래스의 새 자리는 소리 없이 통과하지 못한다", () => {
+      // ⚠️ 픽스처로 보인다(저장소를 한 글자도 고치지 않고 규칙만 시험한다 · 라운드 90 리뷰 L-6).
+      const newcomer = '<p className={styles.recoveryNotice}>';
+      const fixture: Site = {
+        file: "app/(fixture)/page.tsx",
+        className: "recoveryNotice",
+        tagText: newcomer,
+        bareElement: `${newcomer}{notice}</p>`,
+        outlets: []
+      };
+      // 면제 태그와 클래스는 같지만 바이트가 다르다 — 그래서 면제가 아니다.
+      expect(EXEMPT_TAGS.has(fixture.tagText), "새 자리가 면제 태그와 바이트로 같아요").toBe(false);
+      expect(isExempt(fixture), "같은 클래스의 새 자리가 면제로 통과했어요").toBe(false);
+      // 종전 규칙(클래스 집합)이라면 통과했을 자리라는 사실도 값으로 든다.
+      expect(new Set(EXEMPTIONS.map((entry) => entry.className)).has(fixture.className)).toBe(true);
+      // 그리고 오늘 실재하는 면제 자리는 여전히 면제다.
+      for (const site of ALL_SITES.filter((entry) => entry.tagText === EXEMPTIONS[0].tag)) {
+        expect(isExempt(site), `${site.file}: 오늘의 면제 자리가 면제에서 빠졌어요`).toBe(true);
+      }
     });
   });
 

@@ -34,7 +34,16 @@ describe("Local test-mode backend data layer", () => {
   });
 
   it("keeps the home total and the monthly report total in sync after a new expense", () => {
+    // ⚠️ 라운드 90 리뷰 후속 — 홈 총액은 서버와 같이 **전 기간** 합계다(PERF-121:
+    // "range를 생략하면 전 기간 합계다(홈의 totalExpenseKrw)"). 종전 단언은
+    // `홈 총액 == 이번 달 리포트 총액`이라는 등호를 물었는데, 그 등호는 시드 지출
+    // (daysAgo 0·1·2)이 전부 이번 달 안에 있을 때만 참이다 — KST로 달이 바뀐 1~2일에는
+    // 시드 일부가 지난달로 넘어가 홈(전 기간) > 이번 달이 되고, 실제로 2026-09-01
+    // KST 00시에 109,545 vs 58,245로 빨개졌다(시계 의존 픽스처). 이 테스트의 뜻은
+    // "새 지출이 두 장부에 같은 값으로 실린다"이므로, 달 경계와 무관한 **증분 동치**로
+    // 다시 물었다 — 화면 동작·픽스처는 한 바이트도 바꾸지 않았다.
     const before = localBackend.getHome(childId);
+    const monthlyBefore = localBackend.getMonthlyReport(childId, currentYearMonth());
     localBackend.createExpense(childId, {
       categoryId: "local-category-diaper",
       amountKrw: 12_345,
@@ -43,10 +52,15 @@ describe("Local test-mode backend data layer", () => {
     });
 
     const after = localBackend.getHome(childId);
-    const monthly = localBackend.getMonthlyReport(childId, currentYearMonth());
+    const monthlyAfter = localBackend.getMonthlyReport(childId, currentYearMonth());
 
     expect(after.totalExpenseKrw).toBe(before.totalExpenseKrw + 12_345);
-    expect(after.totalExpenseKrw).toBe(monthly.totalExpenseKrw);
+    expect(monthlyAfter.totalExpenseKrw).toBe(monthlyBefore.totalExpenseKrw + 12_345);
+    // 시드가 전부 이번 달 안에 있는 창(한 달의 3일째부터)에서는 종전 등호도 그대로
+    // 성립한다 — 그 창에서만 옛 단언을 유지해 회귀 감지 폭을 잃지 않는다.
+    if (getSeoulToday().split("-")[2]! >= "03") {
+      expect(after.totalExpenseKrw).toBe(monthlyAfter.totalExpenseKrw);
+    }
   });
 
   /**

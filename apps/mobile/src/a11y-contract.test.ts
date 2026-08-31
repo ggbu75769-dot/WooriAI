@@ -3534,7 +3534,7 @@ function announceLedgerPlacesOf(sourceText: string, after: string): AnnounceLedg
  */
 const ANNOUNCE_LEDGER_VERDICT_BLIND_SPOTS: ReadonlyArray<string> = [
   "모집단은 **대장이 적어 둔 여는 태그**다 — 프롭 없이 실패 문장을 그리는 컴포넌트는 이 그물에 아예 들어오지 않는다. 그 축은 화면 층(GAP-079의 대장 · GAP-080의 방아쇠)과 모듈 층(GAP-087의 뿌리)이 각자의 모집단으로 세고, 이 판정은 그 셋을 대신하지 않는다.",
-  "프롭이 **한 짝만** 걸린 자리는 대장에 없다 — 대장의 `after`는 짝이 완성된 바이트라 반쪽 자리는 `indexOf`에 걸리지 않는다. role 단독은 ALERT_ROLE_WITHOUT_LIVE_REGION이, 모듈 층의 반쪽은 halfAnnouncedTagCount가 따로 센다.",
+  "프롭이 **한 짝만** 걸린 자리는 대장에 없다 — 대장의 `after`는 짝이 완성된 바이트라 반쪽 자리는 `indexOf`에 걸리지 않는다. ⚠️ **두 시점** — *당시(라운드 88 E가 이 문장을 세울 때)*: 그 자리를 세는 것은 role 단독의 `ALERT_ROLE_WITHOUT_LIVE_REGION`(손으로 적은 파일 하나)과 모듈 층의 `halfAnnouncedTagCount`(수만 세고 자리를 내밀지 않는다)뿐이었고, live region 단독은 **어느 모집단에도 들지 않았다**. *오늘(라운드 90 트랙 A)*: **반쪽 프롭 스윕**(`halfAnnouncedSitesOf`·`halfAnnouncedSites`)이 그 자리를 전수로 파생해 자리마다 판정 하나를 소스에서 낸다 — 오늘 일곱(live region 단독 여섯 · role 단독 하나)이고 `silent`는 0건이다. ⚠️ **그래도 이 판정 자신은 여전히 그 자리를 세지 않는다**: 이 사각이 말하는 것은 *대장의 모집단*이고, 반쪽 자리를 지는 것은 같은 파일의 **다른 모집단**이다(한 그물에 축 둘을 얹지 않는 규율 — 대장의 `after` 바이트는 오늘도 짝이 완성된 자리뿐이다).",
   "`.tsx` 밖의 자리는 이 그물 밖이다 — 대장 아홉은 전부 `.tsx`이고, 낭독 문장이 `.ts` 모듈에서 서는 자리(문구 단일 소스가 사는 층)는 여기서 세지 않는다.",
   "낭독으로 세는 것은 **effect 층의 배선**이다 — 이벤트 핸들러가 상태를 세우며 같은 걸음에 부르는 announceForA11y는 이 그물이 `announce`로 세지 않는다(오늘 그런 자리가 하나 있고, 그 사실이 그 항목의 crossPlatform 값에 적혀 있다).",
   "소스 대조이지 런타임이 아니다 — VoiceOver·TalkBack이 실제로 그 문장을 읽는지는 실기기 확인의 몫이다(react-native는 vitest에서 네이티브 바인딩이 없다).",
@@ -6121,6 +6121,23 @@ describe("GAP-090 #1 반쪽 프롭 스윕 (사각이 이름으로 지목한 자�
     expect(parity, "직전에 읽은 문장을 담는 자리").toContain("const announcedSearchResult = useRef<string | null>(null);");
     expect(parity, "같은 문장이면 그대로 돌아간다").toContain("if (announcedSearchResult.current === announcement) return;");
     expect(parity, "읽은 뒤에 기억한다").toContain("announcedSearchResult.current = announcement;");
+    // ⚠️⚠️ **갈래가 닫히면 기억도 지운다**(라운드 90 리뷰 H-1) — 검색을 닫았다가 **같은 검색을
+    // 다시** 걸면 문장이 글자로 같아 위 `return`에 걸린다. 그 한 줄이 없으면 iOS만 조용하고
+    // 안드로이드는 라이브 리전이 리마운트로 다시 읽어 **두 플랫폼이 그 창에서 갈린다** — 이
+    // 배선이 애초에 없애려던 그 갈림이다. 그래서 `else` 갈래를 바이트로 문다(한 줄만 물면
+    // 지우기가 다른 갈래로 옮겨 가도 초록이다).
+    const closedBranchBytes = "    } else {\n      announcedSearchResult.current = null;\n    }";
+    expect(parity, "갈래가 닫히면 기억을 지운다").toContain(closedBranchBytes);
+    // ⚠️ 그러면서도 닫힌 창은 여전히 조용하다 — 그 갈래에 낭독은 0건이다.
+    // ⚠️ 자르기 전에 **구간이 실재하는지** 먼저 묻는다(라운드 78 트랙 E의 규율) — 표식이
+    // 사라지면 -1이 빈 구간을 만들고, 빈 구간 위에서는 아래 부정 단언이 영원히 초록이다.
+    const closedBranchAt = parity.indexOf(closedBranchBytes);
+    const closedBranchEnd = parity.indexOf("}, [activeSearchQuery, displayedItems.length]);", closedBranchAt);
+    expect(closedBranchAt, "닫힌 갈래의 시작").toBeGreaterThan(-1);
+    expect(closedBranchEnd, "그 effect의 끝").toBeGreaterThan(closedBranchAt);
+    expect(parity.slice(closedBranchAt, closedBranchEnd), "닫힌 갈래에서의 낭독").not.toContain(
+      "announceForA11y"
+    );
     // 의존 배열은 그 갈래가 읽는 두 값뿐이다 — 목록이 같은 값으로 다시 서면 effect 자체가 돌지 않는다.
     expect(parity, "검색 낭독의 의존 배열").toContain("}, [activeSearchQuery, displayedItems.length]);");
 
