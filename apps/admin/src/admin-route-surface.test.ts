@@ -614,6 +614,23 @@ describe("어드민 라우트 표면 (라운드 92 트랙 C)", () => {
       expect(NAV_HREFS.length).toBeGreaterThanOrEqual(NAV_FLOOR);
     });
 
+    it("⚠️ 두 하한은 **손으로 적은 수가 아니라 걷기·파싱이 받치는 하한**이다 (등호가 아니다 · 리뷰 M-5)", () => {
+      // ⚠️⚠️ **두 시점 — 라운드 92 리뷰 M-5가 이 두 줄을 등호에서 하한으로 옮기고 자기 자리로 냈다.**
+      //  · **트랙 C 커밋 시점**: 이 두 줄은 `ROUTE_FLOOR === 오늘의 라우트 수` 꼴의 **등호**였고,
+      //    게다가 *"이 트랙은 어드민 소스를 0바이트 고쳤다"* 라는 **다른 축의 `it` 안**에 얹혀
+      //    있었다. 그래서 ⓐ 정당한 라우트 추가가 이 계약을 빨갛게 만들었고(래칫이 하한인 이유가
+      //    그 자리에서 뒤집혔다) ⓑ 빨개졌을 때 사람이 읽는 실패 이름이 *바이트 불변*이라 무엇이
+      //    깨졌는지 말해 주지 못했다.
+      //  · **오늘**: 하한(`≥`)으로 물고, 래칫 절 안 자기 자리에 선다. 유령 방지는 그대로다 —
+      //    두 수가 상수가 아니라 **걷기와 파싱에서** 나온다는 사실을 아래 두 줄이 함께 문다.
+      expect(APP_TREE.routes.length, "라우트 수가 하한 아래로 내려갔어요").toBeGreaterThanOrEqual(ROUTE_FLOOR);
+      expect(NAV_HREFS.length, "내비 href 수가 하한 아래로 내려갔어요").toBeGreaterThanOrEqual(NAV_FLOOR);
+      // ⚠️ 그 두 수가 **저장소를 읽어서** 나온다(0이면 위 하한이 유령이 된다).
+      expect(APP_TREE.pageFiles.length, "라우트가 파일에서 파생되지 않았어요").toBe(APP_TREE.routes.length);
+      expect(APP_TREE.walkedFiles, "app/**을 걷지 못했어요").toBeGreaterThanOrEqual(WALKED_FILE_FLOOR);
+      expect(NAV_ITEMS_TODAY.length, "내비 표를 파싱하지 못했어요").toBe(NAV_HREFS.length);
+    });
+
     it("어긋남은 0을 넘지 않고, 면제도 늘지 않는다", () => {
       expect(TODAY.danglingHrefs.length).toBeLessThanOrEqual(MISMATCH_CEILING);
       expect(TODAY.unlistedRoutes.length).toBeLessThanOrEqual(MISMATCH_CEILING);
@@ -670,9 +687,6 @@ describe("어드민 라우트 표면 (라운드 92 트랙 C)", () => {
       expect(SELF_CODE, "임시 뿌리가 mkdtemp에서 나오지 않아요").toMatch(
         /const base = mkdtempSync\(join\(tmpdir\(\)/
       );
-      // 그리고 이 계약이 무는 두 수는 어드민 소스가 아니라 걷기·파싱에서 나온다.
-      expect(ROUTE_FLOOR).toBe(APP_TREE.routes.length);
-      expect(NAV_FLOOR).toBe(NAV_HREFS.length);
     });
   });
 });

@@ -12,7 +12,8 @@ import { describe, expect, it } from "vitest";
  * 반응이 없다"** 로 보인다.
  *
  * ⚠️⚠️ **해악의 이름도, 옳은 답도, 그 답을 고르지 않은 자리도 전부 이 저장소가 이미 적어
- * 두었다.** `src/ui.tsx:86-96`(라운드 65 · GAP-065 #6)이 그 문장을 그대로 쓰고,
+ * 두었다.** `src/ui.tsx:86-110`(라운드 65 · GAP-065 #6 · ⚠️ 리뷰 M-3의 두 시점 문단이 더해져
+ * 종전 `:86-96`에서 밀린 좌표다)이 그 문장을 그대로 쓰고,
  * `"always"`가 아니라 `"handled"`인 이유까지 적는다.
  *
  * ## ⚠️⚠️ 왜 바깥의 셋이 안쪽의 여덟을 덮지 못했는가 — 이 계약의 값 절반이다
@@ -91,10 +92,19 @@ import { describe, expect, it } from "vitest";
  * ## 이 트랙이 화면에서 바꾼 것
  *
  * 여는 태그 **여덟**에 `keyboardShouldPersistTaps="handled"` **한 속성씩**, 그리고
- * `app/expenses/new.tsx`의 `merchantFocused` 주석 한 문단의 **두 시점 정정**뿐이다.
+ * `app/expenses/new.tsx`의 `merchantFocused` 주석 한 문단의 **두 시점 정정**이다.
  * **화면 문구 0글자 · 픽셀 0 · 서버 0건 · 새 요청 0건.** ⓔ가 그 사실을 **부정 단언**으로 문다 —
  * 여덟 여는 태그에서 그 속성 하나를 벗기면 **종전 바이트와 정확히 같아야 한다**
  * (라운드 91 A의 ⓓ 형식 · sha256 인용).
+ *
+ * ⚠️⚠️ **라운드 92 리뷰 H-2가 그 목록에 한 줄을 더했다 — 트랙 A가 끊어 놓은 복귀 경로다.**
+ * `applyMerchantSuggestion`은 칩으로 값을 채운 뒤 줄을 접으며 *"판매처 칸을 다시 누르면 같은 줄이
+ * 돌아온다"* 를 주석으로 약속하는데, 그 복귀는 **입력칸이 blur됐다가 다시 focus되는 것**에 기대고
+ * 있었다. 트랙 A 이전에는 첫 탭이 스크롤러에게 먹히며 그 blur가 저절로 일어났고, **첫 탭이 칩에
+ * 닿게 된 순간 그 blur가 사라져 약속이 거짓이 됐다**(입력칸이 계속 포커스라 `onFocus`가 다시 오지
+ * 않는다). 그래서 그 함수가 `merchantInputRef.current?.blur()`로 그 걸음을 손으로 되돌린다 —
+ * 값이 들어가고 → 키보드가 내려가고 → 다시 누르면 줄이 돌아온다(트랙 전 경험과 동치). 화면 문구·
+ * 픽셀은 여전히 0이고, ⓒ의 마지막 `it`이 그 경로를 **소스 단언**으로 문다.
  */
 
 /** 이 스윕이 걷는 앱 경계. `apps/mobile/` 밖으로는 한 걸음도 나가지 않는다. */
@@ -225,7 +235,9 @@ const BLIND_SPOTS: readonly {
   },
   {
     id: "keyboard-verdict-is-file-scoped",
-    // 파일 단위 판정에 기대는 자리 수 — 명시하지 않은 전부.
+    // ⚠️ 이 자가 세는 것을 낱말 그대로 적는다: **판정이 파일 단위 입력칸 수에 걸린 자리**
+    //    = `declares-handled`가 아닌 전부(속성을 명시한 자리는 파일을 보지 않고 스스로 갈린다).
+    //    오늘 그 여섯은 **전부** `no-keyboard-in-file`이다(`unguarded-with-keyboard`가 0건이므로).
     measure: 6,
     floor: 0,
     reason:
@@ -234,12 +246,36 @@ const BLIND_SPOTS: readonly {
       "⚠️ 라운드 91 리뷰 M-2가 연타 스윕(`src/mutation-press-guard.test.ts`의 " +
       "`control-verdict-is-file-scoped`)에서 이름 붙인 그 사각의 **같은 얼굴**이고, 그 사실을 값으로 적는다. " +
       "좁히려면 JSX 트리를 걸어야 하고, 그것은 이 스윕의 자가 아니다. " +
-      "⚠️ **그때 조용해지지는 않는다: 파일 단위는 늘 넓은 쪽(= 더 자주 빨개지는 쪽)으로 튄다** — " +
-      "같은 파일에 입력칸이 있으면 그 파일의 모든 스크롤러가 `unguarded-with-keyboard` 후보가 된다.",
+      "⚠️⚠️ **오차의 방향은 파일이 어느 쪽으로 갈리느냐에 따라 둘이고, 이 수가 세는 것은 그중 조용한 쪽이다** " +
+      "(라운드 92 리뷰 L-2가 이 문장과 자의 방향이 어긋나 있음을 지적했다): " +
+      "ⓐ **입력칸이 있는 파일**에서는 넓은 쪽(= 더 자주 빨개지는 쪽)으로 튄다 — 그 파일의 모든 스크롤러가 " +
+      "`unguarded-with-keyboard` 후보가 되고, 오늘 그 판정은 0건이라 이 수에 한 자리도 들어오지 않는다. " +
+      "ⓑ **입력칸이 0건인 파일**에서는 조용한 쪽(= 거짓 초록)으로 튄다 — 그 파일의 스크롤러는 통째로 " +
+      "*묻지 않음*이 되고, **오늘 이 여섯이 정확히 그 자리들이다.**",
     resumeCondition:
       "재개 조건(사건형): 한 파일 안에서 스크롤러와 입력칸이 **결코 같이 서지 않는** 자리가 " +
-      "처음 발견되어 이 계약이 거짓 빨강을 내는 날 — 그날 이 자는 판정을 파일 단위에서 **트리 단위**로 " +
-      "좁혀야 하고, 그 첫 모집단은 오늘의 17이다."
+      "처음 발견되어 이 계약이 거짓 빨강을 내는 날(ⓐ 방향), 또는 입력칸이 0건인 그 여섯 파일 가운데 " +
+      "하나가 `TextInput` 아닌 경로로 키보드를 띄우는 날(ⓑ 방향) — 그날 이 자는 판정을 파일 단위에서 " +
+      "**트리 단위**로 좁혀야 하고, 그 첫 모집단은 오늘의 17이다."
+  },
+  {
+    // ⚠️⚠️ 라운드 92 리뷰 L-3 — 여는 태그 규칙이 **버리는 쪽**의 사각(오늘 실피해 0건).
+    id: "zero-attribute-tag-reads-as-type-argument",
+    // 이 모양으로 걸러진 자리 수 — `<태그이름>` 처럼 태그 이름 **바로 뒤에 `>`** 가 오는 자리.
+    measure: 2,
+    floor: 0,
+    reason:
+      "**속성이 하나도 없는 여는 태그(`<ScrollView>`)와 타입 인자(`Ref<ScrollView>`)는 이 자의 눈에 같은 모양이다** — " +
+      "규칙이 *태그 이름 뒤에 공백류가 오는 자리만* 세므로 둘 다 모집단 밖으로 나간다. " +
+      "⚠️ **오차의 방향은 조용한 쪽(거짓 초록)이다**: 속성 0개짜리 스크롤러가 그렇게 쓰이면 " +
+      "`keyboardShouldPersistTaps`가 없는 채로도 이 자가 그 자리를 **아예 보지 못한다**(빨개지지 않는다). " +
+      "⚠️ **오늘 그 실피해는 0건이다** — 이 모양으로 걸러진 두 자리는 " +
+      "`src/design-system/components/ApplicationPrimitives.tsx`와 `src/design-system/components/ScreenScaffold.tsx`의 " +
+      "`Ref<ScrollView>` **타입 인자**이고, 이 모집단에 속성 0개 여는 태그는 한 자리도 없다(아래 `it`이 값으로 문다).",
+    resumeCondition:
+      "재개 조건(사건형): 이 모집단에 **속성 0개 여는 태그**가 처음 서는 날 — 그날 이 규칙은 " +
+      "`<태그이름>` 뒤가 JSX 자리인지 타입 자리인지를 갈라야 하고(앞선 토큰을 보는 한 걸음), " +
+      "그 첫 모집단은 오늘 걸러진 둘이다."
   },
   {
     id: "source-not-runtime",
@@ -719,11 +755,37 @@ describe("ⓒ 핵심 루프 1단계의 그 여덟 — 파일과 자리 이름으
     // ② 오늘의 정정 — 전제가 거짓이 된 이유와 capture 단계가 함께 적혀 있다.
     expect(raw).toContain("두 시점");
     expect(raw).toContain("onStartShouldSetResponderCapture");
-    expect(raw).toContain("src/ui.tsx:86-96");
+    expect(raw).toContain("src/ui.tsx:86-110");
     expect(raw).toContain("가장 안쪽 스크롤러가 기본값이면");
-    // ⚠️ 동작은 바뀌지 않았다 — blur에서 접지 않는 판정 그대로다.
+    // ⚠️ `onBlur`로 접지 않는 판정은 그대로다.
     expect(raw).toContain("const [merchantFocused, setMerchantFocused] = useState(false);");
     expect(raw).not.toMatch(/onBlur=\{\(\)\s*=>\s*setMerchantFocused\(false\)\}/);
+    // ③ 라운드 92 리뷰 H-2 — 세 번째 시점이 같은 문단에 서 있다(옛 둘을 지우지 않았다).
+    expect(raw).toContain("H-2");
+    expect(raw).toContain("재발화");
+    expect(raw).toContain("merchantInputRef.current?.blur()");
+  });
+
+  it("⚠️⚠️ 칩으로 채우면 판매처 칸이 blur된다 — 다시 누르면 제안 줄이 돌아오는 그 경로 (리뷰 H-2)", () => {
+    const code = maskComments(readSweptSource("app/expenses/new.tsx"));
+    const at = code.indexOf("const applyMerchantSuggestion");
+    expect(at, "applyMerchantSuggestion을 소스에서 찾지 못했다").toBeGreaterThan(0);
+    const body = code.slice(at, code.indexOf("};", at) + 2);
+    // ⚠️ 셋이 한 함수 안에 있다: 값 채움 · **blur** · 줄 접기.
+    expect(body, "값 채움").toContain("setMerchant(merchantName);");
+    expect(body, "⚠️⚠️ blur — 이 한 줄이 빠지면 복귀 경로가 끊긴다").toContain("merchantInputRef.current?.blur();");
+    expect(body, "줄 접기").toContain("setMerchantFocused(false);");
+    // ⚠️ 유령 ref 금지 — 그 ref가 **판매처 입력칸의 여는 태그**에 실제로 걸려 있다.
+    const merchantInput = openingTagsOf(code, "TextInput").find((tag) =>
+      tag.body.includes('accessibilityLabel="판매처 입력 (선택)"')
+    );
+    expect(merchantInput, "판매처 입력칸 여는 태그").toBeDefined();
+    expect(merchantInput!.body, "ref가 그 칸에 걸려 있다").toContain("ref={merchantInputRef}");
+    // 그리고 복귀의 다른 쪽 끝 — 다시 누르면 이 `onFocus`가 줄을 세운다.
+    expect(merchantInput!.body, "복귀 경로의 반대쪽 끝").toContain("onFocus={() => setMerchantFocused(true)}");
+    // 선언도 소스에서 문다(포커스를 *주는* 데 쓰지 않는다 — 이 화면은 키보드를 스스로 올리지 않는다).
+    expect(code).toContain("const merchantInputRef = useRef<TextInput | null>(null);");
+    expect(code).not.toContain("merchantInputRef.current?.focus()");
   });
 });
 
@@ -809,7 +871,7 @@ describe("ⓔ 픽셀·문구 불변 — 속성 하나를 벗기면 종전 바이
 });
 
 describe("ⓕ 사각 — 이 스윕이 못 보는 것을 값과 하한으로 적는다", () => {
-  it("사각 다섯이 이유와 재개 조건을 함께 진다 (하한 넷)", () => {
+  it("사각 여섯이 이유와 재개 조건을 함께 진다 (하한 넷)", () => {
     expect(BLIND_SPOTS.length).toBeGreaterThanOrEqual(4);
     for (const spot of BLIND_SPOTS) {
       expect(spot.id.length).toBeGreaterThan(0);
@@ -842,6 +904,35 @@ describe("ⓕ 사각 — 이 스윕이 못 보는 것을 값과 하한으로 적
     expect(spot?.reason).toContain("M-2");
     // 오늘 그 사각에 기대는 자리 = 명시하지 않은 전부.
     expect(scrollerSites.filter((site) => site.verdict !== "declares-handled")).toHaveLength(spot?.measure ?? -1);
+    // ⚠️⚠️ 라운드 92 리뷰 L-2 — **이유가 자와 같은 방향을 가리킨다.** 이 수가 세는 여섯은
+    // *조용한 쪽*(입력칸 0건이라 묻지 않는 자리)이고, 그 사실이 문장에 값으로 있다.
+    expect(spot?.reason).toContain("조용한 쪽");
+    expect(spot?.reason).toContain("거짓 초록");
+    expect(
+      scrollerSites.filter((site) => site.verdict !== "declares-handled").every((site) => site.textInputsInFile === 0),
+      "오늘 그 여섯이 전부 입력칸 0건 파일의 자리인가"
+    ).toBe(true);
+    // 그리고 넓은 쪽(ⓐ)이 오늘 0건이라는 사실도 같은 문장이 진다.
+    expect(byVerdict("unguarded-with-keyboard")).toHaveLength(0);
+  });
+
+  it("⚠️⚠️ 속성 0개 여는 태그가 타입 인자로 읽히는 표면이 값으로 적혀 있다 (리뷰 L-3 · 오늘 실피해 0건)", () => {
+    const spot = BLIND_SPOTS.find((entry) => entry.id === "zero-attribute-tag-reads-as-type-argument");
+    expect(spot).toBeDefined();
+    expect(spot?.reason).toContain("거짓 초록");
+    // 이 모양으로 걸러진 자리 — `<태그이름>` 처럼 이름 바로 뒤에 `>`가 오는 자리.
+    const zeroAttributeShape = excludedTypeArgumentSites().filter((line) => /<(?:ScrollView|FlatList|SectionList)>$/.test(line));
+    expect(zeroAttributeShape).toHaveLength(spot?.measure ?? -1);
+    // ⚠️ **실피해 0건의 근거** — 그 둘은 JSX가 아니라 타입 자리(`Ref<ScrollView>`)다.
+    for (const line of zeroAttributeShape) {
+      const [file, rest] = [line.split(":")[0], line];
+      const lineNumber = Number(rest.split(":")[1].split(" ")[0]);
+      const text = readSweptSource(file).split("\n")[lineNumber - 1] ?? "";
+      expect(text, `${line}: 타입 인자가 아니라 JSX 여는 태그다`).toContain("Ref<ScrollView>");
+    }
+    // 그리고 이 규칙이 무엇을 갈라내는지 픽스처가 보인다(오늘 0건이 유령이 아니다).
+    expect(openingTagsOf("const r: Ref<ScrollView> = null;", "ScrollView")).toHaveLength(0);
+    expect(openingTagsOf("<ScrollView>{children}</ScrollView>", "ScrollView")).toHaveLength(0);
   });
 
   it("소스 대조이지 런타임이 아니다", () => {

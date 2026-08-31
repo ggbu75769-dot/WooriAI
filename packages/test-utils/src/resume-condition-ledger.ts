@@ -1242,6 +1242,33 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
 
 // ── ⓖ 경과 축 — *몇 라운드째 서 있는가* (라운드 92 트랙 D) ────────────────────
 
+/*
+ * ⚠️⚠️ **정찰이 이 축에 지운 금지와, 그 금지가 갈렸던 자리 — 두 시점으로 적어 둔다**
+ * (라운드 92 리뷰 M-1 · **기록이지 계약이 아니다**).
+ *
+ * **① 트랙 D 커밋 시점 — 금지는 이랬다.** 라운드 92 정찰이 트랙 사이의 의무를 적으며
+ * *"F가 AG절을 쓰며 재개 조건을 더하면 D의 자리 수와 사각이 커지는데 **하한 설계 덕에 초록으로
+ * 남는다** (⚠️ D는 `floor`도 `MEASURED_TODAY`도 오늘 값으로 올리지 않는다 — 올리면 F가 그 걸음에
+ * 빨개진다)"* 라고 못 박았다. D는 그 금지를 `ELAPSED_RATCHET`(3 · 61)과 사각의 `floor`에서
+ * **지켰다.**
+ *
+ * **② 같은 라운드의 F 뒤 — 금지가 지켜지지 않은 자리가 하나 있었다.** `floor`도 `MEASURED_TODAY`도
+ * 아닌 **전제 재실측 블록**(`ELAPSED_SCOUT_VALUES`를 오늘 값과 견주는 네 줄)이 **등호**로 적혀
+ * 있었고, F가 AG절을 쓰자 자리 수가 `333·3·70·263` → `383·4·83·300`으로 커지며 **그 네 줄이 곧바로
+ * 빨개졌다.** F는 그 네 줄을 하한(`≥`)으로 옮기며 **기록값(`remeasured` 333·3·70·263)은 한 바이트도
+ * 건드리지 않았다** — 리뷰 M-1이 그 사실을 다시 확인했고(이 파일은 D 커밋 이후 F가 한 글자도 고치지
+ * 않았다), 그것이 옳은 처방이다. **AF-5가 이름 붙인 *등호의 비용*이 같은 라운드 안에서 되풀이된
+ * 셈이고, 그 사실은 판정 문서 AG절에 이미 값으로 있다**(`docs/operations/known-limitations.md`
+ * AG-4·AG-5 — ⚠️ **수와 판정은 여기 옮겨 적지 않는다**).
+ *
+ * **③ 오늘(리뷰 M-2) — 그래서 이 파일이 무엇을 올리고 무엇을 올리지 않는가.** 리뷰가 바늘 하나를
+ * 고쳤으므로(`몇`을 경과로 세지 않는다) `ELAPSED_MEASURED_TODAY`는 **오늘의 실측으로 갱신했다** —
+ * 그것은 *기록*이라 낡으면 거짓이 되기 때문이다. ⚠️ **`ELAPSED_RATCHET`(3 · 61)과 사각의 `floor`는
+ * 오늘도 올리지 않는다** — 계약이 무는 것은 그 둘뿐이고, 그 둘이 하한으로 남아 있는 한 다음 F의
+ * 걸음은 이 축을 빨갛게 만들지 못한다. ⚠️ 기록 쪽(`MEASURED_TODAY`)은 `≤`로만 물리므로 **문서가
+ * 자라는 방향에는 조용하고, 문서가 줄어드는 라운드에만 같은 손이 이 기록을 함께 내린다.**
+ */
+
 /** 창 바늘의 반지름 — **±5줄**(정찰이 쓴 창 그대로). */
 export const ELAPSED_WINDOW_RADIUS = 5;
 
@@ -1316,22 +1343,48 @@ export const ELAPSED_PROSE_NEEDLE = /오래|오랫동안|한동안|줄곧|내내
 export type ElapsedMark = {
   /** 원문 낱말(`스물다섯` · `11`). */
   readonly numeral: string;
-  /** 읽은 수 — ⚠️ 읽지 못하면 `undefined`(계약은 이 값을 **세지 않고 값으로 든다**). */
-  readonly rounds: number | undefined;
+  /** 읽은 수 — ⚠️ **언제나 수다**(읽지 못한 수사는 아래 규율대로 이 목록에 들어오지 않는다). */
+  readonly rounds: number;
   /** 어떤 꼴인가. */
   readonly unit: string;
 };
 
-/** 한 텍스트에서 경과 표기를 전수로 걷는다. */
+/**
+ * 한 텍스트에서 **읽어 낸** 경과 표기를 전수로 걷는다.
+ *
+ * ⚠️⚠️ **두 시점 — 라운드 92 리뷰 M-2가 이 함수의 모집단을 좁혔다.**
+ *  · **트랙 D 커밋 시점**: 바늘에 걸린 자리를 **전부** 마크로 실었고, 읽지 못한 수사는
+ *    `rounds: undefined`로 함께 실렸다. 그래서 `tallyElapsed`가 *"경과를 적은 자리"* 를 셀 때
+ *    **읽지도 못한 수사까지 경과로 세었다** — 이 문서의 *"이백 **몇**십 라운드"* 의 `몇`이 그것이다.
+ *    그 한 낱말 때문에 창 바늘이 오늘 실측에서 **넷을 더** 세고 있었다(83 vs 79).
+ *  · **오늘**: 읽어 낸 것만 마크가 된다. 읽지 못한 수사는 `unreadableNumeralsIn`이 **따로** 들고,
+ *    `ElapsedSite.unreadableInWindow`로 남아 값으로만 보고된다(계약은 그 값을 등호로 문다).
+ * ⚠️ 방향은 그대로다 — *모르는 낱말을 0으로 읽지 않는다*는 규율(`elapsedNumeral`)의 자연스러운
+ * 다음 걸음이고, **모르는 낱말을 경과로도 세지 않는다**가 오늘 더해진 절반이다.
+ */
 export function elapsedMarksIn(text: string): readonly ElapsedMark[] {
   const needle = elapsedNeedle();
   const marks: ElapsedMark[] = [];
   let match: RegExpExecArray | null;
   while ((match = needle.exec(text)) !== null) {
     const numeral = match[1] ?? match[2];
-    marks.push({ numeral, rounds: elapsedNumeral(numeral), unit: match[3] });
+    const rounds = elapsedNumeral(numeral);
+    if (rounds === undefined) continue;
+    marks.push({ numeral, rounds, unit: match[3] });
   }
   return marks;
+}
+
+/** 바늘에는 걸렸으나 **수로 읽지 못한** 수사 — ⚠️ `elapsedMarksIn`이 버린 바로 그 낱말들이다. */
+export function unreadableNumeralsIn(text: string): readonly string[] {
+  const needle = elapsedNeedle();
+  const found: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = needle.exec(text)) !== null) {
+    const numeral = match[1] ?? match[2];
+    if (elapsedNumeral(numeral) === undefined) found.push(numeral);
+  }
+  return found;
 }
 
 export type ElapsedSite = {
@@ -1341,6 +1394,8 @@ export type ElapsedSite = {
   readonly onLine: readonly ElapsedMark[];
   /** 바늘 ⓑ — **±5줄 창**의 경과 표기(그 줄 자신을 포함한다). */
   readonly inWindow: readonly ElapsedMark[];
+  /** ⚠️ 창 안에서 **읽지 못한 수사** — 리뷰 M-2가 tally에서 뺀 그 자리들(값으로만 든다). */
+  readonly unreadableInWindow: readonly string[];
   /** 산문으로 오래됨을 말하는 창인가 — 사각 ⓐ가 무는 값. */
   readonly proseWindow: boolean;
 };
@@ -1364,6 +1419,7 @@ export function collectElapsedSites(
       site,
       onLine: elapsedMarksIn(lines[index] ?? site.text),
       inWindow: elapsedMarksIn(window),
+      unreadableInWindow: unreadableNumeralsIn(window),
       proseWindow: ELAPSED_PROSE_NEEDLE.test(window)
     };
   });
@@ -1397,13 +1453,16 @@ export function documentElapsedSites(baseDir: string = repoRoot): readonly Elaps
   return collectElapsedSites(text, collectDocumentSites(baseDir));
 }
 
-/** 읽지 못한 수사 — ⚠️ **값으로만 든다**(세는 것은 표기의 실재이지 수사의 정확함이 아니다). */
+/**
+ * 읽지 못한 수사 — ⚠️ **값으로만 든다**(세는 것은 표기의 실재이지 수사의 정확함이 아니다).
+ *
+ * ⚠️ 리뷰 M-2 뒤로 이 목록의 원천은 `inWindow`가 아니라 `unreadableInWindow`다 — 읽지 못한 수사는
+ * 애초에 마크가 되지 않으므로, 여기서 보이지 않으면 **그 자리는 아무 데서도 보이지 않는다.**
+ */
 export function unreadableElapsedNumerals(elapsed: readonly ElapsedSite[]): readonly string[] {
   const found = new Set<string>();
   for (const entry of elapsed) {
-    for (const mark of entry.inWindow) {
-      if (mark.rounds === undefined) found.add(mark.numeral);
-    }
+    for (const numeral of entry.unreadableInWindow) found.add(numeral);
   }
   return [...found].sort();
 }
@@ -1422,11 +1481,24 @@ export type ElapsedRatchet = {
  * 자리 수가 커지고 이 축은 그대로 초록이다. 등호로 물면 그 순간 **F가 계약을 맞추려고 문서를
  * 고치게 되고**(AF-5가 값으로 적은 비용), 그것이 이 대장이 태어날 때부터 막으려던 뒤집힘이다.
  *
- *  · `ownLine` **3** — 오늘의 실측과 같은 수다. 줄 자신의 표기는 문단이 밀려도 움직이지 않으므로,
- *    이 수가 내려가는 것은 **경과를 적은 줄이 지워졌다**는 뜻 하나뿐이다.
- *  · `window` **61** — ⚠️ **오늘의 실측 70이 아니라 정찰이 적은 61이다.** 창 바늘은 *줄 사이의
+ *  · `ownLine` **3** — 트랙 D 시점의 실측과 같은 수다(오늘은 4다). 줄 자신의 표기는 문단이 밀려도
+ *    움직이지 않으므로, 이 수가 내려가는 것은 **경과를 적은 줄이 지워졌다**는 뜻 하나뿐이다.
+ *  · `window` **61** — ⚠️ **오늘의 실측(79)이 아니라 정찰이 적은 61이다.** 창 바늘은 *줄 사이의
  *    거리*를 재는 바늘이라, F가 사이에 문단 하나만 끼워 넣어도 경과 표기를 지우지 않은 채 실측이
  *    내려간다. 하한을 실측에 붙이면 **문서를 옳게 늘리는 손이 빨강을 맞는다.**
+ *
+ * ⚠️⚠️ **정찰의 61은 어떤 창 폭으로도 재현되지 않는다 — 라운드 92 리뷰 L-4의 실측을 기록으로 남긴다.**
+ * `ELAPSED_SCOUT_VALUES`의 갈림 문장은 *"폭 셋 56 · 폭 넷 65 · 폭 다섯 70이고 정찰의 61은 그 사이에
+ * 든다"* 라고만 적었는데, **폭을 전수로 훑어도 61은 어디에도 서지 않는다**:
+ *  · **트랙 D 커밋 시점의 문서**(자리 333) — 리뷰 L-4의 실측 `r=1…7`: **21·33·56·65·70·87·97**.
+ *  · **오늘의 문서**(자리 383 · F의 AG절 뒤)에서 **그때의 바늘로** 다시 재면 `r=1…7`:
+ *    **25·40·64·75·83·101·115**. 61은 이번에도 없다.
+ *  · **오늘의 문서 + M-2가 고친 바늘**로는 `r=1…7`: **23·37·61·71·79·96·110** — `r=3`에 61이
+ *    서지만, ⚠️ **그것은 오늘 문서의 우연한 크기이지 정찰의 61이 그 창이었다는 증거가 아니다**
+ *    (정찰이 잰 문서에서는 같은 폭이 56이었다). **61의 출처는 오늘도 모른다.**
+ * ⚠️ **그래도 하한을 61로 유지하는 판단은 안전하다** — 이 계약의 창(±5)에서 오늘 실측은 79이고,
+ * 61은 그 아래 어느 폭에서도 통과하는 넉넉한 바닥이다. 출처를 모르는 수를 **하한으로만** 쓰는 것이
+ * 정확히 그 모름을 안전하게 두는 방법이다(등호로 물었다면 이 모름이 곧 빨강이었다).
  *
  * ⚠️ **이 수를 낮추려면 이 파일을 열어 왜 낮추는지를 적어야 한다.**
  */
@@ -1455,20 +1527,30 @@ export function elapsedRatchetViolations(
  * ⚠️ **두 수를 한 낱말로 적지 않는다** — `ownLine`과 `window`는 끝까지 갈려 선다.
  */
 export const ELAPSED_MEASURED_TODAY = {
-  /** 모집단 자리 전수 — 라운드 91 D의 294에서 자랐다. */
-  sites: 333,
+  /** 모집단 자리 전수 — 라운드 91 D의 294 → 트랙 D 시점 333 → 오늘(F의 AG절 뒤) 383. */
+  sites: 383,
   /** 바늘 ⓐ — 그 줄 자신. */
-  ownLine: 3,
+  ownLine: 4,
   /** 바늘 ⓑ — ±5줄 창. */
-  window: 70,
-  /** 어디에도 경과가 없는 자리 — AF-2의 그 수(이 대장의 바늘로는 263이다). */
-  neither: 263,
+  window: 79,
+  /** 어디에도 경과가 없는 자리 — AF-2의 그 수(이 대장의 바늘로는 304다). */
+  neither: 304,
   /** 창 바늘이 읽은 자리 가운데 **한국어 수사**로 적힌 것. */
-  koreanNumeralSites: 69,
+  koreanNumeralSites: 78,
   /** 창 바늘이 읽은 자리 가운데 **아라비아 숫자**로 적힌 것 — ⚠️ 두 꼴 다 실제로 읽힌다. */
   arabicNumeralSites: 2,
-  /** 읽지 못한 수사 — 오늘 0건(⚠️ 계약이 등호로 물지 않는다 · 값으로만 든다). */
-  unreadableNumerals: 0
+  /**
+   * ⚠️⚠️ **읽지 못한 수사 — 오늘 하나다(`몇`).**
+   *
+   * **두 시점**: 트랙 D는 이 칸에 **0**을 적었고 *"오늘 0건"* 이라고 문장으로도 말했는데,
+   * **그것이 거짓이었다** — 이 문서의 *"이백 **몇**십 라운드"* 가 바늘에 걸려 있었고, 그때의
+   * `elapsedMarksIn`은 그것을 `rounds: undefined` 마크로 실어 **경과로 세기까지 했다**.
+   * 0이 거짓이었다는 사실이 조용했던 이유는 계약이 이 값을 **항진명제**(`≥ 0`)로만 물었기
+   * 때문이다(라운드 92 리뷰 M-2). 오늘 그 자리는 등호로 문다.
+   */
+  unreadableNumerals: 1,
+  /** ⚠️ 그 수사들 자신 — 값을 **낱말로** 적어 둔다(수만 적으면 무엇이 안 읽혔는지 사라진다). */
+  unreadableNumeralWords: ["몇"]
 } as const;
 
 /**
@@ -1482,14 +1564,16 @@ export const ELAPSED_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     id: "prose-elapsed",
     what:
       "**산문으로 오래됨을 말하는 자리** — *'오래 서 있었다'* · *'한동안'* 처럼 수 없이 말한 창. " +
-      "오늘 창 여덟이 그렇게 적혀 있고(수사가 함께 선 창 하나는 이 수에서 뺐다), 이 바늘은 그 " +
-      "여덟을 **경과 0건으로** 지나간다.",
+      "오늘 창 **열둘**이 그렇게 적혀 있고, 이 바늘은 그 열둘을 **경과 0건으로** 지나간다. " +
+      "⚠️ **두 시점**: 트랙 D 시점의 이 수는 여덟이었다 — 문서가 자란 몫과, 라운드 92 리뷰 M-2가 " +
+      "읽지 못한 수사(`몇`)를 경과에서 뺀 몫이 함께 올렸다(그 셋은 *수사가 함께 선 창*으로 " +
+      "세어지다가 오늘 산문만 남은 창으로 옮겨 왔다).",
     why:
       "산문에는 수가 없어 *몇 라운드인가*를 기계가 낼 수 없다 — 문서 축의 `prose-only`가 형을 " +
       "가르지 못하는 것과 **같은 사각의 시간 축 판**이다. 세려면 절을 거슬러 읽어야 하고 그것이 " +
       "AF-2가 지목한 바로 그 노동이라, 이 축은 *산문을 수로 바꾸는 일*이 아니라 *수가 적힌 자리를 " +
       "세는 일*만 한다.",
-    valueToday: 8,
+    valueToday: 12,
     floor: 0,
     measure: (baseDir) =>
       documentElapsedSites(baseDir).filter((entry) => entry.proseWindow && entry.inWindow.length === 0)

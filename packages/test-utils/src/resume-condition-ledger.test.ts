@@ -111,7 +111,8 @@ import {
   tallyElapsed,
   tallyNeedles,
   typedInners,
-  unreadableElapsedNumerals
+  unreadableElapsedNumerals,
+  unreadableNumeralsIn
 } from "./resume-condition-ledger";
 
 const documentText = readFileSync(join(repoRoot, LEDGER_DOCUMENT.path), "utf8");
@@ -783,9 +784,26 @@ describe("ⓖ 경과 축 — 자리마다 몇 라운드째 서 있는지를 바�
     expect(arabic).toBeGreaterThan(0);
     expect(ELAPSED_MEASURED_TODAY.koreanNumeralSites).toBeLessThanOrEqual(korean);
     expect(ELAPSED_MEASURED_TODAY.arabicNumeralSites).toBeLessThanOrEqual(arabic);
-    // 읽지 못한 수사는 **값으로만** 든다 — 계약이 등호로 물지 않는다(F의 손을 막지 않는다).
-    expect(Array.isArray(unreadableElapsedNumerals(elapsed))).toBe(true);
-    expect(ELAPSED_MEASURED_TODAY.unreadableNumerals).toBeGreaterThanOrEqual(0);
+    // ⚠️⚠️ **읽지 못한 수사는 경과로 세지 않는다**(라운드 92 리뷰 M-2 · 종전에는 세었다).
+    //  · 종전 이 자리의 단언은 `unreadableNumerals >= 0` 이라는 **항진명제**였고, 그래서 그 칸이
+    //    **0**이라고 적은 거짓이 조용했다(이 문서에는 *"이백 **몇**십 라운드"* 가 있다).
+    //  · 오늘은 그 목록을 **낱말로 등호로** 문다 — 값이 갈리면 이 줄이 곧바로 빨개진다.
+    const unreadable = unreadableElapsedNumerals(elapsed);
+    expect(unreadable, "읽지 못한 수사 전수").toEqual([...ELAPSED_MEASURED_TODAY.unreadableNumeralWords]);
+    expect(ELAPSED_MEASURED_TODAY.unreadableNumerals, "그 수와 낱말 수가 아귀가 맞는다").toBe(
+      ELAPSED_MEASURED_TODAY.unreadableNumeralWords.length
+    );
+    expect(unreadable.length, "0이 아니다 — 이 사각은 유령이 아니다").toBeGreaterThan(0);
+    // ⚠️ 그리고 그 낱말은 마크에 **없다** — 세지 않는다는 사실을 부정 단언으로 못 박는다.
+    for (const word of unreadable) {
+      expect(
+        elapsed.some((entry) => entry.inWindow.some((mark) => mark.numeral === word)),
+        `${word}가 경과 마크로 세어졌다`
+      ).toBe(false);
+    }
+    // 픽스처 — 읽지 못한 수사 하나짜리 창은 경과 0건이고, 그 낱말은 따로 남는다.
+    expect(elapsedMarksIn("이백 몇십 자리가 자기가 몇 라운드째 서 있는지를 적지 않는다"), "읽지 못한 수사는 마크가 아니다").toEqual([]);
+    expect(unreadableNumeralsIn("이백 몇십 자리가 자기가 몇 라운드째 서 있는지를 적지 않는다"), "그러나 사라지지도 않는다").toEqual(["몇"]);
   });
 
   it("ⓓ 래칫은 **하한뿐**이다 — 오늘의 실측이 둘 다 하한을 넘는다", () => {
