@@ -163,6 +163,25 @@ describe("hasAnyAuditLogFilter (CS-101)", () => {
     expect(hasAnyAuditLogFilter(makeFilters({ actorUserId: ACTOR_ID }))).toBe(true);
     expect(hasAnyAuditLogFilter(makeFilters({ toDate: "2026-08-03" }))).toBe(true);
   });
+
+  /**
+   * GAP-087 트랙 A — **이 판정은 더 이상 사문이 아니다.**
+   *
+   * 라운드 87 정찰이 센 "호출부 0건인 export 열일곱" 중 어드민 몫 둘 가운데 하나가 이것이었다:
+   * 계약(위 단언)만 초록이고 제품 소스 어디에서도 부르지 않았다. 그 사이 화면은 0건일 때마다
+   * *"조건에 맞는 기록이 없어요."* 라고만 말했다 — **필터를 하나도 걸지 않은** 운영자에게도.
+   * 지금은 그 문장을 가르는 자리(`audit-log-rows.ts`)가 이 함수를 부른다.
+   *
+   * ⚠️ 값이 아니라 **실재**만 문다(문장 자체는 audit-log-rows.test.ts가 진다).
+   */
+  it("제품 소스에 호출부가 실재한다 (계약만 초록인 사문이 아니다)", () => {
+    const rows = readFileSync(join(adminRoot, "src/lib/audit-log-rows.ts"), "utf8");
+    expect(rows).toContain('from "./audit-log-filters"');
+    expect(rows).toMatch(/hasAnyAuditLogFilter\(/);
+    // 그 호출부를 화면이 실제로 지난다(모듈만 두고 아무도 부르지 않으면 자리만 옮긴 것이다).
+    const page = readFileSync(join(adminRoot, "app/audit-logs/page.tsx"), "utf8");
+    expect(page).toContain("auditLogEmptyStateMessage(");
+  });
 });
 
 describe("auditLogFiltersFromSearchParams (CS-101)", () => {
