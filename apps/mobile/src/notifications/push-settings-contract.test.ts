@@ -75,6 +75,104 @@ describe("PUSH-116 push settings contract", () => {
     expect(rootSource).not.toContain("usePushDeviceRegistration");
   });
 
+  /**
+   * 라운드 88 트랙 B — 마스터 토글의 등록 인자가 부팅 훅과 **같은 한 벌**을 부른다.
+   *
+   * 이 화면이 만드는 등록은 *권한을 준 적 없는 사용자의 첫 기기 행*이고(부팅 훅은 권한을 묻지
+   * 않는다), 종전에는 그 한 자리만 `appVersion`·`osVersion` 없이 등록해 라운드 87 D의 구별
+   * 조각이 정확히 그 행에서만 서지 않았다. 목록은 이제 훅이 짓고 두 호출이 함께 읽는다 —
+   * 실행 쪽 계약(키 집합·권한 갈래·창)은 `push-registration.test.ts`가 진다.
+   */
+  it("라운드 88 B: 등록 인자가 buildDeviceRegistrationBody 한 벌을 읽는다", () => {
+    const screenSource = source("app/settings/notifications.tsx");
+    expect(screenSource).toContain(
+      "const registered = await registerDevice(authToken!, buildDeviceRegistrationBody({ platform, pushToken, notificationEnabled: next }));"
+    );
+    expect(screenSource).toContain("buildDeviceRegistrationBody,");
+    // 목록을 두 곳에 손으로 적지 않는다.
+    expect(screenSource).not.toContain("osVersion:");
+    expect(screenSource).not.toContain("appVersion");
+  });
+
+  /**
+   * ⓕ 바이트 불변 — 이 트랙은 **값이 도달하게** 할 뿐 문구를 만들지 않는다(새 한국어 문장 0건).
+   *
+   * 아래 스물넷은 주석을 걷은 화면 소스에서 한국어를 이고 있는 줄 전수이고(순서까지), 그 목록
+   * 자체가 이 트랙의 부정 단언이다 — 등록 인자 한 줄이 이 목록을 한 바이트도 건드리지 않는다.
+   */
+  const SCREEN_KOREAN_LINES: readonly string[] = [
+    'if (platform === "android") return "Android 기기";',
+    ': `기기 목록을 ${devicesLoadErrorCopy.title}`;',
+    ': `알림 설정을 ${deviceToggleSaveErrorCopy}`;',
+    'announceForA11y("푸시 설정을 바꾸지 못했어요. 알림 권한을 확인한 뒤 다시 시도해 주세요.");',
+    'eyebrow="설정"',
+    'title="알림 설정"',
+    'subtitle="앱 알림함과 푸시 알림을 관리해요"',
+    '<EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" onPress={() => router.push("/login")} />',
+    "<Text style={sectionTitleStyle}>앱 알림함</Text>",
+    "홈 종 아이콘의 알림함에 어떤 소식을 남길지 고를 수 있어요. 끈 알림은 알림함에 쌓이지 않아요.",
+    "<Text style={noticeTextStyle}>다시 켜면 그다음부터 알림함에 다시 쌓여요.</Text>",
+    "<Text style={rowTitleStyle}>푸시 알림</Text>",
+    '? "이 기기는 푸시 기기로 등록되어 있어요."',
+    ': "이 기기는 아직 푸시 기기로 등록되지 않았어요."}',
+    '{currentDevice ? <StatusBadge label="등록됨" tone="success" /> : <StatusBadge label="미등록" />}',
+    'accessibilityLabel="푸시 알림"',
+    "지금 앱 버전에서는 푸시 알림을 받을 수 없어요. 앱 업데이트 후 사용할 수 있어요.",
+    "푸시 설정을 바꾸지 못했어요. 알림 권한을 확인한 뒤 다시 시도해 주세요.",
+    "앱 안의 알림함(홈 종 아이콘)은 푸시와 별개로 계속 표시돼요. 종류별로 끄려면 위의 앱 알림함에서 바꿀 수 있어요.",
+    "<Text style={sectionTitleStyle}>내 기기</Text>",
+    "<Text style={rowSubtitleStyle}>불러오는 중이에요...</Text>",
+    "<Text style={rowSubtitleStyle}>등록된 기기가 없어요. 푸시를 켜면 이 기기가 등록돼요.</Text>",
+    ": `마지막 사용 ${formatRelativeTime(updatedAtMs, Date.now())}`;",
+    '{isThisDevice ? <StatusBadge label="이 기기" tone="success" /> : null}'
+  ];
+
+  it("라운드 88 B ⓕ: 화면의 한국어 줄 전수·스위치 배선·실패 태그가 바이트 불변이다", () => {
+    const screenSource = source("app/settings/notifications.tsx");
+    const code = screenSource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[^\n"'`]*\/\/.*$/gm, "");
+    const koreanLines = code
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /[가-힣]/.test(line));
+    expect(koreanLines).toEqual([...SCREEN_KOREAN_LINES]);
+
+    // `platformLabel`의 나머지 한 문자열은 한글이 없어 위 목록에 서지 않는다 — 따로 못 박는다.
+    expect(screenSource).toContain('if (platform === "ios") return "iPhone · iOS";');
+
+    // 스위치 배선 셋(종류별·마스터·기기별)과 그 값·비활성 조건.
+    for (const wiring of [
+      "onValueChange={(next) => setNotificationTypeEnabled(option.type, next)}",
+      "onValueChange={(next) => toggleCurrentDevice.mutate(next)}",
+      "onValueChange={(next) => toggleDevice.mutate({ deviceId: device.id, enabled: next })}",
+      "value={enabled}",
+      "value={masterToggleValue}",
+      "value={device.notificationEnabled}",
+      "disabled={masterToggleDisabled}",
+      "disabled={toggleDevice.isPending}"
+    ]) {
+      expect(screenSource, wiring).toContain(wiring);
+    }
+    expect(screenSource.match(/accessibilityRole="switch"/g) ?? [], "스위치 전수").toHaveLength(3);
+
+    // 조회 실패·저장 실패 문구가 공용 한 벌에서 오고(이 화면이 다시 짓지 않는다), 낭독 태그가
+    // 그 두 자리에 그대로 서 있다(오프라인 대장·낭독 대장이 함께 무는 자리).
+    for (const wiring of [
+      "const devicesLoadErrorCopy = useLoadErrorCopy(devices.isError);",
+      "const deviceToggleSaveErrorCopy = useSaveErrorCopy(toggleDevice.isError);",
+      "devicesLoadErrorCopy.title === OFFLINE_LOAD_NOTICE",
+      "deviceToggleSaveErrorCopy === OFFLINE_SAVE_NOTICE"
+    ]) {
+      expect(screenSource, wiring).toContain(wiring);
+    }
+    expect(
+      screenSource.match(/accessibilityLiveRegion="polite" accessibilityRole="alert"/g) ?? [],
+      "실패 줄의 낭독 태그 전수"
+    ).toHaveLength(2);
+
+    // 등록 실패는 오늘도 조용하다 — 이 트랙이 새 실패 문장을 세우지 않는다.
+    expect(screenSource.match(/PUSH_TOKEN_UNAVAILABLE|PUSH_PLATFORM_UNSUPPORTED/g) ?? []).toHaveLength(2);
+  });
+
   it("documents the flag in .env.example and gates on EXPO_PUBLIC_PUSH_ENABLED", () => {
     const envExample = source("../../.env.example");
     expect(envExample).toContain("EXPO_PUBLIC_PUSH_ENABLED=0");
