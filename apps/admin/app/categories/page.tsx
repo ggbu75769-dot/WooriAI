@@ -211,7 +211,7 @@ export default function CategoriesPage() {
 
         {categories === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
-          <p className={styles.errorBanner}>
+          <p className={styles.errorBanner} role="alert">
             {loadError.message}
             {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
             {loadError.canRetry ? (
@@ -221,8 +221,8 @@ export default function CategoriesPage() {
             ) : null}
           </p>
         ) : null}
-        {rowError ? <p className={styles.errorBanner}>{rowError}</p> : null}
-        {rowSuccess ? <p className={styles.successBanner}>{rowSuccess}</p> : null}
+        {rowError ? <p className={styles.errorBanner} role="alert">{rowError}</p> : null}
+        {rowSuccess ? <p className={styles.successBanner} role="status">{rowSuccess}</p> : null}
         {categories && visible.length === 0 ? <p className={styles.emptyState}>조건에 맞는 카테고리가 없어요.</p> : null}
 
         {categories && visible.length > 0 ? (

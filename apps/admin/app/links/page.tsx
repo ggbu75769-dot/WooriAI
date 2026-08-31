@@ -508,9 +508,9 @@ function ProductLinksPageContent() {
                   idPrefix="create"
                   readOnly={!canEdit}
                 />
-                {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
+                {createError ? <p className={styles.errorBanner} role="alert">{createError}</p> : null}
                 {createSuccess ? (
-                  <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
+                  <p className={styles.successBanner} role="status">{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
                 ) : null}
                 <div className={styles.actions}>
                   <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
@@ -534,10 +534,10 @@ function ProductLinksPageContent() {
         {filteredLinks && filteredLinks.length > 0 ? (
           <p className={styles.hint}>{linkPriceCoverageSummary(filteredLinks)} (표에 보이는 링크 기준)</p>
         ) : null}
-        {shareCopyError ? <p className={styles.errorBanner}>{shareCopyError}</p> : null}
+        {shareCopyError ? <p className={styles.errorBanner} role="alert">{shareCopyError}</p> : null}
         {links === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
-          <p className={styles.errorBanner}>
+          <p className={styles.errorBanner} role="alert">
             {loadError.message}
             {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
             {loadError.canRetry ? (
@@ -731,7 +731,7 @@ function ProductLinksPageContent() {
                             readOnly={!canEdit}
                           />
                           {isEditor ? <p className={styles.hint}>저장하면 관리자에게 검토 요청이 전달돼요.</p> : null}
-                          {editError ? <p className={styles.errorBanner}>{editError}</p> : null}
+                          {editError ? <p className={styles.errorBanner} role="alert">{editError}</p> : null}
                           {/* 표의 [수정]/[닫기] 토글이 이 폼을 여닫으므로, 컨트롤이 내려가도
                               읽기 권한자가 갇히는 자리가 없다. */}
                           {canEdit ? (

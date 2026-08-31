@@ -331,7 +331,7 @@ function AuditLogsPageContent() {
             </div>
           </div>
         </div>
-        {filterError ? <p className={styles.errorBanner}>{filterError}</p> : null}
+        {filterError ? <p className={styles.errorBanner} role="alert">{filterError}</p> : null}
         <div className={styles.actions}>
           <button type="button" className={styles.primaryButton} onClick={applyFilters} disabled={loading}>
             필터 적용
@@ -356,11 +356,11 @@ function AuditLogsPageContent() {
           </button>
           <span className={styles.hint}>현재 필터 조건으로 최대 1,000건까지 CSV 파일로 저장해요.</span>
         </div>
-        {exportNotice ? <p className={styles.successBanner}>{exportNotice}</p> : null}
-        {exportError ? <p className={styles.errorBanner}>{exportError}</p> : null}
+        {exportNotice ? <p className={styles.successBanner} role="status">{exportNotice}</p> : null}
+        {exportError ? <p className={styles.errorBanner} role="alert">{exportError}</p> : null}
         {logs === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
-          <p className={styles.errorBanner}>
+          <p className={styles.errorBanner} role="alert">
             {loadError.message}
             {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
             {loadError.canRetry ? (

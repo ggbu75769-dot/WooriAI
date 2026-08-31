@@ -93,8 +93,8 @@ function DisclosureRow({
       <div className={styles.field}>
         <textarea value={text} readOnly={!canEdit} onChange={(event) => setText(event.target.value)} />
       </div>
-      {error ? <p className={styles.errorBanner}>{error}</p> : null}
-      {saved ? <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p> : null}
+      {error ? <p className={styles.errorBanner} role="alert">{error}</p> : null}
+      {saved ? <p className={styles.successBanner} role="status">{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p> : null}
       {/* 라운드 77 트랙 D(GAP-077 #4ⓑ): 문구 자체는 읽기 권한자에게도 그대로 보인다
           (textarea가 남는다 — 값을 보는 것은 정당하다). 내려가는 것은 제출 컨트롤뿐이다. */}
       {canEdit ? (
@@ -218,9 +218,9 @@ export default function DisclosuresPage() {
               <label htmlFor="new-disclosure-text">문구</label>
               <textarea id="new-disclosure-text" value={newText} onChange={(event) => setNewText(event.target.value)} />
             </div>
-            {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
+            {createError ? <p className={styles.errorBanner} role="alert">{createError}</p> : null}
             {createSuccess ? (
-              <p className={styles.successBanner}>{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
+              <p className={styles.successBanner} role="status">{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p>
             ) : null}
             <div className={styles.actions}>
               <button type="button" className={styles.primaryButton} onClick={handleAddKey} disabled={creating}>
@@ -235,7 +235,7 @@ export default function DisclosuresPage() {
 
       {disclosures === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
       {loadError ? (
-        <p className={styles.errorBanner}>
+        <p className={styles.errorBanner} role="alert">
           {loadError.message}
           {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
           {loadError.canRetry ? (

@@ -129,7 +129,7 @@ export default function UsersLookupPage() {
               <span className={styles.hint}>일부만 입력해도 찾을 수 있어요 (2자 이상).</span>
             </div>
           </div>
-          {searchError ? <p className={styles.errorBanner}>{searchError}</p> : null}
+          {searchError ? <p className={styles.errorBanner} role="alert">{searchError}</p> : null}
           <div className={styles.actions}>
             <button type="submit" className={styles.primaryButton} disabled={searching}>
               {searching ? "조회 중..." : "조회"}

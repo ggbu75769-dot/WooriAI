@@ -91,7 +91,7 @@ export default function ClickSummaryPage() {
         <h2>전체 클릭 수</h2>
         {loading ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
-          <p className={styles.errorBanner}>
+          <p className={styles.errorBanner} role="alert">
             {loadError.message}
             {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
             {loadError.canRetry ? (
