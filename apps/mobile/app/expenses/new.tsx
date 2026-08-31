@@ -537,11 +537,28 @@ export default function NewExpenseScreen() {
    * (EXP-001 픽셀 락은 세션 자체가 없어 판매처 블록이 아예 렌더되지 않지만, 세션이 있는 화면도
    * 열자마자 칩 줄이 끼어들지 않아야 한다 — 대부분의 기록은 판매처를 적지 않는다).
    *
-   * 포커스가 떠날 때(onBlur) **되돌리지 않는다.** 이 화면의 스크롤러(src/ui.tsx AppScreen)는
-   * `keyboardShouldPersistTaps` 기본값("never")이라, 키보드가 올라온 상태의 첫 탭은 자식에게
-   * 가지 않고 키보드만 내린다. blur에서 칩을 접으면 그 첫 탭에 칩이 사라져 **두 번째 탭이
-   * 맞을 자리가 없다** — 눌러도 아무 일도 일어나지 않는 칩이 된다. 그래서 칩을 눌러 채웠을 때
-   * (applyMerchantSuggestion)와 "저장하고 계속 기록"의 폼 초기화에서만 접는다.
+   * 포커스가 떠날 때(onBlur) **되돌리지 않는다.** ⚠️ 그 판정은 오늘도 옳고, **이유가 두 시점으로
+   * 갈린다** — 아래 ①의 문장을 지우지 않고 그대로 둔 채 ②를 덧붙인다(라운드 92 트랙 A).
+   *
+   * **① 라운드 56 시점(이 문단이 처음 적힌 때) — 오늘 이 문장의 전제는 거짓이다:**
+   * *"이 화면의 스크롤러(src/ui.tsx AppScreen)는 `keyboardShouldPersistTaps` 기본값("never")이라,
+   * 키보드가 올라온 상태의 첫 탭은 자식에게 가지 않고 키보드만 내린다. blur에서 칩을 접으면 그 첫
+   * 탭에 칩이 사라져 **두 번째 탭이 맞을 자리가 없다** — 눌러도 아무 일도 일어나지 않는 칩이 된다."*
+   *
+   * **② 오늘(라운드 92) — 결론은 같고 이유가 바뀌었다.** 라운드 65(GAP-065 #6)가 그 바깥
+   * 스크롤러를 `"handled"`로 고쳤다(src/ui.tsx:86-96). ⚠️⚠️ **그 라운드가 자기 근거로 인용한
+   * 자리가 바로 이 주석이었는데, 인용한 손이 인용당한 자리를 고치지 않아 이 문단이 그날부터
+   * 거짓이었다** — 그 낡음이 이 칩 줄을 *이미 해결된 것*으로 읽히게 했다. 실제로 RN의 판단은
+   * `onStartShouldSetResponderCapture`(**capture 단계** — 바깥에서 안으로)에서 나므로, 바깥
+   * `AppScreen`이 `"handled"`여도 **가장 안쪽 스크롤러가 기본값이면 그 자리가 첫 탭을 가로챈다.**
+   * 이 화면의 칩 줄들이 그 안쪽이었고, 라운드 92 트랙 A가 그 여는 태그들에
+   * `keyboardShouldPersistTaps="handled"`를 붙여 오늘 그 자리를 닫았다.
+   *
+   * ⚠️ **그래도 blur에서 접지 않는 것은 그대로다.** ①의 이유는 *첫 탭이 통째로 먹히니 칩이
+   * 사라지면 안 된다*였고, ②의 이유는 *첫 탭이 이제 칩에 닿으므로 그 순간 칩이 살아 있어야
+   * 한다*이다. 그래서 칩을 눌러 채웠을 때(applyMerchantSuggestion)와 "저장하고 계속 기록"의
+   * 폼 초기화에서만 접는다 — **동작은 한 바이트도 바뀌지 않았고 바뀐 것은 이유를 적은 문장뿐이다.**
+   * (이 두 시점을 무는 자리: `src/keyboard-tap-guard.test.ts`.)
    */
   const [merchantFocused, setMerchantFocused] = useState(false);
   // 라운드 58 #5: 실패 행을 다시 쓰는 경우에만 메모가 채워져 있다. 다른 진입점·비세션(픽셀 락
@@ -1601,7 +1618,7 @@ export default function NewExpenseScreen() {
         {authToken && recentItemChips.length > 0 ? (
           <View style={{ gap: 8 }}>
             <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>최근 품목</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {recentItemChips.map((chip) => (
                 <Pressable
                   key={chip.itemName}
@@ -1725,7 +1742,7 @@ export default function NewExpenseScreen() {
               selectedIso={expenseDateIso}
               todayIso={todayIso}
             />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {recentDateChips.map((chip) => (
                 <CategoryChip
                   key={chip.iso}
@@ -1978,7 +1995,7 @@ export default function NewExpenseScreen() {
                 (같은 pill·같은 높이·같은 한 줄 가로 스크롤). 라벨과 스크린리더 문장은 모듈이
                 만든다 — 화면에 문구를 다시 쓰면 지출 상세와 두 문장으로 갈린다. */}
             {merchantSuggestions.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {merchantSuggestions.map((suggestion) => (
                   <Pressable
                     key={suggestion.merchant}
@@ -2077,7 +2094,7 @@ export default function NewExpenseScreen() {
                 카테고리가 함께 채워지고(저장은 여전히 저장하기 버튼), 세션 없는 픽셀 락
                 캡처에서는 이 분기 자체가 렌더되지 않는다. */}
             {itemAutocompleteChips.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {itemAutocompleteChips.map((chip) => (
                   <Pressable
                     key={chip.itemName}
