@@ -515,7 +515,9 @@ describe("Admin CMS analytics page (ADM-009)", () => {
         'import { analyticsTrendView } from "../../src/lib/analytics-trend-view";'
       );
       // 막대는 여전히 그림이다 — 포커스·클릭 핸들러를 새로 달지 않는다(표가 이미 값을 준다).
-      const card = source.slice(source.indexOf("<h2>일별 추이</h2>"));
+      const cardStart = source.indexOf("<h2>일별 추이</h2>");
+      expect(cardStart, "일별 추이 카드 제목이 소스에 없어요").toBeGreaterThan(-1);
+      const card = source.slice(cardStart);
       expect(card).not.toContain("tabIndex");
       expect(card).not.toContain("onClick");
       expect(card).not.toContain("<button");

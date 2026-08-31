@@ -196,7 +196,9 @@ describe("analytics-trend-view (라운드 86 트랙 D)", () => {
     it("두 화면의 추이 카드 안에는 표기 호출이 남지 않는다", () => {
       for (const path of ["app/analytics/page.tsx", "app/clicks/page.tsx"]) {
         const source = readAdminSource(path);
-        const card = source.slice(source.indexOf("<h2>일별 추이"));
+        const cardStart = source.indexOf("<h2>일별 추이");
+        expect(cardStart, `${path}: 일별 추이 카드 제목이 소스에 없어요`).toBeGreaterThan(-1);
+        const card = source.slice(cardStart);
         expect(card.length, `${path}: 일별 추이 카드를 찾지 못했어요`).toBeGreaterThan(200);
         expect(card, `${path}: 추이 카드가 표기를 다시 짓지 않는다`).not.toContain("toLocaleString");
       }
