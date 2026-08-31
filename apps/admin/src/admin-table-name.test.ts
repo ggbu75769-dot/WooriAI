@@ -314,6 +314,36 @@ describe("어드민 표 이름 (라운드 89 트랙 B)", () => {
         expect(new Set(ids).size, `${file}: 같은 h2 id가 두 번 서 있어요`).toBe(ids.length);
       }
     });
+
+    /**
+     * ⚠️⚠️ **유일성은 h2끼리가 아니라 문서 전체에서 요구된다**(라운드 89 리뷰 L-2).
+     *
+     * 위 줄은 `<h2>`만 모아 비교하므로 **h2의 id가 폼 컨트롤·랜드마크·`<label for>`의 id와
+     * 겹치는 모양을 보지 못한다.** 그런데 `aria-labelledby`는 **문서 안의 그 id 하나**를 찾고,
+     * 겹치면 어느 요소가 이름이 되는지는 브라우저·스크린리더가 먼저 만난 쪽으로 갈린다 —
+     * 표의 이름이 조용히 입력칸 라벨로 바뀌는 자리다. 그래서 모집단을 **파일 전체의 `id="`
+     * 전수**로 넓힌다(리터럴 id만 — `id={…}`로 계산해 붙이는 자리는 이 그물 밖이고, 오늘 그런
+     * 자리는 아래 수가 값으로 든다).
+     *
+     * 오늘 실측: 중복 **0건**(초록 유지). 이 줄은 새 결함을 고치는 것이 아니라 **열려 있던
+     * 표면을 닫는다.**
+     */
+    it("파일 전체의 id가 유일하다 — h2 id가 폼 컨트롤 id와 겹치지 않는다 (라운드 89 리뷰 L-2)", () => {
+      let sweptIds = 0;
+      for (const file of SWEPT_FILES) {
+        const source = SOURCES.get(file) as string;
+        const ids = [...source.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
+        sweptIds += ids.length;
+        const seen = new Map<string, number>();
+        for (const id of ids) seen.set(id, (seen.get(id) ?? 0) + 1);
+        expect(
+          [...seen.entries()].filter(([, count]) => count > 1).map(([id, count]) => `${id}×${count}`),
+          `${file}: 같은 id가 파일 안에서 두 번 이상 서 있어요 — aria-labelledby가 어느 것을 이름으로 읽을지 갈립니다`
+        ).toEqual([]);
+      }
+      // 유령 방지 — 모집단이 0건이면 위 단언은 영원히 초록이다.
+      expect(sweptIds, "스윕이 걷은 리터럴 id").toBeGreaterThan(0);
+    });
   });
 
   describe("ⓒ 화면이 지은 이름은 값으로 센다", () => {

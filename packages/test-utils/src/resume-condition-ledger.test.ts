@@ -407,18 +407,25 @@ describe("전제 재실측 — 정찰의 203·61·84·11·14를 다시 센다", 
     expect(SCOUT_NEEDLE_VALUES.map((entry) => entry.scout)).toEqual([203, 61, 84, 11, 14]);
   });
 
-  it("재실측값이 이 대장의 기록·하한과 어긋나지 않는다", () => {
+  it("재실측값이 이 대장의 기록·하한과 어긋나지 않는다 (두 시점 — 당시 ≤ 오늘)", () => {
+    // ⚠️⚠️ **두 시점**(라운드 89 리뷰 M-4). 당시 이 줄은 두 표를 **등호**로 묶었다 —
+    // 트랙 D 시점에는 `SCOUT_NEEDLE_VALUES.remeasured`와 `MEASURED_TODAY`가 같은 수였기
+    // 때문이다. 그러나 두 표는 **다른 것을 기록한다**: 앞의 것은 *정찰 ↔ D의 대조*(그날 바늘
+    // 셋이 갈린 근거)이고, 뒤의 것은 *오늘 HEAD의 실측*이다. 같은 라운드의 C·F가 조건을
+    // 더하자 두 시점이 갈렸고, 등호는 **오늘의 실측을 갱신하는 정직한 손을 막는 모양**이 됐다.
+    // 그래서 묻는 것을 바꾼다 — *"같은가"* 가 아니라 *"당시의 기록이 오늘보다 크지 않은가"*.
+    // ⚠️ 이 방향이 이 대장이 처음부터 고른 그 방향이다(하한만 문다).
     const [site, parenTyped, lineTyped, parenHand, windowHand] = SCOUT_NEEDLE_VALUES;
-    expect(site.remeasured).toBe(MEASURED_TODAY.sites);
-    expect(parenTyped.remeasured).toBe(MEASURED_TODAY.parenTyped);
-    expect(lineTyped.remeasured).toBe(MEASURED_TODAY.lineTyped);
-    expect(parenHand.remeasured).toBe(MEASURED_TODAY.parenHand);
-    expect(windowHand.remeasured).toBe(MEASURED_TODAY.windowHand);
+    expect(site.remeasured, "자리 전수").toBeLessThanOrEqual(MEASURED_TODAY.sites);
+    expect(parenTyped.remeasured, "괄호 바늘 · 형").toBeLessThanOrEqual(MEASURED_TODAY.parenTyped);
+    expect(lineTyped.remeasured, "줄 바늘 · 형").toBeLessThanOrEqual(MEASURED_TODAY.lineTyped);
+    expect(parenHand.remeasured, "괄호 바늘 · 손").toBeLessThanOrEqual(MEASURED_TODAY.parenHand);
+    expect(windowHand.remeasured, "접힘 바늘 · 손").toBeLessThanOrEqual(MEASURED_TODAY.windowHand);
     // ⚠️ 그리고 오늘의 실측이 그 기록 아래로 내려가지 않았다(래칫과 같은 방향의 확인).
     expect(ratchetViolations(sites, NOTATION_RATCHET)).toEqual([]);
   });
 
-  it("⚠️ 손의 위치는 한 수가 아니라 두 수다 — 줄 바늘 12 · 접힘 바늘 14", () => {
+  it("⚠️ 손의 위치는 한 수가 아니라 두 수다 — 당시 줄 12·접힘 14, 오늘 줄 19·접힘 21", () => {
     expect(MEASURED_TODAY.lineHand).not.toBe(MEASURED_TODAY.windowHand);
     expect(tallies.window.hand).toBeGreaterThan(tallies.line.hand);
     const folded = LEDGER_BLIND_SPOTS.find((spot) => spot.id === "folded-notation");
