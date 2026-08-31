@@ -207,7 +207,7 @@ function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
         placeholder="새 비밀번호 확인"
         className={styles.tokenInput}
       />
-      {formError ? <p className={styles.errorText}>{formError}</p> : null}
+      {formError ? <p className={styles.errorText} role="alert">{formError}</p> : null}
       <button type="submit" className={styles.primaryButton} disabled={submitting}>
         {submitting ? "변경 중..." : "비밀번호 변경"}
       </button>
@@ -278,7 +278,7 @@ function MfaDisableForm({ onCancel }: { onCancel?: () => void }) {
           placeholder="인증 코드 또는 복구 코드"
           className={styles.tokenInput}
         />
-        {formError ? <p className={styles.errorText}>{formError}</p> : null}
+        {formError ? <p className={styles.errorText} role="alert">{formError}</p> : null}
         <button type="submit" className={styles.primaryButton} disabled={submitting}>
           {submitting ? "해제 중..." : "해제하고 다시 등록하기"}
         </button>
@@ -381,7 +381,7 @@ function LoginScreen() {
               placeholder="인증 코드 또는 복구 코드"
               className={styles.tokenInput}
             />
-            {mfaError ? <p className={styles.errorText}>{mfaError}</p> : null}
+            {mfaError ? <p className={styles.errorText} role="alert">{mfaError}</p> : null}
             <button type="submit" className={styles.primaryButton} disabled={mfaSubmitting}>
               {mfaSubmitting ? "확인 중..." : "확인"}
             </button>
@@ -416,7 +416,7 @@ function LoginScreen() {
             placeholder="비밀번호"
             className={styles.tokenInput}
           />
-          {submitError ? <p className={styles.errorText}>{submitError}</p> : null}
+          {submitError ? <p className={styles.errorText} role="alert">{submitError}</p> : null}
           <button type="submit" className={styles.primaryButton} disabled={submitting}>
             {submitting ? "로그인 중..." : "로그인"}
           </button>
@@ -564,7 +564,7 @@ function MfaSetupScreen() {
             `.retryButton`이다 — 종전에 빌려 쓰던 `.legacyToggle`은 회색 #7a7a7a라 대비가
             4.29:1(AA 미달)이었고 여백이 0이라 오류 문장에 붙어 렌더됐다. */}
         {loadError ? (
-          <p className={styles.errorText}>
+          <p className={styles.errorText} role="alert">
             {loadError.message}
             {loadError.canRetry ? (
               <button
@@ -596,7 +596,7 @@ function MfaSetupScreen() {
             placeholder="인증 앱의 6자리 코드"
             className={styles.tokenInput}
           />
-          {verifyError ? <p className={styles.errorText}>{verifyError}</p> : null}
+          {verifyError ? <p className={styles.errorText} role="alert">{verifyError}</p> : null}
           <button type="submit" className={styles.primaryButton} disabled={verifying || !secret}>
             {verifying ? "확인 중..." : "등록 완료"}
           </button>

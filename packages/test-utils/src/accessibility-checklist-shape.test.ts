@@ -41,7 +41,23 @@
 //     한동안 초록이었다(라운드 89 리뷰 M-2). **두 자리를 함께 올린 라운드는 이 상한도 그날의
 //     실측 갈림으로 함께 내린다** — 그것이 이 상수에 값으로 박힌 규율이다.
 //  ⓓ **목록의 모양** — 목록이 **67부터 빠짐없이 연속**인가(중간에 빠진 라운드가 0건).
-//  ⓔ **좌표** — C-3이 짝 문서의 `#26`이고 표면이 `실기기`라는 사실이 **두 문서에서 같은 값**인가.
+//  ⓔ **좌표** — 접근성 표가 짝 문서를 가리키는 자리가 **실재로 풀리는가**.
+//     ⚠️ **세 시점 — 이 축은 라운드 90 트랙 D가 *모집단만* 넓혔다(새 축을 얹지 않았다).**
+//      · **당시(라운드 89 트랙 E·리뷰 M-3)**: 모집단이 **한 자리**였다 — C-3이 스스로 적은 좌표
+//        (짝 문서의 행 번호 하나 · 표면 하나)가 두 문서에서 같은 값인가만 물었다. 접근성 표
+//        전체가 짝 문서를 아흔 번 넘게 가리키고 있었는데 **그 아흔은 어느 계약도 풀어 보지 않았다.**
+//      · **트랙 D 커밋 시점(2026-08-31 · 트랙 F 머지 전)**: `§1-1 #N` 꼴로 가리키는 자리를
+//        **전수**로 걸기 시작했다 — 자리 **91** · 인용된 번호 **95**(사슬 셋이 그 차이다:
+//        `#37·#40·#45` · `#38·#48` · `#56·#57`) · 서로 다른 번호 **91**(⚠️ 정찰이 값으로 적은
+//        **87**은 자리마다 **첫 번호만** 셌을 때의 값이다 — 그 갈림이 이 트랙의 재실측이고,
+//        하한은 정찰의 87로 둔다) · 표면까지 함께 적은 참조 **32** · 역방향 **8**(⚠️ 정찰의
+//        하한은 7 — 줄바꿈을 넘는 자리 하나를 `:575`에서 더 찾았다) · 짝 문서의 번호 행 **163**.
+//      · **오늘(라운드 90 리뷰 M-2의 HEAD 재실측 · 트랙 F 머지 뒤)**: 같은 라운드의 F가 접근성
+//        표에 A-31(`#106`)을, 짝 문서에 `#164`·`#165`를 더해 수가 함께 움직였다 —
+//        자리 **92** · 인용된 번호 **96** · 서로 다른 번호 **92** · 표면까지 적은 참조 **33** ·
+//        역방향 **8**(그대로) · 짝 문서의 번호 행 **165**(§1-1은 **153**). 어긋남은 세 시점 다
+//        **0**이다. ⚠️ **아래 단언이 무는 것은 이 수들이 아니라 하한**이므로(래칫), 이 문단은
+//        *언제 무엇이 실측이었는가*의 기록이고 F의 갱신은 계약을 빨갛게 만들지 않았다.
 //  ⓕ **사각** — 이 그물이 못 보는 것을 값과 하한으로 적는다.
 //
 // ⚠️ **이 계약은 문서를 고치지 않는다.** 읽기만 한다(`docs/**` 쓰기 0건). 세 자리를 맞추는 갱신은
@@ -232,6 +248,114 @@ function tableRows(fromLine: number, toLine: number, idPattern: RegExp): Row[] {
 const cRows = tableRows(SECTION_C_LINE, SECTION_MANUAL_LINE, /^C-\d+$/);
 const c3Row = cRows.find((row) => row.cells[0] === "C-3");
 const manualSection = lines.slice(SECTION_MANUAL_LINE - 1).join("\n");
+
+// ---------------------------------------------------------------------------
+// ⓔ의 모집단 — 한 자리(C-3)에서 **전수**로 (라운드 90 트랙 D)
+// ---------------------------------------------------------------------------
+
+/**
+ * ⚠️⚠️ **넓힌 것은 모집단이지 축이 아니다.** 이 파일의 ⓔ는 처음부터 *좌표가 두 문서에서 같은
+ * 값인가*를 물었고, 그 모집단이 **C-3 한 자리**였다. 라운드 90 트랙 D가 하는 일은 그 한 자리를
+ * **접근성 표가 짝 문서를 가리키는 자리 전부**로 바꾸는 것뿐이다 — 새 축(ⓖ)을 얹지 않는다.
+ *
+ * ⚠️ **바늘을 값으로 적는다.** 접근성 표가 짝 문서를 부르는 꼴은 `… §1-1 #85` 한 가지이고,
+ * 굵게(`**#152**`)·사슬(`#37·#40·#45`)·표면 딸림(`**#113**(표면 `브라우저`)`)이 그 변주다.
+ * 그래서 이 바늘은 **`§1-1` 뒤에 붙은 `#N` 덩어리**만 문다 —
+ *  · `§1-1의 74~81행`·`§1-1이 91번까지` 같은 **범위 산문은 모집단 밖**이다(그 자리에는 풀 좌표가
+ *    아니라 그 라운드가 어디까지 채웠는지의 기록이 있다),
+ *  · 짝 문서를 부르지 않고 선 `#160`·`#161` 같은 산문 속 번호도 모집단 밖이다(어느 표의 번호인지를
+ *    그 자리가 말하지 않으므로 풀 대상이 없다 — 종전 ⓔ가 C-3 칸에서 그 둘을 피한 것과 같은 이유다).
+ */
+const COORDINATE_SITE_PATTERN =
+  /§1-1\s*(?:의|이|은|는)?\s*(\*{0,2}#\d+\*{0,2}(?:\s*·\s*\*{0,2}#\d+\*{0,2})*)/g;
+
+/** 표면까지 함께 적은 참조 — `§1-1 **#113**(표면 `브라우저`)` 꼴(오늘 33 · D 커밋 시점 32). */
+const SURFACE_SITE_PATTERN =
+  /§1-1\s*(?:의|이|은|는)?\s*\*{0,2}#(\d+)\*{0,2}\s*\(\s*표면\s*`([^`]+)`/g;
+
+/** 역방향 — 짝 문서가 접근성 표의 항목을 이름으로 가리키는 자리(오늘 8 · 정찰 하한 7). */
+const REVERSE_REF_PATTERN =
+  /accessibility-offline-checklist\.md`?\s*(?:의|에도|에|이|은|는)?\s*\*{0,2}([AC]-\d+)/g;
+
+function lineOf(text: string, index: number): number {
+  return text.slice(0, index).split("\n").length;
+}
+
+type CoordinateSite = { readonly numbers: number[]; readonly line: number };
+
+function collectCoordinateSites(text: string): CoordinateSite[] {
+  return [...text.matchAll(COORDINATE_SITE_PATTERN)].map((match) => ({
+    numbers: (match[1].match(/\d+/g) ?? []).map(Number),
+    line: lineOf(text, match.index)
+  }));
+}
+
+type SurfaceSite = { readonly number: number; readonly surface: string; readonly line: number };
+
+function collectSurfaceSites(text: string): SurfaceSite[] {
+  return [...text.matchAll(SURFACE_SITE_PATTERN)].map((match) => ({
+    number: Number(match[1]),
+    surface: match[2],
+    line: lineOf(text, match.index)
+  }));
+}
+
+const coordinateSites = collectCoordinateSites(source);
+/** 사슬을 편 전수(오늘 96 · D 커밋 시점 95) — 사슬의 둘째·셋째 번호도 좌표다. */
+const citedNumbers = coordinateSites.flatMap((site) => site.numbers);
+const surfaceSites = collectSurfaceSites(source);
+
+/** 짝 문서의 번호 행 — `| 85 | `실기기` | … |` 꼴. */
+type NumberedRow = {
+  readonly number: number;
+  readonly surface: string;
+  readonly item: string;
+  readonly line: number;
+};
+
+function numberedRows(docLines: string[], fromIndex: number, toIndex: number): NumberedRow[] {
+  const rows: NumberedRow[] = [];
+  for (let index = Math.max(fromIndex, 0); index < Math.min(toIndex, docLines.length); index += 1) {
+    const trimmed = docLines[index].trim();
+    if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) continue;
+    const cells = splitCells(docLines[index]);
+    if (!/^\d+$/.test(cells[0])) continue;
+    rows.push({
+      number: Number(cells[0]),
+      surface: (cells[1] ?? "").replace(/`/g, "").trim(),
+      item: cells[2] ?? "",
+      line: index + 1
+    });
+  }
+  return rows;
+}
+
+/** 짝 문서 §1-1의 범위 — `### 1-1.`부터 다음 `## `까지(0-based 인덱스 · 오늘 395~1185행). */
+const PAIR_S11_FROM = pairLines.findIndex((line) => line.startsWith("### 1-1."));
+const PAIR_S11_TO = pairLines.findIndex(
+  (line, index) => index > PAIR_S11_FROM && /^## /.test(line)
+);
+
+/** §1-1의 번호 행(오늘 153 — 13~165 · D 커밋 시점 151 — 13~163). */
+const pairSection11Rows = numberedRows(pairLines, PAIR_S11_FROM, PAIR_S11_TO);
+/** 짝 문서 전체의 번호 행(오늘 165 — 1~165, 빠진 번호 0 · D 커밋 시점 163). */
+const pairAllRows = numberedRows(pairLines, 0, pairLines.length);
+const pairRowByNumber = new Map(pairSection11Rows.map((row) => [row.number, row]));
+
+/** 접근성 표의 항목 이름 — A절은 `### A-N.` 제목, C절은 표의 첫 칸. */
+const accessibilityItemIds = new Set<string>([
+  ...lines.flatMap((line) => {
+    const match = /^### (A-\d+)\./.exec(line);
+    return match ? [match[1]] : [];
+  }),
+  ...cRows.map((row) => row.cells[0])
+]);
+
+const pairDocText = pairLines.join("\n");
+const reverseSites = [...pairDocText.matchAll(REVERSE_REF_PATTERN)].map((match) => ({
+  id: match[1],
+  line: lineOf(pairDocText, match.index)
+}));
 
 // ---------------------------------------------------------------------------
 
@@ -493,6 +617,113 @@ describe("ⓔ 좌표 — 두 문서가 같은 값을 말한다", () => {
   });
 });
 
+describe("ⓔ 좌표(전수) — 같은 축, 넓힌 모집단 (라운드 90 트랙 D)", () => {
+  it("모집단이 0건이 아니다 (오늘 자리 92 · 번호 96 · 서로 다른 번호 92 — 하한은 D 커밋 시점의 91·95·87)", () => {
+    // ⚠️ 유령 방지의 첫 줄: 바늘이 아무것도 잡지 못한 채 초록인 스윕을 금지한다.
+    expect(
+      coordinateSites.length,
+      "접근성 표가 §1-1을 가리키는 자리가 줄었어요 — 바늘이 낡았는지 먼저 보세요"
+    ).toBeGreaterThanOrEqual(91);
+    expect(citedNumbers.length, "인용된 좌표 전수가 줄었어요").toBeGreaterThanOrEqual(95);
+    expect(
+      new Set(citedNumbers).size,
+      "서로 다른 좌표 번호가 정찰의 하한(87) 아래예요"
+    ).toBeGreaterThanOrEqual(87);
+    // 자리마다 번호가 하나 이상이다(빈 자리를 세지 않는다).
+    expect(coordinateSites.filter((site) => site.numbers.length === 0)).toEqual([]);
+  });
+
+  it("가리키는 번호가 짝 문서 §1-1의 행으로 실제로 풀린다 (오늘 어긋남 0)", () => {
+    const dangling = coordinateSites.flatMap((site) =>
+      site.numbers
+        .filter((number) => !pairRowByNumber.has(number))
+        .map((number) => `${CHECKLIST_PATH}:${site.line} → #${number}`)
+    );
+    expect(
+      dangling,
+      `짝 문서 §1-1에 없는 번호를 가리키는 자리가 있어요 — 좌표가 유령이 됐거나(행이 사라졌다) 번호를 잘못 적었습니다(${PAIR_DOC_PATH} §1-1은 오늘 ${pairSection11Rows.length}행)`
+    ).toEqual([]);
+  });
+
+  it("표면까지 적은 참조는 그 표면이 짝 문서의 행과 같다 (오늘 33 · 어긋남 0)", () => {
+    expect(
+      surfaceSites.length,
+      "표면까지 함께 적은 참조가 줄었어요 — 하한은 정찰의 32입니다(오늘 실측은 33)"
+    ).toBeGreaterThanOrEqual(32);
+    const mismatched = surfaceSites
+      .filter((site) => pairRowByNumber.get(site.number)?.surface !== site.surface)
+      .map(
+        (site) =>
+          `${CHECKLIST_PATH}:${site.line} — #${site.number}을(를) \`${site.surface}\`로 적었는데 ${PAIR_DOC_PATH}는 \`${pairRowByNumber.get(site.number)?.surface ?? "(행 없음)"}\``
+      );
+    expect(
+      mismatched,
+      "접근성 표가 적은 실행 표면이 짝 문서의 행과 갈려요 — 표면은 짝 문서가 지는 값입니다"
+    ).toEqual([]);
+  });
+
+  it("역방향 — 짝 문서가 접근성 표의 항목을 가리키는 자리도 실재로 풀린다 (오늘 8 · 하한 7)", () => {
+    expect(
+      reverseSites.length,
+      "짝 문서가 접근성 표를 이름으로 가리키는 자리가 정찰의 하한(7) 아래예요"
+    ).toBeGreaterThanOrEqual(7);
+    const dangling = reverseSites
+      .filter((site) => !accessibilityItemIds.has(site.id))
+      .map((site) => `${PAIR_DOC_PATH}:${site.line} → ${site.id}`);
+    expect(
+      dangling,
+      `접근성 표에 없는 항목을 가리키는 자리가 짝 문서에 있어요(접근성 표의 항목은 오늘 ${accessibilityItemIds.size}개 — A절 제목 + C절 행)`
+    ).toEqual([]);
+  });
+
+  it("유령 방지 — 짝 문서의 번호 행이 165이고 빠진 번호가 0건이다 (하한은 D 커밋 시점의 163)", () => {
+    expect(PAIR_S11_FROM, `${PAIR_DOC_PATH}에서 §1-1 제목을 찾지 못했어요`).toBeGreaterThan(-1);
+    expect(
+      PAIR_S11_TO,
+      `${PAIR_DOC_PATH}에서 §1-1의 끝(다음 ## 제목)을 찾지 못했어요`
+    ).toBeGreaterThan(PAIR_S11_FROM);
+    expect(
+      pairAllRows.length,
+      "짝 문서의 번호 행이 줄었어요 — 하한은 정찰의 163입니다"
+    ).toBeGreaterThanOrEqual(163);
+    expect(pairSection11Rows.length, "§1-1의 번호 행이 줄었어요").toBeGreaterThanOrEqual(151);
+    const numbers = pairAllRows.map((row) => row.number);
+    const gaps = numbers
+      .map((number, index) => ({ number, expected: numbers[0] + index }))
+      .filter((entry) => entry.number !== entry.expected)
+      .map((entry) => `${entry.expected} 자리에 ${entry.number}이(가) 있다`);
+    expect(gaps, "짝 문서의 번호가 빠지거나 뒤바뀌었어요").toEqual([]);
+    expect(new Set(numbers).size, "짝 문서의 번호에 중복이 있어요").toBe(numbers.length);
+    expect(numbers[0], "짝 문서의 번호가 1에서 시작하지 않아요").toBe(1);
+  });
+
+  it("바늘이 장식이 아니다 — 유령 좌표와 어긋난 표면은 합성 소스에서 잡힌다", () => {
+    // ⚠️ **합성 소스로 증명한다**(라운드 88 D의 형식): 오늘 저장소에 그 모양이 0건이어도 계약이
+    // 그것을 무는지는 여기서 값으로 보인다 — 문서를 한 글자도 고치지 않고 바늘을 시험한다.
+    const known = pairSection11Rows[0];
+    const ghost = collectCoordinateSites(
+      `실기기 확인은 \`runtime-verification-required.md\` §1-1 #999`
+    );
+    expect(ghost).toHaveLength(1);
+    expect(ghost[0].numbers.every((number) => pairRowByNumber.has(number))).toBe(false);
+
+    // 사슬의 둘째 번호가 유령이어도 잡힌다(첫 번호만 세면 지나간다).
+    const chain = collectCoordinateSites("§1-1 #37·#999");
+    expect(chain[0].numbers).toEqual([37, 999]);
+    expect(chain[0].numbers.filter((number) => !pairRowByNumber.has(number))).toEqual([999]);
+
+    // 표면을 실재하는 행에 **다르게** 적으면 어긋남으로 걸린다.
+    const wrongSurface = known.surface === "실기기" ? "브라우저" : "실기기";
+    const surfaces = collectSurfaceSites(`§1-1 **#${known.number}**(표면 \`${wrongSurface}\`)`);
+    expect(surfaces).toHaveLength(1);
+    expect(pairRowByNumber.get(surfaces[0].number)?.surface).not.toBe(surfaces[0].surface);
+
+    // 그리고 짝 문서가 없는 항목을 부르면 역방향에서 걸린다.
+    expect(accessibilityItemIds.has("C-3")).toBe(true);
+    expect(accessibilityItemIds.has("C-99")).toBe(false);
+  });
+});
+
 describe("ⓕ 사각 — 이 그물이 못 보는 것을 값과 하한으로 적는다", () => {
   const BLIND_SPOTS = [
     {
@@ -524,6 +755,27 @@ describe("ⓕ 사각 — 이 그물이 못 보는 것을 값과 하한으로 적
         "짝 문서에도 같은 모양의 옛 라운드 문단이 있고(오늘 :266 일곱 · :1212 여덟), 그 둘은 §0-1 밖이라 모집단 밖이다 — 셋째 자리로 무는 것은 §0-1의 🔒 줄 하나뿐이다(라운드 89 리뷰 M-3).",
       floor: 2,
       measure: () => pairLegacySites.length
+    },
+    {
+      id: "좌표-내용",
+      statement:
+        "ⓔ가 무는 것은 **좌표의 실재**다 — 그 번호가 짝 문서 §1-1의 행으로 풀리는가, 표면을 함께 적었다면 그 표면이 같은가까지다. **그 행의 확인 항목이 접근성 표가 말하는 그 일인지는 세지 않는다**(오늘 자리 92 · 인용 번호 96 전부가 이 사각 안에 있고 — D 커밋 시점에는 91·95였다 — 사람이 읽어야 풀리는 판단이다). C-3 한 자리만 예외로 `잠금 오버레이`라는 낱말까지 대조한다 — 라운드 89가 그 자리에 손으로 심은 표식이고, 전수로 옮길 수 있는 형식이 아니다.",
+      /** 내용까지는 못 보는 자리 = 인용된 좌표 전수(오늘 96). 모집단이 늘면 사각도 함께 는다. */
+      floor: 91,
+      measure: () => citedNumbers.length
+    },
+    {
+      id: "문서가-옮겨-적은-계약-상수",
+      statement:
+        "이 계약의 상수를 **문서가 손으로 옮겨 적은 자리**는 이 그물 밖이다. ⚠️⚠️ **두 시점 — 이 문장이 태어날 때의 사실과 오늘의 사실이 다르다**(라운드 90 리뷰 M-1). · **라운드 90 트랙 D 커밋 시점**: 갈려 있었다 — 계약 상수 `MAX_DIVERGENCE = 0`인데 문서 두 자리(당시 `docs/qa/accessibility-offline-checklist.md:1085` C-3 행 · `:1111` 수동 증거 절)가 아직 *\"끝 라운드 차이가 셋을 넘지 않는가\"* 라고 적고 있었다(값 0 ↔ 셋 · 자리 둘). · **오늘(HEAD)**: **같은 라운드의 트랙 F가 그 두 자리를 0으로 고쳤다** — 오늘 그 자리는 `:1153`(C-3 행) · `:1188`(수동 증거 절)이고 둘 다 *\"0을 넘지 않는가\"* 라고 적는다. 즉 **이 사각이 예고한 수리가 같은 라운드 안에서 이행됐고, 갈림은 오늘 0건이다**(판정은 known-limitations의 AE-3). ⚠️ **그런데 사각은 사라지지 않았다**: 이 그물은 그 정합을 **여전히 세지 않으므로**, 문서가 내일 다시 낡아도 조용하다 — 사각이 말하는 것은 *오늘 갈렸는가*가 아니라 *갈려도 아무도 모른다*이다. ⚠️ 그래서 아래 `measure`가 세는 것도 갈림이 아니라 **그 상수를 옮겨 적은 산문 자리의 수**다(참이든 거짓이든 자리는 그대로 있고, 하한은 그 자리가 사라졌는지만 묻는다). ⚠️ 이 트랙은 그 갈림을 **무는 축을 세우지 않는다**: 오늘 빨간 계약을 세우면 이 트랙이 문서를 고쳐야 하고, 그 순간 *계약이 문서를 지킨다*가 *문서가 계약을 맞춘다*로 뒤집힌다 — 고치는 손은 문서 트랙(F)이었다. ⚠️ **재개 조건(사건형): 문서가 인용한 계약 상수의 정합이 한 트랙의 축이 되는 라운드가 서는 날 — 그날 F가 이미 고친 그 두 자리가 그 계약의 첫 모집단이다.**",
+      /**
+       * 계약의 ⓒ 축을 산문으로 옮겨 적은 자리 수(오늘 셋 — 접근성 표 머리말 `:22` · C-3 행
+       * `:1153` · 수동 증거 절 `:1188`. D 커밋 시점에는 둘이었다).
+       * ⚠️ **이 자는 그 자리가 *참인지*를 묻지 않는다** — 산문 자리의 수이므로 F의 수리 전후가
+       * 같은 답을 낸다. 그것이 이 사각이 사각인 이유다.
+       */
+      floor: 2,
+      measure: () => lines.filter((line) => line.includes("끝 라운드 차이")).length
     }
   ] as const;
 

@@ -21,7 +21,7 @@ import { useOnboardingResumeStore } from "../src/stores/onboarding-resume.store"
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { theme } from "../src/theme";
-import { AppScreen, Card, SecondaryButton, Toast } from "../src/ui";
+import { announceForA11y, AppScreen, Card, SecondaryButton, Toast } from "../src/ui";
 import { SkeletonCard } from "../src/ui/Skeleton";
 
 declare const __DEV__: boolean;
@@ -42,6 +42,31 @@ declare const __DEV__: boolean;
  */
 function ColdStartHoldView({ reason }: { reason: ColdStartHoldReason }) {
   const copy = COLD_START_HOLD_COPY[reason];
+  /**
+   * 라운드 90 트랙 A(#1) — **콜드 스타트 안내가 두 플랫폼 다 소리로 나간다.**
+   *
+   * 아래 카드에는 `accessibilityLiveRegion="polite"`가 **반쪽으로** 걸려 있었다(짝인
+   * `accessibilityRole="alert"`가 없고 이 파일에 `announceForA11y`도 0건이었다). 그 프롭은 RN
+   * 문서가 `@platform android`로 표시한 것이라 **안드로이드에서만** 소리가 났다 — 앱을 처음 연
+   * 사람이 iOS/VoiceOver에서는 최대 6초 동안(두 개의 3초 안전 밸브) *아무 일도 일어나지 않은
+   * 것*처럼 듣는다. 이 화면은 스켈레톤을 접근성 트리에서 감추므로 소리로 남는 것이 이 두 줄뿐이다.
+   *
+   * ⚠️ 이 effect에는 `if`가 없고, 그것이 이 자리의 조건이다 — 카드를 감싸는 JSX 갈래가 없기
+   * 때문이다(**컴포넌트가 곧 조건이다**: 이 컴포넌트는 홀딩 판정 셋에서만 그려진다).
+   * a11y-contract.test.ts의 파생 판정이 쓰는 규칙 그대로이고(갈래가 없는 자리는 *같은 최상위
+   * 컴포넌트 안의 조건 없는 배선*이 답한다), 갈래가 생기는 날 이 조건도 함께 서야 한다.
+   *
+   * ⚠️ 읽어 주는 문장은 화면이 짓지 않는다 — 카드가 그리는 두 줄 그대로다(문구 단일 소스는
+   * src/onboarding/cold-start-hold.ts이고 이 라운드는 그 파일을 읽기만 한다). 그래서 이 파일에
+   * 새 한국어는 0글자다.
+   *
+   * ⚠️ **재낭독 금지.** 의존 배열은 그 두 줄을 지닌 상수 객체 하나다 — 같은 이유로 다시 렌더돼도
+   * `COLD_START_HOLD_COPY[reason]`은 같은 참조라 effect가 다시 돌지 않는다. 이유가 갈리면
+   * (hydration → child-recovery → onboarding-progress) 문장이 실제로 달라지므로 그때는 읽는다.
+   */
+  useEffect(() => {
+    announceForA11y(`${copy.title} ${copy.body}`);
+  }, [copy]);
   return (
     <AppScreen>
       <View testID="screen-cold-start-hold" style={{ gap: theme.spacing.section }}>

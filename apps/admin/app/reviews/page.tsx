@@ -349,7 +349,7 @@ function ContentReviewsPageContent() {
 
         {revisions === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
-          <p className={styles.errorBanner}>
+          <p className={styles.errorBanner} role="alert">
             {loadError.message}
             {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
             {loadError.canRetry ? (
@@ -426,7 +426,7 @@ function ContentReviewsPageContent() {
           <h2>
             상세 보기 {detail ? `- ${ENTITY_TYPE_LABELS[detail.entityType]} #${detail.revisionNo}` : ""}
           </h2>
-          {detailError ? <p className={styles.errorBanner}>{detailError}</p> : null}
+          {detailError ? <p className={styles.errorBanner} role="alert">{detailError}</p> : null}
           {detail ? (
             <>
               <p className={styles.hint}>
@@ -458,8 +458,8 @@ function ContentReviewsPageContent() {
                 </table>
               </div>
 
-              {actionError ? <p className={styles.errorBanner}>{actionError}</p> : null}
-              {actionSuccess ? <p className={styles.successBanner}>{actionSuccess}</p> : null}
+              {actionError ? <p className={styles.errorBanner} role="alert">{actionError}</p> : null}
+              {actionSuccess ? <p className={styles.successBanner} role="status">{actionSuccess}</p> : null}
 
               {isAdmin && detail.status === "in_review" ? (
                 <div className={styles.form}>
@@ -474,7 +474,7 @@ function ContentReviewsPageContent() {
                       ⚠️ 예약 자체는 막지 않는다 — 워커는 켜질 수 있고, 켜지면 밀린 예약이
                       실제로 처리된다. 막는 것이 아니라 말하는 것이 이 자리의 판정이다. */}
                   {schedulingWorkerNote(worker) ? (
-                    <p className={styles.errorBanner}>{schedulingWorkerNote(worker)}</p>
+                    <p className={styles.errorBanner} role="alert">{schedulingWorkerNote(worker)}</p>
                   ) : null}
                   <div className={styles.field}>
                     <label htmlFor="schedule-at">예약 게시 시각</label>

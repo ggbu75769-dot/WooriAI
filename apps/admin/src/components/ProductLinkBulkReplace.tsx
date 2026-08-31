@@ -266,7 +266,7 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
         <span className={styles.hint}>파일을 선택하면 내용이 여기에 채워져요. 직접 붙여넣어도 돼요.</span>
       </div>
 
-      {error ? <p className={styles.errorBanner}>{error}</p> : null}
+      {error ? <p className={styles.errorBanner} role="alert">{error}</p> : null}
       {timeoutNotice ? (
         <div className={styles.calloutWarning} role="status">
           <strong>적용 결과를 확인해 주세요</strong>
@@ -284,7 +284,7 @@ export function ProductLinkBulkReplace({ onApplied }: { onApplied?: () => void }
         </div>
       ) : null}
       {applyResult ? (
-        <p className={styles.successBanner}>
+        <p className={styles.successBanner} role="status">
           적용 {applyResult.applied}건 · 건너뜀(변경 없음) {applyResult.skipped}건 · 오류 {applyResult.errors}건
         </p>
       ) : null}

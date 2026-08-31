@@ -137,17 +137,56 @@
 // `SYNC_STATUS_RETRY_ALL_LABEL`(그 파일은 이 트랙의 소유가 아니라 **읽기만** 한다)과
 // `FAILED_ROW_LOCAL_ID_PARAM`(⚠️ **테스트조차 부르지 않는다** — 아래 ⓒ 참고).
 //
+// ## ⚠️⚠️ 라운드 90 트랙 C — 그물이 **문자열 리터럴 축**을 배웠다 (사문 **40 → 44** · 대장 **+0**)
+//
+// 라운드 89 트랙 C는 사각 `string-literal-references`의 재개 조건을 **발동시킨 채로 넘겼다**:
+// *"재개 조건(사건형): *참조가 전부 문자열뿐인 export*가 0을 넘는 날 — 그날 이 그물은 문자열도
+// 마스킹해야 한다"* 였고, 축을 넓히니 그 수가 0에서 **넷**이 됐다. 라운드 89는 *"한 트랙이 한
+// 그물에 축 둘을 얹지 않는다"* 는 규율 때문에 그 문을 열지 않고 **값만 정확히 적어** 넘겼다.
+// 오늘 트랙 C가 그 문 하나만 연다(⚠️ JSX 판정 `tsx-components`는 오늘도 무접촉이다 — 같은 규율).
+//
+// ⚠️ **계약 ⓑ 전후 대조 — 두 수를 한 낱말로 적지 않는다**(라운드 88 D의 형식):
+//  · **마스킹 전**(주석만 지우던 라운드 88·89의 그물) — 사문 **40**(함수 16 · 상수 24).
+//  · **마스킹 후**(오늘의 그물) — 사문 **44**(함수 **16** · 상수 **28**).
+//  ⚠️ **함수 축 열여섯은 한 자리도 움직이지 않았다** — 늘어난 넷은 전부 `export const` 축이다.
+//
+// ⚠️ **계약 ⓒ 넷의 처분 — 라운드 89 C의 예상은 0이었고, 실측도 0이다.** 그 넷
+// (`shared-cache-policy.ts`의 `CHILDREN_WRITE_APIS` · `CHILDREN_WRITE_LEDGER` ·
+// `SHARED_KEY_COVERAGE` · `EXPENSE_WRITE_LEDGER`)은 전부 결정 ③ 축 ⓑ(**자리 표**)로 떨어졌다:
+// **대장의 줄은 22 → 22로 0이 늘었고**, 면제가 **18 → 22**, 그중 자리 표 축이 **11 → 15**로
+// 늘었다. ⚠️ **모듈 수는 6 그대로다** — `shared-cache-policy.ts`는 넷이 들어오기 전에도 이미
+// 다른 상수로 면제 쪽에 서 있던 모듈이라 새 모듈이 생기지 않았다(예상과 실측이 갈리지 않은
+// 자리도 값으로 적는다 — 갈리지 않았다는 사실 자체가 다음 라운드의 근거다).
+//
+// ⚠️⚠️ **템플릿 `${…}` 갈래는 지우지 않는다.** 문자열 마스킹이 템플릿을 통째로 지우면
+// `` `${searchResultCountAnnouncement(count)} 건` `` 같은 **살아 있는 호출부가 사라져 사문이
+// 거짓으로 는다** — 이 대장이 지금껏 낸 적 없는 방향의 오차(거짓 빨강)다. 그 갈래는 오늘 저장소에
+// 그 모양이 있느냐와 무관하게 **합성 소스로** 증명한다(계약 ⓐ · `dead-export-ledger.test.ts`의
+// ⓘ 절). 마스킹의 형식 본보기는 `comment-tolerant-anchor-ledger.ts`의 스캐너다(읽기만 했다).
+//
+// ⚠️ **래칫은 22 그대로다.** 세는 자리가 넷 늘었는데 값이 그대로인 이유는 그 넷을 파생 판정이
+// 면제했기 때문이고, 그 사실은 `RATCHET_HISTORY`의 라운드 90 줄이 값으로 진다 — **래칫을 내리는
+// 유일한 옳은 길은 항목이 실제로 걷히거나 호출부를 얻는 것**이라는 문장은 오늘도 그대로다.
+//
+// ⚠️ **제품 소스 0건 변경**(주석 포함). 라운드 88 D는 아홉 파일에, 89 C는 두 파일에 주석을
+// 더했지만 오늘 트랙 C가 연 것은 **판정 축 하나**뿐이다.
+//
 // ## ⚠️ 이 그물이 무는 것의 한계 — **이름의 텍스트**이지 **해석된 참조**가 아니다
 //
 //  · 이름으로 훑으므로 **흔한 이름을 가르지 못한다**(AA-4가 이름 붙인 그 사각). 속성 접근
 //    (`api.listItems`)이나 객체 키(`listItems:`)도 한 번의 텍스트 일치이고, 이 그물은 그것을 호출과
 //    구별하지 못한다 — 그 방향의 오차는 **사문을 놓치는 쪽**이다(거짓 초록이지 거짓 빨강이 아니다).
 //  · 동적 접근(`registry["legalDocumentUrl"]`)·배럴 재export도 텍스트 한 번으로 보인다.
-//  · ⚠️ **문자열 리터럴은 아직 참조로 센다** — 소스의 문자열은 마스킹하지 않으므로 문자열이 이름을
-//    담고 있기만 해도 호출부 1건이다. 방향은 같은 **거짓 초록**이고, 오늘 참조가 전부 문자열뿐인
-//    export는 0건이다(사각 `string-literal-references`가 그 값과 하한 26을 진다).
+//  · ⚠️⚠️ **문자열 리터럴은 라운드 90부터 마스킹한다** — 그래서 *"이름이 문자열 안에 있기만 해도
+//    호출부 1건"* 이라는 거짓 초록은 닫혔고(사각 `string-literal-references`는
+//    `CLOSED_BLIND_SPOTS`로 옮겼다), **대신 반대 방향의 사각이 열렸다**: 이름에 오직 문자열로만
+//    닿는 자리(`registry["legalDocumentUrl"]` 꼴의 동적 접근·문자열 열쇠)는 이제 참조로 세지
+//    않으므로 **살아 있는 export가 사문으로 세어질 수 있다(거짓 빨강)**. 오늘 실피해는 0건이고,
+//    그 표면의 하한 55는 사각 `string-keyed-dynamic-access`가 진다.
+//    ⚠️ **템플릿 `${…}` 안은 지우지 않는다** — 그 안은 진짜 코드이고, 지우면 살아 있는 호출부가
+//    사라진다(합성 소스로 증명한다).
 //    ⚠️ **주석은 라운드 88부터 마스킹한다**(라운드 87 리뷰 L-1이 연 자리 · 사각
-//    `comment-and-string-references`가 그 재측정을 진다 — 오늘 마스킹판 16 · 옛 그물 7).
+//    `comment-and-string-references`가 그 재측정을 진다 — 오늘 마스킹판 40 · 옛 그물 20).
 //  · `.tsx`의 컴포넌트 export와 `apps/api/**`·`packages/**`는 오늘 모집단 밖이다.
 //  이 한계를 값으로 적어 두는 이유는 다음 사람이 이 파일을 *"사문이 스물둘뿐이라는 증명"* 으로
 //  읽지 않게 하기 위해서다 — 이것은 **스물셋 번째가 생길 때 소리가 나는 자리**다.
@@ -178,7 +217,11 @@ export const CALLSITE_DEFINITION =
   "호출부는 **제품 소스**다 — apps/mobile/app/** · apps/mobile/src/** · apps/admin/app/** · apps/admin/src/** 의 " +
   "비테스트 .ts/.tsx 전수이고, **선언한 자기 파일까지 포함한다**. 그 전수 어디에도 이름이 (선언 줄 자신을 빼고) " +
   "한 번도 나오지 않으면 호출부 0건이다. 테스트 파일은 호출부가 아니다 — 이 대장이 세는 것이 정확히 " +
-  "'테스트만 부른다'이기 때문이고, 테스트를 호출부로 세면 이 대장의 모집단은 첫날부터 0건이 된다.";
+  "'테스트만 부른다'이기 때문이고, 테스트를 호출부로 세면 이 대장의 모집단은 첫날부터 0건이 된다. " +
+  "⚠️ 그리고 '나온다'는 **마스킹한 소스에서** 나온다는 뜻이다: 주석은 라운드 88부터, **문자열 리터럴의 " +
+  "글자는 라운드 90부터** 지우고 센다(주석·문자열이 이름을 말하는 것은 호출이 아니다). " +
+  "⚠️⚠️ 다만 템플릿 리터럴의 `${…}` 안은 **진짜 코드라 지우지 않는다** — 지우면 살아 있는 호출부가 " +
+  "사라져 사문이 거짓으로 늘어난다.";
 
 /** ⚠️ 결정 ② — 값으로 적힌 모집단의 정의. */
 export const POPULATION_DEFINITION =
@@ -470,7 +513,7 @@ function identifierPattern(name: string): RegExp {
   return new RegExp(`(?<![\\w$])${name.replace(/[$]/g, "\\$")}(?![\\w$])`, "g");
 }
 
-// ── 마스킹 (라운드 88 트랙 D) ─────────────────────────────────────────────────
+// ── 마스킹 (라운드 88 트랙 D → **라운드 90 트랙 C**) ──────────────────────────
 //
 // ⚠️ **이 자리가 라운드 87이 사각으로 적어 둔 바로 그 재개 조건이다.** 그때의 문장은
 // *"재개 조건(사건형): 이 재측정이 0을 넘는 날 — 그날 이 그물은 마스킹을 배워야 한다"* 였고,
@@ -478,10 +521,21 @@ function identifierPattern(name: string): RegExp {
 // export의 이름을 부를 수밖에 없고(*"왜 화면이 이 이름을 부르지 않는가"* 를 적는 주석이다),
 // 마스킹이 없으면 **이유를 적은 순간 그 항목이 대장에서 조용히 사라진다**.
 //
-// ⚠️ **문자열 리터럴은 오늘도 마스킹하지 않는다**(그물 기준). 템플릿 리터럴의 `${…}` 안은 진짜
-// 코드라 통째로 지울 수 없고, 아래 스캐너는 그 갈림까지 읽을 수 있지만 **이 라운드는 그 축을
-// 그물에 넣지 않는다** — 사각 `string-literal-references`가 그 사실과 오늘의 하한을 값으로 진다.
-// (마스킹 전후를 나란히 재는 자로는 쓴다 — 사각은 산문이 아니라 값이어야 하기 때문이다.)
+// ⚠️⚠️ **라운드 90 트랙 C: 이제 문자열 리터럴도 마스킹한다**(그물 기준). 라운드 88·89의 이 자리는
+// *"문자열은 오늘도 마스킹하지 않는다"* 였고, 라운드 89가 그 사각의 재개 조건을 **발동시킨 채로**
+// 넘겼다(*참조가 전부 문자열뿐인 export*가 0에서 넷이 됐다). 오늘 그 축이 그물로 들어온다.
+//
+// ⚠️⚠️ **그러나 템플릿 리터럴의 `${…}` 안은 지우지 않는다 — 그 안은 진짜 코드다.**
+// `` `${searchResultCountAnnouncement(n)} 건` `` 을 통째로 지우면 **살아 있는 호출부가 사라지고
+// 사문이 거짓으로 는다**(거짓 빨강 — 이 대장이 지금껏 낸 적 없는 방향의 오차다). 그래서
+// `skipTemplateLiteral`은 **문자열 조각의 글자만** 지우고 `${…}`를 만나면 `scanCodeRegion`으로
+// 되돌아간다. ⚠️ 그 갈래는 오늘 저장소에 우연히 있느냐와 무관하게 **합성 소스로** 증명한다
+// (계약 ⓐ) — 저장소가 그 모양을 잃는 날에도 계약은 그것을 물고 있어야 하기 때문이다.
+//
+// ⚠️ **전후 대조는 값으로 남는다**(계약 ⓑ · 라운드 88 D가 주석 마스킹에 대해 세운 그 형식):
+// 마스킹 **전**(주석만 지우던 라운드 88·89의 그물)은 **40**, **후**(오늘의 그물)는 **44**다.
+// 두 수를 한 낱말로 적지 않는다 — 아래 `findDeadExportsBeforeStringMasking`과 `findDeadExports`가
+// 각각 그 한 수씩을 지고, 계약이 둘을 나란히 잰다.
 
 type MaskState = {
   readonly source: string;
@@ -554,7 +608,31 @@ function skipRegexLiteral(source: string, slashIndex: number): number | null {
 /**
  * 따옴표 문자열의 끝. **줄을 넘으면 문자열이 아니다**(JS 문법) — 그때는 아무것도 마스킹하지 않고
  * 한 글자만 넘어간다. ⚠️ 이 한 줄 가두기가 이 스캐너의 안전장치다: 오해가 나도 손상이 **그 줄**에
- * 갇히고, 방향은 *"주석을 덜 지운다"*(옛 그물과 같은 거짓 초록)이지 *"코드를 지운다"* 가 아니다.
+ * 갇힌다.
+ *
+ * ⚠️⚠️ **오차의 방향은 오늘 뒤집혔다 — 옛 주석은 낡았다**(라운드 90 리뷰 M-3).
+ *
+ *  · **라운드 88·89(`maskStrings === false`)**: 이 자는 주석만 지웠고 문자열의 글자는 그대로
+ *    남겼다. 그래서 따옴표를 잘못 읽어도 최악이 *"주석을 덜 지운다"* 였고, 그 방향은 옛 그물과
+ *    같은 **거짓 초록**(사문을 놓친다)이었다.
+ *  · **라운드 90 트랙 C부터(`maskStrings === true`)**: 이 자가 **글자를 지우는 자**가 됐다.
+ *    여는 따옴표를 잘못 잡으면 그 줄 안의 **진짜 코드가 공백이 되고**, 지워진 곳에 살아 있는
+ *    호출부가 있었다면 그 export가 **사문으로 세어진다** — 방향이 **거짓 빨강**이다.
+ *
+ * ⚠️ **실증 사례(합성 소스로 재현되고, 저장소에는 오늘 0건이다)**: JSX 텍스트의 어포스트로피는
+ * 코드가 아니라 글자인데 이 자는 그것을 여는 따옴표로 읽는다. 한 줄에 **짝으로** 서면 그 사이가
+ * 통째로 지워진다 —
+ *
+ * ```
+ * <Text>Don't stop {renderFooter()} it's fine</Text>
+ *   → <Text>Don'                          's fine</Text>   // renderFooter가 사라진다
+ * ```
+ *
+ * 한 줄에 **하나만** 있으면(가장 흔한 모양) 줄바꿈에서 `null`이 돌아와 아무것도 지워지지 않는다 —
+ * 위의 한 줄 가두기가 그 자리를 막는 것이고, **짝이 맞는 둘**이 그 가두기를 빠져나가는 유일한
+ * 모양이다. ⚠️ **오늘 이 저장소의 실피해는 0건**이다(제품 소스의 인용부호는 전각 `‘ ’`이고
+ * ASCII `'`가 JSX 텍스트에 짝으로 선 자리가 0건이다). 그 사실과 표면의 크기는 사각
+ * `jsx-apostrophe-string-masking`이 값과 하한으로 진다.
  */
 function skipQuotedString(state: MaskState, quoteIndex: number): number | null {
   const { source } = state;
@@ -669,9 +747,15 @@ export function maskComments(source: string): string {
 }
 
 /**
- * 주석 **과 문자열 리터럴**을 지운 소스 — ⚠️ **그물은 이것을 쓰지 않는다.**
- * 사각 `string-literal-references`의 하한을 재는 자로만 쓴다(문자열 축을 그물에 넣는 판단은
- * 이 라운드의 일이 아니다 — 넣는 날 그 사각의 재개 조건이 그 자리를 연다).
+ * 주석 **과 문자열 리터럴**을 지운 소스 — ⚠️⚠️ **라운드 90 트랙 C부터 이것이 그물이다.**
+ *
+ * 라운드 88·89에는 이 함수가 사각 `string-literal-references`의 하한을 재는 자였고, 그물은
+ * `maskComments`를 썼다. 그 사각의 재개 조건이 라운드 89에 발동했고(참조가 전부 문자열뿐인 export
+ * 0 → 4), 오늘 이 함수가 판정하는 자가 됐다.
+ *
+ * ⚠️⚠️ **지우는 것은 문자열의 글자뿐이다.** 템플릿의 `${…}` 안은 `skipTemplateLiteral`이
+ * `scanCodeRegion`으로 되돌려 **코드로 남긴다** — 그 갈래를 지우면 살아 있는 호출부가 사라져
+ * 사문이 **거짓으로** 늘어난다(계약 ⓐ가 합성 소스로 그 갈래를 문다).
  */
 export function maskCommentsAndStrings(source: string): string {
   const state: MaskState = { source, out: source.split(""), maskStrings: true };
@@ -715,21 +799,25 @@ function referencesUnderMask(
 }
 
 /**
- * 제품 소스에서 이 이름이 나오는 자리 전수 — **선언 줄 자신은 빼고 · 주석은 마스킹하고**.
+ * 제품 소스에서 이 이름이 나오는 자리 전수 — **선언 줄 자신은 빼고 · 주석과 문자열은 마스킹하고**.
  *
  * ⚠️ 선언 줄만 빼는 이유: 선언은 참조가 아니지만 같은 파일의 다른 줄은 참조다(결정 ①).
  * ⚠️ 주석을 마스킹하는 이유: *"아무도 부르지 않는데 주석만 이름을 말하고 있는"* export가
  * 이 대장에서 조용히 사라지지 않게 하기 위해서다(라운드 87 리뷰 L-1 · 사각
  * `comment-and-string-references`의 재개 조건이 라운드 88에 발동했다).
+ * ⚠️⚠️ **문자열을 마스킹하는 이유(라운드 90 트랙 C)**: *"아무도 부르지 않는데 같은 파일의 표 설명
+ * 문자열만 자기 이름을 인용하고 있는"* export가 같은 방식으로 사라지지 않게 하기 위해서다 —
+ * 라운드 89가 그런 자리 **넷**을 값으로 적고 재개 조건을 발동시킨 채 넘겼다.
+ * ⚠️⚠️ **템플릿의 `${…}` 안은 코드로 남는다** — 그 안을 지우면 살아 있는 호출부가 사라진다.
  */
 export function findProductReferences(
   item: ExportedFunction,
   sources: ReadonlyMap<string, string>
 ): CallsiteHit[] {
-  return referencesUnderMask(item, sources, maskCommentsCached);
+  return referencesUnderMask(item, sources, maskCommentsAndStringsCached);
 }
 
-/** 마스킹 **없이** 세는 옛 그물 — 재측정 전용이다(판정은 위 마스킹판이 한다). */
+/** 마스킹 **없이** 세는 라운드 87의 그물 — 재측정 전용이다(판정은 위 마스킹판이 한다). */
 export function findRawProductReferences(
   item: ExportedFunction,
   sources: ReadonlyMap<string, string>
@@ -737,7 +825,24 @@ export function findRawProductReferences(
   return referencesUnderMask(item, sources, maskNothing);
 }
 
-/** 주석 **과 문자열**을 다 지우고 세는 자 — 사각 `string-literal-references`의 하한을 재는 자다. */
+/**
+ * **주석만** 지우고 세는 라운드 88·89의 그물 — 오늘은 **마스킹 전**을 재는 자다(계약 ⓑ).
+ *
+ * ⚠️ 이 자를 남겨 두는 이유: 전후 대조가 산문이 되지 않게 하기 위해서다. 이 자로 잰 사문이
+ * **40**, 오늘의 그물로 잰 사문이 **44**이고, 그 갈림 넷이 문자열 축이 처음 본 자리다.
+ */
+export function findCommentMaskedProductReferences(
+  item: ExportedFunction,
+  sources: ReadonlyMap<string, string>
+): CallsiteHit[] {
+  return referencesUnderMask(item, sources, maskCommentsCached);
+}
+
+/**
+ * 주석 **과 문자열**을 다 지우고 세는 자 — ⚠️ **라운드 90부터 이것은 그물 자신과 같은 자다.**
+ * 이름을 남겨 두는 것은 라운드 88·89의 사각 재측정이 이 이름으로 서 있었기 때문이고, 그 자가
+ * 판정하는 자가 됐다는 사실 자체가 이 라운드의 값이다.
+ */
 export function findCodeOnlyProductReferences(
   item: ExportedFunction,
   sources: ReadonlyMap<string, string>
@@ -751,15 +856,86 @@ export function readCallsiteSources(baseDir: string = repoRoot): Map<string, str
 }
 
 /**
- * 모집단(축 둘) 중 **호출부 0건**인 것 전수 — 오늘의 **마흔**이 여기서 나온다.
+ * ⚠️ **오탐 표면 — 이 스캐너가 어포스트로피를 여는 따옴표로 볼 수 있는 호출부 파일 전수.**
  *
- * ⚠️ 이 마흔 가운데 열여덟은 결정 ③의 파생 판정이 면제하고(대장에 줄이 없다), 스물둘이 대장에
+ * `skipQuotedString`의 머리말이 든 그 사각의 **크기**다(라운드 90 리뷰 M-3). ASCII `'`가 한 글자도
+ * 없는 파일에서는 그 오해가 아예 일어날 수 없으므로, 이 수가 표면의 상한이자 사각의 하한이 된다.
+ * ⚠️ 이 수가 **피해**는 아니다 — 피해는 아래 `apostropheMaskedCodeSites`가 세고 오늘 0건이다.
+ */
+export function apostropheBearingCallsiteFiles(baseDir: string = repoRoot): string[] {
+  return [...readCallsiteSources(baseDir)]
+    .filter(([, source]) => source.includes("'"))
+    .map(([file]) => file);
+}
+
+/**
+ * ⚠️⚠️ **실피해 — 문자열 마스킹이 어포스트로피 짝을 잘못 읽어 *코드를 지운* 자리 전수(오늘 0건).**
+ *
+ * 두 마스킹의 산출을 겹쳐 본다: 주석만 지운 자에서는 코드였는데 문자열까지 지운 자에서 공백이
+ * 된 구간을 찾고, 그 구간을 연 따옴표가 **ASCII `'`** 이며 그 앞이 코드 구분자가 **아닐 때**만
+ * 센다(구분자 뒤의 `'`는 진짜 문자열 리터럴이다 — 지워지는 것이 옳다). 지워진 구간에 식별자가
+ * 없으면 코드가 아니라 글자였으므로 역시 세지 않는다.
+ *
+ * ⚠️ **0이 미측정이 아니라 실측이라는 사실이 이 자의 값이다**(`outside-two-apps`류의 0과 다르다).
+ * 하루라도 이 수가 0을 넘으면 그날 사문 판정 하나가 **거짓 빨강**일 수 있고, 그때의 답은 대장에
+ * 줄을 더하는 것이 아니라 이 스캐너가 JSX 텍스트를 코드와 가르는 것이다.
+ */
+export function apostropheMaskedCodeSites(baseDir: string = repoRoot): string[] {
+  const CODE_DELIMITER = /[=(,:[{&|?+!;<>]/;
+  const sites: string[] = [];
+  for (const [file, source] of readCallsiteSources(baseDir)) {
+    if (!source.includes("'")) continue;
+    const commentsOnly = maskComments(source);
+    const alsoStrings = maskCommentsAndStrings(source);
+    for (let index = 0; index < commentsOnly.length; index += 1) {
+      if (commentsOnly[index] === " " || alsoStrings[index] !== " ") continue;
+      let open = index - 1;
+      while (open >= 0 && alsoStrings[open] === " " && commentsOnly[open] !== " ") open -= 1;
+      let end = index;
+      while (end < commentsOnly.length && alsoStrings[end] === " " && commentsOnly[end] !== " ") end += 1;
+      const erased = commentsOnly.slice(open, end);
+      index = end;
+      if (commentsOnly[open] !== "'") continue;
+      // 지워진 것이 글자뿐이면 이 사각이 아니다 — 이 자가 세는 것은 **코드**가 사라진 자리다.
+      if (!/[A-Za-z_$][A-Za-z0-9_$]{2,}/.test(erased)) continue;
+      let before = open - 1;
+      while (before >= 0 && /\s/.test(commentsOnly[before])) before -= 1;
+      // 코드 구분자 뒤의 `'`는 진짜 문자열 리터럴이다(지워지는 것이 이 그물의 축이다).
+      if (before < 0 || CODE_DELIMITER.test(commentsOnly[before])) continue;
+      sites.push(`${file}:${source.slice(0, open).split("\n").length}`);
+    }
+  }
+  return sites;
+}
+
+/**
+ * 모집단(축 둘) 중 **호출부 0건**인 것 전수 — 오늘의 **마흔넷**이 여기서 나온다.
+ *
+ * ⚠️ 이 마흔넷 가운데 스물둘은 결정 ③의 파생 판정이 면제하고(대장에 줄이 없다), 스물둘이 대장에
  * 선다(`ledgerRequiredDeadExports`). **면제된 자리도 여기서는 사라지지 않는다** — 유령 방지(ⓓ)가
  * 그 둘을 함께 대조하려면 전수가 한 자리에 있어야 한다.
+ *
+ * ⚠️⚠️ **라운드 90 트랙 C: 40 → 44.** 늘어난 넷은 **새 부채가 아니라 세는 자리가 늘어난 것**이고
+ * (라운드 88 D·89 C가 세운 형식), 넷 다 `shared-cache-policy.ts`의 표 상수다 — 라운드 89가
+ * 이름까지 값으로 적어 두고 넘긴 바로 그 넷이다. 마스킹 **전**의 수는
+ * `findDeadExportsBeforeStringMasking`이 진다(계약 ⓑ).
  */
 export function findDeadExports(baseDir: string = repoRoot): ExportedFunction[] {
   const sources = readCallsiteSources(baseDir);
   return collectPopulation(baseDir).filter((item) => findProductReferences(item, sources).length === 0);
+}
+
+/**
+ * **문자열 마스킹을 켜기 전**(라운드 88·89의 그물)의 사문 전수 — 오늘 **마흔**이다.
+ *
+ * ⚠️ 계약 ⓑ의 두 수 중 앞의 하나다. 이 자가 없으면 *"40에서 44가 됐다"* 가 산문이 되고, 산문은
+ * 다음 라운드가 다시 재지 못한다. ⚠️ 이 자는 **판정하지 않는다** — 판정은 위 `findDeadExports`다.
+ */
+export function findDeadExportsBeforeStringMasking(baseDir: string = repoRoot): ExportedFunction[] {
+  const sources = readCallsiteSources(baseDir);
+  return collectPopulation(baseDir).filter(
+    (item) => findCommentMaskedProductReferences(item, sources).length === 0
+  );
 }
 
 /** 축 하나만 본 사문 — 축이 갈릴 때 어느 쪽이 움직였는지 값으로 말한다. */
@@ -776,36 +952,46 @@ export function findDeadExportsOfKind(kind: ExportKind, baseDir: string = repoRo
  */
 export function commentOnlyReferenceExports(baseDir: string = repoRoot): ExportedFunction[] {
   const sources = readCallsiteSources(baseDir);
-  return findDeadExports(baseDir).filter((item) => findRawProductReferences(item, sources).length > 0);
+  // ⚠️ **주석 마스킹판 위에서만 센다**(라운드 90 트랙 C의 정정). 오늘의 그물은 문자열까지
+  // 지우므로 그 위에서 세면 이 수가 *"주석뿐"* 이 아니라 *"주석이나 문자열뿐"* 이 되고, 두 축의
+  // 값이 한 낱말로 뭉개진다. 문자열 축의 갈림은 `stringOnlyReferenceExports`가 따로 진다.
+  return findDeadExportsBeforeStringMasking(baseDir).filter(
+    (item) => findRawProductReferences(item, sources).length > 0
+  );
 }
 
 /**
- * 참조가 **전부 문자열 리터럴뿐**인 모집단 항목 전수 — 오늘 그물이 놓치는 축의 **하한**이다.
+ * 참조가 **전부 문자열 리터럴뿐**인 모집단 항목 전수 — **마스킹 전후가 갈린 자리 전수**다.
  *
- * ⚠️ 이 수가 0이 아니면 *"문자열 리터럴도 참조로 센다"* 는 사각이 산문이 아니라 값이 된다.
- * ⚠️ 그렇다고 이 라운드가 그 축을 그물에 넣지는 않는다 — 문자열 마스킹은 판정을 바꾸는 일이고
- * (템플릿 `${…}` 갈래를 포함해 한 번에 검증해야 한다) 그 판단은 사각의 재개 조건이 여는 자리다.
+ * ⚠️ 라운드 88에는 0건이었고 라운드 89가 **넷**을 값으로 적으며 재개 조건을 발동시켰다.
+ * 라운드 90 트랙 C가 그 축을 그물에 넣었으므로, 오늘 이 넷은 *"그물이 못 보는 자리"* 가 아니라
+ * **`findDeadExportsBeforeStringMasking`(40)과 `findDeadExports`(44)가 갈린 바로 그 자리**다.
+ * ⚠️ 계약 ⓑ가 `44 − 40 === 이 목록의 크기`를 값으로 대조한다.
  */
 export function stringOnlyReferenceExports(baseDir: string = repoRoot): ExportedFunction[] {
   const sources = readCallsiteSources(baseDir);
   return collectPopulation(baseDir)
-    .filter((item) => findCodeOnlyProductReferences(item, sources).length === 0)
-    .filter((item) => findProductReferences(item, sources).length > 0);
+    .filter((item) => findProductReferences(item, sources).length === 0)
+    .filter((item) => findCommentMaskedProductReferences(item, sources).length > 0);
 }
 
 /**
- * 참조가 **하나라도 문자열 리터럴 안에** 있는 모집단 이름 전수 — 위 사각의 **하한**이다.
+ * 참조가 **하나라도 문자열 리터럴 안에** 있는 모집단 이름 전수 — 오늘은 **새 사각의 크기**다.
  *
- * ⚠️ 이 수는 *"그 이름들에 대해서는 텍스트 한 번이 호출의 증거가 아니다"* 만 말한다(위 `common-name`과
- * 같은 모양). 오늘 그 이름들은 전부 코드 참조도 함께 갖고 있어서 `stringOnlyReferenceExports()`는
- * 0건이고, 그래서 **실피해는 0이고 이 26은 상한이 아니라 하한**이다.
+ * ⚠️⚠️ **오차의 방향이 이 라운드에 뒤집혔다.** 문자열을 참조로 세던 라운드 88·89에는 이 수가
+ * *"사문을 놓치는 쪽"*(거짓 초록)의 하한이었다. 문자열을 지우는 오늘의 그물에서 이 수는
+ * *"살아 있는 자리를 사문으로 셀 수 있는 쪽"*(**거짓 빨강**)의 하한이다 — 이름이 오직
+ * `registry["legalDocumentUrl"]` 꼴로만 닿는 export가 있으면 오늘의 그물은 그것을 사문으로 센다.
+ * ⚠️ 오늘 실피해는 0이다: 이 이름들 가운데 코드 참조가 0건인 넷은 전부 결정 ③이 면제하는 표이고,
+ * 나머지는 코드 참조를 함께 갖고 있다. 사각 `string-keyed-dynamic-access`가 그 값과 하한을 진다.
  */
 export function namesReferencedInsideStringLiterals(baseDir: string = repoRoot): string[] {
   const sources = readCallsiteSources(baseDir);
   const found = collectPopulation(baseDir)
     .filter(
       (item) =>
-        findCodeOnlyProductReferences(item, sources).length < findProductReferences(item, sources).length
+        findProductReferences(item, sources).length <
+        findCommentMaskedProductReferences(item, sources).length
     )
     .map((item) => item.name);
   return [...new Set(found)].sort();
@@ -1595,8 +1781,23 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
  * function` 축의 열여섯은 한 줄도 움직이지 않았다** — 지운 export 0건 · 되살린 export 0건이다.
  * ⚠️ 그래서 이 값은 축을 되돌리는 방식으로 내려서는 안 된다: 내리는 유일한 옳은 길은 항목이
  * 실제로 걷히거나 호출부를 얻는 것이다.
+ *
+ * ⚠️⚠️ **라운드 90 트랙 C: 22 → 22.** 문자열 리터럴 축이 그물에 들어오며 **세는 자리가 넷 늘었지만**
+ * (사문 40 → 44) 그 넷이 전부 결정 ③ 축 ⓑ(자리 표)로 면제돼 **대장의 줄은 0이 늘었다.**
+ * ⚠️ 값이 그대로인 것과 *"아무 일도 없었다"* 는 다르다 — 그 갈림은 `RATCHET_HISTORY`의 라운드 90
+ * 줄과 `findDeadExportsBeforeStringMasking`(40) · `findDeadExports`(44) 두 자가 값으로 진다.
  */
 export const DEAD_EXPORT_RATCHET = 22;
+
+/**
+ * ⚠️ **래칫의 타입**(계약 ⓔ · 라운드 90 트랙 C) — 래칫은 **값과 타입 양쪽**에 걸린다.
+ *
+ * `DEAD_EXPORT_RATCHET`은 `number`가 아니라 리터럴 타입 `22`이고, 계약 파일이 못 박은 항목 id
+ * 튜플의 `length`와 **타입 수준에서** 맞춰진다. 그래서 새 `export const`가 이유 없이 죽어 대장에
+ * 스물셋째 줄이 붙는 날, 값 단언(`vitest`)이 빨개지기 전에 **`tsc --noEmit`가 먼저 빨개진다** —
+ * 두 자리 중 한쪽만 고쳐서 통과시키는 길이 막힌다.
+ */
+export type DeadExportRatchet = typeof DEAD_EXPORT_RATCHET;
 
 /**
  * 래칫이 축을 넓히며 지나온 자리 — **줄어들지 않는다는 사실을 값으로 남긴다.**
@@ -1622,6 +1823,15 @@ export const RATCHET_HISTORY: readonly {
       "`export const` 축이 모집단으로 들어왔다(트랙 C). 늘어난 여섯은 새 부채가 아니라 **세는 자리가 " +
       "늘어난 것**이다 — 스물넷 중 열여덟은 결정 ③의 파생 판정이 면제했고, `export function` 축의 " +
       "열여섯은 한 줄도 움직이지 않았다."
+  },
+  {
+    round: 90,
+    value: 22,
+    why:
+      "문자열 리터럴 축이 그물에 들어왔다(트랙 C). 사문이 40 → 44로 늘었지만 **세는 자리가 늘어난 " +
+      "것**이고, 늘어난 넷(`shared-cache-policy.ts`의 표 상수)은 전부 결정 ③ 축 ⓑ가 면제해 **대장의 " +
+      "줄은 0이 늘었다** — 그래서 값이 22 그대로다. 면제는 18 → 22(자리 표 축 11 → 15), 모듈 수는 " +
+      "6 그대로이고, `export function` 축의 열여섯도 한 줄도 움직이지 않았다."
   }
 ];
 
@@ -1731,34 +1941,57 @@ export const CLOSED_BLIND_SPOTS: readonly {
       "모듈 다섯이 아니라 파생 판정이 낸 여섯 모듈·열여덟 자리다(`contractOnlyExemptions`). ⚠️ 그리고 그 " +
       "손 목록의 이유 한 줄은 **거짓이었다** — `SYNC_STATUS_RETRY_ALL_LABEL`은 계약이 읽는 값이 아니라 사용자 " +
       "문장이고, 파생 판정이 그것을 면제에서 꺼내 대장의 줄로 옮겼다."
+  },
+  {
+    id: "string-literal-references",
+    closedInRound: 90,
+    statement:
+      "라운드 88·89의 사각: *'문자열 리터럴은 아직 참조로 센다 — 이름이 문자열 안에 있기만 해도 호출부 1건이다'*. " +
+      "그 칸이 적어 둔 재개 조건은 **사건형**이었다: *'참조가 전부 문자열뿐인 export가 0을 넘는 날 — 그날 이 " +
+      "그물은 문자열도 마스킹해야 한다'*. 라운드 89 트랙 C가 `export const` 축을 들이며 그 수를 0에서 **넷**으로 " +
+      "만들어 조건을 **발동시킨 채 넘겼고**(한 그물에 축 둘을 얹지 않는 규율), ⚠️⚠️ **라운드 90 트랙 C가 그 " +
+      "축을 그물에 넣었다.** 실측: 사문 **40 → 44** · 대장의 줄 **22 → 22(+0)** · 면제 **18 → 22** · 모듈 " +
+      "**6 그대로** — 늘어난 넷은 `shared-cache-policy.ts`의 `CHILDREN_WRITE_APIS` · `CHILDREN_WRITE_LEDGER` · " +
+      "`SHARED_KEY_COVERAGE` · `EXPENSE_WRITE_LEDGER`(라운드 89가 이름까지 값으로 적어 두고 넘긴 그 넷)이고, " +
+      "넷 다 **같은 파일 안의 표 설명 문자열**이 자기 이름을 인용해서 살아 있던 자리라 결정 ③ 축 ⓑ가 면제한다" +
+      "(라운드 89 C가 *'대장의 줄은 0이 는다'* 고 적은 예상과 실측이 **갈리지 않았다**). " +
+      "⚠️⚠️ **닫으면서 반대 방향의 사각 하나가 열렸다** — 문자열을 지우는 그물은 문자열 열쇠로만 닿는 참조를 " +
+      "보지 못하고, 그 오차는 **거짓 빨강**이다. 그 자리는 `string-keyed-dynamic-access`가 값과 하한으로 진다: " +
+      "닫힌 사각이 다음 사각을 낳았다는 사실까지가 이 줄의 값이다."
   }
 ];
 
 export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   {
     id: "derived-exemptions",
-    value: 18,
+    value: 22,
     floor: 8,
     statement:
-      "⚠️ **면제된 열여덟에는 대장의 줄이 없다** — 그 자리를 붙잡고 있는 것은 결정 ③의 파생 판정 하나뿐이다. " +
+      "⚠️ **면제된 스물둘에는 대장의 줄이 없다** — 그 자리를 붙잡고 있는 것은 결정 ③의 파생 판정 하나뿐이다. " +
       "판정이 언젠가 지나치게 넓어지면(예: `importersOfModule`이 새 별칭 경로를 못 읽어 '번들 밖'을 잘못 세면) " +
       "그만큼의 사문이 **소리 없이** 대장 밖으로 나간다. 오차의 방향은 다른 사각들과 같은 **거짓 초록**이다. " +
       "⚠️ 그래서 계약 ⓓ가 면제 수·모듈 수·근거 전수를 사문 전수와 함께 대조하고, 이 줄이 그 수를 값으로 진다. " +
       "⚠️⚠️ **그리고 그 '소리 없이'는 오늘 사실이 아니다 — 등호 핀이 먼저 막는다**(라운드 89 리뷰 L-1): " +
-      "계약이 면제 수를 `toBe(18)`, 모듈 수를 `toBe(6)`로 **등호**로 못 박고 있어서, 판정이 넓어져 한 자리라도 " +
-      "더 면제하는 순간 **그 등호가 빨개진다**(사문 전수 `toBe(40)`·`면제 + 대장 = 전수`도 같은 걸음에 함께 문다). " +
+      "계약이 면제 수를 `toBe(22)`, 모듈 수를 `toBe(6)`로 **등호**로 못 박고 있어서, 판정이 넓어져 한 자리라도 " +
+      "더 면제하는 순간 **그 등호가 빨개진다**(사문 전수 `toBe(44)`·`면제 + 대장 = 전수`도 같은 걸음에 함께 문다). " +
       "즉 거짓 초록이 흘러가는 길은 *'대장 밖으로 조용히 나간다'* 가 아니라 *'등호를 사람이 손으로 올린다'* 이고, " +
       "그 한 줄의 변경이 곧 신호다. 이 사각이 남아 있는 이유는 그 등호가 **수만 보고 신원은 보지 않기** 때문이다 — " +
       "면제 하나가 빠지고 다른 하나가 들어오면 수는 그대로다. " +
       "⚠️ **오늘 값으로 든 오매치 표면 하나**: 축 ⓑ의 후보 낱말이 `resolveProductLocator`의 라우트 갈래에 들어갈 때 " +
       "**`\"/\"` 한 글자가 라우트로 풀렸다** — `app` + `/` + `/index.tsx`가 이어져 근거 경로에 `//`가 박힌 " +
       "`apps/mobile/app//index.tsx`를 자리로 내민다(그 `//` 오타가 이 오매치의 지문이다). 원소 하나만 그렇게 풀려도 " +
-      "표 전체가 `locator-table` 축에 실려 면제를 살 수 있다. ⚠️ **오늘 실피해는 0건**이었다(면제 열여덟의 근거 " +
+      "표 전체가 `locator-table` 축에 실려 면제를 살 수 있다. ⚠️ **오늘 실피해는 0건**이었다(면제 전수의 근거 " +
       "전수에 `//`를 지닌 자리 0건). 라운드 89 리뷰가 `locatorCandidates`에서 **한 글자 토큰을 배제**해 그 표면을 " +
       "닫았고, **닫은 뒤 다시 재도 면제 열여덟·모듈 여섯 그대로**다(등호 핀 둘 다 초록) — 배제의 비용이 0이라는 " +
       "사실이 그 수로 선다. 두 글자 이상의 슬래시뿐인 토큰(`\"//\"`)은 여전히 같은 갈래로 풀리고, 오늘 그런 원소도 0건이다. " +
+      "⚠️⚠️ **라운드 90 트랙 C의 재실측 — 이 문턱이 여유를 다 썼다: 18/40(여유 둘) → 22/44(여유 0).** " +
+      "문자열 축이 들어오며 늘어난 사문 넷이 **전부 면제 쪽으로** 떨어져 분자와 분모가 함께 넷씩 늘었고, 그래서 " +
+      "면제 수는 오늘 사문 전수의 **정확히 절반**이다 — *넘는* 것은 아니므로 이 트랙은 판정을 좁히지 않는다" +
+      "(⚠️ 문턱은 *절반 초과*이지 *절반 도달*이 아니고, 오늘 조건을 넘겨 짚어 판정을 좁히면 그것은 계약이 " +
+      "요구하지 않은 손이다). ⚠️ **다음 라운드에는 여유가 없다**: 면제가 하나만 더 늘고 대장이 그대로면 그날 " +
+      "이 조건이 발동한다. " +
       "⚠️ 재개 조건(사건형): 면제 수가 사문 전수의 절반을 넘는 날 — 그날 이 판정은 다시 좁혀져야 한다" +
-      "(오늘 40 중 18).",
+      "(오늘 44 중 22 — **여유 0**).",
     measure: (baseDir) => contractOnlyExemptions(baseDir).length
   },
   {
@@ -1790,7 +2023,11 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "**라운드 87 리뷰 이후**의 값은 실행값 77이다. ⚠️ **라운드 88 트랙 D의 재측정**: 분자는 오늘도 " +
       "77이고 분모만 1016 → 1018로 움직였다(같은 라운드의 트랙 A가 어드민 `src/lib`에 export를 더하는 중이라 " +
       "이 분모는 **한 라운드 안에서도 흔들린다** — 그래서 계약이 무는 것은 값이 아니라 하한이다). " +
-      "⚠️ 이 자리는 **주석 마스킹과 무관하다**: 속성·키 자리로 나오는지는 마스킹 전후가 같은 질문이다.",
+      "⚠️ 이 자리는 **주석 마스킹과 무관하다**: 속성·키 자리로 나오는지는 마스킹 전후가 같은 질문이다. " +
+      "⚠️⚠️ **라운드 90 트랙 C의 재실측: 오늘도 226**(문자열 마스킹을 켜기 전과 켠 뒤가 같다 — " +
+      "`namesAlsoUsedAsProperty`는 마스킹하지 않은 소스에 대고 `.name`·`name:` 자리를 묻고, 그 질문은 " +
+      "그물이 무엇을 지우든 같은 답을 낸다). ⚠️ **그리고 이 사각의 오차 방향은 오늘도 거짓 초록이다** — " +
+      "새로 열린 `string-keyed-dynamic-access`만 반대 방향이고, 둘을 한 낱말로 적지 않는다.",
     measure: (baseDir) => namesAlsoUsedAsProperty(baseDir).length
   },
   {
@@ -1813,41 +2050,69 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "그물로 재면 **16**이다. 마스킹이 없었다면 아홉이 래칫 아래로 조용히 사라지고 이 대장은 " +
       "**아무것도 지키지 못한 채 초록**이었다 — 라운드 87이 사각 칸에 미리 적어 둔 바로 그 죽는 방식이다. " +
       "⚠️ 마스킹은 **주석까지만**이다: 문자열 리터럴은 여전히 참조로 세고, 그 축은 아래 " +
-      "`string-literal-references`가 값과 하한으로 따로 진다.",
+      "`string-literal-references`가 값과 하한으로 따로 진다. " +
+      "— 여기까지가 라운드 88·89의 문장이다. ⚠️⚠️ **라운드 90 트랙 C의 재실측: 오늘도 20이다.** " +
+      "그리고 그 마지막 문장은 오늘 낡았다 — 문자열 축이 그물로 들어왔고, 그 사각은 " +
+      "`CLOSED_BLIND_SPOTS`로 옮겼다. ⚠️⚠️ **그래서 이 줄의 자는 오늘 `findDeadExports`(문자열까지 " +
+      "지우는 그물)가 아니라 `findDeadExportsBeforeStringMasking`(주석만 지우는 자) 위에서 센다** — " +
+      "새 그물 위에서 세면 이 수가 *'주석뿐'* 이 아니라 *'주석이나 문자열뿐'* 이 되어 24가 되고, 두 축의 " +
+      "값이 한 낱말로 뭉개진다. **주석 축 20 · 문자열 축 4**는 서로 다른 두 수다.",
     measure: (baseDir) => commentOnlyReferenceExports(baseDir).length
   },
   {
-    id: "string-literal-references",
+    id: "string-keyed-dynamic-access",
     value: 55,
     floor: 10,
     statement:
-      "⚠️⚠️ **라운드 89 트랙 C의 재측정, 그리고 이 사각의 재개 조건이 오늘 발동했다.** 적힌 값 26은 " +
-      "**넓히기 전 축으로 다시 재도 26**이었고(정찰 #3과 같다), 축을 넓히니 **55**다. ⚠️⚠️ 그리고 " +
-      "라운드 88이 *'참조가 전부 문자열뿐인 export는 0건이라 실피해 0'* 이라고 적어 둔 그 수가 **넷**이 " +
-      "됐다 — `shared-cache-policy.ts`의 `CHILDREN_WRITE_APIS` · `CHILDREN_WRITE_LEDGER` · " +
-      "`SHARED_KEY_COVERAGE` · `EXPENSE_WRITE_LEDGER`이고, 넷 다 **같은 파일 안의 표 설명 문자열**이 " +
-      "자기 이름을 인용해서 살아 있다. ⚠️⚠️ **그런데 이 트랙은 그 축을 켜지 않는다**: 한 트랙이 한 " +
-      "그물에 축 둘을 얹지 않는다(오늘 얹은 축은 `export const` 하나다). 대신 **문을 열지 않고 값을 " +
-      "정확히 적는다** — 그 넷이 문자열 마스킹 뒤 사문이 되더라도 넷 다 결정 ③의 자리 표 축이 이미 " +
-      "면제하는 표라 **대장의 줄은 0이 는다**(오늘 `contractOnlyDataProof`로 넷 다 확인했다). " +
-      "그래서 오늘의 실피해는 *'대장이 못 본 사문 넷'* 이 아니라 *'그물이 축 하나를 아직 안 본다'* 이고, " +
-      "**재개 조건은 발동한 채로 다음 라운드에 넘어간다**(문자열 마스킹 · 템플릿 `${…}` 갈래 포함). " +
-      "아래는 라운드 88이 남긴 문장 그대로다. " +
-      "⚠️ **문자열 리터럴 축은 오늘도 사각이다** — 그물은 주석만 마스킹하고 문자열은 그대로 훑으므로, " +
-      "이름이 문자열 안에 있기만 해도 호출부 1건이다(`registry[\"legalDocumentUrl\"]`도, 로그 문장도). " +
-      "오차의 방향은 `common-name`과 같은 **사문을 놓치는 쪽**(거짓 초록)이다. " +
-      "라운드 88이 이 축을 그물에 넣지 않은 이유: 문자열 마스킹은 **판정을 바꾸는 일**이고, 템플릿 " +
-      "리터럴의 `${…}` 안은 진짜 코드라 통째로 지울 수 없어 그 갈래까지 한 번에 검증해야 한다 — " +
-      "이 라운드의 손은 주석까지다. ⚠️ **하지만 값 없이 두지 않는다**(AB-5의 규율): 그때 문자열 안에 " +
-      "참조가 하나라도 있는 모집단 이름은 **26**이었고, 그중 **참조가 전부 문자열뿐인 export는 " +
-      "0건**이었다 — 즉 그날의 실피해는 0이고 **26은 상한이 아니라 하한**이다(이 재측정은 문자열 마스킹을 " +
-      "재는 자로만 쓰고 판정에는 쓰지 않는다). ⚠️ 재개 조건(사건형): *참조가 전부 문자열뿐인 export*가 " +
-      "0을 넘는 날 — 그날 이 그물은 문자열도 마스킹해야 한다. " +
-      "— 여기까지가 라운드 88의 문장이다. ⚠️⚠️ **두 시점**(라운드 89 리뷰 L-5): 위 인용의 26과 0건은 " +
-      "**당시의 값**이고, 인용 안에 있던 `` `measure` `` 역참조는 **오늘 살아 있는 함수를 가리켜** 낡은 수를 " +
-      "현재값처럼 읽히게 만들었다 — 그래서 그 역참조를 인용에서 뺐다(인용의 역사 가치는 그대로 둔다). " +
-      "**오늘의 값은 이 줄의 `value`·`measure`가 진다: 55 · 그중 참조가 전부 문자열뿐인 export 넷.**",
+      "⚠️⚠️ **라운드 90 트랙 C가 `string-literal-references`를 닫으며 연 자리 — 오차의 방향이 뒤집혔다.** " +
+      "라운드 88·89에는 문자열이 참조로 세어졌고, 그래서 그 사각의 오차는 다른 사각들과 같은 **거짓 초록**" +
+      "(*사문을 놓치는 쪽*)이었다. 오늘의 그물은 문자열의 글자를 지우므로, 이름에 **오직 문자열로만** 닿는 " +
+      "자리(`registry[\"legalDocumentUrl\"]` 꼴의 동적 접근 · 문자열 열쇠 표 · 배럴의 문자열 재export)는 " +
+      "참조로 세어지지 않는다 — 즉 **살아 있는 export가 사문으로 세어질 수 있다(거짓 빨강)**. " +
+      "⚠️ 이 대장이 지금껏 낸 적 없는 방향이라 값으로 못 박아 둔다: 사각의 크기가 아니라 **오차의 방향이** " +
+      "이 줄의 새로움이다. " +
+      "⚠️ **오늘 실피해는 0건이다.** 참조가 문자열 안에도 있는 모집단 이름은 **55**이고(라운드 89의 55와 " +
+      "같은 자 · 같은 수 — 분모가 바뀌지 않았다), 그중 **코드 참조가 0건이라 새로 사문이 된 것은 넷**이며, " +
+      "그 넷은 전부 `shared-cache-policy.ts`의 표 상수라 결정 ③ 축 ⓑ(자리 표)가 이미 면제한다. 나머지 " +
+      "쉰하나는 코드 참조를 함께 갖고 있어 판정이 움직이지 않았다. **그래서 55는 상한이 아니라 하한**이다 — " +
+      "이 수가 말하는 것은 *'그 이름들에 대해서는 문자열 한 번이 이제 호출의 증거가 아니다'* 뿐이다. " +
+      "⚠️⚠️ **템플릿 `${…}` 안은 이 사각에 들어오지 않는다** — 마스킹이 그 안을 코드로 남기므로 " +
+      "`` `${legalDocumentUrl(kind)}` `` 은 오늘도 호출부 1건이다. 그 갈래는 저장소에 그 모양이 있느냐와 " +
+      "무관하게 **합성 소스로** 계약에 박혀 있다(계약 ⓐ). 지우는 쪽으로 되돌리는 순간 살아 있는 호출부가 " +
+      "사문으로 세어지고, 계약이 그 자리에서 빨개진다. " +
+      "⚠️ 재개 조건(사건형): 문자열 열쇠로만 닿는 export가 **대장의 줄을 요구하는 날** — 즉 이 사각이 낸 " +
+      "거짓 빨강이 처음 하나 서는 날(오늘 0건). 그날 이 그물은 문자열 안의 이름을 **한 번 더** 갈라야 한다" +
+      "(따옴표만으로는 열쇠와 문장을 가르지 못한다). " +
+      "⚠️⚠️ **거짓 빨강의 문이 이 자리 하나가 아니다**(라운드 90 리뷰 M-3): 이 줄이 세는 것은 *참조를 못 " +
+      "보는* 쪽이고, **스캐너가 문자열의 경계를 잘못 잡아 코드를 지우는** 쪽은 아래 " +
+      "`jsx-apostrophe-string-masking`이 표면 **105**·실피해 **0건**으로 따로 진다 — 방향이 같다고 한 줄로 " +
+      "묶으면 둘 중 하나가 고쳐졌을 때 나머지 하나가 소리 없이 그 줄에 얹혀 산다.",
     measure: (baseDir) => namesReferencedInsideStringLiterals(baseDir).length
+  },
+  {
+    id: "jsx-apostrophe-string-masking",
+    value: 105,
+    floor: 60,
+    statement:
+      "⚠️⚠️ **같은 거짓 빨강의 둘째 문 — 이번엔 참조가 아니라 *스캐너*가 낸다**(라운드 90 리뷰 M-3). " +
+      "위 `string-keyed-dynamic-access`는 *문자열로만 닿는 참조를 못 본다*는 사각이고, 이 줄은 " +
+      "**문자열의 경계를 잘못 잡아 코드를 지워 버릴 수 있다**는 사각이다 — 둘 다 방향이 거짓 빨강이지만 " +
+      "원인이 다르므로 한 낱말로 적지 않는다. " +
+      "⚠️ **기전**: `skipQuotedString`은 ASCII `'`를 여는 따옴표로 읽는데, JSX 텍스트의 어포스트로피는 " +
+      "코드가 아니라 글자다. 한 줄에 **짝으로** 서면 그 사이가 통째로 공백이 되고, 지워진 곳에 살아 있는 " +
+      "호출부가 있었다면 그 export가 **사문으로 세어진다**. 합성 소스로 재현된다: " +
+      "`<Text>Don't stop {renderFooter()} it's fine</Text>` → `renderFooter`가 사라진다. " +
+      "한 줄에 하나만 있으면 줄바꿈에서 `null`이 돌아와 아무것도 지워지지 않는다(한 줄 가두기) — " +
+      "**짝이 맞는 둘**이 그 가두기를 빠져나가는 유일한 모양이다. " +
+      "⚠️⚠️ **오늘 실피해는 0건이다**(`apostropheMaskedCodeSites()` — 미측정의 0이 아니라 **실측의 0**이다). " +
+      "제품 소스의 인용부호가 전각 `‘ ’`이고 ASCII `'`가 JSX 텍스트에 짝으로 선 자리가 오늘 없기 때문이다. " +
+      "⚠️ **아래 `measure`가 세는 것은 피해가 아니라 표면**이다 — 호출부 319 가운데 ASCII `'`를 한 글자라도 " +
+      "지닌 파일 **105**. 그 파일들에서만 이 오해가 일어날 수 있으므로 105가 사각의 크기이고, 0은 그 표면 " +
+      "위에서 오늘 아무 일도 일어나지 않았다는 실측이다. " +
+      "⚠️ 재개 조건(사건형): `apostropheMaskedCodeSites()`가 처음 0을 넘는 날 — 그날의 답은 대장에 줄을 " +
+      "더하는 것이 아니라 **이 스캐너가 JSX 텍스트를 코드와 가르는 것**이다(따옴표만으로는 글자와 리터럴을 " +
+      "가르지 못한다 · 위 사각의 재개 조건과 같은 모양의 문장이고 손도 같은 파일 안이다).",
+    measure: (baseDir) => apostropheBearingCallsiteFiles(baseDir).length
   },
   {
     id: "tsx-components",
@@ -1859,7 +2124,10 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "애초에 없다. ⚠️ 재개 조건(결정형 · 손은 안): JSX 사용을 참조로 세는 판정이 서는 날. " +
       "⚠️ **라운드 89 트랙 C의 재실측: 오늘도 141**(적힌 값과 같다 — 이 축은 `export const`를 들이는 것과 " +
       "무관하게 움직이지 않았다). ⚠️ **이 트랙은 이 재개 조건을 열지 않는다** — 같은 파일에 축 둘을 " +
-      "얹지 않는 규율이고, 오늘 얹은 축은 `export const` 하나다(정찰 #3의 배정 그대로).",
+      "얹지 않는 규율이고, 오늘 얹은 축은 `export const` 하나다(정찰 #3의 배정 그대로). " +
+      "⚠️⚠️ **라운드 90 트랙 C의 재실측: 오늘도 141**(세 라운드째 같은 수다 — 문자열 마스킹은 `.tsx`의 " +
+      "`export function`을 세는 일과 무관하고, 그 무관함이 이 재실측의 값이다). ⚠️ **오늘도 이 재개 조건은 " +
+      "열지 않는다** — 같은 규율이고, 오늘 얹은 축은 문자열 리터럴 하나다(정찰 #3 트랙 C의 금지 조항 그대로).",
     measure: (baseDir) => tsxExportFunctionCount(baseDir)
   },
   {
@@ -1894,6 +2162,10 @@ export function deadExportHint(item: ExportedFunction): string {
         "      자리를 가리키는 표)이거나 그 모듈이 **앱 번들에 실리지 않으면** 파생 판정이 자동으로 면제하고\n" +
         "      대장의 줄이 필요 없습니다. 면제는 손으로 적는 것이 아니라 소스에서 파생합니다.\n"
       : "") +
+    "  ⚠️ 라운드 90부터 그물은 **문자열 리터럴도 마스킹합니다** — 이 이름에 오직 문자열로만 닿고 있다면\n" +
+    "     (`registry[\"이름\"]` 꼴) 그것은 사문이 아니라 **이 그물이 못 보는 참조**입니다. 그때의 답은\n" +
+    "     대장에 줄을 더하는 것이 아니라 그 자리를 코드 참조로 바꾸는 것이고, 그 사각은\n" +
+    "     `string-keyed-dynamic-access`가 값으로 지고 있습니다(⚠️ 템플릿 `${…}` 안은 코드로 셉니다).\n" +
     "  ⚠️ 대장에 줄을 더했다면 DEAD_EXPORT_RATCHET도 함께 올라갑니다 — 그 값은 늘리지 않는 것이 원칙입니다."
   );
 }

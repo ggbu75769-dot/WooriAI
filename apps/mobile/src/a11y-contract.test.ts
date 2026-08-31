@@ -75,6 +75,9 @@ import { SUPPORT_LINK_FAILED_MESSAGE, SUPPORT_LINK_LABELS } from "./settings/sup
 // ("mirroring the onboarding ONB-001 option titles"). 그래서 이 파일은 카드 문구를 다시 적지
 // 않고 그 거울과 대조한다 — 문구가 바뀌면 두 자리 중 하나가 아니라 **둘 다** 움직여야 한다.
 import { CHILD_STAGE_MODE_OPTIONS } from "./children/child-form";
+// GAP-090 트랙 A(#1): 준비템 검색 결과 줄이 **소리로** 나갈 때의 그 한 문장. 값 계약은 그 모듈의
+// 테스트가 지고, 여기서는 **화면이 그리는 줄과 글자가 같은가**(눈과 귀)를 실행해서 맞춰 본다.
+import { searchResultCountAnnouncement } from "./preparation/search-draft";
 // GAP-064 #6: 최소 터치 타깃의 단일 소스. 이 숫자를 테스트에 다시 박지 않는다.
 import { theme } from "./theme";
 
@@ -3531,7 +3534,7 @@ function announceLedgerPlacesOf(sourceText: string, after: string): AnnounceLedg
  */
 const ANNOUNCE_LEDGER_VERDICT_BLIND_SPOTS: ReadonlyArray<string> = [
   "모집단은 **대장이 적어 둔 여는 태그**다 — 프롭 없이 실패 문장을 그리는 컴포넌트는 이 그물에 아예 들어오지 않는다. 그 축은 화면 층(GAP-079의 대장 · GAP-080의 방아쇠)과 모듈 층(GAP-087의 뿌리)이 각자의 모집단으로 세고, 이 판정은 그 셋을 대신하지 않는다.",
-  "프롭이 **한 짝만** 걸린 자리는 대장에 없다 — 대장의 `after`는 짝이 완성된 바이트라 반쪽 자리는 `indexOf`에 걸리지 않는다. role 단독은 ALERT_ROLE_WITHOUT_LIVE_REGION이, 모듈 층의 반쪽은 halfAnnouncedTagCount가 따로 센다.",
+  "프롭이 **한 짝만** 걸린 자리는 대장에 없다 — 대장의 `after`는 짝이 완성된 바이트라 반쪽 자리는 `indexOf`에 걸리지 않는다. ⚠️ **두 시점** — *당시(라운드 88 E가 이 문장을 세울 때)*: 그 자리를 세는 것은 role 단독의 `ALERT_ROLE_WITHOUT_LIVE_REGION`(손으로 적은 파일 하나)과 모듈 층의 `halfAnnouncedTagCount`(수만 세고 자리를 내밀지 않는다)뿐이었고, live region 단독은 **어느 모집단에도 들지 않았다**. *오늘(라운드 90 트랙 A)*: **반쪽 프롭 스윕**(`halfAnnouncedSitesOf`·`halfAnnouncedSites`)이 그 자리를 전수로 파생해 자리마다 판정 하나를 소스에서 낸다 — 오늘 일곱(live region 단독 여섯 · role 단독 하나)이고 `silent`는 0건이다. ⚠️ **그래도 이 판정 자신은 여전히 그 자리를 세지 않는다**: 이 사각이 말하는 것은 *대장의 모집단*이고, 반쪽 자리를 지는 것은 같은 파일의 **다른 모집단**이다(한 그물에 축 둘을 얹지 않는 규율 — 대장의 `after` 바이트는 오늘도 짝이 완성된 자리뿐이다).",
   "`.tsx` 밖의 자리는 이 그물 밖이다 — 대장 아홉은 전부 `.tsx`이고, 낭독 문장이 `.ts` 모듈에서 서는 자리(문구 단일 소스가 사는 층)는 여기서 세지 않는다.",
   "낭독으로 세는 것은 **effect 층의 배선**이다 — 이벤트 핸들러가 상태를 세우며 같은 걸음에 부르는 announceForA11y는 이 그물이 `announce`로 세지 않는다(오늘 그런 자리가 하나 있고, 그 사실이 그 항목의 crossPlatform 값에 적혀 있다).",
   "소스 대조이지 런타임이 아니다 — VoiceOver·TalkBack이 실제로 그 문장을 읽는지는 실기기 확인의 몫이다(react-native는 vitest에서 네이티브 바인딩이 없다).",
@@ -5214,7 +5217,7 @@ const MODULE_ANNOUNCE_SWEEP_BLIND_SPOTS: ReadonlyArray<string> = [
   "모집단은 **낭독 프롭 쌍이 이미 걸린 자리**다 — 프롭 없이 실패 문장을 그리는 모듈 컴포넌트는 이 그물에 아예 들어오지 않는다(화면 층에서 danger 색 글자를 세는 GAP-079·080의 축이 모듈 층에는 아직 없다).",
   "출구 판정은 **그 자리를 그리는 컴포넌트 안에 announceForA11y 호출이 있는가**까지다 — 어떤 문장을 어느 조건에서 읽는지는 자리별 소스 단언(ⓐ-2)이 따로 진다.",
   "자리를 컴포넌트에 귀속시키는 단위가 **최상위 `function` 선언**이라, 화살표 상수로 선언한 컴포넌트(`const X = () => …`)는 블록이 갈리지 않는다 — 오늘 이 뿌리의 자리 셋은 전부 `function` 선언이지만, 그 모양이 생기는 날 귀속이 바깥 함수로 밀린다.",
-  "프롭이 **한 짝만** 걸린 자리는 이 모집단 밖이다 — role 단독은 GAP-079 ⓑ가 app·src 전수로 세지만(오늘 하나 · 이유가 값으로 있다), live region 단독은 어느 스윕도 세지 않는다(아래 ⓕ가 그 자리가 실재함을 값으로 보인다).",
+  "프롭이 **한 짝만** 걸린 자리는 이 모집단 밖이고 그 사실은 오늘도 그대로다 — 다만 **밖을 세는 자리는 더 이상 없지 않다**: role 단독은 GAP-079 ⓑ가 app·src 전수로 세고(오늘 하나 · 이유가 값으로 있다), live region 단독은 GAP-090 트랙 A의 반쪽 프롭 스윕이 같은 전수로 세며 자리마다 판정 하나를 파생한다(오늘 여섯 — 배선 둘 · 이미 크로스플랫폼 하나 · 도달 0건 셋). 이 스윕(GAP-087)의 모집단은 프롭 **쌍**이라 그 여섯은 여기 들어오지 않고, 아래 ⓕ는 그 반쪽 자리가 이 뿌리에 실재한다는 사실을 계속 든다.",
   "소스 대조이지 런타임이 아니다 — VoiceOver가 실제로 그 문장을 읽는지는 실기기 확인의 몫이다(react-native는 vitest에서 네이티브 바인딩이 없다)."
 ];
 
@@ -5707,5 +5710,584 @@ export default function Screen() {
     expect([...MODULE_ANNOUNCE_SOURCE_ROOTS], "모듈 스윕이 걷는 뿌리").toEqual(["src"]);
     expect(Object.keys(NON_MODULE_ANNOUNCE_SOURCE_ROOTS), "걷지 않는 뿌리").toEqual(["app"]);
     expect(Object.keys(MODULE_ANNOUNCE_SITES).length, "모듈 층의 낭독 자리").toBe(3);
+  });
+});
+
+/* ============================================================================================ */
+/* GAP-090 트랙 A(#1) — **낭독 프롭이 반쪽만 걸린 자리 전수와, 자리마다의 판정 하나**              */
+/* ============================================================================================ */
+
+/**
+ * ## 사각이 이름으로 지목한 자리를 그 그물이 스스로 모집단으로 삼는다
+ *
+ * 라운드 87 트랙 C가 모듈 층 스윕을 세우면서 사각 넷째를 이렇게 적었다: *"프롭이 한 짝만 걸린
+ * 자리는 이 모집단 밖이다 — role 단독은 GAP-079 ⓑ가 app·src 전수로 세지만, **live region
+ * 단독은 어느 스윕도 세지 않는다**."* 그 문장은 정확했고, 라운드 90 정찰이 그 이름을 따라가
+ * 자리를 세어 보니 **여섯**이었으며 그중 **둘이 오늘 사람이 겪는 침묵**이었다.
+ *
+ * ⚠️ `accessibilityLiveRegion`은 RN 문서가 `@platform android`로 표시한 프롭이고, 그 짝인
+ * `accessibilityRole="alert"`에도 iOS/VoiceOver에 대응하는 트레이트가 없다(위
+ * `ANDROID_ONLY_LIVE_REGION_REASON`). 그래서 **live region만** 걸린 자리는 안드로이드에서만
+ * 소리가 나고, iOS에서는 화면에 문장이 서도 *아무 일도 일어나지 않은 것*처럼 들린다.
+ *
+ * ⚠️⚠️ **그런데 여섯 전부가 결함인 것은 아니다 — 그리고 그 사실이 이 스윕의 값 절반이다.**
+ * 반쪽이라는 **모양**만 보면 여섯이 전부 결함으로 세어지지만, 실제로 답이 갈리는 것은
+ * *effect 배선*과 *제품 화면 도달*까지 봤을 때다. 그래서 이 스윕은 자리를 세는 데서 멈추지 않고
+ * **자리마다 셋 중 하나**를 소스에서 파생한다.
+ *
+ *  · `wired` — **배선을 건다.** 그 자리를 세우는 최내곽 JSX 갈래와 **글자로 같은 조건**의
+ *    `announceForA11y` 배선이 effect 층에 있다(갈래가 없는 자리는 *같은 최상위 컴포넌트 안의
+ *    조건 없는 배선*이 답한다 — `announceLedgerPlacesOf`가 쓰는 그 규칙 그대로다).
+ *  · `already-cross-platform` — **이미 두 플랫폼이다.** 그 자리를 세우는 갈래가 상태 하나이고,
+ *    그 상태를 세우는 **모든 걸음**이 같은 블록에서 같은 값을 `announceForA11y`로 읽는다
+ *    (핸들러 층의 낭독이라 effect만 세는 그물에는 잡히지 않는다 — 그물의 한계이지 결함이 아니다).
+ *  · `unreachable` — **제품 화면 도달 0건이다.** design-system 안에 살고, 그 컴포넌트를 이름으로
+ *    들여오거나 다시 내보내는 제품 소스가 0건이며, 배럴을 거친 **간접 경로**도 열려 있지 않다.
+ *
+ * ⚠️ 넷째 칸 `silent`는 **비어 있어야 한다** — 셋 중 어디에도 들지 않는 자리는 오늘 처음 생긴
+ * 침묵이고, 그 자리가 조용히 서지 않게 하는 것이 이 스윕이 존재하는 이유다.
+ */
+type HalfAnnouncedSite = {
+  readonly file: string;
+  /** 걸려 있는 **그 한 짝**. */
+  readonly prop: (typeof ANNOUNCED_ALERT_PROPS)[number];
+  /** 그 자리를 그리는 **최상위 함수 컴포넌트**의 이름. */
+  readonly component: string;
+  /** 그 자리를 감싸는 **최내곽 JSX 갈래**(없으면 빈 문자열 — 컴포넌트가 곧 조건이다). */
+  readonly guard: string;
+  readonly at: number;
+};
+
+type HalfAnnouncedVerdict = "wired" | "already-cross-platform" | "unreachable" | "silent";
+
+/** 한 소스에서 낭독 프롭이 **한 짝만** 걸린 여는 태그를 전부 찾는다(모집단은 손 목록이 아니다). */
+function halfAnnouncedSitesOf(sourceText: string, file: string): HalfAnnouncedSite[] {
+  const masked = maskComments(sourceText);
+  const blocks = topLevelFunctionBlocksOf(masked);
+  const sites: HalfAnnouncedSite[] = [];
+  const pattern = /<[A-Z][A-Za-z0-9_.]*/g;
+  let found: RegExpExecArray | null;
+  while ((found = pattern.exec(masked))) {
+    const end = openingTagEnd(masked, found.index);
+    if (end < 0) continue;
+    const openTag = masked.slice(found.index, end + 1);
+    // 제네릭(`Record<string, …>`)이 뒤따르는 JSX를 삼키지 않는다 — 여는 태그 안에 `<`는 없다.
+    if (openTag.slice(1).includes("<")) continue;
+    const present = ANNOUNCED_ALERT_PROPS.filter((prop) => openTag.includes(prop));
+    if (present.length !== 1) continue;
+    const at = found.index;
+    const block = blocks.find((candidate) => at >= candidate.start && at < candidate.end);
+    sites.push({
+      file,
+      prop: present[0],
+      component: block?.name ?? "",
+      guard: enclosingJsxGuards(masked, at)[0]?.guard ?? "",
+      at
+    });
+  }
+  return sites;
+}
+
+const halfAnnouncedSites = () => listComponentSources().flatMap((file) => halfAnnouncedSitesOf(source(file), file));
+
+const halfAnnouncedKey = (site: HalfAnnouncedSite) => `${site.file} ${site.component}`;
+
+/** 그 자리를 둘러싼 **중괄호 블록** 한 겹(핸들러 층의 낭독을 그 걸음 안에서 찾는 데 쓴다). */
+function enclosingBraceBlockOf(masked: string, at: number): { readonly start: number; readonly end: number } | null {
+  let depth = 0;
+  for (let i = at; i >= 0; i -= 1) {
+    const char = masked[i];
+    if (char === "}") depth += 1;
+    else if (char === "{") {
+      if (depth === 0) {
+        const end = matchingCloserOf(masked, i);
+        return end < 0 ? null : { start: i, end: end + 1 };
+      }
+      depth -= 1;
+    }
+  }
+  return null;
+}
+
+/**
+ * 자리를 세우는 갈래가 상태 하나일 때, **그 상태를 세우는 걸음이 곧 낭독인가.**
+ *
+ * `setX(v)`가 도는 **모든** 자리에서 같은 블록이 `announceForA11y(v)`를 함께 부르면, 그 자리는
+ * effect 층에 배선이 없어도 두 플랫폼 다 소리가 난다. 비우는 걸음(`null`/`undefined`)은 읽을
+ * 문장이 없으므로 모집단이 아니다. ⚠️ **하나라도 낭독 없이 세우면 거짓**이다 — 판정이
+ * *"대체로 읽는다"* 가 되면 그 자리는 세어진 척한 자리가 된다.
+ */
+function stateSetterAnnouncesIn(masked: string, stateName: string): boolean {
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(stateName)) return false;
+  const setter = `set${stateName[0].toUpperCase()}${stateName.slice(1)}`;
+  const settings = callRangesOf(masked, setter)
+    .map(([open, close]) => ({ open, argument: masked.slice(open + 1, close).trim() }))
+    .filter(({ argument }) => argument.length > 0 && argument !== "null" && argument !== "undefined");
+  if (settings.length === 0) return false;
+  return settings.every(({ open, argument }) => {
+    const block = enclosingBraceBlockOf(masked, open);
+    return block !== null && masked.slice(block.start, block.end).includes(`announceForA11y(${argument})`);
+  });
+}
+
+/* -------------------------------------------------------------------------------------------- */
+/* 도달 판정 — ⚠️ **별칭 경로 하나로 뒤집히는 판정이라 import 그래프를 실제로 걷는다**             */
+/* -------------------------------------------------------------------------------------------- */
+
+const DESIGN_SYSTEM_ROOT = "src/design-system/";
+
+/**
+ * design-system **밖**의 비테스트 소스 전수 — `.tsx`뿐 아니라 `.ts`도 함께 건다.
+ *
+ * ⚠️ 배럴은 `.ts`에 산다. `.tsx`만 걸으면 *"제품이 이 이름을 다시 내보낸다"* 는 길이 통째로
+ * 보이지 않고, 도달 0건이 **보지 않아서 0**이 된다.
+ */
+let nonDesignSystemSourceCache: string[] | null = null;
+function listNonDesignSystemSources(): string[] {
+  if (nonDesignSystemSourceCache) return nonDesignSystemSourceCache;
+  nonDesignSystemSourceCache = ["app", "src"]
+    .flatMap((root) =>
+      readdirSync(join(mobileRoot, root), { recursive: true, encoding: "utf8" })
+        .filter((entry) => /(?<!\.d)\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry))
+        .map((entry) => join(root, entry))
+    )
+    .filter((path) => !path.startsWith(DESIGN_SYSTEM_ROOT));
+  return nonDesignSystemSourceCache;
+}
+
+/** 한 소스가 design-system에서 **이름으로 들여오거나 다시 내보내는** 것들. */
+function designSystemNamesTakenBy(sourceText: string): string[] {
+  const masked = maskComments(sourceText);
+  return [...masked.matchAll(/(?:import|export)\s*(?:type\s+)?\{([^}]*)\}\s*from\s*"([^"]+)"/g)]
+    .filter((match) => match[2].includes("design-system"))
+    .flatMap((match) =>
+      match[1]
+        .split(",")
+        .map((name) => name.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0].trim())
+        .filter((name) => name.length > 0)
+    );
+}
+
+/** 그 컴포넌트를 제품 소스가 **직접** 부르는 파일 전수. */
+function designSystemDirectConsumers(component: string): string[] {
+  return listNonDesignSystemSources().filter((file) => designSystemNamesTakenBy(source(file)).includes(component));
+}
+
+/** design-system **안에서** 그 컴포넌트를 그리는 형제 컴포넌트들 — 간접 경로의 첫 칸. */
+function designSystemRenderersOf(component: string): Array<{ readonly renderer: string; readonly body: string }> {
+  const edges: Array<{ readonly renderer: string; readonly body: string }> = [];
+  for (const file of listComponentSources().filter((path) => path.startsWith(DESIGN_SYSTEM_ROOT))) {
+    const masked = maskComments(source(file));
+    for (const block of topLevelFunctionBlocksOf(masked)) {
+      if (block.name === component) continue;
+      const body = masked.slice(block.start, block.end);
+      if (new RegExp(`<${component}(?![A-Za-z0-9_])`).test(body)) edges.push({ renderer: block.name, body });
+    }
+  }
+  return edges;
+}
+
+/** 한 여는 태그가 실은 그 프롭의 **문자열 리터럴**(리터럴이 아니면 `null` — 모르는 것은 열린 것이다). */
+function jsxPropLiteralsOf(sourceText: string, tagName: string, prop: string): Array<string | null> {
+  const masked = maskComments(sourceText);
+  const literals: Array<string | null> = [];
+  const pattern = new RegExp(`<${tagName}(?![A-Za-z0-9_])`, "g");
+  let found: RegExpExecArray | null;
+  while ((found = pattern.exec(masked))) {
+    const end = openingTagEnd(masked, found.index);
+    if (end < 0) continue;
+    const openTag = sourceText.slice(found.index, end + 1);
+    const literal = new RegExp(`(?<![A-Za-z0-9_])${prop}="([^"]*)"`).exec(openTag);
+    literals.push(literal ? literal[1] : null);
+  }
+  return literals;
+}
+
+/**
+ * 간접 경로 하나가 **열려 있는가.**
+ *
+ * 형제가 그 자리를 그리는 갈래에 정규식 문지기(`if (/…/.test(prop)) return <C …>`)가 서 있으면,
+ * 그 형제를 부르는 제품 자리가 넘기는 리터럴 가운데 **문을 여는 것이 있는지**를 본다. 문지기가
+ * 없거나, 넘기는 값이 리터럴이 아니거나, 볼 자리가 없으면 **열린 것으로 센다** — 오차의 방향은
+ * 거짓 빨강(안전)이다: 모르는 것을 *도달 0건*이라고 말하지 않는다.
+ */
+function indirectEdgeOpen(component: string, edge: { readonly renderer: string; readonly body: string }): boolean {
+  const gate = new RegExp(
+    `if\\s*\\((/[^\\n/]+/)\\.test\\(([A-Za-z0-9_$]+)\\)\\)\\s*return\\s*<${component}(?![A-Za-z0-9_])`
+  ).exec(edge.body);
+  if (!gate) return true;
+  const matcher = new RegExp(gate[1].slice(1, -1));
+  const consumers = designSystemDirectConsumers(edge.renderer);
+  if (consumers.length === 0) return true;
+  return consumers.some((consumer) =>
+    jsxPropLiteralsOf(source(consumer), edge.renderer, gate[2]).some(
+      (literal) => literal === null || matcher.test(literal)
+    )
+  );
+}
+
+/** 그 design-system 컴포넌트가 제품 화면에 **닿는가** — 직접이든, 열린 간접 경로를 거쳐서든. */
+function designSystemComponentReached(component: string, seen: Set<string> = new Set()): boolean {
+  if (component.length === 0 || seen.has(component)) return false;
+  seen.add(component);
+  if (designSystemDirectConsumers(component).length > 0) return true;
+  return designSystemRenderersOf(component).some(
+    (edge) => indirectEdgeOpen(component, edge) && designSystemComponentReached(edge.renderer, seen)
+  );
+}
+
+/** 자리 하나의 판정 — **손으로 적지 않고 소스에서 파생한다**(표식만 복사하는 것은 막힌다). */
+function halfAnnouncedVerdictOf(site: HalfAnnouncedSite): HalfAnnouncedVerdict {
+  const masked = maskComments(source(site.file));
+  const block = topLevelFunctionBlocksOf(masked).find(
+    (candidate) => site.at >= candidate.start && site.at < candidate.end
+  );
+  const wirings = announceEffectWirings(masked);
+  const wired = site.guard
+    ? wirings.some((wiring) => wiring.condition === site.guard)
+    : Boolean(block) &&
+      wirings.some((wiring) => wiring.condition === "" && wiring.at >= block!.start && wiring.at < block!.end);
+  if (wired) return "wired";
+  if (site.guard && stateSetterAnnouncesIn(masked, site.guard)) return "already-cross-platform";
+  if (site.file.startsWith(DESIGN_SYSTEM_ROOT) && !designSystemComponentReached(site.component)) return "unreachable";
+  return "silent";
+}
+
+/**
+ * ⚠️ **오늘의 실측 — 반쪽 자리 전수와 그 자리가 무엇인가.**
+ *
+ * 유령 방지의 본체다: 이 표가 비면 아래 부정 단언(*"silent 0건"*)은 **빈 모집단 위에서 영원히
+ * 초록**이다. 각 줄의 이유는 빈 문자열일 수 없고, **판정은 여기 적지 않는다** — 판정은 위
+ * 파생이 내고, 이 표가 드는 것은 *그 자리가 무엇인가*뿐이다(표식만 복사하면 파생이 막힌다).
+ */
+const HALF_ANNOUNCED_SITES: Readonly<Record<string, string>> = {
+  "app/index.tsx ColdStartHoldView":
+    "콜드 스타트 홀딩 카드의 두 줄(C-09). 저장소조차 아직 못 읽은 시점이라 소리로 남는 것이 이 두 줄뿐이고(스켈레톤은 접근성 트리에서 감춘다), 최악 6초 동안 iOS에서는 아무 일도 일어나지 않은 것처럼 들렸다 — 라운드 90 트랙 A가 여는 두 자리 중 하나.",
+  "app/settings/app-lock.tsx AppLockSettingsScreen":
+    "앱 잠금 설정의 완료 문장(`done`). 모양만 보면 반쪽이지만 그 문장을 세우는 `succeed()`가 같은 걸음에 announceForA11y를 부르므로 종전부터 두 플랫폼이다 — 결함이 아니라 **판정의 근거**이고, 프롭도 배선도 건드리지 않는다.",
+  "app/(tabs)/items.tsx ItemsScreen":
+    "준비템 100% 축하 배너 — 이 여섯과 성질이 다른 **role 단독**의 유일한 자리다. 실패 문장이 아니고 자동으로 끼어들어 읽어야 할 사실도 아니라서(DNC-018) 이유가 ALERT_ROLE_WITHOUT_LIVE_REGION에 값으로 서 있다.",
+  "src/design-system/components/ApplicationPrimitives.tsx Toast":
+    "이식된 design-system의 Toast. 화면들이 쓰는 Toast는 src/ui.tsx의 것이고(그쪽은 프롭 쌍과 announce를 스스로 진다), 이 이름을 들여오거나 다시 내보내는 제품 소스는 0건이다.",
+  "src/design-system/components/ModV1Primitives.tsx MoneyField":
+    "이식된 금액 입력의 오류 줄. 배럴이 이름을 내보내지만 그 이름을 받는 제품 소스가 0건이라 이 오류 줄은 오늘 어느 화면에도 서지 않는다.",
+  "src/design-system/patterns/AsyncState.tsx LoadingState":
+    "이식된 로딩 상태 카드. 직접 소비자는 0건이고, 배럴을 거친 간접 경로 하나(EmptyStateCard)가 실재하지만 그 갈래는 제목 정규식이 닫는다 — 아래 ⓖ가 그 경로와 문지기를 값으로 든다.",
+  "src/preparation/PreparationListParity.tsx PreparationListParity":
+    "준비템 탭의 검색 결과 개수 줄(`‘…’ 검색 결과 N개`). 핵심 루프 안이고, 검색을 제출한 사람이 iOS에서는 몇 개가 남았는지 듣지 못했다 — 라운드 90 트랙 A가 여는 두 자리 중 하나."
+};
+
+/**
+ * ⚠️ **이 스윕이 못 보는 것 — 태어날 때부터 값으로 적는다(AA-4의 규율).**
+ *
+ * 사각 칸이 이름으로 지목한 자리를 고치러 온 트랙이 자기 사각을 적지 않으면, 그 트랙은 자기가
+ * 고친 모양을 한 겹 위에서 다시 만드는 것이다.
+ */
+const HALF_ANNOUNCED_SWEEP_BLIND_SPOTS: ReadonlyArray<string> = [
+  "모집단은 **낭독 프롭이 이미 반쪽으로 걸린 자리**다 — 프롭 없이 문장을 그리는 자리는 이 그물에 아예 들어오지 않는다(그 축은 화면 층의 GAP-079·080과 모듈 층의 GAP-087이 각자의 모집단으로 센다).",
+  "판정 `wired`는 **effect 층의 배선**만 센다 — 갈래와 글자가 같은 조건이어야 하고, 같은 뜻을 다르게 적은 조건은 배선이 실재해도 세어지지 않는다(라운드 88 리뷰 L-1의 그 사각을 그대로 물려받는다 · 오차의 방향은 거짓 빨강이다).",
+  "판정 `already-cross-platform`은 **갈래가 상태 하나인 모양**까지만 본다 — 갈래가 식이거나 낭독이 다른 이름을 거쳐 나가면 이 칸이 답하지 못하고 그 자리는 `silent`로 떨어진다(그때 답하는 것은 사람이다).",
+  "판정 `unreachable`은 **이름으로 들여오는 길**을 걷는다 — `import *` 네임스페이스 접근이나 문자열로 만든 동적 import는 보지 않는다(오늘 이 저장소에 그 모양은 없지만, 생기는 날 이 그물은 그것을 도달로 세지 못한다).",
+  "소스 대조이지 런타임이 아니다 — VoiceOver가 실제로 그 문장을 읽는지, 안드로이드에서 라이브 리전과 새 배선이 겹쳐 두 번 들리는지는 실기기 확인의 몫이다(라운드 89 리뷰 L-3의 그 물음이 이 두 자리에서 다시 선다)."
+];
+
+describe("GAP-090 #1 반쪽 프롭 스윕 (사각이 이름으로 지목한 자리를 모집단으로)", () => {
+  it("ⓐ 모집단 — app·src 전수에서 반쪽 자리를 파생하고, 손 목록이 아니라 전수가 그 수를 정한다", () => {
+    const files = listComponentSources();
+    // 유령 방지 ①: 스캔이 실제로 걸린다(끊기면 아래 부정 단언이 영원히 초록이다).
+    expect(files.length, "app·src의 컴포넌트 소스 전수").toBeGreaterThan(20);
+
+    const sites = halfAnnouncedSites();
+    // 유령 방지 ②: **모집단이 0건이 아니다.** 이 줄이 이 스윕의 값 절반이다.
+    expect(sites.length, "반쪽 프롭 자리").toBeGreaterThan(0);
+    expect(sites.map(halfAnnouncedKey).sort(), "반쪽 자리 전수").toEqual(Object.keys(HALF_ANNOUNCED_SITES).sort());
+    for (const [key, why] of Object.entries(HALF_ANNOUNCED_SITES)) {
+      expect(why.length, `${key}가 서 있는 이유`).toBeGreaterThan(40);
+    }
+
+    // 짝 프롭이 걸린 자리(37)는 이 모집단이 아니다 — 반쪽만 센다.
+    const byProp: Record<string, number> = {};
+    for (const site of sites) byProp[site.prop] = (byProp[site.prop] ?? 0) + 1;
+    expect(byProp, "짝별 반쪽 자리 수").toEqual({
+      'accessibilityLiveRegion="polite"': 6,
+      'accessibilityRole="alert"': 1
+    });
+    // role 단독 하나는 종전 대장이 이유를 지고 있다 — 이 스윕은 그 대장을 대신하지 않는다.
+    const roleOnly = sites.filter((site) => site.prop === ANNOUNCED_ALERT_PROPS[0]);
+    expect(roleOnly.map((site) => site.file), "role 단독의 자리").toEqual(Object.keys(ALERT_ROLE_WITHOUT_LIVE_REGION));
+    expect(roleOnly.length, "role 단독의 자리 수").toBe(
+      ALERT_ROLE_WITHOUT_LIVE_REGION["app/(tabs)/items.tsx"].places
+    );
+  });
+
+  it("ⓑ 판정 셋 — 자리마다 하나가 소스에서 나오고, `silent`는 0건이다", () => {
+    const sites = halfAnnouncedSites().filter((site) => site.prop === ANNOUNCED_ALERT_PROPS[1]);
+    expect(sites.length, "live region 단독의 자리").toBe(6);
+
+    const verdicts = sites.map((site) => ({ key: halfAnnouncedKey(site), verdict: halfAnnouncedVerdictOf(site) }));
+    // ⚠️ 셋 중 어디에도 들지 않는 자리는 오늘 처음 생긴 침묵이다 — 그 자리를 이름으로 보여 준다.
+    expect(
+      verdicts.filter((entry) => entry.verdict === "silent").map((entry) => entry.key),
+      "판정 셋 어디에도 들지 않는 자리"
+    ).toEqual([]);
+
+    const counts: Record<string, number> = {};
+    for (const { verdict } of verdicts) counts[verdict] = (counts[verdict] ?? 0) + 1;
+    expect(counts, "판정별 자리 수").toEqual({ wired: 2, "already-cross-platform": 1, unreachable: 3 });
+    expect(
+      verdicts.filter((entry) => entry.verdict === "wired").map((entry) => entry.key).sort(),
+      "배선을 건 두 자리"
+    ).toEqual(["app/index.tsx ColdStartHoldView", "src/preparation/PreparationListParity.tsx PreparationListParity"]);
+    expect(
+      verdicts.filter((entry) => entry.verdict === "already-cross-platform").map((entry) => entry.key),
+      "이미 크로스플랫폼인 자리"
+    ).toEqual(["app/settings/app-lock.tsx AppLockSettingsScreen"]);
+    expect(
+      verdicts.filter((entry) => entry.verdict === "unreachable").map((entry) => entry.key).sort(),
+      "제품 화면 도달 0건인 자리"
+    ).toEqual([
+      "src/design-system/components/ApplicationPrimitives.tsx Toast",
+      "src/design-system/components/ModV1Primitives.tsx MoneyField",
+      "src/design-system/patterns/AsyncState.tsx LoadingState"
+    ]);
+  });
+
+  it("ⓒ 낭독 — 배선 둘의 `if` 조건이 그 문장을 세우는 최내곽 JSX 갈래와 글자로 같다", () => {
+    for (const [file, expectedGuard] of [
+      ["src/preparation/PreparationListParity.tsx", "activeSearchQuery"],
+      ["app/index.tsx", ""]
+    ] as const) {
+      const masked = maskComments(source(file));
+      const site = halfAnnouncedSitesOf(source(file), file).find((entry) => entry.prop === ANNOUNCED_ALERT_PROPS[1]);
+      expect(site, `${file}의 반쪽 자리`).toBeTruthy();
+      // 갈래는 소스에서 파생한 값이고, 배선의 조건도 소스에서 파생한 값이다 — 둘을 맞춰 본다.
+      expect(site!.guard, `${file}: 자리를 세우는 최내곽 갈래`).toBe(expectedGuard);
+      const conditions = announceEffectWirings(masked).map((wiring) => wiring.condition);
+      expect(conditions, `${file}: effect 층 배선의 조건`).toContain(expectedGuard);
+      // 배선은 **effect 안**이다 — 렌더 도중 부르면 같은 문장을 매 렌더 다시 읽는다.
+      expect(conditions.length, `${file}: effect 층 배선의 수`).toBe(1);
+    }
+    // 낭독 함수의 단일 소스는 종전 그대로다(이 트랙은 그 파일을 읽기만 한다).
+    expect(source("src/ui.tsx"), "낭독 함수의 단일 소스").toContain("export function announceForA11y");
+    expect(source("src/preparation/PreparationListParity.tsx"), "준비템 목록이 그 함수를 들여온다").toContain(
+      'import { announceForA11y } from "../ui";'
+    );
+    expect(source("app/index.tsx"), "콜드 스타트가 그 함수를 들여온다").toContain(
+      'import { announceForA11y, AppScreen, Card, SecondaryButton, Toast } from "../src/ui";'
+    );
+  });
+
+  it("ⓓ 문구 — 낭독 문장이 화면이 그리는 값·상수에서 나오고, 두 화면에 새 한국어 0글자다", () => {
+    // ① 검색 결과 줄: 모듈이 짓는 문장이 **화면이 그리는 그 줄과 글자로 같다**(눈과 귀).
+    const renderedLine = "‘{activeSearchQuery}’ 검색 결과 {displayedItems.length}개";
+    expect(source("src/preparation/PreparationListParity.tsx"), "검색 결과 줄의 렌더").toContain(renderedLine);
+    expect(searchResultCountAnnouncement("젖병", 12), "그 줄을 소리로 옮긴 문장").toBe(
+      renderedLine.replace("{activeSearchQuery}", "젖병").replace("{displayedItems.length}", "12")
+    );
+    expect(source("src/preparation/PreparationListParity.tsx"), "낭독 문장의 재료").toContain(
+      "searchResultCountAnnouncement(activeSearchQuery, displayedItems.length)"
+    );
+
+    // ② 콜드 스타트: 카드가 그리는 두 줄 그대로다(문구 단일 소스는 cold-start-hold.ts).
+    expect(source("app/index.tsx"), "카드가 그리는 두 줄").toContain("{copy.title}");
+    expect(source("app/index.tsx"), "카드가 그리는 두 줄").toContain("{copy.body}");
+    expect(source("app/index.tsx"), "그 두 줄을 소리로 옮긴 문장").toContain(
+      "announceForA11y(`${copy.title} ${copy.body}`)"
+    );
+    expect(source("src/onboarding/cold-start-hold.ts"), "문구의 단일 소스").toContain("COLD_START_HOLD_COPY");
+
+    // ③ **새 한국어 0글자** — 두 배선 블록 안에 한글 리터럴이 하나도 없다(주석은 마스킹된다).
+    for (const file of ["src/preparation/PreparationListParity.tsx", "app/index.tsx"]) {
+      const masked = maskComments(source(file));
+      // ⚠️ 자르기 전에 **구간이 실재하는지** 먼저 묻는다(라운드 78 트랙 E의 규율) — 이 구간은
+      // 괄호 짝맞추기가 낸 자리라 -1이 될 수 없지만, 스캔이 끊기면 빈 모집단 위에서 아래
+      // 부정 단언이 영원히 초록이다.
+      const effectRanges = callRangesOf(masked, "useEffect");
+      expect(effectRanges.length, `${file}: effect 구간 전수`).toBeGreaterThan(0);
+      const wiredEffects = effectRanges
+        .map(([effectStart, effectEnd]) => masked.slice(effectStart, effectEnd))
+        .filter((effectBody) => effectBody.includes("announceForA11y("));
+      expect(wiredEffects.length, `${file}: 낭독 배선을 지닌 effect`).toBe(1);
+      expect(wiredEffects[0], `${file}: 배선 안의 한국어 리터럴`).not.toMatch(/[가-힣]/);
+    }
+  });
+
+  it("ⓔ 소음 금지 · 재낭독 금지 — 조건이 거짓인 창은 조용하고, 같은 값은 두 번 읽히지 않는다", () => {
+    const parity = maskComments(source("src/preparation/PreparationListParity.tsx"));
+    // 조건이 거짓인 창(검색이 걸리지 않은 목록)에서는 낭독이 0건이다 — 배선이 갈래 안에 있다.
+    const wiring = announceEffectWirings(parity).find((entry) => entry.condition === "activeSearchQuery");
+    expect(wiring, "검색 결과 낭독의 조건").toBeTruthy();
+    // 이전 값을 기억하고, 같으면 소리를 내지 않는다(라운드 89 리뷰 L-4가 이름 붙인 그 축).
+    expect(parity, "직전에 읽은 문장을 담는 자리").toContain("const announcedSearchResult = useRef<string | null>(null);");
+    expect(parity, "같은 문장이면 그대로 돌아간다").toContain("if (announcedSearchResult.current === announcement) return;");
+    expect(parity, "읽은 뒤에 기억한다").toContain("announcedSearchResult.current = announcement;");
+    // ⚠️⚠️ **갈래가 닫히면 기억도 지운다**(라운드 90 리뷰 H-1) — 검색을 닫았다가 **같은 검색을
+    // 다시** 걸면 문장이 글자로 같아 위 `return`에 걸린다. 그 한 줄이 없으면 iOS만 조용하고
+    // 안드로이드는 라이브 리전이 리마운트로 다시 읽어 **두 플랫폼이 그 창에서 갈린다** — 이
+    // 배선이 애초에 없애려던 그 갈림이다. 그래서 `else` 갈래를 바이트로 문다(한 줄만 물면
+    // 지우기가 다른 갈래로 옮겨 가도 초록이다).
+    const closedBranchBytes = "    } else {\n      announcedSearchResult.current = null;\n    }";
+    expect(parity, "갈래가 닫히면 기억을 지운다").toContain(closedBranchBytes);
+    // ⚠️ 그러면서도 닫힌 창은 여전히 조용하다 — 그 갈래에 낭독은 0건이다.
+    // ⚠️ 자르기 전에 **구간이 실재하는지** 먼저 묻는다(라운드 78 트랙 E의 규율) — 표식이
+    // 사라지면 -1이 빈 구간을 만들고, 빈 구간 위에서는 아래 부정 단언이 영원히 초록이다.
+    const closedBranchAt = parity.indexOf(closedBranchBytes);
+    const closedBranchEnd = parity.indexOf("}, [activeSearchQuery, displayedItems.length]);", closedBranchAt);
+    expect(closedBranchAt, "닫힌 갈래의 시작").toBeGreaterThan(-1);
+    expect(closedBranchEnd, "그 effect의 끝").toBeGreaterThan(closedBranchAt);
+    expect(parity.slice(closedBranchAt, closedBranchEnd), "닫힌 갈래에서의 낭독").not.toContain(
+      "announceForA11y"
+    );
+    // 의존 배열은 그 갈래가 읽는 두 값뿐이다 — 목록이 같은 값으로 다시 서면 effect 자체가 돌지 않는다.
+    expect(parity, "검색 낭독의 의존 배열").toContain("}, [activeSearchQuery, displayedItems.length]);");
+
+    // 콜드 스타트는 상수 객체 하나가 의존이다 — 같은 이유로 다시 렌더돼도 참조가 같아 다시 읽지 않는다.
+    const index = maskComments(source("app/index.tsx"));
+    expect(index, "콜드 스타트 낭독의 의존 배열").toContain("}, [copy]);");
+    expect(index, "그 의존이 가리키는 상수").toContain("const copy = COLD_START_HOLD_COPY[reason];");
+  });
+
+  it("ⓕ 바이트 불변 — 반쪽 프롭 일곱과 두 화면의 렌더는 한 글자도 움직이지 않았다", () => {
+    // 프롭은 안드로이드의 답이고, 이 트랙의 목적은 iOS를 여는 것이지 안드로이드를 끄는 것이 아니다.
+    for (const [file, openTag] of [
+      ["app/index.tsx", '<View accessible accessibilityLiveRegion="polite" style={{ gap: 6 }}>'],
+      ["app/settings/app-lock.tsx", '<Text accessibilityLiveRegion="polite" style={doneTextStyle}>'],
+      ["src/design-system/patterns/AsyncState.tsx", 'accessibilityLiveRegion="polite"'],
+      ["src/design-system/components/ApplicationPrimitives.tsx", '<View accessibilityLiveRegion="polite"'],
+      ["src/design-system/components/ModV1Primitives.tsx", '<Text accessibilityLiveRegion="polite"'],
+      ["app/(tabs)/items.tsx", '<View\n                accessibilityRole="alert"'],
+      [
+        "src/preparation/PreparationListParity.tsx",
+        '<Text accessibilityLiveRegion="polite" style={{ color: semanticColors.textPrimary, flex: 1, fontSize: 14, fontWeight: "800" }}>'
+      ]
+    ] as const) {
+      expect(source(file), `${file}: 프롭 바이트`).toContain(openTag);
+    }
+    // 렌더도 그대로다 — 검색 결과 한 줄과 콜드 스타트 카드의 두 줄.
+    expect(source("src/preparation/PreparationListParity.tsx"), "검색 결과 줄의 렌더").toContain(
+      "‘{activeSearchQuery}’ 검색 결과 {displayedItems.length}개"
+    );
+    expect(source("app/index.tsx"), "콜드 스타트 카드의 첫 줄").toContain(
+      '<Text style={{ color: theme.colors.brown, fontSize: 20, fontWeight: "800" }}>{copy.title}</Text>'
+    );
+    expect(source("app/index.tsx"), "콜드 스타트 카드의 둘째 줄").toContain(
+      '<Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 19 }}>{copy.body}</Text>'
+    );
+    // 결함이 아닌 넷은 배선도 건드리지 않는다 — 판정만 값으로 적는다.
+    expect(maskComments(source("src/design-system/patterns/AsyncState.tsx")), "도달 0건 자리의 배선").not.toContain(
+      "announceForA11y"
+    );
+    expect(
+      maskComments(source("src/design-system/components/ApplicationPrimitives.tsx")),
+      "도달 0건 자리의 배선"
+    ).not.toContain("announceForA11y");
+    expect(
+      maskComments(source("src/design-system/components/ModV1Primitives.tsx")),
+      "도달 0건 자리의 배선"
+    ).not.toContain("announceForA11y");
+  });
+
+  it("ⓖ 전제 재실측 — *도달 0건* 셋의 근거를 import 그래프에서 다시 걷는다(별칭 경로 포함)", () => {
+    // 유령 방지: 걷는 모집단이 실제로 걸린다(배럴이 사는 `.ts`까지).
+    const outside = listNonDesignSystemSources();
+    expect(outside.length, "design-system 밖의 소스 전수").toBeGreaterThan(60);
+    expect(outside.some((path) => path.endsWith(".ts")), "배럴이 사는 `.ts`도 걷는다").toBe(true);
+    // 그 걸음이 실제로 이름을 읽는다 — 도달 0건이 "보지 않아서 0"이 아니라는 증거.
+    expect(designSystemDirectConsumers("EmptyStateCard"), "배럴에서 이름을 받는 제품 소스").toEqual([
+      "src/preparation/PreparationListParity.tsx"
+    ]);
+
+    for (const component of ["Toast", "MoneyField", "LoadingState"]) {
+      expect(designSystemDirectConsumers(component), `${component}: 직접 소비자`).toEqual([]);
+      expect(designSystemComponentReached(component), `${component}: 제품 화면 도달`).toBe(false);
+    }
+    // ⚠️ 간접 경로는 **하나 실재한다** — 배럴의 EmptyStateCard가 로딩 카드를 그린다. 그 경로를
+    // 닫는 것은 도달 0건이라는 주장이 아니라 **제목 정규식**이고, 그 문지기를 여는 리터럴이 오늘 0건이다.
+    expect(designSystemRenderersOf("Toast").map((edge) => edge.renderer), "Toast의 간접 경로").toEqual([]);
+    expect(designSystemRenderersOf("MoneyField").map((edge) => edge.renderer), "MoneyField의 간접 경로").toEqual([]);
+    const loadingEdges = designSystemRenderersOf("LoadingState");
+    expect(loadingEdges.map((edge) => edge.renderer), "LoadingState의 간접 경로").toEqual(["EmptyStateCard"]);
+    expect(indirectEdgeOpen("LoadingState", loadingEdges[0]), "그 간접 경로가 열려 있는가").toBe(false);
+    expect(
+      source("src/design-system/components/ApplicationPrimitives.tsx"),
+      "그 경로의 문지기"
+    ).toContain("if (/불러오고|분석 중|저장하는 중/.test(title)) return <LoadingState title={title} />;");
+    // 문지기를 지나는 제품 자리의 제목은 오늘 둘이고, 둘 다 문을 열지 않는다.
+    expect(
+      jsxPropLiteralsOf(source("src/preparation/PreparationListParity.tsx"), "EmptyStateCard", "title"),
+      "그 자리들이 넘기는 제목"
+    ).toEqual(["검색 결과가 없어요.", "5개 이상 확인된 준비 품목 그룹이 없어요."]);
+  });
+
+  it("ⓗ 재현 — 배선을 빼면 그 자리가 실제로 빨개진다 (강화가 침묵으로 되돌아가지 않게)", () => {
+    const screen = (effect: string) => `
+export function SearchResultLine({ activeSearchQuery, displayedItems }) {
+  ${effect}
+  return (
+    <View>
+      {activeSearchQuery ? (
+        <Text accessibilityLiveRegion="polite">{displayedItems.length}</Text>
+      ) : null}
+    </View>
+  );
+}
+`;
+    const siteOf = (sourceText: string) => halfAnnouncedSitesOf(sourceText, "fixture")[0];
+    // 반쪽 자리로 세어지고, 감싸는 갈래는 소스에서 나온다.
+    expect(siteOf(screen("")), "반쪽 자리와 그 갈래").toEqual({
+      file: "fixture",
+      prop: 'accessibilityLiveRegion="polite"',
+      component: "SearchResultLine",
+      guard: "activeSearchQuery",
+      at: expect.any(Number)
+    });
+    // ⚠️ 짝이 완성된 자리는 이 모집단이 아니다(그 자리는 GAP-079·080·087이 센다).
+    expect(
+      halfAnnouncedSitesOf('<Text accessibilityLiveRegion="polite" accessibilityRole="alert">x</Text>', "fixture"),
+      "짝이 완성된 자리"
+    ).toEqual([]);
+    // ⚠️ 조건이 **글자로** 갈리면 배선이 실재해도 세어지지 않는다(라운드 88 리뷰 L-1의 그 사각).
+    const conditions = (effect: string) =>
+      announceEffectWirings(maskComments(screen(effect))).map((wiring) => wiring.condition);
+    expect(conditions(""), "배선이 없는 화면").toEqual([]);
+    expect(
+      conditions('useEffect(() => { if (activeSearchQuery) { announceForA11y(line); } }, [activeSearchQuery]);'),
+      "갈래와 글자가 같은 배선"
+    ).toEqual(["activeSearchQuery"]);
+    expect(
+      conditions('useEffect(() => { if (Boolean(activeSearchQuery)) { announceForA11y(line); } }, [activeSearchQuery]);'),
+      "같은 뜻을 다르게 적은 배선"
+    ).toEqual(["Boolean(activeSearchQuery)"]);
+    // 핸들러 층의 낭독 판정도 픽스처로 보인다 — 세우는 걸음마다 읽어야 참이다.
+    const handler = (extra: string) => `
+const succeed = (message) => { setDone(message); announceForA11y(message); };
+const reset = () => { setDone(null); };
+${extra}
+`;
+    expect(stateSetterAnnouncesIn(maskComments(handler("")), "done"), "세우는 걸음이 곧 낭독").toBe(true);
+    expect(
+      stateSetterAnnouncesIn(maskComments(handler("const quiet = (m) => { setDone(m); };")), "done"),
+      "하나라도 조용히 세우면 거짓"
+    ).toBe(false);
+  });
+
+  it("ⓘ 이 스윕의 사각이 값으로 적혀 있고, 모듈 층 스윕의 사각 문장이 오늘의 사실로 다시 쓰였다", () => {
+    expect(HALF_ANNOUNCED_SWEEP_BLIND_SPOTS.length, "적어 둔 사각").toBeGreaterThan(3);
+    for (const blindSpot of HALF_ANNOUNCED_SWEEP_BLIND_SPOTS) {
+      expect(blindSpot.length, "사각은 빈 문자열일 수 없다").toBeGreaterThan(40);
+    }
+    // ⚠️ GAP-087의 사각 넷째가 지목한 자리를 이 스윕이 모집단으로 삼았다 — 그 문장이 그 사실을 말한다.
+    const closed = MODULE_ANNOUNCE_SWEEP_BLIND_SPOTS[3];
+    expect(closed, "닫힌 사각의 새 문장").toContain("GAP-090");
+    expect(closed, "그 문장이 인용한 수").toContain("여섯");
+    expect(closed, "그 문장이 인용한 판정").toContain("도달 0건");
+    // 그리고 그 수는 문장이 아니라 파생이 못 박는다(손 숫자가 다시 조용히 낡을 자리를 없앤다).
+    expect(
+      halfAnnouncedSites().filter((site) => site.prop === ANNOUNCED_ALERT_PROPS[1]).length,
+      "그 문장이 말하는 여섯"
+    ).toBe(6);
+    // 모듈 층 스윕의 모집단은 옮기지 않았다 — 이 스윕이 세는 것은 그 밖이다.
+    expect(Object.keys(MODULE_ANNOUNCE_SITES).length, "모듈 층의 낭독 자리").toBe(3);
+    expect([...MODULE_ANNOUNCE_SOURCE_ROOTS], "모듈 스윕이 걷는 뿌리").toEqual(["src"]);
   });
 });

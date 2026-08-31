@@ -1,7 +1,7 @@
-// 라운드 87 트랙 E (GAP-087 #5) → 라운드 88 트랙 D → **라운드 89 트랙 C** — 사문 대장의 계약.
+// 라운드 87 트랙 E (GAP-087 #5) → 88 트랙 D → 89 트랙 C → **라운드 90 트랙 C** — 사문 대장의 계약.
 //
 // 대장 자체의 설명(결정 셋 · 갈래 셋 · 사각 · 이 그물의 한계)은 `dead-export-ledger.ts` 머리말에
-// 있다. 이 파일이 묻는 것은 일곱이다.
+// 있다. 이 파일이 묻는 것은 여덟이다.
 //  ⓐ **결정** — *무엇을 호출부로 볼 것인가* · *무엇을 모집단으로 볼 것인가* · **무엇을 계약 전용
 //     데이터로 볼 것인가**가 **값으로** 적혀 있다.
 //  ⓑ **유령 방지** — 모집단이 0건이 아니고, **뿌리마다 파일 수와 축 둘의 export 수가 하한을 넘는다**
@@ -17,11 +17,19 @@
 //     정규식 리터럴 · JSX 텍스트의 `http://`).
 //  ⓗ **파생 판정**(라운드 89 트랙 C) — *"이 모듈은 계약 전용 데이터다"* 가 **모듈 자신의 소스에서**
 //     파생하고(import 그래프 · 실재하는 자리), **표식을 복사해서는 면제를 살 수 없다.**
+//  ⓘ **문자열 리터럴 축**(라운드 90 트랙 C) — 그물이 **문자열의 글자를 지우고** 센다. ⚠️⚠️ 그러나
+//     템플릿 `${…}` 안은 **코드로 남는다**: 그 갈래는 오늘 저장소에 그 모양이 있느냐와 무관하게
+//     **합성 소스로** 증명하고(계약 ⓐ), 갈래를 지우는 옛 마스킹으로 되돌리면 **살아 있는 호출부가
+//     사문으로 세어진다**는 사실까지 같은 조각으로 함께 문다(교란 ①).
+//     그리고 마스킹 **전(40)/후(44)** 두 수를 **둘 다 값으로** 든다(계약 ⓑ — 한 낱말로 적지 않는다).
 //
 // ⚠️ 라운드 87 트랙 E는 **제품 소스를 0건 고쳤다**(`apps/**`는 읽기만 했다).
 // ⚠️ 라운드 88 트랙 D는 제품 소스 아홉 파일에 **주석 한 덩이씩만** 더했다.
-// ⚠️ **라운드 89 트랙 C는 제품 소스 두 파일에 주석 한 덩이씩만 더했다**
+// ⚠️ 라운드 89 트랙 C는 제품 소스 두 파일에 주석 한 덩이씩만 더했다
 // (`analytics/events.ts` · `offline/sqlite-offline-store.ts` — 코드·문자열·export 값 바이트 불변).
+// ⚠️⚠️ **라운드 90 트랙 C는 제품 소스를 0건 고쳤다 — 주석 한 글자도 더하지 않았다.**
+// 이 트랙이 연 것은 **판정 축 하나**뿐이고, `shared-cache-policy.ts`(넷이 사는 자리)와
+// `comment-tolerant-anchor-ledger.ts`(마스킹의 형식 본보기)는 **읽기만 했다**(바이트 불변).
 // 지운 export 0건 · 되살린 export 0건 · **대장에서 지운 줄 0건**이다.
 // ⚠️ 이 대장은 **DNC 조항이 아니다** — `docs/dev/do-not-change.md`는 무접촉이고 DNC 대장에 행도 없다.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -46,6 +54,8 @@ import {
   RATCHET_HISTORY,
   SOURCE_REASON_KEEP_MARKER,
   SOURCE_REASON_MARKER,
+  apostropheBearingCallsiteFiles,
+  apostropheMaskedCodeSites,
   classifyDeadExport,
   collectCallsiteFiles,
   collectExportedConstants,
@@ -60,7 +70,9 @@ import {
   deadExportHint,
   describeDeadExport,
   filesUnder,
+  findCommentMaskedProductReferences,
   findDeadExports,
+  findDeadExportsBeforeStringMasking,
   findDeadExportsOfKind,
   findProductReferences,
   findRawProductReferences,
@@ -71,6 +83,8 @@ import {
   maskComments,
   maskCommentsAndStrings,
   nameConfessions,
+  namesAlsoUsedAsProperty,
+  namesReferencedInsideStringLiterals,
   readCallsiteSources,
   readRepoFile,
   repoRoot,
@@ -78,6 +92,8 @@ import {
   sourceReasonProof,
   stringOnlyReferenceExports,
   topLevelElements,
+  tsxExportFunctionCount,
+  type DeadExportRatchet,
   type ExportedFunction
 } from "./dead-export-ledger";
 
@@ -85,7 +101,11 @@ import {
 const population = collectPopulation();
 const callsiteFiles = collectCallsiteFiles();
 const dead = findDeadExports();
+/** ⚠️ 계약 ⓑ의 **앞의 수** — 문자열 마스킹을 켜기 전(라운드 88·89) 그물의 사문 전수(오늘 40). */
+const deadBeforeStringMasking = findDeadExportsBeforeStringMasking();
 const exemptions = contractOnlyExemptions();
+/** 파생 판정이 낸 면제 모듈 전수 — 같은 전수 훑기를 계약마다 되풀이하지 않는다(오늘 여섯). */
+const exemptionModules = contractOnlyDataModules();
 const ledgerRequired = ledgerRequiredDeadExports();
 const testSources = new Map(collectTestFiles().map((file) => [file, readRepoFile(file)]));
 
@@ -123,6 +143,17 @@ const LEDGER_IDS = [
   "apps/mobile/src/offline/sqlite-offline-store.ts:OFFLINE_DB_SCHEMA_VERSION",
   "apps/mobile/src/settings/destructive-flow-messages.ts:DESTRUCTIVE_FLOW_ABSENT_TARGET_BRANCHES"
 ] as const;
+
+/**
+ * ⚠️⚠️ **래칫의 타입 핀**(계약 ⓔ · 라운드 90 트랙 C) — 래칫은 **값과 타입 양쪽**에 걸린다.
+ *
+ * `LEDGER_IDS`는 `as const` 튜플이라 `length`가 리터럴 타입이고, `DEAD_EXPORT_RATCHET`도
+ * 리터럴 타입 `22`다. 아래 상수는 **두 리터럴이 같을 때만** 타입이 맞는다 — 그래서 새
+ * `export const`가 이유 없이 죽어 스물셋째 id가 붙는 날, `vitest`가 돌기도 전에
+ * **`tsc --noEmit`가 먼저 빨개진다**(둘 중 한쪽만 손대서 통과시키는 길이 막힌다).
+ */
+type SameLiteral<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const RATCHET_TYPE_PIN: SameLiteral<DeadExportRatchet, typeof LEDGER_IDS.length> = true;
 
 /** 실측에서 이 id를 집어 온다 — 없으면 ⓒ가 먼저 빨개지므로 여기서는 이유를 말하고 멈춘다. */
 function measured(id: string): ExportedFunction {
@@ -283,8 +314,20 @@ describe("ⓗ 파생 판정 — 계약 전용 데이터를 **모듈 자신의 �
   });
 
   it("면제의 크기가 **값**이고, 근거가 항목마다 **비어 있지 않다**", () => {
-    expect(exemptions.length, "오늘 파생 판정이 면제한 자리 수").toBe(18);
-    expect(contractOnlyDataModules().length, "그 면제가 걸친 모듈 수").toBe(6);
+    // ⚠️ 라운드 90 트랙 C: 18 → 22. 문자열 축이 들어오며 늘어난 사문 넷이 **전부 자리 표 축으로**
+    // 떨어졌고, 그 넷이 사는 `shared-cache-policy.ts`는 이미 면제 쪽 모듈이라 **모듈 수는 6 그대로**다.
+    expect(exemptions.length, "오늘 파생 판정이 면제한 자리 수").toBe(22);
+    // ⚠️ 파생의 산출(`contractOnlyDataModules`)과 면제 목록에서 딴 집합이 **같은 답**을 낸다.
+    expect(exemptionModules).toEqual([...new Set(exemptions.map((entry) => entry.item.file))].sort());
+    expect(exemptionModules.length, "그 면제가 걸친 모듈 수").toBe(6);
+    expect(
+      exemptions.filter((entry) => entry.proof.axis === "locator-table").length,
+      "자리 표 축의 면제 수 — 라운드 89의 열하나에서 넷이 늘었다"
+    ).toBe(15);
+    expect(
+      exemptions.filter((entry) => entry.proof.axis === "bundle-excluded").length,
+      "번들 밖 축의 면제 수 — 문자열 축과 무관하게 움직이지 않았다"
+    ).toBe(7);
     for (const entry of exemptions) {
       expect(entry.proof.evidence.length, `${entry.item.id}의 근거가 비어 있어요`).toBeGreaterThan(0);
       expect(entry.proof.reason.trim().length, `${entry.item.id}의 이유가 비어 있어요`).toBeGreaterThan(30);
@@ -320,8 +363,10 @@ describe("ⓗ 파생 판정 — 계약 전용 데이터를 **모듈 자신의 �
     expect(new Set(requiredIds).size, "대장 필요 목록에 중복이 있어요").toBe(requiredIds.length);
     expect(exemptIds.filter((id) => requiredIds.includes(id)), "면제와 대장이 같은 자리를 물어요").toEqual([]);
     expect(exemptions.length + ledgerRequired.length, "면제 + 대장이 사문 전수와 갈렸어요").toBe(dead.length);
-    // 그리고 그 전수는 축 둘의 합이다 — 오늘 40(함수 16 · 상수 24).
-    expect(dead.length).toBe(40);
+    // 그리고 그 전수는 축 둘의 합이다 — 오늘 44(함수 16 · 상수 28).
+    expect(dead.length).toBe(44);
+    expect(findDeadExportsOfKind("function").length).toBe(16);
+    expect(findDeadExportsOfKind("const").length).toBe(28);
     expect(ledgerRequired.length).toBe(DEAD_EXPORT_LEDGER.length);
   });
 
@@ -696,6 +741,18 @@ describe("ⓓ 래칫 — 사문 수가 오늘의 실측보다 늘지 않는다",
     expect(DEAD_EXPORT_RATCHET, "래칫이 실측보다 느슨해요").toBeGreaterThanOrEqual(ledgerRequired.length);
   });
 
+  it("⚠️⚠️ 래칫이 **타입과 값 양쪽**에 걸려 있다(라운드 90 트랙 C)", () => {
+    // ⚠️ 타입 쪽: `RATCHET_TYPE_PIN`은 `DEAD_EXPORT_RATCHET`의 리터럴 타입과 못 박은 id 튜플의
+    // `length`가 **같을 때만** 컴파일된다 — 스물셋째 사문이 이유 없이 생기는 날 `tsc --noEmit`가
+    // 먼저 빨개지고, 두 자리 중 한쪽만 고쳐서 통과시키는 길이 막힌다.
+    expect(RATCHET_TYPE_PIN, "래칫의 타입 핀이 꺼졌어요").toBe(true);
+    // ⚠️ 값 쪽: 같은 수가 세 자리에서 만난다(래칫 · 대장의 줄 · 못 박은 id 전수).
+    expect(LEDGER_IDS.length).toBe(DEAD_EXPORT_RATCHET);
+    expect(DEAD_EXPORT_LEDGER.length).toBe(DEAD_EXPORT_RATCHET);
+    // ⚠️ 그리고 그 셋은 **오늘의 실측**과도 같다 — 값만 서로 맞추고 저장소는 안 보는 핀이 아니다.
+    expect(ledgerRequired.length).toBe(DEAD_EXPORT_RATCHET);
+  });
+
   it("사문 수(면제 뺀 뒤)가 래칫을 넘지 않는다", () => {
     expect(
       ledgerRequired.length,
@@ -753,13 +810,23 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
   it("⚠️ **닫힌 사각**이 지워지지 않고, 무엇이 언제 닫았는지를 들고 산다", () => {
     // ⚠️ 그냥 사라지면 다음 라운드가 "이 축은 왜 세지 않지"를 다시 묻고 **다시 세고 나서
     // 어디에도 적지 못한다**(AA-4의 규율이 막으려던 그 자리다).
+    // ⚠️ 라운드 89가 닫은 둘은 **그대로 서 있고**, 라운드 90이 닫은 셋째가 그 옆에 붙었다.
     expect(CLOSED_BLIND_SPOTS.map((spot) => spot.id).sort()).toEqual([
       "contract-only-data-modules",
-      "export-const-axis"
+      "export-const-axis",
+      "string-literal-references"
     ]);
+    const closedInRound = Object.fromEntries(
+      CLOSED_BLIND_SPOTS.map((spot) => [spot.id, spot.closedInRound])
+    );
+    expect(closedInRound, "무엇을 어느 라운드가 닫았는지가 값으로 서 있어야 해요").toEqual({
+      "export-const-axis": 89,
+      "contract-only-data-modules": 89,
+      "string-literal-references": 90
+    });
     const openIds = LEDGER_BLIND_SPOTS.map((spot) => spot.id);
     for (const closed of CLOSED_BLIND_SPOTS) {
-      expect(closed.closedInRound, `${closed.id}를 닫은 라운드`).toBe(89);
+      expect(closed.closedInRound, `${closed.id}를 닫은 라운드`).toBeGreaterThanOrEqual(89);
       expect(closed.statement.trim().length, `${closed.id}의 문장이 비어 있어요`).toBeGreaterThan(100);
       // 닫힌 자리가 열린 사각 목록에 **동시에** 있으면 그 줄은 장식이다.
       expect(openIds, `${closed.id}가 닫혔는데 사각 목록에도 있어요`).not.toContain(closed.id);
@@ -768,25 +835,30 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
 
   it("명세가 요구한 남은 사각 셋이 이름으로 서 있다", () => {
     const ids = LEDGER_BLIND_SPOTS.map((spot) => spot.id);
-    expect(ids).toContain("common-name");
+    // ⚠️ 라운드 90 명세 ⓕ가 이름으로 부른 셋.
     expect(ids).toContain("tsx-components");
-    expect(ids).toContain("string-literal-references");
-    // 라운드 88이 연 자리와 라운드 89가 연 자리.
-    expect(ids).toContain("comment-and-string-references");
+    expect(ids).toContain("common-name");
     expect(ids).toContain("derived-exemptions");
+    // 라운드 88이 연 자리와, 라운드 90이 `string-literal-references`를 닫으며 **새로 연 자리**.
+    expect(ids).toContain("comment-and-string-references");
+    expect(ids).toContain("string-keyed-dynamic-access");
+    // ⚠️ 닫힌 자리는 열린 목록에 **동시에** 서지 않는다(그 줄이 장식이 되는 자리다).
+    expect(ids).not.toContain("string-literal-references");
   });
 
-  it("⚠️ **문자열 축의 재개 조건이 오늘 발동했다** — 그 넷을 값으로 못 박고 넘긴다", () => {
-    const spot = LEDGER_BLIND_SPOTS.find((entry) => entry.id === "string-literal-references");
-    expect(spot?.statement, "문자열 축 사각의 문장").toContain("문자열");
-    expect(spot?.floor, "문자열 축 사각의 하한이 없어요").toBeGreaterThan(0);
-    // ⚠️ 라운드 88의 실피해는 0이었다. 축이 넓어지며 넷이 됐다 — 그 사실을 감추지 않고,
-    // 그렇다고 이 트랙이 문자열 마스킹을 켜지도 않는다(한 그물에 축 둘을 얹지 않는다).
-    const onlyInStrings = stringOnlyReferenceExports();
-    expect(
-      onlyInStrings.map((item) => item.id).sort(),
-      "참조가 **전부 문자열 리터럴뿐**인 export가 넷을 넘었어요 — 문자열 마스킹을 켜는 라운드가 왔습니다"
-    ).toEqual(
+  it("⚠️⚠️ **계약 ⓑ 전후 대조** — 마스킹 전 40 · 후 44를 **둘 다 값으로** 든다", () => {
+    // ⚠️ 두 수를 한 낱말로 적지 않는다(라운드 88 D가 주석 마스킹에 대해 세운 그 형식).
+    // 앞의 수는 라운드 88·89의 그물이, 뒤의 수는 오늘의 그물이 낸다 — 같은 저장소·같은 모집단이다.
+    const before = deadBeforeStringMasking;
+    expect(before.length, "마스킹 **전**의 사문 수").toBe(40);
+    expect(dead.length, "마스킹 **후**의 사문 수").toBe(44);
+    expect(population.length, "두 수의 분모는 같다").toBeGreaterThan(dead.length);
+
+    // ⚠️ 갈린 자리가 **정확히 넷**이고, 그 넷의 신원까지 값이다(수만 맞는 대조는 신원을 놓친다).
+    const beforeIds = new Set(before.map((item) => item.id));
+    const added = dead.filter((item) => !beforeIds.has(item.id));
+    expect(dead.length - before.length, "전후의 차").toBe(added.length);
+    expect(added.map((item) => item.id).sort()).toEqual(
       [
         "apps/mobile/src/query/shared-cache-policy.ts:CHILDREN_WRITE_APIS",
         "apps/mobile/src/query/shared-cache-policy.ts:CHILDREN_WRITE_LEDGER",
@@ -794,16 +866,73 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
         "apps/mobile/src/query/shared-cache-policy.ts:SHARED_KEY_COVERAGE"
       ].sort()
     );
-    // ⚠️ 그리고 그 넷의 **실피해가 0인 이유**를 값으로 확인한다: 넷 다 파생 판정이 이미
-    // 계약 전용으로 가르는 표라, 문자열 마스킹이 켜져도 대장의 줄은 0이 는다.
+    // ⚠️ 마스킹 전의 사문은 **한 자리도 빠지지 않는다** — 문자열을 지우는 일이 참조를 만들 수는 없다.
+    expect(before.filter((item) => !dead.some((entry) => entry.id === item.id))).toEqual([]);
+    // ⚠️ 그리고 그 넷은 전부 **상수 축**이다: 함수 축 열여섯은 라운드 87부터 한 자리도 움직이지 않았다.
+    expect(added.every((item) => item.kind === "const")).toBe(true);
+    expect(findDeadExportsOfKind("function").length, "함수 축의 사문 수").toBe(16);
+    // 같은 넷을 `stringOnlyReferenceExports`(전후가 갈린 자리를 세는 자)도 집어 든다.
+    expect(stringOnlyReferenceExports().map((item) => item.id).sort()).toEqual(
+      added.map((item) => item.id).sort()
+    );
+
+    // ⚠️⚠️ **계약 ⓓ 유령 방지 — 여섯 수를 한 자리에서 함께 대조한다.** 따로 선 단언은 각각
+    // 참이면서도 서로 어긋날 수 있다(면제가 늘고 대장이 줄어도 합은 같다). 그 길을 이 한 줄이 막는다.
+    expect(
+      {
+        마스킹전: deadBeforeStringMasking.length,
+        마스킹후: dead.length,
+        갈린자리: added.length,
+        면제: exemptions.length,
+        면제모듈: exemptionModules.length,
+        대장줄: DEAD_EXPORT_LEDGER.length,
+        대장요구: ledgerRequired.length
+      },
+      "유령 방지: 마스킹 전후·면제·모듈·대장이 한 자리에서 갈렸어요"
+    ).toEqual({
+      마스킹전: 40,
+      마스킹후: 44,
+      갈린자리: 4,
+      면제: 22,
+      면제모듈: 6,
+      대장줄: 22,
+      대장요구: 22
+    });
+    expect(exemptions.length + ledgerRequired.length, "면제 + 대장 = 사문 전수").toBe(dead.length);
+  });
+
+  it("⚠️⚠️ **계약 ⓒ 넷의 처분** — 자리 표 축으로 떨어지고 **대장의 줄은 0이 늘었다**", () => {
+    // ⚠️ 라운드 89 트랙 C가 값으로 적은 예상은 *"대장의 줄은 0이 는다"* 였다. 예상과 실측이 갈리면
+    // 그 갈림이 이 트랙의 값이므로, 여기서 **갈리지 않았다는 사실**을 값으로 확인한다.
     const context = contractOnlyContext();
-    for (const item of onlyInStrings) {
+    const beforeIds = new Set(deadBeforeStringMasking.map((item) => item.id));
+    const added = dead.filter((item) => !beforeIds.has(item.id));
+    expect(added.length, "문자열 축이 처음 본 자리 수").toBe(4);
+    for (const item of added) {
+      const proof = contractOnlyDataProof(item, context);
       expect(
-        contractOnlyDataProof(item, context)?.axis,
-        `${item.id}: 문자열 마스킹이 켜지면 이 자리는 대장의 줄이 됩니다 — 사각의 문장을 다시 쓰세요`
+        proof?.axis,
+        `${item.id}: 자리 표 축이 이 넷을 면제하지 않아요 — 그러면 대장의 줄이 늘어납니다`
       ).toBe("locator-table");
+      expect(proof?.evidence.length, `${item.id}의 근거가 비어 있어요`).toBeGreaterThan(0);
     }
-    expect(spot?.statement, "그 넷과 실피해가 사각의 문장에 값으로 적혀 있어야 해요").toContain("CHILDREN_WRITE_APIS");
+    // ⚠️ **대장의 줄은 0이 늘었다** — 늘어난 넷이 하나도 대장을 요구하지 않는다.
+    expect(ledgerRequired.length, "대장이 요구하는 자리 수(라운드 89와 같아야 한다)").toBe(22);
+    expect(DEAD_EXPORT_LEDGER.length).toBe(22);
+    expect(added.filter((item) => ledgerRequired.some((entry) => entry.id === item.id))).toEqual([]);
+    // ⚠️ 면제는 18 → 22로 넷 늘었고, **모듈 수는 6 그대로다**(그 넷이 사는 파일이 이미 면제 쪽이었다).
+    expect(exemptions.length, "면제 수").toBe(22);
+    // ⚠️ 모듈 전수는 이미 걷어 둔 면제에서 파생한다(같은 전수 훑기를 세 번 하지 않는다 —
+    // `contractOnlyDataModules()`가 내는 것과 같은 집합이고, ⓗ가 그 둘이 같은지 따로 확인한다).
+    const modules = [...new Set(exemptions.map((entry) => entry.item.file))].sort();
+    expect(modules, "면제가 걸친 모듈 전수").toContain("apps/mobile/src/query/shared-cache-policy.ts");
+    expect(modules.length, "모듈 수 — 새 모듈은 생기지 않았다").toBe(6);
+    // ⚠️ 그리고 그 처분이 **닫힌 사각의 문장에 값으로** 적혀 있다(산문으로 넘기지 않는다).
+    const closed = CLOSED_BLIND_SPOTS.find((entry) => entry.id === "string-literal-references");
+    expect(closed?.statement, "닫힌 사각이 그 넷의 이름을 값으로 들고 있어야 해요").toContain(
+      "CHILDREN_WRITE_APIS"
+    );
+    expect(closed?.statement, "전후의 두 수").toContain("40 → 44");
   });
 
   for (const spot of LEDGER_BLIND_SPOTS.filter((entry) => entry.measure)) {
@@ -816,17 +945,53 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     });
   }
 
-  it("⚠️ 정찰이 적어 둔 세 자리를 **오늘 다시 재고 값과 대조한다**", () => {
-    // ⚠️ 전제 재실측 의무(round89-scout #3 ⓕ): tsx 141 · common-name 77 · string-literal 26.
-    // 앞의 하나는 축을 넓혀도 그대로이고, 뒤의 둘은 **넓히기 전 축으로 재면 정찰과 같고**
-    // 넓힌 뒤에는 커진다 — 두 수를 한 낱말로 적지 않는다.
+  it("⚠️⚠️ **명세 ⓕ의 사각 재실측** — tsx 141 · common-name 226 · 절반 문턱을 오늘 다시 잰다", () => {
+    // ⚠️ 전제 재실측 의무(round90-scout #3 ⓕ): 축을 켠 **뒤에** 다시 재고, 갈리면 그 갈림이 값이다.
     const spotOf = (id: string) => LEDGER_BLIND_SPOTS.find((entry) => entry.id === id);
-    expect(spotOf("tsx-components")?.value, "tsx 축은 이 트랙과 무관하게 움직이지 않는다").toBe(141);
-    expect(spotOf("common-name")?.value, "넓힌 뒤의 흔한 이름").toBe(226);
-    expect(spotOf("string-literal-references")?.value, "넓힌 뒤의 문자열 축").toBe(55);
-    // ⚠️ 갈린 이유가 문장에 함께 적혀 있다(*"두 수를 한 낱말로 적지 않는다"* 의 형식).
+
+    // ① tsx-components — 축을 켠 뒤에도 141(적힌 값·오늘의 실측이 같다).
+    expect(spotOf("tsx-components")?.value, "적어 둔 값").toBe(141);
+    expect(tsxExportFunctionCount(), "오늘 다시 잰 값 — 갈리면 그 수가 값이다").toBe(141);
+
+    // ② common-name — 축을 켠 뒤에도 226. 이 자는 마스킹하지 않은 소스에 묻기 때문에 같다.
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(226);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(226);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
-    expect(spotOf("string-literal-references")?.statement, "26 → 55가 왜 갈렸는지").toContain("26");
+
+    // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.
+    // ⚠️ 축을 켠 뒤 다시 재니 44 중 22다: 분자와 분모가 함께 넷씩 늘어 **여유가 0**이 됐다.
+    expect(spotOf("derived-exemptions")?.value, "면제 수").toBe(exemptions.length);
+    expect(exemptions.length, "오늘의 면제 수").toBe(22);
+    expect(dead.length, "오늘의 사문 전수").toBe(44);
+    // ⚠️ 라운드 90 리뷰 M-4: *"면제 × 2 = 사문 전수"* 를 등호로 고정하던 줄을 지웠다 — 오늘의
+    // 등호는 **우연**(분자와 분모가 마침 넷씩 함께 늘었다)이고, 우연의 등호는 정당한 변화
+    // (사문 하나가 늘거나 면제 하나가 줄어드는 흔한 걸음)에 **거짓 빨강**을 낸다. 이 자리가
+    // 지켜야 하는 것은 등호가 아니라 아래 **문턱 판정**이고, 그것은 그대로 남아 있다.
+    // ⚠️⚠️ **문턱은 '절반 초과'이지 '절반 도달'이 아니다** — 그래서 오늘 판정을 좁히지 않는다.
+    // 이 단언이 그 판정을 값으로 들고 있고, 면제가 하나만 더 늘면 여기가 먼저 빨개진다.
+    expect(
+      exemptions.length * 2 > dead.length,
+      "면제 수가 사문 전수의 절반을 **넘었어요** — 재개 조건이 발동했습니다(판정을 좁힐 라운드입니다)"
+    ).toBe(false);
+    expect(spotOf("derived-exemptions")?.statement, "여유가 0이라는 사실이 값으로 적혀 있어야 해요").toContain(
+      "여유 0"
+    );
+
+    // ④ 새로 연 사각도 같은 자리에서 다시 잰다(값 없이 열지 않는다).
+    expect(spotOf("string-keyed-dynamic-access")?.value, "적어 둔 값").toBe(55);
+    expect(namesReferencedInsideStringLiterals().length, "오늘 다시 잰 값").toBe(55);
+
+    // ⑤ 라운드 90 리뷰 M-3이 연 자리 — **스캐너의 오탐 표면**도 값과 실피해를 함께 든다.
+    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(105);
+    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(105);
+    // ⚠️ 이 등호는 우연이 아니다(M-4의 그 등호와 다르다): 0을 넘는 날 사문 판정 하나가 **거짓
+    // 빨강**이므로, 빨개지는 것이 곧 알려야 할 사실이다. 그때의 답은 대장에 줄을 더하는 것이
+    // 아니라 이 스캐너가 JSX 텍스트를 코드와 가르는 것이다.
+    expect(
+      apostropheMaskedCodeSites(),
+      "어포스트로피 짝이 코드를 지운 자리가 생겼어요 — 그 자리의 사문 판정은 거짓 빨강입니다"
+    ).toEqual([]);
+
     // 그리고 함수 축은 오늘도 열여섯이다 — 늘어난 것이 **함수 축의 부채가 아님**을 값으로 못 박는다.
     expect(findDeadExportsOfKind("function").length, "함수 축의 사문 수가 라운드 88과 갈렸어요").toBe(16);
     expect(collectExportedFunctions().length, "함수 축의 모집단").toBeGreaterThan(600);
@@ -839,7 +1004,7 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     const spot = LEDGER_BLIND_SPOTS.find((entry) => entry.id === "derived-exemptions");
     expect(spot?.value, "면제의 크기").toBe(exemptions.length);
     expect(spot?.statement, "면제 사각의 재개 조건").toContain("재개 조건");
-    for (const module of contractOnlyDataModules()) {
+    for (const module of exemptionModules) {
       // 실재 확인 — 없는 파일을 근거로 든 순간 결정 ③은 근거를 잃는다.
       expect(() => readRepoFile(module), `${module}가 없어요`).not.toThrow();
       expect(
@@ -889,6 +1054,8 @@ describe("ⓕ 자기 참조 부정 — 대장은 자기를 모집단에 넣지 �
 
 describe("ⓖ 마스킹 — 참조를 셀 때 주석이 지워진다(라운드 88 트랙 D)", () => {
   it("한 갈래씩: 주석은 지우고, 주석처럼 생긴 코드는 지우지 않는다", () => {
+    // ⚠️ 이 갈래별 확인의 대상은 `maskComments`다 — 라운드 90부터 **그물**은 문자열까지 지우지만,
+    // 주석 축만 따로 무는 자리는 여기 남는다(두 축을 한 낱말로 뭉개지 않는다 · ⓘ가 문자열 축을 문다).
     // ⚠️ 손으로 세운 조각으로 확인하는 이유: 저장소 전체로 재면 *"오늘 아무 일도 안 났다"* 밖에
     // 알 수 없다. 여기서 물어야 하는 것은 **어떤 갈래에서 그물이 죽는가**이다.
     const source = [
@@ -915,25 +1082,37 @@ describe("ⓖ 마스킹 — 참조를 셀 때 주석이 지워진다(라운드 8
     expect(masked, "JSX 텍스트의 http:// 뒤가 주석으로 읽혔어요").toContain("로 시작해요 {keptName}");
     expect(masked, "정규식 리터럴 안의 `//`가 주석으로 읽혔어요").toContain("/a\\/\\/b/.test(");
 
-    // 문자열까지 지우는 자는 **그물이 아니라 사각을 재는 자**다 — 그 갈림도 값으로 확인한다.
+    // ⚠️⚠️ **라운드 90부터 문자열까지 지우는 자가 곧 그물이다** — 그 갈림도 값으로 확인한다.
     const both = maskCommentsAndStrings(source);
     expect(both).not.toContain("string의 hiddenName");
     expect(both, "문자열을 지우는 자가 템플릿 `${…}` 안의 코드까지 지웠어요").toContain("${keptName}");
+    expect(both.length, "문자열 마스킹이 길이를 바꿨어요 — 참조 자리 계산이 어긋납니다").toBe(source.length);
+    expect(both.split("\n").length, "문자열 마스킹이 줄 수를 바꿨어요").toBe(source.split("\n").length);
+    // ⚠️ 문자열 안의 이름은 사라지고(hiddenName은 템플릿 조각 하나만 남는다), 코드는 그대로다.
+    expect(both).not.toContain("템플릿의 hiddenName");
+    expect((both.match(/keptName/g) ?? []).length, "문자열 마스킹이 진짜 코드를 지웠어요").toBe(3);
   });
 
   it("마스킹이 없었다면 **오늘 사문 마흔 중 스물이** 조용히 사라졌다", () => {
     // ⚠️ 라운드 88의 순서(마스킹 먼저 · 주석 나중)가 왜 계약이었는지를, 축을 넓힌 오늘 한 번 더
     // 값으로 남긴다. 라운드 88의 이 수는 아홉이었고 오늘은 스물이다 — 상수 축이 들어오며 열하나가
     // 더해졌다(계약 전용 데이터 표들은 자기 이름을 주석으로 설명하는 것이 관례라서 그렇다).
+    // ⚠️⚠️ **라운드 90 트랙 C의 정정**: 이 셈의 기준은 오늘의 그물(44)이 아니라 **주석만 지우던
+    // 그물(40)** 이다 — 새 그물 위에서 세면 이 수가 *'주석뿐'* 이 아니라 *'주석이나 문자열뿐'* 이
+    // 되어 24가 되고, 주석 축 20과 문자열 축 4가 한 낱말로 뭉개진다.
     const sources = readCallsiteSources();
+    const commentMaskedDead = deadBeforeStringMasking;
     const rawDead = population.filter((item) => findRawProductReferences(item, sources).length === 0);
-    expect(dead.length, "마스킹판의 사문 수").toBe(40);
+    expect(commentMaskedDead.length, "주석 마스킹판의 사문 수").toBe(40);
+    expect(dead.length, "오늘의 그물(주석 + 문자열)의 사문 수").toBe(44);
     expect(
       rawDead.length,
       "옛 그물(마스킹 없음)로 재도 수가 같아요 — 이유 주석이 이름을 부르지 않고 있습니다"
-    ).toBeLessThan(dead.length);
+    ).toBeLessThan(commentMaskedDead.length);
 
-    const vanished = dead.filter((item) => !rawDead.some((raw) => raw.id === item.id)).map((item) => item.id);
+    const vanished = commentMaskedDead
+      .filter((item) => !rawDead.some((raw) => raw.id === item.id))
+      .map((item) => item.id);
     expect(vanished.length, "마스킹이 없었다면 사라졌을 항목 수").toBe(20);
     // 라운드 88이 못 박은 아홉은 오늘도 그 안에 그대로 있다(함수 축이 움직이지 않았다는 값).
     for (const id of [
@@ -985,6 +1164,157 @@ describe("ⓖ 마스킹 — 참조를 셀 때 주석이 지워진다(라운드 8
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
+  });
+});
+
+describe("ⓘ 문자열 리터럴 축 — 글자는 지우고 템플릿 `${…}`는 코드로 남긴다 (라운드 90 트랙 C)", () => {
+  /**
+   * ⚠️⚠️ **합성 소스**(계약 ⓐ) — 오늘 저장소에 이 모양이 없어도 계약은 이 갈래를 물어야 한다.
+   *
+   * 두 이름이 각각 한 갈래를 진다. `templateOnlyCallsite`는 선언 줄을 빼면 **오직 템플릿 `${…}`
+   * 안에서만** 불리고(진짜 호출부 — 결정 ①의 *'자기 파일까지 포함'*), `spokenOnlyInsideAString`은
+   * 화면의 **문자열 글자로만** 이름이 나온다(호출부가 아니다). 그물이 옳으면 앞의 하나는 살고
+   * 뒤의 하나만 사문이다 — **한 조각이 두 갈래를 동시에 문다.**
+   */
+  const MODULE_SOURCE =
+    "export function templateOnlyCallsite(count: number): string {\n" +
+    "  return String(count);\n" +
+    "}\n" +
+    "\n" +
+    "export function spokenOnlyInsideAString(): string {\n" +
+    '  return "값";\n' +
+    "}\n" +
+    "\n" +
+    "export function summaryLine(count: number): string {\n" +
+    "  return `검색 결과 ${templateOnlyCallsite(count)} 건`;\n" +
+    "}\n";
+  const SCREEN_SOURCE =
+    'import { summaryLine } from "../src/fixture/template";\n' +
+    "\n" +
+    "export default function Screen() {\n" +
+    '  const note = "spokenOnlyInsideAString 는 문장 안에서만 이름이 불린다";\n' +
+    "  return summaryLine(3) + note;\n" +
+    "}\n";
+
+  it("⚠️ 문자열의 글자는 지워지고, 템플릿 `${…}` 안의 이름은 **코드로 남는다**", () => {
+    const maskedModule = maskCommentsAndStrings(MODULE_SOURCE);
+    expect(maskedModule, "템플릿 `${…}` 안의 호출이 지워졌어요 — 살아 있는 호출부가 사라집니다").toContain(
+      "${templateOnlyCallsite(count)}"
+    );
+    // 템플릿의 **문자열 조각**(`검색 결과 `·` 건`)은 글자이므로 지워진다 — `${…}`만 남는다.
+    expect(maskedModule).not.toContain("검색 결과");
+    expect(maskedModule, "따옴표 문자열의 글자도 지워진다").not.toContain('"값"');
+
+    const maskedScreen = maskCommentsAndStrings(SCREEN_SOURCE);
+    expect(maskedScreen, "문자열의 글자가 남았어요 — 문장 속 이름이 호출부로 세어집니다").not.toContain(
+      "spokenOnlyInsideAString"
+    );
+    expect(maskedScreen, "import 지정자 밖의 진짜 코드는 남는다").toContain("summaryLine(3)");
+
+    // 길이·줄이 보존된다(참조 자리 계산이 마스킹 뒤에도 같은 답을 낸다).
+    for (const [raw, masked] of [
+      [MODULE_SOURCE, maskedModule],
+      [SCREEN_SOURCE, maskedScreen]
+    ] as const) {
+      expect(masked.length).toBe(raw.length);
+      expect(masked.split("\n").length).toBe(raw.split("\n").length);
+    }
+  });
+
+  it("⚠️⚠️ 그물이 **합성 소스 위에서** 둘을 가른다 — 템플릿은 살고 문자열만 사문이다", () => {
+    const base = makeFixtureRoot("dead-export-ledger-template-");
+    try {
+      writeFileSync(join(base, "apps/mobile/src/fixture/template.ts"), MODULE_SOURCE, "utf8");
+      writeFileSync(join(base, "apps/mobile/app/screen.tsx"), SCREEN_SOURCE, "utf8");
+
+      const found = findDeadExports(base).map((item) => item.name);
+      expect(
+        found,
+        "템플릿 `${…}` 안의 호출부를 놓쳤어요 — 마스킹이 진짜 코드를 지우고 있습니다(거짓 빨강)"
+      ).not.toContain("templateOnlyCallsite");
+      expect(
+        found,
+        "문장 안에서만 이름이 불리는 export를 사문으로 집어 들지 못했어요 — 문자열 축이 새고 있습니다"
+      ).toContain("spokenOnlyInsideAString");
+
+      // ⚠️ 그리고 **마스킹 전에는 둘 다 사문이 아니었다** — 이 갈림이 이 라운드가 더한 것 전부다.
+      const before = findDeadExportsBeforeStringMasking(base).map((item) => item.name);
+      expect(before, "옛 그물은 문장 속 이름을 호출부로 셌다").not.toContain("spokenOnlyInsideAString");
+      expect(before).not.toContain("templateOnlyCallsite");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("⚠️⚠️ 교란 — 템플릿 갈래를 **통째로 지우는** 옛 마스킹으로 되돌리면 살아 있는 호출부가 사문이 된다", () => {
+    // ⚠️ 이 자리가 명세의 이중 경고다: 문자열 마스킹이 `${…}` 안을 지우면 **사문이 거짓으로 는다**.
+    // 그 되돌림을 여기서 재현한다 — 템플릿을 통째로 공백으로 바꾸는 순진한 마스킹.
+    const naive = MODULE_SOURCE.replace(/`[^`]*`/g, (match) => " ".repeat(match.length));
+    const masked = maskCommentsAndStrings(MODULE_SOURCE);
+    const count = (source: string) => (source.match(/templateOnlyCallsite/g) ?? []).length;
+
+    // 옛 마스킹판에서는 **선언 줄 하나만** 남는다 = 호출부 0건 = 사문(거짓 빨강).
+    expect(count(naive), "이 교란이 아무것도 지우지 않았어요 — 재현이 죽으면 계약은 영원히 초록입니다").toBe(1);
+    expect(naive).not.toContain("${templateOnlyCallsite(count)}");
+    // 오늘의 마스킹판에서는 선언 + 템플릿 안의 호출 **둘**이다 = 호출부 1건 = 사문이 아니다.
+    expect(count(masked), "오늘의 마스킹이 템플릿 안의 호출을 지웠어요").toBe(2);
+    expect(count(masked)).toBeGreaterThan(count(naive));
+
+    // ⚠️ 그리고 그 갈림이 **판정을 뒤집는다**는 것을 임시 뿌리에서 값으로 보인다.
+    const base = makeFixtureRoot("dead-export-ledger-naive-");
+    try {
+      writeFileSync(join(base, "apps/mobile/src/fixture/template.ts"), naive, "utf8");
+      writeFileSync(join(base, "apps/mobile/app/screen.tsx"), SCREEN_SOURCE, "utf8");
+      expect(
+        findDeadExports(base).map((item) => item.name),
+        "템플릿을 통째로 지운 소스에서는 살아 있는 호출부가 사문이 된다 — 그 되돌림이 이 계약의 빨강이다"
+      ).toContain("templateOnlyCallsite");
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("⚠️ 저장소에서도 같은 갈래가 산다 — 넷 말고는 판정이 움직이지 않았다", () => {
+    // ⚠️ 합성 소스가 갈래를 증명하고, 이 단언이 **그 갈래가 저장소에서 사고를 내지 않았음**을 센다.
+    // 문자열 안에 참조가 있는 이름 55 가운데 판정이 움직인 것은 넷뿐이다(나머지는 코드 참조를 함께 갖는다).
+    const names = namesReferencedInsideStringLiterals();
+    expect(names.length, "문자열 안에 이름이 나오는 모집단 이름 수").toBe(55);
+    const moved = stringOnlyReferenceExports();
+    expect(moved.length, "그중 판정이 움직인 자리").toBe(4);
+    expect(
+      moved.every((item) => names.includes(item.name)),
+      "판정이 움직인 자리가 문자열 사각의 모집단 밖이에요"
+    ).toBe(true);
+    // ⚠️ 그리고 그 넷은 대장의 줄을 요구하지 않는다 — 오늘의 실피해가 0이라는 값이다.
+    expect(moved.filter((item) => ledgerRequired.some((entry) => entry.id === item.id))).toEqual([]);
+  });
+
+  it("⚠️⚠️ 스캐너의 오탐 표면 — JSX 텍스트의 어포스트로피 **짝**은 코드를 지운다(라운드 90 리뷰 M-3)", () => {
+    // ⚠️ **합성 소스로 증명한다**(계약 ⓐ의 형식): 저장소에 오늘 그 모양이 0건이어도, 이 그물이
+    // 그 갈래에서 무엇을 하는지는 여기서 값으로 선다.
+    const oneApostrophe = "<Text>Don't stop {renderFooter()} now</Text>";
+    const twoApostrophes = "<Text>Don't stop {renderFooter()} it's fine</Text>";
+
+    // ⓐ 한 줄에 **하나**면 줄바꿈에서 문자열이 아님이 드러나 아무것도 지워지지 않는다(한 줄 가두기).
+    expect(maskCommentsAndStrings(oneApostrophe), "한 줄 가두기가 깨졌어요").toBe(oneApostrophe);
+    // ⓑ **짝으로** 서면 그 사이의 진짜 코드가 공백이 된다 — 오차의 방향이 **거짓 빨강**이다.
+    expect(
+      maskCommentsAndStrings(twoApostrophes),
+      "어포스트로피 짝이 코드를 지우지 않게 되었다면 이 사각은 닫힌 것이고, 그 줄을 CLOSED_BLIND_SPOTS로 옮기세요"
+    ).not.toContain("renderFooter");
+    // ⓒ 주석만 지우는 옛 자에서는 그 코드가 살아 있었다 — 방향이 라운드 90에 뒤집혔다는 근거.
+    expect(maskComments(twoApostrophes), "옛 그물은 글자를 지우지 않았다").toContain("renderFooter");
+    // ⓓ 길이·줄은 여전히 보존된다(손상이 그 줄 안에 갇힌다).
+    expect(maskCommentsAndStrings(twoApostrophes).length).toBe(twoApostrophes.length);
+
+    // ⓔ **저장소의 실피해는 0건**이고, 사각이 지는 것은 그 위의 **표면**이다.
+    const spot = LEDGER_BLIND_SPOTS.find((entry) => entry.id === "jsx-apostrophe-string-masking");
+    expect(spot?.statement, "사각의 문장이 실피해를 값으로 말해야 해요").toContain("실피해는 0건");
+    expect(apostropheMaskedCodeSites(), "오늘의 실피해").toEqual([]);
+    expect(spot?.value, "적어 둔 표면").toBe(apostropheBearingCallsiteFiles().length);
+    expect(apostropheBearingCallsiteFiles().length, "표면이 호출부 전수보다 클 수 없다").toBeLessThan(
+      collectCallsiteFiles().length
+    );
   });
 });
 

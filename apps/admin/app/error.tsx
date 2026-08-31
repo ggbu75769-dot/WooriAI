@@ -40,7 +40,7 @@ export default function AdminRouteError({
       </div>
 
       <section className={styles.card}>
-        <p className={styles.errorBanner}>문제가 생겨 이 화면을 표시할 수 없어요.</p>
+        <p className={styles.errorBanner} role="alert">문제가 생겨 이 화면을 표시할 수 없어요.</p>
         {error.digest ? <p className={styles.hint}>오류 코드: {error.digest}</p> : null}
         <div className={styles.actions} style={{ alignItems: "center", marginTop: 16 }}>
           <button type="button" className={styles.primaryButton} onClick={() => reset()}>

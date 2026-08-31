@@ -77,7 +77,7 @@ function TempPasswordCallout({ notice, onDismiss }: { notice: TempPasswordNotice
   };
 
   return (
-    <div className={styles.calloutWarning}>
+    <div className={styles.calloutWarning} role="status">
       <strong>
         {notice.email} 계정의 임시 비밀번호예요. 이 비밀번호는 다시 표시되지 않습니다 — 지금 안전한 경로로 전달해 주세요.
       </strong>
@@ -293,7 +293,7 @@ export default function AdminUsersPage() {
                 </div>
               </div>
             </div>
-            {createError ? <p className={styles.errorBanner}>{createError}</p> : null}
+            {createError ? <p className={styles.errorBanner} role="alert">{createError}</p> : null}
             <div className={styles.actions}>
               <button type="button" className={styles.primaryButton} onClick={handleCreate} disabled={creating}>
                 {creating ? "만드는 중..." : "계정 만들기"}
@@ -307,7 +307,7 @@ export default function AdminUsersPage() {
         <h2 id="admin-users-list-heading">계정 목록</h2>
         {users === null && !loadError ? <p className={styles.emptyState}>불러오는 중...</p> : null}
         {loadError ? (
-          <p className={styles.errorBanner}>
+          <p className={styles.errorBanner} role="alert">
             {loadError.message}
             {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 실패에는 이 버튼을 세우지 않는다. */}
             {loadError.canRetry ? (
@@ -317,8 +317,8 @@ export default function AdminUsersPage() {
             ) : null}
           </p>
         ) : null}
-        {rowError ? <p className={styles.errorBanner}>{rowError}</p> : null}
-        {rowSuccess ? <p className={styles.successBanner}>{rowSuccess}</p> : null}
+        {rowError ? <p className={styles.errorBanner} role="alert">{rowError}</p> : null}
+        {rowSuccess ? <p className={styles.successBanner} role="status">{rowSuccess}</p> : null}
         {users && users.length === 0 ? <p className={styles.emptyState}>등록된 계정이 없어요.</p> : null}
         {users && users.length > 0 ? (
           <div className={styles.tableWrap}>
