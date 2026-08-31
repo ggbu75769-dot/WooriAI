@@ -33,7 +33,7 @@ export default function AdminRouteError({
   }, [error]);
 
   return (
-    <main className={styles.page}>
+    <div className={styles.page}>
       <div className={styles.pageHeader}>
         <h1>화면을 불러오지 못했어요</h1>
         <p>일시적인 문제일 수 있어요. 다시 시도해보고, 그래도 안 되면 대시보드로 돌아가 주세요.</p>
@@ -51,6 +51,6 @@ export default function AdminRouteError({
           </Link>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

@@ -174,7 +174,7 @@ export default function AdminHomePage() {
   );
 
   return (
-    <main style={{ background: "#FFF8F1", color: "#242424", minHeight: "100vh", padding: 32 }}>
+    <div style={{ background: "#FFF8F1", color: "#242424", minHeight: "100vh", padding: 32 }}>
       <p style={{ color: "#7A7A7A" }}>ADM-001</p>
       <h1>WooriAI Admin CMS</h1>
 
@@ -277,6 +277,6 @@ export default function AdminHomePage() {
           </article>
         ))}
       </section>
-    </main>
+    </div>
   );
 }
