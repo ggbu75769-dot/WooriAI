@@ -6291,3 +6291,458 @@ ${extra}
     expect([...MODULE_ANNOUNCE_SOURCE_ROOTS], "모듈 스윕이 걷는 뿌리").toEqual(["src"]);
   });
 });
+
+/* ============================================================================================ */
+/* GAP-092 트랙 B(#2) — **행마다 갈리는 낭독 라벨의 모집단이 전수 스윕이 된다**                     */
+/* ============================================================================================ */
+
+/**
+ * ## 세 라운드를 미룬 조건이 오늘 자기 축으로 선다
+ *
+ * 라운드 88이 *행마다 갈리는 낭독 라벨의 모집단*을 기각하며 재개 조건을 적었고, 라운드 89 AD-5가
+ * 그 조건이 **자기 모순**임을 값으로 만들며 *"그 스윕 자체가 한 트랙의 축이 되는 라운드가 서는 날"*
+ * 로 좁혀 다시 적었다. ⚠️⚠️ **그런데 그 좁힘 뒤에도 라운드 89·90·91이 같은 자리를 지나쳤고**
+ * (라운드 91 AF-2가 *"세 라운드 연속"* 이라고 이름을 붙였다), **막은 것은 매번 규율이 아니라
+ * 배정이었다** — a11y 그물을 여는 트랙이 축을 다른 것(반쪽 프롭 · 프롭 대장 · 모듈 층)으로 골랐을
+ * 뿐이다. **오늘 이 파일에서 이 트랙이 여는 축은 이 모집단 하나이고, 그것으로 그 조건이 닫힌다.**
+ *
+ * ⚠️⚠️ **그리고 *막던 것이 규율이 아니라 배정이었다*는 사실이 오늘 실측으로 드러난다.** 이 축은
+ * **화면을 한 바이트도 고치지 않고** 오늘 값 그대로 통과한다(아래 ⓑ의 *갈리지 않는 자리 0건*).
+ * 세 라운드를 미룬 이유가 *고칠 것이 많아서*가 아니었다는 증거가 이 스윕의 초록 그 자체다.
+ *
+ * ## 이 스윕이 묻는 것과 묻지 않는 것 — 손 핀과 서로를 대신하지 않는다
+ *
+ * ⚠️ 모바일 테스트가 `toContain(… accessibilityLabel …)` 꼴로 라벨을 **손으로 무는** 자리는 오늘
+ * 일곱 파일 **70**이고(정찰의 값), 그중 대부분이 이 파일에 산다. **그 핀들은 *문구*를 문다** —
+ * "이 자리에 이 글자가 있는가". ⚠️⚠️ **이 스윕은 문구를 묻지 않는다. 묻는 것은 *행마다 갈리는가*
+ * 하나다.** 두 축은 서로를 대신하지 않으므로 **손 핀은 한 줄도 지우지 않았고**, 아래 ⓖ가 그 사실을
+ * 값(이 파일 안의 핀 수 하한)으로 못 박는다.
+ *
+ * ⚠️ 그리고 `accessibilityLabel="문자열"` 꼴의 **상수 라벨**(오늘 마스킹 뒤 **73** · 마스킹 전
+ * 원문 grep으로는 **74**이고 그 차이 하나는 주석 안에 산다)은 **이 모집단이 아니다** — 식이 아니라
+ * 상수이고, 애초에 목록 밖이다. ⚠️⚠️ **그래서 이 두 수를 한 낱말로 적지 않는다**: 이 스윕의 모집단은
+ * *식으로 만드는 라벨* **162**이고, 상수 라벨의 수는 그 옆에 따로 선다.
+ */
+
+/** 이 스윕의 바늘 — 라벨을 **식**으로 만드는 자리(상수 문자열 라벨은 이 낱말에 걸리지 않는다). */
+const ROW_LABEL_NEEDLE = "accessibilityLabel={";
+
+/** 상수 라벨의 낱말 — **모집단 밖**이고, 위 낱말과 **합산하지 않는다**(두 수를 한 낱말로 적지 않는다). */
+const CONSTANT_LABEL_NEEDLE = 'accessibilityLabel="';
+
+/** `(`·`{`의 짝. 따옴표 안의 괄호는 세지 않는다(`openingTagEnd`와 같은 규칙, 대상만 다르다). */
+function matchingBracketAt(masked: string, at: number): number {
+  const open = masked[at];
+  const close = open === "(" ? ")" : "}";
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = at; i < masked.length; i += 1) {
+    const char = masked[i];
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") quote = char;
+    else if (char === open) depth += 1;
+    else if (char === close) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** `이름`이 **식별자로** 등장하는가(부분 문자열이 아니라 낱말 — `$`를 쓰는 이름도 옳게 문다). */
+function mentionsIdentifier(text: string, name: string): boolean {
+  return new RegExp(`(?<![\\w$])${name.replace(/\$/g, "\\$")}(?![\\w$])`).test(text);
+}
+
+type RowCallbackKind = "map" | "renderItem";
+
+/** 목록 콜백 하나 — 구간과 **행 파라미터 목록**을 함께 들고 다닌다. */
+type RowCallback = { kind: RowCallbackKind; start: number; end: number; params: string };
+
+/**
+ * 목록 콜백 전수. 바늘은 둘이다 — `.map((행 …`과 `renderItem={({ item …`.
+ *
+ * ⚠️ `renderItem` 쪽은 **오늘 이 저장소에 0건**이다(모든 목록이 `.map`으로 선다). 0건인 바늘은
+ * *유령*이 될 수 있으므로 아래 ⓒ의 픽스처가 **그 바늘이 실제로 문다**는 것을 따로 증명한다 —
+ * `FlatList`가 처음 서는 날 이 스윕이 조용히 그 자리를 놓치지 않게.
+ */
+function rowCallbacksOf(masked: string): RowCallback[] {
+  const callbacks: RowCallback[] = [];
+  const mapNeedle = /\.map\(\(/g;
+  let found: RegExpExecArray | null;
+  while ((found = mapNeedle.exec(masked))) {
+    const callOpen = found.index + ".map".length;
+    const callEnd = matchingBracketAt(masked, callOpen);
+    const paramsOpen = callOpen + 1;
+    const paramsEnd = matchingBracketAt(masked, paramsOpen);
+    if (callEnd < 0 || paramsEnd < 0) continue;
+    callbacks.push({ kind: "map", start: callOpen, end: callEnd, params: masked.slice(paramsOpen + 1, paramsEnd) });
+  }
+  const renderItemNeedle = /renderItem=\{\s*\(/g;
+  while ((found = renderItemNeedle.exec(masked))) {
+    const propOpen = found.index + "renderItem=".length;
+    const propEnd = matchingBracketAt(masked, propOpen);
+    const paramsOpen = found.index + found[0].length - 1;
+    const paramsEnd = matchingBracketAt(masked, paramsOpen);
+    if (propEnd < 0 || paramsEnd < 0) continue;
+    callbacks.push({
+      kind: "renderItem",
+      start: propOpen,
+      end: propEnd,
+      params: masked.slice(paramsOpen + 1, paramsEnd)
+    });
+  }
+  return callbacks;
+}
+
+/** 콜백의 파라미터에서 **행 이름들**을 뽑는다(`(row, index)` · `({ item, index })` 둘 다). */
+function rowParamNamesOf(params: string): string[] {
+  const flattened = params.replace(/\{([^}]*)\}/g, (_all, inner: string) => inner);
+  return flattened
+    .split(",")
+    .map((piece) => piece.split(":").pop()!.split("=")[0].trim().replace(/\?$/, ""))
+    .filter((name) => /^[A-Za-z_$][\w$]*$/.test(name));
+}
+
+/** 목록 안의 낭독 라벨 자리 하나 — 자리·라벨 식·**가장 안쪽** 콜백의 행 이름과 몸통. */
+type RowLabelSite = {
+  file: string;
+  at: number;
+  expr: string;
+  kind: RowCallbackKind;
+  rows: string[];
+  body: string;
+};
+
+/**
+ * 한 파일의 낭독 라벨 자리 — **식으로 만드는 전수**와 그중 **목록 콜백 안**의 자리.
+ *
+ * ⚠️ 감싸는 콜백이 여럿이면 **가장 안쪽** 것을 고른다(중첩 목록에서 *행*이라는 단위는 안쪽의 것이다).
+ */
+function rowLabelSitesOf(sourceText: string, file: string): { labels: number; rows: RowLabelSite[] } {
+  const masked = maskComments(sourceText);
+  const callbacks = rowCallbacksOf(masked);
+  const needle = new RegExp(ROW_LABEL_NEEDLE.replace(/[{]/g, "\\{"), "g");
+  const rows: RowLabelSite[] = [];
+  let labels = 0;
+  let found: RegExpExecArray | null;
+  while ((found = needle.exec(masked))) {
+    labels += 1;
+    const exprOpen = found.index + ROW_LABEL_NEEDLE.length - 1;
+    const exprEnd = matchingBracketAt(masked, exprOpen);
+    if (exprEnd < 0) continue;
+    const enclosing = callbacks
+      .filter((callback) => callback.start < found!.index && found!.index < callback.end)
+      .sort((left, right) => right.start - left.start);
+    if (enclosing.length === 0) continue;
+    const innermost = enclosing[0];
+    rows.push({
+      file,
+      at: found.index,
+      expr: masked.slice(exprOpen + 1, exprEnd).replace(/\s+/g, " ").trim(),
+      kind: innermost.kind,
+      rows: rowParamNamesOf(innermost.params),
+      body: masked.slice(innermost.start, innermost.end)
+    });
+  }
+  return { labels, rows };
+}
+
+/** 전수 스윕 — 손 목록이 아니라 `listComponentSources()`가 모집단을 정한다. */
+function rowLabelSweep(): { files: string[]; labels: number; constants: number; rows: RowLabelSite[] } {
+  const files = listComponentSources();
+  let labels = 0;
+  let constants = 0;
+  const rows: RowLabelSite[] = [];
+  for (const file of files) {
+    const text = source(file);
+    const found = rowLabelSitesOf(text, file);
+    labels += found.labels;
+    rows.push(...found.rows);
+    constants += (maskComments(text).match(new RegExp(CONSTANT_LABEL_NEEDLE, "g")) ?? []).length;
+  }
+  return { files, labels, constants, rows };
+}
+
+/** 한 자리의 판정 셋. ⚠️ 손으로 적지 않고 **소스에서 파생한다**. */
+type RowLabelVerdict = "row-direct" | "row-derived" | "row-invariant";
+
+/** 라벨 식이 **한 걸음 거쳐** 행에서 나오는가 — 그 중간 이름들(콜백 몸통의 선언에서 파생). */
+function rowDerivedNamesOf(site: RowLabelSite): string[] {
+  const declaration = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]*)?=\s*([^;\n]*)/g;
+  const names: string[] = [];
+  let found: RegExpExecArray | null;
+  while ((found = declaration.exec(site.body))) {
+    if (site.rows.some((row) => mentionsIdentifier(found![2], row))) names.push(found[1]);
+  }
+  return names.filter((name) => mentionsIdentifier(site.expr, name));
+}
+
+function rowLabelVerdictOf(site: RowLabelSite): RowLabelVerdict {
+  if (site.rows.some((row) => mentionsIdentifier(site.expr, row))) return "row-direct";
+  if (rowDerivedNamesOf(site).length > 0) return "row-derived";
+  return "row-invariant";
+}
+
+/** 자리 이름 — 파일과 라벨 식으로 사람이 읽는 열쇠를 만든다(자리 번호는 바이트가 움직이면 흔들린다). */
+const rowLabelKey = (site: RowLabelSite) => `${site.file} ${site.expr}`;
+
+/**
+ * ⚠️ **빈 이유 금지.** *행마다 갈리지 않는* 자리가 서는 날, 그 자리는 **왜 갈리지 않아도 되는지**를
+ * 여기에 이름과 이유로 적어야 한다(오늘 **0건**이라 표는 비어 있고, 아래 ⓑ가 그 비어 있음을
+ * **부정 단언**으로 못 박는다). 이유는 40자 이상이어야 한다 — 한 낱말짜리 알리바이를 막는다.
+ */
+const ROW_INVARIANT_REASONS: Record<string, string> = {};
+
+/**
+ * 래칫 — 오늘의 값이 내일의 바닥이다.
+ *
+ * ⚠️ `invariant`만 **상한**(0에서 늘지 않는다)이고, 나머지는 **하한**(줄지 않는다). 화면이 늘거나
+ * 목록이 늘면 이 수들은 자연히 커지고, 커지는 방향으로는 이 계약이 막지 않는다.
+ */
+const ROW_LABEL_RATCHET = {
+  files: 58,
+  labels: 162,
+  listSites: 35,
+  direct: 34,
+  derived: 1,
+  invariant: 0,
+  constants: 73
+} as const;
+
+/** 오늘 유일한 *한 걸음 파생* 자리 — 라운드 91 A가 25→27을 겪은 그 모양이다. */
+const ROW_DERIVED_SITE_FILE = "app/family/index.tsx";
+
+/** ⓔ 바이트 불변 — 이 트랙이 **읽기만** 했음을 자리의 원문 바이트로 못 박는다. */
+const ROW_LABEL_UNTOUCHED_BYTES = [
+  [ROW_DERIVED_SITE_FILE, "accessibilityLabel={`${pendingInviteTarget(roleLabel, createdAtLabel)} 취소`}"],
+  ["src/ui.tsx", "accessibilityLabel={`${slice.label}, ${slice.percentLabel}, ${formatKrw(slice.amountKrw)}`}"],
+  ["src/ui.tsx", "accessibilityLabel={option}"]
+] as const;
+
+/** ⓕ 사각 — **이 스윕이 못 보는 것**을 값과 하한으로 적는다(넷 이상). */
+const ROW_LABEL_SWEEP_BLIND_SPOTS = [
+  "목록 **밖**의 낭독 라벨 127(오늘 식 전수 162 − 목록 안 35)은 이 축이 묻지 않는다 — 그 자리들에는 " +
+    "*행*이라는 단위가 없어 '행마다 갈리는가'라는 질문 자체가 성립하지 않는다.",
+  "`accessibilityLabel` 없이 **자식 텍스트로** 읽히는 목록 행은 모집단 밖이다 — 오늘 모집단 전수의 " +
+    "`<Pressable` 145 가운데 여는 태그에 라벨이 없는 것이 23이고, 그 층은 이 바늘에 걸리지 않는다.",
+  "**행 변수 이름으로 판정하고 파생은 한 걸음까지만** 따라간다 — 두 걸음 이상 거치는 자리와 " +
+    "바깥 목록의 행 변수를 쓰는 안쪽 자리는 *갈리지 않는다*로 떨어질 수 있다. ⚠️ 오차의 방향은 " +
+    "**거짓 빨강(안전)**이다: 실제로 갈리는 자리를 갈리지 않는다고 세면 래칫이 빨개지고 사람이 본다.",
+  "**소스 대조이지 런타임이 아니다** — TalkBack이 실제로 행마다 다르게 읽는지, 같은 문장이 두 행에서 " +
+    "겹치지 않는지는 실기기 확인 항목의 몫이다. 이 스윕이 보는 것은 라벨 식이 행을 읽는가 하나다.",
+  "**재개 조건(사건형 · 자기 축을 적는다): *행마다 갈리지 않는* 자리가 처음 1건이 되는 날** — 그날의 " +
+    "일은 새 관측이 아니라 `ROW_INVARIANT_REASONS`에 그 자리의 이유를 적거나 라벨을 고치는 것이고, " +
+    "**그 일을 집는 트랙은 이 스윕을 소유한 트랙(a11y 그물의 그 라운드 축)이다.**"
+] as const;
+
+describe("GAP-092 #2 행마다 갈리는 낭독 라벨 전수 스윕 (세 라운드 미배정을 끊는 축)", () => {
+  it("ⓐ 모집단 — 손 목록이 아니라 app·src 전수가 라벨 식과 목록 안의 자리를 정한다", () => {
+    const sweep = rowLabelSweep();
+    // 유령 방지 ①: 걷는 파일이 실제로 있다(스캔이 끊기면 아래 부정 단언이 영원히 초록이다).
+    expect(sweep.files.length, "app·src의 컴포넌트 소스 전수").toBeGreaterThanOrEqual(ROW_LABEL_RATCHET.files);
+    expect(sweep.files.length, "유령 방지 — 모집단이 한 줌이 아니다").toBeGreaterThan(20);
+    // 유령 방지 ②: **모집단이 0건이 아니다.** 이 두 줄이 이 스윕의 값 절반이다.
+    expect(sweep.labels, "식으로 만드는 낭독 라벨 전수").toBeGreaterThanOrEqual(ROW_LABEL_RATCHET.labels);
+    expect(sweep.rows.length, "그중 목록 콜백 안의 자리").toBeGreaterThanOrEqual(ROW_LABEL_RATCHET.listSites);
+    expect(sweep.rows.length, "유령 방지 — 목록 안이 0건이 아니다").toBeGreaterThan(0);
+    // 목록 **밖**은 이 축이 묻지 않는다 — 그 수를 값으로 적어 둔다(사각 ⓐ).
+    expect(sweep.labels - sweep.rows.length, "목록 밖의 낭독 라벨").toBeGreaterThanOrEqual(
+      ROW_LABEL_RATCHET.labels - ROW_LABEL_RATCHET.listSites
+    );
+    // ⚠️ 상수 라벨은 **다른 수**다 — 합산하지 않는다(머리말의 그 규율을 값으로 지킨다).
+    expect(sweep.constants, "상수 문자열 라벨(모집단 밖)").toBeGreaterThanOrEqual(ROW_LABEL_RATCHET.constants);
+    expect(sweep.constants, "그리고 그 수는 식 라벨의 수가 아니다").not.toBe(sweep.labels);
+    // 걷는 파일 수를 함께 센다 — 목록 안 자리가 한 파일에 몰려 있지 않다는 사실도 값이다.
+    const filesWithRows = new Set(sweep.rows.map((site) => site.file));
+    expect(filesWithRows.size, "목록 안 자리를 지닌 파일 수").toBeGreaterThanOrEqual(16);
+  });
+
+  it("ⓑ 판정 셋 — 자리마다 하나가 소스에서 나오고, *갈리지 않는다*는 0건이다", () => {
+    const sites = rowLabelSweep().rows;
+    const verdicts = sites.map((site) => ({ key: rowLabelKey(site), verdict: rowLabelVerdictOf(site), site }));
+
+    // ⚠️⚠️ **부정 단언** — 행마다 갈리지 않는 자리는 오늘 0건이다. 서는 날 이름으로 보여 준다.
+    const invariant = verdicts.filter((entry) => entry.verdict === "row-invariant");
+    expect(invariant.map((entry) => entry.key), "행마다 갈리지 않는 자리").toEqual([]);
+    // ⚠️ 빈 이유 금지 — 그 자리가 서는 날, 이유를 소스가 증명해야 한다.
+    expect(Object.keys(ROW_INVARIANT_REASONS), "갈리지 않는 자리의 이유 표").toEqual([]);
+    for (const entry of invariant) {
+      expect(ROW_INVARIANT_REASONS[entry.key], `${entry.key}가 갈리지 않아도 되는 이유`).toBeTruthy();
+      expect((ROW_INVARIANT_REASONS[entry.key] ?? "").length, `${entry.key}의 이유 길이`).toBeGreaterThan(40);
+    }
+
+    const counts: Record<RowLabelVerdict, number> = { "row-direct": 0, "row-derived": 0, "row-invariant": 0 };
+    for (const { verdict } of verdicts) counts[verdict] += 1;
+    // 판정 셋은 **전수를 남김없이 가른다** — 넷째 갈래가 조용히 생기지 않는다.
+    expect(counts["row-direct"] + counts["row-derived"] + counts["row-invariant"], "판정이 붙은 자리").toBe(
+      sites.length
+    );
+    expect(counts["row-direct"], "행 변수를 직접 쓰는 자리").toBeGreaterThanOrEqual(ROW_LABEL_RATCHET.direct);
+    expect(counts["row-derived"], "행에서 파생한 이름을 거치는 자리").toBeGreaterThanOrEqual(
+      ROW_LABEL_RATCHET.derived
+    );
+
+    // 파생 자리는 오늘 하나이고, 그 파일 이름을 값으로 적는다(사람이 다시 찾아갈 수 있게).
+    const derived = verdicts.filter((entry) => entry.verdict === "row-derived");
+    expect(derived.map((entry) => entry.site.file), "파생 판정이 선 파일").toContain(ROW_DERIVED_SITE_FILE);
+    const familyDerived = derived.find((entry) => entry.site.file === ROW_DERIVED_SITE_FILE);
+    expect(familyDerived, `${ROW_DERIVED_SITE_FILE}의 파생 자리`).toBeTruthy();
+    // 중간 이름도 손이 아니라 소스에서 나온다 — 행 `invite`가 낳은 두 이름이다.
+    expect(rowDerivedNamesOf(familyDerived!.site).sort(), "그 자리가 거치는 중간 이름").toEqual([
+      "createdAtLabel",
+      "roleLabel"
+    ]);
+    expect(familyDerived!.site.rows, "그 목록의 행 변수").toEqual(["invite"]);
+    // ⚠️ 그리고 그 행 변수는 라벨 식에 **없다** — 직접 판정으로 세어졌다면 이 줄이 빨개진다.
+    expect(mentionsIdentifier(familyDerived!.site.expr, "invite"), "행 변수가 라벨 식에 직접 있는가").toBe(false);
+  });
+
+  it("ⓒ 파생의 증명 — 한 걸음 거쳐 갈리는 자리를 *갈리지 않는다*로 세면 거짓 초록이 된다", () => {
+    const verdictOfFixture = (body: string) => {
+      const found = rowLabelSitesOf(`export function Fixture({ rows }) {\n  return (\n    <View>\n${body}\n    </View>\n  );\n}\n`, "fixture");
+      expect(found.rows.length, "픽스처가 목록 안 자리를 하나 낸다").toBe(1);
+      return { verdict: rowLabelVerdictOf(found.rows[0]), site: found.rows[0], labels: found.labels };
+    };
+
+    // ① 직접 — 행 변수가 라벨 식에 그대로 있다.
+    const direct = verdictOfFixture("      {rows.map((row) => (<Pressable accessibilityLabel={`${row.name} 삭제`} />))}");
+    expect(direct.verdict, "행 변수를 직접 쓰는 자리").toBe("row-direct");
+    expect(direct.site.rows, "행 이름").toEqual(["row"]);
+
+    // ②⚠️⚠️ **한 걸음 파생** — 라운드 91 A가 25→27을 겪은 그 자리다. 행 변수가 라벨 식에 **없지만**
+    // 그 이름이 행에서 나온다. 이 갈래가 없으면 이 자리는 *갈리지 않는다*로 세어져 **거짓 초록**이 된다.
+    const derived = verdictOfFixture(
+      "      {rows.map((row) => {\n        const label = buildLabel(row.name);\n        return <Pressable accessibilityLabel={label} />;\n      })}"
+    );
+    expect(derived.verdict, "한 걸음 거쳐 갈리는 자리").toBe("row-derived");
+    expect(rowDerivedNamesOf(derived.site), "그 한 걸음의 이름").toEqual(["label"]);
+
+    // ③ 갈리지 않음 — 라벨 식이 행을 한 번도 읽지 않는다. **이 갈래가 실제로 문다**(0건이 유령이 아니다).
+    const invariant = verdictOfFixture(
+      "      {rows.map((row) => (<Pressable accessibilityLabel={DELETE_LABEL} />))}"
+    );
+    expect(invariant.verdict, "행마다 갈리지 않는 자리").toBe("row-invariant");
+
+    // ④ `renderItem` 바늘 — 오늘 저장소에 0건이라 픽스처가 그 바늘이 문다는 것을 대신 증명한다.
+    const viaRenderItem = rowLabelSitesOf(
+      "<FlatList data={rows} renderItem={({ item }) => <Pressable accessibilityLabel={item.name} />} />",
+      "fixture"
+    );
+    expect(viaRenderItem.rows.length, "renderItem 안의 자리").toBe(1);
+    expect(viaRenderItem.rows[0].kind, "그 자리를 문 바늘").toBe("renderItem");
+    expect(rowLabelVerdictOf(viaRenderItem.rows[0]), "그 자리의 판정").toBe("row-direct");
+    // 그리고 오늘 이 저장소의 목록 자리는 전부 `.map`이다 — 그 사실도 값으로 적는다.
+    expect(new Set(rowLabelSweep().rows.map((site) => site.kind)), "오늘 목록 자리를 문 바늘").toEqual(
+      new Set(["map"])
+    );
+
+    // ⑤ 가장 안쪽이 이긴다 — 중첩 목록에서 *행*은 안쪽의 것이다.
+    const nested = rowLabelSitesOf(
+      "{groups.map((group) => group.rows.map((row) => <Pressable accessibilityLabel={row.name} />))}",
+      "fixture"
+    );
+    expect(nested.rows.length, "중첩 목록의 자리").toBe(1);
+    expect(nested.rows[0].rows, "가장 안쪽 콜백의 행 이름").toEqual(["row"]);
+
+    // ⑥ 목록 **밖**은 이 모집단이 아니다(사각 ⓐ가 값으로 적은 그 층).
+    const outside = rowLabelSitesOf("<Pressable accessibilityLabel={screenTitle} />", "fixture");
+    expect(outside.labels, "식 라벨로는 세어진다").toBe(1);
+    expect(outside.rows, "그러나 목록 안은 아니다").toEqual([]);
+
+    // ⑦ 상수 라벨은 바늘에 걸리지 않는다 — 두 수가 섞이지 않는다는 증명.
+    const constant = rowLabelSitesOf('{rows.map((row) => <Pressable accessibilityLabel="삭제" />)}', "fixture");
+    expect(constant.labels, "상수 라벨은 식 라벨로 세어지지 않는다").toBe(0);
+    expect(constant.rows, "그러므로 목록 안 자리도 아니다").toEqual([]);
+
+    // ⑧ 두 걸음은 따라가지 않는다 — 오차 방향이 **거짓 빨강(안전)**임을 값으로 남긴다(사각 ⓒ).
+    const twoSteps = verdictOfFixture(
+      "      {rows.map((row) => {\n        const middle = pick(row);\n        const label = build(middle);\n        return <Pressable accessibilityLabel={label} />;\n      })}"
+    );
+    expect(twoSteps.verdict, "두 걸음 거쳐 갈리는 자리(한계)").toBe("row-invariant");
+  });
+
+  it("ⓓ 래칫 — 갈리지 않는 자리는 0을 넘지 않고, 목록 안 자리는 줄지 않는다", () => {
+    const sites = rowLabelSweep().rows;
+    const invariant = sites.filter((site) => rowLabelVerdictOf(site) === "row-invariant");
+    // 상한: 0에서 **늘지 않는다**(오늘의 초록이 내일 조용히 낡지 않는다).
+    expect(invariant.length, "행마다 갈리지 않는 자리 (상한)").toBeLessThanOrEqual(ROW_LABEL_RATCHET.invariant);
+    // 하한: 목록 안 자리는 **줄지 않는다**(목록을 지우고 초록을 얻는 길을 막는다).
+    expect(sites.length, "목록 안 자리 (하한)").toBeGreaterThanOrEqual(ROW_LABEL_RATCHET.listSites);
+    expect(
+      sites.filter((site) => rowLabelVerdictOf(site) !== "row-invariant").length,
+      "행마다 갈리는 자리 (하한)"
+    ).toBeGreaterThanOrEqual(ROW_LABEL_RATCHET.direct + ROW_LABEL_RATCHET.derived);
+  });
+
+  it("ⓔ 바이트 불변 — 이 트랙은 화면을 **0바이트** 고쳤다 (부정 단언)", () => {
+    // 갈리지 않는 자리가 0건이므로 **고칠 라벨이 애초에 없다** — 그 사실이 이 줄의 근거다.
+    expect(
+      rowLabelSweep().rows.filter((site) => rowLabelVerdictOf(site) === "row-invariant").length,
+      "고쳐야 했을 라벨"
+    ).toBe(0);
+    // 그리고 스윕이 세는 자리의 원문 바이트가 그대로다 — 한 글자라도 다듬었으면 여기가 빨개진다.
+    for (const [file, bytes] of ROW_LABEL_UNTOUCHED_BYTES) {
+      expect(source(file), `${file}: 읽기만 한 자리의 바이트`).toContain(bytes);
+    }
+    // ⚠️ 새 한국어 리터럴도 새 낭독도 이 트랙에서 0건이다 — 판정 이름은 전부 ASCII 열쇠다.
+    expect(["row-direct", "row-derived", "row-invariant"].join(""), "판정 이름").not.toMatch(/[가-힣]/);
+  });
+
+  it("ⓕ 사각 — 이 스윕이 못 보는 것이 값과 하한으로 적혀 있다", () => {
+    expect(ROW_LABEL_SWEEP_BLIND_SPOTS.length, "적어 둔 사각").toBeGreaterThanOrEqual(4);
+    for (const blindSpot of ROW_LABEL_SWEEP_BLIND_SPOTS) {
+      expect(blindSpot.length, "사각은 빈 문자열일 수 없다").toBeGreaterThan(40);
+    }
+    // 사각 ⓐ의 수는 문장이 아니라 파생이 못 박는다(손 숫자가 조용히 낡을 자리를 없앤다).
+    const sweep = rowLabelSweep();
+    expect(sweep.labels - sweep.rows.length, "사각 ⓐ가 말하는 목록 밖 127").toBeGreaterThanOrEqual(127);
+
+    // 사각 ⓑ의 수도 파생이다 — 라벨 없이 자식 텍스트로 읽히는 누름 자리의 층.
+    let pressables = 0;
+    let withoutLabel = 0;
+    for (const file of sweep.files) {
+      const masked = maskComments(source(file));
+      const needle = /<Pressable\b/g;
+      let found: RegExpExecArray | null;
+      while ((found = needle.exec(masked))) {
+        pressables += 1;
+        const tagEnd = openingTagEnd(masked, found.index);
+        if (tagEnd < 0) continue;
+        if (!masked.slice(found.index, tagEnd).includes("accessibilityLabel")) withoutLabel += 1;
+      }
+    }
+    expect(pressables, "모집단 전수의 <Pressable").toBeGreaterThanOrEqual(145);
+    expect(withoutLabel, "그중 여는 태그에 라벨이 없는 자리").toBeGreaterThanOrEqual(23);
+    expect(withoutLabel, "그 층은 이 모집단보다 작다(그러나 0이 아니다)").toBeGreaterThan(0);
+
+    // 재개 조건은 **자기 축을 적는다**(AD-5의 처방) — 그 문장이 실재하는지 값으로 묻는다.
+    const reopen = ROW_LABEL_SWEEP_BLIND_SPOTS[ROW_LABEL_SWEEP_BLIND_SPOTS.length - 1];
+    expect(reopen, "재개 조건").toContain("재개 조건");
+    expect(reopen, "그 조건이 적은 자기 축").toContain("그 일을 집는 트랙은");
+  });
+
+  it("ⓖ 머리말의 값 — 손 핀은 한 줄도 지우지 않았고, 막던 것은 규율이 아니라 배정이었다", () => {
+    // ① 손 핀(문구 축)은 그대로다. 이 파일 안의 핀 수를 **자기 소스에서** 세어 하한으로 문다.
+    const own = maskComments(source("src/a11y-contract.test.ts"));
+    const handPins = (own.match(/toContain\(\s*["'`][^"'`]*accessibilityLabel/g) ?? []).length;
+    expect(handPins, "이 파일 안의 손 핀(문구를 무는 다른 축)").toBeGreaterThanOrEqual(56);
+    // ⚠️ 그리고 두 축은 서로를 대신하지 않는다 — 손 핀은 **문구**를, 이 스윕은 **행마다 갈리는가**를
+    // 묻는다. 손 핀이 무는 자리 수는 이 스윕의 모집단 수와 같지 않다.
+    const sweep = rowLabelSweep();
+    expect(handPins, "두 축의 수는 같지 않다").not.toBe(sweep.rows.length);
+
+    // ② **막던 것이 배정이었다**는 증거: 이 축은 화면을 한 바이트도 고치지 않고 오늘 값으로 통과한다.
+    expect(
+      sweep.rows.filter((site) => rowLabelVerdictOf(site) === "row-invariant").length,
+      "오늘 고쳐야 했던 자리"
+    ).toBe(0);
+    // ③ 이 트랙이 이 파일에서 연 축은 **하나**다 — 다른 그물의 모집단은 한 글자도 옮기지 않았다.
+    expect(Object.keys(MODULE_ANNOUNCE_SITES).length, "모듈 층 스윕의 모집단(무접촉)").toBe(3);
+    expect([...MODULE_ANNOUNCE_SOURCE_ROOTS], "모듈 스윕이 걷는 뿌리(무접촉)").toEqual(["src"]);
+    expect(Object.keys(HALF_ANNOUNCED_SITES).length, "반쪽 프롭 스윕의 모집단(무접촉)").toBe(7);
+  });
+});
