@@ -963,7 +963,7 @@ export default function ExpenseDetailScreen() {
                     라운드 57 QA(P2-9): 위 칸을 **누른 뒤에만** 후보가 만들어지므로(merchantFocused),
                     기록을 열어 보기만 하는 사람의 화면은 이 줄만큼 밀리지 않는다. */}
                 {merchantSuggestions.length > 0 ? (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                     {merchantSuggestions.map((suggestion) => (
                       <Pressable
                         key={suggestion.merchant}
@@ -1182,7 +1182,7 @@ export default function ExpenseDetailScreen() {
                         todayIso={todayIso}
                       />
                     ) : null}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                       {recentDateChips.map((chip) => (
                         <CategoryChip
                           key={chip.iso}
@@ -1242,7 +1242,7 @@ export default function ExpenseDetailScreen() {
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
                   카테고리
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                   {categoryChips.map((chip) => (
                     <CategoryChip
                       key={chip.id}

@@ -537,13 +537,47 @@ export default function NewExpenseScreen() {
    * (EXP-001 픽셀 락은 세션 자체가 없어 판매처 블록이 아예 렌더되지 않지만, 세션이 있는 화면도
    * 열자마자 칩 줄이 끼어들지 않아야 한다 — 대부분의 기록은 판매처를 적지 않는다).
    *
-   * 포커스가 떠날 때(onBlur) **되돌리지 않는다.** 이 화면의 스크롤러(src/ui.tsx AppScreen)는
-   * `keyboardShouldPersistTaps` 기본값("never")이라, 키보드가 올라온 상태의 첫 탭은 자식에게
-   * 가지 않고 키보드만 내린다. blur에서 칩을 접으면 그 첫 탭에 칩이 사라져 **두 번째 탭이
-   * 맞을 자리가 없다** — 눌러도 아무 일도 일어나지 않는 칩이 된다. 그래서 칩을 눌러 채웠을 때
-   * (applyMerchantSuggestion)와 "저장하고 계속 기록"의 폼 초기화에서만 접는다.
+   * 포커스가 떠날 때(onBlur) **되돌리지 않는다.** ⚠️ 그 판정은 오늘도 옳고, **이유가 두 시점으로
+   * 갈린다** — 아래 ①의 문장을 지우지 않고 그대로 둔 채 ②를 덧붙인다(라운드 92 트랙 A).
+   *
+   * **① 라운드 56 시점(이 문단이 처음 적힌 때) — 오늘 이 문장의 전제는 거짓이다:**
+   * *"이 화면의 스크롤러(src/ui.tsx AppScreen)는 `keyboardShouldPersistTaps` 기본값("never")이라,
+   * 키보드가 올라온 상태의 첫 탭은 자식에게 가지 않고 키보드만 내린다. blur에서 칩을 접으면 그 첫
+   * 탭에 칩이 사라져 **두 번째 탭이 맞을 자리가 없다** — 눌러도 아무 일도 일어나지 않는 칩이 된다."*
+   *
+   * **② 오늘(라운드 92) — 결론은 같고 이유가 바뀌었다.** 라운드 65(GAP-065 #6)가 그 바깥
+   * 스크롤러를 `"handled"`로 고쳤다(src/ui.tsx:86-110 — ⚠️ 리뷰 M-3이 그 주석에 두 시점을 더하며 좌표가 96에서 110으로 밀렸다). ⚠️⚠️ **그 라운드가 자기 근거로 인용한
+   * 자리가 바로 이 주석이었는데, 인용한 손이 인용당한 자리를 고치지 않아 이 문단이 그날부터
+   * 거짓이었다** — 그 낡음이 이 칩 줄을 *이미 해결된 것*으로 읽히게 했다. 실제로 RN의 판단은
+   * `onStartShouldSetResponderCapture`(**capture 단계** — 바깥에서 안으로)에서 나므로, 바깥
+   * `AppScreen`이 `"handled"`여도 **가장 안쪽 스크롤러가 기본값이면 그 자리가 첫 탭을 가로챈다.**
+   * 이 화면의 칩 줄들이 그 안쪽이었고, 라운드 92 트랙 A가 그 여는 태그들에
+   * `keyboardShouldPersistTaps="handled"`를 붙여 오늘 그 자리를 닫았다.
+   *
+   * ⚠️ **그래도 `onBlur`로 접지 않는 것은 그대로다.** ①의 이유는 *첫 탭이 통째로 먹히니 칩이
+   * 사라지면 안 된다*였고, ②의 이유는 *첫 탭이 이제 칩에 닿으므로 그 순간 칩이 살아 있어야
+   * 한다*이다. 그래서 칩을 눌러 채웠을 때(applyMerchantSuggestion)와 "저장하고 계속 기록"의
+   * 폼 초기화에서만 접는다.
+   *
+   * **③ 라운드 92 리뷰 H-2 — ②가 실동작 하나를 끊어 놓았고, 그 자리를 오늘 잇는다.**
+   * 아래 `applyMerchantSuggestion`의 주석은 *"다시 고르고 싶으면 판매처 칸을 누르면 같은 줄이
+   * 돌아온다"* 라고 약속하는데, 그 복귀는 **입력칸이 포커스를 잃었다가 다시 얻어 `onFocus`가
+   * 재발화하는 것**에 통째로 기대고 있었다. ⚠️⚠️ ① 시절에는 첫 탭이 스크롤러에게 먹히며
+   * 키보드가 내려가 그 blur가 **저절로** 일어났는데, ②가 첫 탭을 칩에 닿게 만든 순간 그 blur가
+   * 사라졌다 — 칩을 눌러도 입력칸은 계속 포커스라 다시 눌러도 `onFocus`가 오지 않고, 줄이
+   * 영영 돌아오지 않았다(주석의 약속이 거짓이 됐다). **그래서 오늘 그 blur를 손으로 되돌린다**
+   * (`merchantInputRef.current?.blur()`): 값이 들어가고 → 키보드가 내려가고 → 다시 누르면
+   * `onFocus`가 서서 줄이 돌아온다. 트랙 전의 사용자 경험과 **동치**이면서 *첫 탭이 칩에 닿는다*
+   * 는 ②의 이득은 그대로다.
+   * (이 세 시점을 무는 자리: `src/keyboard-tap-guard.test.ts`.)
    */
   const [merchantFocused, setMerchantFocused] = useState(false);
+  /**
+   * 라운드 92 리뷰 H-2 — 판매처 입력칸의 ref. **칩으로 값을 채운 뒤 포커스를 내려놓는 데에만** 쓴다
+   * (포커스를 *주는* 데는 쓰지 않는다 — 이 화면이 사용자 대신 키보드를 올리는 자리는 없다).
+   * 품목명 칸의 `itemNameInputRef`와 같은 관례다.
+   */
+  const merchantInputRef = useRef<TextInput | null>(null);
   // 라운드 58 #5: 실패 행을 다시 쓰는 경우에만 메모가 채워져 있다. 다른 진입점·비세션(픽셀 락
   // 캡처)에서는 파라미터가 없어 종전 그대로 빈 칸이다.
   const [memo, setMemo] = useState(() => (authToken ? prefilledMemo : ""));
@@ -1001,9 +1035,20 @@ export default function NewExpenseScreen() {
    * 칩 1탭 = 판매처 채우기. 품목 자동완성 칩과 달리 **판매처 한 칸만** 바꾼다(금액·분류는
    * 이 후보가 아는 사실이 아니다). 채운 뒤에는 칩 줄을 접는다 — 다시 고르고 싶으면 판매처
    * 칸을 누르면 같은 줄이 돌아온다.
+   *
+   * ⚠️⚠️ **두 시점 — 그 복귀 경로가 무엇에 기대는가**(라운드 92 리뷰 H-2 · 위 `merchantFocused`
+   * 주석 ③과 한 이야기다).
+   *  · **라운드 92 트랙 A 이전**: 칩을 누른 첫 탭이 스크롤러에게 먹히며 키보드가 내려갔고, 그
+   *    blur 덕에 다시 누르면 `onFocus`가 서서 줄이 돌아왔다 — 이 함수가 아무것도 안 해도 됐다.
+   *  · **트랙 A 이후(오늘)**: 첫 탭이 칩에 닿으므로 그 자동 blur가 없다. 접기만 하면 입력칸은
+   *    계속 포커스라 **다시 눌러도 `onFocus`가 오지 않고 줄이 영영 돌아오지 않는다.**
+   * ⚠️ 그래서 여기서 **직접 blur한다** — 값이 들어가고 → 키보드가 내려가고 → 다시 누르면 줄이
+   * 돌아온다(트랙 전 경험과 동치). ⚠️ `setMerchantFocused(false)`와 **둘 다** 필요하다: blur만
+   * 하면 이 줄이 그대로 남아 칩을 고른 뒤에도 목록이 깔려 있고, 접기만 하면 위의 그 회귀가 된다.
    */
   const applyMerchantSuggestion = (merchantName: string) => {
     setMerchant(merchantName);
+    merchantInputRef.current?.blur();
     setMerchantFocused(false);
   };
 
@@ -1601,7 +1646,7 @@ export default function NewExpenseScreen() {
         {authToken && recentItemChips.length > 0 ? (
           <View style={{ gap: 8 }}>
             <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>최근 품목</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {recentItemChips.map((chip) => (
                 <Pressable
                   key={chip.itemName}
@@ -1725,7 +1770,7 @@ export default function NewExpenseScreen() {
               selectedIso={expenseDateIso}
               todayIso={todayIso}
             />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {recentDateChips.map((chip) => (
                 <CategoryChip
                   key={chip.iso}
@@ -1963,6 +2008,9 @@ export default function NewExpenseScreen() {
               // GAP-056 #2: 칩 줄의 게이트. 열자마자 끼어들지 않고, 이 칸을 누른 뒤에만 나온다.
               onFocus={() => setMerchantFocused(true)}
               placeholder="판매처를 입력해 주세요 (선택)"
+              // 라운드 92 리뷰 H-2: 칩으로 채운 뒤 이 칸의 포커스를 내려놓는 데에만 쓴다
+              // (그래야 다시 눌렀을 때 위 onFocus가 재발화해 칩 줄이 돌아온다).
+              ref={merchantInputRef}
               style={{
                 backgroundColor: theme.colors.white,
                 borderColor: "rgba(74, 63, 53, 0.10)",
@@ -1978,7 +2026,7 @@ export default function NewExpenseScreen() {
                 (같은 pill·같은 높이·같은 한 줄 가로 스크롤). 라벨과 스크린리더 문장은 모듈이
                 만든다 — 화면에 문구를 다시 쓰면 지출 상세와 두 문장으로 갈린다. */}
             {merchantSuggestions.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {merchantSuggestions.map((suggestion) => (
                   <Pressable
                     key={suggestion.merchant}
@@ -2077,7 +2125,7 @@ export default function NewExpenseScreen() {
                 카테고리가 함께 채워지고(저장은 여전히 저장하기 버튼), 세션 없는 픽셀 락
                 캡처에서는 이 분기 자체가 렌더되지 않는다. */}
             {itemAutocompleteChips.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {itemAutocompleteChips.map((chip) => (
                   <Pressable
                     key={chip.itemName}

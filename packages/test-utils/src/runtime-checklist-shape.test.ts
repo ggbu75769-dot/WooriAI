@@ -12,7 +12,7 @@
 //     라운드 74 O-3이 이름 붙인 병("인용이 실측을 대신한다")이 **O-3을 쓴 라운드의 산출물에**
 //     다음 라운드에 자동으로 발병하도록 심겨 있었다.
 //
-// 이 파일이 묻는 것은 다섯이다.
+// 이 파일이 묻는 것은 여섯이다(라운드 92 트랙 E가 ⓕ를 더했다).
 //  ⓐ **파생 단언** — §0 표의 네 수·합계·`뜻` 칸의 두 수·셸 블록 주석의 여섯 숫자가 전부
 //     **이 파일을 파싱한 값**과 같은가(손으로 적은 숫자가 한 자리도 검증 밖에 남지 않는다).
 //  ⓑ **부정 단언** — 모든 표의 모든 행이 그 표 헤더와 **같은 셀 수**인가. `#98`이 오늘까지
@@ -24,6 +24,14 @@
 //     가리킨다 — 번호가 흔들리면 그 인용이 전부 끊긴다).
 //  ⓔ 라운드 구간 목록(§1-1 머리말)이 §1-1의 행을 **빠짐없이 한 번씩** 덮고, 마지막 구간이
 //     이번 라운드 신설분으로 끝나는가(행을 더하고 머리말을 안 고치는 것도 같은 병이다).
+//  ⓕ **이동 의무의 짝**(라운드 92 트랙 E) — 이 파일이 이 문서의 **절 이름을 등호로 무는 자리**마다
+//     그 자리 **바로 위**에 *누가 언제 이것을 옮기는가*가 적혀 있는가.
+//     ⚠️ **새 그물도 새 축도 아니다.** 축 자신은 짝 계약
+//     (`packages/test-utils/src/accessibility-checklist-shape.test.ts`)이 지고, 그쪽이 **두 파일 합**을
+//     전수로 파생한다(오늘 줄 번호 배열 **하나** · 절 이름 **여덟**). 여기 선 것은 그 축의 절반 —
+//     **자기 세 자리**를 같은 자로 다시 재는 짝이다(한 트랙이 한 계약에 축 둘을 얹지 않는다).
+//     ⚠️ 의무 문장은 이 트랙이 **소스에** 적은 것이라 세우는 순간 초록이다 — 문서는 한 글자도
+//     고치지 않는다.
 //
 // ⚠️ **셸을 실행하지 않는다.** 파싱으로 답이 나오므로 명령이 필요 없고, 그래서 라운드 74가
 // 세운 읽기 전용 가드(`repo-self-description.test.ts`의 `FORBIDDEN_COMMAND_PATTERNS`)와
@@ -114,8 +122,25 @@ function headingLine(prefix: string): number {
   return index + 1;
 }
 
+/**
+ * ⚠️ **이동 의무(ⓕ · 라운드 92 트랙 E)** — 아래 셋은 절의 **줄 번호**가 아니라 **이름**을 등호로
+ * 무는 자리다. 그래서 이 문서에 행이 늘어 줄이 밀리는 라운드에는 아무도 손대지 않고, **`## 0. `
+ * 제목 자신이 바뀌거나 그 절이 사라지는 라운드에만** 옮긴다 — 그 손은 그 제목을 고치는 **문서
+ * 트랙(F)**이고, 시점은 **그 제목을 고치는 그 라운드 안**이다(미루면 그 사이 이 계약이 빨간 채로
+ * 선다). 못 찾으면 `headingLine`이 그 자리에서 던진다(fail-closed).
+ */
 const SECTION_0_LINE = headingLine("## 0. ");
+/**
+ * ⚠️ **이동 의무(ⓕ)** — `## 1. ` 제목을 고치는 손(오늘 문서 트랙 F)이 **같은 라운드 안에** 이
+ * 등호를 함께 옮긴다. 이 등호가 §1과 §1-1의 경계를 지므로, 이름이 조용히 바뀌면 두 절의 행 수가
+ * 통째로 갈린다 — 그래서 조용히 낡는 대신 그 자리에서 빨개지는 쪽을 고른다.
+ */
 const SECTION_1_LINE = headingLine("## 1. ");
+/**
+ * ⚠️ **이동 의무(ⓕ)** — `### 1-1.` 제목을 고치는 손(오늘 문서 트랙 F)이 **같은 라운드 안에** 이
+ * 등호를 함께 옮긴다. ⚠️ 짝 계약도 같은 이름을 등호로 물고 있으므로(그 파일의 §1-1 범위), 이름을
+ * 바꾸는 라운드는 **두 파일을 함께** 옮긴다.
+ */
 const SECTION_1_1_LINE = headingLine("### 1-1.");
 
 function sliceLines(fromLine: number, toLine: number): string {
@@ -431,7 +456,7 @@ describe("§1-1 머리말의 라운드 구간 (ⓔ 신설분 편입)", () => {
     const last = ranges[ranges.length - 1];
     // ⚠️ 이 파일에서 **라운드마다 사람이 갱신하는 유일한 값**이다(라운드 종료 트립와이어) —
     // 나머지 수치는 전부 파싱으로 파생된다. 다음 라운드가 행을 더하고 이 줄을 안 고치면 여기가 빨개진다.
-    expect(last.round).toBe("91");
+    expect(last.round).toBe("92");
 
     const rows = section11Rows.filter((row) => {
       const number = Number(row.cells[0]);
@@ -442,5 +467,145 @@ describe("§1-1 머리말의 라운드 구간 (ⓔ 신설분 편입)", () => {
       expect((SURFACES as readonly string[]).includes(surfaceOf(row))).toBe(true);
       expect(row.cells[2], `#${row.cells[0]}의 확인 항목이 트랙을 이름으로 적는다`).toContain("트랙");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⓕ 이동 의무의 짝 — 누가 언제 이 좌표를 옮기는가 (라운드 92 트랙 E · #5)
+// ---------------------------------------------------------------------------
+
+/** 이 계약 자신 — 자기 소스에서 무는 자리를 전수로 파생하기 위해서만 읽는다. */
+const SELF_PATH = "packages/test-utils/src/runtime-checklist-shape.test.ts";
+/** 짝 계약 — **이동 의무 축이 서 있는 자리**(읽기만 · 바이트 불변). */
+const PAIR_CONTRACT_PATH = "packages/test-utils/src/accessibility-checklist-shape.test.ts";
+
+function readRepoFile(relativePath: string): string {
+  return readFileSync(join(repoRoot, ...relativePath.split("/")), "utf8");
+}
+
+/**
+ * 절 제목 문자열을 등호로 찾는 자리 — 짝 계약의 축이 쓰는 바늘과 **같은 꼴**이다.
+ * ⚠️ 이 정규식 자신은 걸리지 않는다(이름 뒤에 `\(`가 오지 `(`가 오지 않는다).
+ */
+const SECTION_NAME_BITE_PATTERN = /(?:headingLine|startsWith)\(\s*"(#{2,3} [^"]*)"/g;
+
+/** 이동 의무의 하한 — ⚠️ **빈 문장 금지: 길이로 막고, 손과 시점을 함께 묻는다.** */
+const DUTY_MIN_LENGTH = 40;
+
+function isCommentLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*");
+}
+
+/** 자리 바로 위의 잇닿은 주석 덩어리 — 빈 줄이나 코드가 끼면 거기서 끊긴다(*바로 위*의 뜻). */
+function dutyAbove(fileLines: readonly string[], index: number): string {
+  const block: string[] = [];
+  for (let cursor = index - 1; cursor >= 0 && isCommentLine(fileLines[cursor]); cursor -= 1) {
+    block.unshift(fileLines[cursor].trim());
+  }
+  return block.join("\n");
+}
+
+type DutySite = { readonly line: number; readonly bite: string; readonly duty: string };
+
+/** ⚠️ **주석 안의 인용은 모집단 밖이다**(자기 배제) — 무는 것은 코드로 선 자리뿐이다. */
+function collectSectionNameSites(text: string): DutySite[] {
+  const fileLines = text.split("\n");
+  const sites: DutySite[] = [];
+  fileLines.forEach((line, index) => {
+    if (isCommentLine(line)) return;
+    for (const match of line.matchAll(SECTION_NAME_BITE_PATTERN)) {
+      sites.push({ line: index + 1, bite: match[1], duty: dutyAbove(fileLines, index) });
+    }
+  });
+  return sites;
+}
+
+function dutyGaps(site: DutySite): string[] {
+  const duty = site.duty.trim();
+  const gaps: string[] = [];
+  if (duty.length < DUTY_MIN_LENGTH) gaps.push(`문장이 ${duty.length}자예요(하한 ${DUTY_MIN_LENGTH})`);
+  if (!/옮/.test(duty)) gaps.push("*옮긴다*는 말이 없어요");
+  if (!/트랙[ (*]{0,3}[A-F]|[A-F]가|사람/.test(duty)) gaps.push("*누가* 옮기는지가 없어요");
+  if (!/라운드|날|시점|때/.test(duty)) gaps.push("*언제* 옮기는지가 없어요");
+  return gaps;
+}
+
+/**
+ * ⚠️ 시험용 호출은 **이름을 한 번 거쳐** 부른다 — 그러지 않으면 fail-closed를 값으로 보이는 그
+ * 한 줄이 스스로 모집단에 들어와, 자리 수를 부풀리고 의무 문장을 요구하게 된다.
+ */
+const callHeadingLine: (prefix: string) => number = headingLine;
+
+describe("ⓕ 이동 의무의 짝 (라운드 92 트랙 E)", () => {
+  /** 래칫 — 이 파일이 무는 절 이름 자리는 **줄지 않는다**(오늘 셋). */
+  const SECTION_NAME_FLOOR = 3;
+  const selfSites = collectSectionNameSites(readRepoFile(SELF_PATH));
+
+  it("자기 소스에서 절 이름을 무는 자리를 전수로 파생한다 (유령 방지 · 오늘 셋)", () => {
+    expect(
+      selfSites.length,
+      "이 파일이 절 이름을 등호로 무는 자리가 줄었어요 — 바늘이 낡았는지 먼저 보세요"
+    ).toBeGreaterThanOrEqual(SECTION_NAME_FLOOR);
+    // ⚠️ 이름을 여기 손으로 옮겨 적지 않는다 — 파생한 이름이 **오늘 이 문서에서 실제로 풀리는가**만 묻는다.
+    for (const site of selfSites) {
+      expect(
+        lines.some((line) => line.startsWith(site.bite)),
+        `${CHECKLIST_PATH}에서 "${site.bite}" 제목을 찾지 못했어요`
+      ).toBe(true);
+    }
+  });
+
+  it("자리마다 바로 위에 이동 의무가 적혀 있다 (빈 문장 금지 · 길이로 막는다)", () => {
+    const missing = selfSites
+      .filter((site) => dutyGaps(site).length > 0)
+      .map((site) => `${SELF_PATH}:${site.line} — ${dutyGaps(site).join(" · ")}`);
+    expect(
+      missing,
+      "절 이름을 등호로 무는 자리 바로 위에 *누가 언제 이것을 옮기는가*가 없어요 — 자리를 새로 만든 사람이 그 문장을 함께 적으세요"
+    ).toEqual([]);
+  });
+
+  it("fail-closed — 절 이름을 못 찾으면 빨개진다 (유령이 아니다)", () => {
+    // 값으로: `headingLine`은 못 찾으면 **던진다**(조용히 -1을 돌려주지 않는다).
+    expect(() => callHeadingLine("## 이 문서에 없는 절 제목")).toThrow();
+    for (const site of selfSites) {
+      expect(
+        readRepoFile(SELF_PATH).split("\n")[site.line - 1],
+        `${SELF_PATH}:${site.line}의 근거`
+      ).toContain("headingLine(");
+    }
+  });
+
+  it("바늘이 장식이 아니다 — 의무 없는 자리는 합성 소스에서 잡힌다", () => {
+    // ⚠️ **합성 소스로 증명한다** — 저장소를 한 글자도 고치지 않고 바늘을 시험한다.
+    const needle = "headingLine";
+    const bare = `const SECTION_X_LINE = ${needle}("## 새 절.");`;
+    const bareSites = collectSectionNameSites(bare);
+    expect(bareSites).toHaveLength(1);
+    expect(dutyGaps(bareSites[0]).length).toBeGreaterThan(0);
+
+    const written = collectSectionNameSites(
+      ["// ⚠️ 이동 의무 — 이 제목을 고치는 문서 트랙(F)이 같은 라운드 안에 이 등호를 함께 옮긴다.", bare].join("\n")
+    );
+    expect(dutyGaps(written[0])).toEqual([]);
+
+    // 주석 안의 인용은 모집단 밖이다(자기 배제).
+    expect(collectSectionNameSites(`// ${needle}("## 0. ")로 절을 찾는다고 설명하는 문장`)).toEqual([]);
+  });
+
+  it("짝 — 축은 짝 계약이 지고, 그 모집단이 이 파일을 포함한다 (축 둘을 얹지 않는다)", () => {
+    const pairSource = readRepoFile(PAIR_CONTRACT_PATH);
+    expect(pairSource, "짝 계약이 이동 의무 축을 잃었어요").toContain("이동 의무");
+    expect(
+      pairSource,
+      "짝 계약의 모집단에서 이 파일이 빠졌어요 — 그러면 여기 세 자리를 세는 자가 이 파일 안에만 남습니다"
+    ).toContain(SELF_PATH);
+    // 이 파일은 그 축을 다시 세우지 않는다 — 여기 있는 것은 자기 세 자리의 짝뿐이고,
+    // 짝 계약 쪽에도 자기 자리가 서 있다(그 합이 그 축의 모집단이다).
+    expect(
+      collectSectionNameSites(pairSource).length,
+      "짝 계약에서 절 이름을 무는 자리가 0건이에요 — 그러면 그 축의 모집단이 이 파일 하나로 좁아집니다"
+    ).toBeGreaterThan(0);
   });
 });
