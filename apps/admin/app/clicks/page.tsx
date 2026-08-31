@@ -10,6 +10,7 @@ import {
   type ClickSummaryDays
 } from "../../src/lib/admin-api";
 import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
+import { analyticsTrendView } from "../../src/lib/analytics-trend-view";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
@@ -61,6 +62,9 @@ export default function ClickSummaryPage() {
 
   // 막대 높이 기준값. 전부 0건이어도 0으로 나누지 않도록 최소 1.
   const maxDaily = summary ? Math.max(1, ...summary.dailyTotals.map((entry) => entry.count)) : 1;
+  // 라운드 86 트랙 D: 막대 라벨·표 행을 형제 화면(분석)과 **같은 모듈**에서 만든다.
+  // 그려지는 글자는 종전과 바이트 단위로 같다 — 바뀐 것은 어디서 값을 만드는가뿐이다.
+  const trend = analyticsTrendView(summary?.dailyTotals ?? [], "회");
 
   return (
     <div className={styles.page}>
@@ -180,10 +184,10 @@ export default function ClickSummaryPage() {
               aria-label={`최근 ${summary.days}일 일별 클릭 수 막대 그래프`}
               style={{ alignItems: "flex-end", display: "flex", gap: 2, height: 120 }}
             >
-              {summary.dailyTotals.map((entry) => (
+              {trend.bars.map((entry) => (
                 <div
                   key={entry.date}
-                  title={`${entry.date}: ${entry.count.toLocaleString("ko-KR")}회`}
+                  title={entry.label}
                   style={{
                     background: entry.count > 0 ? "#F29B76" : "#EFE5DB",
                     borderRadius: 2,
@@ -197,25 +201,32 @@ export default function ClickSummaryPage() {
               <span>{summary.dailyTotals[0]?.date}</span>
               <span>{summary.dailyTotals[summary.dailyTotals.length - 1]?.date}</span>
             </div>
-            <div className={styles.tableWrap}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>날짜</th>
-                    <th>클릭 수</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* 최근 날짜가 위로 오게 뒤집어서 보여준다(막대는 시간순 그대로). */}
-                  {[...summary.dailyTotals].reverse().map((entry) => (
-                    <tr key={entry.date}>
-                      <td>{entry.date}</td>
-                      <td>{entry.count.toLocaleString("ko-KR")}회</td>
+            {/* 최근 날짜가 위로 오게 뒤집는 것도, 그릴 수 없는 점을 표에서 빼고 그 사실을 아래
+                고지 한 줄로 말하는 것도 analytics-trend-view.ts의 판정이다(막대는 시간순 그대로). */}
+            {trend.showTable ? (
+              <div className={styles.tableWrap}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>날짜</th>
+                      <th>클릭 수</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {trend.rows.map((row) => (
+                      <tr key={row.date}>
+                        <td>{row.date}</td>
+                        <td>{row.countText}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {/* 라운드 86 리뷰 M-2: 이 화면의 글자는 **정상 응답에서** 종전과 바이트 단위로 같다 —
+                이 한 줄은 표에서 뺀 점이 있는 응답에서만 선다(그때 표만 짧아지고 아무 말도 없으면
+                운영자가 없는 날을 있다고 읽는다). */}
+            {trend.omissionNotice ? <p className={styles.hint}>{trend.omissionNotice}</p> : null}
             <p className={styles.hint}>막대에 마우스를 올리면 날짜별 클릭 수를 볼 수 있어요. (서울 기준 날짜)</p>
           </section>
         </>

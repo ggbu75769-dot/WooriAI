@@ -70,3 +70,37 @@ export function formatInviteExpiry(expiresAt: string, now: Date = new Date()): s
   if (days <= 0) return `${dateText} · 오늘 만료`;
   return `${dateText} · ${days}일 남음`;
 }
+
+/**
+ * "8월 27일 오후 3시 20분" — 대기 초대가 **만들어진 시각**.
+ *
+ * 라운드 86 C: 한 가구에 같은 역할의 대기 초대가 둘 이상 설 수 있고(서버의 초대 생성에는
+ * 중복 방지가 없다), TTL이 7일 고정이라 같은 날 만든 두 초대는 역할 라벨도 만료 문구도
+ * 글자 하나 다르지 않았다. 되돌릴 수 없는 [취소]의 대상이 화면에서 구별되지 않는 것이다.
+ * 구별할 재료는 이미 응답에 실려 온다 — `PendingInvite.createdAt`을 화면이 한 번도 읽지
+ * 않았을 뿐이다. 이 함수가 그 한 값을 문자열 하나로 파생해, 행의 한 줄과 취소 확인창 제목과
+ * 취소 버튼의 낭독 라벨 **셋이 같은 값**을 읽게 한다(두 문장이 갈릴 자리를 만들지 않는다).
+ *
+ * 어휘가 "만든"인 이유: `createdAt`이 말하는 것은 **초대 링크가 만들어진 시각**뿐이다.
+ * 그것을 실제로 상대에게 보냈는지 서버도 앱도 모르므로 "보냈어요"는 단정이 된다. 초대 화면의
+ * 버튼도 [초대 링크 만들기]라 같은 동사를 쓴다.
+ *
+ * 분 단위까지 적는 이유: 같은 날 한 번 더 만든 초대를 구별하는 것이 이 값의 존재 이유다.
+ * 날짜까지만 적으면 실패 시나리오(같은 날 두 번 보낸 초대) 그대로 다시 같은 줄이 된다.
+ *
+ * `formatInviteExpiry`와 달리 파싱 실패·값 없음에 **null을 돌려준다** — 원문(ISO 문자열)을
+ * 그대로 흘리면 사람이 읽을 수 없는 줄이 서고, 없는 시각을 지어내면 허위 표시가 된다.
+ * 부르는 쪽은 null이면 그 줄을 그리지 않고 나머지는 종전 그대로 둔다.
+ */
+export function formatInviteCreatedAt(createdAt: string | null | undefined): string | null {
+  if (typeof createdAt !== "string") return null;
+  const created = new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return null;
+
+  const hour = created.getHours();
+  const meridiem = hour < 12 ? "오전" : "오후";
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  const minute = created.getMinutes();
+  const clock = minute === 0 ? `${hour12}시` : `${hour12}시 ${minute}분`;
+  return `${created.getMonth() + 1}월 ${created.getDate()}일 ${meridiem} ${clock}`;
+}

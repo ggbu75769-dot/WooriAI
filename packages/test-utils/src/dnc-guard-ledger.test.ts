@@ -149,7 +149,8 @@ describe("ⓑ 두 방향 — 루프·배열 가드는 모집단 칸을 갖는다
     // 곧 "그 단언이 무엇을 도는가"를 한 번 더 보게 만드는 자리다.
     // ⚠️ 라운드 85 트랙 E가 DNC-016을 더했다 — 그 가드는 범위 밖 여섯을 도는 루프이고, 항목이
     // 하나 빠지면 단언은 그대로인 채 무는 범위만 줄어든다(정확히 이 칸이 막는 모양).
-    const loopDriven = ["DNC-004", "DNC-005", "DNC-007", "DNC-009", "DNC-016", "DNC-018"];
+    // ⚠️ 라운드 86 트랙 E가 DNC-019를 같은 모양으로 더했다 — 비밀값 부정 스윕도 셋을 도는 루프다.
+    const loopDriven = ["DNC-004", "DNC-005", "DNC-007", "DNC-009", "DNC-016", "DNC-018", "DNC-019"];
     for (const id of loopDriven) {
       const entry = DNC_GUARD_LEDGER[id];
       expect(entry.state, `${id}`).toBe("guarded");
@@ -190,10 +191,11 @@ describe("ⓓ 래칫 — 가드 없는 조항의 수는 오늘 값을 넘지 못
     ).toBeLessThanOrEqual(UNGUARDED_RULE_MAX);
   });
 
-  it("상한 자체가 조용히 올라가지 않는다 (오늘 실측값 둘)", () => {
+  it("상한 자체가 조용히 올라가지 않는다 (오늘 실측값 하나)", () => {
     // 두 자리를 함께 고쳐야 상한이 오른다 — 한 자리만 고쳐서 지나가는 길을 남기지 않는다.
     // ⚠️ 라운드 85 트랙 E: 3 → 2(DNC-016에 부정 스윕이 섰다). 래칫은 내려간 뒤 다시 오르지 않는다.
-    expect(UNGUARDED_RULE_MAX).toBeLessThanOrEqual(2);
+    // ⚠️ 라운드 86 트랙 E: 2 → 1(DNC-019에 비밀값 부정 스윕이 섰다). 오늘 무가드는 DNC-001 하나다.
+    expect(UNGUARDED_RULE_MAX).toBeLessThanOrEqual(1);
   });
 
   /**

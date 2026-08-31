@@ -2797,6 +2797,74 @@ describe("GAP-072 ⓐ ONB-003 로컬 탈출구의 낭독 계약", () => {
 });
 
 /**
+ * GAP-086 #2(라운드 86 트랙 B) — **ONB-003의 조회 실패 탈출구가 소리로 도달하는가.**
+ *
+ * 위 블록(GAP-072 ⓐ)이 무는 것은 **저장이 실패했을 때**의 로컬 탈출구다. 그 옆에 같은 화면의
+ * 다른 실패가 하나 더 있다 — **목록 조회가 실패한 자리**. 그 자리의 유일한 길이 오래 [건너뛰기]
+ * 하나로 읽혀 왔는데(3초짜리 네트워크 실패가 "준비물 0개"로 굳는 그 길), 실제로는 다시 해 볼
+ * 버튼이 이미 서 있었다. 이 라운드가 한 일은 **그 사실을 문장이 말하게 한 것**이고, 그러면
+ * 문장과 버튼이 한 짝이 되므로 낭독 계약도 한 짝으로 선다.
+ *
+ * 묻는 것은 위 블록과 같은 셋이다: ⓐ 노드가 **조건이 성립할 때만** 서는가(0건 갈래에서 낭독되는
+ * 버튼은 가짜 버튼이다), ⓑ 역할과 라벨이 **소리로 도달**하는가(공유 프리미티브가 역할을 지고
+ * 라벨이 그 자식 Text다 — 맨 Pressable로 바뀌면 역할이 사라진다), ⓒ 라벨↔onPress 짝이 붙어
+ * 있고 그 목적지가 **라벨이 말한 일**(같은 조회를 다시 부르기)인가.
+ *
+ * ⚠️ 문구는 여기서 다시 단언하지 않는다 — 이 화면의 실패 문장은 공용 단일 소스에서 오고
+ * (`src/offline/messages.test.ts`가 그 값을 진다), 이 블록이 붙드는 것은 **소리 나는 자리**다.
+ */
+describe("GAP-086 ⓔ ONB-003 조회 실패 탈출구의 낭독 계약", () => {
+  const screen = () => source("app/(onboarding)/prepared-items.tsx");
+  const RETRY_LABEL = 'label="목록 다시 불러오기"';
+
+  it("조건이 성립할 때만 노드가 선다 (0건 갈래에서 낭독되는 버튼이 없다)", () => {
+    const src = screen();
+    const at = src.indexOf(RETRY_LABEL);
+    expect(at, "탈출구 버튼").toBeGreaterThan(-1);
+    const guardAt = src.lastIndexOf("{itemsQuery.isError ? (", at);
+    expect(guardAt, "그 버튼의 조건").toBeGreaterThan(-1);
+    // 조건은 **조회 실패 하나**다 — 준비물이 0건이라 뜬 갈래는 실패가 아니므로 이 버튼이 서지
+    // 않는다(두 갈래를 더 벌린 이 라운드의 판정이 소리 쪽에서도 같다).
+    const block = src.slice(guardAt, at);
+    expect(block, "0건 갈래가 조건에 섞이지 않는다").not.toContain("hasOptions");
+    // 조건이 거짓이면 노드 자체가 없다 — 비활성 버튼으로 남기지 않는다(달력 미래 칸 A-4 #23).
+    expect(block, "조건 거짓이면 노드 0개").not.toContain("disabled={!itemsQuery.isError}");
+  });
+
+  it("역할과 라벨이 소리로 도달한다 (공유 프리미티브가 역할을 진다)", () => {
+    const src = screen();
+    const at = src.indexOf(RETRY_LABEL);
+    expect(at, "탈출구 버튼").toBeGreaterThan(-1);
+    const tagAt = src.lastIndexOf("<", at);
+    expect(tagAt, "그 라벨이 붙은 태그").toBeGreaterThan(-1);
+    // 맨 Pressable이 아니라 TextButton이다 — 역할·라벨이 그 한 벌에서 온다.
+    expect(src.slice(tagAt, at), "공유 프리미티브").toContain("<TextButton");
+    const primitive = source("src/ui.tsx");
+    const primitiveAt = primitive.indexOf("export function TextButton(");
+    expect(primitiveAt, "공유 프리미티브 선언").toBeGreaterThan(-1);
+    const body = primitive.slice(primitiveAt, primitiveAt + 900);
+    expect(body, "역할").toContain('accessibilityRole="button"');
+    // 라벨은 자식 Text로 그려진다 — 눈이 읽는 글자와 귀가 듣는 글자가 같은 한 값이다.
+    expect(body, "라벨이 소리로 도달한다").toContain("{label}");
+  });
+
+  it("라벨↔onPress 짝이 붙어 있고, 목적지가 라벨이 말한 일이다 (같은 조회를 다시 부른다)", () => {
+    const src = screen();
+    const at = src.indexOf(RETRY_LABEL);
+    expect(at, "탈출구 버튼").toBeGreaterThan(-1);
+    const tagEnd = src.indexOf("/>", at);
+    expect(tagEnd, "그 태그의 끝").toBeGreaterThan(at);
+    const tag = src.slice(src.lastIndexOf("<TextButton", at), tagEnd);
+    // 목적지가 붙어 있다(라벨만 낭독되는 가짜 버튼이 아니다).
+    expect(tag, "목적지").toContain("onPress={() => void itemsQuery.refetch()}");
+    // 다시 부르는 동안에는 눌리지 않는다 — 같은 조회가 겹쳐 나가지 않는다.
+    expect(tag, "조회 중 비활성").toContain("disabled={itemsQuery.isFetching}");
+    // 그리고 그 refetch는 **있는 조회**의 것이다(이 화면의 쿼리는 하나뿐 · 새 선언 0건).
+    expect(src.match(/useQuery\(/g) ?? [], "쿼리 선언").toHaveLength(1);
+  });
+});
+
+/**
  * GAP-072 ⓑ·ⓒ(트랙 C / A-13 #65) — **리포트 빈 기간 카드**가 소리로 성립하는가.
  *
  * 이 카드는 액션 키가 둘로 갈리는 자리다. 그래서 GAP-071 #5가 `EmptyStateCard`에 세운

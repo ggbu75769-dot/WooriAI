@@ -10,9 +10,18 @@ import { NECESSITY_FILTER_OPTIONS } from "./item-filters";
  *
  * 1) 근거 없는 "BEST" 제거. 예전 목록은 `index === 0`인 행에 "BEST" 배지를 달았다 --
  *    서버 응답 어디에도 그런 평가는 없고, 정렬이 바뀌면 "BEST"도 따라 움직였다(즉 그 배지가
- *    가리키는 사실이 없다). 배지는 이제 응답에 실제로 있는 두 값만 말한다: 사용자의 준비
- *    상태(status)와 카탈로그의 필수도(necessityLevel). 추천 점수/정렬에는 아무것도 관여하지
- *    않는다(DNC-009 무접촉).
+ *    가리키는 사실이 없다). 이 모듈이 돌려주는 라벨은 전부 **응답에 실제로 있는 값**에서만
+ *    나온다 -- 사용자의 준비 상태(status)와 카탈로그의 필수도(necessityLevel). 추천 점수/
+ *    정렬에는 아무것도 관여하지 않는다(DNC-009 무접촉).
+ *
+ *    라운드 86 A -- **그 두 값을 오늘 어디가 그리는지**를 여기 값으로 적어 둔다. 옛 머리말은
+ *    *"배지는 이제 두 값만 말한다"* 고만 적었고, DSN-053 P2-B가 목록을 승인 디자인의 타일
+ *    그리드로 옮긴 뒤로 그 문장은 **거짓**이었다(상태만 pill로 이어받았고 필수도를 그리는
+ *    자리는 0건이었는데, 그 거짓 문장이 다음 라운드에게는 "이미 그리고 있다"는 근거로 읽혔다).
+ *    오늘: **상태**는 타일의 상태 pill(`src/design-system/components/ModV1Primitives.tsx`)과
+ *    상세의 상태 배지가 그리고, **필수도**는 목록 타일 아래 슬롯(`app/(tabs)/items.tsx`의
+ *    `renderItemFooter`)과 상세의 "필수도" 줄이 그린다. 이 파일에는 **호출부 없는 판정을
+ *    남기지 않는다** -- 계약만 초록인 함수는 다음 사람에게 "화면이 그렇게 그린다"로 읽힌다.
  * 2) 목록과 상세가 같은 말을 하게 한다. 상세 화면이 자기 준비 상태를 표시하면서 문구를 따로
  *    적으면 두 화면이 조용히 갈라진다("이미 준비" vs "준비했어요") -- 라벨 규칙은 이 파일
  *    하나뿐이다.
@@ -60,16 +69,6 @@ export function itemStatusBadgeLabel(status: ItemStatus): string | undefined {
 export function necessityBadgeLabel(necessityLevel: NecessityLevel): string | undefined {
   if (necessityLevel === "optional") return undefined;
   return NECESSITY_FILTER_OPTIONS.find((option) => option.value === necessityLevel)?.label;
-}
-
-/**
- * 목록 카드 배지 판정: 준비 상태가 있으면 상태 라벨이 우선, 없으면 필수도 라벨.
- *
- * 상태를 앞세우는 이유 -- 준비완료 탭은 prepared와 gifted를 함께 보여주므로("직접 준비했다"
- * vs "선물로 받아 이미 있다") 상태 라벨이 사라지면 둘을 구분할 방법이 없다(ITEM-123 B4).
- */
-export function itemListBadgeLabel(item: { status: ItemStatus; necessityLevel: NecessityLevel }): string | undefined {
-  return itemStatusBadgeLabel(item.status) ?? necessityBadgeLabel(item.necessityLevel);
 }
 
 /**

@@ -479,6 +479,70 @@ describe("Admin CMS analytics page (ADM-009)", () => {
     expect(source).toContain("summary.byName.filter((entry) => !(ANALYTICS_EVENT_NAMES as string[]).includes(entry.name))");
   });
 
+  /**
+   * 라운드 86 트랙 D (Z-3의 답) — 일별 추이가 값을 **텍스트로** 남긴다.
+   *
+   * 종전 이 카드의 값은 막대의 `title` 속성 하나뿐이었다. `title`은 마우스 호버에만 열리는
+   * 경로라 키보드·스크린리더·터치에는 이 화면의 날짜별 수에 **닿을 방법이 없었다** — 그런데
+   * 옳은 형식은 이미 형제 화면에 있었다(`app/clicks/page.tsx`의 날짜·클릭 수 표). 그 형식을
+   * 새로 짓지 않고 두 화면이 **같은 모듈**(src/lib/analytics-trend-view.ts)을 지나게 한다.
+   *
+   * 이 블록이 지지 않는 책임: 파생값의 형식·경계(전부 0 · 어긋난 행 수 · 표기 한 자리)는
+   * 그 모듈의 테스트가 **실제로 호출해** 고정한다. 여기서 묻는 것은 화면의 배선뿐이다.
+   */
+  describe("라운드 86 트랙 D 일별 추이가 값을 텍스트로 남긴다", () => {
+    it("ⓐ 날짜와 건수가 표의 텍스트 노드로 선다 (호버가 유일한 경로가 아니다 · 부정 단언)", () => {
+      const source = readSource("app/analytics/page.tsx");
+      // 값이 텍스트로 사는 자리 — 형제 화면과 같은 두 칸(날짜 · 이벤트 수).
+      expect(source).toContain("<th>날짜</th>");
+      expect(source).toContain("<th>이벤트 수</th>");
+      expect(source).toContain("<td>{row.date}</td>");
+      expect(source).toContain("<td>{row.countText}</td>");
+      // 부정 단언: 값을 만드는 자리가 title 하나였던 옛 경로는 남아 있지 않다.
+      expect(source).not.toContain('title={`${entry.date}: ${entry.count.toLocaleString("ko-KR")}건`}');
+      expect(source).toContain("title={entry.label}");
+      // 낭독 한 줄: 막대 그림(role="img")과 별개로 표 자신이 이름을 갖는다.
+      expect(source).toContain("aria-label={`최근 ${summary.days}일 일별 이벤트 수 표`}");
+      // 종전 막대 그림의 이름은 그대로다(같은 카드에 두 이름이 겹쳐 읽히지 않게 문구를 나눈다).
+      expect(source).toContain("aria-label={`최근 ${summary.days}일 일별 이벤트 수 막대 그래프`}");
+    });
+
+    it("ⓑ 형제 화면과 같은 모듈을 지나고, 새 상호작용 표면을 만들지 않는다", () => {
+      const source = readSource("app/analytics/page.tsx");
+      expect(source).toContain('import { analyticsTrendView } from "../../src/lib/analytics-trend-view";');
+      expect(source).toContain('const trend = analyticsTrendView(summary?.dailyTotals ?? [], "건");');
+      expect(readSource("app/clicks/page.tsx")).toContain(
+        'import { analyticsTrendView } from "../../src/lib/analytics-trend-view";'
+      );
+      // 막대는 여전히 그림이다 — 포커스·클릭 핸들러를 새로 달지 않는다(표가 이미 값을 준다).
+      const cardStart = source.indexOf("<h2>일별 추이</h2>");
+      expect(cardStart, "일별 추이 카드 제목이 소스에 없어요").toBeGreaterThan(-1);
+      const card = source.slice(cardStart);
+      expect(card).not.toContain("tabIndex");
+      expect(card).not.toContain("onClick");
+      expect(card).not.toContain("<button");
+    });
+
+    it("ⓒ 최대치 문장은 값이 있을 때만 붙는다 (화면이 판정을 스스로 짓지 않는다)", () => {
+      const source = readSource("app/analytics/page.tsx");
+      // 문장도 표도 모듈의 판정에서 파생된다 — 화면에 손으로 적은 갈래가 없다.
+      expect(source).toContain("{trend.peakSentence ? <p className={styles.hint}>{trend.peakSentence}</p> : null}");
+      expect(source).toContain("{trend.showTable ? (");
+      expect(source).not.toContain("Math.max(...summary.dailyTotals.map((entry) => entry.count))");
+    });
+
+    it("ⓔ 이 트랙이 새 의존성을 들이지 않았다", () => {
+      const pkg = JSON.parse(readSource("package.json")) as {
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      const declared = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
+      for (const chart of ["recharts", "chart.js", "d3", "victory", "nivo", "echarts"]) {
+        expect(declared, `${chart}이(가) 어드민 의존성에 들어왔어요`).not.toContain(chart);
+      }
+    });
+  });
+
   it("adds the 분석 nav entry visible to every role, and admin-api exposes the summary types", () => {
     const shell = readSource("src/components/AdminShell.tsx");
     // No `roles:` restriction on the entry — visible to admin/editor/analyst.

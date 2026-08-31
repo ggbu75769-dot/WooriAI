@@ -95,7 +95,7 @@ import {
   NECESSITY_FILTER_OPTIONS,
   type NecessityFilter
 } from "../../src/items/item-filters";
-import { ITEM_PRICE_BAND_FALLBACK_TEXT } from "../../src/items/item-labels";
+import { ITEM_PRICE_BAND_FALLBACK_TEXT, necessityBadgeLabel } from "../../src/items/item-labels";
 import {
   applyPreBirthFilter,
   isPreBirthFilterActive,
@@ -1075,8 +1075,15 @@ export default function ItemsScreen() {
           // UX-E: 서버 순서상 앞선 미준비 필수템이면 제자리에서 살짝 구분한다. 순서는 건드리지
           // 않는다. 스폰서 구분(DNC-011)과 헷갈리지 않도록 문구는 광고성 표현을 쓰지 않는다.
           const isPrepFocusItem = Boolean(prepFocusIds?.has(item.id));
+          // 라운드 86 A: 목록 위 필수도 칩으로 **고를 수 있는 축**을 목록이 말하지 않으면,
+          // 칩을 끄는 순간 무엇이 필수였는지가 화면에서 사라진다(타일을 하나씩 열어야 한다).
+          // 문구는 그 칩과 같은 단어를 쓰는 모듈이 정하고(NECESSITY_FILTER_OPTIONS 단일 소스),
+          // "선택"에는 라벨이 없다 -- 모든 타일에 배지가 붙으면 배지가 아무것도 구분하지 못한다.
+          // 카탈로그의 사실 하나일 뿐이라 순서·강조·점수에는 관여하지 않는다(DNC-009 무접촉).
+          const necessityLabel = necessityBadgeLabel(item.necessityLevel);
           return (
             <View style={{ gap: 6 }}>
+              {necessityLabel ? <StatusBadge label={necessityLabel} /> : null}
               {isPrepFocusItem ? (
                 <Text style={{ color: theme.colors.coral[700], fontSize: 11, fontWeight: "700", lineHeight: 16 }}>
                   {NEXT_PREP_FOCUS_BADGE_LABEL}

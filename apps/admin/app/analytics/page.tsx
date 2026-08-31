@@ -11,6 +11,7 @@ import {
   type AnalyticsSummaryDays
 } from "../../src/lib/admin-api";
 import { loadErrorCopy, type LoadErrorCopy } from "../../src/lib/load-error-copy";
+import { analyticsTrendView } from "../../src/lib/analytics-trend-view";
 import { classifiedOnboardingStepTotal, onboardingStepCount } from "../../src/lib/onboarding-steps-view";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
@@ -199,6 +200,10 @@ export default function AnalyticsSummaryPage() {
 
   const showLoading = loading && !loadError;
   const maxDaily = summary ? Math.max(1, ...summary.dailyTotals.map((entry) => entry.count)) : 1;
+  // 라운드 86 트랙 D: 막대 라벨·표 행·최대치 문장을 형제 화면(클릭 통계)과 **같은 모듈**에서
+  // 만든다. 종전 이 카드는 값을 `title`(마우스 호버)에만 줬고, 그래서 키보드·스크린리더에는
+  // 어떤 경로로도 닿지 않았다 — 클릭 화면이 이미 갖고 있던 날짜·건수 표를 같은 형식으로 세운다.
+  const trend = analyticsTrendView(summary?.dailyTotals ?? [], "건");
 
   return (
     <div className={styles.page}>
@@ -500,10 +505,10 @@ export default function AnalyticsSummaryPage() {
               aria-label={`최근 ${summary.days}일 일별 이벤트 수 막대 그래프`}
               style={{ alignItems: "flex-end", display: "flex", gap: 2, height: 120 }}
             >
-              {summary.dailyTotals.map((entry) => (
+              {trend.bars.map((entry) => (
                 <div
                   key={entry.date}
-                  title={`${entry.date}: ${entry.count.toLocaleString("ko-KR")}건`}
+                  title={entry.label}
                   style={{
                     background: entry.count > 0 ? "#F29B76" : "#EFE5DB",
                     borderRadius: 2,
@@ -517,7 +522,43 @@ export default function AnalyticsSummaryPage() {
               <span>{summary.dailyTotals[0]?.date}</span>
               <span>{summary.dailyTotals[summary.dailyTotals.length - 1]?.date}</span>
             </div>
-            <p className={styles.hint}>막대에 마우스를 올리면 날짜별 이벤트 수를 볼 수 있어요. (서울 기준 날짜)</p>
+            {/* 라운드 86 트랙 D: 막대의 `title`은 마우스에만 열리는 경로였다 — 형제 화면(클릭
+                통계)이 이미 쓰던 날짜·건수 표를 같은 모듈에서 세워 값을 텍스트로 남긴다.
+                뒤집는 순서도, 그릴 수 없는 점을 표에서 빼고 그 사실을 아래 고지 한 줄로 말하는
+                것도 그 모듈의 판정이다(라운드 86 리뷰 M-2 — 표를 말없이 지우지 않는다). */}
+            {trend.showTable ? (
+              <div className={styles.tableWrap}>
+                <table className={styles.table} aria-label={`최근 ${summary.days}일 일별 이벤트 수 표`}>
+                  <thead>
+                    <tr>
+                      <th>날짜</th>
+                      <th>이벤트 수</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trend.rows.map((row) => (
+                      <tr key={row.date}>
+                        <td>{row.date}</td>
+                        <td>{row.countText}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {/* 라운드 86 리뷰 M-2: 표에서 뺀 점이 있으면 표를 지우는 대신 그 사실을 한 줄로 말한다
+                (정상 응답에서는 `null`이라 이 줄이 서지 않는다). */}
+            {trend.omissionNotice ? <p className={styles.hint}>{trend.omissionNotice}</p> : null}
+            {/* 전부 0건인 기간에는 이 문장이 서지 않는다(아무 일도 없던 날을 봉우리로 만들지 않는다). */}
+            {trend.peakSentence ? <p className={styles.hint}>{trend.peakSentence}</p> : null}
+            {/* 라운드 86 리뷰 L-11: 표가 선 뒤에도 "마우스를 올리면"만 적어 두면, 그 경로가 없는
+                운영자(키보드·스크린리더)에게 이 카드는 여전히 마우스 전용으로 읽힌다. 표가 있을
+                때는 표를 가리키고, 표가 서지 못한 응답에서만 종전 문장이 남는다. */}
+            <p className={styles.hint}>
+              {trend.showTable
+                ? "날짜별 이벤트 수는 위 표에서 볼 수 있어요. (막대에 마우스를 올려도 같은 값이 떠요 · 서울 기준 날짜)"
+                : "막대에 마우스를 올리면 날짜별 이벤트 수를 볼 수 있어요. (서울 기준 날짜)"}
+            </p>
           </section>
         </>
       ) : null}

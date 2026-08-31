@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { itemListBadgeLabel } from "./item-labels";
+import { itemStatusBadgeLabel, itemStatusLabel } from "./item-labels";
 import { computeEssentialPrepProgress } from "./prep-progress";
 
 const mobileRoot = process.cwd();
@@ -163,14 +163,19 @@ describe("gifted를 잃게 만드는 조작은 확인을 거친다 (리뷰 F2)",
 
 describe("준비완료 탭의 선물 배지 (items 탭)", () => {
   /**
-   * 라운드 48 T1(A3b): 배지 판정이 화면에서 순수 모듈로 나갔다
-   * (src/items/item-labels.ts의 itemListBadgeLabel). ITEM-123 B4가 지키려던 사실은
-   * 그대로다 -- 정리된 품목 밴드가 prepared와 gifted를 함께 보여주므로 gifted 항목은 순서와
-   * 무관하게 "선물"로 구분돼야 한다.
+   * 라운드 48 T1(A3b): 배지 판정이 화면에서 순수 모듈로 나갔다(src/items/item-labels.ts).
+   * ITEM-123 B4가 지키려던 사실은 그대로다 -- 정리된 품목 밴드가 prepared와 gifted를 함께
+   * 보여주므로 gifted 항목은 순서와 무관하게 "선물"로 구분돼야 한다.
    *
    * DSN-053 P2-B: 목록이 승인 디자인의 타일 그리드가 되면서 그 구분을 **타일의 상태 pill**이
    * 맡는다(design-system ModV1Primitives의 preparationStatusVisual — gifted는 성공 서피스의
    * "선물"). 어댑터가 상태를 그 어휘로 올려 주는지까지 여기서 함께 고정한다.
+   *
+   * ⚠️ 라운드 86 A: 이 어휘 단언 둘은 종전에 **사문이 된 목록 배지 판정**(상태가 있으면 상태,
+   * 없으면 필수도)을 불렀다 -- 그 함수는 호출부가 0건이라 걷혔다. 지키려던 사실은 그 함수에
+   * 있던 것이 아니라 **어휘**에 있으므로, 오늘 살아 있는 두 자리(상세의 상태 배지가 쓰는
+   * `itemStatusBadgeLabel` · 상세 "제품 정보"의 상태 줄이 쓰는 `itemStatusLabel`)로 옮긴다.
+   * 필수도는 이제 다른 축의 값이라 gifted 어휘의 입력이 아니다(그 축은 item-labels.test.ts).
    */
   it("gifted 항목은 순서와 무관하게 상태 라벨을 단다", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
@@ -178,8 +183,8 @@ describe("준비완료 탭의 선물 배지 (items 탭)", () => {
     expect(itemsSource).not.toContain('return "선물 받음";');
     expect(itemsSource).toContain("toPreparationParityItem(rowItem, {");
     // P1-4: 배지 어휘도 타일 pill과 같은 "선물"이다(예전에는 상세만 "선물 받음"이라 갈렸다).
-    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "essential" })).toBe("선물");
-    expect(itemListBadgeLabel({ status: "gifted", necessityLevel: "optional" })).toBe("선물");
+    expect(itemStatusLabel("gifted")).toBe("선물");
+    expect(itemStatusBadgeLabel("gifted")).toBe("선물");
     // 타일 pill의 문구도 어휘 모듈 한 곳에서만 온다.
     expect(source("src/design-system/components/ModV1Primitives.tsx")).toContain(
       '{ value: "gifted", label: MOD_V1_ITEM_STATUS_LABELS.gifted, icon: "gift-outline" }'
