@@ -1009,8 +1009,11 @@ describe("GAP-063 #10 라운드 63 신설 UI 접근성 계약", () => {
     expect(childrenSource).toContain('const switchNotice = requestedHouseholdId ? ` ${HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE}` : "";');
     // 보이는 토스트와 낭독이 같은 사실을 말한다(눈과 귀가 다른 말을 듣지 않는다).
     expect(childrenSource).toContain("showToast(`${addedNotice}${switchNotice}`, \"success\");");
+    // 종전(라운드 63 GAP-063~라운드 92): `${input.values.nickname.trim()}를 추가하고…` — 조사 `를`이
+    // 이름과 무관하게 고정이었다("지훈를"). 라운드 93 트랙 B가 이름을 addedName 한 자리로 모으고
+    // objectParticle(받침 판정)로 조사를 값에서 고르면서 이 핀도 오늘의 줄로 옮긴다(두 시점).
     expect(childrenSource).toContain(
-      "announceForA11y(`${input.values.nickname.trim()}를 추가하고 선택했어요.${switchNotice}`);"
+      "announceForA11y(`${addedName}${objectParticle(addedName)} 추가하고 선택했어요.${switchNotice}`);"
     );
   });
 

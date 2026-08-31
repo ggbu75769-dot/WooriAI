@@ -499,7 +499,9 @@ const BLIND_SPOTS: readonly {
     // ⚠️⚠️ 이 트랙의 축이 **아닌** 것을 축과 함께 적는다(AD-5의 처방).
     id: "fixed-particle-pinned-by-another-contract",
     // 이 트랙이 고친 넷 가운데, 다른 계약이 **옛 바이트를 그대로 인용**하고 있던 자리 수.
-    measure: 1,
+    // 종전(트랙 B 완료 시점): 1 — 아래 reason이 적은 그 세 줄. 라운드 93 통합(메인 세션)이
+    // 같은 라운드 안에서 그 핀을 오늘의 바이트로 옮겨 적어(두 시점 주석 동반) 오늘 0이다.
+    measure: 0,
     floor: 0,
     reason:
       "**고정 조사는 문장에만 있는 것이 아니라 그 문장을 인용한 계약에도 있었다.** " +
@@ -512,7 +514,9 @@ const BLIND_SPOTS: readonly {
     resumeCondition:
       "재개 조건(사건형): 트랙 C 또는 그 뒤의 손이 `src/a11y-contract.test.ts`의 그 세 줄을 " +
       "오늘의 바이트(`${addedName}${objectParticle(addedName)} 추가하고 선택했어요.`)로 옮겨 적는 날 — " +
-      "그날 이 사각의 실측은 1에서 0으로 내려간다."
+      "그날 이 사각의 실측은 1에서 0으로 내려간다. " +
+      "→ **발동됨(라운드 93 통합)**: 메인 세션이 트랙 B·C 커밋 직후 그 핀을 옮겨 적었고, 실측은 0이다. " +
+      "아래 it이 두 방향(핀이 오늘의 바이트를 들고, 화면과 계약 어느 쪽에도 옛 바이트가 없다)을 계속 잰다."
   }
 ];
 
@@ -1260,16 +1264,19 @@ describe("ⓕ 사각 — 이 스윕이 못 보는 것을 값과 하한으로 적
     expect(spot?.measure).toBe(0);
   });
 
-  it("⚠️⚠️ 고친 넷 가운데 하나를 다른 계약이 옛 바이트로 물고 있다 — 그 파일은 이 트랙의 것이 아니다", () => {
+  it("⚠️⚠️ 고친 넷을 옛 바이트로 물던 옆 계약의 핀이 오늘의 바이트로 옮겨 적혔다 (재개 조건 발동 · 두 시점)", () => {
     const spot = BLIND_SPOTS.find((entry) => entry.id === "fixed-particle-pinned-by-another-contract");
     expect(spot).toBeDefined();
     expect(spot?.reason).toContain("a11y-contract.test.ts:1012-1014");
-    expect(spot?.resumeCondition).toContain("1에서 0으로 내려간다");
-    // ⚠️ 유령이 아니다 — 그 계약 파일이 실재하고, 오늘 그 인용을 정말 들고 있다.
+    expect(spot?.resumeCondition).toContain("발동됨(라운드 93 통합)");
+    // 종전(트랙 B 완료 시점): 옆 계약이 옛 바이트 `…nickname.trim()}를 추가하고 선택했어요.` 를 코드로
+    // 들고 있어 이 수가 1이었다. 통합이 핀을 옮겨 적은 오늘, 핀은 **오늘의 바이트**를 들고 있고
+    // 옛 바이트는 (두 시점 주석 속 말고는) 코드 어디에도 없다.
     const contract = readFileSync(join(mobileRoot, "src/a11y-contract.test.ts"), "utf8");
-    expect(contract).toContain("를 추가하고 선택했어요.");
-    // 그리고 화면 쪽은 이미 옮겨 갔다 — 그래서 이 수가 오늘 1이다.
+    expect(contract).toContain("${addedName}${objectParticle(addedName)} 추가하고 선택했어요.");
+    expect(maskComments(contract)).not.toContain("를 추가하고 선택했어요.");
+    // 화면 쪽도 옮겨 간 그대로다 — 두 파일이 같은 오늘의 문장을 지난다.
     expect(maskComments(readSweptSource("app/settings/children.tsx"))).not.toContain("를 추가하고 선택했어요.");
-    expect(spot?.measure).toBe(1);
+    expect(spot?.measure).toBe(0);
   });
 });
