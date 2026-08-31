@@ -347,25 +347,102 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     expect(screen).toContain("canPassPreparedItemsLocally({");
   });
 
-  it("ⓒ 0건 갈래: 준비물이 없어서 뜬 문장에는 공용 문장도 [다시 시도]도 붙지 않는다", () => {
-    const screen = source("app/(onboarding)/prepared-items.tsx");
-    // 갈래를 가르는 조건은 종전 그대로이고(라운드 73이 제외 사유로 적었던 그 모양),
-    expect(screen).toContain("{!isLoadingOptions && !hasOptions ? (");
-    // 0건 문구는 **바이트 불변**이다(실패가 아니므로 연결도 재시도도 이 자리의 사실이 아니다).
-    expect(screen).toContain('"지금 시기에 보여드릴 준비물이 아직 없어요. 이 단계는 건너뛰어도 괜찮아요."');
-    // 얹힌 두 가지는 **둘 다** 조회 실패 조건 아래에만 선다 — 공용 문장 한 줄과 고유 안내 한 줄.
-    const branchAt = screen.indexOf("{!isLoadingOptions && !hasOptions ? (");
-    expect(branchAt, "0건·실패 갈래").toBeGreaterThan(-1);
-    const optionsAt = screen.indexOf("{options.map((item, index) => {", branchAt);
-    expect(optionsAt, "갈래의 끝(후보 목록이 그 다음이다)").toBeGreaterThan(branchAt);
-    const branch = screen.slice(branchAt, optionsAt);
-    expect(branch, "공용 문장은 실패 갈래의 것이다").toContain("? itemsLoadErrorText");
-    expect(branch, "고유 안내도 실패 조건 아래다").toContain("{itemsQuery.isError ? (");
-    // 공용 문장이 실패 조건 아래에 있다는 사실(조건 → 문장 순서)도 함께 못박는다.
-    expect(branch.indexOf("{itemsQuery.isError"), "조건이 먼저다").toBeLessThan(
-      branch.indexOf("? itemsLoadErrorText")
+  /**
+   * 라운드 87 트랙 B(#2) — **목록이 있을 때도 실패를 말한다.**
+   *
+   * 라운드 86이 이 화면을 배선할 때 실패 두 줄은 0건 갈래(`!isLoadingOptions && !hasOptions`)
+   * **안**의 삼항이었다. 그래서 옛 목록이 그려진 채 다시 불러오기가 실패한 창
+   * (`isError && hasOptions`)에서는 화면이 실패를 한 글자도 말하지 않고 [목록 다시 불러오기]
+   * 버튼만 맥락 없이 남았다 — 그 사실은 그 라운드가 화면 주석·제외 목록에 스스로 적어 뒀다.
+   *
+   * ## 왜 문자열 포함이 아니라 **픽스처로 돌리는가**
+   *
+   * 종전 단언은 갈래를 **문자열의 자리**로만 봤다(`{!isLoadingOptions && !hasOptions ? (` 안에
+   * `? itemsLoadErrorText`가 있는가). 그 형태는 "어느 창에서 그 줄이 서는가"를 묻지 못해서,
+   * 실패 두 줄이 목록 있는 창에서 통째로 사라지는 동안에도 초록이었다. 그래서 조건절을 소스에서
+   * **읽어 와 창 다섯으로 실제로 돌린다**(라운드 84 리뷰 H-1이 무효화 깊이 검사에 세운 그 관례).
+   * 조건이 다시 좁아지면 픽스처가 먼저 빨개진다.
+   *
+   * ⚠️ 문구는 여기서 새로 적지 않는다 — 0건 문장은 **바이트 불변**으로 대조하고, 실패 두 줄은
+   * 공용 상수에서 파생한 위 ⓑ 계약이 이미 진다.
+   */
+  const PREPARED_ITEMS_SCREEN = "app/(onboarding)/prepared-items.tsx";
+  /** 주석을 걷어낸 소스 — 갈래 판정은 코드만 본다(이 파일의 다른 스윕과 같은 관례). */
+  const preparedItemsCode = (): string =>
+    source(PREPARED_ITEMS_SCREEN)
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/[^\n]*/g, " ");
+  /** 앵커 한 줄을 감싸는 `{<조건> ? (` 갈래의 **조건절**. */
+  const guardFor = (code: string, anchor: string): string => {
+    const anchorAt = code.indexOf(anchor);
+    expect(anchorAt, `앵커: ${anchor}`).toBeGreaterThan(-1);
+    const guards = [...code.matchAll(/\{([^{}]+?)\s*\?\s*\(/g)].filter((match) => (match.index ?? 0) < anchorAt);
+    expect(guards.length, `${anchor}를 감싸는 갈래`).toBeGreaterThan(0);
+    return (guards[guards.length - 1][1] ?? "").trim();
+  };
+  /** 그 조건절을 창 하나로 **실제로 돌린다**(화면 상태는 이 셋이 전부다). */
+  type PreparedItemsWindow = { isLoadingOptions: boolean; hasOptions: boolean; isError: boolean };
+  const standsIn = (guard: string, window: PreparedItemsWindow): boolean =>
+    Boolean(
+      new Function("isLoadingOptions", "hasOptions", "itemsQuery", `return (${guard});`)(
+        window.isLoadingOptions,
+        window.hasOptions,
+        { isError: window.isError }
+      )
     );
-    // 그리고 다시 불러오기 버튼도 조회 실패 하나에만 걸린다(0건은 다시 부를 것이 없다).
+  const WINDOWS: Readonly<Record<string, PreparedItemsWindow>> = {
+    // ⚠️ 이 트랙의 축: 옛 목록이 그려진 채 다시 불러오기가 실패한 창.
+    "실패 · 목록 있음": { isLoadingOptions: false, hasOptions: true, isError: true },
+    "실패 · 목록 없음": { isLoadingOptions: false, hasOptions: false, isError: true },
+    "성공 · 0건": { isLoadingOptions: false, hasOptions: false, isError: false },
+    "성공 · 목록 있음": { isLoadingOptions: false, hasOptions: true, isError: false },
+    "첫 조회 중": { isLoadingOptions: true, hasOptions: false, isError: false }
+  };
+
+  it("라운드 87 ⓐ 창: 목록이 있는 채 실패해도 실패 두 줄이 선다 (조건은 실패 하나 · 픽스처로 돌린다)", () => {
+    const code = preparedItemsCode();
+    // 공용 문장 한 줄과 이 화면 고유의 탈출구 안내 한 줄은 **같은 하나의 조건**을 진다.
+    const sharedLine = guardFor(code, "{itemsLoadErrorText}");
+    const ownLine = guardFor(code, "이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요.");
+    expect(ownLine, "두 줄이 한 갈래다").toBe(sharedLine);
+    expect(sharedLine, "조건은 조회 실패 하나뿐이다").toBe("itemsQuery.isError");
+    // 그래서 실패한 창 **둘 다**에서 선다(목록이 남아 있는지는 실패의 사실을 바꾸지 않는다).
+    for (const name of ["실패 · 목록 있음", "실패 · 목록 없음"] as const) {
+      expect(standsIn(sharedLine, WINDOWS[name]), `${name}: 실패 두 줄이 선다`).toBe(true);
+    }
+    // 실패가 아닌 창에서는 서지 않는다(0건도, 목록이 있는 성공도, 첫 조회 중도).
+    for (const name of ["성공 · 0건", "성공 · 목록 있음", "첫 조회 중"] as const) {
+      expect(standsIn(sharedLine, WINDOWS[name]), `${name}: 실패 두 줄이 서지 않는다`).toBe(false);
+    }
+    // 종전 모양(0건 갈래 안의 삼항)이 되살아나지 않는다.
+    expect(code, "실패 문장이 다시 0건 갈래에 묶이지 않는다").not.toContain("? itemsLoadErrorText");
+  });
+
+  it("라운드 87 ⓑ 0건 갈래: 준비물이 없어서 뜬 문장에는 실패 문장도 오프라인 문장도 붙지 않는다", () => {
+    const screen = source(PREPARED_ITEMS_SCREEN);
+    const code = preparedItemsCode();
+    // 0건 문구는 **바이트 불변**이다(실패가 아니므로 연결도 재시도도 이 자리의 사실이 아니다).
+    const emptyCopy = '"지금 시기에 보여드릴 준비물이 아직 없어요. 이 단계는 건너뛰어도 괜찮아요."';
+    expect(screen).toContain(emptyCopy);
+    const emptyGuard = guardFor(code, emptyCopy);
+    // 갈래를 가르던 종전 조건에 **실패가 아닐 것**이 더해져 두 갈래가 더 벌어졌다.
+    expect(emptyGuard).toBe("!isLoadingOptions && !hasOptions && !itemsQuery.isError");
+    // 실패한 창에서는 이 문장이 서지 않는다(그 자리는 위 실패 두 줄의 것이다 — 부정 단언).
+    for (const name of ["실패 · 목록 있음", "실패 · 목록 없음"] as const) {
+      expect(standsIn(emptyGuard, WINDOWS[name]), `${name}: 0건 문장이 서지 않는다`).toBe(false);
+    }
+    // 그리고 준비물이 정말 없을 때는 종전 그대로 선다(이 갈래를 좁힌 것이 갈래를 지우지 않았다).
+    expect(standsIn(emptyGuard, WINDOWS["성공 · 0건"]), "성공 · 0건: 0건 문장이 선다").toBe(true);
+    for (const name of ["성공 · 목록 있음", "첫 조회 중"] as const) {
+      expect(standsIn(emptyGuard, WINDOWS[name]), `${name}: 0건 문장이 서지 않는다`).toBe(false);
+    }
+    // 건너뛰기 판정 자체는 이 트랙이 손대지 않는다(라운드 72 A의 오프라인 통과도 그대로다).
+    expect(screen).toContain("const canSkip = !isLoadingOptions && !hasOptions");
+  });
+
+  it("라운드 87 ⓒ [목록 다시 불러오기]: 자리·조건 불변 — 그 조건에 0건 판정이 끼지 않는다", () => {
+    const screen = source(PREPARED_ITEMS_SCREEN);
+    // 다시 불러오기 버튼은 조회 실패 하나에만 걸린다(0건은 다시 부를 것이 없다).
     const retryAt = screen.indexOf('label="목록 다시 불러오기"');
     expect(retryAt, "탈출구 버튼").toBeGreaterThan(-1);
     const retryGuard = screen.lastIndexOf("{itemsQuery.isError ? (", retryAt);
@@ -374,6 +451,24 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     expect(retryBlock, "조건과 버튼 사이에 다른 조건이 없다").not.toContain("hasOptions");
     expect(screen, "있는 조회를 다시 부른다 — 새 쿼리 0건").toContain("onPress={() => void itemsQuery.refetch()}");
     expect(screen.match(/useQuery\(/g) ?? [], "이 화면의 쿼리는 하나뿐이다").toHaveLength(1);
+    // 그 버튼 뒤로 이 화면이 세우는 갈래는 없다(자리가 화면 맨 아래 그대로다).
+    expect(screen.indexOf("{options.map((item, index) => {"), "후보 목록").toBeLessThan(retryAt);
+  });
+
+  /**
+   * ⓕ — **거짓이 된 근거를 주석에 남기지 않는다**(라운드 85 A·86 A의 그 규율).
+   *
+   * 라운드 86의 화면 주석은 `isError && hasOptions` 창에서 실패 두 줄이 서지 않는다는 사실을
+   * 정직하게 적어 뒀다. 오늘 그 문장은 거짓이므로 함께 사라져야 한다 — 남겨 두면 다음 라운드가
+   * 그 문단을 근거로 같은 자리를 다시 재게 된다.
+   */
+  it("라운드 87 ⓕ 주석: '이 창에서는 서지 않는다'는 옛 근거가 소스에 남아 있지 않다", () => {
+    const screen = source(PREPARED_ITEMS_SCREEN);
+    expect(screen, "실패 두 줄이 0건 갈래에 묶여 있다는 근거").not.toContain("갈래에 묶여 있어");
+    expect(screen, "버튼만 맥락 없이 남는다는 근거").not.toContain("맥락 없이 남는다");
+    expect(screen, "실패 갈래에만 선다던 옛 인라인 주석").not.toContain("실패 갈래에만 서는");
+    // 그 자리에 오늘의 사실이 들어와 있다(주석을 지우기만 하지 않았다).
+    expect(screen).toContain("라운드 87 트랙 B");
   });
 
   /**

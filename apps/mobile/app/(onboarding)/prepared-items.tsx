@@ -186,21 +186,35 @@ export default function PreparedItemsScreen() {
             </>
           ) : null}
 
-          {!isLoadingOptions && !hasOptions ? (
+          {/* 라운드 87 트랙 B(#2) — **실패 두 줄의 조건은 조회 실패 하나다.**
+
+              라운드 86이 이 두 줄을 세울 때는 0건 갈래(`!isLoadingOptions && !hasOptions`) **안**의
+              삼항이었다. 그래서 옛 목록이 그려진 채 다시 불러오기가 실패한 창
+              (`isError && hasOptions`)에서는 화면이 실패를 한 글자도 말하지 않고, 맨 아래의
+              [목록 다시 불러오기]만 맥락 없이 남았다. 조건을 이 자리로 올려 그 창에서도 문장과
+              버튼이 **함께** 서게 한다(그 버튼의 조건과 같은 하나다).
+
+              문구는 한 글자도 바뀌지 않는다: 공용 문장 한 줄(온라인 갈래만 주어 접두 — 위
+              `itemsLoadErrorText` 머리말)과 이 화면 고유의 탈출구 안내 한 줄이 종전 그대로
+              같은 순서로 선다(얹되 지우지 않는다). */}
+          {itemsQuery.isError ? (
             <>
               <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize }}>
-                {itemsQuery.isError
-                  ? itemsLoadErrorText
-                  : "지금 시기에 보여드릴 준비물이 아직 없어요. 이 단계는 건너뛰어도 괜찮아요."}
+                {itemsLoadErrorText}
               </Text>
-              {/* 실패 갈래에만 서는 이 화면 고유의 안내. 0건 갈래는 실패가 아니므로 이 줄도
-                  [목록 다시 불러오기]도 붙지 않는다 — 두 갈래를 더 벌린다(라운드 86 B ⓒ). */}
-              {itemsQuery.isError ? (
-                <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize }}>
-                  이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요.
-                </Text>
-              ) : null}
+              <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize }}>
+                이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요.
+              </Text>
             </>
+          ) : null}
+
+          {/* 0건 갈래는 **실패가 아닐 때만** 선다(종전에는 실패가 이 갈래 안의 삼항이었다).
+              문구는 바이트 불변이고, 실패 문장도 오프라인 문장도 [목록 다시 불러오기]도 붙지
+              않는다 — "지금 시기에 없다"와 "못 불러왔다"는 다른 사실이라 두 갈래를 더 벌린다. */}
+          {!isLoadingOptions && !hasOptions && !itemsQuery.isError ? (
+            <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize }}>
+              {"지금 시기에 보여드릴 준비물이 아직 없어요. 이 단계는 건너뛰어도 괜찮아요."}
+            </Text>
           ) : null}
 
           {options.map((item, index) => {
@@ -280,17 +294,15 @@ export default function PreparedItemsScreen() {
           그 짝이 실제로 한 짝으로 읽히는지는 코드가 답할 수 없어 기기 확인이 진다
           (`docs/qa/runtime-verification-required.md` #153 ⓑ · 접근성 표 A-27 #99 ⓑ).
 
-          ⚠️ 그런데도 이 자리를 위 `!hasOptions` 갈래 **안으로** 옮기지 않는다: 옛 목록이 그려진 채
-          다시 불러오기가 실패한 창(`isError && hasOptions`)에서는 그 갈래가 서지 않으므로, 안으로
-          넣으면 다시 해 볼 길이 그 창에서만 사라진다. 조건은 조회 실패 하나뿐이라 0건 갈래에는
-          붙지 않는다.
+          ⚠️ 이 버튼의 조건은 **조회 실패 하나**다 — 0건 갈래에는 붙지 않는다(다시 부를 것이 없다).
+          그래서 이 자리를 위 0건 갈래 **안으로** 옮기지 않는다: 옛 목록이 그려진 채 다시 불러오기가
+          실패한 창(`isError && hasOptions`)에서는 그 갈래가 서지 않으므로, 안으로 넣으면 다시 해 볼
+          길이 그 창에서만 사라진다.
 
-          ⚠️ **그 창의 오늘 모습도 사실대로 적어 둔다(회귀 아님)**: `isError && hasOptions`에서는
-          실패 문장 두 줄이 `!hasOptions` 갈래에 묶여 있어 **서지 않고**, 이 버튼만 목록 아래에
-          맥락 없이 남는다. 이것은 이 트랙이 만든 상태가 아니라 **종전 그대로**다(버튼은 이 라운드
-          전에도 그 자리에 있었고, 문장 쪽은 아예 없었다). 고치려면 실패 문장을 목록이 있는 갈래로도
-          내보내야 하는데, 그것은 "얹되 지우지 않는다"보다 넓은 배치 변경이라 이 라운드의 값이
-          아니다 — 다음 라운드가 집어 들 자리로 `known-limitations.md` AA-3 갱신에 값으로 적었다.
+          ⚠️ **라운드 87 트랙 B — 그 창에서 문장과 버튼이 함께 선다.** 라운드 86까지는 실패 문장
+          두 줄이 0건 갈래 안에 묶여 있어 이 버튼만 목록 아래에 맥락 없이 남았다. 오늘은 위 실패
+          두 줄의 조건이 이 버튼과 **같은 하나**(`itemsQuery.isError`)라, 그 창에서도 무엇이
+          실패했는지가 화면 안에 남는다.
         */}
         {itemsQuery.isError ? (
           <TextButton
