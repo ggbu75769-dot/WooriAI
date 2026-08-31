@@ -482,19 +482,34 @@ export const DNC_GUARD_LEDGER: Readonly<Record<string, DncLedgerEntry>> = {
       "⚠️ 무는 것은 이 표다: 저장/예산/제휴/빈화면 문구의 톤은 각 화면 계약이 자리마다 따로 문다(해요체 단언이 선 파일이 오늘 스무 곳 남짓)."
   },
   "DNC-019": {
-    state: "unguarded",
-    reason:
-      "조항이 잠근 것은 코드/seed/test에 하드코딩된 실제 비밀값(OAuth secret · 제휴 ID · 운영 DB URL)인데, " +
-      "저장소를 그 모양으로 훑는 스윕이 0건이다. 이웃 넷은 전부 다른 축이다: " +
-      "apps/api/test/require-secret.test.ts(운영에서 기본값으로 뜨지 않는가) · " +
-      "scripts/check-env.ts(.env.example과 카탈로그의 키 이름 두 방향) · " +
-      "apps/mobile/src/settings/support-links.test.ts(문서에 하드코딩된 주소·이메일) · " +
-      "apps/mobile/src/android-release-aab.test.ts(거부 메시지에 env 값이 실리지 않는가 — ⚠️ 그나마도 무는 것이 " +
-      "'주석 한 줄이 실재하는가'라 이 대장의 판정 기준으로는 가드가 아니다).",
-    resumeWhen:
-      "실제 제휴 ID·OAuth secret·운영 DB URL이 저장소에 한 번이라도 들어오는 날, 또는 스윕의 모양이 결정되는 날 — " +
-      "무엇을 비밀값으로 볼 것인가와 테스트 픽스처의 가짜 값(kakao-secret · test-access-secret 등)을 어떻게 가를 것인가가 " +
-      "그 결정이고, 그 둘을 정하지 않은 스윕은 첫날부터 면제 목록으로 산다."
+    state: "guarded",
+    file: "packages/test-utils/src/dnc-secret-scan.test.ts",
+    assertion: "      expect(violations.map(describeSecretViolation), secretFailureHint(item)).toEqual([]);",
+    // ⚠️ H-2: 이 단언은 **셋을 도는 루프 안**에 있다 — 배열이 비거나 항목이 빠지면 0회 돌고도
+    // 초록이다. 그래서 모집단은 그 for 줄과 셋의 id 전수다(라운드 86 트랙 E).
+    population: [
+      "for (const item of SECRET_ITEMS) {",
+      '      "oauth-secret",',
+      '      "affiliate-id",',
+      '      "prod-db-url"'
+    ],
+    covers:
+      "라운드 86 트랙 E가 세운 부정 스윕이다 — 조항이 이름으로 잠근 셋(실제 OAuth secret · 제휴 ID · 운영 DB URL) " +
+      "**각각이 자기 뿌리와 바늘**을 값으로 갖고 항목별로 독립해서 선다(어느 항목이 깨졌는지 실패 메시지가 말한다). " +
+      "뿌리는 넷이고(시드의 affiliatePartnerCode 칸 · requireSecret의 둘째 인자 · 코드·설정 전수의 postgres URL 리터럴 · " +
+      ".env.example의 KEY=값 줄) 각각 이유와 함께 적혀 있으며, 계약이 뿌리의 실재와 자리 산출을 함께 확인한다. " +
+      "셋의 문구는 이 문서의 DNC-019 행에서 파싱해 대조하므로 **조항에 넷째가 붙으면 그 스윕이 먼저 빨개진다**. " +
+      "⚠️ 가짜 값을 가르는 규칙은 **자기 고백 표식**(dev · test · local · example · change-me · placeholder 등)이고, " +
+      "그 규칙으로 가르지 못하는 자리 하나(requireSecret의 둘째 인자 — 표식이 있어도 값이 코드에 있다)는 **게이트**로 가른다: " +
+      "오늘 그 열여섯 자리가 이름·부류·메모와 함께 면제 대장에 있고, 그 이유(*'isDevOrTestEnv() 뒤에서만 반환된다'*)의 참을 " +
+      "같은 계약이 require-secret.ts 소스로 다시 확인하며, **면제에 오른 자리의 오늘 값이 가짜 표식을 달고 있는지도 함께 센다** " +
+      "(그래서 실제 키로 갈아 끼우면 면제 이름이 그대로여도 빨개진다). 걸리는 자리 전수 = 면제 줄 전수를 양방향으로 묻기 때문에 " +
+      "requireSecret 호출부가 하나 늘면 그 자리를 이유와 함께 적기 전까지 초록이 되지 않는다. " +
+      "⚠️ 무는 것은 값의 **모양**이다: 표식을 단 진짜 비밀값과 docs/**에 붙여넣어진 운영 URL은 이 그물 밖이고(조항의 말은 " +
+      "'코드/seed/test'다), 그 한계는 스윕 머리말에 값으로 적혀 있다. " +
+      "이웃 넷은 여전히 다른 축이다: apps/api/test/require-secret.test.ts(운영에서 기본값으로 뜨지 않는가 — 이 스윕은 그 파일을 " +
+      "증명의 소스로 읽는다) · scripts/check-env.ts(키 이름 두 방향) · apps/mobile/src/settings/support-links.test.ts(주소·이메일) · " +
+      "apps/mobile/src/android-release-aab.test.ts(거부 메시지에 env 값이 실리지 않는가)."
   },
   "DNC-020": {
     state: "guarded",
@@ -519,8 +534,14 @@ export const DNC_GUARD_LEDGER: Readonly<Record<string, DncLedgerEntry>> = {
  * DNC-001은 그 스윕이 자기 축을 무는지 **판정한 뒤** 무가드로 남겼고(셋 중 하나만 걷혔다 · 위 그 칸의
  * 이유), DNC-019는 이번에 열지 않았다(*"무엇을 비밀값으로 볼 것인가"* 는 다른 축의 결정이다 —
  * 이유와 재개 조건 그대로). **닫힌 수보다 더 내리지 않는다.**
+ *
+ * ⚠️ **라운드 86 트랙 E: 2 → 1.** 실제로 닫힌 것은 **DNC-019 하나**다 — 라운드 85가 미룬 결정
+ * (*"무엇이 비밀값인가"* 와 *"가짜 값을 무엇으로 가르는가"*)을 그 트랙이 값으로 적고 부정 스윕을
+ * 세웠다(`dnc-secret-scan.ts`). DNC-001은 **이번에도 열지 않았다**(라운드 85가 *"같은 축"* 가설을
+ * 이미 반증했고 그 이유는 그 칸에 값으로 있다 — 무접촉). 오늘 무가드는 DNC-001 하나이고, 이 상한은
+ * 그 실측값이다.
  */
-export const UNGUARDED_RULE_MAX = 2;
+export const UNGUARDED_RULE_MAX = 1;
 
 /** 오늘 *"가드 없음"* 인 조항 — 대장에서 **파생한다**(손으로 세지 않는다). */
 export function unguardedRuleIds(): string[] {
