@@ -776,12 +776,24 @@ export default function SyncStatusScreen() {
           없는 약속이다 — 실패 행을 고쳐 다시 보내는 길(SYNC_STATUS_FIX_AND_RESEND_LABEL)이 같은
           판정에 걸려 있고, 그 행들은 애초에 403으로 굳은 것이다. 문장은 순수 모듈에서 오고,
           역할 미상·비세션·데모는 종전 문장 그대로다. */}
+      {/* 라운드 93 트랙 A: 이 화면 안의 나가는 길은 오랫동안 **목록이 빌 때만** 섰다
+          (`ListEmptyComponent`의 `EmptyStateCard actionLabel="닫기"`). 앱은 전역
+          `headerShown: false`(app/_layout.tsx)라 OS 헤더가 없으므로, 대기·실패·충돌 행이
+          하나라도 있으면 나가는 길이 0개였다 -- 그런데 이 화면은 **행이 있을 때 보라고 만든
+          화면**이고, 실패 행을 고쳐 저장한 사용자를 앱이 스스로 여기로 보낸다
+          (src/expenses/post-save-destination.ts의 `POST_SAVE_SYNC_STATUS_DESTINATION`).
+          UX-Q(C)가 ScreenHeader에 낸 `onBack` 슬롯을 그대로 쓴다(app/notifications.tsx가 라운드
+          39 UX-O에서 같은 이유로 같은 답을 골랐다) -- 새 문구도 새 낭독도 만들지 않는다: ‹ 표기와
+          "뒤로가기" 라벨은 공용 슬롯이 이미 지닌 하나다(src/ui.tsx).
+          빈 목록의 "닫기"는 **그대로 둔다**: 그 자리는 같은 `router.back()`이라 두 길이 어긋나지
+          않고, 없애면 이 걸음이 나가는 길을 고친 것이 아니라 옮긴 것이 된다. */}
       <ScreenHeader
         eyebrow="동기화"
         title="동기화 상태"
         subtitle={
           expenseEntryLocked ? VIEW_ONLY_HEADLINES.syncStatus : "아직 서버에 반영되지 않은 기록을 확인하고 정리할 수 있어요."
         }
+        onBack={() => router.back()}
       />
 
       {/* REC-123(H4): 배지/섹션 제목 문구는 기록 탭과 같은 src/offline/messages.ts에서 온다.
