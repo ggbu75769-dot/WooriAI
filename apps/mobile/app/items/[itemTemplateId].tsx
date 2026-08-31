@@ -842,6 +842,7 @@ export default function ItemDetailScreen() {
   }
   const canCallLinkApi = hasSession;
   const handleProductLinkPress = (link: ProductLink) => {
+    if (clickLink.isPending) return;
     if (canCallLinkApi) {
       // ANA-103: affiliate_link_clicked fires on the press itself (the comparison rows and the
       // purchase CTA both funnel through here), alongside the server-side click record
