@@ -67,6 +67,14 @@ export function requiredConsentAcceptances(
  * 덮어쓰므로(onboarding-core.service.ts), 재로그인할 때마다 "동의한 날"이 오늘로 밀린다.
  * 설정 화면의 동의 내역은 그 날짜를 사실로 보여준다 — 밀면 그 줄이 거짓이 된다.
  */
+/**
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
+ * 옮겼다). 화면이 `hasPendingRequiredConsents`를 부르지 않는 이유: 온보딩·설정은 "남았는가"(불리언)가 아니라
+ * **"무엇이 남았는가"**(`pendingRequiredConsents`)와 **"무엇을 보낼 것인가"**
+ * (`requiredConsentAcceptances`)를 묻고, 목록을 이미 손에 쥔 자리에서는 길이를 보면 된다.
+ * **지우지 않는다** — 바로 위 문단이 적은 "왜 다시 보내지 않는가"의 술어판이라, 그 조건을
+ * 계약이 이름으로 잡아 둘 자리가 필요하다.
+ */
 export function hasPendingRequiredConsents(
   definitions: readonly PartialDefinition[] | null | undefined
 ): boolean {

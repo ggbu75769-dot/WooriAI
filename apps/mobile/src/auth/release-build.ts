@@ -73,6 +73,13 @@ export function isDeveloperBuild(): boolean {
 }
 
 /** 실사용자에게 나가는 빌드인가(Play AAB · production APK). `isDeveloperBuild()`의 부정. */
+/**
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
+ * 옮겼다). 화면이 `isRealUserBuild`를 부르지 않는 이유는 **관례**다 — 개발자에게만 하는 말은 긍정형이 참일
+ * 때 세운다(`isDeveloperBuild()`). 부정형으로 물으면 "실사용자에게만 세우는 것"이 되어 같은 축의
+ * 관례가 두 방향으로 갈린다. **지우지 않는다** — 지우는 판단은 그 관례를 어느 방향으로 고정할지
+ * 정한 다음이고, 오늘 이 한 줄이 하는 일은 그 갈림을 값으로 지켜 두는 것이다.
+ */
 export function isRealUserBuild(): boolean {
   return !isDeveloperBuild();
 }

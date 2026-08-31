@@ -93,6 +93,15 @@ export const NOTIFICATION_TYPE_OPTIONS: readonly NotificationTypeOption[] = [
 ] as const;
 
 /** 종류 → 라벨. 화면이 목록을 돌지 않고 한 종류만 이름 지을 때 쓴다(옛 저장본은 undefined). */
+/**
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
+ * 옮겼다). 바로 위 한 줄이 `notificationTypeLabel`을 쓰는 조건을 적어 두었는데 **그 조건을
+ * 만족하는 화면이 오늘 0건**이다 —
+ * 설정 화면은 종류 하나를 이름 짓는 대신 `NOTIFICATION_TYPE_OPTIONS`를 그대로 돌면서 스위치를
+ * 그리고, 라벨은 그 순회 안에서 이미 손에 있다. **지우지 않는다** — 알림 하나를 단독으로 이름
+ * 짓는 자리(배지·상세)가 생기면 그때 필요한 것이 이 함수이고, 옛 저장본이 남긴 모르는 종류가
+ * undefined로 떨어진다는 사실도 여기서만 이름으로 잡힌다.
+ */
 export function notificationTypeLabel(type: string): string | undefined {
   return NOTIFICATION_TYPE_OPTIONS.find((option) => option.type === type)?.label;
 }

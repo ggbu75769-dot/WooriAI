@@ -50,19 +50,37 @@
 //  ⓒ **이유가 대장에만 있는 것** — 소스에 아무 말이 없어서 **여기에 적는다**. ⚠️ 그 이유는 빈
 //     문자열일 수 없고, *"왜 화면이 부르지 않는가"* 를 말해야 한다(*"안 쓴다"* 는 이유가 아니다).
 //
+// ## ⚠️ 라운드 88 트랙 D — 갈래가 **5 / 2 / 9**에서 **5 / 11 / 0**이 됐다
+//
+// 라운드 87이 남긴 것은 *"이유가 대장에만 있는 아홉"* 이었고, 그 아홉은 **대장을 읽어야만** 왜
+// 화면이 부르지 않는지 알 수 있었다. 라운드 88 트랙 D가 그 아홉의 이유를 **소스 주석으로 옮겼다**
+// (제품 소스에 더한 것은 **주석 한 덩이씩 아홉**뿐 — 코드·문자열·export 값은 바이트 그대로다).
+// 그래서 오늘 `reason-in-ledger`는 **0건**이고, 그 갈래가 사라진 것이 아니라 **비어 있는 것**이다:
+// 새 사문이 소스에도 이름에도 아무 말 없이 생기면 그 항목은 다시 이 갈래로 떨어진다.
+//
+// ⚠️⚠️ **그 이동에는 순서가 있었고, 순서가 계약의 전부였다.** 이유 주석은 *"화면이 왜
+// `supportLinkUrl`을 부르지 않는가"* 를 적으므로 **그 export의 이름을 부를 수밖에 없다.** 옛 그물은
+// 주석을 마스킹하지 않았으므로 **이유를 적는 순간 그 항목이 사문 목록에서 조용히 사라졌다** —
+// 아홉이 래칫 아래로 빠지고 계약은 아무것도 지키지 못한 채 초록이 된다. 그래서 트랙 D는
+// **먼저 `findProductReferences`에 마스킹을 가르치고, 그다음 주석을 적었다.** 오늘의 실측이 그
+// 순서를 값으로 증명한다: **마스킹판 16 · 마스킹 없는 옛 그물 7**(사라졌을 아홉이 정확히 그 차다).
+//
 // ⚠️ **실측이 정찰(round87-scout #5 ⓐ)과 갈린 자리 셋** — 값으로 남긴다:
 //  · **명단이 열일곱이 아니라 열여섯이다**(위 머리말 — 트랙 A가 `hasAnyAuditLogFilter`를 되살렸다).
 //    ⚠️ 나머지 열여섯의 **이름과 자리는 정찰과 정확히 같다** — 트랙 E가 정찰의 목록을 옮겨 적은 것이
 //    아니라 같은 조건으로 **다시 세어서** 같은 답이 나왔다(모집단·호출부를 코드로 걷는다).
 //  · **이름이 고백하는 것은 여섯이 아니라 다섯이다.** 정찰은 여섯으로 적었지만 `reset*`·`*ForTests`
 //    모양은 다섯뿐이고(`__resetAnalyticsClientForTests`·`resetImportBulkRuns`·`resetLocalDevicesForTests`·
-//    `resetPushRegistrationForTests`·`resetAppQueryClientRegistryForTests`), 그래서 갈래는 **5 / 2 / 9**다
-//    (정찰의 셈은 6 / 2 / 9였고 그 아홉에는 되살아난 하나가 들어 있었다).
+//    `resetPushRegistrationForTests`·`resetAppQueryClientRegistryForTests`), 그래서 라운드 87의 갈래는
+//    **5 / 2 / 9**였다(정찰의 셈은 6 / 2 / 9였고 그 아홉에는 되살아난 하나가 들어 있었다).
+//    ⚠️ **라운드 88 트랙 D 이후의 갈래는 5 / 11 / 0이다**(위 문단 — 다섯은 그대로다).
 //  · **어드민 모집단의 수가 정찰과 다르다.** 정찰은 `apps/admin/src/lib/**`를 확장자 구별 없이 세어
 //    146을 얻었는데 그중 둘이 `admin-token-context.tsx`의 컴포넌트 export다(둘 다 화면이 부른다).
-//    이 대장은 `.tsx`를 모집단 밖에 두므로 그날의 같은 자리가 144였고, **오늘 다시 재면 147**이다
+//    이 대장은 `.tsx`를 모집단 밖에 두므로 그날의 같은 자리가 144였고, 라운드 87이 다시 재니 147이었다
 //    (트랙 A가 `audit-log-rows.ts`를 세우며 셋을 더했다). ⚠️ **사문 수는 그 셋과 무관하게 움직였다** —
-//    새 파일이 사문을 만든 것이 아니라 **있던 사문 하나를 불렀다.**
+//    새 파일이 사문을 만든 것이 아니라 **있던 사문 하나를 불렀다.** ⚠️ **라운드 88 트랙 D가 다시 재니
+//    148이다**(모집단 전체로는 1018) — 같은 라운드의 트랙 A가 어드민 `src/lib`에 계속 더하는 중이라
+//    **이 수는 라운드가 끝나기 전에는 굳지 않는다.** 그래서 계약이 무는 것은 이 수가 아니라 하한이다.
 //
 // ## ⚠️ 이 그물이 무는 것의 한계 — **이름의 텍스트**이지 **해석된 참조**가 아니다
 //
@@ -70,9 +88,11 @@
 //    (`api.listItems`)이나 객체 키(`listItems:`)도 한 번의 텍스트 일치이고, 이 그물은 그것을 호출과
 //    구별하지 못한다 — 그 방향의 오차는 **사문을 놓치는 쪽**이다(거짓 초록이지 거짓 빨강이 아니다).
 //  · 동적 접근(`registry["legalDocumentUrl"]`)·배럴 재export도 텍스트 한 번으로 보인다.
-//  · ⚠️ **주석·문자열 리터럴도 참조로 센다**(라운드 87 리뷰 L-1) — 소스를 마스킹하지 않으므로 주석이
-//    이름을 인용하기만 해도 호출부 1건이다. 방향은 같은 **거짓 초록**이고, 오늘의 실피해는 0건이다
-//    (주석 마스킹 재실측 16 → 16 · 사각 `comment-and-string-references`가 그 값을 진다).
+//  · ⚠️ **문자열 리터럴은 아직 참조로 센다** — 소스의 문자열은 마스킹하지 않으므로 문자열이 이름을
+//    담고 있기만 해도 호출부 1건이다. 방향은 같은 **거짓 초록**이고, 오늘 참조가 전부 문자열뿐인
+//    export는 0건이다(사각 `string-literal-references`가 그 값과 하한 26을 진다).
+//    ⚠️ **주석은 라운드 88부터 마스킹한다**(라운드 87 리뷰 L-1이 연 자리 · 사각
+//    `comment-and-string-references`가 그 재측정을 진다 — 오늘 마스킹판 16 · 옛 그물 7).
 //  · `.tsx`의 컴포넌트 export와 `apps/api/**`·`packages/**`는 오늘 모집단 밖이다.
 //  이 한계를 값으로 적어 두는 이유는 다음 사람이 이 파일을 *"사문이 열여섯뿐이라는 증명"* 으로
 //  읽지 않게 하기 위해서다 — 이것은 **열여덟 번째가 생길 때 소리가 나는 자리**다.
@@ -230,7 +250,7 @@ export const POPULATION_ROOTS: readonly PopulationRoot[] = [
     minFiles: 15,
     minExports: 110,
     measuredFiles: 22,
-    measuredExports: 147,
+    measuredExports: 148,
     reason:
       "어드민에서 같은 층에 해당하는 자리다(`src/lib` = API 클라이언트와 뷰 파생). " +
       "⚠️ `src/components`·`app/**`은 모집단이 아니다 — 컴포넌트 export는 JSX로 쓰이고 이 그물의 " +
@@ -357,26 +377,279 @@ function identifierPattern(name: string): RegExp {
   return new RegExp(`(?<![\\w$])${name.replace(/[$]/g, "\\$")}(?![\\w$])`, "g");
 }
 
-export type CallsiteHit = { readonly file: string; readonly line: number };
+// ── 마스킹 (라운드 88 트랙 D) ─────────────────────────────────────────────────
+//
+// ⚠️ **이 자리가 라운드 87이 사각으로 적어 둔 바로 그 재개 조건이다.** 그때의 문장은
+// *"재개 조건(사건형): 이 재측정이 0을 넘는 날 — 그날 이 그물은 마스킹을 배워야 한다"* 였고,
+// 라운드 88 트랙 D가 **아홉의 이유를 소스 주석으로 옮기면서** 그날이 왔다: 이유 주석은 그
+// export의 이름을 부를 수밖에 없고(*"왜 화면이 이 이름을 부르지 않는가"* 를 적는 주석이다),
+// 마스킹이 없으면 **이유를 적은 순간 그 항목이 대장에서 조용히 사라진다**.
+//
+// ⚠️ **문자열 리터럴은 오늘도 마스킹하지 않는다**(그물 기준). 템플릿 리터럴의 `${…}` 안은 진짜
+// 코드라 통째로 지울 수 없고, 아래 스캐너는 그 갈림까지 읽을 수 있지만 **이 라운드는 그 축을
+// 그물에 넣지 않는다** — 사각 `string-literal-references`가 그 사실과 오늘의 하한을 값으로 진다.
+// (마스킹 전후를 나란히 재는 자로는 쓴다 — 사각은 산문이 아니라 값이어야 하기 때문이다.)
+
+type MaskState = {
+  readonly source: string;
+  readonly out: string[];
+  readonly maskStrings: boolean;
+};
+
+/** 줄바꿈만 남기고 공백으로 지운다 — **길이와 줄 번호가 보존된다**(참조 자리 계산이 그대로다). */
+function blankRange(state: MaskState, from: number, to: number): void {
+  for (let index = from; index < to; index += 1) {
+    if (state.out[index] !== "\n") state.out[index] = " ";
+  }
+}
+
+/** 이 문자 뒤의 `/`는 나눗셈이 아니라 정규식 리터럴의 시작이다. */
+const REGEX_PREFIX_CHARACTERS = new Set("(,=:[!&|?{};*%+-~^<>".split(""));
+const REGEX_PREFIX_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "throw",
+  "case",
+  "do",
+  "else",
+  "yield",
+  "await"
+]);
 
 /**
- * 제품 소스에서 이 이름이 나오는 자리 전수 — **선언 줄 자신은 빼고**.
- *
- * ⚠️ 선언 줄만 빼는 이유: 선언은 참조가 아니지만 같은 파일의 다른 줄은 참조다(결정 ①).
+ * `/`가 정규식 리터럴을 여는가 — 여는 자리를 놓치면 정규식 **안의** `//`가 주석으로 읽히고,
+ * 그러면 마스킹이 **진짜 코드를 지운다**(거짓 빨강). 이 판정이 이 스캐너에서 가장 비싼 한 줄이다.
  */
-export function findProductReferences(
+function startsRegexLiteral(source: string, slashIndex: number): boolean {
+  let index = slashIndex - 1;
+  while (index >= 0 && /\s/.test(source[index])) index -= 1;
+  if (index < 0) return true;
+  const previous = source[index];
+  if (REGEX_PREFIX_CHARACTERS.has(previous)) return true;
+  if (!/[\w$]/.test(previous)) return false;
+  const wordEnd = index + 1;
+  let wordStart = index;
+  while (wordStart >= 0 && /[\w$]/.test(source[wordStart])) wordStart -= 1;
+  return REGEX_PREFIX_KEYWORDS.has(source.slice(wordStart + 1, wordEnd));
+}
+
+/** 정규식 리터럴의 끝(닫는 `/` 다음 자리). 줄을 넘으면 정규식이 아니다 — 나눗셈으로 읽는다. */
+function skipRegexLiteral(source: string, slashIndex: number): number | null {
+  let index = slashIndex + 1;
+  let inCharacterClass = false;
+  while (index < source.length) {
+    const character = source[index];
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === "\n") return null;
+    if (character === "[") inCharacterClass = true;
+    else if (character === "]") inCharacterClass = false;
+    else if (character === "/" && !inCharacterClass) return index + 1;
+    index += 1;
+  }
+  return null;
+}
+
+/**
+ * 따옴표 문자열의 끝. **줄을 넘으면 문자열이 아니다**(JS 문법) — 그때는 아무것도 마스킹하지 않고
+ * 한 글자만 넘어간다. ⚠️ 이 한 줄 가두기가 이 스캐너의 안전장치다: 오해가 나도 손상이 **그 줄**에
+ * 갇히고, 방향은 *"주석을 덜 지운다"*(옛 그물과 같은 거짓 초록)이지 *"코드를 지운다"* 가 아니다.
+ */
+function skipQuotedString(state: MaskState, quoteIndex: number): number | null {
+  const { source } = state;
+  const quote = source[quoteIndex];
+  let index = quoteIndex + 1;
+  while (index < source.length) {
+    const character = source[index];
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === "\n") return null;
+    if (character === quote) {
+      if (state.maskStrings) blankRange(state, quoteIndex + 1, index);
+      return index + 1;
+    }
+    index += 1;
+  }
+  return null;
+}
+
+/** 템플릿 리터럴 — `${…}` 안은 **코드로 되돌아가서** 훑는다(그 안의 주석은 주석이다). */
+function skipTemplateLiteral(state: MaskState, backtickIndex: number): number {
+  const { source } = state;
+  let index = backtickIndex + 1;
+  let segmentStart = index;
+  while (index < source.length) {
+    const character = source[index];
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === "`") {
+      if (state.maskStrings) blankRange(state, segmentStart, index);
+      return index + 1;
+    }
+    if (character === "$" && source[index + 1] === "{") {
+      if (state.maskStrings) blankRange(state, segmentStart, index);
+      index = scanCodeRegion(state, index + 2, true);
+      segmentStart = index;
+      continue;
+    }
+    index += 1;
+  }
+  if (state.maskStrings) blankRange(state, segmentStart, source.length);
+  return source.length;
+}
+
+/**
+ * 코드 구간을 훑으며 주석(과 선택적으로 문자열)을 지운다.
+ *
+ * `stopAtBrace`면 짝이 맞는 `}`를 만난 다음 자리를 돌려준다 — 템플릿의 `${…}`가 이 모드로 들어온다.
+ */
+function scanCodeRegion(state: MaskState, start: number, stopAtBrace: boolean): number {
+  const { source } = state;
+  let index = start;
+  let braceDepth = 0;
+  while (index < source.length) {
+    const character = source[index];
+    const next = source[index + 1];
+    // ⚠️ `://`는 주석이 아니다 — JSX 텍스트에 그냥 적힌 `http://`(따옴표 없는 자식 노드)가 이 자리에
+    // 걸리면 마스킹이 **진짜 화면 문구를 지운다**. 이 저장소에 실제로 그런 자리가 있어서 값으로 막는다.
+    if (character === "/" && next === "/" && source[index - 1] === ":") {
+      index += 2;
+      continue;
+    }
+    if (character === "/" && next === "/") {
+      const lineEnd = source.indexOf("\n", index);
+      const stop = lineEnd === -1 ? source.length : lineEnd;
+      blankRange(state, index, stop);
+      index = stop;
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      const blockEnd = source.indexOf("*/", index + 2);
+      const stop = blockEnd === -1 ? source.length : blockEnd + 2;
+      blankRange(state, index, stop);
+      index = stop;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      const end = skipQuotedString(state, index);
+      index = end === null ? index + 1 : end;
+      continue;
+    }
+    if (character === "`") {
+      index = skipTemplateLiteral(state, index);
+      continue;
+    }
+    if (character === "/" && startsRegexLiteral(source, index)) {
+      const end = skipRegexLiteral(source, index);
+      index = end === null ? index + 1 : end;
+      continue;
+    }
+    if (stopAtBrace) {
+      if (character === "{") braceDepth += 1;
+      else if (character === "}") {
+        if (braceDepth === 0) return index + 1;
+        braceDepth -= 1;
+      }
+    }
+    index += 1;
+  }
+  return source.length;
+}
+
+/** 주석만 공백으로 지운 소스(길이·줄 보존) — **그물이 오늘 세는 텍스트**다. */
+export function maskComments(source: string): string {
+  const state: MaskState = { source, out: source.split(""), maskStrings: false };
+  scanCodeRegion(state, 0, false);
+  return state.out.join("");
+}
+
+/**
+ * 주석 **과 문자열 리터럴**을 지운 소스 — ⚠️ **그물은 이것을 쓰지 않는다.**
+ * 사각 `string-literal-references`의 하한을 재는 자로만 쓴다(문자열 축을 그물에 넣는 판단은
+ * 이 라운드의 일이 아니다 — 넣는 날 그 사각의 재개 조건이 그 자리를 연다).
+ */
+export function maskCommentsAndStrings(source: string): string {
+  const state: MaskState = { source, out: source.split(""), maskStrings: true };
+  scanCodeRegion(state, 0, false);
+  return state.out.join("");
+}
+
+/** 파일 하나를 여러 번 마스킹하지 않게 붙잡아 둔다(이름 천 개 × 파일 삼백 개라 재사용이 필수다). */
+function cachedMask(masker: (source: string) => string): (file: string, source: string) => string {
+  const cache = new Map<string, { readonly raw: string; readonly masked: string }>();
+  return (file, source) => {
+    const cached = cache.get(file);
+    if (cached && cached.raw === source) return cached.masked;
+    const masked = masker(source);
+    cache.set(file, { raw: source, masked });
+    return masked;
+  };
+}
+
+const maskCommentsCached = cachedMask(maskComments);
+const maskCommentsAndStringsCached = cachedMask(maskCommentsAndStrings);
+const maskNothing = (_file: string, source: string): string => source;
+
+export type CallsiteHit = { readonly file: string; readonly line: number };
+
+function referencesUnderMask(
   item: ExportedFunction,
-  sources: ReadonlyMap<string, string>
+  sources: ReadonlyMap<string, string>,
+  mask: (file: string, source: string) => string
 ): CallsiteHit[] {
   const hits: CallsiteHit[] = [];
   for (const [file, source] of sources) {
-    for (const match of source.matchAll(identifierPattern(item.name))) {
-      const line = source.slice(0, match.index).split("\n").length;
+    const scanned = mask(file, source);
+    for (const match of scanned.matchAll(identifierPattern(item.name))) {
+      const line = scanned.slice(0, match.index).split("\n").length;
       if (file === item.file && line === item.line) continue;
       hits.push({ file, line });
     }
   }
   return hits;
+}
+
+/**
+ * 제품 소스에서 이 이름이 나오는 자리 전수 — **선언 줄 자신은 빼고 · 주석은 마스킹하고**.
+ *
+ * ⚠️ 선언 줄만 빼는 이유: 선언은 참조가 아니지만 같은 파일의 다른 줄은 참조다(결정 ①).
+ * ⚠️ 주석을 마스킹하는 이유: *"아무도 부르지 않는데 주석만 이름을 말하고 있는"* export가
+ * 이 대장에서 조용히 사라지지 않게 하기 위해서다(라운드 87 리뷰 L-1 · 사각
+ * `comment-and-string-references`의 재개 조건이 라운드 88에 발동했다).
+ */
+export function findProductReferences(
+  item: ExportedFunction,
+  sources: ReadonlyMap<string, string>
+): CallsiteHit[] {
+  return referencesUnderMask(item, sources, maskCommentsCached);
+}
+
+/** 마스킹 **없이** 세는 옛 그물 — 재측정 전용이다(판정은 위 마스킹판이 한다). */
+export function findRawProductReferences(
+  item: ExportedFunction,
+  sources: ReadonlyMap<string, string>
+): CallsiteHit[] {
+  return referencesUnderMask(item, sources, maskNothing);
+}
+
+/** 주석 **과 문자열**을 다 지우고 세는 자 — 사각 `string-literal-references`의 하한을 재는 자다. */
+export function findCodeOnlyProductReferences(
+  item: ExportedFunction,
+  sources: ReadonlyMap<string, string>
+): CallsiteHit[] {
+  return referencesUnderMask(item, sources, maskCommentsAndStringsCached);
 }
 
 /** 호출부 파일의 내용을 한 번만 읽어 둔다(모집단 천 개 × 파일 삼백 개라 재사용이 필수다). */
@@ -388,6 +661,50 @@ export function readCallsiteSources(baseDir: string = repoRoot): Map<string, str
 export function findDeadExports(baseDir: string = repoRoot): ExportedFunction[] {
   const sources = readCallsiteSources(baseDir);
   return collectExportedFunctions(baseDir).filter((item) => findProductReferences(item, sources).length === 0);
+}
+
+/**
+ * 참조가 **전부 주석뿐**인 모집단 항목 전수 — 마스킹이 없었다면 **조용히 사라졌을** 자리다.
+ *
+ * ⚠️ 라운드 87에는 이 수가 0이었고(그래서 그때는 마스킹이 없어도 실피해가 없었다), 라운드 88이
+ * 아홉의 이유를 소스로 옮기면서 0을 넘었다 — 사각 `comment-and-string-references`가 그 두 값을 진다.
+ * 먼저 마스킹판으로 사문을 고르고(열여섯) 그 위에서만 옛 그물을 다시 재므로 전수 훑기는 한 번이다.
+ */
+export function commentOnlyReferenceExports(baseDir: string = repoRoot): ExportedFunction[] {
+  const sources = readCallsiteSources(baseDir);
+  return findDeadExports(baseDir).filter((item) => findRawProductReferences(item, sources).length > 0);
+}
+
+/**
+ * 참조가 **전부 문자열 리터럴뿐**인 모집단 항목 전수 — 오늘 그물이 놓치는 축의 **하한**이다.
+ *
+ * ⚠️ 이 수가 0이 아니면 *"문자열 리터럴도 참조로 센다"* 는 사각이 산문이 아니라 값이 된다.
+ * ⚠️ 그렇다고 이 라운드가 그 축을 그물에 넣지는 않는다 — 문자열 마스킹은 판정을 바꾸는 일이고
+ * (템플릿 `${…}` 갈래를 포함해 한 번에 검증해야 한다) 그 판단은 사각의 재개 조건이 여는 자리다.
+ */
+export function stringOnlyReferenceExports(baseDir: string = repoRoot): ExportedFunction[] {
+  const sources = readCallsiteSources(baseDir);
+  return collectExportedFunctions(baseDir)
+    .filter((item) => findCodeOnlyProductReferences(item, sources).length === 0)
+    .filter((item) => findProductReferences(item, sources).length > 0);
+}
+
+/**
+ * 참조가 **하나라도 문자열 리터럴 안에** 있는 모집단 이름 전수 — 위 사각의 **하한**이다.
+ *
+ * ⚠️ 이 수는 *"그 이름들에 대해서는 텍스트 한 번이 호출의 증거가 아니다"* 만 말한다(위 `common-name`과
+ * 같은 모양). 오늘 그 이름들은 전부 코드 참조도 함께 갖고 있어서 `stringOnlyReferenceExports()`는
+ * 0건이고, 그래서 **실피해는 0이고 이 26은 상한이 아니라 하한**이다.
+ */
+export function namesReferencedInsideStringLiterals(baseDir: string = repoRoot): string[] {
+  const sources = readCallsiteSources(baseDir);
+  const found = collectExportedFunctions(baseDir)
+    .filter(
+      (item) =>
+        findCodeOnlyProductReferences(item, sources).length < findProductReferences(item, sources).length
+    )
+    .map((item) => item.name);
+  return [...new Set(found)].sort();
 }
 
 /** 같은 판정을 `export const` 축에 적용한 것 — 사각을 재는 자(모집단이 아니다). */
@@ -535,14 +852,19 @@ export type DeadExportEntry = {
  * 빨개진다(유령 행 금지: 되살아난 줄을 남겨 두면 그 줄이 다음 사문을 가려 준다).
  *
  * ⚠️ **오늘 이 열여섯 중 사용자에게 보이는 결함은 0건이다** — 하나씩 판정했고 그 판정이 각 줄의
- * `reason`이다. 그래서 이 라운드는 **하나도 지우지 않는다**(제품 소스 0건 수정).
+ * `reason`이다. 그래서 라운드 87은 **하나도 지우지 않았고**(제품 소스 0건 수정), 라운드 88 트랙 D도
+ * 지우지 않았다(제품 소스에 더한 것은 **주석 아홉 덩이**뿐 — 코드는 0줄이다).
+ *
+ * ⚠️ **라운드 88 뒤에도 이 목록의 수는 열여섯 그대로다.** 그 사실이 두 가지를 함께 증명한다:
+ * 트랙 D가 하나도 지우지 않았다는 것과, **주석 마스킹이 새지 않는다**는 것(마스킹이 샜다면 이유를
+ * 적은 아홉이 이 목록에서 빠지며 수가 일곱으로 줄었을 것이다 — 옛 그물로 재면 실제로 일곱이다).
  */
 export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
   {
     id: "apps/mobile/src/analytics/client.ts:getQueuedAnalyticsEventCount",
     file: "apps/mobile/src/analytics/client.ts",
     name: "getQueuedAnalyticsEventCount",
-    reasonKind: "reason-in-ledger",
+    reasonKind: "reason-in-source",
     reason:
       "메모리 큐의 길이는 **화면에 그려지지 않는다**(사용자에게 '보내지 못한 이벤트 3건'을 말하지 않는 것이 " +
       "이 큐의 설계다 — 분석은 조용히 실패해도 되는 축이다). 이 함수가 여는 것은 상한(MAX_QUEUE_SIZE)에서 " +
@@ -562,7 +884,7 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
     id: "apps/mobile/src/auth/release-build.ts:isRealUserBuild",
     file: "apps/mobile/src/auth/release-build.ts",
     name: "isRealUserBuild",
-    reasonKind: "reason-in-ledger",
+    reasonKind: "reason-in-source",
     reason:
       "`isDeveloperBuild()`의 **부정 편의판**이다. 화면은 전부 긍정형으로 묻는다(개발자에게만 하는 말을 " +
       "'참일 때 세운다'가 이 축의 관례이고, 부정형으로 물으면 '실사용자에게만 세우는 것'이 되어 관례가 " +
@@ -573,7 +895,7 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
     id: "apps/mobile/src/consent/consent-definitions.ts:hasPendingRequiredConsents",
     file: "apps/mobile/src/consent/consent-definitions.ts",
     name: "hasPendingRequiredConsents",
-    reasonKind: "reason-in-ledger",
+    reasonKind: "reason-in-source",
     reason:
       "화면은 '남았는가'(불리언)가 아니라 **'무엇이 남았는가'**(`pendingRequiredConsents`)와 " +
       "**'무엇을 보낼 것인가'**(`requiredConsentAcceptances`)를 묻는다 — 목록을 이미 손에 쥐고 있으면 " +
@@ -584,7 +906,7 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
     id: "apps/mobile/src/consent/legal-links.ts:legalDocumentUrl",
     file: "apps/mobile/src/consent/legal-links.ts",
     name: "legalDocumentUrl",
-    reasonKind: "reason-in-ledger",
+    reasonKind: "reason-in-source",
     reason:
       "화면이 쓰는 복수형 `legalDocumentUrls()`의 **단수 편의판**이다 — 약관·개인정보 두 링크는 언제나 " +
       "같은 자리에 함께 서므로 화면은 한 번에 둘을 읽는다. ⚠️ `settings/support-links.ts:supportLinkUrl`이 " +
@@ -606,15 +928,17 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
     name: "isNamedImportFailure",
     reasonKind: "reason-in-source",
     reason:
-      "⚠️ **이유가 소스에 있는 둘 중 하나**(라운드 71 리뷰 S-8 관례). 소스가 '표가 아는 코드와 모르는 코드의 " +
-      "경계를 값으로 지켜 둔다'며 **지우지 않는다**고 못 박았다 — 재시도 버튼을 이름 있는 실패에서 접는 " +
-      "화면이 생기면 그때 필요한 술어다. **이 형식이 옳은 형식이고 열여섯 중 둘뿐이다.**"
+      "⚠️ **라운드 87에 이유가 소스에 있던 둘 중 하나**(라운드 71 리뷰 S-8 관례). 소스가 '표가 아는 코드와 " +
+      "모르는 코드의 경계를 값으로 지켜 둔다'며 **지우지 않는다**고 못 박았다 — 재시도 버튼을 이름 있는 " +
+      "실패에서 접는 화면이 생기면 그때 필요한 술어다. ⚠️ **이 형식이 옳은 형식이고, 라운드 88 트랙 D가 " +
+      "이 파일과 destructive-flow-messages.ts를 본보기로 삼아 나머지 아홉을 같은 형식으로 옮겼다 " +
+      "(둘 → 열하나).**"
   },
   {
     id: "apps/mobile/src/import/preview-rows.ts:canBulkSelectImportRows",
     file: "apps/mobile/src/import/preview-rows.ts",
     name: "canBulkSelectImportRows",
-    reasonKind: "reason-in-ledger",
+    reasonKind: "reason-in-source",
     reason:
       "화면이 **더 넓은 판정으로 갈아탔다** — `app/import/[importJobId].tsx`가 `canStartImportBulkRun`을 " +
       "부른다(행 선택 가능 여부에 더해 대상 아이·진행 중 여부까지 함께 본다). 좁은 술어가 남은 것이지 " +
@@ -633,7 +957,7 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
     id: "apps/mobile/src/notifications/notification-preferences.store.ts:notificationTypeLabel",
     file: "apps/mobile/src/notifications/notification-preferences.store.ts",
     name: "notificationTypeLabel",
-    reasonKind: "reason-in-ledger",
+    reasonKind: "reason-in-source",
     reason:
       "화면은 종류 하나를 이름 짓는 대신 **목록(`NOTIFICATION_TYPE_OPTIONS`)을 그대로 돌면서** 스위치를 " +
       "그린다 — 이름은 그 순회 안에서 이미 손에 있다. 소스 주석도 '화면이 목록을 돌지 않고 한 종류만 " +
@@ -653,7 +977,7 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
     id: "apps/mobile/src/offline/offline-aware-screens.ts:usesOfflineAwareLoadErrorCopy",
     file: "apps/mobile/src/offline/offline-aware-screens.ts",
     name: "usesOfflineAwareLoadErrorCopy",
-    reasonKind: "reason-in-ledger",
+    reasonKind: "reason-in-source",
     reason:
       "⚠️ **이 모듈은 설계상 화면이 import하지 않는다** — 자기 머리말이 '계약 전용 데이터라 앱 번들에 " +
       "실리지 않는다'고 적어 두었고, 이 술어는 그 대장을 읽는 세 계약 파일이 쓰는 손이다. " +
@@ -676,7 +1000,7 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
     name: "destructiveFlowFallbackMessage",
     reasonKind: "reason-in-source",
     reason:
-      "⚠️ **이유가 소스에 있는 둘 중 둘째**(같은 라운드 71 리뷰 S-8 관례). 화면은 `destructiveFlowErrorMessage` " +
+      "⚠️ **라운드 87에 이유가 소스에 있던 둘 중 둘째**(같은 라운드 71 리뷰 S-8 관례). 화면은 `destructiveFlowErrorMessage` " +
       "하나만 부르고, 소스가 '스윕 계약이 흐름별 사용자 문장을 적을 때 쓰는 값이라 **지우지 않는다**'고 " +
       "적어 두었다 — 그 매핑을 테스트로 옮기면 표가 두 벌이 된다."
   },
@@ -684,7 +1008,7 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
     id: "apps/mobile/src/settings/support-links.ts:supportLinkUrl",
     file: "apps/mobile/src/settings/support-links.ts",
     name: "supportLinkUrl",
-    reasonKind: "reason-in-ledger",
+    reasonKind: "reason-in-source",
     reason:
       "화면이 쓰는 복수형 `supportLinkUrls()`의 **단수 편의판**이다(FAQ·문의 두 링크가 한 자리에 함께 선다). " +
       "⚠️ `consent/legal-links.ts:legalDocumentUrl`과 **같은 모양의 쌍둥이**다 — 이 파일이 소스에 " +
@@ -696,7 +1020,7 @@ export const DEAD_EXPORT_LEDGER: readonly DeadExportEntry[] = [
     id: "apps/admin/src/lib/admin-api.ts:updateContentRevisionDraft",
     file: "apps/admin/src/lib/admin-api.ts",
     name: "updateContentRevisionDraft",
-    reasonKind: "reason-in-ledger",
+    reasonKind: "reason-in-source",
     reason:
       "⚠️ **계약의 문장이 거짓에 가까워진 자리.** `src/content-revisions.test.ts`가 " +
       "*\"exposes the full draft -> review -> publish surface\"* 라며 여덟 이름의 **소스 텍스트 포함**을 " +
@@ -816,10 +1140,14 @@ export type LedgerBlindSpot = {
 export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   {
     id: "export-const-axis",
-    value: 13,
+    value: 24,
     floor: 8,
     statement:
-      "같은 뿌리·같은 조건으로 `export const` 축을 재면 651 중 13이 호출부 0건이다. " +
+      "같은 뿌리·같은 조건으로 `export const` 축을 재면 652 중 **24**가 호출부 0건이다. " +
+      "⚠️ **라운드 88 트랙 D의 재측정**: 라운드 87의 이 자리는 651 중 13이었는데, 그 13은 **주석을 " +
+      "마스킹하지 않은 옛 그물**의 값이다. 같은 축을 오늘의 그물(주석 마스킹)로 다시 재면 24다 — " +
+      "**늘어난 열하나는 새로 죽은 상수가 아니라, 주석이 이름을 인용한다는 이유로 살아 있는 것처럼 " +
+      "보이던 상수들**이다. 이 축이 모집단이었다면 라운드 87의 계약은 그 열하나를 못 보고 초록이었다. " +
       "⚠️ **라운드 87 리뷰 M-1의 정정**: 당시 이 자리의 분모는 591이었는데 그것은 모집단 뿌리 **둘 중 " +
       "모바일 하나만**(`apps/mobile/src`) 센 수라, 바로 앞 문장의 *'같은 뿌리·같은 조건'* 과 코드의 " +
       "모집단(`collectExportedConstants` = 모바일 591 + 어드민 `src/lib` 60)이 갈려 있었다. " +
@@ -835,11 +1163,14 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   },
   {
     id: "contract-only-data-modules",
-    value: 11,
+    value: 17,
     floor: 8,
     statement:
-      "그 열셋 중 **열하나**가 다섯 모듈에 산다(offline-aware-screens 셋 · shared-cache-policy 셋 · " +
-      "offline/messages 셋 · empty-period-card 하나 · more-menu 하나). 이 열하나가 결정 ②의 이유 전체다.",
+      "그 스물넷 중 **열일곱**이 다섯 모듈에 산다. ⚠️ 라운드 87의 이 자리는 '열셋 중 열하나'였고 " +
+      "(offline-aware-screens 셋 · shared-cache-policy 셋 · offline/messages 셋 · empty-period-card 하나 · " +
+      "more-menu 하나), 오늘 수가 늘어난 이유는 위 `export-const-axis`와 같다 — **주석 마스킹이 " +
+      "'주석만 이름을 말하던' 상수를 드러냈다**(모듈이 늘어난 것이 아니다). 이 열일곱이 결정 ②의 " +
+      "이유 전체이고, 그 이유는 라운드 87보다 오늘 **더 굵어졌다**.",
     measure: (baseDir) => deadConstantsInContractOnlyModules(baseDir).length
   },
   {
@@ -847,31 +1178,53 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     value: 77,
     floor: 20,
     statement:
-      "이 그물은 **이름의 텍스트**를 훑지 해석된 참조를 보지 않는다. 모집단 1016 이름 중 77은 제품 소스 " +
+      "이 그물은 **이름의 텍스트**를 훑지 해석된 참조를 보지 않는다. 모집단 1018 이름 중 77은 제품 소스 " +
       "어딘가에 속성 접근(`api.listItems`)이나 객체 키(`listItems:`) 자리로도 나온다 — 그 이름들에 대해서는 " +
       "한 번의 텍스트 일치가 호출의 증거가 아니다. ⚠️ 오차의 방향은 **사문을 놓치는 쪽**이고(거짓 초록), " +
       "그래서 오늘의 열여섯은 하한이지 상한이 아니다. AA-4가 이름 붙인 바로 그 사각이다. " +
       "⚠️ **라운드 87 리뷰 M-2의 정정**: 이 자리에 적혀 있던 수는 76이었는데 `namesAlsoUsedAsProperty()`를 " +
       "돌리면 트랙 E 커밋 시점에도 77이었다 — 코드가 갈린 것이 아니라 **옮겨 적기 오차**였다. " +
-      "**라운드 87 리뷰 이후**의 값은 실행값 77이다.",
+      "**라운드 87 리뷰 이후**의 값은 실행값 77이다. ⚠️ **라운드 88 트랙 D의 재측정**: 분자는 오늘도 " +
+      "77이고 분모만 1016 → 1018로 움직였다(같은 라운드의 트랙 A가 어드민 `src/lib`에 export를 더하는 중이라 " +
+      "이 분모는 **한 라운드 안에서도 흔들린다** — 그래서 계약이 무는 것은 값이 아니라 하한이다). " +
+      "⚠️ 이 자리는 **주석 마스킹과 무관하다**: 속성·키 자리로 나오는지는 마스킹 전후가 같은 질문이다.",
     measure: (baseDir) => namesAlsoUsedAsProperty(baseDir).length
   },
   {
     id: "comment-and-string-references",
-    value: 0,
-    floor: 0,
+    value: 9,
+    floor: 5,
     statement:
-      "같은 층의 다른 얼굴 — `findProductReferences`는 소스를 **마스킹 없이** 훑는다. 그래서 **주석 안의 " +
-      "이름도, 문자열 리터럴 안의 이름도 참조 한 번**으로 센다(이 저장소의 주석은 모듈·함수 이름을 자주 " +
-      "인용한다). 오차의 방향은 위 `common-name`과 같은 **사문을 놓치는 쪽**이다 — *'아무도 부르지 않는데 " +
-      "주석만 이름을 말하고 있는'* export는 이 대장에 서지 않는다. ⚠️ **오늘 실피해 0건**(라운드 87 리뷰 " +
-      "L-1의 실측): 줄 수를 보존한 채 주석만 지우고 다시 재면 사문 수가 **16 → 16으로 같고**, 참조가 " +
-      "**전부 주석뿐**인 export는 **0건**이다. ⚠️ 문자열 리터럴은 같은 사각이지만 템플릿 리터럴의 " +
-      "`${…}` 안은 진짜 코드라 통째로 지우는 재측정이 성립하지 않는다 — 그래서 오늘의 0은 **주석 마스킹 " +
-      "기준**이다. ⚠️ 재개 조건(사건형): 이 재측정이 0을 넘는 날 — 그날 이 그물은 마스킹을 배워야 한다. " +
-      "⚠️ 값이 0이라 다시 재는 자를 달지 않는다(`outside-two-apps`와 같은 모양) — 하한 0 위의 재측정은 " +
-      "언제나 참이라 계약이 아무것도 지키지 못한다. 이 줄이 하는 일은 **그 재측정을 언제 어떻게 했는지**를 " +
-      "값으로 남겨, 다음 라운드가 같은 축을 다시 세고도 적을 자리를 못 찾는 일을 막는 것이다."
+      "⚠️ **이 사각의 재개 조건이 라운드 88에 발동했고, 그물이 마스킹을 배웠다.** 라운드 87의 문장은 " +
+      "*'`findProductReferences`는 소스를 마스킹 없이 훑는다 … 재개 조건(사건형): 이 재측정이 0을 넘는 날'* " +
+      "이었고, 그때의 실측은 **16 → 16 · 참조가 전부 주석뿐인 export 0건**이었다(실피해 0). " +
+      "라운드 88 트랙 D가 **아홉의 이유를 소스 주석으로 옮기면서** 그 0이 **9**가 됐다 — 이유 주석은 " +
+      "*'화면이 왜 이 이름을 부르지 않는가'* 를 적으므로 그 export의 이름을 부를 수밖에 없기 때문이다. " +
+      "**그래서 순서가 계약이었다: 먼저 마스킹, 그다음 주석.** 오늘의 값(`measure`)은 **참조가 전부 " +
+      "주석뿐인 export 9건**이고, 그 아홉이 정확히 트랙 D가 이유를 적은 아홉이다. " +
+      "⚠️ **마스킹 전후의 갈림**: 같은 소스를 옛 그물(마스킹 없음)로 재면 사문은 **7**이고, 오늘의 " +
+      "그물로 재면 **16**이다. 마스킹이 없었다면 아홉이 래칫 아래로 조용히 사라지고 이 대장은 " +
+      "**아무것도 지키지 못한 채 초록**이었다 — 라운드 87이 사각 칸에 미리 적어 둔 바로 그 죽는 방식이다. " +
+      "⚠️ 마스킹은 **주석까지만**이다: 문자열 리터럴은 여전히 참조로 세고, 그 축은 아래 " +
+      "`string-literal-references`가 값과 하한으로 따로 진다.",
+    measure: (baseDir) => commentOnlyReferenceExports(baseDir).length
+  },
+  {
+    id: "string-literal-references",
+    value: 26,
+    floor: 10,
+    statement:
+      "⚠️ **문자열 리터럴 축은 오늘도 사각이다** — 그물은 주석만 마스킹하고 문자열은 그대로 훑으므로, " +
+      "이름이 문자열 안에 있기만 해도 호출부 1건이다(`registry[\"legalDocumentUrl\"]`도, 로그 문장도). " +
+      "오차의 방향은 `common-name`과 같은 **사문을 놓치는 쪽**(거짓 초록)이다. " +
+      "라운드 88이 이 축을 그물에 넣지 않은 이유: 문자열 마스킹은 **판정을 바꾸는 일**이고, 템플릿 " +
+      "리터럴의 `${…}` 안은 진짜 코드라 통째로 지울 수 없어 그 갈래까지 한 번에 검증해야 한다 — " +
+      "이 라운드의 손은 주석까지다. ⚠️ **하지만 값 없이 두지 않는다**(AB-5의 규율): 오늘 문자열 안에 " +
+      "참조가 하나라도 있는 모집단 이름은 **26**이고(`measure`), 그중 **참조가 전부 문자열뿐인 export는 " +
+      "0건**이다 — 즉 오늘의 실피해는 0이고 **26은 상한이 아니라 하한**이다(이 재측정은 문자열 마스킹을 " +
+      "재는 자로만 쓰고 판정에는 쓰지 않는다). ⚠️ 재개 조건(사건형): *참조가 전부 문자열뿐인 export*가 " +
+      "0을 넘는 날 — 그날 이 그물은 문자열도 마스킹해야 한다.",
+    measure: (baseDir) => namesReferencedInsideStringLiterals(baseDir).length
   },
   {
     id: "tsx-components",
