@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 // GAP-062 #10: 가구 전환 Alert의 **버튼 라벨**은 순수 모듈이 만든다 -- 화면 파일이 아니라 그
 // 산출을 붙든다(Alert 버튼에는 accessibilityLabel/State를 걸 수 없어, 낭독되는 것은 버튼 글자뿐이다).
@@ -6367,7 +6367,7 @@ function mentionsIdentifier(text: string, name: string): boolean {
   return new RegExp(`(?<![\\w$])${name.replace(/\$/g, "\\$")}(?![\\w$])`).test(text);
 }
 
-type RowCallbackKind = "map" | "renderItem" | "render-fn" | "row-component";
+type RowCallbackKind = "map" | "renderItem" | "render-fn" | "row-component" | "map-component";
 
 /** 목록 콜백 하나 — 구간과 **행 파라미터 목록**을 함께 들고 다닌다. */
 type RowCallback = { kind: RowCallbackKind; start: number; end: number; params: string };
@@ -6460,14 +6460,10 @@ function declarationSpanOf(
 }
 
 /**
- * 목록 콜백 전수. 바늘은 **셋**이다 — `.map((행 …` · `renderItem={({ item …` · 그리고
- * `renderItem={이름}`으로 넘겨진 **모듈 스코프 렌더 함수와 그 함수가 그리는 행 컴포넌트**(H-3).
- *
- * ⚠️ 인라인 `renderItem` 쪽은 **오늘 이 저장소에 0건**이다(인라인 목록은 전부 `.map`으로 서고,
- * 가상화 목록은 전부 셋째 바늘 쪽이다). 0건인 바늘은 *유령*이 될 수 있으므로 아래 ⓒ의 픽스처가
- * **그 바늘이 실제로 문다**는 것을 따로 증명한다.
+ * 첫째 바늘 하나 — `.map((행 …`. ⚠️ **판정은 한 글자도 바뀌지 않았다**: 라운드 93 트랙 C가 넷째
+ * 바늘에서 *같은 `.map` 구간*을 다시 읽어야 해서(재귀를 만들지 않으려고) 이 조각만 이름을 얻었다.
  */
-function rowCallbacksOf(masked: string): RowCallback[] {
+function mapCallbacksOf(masked: string): RowCallback[] {
   const callbacks: RowCallback[] = [];
   // ⚠️ 라운드 92 리뷰 H-3: `.map(` 뒤의 **줄바꿈 꼴**도 같은 자리다(종전 바늘은 `\.map\(\(` 였다).
   const mapNeedle = /\.map\(\s*\(/g;
@@ -6480,6 +6476,201 @@ function rowCallbacksOf(masked: string): RowCallback[] {
     if (callEnd < 0 || paramsEnd < 0) continue;
     callbacks.push({ kind: "map", start: callOpen, end: callEnd, params: masked.slice(paramsOpen + 1, paramsEnd) });
   }
+  return callbacks;
+}
+
+/* -------------------------------------------------------------------------------------------- */
+/* GAP-093 트랙 C — **넷째 바늘**: `.map(` 안에서 그려지는 행꼴 컴포넌트의 *본문*                    */
+/* -------------------------------------------------------------------------------------------- */
+
+/**
+ * ## 왜 넷째가 서는가 — 셋째와 방향이 반대다
+ *
+ * 셋째 바늘(리뷰 H-3)은 **렌더 프롭에 넘긴 이름**에서 출발해 선언으로 갔다. 그런데 이 저장소에서
+ * *행*을 그리는 가장 흔한 꼴은 그것이 아니라 **`.map(` 안에서 컴포넌트를 바로 그리는 것**이다 —
+ * `{rows.map((row) => <PreparationItemCard title={row.title} … />)}`. 그 컴포넌트의 **본문**은
+ * 목록 콜백 밖(대개 **다른 파일**)에 살아서, 라벨 식이 행에서 나오는지 아무도 묻지 않았다.
+ * ⚠️⚠️ 라운드 92 B가 사각 ⓐ에 *"행이면서도 이 바늘 밖인 자리가 남아 있다"* 라고 적은 갈래 ⓑ가
+ * 정확히 이 층이고, 라운드 93 정찰이 표본으로 그 실재를 확인했다(컴포넌트 15 · 식 라벨 37 · 하한).
+ *
+ * ## 잇는 방법 — **JSX 사용처 → 컴포넌트 정의**, 그리고 프롭 이름 → 파라미터는 *한 걸음*
+ *
+ *  ① `.map(` 콜백 안에서 **행꼴 이름**의 여는 태그를 찾는다(*행꼴*의 판정은 아래 두 값이다:
+ *     이름이 `ROW_SHAPED_NAME_WORDS` 하나를 품고 · 호출부가 `.map(` 콜백 안이다).
+ *  ② 그 태그의 프롭 가운데 **행 변수를 읽는 것**만 고른다(`title={row.title}`은 고르고
+ *     `columns={columns}`는 고르지 않는다). 하나도 없으면 그 자리는 **모집단 밖**이다 —
+ *     행이 컴포넌트 안으로 들어가는 길이 이 바늘에 보이지 않기 때문이다.
+ *  ③ 이름을 선언으로 잇는다: **같은 파일** → 없으면 **import 한 줄**(별칭 `as`를 원래 이름으로
+ *     되돌린다) → 배럴이면 **재수출 한 줄**까지. 그 밖은 밖이다(사각).
+ *  ④ 그 선언의 **파라미터 이름 가운데 ②에서 고른 프롭 이름과 같은 것**을 그 컴포넌트의 *행*으로
+ *     삼는다. ⚠️ **프롭 이름 → 파라미터 연결은 여기까지가 한 걸음이다** — 컴포넌트가 그 프롭을
+ *     다시 하위 컴포넌트에 넘기는 두 걸음은 따라가지 않는다(사각).
+ *
+ * 그 뒤의 판정 셋(*행 직접* · *한 걸음 파생* · *갈리지 않음*)은 **셋째까지와 같은 함수**가 낸다 —
+ * 넷째 바늘은 **모집단을 넓히는 것**이지 판정을 바꾸는 것이 아니다.
+ */
+const ROW_SHAPED_NAME_WORDS = ["Row", "Card", "Cell", "Tile", "Chip", "Item"] as const;
+
+/** *행꼴*의 절반 — 이름. 나머지 절반(호출부가 `.map(` 안)은 아래 스캔이 구간으로 판정한다. */
+function isRowShapedName(name: string): boolean {
+  return ROW_SHAPED_NAME_WORDS.some((word) => name.includes(word));
+}
+
+/** 모듈 지정자를 **실재하는 파일**로 — 확장자 넷을 순서대로 보고, 없으면 밖이다(존재 가드). */
+const MODULE_FILE_SUFFIXES = [".tsx", ".ts", "/index.tsx", "/index.ts"] as const;
+
+function moduleFileOf(fromFile: string, specifier: string): string | null {
+  // 패키지 지정자(`react-native` 등)는 이 저장소 밖이다 — 상대 경로만 따라간다.
+  if (!specifier.startsWith(".")) return null;
+  const base = join(dirname(fromFile), specifier);
+  for (const suffix of MODULE_FILE_SUFFIXES) {
+    if (existsSync(join(mobileRoot, base + suffix))) return base + suffix;
+  }
+  return null;
+}
+
+/** 이름 하나가 어느 파일의 어느 이름으로 들어왔는가(별칭은 **원래 이름**으로 되돌린다). */
+type NamedImport = { name: string; file: string };
+
+function importOriginOf(masked: string, local: string, fromFile: string): NamedImport | null {
+  const needle = /import\s*(?:type\s+)?\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
+  let found: RegExpExecArray | null;
+  while ((found = needle.exec(masked))) {
+    for (const piece of found[1].split(",")) {
+      const parts = piece.trim().split(/\s+as\s+/);
+      if ((parts[1] ?? parts[0]).trim() !== local) continue;
+      const file = moduleFileOf(fromFile, found[2]);
+      return file === null ? null : { name: parts[0].trim().replace(/^type\s+/, ""), file };
+    }
+  }
+  return null;
+}
+
+/** 배럴의 재수출 한 줄 — `export { A } from "./x"`. `export *`는 따라가지 않는다(사각). */
+function reexportOriginOf(masked: string, name: string, fromFile: string): NamedImport | null {
+  const needle = /export\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
+  let found: RegExpExecArray | null;
+  while ((found = needle.exec(masked))) {
+    for (const piece of found[1].split(",")) {
+      const parts = piece.trim().split(/\s+as\s+/);
+      if ((parts[1] ?? parts[0]).trim() !== name) continue;
+      const file = moduleFileOf(fromFile, found[2]);
+      return file === null ? null : { name: parts[0].trim().replace(/^type\s+/, ""), file };
+    }
+  }
+  return null;
+}
+
+/** 마스킹한 소스를 한 번만 읽는다(넷째 바늘은 파일을 여러 번 되짚는다 — 셋째까지의 경로는 그대로다). */
+const maskedSourceCache = new Map<string, string>();
+function maskedSource(file: string): string {
+  const cached = maskedSourceCache.get(file);
+  if (cached !== undefined) return cached;
+  const masked = maskComments(source(file));
+  maskedSourceCache.set(file, masked);
+  return masked;
+}
+
+/** JSX 사용처 → 컴포넌트 정의. **같은 파일 → import 한 줄 → 재수출 한 줄**까지가 이 바늘의 걸음이다. */
+const ROW_COMPONENT_MODULE_HOPS = 2;
+
+type RowComponentDeclaration = { file: string; name: string; params: string; start: number; end: number };
+
+function rowComponentDeclarationOf(
+  callerFile: string,
+  callerMasked: string,
+  local: string
+): RowComponentDeclaration | null {
+  const here = declarationSpanOf(callerMasked, local);
+  if (here !== null) return { file: callerFile, name: local, ...here };
+  let cursor = importOriginOf(callerMasked, local, callerFile);
+  for (let hop = 0; hop < ROW_COMPONENT_MODULE_HOPS && cursor !== null; hop += 1) {
+    const masked = maskedSource(cursor.file);
+    if (cursor.file.endsWith(".tsx")) {
+      const span = declarationSpanOf(masked, cursor.name);
+      if (span !== null) return { file: cursor.file, name: cursor.name, ...span };
+    }
+    cursor = reexportOriginOf(masked, cursor.name, cursor.file);
+  }
+  return null;
+}
+
+/** 여는 태그의 프롭 가운데 **행 변수를 읽는 것**들의 이름(②). 하나도 없으면 이 바늘 밖이다. */
+function rowCarryingPropsOf(masked: string, tagStart: number, tagEnd: number, rowNames: string[]): string[] {
+  const tag = masked.slice(tagStart, tagEnd);
+  const needle = /([A-Za-z_$][\w$]*)=\{/g;
+  const carried: string[] = [];
+  let found: RegExpExecArray | null;
+  while ((found = needle.exec(tag))) {
+    const braceOpen = tagStart + found.index + found[0].length - 1;
+    const braceEnd = matchingBracketAt(masked, braceOpen);
+    if (braceEnd < 0) continue;
+    const value = masked.slice(braceOpen + 1, braceEnd);
+    if (rowNames.some((row) => mentionsIdentifier(value, row)) && !carried.includes(found[1])) carried.push(found[1]);
+  }
+  return carried;
+}
+
+/** 한 파일이 `.map(` 안에서 그리는 **행꼴 컴포넌트**들 — 선언 자리와 *행을 받은 프롭 이름*을 함께 든다. */
+type RowComponentUsage = RowComponentDeclaration & { local: string; props: string[] };
+
+/**
+ * ⚠️ `widen`은 **바늘이 아니라 자**다 — 사각 ⓑ의 크기를 재실측할 때만 켠다(이름 판정과 프롭 연결을
+ * 둘 다 끄고 *`.map(`이 그리는 컴포넌트 전수*를 센다). 스윕의 모집단은 언제나 기본값 쪽이다.
+ */
+function mapDrawnRowComponentsOf(
+  masked: string,
+  file: string,
+  widen: { anyName?: boolean; anyProps?: boolean } = {}
+): RowComponentUsage[] {
+  const usages = new Map<string, RowComponentUsage>();
+  for (const callback of mapCallbacksOf(masked)) {
+    const rowNames = rowParamNamesOf(stripParamTypes(callback.params));
+    if (rowNames.length === 0) continue;
+    const body = masked.slice(callback.start, callback.end);
+    const tags = new RegExp(RENDERED_COMPONENT_NEEDLE.source, "g");
+    let tag: RegExpExecArray | null;
+    while ((tag = tags.exec(body))) {
+      const local = tag[1];
+      if (!isRowShapedName(local) && widen.anyName !== true) continue;
+      const tagStart = callback.start + tag.index;
+      const tagEnd = openingTagEnd(masked, tagStart);
+      if (tagEnd < 0) continue;
+      const carried = rowCarryingPropsOf(masked, tagStart, tagEnd, rowNames);
+      if (carried.length === 0 && widen.anyProps !== true) continue;
+      const declaration = rowComponentDeclarationOf(file, masked, local);
+      if (declaration === null) continue;
+      const key = `${declaration.file}|${declaration.name}`;
+      const seen = usages.get(key);
+      if (seen === undefined) usages.set(key, { ...declaration, local, props: [...carried] });
+      else for (const prop of carried) if (!seen.props.includes(prop)) seen.props.push(prop);
+    }
+  }
+  return [...usages.values()];
+}
+
+/** 사용처가 문 컴포넌트 하나를 **목록 콜백 하나**로 — 행 이름은 ④의 *한 걸음* 교집합이다. */
+function rowComponentCallbackOf(usage: RowComponentUsage): RowCallback | null {
+  const params = rowParamNamesOf(stripParamTypes(usage.params)).filter((name) => usage.props.includes(name));
+  if (params.length === 0) return null;
+  return { kind: "map-component", start: usage.start, end: usage.end, params: params.join(", ") };
+}
+
+/**
+ * 목록 콜백 전수. 바늘은 **넷**이다 — `.map((행 …` · `renderItem={({ item …` ·
+ * `renderItem={이름}`으로 넘겨진 **모듈 스코프 렌더 함수와 그 함수가 그리는 행 컴포넌트**(H-3) ·
+ * 그리고 `.map(` 안에서 **바로 그려지는 행꼴 컴포넌트의 본문**(라운드 93 트랙 C).
+ *
+ * ⚠️ 인라인 `renderItem` 쪽은 **오늘 이 저장소에 0건**이다(인라인 목록은 전부 `.map`으로 서고,
+ * 가상화 목록은 전부 셋째 바늘 쪽이다). 0건인 바늘은 *유령*이 될 수 있으므로 아래 ⓒ의 픽스처가
+ * **그 바늘이 실제로 문다**는 것을 따로 증명한다.
+ *
+ * ⚠️⚠️ 넷째 바늘의 자리는 **두 갈래로 들어온다**: 사용처와 선언이 같은 파일이면 여기서 바로 서고,
+ * 다른 파일이면 `extraCallbacks`(스윕이 전수에서 모아 준 *남의 화면이 그리는 내 컴포넌트*)로 온다.
+ */
+function rowCallbacksOf(masked: string, file: string, extraCallbacks: readonly RowCallback[] = []): RowCallback[] {
+  const callbacks: RowCallback[] = mapCallbacksOf(masked);
+  let found: RegExpExecArray | null;
   const renderItemNeedle = /renderItem=\{\s*\(/g;
   while ((found = renderItemNeedle.exec(masked))) {
     const propOpen = found.index + "renderItem=".length;
@@ -6522,6 +6713,18 @@ function rowCallbacksOf(masked: string): RowCallback[] {
       });
     }
   }
+  // ── 넷째 바늘(트랙 C) — 같은 파일에서 `.map(`이 그리는 행꼴 컴포넌트 ────────────
+  const fourth: RowCallback[] = [];
+  for (const usage of mapDrawnRowComponentsOf(masked, file)) {
+    if (usage.file !== file) continue; // 남의 파일에 사는 본문은 그 파일을 걸을 때 `extraCallbacks`로 온다.
+    const callback = rowComponentCallbackOf(usage);
+    if (callback !== null) fourth.push(callback);
+  }
+  for (const callback of extraCallbacks) {
+    if (fourth.some((seen) => seen.start === callback.start)) continue; // 같은 본문을 두 번 세지 않는다.
+    fourth.push(callback);
+  }
+  callbacks.push(...fourth);
   return callbacks;
 }
 
@@ -6549,9 +6752,13 @@ type RowLabelSite = {
  *
  * ⚠️ 감싸는 콜백이 여럿이면 **가장 안쪽** 것을 고른다(중첩 목록에서 *행*이라는 단위는 안쪽의 것이다).
  */
-function rowLabelSitesOf(sourceText: string, file: string): { labels: number; rows: RowLabelSite[] } {
+function rowLabelSitesOf(
+  sourceText: string,
+  file: string,
+  extraCallbacks: readonly RowCallback[] = []
+): { labels: number; rows: RowLabelSite[] } {
   const masked = maskComments(sourceText);
-  const callbacks = rowCallbacksOf(masked);
+  const callbacks = rowCallbacksOf(masked, file, extraCallbacks);
   const needle = new RegExp(ROW_LABEL_NEEDLE.replace(/[{]/g, "\\{"), "g");
   const rows: RowLabelSite[] = [];
   let labels = 0;
@@ -6578,15 +6785,42 @@ function rowLabelSitesOf(sourceText: string, file: string): { labels: number; ro
   return { labels, rows };
 }
 
+/**
+ * 넷째 바늘의 **파일 밖 갈래** — *남의 화면이 `.map(`으로 그리는, 이 파일에 사는 행꼴 컴포넌트*.
+ *
+ * ⚠️ 한 컴포넌트를 여러 화면이 그리면(오늘 `CategoryChip`을 아홉 화면이 그린다) **행을 받은 프롭
+ * 이름을 합집합으로 모은다** — 한 화면만 보고 *갈리지 않는다*로 떨어뜨리지 않기 위해서다.
+ */
+function foreignRowComponentCallbacks(files: string[]): Map<string, RowCallback[]> {
+  const byFile = new Map<string, RowCallback[]>();
+  for (const file of files) {
+    for (const usage of mapDrawnRowComponentsOf(maskedSource(file), file)) {
+      if (usage.file === file) continue;
+      const callback = rowComponentCallbackOf(usage);
+      if (callback === null) continue;
+      const list = byFile.get(usage.file) ?? [];
+      const seen = list.find((entry) => entry.start === callback.start);
+      if (seen === undefined) list.push(callback);
+      else {
+        const union = new Set([...seen.params.split(", "), ...callback.params.split(", ")]);
+        list[list.indexOf(seen)] = { ...seen, params: [...union].join(", ") };
+      }
+      byFile.set(usage.file, list);
+    }
+  }
+  return byFile;
+}
+
 /** 전수 스윕 — 손 목록이 아니라 `listComponentSources()`가 모집단을 정한다. */
 function rowLabelSweep(): { files: string[]; labels: number; constants: number; rows: RowLabelSite[] } {
   const files = listComponentSources();
+  const foreign = foreignRowComponentCallbacks(files);
   let labels = 0;
   let constants = 0;
   const rows: RowLabelSite[] = [];
   for (const file of files) {
     const text = source(file);
-    const found = rowLabelSitesOf(text, file);
+    const found = rowLabelSitesOf(text, file, foreign.get(file) ?? []);
     labels += found.labels;
     rows.push(...found.rows);
     constants += (maskComments(text).match(new RegExp(CONSTANT_LABEL_NEEDLE, "g")) ?? []).length;
@@ -6633,16 +6867,24 @@ const ROW_INVARIANT_REASONS: Record<string, string> = {};
 const ROW_LABEL_RATCHET = {
   files: 58,
   labels: 162,
-  // ⚠️⚠️ **두 시점 — 라운드 92 리뷰 H-3이 셋째 바늘을 세우며 재실측했다.**
-  //  · **트랙 B 커밋 시점**: `listSites 35 · direct 34 · derived 1`(인라인 콜백만 보던 모집단).
-  //  · **오늘(H-3 뒤)**: 가상화 목록의 **모듈 스코프 렌더 함수와 행 컴포넌트 셋**이 들어와
+  // ⚠️⚠️ **세 시점 — 바늘이 하나씩 늘 때마다 이 세 수가 움직였고, 옛 값을 지우지 않는다.**
+  //  · **라운드 92 트랙 B 커밋 시점**: `listSites 35 · direct 34 · derived 1`(인라인 콜백만 보던 모집단).
+  //  · **라운드 92 리뷰 H-3 뒤**: 가상화 목록의 **모듈 스코프 렌더 함수와 행 컴포넌트 셋**이 들어와
   //    `38 · 36 · 2`가 됐다 — 기록 탭 지출 행 라벨·기록 탭 섹션 헤더 라벨(둘 다 direct)과
   //    가져오기 검수의 잠긴 행 라벨(파생)이다. 목록 **밖**은 그만큼 127 → 124로 줄었다.
-  listSites: 38,
-  direct: 36,
-  derived: 2,
+  //  · **오늘(라운드 93 트랙 C · 넷째 바늘 뒤)**: `.map(` 안에서 바로 그려지는 **행꼴 컴포넌트의
+  //    본문** 여덟(자리 **열**)이 들어와 `48 · 44 · 4`가 됐다 — 빠른 품목 타일·준비템 카드·
+  //    구매 링크 행(둘)·분류 칩·더보기 행·초대 행(전부 direct)과 달력 날짜 칸 둘(파생)이다.
+  //    목록 **밖**은 그만큼 124 → **114**로 줄었다(사각 ⓐ의 세 번째 시점).
+  listSites: 48,
+  direct: 44,
+  derived: 4,
   invariant: 0,
-  constants: 73
+  constants: 73,
+  /** 넷째 바늘이 데려온 자리(하한) — 오늘 **열**이고, 그 열은 오늘의 38과 **겹치지 않는다**. */
+  mapComponentSites: 10,
+  /** 그 열이 사는 **행꼴 컴포넌트**(하한) — 이름·호출부로 판정한 열셋 가운데 식 라벨을 지닌 여덟. */
+  mapComponents: 8
 } as const;
 
 /** *한 걸음 파생* 자리 둘 — 라운드 91 A가 25→27을 겪은 그 모양이다(인라인 하나 · 행 컴포넌트 하나). */
@@ -6650,16 +6892,49 @@ const ROW_DERIVED_SITE_FILE = "app/family/index.tsx";
 /** ⚠️ 리뷰 H-3이 데려온 파생 자리 — 행 컴포넌트가 `row`에서 만든 이름을 라벨 식이 읽는다. */
 const ROW_DERIVED_COMPONENT_FILE = "app/import/[importJobId].tsx";
 
+/** 넷째 바늘이 데려온 자리 가운데 **핵심 루프**에 걸리는 셋 — 파일과 컴포넌트 이름으로 서 있다. */
+const MAP_COMPONENT_LOOP_SITES = [
+  ["app/expenses/new.tsx", "ExpenseQuickItemButton"],
+  ["src/design-system/components/ModV1Primitives.tsx", "PreparationItemCard"],
+  ["src/ui.tsx", "ProductComparisonRow"]
+] as const;
+
 /** ⓔ 바이트 불변 — 이 트랙이 **읽기만** 했음을 자리의 원문 바이트로 못 박는다. */
 const ROW_LABEL_UNTOUCHED_BYTES = [
   [ROW_DERIVED_SITE_FILE, "accessibilityLabel={`${pendingInviteTarget(roleLabel, createdAtLabel)} 취소`}"],
   ["src/ui.tsx", "accessibilityLabel={`${slice.label}, ${slice.percentLabel}, ${formatKrw(slice.amountKrw)}`}"],
-  ["src/ui.tsx", "accessibilityLabel={option}"]
+  ["src/ui.tsx", "accessibilityLabel={option}"],
+  // ⚠️ 라운드 93 트랙 C가 **넷째 바늘로 데려온** 자리 둘 — 데려오기만 했고 한 글자도 고치지 않았다.
+  ["src/design-system/components/ModV1Primitives.tsx", "accessibilityLabel={`${title}. 상태 ${label}${hint ? `. ${hint}` : \"\"}`}"],
+  ["src/expenses/RecordsCalendar.tsx", "const accessibilityLabel = calendarCellAccessibilityLabel(cell, { filterLabel }) ?? undefined;"]
 ] as const;
 
 /** ⓕ 사각 — **이 스윕이 못 보는 것**을 값과 하한으로 적는다(넷 이상). */
 const ROW_LABEL_SWEEP_BLIND_SPOTS = [
-  "목록 **밖**의 낭독 라벨 124(오늘 식 전수 162 − 목록 안 38)는 이 축이 묻지 않는다. ⚠️⚠️ **두 시점 — " +
+  "목록 **밖**의 낭독 라벨 **114**(오늘 식 전수 162 − 목록 안 48)는 이 축이 묻지 않는다. " +
+    "⚠️⚠️ **세 번째 시점(라운드 93 트랙 C) — 이 문장이 두 번 고쳐졌고 옛 값을 지우지 않는다.** " +
+    "라운드 92 B가 127로, 리뷰 H-3이 124로 적었고 오늘은 **114**다. H-3이 *'남는 124의 성격은 둘'* " +
+    "이라며 이름 붙인 갈래 ⓑ(**행이면서도 이 바늘 밖인 자리**)를 오늘 넷째 바늘이 **값으로** 풀었다: " +
+    "`.map(` 안에서 바로 그려지는 **행꼴 컴포넌트**가 열셋이고 그 본문의 식 라벨 **열**이 들어왔다 " +
+    "(빠른 품목 타일·준비템 카드·구매 링크 행 둘·분류 칩·더보기 행·초대 행·달력 날짜 칸 둘). " +
+    "⚠️ **그래서 남는 114의 성격도 여전히 하나가 아니다**: 대부분(오늘 재실측으로 **107**)은 정말 " +
+    "행이 아닌 자리(화면 머리말·요약 카드·시트·탭바처럼 한 화면에 한 번 서는 컨트롤)이고, **일곱**은 " +
+    "여전히 *행이면서 밖*이다 — 그 일곱이 무엇인지는 아래 사각이 이름과 꼴로 적는다. " +
+    "**114는 여전히 *묻지 않은 수*이지만, 그중 묻지 못한 부분은 이제 37이 아니라 일곱이다.**",
+  "⚠️⚠️ **넷째 바늘이 따라가지 못하는 꼴 — 오늘 일곱 자리이고, 그 일곱을 꼴로 적는다**(라운드 93 " +
+    "트랙 C의 재실측: `.map(` 안에서 그려지고 선언까지 이어지는 컴포넌트 **24**, 그중 식 라벨을 지닌 " +
+    "것 **14** · 자리 **17** — 바늘이 **열**을 데려오고 **일곱**이 남는다). ⓐ **여섯은 이름이 " +
+    "*행꼴*이 아니다** — `ExpenseCategoryIconButton`(분류 아이콘 버튼) · `PrimaryButton` · " +
+    "`SecondaryButton` · `TextButton`(공용 버튼 셋의 `accessibilityLabel` 프롭 자리) · " +
+    "`ChildDateField`의 둘. **이름 판정(`ROW_SHAPED_NAME_WORDS`)이 문턱이고, 그 문턱을 넓히는 일은 " +
+    "이 라운드의 축이 아니다**(넓히면 버튼 한 벌이 통째로 들어오고 *행마다 갈리는가*라는 질문이 " +
+    "버튼에게는 뜻이 달라진다). ⓑ **하나는 행꼴 이름인데 프롭 연결이 0이다** — " +
+    "`src/preparation/PreparationListParity.tsx`의 `ItemGrid`는 `.map(` 안에서 그려지지만 라벨이 " +
+    "`${columns}열 준비 품목`이라 행이 아니라 **격자 자체**를 읽는다(그 자리는 실제로 갈리지 않는 " +
+    "것이 옳다). ⚠️ 이 사각의 오차 방향은 **조용한 쪽**이다 — 모집단 밖이라 빨개지지 않는다.",
+  "⚠️ **옛 시점의 기록 — 지우지 않는다(AE-3의 관례).** 라운드 92 리뷰 H-3이 남긴 사각 ⓐ의 " +
+    "두 번째 시점은 이렇게 적혀 있었다: *목록 **밖**의 낭독 라벨 124(그때 식 전수 162 − 목록 안 38)는 " +
+    "이 축이 묻지 않는다.* ⚠️⚠️ **두 시점 — " +
     "라운드 92 리뷰 H-3이 이 문장을 고쳤다.** 종전에는 *'그 자리들에는 행이라는 단위가 없어 질문 자체가 " +
     "성립하지 않는다'* 라고 값으로 적었는데 **그것이 거짓이었다** — 가상화 목록의 행 라벨 셋(기록 탭 지출 " +
     "행·기록 탭 섹션 헤더·가져오기 검수의 잠긴 행)이 정확히 *행*이면서 그 127 안에 앉아 있었고, 오늘 " +
@@ -6679,7 +6954,21 @@ const ROW_LABEL_SWEEP_BLIND_SPOTS = [
     "그랬다. 오늘 바늘이 둘 다 잡으므로 **그 조용한 갈래는 닫혔고**, 남는 한계는 ⓐ 파생 두 걸음(거짓 빨강) " +
     "과 ⓑ **이름을 따라가지 못하는 선언 꼴**(`useCallback`으로 만든 렌더 함수 · 별칭 두 걸음)이다. " +
     "⚠️ ⓑ는 여전히 **조용한 쪽**이고, 오늘 그 실피해는 0건이다(그 꼴로 선 렌더 함수 하나가 있지만 그 " +
-    "화면의 식 라벨이 0건이라 잃는 자리가 없다).",
+    "화면의 식 라벨이 0건이라 잃는 자리가 없다). " +
+    "⚠️⚠️ **세 번째 시점(라운드 93 트랙 C) — H-3의 *'그 조용한 갈래는 닫혔고'* 는 절반만 참이었다.** " +
+    "그때 닫힌 것은 **렌더 프롭 쪽의 조용한 갈래**였고, `.map(` 안에서 **바로 그려지는 행꼴 컴포넌트** " +
+    "쪽은 그대로 조용했다(그 실피해가 0건이 아니라 **열 자리**였음을 오늘 넷째 바늘이 값으로 보였다). " +
+    "오늘 남는 조용한 쪽은 위의 **일곱**이고, 이번에는 *0건*이 아니라 **이름과 꼴로** 적혀 있다.",
+  "⚠️ **넷째 바늘이 *구조적으로* 못 보는 것 넷**(오늘의 일곱과 다른 층이다 — 저것은 실측이고 이것은 " +
+    "설계다). ⓐ **`.map(` 밖에서 그려지는 행꼴 컴포넌트** — 부모가 배열을 펼치지 않고 한 번만 그리면 " +
+    "이 바늘에 걸리지 않는다(*행*이라는 단위가 호출부에 없으므로 오늘은 그것이 옳다). " +
+    "ⓑ **프롭을 다시 넘기는 두 걸음** — 행꼴 컴포넌트가 받은 프롭을 하위 컴포넌트에 넘기고 라벨이 " +
+    "거기서 서면 밖이다. ⚠️ 이 한계의 오차 방향은 **거짓 빨강(안전)**이다: 컴포넌트 본문 안에서 " +
+    "두 걸음을 거치면 *갈리지 않는다*로 떨어져 래칫이 빨개지고 사람이 본다. " +
+    "ⓒ **모듈 걸음이 둘까지다**(같은 파일 → import 한 줄 → 재수출 한 줄). `export *` 배럴과 " +
+    "재수출 두 겹, 그리고 상대 경로가 아닌 지정자는 **해석되지 않고 조용히 밖**이다(오늘 그 꼴로 " +
+    "잃은 행꼴 컴포넌트는 0건이다). ⓓ **프롭이 펼침(`{...row}`)으로만 들어오는 자리** — 프롭 이름이 " +
+    "태그에 없으므로 *행을 받은 프롭*이 0이 되고 그 컴포넌트는 모집단 밖이다.",
   "**소스 대조이지 런타임이 아니다** — TalkBack이 실제로 행마다 다르게 읽는지, 같은 문장이 두 행에서 " +
     "겹치지 않는지는 실기기 확인 항목의 몫이다. 이 스윕이 보는 것은 라벨 식이 행을 읽는가 하나다.",
   "**재개 조건(사건형 · 자기 축을 적는다): *행마다 갈리지 않는* 자리가 처음 1건이 되는 날** — 그날의 " +
@@ -6705,8 +6994,10 @@ describe("GAP-092 #2 행마다 갈리는 낭독 라벨 전수 스윕 (세 라운
     expect(sweep.constants, "상수 문자열 라벨(모집단 밖)").toBeGreaterThanOrEqual(ROW_LABEL_RATCHET.constants);
     expect(sweep.constants, "그리고 그 수는 식 라벨의 수가 아니다").not.toBe(sweep.labels);
     // 걷는 파일 수를 함께 센다 — 목록 안 자리가 한 파일에 몰려 있지 않다는 사실도 값이다.
+    // ⚠️⚠️ **두 시점** — H-3 뒤에는 **18**이었고, 넷째 바늘이 공용 키트 파일 셋(디자인 시스템 둘 ·
+    // 달력 하나)을 데려와 오늘 **21**이다. 하한이므로 옛 값이 아니라 오늘 값이 바닥이 된다.
     const filesWithRows = new Set(sweep.rows.map((site) => site.file));
-    expect(filesWithRows.size, "목록 안 자리를 지닌 파일 수").toBeGreaterThanOrEqual(18);
+    expect(filesWithRows.size, "목록 안 자리를 지닌 파일 수").toBeGreaterThanOrEqual(21);
   });
 
   it("ⓑ 판정 셋 — 자리마다 하나가 소스에서 나오고, *갈리지 않는다*는 0건이다", () => {
@@ -6792,11 +7083,13 @@ describe("GAP-092 #2 행마다 갈리는 낭독 라벨 전수 스윕 (세 라운
     expect(viaRenderItem.rows.length, "renderItem 안의 자리").toBe(1);
     expect(viaRenderItem.rows[0].kind, "그 자리를 문 바늘").toBe("renderItem");
     expect(rowLabelVerdictOf(viaRenderItem.rows[0]), "그 자리의 판정").toBe("row-direct");
-    // ⚠️⚠️ **두 시점 — 오늘 이 저장소의 목록 자리를 문 바늘은 하나가 아니다**(리뷰 H-3).
-    //  · 트랙 B 커밋 시점: 전부 `.map`이었다(그때는 그것이 참이었다).
-    //  · 오늘: 인라인 `.map`과 **가상화 목록의 행 컴포넌트**(`row-component`) 둘이다.
+    // ⚠️⚠️ **세 시점 — 오늘 이 저장소의 목록 자리를 문 바늘은 하나가 아니다**(H-3 · 트랙 C).
+    //  · 라운드 92 트랙 B 커밋 시점: 전부 `.map`이었다(그때는 그것이 참이었다).
+    //  · 라운드 92 리뷰 H-3 뒤: 인라인 `.map`과 **가상화 목록의 행 컴포넌트**(`row-component`) 둘.
+    //  · 오늘(라운드 93 트랙 C): 거기에 **`.map(`이 바로 그리는 행꼴 컴포넌트**(`map-component`)가
+    //    더해져 셋이다.
     expect(new Set(rowLabelSweep().rows.map((site) => site.kind)), "오늘 목록 자리를 문 바늘").toEqual(
-      new Set(["map", "row-component"])
+      new Set(["map", "row-component", "map-component"])
     );
 
     // ⑤ 가장 안쪽이 이긴다 — 중첩 목록에서 *행*은 안쪽의 것이다.
@@ -6914,6 +7207,170 @@ describe("GAP-092 #2 행마다 갈리는 낭독 라벨 전수 스윕 (세 라운
     expect(verdicts, "그 셋의 판정").toEqual(["row-derived", "row-direct", "row-direct"]);
   });
 
+  it("ⓒ'' 넷째 바늘 — `.map(`이 그리는 행꼴 컴포넌트의 본문을 물고, 그 조건 넷이 값으로 선다 (트랙 C)", () => {
+    const fixture = (lines: string[]) => rowLabelSitesOf(lines.join("\n"), "fixture");
+
+    // ① 문다 — 행꼴 이름 + 호출부가 `.map(` 안 + 행을 받은 프롭. 셋이 맞으면 **본문**이 모집단이다.
+    const bites = fixture([
+      "function ItemCard({ title, onPress }) {",
+      "  return <Pressable accessibilityLabel={`${title} 열기`} onPress={onPress} />;",
+      "}",
+      "export function Screen({ rows }) {",
+      "  return <View>{rows.map((row) => <ItemCard key={row.id} title={row.title} onPress={() => open(row)} />)}</View>;",
+      "}"
+    ]);
+    expect(bites.rows.length, "행꼴 컴포넌트 본문의 자리").toBe(1);
+    expect(bites.rows[0].kind, "그 자리를 문 바늘").toBe("map-component");
+    // ⚠️ **프롭 이름 → 파라미터가 한 걸음**이다: 호출부가 행을 실어 준 프롭 이름만 *행*이 된다.
+    expect(bites.rows[0].rows.sort(), "행으로 세어진 파라미터").toEqual(["onPress", "title"]);
+    expect(rowLabelVerdictOf(bites.rows[0]), "그 자리의 판정").toBe("row-direct");
+
+    // ② **이름이 행꼴이 아니면 밖이다** — 같은 모양인데 이름만 바꾸면 질문을 받지 못한다(사각).
+    const notRowShaped = fixture([
+      "function Widget({ title, onPress }) {",
+      "  return <Pressable accessibilityLabel={`${title} 열기`} onPress={onPress} />;",
+      "}",
+      "export function Screen({ rows }) {",
+      "  return <View>{rows.map((row) => <Widget key={row.id} title={row.title} onPress={() => open(row)} />)}</View>;",
+      "}"
+    ]);
+    expect(notRowShaped.labels, "식 라벨로는 세어진다").toBe(1);
+    expect(notRowShaped.rows, "그러나 목록 안은 아니다").toEqual([]);
+
+    // ③ **행을 받은 프롭이 하나도 없으면 밖이다** — 행이 컴포넌트 안으로 들어가는 길이 안 보인다.
+    const noRowProp = fixture([
+      "function ItemCard({ title }) {",
+      "  return <Pressable accessibilityLabel={`${title} 열기`} />;",
+      "}",
+      "export function Screen({ rows, heading }) {",
+      "  return <View>{rows.map((row) => <ItemCard key={row.id} title={heading} />)}</View>;",
+      "}"
+    ]);
+    expect(noRowProp.rows, "행을 실어 주지 않는 호출부").toEqual([]);
+
+    // ④ **프롭 이름과 파라미터 이름이 어긋나면 밖이다** — 한 걸음의 연결이 끊긴 자리다.
+    const nameMismatch = fixture([
+      "function ItemCard({ heading }) {",
+      "  return <Pressable accessibilityLabel={`${heading} 열기`} />;",
+      "}",
+      "export function Screen({ rows }) {",
+      "  return <View>{rows.map((row) => <ItemCard key={row.id} title={row.title} />)}</View>;",
+      "}"
+    ]);
+    expect(nameMismatch.rows, "이름이 이어지지 않는 자리").toEqual([]);
+
+    // ⑤ **고정 라벨이면 *갈리지 않는다*로 떨어진다** — 아래 교란(실소스 한 자리)이 재현하는 모양이다.
+    const frozen = fixture([
+      "function ItemCard({ title, onPress }) {",
+      "  return <Pressable accessibilityLabel={CARD_LABEL} onPress={onPress} />;",
+      "}",
+      "export function Screen({ rows }) {",
+      "  return <View>{rows.map((row) => <ItemCard key={row.id} title={row.title} onPress={() => open(row)} />)}</View>;",
+      "}"
+    ]);
+    expect(frozen.rows.length, "고정 라벨도 모집단 안이다").toBe(1);
+    expect(rowLabelVerdictOf(frozen.rows[0]), "고정 문자열 식으로 바꾼 행 라벨").toBe("row-invariant");
+
+    // ⑥ **두 걸음(하위 컴포넌트로 다시 넘김)은 밖이다** — 사각이 값으로 적은 그 경계다.
+    const twoHops = fixture([
+      "function CardInner({ title }) {",
+      "  return <Pressable accessibilityLabel={`${title} 열기`} />;",
+      "}",
+      "function ItemCard({ title }) {",
+      "  return <CardInner title={title} />;",
+      "}",
+      "export function Screen({ rows }) {",
+      "  return <View>{rows.map((row) => <ItemCard key={row.id} title={row.title} />)}</View>;",
+      "}"
+    ]);
+    expect(twoHops.rows, "두 걸음 건너 선 라벨").toEqual([]);
+
+    // ⑦ 그리고 **행꼴 판정의 절반은 이름이다** — 그 낱말 목록이 손 목록이 아니라 값으로 서 있다.
+    expect([...ROW_SHAPED_NAME_WORDS], "행꼴 이름의 낱말").toEqual(["Row", "Card", "Cell", "Tile", "Chip", "Item"]);
+    expect(ROW_SHAPED_NAME_WORDS.every((word) => /^[A-Z][a-z]+$/.test(word)), "낱말은 ASCII다").toBe(true);
+  });
+
+  it("ⓒ''' 넷째 바늘이 실제 소스에서 무는 열 — 핵심 루프 셋이 그 안에 있고, 겹침은 0이다 (트랙 C)", () => {
+    const sweep = rowLabelSweep();
+    const mapComponent = sweep.rows.filter((site) => site.kind === "map-component");
+    expect(mapComponent.length, "넷째 바늘이 문 자리").toBeGreaterThanOrEqual(ROW_LABEL_RATCHET.mapComponentSites);
+    expect(new Set(mapComponent.map((site) => site.file)).size, "그 자리가 선 파일").toBeGreaterThanOrEqual(7);
+
+    // ⓒ **유령 방지 — 겹치지 않는다.** 넷째 바늘을 뺀 자리 수가 H-3 뒤의 38 아래로 내려가지 않는다:
+    // 새 바늘이 옛 자리를 *가로챈* 것이 아니라 **더한** 것임을 값이 보인다(두 수를 한 낱말로 적지 않는다).
+    expect(sweep.rows.length - mapComponent.length, "넷째 바늘 밖의 목록 안 자리(H-3 뒤의 38)").toBeGreaterThanOrEqual(
+      38
+    );
+    expect(sweep.rows.length, "그 둘의 합").toBe(sweep.rows.length - mapComponent.length + mapComponent.length);
+
+    // 핵심 루프 셋이 이름으로 서 있다 — 빠른 품목 타일 · 준비템 카드 · 구매 링크 행.
+    for (const [file, component] of MAP_COMPONENT_LOOP_SITES) {
+      expect(mapComponent.map((site) => site.file), `${component}의 본문이 모집단 안이다`).toContain(file);
+      expect(maskComments(source(file)), `${component}의 선언`).toMatch(
+        new RegExp(`(?:function|const)\\s+${component}\\b`)
+      );
+    }
+    // 그리고 그 열의 판정은 전부 *행마다 갈린다* 쪽이다(여덟은 직접, 둘은 한 걸음 파생).
+    const verdicts = mapComponent.map((site) => rowLabelVerdictOf(site));
+    expect(verdicts.filter((verdict) => verdict === "row-direct").length, "직접").toBeGreaterThanOrEqual(8);
+    expect(verdicts.filter((verdict) => verdict === "row-derived").length, "한 걸음 파생").toBeGreaterThanOrEqual(2);
+    expect(verdicts.filter((verdict) => verdict === "row-invariant"), "갈리지 않는 자리").toEqual([]);
+
+    // ⚠️⚠️ **파일 밖 갈래가 실재한다** — 준비템 카드는 `src/preparation/PreparationListParity.tsx`가
+    // 그리고 본문은 디자인 시스템에 산다. 배럴(재수출 한 줄)을 건너야 이어지는 그 길을 값으로 문다.
+    const parity = maskComments(source("src/preparation/PreparationListParity.tsx"));
+    expect(parity, "준비템 카드를 그리는 화면").toMatch(/<PreparationItemCard/);
+    expect(parity, "그 화면은 본문을 지니지 않는다").not.toMatch(/function\s+PreparationItemCard/);
+    expect(mapComponent.map((site) => site.file), "본문이 사는 파일").toContain(
+      "src/design-system/components/ModV1Primitives.tsx"
+    );
+  });
+
+  it("ⓗ 갈래 ⓑ 재실측 — 정찰의 37이 오늘 일곱으로 줄었고, 남는 일곱은 이름으로 적혀 있다 (트랙 C)", () => {
+    const sweep = rowLabelSweep();
+    const inSweep = new Set(sweep.rows.map((site) => `${site.file}@${site.at}`));
+    // ⚠️ **자로 잰다** — 이름 판정도 프롭 연결도 끄고 `.map(`이 그리는 컴포넌트 전수를 센다.
+    const wide = new Map<string, RowComponentUsage>();
+    for (const file of sweep.files) {
+      for (const usage of mapDrawnRowComponentsOf(maskedSource(file), file, { anyName: true, anyProps: true })) {
+        wide.set(`${usage.file}|${usage.name}`, usage);
+      }
+    }
+    let withLabels = 0;
+    let sites = 0;
+    const outside: string[] = [];
+    for (const usage of wide.values()) {
+      const masked = maskedSource(usage.file);
+      const body = masked.slice(usage.start, usage.end);
+      const found = [...body.matchAll(/accessibilityLabel=\{/g)];
+      if (found.length === 0) continue;
+      withLabels += 1;
+      sites += found.length;
+      for (const match of found) {
+        const at = usage.start + match.index;
+        if (!inSweep.has(`${usage.file}@${at}`)) outside.push(`${usage.file} ${usage.name}`);
+      }
+    }
+    // ⚠️⚠️ **두 시점 — 정찰의 수와 오늘의 수를 한 낱말로 적지 않는다.**
+    //  · **라운드 93 정찰 표본**: 컴포넌트 **15** · 식 라벨 자리 **37**(손이 낸 **하한**이다).
+    //  · **오늘 재실측**(선언까지 이어지는 것만): 컴포넌트 **24** · 라벨 지닌 것 **14** · 자리 **17**.
+    //    그중 넷째 바늘이 **열**을 데려오고 **일곱**이 남는다.
+    expect(wide.size, "`.map(`이 그리고 선언까지 이어지는 컴포넌트").toBeGreaterThanOrEqual(24);
+    expect(withLabels, "그중 식 라벨을 지닌 것").toBeGreaterThanOrEqual(14);
+    expect(sites, "그 본문들의 식 라벨 자리").toBeGreaterThanOrEqual(17);
+    // 갈래 ⓑ의 **잔여**는 상한이다 — 늘면 빨개지고, 그날 사각의 일곱을 다시 적어야 한다.
+    expect(outside.length, "넷째 바늘 밖에 남는 갈래 ⓑ (상한)").toBeLessThanOrEqual(7);
+    expect(sites - outside.length, "넷째 바늘이 데려온 자리").toBeGreaterThanOrEqual(
+      ROW_LABEL_RATCHET.mapComponentSites
+    );
+    // 남는 일곱은 **조용하지 않다** — 사각이 그 이름들을 글자로 적고 있다.
+    const blindSpots = ROW_LABEL_SWEEP_BLIND_SPOTS.join("\n");
+    for (const name of ["ExpenseCategoryIconButton", "PrimaryButton", "ChildDateField", "ItemGrid"]) {
+      expect(blindSpots, `${name}이 사각에 이름으로 적혀 있다`).toContain(name);
+      expect(outside.some((entry) => entry.endsWith(name)), `${name}이 실제로 그 잔여다`).toBe(true);
+    }
+  });
+
   it("ⓓ 래칫 — 갈리지 않는 자리는 0을 넘지 않고, 목록 안 자리는 줄지 않는다", () => {
     const sites = rowLabelSweep().rows;
     const invariant = sites.filter((site) => rowLabelVerdictOf(site) === "row-invariant");
@@ -6947,8 +7404,13 @@ describe("GAP-092 #2 행마다 갈리는 낭독 라벨 전수 스윕 (세 라운
       expect(blindSpot.length, "사각은 빈 문자열일 수 없다").toBeGreaterThan(40);
     }
     // 사각 ⓐ의 수는 문장이 아니라 파생이 못 박는다(손 숫자가 조용히 낡을 자리를 없앤다).
+    // ⚠️⚠️ **세 시점** — 127(트랙 B) → 124(리뷰 H-3) → **114**(오늘 · 넷째 바늘). 옛 수는
+    // 사각 문장 안에 두 벌 그대로 남아 있고, 여기서 무는 것은 **오늘의 하한**이다.
     const sweep = rowLabelSweep();
-    expect(sweep.labels - sweep.rows.length, "사각 ⓐ가 말하는 목록 밖 124").toBeGreaterThanOrEqual(124);
+    expect(sweep.labels - sweep.rows.length, "사각 ⓐ가 말하는 목록 밖 114").toBeGreaterThanOrEqual(114);
+    for (const past of ["127", "124"]) {
+      expect(ROW_LABEL_SWEEP_BLIND_SPOTS.join("\n"), `옛 시점 ${past}이 지워지지 않았다`).toContain(past);
+    }
 
     // 사각 ⓑ의 수도 파생이다 — 라벨 없이 자식 텍스트로 읽히는 누름 자리의 층.
     let pressables = 0;
