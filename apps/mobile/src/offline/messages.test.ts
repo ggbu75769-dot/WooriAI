@@ -264,9 +264,10 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     for (const path of Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)) {
       expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS, `${path}는 목록 안의 화면이다`).toContain(path);
     }
-    // 오늘의 여섯(라운드 73 E가 초대 화면을, 라운드 74 D가 검수·개인정보 두 화면을 더했다).
-    // 늘어나면 이 줄이 먼저 빨개지고, 늘린 라운드가 이유를 함께 적게 된다.
+    // 오늘의 일곱(라운드 73 E가 초대 화면을, 74 D가 검수·개인정보 둘을, 86 B가 온보딩 준비물
+    // 단계를 더했다). 늘어나면 이 줄이 먼저 빨개지고, 늘린 라운드가 이유를 함께 적게 된다.
     expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS).sort()).toEqual([
+      "app/(onboarding)/prepared-items.tsx",
       "app/family/accept/[token].tsx",
       "app/import/[importJobId].tsx",
       "app/settings/children.tsx",
@@ -285,14 +286,21 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
    * 라운드 73 트랙 E — **배선하지 않기로 한 자리도 값이다.**
    *
    * L-2는 여덟 라운드 동안 `app/(onboarding)/prepared-items.tsx`의 한 줄을 "남은 P3"로 이월했다.
-   * 이번 라운드가 그 자리를 다시 재어 보니 배선이 답이 아니었는데(공용 문장은 [다시 시도]를
+   * 라운드 73은 그 자리를 재어 보고 배선이 답이 아니라고 판정했는데(공용 문장은 [다시 시도]를
    * 가리키는데 그 자리에는 그 버튼이 없고, 이미 더 구체적인 탈출구 문장이 있다), **"배선하지
    * 않는다"는 판정은 어떤 단언도 깨지 않는다.** 그래서 제외를 목록으로 적고, 그 목록이
-   * 두 방향으로 사실과 묶여 있게 한다 — 제외는 배선 목록 밖에 있고, 실제로 훅을 부르지 않는다.
+   * 두 방향으로 사실과 묶여 있게 했다 — 제외는 배선 목록 밖에 있고, 실제로 훅을 부르지 않는다.
+   *
+   * ## 라운드 86 트랙 B — **그 제외가 오늘 0건이 된다**
+   *
+   * 하나뿐이던 항목이 배선 목록으로 옮겨 갔다(사유 셋 중 둘이 재실측에서 거짓이었다 —
+   * 근거는 목록 파일의 머리말에 값으로 있다). 그래서 이 단언의 모양이 저장 쪽 빈 목록과 **같은
+   * 형식**으로 바뀐다: 남은 항목은 여전히 두 방향으로 묶여 있고, 오늘의 답은 **0건**이다.
+   * ⚠️ 그 0은 "아직 안 봤다"가 아니라 아래 `app/**` 스윕(라운드 38 H-12)이 세어 본 값이다 —
+   * 훅을 부르는 화면 집합과 배선 목록이 정확히 일치하므로, 제외 없이도 모든 자리가 세어진다.
    */
-  it("라운드 73 트랙 E: 제외 목록은 이유를 지고, 배선 목록과 겹치지 않는다 (L-2 이월 종결)", () => {
+  it("라운드 86 트랙 B: 조회 쪽 제외 목록은 오늘 0건이다 (형식은 남고 값이 비었다 · L-2 종결)", () => {
     const exempt = Object.entries(OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS);
-    expect(exempt.length).toBeGreaterThan(0);
     for (const [path, reason] of exempt) {
       // 이유가 값으로 남아 있을 때만 제외다(빈 문자열로 목록을 늘릴 수 없다).
       expect(reason.length, `${path}의 제외 사유가 값으로 남아 있다`).toBeGreaterThan(30);
@@ -300,15 +308,72 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
       // 제외해 놓고 조용히 배선돼 있지 않다(그 반대도 아니다 — 위 스윕이 그쪽을 본다).
       expect(source(path), `${path}는 공용 훅을 부르지 않는다`).not.toContain("useLoadErrorCopy(");
     }
-    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS)).toEqual([
+    // 저장 쪽 빈 제외 목록과 **같은 형식**이다(그쪽은 스윕 결과가 0건, 이쪽은 목록 자체가 0건).
+    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_EXEMPT_SCREENS)).toEqual([]);
+    // 그 하나였던 화면은 이제 배선 목록과 NON_CARD 이유에 **함께** 있다(둘 중 하나가 아니다).
+    expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toContain("app/(onboarding)/prepared-items.tsx");
+    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)).toContain(
       "app/(onboarding)/prepared-items.tsx"
-    ]);
-    // 그 화면의 문구·분기는 이 라운드가 손대지 않는다 — 제외의 근거가 되는 그 모양 그대로다.
-    const preparedItems = source("app/(onboarding)/prepared-items.tsx");
-    expect(preparedItems).toContain("{!isLoadingOptions && !hasOptions ? (");
-    expect(preparedItems).toContain(
-      '"준비물 목록을 불러오지 못했어요. 이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요."'
     );
+  });
+
+  /**
+   * 라운드 86 트랙 B(GAP-086 #2) — **온보딩 준비물 단계의 조회 실패 갈래.**
+   *
+   * 이 화면이 마지막 제외였고, 그 제외 사유가 지키려던 값은 하나였다 — *"이미 더 구체적인 탈출구
+   * 문장이 있는데 공용 문장으로 후퇴시키지 말 것."* 그래서 이 계약이 무는 것은 배선의 존재만이
+   * 아니라 **얹되 지우지 않았는가**이고, 그 반대편(0건 갈래)이 조용히 같이 바뀌지 않았는가다.
+   *
+   * ⚠️ 문구 자체는 여기서 다시 적지 않는다 — 공용 상수(`OFFLINE_LOAD_NOTICE`)에서 파생해 비교
+   * 하므로, 그 문장이 다듬어지면 화면과 이 계약이 **함께** 따라간다.
+   */
+  it("ⓑ 문구: 오프라인이면 공용 문장이 서고, 화면 고유의 건너뛰기 안내는 지워지지 않는다", () => {
+    const screen = source("app/(onboarding)/prepared-items.tsx");
+    // 판정은 공용 훅 한 번(조회 자리가 하나다 — 고정 호출이라 hooks 규칙에도 안전하다).
+    expect(screen).toContain('from "../../src/offline/use-load-error-copy"');
+    expect(screen).toContain("const itemsLoadErrorCopy = useLoadErrorCopy(itemsQuery.isError);");
+    expect(screen.match(/useLoadErrorCopy\(/g) ?? [], "조회 자리당 한 번").toHaveLength(1);
+    // 오프라인 갈래는 공용 문장 **그대로**이고, 온라인 갈래에만 주어 한 조각이 앞에 붙는다
+    // ("준비물 목록을 지금은 오프라인이에요…"는 문장이 아니다 — 알림 설정 화면의 그 관례).
+    expect(screen).toContain("itemsLoadErrorCopy.title === OFFLINE_LOAD_NOTICE");
+    expect(screen).toContain("`준비물 목록을 ${itemsLoadErrorCopy.title}`");
+    // 코드만 본다(주석의 인용은 놓아준다 — 이 파일의 다른 스윕과 같은 관례).
+    const code = screen.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+    expect(code, "옛 리터럴이 되살아나지 않는다").not.toContain(LOAD_ERROR_NOTICE);
+    // ⚠️ 부정 단언(이 트랙의 축): 더 구체적인 고유 문장이 공용 문장으로 **후퇴하지 않았다**.
+    expect(screen).toContain("이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요.");
+    // 그리고 그 문장이 가리키는 건너뛰기 판정·로컬 탈출구는 이 트랙이 손대지 않는다.
+    expect(screen).toContain("const canSkip = !isLoadingOptions && !hasOptions");
+    expect(screen).toContain("canPassPreparedItemsLocally({");
+  });
+
+  it("ⓒ 0건 갈래: 준비물이 없어서 뜬 문장에는 공용 문장도 [다시 시도]도 붙지 않는다", () => {
+    const screen = source("app/(onboarding)/prepared-items.tsx");
+    // 갈래를 가르는 조건은 종전 그대로이고(라운드 73이 제외 사유로 적었던 그 모양),
+    expect(screen).toContain("{!isLoadingOptions && !hasOptions ? (");
+    // 0건 문구는 **바이트 불변**이다(실패가 아니므로 연결도 재시도도 이 자리의 사실이 아니다).
+    expect(screen).toContain('"지금 시기에 보여드릴 준비물이 아직 없어요. 이 단계는 건너뛰어도 괜찮아요."');
+    // 얹힌 두 가지는 **둘 다** 조회 실패 조건 아래에만 선다 — 공용 문장 한 줄과 고유 안내 한 줄.
+    const branchAt = screen.indexOf("{!isLoadingOptions && !hasOptions ? (");
+    expect(branchAt, "0건·실패 갈래").toBeGreaterThan(-1);
+    const optionsAt = screen.indexOf("{options.map((item, index) => {", branchAt);
+    expect(optionsAt, "갈래의 끝(후보 목록이 그 다음이다)").toBeGreaterThan(branchAt);
+    const branch = screen.slice(branchAt, optionsAt);
+    expect(branch, "공용 문장은 실패 갈래의 것이다").toContain("? itemsLoadErrorText");
+    expect(branch, "고유 안내도 실패 조건 아래다").toContain("{itemsQuery.isError ? (");
+    // 공용 문장이 실패 조건 아래에 있다는 사실(조건 → 문장 순서)도 함께 못박는다.
+    expect(branch.indexOf("{itemsQuery.isError"), "조건이 먼저다").toBeLessThan(
+      branch.indexOf("? itemsLoadErrorText")
+    );
+    // 그리고 다시 불러오기 버튼도 조회 실패 하나에만 걸린다(0건은 다시 부를 것이 없다).
+    const retryAt = screen.indexOf('label="목록 다시 불러오기"');
+    expect(retryAt, "탈출구 버튼").toBeGreaterThan(-1);
+    const retryGuard = screen.lastIndexOf("{itemsQuery.isError ? (", retryAt);
+    expect(retryGuard, "그 버튼의 조건").toBeGreaterThan(-1);
+    const retryBlock = screen.slice(retryGuard, retryAt);
+    expect(retryBlock, "조건과 버튼 사이에 다른 조건이 없다").not.toContain("hasOptions");
+    expect(screen, "있는 조회를 다시 부른다 — 새 쿼리 0건").toContain("onPress={() => void itemsQuery.refetch()}");
+    expect(screen.match(/useQuery\(/g) ?? [], "이 화면의 쿼리는 하나뿐이다").toHaveLength(1);
   });
 
   /**
@@ -951,12 +1016,9 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
    * 자리이고, 그 이유를 여기 값으로 적는다. 자리가 하나라도 늘면 이 단언이 먼저 빨개진다.
    */
   const LOAD_PHRASE_EXPECTED_OCCURRENCES: Readonly<Record<string, { count: number; reason: string }>> = {
-    "app/(onboarding)/prepared-items.tsx": {
-      count: 1,
-      reason:
-        "배선하지 않기로 한 자리(제외 목록). 공용 문장이 가리키는 [다시 시도]가 그 화면에 없고 " +
-        "이미 더 구체적인 탈출구 문장을 갖고 있다 — 그 한 줄이 그 이유의 본체다."
-    },
+    // ⚠️ 라운드 86 트랙 B: 여기 있던 `app/(onboarding)/prepared-items.tsx`(1건)가 **사라졌다** —
+    // 그 화면이 배선되면서 문장이 공용 훅의 값이 됐다(리터럴 0건). 표에서 이름이 빠진 것이
+    // 곧 그 사실이고, 되살아나면 아래 `toEqual`이 먼저 빨개진다.
     "app/settings/index.tsx": {
       count: 1,
       reason:
@@ -983,7 +1045,7 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
       expect(entry.reason.trim().length, `${path}의 사유가 값으로 남아 있다`).toBeGreaterThan(30);
       expect(entry.count, `${path}의 기대 출현 수`).toBeGreaterThan(0);
     }
-    // 배선된 화면 열넷 중 이 표에 이름이 있는 것은 둘뿐이다 — 나머지 열둘은 **0건**이고,
+    // 배선된 화면 열다섯 중 이 표에 이름이 있는 것은 둘뿐이다 — 나머지 열셋은 **0건**이고,
     // 그중 하나라도 리터럴을 손으로 되쓰면 위 `toEqual`이 먼저 빨개진다.
     const wiredWithLiteral = OFFLINE_AWARE_LOAD_ERROR_SCREENS.filter((path) =>
       Object.hasOwn(LOAD_PHRASE_EXPECTED_OCCURRENCES, path)
@@ -1013,10 +1075,12 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
    * "P3 0개"를 선언했으므로, 이번 라운드가 만든 값도 여기 남긴다 — 다음 라운드가 문서의 산문이
    * 아니라 이 줄과 대조하게 된다.
    */
-  it("ⓑ 조회 목록 열넷 · 카드가 아닌 자리 여섯(다섯 이상) · 저장 목록 다섯", () => {
-    expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toHaveLength(14);
+  it("ⓑ 조회 목록 열다섯 · 카드가 아닌 자리 일곱(다섯 이상) · 저장 목록 다섯", () => {
+    // 라운드 86 트랙 B: 열넷 → **열다섯**이고, 늘어난 하나가 조회 쪽 제외 목록의 마지막
+    // 항목이었다(제외는 0건이 됐다 — 위 그 단언이 같은 사실을 다른 방향에서 센다).
+    expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toHaveLength(15);
     expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS).length).toBeGreaterThanOrEqual(5);
-    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)).toHaveLength(6);
+    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)).toHaveLength(7);
     // 라운드 76 트랙 A: 저장 목록만 넷 → 다섯이다. **조회 쪽 값 셋은 한 글자도 바뀌지 않는다**
     // (두 라운드가 서로 다른 축을 열었다는 사실이 이 줄에 값으로 남는다).
     expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(5);
