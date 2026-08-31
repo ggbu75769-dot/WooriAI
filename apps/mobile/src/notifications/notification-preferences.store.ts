@@ -92,8 +92,9 @@ export const NOTIFICATION_TYPE_OPTIONS: readonly NotificationTypeOption[] = [
   }
 ] as const;
 
-/** 종류 → 라벨. 화면이 목록을 돌지 않고 한 종류만 이름 지을 때 쓴다(옛 저장본은 undefined). */
 /**
+ * 종류 → 라벨. 화면이 목록을 돌지 않고 한 종류만 이름 지을 때 쓴다(옛 저장본은 undefined).
+ *
  * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
  * 옮겼다). 바로 위 한 줄이 `notificationTypeLabel`을 쓰는 조건을 적어 두었는데 **그 조건을
  * 만족하는 화면이 오늘 0건**이다 —

@@ -72,8 +72,9 @@ export function isDeveloperBuild(): boolean {
   return resolveIsDeveloperBuild(readBuildCharacter());
 }
 
-/** 실사용자에게 나가는 빌드인가(Play AAB · production APK). `isDeveloperBuild()`의 부정. */
 /**
+ * 실사용자에게 나가는 빌드인가(Play AAB · production APK). `isDeveloperBuild()`의 부정.
+ *
  * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
  * 옮겼다). 화면이 `isRealUserBuild`를 부르지 않는 이유는 **관례**다 — 개발자에게만 하는 말은 긍정형이 참일
  * 때 세운다(`isDeveloperBuild()`). 부정형으로 물으면 "실사용자에게만 세우는 것"이 되어 같은 축의

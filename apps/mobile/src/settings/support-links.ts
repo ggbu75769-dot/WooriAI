@@ -54,8 +54,9 @@ export function supportLinkUrls(): Record<SupportLinkKind, string | null> {
   };
 }
 
-/** 한 종류의 URL(없으면 null). */
 /**
+ * 한 종류의 URL(없으면 null).
+ *
  * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
  * 옮겼다). 화면이 단수판 `supportLinkUrl`을 부르지 않는 이유: 문의·FAQ 두 링크는 더보기 화면의 같은 자리에
  * **함께 서거나 함께 사라지므로** 화면은 복수형 `supportLinkUrls()`로 한 번에 둘을 읽는다(주입된

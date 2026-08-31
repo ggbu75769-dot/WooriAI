@@ -57,9 +57,15 @@ const TREND_SCREENS = [
  * 클릭 화면의 각주·최대치 부재까지 넓혀 못 박아 두고 있었다. 트랙의 범위를 지킨 옳은 문장이었지만
  * 다음 라운드에는 *결정*으로 읽혔다. 오늘부터 각주·최대치 한 줄·표 이름은 **두 화면이 같은
  * 질문을 함께 받고**(`for (const path of [...])`), 바이트 불변으로 남는 것은 표 머리와 고지다.
+ *
+ * ⚠️ **두 시점(라운드 88 리뷰 M-1)** — 아래 ⓑ절의 제목은 라운드 86 트랙 D 당시 *"클릭 화면이
+ * 그리던 글자와 바이트 단위로 같다 (정상 응답에서)"* 였고, 그때는 참이었다. **라운드 88 트랙 A**가
+ * 그 화면에 최대치 한 줄과 갈래 각주를 세운 뒤로는 정상 응답에서도 새 글자가 서므로 그 제목은
+ * 거짓이 됐다 — 오늘 ⓑ절이 실제로 무는 것은 **표 머리 두 칸·카드 제목·DNC-009 고지·막대 식**,
+ * 즉 트랙 A가 손대지 않은 자리들뿐이다.
  */
 describe("analytics-trend-view (라운드 86 트랙 D)", () => {
-  describe("ⓑ 형제 동형 — 클릭 화면이 그리던 글자와 바이트 단위로 같다 (정상 응답에서)", () => {
+  describe("ⓑ 형제 동형 — 클릭 화면의 표 머리·카드 제목·고지·막대 식이 바이트 단위로 같다", () => {
     /**
      * ⚠️⚠️ **라운드 86 리뷰 L-13 — 이 아래 `legacy`가 무엇인지 정직하게 적어 둔다.**
      *
@@ -276,6 +282,48 @@ describe("analytics-trend-view (라운드 86 트랙 D)", () => {
       }
     });
 
+    /** 주석을 걷어낸 화면 소스 — 갈래 판정은 코드만 본다(화면 주석의 인용을 회귀로 세지 않는다). */
+    const screenCode = (path: string): string =>
+      readAdminSource(path)
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/\/\/[^\n]*/g, " ");
+
+    /** 추이 카드 한 덩이 — 제목부터 그 카드를 닫는 `</section>`까지. */
+    const trendCard = (path: string): string => {
+      const code = screenCode(path);
+      const start = code.indexOf("<h2>일별 추이");
+      expect(start, `${path}: 일별 추이 카드 제목이 소스에 없어요`).toBeGreaterThan(-1);
+      const end = code.indexOf("</section>", start);
+      expect(end, `${path}: 추이 카드를 닫는 </section>이 없어요`).toBeGreaterThan(start);
+      return code.slice(start, end);
+    };
+
+    /** `{trend.showTable ? "…" : "…"}` — 두 팔이 **문자열 리터럴**인 각주 갈래 하나. */
+    const SHOW_TABLE_FOOTNOTE = /\{\s*trend\.showTable\s*\?\s*("(?:[^"\\]|\\.)*")\s*:\s*("(?:[^"\\]|\\.)*")\s*\}/;
+
+    type FootnoteBranch = {
+      /** `showTable`이 **참**인 팔의 문장. */
+      readonly whenTable: string;
+      /** `showTable`이 **거짓**인 팔의 문장. */
+      readonly whenNoTable: string;
+      readonly start: number;
+      readonly end: number;
+    };
+
+    const footnoteBranch = (path: string, card: string): FootnoteBranch => {
+      const hit = SHOW_TABLE_FOOTNOTE.exec(card);
+      expect(hit, `${path}: 각주가 trend.showTable 갈래(문자열 두 팔)로 서 있지 않아요`).not.toBeNull();
+      return {
+        whenTable: JSON.parse(hit![1]) as string,
+        whenNoTable: JSON.parse(hit![2]) as string,
+        start: hit!.index,
+        end: hit!.index + hit![0].length
+      };
+    };
+
+    /** 줄바꿈·들여쓰기를 한 칸으로 눌러 **여러 줄로 흩어진 같은 문장**도 한 문장으로 읽는다. */
+    const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();
+
     /**
      * ⚠️ 라운드 86 리뷰 L-11 — 표를 세워 놓고도 "마우스를 올리면"만 적어 두면, 그 힌트가 이 카드를
      * 여전히 **마우스 전용**으로 소개한다(이 트랙이 고치려던 바로 그 오해다).
@@ -284,27 +332,47 @@ describe("analytics-trend-view (라운드 86 트랙 D)", () => {
      * 못 박아 두었다. 그러나 그 화면에도 표는 이미 같은 값에서 서 있었다 — 각주가 말하는 유일
      * 경로가 그 화면의 유일 경로가 아니었다. 오늘 두 화면은 **같은 값(`trend.showTable`)에서
      * 같은 갈래**를 받는다.
+     *
+     * ## ⚠️ 두 시점 — 라운드 88 리뷰 H-2: 이 루프가 잡겠다는 회귀 둘에 초록이었다
+     *
+     * **라운드 88 트랙 A 당시** 이 단언은 셋만 물었다: 두 문장이 소스에 **있는가** ·
+     * `{trend.showTable` 이 **있는가** · 옛 각주의 **한 줄짜리 바이트 형태**가 카드에 없는가.
+     * 그 셋은 *"어느 문장이 어느 팔에 있는가"* 를 한 번도 묻지 않았다 —
+     *
+     *  ① **두 팔을 뒤바꾸면**(표가 선 응답에 "마우스를 올리면") 세 단언이 전부 그대로 참이라
+     *     이 카드가 다시 마우스 전용으로 소개되는 동안 계약은 초록이었다.
+     *  ② 갈래는 그대로 둔 채 **갈래 밖에 조건 없는 옛 각주를 여러 줄 형태로 하나 더** 세우면,
+     *     부재 단언이 `<p className={styles.hint}>막대에 마우스를 올리면` 이라는 **바이트 한 형태**만
+     *     보고 있어서 역시 초록이었다.
+     *
+     * **라운드 88 리뷰 이후**: 갈래를 **파싱해** 두 팔을 값으로 꺼내고(어느 문장이 어느 팔인가),
+     * 부재는 바이트 형태가 아니라 **자리로** 묻는다 — 두 문장의 모든 출현이 그 갈래 **안**이어야
+     * 한다(줄바꿈을 눌러 보므로 여러 줄 형태도 같이 잡힌다). 두 화면 공통 루프는 그대로다.
+     *
+     * ⚠️ 남은 한계: 각주를 문자열 리터럴이 아니라 상수·보간으로 옮기면 이 파서가 갈래를 찾지 못하고
+     * **그 자리에서 빨개진다**(거짓 초록이 아니라 거짓 빨강 — 그때 이 계약을 함께 고치라는 뜻이다).
      */
-    it("두 화면의 각주가 표가 선 응답에서 표를 가리킨다 (같은 값에서 같은 갈래)", () => {
+    it("두 화면의 각주가 표가 선 팔에서만 표를 가리킨다 (같은 값에서 같은 갈래 · 팔까지 묻는다)", () => {
       for (const [path, countNoun] of TREND_SCREENS) {
-        const source = readAdminSource(path);
-        // ⓐ 표가 선 응답: 각주가 그 표를 가리킨다.
-        expect(source, `${path}: 각주가 표를 가리키지 않아요`).toContain(`날짜별 ${countNoun}는 위 표에서 볼 수 있어요.`);
-        // 표가 서지 못한 응답에서만 종전 문장이 남는다(그때는 마우스가 유일한 경로인 것이 사실이다).
-        expect(source, `${path}: 표가 못 선 응답의 종전 문장이 사라졌어요`).toContain(
-          `막대에 마우스를 올리면 날짜별 ${countNoun}를 볼 수 있어요. (서울 기준 날짜)`
-        );
-        // 갈래의 판정을 화면이 새로 짓지 않는다 — 표를 세우는 그 값이 각주도 가른다.
-        expect(source, `${path}: 각주가 표와 다른 값에서 갈려요`).toContain("{trend.showTable");
+        const card = trendCard(path);
+        const branch = footnoteBranch(path, card);
+        const tableSentence = `날짜별 ${countNoun}는 위 표에서 볼 수 있어요.`;
+        const mouseSentence = `막대에 마우스를 올리면 날짜별 ${countNoun}를 볼 수 있어요. (서울 기준 날짜)`;
 
-        const cardStart = source.indexOf("<h2>일별 추이");
-        expect(cardStart, `${path}: 일별 추이 카드 제목이 소스에 없어요`).toBeGreaterThan(-1);
-        const card = source.slice(cardStart);
-        // ⓑ 부정 단언: 갈래 밖에 조건 없이 서는 옛 각주가 남아 있지 않다(표가 선 창에서도 그 줄만
-        // 서면 이 카드는 다시 마우스 전용으로 읽힌다).
-        expect(card, `${path}: 조건 없는 옛 각주가 남아 있어요`).not.toContain(
-          "<p className={styles.hint}>막대에 마우스를 올리면"
+        // ⓐ **어느 문장이 어느 팔에 있는가** — 표가 서는 팔이 그 표를 가리킨다.
+        expect(branch.whenTable, `${path}: 표가 선 팔이 표를 가리키지 않아요`).toContain(tableSentence);
+        expect(branch.whenTable, `${path}: 표가 선 팔이 마우스를 유일 경로로 소개해요(두 팔이 뒤바뀌었어요)`).not.toContain(
+          mouseSentence
         );
+        // ⓑ 종전 문장은 표가 **서지 못한** 팔에만 남는다(그때는 마우스가 유일 경로인 것이 사실이다).
+        expect(branch.whenNoTable, `${path}: 표가 못 선 팔이 종전 문장 그대로가 아니에요`).toBe(mouseSentence);
+        expect(branch.whenNoTable, `${path}: 표가 못 선 팔이 서지도 않은 표를 가리켜요`).not.toContain(tableSentence);
+
+        // ⓒ 부재는 **자리로** 묻는다: 두 문장은 이 갈래 밖 어디에도 서지 않는다.
+        //    (바이트 한 형태가 아니라 갈래 밖 전체를 보므로 여러 줄로 흩어진 각주도 여기서 잡힌다.)
+        const outsideBranch = collapse(`${card.slice(0, branch.start)} ${card.slice(branch.end)}`);
+        expect(outsideBranch, `${path}: 표 각주가 showTable 갈래 밖에도 서 있어요`).not.toContain(collapse(tableSentence));
+        expect(outsideBranch, `${path}: 조건 없는 옛 각주가 갈래 밖에 서 있어요`).not.toContain(collapse(mouseSentence));
       }
     });
 

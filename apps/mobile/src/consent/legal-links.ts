@@ -43,8 +43,9 @@ export function legalDocumentUrls(): Record<LegalDocumentKind, string | null> {
   };
 }
 
-/** 한 종류의 URL(없으면 null). */
 /**
+ * 한 종류의 URL(없으면 null).
+ *
  * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
  * 옮겼다). 화면이 단수판 `legalDocumentUrl`을 부르지 않는 이유: 약관·개인정보 두 링크는 로그인 체크박스에도
  * 동의 내역 카드에도 **언제나 같은 자리에 함께 서므로** 화면은 복수형 `legalDocumentUrls()`로

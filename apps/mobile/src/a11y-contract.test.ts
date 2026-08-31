@@ -3534,7 +3534,8 @@ const ANNOUNCE_LEDGER_VERDICT_BLIND_SPOTS: ReadonlyArray<string> = [
   "프롭이 **한 짝만** 걸린 자리는 대장에 없다 — 대장의 `after`는 짝이 완성된 바이트라 반쪽 자리는 `indexOf`에 걸리지 않는다. role 단독은 ALERT_ROLE_WITHOUT_LIVE_REGION이, 모듈 층의 반쪽은 halfAnnouncedTagCount가 따로 센다.",
   "`.tsx` 밖의 자리는 이 그물 밖이다 — 대장 아홉은 전부 `.tsx`이고, 낭독 문장이 `.ts` 모듈에서 서는 자리(문구 단일 소스가 사는 층)는 여기서 세지 않는다.",
   "낭독으로 세는 것은 **effect 층의 배선**이다 — 이벤트 핸들러가 상태를 세우며 같은 걸음에 부르는 announceForA11y는 이 그물이 `announce`로 세지 않는다(오늘 그런 자리가 하나 있고, 그 사실이 그 항목의 crossPlatform 값에 적혀 있다).",
-  "소스 대조이지 런타임이 아니다 — VoiceOver·TalkBack이 실제로 그 문장을 읽는지는 실기기 확인의 몫이다(react-native는 vitest에서 네이티브 바인딩이 없다)."
+  "소스 대조이지 런타임이 아니다 — VoiceOver·TalkBack이 실제로 그 문장을 읽는지는 실기기 확인의 몫이다(react-native는 vitest에서 네이티브 바인딩이 없다).",
+  "⚠️ 라운드 88 리뷰 L-1 — **갈래를 하나만, 글자로만 본다.** `announce`로 세려면 ⓐ 자리를 감싸는 갈래 중 **최내곽 하나**(`enclosingJsxGuards(...)[0]`)가 ⓑ effect 층 배선의 `if` 조건과 **문자열이 완전히 같아야** 한다. 그래서 자리를 갈래 둘이 겹쳐 감싸는 모양(바깥 갈래가 진짜 조건인 경우)이나, 같은 뜻을 다르게 적은 조건(`save.isError` ↔ `saveMutation.isError`, 부정 순서 바뀜, 괄호·공백 밖의 표기 차이)은 배선이 실재해도 `live-region`으로 떨어진다. ⚠️ 오차의 방향은 **거짓 빨강(안전)**이다 — 침묵을 announce로 세지 않고, 그 항목에 이유를 요구해 사람이 다시 보게 만든다. 오늘 실측(2026-08-31 워킹트리)으로 이 한계가 실제로 낸 피해는 **0건**이다: 대장 아홉이 덮는 자리 **스물둘** 중 감싸는 갈래가 하나인 자리 열셋 · 둘인 자리 여덟 · 없는 자리 하나이고, **중첩 여덟은 전부 최내곽 갈래가 배선 조건과 글자로 맞아 `announce`로 떨어졌다**(오늘 `live-region` 둘은 갈래가 하나인 자리이고, 둘 다 이유가 값으로 서 있다). 판정 로직을 넓히는 것은 이 한계가 실제로 자리를 잘못 세우는 날의 일이다."
 ];
 
 /**
@@ -5606,6 +5607,49 @@ ${card("")}
       announceEffectWirings(acceptMasked).map((wiring) => wiring.condition),
       "effect 층의 낭독 조건"
     ).not.toContain("joinRetryNotice && joinedResult");
+
+    // 사각 ⑥(라운드 88 리뷰 L-1)의 실재 — 조건을 **글자로만** 본다. 뜻이 같아도 표기가 갈리면
+    // 배선이 실재해도 `live-region`으로 떨어진다(⚠️ **거짓 빨강** — 침묵을 announce로 세는
+    // 반대 방향의 오차가 아니다. 그래서 판정 로직은 오늘 그대로 두고 사각으로만 든다).
+    const spelledDifferently = `
+export default function Screen() {
+  useEffect(() => { if (save.isError === true) announceForA11y(failText); }, [save.isError, failText]);
+  return (
+    <View>
+      {save.isError ? (
+        <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>
+          {failText}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+`;
+    expect(
+      announceLedgerPlacesOf(
+        spelledDifferently,
+        '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>'
+      ).map((place) => place.exit),
+      "표기가 갈리면 배선이 있어도 live-region이다 — 이유를 요구하는 쪽으로 틀린다"
+    ).toEqual(["live-region"]);
+    // 그리고 오늘 저장소에서 이 한계가 낸 피해는 0건이다: 감싸는 갈래가 둘인 자리 여덟은
+    // 전부 최내곽 갈래가 배선 조건과 맞아 announce로 떨어졌다(사각 문장이 적은 그 수).
+    const guardDepths = ANNOUNCE_PROP_LEDGERS.flatMap(({ entries }) =>
+      entries.flatMap((entry) => {
+        const masked = maskComments(source(entry.file));
+        const depths: number[] = [];
+        for (let at = masked.indexOf(entry.after); at >= 0; at = masked.indexOf(entry.after, at + 1)) {
+          depths.push(enclosingJsxGuards(masked, at).length);
+        }
+        return depths;
+      })
+    );
+    const verdicts = announceLedgerVerdicts().flatMap(({ places }) => places.map((place) => place.exit));
+    expect(guardDepths.length, "대장이 덮는 자리").toBe(verdicts.length);
+    expect(
+      guardDepths.filter((depth, index) => depth > 1 && verdicts[index] === "live-region"),
+      "중첩 갈래 때문에 live-region으로 떨어진 자리는 오늘 0건이다"
+    ).toEqual([]);
 
     // 사각 ① — 이 판정은 화면 층·모듈 층 스윕 셋을 대신하지 않는다(모집단이 다르다는 사실이 수로 선다).
     const ledgerFiles = new Set(ANNOUNCE_PROP_LEDGERS.flatMap(({ entries }) => entries.map((entry) => entry.file)));

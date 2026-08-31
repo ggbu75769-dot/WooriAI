@@ -329,6 +329,155 @@ describe("ⓒ 판정 셋 — 픽스처로 세 갈래를 세운다 (저장소는 
 });
 
 // ---------------------------------------------------------------------------
+// ⚠️ 라운드 88 리뷰 H-1 — 정규식 리터럴 안의 따옴표가 판정을 뒤집던 자리
+// ---------------------------------------------------------------------------
+
+/**
+ * ⚠️ **고침 전의 `splitCodeAndComments` 그 자체**(라운드 88 트랙 C 판)를 픽스처로 박제해 둔다.
+ *
+ * 이 사본이 있어야 *"고치기 전에는 code-only, 고친 뒤에는 comment-tolerant"* 라는 갈림을 **상시**
+ * 물을 수 있다 — 갈림이 없으면 이 교란 재현은 다음 라운드에 조용히 장식이 된다. 이 사본을
+ * 고치지 말 것: 이것은 오늘의 구현이 아니라 **당시의 구현**이고, 그 사실이 이 테스트의 값이다.
+ */
+function splitAsRound88TrackC(source: string): { code: string; comments: string } {
+  let code = "";
+  let comments = "";
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    const c = source[i];
+    if (c === "/" && source[i + 1] === "/" && source[i - 1] !== ":") {
+      let j = i + 2;
+      while (j < n && source[j] !== "\n") j += 1;
+      comments += `${source.slice(i + 2, j)}\n`;
+      code += " ";
+      i = j;
+      continue;
+    }
+    if (c === "/" && source[i + 1] === "*") {
+      let j = i + 2;
+      while (j < n && !(source[j] === "*" && source[j + 1] === "/")) j += 1;
+      comments += `${source.slice(i + 2, j)}\n`;
+      code += " ";
+      i = Math.min(j + 2, n);
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      while (j < n) {
+        if (source[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (source[j] === c) break;
+        j += 1;
+      }
+      code += source.slice(i, Math.min(j + 1, n));
+      i = j + 1;
+      continue;
+    }
+    code += c;
+    i += 1;
+  }
+  return { code, comments };
+}
+
+describe("⚠️ 리뷰 H-1 — 정규식 리터럴 안의 따옴표에서 문자열 모드로 들어가면 뒤의 주석을 코드로 삼킨다", () => {
+  let fixtureRoot = "";
+
+  // 결함을 여는 최소 모양: `/[",\n\r]/` 뒤에 그 앵커의 문장을 인용한 주석이 서고, 같은 문장이
+  // 코드에도 있다 → 참값은 comment-tolerant다.
+  const targetLines = [
+    "export function quoteIfNeeded(text: string): string {",
+    "  if (/[\",\\n\\r]/.test(text)) {",
+    "    return `\"${text.replace(/\"/g, '\"\"')}\"`;",
+    "  }",
+    "  return text;",
+    "}",
+    "",
+    "// 위 자르기는 collectFixtureForExport가 이미 하지만, 이 함수 단독 호출도 안전해야 한다.",
+    "export const collectFixtureForExport = () => quoteIfNeeded(\"x\");",
+    ""
+  ];
+
+  beforeAll(() => {
+    fixtureRoot = mkdtempSync(join(tmpdir(), "comment-tolerant-regex-"));
+    mkdirSync(join(fixtureRoot, "apps", "admin", "src", "lib"), { recursive: true });
+    writeFileSync(join(fixtureRoot, "apps", "admin", "src", "lib", "csv.ts"), targetLines.join("\n"), "utf8");
+    writeFileSync(
+      join(fixtureRoot, "apps", "admin", "src", "regex.test.ts"),
+      [
+        'import { join } from "node:path";',
+        'import { readFileSync } from "node:fs";',
+        "const adminRoot = process.cwd();",
+        "function readSource(relativePath: string): string {",
+        '  return readFileSync(join(adminRoot, relativePath), "utf8");',
+        "}",
+        'const csv = readSource("src/lib/csv.ts");',
+        'expect(csv).toContain("collectFixtureForExport");',
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+  });
+
+  afterAll(() => {
+    if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  it("고침 전 스캐너는 정규식 뒤의 주석을 코드로 흡수한다 (그래서 판정이 code-only로 떨어졌다)", () => {
+    const before = splitAsRound88TrackC(targetLines.join("\n"));
+    expect(before.comments, "당시 스캐너는 이 주석을 주석으로 보지 못했다").not.toContain("collectFixtureForExport");
+    expect(before.code, "주석이 통째로 코드 쪽에 실렸다").toContain("이미 하지만");
+  });
+
+  it("고친 스캐너는 같은 소스에서 주석을 주석으로 가른다 (참값 comment-tolerant)", () => {
+    const after = splitCodeAndComments(targetLines.join("\n"));
+    expect(after.comments).toContain("collectFixtureForExport");
+    expect(after.code, "정본은 코드에도 그대로 있다").toContain("export const collectFixtureForExport");
+    expect(after.code, "주석 본문이 코드 쪽으로 새지 않는다").not.toContain("이미 하지만");
+  });
+
+  it("⚠️ 교란 재현: 같은 픽스처의 판정이 고침 전 code-only · 고침 후 comment-tolerant로 갈린다", () => {
+    const anchors = collectCommentToleranceAnchors(fixtureRoot).anchors.filter(
+      (anchor) => anchor.literal === "collectFixtureForExport"
+    );
+    expect(anchors.length, "픽스처가 앵커 하나를 내놓는다").toBe(1);
+    expect(anchors[0].verdict, "오늘의 스캐너가 참값을 낸다").toBe("comment-tolerant");
+
+    // 그리고 같은 앵커를 **당시 스캐너**로 판정하면 code-only다 — 이 갈림이 H-1이 잡은 것이다.
+    const before = splitAsRound88TrackC(readFileSync(join(fixtureRoot, "apps", "admin", "src", "lib", "csv.ts"), "utf8"));
+    const beforeVerdict =
+      before.code.includes("collectFixtureForExport") && before.comments.includes("collectFixtureForExport")
+        ? "comment-tolerant"
+        : "code-only";
+    expect(beforeVerdict, "고침 전에는 주석 관용 앵커가 code-only로 숨었다").toBe("code-only");
+  });
+
+  it("⚠️ 그리고 그 오분류는 unanchored 0건으로 잡히지 않는다 (머리말이 정정한 사실)", () => {
+    // 당시 머리말은 "unanchored 0건이 그 사실을 함께 확인한다"고 적었지만, 이 부류의 오분류는
+    // 문장을 **코드 쪽에서** 찾아내므로 앵커는 초록이고 unanchored는 0 그대로다.
+    const before = splitAsRound88TrackC(targetLines.join("\n"));
+    expect(before.code.includes("collectFixtureForExport"), "코드 쪽에서 찾으므로 빨개지지 않는다").toBe(true);
+    // 머리말이 그 무효를 값으로 적고 있다.
+    const ledger = readRepo("packages/test-utils/src/comment-tolerant-anchor-ledger.ts");
+    expect(ledger).toContain("0건은 이 부류에 대해 **아무것도 증명하지 않았다**");
+  });
+
+  it("⚠️ 이식 사실이 주석으로 남아 있고, 본보기(dead-export-ledger.ts)는 이번 리뷰에서 바이트 불변이다", () => {
+    const ledger = readRepo("packages/test-utils/src/comment-tolerant-anchor-ledger.ts");
+    expect(ledger, "복사한 사실과 이유가 값으로 적혀 있다").toContain(
+      "packages/test-utils/src/dead-export-ledger.ts"
+    );
+    expect(ledger).toContain("이식한 사본");
+    // 본보기 쪽은 그대로 서 있다 — 이 리뷰는 그 파일을 열지 않았다.
+    const model = readRepo("packages/test-utils/src/dead-export-ledger.ts");
+    expect(model).toContain("function startsRegexLiteral(source: string, slashIndex: number): boolean {");
+    expect(model).toContain("function skipRegexLiteral(source: string, slashIndex: number): number | null {");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // ⓓ 면제 — 의도된 인용 단언
 // ---------------------------------------------------------------------------
 
@@ -429,8 +578,10 @@ describe("ⓔ 래칫 — 주석 관용 앵커 수는 늘지 않는다", () => {
 
   it("상한 자체가 조용히 올라가지 않는다 (오늘 실측값 하나)", () => {
     // 두 자리를 함께 고쳐야 상한이 오른다 — 한 자리만 고쳐서 지나가는 길을 남기지 않는다.
-    // ⚠️ 라운드 88 트랙 C: 70 → 69(admin-audit-logs.test.ts의 앵커 하나가 주석을 걷게 됐다).
-    expect(COMMENT_TOLERANT_RATCHET).toBeLessThanOrEqual(69);
+    // ⚠️ 두 시점: 라운드 88 트랙 C 당시 이 줄은 `70 → 69`였다. 그 두 수는 정규식 리터럴을 못 다루던
+    //    splitCodeAndComments가 잰 값이고, 라운드 88 리뷰 H-1이 그 처리를 이식한 뒤 같은 워킹트리를
+    //    다시 재니 `71 → 70`이다(저장소는 그 사이 한 글자도 달라지지 않았다).
+    expect(COMMENT_TOLERANT_RATCHET).toBeLessThanOrEqual(70);
     expect(COMMENT_TOLERANT_BEFORE_THIS_TRACK).toBe(COMMENT_TOLERANT_RATCHET + 1);
   });
 

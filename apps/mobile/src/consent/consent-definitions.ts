@@ -66,8 +66,7 @@ export function requiredConsentAcceptances(
  * 이미 동의된 항목을 다시 보내지 않는 이유: 서버 upsert가 `acceptedAt`을 **매번 지금으로**
  * 덮어쓰므로(onboarding-core.service.ts), 재로그인할 때마다 "동의한 날"이 오늘로 밀린다.
  * 설정 화면의 동의 내역은 그 날짜를 사실로 보여준다 — 밀면 그 줄이 거짓이 된다.
- */
-/**
+ *
  * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
  * 옮겼다). 화면이 `hasPendingRequiredConsents`를 부르지 않는 이유: 온보딩·설정은 "남았는가"(불리언)가 아니라
  * **"무엇이 남았는가"**(`pendingRequiredConsents`)와 **"무엇을 보낼 것인가"**

@@ -87,8 +87,8 @@
 //
 // ## ⚠️ 사각 — 이 수는 상한이 아니라 하한이다
 //
-// AB-5의 규율을 **태어날 때부터** 진다(`LEDGER_BLIND_SPOTS`). 이 대장이 세는 예순아홉은
-// *"저장소에 주석 관용 앵커가 예순아홉 개 있다"* 가 아니라 *"이 모집단 안에서 예순아홉이
+// AB-5의 규율을 **태어날 때부터** 진다(`LEDGER_BLIND_SPOTS`). 이 대장이 세는 일흔은
+// *"저장소에 주석 관용 앵커가 일흔 개 있다"* 가 아니라 *"이 모집단 안에서 일흔이
 // 풀렸다"* 는 뜻이다. 밖에 남은 자리는 사각마다 **오늘 잰 하한과 함께** 적혀 있다 —
 // 그중 가장 큰 것이 **이름이 다른 헬퍼로 읽는 테스트 파일 164개**이고,
 // ⚠️ **`apps/admin/src/lib/analytics-trend-view.test.ts`(`readAdminSource`)가 그 안에 있다.**
@@ -96,9 +96,13 @@
 // ## ⚠️ 전제 재실측 — 정찰의 쉰아홉과 일곱은 하한이었다
 //
 // 정찰(2026-08-31)이 손으로 잰 수는 **주석 관용 쉰아홉 · 주석에만 일곱**이었다. 이 트랙이 오늘
-// 워킹트리에서 다시 세니 **일흔(고치기 전) · 여덟**이다. 갈린 이유는 `SCOUT_LOWER_BOUNDS`에
+// 워킹트리에서 다시 세니 **일흔하나(고치기 전) · 여덟**이다. 갈린 이유는 `SCOUT_LOWER_BOUNDS`에
 // 값으로 적었다 — **정찰의 수가 틀린 것이 아니라 하한이었고, 이 대장의 모집단이 그보다 넓다.**
 // (라운드 87 트랙 E가 정찰의 열일곱을 열여섯으로 정정하며 세운 형식 그대로.)
+//
+// ⚠️ **두 시점**: 트랙 C 당시 이 줄은 *"일흔(고치기 전) · 여덟"* 이었다. 그 일흔은 정규식 리터럴을
+// 다루지 못하던 `splitCodeAndComments`가 잰 수이고, **라운드 88 리뷰 H-1**이 그 처리를 이식한 뒤
+// 같은 워킹트리에서 다시 재니 일흔하나다(저장소는 그 사이 한 글자도 달라지지 않았다 — 자가 고쳐졌다).
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
@@ -233,61 +237,241 @@ export type SplitSource = {
   readonly comments: string;
 };
 
+// ⚠️ 아래 셋(`REGEX_PREFIX_CHARACTERS` · `startsRegexLiteral` · `skipRegexLiteral`)은 트랙 D의
+// `packages/test-utils/src/dead-export-ledger.ts`(`maskComments`가 쓰는 스캐너)에서 **그대로
+// 이식한 사본**이다. 공유 헬퍼로 빼지 않은 이유는 하나다: **그 파일은 이번 리뷰(라운드 88 리뷰
+// 픽스)의 범위 밖이고 바이트 불변이어야 한다** — 두 대장의 규율이 서로를 고치지 못하게 막으므로,
+// 여기서는 복사가 답이다. ⚠️ 한쪽을 고치는 날 나머지 한쪽도 함께 본다(둘은 같은 판정을 진다).
+
+/** 이 문자 뒤의 `/`는 나눗셈이 아니라 정규식 리터럴의 시작이다. (dead-export-ledger.ts 이식) */
+const REGEX_PREFIX_CHARACTERS = new Set("(,=:[!&|?{};*%+-~^<>".split(""));
+const REGEX_PREFIX_KEYWORDS = new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "throw",
+  "case",
+  "do",
+  "else",
+  "yield",
+  "await"
+]);
+
+/**
+ * `/`가 정규식 리터럴을 여는가. (dead-export-ledger.ts 이식)
+ *
+ * 여는 자리를 놓치면 정규식 **안의** `"`·`'`·`//`가 문자열/주석으로 읽히고, 그 순간 이 스캐너가
+ * 뒤따르는 진짜 주석을 코드로 흡수한다 — 라운드 88 리뷰 H-1이 잡은 결함이 정확히 그것이다.
+ */
+function startsRegexLiteral(source: string, slashIndex: number): boolean {
+  let index = slashIndex - 1;
+  while (index >= 0 && /\s/.test(source[index])) index -= 1;
+  if (index < 0) return true;
+  const previous = source[index];
+  if (REGEX_PREFIX_CHARACTERS.has(previous)) return true;
+  if (!/[\w$]/.test(previous)) return false;
+  const wordEnd = index + 1;
+  let wordStart = index;
+  while (wordStart >= 0 && /[\w$]/.test(source[wordStart])) wordStart -= 1;
+  return REGEX_PREFIX_KEYWORDS.has(source.slice(wordStart + 1, wordEnd));
+}
+
+/**
+ * 정규식 리터럴의 끝(닫는 `/` 다음 자리). 줄을 넘으면 정규식이 아니다 — 나눗셈으로 읽는다.
+ * (dead-export-ledger.ts 이식 — 문자 클래스 `[...]` 안의 맨몸 `/`도 여기서 지나간다.)
+ */
+function skipRegexLiteral(source: string, slashIndex: number): number | null {
+  let index = slashIndex + 1;
+  let inCharacterClass = false;
+  while (index < source.length) {
+    const character = source[index];
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === "\n") return null;
+    if (character === "[") inCharacterClass = true;
+    else if (character === "]") inCharacterClass = false;
+    else if (character === "/" && !inCharacterClass) return index + 1;
+    index += 1;
+  }
+  return null;
+}
+
+/**
+ * `"`·`'` 문자열의 끝. **줄을 넘으면 문자열이 아니다**(JS 문법) — 그때는 `null`을 돌려 한 글자만
+ * 넘어간다. (dead-export-ledger.ts 이식) ⚠️ 이 한 줄 가두기가 안전장치다: 오해가 나도 손상이
+ * **그 줄**에 갇힌다(JSX 본문의 `don't` 같은 맨몸 아포스트로피가 뒤의 주석을 삼키지 못한다).
+ */
+function skipQuotedString(source: string, quoteIndex: number): number | null {
+  const quote = source[quoteIndex];
+  let index = quoteIndex + 1;
+  while (index < source.length) {
+    const character = source[index];
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === "\n") return null;
+    if (character === quote) return index + 1;
+    index += 1;
+  }
+  return null;
+}
+
+type SplitState = { readonly source: string; code: string; comments: string };
+
+/** 템플릿 리터럴 — `${…}` 안은 **코드로 되돌아가서** 훑는다(그 안의 주석은 주석이다). */
+function scanTemplateLiteral(state: SplitState, backtickIndex: number): number {
+  const { source } = state;
+  let index = backtickIndex + 1;
+  let segmentStart = backtickIndex;
+  while (index < source.length) {
+    const character = source[index];
+    if (character === "\\") {
+      index += 2;
+      continue;
+    }
+    if (character === "`") {
+      state.code += source.slice(segmentStart, index + 1);
+      return index + 1;
+    }
+    if (character === "$" && source[index + 1] === "{") {
+      state.code += source.slice(segmentStart, index + 2);
+      index = scanCodeRegion(state, index + 2, true);
+      segmentStart = index;
+      continue;
+    }
+    index += 1;
+  }
+  state.code += source.slice(segmentStart);
+  return source.length;
+}
+
+/**
+ * 코드 구간을 훑으며 주석을 걷어 낸다.
+ *
+ * `stopAtBrace`면 짝이 맞는 `}`를 지난 자리를 돌려준다 — 템플릿의 `${…}`가 이 모드로 들어온다.
+ */
+function scanCodeRegion(state: SplitState, start: number, stopAtBrace: boolean): number {
+  const { source } = state;
+  const n = source.length;
+  let index = start;
+  let braceDepth = 0;
+  while (index < n) {
+    const character = source[index];
+    const next = source[index + 1];
+    // ⚠️ `://`는 주석이 아니다 — JSX 본문에 맨몸으로 서는 URL(`https://…`)이 여기 걸리면
+    // 이 스캐너가 진짜 화면 문구를 주석으로 옮긴다.
+    if (character === "/" && next === "/" && source[index - 1] === ":") {
+      state.code += "//";
+      index += 2;
+      continue;
+    }
+    if (character === "/" && next === "/") {
+      let end = index + 2;
+      while (end < n && source[end] !== "\n") end += 1;
+      state.comments += `${source.slice(index + 2, end)}\n`;
+      state.code += " ";
+      index = end;
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      const blockEnd = source.indexOf("*/", index + 2);
+      const end = blockEnd === -1 ? n : blockEnd;
+      state.comments += `${source.slice(index + 2, end)}\n`;
+      state.code += " ";
+      index = Math.min(end + 2, n);
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      const end = skipQuotedString(source, index);
+      if (end === null) {
+        state.code += character;
+        index += 1;
+        continue;
+      }
+      state.code += source.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (character === "`") {
+      index = scanTemplateLiteral(state, index);
+      continue;
+    }
+    if (character === "/" && startsRegexLiteral(source, index)) {
+      const end = skipRegexLiteral(source, index);
+      if (end === null) {
+        state.code += character;
+        index += 1;
+        continue;
+      }
+      state.code += source.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (stopAtBrace) {
+      if (character === "{") braceDepth += 1;
+      else if (character === "}") {
+        if (braceDepth === 0) {
+          state.code += "}";
+          return index + 1;
+        }
+        braceDepth -= 1;
+      }
+    }
+    state.code += character;
+    index += 1;
+  }
+  return n;
+}
+
 /**
  * 소스를 **코드**와 **주석**으로 가른다.
  *
  * 본보기(`admin-load-error-copy.test.ts:730-733`)는 정규식 두 번으로 주석을 걷는다. 이 대장은
  * 같은 일을 **스캐너**로 한다 — 정규식은 문자열 안의 `/*`·`//`를 구별하지 못해서, 저장소 전체를
- * 훑는 자리에서는 판정을 조용히 뒤집을 수 있다. 스캐너가 지키는 것 셋:
+ * 훑는 자리에서는 판정을 조용히 뒤집을 수 있다. 스캐너가 지키는 것 다섯:
  *  ① 따옴표 셋(`"` `'` `` ` ``) 안은 코드로 남는다(이스케이프를 따라간다),
  *  ② `://` 는 주석의 시작이 아니다(JSX 본문에 맨몸으로 서는 URL — `https://…`),
- *  ③ 주석은 코드 쪽에 **공백 한 칸**으로 남아 앞뒤 토큰이 붙어 버리지 않는다.
+ *  ③ 주석은 코드 쪽에 **공백 한 칸**으로 남아 앞뒤 토큰이 붙어 버리지 않는다,
+ *  ④ **정규식 리터럴은 문자열도 주석도 아니다** — 문자 클래스 안의 `"`·`'`·`/`를 그대로 지나간다,
+ *  ⑤ `"`·`'` 문자열은 **한 줄에 가둔다**(JS 문법) — 줄을 넘으면 문자열이 아니었던 것으로 읽는다.
  *
- * ⚠️ 한계: 정규식 리터럴 안의 문자 클래스에 맨몸 `/`가 들어 있으면(`[/]`) 그 뒤가 잘못 잘릴 수
- * 있다. 오늘 대상 파일 전수에 그런 자리는 없고(계약이 `unanchored` 0건으로 그 사실을 함께
- * 확인한다), 생기는 날 이 그물이 먼저 소리를 낸다.
+ * ## ⚠️ 두 시점 — ④·⑤가 없던 동안 이 스캐너는 판정을 조용히 뒤집고 있었다 (리뷰 H-1)
+ *
+ * **라운드 88 트랙 C 당시** 이 자리에는 *"⚠️ 한계: 정규식 리터럴 안의 문자 클래스에 맨몸 `/`가
+ * 들어 있으면(`[/]`) 그 뒤가 잘못 잘릴 수 있다. 오늘 대상 파일 전수에 그런 자리는 없고(계약이
+ * `unanchored` 0건으로 그 사실을 함께 확인한다)…"* 라고 적혀 있었다. **라운드 88 리뷰 H-1 이후**
+ * 그 서술은 둘 다 거짓이다:
+ *
+ *  · 위험한 것은 맨몸 `/`만이 아니라 **문자 클래스 안의 따옴표**였다 —
+ *    `apps/admin/src/lib/audit-log-csv.ts:43`의 `/[",\n\r]/`에서 이 스캐너가 **문자열 모드로
+ *    들어가** 그 뒤의 주석을 코드로 흡수했고, 그래서 `:78`의 주석이 무는 `collectAuditLogsForExport`
+ *    가 코드 쪽에서 발견돼 앵커가 `comment-tolerant`인데 `code-only`로 떨어졌다.
+ *    ⚠️ **재실측이 리뷰의 전제 하나를 좁혔다**: 리뷰는 이 부류의 대상 파일을 **넷**
+ *    (`audit-log-csv.ts` · `admin-api.ts` · `audit-log-rows.ts` · `worker-health-view.ts` —
+ *    그 계약 파일이 무는 대상 전수)으로 적었지만, 고침 전후로 가르기 결과가 실제로 **달라진
+ *    대상 파일은 `audit-log-csv.ts` 하나**이고(나머지 셋에는 문자 클래스 안 따옴표를 가진
+ *    정규식이 0건이다) **뒤집힌 앵커도 하나**다. 리뷰의 넷은 *같이 봐야 할 자리*의 목록이었고
+ *    실제 피해 자리는 그 안의 하나다 — 수를 그대로 옮겨 적지 않고 다시 세어 이 줄에 적는다.
+ *  · ⚠️ **그리고 `unanchored` 0건은 그 사실을 확인하지 못한다.** 이 부류의 오분류는 문장을
+ *    *코드 쪽에서* 찾아내므로 앵커는 여전히 초록이고 `unanchored`는 늘지 않는다 —
+ *    0건은 이 부류에 대해 **아무것도 증명하지 않았다**. (`unanchored`가 잡는 것은 *문장을 아예
+ *    못 찾는* 오해뿐이다.)
+ *
+ * 오늘 남은 한계는 좁다: 정규식으로 읽히는 나눗셈(`startsRegexLiteral`의 오판)과 줄을 넘는
+ * 따옴표다. 둘 다 **한 줄에 갇힌다**(⑤) — 손상이 그 줄 밖으로 새지 않는다.
  */
 export function splitCodeAndComments(source: string): SplitSource {
-  let code = "";
-  let comments = "";
-  let i = 0;
-  const n = source.length;
-  while (i < n) {
-    const c = source[i];
-    if (c === "/" && source[i + 1] === "/" && source[i - 1] !== ":") {
-      let j = i + 2;
-      while (j < n && source[j] !== "\n") j += 1;
-      comments += `${source.slice(i + 2, j)}\n`;
-      code += " ";
-      i = j;
-      continue;
-    }
-    if (c === "/" && source[i + 1] === "*") {
-      let j = i + 2;
-      while (j < n && !(source[j] === "*" && source[j + 1] === "/")) j += 1;
-      comments += `${source.slice(i + 2, j)}\n`;
-      code += " ";
-      i = Math.min(j + 2, n);
-      continue;
-    }
-    if (c === '"' || c === "'" || c === "`") {
-      let j = i + 1;
-      while (j < n) {
-        if (source[j] === "\\") {
-          j += 2;
-          continue;
-        }
-        if (source[j] === c) break;
-        j += 1;
-      }
-      code += source.slice(i, Math.min(j + 1, n));
-      i = j + 1;
-      continue;
-    }
-    code += c;
-    i += 1;
-  }
-  return { code, comments };
+  const state: SplitState = { source, code: "", comments: "" };
+  scanCodeRegion(state, 0, false);
+  return { code: state.code, comments: state.comments };
 }
 
 // ── 리터럴 읽기 ────────────────────────────────────────────────────────────────
@@ -839,16 +1023,29 @@ export const QUOTATION_EXEMPTIONS: readonly QuotationExemption[] = [
 
 /**
  * ⚠️ **주석 관용 앵커 수의 상한.** 2026-08-31 워킹트리 실측 — 트랙 C가 `admin-audit-logs.test.ts`의
- * 두 앵커를 주석 걷은 소스로 옮기기 **전** 일흔이었고, 옮긴 **뒤** 예순아홉이다.
+ * 두 앵커를 주석 걷은 소스로 옮기기 **전** 일흔하나였고, 옮긴 **뒤** 일흔이다.
+ *
+ * ## ⚠️ 두 시점 — 이 수는 라운드 88 리뷰 H-1이 정정한 값이다
+ *
+ * **트랙 C 당시**에는 *"전 일흔 · 뒤 예순아홉"* 이라고 적혀 있었다. 그 두 수는 **스캐너가
+ * 틀린 채로 잰 값**이다 — `splitCodeAndComments`가 정규식 리터럴을 다루지 못해
+ * `apps/admin/src/lib/audit-log-csv.ts`의 `/[",\n\r]/` 뒤 주석을 코드로 흡수했고, 그래서
+ * `collectAuditLogsForExport` 앵커 하나가 `comment-tolerant`인데 `code-only`로 셌다.
+ * **리뷰 H-1이 정규식 처리를 이식한 뒤** 같은 워킹트리를 다시 재니 **전 일흔하나 · 뒤 일흔**이다
+ * (`code-only`도 621 → 620으로 함께 정정됐다). ⚠️ 참값이 바뀐 것이 아니라 **자가 고쳐졌다** —
+ * 저장소는 그동안 한 글자도 달라지지 않았다.
  *
  * ⚠️ **늘리지 말 것.** 다른 트랙이 계약을 고치다 이 수를 늘리면 그 트랙이 아니라 이 대장이 먼저
  * 빨개진다 — 그것이 이 그물의 값이다. 고쳐서 줄었으면 이 상수를 **함께 내린다**(래칫은 한 방향으로만
  * 움직인다).
  */
-export const COMMENT_TOLERANT_RATCHET = 69;
+export const COMMENT_TOLERANT_RATCHET = 70;
 
-/** 트랙 C가 손대기 전의 수 — 이 대장이 첫날 무엇을 하나 고쳤는지가 값으로 남는다. */
-export const COMMENT_TOLERANT_BEFORE_THIS_TRACK = 70;
+/**
+ * 트랙 C가 손대기 전의 수 — 이 대장이 첫날 무엇을 하나 고쳤는지가 값으로 남는다.
+ * (라운드 88 리뷰 H-1의 재실측값 — 당시 표기는 70이었다.)
+ */
+export const COMMENT_TOLERANT_BEFORE_THIS_TRACK = 71;
 
 /** ⚠️ *주석에만*의 상한 = 면제 대장의 크기. 면제 없이 늘 수 없다. */
 export const COMMENT_ONLY_RATCHET = QUOTATION_EXEMPTIONS.length;
@@ -873,8 +1070,8 @@ export type LedgerBlindSpot = {
 /**
  * ⚠️⚠️ **이 대장의 수는 상한이 아니라 하한이다** (AB-5의 규율을 태어날 때부터).
  *
- * 예순아홉은 *"저장소에 주석 관용 앵커가 예순아홉 개뿐이다"* 가 아니라 *"이 모집단 안에서
- * 예순아홉이 풀렸다"* 는 뜻이다. 밖은 아래 다섯으로 갈리고, 하나하나가 오늘의 하한을 진다.
+ * 일흔은 *"저장소에 주석 관용 앵커가 일흔 개뿐이다"* 가 아니라 *"이 모집단 안에서
+ * 일흔이 풀렸다"* 는 뜻이다. 밖은 아래 다섯으로 갈리고, 하나하나가 오늘의 하한을 진다.
  */
 export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   {
@@ -970,13 +1167,16 @@ export const SCOUT_LOWER_BOUNDS: readonly ScoutLowerBound[] = [
   {
     what: "주석 관용 앵커(코드에도 주석에도 있어 코드가 바뀌어도 초록인 단언)",
     scout: 59,
-    remeasured: 70,
+    remeasured: 71,
     divergence:
       "정찰은 손으로 훑어 한국어 문장급을 중심으로 셌고(그 안의 열셋을 따로 적었다), 이 대장은 " +
       "같은 모집단 규칙을 기계로 돌려 식별자·경로·JSX 조각까지 함께 센다(AbortController · " +
       "/admin/users · x-nonce 같은 앵커가 그렇게 들어왔다). ⚠️ 정찰의 쉰아홉이 틀린 것이 아니라 " +
       "하한이었고, 오늘 A·B·D·E가 계약 파일을 고친 뒤에도 그 하한은 그대로 참이다. " +
-      "트랙 C가 admin-audit-logs의 앵커 하나를 고쳐 오늘의 값은 예순아홉으로 내려간다."
+      "트랙 C가 admin-audit-logs의 앵커 하나를 고쳐 오늘의 값은 일흔으로 내려간다. " +
+      "⚠️ 두 시점: 트랙 C 당시 이 재실측값은 70(고친 뒤 69)이라고 적혀 있었지만 그것은 " +
+      "정규식 리터럴을 못 다루던 스캐너가 잰 수였고, 라운드 88 리뷰 H-1이 그 처리를 이식해 " +
+      "다시 재니 71(고친 뒤 70)이다 — 정찰의 쉰아홉이 하한이라는 판정은 두 시점 다 그대로 참이다."
   },
   {
     what: "주석에만 있어 오늘 초록인 단언(전부 의도된 인용 단언)",

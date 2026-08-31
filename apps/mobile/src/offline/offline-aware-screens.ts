@@ -334,8 +334,7 @@ export const FAILURE_COPY_SWEEP_DEFINITIONAL_MODULES: Readonly<Record<string, st
 /**
  * 화면 경로(mobile 루트 기준 상대 경로)가 오프라인 인지 문구를 쓰는지. 목록에 없는 화면은
  * 아직 배선 전이라 옛 리터럴("불러오지 못했어요. 잠시 후 다시 시도해 주세요.")을 그대로 쓴다.
- */
-/**
+ *
  * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
  * 옮겼다). 화면이 `usesOfflineAwareLoadErrorCopy`를 부르지 않는 이유는 이 파일 머리말에 이미
  * 있다 — **이 모듈은 화면
