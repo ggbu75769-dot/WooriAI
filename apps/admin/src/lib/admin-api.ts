@@ -1133,6 +1133,15 @@ export function createContentRevision(input: {
   return request<ContentRevision>("/admin/content-revisions", { method: "POST", body: JSON.stringify(input) });
 }
 
+/**
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
+ * 옮겼다). 어드민 세 화면(items · links · disclosures)이 `updateContentRevisionDraft`를 부르지
+ * 않는 이유: 셋 다 초안을
+ * 만든 뒤 곧바로 제출하는 합성 함수 `draftAndSubmitContentRevision` 하나만 쓴다 — **저장만 하고
+ * 멈추는 화면이 아직 없다**(초안을 다시 열어 고치는 자리가 어드민에 없다). **지우지 않는다** —
+ * 서버 PATCH 엔드포인트가 살아 있고, `src/content-revisions.test.ts`가 "초안 → 검토 → 게시" 표면
+ * 여덟을 이름으로 무는 자리라 이 한 줄이 그 표면의 *'있다'와 '닿는다'가 갈린 자리*를 지킨다.
+ */
 export function updateContentRevisionDraft(id: string, payload: Record<string, unknown>) {
   return request<ContentRevision>(`/admin/content-revisions/${id}`, {
     method: "PATCH",

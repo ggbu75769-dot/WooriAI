@@ -11,10 +11,14 @@
 //  ⓔ **사각** — `export const` 축 · 흔한 이름 · `.tsx` 컴포넌트가 값으로 적혀 있고, 그 값을 **다시 잰다**
 //     (유령 사각 금지 — 있지도 않은 사각을 적어 두면 그 줄은 겸손이 아니라 장식이다).
 //  ⓕ **자기 참조 부정** — 대장 자신이 모집단에 들어가지 않고, 루프 안 단언은 **항목 id 전수**를 못 박는다.
+//  ⓖ **마스킹**(라운드 88 트랙 D) — 참조를 셀 때 **주석이 마스킹된다**. 그 사실이 값으로 확인되고
+//     (마스킹판 16 · 옛 그물 7 · 그 차 아홉이 트랙 D가 이유를 적은 아홉), 마스킹 자체는 손으로
+//     세운 소스 조각으로 **한 갈래씩** 확인한다(줄 주석 · 블록 주석 · 문자열 안의 `//` ·
+//     템플릿 `${…}` · 정규식 리터럴 · JSX 텍스트의 `http://`).
 //
-// ⚠️ 이 트랙은 **제품 소스를 0건 고쳤다** — 열여섯 중 하나도 지우거나 주석을 달지 않았고
-// (`apps/**`는 읽기만 한다), 기존 가드·대장 파일(`dnc-guard-ledger.ts`·`dnc-scope-guard.ts`·
-// `dnc-secret-scan.ts`·`source-contract-slice-guard.test.ts`)은 **형식의 본보기로 읽기만** 했다.
+// ⚠️ 라운드 87 트랙 E는 **제품 소스를 0건 고쳤다**(`apps/**`는 읽기만 했다).
+// ⚠️ **라운드 88 트랙 D는 제품 소스 아홉 파일에 주석 한 덩이씩만 더했다** — 코드·문자열·export 값은
+// 바이트 그대로이고, 지운 export는 0건이다(그래서 이 대장의 수는 열여섯 그대로다).
 // ⚠️ 이 대장은 **DNC 조항이 아니다** — `docs/dev/do-not-change.md`는 무접촉이고 DNC 대장에 행도 없다.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,17 +43,22 @@ import {
   collectExportedConstants,
   collectExportedFunctions,
   collectTestFiles,
+  commentOnlyReferenceExports,
   deadExportHint,
   describeDeadExport,
   filesUnder,
   findDeadExports,
   findProductReferences,
+  findRawProductReferences,
   findTestReferences,
+  maskComments,
+  maskCommentsAndStrings,
   nameConfessions,
   readCallsiteSources,
   readRepoFile,
   repoRoot,
   sourceReasonProof,
+  stringOnlyReferenceExports,
   type ExportedFunction
 } from "./dead-export-ledger";
 
@@ -215,16 +224,31 @@ describe("ⓒ 항목 — 오늘의 열여섯이 전수로 있고 각각 셋 중 
     }
   });
 
-  it("갈래 셋이 전부 서 있고, 갈래의 수가 오늘 실측(5 / 2 / 9)과 같다", () => {
+  it("갈래 셋이 전부 서 있고, 갈래의 수가 오늘 실측(5 / 11 / 0)과 같다", () => {
     const byKind = (kind: string) => DEAD_EXPORT_LEDGER.filter((entry) => entry.reasonKind === kind).length;
-    // ⚠️ 정찰(#5 ⓐ)은 6 / 2 / 9로 적었다 — 실측하면 이름이 고백하는 것은 다섯이고(대장 머리말에 값으로
-    // 남겼다), 정찰의 아홉 중 하나(hasAnyAuditLogFilter)는 트랙 A가 되살려 오늘 대장 밖이다.
+    // ⚠️ 라운드 87의 분포는 5 / 2 / 9였다(정찰 #5 ⓐ의 셈은 6 / 2 / 9였고 그 아홉에는 트랙 A가 되살린
+    // hasAnyAuditLogFilter가 들어 있었다). 라운드 88 트랙 D가 **아홉의 이유를 소스로 옮겨** 오늘은
+    // 5 / 11 / 0이다 — 셋째 갈래는 사라진 것이 아니라 **비어 있다**(새 사문이 아무 말 없이 생기면
+    // 그 항목이 다시 거기로 떨어진다).
     expect(byKind("name-confesses"), "이름이 고백하는 항목 수").toBe(5);
-    expect(byKind("reason-in-source"), "이유가 소스에 있는 항목 수").toBe(2);
-    expect(byKind("reason-in-ledger"), "이유가 대장에만 있는 항목 수").toBe(9);
+    expect(byKind("reason-in-source"), "이유가 소스에 있는 항목 수").toBe(11);
+    expect(byKind("reason-in-ledger"), "이유가 대장에만 있는 항목 수").toBe(0);
     expect(byKind("name-confesses") + byKind("reason-in-source") + byKind("reason-in-ledger")).toBe(
       DEAD_EXPORT_LEDGER.length
     );
+  });
+
+  it("그 분포가 **대장의 칸이 아니라 모집단**에서 파생한다", () => {
+    // ⚠️ 위 단언만 있으면 대장이 자기 칸을 스스로 적고 자기 칸을 세는 셈이다. 같은 셋을 **오늘의
+    // 실측(모집단 → 사문 → 소스 확인)** 에서 다시 파생시켜, 두 셈이 같은 답을 내는지 본다.
+    const derived = { "name-confesses": 0, "reason-in-source": 0, "reason-in-ledger": 0 };
+    for (const item of dead) derived[classifyDeadExport(item)] += 1;
+    expect(derived, "모집단에서 파생한 갈래 분포가 5 / 11 / 0이 아니에요").toEqual({
+      "name-confesses": 5,
+      "reason-in-source": 11,
+      "reason-in-ledger": 0
+    });
+    expect(dead.length, "모집단이 내놓은 사문 수").toBe(DEAD_EXPORT_LEDGER.length);
   });
 
   for (const entry of DEAD_EXPORT_LEDGER) {
@@ -256,12 +280,25 @@ describe("ⓒ 항목 — 오늘의 열여섯이 전수로 있고 각각 셋 중 
     }
   });
 
-  it("이유가 소스에 있는 둘은 그 이유가 **실제로 그 파일에** 있다", () => {
+  it("이유가 소스에 있는 열하나는 그 이유가 **실제로 그 파일에** 있다", () => {
     const inSource = DEAD_EXPORT_LEDGER.filter((entry) => entry.reasonKind === "reason-in-source");
-    expect(inSource.map((entry) => entry.name).sort()).toEqual([
-      "destructiveFlowFallbackMessage",
-      "isNamedImportFailure"
-    ]);
+    // ⚠️ 라운드 87의 둘(아래 마지막 두 이름)이 본보기였고, 라운드 88 트랙 D가 나머지 아홉을 같은
+    // 형식으로 옮겼다. 이 배열이 그 이동의 못이다 — 하나라도 되돌아가면 여기가 먼저 빨개진다.
+    expect(inSource.map((entry) => entry.name).sort()).toEqual(
+      [
+        "canBulkSelectImportRows",
+        "getQueuedAnalyticsEventCount",
+        "hasPendingRequiredConsents",
+        "isRealUserBuild",
+        "legalDocumentUrl",
+        "notificationTypeLabel",
+        "supportLinkUrl",
+        "updateContentRevisionDraft",
+        "usesOfflineAwareLoadErrorCopy",
+        "destructiveFlowFallbackMessage",
+        "isNamedImportFailure"
+      ].sort()
+    );
     for (const entry of inSource) {
       const item = measured(entry.id);
       const proof = sourceReasonProof(item);
@@ -273,10 +310,38 @@ describe("ⓒ 항목 — 오늘의 열여섯이 전수로 있고 각각 셋 중 
     }
   });
 
-  it("이유가 대장에만 있는 아홉은 소스에 아무 말도 없다(있으면 갈래가 하나 올라간다)", () => {
-    for (const entry of DEAD_EXPORT_LEDGER.filter((row) => row.reasonKind === "reason-in-ledger")) {
-      const item = measured(entry.id);
-      expect(sourceReasonProof(item), `${entry.id}: 소스에 이미 이유가 있어요 — 갈래를 올리세요`).toBeNull();
+  it("그 이유가 관례 문구만이 아니라 **왜 화면이 부르지 않는가**를 말한다", () => {
+    // ⚠️ 이 단언이 없으면 `⚠ **테스트 전용 export** … **지우지 않는다**` 두 문구만 복사해 붙여도
+    // 갈래가 올라간다 — 그것은 이유가 아니라 표식이다. 이유는 **그 export의 이름을 부르며**
+    // 화면이 무엇을 대신 부르는지/무엇이 없어서 부르지 않는지를 말해야 한다.
+    for (const entry of DEAD_EXPORT_LEDGER.filter((row) => row.reasonKind === "reason-in-source")) {
+      const proof = sourceReasonProof(measured(entry.id));
+      const text = proof?.text ?? "";
+      expect(text.length, `${entry.id}: 소스의 이유가 표식 두 줄뿐이에요`).toBeGreaterThan(
+        SOURCE_REASON_MARKER.length + SOURCE_REASON_KEEP_MARKER.length + 120
+      );
+      expect(
+        text.includes(entry.name) || text.includes("이 함수") || text.includes("이 술어"),
+        `${entry.id}: 소스의 이유가 무엇에 대한 이유인지 말하지 않아요`
+      ).toBe(true);
+      expect(text, `${entry.id}: '안 쓴다'만 적혀 있어요`).toMatch(/않는|없다|없고|없어|대신|갈아탔/);
+    }
+  });
+
+  it("이유가 대장에만 있는 갈래는 오늘 0건이고, 그 갈래는 **비어 있을 뿐 살아 있다**", () => {
+    const onlyInLedger = DEAD_EXPORT_LEDGER.filter((row) => row.reasonKind === "reason-in-ledger");
+    expect(onlyInLedger.map((entry) => entry.id), "라운드 88 뒤 이 갈래는 비어 있어야 해요").toEqual([]);
+    // ⚠️ 빈 배열 위의 루프는 조용히 통과한다 — 그래서 갈래 자체가 살아 있는지를 따로 확인한다:
+    // 소스에도 이름에도 아무 말 없는 사문이 생기면 `classifyDeadExport`가 이 갈래를 돌려준다.
+    expect(
+      classifyDeadExport(
+        { id: "x:y", root: "mobile-src", file: "apps/mobile/src/offline/messages.ts", line: 1, name: "y" },
+        repoRoot
+      ),
+      "아무 말 없는 항목이 이 갈래로 떨어지지 않아요 — 셋째 갈래가 죽었습니다"
+    ).toBe("reason-in-ledger");
+    for (const entry of onlyInLedger) {
+      expect(sourceReasonProof(measured(entry.id)), `${entry.id}: 소스에 이미 이유가 있어요`).toBeNull();
     }
   });
 
@@ -334,7 +399,7 @@ describe("ⓓ 래칫 — 사문 수가 오늘의 실측보다 늘지 않는다",
 });
 
 describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
-  it("사각 여섯이 서로 다른 id이고 문장·값을 지고 있다", () => {
+  it("사각 일곱이 서로 다른 id이고 문장·값을 지고 있다", () => {
     expect(LEDGER_BLIND_SPOTS.length).toBeGreaterThanOrEqual(3);
     expect(new Set(LEDGER_BLIND_SPOTS.map((spot) => spot.id)).size).toBe(LEDGER_BLIND_SPOTS.length);
     for (const spot of LEDGER_BLIND_SPOTS) {
@@ -348,6 +413,23 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     expect(ids).toContain("export-const-axis");
     expect(ids).toContain("common-name");
     expect(ids).toContain("tsx-components");
+    // 라운드 88 트랙 D가 연 자리 둘 — 마스킹의 재측정과, 마스킹하지 **않은** 축.
+    expect(ids).toContain("comment-and-string-references");
+    expect(ids).toContain("string-literal-references");
+  });
+
+  it("문자열 리터럴 축은 오늘도 사각이고, 그 사실이 하한과 함께 값으로 서 있다", () => {
+    const spot = LEDGER_BLIND_SPOTS.find((entry) => entry.id === "string-literal-references");
+    expect(spot?.statement, "문자열 축 사각의 문장").toContain("문자열");
+    expect(spot?.floor, "문자열 축 사각의 하한이 없어요").toBeGreaterThan(0);
+    // ⚠️ 그 사각의 **실피해**는 따로 잰다: 참조가 전부 문자열뿐인 export가 오늘 0건이라는 사실이
+    // "26은 하한이지 결함이 아니다"의 근거다. 0을 넘는 날이 그 사각의 재개 조건이다.
+    const onlyInStrings = stringOnlyReferenceExports();
+    expect(
+      onlyInStrings.map((item) => item.id),
+      "참조가 **전부 문자열 리터럴뿐**인 export가 생겼어요 — 사각 string-literal-references의 " +
+        "재개 조건(사건형)이 발동했습니다. 그물이 문자열도 마스킹하도록 배우고 그 값을 다시 적으세요."
+    ).toEqual([]);
   });
 
   for (const spot of LEDGER_BLIND_SPOTS.filter((entry) => entry.measure)) {
@@ -409,6 +491,116 @@ describe("ⓕ 자기 참조 부정 — 대장은 자기를 모집단에 넣지 �
     const selfSource = readRepoFile(LEDGER_SELF_FILES[0]);
     expect(selfSource).toContain("getQueuedAnalyticsEventCount");
     expect(dead.some((item) => item.name === "getQueuedAnalyticsEventCount")).toBe(true);
+  });
+});
+
+describe("ⓖ 마스킹 — 참조를 셀 때 주석이 지워진다(라운드 88 트랙 D)", () => {
+  it("한 갈래씩: 주석은 지우고, 주석처럼 생긴 코드는 지우지 않는다", () => {
+    // ⚠️ 손으로 세운 조각으로 확인하는 이유: 저장소 전체로 재면 *"오늘 아무 일도 안 났다"* 밖에
+    // 알 수 없다. 여기서 물어야 하는 것은 **어떤 갈래에서 그물이 죽는가**이다.
+    const source = [
+      'const a = "http://keep.example/one"; // 주석의 hiddenName',
+      "/* 블록 주석의 hiddenName */ const b = keptName;",
+      "const c = `템플릿의 hiddenName ${keptName} 뒤`;",
+      'const d = /a\\/\\/b/.test("string의 hiddenName");',
+      "const e = <span>http:// 또는 https:// 로 시작해요 {keptName}</span>;"
+    ].join("\n");
+    const masked = maskComments(source);
+
+    // 길이·줄이 보존된다(참조 자리 계산이 마스킹 뒤에도 같은 답을 낸다).
+    expect(masked.length).toBe(source.length);
+    expect(masked.split("\n").length).toBe(source.split("\n").length);
+    // 주석 안의 이름은 사라진다 — 줄 주석 · 블록 주석 둘 다.
+    expect(masked).not.toContain("hiddenName */");
+    expect((masked.match(/hiddenName/g) ?? []).length, "주석 안의 이름이 남았거나 코드가 지워졌어요").toBe(2);
+    // 남아야 하는 둘: 문자열 안(문자열은 오늘 마스킹하지 않는다)과 템플릿 안.
+    expect(masked).toContain("string의 hiddenName");
+    expect(masked).toContain("템플릿의 hiddenName");
+    // 코드는 한 글자도 잃지 않는다 — 템플릿 `${…}` · 정규식 리터럴 · JSX 텍스트의 `http://`.
+    expect((masked.match(/keptName/g) ?? []).length, "진짜 코드가 마스킹됐어요").toBe(3);
+    expect(masked).toContain("http://keep.example/one");
+    expect(masked, "JSX 텍스트의 http:// 뒤가 주석으로 읽혔어요").toContain("로 시작해요 {keptName}");
+    expect(masked, "정규식 리터럴 안의 `//`가 주석으로 읽혔어요").toContain("/a\\/\\/b/.test(");
+
+    // 문자열까지 지우는 자는 **그물이 아니라 사각을 재는 자**다 — 그 갈림도 값으로 확인한다.
+    const both = maskCommentsAndStrings(source);
+    expect(both).not.toContain("string의 hiddenName");
+    expect(both, "문자열을 지우는 자가 템플릿 `${…}` 안의 코드까지 지웠어요").toContain("${keptName}");
+  });
+
+  it("아홉의 이유 주석이 **마스킹 없이는** 대장을 통째로 무너뜨렸다", () => {
+    // ⚠️ 이 트랙의 순서(마스킹 먼저 · 주석 나중)가 왜 계약이었는지를 값으로 남긴다.
+    const sources = readCallsiteSources();
+    const rawDead = population.filter((item) => findRawProductReferences(item, sources).length === 0);
+    expect(dead.length, "마스킹판의 사문 수").toBe(DEAD_EXPORT_LEDGER.length);
+    expect(
+      rawDead.length,
+      "옛 그물(마스킹 없음)로 재도 수가 같아요 — 이유 주석이 이름을 부르지 않고 있습니다"
+    ).toBeLessThan(dead.length);
+
+    const vanished = dead.filter((item) => !rawDead.some((raw) => raw.id === item.id)).map((item) => item.id);
+    expect(
+      vanished.sort(),
+      "마스킹이 없었다면 사라졌을 항목이 라운드 88이 이유를 적은 아홉과 달라요"
+    ).toEqual(
+      [
+        "apps/admin/src/lib/admin-api.ts:updateContentRevisionDraft",
+        "apps/mobile/src/analytics/client.ts:getQueuedAnalyticsEventCount",
+        "apps/mobile/src/auth/release-build.ts:isRealUserBuild",
+        "apps/mobile/src/consent/consent-definitions.ts:hasPendingRequiredConsents",
+        "apps/mobile/src/consent/legal-links.ts:legalDocumentUrl",
+        "apps/mobile/src/import/preview-rows.ts:canBulkSelectImportRows",
+        "apps/mobile/src/notifications/notification-preferences.store.ts:notificationTypeLabel",
+        "apps/mobile/src/offline/offline-aware-screens.ts:usesOfflineAwareLoadErrorCopy",
+        "apps/mobile/src/settings/support-links.ts:supportLinkUrl"
+      ].sort()
+    );
+    // 같은 아홉을 사각의 재측정자도 집어 든다(사각의 값이 산문이 아니라 이 실행에서 나온다).
+    expect(commentOnlyReferenceExports().map((item) => item.id).sort()).toEqual(vanished.sort());
+    const spot = LEDGER_BLIND_SPOTS.find((entry) => entry.id === "comment-and-string-references");
+    expect(spot?.value, "사각의 값이 오늘의 재측정과 갈렸어요").toBe(vanished.length);
+    expect(spot?.measure, "이 사각은 이제 0이 아니다 — 다시 재는 자가 붙어야 해요").toBeTypeOf("function");
+  });
+
+  it("주석에만 참조가 있는 사문을 심으면 그물이 그것을 사문으로 집어 든다", () => {
+    // ⚠️ 교란: 마스킹이 없으면 이 항목은 **호출부 1건**으로 읽혀 조용히 사라진다. 제품 소스에는
+    // 손대지 않고 임시 뿌리에서 재현한다.
+    const base = mkdtempSync(join(tmpdir(), "dead-export-ledger-comment-"));
+    try {
+      mkdirSync(join(base, "apps/mobile/src/fixture"), { recursive: true });
+      mkdirSync(join(base, "apps/mobile/app"), { recursive: true });
+      mkdirSync(join(base, "apps/admin/src/lib"), { recursive: true });
+      mkdirSync(join(base, "apps/admin/app"), { recursive: true });
+      writeFileSync(
+        join(base, "apps/mobile/src/fixture/commented.ts"),
+        "// 화면이 commentedFixtureJudgement를 부르지 않는 이유를 적은 주석이다.\n" +
+          "export function commentedFixtureJudgement(): boolean {\n  return false;\n}\n",
+        "utf8"
+      );
+      writeFileSync(
+        join(base, "apps/mobile/app/screen.tsx"),
+        "/* commentedFixtureJudgement 를 인용만 하는 화면 주석 */\nexport default function Screen() {\n  return null;\n}\n",
+        "utf8"
+      );
+      writeFileSync(join(base, "apps/admin/src/lib/noop.ts"), "export const fixtureConstant = 1;\n", "utf8");
+      writeFileSync(
+        join(base, "apps/admin/app/page.tsx"),
+        "export default function Page() {\n  return null;\n}\n",
+        "utf8"
+      );
+
+      const sources = new Map([
+        ["apps/mobile/src/fixture/commented.ts", readRepoFile("apps/mobile/src/fixture/commented.ts", base)],
+        ["apps/mobile/app/screen.tsx", readRepoFile("apps/mobile/app/screen.tsx", base)]
+      ]);
+      const item = findDeadExports(base).find((entry) => entry.name === "commentedFixtureJudgement");
+      expect(item, "주석에만 인용된 사문을 놓쳤어요 — 마스킹이 새고 있습니다").toBeDefined();
+      // 그리고 옛 그물로 재면 **호출부 2건**이라 사문이 아니다 — 그 갈림이 이 트랙의 값이다.
+      expect(findRawProductReferences(item as ExportedFunction, sources).length).toBeGreaterThan(0);
+      expect(findProductReferences(item as ExportedFunction, sources)).toEqual([]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 

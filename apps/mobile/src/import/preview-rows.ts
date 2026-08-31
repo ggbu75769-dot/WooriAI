@@ -477,7 +477,16 @@ export function importBulkSelectionLabel(visibleRows: readonly ImportPreviewRow[
   return `${scope} ${buildImportBulkSelectionPlan(visibleRows).nextSelected ? "선택" : "해제"}`;
 }
 
-/** 체크할 수 있는 행이 하나도 없으면 누를 것이 없다. */
+/**
+ * 체크할 수 있는 행이 하나도 없으면 누를 것이 없다.
+ *
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
+ * 옮겼다). 화면이 `canBulkSelectImportRows`를 부르지 않는 이유는 **더 넓은 판정으로 갈아탔기 때문**이다 —
+ * `app/import/[importJobId].tsx`는 `canStartImportBulkRun`을 부른다(행 선택 가능 여부에 더해
+ * 대상 아이·진행 중 여부까지 함께 본다). 좁은 술어가 남은 것이지 화면이 판정을 잃은 것이 아니다.
+ * **지우지 않는다** — 넓은 판정이 무엇을 합쳐 보고 있는지는 이 좁은 술어가 옆에 서 있어야
+ * 계약이 따로 셀 수 있고, 지우는 판단은 그 둘을 다시 가르는 라운드의 몫이다.
+ */
 export function canBulkSelectImportRows(rows: readonly ImportPreviewRow[]): boolean {
   return rows.some(isImportRowSelectable);
 }

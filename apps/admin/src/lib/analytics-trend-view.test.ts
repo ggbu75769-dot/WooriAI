@@ -35,14 +35,37 @@ const SAMPLE: TrendPoint[] = [
 const ALL_ZERO: TrendPoint[] = SAMPLE.map((point) => ({ ...point, count: 0 }));
 
 /**
+ * 이 모듈을 지나는 운영자 화면 둘과, 각 화면이 세는 것의 이름(분석은 이벤트, 클릭 통계는 클릭).
+ *
+ * ⚠️ 라운드 88 트랙 A — 추이 카드의 각주·최대치 한 줄·표 이름에 대한 단언은 **이 목록을 함께 돈다**.
+ * 한 화면만 무는 단언을 새로 만들면, 그 순간 다른 화면의 같은 자리가 다시 아무도 세지 않는 자리가
+ * 된다(이 트랙이 고친 것이 정확히 그 모양이다).
+ */
+const TREND_SCREENS = [
+  ["app/analytics/page.tsx", "이벤트 수"],
+  ["app/clicks/page.tsx", "클릭 수"]
+] as const;
+
+/**
  * 라운드 86 트랙 D — 운영자 화면 둘의 "일별 추이"가 값을 남긴다.
  *
  * 분석 화면은 값을 `title`(마우스 호버)에만 줬고, 형제 화면(클릭 통계)은 처음부터 날짜·건수
  * 표를 갖고 있었다. 이 모듈은 옳은 형식을 **발명하지 않고** 두 화면이 같은 자리에서 만들게
  * 모은다 — 그래서 계약의 절반이 *"클릭 화면의 글자가 종전과 바이트 단위로 같다"* 이다.
+ *
+ * ⚠️ 라운드 88 트랙 A — 그 절반은 **모듈이 옮긴 자리에 대한 주장**이었는데, 이 파일이 그것을
+ * 클릭 화면의 각주·최대치 부재까지 넓혀 못 박아 두고 있었다. 트랙의 범위를 지킨 옳은 문장이었지만
+ * 다음 라운드에는 *결정*으로 읽혔다. 오늘부터 각주·최대치 한 줄·표 이름은 **두 화면이 같은
+ * 질문을 함께 받고**(`for (const path of [...])`), 바이트 불변으로 남는 것은 표 머리와 고지다.
+ *
+ * ⚠️ **두 시점(라운드 88 리뷰 M-1)** — 아래 ⓑ절의 제목은 라운드 86 트랙 D 당시 *"클릭 화면이
+ * 그리던 글자와 바이트 단위로 같다 (정상 응답에서)"* 였고, 그때는 참이었다. **라운드 88 트랙 A**가
+ * 그 화면에 최대치 한 줄과 갈래 각주를 세운 뒤로는 정상 응답에서도 새 글자가 서므로 그 제목은
+ * 거짓이 됐다 — 오늘 ⓑ절이 실제로 무는 것은 **표 머리 두 칸·카드 제목·DNC-009 고지·막대 식**,
+ * 즉 트랙 A가 손대지 않은 자리들뿐이다.
  */
 describe("analytics-trend-view (라운드 86 트랙 D)", () => {
-  describe("ⓑ 형제 동형 — 클릭 화면이 그리던 글자와 바이트 단위로 같다 (정상 응답에서)", () => {
+  describe("ⓑ 형제 동형 — 클릭 화면의 표 머리·카드 제목·고지·막대 식이 바이트 단위로 같다", () => {
     /**
      * ⚠️⚠️ **라운드 86 리뷰 L-13 — 이 아래 `legacy`가 무엇인지 정직하게 적어 둔다.**
      *
@@ -90,20 +113,17 @@ describe("analytics-trend-view (라운드 86 트랙 D)", () => {
     });
 
     /**
-     * 클릭 화면에서 이 트랙이 바꾸는 것은 *어디서 값을 만드는가*뿐이다 — 그 화면의 문구는
-     * 한 글자도 움직이지 않는다(DNC-009 고지 한 줄 포함).
+     * 라운드 86 트랙 D가 클릭 화면에서 바꾼 것은 *어디서 값을 만드는가*뿐이었다 — 표 머리 두 칸과
+     * 카드 제목, DNC-009 고지 한 줄은 그때도 오늘도 바이트 불변이다(라운드 88 트랙 A는 그 자리를
+     * 손대지 않는다 · 각주와 최대치 한 줄은 이제 아래 두 화면 공통 단언이 문다).
      */
-    it("클릭 화면의 표 머리·고지·각주가 종전 그대로다 (부정 단언)", () => {
+    it("클릭 화면의 표 머리·카드 제목·DNC-009 고지가 종전 그대로다", () => {
       const source = readAdminSource("app/clicks/page.tsx");
       expect(source).toContain("<th>날짜</th>");
       expect(source).toContain("<th>클릭 수</th>");
       expect(source).toContain("<h2>일별 추이 (최근 {summary.days}일)</h2>");
-      expect(source).toContain("막대에 마우스를 올리면 날짜별 클릭 수를 볼 수 있어요. (서울 기준 날짜)");
       // DNC-009: 클릭 순위가 추천 점수와 무관하다는 고지.
       expect(source).toContain("※ 클릭 수가 많은 순서예요. 이 순위는 앱의 추천 순서나 추천 점수에 반영되지 않아요.");
-      // 그 화면에는 최대치 문장이 서지 않는다(새 문구 0건).
-      expect(source).not.toContain("peakSentence");
-      expect(source).not.toContain("가장 많은 날");
     });
 
     /** 막대의 색·높이 계산·간격은 이 트랙 밖이다 — 두 화면에 그 식이 바이트 그대로 남는다. */
@@ -262,20 +282,122 @@ describe("analytics-trend-view (라운드 86 트랙 D)", () => {
       }
     });
 
+    /** 주석을 걷어낸 화면 소스 — 갈래 판정은 코드만 본다(화면 주석의 인용을 회귀로 세지 않는다). */
+    const screenCode = (path: string): string =>
+      readAdminSource(path)
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/\/\/[^\n]*/g, " ");
+
+    /** 추이 카드 한 덩이 — 제목부터 그 카드를 닫는 `</section>`까지. */
+    const trendCard = (path: string): string => {
+      const code = screenCode(path);
+      const start = code.indexOf("<h2>일별 추이");
+      expect(start, `${path}: 일별 추이 카드 제목이 소스에 없어요`).toBeGreaterThan(-1);
+      const end = code.indexOf("</section>", start);
+      expect(end, `${path}: 추이 카드를 닫는 </section>이 없어요`).toBeGreaterThan(start);
+      return code.slice(start, end);
+    };
+
+    /** `{trend.showTable ? "…" : "…"}` — 두 팔이 **문자열 리터럴**인 각주 갈래 하나. */
+    const SHOW_TABLE_FOOTNOTE = /\{\s*trend\.showTable\s*\?\s*("(?:[^"\\]|\\.)*")\s*:\s*("(?:[^"\\]|\\.)*")\s*\}/;
+
+    type FootnoteBranch = {
+      /** `showTable`이 **참**인 팔의 문장. */
+      readonly whenTable: string;
+      /** `showTable`이 **거짓**인 팔의 문장. */
+      readonly whenNoTable: string;
+      readonly start: number;
+      readonly end: number;
+    };
+
+    const footnoteBranch = (path: string, card: string): FootnoteBranch => {
+      const hit = SHOW_TABLE_FOOTNOTE.exec(card);
+      expect(hit, `${path}: 각주가 trend.showTable 갈래(문자열 두 팔)로 서 있지 않아요`).not.toBeNull();
+      return {
+        whenTable: JSON.parse(hit![1]) as string,
+        whenNoTable: JSON.parse(hit![2]) as string,
+        start: hit!.index,
+        end: hit!.index + hit![0].length
+      };
+    };
+
+    /** 줄바꿈·들여쓰기를 한 칸으로 눌러 **여러 줄로 흩어진 같은 문장**도 한 문장으로 읽는다. */
+    const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();
+
     /**
      * ⚠️ 라운드 86 리뷰 L-11 — 표를 세워 놓고도 "마우스를 올리면"만 적어 두면, 그 힌트가 이 카드를
-     * 여전히 **마우스 전용**으로 소개한다(이 트랙이 고치려던 바로 그 오해다). 분석 화면만 고친다 —
-     * 클릭 화면의 그 줄은 이 트랙 이전부터 표와 함께 서 있던 문장이라 바이트 불변 대상이다.
+     * 여전히 **마우스 전용**으로 소개한다(이 트랙이 고치려던 바로 그 오해다).
+     *
+     * ⚠️ 라운드 88 트랙 A — 그때는 분석 화면만 고쳤고, 이 자리가 클릭 화면의 옛 각주를 바이트로
+     * 못 박아 두었다. 그러나 그 화면에도 표는 이미 같은 값에서 서 있었다 — 각주가 말하는 유일
+     * 경로가 그 화면의 유일 경로가 아니었다. 오늘 두 화면은 **같은 값(`trend.showTable`)에서
+     * 같은 갈래**를 받는다.
+     *
+     * ## ⚠️ 두 시점 — 라운드 88 리뷰 H-2: 이 루프가 잡겠다는 회귀 둘에 초록이었다
+     *
+     * **라운드 88 트랙 A 당시** 이 단언은 셋만 물었다: 두 문장이 소스에 **있는가** ·
+     * `{trend.showTable` 이 **있는가** · 옛 각주의 **한 줄짜리 바이트 형태**가 카드에 없는가.
+     * 그 셋은 *"어느 문장이 어느 팔에 있는가"* 를 한 번도 묻지 않았다 —
+     *
+     *  ① **두 팔을 뒤바꾸면**(표가 선 응답에 "마우스를 올리면") 세 단언이 전부 그대로 참이라
+     *     이 카드가 다시 마우스 전용으로 소개되는 동안 계약은 초록이었다.
+     *  ② 갈래는 그대로 둔 채 **갈래 밖에 조건 없는 옛 각주를 여러 줄 형태로 하나 더** 세우면,
+     *     부재 단언이 `<p className={styles.hint}>막대에 마우스를 올리면` 이라는 **바이트 한 형태**만
+     *     보고 있어서 역시 초록이었다.
+     *
+     * **라운드 88 리뷰 이후**: 갈래를 **파싱해** 두 팔을 값으로 꺼내고(어느 문장이 어느 팔인가),
+     * 부재는 바이트 형태가 아니라 **자리로** 묻는다 — 두 문장의 모든 출현이 그 갈래 **안**이어야
+     * 한다(줄바꿈을 눌러 보므로 여러 줄 형태도 같이 잡힌다). 두 화면 공통 루프는 그대로다.
+     *
+     * ⚠️ 남은 한계: 각주를 문자열 리터럴이 아니라 상수·보간으로 옮기면 이 파서가 갈래를 찾지 못하고
+     * **그 자리에서 빨개진다**(거짓 초록이 아니라 거짓 빨강 — 그때 이 계약을 함께 고치라는 뜻이다).
      */
-    it("분석 화면의 힌트는 표를 가리키고, 클릭 화면의 힌트는 바이트 불변이다", () => {
-      const analytics = readAdminSource("app/analytics/page.tsx");
-      expect(analytics).toContain("날짜별 이벤트 수는 위 표에서 볼 수 있어요.");
-      // 표가 서지 못한 응답에서만 종전 문장이 남는다(그때는 마우스가 유일한 경로인 것이 사실이다).
-      expect(analytics).toContain("trend.showTable");
-      expect(analytics).toContain("막대에 마우스를 올리면 날짜별 이벤트 수를 볼 수 있어요. (서울 기준 날짜)");
-      const clicks = readAdminSource("app/clicks/page.tsx");
-      expect(clicks).toContain("막대에 마우스를 올리면 날짜별 클릭 수를 볼 수 있어요. (서울 기준 날짜)");
-      expect(clicks).not.toContain("위 표에서 볼 수 있어요");
+    it("두 화면의 각주가 표가 선 팔에서만 표를 가리킨다 (같은 값에서 같은 갈래 · 팔까지 묻는다)", () => {
+      for (const [path, countNoun] of TREND_SCREENS) {
+        const card = trendCard(path);
+        const branch = footnoteBranch(path, card);
+        const tableSentence = `날짜별 ${countNoun}는 위 표에서 볼 수 있어요.`;
+        const mouseSentence = `막대에 마우스를 올리면 날짜별 ${countNoun}를 볼 수 있어요. (서울 기준 날짜)`;
+
+        // ⓐ **어느 문장이 어느 팔에 있는가** — 표가 서는 팔이 그 표를 가리킨다.
+        expect(branch.whenTable, `${path}: 표가 선 팔이 표를 가리키지 않아요`).toContain(tableSentence);
+        expect(branch.whenTable, `${path}: 표가 선 팔이 마우스를 유일 경로로 소개해요(두 팔이 뒤바뀌었어요)`).not.toContain(
+          mouseSentence
+        );
+        // ⓑ 종전 문장은 표가 **서지 못한** 팔에만 남는다(그때는 마우스가 유일 경로인 것이 사실이다).
+        expect(branch.whenNoTable, `${path}: 표가 못 선 팔이 종전 문장 그대로가 아니에요`).toBe(mouseSentence);
+        expect(branch.whenNoTable, `${path}: 표가 못 선 팔이 서지도 않은 표를 가리켜요`).not.toContain(tableSentence);
+
+        // ⓒ 부재는 **자리로** 묻는다: 두 문장은 이 갈래 밖 어디에도 서지 않는다.
+        //    (바이트 한 형태가 아니라 갈래 밖 전체를 보므로 여러 줄로 흩어진 각주도 여기서 잡힌다.)
+        const outsideBranch = collapse(`${card.slice(0, branch.start)} ${card.slice(branch.end)}`);
+        expect(outsideBranch, `${path}: 표 각주가 showTable 갈래 밖에도 서 있어요`).not.toContain(collapse(tableSentence));
+        expect(outsideBranch, `${path}: 조건 없는 옛 각주가 갈래 밖에 서 있어요`).not.toContain(collapse(mouseSentence));
+      }
+    });
+
+    /**
+     * ⓒ·ⓓ — 최대치 한 줄과 표 이름도 두 화면이 함께 받는다.
+     *
+     * 최대치 문장은 **모듈이 짓고**(`trendPeakSentence`) 화면은 값이 있을 때만 그 줄을 세운다 —
+     * 화면이 손으로 적는 문구가 0건이라야 두 화면의 표기가 갈리지 않는다. 표 이름은 같은 카드의
+     * 막대 그림(role="img")과 겹쳐 읽히지 않게 끝말이 갈린다(그림은 "막대 그래프" · 표는 "표").
+     */
+    it("두 화면이 최대치 한 줄과 표 이름을 같은 모양으로 받는다", () => {
+      for (const [path, countNoun] of TREND_SCREENS) {
+        const source = readAdminSource(path);
+        expect(source, `${path}: 최대치 한 줄 배선`).toContain(
+          "{trend.peakSentence ? <p className={styles.hint}>{trend.peakSentence}</p> : null}"
+        );
+        // 문장을 화면이 다시 짓지 않는다(모듈이 지은 그 문구만 흐른다).
+        expect(source, `${path}: 최대치 문장을 화면이 다시 적어요`).not.toContain("가장 많은 날");
+        expect(source, `${path}: 추이 표에 이름이 없어요`).toContain(
+          "aria-label={`최근 ${summary.days}일 일별 " + countNoun + " 표`}"
+        );
+        expect(source, `${path}: 막대 그림의 이름이 갈리지 않아요`).toContain(
+          "aria-label={`최근 ${summary.days}일 일별 " + countNoun + " 막대 그래프`}"
+        );
+      }
     });
   });
 

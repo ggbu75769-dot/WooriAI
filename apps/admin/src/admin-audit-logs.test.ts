@@ -296,7 +296,15 @@ describe("Audit logs 표의 도달 경로 (GAP-087)", () => {
     const source = pageSource();
     // 화면은 **적용된** 필터로 묻는다(폼 입력값이 아니라 — 표는 적용된 조건의 결과다).
     expect(source).toContain("auditLogEmptyStateMessage(appliedFilters)");
-    const rows = readSource("src/lib/audit-log-rows.ts");
+    // ⚠️ 라운드 88 트랙 C: 이 블록은 **주석을 걷은** 소스에서 두 문장을 찾는다. 그 파일의
+    // 머리말이 "조건에 맞는 기록이 없어요."를 인용하고 있어서, 원문을 그대로 읽으면 정본
+    // (auditLogEmptyStateMessage의 return)이 사라져도 이 앵커가 초록이었다 — 인용은 근거이므로
+    // 지우지 않고, **앵커가 무엇을 보는가**를 바꾼다(옆의 admin-load-error-copy.test.ts가 같은
+    // 파일에 세운 형식 그대로이고, 그 규율의 모집단은
+    // packages/test-utils/src/comment-tolerant-anchor-ledger.ts가 진다).
+    const rows = readSource("src/lib/audit-log-rows.ts")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/[^\n]*/g, " ");
     expect(rows).toContain("hasAnyAuditLogFilter(filters)");
     expect(rows).toContain("조건에 맞는 기록이 없어요.");
     // 두 문장이 실제로 다르다(같은 문장 두 갈래는 갈래가 아니다).

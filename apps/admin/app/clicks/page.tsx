@@ -205,7 +205,7 @@ export default function ClickSummaryPage() {
                 고지 한 줄로 말하는 것도 analytics-trend-view.ts의 판정이다(막대는 시간순 그대로). */}
             {trend.showTable ? (
               <div className={styles.tableWrap}>
-                <table className={styles.table}>
+                <table className={styles.table} aria-label={`최근 ${summary.days}일 일별 클릭 수 표`}>
                   <thead>
                     <tr>
                       <th>날짜</th>
@@ -223,11 +223,26 @@ export default function ClickSummaryPage() {
                 </table>
               </div>
             ) : null}
-            {/* 라운드 86 리뷰 M-2: 이 화면의 글자는 **정상 응답에서** 종전과 바이트 단위로 같다 —
-                이 한 줄은 표에서 뺀 점이 있는 응답에서만 선다(그때 표만 짧아지고 아무 말도 없으면
-                운영자가 없는 날을 있다고 읽는다). */}
+            {/* 라운드 86 리뷰 M-2: 이 한 줄은 표에서 뺀 점이 있는 응답에서만 선다(그때 표만
+                짧아지고 아무 말도 없으면 운영자가 없는 날을 있다고 읽는다).
+                ⚠️ 두 시점: 라운드 86 리뷰 당시 이 자리는 "이 화면의 글자는 **정상 응답에서**
+                종전과 바이트 단위로 같다"로 시작했다. 그 문장은 **라운드 88 트랙 A 이후 거짓**이다 —
+                바로 아래 최대치 한 줄과 showTable 갈래 각주가 정상 응답에서도 새로 서기 때문이다.
+                오늘 이 화면에서 바이트 불변인 것은 표 머리 두 칸·카드 제목·DNC-009 고지·막대 식이다
+                (라운드 88 리뷰 M-1). */}
             {trend.omissionNotice ? <p className={styles.hint}>{trend.omissionNotice}</p> : null}
-            <p className={styles.hint}>막대에 마우스를 올리면 날짜별 클릭 수를 볼 수 있어요. (서울 기준 날짜)</p>
+            {/* 전부 0건인 기간에는 이 문장이 서지 않는다(아무 일도 없던 날을 봉우리로 만들지 않는다).
+                문구는 모듈이 짓는다 — 이 화면이 다시 적는 글자는 0건이다. */}
+            {trend.peakSentence ? <p className={styles.hint}>{trend.peakSentence}</p> : null}
+            {/* 라운드 88 트랙 A(라운드 86 리뷰 L-11을 이 화면에도): 표가 이미 서 있는데도 각주가
+                마우스 경로만 소개하면, 그 경로가 없는 운영자(키보드·스크린리더)에게 이 카드는
+                여전히 마우스 전용으로 읽힌다. 표가 있을 때는 표를 가리키고, 표가 서지 못한
+                응답에서만 종전 문장이 남는다 — 형제 화면(분석)과 같은 값에서 같은 판정이다. */}
+            <p className={styles.hint}>
+              {trend.showTable
+                ? "날짜별 클릭 수는 위 표에서 볼 수 있어요. (막대에 마우스를 올려도 같은 값이 떠요 · 서울 기준 날짜)"
+                : "막대에 마우스를 올리면 날짜별 클릭 수를 볼 수 있어요. (서울 기준 날짜)"}
+            </p>
           </section>
         </>
       ) : null}

@@ -95,6 +95,15 @@ export function trackAnalyticsEvent(input: TrackEventInput): void {
   }
 }
 
+/**
+ * 메모리 큐에 쌓인 이벤트 수.
+ *
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
+ * 옮겼다). 화면이 이 수를 부르지 않는 것은 배선을 잊어서가 아니라 **설계**다: 분석은 조용히
+ * 실패해도 되는 축이라 사용자에게 "보내지 못한 이벤트 3건"을 말하지 않는다. **지우지 않는다** —
+ * `getQueuedAnalyticsEventCount`가 여는 것은 상한(MAX_QUEUE_SIZE)에서 앞쪽이 잘리는지와 플러시 뒤 큐가 비는지를 밖에서
+ * 관측하는 창 하나이고, 닫으면 그 두 판정이 모듈 내부 변수로 숨는다.
+ */
 export function getQueuedAnalyticsEventCount(): number {
   return queue.length;
 }

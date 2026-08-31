@@ -43,7 +43,16 @@ export function legalDocumentUrls(): Record<LegalDocumentKind, string | null> {
   };
 }
 
-/** 한 종류의 URL(없으면 null). */
+/**
+ * 한 종류의 URL(없으면 null).
+ *
+ * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례 · 라운드 88 트랙 D가 이유를 대장에서 여기로
+ * 옮겼다). 화면이 단수판 `legalDocumentUrl`을 부르지 않는 이유: 약관·개인정보 두 링크는 로그인 체크박스에도
+ * 동의 내역 카드에도 **언제나 같은 자리에 함께 서므로** 화면은 복수형 `legalDocumentUrls()`로
+ * 한 번에 둘을 읽는다. **지우지 않는다** — `settings/support-links.ts`의 단수판이 이 함수와
+ * 같은 모양의 쌍둥이라(그 파일이 여기서 값이 아니라 형식만 가져갔다), 한쪽만 지우면 그 관례가
+ * 반쪽으로 남는다.
+ */
 export function legalDocumentUrl(kind: LegalDocumentKind): string | null {
   return legalDocumentUrls()[kind];
 }

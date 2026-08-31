@@ -18,6 +18,7 @@ import {
 import { getPushToken, isPushSupported } from "../../src/notifications/push-token-source";
 import { formatRelativeTime } from "../../src/notifications/relative-time";
 import {
+  buildDeviceRegistrationBody,
   getCurrentDevicePlatform,
   usePushRegistrationStore
 } from "../../src/notifications/usePushDeviceRegistration";
@@ -114,7 +115,7 @@ export default function NotificationSettingsScreen() {
       if (!platform) {
         throw new Error("PUSH_PLATFORM_UNSUPPORTED");
       }
-      const registered = await registerDevice(authToken!, { platform, pushToken, notificationEnabled: next });
+      const registered = await registerDevice(authToken!, buildDeviceRegistrationBody({ platform, pushToken, notificationEnabled: next }));
       usePushRegistrationStore.getState().setRegisteredDeviceId(registered.id);
       return registered;
     },

@@ -3377,6 +3377,167 @@ const ALERT_ROLE_WITHOUT_LIVE_REGION: Readonly<Record<string, { readonly places:
   }
 };
 
+/* -------------------------------------------------------------------------------------------- */
+/* 라운드 88 트랙 E(#5) — **프롭 대장 둘의 파생 판정**                                             */
+/* -------------------------------------------------------------------------------------------- */
+
+/**
+ * ## 대장은 *무엇을 했는가*만 적었다 — 라운드 87의 결함이 태어난 그 자리다
+ *
+ * 아래 두 대장(`ROUND79_ANNOUNCE_PROPS_ADDED` 여섯 · `ROUND80_ANNOUNCE_PROPS_ADDED` 셋)은
+ * *"그 자리에 프롭을 걸었고, 빼면 종전 바이트다"* 를 정확하게 진다. 그런데 그 기록만으로는
+ * **그것이 충분한가**를 알 수 없다. 라운드 87 리뷰(AB-4)가 이름 붙인 모양이 바로 그것이다:
+ * `src/onboarding/step-ui.tsx`는 *"모듈 층의 한 자리"* 라고 정확히 적힌 채 대장에 서 있었고
+ * 프롭 둘도 실재했지만, **그 조합이 안드로이드 한정이라는 판정은 어디에도 없어서** 대장에
+ * 이름이 있다는 사실이 *"세어졌다"* 로 읽혔다. 라운드 87 C가 그 **한 자리**를 닫았지만 대장의
+ * **모양**은 그대로였다 — 열째 항목이 붙는 날 같은 착시가 다시 난다.
+ *
+ * ⚠️ 그래서 이 트랙이 더하는 것은 자리가 아니라 **칸 하나**다: 항목마다 그 자리의 낭독 출구를
+ * **소스에서 분류**하고(`announce`/`live-region`/`toast`), 판정이 `live-region`을 부르면
+ * 그 항목의 `crossPlatform`이 **빈 문자열일 수 없게** 한다. 판정은 손으로 적지 않는다 —
+ * 대장의 `after` 바이트가 모집단이고, 출구는 그 자리에서 파생한다.
+ *
+ * ⚠️ **기록 자체는 한 바이트도 고치지 않는다**(`file`·`before`·`after`·`added`·`places`).
+ * 더하는 것은 칸 하나이지, 라운드 79·80이 적어 둔 사실을 다시 쓰는 것이 아니다.
+ */
+type AnnounceLedgerExit = "announce" | "live-region" | "toast";
+
+/** 대장 항목 하나가 덮는 **한 자리** — 소스의 그 바이트 자리와, 거기서 파생한 출구. */
+type AnnounceLedgerPlace = {
+  /** 마스킹된 소스에서 그 여는 태그가 시작하는 자리(유령 방지의 좌표다). */
+  readonly at: number;
+  /** 그 자리를 세우는 **가장 안쪽 JSX 조건** — 없으면 빈 문자열(컴포넌트가 곧 조건인 자리). */
+  readonly guard: string;
+  readonly exit: AnnounceLedgerExit;
+};
+
+/** `(`/`{`/`[` 하나의 짝(문자열 안의 괄호는 세지 않는다). */
+function matchingCloserOf(masked: string, openAt: number): number {
+  const open = masked[openAt];
+  const close = open === "(" ? ")" : open === "{" ? "}" : "]";
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = openAt; i < masked.length; i += 1) {
+    const char = masked[i];
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") quote = char;
+    else if (char === open) depth += 1;
+    else if (char === close) {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** 깊이 0의 `;`까지 — 중괄호 없는 한 문장 `if`가 덮는 구간의 끝이다. */
+function statementEndAt(masked: string, from: number): number {
+  let depth = 0;
+  let quote: string | null = null;
+  for (let i = from; i < masked.length; i += 1) {
+    const char = masked[i];
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") quote = char;
+    else if (char === "(" || char === "{" || char === "[") depth += 1;
+    else if (char === ")" || char === "}" || char === "]") depth -= 1;
+    else if (char === ";" && depth === 0) return i;
+  }
+  return masked.length - 1;
+}
+
+/**
+ * 그 자리를 덮는 **가장 안쪽** `if (…)`의 조건(덮는 것이 없으면 빈 문자열).
+ *
+ * 낭독 배선이 *어느 갈래에 묶여 있는가*를 묻는 데 쓴다 — 같은 파일에 `announceForA11y`가
+ * 있다는 사실만으로는 **그 자리**가 소리를 내는지 알 수 없다(AB-4가 이름 붙인 그 착시다).
+ */
+function enclosingIfCondition(masked: string, at: number): string {
+  let condition = "";
+  const pattern = /\bif\s*\(/g;
+  let found: RegExpExecArray | null;
+  while ((found = pattern.exec(masked))) {
+    if (found.index >= at) break;
+    const open = found.index + found[0].length - 1;
+    const close = matchingCloserOf(masked, open);
+    if (close < 0 || close > at) continue;
+    let cursor = close + 1;
+    while (cursor < masked.length && /\s/.test(masked[cursor])) cursor += 1;
+    const end = masked[cursor] === "{" ? matchingCloserOf(masked, cursor) : statementEndAt(masked, cursor);
+    if (end < 0 || at > end) continue;
+    condition = masked.slice(open + 1, close).replace(/\s+/g, " ").trim();
+  }
+  return condition;
+}
+
+/**
+ * `useEffect` 안에서 실제로 도는 `announceForA11y` 배선 — 그 자리와 **그것이 묶인 조건**.
+ *
+ * effect 층만 세는 이유는 이 파일이 이미 쓰는 그 이유다(`announcedSaveErrorNames` 머리말):
+ * 렌더 도중 부르면 같은 문장을 매 렌더 다시 읽는다. ⚠️ 그래서 **핸들러 안의 낭독은 이 그물이
+ * `announce`로 세지 않는다** — 오늘 그런 자리가 하나 있고, 그 사실은 사각과 그 항목의
+ * `crossPlatform` 값에 함께 적혀 있다.
+ */
+function announceEffectWirings(masked: string): Array<{ readonly at: number; readonly condition: string }> {
+  const effects = callRangesOf(masked, "useEffect");
+  return callRangesOf(masked, "announceForA11y")
+    .filter(([open]) => effects.some(([from, to]) => open > from && open < to))
+    .map(([open]) => ({ at: open, condition: enclosingIfCondition(masked, open) }));
+}
+
+/**
+ * 대장 항목 하나가 덮는 **자리 전수와 각 자리의 출구** — 모집단은 손 목록이 아니라 그 항목이
+ * 적어 둔 `after` 바이트다(그래서 `places` 수와 판정이 **같은 모집단**에서 나온다).
+ *
+ * 판정 세 칸:
+ * - `toast` — 그 자리가 `<Toast …>`다(공용 Toast가 프롭과 announce를 스스로 진다 · A11Y-115).
+ * - `announce` — 그 자리를 세우는 **JSX 조건과 같은 조건**에 묶인 낭독 배선이 effect 층에 있다
+ *   (조건이 없는 자리 — 컴포넌트가 곧 조건인 모듈 카드 — 는 **같은 최상위 컴포넌트 안의**
+ *   조건 없는 배선이 답한다).
+ * - `live-region` — 프롭 조합뿐이다. `accessibilityLiveRegion`은 `@platform android`이고
+ *   `accessibilityRole="alert"`에 대응하는 VoiceOver 트레이트가 없다(위
+ *   `ANDROID_ONLY_LIVE_REGION_REASON`) — iOS에서는 화면에 문장이 서도 아무 소리가 나지 않는다.
+ */
+function announceLedgerPlacesOf(sourceText: string, after: string): AnnounceLedgerPlace[] {
+  const masked = maskComments(sourceText);
+  const tagName = /^<([A-Za-z][A-Za-z0-9_.]*)/.exec(after)?.[1] ?? "";
+  const wirings = announceEffectWirings(masked);
+  const blocks = topLevelFunctionBlocksOf(masked);
+  const places: AnnounceLedgerPlace[] = [];
+  for (let at = masked.indexOf(after); at >= 0; at = masked.indexOf(after, at + 1)) {
+    const guard = enclosingJsxGuards(masked, at)[0]?.guard ?? "";
+    const block = blocks.find((candidate) => at >= candidate.start && at < candidate.end);
+    const wired = guard
+      ? wirings.some((wiring) => wiring.condition === guard)
+      : Boolean(block) &&
+        wirings.some(
+          (wiring) => wiring.condition === "" && wiring.at >= block!.start && wiring.at < block!.end
+        );
+    places.push({ at, guard, exit: tagName === "Toast" ? "toast" : wired ? "announce" : "live-region" });
+  }
+  return places;
+}
+
+/**
+ * ⚠️ **이 판정이 못 보는 것 — 태어날 때부터 값으로 적는다(AB-4·AA-4의 규율).**
+ *
+ * 판정 칸이 붙었다는 사실이 *"이제 이 축은 전부 세어졌다"* 로 읽히면, 이 트랙은 자기가 고친
+ * 그 착시를 한 겹 위에서 다시 만드는 것이다. 무엇을 보고 무엇을 못 보는지를 함께 든다.
+ */
+const ANNOUNCE_LEDGER_VERDICT_BLIND_SPOTS: ReadonlyArray<string> = [
+  "모집단은 **대장이 적어 둔 여는 태그**다 — 프롭 없이 실패 문장을 그리는 컴포넌트는 이 그물에 아예 들어오지 않는다. 그 축은 화면 층(GAP-079의 대장 · GAP-080의 방아쇠)과 모듈 층(GAP-087의 뿌리)이 각자의 모집단으로 세고, 이 판정은 그 셋을 대신하지 않는다.",
+  "프롭이 **한 짝만** 걸린 자리는 대장에 없다 — 대장의 `after`는 짝이 완성된 바이트라 반쪽 자리는 `indexOf`에 걸리지 않는다. role 단독은 ALERT_ROLE_WITHOUT_LIVE_REGION이, 모듈 층의 반쪽은 halfAnnouncedTagCount가 따로 센다.",
+  "`.tsx` 밖의 자리는 이 그물 밖이다 — 대장 아홉은 전부 `.tsx`이고, 낭독 문장이 `.ts` 모듈에서 서는 자리(문구 단일 소스가 사는 층)는 여기서 세지 않는다.",
+  "낭독으로 세는 것은 **effect 층의 배선**이다 — 이벤트 핸들러가 상태를 세우며 같은 걸음에 부르는 announceForA11y는 이 그물이 `announce`로 세지 않는다(오늘 그런 자리가 하나 있고, 그 사실이 그 항목의 crossPlatform 값에 적혀 있다).",
+  "소스 대조이지 런타임이 아니다 — VoiceOver·TalkBack이 실제로 그 문장을 읽는지는 실기기 확인의 몫이다(react-native는 vitest에서 네이티브 바인딩이 없다).",
+  "⚠️ 라운드 88 리뷰 L-1 — **갈래를 하나만, 글자로만 본다.** `announce`로 세려면 ⓐ 자리를 감싸는 갈래 중 **최내곽 하나**(`enclosingJsxGuards(...)[0]`)가 ⓑ effect 층 배선의 `if` 조건과 **문자열이 완전히 같아야** 한다. 그래서 자리를 갈래 둘이 겹쳐 감싸는 모양(바깥 갈래가 진짜 조건인 경우)이나, 같은 뜻을 다르게 적은 조건(`save.isError` ↔ `saveMutation.isError`, 부정 순서 바뀜, 괄호·공백 밖의 표기 차이)은 배선이 실재해도 `live-region`으로 떨어진다. ⚠️ 오차의 방향은 **거짓 빨강(안전)**이다 — 침묵을 announce로 세지 않고, 그 항목에 이유를 요구해 사람이 다시 보게 만든다. 오늘 실측(2026-08-31 워킹트리)으로 이 한계가 실제로 낸 피해는 **0건**이다: 대장 아홉이 덮는 자리 **스물둘** 중 감싸는 갈래가 하나인 자리 열셋 · 둘인 자리 여덟 · 없는 자리 하나이고, **중첩 여덟은 전부 최내곽 갈래가 배선 조건과 글자로 맞아 `announce`로 떨어졌다**(오늘 `live-region` 둘은 갈래가 하나인 자리이고, 둘 다 이유가 값으로 서 있다). 판정 로직을 넓히는 것은 이 한계가 실제로 자리를 잘못 세우는 날의 일이다."
+];
+
 /**
  * ⚠️ **이 라운드가 실제로 더한 것 — 프롭뿐이다.**
  *
@@ -3391,48 +3552,64 @@ const ROUND79_ANNOUNCE_PROPS_ADDED: ReadonlyArray<{
   readonly after: string;
   readonly added: ReadonlyArray<string>;
   readonly what: string;
+  /**
+   * ⚠️ 라운드 88 트랙 E — **판정 칸.** *무엇을 했는가*(`what`) 옆에 *그것이 충분한가*가 선다.
+   *
+   * 값을 손으로 적어 못 박지 않는다: 출구는 `announceLedgerPlacesOf`가 이 항목의 `after`
+   * 바이트에서 파생하고, 이 칸은 그 판정이 **부를 때만** 값이 된다 — 한 자리라도
+   * `live-region`이면(= 안드로이드 한정이면) 빈 문자열일 수 없고, 전부 크로스플랫폼이면
+   * 반드시 빈 문자열이다(고쳐진 뒤에도 남는 이유는 낡은 판정이라 그때 빨개진다).
+   */
+  readonly crossPlatform: string;
 }> = [
   {
     file: "app/family/accept/[token].tsx",
     before: "<Text style={{ color: theme.colors.danger }}>",
     after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>',
     added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
-    what: "초대 수락(POST) 저장 실패 줄 — 대장 다섯 화면 중 하나"
+    what: "초대 수락(POST) 저장 실패 줄 — 대장 다섯 화면 중 하나",
+    crossPlatform: ""
   },
   {
     file: "app/family/accept/[token].tsx",
     before: '<View accessibilityRole="alert">',
     after: '<View accessibilityLiveRegion="polite" accessibilityRole="alert">',
     added: ['accessibilityLiveRegion="polite"'],
-    what: "끝난 초대 카드(라운드 70 A)와 수락 성공 후 뒤처리 실패 카드(라운드 60 #3) — role만 있고 live region이 없던 자리 둘"
+    what: "끝난 초대 카드(라운드 70 A)와 수락 성공 후 뒤처리 실패 카드(라운드 60 #3) — role만 있고 live region이 없던 자리 둘",
+    crossPlatform:
+      "두 자리 다 프롭 조합만 걸려 있다 — 라운드 79는 이 항목에 프롭만 걸었고 낭독 배선은 걸지 않았다. ⓐ 끝난 초대 카드(inviteUnavailable)는 그 조건에 묶인 announceForA11y가 이 화면에 없어 오늘 안드로이드 한정이다: 조회 404·400과 수락 400 셋이 함께 보는 막다른 길 카드라 저장 실패 스윕(GAP-079)의 일곱 자리에도 서지 않는다(그 모집단은 저장 실패 문구의 이름으로 세는데, 이 카드의 문장은 초대 상태 안내 상수다). ⓑ 뒤처리 실패 카드(joinRetryNotice && joinedResult)는 오늘 두 플랫폼 다 소리가 난다 — 다만 그 낭독이 effect가 아니라 뒤처리 핸들러 안에 있어(setJoinRetryNotice(plan.notice) 바로 다음 줄의 announceForA11y(plan.notice)) effect 층만 세는 이 그물이 announce로 세지 않는다(사각 넷째). 이 트랙은 화면을 한 바이트도 열지 않으므로 둘 다 판정으로만 적는다 — 프롭을 빼거나 더하는 제안이 아니다."
   },
   {
     file: "app/family/invite.tsx",
     before: "<Text style={{ color: theme.colors.danger }}>",
     after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>',
     added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
-    what: "초대 링크 만들기(POST) 저장 실패 줄 — 대장 다섯 화면 중 하나"
+    what: "초대 링크 만들기(POST) 저장 실패 줄 — 대장 다섯 화면 중 하나",
+    crossPlatform: ""
   },
   {
     file: "app/settings/children.tsx",
     before: "<Text style={{ color: theme.colors.danger }}>",
     after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>',
     added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
-    what: "아이 관리 뮤테이션 실패 셋(편집·출생 전환·추가) — 대장 다섯 화면 중 하나. 라운드 79 통합이 루프 핀을 모양으로 풀며 함께 걸었다"
+    what: "아이 관리 뮤테이션 실패 셋(편집·출생 전환·추가) — 대장 다섯 화면 중 하나. 라운드 79 통합이 루프 핀을 모양으로 풀며 함께 걸었다",
+    crossPlatform: ""
   },
   {
     file: "app/settings/notifications.tsx",
     before: "<Text style={errorTextStyle}>",
     after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>',
     added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
-    what: "같은 모양의 실패 줄 둘 — 손으로 적은 푸시 설정 저장 실패 한 줄(대장 밖)과, 라운드 79 통합이 핀을 푼 뒤 걸린 기기 토글 저장 실패 한 줄(대장 안)"
+    what: "같은 모양의 실패 줄 둘 — 손으로 적은 푸시 설정 저장 실패 한 줄(대장 밖)과, 라운드 79 통합이 핀을 푼 뒤 걸린 기기 토글 저장 실패 한 줄(대장 안)",
+    crossPlatform: ""
   },
   {
     file: "src/onboarding/step-ui.tsx",
     before: '<View accessibilityRole="alert">',
     after: '<View accessibilityLiveRegion="polite" accessibilityRole="alert">',
     added: ['accessibilityLiveRegion="polite"'],
-    what: "OnboardingSaveErrorCard — 라운드 78 A가 갈래를 다섯으로 만든 그 카드(모듈 층의 한 자리)"
+    what: "OnboardingSaveErrorCard — 라운드 78 A가 갈래를 다섯으로 만든 그 카드(모듈 층의 한 자리)",
+    crossPlatform: ""
   }
 ];
 
@@ -4334,6 +4511,14 @@ const ROUND80_ANNOUNCE_PROPS_ADDED: ReadonlyArray<{
   readonly added: ReadonlyArray<string>;
   readonly places: number;
   readonly what: string;
+  /**
+   * ⚠️ 라운드 88 트랙 E — **판정 칸**(위 `ROUND79_ANNOUNCE_PROPS_ADDED`와 같은 계약).
+   *
+   * 출구는 이 항목의 `after` 바이트에서 파생하고(`announceLedgerPlacesOf`), 이 칸은 그 판정이
+   * `live-region`을 부를 때만 값이 된다 — 여기 `places`와 판정이 **같은 모집단**에서 나오므로
+   * 0건 위에서 조용히 초록이 되는 자리가 없다.
+   */
+  readonly crossPlatform: string;
 }> = [
   {
     file: "app/settings/privacy.tsx",
@@ -4341,7 +4526,8 @@ const ROUND80_ANNOUNCE_PROPS_ADDED: ReadonlyArray<{
     after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>',
     added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
     places: 7,
-    what: "되돌릴 수 없는 흐름 넷의 확정 실패 셋 + 동의 갱신 하나 + 파기 미리보기 셋 — 같은 화면이 성공만 읽어 주던 그 일곱 자리"
+    what: "되돌릴 수 없는 흐름 넷의 확정 실패 셋 + 동의 갱신 하나 + 파기 미리보기 셋 — 같은 화면이 성공만 읽어 주던 그 일곱 자리",
+    crossPlatform: ""
   },
   {
     file: "app/import/index.tsx",
@@ -4349,7 +4535,8 @@ const ROUND80_ANNOUNCE_PROPS_ADDED: ReadonlyArray<{
     after: '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>',
     added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
     places: 2,
-    what: "파일 검증 실패 한 줄과 업로드 실패 한 줄 — 둘 다 눌린 CTA 바로 아래다"
+    what: "파일 검증 실패 한 줄과 업로드 실패 한 줄 — 둘 다 눌린 CTA 바로 아래다",
+    crossPlatform: ""
   },
   {
     file: "app/import/[importJobId].tsx",
@@ -4358,7 +4545,8 @@ const ROUND80_ANNOUNCE_PROPS_ADDED: ReadonlyArray<{
     added: ['accessibilityLiveRegion="polite"', 'accessibilityRole="alert"'],
     places: 3,
     what:
-      "행 편집 실패 · 확정 실패 · 일괄 중간 실패 — 셋째 자리는 트랙 A가 소유 밖 바이트 핀 때문에 남긴 것이고, 같은 라운드의 통합이 그 핀을 모양으로 풀며 함께 걸었다"
+      "행 편집 실패 · 확정 실패 · 일괄 중간 실패 — 셋째 자리는 트랙 A가 소유 밖 바이트 핀 때문에 남긴 것이고, 같은 라운드의 통합이 그 핀을 모양으로 풀며 함께 걸었다",
+    crossPlatform: ""
   }
 ];
 
@@ -5190,5 +5378,317 @@ ${card("useEffect(() => { announceForA11y(text); }, [text]);")}
       ).toBe(false);
       expect(count, `${file}의 반쪽 자리`).toBeGreaterThan(0);
     }
+  });
+});
+
+/* ============================================================================================ */
+/* GAP-088 트랙 E(#5) — **프롭 대장 둘이 *한 일*과 *그것이 충분한가*를 함께 든다**                  */
+/* ============================================================================================ */
+
+/**
+ * 두 대장을 **한 모집단**으로 든다 — 판정은 대장별이 아니라 **항목별**로 서고, 항목이 하나
+ * 늘면(열째가 붙는 날) 그 항목도 이 질문을 **자동으로** 받는다. 이 트랙의 값이 정확히 그것이다.
+ */
+const ANNOUNCE_PROP_LEDGERS: ReadonlyArray<{
+  readonly round: string;
+  readonly entries: ReadonlyArray<{
+    readonly file: string;
+    readonly after: string;
+    readonly what: string;
+    readonly crossPlatform: string;
+    /** 라운드 80의 기록에만 있는 칸 — 있으면 파생 자리 수가 **그 수와 같아야** 한다. */
+    readonly places?: number;
+  }>;
+}> = [
+  { round: "라운드 79", entries: ROUND79_ANNOUNCE_PROPS_ADDED },
+  { round: "라운드 80", entries: ROUND80_ANNOUNCE_PROPS_ADDED }
+];
+
+/** 대장 항목마다 그 자리의 출구를 소스에서 파생한 결과 — 손 목록이 아니라 대장이 모집단이다. */
+const announceLedgerVerdicts = () =>
+  ANNOUNCE_PROP_LEDGERS.flatMap(({ round, entries }) =>
+    entries.map((entry) => ({
+      round,
+      entry,
+      /** 항목의 이름 — 라운드·파일·여는 태그(같은 파일의 두 항목이 갈린다). */
+      key: `${round} ${entry.file} ${entry.after.split(" ")[0]}`,
+      places: announceLedgerPlacesOf(source(entry.file), entry.after)
+    }))
+  );
+
+/**
+ * ⓑ의 규칙 한 줄 — **판정이 `live-region`을 부르면 이유가 값이어야 하고, 부르지 않으면 그
+ * 칸은 비어 있어야 한다.** 뒤쪽 절반이 없으면 낡은 판정이 값으로 남아 다음 사람을 속인다.
+ *
+ * ⚠️ 묻는 것은 *"출구가 live-region 하나뿐인가"* 가 아니라 *"live-region이 **하나라도** 있는가"* 다.
+ * 한 항목이 여러 자리를 덮을 때(대장 아홉 중 넷이 그렇다) 한 자리의 침묵이 형제 자리의 announce에
+ * 가려지는 것 — 그것이 AB-4가 이름 붙인 그 착시이고, 이 트랙이 그 모양을 되풀이할 이유가 없다.
+ */
+const ledgerVerdictHolds = (places: ReadonlyArray<AnnounceLedgerPlace>, crossPlatform: string) =>
+  places.some((place) => place.exit === "live-region") ? crossPlatform.trim().length > 0 : crossPlatform === "";
+
+describe("GAP-088 #5 프롭 대장 둘의 파생 판정 (무엇이 되었는가 + 그것이 충분한가)", () => {
+  it("ⓐ 대장 아홉 항목 전수 — 그 자리의 낭독 출구가 소스에서 파생한다", () => {
+    // 전제 재실측(정찰의 아홉은 손으로 잰 하한이다): 오늘 대장 둘의 항목은 여섯 + 셋 = 아홉이다.
+    expect(ROUND79_ANNOUNCE_PROPS_ADDED.length, "라운드 79의 기록").toBe(6);
+    expect(ROUND80_ANNOUNCE_PROPS_ADDED.length, "라운드 80의 기록").toBe(3);
+    const verdicts = announceLedgerVerdicts();
+    expect(verdicts.length, "두 대장의 항목 합계").toBe(9);
+
+    const exits: Record<string, number> = {};
+    for (const verdict of verdicts) {
+      // 유령 방지: 항목이 적은 그 바이트가 **소스에 실재한다**. 0건이면 아래 모든 판정이
+      // 빈 모집단 위에서 영원히 초록이다(라운드 78 E가 이름 붙인 그 모양).
+      expect(verdict.places.length, `${verdict.key}: 대장이 적은 자리`).toBeGreaterThan(0);
+      for (const place of verdict.places) exits[place.exit] = (exits[place.exit] ?? 0) + 1;
+    }
+    // 오늘의 실측 — 아홉 항목이 덮는 자리는 스물둘이고, 그 가운데 둘이 프롭 조합뿐이다.
+    // ⚠️ 정찰은 "오늘 돌리면 아홉이 전부 초록일 가능성이 높다"고 적었지만 **그렇지 않았다**:
+    // 라운드 87 C가 닫은 것은 모듈 층의 한 자리였고, 가족 수락 화면의 카드 둘은 그대로다.
+    expect(exits, "대장 아홉이 덮는 자리의 출구별 수").toEqual({ announce: 20, "live-region": 2 });
+  });
+
+  it("ⓑ 크로스플랫폼 — live-region이 하나라도 있으면 이유가 값이고, 없으면 그 칸은 비어 있다", () => {
+    const verdicts = announceLedgerVerdicts();
+    const androidOnly: string[] = [];
+    for (const verdict of verdicts) {
+      // 래칫 — 항목이 하나 늘면 판정 칸도 함께 요구된다(타입이 먼저 막지만, 값으로도 묻는다).
+      expect(typeof verdict.entry.crossPlatform, `${verdict.key}: 판정 칸이 없다`).toBe("string");
+      const silentPlaces = verdict.places.filter((place) => place.exit === "live-region");
+      // 판정과 이유가 갈리면 여기가 빨개진다 — 양쪽 방향 다(빠진 이유 · 낡은 이유).
+      expect(
+        ledgerVerdictHolds(verdict.places, verdict.entry.crossPlatform),
+        `${verdict.key}: 판정이 live-region ${silentPlaces.length}건인데 이유가 ${verdict.entry.crossPlatform === "" ? "비어 있다" : "낡았다"}`
+      ).toBe(true);
+      if (silentPlaces.length === 0) continue;
+      androidOnly.push(verdict.key);
+      // 이유는 산문이 아니라 **그 자리를 세우는 조건**을 이름으로 든다(빈 문자열 금지).
+      expect(verdict.entry.crossPlatform.length, `${verdict.key}: 이유는 빈 문자열일 수 없다`).toBeGreaterThan(40);
+      for (const place of silentPlaces) {
+        if (!place.guard) continue;
+        expect(verdict.entry.crossPlatform, `${verdict.key}: 조용한 자리의 조건이 이유에 없다`).toContain(place.guard);
+      }
+    }
+    // 오늘의 실측 — 그런 항목은 하나다(정찰은 0을 약속하지 않았고, 실제로 0이 아니었다).
+    expect(androidOnly, "판정이 live-region을 부르는 항목").toEqual([
+      "라운드 79 app/family/accept/[token].tsx <View"
+    ]);
+    // 그 판정이 무엇을 뜻하는지는 이 파일이 이미 값으로 들고 있다(같은 근거를 두 벌 적지 않는다).
+    expect(ANDROID_ONLY_LIVE_REGION_REASON, "프롭 조합만인 자리의 뜻").toContain("@platform android");
+  });
+
+  it("ⓒ 유령 방지 — `places` 수와 판정이 같은 모집단에서 나온다", () => {
+    const verdicts = announceLedgerVerdicts();
+    let total = 0;
+    for (const verdict of verdicts) {
+      total += verdict.places.length;
+      // 라운드 80의 기록은 자리 수를 값으로 든다 — 파생이 그 수와 갈리면 둘 중 하나가 거짓이다.
+      if (verdict.entry.places !== undefined) {
+        expect(verdict.places.length, `${verdict.key}: 기록된 자리 수`).toBe(verdict.entry.places);
+      }
+      // 주석에만 있는 바이트는 자리가 아니다 — 마스킹 전후의 수가 같아야 한다(적어 둔 자리가
+      // 실제로 그려지는 자리라는 사실이 여기서 선다).
+      const raw = source(verdict.entry.file).split(verdict.entry.after).length - 1;
+      expect(verdict.places.length, `${verdict.key}: 주석 밖의 자리 수`).toBe(raw);
+      // 자리마다 좌표가 다르다(같은 자리를 두 번 세지 않는다).
+      expect(new Set(verdict.places.map((place) => place.at)).size, `${verdict.key}: 자리의 좌표`).toBe(
+        verdict.places.length
+      );
+    }
+    expect(total, "대장 아홉이 덮는 자리 합계").toBe(22);
+    expect(
+      ROUND80_ANNOUNCE_PROPS_ADDED.reduce((sum, entry) => sum + entry.places, 0),
+      "라운드 80이 기록한 자리 합계"
+    ).toBe(12);
+  });
+
+  it("ⓓ 래칫 — 항목이 하나 늘면 판정 칸이 함께 요구된다 (픽스처로 재현)", () => {
+    const screen = (guard: string, effect: string) => `
+export default function Screen() {
+  ${effect}
+  return (
+    <View>
+      {${guard} ? (
+        <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>
+          {failText}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+`;
+    const after = '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>';
+    const wired = "useEffect(() => { if (save.isError) announceForA11y(failText); }, [save.isError, failText]);";
+
+    // 프롭만이면 안드로이드 한정이다 — 그리고 그 항목은 이유 없이는 통과하지 못한다.
+    const bare = announceLedgerPlacesOf(screen("save.isError", ""), after);
+    expect(bare.map((place) => place.exit), "프롭만 걸린 자리").toEqual(["live-region"]);
+    expect(ledgerVerdictHolds(bare, ""), "이유 없는 열째 항목").toBe(false);
+    expect(ledgerVerdictHolds(bare, "실기기에서 확인한 사실과 그 자리가 남은 이유가 여기 값으로 선다."), "이유가 값인 열째 항목").toBe(true);
+
+    // 같은 조건에 묶인 낭독이 서면 두 플랫폼 다이고, 그때는 이유 칸이 비어 있어야 한다.
+    const both = announceLedgerPlacesOf(screen("save.isError", wired), after);
+    expect(both.map((place) => place.exit), "프롭 + 같은 조건의 낭독").toEqual(["announce"]);
+    expect(ledgerVerdictHolds(both, ""), "판정이 부르지 않는 이유 칸").toBe(true);
+    expect(ledgerVerdictHolds(both, "낡은 이유"), "고쳐진 뒤에도 남은 이유").toBe(false);
+
+    // ⚠️ AB-4의 착시 그 자체 — 낭독이 **다른 조건**에 묶여 있으면 이 자리는 여전히 침묵이다
+    // (파일에 announceForA11y가 있다는 사실만으로 세면 여기가 초록이 된다).
+    const otherGuard = announceLedgerPlacesOf(
+      screen("save.isError", "useEffect(() => { if (other.isError) announceForA11y(otherText); }, [other.isError]);"),
+      after
+    );
+    expect(otherGuard.map((place) => place.exit), "다른 조건에 묶인 낭독").toEqual(["live-region"]);
+
+    // 조건이 없는 자리(컴포넌트가 곧 조건인 모듈 카드)는 **같은 컴포넌트 안의** 조건 없는 배선이 답한다.
+    const card = (effect: string) => `
+export function SaveErrorCard({ error }) {
+  const text = saveErrorMessage(error);
+  ${effect}
+  return (
+    <View accessibilityLiveRegion="polite" accessibilityRole="alert">
+      <Text>{text}</Text>
+    </View>
+  );
+}
+`;
+    const viewAfter = '<View accessibilityLiveRegion="polite" accessibilityRole="alert">';
+    expect(announceLedgerPlacesOf(card(""), viewAfter).map((place) => place.exit)).toEqual(["live-region"]);
+    expect(
+      announceLedgerPlacesOf(card("useEffect(() => { announceForA11y(text); }, [text]);"), viewAfter).map(
+        (place) => place.exit
+      )
+    ).toEqual(["announce"]);
+    // 낭독이 **다른 컴포넌트**에 있으면 이 자리는 여전히 안드로이드 한정이다(파일 단위로 세지 않는다).
+    const elsewhere = `
+export function Elsewhere({ notice }) {
+  useEffect(() => { announceForA11y(notice); }, [notice]);
+  return <Text>{notice}</Text>;
+}
+${card("")}
+`;
+    expect(announceLedgerPlacesOf(elsewhere, viewAfter).map((place) => place.exit)).toEqual(["live-region"]);
+
+    // Toast는 자기 컴포넌트가 프롭과 announce를 함께 진다 — 세 번째 칸이 그 자리를 위해 있다.
+    expect(
+      announceLedgerPlacesOf('<View>{save.isError ? <Toast message={failText} tone="error" /> : null}</View>', "<Toast ")
+        .map((place) => place.exit)
+    ).toEqual(["toast"]);
+  });
+
+  it("ⓔ 이 판정의 사각이 값으로 적혀 있고, 그 가운데 둘은 실재가 값으로 확인된다 (AB-4·AA-4)", () => {
+    expect(ANNOUNCE_LEDGER_VERDICT_BLIND_SPOTS.length, "적어 둔 사각").toBeGreaterThan(3);
+    for (const blindSpot of ANNOUNCE_LEDGER_VERDICT_BLIND_SPOTS) {
+      expect(blindSpot.length, "사각은 빈 문자열일 수 없다").toBeGreaterThan(40);
+    }
+
+    // 사각 ② — 프롭이 **한 짝만** 걸린 자리는 대장의 `after` 바이트에 걸리지 않는다.
+    const half = '<Text accessibilityLiveRegion="polite" style={{ color: theme.colors.danger }}>{failText}</Text>';
+    expect(
+      announceLedgerPlacesOf(
+        half,
+        '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>'
+      ),
+      "반쪽 자리는 이 모집단 밖이다"
+    ).toEqual([]);
+
+    // 사각 ③ — 대장 아홉은 전부 `.tsx`다(그 밖의 자리는 이 그물이 볼 수 없다).
+    for (const { entries } of ANNOUNCE_PROP_LEDGERS) {
+      for (const entry of entries) expect(entry.file.endsWith(".tsx"), `${entry.file}: 대장의 자리`).toBe(true);
+    }
+
+    // 사각 ④의 실재 — 핸들러가 상태를 세우며 같은 걸음에 부르는 낭독이 **오늘 하나** 있다.
+    // 그 자리는 두 플랫폼 다 소리가 나지만 이 그물은 `live-region`으로 센다(그래서 그 사실이
+    // 그 항목의 이유에 값으로 적혀 있다 — 판정이 조용히 과대평가되지 않게).
+    const acceptMasked = maskComments(source("app/family/accept/[token].tsx"));
+    expect(acceptMasked, "핸들러의 상태 세우기").toContain("setJoinRetryNotice(plan.notice);");
+    expect(acceptMasked, "그 바로 다음 줄의 낭독").toContain("announceForA11y(plan.notice);");
+    expect(
+      announceEffectWirings(acceptMasked).map((wiring) => wiring.condition),
+      "effect 층의 낭독 조건"
+    ).not.toContain("joinRetryNotice && joinedResult");
+
+    // 사각 ⑥(라운드 88 리뷰 L-1)의 실재 — 조건을 **글자로만** 본다. 뜻이 같아도 표기가 갈리면
+    // 배선이 실재해도 `live-region`으로 떨어진다(⚠️ **거짓 빨강** — 침묵을 announce로 세는
+    // 반대 방향의 오차가 아니다. 그래서 판정 로직은 오늘 그대로 두고 사각으로만 든다).
+    const spelledDifferently = `
+export default function Screen() {
+  useEffect(() => { if (save.isError === true) announceForA11y(failText); }, [save.isError, failText]);
+  return (
+    <View>
+      {save.isError ? (
+        <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>
+          {failText}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+`;
+    expect(
+      announceLedgerPlacesOf(
+        spelledDifferently,
+        '<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>'
+      ).map((place) => place.exit),
+      "표기가 갈리면 배선이 있어도 live-region이다 — 이유를 요구하는 쪽으로 틀린다"
+    ).toEqual(["live-region"]);
+    // 그리고 오늘 저장소에서 이 한계가 낸 피해는 0건이다: 감싸는 갈래가 둘인 자리 여덟은
+    // 전부 최내곽 갈래가 배선 조건과 맞아 announce로 떨어졌다(사각 문장이 적은 그 수).
+    const guardDepths = ANNOUNCE_PROP_LEDGERS.flatMap(({ entries }) =>
+      entries.flatMap((entry) => {
+        const masked = maskComments(source(entry.file));
+        const depths: number[] = [];
+        for (let at = masked.indexOf(entry.after); at >= 0; at = masked.indexOf(entry.after, at + 1)) {
+          depths.push(enclosingJsxGuards(masked, at).length);
+        }
+        return depths;
+      })
+    );
+    const verdicts = announceLedgerVerdicts().flatMap(({ places }) => places.map((place) => place.exit));
+    expect(guardDepths.length, "대장이 덮는 자리").toBe(verdicts.length);
+    expect(
+      guardDepths.filter((depth, index) => depth > 1 && verdicts[index] === "live-region"),
+      "중첩 갈래 때문에 live-region으로 떨어진 자리는 오늘 0건이다"
+    ).toEqual([]);
+
+    // 사각 ① — 이 판정은 화면 층·모듈 층 스윕 셋을 대신하지 않는다(모집단이 다르다는 사실이 수로 선다).
+    const ledgerFiles = new Set(ANNOUNCE_PROP_LEDGERS.flatMap(({ entries }) => entries.map((entry) => entry.file)));
+    expect(ledgerFiles.size, "대장이 여는 파일").toBe(8);
+    expect(listRouteSources().length, "방아쇠 스윕이 걷는 화면").toBeGreaterThan(ledgerFiles.size);
+    expect(listModuleComponentSources().length, "모듈 스윕이 걷는 모듈").toBeGreaterThan(ledgerFiles.size);
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS.length, "대장 스윕이 걷는 화면").toBeGreaterThan(0);
+  });
+
+  it("ⓕ 바이트 불변 — 라운드 79·80의 기록과 앞선 스윕들의 모집단은 한 바이트도 움직이지 않았다", () => {
+    // 더한 것은 칸 하나다 — 기록(파일·before·after·added·places)은 그대로다.
+    expect(
+      ROUND79_ANNOUNCE_PROPS_ADDED.map((entry) => entry.file),
+      "라운드 79가 연 자리"
+    ).toEqual([
+      "app/family/accept/[token].tsx",
+      "app/family/accept/[token].tsx",
+      "app/family/invite.tsx",
+      "app/settings/children.tsx",
+      "app/settings/notifications.tsx",
+      "src/onboarding/step-ui.tsx"
+    ]);
+    expect(ROUND80_ANNOUNCE_PROPS_ADDED.map((entry) => entry.places), "라운드 80이 기록한 자리 수").toEqual([7, 2, 3]);
+    for (const { entries } of ANNOUNCE_PROP_LEDGERS) {
+      for (const entry of entries) {
+        // 기록의 `after`는 오늘도 그 파일의 바이트다(위 두 스윕의 ⓓ·ⓕ와 같은 사실 — 여기서는
+        // **판정이 그 바이트 위에서 돈다**는 사실이 함께 선다).
+        expect(source(entry.file), `${entry.file}: ${entry.what}`).toContain(entry.after);
+      }
+    }
+
+    // 모집단은 한 줄도 옮기지 않았다 — 옮기면 U절 이월과 라운드 80·87의 값이 함께 흔들린다.
+    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(6);
+    expect(Object.keys(MUTATION_TRIGGER_SITES_BY_SCREEN).length, "뮤테이션 방아쇠 화면").toBe(13);
+    expect(MUTATION_TRIGGER_SITES_BY_SCREEN["app/settings/privacy.tsx"], "개인정보 화면의 자리 수").toBe(7);
+    expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "대장 스윕의 제외").toEqual([]);
+    expect(Object.keys(ALERT_ROLE_WITHOUT_LIVE_REGION), "role 단독의 제외").toEqual(["app/(tabs)/items.tsx"]);
+    expect([...MODULE_ANNOUNCE_SOURCE_ROOTS], "모듈 스윕이 걷는 뿌리").toEqual(["src"]);
+    expect(Object.keys(NON_MODULE_ANNOUNCE_SOURCE_ROOTS), "걷지 않는 뿌리").toEqual(["app"]);
+    expect(Object.keys(MODULE_ANNOUNCE_SITES).length, "모듈 층의 낭독 자리").toBe(3);
   });
 });

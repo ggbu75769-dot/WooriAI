@@ -68,9 +68,10 @@ describe("라운드 87 D 기기 행의 구별 문구", () => {
   });
 
   it("ⓐ-2 둘 다 값이 없으면 갈리지 않는다 — 그 한계를 값으로 적어 둔다", () => {
-    // ⚠️ 등록 훅을 거치지 않은 행(마스터 토글의 `registerDevice` 경로)은 `osVersion`이 null이라
-    // 가를 재료가 아예 없다. 그때 지어내지 않는 것이 이 트랙의 규율이고, 두 줄이 같아지는 것은
-    // 오늘 남는 사각이다(그 경로에 값을 실어 보내는 것은 이 트랙의 일이 아니다).
+    // ⚠️ `osVersion`이 없는 행은 가를 재료가 아예 없다. 그때 지어내지 않는 것이 이 트랙의
+    // 규율이고, 두 줄이 같아지는 것은 남는 사각이다. (라운드 87 D 당시 그 사각의 가장 흔한
+    // 원인은 두 값을 보내지 않던 마스터 토글 경로였고, 라운드 88 트랙 B가 그 경로를 닫았다 —
+    // 게터가 값을 못 얻은 행·그 이전에 선 행은 여전히 이 갈래로 온다.)
     const first = row(device({ id: "device-1" }), ANDROID_LABEL);
     const second = row(device({ id: "device-2" }), ANDROID_LABEL);
     expect(first.title).toBe(second.title);
@@ -195,9 +196,11 @@ describe("라운드 87 D 기기 행의 구별 문구", () => {
     // 새 쿼리 0건 — 이 화면의 조회는 기기 목록 하나 그대로다.
     expect(screen.match(/useQuery\(/g) ?? []).toHaveLength(1);
     expect(screen).toContain("queryFn: () => listMyDevices(authToken!)");
-    // 등록·수정 호출 인자 그대로(마스터 토글이 두 값을 보내지 않는 사실은 오늘 그대로 둔다).
+    // 등록 인자는 라운드 88 트랙 B가 **한 벌로** 바꿨다(이 트랙이 남긴 이월: 마스터 토글이 두
+    // 값을 보내지 않던 자리다). 목록은 이제 usePushDeviceRegistration.ts의 빌더가 짓고 부팅·토글
+    // 두 호출이 함께 읽는다 — 그 계약은 push-registration.test.ts·push-settings-contract.test.ts.
     expect(screen).toContain(
-      "const registered = await registerDevice(authToken!, { platform, pushToken, notificationEnabled: next });"
+      "const registered = await registerDevice(authToken!, buildDeviceRegistrationBody({ platform, pushToken, notificationEnabled: next }));"
     );
     expect(screen).toContain("return updateDevice(authToken!, currentDevice.id, next);");
     expect(screen).toContain("updateDevice(authToken!, input.deviceId, input.enabled)");
