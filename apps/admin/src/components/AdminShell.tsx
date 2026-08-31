@@ -74,11 +74,17 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <nav className={styles.nav}>
           {NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(session.admin.role)).map((item) => {
             const isActive = pathname === item.href;
+            // ADM-131(라운드 91 트랙 B): 활성 링크가 색으로만 말하고 있었다 — 스크린리더는
+            // `navLinkActive`라는 클래스를 보지 못하므로, 운영자는 열한 링크 가운데 지금 어디에
+            // 서 있는지 들을 수 없었다. 표기는 `isActive`에서 **파생**한다(손 목록이 아니다):
+            // 경로가 바뀌면 표기도 그대로 따라간다. 이 표기는 레이아웃 속성이 아니라서 보이는
+            // 화면은 한 픽셀도 바뀌지 않는다(축은 admin-landmark-current.test.ts가 진다).
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink}
+                aria-current={isActive ? "page" : undefined}
               >
                 {item.label}
               </Link>

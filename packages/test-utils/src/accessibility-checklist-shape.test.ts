@@ -28,7 +28,7 @@
 // **수의 정합**이지 **확인 여부가 아니다** — C-3을 실제로 확인할 손은 저장소 밖이고, 그 배정을
 // 이 파일이 대신할 수는 없다(그 사실은 ⓕ 사각에 값으로 적혀 있다).
 //
-// 이 파일이 묻는 것은 여섯이다.
+// 이 파일이 묻는 것은 일곱이다(라운드 91 트랙 E가 ⓖ를 더했다).
 //  ⓐ **자기 정합** — 경과 수를 말하는 **세 자리** 각각에서 한글 수사가 **열거된 라운드 목록의 길이**와
 //     같은가(당시 22/22 · 19/19 두 자리, 오늘 23/23 · 23/23 · 23/23 세 자리).
 //  ⓑ **접두** — "수동 증거" 절의 목록이 C절 목록의 **접두**인가(두 목록이 서로 다른 라운드를
@@ -59,6 +59,17 @@
 //        **0**이다. ⚠️ **아래 단언이 무는 것은 이 수들이 아니라 하한**이므로(래칫), 이 문단은
 //        *언제 무엇이 실측이었는가*의 기록이고 F의 갱신은 계약을 빨갛게 만들지 않았다.
 //  ⓕ **사각** — 이 그물이 못 보는 것을 값과 하한으로 적는다.
+//  ⓖ **문서가 옮겨 적은 이 계약의 상수** — 접근성 표가 ⓒ의 상수(`MAX_DIVERGENCE`)를 **산문으로
+//     인용한 자리**가 오늘의 상수와 같은 수를 말하는가.
+//     ⚠️ **라운드 91 트랙 E가 더한 새 축이고, 세운 이유는 사각 `문서가-옮겨-적은-계약-상수`가
+//     자기 재개 조건에 *그날의 첫 모집단*까지 적어 두었기 때문이다**(라운드 90 트랙 D → 오늘 도래).
+//      · **모집단(오늘 셋)**: `:22` 머리말 · `:1153` C절 C-3 행 · `:1188` 수동 증거 절.
+//      · ⚠️⚠️ **두 시점을 적은 자리는 *오늘* 쪽만 문다** — `:22`는 *"셋 → 0"* 의 역사를 지녔고,
+//        그 인용까지 물면 이 계약은 문서에게 **기록을 지우라**고 요구하게 된다.
+//      · ⚠️ **오늘 세 자리 다 상수(0)와 맞아 이 축은 첫날부터 초록이다** — 빨간 계약을 세우면
+//        이 트랙이 문서를 고쳐야 하고, 그 순간 *계약이 문서를 지킨다*가 뒤집힌다.
+//      · ⚠️ **무는 것은 문서 쪽이지 상수가 아니다** — 상수는 한 바이트도 움직이지 않았다(0 그대로 ·
+//        올리는 것은 갈림을 넓히는 일이라 금지, 내리는 쪽만 안전하다).
 //
 // ⚠️ **이 계약은 문서를 고치지 않는다.** 읽기만 한다(`docs/**` 쓰기 0건). 세 자리를 맞추는 갱신은
 // 문서 트랙의 몫이고, 이 파일은 그 갱신이 **한 자리만 고치고 지나가는 것**을 막는 자리에 선다.
@@ -77,6 +88,10 @@ const CHECKLIST_PATH = "docs/qa/accessibility-offline-checklist.md";
 const PAIR_DOC_PATH = "docs/qa/runtime-verification-required.md";
 /** 짝 계약 — 이 파일의 본보기이자 같은 계열의 첫째 그물(읽기만 · 바이트 불변). */
 const PAIR_CONTRACT_PATH = "packages/test-utils/src/runtime-checklist-shape.test.ts";
+/** 이 계약 자신 — ⓖ의 **자기 배제**를 값으로 보이기 위해서만 읽는다. */
+const SELF_PATH = "packages/test-utils/src/accessibility-checklist-shape.test.ts";
+/** 판정 문서 — ⓖ의 사각(이 축이 못 보는 *이름+값* 자리)을 값으로 재기 위해서만 읽는다. */
+const JUDGEMENT_DOC_PATH = "docs/operations/known-limitations.md";
 
 function read(relativePath: string): string {
   return readFileSync(join(repoRoot, ...relativePath.split("/")), "utf8");
@@ -358,6 +373,154 @@ const reverseSites = [...pairDocText.matchAll(REVERSE_REF_PATTERN)].map((match) 
 }));
 
 // ---------------------------------------------------------------------------
+// 이 계약의 축 상수 — ⓒ가 물고, ⓖ가 **문서가 옮겨 적은 그 값**을 대조한다.
+// ---------------------------------------------------------------------------
+
+/**
+ * ⚠️⚠️ **오늘의 실측 갈림이다(89 − 89 = 0).** 이 상수를 올리는 것은 *갈림을 넓히는 것*이므로,
+ * 올리려는 사람은 왜 두 자리를 함께 고칠 수 없었는지를 여기 함께 적어야 한다.
+ * C절만 한 라운드 더 올리면 하나가 되어 이 줄이 빨개진다 — 그때의 고침은 **수동 증거 절도 함께
+ * 올리는 것**이고, 그러면 차이는 그대로 0이다.
+ *
+ * ⚠️⚠️ **두 시점 — 이 상수는 라운드 89 리뷰(M-2)가 내린 값이다.**
+ *  · **당시(라운드 89 트랙 E가 이 계약을 세운 시점)**: 갈림 셋(C절 88 · 수동 증거 절 85)이
+ *    실측이었고 상수도 3이었다. 그래서 *"C절만 올리면 넷이 되어 빨개진다"* 가 참이었다.
+ *  · **오늘(라운드 89 HEAD 재실측)**: 같은 라운드의 트랙 F가 **두 자리를 함께 89로 올려**
+ *    갈림이 **0**이 됐다. 상수만 3으로 남으니 *"C절만 올리기"* 는 갈림 하나·둘·셋까지
+ *    조용히 통과했다 — **계약의 축이 세 걸음만큼 헐거워진 채 초록이었다.**
+ *
+ * ⚠️ **그래서 규율을 값으로 적는다: 두 자리를 함께 올린 라운드는 이 상한도 그날의 실측
+ * 갈림으로 함께 내린다.** 상한을 오늘의 실측에 붙여 두면 갈림이 다시 벌어지기 위해서는
+ * 누군가 **이 상수를 의식적으로 올려야** 하고, 그 한 줄의 변경이 곧 신호다(문서가 조용히
+ * 갈라지는 길이 사라진다). 내리는 것은 언제나 안전하다 — 갈림은 하한이 없다.
+ *
+ * ⚠️ **라운드 91 트랙 E가 이 상수를 describe 안에서 모듈 자리로 옮겼다** — 값은 한 바이트도
+ * 바뀌지 않았고(0 그대로), 옮긴 이유는 아래 ⓖ가 **같은 binding**을 물게 하기 위해서다.
+ * 문서 쪽 값과 대조하는 축이 상수의 *사본*을 들면 그 사본이 낡는 순간 축이 거짓말을 한다.
+ */
+const MAX_DIVERGENCE = 0;
+
+// ---------------------------------------------------------------------------
+// ⓖ의 모집단 — **문서가 이 계약의 상수를 산문으로 인용한 자리** (라운드 91 트랙 E · #5)
+// ---------------------------------------------------------------------------
+
+/**
+ * ⚠️⚠️ **이 축은 사각 `문서가-옮겨-적은-계약-상수`가 재개 조건으로 예고한 바로 그 축이다.**
+ * 그 사각은 라운드 90 트랙 D가 세우며 *"문서가 인용한 계약 상수의 정합이 한 트랙의 축이 되는
+ * 라운드가 서는 날 — 그날 F가 이미 고친 그 두 자리가 그 계약의 첫 모집단이다"* 라고 적었다.
+ * **오늘 그 라운드가 섰고(라운드 91 · 후보 #5), 첫 모집단은 셋이다**(F가 고친 두 자리에
+ * 머리말 `:22`가 더해진다 — 그 자리는 같은 걸음을 *기록*으로 적은 자리다).
+ *
+ * ⚠️ **바늘을 값으로 적는다.** 이 문서가 그 상수를 부르는 꼴은 하나다 —
+ * `끝 라운드 차이가 <값>을 넘지 …`. 값 자리에는 아라비아 숫자(`**0**`·`**0을`), 한글 수사(`셋`),
+ * 또는 **자리표**(`…` — 이름만 부르고 값을 옮기지 않는 자리)가 선다.
+ *
+ * ⚠️⚠️ **두 시점을 적은 자리는 *오늘* 쪽만 문다.** `:22`는 *"셋 → 0"* 의 역사를 지닌 자리다 —
+ * 옛 문장을 `*"…"*` 인용으로 그대로 옮긴 뒤 그것을 **굵은 오늘 값**으로 정정한다. 그 인용까지
+ * 물면 이 계약은 문서에게 *역사를 지우라*고 요구하게 되고, **기록을 죽이는 계약**이 된다.
+ * 그래서 인용 안(`*"…"*`)의 값은 `pastValues`로 남기고 **무는 대상 밖**에 둔다.
+ */
+const CONSTANT_QUOTE_PATTERN =
+  /끝 라운드 차이가\s*(\*{0,2})(\d+|[가-힣]+?|…)(\*{0,2})\s*[을를]\s*넘지/g;
+
+/** 옛 문장을 그대로 옮긴 자리 — `*"… 셋을 넘지 않는가"*` 꼴의 인용 구간. */
+const PROSE_QUOTE_SPAN_PATTERN = /\*"[^"]*"\*/g;
+
+/** 인용을 정정한 **오늘 값** — `… M-2가 **0**으로 내린 뒤였다` 의 그 굵은 값. */
+const CORRECTION_VALUE_PATTERN = /\*\*(\d+|[가-힣]+)\*\*/g;
+
+/** 수사의 **수량형**(`셋`·`넷`) — 위 `koreanNumeral`은 관형사형(`세`·`네`)을 읽는다. */
+const CARDINALS: Record<string, number> = {
+  하나: 1,
+  둘: 2,
+  셋: 3,
+  넷: 4,
+  다섯: 5,
+  여섯: 6,
+  일곱: 7,
+  여덟: 8,
+  아홉: 9,
+  열: 10
+};
+
+/** 모르는 꼴은 `NaN`으로 돌려 그 자리가 조용히 통과하지 못하게 한다. */
+function constantValue(token: string): number {
+  if (/^\d+$/.test(token)) return Number(token);
+  if (token in CARDINALS) return CARDINALS[token];
+  return koreanNumeral(token);
+}
+
+type ConstantSite = {
+  readonly line: number;
+  /** `단언` = 오늘의 값을 그 자리에서 말한다 · `인용+정정` = 옛 문장을 옮긴 뒤 오늘 값으로 고친다. */
+  readonly shape: "단언" | "인용+정정" | "인용만";
+  /** ⚠️ 이 계약이 **무는** 값. */
+  readonly todayValues: readonly number[];
+  /** ⚠️ 기록으로 남은 옛 값 — **무는 대상 밖**이다. */
+  readonly pastValues: readonly number[];
+};
+
+function collectConstantSites(text: string): ConstantSite[] {
+  const sites: ConstantSite[] = [];
+  text.split("\n").forEach((line, index) => {
+    const quotes = [...line.matchAll(CONSTANT_QUOTE_PATTERN)];
+    if (quotes.length === 0) return;
+    const spans = [...line.matchAll(PROSE_QUOTE_SPAN_PATTERN)].map((match) => ({
+      from: match.index,
+      to: match.index + match[0].length
+    }));
+    const read = quotes.map((match) => {
+      const at = match.index;
+      const span = spans.find((candidate) => at >= candidate.from && at < candidate.to);
+      return {
+        at,
+        span,
+        value: match[2] === "…" ? Number.NaN : constantValue(match[2])
+      };
+    });
+    const asserted = read.filter((quote) => !quote.span && Number.isFinite(quote.value));
+    const pastValues = read
+      .filter((quote) => quote.span && Number.isFinite(quote.value))
+      .map((quote) => quote.value);
+
+    if (asserted.length > 0) {
+      sites.push({
+        line: index + 1,
+        shape: "단언",
+        todayValues: asserted.map((quote) => quote.value),
+        pastValues
+      });
+      return;
+    }
+
+    // 인용만 남은 자리 — 그 인용을 **정정한 굵은 값**이 오늘 쪽이다(`:22`가 이 꼴이다).
+    const quotedEnds = read.flatMap((quote) => (quote.span ? [quote.span.to] : []));
+    const tail = quotedEnds.length > 0 ? line.slice(Math.max(...quotedEnds)) : "";
+    const correction = [...tail.matchAll(CORRECTION_VALUE_PATTERN)][0];
+    const corrected = correction ? constantValue(correction[1]) : Number.NaN;
+    sites.push({
+      line: index + 1,
+      shape: Number.isFinite(corrected) ? "인용+정정" : "인용만",
+      todayValues: Number.isFinite(corrected) ? [corrected] : [],
+      pastValues
+    });
+  });
+  return sites;
+}
+
+/**
+ * 사각 `문서가-옮겨-적은-계약-상수`가 쓰는 **다른 자** — *구절이 선 줄*을 센다(오늘 3 · 하한 2).
+ * ⚠️ 위 `collectConstantSites`와 **서로 다른 바늘**이고(이쪽은 인용의 꼴까지 본다), ⓖ가
+ * 두 자를 맞대어 본다 — **갈리면 빨개진다**(한쪽이 새 자리를 보고 다른 쪽이 못 보는 날).
+ */
+function quotedConstantLineCount(text: string): number {
+  return text.split("\n").filter((line) => line.includes("끝 라운드 차이")).length;
+}
+
+/** 오늘: 자리 셋 — `:22`(인용+정정) · `:1153`(단언) · `:1188`(단언). 세 자리 다 값이 **0**이다. */
+const constantSites = collectConstantSites(source);
+
+// ---------------------------------------------------------------------------
 
 describe("바늘과 모집단 (빈 스윕 금지 · 옛 라운드 문단 제외)", () => {
   it("문서를 실제로 읽었고 절 셋이 제자리에 있다", () => {
@@ -485,26 +648,6 @@ describe("ⓑ 접두 — 뒤처지는 것은 되고, 갈라지는 것은 안 된
 });
 
 describe("ⓒ 갈림의 상한 래칫 (이 계약의 축)", () => {
-  /**
-   * ⚠️⚠️ **오늘의 실측 갈림이다(89 − 89 = 0).** 이 상수를 올리는 것은 *갈림을 넓히는 것*이므로,
-   * 올리려는 사람은 왜 두 자리를 함께 고칠 수 없었는지를 여기 함께 적어야 한다.
-   * C절만 한 라운드 더 올리면 하나가 되어 이 줄이 빨개진다 — 그때의 고침은 **수동 증거 절도 함께
-   * 올리는 것**이고, 그러면 차이는 그대로 0이다.
-   *
-   * ⚠️⚠️ **두 시점 — 이 상수는 라운드 89 리뷰(M-2)가 내린 값이다.**
-   *  · **당시(라운드 89 트랙 E가 이 계약을 세운 시점)**: 갈림 셋(C절 88 · 수동 증거 절 85)이
-   *    실측이었고 상수도 3이었다. 그래서 *"C절만 올리면 넷이 되어 빨개진다"* 가 참이었다.
-   *  · **오늘(라운드 89 HEAD 재실측)**: 같은 라운드의 트랙 F가 **두 자리를 함께 89로 올려**
-   *    갈림이 **0**이 됐다. 상수만 3으로 남으니 *"C절만 올리기"* 는 갈림 하나·둘·셋까지
-   *    조용히 통과했다 — **계약의 축이 세 걸음만큼 헐거워진 채 초록이었다.**
-   *
-   * ⚠️ **그래서 규율을 값으로 적는다: 두 자리를 함께 올린 라운드는 이 상한도 그날의 실측
-   * 갈림으로 함께 내린다.** 상한을 오늘의 실측에 붙여 두면 갈림이 다시 벌어지기 위해서는
-   * 누군가 **이 상수를 의식적으로 올려야** 하고, 그 한 줄의 변경이 곧 신호다(문서가 조용히
-   * 갈라지는 길이 사라진다). 내리는 것은 언제나 안전하다 — 갈림은 하한이 없다.
-   */
-  const MAX_DIVERGENCE = 0;
-
   const lastOf = (rounds: number[]) => rounds[rounds.length - 1];
 
   it("C절이 수동 증거 절보다 뒤로 가지 않는다", () => {
@@ -724,6 +867,111 @@ describe("ⓔ 좌표(전수) — 같은 축, 넓힌 모집단 (라운드 90 트�
   });
 });
 
+describe("ⓖ 문서가 옮겨 적은 이 계약의 상수 — 오늘 값의 정합 (라운드 91 트랙 E)", () => {
+  /**
+   * ⚠️ **무는 자리 수는 줄지 않는다(ⓔ 래칫).** 오늘 셋 — `:22` · `:1153` · `:1188`.
+   * 자리가 사라지는 날(문서가 그 설명을 지우는 날) 이 하한이 먼저 빨개져 사람이 그 삭제를 본다.
+   */
+  const BITING_SITES_FLOOR = 3;
+
+  it("ⓐ 모집단이 0건이 아니고, 오늘 자리는 셋이다 (유령 방지)", () => {
+    expect(
+      constantSites.length,
+      `${CHECKLIST_PATH}에서 *"끝 라운드 차이가 …을 넘지"* 꼴을 한 자리도 찾지 못했어요 — 바늘이 낡았거나 문서가 그 설명을 지웠어요`
+    ).toBeGreaterThan(0);
+    expect(
+      constantSites.map((site) => site.line),
+      "인용 자리의 줄 번호가 오늘의 실측과 달라요 — 값을 갱신하고 아래 사각의 자도 함께 보세요"
+    )
+      // ⚠️⚠️ **두 시점 — 이 좌표는 라운드마다 갱신되는 값이다**(라운드 91 트랙 F).
+      //  · **라운드 91 트랙 E 커밋 시점**: `22 · 1153 · 1188`.
+      //  · **오늘(같은 라운드의 F 뒤)**: `22 · 1223 · 1267` — F가 A-32 절(#107)과 라운드 90
+      //    리뷰의 잔존 둘을 이 문서에 적으면서 아래 두 자리가 밀렸다(`:22`는 A절보다 위라
+      //    움직이지 않는다). ⚠️ **값(0)도 꼴(인용+정정 · 단언 · 단언)도 한 바이트도 바뀌지
+      //    않았고, 움직인 것은 좌표뿐이다.**
+      // ⚠️ **그래서 이 한 줄은 이 계약의 트립와이어다** — 라운드 90 트랙 D가 같은 문서의 좌표
+      // 축을 세울 때 *하한*을 골라 F의 걸음에 흔들리지 않게 했는데(오늘 `>= 91` 꼴 넷),
+      // 이 축은 *등호*를 골랐으므로 **절이 서는 라운드마다 F가 이 줄을 함께 옮긴다.**
+      // 판정과 그 갈림의 값은 `docs/operations/known-limitations.md` **AF-5**에 있다.
+      .toEqual([22, 1223, 1267]);
+    expect(constantSites.map((site) => site.shape)).toEqual(["인용+정정", "단언", "단언"]);
+  });
+
+  it("ⓑ 세 자리가 말하는 오늘의 수가 이 계약의 상수와 같다", () => {
+    for (const site of constantSites) {
+      for (const value of site.todayValues) {
+        expect(
+          value,
+          `${CHECKLIST_PATH}:${site.line}이 갈림 상한을 ${value}(으)로 적는데 계약의 상수는 ${MAX_DIVERGENCE}예요 — 문서 쪽을 상수로 맞추세요(⚠️ 상수를 문서에 맞추지 마세요 · 이 상수는 내리는 쪽만 안전합니다)`
+        ).toBe(MAX_DIVERGENCE);
+      }
+    }
+    expect(
+      constantSites.flatMap((site) => site.todayValues).length,
+      `오늘 값을 말하는 자리가 ${BITING_SITES_FLOOR} 아래로 줄었어요 — 문서가 그 설명을 지웠다면 이 하한도 함께 내리세요`
+    ).toBeGreaterThanOrEqual(BITING_SITES_FLOOR);
+  });
+
+  it("ⓑ' 두 시점을 적은 자리는 오늘 쪽만 문다 (역사를 지우지 않는다)", () => {
+    // ⚠️⚠️ `:22`는 *"셋 → 0"* 의 역사를 지닌 자리다. 그 **셋**은 낡은 값이 아니라 **기록**이고,
+    // 그것까지 물면 이 계약은 문서에게 역사를 지우라고 요구하게 된다.
+    const past = constantSites.flatMap((site) => site.pastValues);
+    expect(past, "인용으로 남은 옛 값이 0건이에요 — 문서가 역사를 지웠거나 인용의 꼴이 바뀌었어요").not
+      .toEqual([]);
+    expect(
+      past.some((value) => value !== MAX_DIVERGENCE),
+      "오늘 인용된 옛 값이 전부 오늘의 상수와 같아졌어요 — 그렇다면 이 자리가 더 이상 두 시점이 아니고, 이 줄을 지우거나 다시 적으세요"
+    ).toBe(true);
+    // 그런데도 이 계약은 초록이다 — 그것이 *오늘 쪽만 문다*의 뜻이다.
+    expect(constantSites.flatMap((site) => site.todayValues)).toEqual([
+      MAX_DIVERGENCE,
+      MAX_DIVERGENCE,
+      MAX_DIVERGENCE
+    ]);
+  });
+
+  it("ⓒ 유령 방지 — 자리 수가 사각의 자와 같다 (두 자가 갈리면 빨개진다)", () => {
+    expect(
+      constantSites.length,
+      `인용 자리(${constantSites.length})와 사각 \`문서가-옮겨-적은-계약-상수\`의 자(${quotedConstantLineCount(source)})가 갈렸어요 — 한쪽만 보는 새 자리가 생겼다는 뜻이니 두 바늘을 함께 보세요`
+    ).toBe(quotedConstantLineCount(source));
+  });
+
+  it("ⓓ 자기 배제 — 이 계약 자신의 소스에 적힌 인용은 모집단 밖이다", () => {
+    const selfSource = read(SELF_PATH);
+    // 이 파일에도 같은 구절이 여럿 있다(머리말의 ⓒ 설명 · `it` 제목 · 아래 사각의 문장).
+    expect(
+      quotedConstantLineCount(selfSource),
+      "이 계약의 소스에서 그 구절이 사라졌어요 — 자기 배제가 유령이 됐다는 뜻이니 이 줄을 다시 적으세요"
+    ).toBeGreaterThan(0);
+    expect(
+      collectConstantSites(selfSource).length,
+      "자기 배제가 유령이 아니라는 것을 값으로 보입니다"
+    ).toBeGreaterThan(0);
+    // 그런데도 모집단은 접근성 표 한 파일에서만 나온다.
+    expect(constantSites).toEqual(collectConstantSites(source));
+  });
+
+  it("바늘이 장식이 아니다 — 낡은 자리는 합성 소스에서 잡힌다", () => {
+    // ⚠️ **문서를 고치지 않고** 바늘을 시험한다: 라운드 90 F 이전의 문장을 합성해 넣는다.
+    const stale = "  · ⓒ 두 목록의 끝 라운드 차이가 **셋**을 넘지 않는가";
+    const staleSites = collectConstantSites(stale);
+    expect(staleSites).toHaveLength(1);
+    expect(staleSites[0].shape).toBe("단언");
+    expect(staleSites[0].todayValues).toEqual([3]);
+    expect(staleSites[0].todayValues[0]).not.toBe(MAX_DIVERGENCE);
+
+    // 반대로 F가 세 자리를 올리며 이 문장을 그대로 두면 초록이다(접점 ⑥).
+    const kept = "  · ⓒ 두 목록의 끝 라운드 차이가 **0을 넘지\n않는가**(⚠️ **종전 이 자리는 *셋*이었다**)";
+    expect(collectConstantSites(kept)[0].todayValues).toEqual([MAX_DIVERGENCE]);
+
+    // 이름만 부르고 값을 옮기지 않은 자리(`…`)는 무는 대상이 아니다.
+    const named = '아래 이 칸이 적은 *"두 목록의 끝 라운드 차이가 …을 넘지 않는가"* 의 그 수는';
+    expect(collectConstantSites(named)[0].todayValues).toEqual([]);
+    expect(collectConstantSites(named)[0].shape).toBe("인용만");
+  });
+});
+
 describe("ⓕ 사각 — 이 그물이 못 보는 것을 값과 하한으로 적는다", () => {
   const BLIND_SPOTS = [
     {
@@ -767,7 +1015,7 @@ describe("ⓕ 사각 — 이 그물이 못 보는 것을 값과 하한으로 적
     {
       id: "문서가-옮겨-적은-계약-상수",
       statement:
-        "이 계약의 상수를 **문서가 손으로 옮겨 적은 자리**는 이 그물 밖이다. ⚠️⚠️ **두 시점 — 이 문장이 태어날 때의 사실과 오늘의 사실이 다르다**(라운드 90 리뷰 M-1). · **라운드 90 트랙 D 커밋 시점**: 갈려 있었다 — 계약 상수 `MAX_DIVERGENCE = 0`인데 문서 두 자리(당시 `docs/qa/accessibility-offline-checklist.md:1085` C-3 행 · `:1111` 수동 증거 절)가 아직 *\"끝 라운드 차이가 셋을 넘지 않는가\"* 라고 적고 있었다(값 0 ↔ 셋 · 자리 둘). · **오늘(HEAD)**: **같은 라운드의 트랙 F가 그 두 자리를 0으로 고쳤다** — 오늘 그 자리는 `:1153`(C-3 행) · `:1188`(수동 증거 절)이고 둘 다 *\"0을 넘지 않는가\"* 라고 적는다. 즉 **이 사각이 예고한 수리가 같은 라운드 안에서 이행됐고, 갈림은 오늘 0건이다**(판정은 known-limitations의 AE-3). ⚠️ **그런데 사각은 사라지지 않았다**: 이 그물은 그 정합을 **여전히 세지 않으므로**, 문서가 내일 다시 낡아도 조용하다 — 사각이 말하는 것은 *오늘 갈렸는가*가 아니라 *갈려도 아무도 모른다*이다. ⚠️ 그래서 아래 `measure`가 세는 것도 갈림이 아니라 **그 상수를 옮겨 적은 산문 자리의 수**다(참이든 거짓이든 자리는 그대로 있고, 하한은 그 자리가 사라졌는지만 묻는다). ⚠️ 이 트랙은 그 갈림을 **무는 축을 세우지 않는다**: 오늘 빨간 계약을 세우면 이 트랙이 문서를 고쳐야 하고, 그 순간 *계약이 문서를 지킨다*가 *문서가 계약을 맞춘다*로 뒤집힌다 — 고치는 손은 문서 트랙(F)이었다. ⚠️ **재개 조건(사건형): 문서가 인용한 계약 상수의 정합이 한 트랙의 축이 되는 라운드가 서는 날 — 그날 F가 이미 고친 그 두 자리가 그 계약의 첫 모집단이다.**",
+        "이 계약의 상수를 **문서가 손으로 옮겨 적은 자리**는 이 그물 밖이다. ⚠️⚠️ **두 시점 — 이 문장이 태어날 때의 사실과 오늘의 사실이 다르다**(라운드 90 리뷰 M-1). · **라운드 90 트랙 D 커밋 시점**: 갈려 있었다 — 계약 상수 `MAX_DIVERGENCE = 0`인데 문서 두 자리(당시 `docs/qa/accessibility-offline-checklist.md:1085` C-3 행 · `:1111` 수동 증거 절)가 아직 *\"끝 라운드 차이가 셋을 넘지 않는가\"* 라고 적고 있었다(값 0 ↔ 셋 · 자리 둘). · **오늘(HEAD)**: **같은 라운드의 트랙 F가 그 두 자리를 0으로 고쳤다** — 오늘 그 자리는 `:1153`(C-3 행) · `:1188`(수동 증거 절)이고 둘 다 *\"0을 넘지 않는가\"* 라고 적는다. 즉 **이 사각이 예고한 수리가 같은 라운드 안에서 이행됐고, 갈림은 오늘 0건이다**(판정은 known-limitations의 AE-3). ⚠️ **그런데 사각은 사라지지 않았다**: 이 그물은 그 정합을 **여전히 세지 않으므로**, 문서가 내일 다시 낡아도 조용하다 — 사각이 말하는 것은 *오늘 갈렸는가*가 아니라 *갈려도 아무도 모른다*이다. ⚠️ 그래서 아래 `measure`가 세는 것도 갈림이 아니라 **그 상수를 옮겨 적은 산문 자리의 수**다(참이든 거짓이든 자리는 그대로 있고, 하한은 그 자리가 사라졌는지만 묻는다). ⚠️ 이 트랙은 그 갈림을 **무는 축을 세우지 않는다**: 오늘 빨간 계약을 세우면 이 트랙이 문서를 고쳐야 하고, 그 순간 *계약이 문서를 지킨다*가 *문서가 계약을 맞춘다*로 뒤집힌다 — 고치는 손은 문서 트랙(F)이었다. ⚠️ **재개 조건(사건형): 문서가 인용한 계약 상수의 정합이 한 트랙의 축이 되는 라운드가 서는 날 — 그날 F가 이미 고친 그 두 자리가 그 계약의 첫 모집단이다.** · ⚠️⚠️ **셋째 시점(오늘 · 라운드 91 트랙 E)**: **그 조건이 도래했고 그 축이 위 ⓖ로 섰다** — 첫 모집단은 F가 고친 두 자리에 머리말 `:22`를 더한 **셋**이고, 세 자리 다 오늘 값이 상수(0)와 같아 **오늘 값으로 통과한다**(빨간 계약을 세우면 이 트랙이 문서를 고쳐야 하고 그 순간 순서가 뒤집힌다 — 그래서 세우지 않았다). ⚠️ **그런데 이 사각은 오늘도 사라지지 않는다**: ⓖ가 문 것은 *이 상수 하나*이고 아래 `이-상수-하나만`이 그 나머지를 값으로 진다. 그래서 이 줄의 `measure`도 그대로 **산문 자리의 수**를 세고(오늘 3 · 하한 2), ⓖ가 그 자와 자기 자를 맞대어 **갈리면 빨개진다**.",
       /**
        * 계약의 ⓒ 축을 산문으로 옮겨 적은 자리 수(오늘 셋 — 접근성 표 머리말 `:22` · C-3 행
        * `:1153` · 수동 증거 절 `:1188`. D 커밋 시점에는 둘이었다).
@@ -775,7 +1023,27 @@ describe("ⓕ 사각 — 이 그물이 못 보는 것을 값과 하한으로 적
        * 같은 답을 낸다. 그것이 이 사각이 사각인 이유다.
        */
       floor: 2,
-      measure: () => lines.filter((line) => line.includes("끝 라운드 차이")).length
+      measure: () => quotedConstantLineCount(source)
+    },
+    {
+      id: "이-상수-하나만",
+      statement:
+        "⚠️ **ⓖ가 무는 것은 *이 계약의 상수 하나*뿐이다.** 저장소 전체로 보면 문서 넷(`docs/operations/known-limitations.md` · 확인 문서 둘 · `docs/dev/do-not-change.md`)이 소스의 수치 상수를 **이름과 값을 함께** 적은 자리가 **12**이고 그 이름은 **아홉**이다(`ANDROID_ALERT_BUTTON_LIMIT` 3 · `DEFAULT_ADMIN_SESSION_RETENTION_DAYS` 30 · `ENTRY_DATE_MAX_PAST_MONTHS` 240 **두 자리** · `EXPORT_FILE_NAME_CHILD_MAX_LENGTH` 20 · `MAX_DIVERGENCE` 0 **세 자리** · `MORE_SEARCH_HIT_SLOP` 6 · `NOTIFICATION_BELL_HIT_SLOP` 6 · `QUARTER_TREND_MONTHS` 3 · `SYNCED_ROW_RETENTION_DAYS` 90 — 판정은 known-limitations의 **AE-3**). ⚠️⚠️ **오늘 열둘 다 값이 맞는데, 그중 아홉 자리는 오늘도 세는 자가 0건이다** — ⓖ가 연 것은 접근성 표의 **세 자리**뿐이고, 그마저 *이름 없이 값만* 적힌 산문이라 AE-3의 바늘(이름+값)에는 걸리지 않는다. 아래 `measure`는 **이 상수의 이름+값 자리**(판정 문서의 `:7049`·`:7222`·`:7261`)를 세는데, ⚠️ **그 셋조차 이 축 밖이다**(ⓖ는 접근성 표 한 파일만 읽는다) — 사각이 사각인 이유가 그것이다. ⚠️ **재개 조건(사건형): 문서가 인용한 수치 상수 **전수**가 한 트랙의 축이 되는 라운드가 서는 날 — 그날의 첫 모집단은 AE-3이 낸 **아홉 이름 열두 자리**다.**",
+      /** 이 상수를 *이름과 함께* 적은 판정 문서의 줄(오늘 셋). 자리가 늘면 사각도 함께 는다. */
+      floor: 3,
+      measure: () =>
+        read(JUDGEMENT_DOC_PATH)
+          .split("\n")
+          .filter((line) => line.includes("MAX_DIVERGENCE")).length
+    },
+    {
+      id: "문자열-상수의-값",
+      statement:
+        "⚠️ **문자열 상수의 *값*(문구 전문)을 옮겨 적은 자리는 이 바늘 밖이다.** ⓖ가 읽는 꼴은 *수*이고, 이 문서가 소스의 상수를 부르는 자리는 대부분 **이름만**이다 — 오늘 이 표가 이름으로 부르는 소스 상수는 **예순여섯**(자리 마흔아홉 줄)이고, 그 값이 문서가 적은 문구와 같은지는 **이 축이 하나도 세지 않는다**. 저장소 전체로는 문서 넷이 문자열 상수를 **이름만으로도 321** 자리에서 부른다(AE-3의 사각). ⚠️ 그중 일부는 다른 그물이 진다(`release-readiness`가 `\"44px\"` 한 낱말을 물고, DNC 계약들이 고지 문구를 문다) — 그러나 **이 그물은 아니다.**",
+      /** 이 표가 이름으로 부르는 소스 상수의 가짓수(오늘 66). 이름이 늘면 사각도 함께 는다. */
+      floor: 60,
+      measure: () =>
+        new Set(source.match(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g) ?? []).size
     }
   ] as const;
 

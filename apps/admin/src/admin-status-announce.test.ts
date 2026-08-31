@@ -45,8 +45,13 @@ import { describe, expect, it } from "vitest";
  *
  * ## 이 트랙이 하지 않은 것 (축은 하나다)
  *
- * ⚠️ **랜드마크와 현재 위치는 이 트랙의 축이 아니다.** 중첩 `<main>`과 `aria-current` 0건은
- * P3의 재개 조건이 지는 자리이고, 이 파일은 그 둘을 **세어 얼려 두기만** 한다(ⓕ).
+ * ⚠️ **랜드마크와 현재 위치는 이 트랙의 축이 아니다.** 이 파일은 그 둘을 **세어 얼려 두기만**
+ * 한다(ⓕ) — 축을 지는 것은 옆 스윕(`admin-landmark-current.test.ts`)이다.
+ * ⚠️ **동결값은 라운드 91 트랙 B가 옮겼다**: 라운드 90 당시 `<main>` **다섯**·`aria-current`
+ * **0건**이던 자리가, 그 트랙이 P3의 재개 조건을 이행하면서 `<main>` **둘**(셸 하나 +
+ * `global-error.tsx`가 자기 `<html>` 아래 세우는 하나) · `aria-current` **하나**가 됐다.
+ * 이 파일이 그 둘을 계속 세는 이유는 종전과 같다 — **상태 낭독 축을 여는 손이 랜드마크를
+ * 모르는 채 지나가지 않게** 하기 위해서다.
  * ⚠️ **S-3도 열지 않았다** — `items`·`links` 두 화면은 **상태 낭독 축으로만** 열렸고 역할
  * 게이트·[수정] 토글·폼·저장 경로는 바이트 불변이다. 라운드 89 트랙 B가 같은 두 파일을
  * **표 이름 축**으로 열었으니, 두 라운드 연속 열린 그 두 파일의 **축은 서로 다르다.**
@@ -711,7 +716,7 @@ describe("어드민 상태 문장이 소리로 나간다 (라운드 90 트랙 B)
       }
     });
 
-    it("랜드마크와 현재 위치는 이 트랙의 축이 아니다 (P3가 지는 자리)", () => {
+    it("랜드마크와 현재 위치는 이 트랙의 축이 아니다 (라운드 91 B가 지는 자리)", () => {
       const mains = SWEPT_FILES.reduce(
         (sum, file) => sum + ((SOURCES.get(file) as string).match(/<main(?=[\s>])/g) ?? []).length,
         0
@@ -720,8 +725,13 @@ describe("어드민 상태 문장이 소리로 나간다 (라운드 90 트랙 B)
         (sum, file) => sum + ((SOURCES.get(file) as string).match(/aria-current/g) ?? []).length,
         0
       );
-      expect(mains, "<main>의 수가 다섯에서 갈렸어요 — 중첩 main은 P3의 축입니다").toBe(5);
-      expect(ariaCurrent, "aria-current가 붙었어요 — 현재 위치는 P3의 축입니다").toBe(0);
+      // 라운드 91 트랙 B가 중첩 셋을 `<div>`로 내리고 활성 내비 링크에 표기 하나를 세운 뒤의 값.
+      // 축을 지는 것은 `admin-landmark-current.test.ts`이고, 여기는 그 수를 얼려 두기만 한다.
+      expect(mains, "<main>의 수가 둘에서 갈렸어요 — 랜드마크는 admin-landmark-current의 축입니다").toBe(2);
+      expect(
+        ariaCurrent,
+        "aria-current의 수가 하나에서 갈렸어요 — 현재 위치는 admin-landmark-current의 축입니다"
+      ).toBe(1);
     });
 
     it("본보기의 여는 태그가 바이트 불변이다 (관례를 인용하지 발명하지 않는다)", () => {

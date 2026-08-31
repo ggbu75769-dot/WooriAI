@@ -16,7 +16,7 @@ import styles from "../src/components/admin-page.module.css";
  */
 export default function AdminNotFound() {
   return (
-    <main className={styles.page}>
+    <div className={styles.page}>
       <div className={styles.pageHeader}>
         <h1>찾을 수 없는 화면이에요</h1>
         <p>주소가 바뀌었거나 잘못 입력했을 수 있어요.</p>
@@ -30,6 +30,6 @@ export default function AdminNotFound() {
           </Link>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

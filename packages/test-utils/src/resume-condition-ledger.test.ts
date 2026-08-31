@@ -2,14 +2,40 @@
 //
 // 여섯을 묻는다:
 //  ⓐ **모집단** — 판정 문서의 재개 조건 자리를 **전수로** 세고, **바늘을 값으로** 든다
-//     (⚠️ 괄호 안만 보는 바늘 61 · 줄 전체를 보는 바늘 84 — **두 수를 한 낱말로 적지 않는다**).
+//     (⚠️ 괄호 안만 보는 바늘과 줄 전체를 보는 바늘 — 세운 날 61·84, 오늘 **97·129** —
+//     **두 수를 한 낱말로 적지 않는다**).
 //  ⓑ **하한 래칫** — 형을 밝힌 자리 수와 손의 위치를 적은 자리 수가 **줄지 않는다**
 //     (⚠️ 상한도 전수 일치도 묻지 않는다 — F가 AD절을 쓰며 줄을 더해도 초록이다).
 //  ⓒ **결정형의 조항** — **결정형으로 표기한 자리는 손의 위치를 함께 적었을 것**
 //     (⚠️ 이것이 이 계약의 축이다 — AA-3의 관례를 기계가 지킨다).
-//  ⓓ **소스 축** — 소스에 사는 재개 조건(오늘 `dead-export-ledger.ts` 넷)도 같은 조항을 받는다.
-//  ⓔ **사각** — 이 그물이 못 보는 것이 **값과 하한으로** 적혀 있다(오늘 여섯).
+//  ⓓ **소스 축** — 소스에 사는 재개 조건도 같은 조항을 받는다. ⚠️⚠️ **라운드 91 트랙 D에서 이
+//     축의 뿌리가 손 하나에서 전수 파생으로 바뀌었다**(`apps/**`·`packages/**`를 걷는다).
+//  ⓔ **사각** — 이 그물이 못 보는 것이 **값과 하한으로** 적혀 있다(오늘 **여덟** — 넓힌 축이 새로
+//     진 둘을 포함한다).
 //  ⓕ **자기 배제** — 대장 자신의 두 파일은 모집단에 들어오지 않는다.
+//
+// ## ⚠️⚠️ 라운드 91 트랙 D — 소스 축이 손 목록을 버린다
+//
+// 라운드 89·90의 소스 축은 `SOURCE_AXIS_FILES`를 **손으로 적은 한 줄**로 졌다. 그 모양은
+// *"적어 둔 그 파일이 관례를 지키는가"* 만 묻고 *"관례를 지고 있는 소스가 이것뿐인가"* 는 묻지
+// 못한다 — 그리고 뿌리를 열자 곧바로 **새 자리 둘**이 나왔다(`contract-net-ledger.test.ts`,
+// 라운드 90 E가 *"도래한 조건·처분은 다음 라운드 몫"* 이라고 적으며 남긴 표기 ·
+// `apps/api/test/harness-catalog-cost.test.ts`, 같은 라운드 트랙 C가 남긴 표기 넷). 아래 계약은
+// 그 전수 파생을 **교란 셋으로** 확인한다: ① 표기 소스 하나가 뿌리에서 사라지면 래칫이 빨개진다 ·
+// ② 소유자 칸이 비면 빨개진다 · ③ F가 문서에 줄을 더해도 초록이다(하한 설계).
+//
+// ## ⚠️⚠️ 라운드 91 리뷰 H-1·L-1 — 파생은 옳았고 **그 위에 손으로 얹은 수**가 틀렸다
+//
+// D는 파생 결과를 **둘**로 적었지만 D 커밋 시점의 워킹트리에서도 이미 **셋**이었다: 트랙 C가
+// D보다 세 시간 앞서 머지되며 표기 넷을 지고 있었고, D의 기록이 그것을 세지 못했다. 그래서
+// `SOURCE_COUNT_RATCHET`이 **실측보다 한 칸 낮은 채로** 서서 *셋 중 하나가 표기를 잃어도
+// 조용한 거짓 초록*이 됐다. 오늘 래칫을 셋으로 올리고(오기의 정정이지 하한 인상이 아니다),
+// **기록을 파생 길이에 등호로 묶어**(L-1) 손으로 적은 수가 다시 어긋날 자리를 없앤다.
+//
+// ⚠️ 재개 조건(사건형): 이 계약이 처음으로 빨개지는 날 — 그날 사람이 볼 것은 *"관례가 지워졌는가,
+// 아니면 관례를 지고 있는 소스가 새로 늘었는가"* 이고, 뒤쪽이면 이 파일은 한 글자도 고칠 것이 없다
+// (전수 파생이 새 자리를 자동으로 진다). ⚠️ 그리고 **이 문장 자신이 이 대장의 표기 관례를 지고
+// 있어서**, 자기 배제가 없으면 이 파일은 자기 축의 모집단에 든다 — 그 배제가 하는 일이 그것이다.
 //
 // ⚠️⚠️ **이 계약은 문서를 읽기만 한다. 문서 쓰기 0건이 이 트랙의 금지 조항이다** — 계약이 문서를
 // 지켜야지 문서가 계약을 맞추면 안 되기 때문이고, 그래서 아래 어느 단언도 *"오늘과 똑같은가"* 를
@@ -34,6 +60,11 @@ import {
   SCOUT_NEEDLE_VALUES,
   SIBLING_DOCUMENTS,
   SOURCE_AXIS_FILES,
+  SOURCE_AXIS_MEASURED_TODAY,
+  SOURCE_AXIS_ROOTS,
+  SOURCE_AXIS_WALKED_FLOOR,
+  SOURCE_COUNT_RATCHET,
+  anyParenSourceNeedle,
   collectDocumentSites,
   collectResumeSites,
   collectSourceNotations,
@@ -42,10 +73,17 @@ import {
   decisiveSites,
   decisiveSitesMissingHand,
   exemptionFor,
+  markedSourceNeedle,
+  ownerForSourcePath,
   ratchetViolations,
+  readSourceAxisEntries,
   repoRoot,
   roundNoteFiles,
-  tallyNeedles
+  sourceAxisDefects,
+  sourceAxisFilesFrom,
+  sourceCountViolation,
+  tallyNeedles,
+  typedInners
 } from "./resume-condition-ledger";
 
 const documentText = readFileSync(join(repoRoot, LEDGER_DOCUMENT.path), "utf8");
@@ -276,11 +314,202 @@ describe("ⓓ 소스 축 — 소스에 사는 재개 조건도 같은 조항을 
     expect(countAnyParenSourceNotations()).toBeGreaterThanOrEqual(notations.length);
   });
 
-  it("⚠️ 이 대장은 소스 축 파일을 읽기만 한다 (트랙 C의 소유)", () => {
+  it("⚠️ 이 대장은 소스 축 파일을 읽기만 한다 (소유자 칸이 그 사실을 진다)", () => {
     for (const file of SOURCE_AXIS_FILES) {
       expect(file.owner.includes("읽기만")).toBe(true);
       expect(LEDGER_SELF_FILES).not.toContain(file.path);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⓓ' 소스 축의 뿌리 — ⚠️⚠️ 손 하나가 아니라 전수 파생 (라운드 91 트랙 D)
+// ---------------------------------------------------------------------------
+
+describe("ⓓ' 소스 축 — 뿌리를 걸어 표기를 지닌 소스 전수에서 파생한다", () => {
+  const entries = readSourceAxisEntries();
+  const derived = sourceAxisFilesFrom(entries);
+
+  it("ⓐ 뿌리를 실제로 걷는다 — 걷은 파일이 0건이 아니고 전부 뿌리 아래다 (유령 방지)", () => {
+    expect(SOURCE_AXIS_ROOTS.length).toBe(2);
+    expect(entries.length).toBeGreaterThanOrEqual(SOURCE_AXIS_WALKED_FLOOR);
+    expect(SOURCE_AXIS_MEASURED_TODAY.walked).toBeGreaterThanOrEqual(SOURCE_AXIS_WALKED_FLOOR);
+    for (const entry of entries) {
+      expect(
+        SOURCE_AXIS_ROOTS.some((root) => entry.path.startsWith(`${root}/`)),
+        `${entry.path}가 뿌리 아래다`
+      ).toBe(true);
+    }
+    // 두 뿌리 다 실제로 파일을 냈다 — 한쪽이 통째로 비면 그 사실이 여기서 먼저 보인다.
+    for (const root of SOURCE_AXIS_ROOTS) {
+      expect(
+        entries.filter((entry) => entry.path.startsWith(`${root}/`)).length,
+        `${root} 뿌리가 0건이 아니다`
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("⚠️⚠️ 모집단이 손 목록이 아니다 — 파일 경로 배열이 아니라 파생 결과다", () => {
+    const ledgerSource = readRepo(LEDGER_SELF_FILES[0]);
+    expect(ledgerSource).toContain("export const SOURCE_AXIS_FILES: readonly SourceAxisFile[] = deriveSourceAxisFiles();");
+    // 손으로 적은 배열 리터럴이 그 자리에 없다(고치려던 병이 정확히 그 모양이다).
+    expect(/export const SOURCE_AXIS_FILES[^=\n]*=\s*\[/.test(ledgerSource)).toBe(false);
+  });
+
+  it("⚠️ 유령 방지 — 표기를 지닌 소스가 0건이 아니고, 오늘 그 수는 셋 이상이다", () => {
+    expect(derived.length).toBeGreaterThan(0);
+    expect(derived.length).toBeGreaterThanOrEqual(SOURCE_COUNT_RATCHET);
+    expect(sourceCountViolation(derived)).toBeUndefined();
+    for (const file of derived) {
+      expect(existsSync(join(repoRoot, file.path)), `${file.path}가 실재한다`).toBe(true);
+    }
+    // ⚠️ 오늘의 파생 결과를 **값으로** 적어 둔다 — 모집단이 아니라 사람이 읽는 근거다.
+    //    둘째·셋째 자리는 손 목록 시절 이 대장이 몰랐던 자리다.
+    const paths = derived.map((file) => file.path);
+    expect(paths).toContain("packages/test-utils/src/dead-export-ledger.ts");
+    expect(paths).toContain("packages/test-utils/src/contract-net-ledger.test.ts");
+    expect(paths).toContain("apps/api/test/harness-catalog-cost.test.ts");
+  });
+
+  it("⚠️⚠️ 기록된 `files`가 **파생 길이를 문다** — 손으로 적은 수가 다시 어긋날 자리가 없다 (리뷰 L-1)", () => {
+    // ⚠️⚠️ 두 시점(리뷰 H-1·L-1). 라운드 91 D는 뿌리를 옳게 걸어 놓고 그 **결과를 손으로 다시**
+    //    적었고(`files: 2`), 그 손이 같은 라운드 트랙 C의 파일 하나를 세지 못했다 — 그래서
+    //    `SOURCE_COUNT_RATCHET`이 실측보다 한 칸 낮은 채로 서서 **셋 중 하나가 표기를 잃어도
+    //    조용한 거짓 초록**이 됐다. 오늘 그 자리를 등호로 묶는다: 기록이 파생과 갈리면 빨개진다.
+    expect(
+      SOURCE_AXIS_MEASURED_TODAY.files,
+      "기록된 표기 소스 수가 오늘의 파생 결과와 갈렸어요 — 파생 쪽이 사실이고, 이 값을 옮겨 주세요"
+    ).toBe(derived.length);
+    // 래칫도 그 파생 위에 선다 — 기록과 래칫이 서로 다른 수를 말하지 않는다.
+    expect(SOURCE_COUNT_RATCHET).toBe(SOURCE_AXIS_MEASURED_TODAY.files);
+    expect(SOURCE_COUNT_RATCHET).toBeLessThanOrEqual(derived.length);
+    // ⚠️ **바늘 둘의 기록은 등호가 아니라 하한이다 — 그리고 그 갈림에 이유가 있다.**
+    //    `files`는 래칫이 딛는 수라 어긋나면 곧바로 거짓 초록이 되지만(H-1이 그 실물이다),
+    //    `marked`·`anyParen`은 **한 파일 안에서 조건이 늘고 주는 수**라 등호로 물면 새 재개
+    //    조건을 정직하게 적는 손이 빨강을 맞는다(이 대장이 `NOTATION_RATCHET`에 박아 둔 판단).
+    expect(SOURCE_AXIS_MEASURED_TODAY.marked).toBeLessThanOrEqual(
+      derived.reduce((sum, file) => sum + file.valueToday, 0)
+    );
+    expect(SOURCE_AXIS_MEASURED_TODAY.anyParen).toBeLessThanOrEqual(
+      derived.reduce((sum, file) => sum + file.anyParenToday, 0)
+    );
+  });
+
+  it("⚠️ 교란 — 표기 소스 셋 가운데 **어느 하나**를 숨겨도 래칫이 빨개진다 (H-1의 재현)", () => {
+    // ⚠️ D의 래칫(2)에서는 이 교란이 셋 중 하나에 대해 **초록**이었다 — 그것이 거짓 초록의 실물이다.
+    expect(derived.length).toBeGreaterThanOrEqual(3);
+    for (const hidden of derived) {
+      const without = sourceAxisFilesFrom(entries.filter((entry) => entry.path !== hidden.path));
+      expect(without.length).toBe(derived.length - 1);
+      expect(
+        sourceCountViolation(without),
+        `${hidden.path}를 숨겼는데 초록이면 이 축은 그 자리를 지키지 않는다`
+      ).toBeDefined();
+      // 그리고 D의 옛 래칫(2)이었다면 같은 교란이 조용히 지나갔다는 사실도 값으로 남긴다.
+      expect(sourceCountViolation(without, 2)).toBeUndefined();
+    }
+  });
+
+  it("ⓑ 자리별 값이 손이 아니라 소스에서 파생된다 (오늘 marked 6 · anyParen 9)", () => {
+    for (const file of derived) {
+      const text = readRepo(file.path);
+      expect(file.valueToday, `${file.path}의 좁은 바늘`).toBe(
+        typedInners(text, markedSourceNeedle()).length
+      );
+      expect(file.anyParenToday, `${file.path}의 넓은 바늘`).toBe(
+        typedInners(text, anyParenSourceNeedle()).length
+      );
+      expect(file.valueToday).toBeGreaterThan(0);
+      expect(file.anyParenToday).toBeGreaterThanOrEqual(file.valueToday);
+    }
+    // ⚠️ 기록은 하한으로만 견준다(등호로 물면 옳은 손이 빨강을 맞는다 — 이 대장의 첫 판단).
+    const top = derived.find((file) => file.path.endsWith("dead-export-ledger.ts"));
+    expect(top).toBeDefined();
+    expect(SOURCE_AXIS_MEASURED_TODAY.markedTopFile).toBeLessThanOrEqual(top!.valueToday);
+    expect(SOURCE_AXIS_MEASURED_TODAY.anyParenTopFile).toBeLessThanOrEqual(top!.anyParenToday);
+    expect(SOURCE_AXIS_MEASURED_TODAY.marked).toBeLessThanOrEqual(collectSourceNotations().length);
+    expect(SOURCE_AXIS_MEASURED_TODAY.anyParen).toBeLessThanOrEqual(countAnyParenSourceNotations());
+  });
+
+  it("ⓒ 소유자 칸이 어느 자리에도 비어 있지 않다 — 이름이 없는 새 경로도 값을 얻는다", () => {
+    expect(sourceAxisDefects(derived)).toEqual([]);
+    for (const file of derived) {
+      expect(file.owner.trim().length, `${file.path}의 소유자`).toBeGreaterThan(0);
+      expect(file.owner).toContain("읽기만");
+    }
+    for (const path of ["apps/mobile/src/아직-없는-자리.ts", "packages/무엇/x.ts", "x"]) {
+      expect(ownerForSourcePath(path).trim().length, `${path}의 소유자`).toBeGreaterThan(0);
+    }
+  });
+
+  it("⚠️ 하한을 오늘의 값으로 올리지 않았다 (자리별 floor < valueToday)", () => {
+    for (const file of derived) {
+      expect(file.floor, `${file.path}의 하한`).toBeLessThan(file.valueToday);
+      expect(file.floorReason.trim().length).toBeGreaterThan(40);
+    }
+    const top = derived.find((file) => file.path.endsWith("dead-export-ledger.ts"));
+    expect(top!.floor).toBe(3); // ⚠️ 라운드 89 D가 세운 하한 — 내리지도 올리지도 않는다.
+  });
+
+  it("⚠️ 교란 ① — 표기를 지닌 소스가 뿌리에서 사라지면 래칫이 빨개진다", () => {
+    // 래칫 아래로 내려가도록 필요한 만큼 숨긴다(파생 수가 늘어난 날에도 이 교란은 성립한다).
+    const hidden = new Set(derived.slice(0, derived.length - SOURCE_COUNT_RATCHET + 1).map((file) => file.path));
+    expect(hidden.size).toBeGreaterThan(0);
+    const without = sourceAxisFilesFrom(entries.filter((entry) => !hidden.has(entry.path)));
+    expect(without.length).toBe(derived.length - hidden.size);
+    const violation = sourceCountViolation(without);
+    expect(violation, "숨겼는데도 초록이면 이 축은 아무것도 지키지 않는다").toBeDefined();
+    expect(violation!.measured).toBeLessThan(violation!.floor);
+
+    // 파일은 그대로 두고 **표식만** 지워도 같다 — 관례가 지워지는 날의 모양이 이쪽이다.
+    const erased = sourceAxisFilesFrom(
+      entries.map((entry) =>
+        hidden.has(entry.path) ? { path: entry.path, text: entry.text.replace(/⚠️/g, "") } : entry
+      )
+    );
+    expect(sourceCountViolation(erased)).toBeDefined();
+  });
+
+  it("⚠️ 교란 ② — 소유자 칸이 비면 계약이 문다", () => {
+    const defects = sourceAxisDefects(sourceAxisFilesFrom(entries, () => ""));
+    expect(defects.length).toBeGreaterThan(0);
+    expect(defects.map((defect) => defect.field)).toContain("owner");
+    // 그리고 공백만 채운 칸도 빈 칸이다.
+    expect(sourceAxisDefects(sourceAxisFilesFrom(entries, () => "   ")).length).toBeGreaterThan(0);
+  });
+
+  it("⚠️ 교란 ③ — 소스에 표기가 **늘어도** 초록이다 (하한만 문다)", () => {
+    const added = sourceAxisFilesFrom([
+      ...entries,
+      {
+        path: "apps/mobile/src/픽스처-새-자리.ts",
+        text: "// ⚠️ 재개 조건(결정형 · 손은 저장소 안): 새 자리가 관례를 지고 서는 날.\n"
+      }
+    ]);
+    expect(added.length).toBe(derived.length + 1);
+    expect(sourceCountViolation(added)).toBeUndefined();
+    expect(sourceAxisDefects(added)).toEqual([]);
+    // 이름이 표에 없는 자리라도 소유자·하한 사유가 채워진다(손을 기다리지 않는다).
+    const fresh = added.find((file) => file.path.includes("픽스처-새-자리"));
+    expect(fresh!.owner.trim().length).toBeGreaterThan(0);
+    expect(fresh!.floor).toBe(0);
+  });
+
+  it("ⓕ 자기 배제가 실제로 일을 한다 — 자기 두 파일은 표기를 지녔는데도 뿌리 밖이다", () => {
+    const walked = new Set(entries.map((entry) => entry.path));
+    for (const self of LEDGER_SELF_FILES) {
+      expect(walked.has(self), `${self}가 뿌리 밖이다`).toBe(false);
+      expect(
+        typedInners(readRepo(self), markedSourceNeedle()).length,
+        `${self}에 표기가 살아 있다`
+      ).toBeGreaterThan(0);
+    }
+    // ⚠️ 배제를 풀면 파생 수가 는다 — 그 차이가 이 줄이 하는 일의 크기다.
+    const withSelf = sourceAxisFilesFrom([
+      ...entries,
+      ...LEDGER_SELF_FILES.map((path) => ({ path, text: readRepo(path) }))
+    ]);
+    expect(withSelf.length).toBe(derived.length + LEDGER_SELF_FILES.length);
   });
 });
 
@@ -297,6 +526,23 @@ describe("ⓔ 사각 — 이 그물이 못 보는 것이 값과 하한으로 적
     expect(ids).toContain("folded-notation"); // 두 줄로 접힌 조건
     expect(ids).toContain("round-notes"); // docs/5차/**
     expect(ids).toContain("sibling-documents"); // 짝 문서 둘
+  });
+
+  it("⚠️ 넓힌 축이 새 사각 둘을 함께 진다 (라운드 91 D — 넓힌 만큼 사각도 넓어진다)", () => {
+    const ids = LEDGER_BLIND_SPOTS.map((spot) => spot.id);
+    expect(LEDGER_BLIND_SPOTS.length).toBeGreaterThanOrEqual(8);
+    // ⓐ 표기의 **실재**만 센다 — 그 조건이 오늘 참인가는 묻지 않는다.
+    expect(ids).toContain("source-notation-existence");
+    // ⓑ 표기를 지니지 않은 소스의 산문 조건은 이 뿌리 밖이다.
+    expect(ids).toContain("unmarked-source-prose");
+    const existence = LEDGER_BLIND_SPOTS.find((spot) => spot.id === "source-notation-existence");
+    expect(existence!.measure(repoRoot)).toBe(collectSourceNotations().length);
+    const prose = LEDGER_BLIND_SPOTS.find((spot) => spot.id === "unmarked-source-prose");
+    expect(prose!.measure(repoRoot)).toBeGreaterThanOrEqual(prose!.floor);
+    // ⚠️ 그 둘도 재개 조건을 자기 축과 함께 진다(아래 자기 적용 단언이 형·손까지 문다).
+    for (const spot of [existence!, prose!]) {
+      expect(spot.reopenCondition).toContain("재개 조건(");
+    }
   });
 
   it("사각마다 무엇·왜·재개 조건이 빈 문자열이 아니다", () => {
@@ -389,6 +635,57 @@ describe("ⓕ 자기 배제 — 대장 자신의 두 파일은 모집단 밖이�
       notations += tallyNeedles(collectResumeSites(readRepo(path), path)).paren.typed;
     }
     expect(notations).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⓔ' 유령 방지 ② — 소스 축을 넓힌 뒤에도 문서 축이 함께 세어진다
+// ---------------------------------------------------------------------------
+
+describe("⚠️ 유령 방지 ② — 넓힌 뒤에도 문서 축의 넷이 함께 세어진다 (294 · 97 · 24 · 1)", () => {
+  const decisive = decisiveSites(sites).length;
+  const missing = decisiveSitesMissingHand(sites).length;
+
+  it("네 수가 오늘도 실제로 세어지고, 하한을 넘는다", () => {
+    expect(sites.length).toBeGreaterThanOrEqual(NOTATION_RATCHET.sites);
+    expect(tallies.paren.typed).toBeGreaterThanOrEqual(NOTATION_RATCHET.parenTyped);
+    expect(decisive).toBeGreaterThan(0);
+    expect(missing).toBeLessThanOrEqual(DECISIVE_MISSING_HAND_TODAY);
+    expect(ratchetViolations(sites)).toEqual([]);
+  });
+
+  it("기록된 넷이 서로 아귀가 맞는다 (자리 = 괄호 + 줄만 + 산문)", () => {
+    expect(MEASURED_TODAY.parenTyped + MEASURED_TODAY.lineTypedOnly + MEASURED_TODAY.prose).toBe(
+      MEASURED_TODAY.sites
+    );
+    expect(MEASURED_TODAY.parenTyped).toBeLessThanOrEqual(MEASURED_TODAY.lineTyped);
+    expect(MEASURED_TODAY.lineHand).toBeLessThanOrEqual(MEASURED_TODAY.windowHand);
+    expect(MEASURED_TODAY.parenHand).toBeLessThanOrEqual(MEASURED_TODAY.parenDecisive);
+    expect(MEASURED_TODAY.parenDecisive - MEASURED_TODAY.parenHand).toBe(DECISIVE_MISSING_HAND_TODAY);
+  });
+
+  it("⚠️ 접점 — 하한을 오늘의 값으로 올리지 않았다 (F가 절을 더해도, 다듬어도 초록)", () => {
+    expect(NOTATION_RATCHET.sites).toBeLessThan(MEASURED_TODAY.sites);
+    expect(NOTATION_RATCHET.parenTyped).toBeLessThan(MEASURED_TODAY.parenTyped);
+    expect(NOTATION_RATCHET.parenHand).toBeLessThan(MEASURED_TODAY.parenHand);
+    expect(NOTATION_RATCHET.lineTyped).toBeLessThan(MEASURED_TODAY.lineTyped);
+    expect(NOTATION_RATCHET.lineHand).toBeLessThan(MEASURED_TODAY.lineHand);
+    expect(NOTATION_RATCHET.windowHand).toBeLessThan(MEASURED_TODAY.windowHand);
+  });
+
+  it("⚠️ 교란 ③ — F가 문서 축에 절을 더해도 넷이 다 초록이다", () => {
+    const added = withExtraLines(
+      "## AF절 — 라운드 91이 답한 자리 (F가 쓰는 절의 모양을 흉내 낸 픽스처)",
+      "- ⚠️ **재개 조건(사건형): 소스 축의 파생 수가 셋이 되는 날.**",
+      "- ⚠️ **재개 조건(결정형 · 손은 저장소 안): 관례를 소급 적용할지 정하는 날.**",
+      "- ⚠️ **재개 조건: 형을 밝히지 않은 산문 조건도 함께 더해 본다.**"
+    );
+    expect(ratchetViolations(added)).toEqual([]);
+    expect(added.length).toBeGreaterThan(sites.length);
+    expect(tallyNeedles(added).paren.typed).toBeGreaterThan(tallies.paren.typed);
+    expect(decisiveSitesMissingHand(added).length).toBe(missing);
+    // 그리고 문서가 자라도 소스 축은 흔들리지 않는다(두 축이 서로의 수를 빌리지 않는다).
+    expect(sourceCountViolation(SOURCE_AXIS_FILES)).toBeUndefined();
   });
 });
 
