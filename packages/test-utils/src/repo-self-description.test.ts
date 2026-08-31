@@ -448,3 +448,576 @@ describe("트랙 F 소유 문서는 표식만 묻는다 (값은 F가 초록으�
     expect(status, "check:env 카탈로그 자리가 있어야 해요").toContain("check:env");
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 라운드 93 트랙 E (GAP-093E · AG-5 발동) — **축 다섯: 문서가 소스의 좌표를 무는 자리**
+//
+// 위 넷은 전부 **소스 → 문서** 방향이다: 소스에서 값을 파생시켜 놓고 문서가 그것을 옳게 적었는지
+// 묻는다. 이 절이 새로 여는 축은 **반대 방향**이다 — 문서가 `<소스경로>:<줄>` 꼴로 소스의 한
+// 자리를 무는 인용을 **전수로 걷어** 그 자리가 오늘 실재하는지까지 센다. AG-5가 사각 ⓑ에
+// *"그 방향은 이 바늘 밖이고 수는 훨씬 크며 **옮기는 손도 반대다**"* 라고 적어 둔 바로 그 축이다.
+//
+// ⚠️⚠️ **이 트랙이 이 파일에서 여는 축은 이것 하나다.** 위 넷(`근거:` 파생 · DNC 사본 · 진입 문서
+// 셋 · 폐기 팔레트)은 한 바이트도 건드리지 않았고, 이 절이 읽는 문서 넷도 **읽기만** 한다.
+//
+// ── 오늘의 실측(2026-08-31 · 전부 **하한**이다) ─────────────────────────────────
+//  · 살아 있는 문서 **넷**에서 걷은 경로 꼴 좌표 **26**
+//    (known-limitations **16** · runtime-verification **5** · a11y 체크표 **3** · round4 감사 **2**)
+//  · 그중 **파일이 실재하는 것 26 · 줄이 파일 길이 안인 것 26 · 이동 의무가 곁에 적힌 것 1**
+//  · 문서→문서 좌표 **1**(`kl:6821` → `runtime-verification-required.md:367`) — 갈라내어 밖에 둔다
+//  · **경로가 없는 이름만의 좌표 17**(`link-marker.ts:97` 꼴) — 이 바늘 밖이다(아래 사각 ⓓ)
+//  · 모집단 밖(라운드 노트 등) **943** · 그중 **파일 길이를 넘는 죽은 좌표 3**(아래 사각 ⓑ)
+//
+// ⚠️ **정찰(round93-scout.md)과 갈린 자리를 값으로 적는다.** 정찰은 살아 있는 문서에서 **27**을,
+// 그중 runtime-verification에서 **6**을 셌다. 오늘 같은 문서에서 나오는 경로 꼴 좌표는 **5**이고,
+// 여섯째 자리는 `runtime-verification-required.md:1012`의 `admin-api.ts:524` — **경로가 없는
+// 이름만의 좌표**다. 이 계약의 바늘은 `/`를 요구한다(이름만으로는 어느 파일인지 문서가 말하지
+// 않는다). **두 수를 한 낱말로 적지 않는다** — 27은 정찰의 바늘, 26은 이 계약의 바늘이다.
+// 정찰이 전수로 센 **929/38** 역시 오늘 이 파서로는 **969/39**다(정찰의 수는 하한이었다).
+//
+// ⚠️⚠️ **하한을 고른 비용**(AG-5의 일반형): 자리 수도 의무 수도 **하한**이라, 문서가 좌표를
+// **지우면 이 계약은 그것을 보지 못한다.** 등호를 고르면 F가 절을 늘릴 때마다 빨개지고 빨간
+// 계약은 아무것도 지키지 못하므로, 이 라운드는 **사라지는 좌표를 못 보는 쪽**을 값으로 택했다.
+//
+// ⚠️ **이 자는 앞쪽(의무의 실재)만 센다.** 뒤쪽 — *그 의무가 지켜졌는가* — 는 라운드마다 F의
+// 걸음이 답한다. 오늘 그 답은 **지켜지지 않았다**이고(하나뿐인 이동 의무 `kl:2584`의 좌표 둘이
+// 오늘 거짓이다), 그것이 이 축이 서는 이유다.
+import { readdirSync } from "node:fs";
+
+/**
+ * **살아 있는 문서 넷** — 라운드 노트는 여기 들어오지 않는다.
+ *
+ * ⚠️ 라운드 노트(`docs/5차/round*-*.md` 등)는 **작업 기록**이라 재개 조건 대장이 `round-notes`를
+ * 밖에 두는 것과 같은 이유로 모집단 밖이다(넣으면 이 계약의 수가 라운드마다 통째로 흔들린다).
+ * 밖에 둔 수는 아래 마지막 `it`이 **값으로** 적는다.
+ *
+ * ⚠️ 이 손 목록을 전수로 바꾸는 것은 **또 다른 축**이다 — 오늘 `docs/**`에는 라운드 노트가 아닌데
+ * 좌표를 무는 문서가 하나 더 있다(`docs/5차/design-restore-spec.md` **3건**). 그 문서까지 넣을지는
+ * 소유가 갈리는 결정이라 **재개 조건**으로 남긴다(아래 절 끝 주석).
+ */
+const COORDINATE_LIVE_DOCS = [
+  "docs/operations/known-limitations.md",
+  "docs/qa/runtime-verification-required.md",
+  "docs/qa/accessibility-offline-checklist.md",
+  "docs/operations/round4-production-readiness-audit.md"
+] as const;
+
+/**
+ * 문서는 좌표를 **앱 루트 기준**으로도 적는다(`app/settings/privacy.tsx:150`). 그래서 해석은
+ * 저장소 루트부터 앱·패키지 루트까지 차례로 시도한다 — 첫 실재가 답이다.
+ */
+const COORDINATE_SEARCH_ROOTS = [
+  "",
+  "apps/mobile/",
+  "apps/api/",
+  "apps/admin/",
+  "packages/test-utils/",
+  "packages/contracts/",
+  "packages/config/"
+] as const;
+
+/**
+ * `<경로>:<줄>` 꼴 한 자리. 앞에 오는 글자를 함께 물어 **경로의 마지막 조각만** 따로 잡히는 일을
+ * 막는다(`/`는 앞 글자 목록에 없다). 디렉터리 조각은 없어도 잡고(이름만의 좌표를 **세기 위해서**다),
+ * 모집단에 넣을지는 `isPathShapedCoordinate`가 가른다.
+ */
+const COORDINATE_PATTERN =
+  /(?:^|[\s`(\[「"'·→,])((?:[A-Za-z0-9_.@()\[\]-]+\/)*[A-Za-z0-9_.@()\[\]-]+\.(?:tsx?|jsx?|mjs|cjs|json|sh|ya?ml|prisma|sql|md)):(\d+)\b/g;
+
+/** 좌표 곁에 *"누가 언제 옮기는지"* 가 적혔는지 보는 낱말들. */
+const MOVE_OBLIGATION_PATTERNS = [/옮겨야/, /옮길 것/, /자리를 옮/, /이동해야/, /옮기는 손/] as const;
+
+/** 이동 의무를 찾는 창(위아래 몇 줄). AG-5가 손으로 푼 창과 같은 ±2다. */
+const MOVE_OBLIGATION_WINDOW = 2;
+
+type SourceCoordinate = { doc: string; docLine: number; path: string; line: number };
+type ResolvedCoordinate = SourceCoordinate & { sourcePath: string };
+
+function coordinatesInText(text: string, doc: string): SourceCoordinate[] {
+  const lines = text.split("\n");
+  const found: SourceCoordinate[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    for (const match of lines[index].matchAll(COORDINATE_PATTERN)) {
+      found.push({ doc, docLine: index + 1, path: match[1], line: Number(match[2]) });
+    }
+  }
+  return found;
+}
+
+/** 문서→문서 좌표는 이 축의 바늘 밖이다 — 갈라내어 값으로만 센다. */
+function isDocToDocCoordinate(coordinate: SourceCoordinate): boolean {
+  return coordinate.path.endsWith(".md");
+}
+
+/** 이름만 적힌 좌표(`link-marker.ts:97`)는 어느 파일인지 문서가 말하지 않았다 — 바늘 밖이다. */
+function isPathShapedCoordinate(coordinate: SourceCoordinate): boolean {
+  return coordinate.path.includes("/");
+}
+
+function resolveCoordinatePath(path: string): string | null {
+  for (const root of COORDINATE_SEARCH_ROOTS) {
+    const candidate = `${root}${path}`;
+    if (existsSync(join(repoRoot, candidate))) return candidate;
+  }
+  return null;
+}
+
+type CoordinateSplit = {
+  all: SourceCoordinate[];
+  docToDoc: SourceCoordinate[];
+  bareName: SourceCoordinate[];
+  resolved: ResolvedCoordinate[];
+  unresolved: SourceCoordinate[];
+};
+
+function splitCoordinates(text: string, doc: string): CoordinateSplit {
+  const all = coordinatesInText(text, doc);
+  const docToDoc = all.filter(isDocToDocCoordinate);
+  const sourceish = all.filter((coordinate) => !isDocToDocCoordinate(coordinate));
+  const bareName = sourceish.filter((coordinate) => !isPathShapedCoordinate(coordinate));
+  const resolved: ResolvedCoordinate[] = [];
+  const unresolved: SourceCoordinate[] = [];
+  for (const coordinate of sourceish.filter(isPathShapedCoordinate)) {
+    const sourcePath = resolveCoordinatePath(coordinate.path);
+    if (sourcePath === null) unresolved.push(coordinate);
+    else resolved.push({ ...coordinate, sourcePath });
+  }
+  return { all, docToDoc, bareName, resolved, unresolved };
+}
+
+function liveDocSplits(): { doc: string; text: string; split: CoordinateSplit }[] {
+  return COORDINATE_LIVE_DOCS.map((doc) => {
+    const text = read(doc);
+    return { doc, text, split: splitCoordinates(text, doc) };
+  });
+}
+
+function sourceLinesOf(sourcePath: string): string[] {
+  return read(sourcePath).split("\n");
+}
+
+/** 좌표가 가리키는 줄이 파일 길이 안인가. **줄의 내용은 묻지 않는다**(이번 라운드 범위 밖). */
+function isLineWithinFile(coordinate: ResolvedCoordinate): boolean {
+  const count = sourceLinesOf(coordinate.sourcePath).length;
+  return coordinate.line >= 1 && coordinate.line <= count;
+}
+
+function hasMoveObligation(lines: string[], docLine: number): boolean {
+  // 존재 가드 — 창을 뜨기 전에 그 줄이 있는지부터 본다.
+  if (docLine < 1 || docLine > lines.length) return false;
+  const start = Math.max(0, docLine - 1 - MOVE_OBLIGATION_WINDOW);
+  const end = Math.min(lines.length, docLine + MOVE_OBLIGATION_WINDOW);
+  const window = lines.slice(start, end).join("\n");
+  return MOVE_OBLIGATION_PATTERNS.some((pattern) => pattern.test(window));
+}
+
+/** 오늘의 분포 — **문서마다 하한**. 문서는 자라므로 줄지 않는다. */
+const COORDINATE_FLOOR_BY_DOC: readonly { readonly doc: string; readonly floor: number }[] = [
+  { doc: "docs/operations/known-limitations.md", floor: 16 },
+  { doc: "docs/qa/runtime-verification-required.md", floor: 5 },
+  { doc: "docs/qa/accessibility-offline-checklist.md", floor: 3 },
+  { doc: "docs/operations/round4-production-readiness-audit.md", floor: 2 }
+];
+
+/** 살아 있는 문서 넷의 좌표 전수 하한(오늘 26). */
+const LIVE_COORDINATE_FLOOR = 26;
+
+/** 이동 의무가 곁에 적힌 자리의 하한(오늘 1 — `known-limitations.md:2584`). */
+const MOVE_OBLIGATION_FLOOR = 1;
+
+/**
+ * ⚠️⚠️ **오늘 거짓인 좌표를 값으로 든다** — 계약을 빨갛게 하지 않는다.
+ *
+ * 좌표가 **실재한다**는 것(위 판정 셋이 보는 것)과 **그 줄이 그 사실을 말한다**는 것은 다르다.
+ * 뒤쪽은 오늘 손으로 풀었고, 여섯 자리가 거짓이었다. 그 여섯을 **자리 이름으로** 여기 적어 두고
+ * 아래 `it`이 **상한**으로 문다 — F가 문서를 고치면 이 목록은 **줄어드는 방향**으로만 움직이고,
+ * **목록이 비어도 초록**이다(상한 꼴). 정정은 이 트랙의 걸음이 아니다: `docs/operations/**`와
+ * `docs/qa/**`는 F가 소유하고, **옮기는 손이 반대라는 사실이 정확히 AG-5의 판정**이다.
+ *
+ * ⚠️ F는 정정할 때 옛 좌표를 지우지 않고 **두 시점으로** 적는다(AE-3). 그러면 `literal`은 문서에
+ * 남을 수 있고 목록은 줄지 않는다 — **그래도 초록이다**(상한이지 등호가 아니다). 다음 라운드가
+ * 세는 것은 "몇이 남았는가"가 아니라 "상한을 넘지 않는가"다.
+ */
+type StaleCoordinate = {
+  /** 이 좌표가 적힌 문서와 그 줄. */
+  readonly doc: string;
+  readonly docLine: number;
+  /** 문서가 적은 경로. 줄 번호만 적힌 자리는 `null`이다(그런 자리는 모집단 밖이다). */
+  readonly path: string | null;
+  readonly line: number;
+  /** 그 좌표가 실제로 겨누는 소스 — 증거를 대는 데만 쓴다(정정은 F의 몫). */
+  readonly sourcePath: string;
+  /** 오늘 문서에 그 자리가 남아 있는지 보는 원문 조각. */
+  readonly literal: string;
+  /** 증거 ① — 이 문자열이 소스에 실재하지만 **인용된 줄에는 없다**. */
+  readonly anchor?: string;
+  /** 증거 ② — 이 심볼이 소스 전체에서 **0건**이다. */
+  readonly absentSymbol?: string;
+  /** 증거 ③ — 인용된 줄이 이 꼴이 **아니다**. */
+  readonly citedLineIsNot?: RegExp;
+  readonly reason: string;
+  readonly foundInRound: number;
+};
+
+const KNOWN_STALE_COORDINATES: readonly StaleCoordinate[] = [
+  {
+    doc: "docs/operations/known-limitations.md",
+    docLine: 245,
+    path: "apps/mobile/app/items/[itemTemplateId].tsx",
+    line: 997,
+    sourcePath: "apps/mobile/app/items/[itemTemplateId].tsx",
+    literal: "apps/mobile/app/items/[itemTemplateId].tsx:997",
+    anchor: "caption={hasSession",
+    reason:
+      "`caption={hasSession ? … : undefined}`가 서는 자리는 오늘 997이 아니라 1069다 — " +
+      "좌표가 밀렸고, 그 절의 근거 ⓐ는 그 자리를 가리켜 세워져 있다.",
+    foundInRound: 93
+  },
+  {
+    doc: "docs/operations/known-limitations.md",
+    docLine: 254,
+    path: "apps/mobile/app/(tabs)/index.tsx",
+    line: 2105,
+    sourcePath: "apps/mobile/app/(tabs)/index.tsx",
+    literal: "apps/mobile/app/(tabs)/index.tsx:2105",
+    anchor: "action={<NotificationBell",
+    reason: "`action={<NotificationBell />}`는 오늘 2105가 아니라 2142에 있다 — 좌표가 밀렸다.",
+    foundInRound: 93
+  },
+  {
+    doc: "docs/operations/known-limitations.md",
+    docLine: 413,
+    path: "app/settings/privacy.tsx",
+    line: 150,
+    sourcePath: "apps/mobile/app/settings/privacy.tsx",
+    literal: "app/settings/privacy.tsx:150",
+    absentSymbol: "loadFailedText",
+    reason:
+      "그 자리를 이름으로 무는 `loadFailedText` 심볼이 이 파일에 오늘 0건이다 — 줄이 밀린 것이 " +
+      "아니라 무는 대상 자체가 사라졌다(공용 조회 실패 문구로 옮겨 갔다).",
+    foundInRound: 93
+  },
+  {
+    doc: "docs/operations/known-limitations.md",
+    docLine: 414,
+    path: "app/import/[importJobId].tsx",
+    line: 131,
+    sourcePath: "apps/mobile/app/import/[importJobId].tsx",
+    literal: "app/import/[importJobId].tsx:131",
+    absentSymbol: "loadFailedText",
+    reason: "같은 이유 — `loadFailedText`가 이 파일에 오늘 0건이다.",
+    foundInRound: 93
+  },
+  {
+    doc: "docs/operations/known-limitations.md",
+    docLine: 2584,
+    path: "app/(tabs)/index.tsx",
+    line: 1482,
+    sourcePath: "apps/mobile/app/(tabs)/index.tsx",
+    literal: "app/(tabs)/index.tsx:1482",
+    anchor: "const monthlyUsed",
+    reason:
+      "⚠️⚠️ **이동 의무가 적힌 유일한 자리**인데 그 의무가 무는 좌표가 오늘 거짓이다 — " +
+      "`monthlyUsed`가 만들어지는 자리는 1482가 아니라 1519다.",
+    foundInRound: 93
+  },
+  {
+    doc: "docs/operations/known-limitations.md",
+    docLine: 2584,
+    path: null,
+    line: 1260,
+    sourcePath: "apps/mobile/app/(tabs)/index.tsx",
+    literal: "`:1260`",
+    citedLineIsNot: /use[A-Z][A-Za-z0-9_]*\(/,
+    reason:
+      "같은 문장이 *\"훅 호출은 `:1260`\"* 이라고 적는데 오늘 1260은 훅 호출이 아니라 대기 행 " +
+      "주석이다. ⚠️ 경로가 없는 좌표라 이 계약의 모집단 밖이고, 그래서 값으로만 든다.",
+    foundInRound: 93
+  }
+];
+
+/** 상한 — 이 라운드가 손으로 푼 여섯. F가 고치면 줄어들고, 비어도 초록이다. */
+const KNOWN_STALE_CAP = 6;
+
+function staleStillPresent(entry: StaleCoordinate, docText: string): boolean {
+  return docText.includes(entry.literal);
+}
+
+/** 오늘도 그 증거가 서는가. 빈 배열이면 선다(= 여전히 거짓인 좌표다). */
+function staleEvidenceProblems(entry: StaleCoordinate): string[] {
+  const problems: string[] = [];
+  if (!existsSync(join(repoRoot, entry.sourcePath))) {
+    return [`증거를 댈 소스 ${entry.sourcePath}가 없어요`];
+  }
+  const text = read(entry.sourcePath);
+  const lines = text.split("\n");
+  // 존재 가드 — 인용된 줄이 파일 안에 있을 때만 그 줄을 본다.
+  const citedLine = entry.line >= 1 && entry.line <= lines.length ? lines[entry.line - 1] : null;
+
+  if (entry.anchor !== undefined) {
+    if (!text.includes(entry.anchor)) {
+      problems.push(`앵커 \`${entry.anchor}\`가 ${entry.sourcePath}에 0건이에요 — 증거가 낡았어요`);
+    }
+    if (citedLine !== null && citedLine.includes(entry.anchor)) {
+      problems.push(
+        `${entry.sourcePath}:${entry.line}이 오늘 앵커를 그대로 갖고 있어요 — 더 이상 거짓이 아니에요`
+      );
+    }
+  }
+  if (entry.absentSymbol !== undefined) {
+    const hits = text.split(entry.absentSymbol).length - 1;
+    if (hits !== 0) {
+      problems.push(`${entry.sourcePath}에 \`${entry.absentSymbol}\`가 ${hits}건 돌아왔어요`);
+    }
+  }
+  if (entry.citedLineIsNot !== undefined && citedLine !== null && entry.citedLineIsNot.test(citedLine)) {
+    problems.push(`${entry.sourcePath}:${entry.line}이 오늘 ${entry.citedLineIsNot}에 맞아요`);
+  }
+  return problems;
+}
+
+/**
+ * 파서 픽스처 — 좌표 꼴을 **실제로 읽는지**와 **교란 둘을 잡는지**를 여기서 본다.
+ * 1: 실재 좌표 · 2: 없는 파일(교란 ①) · 3: 범위 밖 줄(교란 ②) · 4: 이동 의무 문장 ·
+ * 5: 문서→문서 · 6: 이름만 · 7: 줄이 없어 좌표가 아닌 자리.
+ */
+const COORDINATE_PARSER_FIXTURE = [
+  "- 실재 좌표: `apps/mobile/src/ui.tsx:104`가 그 노드를 그린다.",
+  "- 교란 ①(없는 파일): `apps/mobile/src/definitely-not-here-r93e.tsx:12`",
+  "- 교란 ②(범위 밖): `apps/mobile/src/ui.tsx:999999`",
+  "  ⚠️ 그래서 둘 중 하나를 옮겨야 한다.",
+  "- 문서→문서: `docs/qa/runtime-verification-required.md:367`",
+  "- 이름만: `link-marker.ts:97`",
+  "- 줄이 없는 인용: `apps/mobile/src/ui.tsx` · 버전 v1.2:3"
+].join("\n");
+
+/** 이 파일 자신 — 아래 부정 단언(문서 0바이트)이 읽는다. */
+const COORDINATE_SELF_PATH = "packages/test-utils/src/repo-self-description.test.ts";
+
+/** 이 모듈이 `node:fs`에서 가져와도 되는 이름 — 전부 **읽기**다. */
+const FS_READ_ONLY_IMPORTS = ["readFileSync", "existsSync", "readdirSync"];
+
+function markdownFilesUnderDocs(): string[] {
+  const found: string[] = [];
+  const walk = (relativeDir: string): void => {
+    for (const entry of readdirSync(join(repoRoot, relativeDir), { withFileTypes: true })) {
+      const relative = `${relativeDir}/${entry.name}`;
+      if (entry.isDirectory()) walk(relative);
+      else if (entry.name.endsWith(".md")) found.push(relative);
+    }
+  };
+  walk("docs");
+  return found;
+}
+
+describe("문서가 소스의 좌표를 무는 자리를 센다 (라운드 93 트랙 E · 반대 방향 · 전부 하한)", () => {
+  it("살아 있는 문서 넷을 실제로 읽고 좌표를 전수로 파생시킨다 (유령 방지 · 손 목록 금지)", () => {
+    const splits = liveDocSplits();
+    expect(splits.length, "문서 넷이 다 있어야 해요").toBe(COORDINATE_LIVE_DOCS.length);
+
+    for (const entry of splits) {
+      expect(entry.text.length, `${entry.doc}를 실제로 읽지 못했어요`).toBeGreaterThan(0);
+      expect(
+        entry.split.resolved.length,
+        `${entry.doc}가 좌표를 하나도 내놓지 않았어요 — 파서가 그 문서를 못 읽고 있어요`
+      ).toBeGreaterThan(0);
+    }
+
+    // 분포도 문서마다 하한이다(문서는 자란다).
+    for (const { doc, floor } of COORDINATE_FLOOR_BY_DOC) {
+      const found = splits.find((entry) => entry.doc === doc);
+      expect(found, `${doc}가 모집단에 있어야 해요`).toBeDefined();
+      expect(
+        found?.split.resolved.length ?? 0,
+        `${doc}의 좌표가 오늘의 바닥 ${floor}보다 적어요`
+      ).toBeGreaterThanOrEqual(floor);
+    }
+
+    const total = splits.reduce((sum, entry) => sum + entry.split.resolved.length, 0);
+    expect(total, `살아 있는 문서의 좌표 전수가 바닥 ${LIVE_COORDINATE_FLOOR}보다 적어요`)
+      .toBeGreaterThanOrEqual(LIVE_COORDINATE_FLOOR);
+
+    // 갈라낸 두 갈래가 실제로 갈라졌다는 것도 값으로 본다(0이면 파서가 안 가르고 있는 것이다).
+    const docToDoc = splits.reduce((sum, entry) => sum + entry.split.docToDoc.length, 0);
+    const bareName = splits.reduce((sum, entry) => sum + entry.split.bareName.length, 0);
+    expect(docToDoc, "문서→문서 좌표를 갈라내고 있어야 해요 (오늘 1)").toBeGreaterThanOrEqual(1);
+    expect(bareName, "이름만의 좌표를 갈라내고 있어야 해요 (오늘 17 · 사각 ⓓ)").toBeGreaterThanOrEqual(10);
+  });
+
+  it("판정 ⓐ — 좌표가 무는 파일이 오늘 실재한다 (하한 래칫)", () => {
+    const splits = liveDocSplits();
+    const existing = splits.flatMap((entry) => entry.split.resolved);
+    expect(existing.length, `실재하는 좌표가 바닥 ${LIVE_COORDINATE_FLOOR}보다 적어요`)
+      .toBeGreaterThanOrEqual(LIVE_COORDINATE_FLOOR);
+
+    // ⚠️ 해석되지 않은 경로 꼴 좌표는 오늘 0이다 — 값으로만 남기고 하한으로 묻지 않는다
+    // (F가 새 좌표를 적다가 오타를 내면 그것은 **다음 라운드의 후보**이지 이 계약의 빨간불이 아니다).
+    const unresolved = splits.flatMap((entry) => entry.split.unresolved);
+    expect(unresolved.length, "오늘 해석되지 않은 경로 꼴 좌표 (오늘 0)").toBeLessThanOrEqual(4);
+  });
+
+  it("판정 ⓑ — 좌표의 줄 번호가 파일 길이 안이다 (하한 래칫 · 줄의 내용은 묻지 않는다)", () => {
+    const coordinates = liveDocSplits().flatMap((entry) => entry.split.resolved);
+    const inRange = coordinates.filter(isLineWithinFile);
+    expect(inRange.length, `줄 범위가 유효한 좌표가 바닥 ${LIVE_COORDINATE_FLOOR}보다 적어요`)
+      .toBeGreaterThanOrEqual(LIVE_COORDINATE_FLOOR);
+  });
+
+  it("판정 ⓒ — 이동 의무가 곁에 적힌 자리가 하나 이상이다 (하한 · 앞쪽만 센다)", () => {
+    const withObligation: ResolvedCoordinate[] = [];
+    for (const entry of liveDocSplits()) {
+      const lines = entry.text.split("\n");
+      for (const coordinate of entry.split.resolved) {
+        if (hasMoveObligation(lines, coordinate.docLine)) withObligation.push(coordinate);
+      }
+    }
+    expect(
+      withObligation.length,
+      `좌표 곁에 *누가 언제 옮기는지*가 적힌 자리가 바닥 ${MOVE_OBLIGATION_FLOOR}보다 적어요`
+    ).toBeGreaterThanOrEqual(MOVE_OBLIGATION_FLOOR);
+
+    // 오늘 그 하나는 `known-limitations.md:2584`다 — 그리고 그 의무가 무는 좌표가 오늘 거짓이라는
+    // 사실을 아래 KNOWN_STALE이 값으로 받는다(뒤쪽 물음의 오늘 답은 **지켜지지 않았다**이다).
+    expect(
+      withObligation.some((coordinate) => coordinate.doc.endsWith("known-limitations.md")),
+      "이동 의무가 적힌 자리가 known-limitations.md에 있어야 해요"
+    ).toBe(true);
+  });
+
+  it("오늘 거짓인 좌표를 값으로 든다 — 목록은 상한이고, 비어도 초록이다 (F가 고치면 줄어든다)", () => {
+    expect(
+      KNOWN_STALE_COORDINATES.length,
+      `거짓 좌표 목록이 상한 ${KNOWN_STALE_CAP}을 넘었어요 — 넘었다면 그것은 새 판정이지 이 목록이 아니에요`
+    ).toBeLessThanOrEqual(KNOWN_STALE_CAP);
+
+    for (const stale of KNOWN_STALE_COORDINATES) {
+      // ① 장식이 아닌 목록: 이유·발견 라운드·증거가 실제로 있다.
+      expect(stale.reason.trim().length, "이유가 비어 있으면 값이 아니에요").toBeGreaterThan(20);
+      expect(stale.foundInRound, "발견 라운드를 적어야 해요").toBeGreaterThan(0);
+      const hasEvidence =
+        stale.anchor !== undefined || stale.absentSymbol !== undefined || stale.citedLineIsNot !== undefined;
+      expect(hasEvidence, `${stale.doc}:${stale.docLine}에 증거가 하나도 없어요`).toBe(true);
+      expect(
+        (COORDINATE_LIVE_DOCS as readonly string[]).includes(stale.doc),
+        `${stale.doc}는 이 축이 읽는 문서가 아니에요`
+      ).toBe(true);
+    }
+
+    // ② 오늘 문서에 아직 남아 있는 자리만 증거를 다시 잰다(F가 지우면 이 검사도 함께 사라진다).
+    const present = KNOWN_STALE_COORDINATES.filter((stale) => staleStillPresent(stale, read(stale.doc)));
+    expect(present.length, "남아 있는 거짓 좌표 수가 상한을 넘었어요").toBeLessThanOrEqual(KNOWN_STALE_CAP);
+
+    for (const stale of present) {
+      expect(
+        staleEvidenceProblems(stale),
+        `${stale.doc}:${stale.docLine}의 거짓 판정이 오늘 서지 않아요 — 목록을 갱신해야 해요`
+      ).toEqual([]);
+    }
+
+    // ③ 경로가 있는 자리는 이 계약의 모집단 안에 실제로 있다(유령 목록 방지).
+    const population = liveDocSplits().flatMap((entry) => entry.split.resolved);
+    for (const stale of present.filter((entry) => entry.path !== null)) {
+      expect(
+        population.some(
+          (coordinate) =>
+            coordinate.doc === stale.doc && coordinate.path === stale.path && coordinate.line === stale.line
+        ),
+        `${stale.path}:${stale.line}이 모집단에 없어요 — 목록과 파서가 다른 것을 보고 있어요`
+      ).toBe(true);
+    }
+  });
+
+  it("픽스처 — 파서가 좌표 꼴을 실제로 읽고, 없는 파일·범위 밖 좌표를 잡는다 (교란)", () => {
+    const split = splitCoordinates(COORDINATE_PARSER_FIXTURE, "fixture.md");
+
+    // ① 좌표 꼴을 읽는다: 실재 · 없는 파일 · 범위 밖 · 문서→문서 · 이름만 = 다섯.
+    expect(split.all.length, "픽스처의 좌표 다섯을 읽어야 해요").toBe(5);
+    expect(split.docToDoc.map((coordinate) => coordinate.path)).toEqual([
+      "docs/qa/runtime-verification-required.md"
+    ]);
+    expect(split.bareName.map((coordinate) => coordinate.path)).toEqual(["link-marker.ts"]);
+    // 줄이 없는 인용(`…/ui.tsx` 단독)과 `v1.2:3`은 좌표가 아니다.
+    expect(split.all.some((coordinate) => coordinate.path === "v1.2")).toBe(false);
+
+    // ② 교란 ① — 존재하지 않는 파일 좌표는 해석되지 않는다.
+    expect(existsSync(join(repoRoot, "apps/mobile/src/definitely-not-here-r93e.tsx")), "교란용 경로가 실재하면 교란이 아니에요").toBe(false);
+    expect(split.unresolved.map((coordinate) => `${coordinate.path}:${coordinate.line}`)).toEqual([
+      "apps/mobile/src/definitely-not-here-r93e.tsx:12"
+    ]);
+
+    // ③ 교란 ② — 파일은 실재하지만 줄이 범위 밖인 좌표는 판정 ⓑ가 잡는다.
+    const outOfRange = split.resolved.filter((coordinate) => !isLineWithinFile(coordinate));
+    expect(outOfRange.map((coordinate) => coordinate.line), "범위 밖 좌표를 잡아야 해요").toEqual([999999]);
+    expect(split.resolved.filter(isLineWithinFile).length, "실재 좌표 하나는 통과해야 해요").toBe(1);
+
+    // ④ 이동 의무 창(±2)이 실제로 좁다: 4번째 줄의 의무는 3번째 줄 좌표에는 닿고 1번째에는 닿지 않는다.
+    const lines = COORDINATE_PARSER_FIXTURE.split("\n");
+    expect(hasMoveObligation(lines, 3), "±2 안의 이동 의무를 봐야 해요").toBe(true);
+    expect(hasMoveObligation(lines, 1), "±2 밖의 문장까지 보면 창이 아니에요").toBe(false);
+    // 존재 가드: 파일 밖 줄 번호는 던지지 않고 false다.
+    expect(hasMoveObligation(lines, 0)).toBe(false);
+    expect(hasMoveObligation(lines, lines.length + 50)).toBe(false);
+  });
+
+  it("이 축은 문서를 읽기만 한다 (부정 단언 · 문서 0바이트)", () => {
+    expect(existsSync(join(repoRoot, COORDINATE_SELF_PATH)), "자기 자신을 못 찾았어요").toBe(true);
+    const self = read(COORDINATE_SELF_PATH);
+
+    // `node:fs`에서 가져오는 이름이 전부 읽기여야 이 모듈은 문서를 고칠 수단이 없다.
+    // ⚠️ 모듈 이름도 **캡처해서** 본다 — 금지할 문자열을 이 파일에 그대로 적으면 그 문자열 자신이
+    // 검사에 걸린다(자기 참조). 그래서 "적힌 이름이 무엇인가"를 묻는 꼴로 세운다.
+    const clauses = [...self.matchAll(/import\s*\{([^}]*)\}\s*from\s*"(node:fs[^"]*)"/g)];
+    expect(clauses.length, "node:fs 가져오기가 있어야 해요").toBeGreaterThan(0);
+    for (const clause of clauses) {
+      expect(clause[2], `이 모듈이 ${clause[2]}를 가져와요 — 쓰기 가능한 fs 표면이에요`).toBe("node:fs");
+      const names = clause[1]
+        .split(",")
+        .map((name) => name.trim())
+        .filter((name) => name.length > 0);
+      expect(names.length).toBeGreaterThan(0);
+      for (const name of names) {
+        expect(
+          FS_READ_ONLY_IMPORTS.includes(name),
+          `이 모듈이 \`${name}\`을 가져와요 — 이 트랙은 읽기만 해야 해요`
+        ).toBe(true);
+      }
+    }
+
+    // 문서 넷은 이 트랙이 열지 않는다 — 소유가 F에게 있다는 사실을 값으로 못 박는다.
+    for (const doc of COORDINATE_LIVE_DOCS) {
+      expect(existsSync(join(repoRoot, doc)), `${doc}가 있어야 해요`).toBe(true);
+    }
+  });
+
+  it("모집단 밖(라운드 노트)을 값으로 적는다 — 죽은 좌표까지 (사각 ⓑ)", () => {
+    const owned = new Set<string>(COORDINATE_LIVE_DOCS);
+    const outside: ResolvedCoordinate[] = [];
+    const docsWithHits = new Set<string>();
+    for (const doc of markdownFilesUnderDocs()) {
+      if (owned.has(doc)) continue;
+      const resolved = splitCoordinates(read(doc), doc).resolved;
+      if (resolved.length > 0) docsWithHits.add(doc);
+      outside.push(...resolved);
+    }
+
+    // ⚠️ 이 수는 **모집단이 아니다** — 라운드 노트는 작업 기록이라 밖에 둔다. 밖에 두었다는 사실과
+    // 그 크기를 값으로 적어 두는 것이 이 `it`의 전부다(오늘 943 · 문서 35).
+    expect(outside.length, "모집단 밖 좌표 (오늘 943 — 라운드 노트가 대부분이다)").toBeGreaterThanOrEqual(900);
+    expect(docsWithHits.size, "모집단 밖에서 좌표를 무는 문서 (오늘 35)").toBeGreaterThanOrEqual(25);
+
+    // 그중 **파일 길이를 넘는 죽은 좌표**가 오늘 셋이다(`app/(tabs)/records.tsx`는 1,774줄인데
+    // round65·round67 정찰이 :1831·:1884를 물고, round93 정찰이 그 사실을 인용하며 하나를 더 늘렸다).
+    // ⚠️ **정찰을 쓰는 걸음이 곧 이 사각을 키우는 걸음이다.**
+    const dead = outside.filter((coordinate) => !isLineWithinFile(coordinate));
+    expect(dead.length, "모집단 밖의 죽은 좌표 (오늘 3)").toBeGreaterThanOrEqual(2);
+  });
+
+  // ── 재개 조건(AD-5) — **이 축의 것만** 적는다 ────────────────────────────────
+  //  ① `KNOWN_STALE_COORDINATES` 여섯 중 F가 정정한 자리를 지우고 **얼마로 줄었는지**를 다시 잰다
+  //     (사각 ⓐ가 다음 라운드에 얼마가 되는지가 이 축의 첫 물음이다).
+  //  ② `COORDINATE_LIVE_DOCS` 손 목록을 전수로 바꿀지 결정한다 — 오늘 밖에 있는 산 문서는
+  //     `docs/5차/design-restore-spec.md`(3건) 하나다. **그것은 또 다른 축**이라 이 라운드는 열지 않았다.
+  //  ③ **좌표가 가리키는 줄의 내용**까지 무는 축(오늘은 존재·범위까지만 봤다) — 여섯을 손으로 푼
+  //     그 일을 기계가 하게 만드는 걸음이고, 앵커 문자열을 값으로 드는 위 KNOWN_STALE이 그 본보기다.
+  //  ④ 이름만의 좌표 **17**(사각 ⓓ)과 절 이름·`#N` 꼴 인용(사각 ⓒ · 수는 훨씬 크다)은 아직 밖이다.
+});
