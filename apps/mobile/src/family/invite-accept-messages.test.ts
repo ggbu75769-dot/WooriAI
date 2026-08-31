@@ -494,7 +494,9 @@ describe("라운드 89 A — 끝난 초대 카드의 낭독 (두 플랫폼)", ()
     const moduleSource = source("src/family/invite-accept-messages.ts");
     const start = moduleSource.indexOf("export function inviteUnavailableAnnouncement(");
     expect(start, "낭독 문장을 짓는 함수").toBeGreaterThan(-1);
-    const body = moduleSource.slice(start, moduleSource.indexOf("\n}\n", start));
+    const bodyEnd = moduleSource.indexOf("\n}\n", start);
+    expect(bodyEnd, "함수 본문의 끝").toBeGreaterThan(start);
+    const body = moduleSource.slice(start, bodyEnd);
     // 상수 넷을 잇는 것이 전부다 — 여기서 문장을 지으면 문구 단일 소스를 이 모듈이 스스로 깬다.
     for (const constantName of [
       "INVITE_UNAVAILABLE_TITLE",
@@ -506,7 +508,9 @@ describe("라운드 89 A — 끝난 초대 카드의 낭독 (두 플랫폼)", ()
     }
     expect(body, "한국어 리터럴").not.toMatch(/[가-힣]/);
     // 판정 함수는 종전 그대로다 — 세션 축을 알지 못한다(S-1이 세운 그 사실 그대로).
-    const decide = moduleSource.slice(moduleSource.indexOf("export function isInviteUnavailableError("));
+    const decideAt = moduleSource.indexOf("export function isInviteUnavailableError(");
+    expect(decideAt, "판정 함수").toBeGreaterThan(-1);
+    const decide = moduleSource.slice(decideAt);
     expect(decide).not.toContain("hasSession");
     // ⚠️ 트랙 C가 `export const` 축을 모집단으로 들인다 — 이 라운드의 새 export는 **함수**다.
     expect(moduleSource).not.toContain("export const inviteUnavailableAnnouncement");
@@ -531,6 +535,7 @@ describe("라운드 89 A — 끝난 초대 카드의 낭독 (두 플랫폼)", ()
     expect(src.split("announceForA11y(inviteUnavailableAnnouncement(").length - 1, "낭독 호출부").toBe(1);
     // 조건 밖(렌더 · 핸들러 · 다른 effect)에서 부르는 자리가 없다: 유일한 호출부가 그 if 안이다.
     const at = src.indexOf("announceForA11y(inviteUnavailableAnnouncement(");
+    expect(at, "낭독 호출부 자리").toBeGreaterThan(-1);
     const guardAt = src.lastIndexOf("if (inviteUnavailable) {", at);
     expect(guardAt, "낭독을 덮는 조건").toBeGreaterThan(-1);
     expect(src.slice(guardAt, at), "조건과 낭독 사이").not.toContain("}");
@@ -544,6 +549,7 @@ describe("라운드 89 A — 끝난 초대 카드의 낭독 (두 플랫폼)", ()
     const effectAt = src.indexOf(ADDED_EFFECT);
     expect(effectAt, "더한 effect").toBeGreaterThan(-1);
     const docAt = src.lastIndexOf("  /**", effectAt);
+    expect(docAt, "effect 머리말 주석").toBeGreaterThan(-1);
     const stripped = (src.slice(0, docAt) + src.slice(effectAt + ADDED_EFFECT.length + "\n\n".length)).replace(
       ADDED_IMPORT,
       ""
