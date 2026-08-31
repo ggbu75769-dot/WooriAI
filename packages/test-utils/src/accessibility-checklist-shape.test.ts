@@ -28,7 +28,7 @@
 // **수의 정합**이지 **확인 여부가 아니다** — C-3을 실제로 확인할 손은 저장소 밖이고, 그 배정을
 // 이 파일이 대신할 수는 없다(그 사실은 ⓕ 사각에 값으로 적혀 있다).
 //
-// 이 파일이 묻는 것은 일곱이다(라운드 91 트랙 E가 ⓖ를 더했다).
+// 이 파일이 묻는 것은 여덟이다(라운드 91 트랙 E가 ⓖ를, 라운드 92 트랙 E가 ⓗ를 더했다).
 //  ⓐ **자기 정합** — 경과 수를 말하는 **세 자리** 각각에서 한글 수사가 **열거된 라운드 목록의 길이**와
 //     같은가(당시 22/22 · 19/19 두 자리, 오늘 23/23 · 23/23 · 23/23 세 자리).
 //  ⓑ **접두** — "수동 증거" 절의 목록이 C절 목록의 **접두**인가(두 목록이 서로 다른 라운드를
@@ -70,6 +70,23 @@
 //        이 트랙이 문서를 고쳐야 하고, 그 순간 *계약이 문서를 지킨다*가 뒤집힌다.
 //      · ⚠️ **무는 것은 문서 쪽이지 상수가 아니다** — 상수는 한 바이트도 움직이지 않았다(0 그대로 ·
 //        올리는 것은 갈림을 넓히는 일이라 금지, 내리는 쪽만 안전하다).
+//  ⓗ **이동 의무 — *누가 언제 이 좌표를 옮기는가*가 자리마다 적혀 있는가.**
+//     이 계약(과 짝 계약)의 **소스**가 문서의 좌표를 **등호로 무는 자리**마다, 그 자리 **바로 위**에
+//     옮기는 손과 시점이 적혀 있을 것을 묻는다.
+//     ⚠️ **라운드 92 트랙 E가 더한 새 축이고, 세운 이유는 AF-5가 값으로 적은 그 비용이다.**
+//     ⓖ의 `[22, 1223, 1267]`은 F의 문서 걸음이 밀 때마다 **F가 함께 옮겨야 하는 등호**이고, 그
+//     의무는 오늘 저장소에서 **그 한 자리에만** 적혀 있었다 — 절 이름을 등호로 무는 자리들은 같은
+//     의무를 지면서도 **한 자도 적혀 있지 않았다**. 그 빈 자리를 이 트랙이 적는다.
+//      · **모집단(두 파일 합 · 전수 파생 · 손 목록 금지)**: 문서 줄 번호를 리터럴 배열로 등호에 넣은
+//        자리 **하나** · 절 제목 문자열을 등호로 찾는 자리 **여덟**.
+//        ⚠️ **두 시점**: 정찰의 실측은 **하나와 여섯**이었다 — 그 여섯은 `headingLine(…)` 꼴만
+//        셌을 때의 값이고, 같은 일을 하는 `startsWith("### 0-1.")` 꼴 **둘**이 그 갈림이다(이 트랙의
+//        재실측). **하한은 정찰의 여섯으로 둔다**(라운드 90 트랙 D가 87을 하한으로 둔 그 형식).
+//      · ⚠️⚠️ **두 수를 한 낱말로 적지 않는다** — 한 수로 접으면 이 축이 닫힌 것으로 읽힌다.
+//      · ⚠️ **의무 문장은 이 트랙이 소스에 적는 것이므로 세우는 순간 초록이다** — 문서는 한 글자도
+//        고치지 않는다(고치는 손은 F뿐이고, `[22, 1223, 1267]`의 값도 F가 옮긴다).
+//      · **재개 조건(사건형): 저장소의 다른 계약이 문서 좌표를 등호로 물기 시작하는 날 — 그날 이
+//        모집단이 이 두 파일 밖으로 넓어진다.**
 //
 // ⚠️ **이 계약은 문서를 고치지 않는다.** 읽기만 한다(`docs/**` 쓰기 0건). 세 자리를 맞추는 갱신은
 // 문서 트랙의 몫이고, 이 파일은 그 갱신이 **한 자리만 고치고 지나가는 것**을 막는 자리에 선다.
@@ -106,9 +123,27 @@ function headingLine(prefix: string): number {
   return index + 1;
 }
 
-/** 오늘: 268 · 1022 · 1042. 값은 여기 적지 않고 제목에서 찾는다. */
+/**
+ * 오늘: 268 · 1022 · 1042. 값은 여기 적지 않고 제목에서 찾는다.
+ *
+ * ⚠️ **이동 의무(ⓗ · 라운드 92 트랙 E)** — 아래 셋은 절의 **줄 번호**가 아니라 **이름**을 등호로
+ * 무는 자리다. 그래서 F가 절을 더하거나 지워 줄이 밀리는 라운드에는 아무도 손대지 않아도 되고,
+ * **절의 이름 자신이 바뀌는 라운드에만** 옮긴다 — 그 손은 그 제목을 고치는 **문서 트랙(F)**이고,
+ * 시점은 **그 제목을 고치는 그 라운드 안**이다(다음 라운드로 미루면 그 사이 이 계약이 빨간 채로
+ * 선다). 이름이 사라지면 아래 `headingLine`이 그 자리에서 곧바로 빨개진다(ⓓ fail-closed).
+ */
 const SECTION_A_LINE = headingLine("## A절.");
+/**
+ * ⚠️ **이동 의무(ⓗ)** — `## C절.` 제목을 고치는 손이 **같은 라운드 안에** 이 등호를 함께 옮긴다.
+ * 오늘 그 손은 문서 트랙(F)이다 — 이 계약은 문서를 고치지 않으므로, 제목이 먼저 움직이고 이
+ * 등호가 뒤따른다.
+ */
 const SECTION_C_LINE = headingLine("## C절.");
+/**
+ * ⚠️ **이동 의무(ⓗ)** — `## 수동 증거` 제목을 고치는 손이 **같은 라운드 안에** 이 등호를 함께
+ * 옮긴다(오늘 그 손은 문서 트랙 F다). 이 절은 C-3의 셋 가운데 둘째 자리를 지므로, 이름이 바뀌면
+ * ⓑ·ⓒ의 견줌이 통째로 멈춘다 — 그래서 조용히 낡는 대신 그 자리에서 빨개지는 쪽을 고른다.
+ */
 const SECTION_MANUAL_LINE = headingLine("## 수동 증거");
 
 // ---------------------------------------------------------------------------
@@ -216,7 +251,14 @@ const strayBodySites = bodySites.filter(
  */
 const pairLines = read(PAIR_DOC_PATH).split("\n");
 
-/** 짝 문서 §0-1의 범위 — `### 0-1.`부터 다음 `## `까지(0-based 인덱스). */
+/**
+ * 짝 문서 §0-1의 범위 — `### 0-1.`부터 다음 `## `까지(0-based 인덱스).
+ *
+ * ⚠️ **이동 의무(ⓗ · 라운드 92 트랙 E)** — 이 등호가 무는 것은 짝 문서의 **절 이름**이다.
+ * 짝 문서에 행이 늘어 줄이 밀리는 라운드에는 아무도 손대지 않고, **§0-1의 제목이 바뀌거나 그 절이
+ * 사라지는 라운드에만** 옮긴다 — 그 손은 짝 문서를 고치는 **문서 트랙(F)**이고, 시점은 **그 제목을
+ * 고치는 그 라운드 안**이다. 못 찾으면 아래 단언이 `-1`에서 빨개진다(ⓓ fail-closed).
+ */
 const PAIR_S01_FROM = pairLines.findIndex((line) => line.startsWith("### 0-1."));
 const PAIR_S01_TO = pairLines.findIndex(
   (line, index) => index > PAIR_S01_FROM && /^## /.test(line)
@@ -345,7 +387,13 @@ function numberedRows(docLines: string[], fromIndex: number, toIndex: number): N
   return rows;
 }
 
-/** 짝 문서 §1-1의 범위 — `### 1-1.`부터 다음 `## `까지(0-based 인덱스 · 오늘 395~1185행). */
+/**
+ * 짝 문서 §1-1의 범위 — `### 1-1.`부터 다음 `## `까지(0-based 인덱스 · 오늘 395~1185행).
+ *
+ * ⚠️ **이동 의무(ⓗ)** — 괄호 안의 `395~1185`는 **기록**이지 이 계약이 무는 값이 아니다(무는 것은
+ * 아래 등호의 **절 이름**뿐이다). 그래서 §1-1이 라운드마다 자라도 옮길 것이 없고, **그 제목이
+ * 바뀌는 라운드에만** 문서 트랙(F)이 **같은 라운드 안에** 이 등호를 함께 옮긴다.
+ */
 const PAIR_S11_FROM = pairLines.findIndex((line) => line.startsWith("### 1-1."));
 const PAIR_S11_TO = pairLines.findIndex(
   (line, index) => index > PAIR_S11_FROM && /^## /.test(line)
@@ -519,6 +567,151 @@ function quotedConstantLineCount(text: string): number {
 
 /** 오늘: 자리 셋 — `:22`(인용+정정) · `:1153`(단언) · `:1188`(단언). 세 자리 다 값이 **0**이다. */
 const constantSites = collectConstantSites(source);
+
+// ---------------------------------------------------------------------------
+// ⓗ의 모집단 — **소스가 문서의 좌표를 등호로 무는 자리** (라운드 92 트랙 E · #5)
+// ---------------------------------------------------------------------------
+
+/**
+ * ⚠️⚠️ **이 축이 무는 것은 좌표의 값이 아니라 *이동 의무*다.**
+ *
+ * 라운드 90 트랙 D는 같은 문서의 좌표 축을 세우며 **하한**을 골랐고(오늘 `>= 91` 꼴 넷), 그래서
+ * F의 걸음에 흔들리지 않는다. 라운드 91 트랙 E의 ⓖ는 **등호**를 골랐고(`[22, 1223, 1267]`), 그래서
+ * **절이 서는 라운드마다 F가 그 줄을 함께 옮겨야 한다**. 둘 다 옳은 선택이고 값은 AF-5에 있다 —
+ * 이 축이 묻는 것은 *어느 쪽이 옳은가*가 아니라, **등호를 고른 자리마다 그 의무가 적혀 있는가**다.
+ *
+ * ⚠️ **모집단은 손 목록이 아니라 두 파일의 소스에서 전수로 파생한다**(후보 #1이 값으로 본 병 —
+ * *관례를 세는 계약의 모집단이 손 목록이면 그 관례에서 빠진 자리는 구조적으로 보이지 않는다*).
+ * 파일의 범위만 값이고(오늘 이 계약과 그 짝 둘), 자리는 바늘이 찾는다.
+ *
+ * ⚠️ **자기 배제(ⓔ)** — **주석 안**에서 같은 꼴을 인용한 자리는 모집단 밖이다. 이 파일의 머리말은
+ * `startsWith("### 0-1.")` 같은 꼴을 *설명하려고* 여러 번 적는데, 그 인용은 문서의 좌표를 무는
+ * 자리가 아니라 **이 계약을 설명하는 문장**이다. ⚠️ 그 배제를 부르는 이름은 이 파일에 이미 있는
+ * `SELF_PATH`를 그대로 쓴다 — 오늘 저장소에 이 관례가 **열두 자리 · 이름 넷**으로 갈려 있고
+ * 정합을 세는 자리가 **0건**이라(P3 · 결정형 13), 여기서 다섯째 이름을 만들면 그 갈림만 넓힌다.
+ */
+const MOVE_DUTY_FILES = [SELF_PATH, PAIR_CONTRACT_PATH] as const;
+
+/**
+ * ⓐ **절 제목 문자열을 등호로 찾는 자리** — `headingLine("## A절.")`·`startsWith("### 0-1.")` 꼴.
+ * ⚠️ 이 정규식 자신은 이 바늘에 걸리지 않는다(이름 뒤에 `\(`가 오지 `(`가 오지 않는다).
+ */
+const SECTION_NAME_BITE_PATTERN = /(?:headingLine|startsWith)\(\s*"(#{2,3} [^"]*)"/g;
+
+/** ⓑ **문서 줄 번호를 리터럴 배열로 등호에 넣은 자리** — 단언의 대상이 줄 번호인 것만 문다. */
+const LINE_ARRAY_BITE_PATTERN = /\.toEqual\(\[\s*\d+(?:\s*,\s*\d+)*\s*\]\)/g;
+
+/** ⓖ 사각 `반대-방향`의 자 — **문서가** 소스의 좌표를 `<파일>:<줄>`로 부르는 자리. */
+const SOURCE_COORDINATE_IN_DOC_PATTERN =
+  /[A-Za-z0-9_./-]+\.(?:ts|tsx|js|mjs|cjs|json|sh|yml|yaml)`?:\d+/g;
+
+/** 이동 의무가 갖춰야 할 것 — ⚠️ **빈 문장 금지: 길이로 막고, 손과 시점을 함께 묻는다.** */
+const DUTY_MIN_LENGTH = 40;
+const DUTY_HAND_PATTERN = /트랙[ (*]{0,3}[A-F]|[A-F]가|사람/;
+const DUTY_WHEN_PATTERN = /라운드|날|시점|때/;
+const DUTY_MOVE_PATTERN = /옮/;
+
+type MoveDutySite = {
+  readonly file: string;
+  readonly line: number;
+  readonly kind: "줄 번호 배열" | "절 이름";
+  /** 무는 문자열 — 절 제목이거나 줄 번호 배열 리터럴. */
+  readonly bite: string;
+  /** 자리 **바로 위**의 잇닿은 주석 덩어리. */
+  readonly duty: string;
+};
+
+function isCommentLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*");
+}
+
+/** 자리 바로 위의 잇닿은 주석 덩어리 — 빈 줄이나 코드가 끼면 거기서 끊긴다(*바로 위*의 뜻). */
+function dutyAbove(fileLines: readonly string[], index: number): string {
+  const block: string[] = [];
+  for (let cursor = index - 1; cursor >= 0 && isCommentLine(fileLines[cursor]); cursor -= 1) {
+    block.unshift(fileLines[cursor].trim());
+  }
+  return block.join("\n");
+}
+
+function collectMoveDutySites(file: string, text: string): MoveDutySite[] {
+  const fileLines = text.split("\n");
+  const sites: MoveDutySite[] = [];
+  fileLines.forEach((line, index) => {
+    if (isCommentLine(line)) return; // ⓔ 자기 배제 — 설명하는 문장 안의 인용
+    for (const match of line.matchAll(SECTION_NAME_BITE_PATTERN)) {
+      sites.push({
+        file,
+        line: index + 1,
+        kind: "절 이름",
+        bite: match[1],
+        duty: dutyAbove(fileLines, index)
+      });
+    }
+  });
+  for (const match of text.matchAll(LINE_ARRAY_BITE_PATTERN)) {
+    const before = text.slice(0, match.index);
+    const opened = before.lastIndexOf("expect(");
+    // 단언의 대상이 **줄 번호**인 배열만 좌표다 — 합성 소스의 번호 배열(`[37, 999]`)은 밖이다.
+    if (!/\.line\b/.test(before.substring(Math.max(opened, 0)))) continue;
+    const index = before.split("\n").length - 1;
+    if (isCommentLine(fileLines[index])) continue; // ⓔ 자기 배제
+    sites.push({
+      file,
+      line: index + 1,
+      kind: "줄 번호 배열",
+      bite: match[0],
+      duty: dutyAbove(fileLines, index)
+    });
+  }
+  return sites.sort((left, right) => left.line - right.line);
+}
+
+/** ⓔ의 값 — **주석 안**에서 같은 꼴을 부른 줄 수(모집단 밖이라는 사실의 근거). */
+function commentBiteMentions(text: string): number {
+  return text
+    .split("\n")
+    .filter((line) => isCommentLine(line) && [...line.matchAll(SECTION_NAME_BITE_PATTERN)].length > 0)
+    .length;
+}
+
+/** 이동 의무가 갖추지 못한 것들 — 빈 배열이면 그 자리는 의무를 적었다. */
+function dutyGaps(site: MoveDutySite): string[] {
+  const duty = site.duty.trim();
+  const gaps: string[] = [];
+  if (duty.length < DUTY_MIN_LENGTH) gaps.push(`문장이 ${duty.length}자예요(하한 ${DUTY_MIN_LENGTH})`);
+  if (!DUTY_MOVE_PATTERN.test(duty)) gaps.push("*옮긴다*는 말이 없어요");
+  if (!DUTY_HAND_PATTERN.test(duty)) gaps.push("*누가* 옮기는지가 없어요");
+  if (!DUTY_WHEN_PATTERN.test(duty)) gaps.push("*언제* 옮기는지가 없어요");
+  return gaps;
+}
+
+/** ⓓ fail-closed — 절 이름 등호가 **못 찾으면 빨개지는 자**인 근거. */
+function failClosedBy(site: MoveDutySite, text: string): "headingLine" | "이름 붙은 인덱스" | "없음" {
+  const line = text.split("\n")[site.line - 1] ?? "";
+  if (line.includes("headingLine(")) return "headingLine";
+  const named = /const\s+([A-Za-z0-9_$]+)\s*=/.exec(line);
+  if (
+    named &&
+    new RegExp(`expect\\(\\s*${named[1]}[\\s\\S]{0,300}?toBeGreaterThan\\(-1\\)`).test(text)
+  ) {
+    return "이름 붙은 인덱스";
+  }
+  return "없음";
+}
+
+const moveDutySources = MOVE_DUTY_FILES.map((file) => ({ file, text: read(file) }));
+const moveDutySites = moveDutySources.flatMap((entry) => collectMoveDutySites(entry.file, entry.text));
+/** ⓒ **두 수를 가른다** — 오늘 절 이름 여덟(정찰 하한 여섯) · 줄 번호 배열 하나. */
+const sectionNameSites = moveDutySites.filter((site) => site.kind === "절 이름");
+const lineArraySites = moveDutySites.filter((site) => site.kind === "줄 번호 배열");
+
+/**
+ * ⚠️ 시험용 호출은 **이름을 한 번 거쳐** 부른다 — 그러지 않으면 fail-closed를 값으로 보이는 그
+ * 한 줄이 스스로 모집단에 들어와, 자리 수를 부풀리고 의무 문장을 요구하게 된다.
+ */
+const callHeadingLine: (prefix: string) => number = headingLine;
 
 // ---------------------------------------------------------------------------
 
@@ -970,6 +1163,202 @@ describe("ⓖ 문서가 옮겨 적은 이 계약의 상수 — 오늘 값의 정
     expect(collectConstantSites(named)[0].todayValues).toEqual([]);
     expect(collectConstantSites(named)[0].shape).toBe("인용만");
   });
+});
+
+describe("ⓗ 이동 의무 — 누가 언제 이 좌표를 옮기는가 (라운드 92 트랙 E)", () => {
+  /**
+   * ⓕ **래칫 — 무는 자리 수는 줄지 않는다.** 하한은 **정찰의 실측**(줄 번호 배열 하나 · 절 이름
+   * 여섯)이고, 오늘 이 트랙의 재실측은 **하나와 여덟**이다. ⚠️ **두 수를 한 낱말로 접지 않는다.**
+   */
+  const LINE_ARRAY_FLOOR = 1;
+  const SECTION_NAME_FLOOR = 6;
+
+  it("ⓐ 모집단 — 두 파일에서 전수로 파생되고 0건이 아니다 (유령 방지)", () => {
+    expect(MOVE_DUTY_FILES.length, "모집단의 파일 범위가 둘이 아니에요").toBe(2);
+    for (const entry of moveDutySources) {
+      expect(entry.text.length, `${entry.file}을(를) 읽지 못했어요`).toBeGreaterThan(0);
+      expect(
+        collectMoveDutySites(entry.file, entry.text).length,
+        `${entry.file}에서 좌표를 무는 자리를 한 자리도 찾지 못했어요 — 바늘이 낡았는지 먼저 보세요`
+      ).toBeGreaterThan(0);
+    }
+    expect(moveDutySites.length, "모집단이 0건이에요").toBeGreaterThan(0);
+  });
+
+  it("ⓒ 두 수를 따로 든다 — 줄 번호 등호와 절 이름 등호 (한 낱말로 접지 않는다)", () => {
+    // ⚠️ 오늘: 줄 번호 배열 **하나**(`[22, 1223, 1267]`) · 절 이름 **여덟**(두 파일 합).
+    expect(
+      lineArraySites.length,
+      "문서 줄 번호를 배열 등호로 무는 자리가 줄었어요 — 그 자리가 사라졌다면 ⓖ가 함께 사라진 것입니다"
+    ).toBeGreaterThanOrEqual(LINE_ARRAY_FLOOR);
+    expect(
+      sectionNameSites.length,
+      `절 이름을 등호로 무는 자리가 정찰의 하한(${SECTION_NAME_FLOOR}) 아래예요`
+    ).toBeGreaterThanOrEqual(SECTION_NAME_FLOOR);
+    // 두 수가 서로 다른 자를 낸다(같은 수가 나오면 바늘 하나가 죽은 것이다).
+    expect(lineArraySites.length + sectionNameSites.length).toBe(moveDutySites.length);
+    expect(lineArraySites.length).not.toBe(sectionNameSites.length);
+    // 두 파일이 각각 자리를 진다 — 한 파일만 세는 축이 아니다.
+    for (const file of MOVE_DUTY_FILES) {
+      expect(
+        sectionNameSites.filter((site) => site.file === file).length,
+        `${file}에 절 이름을 무는 자리가 0건이에요`
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("ⓑ 자리마다 바로 위에 이동 의무가 적혀 있다 (빈 문장 금지 · 길이로 막는다)", () => {
+    const missing = moveDutySites
+      .filter((site) => dutyGaps(site).length > 0)
+      .map((site) => `${site.file}:${site.line} — ${dutyGaps(site).join(" · ")}`);
+    expect(
+      missing,
+      "좌표를 등호로 무는 자리 바로 위에 *누가 언제 이것을 옮기는가*가 없어요 — 자리를 새로 만든 사람이 그 문장을 함께 적으세요"
+    ).toEqual([]);
+    // 의무 문장이 실제로 길다(장식 한 낱말이 통과하지 않는다).
+    for (const site of moveDutySites) {
+      expect(site.duty.trim().length, `${site.file}:${site.line}의 의무 문장`).toBeGreaterThanOrEqual(
+        DUTY_MIN_LENGTH
+      );
+    }
+  });
+
+  it("ⓓ fail-closed — 절 이름 등호는 못 찾으면 빨개지는 자다 (유령이 아니다)", () => {
+    // ⓐ 값으로: `headingLine`은 못 찾으면 **던진다**(조용히 -1을 돌려주지 않는다).
+    expect(() => callHeadingLine("## 이 문서에 없는 절 제목")).toThrow();
+    // ⓑ 전수로: 자리마다 그 근거가 둘 중 하나다 — `headingLine`이거나, 자르기 전에 실재를 물은
+    //    이름 붙은 인덱스(`expect(<이름>).toBeGreaterThan(-1)`)다.
+    const unguarded = sectionNameSites
+      .filter((site) => {
+        const text = moveDutySources.find((entry) => entry.file === site.file)!.text;
+        return failClosedBy(site, text) === "없음";
+      })
+      .map((site) => `${site.file}:${site.line} (${site.bite})`);
+    expect(
+      unguarded,
+      "절 이름을 못 찾아도 조용한 자리가 있어요 — 그 자리는 유령이고, 문서가 절 이름을 바꾼 날 아무도 모릅니다"
+    ).toEqual([]);
+    // 근거 둘이 실제로 둘 다 서 있다(한 꼴만 남으면 이 자가 절반만 본다).
+    const grounds = new Set(
+      sectionNameSites.map(
+        (site) => failClosedBy(site, moveDutySources.find((entry) => entry.file === site.file)!.text)
+      )
+    );
+    expect([...grounds].sort()).toEqual(["headingLine", "이름 붙은 인덱스"]);
+  });
+
+  it("ⓔ 자기 배제 — 이 계약을 설명하는 문장 안의 인용은 모집단 밖이다", () => {
+    // 이 파일의 머리말·주석은 같은 꼴을 여러 번 인용한다(오늘 그 줄이 여럿이다).
+    expect(
+      commentBiteMentions(read(SELF_PATH)),
+      "주석 안의 인용이 0건이면 이 배제는 유령이에요 — 배제가 무엇을 빼는지 값으로 보이세요"
+    ).toBeGreaterThan(0);
+    // 그런데도 모집단에는 주석 줄이 한 자리도 없다.
+    const inComments = moveDutySites.filter((site) => {
+      const text = moveDutySources.find((entry) => entry.file === site.file)!.text;
+      return isCommentLine(text.split("\n")[site.line - 1] ?? "");
+    });
+    expect(inComments, "주석 안의 인용이 모집단에 들어왔어요").toEqual([]);
+    // 합성 소스로 그 배제를 값으로 보인다(문서도 소스도 고치지 않는다).
+    const needle = "headingLine";
+    const quoted = `// 이 계약은 ${needle}("## A절.")로 절 이름을 찾는다고 설명한다`;
+    expect(collectMoveDutySites("합성", quoted)).toEqual([]);
+    expect(commentBiteMentions(quoted)).toBe(1);
+  });
+
+  it("ⓕ 래칫 — 무는 자리는 줄지 않고, 의무가 빈 자리는 0을 넘지 않는다", () => {
+    expect(moveDutySites.length).toBeGreaterThanOrEqual(LINE_ARRAY_FLOOR + SECTION_NAME_FLOOR);
+    expect(moveDutySites.filter((site) => dutyGaps(site).length > 0).length).toBe(0);
+  });
+
+  it("바늘이 장식이 아니다 — 의무 없는 자리는 합성 소스에서 잡힌다", () => {
+    // ⚠️ **합성 소스로 증명한다**(라운드 88 D의 형식) — 저장소를 한 글자도 고치지 않고 바늘을 시험한다.
+    const needle = "headingLine";
+    const bare = `const SECTION_X_LINE = ${needle}("## 새 절.");`;
+    const bareSites = collectMoveDutySites("합성", bare);
+    expect(bareSites).toHaveLength(1);
+    expect(bareSites[0].kind).toBe("절 이름");
+    expect(dutyGaps(bareSites[0]).length).toBeGreaterThan(0);
+
+    // 같은 자리에 의무를 적으면 초록이다 — 고치는 법이 하나뿐이고 쉽다.
+    const written = [
+      "/**",
+      " * ⚠️ 이동 의무 — 이 제목을 고치는 문서 트랙(F)이 같은 라운드 안에 이 등호를 함께 옮긴다.",
+      " */",
+      bare
+    ].join("\n");
+    const writtenSites = collectMoveDutySites("합성", written);
+    expect(writtenSites).toHaveLength(1);
+    expect(dutyGaps(writtenSites[0])).toEqual([]);
+
+    // 한 낱말짜리 장식은 통과하지 못한다(길이·손·시점을 함께 묻는다).
+    const decorated = collectMoveDutySites("합성", ["// 옮긴다", bare].join("\n"));
+    expect(dutyGaps(decorated[0]).length).toBeGreaterThan(0);
+
+    // 그리고 줄 번호 배열 쪽 바늘은 **줄 번호가 아닌 배열**을 세지 않는다.
+    const numbersNotLines = collectMoveDutySites(
+      "합성",
+      "expect(chain[0].numbers).toEqual([37, 999]);"
+    );
+    expect(numbersNotLines).toEqual([]);
+  });
+
+  /**
+   * ⓖ **사각 — 값과 하한으로 적는다.** ⚠️ 이 축이 **못 보는 것**이 무엇인지가 이 축의 절반이다.
+   */
+  const MOVE_DUTY_BLIND_SPOTS = [
+    {
+      id: "문서에서-파생한-좌표",
+      statement:
+        "⚠️ **문서를 파싱해 파생한 좌표는 이 바늘 밖이다.** 라운드 90 트랙 D의 축(위 ⓔ 전수)이 그 자리이고, 그 좌표들은 등호가 아니라 **문서에서 읽어 만든 값**이라 옮길 사람이 없다 — 그래서 이동 의무를 물을 대상도 없다. ⚠️ **그 축의 자리 수는 이 트랙이 다시 재고 값으로 적는다**: **D 커밋 시점 91 · 라운드 91 실측 92 · 오늘(라운드 92 트랙 E 재실측) 93**(인용된 번호는 오늘 97). 세 시점 다 계약은 초록이었다 — D가 **하한**을 골랐기 때문이고, 그 선택의 값이 이 사각의 크기다.",
+      /** 파싱으로 파생한 좌표 자리 수(오늘 93). 하한은 D 커밋 시점의 91. */
+      floor: 91,
+      measure: () => coordinateSites.length
+    },
+    {
+      id: "반대-방향",
+      statement:
+        "⚠️ **문서가 소스의 좌표를 무는 반대 방향은 이 바늘 밖이고, 그 수는 훨씬 크다.** 이 축은 *소스가 문서를 가리키는* 자리만 센다(오늘 아홉). 그 반대 — 문서가 `<파일>:<줄>` 꼴로 소스를 가리키는 자리는 **이 계약이 읽는 문서 셋만 세어도 서른셋**이고, 저장소 전체로는 그보다 훨씬 크다(이 계약은 문서 셋만 읽으므로 그 밖은 이 자도 세지 않는다 — 그 사실이 이 사각의 두 겹째다). 그 자리들에는 이동 의무가 **한 자도 적혀 있지 않고**, 옮기는 손도 반대다(소스가 밀리면 **문서**를 고쳐야 한다).",
+      /** 문서 셋이 소스 좌표를 부른 자리 수(오늘 33). 자리가 늘면 사각도 함께 는다. */
+      floor: 25,
+      measure: () =>
+        [CHECKLIST_PATH, PAIR_DOC_PATH, JUDGEMENT_DOC_PATH]
+          .map((path) => (read(path).match(SOURCE_COORDINATE_IN_DOC_PATTERN) ?? []).length)
+          .reduce((sum, count) => sum + count, 0)
+    },
+    {
+      id: "적힘-지켜짐",
+      statement:
+        "⚠️⚠️ **의무가 적혀 있다는 것과 그 의무가 지켜진다는 것은 다르다 — 이 자는 앞쪽만 센다.** 자리마다 *누가 언제 옮기는가*가 적혀 있는지는 여기서 값으로 걸리지만, **그 손이 그날 실제로 옮겼는가**는 이 그물 밖이다. 뒤쪽은 **라운드마다 F의 걸음이 답한다** — F가 절을 세우며 `[22, 1223, 1267]`을 함께 옮기면 이 계약이 초록으로 남고, 잊으면 ⓖ가 **그 자리에서** 빨개진다(그것이 등호를 고른 값이다). ⚠️ 그래서 이 사각의 자는 *지켜짐*이 아니라 **의무가 적힌 자리 수**를 센다 — 아홉 자리 다 적혀도 사각은 사라지지 않는다. **재개 조건(사건형): 저장소의 다른 계약이 문서 좌표를 등호로 물기 시작하는 날 — 그날 이 모집단이 이 두 파일 밖으로 넓어진다.**",
+      /** 의무가 적힌 자리 수(오늘 9 = 줄 번호 1 + 절 이름 8). 하한은 정찰의 1+6. */
+      floor: LINE_ARRAY_FLOOR + SECTION_NAME_FLOOR,
+      measure: () => moveDutySites.filter((site) => dutyGaps(site).length === 0).length
+    }
+  ] as const;
+
+  it("사각마다 문장이 비어 있지 않고 id가 서로 다르다 (최소 셋)", () => {
+    expect(MOVE_DUTY_BLIND_SPOTS.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(MOVE_DUTY_BLIND_SPOTS.map((spot) => spot.id)).size).toBe(
+      MOVE_DUTY_BLIND_SPOTS.length
+    );
+    for (const spot of MOVE_DUTY_BLIND_SPOTS) {
+      expect(spot.statement.trim().length, `${spot.id} 사각의 문장이 비었어요`).toBeGreaterThan(20);
+    }
+    // ⚠️ 재개 조건은 이 축과 **함께** 적힌다(AD-5) — 산문이 아니라 값으로 확인한다.
+    expect(
+      MOVE_DUTY_BLIND_SPOTS.some((spot) => spot.statement.includes("재개 조건(사건형)")),
+      "이 축의 재개 조건이 사라졌어요"
+    ).toBe(true);
+  });
+
+  for (const spot of MOVE_DUTY_BLIND_SPOTS) {
+    it(`${spot.id}: 사각이 오늘도 실재한다 (유령 사각 금지)`, () => {
+      expect(
+        spot.measure(),
+        `${spot.id} 사각을 다시 재니 하한(${spot.floor}) 아래예요 — 사각이 사라졌다면 그 줄을 지우고, 좁아졌다면 하한을 내리세요`
+      ).toBeGreaterThanOrEqual(spot.floor);
+    });
+  }
 });
 
 describe("ⓕ 사각 — 이 그물이 못 보는 것을 값과 하한으로 적는다", () => {
