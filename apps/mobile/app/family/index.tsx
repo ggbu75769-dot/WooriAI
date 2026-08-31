@@ -40,7 +40,7 @@ import {
   memberMutationErrorMessage,
   type FamilyMemberMutationKind
 } from "../../src/family/member-mutation-messages";
-import { formatInviteExpiry, memberBadge, memberRoleLabel } from "../../src/family/memberLabels";
+import { formatInviteCreatedAt, formatInviteExpiry, memberBadge, memberRoleLabel } from "../../src/family/memberLabels";
 import { isCurrentlyOnline } from "../../src/offline/connectivity";
 // 라운드 72 트랙 B: 대기 초대 줄이 "지금 오프라인 갈래인가"를 묻는 값 하나(문구 단일 소스).
 import { OFFLINE_LOAD_NOTICE } from "../../src/offline/messages";
@@ -443,8 +443,20 @@ export default function FamilyScreen() {
       { cancelable: prompt.cancelable }
     );
   };
+  /**
+   * 라운드 86 C: 취소의 **대상 한 덩어리**. 행의 한 줄과 확인창 제목과 낭독 라벨이 이 한
+   * 자리를 지나므로 세 문장이 서로 갈릴 수 없다. `createdAt`이 없거나 파싱되지 않으면
+   * (`formatInviteCreatedAt`이 null) 시각을 지어내지 않고 종전의 "역할 초대"로 돌아간다 —
+   * 그때 확인창 제목과 낭독 라벨은 이 트랙 이전과 바이트가 같다.
+   */
+  const pendingInviteTarget = (roleLabel: string, createdAtLabel: string | null) =>
+    createdAtLabel ? `${createdAtLabel}에 만든 ${roleLabel} 초대` : `${roleLabel} 초대`;
   const confirmCancelInvite = (inviteId: string, roleLabel: string) => {
-    Alert.alert(`${roleLabel} 초대를 취소할까요?`, "이미 보낸 초대 링크는 바로 사용할 수 없게 돼요.", [
+    // 대상은 목록이 이미 들고 있는 그 초대다(새 조회 0건 · 새 인자 0건).
+    const createdAtLabel = formatInviteCreatedAt(
+      pendingInvites.data?.invites.find((invite) => invite.id === inviteId)?.createdAt
+    );
+    Alert.alert(`${pendingInviteTarget(roleLabel, createdAtLabel)}를 취소할까요?`, "이미 보낸 초대 링크는 바로 사용할 수 없게 돼요.", [
       { text: "그대로 둘게요", style: "cancel" },
       { text: "초대 취소", style: "destructive", onPress: () => cancelInvite.mutate(inviteId) }
     ]);
@@ -634,17 +646,22 @@ export default function FamilyScreen() {
             ) : (
               (pendingInvites.data?.invites ?? []).map((invite) => {
                 const roleLabel = memberRoleLabel(invite.role);
+                // 같은 역할·같은 만료일의 두 초대를 가르는 유일한 값. 없으면 줄을 그리지 않는다.
+                const createdAtLabel = formatInviteCreatedAt(invite.createdAt);
                 return (
                   <View key={invite.id} style={familyPendingInviteRowStyle}>
                     <FamilyAvatarGroup names={[roleLabel]} />
                     <View style={{ flex: 1 }}>
                       <Text style={familyMemberNameStyle}>{roleLabel} 초대</Text>
                       <Text style={familyPendingInviteMetaStyle}>{formatInviteExpiry(invite.expiresAt)}</Text>
+                      {createdAtLabel ? (
+                        <Text style={familyPendingInviteMetaStyle}>{createdAtLabel}에 만들었어요.</Text>
+                      ) : null}
                     </View>
                     <StatusBadge label="수락 대기" tone="neutral" />
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel={`${roleLabel} 초대 취소`}
+                      accessibilityLabel={`${pendingInviteTarget(roleLabel, createdAtLabel)} 취소`}
                       disabled={cancelInvite.isPending}
                       onPress={() => confirmCancelInvite(invite.id, roleLabel)}
                       hitSlop={8}
