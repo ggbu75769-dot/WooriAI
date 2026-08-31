@@ -44,7 +44,12 @@ describe("Audit logs page (ADM-113)", () => {
       expect(source).toContain(column);
     }
     // 상세 칸은 before/after 스냅샷을 펼쳐 보여준다.
-    expect(source).toContain("변경 내용 보기");
+    // ⚠️ 라운드 87 리뷰 M-5: 그 문구의 정본이 `src/lib/audit-log-rows.ts`로 옮겨 갔다(이름 앞에
+    // 행을 가르는 표기를 세우느라 한 벌이 됐다). 화면에서 리터럴을 찾으면 이 파일의 **주석**이
+    // 그 문구를 인용하고 있어 앵커가 주석 덕에 초록이 된다(같은 리뷰 M-3이 짚은 그 형태) —
+    // 그래서 화면에서는 **이름을 부르는지**를, 문구 자체는 **정본 파일에서** 본다.
+    expect(source).toContain("AUDIT_LOG_SNAPSHOT_SUMMARY");
+    expect(readSource("src/lib/audit-log-rows.ts")).toContain('AUDIT_LOG_SNAPSHOT_SUMMARY = "변경 내용 보기"');
   });
 
   it("has pagination UI driven by the API's pageInfo (이전/다음 + page indicator)", () => {
@@ -220,8 +225,12 @@ describe("Audit logs CS reachability (CS-101)", () => {
   });
 
   it("labels non-admin actors distinctly without leaking personal data", () => {
+    // GAP-087 트랙 A: 라벨은 그대로이고 **어디서 오는가**만 바뀌었다 — 화면이 라벨 함수를
+    // 직접 부르는 대신, 행위자 칸 한 벌(auditLogActorCell)이 라벨·전체 ID·되짚기 주소를
+    // 한 자리에서 만든다(라운드 86 D가 두 화면의 추이 카드에서 쓴 그 규율).
     const source = readSource("app/audit-logs/page.tsx");
-    expect(source).toContain("auditLogActorLabel");
+    expect(source).toContain("auditLogActorCell");
+    expect(readSource("src/lib/audit-log-rows.ts")).toContain("auditLogActorLabel");
     const filters = readSource("src/lib/audit-log-filters.ts");
     expect(filters).toContain("사용자(${shortActorId(entry.actorUserId!)})");
     // 라벨에 실리는 건 UUID 앞 8자뿐 — 이메일/닉네임은 등장하지 않는다.
@@ -234,5 +243,145 @@ describe("Audit logs CS reachability (CS-101)", () => {
     expect(source).toContain("auditLogsHrefForActor(user.id)");
     const filters = readSource("src/lib/audit-log-filters.ts");
     expect(filters).toContain("/audit-logs?actorUserId=");
+  });
+});
+
+/**
+ * GAP-087 트랙 A(라운드 87) — **표가 값을 글자로 남기고, 그 행위자로 되짚는 길을 준다.**
+ *
+ * 종전 이 표에서 전체 UUID에 닿는 경로는 `<td title=…>` **하나**였다. `title`은 마우스 호버로만
+ * 뜨고 `<td>`는 포커스를 받지 않으니, 마우스가 없는 운영자에게 이 표의 식별자는 존재하지
+ * 않았다 — 그리고 화면이 그 사실을 문장으로 **자백**하고 있었다
+ * (*"전체 ID는 칸에 마우스를 올리면 보여요"*). ⚠️ 한 칸 더 나쁜 것은, **그 값을 요구하는
+ * 필터가 같은 화면에 있었다**는 점이다(행위자 ID는 완전한 UUID여야 한다).
+ *
+ * 순수 판정은 `src/lib/audit-log-rows.test.ts`가 지고, 여기서는 **배선**을 고정한다.
+ */
+describe("Audit logs 표의 도달 경로 (GAP-087)", () => {
+  const pageSource = () => readSource("app/audit-logs/page.tsx");
+
+  it("ⓐ 행위자·대상의 전체 식별자가 텍스트 노드로 선다 (title이 유일 경로가 아니다)", () => {
+    const source = pageSource();
+    // 두 칸이 같은 모듈을 지난다.
+    expect(source).toContain("auditLogActorCell(entry)");
+    expect(source).toContain("auditLogTargetCell(entry)");
+    // 전체 값이 속성이 아니라 **자식 노드**로 그려진다.
+    // ⚠️ 라운드 87 리뷰 M-5: 같은 펼침이 **자기 칸의 표기**를 낭독 이름으로 함께 받는다
+    // (`cellLabel` — 같은 이름 마흔 개가 서던 자리). 전체 값이 자식 노드라는 사실은 그대로다.
+    expect(source).toContain("<FullIdDetails cellLabel={target.label} fullId={target.fullTargetId} />");
+    expect(source).toContain("<FullIdDetails cellLabel={actor.label} fullId={actor.fullActorId}>");
+    expect(source).toContain("<code className={styles.calloutCode}>{fullId}</code>");
+    // ⓐ 부정 단언: 두 칸의 전체 값이 title 속성에만 남아 있지 않다.
+    expect(source).toMatch(/\{actor\.fullActorId \? \(/);
+    expect(source).toMatch(/\{target\.fullTargetId \? \(/);
+  });
+
+  it("ⓐ title 속성은 지우지 않았다 (도달 경로를 더하는 것이지 빼는 것이 아니다)", () => {
+    const source = pageSource();
+    expect(source).toContain("<td title={entry.actorUserId ?? undefined}>");
+    expect(source).toContain("<td title={entry.targetId ?? undefined}>");
+  });
+
+  it("ⓑ 되짚기 링크가 행위자 칸에 서고 주소는 기존 한 함수에서 온다 (새 주소 0건)", () => {
+    const source = pageSource();
+    expect(source).toContain("<a href={actor.traceHref}>이 행위자의 기록만 보기</a>");
+    // 화면은 주소를 조립하지 않는다 — 모든 href가 식(모듈이 만든 값)에서 온다.
+    expect(source, "화면에 손으로 적은 주소 리터럴이 없다").not.toMatch(/href=\{[`"]/);
+    expect(readSource("src/lib/audit-log-rows.ts")).toContain("auditLogsHrefForActor(actorUserId)");
+    // 링크가 서는 조건도 화면이 다시 짓지 않는다(모듈의 traceHref 하나가 판정한다).
+    expect(source).not.toContain("auditLogActorKind");
+  });
+
+  it("ⓒ 0건 문장이 두 갈래이고 그 판정이 hasAnyAuditLogFilter에서 온다", () => {
+    const source = pageSource();
+    // 화면은 **적용된** 필터로 묻는다(폼 입력값이 아니라 — 표는 적용된 조건의 결과다).
+    expect(source).toContain("auditLogEmptyStateMessage(appliedFilters)");
+    const rows = readSource("src/lib/audit-log-rows.ts");
+    expect(rows).toContain("hasAnyAuditLogFilter(filters)");
+    expect(rows).toContain("조건에 맞는 기록이 없어요.");
+    // 두 문장이 실제로 다르다(같은 문장 두 갈래는 갈래가 아니다).
+    expect(rows).toContain("아직 기록이 없어요.");
+  });
+
+  it("ⓓ 힌트에서 '마우스를 올리면' 자백이 사라지고 그 자리를 가리킨다 (부정 단언)", () => {
+    const source = pageSource();
+    expect(source).not.toContain("마우스를 올리면");
+    expect(source).not.toContain("전체 ID는 칸에");
+    // 각주가 새로 가리키는 곳은 두 칸의 펼침이다(문구는 모듈 한 벌에서 온다).
+    expect(source).toContain("{AUDIT_LOG_FULL_ID_SUMMARY}&rdquo;를 펼치면 전체 ID가 글자로 나와요.");
+    // 종전 문장의 앞부분(행위자 종류 안내)은 그대로다.
+    expect(source).toContain("행위자가 &ldquo;사용자(...)&rdquo;로 보이는 행은 어드민 계정이 아닌 행위자예요");
+  });
+
+  it("ⓔ 긴 값을 펼치는 모양이 같은 행의 상세 칸 관례다 (새 형식·새 클래스 0건)", () => {
+    const source = pageSource();
+    // 상세 칸의 <details>/<summary>/calloutCode — 새 클래스를 만들지 않았다.
+    // ⚠️ 라운드 87 리뷰 M-5: 세 펼침의 **이름**은 이제 행·칸마다 갈린다(같은 표에 같은 이름이
+    // 마흔 개 서던 자리다 — `auditLogExpandSummaryLabel`). 여기서 무는 것은 그 이름이 아니라
+    // **모양**이므로, 셋 다 같은 `<summary>` 관례를 쓰는지만 본다(이름의 계약은 audit-log-rows.test.ts).
+    expect(source).toContain("<summary>{auditLogExpandSummaryLabel(rowLabel, AUDIT_LOG_SNAPSHOT_SUMMARY)}</summary>");
+    expect(source).toContain("<summary>{auditLogExpandSummaryLabel(cellLabel, AUDIT_LOG_FULL_ID_SUMMARY)}</summary>");
+    const classNames = new Set([...source.matchAll(/styles\.([A-Za-z0-9_]+)/g)].map((match) => match[1]));
+    const css = readSource("src/components/admin-page.module.css");
+    for (const className of classNames) {
+      expect(css, `admin-page.module.css에 .${className}가 있다`).toContain(`.${className} `);
+    }
+  });
+
+  it("ⓕ 열 이름 다섯·페이지 표시·CSV 문구·역할 안내가 바이트 불변이다", () => {
+    const source = pageSource();
+    for (const column of ["<th>시각</th>", "<th>행위자</th>", "<th>액션</th>", "<th>대상</th>", "<th>상세</th>"]) {
+      expect(source).toContain(column);
+    }
+    expect(source).toContain("{currentPage} / {totalPages} 페이지");
+    expect(source).toContain("현재 필터 조건으로 최대 1,000건까지 CSV 파일로 저장해요.");
+    expect(source).toContain("상위 1,000건만 내보냈어요. 기간 필터로 범위를 좁히면 나머지도 내보낼 수 있어요.");
+    expect(source).toContain("감사 로그는 관리자(admin) 권한에서만 사용할 수 있어요.");
+    // 필터 폼·프리셋·검증 문구도 이 트랙의 손이 닿지 않았다.
+    expect(source).toContain("정확히 일치하는 액션만 조회해요.");
+    expect(source).toContain("한 사람의 행위만 모아 봐요.");
+  });
+
+  it("서버 0건 — 새 요청도 새 파라미터도 생기지 않았다", () => {
+    const source = pageSource();
+    // 이 화면이 부르는 API는 종전 하나 그대로다.
+    expect((source.match(/listAuditLogs\(/g) ?? []).length).toBe(2); // 목록 조회 + CSV 순회
+    expect(source).toContain("limit: PAGE_SIZE");
+    // 새 모듈은 응답 **모양**만 읽는다(타입 전용 import) — 스스로 요청하지 않는다.
+    const rows = readSource("src/lib/audit-log-rows.ts");
+    expect(rows).toContain('import type { AdminAuditLogEntry } from "./admin-api";');
+    expect(rows).not.toContain("listAuditLogs");
+  });
+
+  it("CSV 열·순서와 필터 모듈은 이 트랙이 만지지 않는다", () => {
+    const csv = readSource("src/lib/audit-log-csv.ts");
+    expect(csv).toContain("AUDIT_LOG_CSV_COLUMNS");
+    // 표가 새로 그리는 두 값은 CSV에 이미 실려 있던 열이다(그래서 새 열이 필요 없다).
+    for (const column of ["actorUserId", "targetId"]) {
+      expect(csv, `${column} 열이 종전 그대로다`).toContain(column);
+    }
+    // 새 export 0건: 미러 스윕의 면제 둘이 audit-log-filters.ts를 가리킨다.
+    const filters = readSource("src/lib/audit-log-filters.ts");
+    const exported = [...filters.matchAll(/^export (?:function|const|type) ([A-Za-z0-9_]+)/gm)].map(
+      (match) => match[1]
+    );
+    expect(exported.sort()).toEqual([
+      "AUDIT_LOG_ACTION_MAX_LENGTH",
+      "AUDIT_LOG_ACTION_PRESETS",
+      "AuditLogActionPreset",
+      "AuditLogActor",
+      "AuditLogActorKind",
+      "AuditLogFilters",
+      "auditLogActorKind",
+      "auditLogActorLabel",
+      "auditLogFilterError",
+      "auditLogFiltersFromSearchParams",
+      "auditLogFiltersToQuery",
+      "auditLogsHrefForActor",
+      "emptyAuditLogFilters",
+      "hasAnyAuditLogFilter",
+      "isAuditLogActorId",
+      "shortActorId"
+    ]);
   });
 });

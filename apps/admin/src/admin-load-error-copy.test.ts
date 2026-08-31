@@ -720,7 +720,17 @@ describe("트랙 D의 무접촉 계약", () => {
 
     // 스텝 9·11(감사 로그)·13(고지 문구)·14(클릭 통계)의 배너/빈 상태 문구.
     expect(readSource("app/audit-logs/page.tsx")).toContain("감사 로그를 불러오지 못했어요.");
-    expect(readSource("app/audit-logs/page.tsx")).toContain("조건에 맞는 기록이 없어요.");
+    // ⚠️ 라운드 87 리뷰 M-3 — **앵커가 문장의 새 집을 따라가고, 주석은 보지 않는다.** 당시 이 줄은
+    // 같은 문장을 `app/audit-logs/page.tsx`에서 찾았는데, 같은 라운드의 트랙 A가 정본을
+    // `src/lib/audit-log-rows.ts`(auditLogEmptyStateMessage)로 옮기면서 화면에는 **주석 두 줄만**
+    // 남았다 — 즉 이 앵커는 그 주석 덕에 초록이었고 양방향으로 뜻을 잃었다(문장을 지워도 주석이
+    // 남으면 초록, 주석만 고쳐도 빨강). 라운드 87 리뷰 이후에는 스텝 9·11이 실제로 기다리는
+    // 그 문장을 **정본 파일의 코드에서** 찾는다(그 파일의 머리말도 같은 문장을 인용하므로,
+    // 파일만 바꾸고 주석을 함께 걷지 않으면 앵커가 자리만 옮긴 채 같은 이유로 초록이 된다).
+    const emptyStateSource = readSource("src/lib/audit-log-rows.ts")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/[^\n]*/g, " ");
+    expect(emptyStateSource).toContain('"조건에 맞는 기록이 없어요."');
     expect(readSource("app/disclosures/page.tsx")).toContain("고지 문구 목록을 불러오지 못했어요.");
     expect(readSource("app/clicks/page.tsx")).toContain("클릭 통계를 불러오지 못했어요.");
 

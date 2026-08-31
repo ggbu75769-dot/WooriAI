@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   isAuthError,
   listAuditLogs,
@@ -17,12 +17,19 @@ import {
 import {
   AUDIT_LOG_ACTION_MAX_LENGTH,
   AUDIT_LOG_ACTION_PRESETS,
-  auditLogActorLabel,
   auditLogFilterError,
   auditLogFiltersFromSearchParams,
   auditLogFiltersToQuery,
   emptyAuditLogFilters
 } from "../../src/lib/audit-log-filters";
+import {
+  AUDIT_LOG_FULL_ID_SUMMARY,
+  AUDIT_LOG_SNAPSHOT_SUMMARY,
+  auditLogActorCell,
+  auditLogEmptyStateMessage,
+  auditLogExpandSummaryLabel,
+  auditLogTargetCell
+} from "../../src/lib/audit-log-rows";
 import { useAdminSession } from "../../src/lib/admin-token-context";
 import styles from "../../src/components/admin-page.module.css";
 
@@ -49,25 +56,47 @@ function formatDate(value: string): string {
   return new Date(value).toLocaleString("ko-KR");
 }
 
-/** 대상 표시: target_type + 축약 id (UUID 전체는 title 속성으로만). */
-function formatTarget(entry: AdminAuditLogEntry): string {
-  if (!entry.targetId) return entry.targetType;
-  return `${entry.targetType} · ${entry.targetId.slice(0, 8)}…`;
+/**
+ * GAP-087 트랙 A: 행위자·대상 두 칸의 **전체 식별자**를 글자로 펼치는 자리.
+ * 축약 표기(`사용자(3f2a91c4)` · `expense · 3f2a91c4…`)는 종전 그대로 칸에 서고,
+ * 전체 UUID는 같은 행의 `상세` 칸이 이미 쓰는 `<details>` 관례로 펼쳐진다 —
+ * 종전에는 `<td title=…>`(마우스 호버)이 **유일한** 경로였다. 그 속성은 지우지 않는다:
+ * 이 트랙은 도달 경로를 더하는 것이지 빼는 것이 아니다.
+ * 표기·주소·링크 조건은 순수 모듈(src/lib/audit-log-rows.ts)이 판정한다.
+ *
+ * ⚠️ 라운드 87 리뷰 M-5: 펼침의 이름은 **그 칸이 이미 보여 주고 있는 축약 표기**를 앞에 세워
+ * 짓는다(`auditLogExpandSummaryLabel`) — 그러지 않으면 한 화면에 `전체 ID 보기`가 마흔 개 서서
+ * 낭독으로는 어느 행의 무엇을 펼치는지 알 수 없다. 새 문자열 0건이다.
+ */
+function FullIdDetails({ cellLabel, fullId, children }: { cellLabel: string; fullId: string; children?: ReactNode }) {
+  return (
+    <details>
+      <summary>{auditLogExpandSummaryLabel(cellLabel, AUDIT_LOG_FULL_ID_SUMMARY)}</summary>
+      <p>
+        <code className={styles.calloutCode}>{fullId}</code>
+      </p>
+      {children}
+    </details>
+  );
 }
-
 
 function hasSnapshot(value: unknown): boolean {
   return value !== null && value !== undefined;
 }
 
-/** before/after 스냅샷 상세. 민감 키는 API가 이미 "[REDACTED]"로 마스킹해 준다. */
-function SnapshotDetails({ entry }: { entry: AdminAuditLogEntry }) {
+/**
+ * before/after 스냅샷 상세. 민감 키는 API가 이미 "[REDACTED]"로 마스킹해 준다.
+ *
+ * ⚠️ 라운드 87 리뷰 M-5: 이 펼침도 위 둘과 **같은 결함·같은 함수**다 — `변경 내용 보기` 스무 개가
+ * 한 화면에 같은 소리로 서던 자리라, 같은 행의 대상 칸 표기를 앞에 세운다(새 문자열 0건).
+ */
+function SnapshotDetails({ entry, rowLabel }: { entry: AdminAuditLogEntry; rowLabel: string }) {
   if (!hasSnapshot(entry.before) && !hasSnapshot(entry.after)) {
     return <span className={styles.hint}>-</span>;
   }
   return (
     <details>
-      <summary>변경 내용 보기</summary>
+      <summary>{auditLogExpandSummaryLabel(rowLabel, AUDIT_LOG_SNAPSHOT_SUMMARY)}</summary>
       {hasSnapshot(entry.before) ? (
         <p>
           <span className={styles.hint}>이전</span>
@@ -341,7 +370,15 @@ function AuditLogsPageContent() {
             ) : null}
           </p>
         ) : null}
-        {logs && logs.length === 0 ? <p className={styles.emptyState}>조건에 맞는 기록이 없어요.</p> : null}
+        {/* GAP-087 트랙 A: 0건 문장은 두 갈래다(src/lib/audit-log-rows.ts). 종전에는 필터를
+            하나도 걸지 않은 운영자에게도 "조건에 맞는 기록이 없어요."라고 말해, 없는 조건을
+            다시 지우러 가게 했다 — 그 둘을 가르는 판정(hasAnyAuditLogFilter)은 이미 있었고
+            호출부가 0건이었다. ⚠️ 필터가 걸린 갈래의 문장 "조건에 맞는 기록이 없어요."는
+            바이트 불변이다: admin-e2e 스텝 9·11이 그 문장을 기다리고
+            admin-load-error-copy.test.ts의 18스텝 앵커가 그 문장을 찾는다. */}
+        {logs && logs.length === 0 ? (
+          <p className={styles.emptyState}>{auditLogEmptyStateMessage(appliedFilters)}</p>
+        ) : null}
         {logs && logs.length > 0 ? (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -356,27 +393,58 @@ function AuditLogsPageContent() {
                 </tr>
               </thead>
               <tbody>
-                {logs.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>{formatDate(entry.createdAt)}</td>
-                    <td title={entry.actorUserId ?? undefined}>{auditLogActorLabel(entry)}</td>
-                    <td>
-                      <code>{entry.action}</code>
-                    </td>
-                    <td title={entry.targetId ?? undefined}>{formatTarget(entry)}</td>
-                    <td>
-                      <SnapshotDetails entry={entry} />
-                    </td>
-                  </tr>
-                ))}
+                {logs.map((entry) => {
+                  const actor = auditLogActorCell(entry);
+                  const target = auditLogTargetCell(entry);
+                  return (
+                    <tr key={entry.id}>
+                      <td>{formatDate(entry.createdAt)}</td>
+                      <td title={entry.actorUserId ?? undefined}>
+                        {actor.label}
+                        {actor.fullActorId ? (
+                          <FullIdDetails cellLabel={actor.label} fullId={actor.fullActorId}>
+                            {actor.traceHref ? (
+                              // 되짚기: 새 주소를 만들지 않고 사용자 조회 화면이 이미 쓰는
+                              // auditLogsHrefForActor 한 함수에서 온다. next/link가 아니라
+                              // 평범한 <a>인 것은 같은 라우트로의 클라 이동이라 화면이
+                              // 다시 마운트되지 않기 때문이다 — 이 화면은 ?actorUserId를
+                              // **마운트 때 한 번** 읽어 필터 초기값으로 삼는다(위 useState).
+                              <p>
+                                <a href={actor.traceHref}>이 행위자의 기록만 보기</a>
+                              </p>
+                            ) : null}
+                          </FullIdDetails>
+                        ) : null}
+                      </td>
+                      <td>
+                        <code>{entry.action}</code>
+                      </td>
+                      <td title={entry.targetId ?? undefined}>
+                        {target.label}
+                        {target.fullTargetId ? (
+                          <FullIdDetails cellLabel={target.label} fullId={target.fullTargetId} />
+                        ) : null}
+                      </td>
+                      <td>
+                        <SnapshotDetails entry={entry} rowLabel={target.label} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         ) : null}
+        {/* GAP-087 트랙 A: 종전 이 줄은 전체 ID가 호버로만 뜬다고 적어, 마우스가 없는
+            운영자에게는 그 값에 닿는 길이 없다는 사실을 스스로 자백하고 있었다. 이제 그 값은
+            칸 안에서 글자로 펼쳐지므로 각주도 그 자리를 가리킨다
+            (라운드 86 리뷰 L-11이 분석 화면의 각주에 세운 그 규율). */}
         {logs && logs.length > 0 ? (
           <p className={styles.hint}>
             행위자가 &ldquo;사용자(...)&rdquo;로 보이는 행은 어드민 계정이 아닌 행위자예요(앱 사용자, 또는 이미
-            삭제된 어드민 계정). 개인정보 없이 ID 앞 8자만 보여주고, 전체 ID는 칸에 마우스를 올리면 보여요.
+            삭제된 어드민 계정). 개인정보 없이 ID 앞 8자만 보여주고, 행위자·대상 칸의 &ldquo;
+            {AUDIT_LOG_FULL_ID_SUMMARY}&rdquo;를 펼치면 전체 ID가 글자로 나와요. 그 값을 위 행위자 ID 칸에 넣으면
+            한 사람의 기록만 모아 볼 수 있고, 어드민 계정이 아닌 행위자는 펼침 안의 링크로 바로 갈 수 있어요.
           </p>
         ) : null}
         {pageInfo ? (

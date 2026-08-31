@@ -17,7 +17,7 @@ import { OFFLINE_RETRY_NOTICE } from "../offline/messages";
 // 라운드 78 리뷰 M-2: 아이가 사라진 실패의 문장도 이 앱에 이미 한 벌 있다(새 문구 0건).
 import { DESTRUCTIVE_FLOW_MESSAGE_BY_CODE } from "../settings/destructive-flow-messages";
 import { useSessionStore } from "../stores/session.store";
-import { Card, SecondaryButton } from "../ui";
+import { announceForA11y, Card, SecondaryButton } from "../ui";
 import { theme } from "../theme";
 // 라운드 65 후속(#1): 동의 미저장 실패의 판정·문구·복구 규칙은 화면이 아니라 순수 모듈에 있다
 // (react-native를 끌고 오지 않아 vitest에서 그대로 단위 테스트한다 -- consent-recovery.test.ts).
@@ -271,6 +271,21 @@ export function OnboardingSaveErrorCard({
   // 갈래를 만들지 않는 인자는 판정이 하나 더 있는 척하는 것이라 시그니처에서 걷어냈다.
   const isOnline = useOnboardingSaveFailureConnectivity();
   const text = message ?? onboardingSaveErrorMessage(error, { isOnline });
+  // 라운드 87 트랙 C: **프롭 둘은 한 플랫폼의 답이다.** `accessibilityLiveRegion`은 React Native
+  // 문서가 `@platform android`로 표시한 프롭이고 `accessibilityRole="alert"`에는 VoiceOver의
+  // 대응 트레이트가 없다 — 그래서 라운드 79가 이 카드에 프롭 둘을 걸어 둔 뒤에도 **iOS에서는
+  // 아무 소리도 나지 않았다**(낭독 스윕 둘이 라우트 뿌리만 걷느라 모듈 층의 이 자리를 구조적으로
+  // 보지 못했다 — src/a11y-contract.test.ts의 모듈 층 뿌리가 오늘 그 사각을 값으로 연다).
+  // 관례는 언제나 **둘 다**이고(프롭 조합 + `announceForA11y`), 본보기는 같은 저장소에 있다:
+  // app/(auth)/login.tsx가 같은 이유(포커스가 눌린 버튼에 남는다)로 실패 문장에 그것을 건다.
+  //
+  // ⚠️ 읽는 것은 **화면에 이미 그려진 그 문자열**(`text`)이다 — 문구를 여기 두 벌로 적지 않는다.
+  // ⚠️ 렌더 도중이 아니라 effect 안이고, 의존 배열이 그 문장을 든다: 카드가 서는 순간 한 번
+  // 읽고 같은 문장을 매 렌더 다시 읽지 않으며, 사유가 갈린 두 번째 실패(예: 네트워크 → 403)는
+  // `text`가 바뀌므로 조용해지지 않는다.
+  useEffect(() => {
+    announceForA11y(text);
+  }, [text]);
   return (
     <View accessibilityLiveRegion="polite" accessibilityRole="alert">
       <Card style={{ borderColor: theme.colors.danger, borderWidth: 1, gap: theme.spacing.gap }}>

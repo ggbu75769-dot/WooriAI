@@ -4880,3 +4880,315 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
     expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "대장 스윕의 제외").toEqual([]);
   });
 });
+
+/* ============================================================================================ */
+/* GAP-087 트랙 C(#3) — **모듈 층의 낭독** (뿌리를 하나 더한다)                                    */
+/* ============================================================================================ */
+
+/**
+ * ## 위 두 스윕이 구조적으로 보지 못하던 층
+ *
+ * GAP-079는 대장(`OFFLINE_AWARE_SAVE_ERROR_SCREENS`)을, GAP-080은 `listRouteSources()`를 걷는다.
+ * **둘 다 `app/**` 한 뿌리다.** 그런데 이 저장소에서 실패 문장이 실제로 사는 곳은 화면이 아니라
+ * 모듈이고(`src/offline/offline-aware-screens.ts`의 `OFFLINE_AWARE_FAILURE_COPY_MODULES` 머리말이
+ * 같은 사실을 저장 리터럴 축에서 이미 적어 두었다), 온보딩 세 화면은 그 문장을 **컴포넌트 태그
+ * 하나**(`<OnboardingSaveErrorCard …/>`)로 그린다. 그래서 방아쇠 스윕의 화면별 표에
+ * `app/(onboarding)/**`가 0건이다 — 스캐너가 문장을 볼 자리가 없다.
+ *
+ * ⚠️ **그 사각에 값이 앉아 있었다.** `src/onboarding/step-ui.tsx`의 `OnboardingSaveErrorCard`는
+ * 라운드 79가 프롭 둘을 걸어 둔 채(`ROUND79_ANNOUNCE_PROPS_ADDED`의 여섯째 — 설명이 *"모듈 층의
+ * 한 자리"* 라고 적는다) `announceForA11y`가 **0건**이었다. 이 저장소 자신의 분류로 그것은
+ * `live-region` = **안드로이드 한정**이고(`ANDROID_ONLY_LIVE_REGION_REASON`), 앱의 첫 여정인
+ * ONB-002·003·004의 저장 실패가 iOS에서 소리 없이 서고 있었다. **대장에 이름이 있다는 사실이
+ * 오히려 "이 자리는 세어졌다"로 읽힌 자리다.**
+ *
+ * ⚠️ **이 블록은 위 두 스윕을 고치지 않는다 — 그 옆에 뿌리를 하나 더 세운다.** 모집단을 옮기면
+ * U절 이월과 라운드 80의 값이 함께 흔들리므로, 두 스윕의 값(`MUTATION_TRIGGER_SITES_BY_SCREEN` ·
+ * `SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN` · `ALERT_ROLE_WITHOUT_LIVE_REGION`)은 **바이트 불변**이다.
+ *
+ * 형식은 어드민이 라운드 75에 같은 사각을 닫으며 세운 그것이다
+ * (`apps/admin/src/admin-load-error-copy.test.ts`의 `SCREEN_SOURCE_ROOTS` +
+ * `NON_SCREEN_SOURCE_ROOTS` — **걷는 뿌리와 걷지 않는 뿌리와 그 이유가 둘 다 값**).
+ */
+const MODULE_ANNOUNCE_SOURCE_ROOTS = ["src"] as const;
+
+/**
+ * 그리고 **걷지 않는 뿌리와 그 이유**. 이유는 빈 문자열일 수 없다 — 다음 라운드가
+ * "왜 여기는 안 보나"를 다시 재지 않게(어드민 라운드 75의 그 규율 그대로).
+ */
+const NON_MODULE_ANNOUNCE_SOURCE_ROOTS: Readonly<Record<string, string>> = {
+  app: "라우트 뿌리다. 이 뿌리는 위 두 스윕이 이미 전수로 걷는다 — GAP-079가 대장(OFFLINE_AWARE_SAVE_ERROR_SCREENS)으로, GAP-080이 listRouteSources()로 걷고, 두 스윕 모두 낭독 출구를 같은 세 칸(announce · live-region · toast)으로 매긴다. 이 뿌리를 여기서 한 번 더 걷으면 같은 자리가 두 모집단에서 서로 다른 답을 낼 수 있고, 무엇보다 그 두 값(자리 수·출구 수)은 U절 이월이 붙들고 있는 바이트다."
+};
+
+/** 모듈 층에서 낭독 프롭 쌍이 걸린 한 자리와, 그 자리가 소리로 나가는 출구. */
+type ModuleAnnounceSite = {
+  readonly file: string;
+  /** 그 자리를 그리는 **최상위 함수 컴포넌트**의 이름. */
+  readonly component: string;
+  /** `announce` = 프롭 쌍 + 그 컴포넌트의 `announceForA11y`(두 플랫폼 다) · `live-region` = 프롭만. */
+  readonly exit: "announce" | "live-region";
+};
+
+/** 파일의 **최상위 `function` 선언** 블록들(이름 · 구간). 자리를 컴포넌트에 귀속시키는 데 쓴다. */
+function topLevelFunctionBlocksOf(masked: string): Array<{ readonly name: string; readonly start: number; readonly end: number }> {
+  const found = [...masked.matchAll(/^(?:export\s+)?(?:default\s+)?function\s+([A-Za-z0-9_$]+)/gm)];
+  return found.map((match, index) => ({
+    name: match[1],
+    start: match.index ?? 0,
+    end: index + 1 < found.length ? (found[index + 1].index ?? masked.length) : masked.length
+  }));
+}
+
+/**
+ * 한 모듈 소스에서 **낭독 프롭 쌍이 걸린 여는 태그**를 전부 찾아 출구를 매긴다.
+ *
+ * 판정은 두 칸이다: 그 자리를 그리는 컴포넌트가 `announceForA11y`를 부르면 `announce`(두 플랫폼
+ * 다), 프롭만 걸려 있으면 `live-region`(안드로이드 한정 — iOS 무음). 화면 층 스윕들이 쓰는
+ * 그 세 칸에서 `toast`·`silent`가 빠진 이유는 모집단이 다르기 때문이다: 여기 모집단은 **프롭
+ * 쌍이 이미 걸린 자리**이고(그래서 `silent`가 있을 수 없다), Toast는 자기 컴포넌트가 이 뿌리
+ * 안에 있어 같은 그물이 직접 센다(`src/ui.tsx`의 `Toast` — 아래 값에 자리로 서 있다).
+ */
+function moduleAnnounceSitesOf(sourceText: string, file: string): ModuleAnnounceSite[] {
+  const masked = maskComments(sourceText);
+  const blocks = topLevelFunctionBlocksOf(masked);
+  const sites: ModuleAnnounceSite[] = [];
+  const pattern = /<[A-Z][A-Za-z0-9_.]*/g;
+  let found: RegExpExecArray | null;
+  while ((found = pattern.exec(masked))) {
+    const end = openingTagEnd(masked, found.index);
+    if (end < 0) continue;
+    const openTag = masked.slice(found.index, end + 1);
+    // 제네릭(`Record<string, …>`)이 뒤따르는 JSX를 삼키는 것을 막는다 — 여는 태그 안에 `<`는 없다.
+    if (openTag.slice(1).includes("<")) continue;
+    if (!ANNOUNCED_ALERT_PROPS.every((prop) => openTag.includes(prop))) continue;
+    const at = found.index;
+    const block = blocks.find((candidate) => at >= candidate.start && at < candidate.end);
+    sites.push({
+      file,
+      component: block?.name ?? "",
+      exit: block && masked.slice(block.start, block.end).includes("announceForA11y(") ? "announce" : "live-region"
+    });
+  }
+  return sites;
+}
+
+/** 같은 그물의 반쪽 세기 — 프롭이 **한 짝만** 걸린 자리(이 스윕의 사각 하나를 값으로 만든다). */
+function halfAnnouncedTagCount(sourceText: string): number {
+  const masked = maskComments(sourceText);
+  let count = 0;
+  const pattern = /<[A-Z][A-Za-z0-9_.]*/g;
+  let found: RegExpExecArray | null;
+  while ((found = pattern.exec(masked))) {
+    const end = openingTagEnd(masked, found.index);
+    if (end < 0) continue;
+    const openTag = masked.slice(found.index, end + 1);
+    if (openTag.slice(1).includes("<")) continue;
+    const present = ANNOUNCED_ALERT_PROPS.filter((prop) => openTag.includes(prop)).length;
+    if (present === 1) count += 1;
+  }
+  return count;
+}
+
+/** 걷는 뿌리(`src/**`)의 컴포넌트 소스 전수 — 손 목록이 아니라 디렉터리가 모집단을 정한다. */
+function listModuleComponentSources(): string[] {
+  return listComponentSources().filter((path) =>
+    MODULE_ANNOUNCE_SOURCE_ROOTS.some((root) => path.startsWith(`${root}/`))
+  );
+}
+
+const moduleAnnounceSites = () =>
+  listModuleComponentSources().flatMap((file) => moduleAnnounceSitesOf(source(file), file));
+
+/**
+ * ⚠️ **오늘의 실측 — 모듈 층에서 낭독 프롭 쌍이 걸린 자리 셋과 그 자리가 무엇인가.**
+ *
+ * 유령 방지의 본체다: 이 값이 비면 아래 부정 단언(*"프롭만 걸린 자리 0건"*)은 **빈 모집단 위에서
+ * 영원히 초록**이다 — 라운드 78 E가 이름 붙인 그 모양이고, 이 트랙이 연 사각이 정확히 그것이다.
+ * 각 줄의 이유는 빈 문자열일 수 없다.
+ */
+const MODULE_ANNOUNCE_SITES: Readonly<Record<string, string>> = {
+  "src/onboarding/step-ui.tsx OnboardingSaveErrorCard":
+    "온보딩 저장 실패 카드(ONB-002·003·004의 저장이 세운다). 라운드 79가 프롭 둘을 걸었고 라운드 87 트랙 C가 낭독을 더해 두 플랫폼이 됐다 — 이 트랙이 연 그 자리다.",
+  "src/security/AppLockOverlay.tsx AppLockOverlay":
+    "앱 잠금 오버레이의 안내 줄(PIN 오류·대기 안내·대기 해제). 문장을 세우는 자리마다 같은 걸음에 announceForA11y를 부르므로 종전부터 두 플랫폼이다 — 모듈 층에도 관례가 이미 서 있었다는 증거.",
+  "src/ui.tsx Toast":
+    "공용 Toast(A11Y-115). 화면 층 스윕 둘이 `toast` 출구로 세던 그 컴포넌트의 **본체**가 이 뿌리에 있다 — 프롭 쌍과 announce를 스스로 진다."
+};
+
+/**
+ * ⚠️ **이 스윕이 못 보는 것 — 태어날 때부터 값으로 적는다(AA-4의 규율).**
+ *
+ * 라운드 87 정찰이 센 값: 디렉터리를 걷는 스윕 스물아홉 중 뿌리·제외·사각을 **값으로** 적은 것은
+ * 다섯이었고, 적지 않은 사각 하나에 이 트랙의 자리가 앉아 있었다. 같은 일이 이 스윕에서 반복되지
+ * 않도록, 무엇을 보고 무엇을 못 보는지를 처음부터 값으로 남긴다.
+ */
+const MODULE_ANNOUNCE_SWEEP_BLIND_SPOTS: ReadonlyArray<string> = [
+  "모집단은 **낭독 프롭 쌍이 이미 걸린 자리**다 — 프롭 없이 실패 문장을 그리는 모듈 컴포넌트는 이 그물에 아예 들어오지 않는다(화면 층에서 danger 색 글자를 세는 GAP-079·080의 축이 모듈 층에는 아직 없다).",
+  "출구 판정은 **그 자리를 그리는 컴포넌트 안에 announceForA11y 호출이 있는가**까지다 — 어떤 문장을 어느 조건에서 읽는지는 자리별 소스 단언(ⓐ-2)이 따로 진다.",
+  "자리를 컴포넌트에 귀속시키는 단위가 **최상위 `function` 선언**이라, 화살표 상수로 선언한 컴포넌트(`const X = () => …`)는 블록이 갈리지 않는다 — 오늘 이 뿌리의 자리 셋은 전부 `function` 선언이지만, 그 모양이 생기는 날 귀속이 바깥 함수로 밀린다.",
+  "프롭이 **한 짝만** 걸린 자리는 이 모집단 밖이다 — role 단독은 GAP-079 ⓑ가 app·src 전수로 세지만(오늘 하나 · 이유가 값으로 있다), live region 단독은 어느 스윕도 세지 않는다(아래 ⓕ가 그 자리가 실재함을 값으로 보인다).",
+  "소스 대조이지 런타임이 아니다 — VoiceOver가 실제로 그 문장을 읽는지는 실기기 확인의 몫이다(react-native는 vitest에서 네이티브 바인딩이 없다)."
+];
+
+describe("GAP-087 #3 모듈 층의 낭독 계약 (뿌리를 하나 더한다)", () => {
+  it("ⓐ 모듈 뿌리 전수 — 낭독 프롭 쌍이 걸린 자리는 두 플랫폼 다 도달한다", () => {
+    const files = listModuleComponentSources();
+    // 유령 방지 ①: 뿌리가 실제로 걸린다(스캔이 끊기면 아래 부정 단언이 영원히 초록이다).
+    expect(files.length, "모듈 층 컴포넌트 소스 전수").toBeGreaterThan(10);
+
+    const sites = moduleAnnounceSites();
+    // 유령 방지 ②: **모집단이 0건이 아니다.** 이 줄이 이 스윕의 값 절반이다.
+    expect(sites.length, "모듈 층의 낭독 프롭 자리").toBeGreaterThan(0);
+
+    const byKey = sites.map((site) => `${site.file} ${site.component}`).sort();
+    expect(byKey, "모듈 층의 낭독 자리").toEqual(Object.keys(MODULE_ANNOUNCE_SITES).sort());
+    for (const [key, why] of Object.entries(MODULE_ANNOUNCE_SITES)) {
+      expect(why.length, `${key}가 서 있는 이유`).toBeGreaterThan(40);
+    }
+
+    const exits: Record<string, number> = {};
+    for (const site of sites) exits[site.exit] = (exits[site.exit] ?? 0) + 1;
+    // 오늘의 값: 셋 다 `announce`다(트랙 C 전에는 step-ui 하나가 `live-region`이었다).
+    expect(exits, "출구별 자리 수").toEqual({ announce: 3 });
+  });
+
+  it("ⓑ 부정 단언 — 모듈 층에 프롭만 걸린 자리 0건이고, 그 0이 모집단에서 파생한다", () => {
+    const sites = moduleAnnounceSites();
+    const androidOnly = sites
+      .filter((site) => site.exit === "live-region")
+      .map((site) => `${site.file} ${site.component}`);
+    // 프롭 조합은 안드로이드의 답이고 iOS는 announce가 답한다 — 반쪽으로 닫힌 자리가 0건이다.
+    expect(androidOnly.sort(), "프롭만 걸려 안드로이드에서만 읽히는 자리").toEqual([]);
+    expect(ANDROID_ONLY_LIVE_REGION_REASON, "한 플랫폼만 답하는 자리를 세는 이유").toContain("@platform android");
+    // ⚠️ 그 0은 손으로 적은 값이 아니다 — 위 모집단에서 곧바로 파생한다(모집단이 비면 ⓐ가 먼저 빨개진다).
+    expect(sites.length, "그 0이 서 있는 모집단").toBe(Object.keys(MODULE_ANNOUNCE_SITES).length);
+  });
+
+  it("ⓐ-2 온보딩 저장 실패 카드의 낭독 배선이 소스에 실재한다 (effect 안 · 화면이 그리는 그 문장)", () => {
+    const stepUiSource = source("src/onboarding/step-ui.tsx");
+    const masked = maskComments(stepUiSource);
+    const effects = callBlocksOf(masked, "useEffect").filter((block) => block.includes("announceForA11y("));
+    // ⚠️ 마스커의 함정 하나를 여기서 함께 막는다 — `//` 줄 주석 안에 블록 주석의 여는 기호가
+    // 들어가면 그 뒤 파일이 통째로 공백이 되고, 이 스윕의 모집단이 **조용히** 비어 버린다.
+    expect(masked, "마스킹 뒤에도 카드의 여는 태그가 남아 있다").toContain(
+      '<View accessibilityLiveRegion="polite" accessibilityRole="alert">'
+    );
+    const wired = effects.find((block) => block.includes("announceForA11y(text)"));
+    // ⚠️ 배선이 사라지면 여기가 먼저 빨개진다(그러면 이 카드는 다시 iOS에서 무음이다).
+    expect(wired, "OnboardingSaveErrorCard의 낭독 배선").toBeTruthy();
+    // 렌더 도중이 아니라 **effect 안**이고, 의존 배열이 그 문장을 든다 — 매 렌더 재낭독 0건이고
+    // 사유가 갈린 두 번째 실패(네트워크 → 403)는 문장이 바뀌므로 조용해지지 않는다.
+    const deps = wired!.slice(wired!.lastIndexOf(", ["));
+    expect(deps, "낭독의 의존 배열").toContain("text");
+
+    // 눈과 귀가 같은 말을 한다: 읽는 것은 **화면에 이미 그려진 그 문자열**이다(두 벌 리터럴 0건).
+    expect(stepUiSource, "카드가 그리는 문장").toContain("{text}</Text>");
+    expect(stepUiSource, "문장의 단일 소스").toContain(
+      "const text = message ?? onboardingSaveErrorMessage(error, { isOnline });"
+    );
+    // 관례는 언제나 **둘 다**다 — 프롭 쌍(라운드 79)과 낭독(라운드 87)이 함께 서 있다.
+    expect(stepUiSource, "프롭 쌍").toContain('<View accessibilityLiveRegion="polite" accessibilityRole="alert">');
+    expect(stepUiSource, "낭독 함수의 단일 소스에서 온다").toContain('import { announceForA11y, Card, SecondaryButton } from "../ui";');
+    expect(source("src/ui.tsx"), "그 함수의 단일 소스").toContain("export function announceForA11y");
+  });
+
+  it("ⓒ 걷는 뿌리와 걷지 않는 뿌리가 둘 다 값이고, 모바일의 `.tsx` 전수가 그 둘 중 하나에 속한다", () => {
+    expect([...MODULE_ANNOUNCE_SOURCE_ROOTS], "이 스윕이 걷는 뿌리").toEqual(["src"]);
+
+    const swept = new Set(listModuleComponentSources());
+    const everyComponent = listComponentSources();
+    expect(everyComponent.length, "모바일의 컴포넌트 소스 전수").toBeGreaterThan(20);
+    for (const path of everyComponent) {
+      if (swept.has(path)) continue;
+      const root = Object.keys(NON_MODULE_ANNOUNCE_SOURCE_ROOTS).find((entry) => path.startsWith(`${entry}/`));
+      // ⚠️ 뿌리가 하나 더 생기는 날(예: `components/`) 여기가 먼저 빨개진다 — 사각이 조용히 열리지 않게.
+      expect(root, `${path}: 스윕 밖인데 이유가 없다`).toBeTruthy();
+    }
+    for (const [root, reason] of Object.entries(NON_MODULE_ANNOUNCE_SOURCE_ROOTS)) {
+      expect(reason.length, `${root}의 제외 이유는 빈 문자열일 수 없다`).toBeGreaterThan(40);
+      expect([...MODULE_ANNOUNCE_SOURCE_ROOTS], `${root}는 걷는 뿌리가 아니다`).not.toContain(root);
+      // 걷지 않는 이유가 참인지도 값으로 확인한다 — 그 뿌리는 위 두 스윕이 실제로 걷는다.
+      expect(everyComponent.some((path) => path.startsWith(`${root}/`)), `${root}에 소스가 실재한다`).toBe(true);
+    }
+    expect(listRouteSources().length, "app 뿌리를 걷는 스윕이 실재한다").toBeGreaterThan(20);
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS.length, "대장을 걷는 스윕이 실재한다").toBeGreaterThan(0);
+  });
+
+  it("ⓓ 재현 — 낭독을 뺀 소스가 실제로 빨개진다 (강화가 침묵으로 되돌아가지 않게)", () => {
+    // ⚠️ 픽스처의 `function`은 **열 0**에 선다 — 귀속 단위가 최상위 선언이기 때문이다(위 사각 ③).
+    const card = (effect: string) => `
+export function SaveErrorCard({ error, onRetry }) {
+  const text = saveErrorMessage(error);
+  ${effect}
+  return (
+    <View accessibilityLiveRegion="polite" accessibilityRole="alert">
+      <Text>{text}</Text>
+    </View>
+  );
+}
+`;
+    // 프롭만이면 안드로이드 한정이고, announce까지 서야 두 플랫폼 다다.
+    expect(moduleAnnounceSitesOf(card(""), "fixture")).toEqual([
+      { file: "fixture", component: "SaveErrorCard", exit: "live-region" }
+    ]);
+    expect(
+      moduleAnnounceSitesOf(card("useEffect(() => { announceForA11y(text); }, [text]);"), "fixture")
+    ).toEqual([{ file: "fixture", component: "SaveErrorCard", exit: "announce" }]);
+    // ⚠️ 낭독이 **다른 컴포넌트**에 있으면 이 자리는 여전히 안드로이드 한정이다(파일 단위로 세지 않는다).
+    const otherComponent = `
+export function Elsewhere({ notice }) {
+  useEffect(() => { announceForA11y(notice); }, [notice]);
+  return <Text accessibilityLiveRegion="polite" accessibilityRole="alert">{notice}</Text>;
+}
+${card("")}
+`;
+    expect(moduleAnnounceSitesOf(otherComponent, "fixture")).toEqual([
+      { file: "fixture", component: "Elsewhere", exit: "announce" },
+      { file: "fixture", component: "SaveErrorCard", exit: "live-region" }
+    ]);
+    // 한 짝만 걸린 자리는 이 모집단 밖이다(관례는 둘 다이고, 반쪽은 여기서 세지 않는다 — 사각 ④).
+    expect(moduleAnnounceSitesOf('<View accessibilityLiveRegion="polite">x</View>', "fixture")).toEqual([]);
+    // 제네릭이 뒤따르는 JSX를 삼키지 않는다(스캐너가 끊기면 모집단이 조용히 비어 버린다).
+    const withGeneric = `
+const table: Record<string, { readonly a: string }> = {};
+${card("useEffect(() => { announceForA11y(text); }, [text]);")}
+`;
+    expect(moduleAnnounceSitesOf(withGeneric, "fixture")).toEqual([
+      { file: "fixture", component: "SaveErrorCard", exit: "announce" }
+    ]);
+  });
+
+  it("ⓔ 위 두 스윕의 모집단은 한 줄도 옮기지 않았다 (뿌리를 더한 것이지 옮긴 것이 아니다)", () => {
+    // 모집단을 옮기면 U절 이월과 라운드 80의 값이 함께 흔들린다 — 그래서 그 값들이 여기 선다.
+    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(6);
+    expect(MUTATION_TRIGGER_SITES_BY_SCREEN["app/settings/privacy.tsx"], "개인정보 화면의 자리 수").toBe(7);
+    expect(Object.keys(MUTATION_TRIGGER_SITES_BY_SCREEN)).not.toContain("app/(onboarding)/child-profile.tsx");
+    expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "대장 스윕의 제외").toEqual([]);
+    expect(Object.keys(ALERT_ROLE_WITHOUT_LIVE_REGION), "role 단독의 제외").toEqual(["app/(tabs)/items.tsx"]);
+    // 라운드 79의 기록도 그대로다 — 이 트랙이 더한 것은 프롭이 아니라 **낭독**이라, 그 값은 무접촉이다.
+    expect(ROUND79_ANNOUNCE_PROPS_ADDED.length, "라운드 79의 기록").toBe(6);
+    expect(
+      ROUND79_ANNOUNCE_PROPS_ADDED.some((entry) => entry.file === "src/onboarding/step-ui.tsx"),
+      "모듈 층의 그 한 자리는 라운드 79의 기록에 이미 있었다"
+    ).toBe(true);
+  });
+
+  it("ⓕ 이 스윕의 사각이 값으로 적혀 있고, 그 가운데 하나는 실재가 값으로 확인된다 (AA-4)", () => {
+    expect(MODULE_ANNOUNCE_SWEEP_BLIND_SPOTS.length, "적어 둔 사각").toBeGreaterThan(3);
+    for (const blindSpot of MODULE_ANNOUNCE_SWEEP_BLIND_SPOTS) {
+      expect(blindSpot.length, "사각은 빈 문자열일 수 없다").toBeGreaterThan(40);
+    }
+    // ⚠️ 사각 ④의 실재 — 프롭이 **한 짝만** 걸린 자리가 이 뿌리에 오늘도 있다(모집단 밖이다).
+    const halfAnnounced = listModuleComponentSources()
+      .map((file) => [file, halfAnnouncedTagCount(source(file))] as const)
+      .filter(([, count]) => count > 0);
+    expect(halfAnnounced.length, "한 짝만 걸린 자리가 실재한다").toBeGreaterThan(0);
+    for (const [file, count] of halfAnnounced) {
+      expect(
+        moduleAnnounceSites().some((site) => site.file === file && site.exit === "live-region"),
+        `${file}: 반쪽 자리는 이 모집단이 세지 않는다`
+      ).toBe(false);
+      expect(count, `${file}의 반쪽 자리`).toBeGreaterThan(0);
+    }
+  });
+});
