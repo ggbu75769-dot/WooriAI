@@ -75,6 +75,12 @@
 //    (재개 조건: 문서 축을 무는 스윕이 서는 날 — 그 결정은 이 트랙의 것이 아니다).
 //  · 이름을 감춘 값(환경변수 이름을 바꿔 우회하거나 base64로 감싼 값)은 잡지 못한다. 고엔트로피
 //    바늘 하나가 그 방향의 가장 흔한 모양만 문다.
+//  · ⚠️ **라운드 86 리뷰가 연 사각 둘과 오늘의 처분**: ⓐ `.env.example`의 **자격증명 URL 키**
+//    (`REDIS_URL`·`S3_ENDPOINT` — 이름에 SECRET·PASSWORD가 없어 옛 바늘 셋 어디에도 걸리지 않았다)는
+//    오늘 `urlPassword` 조각을 뜯는 바늘 하나로 문다(M-5). 남는 한계는 **비밀번호 없이 사용자 이름만
+//    있는 URL**이다 — 그 모양은 값 자체가 비밀이 아니라 판정을 세우지 않았다. ⓑ `requireSecret` 호출부를
+//    **인자 내용의 콜론**으로 거르던 필터는 URL 폴백·삼항 폴백을 모집단 밖으로 내보내고 있었다 —
+//    오늘은 **선언 줄의 위치**로만 가른다(M-3).
 //
 // 이 한계를 값으로 적어 두는 이유는 다음 사람이 이 파일을 *"저장소에 비밀값이 없다는 증명"* 으로
 // 읽지 않게 하기 위해서다 — 이것은 **경계가 넘어갈 때 소리가 나는 자리**다.
@@ -268,6 +274,23 @@ export function collectSeedAffiliateCodes(baseDir: string = repoRoot): SecretCan
   }));
 }
 
+/**
+ * 이 `requireSecret(` 자리가 **함수 선언**인가(호출부가 아닌가).
+ *
+ * ⚠️ **라운드 86 리뷰 M-3** — 종전에는 이것을 *인자의 내용*으로 갈랐다(*"둘째 인자에 `:`가 있으면
+ * 선언"*). 선언 줄(`devFallback: string`)은 실제로 그 모양이지만, **콜론은 호출부에도 흔하다**:
+ * `requireSecret("REDIS_URL", "redis://localhost:6379")` 같은 URL 폴백도, 삼항 폴백
+ * (`isX ? "a" : "b"`)도 그 필터에 걸려 **모집단에서 통째로 사라진다** — 즉 실제 비밀값이 들어올
+ * 수 있는 모양 둘이 조용히 그물 밖으로 나갔다.
+ *
+ * 그래서 오늘은 **선언 줄의 위치**로 가른다: 이 자리 바로 앞이 `function ` 이면 선언이다
+ * (`export function requireSecret(` · `function requireSecret(` — 오늘 저장소의 유일한 선언이
+ * `require-secret.ts`의 그 한 줄이다). 인자 안에 무엇이 적혀 있든 판정이 흔들리지 않는다.
+ */
+function isRequireSecretDeclaration(source: string, cursor: number): boolean {
+  return /(?:^|\W)(?:export\s+)?(?:async\s+)?function\s+$/.test(source.slice(Math.max(0, cursor - 40), cursor));
+}
+
 /** 괄호 균형을 세어 `requireSecret(…)`의 인자 전체를 떼어 낸다(여러 줄 호출도 읽는다). */
 function requireSecretArguments(source: string): string[][] {
   const calls: string[][] = [];
@@ -294,7 +317,10 @@ function requireSecretArguments(source: string): string[][] {
       else if (char === ")" || char === "]" || char === "}") nesting -= 1;
       else if (char === "," && nesting === 0 && split === -1) split = index;
     }
-    if (split !== -1) calls.push([inner.slice(0, split).trim(), inner.slice(split + 1).trim()]);
+    // 선언 줄은 자리가 아니다(위 `isRequireSecretDeclaration`) — 그래도 커서는 그 괄호 끝까지 넘긴다.
+    if (split !== -1 && !isRequireSecretDeclaration(source, cursor)) {
+      calls.push([inner.slice(0, split).trim(), inner.slice(split + 1).trim()]);
+    }
     cursor = source.indexOf(marker, end);
   }
 
@@ -325,8 +351,8 @@ export function collectSecretFallbacks(baseDir: string = repoRoot): SecretCandid
       const source = readRepoFile(file, baseDir);
       if (!source.includes("requireSecret(")) continue;
       for (const [envKeyExpression, fallbackExpression] of requireSecretArguments(source)) {
-        // 함수 **정의**(`export function requireSecret(envKey: string, devFallback: string)`)는 호출부가 아니다.
-        if (fallbackExpression.includes(":")) continue;
+        // ⚠️ 함수 **정의**는 위 걷기가 **선언 줄의 위치**로 이미 걸러 냈다(리뷰 M-3) — 여기서
+        // 인자 내용으로 다시 거르지 않는다. 콜론이 든 폴백(URL·삼항)은 호출부이고, 호출부다.
         const envKey = literalOrExpression(envKeyExpression);
         const value = literalOrExpression(fallbackExpression);
         const id = `${envKey}@${file}`;
@@ -389,6 +415,16 @@ export function collectDbUrlLiterals(baseDir: string = repoRoot): SecretCandidat
 /** ⓓ `.env.example`의 값 — 빈 값과 순수 숫자는 걷지 않는다(자리표시자·설정값이지 비밀값이 아니다). */
 const ENV_ASSIGNMENT = /^([A-Z][A-Z0-9_]*)=(.*)$/;
 
+/** `scheme://user:pass@…` 모양에서 **비밀번호 조각**만 떼어 낸다(없으면 `null` — 조각이 서지 않는다). */
+const CREDENTIALED_URL = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/([^\s/@]+)@/;
+
+export function urlCredentialPassword(value: string): string | null {
+  const match = CREDENTIALED_URL.exec(value.trim());
+  if (!match) return null;
+  const split = match[1].indexOf(":");
+  return split === -1 ? null : match[1].slice(split + 1);
+}
+
 export function collectEnvExampleValues(baseDir: string = repoRoot): SecretCandidate[] {
   const where = ".env.example";
   return readRepoFile(where, baseDir)
@@ -397,12 +433,14 @@ export function collectEnvExampleValues(baseDir: string = repoRoot): SecretCandi
     .filter((match): match is RegExpExecArray => match !== null)
     .map((match) => ({ key: match[1], value: match[2].trim() }))
     .filter(({ value }) => value.length > 0 && !/^\d+$/.test(value))
-    .map(({ key, value }) => ({
-      kind: "env-example-value" as const,
-      id: key,
-      where,
-      parts: { value }
-    }));
+    .map(({ key, value }) => {
+      const parts: Record<string, string> = { value };
+      // ⚠️ 리뷰 M-5: 자격증명이 실린 URL 값(`REDIS_URL`·`S3_ENDPOINT` 같은 키)의 비밀번호 조각.
+      // 없으면 조각 자체를 세우지 않는다 — 없는 조각을 가리키는 바늘은 그 후보를 지나간다.
+      const urlPassword = urlCredentialPassword(value);
+      if (urlPassword !== null) parts.urlPassword = urlPassword;
+      return { kind: "env-example-value" as const, id: key, where, parts };
+    });
 }
 
 /** 모집단 전수 — 이 파일의 모든 판정이 여기서 나온다. */
@@ -506,7 +544,9 @@ export const SECRET_EXEMPTION_CLASSES: Readonly<
     provenBy:
       "apps/api/src/common/config/require-secret.ts를 소스로 읽어 ① 폴백 반환이 `isDevOrTestEnv()` 갈래 **안에만** 있고 " +
       "② 그 갈래 밖에서는 던지며 ③ 게이트가 NODE_ENV를 development/test로만 참으로 만드는지를 확인하고, " +
-      "덧붙여 ④ 면제에 오른 자리의 **오늘 값이 가짜 표식을 달고 있는지**를 다시 센다(실제 값으로 갈아 끼우면 그 자리에서 빨개진다)."
+      "덧붙여 ④ 면제에 오른 자리의 **오늘 값이 가짜 표식을 달고 있는지**를 다시 센다(실제 값으로 갈아 끼우면 그 자리에서 빨개진다) — " +
+      "⚠️ 그 자리가 이름 상수로 넘기는 자리면 **풀린 값**(`parts.resolved`)도 함께 잰다(리뷰 M-4: 이름만 `DEV_`이고 값이 진짜인 자리를 " +
+      "이름의 표식이 가려 주던 사각이다)."
   },
   "test-fixture": {
     reason:
@@ -797,7 +837,9 @@ export const SECRET_ITEMS: readonly SecretItem[] = [
     roots: ["db-url-literal", "env-example-value"],
     rootsReason:
       "운영 DB URL은 **URL 리터럴로만** 온다. 그래서 뿌리 하나는 코드·설정 전수의 `postgres(ql)://` 리터럴이고, " +
-      "다른 하나는 `.env.example`의 `DATABASE_URL` 줄이다. " +
+      "다른 하나는 `.env.example`의 `DATABASE_URL` 줄이다(⚠️ 리뷰 M-5 이후 그 파일에서 이 항목이 보는 것은 그 한 줄이 " +
+      "아니라 **자격증명이 실린 URL 값 전부**다 — `REDIS_URL`·`S3_ENDPOINT`처럼 이름에 비밀이라는 말이 없는 키가 " +
+      "같은 모양으로 오고, 그 줄들은 어느 항목의 바늘에도 걸리지 않고 있었다). " +
       "⚠️ 이 항목은 표식이 아니라 **URL의 조각**으로 가른다(호스트와 비밀번호) — DB URL은 값 전체가 아니라 " +
       "그 두 조각이 운영을 가리키는지가 판정이고, `wooriai_dev_password@localhost`처럼 표식이 이미 조각 안에 산다. " +
       "⚠️ 시드·비밀값 폴백 뿌리는 이 항목에 두지 않는다(다른 두 항목의 축이다)."
@@ -832,6 +874,22 @@ export const SECRET_ITEMS: readonly SecretItem[] = [
         reason:
           "자리표시자 파일의 `DATABASE_URL`은 실제 값이 가장 자주 붙여넣어지는 한 줄이다. " +
           "값 전체에 표식이 하나도 없으면(호스트·비밀번호·DB 이름 어디에도) 그 줄은 운영을 가리키고 있다."
+      },
+      {
+        label: "표식 없는 자격증명 URL 값",
+        kinds: ["env-example-value"],
+        part: "urlPassword",
+        pattern: DB_PASSWORD_PROVEN_FAKE,
+        absent: true,
+        reason:
+          "⚠️ **라운드 86 리뷰 M-5가 연 사각이다.** 위 바늘은 키 이름이 `DATABASE_URL`인 한 줄만 보고, " +
+          "옆 바늘들은 키 이름에 SECRET·TOKEN·PASSWORD…가 든 줄만 본다 — 그래서 `REDIS_URL`·`S3_ENDPOINT`처럼 " +
+          "**이름에 비밀이라는 말이 없는 URL 키**에 `scheme://user:pass@host`가 붙여넣어지면 이 스윕은 " +
+          "그것을 보고도 지나갔다(운영 Redis·오브젝트 스토리지 자격증명이 정확히 그 모양으로 온다). " +
+          "그래서 키 이름이 아니라 **값의 모양**으로 문다: 자격증명이 실린 URL이면 비밀번호 조각을 떼어 내 " +
+          "DB URL과 **같은 잣대**(비어 있거나 `${…}` 주입이거나 표식을 달았는가)로 잰다. " +
+          "오늘 이 조각이 서는 줄은 `DATABASE_URL` 하나이고(`wooriai_dev_password` — 표식 있음), 나머지 URL 값에는 " +
+          "userinfo 자체가 없어 조각이 서지 않는다. ⚠️ 비밀번호 없이 사용자 이름만 있는 URL은 이 바늘 밖이다(값의 한계)."
       }
     ],
     exemptions: [],
@@ -969,25 +1027,36 @@ export function devFallbackGateProof(baseDir: string = repoRoot): {
   const body = functionBodyLines(lines, "requireSecret");
 
   // 게이트 갈래의 안쪽만 떼어 낸다(같은 중괄호 깊이 세기 — 여는 줄 다음부터 닫히는 줄 전까지).
+  // ⚠️ 줄의 **번호**로 잡는다(내용이 아니라): 같은 문장이 게이트 안팎에 함께 있을 수 있고,
+  // 그때 문자열 비교로는 "밖에도 있다"를 말할 수 없다(리뷰 M-6).
   const gateIndex = body.findIndex((line) => line === "if (isDevOrTestEnv()) {");
-  const insideGate: string[] = [];
+  const insideGateIndexes = new Set<number>();
   if (gateIndex !== -1) {
     let depth = 0;
     for (let index = gateIndex; index < body.length; index += 1) {
       const line = body[index];
       depth += (line.match(/\{/g) ?? []).length - (line.match(/\}/g) ?? []).length;
       if (index > gateIndex && depth <= 0) break;
-      if (index > gateIndex) insideGate.push(line);
+      if (index > gateIndex) insideGateIndexes.add(index);
     }
   }
 
   const fallbackReturns = body.filter((line) => line === "return devFallback;");
-  const fallbackInsideGate = insideGate.filter((line) => line === "return devFallback;");
+  const fallbackInsideGate = body.filter(
+    (line, index) => insideGateIndexes.has(index) && line === "return devFallback;"
+  );
 
   return {
     returnsFallbackOnlyBehindGate:
       fallbackReturns.length > 0 && fallbackReturns.length === fallbackInsideGate.length,
-    throwsOutsideGate: body.some((line) => line.startsWith("throw new Error(")),
+    /**
+     * ⚠️ **리뷰 M-6**: 종전에는 본문 어디든 `throw new Error(`가 있으면 참이었다 — 게이트 **안**의
+     * throw(예: dev 폴백을 검증하다 던지는 줄)까지 이 조건을 만족시켜, *"게이트 밖에서는 던진다"*
+     * 는 면제의 근거가 사실 확인 없이 초록으로 남을 수 있었다. 이제 **게이트 밖 줄에서만** 센다.
+     */
+    throwsOutsideGate: body.some(
+      (line, index) => !insideGateIndexes.has(index) && line.startsWith("throw new Error(")
+    ),
     gateChecksNodeEnv: functionBodyLines(lines, "isDevOrTestEnv").some((line) =>
       line.includes('nodeEnv === "development" || nodeEnv === "test"')
     ),

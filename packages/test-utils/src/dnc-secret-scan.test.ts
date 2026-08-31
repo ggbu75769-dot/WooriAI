@@ -56,7 +56,8 @@ import {
   parseSecretClausePhrases,
   readRepoFile,
   scannedFiles,
-  secretFailureHint
+  secretFailureHint,
+  urlCredentialPassword
 } from "./dnc-secret-scan";
 
 /** 모집단 — 이 파일의 모든 판정이 여기서 나온다(한 번만 걷는다). */
@@ -362,6 +363,18 @@ describe("ⓒ 면제 — 부류마다 이유·재개 조건·증명이 있고, �
         `${exemption.name}의 값이 가짜 표식을 잃었어요 — 실제 값이라면 지우고 **회전**한 뒤 환경변수로 옮기세요`
       ).not.toEqual([]);
 
+      // ⚠️⚠️ **라운드 86 리뷰 M-4** — 이름 상수로 넘기는 자리는 `parts.value`가 **이름**이라
+      // (`DEV_ANALYTICS_ANON_SALT_FALLBACK`) 위 단언이 무는 것은 값이 아니라 그 이름의 표식이다.
+      // 그래서 상수의 값을 실제 키로 갈아 끼워도 위 줄은 초록이었다 — 부류의 증명 ④가 약속한
+      // *"실제 값으로 갈아 끼우면 그 자리에서 빨개진다"* 가 이름 상수 셋에서 거짓이었다.
+      // 풀린 값이 있으면 **그 값에도** 같은 잣대를 댄다.
+      if (site!.parts.resolved !== undefined) {
+        expect(
+          fakeValueMarkersIn(site!.parts.resolved),
+          `${exemption.name}이 가리키는 상수의 **값**이 가짜 표식을 잃었어요 — 이름만 dev-이고 값이 진짜인 자리예요`
+        ).not.toEqual([]);
+      }
+
       if (exemption.exemptionClass === "test-fixture") {
         expect(site!.where, "test-fixture 부류는 테스트 경로에만 서요").toMatch(/(^|\/)test(s)?\/|\.test\.ts$/);
       }
@@ -499,6 +512,150 @@ describe("ⓔ 바늘이 실제로 문다 (물지 못하는 스윕은 영원히 �
     } finally {
       rmSync(sandbox, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * ⚠️⚠️ **라운드 86 적대 리뷰가 연 사각 넷** — 넷 다 *"스윕이 초록인데 그 자리는 비어 있었다"* 의
+ * 모양이다. 그래서 넷 다 **교란으로 재현한다**: 사각의 모양을 실제로 만들어 스윕이 그것을 무는지
+ * (또는 옛 판정이 그것을 놓쳤는지) 값으로 보인다. ⚠️ 픽스처는 전부 **명백한 가짜**다.
+ */
+describe("ⓖ 리뷰가 연 사각 넷 — 교란으로 재현한다", () => {
+  /** 뿌리 경로만 갖춘 임시 저장소 하나(제품 소스를 건드리지 않는다 — 위 compose 재현과 같은 관례). */
+  function withSandbox(run: (sandbox: string) => void): void {
+    const sandbox = mkdtempSync(join(tmpdir(), "wooriai-dnc-secret-review-"));
+    try {
+      mkdirSync(join(sandbox, "apps", "api", "src", "common", "config"), { recursive: true });
+      mkdirSync(join(sandbox, "apps", "api", "test"), { recursive: true });
+      run(sandbox);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  }
+
+  it("M-3: 콜론이 든 폴백(URL·삼항)도 호출부로 걷는다 — 선언 줄만 위치로 뺀다", () => {
+    withSandbox((sandbox) => {
+      // ⚠️ 종전 필터는 *둘째 인자에 `:`가 있으면 선언*이라고 봤다. 아래 두 호출부는 그 필터에
+      // 걸려 **모집단에서 통째로 사라졌다** — 값이 코드에 적힌 자리인데 아무도 세지 않았다.
+      writeFileSync(
+        join(sandbox, "apps", "api", "src", "가짜-호출부.ts"),
+        'const url = requireSecret("REDIS_URL", "redis://가짜사용자:가짜비밀번호@localhost:6379");\n' +
+          'const salt = requireSecret("ANALYTICS_ANON_SALT", isX ? "가짜-왼쪽" : "가짜-오른쪽");\n'
+      );
+      // 같은 저장소에 **선언 줄**도 둔다 — 위치로 가르는 판정이 그것만 빼는지 함께 본다.
+      writeFileSync(
+        join(sandbox, "apps", "api", "src", "common", "config", "require-secret.ts"),
+        "export function requireSecret(envKey: string, devFallback: string): string {\n" +
+          "  return process.env[envKey] ?? devFallback;\n}\n"
+      );
+
+      const ids = collectSecretFallbacks(sandbox).map((candidate) => candidate.id);
+      expect(ids, "URL 폴백 호출부를 놓쳤어요").toContain("REDIS_URL@apps/api/src/가짜-호출부.ts");
+      expect(ids, "삼항 폴백 호출부를 놓쳤어요").toContain("ANALYTICS_ANON_SALT@apps/api/src/가짜-호출부.ts");
+      // 선언 줄은 자리가 아니다(인자 내용이 아니라 위치로 뺀다).
+      expect(ids).not.toContain(`envKey: string@${REQUIRE_SECRET_PATH}`);
+      expect(collectSecretFallbacks(sandbox).map((candidate) => candidate.parts.value)).not.toContain(
+        "devFallback: string"
+      );
+
+      // 그리고 걷힌 그 자리는 실제로 **빨개진다**(면제 대장에 없는 이름이므로).
+      const item = SECRET_ITEMS.find((candidate) => candidate.id === "oauth-secret")!;
+      const hits = findSecretViolations(item, collectSecretFallbacks(sandbox)).map((violation) => violation.id);
+      expect(hits).toContain("REDIS_URL@apps/api/src/가짜-호출부.ts");
+    });
+  });
+
+  it("M-4: 이름 상수의 **풀린 값**이 표식을 잃으면 면제 재검이 그 자리에서 빨개진다", () => {
+    withSandbox((sandbox) => {
+      // 이름은 종전 그대로 `DEV_…`(표식 있음)인데 값만 갈아 끼운 자리 — 종전 재검은 `parts.value`
+      // (=이름)만 봐서 초록이었다. 오늘 계약은 `parts.resolved`도 잰다.
+      writeFileSync(
+        join(sandbox, "apps", "api", "src", "가짜-상수-호출부.ts"),
+        'const DEV_ANALYTICS_ANON_SALT_FALLBACK = "AaaaaaaaaaBbbbbbbbbbCc12";\n' +
+          'const salt = requireSecret("ANALYTICS_ANON_SALT", DEV_ANALYTICS_ANON_SALT_FALLBACK);\n'
+      );
+      const site = collectSecretFallbacks(sandbox).find(
+        (candidate) => candidate.id === "ANALYTICS_ANON_SALT@apps/api/src/가짜-상수-호출부.ts"
+      );
+      expect(site, "이름 상수 호출부를 못 걷었어요").toBeDefined();
+      // 이름은 여전히 표식을 달고 있고(그래서 옛 재검은 초록이었다),
+      expect(fakeValueMarkersIn(site!.parts.value)).toContain("dev");
+      // 풀린 값에는 표식이 0건이다 — 이 자리가 면제 대장에 있었다면 오늘 계약이 빨개진다.
+      expect(site!.parts.resolved).toBe("AaaaaaaaaaBbbbbbbbbbCc12");
+      expect(fakeValueMarkersIn(site!.parts.resolved)).toEqual([]);
+      // 오늘 저장소의 이름 상수 셋은 반대로 값에도 표식이 있다(그래서 위 재검이 초록이다).
+      for (const candidate of candidatesOfKind("secret-fallback")) {
+        if (candidate.parts.resolved === undefined) continue;
+        expect(
+          fakeValueMarkersIn(candidate.parts.resolved),
+          `${candidate.id}이 가리키는 상수 값에 표식이 0건이에요`
+        ).not.toEqual([]);
+      }
+    });
+  });
+
+  it("M-5: `.env.example`의 자격증명 URL 키(REDIS_URL 등)가 표식 없는 비밀번호를 실으면 빨개진다", () => {
+    const item = SECRET_ITEMS.find((candidate) => candidate.id === "prod-db-url")!;
+    // ⚠️ 명백한 가짜다: 호스트가 예약 TLD(.invalid)이고 비밀번호도 한국어 낱말이다.
+    const planted: SecretCandidate[] = collectEnvExampleValues().concat({
+      kind: "env-example-value",
+      id: "REDIS_URL",
+      where: ".env.example",
+      parts: {
+        value: "redis://가짜사용자:가짜비밀번호@운영.가짜.invalid:6379",
+        urlPassword: "가짜비밀번호"
+      }
+    });
+    expect(findSecretViolations(item, planted).map((violation) => violation.needle)).toEqual([
+      "표식 없는 자격증명 URL 값"
+    ]);
+
+    // 조각을 뜯는 자리도 값으로 못 박는다(값 전체가 아니라 비밀번호만 잰다).
+    expect(urlCredentialPassword("redis://user:가짜비밀번호@host:6379")).toBe("가짜비밀번호");
+    expect(urlCredentialPassword("redis://localhost:6379"), "userinfo가 없으면 조각이 서지 않는다").toBeNull();
+    expect(urlCredentialPassword("redis://user@host:6379"), "비밀번호 없는 URL도 조각이 서지 않는다").toBeNull();
+
+    // 오늘 이 조각이 서는 줄은 하나뿐이고, 그 값은 표식을 달고 있다(그래서 위 항목이 초록이다).
+    const withCredential = collectEnvExampleValues().filter(
+      (candidate) => candidate.parts.urlPassword !== undefined
+    );
+    expect(withCredential.map((candidate) => candidate.id)).toEqual(["DATABASE_URL"]);
+    for (const candidate of withCredential) {
+      expect(DB_PASSWORD_PROVEN_FAKE.test(candidate.parts.urlPassword)).toBe(true);
+    }
+  });
+
+  it("M-6: 게이트 **안**에서만 던지는 구현은 `throwsOutsideGate`를 만족시키지 않는다", () => {
+    withSandbox((sandbox) => {
+      const write = (body: string) =>
+        writeFileSync(join(sandbox, REQUIRE_SECRET_PATH), body);
+      const gate =
+        "export function isDevOrTestEnv(): boolean {\n" +
+        "  const nodeEnv = process.env.NODE_ENV;\n" +
+        '  return nodeEnv === "development" || nodeEnv === "test";\n}\n\n';
+
+      // ⚠️ 교란: 던지는 줄이 **게이트 안**으로 들어갔다 — 그러면 운영은 폴백도 예외도 없이
+      // undefined를 들고 지나간다. 종전 판정은 "본문 어디든 throw가 있으면 참"이라 초록이었다.
+      write(
+        gate +
+          "export function requireSecret(envKey: string, devFallback: string): string {\n" +
+          "  const value = process.env[envKey];\n  if (value) {\n    return value;\n  }\n" +
+          "  if (isDevOrTestEnv()) {\n    if (!devFallback) {\n      throw new Error(`no fallback`);\n    }\n" +
+          "    return devFallback;\n  }\n\n  return value as string;\n}\n"
+      );
+      expect(devFallbackGateProof(sandbox).throwsOutsideGate, "게이트 안의 throw를 밖으로 셌어요").toBe(false);
+
+      // 원래 모양(게이트 밖에서 던진다)에서는 참이다 — 판정이 아무것도 못 무는 게 아니다.
+      write(
+        gate +
+          "export function requireSecret(envKey: string, devFallback: string): string {\n" +
+          "  const value = process.env[envKey];\n  if (value) {\n    return value;\n  }\n" +
+          "  if (isDevOrTestEnv()) {\n    return devFallback;\n  }\n\n  throw new Error(`${envKey} must be set`);\n}\n"
+      );
+      const proof = devFallbackGateProof(sandbox);
+      expect(proof.throwsOutsideGate).toBe(true);
+      expect(proof.returnsFallbackOnlyBehindGate).toBe(true);
+    });
   });
 });
 

@@ -201,8 +201,8 @@ export default function ClickSummaryPage() {
               <span>{summary.dailyTotals[0]?.date}</span>
               <span>{summary.dailyTotals[summary.dailyTotals.length - 1]?.date}</span>
             </div>
-            {/* 최근 날짜가 위로 오게 뒤집는 것도, 그릴 수 없는 점이 있으면 표를 세우지 않는
-                것도 analytics-trend-view.ts의 판정이다(막대는 시간순 그대로). */}
+            {/* 최근 날짜가 위로 오게 뒤집는 것도, 그릴 수 없는 점을 표에서 빼고 그 사실을 아래
+                고지 한 줄로 말하는 것도 analytics-trend-view.ts의 판정이다(막대는 시간순 그대로). */}
             {trend.showTable ? (
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
@@ -223,6 +223,10 @@ export default function ClickSummaryPage() {
                 </table>
               </div>
             ) : null}
+            {/* 라운드 86 리뷰 M-2: 이 화면의 글자는 **정상 응답에서** 종전과 바이트 단위로 같다 —
+                이 한 줄은 표에서 뺀 점이 있는 응답에서만 선다(그때 표만 짧아지고 아무 말도 없으면
+                운영자가 없는 날을 있다고 읽는다). */}
+            {trend.omissionNotice ? <p className={styles.hint}>{trend.omissionNotice}</p> : null}
             <p className={styles.hint}>막대에 마우스를 올리면 날짜별 클릭 수를 볼 수 있어요. (서울 기준 날짜)</p>
           </section>
         </>

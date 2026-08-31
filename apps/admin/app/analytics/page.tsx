@@ -524,7 +524,8 @@ export default function AnalyticsSummaryPage() {
             </div>
             {/* 라운드 86 트랙 D: 막대의 `title`은 마우스에만 열리는 경로였다 — 형제 화면(클릭
                 통계)이 이미 쓰던 날짜·건수 표를 같은 모듈에서 세워 값을 텍스트로 남긴다.
-                뒤집는 순서도, 그릴 수 없는 점이 있으면 표를 세우지 않는 것도 그 모듈의 판정이다. */}
+                뒤집는 순서도, 그릴 수 없는 점을 표에서 빼고 그 사실을 아래 고지 한 줄로 말하는
+                것도 그 모듈의 판정이다(라운드 86 리뷰 M-2 — 표를 말없이 지우지 않는다). */}
             {trend.showTable ? (
               <div className={styles.tableWrap}>
                 <table className={styles.table} aria-label={`최근 ${summary.days}일 일별 이벤트 수 표`}>
@@ -545,9 +546,19 @@ export default function AnalyticsSummaryPage() {
                 </table>
               </div>
             ) : null}
+            {/* 라운드 86 리뷰 M-2: 표에서 뺀 점이 있으면 표를 지우는 대신 그 사실을 한 줄로 말한다
+                (정상 응답에서는 `null`이라 이 줄이 서지 않는다). */}
+            {trend.omissionNotice ? <p className={styles.hint}>{trend.omissionNotice}</p> : null}
             {/* 전부 0건인 기간에는 이 문장이 서지 않는다(아무 일도 없던 날을 봉우리로 만들지 않는다). */}
             {trend.peakSentence ? <p className={styles.hint}>{trend.peakSentence}</p> : null}
-            <p className={styles.hint}>막대에 마우스를 올리면 날짜별 이벤트 수를 볼 수 있어요. (서울 기준 날짜)</p>
+            {/* 라운드 86 리뷰 L-11: 표가 선 뒤에도 "마우스를 올리면"만 적어 두면, 그 경로가 없는
+                운영자(키보드·스크린리더)에게 이 카드는 여전히 마우스 전용으로 읽힌다. 표가 있을
+                때는 표를 가리키고, 표가 서지 못한 응답에서만 종전 문장이 남는다. */}
+            <p className={styles.hint}>
+              {trend.showTable
+                ? "날짜별 이벤트 수는 위 표에서 볼 수 있어요. (막대에 마우스를 올려도 같은 값이 떠요 · 서울 기준 날짜)"
+                : "막대에 마우스를 올리면 날짜별 이벤트 수를 볼 수 있어요. (서울 기준 날짜)"}
+            </p>
           </section>
         </>
       ) : null}

@@ -15,7 +15,17 @@ import {
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
-/** `app/`·`src/` 아래의 .ts/.tsx 전수(테스트 포함) — 사문 부정 단언이 도는 모집단. */
+/**
+ * `apps/mobile`의 `app/`·`src/` 아래 .ts/.tsx 전수(테스트 포함) — 사문 부정 단언이 도는 모집단.
+ *
+ * ⚠️ **라운드 86 리뷰 L-8 — 이 모집단이 무엇인지 정직하게 적어 둔다.** 이것은 *"저장소 전수"* 가
+ * 아니라 **모바일 앱의 두 뿌리**다(어드민·API·패키지는 걷지 않는다). 그 둘이 옳은 모집단인
+ * 이유는 사문이 된 판정(`itemListBadgeLabel`)이 `apps/mobile/src/items/item-labels.ts`의
+ * 지역 export였기 때문이다 — 다른 워크스페이스는 이 모듈을 **의존성으로 들지 않아**(어드민은
+ * REST만 읽고 API는 react를 모른다) 호출부가 설 수 없다. 즉 넓히면 걷는 시간만 늘고 판정은
+ * 같다. ⚠️ 그래도 *"전수"* 라고 적지 않는 이유는, 다음 사람이 이 초록을 **저장소 전체의
+ * 부재 증명**으로 읽으면 그 순간 이 단언이 실제로 세는 것보다 넓은 약속이 되기 때문이다.
+ */
 function mobileSourceFiles(): string[] {
   const found: string[] = [];
   const walk = (dir: string) => {
@@ -166,7 +176,7 @@ describe("라운드 86 A: 목록이 필수도를 말한다", () => {
    * 그것을 설명하는 산문뿐이기 때문이다(대장이 자기 이름을 적는 자리와 같은 모양). 그래서
    * "바늘 말고는 없다"를 곧바로 이어 문다: import도 호출도 0건.
    */
-  it("사문이 된 itemListBadgeLabel은 소스에도 계약에도 남지 않는다", () => {
+  it("사문이 된 itemListBadgeLabel은 모바일 앱 두 뿌리 어디에도 남지 않는다", () => {
     const deadFunctionName = "itemListBadgeLabel";
     const selfPath = "src/items/item-labels.test.ts";
     const offenders = mobileSourceFiles()
@@ -206,7 +216,9 @@ describe("라운드 48 T1: 목록 화면 배선", () => {
      *
      * 라운드 86 A: 그 타일 **아래 슬롯**에 필수도 배지가 섰지만 `badge` 프롭은 여전히 0건이다
      * (타일 렌더는 승인 자산이라 이 트랙이 열지 않는다). 종전에 여기 있던 사문 판정의 배선
-     * 부정 단언은 **그 이름을 저장소 전수에서 세는** 단언으로 올라갔다(이 파일 마지막 describe).
+     * 부정 단언은 **그 이름을 모바일 앱 두 뿌리(`app/`·`src/`)에서 세는** 단언으로 올라갔다
+     * (이 파일 마지막 describe — ⚠️ 리뷰 L-8: 그 모집단은 저장소 전수가 아니고, 왜 그 둘이면
+     * 충분한지는 `mobileSourceFiles` 머리말이 값으로 적는다).
      */
     expect(items).not.toContain('badge="');
     expect(items).toContain('from "../../src/items/item-labels"');

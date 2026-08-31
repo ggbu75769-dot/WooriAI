@@ -42,11 +42,18 @@ const ALL_ZERO: TrendPoint[] = SAMPLE.map((point) => ({ ...point, count: 0 }));
  * 모은다 — 그래서 계약의 절반이 *"클릭 화면의 글자가 종전과 바이트 단위로 같다"* 이다.
  */
 describe("analytics-trend-view (라운드 86 트랙 D)", () => {
-  describe("ⓑ 형제 동형 — 클릭 화면이 그리던 글자와 바이트 단위로 같다", () => {
+  describe("ⓑ 형제 동형 — 클릭 화면이 그리던 글자와 바이트 단위로 같다 (정상 응답에서)", () => {
     /**
-     * ⚠️ 기대값을 손으로 적지 않는다. **종전 화면에 있던 식 그대로**를 이 테스트가 계산해
-     * 대조한다(`app/clicks/page.tsx`의 옛 `title` 템플릿과 표의 `<td>`).
-     * 모듈이 형식을 조금이라도 바꾸면 여기가 먼저 빨개진다.
+     * ⚠️⚠️ **라운드 86 리뷰 L-13 — 이 아래 `legacy`가 무엇인지 정직하게 적어 둔다.**
+     *
+     * 이것은 옛 화면의 식을 **손으로 다시 적은 재구현**이다(옛 코드는 이 트랙이 모듈로 옮기면서
+     * 저장소에서 사라졌으므로, 소스를 읽어 대조할 수 있는 원본은 더 이상 없다). 그러니 이 단언이
+     * 증명하는 것은 *"모듈이 옛 화면과 같다"* 가 아니라 *"모듈이 **여기 적힌 식**과 같다"* 이다.
+     *
+     * 그런데도 재구현을 남기는 이유는 **대조군**이기 때문이다: 기대 문자열을 상수로 박아 두면
+     * 모듈이 형식을 바꿀 때 사람이 그 상수를 함께 고치며 지나갈 수 있지만, 식으로 적어 두면
+     * 천 단위 구분·단위 위치·구분자가 갈리는 순간 곧바로 빨개진다. ⚠️ 그래서 이 식을 고칠 때는
+     * **모듈에 맞추려고** 고치지 않는다 — 그 순간 대조군이 사라진다.
      */
     it("막대 라벨이 옛 title 템플릿과 같은 문자열이다 (두 단위 모두)", () => {
       for (const unit of ["건", "회"] as TrendCountUnit[]) {
@@ -149,8 +156,14 @@ describe("analytics-trend-view (라운드 86 트랙 D)", () => {
       expect(trendPeakSentence(tied, "건")).not.toContain("하루예요");
     });
 
-    it("라벨 수와 막대 수가 다르면 표를 세우지 않는다", () => {
-      // 응답에 그릴 수 없는 점이 섞이면(날짜가 비었거나 수가 수가 아님) 행이 하나 줄어든다.
+    /**
+     * ⚠️ 라운드 86 리뷰 M-2 — **표를 말없이 지우지 않는다.**
+     *
+     * 종전 판정은 "행 수와 막대 수가 어긋나면 표를 세우지 않는다"였다. 그 규칙은 반쯤 맞는 표를
+     * 막았지만, 표가 **값에 닿는 유일한 텍스트 경로**인 화면에서 그 경로를 **침묵으로** 닫았다.
+     * 오늘은 그릴 수 있는 줄만 세우고 뺀 줄을 고지 한 줄로 말한다.
+     */
+    it("그릴 수 없는 점이 섞이면 표는 서고, 뺀 줄을 고지 한 줄이 수와 함께 말한다", () => {
       const broken = [
         { date: "2026-08-14", count: 3 },
         { date: "", count: 5 },
@@ -158,8 +171,17 @@ describe("analytics-trend-view (라운드 86 트랙 D)", () => {
       ] as TrendPoint[];
       const view = analyticsTrendView(broken, "건");
       expect(view.bars).toHaveLength(3);
-      expect(view.showTable).toBe(false);
-      expect(view.rows).toEqual([]);
+      expect(view.showTable).toBe(true);
+      // 표에는 **그릴 수 있는 줄만** 선다(날짜 없는 점을 한 줄로 지어내지 않는다).
+      expect(view.rows).toEqual([
+        { date: "2026-08-16", countText: "7건" },
+        { date: "2026-08-14", countText: "3건" }
+      ]);
+      expect(view.omittedPoints).toBe(1);
+      // 침묵 금지: 뺐다는 사실과 두 수가 함께 적힌다(운영자가 막대와 표를 나란히 읽는다).
+      expect(view.omissionNotice).toBe(
+        "일부 값을 표시하지 못했어요 — 1일이 응답에서 읽히지 않아 표에서 뺐어요 (막대 3개 · 표 2줄)."
+      );
 
       // 수가 수가 아닌 경우도 같다.
       const nanPoint = analyticsTrendView(
@@ -169,17 +191,91 @@ describe("analytics-trend-view (라운드 86 트랙 D)", () => {
         ],
         "건"
       );
-      expect(nanPoint.showTable).toBe(false);
+      expect(nanPoint.showTable).toBe(true);
+      expect(nanPoint.rows).toEqual([{ date: "2026-08-14", countText: "3건" }]);
+      expect(nanPoint.omissionNotice).toContain("일부 값을 표시하지 못했어요");
       // 그래도 막대는 종전 그대로 남는다(이 트랙은 픽셀을 손대지 않는다).
       expect(nanPoint.bars).toHaveLength(2);
+
+      // 전 점이 깨진 응답에서만 표가 서지 않고, 그때도 화면은 침묵하지 않는다.
+      const allBroken = analyticsTrendView([{ date: "", count: Number.NaN }] as TrendPoint[], "건");
+      expect(allBroken.showTable).toBe(false);
+      expect(allBroken.rows).toEqual([]);
+      expect(allBroken.omissionNotice).not.toBeNull();
     });
 
-    it("정상 응답에서는 행 수와 막대 수가 같고 표가 선다", () => {
+    /**
+     * ⚠️ 라운드 86 리뷰 M-1 — **막대 경로가 던지지 않는다.**
+     *
+     * 타입은 `count: number`라고 말하지만 값은 네트워크에서 온다. `null` 한 점이면 종전 라벨 식은
+     * `toLocaleString`에서 던졌고, 그 예외는 카드 하나가 아니라 **페이지 전체**를 가져갔다.
+     */
+    it("수가 수가 아닌 점이 섞여도 라벨을 만들다 던지지 않는다 (수를 지어내지도 않는다)", () => {
+      const nullPoint = { date: "2026-08-15", count: null } as unknown as TrendPoint;
+      expect(() => trendBarLabel(nullPoint, "건")).not.toThrow();
+      expect(trendBarLabel(nullPoint, "건")).toBe("2026-08-15: 값 없음");
+      // 0건으로 적으면 아무 일도 없던 날이 되고, 원문을 흘리면 "null건"이 화면에 뜬다.
+      expect(trendBarLabel(nullPoint, "건")).not.toContain("0건");
+      expect(trendBarLabel(nullPoint, "건")).not.toContain("null");
+      // 날짜조차 없으면 낱말 하나만 남는다.
+      expect(trendBarLabel({ date: "", count: undefined } as unknown as TrendPoint, "회")).toBe("값 없음");
+
+      const view = analyticsTrendView(
+        [
+          { date: "2026-08-14", count: 3 },
+          { date: "2026-08-15", count: null },
+          { date: "2026-08-16", count: 7 }
+        ] as unknown as TrendPoint[],
+        "건"
+      );
+      // 막대 수는 그대로이고(기간의 모양), 그 점은 표·최대치 판정에서만 빠진다.
+      expect(view.bars).toHaveLength(3);
+      expect(view.bars[1].label).toBe("2026-08-15: 값 없음");
+      expect(view.rows.map((row) => row.date)).toEqual(["2026-08-16", "2026-08-14"]);
+      expect(view.peak).toEqual({ date: "2026-08-16", count: 7, tiedDays: 1 });
+      expect(view.omittedPoints).toBe(1);
+      // 그리고 그 응답 전체가 한 번도 던지지 않는다(카드가 선 페이지가 살아 있다).
+      expect(() =>
+        analyticsTrendView([{ date: null, count: null }] as unknown as TrendPoint[], "회")
+      ).not.toThrow();
+    });
+
+    it("정상 응답에서는 행 수와 막대 수가 같고 표가 서며, 고지는 서지 않는다", () => {
       const view = analyticsTrendView(SAMPLE, "회");
       expect(view.showTable).toBe(true);
       expect(view.rows).toHaveLength(view.bars.length);
-      // 빈 기간도 어긋남이 아니다(0 = 0) — 종전 클릭 화면과 같은 그림이다.
+      expect(view.omittedPoints).toBe(0);
+      // 정상 응답에서 새 글자는 0건이다 — 두 화면의 바이트 불변 주장이 사는 자리가 여기다.
+      expect(view.omissionNotice).toBeNull();
+      // 빈 기간도 어긋남이 아니다(0 = 0) — 종전 클릭 화면과 같은 그림(머리만 있는 표)이다.
       expect(analyticsTrendView([], "회").showTable).toBe(true);
+      expect(analyticsTrendView([], "회").omissionNotice).toBeNull();
+    });
+
+    it("두 화면이 고지 한 줄을 같은 자리에서 그린다 (모듈이 지은 문장을 화면이 다시 짓지 않는다)", () => {
+      for (const path of ["app/analytics/page.tsx", "app/clicks/page.tsx"]) {
+        const source = readAdminSource(path);
+        expect(source, `${path}: 고지 배선`).toContain(
+          "{trend.omissionNotice ? <p className={styles.hint}>{trend.omissionNotice}</p> : null}"
+        );
+        expect(source, `${path}: 문장을 화면이 다시 적지 않는다`).not.toContain("일부 값을 표시하지 못했어요");
+      }
+    });
+
+    /**
+     * ⚠️ 라운드 86 리뷰 L-11 — 표를 세워 놓고도 "마우스를 올리면"만 적어 두면, 그 힌트가 이 카드를
+     * 여전히 **마우스 전용**으로 소개한다(이 트랙이 고치려던 바로 그 오해다). 분석 화면만 고친다 —
+     * 클릭 화면의 그 줄은 이 트랙 이전부터 표와 함께 서 있던 문장이라 바이트 불변 대상이다.
+     */
+    it("분석 화면의 힌트는 표를 가리키고, 클릭 화면의 힌트는 바이트 불변이다", () => {
+      const analytics = readAdminSource("app/analytics/page.tsx");
+      expect(analytics).toContain("날짜별 이벤트 수는 위 표에서 볼 수 있어요.");
+      // 표가 서지 못한 응답에서만 종전 문장이 남는다(그때는 마우스가 유일한 경로인 것이 사실이다).
+      expect(analytics).toContain("trend.showTable");
+      expect(analytics).toContain("막대에 마우스를 올리면 날짜별 이벤트 수를 볼 수 있어요. (서울 기준 날짜)");
+      const clicks = readAdminSource("app/clicks/page.tsx");
+      expect(clicks).toContain("막대에 마우스를 올리면 날짜별 클릭 수를 볼 수 있어요. (서울 기준 날짜)");
+      expect(clicks).not.toContain("위 표에서 볼 수 있어요");
     });
   });
 
