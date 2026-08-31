@@ -1,6 +1,6 @@
 // 라운드 87 트랙 E (GAP-087 #5) — 사문 대장의 계약.
 //
-// 대장 자체의 설명(결정 두 문장 · 갈래 셋 · 사각 다섯 · 이 그물의 한계)은 `dead-export-ledger.ts`
+// 대장 자체의 설명(결정 두 문장 · 갈래 셋 · 사각 여섯 · 이 그물의 한계)은 `dead-export-ledger.ts`
 // 머리말에 있다. 이 파일이 묻는 것은 여섯이다.
 //  ⓐ **결정** — *무엇을 호출부로 볼 것인가*와 *무엇을 모집단으로 볼 것인가*가 **값으로** 적혀 있다.
 //  ⓑ **유령 방지** — 모집단이 0건이 아니고, **뿌리마다 파일 수가 하한을 넘는다**
@@ -334,7 +334,7 @@ describe("ⓓ 래칫 — 사문 수가 오늘의 실측보다 늘지 않는다",
 });
 
 describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
-  it("사각 다섯이 서로 다른 id이고 문장·값을 지고 있다", () => {
+  it("사각 여섯이 서로 다른 id이고 문장·값을 지고 있다", () => {
     expect(LEDGER_BLIND_SPOTS.length).toBeGreaterThanOrEqual(3);
     expect(new Set(LEDGER_BLIND_SPOTS.map((spot) => spot.id)).size).toBe(LEDGER_BLIND_SPOTS.length);
     for (const spot of LEDGER_BLIND_SPOTS) {

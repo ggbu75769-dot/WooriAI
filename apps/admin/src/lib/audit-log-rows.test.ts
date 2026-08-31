@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import { auditLogsHrefForActor, emptyAuditLogFilters, type AuditLogFilters } from "./audit-log-filters";
 import {
   AUDIT_LOG_FULL_ID_SUMMARY,
+  AUDIT_LOG_SNAPSHOT_SUMMARY,
   auditLogActorCell,
   auditLogEmptyStateMessage,
+  auditLogExpandSummaryLabel,
   auditLogTargetCell
 } from "./audit-log-rows";
 
@@ -148,5 +150,66 @@ describe("audit-log-rows의 경계 (GAP-087)", () => {
     const page = readAdminSource("app/audit-logs/page.tsx");
     expect(page).not.toContain('"전체 ID 보기"');
     expect((page.match(/AUDIT_LOG_FULL_ID_SUMMARY/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+/**
+ * ⚠️ **라운드 87 리뷰 M-5** — 펼침의 이름이 **행·칸마다 갈린다.**
+ *
+ * 트랙 A가 세운 두 펼침은 이름이 `전체 ID 보기` 하나뿐이라 한 화면(20행 × 두 칸)에 **똑같은 이름이
+ * 마흔 개** 섰고, 상세 칸의 `변경 내용 보기`도 스무 개가 같은 소리였다. 라운드 87 트랙 D가 알림
+ * 설정 기기 목록에서 닫은 규율(*행마다 갈리는 값을 낭독 이름에 끼운다*)을 같은 표에 세운다.
+ *
+ * ⚠️ 새 한국어 문장 0건이다 — 앞에 세우는 값은 그 칸이 **이미 글자로 보여 주고 있는** 축약 표기다.
+ */
+describe("auditLogExpandSummaryLabel (라운드 87 리뷰 M-5)", () => {
+  it("행위자 칸: 그 칸이 이미 보여 주는 표기를 펼침 이름 앞에 세운다", () => {
+    const cell = auditLogActorCell({ actorUserId: USER_ACTOR, actorEmail: null });
+    expect(auditLogExpandSummaryLabel(cell.label, AUDIT_LOG_FULL_ID_SUMMARY)).toBe(
+      "사용자(3f2a91c4) 전체 ID 보기"
+    );
+  });
+
+  it("대상 칸: 같은 함수가 대상 표기를 앞에 세운다(행위자 칸과 다른 이름이 된다)", () => {
+    const actor = auditLogActorCell({ actorUserId: USER_ACTOR, actorEmail: null });
+    const target = auditLogTargetCell({ targetType: "expense", targetId: TARGET_ID });
+    expect(auditLogExpandSummaryLabel(target.label, AUDIT_LOG_FULL_ID_SUMMARY)).toBe(
+      "expense · 11112222… 전체 ID 보기"
+    );
+    // 같은 행의 두 펼침이 서로 다른 이름이다(이 발견의 축 — 칸을 가른다).
+    expect(auditLogExpandSummaryLabel(target.label, AUDIT_LOG_FULL_ID_SUMMARY)).not.toBe(
+      auditLogExpandSummaryLabel(actor.label, AUDIT_LOG_FULL_ID_SUMMARY)
+    );
+  });
+
+  it("행이 다르면 이름도 다르다 — 마흔 개가 같은 소리이던 자리가 닫힌다", () => {
+    const rows = [USER_ACTOR, ADMIN_ACTOR].map((actorUserId) =>
+      auditLogExpandSummaryLabel(
+        auditLogActorCell({ actorUserId, actorEmail: null }).label,
+        AUDIT_LOG_FULL_ID_SUMMARY
+      )
+    );
+    expect(new Set(rows).size, "두 행의 펼침 이름이 서로 다르다").toBe(2);
+  });
+
+  it("상세 칸도 같은 함수를 쓴다 — 새 문자열 없이 이름만 갈린다", () => {
+    expect(AUDIT_LOG_SNAPSHOT_SUMMARY).toBe("변경 내용 보기");
+    const target = auditLogTargetCell({ targetType: "expense", targetId: TARGET_ID });
+    expect(auditLogExpandSummaryLabel(target.label, AUDIT_LOG_SNAPSHOT_SUMMARY)).toBe(
+      "expense · 11112222… 변경 내용 보기"
+    );
+  });
+
+  it("화면의 펼침 셋이 전부 그 함수를 지난다(손으로 다시 적은 <summary> 0건)", () => {
+    const page = readAdminSource("app/audit-logs/page.tsx");
+    // 칸은 셋이지만 컴포넌트는 둘이다 — 행위자·대상은 같은 `FullIdDetails` 한 벌을 지난다.
+    expect((page.match(/auditLogExpandSummaryLabel\(/g) ?? []).length, "펼침 컴포넌트 둘").toBe(2);
+    // 이름 없는 펼침이 되살아나지 않는다(리터럴 하나만 서던 종전 모양).
+    expect(page).not.toContain("<summary>변경 내용 보기</summary>");
+    expect(page).not.toContain("<summary>{AUDIT_LOG_FULL_ID_SUMMARY}</summary>");
+    // 그리고 그 값은 칸이 이미 그리는 표기에서 온다(화면이 라벨을 다시 짓지 않는다).
+    expect(page).toContain("cellLabel={actor.label}");
+    expect(page).toContain("cellLabel={target.label}");
+    expect(page).toContain("rowLabel={target.label}");
   });
 });

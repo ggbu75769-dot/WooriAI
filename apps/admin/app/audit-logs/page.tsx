@@ -24,8 +24,10 @@ import {
 } from "../../src/lib/audit-log-filters";
 import {
   AUDIT_LOG_FULL_ID_SUMMARY,
+  AUDIT_LOG_SNAPSHOT_SUMMARY,
   auditLogActorCell,
   auditLogEmptyStateMessage,
+  auditLogExpandSummaryLabel,
   auditLogTargetCell
 } from "../../src/lib/audit-log-rows";
 import { useAdminSession } from "../../src/lib/admin-token-context";
@@ -61,11 +63,15 @@ function formatDate(value: string): string {
  * 종전에는 `<td title=…>`(마우스 호버)이 **유일한** 경로였다. 그 속성은 지우지 않는다:
  * 이 트랙은 도달 경로를 더하는 것이지 빼는 것이 아니다.
  * 표기·주소·링크 조건은 순수 모듈(src/lib/audit-log-rows.ts)이 판정한다.
+ *
+ * ⚠️ 라운드 87 리뷰 M-5: 펼침의 이름은 **그 칸이 이미 보여 주고 있는 축약 표기**를 앞에 세워
+ * 짓는다(`auditLogExpandSummaryLabel`) — 그러지 않으면 한 화면에 `전체 ID 보기`가 마흔 개 서서
+ * 낭독으로는 어느 행의 무엇을 펼치는지 알 수 없다. 새 문자열 0건이다.
  */
-function FullIdDetails({ fullId, children }: { fullId: string; children?: ReactNode }) {
+function FullIdDetails({ cellLabel, fullId, children }: { cellLabel: string; fullId: string; children?: ReactNode }) {
   return (
     <details>
-      <summary>{AUDIT_LOG_FULL_ID_SUMMARY}</summary>
+      <summary>{auditLogExpandSummaryLabel(cellLabel, AUDIT_LOG_FULL_ID_SUMMARY)}</summary>
       <p>
         <code className={styles.calloutCode}>{fullId}</code>
       </p>
@@ -78,14 +84,19 @@ function hasSnapshot(value: unknown): boolean {
   return value !== null && value !== undefined;
 }
 
-/** before/after 스냅샷 상세. 민감 키는 API가 이미 "[REDACTED]"로 마스킹해 준다. */
-function SnapshotDetails({ entry }: { entry: AdminAuditLogEntry }) {
+/**
+ * before/after 스냅샷 상세. 민감 키는 API가 이미 "[REDACTED]"로 마스킹해 준다.
+ *
+ * ⚠️ 라운드 87 리뷰 M-5: 이 펼침도 위 둘과 **같은 결함·같은 함수**다 — `변경 내용 보기` 스무 개가
+ * 한 화면에 같은 소리로 서던 자리라, 같은 행의 대상 칸 표기를 앞에 세운다(새 문자열 0건).
+ */
+function SnapshotDetails({ entry, rowLabel }: { entry: AdminAuditLogEntry; rowLabel: string }) {
   if (!hasSnapshot(entry.before) && !hasSnapshot(entry.after)) {
     return <span className={styles.hint}>-</span>;
   }
   return (
     <details>
-      <summary>변경 내용 보기</summary>
+      <summary>{auditLogExpandSummaryLabel(rowLabel, AUDIT_LOG_SNAPSHOT_SUMMARY)}</summary>
       {hasSnapshot(entry.before) ? (
         <p>
           <span className={styles.hint}>이전</span>
@@ -391,7 +402,7 @@ function AuditLogsPageContent() {
                       <td title={entry.actorUserId ?? undefined}>
                         {actor.label}
                         {actor.fullActorId ? (
-                          <FullIdDetails fullId={actor.fullActorId}>
+                          <FullIdDetails cellLabel={actor.label} fullId={actor.fullActorId}>
                             {actor.traceHref ? (
                               // 되짚기: 새 주소를 만들지 않고 사용자 조회 화면이 이미 쓰는
                               // auditLogsHrefForActor 한 함수에서 온다. next/link가 아니라
@@ -410,10 +421,12 @@ function AuditLogsPageContent() {
                       </td>
                       <td title={entry.targetId ?? undefined}>
                         {target.label}
-                        {target.fullTargetId ? <FullIdDetails fullId={target.fullTargetId} /> : null}
+                        {target.fullTargetId ? (
+                          <FullIdDetails cellLabel={target.label} fullId={target.fullTargetId} />
+                        ) : null}
                       </td>
                       <td>
-                        <SnapshotDetails entry={entry} />
+                        <SnapshotDetails entry={entry} rowLabel={target.label} />
                       </td>
                     </tr>
                   );

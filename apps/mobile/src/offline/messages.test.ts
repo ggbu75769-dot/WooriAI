@@ -363,6 +363,21 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
    * **읽어 와 창 다섯으로 실제로 돌린다**(라운드 84 리뷰 H-1이 무효화 깊이 검사에 세운 그 관례).
    * 조건이 다시 좁아지면 픽스처가 먼저 빨개진다.
    *
+   * ## ⚠️ 라운드 87 리뷰 H-1 — **한 갈래가 아니라 감싸는 갈래 전부를 돌린다**
+   *
+   * 위 문단이 *"조건절을 창 다섯으로 실제로 돌린다"* 고 적었을 **당시** `guardFor`는 앵커 앞에서
+   * **마지막에 열린** `{X ? (` 하나만 집었다 — 즉 돌린 것은 *감싸는 조건*이 아니라 *최내곽 갈래
+   * 하나*였다. 그래서 실패 두 줄을 옛 0건 갈래로 **다시 감싸는** 회귀(라운드 86형 중첩:
+   * `{!isLoadingOptions && !hasOptions ? (<>…실패 두 줄…</>) : null}`)에서도 안쪽 갈래
+   * `itemsQuery.isError` 하나만 읽혀 **창 다섯이 전부 초록**이었다. 아래 `? itemsLoadErrorText`
+   * 부재 단언도 그 회귀를 막지 못한다 — 중첩형에는 삼항이 아예 없다.
+   *
+   * **라운드 87 리뷰 이후**: 중괄호 짝을 맞춰 **앵커를 감싸는 갈래 전부**를 모으고(바깥 → 안쪽),
+   * 창 하나에서 그 갈래들이 **모두** 참일 때만 그 줄이 선다고 판정한다(논리곱). 그러면 위 회귀본의
+   * 유효 조건은 `!isLoadingOptions && !hasOptions && itemsQuery.isError`가 되어 이 트랙의 축인
+   * "실패 · 목록 있음" 창에서 먼저 빨개진다. 보조로 **감싸는 갈래가 하나뿐**이라는 사실(= 실패
+   * 두 줄이 0건 갈래의 **형제**이지 자식이 아니다)도 값과 자리로 함께 문다.
+   *
    * ⚠️ 문구는 여기서 새로 적지 않는다 — 0건 문장은 **바이트 불변**으로 대조하고, 실패 두 줄은
    * 공용 상수에서 파생한 위 ⓑ 계약이 이미 진다.
    */
@@ -372,14 +387,37 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     source(PREPARED_ITEMS_SCREEN)
       .replace(/\/\*[\s\S]*?\*\//g, " ")
       .replace(/\/\/[^\n]*/g, " ");
-  /** 앵커 한 줄을 감싸는 `{<조건> ? (` 갈래의 **조건절**. */
-  const guardFor = (code: string, anchor: string): string => {
+  /**
+   * 앵커 한 줄을 **감싸는** `{<조건> ? (` 갈래의 조건절 전수(바깥 → 안쪽).
+   *
+   * 중괄호 짝으로 센다: 여는 `{`마다 그 자리가 조건 갈래의 머리인지 보고 스택에 쌓고, 닫는 `}`에서
+   * 뺀다. 앵커에 닿았을 때 스택에 남아 있는 조건절이 곧 *"그 줄이 서려면 참이어야 하는 것"* 전부다.
+   * (주석은 이미 걷어냈고, 이 화면의 중괄호는 JSX·객체·템플릿 모두 짝이 맞는다.)
+   *
+   * ⚠️ 갈래의 머리로 읽는 모양은 `{<조건> ? (` / `{<조건> ? <`이고, 조건절에는 `{`·`}`·`;`가 없다 —
+   * 그 셋을 막지 않으면 함수 본문의 여는 `{`가 뒤따르는 `??`·`?.`를 삼항으로 잘못 읽는다
+   * (`const authToken = accessToken ?? (…)`가 실제로 그렇게 읽혔다). 같은 이유로 `??`·`?.`·`?:`는
+   * 삼항의 물음표가 아니다.
+   */
+  const GUARD_HEAD = /^\{\s*([^{};]+?)\s*(?<!\?)\?(?![?.:])\s*[(<]/;
+  const enclosingGuards = (code: string, anchor: string): string[] => {
     const anchorAt = code.indexOf(anchor);
     expect(anchorAt, `앵커: ${anchor}`).toBeGreaterThan(-1);
-    const guards = [...code.matchAll(/\{([^{}]+?)\s*\?\s*\(/g)].filter((match) => (match.index ?? 0) < anchorAt);
+    const open: (string | null)[] = [];
+    for (let at = 0; at < anchorAt; at += 1) {
+      if (code[at] === "{") {
+        const head = GUARD_HEAD.exec(code.slice(at, at + 400));
+        open.push(head ? head[1].trim() : null);
+      } else if (code[at] === "}") {
+        open.pop();
+      }
+    }
+    const guards = open.filter((guard): guard is string => guard !== null);
     expect(guards.length, `${anchor}를 감싸는 갈래`).toBeGreaterThan(0);
-    return (guards[guards.length - 1][1] ?? "").trim();
+    return guards;
   };
+  /** 그 갈래들을 한 줄로 적은 것 — 사람이 읽는 못이다(판정은 아래가 갈래마다 따로 돌린다). */
+  const guardFor = (code: string, anchor: string): string => enclosingGuards(code, anchor).join(" && ");
   /** 그 조건절을 창 하나로 **실제로 돌린다**(화면 상태는 이 셋이 전부다). */
   type PreparedItemsWindow = { isLoadingOptions: boolean; hasOptions: boolean; isError: boolean };
   const standsIn = (guard: string, window: PreparedItemsWindow): boolean =>
@@ -390,6 +428,12 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
         { isError: window.isError }
       )
     );
+  /**
+   * 감싸는 갈래 **전부**가 참일 때만 그 줄이 선다 — 논리곱을 문자열로 잇지 않고 갈래마다 돌리는
+   * 이유는 우선순위다(`a || b`가 하나 끼면 이어 붙인 문자열의 뜻이 달라진다).
+   */
+  const standsInAll = (guards: readonly string[], window: PreparedItemsWindow): boolean =>
+    guards.every((guard) => standsIn(guard, window));
   const WINDOWS: Readonly<Record<string, PreparedItemsWindow>> = {
     // ⚠️ 이 트랙의 축: 옛 목록이 그려진 채 다시 불러오기가 실패한 창.
     "실패 · 목록 있음": { isLoadingOptions: false, hasOptions: true, isError: true },
@@ -402,17 +446,20 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
   it("라운드 87 ⓐ 창: 목록이 있는 채 실패해도 실패 두 줄이 선다 (조건은 실패 하나 · 픽스처로 돌린다)", () => {
     const code = preparedItemsCode();
     // 공용 문장 한 줄과 이 화면 고유의 탈출구 안내 한 줄은 **같은 하나의 조건**을 진다.
-    const sharedLine = guardFor(code, "{itemsLoadErrorText}");
-    const ownLine = guardFor(code, "이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요.");
-    expect(ownLine, "두 줄이 한 갈래다").toBe(sharedLine);
-    expect(sharedLine, "조건은 조회 실패 하나뿐이다").toBe("itemsQuery.isError");
+    const sharedGuards = enclosingGuards(code, "{itemsLoadErrorText}");
+    const ownGuards = enclosingGuards(code, "이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요.");
+    expect(ownGuards, "두 줄이 한 갈래다").toEqual(sharedGuards);
+    // ⚠️ 라운드 87 리뷰 H-1: 감싸는 갈래가 **하나뿐**이다 — 0건 갈래로 다시 감싸는 중첩형 회귀는
+    // 여기서 먼저 빨개진다(그 회귀는 삼항이 아니라 아래 부재 단언이 잡지 못한다).
+    expect(sharedGuards, "실패 두 줄을 감싸는 갈래는 하나다(중첩이 아니다)").toHaveLength(1);
+    expect(guardFor(code, "{itemsLoadErrorText}"), "조건은 조회 실패 하나뿐이다").toBe("itemsQuery.isError");
     // 그래서 실패한 창 **둘 다**에서 선다(목록이 남아 있는지는 실패의 사실을 바꾸지 않는다).
     for (const name of ["실패 · 목록 있음", "실패 · 목록 없음"] as const) {
-      expect(standsIn(sharedLine, WINDOWS[name]), `${name}: 실패 두 줄이 선다`).toBe(true);
+      expect(standsInAll(sharedGuards, WINDOWS[name]), `${name}: 실패 두 줄이 선다`).toBe(true);
     }
     // 실패가 아닌 창에서는 서지 않는다(0건도, 목록이 있는 성공도, 첫 조회 중도).
     for (const name of ["성공 · 0건", "성공 · 목록 있음", "첫 조회 중"] as const) {
-      expect(standsIn(sharedLine, WINDOWS[name]), `${name}: 실패 두 줄이 서지 않는다`).toBe(false);
+      expect(standsInAll(sharedGuards, WINDOWS[name]), `${name}: 실패 두 줄이 서지 않는다`).toBe(false);
     }
     // 종전 모양(0건 갈래 안의 삼항)이 되살아나지 않는다.
     expect(code, "실패 문장이 다시 0건 갈래에 묶이지 않는다").not.toContain("? itemsLoadErrorText");
@@ -427,6 +474,13 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     const emptyGuard = guardFor(code, emptyCopy);
     // 갈래를 가르던 종전 조건에 **실패가 아닐 것**이 더해져 두 갈래가 더 벌어졌다.
     expect(emptyGuard).toBe("!isLoadingOptions && !hasOptions && !itemsQuery.isError");
+    // ⚠️ 라운드 87 리뷰 H-1 — **형제라는 사실을 값과 자리로**: 이 문장을 감싸는 갈래도 하나뿐이고,
+    // 실패 두 줄은 이 갈래가 열리기 **전에** 이미 서서 닫힌다(어느 쪽도 다른 쪽의 부모가 아니다).
+    expect(enclosingGuards(code, emptyCopy), "0건 문장을 감싸는 갈래도 하나다").toHaveLength(1);
+    expect(
+      code.indexOf("{itemsLoadErrorText}"),
+      "실패 두 줄이 0건 갈래보다 앞에 선다(형제 · 자식이 아니다)"
+    ).toBeLessThan(code.indexOf(emptyCopy));
     // 실패한 창에서는 이 문장이 서지 않는다(그 자리는 위 실패 두 줄의 것이다 — 부정 단언).
     for (const name of ["실패 · 목록 있음", "실패 · 목록 없음"] as const) {
       expect(standsIn(emptyGuard, WINDOWS[name]), `${name}: 0건 문장이 서지 않는다`).toBe(false);
@@ -461,12 +515,26 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
    * 라운드 86의 화면 주석은 `isError && hasOptions` 창에서 실패 두 줄이 서지 않는다는 사실을
    * 정직하게 적어 뒀다. 오늘 그 문장은 거짓이므로 함께 사라져야 한다 — 남겨 두면 다음 라운드가
    * 그 문단을 근거로 같은 자리를 다시 재게 된다.
+   *
+   * ⚠️ **라운드 87 리뷰 L-3 — 한 글자 차로 비켜 가지 않게 한다.** 당시 이 단언 셋은 라운드 86
+   * 원문의 **정확한 세 리터럴**이었고, 그래서 *"갈래 **안에** 묶여 있다"* 처럼 조사 한 칸만 달라진
+   * 되살아남을 지나쳤다. 라운드 87 리뷰 이후에는 같은 주장의 **현재형 변형**을 정규식 표로 돌린다.
+   * ⚠️ 과거형은 일부러 남긴다 — 오늘 화면 주석이 *"라운드 86까지는 … 남았다"* 로 그 사실을 **과거로**
+   * 적고 있고, 그 문장은 거짓이 아니라 이 라운드가 무엇을 고쳤는지의 근거다. 그리고 이 부재 단언의
+   * 무게는 위 ⓐ가 구조(감싸는 갈래 전수)를 물기 시작한 만큼 줄었으므로, 더 벌리지 않는다.
    */
   it("라운드 87 ⓕ 주석: '이 창에서는 서지 않는다'는 옛 근거가 소스에 남아 있지 않다", () => {
     const screen = source(PREPARED_ITEMS_SCREEN);
-    expect(screen, "실패 두 줄이 0건 갈래에 묶여 있다는 근거").not.toContain("갈래에 묶여 있어");
-    expect(screen, "버튼만 맥락 없이 남는다는 근거").not.toContain("맥락 없이 남는다");
-    expect(screen, "실패 갈래에만 선다던 옛 인라인 주석").not.toContain("실패 갈래에만 서는");
+    /** 되살아나면 안 되는 **현재형** 주장들(라운드 86 원문 + 조사 한 칸 어긋난 변형). */
+    const STALE_ROUND86_CLAIMS: ReadonlyArray<readonly [RegExp, string]> = [
+      [/갈래에\s*묶여\s*있어/, "실패 두 줄이 0건 갈래에 묶여 있다는 근거(라운드 86 원문)"],
+      [/갈래(?:\s*안)?에\s*묶여\s*있(?:다|는|고)/, "같은 주장의 현재형 변형('갈래 안에 묶여 있다')"],
+      [/맥락\s*없이\s*(?:그냥\s*)?남는다/, "버튼만 맥락 없이 남는다는 근거"],
+      [/실패\s*갈래에만\s*(?:서는|선다)/, "실패 갈래에만 선다던 옛 인라인 주석"]
+    ];
+    for (const [pattern, why] of STALE_ROUND86_CLAIMS) {
+      expect(screen, why).not.toMatch(pattern);
+    }
     // 그 자리에 오늘의 사실이 들어와 있다(주석을 지우기만 하지 않았다).
     expect(screen).toContain("라운드 87 트랙 B");
   });

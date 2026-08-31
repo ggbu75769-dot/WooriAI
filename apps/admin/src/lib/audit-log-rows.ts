@@ -52,6 +52,27 @@ import {
  */
 export const AUDIT_LOG_FULL_ID_SUMMARY = "전체 ID 보기";
 
+/** 상세 칸의 펼침 이름 — 같은 행의 두 칸과 **같은 함수**로 이름을 짓는다(아래 규율). */
+export const AUDIT_LOG_SNAPSHOT_SUMMARY = "변경 내용 보기";
+
+/**
+ * 펼침(`<summary>`)의 이름 — **행·칸을 가르는 값을 앞에 세운다.**
+ *
+ * ⚠️ **라운드 87 리뷰 M-5.** 이 트랙이 세운 펼침 둘은 이름이 `전체 ID 보기` 하나뿐이라, 한 화면
+ * (`PAGE_SIZE` 20 × 두 칸)에 **최대 마흔 개의 똑같은 이름**이 섰다. 키보드·스크린리더로 표를
+ * 훑는 운영자에게는 *"전체 ID 보기"* 가 마흔 번 같은 소리로 들려 **어느 행의 무엇을 펼치는지**
+ * 이름만으로 알 수 없다 — 이 표에 도달 경로를 더하려던 트랙이 정작 그 경로에 이름을 주지 않은 것이다.
+ * 같은 결함을 `상세` 칸의 *"변경 내용 보기"* 도 지고 있어 같은 함수로 함께 고친다.
+ *
+ * 규율은 라운드 87 트랙 D가 알림 설정 기기 목록에서 닫은 그것과 같다: **행마다 갈리는 값을 낭독
+ * 이름에 끼운다.** 새 문자열은 짓지 않는다 — 앞에 세우는 값은 그 칸이 **이미 글자로 보여 주고 있는**
+ * 축약 표기(`auditLogActorCell`·`auditLogTargetCell`의 `label`)라, 화면에 없던 정보가 소리로만
+ * 새로 나가지 않는다(개인정보 0건 — 어드민 행의 이메일은 그 칸에 이미 서 있던 그 값이다).
+ */
+export function auditLogExpandSummaryLabel(cellLabel: string, action: string): string {
+  return `${cellLabel} ${action}`;
+}
+
 /** 대상 칸이 읽는 필드만. */
 export type AuditLogTarget = Pick<AdminAuditLogEntry, "targetType" | "targetId">;
 

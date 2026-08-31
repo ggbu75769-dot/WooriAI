@@ -44,7 +44,12 @@ describe("Audit logs page (ADM-113)", () => {
       expect(source).toContain(column);
     }
     // 상세 칸은 before/after 스냅샷을 펼쳐 보여준다.
-    expect(source).toContain("변경 내용 보기");
+    // ⚠️ 라운드 87 리뷰 M-5: 그 문구의 정본이 `src/lib/audit-log-rows.ts`로 옮겨 갔다(이름 앞에
+    // 행을 가르는 표기를 세우느라 한 벌이 됐다). 화면에서 리터럴을 찾으면 이 파일의 **주석**이
+    // 그 문구를 인용하고 있어 앵커가 주석 덕에 초록이 된다(같은 리뷰 M-3이 짚은 그 형태) —
+    // 그래서 화면에서는 **이름을 부르는지**를, 문구 자체는 **정본 파일에서** 본다.
+    expect(source).toContain("AUDIT_LOG_SNAPSHOT_SUMMARY");
+    expect(readSource("src/lib/audit-log-rows.ts")).toContain('AUDIT_LOG_SNAPSHOT_SUMMARY = "변경 내용 보기"');
   });
 
   it("has pagination UI driven by the API's pageInfo (이전/다음 + page indicator)", () => {
@@ -261,12 +266,14 @@ describe("Audit logs 표의 도달 경로 (GAP-087)", () => {
     expect(source).toContain("auditLogActorCell(entry)");
     expect(source).toContain("auditLogTargetCell(entry)");
     // 전체 값이 속성이 아니라 **자식 노드**로 그려진다.
-    expect(source).toContain("<FullIdDetails fullId={target.fullTargetId} />");
-    expect(source).toContain("<FullIdDetails fullId={actor.fullActorId}>");
+    // ⚠️ 라운드 87 리뷰 M-5: 같은 펼침이 **자기 칸의 표기**를 낭독 이름으로 함께 받는다
+    // (`cellLabel` — 같은 이름 마흔 개가 서던 자리). 전체 값이 자식 노드라는 사실은 그대로다.
+    expect(source).toContain("<FullIdDetails cellLabel={target.label} fullId={target.fullTargetId} />");
+    expect(source).toContain("<FullIdDetails cellLabel={actor.label} fullId={actor.fullActorId}>");
     expect(source).toContain("<code className={styles.calloutCode}>{fullId}</code>");
     // ⓐ 부정 단언: 두 칸의 전체 값이 title 속성에만 남아 있지 않다.
     expect(source).toMatch(/\{actor\.fullActorId \? \(/);
-    expect(source).toMatch(/\{target\.fullTargetId \? </);
+    expect(source).toMatch(/\{target\.fullTargetId \? \(/);
   });
 
   it("ⓐ title 속성은 지우지 않았다 (도달 경로를 더하는 것이지 빼는 것이 아니다)", () => {
@@ -309,8 +316,11 @@ describe("Audit logs 표의 도달 경로 (GAP-087)", () => {
   it("ⓔ 긴 값을 펼치는 모양이 같은 행의 상세 칸 관례다 (새 형식·새 클래스 0건)", () => {
     const source = pageSource();
     // 상세 칸의 <details>/<summary>/calloutCode — 새 클래스를 만들지 않았다.
-    expect(source).toContain("<summary>변경 내용 보기</summary>");
-    expect(source).toContain("<summary>{AUDIT_LOG_FULL_ID_SUMMARY}</summary>");
+    // ⚠️ 라운드 87 리뷰 M-5: 세 펼침의 **이름**은 이제 행·칸마다 갈린다(같은 표에 같은 이름이
+    // 마흔 개 서던 자리다 — `auditLogExpandSummaryLabel`). 여기서 무는 것은 그 이름이 아니라
+    // **모양**이므로, 셋 다 같은 `<summary>` 관례를 쓰는지만 본다(이름의 계약은 audit-log-rows.test.ts).
+    expect(source).toContain("<summary>{auditLogExpandSummaryLabel(rowLabel, AUDIT_LOG_SNAPSHOT_SUMMARY)}</summary>");
+    expect(source).toContain("<summary>{auditLogExpandSummaryLabel(cellLabel, AUDIT_LOG_FULL_ID_SUMMARY)}</summary>");
     const classNames = new Set([...source.matchAll(/styles\.([A-Za-z0-9_]+)/g)].map((match) => match[1]));
     const css = readSource("src/components/admin-page.module.css");
     for (const className of classNames) {
