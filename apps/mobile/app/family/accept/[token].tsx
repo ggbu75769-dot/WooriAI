@@ -24,6 +24,7 @@ import {
   INVITE_UNAVAILABLE_ESCAPE_LABEL,
   INVITE_UNAVAILABLE_NEXT_STEP,
   INVITE_UNAVAILABLE_TITLE,
+  inviteUnavailableAnnouncement,
   isInviteUnavailableError
 } from "../../../src/family/invite-accept-messages";
 import { formatInviteExpiry } from "../../../src/family/memberLabels";
@@ -221,6 +222,28 @@ export default function AcceptInviteScreen() {
       announceForA11y(acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error));
     }
   }, [accept.isError, accept.error, acceptSaveErrorCopy, inviteUnavailable]);
+
+  /**
+   * 라운드 89 A — **끝난 초대 카드도 두 플랫폼 다 소리로 나간다.**
+   *
+   * 아래 `inviteUnavailable` 갈래의 카드에는 라운드 79가 건 프롭 조합만 있었고, 그 조합은 위
+   * 주석이 적어 둔 그대로 **안드로이드 한정**이다. 이 화면은 초대 링크를 타고 들어오는 자리라
+   * (딥링크로 열면 첫 프레임에 이 카드가 선다) VoiceOver 사용자에게는 *아무 일도 일어나지
+   * 않은 것*처럼 들렸다 — 무엇을 해야 하는지(`INVITE_UNAVAILABLE_NEXT_STEP`)가 소리로 닿지 않았다.
+   *
+   * ⚠️ 이 `if`의 조건은 그 카드를 세우는 갈래와 **글자로 같아야** 한다 —
+   * a11y-contract.test.ts의 파생 판정이 그 자리를 세우는 최내곽 JSX 갈래와 effect 배선의 조건을
+   * **문자열로** 맞춰 보고, 갈리면 배선이 있어도 `live-region`(= 안드로이드 한정)으로 센다
+   * (라운드 88 리뷰 L-1이 이름 붙인 그 사각의 첫 소비자가 이 자리다).
+   *
+   * 읽어 주는 문장은 화면이 짓지 않는다 — 카드가 그리는 상수들에서 문구 모듈이 짓는다
+   * (`hasSession` 축은 카드가 세션으로 한 줄을 더 그리는 그 축 그대로다).
+   */
+  useEffect(() => {
+    if (inviteUnavailable) {
+      announceForA11y(inviteUnavailableAnnouncement({ hasSession: Boolean(authToken) }));
+    }
+  }, [authToken, inviteUnavailable]);
 
   /**
    * 참여 성공 **이후**의 뒤처리 한 벌: 아이 목록 조회 -> 캐시 무효화 -> 계획대로 착지.

@@ -107,6 +107,42 @@ export const INVITE_UNAVAILABLE_ALREADY_JOINED_HINT = "이미 참여한 가족�
 export const INVITE_UNAVAILABLE_ESCAPE_LABEL = "앱 둘러보기";
 
 /**
+ * 라운드 89 A — **이 카드가 소리로 도달하는 한 문장.**
+ *
+ * ## 왜 필요한가
+ *
+ * 라운드 79는 카드에 `accessibilityLiveRegion="polite"` + `accessibilityRole="alert"`를 걸었다.
+ * 그 조합은 **안드로이드의 답**이다 — `accessibilityLiveRegion`은 `@platform android`이고
+ * `accessibilityRole="alert"`에 대응하는 VoiceOver 트레이트가 없다. 그래서 iOS에서는 이 카드가
+ * 서도 아무 소리가 나지 않았고, **링크를 타고 들어온** 사람에게는 초대 링크를 열었는데 아무
+ * 일도 일어나지 않은 것처럼 들렸다. 라운드 88 트랙 E의 파생 판정이 그 사실을 값으로 만들었고
+ * (`a11y-contract.test.ts`의 `ROUND79_ANNOUNCE_PROPS_ADDED` 판정 칸), 이 함수가 그 답이다.
+ *
+ * ## 새 문장을 짓지 않는다
+ *
+ * 읽어 주는 것은 **카드가 이미 그리는 그 상수들**이다(위 셋 + 세션이 있을 때의 한 줄). 여기서
+ * 낭독용 문장을 따로 지으면 눈과 귀가 다른 말을 하게 되고, 그 순간 이 모듈이 문구 단일 소스를
+ * 스스로 깬다. 그래서 이 함수가 하는 일은 하나다: **카드가 오늘 그리는 줄들을 그 순서대로 잇는다.**
+ *
+ * ⚠️ `hasSession`이 인자인 이유는 카드가 그 축으로 한 줄을 더 그리기 때문이다
+ * (`{authToken ? … INVITE_UNAVAILABLE_ALREADY_JOINED_HINT … : null}`). 그 줄이 눈에는 있고
+ * 귀에는 없으면 **로그인한 사람에게만** 눈과 귀가 갈린다. ⚠️ 그리고 이 인자는 **내 세션 상태**이지
+ * 토큰의 상태가 아니라, 오라클 금지(위 머리말)를 한 글자도 건드리지 않는다.
+ *
+ * ⚠️ 탈출구 라벨(`INVITE_UNAVAILABLE_ESCAPE_LABEL`)은 여기 들어오지 않는다 — 버튼의 이름은
+ * 초점이 닿을 때 읽히고(그 자리에는 이미 `accessibilityLabel`이 있다), 여기 함께 실으면 같은
+ * 말이 두 번 들린다.
+ */
+export function inviteUnavailableAnnouncement({ hasSession }: { hasSession: boolean }): string {
+  return [
+    INVITE_UNAVAILABLE_TITLE,
+    INVITE_UNAVAILABLE_DETAIL,
+    INVITE_UNAVAILABLE_NEXT_STEP,
+    ...(hasSession ? [INVITE_UNAVAILABLE_ALREADY_JOINED_HINT] : [])
+  ].join(" ");
+}
+
+/**
  * 이 실패가 "초대 자체가 끝났다"인가.
  *
  * 참이면 화면은 (1) 위 세 문장을 말하고 (2) [다시 시도]를 내리고 (3) 로그인 CTA를 접는다 —

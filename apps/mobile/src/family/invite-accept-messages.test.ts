@@ -11,6 +11,7 @@ import {
   INVITE_UNAVAILABLE_ESCAPE_LABEL,
   INVITE_UNAVAILABLE_NEXT_STEP,
   INVITE_UNAVAILABLE_TITLE,
+  inviteUnavailableAnnouncement,
   isInviteUnavailableError
 } from "./invite-accept-messages";
 
@@ -430,5 +431,160 @@ describe("라운드 70 A — FAM-003 네 갈래 배선 (source contract)", () =>
     const src = acceptSource();
     expect(src).not.toContain("invite-flow");
     expect(src).not.toContain("INVITE_ROLE");
+  });
+});
+
+/**
+ * 라운드 89 트랙 A — **끝난 초대 카드가 iOS에서도 소리로 나간다.**
+ *
+ * ## 무엇이 잘못돼 있었나
+ *
+ * 라운드 79는 이 카드에 `accessibilityLiveRegion="polite"` + `accessibilityRole="alert"`를 걸었고,
+ * 라운드 88 트랙 E가 그 대장에 **판정 칸**을 붙이면서 그 조합이 **안드로이드 한정**이라는 사실이
+ * 값이 됐다(`accessibilityLiveRegion`은 `@platform android`이고 alert 역할에 대응하는 VoiceOver
+ * 트레이트가 없다). 즉 **소리로 도달하지 않는 자리가 하나 있다**는 것을 저장소가 이미 알고
+ * 있었고, 이 트랙은 그 판정이 만든 값을 고침으로 바꾼다.
+ *
+ * ⚠️ 이 화면은 **링크를 타고 들어오는 자리**다 — 딥링크로 열면 첫 프레임에 이 카드가 선다.
+ * VoiceOver 사용자에게는 초대 링크를 열었는데 아무 일도 일어나지 않은 것처럼 들렸고, 무엇을
+ * 해야 하는지(`INVITE_UNAVAILABLE_NEXT_STEP`)가 귀에 닿지 않았다.
+ *
+ * ## 이 계약이 붙드는 것
+ *
+ * ⓐ 낭독이 실재하고, **effect의 `if` 조건이 카드의 최내곽 JSX 갈래와 글자로 같다**(라운드 88
+ * 리뷰 L-1의 사각 — 다르면 a11y-contract의 파생 판정이 `live-region`으로 떨어져 이 고침이
+ * 조용히 무효가 된다). ⓑ 낭독 문장은 **카드가 그리는 상수들**에서 모듈이 짓는다(화면에 새
+ * 한국어 리터럴 0건). ⓔ `inviteUnavailable`이 거짓인 창에서는 이 낭독이 0건이다. ⓓ·ⓕ 더한
+ * effect와 import를 빼면 화면은 종전 바이트이고, 프롭 조합·문구 상수·탈출 버튼은 무접촉이다.
+ */
+describe("라운드 89 A — 끝난 초대 카드의 낭독 (두 플랫폼)", () => {
+  /** 화면이 더한 것 — effect 한 벌. 이 바이트가 이 트랙의 전부다. */
+  const ADDED_EFFECT = `  useEffect(() => {
+    if (inviteUnavailable) {
+      announceForA11y(inviteUnavailableAnnouncement({ hasSession: Boolean(authToken) }));
+    }
+  }, [authToken, inviteUnavailable]);`;
+  /** 화면이 더한 것 — import 한 줄. */
+  const ADDED_IMPORT = "  inviteUnavailableAnnouncement,\n";
+
+  it("ⓑ 낭독 문장을 화면이 짓지 않는다 — 카드가 그리는 상수들에서 모듈이 짓는다", () => {
+    // 비교값까지 전부 상수에서 온다(이 파일이 문구를 다시 적지 않는다 — 위 "문구 실측값 고정"이
+    // 값을 붙들고, 여기서는 **구성**만 붙든다).
+    expect(inviteUnavailableAnnouncement({ hasSession: false })).toBe(
+      [INVITE_UNAVAILABLE_TITLE, INVITE_UNAVAILABLE_DETAIL, INVITE_UNAVAILABLE_NEXT_STEP].join(" ")
+    );
+    // 세션이 있는 사람의 카드는 한 줄을 더 그린다(라운드 70 리뷰 S-1) — 귀도 그 줄을 듣는다.
+    expect(inviteUnavailableAnnouncement({ hasSession: true })).toBe(
+      [
+        INVITE_UNAVAILABLE_TITLE,
+        INVITE_UNAVAILABLE_DETAIL,
+        INVITE_UNAVAILABLE_NEXT_STEP,
+        INVITE_UNAVAILABLE_ALREADY_JOINED_HINT
+      ].join(" ")
+    );
+    // 눈과 귀가 갈리는 축은 카드가 이미 쓰는 그 축 하나다(세션) — 그 밖의 축이 없다.
+    expect(inviteUnavailableAnnouncement({ hasSession: true })).toContain(
+      inviteUnavailableAnnouncement({ hasSession: false })
+    );
+    // 탈출 버튼의 라벨은 낭독에 실리지 않는다 — 초점이 닿을 때 읽히는 이름이라 두 번 들린다.
+    expect(inviteUnavailableAnnouncement({ hasSession: true })).not.toContain(INVITE_UNAVAILABLE_ESCAPE_LABEL);
+  });
+
+  it("ⓑ 모듈이 새 한국어 문장을 짓지 않는다 — 함수 본문에 문자열 리터럴 0건", () => {
+    const moduleSource = source("src/family/invite-accept-messages.ts");
+    const start = moduleSource.indexOf("export function inviteUnavailableAnnouncement(");
+    expect(start, "낭독 문장을 짓는 함수").toBeGreaterThan(-1);
+    const body = moduleSource.slice(start, moduleSource.indexOf("\n}\n", start));
+    // 상수 넷을 잇는 것이 전부다 — 여기서 문장을 지으면 문구 단일 소스를 이 모듈이 스스로 깬다.
+    for (const constantName of [
+      "INVITE_UNAVAILABLE_TITLE",
+      "INVITE_UNAVAILABLE_DETAIL",
+      "INVITE_UNAVAILABLE_NEXT_STEP",
+      "INVITE_UNAVAILABLE_ALREADY_JOINED_HINT"
+    ]) {
+      expect(body, constantName).toContain(constantName);
+    }
+    expect(body, "한국어 리터럴").not.toMatch(/[가-힣]/);
+    // 판정 함수는 종전 그대로다 — 세션 축을 알지 못한다(S-1이 세운 그 사실 그대로).
+    const decide = moduleSource.slice(moduleSource.indexOf("export function isInviteUnavailableError("));
+    expect(decide).not.toContain("hasSession");
+    // ⚠️ 트랙 C가 `export const` 축을 모집단으로 들인다 — 이 라운드의 새 export는 **함수**다.
+    expect(moduleSource).not.toContain("export const inviteUnavailableAnnouncement");
+    expect(moduleSource).toContain("export function inviteUnavailableAnnouncement(");
+  });
+
+  it("ⓐ effect의 조건이 카드의 최내곽 갈래와 **글자로 같다** (다르면 판정이 live-region으로 떨어진다)", () => {
+    const src = acceptSource();
+    // 카드를 세우는 갈래를 **소스에서 파생**한다(손으로 적으면 이 계약이 사각을 못 본다).
+    const cardGuard = /\{([^?{}]+?) \? \(\s*<View accessibilityLiveRegion="polite" accessibilityRole="alert">\s*<Card/.exec(
+      src
+    )?.[1];
+    expect(cardGuard, "끝난 초대 카드를 세우는 최내곽 갈래").toBe("inviteUnavailable");
+    // 그 갈래와 **같은 글자**의 조건에 낭독이 묶여 있다(a11y-contract의 파생 판정이 보는 그 대조).
+    expect(src, "낭독 배선").toContain(`    if (${cardGuard}) {\n      announceForA11y(`);
+    // 렌더 도중이 아니라 effect 안이고, 의존 배열이 조건과 세션 축을 든다(둘 다 문장을 바꾼다).
+    expect(src, "effect 한 벌").toContain(ADDED_EFFECT);
+  });
+
+  it("ⓔ 소음 금지 — 그 낭독의 호출부는 하나이고, 전부 `if (inviteUnavailable)` 안에 있다", () => {
+    const src = acceptSource();
+    expect(src.split("announceForA11y(inviteUnavailableAnnouncement(").length - 1, "낭독 호출부").toBe(1);
+    // 조건 밖(렌더 · 핸들러 · 다른 effect)에서 부르는 자리가 없다: 유일한 호출부가 그 if 안이다.
+    const at = src.indexOf("announceForA11y(inviteUnavailableAnnouncement(");
+    const guardAt = src.lastIndexOf("if (inviteUnavailable) {", at);
+    expect(guardAt, "낭독을 덮는 조건").toBeGreaterThan(-1);
+    expect(src.slice(guardAt, at), "조건과 낭독 사이").not.toContain("}");
+    // 그리고 그 갈래가 거짓인 창의 화면은 종전 그대로다 — 카드도 낭독도 서지 않는다.
+    expect(src).toContain("{invite.isError && !inviteUnavailable ? (");
+    expect(src).toContain("{accept.isError && !inviteUnavailable ? (");
+  });
+
+  it("ⓓ 부정 — 더한 effect와 import를 빼면 화면은 종전 바이트다", () => {
+    const src = acceptSource();
+    const effectAt = src.indexOf(ADDED_EFFECT);
+    expect(effectAt, "더한 effect").toBeGreaterThan(-1);
+    const docAt = src.lastIndexOf("  /**", effectAt);
+    const stripped = (src.slice(0, docAt) + src.slice(effectAt + ADDED_EFFECT.length + "\n\n".length)).replace(
+      ADDED_IMPORT,
+      ""
+    );
+    // 이 라운드의 흔적이 0건이다 — 더한 것이 effect 한 벌과 import 한 줄뿐이라는 뜻이다.
+    expect(stripped, "이 라운드의 흔적").not.toContain("inviteUnavailableAnnouncement");
+    expect(stripped, "이 라운드의 흔적").not.toContain("라운드 89");
+    // 그리고 종전 계약이 붙들던 바이트가 전부 제자리다(빼고 나면 라운드 88의 화면이다).
+    expect(stripped).toContain(
+      "  }, [accept.isError, accept.error, acceptSaveErrorCopy, inviteUnavailable]);\n\n  /**\n   * 참여 성공"
+    );
+    expect(stripped).toContain("  INVITE_UNAVAILABLE_TITLE,\n  isInviteUnavailableError\n");
+    expect(stripped).toContain("{inviteUnavailable ? (");
+    expect(stripped).toContain('<View accessibilityLiveRegion="polite" accessibilityRole="alert">');
+  });
+
+  it("ⓕ 바이트 불변 — 프롭 조합 · 문구 상수 · 탈출 버튼 · 종전 effect", () => {
+    const src = acceptSource();
+    // 프롭 조합은 대장(`ROUND79_ANNOUNCE_PROPS_ADDED`)의 `after` 바이트다 — 한 글자도 바뀌지 않았다.
+    expect(
+      src.split('<View accessibilityLiveRegion="polite" accessibilityRole="alert">').length - 1,
+      "프롭 조합이 걸린 자리"
+    ).toBe(2);
+    // 종전 effect(라운드 79 리뷰 M-1)는 조건도 의존 배열도 그대로다.
+    expect(src).toContain(
+      "    if (accept.isError && !inviteUnavailable) {\n      announceForA11y(acceptSaveErrorCopy === OFFLINE_SAVE_NOTICE ? acceptSaveErrorCopy : acceptErrorText(accept.error));\n    }\n  }, [accept.isError, accept.error, acceptSaveErrorCopy, inviteUnavailable]);"
+    );
+    // 카드가 그리는 상수 다섯과 탈출 버튼의 낭독 라벨도 그대로다(눈에 보이는 화면은 무변화).
+    const card = unavailableCardBlock();
+    for (const constantName of [
+      "INVITE_UNAVAILABLE_TITLE",
+      "INVITE_UNAVAILABLE_DETAIL",
+      "INVITE_UNAVAILABLE_NEXT_STEP",
+      "INVITE_UNAVAILABLE_ALREADY_JOINED_HINT",
+      "INVITE_UNAVAILABLE_ESCAPE_LABEL"
+    ]) {
+      expect(card, constantName).toContain(constantName);
+    }
+    expect(card).toContain('accessibilityLabel="초대 없이 앱 둘러보기"');
+    // 뒤처리 실패 카드는 무접촉이다 — 그 자리의 사각은 그물의 것이지 화면의 것이 아니다
+    // (핸들러가 상태를 세우며 같은 걸음에 읽어 주므로 오늘도 두 플랫폼 다 소리가 난다).
+    expect(src).toContain("      setJoinRetryNotice(plan.notice);\n        announceForA11y(plan.notice);");
   });
 });
