@@ -36,6 +36,9 @@ import { useLoadErrorCopy, useSaveErrorCopy } from "../../../src/offline/use-loa
 import { useOnboardingProgressStore } from "../../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../../src/stores/selected-child.store";
 import { useSessionStore } from "../../../src/stores/session.store";
+// 라운드 93 트랙 B: 가구 이름은 사용자가 지은 값이라 공동격 조사가 **받침에서 갈린다**. 화면이
+// "과"를 못 박으면 받침 없는 가구 이름에서 "김가네과 함께해요"가 난다.
+import { withParticle } from "../../../src/text/korean-particles";
 import { theme } from "../../../src/theme";
 import { announceForA11y, AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../../src/ui";
 
@@ -304,7 +307,7 @@ export default function AcceptInviteScreen() {
         role: result.household.role,
         childrenLoadFailed: lookup.failed
       });
-      const joinedText = `${result.household.name}과 함께해요.`;
+      const joinedText = `${result.household.name}${withParticle(result.household.name)} 함께해요.`;
       // 라운드 60 #3(막다른 길 ②): 조회 실패는 이동하지 않고 화면에 머문다. 안내는 순수 모듈의
       // 문구를 그대로 쓰고, [다시 시도]가 이 함수를 다시 태운다(수락 POST는 다시 부르지 않는다).
       if (plan.kind === "retry") {
@@ -441,7 +444,9 @@ export default function AcceptInviteScreen() {
         {joinRetryNotice && joinedResult ? (
           <View accessibilityLiveRegion="polite" accessibilityRole="alert">
             <Card style={{ gap: 10 }}>
-              <Text style={{ color: theme.colors.brown }}>{`${joinedResult.household.name}과 함께해요.`}</Text>
+              <Text style={{ color: theme.colors.brown }}>
+                {`${joinedResult.household.name}${withParticle(joinedResult.household.name)} 함께해요.`}
+              </Text>
               <Text style={{ color: theme.colors.danger }}>{joinRetryNotice}</Text>
               <SecondaryButton
                 accessibilityLabel="가족 정보 다시 불러오기"
