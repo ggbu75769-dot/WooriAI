@@ -915,13 +915,22 @@ describe("전제 재실측 ② — 정찰의 333·3·61·272를 다시 센다", 
 
   it("⚠️ 앞의 둘은 그대로이고 뒤의 둘은 **바늘이 갈렸다** — 갈림이 오늘의 실측과 아귀가 맞는다", () => {
     const [siteCount, ownLine, window, neither] = ELAPSED_SCOUT_VALUES;
-    expect(siteCount.remeasured).toBe(sites.length); // 333 — 정찰과 같다(문서가 자라지 않았다)
+    // ⚠️⚠️ **두 시점 — 라운드 92 트랙 F가 이 네 줄을 등호에서 하한으로 옮겼다.**
+    //  · **트랙 D 커밋 시점**: `333 · 3 · 70 · 263`이 그대로 살아 있고, 아래 `remeasured` 값은
+    //    한 바이트도 바뀌지 않았다(그 라운드의 기록이다).
+    //  · **같은 라운드의 F 뒤**: 판정 문서에 AG절이 서며 자리가 `383 · 4 · 83 · 300`이 됐다.
+    // ⚠️ 이 네 줄이 **등호**였을 때 그 걸음에 곧바로 빨개졌다 — 라운드 92 정찰이 이 트랙에
+    // *"F가 AG절을 쓰며 조건을 더하면 자리 수가 커지는데 **하한 설계 덕에 초록으로 남는다**"* 라고
+    // 적었고, `floor`와 `MEASURED_TODAY`는 실제로 하한이었지만 **이 재실측 블록만 등호였다.**
+    // ⚠️⚠️ AF-5가 이름 붙인 *등호의 비용*이 이 자리에서 되풀이됐고, 고른 처방은 라운드 90 트랙 D의
+    // 그것과 같다: **기록은 등호로 지키고 살아 있는 실측은 하한으로 문다.**
+    expect(sites.length).toBeGreaterThanOrEqual(siteCount.remeasured); // 오늘 383 ≥ 기록 333
     expect(siteCount.remeasured).toBe(siteCount.scout);
-    expect(ownLine.remeasured).toBe(tally.ownLine); // 3 — 정찰과 같다
+    expect(tally.ownLine).toBeGreaterThanOrEqual(ownLine.remeasured); // 오늘 4 ≥ 기록 3
     expect(ownLine.remeasured).toBe(ownLine.scout);
-    expect(window.remeasured).toBe(tally.window); // 70 — 정찰의 61과 갈렸다
+    expect(tally.window).toBeGreaterThanOrEqual(window.remeasured); // 오늘 83 ≥ 기록 70
     expect(window.remeasured).not.toBe(window.scout);
-    expect(neither.remeasured).toBe(tally.neither); // 263 — 앞 줄의 갈림이 옮겨 온 수다
+    expect(tally.neither).toBeGreaterThanOrEqual(neither.remeasured); // 오늘 300 ≥ 기록 263
     expect(neither.remeasured).toBe(siteCount.remeasured - window.remeasured);
     expect(neither.scout).toBe(siteCount.scout - window.scout);
   });
