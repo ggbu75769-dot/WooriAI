@@ -59,6 +59,30 @@ import { describe, expect, it } from "vitest";
  *    `roles`가 붙은 href **3**(그 셋의 정확한 목록은 `admin-write-role-gate.test.ts`의 축이라 이
  *    계약은 수를 등호로 물지 않는다).
  *
+ * ## ⚠️⚠️ 라운드 95 트랙 B — **사각의 0에 *0의 뜻*이 값으로 서고, 자 하나가 상수에서 파생이 된다**
+ *
+ * 정찰(AI-3)이 센 것: 저장소에서 **크기가 0으로 적힌 사각 열다섯**은 전부 `measure`를 지녀 *걷어서 낸
+ * 0*인데, *셀 수 없어서 0*인 자리(모바일 `screen-header-back.test.ts`의 둘 — 자를 두지 않고
+ * `uncountable`을 진다)와 **한 낱말로 적혀 있었다**. 그 갈래를 적는 낱말(`zeroMeans`)이 오늘 저장소에
+ * **한 파일에 여섯 번**뿐이고, 나머지 열다섯에는 *이 0이 무엇의 0인가*가 한 글자도 없었다.
+ *
+ *  · **시점 ① 직전 라운드까지**: 이 표의 0 **셋**(`page-only-needle` · `intentional-absence` ·
+ *    `source-not-runtime`)은 크기만 적혀 있었고, 그중 `intentional-absence`의 자는
+ *    `EXEMPTIONS.length` — **이 파일 안에 손으로 적은 표의 크기**였다. 형태 단언(`() => 0` 금지)은
+ *    통과하지만 그 자는 저장소를 한 글자도 읽지 않는다: 어드민이 통째로 바뀌어도 조용하다.
+ *  · **시점 ② 오늘(라운드 95 B)**: ⓐ 0인 셋이 `countedZero`를 진다 — *이 0이 무엇의 0인가*
+ *    (`zeroMeans` · **X가 없다는 뜻이지 Y를 못 본다는 뜻이 아니다** 꼴)와 그 0이 **걷어서 나온
+ *    0**임을 증명하는 모집단(`countedOver`) · ⓑ `intentional-absence`의 자가 **손 표의 크기에서
+ *    걷기·파싱의 파생으로** 바뀐다(내비에 짝이 없는 라우트 전수 — 면제로 덮인 것까지 포함해 *이 자가
+ *    가르지 못하는 자리*의 크기다) · ⓒ `page-only-needle`의 자도 모듈 로드 때의 스캔이 아니라
+ *    **그 자리에서 다시 걷는** 함수가 된다(직전 라운드 트랙 B가 모바일에서 세운 그 꼴을 인용한다).
+ *
+ * ⚠️⚠️ **이름이 겹친다** — 이 표의 `source-not-runtime`과 모바일 `screen-header-back.test.ts`의
+ * `source-not-runtime`은 같은 이름인데 **0의 성질이 반대다**(그쪽은 셀 수 없어 0 · 이쪽은 걷어서 낸 0).
+ * 그 사실을 아래 `SAME_NAME_OTHER_KIND`가 값으로 지고 그 자리의 `zeroMeans`가 문장으로 적는다.
+ * ⚠️ 본보기는 **인용**하되 복사하지 않는다 — 그 파일을 읽지도 부르지도 않았고(이 스윕은 어드민 밖으로
+ * 나가지 않는다 · 위 ⓐ가 코드에서 확인한다), 이 트랙도 **어드민 소스를 0바이트** 고친다.
+ *
  * 이 파일이 묻는 것은 여섯이다.
  *  ⓐ **모집단** — 걸어서 전수로 찾는다(손 목록 0건 · 유령 방지 하한).
  *  ⓑ **양방향 대조** — 없는 페이지를 가리키는 href 0건 · 내비에 없는 페이지 0건(면제는 이유를 진다).
@@ -385,7 +409,80 @@ type BlindSpot = {
   readonly today: number;
   /** 이 사각을 배워야 하는 날의 조건 — **빈 문자열일 수 없다**(AD-5 · 형을 밝힌다). */
   readonly resumeCondition: string;
+  /** ⓖ **0의 뜻** — `today`가 0인 자리만 진다(아래 ⓕ가 그 배타를 문다 · 라운드 95 트랙 B). */
+  readonly countedZero?: CountedZero;
 };
+
+/**
+ * ⚠️⚠️ **0의 뜻** (라운드 95 트랙 B) — 크기가 0인 사각의 자리에 **그 0을 읽는 법**을 값으로 둔다.
+ *
+ * 꼴은 모바일 `screen-header-back.test.ts`(직전 라운드 트랙 B)의 `uncountable`을 **인용**한다. 거기서
+ * `zeroMeans`는 *"이 0은 없다가 아니라 셀 수 없다는 뜻이다"* 를 적는 칸이고, ⚠️ **여기 셋은 그 반대다**
+ * — 자가 모집단을 실제로 걷고 아무것도 못 찾은 **걷어서 나온 0**이다. 같은 낱말을 쓰되 뜻이 뒤집히므로
+ * 이 칸은 둘을 함께 진다: *이 0이 무엇의 0인가*와, *그 0이 걷어서 나온 0이라는 증명*(`countedOver` —
+ * 자가 읽은 모집단. 그 수가 0이면 0은 증언이 아니라 침묵이다).
+ */
+type CountedZero = {
+  /** *이 0은 **X가 없다**는 뜻이지 **Y를 못 본다**는 뜻이 아니다* — 아래 ⓕ가 그 꼴을 형태로 문다. */
+  readonly zeroMeans: string;
+  /** 그 0을 낼 때 자가 **실제로 읽은** 것의 크기(0이면 아무것도 보지 않은 것이다). */
+  readonly countedOver: () => number;
+  /** 오늘 그 모집단이 낸 수. ⚠️ **하한으로** 문다 — 모집단이 정당하게 자라는 라운드가 함께 옮긴다. */
+  readonly populationToday: number;
+};
+
+/**
+ * ⚠️⚠️ **같은 이름, 반대 성질** — 값으로 든다.
+ *
+ * `source-not-runtime`은 이 표에도, 옆 파일(`admin-landmark-current.test.ts`)에도, 모바일
+ * (`screen-header-back.test.ts`)에도 선다. 앞의 둘은 **걷어서 낸 0**이고 모바일 쪽은 **셀 수 없어 0**
+ * (자를 두지 않고 증인을 진다)이다. 이름을 성격으로 읽는 날 그 자리에서 오독이 나므로, 갈래를 여기
+ * 값으로 남긴다. ⚠️ 적는 것은 **이름과 갈래**뿐이고 이 스윕은 그 파일들을 읽지 않는다.
+ */
+const SAME_NAME_OTHER_KIND = {
+  key: "source-not-runtime",
+  hereZeroKind: "walked",
+  elsewhere: [
+    { file: "admin-landmark-current.test.ts", zeroKind: "walked" },
+    { file: "screen-header-back.test.ts", zeroKind: "uncountable", field: "uncountable.zeroMeans" }
+  ]
+} as const;
+
+/** ⚠️ **0의 뜻이 적히지 않은 0 — 상한 0**(래칫이라 늘지 않는다). 0이 아닌 자리는 그 칸을 지지 못한다. */
+const UNEXPLAINED_ZERO_CEILING = 0;
+
+/**
+ * ⚠️ 두 시점의 기록. **등호를 고른 자리라 이동 의무를 적는다**: 사각의 크기가 정당하게 0을 벗어나거나
+ * 새 0이 서는 라운드가 **그 걸음에 이 수를 함께 옮긴다**(옮기지 않으면 아래 ⓕ가 먼저 빨개진다).
+ */
+const ZERO_MEANING_RECORD = {
+  raisedBy: "정찰 AI-3(라운드 95) — 저장소의 0 열다섯에 0의 뜻이 0건",
+  quotedShapeFrom: "screen-header-back.test.ts (직전 라운드 트랙 B가 세운 uncountable 관례)",
+  /** 시점 ① — 0이 셋인데 그 갈래를 적은 자리는 0이었고, 자 하나는 손 표의 크기였다. */
+  round94: { zeroSpots: 3, withZeroMeans: 0, handTableMeasures: 1 },
+  /** 시점 ② — 셋 다 `countedZero`를 지고, 손 표의 자는 걷기의 파생이 됐다. */
+  round95: { zeroSpots: 3, withZeroMeans: 3, handTableMeasures: 0 }
+} as const;
+
+/**
+ * `page-only-needle`의 자 — **한 걷기에서** 세는 순수 함수(아래 ⓕ의 교란 픽스처가 이 자를 가짜
+ * `app/` 트리에 댄다). 이 바늘(`page.tsx`) 밖에 서 있는 진입의 크기다.
+ */
+function outsidePageNeedle(scan: AppTreeScan): number {
+  return scan.routeHandlers.length + scan.parallelRoutes.length + scan.routeGroups.length;
+}
+
+/**
+ * `intentional-absence`의 자 — **내비에 짝이 없는 라우트 전수**(면제로 덮인 것까지 센다).
+ *
+ * ⚠️⚠️ **두 시점.** 종전 이 자는 `EXEMPTIONS.length`, 곧 *이 파일 안에 손으로 적은 표의 크기*였다 —
+ * 형태 단언은 통과하지만 저장소를 한 글자도 읽지 않는 자였다. 오늘은 걷기와 파싱에서 나오고, 세는 것도
+ * 더 옳다: 이 사각의 크기는 *면제로 적힌 수*가 아니라 **이 자가 옳고 그름을 가르지 못하는 자리의 수**
+ * (= 내비에 짝이 없는 라우트 전수)이고, 면제는 그 가운데 사람이 판단을 적어 둔 부분집합이다.
+ */
+function ungradableAbsences(routes: readonly string[], hrefs: readonly string[]): number {
+  return crossCheck(routes, hrefs, []).unlistedRoutes.length;
+}
 
 const BLIND_SPOTS: readonly BlindSpot[] = [
   {
@@ -395,25 +492,50 @@ const BLIND_SPOTS: readonly BlindSpot[] = [
       "병렬 라우트(`@slot` · 오늘 0건) · 라우트 그룹(`(group)` · 오늘 0건)은 이 자가 세지 않는다. " +
       "그리고 `error.tsx`·`global-error.tsx`·`not-found.tsx` 셋(오늘 3)도 라우트 진입이지만 주소를 " +
       "만들지 않아 이 바늘 밖이고, 그 셋이 밖이라는 사실이 오늘 면제가 0건인 이유이기도 하다",
-    measure: () =>
-      APP_TREE.routeHandlers.length + APP_TREE.parallelRoutes.length + APP_TREE.routeGroups.length,
+    // ⚠️ 자가 모듈 로드 때의 스캔을 다시 쓰지 않고 **그 자리에서 다시 걷는다**(직전 라운드 트랙 B의 꼴).
+    measure: () => outsidePageNeedle(scanAppTree(APP_DIR)),
     today: 0,
     resumeCondition:
       "재개 조건(사건형): 어드민에 `route.ts`나 병렬 라우트·라우트 그룹이 처음 서는 날 — 그날 이 수가 " +
-      "0을 벗어나고, 이 계약의 모집단은 `page.tsx` 전수에서 *주소를 만드는 진입* 전수로 넓어져야 한다"
+      "0을 벗어나고, 이 계약의 모집단은 `page.tsx` 전수에서 *주소를 만드는 진입* 전수로 넓어져야 한다",
+    countedZero: {
+      zeroMeans:
+        "⚠️⚠️ **이 0은 *어드민에 라우트 핸들러도, 병렬 라우트도, 라우트 그룹도 한 자리가 없다*는 " +
+        "뜻이지, *이 바늘이 그것들을 볼 수 있다*는 뜻이 아니다.** 바늘은 오늘도 `page.tsx` 하나뿐이고 " +
+        "그 좁힘은 조금도 넓어지지 않았다 — 다만 그 좁힘이 **오늘 아무 자리도 잃지 않았을 뿐**이다. " +
+        "자는 `app/**`을 다시 걸어(오늘 파일 열다섯) 세 갈래를 한 자리도 찾지 못했다. ⚠️ 그러므로 이 " +
+        "0이 오르는 날은 사각이 새로 생기는 날이 아니라 **이미 있던 사각이 처음으로 값을 내는 날**이다",
+      countedOver: () => scanAppTree(APP_DIR).walkedFiles,
+      populationToday: 15
+    }
   },
   {
     key: "intentional-absence",
     reason:
       "**내비에 없는 것이 옳은 라우트와 실수로 빠진 라우트를 이 자는 가르지 못한다.** 소스가 아는 " +
       "것은 *짝이 없다*까지이고, *없어도 되는가*는 사람이 판단한다. 그 판단이 서는 자리가 면제이고 " +
-      "(오늘 0건), **면제가 늘면 늘어난 만큼이 이 사각의 크기다** — 그래서 이 자는 면제의 수를 잰다",
-    measure: () => EXEMPTIONS.length,
+      "(오늘 0건), **면제가 늘면 늘어난 만큼이 이 사각의 크기다** — 그래서 이 자는 면제의 수를 잰다. " +
+      "⚠️⚠️ **두 시점(라운드 95 트랙 B)** — 종전 이 자는 `EXEMPTIONS.length`, 곧 **이 파일 안에 손으로 " +
+      "적은 표의 크기**라 저장소를 한 글자도 읽지 않았다(형태 단언은 통과하지만 어드민이 통째로 바뀌어도 " +
+      "조용하다). 오늘은 걷기와 파싱에서 나오고 세는 것도 더 옳다: 이 사각의 크기는 *적어 둔 면제의 " +
+      "수*가 아니라 **이 자가 옳고 그름을 가르지 못하는 자리의 수**(= 내비에 짝이 없는 라우트 전수)이고, " +
+      "면제는 그 가운데 사람이 판단을 적어 둔 부분집합이다 — 오늘은 둘 다 0이라 두 수가 같다",
+    measure: () => ungradableAbsences(scanAppTree(APP_DIR).routes, navItems().map((item) => item.href)),
     today: 0,
     resumeCondition:
       "재개 조건(사건형): 첫 면제가 서는 날 — 그날 이 수가 1이 되고, 그 줄의 이유가 *왜 내비에 서지 " +
       "않는 것이 옳은가*를 값으로 져야 한다(빈 이유 금지). 면제가 셋을 넘으면 이 자가 아니라 사람이 " +
-      "내비 표를 다시 봐야 한다는 신호다"
+      "내비 표를 다시 봐야 한다는 신호다",
+    countedZero: {
+      zeroMeans:
+        "⚠️⚠️ **이 0은 *내비에 짝이 없는 라우트가 오늘 한 자리도 없다*는 뜻이지, *옳은 부재와 실수를 " +
+        "이 자가 가를 수 있다*는 뜻이 아니다.** 가르는 일은 오늘도 사람의 몫이고 이 자는 그 능력을 " +
+        "얻은 적이 없다 — 다만 **가를 것이 0건이라 그 무능이 오늘 손해를 내지 않았다.** 자는 라우트 " +
+        "열하나와 내비 href 열하나를 실제로 걷고 파싱해 짝 없는 자리를 0건으로 냈다. ⚠️ 그러므로 " +
+        "면제 칸이 비어 있는 것은 *아직 안 썼다*가 아니라 **쓸 자리가 서지 않았다**이다",
+      countedOver: () => scanAppTree(APP_DIR).routes.length,
+      populationToday: 11
+    }
   },
   {
     key: "url-surface-beyond-routes",
@@ -444,7 +566,20 @@ const BLIND_SPOTS: readonly BlindSpot[] = [
     resumeCondition:
       "재개 조건(사건형): 이 파일이 실제로 앱을 띄우거나 컴포넌트를 렌더하기 시작하는 날 — 그날 이 " +
       "사각은 닫히는 것이 아니라 **다른 계약으로 옮겨 간다**(소스 대조와 런타임 대조를 한 파일이 " +
-      "함께 지지 않는다)"
+      "함께 지지 않는다)",
+    countedZero: {
+      zeroMeans:
+        "⚠️⚠️ **이 0은 *이 파일의 import 줄 넷 가운데 `node:*`·`vitest` 밖의 것이 하나도 없다*(= 앱을 " +
+        "띄우거나 렌더하는 도구가 한 번도 들어온 적이 없다)는 뜻이지, *그 링크를 눌렀을 때 화면이 " +
+        "열린다*거나 *런타임에 아무 문제가 없다*는 뜻이 아니다.** 자가 읽은 것은 이 파일의 경계이지 " +
+        "브라우저가 아니다 — 눌러 본 횟수는 이 0이 답한 적이 없다. " +
+        "⚠️⚠️ **그리고 같은 이름의 다른 0과 한 낱말로 적지 않는다** — 모바일 " +
+        "`screen-header-back.test.ts`의 `source-not-runtime`은 **셀 수 없어서 0**(자를 두지 않고 증인을 " +
+        "진다)이지만 여기 것은 **걷어서 낸 0**(자가 있고 모집단이 넷이다)이다. 이름이 같다고 성질을 " +
+        "옮겨 읽으면 그 자리에서 오독이 난다",
+      countedOver: () => [...SELF_CODE.matchAll(/^import .*$/gm)].length,
+      populationToday: 4
+    }
   }
 ];
 
@@ -687,6 +822,116 @@ describe("어드민 라우트 표면 (라운드 92 트랙 C)", () => {
       expect(SELF_CODE, "임시 뿌리가 mkdtemp에서 나오지 않아요").toMatch(
         /const base = mkdtempSync\(join\(tmpdir\(\)/
       );
+    });
+
+    it("⚠️ 크기가 0인 사각마다 **0의 뜻**이 적혀 있다 (배타 · 라운드 95 트랙 B)", () => {
+      const zeroSpots = BLIND_SPOTS.filter((spot) => spot.today === 0);
+      expect(zeroSpots.length, "0인 사각이 0건이에요 — 이 단언이 유령이에요").toBeGreaterThan(0);
+      const unexplained = zeroSpots.filter((spot) => spot.countedZero === undefined);
+      expect(
+        unexplained.map((spot) => spot.key),
+        "크기가 0인데 *그 0이 무엇의 0인가*가 적혀 있지 않아요"
+      ).toEqual([]);
+      expect(unexplained.length).toBeLessThanOrEqual(UNEXPLAINED_ZERO_CEILING);
+      // ⚠️ 배타 — 0이 아닌 자리는 이 칸을 지지 못한다(0의 뜻이 장식이 되지 않게).
+      for (const spot of BLIND_SPOTS) {
+        expect(spot.countedZero !== undefined, `${spot.key}: 0이 아닌데 0의 뜻을 지고 있어요`).toBe(
+          spot.today === 0
+        );
+      }
+      // ⚠️ 꼴 — *X가 없다는 뜻이지 Y를 못 본다는 뜻이 아니다*(크기를 다시 적은 문장은 이 꼴이 아니다).
+      for (const spot of zeroSpots) {
+        const zero = spot.countedZero as CountedZero;
+        expect(zero.zeroMeans.length, `${spot.key}: 0의 뜻이 비어 있어요`).toBeGreaterThan(80);
+        expect(zero.zeroMeans, `${spot.key}: *무엇의 0인가*가 적혀 있지 않아요`).toMatch(/뜻이지/);
+        expect(zero.zeroMeans, `${spot.key}: *무엇의 0이 아닌가*가 적혀 있지 않아요`).toMatch(/뜻이 아니다/);
+      }
+      // 기록도 파생과 맞댄다(기록만 남기면 그 기록이 먼저 낡는다 · 이동 의무는 상수 옆에 적혀 있다).
+      expect(ZERO_MEANING_RECORD.round94.withZeroMeans, "시점 ①의 기록").toBe(0);
+      expect(ZERO_MEANING_RECORD.round95.zeroSpots, "오늘의 0 개수가 기록과 갈렸어요").toBe(zeroSpots.length);
+      expect(ZERO_MEANING_RECORD.round95.withZeroMeans, "0의 뜻을 진 자리 수가 기록과 갈렸어요").toBe(
+        zeroSpots.length - unexplained.length
+      );
+    });
+
+    it("⚠️ 그 0은 **걷어서 나온 0**이다 — 자가 읽은 모집단이 0이 아니다", () => {
+      const zeroSpots = BLIND_SPOTS.filter((spot) => spot.today === 0);
+      expect(zeroSpots.length).toBeGreaterThan(0);
+      for (const spot of zeroSpots) {
+        const zero = spot.countedZero as CountedZero;
+        expect(zero, `${spot.key}: 0의 뜻이 없어요`).toBeTruthy();
+        const population = zero.countedOver();
+        expect(population, `${spot.key}: 모집단이 0이에요 — 이 0은 증언이 아니라 침묵이에요`).toBeGreaterThan(0);
+        expect(population, `${spot.key}: 모집단이 기록 아래로 내려갔어요`).toBeGreaterThanOrEqual(
+          zero.populationToday
+        );
+        // 걸린 것은 걸은 것 안에 있다 — 모집단 밖을 세는 자라면 이 0은 다른 것의 0이다.
+        expect(spot.measure(), `${spot.key}: 자가 모집단보다 큰 수를 내요`).toBeLessThanOrEqual(population);
+        expect(spot.measure(), `${spot.key}: 오늘 이 자리는 0이어야 해요`).toBe(0);
+        // ⚠️ 모집단의 자도 상수가 아니다(L-6의 규율을 0의 증명에도 그대로 적용한다).
+        const body = String(zero.countedOver).replace(/\s+/g, " ");
+        expect(body, `${spot.key}: 모집단의 자가 상수를 돌려줘요`).not.toMatch(/^\( *\) *=> *-?\d+$/);
+      }
+    });
+
+    it("⚠️ 손 표의 크기를 자로 쓰는 사각이 0건이다 (상수 → 파생 · 라운드 95 트랙 B)", () => {
+      // ⚠️⚠️ 두 시점. 종전 `intentional-absence`의 자는 이 파일 안의 손 표 크기였다 — 형태 단언은
+      //    통과하지만 저장소를 한 글자도 읽지 않는 자였다. 오늘은 그런 자가 0건이어야 한다.
+      for (const spot of BLIND_SPOTS) {
+        const body = String(spot.measure).replace(/\s+/g, " ");
+        expect(body, `${spot.key}: 자가 손으로 적은 표의 크기를 돌려줘요`).not.toContain("EXEMPTIONS.length");
+      }
+      expect(ZERO_MEANING_RECORD.round94.handTableMeasures, "시점 ①의 기록").toBe(1);
+      expect(ZERO_MEANING_RECORD.round95.handTableMeasures, "오늘 손 표의 자").toBe(0);
+      // 그리고 새 자가 실제로 저장소에서 나온다 — 걷기가 죽으면 이 자도 함께 죽는다(유령 금지).
+      const spot = BLIND_SPOTS.find((entry) => entry.key === "intentional-absence");
+      expect(spot, "면제 사각이 사라졌어요").toBeTruthy();
+      expect((spot as BlindSpot).measure()).toBe(ungradableAbsences(APP_TREE.routes, NAV_HREFS));
+      expect(scanAppTree(APP_DIR).routes.length, "자가 걷는 모집단이 0건이에요").toBeGreaterThan(0);
+      // 면제는 그 자리의 **부분집합**이다(오늘 둘 다 0이라 두 수가 같다).
+      expect(EXEMPTIONS.length).toBeLessThanOrEqual((spot as BlindSpot).measure());
+    });
+
+    it("⚠️ 교란 — 0인 자리의 소스 조건을 위반으로 틀면 그 0이 0이 아니게 된다 (픽스처)", () => {
+      const spot = BLIND_SPOTS.find((entry) => entry.key === "page-only-needle");
+      expect(spot, "바늘 좁힘 사각이 사라졌어요").toBeTruthy();
+      expect((spot as BlindSpot).measure(), "오늘의 실물은 0이다").toBe(0);
+      // 가짜 트리를 하나 지어 **사각의 자 자신**을 그 위에 댄다 — 라우트 핸들러 · 라우트 그룹 ·
+      // 병렬 라우트를 하나씩 세우면 이 0이 셋이 된다(0이 조건에 매여 있다는 증거다).
+      const base = mkdtempSync(join(tmpdir(), "wooriai-zero-means-"));
+      try {
+        mkdirSync(join(base, "(group)"), { recursive: true });
+        mkdirSync(join(base, "@slot"), { recursive: true });
+        writeFileSync(join(base, "page.tsx"), "export default function Page() { return null; }\n");
+        writeFileSync(join(base, "route.ts"), "export function GET() { return null; }\n");
+        writeFileSync(join(base, "(group)", "page.tsx"), "export default function Page() { return null; }\n");
+        const perturbed = scanAppTree(base);
+        expect(outsidePageNeedle(perturbed), "교란해도 이 자가 0을 내요 — 아무것도 보지 않는 자예요").toBe(3);
+        expect(perturbed.walkedFiles, "픽스처를 걷지 못했어요").toBeGreaterThan(0);
+        // 같은 걸음에 옆 0도 교란한다 — 내비에 짝이 없는 라우트가 서면 그 0도 0이 아니다.
+        expect(ungradableAbsences(perturbed.routes, ["/"]), "짝 없는 라우트를 자가 못 봤어요").toBe(1);
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+      // 저장소의 실물은 그대로다 — 픽스처는 OS 임시 뿌리 안에서만 살았고 어드민 소스는 0바이트다.
+      expect((spot as BlindSpot).measure(), "교란이 저장소로 새어 나갔어요").toBe(0);
+      expect(ungradableAbsences(APP_TREE.routes, NAV_HREFS)).toBe(0);
+    });
+
+    it("⚠️ 같은 이름 `source-not-runtime`의 0이 파일마다 성질이 다르다는 사실이 값이다", () => {
+      const spot = BLIND_SPOTS.find((entry) => entry.key === SAME_NAME_OTHER_KIND.key);
+      expect(spot, "같은 이름의 자리가 사라졌어요").toBeTruthy();
+      expect(typeof (spot as BlindSpot).measure, "이 자리는 자를 지녀야 해요").toBe("function");
+      const zero = (spot as BlindSpot).countedZero;
+      expect(zero, "이 자리의 0의 뜻이 사라졌어요").toBeTruthy();
+      expect(SAME_NAME_OTHER_KIND.hereZeroKind).toBe("walked");
+      const uncountableTwins = SAME_NAME_OTHER_KIND.elsewhere.filter((entry) => entry.zeroKind === "uncountable");
+      expect(uncountableTwins.length, "반대 갈래의 자리가 기록에서 사라졌어요").toBeGreaterThan(0);
+      // 값과 문장이 갈리면 다음 라운드는 문장을 읽는다 — 그래서 문장에도 그 갈래가 적혀 있다.
+      for (const twin of uncountableTwins) {
+        expect((zero as CountedZero).zeroMeans, `${twin.file}의 반대 갈래가 0의 뜻에 없어요`).toContain(twin.file);
+      }
+      expect((zero as CountedZero).zeroMeans, "두 0을 가르는 낱말이 빠졌어요").toContain("셀 수 없어서 0");
     });
   });
 });
