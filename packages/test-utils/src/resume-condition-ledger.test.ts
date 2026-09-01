@@ -85,11 +85,14 @@ import {
   SOURCE_AXIS_WALKED_FLOOR,
   SOURCE_COUNT_RATCHET,
   anyParenSourceNeedle,
+  branchSourceNotations,
+  branchedSourceNotationsFrom,
   buildElapsedNumeralTable,
   collectDocumentSites,
   collectElapsedSites,
   collectResumeSites,
   collectSourceNotations,
+  collectSourceNotationsFrom,
   countAnyParenSourceNotations,
   countMentions,
   decisiveSites,
@@ -98,18 +101,36 @@ import {
   elapsedMarksIn,
   elapsedNumeral,
   elapsedRatchetViolations,
+  emphasisDecisiveMissingHand,
+  emphasisMarkedSourceNeedle,
   exemptionFor,
+  markdownNotationCount,
+  markedBearingFiles,
   markedSourceNeedle,
+  needleSplitDecision,
   ownerForSourcePath,
+  quotedFieldNotations,
   ratchetViolations,
   readSourceAxisEntries,
   repoRoot,
+  resumeFieldKeyNeedle,
+  resumeFieldKeys,
+  resumeFieldValueSpans,
   roundNoteFiles,
+  scriptsRootYieldToday,
+  selfNeedleTallies,
   sourceAxisDefects,
   sourceAxisFilesFrom,
   sourceCountViolation,
+  sourceNeedleBlindSpots,
+  sourceNeedleMeasuredToday,
+  sourceNeedleRatchet,
+  sourceNeedleRatchetViolations,
+  sourceNeedleTally,
+  sourceSplitScoutValues,
   tallyElapsed,
   tallyNeedles,
+  tallySourceNeedles,
   typedInners,
   unreadableElapsedNumerals,
   unreadableNumeralsIn
@@ -316,7 +337,10 @@ describe("ⓓ 소스 축 — 소스에 사는 재개 조건도 같은 조항을 
       expect(file.owner.trim().length).toBeGreaterThan(0);
       expect(file.floorReason.trim().length).toBeGreaterThan(40);
       // ⚠️ 하한은 오늘의 값보다 낮다 — 도래한 조건을 지우는 손을 막지 않는다.
-      expect(file.floor).toBeLessThan(file.valueToday);
+      // ⚠️⚠️ **두 시점**: 라운드 91~93에는 이 자리가 `valueToday`(표식형)를 보았다. 라운드 94 D가
+      //    모집단 판정을 **세 갈래의 합**으로 넓히며 이 자도 함께 넓혔다 — 필드형만 지고 들어온
+      //    자리의 표식형은 0이라, 옛 자를 그대로 두면 넓힌 걸음이 곧바로 자기를 결함으로 센다.
+      expect(file.floor).toBeLessThan(file.needleTotalToday);
     }
   });
 
@@ -405,10 +429,17 @@ describe("ⓓ' 소스 축 — 뿌리를 걸어 표기를 지닌 소스 전수에
     //    적었고(`files: 2`), 그 손이 같은 라운드 트랙 C의 파일 하나를 세지 못했다 — 그래서
     //    `SOURCE_COUNT_RATCHET`이 실측보다 한 칸 낮은 채로 서서 **셋 중 하나가 표기를 잃어도
     //    조용한 거짓 초록**이 됐다. 오늘 그 자리를 등호로 묶는다: 기록이 파생과 갈리면 빨개진다.
+    // ⚠️⚠️ **셋째 시점(라운드 94 트랙 D)** — 모집단이 셋에서 열하나로 넓어졌지만 **이 등호가 무는
+    //    대상은 바꾸지 않았다**: H-1이 세운 장치는 *① 표식형을 지닌 파일*을 세는 것이었고, 그
+    //    부분모집단은 오늘도 셋이다(`markedBearingFiles`). 넓어진 모집단은 **따로 하한으로** 든다
+    //    (`sourceNeedleMeasuredToday().files`) — *남의 장치가 무는 것을 넓히지 않는다.*
     expect(
       SOURCE_AXIS_MEASURED_TODAY.files,
       "기록된 표기 소스 수가 오늘의 파생 결과와 갈렸어요 — 파생 쪽이 사실이고, 이 값을 옮겨 주세요"
-    ).toBe(derived.length);
+    ).toBe(markedBearingFiles(derived).length);
+    // ⚠️ 그리고 넓어진 모집단은 등호가 아니라 하한이다 — 남의 트랙이 조건을 소진하면 내려간다.
+    expect(sourceNeedleMeasuredToday().files).toBeLessThanOrEqual(derived.length);
+    expect(derived.length).toBeGreaterThan(markedBearingFiles(derived).length);
     // 래칫도 그 파생 위에 선다 — 기록과 래칫이 서로 다른 수를 말하지 않는다.
     expect(SOURCE_COUNT_RATCHET).toBe(SOURCE_AXIS_MEASURED_TODAY.files);
     expect(SOURCE_COUNT_RATCHET).toBeLessThanOrEqual(derived.length);
@@ -426,10 +457,16 @@ describe("ⓓ' 소스 축 — 뿌리를 걸어 표기를 지닌 소스 전수에
 
   it("⚠️ 교란 — 표기 소스 셋 가운데 **어느 하나**를 숨겨도 래칫이 빨개진다 (H-1의 재현)", () => {
     // ⚠️ D의 래칫(2)에서는 이 교란이 셋 중 하나에 대해 **초록**이었다 — 그것이 거짓 초록의 실물이다.
-    expect(derived.length).toBeGreaterThanOrEqual(3);
-    for (const hidden of derived) {
-      const without = sourceAxisFilesFrom(entries.filter((entry) => entry.path !== hidden.path));
-      expect(without.length).toBe(derived.length - 1);
+    // ⚠️⚠️ **두 시점**: 라운드 91~93에는 이 교란이 `derived` 전체를 돌았다. 라운드 94 D가 모집단을
+    //    넓힌 뒤로는 **표식형을 지닌 부분모집단**(셋)을 돈다 — 넓은 모집단에서 하나를 숨겨도
+    //    `3`짜리 래칫은 조용하고, 그 조용함은 이 교란이 무엇을 지키는지를 흐린다.
+    const marked = markedBearingFiles(derived);
+    expect(marked.length).toBeGreaterThanOrEqual(3);
+    for (const hidden of marked) {
+      const without = markedBearingFiles(
+        sourceAxisFilesFrom(entries.filter((entry) => entry.path !== hidden.path))
+      );
+      expect(without.length).toBe(marked.length - 1);
       expect(
         sourceCountViolation(without),
         `${hidden.path}를 숨겼는데 초록이면 이 축은 그 자리를 지키지 않는다`
@@ -448,8 +485,12 @@ describe("ⓓ' 소스 축 — 뿌리를 걸어 표기를 지닌 소스 전수에
       expect(file.anyParenToday, `${file.path}의 넓은 바늘`).toBe(
         typedInners(text, anyParenSourceNeedle()).length
       );
-      expect(file.valueToday).toBeGreaterThan(0);
-      expect(file.anyParenToday).toBeGreaterThanOrEqual(file.valueToday);
+      // ⚠️⚠️ **두 시점**: 예전에는 `valueToday > 0`이 모집단의 조건이었다. 오늘 모집단에 드는
+      //    조건은 **세 갈래의 합**이라, 필드형만 지고 들어온 자리의 표식형은 0이다.
+      expect(file.needleTotalToday).toBeGreaterThan(0);
+      expect(file.valueToday + file.emphasisToday + file.fieldToday).toBe(file.needleTotalToday);
+      expect(file.anyParenToday).toBeGreaterThanOrEqual(file.needleTotalToday);
+      expect(file.anyParenToday).toBe(file.needleTotalToday + file.unneedledToday);
     }
     // ⚠️ 기록은 하한으로만 견준다(등호로 물면 옳은 손이 빨강을 맞는다 — 이 대장의 첫 판단).
     const top = derived.find((file) => file.path.endsWith("dead-export-ledger.ts"));
@@ -471,13 +512,15 @@ describe("ⓓ' 소스 축 — 뿌리를 걸어 표기를 지닌 소스 전수에
     }
   });
 
-  it("⚠️ 하한을 오늘의 값으로 올리지 않았다 (자리별 floor < valueToday)", () => {
+  it("⚠️ 하한을 오늘의 값으로 올리지 않았다 (자리별 floor < 세 갈래의 합)", () => {
     for (const file of derived) {
-      expect(file.floor, `${file.path}의 하한`).toBeLessThan(file.valueToday);
+      expect(file.floor, `${file.path}의 하한`).toBeLessThan(file.needleTotalToday);
       expect(file.floorReason.trim().length).toBeGreaterThan(40);
     }
     const top = derived.find((file) => file.path.endsWith("dead-export-ledger.ts"));
     expect(top!.floor).toBe(3); // ⚠️ 라운드 89 D가 세운 하한 — 내리지도 올리지도 않는다.
+    // ⚠️ 그 자리에서는 옛 자(표식형)도 여전히 하한 위다 — 넓힌 자가 옛 자를 헐겁게 하지 않았다.
+    expect(top!.floor).toBeLessThan(top!.valueToday);
   });
 
   it("⚠️ 교란 ① — 표기를 지닌 소스가 뿌리에서 사라지면 래칫이 빨개진다", () => {
@@ -490,13 +533,25 @@ describe("ⓓ' 소스 축 — 뿌리를 걸어 표기를 지닌 소스 전수에
     expect(violation, "숨겼는데도 초록이면 이 축은 아무것도 지키지 않는다").toBeDefined();
     expect(violation!.measured).toBeLessThan(violation!.floor);
 
-    // 파일은 그대로 두고 **표식만** 지워도 같다 — 관례가 지워지는 날의 모양이 이쪽이다.
+    // 파일은 그대로 두고 **관례의 표식만** 지워도 같다 — 관례가 지워지는 날의 모양이 이쪽이다.
+    // ⚠️⚠️ **두 시점**: 라운드 91~93에는 `⚠️` 하나만 지우면 그 파일이 모집단에서 빠졌다. 라운드 94
+    //    D가 판정을 세 갈래의 합으로 넓힌 뒤로는 **필드 이름까지** 지워야 빠진다 — 그 사실 자체가
+    //    이 걸음이 모집단을 얼마나 넓혔는지의 크기다(표식 하나로는 이제 관례가 지워지지 않는다).
+    const strip = (text: string): string =>
+      text.replace(/⚠️/g, "").replace(/reopenCondition|resumeCondition/g, "옛필드");
     const erased = sourceAxisFilesFrom(
+      entries.map((entry) =>
+        hidden.has(entry.path) ? { path: entry.path, text: strip(entry.text) } : entry
+      )
+    );
+    expect(sourceCountViolation(erased)).toBeDefined();
+    // ⚠️ 그리고 `⚠️`만 지우면 오늘은 **조용하다** — 넓힌 판정이 그만큼을 새로 지고 있다는 뜻이다.
+    const onlyMarkErased = sourceAxisFilesFrom(
       entries.map((entry) =>
         hidden.has(entry.path) ? { path: entry.path, text: entry.text.replace(/⚠️/g, "") } : entry
       )
     );
-    expect(sourceCountViolation(erased)).toBeDefined();
+    expect(onlyMarkErased.length).toBeGreaterThan(erased.length);
   });
 
   it("⚠️ 교란 ② — 소유자 칸이 비면 계약이 문다", () => {
@@ -539,6 +594,388 @@ describe("ⓓ' 소스 축 — 뿌리를 걸어 표기를 지닌 소스 전수에
       ...LEDGER_SELF_FILES.map((path) => ({ path, text: readRepo(path) }))
     ]);
     expect(withSelf.length).toBe(derived.length + LEDGER_SELF_FILES.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⓗ 소스 축의 바늘이 셋으로 갈린다 — ⚠️⚠️ 라운드 94 트랙 D · 결정형 #19
+// ---------------------------------------------------------------------------
+//
+// 라운드 93 리뷰 M-3이 물은 것은 *"`⚠️`와 `재개` 사이에 강조 표식을 허용할지"* 였고, 오늘의 답은
+// **허용/불허가 아니라 갈래 셋**이다. 아래 계약은 그 답이 값으로 서 있는지를 여섯으로 묻는다:
+// ① 좁은 바늘의 뜻이 **바이트로** 그대로인가 · ② 세 갈래가 전수를 **남김없이·겹침 없이** 가르는가 ·
+// ③ 갈래마다 하한이 **따로** 서는가 · ④ 픽스처 셋이 각각 제 갈래로 가는가 ·
+// ⑤ 강조형을 표식형으로 바꾸면 **어느 하한이 무는가** · ⑥ 모집단을 넓힌 걸음이 **문서 축을 한
+// 자리도 움직이지 않는가**.
+
+/** 갈래마다 하나씩 — ⚠️ 저장소를 고치지 않고 **메모리에서만** 만든다(소유 밖 0바이트). */
+const BRANCH_FIXTURES = [
+  {
+    branch: "marked" as const,
+    path: "apps/mobile/src/픽스처-표식형.ts",
+    text: "// ⚠️ 재개 조건(결정형 · 손은 저장소 안): 표식형 픽스처가 서는 날.\n"
+  },
+  {
+    branch: "emphasis" as const,
+    path: "apps/mobile/src/픽스처-강조형.ts",
+    text: "// ⚠️ **재개 조건(결정형 · 손은 저장소 안): 강조형 픽스처가 서는 날.**\n"
+  },
+  {
+    branch: "field" as const,
+    path: "apps/mobile/src/픽스처-필드형.ts",
+    text: 'const 자리 = { reopenCondition: "재개 조건(사건형): 필드형 픽스처가 서는 날." };\n'
+  },
+  {
+    branch: "unneedled" as const,
+    path: "apps/mobile/src/픽스처-잔여.ts",
+    text: "// 옛 문장을 그대로 옮겨 적는다 — 재개 조건(사건형): 잔여 픽스처.\n"
+  }
+];
+
+describe("ⓗ 소스 축의 바늘이 셋으로 갈린다 (결정형 #19 · 라운드 93 리뷰 M-3의 소진)", () => {
+  const entries = readSourceAxisEntries();
+  const notations = branchedSourceNotationsFrom(entries);
+  const tally = tallySourceNeedles(notations);
+  const derived = sourceAxisFilesFrom(entries);
+
+  it("⚠️⚠️ ① 좁은 바늘의 뜻은 **한 바이트도** 바뀌지 않았다 (갈래를 세웠지 넓히지 않았다)", () => {
+    // ⚠️ 이 등호가 이 라운드의 결정을 산문이 아니라 **바이트로** 진다: 넓힌 것은 모집단 판정이고
+    //    바늘이 아니다. 다음 사람이 이 정규식을 넓히려면 이 줄과 `needleSplitDecision()`을
+    //    함께 열어야 한다.
+    expect(markedSourceNeedle().source).toBe(needleSplitDecision().unchangedNeedle);
+    expect(markedSourceNeedle().flags).toBe("g");
+    // 강조가 낀 꼴은 좁은 바늘에 **오늘도 안 걸린다** — 그것이 M-3이 발견한 그 사실이다.
+    expect(markedSourceNeedle().test("⚠️ **재개 조건(사건형): 그날.**")).toBe(false);
+    expect(markedSourceNeedle().test("⚠️ 재개 조건(사건형): 그날.")).toBe(true);
+    // 그리고 강조형 바늘은 **별표를 요구하므로** 표식형을 가로채지 않는다.
+    expect(emphasisMarkedSourceNeedle().test("⚠️ 재개 조건(사건형): 그날.")).toBe(false);
+    expect(emphasisMarkedSourceNeedle().test("⚠️ **재개 조건(사건형): 그날.**")).toBe(true);
+    expect(emphasisMarkedSourceNeedle().test("⚠️⚠️ **재개 조건(사건형): 그날.**")).toBe(true);
+  });
+
+  it("⚠️⚠️ ② 세 갈래가 전수를 **남김없이·겹침 없이** 가른다 (합이 넘으면 두 번 세고 있다)", () => {
+    // ⓐ 남김없이 — 넓은 바늘의 전수가 네 갈래의 합과 같다.
+    expect(tally.branched + tally.unneedled).toBe(tally.anyParen);
+    expect(tally.anyParen).toBe(
+      entries.reduce((sum, entry) => sum + typedInners(entry.text, anyParenSourceNeedle()).length, 0)
+    );
+    // ⓑ 겹침 없이 — 같은 자리가 두 갈래에 들지 않는다(자리의 신원은 파일+시작 위치다).
+    const identities = notations.map((notation) => `${notation.file}:${notation.index}`);
+    expect(new Set(identities).size).toBe(identities.length);
+    // ⓒ ⚠️ 정찰이 요구한 부등호 — 셋의 합이 저장소 전수(넓은 바늘 88) 이하다.
+    expect(tally.branched).toBeLessThanOrEqual(sourceNeedleMeasuredToday().repoAnyParen);
+    expect(tally.branched).toBeLessThanOrEqual(tally.anyParen);
+    // ⓓ 세 갈래 다 죽지 않았다 — 하나라도 0이면 그 갈래는 이름만 있는 것이다.
+    expect(tally.marked).toBeGreaterThan(0);
+    expect(tally.emphasis).toBeGreaterThan(0);
+    expect(tally.field).toBeGreaterThan(0);
+    // ⓔ ⚠️ **한 낱말로 적지 않는다** — 이름이 갈려 있고 합친 수를 드는 자리가 없다.
+    expect(Object.keys(tally).sort()).toEqual([
+      "anyParen",
+      "branched",
+      "emphasis",
+      "field",
+      "marked",
+      "unneedled"
+    ]);
+  });
+
+  it("⚠️ ③ 갈래마다 하한이 **따로** 서고, 오늘의 실측이 넷 다 넘는다", () => {
+    expect(sourceNeedleRatchetViolations(tally)).toEqual([]);
+    expect(Object.keys(sourceNeedleRatchet()).sort()).toEqual([
+      "branched",
+      "emphasis",
+      "field",
+      "marked"
+    ]);
+    expect(sourceNeedleRatchet().marked).toBeLessThanOrEqual(tally.marked);
+    expect(sourceNeedleRatchet().emphasis).toBeLessThanOrEqual(tally.emphasis);
+    expect(sourceNeedleRatchet().field).toBeLessThanOrEqual(tally.field);
+    expect(sourceNeedleRatchet().branched).toBeLessThanOrEqual(tally.branched);
+    // ⚠️ 하한을 오늘의 값에 붙이지 않았다 — 도래한 조건을 소진하는 손이 빨강을 맞지 않게.
+    expect(sourceNeedleRatchet().branched).toBeLessThan(tally.branched);
+    // ⚠️ 합의 하한은 갈래별 하한의 합보다 **위**다(합만 물면 갈래 하나가 통째로 죽어도 조용하다).
+    expect(
+      sourceNeedleRatchet().marked + sourceNeedleRatchet().emphasis + sourceNeedleRatchet().field
+    ).toBeLessThan(sourceNeedleRatchet().branched);
+    // 기록은 하한 방향으로만 견준다 — 남의 트랙이 조건을 소진하면 실측이 내려간다.
+    expect(sourceNeedleMeasuredToday().marked).toBeGreaterThanOrEqual(sourceNeedleRatchet().marked);
+    expect(sourceNeedleMeasuredToday().branched).toBe(
+      sourceNeedleMeasuredToday().marked +
+        sourceNeedleMeasuredToday().emphasis +
+        sourceNeedleMeasuredToday().field
+    );
+  });
+
+  it("⚠️ ④ 픽스처 넷이 각각 제 갈래로 간다 (갈래마다 실물 하나씩)", () => {
+    for (const fixture of BRANCH_FIXTURES) {
+      const found = branchSourceNotations(fixture.text, fixture.path);
+      expect(found.length, `${fixture.path}의 자리 수`).toBe(1);
+      expect(found[0].branch, `${fixture.path}의 갈래`).toBe(fixture.branch);
+    }
+    // ⚠️ 그리고 모집단 판정이 셋에는 문을 열고 잔여에는 열지 않는다.
+    for (const fixture of BRANCH_FIXTURES) {
+      const population = sourceAxisFilesFrom([{ path: fixture.path, text: fixture.text }]);
+      expect(population.length, `${fixture.path}가 모집단에 드는가`).toBe(
+        fixture.branch === "unneedled" ? 0 : 1
+      );
+    }
+    // 필드 이름 둘 다 실제로 값을 낸다(한쪽만 살아 있으면 그 절반은 죽은 바늘이다).
+    expect([...resumeFieldKeys()].sort()).toEqual(["reopenCondition", "resumeCondition"]);
+    // ⚠️ 이름 바늘은 전역 플래그다 — 부를 때마다 새로 만드는 이 파일의 관례를 함께 문다.
+    expect(resumeFieldKeyNeedle().flags).toBe("g");
+    expect(resumeFieldKeyNeedle().lastIndex).toBe(0);
+    // ⚠️⚠️ 그리고 그 바늘은 **이름 목록에서 파생된다** — 손 목록이 둘이 되지 않는다.
+    for (const key of resumeFieldKeys()) expect(resumeFieldKeyNeedle().source).toContain(key);
+    expect(resumeFieldKeyNeedle().source).toBe(`(?:${resumeFieldKeys().join("|")})\\s*:`);
+    for (const key of resumeFieldKeys()) {
+      const text = `const x = { ${key}: "재개 조건(사건형): 두 이름 다 살아 있다." };\n`;
+      expect(branchSourceNotations(text, "<픽스처>")[0].branch, key).toBe("field");
+    }
+    // ⚠️ 필드 값이 **여러 줄로 이어 붙여져도** 한 구간으로 본다(이 저장소의 실제 꼴이 이쪽이다).
+    const folded =
+      'const x = {\n  reopenCondition:\n    "앞줄 " +\n    "재개 조건(결정형 · 손은 저장소 안): 접힌 필드."\n};\n';
+    expect(branchSourceNotations(folded, "<픽스처>")[0].branch).toBe("field");
+    expect(resumeFieldValueSpans(folded).length).toBe(1);
+    // 그리고 필드 **밖**의 같은 문장은 필드형이 아니다 — 자리가 신원이라는 사실의 부정 단언.
+    expect(branchSourceNotations('const x = "재개 조건(사건형): 밖.";\n', "<픽스처>")[0].branch).toBe(
+      "unneedled"
+    );
+  });
+
+  it("⚠️⚠️ ⑤ 교란 — 강조형을 표식형으로 바꾸면 **두 갈래가 함께 움직이고, 합은 꿈쩍도 않는다**", () => {
+    const flip = (text: string): string => text.replace(/⚠️(\s*)\*+(\s*)재개/g, "⚠️$1재개");
+
+    // ⓐ 픽스처 하나로 — 갈래 둘이 정확히 한 칸씩 움직인다.
+    const one = BRANCH_FIXTURES.find((fixture) => fixture.branch === "emphasis")!;
+    const before = tallySourceNeedles(branchSourceNotations(one.text, one.path));
+    const after = tallySourceNeedles(branchSourceNotations(flip(one.text), one.path));
+    expect(before.emphasis).toBe(1);
+    expect(after.emphasis).toBe(0);
+    expect(after.marked).toBe(before.marked + 1);
+    expect(after.branched).toBe(before.branched); // ⚠️ 합은 움직이지 않는다
+
+    // ⓑ 저장소 전수로 — **어느 하한이 무는가**가 이 교란의 답이다.
+    const flipped = tallySourceNeedles(
+      branchedSourceNotationsFrom(entries.map((entry) => ({ path: entry.path, text: flip(entry.text) })))
+    );
+    expect(flipped.emphasis).toBe(0);
+    expect(flipped.marked).toBe(tally.marked + tally.emphasis);
+    expect(flipped.branched).toBe(tally.branched);
+    const violations = sourceNeedleRatchetViolations(flipped);
+    // ⚠️⚠️ **갈래별 하한이 문다.** 합의 하한은 꿈쩍도 하지 않는다 — 갈래를 가른 이유가 이것이다.
+    expect(violations.map((violation) => violation.name)).toEqual(["emphasis"]);
+    expect(violations[0].measured).toBeLessThan(violations[0].floor);
+    expect(sourceNeedleRatchetViolations(flipped).map((violation) => violation.name)).not.toContain(
+      "branched"
+    );
+    // ⚠️ 그리고 뒤집으면 그 자리들이 ⓒ 축(결정형이면 손의 위치)의 모집단으로 **들어온다** —
+    //    바늘을 넓히는 길이 왜 이 라운드의 길이 아니었는지가 여기서 값으로 보인다.
+    const flippedMarked = collectSourceNotationsFrom(
+      entries.map((entry) => ({ path: entry.path, text: flip(entry.text) }))
+    );
+    expect(flippedMarked.length).toBe(tally.marked + tally.emphasis);
+    expect(flippedMarked.filter((notation) => notation.decisive && !notation.hand).length).toBe(
+      emphasisDecisiveMissingHand().length
+    );
+
+    // ⓒ **복구** — 교란은 메모리에서만 있었다. 다시 걸으면 같은 수가 나온다(바이트 불변).
+    expect(tallySourceNeedles(branchedSourceNotationsFrom(readSourceAxisEntries()))).toEqual(tally);
+  });
+
+  it("⚠️⚠️ ⑥ 모집단은 넓어졌고 **문서 축은 한 자리도 움직이지 않았다**", () => {
+    // ⓐ 넓어졌다 — 옛 판정(표식형 하나)과 오늘 판정(세 갈래의 합)을 같은 걸음에서 견준다.
+    const oldPopulation = new Set(
+      entries
+        .filter((entry) => typedInners(entry.text, markedSourceNeedle()).length > 0)
+        .map((entry) => entry.path)
+    );
+    const newPopulation = new Set(derived.map((file) => file.path));
+    expect(newPopulation.size).toBeGreaterThan(oldPopulation.size);
+    for (const path of oldPopulation) expect(newPopulation.has(path)).toBe(true);
+    // 새 갈래가 데려온 자리가 실제로 있다(표식형이 0인데 모집단에 든 파일).
+    expect(derived.filter((file) => file.valueToday === 0).length).toBeGreaterThan(0);
+
+    // ⓑ ⚠️ **틀린 이름으로 삼키던 자리가 제 이름을 얻었다** — 두 판정으로 같은 사각을 잰다.
+    const proseIn = (population: Set<string>): number =>
+      entries
+        .filter((entry) => !population.has(entry.path))
+        .reduce(
+          (sum, entry) => sum + entry.text.split("\n").filter((line) => /재개\s*(?:조건|트리거)/.test(line)).length,
+          0
+        );
+    expect(proseIn(newPopulation)).toBeLessThan(proseIn(oldPopulation));
+    const prose = LEDGER_BLIND_SPOTS.find((spot) => spot.id === "unmarked-source-prose")!;
+    expect(prose.measure(repoRoot)).toBe(proseIn(newPopulation));
+    // 그 사각의 `what`이 **두 시점**을 값으로 적었다(옛 수를 지우지 않았다 · AE-3).
+    for (const timepoint of ["마흔여덟", "예순여덟", "129", "155", "61"]) {
+      expect(prose.what, `${timepoint} 시점이 적혀 있다`).toContain(timepoint);
+    }
+
+    // ⓒ ⚠️⚠️ **문서 축은 이 걸음을 모른다** — 산문이 아니라 구조로 보인다.
+    expect(tallyNeedles(collectDocumentSites())).toEqual(
+      tallyNeedles(collectResumeSites(documentText, LEDGER_DOCUMENT.path))
+    );
+    expect(collectDocumentSites().length).toBe(sites.length);
+    expect(ratchetViolations(sites)).toEqual([]);
+    const ledgerSource = readRepo(LEDGER_SELF_FILES[0]);
+    const documentBody = /export function collectDocumentSites[\s\S]*?\n}/.exec(ledgerSource)?.[0] ?? "";
+    expect(documentBody.length).toBeGreaterThan(0);
+    for (const forbidden of ["sourceAxis", "branch", "Needle("]) {
+      expect(documentBody, `문서 축의 파생이 소스 축을 부르지 않는다: ${forbidden}`).not.toContain(
+        forbidden
+      );
+    }
+  });
+
+  it("ⓕ ⚠️ 저장소의 **실물**과 이 파일 자신의 **픽스처**를 가르는 자가 값으로 선다", () => {
+    const self = selfNeedleTallies();
+    // ⚠️ 정찰의 *'열넷 중 여덟이 픽스처'* 는 오늘 **셋으로** 갈린다 — 걷은 실물 · 대장의 소스 · 픽스처.
+    expect(sourceNeedleMeasuredToday().selfContractFixtureEmphasis).toBeLessThanOrEqual(
+      self.contractFixture.emphasis
+    );
+    expect(sourceNeedleMeasuredToday().selfLedgerSourceEmphasis).toBeLessThanOrEqual(
+      self.ledgerSource.emphasis
+    );
+    expect(self.contractFixture.emphasis).toBeGreaterThan(0);
+    expect(self.ledgerSource.emphasis).toBeGreaterThan(0);
+    // ⚠️ **두 수를 한 낱말로 적지 않는다** — 걷은 실물과 자기 파일의 수가 따로 선다.
+    expect(tally.emphasis).not.toBe(self.contractFixture.emphasis + self.ledgerSource.emphasis);
+    // 저장소 전수(정찰의 열넷)는 그 셋의 합 **이하**다 — 자기 배제가 그 사이의 차이다.
+    expect(
+      tally.emphasis + self.contractFixture.emphasis + self.ledgerSource.emphasis
+    ).toBeGreaterThanOrEqual(sourceNeedleMeasuredToday().repoEmphasis);
+    // ⓕ 자기 배제는 오늘도 일을 한다 — 자기 두 파일은 갈래를 지고 있는데 모집단 밖이다.
+    for (const path of LEDGER_SELF_FILES) {
+      expect(derived.map((file) => file.path)).not.toContain(path);
+    }
+  });
+
+  it("⚠️ 이 라운드가 더한 이름은 전부 `export function`이다 (새 `export const` 0건)", () => {
+    // 라운드 94의 모든 트랙에 걸린 금지 — 사문 대장의 절반 문턱에 여유가 없다.
+    const ledgerSource = readRepo(LEDGER_SELF_FILES[0]);
+    for (const name of [
+      "sourceNeedleRatchet",
+      "needleSplitDecision",
+      "sourceSplitScoutValues",
+      "sourceNeedleMeasuredToday",
+      "sourceNeedleBlindSpots",
+      "resumeFieldKeys",
+      "scriptsRootYieldToday",
+      "emphasisMarkedSourceNeedle",
+      "resumeFieldValueSpans",
+      "branchSourceNotations",
+      "markedBearingFiles"
+    ]) {
+      expect(ledgerSource, `${name}가 함수다`).toContain(`export function ${name}(`);
+      expect(ledgerSource, `${name}가 새 export const가 아니다`).not.toContain(
+        `export const ${name}`
+      );
+    }
+  });
+
+  it("⚠️ 뿌리를 넓히지 않았다 — 고르지 않은 길도 값으로 적는다 (`scripts/` 수확 0건)", () => {
+    expect(SOURCE_AXIS_ROOTS.length).toBe(2);
+    expect(scriptsRootYieldToday()).toBe(0);
+    expect(needleSplitDecision().roadsNotTaken.length).toBe(3);
+    for (const road of needleSplitDecision().roadsNotTaken) {
+      expect(road.trim().length).toBeGreaterThan(40);
+    }
+  });
+
+  it("⚠️⚠️ 결정형 #19의 발동이 **두 시점으로** 적혀 있다 (물음이 선 날 · 소진된 날)", () => {
+    expect(needleSplitDecision().id).toContain("19");
+    expect(needleSplitDecision().raisedBy).toContain("M-3");
+    expect(needleSplitDecision().question.trim().length).toBeGreaterThan(10);
+    expect(needleSplitDecision().before.trim().length).toBeGreaterThan(40);
+    expect(needleSplitDecision().after.trim().length).toBeGreaterThan(40);
+    expect(needleSplitDecision().before).not.toBe(needleSplitDecision().after);
+    // ⚠️ 결정의 내용이 *허용/불허*가 아니라 **갈래를 세운다**임을 값으로 못 박는다.
+    expect(needleSplitDecision().decision).toContain("갈래");
+    expect(needleSplitDecision().whatDidNotChange).toContain("바이트도 바뀌지 않았다");
+  });
+
+  it("⚠️ 전제 재실측 ③ — 정찰의 88·18·14·56 가운데 **셋은 그대로, 넷째가 갈렸다**", () => {
+    expect(sourceSplitScoutValues().length).toBe(4);
+    expect(sourceSplitScoutValues().map((entry) => entry.scout)).toEqual([88, 18, 14, 56]);
+    const needles = sourceSplitScoutValues().map((entry) => entry.needle);
+    expect(new Set(needles).size).toBe(needles.length);
+    for (const entry of sourceSplitScoutValues()) {
+      expect(entry.what.trim().length).toBeGreaterThan(5);
+      expect(entry.divergence.trim().length, `${entry.what}의 갈린 이유`).toBeGreaterThan(10);
+      expect(entry.remeasured).toBeGreaterThan(0);
+    }
+    const [wide, marked, emphasis, field] = sourceSplitScoutValues();
+    expect(wide.remeasured).toBe(wide.scout);
+    expect(marked.remeasured).toBe(marked.scout);
+    expect(emphasis.remeasured).toBe(emphasis.scout);
+    // ⚠️⚠️ 넷째만 갈렸다 — 정찰의 56은 *필드 44 + 잔여 12*를 한 낱말로 적은 수였다.
+    expect(field.remeasured).not.toBe(field.scout);
+    expect(field.remeasured).toBeLessThan(field.scout);
+    expect(field.divergence).toContain("두 수를 한 낱말로");
+    // 갈린 수 둘의 합이 정찰의 수와 아귀가 맞는다(44 + 12 = 56).
+    expect(field.remeasured + (field.scout - field.remeasured)).toBe(field.scout);
+  });
+});
+
+describe("ⓗ' 바늘 셋이 새로 지는 사각 넷 — 남의 사각 목록을 열지 않는다", () => {
+  it("넷이 실재하고 요구된 넷이 이름으로 있다", () => {
+    expect(sourceNeedleBlindSpots().length).toBeGreaterThanOrEqual(4);
+    const ids = sourceNeedleBlindSpots().map((spot) => spot.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain("three-needle-residual"); // ⓐ 셋 어디에도 안 드는 잔여
+    expect(ids).toContain("field-needle-is-convention"); // ⓑ 필드형은 관례이지 문법이 아니다
+    expect(ids).toContain("emphasis-axis-not-opened"); // ⓒ 모집단은 넓히고 축은 넓히지 않았다
+    expect(ids).toContain("markdown-source-notation"); // ⓓ `.md`의 표기는 문서 축의 것이다
+  });
+
+  it("⚠️⚠️ 남의 사각 여덟을 열지 않았다 — 이름이 겹치지 않고 그 목록의 길이도 그대로다", () => {
+    const theirs = LEDGER_BLIND_SPOTS.map((spot) => spot.id);
+    expect(theirs.length).toBe(8);
+    for (const spot of sourceNeedleBlindSpots()) expect(theirs).not.toContain(spot.id);
+    for (const spot of ELAPSED_BLIND_SPOTS) {
+      expect(sourceNeedleBlindSpots().map((own) => own.id)).not.toContain(spot.id);
+    }
+  });
+
+  it("사각마다 무엇·왜·재개 조건이 빈 문자열이 아니고, 오늘 다시 재도 하한을 넘는다", () => {
+    for (const spot of sourceNeedleBlindSpots()) {
+      expect(spot.what.trim().length, `${spot.id}의 what`).toBeGreaterThan(20);
+      expect(spot.why.trim().length, `${spot.id}의 why`).toBeGreaterThan(40);
+      expect(spot.reopenCondition.trim().length, `${spot.id}의 재개 조건`).toBeGreaterThan(20);
+      expect(spot.floor, `${spot.id}의 하한`).toBeLessThanOrEqual(spot.valueToday);
+      expect(spot.measure(repoRoot), `${spot.id}를 오늘 다시 잰 수`).toBeGreaterThanOrEqual(spot.floor);
+    }
+  });
+
+  it("⚠️ 사각의 재개 조건 자신이 이 대장의 관례를 지킨다 (자기 적용)", () => {
+    for (const spot of sourceNeedleBlindSpots()) {
+      expect(spot.reopenCondition).toContain("재개 조건(");
+      const inner = /재개 조건\(([^)]*)\)/.exec(spot.reopenCondition)?.[1] ?? "";
+      expect(/사건형|결정형/.test(inner), `형을 괄호로 밝혔다: ${spot.id}`).toBe(true);
+      if (inner.includes("결정형")) {
+        expect(HAND_PHRASE.test(inner), `결정형이면 손의 위치를 함께 적었다: ${spot.id}`).toBe(true);
+      }
+    }
+  });
+
+  it("⚠️⚠️ 넷의 자가 실제로 저마다 다른 것을 잰다 (죽은 자가 없다)", () => {
+    const spotOf = (id: string) => sourceNeedleBlindSpots().find((spot) => spot.id === id)!;
+    // ⓐ 잔여는 0이 아니다 — 정찰이 내다본 0건이 오늘 성립하지 않는다는 사실 자체가 값이다.
+    expect(spotOf("three-needle-residual").measure(repoRoot)).toBe(sourceNeedleTally().unneedled);
+    expect(spotOf("three-needle-residual").measure(repoRoot)).toBeGreaterThan(0);
+    // ⓑ ⚠️ **부정 단언** — 인용을 필드에 담은 자리는 오늘 0건이다(이 바늘이 아직 틀리지 않았다).
+    expect(quotedFieldNotations().map((notation) => `${notation.file}:${notation.line}`)).toEqual([]);
+    expect(spotOf("field-needle-is-convention").measure(repoRoot)).toBe(0);
+    // ⓒ 축을 넓히지 않은 값 — 오늘의 수가 얼마든 **자가 살아 있다**는 것이 여기서 보인다.
+    expect(spotOf("emphasis-axis-not-opened").measure(repoRoot)).toBe(
+      emphasisDecisiveMissingHand().length
+    );
+    // ⓓ `.md`는 이 뿌리 밖이고 그 크기가 0이 아니다.
+    expect(spotOf("markdown-source-notation").measure(repoRoot)).toBe(markdownNotationCount());
+    expect(markdownNotationCount()).toBeGreaterThan(0);
+    // ⚠️ 그리고 그 자리는 이 소스 축의 모집단에 **한 자리도** 들지 않았다(두 번 세지 않는다).
+    for (const file of SOURCE_AXIS_FILES) expect(file.path.endsWith(".md")).toBe(false);
   });
 });
 

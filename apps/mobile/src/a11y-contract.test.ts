@@ -858,10 +858,19 @@ describe("GAP-062 #6 단계 라벨 표시층 배선 (더보기 · 온보딩 이�
     expect(moreSource).toContain('from "../../src/home/stage-display-label"');
     expect(moreSource).toContain("const sessionStageLabel = resolveStageDisplayLabel({");
     expect(moreSource).toContain("<StageBadge label={sessionStageLabel} />");
+    // ⚠️ 두 시점(라운드 94 트랙 A) — 이 두 핀이 물던 낭독 바이트는
+    //   ? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`
+    //   : `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`
+    // 였다. 받침 있는 별명이
+    // 들어오면 낭독이 "지훈네"가 되어 화면과 함께 틀렸다("지훈이네"). 트랙 A가 그 `네`를
+    // nameWithHonorificSuffix()로 옮겼고 **이 핀은 그 자리를 따라간다** — 이 계약이 무는 것은
+    // 접미사 바이트가 아니라 *보이는 줄과 낭독이 같은 한 값을 지난다*는 사실이고, 그 사실은 불변이다.
     expect(moreSource).toContain(
-      "? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`"
+      "? `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`"
     );
-    expect(moreSource).toContain(": `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`");
+    expect(moreSource).toContain(
+      ": `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${sessionStageLabel}, 프로필 관리`"
+    );
   });
 
   it("판정의 원천은 이미 조회 중인 ['children'] 캐시이고, 화면이 주차를 다시 세지 않는다", () => {

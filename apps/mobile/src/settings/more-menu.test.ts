@@ -492,11 +492,23 @@ describe("라운드 82 D(#4) 더보기 프로필 카드의 원천 단일화", ()
     // 가구 카드의 세 자리(이름 · 캡션 · 배지)와 낭독 문장은 바이트 불변이다 — 바뀐 것은
     // `visibleProfile`이 어느 캐시에서 오는가 하나뿐이고, 서버는 두 응답의 아이를 같은
     // 함수로 만들므로(toChildDto) 닉네임 · 단계 라벨의 값이 같다.
-    expect(src).toContain("<Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>");
+    // ⚠️ 두 시점(라운드 94 트랙 A) — 이 세 핀이 물던 바이트는 각각
+    //   <Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>
+    //   ? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`
+    //   : `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`
+    // 였다. 트랙 A가 그 `네`를
+    // 받침에서 갈리는 순수 함수(nameWithHonorificSuffix — "지훈이네"/"서아네")로 옮겼고, **이 핀은
+    // 그 자리를 따라간다.** ⚠️ 이 `it`이 무는 사실은 그때도 오늘도 같다 — *세션 카드의 세 자리와
+    // 낭독 문장이 어느 캐시에서 오는가만 바뀌었고 그리는 값은 그대로다*.
+    expect(src).toContain(
+      "<Text style={moreHouseholdNameStyle}>{nameWithHonorificSuffix(visibleProfile.nickname)}</Text>"
+    );
     expect(src).toContain("{householdCaption ? <Text style={moreHouseholdMetaStyle}>{householdCaption}</Text> : null}");
     expect(src).toContain("<StageBadge label={sessionStageLabel} />");
-    expect(src).toContain("? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`");
-    expect(src).toContain(": `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`");
+    expect(src).toContain(
+      "? `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`"
+    );
+    expect(src).toContain(": `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${sessionStageLabel}, 프로필 관리`");
     // 가구 카드 캡션의 문구도 그대로다(세지 않은 수를 세었다고 말하지 않는 폴백 금지 규율 포함).
     expect(src).toContain(
       'activeMemberCount !== null && childCount !== null ? `보호자 ${activeMemberCount}명 · 아이 ${childCount}명` : null;'

@@ -126,6 +126,63 @@
 // D가 7로 적었고 오늘 재니 **11**) · **표기 없는 소스의 산문 조건은 이 뿌리 밖이다**
 // (`unmarked-source-prose` — D가 48로 적었고 오늘 **68**).
 //
+// ## ⓗ 소스 축의 바늘이 셋으로 갈린다 (⚠️⚠️ 라운드 94 트랙 D · 결정형 #19)
+//
+// 라운드 93 리뷰 **M-3**이 물었다: *"`⚠️`와 `재개` 사이에 강조 표식(`**`)을 허용할지."* 그 물음이
+// 선 이유는 `markedSourceNeedle()`이 **`⚠️`와 `재개`가 맞붙어 있을 것**을 요구하는데 저장소의
+// 관례는 그 사이에 마크다운 강조 두 글자를 넣는 것이라, **그 꼴이 한 자리도 안 걸리기** 때문이다.
+//
+// ⚠️⚠️ **오늘의 결정은 *허용/불허*가 아니라 *갈래를 세운다*이다.** 좁은 바늘의 뜻은 한 글자도
+// 넓히지 않는다(`markedSourceNeedle()`의 정규식은 **바이트 불변**이고 계약이 그것을 등호로 문다).
+// 대신 소스 축이 보는 자리를 **세 갈래로 갈라 각자 센다**(`needleSplitDecision()`):
+//
+//  · **① 표식형**(`marked`) — `⚠️ 재개 조건(…)` 그대로. 오늘 모집단에서 **11**.
+//  · **② 강조 낀 표식형**(`emphasis`) — `⚠️ **재개 조건(…)`. 오늘 모집단에서 **5**.
+//  · **③ 필드형**(`field`) — `reopenCondition:`/`resumeCondition:` **데이터 필드의 값** 안.
+//    오늘 모집단에서 **42**.
+//
+// ⚠️ **그리고 넷째가 남는다**(`unneedled` · 오늘 모집단 **8** · 걷은 전수 **9** · 이 트랙의 첫
+// 걸음 앞 저장소 전수 **12**) — 주석이 옛 문장을 인용한 자리, 단언이 문자열로 문 자리,
+// `statement:` 같은 **다른 필드**의 값. 정찰은
+// *"어느 바늘에도 안 걸리는 자리는 0건"* 을 내다봤지만 **오늘 재실측은 0이 아니다**
+// (`sourceSplitScoutValues()`). 0을 만들려면 갈래 하나를 *나머지 전부*로 두어야 하고, 그것은
+// 갈래가 아니라 자루다 — 그래서 잔여를 **이름과 값으로** 세우고 사각이 진다.
+//
+// ⚠️⚠️ **정찰의 네 수 가운데 셋이 그대로이고 하나가 갈렸다.** 정찰은 저장소 전수(`apps`·
+// `packages`·`scripts`의 `.ts`·`.tsx`·`.mjs`)에서 **88 · 18 · 14 · 56**을 적었고, 오늘 같은
+// 모집단에서 다시 세니 **88 · 18 · 14 · 44 + 잔여 12**다 — **필드형 56은 *필드 44 + 잔여 12*를
+// 한 낱말로 적은 수였다**(*두 수를 한 낱말로 적지 않는다*의 실물이 또 하나 나왔다).
+//
+// ## ⚠️ 이 갈림이 고친 병 — `unmarked-source-prose`가 틀린 이름으로 삼키던 자리들
+//
+// `sourceAxisFilesFrom`은 **`marked.length === 0`인 파일을 통째로 버렸다.** 그래서 관례를 필드로
+// 지고 있던 파일 여덟이 모집단 밖에 남았고, 그 파일들의 재개 조건 줄이 사각
+// `unmarked-source-prose`(= *표기 없는 소스의 산문 조건*)에 **틀린 이름으로** 흡수됐다.
+// 오늘 그 자리를 **세 갈래의 합**으로 판정하게 하니 모집단이 **셋 → 열하나**로 넓어지고
+// 그 사각이 **155 → 61**로 줄었다(⚠️ **다섯 시점**: 라운드 91 D **48** · 라운드 92 D **68** ·
+// 라운드 93 F 시점 정찰 **129** · 오늘 좁은 바늘 그대로 재면 **155**, 세 갈래 뒤 **61**).
+// ⚠️ **줄어든 아흔넷은 사라진 것이 아니라 제 이름을 얻은 것이다.**
+//
+// ⚠️⚠️ **그런데 넓힌 것은 *모집단*이지 *축*이 아니다.** ⓒ 축(결정형이면 손의 위치를 함께)은
+// 오늘도 **표식형에만** 걸린다. ⚠️⚠️ **그리고 그 판단의 근거가 이 트랙이 걷는 동안 낡았다** —
+// 정찰 시점에는 강조형에 축을 얹으면 곧바로 한 자리가 빨개졌고(`admin-load-error-copy.test.ts`의
+// 결정형 #16 그 줄에 `손은 안|밖`이 없었다), **같은 라운드의 트랙 C가 그 줄에 손의 위치를 적으며**
+// 오늘 그 수는 **0**이다. ⚠️ 그래도 축은 넓히지 않는다: 오늘의 0은 *넓혀도 안전하다*는 뜻이지
+// *넓혀야 한다*는 뜻이 아니고, 넓힐지는 이 대장이 아니라 라운드의 결정이다. 그 갈림은 축이
+// 아니라 **사각(`emphasis-axis-not-opened`)이 두 시점으로 진다.**
+//
+// ⚠️ **이 라운드가 더한 이름은 전부 `export function`이다 — 새 `export const` 0건.** 라운드 94의
+// 모든 트랙에 걸린 금지이고(사문 대장의 절반 문턱에 여유가 없다), 그래서 하한·기록·사각처럼
+// *값으로만 사는 것*도 함수로 든다(`sourceNeedleRatchet()` · `sourceNeedleMeasuredToday()` ·
+// `sourceNeedleBlindSpots()` · `needleSplitDecision()` · `sourceSplitScoutValues()`).
+// ⚠️ 기존 `export const`(라운드 89~92가 세운 것)는 **한 줄도 건드리지 않는다** — 이름을 바꾸면
+// 그 라운드들의 기록을 가리키는 문장이 전부 낡는다.
+//
+// ⚠️ **고르지 않은 길도 값으로 적는다**: M-3의 다른 두 길은 ⓐ 바늘을 넓히는 것(여섯이 들어오고
+// 쉰여섯은 그대로 밖이다) ⓑ 소스의 표기 관례를 좁히는 것(손이 일흔 자리를 옮겨 붙인다)이었다.
+// 이 트랙은 둘 다 고르지 않았다. ⚠️ 그리고 **뿌리도 넓히지 않았다** — 정찰이 함께 읽은
+// `scripts/`는 오늘 넓은 바늘로 **0건**이라(`scriptsRootYieldToday()`) 넓혀도 얻는 자리가 없다.
+//
 // ## ⓖ 경과 축 — *이 조건이 몇 라운드째 서 있는가* (⚠️⚠️ 라운드 92 트랙 D가 더한 칸)
 //
 // 이 대장은 자리마다 ⓐ **형**(사건형·결정형)과 ⓑ **손의 위치**를 센다. 그런데 **없는 칸이 하나**
@@ -708,6 +765,83 @@ export function anyParenSourceNeedle(): RegExp {
   return /재개\s*(?:조건|트리거)\s*[（(]([^）)]*)[）)]/g;
 }
 
+/**
+ * ⚠️⚠️ **② 강조 낀 표식형의 바늘**(라운드 94 트랙 D · 결정형 #19).
+ *
+ * `⚠️`와 `재개` 사이에 마크다운 강조(`*`·`**`)가 낀 꼴 — `⚠️ **재개 조건(…)`. **별표를 적어도
+ * 하나 요구하므로** 이 바늘과 `markedSourceNeedle()`은 같은 자리를 두 번 세지 않는다(계약이 그
+ * 배타를 값으로 문다). ⚠️ 전역 플래그를 쓰므로 **부를 때마다 새로 만든다**(다른 바늘과 같은 관례).
+ */
+export function emphasisMarkedSourceNeedle(): RegExp {
+  return /⚠️\s*\*+\s*재개\s*(?:조건|트리거)\s*[（(]([^）)]*)[）)]/g;
+}
+
+/**
+ * ③ 필드형이 사는 **데이터 필드의 이름** 둘.
+ *
+ * ⚠️ 이 둘이 *오늘의 약속*이라는 판단은 **관례이지 문법이 아니다** — 인용을 이 필드에 담는 날
+ * 이 바늘이 틀린다. 오늘 그런 자리가 0건임을 사각 `field-needle-is-convention`이 값으로 진다.
+ */
+export function resumeFieldKeys(): readonly string[] {
+  return ["reopenCondition", "resumeCondition"];
+}
+
+/**
+ * 필드 이름 바늘 — ⚠️ **이름을 두 번 적지 않는다.**
+ *
+ * 정규식에 이름을 손으로 다시 적으면 그 순간 **손 목록이 둘**이 되고, 셋째 이름이 붙는 날 한쪽만
+ * 늘어난다(AB-4가 적은 그 병의 작은 판). 그래서 위의 이름 목록에서 **파생**한다.
+ * ⚠️ 전역 플래그이므로 부를 때마다 새로 만든다(이 파일의 다른 바늘과 같은 관례).
+ */
+export function resumeFieldKeyNeedle(): RegExp {
+  return new RegExp(`(?:${resumeFieldKeys().join("|")})\\s*:`, "g");
+}
+
+/**
+ * ③ 필드형의 **값 구간**을 낸다 — `reopenCondition:` 뒤에 이어지는 문자열 리터럴 사슬.
+ *
+ * ⚠️ 줄로 세지 않는 이유: 이 저장소의 재개 조건 값은 거의 전부 `"…" +\n  "…"` 로 여러 줄에 걸쳐
+ * 이어 붙여져 있고(오늘 필드형 마흔둘 가운데 대부분이 그 꼴이다), 줄 바늘로 보면 **여는 줄만**
+ * 걸린다. 그래서 문자열 사슬이 끝나는 자리까지를 한 구간으로 든다.
+ */
+export function resumeFieldValueSpans(text: string): readonly (readonly [number, number])[] {
+  const spans: (readonly [number, number])[] = [];
+  const key = resumeFieldKeyNeedle();
+  let match: RegExpExecArray | null;
+  while ((match = key.exec(text)) !== null) {
+    let index = match.index + match[0].length;
+    const start = index;
+    let consumed = false;
+    for (;;) {
+      while (index < text.length && /\s/.test(text[index])) index += 1;
+      const quote = text[index];
+      if (quote !== '"' && quote !== "'" && quote !== "`") break;
+      index += 1;
+      while (index < text.length) {
+        if (text[index] === "\\") {
+          index += 2;
+          continue;
+        }
+        if (text[index] === quote) {
+          index += 1;
+          break;
+        }
+        index += 1;
+      }
+      consumed = true;
+      let after = index;
+      while (after < text.length && /\s/.test(text[after])) after += 1;
+      if (text[after] === "+") {
+        index = after + 1;
+        continue;
+      }
+      break;
+    }
+    if (consumed) spans.push([start, index] as const);
+  }
+  return spans;
+}
+
 /** 한 텍스트에서 바늘에 걸린 **형이 밝혀진** 괄호 안 내용들. */
 export function typedInners(text: string, needle: RegExp): readonly string[] {
   const inners: string[] = [];
@@ -718,14 +852,326 @@ export function typedInners(text: string, needle: RegExp): readonly string[] {
   return inners;
 }
 
+// ── ⓗ 소스 축의 바늘 셋 — ⚠️⚠️ 갈래를 세우되 좁은 바늘의 뜻은 바꾸지 않는다 (라운드 94 D) ──
+
+/**
+ * 한 자리가 드는 갈래 — **넷 가운데 정확히 하나**다(셋이 바늘이고 넷째는 잔여).
+ *
+ * ⚠️ 잔여(`unneedled`)를 갈래로 세는 이유: 셋 가운데 하나를 *나머지 전부*로 두면 그것은 갈래가
+ * 아니라 자루이고, 자루는 다음 라운드에 또 틀린 이름으로 삼킨다(오늘 고친 병이 정확히 그것이다).
+ */
+export type SourceNeedleBranch = "marked" | "emphasis" | "field" | "unneedled";
+
+export type BranchedSourceNotation = {
+  readonly file: string;
+  /** 원문에서의 시작 자리 — **사람이 찾아가는 용도이지 신원이 아니다**. */
+  readonly index: number;
+  /** 1부터 세는 줄 번호. */
+  readonly line: number;
+  /** 괄호 안 내용. */
+  readonly inner: string;
+  readonly branch: SourceNeedleBranch;
+  readonly decisive: boolean;
+  readonly hand: boolean;
+};
+
+/**
+ * ⚠️⚠️ **전수를 갈래로 가른다** — 넓은 바늘(`anyParenSourceNeedle`)이 낸 자리 **전부**가 넷 중
+ * 하나에 들고, 어느 자리도 두 갈래에 들지 않는다(계약이 그 분할을 등호로 문다).
+ *
+ * 갈래를 정하는 순서에 뜻이 있다: **강조형을 먼저 본다**. 별표를 요구하는 바늘이므로 표식형과
+ * 겹칠 수 없지만, 순서를 값으로 박아 두면 *어느 바늘이 이겼는가*가 다음 사람에게 보인다.
+ */
+export function branchSourceNotations(text: string, file: string): readonly BranchedSourceNotation[] {
+  const endsOf = (needle: RegExp): Set<number> => {
+    const ends = new Set<number>();
+    let match: RegExpExecArray | null;
+    while ((match = needle.exec(text)) !== null) {
+      if (TYPE_WORD.test(match[1])) ends.add(match.index + match[0].length);
+    }
+    return ends;
+  };
+  const markedEnds = endsOf(markedSourceNeedle());
+  const emphasisEnds = endsOf(emphasisMarkedSourceNeedle());
+  const spans = resumeFieldValueSpans(text);
+
+  const found: BranchedSourceNotation[] = [];
+  const wide = anyParenSourceNeedle();
+  let match: RegExpExecArray | null;
+  while ((match = wide.exec(text)) !== null) {
+    const inner = match[1];
+    if (!TYPE_WORD.test(inner)) continue;
+    const index = match.index;
+    const end = index + match[0].length;
+    const branch: SourceNeedleBranch = emphasisEnds.has(end)
+      ? "emphasis"
+      : markedEnds.has(end)
+        ? "marked"
+        : spans.some(([start, stop]) => index >= start && index < stop)
+          ? "field"
+          : "unneedled";
+    found.push({
+      file,
+      index,
+      line: text.slice(0, index).split("\n").length,
+      inner,
+      branch,
+      decisive: DECISIVE_WORD.test(inner),
+      hand: HAND_PHRASE.test(inner)
+    });
+  }
+  return found;
+}
+
+export type SourceNeedleTally = {
+  /** ① 표식형. */
+  readonly marked: number;
+  /** ② 강조 낀 표식형. */
+  readonly emphasis: number;
+  /** ③ 필드형. */
+  readonly field: number;
+  /** ⚠️ 셋 어디에도 안 드는 잔여 — **사각이 값으로 진다**. */
+  readonly unneedled: number;
+  /** 세 갈래의 합 — ⚠️ **잔여를 더하지 않는다**(합과 전수를 한 낱말로 적지 않는다). */
+  readonly branched: number;
+  /** 넓은 바늘의 전수 — `branched + unneedled`와 같아야 한다. */
+  readonly anyParen: number;
+};
+
+/**
+ * 갈래마다의 수를 **각각** 낸다.
+ *
+ * ⚠️⚠️ **한 낱말로 합친 수를 돌려주는 자리는 없다** — `branched`는 *세 바늘의 합*이고 `anyParen`은
+ * *넓은 바늘의 전수*라 서로 다른 것을 말한다(라운드 91 D의 `tallyNeedles`가 든 그 형식 그대로).
+ */
+export function tallySourceNeedles(
+  notations: readonly BranchedSourceNotation[]
+): SourceNeedleTally {
+  const count = (branch: SourceNeedleBranch): number =>
+    notations.filter((notation) => notation.branch === branch).length;
+  const marked = count("marked");
+  const emphasis = count("emphasis");
+  const field = count("field");
+  const unneedled = count("unneedled");
+  return {
+    marked,
+    emphasis,
+    field,
+    unneedled,
+    branched: marked + emphasis + field,
+    anyParen: notations.length
+  };
+}
+
+/** 걷어 온 소스 전수를 갈래로 가른다. */
+export function branchedSourceNotationsFrom(
+  entries: readonly SourceAxisEntry[]
+): readonly BranchedSourceNotation[] {
+  return entries.flatMap((entry) => branchSourceNotations(entry.text, entry.path));
+}
+
+/** 뿌리를 걸어 갈래별 수를 낸다(⚠️ **자기 두 파일은 여기서도 밖이다**). */
+export function sourceNeedleTally(baseDir: string = repoRoot): SourceNeedleTally {
+  return tallySourceNeedles(branchedSourceNotationsFrom(readSourceAxisEntries(baseDir)));
+}
+
+/**
+ * ⓕ **저장소의 실물과 이 파일 자신의 픽스처를 가르는 자** — ⚠️ **두 수를 한 낱말로 적지 않는다.**
+ *
+ * 정찰이 *"강조 낀 표식형 열넷 가운데 여덟이 픽스처"* 라고 적은 그 갈림을 값으로 세운다. 오늘
+ * 다시 세면 갈림은 **둘이 아니라 셋**이다 — ⓐ 걷은 실물 **5** ⓑ **이 대장의 소스** 자신이 진 것
+ * **1**(`resume-condition-ledger.ts`의 경과 축 재개 조건) ⓒ **계약 픽스처** **8**. 정찰의
+ * *"실물 여섯"* 은 ⓐ+ⓑ이고 *"픽스처 여덟"* 은 ⓒ다.
+ */
+export function selfNeedleTallies(baseDir: string = repoRoot): {
+  readonly ledgerSource: SourceNeedleTally;
+  readonly contractFixture: SourceNeedleTally;
+} {
+  const read = (relative: string): SourceNeedleTally => {
+    const absolute = join(baseDir, relative);
+    if (!existsSync(absolute)) return tallySourceNeedles([]);
+    return tallySourceNeedles(branchSourceNotations(readFileSync(absolute, "utf8"), relative));
+  };
+  return { ledgerSource: read(LEDGER_SELF_FILES[0]), contractFixture: read(LEDGER_SELF_FILES[1]) };
+}
+
+export type SourceNeedleRatchet = {
+  readonly marked: number;
+  readonly emphasis: number;
+  readonly field: number;
+  /** 세 갈래의 합 — ⚠️ 갈래끼리 자리가 옮겨 다녀도 **전체가 줄지 않는 것**을 따로 문다. */
+  readonly branched: number;
+};
+
+/**
+ * ⚠️⚠️ **넷 다 하한이다. 상한도 전수 일치도 아니다.**
+ *
+ * 갈래마다 하한을 따로 두는 것이 이 라운드가 얻은 것의 전부다: 합만 물면 **강조형 다섯이 통째로
+ * 사라져도 필드형이 다섯 늘면 조용하다**(교란 ②가 그 사실을 값으로 보인다).
+ *
+ *  · `marked` **7** — 라운드 91 트랙 D가 *기록*으로 적은 그 수다(오늘 실측 11). 그 시점의 기록을
+ *    하한으로 쓰면 도래한 조건을 정직하게 소진하는 손이 빨강을 맞지 않는다.
+ *  · `emphasis` **3** — 오늘 다섯 가운데 **둘이 어드민 한 파일**(`admin-load-error-copy.test.ts`)에
+ *    있고 그 파일은 이 라운드에 **트랙 C가 연다**. 남의 트랙이 자기 조건을 소진하는 걸음에
+ *    이 그물이 빨개지면 안 되므로 그 둘만큼 낮춰 든다.
+ *  · `field` **25** — 필드형은 사각·면제의 `reopenCondition` 칸이라 **도래하면 지워지는 값**이다.
+ *    오늘 마흔둘에서 열일곱 남짓이 한 라운드에 소진될 수 있다고 보고 그만큼 낮춰 든다.
+ *  · `branched` **45** — 갈래별 하한의 합(35)보다 위, 오늘의 실측(58)보다 아래.
+ *
+ * ⚠️ **이 수를 낮추려면 이 문단을 열어 왜 낮추는지를 적어야 한다.**
+ */
+export function sourceNeedleRatchet(): SourceNeedleRatchet {
+  return {
+    marked: 7,
+    emphasis: 3,
+    field: 25,
+    branched: 45
+  };
+}
+
+export type SourceNeedleRatchetViolation = {
+  readonly name: keyof SourceNeedleRatchet;
+  readonly floor: number;
+  readonly measured: number;
+};
+
+/** 하한을 깬 갈래들 — **비어 있어야 초록이다**(`measured > floor`는 언제나 통과다). */
+export function sourceNeedleRatchetViolations(
+  tally: SourceNeedleTally,
+  ratchet: SourceNeedleRatchet = sourceNeedleRatchet()
+): readonly SourceNeedleRatchetViolation[] {
+  const names: (keyof SourceNeedleRatchet)[] = ["marked", "emphasis", "field", "branched"];
+  return names
+    .filter((name) => tally[name] < ratchet[name])
+    .map((name) => ({ name, floor: ratchet[name], measured: tally[name] }));
+}
+
+/**
+ * ⚠️⚠️ **결정형 #19의 발동 기록 — 두 시점.**
+ *
+ * **기록이지 계약이 아니다.** 다만 `unchangedNeedle`만은 계약이 **등호로** 문다: 이 라운드가 한
+ * 일이 *갈래를 세운 것*이지 *좁은 바늘의 뜻을 넓힌 것*이 아님을, 산문이 아니라 바이트로 보인다.
+ */
+export function needleSplitDecision() {
+  return {
+    id: "결정형 #19",
+    question: "`⚠️`와 `재개` 사이에 강조 표식(`**`)을 허용할지",
+    raisedBy: "라운드 93 리뷰 M-3",
+    /** ① 세워진 시점 — 물음만 있고 값이 없었다. */
+    before:
+      "라운드 93 리뷰 M-3이 세운 시점: *바늘을 넓힐 것인가, 소스의 표기 관례를 좁힐 것인가*라는 " +
+      "두 갈래 물음이었고, 그 라운드가 새로 적은 표기형 열일곱이 `unmarked-source-prose`에 " +
+      "**틀린 이름으로** 흡수돼 있었다. 어느 쪽도 값으로 재어지지 않았다.",
+    /** ② 소진된 시점 — 오늘. */
+    after:
+      "라운드 94 트랙 D: **셋으로 갈라 각자 센다.** 두 갈래 물음의 어느 쪽도 고르지 않았다 — " +
+      "넓히면 여섯이 들어오고 쉰여섯은 그대로 밖이며, 관례를 좁히면 손이 일흔 자리를 옮겨 붙여야 " +
+      "한다. 대신 표식형·강조형·필드형을 **이름과 하한을 지닌 갈래 셋**으로 세우고, 잔여는 " +
+      "사각이 진다.",
+    decision: "셋으로 갈라 각자 센다 — 좁은 바늘의 뜻은 안 바꾸고 갈래를 세운다.",
+    /** ⚠️⚠️ **바뀌지 않은 것** — 계약이 이 문자열을 등호로 문다. */
+    unchangedNeedle: "⚠️\\s*재개\\s*(?:조건|트리거)\\s*[（(]([^）)]*)[）)]",
+    whatDidNotChange:
+      "`markedSourceNeedle()`의 정규식은 **한 바이트도 바뀌지 않았다**. 넓어진 것은 바늘이 아니라 " +
+      "`sourceAxisFilesFrom`의 **모집단 판정**(marked 하나 → 세 갈래의 합)이고, 축(ⓒ 결정형이면 " +
+      "손의 위치)은 오늘도 **표식형에만** 걸린다.",
+    /** ⚠️ 고르지 않은 길도 값으로 적는다. */
+    roadsNotTaken: [
+      "바늘을 넓힌다(⚠️와 재개 사이에 `[\\s*]*`를 허용) — 강조형 여섯이 들어오지만 필드형 쉰여섯은 " +
+        "그대로 밖이고, 게다가 오늘 곧바로 ⓒ 축이 빨개진다(강조형 결정형 하나에 손의 위치가 없다).",
+      "소스의 표기 관례를 좁힌다(강조를 걷어 낸다) — 손이 일흔 자리를 옮겨 붙여야 하고, 그것은 " +
+        "이 대장이 아니라 각 파일 소유 트랙의 일이다.",
+      "뿌리를 넓힌다(`scripts/`를 더한다) — 오늘 그 뿌리의 넓은 바늘이 0건이라 얻는 자리가 없다."
+    ]
+  } as const;
+}
+
+/** ⚠️ 넓히지 않은 뿌리의 오늘 수확 — **0건**(넓혀도 얻는 자리가 없다는 사실을 값으로 든다). */
+export function scriptsRootYieldToday(): number {
+  return 0;
+}
+
+/**
+ * ⚠️ **전제 재실측 의무의 이행 ③ — 라운드 94 정찰의 네 수를 다시 셌다.**
+ *
+ * 정찰이 적은 수는 저장소 전수(`apps`·`packages`·`scripts`의 `.ts`·`.tsx`·`.mjs` · **자기 두 파일
+ * 포함**)에서 **88 · 18 · 14 · 56**이다. 같은 모집단에서 오늘 다시 세니 **88 · 18 · 14 · 44**이고,
+ * ⚠️⚠️ **앞의 셋은 그대로, 마지막 하나가 갈렸다** — 정찰의 56은 *필드형 44 + 잔여 12*를 한 낱말로
+ * 적은 수였다. **두 수를 한 낱말로 적지 않는다**는 이 대장의 규율이 정찰의 표에서 다시 났다.
+ *
+ * ⚠️⚠️ **`remeasured`는 *라운드 시작(정찰 시점)* 트리의 수다 — 이 트랙이 첫 걸음을 떼기 전
+ * 워킹트리의 수가 아니다**(라운드 94 리뷰 M-2가 정정한 두 시점).
+ *  · **트랙 D 시점의 이 칸이 적은 문장**: *"이 트랙이 첫 걸음을 떼기 전 워킹트리의 수"*.
+ *  · **실측**: 아래 88 · 18 · 14 · 44는 **정찰 트리**(`69a7ab8`)의 수이고, D가 실제로 시작한
+ *    자리는 **트랙 B의 팁**(`557a454`)이라 그때 이미 **93**(필드형 **49**)이었다 — 같은 라운드의
+ *    앞 트랙이 먼저 올렸기 때문이다(**C +4 · B +1** · A와 E는 0). **두 수를 한 낱말로 적지 않는다.**
+ * ⚠️ 그 뒤로도 자란다: 이 파일 자신이 갈래 픽스처를 더하며 *저장소 전수*가 커졌고, HEAD(A~F 머지
+ * 뒤)에서는 **110 = 25 + 18 + 50 + 17**이다. 그 낡음은 정정하지 않는다: 이 표가 남기는 것은
+ * *오늘 몇인가*가 아니라 **정찰과 이 트랙이 같은 모집단을 어떻게 다르게 셌는가**이고, 오늘 값으로
+ * 덮으면 그 대조가 사라진다(라운드 89 리뷰 M-4가 `SCOUT_NEEDLE_VALUES`에 세운 판단 그대로).
+ * ⚠️ **정찰과 대조하려면 대조의 두 수가 *같은 트리*여야 한다** — 그래서 이 칸은 시작 트리에 서고,
+ * 오늘의 수는 위 문장에 **시점을 밝혀** 따로 적는다.
+ */
+export function sourceSplitScoutValues(): readonly ScoutNeedleValue[] {
+  return [
+    {
+      what: "형을 괄호로 밝힌 소스 표기 전수(넓은 바늘)",
+      needle: "any-paren",
+      scout: 88,
+      remeasured: 88,
+      divergence:
+        "같다. ⚠️ 이 수는 **자기 두 파일을 포함한** 저장소 전수다 — 이 대장의 모집단(자기 배제 뒤)은 " +
+        "**62**이고, 두 수를 한 낱말로 적지 않는다."
+    },
+    {
+      what: "① 표식형(`⚠️` 인접)",
+      needle: "marked",
+      scout: 18,
+      remeasured: 18,
+      divergence:
+        "같다. ⚠️ 모집단(자기 배제 뒤)에서는 **11**이고 자기 두 파일이 나머지 **7**을 진다."
+    },
+    {
+      what: "② 강조 낀 표식형",
+      needle: "emphasis",
+      scout: 14,
+      remeasured: 14,
+      divergence:
+        "같다. ⚠️ 그 열넷의 갈림은 **둘이 아니라 셋**이다 — 걷은 실물 **5** · 이 대장의 소스 자신 " +
+        "**1** · 계약 픽스처 **8**. 정찰의 *'실물 여섯'* 은 앞의 둘을 더한 수다."
+    },
+    {
+      what: "③ 필드형(`reopenCondition:`/`resumeCondition:` 값)",
+      needle: "field",
+      scout: 56,
+      remeasured: 44,
+      divergence:
+        "⚠️⚠️ **갈렸다 — 그리고 갈린 것은 저장소가 아니라 바늘이다.** 정찰의 56은 *`⚠️`가 없는 것 " +
+        "전부*였고, 그 안에는 필드가 아닌 자리 **열둘**이 함께 있다(주석의 인용 · 단언이 문자열로 " +
+        "문 자리 · `statement:` 같은 다른 필드). 필드 이름을 실제로 요구하면 **44**다. " +
+        "⚠️ **그래서 정찰이 내다본 *'어느 바늘에도 안 걸리는 자리 0건'* 은 오늘 성립하지 않는다** — " +
+        "잔여 열둘은 지우지 않고 **이름과 값과 사각으로** 세운다(`three-needle-residual`). " +
+        "⚠️ **두 수를 한 낱말로 적지 않는다**는 이 대장의 규율이 정찰의 표에서 다시 난 자리다."
+    }
+  ];
+}
+
 export type SourceAxisFile = {
   readonly path: string;
   /** 왜 이 파일인가 — **빈 문자열일 수 없다.** ⚠️ 손이 아니라 실측에서 파생된다. */
   readonly reason: string;
   /** 그 축이 **누구의 것인가**(이 대장은 **읽기만** 한다) — ⓒ **빈 문자열 금지.** */
   readonly owner: string;
-  /** 오늘 실측한 표기 수(좁은 바늘) — ⚠️ 손으로 적지 않는다. */
+  /** 오늘 실측한 표기 수(① 표식형 · 좁은 바늘) — ⚠️ 손으로 적지 않는다. */
   readonly valueToday: number;
+  /** ② 강조 낀 표식형 — ⚠️⚠️ 라운드 94 트랙 D가 더한 칸. */
+  readonly emphasisToday: number;
+  /** ③ 필드형 — ⚠️⚠️ 라운드 94 트랙 D가 더한 칸. */
+  readonly fieldToday: number;
+  /** 세 갈래의 합 — **모집단 판정이 무는 수**(예전에는 `valueToday` 하나였다). */
+  readonly needleTotalToday: number;
+  /** ⚠️ 셋 어디에도 안 드는 잔여 — 사각이 값으로 진다(모집단 판정은 이 수를 보지 않는다). */
+  readonly unneedledToday: number;
   /** 오늘 실측한 괄호 전수(넓은 바늘 · 인용 포함). */
   readonly anyParenToday: number;
   /** ⚠️ 하한 — **오늘의 값보다 낮다**(사유는 아래). */
@@ -799,6 +1245,17 @@ export function ownerForSourcePath(path: string): string {
  *
  * `ownerFor`를 인자로 받는 이유는 계약이 **소유자 칸이 비는 날**을 픽스처로 재현할 수 있게
  * 하기 위해서다(빈 칸이 실제로 빨개지는지를 산문이 아니라 값으로 보인다).
+ *
+ * ⚠️⚠️ **두 시점 — 라운드 94 트랙 D가 이 문의 판정을 바꿨다(결정형 #19).**
+ *  · **라운드 91~93**: `marked.length === 0`이면 파일을 **통째로** 뺐다. 그래서 관례를
+ *    `reopenCondition:` 필드로 지고 있던 파일 여덟이 모집단 밖에 남았고, 그 파일들의 재개 조건
+ *    줄이 사각 `unmarked-source-prose`에 **틀린 이름으로** 흡수됐다(라운드 93 리뷰가 그
+ *    흡수를 표기형 열일곱으로 발견했다).
+ *  · **오늘**: 판정이 **세 갈래의 합**(`needleTotalToday`)이다. 모집단이 **셋 → 열하나**가 되고
+ *    그 사각이 **155 → 61**로 줄었다. ⚠️ **좁은 바늘의 뜻은 한 글자도 넓히지 않았다** — 넓어진
+ *    것은 *어떤 파일을 보는가*이지 *무엇을 표기로 세는가*가 아니다.
+ *  · ⚠️ **잔여(`unneedled`)는 이 판정에 들어오지 않는다**: 인용만 지닌 파일이 모집단이 되면 이
+ *    축은 *오늘의 약속*이 아니라 *어제의 기록*을 지키게 된다.
  */
 export function sourceAxisFilesFrom(
   entries: readonly SourceAxisEntry[],
@@ -806,17 +1263,23 @@ export function sourceAxisFilesFrom(
 ): readonly SourceAxisFile[] {
   const files: SourceAxisFile[] = [];
   for (const entry of entries) {
+    const tally = tallySourceNeedles(branchSourceNotations(entry.text, entry.path));
+    if (tally.branched === 0) continue;
     const marked = typedInners(entry.text, markedSourceNeedle());
-    if (marked.length === 0) continue;
     const anyParen = typedInners(entry.text, anyParenSourceNeedle());
     files.push({
       path: entry.path,
       reason:
-        `뿌리 ${SOURCE_AXIS_ROOTS.join(" · ")} 를 걸어 나온 자리다 — ⚠️ 표식이 선 재개 조건 ` +
-        `표기를 ${marked.length}건 지고 있어(괄호 전수 ${anyParen.length}건) AA-3의 같은 조항이 ` +
-        "그 전부에 걸린다. 문서만 무는 계약은 관례의 절반만 지킨다.",
+        `뿌리 ${SOURCE_AXIS_ROOTS.join(" · ")} 를 걸어 나온 자리다 — ⚠️ 재개 조건 표기를 ` +
+        `${tally.branched}건 지고 있어(표식형 ${tally.marked} · 강조형 ${tally.emphasis} · ` +
+        `필드형 ${tally.field} · 괄호 전수 ${anyParen.length}건) AA-3의 같은 조항이 그 전부에 ` +
+        "걸린다. 문서만 무는 계약은 관례의 절반만 지킨다.",
       owner: ownerFor(entry.path),
       valueToday: marked.length,
+      emphasisToday: tally.emphasis,
+      fieldToday: tally.field,
+      needleTotalToday: tally.branched,
+      unneedledToday: tally.unneedled,
       anyParenToday: anyParen.length,
       floor: SOURCE_AXIS_FLOORS[entry.path] ?? SOURCE_AXIS_DEFAULT_FLOOR,
       floorReason:
@@ -934,9 +1397,22 @@ export function sourceCountViolation(
   return { floor, measured: files.length, files: files.map((file) => file.path) };
 }
 
+/**
+ * ⚠️⚠️ **① 표식형을 지고 있는 파일만** — 라운드 91 리뷰 **H-1·L-1**이 등호로 묶은 그 부분모집단.
+ *
+ * 오늘 모집단이 열하나로 넓어졌지만 `SOURCE_COUNT_RATCHET`(**3**)과
+ * `SOURCE_AXIS_MEASURED_TODAY.files`가 무는 것은 **여전히 이 셋**이다 — H-1이 세운 장치가 무는
+ * 대상을 바꾸지 않고 그대로 두는 쪽을 골랐다(넓어진 모집단은 **따로 하한으로** 든다).
+ */
+export function markedBearingFiles(
+  files: readonly SourceAxisFile[]
+): readonly SourceAxisFile[] {
+  return files.filter((file) => file.valueToday > 0);
+}
+
 export type SourceAxisDefect = {
   readonly path: string;
-  readonly field: "owner" | "reason" | "floorReason" | "floor" | "valueToday";
+  readonly field: "owner" | "reason" | "floorReason" | "floor" | "valueToday" | "branchSum";
   readonly detail: string;
 };
 
@@ -957,15 +1433,26 @@ export function sourceAxisDefects(files: readonly SourceAxisFile[]): readonly So
     if (file.floorReason.trim().length <= 40) {
       defects.push({ path: file.path, field: "floorReason", detail: "하한의 사유가 없다" });
     }
-    if (file.floor >= file.valueToday) {
+    // ⚠️⚠️ **두 시점**: 라운드 91~93에는 이 둘이 `valueToday`(표식형)를 보았다. 오늘은 **세 갈래의
+    //    합**을 본다 — 필드형만 지고 들어온 자리의 표식형은 0이라, 옛 자를 그대로 두면 모집단을
+    //    넓힌 그 걸음이 곧바로 여덟 자리를 결함으로 세게 된다(넓힌 축이 자기 자를 함께 넓힌다).
+    if (file.floor >= file.needleTotalToday) {
       defects.push({
         path: file.path,
         field: "floor",
-        detail: `하한 ${file.floor}이 오늘의 값 ${file.valueToday}보다 낮지 않다`
+        detail: `하한 ${file.floor}이 오늘의 값 ${file.needleTotalToday}보다 낮지 않다`
       });
     }
-    if (file.valueToday < 1) {
+    if (file.needleTotalToday < 1) {
       defects.push({ path: file.path, field: "valueToday", detail: "표기가 0건인 자리가 모집단에 들었다" });
+    }
+    if (file.valueToday + file.emphasisToday + file.fieldToday !== file.needleTotalToday) {
+      defects.push({
+        path: file.path,
+        field: "branchSum",
+        detail: `갈래 셋의 합(${file.valueToday}+${file.emphasisToday}+${file.fieldToday})이 ` +
+          `기록된 합 ${file.needleTotalToday}과 갈렸다`
+      });
     }
   }
   return defects;
@@ -1001,6 +1488,52 @@ export const SOURCE_AXIS_MEASURED_TODAY = {
   /** 자리별 넓은 바늘 — `dead-export-ledger.ts` **9**. */
   anyParenTopFile: 9
 } as const;
+
+/**
+ * ⚠️⚠️ **갈래 셋의 오늘 실측 — 기록이지 계약이 아니다**(계약이 무는 것은 `sourceNeedleRatchet()`).
+ *
+ * ⚠️ **위의 `SOURCE_AXIS_MEASURED_TODAY`를 한 바이트도 고치지 않았다.** 그 표는 *표식형 하나로
+ * 모집단을 가르던 시점*의 기록이고, 이 표는 *세 갈래로 가른 뒤*의 기록이다 — **두 시점을 두 표로**
+ * 든다(옛 표를 오늘 값으로 덮으면 왜 갈랐는지가 사라진다 · AE-3).
+ *
+ *  · `files` **11** — 모집단(표식형만이던 시절 **3**). ⚠️ **하한으로만 견준다** — 남의 트랙이
+ *    도래한 조건을 소진하면 이 수는 내려간다.
+ *  · `markedFiles` **3** — ① 표식형을 지닌 파일. ⚠️ 이쪽은 H-1·L-1의 등호가 그대로 문다.
+ *  · 갈래 넷 **11 · 5 · 42 · 9**(세 갈래의 합 **58**) · 걷은 전수의 넓은 바늘 **67**.
+ *    ⚠️ 모집단 안에서만 세면 넓은 바늘은 **66**이고 잔여는 **8**이다 — 잔여만 지닌 파일 하나
+ *    (`apps/mobile/src/a11y-contract.test.ts`)가 모집단 밖이라 갈래 표에는 들되 모집단 합에는
+ *    들지 않는다. **두 수를 한 낱말로 적지 않는다.**
+ *  · ⚠️⚠️ **이 수들은 같은 라운드 안에서도 낡는다** — 트랙 A~C가 같은 워킹트리에서 자기 파일에
+ *    재개 조건을 더하고 지운다(오늘 `emphasis-axis-not-opened`의 값이 트랙 C의 커밋 하나로
+ *    **1에서 0으로** 내려앉는 것을 이 트랙이 실시간으로 봤다). 그래서 계약이 무는 것은
+ *    `sourceNeedleRatchet()`(하한)뿐이고 이 표는 **하한 방향으로만** 견준다.
+ */
+export function sourceNeedleMeasuredToday() {
+  return {
+    /** 세 갈래의 합으로 판정한 모집단(파일 수). */
+    files: 11,
+    /** 그중 ① 표식형을 지닌 파일 — H-1의 등호가 무는 부분모집단. */
+    markedFiles: 3,
+    marked: 11,
+    emphasis: 5,
+    field: 42,
+    unneedled: 9,
+    branched: 58,
+    anyParen: 67,
+    /**
+     * ⓕ 자기 두 파일 — ⚠️ 실물과 픽스처를 가르는 수(정찰의 *'열넷 중 여덟이 픽스처'*).
+     *
+     * ⚠️ **정찰 시점의 수를 그대로 든다**(오늘 이 계약 파일이 갈래 픽스처를 더하며 실측은 그보다
+     * 크다) — 계약이 이 둘을 **하한으로만** 견주는 이유가 그것이다.
+     */
+    selfLedgerSourceEmphasis: 1,
+    selfContractFixtureEmphasis: 8,
+    /** 저장소 전수(자기 두 파일 포함) — 정찰의 88 · 18 · 14. */
+    repoAnyParen: 88,
+    repoMarked: 18,
+    repoEmphasis: 14
+  } as const;
+}
 
 // ── ⓔ 사각 ───────────────────────────────────────────────────────────────────
 
@@ -1158,8 +1691,14 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "값으로 든다(오늘 좁은 바늘 **열하나** · 넓은 바늘 **열다섯** — 네 시점: 트랙 D 넷·여섯 · " +
       "라운드 90 다섯·일곱 · 라운드 91 D의 *기록* 일곱·열하나 · ⚠️ **라운드 91 리뷰 H-1의 실측 " +
       "열하나·열다섯**(D가 셋째 파일을 세지 못했다). ⚠️ 인용 넷의 자리는 그대로다 — " +
-      "`dead-export-ledger.ts` 셋 · `contract-net-ledger.test.ts` 하나이고, 셋째 파일은 인용 0건이다).",
-    valueToday: 4,
+      "`dead-export-ledger.ts` 셋 · `contract-net-ledger.test.ts` 하나이고, 셋째 파일은 인용 0건이다). " +
+      "⚠️⚠️ **다섯째 시점(라운드 94 트랙 D) — 이 수가 넷에서 쉰다섯으로 뛰었고, 뛴 것은 저장소가 " +
+      "아니라 모집단이다.** 이 자는 *넓은 바늘 − 표식형*을 재는데, 오늘 모집단이 셋에서 열하나로 " +
+      "넓어지며 그 차이에 **강조형 5 · 필드형 42 · 잔여 8**이 함께 들어왔다. ⚠️ **그래서 오늘 이 수는 " +
+      "*'인용의 크기'* 가 아니다** — 인용만 따로 세는 자는 `three-needle-residual`이고, 이 줄은 " +
+      "*좁은 바늘 하나만 보던 시절의 자를 그대로 둔 채 그 자가 오늘 무엇을 재는지를 값으로 " +
+      "적는다*(자를 바꾸면 네 시점의 기록이 서로 다른 것을 말하게 된다).",
+    valueToday: 55,
     floor: 0,
     measure: (baseDir) => countAnyParenSourceNotations(baseDir) - collectSourceNotations(baseDir).length,
     reopenCondition:
@@ -1214,14 +1753,21 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "⚠️ 이 뿌리는 그 자리를 **세지 않고 지나간다** — 문서 축의 `prose-only`와 같은 사각의 소스판이다. " +
       "⚠️⚠️ 두 시점: 트랙 D의 기록은 파일 열여덟·자리 **마흔여덟**이었다(리뷰 H-1 재실측 시점에 " +
       "**예순여덟**). 이 수는 계약이 아니라 기록이고 **하한만 물린다** — 사각을 값으로 적는 손이 " +
-      "관례를 말하는 산문을 늘릴 때마다 함께 오르기 때문이다.",
+      "관례를 말하는 산문을 늘릴 때마다 함께 오르기 때문이다. " +
+      "⚠️⚠️ **다섯째 시점(라운드 94 트랙 D) — 이 사각은 자기 이름이 아닌 것을 삼키고 있었다.** " +
+      "모집단 판정이 *표식형 하나*였을 때 이 자는 `reopenCondition:` 필드로 관례를 지고 있던 파일 " +
+      "여덟을 *표기 없는 소스*로 세었다(라운드 93 리뷰가 그 흡수를 표기형 열일곱으로 발견했고, " +
+      "라운드 94 정찰이 F 시점에 **129**로 다시 쟀다). 오늘 판정을 **세 갈래의 합**으로 바꾸니 " +
+      "**다섯 시점 48 → 68 → 129(정찰) → 155(오늘 옛 판정으로 다시 잰 수) → 61(오늘 새 판정)** " +
+      "이고, ⚠️ **줄어든 아흔넷은 사라진 것이 아니라 제 이름을 얻은 것이다** — 그 자리는 이제 " +
+      "필드형으로 세어진다. 파일 수도 **스물여덟 → 스물**로 줄었다.",
     why:
       "형이 없는 산문에는 문법이 없어 사건형·결정형을 기계가 가를 수 없고(문서 축이 같은 이유로 " +
       "165를 밖에 둔다), 소스에서는 그 자리 대부분이 *조건을 적은 것*이 아니라 *관례를 말한 것*이다. " +
       "⚠️ 그리고 이 뿌리에는 대역도 있다: 산출물·의존성 디렉터리와 이진 확장자, 1MB 위의 파일은 " +
       "걷지 않는다(`SOURCE_AXIS_SKIPPED_DIRECTORIES` · `SOURCE_AXIS_BINARY_EXTENSIONS` · " +
       "`SOURCE_AXIS_MAX_BYTES`) — 그 대역의 이름이 값으로 서 있다는 사실이 이 사각의 크기다.",
-    valueToday: 68,
+    valueToday: 61,
     floor: 10,
     measure: (baseDir) => {
       const entries = readSourceAxisEntries(baseDir);
@@ -1236,9 +1782,176 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     reopenCondition:
       "⚠️ 재개 조건(사건형): 소스의 산문 조건이 표기 관례를 지고 다시 쓰이기 시작하는 날 — " +
       "그날 이 예순여덟이 줄고 소스 축의 파생 수가 오르며, 두 수가 함께 움직인다는 사실이 " +
-      "이 사각이 닫히고 있다는 신호다."
+      "이 사각이 닫히고 있다는 신호다. " +
+      "⚠️⚠️ **두 시점 — 그 두 수가 오늘 함께 움직였는데, 움직인 까닭이 이 조건이 내다본 것과 " +
+      "다르다**(라운드 94 트랙 D). 이 줄은 *소스가 다시 쓰이는 날*을 기다렸지만 오늘 소스는 한 " +
+      "바이트도 바뀌지 않았고, 바뀐 것은 **모집단을 가르는 판정**이다(155 → 61 · 파생 3 → 11). " +
+      "⚠️ 그래서 이 조건은 **소진되지 않았다**: 남은 쉰일곱은 여전히 형을 밝히지 않은 산문이고, " +
+      "그것이 다시 쓰이는 날이 이 줄이 지워지는 날이다."
   }
 ];
+
+// ── ⓗ' 바늘 셋의 사각 넷 (라운드 94 트랙 D) ──────────────────────────────────
+
+/** `docs/**` 아래의 마크다운 전수 — ⚠️ 이 소스 축이 걷지 않는 뿌리다. */
+const MARKDOWN_ROOT = "docs";
+
+/** `docs/**\/*.md`에서 넓은 바늘에 걸린 표기 수 — 사각 ⓓ의 자. */
+export function markdownNotationCount(baseDir: string = repoRoot): number {
+  const absoluteRoot = join(baseDir, MARKDOWN_ROOT);
+  if (!existsSync(absoluteRoot)) return 0;
+  let total = 0;
+  const walk = (relative: string): void => {
+    for (const entry of readdirSync(join(baseDir, relative), { withFileTypes: true })) {
+      const next = `${relative}/${entry.name}`;
+      if (entry.isDirectory()) walk(next);
+      else if (entry.name.endsWith(".md")) {
+        total += typedInners(readFileSync(join(baseDir, next), "utf8"), anyParenSourceNeedle()).length;
+      }
+    }
+  };
+  walk(MARKDOWN_ROOT);
+  return total;
+}
+
+/** 인용 표식 — 이 저장소가 *어제의 문장*을 감쌀 때 쓰는 꼴(`*'…'*` · 겹따옴표). */
+const QUOTATION_MARKS = /\*'|'\*|“|”/;
+
+/** 필드형 자리 가운데 **인용 표식이 함께 선** 자리 — 사각 ⓑ의 자(오늘 0건). */
+export function quotedFieldNotations(
+  baseDir: string = repoRoot
+): readonly BranchedSourceNotation[] {
+  const found: BranchedSourceNotation[] = [];
+  for (const entry of readSourceAxisEntries(baseDir)) {
+    const lines = entry.text.split("\n");
+    for (const notation of branchSourceNotations(entry.text, entry.path)) {
+      if (notation.branch !== "field") continue;
+      if (QUOTATION_MARKS.test(lines[notation.line - 1] ?? "")) found.push(notation);
+    }
+  }
+  return found;
+}
+
+/** 강조형 가운데 **결정형인데 손의 위치가 없는** 자리 — 사각 ⓔ의 자(오늘 하나). */
+export function emphasisDecisiveMissingHand(
+  baseDir: string = repoRoot
+): readonly BranchedSourceNotation[] {
+  return branchedSourceNotationsFrom(readSourceAxisEntries(baseDir)).filter(
+    (notation) => notation.branch === "emphasis" && notation.decisive && !notation.hand
+  );
+}
+
+/**
+ * ⚠️ **바늘 셋이 새로 지는 사각 넷** — 값과 하한으로 선다(AB-5의 규율).
+ *
+ * ⚠️⚠️ **여덟짜리 `LEDGER_BLIND_SPOTS`에 얹지 않는다.** 라운드 92 트랙 D가 경과 축의 사각 셋을
+ * 자기 목록으로 세운 그 형식을 그대로 인용한다 — *한 트랙이 남의 사각 목록의 길이를 움직이지
+ * 않는다*(그 여덟에서 오늘 움직인 것은 **두 자리의 값과 두 시점 문장**뿐이다).
+ */
+export function sourceNeedleBlindSpots(): readonly LedgerBlindSpot[] {
+  return [
+    {
+      id: "three-needle-residual",
+      what:
+        "**세 갈래 어디에도 안 드는 잔여** — 넓은 바늘에는 걸리는데 표식형도 강조형도 필드형도 " +
+        "아닌 자리. 오늘 걷은 소스에서 **아홉**이고, ⚠️ **이 트랙이 첫 걸음을 떼기 전 저장소 " +
+        "전수로는 열둘**이었다(자기 두 파일의 셋을 더한 수 — 그 뒤 이 파일 자신이 갈래 픽스처를 " +
+        "더하며 자기 쪽 수가 늘었고, 그 늚이 모집단에 새지 않는 것이 ⓕ 자기 배제가 하는 일이다). " +
+        "갈래는 셋이다: ⓐ **주석이 옛 문장을 인용한 자리**(`dead-export-ledger.ts` 둘 · " +
+        "`accessibility-checklist-shape.test.ts` 하나) ⓑ **단언이 문자열로 문 자리** " +
+        "(`contract-net-ledger.test.ts` · `korean-particle-guard.test.ts` · " +
+        "`accessibility-checklist-shape.test.ts`) ⓒ **`statement:`처럼 다른 이름의 필드**에 담긴 자리 " +
+        "(`accessibility-checklist-shape.test.ts` · `dead-export-ledger.ts` · `a11y-contract.test.ts`). " +
+        "⚠️⚠️ **두 시점**: 라운드 94 정찰은 이 수를 **0으로 내다봤다**(*'어느 바늘에도 안 걸리는데 " +
+        "괄호로 형을 밝힌 자리 0건'*). 오늘 재실측은 0이 아니고, 그 갈림이 정찰의 *필드형 56*이 " +
+        "**필드 44 + 잔여 12**를 한 낱말로 적은 수였다는 사실에서 온다.",
+      why:
+        "0으로 만드는 길은 하나뿐이다 — 갈래 하나를 *나머지 전부*로 두는 것. 그러면 그것은 갈래가 " +
+        "아니라 **자루**이고, 자루는 다음 라운드에 또 틀린 이름으로 삼킨다(오늘 고친 병이 정확히 " +
+        "그 모양이었다: `unmarked-source-prose`가 필드형 여든하나를 *표기 없는 산문*으로 세었다). " +
+        "⚠️ 그래서 잔여를 **0으로 만들지 않고 이름으로 세운다** — 인용은 오늘의 약속이 아니라 " +
+        "어제의 기록이고, 그것을 모집단에 넣으면 이 축이 어제를 지키게 된다.",
+      valueToday: 9,
+      floor: 0,
+      measure: (baseDir) => sourceNeedleTally(baseDir).unneedled,
+      reopenCondition:
+        "⚠️ 재개 조건(결정형 · 손은 저장소 안): 인용과 약속을 가르는 표식이 `⚠️` 말고 하나 더 서는 " +
+        "날 — 그날 이 잔여의 절반(ⓐ·ⓑ)이 이름을 얻는다. ⚠️ 이 수가 0으로 내려가는 것은 " +
+        "**좋은 방향**이라 하한을 0으로 둔다."
+    },
+    {
+      id: "field-needle-is-convention",
+      what:
+        "**필드형이 *오늘의 약속*이라는 판단은 관례이지 문법이 아니다** — `reopenCondition:` 값에 " +
+        "어제의 문장을 인용해 담는 날 이 바늘이 틀린다. 오늘 그런 자리는 **0건**이다(필드형 " +
+        "마흔둘 가운데 인용 표식이 함께 선 자리가 없다).",
+      why:
+        "필드의 값은 *그 객체가 오늘 지고 있는 약속*이라고 이 저장소가 읽어 온 것이지, 그렇게 " +
+        "쓰라고 정한 문법이 있는 것이 아니다. ⚠️ 표식형은 `⚠️`라는 **글자**를 신원으로 삼지만 " +
+        "필드형은 **자리**를 신원으로 삼는다 — 자리는 관례가 바뀌면 뜻이 바뀐다. 그래서 이 자는 " +
+        "*오늘 그 관례가 아직 참인가*를 값으로 재고, 0이 아니게 되는 날 이 바늘이 좁혀져야 한다.",
+      valueToday: 0,
+      floor: 0,
+      measure: (baseDir) => quotedFieldNotations(baseDir).length,
+      reopenCondition:
+        "⚠️ 재개 조건(사건형): 필드 값 안에 인용 표식을 지닌 재개 조건이 처음 서는 날 — 그날 " +
+        "필드형 바늘은 *필드에 있는가*가 아니라 *인용이 아닌가*를 함께 물어야 한다."
+    },
+    {
+      id: "emphasis-axis-not-opened",
+      what:
+        "⚠️⚠️ **강조형에는 ⓒ 축(결정형이면 손의 위치를 함께)을 얹지 않았다** — 모집단은 넓히고 " +
+        "축은 넓히지 않았다는 사실이 이 사각의 이름이다. " +
+        "⚠️⚠️ **두 시점 — 그리고 그 사이가 한 라운드도 아니다.** " +
+        "· **라운드 94 정찰 시점**: 이 수는 **하나**였다. " +
+        "`apps/admin/src/admin-load-error-copy.test.ts`의 " +
+        "`재개 조건(결정형 · 축: 이 파일의 *다른* 손 목록)`이 손의 위치를 적지 않아서, 축을 " +
+        "강조형까지 넓혔다면 **그 한 자리가 곧바로 빨개졌을 것**이다. " +
+        "· **오늘(이 트랙의 실측)**: **0**이다 — 같은 라운드의 **트랙 C가 그 줄에 " +
+        "`손은 저장소 안`을 적으며** 결정형 #16을 소진했다. ⚠️ **한 라운드 안에서 값이 낡았고, " +
+        "낡힌 손은 남의 트랙이다**(라운드 91 H-1이 같은 자리에서 배운 것의 되풀이). " +
+        "⚠️ **그래도 사각은 사라지지 않는다**: 오늘 0인 것은 *축을 넓혀도 안전하다*는 뜻이지 " +
+        "*축이 넓어졌다*는 뜻이 아니고, 넓힐지는 이 대장이 아니라 라운드의 결정이다.",
+      why:
+        "그 파일은 이 라운드에 **트랙 C의 것**이고(결정형 #16을 소진한다), *한 트랙이 남의 파일을 " +
+        "빨갛게 만들지 않는다*. ⚠️ 그리고 축을 넓히는 것은 바늘을 넓히는 것과 같은 결정이라 " +
+        "**결정형 #19가 오늘 고르지 않은 길**이다 — 고르지 않은 길도 값으로 적는다. " +
+        "⚠️ 그리고 오늘 이 수가 0이라는 사실이 축을 넓혀도 좋다는 허락은 아니다 — 강조형은 남의 " +
+        "트랙이 매 라운드 새로 적는 꼴이라, 오늘의 0은 **다음 커밋에 하나가 될 수 있는 0**이다.",
+      valueToday: 0,
+      floor: 0,
+      measure: (baseDir) => emphasisDecisiveMissingHand(baseDir).length,
+      reopenCondition:
+        "⚠️ 재개 조건(결정형 · 손은 저장소 안): 강조형 결정형 가운데 손의 위치가 빠진 자리가 " +
+        "0이 되는 날 — 그날 ⓒ 축을 강조형까지 넓힐지가 라운드의 결정으로 선다. " +
+        "⚠️ 이 수가 0으로 내려가는 것은 **좋은 방향**이라 하한을 0으로 둔다."
+    },
+    {
+      id: "markdown-source-notation",
+      what:
+        "**`.md`의 소스 표기는 이 축 밖이다** — `docs/**` 아래 마크다운(오늘 **203벌**)이 넓은 " +
+        "바늘로 **이백마흔** 자리를 지고 있는데(표기를 지닌 파일 **열하나**), 이 소스 축은 " +
+        "`apps`·`packages` 뿌리만 걷는다. " +
+        "⚠️ 그 자리는 문서 축(`LEDGER_DOCUMENT`)과 사각 둘(`round-notes` · `sibling-documents`)이 " +
+        "나눠 지므로 **여기서 다시 세면 같은 자리를 두 번 세게 된다** — 그래서 값으로만 든다.",
+      why:
+        "이 축이 `.md`까지 걸으면 문서 축과 모집단이 겹치고, 겹친 자리는 두 축의 래칫에 **동시에** " +
+        "걸린다 — 한쪽이 정직하게 줄 때 다른 쪽이 빨개지는 모양이다. ⚠️ *한 트랙이 한 그물에 축 " +
+        "둘을 얹지 않는다*는 규율은 모집단에도 그대로 적용된다: **같은 자리를 두 자가 세지 않는다.** " +
+        "⚠️ **두 시점 — 이 자를 처음 세운 손이 곧바로 틀렸다**: 소스 축의 걷기가 지닌 1MB 상한 " +
+        "(`SOURCE_AXIS_MAX_BYTES`)을 이 자에도 그대로 씌워 재면 **여든아홉**이 나오는데, 그 상한이 " +
+        "덜어 내는 것이 하필 판정 문서 자신(1.2MB)이라 **가장 큰 자리가 통째로 빠진다**. 이 자는 " +
+        "그 상한을 쓰지 않으므로 **이백마흔**이다 — ⚠️ *같은 뿌리를 다른 대역으로 보면 다른 수가 " +
+        "난다*는 사실이 이 사각의 크기에 함께 실려 있다.",
+      valueToday: 240,
+      floor: 10,
+      measure: (baseDir) => markdownNotationCount(baseDir),
+      reopenCondition:
+        "⚠️ 재개 조건(결정형 · 손은 저장소 안): 문서 축과 소스 축의 모집단을 하나로 합칠지 정하는 " +
+        "날 — 오늘 그 둘은 일부러 갈려 있고, 갈림의 크기가 이 이백마흔이다."
+    }
+  ];
+}
 
 // ── ⓖ 경과 축 — *몇 라운드째 서 있는가* (라운드 92 트랙 D) ────────────────────
 
@@ -1695,8 +2408,13 @@ export const ELAPSED_SCOUT_VALUES: readonly ScoutNeedleValue[] = [
 export type ScoutNeedleValue = {
   /** 무엇을 센 수인가. */
   readonly what: string;
-  /** 어떤 바늘인가. */
-  readonly needle: "paren" | "line" | "window" | "site";
+  /**
+   * 어떤 바늘인가.
+   *
+   * ⚠️ 뒤의 넷은 **라운드 94 트랙 D가 더한 갈래**다(결정형 #19) — 앞의 넷을 지우지 않고 더한다:
+   * 같은 표 형식을 다른 라운드가 인용할 수 있게 두는 것이 이 저장소의 관례다.
+   */
+  readonly needle: "paren" | "line" | "window" | "site" | "any-paren" | "marked" | "emphasis" | "field";
   /** 정찰(`docs/5차/round89-scout.md`)이 적은 수. */
   readonly scout: number;
   /** 트랙 D가 2026-08-31 워킹트리에서 다시 잰 수. */

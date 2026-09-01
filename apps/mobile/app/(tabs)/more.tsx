@@ -25,6 +25,9 @@ import {
 import { openExternalUrl } from "../../src/settings/open-external-url";
 // 라운드 71 트랙 D(#4): 열기 실패 문구도 그 모듈 한 곳에서 온다 -- 화면이 다시 적지 않는다.
 import { SUPPORT_LINK_FAILED_MESSAGE, SUPPORT_LINK_FAILED_TITLE } from "../../src/settings/support-links";
+// 라운드 94 트랙 A: 가구 카드의 `-네`는 받침에서 갈린다("지훈이네" · "서아네") -- 규칙은 조사와
+// 같은 순수 모듈 한 자리에 있고, 화면은 보이는 줄과 낭독 라벨에서 **같은 함수**를 지난다.
+import { nameWithHonorificSuffix } from "../../src/text/korean-particles";
 import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
 // GAP-062 #6: 홈 헤더·설정 요약·아이 목록과 **같은** 표시층 판정을 이 카드도 지난다(재사용만 —
 // 판정은 src/home/stage-display-label.ts 한 자리에 그대로 있다).
@@ -398,13 +401,17 @@ export default function MoreScreen() {
           </View>
         ) : authToken ? (
           /* DSN-053 P2-D 가구 카드: 로고 원 56(마크 38) · "{닉네임}네" 18/800 · 보호자·아이 수 ·
-             stage pill. 목적지는 라운드 41 UX-U(A)가 정한 그대로다(MORE_PROFILE_CARD_ROUTE). */
+             stage pill. 목적지는 라운드 41 UX-U(A)가 정한 그대로다(MORE_PROFILE_CARD_ROUTE).
+             ⚠️ 두 시점(라운드 94 트랙 A): 위 "{닉네임}네"는 **DSN-053 시점의 표기**이고, 그때
+             이 세 자리는 `${visibleProfile.nickname}네`를 리터럴로 적고 있었다 -- 받침 있는
+             별명이 들어오면 화면과 낭독이 함께 "지훈네"가 됐다(한국어는 "지훈이네"다). 오늘은
+             셋 다 nameWithHonorificSuffix()를 지나고, 치수(18/800)와 그리는 노드는 바이트 불변이다. */
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={
               householdCaption
-                ? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`
-                : `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`
+                ? `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`
+                : `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${sessionStageLabel}, 프로필 관리`
             }
             onPress={() => router.push(MORE_PROFILE_CARD_ROUTE)}
             style={moreHouseholdCardStyle}
@@ -414,7 +421,7 @@ export default function MoreScreen() {
               <Image source={moreHouseholdLogoImage} style={moreHouseholdLogoStyle} resizeMode="contain" />
             </View>
             <View style={moreHouseholdTextGroupStyle}>
-              <Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>
+              <Text style={moreHouseholdNameStyle}>{nameWithHonorificSuffix(visibleProfile.nickname)}</Text>
               {householdCaption ? <Text style={moreHouseholdMetaStyle}>{householdCaption}</Text> : null}
             </View>
             {/* GAP-062 #6: 배지 조리법(coral[50]/coral[700])은 그대로고 **문장만** 표시층 판정을
