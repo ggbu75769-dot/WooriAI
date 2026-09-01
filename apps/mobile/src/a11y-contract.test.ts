@@ -6793,6 +6793,16 @@ function rowLabelSitesOf(
  *
  * ⚠️ 한 컴포넌트를 여러 화면이 그리면(오늘 `CategoryChip`을 아홉 화면이 그린다) **행을 받은 프롭
  * 이름을 합집합으로 모은다** — 한 화면만 보고 *갈리지 않는다*로 떨어뜨리지 않기 위해서다.
+ *
+ * ⚠️⚠️ **그 합집합의 반대 방향도 값으로 적는다(라운드 93 리뷰 L-6) — 이쪽은 *거짓 초록*이다.**
+ * 합집합은 *어느 한 화면이라도 행을 실어 준 프롭*을 전부 행 이름으로 들이므로, **다른 화면에서는
+ * 그 프롭이 행과 무관한 상수인 경우에도** 그 컴포넌트의 라벨 식이 그 이름을 읽기만 하면 `row-direct`로
+ * 떨어진다. 즉 **판정이 조용히 초록 쪽으로 기운다** — 실제로는 그 화면에서 갈리지 않는데 갈린다고
+ * 읽는 것이고, 그 오차는 래칫을 빨갛게 하지 않아 사람이 보지 못한다.
+ * ⚠️ **그래도 합집합을 고른 이유는 두 오차의 무게가 다르기 때문이다**: 교집합을 고르면 *정말 갈리는
+ * 자리를 갈리지 않는다고 읽는*(거짓 초록이면서 **사람이 겪는**) 쪽으로 기울고, 합집합의 거짓 초록은
+ * **모집단을 넓히는 쪽**이라 자리가 사라지지 않는다. **어느 쪽도 빨개지지 않는다는 사실은 같고,
+ * 이 주석이 그 사실을 값으로 든다**(오늘 이 갈래로 잘못 초록이 된 자리 수는 세지 않았다).
  */
 function foreignRowComponentCallbacks(files: string[]): Map<string, RowCallback[]> {
   const byFile = new Map<string, RowCallback[]>();
@@ -6877,7 +6887,13 @@ const ROW_LABEL_RATCHET = {
   //    가져오기 검수의 잠긴 행 라벨(파생)이다. 목록 **밖**은 그만큼 127 → 124로 줄었다.
   //  · **오늘(라운드 93 트랙 C · 넷째 바늘 뒤)**: `.map(` 안에서 바로 그려지는 **행꼴 컴포넌트의
   //    본문** 여덟(자리 **열**)이 들어와 `48 · 44 · 4`가 됐다 — 빠른 품목 타일·준비템 카드·
-  //    구매 링크 행(둘)·분류 칩·더보기 행·초대 행(전부 direct)과 달력 날짜 칸 둘(파생)이다.
+  //    구매 링크 행(둘)·분류 칩·더보기 행·초대 행·**설정 목록 행**(여기까지 여덟이 direct)과
+  //    달력 날짜 칸 둘(파생)이다.
+  //    ⚠️⚠️ **두 시점(라운드 93 리뷰 M-9): *열*의 열거가 아홉뿐이었다** — `설정 목록 행`
+  //    (`src/design-system/components/ApplicationPrimitives.tsx`의 `ListRow` · 자리 `at 8279` ·
+  //    `app/settings/index.tsx:342`의 `supportRows.map(`이 그린다)이 빠져 있었다. **수(열·여덟·
+  //    direct 여덟)는 그때도 옳았고 이름만 아홉이었다** — 그래서 이 정정은 값이 아니라 열거를
+  //    고친다. ⚠️ 이 병은 사각 ⓐ가 이름 붙인 것과 같은 얼굴이다: **크기는 적고 갈래는 덜 적는다.**
   //    목록 **밖**은 그만큼 124 → **114**로 줄었다(사각 ⓐ의 세 번째 시점).
   listSites: 48,
   direct: 44,
@@ -6919,7 +6935,10 @@ const ROW_LABEL_SWEEP_BLIND_SPOTS = [
     "라운드 92 B가 127로, 리뷰 H-3이 124로 적었고 오늘은 **114**다. H-3이 *'남는 124의 성격은 둘'* " +
     "이라며 이름 붙인 갈래 ⓑ(**행이면서도 이 바늘 밖인 자리**)를 오늘 넷째 바늘이 **값으로** 풀었다: " +
     "`.map(` 안에서 바로 그려지는 **행꼴 컴포넌트**가 열셋이고 그 본문의 식 라벨 **열**이 들어왔다 " +
-    "(빠른 품목 타일·준비템 카드·구매 링크 행 둘·분류 칩·더보기 행·초대 행·달력 날짜 칸 둘). " +
+    "(빠른 품목 타일·준비템 카드·구매 링크 행 둘·분류 칩·더보기 행·초대 행·**설정 목록 행**· " +
+    "달력 날짜 칸 둘). ⚠️⚠️ **두 시점(라운드 93 리뷰 M-9)**: 이 열거는 **아홉뿐이었다** — " +
+    "`설정 목록 행`(`src/design-system/components/ApplicationPrimitives.tsx`의 `ListRow`)이 " +
+    "빠져 있었고, **수는 옳았는데 이름이 하나 모자랐다.** " +
     "⚠️ **그래서 남는 114의 성격도 여전히 하나가 아니다**: 대부분(오늘 재실측으로 **107**)은 정말 " +
     "행이 아닌 자리(화면 머리말·요약 카드·시트·탭바처럼 한 화면에 한 번 서는 컨트롤)이고, **일곱**은 " +
     "여전히 *행이면서 밖*이다 — 그 일곱이 무엇인지는 아래 사각이 이름과 꼴로 적는다. " +
@@ -7304,7 +7323,27 @@ describe("GAP-092 #2 행마다 갈리는 낭독 라벨 전수 스윕 (세 라운
     expect(sweep.rows.length - mapComponent.length, "넷째 바늘 밖의 목록 안 자리(H-3 뒤의 38)").toBeGreaterThanOrEqual(
       38
     );
-    expect(sweep.rows.length, "그 둘의 합").toBe(sweep.rows.length - mapComponent.length + mapComponent.length);
+    // ⚠️⚠️ **여기 서 있던 `sweep.rows.length === sweep.rows.length - m + m`은 항진명제였다**
+    // (라운드 93 리뷰 M-7) — 어떤 값을 넣어도 참이라 *유령 방지*를 한 글자도 하지 못했다.
+    // 그 자리에 **정말 겹침을 보는 자**를 세운다: 자리의 신원은 `파일 + 오프셋`이고,
+    // 같은 자리가 두 번 실리면(바늘 둘이 한 자리를 함께 물면) 이 줄이 빨개진다.
+    const mapComponentKeys = mapComponent.map((site) => `${site.file}@${site.at}`);
+    expect(new Set(mapComponentKeys).size, "넷째 바늘 안의 중복 자리 0").toBe(mapComponentKeys.length);
+    const allKeys = sweep.rows.map((site) => `${site.file}@${site.at}`);
+    expect(new Set(allKeys).size, "목록 안 자리 전체의 중복 0").toBe(allKeys.length);
+
+    // ⚠️⚠️ **그리고 `mapComponents` 8이 오늘까지 선언만 되고 아무것도 물지 않았다**(리뷰 M-8 ·
+    // 문서 #110이 그 수를 인용한다). 자리 열이 사는 **행꼴 컴포넌트의 고유 수**를 여기서 문다 —
+    // ⚠️ 열 자리가 한 컴포넌트에 몰려 있어도 자리 수 하한(10)은 초록이므로, **두 수는 다른 것을
+    // 지킨다**(자리가 몇인가 · 그 자리가 몇 개의 컴포넌트에 퍼져 있는가).
+    // ⚠️ 컴포넌트의 신원은 **그 본문**이다 — `site.body`가 선언 자리의 몸통 전체라, 같은 파일에서
+    // 본문이 같으면 같은 컴포넌트이고 다르면 다른 컴포넌트다(이름은 이 자리에 실려 오지 않는다).
+    const mapComponentBodies = new Set(mapComponent.map((site) => `${site.file} ${site.body}`));
+    expect(mapComponentBodies.size, "그 자리가 사는 행꼴 컴포넌트(고유 본문)").toBeGreaterThanOrEqual(
+      ROW_LABEL_RATCHET.mapComponents
+    );
+    // 유령 방지 — 컴포넌트 수는 자리 수를 넘을 수 없다(둘이 같은 자를 재고 있지 않다).
+    expect(mapComponentBodies.size).toBeLessThanOrEqual(mapComponent.length);
 
     // 핵심 루프 셋이 이름으로 서 있다 — 빠른 품목 타일 · 준비템 카드 · 구매 링크 행.
     for (const [file, component] of MAP_COMPONENT_LOOP_SITES) {

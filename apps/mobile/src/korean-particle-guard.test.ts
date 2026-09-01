@@ -57,8 +57,22 @@ import { hasFinalConsonant, objectParticle, withParticle } from "./text/korean-p
  *  · ⚠️ **두 형태를 함께 적은 자리는 이 바늘 밖이다**(`이(가)` · `(으)로`). 아래 사각 ⓔ가 그 수를
  *    값으로 진다. 정찰의 33에는 그중 하나가 들어 있었다.
  *
- * **오늘의 값**: 모집단 **38**(꼴 A **29** · 꼴 B **9**) · 판정 `fixed-tail` **29** ·
- * `chooses-from-value` **9** · ⚠️⚠️ `varies-but-written-fixed` **0**.
+ * **트랙 B 커밋 시점의 값**: 모집단 **38**(꼴 A **29** · 꼴 B **9**) · 판정 `fixed-tail` **29** ·
+ * `chooses-from-value` **9** · ⚠️⚠️ `varies-but-written-fixed` **0** · 걷는 파일 **281**(정찰 하한).
+ *
+ * ⚠️⚠️ **오늘의 값(라운드 93 리뷰 M-6 재실측)**: 모집단 **39**(꼴 A **30** · 꼴 B **9**) ·
+ * `fixed-tail` **30** · `chooses-from-value` **9**(그대로) · ⚠️⚠️ `varies-but-written-fixed`
+ * **0**(그대로 · 상한) · 걷는 파일 **282**(트랙 B가 신설한 `src/text/korean-particles.ts` 하나).
+ * **움직인 것은 계사 쌍 하나가 데려온 자리다** — 자세한 갈래는 아래 두 줄이 값으로 적는다:
+ *
+ *  · ⚠️ **이름만 바뀐 자리 다섯** — `이에요`를 `이`로 읽고 있던 계사 자리들이 제 이름을 얻었다
+ *    (`src/offline/messages.ts:60`·`:135`·`:145` · `src/home/milestone-countdown.ts:190` ·
+ *    ⚠️⚠️ 그리고 리뷰의 목록에 없던 **다섯째** `src/reports/monthly-insight.ts:252`).
+ *    **판정은 다섯 다 그때도 오늘도 `fixed-tail`이고**, 바뀐 것은 대장에 적힌 이름뿐이다.
+ *  · ⚠️⚠️ **새로 들어온 자리 하나** — `src/family/invite-flow.ts:123`의
+ *    `${EXPENSE_EDIT_ROLE_LABELS}예요`. 받침 **없는** 형이라 `예요`가 바늘에 없던 어제까지
+ *    이 자리는 **사각도 아니고 아무 데도 없었다**(`readParticle`이 `null`을 내고 지나갔다).
+ *    ⚠️ **이것이 이 라운드가 배운 것이다 — 쌍의 한쪽만 없어도 자리 전체가 조용히 사라진다.**
  *
  * ## ⚠️⚠️ 이 트랙이 화면에서 바꾼 것 — 조사 한 글자씩 넷
  *
@@ -85,7 +99,7 @@ const mobileRoot = process.cwd();
  * (`comment-tolerant-anchor-ledger.test.ts`가 그 사각을 **하한**으로 물므로 오르는 쪽은 초록이다.)
  */
 const ANCHOR_LEDGER_NOTE =
-  "helper-named-reader: 라운드 92의 실측 166 · 하한 164 — 이 파일의 readSweptSource가 그 사각을 하나 올린다(부채가 아니라 스윕이 하나 늘었다)" as const;
+  "helper-named-reader: 라운드 92의 실측 166 · 하한 164 — 이 파일의 readSweptSource가 그 사각을 하나 올린다(부채가 아니라 스윕이 하나 늘었다). ⚠️ 두 시점(라운드 93 리뷰 M-2): 그 예측이 적중했다 — HEAD 실측 167이고 오른 하나가 이 파일이다(자: comment-tolerant-anchor-ledger.ts:532의 NAMED_SOURCE_READER + collectCommentToleranceAnchors().outside)" as const;
 
 /** 정찰(2026-08-31)이 낸 하한. ⚠️ 값은 갱신하되 이 하한은 내리지 않는다. */
 const SCOUT_LOWER_BOUNDS = {
@@ -104,12 +118,26 @@ const SCOUT_LOWER_BOUNDS = {
  * 모집단은 아래 `collectParticleSites()`가 소스에서 파생한다.
  *
  * ⚠️ `(으)로`만 규칙이 하나 더 있다: **받침이 ㄹ이면 `로`** 다("서울로" · "첫돌로").
+ *
+ * ⚠️⚠️ **라운드 93 리뷰(M-6)가 여섯째 쌍을 더했다 — 계사 `이에요`/`예요`.**
+ * 이것은 문법상 조사가 아니라 **서술격 조사(계사) `이다`의 해요체**인데, **받침으로 갈린다는 점이
+ * 똑같고**(받침 있으면 `이에요` · 없으면 `예요`) 이 앱의 화면 문구가 **네 자리**에서 그것을
+ * 보간 뒤에 리터럴로 못 박고 있다. ⚠️ **그전까지 이 바늘은 그 넷을 `이`로 읽고 있었다** —
+ * `readParticle`이 `이에요`의 앞 한 글자만 보고 멈췄기 때문이고, 그래서 *갈리는 자리가 아니라
+ * 다른 조사*로 잘못 이름 붙은 채 대장에 실려 있었다. **잘못된 것은 판정이 아니라 이름이었다**
+ * (넷 다 꼬리가 고정이라 `fixed-tail`인 것은 그때도 오늘도 같다).
+ *
+ * ⚠️⚠️ **그래서 이 쌍은 목록의 *맨 앞*에 선다** — `readParticle`이 `withBatchim`을 먼저 전수로
+ * 훑으므로 **긴 것이 짧은 것보다 앞에 있어야** `이에요`가 `이`에 먹히지 않는다(`으로`가 `로`보다
+ * 앞에 서야 하는 것과 같은 규율이고, 그 규율이 이제 두 자리에서 걸린다).
  */
 const PARTICLE_PAIRS: readonly {
   readonly withBatchim: string;
   readonly withoutBatchim: string;
   readonly rieulTakesWithoutForm: boolean;
 }[] = [
+  // ⚠️ 긴 것 먼저 — `이에요`가 `이`보다 **반드시** 앞에 있어야 한다(아래 픽스처가 그 순서를 문다).
+  { withBatchim: "이에요", withoutBatchim: "예요", rieulTakesWithoutForm: false },
   { withBatchim: "으로", withoutBatchim: "로", rieulTakesWithoutForm: true },
   { withBatchim: "을", withoutBatchim: "를", rieulTakesWithoutForm: false },
   { withBatchim: "이", withoutBatchim: "가", rieulTakesWithoutForm: false },
@@ -259,6 +287,20 @@ const FIXED_TAIL_LEDGER: readonly {
     evidence: ["`기록 ${count}건`"]
   },
   {
+    // ⚠️⚠️ **라운드 93 리뷰(M-6)가 계사 쌍을 세우며 처음 모집단에 들어온 자리다.**
+    // 그전까지 이 자리는 **어느 판정도 받지 못했다** — `예요`가 바늘에 없어 `readParticle`이
+    // `null`을 내고 그대로 지나갔다(사각이 아니라 **아무 데도 없는 자리**였다).
+    // 꼬리는 고정이다: `EXPENSE_EDIT_ROLES`가 `["owner", "co_parent"]`이고 `join("·")`의
+    // **마지막 원소**가 `co_parent` → `"공동부모"`, 받침이 없어 `예요`가 옳다.
+    file: "src/family/invite-flow.ts",
+    expression: "EXPENSE_EDIT_ROLE_LABELS",
+    particle: "예요",
+    tails: ["공동부모"],
+    evidenceFile: "src/family/memberLabels.ts",
+    evidence: ['co_parent: "공동부모"'],
+    aliasEvidence: 'const EXPENSE_EDIT_ROLE_LABELS = EXPENSE_EDIT_ROLES.map((role) => memberRoleLabel(role)).join("·");'
+  },
+  {
     file: "src/home/last-month-comparison.ts",
     expression: "formatKrw(lastMonthToDateKrw)",
     particle: "을",
@@ -269,7 +311,11 @@ const FIXED_TAIL_LEDGER: readonly {
   {
     file: "src/home/milestone-countdown.ts",
     expression: "label",
-    particle: "이",
+    // ⚠️ **두 시점(라운드 93 리뷰 M-6)**: 트랙 B 시점 이 줄의 `particle`은 `"이"` 였다 — 그때
+    // `readParticle`이 `이에요`의 앞 한 글자에서 멈췄기 때문이다. 계사 쌍이 목록에 서면서
+    // 소스가 실제로 지고 있는 `이에요`(`src/home/milestone-countdown.ts:190`)로 이관한다.
+    // **판정은 그때도 오늘도 `fixed-tail`이다** — 바뀐 것은 이름뿐이다.
+    particle: "이에요",
     // 둘 다 받침 ㄹ이라 갈리지 않는다.
     tails: ["100일", "첫돌"],
     evidenceFile: "src/home/milestone-countdown.ts",
@@ -295,7 +341,9 @@ const FIXED_TAIL_LEDGER: readonly {
   {
     file: "src/offline/messages.ts",
     expression: "SYNC_STATUS_SYNCING_LABEL",
-    particle: "이",
+    // ⚠️ **두 시점(라운드 93 리뷰 M-6)**: 트랙 B 시점 `"이"` → 오늘 `"이에요"`
+    // (`src/offline/messages.ts:60` · 판정은 그때도 오늘도 `fixed-tail`이다).
+    particle: "이에요",
     tails: ["동기화 중"],
     evidenceFile: "src/offline/messages.ts",
     evidence: ['SYNC_STATUS_SYNCING_LABEL = "동기화 중"']
@@ -303,7 +351,9 @@ const FIXED_TAIL_LEDGER: readonly {
   {
     file: "src/offline/messages.ts",
     expression: "SYNC_ROW_UNSENDABLE_LABEL",
-    particle: "이",
+    // ⚠️ **두 시점(라운드 93 리뷰 M-6)**: 트랙 B 시점 `"이"` → 오늘 `"이에요"`. 이 한 줄이
+    // 자리 **둘**을 진다(`src/offline/messages.ts:135` · `:145` — 같은 값·같은 계사).
+    particle: "이에요",
     tails: ["보낼 수 없는 기록"],
     evidenceFile: "src/offline/messages.ts",
     evidence: ['SYNC_ROW_UNSENDABLE_LABEL = "보낼 수 없는 기록"']
@@ -328,7 +378,11 @@ const FIXED_TAIL_LEDGER: readonly {
   {
     file: "src/reports/monthly-insight.ts",
     expression: "formatKrw(dailyAverageKrw)",
-    particle: "이",
+    // ⚠️⚠️ **두 시점(라운드 93 리뷰 M-6) · 그리고 리뷰의 목록이 하나 모자랐다.** 트랙 B 시점
+    // `"이"` → 오늘 `"이에요"`(`src/reports/monthly-insight.ts:252`). 리뷰가 이관 대상으로 든
+    // 계사는 **넷**이었는데 계사 쌍을 목록에 세우자 이 **다섯째** 자리가 함께 드러났다 —
+    // **손으로 센 넷과 바늘이 낸 다섯을 한 낱말로 적지 않는다.** 판정은 그대로 `fixed-tail`이다.
+    particle: "이에요",
     tails: ["원"],
     evidenceFile: "src/money.ts",
     evidence: ["`${krwFormatter.format(safeAbsoluteAmount(amount))}원`"]
@@ -441,7 +495,11 @@ const BLIND_SPOTS: readonly {
   {
     id: "tail-followed-one-step-only",
     // 한 걸음(정의를 여는 것)으로 꼬리를 확인한 자리 가운데, 근거가 **자리 파일 밖**에 있는 것.
-    measure: 11,
+    // ⚠️ **두 시점(라운드 93 리뷰 M-6)**: 트랙 B 시점 **11** → 오늘 **12**. 늘린 하나는
+    // `src/family/invite-flow.ts`의 계사 자리이고, 그 꼬리의 근거(`co_parent: "공동부모"`)가
+    // `src/family/memberLabels.ts`에 있어 걸음이 파일을 건너간다. **부채가 아니라 자리가 하나
+    // 늘었다는 뜻이다** — 그 자리는 그전까지 어느 판정도 받지 못하고 있었다.
+    measure: 12,
     floor: 1,
     reason:
       "**값의 꼬리가 고정인지는 *한 걸음*만 따라간다** — 이름을 되짚는 것(별칭·매개변수)은 걸음으로 세지 않고, " +
@@ -517,6 +575,32 @@ const BLIND_SPOTS: readonly {
       "그날 이 사각의 실측은 1에서 0으로 내려간다. " +
       "→ **발동됨(라운드 93 통합)**: 메인 세션이 트랙 B·C 커밋 직후 그 핀을 옮겨 적었고, 실측은 0이다. " +
       "아래 it이 두 방향(핀이 오늘의 바이트를 들고, 화면과 계약 어느 쪽에도 옛 바이트가 없다)을 계속 잰다."
+  },
+  {
+    // ⚠️⚠️ 라운드 93 리뷰(M-5)가 연 사각 — **조사가 아닌데 받침으로 갈리는 것**.
+    id: "suffix-not-particle",
+    // **표면 둘**(낭독 라벨 하나 · 보이는 줄 하나)이 이 사각의 크기다. ⚠️ 바이트로 세면 셋인데
+    // (라벨이 삼항이라 같은 문장을 두 갈래로 적는다) **두 수를 한 낱말로 적지 않는다** —
+    // 아래 it이 둘을 각각 소스에서 파생해 든다.
+    measure: 2,
+    floor: 1,
+    reason:
+      "**이 바늘은 조사만 안다.** 그런데 받침으로 갈리는 것은 조사만이 아니다 — 가구를 부르는 " +
+      "**호칭 접미사 `-네`** 도 앞말의 받침으로 갈린다(받침이 있으면 사이에 `이`가 든다: " +
+      "\"지훈**이**네\" · 없으면 바로 붙는다: \"민수네\"). ⚠️⚠️ **오늘 `app/(tabs)/more.tsx`가 " +
+      "사용자가 지은 별명 뒤에 `네`를 리터럴로 붙인다** — `:406-407`이 낭독 라벨(삼항 두 갈래)이고 " +
+      "`:417`이 화면에 보이는 가구 카드이며, 둘 다 `${visibleProfile.nickname}네` 꼴이다. " +
+      "받침 있는 별명이 들어오면 화면과 낭독이 함께 \"지훈네\"가 되고, 그것은 이 트랙이 고친 " +
+      "`}를`·`}과`와 **정확히 같은 병**이다. ⚠️ **오차의 방향은 조용한 쪽(거짓 초록)이다** — " +
+      "`PARTICLE_PAIRS`에 없는 꼴이라 이 계약은 빨개지지 않고 그냥 못 본다. " +
+      "⚠️⚠️ **이 라운드는 값과 조건만 남기고 제품을 고치지 않는다**: `app/(tabs)/more.tsx`는 이 " +
+      "리뷰의 소유 밖이고, 접미사를 고르는 규칙은 조사와 달라 **순수 함수를 하나 더 세우는 걸음**" +
+      "(`nameWithHonorificSuffix` 꼴)이라 축이 갈린다. **다음 라운드의 후보로 이름과 자리를 " +
+      "적어 두는 것이 오늘의 몫이다.**",
+    resumeCondition:
+      "재개 조건(사건형): 받침 있는 별명을 쓰는 가구에서 \"…네\"가 어색하다는 보고가 서거나, " +
+      "`-네` 말고 다른 받침 의존 접미사가 이 모집단에 처음 서는 날 — 그날 이 바늘은 조사 쌍 말고 " +
+      "**접미사 규칙**(사이 `이`의 삽입)을 함께 알아야 하고, 첫 모집단은 오늘의 표면 둘(바이트 셋)이다."
   }
 ];
 
@@ -831,6 +915,38 @@ function concatenatedParticleCount(): number {
   return count;
 }
 
+/**
+ * ⓕ-② **받침에 기대는 *호칭 접미사*가 보간 뒤에 리터럴로 붙은 자리** — 사각 `suffix-not-particle`.
+ *
+ * ⚠️ **조사가 아니라 접미사다.** `-네`("김가네" · "지훈이네")는 조사가 아니라 가구를 부르는
+ * 접미사인데 **받침으로 갈리는 것은 조사와 똑같다**: 받침이 있으면 사이에 `이`가 든다
+ * ("지훈**이**네"), 없으면 바로 붙는다("민수네"). 이 계약의 바늘(`PARTICLE_PAIRS`)은 조사만
+ * 알아서 이 자리를 **한 자리도 보지 못한다.**
+ *
+ * ⚠️⚠️ **그래서 이 자는 값을 grep으로 세지 않고 스윕과 같은 마스킹 규율로 파생한다** —
+ * 주석을 걷어 낸 코드에서 `}` 바로 뒤의 `네`를 센다(그러지 않으면 그 화면의 주석 한 줄이
+ * 자리로 잘못 세어진다 — 오늘 실제로 `more.tsx:400`이 그 꼴을 주석에 적고 있다).
+ */
+type HonorificSuffixSite = {
+  readonly file: string;
+  readonly line: number;
+  /** 그 접미사가 서는 표면 — 낭독 라벨(문자열 안)인가, 보이는 줄(JSX 텍스트)인가. */
+  readonly surface: "낭독 라벨" | "보이는 줄";
+};
+
+function honorificSuffixSites(): HonorificSuffixSite[] {
+  const found: HonorificSuffixSite[] = [];
+  for (const file of sweptFiles) {
+    const code = maskComments(readSweptSource(file));
+    for (let at = code.indexOf("}네"); at !== -1; at = code.indexOf("}네", at + 1)) {
+      // ⚠️ 존재 가드 — 파일 끝에서는 뒤 글자가 없다(`slice`는 빈 문자열을 낸다).
+      const next = at + 2 < code.length ? code[at + 2] : "";
+      found.push({ file, line: lineOf(code, at), surface: next === "<" ? "보이는 줄" : "낭독 라벨" });
+    }
+  }
+  return found;
+}
+
 function koreanLiteralCount(code: string): number {
   return (code.match(/["'`][^"'`]*[가-힣][^"'`]*["'`]/g) ?? []).length;
 }
@@ -930,6 +1046,31 @@ describe("마스킹 — 이 자가 무엇을 걷는지 픽스처가 보여 준�
     expect(readParticle(" 가구")).toBeNull();
     expect(readParticle(" 이하")).toBeNull();
     expect(readParticle("이 있는 날짜")).toBe("이");
+  });
+
+  it("⚠️⚠️ **긴 것 먼저** — 계사 `이에요`가 `이`에 먹히지 않는다 (라운드 93 리뷰 M-6)", () => {
+    // ⚠️ 이 순서가 뒤집히면 아래 넷이 다시 `이`로 읽히고 대장 셋이 유령 줄이 된다.
+    const withBatchimForms = PARTICLE_PAIRS.map((pair) => pair.withBatchim);
+    // 존재 가드 — 둘 다 목록에 있어야 순서를 물을 수 있다(-1끼리 비교하면 항진명제가 된다).
+    expect(withBatchimForms).toContain("이에요");
+    expect(withBatchimForms).toContain("이");
+    expect(withBatchimForms.indexOf("이에요")).toBeLessThan(withBatchimForms.indexOf("이"));
+    // ⚠️ `으로`/`로`는 **같은 목록 안의 순서가 아니라 두 고리의 순서**가 지킨다 —
+    // `readParticle`이 `withBatchim` 전수를 먼저 훑고 그다음에야 `withoutBatchim`을 본다.
+    expect(withBatchimForms).toContain("으로");
+    expect(PARTICLE_PAIRS.map((pair) => pair.withoutBatchim)).toContain("로");
+    expect(readParticle("으로 전환")).toBe("으로");
+
+    // 바늘이 실제로 긴 것을 고른다.
+    expect(readParticle("이에요.")).toBe("이에요");
+    expect(readParticle("예요.")).toBe("예요");
+    // 그리고 `이`는 여전히 `이`다(계사가 아닌 자리를 먹지 않는다).
+    expect(readParticle("이 있는 날짜")).toBe("이");
+
+    // 받침으로 갈린다는 것도 순수 함수가 말한다 — 이 쌍이 이 모집단에 들어온 이유다.
+    expect(expectedParticle("동기화 중", "이에요")).toBe("이에요");
+    expect(expectedParticle("첫돌", "이에요")).toBe("이에요");
+    expect(expectedParticle("소파", "이에요")).toBe("예요");
   });
 });
 
@@ -1191,7 +1332,11 @@ describe("ⓔ 래칫 — 되돌리면 빨개진다", () => {
 });
 
 describe("ⓕ 사각 — 이 스윕이 못 보는 것을 값과 하한으로 적는다", () => {
-  it("사각 여섯이 이유와 재개 조건을 함께 진다 (하한 넷)", () => {
+  // ⚠️ **두 시점**: 트랙 B 커밋 시점 **여섯** → 라운드 93 리뷰(M-5)가 `suffix-not-particle`을
+  // 더해 오늘 **일곱**이다. **하한 넷은 올리지 않는다**(사각을 정직하게 닫는 손이 빨강을 맞지
+  // 않게 하려는 것이고, 늘어난 수는 아래 첫 단언이 아니라 이 주석이 진다).
+  it("사각 일곱이 이유와 재개 조건을 함께 진다 (트랙 B 시점 여섯 · 하한 넷)", () => {
+    // ⚠️ 등호가 아니라 **하한**이다 — 사각을 더 여는 손이 빨강을 맞으면 아무도 열지 않는다.
     expect(BLIND_SPOTS.length).toBeGreaterThanOrEqual(4);
     for (const spot of BLIND_SPOTS) {
       expect(spot.id.length).toBeGreaterThan(0);
@@ -1278,5 +1423,37 @@ describe("ⓕ 사각 — 이 스윕이 못 보는 것을 값과 하한으로 적
     // 화면 쪽도 옮겨 간 그대로다 — 두 파일이 같은 오늘의 문장을 지난다.
     expect(maskComments(readSweptSource("app/settings/children.tsx"))).not.toContain("를 추가하고 선택했어요.");
     expect(spot?.measure).toBe(0);
+  });
+
+  it("⚠️⚠️ 조사가 아닌데 받침으로 갈리는 접미사 `-네`가 이 바늘 밖이라는 사실이 **소스에서 파생된** 값으로 선다 (라운드 93 리뷰 M-5)", () => {
+    const spot = BLIND_SPOTS.find((entry) => entry.id === "suffix-not-particle");
+    expect(spot).toBeDefined();
+    expect(spot?.reason).toContain("거짓 초록");
+    expect(spot?.resumeCondition).toContain("재개 조건(사건형)");
+
+    // ⓐ 실측을 **소스에서 파생한다** — 손 목록도 grep도 아니고 스윕과 같은 마스킹 규율이다.
+    const sites = honorificSuffixSites();
+    expect(sites.length, "바이트로 센 자리 (오늘 셋 — 라벨의 두 갈래 + 보이는 줄)").toBe(3);
+    const surfaces = [...new Set(sites.map((site) => site.surface))].sort();
+    expect(surfaces).toEqual(["낭독 라벨", "보이는 줄"]);
+    expect(surfaces.length, "사각이 든 수는 **표면**의 수다").toBe(spot?.measure ?? -1);
+
+    // ⓑ 그 자리들이 오늘 어디인지 값으로 든다(유령 사각 금지 · 자리는 한 파일이다).
+    expect([...new Set(sites.map((site) => site.file))]).toEqual(["app/(tabs)/more.tsx"]);
+    expect(sites.map((site) => site.line)).toEqual([406, 407, 417]);
+    expect(sites.filter((site) => site.surface === "낭독 라벨").map((site) => site.line)).toEqual([406, 407]);
+    expect(sites.filter((site) => site.surface === "보이는 줄").map((site) => site.line)).toEqual([417]);
+
+    // ⓒ 마스킹이 실제로 일하고 있다 — 같은 파일이 **주석에도** 그 꼴을 적는데 세어지지 않는다.
+    const more = readSweptSource("app/(tabs)/more.tsx");
+    expect(more, "주석의 그 꼴이 오늘도 있다(유령 방지)").toContain('"{닉네임}네"');
+    expect((more.match(/}네/g) ?? []).length, "마스킹 전에는 넷이다").toBe(4);
+
+    // ⓓ 그 꼴이 **이 계약의 모집단 밖**이라는 것도 값으로 — 조사 자리와 한 자리도 겹치지 않는다.
+    expect(particleSites.filter((site) => site.file === "app/(tabs)/more.tsx" && site.line === 417)).toEqual([]);
+    expect(readParticle("네, 프로필 관리"), "`네`는 조사 쌍에 없다").toBeNull();
+
+    // ⓔ 그리고 이 라운드는 **제품을 고치지 않았다** — 오늘의 바이트가 그대로다(소유 밖).
+    expect(maskComments(more)).toContain("${visibleProfile.nickname}네");
   });
 });

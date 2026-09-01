@@ -187,6 +187,22 @@ const SYNC_STATUS_KOREAN_LITERALS = 10 as const;
  *
  * 이 계약이 초록이라는 사실은 *"이 앱에서 사람이 갇히는 자리가 0이다"* 가 아니라 *"이 모집단
  * 안에서 이만큼이 풀렸다"* 는 뜻이다(AB-5의 규율).
+ *
+ * ⚠️⚠️ **자의 꼴에 대하여(라운드 93 리뷰 L-3).** 아래 `measure`는 **손이 적은 수**다. 그 수를
+ * *다른 손이 적은 수*와 맞대면 **상수 대 상수**라 둘이 함께 낡아도 초록이므로, 아래 `it`들은
+ * 이 수를 **반드시 파생값과 맞댄다**(`ledger.*`가 `app/` 트리를 걸어 낸 수). 오늘 그 대조가
+ * 서는 자리는 **셋**이다 — ⓐ(`ledger.noScreenHeader`) · ⓓ(`ledger.noBackByDesign`) ·
+ * ⓔ(`ledger.reExports`).
+ *
+ * ⚠️ **나머지 둘(`hardware-back-and-swipe-are-not-seen` · `source-not-runtime`)은 오늘 파생으로
+ * 닫을 수 없다** — 그 둘이 재는 것은 *소스에 없는 것*(OS 제스처 · 런타임)이라 `app/` 트리를
+ * 아무리 걸어도 수가 나오지 않는다. **그래서 0은 *없다*가 아니라 *셀 수 없다*는 뜻이고**, 각각의
+ * `it`이 그 0 대신 **소스 증인 하나**(`BackHandler` 출현 0건 · 실기기 항목의 존재)를 든다.
+ * ⚠️ **재개 조건(결정형 · 손은 저장소 안): 이 파일의 사각 자를 트랙 D의 꼴로 바꾸는 날** — 라운드
+ * 93 트랙 D(`apps/admin/src/admin-load-error-copy.test.ts:678`)는 사각의 자를 값이 아니라
+ * **`measure: () => number`**(자기 모집단을 그 자리에서 다시 세는 함수)로 지닌다. 그 꼴로 옮기면
+ * 상수 대 상수가 **구조적으로** 불가능해지고, 그날 먼저 물을 것은 *파생이 불가능한 사각(위 둘)의
+ * `measure`를 어떤 꼴로 둘 것인가*이다(`() => 0`은 다시 상수다). 첫 모집단은 이 다섯이다.
  */
 const BLIND_SPOTS: readonly {
   readonly id: string;
@@ -261,6 +277,22 @@ const BLIND_SPOTS: readonly {
     resumeCondition:
       "재개 조건(사건형): `app/onboarding/**`의 파일 하나가 한 줄 재수출을 벗어나는 날 — " +
       "그날 그 파일은 저절로 판정 모집단으로 들어오고(파생이므로 손이 필요 없다), 첫 모집단은 오늘의 다섯이다."
+  },
+  {
+    // ⚠️ 라운드 93 리뷰(L-5)가 값으로 적은 한 줄 — **바늘의 확장자 좁힘**.
+    id: "extension-narrowed-to-tsx",
+    /** 파생값: `app/` 트리의 비테스트 `.ts` 전수(오늘 0 — 실피해가 없다는 사실을 값으로 적는다). */
+    measure: 0,
+    floor: 0,
+    reason:
+      "**이 걷기는 `app/` 트리에서 `.tsx`만 담는다**(`listAppTsxFiles`). expo-router는 라우트를 " +
+      "`.ts`로도 받으므로, 라우트 하나가 `.ts`로 서면 이 계약은 빨개지지 않고 **그냥 못 본다** — " +
+      "오차의 방향은 조용한 쪽(거짓 초록)이다. ⚠️ **오늘 그 실피해는 0건이다**: `app/` 아래 비테스트 " +
+      "`.ts`가 한 파일도 없고(아래 `it`이 그 0을 트리에서 다시 센다), 그래서 이 좁힘은 **오늘 아무 " +
+      "자리도 잃지 않는다.** 0인 것은 규율이 아니라 오늘의 값이다.",
+    resumeCondition:
+      "재개 조건(사건형): `app/` 트리에 비테스트 `.ts`가 처음 서는 날 — 그날 이 수가 0을 벗어나고, " +
+      "걷기의 확장자를 넓힐지(넓히면 라우트가 아닌 순수 모듈도 들어온다) 먼저 판단해야 한다."
   }
 ];
 
@@ -388,6 +420,27 @@ function listAppTsxFiles(): string[] {
         continue;
       }
       if (!entry.name.endsWith(".tsx")) continue;
+      found.push(relative(mobileRoot, path).split(sep).join("/"));
+    }
+  };
+  walk(join(mobileRoot, "app"));
+  return found.sort();
+}
+
+/**
+ * ⓕ-② 사각 `extension-narrowed-to-tsx`의 자 — **`app/` 트리에서 이 바늘이 지나치는 `.ts` 전수**
+ * (라운드 93 리뷰 L-5). 위 걷기가 `.tsx`만 담으므로, 라우트가 `.ts`로 서면 조용히 사라진다.
+ */
+function listAppNonTsxSourceFiles(): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(path);
+        continue;
+      }
+      if (!entry.name.endsWith(".ts") || entry.name.includes(".test.")) continue;
       found.push(relative(mobileRoot, path).split(sep).join("/"));
     }
   };
@@ -740,11 +793,68 @@ describe("라운드 93 A ⓕ 사각 — 이 계약이 못 보는 것을 값과 �
   it("사각 ⓑ — 하드웨어 뒤로가기를 가로채는 화면은 오늘 0건이다(있으면 이 바늘이 넓어져야 한다)", () => {
     const intercepting = ledger.screens.filter((entry) => entry.raw.includes("BackHandler"));
     expect(names(intercepting), "BackHandler를 쓰는 탭 밖 화면").toHaveLength(0);
+    // ⚠️ 사각의 0은 **파생이 아니라 셀 수 없음**이다(L-3) — 소스 증인 하나로만 닫는다:
+    // 가로채기가 0건이라는 사실은 여기서 나오지만, *OS 제스처로 나갈 수 있는가*는 나오지 않는다.
+    const spot = BLIND_SPOTS.find((row) => row.id === "hardware-back-and-swipe-are-not-seen");
+    expect(spot?.measure, "이 사각의 자는 파생값이 아니다 — 0은 *없다*가 아니라 *셀 수 없다*이다").toBe(
+      intercepting.length
+    );
+  });
+
+  it("사각 ⓒ — 소스 대조이지 런타임이 아니다 (0은 파생이 아니라 *셀 수 없음*이다 · L-3)", () => {
+    const spot = BLIND_SPOTS.find((row) => row.id === "source-not-runtime");
+    expect(spot, "사각 ⓒ가 값으로 있어야 한다").toBeDefined();
+    expect(spot?.reason).toContain("실기기");
+    // ⚠️ 이 자리에서 파생할 수 있는 것은 **런타임 확인의 수가 0이라는 사실**뿐이다 —
+    // 이 파일은 렌더도 탐색도 하지 않는다(그 확인은 실기기 항목의 몫이라고 이유가 적는다).
+    expect(spot?.measure).toBe(0);
+    // 소스 증인 — 이 계약은 화면을 **렌더하지도 탐색하지도** 않는다(그래서 런타임 확인이 0이다).
+    // ⚠️ 바늘을 조각으로 잇는다 — 통짜 리터럴로 적으면 이 자가 **자기 자신**을 세어 늘 걸린다
+    // (라운드 93 트랙 D가 `admin-load-error-copy.test.ts`에서 쓴 그 규율을 인용한다).
+    const renderHarnessNeedle = ["@testing-", "library/react-", "native"].join("");
+    const self = source("src/screen-header-back.test.ts");
+    expect(self, "이 계약은 화면을 렌더하지 않는다").not.toContain(renderHarnessNeedle);
+    expect(spot?.resumeCondition).toContain("실기기 확인");
   });
 
   it("사각 ⓓ — 판정 둘째의 이유 수는 그 자리 수와 같다(면제만 남은 줄이 없다)", () => {
     expect(NO_BACK_BY_DESIGN.length).toBe(ledger.noBackByDesign.length);
     const files = new Set(NO_BACK_BY_DESIGN.map((row) => row.file));
     expect(files.size).toBe(NO_BACK_BY_DESIGN.length);
+    // ⚠️ L-3: 사각의 자도 **파생값과** 맞댄다 — 손이 적은 6과 손이 적은 6을 맞대면 둘이 함께
+    // 낡아도 초록이다. 여기서 무는 것은 `ledger.noBackByDesign`(트리를 걸어 낸 수)이다.
+    const spot = BLIND_SPOTS.find((row) => row.id === "second-verdict-reason-is-hand-written-prose");
+    expect(spot, "사각 ⓓ가 값으로 있어야 한다").toBeDefined();
+    expect(spot?.measure, "손이 적은 이유의 수 = 판정 둘째의 **파생된** 자리 수").toBe(
+      ledger.noBackByDesign.length
+    );
+  });
+
+  it("사각 ⓕ — 바늘이 `.tsx`로 좁혀져 있고, 오늘 그 실피해가 0이다 (L-5)", () => {
+    const spot = BLIND_SPOTS.find((row) => row.id === "extension-narrowed-to-tsx");
+    expect(spot, "사각 ⓕ가 값으로 있어야 한다").toBeDefined();
+    // 파생 대조 — 손이 적은 0을 트리를 걸어 낸 0과 맞댄다(상수 대 상수가 아니다 · L-3의 규율).
+    const missed = listAppNonTsxSourceFiles();
+    expect(spot?.measure, `바늘이 지나치는 .ts: ${missed.join(", ")}`).toBe(missed.length);
+    // 그리고 그 걷기가 유령이 아니다 — 같은 트리에서 `.tsx`는 실제로 나온다.
+    expect(ledger.allTsx.length).toBeGreaterThan(0);
+  });
+
+  it("사각 ⓔ — 한 줄 재수출 다섯의 자가 파생값과 맞대어 닫힌다 (L-3)", () => {
+    const spot = BLIND_SPOTS.find((row) => row.id === "one-line-re-export-routes-are-not-screens");
+    expect(spot, "사각 ⓔ가 값으로 있어야 한다").toBeDefined();
+    // ⚠️⚠️ **여기가 L-3이 지목한 자리다** — 종전에는 이 5가 어느 파생값과도 맞대어지지 않아
+    // `app/onboarding/**`이 자라도 이 사각은 조용했다. 오늘은 트리를 걸어 낸 수가 문다.
+    // ⚠️ **여기서만 등호를 고른다**(이 파일의 다른 자리는 하한·상한이다): 이 사각의 재개 조건이
+    // *"그 파일은 저절로 판정 모집단으로 들어온다"* 고 적었으므로, 재수출이 하나 늘거나 줄면
+    // **그 순간 이 줄이 사람을 부르는 것이 옳다** — 하한으로 두면 다시 조용해지고 그것이 L-3이
+    // 지적한 바로 그 병이다. ⚠️ 등호가 무는 쪽은 **손이 적은 수**이지 파생 자체가 아니므로,
+    // 빨개졌을 때 고칠 곳은 위 `BLIND_SPOTS`의 한 줄이다(모집단이 아니다).
+    expect(spot?.measure, "사각이 든 수 = `app/` 트리에서 파생한 한 줄 재수출 라우트 수").toBe(
+      ledger.reExports.length
+    );
+    // 그리고 그 파생이 유령이 아니다 — 다섯이 다 실재하고 전부 판정 모집단 밖이다.
+    expect(ledger.reExports.length).toBeGreaterThanOrEqual(LOWER_BOUNDS.reExports);
+    expect(names(ledger.screens).filter((file) => ledger.reExports.includes(file))).toHaveLength(0);
   });
 });

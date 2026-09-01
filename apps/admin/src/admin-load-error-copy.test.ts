@@ -671,6 +671,15 @@ describe("[다시 시도] 버튼의 렌더 규칙 (라운드 73 트랙 D ⓒ · 
    *
    * ⚠️ **자는 진짜 자여야 한다**(라운드 91 리뷰 L-6): 상수를 돌려주는 자는 저장소가 통째로
    * 바뀌어도 조용하다. 아래 넷은 전부 걷기·소스에서 값을 낸다.
+   *
+   * ⚠️⚠️ **두 시점(라운드 93 리뷰 L-4) — 위 문장은 넷 가운데 셋에만 참이었다.** `copy-correctness`의
+   * 자(`measure`)는 걷지도 읽지도 않고 **이 파일의 상수 `RETRY_NEEDLES`(:457)를 센다.** 그 사실을
+   * 숨기지 않고 여기 적는다. ⚠️ **그런데 이 하나는 그래도 되는 자다** — 그 사각이 묻는 것이
+   * *"저장소가 어떤가"* 가 아니라 **"이 계약의 판정 바늘에 한국어가 들어갔는가"** 이고, 그 바늘은
+   * 정확히 그 상수이기 때문이다(:500의 판정이 같은 상수를 쓴다 — **인용한 사본이 아니라 그 자신**).
+   * 나머지 셋과 갈리는 것은 **모집단이지 규율이 아니다**: 셋은 저장소를 재고 하나는 이 계약을 잰다.
+   * ⚠️ **재개 조건(사건형): 판정 바늘이 이 파일 밖으로 나가는 날**(공용 상수가 되거나 제품 소스에서
+   * 파생되는 날) — 그날 이 자도 걷기가 되어야 하고, 첫 모집단은 오늘의 세 바늘이다.
    */
   type RetryBlindSpot = {
     readonly key: string;
@@ -739,11 +748,53 @@ describe("[다시 시도] 버튼의 렌더 규칙 (라운드 73 트랙 D ⓒ · 
         "(`styles.retryButton`·`loadError.canRetry ? (`·`{loadError.message}`), 배너 문장이 그 화면에 " +
         "맞는 말인지는 이 파일의 **다른 절**(네 갈래 · 폴백 문장 스윕)이 이미 진다. 이 자에게 " +
         "[다시 시도]는 **모양**이지 문구가 아니다",
-      measure: () => RETRY_NEEDLES.filter((needle) => /[가-힣]/.test(needle)).length,
+      // ⚠️⚠️ **이 자는 걷지 않는다 — 이 계약의 상수 `RETRY_NEEDLES`(:457)를 센다**(라운드 93
+      // 리뷰 L-4가 위 머리말과 이 줄을 두 시점으로 맞췄다). 그래도 되는 이유는 **묻는 것이
+      // 저장소가 아니라 이 계약의 판정 바늘이기 때문**이고, 그 바늘은 사본이 아니라 :500의
+      // 판정이 실제로 쓰는 **그 상수 자신**이다. 아래 두 줄이 그 사실을 값으로 못 박는다.
+      measure: () => {
+        // 유령 방지 — 바늘이 비어 있으면 이 자는 아무것도 세지 않고 늘 0이 된다.
+        expect(RETRY_NEEDLES.length, "판정 바늘이 비어 있으면 이 자는 뜻이 없어요").toBeGreaterThan(0);
+        return RETRY_NEEDLES.filter((needle) => /[가-힣]/.test(needle)).length;
+      },
       today: 0,
       resumeCondition:
         "재개 조건(사건형): 판정의 바늘에 한국어가 처음 들어가는 날 — 그날 이 자는 모양이 아니라 문구를 " +
         "묻기 시작한 것이고, 그 축이 이 파일의 다른 절과 겹치는지 먼저 확인해야 한다"
+    },
+    {
+      // ⚠️ 라운드 93 리뷰(L-5)가 값으로 적은 한 줄 — **바늘의 파일 이름 좁힘**.
+      key: "page-entry-name-narrowed-to-tsx",
+      reason:
+        "**걷기가 무는 이름은 `page.tsx` 하나다**(`pageEntryPaths`의 `entry.name !== \"page.tsx\"`). " +
+        "Next는 라우트 진입을 `page.ts`·`page.jsx`·`page.js`로도 받으므로, 진입 하나가 그 이름으로 " +
+        "서면 이 계약은 빨개지지 않고 **그냥 못 본다** — 오차의 방향은 조용한 쪽(거짓 초록)이다. " +
+        "⚠️ **오늘 그 실피해는 0건이다**: `app/**`에 `page.tsx`가 아닌 `page.*`가 한 파일도 없고, " +
+        "아래 자가 그 0을 트리에서 다시 센다. **0인 것은 규율이 아니라 오늘의 값이다.** " +
+        "⚠️ 위 `page-only-needle`과 다른 사각이다 — 그쪽은 *`page`가 아닌 진입 이름*(`error.tsx` 계열)을 " +
+        "말하고 이쪽은 *`page`인데 확장자가 다른 것*을 말한다(두 수를 한 낱말로 적지 않는다)",
+      measure: () => {
+        const found: string[] = [];
+        const walk = (dir: string): void => {
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+            const fullPath = join(dir, entry.name);
+            if (entry.isDirectory()) {
+              walk(fullPath);
+              continue;
+            }
+            if (!/^page\.[a-z]+$/.test(entry.name) || entry.name === "page.tsx") continue;
+            found.push(relative(adminRoot, fullPath).split(sep).join("/"));
+          }
+        };
+        walk(join(adminRoot, "app"));
+        return found.length;
+      },
+      today: 0,
+      resumeCondition:
+        "재개 조건(사건형): `app/**`에 `page.tsx`가 아닌 `page.*`가 처음 서는 날 — 그날 이 수가 0을 " +
+        "벗어나고, 걷기의 이름 바늘을 확장자까지 넓힐지(넓히면 `admin-route-surface.test.ts`의 같은 " +
+        "사실도 함께 넓혀야 한다) 그 라운드가 판단해야 한다"
     }
   ];
 
