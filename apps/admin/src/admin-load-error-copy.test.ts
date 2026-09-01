@@ -116,6 +116,189 @@ const NO_AUTH_BRANCH_CATCH_SITES: Readonly<Record<string, { marker: string; reas
   ]
 };
 
+/** 이 계약 자신(어드민 루트 기준). 아래 자 셋이 자기 소스를 읽는다. */
+const SELF_PATH = "src/admin-load-error-copy.test.ts";
+
+/**
+ * 주석을 걷어낸 소스(코드만). ⚠️ `://`를 지우지 않으려고 줄 주석 앞 한 글자를 함께 문다
+ * (:192의 관례 그대로).
+ *
+ * 아래 파생 셋이 전부 이 자를 쓴다 — 이 저장소의 화면·계약 주석은 자기가 무엇을 고쳤는지
+ * 설명하려고 **옛 문장과 옛 이름을 그대로 인용**하기 때문이다(라운드 87 리뷰 M-3이 이름 붙인 병).
+ */
+function codeWithoutComments(text: string): string {
+  const blank = (chunk: string) => chunk.replace(/[^\n]/g, " ");
+  return text
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, blank)
+    .replace(/\/\*[\s\S]*?\*\//g, blank)
+    .replace(/(^|[^:])\/\/[^\n]*/g, (whole, prefix: string) => prefix + blank(whole.slice(prefix.length)));
+}
+
+/** 한 벌 호출 자리의 판정 셋. 전수가 정확히 이 셋으로 나뉜다(빠지는 자리가 없다). */
+type CopySetVerdict = "copy-set-full" | "copy-set-message" | "no-literal-fallback";
+
+type CopySetCallSite = {
+  readonly path: string;
+  readonly verdict: CopySetVerdict;
+  /** 그 자리가 한 벌에 넘긴 **종전 문장**(리터럴). `no-literal-fallback`이면 빈 문자열이다. */
+  readonly fallback: string;
+};
+
+/** `loadErrorCopy(error, "…")` / `loadErrorMessage(error, "…")` 한 자리를 무는 바늘. */
+function copySetLiteralCalls(code: string): { kind: string; fallback: string }[] {
+  return [...code.matchAll(/loadError(Copy|Message)\(\s*error\s*,\s*"([^"]*)"\s*\)/g)].map((match) => ({
+    kind: match[1],
+    fallback: match[2]
+  }));
+}
+
+/**
+ * **한 벌을 부르는 자리 전수**(라운드 94 트랙 C ⓐ). 손 목록이 아니라
+ * `app/**` + `src/components/**` 걷기(`appScreenPaths`)에서 나온다.
+ *
+ * ⚠️ 셋째 판정은 **호출 수 − 리터럴 인자 자리 수**로 낸다 — 그래야 *두 번째 인자가 리터럴이
+ * 아닌 자리*가 조용히 모집단 밖으로 빠져나가지 않는다(유령 방지).
+ */
+function copySetCallSites(): CopySetCallSite[] {
+  const sites: CopySetCallSite[] = [];
+  for (const path of appScreenPaths()) {
+    const code = codeWithoutComments(readSource(path));
+    const calls = (code.match(/loadError(?:Copy|Message)\(/g) ?? []).length;
+    const literals = copySetLiteralCalls(code);
+    for (const literal of literals) {
+      sites.push({
+        path,
+        verdict: literal.kind === "Copy" ? "copy-set-full" : "copy-set-message",
+        fallback: literal.fallback
+      });
+    }
+    for (let index = literals.length; index < calls; index += 1) {
+      sites.push({ path, verdict: "no-literal-fallback", fallback: "" });
+    }
+  }
+  return sites;
+}
+
+/** 문자열이 코드에 몇 번 적혀 있는가. */
+function literalOccurrences(code: string, phrase: string): number {
+  return code.split(phrase).length - 1;
+}
+
+/**
+ * ⓑ **이미 허용된 리터럴**의 공통 어미. 전부 `loadErrorCopy`/`loadErrorMessage`에 넘기는 종전
+ * 폴백 문장이거나(라운드 73 트랙 D: "그 밖이면 종전 화면별 기본문장 그대로") 오류 경계의 제목이다.
+ *
+ * ⚠️ 바늘을 파생시키지 못하는 이유도 값이다: 모바일은 공용 상수 한 문장(`LOAD_ERROR_NOTICE`)에서
+ * 바늘을 잘라 오지만, 어드민의 폴백은 **화면마다 다른 종전 문장**이다. 공통분모는 어미 한 조각뿐이라
+ * 여기서는 그 조각을 바늘로 쓴다.
+ */
+const FALLBACK_PHRASE = "불러오지 못했어요";
+
+type FallbackPhraseVerdict = "through-copy-set" | "non-site-with-reason" | "restated";
+
+type FallbackPhraseScreen = {
+  readonly path: string;
+  /** 코드에 적힌 어미 출현 수. */
+  readonly occurrences: number;
+  /** 그중 **한 벌에 넘긴 인자**로 적힌 수. */
+  readonly throughCopySet: number;
+  readonly verdict: FallbackPhraseVerdict;
+};
+
+/**
+ * **폴백 어미를 쓰는 화면 전수**(라운드 94 트랙 C ⓑ). 손 목록이 아니라 걷기에서 나온다.
+ *
+ * 자리마다 판정 하나를 소스에서 낸다.
+ *  · `through-copy-set` — 출현이 **전부** 한 벌의 인자다(화면이 그 문장을 되쓰지 않는다).
+ *  · `non-site-with-reason` — 한 벌의 인자가 하나도 아니다(소비 자리가 아니다 · 이유가 값으로 있어야 한다).
+ *  · `restated` — ⚠️ 한 벌에도 넘기고 **따로 또 적었다**(오늘 0건 · 상한).
+ */
+function fallbackPhraseScreens(): FallbackPhraseScreen[] {
+  const screens: FallbackPhraseScreen[] = [];
+  for (const path of appScreenPaths()) {
+    const code = codeWithoutComments(readSource(path));
+    const occurrences = literalOccurrences(code, FALLBACK_PHRASE);
+    if (occurrences === 0) continue;
+    const throughCopySet = copySetLiteralCalls(code).filter((call) =>
+      call.fallback.includes(FALLBACK_PHRASE)
+    ).length;
+    const verdict: FallbackPhraseVerdict =
+      throughCopySet === 0
+        ? "non-site-with-reason"
+        : occurrences === throughCopySet
+          ? "through-copy-set"
+          : "restated";
+    screens.push({ path, occurrences, throughCopySet, verdict });
+  }
+  return screens;
+}
+
+/**
+ * **손 목록의 꼴**(라운드 94 트랙 C ⓒ) — 이름이 아니라 **모양**을 문다.
+ *
+ * 바늘은 AH-1이 저장소 전수를 잴 때 쓴 그것을 **인용**한다(발명이 아니다):
+ * ⓐ `const NAME = [ … ]` 꼴 **배열 상수**이고 ⓑ 그 안에 **경로꼴 문자열이 셋 이상**이다
+ * (경로꼴 = `/`를 지니고 소스·문서 확장자로 끝난다).
+ *
+ * ⚠️ 주석은 걷어낸다 — 이 파일의 두 시점 주석들이 옛 손 목록의 모양을 인용하기 때문이다.
+ * ⚠️⚠️ **괄호를 세지 않고 들여쓰기를 읽는다.** 이 파일에는 `"[다시 시도]"`처럼 괄호가 든 한국어
+ * 문장과 `[^"]` 같은 정규식이 흔해서 괄호 균형이 문자열 안에서 깨진다 — 그래서 선언 줄의
+ * 들여쓰기와 같은 자리에서 `]`로 시작하는 첫 줄을 닫는 줄로 읽는다(이 저장소는 prettier가 그
+ * 모양을 보장한다). ⚠️ **못 찾으면 0이 아니라 그 선언을 세지 않는다**(존재 가드).
+ */
+const HAND_LIST_PATH_FLOOR = 3;
+
+function isPathShapedLiteral(value: string): boolean {
+  return value.includes("/") && /\.(?:tsx|ts|jsx|js|mjs|md|css|json)$/.test(value);
+}
+
+/** 한 조각 안의 경로꼴 문자열 수. */
+function pathShapedLiteralCount(chunk: string): number {
+  return [...chunk.matchAll(/"([^"\\]*)"/g)].map((literal) => literal[1]).filter(isPathShapedLiteral).length;
+}
+
+type HandListDeclaration = { readonly name: string; readonly pathStrings: number };
+
+/**
+ * ⚠️ 바늘의 머리를 조각으로 잇는 이유(:569가 세운 그 이유 그대로): 통짜로 적으면 이 자의
+ * 정규식 자신이 배열 상수 선언처럼 읽혀 이 계약이 자기 꼬리를 문다.
+ */
+function handListHead(): RegExp {
+  return new RegExp(["^(\\s*)con", "st\\s+([A-Za-z_$][\\w$]*)\\s*(?::[^=]*)?=\\s*\\[(.*)$"].join(""));
+}
+
+function handListDeclarations(source: string): HandListDeclaration[] {
+  const lines = codeWithoutComments(source).split("\n");
+  const head = handListHead();
+  const found: HandListDeclaration[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = head.exec(lines[index]);
+    if (!match) continue;
+    const [, indent, name, tail] = match;
+    const collected: string[] = [];
+    const inlineClose = tail.lastIndexOf("]");
+    if (inlineClose >= 0) {
+      collected.push(tail.slice(0, inlineClose));
+    } else {
+      collected.push(tail);
+      const closeLine = new RegExp(`^${indent}\\]`);
+      let closed = false;
+      for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+        if (closeLine.test(lines[cursor])) {
+          closed = true;
+          break;
+        }
+        collected.push(lines[cursor]);
+      }
+      // 존재 가드 — 같은 들여쓰기의 닫는 줄을 못 찾으면 그 선언은 세지 않는다.
+      if (!closed) continue;
+    }
+    const pathStrings = pathShapedLiteralCount(collected.join("\n"));
+    if (pathStrings >= HAND_LIST_PATH_FLOOR) found.push({ name, pathStrings });
+  }
+  return found;
+}
+
 function timeoutError(method = "GET"): AdminApiTimeoutError {
   return new AdminApiTimeoutError(new Error("aborted"), method);
 }
@@ -331,30 +514,96 @@ describe("조회 실패 판정의 소비 집합 (라운드 73 트랙 D ⓐ)", ()
   });
 
   /**
-   * 종전에 이유를 버린 열 자리. 각 화면의 **기본문장은 그대로**여야 하고(종전과 한 글자도
-   * 다르지 않다), 그 문장이 이제 한 벌의 마지막 갈래로만 쓰여야 한다.
+   * 라운드 94 트랙 C ⓐ(GAP-094 #3 · 결정형 16) — **종전 문장 자리의 모집단이 전수가 된다.**
+   *
+   * ⚠️⚠️ **두 시점 — 이 자리의 모집단은 손 목록이었다.**
+   *  · **라운드 73~93 시점**: 여기에는 `discardedSites`라는 **손으로 적은 [경로, 문장] 열 쌍**이
+   *    있었고 그 위 주석은 *"종전에 이유를 버린 **열 자리**"* 라고 적었다. ⚠️⚠️ **그 열은 라운드 73
+   *    *이전*의 역사였지 오늘의 모집단이 아니었다** — 라운드 73 정찰이 센 *"조회 실패 자리 열다섯 중
+   *    열이 구체적인 문장을 통째로 버렸다"* 의 그 열이다. 그 뒤에 들어온 자리 여섯(감사 로그 둘 ·
+   *    카테고리 · 준비템 분류 · 사용자 조회 · MFA 관문)은 **목록 밖에서 조용했다**: 새 화면이 한 벌을
+   *    부르며 종전 문장을 **되써도** 이 목록에 적지 않으면 통과했다.
+   *  · **오늘(라운드 94 트랙 C)**: 모집단이 `app/**` + `src/components/**` 걷기에서 나온
+   *    **한 벌 호출 자리 전수**다(오늘 **16** · 하한). 자리마다 판정 하나를 소스에서 낸다.
+   *    **손 목록은 없다.**
+   *
+   * ⚠️ **손 값 열은 지우지 않고 하한으로 남긴다**(AE-3) — 그리고 오늘의 파생값과 **갈린다**.
+   * 갈린 이유가 위 두 시점이고, **두 수를 한 낱말로 적지 않는다**: *열*은 라운드 73 이전에 이유를
+   * 버렸던 자리 수이고 *열여섯*은 오늘 한 벌을 부르는 자리 수다.
    */
-  it("열 자리의 기본문장이 종전 그대로 남아 있고, 한 벌을 통해서만 쓰인다", () => {
-    const discardedSites: [string, string][] = [
-      ["app/page.tsx", "대시보드 요약을 불러오지 못했어요."],
-      ["app/page.tsx", "상태를 확인하지 못했어요."],
-      ["app/items/page.tsx", "준비템 목록을 불러오지 못했어요."],
-      ["app/links/page.tsx", "상품 링크 목록을 불러오지 못했어요."],
-      ["app/clicks/page.tsx", "클릭 통계를 불러오지 못했어요."],
-      ["app/analytics/page.tsx", "분석 요약을 불러오지 못했어요."],
-      ["app/reviews/page.tsx", "검토 목록을 불러오지 못했어요."],
-      ["app/reviews/page.tsx", "검토 상세 정보를 불러오지 못했어요."],
-      ["app/disclosures/page.tsx", "고지 문구 목록을 불러오지 못했어요."],
-      ["app/users/page.tsx", "관리자 계정 목록을 불러오지 못했어요."]
-    ];
-    expect(discardedSites).toHaveLength(10);
-    for (const [path, fallback] of discardedSites) {
-      const source = readSource(path);
-      expect(source, `${path}: 종전 문장이 그대로 남는다`).toContain(fallback);
-      expect(source, `${path}: 그 문장은 한 벌의 마지막 갈래로만 쓰인다`).toMatch(
-        new RegExp(`loadError(?:Copy|Message)\\(error, "${fallback}"\\)`)
-      );
+  /** 라운드 73~93의 손 값(하한). ⚠️ 오늘의 파생값과 갈리는 수다 — 위 두 시점 참고. */
+  const DISCARDED_SITE_HAND_VALUE = 10;
+  /** 오늘의 전수(하한 · 래칫). ⚠️ **줄지 않는다** — 자리가 늘면 이 수를 올려 적는다. */
+  const COPY_SET_CALL_SITE_FLOOR = 16;
+  /** 한 벌 **전체**를 받는 자리(하한). */
+  const COPY_SET_FULL_FLOOR = 12;
+  /** **문장만** 받는 자리(하한). */
+  const COPY_SET_MESSAGE_FLOOR = 4;
+  /** 두 번째 인자가 리터럴이 아니라 판정에서 파생하지 않는 자리 — **0을 넘지 않는다**(상한). */
+  const NO_LITERAL_FALLBACK_CEILING = 0;
+
+  it("ⓐ 모집단이 손 목록이 아니라 한 벌 호출 자리 전수 걷기다 (오늘 16 · 하한 · 옛 손 값 10)", () => {
+    const sites = copySetCallSites();
+    expect(sites.length, "한 벌 호출 자리가 하한 아래로 내려갔어요").toBeGreaterThanOrEqual(
+      COPY_SET_CALL_SITE_FLOOR
+    );
+    // 옛 손 값도 하한으로 남는다 — 갈린 두 수를 나란히 지고 간다.
+    expect(sites.length, "옛 손 목록이 세던 자리보다 적어졌어요").toBeGreaterThanOrEqual(
+      DISCARDED_SITE_HAND_VALUE
+    );
+    // 걷기가 유령이 아니다 — 소비 집합의 합과 같은 수다(:269가 같은 사실을 자기 축으로 파생한다.
+    // **사본이 아니라 각자 파생**이고, 갈리면 둘 중 하나가 먼저 빨개진다).
+    expect(sites.length, "자리 수 = 소비 집합의 합").toBe(
+      Object.values(LOAD_ERROR_COPY_SITES).reduce((sum, count) => sum + count, 0)
+    );
+    // 걷기가 실제로 화면에서 나온다.
+    for (const site of sites) {
+      expect(site.path, `${site.path}: 걷기가 화면 뿌리 밖을 집었어요`).toMatch(/^(?:app|src\/components)\//);
     }
+    expect(sites.map((site) => site.path), "손 목록에 없던 자리가 모집단 안이다").toContain(
+      "src/components/AdminShell.tsx"
+    );
+    expect(sites.map((site) => site.path)).toContain("app/users-lookup/page.tsx");
+  });
+
+  it("ⓑ 자리마다 판정 하나 — 종전 문장이 그대로 남고 한 벌의 마지막 갈래로만 쓰인다 (되쓰기 0건)", () => {
+    const sites = copySetCallSites();
+    // 판정 셋이 전수를 남김없이 덮는다.
+    const judged = sites.filter((site) =>
+      ["copy-set-full", "copy-set-message", "no-literal-fallback"].includes(site.verdict)
+    );
+    expect(judged.length, "판정이 전수를 덮지 못했어요").toBe(sites.length);
+    expect(
+      sites.filter((site) => site.verdict === "copy-set-full").length,
+      "한 벌 전체를 받는 자리가 하한 아래로 내려갔어요"
+    ).toBeGreaterThanOrEqual(COPY_SET_FULL_FLOOR);
+    expect(
+      sites.filter((site) => site.verdict === "copy-set-message").length,
+      "문장만 받는 자리가 하한 아래로 내려갔어요"
+    ).toBeGreaterThanOrEqual(COPY_SET_MESSAGE_FLOOR);
+
+    for (const site of sites) {
+      if (site.verdict === "no-literal-fallback") continue;
+      const code = codeWithoutComments(readSource(site.path));
+      expect(site.fallback.length, `${site.path}: 종전 문장이 비었어요`).toBeGreaterThan(0);
+      expect(code, `${site.path}: 종전 문장이 그대로 남는다`).toContain(site.fallback);
+      // ⚠️ 그 문장이 코드에 적힌 수 = 한 벌에 넘긴 수. 하나라도 많으면 **화면이 그 문장을 되쓰고**
+      // 있다(손 목록 시절에는 새 자리가 그렇게 되써도 목록 밖이라 조용했다).
+      const asArgument = copySetLiteralCalls(code).filter((call) => call.fallback === site.fallback).length;
+      expect(
+        literalOccurrences(code, site.fallback),
+        `${site.path}: 「${site.fallback}」을 화면이 한 벌 밖에서 또 적었어요`
+      ).toBe(asArgument);
+    }
+  });
+
+  it("ⓑ 셋째 판정은 0건이다 — 판정에서 파생하지 않는 자리 (부정 단언 · 상한)", () => {
+    const sites = copySetCallSites();
+    const undivined = sites.filter((site) => site.verdict === "no-literal-fallback");
+    expect(undivined.map((site) => site.path), "한 벌을 부르는데 종전 문장이 리터럴이 아닌 자리가 생겼어요").toEqual(
+      []
+    );
+    expect(undivined.length).toBeLessThanOrEqual(NO_LITERAL_FALLBACK_CEILING);
   });
 
   /**
@@ -438,9 +687,21 @@ describe("조회 실패 판정의 소비 집합 (라운드 73 트랙 D ⓐ)", ()
  * ⚠️ **어드민 소스 0바이트** — 이 트랙이 만든 것은 **세는 자 하나**이고 화면·컴포넌트·`lib`은
  * 한 바이트도 고치지 않았다(아래 ⓔ가 그것을 값으로 문다).
  *
- * ⚠️ **재개 조건(결정형 · 축: 이 파일의 *다른* 손 목록)**: 같은 파일의 `discardedSites`(열)와
- * `FALLBACK_PHRASE_OCCURRENCES`(열둘)도 손으로 적은 모집단이다 — **한 트랙이 한 축을 진다**는
- * 규율 때문에 이 라운드는 열지 않았다. 그 둘을 누가 전수 파생으로 옮기는지가 정해지는 날 재개한다.
+ * ⚠️ **재개 조건(결정형 · 손은 저장소 안 · 축: 이 파일의 *다른* 손 목록)**: 같은 파일의
+ * `discardedSites`(열)와 `FALLBACK_PHRASE_OCCURRENCES`(열둘)도 손으로 적은 모집단이다 —
+ * **한 트랙이 한 축을 진다**는 규율 때문에 이 라운드는 열지 않았다. 그 둘을 누가 전수 파생으로
+ * 옮기는지가 정해지는 날 재개한다.
+ *
+ * ⚠️⚠️ **그 조건은 발동했다 — 두 시점으로 적는다(지우지 않는다 · AE-3).**
+ *  · **세워진 날**: 라운드 93 트랙 D. 위 문단이 그날 적힌 그대로다.
+ *  · **소진된 날**: 라운드 94 트랙 C(GAP-094 #3 · 정찰 결정형 표 **#16**). 둘 다 전수 파생으로
+ *    옮겼다 — `discardedSites`는 **한 벌 호출 자리 전수**(`copySetCallSites` · 오늘 **16** ·
+ *    옛 손 값 **10**은 하한으로 남고 **갈린다**), `FALLBACK_PHRASE_OCCURRENCES`는 **폴백 어미를
+ *    쓰는 화면 전수**(`fallbackPhraseScreens` · 오늘 **화면 12 · 출현 13** · 옛 손 값 **열둘**과
+ *    **일치**한다). ⚠️ **두 대조의 결과가 서로 다르다는 것이 이 소진의 값이다**: 하나는 손 값이
+ *    오늘의 전수와 갈렸고(그래서 여섯 자리가 목록 밖에서 조용했다) 하나는 맞았다.
+ *  · **함께 옮긴 것**: `handListNeedle`이 **이름 바늘에서 꼴 바늘로**(아래 ⓐ 참고 —
+ *    AH-1이 이름 붙인 *주석 대 자*의 병을 이 파일에서 닫는다).
  */
 
 /** 오늘의 전수(하한 · 래칫). ⚠️ **줄지 않는다** — 화면이 늘면 이 수를 올려 적는다. */
@@ -565,10 +826,25 @@ describe("[다시 시도] 버튼의 렌더 규칙 (라운드 73 트랙 D ⓒ · 
     const judged = Object.values(scan.byVerdict).reduce((sum, paths) => sum + paths.length, 0);
     expect(judged, "판정이 전수를 덮지 못했어요").toBe(scan.paths.length);
 
-    // ⚠️ 그리고 이 절에 **손 목록이 다시 서지 않는다**(라운드 93 트랙 D가 걷어낸 그 모양).
-    // 바늘을 조각으로 잇는 이유: 통짜로 적으면 이 줄 자신이 그 바늘에 걸려 늘 빨갛다.
-    const handListNeedle = ["const RETRY", "_BUTTON_SCREENS = ["].join("");
-    expect(readSource("src/admin-load-error-copy.test.ts"), "손 목록이 다시 섰어요").not.toContain(handListNeedle);
+    // ⚠️ 그리고 **이 파일 어디에도 손 목록이 다시 서지 않는다**(라운드 93 트랙 D가 걷어낸 그 모양).
+    //
+    // ⚠️⚠️ **두 시점 — 이 자는 이름 바늘이었다**(라운드 94 트랙 C ⓒ).
+    //  · **라운드 93 시점**: 바늘은 `["const RETRY", "_BUTTON_SCREENS = ["].join("")` — **이름 하나**였다.
+    //    그런데 바로 위 주석은 *"손 목록이 다시 서지 않는다"* 고 **부류 전체**를 두고 말했다.
+    //    **자가 주석보다 좁았다**: 손 목록이 **다른 이름으로 다시 서면 조용히 통과했고**, 실제로
+    //    그날 같은 파일에 `discardedSites`(경로 열 줄)가 서 있었는데 이 바늘에 걸리지 않았다.
+    //    ⚠️ AH-1이 이름 붙인 병(*주석이 모집단 전체를 두고 단언하는데 세는 자가 없다*)이
+    //    *주석 대 목록*이 아니라 **주석 대 자**로 한 겹 안쪽에서 다시 난 자리다.
+    //  · **오늘(라운드 94 트랙 C)**: 바늘이 **꼴**이다 — `const NAME = [ … ]` 배열 상수 가운데
+    //    경로꼴 문자열을 셋 이상 지닌 것을 **이 파일 전체**에서 센다(`handListDeclarations`).
+    //    **이름은 판정에 들어가지 않는다** — 이름을 바꿔 다시 세워도 걸린다.
+    // ⚠️ 옛 이름 바늘은 지우지 않고 아래에 함께 남긴다(AE-3). 둘 다 오늘 참이다.
+    expect(
+      handListDeclarations(readSource(SELF_PATH)).map((declaration) => declaration.name),
+      "손 목록이 다시 섰어요"
+    ).toEqual([]);
+    const legacyHandListNeedle = ["const RETRY", "_BUTTON_SCREENS = ["].join("");
+    expect(readSource(SELF_PATH), "옛 이름으로 손 목록이 다시 섰어요").not.toContain(legacyHandListNeedle);
   });
 
   it("ⓑ 판정 하나 — [다시 시도]가 선다: 버튼도 문장도 canRetry에서 파생된다 (오늘 10 · 하한)", () => {
@@ -1232,25 +1508,29 @@ describe("옛/직접 리터럴 부정 단언 스윕 (모바일 messages.test.ts�
   });
 
   /**
-   * ⓑ 이미 **허용된** 리터럴. 전부 `loadErrorCopy`/`loadErrorMessage`에 넘기는 종전 폴백
-   * 문장이거나(라운드 73 트랙 D: "그 밖이면 종전 화면별 기본문장 그대로") 오류 경계의 제목이다.
+   * 라운드 94 트랙 C ⓑ(GAP-094 #3 · 결정형 16) — **폴백 어미 모집단이 전수가 된다.**
+   *
+   * ⚠️⚠️ **두 시점 — 이 자리의 모집단도 손 목록이었다.**
+   *  · **라운드 75~93 시점**: `FALLBACK_PHRASE_OCCURRENCES`라는 **손으로 적은 [화면, 수] 열두 줄**이
+   *    있었고, 아래 단언은 걷기의 결과를 그 손 값에 `toEqual`로 못 박았다. ⚠️ 그 등호는 **자를 핀으로
+   *    쓰는 모양**이라 두 방향으로 뜻이 갈렸다: 화면이 그 어미를 한 번 더 적어도 빨갛고(옳다),
+   *    화면 하나가 이름을 바꾸거나 새로 서기만 해도 빨갛다(옳지 않다 — 무해한 이동에도 손이 든다).
+   *    그리고 **무엇이 옳은 수인지는 그 목록 자신 말고 아무 데도 없었다.**
+   *  · **오늘(라운드 94 트랙 C)**: 모집단이 걷기(`fallbackPhraseScreens`)이고, **옳은 수를 소스가
+   *    낸다** — 그 어미의 출현은 *한 벌에 넘긴 인자*이거나, *소비 자리가 아닌 이유가 적힌 자리*다.
+   *    **손 목록은 없다.**
+   *
+   * ⚠️ **손 값 열둘은 지우지 않고 하한으로 남긴다**(AE-3). ⚠️⚠️ **그리고 이쪽 대조는 *맞았다* —
+   * 오늘의 파생 화면 수도 열둘이다.** 윗 절의 `discardedSites`(손 열 ↔ 파생 열여섯)와 **결과가
+   * 갈린다**: 한 손 목록은 오늘의 전수와 맞았고 한 손 목록은 틀렸다. **두 대조를 한 낱말로
+   * 적지 않는다.**
    */
-  const FALLBACK_PHRASE = "불러오지 못했어요";
-
-  const FALLBACK_PHRASE_OCCURRENCES: Readonly<Record<string, number>> = {
-    "app/analytics/page.tsx": 1,
-    "app/audit-logs/page.tsx": 1,
-    "app/categories/page.tsx": 1,
-    "app/clicks/page.tsx": 1,
-    "app/disclosures/page.tsx": 1,
-    "app/error.tsx": 1,
-    "app/items/page.tsx": 1,
-    "app/links/page.tsx": 1,
-    "app/page.tsx": 1,
-    "app/reviews/page.tsx": 2,
-    "app/users/page.tsx": 1,
-    "src/components/AdminShell.tsx": 1
-  };
+  /** 라운드 75~93의 손 값(하한 · 화면 수). ⚠️ 오늘의 파생값과 **일치**한다. */
+  const FALLBACK_PHRASE_SCREEN_FLOOR = 12;
+  /** 오늘의 출현 합(하한 · 래칫). ⚠️ 화면 수와 **다른 수다** — 검토 화면이 둘을 쓴다. */
+  const FALLBACK_PHRASE_OCCURRENCE_FLOOR = 13;
+  /** 한 벌에도 넘기고 따로 또 적은 화면 — **0을 넘지 않는다**(상한). */
+  const FALLBACK_PHRASE_RESTATED_CEILING = 0;
 
   /** 한 벌의 소비 자리가 아닌데 그 어미를 쓰는 곳과 그 이유. */
   const FALLBACK_PHRASE_NON_SITE_SCREENS: Readonly<Record<string, string>> = {
@@ -1259,25 +1539,290 @@ describe("옛/직접 리터럴 부정 단언 스윕 (모바일 messages.test.ts�
       "렌더 자체가 던진 예외를 받는 곳이라 AdminApiError가 없고, 한 벌이 물어볼 상태 코드도 없다."
   };
 
-  it("ⓑ 허용된 폴백 문장의 화면별 출현 수가 값과 정확히 일치한다", () => {
-    expect(screenPhraseCounts(FALLBACK_PHRASE)).toEqual(FALLBACK_PHRASE_OCCURRENCES);
+  it("ⓑ 폴백 어미의 모집단이 손 목록이 아니라 화면 전수 걷기다 (오늘 화면 12 · 출현 13 · 하한)", () => {
+    const screens = fallbackPhraseScreens();
+    expect(screens.length, "그 어미를 쓰는 화면 수가 하한 아래로 내려갔어요").toBeGreaterThanOrEqual(
+      FALLBACK_PHRASE_SCREEN_FLOOR
+    );
+    const occurrences = screens.reduce((sum, screen) => sum + screen.occurrences, 0);
+    expect(occurrences, "그 어미의 출현 합이 하한 아래로 내려갔어요").toBeGreaterThanOrEqual(
+      FALLBACK_PHRASE_OCCURRENCE_FLOOR
+    );
+    // ⚠️ 화면 수와 출현 합은 **다른 수다**(검토 화면이 둘을 쓴다) — 한 낱말로 적지 않는다.
+    expect(occurrences, "출현 합이 화면 수보다 적어질 수는 없어요").toBeGreaterThan(screens.length);
+    // 걷기가 유령이 아니다.
+    expect(appScreenPaths().length, "화면 걷기가 비었어요").toBeGreaterThan(10);
+    for (const screen of screens) {
+      expect(screen.occurrences, `${screen.path}: 출현이 0인데 모집단에 들어왔어요`).toBeGreaterThan(0);
+    }
+    // 판정 셋이 전수를 남김없이 덮는다.
+    const judged = screens.filter((screen) =>
+      ["through-copy-set", "non-site-with-reason", "restated"].includes(screen.verdict)
+    );
+    expect(judged.length, "판정이 전수를 덮지 못했어요").toBe(screens.length);
   });
 
   it("ⓑ 그 문장을 쓰는 화면은 소비 목록 안이거나, 밖인 이유가 값으로 적혀 있다", () => {
-    for (const [path, count] of Object.entries(FALLBACK_PHRASE_OCCURRENCES)) {
-      if (Object.hasOwn(FALLBACK_PHRASE_NON_SITE_SCREENS, path)) {
-        expect(
-          FALLBACK_PHRASE_NON_SITE_SCREENS[path].trim().length,
-          `${path}가 소비 목록 밖인 이유`
-        ).toBeGreaterThan(30);
-        expect(Object.keys(LOAD_ERROR_COPY_SITES), `${path}는 소비 목록 밖이다`).not.toContain(path);
+    for (const screen of fallbackPhraseScreens()) {
+      if (screen.verdict === "non-site-with-reason") {
+        const reason = FALLBACK_PHRASE_NON_SITE_SCREENS[screen.path];
+        expect(reason, `${screen.path}: 소비 자리가 아닌데 이유가 없어요`).toBeTruthy();
+        expect(reason.trim().length, `${screen.path}가 소비 목록 밖인 이유`).toBeGreaterThan(30);
+        expect(Object.keys(LOAD_ERROR_COPY_SITES), `${screen.path}는 소비 목록 밖이다`).not.toContain(screen.path);
         continue;
       }
-      expect(Object.keys(LOAD_ERROR_COPY_SITES), `${path}는 소비 목록 안이다`).toContain(path);
+      expect(Object.keys(LOAD_ERROR_COPY_SITES), `${screen.path}는 소비 목록 안이다`).toContain(screen.path);
       // 폴백 문장은 자리 하나당 하나다 — 자리 수보다 많으면 화면이 그 문장을 되쓰고 있다.
-      expect(count, `${path}의 폴백 문장 수가 소비 자리 수를 넘지 않는다`).toBeLessThanOrEqual(
-        LOAD_ERROR_COPY_SITES[path]
+      expect(screen.occurrences, `${screen.path}의 폴백 문장 수가 소비 자리 수를 넘지 않는다`).toBeLessThanOrEqual(
+        LOAD_ERROR_COPY_SITES[screen.path]
       );
+    }
+    // 낡은 이유가 남지 않는다 — 목록의 모든 열쇠가 오늘의 전수 안에 실재하고, 오늘도 그 판정이다.
+    const nonSites = fallbackPhraseScreens().filter((screen) => screen.verdict === "non-site-with-reason");
+    for (const path of Object.keys(FALLBACK_PHRASE_NON_SITE_SCREENS)) {
+      expect(nonSites.map((screen) => screen.path), `${path}: 이유는 있는데 그 판정이 아니에요`).toContain(path);
+    }
+  });
+
+  it("ⓑ 셋째 판정은 0건이다 — 한 벌에 넘기고도 그 문장을 또 적은 화면 (부정 단언 · 상한)", () => {
+    const restated = fallbackPhraseScreens().filter((screen) => screen.verdict === "restated");
+    expect(
+      restated.map((screen) => `${screen.path}(${screen.occurrences}/${screen.throughCopySet})`),
+      "화면이 폴백 문장을 한 벌 밖에서 또 적었어요"
+    ).toEqual([]);
+    expect(restated.length).toBeLessThanOrEqual(FALLBACK_PHRASE_RESTATED_CEILING);
+  });
+});
+
+/**
+ * 라운드 94 트랙 C ⓒ(GAP-094 #3 · 결정형 16) — **손 목록 재등장 바늘이 이름에서 꼴로 옮겨 간다.**
+ *
+ * ⚠️⚠️ 이 절이 세우는 것은 **자를 재는 자**다. 위 `[다시 시도]` 절의 ⓐ가 `handListDeclarations`로
+ * *"이 파일에 손 목록이 다시 서지 않는다"* 를 묻는데, **그 바늘 자신이 무엇을 보고 무엇을 못 보는지**는
+ * 그 자리에서 잴 수 없다(같은 자로 자기를 재면 늘 초록이다). 그래서 여기서 픽스처로 재고, 못 보는
+ * 것은 사각으로 값과 재개 조건과 함께 적는다.
+ *
+ * ⚠️ **어드민 소스 0바이트** — 이 트랙이 만든 것은 **파생 셋과 바늘 하나**이고 화면·컴포넌트·`lib`은
+ * 한 바이트도 고치지 않았다(아래 ⓔ가 그것을 값으로 문다).
+ */
+describe("손 목록 재등장 바늘: 이름이 아니라 꼴 (라운드 94 트랙 C ⓒ)", () => {
+  it("ⓒ 이름을 바꿔 다시 세운 손 목록을 이 바늘이 잡는다 (꼴 바늘 · 픽스처)", () => {
+    // ⚠️ 조각으로 잇는다 — 통짜로 적으면 이 픽스처 자신이 이 파일에서 손 목록으로 잡힌다.
+    // (선언 머리도, 경로꼴 문자열도 둘 다 조각이다: `"app/x/page"`는 확장자가 없어 경로꼴이 아니고
+    //  `".tsx"`는 `/`가 없어 경로꼴이 아니다 — 이어 붙인 뒤에야 경로가 된다.)
+    const decl = ["con", "st ANY_OTHER_NAME = ["].join("");
+    const quoted = (value: string) => `"${value}"`;
+    const pagePath = (name: string) => "app/" + name + "/page" + ".tsx";
+    const renamed = [
+      decl,
+      `  ${quoted(pagePath("a"))},`,
+      `  ${quoted(pagePath("b"))},`,
+      `  ${quoted(pagePath("c"))}`,
+      "];"
+    ].join("\n");
+
+    const caught = handListDeclarations(renamed);
+    expect(caught.map((declaration) => declaration.name), "이름을 바꾼 손 목록을 놓쳤어요").toEqual([
+      "ANY_OTHER_NAME"
+    ]);
+    expect(caught[0].pathStrings).toBe(3);
+
+    // 셋 문턱 아래는 손 목록이 아니다(AH-1의 바늘을 인용한 그대로 — 발명이 아니다).
+    const twoOnly = [decl, `  ${quoted(pagePath("a"))}, ${quoted(pagePath("b"))}`, "];"].join("\n");
+    expect(handListDeclarations(twoOnly), "경로 둘짜리를 손 목록으로 셌어요").toEqual([]);
+
+    // 경로꼴이 아닌 문자열 배열도 아니다(스텝 이름·판정 바늘 따위).
+    const notPaths = [decl, '  "one", "two", "three"', "];"].join("\n");
+    expect(handListDeclarations(notPaths), "경로가 아닌 배열을 손 목록으로 셌어요").toEqual([]);
+
+    // 주석 속의 옛 손 목록은 세지 않는다 — 이 파일의 두 시점 주석이 그 모양을 인용한다.
+    const inComment = ["/*", renamed, "*/"].join("\n");
+    expect(handListDeclarations(inComment), "주석 속 인용을 손 목록으로 셌어요").toEqual([]);
+
+    // 그리고 옛 **이름 바늘**은 이 모양을 못 본다 — 그것이 이 걸음의 이유다(두 시점).
+    const legacyHandListNeedle = ["const RETRY", "_BUTTON_SCREENS = ["].join("");
+    expect(renamed, "옛 이름 바늘이 이 모양을 잡을 리 없다").not.toContain(legacyHandListNeedle);
+  });
+
+  /**
+   * ⓖ **사각** — 못 보는 것을 값·이유·재개 조건으로 적는다(AD-5).
+   *
+   * ⚠️ **자는 진짜 자여야 한다**(라운드 91 리뷰 L-6): 아래 넷은 전부 이 파일의 소스나 저장소에서
+   * 값을 낸다 — 상수를 돌려주는 자는 하나도 없다.
+   */
+  type HandListBlindSpot = {
+    readonly key: string;
+    readonly reason: string;
+    readonly measure: () => number;
+    readonly today: number;
+    readonly resumeCondition: string;
+  };
+
+  const HAND_LIST_BLIND_SPOTS: readonly HandListBlindSpot[] = [
+    {
+      key: "array-const-only",
+      reason:
+        "바늘이 무는 것은 **배열 상수**다(`const NAME = [ … ]`) — 경로를 **열쇠로 쥔 객체 상수**는 " +
+        "밖이다. 그런데 이 라운드가 걷어낸 둘 중 하나(`FALLBACK_PHRASE_OCCURRENCES`)가 정확히 그 " +
+        "모양이었다. ⚠️ 문턱을 배열 밖으로 넓히지 않은 이유는 **이 파일의 관례와 부딪히기 때문**이다: " +
+        "이유가 붙은 `Record<경로, 이유>` 다섯(`NON_SCREEN_SOURCE_ROOTS`·`NO_AUTH_BRANCH_CATCH_SITES`·" +
+        "`RETRY_ABSENT_REASONS`·`HAND_COPIED_SHAPE_OCCURRENCES`·`FALLBACK_PHRASE_NON_SITE_SCREENS`)는 " +
+        "손 목록이 아니라 **판정**이고, 그것을 빨갛게 만들면 관례가 무너진다. 대신 **경로꼴 문자열을 " +
+        "셋 이상 지닌 객체 상수**를 여기서 센다 — 오늘 0이고, 서는 날 이 줄이 먼저 빨개진다",
+      measure: () => {
+        // ⚠️ 배열 쪽과 같은 규율 — 괄호를 세지 않고 들여쓰기를 읽는다(존재 가드 포함).
+        const lines = codeWithoutComments(readSource(SELF_PATH)).split("\n");
+        const head = new RegExp(["^(\\s*)con", "st\\s+[A-Za-z_$][\\w$]*\\s*(?::[^=]*)?=\\s*\\{(.*)$"].join(""));
+        let found = 0;
+        for (let index = 0; index < lines.length; index += 1) {
+          const match = head.exec(lines[index]);
+          if (!match) continue;
+          const [, indent, tail] = match;
+          const collected: string[] = [];
+          const inlineClose = tail.lastIndexOf("}");
+          if (inlineClose >= 0) {
+            collected.push(tail.slice(0, inlineClose));
+          } else {
+            collected.push(tail);
+            const closeLine = new RegExp(`^${indent}\\}`);
+            let closed = false;
+            for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+              if (closeLine.test(lines[cursor])) {
+                closed = true;
+                break;
+              }
+              collected.push(lines[cursor]);
+            }
+            if (!closed) continue;
+          }
+          if (pathShapedLiteralCount(collected.join("\n")) >= HAND_LIST_PATH_FLOOR) found += 1;
+        }
+        return found;
+      },
+      today: 0,
+      resumeCondition:
+        "재개 조건(결정형 · 손은 저장소 안): 이유가 붙은 판정 맵이 경로 셋 이상으로 자라는 날 — 그날 " +
+        "먼저 물을 것은 *문턱을 올릴 것인가 판정 맵에 파생 대조를 붙이게 할 것인가*이고, 그것이 " +
+        "AH-1이 P3에 남긴 *단언 꼴을 관례로 정하는* 질문 자체다"
+    },
+    {
+      key: "inline-array-not-const",
+      reason:
+        "바늘은 **상수 선언**만 본다 — `for (const path of [\"…\", \"…\", \"…\"])` 처럼 그 자리에서 " +
+        "펼쳐지는 배열은 밖이다. ⚠️ **오늘 이 파일에 그런 자리가 둘 있다**(재시도 라벨 앵커 셋 · " +
+        "역할 안내 무접촉 핀 셋). 둘 다 **모집단이 아니라 핀**이라 이 라운드가 건드리지 않았고, " +
+        "그 사실을 숨기지 않고 값으로 적는다 — 손 목록이 그 꼴로 다시 서면 이 바늘은 조용하다. " +
+        "⚠️ 오차의 방향은 조용한 쪽(거짓 초록)이다. ⚠️ 이 자 자신도 **한 줄에 펼쳐진 것만** 센다 — " +
+        "여러 줄로 펼친 인라인 배열은 이 수에도 안 잡힌다(사각의 사각이고, 오늘 그 꼴은 0건이다)",
+      measure: () => {
+        const head = handListHead();
+        return codeWithoutComments(readSource(SELF_PATH))
+          .split("\n")
+          .filter((line) => line.includes("[") && !head.test(line))
+          .filter((line) => pathShapedLiteralCount(line) >= HAND_LIST_PATH_FLOOR).length;
+      },
+      today: 2,
+      resumeCondition:
+        "재개 조건(사건형): 그 꼴이 **핀이 아니라 모집단**으로 쓰이는 날(순회해서 자리마다 판정을 " +
+        "내는 자리가 되는 날) — 그날 바늘을 상수 선언 밖으로 넓혀야 하고, 넓히면 오늘의 핀 둘도 " +
+        "함께 전수 파생으로 옮겨야 한다"
+    },
+    {
+      key: "self-file-only",
+      reason:
+        "바늘이 보는 파일은 **이 계약 하나**다. 어드민의 다른 계약(`admin-route-surface.test.ts` · " +
+        "`admin-write-error-copy.test.ts` · `admin-landmark-current.test.ts` …)에 손 목록이 서면 이 " +
+        "자는 조용하다 — 저장소 전수를 재는 축은 **AH-1의 것이고 아직 저장소에 자가 없다**(오늘 " +
+        "손이 낸 수로 자리 61 · 파일 33). ⚠️ 이 자가 재는 것은 그 사실 자체다: 어드민 `src/**`의 " +
+        "계약 파일 가운데 이 바늘이 **보지 않는** 파일 수(오늘 41 = 전수 42 − 자기 하나). " +
+        "⚠️ **등호다** — 어드민에 계약이 하나 더 서면 이 줄이 먼저 빨개지고, **그 라운드가 이 수를 " +
+        "올려 적으면서 *그 파일도 손 목록을 지녔는가*를 한 번 보게 된다**(이동 의무는 그 라운드의 것이다)",
+      measure: () => {
+        const found: string[] = [];
+        const walk = (dir: string): void => {
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+            const fullPath = join(dir, entry.name);
+            if (entry.isDirectory()) {
+              walk(fullPath);
+              continue;
+            }
+            if (!entry.name.endsWith(".test.ts")) continue;
+            const relativePath = relative(adminRoot, fullPath).split(sep).join("/");
+            if (relativePath !== SELF_PATH) found.push(relativePath);
+          }
+        };
+        walk(join(adminRoot, "src"));
+        return found.length;
+      },
+      today: 41,
+      resumeCondition:
+        "재개 조건(결정형 · 손은 저장소 안): 손 목록 재등장 바늘이 **한 계약의 것이 아니라 저장소의 " +
+        "것**이 되는 날 — 그날 이 자는 `packages/test-utils`로 옮겨 가야 하고, 첫 모집단은 AH-1이 " +
+        "손으로 센 자리 61(파일 33)이다"
+    },
+    {
+      key: "shape-not-meaning",
+      reason:
+        "**꼴이지 뜻이 아니다.** 이 바늘이 아는 것은 *경로꼴 문자열 셋 이상이 배열 상수로 서 있다*까지 " +
+        "이고, 그 배열이 **모집단으로 쓰이는가**(순회되는가)는 묻지 않는다 — AH-1의 바늘은 순회까지 " +
+        "보지만 이 자는 보지 않는다. ⚠️ 오차의 방향은 **시끄러운 쪽**(거짓 빨강)이라 안전하다: 쓰지도 " +
+        "않는 경로 배열을 세워도 빨개지고, 그때 그 라운드가 *왜 이것은 모집단이 아닌가*를 적게 된다. " +
+        "⚠️ 이 자가 재는 것은 오늘 이 파일에서 그 거짓 빨강이 몇 건인가다",
+      measure: () => handListDeclarations(readSource(SELF_PATH)).length,
+      today: 0,
+      resumeCondition:
+        "재개 조건(사건형): 순회하지 않는 경로 배열이 이 파일에 처음 서는 날 — 그날 바늘에 *순회되는가*를 " +
+        "더할지, 아니면 그 배열을 걷어낼지 그 라운드가 판단해야 한다"
+    }
+  ];
+
+  it("ⓖ 사각마다 이유와 재개 조건이 있다 (빈 이유 금지 · 최소 넷)", () => {
+    expect(HAND_LIST_BLIND_SPOTS.length).toBeGreaterThanOrEqual(4);
+    expect(new Set(HAND_LIST_BLIND_SPOTS.map((spot) => spot.key)).size).toBe(HAND_LIST_BLIND_SPOTS.length);
+    for (const spot of HAND_LIST_BLIND_SPOTS) {
+      expect(spot.reason.length, `${spot.key}: 이유가 비어 있어요`).toBeGreaterThan(40);
+      expect(spot.resumeCondition.length, `${spot.key}: 재개 조건이 비어 있어요`).toBeGreaterThan(20);
+      expect(spot.resumeCondition, `${spot.key}: 재개 조건이 형을 밝히지 않았어요`).toMatch(
+        /재개 조건\((사건형|결정형)/
+      );
+    }
+  });
+
+  it("ⓖ 사각의 값이 오늘도 그대로다 (유령 사각 금지)", () => {
+    for (const spot of HAND_LIST_BLIND_SPOTS) {
+      expect(spot.measure(), `${spot.key}: 오늘 다시 잰 값이 갈렸어요`).toBe(spot.today);
+    }
+  });
+
+  /**
+   * ⓓ **AH-1 정합** — *주석이 부류 전체를 두고 단언하면 그 옆의 자도 부류 전체를 재야 한다.*
+   *
+   * ⚠️⚠️ **두 시점.** 라운드 93 시점의 `:568` 주석은 *"이 절에 손 목록이 다시 서지 않는다"* 라고
+   * **부류 전체**를 두고 말했는데 `:570`의 자는 `RETRY_BUTTON_SCREENS`라는 **이름 하나**였다.
+   * 오늘은 주석도 자도 같은 것을 가리킨다 — **이 파일 전체 · 꼴**. 아래가 그 정합을 값으로 문다.
+   */
+  it("ⓓ 주석이 두고 말하는 부류와 자가 재는 부류가 같다 (AH-1 정합)", () => {
+    const self = readSource(SELF_PATH);
+    // 자가 재는 부류: 이 파일 전체의 배열 상수(이름이 아니다).
+    expect(handListDeclarations(self).map((declaration) => declaration.name)).toEqual([]);
+    // 주석이 두고 말하는 부류: 같은 문장이 자 바로 위에 있고, **이름을 들지 않는다**.
+    expect(self, "부류 전체를 두고 말하는 그 문장").toContain("이 파일 어디에도 손 목록이 다시 서지 않는다");
+    // 그리고 옛 자의 이름은 지워지지 않고 두 시점으로 남아 있다(AE-3).
+    expect(self, "옛 이름 바늘의 두 시점이 지워졌어요").toContain("이 자는 이름 바늘이었다");
+  });
+
+  it("ⓔ 이 트랙은 어드민 소스를 0바이트 고쳤다 (부정 단언)", () => {
+    // ⚠️ 재는 것은 **이 트랙의 손자국이 화면에 없다**는 것이다: 라운드 94 트랙 C는 파생 셋과 바늘
+    // 하나만 세웠으므로 어드민 소스 어디에도 이 라운드의 표식이 없어야 한다(있으면 화면을 고친 것이다).
+    for (const path of [...appScreenPaths(), "src/lib/load-error-copy.ts", "src/lib/admin-api.ts"]) {
+      const source = readSource(path);
+      expect(source, `${path}에 라운드 94의 손자국이 있어요`).not.toContain("라운드 94");
+      expect(source, `${path}에 GAP-094의 손자국이 있어요`).not.toContain("GAP-094");
+    }
+    // 그리고 이 트랙이 읽기만 한 옆 계약 둘도 고치지 않았다.
+    for (const path of ["src/admin-route-surface.test.ts", "src/admin-write-error-copy.test.ts"]) {
+      expect(readSource(path), `${path}를 이 트랙이 고쳤어요`).not.toContain("라운드 94");
     }
   });
 });
