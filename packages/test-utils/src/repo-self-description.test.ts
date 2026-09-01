@@ -1109,14 +1109,27 @@ describe("문서가 소스의 좌표를 무는 자리를 센다 (라운드 93 �
 //     이라는 낱말 · *걷는다*·*파생한다* 가운데 하나)
 //  ⓒ **그 바늘이 `<경로>:<줄>` 꼴이어서 기계가 따라갈 수 있는가**
 //
+// ⚠️⚠️ **다섯째 판정 — *명시적 무바늘*(라운드 94 리뷰 M-4).** ⓑ의 낱말 바늘 둘(*모집단·바늘* ·
+// *걷는다·파생한다*)은 **부정문을 긍정으로 셌다**: 행이 스스로 *"**바늘**: 없다"* 라고 적으면 그
+// 문장 안의 *바늘*이라는 낱말에 걸려 **바늘이 있는 행**으로 세어졌다. 그래서 오늘 이 자가 내던
+// *바늘 전면* 수는 한 자리가 부풀어 있었다. 오늘부터 그런 행은 넷 중 어느 꼴도 아니라
+// **다섯째**로 갈라 따로 센다 — ⚠️ **사각 ⓐ와 같은 병이다**(*바늘이 적혔다*와 *그 바늘로 재면
+// 같은 수가 나온다*가 다르듯, *바늘이라는 낱말이 있다*와 *바늘이 적혔다*도 다르다).
+//
 // ⚠️⚠️ **이 트랙이 이 파일에서 여는 축은 이것 하나다.** 위 다섯(`근거:` 파생 · DNC 사본 · 진입
 // 문서 셋 · 폐기 팔레트 · 라운드 93 E의 좌표 축)은 **한 바이트도 건드리지 않았고**, 좌표 축의
 // 판정 로직은 **복사하지 않고 불러 쓴다**(`splitCoordinates` · `isLineWithinFile`).
 //
-// ── 실측(2026-08-31 HEAD · 전부 **하한**이다) ──────────────────────────────────
-//  · 최신 판정 절의 재실측 표 행 **37**
-//  · 그중 **수가 있는 행 37** · **바늘이 곁에 적힌 행 13** · **좌표꼴 바늘로 가리킨 행 2**
-//  · 바늘이 없이 **수만 있는 행 24** — ⚠️ 이 수는 값으로만 적는다(줄어야 좋은 수라 하한이 아니다)
+// ── 실측(**두 시점** · 전부 **하한**이다 · 하한은 앞 시점에 둔 그대로다) ──────────
+//  · ① **트랙 E 커밋 시점(2026-08-31 · AH절 표)**: 행 **37** · 수가 있는 행 **37** ·
+//    바늘이 곁에 적힌 행 **13** · 좌표꼴 **2** · 바늘 없이 수만 있는 행 **24**
+//  · ② **HEAD(2026-09-01 · A~F 머지 뒤 · F가 세운 AI절 표)**: 행 **40** · 수가 있는 행 **40** ·
+//    바늘이 곁에 적힌 행 **39** · **명시적 무바늘 1**(다섯째 판정) · 좌표꼴 **9** ·
+//    바늘 없이 수만 있는 행 **0**
+//  ⚠️ **자가 따라가는 표가 갈렸다** — 절 이름이 아니라 *꼴*을 따라가므로, F가 AI절을 세운 순간
+//  이 자의 모집단은 AH절 표에서 **AI절 표**로 옮겨 갔다. **두 시점을 한 낱말로 적지 않는다.**
+//  ⚠️ 바늘 없이 수만 있는 행은 값으로만 적는다(줄어야 좋은 수라 하한이 아니다) — F가 숙제 스물넷을
+//  0으로 내렸다는 사실이 그 값이다.
 //
 // ⚠️ **정찰(round94-scout.md §답5)과 갈린 자리를 값으로 적는다.** 정찰은 좌표꼴을 **1**로 셌고
 // (`comment-tolerant-anchor-ledger.ts:532` 하나) 이 계약의 바늘로는 **2**다 — 둘째는 같은 표의
@@ -1131,13 +1144,16 @@ describe("문서가 소스의 좌표를 무는 자리를 센다 (라운드 93 �
 // 보지 못한다.*** 오르는 쪽으로만 래칫이 걸리고, 내려가는 걸음은 다음 라운드의 정찰이 답한다.
 //
 // ── 사각 넷(값으로 적는다) ─────────────────────────────────────────────────────
-//  ⓐ ⚠️⚠️ **바늘이 *적혀 있다*와 *그 바늘로 재면 같은 수가 나온다*는 다르다.** 오늘
-//     `helper-named-reader` 행은 바늘이 적힌 열셋 안인데도 넓은 바늘로 재면 **189**가 나오고
+//  ⓐ ⚠️⚠️ **바늘이 *적혀 있다*와 *그 바늘로 재면 같은 수가 나온다*는 다르다.**
+//     `helper-named-reader` 행은 바늘이 적힌 쪽인데도 넓은 바늘로 재면 **189**가 나오고
 //     그 칸이 적은 수는 **167**이다(리뷰 M-2의 자). **이 자는 앞쪽만 센다** — 뒤쪽(재현되는가)은
-//     라운드마다 정찰의 걸음이 답한다.
-//  ⓑ **K~AG절의 옛 표는 모집단 밖이고 그 수는 훨씬 크다** — 오늘 이 문서의 앞선 재실측 표 **넷**에
-//     행 **92**가 더 있다. 넣으면 이 계약의 수가 라운드마다 통째로 흔들리므로 **값으로 적고 밖에
-//     둔다**(라운드 93 E가 라운드 노트를 밖에 둔 것과 같은 이유다).
+//     라운드마다 정찰의 걸음이 답한다. ⚠️ **두 시점**: 트랙 E 커밋 시점에는 그 *바늘이 적힌 쪽*이
+//     **열셋**이었고, HEAD(AI절 표)에서는 **39**다(명시적 무바늘 하나를 가른 뒤의 수다).
+//  ⓑ **K~AG절의 옛 표는 모집단 밖이고 그 수는 훨씬 크다** — ⚠️ **두 시점**: 트랙 E 커밋 시점
+//     **표 넷 · 행 92**였고, HEAD에서는 **표 다섯 · 행 129**다(F가 AI절을 세우며 AH절 표가 옛 표로
+//     내려갔다 — *자가 따라가는 표가 옮겨 가면 그 뒤의 표는 전부 밖이 된다*). 넣으면 이 계약의
+//     수가 라운드마다 통째로 흔들리므로 **값으로 적고 밖에 둔다**(라운드 93 E가 라운드 노트를 밖에
+//     둔 것과 같은 이유다). ⚠️ **하한은 80 그대로다** — 값이 아니라 바닥이다.
 //  ⓒ **한 행에 수가 여럿이면 그 행은 한 칸으로 센다** — *사문 대장의 사각 여덟*과 *재개 조건
 //     대장의 사각 여덟*이 각각 **한 행**이고, 그 행 하나가 재현되지 않으면 여덟 수가 함께
 //     재현되지 않는다.
@@ -1172,7 +1188,13 @@ const HANGUL_NUMERAL_PATTERN =
  * 바늘의 꼴 넷(좌표꼴은 아래에서 따로 센다 — 라운드 93 E의 파서를 부른다).
  *
  * ⚠️ **이것은 *낱말 검색*이라 같은 뜻을 다른 말로 쓴 자리를 못 본다**(정찰 §답5의 사각 ⓒ와 같은
- * 병이다). 그래서 바늘 수는 **하한**이고, 이 자가 세는 열셋은 *적어도 열셋*이라는 뜻이다.
+ * 병이다). 그래서 바늘 수는 **하한**이고, 이 자가 세는 수는 *적어도 그만큼*이라는 뜻이다
+ * (트랙 E 커밋 시점 **열셋** → HEAD **39**).
+ *
+ * ⚠️⚠️ **낱말 바늘 둘은 부정문을 읽지 못한다(라운드 94 리뷰 M-4).** *모집단·바늘* 과
+ * *걷는다·파생한다* 는 낱말이 **있는가**만 보므로 *"**바늘**: 없다"* 처럼 **없음을 적은 행**도
+ * 긍정으로 셌다. 바늘의 뜻(정규식 바이트)은 **한 글자도 넓히거나 좁히지 않고**, 그런 행을
+ * `RETEST_NO_NEEDLE_DECLARATION`이 **먼저** 갈라 낸다 — 넷 중 하나가 아니라 **다섯째**다.
  */
 const RETEST_NEEDLE_PATTERNS: readonly { readonly kind: string; readonly pattern: RegExp }[] = [
   { kind: "백틱에 싸인 소스 파일 이름", pattern: /`[^`\n]*\.(?:tsx?|jsx?|mjs|cjs|json|sh|ya?ml|prisma|sql)\b[^`\n]*`/ },
@@ -1183,17 +1205,26 @@ const RETEST_NEEDLE_PATTERNS: readonly { readonly kind: string; readonly pattern
   { kind: "백틱에 싸인 줄 조각", pattern: /`[^`\n]*(?::\d|\[\s*\d+\s*,)[^`\n]*`/ }
 ];
 
+/**
+ * **다섯째 판정 — 행이 스스로 *바늘이 없다*고 적은 꼴**(라운드 94 리뷰 M-4).
+ *
+ * 이 표의 관례는 마지막 칸에 `**바늘**: …` 을 적는 것이고, 잴 자가 없는 행은 거기에 **없다**를
+ * 적는다. 그 행은 *바늘이 곁에 적힌 행*도 *바늘 없이 수만 있는 행*도 아니다 — **없음을 값으로
+ * 적은 행**이라 따로 센다(오늘 하나: *문턱·래칫 상수* · 사각 ⓓ가 이름으로 집는 그 자리다).
+ */
+const RETEST_NO_NEEDLE_DECLARATION = /\*\*바늘\*\*\s*[::]\s*(?:없다|없음|0건)/;
+
 /** 행 전수의 **하한**. F가 표를 늘리면 오르고, 이 자는 오르는 쪽만 문다. */
 const RETEST_ROW_FLOOR = 37;
-/** 그중 **수가 있는 행**의 하한(오늘 37 — 값 칸이 비어 있는 행은 오늘 0건이다). */
+/** 그중 **수가 있는 행**의 하한(트랙 E 시점 37 → HEAD 40 · 값 칸이 빈 행은 오늘도 0건이다). */
 const RETEST_NUMBERED_ROW_FLOOR = 37;
-/** **바늘이 곁에 적힌 행**의 하한. ⚠️⚠️ F가 스물넷에 바늘을 붙이면 오른다 — 오르는 쪽 래칫이다. */
+/** **바늘이 곁에 적힌 행**의 하한. ⚠️⚠️ F가 스물넷에 바늘을 붙여 오늘 39다 — 오르는 쪽 래칫이다. */
 const RETEST_NEEDLE_ROW_FLOOR = 13;
-/** **좌표꼴 바늘**로 가리킨 행의 하한(오늘 이 계약의 바늘로는 2 · 정찰의 바늘로는 1). */
+/** **좌표꼴 바늘**로 가리킨 행의 하한(트랙 E 시점 이 계약의 바늘로 2 · 정찰의 바늘로 1 · HEAD 9). */
 const RETEST_COORDINATE_ROW_FLOOR = 1;
-/** 사각 ⓑ — 모집단 밖(앞선 절들)의 재실측 표 행 하한(오늘 표 넷 · 행 92). */
+/** 사각 ⓑ — 모집단 밖(앞선 절들)의 재실측 표 행 하한(트랙 E 시점 표 넷 · 행 92 → HEAD 표 다섯 · 행 129). */
 const RETEST_OLDER_TABLE_ROW_FLOOR = 80;
-/** 사각 ⓒ — 한 칸에 수가 여덟 든 행. 오늘 둘이고 각각 **한 행**으로 센다. */
+/** 사각 ⓒ — 한 칸에 수가 여덟 든 행. 트랙 E 시점 둘 → HEAD 18이고, 각각 **한 행**으로 센다. */
 const RETEST_CROWDED_CELL_FLOOR = 2;
 /** 사각 ⓒ의 *여럿*을 가르는 문턱 — 값 칸 하나에 수가 이만큼 들면 붐비는 칸이다. */
 const RETEST_CROWDED_CELL_NUMBERS = 8;
@@ -1216,8 +1247,9 @@ const RETEST_UNREPRODUCIBLE_CELL = {
 /**
  * 사각 ⓐ — **바늘이 적혔다고 그 수가 재현되는 것은 아니다.**
  *
- * 이 행은 바늘이 적힌 열셋 안에 있는데도, 그 바늘을 넓게 대면 다른 수가 나온다. 이 자는
+ * 이 행은 바늘이 적힌 쪽에 있는데도, 그 바늘을 넓게 대면 다른 수가 나온다. 이 자는
  * **앞쪽(바늘의 실재)만** 세고, 뒤쪽(재현)은 라운드마다 정찰의 걸음이 답한다.
+ * ⚠️ **두 시점**: 그 *바늘이 적힌 쪽*은 트랙 E 커밋 시점 **열셋**이었고 HEAD에서는 **39**다.
  */
 const RETEST_NEEDLE_WITHOUT_REPRODUCTION = {
   rowName: "helper-named-reader",
@@ -1298,8 +1330,24 @@ function retestRowCoordinates(row: RetestRow): CoordinateSplit {
   return splitCoordinates(row.raw, RETEST_DOC);
 }
 
-/** 판정 ⓑ — 이 행 곁에 적힌 바늘의 꼴들(빈 배열이면 *수만 있는 행*이다). */
+/**
+ * 다섯째 판정 — 이 행이 **바늘이 없다고 스스로 적었는가**(라운드 94 리뷰 M-4).
+ *
+ * ⚠️ 이 판정이 **먼저** 선다: 그 문장 안에 *바늘*이라는 낱말이 들어 있어서 낱말 바늘 둘이
+ * 긍정으로 세던 자리이고, 세는 쪽을 고치지 않으면 *바늘 전면*이 한 자리 부푼 채로 남는다.
+ */
+function retestRowDeclaresNoNeedle(row: RetestRow): boolean {
+  return RETEST_NO_NEEDLE_DECLARATION.test(row.raw);
+}
+
+/**
+ * 판정 ⓑ — 이 행 곁에 적힌 바늘의 꼴들(빈 배열이면 *바늘이 적히지 않은 행*이다).
+ *
+ * ⚠️ **명시적 무바늘 행은 빈 배열이다** — 그 행이 *수만 있는 행*(F의 숙제)인지는 아래에서
+ * 다섯째 판정으로 다시 가른다. **두 수를 한 낱말로 적지 않는다.**
+ */
 function retestRowNeedleKinds(row: RetestRow): string[] {
+  if (retestRowDeclaresNoNeedle(row)) return [];
   const kinds = RETEST_NEEDLE_PATTERNS.filter((needle) => needle.pattern.test(row.raw)).map(
     (needle) => needle.kind
   );
@@ -1336,6 +1384,9 @@ const RETEST_TABLE_FIXTURE = [
   "| 적힌 자가 없다 | 셋 | **넷** | 늘었다 |",
   "| 값이 비었다 | 다시 재지 못했다 | **다시 재지 못했다** | 잴 자가 없다 |",
   "| 붐비는 칸 | 1 · 2 · 3 · 4 · 5 · 6 · 7 · 8 | **1 · 2 · 3 · 4 · 5 · 6 · 7 · 9** | 한 칸이 여덟을 진다 |",
+  // ⚠️ 다섯째 판정의 픽스처(라운드 94 리뷰 M-4) — 낱말 바늘 둘이 다 걸릴 문장을 일부러 쓰되,
+  // 그 문장이 **없음의 선언**이라 바늘로 세어지지 않는다.
+  "| 잴 자가 없다 | 38 | **다시 재지 못했다** | 갈래 셋의 모집단이 없다. **바늘**: 없다(모집단이 적히면 그것은 새 판정이다) |",
   "",
   "본문은 표가 아니다."
 ].join("\n");
@@ -1372,7 +1423,7 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
     }
   });
 
-  it("판정 셋 — 행마다 수·바늘·좌표꼴을 센다 (셋 다 하한 래칫 · 오늘 37 · 13 · 2)", () => {
+  it("판정 셋 + 다섯째 — 행마다 수·바늘·좌표꼴을 세고 명시적 무바늘을 가른다 (하한 래칫 · 두 시점)", () => {
     const rows = retestTableOrThrow().rows;
     const numbered = rows.filter(retestRowHasNumber);
     const withNeedle = rows.filter((row) => retestRowNeedleKinds(row).length > 0);
@@ -1393,10 +1444,40 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
     ).toBeGreaterThanOrEqual(RETEST_COORDINATE_ROW_FLOOR);
 
     // ⚠️ **수만 있는 행**은 값으로만 적는다 — *줄어야 좋은 수*라 하한으로 물면 F의 걸음이 빨강을
-    // 맞는다(오늘 24). 이 자가 다음 라운드에 다시 내는 수가 바로 F의 숙제가 얼마나 줄었는지다.
+    // 맞는다. ⚠️ **두 시점**: 트랙 E 커밋 시점 **24** → HEAD **0**(F가 숙제를 다 붙였다).
+    // ⚠️⚠️ **명시적 무바늘 행은 그 숙제가 아니다** — *아직 안 붙인 것*과 *붙일 자가 없다고 적은 것*을
+    // 한 낱말로 적지 않는다(라운드 94 리뷰 M-4).
+    const declaredNoNeedle = rows.filter(retestRowDeclaresNoNeedle);
     const numberOnly = rows.filter(
-      (row) => retestRowHasNumber(row) && retestRowNeedleKinds(row).length === 0
+      (row) =>
+        retestRowHasNumber(row) && retestRowNeedleKinds(row).length === 0 && !retestRowDeclaresNoNeedle(row)
     );
+    // ⓐ 다섯째 판정이 실제로 갈린다 — 오늘 하나이고, **그 하나가 사각 ⓓ의 그 자리**다.
+    expect(
+      declaredNoNeedle.length,
+      "*바늘: 없다*를 값으로 적은 행 (오늘 하나 · 문턱·래칫 상수)"
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      declaredNoNeedle.some((row) => row.cells[0].includes(RETEST_UNREPRODUCIBLE_CELL.rowName)),
+      "명시적 무바늘 행이 사각 ⓓ가 이름으로 집는 그 자리가 아니에요"
+    ).toBe(true);
+    // ⓑ **넷 · 다섯이 겹치지 않는다** — 갈래의 합이 전수이고 어느 행도 두 갈래에 들지 않는다.
+    expect(
+      withNeedle.length + declaredNoNeedle.length + numberOnly.length,
+      `갈래의 합이 전수와 달라요 (바늘 ${withNeedle.length} · 무바늘 선언 ${declaredNoNeedle.length} · 수만 ${numberOnly.length})`
+    ).toBe(rows.length);
+    // ⓒ 교란 — 그 선언을 지우면 낱말 바늘 둘이 그 행을 **다시 긍정으로** 센다(이 자가 고친 그 병).
+    const declaredRaw = declaredNoNeedle[0].raw;
+    const withoutDeclaration = {
+      ...declaredNoNeedle[0],
+      raw: declaredRaw.replace(RETEST_NO_NEEDLE_DECLARATION, "**바늘**: 같은 파일의 모집단")
+    };
+    expect(retestRowNeedleKinds(declaredNoNeedle[0]), "선언이 있으면 빈 배열이에요").toEqual([]);
+    expect(
+      retestRowNeedleKinds(withoutDeclaration).length,
+      "선언을 지우면 낱말 바늘이 다시 센다는 사실이 이 자의 근거예요"
+    ).toBeGreaterThan(0);
+
     // 대신 여기서 무는 것은 **꼴**이다: 바늘만 있고 수가 없는 행은 이 표의 행이 아니다(오늘 0건).
     const needleWithoutNumber = withNeedle.filter((row) => !retestRowHasNumber(row));
     expect(
@@ -1433,7 +1514,7 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
     const table = retestTableIn(RETEST_TABLE_FIXTURE);
     expect(table, "픽스처의 표를 찾아야 해요").not.toBeNull();
     const rows = (table as RetestTable).rows;
-    expect(rows.length, "픽스처의 행 여섯을 읽어야 해요").toBe(6);
+    expect(rows.length, "픽스처의 행 일곱을 읽어야 해요").toBe(7);
     expect((table as RetestTable).sectionTitle).toContain("라운드 99에서 확정한 판정");
 
     // ① 판정 ⓐ — 값 칸에 수가 없는 다섯째 행만 떨어진다(한글 수사 `셋`은 수다).
@@ -1442,7 +1523,8 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
       "파일 이름만",
       "낱말로 적은 자",
       "적힌 자가 없다",
-      "붐비는 칸"
+      "붐비는 칸",
+      "잴 자가 없다"
     ]);
 
     // ② 판정 ⓑ — 바늘의 꼴이 실제로 갈린다.
@@ -1450,6 +1532,22 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
     expect(retestRowNeedleKinds(rows[1])).toEqual(["백틱에 싸인 소스 파일 이름"]);
     expect(retestRowNeedleKinds(rows[2])).toEqual(["모집단·바늘이라는 낱말"]);
     expect(retestRowNeedleKinds(rows[3]), "바늘 없는 행은 빈 배열이어야 해요").toEqual([]);
+
+    // ②-2 **다섯째 판정**(라운드 94 리뷰 M-4) — *바늘: 없다*를 적은 행은 낱말 바늘 둘이 다 걸릴
+    // 문장을 지녔는데도 **바늘로 세어지지 않는다.** 교란: 그 선언만 지우면 다시 긍정으로 센다.
+    const declared = rows[6];
+    expect(retestRowDeclaresNoNeedle(declared), "명시적 무바늘 행을 가려내야 해요").toBe(true);
+    expect(retestRowNeedleKinds(declared), "없음의 선언은 바늘이 아니에요").toEqual([]);
+    expect(retestRowHasNumber(declared), "그래도 수는 있는 행이에요").toBe(true);
+    expect(
+      retestRowNeedleKinds({
+        ...declared,
+        raw: declared.raw.replace(RETEST_NO_NEEDLE_DECLARATION, "**바늘**: 같은 파일의 모집단")
+      }),
+      "선언을 지우면 낱말 바늘이 다시 세야 이 판정이 값을 낸 것이에요"
+    ).toEqual(["모집단·바늘이라는 낱말"]);
+    // 그리고 그 앞의 행들은 이 판정에 걸리지 않는다(다섯째가 넷을 삼키지 않는다).
+    expect(rows.slice(0, 6).filter(retestRowDeclaresNoNeedle)).toEqual([]);
 
     // ③ 판정 ⓒ — 좌표꼴은 첫 행 하나뿐이고, 백틱 파일 이름만 있는 행은 떨어진다.
     const coordinateRows = rows.filter(
@@ -1491,9 +1589,11 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
     const table = retestTableOrThrow();
     const rows = table.rows;
 
-    // 사각 ⓑ — K~AG절의 옛 표는 모집단 밖이고 그 수는 훨씬 크다(오늘 표 넷 · 행 92).
+    // 사각 ⓑ — 앞선 절의 옛 표는 모집단 밖이고 그 수는 훨씬 크다.
+    // ⚠️ **두 시점**: 트랙 E 커밋 시점 **표 넷 · 행 92**(K~AG절) → HEAD **표 다섯 · 행 129**
+    // (F가 AI절을 세우자 AH절 표가 함께 옛 표로 내려갔다). **하한은 앞 시점 그대로 80이다.**
     const older = olderRetestTableRows(read(RETEST_DOC));
-    expect(older.tables, "앞선 절의 재실측 표 (오늘 넷)").toBeGreaterThanOrEqual(3);
+    expect(older.tables, "앞선 절의 재실측 표 (트랙 E 시점 넷 → HEAD 다섯)").toBeGreaterThanOrEqual(3);
     expect(
       older.rows,
       `모집단 밖(앞선 절)의 재실측 표 행 — 오늘 ${older.rows}이고 이 축의 모집단 ${rows.length}보다 크다`
@@ -1501,12 +1601,14 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
     expect(older.rows, "옛 표가 모집단보다 작으면 이 사각은 사각이 아니에요").toBeGreaterThan(rows.length);
 
     // 사각 ⓒ — 한 칸에 수가 여럿인 행도 **한 행**이다(사문 대장의 사각 여덟 · 재개 조건의 사각 여덟).
+    // ⚠️ **두 시점**: 트랙 E 커밋 시점 **둘**(그 사각 둘) → HEAD **18** — F가 행마다 바늘을 적으며
+    // 값 칸이 붐비는 행이 늘었다. **하한은 앞 시점 그대로 2다**(오르는 쪽만 문다).
     const crowded = rows.filter(
       (row) => (retestValueCells(row).match(/\d+/g) ?? []).length >= RETEST_CROWDED_CELL_NUMBERS
     );
     expect(
       crowded.length,
-      `한 칸에 수가 ${RETEST_CROWDED_CELL_NUMBERS} 이상 든 행 (오늘 둘 · 각각 한 행으로 센다)`
+      `한 칸에 수가 ${RETEST_CROWDED_CELL_NUMBERS} 이상 든 행 (트랙 E 시점 둘 → HEAD 18 · 각각 한 행으로 센다)`
     ).toBeGreaterThanOrEqual(RETEST_CROWDED_CELL_FLOOR);
     expect(crowded.length, "붐비는 칸도 표의 행이라 전수를 넘을 수 없어요").toBeLessThanOrEqual(rows.length);
 
@@ -1560,10 +1662,14 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
   //  ① **수만 있는 스물넷이 다음 라운드에 얼마로 줄었는가** — F가 이번 라운드에 바늘을 붙이기
   //     시작하므로, 그 수가 이 축의 첫 물음이다. 줄면 `RETEST_NEEDLE_ROW_FLOOR`를 올릴지 정한다
   //     (⚠️ 올리는 순간 *바늘이 지워지는 것*도 처음으로 보이게 된다 — 하한을 올리는 비용이다).
+  //     ⚠️⚠️ **답이 났다(HEAD 실측 · 라운드 94 리뷰)**: 스물넷이 **0**이 됐고 바늘이 적힌 행은
+  //     **39**, 그 곁에 **명시적 무바늘이 1**이다. 하한은 이 라운드가 올리지 않는다 — 올리는 것은
+  //     *바늘이 지워지는 것을 보겠다*는 별도의 결정이고, 그 판단은 다음 라운드의 것이다.
   //  ② **좌표꼴이 1인지 2인지** — 정찰의 손 판정(1)과 이 계약의 파서(2)가 줄 범위꼴
   //     (`…ledger.ts:702-704`)에서 갈렸다. **바늘을 맞출지 두 수로 남길지**가 결정형이다.
   //  ③ **바늘이 재현되는가**(사각 ⓐ) — 이 자는 앞쪽만 센다. 뒤쪽까지 무는 축은 *바늘을 실제로
   //     대어 보는* 자이고, 그 본보기는 위 `근거:` 인용 축(명령을 진짜로 돌린다)이다.
-  //  ④ **K~AG절의 옛 표 92행**(사각 ⓑ)은 오늘도 밖이다 — 넣을지는 소유가 아니라 *수의 안정성*이
-  //     정한다(넣으면 라운드마다 통째로 흔들린다).
+  //  ④ **앞선 절의 옛 표**(사각 ⓑ)는 오늘도 밖이다 — 넣을지는 소유가 아니라 *수의 안정성*이
+  //     정한다(넣으면 라운드마다 통째로 흔들린다). ⚠️ **두 시점**: 트랙 E 시점 표 넷 · **92행** →
+  //     HEAD 표 다섯 · **129행**이고, 라운드마다 한 표씩 그리로 내려간다는 사실이 그 답의 근거다.
 });

@@ -158,6 +158,9 @@ function copySetLiteralCalls(code: string): { kind: string; fallback: string }[]
  *
  * ⚠️ 셋째 판정은 **호출 수 − 리터럴 인자 자리 수**로 낸다 — 그래야 *두 번째 인자가 리터럴이
  * 아닌 자리*가 조용히 모집단 밖으로 빠져나가지 않는다(유령 방지).
+ * ⚠️ **사각(라운드 94 리뷰 L-3)**: 바늘이 무는 것은 **이름 그대로 부른 자리**다 — 별칭으로 들여온
+ * 자리(`import { loadErrorCopy as copy }` 뒤의 `copy(error, "…")`)는 호출 수에도 안 잡혀 모집단이
+ * 조용히 준다(오차의 방향은 **거짓 초록**). 오늘 어드민에 별칭 import는 **0건**이다.
  */
 function copySetCallSites(): CopySetCallSite[] {
   const sites: CopySetCallSite[] = [];
@@ -1592,6 +1595,98 @@ describe("옛/직접 리터럴 부정 단언 스윕 (모바일 messages.test.ts�
     ).toEqual([]);
     expect(restated.length).toBeLessThanOrEqual(FALLBACK_PHRASE_RESTATED_CEILING);
   });
+
+  /**
+   * ⚠️⚠️ **AH-4 부채 예고 — *이 폴백 바이트를 무는 손이 이 계약만이 아니다*** (라운드 94 리뷰 L-4).
+   *
+   * 이 절이 세운 것은 *걷기가 낸 수*이지만, 같은 바이트를 **옆 계약 셋이 문자열로 인용**하고 있다.
+   * 그래서 어느 라운드가 그 문장을 한 글자라도 고치면 **이 계약은 조용한데 저 셋이 빨개진다** —
+   * AH-4가 이름 붙인 병(*문구를 고친 손이 그 문구를 무는 계약을 함께 옮기지 않는다*)의 예고이고,
+   * 모바일 트랙 A가 `PIN_MIGRATIONS`로 닫은 것과 **같은 얼굴**이다.
+   *
+   * ⚠️ **이 라운드는 그 셋을 한 바이트도 고치지 않는다** — 여기서 하는 일은 *숨기지 않고 값으로
+   * 적는 것* 하나다(옮기는 손은 그 문장을 실제로 고치는 라운드의 것이다).
+   * ⚠️ **줄 번호는 오늘의 자리이고 신원이 아니다** — 아래 자가 무는 것은 **바이트**이므로 그 셋의
+   * 줄이 밀려도 이 자는 빨개지지 않는다(줄로 물면 무해한 이동에 손이 든다).
+   *
+   * ── 오늘의 자리 셋(2026-09-01 실측 · **손 목록이 아니라 아래 걷기가 낸 값이다**) ──────────
+   *  · `src/admin-audit-logs.test.ts:101` — `loadErrorCopy(error, "감사 로그를 …")`
+   *  · `src/admin-cms-pages.test.ts:270` — `loadErrorMessage(error, "분류 목록을 …")`
+   *  · `src/admin-write-error-copy.test.ts:825` — `loadErrorCopy(error, "MFA 등록 정보를 …")`
+   *
+   * ⚠️⚠️ **이 셋을 상수로 적지 않는 이유가 이 절의 축과 같다** — 경로 셋을 배열이나 객체 상수로
+   * 적으면 그 순간 이 파일에 **손 목록이 다시 서고**(ⓐ·ⓒ의 자가 먼저 빨개진다), 이 라운드가
+   * 걷어낸 그 꼴을 리뷰가 되돌리는 셈이 된다. 그래서 **이름은 주석에만 적고 값은 걷기가 낸다.**
+   */
+  /** 어드민 `src/**`의 계약 파일 전수(자기 제외) — ⚠️ 손 목록이 아니라 걷기다. */
+  const siblingContractPaths = (): string[] => {
+    const found: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!entry.name.endsWith(".test.ts")) continue;
+        const relativePath = relative(adminRoot, fullPath).split(sep).join("/");
+        if (relativePath !== SELF_PATH) found.push(relativePath);
+      }
+    };
+    walk(join(adminRoot, "src"));
+    return found.sort();
+  };
+
+  /**
+   * 화면이 한 벌에 넘긴 **폴백 바이트**를 그대로 인용한 옆 계약 자리 전수.
+   *
+   * 바늘은 발명이 아니라 **이 절이 이미 쓰는 것**이다 — `copySetCallSites()`가 낸 리터럴로 호출
+   * 바이트를 되짜고, 그 바이트가 계약 파일에 **그대로** 있는 줄을 찾는다.
+   */
+  const contractsPinningCopySetBytes = (): { contract: string; line: number; byte: string }[] => {
+    const bytes = [
+      ...new Set(
+        copySetCallSites()
+          .filter((site) => site.verdict !== "no-literal-fallback")
+          .map(
+            (site) =>
+              `${site.verdict === "copy-set-full" ? "loadErrorCopy" : "loadErrorMessage"}(error, ${JSON.stringify(site.fallback)})`
+          )
+      )
+    ];
+    const found: { contract: string; line: number; byte: string }[] = [];
+    for (const contract of siblingContractPaths()) {
+      const lines = readSource(contract).split("\n");
+      for (let index = 0; index < lines.length; index += 1) {
+        for (const byte of bytes) {
+          if (lines[index].includes(byte)) found.push({ contract, line: index + 1, byte });
+        }
+      }
+    }
+    return found;
+  };
+
+  it("ⓑ 같은 폴백 바이트를 무는 옆 계약을 값으로 적는다 (AH-4 부채 예고 · 걷기 · 읽기만 한다)", () => {
+    const pinned = contractsPinningCopySetBytes();
+    const contracts = [...new Set(pinned.map((pin) => pin.contract))];
+    // ⓐ **하한 셋** — 예고가 유령이 아니다(0이면 이 절이 아무것도 예고하지 않는다).
+    expect(
+      contracts.length,
+      `폴백 바이트를 인용한 옆 계약 (오늘 셋: ${pinned.map((pin) => `${pin.contract}:${pin.line}`).join(" · ")})`
+    ).toBeGreaterThanOrEqual(3);
+    // ⓑ 그 인용이 **오늘도 화면과 맞는다** — 걷기에서 낸 바이트라 낡은 인용은 애초에 안 잡힌다.
+    for (const pin of pinned) {
+      const screens = appScreenPaths().filter((path) =>
+        codeWithoutComments(readSource(path)).includes(pin.byte)
+      );
+      expect(screens.length, `${pin.contract}:${pin.line}이 인용한 바이트가 화면에 없어요`).toBeGreaterThanOrEqual(1);
+    }
+    // ⓒ **이 라운드는 그 파일들을 고치지 않았다**(부정 단언 · 옮기는 손은 문장을 고치는 라운드의 것).
+    for (const contract of contracts) {
+      expect(readSource(contract), `${contract}를 이 라운드가 고쳤어요`).not.toContain("GAP-094");
+    }
+  });
 });
 
 /**
@@ -1768,7 +1863,12 @@ describe("손 목록 재등장 바늘: 이름이 아니라 꼴 (라운드 94 트
         "이고, 그 배열이 **모집단으로 쓰이는가**(순회되는가)는 묻지 않는다 — AH-1의 바늘은 순회까지 " +
         "보지만 이 자는 보지 않는다. ⚠️ 오차의 방향은 **시끄러운 쪽**(거짓 빨강)이라 안전하다: 쓰지도 " +
         "않는 경로 배열을 세워도 빨개지고, 그때 그 라운드가 *왜 이것은 모집단이 아닌가*를 적게 된다. " +
-        "⚠️ 이 자가 재는 것은 오늘 이 파일에서 그 거짓 빨강이 몇 건인가다",
+        "⚠️⚠️ **두 시점 — 이유 칸을 오늘 정정한다(라운드 94 리뷰 L-2).** 트랙 C 시점의 이 칸은 " +
+        "*'이 자가 재는 것은 오늘 이 파일에서 그 거짓 빨강이 몇 건인가다'* 라고 적었는데, 아래 " +
+        "`measure`가 실제로 내는 것은 **이 파일에 선 손 목록 꼴 배열 상수의 수**(ⓐ·ⓓ와 **같은 식** " +
+        "`handListDeclarations(readSource(SELF_PATH)).length`)이지 *그중 순회되지 않는 것*이 아니다 — " +
+        "이 바늘은 순회를 보지 않으므로 거짓 빨강만 따로 셀 수 없다. **오늘 두 수가 다 0이라 갈리지 " +
+        "않았을 뿐이다**(그 꼴이 처음 서는 날 두 수가 갈리고, 그때 세는 자가 필요해진다)",
       measure: () => handListDeclarations(readSource(SELF_PATH)).length,
       today: 0,
       resumeCondition:

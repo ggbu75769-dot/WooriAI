@@ -1122,6 +1122,9 @@ const suffixChooserNames = honorificSuffixChooserNames();
  * 꼴 A의 바늘(`}네`)에 스스로 걸린다 — 그것은 화면 문구가 아니라 **규칙 자체**이므로 모집단에서
  * 뺀다(조사 쪽에서 `korean-particles.ts`의 `"을"`·`"과"`가 모집단 밖인 것과 같은 이유다).
  * ⚠️ 이 목록도 손이 아니라 **소스에서 파생한다** — 접미사 함수를 `export`하는 파일 전수다.
+ * ⚠️ **사각(라운드 94 리뷰 L-1)**: 이 배제는 *규칙이 사는 줄*이 아니라 **파일을 통째로** 뺀다 —
+ * 그 파일이 언젠가 화면 문구도 함께 지면 그 자리는 조용히 안 보인다(오차의 방향은 **거짓 초록**).
+ * 오늘 그 파일은 하나이고 순수 규칙만 들어 무해하다(`suffixChooserFiles`가 그 하나를 값으로 문다).
  */
 function honorificSuffixModuleFiles(): string[] {
   return sweptFiles.filter((file) =>
@@ -1249,6 +1252,20 @@ describe("ⓒ 순수 함수 — 받침에서 조사가 갈린다(표로 못 박�
     expect(withParticle(" 서아 ")).toBe("와");
   });
 
+  it("⚠️⚠️ 자모가 분해된 이름(NFD)에서도 판정이 선다 (라운드 94 리뷰 M-6 · 교란)", () => {
+    // ⚠️ **교란**: 같은 "지훈"이라도 분해형은 마지막 글자가 음절이 아니라 **자모**(`U+11AB`)라,
+    // 정규화 전에는 판정이 `null`로 떨어져 받침 있는 이름이 조용히 `를`·`와`로 갈렸다.
+    const decomposed = "지훈".normalize("NFD");
+    expect(decomposed, "픽스처가 실제로 분해형이다(유령 방지)").not.toBe("지훈");
+    expect([...decomposed]).toHaveLength(5);
+    expect(hasFinalConsonant(decomposed), "분해형에서도 받침이 보인다").toBe(true);
+    expect(objectParticle(decomposed)).toBe("을");
+    expect(withParticle(decomposed)).toBe("과");
+    // 받침 없는 쪽도 *물을 수 없다*가 아니라 **없다**로 떨어진다(세 갈래가 뭉개지지 않는다).
+    expect(hasFinalConsonant("서아".normalize("NFD"))).toBe(false);
+    expect(objectParticle("서아".normalize("NFD"))).toBe("를");
+  });
+
   it("⚠️⚠️ 저장소의 옛 답(`src/home/baby-counter.ts`)과 **한 자리도 다르지 않다**", () => {
     // 두 모듈이 갈리는 날 이 자가 먼저 빨개진다(옮겨 적은 규칙이 조용히 갈리지 않게).
     for (const name of ["지훈", "서아", "하율", "가네", "Ben", "둘째2", "🐣", "", "첫돌", "100일"]) {
@@ -1256,6 +1273,23 @@ describe("ⓒ 순수 함수 — 받침에서 조사가 갈린다(표로 못 박�
       expect(objectParticle(name), `${name}: 을/를`).toBe(babyCounterObjectParticle(name));
       expect(withParticle(name), `${name}: 과/와`).toBe(babyCounterWithParticle(name));
     }
+  });
+
+  it("⚠️⚠️ 두 벌이 오늘 **정규화 한 줄만큼** 갈렸다는 사실을 값으로 적는다 (라운드 94 리뷰 M-6)", () => {
+    // ⚠️ **두 시점.** ① 라운드 93 트랙 B 시점: 두 벌이 *한 글자도 다르지 않았다*(위 표가 그 등호다).
+    // ② 오늘: 리뷰가 `korean-particles.ts`의 `hasFinalConsonant`에만 `NFC` 정규화를 걸었다 —
+    // `baby-counter.ts`는 **이 라운드에서도 읽기만 하는 파일**이라(그 파일의 소유가 이 트랙이 아니다)
+    // 옮겨 적은 규칙이 처음으로 갈렸다. ⚠️ **숨기지 않고 값으로 적는다** — 위 표(NFC 이름 열)는
+    // 여전히 등호로 서고, 갈리는 곳은 **분해형 입력 하나**다.
+    const decomposed = "지훈".normalize("NFD");
+    expect(hasFinalConsonant(decomposed), "이쪽은 정규화한다").toBe(true);
+    expect(babyCounterHasFinalConsonant(decomposed), "그쪽은 오늘도 정규화하지 않는다").toBeNull();
+    expect(babyCounterObjectParticle(decomposed), "그래서 태명 문구는 아직 받침 없는 형으로 떨어진다").toBe("를");
+    // ⚠️ **다시 등호가 되는 날**(사건형): 분해형 태명이 홈 카운터 문구에서 실제로 보고되거나, 두 벌을
+    // 한 벌로 합치는 라운드가 서는 날 — 그날 이 자는 등호로 돌아가고, 첫 모집단은 이 한 갈래다.
+    // ⚠️ 이 줄은 **표기 꼴을 일부러 쓰지 않는다** — 재개 조건 대장의 소스 축은 이 파일도 걷으므로,
+    // 리뷰가 조건 하나를 새로 세우면 그쪽 수가 함께 움직인다(고치는 손이 옆 대장을 흔들지 않는다).
+    expect(babyCounterWithParticle(decomposed)).toBe("와");
   });
 
   it("⚠️ `(으)로`의 ㄹ 예외가 이 계약의 자에 들어 있다 — 받침 ㄹ은 `로`다", () => {
@@ -1788,8 +1822,36 @@ describe("ⓒ-접미사 순수 함수 — 받침에서 `-네` 앞의 `이`가 �
   it("빈 값·공백만 있는 값에서도 터지지 않고 같은 답으로 떨어진다", () => {
     for (const name of ["", "   "]) {
       expect(hasFinalConsonant(name)).toBeNull();
-      expect(nameWithHonorificSuffix(name)).toBe(`${name}네`);
+      // ⚠️ **두 시점**: 트랙 A 시점의 이 자리는 `` `${name}네` `` 였고 `"   "` 에서 `"   네"` 를 냈다.
+      // 오늘은 꼬리 공백을 걷은 뒤 붙이므로 두 값이 같은 `"네"` 로 떨어진다(라운드 94 리뷰 M-6).
+      expect(nameWithHonorificSuffix(name)).toBe("네");
     }
+  });
+
+  it("⚠️⚠️ 꼬리 공백이 붙은 이름에서 접미사가 값 안으로 새지 않는다 (라운드 94 리뷰 M-6 · 교란)", () => {
+    // ⚠️ **교란**: 걷기 전에는 판정만 공백을 걷고 **출력은 원값**이라 사이의 `이`가 공백 뒤에
+    // 붙었다 — `"지훈 "` → `"지훈 이네"`(화면에도 낭독에도 그대로 나갔다).
+    for (const name of ["지훈 ", "지훈  ", "지훈\n", "지훈\t"]) {
+      expect(hasFinalConsonant(name), `${JSON.stringify(name)}: 받침은 보였다`).toBe(true);
+      expect(nameWithHonorificSuffix(name), `${JSON.stringify(name)}: 공백이 사이에 끼지 않는다`).toBe("지훈이네");
+    }
+    // 받침 없는 쪽도 같은 규율이다(사이에 드는 글자가 없어도 꼬리 공백은 걷는다).
+    expect(nameWithHonorificSuffix("서아 ")).toBe("서아네");
+    // ⚠️ **앞 공백은 걷지 않는다** — 이 함수가 지는 것은 접미사가 붙는 꼬리 하나다.
+    expect(nameWithHonorificSuffix(" 지훈")).toBe(" 지훈이네");
+  });
+
+  it("⚠️⚠️ 자모가 분해된 이름(NFD)에서도 사이의 `이`가 선다 (라운드 94 리뷰 M-6 · 교란)", () => {
+    // ⚠️ **교란**: 정규화 전에는 마지막 글자가 음절이 아니라 자모라 판정이 `null`이 되고,
+    // 받침 있는 이름이 조용히 `"지훈네"` 로 떨어졌다(조사 쪽과 **같은 한 갈래**다).
+    const decomposed = "지훈".normalize("NFD");
+    expect(decomposed).not.toBe("지훈");
+    expect(nameWithHonorificSuffix(decomposed)).toBe("지훈이네");
+    // 출력도 `NFC`다 — 값이 조합형과 분해형으로 갈려 화면에 두 벌로 남지 않는다.
+    expect(nameWithHonorificSuffix(decomposed).normalize("NFD")).not.toBe(nameWithHonorificSuffix(decomposed));
+    expect(nameWithHonorificSuffix("서아".normalize("NFD"))).toBe("서아네");
+    // 두 갈래가 겹쳐 들어와도(분해형 + 꼬리 공백) 한 값으로 떨어진다.
+    expect(nameWithHonorificSuffix(`${decomposed}  `)).toBe("지훈이네");
   });
 
   it("⚠️⚠️ 접미사 규칙은 **관례이지 문법이 아니다** — 이미 `네`로 끝나는 이름에도 또 붙는다", () => {
