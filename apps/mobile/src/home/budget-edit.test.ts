@@ -223,7 +223,10 @@ describe("BUD-001 조정 칩 (buildBudgetAdjustChips)", () => {
       lastMonthActualKrw: 1_412_000
     });
     const lastMonthChip = chips.find((chip) => chip.id === "last-month");
-    expect(lastMonthChip?.label).toBe("지난달 실지출(1,412,000원)로");
+    // ⚠️ 두 시점(라운드 94 트랙 A): 이 핀이 물던 바이트는 `"지난달 실지출(1,412,000원)로"` 였다.
+    // 꼬리가 언제나 `원`(받침 ㄴ)이라 소리로는 `으로`이고, 같은 칩의 낭독은 처음부터 `으로`였다 —
+    // 보이는 줄만 `로`여서 한 칩이 두 조사를 쓰고 있었다. 아래 낭독 단언과 나란히 두면 이제 같다.
+    expect(lastMonthChip?.label).toBe("지난달 실지출(1,412,000원)으로");
     expect(lastMonthChip?.nextDigits).toBe("1412000");
   });
 
@@ -256,7 +259,8 @@ describe("BUD-001 조정 칩 (buildBudgetAdjustChips)", () => {
     }).find((entry) => entry.id === "last-month");
 
     expect(chip?.nextDigits).toBe(String(BUDGET_MAX_KRW));
-    expect(chip?.label).toBe("지난달 실지출(100,000,000원)로");
+    // ⚠️ 두 시점(라운드 94 트랙 A): 종전 바이트는 `"지난달 실지출(100,000,000원)로"` 였다(위와 같은 갈림).
+    expect(chip?.label).toBe("지난달 실지출(100,000,000원)으로");
   });
 
   it("H-10: 만들어진 칩은 라벨의 금액과 입력값이 언제나 같은 숫자다", () => {

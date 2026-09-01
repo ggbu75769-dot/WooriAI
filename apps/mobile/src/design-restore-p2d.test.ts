@@ -125,7 +125,14 @@ describe("DSN-053 P2-D 더보기 = 승인 캡처의 '프로필'(SET-001)", () =>
       ].join("\n")
     );
     expect(src).toContain("const moreHouseholdLogoStyle = { height: 38, width: 38 } as const;");
-    expect(src).toContain("<Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>");
+    // ⚠️ 두 시점(라운드 94 트랙 A) — 이 핀이 물던 바이트는
+    // `<Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>` 였다. 그 `네`가
+    // 받침에서 갈리지 않아("지훈네") 트랙 A가 순수 함수 한 자리(nameWithHonorificSuffix)로 옮겼고,
+    // **이 핀은 그 자리를 따라간다** — 무는 것은 이름 문자열이 아니라 *그 스타일로 그리는 한 줄*이다
+    // (치수 18/800과 노드 구성은 위·아래 단언이 그대로 물고 있다 — DSN-053의 픽셀 계약은 불변).
+    expect(src).toContain(
+      "<Text style={moreHouseholdNameStyle}>{nameWithHonorificSuffix(visibleProfile.nickname)}</Text>"
+    );
     expect(src).toContain(
       [
         "const moreHouseholdNameStyle = {",

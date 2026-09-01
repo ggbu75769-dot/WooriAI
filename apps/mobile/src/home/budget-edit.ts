@@ -296,6 +296,10 @@ export function adjustBudgetDigits(
  * 허위 표시다. 자를 수 없으면 제안하지 않는다(이 상한은 입력 보조용 클램프일 뿐이고, 그런
  * 달은 애초에 이 칩의 용도인 "지난달만큼으로 맞추기"가 성립하지 않는다).
  *
+ * ⚠️ 두 시점(라운드 94 트랙 A): 위 두 문단이 인용한 "…(0원)로" · "…(120,000,000원)로"는
+ * **그 라운드들의 바이트**다 — 오늘 이 라벨의 조사는 `으로`이고(꼬리 `원`은 받침 ㄴ이다), 그
+ * 근거는 아래 chips.push 옆에 값으로 적혀 있다. 인용한 문장은 지우지 않는다.
+ *
  * ## 라운드 48 B1 — "지난달과 같은 N원으로 시작" 칩(이월 제안)
  *
  * 월 예산은 (childId, yearMonth) 유니크이고 이월 규칙이 없다. 그래서 매달 1일이면 예산이
@@ -350,9 +354,19 @@ export function buildBudgetAdjustChips(input: BudgetAdjustChipsInput): BudgetAdj
     const nextDigits = String(Math.floor(lastMonthKrw));
     // 라벨과 입력값이 같은 숫자에서 나온다 — 칩이 약속한 금액이 곧 입력칸에 들어가는 금액이다.
     const amountText = formatKrw(Number(nextDigits));
+    /*
+     * ⚠️ 두 시점(라운드 94 트랙 A): 이 라벨의 조사는 종전 `…(${amountText})로` 였다 — 보간 뒤에
+     * 닫는 괄호가 껴 있어 눈에는 "괄호 뒤"로 보였지만, **소리는 괄호가 아니라 값의 꼬리를 따른다.**
+     * `amountText`는 formatKrw()가 만들고 그 꼬리는 **언제나 `원`**(src/money.ts의
+     * `${krwFormatter.format(...)}원`)이라 받침이 ㄴ이고, (으)로의 ㄹ 예외에도 걸리지 않으므로
+     * **`으로`가 옳다**. 값에서 갈리게 하지 않고 고정으로 적는 이유가 바로 그것이다 — 꼬리가
+     * 고정이라 갈릴 자리가 없다(`src/korean-particle-guard.test.ts`의 `fixed-tail` 판정).
+     * ⚠️⚠️ 그리고 바로 아래 낭독 문장이 처음부터 `으로`였다 — **한 칩의 보이는 줄과 낭독이 서로
+     * 다른 조사를 쓰던 자리**이고, 이제 둘이 같은 조사를 쓴다(라운드 93 리뷰 L-8의 그 갈림).
+     */
     chips.push({
       id: "last-month",
-      label: `지난달 실지출(${amountText})로`,
+      label: `지난달 실지출(${amountText})으로`,
       accessibilityLabel: `지난달 실지출 ${amountText}으로 맞추기`,
       nextDigits
     });

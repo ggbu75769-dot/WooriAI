@@ -7,7 +7,7 @@ import {
   objectParticle as babyCounterObjectParticle,
   withParticle as babyCounterWithParticle
 } from "./home/baby-counter";
-import { hasFinalConsonant, objectParticle, withParticle } from "./text/korean-particles";
+import { hasFinalConsonant, nameWithHonorificSuffix, objectParticle, withParticle } from "./text/korean-particles";
 
 /**
  * 라운드 93 트랙 B — **사용자가 지은 이름 뒤의 조사가 값에서 갈린다.**
@@ -84,6 +84,45 @@ import { hasFinalConsonant, objectParticle, withParticle } from "./text/korean-p
  * `src/a11y-contract.test.ts:1012-1014`가 `children.tsx`의 낭독 한 줄을 **`를`까지 포함해** 통째로
  * 인용한다. 그 파일은 이 라운드에서 **트랙 C의 것**이라 트랙 B가 고치지 않는다. 아래 사각
  * `fixed-particle-pinned-by-another-contract`가 그 사실과 재개 조건을 값으로 진다.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * ## 라운드 94 트랙 A — **받침에서 갈리는 것이 조사만이 아니다**(접미사가 이 자에 들어왔다)
+ *
+ * 라운드 93 리뷰(M-5)가 사각 `suffix-not-particle`로 열어 둔 자리를 **오늘 제품에서 닫는다.**
+ * 그 사각이 남긴 것은 *"누가 언젠가 고쳐야 한다"* 가 아니라 ⓐ 자리 ⓑ 옛 바이트와 옳은 바이트
+ * ⓒ 발동했을 때 이 수가 얼마가 되는가 **셋**이었고, 오늘 그 셋이 그대로 쓰였다.
+ *
+ *  · **`-네`(호칭 접미사).** `app/(tabs)/more.tsx`의 세 바이트(낭독 라벨 삼항 두 갈래 + 보이는
+ *    가구 카드)가 `${visibleProfile.nickname}네`를 리터럴로 적고 있었다 → 오늘 셋 다
+ *    `nameWithHonorificSuffix(visibleProfile.nickname)`을 지난다("지훈" → **"지훈이네"** ·
+ *    "서아" → "서아네"). **표면 둘 · 바이트 셋**은 그때도 오늘도 같고, 갈래만 옮겨 갔다.
+ *  · **`)로` → `)으로`.** `src/home/budget-edit.ts`의 지난달 실지출 칩 라벨이
+ *    `지난달 실지출(${amountText})로` 였다. 꼬리는 **언제나 `원`**(받침 ㄴ)이고 (으)로의 ㄹ
+ *    예외에도 걸리지 않으므로 소리로는 `으로`다 — **그리고 같은 칩의 낭독은 처음부터 `으로`였다.**
+ *    ⚠️ 한 칩의 보이는 줄과 낭독이 서로 다른 조사를 쓰던 자리이고(라운드 93 리뷰 L-8), 오늘
+ *    둘이 같은 조사를 쓴다. **값에서 갈리게 하지 않는 이유는 꼬리가 고정이기 때문이다**(`fixed-tail`).
+ *
+ * ⚠️⚠️ **그리고 이 걸음은 *통합이 아니라 트랙의 커밋*에 실린다.** 라운드 93은 문구를 고친 트랙과
+ * 그 문구를 바이트로 물던 계약이 서로 다른 트랙의 소유라, 핀 이동을 **통합 커밋이 뒤늦게** 닫았다
+ * (위 사각의 *"발동됨(라운드 93 통합)"*). 라운드 94는 그 부채를 **배정 단계에서** 없앴다 —
+ * *제품 문구를 고치는 트랙이 그 문구를 바이트로 무는 계약 파일 전부를 함께 소유한다*(AH-4).
+ * 아래 `PIN_MIGRATIONS`가 그 이동을 자리·옛 바이트·오늘의 바이트 **셋으로** 지고, 옛 바이트가
+ * 코드 어디에도 없음을 부정 단언으로 문다.
+ *
+ * ⚠️⚠️ **배정이 낸 값 하나를 숨기지 않는다** — 정찰이 트랙 A에 준 계약 파일은 **셋**이었는데
+ * (`a11y-contract` · `design-restore-p2d` · 이 파일), 오늘 소스를 다시 걸으니 그 세 바이트를 무는
+ * 계약이 **하나 더** 있었다: `src/settings/more-menu.test.ts`(핀 **셋**). 그리고 칩 라벨을 무는
+ * `src/home/budget-edit.test.ts`(핀 **둘**)까지 세면 아래 `PIN_MIGRATIONS`가 지는 것이
+ * **계약 넷 · 핀 여덟**이고, 여기에 **이 파일 자신의 핀 하나**(`closingMarks` 자리의
+ * `literalParticle` 등호 — ⓕ 절이 따로 문다)를 더해 **계약 다섯 · 핀 아홉**이다.
+ * ⚠️ **두 수를 한 낱말로 적지 않는다** — 대장이 자기 자신을 무는 순환을 만들지 않으려고 아홉째
+ * 핀은 대장 밖에 둔다. **정찰의 넷은 하한이었다** — 배정이 완전했는지는 배정표가 아니라 이 수가 말한다.
+ *
+ * ⚠️ **오늘의 값(라운드 94 트랙 A)**: 조사 모집단은 **39 그대로**다(`)로` 한 자리가 `로`에서
+ * `으로`로 옮겨 갔을 뿐 자리가 나거나 들지 않았다) · `fixed-tail` **30** · `chooses-from-value`
+ * **9** · `varies-but-written-fixed` **0**(상한). **접미사 모집단은 셋**이고 갈래가 뒤집혔다:
+ * *값에서 고른다* **0 → 3** · *갈리는데 고정으로 적었다* **3 → 0**.
  */
 
 /** 이 스윕이 걷는 앱 경계. `apps/mobile/` 밖으로는 한 걸음도 나가지 않는다. */
@@ -253,18 +292,16 @@ const FIXED_TAIL_LEDGER: readonly {
     aliasEvidence: "export function householdScopePhrase("
   },
   {
+    // ⚠️⚠️ **두 시점(라운드 94 트랙 A)**: 트랙 B·라운드 93 시점 이 파일은 대장에 **줄 둘**을
+    // 지고 있었다 — `particle: "으로"`(칩 라벨 `…과 같은 ${amountText}으로 시작` + 낭독 둘)와
+    // `particle: "로"`(지난달 실지출 칩의 보이는 줄 `…(${amountText})로`). **판정은 둘 다
+    // `fixed-tail`이었고 그것은 옳았다**(꼬리가 `원`으로 고정이라 갈릴 자리가 없다) — 틀린 것은
+    // *어느 형이 옳은가*였다: `원`은 받침 ㄴ이라 소리로는 `으로`이고, 같은 칩의 낭독은 처음부터
+    // `으로`였다. 오늘 그 한 글자가 옮겨 가면서 **줄 둘이 하나로 합쳐졌다** — 네 자리가 전부
+    // 이 한 줄을 지난다(자리 수는 그대로 넷 · 대장 줄만 둘에서 하나가 됐다).
     file: "src/home/budget-edit.ts",
     expression: "amountText",
     particle: "으로",
-    tails: ["원"],
-    evidenceFile: "src/money.ts",
-    evidence: ["`${krwFormatter.format(safeAbsoluteAmount(amount))}원`"],
-    aliasEvidence: "const amountText = formatKrw("
-  },
-  {
-    file: "src/home/budget-edit.ts",
-    expression: "amountText",
-    particle: "로",
     tails: ["원"],
     evidenceFile: "src/money.ts",
     evidence: ["`${krwFormatter.format(safeAbsoluteAmount(amount))}원`"],
@@ -495,11 +532,15 @@ const BLIND_SPOTS: readonly {
   {
     id: "tail-followed-one-step-only",
     // 한 걸음(정의를 여는 것)으로 꼬리를 확인한 자리 가운데, 근거가 **자리 파일 밖**에 있는 것.
-    // ⚠️ **두 시점(라운드 93 리뷰 M-6)**: 트랙 B 시점 **11** → 오늘 **12**. 늘린 하나는
+    // ⚠️ **두 시점(라운드 93 리뷰 M-6)**: 트랙 B 시점 **11** → 그날 **12**. 늘린 하나는
     // `src/family/invite-flow.ts`의 계사 자리이고, 그 꼬리의 근거(`co_parent: "공동부모"`)가
     // `src/family/memberLabels.ts`에 있어 걸음이 파일을 건너간다. **부채가 아니라 자리가 하나
     // 늘었다는 뜻이다** — 그 자리는 그전까지 어느 판정도 받지 못하고 있었다.
-    measure: 12,
+    // ⚠️⚠️ **세 시점(라운드 94 트랙 A)**: 12 → **11**. 줄어든 하나는 `src/home/budget-edit.ts`가
+    // 지고 있던 **대장 줄 둘**(`으로`·`로`)이 조사 한 글자가 옮겨 가며 **하나로 합쳐진 것**이다.
+    // ⚠️ **자리가 준 것이 아니다** — 그 파일의 조사 자리는 그때도 오늘도 넷이고, 이 수가 세는 것은
+    // *걸음이 파일을 건너간 대장 줄 수*라서 줄이 합쳐지면 함께 준다. **두 수를 한 낱말로 적지 않는다.**
+    measure: 11,
     floor: 1,
     reason:
       "**값의 꼬리가 고정인지는 *한 걸음*만 따라간다** — 이름을 되짚는 것(별칭·매개변수)은 걸음으로 세지 않고, " +
@@ -579,28 +620,143 @@ const BLIND_SPOTS: readonly {
   {
     // ⚠️⚠️ 라운드 93 리뷰(M-5)가 연 사각 — **조사가 아닌데 받침으로 갈리는 것**.
     id: "suffix-not-particle",
-    // **표면 둘**(낭독 라벨 하나 · 보이는 줄 하나)이 이 사각의 크기다. ⚠️ 바이트로 세면 셋인데
-    // (라벨이 삼항이라 같은 문장을 두 갈래로 적는다) **두 수를 한 낱말로 적지 않는다** —
-    // 아래 it이 둘을 각각 소스에서 파생해 든다.
-    measure: 2,
-    floor: 1,
+    // ⚠️⚠️ **두 시점(라운드 94 트랙 A) · 이 사각은 오늘 닫혔다.**
+    //  · 라운드 93 리뷰 시점: **2**(표면 둘 — 낭독 라벨 하나 · 보이는 줄 하나 · 바이트로는 셋).
+    //    하한은 1이었다. 재는 것은 *이 바늘이 못 보는 채로 리터럴 `네`가 붙어 있는 표면 수*였다.
+    //  · 오늘: **0.** 세 바이트가 전부 `nameWithHonorificSuffix()`를 지나 리터럴 `}네`가 코드에
+    //    한 자리도 남지 않았다. ⚠️ **하한을 1에서 0으로 내리는 것은 래칫을 푸는 것이 아니다** —
+    //    이 자리의 래칫은 이제 **상한 0**으로 아래 `ⓑ-접미사` 절이 진다(*갈리는데 고정으로 적은
+    //    접미사 자리 0건*). 되돌리면 그 상한이 먼저 빨개진다.
+    measure: 0,
+    floor: 0,
     reason:
-      "**이 바늘은 조사만 안다.** 그런데 받침으로 갈리는 것은 조사만이 아니다 — 가구를 부르는 " +
-      "**호칭 접미사 `-네`** 도 앞말의 받침으로 갈린다(받침이 있으면 사이에 `이`가 든다: " +
-      "\"지훈**이**네\" · 없으면 바로 붙는다: \"민수네\"). ⚠️⚠️ **오늘 `app/(tabs)/more.tsx`가 " +
-      "사용자가 지은 별명 뒤에 `네`를 리터럴로 붙인다** — `:406-407`이 낭독 라벨(삼항 두 갈래)이고 " +
-      "`:417`이 화면에 보이는 가구 카드이며, 둘 다 `${visibleProfile.nickname}네` 꼴이다. " +
-      "받침 있는 별명이 들어오면 화면과 낭독이 함께 \"지훈네\"가 되고, 그것은 이 트랙이 고친 " +
-      "`}를`·`}과`와 **정확히 같은 병**이다. ⚠️ **오차의 방향은 조용한 쪽(거짓 초록)이다** — " +
-      "`PARTICLE_PAIRS`에 없는 꼴이라 이 계약은 빨개지지 않고 그냥 못 본다. " +
-      "⚠️⚠️ **이 라운드는 값과 조건만 남기고 제품을 고치지 않는다**: `app/(tabs)/more.tsx`는 이 " +
-      "리뷰의 소유 밖이고, 접미사를 고르는 규칙은 조사와 달라 **순수 함수를 하나 더 세우는 걸음**" +
-      "(`nameWithHonorificSuffix` 꼴)이라 축이 갈린다. **다음 라운드의 후보로 이름과 자리를 " +
-      "적어 두는 것이 오늘의 몫이다.**",
+      "**조사 바늘(`PARTICLE_PAIRS`)은 조사만 안다.** 그런데 받침으로 갈리는 것은 조사만이 아니다 — " +
+      "가구를 부르는 **호칭 접미사 `-네`** 도 앞말의 받침으로 갈린다(받침이 있으면 사이에 `이`가 든다: " +
+      "\"지훈**이**네\" · 없으면 바로 붙는다: \"민수네\"). " +
+      "⚠️ **라운드 93 리뷰 시점의 사실**: `app/(tabs)/more.tsx`가 사용자가 지은 별명 뒤에 `네`를 " +
+      "리터럴로 붙이고 있었다 — 그때 `:406`·`:407`이 낭독 라벨(삼항 두 갈래)이고 `:417`이 화면에 " +
+      "보이는 가구 카드였다. 받침 있는 별명이 들어오면 화면과 낭독이 함께 \"지훈네\"가 됐고, 그것은 " +
+      "트랙 B가 고친 `}를`·`}과`와 **정확히 같은 병**이었다. " +
+      "⚠️⚠️ **오늘의 사실(라운드 94 트랙 A)**: 그 세 바이트가 전부 순수 함수 " +
+      "`nameWithHonorificSuffix()`를 지난다(오늘의 자리 `:413`·`:414`·`:424`) — 리터럴 `}네`는 코드에 " +
+      "**0건**이고, 남은 `}네`는 그 화면의 **주석 둘**뿐이다(마스킹이 그것을 세지 않는다는 사실을 " +
+      "아래 it이 유령 방지로 확인한다). " +
+      "⚠️ **그리고 이 사각이 열려 있던 동안 오차의 방향은 조용한 쪽(거짓 초록)이었다** — 조사 쌍에 " +
+      "없는 꼴이라 계약이 빨개지지 않고 그냥 못 봤다. 그래서 이 자리는 이제 조사 모집단과 **나란한 " +
+      "접미사 모집단**을 따로 걷고, 그 모집단에서 *갈리는데 고정으로 적은 자리*를 **상한 0**으로 문다 — " +
+      "못 보는 것을 값으로 적는 데서 그치지 않고 **보게 만든 것**이 이 사각이 닫힌 방식이다.",
     resumeCondition:
       "재개 조건(사건형): 받침 있는 별명을 쓰는 가구에서 \"…네\"가 어색하다는 보고가 서거나, " +
       "`-네` 말고 다른 받침 의존 접미사가 이 모집단에 처음 서는 날 — 그날 이 바늘은 조사 쌍 말고 " +
-      "**접미사 규칙**(사이 `이`의 삽입)을 함께 알아야 하고, 첫 모집단은 오늘의 표면 둘(바이트 셋)이다."
+      "**접미사 규칙**(사이 `이`의 삽입)을 함께 알아야 하고, 첫 모집단은 오늘의 표면 둘(바이트 셋)이다. " +
+      "→ **발동됨(라운드 94 트랙 A · 뒤쪽 갈래)**: 접미사 규칙이 `HONORIFIC_SUFFIX_CHOOSER_NEEDLE`로 " +
+      "이 자에 들어왔고 첫 모집단은 그 셋이었다. 실측은 2에서 0으로 내려갔다. " +
+      "⚠️ **앞쪽 갈래(실사용 보고)는 오늘도 서지 않았다** — 이 트랙이 고친 근거는 보고가 아니라 " +
+      "규칙이고, 그 사실을 한 낱말로 적지 않는다. " +
+      "⚠️⚠️ **다시 열리는 조건(오늘 새로 적는다)**: 이미 `네`로 끝나는 이름(\"김가네\")에 접미사가 " +
+      "또 붙는 갈래(\"김가네네\")는 오늘도 그대로다 — `nameWithHonorificSuffix()`가 막지 않고, " +
+      "**막지 않는 것이 오늘의 바이트가 하던 일과 같아서** 이 트랙은 그것을 바꾸지 않았다. " +
+      "그 꼴이 실제로 보고되는 날 이 사각은 *접미사 중복*으로 다시 서고, 첫 모집단은 오늘의 셋이다."
+  }
+];
+
+/**
+ * ⓕ **핀 이동 대장(라운드 94 트랙 A · AH-4의 이행)** — *제품 문구를 고치는 손이 그 문구를 바이트로
+ * 무는 계약을 함께 옮겼다*는 사실을 **자리 · 옛 바이트 · 오늘의 바이트 셋으로** 진다.
+ *
+ * ⚠️⚠️ **라운드 93과 갈리는 곳이 여기다.** 그때는 문구를 고친 트랙과 그 문구를 물던 계약이 서로
+ * 다른 트랙의 소유라, 핀 이동을 **통합 커밋이 뒤늦게** 닫았다(위 사각
+ * `fixed-particle-pinned-by-another-contract`의 *"발동됨(라운드 93 통합)"*). 오늘 이 대장이 세는
+ * 이동은 **전부 트랙 A의 커밋 안**에 있다 — 통합이 닫을 부채가 0이라는 뜻이고, 0이 아니면 이
+ * 대장이 그것을 값으로 보인다.
+ *
+ * ⚠️ **계약 파일은 이 스윕의 모집단 밖이다**(`.test.`는 `listSweptFiles`가 걷지 않는다) — 그래서
+ * `readFileSync`로 따로 읽고, `product`가 모집단 안에 있는지는 아래 it이 확인한다.
+ *
+ * ⚠️ 부정 단언은 **주석을 걷은 뒤**에 선다 — 두 시점 규율이 옛 바이트를 주석에 남기라고 하므로,
+ * 걷지 않으면 정직하게 적은 손이 빨강을 맞는다(AE-3).
+ */
+const PIN_MIGRATIONS: readonly {
+  /** 옛 바이트를 물고 있던 계약 파일(`apps/mobile/` 기준 상대 경로). */
+  readonly contract: string;
+  /** 그 계약이 인용하던 제품 파일. */
+  readonly product: string;
+  readonly previousPin: string;
+  readonly todayPin: string;
+  /** 제품 쪽 바이트 — 인용을 통째로 든 자리는 핀과 같고, 값이 낀 자리(칩 라벨)는 다르다. */
+  readonly previousProductByte: string;
+  readonly todayProductByte: string;
+}[] = [
+  {
+    contract: "src/design-restore-p2d.test.ts",
+    product: "app/(tabs)/more.tsx",
+    previousPin: "<Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>",
+    todayPin: "<Text style={moreHouseholdNameStyle}>{nameWithHonorificSuffix(visibleProfile.nickname)}</Text>",
+    previousProductByte: "<Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>",
+    todayProductByte: "<Text style={moreHouseholdNameStyle}>{nameWithHonorificSuffix(visibleProfile.nickname)}</Text>"
+  },
+  {
+    contract: "src/a11y-contract.test.ts",
+    product: "app/(tabs)/more.tsx",
+    previousPin: "? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`",
+    todayPin:
+      "? `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`",
+    previousProductByte: "? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`",
+    todayProductByte:
+      "? `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`"
+  },
+  {
+    contract: "src/a11y-contract.test.ts",
+    product: "app/(tabs)/more.tsx",
+    previousPin: ": `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`",
+    todayPin: ": `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${sessionStageLabel}, 프로필 관리`",
+    previousProductByte: ": `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`",
+    todayProductByte: ": `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${sessionStageLabel}, 프로필 관리`"
+  },
+  {
+    // ⚠️⚠️ **정찰의 배정표에 없던 계약이다** — 트랙 A에 배정된 계약은 셋이었는데, 같은 세 바이트를
+    // 무는 넷째가 소스에 있었다(핀 셋). **배정이 완전했는지는 배정표가 아니라 이 대장이 말한다.**
+    contract: "src/settings/more-menu.test.ts",
+    product: "app/(tabs)/more.tsx",
+    previousPin: "<Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>",
+    todayPin: "<Text style={moreHouseholdNameStyle}>{nameWithHonorificSuffix(visibleProfile.nickname)}</Text>",
+    previousProductByte: "<Text style={moreHouseholdNameStyle}>{visibleProfile.nickname}네</Text>",
+    todayProductByte: "<Text style={moreHouseholdNameStyle}>{nameWithHonorificSuffix(visibleProfile.nickname)}</Text>"
+  },
+  {
+    contract: "src/settings/more-menu.test.ts",
+    product: "app/(tabs)/more.tsx",
+    previousPin: "? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`",
+    todayPin:
+      "? `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`",
+    previousProductByte: "? `${visibleProfile.nickname}네, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`",
+    todayProductByte:
+      "? `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${householdCaption}, ${sessionStageLabel}, 프로필 관리`"
+  },
+  {
+    contract: "src/settings/more-menu.test.ts",
+    product: "app/(tabs)/more.tsx",
+    previousPin: ": `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`",
+    todayPin: ": `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${sessionStageLabel}, 프로필 관리`",
+    previousProductByte: ": `${visibleProfile.nickname}네, ${sessionStageLabel}, 프로필 관리`",
+    todayProductByte: ": `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${sessionStageLabel}, 프로필 관리`"
+  },
+  {
+    // ⚠️ 칩 라벨은 **값이 낀 자리**다 — 계약은 렌더된 문장을 물고 제품은 보간 꼴을 지닌다.
+    contract: "src/home/budget-edit.test.ts",
+    product: "src/home/budget-edit.ts",
+    previousPin: '"지난달 실지출(1,412,000원)로"',
+    todayPin: '"지난달 실지출(1,412,000원)으로"',
+    previousProductByte: "`지난달 실지출(${amountText})로`",
+    todayProductByte: "`지난달 실지출(${amountText})으로`"
+  },
+  {
+    contract: "src/home/budget-edit.test.ts",
+    product: "src/home/budget-edit.ts",
+    previousPin: '"지난달 실지출(100,000,000원)로"',
+    todayPin: '"지난달 실지출(100,000,000원)으로"',
+    previousProductByte: "`지난달 실지출(${amountText})로`",
+    todayProductByte: "`지난달 실지출(${amountText})으로`"
   }
 ];
 
@@ -916,35 +1072,133 @@ function concatenatedParticleCount(): number {
 }
 
 /**
- * ⓕ-② **받침에 기대는 *호칭 접미사*가 보간 뒤에 리터럴로 붙은 자리** — 사각 `suffix-not-particle`.
+ * ⓕ-② **받침에 기대는 *호칭 접미사*가 서는 자리** — 라운드 93 리뷰가 사각으로 열고
+ * 라운드 94 트랙 A가 **모집단으로 승격**한 자다.
  *
  * ⚠️ **조사가 아니라 접미사다.** `-네`("김가네" · "지훈이네")는 조사가 아니라 가구를 부르는
  * 접미사인데 **받침으로 갈리는 것은 조사와 똑같다**: 받침이 있으면 사이에 `이`가 든다
- * ("지훈**이**네"), 없으면 바로 붙는다("민수네"). 이 계약의 바늘(`PARTICLE_PAIRS`)은 조사만
- * 알아서 이 자리를 **한 자리도 보지 못한다.**
+ * ("지훈**이**네"), 없으면 바로 붙는다("민수네"). 조사 바늘(`PARTICLE_PAIRS`)은 조사만 알아서
+ * 이 자리를 **한 자리도 보지 못한다** — 그래서 조사 모집단과 **나란한 모집단**을 따로 걷는다.
  *
  * ⚠️⚠️ **그래서 이 자는 값을 grep으로 세지 않고 스윕과 같은 마스킹 규율로 파생한다** —
- * 주석을 걷어 낸 코드에서 `}` 바로 뒤의 `네`를 센다(그러지 않으면 그 화면의 주석 한 줄이
- * 자리로 잘못 세어진다 — 오늘 실제로 `more.tsx:400`이 그 꼴을 주석에 적고 있다).
+ * 주석을 걷어 낸 코드에서 ⓐ `}` 바로 뒤의 `네`(**꼴 A** — 리터럴로 붙은 것)와 ⓑ 접미사를 고르는
+ * 함수의 호출(**꼴 B** — 값에서 고르는 것)을 함께 센다. 주석을 걷지 않으면 그 화면의 주석이
+ * 자리로 잘못 세어진다(오늘 실제로 `more.tsx`가 그 꼴을 주석 **둘**에 적고 있다).
+ *
+ * ⚠️ **꼴 A와 꼴 B가 같은 모집단인 이유는 조사 쪽과 똑같다** — 고치는 손이 모집단을 줄이지
+ * 못하게 하려는 것이다(트랙 A가 셋을 고치는 순간 그 셋이 사라지면 래칫이 물 것이 없어진다).
  */
+type HonorificSuffixVerdict = "chooses-from-value" | "varies-but-written-fixed";
+
 type HonorificSuffixSite = {
   readonly file: string;
   readonly line: number;
   /** 그 접미사가 서는 표면 — 낭독 라벨(문자열 안)인가, 보이는 줄(JSX 텍스트)인가. */
   readonly surface: "낭독 라벨" | "보이는 줄";
+  /** 꼴 B면 접미사를 고르는 함수 이름, 꼴 A면 null. */
+  readonly chooser: string | null;
+  readonly verdict: HonorificSuffixVerdict;
 };
+
+/**
+ * ⚠️ **접미사를 고르는 함수의 이름도 손으로 적지 않는다** — 조사 쪽(`particleChooserNames`)과
+ * 같은 규율로 소스에서 파생한다. 오늘 하나(`nameWithHonorificSuffix`).
+ */
+function honorificSuffixChooserNames(): string[] {
+  const found: string[] = [];
+  for (const file of sweptFiles) {
+    const code = maskComments(readSweptSource(file));
+    for (const matched of code.matchAll(/export function ([A-Za-z0-9_$]*HonorificSuffix)\s*\(/g)) {
+      found.push(matched[1]);
+    }
+  }
+  return [...new Set(found)].sort();
+}
+
+const suffixChooserNames = honorificSuffixChooserNames();
+
+/**
+ * ⚠️ **규칙이 사는 파일은 *자리*가 아니다.** 접미사 함수의 본문은 `` `${name}${linker}네` `` 라
+ * 꼴 A의 바늘(`}네`)에 스스로 걸린다 — 그것은 화면 문구가 아니라 **규칙 자체**이므로 모집단에서
+ * 뺀다(조사 쪽에서 `korean-particles.ts`의 `"을"`·`"과"`가 모집단 밖인 것과 같은 이유다).
+ * ⚠️ 이 목록도 손이 아니라 **소스에서 파생한다** — 접미사 함수를 `export`하는 파일 전수다.
+ */
+function honorificSuffixModuleFiles(): string[] {
+  return sweptFiles.filter((file) =>
+    /export function [A-Za-z0-9_$]*HonorificSuffix\s*\(/.test(maskComments(readSweptSource(file)))
+  );
+}
+
+const suffixChooserFiles = honorificSuffixModuleFiles();
+
+/** 짝이 맞는 `)`의 자리. ⚠️ **존재 가드** — 짝이 없으면 `null`(잘린 소스에서 유령 자리를 만들지 않는다). */
+function matchingParen(code: string, openAt: number): number | null {
+  if (code[openAt] !== "(") return null;
+  let depth = 0;
+  let quote: string | null = null;
+  for (let index = openAt; index < code.length; index += 1) {
+    const char = code[index];
+    if (quote !== null) {
+      if (char === "\\") index += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(") depth += 1;
+    else if (char === ")") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return null;
+}
+
+const EXPORT_FUNCTION_PREFIX = "export function ";
 
 function honorificSuffixSites(): HonorificSuffixSite[] {
   const found: HonorificSuffixSite[] = [];
   for (const file of sweptFiles) {
+    // ⚠️ 규칙이 사는 파일은 자리가 아니다(위 `honorificSuffixModuleFiles`의 근거).
+    if (suffixChooserFiles.includes(file)) continue;
     const code = maskComments(readSweptSource(file));
+
+    // 꼴 A — 접미사가 리터럴로 붙었다(`}네`). ⚠️ 오늘 0건이고, 다시 서는 날 상한이 빨개진다.
     for (let at = code.indexOf("}네"); at !== -1; at = code.indexOf("}네", at + 1)) {
       // ⚠️ 존재 가드 — 파일 끝에서는 뒤 글자가 없다(`slice`는 빈 문자열을 낸다).
       const next = at + 2 < code.length ? code[at + 2] : "";
-      found.push({ file, line: lineOf(code, at), surface: next === "<" ? "보이는 줄" : "낭독 라벨" });
+      found.push({
+        file,
+        line: lineOf(code, at),
+        surface: next === "<" ? "보이는 줄" : "낭독 라벨",
+        chooser: null,
+        verdict: "varies-but-written-fixed"
+      });
+    }
+
+    // 꼴 B — 접미사를 값에서 고른다(`nameWithHonorificSuffix(nickname)`).
+    for (const name of suffixChooserNames) {
+      const needle = `${name}(`;
+      for (let at = code.indexOf(needle); at !== -1; at = code.indexOf(needle, at + 1)) {
+        // ⚠️ 정의 자체는 *자리*가 아니다 — 순수 모듈의 `export function` 한 줄을 세지 않는다.
+        const before = code.slice(Math.max(0, at - EXPORT_FUNCTION_PREFIX.length), at);
+        if (before === EXPORT_FUNCTION_PREFIX) continue;
+        const end = matchingParen(code, at + needle.length - 1);
+        // ⚠️ 존재 가드 — 짝이 없으면 이 자리는 없던 것으로 한다.
+        if (end === null) continue;
+        found.push({
+          file,
+          line: lineOf(code, at),
+          surface: code.slice(end + 1, end + 3) === "}<" ? "보이는 줄" : "낭독 라벨",
+          chooser: name,
+          verdict: "chooses-from-value"
+        });
+      }
     }
   }
-  return found;
+  return found.sort((left, right) => (left.file === right.file ? left.line - right.line : left.file < right.file ? -1 : 1));
 }
 
 function koreanLiteralCount(code: string): number {
@@ -1110,7 +1364,11 @@ describe("ⓐ 모집단 — 전수에서 파생한다(손 목록 금지)", () =>
   it("⚠️⚠️ 새 `export const`가 0건이다 — 새 순수 모듈은 `export function`만 세운다", () => {
     const module = maskComments(readSweptSource("src/text/korean-particles.ts"));
     expect(module).not.toContain("export const");
-    expect((module.match(/export function /g) ?? []).length).toBe(3);
+    // ⚠️ **두 시점 · 등호가 아니라 하한**: 트랙 B 커밋 시점 **셋**(hasFinalConsonant · objectParticle ·
+    // withParticle) → 라운드 94 트랙 A가 접미사 함수 하나를 더해 오늘 **넷**이다. 이 자가 무는 것은
+    // *몇 개인가*가 아니라 **`export const`가 0건이라는 사실**이므로, 함수가 느는 쪽으로는 빨개지지
+    // 않는다(사문 대장의 절반 문턱 여유가 0이라 `export const`만 상한 0으로 남는다).
+    expect((module.match(/export function /g) ?? []).length).toBeGreaterThanOrEqual(4);
   });
 
   it("⚠️ 새 순수 모듈은 화면을 import하지 않는다 — 문구가 아니라 규칙만 든다", () => {
@@ -1390,16 +1648,25 @@ describe("ⓕ 사각 — 이 스윕이 못 보는 것을 값과 하한으로 적
     expect(readParticle("이(가) 들어섰어요")).toBe("이");
   });
 
-  it("⚠️ 닫는 문자가 낀 자리 하나는 조사가 값이 아니라 괄호 뒤에 온다 — 이 트랙은 문구를 고치지 않는다", () => {
+  it("⚠️⚠️ 닫는 문자가 낀 자리 하나가 오늘 받침 형으로 옮겨 갔다 — 보이는 줄과 낭독이 같은 조사를 쓴다 (두 시점)", () => {
     const withMarks = byVerdict("fixed-tail").filter((site) => site.closingMarks.length > 0);
     expect(withMarks).toHaveLength(1);
     expect(withMarks[0].file).toBe("src/home/budget-edit.ts");
     expect(withMarks[0].closingMarks).toBe(")");
-    // ⚠️ 값의 꼬리는 고정이라 **갈리지 않는다**(이 계약이 무는 것은 그것이다). 다만 받침 형과는
-    // 어긋난다 — `원`은 받침이 있으니 소리로는 `으로`다. 안전한 스물아홉을 건드리지 않는 것이
-    // 이 트랙의 금지이므로 고치지 않고 값으로 적는다.
+    // ⚠️ **두 시점(라운드 94 트랙 A)**: 트랙 B·라운드 93 시점 이 단언은 `toBe("로")` 였고, 그 옆에
+    // *"값의 꼬리는 고정이라 갈리지 않지만 받침 형과는 어긋난다 — 안전한 스물아홉을 건드리지 않는
+    // 것이 이 트랙의 금지라 고치지 않고 값으로 적는다"* 가 적혀 있었다. **판정(`fixed-tail`)은
+    // 그때도 오늘도 옳았고, 틀린 것은 어느 형이 옳은가였다.** 눈에는 조사가 괄호 뒤에 오지만
+    // **소리는 괄호가 아니라 값의 꼬리를 따른다** — `원`은 받침 ㄴ이고 ㄹ 예외도 아니므로 `으로`다.
     expect(expectedParticle("원", "으로")).toBe("으로");
-    expect(withMarks[0].literalParticle).toBe("로");
+    expect(withMarks[0].literalParticle).toBe("으로");
+
+    // ⚠️⚠️ **그리고 이제 한 칩의 두 표면이 같은 조사를 쓴다** — 그 사실을 둘을 나란히 놓아 문다.
+    const chipSource = maskComments(readSweptSource("src/home/budget-edit.ts"));
+    expect(chipSource, "보이는 줄").toContain("label: `지난달 실지출(${amountText})으로`,");
+    expect(chipSource, "낭독").toContain("accessibilityLabel: `지난달 실지출 ${amountText}으로 맞추기`,");
+    // 옛 바이트는 (두 시점 주석 속 말고는) 코드 어디에도 없다.
+    expect(chipSource).not.toContain("`지난달 실지출(${amountText})로`");
   });
 
   it("소스 대조이지 런타임이 아니다", () => {
@@ -1425,35 +1692,234 @@ describe("ⓕ 사각 — 이 스윕이 못 보는 것을 값과 하한으로 적
     expect(spot?.measure).toBe(0);
   });
 
-  it("⚠️⚠️ 조사가 아닌데 받침으로 갈리는 접미사 `-네`가 이 바늘 밖이라는 사실이 **소스에서 파생된** 값으로 선다 (라운드 93 리뷰 M-5)", () => {
+  it("⚠️⚠️ 조사가 아닌데 받침으로 갈리는 접미사 `-네`의 사각이 오늘 0으로 내려갔다 (라운드 93 리뷰 M-5 → 라운드 94 트랙 A · 두 시점)", () => {
     const spot = BLIND_SPOTS.find((entry) => entry.id === "suffix-not-particle");
     expect(spot).toBeDefined();
     expect(spot?.reason).toContain("거짓 초록");
     expect(spot?.resumeCondition).toContain("재개 조건(사건형)");
+    // ⚠️ 발동이 *일어났다*는 사실과 *어느 갈래로 일어났는가*를 함께 문다 — 두 갈래를 한 낱말로
+    // 적지 않는다(앞쪽 갈래인 실사용 보고는 오늘도 서지 않았다).
+    expect(spot?.resumeCondition).toContain("발동됨(라운드 94 트랙 A · 뒤쪽 갈래)");
+    expect(spot?.resumeCondition).toContain("앞쪽 갈래(실사용 보고)는 오늘도 서지 않았다");
 
     // ⓐ 실측을 **소스에서 파생한다** — 손 목록도 grep도 아니고 스윕과 같은 마스킹 규율이다.
     const sites = honorificSuffixSites();
     expect(sites.length, "바이트로 센 자리 (오늘 셋 — 라벨의 두 갈래 + 보이는 줄)").toBe(3);
     const surfaces = [...new Set(sites.map((site) => site.surface))].sort();
     expect(surfaces).toEqual(["낭독 라벨", "보이는 줄"]);
-    expect(surfaces.length, "사각이 든 수는 **표면**의 수다").toBe(spot?.measure ?? -1);
+    // ⚠️⚠️ **두 시점**: 라운드 93 리뷰 시점 이 자리의 실측은 **표면 둘**(리터럴 `네`가 붙은 표면
+    // 수)이었다. 오늘 그 표면 수는 그대로 둘인데 **리터럴로 적힌 것이 0**이라 사각이 0이다 —
+    // 사각이 세는 것은 *표면*이 아니라 **이 자가 못 보는 채로 남은 자리**이기 때문이다.
+    expect(
+      sites.filter((site) => site.verdict === "varies-but-written-fixed").length,
+      "못 보는 채로 남은 자리"
+    ).toBe(spot?.measure ?? -1);
 
     // ⓑ 그 자리들이 오늘 어디인지 값으로 든다(유령 사각 금지 · 자리는 한 파일이다).
+    // ⚠️ **두 시점**: 라운드 93 시점의 자리는 `:406`·`:407`·`:417`이었고, 트랙 A가 import 한 줄과
+    // 두 시점 주석을 더하며 오늘의 자리로 내려왔다(AG-5: 인용은 인용당한 자리를 따라간다).
     expect([...new Set(sites.map((site) => site.file))]).toEqual(["app/(tabs)/more.tsx"]);
-    expect(sites.map((site) => site.line)).toEqual([406, 407, 417]);
-    expect(sites.filter((site) => site.surface === "낭독 라벨").map((site) => site.line)).toEqual([406, 407]);
-    expect(sites.filter((site) => site.surface === "보이는 줄").map((site) => site.line)).toEqual([417]);
+    expect(sites.map((site) => site.line)).toEqual([413, 414, 424]);
+    expect(sites.filter((site) => site.surface === "낭독 라벨").map((site) => site.line)).toEqual([413, 414]);
+    expect(sites.filter((site) => site.surface === "보이는 줄").map((site) => site.line)).toEqual([424]);
 
     // ⓒ 마스킹이 실제로 일하고 있다 — 같은 파일이 **주석에도** 그 꼴을 적는데 세어지지 않는다.
     const more = readSweptSource("app/(tabs)/more.tsx");
     expect(more, "주석의 그 꼴이 오늘도 있다(유령 방지)").toContain('"{닉네임}네"');
-    expect((more.match(/}네/g) ?? []).length, "마스킹 전에는 넷이다").toBe(4);
+    // ⚠️ **두 시점**: 트랙 A 전에는 마스킹 전 `}네`가 **넷**이었다(코드 셋 + 주석 하나). 오늘은
+    // **셋**이고 **셋 다 주석**이다 — 두 시점 주석이 옛 바이트를 남기기 때문이고, 그래서 이 수가
+    // 0이 아니라는 사실 자체가 *지우지 않았다*의 증거다. ⚠️ 등호가 아니라 **하한**으로 문다:
+    // 주석을 더 적는 손이 빨강을 맞으면 아무도 두 시점을 적지 않는다(마스킹 뒤의 0이 상한을 진다).
+    expect((more.match(/}네/g) ?? []).length, "마스킹 전에는 셋 이상(전부 주석)").toBeGreaterThanOrEqual(3);
+    expect((maskComments(more).match(/}네/g) ?? []).length, "마스킹 뒤에는 0건").toBe(0);
 
-    // ⓓ 그 꼴이 **이 계약의 모집단 밖**이라는 것도 값으로 — 조사 자리와 한 자리도 겹치지 않는다.
-    expect(particleSites.filter((site) => site.file === "app/(tabs)/more.tsx" && site.line === 417)).toEqual([]);
+    // ⓓ 그 꼴이 **조사 모집단 밖**이라는 것도 값으로 — 조사 자리와 한 자리도 겹치지 않는다.
+    for (const site of sites) {
+      expect(particleSites.filter((particle) => particle.file === site.file && particle.line === site.line)).toEqual([]);
+    }
     expect(readParticle("네, 프로필 관리"), "`네`는 조사 쌍에 없다").toBeNull();
 
-    // ⓔ 그리고 이 라운드는 **제품을 고치지 않았다** — 오늘의 바이트가 그대로다(소유 밖).
-    expect(maskComments(more)).toContain("${visibleProfile.nickname}네");
+    // ⓔ 그리고 이 라운드는 **제품을 고쳤다** — 옛 바이트가 코드에서 사라졌다(두 시점 주석은 예외).
+    expect(maskComments(more)).not.toContain("${visibleProfile.nickname}네");
+    expect(more, "옛 바이트를 지우지 않고 주석으로 남겼다").toContain("${visibleProfile.nickname}네");
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// ③ 라운드 94 트랙 A — 접미사 모집단 · 순수 함수의 값 · 핀 이동.
+// ───────────────────────────────────────────────────────────────────────────────
+
+describe("ⓒ-접미사 순수 함수 — 받침에서 `-네` 앞의 `이`가 갈린다(표로 못 박는다)", () => {
+  it("받침 있는 음절로 끝나면 사이에 `이`가 든다", () => {
+    for (const [name, expected] of [
+      ["지훈", "지훈이네"],
+      ["하율", "하율이네"],
+      ["사랑", "사랑이네"],
+      ["김가람", "김가람이네"],
+      ["첫돌", "첫돌이네"]
+    ] as const) {
+      expect(hasFinalConsonant(name), `${name}: 받침이 있다`).toBe(true);
+      expect(nameWithHonorificSuffix(name)).toBe(expected);
+    }
+  });
+
+  it("받침 없는 음절로 끝나면 바로 붙는다", () => {
+    for (const [name, expected] of [
+      ["서아", "서아네"],
+      ["민수", "민수네"],
+      ["다온이", "다온이네"],
+      ["유주", "유주네"]
+    ] as const) {
+      expect(hasFinalConsonant(name), `${name}: 받침이 없다`).toBe(false);
+      expect(nameWithHonorificSuffix(name)).toBe(expected);
+    }
+  });
+
+  it("⚠️ 한글이 아닌 끝(라틴·숫자·이모지)에서는 판정이 서지 않고, **받침 없는 형**으로 떨어진다", () => {
+    // ⚠️ 조사 셋과 **같은 답**이다 — 저장소가 이미 고른 갈래를 접미사에도 그대로 쓴다.
+    // 그 근거는 *옳음이 아니라 안전*이다(사각 `non-hangul-tail-is-convention-not-grammar`):
+    // 소리를 모르는 자리에서 어느 한쪽을 지어내는 것보다 어느 이름에도 덜 어색한 쪽이 낫다.
+    for (const name of ["Ben", "둘째2", "🐣", "kim", "!!"]) {
+      expect(hasFinalConsonant(name), `${name}: 판정이 서지 않는다`).toBeNull();
+      expect(nameWithHonorificSuffix(name)).toBe(`${name}네`);
+    }
+  });
+
+  it("빈 값·공백만 있는 값에서도 터지지 않고 같은 답으로 떨어진다", () => {
+    for (const name of ["", "   "]) {
+      expect(hasFinalConsonant(name)).toBeNull();
+      expect(nameWithHonorificSuffix(name)).toBe(`${name}네`);
+    }
+  });
+
+  it("⚠️⚠️ 접미사 규칙은 **관례이지 문법이 아니다** — 이미 `네`로 끝나는 이름에도 또 붙는다", () => {
+    // ⚠️ 이것은 버그가 아니라 **오늘의 바이트가 하던 일과 같게 둔 것**이다(사각 ⓓ가 조건을 진다).
+    // 트랙 A가 바꾼 것은 *접미사 앞의 `이` 한 글자*이고, 중복을 막는 판정을 새로 짓지 않았다.
+    expect(nameWithHonorificSuffix("김가네")).toBe("김가네네");
+    expect(hasFinalConsonant("김가네"), "`네`는 받침이 없다").toBe(false);
+    const spot = BLIND_SPOTS.find((entry) => entry.id === "suffix-not-particle");
+    expect(spot?.resumeCondition).toContain("김가네네");
+  });
+});
+
+describe("ⓑ-접미사 판정 — 접미사 자리마다 소스에서 하나가 나온다", () => {
+  const suffixSites = honorificSuffixSites();
+
+  it("⚠️ 접미사를 고르는 함수 이름도 소스에서 파생한다 — 손으로 적지 않는다", () => {
+    expect(suffixChooserNames).toEqual(["nameWithHonorificSuffix"]);
+    expect(maskComments(readSweptSource("src/text/korean-particles.ts"))).toContain(
+      "export function nameWithHonorificSuffix("
+    );
+    // ⚠️ 유령 방지 — **규칙이 사는 파일은 자리가 아니다**. 그 파일도 손 목록이 아니라 파생이고
+    // (`honorificSuffixModuleFiles`), 그 안의 정의 한 줄과 본문의 `}네`가 자리로 세어지지 않는다.
+    expect(suffixChooserFiles).toEqual(["src/text/korean-particles.ts"]);
+    expect(suffixSites.filter((site) => site.file === "src/text/korean-particles.ts")).toEqual([]);
+  });
+
+  it("모든 접미사 자리가 둘 중 하나로 갈리고, 둘의 합이 모집단이다", () => {
+    const verdicts: HonorificSuffixVerdict[] = ["chooses-from-value", "varies-but-written-fixed"];
+    for (const site of suffixSites) {
+      expect(verdicts).toContain(site.verdict);
+      expect(site.line).toBeGreaterThan(0);
+      expect(sweptFiles).toContain(site.file);
+    }
+    const choosing = suffixSites.filter((site) => site.verdict === "chooses-from-value");
+    const fixed = suffixSites.filter((site) => site.verdict === "varies-but-written-fixed");
+    expect(choosing.length + fixed.length).toBe(suffixSites.length);
+  });
+
+  it("⚠️⚠️ 트랙 뒤 — *값에서 고른다* 셋 · *갈리는데 고정으로 적었다* **0건** (오늘 0 → 셋 · 셋 → 0)", () => {
+    const choosing = suffixSites.filter((site) => site.verdict === "chooses-from-value");
+    const offenders = suffixSites
+      .filter((site) => site.verdict === "varies-but-written-fixed")
+      .map((site) => `${site.file}:${site.line} (${site.surface})`);
+    // ⚠️ **상한 0** — 한 자리라도 리터럴 `}네`로 되돌리면 여기가 먼저 빨개진다.
+    expect(offenders).toEqual([]);
+    // ⚠️ **하한 셋** — 모집단은 줄지 않는다(꼴 A와 꼴 B가 같은 모집단이라 고치는 손이 줄이지 못한다).
+    expect(choosing.length).toBeGreaterThanOrEqual(3);
+    for (const site of choosing) {
+      expect(suffixChooserNames).toContain(site.chooser ?? "");
+    }
+  });
+
+  it("⚠️ 접미사 모집단에 오늘 서는 꼴은 `-네` 하나뿐이라는 사실이 값으로 선다", () => {
+    // ⚠️ `아/야`·`이랑`·`이나`·`이라`는 오늘 **0건**이다 — 없다는 것도 소스에서 낸다.
+    // (`}` 바로 뒤에 붙는 받침 의존 접미사만 센다 — 낱말 안의 같은 글자는 자리가 아니다.)
+    const others = ["아", "야", "이랑", "이나", "이라"];
+    const hits: string[] = [];
+    for (const file of sweptFiles) {
+      const code = maskComments(readSweptSource(file));
+      for (const suffix of others) {
+        const needle = `}${suffix}`;
+        for (let at = code.indexOf(needle); at !== -1; at = code.indexOf(needle, at + 1)) {
+          hits.push(`${file}:${lineOf(code, at)} ${needle}`);
+        }
+      }
+    }
+    expect(hits).toEqual([]);
+    // 그리고 바늘이 유령이 아니다 — 픽스처에서는 실제로 잡는다.
+    expect(maskComments("const s = `${name}이랑`;").includes("}이랑")).toBe(true);
+  });
+
+  it("⚠️ 보이는 줄과 낭독 라벨이 **같은 한 함수**를 지난다 — 두 표면이 갈릴 자리가 없다", () => {
+    const byFile = suffixSites.filter((site) => site.file === "app/(tabs)/more.tsx");
+    expect(byFile.filter((site) => site.surface === "보이는 줄").length).toBeGreaterThanOrEqual(1);
+    expect(byFile.filter((site) => site.surface === "낭독 라벨").length).toBeGreaterThanOrEqual(2);
+    expect([...new Set(byFile.map((site) => site.chooser))]).toEqual(["nameWithHonorificSuffix"]);
+    // 그리고 그 함수가 **바로 그 값**을 본다(유령 방지 — 다른 값을 보는 자리가 없다).
+    const code = maskComments(readSweptSource("app/(tabs)/more.tsx"));
+    expect((code.match(/nameWithHonorificSuffix\(visibleProfile\.nickname\)/g) ?? []).length).toBe(3);
+    expect((code.match(/nameWithHonorificSuffix\(/g) ?? []).length).toBe(3);
+  });
+});
+
+describe("ⓕ 핀 이동 — 문구를 고친 손이 그 문구를 무는 계약을 함께 옮겼다 (AH-4의 이행)", () => {
+  const readContract = (path: string): string => readFileSync(join(mobileRoot, path), "utf8");
+
+  it("⚠️⚠️ 핀마다 자리·옛 바이트·오늘의 바이트 셋이 값으로 서 있고, 옛 바이트가 코드에 없다", () => {
+    // ⚠️ 등호가 아니라 **하한**이다 — 정찰이 배정한 계약은 셋이었고 소스가 낸 수는 그보다 컸다.
+    expect(PIN_MIGRATIONS.length).toBeGreaterThanOrEqual(8);
+    for (const pin of PIN_MIGRATIONS) {
+      expect(pin.previousPin, `${pin.contract}: 옛 바이트와 오늘의 바이트가 같다`).not.toBe(pin.todayPin);
+      const contract = readContract(pin.contract);
+      expect(contract, `${pin.contract}: 오늘의 바이트를 들고 있지 않다`).toContain(pin.todayPin);
+      // ⚠️ 주석을 걷은 뒤에 문다 — 두 시점 주석 속의 옛 바이트는 *지우지 않은 것*이지 부채가 아니다.
+      expect(maskComments(contract), `${pin.contract}: 옛 바이트가 코드에 남아 있다`).not.toContain(pin.previousPin);
+      expect(contract, `${pin.contract}: 옛 바이트를 두 시점으로 남기지 않았다`).toContain(pin.previousPin);
+      expect(contract, `${pin.contract}: 두 시점 표기`).toContain("두 시점");
+    }
+  });
+
+  it("⚠️ 그 핀들이 가리키는 제품 자리가 모집단 안에 있고, 오늘의 바이트를 지닌다", () => {
+    for (const pin of PIN_MIGRATIONS) {
+      expect(sweptFiles, `${pin.product}: 모집단 밖이다`).toContain(pin.product);
+      const product = maskComments(readSweptSource(pin.product));
+      expect(product, `${pin.product}: 오늘의 바이트`).toContain(pin.todayProductByte);
+      expect(product, `${pin.product}: 옛 바이트가 코드에 남아 있다`).not.toContain(pin.previousProductByte);
+    }
+  });
+
+  it("⚠️⚠️ 계약 파일 수와 핀 수를 나란히 적는다 — **정찰의 넷은 하한이었다**", () => {
+    const contracts = [...new Set(PIN_MIGRATIONS.map((pin) => pin.contract))].sort();
+    // 정찰이 트랙 A에 이름으로 배정한 핀은 넷이었다(a11y-contract 둘 · design-restore-p2d 하나 ·
+    // 이 파일의 `closingMarks` 하나). 소스가 낸 수는 **계약 다섯 · 핀 아홉**이고, 그중 이 대장이
+    // 지는 것이 **계약 넷 · 핀 여덟**이다(아홉째는 이 파일 자신의 것이라 대장 밖에 둔다).
+    expect(contracts.length).toBeGreaterThanOrEqual(4);
+    expect(PIN_MIGRATIONS.length, "대장이 지는 핀").toBeGreaterThanOrEqual(8);
+    expect(contracts).toContain("src/a11y-contract.test.ts");
+    expect(contracts).toContain("src/design-restore-p2d.test.ts");
+    expect(contracts).toContain("src/settings/more-menu.test.ts");
+    expect(contracts).toContain("src/home/budget-edit.test.ts");
+    // ⚠️ 그리고 이 파일 자신의 핀(`closingMarks`의 `literalParticle`)은 위 ⓕ 절이 따로 문다 —
+    // 대장이 자기 자신을 무는 순환을 만들지 않는다.
+    expect(contracts).not.toContain("src/korean-particle-guard.test.ts");
+  });
+
+  it("⚠️⚠️ 이 이동이 **통합이 아니라 트랙의 커밋**에 실린다는 사실이 머리말에 값으로 있다", () => {
+    const self = readContract("src/korean-particle-guard.test.ts");
+    expect(self).toContain("통합이 아니라 트랙의 커밋");
+    expect(self).toContain("배정 단계에서");
+    // 라운드 93의 그 부채가 어떤 얼굴이었는지도 옆에 남아 있다(두 시점).
+    expect(self).toContain("발동됨(라운드 93 통합)");
   });
 });
