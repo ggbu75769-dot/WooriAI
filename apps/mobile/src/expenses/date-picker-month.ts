@@ -317,26 +317,34 @@ export type ExpenseDatePickerCellLabelInput = {
 };
 
 /**
- * 칸의 스크린리더 라벨 — "8월 12일", "오늘, 8월 27일, 선택됨".
+ * 칸의 스크린리더 라벨 — "8월 12일", "오늘, 8월 27일".
  *
- * 눈으로 보는 사람이 테두리·바탕색으로 읽는 세 가지 사실(오늘·선택됨·못 누름)을 말로도 전한다.
+ * 눈으로 보는 사람이 테두리·바탕색으로 읽는 사실(오늘·못 누름)을 말로도 전한다.
  * 달 밖 빈 칸은 null이라 화면이 라벨 없는 자리로 그린다(기록 탭 달력과 같은 관례).
  *
  * 라운드 65 D: 못 누르는 이유는 **방향마다 다르다**(오지 않은 날 / 만삭보다 먼 날). 라운드 61 E가
  * 고정한 계약("왜 못 누르는지까지 말한다")은 그대로이고, 그 이유를 한 문장에 고정하는 대신
  * 방향에서 고른다 — 예정일 달력에서 "아직 오지 않은 날이라 고를 수 없어요"는 사실이 아니다.
+ *
+ * ⚠️ **두 시점(라운드 95 트랙 A).** 종전에는 머리말이 "8월 12일", "오늘, 8월 27일, 선택됨"이었고
+ * 첫 갈래가 `parts.push("선택됨")`이었다. 그 칸을 그리는 `ExpenseDatePicker`가 같은 사실을
+ * `accessibilityState={{ selected }}`로도 지고 있어 TalkBack이 **"8월 12일, 선택됨, 선택됨"** 으로
+ * 두 번 읽었다 — 선택 여부는 상태가 진다(`src/a11y-contract.test.ts`의 규율). 낱말만 걷었고
+ * 보이는 줄·테두리·바탕색은 불변이다.
+ *
+ * 그 갈래를 걷으면 **못 고르는 이유가 대신 들어온다**: 선택됐는데 못 고르는 칸에서 종전에는
+ * 이유가 조용했고, 오늘은 이유가 말해진다(개선이지 손실이 아니다). `selectedIso`는 입력 꼴에
+ * 그대로 남는다 — 이 함수가 더는 읽지 않을 뿐, 그 값을 아는 것은 여전히 화면 쪽 계약이다.
  */
 export function expenseDatePickerCellAccessibilityLabel(
   cell: CalendarCell,
-  { selectedIso, todayIso = getSeoulToday(), direction = "past" }: ExpenseDatePickerCellLabelInput
+  { todayIso = getSeoulToday(), direction = "past" }: ExpenseDatePickerCellLabelInput
 ): string | null {
   if (!cell || cell.date === null) return null;
   const parts: string[] = [];
   if (cell.isToday) parts.push("오늘");
   parts.push(formatSpentOn(cell.date));
-  if (selectedIso && cell.date === selectedIso) {
-    parts.push("선택됨");
-  } else if (!isExpenseDatePickerCellSelectable(cell, todayIso, direction)) {
+  if (!isExpenseDatePickerCellSelectable(cell, todayIso, direction)) {
     parts.push(expenseDatePickerUnselectableHint(direction));
   }
   return parts.join(", ");

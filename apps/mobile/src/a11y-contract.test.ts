@@ -78,6 +78,9 @@ import { CHILD_STAGE_MODE_OPTIONS } from "./children/child-form";
 // GAP-090 트랙 A(#1): 준비템 검색 결과 줄이 **소리로** 나갈 때의 그 한 문장. 값 계약은 그 모듈의
 // 테스트가 지고, 여기서는 **화면이 그리는 줄과 글자가 같은가**(눈과 귀)를 실행해서 맞춰 본다.
 import { searchResultCountAnnouncement } from "./preparation/search-draft";
+// GAP-095 트랙 A(#1): *선택됐는데 못 고르는* 갈래가 소리를 잃지 않음을 **순수 함수의 값으로** 문다.
+// 문구 계약은 src/month-jump.test.ts가 지고, 여기서는 그 값이 라벨과 상태로 **나뉘어** 있는가만 본다.
+import { buildMonthJumpYear, MONTH_JUMP_FUTURE_HINT } from "./month-jump";
 // GAP-064 #6: 최소 터치 타깃의 단일 소스. 이 숫자를 테스트에 다시 박지 않는다.
 import { theme } from "./theme";
 
@@ -567,7 +570,9 @@ describe("GAP-061 #8 정기 지출 · 달력 픽커 접근성 스윕", () => {
     expect(pickerSource).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction })");
     expect(pickerSource).toContain('accessibilityRole="button"');
     expect(pickerSource).toContain("accessibilityState={{ selected }}");
-    // 라벨 문구(오늘/선택됨/날짜)는 순수 모듈이 만들고 date-picker-month.test.ts가 핀한다.
+    // 라벨 문구(오늘/날짜)는 순수 모듈이 만들고 date-picker-month.test.ts가 핀한다.
+    // ⚠️ **두 시점(라운드 95 트랙 A)**: 이 줄은 `라벨 문구(오늘/선택됨/날짜)`라고 적고 있었다 —
+    // 선택 여부는 이제 라벨이 아니라 바로 윗줄의 상태 프롭 하나가 진다.
     expect(source("src/expenses/date-picker-month.ts")).toContain("export function expenseDatePickerCellAccessibilityLabel");
   });
 
@@ -575,7 +580,26 @@ describe("GAP-061 #8 정기 지출 · 달력 픽커 접근성 스윕", () => {
     // 가져오기 검수의 잠긴 행과 같은 관례다 — 비활성 요소를 조용히 지나가게 두지 않고 이유를
     // 낭독한다. 셀 자체는 Pressable이 아니므로 button 역할·disabled 상태를 흉내 내지 않는다.
     const pickerSource = source("src/expenses/ExpenseDatePicker.tsx");
-    expect(pickerSource).toContain("<View accessible accessibilityLabel={accessibilityLabel} key={cell.key} style={cellStyle}>");
+    // ⚠️ **두 시점(라운드 95 트랙 A) · 핀 이동.** 이 줄은 여는 태그를 한 줄 바이트로 물고 있었다:
+    // `"<View accessible accessibilityLabel={accessibilityLabel} key={cell.key} style={cellStyle}>"`.
+    // 그 가지가 상태 프롭 하나(`accessibilityState={{ selected }}`)를 지면서 여러 줄이 됐다 —
+    // 순수 모듈이 라벨에서 "선택됨"을 걷었으므로, 선택됐는데 못 고르는 칸이 그 사실을 잃지 않게
+    // 하려는 것이다. 그래서 바이트 하나 대신 **그 가지를 잘라** 든 것과 안 든 것을 함께 문다.
+    // ⚠️ 주석을 걷은 뒤에 자른다 — 두 시점 규율이 옛 바이트와 *걸지 않은 프롭*의 이유를 주석에
+    // 남기라고 하므로, 걷지 않으면 정직하게 적은 손이 아래 부정 단언에서 빨강을 맞는다.
+    const maskedPicker = maskComments(pickerSource);
+    const branchStart = maskedPicker.indexOf("if (!selectable) {");
+    expect(branchStart, "못 고르는 가지를 소스에서 찾지 못했다").toBeGreaterThan(-1);
+    const branchEnd = maskedPicker.indexOf("{dayText}", branchStart);
+    expect(branchEnd, "그 가지의 끝을 찾지 못했다").toBeGreaterThan(branchStart);
+    const unselectableBranch = maskedPicker.slice(branchStart, branchEnd);
+    expect(unselectableBranch, "여는 태그").toContain("<View");
+    expect(unselectableBranch, "그 자체로 하나의 낭독 노드다").toContain("accessible");
+    expect(unselectableBranch, "라벨은 순수 모듈이 준다").toContain("accessibilityLabel={accessibilityLabel}");
+    expect(unselectableBranch, "선택 여부는 상태가 진다").toContain("accessibilityState={{ selected }}");
+    // 종전 규율은 그대로다 — 누를 수 없는 요소이지 **비활성 버튼**이 아니다(이유는 라벨이 말한다).
+    expect(unselectableBranch, "button 역할을 흉내 내지 않는다").not.toContain('accessibilityRole="button"');
+    expect(unselectableBranch, "disabled를 흉내 내지 않는다").not.toContain("disabled");
     const monthSource = source("src/expenses/date-picker-month.ts");
     expect(monthSource).toContain('export const EXPENSE_DATE_PICKER_FUTURE_HINT = "아직 오지 않은 날이라 고를 수 없어요"');
     /**
@@ -1704,9 +1728,24 @@ describe("GAP-066 #2 달 점프 시트의 낭독 계약", () => {
   it("못 고르는 칸은 disabled 버튼이 아니라 라벨을 가진 View다 (왜 못 누르는지가 남지 않게)", () => {
     // 비선택 칸: accessible한 View 하나 + 순수 모듈이 준 라벨(이유 포함).
     expect(sheetSource).toContain("if (!cell.isSelectable) {");
-    expect(sheetSource).toContain("<View accessible accessibilityLabel={cell.accessibilityLabel}");
+    // ⚠️ **두 시점(라운드 95 트랙 A) · 핀 이동.** 이 줄은 여는 태그를 한 줄 바이트로 물고 있었다:
+    // `"<View accessible accessibilityLabel={cell.accessibilityLabel}"`. 그 가지가 상태 프롭 하나
+    // (`accessibilityState={{ selected: cell.isSelected }}`)를 지면서 여러 줄이 됐다 — 순수 모듈이
+    // 라벨에서 "선택됨"을 걷었으므로, 선택됐는데 못 고르는 칸이 그 사실을 잃지 않게 하려는 것이다.
+    // ⚠️ 주석을 걷은 뒤에 자른다(두 시점 주석이 아래 부정 단언에 걸리지 않게).
+    const maskedSheet = maskComments(sheetSource);
+    const cellBranchStart = maskedSheet.indexOf("if (!cell.isSelectable) {");
+    expect(cellBranchStart, "못 고르는 가지를 소스에서 찾지 못했다").toBeGreaterThan(-1);
+    const cellBranchEnd = maskedSheet.indexOf("<Text style={labelStyle}>", cellBranchStart);
+    expect(cellBranchEnd, "그 가지의 끝을 찾지 못했다").toBeGreaterThan(cellBranchStart);
+    const unselectableBranch = maskedSheet.slice(cellBranchStart, cellBranchEnd);
+    expect(unselectableBranch, "여는 태그").toContain("<View");
+    expect(unselectableBranch, "그 자체로 하나의 낭독 노드다").toContain("accessible");
+    expect(unselectableBranch, "라벨은 순수 모듈이 준다").toContain("accessibilityLabel={cell.accessibilityLabel}");
+    expect(unselectableBranch, "선택 여부는 상태가 진다").toContain("accessibilityState={{ selected: cell.isSelected }}");
+    expect(unselectableBranch, "button 역할을 흉내 내지 않는다").not.toContain('accessibilityRole="button"');
     // 칸에는 disabled가 붙지 않는다 — 이 파일의 disabled는 연도 스테퍼 두 자리뿐이다.
-    expect(sheetSource.match(/disabled=\{/g) ?? []).toHaveLength(2);
+    expect(maskedSheet.match(/disabled=\{/g) ?? []).toHaveLength(2);
     // 고를 수 있는 칸은 button 역할 + selected 상태를 진다(칩·타일의 기존 문법 그대로).
     expect(sheetSource).toContain("accessibilityState={{ selected: cell.isSelected }}");
     expect(sheetSource).toContain("accessibilityLabel={cell.accessibilityLabel}");
@@ -7509,3 +7548,660 @@ describe("GAP-092 #2 행마다 갈리는 낭독 라벨 전수 스윕 (세 라운
   });
 });
 
+
+/* ------------------------ 라운드 95 트랙 A (#1 — 상태를 라벨과 프롭으로 두 번 말하던 자리 셋) */
+
+/**
+ * GAP-095 트랙 A(#1) — **선택 여부를 문구로 다시 말하지 않는다**를 한 자리에서 전수로.
+ *
+ * ## 규율은 이미 저장소 안에 있었고, 그 규율을 세운 자의 모집단이 한 자리였다
+ *
+ * 이 파일은 오래전부터 이렇게 적고 있었다 — *"선택 여부를 문구로 다시 말하지 않는다 — 그건
+ * 상태가 진다(같은 사실을 두 번 읽지 않는다)"*(위 ONB-001 카드 절의
+ * `expect(tag, "상태를 말로 다시 적지 않는다").not.toContain("선택됨")`). ⚠️⚠️ **그 자의 모집단은
+ * `cardPressableTag()` 한 자리였고**(온보딩 `child-status.tsx`의 단계 카드), 저장소에는 같은 규율을
+ * 어기는 자리가 **셋** 살아 있었다:
+ *
+ *  ① `app/expenses/new.tsx`의 빠른 품목 타일 — 라벨이 `${selected ? ". 선택됨" : ""}`을 이어 붙였다.
+ *  ② `src/month-jump.ts` → `src/MonthJumpSheet.tsx` — 순수 함수가 `parts.push("선택됨")`을 했다.
+ *  ③ `src/expenses/date-picker-month.ts` → `src/expenses/ExpenseDatePicker.tsx` — 같은 갈래.
+ *
+ * 셋 다 같은 태그에 `accessibilityState={{ selected … }}`를 함께 걸고 있었고, RN의 그 프롭은
+ * 안드로이드에서 `setSelected(true)`로, iOS에서 `UIAccessibilityTraitSelected`로 내려가 **OS가
+ * 스스로 "선택됨"을 읽는다**. 그 사실은 이 저장소가 이미 적어 둔 것이다 —
+ * `app/(tabs)/records.tsx`의 *"TalkBack은 '리스트, 탭, 선택됨'처럼 읽는다"*(인용하되 고치지 않는다).
+ * 그래서 오늘 이전의 그 셋은 **"…, 선택됨, 선택됨"** 으로 들렸다. 셋 다 핵심 루프 위에 있다
+ * (①③은 1단계 지출 기록 · ②는 2단계 기록·리포트의 달 이동).
+ *
+ * ## 이 스윕이 하는 일 — 자를 한 자리에서 **`accessibilityState` 자리 전수**로
+ *
+ * 모집단은 손 목록이 아니라 **디렉터리에서 파생**한다(`apps/mobile/{app,src}`의 비테스트
+ * `.ts`/`.tsx` 전수 → `accessibilityState={{`가 선 자리). 자리마다 **판정 하나**가 소스에서
+ * 나오고, *어느 판정에도 안 떨어지는 자리가 0건*임을 부정 단언이 못 박는다.
+ *
+ * ⚠️ 라벨을 **한 걸음 파생**까지 따라간다: ②③처럼 화면이 그리는 라벨이 리터럴이 아니라 순수
+ * 함수가 만든 문자열이면, 그 함수 본문까지가 이 자리의 *낭독 라벨 표면*이다. 따라가지 않으면
+ * 이 스윕은 ①만 보고 ②③을 놓친다 — 즉 **자가 규율보다 좁다**는 그 병을 그대로 되풀이한다.
+ *
+ * ## 정찰과 갈린 수 셋 — 갈렸다는 사실 자체를 값으로 적는다 (AI-1의 일반형)
+ *
+ *  · ⚠️⚠️ **모집단 57 → 56 → 58.** 정찰은 `accessibilityState={{ … }}` 자리를 **57**로 적었는데,
+ *    그 57에는 **주석 안의 한 자리**가 들어 있다(`app/(tabs)/reports.tsx`의 JSDoc이
+ *    `accessibilityState={{ disabled: …`를 인용한다). 낭독되는 것은 주석이 아니므로 이 스윕은
+ *    주석을 걷고 세고, 트랙 전 값은 **56**이었다. 오늘은 **58**이다 — 아래 ⓓ가 세우는 상태 프롭
+ *    둘이 더해졌다. **정찰의 갈래별 수(disabled 18)도 같은 이유로 오늘 17이다.**
+ *  · ⚠️⚠️ **"다른 넷 갈래는 0건"이 아니다.** 정찰은 비활성·체크·펼침·로딩 낱말이 낭독 라벨에 든
+ *    자리를 **0건**으로 적었는데, 오늘 전수로 세니 **로딩 갈래가 둘**이다 —
+ *    `src/ui/Skeleton.tsx`의 `SkeletonRow`·`SkeletonCard`가 `accessibilityLabel="불러오는 중"`을
+ *    지닌다. ⚠️ **다만 그 둘은 이 축의 병이 아니다**: 상태 프롭이 아예 없어 **한 번만** 읽히고,
+ *    그 라벨을 걷으면 실루엣은 이름 없는 자리가 된다. 정찰의 사각 ⓑ가 미리 물은 *"라벨로만 상태를
+ *    말하는 자리의 크기"* 가 바로 이것이고, 답은 **0이 아니라 2**다(아래 ⓕ가 값으로 진다).
+ *  · ⚠️⚠️ **계약 셋·핀 셋이 아니라 계약 넷·핀 여섯이었다.** 정찰은 이 트랙에 계약 **셋**을
+ *    배정했는데, 소스를 다시 걸으니 그 셋 안에서 옮겨야 할 **핀**이 다섯이었고 배정표에 없던
+ *    **넷째 계약**이 하나 더 있었다 — `src/keyboard-tap-guard.test.ts`의 한국어 리터럴 대장이
+ *    `app/expenses/new.tsx`의 문구 수를 **등호로** 물고 있었고(54), ①이 낱말 하나를 걷으며 53이
+ *    된다. ⚠️ 그 대장은 자기 주석에 *"다른 라운드가 이 화면의 문구를 정당하게 고쳤다면 그
+ *    라운드가 이 대장을 함께 갱신해야 한다"* 를 미리 적어 두었고, 이 트랙이 그대로 이행했다.
+ *    아래 `STATE_ECHO_PIN_MIGRATIONS`가 자리·옛 바이트·오늘의 바이트로 그 **여섯**을 진다.
+ *    **손으로 센 배정은 늘 하한이다**(라운드 94 트랙 A의 그 값과 같은 얼굴).
+ *  · ⚠️ **그리고 바이트를 고치지 않고 만족시킨 계약이 하나 더 있다** —
+ *    `src/korean-particle-guard.test.ts`(라운드 94 트랙 A의 것)는 `app/expenses/new.tsx`의 AG-4
+ *    정정 문단이 **인용한 줄 번호**가 오늘도 참인지를 소스에서 파생해 문다. ①의 두 시점 주석이
+ *    그 아래 자리를 밀어 좌표가 `:1582`·`:2311`에서 `:1589`·`:2318`로 갔고, 고친 것은 **계약이
+ *    아니라 제품 주석의 좌표**다(그 계약 파일은 **0바이트**). *인용은 인용당한 자리를 따라간다*.
+ *
+ * ⚠️⚠️ **그리고 이 걸음은 *통합이 아니라 트랙의 커밋*에 실린다** — 제품 문구를 고치는 트랙이 그
+ * 문구를 바이트로 무는 계약 파일 전부를 함께 소유한다는 AI-4의 처방을 배정 단계에서 받았다.
+ */
+
+/** 이 스윕이 걷는 앱 경계. `apps/mobile/` 밖으로는 한 걸음도 나가지 않는다. */
+const STATE_ECHO_SCOPE_LABEL = "apps/mobile/{app,src}/**" as const;
+
+/** 뿌리 둘 — 화면(`app`)과 그 화면이 쓰는 순수 모듈(`src`). design-system도 빼지 않는다. */
+const STATE_ECHO_ROOTS = ["app", "src"] as const;
+
+/**
+ * ⓒ **상태 낱말의 모집단 — 다섯 갈래**(선택 하나가 아니다).
+ *
+ * ⚠️ 0을 적지 않으면 다음 라운드가 이 축을 *선택 전용*으로 읽는다. 그래서 넷이 0건인 오늘도
+ * 다섯 갈래를 전부 값으로 지고, 갈래별 수를 아래 ⓒ 절이 따로 적는다.
+ * ⚠️ 이 목록은 **관례이지 문법이 아니다**(사각 ⓒ) — 다른 말로 상태를 적은 자리는 못 본다.
+ */
+const STATE_ECHO_WORDS: Readonly<Record<string, readonly string[]>> = {
+  selected: ["선택됨"],
+  disabled: ["비활성", "사용 안 함", "사용할 수 없음"],
+  checked: ["체크됨", "체크 안 함", "선택 해제됨"],
+  expanded: ["펼침", "펼쳐짐", "접힘", "접혀 있음"],
+  busy: ["로딩 중", "불러오는 중"]
+};
+
+/** 모집단의 뿌리 — 비테스트 `.ts`/`.tsx` **전수**. ⚠️ 손 목록 금지(디렉터리가 모집단을 정한다). */
+let stateEchoSourceCache: string[] | null = null;
+function listStateEchoSources(): string[] {
+  if (stateEchoSourceCache) return stateEchoSourceCache;
+  stateEchoSourceCache = STATE_ECHO_ROOTS.flatMap((root) =>
+    readdirSync(join(mobileRoot, root), { recursive: true, encoding: "utf8" })
+      .filter((entry) => /(?<!\.d)\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry))
+      .map((entry) => join(root, entry))
+  );
+  return stateEchoSourceCache;
+}
+
+/** 한 텍스트에 든 상태 낱말들 — 갈래와 낱말을 함께 낸다(어느 갈래가 몇인지를 값으로 적으려고). */
+function stateEchoWordsIn(text: string): Array<{ readonly kind: string; readonly word: string }> {
+  const found: Array<{ readonly kind: string; readonly word: string }> = [];
+  for (const [kind, words] of Object.entries(STATE_ECHO_WORDS)) {
+    for (const word of words) if (text.includes(word)) found.push({ kind, word });
+  }
+  return found;
+}
+
+/** 여는 태그 안의 `accessibilityLabel` **값**. 프롭이 없으면 null — 자식 텍스트가 라벨이 되는 자리다. */
+function labelValueInTag(openTag: string): string | null {
+  const at = openTag.indexOf("accessibilityLabel");
+  if (at < 0) return null;
+  const equals = openTag.indexOf("=", at);
+  if (equals < 0) return null;
+  const start = equals + 1;
+  const opener = openTag[start];
+  if (opener === '"' || opener === "'") {
+    const end = openTag.indexOf(opener, start + 1);
+    return end < 0 ? null : openTag.slice(start, end + 1);
+  }
+  if (opener !== "{") return null;
+  const end = matchingBracketAt(openTag, start);
+  return end < 0 ? null : openTag.slice(start, end + 1);
+}
+
+/**
+ * 함수 몸통의 여는 `{` — 인자 목록과 **객체 꼴 반환 타입**을 건너뛴다.
+ *
+ * ⚠️ 이 가드가 없으면 `function f(input: { … }): string { … }`에서 *인자 타입*을 몸통으로 읽는다.
+ * 그 경우 ②③의 `parts.push("선택됨")`은 창 **밖**이라 스윕이 조용히 0을 낸다 — 교란 확인이 이
+ * 갈래를 실제로 잡는지 아래 ⓖ가 값으로 묻는다.
+ */
+function functionBodyBraceAfter(masked: string, parenClose: number): number {
+  let cursor = parenClose + 1;
+  for (;;) {
+    const brace = masked.indexOf("{", cursor);
+    if (brace < 0) return -1;
+    const end = matchingBracketAt(masked, brace);
+    if (end < 0) return -1;
+    if (!/^\s*\{/.test(masked.slice(end + 1))) return brace;
+    cursor = end + 1;
+  }
+}
+
+/** 한 파일이 지닌 **라벨을 만드는 함수**들 — 이름에 `accessibilityLabel`이 든 선언 전수. */
+function labelBuilderBodiesOf(file: string): Map<string, string> {
+  const masked = maskedSource(file);
+  const bodies = new Map<string, string>();
+  const declaration = /function\s+([A-Za-z0-9_$]*[Aa]ccessibility[Ll]abel[A-Za-z0-9_$]*)\s*\(/g;
+  let found: RegExpExecArray | null;
+  while ((found = declaration.exec(masked))) {
+    const parenOpen = masked.indexOf("(", found.index);
+    if (parenOpen < 0) continue;
+    const parenClose = matchingBracketAt(masked, parenOpen);
+    if (parenClose < 0) continue;
+    const brace = functionBodyBraceAfter(masked, parenClose);
+    if (brace < 0) continue;
+    const end = matchingBracketAt(masked, brace);
+    if (end < 0) continue;
+    bodies.set(found[1], masked.slice(brace, end + 1));
+  }
+  return bodies;
+}
+
+/** 상대 경로 import **한 걸음**. 패키지 지정자는 이 저장소 밖이다(사각). */
+function relativeModulesOf(file: string): string[] {
+  const found = new Set<string>();
+  for (const match of maskedSource(file).matchAll(/from\s*["'](\.[^"']*)["']/g)) {
+    const resolved = moduleFileOf(file, match[1]);
+    if (resolved !== null) found.add(resolved);
+  }
+  return [...found];
+}
+
+type StateEchoSurface = { readonly file: string; readonly name: string; readonly body: string };
+
+/**
+ * 한 자리의 **파생 라벨 표면** — 라벨이 리터럴이 아니면 그 문자열을 만든 순수 함수까지 한 걸음.
+ *
+ * 두 모양을 따라간다(오늘 저장소에 실재하는 둘이다):
+ *  · 이름으로 든 자리 — `accessibilityLabel={accessibilityLabel}`이고 그 지역 상수가
+ *    `expenseDatePickerCellAccessibilityLabel(...)`의 답이다(③). import 한 줄까지 간다.
+ *  · 값이 실어 온 자리 — `accessibilityLabel={cell.accessibilityLabel}`처럼 **데이터가 문자열을
+ *    이미 들고 온** 자리다(②). 만든 자리를 이름으로 짚을 수 없으므로 **한 걸음 import 전부**의
+ *    라벨 함수를 표면으로 본다. ⚠️ 오차 방향은 **시끄러운 쪽**이다(사각 ⓔ).
+ */
+function derivedLabelSurfacesOf(file: string, labelExpression: string): StateEchoSurface[] {
+  const masked = maskedSource(file);
+  const names = new Set([...labelExpression.matchAll(/[A-Za-z0-9_$]+/g)].map((match) => match[0]));
+  for (const name of [...names]) {
+    const declared = new RegExp(`(?:const|let)\\s+${name.replace(/\$/g, "\\$")}\\s*=([^;]*);`).exec(masked);
+    if (declared === null) continue;
+    for (const piece of declared[1].matchAll(/[A-Za-z0-9_$]+/g)) names.add(piece[0]);
+  }
+  const carried = /\.\s*accessibilityLabel\b/.test(labelExpression);
+  const surfaces: StateEchoSurface[] = [];
+  for (const [name, body] of labelBuilderBodiesOf(file)) {
+    if (carried || names.has(name)) surfaces.push({ file, name, body });
+  }
+  for (const module of carried ? relativeModulesOf(file) : []) {
+    for (const [name, body] of labelBuilderBodiesOf(module)) surfaces.push({ file: module, name, body });
+  }
+  if (!carried) {
+    for (const name of names) {
+      if (!/[Aa]ccessibility[Ll]abel/.test(name)) continue;
+      const origin = importOriginOf(masked, name, file);
+      if (origin === null) continue;
+      const body = labelBuilderBodiesOf(origin.file).get(origin.name);
+      if (body !== undefined) surfaces.push({ file: origin.file, name: origin.name, body });
+    }
+  }
+  return surfaces;
+}
+
+type StateEchoSite = {
+  readonly file: string;
+  readonly at: number;
+  /** `accessibilityState={{ … }}`의 **첫 열쇠** — 갈래별 수를 이 값에서 낸다. */
+  readonly key: string;
+  /** 같은 태그의 낭독 라벨 식. 프롭이 없으면 null. */
+  readonly labelExpression: string | null;
+};
+
+/** ⓐ **모집단** — 걷기로 파생한 `accessibilityState={{` 자리 전수(주석 안은 낭독되지 않는다). */
+let stateEchoSiteCache: StateEchoSite[] | null = null;
+function stateEchoSites(): StateEchoSite[] {
+  if (stateEchoSiteCache) return stateEchoSiteCache;
+  const sites: StateEchoSite[] = [];
+  for (const file of listStateEchoSources()) {
+    const masked = maskedSource(file);
+    const needle = /accessibilityState=\{\{\s*([A-Za-z0-9_$]+)/g;
+    let found: RegExpExecArray | null;
+    while ((found = needle.exec(masked))) {
+      const openTag = enclosingOpenTag(masked, found.index);
+      sites.push({
+        file,
+        at: found.index,
+        key: found[1],
+        labelExpression: openTag === "" ? null : labelValueInTag(openTag)
+      });
+    }
+  }
+  stateEchoSiteCache = sites;
+  return sites;
+}
+
+/** ⓑ **판정 셋** — 자리마다 정확히 하나. 넷째 칸은 없다(아래 ⓑ 절이 부정 단언으로 문다). */
+type StateEchoVerdict = "state-only" | "also-in-label" | "no-label";
+
+function stateEchoEchoedWordsOf(site: StateEchoSite): string[] {
+  if (site.labelExpression === null) return [];
+  const direct = stateEchoWordsIn(site.labelExpression).map((hit) => `직접:${hit.kind}:${hit.word}`);
+  const derived = derivedLabelSurfacesOf(site.file, site.labelExpression).flatMap((surface) =>
+    stateEchoWordsIn(surface.body).map((hit) => `파생:${surface.file}:${surface.name}:${hit.kind}:${hit.word}`)
+  );
+  return [...direct, ...derived];
+}
+
+function stateEchoVerdictOf(site: StateEchoSite): StateEchoVerdict {
+  if (site.labelExpression === null) return "no-label";
+  return stateEchoEchoedWordsOf(site).length > 0 ? "also-in-label" : "state-only";
+}
+
+/** ⓕ **바늘 밖** — 상태 프롭 없이 **라벨로만** 상태를 말하는 자리(정찰의 사각 ⓑ가 물은 크기). */
+function stateEchoLabelOnlySites(): string[] {
+  const sites: string[] = [];
+  for (const file of listStateEchoSources()) {
+    const masked = maskedSource(file);
+    const needle = /accessibilityLabel\s*=/g;
+    let found: RegExpExecArray | null;
+    while ((found = needle.exec(masked))) {
+      const openTag = enclosingOpenTag(masked, found.index);
+      if (openTag === "") continue;
+      const value = labelValueInTag(openTag);
+      if (value === null) continue;
+      const words = stateEchoWordsIn(value);
+      if (words.length > 0 && !openTag.includes("accessibilityState")) {
+        sites.push(`${file} ${value} ${words.map((hit) => hit.kind).join("·")}`);
+      }
+    }
+  }
+  return sites;
+}
+
+/** 낭독 라벨 **표면**의 크기 둘 — 직접(JSX 프롭 값)과 파생(라벨을 만드는 함수). */
+function stateEchoLabelSurfaceSizes(): { readonly direct: number; readonly builders: number } {
+  let direct = 0;
+  let builders = 0;
+  for (const file of listStateEchoSources()) {
+    const masked = maskedSource(file);
+    const needle = /accessibilityLabel\s*=/g;
+    let found: RegExpExecArray | null;
+    while ((found = needle.exec(masked))) {
+      const openTag = enclosingOpenTag(masked, found.index);
+      if (openTag !== "" && labelValueInTag(openTag) !== null) direct += 1;
+    }
+    builders += labelBuilderBodiesOf(file).size;
+  }
+  return { direct, builders };
+}
+
+/**
+ * ⓗ **래칫** — 등호가 아니라 하한·상한이다.
+ *
+ * ⚠️ *상태를 라벨에도 적었다*만 **상한 0**이고(오늘의 초록이 내일 조용히 낡지 않는다), 나머지는
+ * **하한**이다(자리를 지워서 초록을 얻는 길을 막는다). 상한 0을 올리는 손은 그날 이 줄에
+ * **누가 왜 올리는지**를 함께 적어야 한다.
+ */
+const STATE_ECHO_RATCHET = {
+  /** 오늘의 자리 전수(하한). ⚠️ 정찰 57 → 마스킹 뒤 트랙 전 56 → 트랙 뒤 **58**. */
+  sites: 58,
+  /** 갈래별 하한 — 첫 열쇠 기준. ⚠️ 정찰의 disabled 18에는 주석 한 자리가 들어 있었다. */
+  byKey: { selected: 19, disabled: 17, expanded: 10, checked: 9, busy: 3 },
+  /** *상태를 상태로만 말한다*(하한). */
+  stateOnly: 49,
+  /** *상태를 라벨에도 적었다* — **상한**. 트랙 전 셋 → 오늘 0. */
+  alsoInLabel: 0,
+  /** *여는 태그에 낭독 라벨이 없다*(자식 텍스트가 라벨이 되는 자리 · 하한). */
+  noLabel: 9,
+  /** 낭독 라벨 표면 둘(하한) — 이 스윕이 실제로 읽는 넓이다. */
+  labelSurfaces: { direct: 235, builders: 20 },
+  /** 상태 프롭 없이 라벨로만 상태를 말하는 자리 — **상한 2**(정찰은 0으로 적었다). */
+  labelOnly: 2
+} as const;
+
+/**
+ * ⓖ **핀 이동 대장(AI-4의 이행)** — *제품 문구를 고친 손이 그 문구를 바이트로 무는 계약을 함께
+ * 옮겼다*는 사실을 **자리 · 옛 바이트 · 오늘의 바이트 셋으로** 진다(라운드 94 트랙 A의
+ * `korean-particle-guard.test.ts` 대장과 같은 얼굴이고, 그 관례를 그대로 인용한다).
+ *
+ * ⚠️ 부정 단언은 **주석을 걷은 뒤**에 선다 — 두 시점 규율이 옛 바이트를 주석에 남기라고 하므로,
+ * 걷지 않으면 정직하게 적은 손이 빨강을 맞는다.
+ *
+ * ⚠️⚠️ **정찰의 배정은 파일 수로도 핀 수로도 하한이었다**: 계약 **셋 → 넷** · 핀 **셋 → 여섯**.
+ * 그리고 ①(`app/expenses/new.tsx`의 라벨 한 조각)의 **바이트**를 문 계약은 **0건**이다 — 그
+ * 조각을 문 것은 바이트가 아니라 **수**였다(리터럴 대장의 등호 54). 그 사실도 값이고, 아래 ⓖ
+ * 절이 부정 단언과 대장으로 함께 확인한다.
+ */
+/** 이 대장이 사는 파일 — **자기 파일의 핀**을 지는 자리가 둘이라, 위 순환을 값으로 끊는다. */
+const STATE_ECHO_LEDGER_FILE = "src/a11y-contract.test.ts" as const;
+
+const STATE_ECHO_PIN_MIGRATIONS: readonly {
+  /** 옛 바이트를 물고 있던 계약 파일(`apps/mobile/` 기준 상대 경로). */
+  readonly contract: string;
+  /** 그 계약이 인용하던 제품 파일. */
+  readonly product: string;
+  readonly previousPin: string;
+  readonly todayPin: string;
+  readonly previousProductByte: string;
+  readonly todayProductByte: string;
+}[] = [
+  {
+    contract: "src/month-jump.test.ts",
+    product: "src/month-jump.ts",
+    previousPin: '.toBe("2026년 7월, 선택됨")',
+    todayPin: '.toBe("2026년 7월")',
+    previousProductByte: 'parts.push("선택됨");',
+    todayProductByte: "if (!input.isSelectable) {"
+  },
+  {
+    contract: "src/expenses/date-picker-month.test.ts",
+    product: "src/expenses/date-picker-month.ts",
+    previousPin: '.toBe("8월 12일, 선택됨")',
+    todayPin: '.toBe("8월 12일")',
+    previousProductByte: 'parts.push("선택됨");',
+    todayProductByte: "if (!isExpenseDatePickerCellSelectable(cell, todayIso, direction)) {"
+  },
+  {
+    // ⚠️ 문구가 아니라 **it의 이름**을 문 자리다 — 이름도 소스의 바이트이고, 이름만 옛 사실에
+    // 남으면 다음 손이 그 이름을 근거로 라벨을 되돌린다.
+    contract: "src/expenses/date-picker-month.test.ts",
+    product: "src/expenses/date-picker-month.ts",
+    previousPin: 'it("칸 라벨이 날짜·오늘·선택됨·못 누르는 이유를 말한다"',
+    todayPin: 'it("칸 라벨이 날짜·오늘·못 누르는 이유를 말한다"',
+    previousProductByte: 'parts.push("선택됨");',
+    todayProductByte: "if (!isExpenseDatePickerCellSelectable(cell, todayIso, direction)) {"
+  },
+  {
+    // ⚠️⚠️ 정찰의 배정표가 **핀으로는 적지 않은** 자리 둘 가운데 하나다(파일은 배정 안에 있었다).
+    contract: "src/a11y-contract.test.ts",
+    product: "src/expenses/ExpenseDatePicker.tsx",
+    previousPin: '"<View accessible accessibilityLabel={accessibilityLabel} key={cell.key} style={cellStyle}>"',
+    todayPin: 'expect(unselectableBranch, "선택 여부는 상태가 진다").toContain("accessibilityState={{ selected }}")',
+    previousProductByte: "<View accessible accessibilityLabel={accessibilityLabel} key={cell.key} style={cellStyle}>",
+    todayProductByte: "accessibilityState={{ selected }}"
+  },
+  {
+    contract: "src/a11y-contract.test.ts",
+    product: "src/MonthJumpSheet.tsx",
+    previousPin: '"<View accessible accessibilityLabel={cell.accessibilityLabel}"',
+    todayPin:
+      'expect(unselectableBranch, "선택 여부는 상태가 진다").toContain("accessibilityState={{ selected: cell.isSelected }}")',
+    previousProductByte: "<View accessible accessibilityLabel={cell.accessibilityLabel}",
+    todayProductByte: "accessibilityState={{ selected: cell.isSelected }}"
+  },
+  {
+    // ⚠️⚠️ **정찰의 배정표에 없던 넷째 계약이다** — 그리고 이 자리는 문구를 **바이트로** 물지
+    // 않고 **수로** 물었다(한국어 리터럴 54). 바늘이 달라도 부채는 같으므로 대장이 함께 진다.
+    contract: "src/keyboard-tap-guard.test.ts",
+    product: "app/expenses/new.tsx",
+    previousPin: '{ file: "app/expenses/new.tsx", count: 54 }',
+    todayPin: '{ file: "app/expenses/new.tsx", count: 53 }',
+    previousProductByte: '${selected ? ". 선택됨" : ""}',
+    todayProductByte: 'accessibilityLabel={`${label}${hint ? `. ${hint}` : ""}`}'
+  }
+];
+
+/** ⓔ **바이트 불변** — 이 트랙이 **읽기만** 한 자리를 원문 바이트로 못 박는다. */
+const STATE_ECHO_UNTOUCHED_BYTES = [
+  // 규율이 이미 옳게 선 본보기(온보딩 단계 카드) — 인용하되 한 글자도 고치지 않았다.
+  ["app/(onboarding)/child-status.tsx", "accessibilityLabel={`${option.title}. ${option.description}`}"],
+  // 같은 화면의 형제 — 라벨을 값에서 파생하고 상태는 프롭에만 맡긴다(오늘 옳다).
+  ["app/expenses/new.tsx", "accessibilityLabel={category.label}"],
+  // *OS가 상태를 읽는다*는 전제의 근거가 적힌 자리 — 인용하되 고치지 않는다(사각 ⓓ).
+  ["app/(tabs)/records.tsx", '// -- TalkBack은 "리스트, 탭, 선택됨"처럼 읽는다.'],
+  // 보이는 텍스트는 무변 — 가져오기 검수 요약의 "선택됨"은 **낭독 라벨이 아니라 화면 글자**다.
+  ["app/import/[importJobId].tsx", "<Text style={summaryLabelStyle}>선택됨</Text>"],
+  // 걷지 않은 것 둘 — hint와 *못 누르는 이유*는 상태가 지지 못하는 사실이라 라벨에 남는다.
+  ["src/expenses/date-picker-month.ts", "parts.push(expenseDatePickerUnselectableHint(direction));"],
+  ["app/expenses/new.tsx", '${hint ? `. ${hint}` : ""}']
+] as const;
+
+/** ⓘ **사각** — 이 스윕이 **못 보는 것**을 값과 하한으로 적는다(넷 이상). */
+const STATE_ECHO_BLIND_SPOTS = [
+  "ⓐ **소스 대조이지 런타임이 아니다.** TalkBack이 실제로 무엇을 읽는지는 이 파일이 답할 수 " +
+    "없다 — `accessibilityState.selected`가 안드로이드 `setSelected(true)` · iOS " +
+    "`UIAccessibilityTraitSelected`로 내려가 OS가 스스로 상태를 읽는다는 것은 **RN·OS의 계약**이고, " +
+    "이 저장소 안의 근거는 `app/(tabs)/records.tsx`의 주석 한 줄뿐이다(*\"TalkBack은 '리스트, 탭, " +
+    "선택됨'처럼 읽는다\"* — 위 바이트 불변 목록에 자리로 서 있다). ⚠️ **실기기 확인 항목이고, 그 " +
+    "항목을 세우는 손은 이 트랙 밖이다.** 재개 조건(사건형): 실기기에서 셋 중 한 자리라도 상태가 " +
+    "낭독되지 않으면 그날 **라벨을 되돌리는 것이 아니라** 이 사각을 값으로 고쳐 적고 다시 판정한다.",
+  "ⓑ **`accessibilityState`를 아예 쓰지 않고 라벨로만 상태를 말하는 자리는 이 바늘 밖이다.** " +
+    "⚠️⚠️ 정찰은 그 크기를 **0**으로 적었고 오늘 전수로 세니 **2**다 — `src/ui/Skeleton.tsx`의 " +
+    "`SkeletonRow`·`SkeletonCard`(`accessibilityLabel=\"불러오는 중\"`). **두 번 읽히지 않으므로 이 " +
+    "축의 병은 아니고**(프롭이 없다), 라벨을 걷으면 실루엣이 이름을 잃으므로 걷을 수도 없다. " +
+    "그 자리에 `accessibilityState={{ busy: true }}`를 세워 라벨을 걷을지는 **다른 축**이다. " +
+    "재개 조건(결정형 · 손은 저장소 안): 그 둘을 집는 트랙은 `src/ui/Skeleton.tsx`와 그 바이트를 " +
+    "무는 계약을 함께 소유해야 하고, 이 트랙은 그 파일을 **0바이트** 고쳤다.",
+  "ⓒ **상태 낱말의 목록이 관례이지 문법이 아니다.** 다섯 갈래 열두 낱말은 손이 적은 것이라, 다른 " +
+    "말로 상태를 적은 자리(\"고른 항목\" · \"켜짐\" 따위)는 못 본다. ⚠️ **오차 방향은 조용한 쪽**이다 " +
+    "— 못 본 자리는 위반으로 세어지지 않는다. 재개 조건(사건형): 낱말 하나가 새로 발견되면 그날 " +
+    "`STATE_ECHO_WORDS`에 갈래와 함께 넣고, 상한 0이 그대로인지를 그 자리에서 다시 잰다.",
+  "ⓓ **파생은 한 걸음이다.** 라벨을 만든 순수 함수까지는 따라가지만(②③), 그 함수가 또 다른 " +
+    "모듈의 문자열을 이어 붙이면 두 걸음째는 못 본다. ⚠️ 그리고 *값이 실어 온 자리* " +
+    "(`cell.accessibilityLabel`)에서는 만든 자리를 이름으로 짚을 수 없어 **한 걸음 import 전부**의 " +
+    "라벨 함수를 표면으로 본다 — **오차 방향이 시끄러운 쪽**이라 상한 0을 넘기지 않는다(조용히 " +
+    "새지 않는다). 재개 조건(결정형 · 손은 저장소 안): 두 걸음째가 필요해지는 날 이 스윕의 걸음 " +
+    "수를 값으로 올리고, 올린 손이 그 자리에 누구인지를 적는다.",
+  "ⓔ **이 스윕은 *문구*를 묻지 않는다.** 묻는 것은 *같은 사실을 두 번 말하는가* 하나이고, 라벨이 " +
+    "무엇을 말해야 하는가는 각 모듈의 계약(`src/month-jump.test.ts` · " +
+    "`src/expenses/date-picker-month.test.ts`)이 문다. 두 축은 서로를 대신하지 않으므로 이 트랙은 " +
+    "그 두 파일의 핀을 **지운 것이 아니라 옮겼다**(위 `STATE_ECHO_PIN_MIGRATIONS`). " +
+    "재개 조건(사건형): 그 핀들이 사라지면 이 스윕은 여전히 초록인데 문구는 아무도 안 무는 날이 온다."
+] as const;
+
+describe("GAP-095 #1 선택 상태를 두 번 말하지 않는다 (규율의 모집단을 한 자리에서 전수로)", () => {
+  it("ⓐ 모집단 — `accessibilityState` 자리를 **걷기로** 파생한다 (손 목록 0건 · 갈래 다섯을 값으로)", () => {
+    const sites = stateEchoSites();
+    expect(listStateEchoSources().length, "걷은 소스 파일").toBeGreaterThanOrEqual(250);
+    expect(STATE_ECHO_SCOPE_LABEL, "이 스윕의 경계").toContain("apps/mobile/");
+    // 하한이다 — 자리가 줄면 빨개진다(자리를 지워 초록을 얻는 길을 막는다).
+    expect(sites.length, "`accessibilityState={{` 자리 전수").toBeGreaterThanOrEqual(STATE_ECHO_RATCHET.sites);
+    for (const [key, floor] of Object.entries(STATE_ECHO_RATCHET.byKey)) {
+      const counted = sites.filter((site) => site.key === key).length;
+      expect(counted, `${key} 갈래의 자리`).toBeGreaterThanOrEqual(floor);
+    }
+    // 갈래 다섯을 **전부** 값으로 진다 — 열쇠가 그 다섯 밖으로 나가면 여기가 빨개진다.
+    expect([...new Set(sites.map((site) => site.key))].sort()).toEqual(
+      Object.keys(STATE_ECHO_RATCHET.byKey).sort()
+    );
+    // ⚠️ 주석 안의 인용은 낭독되지 않는다 — 정찰의 57과 갈린 이유가 이 한 줄이다.
+    const quoted = source("app/(tabs)/reports.tsx");
+    expect(quoted, "정찰이 세었던 주석 속 한 자리").toContain("`accessibilityState={{ disabled: …");
+    expect(maskComments(quoted), "그 자리는 코드가 아니다").not.toContain("`accessibilityState={{ disabled: …");
+  });
+
+  it("ⓑ 판정 셋 — 자리마다 하나가 소스에서 나오고, **넷째 칸은 0건이다**", () => {
+    const sites = stateEchoSites();
+    const verdicts = sites.map((site) => stateEchoVerdictOf(site));
+    const counted = (verdict: StateEchoVerdict) => verdicts.filter((value) => value === verdict).length;
+    // ⚠️⚠️ 어느 판정에도 안 떨어지는 자리가 0건이다(부정 단언 — 셋의 합이 모집단 전수다).
+    expect(counted("state-only") + counted("also-in-label") + counted("no-label"), "판정의 합").toBe(sites.length);
+    expect(verdicts.filter((value) => !["state-only", "also-in-label", "no-label"].includes(value)), "넷째 칸").toEqual([]);
+    // ⚠️⚠️ **상한 0** — 트랙 전 셋이었다(①`app/expenses/new.tsx` ②`src/month-jump.ts` ③`src/expenses/date-picker-month.ts`).
+    const echoed = sites.filter((site) => stateEchoVerdictOf(site) === "also-in-label");
+    expect(echoed.map((site) => `${site.file}@${site.at}`), "상태를 라벨에도 적은 자리").toEqual([]);
+    expect(echoed.length, "상태를 라벨에도 적은 자리 (상한)").toBeLessThanOrEqual(STATE_ECHO_RATCHET.alsoInLabel);
+    // 나머지 둘은 하한이다.
+    expect(counted("state-only"), "상태를 상태로만 말한다 (하한)").toBeGreaterThanOrEqual(STATE_ECHO_RATCHET.stateOnly);
+    expect(counted("no-label"), "여는 태그에 낭독 라벨이 없다 (하한)").toBeGreaterThanOrEqual(STATE_ECHO_RATCHET.noLabel);
+  });
+
+  it("ⓒ 상태 낱말의 모집단은 **다섯 갈래**이고, 오늘 낭독 라벨에 든 것은 그중 하나뿐이다", () => {
+    expect(Object.keys(STATE_ECHO_WORDS).sort(), "갈래 다섯").toEqual(
+      ["busy", "checked", "disabled", "expanded", "selected"]
+    );
+    for (const [kind, words] of Object.entries(STATE_ECHO_WORDS)) {
+      expect(words.length, `${kind} 갈래의 낱말`).toBeGreaterThanOrEqual(1);
+    }
+    // 낭독 라벨 표면 전수에서 갈래별로 센다 — 오늘 넷이 0건이고 그 0을 **값으로 적는다**.
+    const perKind = new Map<string, number>(Object.keys(STATE_ECHO_WORDS).map((kind) => [kind, 0]));
+    for (const file of listStateEchoSources()) {
+      const masked = maskedSource(file);
+      const needle = /accessibilityLabel\s*=/g;
+      let found: RegExpExecArray | null;
+      while ((found = needle.exec(masked))) {
+        const openTag = enclosingOpenTag(masked, found.index);
+        const value = openTag === "" ? null : labelValueInTag(openTag);
+        if (value === null) continue;
+        for (const hit of stateEchoWordsIn(value)) perKind.set(hit.kind, (perKind.get(hit.kind) ?? 0) + 1);
+      }
+      for (const body of labelBuilderBodiesOf(file).values()) {
+        for (const hit of stateEchoWordsIn(body)) perKind.set(hit.kind, (perKind.get(hit.kind) ?? 0) + 1);
+      }
+    }
+    // ⚠️ 선택·비활성·체크·펼침 넷은 **0**이다. 0을 적지 않으면 다음 라운드가 이 축을 선택 전용으로 읽는다.
+    for (const kind of ["selected", "disabled", "checked", "expanded"]) {
+      expect(perKind.get(kind), `${kind} 낱말이 낭독 라벨에 든 자리`).toBe(0);
+    }
+    // ⚠️⚠️ **로딩 갈래만 0이 아니다(둘)** — 정찰의 "넷 다 0건"과 갈린 자리이고, 그 둘은 프롭이 없다.
+    expect(perKind.get("busy"), "로딩 낱말이 낭독 라벨에 든 자리").toBe(STATE_ECHO_RATCHET.labelOnly);
+  });
+
+  it("ⓓ 비선택 가지 — *선택됐는데 못 고르는* 갈래가 소리를 잃지 않는다 (순수 함수의 값으로)", () => {
+    // 순수 함수 쪽: 선택 여부가 라벨을 **한 글자도** 바꾸지 않고, 못 고르는 이유가 대신 들어온다.
+    const bounds = { todayIso: "2026-08-27", earliestYearMonth: "2025-01" };
+    const chosen = buildMonthJumpYear({ year: 2026, selectedYearMonth: "2026-12", bounds });
+    const beyond = chosen.cells[11];
+    expect(beyond.isSelected, "고른 달이다").toBe(true);
+    expect(beyond.isSelectable, "그런데 못 고른다").toBe(false);
+    expect(beyond.accessibilityLabel, "라벨은 **이유**를 말한다").toContain(MONTH_JUMP_FUTURE_HINT);
+    expect(beyond.accessibilityLabel, "라벨은 상태를 말하지 않는다").not.toContain("선택됨");
+    // 화면 쪽: 그 가지가 상태 프롭을 진다 — 두 표면이 같은 사실을 **한 번씩** 말한다.
+    const sheet = maskComments(source("src/MonthJumpSheet.tsx"));
+    const branch = sheet.slice(sheet.indexOf("if (!cell.isSelectable) {"), sheet.indexOf("<Text style={labelStyle}>"));
+    expect(branch.length, "가지를 소스에서 찾지 못했다").toBeGreaterThan(0);
+    expect(branch, "비선택 가지의 상태 프롭").toContain("accessibilityState={{ selected: cell.isSelected }}");
+    const picker = maskComments(source("src/expenses/ExpenseDatePicker.tsx"));
+    const pickerBranch = picker.slice(picker.indexOf("if (!selectable) {"), picker.indexOf("{dayText}", picker.indexOf("if (!selectable) {")));
+    expect(pickerBranch.length, "가지를 소스에서 찾지 못했다").toBeGreaterThan(0);
+    expect(pickerBranch, "비선택 가지의 상태 프롭").toContain("accessibilityState={{ selected }}");
+  });
+
+  it("ⓔ 두 표면 — 보이는 줄과 낭독이 같은 사실을 **한 번씩** 말하고, 나머지는 바이트 불변이다", () => {
+    // 보이는 줄은 값 그대로다(달 격자의 "8월" · 날짜 칸의 숫자) — 이 트랙이 픽셀을 고치지 않았다.
+    expect(maskComments(source("src/MonthJumpSheet.tsx")), "보이는 줄").toContain("<Text style={labelStyle}>{cell.label}</Text>");
+    expect(maskComments(source("src/expenses/ExpenseDatePicker.tsx")), "보이는 줄").toContain("{cell.day}");
+    for (const [file, bytes] of STATE_ECHO_UNTOUCHED_BYTES) {
+      expect(source(file), `${file}: 읽기만 한 자리의 바이트`).toContain(bytes);
+    }
+    // ⚠️ 새 한국어 낱말 0건 — 이 트랙이 걷은 것은 **상태 낱말 하나와 그 앞의 구분자**뿐이다.
+    expect(["state-only", "also-in-label", "no-label"].join(""), "판정 이름").not.toMatch(/[가-힣]/);
+    // 그리고 역할·프롭의 다른 칸은 그대로다(세 자리 모두 button 역할을 잃지 않았다).
+    expect(source("app/expenses/new.tsx"), "①의 역할").toContain('accessibilityRole="button"');
+    expect(source("app/expenses/new.tsx"), "①의 상태 프롭").toContain("accessibilityState={{ selected }}");
+  });
+
+  it("ⓕ 바늘 밖 — 라벨로만 상태를 말하는 자리의 크기를 값으로 적는다 (정찰의 0이 아니라 2다)", () => {
+    const labelOnly = stateEchoLabelOnlySites();
+    // 상한이다 — 늘면 빨개지고, 그날 사각 ⓑ를 다시 적어야 한다.
+    expect(labelOnly.length, "라벨로만 상태를 말하는 자리 (상한)").toBeLessThanOrEqual(STATE_ECHO_RATCHET.labelOnly);
+    expect(labelOnly.length, "그 자리는 0이 아니다").toBeGreaterThan(0);
+    for (const site of labelOnly) expect(site, "그 자리는 실루엣이다").toContain("src/ui/Skeleton.tsx");
+    // 그 파일은 이 트랙의 것이 아니다 — **0바이트** 고쳤다는 사실을 원문 바이트로 못 박는다.
+    expect(source("src/ui/Skeleton.tsx"), "읽기만 했다").toContain('accessibilityLabel="불러오는 중"');
+    expect(maskComments(source("src/ui/Skeleton.tsx")), "상태 프롭은 없다").not.toContain("accessibilityState");
+    // 스윕이 실제로 읽는 넓이도 하한으로 적는다(표면이 좁아지면 상한 0이 공허해진다).
+    const surfaces = stateEchoLabelSurfaceSizes();
+    expect(surfaces.direct, "직접 라벨 표면 (하한)").toBeGreaterThanOrEqual(STATE_ECHO_RATCHET.labelSurfaces.direct);
+    expect(surfaces.builders, "라벨을 만드는 함수 (하한)").toBeGreaterThanOrEqual(STATE_ECHO_RATCHET.labelSurfaces.builders);
+  });
+
+  it("ⓖ 핀 이동 — 자리·옛 바이트·오늘의 바이트 셋이 서 있고, 옛 바이트가 코드에 없다", () => {
+    // ⚠️ 하한이다 — 정찰이 핀으로 적은 것은 셋이었고 소스가 낸 수는 그보다 컸다.
+    expect(STATE_ECHO_PIN_MIGRATIONS.length, "대장이 지는 핀").toBeGreaterThanOrEqual(6);
+    for (const pin of STATE_ECHO_PIN_MIGRATIONS) {
+      expect(pin.previousPin, `${pin.contract}: 옛 바이트와 오늘의 바이트가 같다`).not.toBe(pin.todayPin);
+      const contract = source(pin.contract);
+      expect(contract, `${pin.contract}: 오늘의 바이트를 들고 있지 않다`).toContain(pin.todayPin);
+      // ⚠️ 주석을 걷은 뒤에 문다 — 두 시점 주석 속의 옛 바이트는 *지우지 않은 것*이지 부채가 아니다.
+      // ⚠️⚠️ **그리고 이 대장은 자기 파일의 핀을 둘 진다.** 그 파일에서는 옛 바이트가 대장의 *값*
+      // 으로 한 번 남으므로 참인 문장은 "코드에 0건"이 아니라 **"대장의 값 하나뿐"** 이다 — 라운드
+      // 94의 대장은 아홉째 핀을 대장 **밖**에 두어 같은 순환을 피했고, 여기서는 자리를 옮길 수
+      // 없으므로(핀도 자도 같은 축이다) 허용치를 **값으로 적어** 끊는다.
+      const maskedContract = maskComments(contract);
+      if (pin.contract === STATE_ECHO_LEDGER_FILE) {
+        // 남은 자리는 **전부 대장의 칸**이어야 한다 — 수를 손으로 적지 않고 줄의 꼴로 문다.
+        for (const line of maskedContract.split("\n")) {
+          if (!line.includes(pin.previousPin)) continue;
+          expect(line.trim(), `${pin.contract}: 옛 바이트가 대장 밖에 남았다`).toMatch(
+            /^(previousPin|previousProductByte):/
+          );
+        }
+      } else {
+        expect(maskedContract.split(pin.previousPin).length - 1, `${pin.contract}: 옛 바이트가 코드에`).toBe(0);
+      }
+      // 그리고 어느 경우든 **더는 단언되지 않는다** — 옛 바이트를 무는 `toContain(…)`이 0건이다.
+      expect(maskComments(contract), `${pin.contract}: 옛 바이트를 아직 문다`).not.toContain(
+        `toContain(${pin.previousPin})`
+      );
+      expect(contract, `${pin.contract}: 옛 바이트를 두 시점으로 남기지 않았다`).toContain(pin.previousPin);
+      expect(contract, `${pin.contract}: 두 시점 표기`).toContain("두 시점");
+      // 제품 쪽 — 모집단 안의 자리이고, 옛 바이트는 코드에서 사라졌다.
+      expect(listStateEchoSources(), `${pin.product}: 모집단 밖이다`).toContain(pin.product);
+      const product = maskedSource(pin.product);
+      expect(product, `${pin.product}: 오늘의 바이트`).toContain(pin.todayProductByte);
+      expect(product, `${pin.product}: 옛 바이트가 코드에 남아 있다`).not.toContain(pin.previousProductByte);
+    }
+    // ⚠️⚠️ **계약 파일 수도 하한이었다** — 정찰의 배정은 셋이었고 소스가 낸 것은 **넷**이다.
+    const contracts = [...new Set(STATE_ECHO_PIN_MIGRATIONS.map((pin) => pin.contract))].sort();
+    expect(contracts).toEqual([
+      "src/a11y-contract.test.ts",
+      "src/expenses/date-picker-month.test.ts",
+      "src/keyboard-tap-guard.test.ts",
+      "src/month-jump.test.ts"
+    ]);
+    // ⚠️⚠️ ①의 라벨 조각을 **바이트로** 무는 계약은 0건이었다 — 그 조각을 문 것은 **수**였다
+    // (`src/keyboard-tap-guard.test.ts`의 리터럴 대장 54 → 53 · 위 여섯째 핀). 그 사실도 값이다.
+    const oldQuickItemByte = '${selected ? ". 선택됨" : ""}';
+    for (const file of listStateEchoSources()) {
+      expect(maskedSource(file), `${file}: ①의 옛 바이트`).not.toContain(oldQuickItemByte);
+    }
+    expect(source("app/expenses/new.tsx"), "①의 옛 바이트는 두 시점으로 남는다").toContain(oldQuickItemByte);
+    const bitesTheByte = listStateEchoSources()
+      .concat(contracts)
+      .filter((file) => file !== "app/expenses/new.tsx" && maskComments(source(file)).includes(`"${oldQuickItemByte}"`));
+    expect(bitesTheByte, "①의 옛 바이트를 문자열로 물던 계약").toEqual([]);
+    // ⚠️ 바이트를 고치지 않고 **제품 주석의 좌표**로 만족시킨 계약이 하나 더 있다(0바이트).
+    const followsQuotes = source("src/korean-particle-guard.test.ts");
+    expect(followsQuotes, "그 계약은 좌표를 소스에서 파생한다").toContain("인용이 인용당한 자리를 따라간다");
+    expect(source("app/expenses/new.tsx"), "옮겨 적은 오늘의 좌표").toContain("`:1589`·`:2318`");
+    expect(source("app/expenses/new.tsx"), "옛 좌표는 지우지 않는다").toContain("`:1561`·`:2290`");
+    // ⚠️⚠️ 이 걸음이 **통합이 아니라 트랙의 커밋**에 실린다는 사실이 머리말에 값으로 있다.
+    const self = source("src/a11y-contract.test.ts");
+    expect(self, "머리말의 그 값").toContain("통합이 아니라 트랙의 커밋");
+    expect(self, "배정 단계에서 받았다는 사실").toContain("배정 단계에서");
+  });
+
+  it("ⓗ 래칫 · ⓘ 사각 — 상한 0과 하한들이 서 있고, 못 보는 것이 이름과 재개 조건으로 적혀 있다", () => {
+    expect(STATE_ECHO_RATCHET.alsoInLabel, "상한은 0이다").toBe(0);
+    expect(STATE_ECHO_RATCHET.sites, "모집단 하한").toBeGreaterThanOrEqual(58);
+    expect(STATE_ECHO_BLIND_SPOTS.length, "적어 둔 사각").toBeGreaterThanOrEqual(4);
+    for (const blindSpot of STATE_ECHO_BLIND_SPOTS) {
+      expect(blindSpot.length, "사각은 빈 문자열일 수 없다").toBeGreaterThan(80);
+      // ⚠️ 재개 조건을 **자기 축과 함께** 적는다(AD-5) · 형을 괄호로 밝힌다.
+      expect(blindSpot, "재개 조건").toContain("재개 조건");
+    }
+    const written = STATE_ECHO_BLIND_SPOTS.join("\n");
+    expect(written, "형을 괄호로 밝힌 자리").toContain("재개 조건(사건형)");
+    expect(written, "형을 괄호로 밝힌 자리").toContain("재개 조건(결정형 · 손은 저장소 안)");
+    // 정찰과 갈린 수 셋이 **머리말에 값으로** 남아 있다(옛 값을 지우지 않는다 — 두 시점).
+    const self = source("src/a11y-contract.test.ts");
+    for (const past of ["모집단 57 → 56 → 58", "계약 셋·핀 셋이 아니라 계약 넷·핀 여섯이었다", "0이 아니라 2"]) {
+      expect(self, `갈린 값 ${past}`).toContain(past);
+    }
+  });
+});

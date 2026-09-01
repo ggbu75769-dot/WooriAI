@@ -387,9 +387,14 @@ function ExpenseQuickItemButton({
   onPress: () => void;
   selected: boolean;
 }) {
+  // 두 시점(라운드 95 트랙 A): 라벨이 `${selected ? ". 선택됨" : ""}`을 함께 적고 있었다.
+  // `accessibilityState.selected`가 이미 그 사실을 지므로 TalkBack이 "…, 선택됨, 선택됨"으로
+  // 두 번 읽었다 — 같은 사실을 두 번 읽지 않는다(`src/a11y-contract.test.ts`의 그 규율이고,
+  // 같은 화면의 형제 `ExpenseCategoryIconButton`이 이미 그렇게 서 있었다).
+  // hint는 상태가 지지 못하는 사실이라 라벨에 그대로 남는다.
   return (
     <Pressable
-      accessibilityLabel={`${label}${hint ? `. ${hint}` : ""}${selected ? ". 선택됨" : ""}`}
+      accessibilityLabel={`${label}${hint ? `. ${hint}` : ""}`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}
@@ -593,7 +598,9 @@ export default function NewExpenseScreen() {
    *    품목명 수정 `Pressable`의 `onPress`다. 즉 이 화면에는 *사용자 대신 키보드를 올리는 자리*가
    *    실제로 **둘 있다**.
    *  · ⚠️ **좌표는 밀리고 이름은 안 밀린다** — AG-4는 그 둘을 `:1561`·`:2290`으로 집었는데,
-   *    이 문단이 길어지며 오늘은 `:1582`·`:2311`이다. 다시 찾는 손은 위 두 이름으로 찾는다.
+   *    이 문단이 길어지며 라운드 93에는 `:1582`·`:2311`이었고 **오늘은 `:1589`·`:2318`이다**
+   *    (라운드 95 트랙 A가 빠른 품목 타일 라벨 위에 두 시점 주석을 더하고 이 문단도 늘려 다시
+   *    밀렸다). 다시 찾는 손은 위 두 이름으로 찾는다.
    *
    * ⚠️ 판매처 쪽의 판정(`focus()`를 쓰지 않는다)은 그대로다 —
    * `src/keyboard-tap-guard.test.ts`가 그 부정 단언을 소스로 문다.

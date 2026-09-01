@@ -229,7 +229,11 @@ describe("라벨 — 눈으로 보는 사실을 소리로도 전한다", () => {
     expect(expenseDatePickerMonthLabel("2026-13")).toBe("");
   });
 
-  it("칸 라벨이 날짜·오늘·선택됨·못 누르는 이유를 말한다", () => {
+  // ⚠️ **두 시점(라운드 95 트랙 A)** — 옛 바이트 둘을 한 줄씩 그대로 남긴다.
+  // 옛 it 이름: it("칸 라벨이 날짜·오늘·선택됨·못 누르는 이유를 말한다"
+  // 옛 단언(아래 셋째): .toBe("8월 12일, 선택됨")
+  // 선택 여부는 상태(`accessibilityState.selected`)가 지므로 라벨이 같은 사실을 말로 다시 적지 않는다.
+  it("칸 라벨이 날짜·오늘·못 누르는 이유를 말한다", () => {
     const cells = dayCells("2026-08");
     const byDate = (date: string) => cells.find((cell) => cell.date === date)!;
     expect(expenseDatePickerCellAccessibilityLabel(byDate("2026-08-12"), { selectedIso: null, todayIso: TODAY })).toBe(
@@ -240,10 +244,26 @@ describe("라벨 — 눈으로 보는 사실을 소리로도 전한다", () => {
     );
     expect(
       expenseDatePickerCellAccessibilityLabel(byDate("2026-08-12"), { selectedIso: "2026-08-12", todayIso: TODAY })
-    ).toBe("8월 12일, 선택됨");
+    ).toBe("8월 12일");
     expect(expenseDatePickerCellAccessibilityLabel(byDate("2026-08-30"), { selectedIso: null, todayIso: TODAY })).toBe(
       `8월 30일, ${EXPENSE_DATE_PICKER_FUTURE_HINT}`
     );
+  });
+
+  it("선택 여부가 라벨을 바꾸지 않는다 — 그 사실은 상태가 진다 (라운드 95 트랙 A)", () => {
+    const cells = dayCells("2026-08");
+    const byDate = (date: string) => cells.find((cell) => cell.date === date)!;
+    // 같은 칸을 고른 폼과 고르지 않은 폼에서 라벨이 한 글자도 다르지 않다.
+    for (const date of ["2026-08-12", TODAY, "2026-08-30"]) {
+      const chosen = expenseDatePickerCellAccessibilityLabel(byDate(date), { selectedIso: date, todayIso: TODAY });
+      const notChosen = expenseDatePickerCellAccessibilityLabel(byDate(date), { selectedIso: null, todayIso: TODAY });
+      expect(chosen, `${date}: 고른 칸과 안 고른 칸의 라벨`).toBe(notChosen);
+      expect(chosen, `${date}: 상태 낱말`).not.toContain("선택됨");
+    }
+    // ⚠️ 선택됐는데 못 고르는 칸에서는 **이유가 대신 들어온다**(종전에는 이유가 조용했다).
+    expect(
+      expenseDatePickerCellAccessibilityLabel(byDate("2026-08-30"), { selectedIso: "2026-08-30", todayIso: TODAY })
+    ).toBe(`8월 30일, ${EXPENSE_DATE_PICKER_FUTURE_HINT}`);
   });
 
   it("달 밖 빈 칸은 라벨이 없다", () => {

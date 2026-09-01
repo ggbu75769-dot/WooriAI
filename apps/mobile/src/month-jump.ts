@@ -292,6 +292,18 @@ function monthJumpCellReason(input: {
     : MONTH_JUMP_BEFORE_START_HINT;
 }
 
+/**
+ * 칸의 스크린리더 라벨 — "2026년 7월", "이번 달, 2026년 8월", "2026년 9월, <못 고르는 이유>".
+ *
+ * ⚠️ **두 시점(라운드 95 트랙 A).** 종전에는 첫 갈래가 `if (input.isSelected) parts.push("선택됨");`
+ * 이었고, 그 칸을 그리는 `MonthJumpSheet`가 같은 사실을 `accessibilityState={{ selected: … }}`로도
+ * 지고 있어 TalkBack이 **"2026년 7월, 선택됨, 선택됨"** 으로 두 번 읽었다. 선택 여부는 상태가
+ * 진다(`src/a11y-contract.test.ts`의 규율) — 그래서 낱말을 걷었고, 보이는 줄·색·테두리는 불변이다.
+ *
+ * 그 갈래를 걷으면 **못 고르는 이유가 대신 들어온다**: 선택됐는데 못 고르는 칸에서 종전에는
+ * 이유가 조용했고, 오늘은 이유가 말해진다(개선이지 손실이 아니다). 이유·"이번 달"은 상태가
+ * 지지 못하는 사실이라 라벨에 남는 것이 옳다.
+ */
 function monthJumpCellAccessibilityLabel(input: {
   yearMonth: string;
   isSelectable: boolean;
@@ -304,9 +316,7 @@ function monthJumpCellAccessibilityLabel(input: {
   const parts: string[] = [];
   if (input.isCurrentMonth) parts.push("이번 달");
   parts.push(monthJumpYearMonthLabel(input.yearMonth));
-  if (input.isSelected) {
-    parts.push("선택됨");
-  } else if (!input.isSelectable) {
+  if (!input.isSelectable) {
     const reason = monthJumpCellReason(input);
     if (reason !== null) parts.push(reason);
   }

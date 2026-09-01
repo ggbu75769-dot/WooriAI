@@ -188,7 +188,12 @@ const STRIPPED_OPENING_TAG_SHA12 = "23a4d047f3cd" as const;
  * 대장을 함께 갱신해야 한다.**
  */
 const KOREAN_LITERAL_LEDGER: readonly { readonly file: string; readonly count: number }[] = [
-  { file: "app/expenses/new.tsx", count: 54 },
+  // ⚠️ **두 시점(라운드 95 트랙 A · 위 ⓑ 갈래)** — 이 줄은 `{ file: "app/expenses/new.tsx", count: 54 }`
+  // 였다. 빠른 품목 타일의 낭독 라벨이 `${selected ? ". 선택됨" : ""}`을 이어 붙이고 있었고, 같은
+  // 태그의 `accessibilityState={{ selected }}`가 이미 그 사실을 져 TalkBack이 두 번 읽었다.
+  // 그 조각 하나를 걷어 리터럴이 **하나 줄었다** — 문구를 더한 것이 아니라 **뺀** 자리이고,
+  // 이 대장이 미리 적어 둔 대로 *그 라운드가 이 대장을 함께 갱신*한다(계약 갱신 · 손은 트랙 A).
+  { file: "app/expenses/new.tsx", count: 53 },
   { file: "app/expenses/[expenseId].tsx", count: 42 },
   { file: "app/(tabs)/records.tsx", count: 14 }
 ];

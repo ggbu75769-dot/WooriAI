@@ -135,8 +135,19 @@ export function MonthJumpSheet({
       cell.isSelected ? monthJumpSheetStyle.cellSelected : null
     ];
     if (!cell.isSelectable) {
+      // 라운드 95 트랙 A: 순수 모듈이 라벨에서 "선택됨"을 걷었으므로(같은 사실을 두 번 읽지
+      // 않는다), **선택됐는데 못 고르는 칸**이 그 사실을 잃지 않도록 이 가지도 상태를 진다.
+      // ⚠️ `disabled`는 걸지 않는다 — 못 고르는 이유는 라벨이 문장으로 말하고 있고, 상태로 한 번
+      // 더 말하면 이 트랙이 걷어 낸 바로 그 이중 낭독이 다시 선다(이 파일에서 눌림을 막는 프롭은
+      // 여전히 연도 스테퍼 둘뿐이다).
       return (
-        <View accessible accessibilityLabel={cell.accessibilityLabel} key={cell.yearMonth} style={cellStyle}>
+        <View
+          accessible
+          accessibilityLabel={cell.accessibilityLabel}
+          accessibilityState={{ selected: cell.isSelected }}
+          key={cell.yearMonth}
+          style={cellStyle}
+        >
           <Text style={labelStyle}>{cell.label}</Text>
         </View>
       );
