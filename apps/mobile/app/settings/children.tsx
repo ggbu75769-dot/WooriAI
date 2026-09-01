@@ -51,6 +51,9 @@ import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
 import { useLoadErrorCopy, useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
+// 라운드 93 트랙 B: 사용자가 지은 별명 뒤의 목적격 조사는 **받침에서 갈린다**. 화면이 "를"을
+// 못 박으면 받침 있는 별명에서 "지훈를 추가했어요"가 난다 — 조사는 순수 모듈이 고른다.
+import { objectParticle } from "../../src/text/korean-particles";
 import { AppIcon } from "../../src/design-system";
 import { theme } from "../../src/theme";
 import {
@@ -499,10 +502,13 @@ export default function ManageChildrenScreen() {
        * (만들자마자 그 아이를 보러 간다) 말해 주지 않으면 다른 가구를 보러 왔던 사람은 홈이
        * 바뀐 이유를 모른다. 파라미터가 없는 계정(1가구 계정 포함)에서는 종전 문구 그대로다.
        */
-      const addedNotice = `${input.values.nickname.trim()}를 추가했어요.`;
+      // 라운드 93 트랙 B: 이름을 두 문장이 함께 쓰므로 `trim()`을 한 자리에서 한 번만 부른다 --
+      // 보이는 토스트와 낭독이 **같은 글자·같은 조사**를 지나게 하려는 것이다(SET-005의 규율).
+      const addedName = input.values.nickname.trim();
+      const addedNotice = `${addedName}${objectParticle(addedName)} 추가했어요.`;
       const switchNotice = requestedHouseholdId ? ` ${HOUSEHOLD_SCOPE_ADD_CHILD_SWITCH_NOTICE}` : "";
       showToast(`${addedNotice}${switchNotice}`, "success");
-      announceForA11y(`${input.values.nickname.trim()}를 추가하고 선택했어요.${switchNotice}`);
+      announceForA11y(`${addedName}${objectParticle(addedName)} 추가하고 선택했어요.${switchNotice}`);
     }
   });
 
