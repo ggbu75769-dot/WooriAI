@@ -1094,3 +1094,476 @@ describe("문서가 소스의 좌표를 무는 자리를 센다 (라운드 93 �
   //     그 일을 기계가 하게 만드는 걸음이고, 앵커 문자열을 값으로 드는 위 KNOWN_STALE이 그 본보기다.
   //  ④ 이름만의 좌표 **17**(사각 ⓓ)과 절 이름·`#N` 꼴 인용(사각 ⓒ · 수는 훨씬 크다)은 아직 밖이다.
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 라운드 94 트랙 E (GAP-094E · AH-5 이행) — **축 여섯: 판정 문서의 재실측 표가 *수 곁에 바늘*을
+// 적는가**
+//
+// AH-5가 *"문서가 무는 것에는 두 층이 있다 — **좌표**와 **수**"* 를 세우고, 좌표에는 라운드 93
+// 트랙 E가 세는 자를 세웠지만 **수에는 아직 아무도 서지 않았다**로 닫았다. 그 절이 남긴 문장이
+// *"수는 바늘이 적혀 있지 않으면 아무도 풀 수 없다"* 이고, 같은 절의 트립와이어 표에서 **두 칸이
+// 실제로 *다시 잴 수 없었다*** 로 비었다. 이 축은 그 질문을 그대로 자로 만든다 — 재실측 표의
+// **행을 전수로 파생**하고 자리마다 셋을 판정한다:
+//  ⓐ **수가 있는가**(값 칸 둘 · 아라비아 숫자든 한글 수사든)
+//  ⓑ **그 수를 낸 바늘이 곁에 적혔는가**(좌표꼴 · 백틱에 싸인 소스 파일 이름 · *모집단*·*바늘*
+//     이라는 낱말 · *걷는다*·*파생한다* 가운데 하나)
+//  ⓒ **그 바늘이 `<경로>:<줄>` 꼴이어서 기계가 따라갈 수 있는가**
+//
+// ⚠️⚠️ **이 트랙이 이 파일에서 여는 축은 이것 하나다.** 위 다섯(`근거:` 파생 · DNC 사본 · 진입
+// 문서 셋 · 폐기 팔레트 · 라운드 93 E의 좌표 축)은 **한 바이트도 건드리지 않았고**, 좌표 축의
+// 판정 로직은 **복사하지 않고 불러 쓴다**(`splitCoordinates` · `isLineWithinFile`).
+//
+// ── 실측(2026-08-31 HEAD · 전부 **하한**이다) ──────────────────────────────────
+//  · 최신 판정 절의 재실측 표 행 **37**
+//  · 그중 **수가 있는 행 37** · **바늘이 곁에 적힌 행 13** · **좌표꼴 바늘로 가리킨 행 2**
+//  · 바늘이 없이 **수만 있는 행 24** — ⚠️ 이 수는 값으로만 적는다(줄어야 좋은 수라 하한이 아니다)
+//
+// ⚠️ **정찰(round94-scout.md §답5)과 갈린 자리를 값으로 적는다.** 정찰은 좌표꼴을 **1**로 셌고
+// (`comment-tolerant-anchor-ledger.ts:532` 하나) 이 계약의 바늘로는 **2**다 — 둘째는 같은 표의
+// 재개 조건 대장 행이 무는 `packages/test-utils/src/resume-condition-ledger.ts:702-704`이고,
+// **줄 범위꼴**이라 정찰의 손 판정이 세지 않았다. **두 수를 한 낱말로 적지 않는다**(AH-5) —
+// 1은 정찰의 바늘, 2는 라운드 93 E의 파서를 그대로 부른 이 계약의 바늘이다. 하한은 **1**에 둔다.
+//
+// ⚠️⚠️ **셋 다 하한인 이유**(AG-5·AH-5가 값으로 적은 그 비용): 이 라운드의 F가 **수만 있는
+// 스물넷에 바늘을 붙이기 시작한다.** 등호로 물면 F가 바늘을 붙이는 정직한 걸음마다, 그리고
+// 다음 라운드가 표에 행을 더할 때마다 이 계약이 빨개진다. **빨간 계약은 아무것도 지키지 못한다.**
+// ⚠️⚠️ **하한을 고른 비용도 같은 자리에 적는다 — *행이 사라지거나 바늘이 지워지는 것을 이 자는
+// 보지 못한다.*** 오르는 쪽으로만 래칫이 걸리고, 내려가는 걸음은 다음 라운드의 정찰이 답한다.
+//
+// ── 사각 넷(값으로 적는다) ─────────────────────────────────────────────────────
+//  ⓐ ⚠️⚠️ **바늘이 *적혀 있다*와 *그 바늘로 재면 같은 수가 나온다*는 다르다.** 오늘
+//     `helper-named-reader` 행은 바늘이 적힌 열셋 안인데도 넓은 바늘로 재면 **189**가 나오고
+//     그 칸이 적은 수는 **167**이다(리뷰 M-2의 자). **이 자는 앞쪽만 센다** — 뒤쪽(재현되는가)은
+//     라운드마다 정찰의 걸음이 답한다.
+//  ⓑ **K~AG절의 옛 표는 모집단 밖이고 그 수는 훨씬 크다** — 오늘 이 문서의 앞선 재실측 표 **넷**에
+//     행 **92**가 더 있다. 넣으면 이 계약의 수가 라운드마다 통째로 흔들리므로 **값으로 적고 밖에
+//     둔다**(라운드 93 E가 라운드 노트를 밖에 둔 것과 같은 이유다).
+//  ⓒ **한 행에 수가 여럿이면 그 행은 한 칸으로 센다** — *사문 대장의 사각 여덟*과 *재개 조건
+//     대장의 사각 여덟*이 각각 **한 행**이고, 그 행 하나가 재현되지 않으면 여덟 수가 함께
+//     재현되지 않는다.
+//  ⓓ **재현 불가로 남은 칸이 오늘도 하나다** — *문턱·래칫 상수* **38**(하네스 4 · 제품 8 · 소스
+//     텍스트 26)의 갈래 셋에 모집단이 어디에도 없어서 넓은 바늘의 **53**과 대조할 방법이 없다
+//     (결정형 21). **이름으로 집어 아래 상수에 적는다.**
+//
+// ⚠️⚠️ **문서는 읽기만 한다 — 0바이트.** 스물넷에 바늘을 붙이는 손은 **F**이고(옮기는 손이
+// 반대라는 사실이 AG-5의 판정이다), 이 트랙이 문서를 고치면 그 판정이 무너진다.
+
+/** 이 축이 읽는 판정 문서 하나 — 라운드 93 E가 이미 **읽기 전용**으로 선언한 넷 중 하나다. */
+const RETEST_DOC = "docs/operations/known-limitations.md";
+
+/**
+ * **절 이름을 손으로 적지 않는다.** 절은 라운드마다 새로 서므로(AG → AH → AI) 이름을 등호로
+ * 물면 이 계약이 다음 라운드에 통째로 낡는다. 대신 **판정 절의 꼴**을 물고 그 가운데 **마지막**을
+ * 따라간다 — 문서가 자라면 자가 함께 옮겨 간다.
+ */
+const JUDGMENT_SECTION_PATTERN = /^##\s+[A-Z]{1,3}\.\s+라운드\s+\d+에서 확정한 판정/;
+
+/** 재실측 표(트립와이어 대조표)의 머리 — 이 앵커 문자열이 표를 식별한다. */
+const RETEST_TABLE_HEADER_PATTERN = /^\|\s*자리\s*\|/;
+
+/** 마크다운 표의 구분 줄(`| --- | --- |`). 머리 다음 줄이 이 꼴이어야 표다. */
+const RETEST_TABLE_DIVIDER_PATTERN = /^\|[\s:|-]+\|$/;
+
+/** 값 칸이 한글 수사로만 적힌 자리(`셋` · `열다섯` · `열하나`)도 **수가 있는 행**이다. */
+const HANGUL_NUMERAL_PATTERN =
+  /영|공|하나|둘|셋|넷|다섯|여섯|일곱|여덟|아홉|열|스물|서른|마흔|쉰|예순|일흔|여든|아흔|백|천/;
+
+/**
+ * 바늘의 꼴 넷(좌표꼴은 아래에서 따로 센다 — 라운드 93 E의 파서를 부른다).
+ *
+ * ⚠️ **이것은 *낱말 검색*이라 같은 뜻을 다른 말로 쓴 자리를 못 본다**(정찰 §답5의 사각 ⓒ와 같은
+ * 병이다). 그래서 바늘 수는 **하한**이고, 이 자가 세는 열셋은 *적어도 열셋*이라는 뜻이다.
+ */
+const RETEST_NEEDLE_PATTERNS: readonly { readonly kind: string; readonly pattern: RegExp }[] = [
+  { kind: "백틱에 싸인 소스 파일 이름", pattern: /`[^`\n]*\.(?:tsx?|jsx?|mjs|cjs|json|sh|ya?ml|prisma|sql)\b[^`\n]*`/ },
+  { kind: "모집단·바늘이라는 낱말", pattern: /모집단|바늘/ },
+  { kind: "걷는다·파생한다", pattern: /걷는|걷어|걷기|파생/ },
+  // ⚠️ 파일 이름 없이 **줄만** 무는 조각(`:22` · `[22, 1343, 1404]`)도 바늘이다 — 어느 파일인지는
+  // 그 행의 문장이 말하고, 기계가 따라가지 못할 뿐 사람은 따라갈 수 있다(그래서 ⓒ에서는 떨어진다).
+  { kind: "백틱에 싸인 줄 조각", pattern: /`[^`\n]*(?::\d|\[\s*\d+\s*,)[^`\n]*`/ }
+];
+
+/** 행 전수의 **하한**. F가 표를 늘리면 오르고, 이 자는 오르는 쪽만 문다. */
+const RETEST_ROW_FLOOR = 37;
+/** 그중 **수가 있는 행**의 하한(오늘 37 — 값 칸이 비어 있는 행은 오늘 0건이다). */
+const RETEST_NUMBERED_ROW_FLOOR = 37;
+/** **바늘이 곁에 적힌 행**의 하한. ⚠️⚠️ F가 스물넷에 바늘을 붙이면 오른다 — 오르는 쪽 래칫이다. */
+const RETEST_NEEDLE_ROW_FLOOR = 13;
+/** **좌표꼴 바늘**로 가리킨 행의 하한(오늘 이 계약의 바늘로는 2 · 정찰의 바늘로는 1). */
+const RETEST_COORDINATE_ROW_FLOOR = 1;
+/** 사각 ⓑ — 모집단 밖(앞선 절들)의 재실측 표 행 하한(오늘 표 넷 · 행 92). */
+const RETEST_OLDER_TABLE_ROW_FLOOR = 80;
+/** 사각 ⓒ — 한 칸에 수가 여덟 든 행. 오늘 둘이고 각각 **한 행**으로 센다. */
+const RETEST_CROWDED_CELL_FLOOR = 2;
+/** 사각 ⓒ의 *여럿*을 가르는 문턱 — 값 칸 하나에 수가 이만큼 들면 붐비는 칸이다. */
+const RETEST_CROWDED_CELL_NUMBERS = 8;
+
+/**
+ * 사각 ⓓ — **재현 불가로 남은 칸을 이름으로 집는다.**
+ *
+ * ⚠️ 이 자는 *그 칸이 오늘도 비었는가*를 묻지 않는다(그것은 정찰의 걸음이 답한다). 묻는 것은
+ * **그 자리가 표에 아직 있는가** 하나다 — 이름이 사라지면 이 사각이 조용히 없어진다.
+ */
+const RETEST_UNREPRODUCIBLE_CELL = {
+  rowName: "문턱·래칫 상수",
+  value: 38,
+  wideNeedleValue: 53,
+  reason:
+    "라운드 92 F가 낸 38의 갈래 셋(하네스 4 · 제품 8 · 소스 텍스트 26)에 모집단이 어디에도 " +
+    "적혀 있지 않아, 넓은 바늘의 53과 대조할 방법이 오늘도 없다(결정형 21 · AH-5)."
+} as const;
+
+/**
+ * 사각 ⓐ — **바늘이 적혔다고 그 수가 재현되는 것은 아니다.**
+ *
+ * 이 행은 바늘이 적힌 열셋 안에 있는데도, 그 바늘을 넓게 대면 다른 수가 나온다. 이 자는
+ * **앞쪽(바늘의 실재)만** 세고, 뒤쪽(재현)은 라운드마다 정찰의 걸음이 답한다.
+ */
+const RETEST_NEEDLE_WITHOUT_REPRODUCTION = {
+  rowName: "helper-named-reader",
+  citedValue: 167,
+  wideNeedleValue: 189
+} as const;
+
+type RetestRow = { index: number; raw: string; cells: string[] };
+type RetestTable = { sectionTitle: string; sectionLine: number; headerLine: number; rows: RetestRow[] };
+
+function markdownRowCells(raw: string): string[] {
+  return raw.split("|").slice(1, -1).map((cell) => cell.trim());
+}
+
+/** 마지막 판정 절 뒤에 서는 재실측 표. **못 찾으면 `null`** — 부르는 쪽이 빨개진다(유령 방지). */
+function retestTableIn(text: string): RetestTable | null {
+  const lines = text.split("\n");
+  let sectionLine = -1;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (JUDGMENT_SECTION_PATTERN.test(lines[index])) sectionLine = index;
+  }
+  if (sectionLine === -1) return null;
+
+  let headerLine = -1;
+  for (let index = sectionLine + 1; index < lines.length; index += 1) {
+    if (RETEST_TABLE_HEADER_PATTERN.test(lines[index])) headerLine = index;
+  }
+  // 표는 **머리 + 구분 줄**로 서야 표다 — 구분 줄이 없으면 그것은 표가 아니라 한 줄이다.
+  if (headerLine === -1 || !RETEST_TABLE_DIVIDER_PATTERN.test(lines[headerLine + 1] ?? "")) return null;
+
+  const rows: RetestRow[] = [];
+  for (let index = headerLine + 2; index < lines.length; index += 1) {
+    if (!lines[index].startsWith("|")) break;
+    rows.push({ index: rows.length + 1, raw: lines[index], cells: markdownRowCells(lines[index]) });
+  }
+  return {
+    sectionTitle: lines[sectionLine].trim(),
+    sectionLine: sectionLine + 1,
+    headerLine: headerLine + 1,
+    rows
+  };
+}
+
+/** 모집단 밖 — 마지막 판정 절 **앞**에 있는 옛 재실측 표들(사각 ⓑ). */
+function olderRetestTableRows(text: string): { tables: number; rows: number } {
+  const lines = text.split("\n");
+  let lastSection = -1;
+  for (let index = 0; index < lines.length; index += 1) {
+    if (JUDGMENT_SECTION_PATTERN.test(lines[index])) lastSection = index;
+  }
+  let tables = 0;
+  let rows = 0;
+  for (let index = 0; index < lastSection; index += 1) {
+    if (!RETEST_TABLE_HEADER_PATTERN.test(lines[index])) continue;
+    if (!RETEST_TABLE_DIVIDER_PATTERN.test(lines[index + 1] ?? "")) continue;
+    tables += 1;
+    for (let row = index + 2; row < lines.length; row += 1) {
+      if (!lines[row].startsWith("|")) break;
+      rows += 1;
+    }
+  }
+  return { tables, rows };
+}
+
+/** 값 칸 둘(라운드 N이 남긴 값 · HEAD 재실측)만 본다 — 설명 칸의 수는 *그 행의 값*이 아니다. */
+function retestValueCells(row: RetestRow): string {
+  return row.cells.slice(1, 3).join(" ");
+}
+
+/** 판정 ⓐ — 이 행이 수를 냈는가. */
+function retestRowHasNumber(row: RetestRow): boolean {
+  const values = retestValueCells(row);
+  return /\d/.test(values) || HANGUL_NUMERAL_PATTERN.test(values);
+}
+
+/** 판정 ⓒ의 재료 — 이 행이 무는 `<경로>:<줄>` 꼴 좌표. **라운드 93 E의 파서를 부른다.** */
+function retestRowCoordinates(row: RetestRow): CoordinateSplit {
+  return splitCoordinates(row.raw, RETEST_DOC);
+}
+
+/** 판정 ⓑ — 이 행 곁에 적힌 바늘의 꼴들(빈 배열이면 *수만 있는 행*이다). */
+function retestRowNeedleKinds(row: RetestRow): string[] {
+  const kinds = RETEST_NEEDLE_PATTERNS.filter((needle) => needle.pattern.test(row.raw)).map(
+    (needle) => needle.kind
+  );
+  const coordinates = retestRowCoordinates(row);
+  if (coordinates.resolved.length + coordinates.unresolved.length > 0) kinds.unshift("좌표꼴");
+  return kinds;
+}
+
+function retestTableOrThrow(): RetestTable {
+  const table = retestTableIn(read(RETEST_DOC));
+  // ⚠️ **못 찾으면 0이 아니라 빨개진다** — 0을 내놓는 자는 표가 사라진 날 조용히 초록이 된다.
+  if (table === null) {
+    throw new Error(
+      `${RETEST_DOC}의 마지막 판정 절에서 재실측 표(\`| 자리 | … |\`)를 찾지 못했어요 — ` +
+        "절 이름이 아니라 **표의 꼴**을 따라가는 자라, 표가 사라졌거나 머리가 바뀐 거예요"
+    );
+  }
+  return table;
+}
+
+/**
+ * 픽스처 — 표 꼴에서 **판정 셋을 실제로 가르는지**를 여기서 본다.
+ * 1: 수 + 좌표꼴 바늘 · 2: 수 + 백틱 파일 이름(좌표 아님) · 3: 수 + 낱말로 적은 자 ·
+ * 4: 한글 수사만 있고 바늘 없음 · 5: 값 칸에 수가 없는 행 · 6: 한 칸에 수 여덟(사각 ⓒ).
+ */
+const RETEST_TABLE_FIXTURE = [
+  "## ZZ. 라운드 99에서 확정한 판정 (픽스처 · GAP-099 트랙 F)",
+  "",
+  "| 자리 | 라운드 98이 남긴 값 | HEAD 재실측 | 움직였는가 |",
+  "| --- | --- | --- | --- |",
+  "| 좌표로 가리킨 자리 | 12 | **13** | `packages/test-utils/src/repo-self-description.test.ts:1`이 그 자다 |",
+  "| 파일 이름만 | 7 | **7** | 그대로다 — `dead-export-ledger.ts`가 센다 |",
+  "| 낱말로 적은 자 | 5 | **6** | 모집단은 앱 전수다 |",
+  "| 적힌 자가 없다 | 셋 | **넷** | 늘었다 |",
+  "| 값이 비었다 | 다시 재지 못했다 | **다시 재지 못했다** | 잴 자가 없다 |",
+  "| 붐비는 칸 | 1 · 2 · 3 · 4 · 5 · 6 · 7 · 8 | **1 · 2 · 3 · 4 · 5 · 6 · 7 · 9** | 한 칸이 여덟을 진다 |",
+  "",
+  "본문은 표가 아니다."
+].join("\n");
+
+/** 교란 — 위 픽스처에서 **좌표꼴 바늘 한 행의 바늘을 지운다**(수는 그대로 둔다). */
+const RETEST_TABLE_FIXTURE_NEEDLE_REMOVED = RETEST_TABLE_FIXTURE.replace(
+  "`packages/test-utils/src/repo-self-description.test.ts:1`이 그 자다",
+  "그 자가 어디 있는지는 적혀 있지 않다"
+);
+
+describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 센다 (라운드 94 트랙 E · 전부 하한)", () => {
+  it("최신 판정 절의 재실측 표를 전수로 파생시킨다 (절 이름 등호 금지 · 유령 방지)", () => {
+    const text = read(RETEST_DOC);
+    const table = retestTableOrThrow();
+
+    // ① 절을 **꼴로** 따라간다 — 오늘 이 문서의 판정 절은 여럿이고, 자는 그 마지막을 본다.
+    const sections = text.split("\n").filter((line) => JUDGMENT_SECTION_PATTERN.test(line));
+    expect(sections.length, "판정 절을 꼴로 찾지 못했어요").toBeGreaterThanOrEqual(5);
+    expect(
+      table.sectionTitle,
+      `자가 따라간 절: ${table.sectionTitle} (${RETEST_DOC}:${table.sectionLine})`
+    ).toBe(sections[sections.length - 1].trim());
+
+    // ② 행 전수는 **하한**이다(F가 표를 늘리면 오른다).
+    expect(
+      table.rows.length,
+      `재실측 표 행이 바닥 ${RETEST_ROW_FLOOR}보다 적어요 (표 머리 ${RETEST_DOC}:${table.headerLine})`
+    ).toBeGreaterThanOrEqual(RETEST_ROW_FLOOR);
+
+    // ③ 행 꼴이 실제로 표다 — 칸 넷이 아니면 파서가 다른 것을 읽고 있는 것이다.
+    for (const row of table.rows) {
+      expect(row.cells.length, `${table.headerLine + 1 + row.index}행의 칸이 넷이 아니에요`).toBe(4);
+      expect(row.cells[0].length, "자리 이름이 빈 행이 있어요").toBeGreaterThan(0);
+    }
+  });
+
+  it("판정 셋 — 행마다 수·바늘·좌표꼴을 센다 (셋 다 하한 래칫 · 오늘 37 · 13 · 2)", () => {
+    const rows = retestTableOrThrow().rows;
+    const numbered = rows.filter(retestRowHasNumber);
+    const withNeedle = rows.filter((row) => retestRowNeedleKinds(row).length > 0);
+    const withCoordinate = rows.filter(
+      (row) => retestRowCoordinates(row).resolved.length + retestRowCoordinates(row).unresolved.length > 0
+    );
+
+    expect(numbered.length, `수가 있는 행이 바닥 ${RETEST_NUMBERED_ROW_FLOOR}보다 적어요`)
+      .toBeGreaterThanOrEqual(RETEST_NUMBERED_ROW_FLOOR);
+    expect(
+      withNeedle.length,
+      `바늘이 곁에 적힌 행이 바닥 ${RETEST_NEEDLE_ROW_FLOOR}보다 적어요 — ` +
+        "바늘을 붙이는 손은 F이고 이 자는 **오르는 쪽만** 물어요"
+    ).toBeGreaterThanOrEqual(RETEST_NEEDLE_ROW_FLOOR);
+    expect(
+      withCoordinate.length,
+      `좌표꼴 바늘로 가리킨 행이 바닥 ${RETEST_COORDINATE_ROW_FLOOR}보다 적어요`
+    ).toBeGreaterThanOrEqual(RETEST_COORDINATE_ROW_FLOOR);
+
+    // ⚠️ **수만 있는 행**은 값으로만 적는다 — *줄어야 좋은 수*라 하한으로 물면 F의 걸음이 빨강을
+    // 맞는다(오늘 24). 이 자가 다음 라운드에 다시 내는 수가 바로 F의 숙제가 얼마나 줄었는지다.
+    const numberOnly = rows.filter(
+      (row) => retestRowHasNumber(row) && retestRowNeedleKinds(row).length === 0
+    );
+    // 대신 여기서 무는 것은 **꼴**이다: 바늘만 있고 수가 없는 행은 이 표의 행이 아니다(오늘 0건).
+    const needleWithoutNumber = withNeedle.filter((row) => !retestRowHasNumber(row));
+    expect(
+      needleWithoutNumber.map((row) => row.cells[0]),
+      `수 없이 바늘만 있는 행이에요 (오늘 0건 · 수만 있는 행은 ${numberOnly.length})`
+    ).toEqual([]);
+  });
+
+  it("좌표꼴 바늘은 그 파일이 실재하고 줄이 범위 안이다 (라운드 93 E의 함수를 부른다 · 복사 아님)", () => {
+    const rows = retestTableOrThrow().rows;
+    const resolved: ResolvedCoordinate[] = [];
+    const unresolved: SourceCoordinate[] = [];
+    for (const row of rows) {
+      const split = retestRowCoordinates(row);
+      resolved.push(...split.resolved);
+      unresolved.push(...split.unresolved);
+    }
+
+    expect(resolved.length, `실재하는 좌표꼴 바늘이 바닥 ${RETEST_COORDINATE_ROW_FLOOR}보다 적어요`)
+      .toBeGreaterThanOrEqual(RETEST_COORDINATE_ROW_FLOOR);
+    // ⚠️ 해석되지 않은 경로 꼴 좌표는 오늘 0이다 — 값으로만 남긴다(F의 오타는 다음 라운드의
+    // 후보이지 이 계약의 빨간불이 아니다 · 라운드 93 E가 같은 자리에서 같은 판단을 했다).
+    expect(unresolved.length, "표 안에서 해석되지 않은 경로 꼴 좌표 (오늘 0)").toBeLessThanOrEqual(4);
+
+    for (const coordinate of resolved) {
+      expect(
+        isLineWithinFile(coordinate),
+        `표가 무는 ${coordinate.path}:${coordinate.line}이 파일 길이를 넘어요`
+      ).toBe(true);
+    }
+  });
+
+  it("픽스처 — 표 꼴에서 판정 셋을 가르고, 바늘을 지운 행을 감지한다 (교란)", () => {
+    const table = retestTableIn(RETEST_TABLE_FIXTURE);
+    expect(table, "픽스처의 표를 찾아야 해요").not.toBeNull();
+    const rows = (table as RetestTable).rows;
+    expect(rows.length, "픽스처의 행 여섯을 읽어야 해요").toBe(6);
+    expect((table as RetestTable).sectionTitle).toContain("라운드 99에서 확정한 판정");
+
+    // ① 판정 ⓐ — 값 칸에 수가 없는 다섯째 행만 떨어진다(한글 수사 `셋`은 수다).
+    expect(rows.filter(retestRowHasNumber).map((row) => row.cells[0])).toEqual([
+      "좌표로 가리킨 자리",
+      "파일 이름만",
+      "낱말로 적은 자",
+      "적힌 자가 없다",
+      "붐비는 칸"
+    ]);
+
+    // ② 판정 ⓑ — 바늘의 꼴이 실제로 갈린다.
+    expect(retestRowNeedleKinds(rows[0])[0]).toBe("좌표꼴");
+    expect(retestRowNeedleKinds(rows[1])).toEqual(["백틱에 싸인 소스 파일 이름"]);
+    expect(retestRowNeedleKinds(rows[2])).toEqual(["모집단·바늘이라는 낱말"]);
+    expect(retestRowNeedleKinds(rows[3]), "바늘 없는 행은 빈 배열이어야 해요").toEqual([]);
+
+    // ③ 판정 ⓒ — 좌표꼴은 첫 행 하나뿐이고, 백틱 파일 이름만 있는 행은 떨어진다.
+    const coordinateRows = rows.filter(
+      (row) => retestRowCoordinates(row).resolved.length + retestRowCoordinates(row).unresolved.length > 0
+    );
+    expect(coordinateRows.map((row) => row.cells[0])).toEqual(["좌표로 가리킨 자리"]);
+
+    // ④ 사각 ⓒ — 한 칸에 여덟이 든 행도 **한 행**이다.
+    const crowded = rows.filter(
+      (row) => (retestValueCells(row).match(/\d+/g) ?? []).length >= RETEST_CROWDED_CELL_NUMBERS
+    );
+    expect(crowded.map((row) => row.cells[0])).toEqual(["붐비는 칸"]);
+
+    // ⑤ **교란** — 바늘 하나를 지우면 바늘 수도 좌표 수도 하나씩 준다(수는 그대로다).
+    const disturbed = retestTableIn(RETEST_TABLE_FIXTURE_NEEDLE_REMOVED);
+    expect(disturbed, "교란 픽스처도 표는 그대로 있어야 해요").not.toBeNull();
+    const disturbedRows = (disturbed as RetestTable).rows;
+    expect(disturbedRows.length, "교란은 행을 지우지 않아요").toBe(rows.length);
+    expect(
+      disturbedRows.filter((row) => retestRowNeedleKinds(row).length > 0).length,
+      "바늘을 지운 행을 감지하지 못했어요"
+    ).toBe(rows.filter((row) => retestRowNeedleKinds(row).length > 0).length - 1);
+    expect(
+      disturbedRows.filter((row) => retestRowCoordinates(row).resolved.length > 0).length,
+      "좌표꼴 바늘이 사라진 것을 감지하지 못했어요"
+    ).toBe(0);
+    expect(
+      disturbedRows.filter(retestRowHasNumber).length,
+      "교란은 수를 건드리지 않아요"
+    ).toBe(rows.filter(retestRowHasNumber).length);
+
+    // ⑥ 유령 방지 — 표가 없는 글에서는 `null`이지 0이 아니다.
+    expect(retestTableIn("## ZZ. 라운드 99에서 확정한 판정\n\n표가 없다.\n")).toBeNull();
+    expect(retestTableIn("| 자리 | 값 |\n| --- | --- |\n| 하나 | 1 |\n"), "판정 절이 없으면 표도 없어요")
+      .toBeNull();
+  });
+
+  it("사각 넷을 값으로 적는다 — 옛 표는 밖 · 붐비는 칸 · 재현 불가 칸 · 앞쪽만 센다", () => {
+    const table = retestTableOrThrow();
+    const rows = table.rows;
+
+    // 사각 ⓑ — K~AG절의 옛 표는 모집단 밖이고 그 수는 훨씬 크다(오늘 표 넷 · 행 92).
+    const older = olderRetestTableRows(read(RETEST_DOC));
+    expect(older.tables, "앞선 절의 재실측 표 (오늘 넷)").toBeGreaterThanOrEqual(3);
+    expect(
+      older.rows,
+      `모집단 밖(앞선 절)의 재실측 표 행 — 오늘 ${older.rows}이고 이 축의 모집단 ${rows.length}보다 크다`
+    ).toBeGreaterThanOrEqual(RETEST_OLDER_TABLE_ROW_FLOOR);
+    expect(older.rows, "옛 표가 모집단보다 작으면 이 사각은 사각이 아니에요").toBeGreaterThan(rows.length);
+
+    // 사각 ⓒ — 한 칸에 수가 여럿인 행도 **한 행**이다(사문 대장의 사각 여덟 · 재개 조건의 사각 여덟).
+    const crowded = rows.filter(
+      (row) => (retestValueCells(row).match(/\d+/g) ?? []).length >= RETEST_CROWDED_CELL_NUMBERS
+    );
+    expect(
+      crowded.length,
+      `한 칸에 수가 ${RETEST_CROWDED_CELL_NUMBERS} 이상 든 행 (오늘 둘 · 각각 한 행으로 센다)`
+    ).toBeGreaterThanOrEqual(RETEST_CROWDED_CELL_FLOOR);
+    expect(crowded.length, "붐비는 칸도 표의 행이라 전수를 넘을 수 없어요").toBeLessThanOrEqual(rows.length);
+
+    // 사각 ⓓ — 재현 불가로 남은 칸을 **이름으로** 집는다(그 자리가 사라지면 사각이 조용히 없어진다).
+    expect(RETEST_UNREPRODUCIBLE_CELL.reason.trim().length, "이유가 비면 값이 아니에요").toBeGreaterThan(20);
+    expect(
+      rows.some((row) => row.cells[0].includes(RETEST_UNREPRODUCIBLE_CELL.rowName)),
+      `재현 불가로 남은 칸 "${RETEST_UNREPRODUCIBLE_CELL.rowName}"이 표에서 사라졌어요 — ` +
+        `${RETEST_UNREPRODUCIBLE_CELL.value}(넓은 바늘 ${RETEST_UNREPRODUCIBLE_CELL.wideNeedleValue})의 ` +
+        "모집단이 적혔다면 그것은 새 판정이고, 이름만 바뀐 것이라면 이 상수를 함께 옮겨야 해요"
+    ).toBe(true);
+
+    // 사각 ⓐ — **바늘이 적혀 있다 ≠ 그 바늘로 재면 같은 수가 나온다.** 이 자는 앞쪽만 센다.
+    const needleWithoutReproduction = rows.filter((row) =>
+      row.raw.includes(RETEST_NEEDLE_WITHOUT_REPRODUCTION.rowName)
+    );
+    expect(
+      needleWithoutReproduction.length,
+      `사각 ⓐ의 본보기 "${RETEST_NEEDLE_WITHOUT_REPRODUCTION.rowName}" 행이 표에 있어야 해요`
+    ).toBeGreaterThanOrEqual(1);
+    for (const row of needleWithoutReproduction) {
+      expect(
+        retestRowNeedleKinds(row).length,
+        `그 행은 바늘이 적힌 쪽인데도 넓은 바늘로 재면 ${RETEST_NEEDLE_WITHOUT_REPRODUCTION.wideNeedleValue}가 ` +
+          `나오고 칸이 적은 수는 ${RETEST_NEEDLE_WITHOUT_REPRODUCTION.citedValue}예요 — 이 자는 앞쪽만 세요`
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("이 축이 도는 동안 판정 문서가 0바이트다 (부정 단언 · 바늘을 붙이는 손은 F다)", () => {
+    // ⚠️ 이 단언이 무는 것은 **이 `it`이 도는 동안**이다 — *이 트랙이 커밋에서 문서를 고치지
+    // 않았다*는 증거가 아니다(그것은 커밋이 말한다). 라운드 93 E가 같은 자리에서 같은 구별을 했다.
+    const before = read(RETEST_DOC);
+    const table = retestTableIn(before);
+    expect(table, "표가 있어야 해요").not.toBeNull();
+    for (const row of (table as RetestTable).rows) {
+      retestRowHasNumber(row);
+      retestRowNeedleKinds(row);
+    }
+    expect(read(RETEST_DOC).length, `${RETEST_DOC}가 이 자가 도는 동안 움직였어요`).toBe(before.length);
+    expect(read(RETEST_DOC), `${RETEST_DOC}의 바이트가 달라졌어요`).toBe(before);
+
+    // 이 축이 여는 문서는 **하나**이고, 그 하나는 라운드 93 E가 이미 읽기 전용으로 선언한 넷 안이다.
+    expect(
+      (COORDINATE_LIVE_DOCS as readonly string[]).includes(RETEST_DOC),
+      `${RETEST_DOC}는 이 파일이 읽기 전용으로 선언한 문서가 아니에요`
+    ).toBe(true);
+  });
+
+  // ── 재개 조건(AD-5) — **이 축의 것만** 적는다 ────────────────────────────────
+  //  ① **수만 있는 스물넷이 다음 라운드에 얼마로 줄었는가** — F가 이번 라운드에 바늘을 붙이기
+  //     시작하므로, 그 수가 이 축의 첫 물음이다. 줄면 `RETEST_NEEDLE_ROW_FLOOR`를 올릴지 정한다
+  //     (⚠️ 올리는 순간 *바늘이 지워지는 것*도 처음으로 보이게 된다 — 하한을 올리는 비용이다).
+  //  ② **좌표꼴이 1인지 2인지** — 정찰의 손 판정(1)과 이 계약의 파서(2)가 줄 범위꼴
+  //     (`…ledger.ts:702-704`)에서 갈렸다. **바늘을 맞출지 두 수로 남길지**가 결정형이다.
+  //  ③ **바늘이 재현되는가**(사각 ⓐ) — 이 자는 앞쪽만 센다. 뒤쪽까지 무는 축은 *바늘을 실제로
+  //     대어 보는* 자이고, 그 본보기는 위 `근거:` 인용 축(명령을 진짜로 돌린다)이다.
+  //  ④ **K~AG절의 옛 표 92행**(사각 ⓑ)은 오늘도 밖이다 — 넣을지는 소유가 아니라 *수의 안정성*이
+  //     정한다(넣으면 라운드마다 통째로 흔들린다).
+});
