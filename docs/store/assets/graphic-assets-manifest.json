@@ -1,0 +1,28 @@
+{
+  "_": "스크린샷 외 그래픽 자산(512 아이콘·피처 그래픽)의 계보 기록. 스크린샷 계보는 screenshot-manifest.json이 진다. feature-graphic 항목은 scripts/store/feature_graphic.py가 산출과 함께 갱신한다.",
+  "icon-512": {
+    "file": "docs/store/assets/play-icon-512.png",
+    "size": "512x512",
+    "source": "apps/mobile/assets/icon.png",
+    "sourceLineage": "DSN-053 복원본 (commit 8fb1d1b — Sprout Wallet 브랜딩 원본 복원, DSN-053 P0)",
+    "method": "PIL LANCZOS 1024→512 리사이즈 (LP-E 산출물과 바이트 검증: 재리사이즈 픽셀 diff 0)",
+    "generatedAt": "2026-09-02",
+    "note": "종전 파일의 최빈색은 #FFF8F1/#DB4F2E(비승인 팔레트)였고, 이 파일은 DSN-053 복원 아이콘 원본에서 그대로 내보낸 것이다."
+  },
+  "feature-graphic": {
+    "file": "docs/store/assets/play-feature-graphic-1024x500.png",
+    "size": "1024x500",
+    "generator": "scripts/store/feature_graphic.py",
+    "brandTokens": {
+      "path": "docs/brand/brand-tokens.json",
+      "version": "DNC-017 v0.5",
+      "background": "#C94627",
+      "text": "#FFFFFF"
+    },
+    "iconSource": "apps/mobile/assets/icon.png",
+    "textSource": "docs/store/play-listing.md §1 권장 앱 이름",
+    "text": "우리아이 - 아이 지출 기록·준비템 체크",
+    "commit": "2a49b38",
+    "generatedAt": "2026-09-02"
+  }
+}
