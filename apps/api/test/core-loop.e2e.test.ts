@@ -206,7 +206,11 @@ describe("Release core loop e2e", () => {
     ).body.items as Array<{ id: string; name: string }>;
     expect(items.length).toBeGreaterThan(0);
 
-    let affiliateLink: { id: string; isAffiliate: boolean; disclosureText?: string } | undefined;
+    // 플랜 B(LP-A · 72h 계획 §5): 시드 링크는 전부 일반(비제휴) 쿠팡 검색 링크다 — 핵심 루프
+    // 4단계(구매 링크 클릭)는 그 일반 링크로 돈다. 비제휴 링크에는 제휴 고지가 서지 않아야
+    // 한다(없는 고지를 지어내지 않는다 — 라운드 43 M-1). 제휴 링크의 고지·클릭 계약은
+    // items-commerce.e2e가 자기 픽스처로 잠근다(플랜 A 딥링크가 들어오면 실데이터가 그 모양이 된다).
+    let purchaseLink: { id: string; isAffiliate: boolean; disclosureText?: string } | undefined;
     for (const item of items) {
       const detail = (
         await request(app.getHttpServer())
@@ -217,21 +221,24 @@ describe("Release core loop e2e", () => {
       // CON-121: 스모크가 훑는 모든 준비템 상세가 공유 계약을 만족해야 한다 —
       // 시드 카탈로그 전체를 지나가므로 계약 위반 항목이 하나라도 있으면 여기서 걸린다.
       itemDetailSchema.parse(detail);
-      affiliateLink = detail.productLinks.find((link) => link.isAffiliate);
-      if (affiliateLink) break;
+      purchaseLink = detail.productLinks[0];
+      if (purchaseLink) break;
     }
 
-    expect(affiliateLink?.disclosureText).toBeTruthy();
+    expect(purchaseLink).toBeDefined();
+    expect(purchaseLink!.isAffiliate).toBe(false);
+    expect(purchaseLink!.disclosureText ?? "").not.toContain("제휴");
 
     await request(app.getHttpServer())
-      .post(`/api/v1/product-links/${affiliateLink!.id}/click`)
+      .post(`/api/v1/product-links/${purchaseLink!.id}/click`)
       .set("Authorization", `Bearer ${accessToken}`)
       .send({ childId, referrerScreenId: "ITEM-003" })
       .expect(200)
       .expect(({ body }) => {
         affiliateClickResponseSchema.parse(body);
         expect(body.clickId).toEqual(expect.any(String));
-        expect(body.disclosureText).toBeTruthy();
+        // 비제휴·비스폰서 링크에는 고지가 없다(있으면 허위 고지 — DNC-010의 반대 방향).
+        expect(body.disclosureText).toBeUndefined();
       });
 
     // QA-E2E-CORE 4) Family invite loop: owner creates a co-parent invite …

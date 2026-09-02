@@ -58,9 +58,12 @@ curl -s https://<앱이름>.fly.dev/api/v1/health/ready   # {"status":"ok"...} �
 fly ssh console -C "pnpm --filter api seed"   # 카테고리 12·준비템 62·상품링크 67 + ADMIN_SEED_* 관리자
 ```
 상품링크 수는 손으로 적지 않는다(근거: `grep -c '^    url:' apps/api/prisma/seed-data.ts` → **67**건 ·
-그중 제휴 URL을 함께 가진 것이 근거: `grep -c 'affiliateUrl: "https' apps/api/prisma/seed-data.ts` →
-**19**건이라 example.com 문자열은 67 + 19 = **86곳**이다). 두 시점: 라운드 82 B 이후 **62건 / 81곳**
-→ 라운드 83 A 이후 **67건 / 86곳**.
+전부 실 쿠팡 검색 링크 — 근거: `grep -c 'url: "https://www.coupang.com/np/search' apps/api/prisma/seed-data.ts` → **67**건 ·
+example.com URL 잔존 근거: `grep -c 'https://example.com' apps/api/prisma/seed-data.ts` → **0**곳 ·
+제휴 URL은 쿠팡 파트너스 승인 전이라 근거: `grep -c 'affiliateUrl: "https' apps/api/prisma/seed-data.ts` → **0**건).
+세 시점: 라운드 82 B 이후 **62건 / 81곳** → 라운드 83 A 이후 **67건 / 86곳**(전부 example.com
+플레이스홀더) → 출시 트랙 LP-A(72h 계획 §5 **플랜 B**)가 86곳 전부를 비제휴 쿠팡 검색 링크로
+교체(활성 62 + 비활성 스폰서 슬롯 5 · 제휴/스폰서 표시 0건 · 플랜 A 전환은 아래 E절).
 어드민 콘솔 접속은 운영자 로컬 프록시가 기본 경로다(어드민 웹은 서버에 배포되지 않음 — LP-D, 상세는 `docs/operations/admin-access.md` §운영 접근 경로):
 ```bash
 ADMIN_API_PROXY_TARGET=https://<API 도메인> pnpm --filter admin dev   # → http://localhost:3001
@@ -106,7 +109,8 @@ curl -s $BASE/health/push     # 푸시 상태 — FCM 키 미주입이면 enable
 # 카카오 OIDC prepare가 실키로 동작하는지 (redirectUri는 등록값과 동일해야 함)
 curl -s -X POST $BASE/auth/kakao/prepare -H 'content-type: application/json' \
   -d '{"redirectUri":"wooriai://oauth/kakao"}'   # state/nonce/transactionId 반환 확인
-# 미인증 제휴 리다이렉트 (시드 링크가 example.com이라 404가 정상 — allowlist 차단 확인)
+# 미인증 제휴 리다이렉트 (임의 코드라 404가 정상 — 미존재 코드/차단 도메인이 같은 404인지 확인.
+# 실코드 확인은 admin 링크 목록의 redirectCode로: 시드 링크는 쿠팡 검색 URL이라 302가 정상)
 curl -si $BASE/../r/AAAAAAAAAAAA | head -1
 ```
 전체 스모크(근거: `grep -c '^chk ' scripts/qa/server-smoke.sh` → **37**검사)를 돌리려면: `SMOKE_BASE_URL=$BASE bash scripts/qa/server-smoke.sh` — 단, 테스트 사용자·지출 데이터를 실제로 생성하므로 실서버에서는 감안하고 실행하세요.
@@ -128,7 +132,7 @@ curl -si $BASE/../r/AAAAAAAAAAAA | head -1
 - `WORKER_ENABLED=1`은 **머신 1대일 때만**. 수평 확장 시 워커 전용 머신 1대에만 켜세요(중복 실행 방지).
 - `TRUST_PROXY=1`은 `fly.toml [env]`에 이미 포함(Fly 엣지 프록시 1홉 뒤 실 클라이언트 IP 인식 — per-IP rate limit 필수 조건). 셀프호스트(B)도 리버스 프록시 뒤라면 동일하게 설정하세요.
 - Dockerfile은 이 저장소의 tsx 구동 방식에 맞춘 것으로, 로컬 검증 환경에 Docker 데몬이 없어 **이미지 빌드는 `fly deploy` 시점에 처음 검증됩니다** — 빌드 오류가 나면 로그를 그대로 전달해 주세요.
-- 시드의 상품링크 **67개**(두 시점: 라운드 82 B 이후 58 → 62 · 라운드 83 A 이후 62 → 67 — 수를 세는 자리는 위 A-5의 실행되는 인용이다)는 전부 example.com 플레이스홀더 — 출시 전 admin CSV 도구로 교체(72h 계획 §5).
-  ⚠️ 교체 전에는 이 링크들이 **죽은 CTA**다: 그중 넷은 종전에 "구매처 없음"으로 정직하게 비어 있던 자리였고,
-  둘(`pregnancy_vitamin`·`diaper_stock`)은 `essential`이라 홈 추천 카드의 머리에 선다(리뷰 M-7 · 확인의 표 `#140` ⓕ).
-  ⚠️ 라운드 83 A가 더한 다섯은 스폰서 링크만 있던 품목의 **비스폰서** 경로다 — 교체 전에는 그 다섯의 전폭 구매 CTA도 같은 뜻으로 죽어 있다(확인의 표 `#143` ⓖ).
+- 시드의 상품링크 **67개**(수를 세는 자리는 위 A-5의 실행되는 인용이다)는 출시 트랙 LP-A(**플랜 B**, 72h 계획 §5)가 전부 **일반(비제휴) 쿠팡 검색 링크**로 교체했다 — 계정·키 없이 동작하는 실 링크라 죽은 CTA(리뷰 M-7 · 확인의 표 `#140` ⓕ / `#143` ⓖ)는 이 시점에 해소됐고, 제휴 고지·스폰서 배지는 비제휴 실태에 맞게 0건이다(스폰서 예시 다섯은 비활성 슬롯로 보존).
+  ⚠️ 역사(교체 전): 라운드 82 B 이후 58 → 62 · 라운드 83 A 이후 62 → 67, 전부 example.com 플레이스홀더 = 죽은 CTA였다 — 그중 둘(`pregnancy_vitamin`·`diaper_stock`)은 `essential`이라 홈 추천 카드의 머리에 섰다.
+  **플랜 A 전환**(쿠팡 파트너스 승인 후): `docs/5차/plan-a-affiliate-links-template.csv`의 `affiliateUrl` 칸을 파트너스 딥링크로 채워 admin 링크 페이지의 CSV 일괄 교체(미리보기 → 적용)에 업로드하면 무중단 전환된다(도구가 `isAffiliate=true`와 제휴 고지를 함께 세운다 · 도메인 allowlist 검증 자동).
+  ⚠️ 시드 upsert 키(itemTemplateId·platform·title)가 교체로 바뀌었으므로 **기존 dev/test DB는 재시드 대신 `pnpm db reset`**(옛 example.com 행이 남는 것 방지). 운영 신규 DB는 해당 없음.

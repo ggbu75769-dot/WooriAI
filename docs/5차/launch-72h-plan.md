@@ -114,23 +114,28 @@ FCM_SERVICE_ACCOUNT_PATH=<Firebase 서비스 계정 JSON "파일 경로"> ← PU
 
 ## 5. 제휴 링크 전략 (쿠팡 승인 대기와 무관하게 출시)
 
-시드 **67개** 링크가 전부 example.com이므로 그대로는 출시 불가. **두 시점**: 라운드 82 B 이후
-58 → **62**(링크 0건 품목 넷), 라운드 83 A 이후 62 → **67**(스폰서 링크만 있던 다섯에 비스폰서
-링크). URL 문자열 기준으로는 81곳 → **86곳** = 링크 67의 `url` + 제휴 19의 `affiliateUrl`.
-⚠️ 이 수를 **세는 자리**는 `docs/5차/day1-deploy-runbook.md` A-5의 실행되는 인용이다
-(`packages/test-utils/src/repo-self-description.test.ts`가 그 명령을 실제로 돌리고, 시드가 자라면
-그 계약이 먼저 빨개진다) — 여기 적힌 것은 그 답의 사본이라 같은 자리를 두 번 세지 않는다.
-승인 타이밍별 플랜:
+✅ **플랜 B 실행 완료(출시 트랙 LP-A · 2026-09)** — 시드 링크 67건 전부가 시드 단계에서
+**일반(비제휴) 쿠팡 검색 링크**(`https://www.coupang.com/np/search?q=<품목명>`)로 교체됐다.
+계정·키 없이 동작하는 실 링크라 아래 "죽은 CTA" 차단 조건은 해소됐고, 정합도 함께 맞췄다:
+전 행 `isAffiliate=false`·`affiliateUrl=null`·제휴 고지 0건(비제휴 링크의 제휴 고지는 허위
+고지 — DNC-010의 반대 방향), 실 계약 없는 "스폰서 예시" 다섯은 **비활성 슬롯**으로 보존
+(DNC-011의 반대 방향 방지), 확인할 수 없던 dev 가격 스냅샷도 제거. 잠그는 계약은
+`apps/api/test/seed-data.test.ts`의 *"플랜 B 출시 링크"* 절이고, 수를 세는 자리는
+`docs/5차/day1-deploy-runbook.md` A-5의 실행되는 인용이다
+(`packages/test-utils/src/repo-self-description.test.ts`가 그 명령을 실제로 돌린다).
 
-⚠️ **교체 전에는 이 링크들이 전부 죽은 CTA다**(라운드 82 리뷰 M-7). 라운드 82 B가 채운 넷 중
-둘(`pregnancy_vitamin`·`diaper_stock`)은 `essential`이라 임신 초기·중기 사용자의 홈 추천 카드 **머리**에
-서고, 그 화면은 이제 "아직 등록된 구매처가 없어요"라는 정직한 문구 대신 **example.com으로 가는 구매
-버튼**을 그린다. 즉 링크 0건이라는 공백이 **죽은 CTA로 모양만 바뀐 채** 이 교체 단계에 넘어와 있다 —
-CSV 교체는 "있으면 좋은 마감"이 아니라 **출시 차단 조건**이다(확인의 표 `#140` ⓕ).
+**역사(교체 전)**: 시드 67개 링크가 전부 example.com 플레이스홀더(URL 문자열 86곳 = `url` 67 +
+`affiliateUrl` 19)라 그대로는 출시 불가였다 — 죽은 CTA(라운드 82 리뷰 M-7 · 확인의 표 `#140` ⓕ)이고,
+그중 둘(`pregnancy_vitamin`·`diaper_stock`)은 `essential`이라 홈 추천 카드 **머리**에 섰다.
 
-- **승인 완료 시**: admin의 CSV 일괄 교체 도구로 쿠팡 파트너스 딥링크 투입 (미리보기→적용, 도메인 allowlist 검증 자동)
-- **승인 전 출시 시**: 같은 CSV 도구로 **일반(비제휴) 쿠팡/네이버 검색 링크** 투입 + admin에서 해당 링크 `isAffiliate=false` 유지 → 제휴 고지 미표시(DNC 규칙과 정합). 승인 후 CSV 재업로드로 무중단 전환.
+남은 것은 **플랜 A 전환**(쿠팡 파트너스 승인 후):
+
+- `docs/5차/plan-a-affiliate-links-template.csv`(활성 링크 62건 = 행 62)의 `affiliateUrl` 칸을
+  파트너스 딥링크로 채워 admin 링크 페이지의 **CSV 일괄 교체**(미리보기→적용)에 업로드 —
+  도구가 `isAffiliate=true`와 제휴 고지를 함께 세우고 도메인 allowlist를 검증한다. 무중단 전환.
 - 투입 직후 `LINK_HEALTH_ENABLED=1` 워커가 깨진 링크를 24시간 주기로 잡아줌.
+- 스폰서 계약이 성사되면 비활성 슬롯 다섯(admin 링크 목록에서 "스폰서 자리")에 실 URL·라벨을
+  채워 재활성화(DNC-011 구분 표시 유지).
 
 ## 6. 스토어 설명문 초안 (100자/4000자)
 

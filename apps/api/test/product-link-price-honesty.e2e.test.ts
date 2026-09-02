@@ -248,20 +248,26 @@ describe("상품 링크 가격 정직 계약 (라운드 51 #9)", () => {
 
   /**
    * 시드가 심는 가격은 확인 시각과 함께 유효화된다(prisma/seed.ts resolveSeedPriceCheckedAt).
-   * 이게 없으면 시드된 링크 전부(`productLinkSeeds.length` — 라운드 82 B 이후 62건, 라운드 83 A 이후 67건)의 가격은
-   * 규칙상 영원히 표시되지 않는 죽은 값이 된다.
+   * ⚠️ 두 시점: 종전(라운드 82 B 62건 → 라운드 83 A 67건)에는 dev 가격이 심겨 있어 "심은
+   * 가격에 확인 시각이 함께 있다"를 물었다. 출시 트랙 LP-A(플랜 B)가 링크를 쿠팡 **검색**
+   * 링크로 바꾸며 가격 스냅샷을 전부 걷어냈다 — 검색 결과에는 단일 가격이 없고, 확인할 수
+   * 없는 가격을 시드가 유효화하면 그것이 허위 데이터다. 그래서 오늘 이 절이 묻는 것은
+   * 반대 방향이다: 시드는 가격을 심지 않고, DB의 시드 행도 가격·확인 시각이 **둘 다** 없다
+   * (양쪽-null 규칙의 다른 다리 — resolveSeedPriceCheckedAt는 그대로 남아 플랜 A 이후를 지킨다).
    * 읽기만 하므로 다른 스위트와 겹쳐 돌아도 안전하다.
    */
-  it("시드가 심은 가격에는 확인 시각이 함께 있다", async () => {
-    const seeded = productLinkSeeds.find((seed) => seed.priceSnapshotKrw !== null);
-    expect(seeded).toBeDefined();
-    const template = await prisma.itemTemplate.findFirstOrThrow({ where: { code: seeded!.itemTemplateCode } });
+  it("플랜 B 시드는 가격을 심지 않는다 — 시드 행은 가격·확인 시각이 둘 다 없다", async () => {
+    expect(productLinkSeeds.length).toBeGreaterThan(0);
+    expect(productLinkSeeds.every((seed) => seed.priceSnapshotKrw === null)).toBe(true);
+
+    const seeded = productLinkSeeds[0];
+    const template = await prisma.itemTemplate.findFirstOrThrow({ where: { code: seeded.itemTemplateCode } });
     const link = await prisma.productLink.findFirstOrThrow({
-      where: { itemTemplateId: template.id, platform: seeded!.platform, title: seeded!.title }
+      where: { itemTemplateId: template.id, platform: seeded.platform, title: seeded.title }
     });
 
-    expect(link.priceSnapshotKrw).toBe(seeded!.priceSnapshotKrw);
-    expect(link.priceCheckedAt).not.toBeNull();
+    expect(link.priceSnapshotKrw).toBeNull();
+    expect(link.priceCheckedAt).toBeNull();
   });
 
   it("DNC-009: 가격을 흔들어도 준비템 목록의 순서가 바뀌지 않는다", async () => {
