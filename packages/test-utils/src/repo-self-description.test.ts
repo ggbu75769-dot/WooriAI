@@ -1281,9 +1281,16 @@ const RETEST_NEEDLE_WITHOUT_REPRODUCTION = {
 //  · **문장 갈래** = 그 밖의 바늘 있는 행 **전부**(토큰 둘 이상 · 토큰 0(산문뿐) · 또는 조건을 잇는
 //    표식이 있다). *조건 둘 이상을 사람이 이어야 한다*는 AI-1의 ⓑ가 그대로 이 갈래다.
 //
-// ── 실측(HEAD 2026-09-01 · **둘 다 하한**) ────────────────────────────────────
-//  · 바늘이 곁에 적힌 행 **39**(다섯째 판정 뒤의 수 · 무변) = **낱말/정규식 9** + **문장 30**
-//  · ⚠️⚠️ **갈래의 합이 바늘 행 전수와 같다** — 어느 바늘 행도 두 갈래에 들지 않고 빠지지도 않는다.
+// ── 실측 — ⚠️⚠️ **두 시점**(라운드 95 리뷰 M-2가 갈랐다) ─────────────────────
+//  · **트랙 E 커밋 시점(2026-09-01 · AI절 재실측 표)**: 바늘이 곁에 적힌 행 **39** =
+//    **낱말/정규식 9** + **문장 30**. ⚠️ 옛 머리말(보존): *"실측(HEAD 2026-09-01 · 둘 다 하한) —
+//    바늘이 곁에 적힌 행 39(다섯째 판정 뒤의 수 · 무변) = 낱말/정규식 9 + 문장 30"* — 그 문장의
+//    "HEAD"는 E 커밋 뒤 F가 AJ절을 더한 순간 거짓이 됐다. 이 자는 **마지막 판정 절의 표**를
+//    따라가므로, 걷는 표 자체가 AI 표에서 AJ 표(행 44 · 바늘 곁 43 = 낱말 23 + 문장 20 —
+//    리뷰 M-2 시점 실측)로 옮겨 갔다. **두 표의 수를 한 낱말로 적지 않는다.**
+//  · **오늘**: 수는 전부 자가 낸다 — 이 파일에 적힌 수는 시점이 붙은 기록이지 단언이 아니다.
+//  · ⚠️⚠️ **갈래의 합이 바늘 행 전수와 같다** — 어느 바늘 행도 두 갈래에 들지 않고 빠지지도
+//    않는다(이 분할 단언만이 시점과 무관하게 서는 계약이다).
 //
 // ── 사각 셋(값으로 적는다) ────────────────────────────────────────────────────
 //  ⓔ ⚠️⚠️ **좌표꼴 아홉과 낱말 아홉은 *다른 아홉*이다 — 두 수를 한 낱말로 적지 않는다.** 정찰
@@ -1310,10 +1317,18 @@ const RETEST_NEEDLE_ENUMERATION_PATTERN = /[ⓐⓑⓒⓓⓔ]/g;
 /** 사각 ⓖ — 동그라미가 이만큼 있어야 *열거*다. 하나면 사각 인용이라 세지 않는다. */
 const RETEST_NEEDLE_ENUMERATION_MINIMUM = 2;
 
-/** 여섯째 판정 — **낱말/정규식 갈래**의 하한(오늘 9 · 정찰 §답1의 ⓐ). */
+/**
+ * 여섯째 판정 — **낱말/정규식 갈래**의 하한(트랙 E 커밋 시점의 AI 표 9 · AJ 표 23 · 정찰 §답1의 ⓐ).
+ * ⚠️ 방향이 맞는 쪽만 하한이다 — 낱말 바늘은 **좋은 쪽으로 자라는** 수라(문장을 낱말로 조이는
+ * 걸음마다 오른다) 바닥이 유령 방지 역할을 한다.
+ */
 const RETEST_WORD_NEEDLE_ROW_FLOOR = 5;
-/** 여섯째 판정 — **문장 갈래**의 하한(오늘 30 · 정찰 §답1의 ⓑ). */
-const RETEST_SENTENCE_NEEDLE_ROW_FLOOR = 18;
+// ⚠️⚠️ **두 시점(라운드 95 리뷰 M-2) — 문장 갈래의 하한은 걷었다.** 옛 상수(보존):
+// `const RETEST_SENTENCE_NEEDLE_ROW_FLOOR = 18;` (주석: *"문장 갈래의 하한(오늘 30 · 정찰 §답1의
+// ⓑ)"*). 문장 바늘은 **줄어야 좋은 수**다 — F가 문장 바늘 하나를 낱말로 조일 때마다(이 파일이
+// ⓐ에서 *좋은 걸음*이라 부른 그 손) 내려가므로, 하한의 방향이 반대였다(AJ 표 20에서 여유 2).
+// 갈래가 통째로 사라지는 회귀는 아래 분할 단언(낱말 + 문장 = 바늘 곁 행 전수)이 이미 문다.
+// 기록: AI 표 30(트랙 E 커밋 시점) · AJ 표 20(리뷰 M-2 시점).
 
 type RetestRow = { index: number; raw: string; cells: string[] };
 type RetestTable = { sectionTitle: string; sectionLine: number; headerLine: number; rows: RetestRow[] };
@@ -1772,24 +1787,39 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
     }
   });
 
-  it("여섯째 판정 — 바늘 곁 행 39를 낱말/정규식 ↔ 문장으로 가른다 (AI-1의 재현 실험이 이유 · 둘 다 하한)", () => {
+  // ⚠️ 옛 it 이름(보존): "여섯째 판정 — 바늘 곁 행 39를 낱말/정규식 ↔ 문장으로 가른다 (AI-1의
+  //    재현 실험이 이유 · 둘 다 하한)" — "39"는 트랙 E 커밋 시점의 AI 표 수라 이름에서 걷었고,
+  //    "둘 다 하한"은 문장 쪽 방향 오류라 걷었다(리뷰 M-2).
+  it("여섯째 판정 — 바늘 곁 행을 낱말/정규식 ↔ 문장으로 가른다 (AI-1의 재현 실험이 이유)", () => {
     const rows = retestTableOrThrow().rows;
     const withNeedle = rows.filter((row) => retestRowNeedleKinds(row).length > 0);
     const word = withNeedle.filter((row) => retestNeedleShape(row) === "낱말");
     const sentence = withNeedle.filter((row) => retestNeedleShape(row) === "문장");
 
-    // ⓐ **갈래 둘 다 하한이다.** 오늘 낱말 9 · 문장 30이고, 이 자가 무는 것은 바닥뿐이다 —
-    // F가 문장 바늘 하나를 낱말로 조여도(좋은 걸음) 이 계약이 빨개지지 않아야 한다.
+    // ⓐ **낱말 갈래만 바닥을 문다.** 두 시점 기록: AI 표(트랙 E 커밋 시점) 낱말 9 · 문장 30 →
+    // AJ 표(리뷰 M-2 시점) 낱말 23 · 문장 20. F가 문장 바늘 하나를 낱말로 조여도(좋은 걸음 —
+    // 낱말은 오르고 문장은 내린다) 이 계약이 빨개지지 않아야 하므로, 문장 쪽 하한은 걷었다
+    // (위 상수 자리의 두 시점 주석이 옛 단언을 보존한다).
     expect(
       word.length,
       `낱말/정규식 갈래가 바닥 ${RETEST_WORD_NEEDLE_ROW_FLOOR}보다 적어요 — ` +
         "정찰 §답1: *정규식/식별자 하나의 검색으로 재현되는* 바늘이에요"
     ).toBeGreaterThanOrEqual(RETEST_WORD_NEEDLE_ROW_FLOOR);
-    expect(
-      sentence.length,
-      `문장 갈래가 바닥 ${RETEST_SENTENCE_NEEDLE_ROW_FLOOR}보다 적어요 — ` +
-        "정찰 §답1: *조건 둘 이상을 사람이 이어 붙여야 하는* 바늘이에요"
-    ).toBeGreaterThanOrEqual(RETEST_SENTENCE_NEEDLE_ROW_FLOOR);
+
+    // ⓐ′ ⚠️ 교란 재현(리뷰 M-2) — **문장 바늘 하나를 낱말로 조이는 좋은 걸음이 초록으로 남는다.**
+    // 실물 문장 행 하나의 바늘 칸을 토큰 하나로 바꾼 픽스처가 낱말로 갈리고, 그 재분류 뒤에도
+    // 이 계약의 단언(낱말 바닥 · 분할)이 전부 성립한다 — 종전 문장 하한(18)은 문장 수가 17이
+    // 되는 날 이 걸음에 빨강을 주었을 것이다.
+    const loosest = sentence[0];
+    expect(loosest, "문장 갈래가 이미 0이면 이 교란은 뜻이 없다 — 그날 이 블록을 걷어라").toBeDefined();
+    const tightened = {
+      ...loosest,
+      raw: loosest.raw.replace(/[^|]*\|\s*$/, " **바늘**: `단일토큰` |"),
+      cells: [...loosest.cells.slice(0, -1), "**바늘**: `단일토큰`"]
+    };
+    expect(retestNeedleShape(tightened), "조인 바늘이 낱말로 갈리지 않았다").toBe("낱말");
+    expect(word.length + 1).toBeGreaterThanOrEqual(RETEST_WORD_NEEDLE_ROW_FLOOR);
+    expect(word.length + 1 + (sentence.length - 1)).toBe(withNeedle.length);
 
     // ⓑ **갈래의 합이 바늘 곁 행 전수다** — 여섯째는 새 모집단이 아니라 *그 행 안의 세분*이고,
     // 어느 바늘 행도 두 갈래에 들거나 빠지지 않는다(다섯 판정은 한 바이트도 바뀌지 않았다).
@@ -1906,6 +1936,32 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
         "갈래를 옮기는 교란이 바늘 곁 행의 수를 바꿨어요"
       ).toBe(rows.filter((row) => retestRowNeedleKinds(row).length > 0).length);
     }
+  });
+
+  it("⚠️ 교란 재현(리뷰 M-2) — 다음 판정 절이 서도 이 자는 새 마지막 표를 따라가고 초록이다", () => {
+    // F가 다음 라운드에 절을 하나 더 쓰면 이 자가 걷는 표가 **그 절의 표**로 옮겨 간다 —
+    // 트랙 E가 적은 "실측(HEAD)"이 커밋 하루 만에 거짓이 된 것이 정확히 이 걸음이었다
+    // (F의 AJ절이 서며 AI 표 39 = 9 + 30이 AJ 표 43 = 23 + 20이 됐다 · 리뷰 M-2).
+    // 오늘의 표를 그대로 실은 합성 절을 덧붙여, 이관 뒤에도 계약이 전부 초록임을 문다.
+    const text = read(RETEST_DOC);
+    const lines = text.split("\n");
+    const table = retestTableOrThrow();
+    const header = lines[table.headerLine - 1];
+    const divider = lines[table.headerLine];
+    const synthetic =
+      `${text}\n\n## AK. 라운드 96에서 확정한 판정 (합성 — 이 계약의 교란 픽스처)\n\n` +
+      `${header}\n${divider}\n${table.rows.map((row) => row.raw).join("\n")}\n`;
+    const moved = retestTableIn(synthetic);
+    expect(moved, "합성 절의 표를 찾지 못했다 — 마지막 절을 따라가는 자가 깨졌다").not.toBeNull();
+    expect(moved!.sectionTitle).toContain("AK.");
+    expect(moved!.sectionLine).toBeGreaterThan(table.sectionLine);
+    expect(moved!.rows.length).toBe(table.rows.length);
+    // 옮겨 간 표 위에서도 여섯째 판정의 계약이 그대로 선다(낱말 바닥 · 분할).
+    const withNeedle = moved!.rows.filter((row) => retestRowNeedleKinds(row).length > 0);
+    const word = withNeedle.filter((row) => retestNeedleShape(row) === "낱말");
+    const sentence = withNeedle.filter((row) => retestNeedleShape(row) === "문장");
+    expect(word.length).toBeGreaterThanOrEqual(RETEST_WORD_NEEDLE_ROW_FLOOR);
+    expect(word.length + sentence.length).toBe(withNeedle.length);
   });
 
   it("이 축이 도는 동안 판정 문서가 0바이트다 (부정 단언 · 바늘을 붙이는 손은 F다)", () => {

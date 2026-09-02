@@ -61,12 +61,19 @@ import { describe, expect, it } from "vitest";
  *
  * ## ⚠️⚠️ 라운드 95 트랙 B — **사각의 0에 *0의 뜻*이 값으로 서고, 자 하나가 상수에서 파생이 된다**
  *
+ * ⚠️ **두 시점(라운드 95 리뷰 M-5).** 이 파일의 "라운드 94 트랙 B" 다섯 자리는 트랙 B 시점에
+ * "직전 라운드 트랙 B"·"직전 라운드까지"라는 **우회 표현**이었다 — 옆 계약
+ * (`admin-load-error-copy.test.ts`)이 "라운드 94"를 내용 금칙어로 물고 있어 그 낱말을 적을 수
+ * 없었기 때문이다. 리뷰 M-5가 그 금칙어를 그 트랙의 표식(GAP 뒤에 094가 붙는 꼴)으로 좁혀, 형제 파일
+ * (`admin-landmark-current.test.ts`)과 같은 시점 표기로 되돌린다("직전"은 라운드가 지나면
+ * 거짓이 된다).
+ *
  * 정찰(AI-3)이 센 것: 저장소에서 **크기가 0으로 적힌 사각 열다섯**은 전부 `measure`를 지녀 *걷어서 낸
  * 0*인데, *셀 수 없어서 0*인 자리(모바일 `screen-header-back.test.ts`의 둘 — 자를 두지 않고
  * `uncountable`을 진다)와 **한 낱말로 적혀 있었다**. 그 갈래를 적는 낱말(`zeroMeans`)이 오늘 저장소에
  * **한 파일에 여섯 번**뿐이고, 나머지 열다섯에는 *이 0이 무엇의 0인가*가 한 글자도 없었다.
  *
- *  · **시점 ① 직전 라운드까지**: 이 표의 0 **셋**(`page-only-needle` · `intentional-absence` ·
+ *  · **시점 ① 라운드 94까지**: 이 표의 0 **셋**(`page-only-needle` · `intentional-absence` ·
  *    `source-not-runtime`)은 크기만 적혀 있었고, 그중 `intentional-absence`의 자는
  *    `EXEMPTIONS.length` — **이 파일 안에 손으로 적은 표의 크기**였다. 형태 단언(`() => 0` 금지)은
  *    통과하지만 그 자는 저장소를 한 글자도 읽지 않는다: 어드민이 통째로 바뀌어도 조용하다.
@@ -75,7 +82,7 @@ import { describe, expect, it } from "vitest";
  *    0**임을 증명하는 모집단(`countedOver`) · ⓑ `intentional-absence`의 자가 **손 표의 크기에서
  *    걷기·파싱의 파생으로** 바뀐다(내비에 짝이 없는 라우트 전수 — 면제로 덮인 것까지 포함해 *이 자가
  *    가르지 못하는 자리*의 크기다) · ⓒ `page-only-needle`의 자도 모듈 로드 때의 스캔이 아니라
- *    **그 자리에서 다시 걷는** 함수가 된다(직전 라운드 트랙 B가 모바일에서 세운 그 꼴을 인용한다).
+ *    **그 자리에서 다시 걷는** 함수가 된다(라운드 94 트랙 B가 모바일에서 세운 그 꼴을 인용한다).
  *
  * ⚠️⚠️ **이름이 겹친다** — 이 표의 `source-not-runtime`과 모바일 `screen-header-back.test.ts`의
  * `source-not-runtime`은 같은 이름인데 **0의 성질이 반대다**(그쪽은 셀 수 없어 0 · 이쪽은 걷어서 낸 0).
@@ -416,7 +423,7 @@ type BlindSpot = {
 /**
  * ⚠️⚠️ **0의 뜻** (라운드 95 트랙 B) — 크기가 0인 사각의 자리에 **그 0을 읽는 법**을 값으로 둔다.
  *
- * 꼴은 모바일 `screen-header-back.test.ts`(직전 라운드 트랙 B)의 `uncountable`을 **인용**한다. 거기서
+ * 꼴은 모바일 `screen-header-back.test.ts`(라운드 94 트랙 B)의 `uncountable`을 **인용**한다. 거기서
  * `zeroMeans`는 *"이 0은 없다가 아니라 셀 수 없다는 뜻이다"* 를 적는 칸이고, ⚠️ **여기 셋은 그 반대다**
  * — 자가 모집단을 실제로 걷고 아무것도 못 찾은 **걷어서 나온 0**이다. 같은 낱말을 쓰되 뜻이 뒤집히므로
  * 이 칸은 둘을 함께 진다: *이 0이 무엇의 0인가*와, *그 0이 걷어서 나온 0이라는 증명*(`countedOver` —
@@ -457,7 +464,7 @@ const UNEXPLAINED_ZERO_CEILING = 0;
  */
 const ZERO_MEANING_RECORD = {
   raisedBy: "정찰 AI-3(라운드 95) — 저장소의 0 열다섯에 0의 뜻이 0건",
-  quotedShapeFrom: "screen-header-back.test.ts (직전 라운드 트랙 B가 세운 uncountable 관례)",
+  quotedShapeFrom: "screen-header-back.test.ts (라운드 94 트랙 B가 세운 uncountable 관례)",
   /** 시점 ① — 0이 셋인데 그 갈래를 적은 자리는 0이었고, 자 하나는 손 표의 크기였다. */
   round94: { zeroSpots: 3, withZeroMeans: 0, handTableMeasures: 1 },
   /** 시점 ② — 셋 다 `countedZero`를 지고, 손 표의 자는 걷기의 파생이 됐다. */
@@ -492,7 +499,7 @@ const BLIND_SPOTS: readonly BlindSpot[] = [
       "병렬 라우트(`@slot` · 오늘 0건) · 라우트 그룹(`(group)` · 오늘 0건)은 이 자가 세지 않는다. " +
       "그리고 `error.tsx`·`global-error.tsx`·`not-found.tsx` 셋(오늘 3)도 라우트 진입이지만 주소를 " +
       "만들지 않아 이 바늘 밖이고, 그 셋이 밖이라는 사실이 오늘 면제가 0건인 이유이기도 하다",
-    // ⚠️ 자가 모듈 로드 때의 스캔을 다시 쓰지 않고 **그 자리에서 다시 걷는다**(직전 라운드 트랙 B의 꼴).
+    // ⚠️ 자가 모듈 로드 때의 스캔을 다시 쓰지 않고 **그 자리에서 다시 걷는다**(라운드 94 트랙 B의 꼴).
     measure: () => outsidePageNeedle(scanAppTree(APP_DIR)),
     today: 0,
     resumeCondition:

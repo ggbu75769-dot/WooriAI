@@ -458,6 +458,10 @@ const SAME_NAME_OTHER_KIND = {
 /**
  * ⚠️ **0의 뜻이 적히지 않은 0 — 상한 0.** 크기가 0인 사각은 반드시 `countedZero`를 진다(래칫이라
  * 늘지 않는다). 반대로 0이 아닌 자리는 그 칸을 **지지 못한다**(0의 뜻이 장식이 되지 않게).
+ *
+ * ⚠️ 두 시점(라운드 95 리뷰 L-1) — 이 수는 오늘부터 **기록**이다: 같은 사실을 `toEqual([])`이
+ * 이름까지 들어 물고 있어, 이 상수를 대는 상한 단언은 중복이라 걷었다(그 자리의 주석이 옛 단언을
+ * 보존한다).
  */
 const UNEXPLAINED_ZERO_CEILING = 0;
 
@@ -931,7 +935,10 @@ describe("어드민 랜드마크와 현재 위치 (라운드 91 트랙 B)", () =
         unexplained.map((spot) => spot.key),
         "크기가 0인데 *그 0이 무엇의 0인가*가 적혀 있지 않아요"
       ).toEqual([]);
-      expect(unexplained.length).toBeLessThanOrEqual(UNEXPLAINED_ZERO_CEILING);
+      // ⚠️ 두 시점(라운드 95 리뷰 L-1) — 옛 단언(보존): `expect(unexplained.length)
+      //    .toBeLessThanOrEqual(UNEXPLAINED_ZERO_CEILING);`. 바로 위 `toEqual([])`이 같은 사실을
+      //    이름까지 들어 이미 물고 있어(길이 0 ⊂ 빈 목록) 상한 0은 중복이었다 — 상수는 *상한이
+      //    0에서 시작했다*는 기록으로 남는다(`UNEXPLAINED_ZERO_CEILING` = 0 · 라운드 95 트랙 B).
       // ⚠️ 배타 — 0이 아닌 자리는 이 칸을 지지 못한다(0의 뜻이 장식이 되지 않게).
       for (const spot of BLIND_SPOTS) {
         expect(spot.countedZero !== undefined, `${spot.key}: 0이 아닌데 0의 뜻을 지고 있어요`).toBe(

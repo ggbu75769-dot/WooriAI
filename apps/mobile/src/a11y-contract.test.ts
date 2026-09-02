@@ -567,7 +567,11 @@ describe("GAP-061 #8 정기 지출 · 달력 픽커 접근성 스윕", () => {
     const pickerSource = source("src/expenses/ExpenseDatePicker.tsx");
     // 라운드 65 D: 같은 픽커를 아이 생년월일·예정일도 쓴다. 라벨 입력에 방향 한 칸이 늘었을 뿐
     // 계약은 그대로다 — 라벨은 여전히 순수 모듈이 만들고 화면은 그리기만 한다.
-    expect(pickerSource).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction })");
+    // ⚠️ **두 시점(라운드 95 리뷰 M-6) · 핀 이관.** 옛 바이트(보존):
+    // `expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction })`.
+    // 트랙 A가 라벨에서 "선택됨"을 걷은 뒤 selectedIso는 라벨 함수가 읽지 않는 유령 인자였고,
+    // 리뷰 M-6이 타입을 옵셔널로 내리며 호출부에서 걷었다 — 선택 여부는 아래 상태 프롭이 진다.
+    expect(pickerSource).toContain("expenseDatePickerCellAccessibilityLabel(cell, { todayIso, direction })");
     expect(pickerSource).toContain('accessibilityRole="button"');
     expect(pickerSource).toContain("accessibilityState={{ selected }}");
     // 라벨 문구(오늘/날짜)는 순수 모듈이 만들고 date-picker-month.test.ts가 핀한다.
@@ -8099,7 +8103,13 @@ describe("GAP-095 #1 선택 상태를 두 번 말하지 않는다 (규율의 모
       expect(source(file), `${file}: 읽기만 한 자리의 바이트`).toContain(bytes);
     }
     // ⚠️ 새 한국어 낱말 0건 — 이 트랙이 걷은 것은 **상태 낱말 하나와 그 앞의 구분자**뿐이다.
-    expect(["state-only", "also-in-label", "no-label"].join(""), "판정 이름").not.toMatch(/[가-힣]/);
+    // ⚠️ 두 시점(라운드 95 리뷰 L-1) — 옛 단언(보존):
+    // `expect(["state-only", "also-in-label", "no-label"].join(""), "판정 이름").not.toMatch(/[가-힣]/)`.
+    // 여기 다시 적은 리터럴을 검사하는 항진이었다 — 오늘은 **자기 소스의 타입 선언을 읽어** 문다
+    // (판정 이름을 한국어로 바꾸는 손이 실제로 빨개진다).
+    const verdictDeclaration = /type StateEchoVerdict =[^\n]+/.exec(source("src/a11y-contract.test.ts"))?.[0];
+    expect(verdictDeclaration, "판정 타입 선언을 찾지 못했다").toBeTruthy();
+    expect(verdictDeclaration, "판정 이름").not.toMatch(/[가-힣]/);
     // 그리고 역할·프롭의 다른 칸은 그대로다(세 자리 모두 button 역할을 잃지 않았다).
     expect(source("app/expenses/new.tsx"), "①의 역할").toContain('accessibilityRole="button"');
     expect(source("app/expenses/new.tsx"), "①의 상태 프롭").toContain("accessibilityState={{ selected }}");

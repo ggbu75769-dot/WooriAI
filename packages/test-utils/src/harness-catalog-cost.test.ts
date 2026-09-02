@@ -229,6 +229,13 @@ function uncleanedCount(gauge: Gauge, creates: readonly Site[], cleanups: readon
  * ⚠️⚠️ **그리고 상한 하나만으로는 이 축이 지켜지지 않는다.** 정리 없는 자리의 수는 *정리를
  * 더해서*(옳은 길)도 줄지만 *생성을 지워서*(축과 무관한 길)도 준다. 그래서 상한은 **모집단
  * 하한과 짝으로만** 뜻이 선다 — 아래 둘은 한 몸이다.
+ *
+ * ⚠️⚠️ **두 시점(라운드 95 리뷰 M-4) — 상한은 상한으로만 문다.** 트랙 D 시점의 ⓒ는 이 셋을
+ * `toBe`(등호)로도 물어, 정리 걸음을 **더하는 옳은 손**(수가 내려간다)까지 빨갛게 만들었다 —
+ * AF-5의 *등호의 비용* 그대로다. 오늘은 방향을 편다: **내려가면 통과 · 오르면 빨강**
+ * (`상한 ≥ 오늘의 자`). 아래 {7, 9, 11}은 **트랙 D 커밋 시점(2026-09-01)의 실측 기록**이고
+ * 오늘의 수는 자가 낸다 — 정리를 더해 수가 내려간 라운드는 **같은 걸음에 이 기록도 내려 적는다**
+ * (여유가 벌어진 채로 두면 상한이 헐거워진다).
  */
 function uncleanedCeilingToday(): Readonly<Record<Gauge, number>> {
   return { "same-file": 7, forward: 9, bound: 11 };
@@ -403,7 +410,7 @@ describe("공유 테스트 DB 누적을 만드는 손 계약 (라운드 95 트�
     expect(wide).toBeGreaterThan(0);
   });
 
-  it("ⓒ 래칫: 정리 없이 누적을 만드는 자리는 자마다 늘지 않는다 (오늘 7 · 9 · 11)", () => {
+  it("ⓒ 래칫: 정리 없이 누적을 만드는 자리는 자마다 늘지 않는다 (기록 시점 7 · 9 · 11)", () => {
     const ceiling = uncleanedCeilingToday();
     for (const gauge of GAUGES) {
       const rows = judge(gauge, creates, cleanups).filter((row) => !row.cleaned);
@@ -411,13 +418,20 @@ describe("공유 테스트 DB 누적을 만드는 손 계약 (라운드 95 트�
         rows.map((row) => `${row.site.file}:${row.site.line}`).length,
         `[${gauge}] 정리 없이 공유 테스트 DB에 누적을 만드는 자리가 늘었어요 — 만든 행을 같은 ` +
           "파일에서 지우거나(afterAll/finally), 늘려야 한다면 결정 #14를 먼저 문서로 남겨 주세요. " +
+          "⚠️ 반대로 정리를 더해 이 수를 **내렸다면** 같은 걸음에 uncleanedCeilingToday의 기록도 " +
+          "내려 적어 주세요(여유가 벌어진 상한은 헐거운 상한이에요). " +
           `오늘 정리 없는 자리: ${rows.map((row) => `${row.site.file}:${row.site.line}`).join(" · ")}`
       ).toBeLessThanOrEqual(ceiling[gauge]);
     }
-    // ⚠️ 상한이 **오늘 잰 수**임을 값으로 보인다 — 정찰의 열셋을 물려받았다면 거짓 초록이었다.
-    expect(ceiling["same-file"]).toBe(uncleanedCount("same-file", creates, cleanups));
-    expect(ceiling.forward).toBe(uncleanedCount("forward", creates, cleanups));
-    expect(ceiling.bound).toBe(uncleanedCount("bound", creates, cleanups));
+    // ⚠️⚠️ 두 시점(라운드 95 리뷰 M-4) — 옛 단언(보존): `expect(ceiling["same-file"])
+    //    .toBe(uncleanedCount("same-file", creates, cleanups));` 꼴 셋. *상한이 오늘 잰 수*라는
+    //    사실을 등호로 물어, 정리를 더하는 옳은 손(수가 내려간다)에게 빨강을 주는 자리였다 —
+    //    이 파일 스스로 적어 둔 그 병("등호에 가까운 하한은 그 옳은 손에게 빨강을 준다")의
+    //    반대 방향 판이다. 오늘은 방향만 문다: **내려가면 통과 · 오르면 위 상한이 빨강**이고,
+    //    {7, 9, 11}은 트랙 D 커밋 시점의 실측 기록이다.
+    expect(ceiling["same-file"]).toBeGreaterThanOrEqual(uncleanedCount("same-file", creates, cleanups));
+    expect(ceiling.forward).toBeGreaterThanOrEqual(uncleanedCount("forward", creates, cleanups));
+    expect(ceiling.bound).toBeGreaterThanOrEqual(uncleanedCount("bound", creates, cleanups));
     // ⚠️ 그리고 어느 자의 상한도 정찰이 적은 열셋보다 **작다**(재실측이 정찰을 좁혔다).
     for (const gauge of GAUGES) expect(ceiling[gauge]).toBeLessThan(13);
     // ⚠️⚠️ 상한과 하한은 한 몸이다 — 하한이 없으면 생성을 지워 상한을 맞출 수 있다.
@@ -440,15 +454,18 @@ describe("공유 테스트 DB 누적을 만드는 손 계약 (라운드 95 트�
 
     // 오늘 세어진 만드는 쪽 — 열일곱 이상 · 파일 열 근처.
     expect(creates.length).toBeGreaterThanOrEqual(POPULATION_FLOOR);
-    expect(DECISION_14_PREDICATE.countersBefore).toBe(0);
-    expect(DECISION_14_PREDICATE.countersToday).toBe(1);
-    expect(DECISION_14_PREDICATE.roundsWaited).toBeGreaterThan(0);
+    // ⚠️ 두 시점(라운드 95 리뷰 L-1) — 옛 단언(보존): `expect(DECISION_14_PREDICATE
+    //    .countersBefore).toBe(0);` 등 셋. 상수의 칸을 여기 다시 적은 리터럴과 등호로 대는
+    //    항진이라 걷었다 — 그 수들(0 → 1 · 여섯 라운드)은 위 `DECISION_14_PREDICATE`가
+    //    **기록**으로 진다(0의 근거는 바로 위 `createNeedle().test(sibling) === false`가,
+    //    1의 근거는 이 파일 자신이 실물로 진다).
   });
 
   it("ⓓ 두 시점 ①: apps/api 바이트는 0이고, 읽기 뿌리는 오늘 처음 선다", () => {
-    expect(API_TOUCH_TWO_POINTS.bytesWrittenToApiToday).toBe(0);
-    expect(API_TOUCH_TWO_POINTS.readRootsIntoApiToday).toBe(scanRootCount());
-    expect(API_TOUCH_TWO_POINTS.scoutedZeroTouchRounds).toBeGreaterThan(0);
+    // ⚠️ 두 시점(라운드 95 리뷰 L-1) — 옛 단언(보존): `expect(API_TOUCH_TWO_POINTS
+    //    .bytesWrittenToApiToday).toBe(0);` 등 셋. 상수 대 리터럴(그리고 상수 함수 대 상수)의
+    //    등호라 항진이었고, 그 수들은 위 `API_TOUCH_TWO_POINTS`가 **기록**으로 진다 —
+    //    "0바이트"의 실질 근거는 아래 import 줄 전수 스캔 하나다.
 
     // ⚠️ "0바이트"를 산문이 아니라 **import 줄 전수**로 진다 — 쓰는 함수를 한 번도 부르지 않는다.
     const self = readFileSync(join(repoRoot, "packages/test-utils/src", SIBLING_CONTRACT), "utf8");
@@ -540,10 +557,32 @@ describe("공유 테스트 DB 누적을 만드는 손 계약 (라운드 95 트�
       expect(without, `[${gauge}] 정리를 걷어 냈는데 상한이 초록이면 래칫이 헐겁다`).toBeGreaterThan(ceiling[gauge]);
     }
 
-    // ② 정리 없는 자리 하나가 더 붙으면 — 세 자 모두 상한을 넘는다.
+    // ② 정리 없는 자리 하나가 더 붙으면 — 세 자 모두 수가 정확히 하나 오른다.
+    //    (⚠️ 리뷰 M-4 뒤로 상한은 기록·여유가 있을 수 있으므로, 교란은 상한 초과가 아니라
+    //     **자가 그 자리를 실제로 센다**는 것을 문다 — 오늘처럼 여유가 0이면 그 하나가 곧
+    //     위 ⓒ의 빨강이다.)
     const grown = [...creates, { file: "가짜-새자리.test.ts", line: 1, text: "", binding: null } as const];
     for (const gauge of GAUGES) {
-      expect(uncleanedCount(gauge, grown, cleanups)).toBeGreaterThan(ceiling[gauge]);
+      expect(uncleanedCount(gauge, grown, cleanups)).toBe(uncleanedCount(gauge, creates, cleanups) + 1);
+    }
+
+    // ②′ (라운드 95 리뷰 M-4) **정리 걸음을 더하는 옳은 손은 초록이다** — 정리 없는 자리 하나에
+    //     이름을 무는 뒷정리를 붙이면 세 자 모두 수가 줄거나 같고, 상한(기록)은 그대로 초록이다.
+    //     종전 등호(`ceiling === 오늘의 자`)였다면 이 걸음이 곧바로 빨강이었다.
+    const target = judge("same-file", creates, cleanups).find((row) => !row.cleaned)!.site;
+    const extraCleanup = {
+      file: target.file,
+      line: target.line + 1,
+      text: `await prisma.[모델].deleteMany({ where: { id: ${target.binding ?? "만든것"}.id } });`,
+      binding: null
+    } as const;
+    const tidied = [...cleanups, extraCleanup];
+    expect(uncleanedCount("same-file", creates, tidied)).toBeLessThan(
+      uncleanedCount("same-file", creates, cleanups)
+    );
+    for (const gauge of GAUGES) {
+      expect(uncleanedCount(gauge, creates, tidied)).toBeLessThanOrEqual(uncleanedCount(gauge, creates, cleanups));
+      expect(uncleanedCount(gauge, creates, tidied)).toBeLessThanOrEqual(ceiling[gauge]);
     }
 
     // ③ 뿌리가 통째로 사라지면 — 판정이 아니라 **하한**이 먼저 운다.

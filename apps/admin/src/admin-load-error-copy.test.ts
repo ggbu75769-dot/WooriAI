@@ -1921,8 +1921,13 @@ describe("손 목록 재등장 바늘: 이름이 아니라 꼴 (라운드 94 트
       expect(source, `${path}에 GAP-094의 손자국이 있어요`).not.toContain("GAP-094");
     }
     // 그리고 이 트랙이 읽기만 한 옆 계약 둘도 고치지 않았다.
+    // ⚠️ 두 시점(라운드 95 리뷰 M-5) — 옛 바늘(보존): `.not.toContain("라운드 94")`. 그 금칙어는
+    //    *내용* 전체의 영구 금지라, 옆 계약이 라운드 94를 **시점으로 인용**하는 옳은 문장까지
+    //    막았다 — admin-route-surface가 "직전 라운드 트랙 B"라는 우회 표현을 쓰게 만든 원인이고,
+    //    그 표현은 라운드가 지나면 거짓이 된다. 오늘 바늘은 **이 트랙의 표식(GAP-094)**만 문다:
+    //    트랙의 손자국이 남는 것은 막고, 시점 인용은 허용한다.
     for (const path of ["src/admin-route-surface.test.ts", "src/admin-write-error-copy.test.ts"]) {
-      expect(readSource(path), `${path}를 이 트랙이 고쳤어요`).not.toContain("라운드 94");
+      expect(readSource(path), `${path}를 이 트랙이 고쳤어요`).not.toContain("GAP-094");
     }
   });
 });

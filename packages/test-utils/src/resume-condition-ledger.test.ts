@@ -1604,23 +1604,50 @@ describe("ⓘ 기록 축 — 사각의 적힌 값과 오늘의 자가 갈리는 
     expect(ledgerSource).not.toContain("export function tsxExportFunctionCount");
   });
 
-  it("⚠️ 정찰 실측의 재확인 — 아홉은 갈리지 않고, 갈린 자리의 몫은 **정찰 자신의 노트**다", () => {
+  // ⚠️ 옛 it 이름(보존): it("⚠️ 정찰 실측의 재확인 — 아홉은 갈리지 않고, 갈린 자리의 몫은
+  //    **정찰 자신의 노트**다" — "아홉"은 C 첫 실측 시점의 수라 이름에서 걷었다(리뷰 M-1).
+  it("⚠️ 정찰 실측의 재확인 — 자리마다 오늘 ≥ 정찰이고, 몇이 같은가는 recorded다", () => {
     const rows = blindSpotScoutRecheck(repoRoot);
-    expect(rows.length).toBe(11); // 정찰이 대어 본 열하나
-    // ⚠️ 이 트랙의 첫 실측에서는 아홉이 갈리지 않았다(**둘만 갈렸다**). ⚠️⚠️ **그 수를 등호로 묻지
-    //    않는 이유는 같은 라운드의 다른 트랙이 소스에 재개 조건을 더하면 소스를 걷는 자리가 곧바로
-    //    움직이기 때문이다** — 이 트랙이 걷는 동안 실제로 셋이 그렇게 움직였다. 계약은 하한만 문다.
-    expect(rows.filter((row) => row.same).length).toBeGreaterThanOrEqual(5);
+    expect(rows.length).toBe(11); // 정찰이 대어 본 열하나(모집단 — 이 수만 등호다)
+    // ⚠️⚠️ **방향이 계약이다** — 이 열하나는 문서·소스가 자라는 쪽의 자리라, 자리마다
+    //    *오늘 ≥ 정찰*만 문다. 정찰 아래로 내려간 날은 이름이 틀렸던 날이고, 그날 고칠 것은
+    //    이 단언이 아니라 그 자리의 recorded에 시점 하나를 더하는 것이다(ⓓ의 규율 그대로).
+    for (const row of rows) {
+      expect(row.today, `${row.id}: 오늘이 정찰(${row.scout}) 아래로 내려갔다`).toBeGreaterThanOrEqual(
+        row.scout
+      );
+    }
+    // ⚠️⚠️ **두 시점(라운드 95 리뷰 M-1) — "몇이 같은가"는 단언이 아니라 기록이다.**
+    //  · 옛 단언(보존): `expect(rows.filter((row) => row.same).length).toBeGreaterThanOrEqual(5);`
+    //    그리고 옛 주석: *"이 트랙의 첫 실측에서는 아홉이 갈리지 않았다(**둘만 갈렸다**) …
+    //    이 트랙이 걷는 동안 실제로 셋이 그렇게 움직였다. 계약은 하한만 문다."*
+    //  · ⚠️⚠️ 그 "하한"은 **방향이 반대였다** — *정찰과 같은 자리의 수*는 F가 판정 문서를
+    //    정직하게 쓸 때마다 **내려가는** 수다(C 첫 실측 9 → AJ절 뒤 5 · 여유 0). F가 그 하한을
+    //    지키려고 문서 표기 둘을 되돌린 것이 그 비용의 실물이다(AJ-2의 사건형 기록).
+    //  · recorded(시점 · 값 · 까닭): C 첫 실측 같은 자리 **9**(갈린 둘: round-notes ·
+    //    elapsed-outside-population) → C 커밋 시점 **7**(이 열하나 안에서는 quoted-source-conditions ·
+    //    unmarked-source-prose 둘이 같은 라운드의 앞 트랙 커밋으로 움직였다 — "셋"의 나머지 하나
+    //    three-needle-residual은 열다섯 모집단 쪽이다) → AJ절 뒤(리뷰 M-1 시점) **5**(갈린 여섯:
+    //    위 넷 + prose-only · elapsed-truth) — 까닭은 전부 문서·소스가 자란 것이지 자가 바뀐 것이
+    //    아니다.
     const noteSites = scoutNoteSiteCount();
     expect(noteSites, "정찰 노트가 재개 조건을 지고 있다").toBeGreaterThan(0);
-    // ⚠️⚠️ `docs/5차/**`를 걷는 자 둘이 정찰과 갈렸고, 정찰의 수는 오늘보다 작다(자기 노트만큼).
+    // ⚠️⚠️ `docs/5차/**`를 걷는 자 둘이 정찰과 갈렸고, 정찰의 수는 오늘보다 작다.
+    // ⚠️⚠️ **두 시점(라운드 95 리뷰 M-1)** — 옛 단언(보존):
+    //    `expect(notes!.today - notes!.scout).toBeLessThanOrEqual(noteSites);`
+    //    그 부등식은 C 커밋 시점의 **완전 등호**(468 − 440 = 28 = `round95-scout.md`의 자리 수)를
+    //    여유 0으로 옮겨 적은 것이라, 정찰 시점 뒤 `docs/5차/**`에 **다른 파일이 서는 순간**
+    //    좌변만 자라 거짓이 된다(정찰 노트 하나만 갈린 몫을 지는 것이 아니다). 갈린 몫의 귀속
+    //    (440 + 28 = 468 · 시점 명기)은 `round-notes`의 recorded divergence 문장이 지고 —
+    //    아래 ⓕ류 단언이 그 문장의 실재를 문다 — 여기서는 **방향**만 문다.
     const notes = rows.find((row) => row.id === "round-notes");
     expect(notes?.same).toBe(false);
-    expect(notes!.today - notes!.scout).toBeLessThanOrEqual(noteSites);
+    expect(notes!.today).toBeGreaterThan(notes!.scout);
     const outside = rows.find((row) => row.id === "elapsed-outside-population");
     expect(outside!.today).toBeGreaterThan(outside!.scout);
     // 그 지문이 값으로 적혀 있다(다음 라운드가 다시 발견하지 않게).
     expect(ledgerSource).toContain("정찰은 자기가 쓰고 있던 문서를 세지 못했다");
+    expect(ledgerSource).toContain("440 + 28 = 468");
     expect(roundNoteFiles()).toContain(`${ROUND_NOTES_ROOT}/round95-scout.md`);
   });
 

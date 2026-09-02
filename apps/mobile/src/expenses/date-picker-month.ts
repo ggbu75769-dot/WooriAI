@@ -308,8 +308,15 @@ export function expenseDatePickerMonthLabel(yearMonth: string): string {
 }
 
 export type ExpenseDatePickerCellLabelInput = {
-  /** 지금 폼이 들고 있는 지출 날짜(ISO). 없으면 null. */
-  selectedIso: string | null;
+  /**
+   * 지금 폼이 들고 있는 지출 날짜(ISO). 없으면 null.
+   *
+   * ⚠️ **두 시점(라운드 95 리뷰 M-6).** 종전에는 필수 칸이었다(`selectedIso: string | null`) —
+   * 트랙 A가 라벨에서 "선택됨"을 걷은 뒤로 이 함수는 이 값을 **읽지 않는데** 타입이 여전히
+   * 호출부에게 값을 요구하는 유령 인자였다. 오늘 옵셔널로 내리고 호출부(`ExpenseDatePicker`)도
+   * 더는 넘기지 않는다 — 선택 여부를 아는 것은 화면 쪽 계약(`accessibilityState`)뿐이다.
+   */
+  selectedIso?: string | null;
   /** 오늘(서울 기준). 생략하면 `getSeoulToday()`. */
   todayIso?: string;
   /** 고를 수 있는 쪽. 생략하면 종전과 같은 `"past"`(라운드 65 D). */
@@ -335,6 +342,10 @@ export type ExpenseDatePickerCellLabelInput = {
  * 그 갈래를 걷으면 **못 고르는 이유가 대신 들어온다**: 선택됐는데 못 고르는 칸에서 종전에는
  * 이유가 조용했고, 오늘은 이유가 말해진다(개선이지 손실이 아니다). `selectedIso`는 입력 꼴에
  * 그대로 남는다 — 이 함수가 더는 읽지 않을 뿐, 그 값을 아는 것은 여전히 화면 쪽 계약이다.
+ *
+ * ⚠️ **두 시점(라운드 95 리뷰 M-6).** 위 문장이 남긴 유령을 오늘 걷는다 — "입력 꼴에 그대로
+ * 남는다"가 **필수 인자**로 남아 호출부가 읽히지 않는 값을 계속 만들어 넘기고 있었다. 칸은
+ * 기록으로 남되 옵셔널이고, 화면 호출부는 `{ todayIso, direction }`만 넘긴다.
  */
 export function expenseDatePickerCellAccessibilityLabel(
   cell: CalendarCell,

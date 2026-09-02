@@ -172,8 +172,10 @@ function ExpenseDatePickerGrid({
     if (cell.date === null) return <View key={cell.key} style={expenseDatePickerStyle.cell} />;
     const selectable = isExpenseDatePickerCellSelectable(cell, todayIso, direction);
     const selected = cell.date === selectedIso;
+    // 라운드 95 리뷰 M-6: 라벨 함수는 selectedIso를 읽지 않는다(선택 여부는 아래 상태 프롭이
+    // 진다) — 읽히지 않는 값을 만들어 넘기던 유령 인자를 걷었다.
     const accessibilityLabel =
-      expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction }) ?? undefined;
+      expenseDatePickerCellAccessibilityLabel(cell, { todayIso, direction }) ?? undefined;
     const dayText = (
       <Text
         style={[
