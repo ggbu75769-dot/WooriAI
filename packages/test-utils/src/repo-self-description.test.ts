@@ -1116,6 +1116,11 @@ describe("문서가 소스의 좌표를 무는 자리를 센다 (라운드 93 �
 // **다섯째**로 갈라 따로 센다 — ⚠️ **사각 ⓐ와 같은 병이다**(*바늘이 적혔다*와 *그 바늘로 재면
 // 같은 수가 나온다*가 다르듯, *바늘이라는 낱말이 있다*와 *바늘이 적혔다*도 다르다).
 //
+// ⚠️⚠️ **여섯째 판정 — *낱말 하나/정규식 ↔ 문장*(라운드 95 트랙 E · AI-1 이행).** 위 다섯은 바늘이
+// **있는가**만 보고 **어떤 꼴인가**는 보지 않았다. 여섯째는 새 모집단을 열지 않고 **바늘 곁 행
+// 39 안을 한 겹 더 가른다** — 오늘 **낱말/정규식 9 · 문장 30**이다. 이유·자의 꼴·사각 셋은 아래
+// `RETEST_NEEDLE_TEXT_PATTERN` 위 머리말에 적는다(정찰 `round95-scout.md` §답1의 재현 실험).
+//
 // ⚠️⚠️ **이 트랙이 이 파일에서 여는 축은 이것 하나다.** 위 다섯(`근거:` 파생 · DNC 사본 · 진입
 // 문서 셋 · 폐기 팔레트 · 라운드 93 E의 좌표 축)은 **한 바이트도 건드리지 않았고**, 좌표 축의
 // 판정 로직은 **복사하지 않고 불러 쓴다**(`splitCoordinates` · `isLineWithinFile`).
@@ -1257,6 +1262,74 @@ const RETEST_NEEDLE_WITHOUT_REPRODUCTION = {
   wideNeedleValue: 189
 } as const;
 
+// ── 여섯째 판정 (라운드 95 트랙 E · AI-1 이행) ─────────────────────────────────
+//
+// ⚠️⚠️ **바늘이 곁에 적힌 서른아홉 행 안을 한 겹 더 가른다 — *낱말 하나/정규식* 이냐 *문장* 이냐.**
+// 위 다섯은 바늘이 **있는가**만 보고 **어떤 꼴인가**는 보지 않았다(정찰 §후보 5가 그 0건을 집었다).
+//
+// **이유는 정찰 §답1의 재현 실험이다.** AI-1이 라운드 94 노트의 바늘 아홉을 ⓐ *정규식/식별자 하나의
+// 검색으로 재현되는가*(→ **낱말 하나**) ⓑ *조건 둘 이상을 사람이 이어 붙여야 하는가*(→ **문장**)로
+// 갈랐고(둘 대 일곱), **오늘 여섯 자리를 다시 대어** 낱말·정규식이었던 셋이 **셋 다 정확히** 재현되고
+// (테스트 파일 전수 **401** · 걷는 계약 `readdirSync` **43** · `NAMED_SOURCE_READER` 넓은 바늘 **189**)
+// 문장이었던 셋이 **셋 다 갈렸다**(손 목록 61/33 → **56/26** · 사각 전수 66/11 → **62/14** ·
+// 자기 배제 관례 15 → **17**). ⚠️ **그러므로 이 갈래는 재현 여부가 아니라 *재현 가능성의 대리
+// 지표*다** — 뒤쪽(실제로 다시 대어 보는 것)은 이 자가 여전히 세지 않는다(사각 ⓐ 그대로).
+//
+// **자의 꼴** — 그 행이 적은 바늘 문장에서 **검색 토큰**(백틱 조각)을 세고 **잇는 표식**을 본다.
+//  · **낱말/정규식 갈래** = 토큰이 **정확히 하나**이고 잇는 표식이 하나도 없다 — 그 하나를 그대로
+//    검색창에 넣으면 같은 모집단이 나온다.
+//  · **문장 갈래** = 그 밖의 바늘 있는 행 **전부**(토큰 둘 이상 · 토큰 0(산문뿐) · 또는 조건을 잇는
+//    표식이 있다). *조건 둘 이상을 사람이 이어야 한다*는 AI-1의 ⓑ가 그대로 이 갈래다.
+//
+// ── 실측 — ⚠️⚠️ **두 시점**(라운드 95 리뷰 M-2가 갈랐다) ─────────────────────
+//  · **트랙 E 커밋 시점(2026-09-01 · AI절 재실측 표)**: 바늘이 곁에 적힌 행 **39** =
+//    **낱말/정규식 9** + **문장 30**. ⚠️ 옛 머리말(보존): *"실측(HEAD 2026-09-01 · 둘 다 하한) —
+//    바늘이 곁에 적힌 행 39(다섯째 판정 뒤의 수 · 무변) = 낱말/정규식 9 + 문장 30"* — 그 문장의
+//    "HEAD"는 E 커밋 뒤 F가 AJ절을 더한 순간 거짓이 됐다. 이 자는 **마지막 판정 절의 표**를
+//    따라가므로, 걷는 표 자체가 AI 표에서 AJ 표(행 44 · 바늘 곁 43 = 낱말 23 + 문장 20 —
+//    리뷰 M-2 시점 실측)로 옮겨 갔다. **두 표의 수를 한 낱말로 적지 않는다.**
+//  · **오늘**: 수는 전부 자가 낸다 — 이 파일에 적힌 수는 시점이 붙은 기록이지 단언이 아니다.
+//  · ⚠️⚠️ **갈래의 합이 바늘 행 전수와 같다** — 어느 바늘 행도 두 갈래에 들지 않고 빠지지도
+//    않는다(이 분할 단언만이 시점과 무관하게 서는 계약이다).
+//
+// ── 사각 셋(값으로 적는다) ────────────────────────────────────────────────────
+//  ⓔ ⚠️⚠️ **좌표꼴 아홉과 낱말 아홉은 *다른 아홉*이다 — 두 수를 한 낱말로 적지 않는다.** 정찰
+//     §후보 5는 *"좌표꼴 아홉은 이미 기계가 따라갈 수 있으므로 낱말 쪽에 가깝다"* 고 적었는데,
+//     오늘 실측하면 **두 집합이 한 행도 겹치지 않는다**(교집합 **0**). 좌표를 적은 행은 예외 없이
+//     그 곁에 토큰을 더 적거나 조건을 이어 붙였기 때문이다 — **좌표가 있다고 낱말 바늘이 아니다.**
+//  ⓕ **갈래 판정은 바늘 *문장의 꼴*을 읽는 것이지 그 바늘을 대어 보는 것이 아니다**(사각 ⓐ의 한
+//     겹 안쪽이다). 낱말로 세어진 행이 실제로 재현되는지는 이 자가 묻지 않는다.
+//  ⓖ **잇는 표식은 낱말 검색이라 같은 뜻을 다른 말로 쓴 자리를 못 본다** — 그래서 문장 쪽이 과소
+//     계상될 수 있고 **둘 다 하한**이다. ⚠️ 동그라미 표식(ⓐⓑⓒ)은 **둘 이상 있을 때만** 열거로
+//     세고 하나뿐이면 *사각 ⓒ를 가리키는 인용*이라 세지 않는다.
+
+/** 여섯째 판정의 재료 ① — 그 행이 적은 **바늘 문장**(`**바늘**:` 뒤). 표식이 없으면 마지막 칸이다. */
+const RETEST_NEEDLE_TEXT_PATTERN = /\*?\*?바늘\*?\*?\s*[::]\s*([\s\S]*)$/;
+
+/** 여섯째 판정의 재료 ② — **검색 토큰**(백틱에 싸인 조각). 하나면 그대로 검색창에 넣을 수 있다. */
+const RETEST_NEEDLE_TOKEN_PATTERN = /`[^`\n]+`/g;
+
+/** 여섯째 판정의 재료 ③ — **조건을 잇는 표식**. 하나라도 있으면 사람이 이어야 하는 *문장*이다. */
+const RETEST_NEEDLE_JOINER_PATTERN = /↔|\s\+\s|그리고|둘 이상|셋 이상|이어|함께|각각|[가-힣)`]\s*(?:과|와)\s+/;
+
+/** 여섯째 판정의 재료 ④ — 동그라미 열거(ⓐⓑⓒ). **둘 이상**일 때만 조건 열거다(사각 ⓖ). */
+const RETEST_NEEDLE_ENUMERATION_PATTERN = /[ⓐⓑⓒⓓⓔ]/g;
+/** 사각 ⓖ — 동그라미가 이만큼 있어야 *열거*다. 하나면 사각 인용이라 세지 않는다. */
+const RETEST_NEEDLE_ENUMERATION_MINIMUM = 2;
+
+/**
+ * 여섯째 판정 — **낱말/정규식 갈래**의 하한(트랙 E 커밋 시점의 AI 표 9 · AJ 표 23 · 정찰 §답1의 ⓐ).
+ * ⚠️ 방향이 맞는 쪽만 하한이다 — 낱말 바늘은 **좋은 쪽으로 자라는** 수라(문장을 낱말로 조이는
+ * 걸음마다 오른다) 바닥이 유령 방지 역할을 한다.
+ */
+const RETEST_WORD_NEEDLE_ROW_FLOOR = 5;
+// ⚠️⚠️ **두 시점(라운드 95 리뷰 M-2) — 문장 갈래의 하한은 걷었다.** 옛 상수(보존):
+// `const RETEST_SENTENCE_NEEDLE_ROW_FLOOR = 18;` (주석: *"문장 갈래의 하한(오늘 30 · 정찰 §답1의
+// ⓑ)"*). 문장 바늘은 **줄어야 좋은 수**다 — F가 문장 바늘 하나를 낱말로 조일 때마다(이 파일이
+// ⓐ에서 *좋은 걸음*이라 부른 그 손) 내려가므로, 하한의 방향이 반대였다(AJ 표 20에서 여유 2).
+// 갈래가 통째로 사라지는 회귀는 아래 분할 단언(낱말 + 문장 = 바늘 곁 행 전수)이 이미 문다.
+// 기록: AI 표 30(트랙 E 커밋 시점) · AJ 표 20(리뷰 M-2 시점).
+
 type RetestRow = { index: number; raw: string; cells: string[] };
 type RetestTable = { sectionTitle: string; sectionLine: number; headerLine: number; rows: RetestRow[] };
 
@@ -1356,6 +1429,44 @@ function retestRowNeedleKinds(row: RetestRow): string[] {
   return kinds;
 }
 
+/**
+ * 여섯째 판정의 재료 — 이 행이 적은 **바늘 문장**만 떼어 낸다.
+ *
+ * ⚠️ **굵은 표식 없이 적은 행도 바늘 행이다** — 오늘 하나(공유 테스트 DB 행)가 괄호 안에
+ * *바늘: …* 으로 적었고, 그래서 이 정규식은 굵은 별표를 **선택**으로 둔다. 그마저 없는 행은
+ * **마지막 칸 전체**를 바늘 문장으로 읽는다(그 칸이 곧 *움직였는가 · 그 수를 낸 바늘* 칸이다).
+ * ⚠️ 어느 쪽으로도 못 떼어 내면 토큰이 0이 되어 *문장* 쪽으로 떨어진다 — 갈래가 과소가 아니라
+ * **문장 쪽으로 기운다**는 뜻이고, 그것이 둘 다 하한인 이유의 절반이다(사각 ⓖ).
+ */
+function retestNeedleText(row: RetestRow): string {
+  const matched = row.raw.match(RETEST_NEEDLE_TEXT_PATTERN);
+  if (matched !== null) return matched[1].replace(/\|\s*$/, "").trim();
+  return row.cells[row.cells.length - 1] ?? "";
+}
+
+/**
+ * **여섯째 판정**(라운드 95 트랙 E · AI-1 이행) — 이 행의 바늘이 *낱말 하나/정규식*인가 *문장*인가.
+ *
+ * 바늘이 곁에 적히지 않은 행(수만 있는 행 · 명시적 무바늘)은 **`null`** 이다 — 갈래는 **바늘 곁 행
+ * 안의 세분**이지 새 모집단이 아니다(위 다섯은 한 바이트도 바뀌지 않는다).
+ */
+function retestNeedleShape(row: RetestRow): "낱말" | "문장" | null {
+  if (retestRowNeedleKinds(row).length === 0) return null;
+  const text = retestNeedleText(row);
+  const tokens = text.match(RETEST_NEEDLE_TOKEN_PATTERN) ?? [];
+  const enumerations = text.match(RETEST_NEEDLE_ENUMERATION_PATTERN) ?? [];
+  // 정찰 §답1의 ⓐ — **정규식/식별자 하나의 검색으로 재현되는가.** 토큰 하나 · 잇는 표식 0 ·
+  // 열거 아님, 이 셋이 다 참일 때만 낱말이다. 하나라도 어긋나면 사람이 이어야 하는 문장이다(ⓑ).
+  if (
+    tokens.length === 1 &&
+    !RETEST_NEEDLE_JOINER_PATTERN.test(text) &&
+    enumerations.length < RETEST_NEEDLE_ENUMERATION_MINIMUM
+  ) {
+    return "낱말";
+  }
+  return "문장";
+}
+
 function retestTableOrThrow(): RetestTable {
   const table = retestTableIn(read(RETEST_DOC));
   // ⚠️ **못 찾으면 0이 아니라 빨개진다** — 0을 내놓는 자는 표가 사라진 날 조용히 초록이 된다.
@@ -1395,6 +1506,44 @@ const RETEST_TABLE_FIXTURE = [
 const RETEST_TABLE_FIXTURE_NEEDLE_REMOVED = RETEST_TABLE_FIXTURE.replace(
   "`packages/test-utils/src/repo-self-description.test.ts:1`이 그 자다",
   "그 자가 어디 있는지는 적혀 있지 않다"
+);
+
+/**
+ * **여섯째 판정의 픽스처**(라운드 95 트랙 E) — 바늘 곁 행 안에서 갈래 둘이 실제로 갈리는지를 본다.
+ * 1·2: **낱말/정규식 갈래**(토큰 하나 · 잇는 표식 없음) · 3~6: **문장 갈래**(토큰 둘 · 토큰 0 ·
+ * 잇는 표식 · 동그라미 열거) · 7: 바늘이 없는 행(갈래도 없다 — `null`).
+ *
+ * ⚠️ 위 다섯 판정의 픽스처(`RETEST_TABLE_FIXTURE`)는 **한 바이트도 건드리지 않는다** — 여섯째는
+ * 그 표의 행 수·이름 배열을 무는 자가 이미 있어서, 거기에 행을 더하면 다섯째가 빨개진다.
+ */
+const RETEST_SHAPE_FIXTURE = [
+  "## ZZ. 라운드 99에서 확정한 판정 (픽스처 · 여섯째 판정)",
+  "",
+  "| 자리 | 라운드 98이 남긴 값 | HEAD 재실측 | 움직였는가 · **그 수를 낸 바늘** |",
+  "| --- | --- | --- | --- |",
+  "| 낱말 하나 | 43 | **43** | 그대로다. **바늘**: `readdirSync`를 무는 계약 전수 |",
+  "| 정규식 하나 | 189 | **189** | 그대로다. **바늘**: `NAMED_SOURCE_READER`로 걷는다 |",
+  "| 토큰 둘 | 56 / 26 | **56 / 26** | 갈렸다. **바늘**: `admin-load-error-copy.test.ts`의 목록을 `page.tsx` 전수로 대조한다 |",
+  "| 산문뿐 | 17 | **18** | 늘었다. **바늘**: 같은 대장의 인용 면제 목록 길이 |",
+  "| 잇는 표식 | 62 / 14 | **45 / 7** | 갈렸다. **바늘**: `id`를 지닌 객체를 걷고 서술과 재개 조건을 함께 무는 자 |",
+  "| 동그라미 열거 | 66 | **62** | 갈렸다. **바늘**: `resume-condition-ledger.ts`가 ⓐ 값 ⓑ 서술 ⓒ 재개 조건 셋을 잇는다 |",
+  // ⚠️ 이 행은 자리 이름에도 마지막 칸에도 *바늘*·*모집단*·*걷는다*가 없어야 한다 — 그 낱말이
+  // 어디에 있든 넷 중 둘이 걸려 **바늘 있는 행**이 되고, 그러면 갈래가 `null`이 아니게 된다.
+  "| 적힌 자가 없다 | 12 | **13** | 늘었다 |",
+  "",
+  "본문은 표가 아니다."
+].join("\n");
+
+/** 교란 — 위 픽스처에서 **낱말 갈래 한 행에 토큰을 하나 더 붙인다**(수도 바늘도 그대로 둔다). */
+const RETEST_SHAPE_FIXTURE_WORD_REMOVED = RETEST_SHAPE_FIXTURE.replace(
+  "**바늘**: `readdirSync`를 무는 계약 전수",
+  "**바늘**: `readdirSync`를 무는 계약 가운데 `packages/test-utils/**` 안의 것"
+);
+
+/** 교란 — 위 픽스처에서 **문장 갈래 한 행의 잇는 표식과 둘째 토큰을 지운다**(낱말로 내려간다). */
+const RETEST_SHAPE_FIXTURE_SENTENCE_REMOVED = RETEST_SHAPE_FIXTURE.replace(
+  "**바늘**: `admin-load-error-copy.test.ts`의 목록을 `page.tsx` 전수로 대조한다",
+  "**바늘**: `admin-load-error-copy.test.ts`의 목록 길이"
 );
 
 describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 센다 (라운드 94 트랙 E · 전부 하한)", () => {
@@ -1638,6 +1787,183 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
     }
   });
 
+  // ⚠️ 옛 it 이름(보존): "여섯째 판정 — 바늘 곁 행 39를 낱말/정규식 ↔ 문장으로 가른다 (AI-1의
+  //    재현 실험이 이유 · 둘 다 하한)" — "39"는 트랙 E 커밋 시점의 AI 표 수라 이름에서 걷었고,
+  //    "둘 다 하한"은 문장 쪽 방향 오류라 걷었다(리뷰 M-2).
+  it("여섯째 판정 — 바늘 곁 행을 낱말/정규식 ↔ 문장으로 가른다 (AI-1의 재현 실험이 이유)", () => {
+    const rows = retestTableOrThrow().rows;
+    const withNeedle = rows.filter((row) => retestRowNeedleKinds(row).length > 0);
+    const word = withNeedle.filter((row) => retestNeedleShape(row) === "낱말");
+    const sentence = withNeedle.filter((row) => retestNeedleShape(row) === "문장");
+
+    // ⓐ **낱말 갈래만 바닥을 문다.** 두 시점 기록: AI 표(트랙 E 커밋 시점) 낱말 9 · 문장 30 →
+    // AJ 표(리뷰 M-2 시점) 낱말 23 · 문장 20. F가 문장 바늘 하나를 낱말로 조여도(좋은 걸음 —
+    // 낱말은 오르고 문장은 내린다) 이 계약이 빨개지지 않아야 하므로, 문장 쪽 하한은 걷었다
+    // (위 상수 자리의 두 시점 주석이 옛 단언을 보존한다).
+    expect(
+      word.length,
+      `낱말/정규식 갈래가 바닥 ${RETEST_WORD_NEEDLE_ROW_FLOOR}보다 적어요 — ` +
+        "정찰 §답1: *정규식/식별자 하나의 검색으로 재현되는* 바늘이에요"
+    ).toBeGreaterThanOrEqual(RETEST_WORD_NEEDLE_ROW_FLOOR);
+
+    // ⓐ′ ⚠️ 교란 재현(리뷰 M-2) — **문장 바늘 하나를 낱말로 조이는 좋은 걸음이 초록으로 남는다.**
+    // 실물 문장 행 하나의 바늘 칸을 토큰 하나로 바꾼 픽스처가 낱말로 갈리고, 그 재분류 뒤에도
+    // 이 계약의 단언(낱말 바닥 · 분할)이 전부 성립한다 — 종전 문장 하한(18)은 문장 수가 17이
+    // 되는 날 이 걸음에 빨강을 주었을 것이다.
+    const loosest = sentence[0];
+    expect(loosest, "문장 갈래가 이미 0이면 이 교란은 뜻이 없다 — 그날 이 블록을 걷어라").toBeDefined();
+    const tightened = {
+      ...loosest,
+      raw: loosest.raw.replace(/[^|]*\|\s*$/, " **바늘**: `단일토큰` |"),
+      cells: [...loosest.cells.slice(0, -1), "**바늘**: `단일토큰`"]
+    };
+    expect(retestNeedleShape(tightened), "조인 바늘이 낱말로 갈리지 않았다").toBe("낱말");
+    expect(word.length + 1).toBeGreaterThanOrEqual(RETEST_WORD_NEEDLE_ROW_FLOOR);
+    expect(word.length + 1 + (sentence.length - 1)).toBe(withNeedle.length);
+
+    // ⓑ **갈래의 합이 바늘 곁 행 전수다** — 여섯째는 새 모집단이 아니라 *그 행 안의 세분*이고,
+    // 어느 바늘 행도 두 갈래에 들거나 빠지지 않는다(다섯 판정은 한 바이트도 바뀌지 않았다).
+    expect(
+      word.length + sentence.length,
+      `갈래의 합이 바늘 곁 행과 달라요 (낱말 ${word.length} · 문장 ${sentence.length} · 바늘 행 ${withNeedle.length})`
+    ).toBe(withNeedle.length);
+    // 그리고 바늘이 없는 행은 갈래가 **없다**(`null`) — 갈래가 모집단을 넓히지 않는다는 증거다.
+    const withoutNeedle = rows.filter((row) => retestRowNeedleKinds(row).length === 0);
+    expect(
+      withoutNeedle.filter((row) => retestNeedleShape(row) !== null).map((row) => row.cells[0]),
+      "바늘 없는 행에 갈래가 붙었어요 — 여섯째는 바늘 곁 행 *안*의 세분이에요"
+    ).toEqual([]);
+
+    // ⓒ **사각 ⓔ — 좌표꼴 아홉과 낱말 아홉은 다른 아홉이다.** 정찰 §후보 5는 *"좌표꼴은 낱말 쪽에
+    // 가깝다"* 고 적었는데, 오늘 실측하면 **한 행도 겹치지 않는다** — 좌표를 적은 행은 예외 없이
+    // 그 곁에 토큰을 더 적거나 조건을 이어 붙였다. **두 수를 한 낱말로 적지 않는다.**
+    const coordinateRows = rows.filter(
+      (row) => retestRowCoordinates(row).resolved.length + retestRowCoordinates(row).unresolved.length > 0
+    );
+    const wordNames = new Set(word.map((row) => row.cells[0]));
+    expect(
+      coordinateRows.filter((row) => wordNames.has(row.cells[0])).map((row) => row.cells[0]),
+      "좌표꼴 행이 낱말 갈래에도 들었어요 — 오늘 교집합은 0이고, 갈리면 이 사각을 다시 적어야 해요"
+    ).toEqual([]);
+
+    // ⓓ **사각 ⓕ — 이 자는 바늘 문장의 *꼴*만 읽지 그 바늘을 대어 보지 않는다.** 사각 ⓐ가 이름으로
+    // 집는 그 행(`helper-named-reader` · 적힌 수 167 ↔ 넓은 바늘 189)은 바늘이 적힌 쪽이고, 오늘
+    // 이 갈래로는 **문장**이다 — *재현되지 않은 그 수가 문장 바늘이었다*는 것이 AI-1의 일반형이다.
+    const reproductionGap = withNeedle.filter((row) =>
+      row.raw.includes(RETEST_NEEDLE_WITHOUT_REPRODUCTION.rowName)
+    );
+    expect(reproductionGap.length, "사각 ⓐ의 본보기 행이 바늘 곁 행에 있어야 해요").toBeGreaterThanOrEqual(1);
+    for (const row of reproductionGap) {
+      expect(
+        retestNeedleShape(row),
+        `${RETEST_NEEDLE_WITHOUT_REPRODUCTION.rowName} 행의 갈래 — ` +
+          `적힌 수 ${RETEST_NEEDLE_WITHOUT_REPRODUCTION.citedValue}와 넓은 바늘 ` +
+          `${RETEST_NEEDLE_WITHOUT_REPRODUCTION.wideNeedleValue}가 갈린 그 자리예요`
+      ).toBe("문장");
+    }
+  });
+
+  it("픽스처 — 여섯째 판정이 갈래 둘을 가르고, 갈래 하나를 지우면 감지한다 (교란 둘)", () => {
+    const table = retestTableIn(RETEST_SHAPE_FIXTURE);
+    expect(table, "여섯째 판정의 픽스처 표를 찾아야 해요").not.toBeNull();
+    const rows = (table as RetestTable).rows;
+    expect(rows.length, "픽스처의 행 일곱을 읽어야 해요").toBe(7);
+
+    // ① 갈래가 자리마다 갈린다 — 낱말 둘 · 문장 넷 · 바늘 없는 행 하나(`null`).
+    expect(rows.map((row) => retestNeedleShape(row))).toEqual([
+      "낱말",
+      "낱말",
+      "문장",
+      "문장",
+      "문장",
+      "문장",
+      null
+    ]);
+
+    // ② 문장으로 떨어지는 **네 가지 이유**가 각각 실제로 그 이유다.
+    expect(
+      (retestNeedleText(rows[2]).match(RETEST_NEEDLE_TOKEN_PATTERN) ?? []).length,
+      "셋째 행은 *토큰 둘*이라 문장이에요"
+    ).toBe(2);
+    expect(
+      (retestNeedleText(rows[3]).match(RETEST_NEEDLE_TOKEN_PATTERN) ?? []).length,
+      "넷째 행은 *산문뿐*(토큰 0)이라 문장이에요"
+    ).toBe(0);
+    expect(
+      RETEST_NEEDLE_JOINER_PATTERN.test(retestNeedleText(rows[4])),
+      "다섯째 행은 *잇는 표식*이 있어 문장이에요"
+    ).toBe(true);
+    expect(
+      (retestNeedleText(rows[5]).match(RETEST_NEEDLE_ENUMERATION_PATTERN) ?? []).length,
+      `여섯째 행은 동그라미 열거가 ${RETEST_NEEDLE_ENUMERATION_MINIMUM} 이상이라 문장이에요`
+    ).toBeGreaterThanOrEqual(RETEST_NEEDLE_ENUMERATION_MINIMUM);
+    // 사각 ⓖ — 동그라미가 **하나뿐**이면 그것은 사각 인용이라 열거로 세지 않는다(낱말이 그대로다).
+    expect(
+      retestNeedleShape({ ...rows[0], raw: rows[0].raw.replace("계약 전수", "계약 전수(트랙 E의 사각 ⓒ)") }),
+      "동그라미 하나는 인용이지 열거가 아니에요"
+    ).toBe("낱말");
+
+    // ③ **교란 ①** — 낱말 갈래 한 행에 토큰을 하나 더 붙이면 그 행이 문장으로 넘어간다.
+    const wordDisturbed = retestTableIn(RETEST_SHAPE_FIXTURE_WORD_REMOVED);
+    expect(wordDisturbed, "교란 픽스처도 표는 그대로 있어야 해요").not.toBeNull();
+    const wordDisturbedRows = (wordDisturbed as RetestTable).rows;
+    expect(wordDisturbedRows.length, "교란은 행을 지우지 않아요").toBe(rows.length);
+    expect(
+      wordDisturbedRows.filter((row) => retestNeedleShape(row) === "낱말").length,
+      "낱말 갈래 하나가 사라진 것을 감지하지 못했어요"
+    ).toBe(rows.filter((row) => retestNeedleShape(row) === "낱말").length - 1);
+    expect(
+      wordDisturbedRows.filter((row) => retestNeedleShape(row) === "문장").length,
+      "지워진 낱말 하나는 문장 쪽으로 넘어가야 해요 (전수는 그대로다)"
+    ).toBe(rows.filter((row) => retestNeedleShape(row) === "문장").length + 1);
+
+    // ④ **교란 ②** — 문장 갈래 한 행에서 둘째 토큰과 잇는 표식을 지우면 낱말로 내려간다.
+    const sentenceDisturbed = retestTableIn(RETEST_SHAPE_FIXTURE_SENTENCE_REMOVED);
+    const sentenceDisturbedRows = (sentenceDisturbed as RetestTable).rows;
+    expect(
+      sentenceDisturbedRows.filter((row) => retestNeedleShape(row) === "문장").length,
+      "문장 갈래 하나가 사라진 것을 감지하지 못했어요"
+    ).toBe(rows.filter((row) => retestNeedleShape(row) === "문장").length - 1);
+    expect(
+      sentenceDisturbedRows.filter((row) => retestNeedleShape(row) === "낱말").length,
+      "지워진 문장 하나는 낱말 쪽으로 내려가야 해요"
+    ).toBe(rows.filter((row) => retestNeedleShape(row) === "낱말").length + 1);
+
+    // ⑤ 두 교란 다 **바늘 곁 행 전수는 건드리지 않는다** — 갈래는 그 행 안의 세분이다.
+    for (const disturbed of [wordDisturbedRows, sentenceDisturbedRows]) {
+      expect(
+        disturbed.filter((row) => retestRowNeedleKinds(row).length > 0).length,
+        "갈래를 옮기는 교란이 바늘 곁 행의 수를 바꿨어요"
+      ).toBe(rows.filter((row) => retestRowNeedleKinds(row).length > 0).length);
+    }
+  });
+
+  it("⚠️ 교란 재현(리뷰 M-2) — 다음 판정 절이 서도 이 자는 새 마지막 표를 따라가고 초록이다", () => {
+    // F가 다음 라운드에 절을 하나 더 쓰면 이 자가 걷는 표가 **그 절의 표**로 옮겨 간다 —
+    // 트랙 E가 적은 "실측(HEAD)"이 커밋 하루 만에 거짓이 된 것이 정확히 이 걸음이었다
+    // (F의 AJ절이 서며 AI 표 39 = 9 + 30이 AJ 표 43 = 23 + 20이 됐다 · 리뷰 M-2).
+    // 오늘의 표를 그대로 실은 합성 절을 덧붙여, 이관 뒤에도 계약이 전부 초록임을 문다.
+    const text = read(RETEST_DOC);
+    const lines = text.split("\n");
+    const table = retestTableOrThrow();
+    const header = lines[table.headerLine - 1];
+    const divider = lines[table.headerLine];
+    const synthetic =
+      `${text}\n\n## AK. 라운드 96에서 확정한 판정 (합성 — 이 계약의 교란 픽스처)\n\n` +
+      `${header}\n${divider}\n${table.rows.map((row) => row.raw).join("\n")}\n`;
+    const moved = retestTableIn(synthetic);
+    expect(moved, "합성 절의 표를 찾지 못했다 — 마지막 절을 따라가는 자가 깨졌다").not.toBeNull();
+    expect(moved!.sectionTitle).toContain("AK.");
+    expect(moved!.sectionLine).toBeGreaterThan(table.sectionLine);
+    expect(moved!.rows.length).toBe(table.rows.length);
+    // 옮겨 간 표 위에서도 여섯째 판정의 계약이 그대로 선다(낱말 바닥 · 분할).
+    const withNeedle = moved!.rows.filter((row) => retestRowNeedleKinds(row).length > 0);
+    const word = withNeedle.filter((row) => retestNeedleShape(row) === "낱말");
+    const sentence = withNeedle.filter((row) => retestNeedleShape(row) === "문장");
+    expect(word.length).toBeGreaterThanOrEqual(RETEST_WORD_NEEDLE_ROW_FLOOR);
+    expect(word.length + sentence.length).toBe(withNeedle.length);
+  });
+
   it("이 축이 도는 동안 판정 문서가 0바이트다 (부정 단언 · 바늘을 붙이는 손은 F다)", () => {
     // ⚠️ 이 단언이 무는 것은 **이 `it`이 도는 동안**이다 — *이 트랙이 커밋에서 문서를 고치지
     // 않았다*는 증거가 아니다(그것은 커밋이 말한다). 라운드 93 E가 같은 자리에서 같은 구별을 했다.
@@ -1672,4 +1998,10 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
   //  ④ **앞선 절의 옛 표**(사각 ⓑ)는 오늘도 밖이다 — 넣을지는 소유가 아니라 *수의 안정성*이
   //     정한다(넣으면 라운드마다 통째로 흔들린다). ⚠️ **두 시점**: 트랙 E 시점 표 넷 · **92행** →
   //     HEAD 표 다섯 · **129행**이고, 라운드마다 한 표씩 그리로 내려간다는 사실이 그 답의 근거다.
+  //  ⑤ **여섯째 판정의 두 갈래가 다음 라운드에 어디로 움직이는가**(라운드 95 트랙 E · AI-1 이행) —
+  //     오늘 **낱말 9 · 문장 30**이고 둘 다 하한이다. ⚠️⚠️ **AI-1의 일반형이 참이라면 값은 *문장이
+  //     낱말로 내려가는 것*이다** — F가 바늘 문장 하나를 식별자 하나로 조일 때마다 낱말이 오르고
+  //     문장이 준다. ⚠️ **그런데 이 자는 문장이 *주는 것*을 보지 못한다**(문장도 하한이라 오르는
+  //     쪽만 문다) — 두 하한이 서로 반대 방향을 값으로 삼는다는 사실이 이 갈래의 첫 결정형이다.
+  //     ⚠️ **사각 ⓔ가 갈리는 날**(좌표꼴 행이 낱말 갈래에 들어오는 날)이 그 조임의 첫 신호다.
 });

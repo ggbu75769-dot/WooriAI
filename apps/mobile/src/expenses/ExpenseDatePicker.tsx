@@ -172,8 +172,10 @@ function ExpenseDatePickerGrid({
     if (cell.date === null) return <View key={cell.key} style={expenseDatePickerStyle.cell} />;
     const selectable = isExpenseDatePickerCellSelectable(cell, todayIso, direction);
     const selected = cell.date === selectedIso;
+    // 라운드 95 리뷰 M-6: 라벨 함수는 selectedIso를 읽지 않는다(선택 여부는 아래 상태 프롭이
+    // 진다) — 읽히지 않는 값을 만들어 넘기던 유령 인자를 걷었다.
     const accessibilityLabel =
-      expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction }) ?? undefined;
+      expenseDatePickerCellAccessibilityLabel(cell, { todayIso, direction }) ?? undefined;
     const dayText = (
       <Text
         style={[
@@ -191,8 +193,18 @@ function ExpenseDatePickerGrid({
       selected ? expenseDatePickerStyle.cellSelected : null
     ];
     if (!selectable) {
+      // 라운드 95 트랙 A: 순수 모듈이 라벨에서 "선택됨"을 걷었으므로(같은 사실을 두 번 읽지
+      // 않는다), **선택됐는데 못 고르는 칸**이 그 사실을 잃지 않도록 이 가지도 상태를 진다.
+      // ⚠️ `disabled`는 걸지 않는다 — 못 누르는 이유는 라벨이 문장으로 말하고 있고(위 머리말의
+      // 그 판단), 상태로 한 번 더 말하면 이 트랙이 걷어 낸 바로 그 이중 낭독이 다시 선다.
       return (
-        <View accessible accessibilityLabel={accessibilityLabel} key={cell.key} style={cellStyle}>
+        <View
+          accessible
+          accessibilityLabel={accessibilityLabel}
+          accessibilityState={{ selected }}
+          key={cell.key}
+          style={cellStyle}
+        >
           {dayText}
         </View>
       );

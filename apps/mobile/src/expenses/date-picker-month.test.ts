@@ -229,7 +229,11 @@ describe("라벨 — 눈으로 보는 사실을 소리로도 전한다", () => {
     expect(expenseDatePickerMonthLabel("2026-13")).toBe("");
   });
 
-  it("칸 라벨이 날짜·오늘·선택됨·못 누르는 이유를 말한다", () => {
+  // ⚠️ **두 시점(라운드 95 트랙 A)** — 옛 바이트 둘을 한 줄씩 그대로 남긴다.
+  // 옛 it 이름: it("칸 라벨이 날짜·오늘·선택됨·못 누르는 이유를 말한다"
+  // 옛 단언(아래 셋째): .toBe("8월 12일, 선택됨")
+  // 선택 여부는 상태(`accessibilityState.selected`)가 지므로 라벨이 같은 사실을 말로 다시 적지 않는다.
+  it("칸 라벨이 날짜·오늘·못 누르는 이유를 말한다", () => {
     const cells = dayCells("2026-08");
     const byDate = (date: string) => cells.find((cell) => cell.date === date)!;
     expect(expenseDatePickerCellAccessibilityLabel(byDate("2026-08-12"), { selectedIso: null, todayIso: TODAY })).toBe(
@@ -240,10 +244,41 @@ describe("라벨 — 눈으로 보는 사실을 소리로도 전한다", () => {
     );
     expect(
       expenseDatePickerCellAccessibilityLabel(byDate("2026-08-12"), { selectedIso: "2026-08-12", todayIso: TODAY })
-    ).toBe("8월 12일, 선택됨");
+    ).toBe("8월 12일");
     expect(expenseDatePickerCellAccessibilityLabel(byDate("2026-08-30"), { selectedIso: null, todayIso: TODAY })).toBe(
       `8월 30일, ${EXPENSE_DATE_PICKER_FUTURE_HINT}`
     );
+  });
+
+  it("선택 여부가 라벨을 바꾸지 않는다 — 그 사실은 상태가 진다 (라운드 95 트랙 A)", () => {
+    const cells = dayCells("2026-08");
+    const byDate = (date: string) => cells.find((cell) => cell.date === date)!;
+    // 같은 칸을 고른 폼과 고르지 않은 폼에서 라벨이 한 글자도 다르지 않다.
+    // ⚠️ (라운드 95 리뷰 M-6) 아래 대조는 이제 **항진에 가깝다** — selectedIso 필드가 죽어
+    //    (함수 몸이 읽지 않는다) 어떤 값으로도 라벨이 갈릴 수 없다. 트랙 A 시점에는 이 대조가
+    //    회귀(라벨이 다시 선택 여부를 읽는 손)를 잡는 실질이었으므로 기록으로 남기되, 실질은
+    //    아래 셋이 진다: ① 타입이 옵셔널이다 ② 화면 호출부가 그 값을 넘기지 않는다
+    //    ③ 인자를 아예 생략해도 결과가 같다.
+    for (const date of ["2026-08-12", TODAY, "2026-08-30"]) {
+      const chosen = expenseDatePickerCellAccessibilityLabel(byDate(date), { selectedIso: date, todayIso: TODAY });
+      const notChosen = expenseDatePickerCellAccessibilityLabel(byDate(date), { selectedIso: null, todayIso: TODAY });
+      expect(chosen, `${date}: 고른 칸과 안 고른 칸의 라벨`).toBe(notChosen);
+      expect(chosen, `${date}: 상태 낱말`).not.toContain("선택됨");
+      // ③ 생략 호출 — 필드가 정말 죽었다는 것의 값(옵셔널이 아니면 타입부터 빨개진다).
+      expect(expenseDatePickerCellAccessibilityLabel(byDate(date), { todayIso: TODAY })).toBe(notChosen);
+    }
+    // ① 타입 — 유령 인자가 필수 칸으로 되살아나지 않는다.
+    expect(readFileSync(join(process.cwd(), "src/expenses/date-picker-month.ts"), "utf8")).toContain(
+      "selectedIso?: string | null"
+    );
+    // ② 호출부 — 화면이 읽히지 않는 값을 만들어 넘기지 않는다.
+    expect(readFileSync(join(process.cwd(), "src/expenses/ExpenseDatePicker.tsx"), "utf8")).not.toContain(
+      "expenseDatePickerCellAccessibilityLabel(cell, { selectedIso"
+    );
+    // ⚠️ 선택됐는데 못 고르는 칸에서는 **이유가 대신 들어온다**(종전에는 이유가 조용했다).
+    expect(
+      expenseDatePickerCellAccessibilityLabel(byDate("2026-08-30"), { selectedIso: "2026-08-30", todayIso: TODAY })
+    ).toBe(`8월 30일, ${EXPENSE_DATE_PICKER_FUTURE_HINT}`);
   });
 
   it("달 밖 빈 칸은 라벨이 없다", () => {
@@ -489,7 +524,11 @@ describe("GAP-054 #7 화면 배선", () => {
   it("격자·판정은 전부 순수 모듈에서 온다(컴포넌트가 달력을 다시 계산하지 않는다)", () => {
     expect(source).toContain("buildExpenseDatePickerMonth(pickerYearMonth, todayIso)");
     expect(source).toContain("isExpenseDatePickerCellSelectable(cell, todayIso, direction)");
-    expect(source).toContain("expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction })");
+    // ⚠️ **두 시점(라운드 95 리뷰 M-6) · 핀 이관.** 옛 바이트(보존):
+    // `expenseDatePickerCellAccessibilityLabel(cell, { selectedIso, todayIso, direction })`.
+    // 라벨 함수가 selectedIso를 읽지 않게 된 뒤(라운드 95 트랙 A)로 그 칸은 유령 인자였다 —
+    // 리뷰 M-6이 타입을 옵셔널로 내리고 호출부에서 걷어, 핀도 새 호출 꼴로 함께 옮긴다.
+    expect(source).toContain("expenseDatePickerCellAccessibilityLabel(cell, { todayIso, direction })");
     expect(source).toContain("CALENDAR_WEEKDAY_LABELS_KO.map");
     // 컴포넌트가 records-calendar에서 가져오는 것은 요일 머리글과 타입뿐이다 -- 격자 계산은
     // 순수 모듈을 거쳐서만 들어온다(달 길이·주 시작 요일을 직접 세지 않는다).

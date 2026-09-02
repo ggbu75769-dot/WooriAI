@@ -221,12 +221,80 @@
 // 워킹트리에서 다시 세니 **203 · 61 · 84 · 11 · 12**이고, 마지막 하나는 **틀린 것이 아니라 바늘이
 // 다르다**: 손의 위치가 **다음 줄로 접힌 자리 둘**을 함께 세면 정확히 **14**가 된다(`window` 바늘).
 // 그래서 이 대장은 손의 위치를 **두 수로** 든다 — 줄 바늘 12 · 접힘 바늘 14(`SCOUT_NEEDLE_VALUES`).
+//
+// ## ⓘ 기록 축 — 사각의 값이 스스로 낡지 않는다 (⚠️⚠️ 라운드 95 트랙 C)
+//
+// 라운드 95 정찰이 이 대장의 사각을 **실제로 돌려** 적힌 값과 맞댔고, **열하나 가운데 일곱의 적힌
+// 값이 오늘의 자와 갈려 있었다**(`prose-only` 184↔246 · `folded-notation` 2↔8 · `round-notes`
+// 377↔440 · `sibling-documents` 15↔18 · `one-line-two-sites` 21↔28 · `elapsed-truth` 70↔102 ·
+// `elapsed-outside-population` 89↔97). ⚠️⚠️ **그리고 그 갈림은 아무 소리도 내지 않았다** — 이
+// 대장이 무는 것은 하한뿐이고 갈림을 세는 자가 **0건**이었기 때문이다.
+//
+// ⚠️ **이것이 AH-3·AI-3이 이름 붙인 병의 세 번째 얼굴이다**: 크기만 적으면 다음 라운드가 그 크기를
+// 성격으로 읽고(AH-3), 셀 수 없는 자리에 크기를 두면 상수를 함수로 포장한 것이며(AI-3), **크기가
+// 적혀 있는데 그 크기가 오늘의 값이 아니면** 자가 옆에 서 있어도 값은 혼자 낡는다.
+//
+// ### 고른 길 — 등호가 아니라 파생 (⚠️ 고르지 않은 길도 값으로 적는다)
+//
+//  · ⓐ **등호** — 사문 대장이 고른 길이다(`expect(tsxExportFunctionCount()).toBe(141)` 꼴 · 여섯
+//    자리 · 오늘 재도 **갈림 0**). ⚠️⚠️ **그러나 이 대장에 옮겨 오면 안 된다**: 그 여섯은 저장소의
+//    크기라 잘 움직이지 않지만 이 열다섯은 **F가 판정 문서를 정직하게 쓸 때마다 자란다.** 등호는
+//    F가 조건을 하나 더 적는 걸음마다 빨개지고, 그때 쉬운 길은 문서를 계약에 맞추는 것이다.
+//  · ⓑ **하한만 두고 적힌 값을 지운다** — 그러면 *언제 무엇이 참이었는지*가 사라진다(AE-3 위반).
+//  · ⓒ **적힌 값을 두 시점으로 두고 갈림의 크기를 값으로 센다** — 정찰이 규율에 맞다고 본 길이고,
+//    ⚠️⚠️ **이 트랙은 그보다 한 칸 더 간다**: 갱신은 다음 라운드에 또 낡으므로 `valueToday`를
+//    **자에서 파생**시킨다(`derivedBlindSpots` · 게터). **오늘 갈림이 0인 것은 손이 값을 고쳐서가
+//    아니라 값이 더 이상 손의 것이 아니기 때문이다.**
+//
+// ⚠️⚠️ **방향(라운드 95 리뷰 M-1) — ⓑ의 부등호에는 방향이 있다: 하한은 자라는 수에만, 상한은
+// 줄어드는 수에만.** *정찰과 같은 자리의 수*처럼 F의 정직한 걸음마다 **내려가는** 수에 하한을
+// 세우면, ⓐ가 피하려던 그 병(계약을 지키려고 문서를 되돌리는 손)이 **하한의 얼굴로** 되돌아온다
+// — 이 라운드에 실제로 일어난 일이다(AJ-2가 사건형으로 기록했고, 리뷰 M-1이 그 하한을 걷었다).
+// 방향이 없는 수(오르내리는 수)는 등호도 하한도 상한도 아니고 **recorded**(시점·값·까닭)다.
+//
+// ⚠️ **파생의 꼴은 라운드 94 트랙 B(`apps/mobile/src/screen-header-back.test.ts`)를 인용한다** —
+// 그 트랙이 고친 것은 *자*(`measure: () => number`)였고 오늘 고친 것은 **값**이다. 자가 있어도 값이
+// 상수면 둘은 따로 낡는다는 것이 이 라운드가 값으로 본 사실이다. 파생이 **불가능한 자리**에는
+// 크기 대신 **불가의 증거**를 둔다(`UncountableRecordEvidence` — 같은 트랙의 `uncountable` 관례).
+//
+// ### 이 축이 새로 보는 것 (열하나가 아니라 **열다섯**)
+//
+// ⚠️⚠️ **정찰의 전수와 갈린다**: 정찰은 여덟 + 셋 = **열하나**를 세었고 `sourceNeedleBlindSpots()`의
+// **넷**을 세지 않았다. 오늘 전수는 **열다섯**이고 그 넷 가운데 `markdown-source-notation`이
+// **240↔261로 갈려 있다** — 그래서 정찰의 *일곱*은 오늘 **여덟**이다(⚠️ 두 수를 한 낱말로 적지
+// 않는다: 일곱은 *열하나 안의 갈림*, 여덟은 *열다섯 안의 갈림*이다).
+// ⚠️⚠️ **그리고 정찰의 재실측 자체도 둘이 갈렸다** — `round-notes` 440↔468 · `elapsed-outside-
+// population` 97↔104이고, **갈린 몫은 정확히 정찰 자신의 노트**다(`round95-scout.md`가 자리 28 ·
+// 경과 창 7을 지고 있다 · 440+28=468 · 97+7=104). **정찰은 자기가 쓰고 있던 문서를 세지 못했다** —
+// 사각 `round-notes`가 라운드 91 정찰에 대해 적어 둔 문장이 네 라운드 뒤 그대로 되풀이됐다.
+// ⚠️ **또 하나: 값은 한 라운드 안에서도 낡는다.** 이 트랙이 걷는 동안 같은 라운드의 다른 트랙이
+// 자기 파일에 재개 조건을 더해 `quoted-source-conditions`·`unmarked-source-prose`·
+// `three-needle-residual`이 **몇 분 만에** 올랐다 — 파생이 아니었다면 이 파일은 태어나는 순간
+// 다시 낡았을 것이다.
+//
+// ⚠️ **하한은 한 칸도 올리지 않았다**(`floor` · `NOTATION_RATCHET` · `ELAPSED_RATCHET` ·
+// `sourceNeedleRatchet()` 전부 종전 그대로) — 이 트랙이 더한 래칫은 *적힌 값 ≤ 오늘의 자* 하나이고,
+// 그것은 사각의 크기가 아니라 **기록이 오늘보다 크지 않은가**를 묻는다.
+// ⚠️ **재개 조건(사건형): 그 래칫이 처음 빨개지는 날** — 그날 사람이 볼 것은 *조건이 정당하게
+// 소진돼 수가 줄었는가, 이름이 틀렸던 것인가*이고, 어느 쪽이든 고칠 곳은 하한이 아니라 그 자리의
+// `recorded`에 시점 하나를 더하는 것이다.
 // ⚠️ **두 시점**: 위 다섯 수는 **정찰과 D의 대조 기록**이라 그대로 둔다(그날의 대조가 이 대장의
 // 바늘 셋을 갈라 낸 근거다). 같은 라운드 HEAD의 실측은 **252 · 80 · 107 · 18 · 21**이고, 그 값은
 // `MEASURED_TODAY`가 진다 — 두 표가 서로 다른 시점을 말한다는 사실 자체를 값으로 남긴다
 // (라운드 89 리뷰 M-4).
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+
+// ⚠️⚠️ **읽기만 하는 두 대장**(라운드 95 트랙 C) — 이 파일은 그 둘의 바이트를 한 글자도 고치지
+// 않는다. ⓔ 본보기(사문 대장의 *갈림 0*)와 대조군(자가 하나도 없는 앵커 대장)을 **산문이 아니라
+// 값으로** 들기 위해 그 목록을 **읽어 파생**한다(로직은 복사하지 않는다 — 그 대장들의 자를 여기서
+// 다시 짓지 않고, 그 대장들이 이미 지닌 자를 부른다).
+import {
+  LEDGER_BLIND_SPOTS as DEAD_EXPORT_BLIND_SPOTS,
+  apostropheBearingCallsiteFiles,
+  tsxExportFunctionCount
+} from "./dead-export-ledger";
+import { LEDGER_BLIND_SPOTS as ANCHOR_BLIND_SPOTS } from "./comment-tolerant-anchor-ledger";
 
 /** `vitest`가 `packages/test-utils`에서 돌 때의 저장소 뿌리(다른 계약들과 같은 관례). */
 export const repoRoot = join(process.cwd(), "..", "..");
@@ -1537,13 +1605,40 @@ export function sourceNeedleMeasuredToday() {
 
 // ── ⓔ 사각 ───────────────────────────────────────────────────────────────────
 
+/**
+ * ⚠️⚠️ **사각이 지녔던 *적힌 값* 하나 — 두 시점의 왼쪽**(라운드 95 트랙 C가 더한 칸 · AE-3).
+ *
+ * 라운드 92~94에는 이 수가 `valueToday`에 **손이 적은 상수**로 앉아 있었고, 그래서 자(`measure`)가
+ * 옆에 서 있는데도 **적힌 값과 오늘의 자가 갈린 채 아무 소리도 나지 않았다**(하한만 물기 때문이다).
+ * 오늘 `valueToday`는 자에서 **파생**되고, 옛 수는 지워지는 대신 이 칸으로 내려와 *언제 무엇이
+ * 참이었는지*를 진다.
+ */
+export type BlindSpotRecord = {
+  /** 그 수가 선 시점 — 라운드와 손(**빈 문자열일 수 없다**). */
+  readonly at: string;
+  /** 그때 손이 적어 둔 수. */
+  readonly value: number;
+  /** ⚠️ 라운드 95 정찰이 같은 자리를 대어 본 수 — **정찰 모집단 밖이면 없다**(넷이 그렇다). */
+  readonly scout95?: number;
+  /** 오늘의 자와 갈렸다면 왜/얼마나 — 같으면 *"같다"* 는 사실을 적는다(**빈 문자열 금지**). */
+  readonly divergence: string;
+};
+
 export type LedgerBlindSpot = {
   readonly id: string;
   /** 무엇이 모집단·바늘 밖인가. */
   readonly what: string;
   /** 왜 밖인가 — **빈 문자열일 수 없다.** */
   readonly why: string;
-  /** 오늘 잰 값. */
+  /**
+   * 오늘 잰 값.
+   *
+   * ⚠️⚠️ **라운드 95 트랙 C — 이 칸은 더 이상 상수가 아니라 `measure`의 파생이다**(게터).
+   * 상수였을 때 이 수는 라운드가 지나며 조용히 낡았다 — **이 트랙의 첫 실측에서 열다섯 중
+   * 여덟이 갈려 있었고**(정찰이 센 일곱 + 정찰 모집단 밖의 `markdown-source-notation`),
+   * ⚠️ **그 뒤로도 같은 라운드 안에서 셋이 더 갈렸다**(남의 트랙이 자기 파일에 재개 조건을 더했다).
+   * 계약은 하한만 물어 그 낡음에 아무 소리도 내지 않았다. 옛 상수는 `recorded`가 진다.
+   */
   readonly valueToday: number;
   /** ⚠️ **하한**(상한이 아니다). */
   readonly floor: number;
@@ -1551,7 +1646,37 @@ export type LedgerBlindSpot = {
   readonly measure: (baseDir: string) => number;
   /** 이 사각을 배워야 하는 날의 조건. */
   readonly reopenCondition: string;
+  /** ⚠️ 옛 *적힌 값*들 — **두 시점의 왼쪽**(지우지 않는다 · 라운드 95 트랙 C). */
+  readonly recorded?: readonly BlindSpotRecord[];
 };
+
+/**
+ * ⚠️⚠️ **자에서 값을 파생시키는 자리**(라운드 95 트랙 C · 결정형 #25의 옆 물음에 대한 이 대장의 답).
+ *
+ * 라운드 94 트랙 B가 `apps/mobile/src/screen-header-back.test.ts`에서 사각의 자를
+ * `measure: () => number` 꼴로 옮긴 그 걸음을 **인용한다**(읽기만 했고 그 파일은 어느 트랙의
+ * 것도 아니다). 그 트랙이 고친 것은 *자*였고, 오늘 이 대장이 고치는 것은 **값**이다 — 자가 있어도
+ * 값이 상수면 둘은 따로 낡는다.
+ *
+ * ⚠️ **게으르게 재고 한 번만 잰다**: 모듈을 읽는 값이 아니라 처음 물을 때의 값이고, 한 프로세스
+ * 안에서는 같은 수를 돌려준다(교란 픽스처는 목록을 **다시 세워** 새 자를 얻는다).
+ * ⚠️ `baseDir`를 인자로 받는 이유는 계약이 픽스처 위에서 같은 파생을 세울 수 있게 하기 위해서다.
+ */
+export function derivedBlindSpots(
+  spots: readonly Omit<LedgerBlindSpot, "valueToday">[],
+  baseDir: string = repoRoot
+): readonly LedgerBlindSpot[] {
+  return spots.map((spot): LedgerBlindSpot => {
+    let memo: number | undefined;
+    return {
+      ...spot,
+      get valueToday(): number {
+        if (memo === undefined) memo = spot.measure(baseDir);
+        return memo;
+      }
+    };
+  });
+}
 
 /** 라운드 노트와 짝 문서 — 모집단 밖의 자리를 세는 자. */
 function countSitesIn(baseDir: string, relativePath: string): number {
@@ -1599,7 +1724,7 @@ export const SIBLING_DOCUMENTS = [
  * 하한을 진다 — 앞의 여섯은 문서 축의 사각이고, 뒤의 둘은 **라운드 91 D가 소스 축을 넓히며
  * 새로 진 사각**이다.
  */
-export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
+export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = derivedBlindSpots([
   {
     id: "prose-only",
     what:
@@ -1609,7 +1734,18 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "산문에는 문법이 없어 '이것이 사건형인가 결정형인가'를 기계가 가를 수 없다. 가르려면 " +
       "문장의 뜻을 읽어야 하고, 그것은 이 그물의 일이 아니라 사람의 일이다 — 그리고 그 사람은 " +
       "F다(이 트랙은 문서를 고치지 않는다).",
-    valueToday: 184,
+    recorded: [
+      {
+        at: "라운드 92 트랙 D",
+        value: 184,
+        scout95: 246,
+        divergence:
+          "⚠️⚠️ **갈렸다 — +62.** 라운드 95 정찰이 `184↔246`으로 적은 그 자리이고, 오늘 이 트랙이 " +
+          "같은 자로 다시 재니 **246**이라 정찰과 갈리지 않는다(재확인). 갈린 까닭은 저장소가 아니라 " +
+          "**시점**이다 — 라운드 93·94의 F가 판정 문서에 절을 더하는 동안 이 수는 올랐고, 값이 " +
+          "상수라 아무 소리도 나지 않았다. 오늘부터 이 칸은 자에서 파생된다."
+      }
+    ],
     floor: 60,
     measure: (baseDir) => collectDocumentSites(baseDir).filter((site) => site.bucket === "prose").length,
     reopenCondition:
@@ -1627,7 +1763,17 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "줄 바늘은 한 줄 안만 본다. 접힘 바늘(앞뒤 한 줄)이 오늘 그 둘을 회수하지만, 세 줄 넘게 " +
       "접힌 표기는 여전히 밖이다. ⚠️ **정찰의 14와 이 대장의 12가 갈린 자리가 정확히 이 둘이다** " +
       "— 갈림이 사각의 크기를 재 준 셈이다.",
-    valueToday: 2,
+    recorded: [
+      {
+        at: "라운드 92 트랙 D",
+        value: 2,
+        scout95: 8,
+        divergence:
+          "⚠️ **갈렸다 — +6**(정찰 `2↔8` · 오늘 다시 재도 **8**이라 정찰과 갈리지 않는다). " +
+          "⚠️⚠️ **이 자리는 아래쪽이 좋은 방향이다** — 접힘이 풀리면 이 수는 줄고, 그날 고칠 것은 " +
+          "하한이 아니라 이 기록의 시점 하나다(그 사실을 사각 `recorded-ratchet-blocks-good-hand`가 진다)."
+      }
+    ],
     floor: 0,
     measure: (baseDir) => {
       const tallies = tallyNeedles(collectDocumentSites(baseDir));
@@ -1650,7 +1796,20 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "⚠️ 라운드별 **작업 기록**이지 판정 문서가 아니다. 모집단에 넣으면 이 대장의 수가 매 라운드 " +
       "통째로 흔들리고(라운드마다 노트가 한 벌씩 늘어난다) 래칫이 뜻을 잃는다 — 넓히는 대신 " +
       "값으로 적는다.",
-    valueToday: 377,
+    recorded: [
+      {
+        at: "라운드 92 트랙 D",
+        value: 377,
+        scout95: 440,
+        divergence:
+          "⚠️⚠️ **두 번 갈렸다.** ① 적힌 값 **377 ↔ 오늘 468 (+91)** — 라운드가 셋 지나는 동안 노트가 " +
+          "세 벌 늘었다. ② ⚠️⚠️ **정찰의 440과도 갈린다(+28)** — 그리고 그 **28은 정찰 자신의 노트**다" +
+          "(`docs/5차/round95-scout.md`가 오늘 자리 **28**을 지고 있다 · 440 + 28 = 468). " +
+          "**정찰은 자기가 쓰고 있던 문서를 세지 못했다** — 이 사각의 `what`이 라운드 91 정찰에 대해 " +
+          "이미 적어 둔 그 문장(`265 + 54 = 319`)이 네 라운드 뒤 같은 꼴로 되풀이됐다. " +
+          "⚠️ **두 수를 한 낱말로 적지 않는다**: 정찰의 440과 오늘의 468은 서로 다른 시점의 수다."
+      }
+    ],
     floor: 100,
     measure: (baseDir) =>
       roundNoteFiles(baseDir).reduce((sum, path) => sum + countSitesIn(baseDir, path), 0),
@@ -1673,7 +1832,18 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "0인 뿌리가 하나 늘어난다(주석 관용 앵커 대장이 `ZERO_YIELD_ROOTS`에 적은 그 규율). " +
       "⚠️ **그리고 이 라운드에 그 둘을 여는 트랙이 있다**(E가 접근성 표를 읽는다) — " +
       "한 문서에 축 둘을 얹지 않는다.",
-    valueToday: 15,
+    recorded: [
+      {
+        at: "라운드 92 트랙 D",
+        value: 15,
+        scout95: 18,
+        divergence:
+          "⚠️ **갈렸다 — +3**(정찰 `15↔18` · 오늘 다시 재도 **18**: `runtime-verification-required.md` " +
+          "**여섯** · `accessibility-offline-checklist.md` **열둘**). ⚠️ 자리는 늘었지만 " +
+          "**괄호로 형을 밝힌 것도 결정형도** 이 사각의 `what`이 적어 둔 그대로라, 모집단에 넣지 " +
+          "않기로 한 판단은 오늘도 갈리지 않는다."
+      }
+    ],
     floor: 1,
     measure: (baseDir) => SIBLING_DOCUMENTS.reduce((sum, path) => sum + countSitesIn(baseDir, path), 0),
     reopenCondition:
@@ -1698,7 +1868,22 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "*'인용의 크기'* 가 아니다** — 인용만 따로 세는 자는 `three-needle-residual`이고, 이 줄은 " +
       "*좁은 바늘 하나만 보던 시절의 자를 그대로 둔 채 그 자가 오늘 무엇을 재는지를 값으로 " +
       "적는다*(자를 바꾸면 네 시점의 기록이 서로 다른 것을 말하게 된다).",
-    valueToday: 55,
+    recorded: [
+      {
+        at: "라운드 94 트랙 D(다섯째 시점)",
+        value: 55,
+        scout95: 55,
+        divergence:
+          "**이 트랙의 첫 실측에서 같았다 — 55 ↔ 55**(정찰의 *일치 넷* 가운데 하나). " +
+          "⚠️⚠️ **그런데 이 트랙이 걷는 동안 그 같음이 깨졌다** — 같은 라운드의 다른 트랙이 자기 " +
+          "파일에 재개 조건 표기를 더하자 몇 분 만에 올랐고, **오늘의 수는 이제 자가 낸다**(그래서 " +
+          "여기에 그 수를 다시 적지 않는다). *한 라운드 안에서도 낡는다*는 이 대장의 문장이 이 " +
+          "트랙 자신의 실측에서 실물로 났고, 그것이 값을 파생으로 옮긴 이유다. " +
+          "⚠️⚠️ 그리고 **같음이 옳음은 아니다** — 이 자는 라운드 94 D " +
+          "뒤로 *인용의 크기*가 아니라 *넓은 바늘 − 표식형*을 재고 있고, 그 사실은 `what`이 값으로 " +
+          "진다(이 자가 못 보는 것은 `three-needle-residual`의 몫이다)."
+      }
+    ],
     floor: 0,
     measure: (baseDir) => countAnyParenSourceNotations(baseDir) - collectSourceNotations(baseDir).length,
     reopenCondition:
@@ -1714,7 +1899,17 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "그 수이고, 판정이 갈리는 자리는 0건이다(둘 다 형 표기가 없거나 같은 형이다). " +
       "⚠️ 네 시점: 트랙 D 언급 210 · 자리 203 · 차이 일곱 → 라운드 89 리뷰 264 · 252 · 열둘 → " +
       "라운드 91 D 312 · 294 · 열여덟 → 라운드 92 D **354 · 333 · 스물하나**.",
-    valueToday: 21,
+    recorded: [
+      {
+        at: "라운드 92 트랙 D",
+        value: 21,
+        scout95: 28,
+        divergence:
+          "⚠️ **갈렸다 — +7**(정찰 `21↔28` · 오늘 다시 재도 **28**). 언급과 자리가 함께 자랐고 " +
+          "차이만 커졌다 — ⚠️ **판정이 갈리는 자리는 여전히 0건**이라(둘 다 형 표기가 없거나 같은 형) " +
+          "이 사각의 재개 조건은 오늘도 도래하지 않았다."
+      }
+    ],
     floor: 0,
     measure: (baseDir) => {
       const absolute = join(baseDir, LEDGER_DOCUMENT.path);
@@ -1737,7 +1932,17 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "생기는 날'* 이 오늘인지 아닌지는 문장이 아니라 저장소의 상태가 답하고, 그 답은 조건마다 " +
       "다른 그물에 있다. 이 축이 그것까지 물면 표기 하나가 늘 때마다 새 그물이 하나 필요해진다. " +
       "⚠️ 그래서 이 대장은 **관례가 지켜지는가**만 묻고, 도래 여부는 조건을 적은 손이 진다.",
-    valueToday: 11,
+    recorded: [
+      {
+        at: "라운드 91 리뷰 H-1",
+        value: 11,
+        scout95: 11,
+        divergence:
+          "**같다 — 11 ↔ 11.** ⚠️ 네 라운드를 건너 같은 수다: 표식형을 지닌 세 파일이 조건을 " +
+          "소진하지도 새로 적지도 않았다는 뜻이고, **같음이 곧 조용함은 아니라는 것**이 이 줄의 값이다" +
+          "(라운드 94 D가 모집단을 셋에서 열하나로 넓히는 동안에도 이 좁은 바늘의 수는 움직이지 않았다)."
+      }
+    ],
     floor: 2,
     measure: (baseDir) => collectSourceNotations(baseDir).length,
     reopenCondition:
@@ -1767,7 +1972,20 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "⚠️ 그리고 이 뿌리에는 대역도 있다: 산출물·의존성 디렉터리와 이진 확장자, 1MB 위의 파일은 " +
       "걷지 않는다(`SOURCE_AXIS_SKIPPED_DIRECTORIES` · `SOURCE_AXIS_BINARY_EXTENSIONS` · " +
       "`SOURCE_AXIS_MAX_BYTES`) — 그 대역의 이름이 값으로 서 있다는 사실이 이 사각의 크기다.",
-    valueToday: 61,
+    recorded: [
+      {
+        at: "라운드 94 트랙 D(다섯째 시점 · 새 판정)",
+        value: 61,
+        scout95: 61,
+        divergence:
+          "**이 트랙의 첫 실측에서 같았다 — 61 ↔ 61**(정찰과도 같다). ⚠️ 그 뒤 같은 라운드의 다른 " +
+          "트랙이 자기 파일에 산문 조건을 더하며 올랐고, 오늘의 수는 자가 낸다. " +
+          "⚠️⚠️ **그리고 이 자리의 *줄어듦*은 위 갈림들과 다른 갈래다**: 라운드 " +
+          "94 D의 `129 → 61`은 수가 낡은 것이 아니라 **이름이 틀렸던 것이 고쳐진 것**이다(그 아흔넷은 " +
+          "사라지지 않고 필드형이라는 제 이름을 얻었다). ⚠️ **두 갈래를 한 낱말로 적지 않는다** — " +
+          "*값이 낡아 갈린 것*과 *이름이 틀려 줄어든 것*은 이 기록 축에서 서로 다른 사건이다."
+      }
+    ],
     floor: 10,
     measure: (baseDir) => {
       const entries = readSourceAxisEntries(baseDir);
@@ -1789,7 +2007,7 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "⚠️ 그래서 이 조건은 **소진되지 않았다**: 남은 쉰일곱은 여전히 형을 밝히지 않은 산문이고, " +
       "그것이 다시 쓰이는 날이 이 줄이 지워지는 날이다."
   }
-];
+]);
 
 // ── ⓗ' 바늘 셋의 사각 넷 (라운드 94 트랙 D) ──────────────────────────────────
 
@@ -1849,7 +2067,7 @@ export function emphasisDecisiveMissingHand(
  * 않는다*(그 여덟에서 오늘 움직인 것은 **두 자리의 값과 두 시점 문장**뿐이다).
  */
 export function sourceNeedleBlindSpots(): readonly LedgerBlindSpot[] {
-  return [
+  return derivedBlindSpots([
     {
       id: "three-needle-residual",
       what:
@@ -1871,7 +2089,18 @@ export function sourceNeedleBlindSpots(): readonly LedgerBlindSpot[] {
         "그 모양이었다: `unmarked-source-prose`가 필드형 여든하나를 *표기 없는 산문*으로 세었다). " +
         "⚠️ 그래서 잔여를 **0으로 만들지 않고 이름으로 세운다** — 인용은 오늘의 약속이 아니라 " +
         "어제의 기록이고, 그것을 모집단에 넣으면 이 축이 어제를 지키게 된다.",
-      valueToday: 9,
+      recorded: [
+        {
+          at: "라운드 94 트랙 D",
+          value: 9,
+          divergence:
+            "**이 트랙의 첫 실측에서 같았다 — 9 ↔ 9**(그 뒤 남의 트랙 커밋으로 올랐고 오늘의 수는 " +
+            "자가 낸다). ⚠️⚠️ **정찰의 모집단 밖이다** — 라운드 95 정찰은 이 대장의 사각을 " +
+            "*여덟 + 셋 = 열하나*로 세어 `sourceNeedleBlindSpots()`의 넷을 세지 않았다. 오늘 " +
+            "전수는 **열다섯**이고, **두 수를 한 낱말로 적지 않는다.** ⚠️ 이 자리도 아래쪽이 " +
+            "좋은 방향이라 줄어드는 날 고칠 것은 하한이 아니라 이 기록의 시점이다."
+        }
+      ],
       floor: 0,
       measure: (baseDir) => sourceNeedleTally(baseDir).unneedled,
       reopenCondition:
@@ -1890,7 +2119,16 @@ export function sourceNeedleBlindSpots(): readonly LedgerBlindSpot[] {
         "쓰라고 정한 문법이 있는 것이 아니다. ⚠️ 표식형은 `⚠️`라는 **글자**를 신원으로 삼지만 " +
         "필드형은 **자리**를 신원으로 삼는다 — 자리는 관례가 바뀌면 뜻이 바뀐다. 그래서 이 자는 " +
         "*오늘 그 관례가 아직 참인가*를 값으로 재고, 0이 아니게 되는 날 이 바늘이 좁혀져야 한다.",
-      valueToday: 0,
+      recorded: [
+        {
+          at: "라운드 94 트랙 D",
+          value: 0,
+          divergence:
+            "**같다 — 0 ↔ 0.** ⚠️ 정찰 모집단 밖이다(위와 같은 넷 중 하나). ⚠️⚠️ **0이 같다는 " +
+            "것과 0이 옳다는 것은 다르다** — 이 0은 *걷어서 낸 0*(자가 오늘 실제로 돌아 0을 낸다)이고, " +
+            "그 갈래를 이름으로 적는 일은 이 라운드에 **트랙 B가 어드민에서** 여는 축이다."
+        }
+      ],
       floor: 0,
       measure: (baseDir) => quotedFieldNotations(baseDir).length,
       reopenCondition:
@@ -1918,7 +2156,23 @@ export function sourceNeedleBlindSpots(): readonly LedgerBlindSpot[] {
         "**결정형 #19가 오늘 고르지 않은 길**이다 — 고르지 않은 길도 값으로 적는다. " +
         "⚠️ 그리고 오늘 이 수가 0이라는 사실이 축을 넓혀도 좋다는 허락은 아니다 — 강조형은 남의 " +
         "트랙이 매 라운드 새로 적는 꼴이라, 오늘의 0은 **다음 커밋에 하나가 될 수 있는 0**이다.",
-      valueToday: 0,
+      recorded: [
+        {
+          at: "라운드 94 정찰 시점",
+          value: 1,
+          divergence:
+            "⚠️⚠️ **이 자리는 한 라운드 안에서 낡았고, 그 낡음이 이미 값으로 적혀 있었다** — 정찰 " +
+            "시점 **1**에서 트랙 C의 커밋 하나로 **0**이 됐다(`what`의 두 시점). 오늘 다시 재도 " +
+            "**0**이라 라운드 94의 기록과 갈리지 않는다."
+        },
+        {
+          at: "라운드 94 트랙 D",
+          value: 0,
+          divergence:
+            "**같다 — 0 ↔ 0.** ⚠️ 정찰 모집단 밖이다. ⚠️ 아래쪽이 좋은 방향인 자리이고, **다음 " +
+            "커밋에 하나가 될 수 있는 0**이라 이 기록은 *오늘 0이다*까지만 말한다."
+        }
+      ],
       floor: 0,
       measure: (baseDir) => emphasisDecisiveMissingHand(baseDir).length,
       reopenCondition:
@@ -1943,14 +2197,26 @@ export function sourceNeedleBlindSpots(): readonly LedgerBlindSpot[] {
         "덜어 내는 것이 하필 판정 문서 자신(1.2MB)이라 **가장 큰 자리가 통째로 빠진다**. 이 자는 " +
         "그 상한을 쓰지 않으므로 **이백마흔**이다 — ⚠️ *같은 뿌리를 다른 대역으로 보면 다른 수가 " +
         "난다*는 사실이 이 사각의 크기에 함께 실려 있다.",
-      valueToday: 240,
+      recorded: [
+        {
+          at: "라운드 94 트랙 D",
+          value: 240,
+          divergence:
+            "⚠️⚠️ **갈렸다 — +21(240 ↔ 오늘 261). 그리고 이 자리가 정찰이 세지 않은 여덟째다.** " +
+            "라운드 95 정찰은 갈린 자리를 **일곱**으로 적었는데 그 모집단이 열하나였고, " +
+            "`sourceNeedleBlindSpots()`의 넷을 함께 세면 오늘 갈린 자리는 **여덟**이다. " +
+            "⚠️ **두 수를 한 낱말로 적지 않는다** — 일곱은 *열하나 안의 갈림*이고 여덟은 " +
+            "*열다섯 안의 갈림*이다. 늘어난 스물하나는 `docs/**`가 자란 몫이고(라운드 95 정찰 노트 " +
+            "자신을 포함한다), 이 자는 그 뿌리를 **값으로만** 든다."
+        }
+      ],
       floor: 10,
       measure: (baseDir) => markdownNotationCount(baseDir),
       reopenCondition:
         "⚠️ 재개 조건(결정형 · 손은 저장소 안): 문서 축과 소스 축의 모집단을 하나로 합칠지 정하는 " +
         "날 — 오늘 그 둘은 일부러 갈려 있고, 갈림의 크기가 이 이백마흔이다."
     }
-  ];
+  ]);
 }
 
 // ── ⓖ 경과 축 — *몇 라운드째 서 있는가* (라운드 92 트랙 D) ────────────────────
@@ -2272,7 +2538,7 @@ export const ELAPSED_MEASURED_TODAY = {
  * ⚠️⚠️ **여덟짜리 `LEDGER_BLIND_SPOTS`에 얹지 않는다.** 그 여덟은 문서 축·소스 축의 사각이고,
  * 이 라운드에 그 목록에서 움직이는 것은 **값뿐**이다 — *한 트랙이 남의 사각 목록을 열지 않는다.*
  */
-export const ELAPSED_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
+export const ELAPSED_BLIND_SPOTS: readonly LedgerBlindSpot[] = derivedBlindSpots([
   {
     id: "prose-elapsed",
     what:
@@ -2286,7 +2552,16 @@ export const ELAPSED_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "가르지 못하는 것과 **같은 사각의 시간 축 판**이다. 세려면 절을 거슬러 읽어야 하고 그것이 " +
       "AF-2가 지목한 바로 그 노동이라, 이 축은 *산문을 수로 바꾸는 일*이 아니라 *수가 적힌 자리를 " +
       "세는 일*만 한다.",
-    valueToday: 12,
+    recorded: [
+      {
+        at: "라운드 92 리뷰 M-2",
+        value: 12,
+        scout95: 12,
+        divergence:
+          "**같다 — 12 ↔ 12.** ⚠️ 정찰의 *일치 넷* 가운데 하나이고 오늘도 갈리지 않는다. " +
+          "⚠️ 아래쪽이 좋은 방향인 자리다(산문이 수사를 함께 적기 시작하면 줄어든다)."
+      }
+    ],
     floor: 0,
     measure: (baseDir) =>
       documentElapsedSites(baseDir).filter((entry) => entry.proseWindow && entry.inWindow.length === 0)
@@ -2309,7 +2584,17 @@ export const ELAPSED_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "*얼마나 서 있었나*이고 도래는 *참이 됐나*라서 **두 수를 한 낱말로 적지 않는다**. 이 축이 " +
       "그것까지 물면 표기 하나가 늘 때마다 새 그물이 하나 필요해진다(소스 축의 " +
       "`source-notation-existence`가 같은 자리에 적은 판단 그대로다).",
-    valueToday: 70,
+    recorded: [
+      {
+        at: "라운드 92 트랙 D",
+        value: 70,
+        scout95: 102,
+        divergence:
+          "⚠️⚠️ **갈렸다 — +32**(정찰 `70↔102` · 오늘 다시 재도 **102**). ⚠️ **하한은 그대로 61이다** — " +
+          "창 바늘은 *줄 사이의 거리*를 재는 바늘이라 F가 문단 하나만 끼워 넣어도 표기를 지우지 않은 " +
+          "채 실측이 내려간다. 갈림이 커졌다는 사실은 값으로 적고, **하한은 한 칸도 올리지 않는다**."
+      }
+    ],
     floor: 61,
     measure: (baseDir) => tallyElapsed(documentElapsedSites(baseDir)).window,
     reopenCondition:
@@ -2327,7 +2612,20 @@ export const ELAPSED_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "값으로 지고 있다(`sibling-documents` · `round-notes`). ⚠️ 라운드 노트는 라운드마다 한 벌씩 " +
       "늘어 모집단에 넣으면 이 축의 수가 매 라운드 통째로 흔들리고 래칫이 뜻을 잃는다 — 문서 축이 " +
       "같은 이유로 그 뿌리를 밖에 둔 판단 그대로다.",
-    valueToday: 89,
+    recorded: [
+      {
+        at: "라운드 92 트랙 D",
+        value: 89,
+        scout95: 97,
+        divergence:
+          "⚠️⚠️ **두 번 갈렸다 — 그리고 두 번째가 `round-notes`와 같은 지문을 지녔다.** " +
+          "① 적힌 값 **89 ↔ 오늘 104 (+15)**. ② **정찰의 97과도 갈린다(+7)** — 그 **7은 정찰 자신의 " +
+          "노트**가 지고 있는 경과 창의 수다(`round95-scout.md`의 창 바늘 **7** · 97 + 7 = 104). " +
+          "⚠️ 이 뿌리를 함께 걷는 사각 둘이 **같은 라운드에 같은 까닭으로** 정찰과 갈렸다는 사실 " +
+          "자체가 값이다 — 정찰이 자기가 쓰고 있던 문서를 세지 못하는 것은 바늘의 문제가 아니라 " +
+          "**시점의 문제**다."
+      }
+    ],
     floor: 10,
     measure: (baseDir) => {
       const outside = [...SIBLING_DOCUMENTS, ...roundNoteFiles(baseDir)];
@@ -2343,7 +2641,7 @@ export const ELAPSED_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
       "⚠️ 재개 조건(사건형): 짝 문서 하나가 `LEDGER_DOCUMENT` 옆에 서는 날 — 그 문서가 모집단이 " +
       "되는 날 이 축도 그 자리의 경과를 함께 세고, 그때 이 사각의 크기가 그만큼 줄어든다."
   }
-];
+]);
 
 /**
  * ⚠️ **전제 재실측 의무의 이행 ② — 라운드 92 정찰의 네 수를 다시 셌다.**
@@ -2485,3 +2783,435 @@ export const SCOUT_NEEDLE_VALUES: readonly ScoutNeedleValue[] = [
       "`folded-notation`이 값으로 진다."
   }
 ];
+
+// ── ⓘ 기록 축 — *적힌 값*과 *오늘의 자*가 갈리는 것을 세는 자 (라운드 95 트랙 C) ──
+
+/**
+ * 사각이 사는 목록의 이름 — ⚠️ **손 목록이 아니라 이 파일의 세 목록 자신이다.**
+ */
+export type BlindSpotList = "ledger" | "source-needle" | "elapsed";
+
+export type BlindSpotCensusEntry = {
+  readonly list: BlindSpotList;
+  readonly spot: LedgerBlindSpot;
+};
+
+/**
+ * ⓐ **이 대장의 사각 전수** — ⚠️ **자기 소스에서 파생한다**(손으로 적은 아이디 목록 0건).
+ *
+ * ⚠️⚠️ **정찰과 갈렸고, 갈렸다는 사실 자체가 값이다**(AI-1의 일반형): 라운드 95 정찰은 이 대장의
+ * 사각을 *`LEDGER_BLIND_SPOTS` 여덟 + `ELAPSED_BLIND_SPOTS` 셋 = **열하나***로 세었는데,
+ * `sourceNeedleBlindSpots()`의 **넷**(라운드 94 트랙 D가 자기 목록으로 세운 것)이 그 셈에서 빠졌다.
+ * 오늘 전수는 **열다섯**이고, **두 수를 한 낱말로 적지 않는다** — 갈린 자리도 그래서 갈린다
+ * (정찰의 *일곱*은 열하나 안의 갈림이고, 이 자의 여덟은 열다섯 안의 갈림이다).
+ */
+export function allBlindSpots(): readonly BlindSpotCensusEntry[] {
+  const label =
+    (list: BlindSpotList) =>
+    (spot: LedgerBlindSpot): BlindSpotCensusEntry => ({ list, spot });
+  return [
+    ...LEDGER_BLIND_SPOTS.map(label("ledger")),
+    ...sourceNeedleBlindSpots().map(label("source-needle")),
+    ...ELAPSED_BLIND_SPOTS.map(label("elapsed"))
+  ];
+}
+
+/** 마지막 시점의 기록 — ⚠️ **존재 가드**(기록이 없으면 `undefined`이지 0이 아니다). */
+export function latestRecord(spot: LedgerBlindSpot): BlindSpotRecord | undefined {
+  const recorded = spot.recorded ?? [];
+  return recorded.length === 0 ? undefined : recorded[recorded.length - 1];
+}
+
+export type BlindSpotReading = {
+  readonly id: string;
+  readonly list: BlindSpotList;
+  /** 판정 ⓐ — **자가 있는가**(오늘 열다섯 다 있다). */
+  readonly hasMeasure: boolean;
+  /** 판정 ⓑ — **적힌 값이 있는가**(두 시점의 왼쪽). */
+  readonly hasRecord: boolean;
+  /** 그 적힌 값이 선 시점 — 기록이 없으면 빈 문자열. */
+  readonly recordedAt: string;
+  /** 적힌 값 — 기록이 없으면 0이 아니라 `undefined`. */
+  readonly recorded?: number;
+  /** 오늘의 자가 낸 수. */
+  readonly today: number;
+  /** ⚠️ `valueToday`가 **파생**인가(게터인가) — 상수를 감싼 값이 0건임을 구조로 보인다. */
+  readonly derived: boolean;
+  /** 판정 ⓒ — 오늘의 자 − 적힌 값(기록이 없으면 `undefined`). */
+  readonly delta?: number;
+  /** 적힌 값과 오늘의 자가 **같은가**. */
+  readonly same: boolean;
+};
+
+/**
+ * ⓑ·ⓒ **자리마다 판정 셋을 값으로 낸다** — 자가 있는가 · 적힌 값이 있는가 · 그 둘이 오늘 같은가.
+ *
+ * ⚠️ `today`는 자를 **그 자리에서 다시 불러** 낸다(기록을 다시 읽지 않는다). `valueToday`가 오늘
+ * 같은 수를 돌려주는 것은 그 값이 같은 자에서 파생되기 때문이고, 그 사실을 `derived`가 진다.
+ */
+export function blindSpotReadings(
+  baseDir: string = repoRoot,
+  census: readonly BlindSpotCensusEntry[] = allBlindSpots()
+): readonly BlindSpotReading[] {
+  return census.map(({ list, spot }): BlindSpotReading => {
+    const record = latestRecord(spot);
+    const today = spot.measure(baseDir);
+    const descriptor = Object.getOwnPropertyDescriptor(spot, "valueToday");
+    return {
+      id: spot.id,
+      list,
+      hasMeasure: typeof spot.measure === "function",
+      hasRecord: record !== undefined,
+      recordedAt: record?.at ?? "",
+      recorded: record?.value,
+      today,
+      derived: descriptor?.get !== undefined,
+      delta: record === undefined ? undefined : today - record.value,
+      same: record !== undefined && record.value === today
+    };
+  });
+}
+
+/**
+ * ⚠️⚠️ **갈린 자리** — *적힌 값 ≠ 오늘의 자*.
+ *
+ * ⚠️ 이 수는 **값으로만** 적는다(하한도 상한도 아니다) — 줄어야 좋은 수이고, 오늘 여덟에서 0으로
+ * 내려가는 길이 바로 이 트랙이 한 일(값을 자에서 파생시키는 것)이다.
+ */
+export function blindSpotDivergences(
+  baseDir: string = repoRoot,
+  census: readonly BlindSpotCensusEntry[] = allBlindSpots()
+): readonly BlindSpotReading[] {
+  return blindSpotReadings(baseDir, census).filter((reading) => reading.hasRecord && !reading.same);
+}
+
+export type RecordedRatchetViolation = {
+  readonly id: string;
+  readonly at: string;
+  readonly recorded: number;
+  readonly today: number;
+  readonly delta: number;
+};
+
+/**
+ * ⓓ **오르는 쪽 래칫** — *적힌 값 ≤ 오늘의 자*를 모든 자리에서 묻는다. **비어 있어야 초록이다.**
+ *
+ * ⚠️⚠️ **이것은 하한 인상이 아니다.** `floor`는 한 칸도 올리지 않았다(라운드 92·94의 수 그대로).
+ * 이 자가 묻는 것은 *사각이 얼마나 큰가*가 아니라 **기록이 오늘보다 크지 않은가**이고, 그 방향은
+ * 이 사각들이 자라는 방향이다 — 줄어드는 날은 대개 *이름이 틀렸던 날*이다(라운드 94 D의
+ * `unmarked-source-prose` 129 → 61이 그 실물이고, 그 줄어듦은 옳았다).
+ * ⚠️ **그날의 고침은 하한을 내리는 것이 아니라 기록에 시점을 하나 더하는 것이다** — 그 비용이
+ * 한 줄이라는 사실이 이 래칫을 안전하게 만든다. 아래 사각
+ * `recorded-ratchet-blocks-good-hand`가 *아래쪽이 좋은 방향인 자리*의 수를 값으로 진다.
+ */
+export function recordedRatchetViolations(
+  baseDir: string = repoRoot,
+  census: readonly BlindSpotCensusEntry[] = allBlindSpots()
+): readonly RecordedRatchetViolation[] {
+  return blindSpotReadings(baseDir, census)
+    .filter((reading) => reading.recorded !== undefined && (reading.delta ?? 0) < 0)
+    .map((reading) => ({
+      id: reading.id,
+      at: reading.recordedAt,
+      recorded: reading.recorded as number,
+      today: reading.today,
+      delta: reading.delta as number
+    }));
+}
+
+export type ScoutRecheckRow = {
+  readonly id: string;
+  /** 라운드 95 정찰이 대어 본 수. */
+  readonly scout: number;
+  /** 오늘 같은 자로 다시 잰 수. */
+  readonly today: number;
+  readonly same: boolean;
+};
+
+/**
+ * ⚠️ **정찰 실측의 재확인**(전제 재실측 의무 · AI-1의 일반형).
+ *
+ * 라운드 95 정찰이 사각마다 대어 본 수를 오늘 같은 자로 다시 잰다. ⚠️⚠️ **열하나 가운데 아홉은
+ * 갈리지 않고 둘이 갈린다**(`round-notes` 440 ↔ 468 · `elapsed-outside-population` 97 ↔ 104) —
+ * 그리고 **그 둘의 지문은 같다**: 둘 다 `docs/5차/**`를 걷는 자이고, 갈린 몫은 정확히
+ * **정찰 자신의 노트**(`round95-scout.md`)가 지고 있는 수다. 정찰은 자기가 쓰고 있던 문서를
+ * 세지 못했다(사각 `round-notes`가 라운드 91 정찰에 대해 이미 적어 둔 그 문장의 되풀이).
+ *
+ * ⚠️ **두 시점(라운드 95 리뷰 M-1) — 위 문단의 "아홉/둘"은 C 첫 실측 시점의 기록이다.** 같은
+ * 라운드의 다른 트랙과 F의 판정 절이 문서·소스를 더하며 그 수는 그 자리에서 낡았고(리뷰 시점
+ * 실측: 같은 자리 다섯 · 갈린 자리 여섯), 낡는 것이 정상이다 — 이 표의 계약은 그 수가 아니라
+ * **방향**(자리마다 오늘 ≥ 정찰)만 물고, "몇이 같은가"는 계약이 아니라 recorded다.
+ */
+export function blindSpotScoutRecheck(baseDir: string = repoRoot): readonly ScoutRecheckRow[] {
+  const rows: ScoutRecheckRow[] = [];
+  for (const { spot } of allBlindSpots()) {
+    for (const record of spot.recorded ?? []) {
+      if (record.scout95 === undefined) continue;
+      const today = spot.measure(baseDir);
+      rows.push({ id: spot.id, scout: record.scout95, today, same: record.scout95 === today });
+    }
+  }
+  return rows;
+}
+
+/** 정찰 노트 자신이 지고 있는 재개 조건 자리 — ⚠️ 위 갈림 둘의 지문을 값으로 든다. */
+export function scoutNoteSiteCount(baseDir: string = repoRoot): number {
+  return countSitesIn(baseDir, `${ROUND_NOTES_ROOT}/round95-scout.md`);
+}
+
+/**
+ * ⓔ **본보기의 인용 — 사문 대장은 같은 자리를 *등호로* 물어 갈림이 0이다.**
+ *
+ * ⚠️ **로직을 복사하지 않는다**: 그 대장의 자를 여기서 다시 짓지 않고 **그 목록과 그 계약의 소스를
+ * 읽어** 파생한다. 오늘 실제로 대어 보는 것은 **값싼 둘**(`tsx-components` · 
+ * `jsx-apostrophe-string-masking`)이고, 나머지 넷은 그 대장의 계약이 이미 등호로 물고 있어서
+ * (`toBe(<적힌 값>)`) 이 자가 다시 돌릴 필요가 없다 — ⚠️ 여섯을 다 돌리면 이 계약 하나가 30초를
+ * 넘게 쓴다(오늘 실측). **한 계약이 남의 그물을 대신 돌리지 않는다.**
+ */
+export function deadExportLedgerEquality(baseDir: string = repoRoot): {
+  readonly spots: number;
+  readonly measured: number;
+  readonly equalityPinned: number;
+  readonly checked: readonly { readonly id: string; readonly recorded: number; readonly today: number }[];
+  readonly divergence: number;
+  readonly whyNotHere: string;
+} {
+  const contractPath = "packages/test-utils/src/dead-export-ledger.test.ts";
+  const absolute = join(baseDir, contractPath);
+  const contract = existsSync(absolute) ? readFileSync(absolute, "utf8") : "";
+  const measured = DEAD_EXPORT_BLIND_SPOTS.filter((spot) => spot.measure !== undefined);
+  const equalityPinned = measured.filter((spot) => contract.includes(`toBe(${spot.value})`)).length;
+  const valueOf = (id: string): number =>
+    DEAD_EXPORT_BLIND_SPOTS.find((spot) => spot.id === id)?.value ?? -1;
+  const checked = [
+    { id: "tsx-components", recorded: valueOf("tsx-components"), today: tsxExportFunctionCount(baseDir) },
+    {
+      id: "jsx-apostrophe-string-masking",
+      recorded: valueOf("jsx-apostrophe-string-masking"),
+      today: apostropheBearingCallsiteFiles(baseDir).length
+    }
+  ];
+  return {
+    spots: DEAD_EXPORT_BLIND_SPOTS.length,
+    measured: measured.length,
+    equalityPinned,
+    checked,
+    divergence: checked.filter((row) => row.recorded !== row.today).length,
+    whyNotHere:
+      "⚠️⚠️ **이 대장은 그 등호를 옮겨 오지 않는다 — 고르지 않은 길도 값이다.** 사문 대장의 여섯은 " +
+      "*저장소의 크기*를 재는 수라 라운드가 지나도 잘 움직이지 않지만, 이 대장의 열다섯은 " +
+      "**F가 판정 문서를 정직하게 쓸 때마다 자라는 수**다(`prose-only` 184 → 246 · `round-notes` " +
+      "377 → 468 · `elapsed-truth` 70 → 102). 등호를 세우면 F가 조건을 하나 더 적는 걸음마다 " +
+      "빨개지고, 그때 다음 사람이 고르는 쉬운 길은 **문서를 계약에 맞추는 것**이다 — 이 대장이 " +
+      "태어날 때부터 막으려던 그 뒤집힘이다. 그래서 여기서 고른 길은 셋째다: **값을 자에서 " +
+      "파생시키고, 옛 값은 두 시점으로 남기고, 갈림의 크기를 값으로 센다.**"
+  };
+}
+
+/**
+ * ⚠️ **대조군 — 자가 하나도 없는 대장**(`comment-tolerant-anchor-ledger.ts`).
+ *
+ * 그 대장의 사각 **일곱**은 `measuredLowerBound`라는 **손이 적은 수**만 지고 `measure`가 **0건**이라,
+ * *적힌 값과 오늘의 자가 갈렸는가*라는 이 자의 물음이 **성립하지 않는다**. 그 사실을 사각
+ * `measureless-ledgers-outside`가 값으로 진다.
+ */
+export function measurelessLedgerControl(baseDir: string = repoRoot): {
+  readonly path: string;
+  readonly spots: number;
+  readonly measures: number;
+} {
+  const path = "packages/test-utils/src/comment-tolerant-anchor-ledger.ts";
+  const absolute = join(baseDir, path);
+  const source = existsSync(absolute) ? readFileSync(absolute, "utf8") : "";
+  return {
+    path,
+    spots: ANCHOR_BLIND_SPOTS.length,
+    measures: (source.match(/\bmeasure\s*:/g) ?? []).length
+  };
+}
+
+/** 이 대장 **밖**에서 사각 목록을 지고 있는 파일 — ⚠️ 걷어서 낸다(손 목록 금지). */
+export function otherBlindSpotLedgers(baseDir: string = repoRoot): readonly string[] {
+  const directory = "packages/test-utils/src";
+  const absolute = join(baseDir, directory);
+  if (!existsSync(absolute)) return [];
+  const selfFiles = LEDGER_SELF_FILES as readonly string[];
+  return readdirSync(absolute, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+    .map((entry) => `${directory}/${entry.name}`)
+    .filter((path) => !selfFiles.includes(path))
+    .filter((path) => readFileSync(join(baseDir, path), "utf8").includes("BLIND_SPOT"))
+    .sort();
+}
+
+/**
+ * ⚠️ **산문이 옛 수를 지고 있는 자리** — 값은 파생으로 고쳤지만 *문장*은 그대로다.
+ *
+ * 자리마다 `what`·`why`가 **적힌 값을 숫자로** 담고 있으면서 그 적힌 값이 오늘의 자와 갈리면
+ * 그 문장은 오늘 거짓이다. ⚠️ **오차 방향은 조용한 쪽**(거짓 초록): 한글 수사로 적힌 수
+ * (*'오늘 창 열둘'*)는 이 자가 보지 못한다.
+ */
+export function staleProseBlindSpots(baseDir: string = repoRoot): readonly string[] {
+  const stale: string[] = [];
+  for (const { spot } of allBlindSpots()) {
+    const record = latestRecord(spot);
+    if (record === undefined) continue;
+    const today = spot.measure(baseDir);
+    if (today === record.value) continue;
+    const prose = `${spot.what} ${spot.why}`;
+    if (new RegExp(`(^|[^0-9])${record.value}([^0-9]|$)`).test(prose)) stale.push(spot.id);
+  }
+  return stale;
+}
+
+/** ⚠️ *아래쪽이 좋은 방향*이라고 자기 문장이 적어 둔 자리 — 오르는 쪽 래칫이 막을 수 있는 손. */
+export function downwardGoodBlindSpots(): readonly string[] {
+  return allBlindSpots()
+    .filter(({ spot }) => /좋은 방향/.test(`${spot.what} ${spot.why} ${spot.reopenCondition}`))
+    .map(({ spot }) => spot.id);
+}
+
+/**
+ * ⚠️⚠️ **자를 둘 수 없는 자리의 증거** — 라운드 94 트랙 B가
+ * `apps/mobile/src/screen-header-back.test.ts`에 세운 `UncountableEvidence`의 꼴을 **인용한다**
+ * (그 파일은 읽기만 했고 바이트를 한 글자도 만지지 않았다 · 복사가 아니라 같은 사실을 각자 파생).
+ * 크기 대신 *무엇을 세려 했는가*·*왜 소스에 없는가*·*0의 뜻*을 진다.
+ */
+export type UncountableRecordEvidence = {
+  readonly wantedToCount: string;
+  readonly missingFromSource: string;
+  readonly zeroMeans: string;
+};
+
+/**
+ * 이 기록 축이 새로 지는 사각.
+ *
+ * ⚠️ **자와 증거는 함께 서지 않는다** — 자가 있는 자리는 `uncountable`을 지지 않고, 자를 둘 수 없는
+ * 자리는 `measure`·`floor`를 **아예 두지 않는다**(`() => 0`은 상수를 함수로 포장한 것이라 병이
+ * 그대로다 · 라운드 94 트랙 B의 판단 그대로).
+ */
+export type RecordingBlindSpot = {
+  readonly id: string;
+  readonly what: string;
+  readonly why: string;
+  readonly measure?: (baseDir: string) => number;
+  readonly floor?: number;
+  readonly uncountable?: UncountableRecordEvidence;
+  readonly reopenCondition: string;
+};
+
+/**
+ * ⚠️ **이 축이 지는 사각 다섯** — 값과 하한으로 선다(AB-5의 규율).
+ *
+ * ⚠️⚠️ **남의 사각 목록에 얹지 않는다**: `LEDGER_BLIND_SPOTS` 여덟 · `sourceNeedleBlindSpots()` 넷 ·
+ * `ELAPSED_BLIND_SPOTS` 셋의 **길이는 오늘 한 칸도 움직이지 않았고**, 그 열다섯에서 이 트랙이
+ * 바꾼 것은 **값이 사는 꼴**(상수 → 파생)과 **옛 값의 자리**(→ `recorded`)뿐이다.
+ */
+export function recordingBlindSpots(): readonly RecordingBlindSpot[] {
+  return [
+    {
+      id: "measureless-ledgers-outside",
+      what:
+        "⚠️⚠️ **자가 없는 대장은 이 자 밖이다** — `comment-tolerant-anchor-ledger.ts`의 사각 " +
+        "**일곱**은 `measure`가 **0건**이라(손이 적은 `measuredLowerBound`만 진다) *적힌 값과 " +
+        "오늘의 자가 갈렸는가*라는 물음 자체가 **성립하지 않는다.** 라운드 95 정찰이 그 대장 칸에 " +
+        "*'잴 수 없다'* 고 적은 그 자리이고, 이 자는 그 일곱을 **갈림 0이 아니라 모집단 밖**으로 든다.",
+      why:
+        "갈림을 세려면 두 수가 있어야 한다 — 적힌 값 하나와 오늘의 자 하나. 자가 없으면 두 번째 수가 " +
+        "없고, 없는 수를 0으로 읽으면 *갈리지 않았다*는 거짓이 조용히 선다(`elapsedNumeral`이 " +
+        "모르는 낱말을 0으로 읽지 않는 그 규율의 사각 판이다). ⚠️ 그 일곱에 자를 붙이는 것은 남의 " +
+        "파일을 여는 일이고, **한 트랙이 남의 대장을 열지 않는다.**",
+      measure: (baseDir) => {
+        const control = measurelessLedgerControl(baseDir);
+        return control.spots - control.measures;
+      },
+      floor: 1,
+      reopenCondition:
+        "⚠️ 재개 조건(결정형 · 손은 저장소 안): 앵커 대장의 사각에 자를 붙일지를 그 파일을 소유한 " +
+        "트랙이 정하는 날 — 그날 그 일곱이 이 자의 모집단으로 들어오고, 첫 모집단은 오늘의 일곱이다."
+    },
+    {
+      id: "which-side-is-right",
+      what:
+        "⚠️⚠️ **이 자는 *갈렸다*까지만 보고 *어느 쪽이 옳은가*를 묻지 않는다** — 오늘 갈린 여덟 " +
+        "자리에서 틀린 것이 *적힌 값*인지 *오늘의 자*인지를 이 그물은 한 자리도 판정하지 않는다.",
+      why:
+        "옳음은 **문장의 뜻**이지 소스의 바이트가 아니다 — `round-notes`의 468이 옳은 이유는 노트가 " +
+        "석 벌 늘었기 때문이고, 그 사실은 이 대장이 아니라 사람이 안다. ⚠️ 그리고 그 판정을 자로 " +
+        "만들려면 *사각의 이름이 오늘도 같은 것을 가리키는가*를 먼저 물어야 하는데, 그것은 다음 " +
+        "줄(`stale-prose-not-value`)이 이름 붙인 더 큰 병이다.",
+      uncountable: {
+        wantedToCount:
+          "갈린 여덟 가운데 **적힌 값이 틀렸던 자리의 수**와 **오늘의 자가 틀린 자리의 수** — 그 둘이 " +
+          "있어야 *갈림이 낡음인가 병인가*를 값으로 말할 수 있다.",
+        missingFromSource:
+          "소스에는 두 수와 두 시점만 있고 **어느 쪽이 옳은지를 가르는 바이트가 없다.** 옳음을 " +
+          "세려면 사각의 이름이 가리키는 대상이 그 사이에 바뀌지 않았음을 알아야 하는데, 그 앎은 " +
+          "라운드 노트와 판정 문서의 **문장**에 있지 이 대장의 모집단에 없다 — 걷기의 문제가 아니라 " +
+          "**모집단의 문제**다(라운드 94 트랙 B가 같은 자리에서 쓴 말이다).",
+        zeroMeans:
+          "⚠️⚠️ **여기서 판정 0건은 *다 옳다*가 아니라 *셀 수 없다*는 뜻이다.** 이 자가 오늘 낸 " +
+          "여덟은 *여덟이 틀렸다*가 아니라 **여덟이 갈렸다**이고, 그 갈림의 절반 이상은 문서가 " +
+          "정직하게 자란 몫이다(F가 절을 더할 때마다 오르는 수들이다)."
+      },
+      reopenCondition:
+        "⚠️ 재개 조건(결정형 · 손은 저장소 안): 사각의 이름이 가리키는 대상이 바뀌었는지를 값으로 " +
+        "가르는 관례가 서는 날 — 그날 이 자는 *갈렸다* 옆에 *어느 쪽이 옳은가*를 함께 물 수 있다."
+    },
+    {
+      id: "stale-prose-not-value",
+      what:
+        "⚠️⚠️ **값은 파생으로 고쳤지만 *산문*은 아직 옛 수를 지고 있다**(AH-3이 이름 붙인 병의 " +
+        "세 번째 얼굴). 사각의 `what`·`why`가 *'노트 쉰한 벌에 377'* 처럼 옛 실측을 문장으로 " +
+        "담고 있고, `valueToday`가 파생이 된 오늘도 **그 문장은 여전히 손이 적은 수**다. " +
+        "⚠️ 이 자는 그 가운데 **오늘의 자와 갈린 수를 담은 자리만** 센다.",
+      why:
+        "문장을 자로 만들려면 문장의 어느 수가 *오늘의 값*이고 어느 수가 *그 라운드의 기록*인지를 " +
+        "갈라야 하는데, 이 대장의 관례는 옛 수를 **일부러** 문장에 남기는 것이다(두 시점 · AE-3) — " +
+        "그래서 *낡은 산문*과 *기록으로 남긴 산문*이 같은 낯으로 읽힌다. ⚠️ **오차 방향은 조용한 " +
+        "쪽이다**: 한글 수사로 적힌 수(*'오늘 창 열둘'*)는 이 자가 보지 못한다.",
+      measure: (baseDir) => staleProseBlindSpots(baseDir).length,
+      floor: 0,
+      reopenCondition:
+        "⚠️ 재개 조건(사건형): 사각의 문장이 *오늘의 값*을 숫자로 적지 않고 자에게 미루기 시작하는 " +
+        "날 — 그날 이 수가 0으로 내려가고, 그것이 이 병이 닫히는 신호다. ⚠️ 0으로 내려가는 것이 " +
+        "**좋은 방향**이라 하한을 0으로 둔다."
+    },
+    {
+      id: "only-this-ledger",
+      what:
+        "⚠️ **이 자는 이 대장 하나만 본다** — 저장소에서 사각 목록을 지고 있는 다른 파일 **여섯**은 " +
+        "밖이다(사문 대장 · 앵커 대장 · 계약 그물 대장 · 접근성 체크표 · 그 짝 계약 둘). " +
+        "그 여섯 가운데 자를 지닌 것은 사문 대장뿐이고, 나머지의 적힌 값이 오늘의 자와 갈렸는지는 " +
+        "**아무도 세지 않는다.**",
+      why:
+        "저장소의 모든 대장으로 넓히면 이 트랙의 축이 *한 파일*이 아니라 **저장소 전체**가 된다 — " +
+        "라운드 95의 배정 규율(AI-2의 답)이 정확히 그것을 막는다. ⚠️ 그리고 그 여섯은 여섯 트랙의 " +
+        "소유라 남의 파일을 여는 일이기도 하다.",
+      measure: (baseDir) => otherBlindSpotLedgers(baseDir).length,
+      floor: 2,
+      reopenCondition:
+        "⚠️ 재개 조건(결정형 · 손은 저장소 안): 사각의 값을 자에서 파생시키는 것이 저장소 관례로 " +
+        "서는 날(결정형 #25의 옆 물음) — 그날 첫 모집단은 오늘의 여섯이다."
+    },
+    {
+      id: "recorded-ratchet-blocks-good-hand",
+      what:
+        "⚠️⚠️ **오르는 쪽 래칫이 옳은 손을 막을 수 있는 자리 넷** — `folded-notation` · " +
+        "`three-needle-residual` · `emphasis-axis-not-opened` · `prose-elapsed`는 자기 문장에 " +
+        "*이 수가 0으로 내려가는 것은 **좋은 방향***이라고 적어 두었다. 그 자리가 정당하게 줄면 " +
+        "`recordedRatchetViolations`가 빨개진다.",
+      why:
+        "⚠️ **그래도 래칫을 끄지 않는 이유는 그날의 고침이 한 줄이기 때문이다** — 하한을 내리는 것이 " +
+        "아니라 `recorded`에 **시점 하나를 더하는 것**이고, 그것이 이 대장이 지키려는 바로 그 일" +
+        "(*언제 무엇이 참이었는지를 남기는 것*)이다. ⚠️ 반대로 래칫을 끄면 값이 조용히 낡던 그 " +
+        "자리로 돌아간다 — 오늘 여덟이 갈려 있었는데 아무 소리도 나지 않았던 것이 그 증거다.",
+      measure: () => downwardGoodBlindSpots().length,
+      floor: 1,
+      reopenCondition:
+        "⚠️ 재개 조건(사건형): 그 넷 가운데 하나가 실제로 줄어 이 래칫이 처음 빨개지는 날 — 그날 " +
+        "사람이 볼 것은 *조건이 소진된 것인가, 이름이 틀렸던 것인가*이고, 어느 쪽이든 고칠 곳은 " +
+        "하한이 아니라 그 자리의 기록이다."
+    }
+  ];
+}

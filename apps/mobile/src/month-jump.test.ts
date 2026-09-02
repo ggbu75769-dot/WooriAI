@@ -128,11 +128,31 @@ describe("달 점프 — 한 해치 격자와 연도 스테퍼", () => {
   it("못 누르는 칸은 **왜** 못 누르는지까지 말한다 (라운드 61 E가 픽커에 건 계약과 같은 규율)", () => {
     const view = buildMonthJumpYear({ year: 2026, selectedYearMonth: "2026-07", bounds });
     expect(view.cells[8].accessibilityLabel).toBe(`2026년 9월, ${MONTH_JUMP_FUTURE_HINT}`);
-    expect(view.cells[6].accessibilityLabel).toBe("2026년 7월, 선택됨");
+    // ⚠️ **두 시점(라운드 95 트랙 A)** — 이 줄은 `.toBe("2026년 7월, 선택됨")`이었다. 선택 여부는
+    // 상태(`accessibilityState.selected`)가 지므로 라벨이 같은 사실을 말로 다시 적지 않는다.
+    expect(view.cells[6].accessibilityLabel).toBe("2026년 7월");
     expect(view.cells[7].accessibilityLabel).toBe("이번 달, 2026년 8월");
 
     const before = buildMonthJumpYear({ year: 2024, selectedYearMonth: "2026-07", bounds });
     expect(before.cells[0].accessibilityLabel).toBe(`2024년 1월, ${MONTH_JUMP_BEFORE_START_HINT}`);
+  });
+
+  it("선택 여부가 라벨을 바꾸지 않는다 — 그 사실은 상태가 진다 (라운드 95 트랙 A)", () => {
+    // 같은 달을 고른 해와 고르지 않은 해에서 **같은 칸의 라벨이 한 글자도 다르지 않다**.
+    const selected = buildMonthJumpYear({ year: 2026, selectedYearMonth: "2026-07", bounds });
+    const elsewhere = buildMonthJumpYear({ year: 2026, selectedYearMonth: "2026-03", bounds });
+    expect(selected.cells[6].isSelected).toBe(true);
+    expect(elsewhere.cells[6].isSelected).toBe(false);
+    expect(selected.cells[6].accessibilityLabel).toBe(elsewhere.cells[6].accessibilityLabel);
+    // 그리고 어느 칸도 상태 낱말을 라벨에 싣지 않는다(열두 칸 전수).
+    for (const cell of [...selected.cells, ...elsewhere.cells]) {
+      expect(cell.accessibilityLabel, `${cell.yearMonth}의 라벨`).not.toContain("선택됨");
+    }
+    // ⚠️ 선택됐는데 못 고르는 칸에서는 **이유가 대신 들어온다**(종전에는 이유가 조용했다).
+    const beyond = buildMonthJumpYear({ year: 2026, selectedYearMonth: "2026-12", bounds });
+    expect(beyond.cells[11].isSelected).toBe(true);
+    expect(beyond.cells[11].isSelectable).toBe(false);
+    expect(beyond.cells[11].accessibilityLabel).toBe(`2026년 12월, ${MONTH_JUMP_FUTURE_HINT}`);
   });
 
   it("연도 이동은 고를 수 있는 달이 하나라도 있는 해로만 간다", () => {
