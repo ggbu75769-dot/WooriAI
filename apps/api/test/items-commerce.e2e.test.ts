@@ -442,14 +442,19 @@ describe("Items, commerce, and affiliate API", () => {
       usedSecondhandOk: false
     });
     expect(carSeatDetail.reasonText.length).toBeGreaterThan(0);
-    const affiliateLink = carSeatDetail.productLinks.find((link) => link.isAffiliate);
-    // DNC-010/DNC-011: 제휴 고지 문구는 계약상 필드로 존재해야 한다 (productLinkSchema).
-    productLinkSchema.parse(affiliateLink);
-    expect(affiliateLink).toMatchObject({
-      isAffiliate: true,
-      isSponsored: false,
-      disclosureText: expect.stringContaining("제휴")
-    });
+    // 플랜 B(LP-A · 72h 계획 §5): 시드 링크는 전부 일반(비제휴) 쿠팡 검색 링크다 — 제휴
+    // 고지도 스폰서 배지도 서지 않아야 한다(수수료를 받지 않는 링크의 고지는 허위 고지 ·
+    // DNC-010/DNC-011의 반대 방향 오류). 스폰서 예시는 비활성 슬롯이라 상세(active만 내리는
+    // 집합)에 나타나지 않는다.
+    expect(carSeatDetail.productLinks.length).toBeGreaterThan(0);
+    // (DTO는 원문 url을 싣지 않는다 — 클릭/공유는 리다이렉트를 지난다. URL 자체가 실 쿠팡
+    // 검색 링크라는 사실은 시드 계약 apps/api/test/seed-data.test.ts가 잠근다.)
+    for (const link of carSeatDetail.productLinks) {
+      productLinkSchema.parse(link);
+      expect(link.isAffiliate).toBe(false);
+      expect(link.isSponsored).toBe(false);
+      expect(link.disclosureText ?? "").not.toContain("제휴");
+    }
 
     const strollerDetail = (
       await request(app.getHttpServer())
@@ -458,67 +463,116 @@ describe("Items, commerce, and affiliate API", () => {
         .expect(200)
     ).body as { productLinks: ProductLink[] };
     itemDetailSchema.parse(strollerDetail);
-    expect(strollerDetail.productLinks).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          isSponsored: true,
-          disclosureText: expect.stringContaining("스폰서")
-        })
-      ])
-    );
+    expect(strollerDetail.productLinks.length).toBeGreaterThan(0);
+    expect(strollerDetail.productLinks.every((link) => !link.isSponsored)).toBe(true);
 
-    const clickResponse = await request(app.getHttpServer())
-      .post(`/api/v1/product-links/${affiliateLink!.id}/click`)
-      .set("Authorization", `Bearer ${accessToken}`)
-      .set("User-Agent", "wooriai-e2e-test-agent/1.0")
-      .send({ childId, referrerScreenId: "ITEM-003" })
-      .expect(200);
-
-    // CON-121: 제휴 클릭 응답 계약 — redirectUrl은 실제 URL 형태여야 한다.
-    affiliateClickResponseSchema.parse(clickResponse.body);
-    expect(clickResponse.body).toMatchObject({
-      clickId: expect.any(String),
-      redirectUrl: "https://example.com/dev/affiliate/car-seat",
-      disclosureText: expect.stringContaining("제휴")
+    // 제휴 고지·스폰서 마커·클릭 로깅 계약은 시드가 아니라 **자기 픽스처**로 검증한다 —
+    // 플랜 A(쿠팡 파트너스 딥링크)가 들어오면 실데이터가 다시 이 모양이 된다. dev/test
+    // 허용목록 폴백이 example.com을 포함하므로 클릭 가드도 그대로 지난다(TEST-131의 규율:
+    // 시드 행을 건드리지 않고 자기 링크로 같은 코드 경로를 지난다).
+    const prisma = moduleRef.get(PrismaService);
+    const fixture = await createOwnClickFixture(prisma, {
+      url: "https://example.com/dev/lp-a-trust",
+      affiliateUrl: "https://example.com/dev/affiliate/lp-a-trust"
     });
 
-    /**
-     * GAP-067 #4 — 앱이 **밖으로 내보내는** URL은 우리 리다이렉트를 지난다.
-     *
-     * 라운드 64 C-1과 같은 방식으로 본다: 값의 모양을 다시 조립해 비교하면(동어반복) 그 주소가
-     * 실제로 어디로도 가지 않는다는 사실을 통과시킨다. 그래서 **그 주소를 실제로 때린다**.
-     */
-    const shareUrl = String(clickResponse.body.shareUrl);
-    expect(shareUrl).not.toBe(clickResponse.body.redirectUrl);
-    const sharePath = new URL(shareUrl).pathname;
-    const shared = await request(app.getHttpServer()).get(sharePath);
-    expect(shared.status, `공유 URL이 가리키는 경로가 응답하지 않는다: ${sharePath}`).toBe(302);
-    // 목적지는 그 링크 자신의 제휴 주소다 — 즉 **여는 URL과 같은 곳**으로 간다.
-    expect(shared.headers.location).toBe(clickResponse.body.redirectUrl);
+    try {
+      await prisma.productLink.create({
+        data: {
+          itemTemplateId: fixture.templateId,
+          platform: "custom",
+          title: "스폰서 마커 테스트 링크",
+          url: "https://example.com/dev/lp-a-sponsored",
+          isSponsored: true,
+          sponsorLabel: "스폰서 테스트",
+          active: true,
+          displayOrder: 90,
+          healthStatus: "ok",
+          healthCheckedAt: new Date()
+        }
+      });
 
-    const prisma = moduleRef.get(PrismaService);
-    const affiliateClickEntries = await prisma.affiliateClick.findMany({ where: { productLinkId: affiliateLink!.id } });
-    expect(affiliateClickEntries).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: clickResponse.body.clickId,
-          householdId,
-          childId,
-          itemTemplateId: carSeat!.id,
-          productLinkId: affiliateLink!.id,
-          platform: affiliateLink!.platform,
-          referrerScreenId: "ITEM-003"
-        })
-      ])
-    );
+      const fixtureDetail = (
+        await request(app.getHttpServer())
+          .get(`/api/v1/children/${childId}/items/${fixture.templateId}`)
+          .set("Authorization", `Bearer ${accessToken}`)
+          .expect(200)
+      ).body as { productLinks: ProductLink[] };
 
-    // COM-106: subId is a self-generated uuid (same value as the row's own id) rather than
-    // anything derived from the user/child, and ipHash/userAgent are populated without ever
-    // storing the raw client IP.
-    const loggedClick = affiliateClickEntries.find((entry) => entry.id === clickResponse.body.clickId)!;
-    expect(loggedClick.subId).toBe(clickResponse.body.clickId);
-    expect(loggedClick.ipHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(loggedClick.userAgent).toBe("wooriai-e2e-test-agent/1.0");
+      const affiliateLink = fixtureDetail.productLinks.find((link) => link.isAffiliate);
+      // DNC-010/DNC-011: 제휴 고지 문구는 계약상 필드로 존재해야 한다 (productLinkSchema).
+      productLinkSchema.parse(affiliateLink);
+      expect(affiliateLink).toMatchObject({
+        isAffiliate: true,
+        isSponsored: false,
+        disclosureText: expect.stringContaining("제휴")
+      });
+      // DNC-011: 스폰서 링크는 구분 표시와 스폰서 고지를 함께 받는다.
+      expect(fixtureDetail.productLinks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            isSponsored: true,
+            disclosureText: expect.stringContaining("스폰서")
+          })
+        ])
+      );
+
+      const clickResponse = await request(app.getHttpServer())
+        .post(`/api/v1/product-links/${affiliateLink!.id}/click`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .set("User-Agent", "wooriai-e2e-test-agent/1.0")
+        .send({ childId, referrerScreenId: "ITEM-003" })
+        .expect(200);
+
+      // CON-121: 제휴 클릭 응답 계약 — redirectUrl은 실제 URL 형태여야 한다.
+      affiliateClickResponseSchema.parse(clickResponse.body);
+      expect(clickResponse.body).toMatchObject({
+        clickId: expect.any(String),
+        redirectUrl: "https://example.com/dev/affiliate/lp-a-trust",
+        disclosureText: expect.stringContaining("제휴")
+      });
+
+      /**
+       * GAP-067 #4 — 앱이 **밖으로 내보내는** URL은 우리 리다이렉트를 지난다.
+       *
+       * 라운드 64 C-1과 같은 방식으로 본다: 값의 모양을 다시 조립해 비교하면(동어반복) 그 주소가
+       * 실제로 어디로도 가지 않는다는 사실을 통과시킨다. 그래서 **그 주소를 실제로 때린다**.
+       */
+      const shareUrl = String(clickResponse.body.shareUrl);
+      expect(shareUrl).not.toBe(clickResponse.body.redirectUrl);
+      const sharePath = new URL(shareUrl).pathname;
+      const shared = await request(app.getHttpServer()).get(sharePath);
+      expect(shared.status, `공유 URL이 가리키는 경로가 응답하지 않는다: ${sharePath}`).toBe(302);
+      // 목적지는 그 링크 자신의 제휴 주소다 — 즉 **여는 URL과 같은 곳**으로 간다.
+      expect(shared.headers.location).toBe(clickResponse.body.redirectUrl);
+
+      const affiliateClickEntries = await prisma.affiliateClick.findMany({
+        where: { productLinkId: affiliateLink!.id }
+      });
+      expect(affiliateClickEntries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: clickResponse.body.clickId,
+            householdId,
+            childId,
+            itemTemplateId: fixture.templateId,
+            productLinkId: affiliateLink!.id,
+            platform: affiliateLink!.platform,
+            referrerScreenId: "ITEM-003"
+          })
+        ])
+      );
+
+      // COM-106: subId is a self-generated uuid (same value as the row's own id) rather than
+      // anything derived from the user/child, and ipHash/userAgent are populated without ever
+      // storing the raw client IP.
+      const loggedClick = affiliateClickEntries.find((entry) => entry.id === clickResponse.body.clickId)!;
+      expect(loggedClick.subId).toBe(clickResponse.body.clickId);
+      expect(loggedClick.ipHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(loggedClick.userAgent).toBe("wooriai-e2e-test-agent/1.0");
+    } finally {
+      await removeOwnClickFixture(prisma, fixture);
+    }
   });
 
   it("pushes health-broken links to the end of the item detail without changing the response shape (UX-W C1)", async () => {

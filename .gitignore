@@ -13,6 +13,9 @@ ios/
 .env
 .env.*
 !.env.example
+
+# 출시 준비 설정(카카오 키 포함 — scripts/launch/prepare.ts 입력). example만 커밋한다.
+launch.config.json
 *.log
 *.tsbuildinfo
 artifacts/

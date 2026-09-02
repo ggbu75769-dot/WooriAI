@@ -1,0 +1,161 @@
+# LP-C: Play 제출용 "서명된 AAB"를 GitHub-hosted 러너에서 빌드한다.
+# (컨테이너 개발 환경은 dl.google.com 차단으로 gradle 빌드 불가 — android-apk.yml과 같은 이유로
+#  Actions가 자동 빌드 경로. 러너 문제로 실패하면 로컬 빌드가 폴백 —
+#  docs/store/submission-checklist.md §0.2 / docs/5차/launch-72h-plan.md §3.2)
+#
+# 환경 세팅(pnpm·node22·JDK17·prebuild 흐름)은 검증된 android-apk.yml 스텝을 그대로 재사용하고,
+# 빌드만 REL-011 원커맨드(pnpm android:build-aab)로 바꾼다 — env 검증→prebuild(서명 주입)→
+# gradle :app:bundleRelease→artifacts/android/*.aab 산출까지 스크립트가 수행한다.
+#
+# 사용자가 준비할 것 (한 번만):
+#   시크릿 4개 (Settings → Secrets and variables → Actions → Secrets)
+#     WOORIAI_KEYSTORE_B64 · WOORIAI_KEYSTORE_PASSWORD · WOORIAI_KEY_ALIAS · WOORIAI_KEY_PASSWORD
+#     → scripts/release/make-keystore.sh 가 값 생성 + 등록 안내를 출력한다.
+#   변수 (같은 화면의 Variables 탭 — 비밀 아닌 앱 구성값. AAB 빌드가 fail-closed로 요구:
+#         없으면 localhost API·개발 스텁 로그인이 실사용자에게 실리기 때문 — 라운드 73 트랙 A)
+#     필수: WOORIAI_ANDROID_PACKAGE · EXPO_PUBLIC_API_BASE_URL(https) ·
+#           EXPO_PUBLIC_KAKAO_CLIENT_ID · EXPO_PUBLIC_TERMS_URL · EXPO_PUBLIC_PRIVACY_POLICY_URL
+#     선택: EXPO_PUBLIC_KAKAO_REDIRECT_URI(기본 wooriai://oauth/kakao) ·
+#           EXPO_PUBLIC_SUPPORT_URL · EXPO_PUBLIC_FAQ_URL(없으면 opt-out 플래그로 빌드하되 경고)
+#
+# 비밀값 로그 안전: GitHub Actions가 시크릿을 자동 마스킹하고, 추가로 keystore는 base64 디코드로
+# 러너 임시 디렉터리에 파일로만 복원한다(echo 금지, set +x). gradle 파일에는 System.getenv 참조만
+# 남는다(REL-011). 시크릿은 fork PR에는 노출되지 않으며 이 워크플로는 workflow_dispatch 전용이다.
+name: android-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "스토어 표기 버전 (WOORIAI_APP_VERSION, 예: 1.0.0)"
+        type: string
+        default: "1.0.0"
+      version_code:
+        description: "Play versionCode (WOORIAI_ANDROID_VERSION_CODE) — 업로드마다 증가하는 양의 정수"
+        type: string
+        default: "1"
+
+jobs:
+  build-aab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── 시크릿·변수 사전 점검: 없는 항목을 "전부" 나열하고 즉시 실패 (의존성 설치 전에) ──
+      - name: 시크릿·변수 사전 점검
+        env:
+          SECRET_KEYSTORE_B64: ${{ secrets.WOORIAI_KEYSTORE_B64 }}
+          SECRET_KEYSTORE_PASSWORD: ${{ secrets.WOORIAI_KEYSTORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.WOORIAI_KEY_ALIAS }}
+          SECRET_KEY_PASSWORD: ${{ secrets.WOORIAI_KEY_PASSWORD }}
+          VAR_ANDROID_PACKAGE: ${{ vars.WOORIAI_ANDROID_PACKAGE }}
+          VAR_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL }}
+          VAR_KAKAO_CLIENT_ID: ${{ vars.EXPO_PUBLIC_KAKAO_CLIENT_ID }}
+          VAR_TERMS_URL: ${{ vars.EXPO_PUBLIC_TERMS_URL }}
+          VAR_PRIVACY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
+          INPUT_VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set +x
+          missing_secrets=""
+          missing_vars=""
+          [ -n "$SECRET_KEYSTORE_B64" ]      || missing_secrets="$missing_secrets WOORIAI_KEYSTORE_B64"
+          [ -n "$SECRET_KEYSTORE_PASSWORD" ] || missing_secrets="$missing_secrets WOORIAI_KEYSTORE_PASSWORD"
+          [ -n "$SECRET_KEY_ALIAS" ]         || missing_secrets="$missing_secrets WOORIAI_KEY_ALIAS"
+          [ -n "$SECRET_KEY_PASSWORD" ]      || missing_secrets="$missing_secrets WOORIAI_KEY_PASSWORD"
+          [ -n "$VAR_ANDROID_PACKAGE" ]      || missing_vars="$missing_vars WOORIAI_ANDROID_PACKAGE(예: kr.wooriai.app)"
+          [ -n "$VAR_API_BASE_URL" ]         || missing_vars="$missing_vars EXPO_PUBLIC_API_BASE_URL(https://<도메인>/api/v1)"
+          [ -n "$VAR_KAKAO_CLIENT_ID" ]      || missing_vars="$missing_vars EXPO_PUBLIC_KAKAO_CLIENT_ID"
+          [ -n "$VAR_TERMS_URL" ]            || missing_vars="$missing_vars EXPO_PUBLIC_TERMS_URL"
+          [ -n "$VAR_PRIVACY_URL" ]          || missing_vars="$missing_vars EXPO_PUBLIC_PRIVACY_POLICY_URL"
+          if [ -n "$missing_secrets" ] || [ -n "$missing_vars" ]; then
+            echo "::error::릴리즈 AAB 빌드에 필요한 설정이 비어 있습니다."
+            [ -z "$missing_secrets" ] || echo "::error::미등록 시크릿:$missing_secrets — Settings → Secrets and variables → Actions → [Secrets] 탭. 값 생성: bash scripts/release/make-keystore.sh"
+            [ -z "$missing_vars" ] || echo "::error::미등록 변수:$missing_vars — 같은 화면의 [Variables] 탭 (비밀 아닌 앱 구성값). 안내: docs/store/submission-checklist.md §0.2"
+            exit 1
+          fi
+          case "$INPUT_VERSION_CODE" in
+            ''|*[!0-9]*) echo "::error::version_code 입력이 양의 정수가 아닙니다: $INPUT_VERSION_CODE"; exit 1 ;;
+          esac
+          echo "사전 점검 통과 — 시크릿 4개·필수 변수 5개 확인됨."
+
+      # ── 이하 환경 세팅은 android-apk.yml과 동일 ──
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: 의존성 설치
+        run: pnpm install --frozen-lockfile
+
+      # keystore는 base64 디코드로 러너 임시 디렉터리에 "파일로만" 복원한다.
+      # (stdout으로 흘리지 않는다 — set +x, printf → base64 -d → 파일. job 종료 시 러너째 폐기.)
+      - name: keystore 복원
+        env:
+          SECRET_KEYSTORE_B64: ${{ secrets.WOORIAI_KEYSTORE_B64 }}
+        run: |
+          set +x
+          umask 077
+          printf '%s' "$SECRET_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/wooriai-upload.keystore"
+          [ -s "$RUNNER_TEMP/wooriai-upload.keystore" ] || { echo "::error::WOORIAI_KEYSTORE_B64 디코드 결과가 비어 있습니다 — base64 값이 맞는지 확인하세요 (scripts/release/make-keystore.sh 출력 참고)."; exit 1; }
+          echo "keystore 복원 완료 ($(stat -c%s "$RUNNER_TEMP/wooriai-upload.keystore") bytes)"
+
+      # REL-011 원커맨드: env 검증 → expo prebuild(config plugin이 서명 구성을 System.getenv
+      # 참조로 주입) → gradle :app:bundleRelease → artifacts/android/*.aab + 리포트 JSON.
+      # android-apk.yml의 "expo prebuild → 빌드" 두 스텝을 스크립트가 내부에서 수행한다.
+      - name: 서명된 AAB 빌드 (pnpm android:build-aab)
+        env:
+          WOORIAI_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.WOORIAI_KEYSTORE_PASSWORD }}
+          WOORIAI_UPLOAD_KEY_ALIAS: ${{ secrets.WOORIAI_KEY_ALIAS }}
+          WOORIAI_UPLOAD_KEY_PASSWORD: ${{ secrets.WOORIAI_KEY_PASSWORD }}
+          WOORIAI_ANDROID_PACKAGE: ${{ vars.WOORIAI_ANDROID_PACKAGE }}
+          WOORIAI_APP_VERSION: ${{ inputs.version_name }}
+          WOORIAI_ANDROID_VERSION_CODE: ${{ inputs.version_code }}
+          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL }}
+          EXPO_PUBLIC_KAKAO_ENABLED: "1"
+          EXPO_PUBLIC_KAKAO_CLIENT_ID: ${{ vars.EXPO_PUBLIC_KAKAO_CLIENT_ID }}
+          EXPO_PUBLIC_KAKAO_REDIRECT_URI: ${{ vars.EXPO_PUBLIC_KAKAO_REDIRECT_URI || 'wooriai://oauth/kakao' }}
+          EXPO_PUBLIC_TERMS_URL: ${{ vars.EXPO_PUBLIC_TERMS_URL }}
+          EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
+          EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}
+          EXPO_PUBLIC_FAQ_URL: ${{ vars.EXPO_PUBLIC_FAQ_URL }}
+        run: |
+          set +x
+          export WOORIAI_UPLOAD_KEYSTORE="$RUNNER_TEMP/wooriai-upload.keystore"
+          # 지원·FAQ 변수 미등록 시: 빌드 스크립트의 "명시 opt-out" 계약대로 플래그를 적고
+          # 지나간다 — 스크립트가 무엇을 잃는지 경고를 출력한다(침묵 통과 아님, 라운드 73 트랙 A).
+          if [ -z "$EXPO_PUBLIC_SUPPORT_URL" ] || [ -z "$EXPO_PUBLIC_FAQ_URL" ]; then
+            export WOORIAI_ALLOW_MISSING_SUPPORT_LINKS=1
+          fi
+          pnpm android:build-aab
+
+      - name: keystore 삭제
+        if: always()
+        run: rm -f "$RUNNER_TEMP/wooriai-upload.keystore"
+
+      # 산출물: 서명된 AAB + 빌드 리포트 JSON (비밀값 미포함 — 스크립트가 경로·버전만 기록).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wooriai-release-aab-v${{ inputs.version_name }}-vc${{ inputs.version_code }}
+          path: |
+            artifacts/android/wooriai-${{ inputs.version_name }}-vc${{ inputs.version_code }}-release.aab
+            artifacts/android/wooriai-${{ inputs.version_name }}-vc${{ inputs.version_code }}-release.aab.json
+          if-no-files-found: error
+          retention-days: 30
+
+      # R8 mapping 파일 — Play Console "난독화 해제 파일" 업로드용. 현행 expo 템플릿은
+      # release minify가 꺼져 있어(enableProguardInReleaseBuilds=false) 없을 수 있으므로
+      # ignore로 올린다(없어도 실패 아님 — 켜는 날부터 자동으로 실린다).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wooriai-release-mapping-v${{ inputs.version_name }}-vc${{ inputs.version_code }}
+          path: apps/mobile/android/app/build/outputs/mapping/release/
+          if-no-files-found: ignore
+          retention-days: 30

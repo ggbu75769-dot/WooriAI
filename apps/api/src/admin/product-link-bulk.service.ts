@@ -74,10 +74,11 @@ type ValidatedRow = {
 
 /**
  * COM-107-prep: bulk affiliate-link replacement. When 쿠팡 파트너스/네이버 커넥트
- * approval arrives, the 58 seeded example.com product links get swapped via a
- * single CSV upload: preview validates every row without writing; apply updates
- * only the valid rows transactionally and is idempotent (an unchanged row
- * counts as skipped, so re-uploading the same CSV is a no-op).
+ * approval arrives, the seeded product links (플랜 B 이후 일반 쿠팡 검색 링크 —
+ * 템플릿: docs/5차/plan-a-affiliate-links-template.csv) get swapped to partner
+ * deep links via a single CSV upload: preview validates every row without
+ * writing; apply updates only the valid rows transactionally and is idempotent
+ * (an unchanged row counts as skipped, so re-uploading the same CSV is a no-op).
  */
 @Injectable()
 export class ProductLinkBulkService {
@@ -155,7 +156,7 @@ export class ProductLinkBulkService {
   private async validate(csv: string): Promise<ValidatedRow[]> {
     const csvRows = parseBulkCsv(csv);
 
-    // Small tables (58 seeded links today, capped CSV) — load once and match
+    // Small tables (67 seeded links today, capped CSV) — load once and match
     // in memory instead of a query per row.
     const [links, templates] = await Promise.all([
       this.prisma.productLink.findMany(),

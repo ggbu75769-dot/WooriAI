@@ -15,10 +15,11 @@ export const PRODUCT_LINK_NOT_FOUND_ERROR = {
 } as const;
 
 /**
- * Dev/test fallback keeps the seeded example.com product-link fixtures (see
- * prisma/seed-data.ts) working without an explicit AFFILIATE_ALLOWED_DOMAINS env var.
- * Any real deployment must set the env var (requireSecret enforces this outside
- * development/test) to the actual affiliate partner domains.
+ * Dev/test fallback keeps the seeded coupang.com search links (prisma/seed-data.ts,
+ * 플랜 B) and the example.com test fixtures (test suites' own product links) working
+ * without an explicit AFFILIATE_ALLOWED_DOMAINS env var. Any real deployment must set
+ * the env var (requireSecret enforces this outside development/test) to the actual
+ * affiliate partner domains.
  */
 const DEV_ALLOWED_DOMAINS_FALLBACK =
   "coupang.com,link.coupang.com,smartstore.naver.com,shopping.naver.com,brand.naver.com,example.com";

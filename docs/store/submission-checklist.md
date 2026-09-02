@@ -17,15 +17,25 @@
 - [ ] 릴리즈 AAB(`pnpm android:build-aab` — REL-011 원커맨드, keystore env 4종 + 앱 env 4종
       필요, release keystore 서명 자동 주입)와 versionCode 확정. (env 없이 gradle 직접 실행 금지
       — debug 서명 AAB는 Play 업로드 거부, `docs/5차/launch-72h-plan.md` §3.2)
-- [ ] ⛔ **스토어 자산 재캡처 — 제출 차단 항목** (2026-08-29 · 라운드 73 트랙 B, GAP-073 #2):
-      **오늘 기준으로는 제출할 수 없어요.** 스크린샷 3장의 원본은 `#FF6B52`/`#FFF8F1` 팔레트의
-      **DSN-053(2026-08-27) 이전 빌드 캡처**이고, 512 아이콘과 1024×500 피처 그래픽은
-      **`#DB4F2E`/`#FFF8F1`** — 어느 시점의 토큰도 아닌 색이에요. 지금 앱은 `#C94627`/`#FFFDFC`
-      (DNC-017 v0.5)라서, 이대로 올리면 **사람이 스토어에서 본 앱과 설치한 앱이 다른 앱**이에요.
-      Play 정책도 스크린샷이 실제 앱을 대표할 것을 요구해요. 해제 조건은 아래 §0.1이고,
-      자산별 현황은 `docs/store/play-listing.md` §6이에요.
+      **빌드 경로는 §0.2 참고** — GitHub Actions(권장)와 로컬(폴백) 두 경로가 있음.
+- [x] ✅ **스토어 자산 재생성 완료 — 종전 ⛔(제출 차단) 해제** (차단: 2026-08-29 · 라운드 73
+      트랙 B, GAP-073 #2 → 해제: 2026-09-02 · LP-E/LP-G): **pre-DSN-053 잔존이 0건이 됐어요.**
+      - 차단 당시 사실: 스크린샷 3장의 원본은 `#FF6B52`/`#FFF8F1` 팔레트의 **DSN-053(2026-08-27)
+        이전 빌드 캡처**, 512 아이콘·피처 그래픽은 `#DB4F2E`/`#FFF8F1`(어느 시점의 토큰도 아닌
+        색)이었어요 — 이대로 올리면 스토어에서 본 앱과 설치한 앱이 다른 앱이었어요.
+      - 해제된 사실(2026-09-02 실측): 스크린샷 3장 원본은 **DSN-053+ 계보의 expo web 픽셀락
+        캡처**(commit 1271880 — 계보·"실기기 아님" 명기는 `docs/store/assets/screenshot-manifest.json`
+        `capturedFrom`), 512 아이콘은 `apps/mobile/assets/icon.png`(DSN-053 복원본)에서 512px
+        재내보내기, 피처 그래픽은 신설 `scripts/store/feature_graphic.py`가
+        `docs/brand/brand-tokens.json`(`#C94627`/`#FFFDFC`)에서 색을 읽어 재생성했어요
+        (계보: `docs/store/assets/graphic-assets-manifest.json`). 자산별 실측은
+        `docs/store/play-listing.md` §6.
+      - **웹 캡처 채택은 품질 하락이 아니에요** — ⛔의 근거는 "pre-DSN-053 계보(옛 색)"였지
+        웹 캡처 자체가 아니고, 종전 스토어 원본 3장도 원래 expo web 캡처였어요
+        (`docs/ui-pixel-lock/live-screenshots/manifest.json`). **실기기 재촬영은 선택 개선**으로
+        남고, 그때는 아래 §0.1을 그대로 따라가요.
 
-## 0.1 스토어 자산 재캡처 절차 (§0의 ⛔를 초록으로 바꾸는 유일한 길)
+## 0.1 스토어 자산 재캡처 절차 (실기기 캡처로 갈아탈 때 따라가는 길 — 2026-09-02부터 선택 개선)
 
 > 손으로 새 이미지를 그리지 않아요. 기기 없이 만든 이미지는 "지금 앱이 아닌 것"을 한 장 더
 > 늘릴 뿐이에요. 저장소에는 이미 **기기 캡처 파이프라인**이 있으니 그 산출물에서 뽑아요 —
@@ -44,7 +54,7 @@
 
    | 칸 | 값 | 규칙 |
    |---|---|---|
-   | `lineage` | `"DSN-053+"` 또는 `"pre-DSN-053"` | **빈 칸·미선언은 계약이 빨간불로 잡아요.** 오늘은 셋 다 `pre-DSN-053`이에요 |
+   | `lineage` | `"DSN-053+"` 또는 `"pre-DSN-053"` | **빈 칸·미선언은 계약이 빨간불로 잡아요.** 2026-09-02부터 셋 다 `DSN-053+`예요 |
    | `build` | 그 캡처를 만든 빌드 이름(예: 픽셀락 릴리즈 태그) | `DSN-053+`라고 적으려면 **반드시** 채워요 |
    | `commit` | 그 빌드의 커밋 SHA | `DSN-053+`라고 적으려면 **반드시** 채워요 |
    | `capturedAt` | 캡처 일자(`YYYY-MM-DD`) | — |
@@ -57,8 +67,77 @@
    (프레임 코드 확인 등으로 굳이 돌려야 하면 `ALLOW_PRE_DSN053_CAPTURES=1`을 명시해요 —
    그때도 "스토어에 올리지 마세요"를 출력해요).
 5. **512 아이콘·피처 그래픽을 다시 만들어요.** 아이콘은 `apps/mobile/assets/icon.png`(DSN-053
-   복원본) 원본에서 512px로 내보내고, 피처 그래픽의 색은 같은 값 파일에서 읽어요.
-6. **§0의 ⛔를 지우고 `docs/qa/runtime-verification-required.md`의 해당 행을 초록으로 만들어요.**
+   복원본) 원본에서 512px로 내보내고, 피처 그래픽은 `FRAME_FONT=<한글 폰트> python3
+   scripts/store/feature_graphic.py`로 재생성해요(색은 같은 값 파일, 문구는
+   `docs/store/play-listing.md` §1에서 읽고, 계보는 `graphic-assets-manifest.json`에 남아요).
+6. **§0의 상태 문구와 `docs/qa/runtime-verification-required.md`의 해당 행(#103)을 실측에 맞게
+   갱신해요.** (2026-09-02: §0·§6은 갱신됨 — #103 행의 상태 갱신은 표 소유 규율에 따라 후속 몫)
+
+## 0.2 서명된 AAB 빌드 — 두 경로 (LP-C)
+
+> 개발 컨테이너는 dl.google.com 차단으로 gradle 빌드가 안 되므로(`docs/5차/apk-build-guide.md`)
+> **경로 A(GitHub Actions)가 기본**이에요. 단, 이 레포는 GitHub Actions 러너 문제를 겪은 적이
+> 있으므로(`docs/5차/launch-72h-plan.md` — 로컬 검증이 기준) **러너 문제로 워크플로가 실패하면
+> 경로 B(로컬 빌드)가 폴백**이에요. 어느 경로로 만들든 같은 keystore·같은 env 계약
+> (REL-011, `scripts/build-android-aab.ts`)을 씁니다.
+
+### 경로 A — GitHub Actions 릴리즈 빌드 (`.github/workflows/android-release.yml`, 권장)
+
+한 번만 준비(약 10분):
+
+1. **keystore 생성 + 시크릿 값 출력** (로컬 아무 머신에서, JDK만 있으면 됨):
+
+   ```bash
+   bash scripts/release/make-keystore.sh          # 기본: $HOME/wooriai-release.keystore
+   ```
+
+   RSA 4096 / 유효기간 약 32년 keystore를 만들고, 등록할 시크릿 4개 값(base64 포함)을
+   화면에만 출력해요(비밀값 파일 저장 없음). ⚠️ **출력의 "2곳 백업" 경고를 그대로 따르세요**
+   — keystore+비밀번호 분실 = 앱 영구 업데이트 불가.
+2. **GitHub 시크릿 4개 등록**: 저장소 → Settings → Secrets and variables → Actions → **Secrets** 탭:
+   `WOORIAI_KEYSTORE_B64` · `WOORIAI_KEYSTORE_PASSWORD` · `WOORIAI_KEY_ALIAS` · `WOORIAI_KEY_PASSWORD`
+   (값은 1의 출력 그대로. gh CLI 명령도 스크립트가 출력해요.)
+3. **변수 등록**(같은 화면의 **Variables** 탭 — 비밀 아닌 앱 구성값, 릴리즈마다 재사용):
+   - 필수 5개: `WOORIAI_ANDROID_PACKAGE`(확정 패키지명, 예: kr.wooriai.app) ·
+     `EXPO_PUBLIC_API_BASE_URL`(`https://<도메인>/api/v1`) · `EXPO_PUBLIC_KAKAO_CLIENT_ID` ·
+     `EXPO_PUBLIC_TERMS_URL` · `EXPO_PUBLIC_PRIVACY_POLICY_URL`
+   - 선택: `EXPO_PUBLIC_KAKAO_REDIRECT_URI`(기본 `wooriai://oauth/kakao`) ·
+     `EXPO_PUBLIC_SUPPORT_URL` · `EXPO_PUBLIC_FAQ_URL`(없으면 빌드는 되지만 앱에 도움 링크 0건 —
+     경고가 로그에 남아요)
+   - 이 값들은 AAB 빌드가 fail-closed로 요구해요(없으면 localhost API·개발 스텁 로그인이 실사용자
+     빌드에 실리기 때문 — 라운드 73 트랙 A). 미등록이면 워크플로 첫 스텝이 **없는 항목 전부를
+     나열하며** 즉시 실패해요.
+
+매 릴리즈(클릭 한 번, 빌드 약 15~25분):
+
+4. Actions 탭 → **android-release** → Run workflow → `version_name`(예: 1.0.0) /
+   `version_code`(업로드마다 +1) 입력 → Run.
+5. 완료되면 run 페이지 하단 Artifacts에서 `wooriai-release-aab-v<버전>-vc<코드>` 다운로드
+   (서명된 `.aab` + 빌드 리포트 JSON). `wooriai-release-mapping-*` artifact는 R8 mapping
+   파일용 — 현행 설정은 minify off라 비어 있을 수 있어요(정상).
+6. §3의 내부 테스트 트랙에 업로드.
+
+- 서명 비밀값은 GitHub 시크릿 → 러너 임시 파일(base64 디코드) → gradle `System.getenv` 참조로만
+  흐르고 로그·gradle 파일에 남지 않아요(빌드 스크립트가 누출 검사까지 수행 — REL-011).
+- 실패 시: 로그 첫 스텝(사전 점검) 메시지 → 시크릿/변수 보완. 러너 자체 문제(큐 멈춤·인프라
+  오류)면 아래 경로 B로.
+
+### 경로 B — 로컬 빌드 (폴백, 기존 절차 그대로)
+
+JDK 17 + Android SDK가 있는 본인 머신에서 `docs/5차/launch-72h-plan.md` §3.2의 원커맨드:
+
+```bash
+WOORIAI_UPLOAD_KEYSTORE=$HOME/wooriai-release.keystore \
+WOORIAI_UPLOAD_KEYSTORE_PASSWORD=… WOORIAI_UPLOAD_KEY_ALIAS=wooriai WOORIAI_UPLOAD_KEY_PASSWORD=… \
+EXPO_PUBLIC_API_BASE_URL=https://<도메인>/api/v1 \
+WOORIAI_ANDROID_PACKAGE=<확정 패키지명> WOORIAI_APP_VERSION=1.0.0 WOORIAI_ANDROID_VERSION_CODE=1 \
+EXPO_PUBLIC_KAKAO_ENABLED=1 EXPO_PUBLIC_KAKAO_CLIENT_ID=… EXPO_PUBLIC_KAKAO_REDIRECT_URI=wooriai://oauth/kakao \
+EXPO_PUBLIC_TERMS_URL=… EXPO_PUBLIC_PRIVACY_POLICY_URL=… \
+pnpm android:build-aab
+```
+
+keystore·비밀번호는 경로 A와 **같은 것**을 쓰세요(§0.2-1에서 만든 것 — Play는 업로드 키 일관성을
+요구). 사전 점검만 하려면 `pnpm android:build-aab -- --check`(SDK 불필요).
 
 ## 1. 앱 생성 및 스토어 등록 정보
 

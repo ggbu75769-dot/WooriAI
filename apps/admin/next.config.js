@@ -21,6 +21,18 @@ const API_PROXY_TARGET = process.env.ADMIN_API_PROXY_TARGET ?? "http://localhost
  */
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /**
+   * LP-D: `infra/docker/admin.Dockerfile`이 쓰는 self-contained 서버 번들
+   * (`.next/standalone`) 출력. dev(`next dev`)와 일반 `next build` 결과물에는
+   * 영향이 없고, 빌드 마지막에 standalone 디렉터리가 추가로 생성될 뿐이다.
+   * 주의: standalone 빌드는 next.config.js를 **빌드 시점에** server.js 안으로
+   * 직렬화하므로, 위 rewrites의 `ADMIN_API_PROXY_TARGET`은 컨테이너 이미지에는
+   * 빌드 타임에 구워진다(admin.Dockerfile의 ARG 참조). 런타임 env로는 못 바꾼다.
+   */
+  output: "standalone",
+  // pnpm 모노레포: 워크스페이스 루트를 명시해 standalone 파일 트레이싱이
+  // 루트 node_modules/.pnpm의 실제 의존성까지 포함하도록 한다(자동 감지 경고 억제).
+  outputFileTracingRoot: require("node:path").join(__dirname, "../.."),
   async headers() {
     return [
       {

@@ -1,38 +1,38 @@
 [
   {
     "name": "home",
-    "src": "docs/store/assets/sources/home-clean.png",
+    "src": "docs/store/assets/sources/home.png",
     "caption": "오늘 지출이 한눈에",
     "capturedFrom": {
-      "lineage": "pre-DSN-053",
-      "build": "",
-      "commit": "",
-      "capturedAt": "2026-08-21",
-      "note": "픽셀락 라이브 캡처(430×798). 지배색이 #FF6B52/#FFF8F1이라 DSN-053(2026-08-27) 이전 빌드예요. 재캡처 전에는 제출할 수 없어요."
+      "lineage": "DSN-053+",
+      "build": "expo-web-dev + Playwright Chromium 1194 (viewport 390x844 @3x, EXPO_PUBLIC_PIXEL_LOCK=1, pixel-lock?screen=HOME-001)",
+      "commit": "1271880",
+      "capturedAt": "2026-09-02",
+      "note": "컨테이너 expo web 캡처 — 실기기 캡처 아님. 종전 스토어 원본 3장도 expo web 픽셀락 라이브 캡처였음(docs/ui-pixel-lock/live-screenshots/manifest.json). 실기기 재촬영은 선택 개선."
     }
   },
   {
     "name": "family",
-    "src": "docs/store/assets/sources/family-clean.png",
+    "src": "docs/store/assets/sources/family.png",
     "caption": "가족이 함께 기록해요",
     "capturedFrom": {
-      "lineage": "pre-DSN-053",
-      "build": "",
-      "commit": "",
-      "capturedAt": "2026-08-21",
-      "note": "픽셀락 라이브 캡처(390×842). 지배색이 #FF6A52/#FFF8F1이라 DSN-053(2026-08-27) 이전 빌드예요. 재캡처 전에는 제출할 수 없어요."
+      "lineage": "DSN-053+",
+      "build": "expo-web-dev + Playwright Chromium 1194 (viewport 390x844 @3x, EXPO_PUBLIC_PIXEL_LOCK=1, pixel-lock?screen=FAM-001)",
+      "commit": "1271880",
+      "capturedAt": "2026-09-02",
+      "note": "컨테이너 expo web 캡처 — 실기기 캡처 아님. 종전 스토어 원본 3장도 expo web 픽셀락 라이브 캡처였음(docs/ui-pixel-lock/live-screenshots/manifest.json). 실기기 재촬영은 선택 개선."
     }
   },
   {
     "name": "excel-import",
-    "src": "docs/store/assets/sources/excel-clean.png",
+    "src": "docs/store/assets/sources/excel-import.png",
     "caption": "쓰던 엑셀 그대로 가져오기",
     "capturedFrom": {
-      "lineage": "pre-DSN-053",
-      "build": "",
-      "commit": "",
-      "capturedAt": "2026-08-21",
-      "note": "픽셀락 라이브 캡처(330×1062). 지배색이 #FF6B52/#FFF8F1이라 DSN-053(2026-08-27) 이전 빌드예요. 재캡처 전에는 제출할 수 없어요."
+      "lineage": "DSN-053+",
+      "build": "expo-web-dev + Playwright Chromium 1194 (viewport 390x844 @3x, EXPO_PUBLIC_PIXEL_LOCK=1, pixel-lock?screen=IMP-003)",
+      "commit": "1271880",
+      "capturedAt": "2026-09-02",
+      "note": "컨테이너 expo web 캡처 — 실기기 캡처 아님. 종전 스토어 원본 3장도 expo web 픽셀락 라이브 캡처였음(docs/ui-pixel-lock/live-screenshots/manifest.json). 실기기 재촬영은 선택 개선."
     }
   }
 ]

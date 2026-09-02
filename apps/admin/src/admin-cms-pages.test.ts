@@ -64,7 +64,10 @@ describe("Admin web security headers + same-origin API proxy", () => {
     const config = readSource("next.config.js");
     expect(config).toContain("X-Content-Type-Options");
     expect(config).toContain("X-Frame-Options");
-    expect(config).toContain("rewrites");
+    // 종전 바늘 "rewrites"는 LP-D가 standalone 직렬화 주석에 같은 낱말을 적으면서
+    // 주석 관용(comment-tolerant)이 됐다 — 앵커 대장의 처방대로 코드에만 있는
+    // 함수 선언 꼴로 조여 code-only로 되돌린다(주석은 지우지 않는다).
+    expect(config).toContain("async rewrites()");
     expect(config).toContain("/api/v1/:path*");
   });
 

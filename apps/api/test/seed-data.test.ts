@@ -54,6 +54,7 @@ async function loadSeedData() {
       isAffiliate: boolean;
       isSponsored: boolean;
       sponsorLabel?: string | null;
+      priceSnapshotKrw?: number | null;
       // 라운드 83 트랙 A: 비스폰서 대장은 **활성** 링크만 센다(화면이 받는 집합이 그것이다 —
       // items-catalog.service.getItemDetail의 `where: { active: true }`).
       active: boolean;
@@ -265,23 +266,41 @@ describe("Batch 03 seed data", () => {
     ).toBe(true);
   });
 
-  it("uses development-only product links with explicit affiliate and sponsored flags", async () => {
+  /**
+   * 출시 트랙 LP-A(72h 계획 §5 **플랜 B**) — 종전 이 절은 "example.com dev 플레이스홀더만
+   * 쓴다"를 잠갔다(그때는 그것이 정직이었다: 실 제휴 URL·파트너 코드가 저장소에 들어오지
+   * 못하게). 플랜 B가 링크 전량을 **일반(비제휴) 쿠팡 검색 링크**로 바꿨으므로 이 절이 잠그는
+   * 정직의 내용도 바뀐다: 이제 죽은 CTA(example.com)와 **허위 표시**(수수료를 받지 않는데 서는
+   * 제휴 고지 · 계약 없는 스폰서 배지 · 확인할 수 없는 가격)가 0건이어야 한다.
+   */
+  it("플랜 B 출시 링크: 전 행이 비제휴 쿠팡 검색 링크이고 허위 표시가 0건이다", async () => {
     const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
     const itemCodes = new Set(itemTemplateSeeds.map((item) => item.code));
 
     expect(productLinkSeeds.length).toBeGreaterThanOrEqual(3);
     expect(productLinkSeeds.every((link) => itemCodes.has(link.itemTemplateCode))).toBe(true);
-    expect(productLinkSeeds.some((link) => link.isAffiliate)).toBe(true);
-    expect(productLinkSeeds.some((link) => link.isSponsored && Boolean(link.sponsorLabel))).toBe(true);
-    expect(productLinkSeeds.every((link) => link.url.startsWith("https://example.com/dev/"))).toBe(true);
-    expect(productLinkSeeds.every((link) => link.affiliatePartnerCode == null)).toBe(true);
+    // 죽은 CTA 0건: 전 행이 계정·키 없이 동작하는 실 쿠팡 검색 URL이다.
     expect(
-      productLinkSeeds
-        .filter((link) => link.isAffiliate)
-        .every((link) => link.disclosureText?.includes("제휴"))
+      productLinkSeeds.every((link) => link.url.startsWith("https://www.coupang.com/np/search?q=")),
+      "플랜 B: 모든 시드 링크는 쿠팡 검색 URL이어야 해요"
     ).toBe(true);
+    expect(JSON.stringify(productLinkSeeds)).not.toContain("example.com");
+    // 제휴 0건(승인 전): 플래그·URL·고지 어느 하나라도 서면 허위 고지다(DNC-010의 반대 방향).
+    expect(productLinkSeeds.every((link) => !link.isAffiliate)).toBe(true);
+    expect(productLinkSeeds.every((link) => link.affiliateUrl == null)).toBe(true);
+    expect(
+      productLinkSeeds.every((link) => !(link.disclosureText ?? "").includes("제휴")),
+      "비제휴 링크에 제휴 고지가 서면 안 돼요"
+    ).toBe(true);
+    // 실 스폰서 계약이 없는 출시 시점: 활성 행에는 스폰서 배지가 서지 않는다(DNC-011의 반대 방향).
+    expect(productLinkSeeds.some((link) => link.active && link.isSponsored)).toBe(false);
+    // 스폰서 슬롯 자체는 지우지 않고 비활성으로 보존한다(계약 성사 시 재활성화) — 라벨과 함께.
+    expect(productLinkSeeds.some((link) => !link.active && link.isSponsored && Boolean(link.sponsorLabel))).toBe(true);
+    // 검색 결과 페이지에는 단일 가격이 없다 — 확인할 수 없는 가격 스냅샷을 적지 않는다.
+    expect(productLinkSeeds.every((link) => link.priceSnapshotKrw == null)).toBe(true);
+    // 파트너 코드·비밀값은 여전히 0건(dnc-secret-scan의 seed-affiliate-code 축 그대로).
+    expect(productLinkSeeds.every((link) => link.affiliatePartnerCode == null)).toBe(true);
     expect(JSON.stringify(productLinkSeeds).toLowerCase()).not.toMatch(/secret|access_key|partner_id/);
-    expect(JSON.stringify(productLinkSeeds).toLowerCase()).not.toMatch(/coupang\.com|naver\.com/);
   });
 
   it("keeps the seed script idempotent and out of expenses", () => {
@@ -410,11 +429,14 @@ describe("Batch 03 seed data", () => {
     // 래칫 — 늘 수 없다(라운드 82 소스에서 다섯이었다).
     expect(ledger.length).toBeLessThanOrEqual(ITEM_CODES_WITHOUT_NON_SPONSORED_LINK_MAX);
 
-    // no-op 방지: 이 절이 실제로 무언가를 세고 있다는 사실(스폰서 링크는 여전히 존재하고,
-    // 술어가 링크 유무가 아니라 **종별**을 본다는 것이 그 존재로 확인된다).
+    // no-op 방지: 이 절이 실제로 무언가를 세고 있다는 사실(스폰서 행은 여전히 존재하고,
+    // 술어가 링크 유무가 아니라 **종별·활성**을 본다는 것이 그 존재로 확인된다).
+    // ⚠️ 플랜 B(LP-A) 이후 **활성** 스폰서는 0건이다 — 실 계약 없는 배지는 DNC-011의 반대
+    // 방향 오류라 슬롯을 비활성으로 내렸다. 술어의 갈래는 그 비활성 슬롯이 유지한다:
+    // 어떤 품목의 링크가 그 슬롯뿐이면 위 "링크 ≥1" 대장은 초록인 채 이 대장만 빨개진다.
     expect(
-      productLinkSeeds.some((link) => link.active && link.isSponsored),
-      "활성 스폰서 링크가 하나도 없으면 이 절은 위의 '링크 ≥1' 대장과 같은 질문이 된다"
+      productLinkSeeds.some((link) => !link.active && link.isSponsored),
+      "스폰서 슬롯이 하나도 없으면 이 절은 위의 '링크 ≥1' 대장과 같은 질문이 된다"
     ).toBe(true);
   });
 
@@ -679,9 +701,9 @@ describe("Batch 03 seed data", () => {
     expect(judgedStages).toBe(ALL_STAGE_CODES.length);
     expect(judgedTopItems).toBeGreaterThanOrEqual(20);
     // 그리고 이 절이 위 절과 **다른 질문**이라는 사실: 링크는 있는데 전부 스폰서인 품목이
-    // 생기면 위 절은 초록인 채로 이 절만 빨개진다(그 갈래가 살아 있다는 증거로 스폰서 링크의
-    // 존재를 함께 못 박는다).
-    expect(productLinkSeeds.some((link) => link.active && link.isSponsored)).toBe(true);
+    // 생기면 위 절은 초록인 채로 이 절만 빨개진다(그 갈래가 살아 있다는 증거로 스폰서 행의
+    // 존재를 함께 못 박는다 — 플랜 B 이후 그 행은 **비활성 슬롯**이다, 위 대장 절의 주석 참고).
+    expect(productLinkSeeds.some((link) => link.isSponsored)).toBe(true);
   });
 
   it("has no duplicate item template codes", async () => {
