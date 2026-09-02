@@ -41,6 +41,12 @@ curl -fsSL "https://raw.githubusercontent.com/ggbu75769-dot/WooriAI/master/scrip
 
 ## 5. 실행 직후 할 일
 
+0. **어드민 접근 방법**: 어드민 웹은 VM에 배포되지 않는다(부트스트랩·prod compose에 없음 — 의도적). 운영자 PC의 저장소 체크아웃에서 dev 서버를 운영 API로 프록시해 접속하는 것이 기본 경로다(LP-D — 상세·대안은 `docs/operations/admin-access.md` §운영 접근 경로):
+   ```bash
+   ADMIN_API_PROXY_TARGET=https://<도메인> pnpm --filter admin dev
+   # → http://localhost:3001 접속 후 로그인
+   ```
+   어드민을 VM에 컨테이너로 올리는 선택 경로는 `infra/docker/docker-compose.admin.yml` 오버레이(외부 미노출, SSH 터널 접속) — 같은 문서 참조.
 1. 어드민 접속 → 초기 비밀번호로 로그인 → **즉시 비밀번호 변경 + MFA(TOTP) 등록**(강제 흐름).
 2. 카카오 키가 준비되면 VM에서:
    ```bash

@@ -61,7 +61,11 @@ fly ssh console -C "pnpm --filter api seed"   # 카테고리 12·준비템 62·�
 그중 제휴 URL을 함께 가진 것이 근거: `grep -c 'affiliateUrl: "https' apps/api/prisma/seed-data.ts` →
 **19**건이라 example.com 문자열은 67 + 19 = **86곳**이다). 두 시점: 라운드 82 B 이후 **62건 / 81곳**
 → 라운드 83 A 이후 **67건 / 86곳**.
-어드민 콘솔 접속 → `ADMIN_SEED_EMAIL`/`ADMIN_SEED_PASSWORD` 로그인 → **즉시 비밀번호 변경**(ADM-007) → MFA(TOTP) 등록(강제 흐름).
+어드민 콘솔 접속은 운영자 로컬 프록시가 기본 경로다(어드민 웹은 서버에 배포되지 않음 — LP-D, 상세는 `docs/operations/admin-access.md` §운영 접근 경로):
+```bash
+ADMIN_API_PROXY_TARGET=https://<API 도메인> pnpm --filter admin dev   # → http://localhost:3001
+```
+접속 → `ADMIN_SEED_EMAIL`/`ADMIN_SEED_PASSWORD` 로그인 → **즉시 비밀번호 변경**(ADM-007) → MFA(TOTP) 등록(강제 흐름).
 필요하면 /users에서 팀원 계정 발급.
 
 > 참고: 시드는 멱등이며 관리자 자격증명은 **생성 시 1회만** 적용됩니다 — 시드를 재실행해도 기존 계정의 비밀번호(교체한 값)나 활성 상태는 절대 되돌아가지 않습니다. 비밀번호 교체 후에는 `ADMIN_SEED_PASSWORD` 시크릿을 폐기해도 됩니다.

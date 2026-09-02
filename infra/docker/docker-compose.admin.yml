@@ -1,0 +1,45 @@
+# 어드민(CMS) 오버레이 — docker-compose.prod.yml과 함께 사용 (LP-D, 선택 사양)
+# 어드민을 API와 같은 VM에 올릴지는 선택이므로 기본 prod 구성에는 넣지 않는다.
+# (기본 권장 접근 경로는 운영자 로컬 프록시 — docs/operations/admin-access.md §운영 접근 경로 참조)
+#
+#   docker compose -f infra/docker/docker-compose.prod.yml \
+#     -f infra/docker/docker-compose.admin.yml \
+#     --env-file .env.production up -d --build admin
+#
+# 접근: 기본은 **외부 미노출**(127.0.0.1 바인딩). 운영자는 SSH 터널로 접속한다:
+#   ssh -N -L 3001:127.0.0.1:3001 ubuntu@<VM IP>   # 이후 브라우저에서 http://localhost:3001
+# (브라우저는 localhost를 secure context로 취급하므로 production의 Secure 쿠키도 동작한다)
+#
+# 외부(HTTPS) 노출이 정말 필요하면 docker-compose.caddy.yml 오버레이를 함께 쓰고
+# Caddyfile에 어드민용 서브도메인 블록을 추가하라(예: admin.<도메인> → reverse_proxy admin:3001).
+# 그 경우 아래 ports는 제거해도 된다(caddy가 같은 compose 네트워크로 직접 접근).
+services:
+  admin:
+    build:
+      context: ../..
+      dockerfile: infra/docker/admin.Dockerfile
+      # rewrites의 API 프록시 타깃은 빌드 타임에 구워진다(admin.Dockerfile 주석 참조).
+      # 기본값이 이 오버레이의 api 서비스 내부 주소이므로 보통은 지정할 필요 없음.
+      # args:
+      #   ADMIN_API_PROXY_TARGET: http://api:3000
+    restart: unless-stopped
+    # 로그 로테이션 (OPS-115) — prod.yml의 x-logging과 동일 정책 (anchor는 파일 간 공유 불가)
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+    # 루프백 전용 바인딩 — VM 밖에서는 SSH 터널로만 접근 (위 헤더 주석 참조)
+    ports:
+      - "127.0.0.1:3001:3001"
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3001/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
