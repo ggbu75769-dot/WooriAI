@@ -74,23 +74,34 @@ mkdir -p /tmp/wooriai-site && cp infra/site/*.html infra/site/site.css infra/leg
 > ⚠️ 법적 문서는 아직 "법률 전문가 검토 전 초안" 배너가 붙어 있다. 검토 완료 후
 > 배너 제거·`[적용 법령·기간…]` 확정은 별도 수동 단계다(코드 계약과 함께 갱신).
 
-## ⑤ 서명 키스토어 (자리표시 — 트랙: 키스토어 스크립트)
+## ⑤ 서명 키스토어 — 한 줄 생성 (~3분 + 백업)
 
-<!-- TODO(메인 세션): 키스토어 트랙 산출물(scripts/release/make-keystore.sh) 사용법으로 교체 -->
-`scripts/release/make-keystore.sh` 참고. 키스토어 파일은 리포지토리 밖(`$HOME`)에 보관 —
-`*.keystore`/`*.jks`는 gitignore되어 있다.
+```bash
+bash scripts/release/make-keystore.sh
+```
 
-## ⑥ AAB 빌드·서명 (자리표시 — 트랙: AAB 워크플로)
+키스토어를 `$HOME/wooriai-release.keystore`에 만들고, GitHub 시크릿 4개
+(`WOORIAI_KEYSTORE_B64`·`WOORIAI_KEYSTORE_PASSWORD`·`WOORIAI_KEY_ALIAS`·`WOORIAI_KEY_PASSWORD`)에
+붙여넣을 값을 화면에 출력한다(파일로는 남기지 않는다).
+⚠️ **키스토어는 서로 다른 2곳에 백업** — 분실하면 앱 업데이트가 영구히 불가능하다.
 
-<!-- TODO(메인 세션): android-release 워크플로/로컬 빌드 트랙 산출물로 교체 -->
-`.github/workflows/android-release.yml` 또는 `pnpm android:build-aab` 트랙 문서 참고.
-빌드 시 `.env.production`의 `EXPO_PUBLIC_*` 값(API URL·카카오·약관/지원 URL)을 주입한다
-— `EXPO_PUBLIC_*`는 번들 시점 인라인이므로 값 변경 = 재빌드다.
+## ⑥ AAB 빌드 — GitHub Actions 클릭 한 번 (등록 ~10분, 이후 릴리즈마다 클릭만)
 
-## ⑦ 어드민 콘솔 배포 (자리표시 — 트랙: 어드민 배포)
+1. 저장소 Settings → Secrets and variables → Actions에 ⑤의 **시크릿 4개** 등록.
+2. 같은 화면 **Variables**에 비밀 아닌 구성값 등록(최초 1회 — 목록·값 안내는
+   `docs/store/submission-checklist.md` §0.2): API URL·패키지명·카카오 3종·약관/방침 URL.
+3. Actions → **android-release** → Run workflow(version_name 1.0.0 · version_code 1)
+   → 15~25분 뒤 서명된 AAB artifact 다운로드.
 
-<!-- TODO(메인 세션): admin.Dockerfile / docker-compose.admin.yml 트랙 산출물로 교체 -->
-`infra/docker/docker-compose.admin.yml` 트랙 문서 참고.
+폴백(러너 문제 시): 로컬 `pnpm android:build-aab`(JDK 17 필요 — §0.2 경로 B).
+`EXPO_PUBLIC_*` 값은 번들 시점 인라인이므로 값 변경 = 재빌드다.
+
+## ⑦ 어드민 콘솔 접근 (배포 없이 ⓐ 권장)
+
+- **ⓐ 운영자 로컬(기본)**: `ADMIN_API_PROXY_TARGET=https://<도메인> pnpm --filter admin dev`
+  → http://localhost:3001 (VM 무변경 — 첫 로그인 후 비밀번호 교체·MFA 등록).
+- **ⓑ VM 배포(선택)**: `docker compose -f infra/docker/docker-compose.prod.yml -f infra/docker/docker-compose.caddy.yml -f infra/docker/docker-compose.admin.yml --env-file .env.production up -d --build admin`
+  후 `ssh -N -L 3001:127.0.0.1:3001 <vm>` 터널 접속. 상세: `docs/operations/admin-access.md`.
 
 ## ⑧ 실기기 QA + 스토어 제출
 
