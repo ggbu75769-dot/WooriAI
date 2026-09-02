@@ -1,0 +1,56 @@
+// 우리아이 출시 준비 설정 — 사용자가 채우는 유일한 파일 (출시 준비 트랙 LP-B)
+//
+// 사용법:
+//   1) cp launch.config.example.json launch.config.json
+//   2) 아래 [필수] 4개(+ 카카오 키)를 채운다 (5분)
+//   3) pnpm launch:prepare
+//
+// ⚠️ launch.config.json에는 카카오 키가 들어가므로 커밋 금지 (.gitignore에 등록되어 있음).
+// ⚠️ 주석은 이 파일처럼 "줄 전체 주석"(줄 맨 앞이 //)만 허용 —
+//    prepare.ts가 그 줄만 지운 뒤 JSON으로 읽는다. 값 뒤에 //를 붙이지 말 것.
+{
+  // [필수] 운영 주체명 — 개인이면 성명, 사업자면 상호. 예: "홍길동" / "우리아이컴퍼니"
+  // 법적 문서 3종(이용약관·개인정보처리방침·계정 삭제 안내)과 지원 사이트 푸터의 "운영자"로 들어간다.
+  "operatorName": "",
+
+  // [필수] 지원 이메일 — 문의·계정 삭제 요청을 실제로 수신할 수 있는 주소. 예: "help@example.com"
+  // 법적 문서·지원 사이트의 문의처 + 어드민 초기 로그인 계정(ADMIN_SEED_EMAIL)으로도 쓰인다.
+  "supportEmail": "",
+
+  // [필수] 서비스 도메인 — API 서버가 뜨는 도메인(https:// 없이). 예: "wooriai.duckdns.org"
+  // INVITE_LINK_BASE_URL, EXPO_PUBLIC_API_BASE_URL 등이 여기서 파생된다.
+  "domain": "",
+
+  // [필수] 시행일(출시일) — YYYY-MM-DD 형식. 예: "2026-09-15"
+  // 이용약관·개인정보처리방침의 "시행일: [출시일]" 자리에 들어간다.
+  // ("2026년 9월 15일" 꼴로 적어도 되지만 문서에는 YYYY-MM-DD로 기록된다 —
+  //  법적 문서의 보존 기간 계약이 "N일" 표기를 전수 검사하기 때문.)
+  "launchDate": "",
+
+  // [선택] 지원 사이트 도메인 — infra/site를 별도 호스팅(Cloudflare Pages 등)하는 경우.
+  // 예: "wooriai-site.pages.dev". 비우면 위 domain을 그대로 쓴다.
+  "siteDomain": "",
+
+  // [카카오] developers.kakao.com > 내 애플리케이션 > 앱 키 3종.
+  // 셋 다 비워 두면 카카오 단계는 건너뛰고(.env에 표식만 남김) 나중에 채워 다시 실행하면 된다.
+  // restApiKey    → 서버(OAUTH_KAKAO_CLIENT_ID) + 앱(EXPO_PUBLIC_KAKAO_CLIENT_ID)
+  // javascriptKey → 현재 코드가 읽지 않음(웹 SDK용 — 카카오 콘솔 설정 참고용으로만 보관)
+  // nativeAppKey  → 현재 코드가 읽지 않음(카카오 SDK 도입 시·콘솔 안드로이드 플랫폼 등록용)
+  "kakao": {
+    "restApiKey": "",
+    "javascriptKey": "",
+    "nativeAppKey": ""
+  },
+
+  // [선택] 개인정보 보호책임자 성명 — 비우면 운영 주체명을 그대로 쓴다(개인 운영 가정).
+  // 사업자라면 실제 책임자 성명으로 채우는 것을 권장.
+  "privacyOfficerName": "",
+
+  // [선택] 호스팅 사업자(개인정보 처리 수탁업체 표에 기재) —
+  // 비우면 "Oracle Cloud Infrastructure(오라클 클라우드)" (docs/5차/oracle-free-deploy-runbook.md 기준).
+  // Fly.io 등 다른 곳에 배포한다면 그 사업자명으로 채울 것.
+  "hostingProvider": "",
+
+  // [선택] 푸시 발송 사업자 — 비우면 "Google LLC(Firebase Cloud Messaging — 푸시 알림 기능 사용 시)".
+  "pushProvider": ""
+}
