@@ -451,26 +451,39 @@ describe("라운드 46 리뷰 Q-3: 수령 맥락이 있어야 '이미 고지함'
  * 지금까지 이 파일의 테스트는 전부 손으로 만든 입력이었고, 그래서 데모 기저귀 상세의
  * 스폰서 링크가 개발 스펙 메모("…광고/제휴 고지를 표시합니다.")를 고지 문구로 들고 있는데도
  * 아무 테스트도 걸리지 않았다. 실제로 화면에 들어가는 값으로 확인한다.
+ *
+ * FIX-C(2026-09-03) — 두 시점 이관. ① N-1 당시 데모 기저귀 상세는 제휴+스폰서 링크의
+ * 조합이었고, 이 블록은 그 화면의 고지 문구(광고 사실 + 수수료 문장)를 고정했다.
+ * ② FIX-C: 픽스처가 서버 시드 **플랜 B**(2026-09-02 — 쿠팡 파트너스 승인 전, 전 링크
+ * 비제휴 쿠팡 검색 링크·활성 스폰서 0)와 같은 원칙으로 정합됐다. 이제 지키는 사실은
+ * 반대 방향이다: **비제휴 상태에서는 고지 문장이 서지 않는다** — 수수료를 받지 않는
+ * 링크에 수수료 고지가 서면 그것이 허위 고지다(DNC-010의 반대 방향 오류, 판정은 종전
+ * 그대로 link-marker가 **집합**으로 내린다: productLinksDisclosureText → undefined).
  */
-describe("라운드 44 리뷰 N-1: 데모 픽스처가 실제로 그리는 고지", () => {
+describe("라운드 44 리뷰 N-1 → FIX-C: 데모 픽스처가 실제로 그리는 고지", () => {
   const diaperLinks = localProductLinkFixtures.filter((link) => link.itemTemplateId === LOCAL_ITEM_DIAPER);
 
-  it("데모 기저귀 상세에는 제휴·스폰서 링크가 함께 있다", () => {
-    expect(diaperLinks.length).toBeGreaterThan(1);
-    expect(diaperLinks.some((link) => link.isSponsored)).toBe(true);
-    expect(diaperLinks.some((link) => link.isAffiliate)).toBe(true);
+  it("플랜 B 정합: 데모 픽스처에는 제휴·스폰서·고지 문구가 하나도 없다", () => {
+    expect(diaperLinks.length).toBeGreaterThan(0);
+    for (const link of localProductLinkFixtures) {
+      expect(link.isAffiliate, link.id).toBe(false);
+      expect(link.isSponsored, link.id).toBe(false);
+      expect(link.disclosureText, link.id).toBeNull();
+      expect(link.affiliateUrl, link.id).toBeNull();
+      // 죽은 CTA 방지: 플레이스홀더가 아니라 실 쿠팡 검색 링크다.
+      expect(link.url, link.id).toMatch(/^https:\/\/www\.coupang\.com\/np\/search\?q=/);
+      expect(link.url, link.id).not.toContain("example.com");
+    }
   });
 
-  it("그 화면의 고지에는 광고 사실과 수수료 문장이 함께 남는다 (DNC-010·DNC-011)", () => {
-    const text = productLinksDisclosureText(diaperLinks);
-
-    expect(text).toBeDefined();
-    expect(text).toContain("광고");
-    expect(statesAffiliateCommission(text!)).toBe(true);
-    expect(text).toContain(AFFILIATE_DISCLOSURE_FALLBACK_TEXT);
+  it("비제휴 집합에는 고지 문장이 서지 않는다 (DNC-010 반대 방향 — 허위 고지 금지)", () => {
+    expect(productLinksDisclosureText(diaperLinks)).toBeUndefined();
+    // 어느 품목의 링크 집합을 잘라 봐도 같다 — 판정은 집합 전체가 내린다.
+    expect(productLinksDisclosureText(localProductLinkFixtures)).toBeUndefined();
   });
 
-  it("고지 문구는 해요체 한 줄이고 스펙 문장이 아니다 (DNC-018)", () => {
+  it("고지 문구가 되살아나면 해요체 한 줄이어야 한다 (DNC-018 — 스펙 문장 금지)", () => {
+    // 플랜 A 전환(제휴 승인 후)으로 disclosureText가 다시 채워지는 날을 위한 래칫.
     for (const link of localProductLinkFixtures) {
       if (!link.disclosureText) continue;
       expect(link.disclosureText).toContain("어요");
@@ -479,10 +492,6 @@ describe("라운드 44 리뷰 N-1: 데모 픽스처가 실제로 그리는 고�
       expect(link.disclosureText).not.toContain("CTA");
       expect(link.disclosureText.split("\n")).toHaveLength(1);
     }
-
-    const text = productLinksDisclosureText(diaperLinks)!;
-    expect(text).toContain("어요");
-    expect(text.split("\n")).toHaveLength(1);
   });
 });
 

@@ -477,26 +477,39 @@ describe("QA-DEMO-JOURNEY: full demo user journey through the API client (local 
     for (const link of detail.productLinks.filter((entry) => entry.isAffiliate || entry.isSponsored)) {
       expect(link.disclosureText).toBeTruthy();
     }
+    // FIX-C(2026-09-03) 두 시점: ① 종전 데모 기저귀 상세는 제휴+스폰서 링크 조합이라 위
+    // 루프가 실제로 돌았다. ② 플랜 B 정합(비제휴 쿠팡 검색 링크·활성 스폰서 0) 이후 그 조합은
+    // 데모에 없다 — 루프가 빈 채로 통과하는 것을 조용히 두지 않고, 지금 상태(제휴·스폰서·고지
+    // 0건)를 여기서 명시적으로 지킨다(값 계약 전수는 src/items/link-marker.test.ts FIX-C 블록).
+    expect(detail.productLinks.some((link) => link.isAffiliate || link.isSponsored)).toBe(false);
+    expect(detail.productLinks.every((link) => link.disclosureText === undefined)).toBe(true);
   });
 
   // -------------------------------------------------------------------------
   // Step 5 -- commerce: product link click tracking
   // -------------------------------------------------------------------------
+  /**
+   * FIX-C(2026-09-03) 두 시점: ① 종전 이 스텝은 제휴 링크(affiliateUrl로 리다이렉트 + 고지
+   * 동봉)와 일반 링크(원 URL + 고지 없음)의 두 갈래를 지켰다. ② 플랜 B 정합으로 데모 링크는
+   * 전부 일반(비제휴) 쿠팡 검색 링크다 — 두 클릭 모두 원 URL 갈래를 탄다. 제휴 갈래의 배선
+   * (affiliateUrl ?? url)은 local-backend.ts에 그대로 있고, 플랜 A 전환으로 제휴 행이
+   * 되살아나면 이 스텝도 그 갈래를 되살린다.
+   */
   it("step 5: clicking product links returns a tracked click with the correct redirect target", async () => {
-    const affiliateFixture = localProductLinkFixtures.find((link) => link.id === "local-link-diaper-affiliate")!;
-    const affiliateClick = await clickProductLink(token, affiliateFixture.id, childId);
-    expect(affiliateClick.clickId).toMatch(/^local-click-/);
-    // Affiliate links must redirect through the affiliate URL, disclosure attached.
-    expect(affiliateClick.redirectUrl).toBe(affiliateFixture.affiliateUrl);
-    expect(affiliateClick.disclosureText).toBe(affiliateFixture.disclosureText);
+    const diaperFixture = localProductLinkFixtures.find((link) => link.id === "local-link-diaper-affiliate")!;
+    const diaperClick = await clickProductLink(token, diaperFixture.id, childId);
+    expect(diaperClick.clickId).toMatch(/^local-click-/);
+    // Plan B: a plain (non-affiliate) link redirects to the raw URL with no disclosure.
+    expect(diaperFixture.affiliateUrl).toBeNull();
+    expect(diaperClick.redirectUrl).toBe(diaperFixture.url);
+    expect(diaperClick.disclosureText).toBeUndefined();
 
-    // A plain (non-affiliate) link redirects to the raw URL with no disclosure.
     const plainFixture = localProductLinkFixtures.find((link) => link.id === "local-link-blocks-naver")!;
     const plainClick = await clickProductLink(token, plainFixture.id, childId);
     expect(plainClick.redirectUrl).toBe(plainFixture.url);
     expect(plainClick.disclosureText).toBeUndefined();
     // Each click is individually tracked.
-    expect(plainClick.clickId).not.toBe(affiliateClick.clickId);
+    expect(plainClick.clickId).not.toBe(diaperClick.clickId);
 
     await expect(clickProductLink(token, "no-such-link", childId)).rejects.toThrow();
   });

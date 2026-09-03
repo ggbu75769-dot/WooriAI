@@ -72,8 +72,16 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(failureBranch).not.toContain("registerPurchaseFollowup(");
 
     // COM-106/COM-101 pins stay intact: exact react-native import line and CTA ordering.
+    //
+    // FIX-C(2026-09-03) 두 시점: ① 종전 순서 앵커는 skipReasonText 카드의 보간
+    // (`{visibleDetail.skipReasonText}`)이었다. ② FIX-C가 그 카드의 렌더를 지우면서
+    // (안내 카드 축소 — items-commerce-flow.test.ts COM-101 이관 참고) 그 앵커는 -1이 되어
+    // 이 단언이 아무것도 검사하지 않게 된다(양수 > -1 은 항상 참 — 조용한 무력화). 같은 자리
+    // (설명 카드 구간)에 남아 있는 reason 카드의 보간을 앵커로 옮기고, 실재를 먼저 확인한다.
     expect(detailSource).toContain('import { Image, Linking, Pressable, Share, Text, View } from "react-native";');
-    expect(detailSource.indexOf("바로 구매하기")).toBeGreaterThan(detailSource.indexOf("{visibleDetail.skipReasonText}"));
+    const reasonAnchorIndex = detailSource.indexOf("{visibleDetail.reasonText}");
+    expect(reasonAnchorIndex, "reason 카드 보간을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(detailSource.indexOf("바로 구매하기")).toBeGreaterThan(reasonAnchorIndex);
   });
 
   /**

@@ -177,13 +177,18 @@ describe("ITEM-002 상세: 승인 프레임", () => {
     expect(detail.slice(disclosure, saveButton)).not.toContain("<Card");
   });
 
-  it("설명 카드는 같은 문법으로 이어진다(왜 필요해요 → 안 사도 돼요 → 신뢰 카드)", () => {
+  /**
+   * FIX-C(2026-09-03) — 두 시점 이관.
+   * ① 원 계약은 설명 카드 셋의 순서(왜 필요해요 → 안 사도 돼요 → 신뢰 카드)를 고정했다.
+   * ② FIX-C: 안내 카드를 "왜 필요해요?" + 중고 구매 안내 둘로 줄이면서 가운데 카드
+   *    (skipReasonText)의 렌더가 지워졌다(부재 계약은 src/items-commerce-flow.test.ts
+   *    COM-101 이관 케이스가 진다). 남은 순서 계약은 "왜 필요해요 → 신뢰 카드"다.
+   */
+  it("설명 카드는 같은 문법으로 이어진다(왜 필요해요 → 신뢰 카드)", () => {
     const detail = detailSource();
     const why = detail.indexOf("왜 필요해요?");
-    const skip = detail.indexOf("이런 경우엔 안 사도 돼요");
     const trust = detail.indexOf("itemTrustNotes({");
     expect(why).toBeGreaterThan(-1);
-    expect(skip).toBeGreaterThan(why);
-    expect(trust).toBeGreaterThan(skip);
+    expect(trust).toBeGreaterThan(why);
   });
 });

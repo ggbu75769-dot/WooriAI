@@ -80,6 +80,26 @@ describe("라운드 48 T1: 상세 화면 배선", () => {
     expect(detail).not.toContain(MEDICAL_DISCLAIMER_BODY);
   });
 
+  /**
+   * FIX-C(2026-09-03) — 안내 카드 축소(두 시점).
+   * ① 라운드 48 T1은 세 카드(의료·안전·중고)를 모듈 판정 그대로 전부 그렸다.
+   * ② FIX-C: 상세의 안내 카드는 "왜 필요해요?" + 중고 구매 안내 둘로 줄이는 지시에 따라
+   *    "안전하게 쓰려면"(safety)만 **렌더에서** 거른다. 판정 모듈과 그 값 계약(위 describe)은
+   *    무변이고, safetyNote 배선(위 케이스)도 그대로다 — 데이터는 남고 화면만 바뀐다.
+   *    의료 상담 안내(medical)는 지시 대상 밖이라 그대로 그린다(DNC-020).
+   */
+  it("FIX-C: 화면은 safety 카드만 거른다 (모듈 판정·배선은 무변)", () => {
+    const detail = detailSource();
+    expect(detail).toContain('.filter((note) => note.id !== "safety")');
+    // 거름은 itemTrustNotes 호출 결과에 걸린다 — 다른 자리에서 새 판정을 만들지 않는다.
+    const callIndex = detail.indexOf("itemTrustNotes({");
+    const filterIndex = detail.indexOf('.filter((note) => note.id !== "safety")');
+    expect(callIndex).toBeGreaterThan(-1);
+    expect(filterIndex).toBeGreaterThan(callIndex);
+    // SAFETY_NOTE_TITLE("안전하게 쓰려면")이 화면에 인라인으로 되살아나지도 않는다.
+    expect(detail).not.toContain(SAFETY_NOTE_TITLE);
+  });
+
   it("제휴 고지와 구매 CTA 사이에 끼어들지 않는다(DNC-010 인접성)", () => {
     const detail = detailSource();
     const notesIndex = detail.indexOf("itemTrustNotes({");
@@ -93,9 +113,20 @@ describe("라운드 48 T1: 상세 화면 배선", () => {
   it("세션 경로에는 모든 품목에 붙던 기저귀 팩 히어로 사진이 없다", () => {
     const detail = detailSource();
     // DSN-053 P2-B: 히어로 **카드**는 승인 디자인대로 돌아왔지만, 세션 분기에 들어가는 것은
-    // 상품 사진이 아니라 중립 글리프다(응답에 상품 이미지가 없으므로 그릴 사실이 없다).
+    // 상품 사진이 아니라 글리프다(응답에 상품 이미지가 없으므로 그릴 사실이 없다).
+    //
+    // FIX-C(2026-09-03) 두 시점: ① DSN-053 P2-B는 그 글리프가 범용 상자
+    // (`package-variant-closed`) 하나였다 — 어떤 글리프인지는 그때 논점이 아니었다.
+    // ② FIX-C: 목록 타일과 **같은 품목별 해석기**(resolvePreparationItemVisual)가 고른
+    // 아이콘을 그린다 — 목록에서 유모차 아이콘을 보고 들어온 상세가 상자를 보여 주면 같은
+    // 물건인지 확신할 수 없다. "사진을 지어내지 않는다"는 판정은 그대로다(여전히 글리프다).
     expect(detail).toContain("{hasSession ? (\n            <Card style={productDetailHeroCardStyle()}>");
-    expect(detail).toContain('<AppIcon color={theme.colors.coral[600]} name="package-variant-closed" size={64} />');
+    expect(detail).toContain('import { resolvePreparationItemVisual } from "../../src/preparation/item-visuals";');
+    expect(detail).toContain("const heroVisual = resolvePreparationItemVisual({");
+    expect(detail).toContain("nameKo: visibleDetail.name,");
+    expect(detail).toContain('<AppIcon color={theme.colors.coral[600]} name={heroVisual.icon} size={64} />');
+    // 범용 상자 글리프로 되돌아가지 않는다(홈 화면의 준비 현황 카드는 별개 파일이다).
+    expect(detail).not.toContain('name="package-variant-closed"');
     // 프리뷰(ITEM-002 픽셀 락)에서는 사진을 그대로 그린다 -- 분기가 살아 있어야 한다.
     expect(detail).toContain("<Image source={productImage} style={productDetailHeroImageStyle()} resizeMode=\"cover\" />");
     // 세션 경로에서 사진을 그리는 배선은 남아 있지 않다.

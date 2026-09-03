@@ -76,6 +76,10 @@ import {
 } from "../../src/ui";
 // DSN-053 P2-B: 승인 디자인의 히어로 글리프. 디자인 시스템은 읽기 전용으로만 가져다 쓴다.
 import { AppIcon } from "../../src/design-system";
+// FIX-C: 목록 타일이 쓰는 **품목별 아이콘 해석기**(src/preparation/item-visuals.ts —
+// PreparationListParity.tsx가 같은 시그니처로 부른다)를 읽기 전용으로 가져온다. 매핑을 여기서
+// 다시 짓지 않는다 — 목록과 상세가 같은 물건에 다른 그림을 그리면 같은 품목인지 확신할 수 없다.
+import { resolvePreparationItemVisual } from "../../src/preparation/item-visuals";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
@@ -731,6 +735,24 @@ export default function ItemDetailScreen() {
   // 종전 그대로 서버 값이라, 비세션 프리뷰(ITEM-002 픽셀락 캡처)에는 영향이 없다.
   const displayStatus = effectiveItemStatus(visibleDetail.status, pendingStatusRow) as ItemStatus;
   const isInterested = displayStatus === "interested";
+  /**
+   * FIX-C — 상세 헤더의 히어로 글리프가 **품목별 아이콘**이 된다(두 시점).
+   *
+   * ① DSN-053 P2-B(라운드 48 A3c 후속)는 응답에 상품 사진이 없다는 사실 앞에서 히어로 카드에
+   *    범용 상자 글리프(`package-variant-closed`) 하나를 세웠다 — 그때는 "사진을 지어내지
+   *    않는다"가 판정의 전부였고 어떤 글리프인지는 논점이 아니었다.
+   * ② FIX-C(2026-09-03): 목록 타일은 이미 품목별 아이콘을 그린다(유모차 → baby-carriage,
+   *    PreparationListParity.tsx가 이 해석기를 같은 모양으로 부른다). 목록에서 유모차 아이콘을
+   *    보고 들어온 상세가 상자를 보여 주면 같은 물건인지 확신할 수 없으므로, **같은 해석기의
+   *    같은 판정**을 헤더에 쓴다. 해석기는 읽기만 한다(매핑 모듈·목록 렌더 0바이트 변경).
+   *    모르는 품목이면 해석기의 기존 폴백(baby-face-outline)이 그대로 선다 — 여기서 새 폴백을
+   *    만들지 않는다. 비세션 프리뷰(ITEM-002 픽셀락 캡처)는 사진 분기라 이 값에 닿지 않는다.
+   */
+  const heroVisual = resolvePreparationItemVisual({
+    code: itemTemplateId,
+    nameKo: visibleDetail.name,
+    primaryCategory: null
+  });
   // 라운드 48 T1(A4): 내 준비 상태 라벨. 목록 카드 배지와 같은 모듈이 정하고
   // (src/items/item-labels.ts), 준비 전(기본값)이면 undefined라 줄 자체가 사라진다.
   const statusBadgeLabel = itemStatusBadgeLabel(displayStatus);
@@ -897,7 +919,7 @@ export default function ItemDetailScreen() {
           {hasSession ? (
             <Card style={productDetailHeroCardStyle()}>
               <View style={productDetailSessionHeroPlaceholderStyle()}>
-                <AppIcon color={theme.colors.coral[600]} name="package-variant-closed" size={64} />
+                <AppIcon color={theme.colors.coral[600]} name={heroVisual.icon} size={64} />
               </View>
             </Card>
           ) : (
@@ -1084,31 +1106,43 @@ export default function ItemDetailScreen() {
             <Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 20 }}>{visibleDetail.reasonText}</Text>
           </Card>
 
-          {visibleDetail.skipReasonText ? (
-            <Card>
-              <Text accessibilityRole="header" style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>
-                이런 경우엔 안 사도 돼요
-              </Text>
-              <Text style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 20 }}>{visibleDetail.skipReasonText}</Text>
-            </Card>
-          ) : null}
+          {/* FIX-C(2026-09-03) — 안내 카드 축소(두 시점).
+              ① COM-101(라운드 5a §6)은 skipReasonText 카드("이런 경우엔 안 사도 …" 제목)를
+                 여기, "왜 필요해요?" 다음에 세웠다.
+              ② FIX-C: 상세의 설명 카드는 **둘**로 줄인다 — "왜 필요해요?"와 중고 구매 안내만
+                 남기고 이 카드는 렌더를 지운다. 데이터는 그대로다: skipReasonText는 서버
+                 DTO·로컬 픽스처·ItemDetail 타입에 남아 있고(계약 무변), 화면이 그리지 않을
+                 뿐이다. 제목 전문을 이 주석에 다시 적지 않는다 — 부재 계약이 주석에 걸려
+                 통과해 버리면 안 되기 때문(GAP-064 #1이 라벨 문자열에 세운 그 규율). 계약
+                 이관은 src/items-commerce-flow.test.ts(COM-101)·src/design-restore-p2b.test.ts·
+                 src/commerce/purchase-followup-flow.test.ts에 같은 두 시점으로 적었다. */}
 
           {/* 라운드 48 T1(A1/A2c): 서버가 준비템마다 들고 있었지만 앱이 한 번도 그리지 않던
               신뢰 정보 세 가지 -- 의료 상담 안내(medicalDisclaimerRequired), 안전 확인
               (safetyNote), 중고 구매 OK(usedSecondhandOk). 판정과 문구는 순수 모듈이 정하고
               (src/items/item-trust-notes.ts) 화면은 그리기만 한다.
 
-              위치: "이런 경우엔 안 사도 돼요" 다음, 제휴 고지 **앞**이다 -- 고지와 구매 CTA
+              위치: "왜 필요해요?" 다음, 제휴 고지 **앞**이다 -- 고지와 구매 CTA
               사이에는 아무것도 끼우지 않는다(DNC-010 인접성).
 
               세션 게이트는 모듈 안에 있다(hasSession=false면 빈 배열): 프리뷰 픽스처가
-              safetyNote를 갖고 있어도 ITEM-002 픽셀 락 캡처에는 카드가 한 장도 나오지 않는다. */}
+              safetyNote를 갖고 있어도 ITEM-002 픽셀 락 캡처에는 카드가 한 장도 나오지 않는다.
+
+              FIX-C(2026-09-03) — 두 시점 하나 더: ① 라운드 48 T1은 세 카드(의료·안전·중고)를
+              전부 그렸다. ② FIX-C는 안내 카드 축소 지시에 따라 안전 카드(SAFETY_NOTE_TITLE
+              — 제목 전문은 부재 계약 때문에 여기 적지 않는다)만
+              **렌더에서** 거른다 — 판정 모듈과 그 값 계약(item-trust-notes.test.ts의 모듈
+              테스트)은 무변이고, safetyNote는 여전히 모듈에 넘긴다(배선 계약 유지). 의료 상담
+              안내(medical)는 지시 대상 밖이라 남긴다(DNC-020 — 있는 품목이 드물고, 확인해야
+              할 사실을 지우는 쪽이 더 위험하다). */}
           {itemTrustNotes({
             hasSession,
             usedSecondhandOk: visibleDetail.usedSecondhandOk,
             safetyNote: visibleDetail.safetyNote,
             medicalDisclaimerRequired: visibleDetail.medicalDisclaimerRequired
-          }).map((note) => (
+          })
+            .filter((note) => note.id !== "safety")
+            .map((note) => (
             <Card key={note.id}>
               <Text accessibilityRole="header" style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>
                 {note.title}
