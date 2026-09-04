@@ -2005,7 +2005,9 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   },
   {
     id: "common-name",
-    value: 226,
+    // 두 시점(기능 라운드 1 통합): 226(라운드 89 C) → 229 — 새 기능 모듈의 export function 이름 셋이
+    // 속성/키 자리로도 나오며 사각이 함께 자랐다(모집단이 는 것이지 새 병이 아니다 — 아래 77→226과 같은 결).
+    value: 229,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +

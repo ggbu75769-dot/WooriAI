@@ -953,9 +953,10 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     expect(spotOf("tsx-components")?.value, "적어 둔 값").toBe(141);
     expect(tsxExportFunctionCount(), "오늘 다시 잰 값 — 갈리면 그 수가 값이다").toBe(141);
 
-    // ② common-name — 축을 켠 뒤에도 226. 이 자는 마스킹하지 않은 소스에 묻기 때문에 같다.
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(226);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(226);
+    // ② common-name — 종전 226(라운드 89 C), 기능 라운드 1이 export function 이름 셋을 더해 오늘 229.
+    // 이 자는 마스킹하지 않은 소스에 묻는다(두 시점 — 대장 value도 함께 229로 내려 적음).
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(229);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(229);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.

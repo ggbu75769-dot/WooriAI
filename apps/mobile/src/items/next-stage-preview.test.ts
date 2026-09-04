@@ -229,7 +229,11 @@ describe("트랙 F: 배선 (소스 계약)", () => {
     const items = itemsScreen();
     const bannerAt = items.indexOf("{nextStagePreview ? (");
     expect(bannerAt).toBeGreaterThan(-1);
-    const banner = items.slice(bannerAt, items.indexOf("</View>", items.indexOf("setStageLabel(nextStagePreview.band)")));
+    const tapAt = items.indexOf("setStageLabel(nextStagePreview.band)");
+    expect(tapAt, "배너 탭 핸들러가 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    const bannerEndAt = items.indexOf("</View>", tapAt);
+    expect(bannerEndAt, "배너 닫는 태그가 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    const banner = items.slice(bannerAt, bannerEndAt);
     expect(banner).toContain("setHasManualStageSelection(true);");
     expect(banner).toContain("setStageLabel(nextStagePreview.band);");
     expect(banner).not.toContain("router.push");
@@ -244,7 +248,11 @@ describe("트랙 F: 배선 (소스 계약)", () => {
     expect(chipRowAt).toBeGreaterThan(previewReturnAt);
     expect(bannerAt).toBeGreaterThan(chipRowAt);
     // 판정 게이트에도 캡처 이중 게이트가 선다(비세션 조기 반환 + !isPixelLockMode).
-    const declaration = items.slice(items.indexOf("const nextStagePreview ="), items.indexOf("? buildNextStagePreview"));
+    const declAt = items.indexOf("const nextStagePreview =");
+    expect(declAt, "판정 선언이 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    const declEndAt = items.indexOf("? buildNextStagePreview");
+    expect(declEndAt, "판정 삼항의 몸이 실재해야 자르는 구간이 참이다").toBeGreaterThan(declAt);
+    const declaration = items.slice(declAt, declEndAt);
     expect(declaration).toContain("hasSession");
     expect(declaration).toContain("!isPixelLockMode");
   });
@@ -252,7 +260,10 @@ describe("트랙 F: 배선 (소스 계약)", () => {
   it("배너는 alert도 live region도 아니다 (a11y 대장의 role 단독 자리 수를 움직이지 않는다)", () => {
     const items = itemsScreen();
     const bannerAt = items.indexOf("{nextStagePreview ? (");
-    const banner = items.slice(bannerAt, items.indexOf(") : null}", bannerAt));
+    expect(bannerAt).toBeGreaterThan(-1);
+    const bannerCloseAt = items.indexOf(") : null}", bannerAt);
+    expect(bannerCloseAt, "배너 삼항 닫힘이 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    const banner = items.slice(bannerAt, bannerCloseAt);
     expect(banner).toContain('accessibilityRole="text"');
     expect(banner).not.toContain('accessibilityRole="alert"');
     expect(banner).not.toContain("accessibilityLiveRegion");

@@ -1078,11 +1078,13 @@ describe("문서가 소스의 좌표를 무는 자리를 센다 (라운드 93 �
     expect(outside.length, "모집단 밖 좌표 (오늘 943 — 라운드 노트가 대부분이다)").toBeGreaterThanOrEqual(900);
     expect(docsWithHits.size, "모집단 밖에서 좌표를 무는 문서 (오늘 35)").toBeGreaterThanOrEqual(25);
 
-    // 그중 **파일 길이를 넘는 죽은 좌표**가 오늘 셋이다(`app/(tabs)/records.tsx`는 1,774줄인데
-    // round65·round67 정찰이 :1831·:1884를 물고, round93 정찰이 그 사실을 인용하며 하나를 더 늘렸다).
-    // ⚠️ **정찰을 쓰는 걸음이 곧 이 사각을 키우는 걸음이다.**
+    // 그중 **파일 길이를 넘는 죽은 좌표** — 종전(라운드 93 E 시점) 셋이었다(`app/(tabs)/records.tsx`가
+    // 1,774줄인데 round65·round67 정찰이 :1831·:1884를 물고, round93 정찰이 인용하며 하나를 더 늘렸다).
+    // 두 시점(기능 라운드 1 통합): 트랙 B가 records.tsx를 늘려 그 둘이 **되살아나** 오늘 하나다 —
+    // 이 수는 파일이 자라면 줄고 정찰이 쓰면 느는 **양방향**이라 하한을 두지 않는다(라운드 95 M-1의
+    // 방향 규율: 하한은 자라는 수에만). 값은 0 이상임만 물고 크기는 기록으로 남긴다(recorded: 3 → 1).
     const dead = outside.filter((coordinate) => !isLineWithinFile(coordinate));
-    expect(dead.length, "모집단 밖의 죽은 좌표 (오늘 3)").toBeGreaterThanOrEqual(2);
+    expect(dead.length, "모집단 밖의 죽은 좌표 — 양방향 수라 기록만 (E 시점 3 · 오늘 1)").toBeGreaterThanOrEqual(0);
   });
 
   // ── 재개 조건(AD-5) — **이 축의 것만** 적는다 ────────────────────────────────

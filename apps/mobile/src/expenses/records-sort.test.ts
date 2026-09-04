@@ -180,7 +180,9 @@ describe("트랙 B: app/(tabs)/records.tsx 배선", () => {
   it("선택 상태는 SegmentedControl의 accessibilityState가 진다 — 토글 자리에 '선택됨' 라벨이 없다 (라운드 95)", () => {
     const toggleAt = recordsSource.indexOf('testID="records-sort-toggle"');
     expect(toggleAt).toBeGreaterThan(-1);
-    const toggleBlock = recordsSource.slice(recordsSource.lastIndexOf("{isRecordsSortToggleVisible", toggleAt), toggleAt + 400);
+    const gateAt = recordsSource.lastIndexOf("{isRecordsSortToggleVisible", toggleAt);
+    expect(gateAt, "토글 앞의 표시 게이트가 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    const toggleBlock = recordsSource.slice(gateAt, toggleAt + 400);
     // 공용 컨트롤이 옵션 문자열을 그대로 접근성 라벨·상태로 옮긴다(src/ui.tsx) — 화면이 라벨을
     // 덧쓰거나 상태 낱말을 붙이지 않는다.
     expect(toggleBlock).toContain("<SegmentedControl");
@@ -225,7 +227,9 @@ describe("트랙 B: app/(tabs)/records.tsx 배선", () => {
   it("달력 모드와의 상호작용: 달력 칸 탭은 그 날짜 섹션이 목적지라 최신순으로 되돌린다", () => {
     const selectAt = recordsSource.indexOf("const handleSelectCalendarDate = useCallback(");
     expect(selectAt).toBeGreaterThan(-1);
-    const selectBlock = recordsSource.slice(selectAt, recordsSource.indexOf("}, [setRecordsSortMode, setViewMode]);", selectAt));
+    const selectEndAt = recordsSource.indexOf("}, [setRecordsSortMode, setViewMode]);", selectAt);
+    expect(selectEndAt, "콜백 닫힘(의존성 배열)이 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    const selectBlock = recordsSource.slice(selectAt, selectEndAt);
     // 리스트 전환과 같은 자리에서, 칩을 직접 누른 것과 같은 setter로 되돌린다(persist도 따라간다).
     expect(selectBlock).toContain("setViewMode(RECORDS_VIEW_LIST);");
     expect(selectBlock).toContain('setRecordsSortMode("latest");');
