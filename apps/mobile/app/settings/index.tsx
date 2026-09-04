@@ -295,10 +295,13 @@ export default function SettingsScreen() {
       </View>
 
       {/* 라운드 96 T6: 평면 11행 → 4구획. 구획의 이름·순서는 위 순수 모듈 표
-          (settingsSectionTitles)가 정하고, 행의 문구·목적지·순서는 종전 그대로다. */}
+          (settingsSectionTitles)가 정하고, 행의 문구·목적지·순서는 종전 그대로다.
+          토스 리뷰 M 후속: 구획 제목 넷은 모델로 삼은 more.tsx(:456)와 같은
+          accessibilityRole="header"다 — 스크린리더 헤더 내비게이션에서 이 화면만
+          구획을 잃지 않는다(렌더 픽셀 불변). */}
       <View testID="screen-SET-002" style={{ gap: theme.spacing.section }}>
         <View style={{ gap: theme.spacing.gap }}>
-          <Text style={sectionTitleStyle}>{settingsSectionTitles.family}</Text>
+          <Text accessibilityRole="header" style={sectionTitleStyle}>{settingsSectionTitles.family}</Text>
           {/* MOB-118: 아이 목록 · 전환 · 편집 · 추가 (SET-005) */}
           <ListRow
             icon={<SettingsRowIcon name="person-circle-outline" />}
@@ -317,7 +320,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={{ gap: theme.spacing.gap }}>
-          <Text style={sectionTitleStyle}>{settingsSectionTitles.spending}</Text>
+          <Text accessibilityRole="header" style={sectionTitleStyle}>{settingsSectionTitles.spending}</Text>
           <ListRow
             icon={<SettingsRowIcon name="wallet-outline" />}
             title="예산 수정"
@@ -338,7 +341,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={{ gap: theme.spacing.gap }}>
-          <Text style={sectionTitleStyle}>{settingsSectionTitles.alerts}</Text>
+          <Text accessibilityRole="header" style={sectionTitleStyle}>{settingsSectionTitles.alerts}</Text>
           {/* PUSH-116: 푸시 알림·기기별 수신 관리 (SET-006) */}
           <ListRow
             icon={<SettingsRowIcon name="notifications-circle-outline" />}
@@ -359,7 +362,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={{ gap: theme.spacing.gap }}>
-          <Text style={sectionTitleStyle}>{settingsSectionTitles.data}</Text>
+          <Text accessibilityRole="header" style={sectionTitleStyle}>{settingsSectionTitles.data}</Text>
           <ListRow
             icon={<SettingsRowIcon name="shield-checkmark-outline" />}
             title="약관 및 개인정보"

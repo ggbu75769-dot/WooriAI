@@ -349,10 +349,16 @@ export function PurchaseFollowupLifecycle() {
   }, [activeFollowup, appLockHeld, selectedChildId]);
 
   /**
-   * T10 — 답을 받고 내려가는 카드의 120ms 잔상. pointerEvents="none"이라 어떤 탭도 받지 않고
+   * T10 — 답을 받고 내려가는 카드의 120ms 잔상. pointerEvents "none"이라 어떤 탭도 받지 않고
    * (핸들러는 형식상의 no-op), 스토어·판정에는 아무 흔적이 없다 — 아래 정식 가드 셋(세션 · 잠금 ·
    * 아이 스코프)과 같은 술어를 그대로 지나야만 그려지므로, 잠금 화면 위나 다른 아이의 화면에
    * 잔상이 남는 일도 없다.
+   *
+   * 토스 리뷰 L 후속 둘: ① pointerEvents는 a11y 트리를 숨기지 않는다 — noop 버튼 3개가
+   * 120ms 동안 스크린리더 포커스 대상으로 남지 않게 accessibilityElementsHidden +
+   * importantForAccessibility(같은 속성쌍을 쓰는 LineChartCard 장식 델타와 같은 관례)를
+   * 함께 단다. ② prop형 pointerEvents는 RN 0.71+에서 deprecated(웹 콘솔 warning) —
+   * style.pointerEvents로 옮긴다(네이티브 동작 동일).
    */
   if (
     hasSession &&
@@ -362,7 +368,11 @@ export function PurchaseFollowupLifecycle() {
     isFollowupForSelectedChild(exitingFollowup, selectedChildId)
   ) {
     return (
-      <View pointerEvents="none" style={purchaseFollowupOverlayStyle}>
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[purchaseFollowupOverlayStyle, { pointerEvents: "none" }]}
+      >
         <Animated.View
           style={{
             opacity: exitMotion,

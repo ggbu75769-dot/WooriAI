@@ -10,8 +10,9 @@ import { transientNoticeDurationMs } from "./ui/use-transient-notice";
  * T1(디자인 시스템) — **상태 화면·공용 프리미티브 관례 계약.**
  *
  * 이 파일이 붙드는 것은 넷이다.
- *  ① 타이포 단일화 — caption 이중 기준(11 vs 12)이 다시 갈라지지 않고, 금액 3단 스케일의
- *     단일 소스가 design-system amount 티어로 남는다.
+ *  ① 타이포 재지향 — 값이 같은 키(headline1·body1)의 단일 소스가 유지되고, caption은
+ *     픽셀락 수치(11/16)로 남는다(12/18 단일화는 캡처 재대조를 동반한 2단계 몫 — 토스 리뷰).
+ *     금액 3단 스케일의 단일 소스는 design-system amount 티어로 남는다.
  *  ② 상태 화면의 얼굴 — 같은 조회 실패가 두 가지 얼굴로 그려지지 않도록 LoadErrorCard가
  *     한 벌로 서 있고, EmptyStateCard의 설명 슬롯·가짜 버튼 금지 규율이 지켜진다.
  *  ③ 모션 규율 — 신설 애니메이션 전부가 motion 토큰(120/180/240)과 공용 reduce-motion 훅을
@@ -48,11 +49,19 @@ function componentBlock(sourceText: string, startMarker: string, endMarker: stri
   return sourceText.slice(start, end);
 }
 
-describe("① 타이포 단일화 — caption 12 · 금액 3단 스케일", () => {
-  it("theme.typography.caption은 design-system caption(12/18)과 같은 객체다 — 11px 기준 재발 금지", () => {
-    expect(theme.typography.caption).toBe(designSystemTypography.caption);
-    expect(theme.typography.caption.fontSize).toBe(12);
-    expect(theme.typography.caption.lineHeight).toBe(18);
+describe("① 타이포 재지향 — caption은 픽셀락 11/16 · 금액 3단 스케일", () => {
+  it("theme.typography.caption은 픽셀락 수치(11/16) 리터럴로 남는다 — 12/18 단일화는 캡처 재대조를 동반한 2단계 몫", () => {
+    // ⚠️ 두 시점(토스 리뷰 H) — T1은 이 자리를 `toBe(designSystemTypography.caption)` +
+    // fontSize 12로 고정했었다. 그 재지향은 textStyles.caption을 소비하는 픽셀락 비세션
+    // 캡처 3종(HOME-001·REP-001·ITEM-001)의 렌더를 승인 재대조 없이 움직였고(T1 자신의
+    // "값이 서로 다른 키는 theme에 남는다" 규칙과도 모순), 승인 캡처 원복을 위해 11/16으로
+    // 되돌렸다. design-system 쪽 caption(12/18)은 그대로다 — ModV1/Application 프리미티브의
+    // 소비(typography.caption 직접 참조)는 이 값과 무관하게 종전과 같다.
+    expect(theme.typography.caption).not.toBe(designSystemTypography.caption);
+    expect(theme.typography.caption.fontSize).toBe(11);
+    expect(theme.typography.caption.lineHeight).toBe(16);
+    expect(designSystemTypography.caption.fontSize).toBe(12);
+    expect(designSystemTypography.caption.lineHeight).toBe(18);
   });
 
   it("값이 이미 같던 키(headline1·body1)도 재지향됐다 — 두 체계가 같은 수를 두 벌로 들지 않는다", () => {
@@ -94,6 +103,23 @@ describe("① 타이포 단일화 — caption 12 · 금액 3단 스케일", () =
     expect(surfaceListRow).toContain("typography.amountRegular");
     // 금액은 낭독에도 실린다(값 문자열이 없을 때 formatKrw가 그 자리를 진다).
     expect(surfaceListRow).toContain("amountText ?? value");
+  });
+
+  /**
+   * ⚠️ 토스 리뷰 M — **미배선 옵트인 금액 슬롯 대장.** T1이 "공용 API 신설"로 세운 슬롯 넷
+   * (HeroSummaryCard.amountKrw · ListRow.amountKrw 두 벌 · LineChartCard.valueKrw)은 화면
+   * 소비자 0으로 태어났고, ④의 AsyncState 대장 스코프 밖이라 어느 대장에도 잡히지 않았다.
+   * 여기 값으로 적는다 — 배선이 생기거나 슬롯이 걷히면 이 수가 어긋나 빨개지고, 손이 이
+   * 대장을 함께 옮긴다. (살아 있는 카운트업 배선은 공용 AmountCountUpText를 직접 소비하는
+   * 세션 홈 히어로 하나다 — 종전의 사적 사본 HomeHeroAmount는 토스 리뷰에서 걷혔다.)
+   */
+  it("⚠️ 옵트인 금액 슬롯의 화면 소비자는 아직 0이다 — 공용 카운트업 직접 소비(홈 히어로)만 산다", () => {
+    const uses = listSourceFiles()
+      .filter((path) => path !== "src/ui.tsx" && path !== "src/design-system/components/ApplicationPrimitives.tsx")
+      .filter((path) => /(?:amountKrw|valueKrw)=\{/.test(source(path)));
+    expect(uses).toEqual(["app/(tabs)/index.tsx"]);
+    // 그 한 자리는 슬롯이 아니라 공용 AmountCountUpText 배선이다(핀은 home-section-priority가 진다).
+    expect(source("app/(tabs)/index.tsx")).toContain("<AmountCountUpText amountKrw={monthlyUsed}");
   });
 });
 

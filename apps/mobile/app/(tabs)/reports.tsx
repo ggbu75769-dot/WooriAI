@@ -787,6 +787,13 @@ export default function ReportsScreen() {
    * previousMonthTotalKrw 배선). 비세션 REP-001 장식 델타는 이 값과 무관하다: 그 분기의
    * LineChartCard는 deltaLabel prop을 넘기지 않는 undefined 경로 그대로라 미리보기 "+12.5%"
    * 장식이 종전과 바이트 단위로 같다(doNotDo — src/ui.tsx LineChartCard 비접촉).
+   *
+   * ⚠️ 두 시점(토스 리뷰 L — 알려진 사각): 종전에는 monthly+previousMonth 성공만으로 "+N%"가
+   * 섰지만, 이제 전월 비교는 trendDirection(monthlyTrend 점≥2 필요)과 인사이트 비교 문장
+   * 둘만 전담한다. monthlyTrend 조회가 실패하거나 점이 1개인 달(둘째 달 이전·부분 실패)에
+   * 두 자리가 모두 비면 화면 어디에도 전월 대비가 없다 — 은퇴 근거(캡션 없는 유일 숫자)가
+   * 정당해 현행 유지하고, 그 조합이 실사용 불만으로 보고되는 날 trendDirection에
+   * previousMonth 응답 폴백 입력을 더하는 라운드가 선다.
    */
   const deltaLabel = null;
 

@@ -184,7 +184,10 @@ export function planHomeSections(input: HomeSectionPlanInput): HomeSectionPlan {
  */
 export function homeMoreSectionsLabel(count: number, topName?: string | null): string {
   if (!topName) return `카드 ${count}개 더 보기`;
-  if (count === 1) return `${topName} 더 보기`;
+  // 토스 리뷰 L: count<=1 경계를 모듈 안에서 접는다 — 종전에는 (0, 이름)이 "지난달 대비 외
+  // -1개 더 보기"를 냈다(오늘의 유일 호출부는 count>0 가드로 우연히 안전했지만, 순수 모듈이
+  // 스스로 음수 개수를 내면 다음 호출부가 같은 가드를 잊는 날 화면 문구가 된다).
+  if (count <= 1) return `${topName} 더 보기`;
   return `${topName} 외 ${count - 1}개 더 보기`;
 }
 

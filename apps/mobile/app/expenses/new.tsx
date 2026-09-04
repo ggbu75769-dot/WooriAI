@@ -610,7 +610,9 @@ export default function NewExpenseScreen() {
    *    이 문단이 길어지며 라운드 93에는 `:1582`·`:2311`이었고 **오늘은 `:1589`·`:2318`이다**
    *    (라운드 95 트랙 A가 빠른 품목 타일 라벨 위에 두 시점 주석을 더하고 이 문단도 늘려 다시
    *    밀렸다). ⚠️ 라운드 96 T3가 품목명 블록을 타일 아래로 올리고 이 문단도 늘려 다시 밀어
-   *    **오늘은 `:1681`·`:2472`다**. 그리고 그날부터 *키보드를 올리는 자리*는 둘이 아니다 —
+   *    `:1681`·`:2472`가 됐고, ⚠️ 토스 리뷰가 결제 수단 콜드 스타트 한계·헤어라인 rgba 기록
+   *    주석을 더해 다시 밀어 **오늘은 `:1692`·`:2486`이다**. 그리고 라운드 96 T3부터 *키보드를
+   *    올리는 자리*는 둘이 아니다 —
    *    타일이 품목명을 채운 직후 금액으로 커서를 옮기는 `amountInputRef`의 둘이 더해져 **넷**이다
    *    (판매처 쪽의 `focus()` 0건 판정은 그대로다). 다시 찾는 손은 위 두 이름으로 찾는다.
    *
@@ -848,6 +850,15 @@ export default function NewExpenseScreen() {
    * 저장되는 값은 언제나 화면에 보이는 그 값이어야 한다. 프리필이 결제 수단을 정했으면
    * (정기 지출 "기록하기") 그쪽이 이기고, 비세션(EXP-001 캡처)은 판정 자체가 null이라 종전
    * 그대로 0(카드)이다(useState 초기값 불변 — recurring-flow.test.ts가 무는 그 한 줄).
+   *
+   * ⚠️ 알려진 한계(토스 리뷰 L, 두 시점): mount 1회 스냅숏이라 **콜드 스타트 첫 시트**(앱
+   * 시작 직후 딥링크/FAB — 오프라인 스냅숏·월 캐시가 아직 비어 있음)에는 rows가 비어
+   * 조용히 미적용(카드 시작)이고, 이후 hydration은 반영되지 않는다. 또 순서 규칙상 로컬
+   * (createdAt 최신순)이 서버(spentOn 최신순)보다 앞이라, 스냅숏 0건인 재설치/새 기기에서는
+   * "가장 최근에 적은" 기준이 입력 시각이 아니라 지출 날짜가 된다 — 소급 기입이 많으면 옛
+   * 결제 수단이 뽑힐 수 있다. 개선은 웜 캐시에서만 확률적으로 작동한다는 뜻이다. "원천
+   * hydration 후 1회 적용(사용자 터치 전 한정)" 가드는 사용자 선택 불침 규칙과의 교환이라
+   * 별도 라운드 몫으로 남긴다.
    */
   useEffect(() => {
     const recentPaymentMethod = resolveDefaultPaymentMethod({
@@ -2026,6 +2037,9 @@ export default function NewExpenseScreen() {
               placeholder="품목명 (예: 기저귀)"
               // DSN-053 P2-C: 요약바의 연필과 빠른 품목의 "직접 입력"이 겨누는 유일한 입력칸.
               ref={itemNameInputRef}
+              // 토스 리뷰 L(기록): 이 헤어라인 rgba는 기존 관례값 사본이다(#4A3F35 브라운 10% —
+              // ExpenseDatePicker·RecordsCalendar·child-profile에 기존 존재, DNC-017 팔레트 교체
+              // 아님). theme에 hairline 토큰이 서는 라운드에 파일들 일괄 이관 몫.
               style={{
                 backgroundColor: theme.colors.white,
                 borderColor: "rgba(74, 63, 53, 0.10)",

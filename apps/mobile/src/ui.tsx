@@ -149,8 +149,14 @@ export function AppScreen({
   return (
     <View style={{ flex: 1 }}>
       {scroller}
-      {/* box-none: 떠 있는 줄의 빈 자리는 터치를 아래 스크롤러로 통과시킨다(버튼만 잡는다). */}
-      <View pointerEvents="box-none" style={{ bottom: theme.spacing.screen, left: 0, position: "absolute", right: 0 }}>
+      {/* box-none: 떠 있는 줄의 빈 자리는 터치를 아래 스크롤러로 통과시킨다(버튼만 잡는다).
+          토스 리뷰 L 둘: ① prop형 pointerEvents는 RN 0.71+ deprecated(웹 콘솔 warning) —
+          style.pointerEvents로 옮겼다(동작 동일). ② 알려진 한계(기록): 콘텐츠가 뷰포트보다
+          살짝만 긴 짧은 화면(첫 기록 전 세션 홈 등)에서는 스크롤 유도 없이 FAB가 마지막
+          요소(동기화 상태 줄)의 중앙을 덮는다 — 끝까지 내리면 바닥 여백(88)으로 해소되지만,
+          "짧은 콘텐츠엔 FAB 회피 여백을 항상 적용"은 픽셀락 6종 밖 화면 전수 검토와 한
+          라운드라 여기 값으로 남긴다. */}
+      <View style={{ bottom: theme.spacing.screen, left: 0, pointerEvents: "box-none", position: "absolute", right: 0 }}>
         {floatingAction}
       </View>
     </View>
@@ -514,14 +520,18 @@ export function BudgetProgressBar({ value }: { value: number }) {
 }
 
 /**
- * T1(디자인 시스템) — **금액 카운트업 텍스트(모듈 내부).** 숫자가 주인공인 앱인데 금액이
+ * T1(디자인 시스템) — **금액 카운트업 텍스트.** 숫자가 주인공인 앱인데 금액이
  * 항상 즉시 대치되고 있었다. 값이 바뀌면 이전 값에서 새 값까지 `motion.slowMs` 동안 세고,
  * 마운트 직후와 reduce-motion에서는 애니메이션 없이 최종값을 그린다(휴지 렌더 불변).
  *
  * 낭독은 언제나 **최종값**이다(accessibilityLabel 고정) — 세는 중간값이 소리로 새면
  * 스크린리더에 틀린 금액을 말하는 셈이 된다.
+ *
+ * ⚠️ 두 시점(토스 리뷰 M) — T1 시점에는 모듈 내부였고, T2가 세션 홈 히어로에 effect 본문이
+ * 사실상 동일한 사본(HomeHeroAmount)을 index.tsx에 세워 같은 로직이 두 벌로 진화하고 있었다.
+ * export로 열고 홈 히어로가 이것을 직접 소비한다 — 카운트업 규칙의 단일 소스는 이 컴포넌트다.
  */
-function AmountCountUpText({ amountKrw, style }: { amountKrw: number; style?: StyleProp<TextStyle> }) {
+export function AmountCountUpText({ amountKrw, style }: { amountKrw: number; style?: StyleProp<TextStyle> }) {
   const reduceMotionEnabled = useReducedMotion();
   const [displayedKrw, setDisplayedKrw] = useState(amountKrw);
   const animated = useRef(new Animated.Value(amountKrw)).current;
@@ -537,7 +547,12 @@ function AmountCountUpText({ amountKrw, style }: { amountKrw: number; style?: St
     }
     mountedValueRef.current = amountKrw;
     const listenerId = animated.addListener(({ value }) => setDisplayedKrw(Math.round(value)));
-    Animated.timing(animated, { duration: motion.slowMs, toValue: amountKrw, useNativeDriver: false }).start(() => {
+    Animated.timing(animated, { duration: motion.slowMs, toValue: amountKrw, useNativeDriver: false }).start(({ finished }) => {
+      // 토스 리뷰 L: 값이 연달아 바뀌면 RN이 이전 애니메이션에 stop()을 걸고 이 콜백을
+      // {finished:false}로 동기 발화한다 — 가드 없이 setDisplayedKrw(amountKrw)를 부르면
+      // 옛 목표값이 한 프레임 커밋돼 금액이 앞으로 튀었다 되돌아온다. 중단된 콜백은
+      // 아무것도 하지 않는다(리스너 제거는 effect cleanup이 진다).
+      if (!finished) return;
       animated.removeListener(listenerId);
       setDisplayedKrw(amountKrw);
     });

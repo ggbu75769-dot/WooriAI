@@ -110,6 +110,7 @@ import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
+  AmountCountUpText,
   AppScreen,
   Card,
   EmptyStateCard,
@@ -224,41 +225,14 @@ const HOME_BUDGET_ADJUST_LABEL = "예산 조정하기";
  */
 const HOME_PROFILE_ENTRY_LABEL = "프로필";
 
-/**
- * TOSS-T2 — 히어로 금액 카운트업. 값이 바뀌면 이전 값에서 새 값까지 `motion.slowMs` 동안 세고,
- * 마운트 직후와 reduce-motion에서는 애니메이션 없이 최종값을 그린다(휴지 렌더 불변). 공용
- * HeroSummaryCard의 옵트인 카운트업(T1 `amountKrw` prop)과 같은 규칙인데, 세션 홈 히어로는
- * 승인 캡처의 자체 골격(homeHeroStyle)이라 그 컴포넌트를 쓰지 않아 규칙만 같은 모양으로 든다.
- * 낭독은 언제나 **최종값**이다 — 세는 중간값이 소리로 새면 스크린리더에 틀린 금액을 말한다.
+/*
+ * TOSS-T2 — 히어로 금액 카운트업.
+ * ⚠️ 두 시점(토스 리뷰 M): 종전에는 이 자리에 공용 AmountCountUpText(src/ui.tsx)와 effect
+ * 본문이 사실상 동일한 사적 사본(HomeHeroAmount)이 서 있었다 — "승인 캡처의 자체 골격이라
+ * 규칙만 같은 모양으로 든다"는 이유였지만, 골격(homeHeroStyle)과 카운트업 로직은 별개라
+ * 스타일 주입으로 충분하다. 이제 공용 컴포넌트를 직접 소비한다(reduce-motion·최종값 낭독
+ * 규칙은 그 컴포넌트가 단일 소스로 진다).
  */
-function HomeHeroAmount({ amountKrw, reduceMotionEnabled }: { amountKrw: number; reduceMotionEnabled: boolean }) {
-  const [displayedKrw, setDisplayedKrw] = useState(amountKrw);
-  const animated = useRef(new Animated.Value(amountKrw)).current;
-  const mountedValueRef = useRef(amountKrw);
-
-  useEffect(() => {
-    if (reduceMotionEnabled || mountedValueRef.current === amountKrw) {
-      animated.stopAnimation();
-      animated.setValue(amountKrw);
-      mountedValueRef.current = amountKrw;
-      setDisplayedKrw(amountKrw);
-      return;
-    }
-    mountedValueRef.current = amountKrw;
-    const listenerId = animated.addListener(({ value }) => setDisplayedKrw(Math.round(value)));
-    Animated.timing(animated, { duration: motion.slowMs, toValue: amountKrw, useNativeDriver: false }).start(() => {
-      animated.removeListener(listenerId);
-      setDisplayedKrw(amountKrw);
-    });
-    return () => animated.removeListener(listenerId);
-  }, [amountKrw, animated, reduceMotionEnabled]);
-
-  return (
-    <Text accessibilityLabel={formatKrw(amountKrw)} style={homeHeroStyle.amount}>
-      {formatKrw(displayedKrw)}
-    </Text>
-  );
-}
 
 const homeBudgetNudgeStyle = StyleSheet.create({
   card: {
@@ -570,7 +544,10 @@ const homeHeroStyle = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
+    // 토스 리뷰 H 후속: 히어로 밖 형제 버튼이 되며 신설 타깃 기준(48dp)을 채운다 — 종전에는
+    // 히어로 안 중첩 Pressable로 렌더 높이 15px(hitSlop 포함 31px)였다.
+    minHeight: theme.touchTarget
   },
   metaStrong: {
     color: theme.colors.white,
@@ -601,6 +578,10 @@ const homeHeroStyle = StyleSheet.create({
     color: theme.colors.white,
     fontSize: 13,
     fontWeight: "800"
+  },
+  // 토스 리뷰 H 후속: 히어로 상단(라벨+금액)의 터치 영역 — 카드의 gap 리듬(8)을 그대로 쓴다.
+  summaryArea: {
+    gap: 8
   },
   track: {
     backgroundColor: theme.colors.coral[200],
@@ -2580,28 +2561,40 @@ export default function HomeScreen() {
           {/* ② 히어로 1장 -- 캡처 134-153. 금액은 오프라인 대기 행까지 재조정한 `monthlyUsed`다
               (라운드 51 #7: 히어로·진행바·경고·넛지가 같은 한 값을 읽는다).
 
-              TOSS-T2: 카드 자체가 눌린다 -- 은퇴한 사용률 넛지 카드의 유일한 기능(기록 탭 이동)
-              을 이 숫자의 근거 화면으로 가는 탭 하나로 이어받는다. 금액은 카운트업(HomeHeroAmount,
-              reduce-motion 즉시 대입)이고, 낭독 라벨은 언제나 최종값이라 종전 문장 그대로다. */}
-          <Pressable
-            accessible
-            accessibilityRole="button"
-            accessibilityLabel={
-              budgetProgress.hasBudget
-                ? `이번 달 우리 아이 비용 ${formatKrw(monthlyUsed)}, 예산 사용률 ${progress}퍼센트`
-                : `이번 달 우리 아이 비용 ${formatKrw(monthlyUsed)}`
-            }
-            accessibilityHint="두 번 탭하면 이번 달 기록 목록이 열려요"
-            testID="home-hero-summary"
-            onPress={() => router.push("/(tabs)/records")}
-            style={({ pressed }) => [homeHeroStyle.card, pressed && homeHeroPressedStyle]}
-          >
-            <KoreanText style={homeHeroStyle.label}>이번 달 우리 아이 비용</KoreanText>
-            <HomeHeroAmount amountKrw={monthlyUsed} reduceMotionEnabled={reduceMotionEnabled} />
+              TOSS-T2: 카드 상단(라벨+금액)이 눌린다 -- 은퇴한 사용률 넛지 카드의 유일한 기능
+              (기록 탭 이동)을 이 숫자의 근거 화면으로 가는 탭 하나로 이어받는다. 금액은
+              카운트업(공용 AmountCountUpText, reduce-motion 즉시 대입)이고, 낭독 라벨은 언제나
+              최종값이라 종전 문장 그대로다.
+
+              ⚠️ 두 시점(토스 리뷰 H) — 종전에는 카드 전체가 `accessible` role="button" Pressable
+              이었고 예산 줄·넛지 Pressable이 그 **안에** 중첩돼 있었다: 웹에서 <button> 중첩
+              콘솔 에러가 났고, 네이티브에서는 accessible 평탄화 때문에 TalkBack/VoiceOver가
+              내부 "예산 조정하기"·예산 넛지에 도달할 수 없었다(터치 타깃도 15px). 이제 카드는
+              평범한 View이고 그 안에 **형제** 터치 영역들이 선다 -- 상단(기록 탭)·예산 줄
+              (/budget, minHeight 48)·넛지가 각각 보조기술에 잡힌다. */}
+          <View style={homeHeroStyle.card}>
+            <Pressable
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={
+                budgetProgress.hasBudget
+                  ? `이번 달 우리 아이 비용 ${formatKrw(monthlyUsed)}, 예산 사용률 ${progress}퍼센트`
+                  : `이번 달 우리 아이 비용 ${formatKrw(monthlyUsed)}`
+              }
+              accessibilityHint="두 번 탭하면 이번 달 기록 목록이 열려요"
+              testID="home-hero-summary"
+              onPress={() => router.push("/(tabs)/records")}
+              style={({ pressed }) => [homeHeroStyle.summaryArea, pressed && homeHeroPressedStyle]}
+            >
+              <KoreanText style={homeHeroStyle.label}>이번 달 우리 아이 비용</KoreanText>
+              <AmountCountUpText amountKrw={monthlyUsed} style={homeHeroStyle.amount} />
+            </Pressable>
             {budgetProgress.hasBudget ? (
               <>
                 {/* TOSS-T2: 예산 줄은 따로 눌린다 -- "남은 예산 N원 · 예산 M원"이 막다른 길로
-                    끝나지 않게 예산 편집(/budget)으로 간다(경고 배너의 액션과 같은 문구·목적지). */}
+                    끝나지 않게 예산 편집(/budget)으로 간다(경고 배너의 액션과 같은 문구·목적지).
+                    토스 리뷰 H 후속: 형제 노드가 되며 이 라운드의 신설 타깃 기준(minHeight 48)을
+                    함께 채운다 -- 경고 배너 액션과 같은 값이다. */}
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`${HOME_BUDGET_ADJUST_LABEL}. ${budgetProgress.subtext}`}
@@ -2642,7 +2635,7 @@ export default function HomeScreen() {
                 </Text>
               </Pressable>
             )}
-          </Pressable>
+          </View>
 
           {showFirstRecordCelebration ? (
             // UX-G: 첫 기록이 막 쌓인 순간. 히어로 카드 **바로 아래**에 붙어 "여기"가 어디인지

@@ -42,10 +42,17 @@ const PULL_TO_REFRESH_MIN_VISIBLE_MS = 450;
  * 시계 주입 규율과의 관계: 시각을 읽지 않는다(Date.now 0건) — 타이머 두 개가 전부다.
  */
 export function createRefreshSpinnerTimer(onStop: () => void): {
-  /** 당김 시작: 밸브·최소 표시 타이머를 건다(이전 사이클이 남아 있으면 먼저 정리한다). */
-  start: () => void;
-  /** refresh가 settle됐다: 최소 표시가 지났으면 즉시, 아니면 450ms 시점에 스피너를 닫는다. */
-  settle: () => void;
+  /**
+   * 당김 시작: 밸브·최소 표시 타이머를 걸고(이전 사이클이 남아 있으면 먼저 정리) 이
+   * 사이클의 토큰을 돌려준다 — settle은 그 토큰과 함께만 유효하다.
+   */
+  start: () => number;
+  /** refresh가 settle됐다: 최소 표시가 지났으면 즉시, 아니면 450ms 시점에 스피너를 닫는다.
+   * ⚠️ 두 시점(토스 리뷰 M): 종전에는 인자가 없어 사이클 정체성이 없었다 — refresh1이 hang →
+   * 밸브가 닫음 → 재당김(사이클2) → hang이던 refresh1의 finally가 settle()을 부르면 settled가
+   * 남아 사이클2가 자기 refresh 완료와 무관하게 450ms에 닫혔다. 이제 자기 start()가 돌려준
+   * 토큰의 settle만 유효하고, 이전 사이클의 늦은 settle은 무시된다. */
+  settle: (token: number) => void;
   /** 언마운트: onStop을 부르지 않고 타이머만 정리한다(사라진 화면에 setState를 걸지 않게). */
   clear: () => void;
 } {
@@ -55,6 +62,8 @@ export function createRefreshSpinnerTimer(onStop: () => void): {
   let settled = false;
   // 한 사이클에 onStop은 한 번이다 — 밸브가 먼저 닫은 뒤 뒤늦은 settle이 와도 요동하지 않는다.
   let stopped = false;
+  // 사이클 토큰: start()마다 오르고, settle은 현재 사이클의 토큰일 때만 선다.
+  let cycle = 0;
 
   const clearTimers = () => {
     if (valveTimer) {
@@ -77,6 +86,7 @@ export function createRefreshSpinnerTimer(onStop: () => void): {
   return {
     start: () => {
       clearTimers();
+      cycle += 1;
       minVisibleElapsed = false;
       settled = false;
       stopped = false;
@@ -87,8 +97,13 @@ export function createRefreshSpinnerTimer(onStop: () => void): {
         minVisibleElapsed = true;
         if (settled) stopSpinner();
       }, PULL_TO_REFRESH_MIN_VISIBLE_MS);
+      return cycle;
     },
-    settle: () => {
+    settle: (token) => {
+      // 이전 사이클의 늦은 settle(예: 밸브가 닫은 뒤에도 진행 중이던 refresh의 finally)은
+      // 새 사이클의 스피너를 조기 종료시키면 안 된다 — 모듈 머리말("스피너가 실제 완료
+      // 시점에 맞춰 닫힌다")의 약속이다.
+      if (token !== cycle) return;
       settled = true;
       if (minVisibleElapsed) stopSpinner();
     },
@@ -122,14 +137,16 @@ export function usePullToRefresh(refresh: () => Promise<unknown>): {
         if (mountedRef.current) setRefreshing(false);
       });
     }
-    spinnerTimerRef.current.start();
+    // 토스 리뷰 M: 각 onRefresh 클로저는 자기 start()가 돌려준 사이클 토큰으로만 settle한다 —
+    // 이전 당김의 늦은 finally가 다음 당김의 스피너를 조기 종료시키지 않는다.
+    const cycleToken = spinnerTimerRef.current.start();
     void (async () => {
       try {
         await refreshRef.current();
       } catch {
         // best-effort: 실패한 쿼리는 자신의 isError UI로 드러난다.
       } finally {
-        spinnerTimerRef.current?.settle();
+        spinnerTimerRef.current?.settle(cycleToken);
       }
     })();
   }, []);

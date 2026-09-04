@@ -166,6 +166,9 @@ describe("planHomeSections 우선순위 판정", () => {
     expect(homeMoreSectionsLabel(1, "누적 총액")).toBe("누적 총액 더 보기");
     // 이름을 모르는 호출부(레거시 시그니처)는 종전 문구 그대로다.
     expect(homeMoreSectionsLabel(2, null)).toBe("카드 2개 더 보기");
+    // 토스 리뷰 L: 경계가 모듈 안에서 접힌다 — 종전에는 (0, 이름)이 "외 -1개"를 냈다
+    // (호출부 가드에 기대지 않는다).
+    expect(homeMoreSectionsLabel(0, "지난달 대비")).toBe("지난달 대비 더 보기");
   });
 
   it("카드 이름 표는 모든 섹션 id를 안다 (TOSS-T2)", () => {
@@ -484,13 +487,17 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     expect(homeSource).toContain("margin: -theme.spacing.screen");
     expect(homeSource).toContain("padding: theme.spacing.screen");
     // ② 히어로: mainCoral · radius 22(theme.radii.card) · 금액은 TOSS-T2부터 amountLarge
-    // (32/38 tabular-nums) 티어 + 카운트업(HomeHeroAmount, reduce-motion 즉시 대입)이다.
+    // (32/38 tabular-nums) 티어 + 카운트업(reduce-motion 즉시 대입)이다.
     // 배경은 mainCoral이다 — coral[500] 위의 흰 소형 텍스트(12/700·11)는 3.43:1로 AA 미달이었다.
+    // ⚠️ 두 시점(토스 리뷰 M): 종전 핀은 사적 사본 `<HomeHeroAmount amountKrw={monthlyUsed}
+    // reduceMotionEnabled={reduceMotionEnabled} />`를 고정했다 — 공용 AmountCountUpText와 effect
+    // 본문이 동일한 복제를 계약이 봉인하고 있었다. 이제 홈 히어로는 공용 컴포넌트를 소비한다.
     expect(homeSource).toContain("backgroundColor: theme.colors.mainCoral");
     expect(homeSource).not.toContain("backgroundColor: theme.colors.subCoral");
     expect(homeSource).toContain("borderRadius: theme.radii.card");
+    expect(homeSource).not.toContain("function HomeHeroAmount");
     expect(sessionRender).toContain('testID="home-hero-summary"');
-    expect(sessionRender).toContain("<HomeHeroAmount amountKrw={monthlyUsed} reduceMotionEnabled={reduceMotionEnabled} />");
+    expect(sessionRender).toContain("<AmountCountUpText amountKrw={monthlyUsed} style={homeHeroStyle.amount} />");
     expect(homeSource).toContain("...(theme.typography.amountLarge as TextStyle)");
     // 트랙 coral[200] h8, 채움은 흰색.
     expect(homeSource).toContain("backgroundColor: theme.colors.coral[200]");
@@ -521,6 +528,14 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     );
     expect(heroBlock).toContain('onPress={() => router.push("/(tabs)/records")}');
     expect(sessionRender).toContain('testID="home-hero-budget-adjust"');
+    // ⚠️ 두 시점(토스 리뷰 H): 종전에는 카드 전체가 accessible role="button" Pressable이고
+    // 예산 줄·넛지가 그 **안에** 중첩돼 있었다(웹 <button> 중첩 콘솔 에러 · 네이티브 accessible
+    // 평탄화로 TalkBack/VoiceOver 도달 불가 · 타깃 15px). 이제 카드는 View이고 터치 영역들은
+    // 형제다 — 상단(기록 탭) Pressable은 예산 줄이 시작되기 **전에** 닫힌다.
+    expect(sessionRender).toContain("<View style={homeHeroStyle.card}>");
+    const summaryCloseAt = sessionRender.indexOf("</Pressable>", sessionRender.indexOf('testID="home-hero-summary"'));
+    expect(summaryCloseAt).toBeGreaterThan(-1);
+    expect(summaryCloseAt).toBeLessThan(sessionRender.indexOf('testID="home-hero-budget-adjust"'));
     // 경고 배너의 액션(renderHomeSection은 세션 렌더 표식보다 앞이라 전체 소스에서 잡는다).
     expect(homeSource).toContain('testID="home-budget-warning-adjust"');
     const adjustPushes = homeSource.match(/testID="home-(?:hero-budget|budget-warning)-adjust"\s*\n\s*onPress=\{\(\) => router\.push\("\/budget"\)\}/g) ?? [];

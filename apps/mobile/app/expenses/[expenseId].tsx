@@ -1339,6 +1339,8 @@ export default function ExpenseDetailScreen() {
                   // T10: press 피드백. 비활성 흐림(opacity: isRefund ? 0.4 : 1)은 GAP-054 P2-2
                   // 계약의 리터럴 그대로 두고, 눌린 프레임만 뒤의 배열 원소가 0.82로 덮는다
                   // (환불 기록은 disabled라 pressed 자체가 서지 않는다).
+                  // 토스 리뷰 L(기록): 아래 헤어라인 rgba는 기존 관례값 사본(#4A3F35 10% —
+                  // DNC-017 팔레트 교체 아님). theme hairline 토큰이 서는 라운드에 일괄 이관 몫.
                   style={({ pressed }) => [
                     {
                       alignItems: "center",

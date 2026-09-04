@@ -142,6 +142,9 @@ describe("하단 고정 요약바", () => {
    * 상자도 고정 폭 대신 flex 배분(148은 minWidth 하한)이다. '원' 14/800 위계·beige/mainCoral
    * 문법·낭독 규칙은 승인 원본 그대로다. 이 변화는 **비세션(EXP-001)에도 렌더된다** — 기준
    * 이미지 재캡처가 이 트랙의 변경 요청 문서와 함께 간다(결제 수단 세그먼트와 한 라운드).
+   * 토스 리뷰 M 후속: 그 변경 요청 문서는 스크래치패드에만 있어 저장소가 근거 없이 어긋난
+   * 상태였다 — `docs/dev/toss-T3-entry-EXP001-change-request.md`로 승격 커밋됐다(기준 이미지
+   * 교체는 여전히 승인 후 Android 재캡처 몫).
    */
   it("숫자 28/800(lineHeight 34) + '원' 14/800으로 위계가 갈리고, 소리에는 단위가 붙은 쪽을 넘긴다", () => {
     expect(newExpenseSource).toContain("const amountInputDisplay = formatAmountDigits(amountText);");

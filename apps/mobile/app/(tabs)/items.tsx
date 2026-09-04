@@ -894,6 +894,12 @@ export default function ItemsScreen() {
         minimumGroupSize={1}
         selectedContextKey={childId}
         selectedContextName={childScopeLabel ?? "우리 아이"}
+        // ⚠️ 두 시점(토스 리뷰 L) — T9가 onBack을 옵셔널로 내리며 "필수 프롭이 호출부에게
+        // 목적지를 지어내게 만들었다"(router.push("/(tabs)"))를 은퇴 사유로 적었지만, 이
+        // 유일 호출부는 여전히 그 지어낸 목적지를 넘긴다. 여기서 걷지 않는 이유: 이 화면은
+        // 비세션에서 ITEM-001 픽셀락 캡처이고 TopAppBar의 뒤로 셰브런이 승인 캡처 안에
+        // 있다 — onBack을 걷으면 TopAppBar가 그 버튼 노드를 세우지 않아(가짜 버튼 금지
+        // 규율) 캡처가 움직인다. 걷는 것은 ITEM-001 재대조(변경 요청 문서)와 한 라운드다.
         onBack={() => router.push("/(tabs)")}
         // 라운드 72 트랙 E: `onRetry`는 이식본의 조회 실패 가지에만 쓰였는데, 이 화면이 `error`를
         // 넘긴 적이 없어 그 가지는 도달할 수 없었다. 죽은 프롭과 함께 걷었다 — 다시 조회는 이

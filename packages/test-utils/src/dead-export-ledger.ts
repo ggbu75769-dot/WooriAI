@@ -2130,7 +2130,10 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 두 시점(토스 라운드 통합): 141(라운드 88~90 세 라운드 같은 수) → 143 — T1·T6이 ui.tsx에
     // export function 둘(SheetMountTransition · LoadErrorCard)을 더했다. 모집단 밖 축이 함께 자란
     // 것이지 새 병이 아니고, 재개 조건(JSX 사용을 참조로 세는 판정)은 오늘도 열지 않는다.
-    value: 143,
+    // 두 시점(토스 리뷰 M): 143 → 144 — 홈 히어로가 사적 사본(HomeHeroAmount) 대신 공용
+    // AmountCountUpText를 소비하도록 ui.tsx의 그 함수가 export로 열렸다(소비자 실재 —
+    // app/(tabs)/index.tsx 히어로, 핀은 home-section-priority가 진다). 같은 성격의 성장이다.
+    value: 144,
     floor: 80,
     statement:
       "`.tsx`의 `export function`(컴포넌트·훅) 141은 모집단 밖이다 — JSX 사용(`<Foo />`)은 이 그물의 이름 " +

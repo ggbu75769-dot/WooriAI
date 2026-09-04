@@ -154,19 +154,22 @@ export const theme = {
     sheet: 28
   },
   // T1(디자인 시스템) — 타이포 이중 체계의 **1단계 값 재지향**: 값이 이미 같은 키
-  // (headline1↔heading1 · body1↔body)와, 이 라운드가 단일화한 caption은
-  // src/design-system/tokens/typography.ts를 단일 소스로 읽는다. 값이 서로 다른 키
-  // (headline2/3·body2)는 화면들이 그 수치의 픽셀락 캡처를 물고 있어 여기 남는다 —
-  // 합치는 것은 캡처 재대조를 부르는 2단계 몫이다.
+  // (headline1↔heading1 · body1↔body)는 src/design-system/tokens/typography.ts를 단일
+  // 소스로 읽는다. 값이 서로 다른 키(headline2/3·body2·caption)는 화면들이 그 수치의
+  // 픽셀락 캡처를 물고 있어 여기 남는다 — 합치는 것은 캡처 재대조를 부르는 2단계 몫이다.
   typography: {
     headline1: designSystemTypography.heading1,
     headline2: { fontSize: 22, lineHeight: 30, fontWeight: "700" },
     headline3: { fontSize: 18, lineHeight: 26, fontWeight: "600" },
     body1: designSystemTypography.body,
     body2: { fontSize: 13, lineHeight: 20, fontWeight: "400" },
-    // caption 이중 기준(11 vs 12)의 단일화: 두 체계 중 작은 쪽(11/16)이 지워진다.
-    // 12/18은 design-system caption의 승인 수치라 새 값을 짓지 않는다.
-    caption: designSystemTypography.caption,
+    // ⚠️ 두 시점(토스 리뷰 H) — T1은 여기서 caption을 design-system caption(12/18)으로
+    // 재지향했는데, 그 재지향이 textStyles.caption 경로를 타고 픽셀락 비세션 캡처 3종
+    // (HOME-001·REP-001·ITEM-001)의 렌더를 승인 재대조 없이 움직였다(diff bbox 실측:
+    // HOME-001 (10,119,380,772) 등). 바로 위 규칙("값이 서로 다른 키는 캡처를 물고 있어
+    // 남는다")이 caption(11≠12)에도 그대로 적용돼야 하므로 11/16 리터럴로 되돌린다 —
+    // 12/18 채택은 headline2/3·body2와 같은 2단계(캡처 재대조 + 변경 요청 문서) 몫이다.
+    caption: { fontSize: 11, lineHeight: 16, fontWeight: "400" },
     // 금액 타이포 3단 스케일. 값은 design-system의 amount 티어(전부 tabular-nums)가 단일
     // 소스다 — 금액이 품목명보다 작게 그려지던 자리(공용 ListRow·히어로)가 이 티어를 쓴다.
     amountLarge: designSystemTypography.amountLarge,

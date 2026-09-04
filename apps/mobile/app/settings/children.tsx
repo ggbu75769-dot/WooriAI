@@ -30,7 +30,7 @@ import {
   type ChildFormValues
 } from "../../src/children/child-form";
 import { getOrCreateChildCreateKey, rotateChildCreateKey } from "../../src/children/child-create-idempotency";
-import { applyChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES } from "../../src/children/child-switch";
+import { applyChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES, childSwitchOptionAccessibilityLabel } from "../../src/children/child-switch";
 import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";
 import {
   collectKnownHouseholdIds,
@@ -729,7 +729,13 @@ export default function ManageChildrenScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
-                    accessibilityLabel={selected ? `${child.nickname}, 현재 선택된 아이` : `${child.nickname}(으)로 전환`}
+                    /* ⚠️ 두 시점(토스 리뷰 M) — 종전 라벨은 selected ? "닉네임, 현재 선택된 아이"
+                       : "닉네임" + 괄호 표기 "(으)로 전환"으로, T5의 괄호 표기 은퇴 뒤에도 이 한
+                       줄만 살아남아 같은 동작("전환")의 조사 표기가 아이 전환 시트("다온이로
+                       전환")와 이 화면에서 갈려 낭독됐다. 시트와 같은 단일 소스
+                       (childSwitchOptionAccessibilityLabel — directionParticle 값 파생)를
+                       재사용한다. korean-particle-guard의 사각 ⓔ도 0으로 닫힌다. */
+                    accessibilityLabel={childSwitchOptionAccessibilityLabel(child.nickname, selected)}
                     hitSlop={8}
                     onPress={() => handleSelect(child)}
                     style={{ flex: 1, gap: 2 }}

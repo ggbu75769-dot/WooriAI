@@ -46,6 +46,12 @@ DSN-053 P2-A 세션 홈은 승인 캡처(c20deeb 픽셀 103-215)의 수치를 �
   (스크래치패드 `toss-T2-home-*.png`):
   - `nosession-pixellock-{before,after}.png` — **픽셀 diff bbox: None (완전 동일)**,
     EXPO_PUBLIC_PIXEL_LOCK=1 렌더.
+    - ⚠️ 정정(토스 리뷰 M): 이 "완전 동일"의 **기준선은 T1 반영 후 렌더**다(T2의 before가
+      T1-after와 일치함을 리뷰가 재실측). 그 시점의 비세션 렌더 자체는 T1의 caption 11→12
+      재지향 때문에 승인 원본(c20deeb 계열 캡처)과 이미 달랐다 — 즉 이 항목은 "T2가 추가로
+      움직이지 않았다"는 증거이지 "HOME-001이 승인 원본 그대로였다"는 증거가 아니었다.
+      토스 리뷰가 caption을 11/16으로 원복해(`src/theme.ts` 두 시점 주석) 현재 HEAD의
+      비세션 HOME-001 렌더는 승인 원본과 다시 일치한다.
   - `session-top-{before,after}.png` · `session-rich-top-{before,after}.png` ·
     `session-rich-expanded-{top,bottom}-{before,after}.png` · `profile-via-entry-after.png` —
     before에는 프로필 진입 버튼이 없고(P0 재현), after에는 헤더 진입 → 프로필 화면 도달이
