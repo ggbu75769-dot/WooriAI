@@ -51,6 +51,18 @@ import {
   categoryDrilldownNote,
   resolveDrilldownMonth
 } from "../../src/reports/category-drilldown";
+// 기능 라운드 1 트랙 C: 카테고리별 월 추이. 비중은 한 기간 스냅샷뿐이라 "분유값이 오르는
+// 중인지"를 답하지 못했다 — 판정·창 산출·문구·낭독은 전부 순수 모듈에 있고(category-trend.ts
+// 머리말), 이 화면은 칩을 배선하고 그리기만 한다. category-share·category-drilldown은 비접촉.
+import {
+  buildCategoryTrendChips,
+  CATEGORY_TREND_CARD_TEST_ID,
+  CATEGORY_TREND_CHART_TEST_ID,
+  CATEGORY_TREND_SECTION_GUIDE,
+  CATEGORY_TREND_SECTION_TITLE,
+  type CategoryTrendBar
+} from "../../src/reports/category-trend";
+import { useCategoryTrend } from "../../src/reports/use-category-trend";
 // GAP-066 트랙 A(#1): 끝난 달의 예산 결과 한 줄. 판정·문구는 전부 순수 모듈에 있고, 예산
 // 퍼센트는 홈 히어로·인사이트와 **같은** evaluateHomeBudgetProgress에서 온다(두 벌 금지).
 import {
@@ -95,12 +107,12 @@ import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { announceForA11y, AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl } from "../../src/ui";
+import { announceForA11y, AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl, TextButton } from "../../src/ui";
 // DSN-053 P2-D: 월 내비 화살표를 승인 캡처(REP-001)의 MaterialCommunityIcons chevron으로.
 // 글리프(‹ ›)는 기기 폰트에 따라 굵기가 제각각이라 캡처와 다른 그림이 됐다 -- 아이콘 계열은
 // 앱 전역과 같은 MCI다(docs/5차/design-restore-spec.md §아이콘 계열, 신규 의존성 0).
 import { AppIcon } from "../../src/design-system";
-import { SkeletonCard } from "../../src/ui/Skeleton";
+import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 import { ReportPixelStyles } from "../../src/pixelLock/styles";
 
@@ -191,6 +203,96 @@ function ReportPeriodArrow({
   );
 }
 
+/**
+ * 기능 라운드 1 트랙 C — 카테고리 월 추이의 **미니 막대 차트**(이 화면의 지역 컴포넌트).
+ *
+ * 공용 차트를 늘리지 않는 이유: LineChartCard는 "총 지출" 카드 한 벌이고(비세션 장식 폴백까지
+ * 지고 있다), 이 자리는 카드 안의 보조 그림이라 제 몸이 훨씬 작다. 새 공용 컴포넌트가 필요해
+ * 보이면 트랙 안 지역 컴포넌트로 둔다는 라운드 공통 규칙 그대로다.
+ *
+ * 그리는 규칙은 전부 모듈 산출을 따른다: 막대 높이는 `heightRatio`(최대 금액 대비 0..1)에
+ * 플롯 높이만 곱하고, 0원 달은 바닥 스텁으로 그려 "달이 없는 것"과 "0원인 달"이 눈에서도
+ * 갈리게 한다. 색은 총액 추이 선과 같은 mainCoral(0원 스텁은 gray300) — 새 색 리터럴 0건
+ * (DNC-017). 낭독은 라운드 85 관례대로 **한 덩어리**다: 막대 하나하나가 아니라 바깥 View의
+ * accessibilityLabel(달·금액 전부)이 말한다 — 시각 전용 정보를 남기지 않는다.
+ */
+const CATEGORY_TREND_BAR_AREA_HEIGHT = 64;
+// 축 라벨 배율 상한 — 총액 추이 축(src/ui.tsx CHART_AXIS_MAX_FONT_SCALE)·캘린더 칸과 같은
+// 값이다: 좁은 칸의 짧은 글자는 배율을 그대로 따르면 잘려서 틀린 글자가 된다(라운드 85 M-2).
+const CATEGORY_TREND_AXIS_MAX_FONT_SCALE = 1.2;
+
+/**
+ * 추이 카테고리 칩 — 이 화면의 지역 컴포넌트.
+ *
+ * 공용 `CategoryChip`을 쓰지 않는 이유: 그 칩의 히트 영역 계약(GAP-065 #7)은 **칩이 서는 자리
+ * 전수를 실측 값으로 세는** 자리라, 이 화면이 그 모집단에 들어가면 계약 파일(비접촉)이 움직여야
+ * 한다. 이 줄은 줄바꿈 배치라 hitSlop 셈법도 그 계약의 전제(한 줄 가로 간격)와 다르다 — 대신
+ * 칩의 몸 자체를 터치 타깃(theme.touchTarget)으로 세워 hitSlop 없이 48dp를 채운다. 색·모양
+ * 토큰은 공용 칩과 같은 것을 쓴다(새 색 리터럴 0건 — DNC-017).
+ */
+function CategoryTrendChipButton({
+  label,
+  selected,
+  onPress
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={[reportCategoryTrendChipStyle, selected ? reportCategoryTrendChipSelectedStyle : null]}
+    >
+      <Text style={selected ? reportCategoryTrendChipSelectedTextStyle : reportCategoryTrendChipTextStyle}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function CategoryTrendMiniChart({
+  accessibilityLabel,
+  bars
+}: {
+  accessibilityLabel: string;
+  bars: CategoryTrendBar[];
+}) {
+  return (
+    <View
+      accessible
+      accessibilityLabel={accessibilityLabel}
+      style={reportCategoryTrendPlotStyle}
+      testID={CATEGORY_TREND_CHART_TEST_ID}
+    >
+      {bars.map((bar) => (
+        <View key={bar.yearMonth} style={reportCategoryTrendColumnStyle}>
+          <View
+            style={{
+              backgroundColor: bar.amountKrw > 0 ? theme.colors.mainCoral : theme.colors.gray300,
+              borderRadius: 3,
+              // 0이 아닌 막대는 최소 3px — 최댓값 대비 아주 작은 달이 "0원"으로 보이면 안 된다.
+              height:
+                bar.amountKrw > 0 ? Math.max(Math.round(bar.heightRatio * CATEGORY_TREND_BAR_AREA_HEIGHT), 3) : 2,
+              width: 18
+            }}
+          />
+          <Text
+            maxFontSizeMultiplier={CATEGORY_TREND_AXIS_MAX_FONT_SCALE}
+            numberOfLines={1}
+            style={reportCategoryTrendAxisLabelStyle}
+          >
+            {bar.monthLabel}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function ReportsScreen() {
   const [period, setPeriod] = useState("월간");
   const [monthOffset, setMonthOffset] = useState(0);
@@ -201,6 +303,12 @@ export default function ReportsScreen() {
    * 살아 있고(세션 간 저장 없음), 표시되지도 서버로 나가지도 않는다.
    */
   const [drilldownNonce, setDrilldownNonce] = useState(0);
+  /**
+   * 기능 라운드 1 트랙 C — 카테고리 월 추이의 **선택된 카테고리 id**. 화면 상태로만 살아 있고
+   * (세션 간 저장 없음), 월간 탭의 카테고리 비중 카드 아래에서만 쓰인다. null이면 여섯 달
+   * 조회 자체가 켜지지 않는다(아래 categoryTrendQueries — 온디맨드).
+   */
+  const [trendCategoryId, setTrendCategoryId] = useState<string | null>(null);
   /**
    * GAP-066 트랙 A(#2) — 월 선택 시트의 열림 상태. 화면 상태로만 살아 있고(세션 간 저장 없음),
    * 월간 탭에서만 열린다(분기·연간 라벨은 이미 한 번에 3·12개월을 건넌다).
@@ -716,6 +824,45 @@ export default function ReportsScreen() {
     router.push(target);
   };
 
+  /**
+   * 기능 라운드 1 트랙 C — 카테고리별 월 추이 배선.
+   *
+   * 칩 모집단은 바로 위 도넛이 그리는 그 조각들(categorySegments)에서 순수 모듈이 거른다.
+   * 여섯 달 조회는 **칩을 골랐을 때만** 켜지고(리포트 진입 비용 0 유지 — 첫 페인트·기간 이동의
+   * 요청 구성은 종전 그대로다), 그 구독은 이 화면이 아니라 자기 훅 모듈이 진다
+   * (src/reports/use-category-trend.ts 머리말 — 이 화면의 조회 표면은 GAP-067·첫 페인트 대장
+   * 계약으로 잠겨 있고, 그 계약이 막는 병(워터폴·첫 페인트 증가)이 이 기능에는 없다).
+   *
+   * 월간 탭에서만 선다: 창은 "보고 있는 달로 끝나는 6개월"이라 분기·연간에는 그 달이 없고,
+   * 총액 6개월 추이(REP-128)도 같은 이유로 월간 전용이다.
+   *
+   * 선택 state는 id 하나다. 아이 전환·월 이동으로 그 카테고리가 조각에서 사라지면 아래
+   * find가 null이 되어 카드가 접힐 뿐, 남의 카테고리를 그리지 않는다.
+   */
+  const trendChips =
+    hasSession && period === "월간" && activeCategory.isSuccess ? buildCategoryTrendChips(categorySegments) : [];
+  const selectedTrendChip = trendChips.find((chip) => chip.categoryId === trendCategoryId) ?? null;
+  const categoryTrend = useCategoryTrend({
+    authToken,
+    childId,
+    enabled: period === "월간",
+    endYearMonth: reportYearMonth,
+    category: selectedTrendChip,
+    // 보고 있는 달은 위 activeCategory 응답을 그대로 접어 넘긴다(여섯 달 = 직접 읽기 5 +
+    // 기존 조회 1 — 재요청 0건). dataUpdatedAt이 신선도 신호다: 그 조회는 당겨서 새로고침·
+    // 아이 전환·지출 쓰기 경로가 이미 무효화하므로, 그 신호가 바뀔 때 과거 달도 함께 다시
+    // 읽힌다(낡은 막대 금지 — 훅 머리말 참고).
+    currentMonth: {
+      status: activeCategory.isSuccess ? "success" : activeCategory.isError ? "error" : "pending",
+      categories: activeCategory.data?.categories
+    },
+    refreshSignal: activeCategory.dataUpdatedAt
+  });
+  // 같은 칩을 다시 누르면 접힌다(토글). 판정 없는 순수 배선이다.
+  const toggleTrendCategory = (categoryId: string) => {
+    setTrendCategoryId((current) => (current === categoryId ? null : categoryId));
+  };
+
   // 세션 경로의 절약 팁 카드는 제거했다 (허위 비교 제거).
   //
   // 무엇이 문제였나: 카드는 `previousMonth`(지난달 **월 전체** 합계)에서 `monthly`(보고 있는 달
@@ -1217,6 +1364,68 @@ export default function ReportsScreen() {
                       {drilldownNote}
                     </Text>
                   ) : null}
+
+                  {/* 기능 라운드 1 트랙 C: 카테고리 월 추이. 칩 모집단이 곧 게이트다 —
+                      trendChips는 월간 탭 + 비중 조회 성공에서만 채워지므로(위 배선 주석)
+                      분기·연간과 비세션·로딩·실패 갈래에서는 카드 자체가 서지 않는다.
+                      범례 줄(위 도넛)은 종전 그대로 기록 드릴다운 입구다 — 두 동작이 한
+                      줄에 겹치지 않도록 추이는 자기 칩으로 고른다. 로딩은 카드 내부
+                      스켈레톤이고(이 화면의 자리 스켈레톤 관례), 실패 재시도는 실패한 달만
+                      다시 부른다. 낭독은 차트 한 덩어리의 accessibilityLabel이 달·금액
+                      전부를 말한다(라운드 85 차트 낭독 관례 — 시각 전용 정보 0건). */}
+                  {trendChips.length > 0 ? (
+                    <Card style={reportCategoryTrendCardStyle}>
+                      {/* Card는 testID를 받지 않아(ChildrenProps) 표식은 제목 줄에 둔다. */}
+                      <Text style={reportCategoryTrendTitleStyle} testID={CATEGORY_TREND_CARD_TEST_ID}>
+                        {CATEGORY_TREND_SECTION_TITLE}
+                      </Text>
+                      <Text style={reportCategoryTrendCaptionStyle}>{CATEGORY_TREND_SECTION_GUIDE}</Text>
+                      {/* 칩은 가로 스크롤이 아니라 **줄바꿈**으로 편다 — 기록 탭의 칩 줄과 달리
+                          이 화면은 세로 스크롤 카드 안이라 숨은 칩을 만들 이유가 없다(전 카테고리가
+                          한눈에 보이고, 접근성 순회도 화면 순서 그대로다). */}
+                      <View style={reportCategoryTrendChipRowStyle}>
+                        {trendChips.map((chip) => (
+                          <CategoryTrendChipButton
+                            key={chip.categoryId}
+                            label={chip.label}
+                            selected={chip.categoryId === trendCategoryId}
+                            onPress={() => toggleTrendCategory(chip.categoryId)}
+                          />
+                        ))}
+                      </View>
+                      {categoryTrend.view?.kind === "loading" ? (
+                        <SkeletonRow />
+                      ) : categoryTrend.view?.kind === "error" ? (
+                        // 실패 문구·재시도 라벨은 이 화면의 세 오류 카드와 **같은 공용 단일
+                        // 소스**다(UX-N — 한 화면 안 같은 원인의 실패가 다르게 읽히지 않는다.
+                        // 모듈 층의 실패 문구 대장(라운드 76 A)도 이 화면이 새 문구를 만들지
+                        // 않기를 요구한다). 재시도는 실패한 달만 다시 읽는다.
+                        <View style={reportCategoryTrendErrorRowStyle}>
+                          <Text style={reportCategoryTrendCaptionStyle}>{loadErrorCopy.title}</Text>
+                          <TextButton
+                            label={loadErrorCopy.actionLabel}
+                            onPress={categoryTrend.retryFailedMonths}
+                            disabled={categoryTrend.isRefetching}
+                          />
+                        </View>
+                      ) : categoryTrend.view?.kind === "empty" ? (
+                        <Text style={reportCategoryTrendCaptionStyle}>{categoryTrend.view.text}</Text>
+                      ) : categoryTrend.view?.kind === "ready" ? (
+                        <>
+                          <CategoryTrendMiniChart
+                            accessibilityLabel={categoryTrend.view.accessibilityLabel}
+                            bars={categoryTrend.view.bars}
+                          />
+                          {/* 요약·구분 문구는 낭독 문장과 같은 모듈 산출이다 — 눈과 귀가 같은
+                              사실을 말한다. 구분 문구는 기록 없는 달이 섞였을 때만 선다. */}
+                          <Text style={reportCategoryTrendCaptionStyle}>{categoryTrend.view.summaryText}</Text>
+                          {categoryTrend.view.emptyMonthNote ? (
+                            <Text style={reportCategoryTrendCaptionStyle}>{categoryTrend.view.emptyMonthNote}</Text>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </Card>
+                  ) : null}
                 </>
               )}
 
@@ -1516,4 +1725,88 @@ const reportReferenceMemoryBodyStyle = {
   color: theme.colors.gray600,
   fontSize: 13,
   lineHeight: 20
+} as const;
+
+// 기능 라운드 1 트랙 C: 카테고리 월 추이 카드. 새 카드 룩을 만들지 않는다 — 흰 카드 기본에
+// 제목은 도넛 카드 제목과 같은 body2/700 brown, 캡션은 이 화면의 12/18 gray600 캡션 토큰이다.
+const reportCategoryTrendCardStyle = { gap: 10 } as const;
+
+const reportCategoryTrendTitleStyle = {
+  color: theme.colors.brown,
+  fontSize: theme.typography.body2.fontSize,
+  fontWeight: "700",
+  lineHeight: theme.typography.body2.lineHeight
+} as const;
+
+const reportCategoryTrendCaptionStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 18
+} as const;
+
+const reportCategoryTrendChipRowStyle = { flexDirection: "row", flexWrap: "wrap", gap: 8 } as const;
+
+// 칩의 몸이 곧 터치 타깃이다(hitSlop 0 · 위 CategoryTrendChipButton 주석). 색·모양은 공용
+// CategoryChip과 같은 토큰이다 — 같은 데이터(카테고리)가 화면마다 다른 칩으로 보이지 않게.
+const reportCategoryTrendChipStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.white,
+  borderColor: theme.colors.primary100,
+  borderRadius: theme.radii.pill,
+  borderWidth: 1,
+  justifyContent: "center",
+  minHeight: theme.touchTarget,
+  paddingHorizontal: 14
+} as const;
+
+const reportCategoryTrendChipSelectedStyle = {
+  backgroundColor: theme.colors.mainCoral,
+  borderColor: theme.colors.mainCoral
+} as const;
+
+const reportCategoryTrendChipTextStyle = {
+  color: theme.colors.brown,
+  fontSize: 13,
+  fontWeight: "700"
+} as const;
+
+const reportCategoryTrendChipSelectedTextStyle = {
+  color: theme.colors.white,
+  fontSize: 13,
+  fontWeight: "700"
+} as const;
+
+// 플롯: 총액 추이 차트와 같은 chartPlot 표면·둥근 모서리. 높이는 막대 영역(64) + 축 라벨
+// 한 줄 + 여백이다 — 카드 안의 보조 그림이라 총액 차트(104)보다 낮게 둔다.
+const reportCategoryTrendPlotStyle = {
+  alignItems: "flex-end",
+  backgroundColor: theme.colors.presentation.chartPlot,
+  borderRadius: 14,
+  flexDirection: "row",
+  paddingHorizontal: 8,
+  paddingBottom: 6,
+  paddingTop: 10
+} as const;
+
+const reportCategoryTrendColumnStyle = {
+  alignItems: "center",
+  flex: 1,
+  gap: 4,
+  justifyContent: "flex-end"
+} as const;
+
+// 축 라벨: 총액 추이 축(src/ui.tsx lineChartAxisLabelStyle)과 같은 10px gray600 — 9px를
+// 되살리지 않는다(라운드 34 L9 · 라운드 85 M-2의 그 규율).
+const reportCategoryTrendAxisLabelStyle = {
+  color: theme.colors.gray600,
+  flexShrink: 1,
+  fontSize: 10,
+  lineHeight: 13
+} as const;
+
+const reportCategoryTrendErrorRowStyle = {
+  alignItems: "center",
+  flexDirection: "row",
+  gap: 8,
+  justifyContent: "space-between"
 } as const;
