@@ -116,7 +116,7 @@ import { VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 // GAP-058 #6: "지난달"은 홈의 지난달 비교 한 줄과 **같은 함수**로 센다(달 경계를 화면에서 다시
 // 계산하면 12월→1월에 두 화면이 다른 달을 가리킬 수 있다).
 import { previousYearMonth } from "../../src/home/last-month-comparison";
-import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
+import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 // 라운드 74 트랙 D(GAP-074 #4): 조회 실패 카드의 문구·라벨은 공용 단일 소스가 고른다
 // (판정은 순수 함수 resolveLoadErrorCopy — 이 화면은 결과를 카드에 그대로 넘긴다).
@@ -830,6 +830,23 @@ export default function ExpenseDetailScreen() {
         ) : (
           <>
             <Card style={{ gap: theme.spacing.gap }}>
+              {/* T10(토스급) — 읽기 전용 금액 요약 헤더(2단계 · 24/800 · tabular-nums).
+                  이 화면의 주인공은 금액인데 지금까지는 다른 필드와 동급 15px로 목록 한가운데
+                  묻혀 있었다. 값은 지금 편집 중인 입력 상태에서 그대로 파생하므로(amountKrw)
+                  키패드를 칠 때마다 함께 움직인다 — 저장 전의 "지금 이 화면이 말하는 금액"을
+                  요약이 먼저 말한다. 폭·줄높이는 design-system amountMedium 티어(24/30 tabular)를
+                  쓰고 굵기만 800으로 세운다(예산 화면 "현재 예산"의 24/800과 같은 위계).
+                  라벨 없이 숫자만 서는 이유: 낭독은 formatKrw 문자열("N원")로 이미 완결이고,
+                  새 한국어 리터럴은 keyboard-tap-guard의 문구 대장(이 화면 42)을 움직인다 —
+                  이 트랙은 문구를 더하지 않는다. 비세션 렌더(EXP-003 QA id)는 픽셀락 캡처
+                  아홉에 없다(app/pixel-lock.tsx). */}
+              <Text
+                testID="expense-amount-summary"
+                style={[theme.typography.amountMedium, { color: theme.colors.brown, fontWeight: "800" }]}
+              >
+                {formatKrw(amountKrw)}
+              </Text>
+
               {/* GAP-054 #1: 환불 기록에만 붙는 구분 배지. 이 화면에는 지금까지 "이건 환불이다"를
                   말하는 자리가 하나도 없었다 — 선물은 아래 체크박스가 말하고 지출은 기본값이라
                   말할 필요가 없는데, 환불만 보이지 않은 채로 지출 편집 화면처럼 보였다. 배지는
@@ -899,15 +916,18 @@ export default function ExpenseDetailScreen() {
                 accessibilityLabel={PAYMENT_METHOD_CHANGE_LABEL}
                 accessibilityRole="button"
                 onPress={() => setPaymentMethod((value) => nextPaymentMethod(value))}
-                style={{
+                // T10(토스급): 인라인 Pressable press 피드백. 값(0.82)은 공용 SecondaryButton·
+                // CategoryChip과 같은 관례이고, 안 눌린 프레임은 종전과 픽셀 단위로 같다.
+                style={({ pressed }) => ({
                   alignItems: "center",
                   backgroundColor: theme.colors.beige,
                   borderRadius: theme.radii.small,
                   flexDirection: "row",
                   justifyContent: "space-between",
                   minHeight: theme.touchTarget,
+                  opacity: pressed ? 0.82 : 1,
                   paddingHorizontal: 14
-                }}
+                })}
               >
                 <View style={{ gap: 2 }}>
                   <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
@@ -971,7 +991,8 @@ export default function ExpenseDetailScreen() {
                         accessibilityLabel={merchantSuggestionChipAccessibilityLabel(suggestion)}
                         hitSlop={SUGGEST_CHIP_HIT_SLOP}
                         onPress={() => setMerchant(suggestion.merchant)}
-                        style={{
+                        // T10: 칩 press 피드백(0.82 — CategoryChip 관례). 렌더는 안 눌린 동안 불변.
+                        style={({ pressed }) => ({
                           alignItems: "center",
                           backgroundColor: theme.colors.white,
                           borderColor: theme.colors.primary100,
@@ -979,8 +1000,9 @@ export default function ExpenseDetailScreen() {
                           borderWidth: 1,
                           justifyContent: "center",
                           minHeight: 38,
+                          opacity: pressed ? 0.82 : 1,
                           paddingHorizontal: 14
-                        }}
+                        })}
                       >
                         <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
                           {formatMerchantSuggestionChipLabel(suggestion)}
@@ -1007,7 +1029,8 @@ export default function ExpenseDetailScreen() {
                     accessibilityLabel={linkedItem.label}
                     hitSlop={8}
                     onPress={() => router.push(linkedItem.href)}
-                    style={{ justifyContent: "center", minHeight: theme.touchTarget }}
+                    // T10: 텍스트 링크 press 피드백(0.6 — 공용 TextButton 관례).
+                    style={({ pressed }) => ({ justifyContent: "center", minHeight: theme.touchTarget, opacity: pressed ? 0.6 : 1 })}
                   >
                     {/* A11Y-117: 작은 coral 텍스트는 coral[700](5.56:1)만 쓴다. */}
                     <Text style={{ color: theme.colors.coral[700], fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
@@ -1068,7 +1091,10 @@ export default function ExpenseDetailScreen() {
                     returnKeyType="done"
                     onChangeText={(value) => setAmountDigits(amountDigitsOnly(value))}
                     placeholder="금액"
-                    style={{ color: theme.colors.brown, flex: 1, fontSize: theme.typography.body1.fontSize }}
+                    // T10(토스급) — 1단계: 금액 입력이 다른 필드와 동급 15px 일반 굵기로 서 있던
+                    // 자리. 공용 ListRow 금액 슬롯과 같은 amountRegular 티어(18/700 · tabular-nums)
+                    // 로 세운다 — 자릿수가 늘어도 숫자 폭이 흔들리지 않는다.
+                    style={[theme.typography.amountRegular, { color: theme.colors.brown, flex: 1 }]}
                     value={formatAmountDigits(amountDigits)}
                   />
                   <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
@@ -1095,7 +1121,9 @@ export default function ExpenseDetailScreen() {
                       hitSlop={8}
                       onPress={() => setAmountDigits((value) => addAmountPreset(value, presetKrw))}
                       onLongPress={() => setAmountDigits(clearAmountText())}
-                      style={{
+                      // T10: 칩 press 피드백(0.82). 비활성 흐림(0.4)이 언제나 이긴다 — 비활성
+                      // 칩은 눌러도 아무 일도 없으므로 눌림을 연기하지 않는다.
+                      style={({ pressed }) => ({
                         alignItems: "center",
                         backgroundColor: theme.colors.white,
                         borderColor: theme.colors.primary100,
@@ -1104,8 +1132,8 @@ export default function ExpenseDetailScreen() {
                         flex: 1,
                         justifyContent: "center",
                         minHeight: theme.touchTarget,
-                        opacity: canTapAmountPreset ? 1 : 0.4
-                      }}
+                        opacity: !canTapAmountPreset ? 0.4 : pressed ? 0.82 : 1
+                      })}
                     >
                       {/* A11Y-117: 13px coral 텍스트 -- coral[500] 3.16:1(AA 미달) → coral[700] */}
                       <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "800" }}>
@@ -1118,12 +1146,14 @@ export default function ExpenseDetailScreen() {
                     accessibilityLabel="금액 지우기"
                     hitSlop={8}
                     onPress={() => setAmountDigits(clearAmountText())}
-                    style={{
+                    // T10: 텍스트 버튼 press 피드백(0.6 — TextButton 관례).
+                    style={({ pressed }) => ({
                       alignItems: "center",
                       justifyContent: "center",
                       minHeight: theme.touchTarget,
+                      opacity: pressed ? 0.6 : 1,
                       paddingHorizontal: 4
-                    }}
+                    })}
                   >
                     <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>지우기</Text>
                   </Pressable>
@@ -1138,15 +1168,17 @@ export default function ExpenseDetailScreen() {
                   accessibilityLabel="지출 날짜 변경"
                   accessibilityRole="button"
                   onPress={() => setShowDatePicker((value) => !value)}
-                  style={{
+                  // T10: 결제 수단 행과 같은 press 피드백(0.82).
+                  style={({ pressed }) => ({
                     alignItems: "center",
                     backgroundColor: theme.colors.beige,
                     borderRadius: theme.radii.small,
                     flexDirection: "row",
                     justifyContent: "space-between",
                     minHeight: theme.touchTarget,
+                    opacity: pressed ? 0.82 : 1,
                     paddingHorizontal: 14
-                  }}
+                  })}
                 >
                   <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
                     {spentOnLabel}
@@ -1196,7 +1228,13 @@ export default function ExpenseDetailScreen() {
                         />
                       ))}
                     </ScrollView>
-                    <Pressable accessibilityRole="button" hitSlop={14} onPress={() => setCustomDateMode((value) => !value)}>
+                    <Pressable
+                      accessibilityRole="button"
+                      hitSlop={14}
+                      onPress={() => setCustomDateMode((value) => !value)}
+                      // T10: 텍스트 토글 press 피드백(0.6 — TextButton 관례).
+                      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                    >
                       {/* A11Y-117: 12px 토글 텍스트 -- coral[500] 3.16:1(AA 미달) → coral[700] 5.56:1 */}
                       <Text style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}>
                         {customDateMode ? "최근 날짜에서 선택" : "직접 입력"}
@@ -1298,17 +1336,23 @@ export default function ExpenseDetailScreen() {
                   // 체크박스를 "비활성"으로 읽는다 -- A11Y-101 계약 문자열이 그대로 유지된다.
                   disabled={isRefund}
                   onPress={() => setIsGift((value) => !value)}
-                  style={{
-                    alignItems: "center",
-                    backgroundColor: theme.colors.white,
-                    borderColor: "rgba(74, 63, 53, 0.10)",
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    flexDirection: "row",
-                    gap: 10,
-                    opacity: isRefund ? 0.4 : 1,
-                    padding: 14
-                  }}
+                  // T10: press 피드백. 비활성 흐림(opacity: isRefund ? 0.4 : 1)은 GAP-054 P2-2
+                  // 계약의 리터럴 그대로 두고, 눌린 프레임만 뒤의 배열 원소가 0.82로 덮는다
+                  // (환불 기록은 disabled라 pressed 자체가 서지 않는다).
+                  style={({ pressed }) => [
+                    {
+                      alignItems: "center",
+                      backgroundColor: theme.colors.white,
+                      borderColor: "rgba(74, 63, 53, 0.10)",
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      flexDirection: "row",
+                      gap: 10,
+                      opacity: isRefund ? 0.4 : 1,
+                      padding: 14
+                    },
+                    pressed && !isRefund ? { opacity: 0.82 } : null
+                  ]}
                 >
                   <View
                     style={{
@@ -1441,7 +1485,13 @@ export default function ExpenseDetailScreen() {
               accessibilityRole="button"
               disabled={remove.isPending}
               onPress={confirmDelete}
-              style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
+              // T10: 텍스트 버튼 press 피드백(0.6). 삭제 중(disabled)에는 pressed가 서지 않는다.
+              style={({ pressed }) => ({
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: theme.touchTarget,
+                opacity: pressed ? 0.6 : 1
+              })}
             >
               <Text style={{ color: remove.isPending ? theme.colors.gray300 : theme.colors.danger, fontWeight: "700" }}>
                 {remove.isPending ? "삭제하는 중" : "이 지출 삭제하기"}

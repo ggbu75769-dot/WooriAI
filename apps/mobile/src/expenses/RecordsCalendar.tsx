@@ -128,6 +128,13 @@ const calendarCellTodayBorderStyle = {
   borderColor: theme.colors.mainCoral
 } as const;
 
+/**
+ * T10(토스급) — 눌린 칸의 press 피드백. 새 색이 아니라 투명도 하나다(DNC-017 무접촉 —
+ * 음영 팔레트·글자색·격자 치수는 그대로다). 값 0.76은 공용 ListRow의 pressed 관례와 같고,
+ * 안 눌린 프레임은 종전과 픽셀 단위로 같다. 비대화형 칸(View)은 눌리지 않으므로 받지 않는다.
+ */
+const calendarCellPressedStyle = { opacity: 0.76 } as const;
+
 // 달 밖 빈 칸: 자리만 차지하고 눌리지 않는다(옆 달 날짜를 그려 봐야 이 달 목록에는 그날 기록이
 // 없어서 눌러도 아무 일도 일어나지 않는다).
 const calendarCellSpacerStyle = {
@@ -227,7 +234,8 @@ const CalendarDayCell = memo(function CalendarDayCell({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={() => (action === "record-new" ? onRecordForDate(date) : onSelectDate(date))}
-      style={cellStyle}
+      // T10: 눌린 프레임만 calendarCellPressedStyle이 덮는다(위 주석 — 렌더는 그 외 불변).
+      style={({ pressed }) => (pressed ? [...cellStyle, calendarCellPressedStyle] : cellStyle)}
     >
       {cellContent}
     </Pressable>

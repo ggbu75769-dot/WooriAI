@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, Text, TextInput, View } from "react-native";
@@ -85,6 +85,18 @@ const budgetChipRowStyle = {
   gap: 8
 } as const;
 
+/**
+ * T10(토스급) — 예산 저장 성공의 확인 문장.
+ *
+ * 지금까지 저장 성공은 완전 무음이었다: onSuccess가 곧바로 router.replace를 불러, 화면이
+ * "저장됐다"는 말을 한 번도 하지 않은 채 홈으로 바뀌었다(스크린리더 사용자에게는 더 심하다 —
+ * 버튼을 눌렀는데 아무 소리 없이 화면이 통째로 바뀐다). 공용 Toast는 마운트 시 자기 문장을
+ * announceForA11y로 낭독하므로(src/ui.tsx A11Y-115), 이 문장을 토스트로 세우는 것이 곧
+ * 시각 확인 + 낭독 둘 다가 된다. 650ms 지연 이동은 지출 상세의 저장 성공(leaveTimerRef,
+ * GAP-056 #6)과 같은 관례·같은 값이다.
+ */
+const BUDGET_SAVED_MESSAGE = "예산을 저장했어요";
+
 const budgetChipStyle = {
   alignItems: "center",
   backgroundColor: theme.colors.white,
@@ -102,6 +114,20 @@ export default function BudgetEditScreen() {
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const [amountDigits, setAmountDigits] = useState("");
+  // T10: 저장 성공 토스트(위 BUDGET_SAVED_MESSAGE 주석). 값이 서면 아래에서 Toast가 그려지고,
+  // Toast 자신이 문장을 낭독한다 -- 화면이 announce를 따로 부르지 않는다(문장 이중 낭독 방지).
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  /**
+   * T10 — "저장했어요"를 보여 준 뒤 떠나는 650ms 타이머. 지출 상세의 leaveTimerRef
+   * (GAP-056 #6)와 같은 관례다: ref에 들고 언마운트 때 취소한다. 없으면 성공 직후 사용자가
+   * 스스로 뒤로 갔을 때 타이머가 살아남아 사라진 화면의 replace가 한 번 더 실행된다.
+   */
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+    };
+  }, []);
   const queryClient = useQueryClient();
   const budget = useQuery({
     queryKey: ["budget", childId],
@@ -298,7 +324,11 @@ export default function BudgetEditScreen() {
       await Promise.all(
         [["budget"], ["home"], ["report"]].map((queryKey) => queryClient.invalidateQueries({ queryKey }))
       );
-      router.replace("/(tabs)");
+      // T10: 무음 즉시 이동 → 확인 토스트(+낭독) 후 650ms 지연 이동. 목적지는 종전 그대로
+      // 홈이고, 타이머는 ref에 담아 언마운트 때 취소한다(위 leaveTimerRef 주석).
+      setSavedMessage(BUDGET_SAVED_MESSAGE);
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = setTimeout(() => router.replace("/(tabs)"), 650);
     }
   });
 
@@ -441,6 +471,8 @@ export default function BudgetEditScreen() {
             </Card>
 
             {save.isError ? <Toast message={saveErrorText} tone="error" /> : null}
+            {/* T10: 저장 성공 확인. Toast가 마운트되며 같은 문장을 낭독한다(A11Y-115). */}
+            {savedMessage ? <Toast message={savedMessage} /> : null}
 
             {/* 잠금은 disabled에 넣지 않는다 — 눌렀을 때 사실을 말하는 것이 이 앱의 관례이고,
                 비활성 버튼은 "왜 안 되는지"를 끝내 말하지 않는다(DNC-018). */}
