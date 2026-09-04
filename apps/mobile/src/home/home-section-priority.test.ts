@@ -83,16 +83,36 @@ describe("planHomeSections 우선순위 판정", () => {
       "budget-warning": 1,
       "first-run-guide": 2,
       "recurring-reminder": 3,
-      milestone: 4,
-      "weekly-summary": 5,
-      "budget-nudge": 6,
-      "last-month": 7,
-      "cumulative-total": 8
+      // 기능 라운드 1 트랙 A: 월말 예상(페이스)은 "지금 알면 초과를 피할 수 있는" 앞을 보는
+      // 숫자라 날짜 안내(마일스톤)보다 앞이지만, 추정이라 사실(리마인더)보다는 뒤다.
+      "budget-pace": 4,
+      milestone: 5,
+      "weekly-summary": 6,
+      "budget-nudge": 7,
+      "last-month": 8,
+      "cumulative-total": 9
     } satisfies Record<HomeSectionId, number>);
     // 근거: 미기록 정기 지출은 "지금 행동하지 않으면 이번 달 합계가 실제와 어긋나는" 사실이라
     // 날짜 안내(마일스톤)보다 금전적 결과가 크다. 다만 예산 경고·첫 실행 안내보다는 뒤다.
     expect(HOME_SECTION_RANK["first-run-guide"]).toBeLessThan(HOME_SECTION_RANK["recurring-reminder"]);
     expect(HOME_SECTION_RANK["recurring-reminder"]).toBeLessThan(HOME_SECTION_RANK.milestone);
+  });
+
+  /**
+   * 기능 라운드 1 트랙 A — 월말 예상 카드의 자리.
+   *
+   * 예측은 초과 *전에만* 가치가 있다. 뒤쪽 순위(지난달 대비·누적처럼 "리포트가 더 자세히
+   * 말하는" 자리)로 밀면 거의 언제나 "더 보기" 뒤로 접혀 기능이 사실상 사라지므로, 사실 카드
+   * 셋(경고·첫 실행 안내·리마인더) 바로 다음에 세운다 — 추정은 사실보다 뒤, 날짜 안내보다 앞.
+   */
+  it("월말 예상(페이스)은 정기 지출 리마인더 다음, 마일스톤 앞이다 (기능 라운드 1 트랙 A)", () => {
+    expect(HOME_SECTION_RANK["recurring-reminder"]).toBeLessThan(HOME_SECTION_RANK["budget-pace"]);
+    expect(HOME_SECTION_RANK["budget-pace"]).toBeLessThan(HOME_SECTION_RANK.milestone);
+    // 경고 배너(사실)와 함께 설 수 있는 유일한 예산 카드다 — 80~99% 구간에서 배너는 도달
+    // 사실을, 이 카드는 월말 예상을 말한다(문구 경계는 budget-pace.ts 헤더).
+    const plan = planHomeSections({ active: ["budget-pace", "budget-warning", "weekly-summary"] });
+    expect(plan.visible).toEqual(["budget-warning", "budget-pace"]);
+    expect(plan.collapsed).toEqual(["weekly-summary"]);
   });
 
   it("수용 기준 7: 예산 경고 + 첫 실행 안내가 함께 서면 정기 지출 카드는 '더 보기' 뒤로 접힌다", () => {
@@ -259,7 +279,7 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     expect(homeSource).toContain("accessibilityState={{ expanded: sectionsExpanded }}");
   });
 
-  it("여덟 카드가 모두 우선순위 목록을 지난다(새 카드를 몰래 히어로 밑에 세우지 않는다)", () => {
+  it("아홉 카드가 모두 우선순위 목록을 지난다(새 카드를 몰래 히어로 밑에 세우지 않는다)", () => {
     const pushes = (homeSource.match(/activeSections\.push\("([a-z-]+)"\)/g) ?? []).map((line) =>
       line.replace(/activeSections\.push\("|"\)/g, "")
     );
@@ -267,6 +287,8 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
       (
         [
           "budget-nudge",
+          // 기능 라운드 1 트랙 A: 월말 예상 카드도 예외 없이 같은 순위표를 지난다.
+          "budget-pace",
           "budget-warning",
           "cumulative-total",
           "first-run-guide",

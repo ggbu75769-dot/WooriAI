@@ -26,6 +26,7 @@ import {
 import { useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
 import { evaluateBabyCounter, evaluateBirthTransitionPrompt } from "../../src/home/baby-counter";
 import { resolveThisMonthUsedKrw } from "../../src/home/budget-edit";
+import { evaluateBudgetPace } from "../../src/home/budget-pace";
 import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "../../src/home/budget-progress";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import {
@@ -290,6 +291,48 @@ const homeLastMonthInsightStyle = StyleSheet.create({
     color: theme.colors.brown,
     flex: 1,
     fontSize: 13,
+    lineHeight: 20
+  }
+});
+
+/**
+ * 기능 라운드 1 트랙 A — 월말 예상 지출(예산 페이스) 카드.
+ *
+ * 주간 요약·지난달 대비와 **같은 흰 카드 골격**(글리프 + 본문)을 쓴다 — 새 카드 문법을 만들면
+ * 캡처의 리듬이 흔들린다(라운드 55 트랙 C가 같은 이유로 같은 골격을 골랐다). 눌러서 데려갈
+ * 화면을 약속하지 않으므로 화살표·CTA를 달지 않는다(라운드 48 B2 누적 카드와 같은 판단).
+ * 뜻은 전부 문장이 지고(색상 단독 전달 금지) 앞의 글리프는 장식이라 접근성 트리에서 감춘다.
+ * 판정·문구는 순수 모듈이 만든다(src/home/budget-pace.ts — 추정 문구·초과/안 갈래 포함).
+ */
+const homeBudgetPaceStyle = StyleSheet.create({
+  body: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingLeft: 24
+  },
+  card: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 14,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 12
+  },
+  glyph: {
+    color: theme.colors.gray600,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  row: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10
+  },
+  title: {
+    color: theme.colors.brown,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "700",
     lineHeight: 20
   }
 });
@@ -1588,6 +1631,21 @@ export default function HomeScreen() {
   // HOME-BUDGET-113: session-gated like NOTI-102 so the logged-out preview stays inert.
   // usedAmountKrw is the gift-excluded month total (DNC-015), see budget-warning.ts.
   const budgetWarning = hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null;
+  // 기능 라운드 1 트랙 A — 월말 예상(예산 페이스). 입력은 경고 배너와 **같은 한 값**이다:
+  // 예산은 monthly.amountKrw, 사용액은 오프라인 대기 행까지 재조정한 monthlyUsed(라운드 51 #7).
+  // 다른 모집단으로 예측하면 배너와 이 카드가 서로 다른 현재를 외삽하게 된다. 표시 규칙(예산
+  // 있는 달만 · 경과 3일 미만 숨김 · 이미 100% 도달 숨김 · 이번 달 아니면 숨김 · 천원 반올림)은
+  // 전부 순수 모듈이 판정한다(src/home/budget-pace.ts). **신규 쿼리 0** — 전부 이미 있는 값이다.
+  // 세션 게이트: 비세션 미리보기(previewHome)는 HOME-001 픽셀락 캡처의 원본이라 이 카드가
+  // 애초에 없다(모듈도 yearMonth 불일치로 null을 내지만, 게이트를 명시해 흔들릴 여지를 없앤다).
+  const budgetPace = hasSession
+    ? evaluateBudgetPace({
+        yearMonth: visibleHome.monthly.yearMonth,
+        budgetKrw: budget,
+        spentKrw: monthlyUsed,
+        todayIso: seoulToday
+      })
+    : null;
   // REP-121: 세션이 있을 때만 계산한다 -- 비세션 픽셀락 미리보기(previewHome)에는 지난달 데이터가
   // 없으므로 한 줄이 아예 렌더되지 않고, 미리보기 스크린샷은 기존과 동일하게 유지된다. 지난달에
   // 기록이 없는 첫 달 사용자도 순수 모듈이 null을 돌려줘 렌더되지 않는다.
@@ -1801,6 +1859,9 @@ export default function HomeScreen() {
   // 라운드 55 트랙 C: 정기 지출 리마인더도 예외 없이 같은 순위표(3위)를 지난다 -- 상한 2장 안에서
   // 예산 경고·첫 실행 안내와 경쟁하고, 밀리면 "더 보기" 뒤로 접힌다(수용 기준 7).
   if (recurringReminder) activeSections.push("recurring-reminder");
+  // 기능 라운드 1 트랙 A: 월말 예상 카드도 예외 없이 같은 순위표(4위)를 지난다 -- 상한 2장
+  // 안에서 사실 카드들과 경쟁하고, 밀리면 "더 보기" 뒤로 접힌다.
+  if (budgetPace) activeSections.push("budget-pace");
   if (milestoneCountdown) activeSections.push("milestone");
   if (weeklySummary) activeSections.push("weekly-summary");
   // 예산이 없는 달의 넛지는 카드가 아니라 **히어로 안**에 들어간다(홈의 유일한 예산 입구라
@@ -1991,6 +2052,35 @@ export default function HomeScreen() {
             >
               <Text style={homeRecurringReminderStyle.manageLabel}>{RECURRING_MANAGE_LABEL}</Text>
             </Pressable>
+          </View>
+        ) : null;
+      case "budget-pace":
+        return budgetPace ? (
+          /**
+           * 기능 라운드 1 트랙 A — 월말 예상 지출(예산 페이스) 카드.
+           *
+           * `accessibilityRole="alert"`를 쓰지 않는다: 추정 한 줄은 닫으면 끝나는 일시적 알림이
+           * 아니라 이번 달 내내 서 있는 관측이다. alert + liveRegion은 예산 경고 배너 전용이다
+           * (라운드 55 트랙 C 정기 지출 카드와 같은 판단). 문구·낭독 라벨은 전부 순수 모듈이
+           * 만든 값이고(추정임을 문장이 직접 말한다), 화면은 한 글자도 만들지 않는다.
+           */
+          <View
+            key={id}
+            accessible
+            accessibilityLabel={budgetPace.accessibilityLabel}
+            testID="home-budget-pace"
+            style={[homeBudgetPaceStyle.card, theme.shadows.card]}
+          >
+            <View style={homeBudgetPaceStyle.row}>
+              <Ionicons
+                accessible={false}
+                name="trending-up-outline"
+                size={homeBudgetPaceStyle.glyph.fontSize}
+                color={homeBudgetPaceStyle.glyph.color}
+              />
+              <Text style={homeBudgetPaceStyle.title}>{budgetPace.title}</Text>
+            </View>
+            <Text style={homeBudgetPaceStyle.body}>{budgetPace.body}</Text>
           </View>
         ) : null;
       case "milestone":
