@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { AccessibilityInfo } from "react-native";
 import { Stack } from "expo-router";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { LOCAL_SESSION_TOKEN } from "../src/api/client";
@@ -67,6 +69,30 @@ function OfflineSyncLifecycle() {
 }
 
 export default function RootLayout() {
+  /**
+   * 라운드 96 T3 — 지출 기록 시트(/expenses/new)의 전환.
+   *
+   * 그 화면은 시트 문법으로 그려진다(BottomSheetFrame·닫기 ×·하단 고정 요약바 — FAB가 여는
+   * "빠른 기록"이다). 그런데 전환만 스택 기본값(좌우 push)이라, 화면이 옆에서 밀려 들어와
+   * 문법과 몸짓이 어긋났다. 시트답게 아래에서 올라오게 한다(slide_from_bottom).
+   *
+   * reduce-motion이면 전환 애니메이션을 걸지 않는다 — 이 저장소의 관례(app/launch-animation.tsx
+   * · src/ui/Skeleton.tsx의 AccessibilityInfo.isReduceMotionEnabled 폴링)를 그대로 따른다.
+   * 값은 앱 루트에서 한 번 읽는다: 전환 방향은 프레임마다 갈리는 값이 아니고, 설정 변경은
+   * 다음 앱 실행이 반영한다(launch-animation과 같은 판단).
+   */
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  useEffect(() => {
+    let isMounted = true;
+    AccessibilityInfo.isReduceMotionEnabled?.()
+      .then((enabled) => {
+        if (isMounted && enabled) setReduceMotionEnabled(true);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       {/* MOB-108: global render-crash boundary. Wraps the navigator AND the lifecycle mounts
@@ -83,7 +109,14 @@ export default function RootLayout() {
             노드가 생기지 않고(수용 기준 2), 픽셀락 빌드에서는 존재할 수 없다(수용 기준 6) —
             근거·대안 비교는 src/security/AppLockOverlay.tsx의 AppLockScreenShield 주석. */}
         <AppLockScreenShield>
-          <Stack screenOptions={{ headerShown: false }} />
+          <Stack screenOptions={{ headerShown: false }}>
+            {/* 라운드 96 T3: 시트 문법 화면은 시트처럼 아래에서 올라온다(위 RootLayout 주석).
+                reduce-motion이면 "none" — 몸짓을 지어내지 않는다. */}
+            <Stack.Screen
+              name="expenses/new"
+              options={{ animation: reduceMotionEnabled ? "none" : "slide_from_bottom" }}
+            />
+          </Stack>
           {/* COM-108: mounted after <Stack> so the 구매하셨나요? follow-up card overlays whatever
               screen is focused. Inert without a real/demo session and never blocks navigation --
               see src/commerce/PurchaseFollowupPrompt.tsx. */}

@@ -3,7 +3,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import {
+  AccessibilityInfo,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Platform,
   Pressable,
   ScrollView,
@@ -62,12 +64,15 @@ import { buildEntryContextLine } from "../../src/expenses/entry-context-line";
 import {
   isAmountOverLimitForSave,
   isCategoryMissingForSave,
+  isItemNameMissingForSave,
+  resolveDefaultPaymentMethod,
   resolveInitialCategoryId,
   shouldClearQuickExpenseDraftOnClose,
   shouldTileFillItemName,
   validateExpenseDateInput,
   AMOUNT_OVER_LIMIT_NOTICE,
   CATEGORY_REQUIRED_NOTICE,
+  ITEM_NAME_REQUIRED_NOTICE,
   type QuickExpenseInputSnapshot
 } from "../../src/expenses/entry-form-guards";
 import {
@@ -308,9 +313,13 @@ const quickExpenseCategoryTileStyle = StyleSheet.create({
     textAlign: "center",
     textAlignVertical: "center"
   },
+  // 라운드 96 T3: 10 → 11. 이 저장소의 최소 본문 활자는 11이다(헤더 부제·안내 줄 전부 11) —
+  // 이 힌트만 10으로 태어나 앱에서 가장 작은 글자였다. 승인 원본 수치의 예외가 되는 이유는
+  // entry-screen-visual-restore.test.ts의 두 시점 주석이 진다(EXP-001 캡처에는 이 힌트가
+  // 없다 — 아코디언을 펼쳐야 그려지는 텍스트라 비세션 초기 렌더 밖이다).
   hint: {
     color: theme.colors.gray600,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "700",
     textAlign: "center"
   }
@@ -600,7 +609,10 @@ export default function NewExpenseScreen() {
    *  · ⚠️ **좌표는 밀리고 이름은 안 밀린다** — AG-4는 그 둘을 `:1561`·`:2290`으로 집었는데,
    *    이 문단이 길어지며 라운드 93에는 `:1582`·`:2311`이었고 **오늘은 `:1589`·`:2318`이다**
    *    (라운드 95 트랙 A가 빠른 품목 타일 라벨 위에 두 시점 주석을 더하고 이 문단도 늘려 다시
-   *    밀렸다). 다시 찾는 손은 위 두 이름으로 찾는다.
+   *    밀렸다). ⚠️ 라운드 96 T3가 품목명 블록을 타일 아래로 올리고 이 문단도 늘려 다시 밀어
+   *    **오늘은 `:1681`·`:2472`다**. 그리고 그날부터 *키보드를 올리는 자리*는 둘이 아니다 —
+   *    타일이 품목명을 채운 직후 금액으로 커서를 옮기는 `amountInputRef`의 둘이 더해져 **넷**이다
+   *    (판매처 쪽의 `focus()` 0건 판정은 그대로다). 다시 찾는 손은 위 두 이름으로 찾는다.
    *
    * ⚠️ 판매처 쪽의 판정(`focus()`를 쓰지 않는다)은 그대로다 —
    * `src/keyboard-tap-guard.test.ts`가 그 부정 단언을 소스로 문다.
@@ -822,6 +834,34 @@ export default function NewExpenseScreen() {
         : noSuggestRows,
     [authToken, childId, offlineSnapshot.rows, cachedMonthExpenses, cachedPreviousMonthExpenses]
   );
+
+  /**
+   * 라운드 96 T3 — 결제 수단 기본값: **가장 최근에 적은 기록의 결제 수단**으로 시작한다.
+   *
+   * 종전에는 매번 0(카드)이었다 — 늘 현금으로 적는 사용자가 시트를 열 때마다 세그먼트를 한 번
+   * 더 눌러야 했다. 판정은 순수 모듈에 있고(entry-form-guards.ts의 resolveDefaultPaymentMethod),
+   * 원천은 이 화면이 이미 들고 있는 통합 제안 원천 하나다(suggestRows — **새 요청 0건**, 위
+   * 자동완성 두 갈래와 같은 배열).
+   *
+   * **mount 1회**인 이유(초안 복원 effect와 같은 관례): 이 값은 시작점 제안일 뿐이라, 시트가
+   * 떠 있는 동안 캐시가 갱신됐다고 사용자가 보고 있는 선택을 뒤에서 갈아 끼우면 안 된다 —
+   * 저장되는 값은 언제나 화면에 보이는 그 값이어야 한다. 프리필이 결제 수단을 정했으면
+   * (정기 지출 "기록하기") 그쪽이 이기고, 비세션(EXP-001 캡처)은 판정 자체가 null이라 종전
+   * 그대로 0(카드)이다(useState 초기값 불변 — recurring-flow.test.ts가 무는 그 한 줄).
+   */
+  useEffect(() => {
+    const recentPaymentMethod = resolveDefaultPaymentMethod({
+      hasSession: Boolean(authToken),
+      prefilledPaymentMethod:
+        prefilledPaymentMethodIndex >= 0 ? quickExpensePaymentMethods[prefilledPaymentMethodIndex].value : null,
+      rows: suggestRows,
+      knownValues: quickExpensePaymentMethods.map((method) => method.value)
+    });
+    if (!recentPaymentMethod) return;
+    const recentIndex = quickExpensePaymentMethods.findIndex((method) => method.value === recentPaymentMethod);
+    if (recentIndex >= 0) setPaymentMethodIndex(recentIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // 자동완성 칩 부제("· 기저귀")의 카테고리 이름. 이 화면이 실제로 선택할 수 있는 8타일일 때만
   // 붙인다 -- 엑셀 가져오기/지출 수정을 거쳐 서버 정식 카테고리(DB마다 다른 UUID)를 단 행은
   // 이 화면에서 이름을 확신할 수 없고(categoryNameFor는 그런 id를 "기타"로 떨어뜨린다), 칩에
@@ -856,6 +896,40 @@ export default function NewExpenseScreen() {
   // 겨누는 입력칸. 품목명은 **한 곳에서만** 편집된다 -- 요약바에 두 번째 입력칸을 만들면 같은
   // 값을 고치는 칸이 둘이 되고, 어느 쪽이 진짜인지 화면이 말해 주지 못한다.
   const itemNameInputRef = useRef<TextInput | null>(null);
+  /**
+   * 라운드 96 T3 — 요약바 금액 입력칸의 ref. **타일이 품목명을 채워 준 직후** 커서를 금액으로
+   * 옮기는 데에만 쓴다: 이 화면의 부제("품목을 고르고 금액만 입력하세요")가 약속하는 다음
+   * 걸음이 금액이라, 타일 탭 → 금액 수동 탭의 한 걸음을 걷어낸다. 사용자가 직접 친 품목명을
+   * 지키느라 타일이 이름을 채우지 **않은** 탭에서는 포커스도 옮기지 않는다(그 탭은 분류만
+   * 바꾸는 중이다 — shouldTileFillItemName과 같은 판정을 재료로 쓴다).
+   */
+  const amountInputRef = useRef<TextInput | null>(null);
+  /**
+   * 라운드 96 T3 — 판매처 자동완성 칩 줄의 펼침/접힘이 **스냅**이었다(높이가 한 프레임에 튄다).
+   * 이 저장소의 애니메이션 관례(launch-animation.tsx · src/ui/Skeleton.tsx)를 그대로 따른다:
+   * reduce-motion이 켜져 있으면 종전의 스냅 그대로다(모션을 지어내지 않는다). 값은 화면당 한 번
+   * 읽는다 — 시트가 떠 있는 몇 초 사이 설정이 바뀌는 경우는 다음 진입이 반영한다.
+   */
+  const [reduceMotionEnabled, setReduceMotionEnabled] = useState(false);
+  useEffect(() => {
+    let isMounted = true;
+    AccessibilityInfo.isReduceMotionEnabled?.()
+      .then((enabled) => {
+        if (isMounted && enabled) setReduceMotionEnabled(true);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+  const animateSuggestRowLayout = () => {
+    if (reduceMotionEnabled) return;
+    // LayoutAnimation은 웹에서 no-op이라 픽셀 락 웹 캡처(비세션 — 이 경로 자체가 없다)와도
+    // 무관하다. 다음 렌더의 레이아웃 변화(칩 줄 등장/퇴장) 한 번에만 적용된다.
+    LayoutAnimation.configureNext(
+      LayoutAnimation.create(150, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity)
+    );
+  };
 
   // Restores a saved quick-expense draft on mount, so a user who closes the sheet mid-entry
   // (e.g. interrupted by a call) doesn't lose what they typed. Skipped in pixel-lock capture
@@ -1075,6 +1149,8 @@ export default function NewExpenseScreen() {
    * 하면 이 줄이 그대로 남아 칩을 고른 뒤에도 목록이 깔려 있고, 접기만 하면 위의 그 회귀가 된다.
    */
   const applyMerchantSuggestion = (merchantName: string) => {
+    // 라운드 96 T3: 접힘도 펼침과 같은 150ms 레이아웃 전환을 탄다(reduce-motion이면 no-op).
+    animateSuggestRowLayout();
     setMerchant(merchantName);
     merchantInputRef.current?.blur();
     setMerchantFocused(false);
@@ -1540,16 +1616,29 @@ export default function NewExpenseScreen() {
   const [categoryNoticeRequested, setCategoryNoticeRequested] = useState(false);
   const showCategoryNotice = categoryNoticeRequested && isCategoryMissing;
   /**
+   * 라운드 96 T3 — 품목명 사전 안내(분류 안내와 같은 문법).
+   *
+   * 종전에는 품목명이 빈 채 저장을 누르면 뮤테이션 가드(`!itemName.trim()`)가 던진 뒤
+   * "금액과 항목을 확인해 주세요."라는 **사후 일반 오류**만 남았다 — 무엇이 비었는지 문장이
+   * 말하지 않는다. 이제 분류 안내처럼 저장을 누른 그 자리에서 비어 있는 칸의 이름을 말하고,
+   * 품목명이 채워지는 순간(타이핑·타일·칩 무엇으로든) 저절로 사라진다. 뮤테이션 가드는 그대로
+   * 남는다 — 지출 상세와 같은 이중 가드다.
+   */
+  const isItemNameMissing = isItemNameMissingForSave({ hasSession: Boolean(authToken), itemName });
+  const [itemNameNoticeRequested, setItemNameNoticeRequested] = useState(false);
+  const showItemNameNotice = itemNameNoticeRequested && isItemNameMissing;
+  /**
    * 저장 버튼 두 개가 **같은 한 곳**에서 분류 가드를 지나고, 이번 저장이 어느 버튼이었는지도
    * 여기서 한 번만 기록한다(라운드 48 T4의 continueAfterSaveRef). 막혔으면 false를 돌려주고
    * 호출부는 그대로 멈춘다 -- 뮤테이션은 시작되지 않고 안내 한 줄만 뜬다.
+   *
+   * 라운드 96 T3: 품목명 가드가 같은 자리에 합류했다. 두 안내는 **한 탭에 함께** 선다 —
+   * 분류를 고치고 다시 눌렀더니 이번에는 품목명이라고 말하는 두 번 왕복을 만들지 않는다.
    */
   const prepareSave = (continueRecording: boolean) => {
-    if (isCategoryMissing) {
-      setCategoryNoticeRequested(true);
-      return false;
-    }
-    setCategoryNoticeRequested(false);
+    setCategoryNoticeRequested(isCategoryMissing);
+    setItemNameNoticeRequested(isItemNameMissing);
+    if (isCategoryMissing || isItemNameMissing) return false;
     continueAfterSaveRef.current = continueRecording;
     return true;
   };
@@ -1571,6 +1660,9 @@ export default function NewExpenseScreen() {
     setItemName(quickItemLabel);
     setAutocompleteApplied(true);
     lastTileFilledItemNameRef.current = null;
+    // 라운드 96 T3: 품목이 확정된 순간 남은 필수 입력은 금액 하나다 — 커서를 바로 그리로 옮긴다
+    // ("직접 입력" 타일이 품목명 칸으로 옮기는 것과 같은 관례·같은 rAF 타이밍).
+    requestAnimationFrame(() => amountInputRef.current?.focus());
   };
 
   /**
@@ -1893,6 +1985,11 @@ export default function NewExpenseScreen() {
                   if (shouldTileFillItemName({ itemName, lastTileFilledItemName: lastTileFilledItemNameRef.current })) {
                     setItemName(category.label);
                     lastTileFilledItemNameRef.current = category.label;
+                    // 라운드 96 T3: "바로 기록"의 다음 걸음은 금액이다(부제가 그렇게 약속한다) —
+                    // 타일이 품목명을 채워 준 그 탭에서만 커서를 금액으로 옮긴다. 이름을 채우지
+                    // 않은 탭(사용자가 친 이름을 지키는 분기)은 분류만 바꾸는 중이라 포커스도
+                    // 옮기지 않는다.
+                    requestAnimationFrame(() => amountInputRef.current?.focus());
                   }
                 }}
               />
@@ -1906,6 +2003,75 @@ export default function NewExpenseScreen() {
             카테고리를 확정하면 바로 사라진다. 세션 없는 픽셀 락 캡처에서는 렌더되지 않는다. */}
         {authToken && autoPickedCategory ? (
           <Text style={{ color: theme.colors.gray600, fontSize: 11 }}>{AUTO_CATEGORY_CAPTION}</Text>
+        ) : null}
+
+        {/* 라운드 96 T3 — 품목명(필수)이 **타일 바로 아래**로 올라왔다.
+            종전 자리는 판매처·메모·결제 수단(전부 선택)과 8개 아코디언 **아래**였다: 이 화면의
+            필수 입력은 분류·품목명·금액 셋뿐인데, 그중 품목명만 선택 필드들 뒤에 묻혀 있어
+            "타일을 눌렀더니 품목명이 채워졌다"는 사실(위 그리드의 부제)을 확인하려면 화면 몇
+            장을 내려가야 했다. 타일이 채워 준 이름이 **보이는 자리**에서 바로 고칠 수 있어야
+            요약바 연필(itemNameInputRef.focus)도 짧은 거리로 착지한다.
+            블록 내용(입력칸·자동완성 칩 줄)은 바이트 그대로 옮겼다 — 자동완성 줄이 입력칸 바로
+            아래라는 계약(auto-fill-wiring.test.ts)도, 칩 줄의 여는 태그 바이트(keyboard-tap-guard)
+            도 그대로다. ⚠️ 비세션(EXP-001 캡처)의 숨은 입력칸은 **원래 자리에 그대로** 남는다
+            (아래 — 비세션 렌더의 노드 순서를 한 자리도 바꾸지 않는다). */}
+        {authToken ? (
+          <View style={{ gap: 8 }}>
+            <TextInput
+              accessibilityLabel="품목명 입력"
+              returnKeyType="done"
+              // GAP-056 #1: 서버 @MaxLength와 같은 숫자(단일 소스는 src/expenses/text-limits.ts).
+              maxLength={ITEM_NAME_MAX_LENGTH}
+              onChangeText={handleItemNameChange}
+              placeholder="품목명 (예: 기저귀)"
+              // DSN-053 P2-C: 요약바의 연필과 빠른 품목의 "직접 입력"이 겨누는 유일한 입력칸.
+              ref={itemNameInputRef}
+              style={{
+                backgroundColor: theme.colors.white,
+                borderColor: "rgba(74, 63, 53, 0.10)",
+                borderRadius: 14,
+                borderWidth: 1,
+                color: theme.colors.brown,
+                fontSize: 14,
+                fontWeight: "700",
+                minHeight: 48,
+                paddingHorizontal: 14
+              }}
+              value={itemName}
+            />
+            {/* UX-C: 타이핑에 연동된 과거 항목 자동완성. 폼 상단의 "최근 품목" 칩(EXP-113)과는
+                자리도 트리거도 다르다 -- 저쪽은 타이핑과 무관한 최근 N건이고, 이 줄은 지금 친
+                글자에 걸리는 상위 3개만 입력칸 바로 아래에 붙는다. 탭 한 번에 이름·금액·
+                카테고리가 함께 채워지고(저장은 여전히 저장하기 버튼), 세션 없는 픽셀 락
+                캡처에서는 이 분기 자체가 렌더되지 않는다. */}
+            {itemAutocompleteChips.length > 0 ? (
+              <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {itemAutocompleteChips.map((chip) => (
+                  <Pressable
+                    key={chip.itemName}
+                    accessibilityRole="button"
+                    accessibilityLabel={itemAutocompleteChipAccessibilityLabel(chip, categoryNameForChip(chip.categoryId))}
+                    hitSlop={SUGGEST_CHIP_HIT_SLOP}
+                    onPress={() => applyItemAutocompleteChip(chip)}
+                    style={{
+                      alignItems: "center",
+                      backgroundColor: theme.colors.white,
+                      borderColor: theme.colors.primary100,
+                      borderRadius: theme.radii.pill,
+                      borderWidth: 1,
+                      justifyContent: "center",
+                      minHeight: 38,
+                      paddingHorizontal: 14
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
+                      {formatItemAutocompleteChipLabel(chip, categoryNameForChip(chip.categoryId))}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : null}
+          </View>
         ) : null}
 
         {/* DSN-053 P2-C — "분류별 빠른 품목" 아코디언 (승인 원본: 카드 radius 16 · 펼침 테두리
@@ -2035,6 +2201,11 @@ export default function NewExpenseScreen() {
               onChangeText={setMerchant}
               // GAP-056 #2: 칩 줄의 게이트. 열자마자 끼어들지 않고, 이 칸을 누른 뒤에만 나온다.
               onFocus={() => setMerchantFocused(true)}
+              // 라운드 96 T3: 칩 줄이 한 프레임에 튀어나오지 않도록 **누르는 순간**(포커스가
+              // 서기 전) 다음 레이아웃 전환을 예약한다(reduce-motion이면 종전 스냅 그대로 —
+              // 위 animateSuggestRowLayout). onFocus에 얹지 않는 이유: 그 한 줄은
+              // keyboard-tap-guard(리뷰 H-2 복귀 경로)가 바이트로 무는 자리라 손대지 않는다.
+              onPressIn={animateSuggestRowLayout}
               placeholder="판매처를 입력해 주세요 (선택)"
               // 라운드 92 리뷰 H-2: 칩으로 채운 뒤 이 칸의 포커스를 내려놓는 데에만 쓴다
               // (그래야 다시 눌렀을 때 위 onFocus가 재발화해 칩 줄이 돌아온다).
@@ -2102,85 +2273,68 @@ export default function NewExpenseScreen() {
           value={memo}
         />
 
-        <Pressable
+        {/* 라운드 96 T3 — 결제 수단: 순환 버튼 → **세그먼트**.
+            종전에는 카드 하나가 탭마다 카드→현금→계좌 이체→모바일 결제로 **순환**했다: 지금 값
+            말고는 무엇이 있는지 보이지 않고, "계좌 이체"에 닿으려면 두 번을 눌러야 하며, 지나치면
+            세 번을 더 돈다. 네 값이 전부 보이는 세그먼트로 바꿔 어느 값이든 1탭이다. 칩은 이
+            화면의 날짜 pill과 같은 CategoryChip(선택 상태는 accessibilityState.selected — 라벨에
+            "선택됨"을 잇지 않는다)이고, 저장 payload가 읽는 상태(paymentMethodIndex)는 종전
+            그대로다. ⚠️ 이 카드는 **비세션(EXP-001)에도 렌더된다** — 이 트랙이 의도한 캡처 갱신
+            지점이고, 기준 이미지 재캡처 절차가 변경 요청 문서와 함께 간다(완료 보고 참고). */}
+        <View
           accessibilityLabel="결제 수단 변경"
-          accessibilityRole="button"
-          onPress={() => setPaymentMethodIndex((value) => (value + 1) % quickExpensePaymentMethods.length)}
           style={{
             backgroundColor: theme.colors.white,
             borderColor: "rgba(74, 63, 53, 0.10)",
             borderRadius: 14,
             borderWidth: 1,
-            flexDirection: "row",
-            justifyContent: "space-between",
+            gap: 10,
             padding: 16
           }}
         >
-          <View style={{ gap: 8 }}>
-            <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>결제 수단</Text>
-            <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "800" }}>{paymentMethod.label}</Text>
+          <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>결제 수단</Text>
+          {/* 칩의 시각 문법(pill·선택 mainCoral 반전 13/700)은 CategoryChip과 같게 적되 컴포넌트를
+              쓰지 않는다 — 그 칩의 히트 영역 계약(a11y-contract의 칩 줄 실측 대장)은 gap 6~8
+              칩 줄 전제라, 이 세그먼트는 대신 **자기 높이로** 최소 터치 타깃(theme.touchTarget)을
+              바로 채운다(히트 영역 확장 0). 좁은 화면(390)에서는 2×2, 넓은 화면에서는 한 줄 —
+              값을 자르거나 두 줄로 꺾지 않는 최소 폭(132)만 정하고 나머지는 flex가 나눈다. */}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {quickExpensePaymentMethods.map((method, index) => {
+              const selectedMethod = index === paymentMethodIndex;
+              return (
+                <Pressable
+                  key={method.value}
+                  accessibilityLabel={method.label}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: selectedMethod }}
+                  onPress={() => setPaymentMethodIndex(index)}
+                  style={({ pressed }) => ({
+                    alignItems: "center",
+                    backgroundColor: selectedMethod ? theme.colors.mainCoral : theme.colors.white,
+                    borderColor: selectedMethod ? theme.colors.mainCoral : theme.colors.primary100,
+                    borderRadius: theme.radii.pill,
+                    borderWidth: 1,
+                    flexBasis: 132,
+                    flexGrow: 1,
+                    justifyContent: "center",
+                    minHeight: theme.touchTarget,
+                    opacity: pressed ? 0.76 : 1,
+                    paddingHorizontal: 14
+                  })}
+                >
+                  <Text style={{ color: selectedMethod ? theme.colors.white : theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
+                    {method.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
-          <Text style={{ color: theme.colors.gray600, fontSize: 18 }}>›</Text>
-        </Pressable>
+        </View>
 
-        {authToken ? (
-          <View style={{ gap: 8 }}>
-            <TextInput
-              accessibilityLabel="품목명 입력"
-              returnKeyType="done"
-              // GAP-056 #1: 서버 @MaxLength와 같은 숫자(단일 소스는 src/expenses/text-limits.ts).
-              maxLength={ITEM_NAME_MAX_LENGTH}
-              onChangeText={handleItemNameChange}
-              placeholder="품목명 (예: 기저귀)"
-              // DSN-053 P2-C: 요약바의 연필과 빠른 품목의 "직접 입력"이 겨누는 유일한 입력칸.
-              ref={itemNameInputRef}
-              style={{
-                backgroundColor: theme.colors.white,
-                borderColor: "rgba(74, 63, 53, 0.10)",
-                borderRadius: 14,
-                borderWidth: 1,
-                color: theme.colors.brown,
-                fontSize: 14,
-                fontWeight: "700",
-                minHeight: 48,
-                paddingHorizontal: 14
-              }}
-              value={itemName}
-            />
-            {/* UX-C: 타이핑에 연동된 과거 항목 자동완성. 폼 상단의 "최근 품목" 칩(EXP-113)과는
-                자리도 트리거도 다르다 -- 저쪽은 타이핑과 무관한 최근 N건이고, 이 줄은 지금 친
-                글자에 걸리는 상위 3개만 입력칸 바로 아래에 붙는다. 탭 한 번에 이름·금액·
-                카테고리가 함께 채워지고(저장은 여전히 저장하기 버튼), 세션 없는 픽셀 락
-                캡처에서는 이 분기 자체가 렌더되지 않는다. */}
-            {itemAutocompleteChips.length > 0 ? (
-              <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                {itemAutocompleteChips.map((chip) => (
-                  <Pressable
-                    key={chip.itemName}
-                    accessibilityRole="button"
-                    accessibilityLabel={itemAutocompleteChipAccessibilityLabel(chip, categoryNameForChip(chip.categoryId))}
-                    hitSlop={SUGGEST_CHIP_HIT_SLOP}
-                    onPress={() => applyItemAutocompleteChip(chip)}
-                    style={{
-                      alignItems: "center",
-                      backgroundColor: theme.colors.white,
-                      borderColor: theme.colors.primary100,
-                      borderRadius: theme.radii.pill,
-                      borderWidth: 1,
-                      justifyContent: "center",
-                      minHeight: 38,
-                      paddingHorizontal: 14
-                    }}
-                  >
-                    <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
-                      {formatItemAutocompleteChipLabel(chip, categoryNameForChip(chip.categoryId))}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            ) : null}
-          </View>
-        ) : (
+        {/* 라운드 96 T3: 세션의 품목명 블록(입력칸 + 자동완성 칩 줄)은 "바로 기록" 그리드 바로
+            아래로 올라갔다(그 자리의 주석 참고). 이 자리에 남는 것은 **비세션 픽셀 락 캡처의
+            숨은 입력칸 하나**다 — EXP-001 비세션 렌더의 노드 수·순서를 한 자리도 바꾸지 않는다. */}
+        {authToken ? null : (
           <View style={{ display: "none" }}>
             <TextInput onChangeText={setItemName} value={itemName} />
           </View>
@@ -2330,6 +2484,13 @@ export default function NewExpenseScreen() {
                 {itemName && authToken ? <AppIcon color={theme.colors.gray600} name="pencil-outline" size={18} /> : null}
               </Pressable>
             </View>
+            {/* 라운드 96 T3 — 금액은 이 화면의 **가장 중요한 숫자**인데 우하단 148px 고정 상자
+                속 22px로 그려졌다(같은 요약바의 품목명 15px와 한 급 차이). 28/34로 격상하고
+                상자를 고정 폭 대신 flex 배분으로 바꿔(왼쪽 요약과 절반씩, 148은 하한으로만)
+                자릿수가 커져도 숫자가 먼저 산다. '원' 14/800 위계·beige/mainCoral 문법은
+                그대로다. 비세션(EXP-001)에도 렌더되는 변화라 기준 이미지 재캡처가 같이 간다
+                (위 결제 수단 세그먼트와 한 라운드 — entry-screen-visual-restore.test.ts의
+                두 시점 pin 참고). */}
             <View
               style={{
                 alignItems: "center",
@@ -2337,10 +2498,11 @@ export default function NewExpenseScreen() {
                 borderColor: amountText ? theme.colors.mainCoral : "transparent",
                 borderRadius: 14,
                 borderWidth: 1,
+                flex: 1,
                 flexDirection: "row",
                 minHeight: 52,
-                paddingHorizontal: 12,
-                width: width >= 600 ? 220 : 148
+                minWidth: 148,
+                paddingHorizontal: 12
               }}
             >
               <TextInput
@@ -2350,13 +2512,21 @@ export default function NewExpenseScreen() {
                 onChangeText={(value) => setAmountText(amountDigitsOnly(value))}
                 placeholder="0"
                 placeholderTextColor={theme.colors.gray600}
+                // 라운드 96 T3: 타일이 품목명을 채운 직후 커서가 이리로 온다(amountInputRef).
+                ref={amountInputRef}
                 style={{
                   color: theme.colors.gray900,
                   flex: 1,
-                  fontSize: 22,
+                  fontSize: 28,
                   fontVariant: ["tabular-nums"],
                   fontWeight: "800",
+                  lineHeight: 34,
                   minHeight: 50,
+                  // 라운드 96 T3: 웹(픽셀 락 웹 캡처·expo web QA)에서 input의 고유 최소 폭
+                  // (CSS min-width:auto)이 flex 수축을 막아 숫자가 상자 밖 오른쪽으로 밀려
+                  // 보이지 않았다(격상 전부터 있던 결함 — 네이티브 Yoga는 기본이 0이라 무해한
+                  // no-op이고, 웹에서만 상자 안으로 돌아온다).
+                  minWidth: 0,
                   paddingVertical: 0,
                   textAlign: "right"
                 }}
@@ -2390,6 +2560,19 @@ export default function NewExpenseScreen() {
               style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
             >
               {CATEGORY_REQUIRED_NOTICE}
+            </Text>
+          ) : null}
+          {/* 라운드 96 T3 — 품목명 사전 안내. 분류 안내와 **같은 자리·같은 문법·같은 색**이다
+              (버튼을 잠그지 않는 안내라 danger가 아니라 coral[700] — 위 분류 안내의 근거 그대로).
+              품목명이 채워지는 순간(타이핑·타일·칩) 저절로 사라지고, 초기값이 false라 세션 없는
+              EXP-001 캡처(저장 시도 없음)에서는 렌더되지 않는다. */}
+          {showItemNameNotice ? (
+            <Text
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
+            >
+              {ITEM_NAME_REQUIRED_NOTICE}
             </Text>
           ) : null}
           {/* GAP-054 #2 — 금액 상한 안내. 분류 안내와 **같은 자리**(저장 버튼 바로 위)이고,
