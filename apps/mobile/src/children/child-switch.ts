@@ -1,3 +1,5 @@
+import { directionParticle } from "../text/korean-particles";
+
 /**
  * MOB-118: pure child-switch planning for the settings "아이 관리" screen. Kept free of
  * react-native imports so it unit-tests under vitest (same discipline as src/lineChartMath.ts).
@@ -36,9 +38,12 @@ export function planChildSwitch(
   child: { id: string; nickname: string }
 ): ChildSwitchPlan | null {
   if (currentChildId === child.id) return null;
+  // 라운드 96 T5 — ⚠️ 두 시점: 종전 안내는 두 형태를 함께 적는 꼴(`${child.nickname}(으)로 전환했어요.`)
+  // 이었다. 태명은 사용자가 지은 값이라 받침이 갈리므로 조사를 값에서 고른다(directionParticle —
+  // 받침 ㄹ 예외까지 korean-particles.ts 한 자리가 진다). 낱말·어순·마침표는 그대로다.
   return {
     childId: child.id,
-    announcement: `${child.nickname}(으)로 전환했어요.`,
+    announcement: `${child.nickname}${directionParticle(child.nickname)} 전환했어요.`,
     invalidateKeys: CHILD_SCOPED_QUERY_KEY_PREFIXES
   };
 }
@@ -123,9 +128,10 @@ export function childSwitchTriggerAccessibilityLabel(headerText: string): string
   return `${headerText}, ${CHILD_SWITCH_SHEET_TITLE}`;
 }
 
-/** 시트 안 한 줄의 accessibilityLabel. 현재 아이는 소리로도 구분된다. */
+/** 시트 안 한 줄의 accessibilityLabel. 현재 아이는 소리로도 구분된다.
+ * 라운드 96 T5 — ⚠️ 두 시점: 종전에는 `(으)로`를 함께 적었다(위 planChildSwitch와 같은 이관). */
 export function childSwitchOptionAccessibilityLabel(nickname: string, isCurrent: boolean): string {
-  return isCurrent ? `${nickname}, 현재 선택` : `${nickname}(으)로 전환`;
+  return isCurrent ? `${nickname}, 현재 선택` : `${nickname}${directionParticle(nickname)} 전환`;
 }
 
 // ---------------------------------------------------------------------------------------------

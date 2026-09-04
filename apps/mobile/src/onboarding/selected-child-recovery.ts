@@ -55,8 +55,10 @@ export type SelectedChildRecoveryOutcome =
 /**
  * 다자녀 계정에서 복구가 임의로 첫째를 고른 뒤 보여줄 안내. 침묵 오선택(둘째 사용자가 아무 말
  * 없이 첫째 화면을 보게 되는 것)을 막는 것이 목적이라 전환 경로까지 함께 알려준다.
+ * 라운드 96 T5 — ⚠️ 두 시점: 종전에는 경로를 기호로 적었다("설정 > 아이 관리") — 화면이 읽어
+ * 주는 문장이라 자연어로 푼다(child-deletion.ts·household-join.ts의 전환 토스트와 같은 이관).
  */
-export const MULTI_CHILD_RECOVERY_NOTICE = "아이를 다시 선택했어요 — 설정 > 아이 관리에서 바꿀 수 있어요.";
+export const MULTI_CHILD_RECOVERY_NOTICE = "아이를 다시 선택했어요 — 설정의 아이 관리에서 바꿀 수 있어요.";
 
 export type SelectedChildRecoveryInput = {
   hydrated: boolean;

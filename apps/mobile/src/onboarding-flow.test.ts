@@ -81,7 +81,8 @@ describe("Batch 05 mobile onboarding contract", () => {
     const loginSource = readFileSync(loginPath, "utf8");
 
     expect(loginSource).toContain("loginError");
-    expect(loginSource).toContain("로그인 중");
+    // 두 시점(라운드 96 T5): 종전 "로그인 중..." → "로그인하는 중"(진행 라벨 다수파 꼴).
+    expect(loginSource).toContain("로그인하는 중");
     // 라운드 73 트랙 A: 실패 문구 두 갈래는 src/auth/login-copy.ts 한 자리로 옮겨 갔다(문장은
     // 바이트 그대로, 갈래의 기준만 "env 주입 여부" → "빌드 성격"). 여기서 확인하는 사실은
     // 그대로다 — 카카오 시작이 멈춘 채 방치되지 않고 화면이 이유를 말한다.

@@ -607,9 +607,12 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     it("아이 관리(SET-005)의 조회 실패 카드가 공용 문구·라벨을 그대로 받는다", () => {
       const src = source("app/settings/children.tsx");
       expect(src).toContain("const loadErrorCopy = useLoadErrorCopy(children.isError);");
-      expect(src).toContain("<Text style={{ color: theme.colors.danger }}>{loadErrorCopy.title}</Text>");
-      // 카드 구조·[다시 시도] 버튼·재조회 대상은 그대로다(문구만 갈린다).
-      expect(src).toContain("<SecondaryButton label={loadErrorCopy.actionLabel} onPress={() => children.refetch()} />");
+      // ⚠️ 두 시점(라운드 96 T6): 종전 핀은 Card + danger 색 <Text> + SecondaryButton이었다 —
+      // 그 자리가 T1의 LoadErrorCard 한 벌로 옮겨 가며 핀도 오늘의 바이트를 따라간다.
+      // 이 계약이 지키는 사실(문구·재시도 라벨·재조회 대상이 공용 단일 소스에서 온다)은 그대로다.
+      expect(src).toContain(
+        "<LoadErrorCard message={loadErrorCopy.title} retryLabel={loadErrorCopy.actionLabel} onRetry={() => children.refetch()} />"
+      );
       // 종전 두 리터럴은 공용 상수와 **같은 값**이라 온라인 화면이 한 글자도 바뀌지 않는다.
       expect(LOAD_ERROR_NOTICE).toBe("불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
       expect(LOAD_ERROR_RETRY_LABEL).toBe("다시 시도");
@@ -620,10 +623,11 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
       expect(src).toContain("const devicesLoadErrorCopy = useLoadErrorCopy(devices.isError);");
       expect(src).toContain("? devicesLoadErrorCopy.title");
       expect(src).toContain(": `기기 목록을 ${devicesLoadErrorCopy.title}`");
-      expect(src).toContain("<Text style={errorTextStyle}>{devicesLoadErrorText}</Text>");
-      expect(src).toContain(
-        "<SecondaryButton label={devicesLoadErrorCopy.actionLabel} onPress={() => devices.refetch()} />"
-      );
+      // ⚠️ 두 시점(라운드 96 T6): errorTextStyle <Text> + SecondaryButton → T1의 LoadErrorCard
+      // 한 벌(핀은 오늘의 바이트를 따라간다 — 주어 접두·오프라인 갈래 규칙은 그대로다).
+      expect(src).toContain("message={devicesLoadErrorText}");
+      expect(src).toContain("retryLabel={devicesLoadErrorCopy.actionLabel}");
+      expect(src).toContain("onRetry={() => devices.refetch()}");
       // 온라인 갈래 바이트 불변: 접두 + 공용 문장이 종전 문자열과 정확히 같다.
       expect(`기기 목록을 ${LOAD_ERROR_NOTICE}`).toBe("기기 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
       // "기기 목록을 지금은 오프라인이에요…"는 문장이 아니다 -- 오프라인 갈래는 공용 문장 그대로다.
@@ -713,8 +717,9 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
       expect(src).not.toContain("const loadFailedText =");
       expect(src).not.toContain('"불러오지 못했어요. 잠시 후 다시 시도해 주세요."');
       // 동의 내역 카드의 [다시 시도]도 같은 단일 소스에서 온다(온라인 갈래 라벨 불변).
+      // ⚠️ 두 시점(라운드 96 T6): SecondaryButton → T1의 LoadErrorCard 한 벌(핀은 오늘의 바이트).
       expect(src).toContain(
-        "<SecondaryButton label={privacyLoadErrorCopy.actionLabel} onPress={() => privacy.refetch()} />"
+        "retryLabel={privacyLoadErrorCopy.actionLabel}\n            onRetry={() => privacy.refetch()}"
       );
       // ⚠️ 파괴 흐름의 **저장** 실패 배선은 한 글자도 바뀌지 않는다(라운드 71 B · 리뷰 S-4의 데모 갈래).
       expect(src).toContain("const isOnline = useErrorTimeConnectivity(isError && !isDemoSession);");
@@ -1334,7 +1339,7 @@ describe("라운드 76 A: 모듈 층의 실패 문구 대장 (src/** 스윕)", (
    * 스윕 자신의 계약. 바늘이 파생값이라 **문구가 다듬어지면 그물도 따라가는데**, 파생이 조용히
    * 어긋나면(예: 꼬리를 문장 전체로 잡으면) 그물이 찢어진 채 초록으로 남는다.
    */
-  it("바늘 셋은 파생값이고, 꼬리는 **문장 전체가 아니다** (표기 방언 셋이 그물에 남는 이유)", () => {
+  it("바늘 셋은 파생값이고, 꼬리는 **문장 전체가 아니다** (조각이 더 넓은 그물이다)", () => {
     expect(MODULE_FAILURE_NEEDLES).toEqual(["불러오지 못했어요", "저장하지 못했어요", "잠시 후 다시"]);
     // 두 공용 상수는 같은 꼬리를 쓴다 — 어느 쪽에서 파생시켜도 같은 바늘이다.
     expect(retryTailOf(SAVE_ERROR_NOTICE)).toBe(RETRY_TAIL_PHRASE);
@@ -1342,14 +1347,56 @@ describe("라운드 76 A: 모듈 층의 실패 문구 대장 (src/** 스윕)", (
     const inviteFailure = "초대 링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.";
     expect(inviteFailure).not.toContain(firstSentenceOf(SAVE_ERROR_NOTICE));
     expect(inviteFailure).toContain(RETRY_TAIL_PHRASE);
-    // ⚠️ 꼬리를 문장 전체로 잡으면 붙여 쓴 방언(P3 — auth/kakao-login · export 둘)이 구조적으로
-    // 안 보인다. 조각까지만 잡는 것이 그 셋을 그물 안에 남기는 유일한 방법이다.
+    // ⚠️ **두 시점(라운드 96 T5)**: 라운드 76 시점 이 자리는 "꼬리를 문장 전체로 잡으면 붙여 쓴
+    // 방언(auth/kakao-login · export 둘)이 구조적으로 안 보인다 — 조각까지만 잡는 것이 그 셋을
+    // 그물 안에 남기는 유일한 방법"이라 적었다. 오늘 그 방언은 다수파(띄어 쓴 꼴)로 전량
+    // 통일됐고(아래 표기 방언 스윕이 0을 상한으로 문다), 조각 꼬리는 **그대로 둔다** — 방언이
+    // 없어도 조각이 문장 전체보다 넓은 그물이고, 스윕이 좁아질 이유가 없다. 아래 두 줄은 그
+    // 시점의 사실을 값으로 남긴 것이다(방언 꼴이 조각에는 걸리고 문장 전체에는 안 걸렸다).
     const dialect = "잠시 후 다시 시도해주세요.";
     expect(dialect).toContain(RETRY_TAIL_PHRASE);
     expect(dialect).not.toContain(LOAD_ERROR_NOTICE.slice(LOAD_ERROR_NOTICE.indexOf(".") + 1).trim());
     // 살아 있는 문자열은 잡고, 같은 문장의 주석 인용은 놓아준다(화면 스윕과 같은 관례).
     expect(codeOnly(`const t = "${SAVE_ERROR_NOTICE}";`)).toContain(RETRY_TAIL_PHRASE);
     expect(codeOnly(`// 종전 문장은 "${SAVE_ERROR_NOTICE}"였다`)).not.toContain(RETRY_TAIL_PHRASE);
+  });
+
+  /**
+   * 라운드 96 T5 — **표기 방언 스윕.** 위 그물이 라운드 76부터 값으로 적어 온 부채("표기 방언을
+   * 통일하지 않은 대가를 그물이 대신 치르고 있다")를 이 라운드가 갚았다: 해주세요/해 주세요 ·
+   * 해보세요/해 보세요 · 되었어요/됐어요 세 쌍이 전부 다수파(해 주세요 · 해 보세요 · 됐어요)로
+   * 통일됐다. 이 스윕은 그 0을 **상한으로** 물어, 소수파 표기가 하나라도 되돌아오면 그물의 전제가
+   * 조용히 깨지기 전에 여기가 먼저 빨개진다. 걷는 뿌리는 화면(app)과 모듈(src) 둘 다다 — 방언은
+   * 실패 문구에만 사는 것이 아니라서 모듈 스윕(src 한 뿌리)보다 넓게 걷는다. 주석 속 인용(두 시점
+   * 표기)은 세지 않는다(codeOnly — 화면 스윕과 같은 관례).
+   */
+  it("표기 방언 스윕 — 붙여 쓴 소수파 표기가 app/** · src/** 코드에 0건이다 (상한 0)", () => {
+    const MINORITY_DIALECT_NEEDLES = ["해주세요", "해보세요", "되었어요"] as const;
+    const offenders: string[] = [];
+    const walk = (directory: string) => {
+      for (const name of readdirSync(join(mobileRoot, directory))) {
+        if (name === "node_modules" || name.startsWith(".")) continue;
+        const relativePath = `${directory}/${name}`;
+        if (statSync(join(mobileRoot, relativePath)).isDirectory()) {
+          walk(relativePath);
+          continue;
+        }
+        if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) continue;
+        const code = codeOnly(source(relativePath));
+        for (const needle of MINORITY_DIALECT_NEEDLES) {
+          if (code.includes(needle)) offenders.push(`${relativePath}: ${needle}`);
+        }
+      }
+    };
+    walk("app");
+    walk("src");
+    expect(offenders).toEqual([]);
+    // 바늘이 유령이 아니다 — 소수파 표기는 잡고, 다수파 표기와 주석 인용은 놓아준다.
+    expect(codeOnly('const t = "다시 시도해주세요.";')).toContain("해주세요");
+    expect("다시 시도해 주세요.").not.toContain("해주세요");
+    expect("확인해 보세요.").not.toContain("해보세요");
+    expect("취소됐어요.").not.toContain("되었어요");
+    expect(codeOnly('// 종전 문장은 "다시 시도해주세요."였다')).not.toContain("해주세요");
   });
 
   it("ⓐ 전수: 바늘을 든 src/** 모듈은 예외 없이 대장 셋 중 하나에 있다", () => {

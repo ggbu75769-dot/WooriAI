@@ -13,6 +13,7 @@ import {
 } from "../home/last-month-comparison";
 import type { WeeklySummary } from "../home/weekly-summary";
 import { formatKrw } from "../money";
+import { subjectParticle } from "../text/korean-particles";
 import { shareTotalLine } from "../reports/share-text";
 import { isIsoCalendarDate, isoCalendarDaysBetween, seoulCalendarDate, seoulIsoWeekKey } from "./iso-week";
 import type { AppNotificationCandidate } from "./notification.store";
@@ -146,7 +147,7 @@ export function budgetNotifications(input: BudgetNotificationInput): AppNotifica
     {
       type: "budget_80",
       title: "이번 달 예산의 80%를 사용했어요",
-      body: "남은 예산을 확인해보세요.",
+      body: "남은 예산을 확인해 보세요.",
       dedupeKey: `budget_80:${childId}:${yearMonth}`,
       legacyDedupeKeys: [`budget_80:${yearMonth}`],
       childId
@@ -167,10 +168,13 @@ export type StageTransitionInput = {
 export function stageTransitionNotification(input: StageTransitionInput): AppNotificationCandidate | null {
   const { childId, childName, stageLabel, lastSeenStageLabel } = input;
   if (!stageLabel || !lastSeenStageLabel || lastSeenStageLabel === stageLabel) return null;
+  // 라운드 96 T5 — ⚠️ 두 시점: 종전 제목은 두 형태를 함께 적는 꼴(`『${childName}』이(가) …`)이었다.
+  // 태명은 사용자가 지은 값이라 받침이 갈리므로, 조사를 값에서 고른다(subjectParticle — 받침 판정은
+  // korean-particles.ts 한 자리다). 낱말·어순·마침표는 그대로다.
   return {
     type: "stage_transition",
-    title: `『${childName}』이(가) ${stageLabel}에 들어섰어요.`,
-    body: "새 준비템을 확인해보세요.",
+    title: `『${childName}』${subjectParticle(childName)} ${stageLabel}에 들어섰어요.`,
+    body: "새 준비템을 확인해 보세요.",
     dedupeKey: `stage_transition:${childId}:${stageLabel}`,
     childId
   };
@@ -210,7 +214,7 @@ export function purchasePendingNotifications(
     .map((entry) => ({
       type: "purchase_pending" as const,
       title: `『${entry.itemName}』 구매 확인이 기다리고 있어요.`,
-      body: "구매하셨다면 지출로 기록해보세요.",
+      body: "구매하셨다면 지출로 기록해 보세요.",
       dedupeKey: purchasePendingDedupeKey(entry),
       childId: entry.childId
     }));
@@ -320,7 +324,7 @@ export function weeklySummaryNotification(input: WeeklySummaryInput): AppNotific
   return {
     type: "weekly_summary",
     title,
-    body: `『${childName}』 지출 내역을 확인해보세요.`,
+    body: `『${childName}』 지출 내역을 확인해 보세요.`,
     dedupeKey: `weekly_summary:${childId}:${seoulIsoWeekKey(now)}`,
     childId
   };
@@ -337,9 +341,12 @@ function weeklySummaryTitle(input: WeeklySummaryInput): string | null {
     return weekly.totalKrw > 0 ? weekly.text : null;
   }
   if (!Number.isFinite(spentKrw) || spentKrw <= 0) return null;
+  // 라운드 96 T5 — ⚠️ 두 시점: 종전 폴백은 "…원을 **함께했어요**"였다. 이 문장의 주어는 지출
+  // 합계라 "함께했다"는 비문이고(무엇과 함께인지가 없다), 이 알림이 실제로 세는 사실은 사용자가
+  // 그 금액을 **기록했다**는 것이다. 조사(`을`)와 나머지 낱말은 그대로다.
   return budgetKrw > 0
     ? `이번 달 지금까지 ${formatKrw(spentKrw)} · 예산의 ${budgetUsagePercent({ budgetKrw, spentKrw, clampToFull: false })}%예요`
-    : `이번 달 지금까지 ${formatKrw(spentKrw)}을 함께했어요`;
+    : `이번 달 지금까지 ${formatKrw(spentKrw)}을 기록했어요`;
 }
 
 /**

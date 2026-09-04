@@ -366,11 +366,11 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
       // CSV-124: 전량을 모으지 못한 경우는 "잠시 후 다시 시도"로 뭉뚱그리면 사용자가 같은 실패를
       // 반복한다. 원인(기록이 너무 많음)과 다음 행동(기간 좁히기)을 그대로 알린다.
       if (error instanceof ExpensePageCollectionError) {
-        showToast("기록이 너무 많아 한 번에 내보낼 수 없어요. 기간을 좁혀서 다시 시도해주세요.", "error");
+        showToast("기록이 너무 많아 한 번에 내보낼 수 없어요. 기간을 좁혀서 다시 시도해 주세요.", "error");
       } else {
         /**
          * GAP-056 #3 — **완전 오프라인**에서 이 흐름은 서버 조회부터 실패한다. 그 자리에서
-         * "잠시 후 다시 시도해주세요"는 사실과 어긋난다: 기다릴 대상이 없고, 다시 눌러도 같은
+         * "잠시 후 다시 시도해 주세요"는 사실과 어긋난다: 기다릴 대상이 없고, 다시 눌러도 같은
          * 실패로 되돌아온다. 라운드 52 C-07(예산·아이 프로필 저장)이 이미 정한 갈래를 그대로
          * 따른다 -- 온라인 문구는 한 글자도 바꾸지 않고, 오프라인일 때만 messages.ts의 단일
          * 소스 문장으로 갈린다(문구를 여기서 새로 짓지 않는다).
@@ -379,7 +379,7 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
          * 판정할 수 없는 플랫폼에서는 true라, 어긋나도 기존 문구로 안전하게 떨어진다.
          */
         void isCurrentlyOnline().then((isOnline) => {
-          showToast(isOnline ? "내보내기에 실패했어요. 잠시 후 다시 시도해주세요." : OFFLINE_RETRY_NOTICE, "error");
+          showToast(isOnline ? "내보내기에 실패했어요. 잠시 후 다시 시도해 주세요." : OFFLINE_RETRY_NOTICE, "error");
         });
       }
     } finally {
@@ -572,8 +572,11 @@ export function ExpenseCsvExportCard({ controller }: { controller: ExpenseCsvExp
       <Text style={exportCardNoticeStyle}>
         {EXPORT_FILE_NAME_LABEL}: {controller.fileName}
       </Text>
+      {/* 라운드 96 T5 — ⚠️ 두 시점: 종전 라벨은 "내보내는 중..."(말줄임표) · 낭독은 "내보내는 중"
+          이라 한 버튼의 눈과 귀가 달랐다. 진행 상태 라벨의 다수파(온보딩 "저장하는 중" 등 점 없는
+          꼴)에 맞춰 점을 걷고 두 표면을 한 문자열로 통일한다. */}
       <SecondaryButton
-        label={controller.busy ? "내보내는 중..." : EXPORT_SHARE_BUTTON_LABEL}
+        label={controller.busy ? "내보내는 중" : EXPORT_SHARE_BUTTON_LABEL}
         accessibilityLabel={controller.busy ? "내보내는 중" : EXPORT_SHARE_BUTTON_LABEL}
         disabled={controller.busy}
         onPress={() => {

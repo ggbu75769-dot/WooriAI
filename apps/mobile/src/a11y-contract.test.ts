@@ -834,9 +834,21 @@ describe("GAP-071 #5 EmptyStateCard의 actionLabel↔onPress 짝 (가짜 버튼 
     ];
     for (const path of withDestination) {
       const src = source(path);
-      expect(src, `${path}의 비세션 카드`).toContain('actionLabel="확인"');
       expect(src, `${path}의 목적지`).toMatch(/onPress=\{\(\) => router\.push\([^)]*"\/login"\)\}/);
     }
+    /**
+     * 라운드 96 T6 — **앵커 교체**: 버튼 글자가 목적지를 말한다. 종전 앵커는 네 자리 모두
+     * `actionLabel="확인"`이었는데, "확인"은 눌러서 무엇이 되는지 말하지 않는 라벨이었다
+     * (낭독으로는 "확인, 버튼"뿐이라 로그인 화면으로 이동한다는 사실이 소리에 없다).
+     * 잠금 카드 셋은 "로그인하기", 정기 지출 카드는 지금 막고 있는 조건 쪽 목적지를 그대로
+     * 말한다(토큰 없음 → 로그인하기 · 아이 미선택 → 아이 선택하러 가기).
+     */
+    for (const path of ["app/settings/app-lock.tsx", "app/settings/children.tsx", "app/settings/notifications.tsx"]) {
+      expect(source(path), `${path}의 비세션 카드`).toContain('actionLabel="로그인하기"');
+    }
+    expect(source("app/expenses/recurring.tsx"), "정기 지출 비세션 카드").toContain(
+      'actionLabel={authToken ? "아이 선택하러 가기" : "로그인하기"}'
+    );
     // 카드 문구는 한 글자도 바뀌지 않았다.
     for (const path of ["app/settings/app-lock.tsx", "app/settings/children.tsx", "app/settings/notifications.tsx"]) {
       expect(source(path), `${path}의 카드 제목`).toContain('title="로그인 후 이용할 수 있어요."');
@@ -1062,7 +1074,9 @@ describe("GAP-063 #10 라운드 63 신설 UI 접근성 계약", () => {
     expect(block.slice(0, 500)).toContain("applyChildSwitch(selectedChildId, child, {");
     expect(block.slice(0, 500)).toContain("announce: announceForA11y");
     // 같은 아이 탭은 no-op이라 announce도 없다(소음 금지) — 판정은 planChildSwitch 한 곳이다.
-    expect(source("src/children/child-switch.ts")).toContain("(으)로 전환했어요.");
+    // ⚠️ 두 시점(라운드 96 T5): 종전 핀은 두 형태 표기 `.toContain("(으)로 전환했어요.")` 였다 —
+    // 그 자리가 조사를 값에서 고르는 꼴(directionParticle)로 이관되며 핀도 오늘의 바이트를 따라간다.
+    expect(source("src/children/child-switch.ts")).toContain("${directionParticle(child.nickname)} 전환했어요.");
     expect(notificationsSource).not.toContain("전환했어요");
   });
 });
@@ -4727,13 +4741,18 @@ const MUTATION_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
  * 그래도 판정은 같다 — 이 칸은 통째로 범위 밖이고(아래 `QUERY_TRIGGER_OUT_OF_SCOPE_REASON`),
  * 값이 서 있는 목적은 "0건"이 스캔이 끊긴 결과가 아님을 보이는 것 하나다.
  */
+/**
+ * ⚠️ **두 시점(라운드 96 T6)** — 종전에는 설정 3화면(children·notifications·privacy)이 한 자리씩
+ * 더 있었다(조회 실패를 Card + danger 색 `<Text>`로 직접 그리던 자리). T6가 그 세 자리를 T1의
+ * `LoadErrorCard` 한 벌로 옮기면서 이 스캐너의 "danger 색 글자" 바늘 밖으로 나갔다 — 문구·재시도
+ * 라벨은 같은 단일 소스(useLoadErrorCopy) 그대로이고, 상태는 여전히 카드 영역 전체가 말한다
+ * (제외 사유 `QUERY_TRIGGER_OUT_OF_SCOPE_REASON`의 그 조건이 더 또렷해진 것이지 침묵이 는 것이
+ * 아니다).
+ */
 const QUERY_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
   "app/family/accept/[token].tsx": 2,
   "app/family/index.tsx": 4,
-  "app/import/[importJobId].tsx": 2,
-  "app/settings/children.tsx": 1,
-  "app/settings/notifications.tsx": 1,
-  "app/settings/privacy.tsx": 1
+  "app/import/[importJobId].tsx": 2
 };
 
 /**
@@ -5416,7 +5435,9 @@ ${card("useEffect(() => { announceForA11y(text); }, [text]);")}
 
   it("ⓔ 위 두 스윕의 모집단은 한 줄도 옮기지 않았다 (뿌리를 더한 것이지 옮긴 것이 아니다)", () => {
     // 모집단을 옮기면 U절 이월과 라운드 80의 값이 함께 흔들린다 — 그래서 그 값들이 여기 선다.
-    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(6);
+    // ⚠️ 두 시점(라운드 96 T6): 쿼리 방아쇠 화면 6 → 3 — 설정 3화면의 조회 실패 자리가
+    // LoadErrorCard로 옮겨 가 danger 색 바늘 밖으로 나갔다(QUERY_TRIGGER_SITES_BY_SCREEN 머리말).
+    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(3);
     expect(MUTATION_TRIGGER_SITES_BY_SCREEN["app/settings/privacy.tsx"], "개인정보 화면의 자리 수").toBe(7);
     expect(Object.keys(MUTATION_TRIGGER_SITES_BY_SCREEN)).not.toContain("app/(onboarding)/child-profile.tsx");
     expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "대장 스윕의 제외").toEqual([]);
@@ -5767,7 +5788,9 @@ export default function Screen() {
     }
 
     // 모집단은 한 줄도 옮기지 않았다 — 옮기면 U절 이월과 라운드 80·87의 값이 함께 흔들린다.
-    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(6);
+    // ⚠️ 두 시점(라운드 96 T6): 쿼리 방아쇠 화면 6 → 3(설정 3화면의 조회 실패 자리가
+    // LoadErrorCard로 옮겨 갔다 — QUERY_TRIGGER_SITES_BY_SCREEN 머리말).
+    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(3);
     expect(Object.keys(MUTATION_TRIGGER_SITES_BY_SCREEN).length, "뮤테이션 방아쇠 화면").toBe(13);
     expect(MUTATION_TRIGGER_SITES_BY_SCREEN["app/settings/privacy.tsx"], "개인정보 화면의 자리 수").toBe(7);
     expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "대장 스윕의 제외").toEqual([]);

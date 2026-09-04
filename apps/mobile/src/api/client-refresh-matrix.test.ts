@@ -292,7 +292,8 @@ describe("client.ts 401→refresh retry matrix (COV-T3)", () => {
       await expect(pending).rejects.toBeInstanceOf(ApiTimeoutError);
       await pending.catch((error: ApiTimeoutError) => {
         expect(error.name).toBe("ApiTimeoutError");
-        expect(error.message).toBe("요청 시간이 초과되었어요(10초)");
+        // 두 시점(라운드 96 T5): 종전 "초과되었어요" — 다수파 표기("됐어요")로 통일.
+        expect(error.message).toBe("요청 시간이 초과됐어요(10초)");
         expect(error.cause).toBe(abortError);
       });
       expect(settled).toBe(true);

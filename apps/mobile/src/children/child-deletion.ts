@@ -1,3 +1,4 @@
+import { directionParticle } from "../text/korean-particles";
 import { CHILD_SCOPED_QUERY_KEY_PREFIXES } from "./child-switch";
 
 /**
@@ -38,9 +39,12 @@ export function planAfterChildRemoval(
   if (!next) {
     return { kind: "onboarding" };
   }
+  // 라운드 96 T5 — ⚠️ 두 시점: 종전 문구는 `${next.nickname}(으)로 전환했어요. 설정 > 아이
+  // 관리에서 바꿀 수 있어요.` 였다. 두 가지를 다듬는다 — 조사는 값에서 고르고(directionParticle),
+  // 화면이 읽어 주는 문장에서 경로 기호(`>`)를 자연어(`설정의 아이 관리`)로 푼다. 나머지는 그대로다.
   return {
     kind: "select",
     childId: next.id,
-    notice: `${next.nickname}(으)로 전환했어요. 설정 > 아이 관리에서 바꿀 수 있어요.`
+    notice: `${next.nickname}${directionParticle(next.nickname)} 전환했어요. 설정의 아이 관리에서 바꿀 수 있어요.`
   };
 }

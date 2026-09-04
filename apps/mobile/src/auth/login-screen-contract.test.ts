@@ -85,9 +85,9 @@ describe("AUTH-102 login screen wiring (source verification -- follows the exist
     const kakaoSource = source("src/auth/kakao-login.ts");
     for (const message of [
       "카카오 로그인이 설정되지 않았어요.",
-      "카카오 로그인 응답이 없어요. 다시 시도해주세요.",
+      "카카오 로그인 응답이 없어요. 다시 시도해 주세요.",
       "브라우저를 열 수 없어요.",
-      "인증 절차를 다시 시작해주세요.",
+      "인증 절차를 다시 시작해 주세요.",
       "카카오 인증 응답을 읽을 수 없어요.",
       "카카오 인증에 실패했어요."
     ]) {

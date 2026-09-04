@@ -32,7 +32,8 @@ describe("MOB-118 child switch planning", () => {
     const plan = planChildSwitch("child-1", { id: "child-2", nickname: "튼튼이" });
     expect(plan).not.toBeNull();
     expect(plan!.childId).toBe("child-2");
-    expect(plan!.announcement).toBe("튼튼이(으)로 전환했어요.");
+    // 두 시점(라운드 96 T5): 종전 "튼튼이(으)로 전환했어요." — 조사가 값(받침)에서 갈린다.
+    expect(plan!.announcement).toBe("튼튼이로 전환했어요.");
     expect(plan!.invalidateKeys).toBe(CHILD_SCOPED_QUERY_KEY_PREFIXES);
   });
 
@@ -80,7 +81,7 @@ describe("HOME-138 applyChildSwitch (전환 부수효과 단일 경로)", () => 
 
     expect(plan?.childId).toBe("child-2");
     expect(calls[0]).toBe("select:child-2");
-    expect(calls[calls.length - 1]).toBe("announce:튼튼이(으)로 전환했어요.");
+    expect(calls[calls.length - 1]).toBe("announce:튼튼이로 전환했어요.");
     expect(invalidated).toEqual(CHILD_SCOPED_QUERY_KEY_PREFIXES.map((key) => [...key]));
   });
 
@@ -127,7 +128,10 @@ describe("HOME-138 홈 헤더 전환 입구", () => {
 
   it("시트의 현재 아이는 소리로도 구분된다", () => {
     expect(childSwitchOptionAccessibilityLabel("다온이", true)).toBe("다온이, 현재 선택");
-    expect(childSwitchOptionAccessibilityLabel("튼튼이", false)).toBe("튼튼이(으)로 전환");
+    // 두 시점(라운드 96 T5): 종전 "튼튼이(으)로 전환" — 받침 있는 이름은 `으로`로 갈린다.
+    expect(childSwitchOptionAccessibilityLabel("튼튼이", false)).toBe("튼튼이로 전환");
+    expect(childSwitchOptionAccessibilityLabel("지훈", false)).toBe("지훈으로 전환");
+    expect(childSwitchOptionAccessibilityLabel("첫돌", false)).toBe("첫돌로 전환");
   });
 
   it("홈 화면은 아이가 2명 이상일 때만 헤더를 버튼으로 만들고 ['children'] 캐시를 재사용한다", () => {

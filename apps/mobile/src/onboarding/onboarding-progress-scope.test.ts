@@ -60,7 +60,7 @@ describe("FIX-119B/F5 isChildScopeRejection", () => {
 
   it("그 밖의 실패(네트워크·타임아웃·401·5xx)는 폴백 대상이 아니다 -- 오프라인 관용 동작 불변", () => {
     expect(isChildScopeRejection(new Error("Network request failed"))).toBe(false);
-    expect(isChildScopeRejection(new Error("요청 시간이 초과되었어요(10초)"))).toBe(false);
+    expect(isChildScopeRejection(new Error("요청 시간이 초과됐어요(10초)"))).toBe(false);
     expect(isChildScopeRejection(apiError("UNAUTHORIZED"))).toBe(false);
     expect(isChildScopeRejection(apiError("INTERNAL_SERVER_ERROR"))).toBe(false);
     expect(isChildScopeRejection(null)).toBe(false);

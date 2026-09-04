@@ -128,12 +128,12 @@ describe("AUTH-102 redirect URL parsing", () => {
 
   it("maps each allowlisted OAuth error code to its own fixed Korean message (never the raw param)", () => {
     const fixedMessages: Record<string, string> = {
-      invalid_request: "카카오 인증 요청이 올바르지 않아요. 다시 시도해주세요.",
-      unauthorized_client: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
-      unsupported_response_type: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
-      invalid_scope: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
-      server_error: "카카오 서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
-      temporarily_unavailable: "카카오 서비스를 지금 이용할 수 없어요. 잠시 후 다시 시도해주세요."
+      invalid_request: "카카오 인증 요청이 올바르지 않아요. 다시 시도해 주세요.",
+      unauthorized_client: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해 주세요.",
+      unsupported_response_type: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해 주세요.",
+      invalid_scope: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해 주세요.",
+      server_error: "카카오 서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
+      temporarily_unavailable: "카카오 서비스를 지금 이용할 수 없어요. 잠시 후 다시 시도해 주세요."
     };
     for (const [code, message] of Object.entries(fixedMessages)) {
       expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=${code}&state=s1`, "s1")).toThrowError(

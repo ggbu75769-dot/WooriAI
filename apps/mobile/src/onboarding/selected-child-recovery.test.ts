@@ -136,7 +136,8 @@ describe("MOB-116 real-session selectedChildId recovery", () => {
       expect(applySelectedChildRecoveryOutcome(outcome, storeEffects(notices))).toBe("recovered");
       expect(useSelectedChildStore.getState().selectedChildId).toBe("child-1");
       expect(notices).toEqual([MULTI_CHILD_RECOVERY_NOTICE]);
-      expect(MULTI_CHILD_RECOVERY_NOTICE).toContain("설정 > 아이 관리");
+      // 두 시점(라운드 96 T5): 종전 표기는 경로 기호("설정 > 아이 관리")였다 — 자연어로 풀었다.
+      expect(MULTI_CHILD_RECOVERY_NOTICE).toContain("설정의 아이 관리");
     });
 
     it("keeps working when the caller passes no notify effect at all", () => {

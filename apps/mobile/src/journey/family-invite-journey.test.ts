@@ -254,7 +254,7 @@ describe("G2: 가족 초대·수락 여정 (local backend)", () => {
     expect(plan).toEqual({
       kind: "select",
       childId: LOCAL_CHILD_ID,
-      notice: `${children[0].nickname}(으)로 전환했어요. 설정 > 아이 관리에서 바꿀 수 있어요.`,
+      notice: `${children[0].nickname}로 전환했어요. 설정의 아이 관리에서 바꿀 수 있어요.`,
       href: "/(tabs)"
     });
     if (plan.kind !== "select") throw new Error("unreachable");

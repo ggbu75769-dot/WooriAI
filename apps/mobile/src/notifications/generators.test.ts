@@ -60,7 +60,7 @@ describe("NOTI-102 budget generators (budget_80 / budget_100)", () => {
       {
         type: "budget_80",
         title: "이번 달 예산의 80%를 사용했어요",
-        body: "남은 예산을 확인해보세요.",
+        body: "남은 예산을 확인해 보세요.",
         dedupeKey: "budget_80:child-1:2026-08",
         legacyDedupeKeys: ["budget_80:2026-08"],
         childId: "child-1"
@@ -159,8 +159,9 @@ describe("NOTI-102 stage_transition generator", () => {
     const candidate = stageTransitionNotification({ ...base, lastSeenStageLabel: "24개월" });
     expect(candidate).toEqual({
       type: "stage_transition",
-      title: "『다온이』이(가) 36개월에 들어섰어요.",
-      body: "새 준비템을 확인해보세요.",
+      // 두 시점(라운드 96 T5): 종전 "『다온이』이(가) …" — 조사가 값(받침)에서 갈린다("다온이"는 `가`).
+      title: "『다온이』가 36개월에 들어섰어요.",
+      body: "새 준비템을 확인해 보세요.",
       dedupeKey: "stage_transition:child-1:36개월",
       childId: "child-1"
     });
@@ -182,7 +183,7 @@ describe("NOTI-102 purchase_pending generator", () => {
       {
         type: "purchase_pending",
         title: "『네이처러브 기저귀 팬티형』 구매 확인이 기다리고 있어요.",
-        body: "구매하셨다면 지출로 기록해보세요.",
+        body: "구매하셨다면 지출로 기록해 보세요.",
         dedupeKey: `purchase_pending:item-diaper:${NOW - PURCHASE_FOLLOWUP_MIN_AGE_MS}`,
         childId: "child-1"
       }
@@ -252,7 +253,7 @@ describe("NOTI-103 weekly_summary generator (monthly-pace variant)", () => {
     expect(weeklySummaryNotification(base)).toEqual({
       type: "weekly_summary",
       title: "이번 달 지금까지 300,000원 · 예산의 30%예요",
-      body: "『다온이』 지출 내역을 확인해보세요.",
+      body: "『다온이』 지출 내역을 확인해 보세요.",
       dedupeKey: "weekly_summary:child-1:2026-W34",
       childId: "child-1"
     });
@@ -288,8 +289,9 @@ describe("NOTI-103 weekly_summary generator (monthly-pace variant)", () => {
     const candidate = weeklySummaryNotification({ ...base, budgetKrw: 0 });
     expect(candidate).toEqual({
       type: "weekly_summary",
-      title: "이번 달 지금까지 300,000원을 함께했어요",
-      body: "『다온이』 지출 내역을 확인해보세요.",
+      // 두 시점(라운드 96 T5): 종전 "…원을 함께했어요"(비문) → "기록했어요".
+      title: "이번 달 지금까지 300,000원을 기록했어요",
+      body: "『다온이』 지출 내역을 확인해 보세요.",
       dedupeKey: "weekly_summary:child-1:2026-W34",
       childId: "child-1"
     });
@@ -345,7 +347,7 @@ describe("UX-J weekly_summary -- 홈 주간 카드와 같은 실제 주간 숫�
     expect(candidate).toEqual({
       type: "weekly_summary",
       title: "이번 주 84,200원 · 지난주 같은 요일까지보다 12,000원 적게 썼어요",
-      body: "『다온이』 지출 내역을 확인해보세요.",
+      body: "『다온이』 지출 내역을 확인해 보세요.",
       // 키는 UX-J에서도 그대로다(서울 ISO 주 · 아이별).
       dedupeKey: "weekly_summary:child-1:2026-W34",
       childId: "child-1"
@@ -383,7 +385,7 @@ describe("UX-J weekly_summary -- 홈 주간 카드와 같은 실제 주간 숫�
     expect(candidate!.dedupeKey).toBe("weekly_summary:child-1:2026-W34");
     // 예산이 없는 달의 폴백 문구도 그대로다.
     expect(weeklySummaryNotification({ ...base, budgetKrw: 0, weekly: null })!.title).toBe(
-      "이번 달 지금까지 300,000원을 함께했어요"
+      "이번 달 지금까지 300,000원을 기록했어요"
     );
     // 폴백 경로의 "월 누적 0원이면 침묵" 규칙도 그대로다.
     expect(weeklySummaryNotification({ ...base, spentKrw: 0, weekly: null })).toBeNull();
@@ -813,7 +815,7 @@ describe("라운드 79 B: 예산 알림은 그 달의 회복 가능한 대기 �
       {
         type: "budget_80",
         title: "이번 달 예산의 80%를 사용했어요",
-        body: "남은 예산을 확인해보세요.",
+        body: "남은 예산을 확인해 보세요.",
         dedupeKey: "budget_80:child-1:2026-08",
         legacyDedupeKeys: ["budget_80:2026-08"],
         childId: "child-1"

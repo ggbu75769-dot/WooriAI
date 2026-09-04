@@ -1,3 +1,4 @@
+import { directionParticle } from "../text/korean-particles";
 import { CHILD_REMOVAL_INVALIDATE_KEYS } from "./child-deletion";
 
 /**
@@ -234,10 +235,13 @@ export function planAfterHouseholdJoin(input: {
     return { kind: "keep", href: "/family" };
   }
   const next = joined[0];
+  // 라운드 96 T5 — ⚠️ 두 시점: 종전 문구는 `${next.nickname}(으)로 전환했어요. 설정 > 아이
+  // 관리에서 바꿀 수 있어요.` 였다(child-deletion.ts와 같은 이관 — 조사는 값에서, 경로 기호는
+  // 자연어로. 두 파일이 같은 순간의 같은 문장이라 함께 움직인다).
   return {
     kind: "select",
     childId: next.id,
-    notice: `${next.nickname}(으)로 전환했어요. 설정 > 아이 관리에서 바꿀 수 있어요.`,
+    notice: `${next.nickname}${directionParticle(next.nickname)} 전환했어요. 설정의 아이 관리에서 바꿀 수 있어요.`,
     href: "/(tabs)"
   };
 }

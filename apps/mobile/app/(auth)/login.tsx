@@ -398,8 +398,10 @@ export default function LoginScreen() {
               ]}
             >
               {/* 라운드 65 후속(#6): 갈래는 login-copy.ts 한 곳에 있고, 여기 남는 삼항은
-                  갈래가 아니라 **진행 중 상태** 하나뿐이다. */}
-              {isLoginPending ? "로그인 중..." : loginCtaLabel(isTestLoginEnabled)}
+                  갈래가 아니라 **진행 중 상태** 하나뿐이다.
+                  라운드 96 T5 — ⚠️ 두 시점: 종전 라벨은 "로그인 중..."이었다. 진행 상태 라벨의
+                  다수파(온보딩 "저장하는 중" 등 `-하는 중`, 점 없음)에 맞춘다. */}
+              {isLoginPending ? "로그인하는 중" : loginCtaLabel(isTestLoginEnabled)}
             </Text>
           </Pressable>
           <Text style={styles.testNotice}>{loginFootnote(isTestLoginEnabled)}</Text>
