@@ -11,7 +11,7 @@ import {
   type MonthJumpCell
 } from "./month-jump";
 import { theme } from "./theme";
-import { BottomSheetFrame, TextButton } from "./ui";
+import { BottomSheetFrame, SheetMountTransition, TextButton } from "./ui";
 
 /**
  * GAP-066 트랙 A(#2) — 기록/리포트 탭의 **월 선택 시트**.
@@ -168,42 +168,46 @@ export function MonthJumpSheet({
 
   return (
     <View testID={testID}>
-      <BottomSheetFrame title={MONTH_JUMP_SHEET_TITLE} showHandle={false}>
-        <View style={monthJumpSheetStyle.yearRow}>
-          <Pressable
-            accessibilityLabel="이전 연도"
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !view.canGoPreviousYear }}
-            disabled={!view.canGoPreviousYear}
-            onPress={() => setYear((value) => value - 1)}
-            style={({ pressed }) => [
-              monthJumpSheetStyle.navButton,
-              { opacity: view.canGoPreviousYear ? (pressed ? 0.76 : 1) : MONTH_JUMP_DISABLED_OPACITY }
-            ]}
-          >
-            <AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />
-          </Pressable>
-          <Text accessibilityRole="header" style={monthJumpSheetStyle.yearLabel}>
-            {view.yearLabel}
-          </Text>
-          <Pressable
-            accessibilityLabel="다음 연도"
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !view.canGoNextYear }}
-            disabled={!view.canGoNextYear}
-            onPress={() => setYear((value) => value + 1)}
-            style={({ pressed }) => [
-              monthJumpSheetStyle.navButton,
-              { opacity: view.canGoNextYear ? (pressed ? 0.76 : 1) : MONTH_JUMP_DISABLED_OPACITY }
-            ]}
-          >
-            <AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />
-          </Pressable>
-        </View>
-        <View style={monthJumpSheetStyle.grid}>{view.cells.map((cell) => renderCell(cell))}</View>
-        <Text style={monthJumpSheetStyle.hint}>{hint}</Text>
-        <TextButton label={MONTH_JUMP_CLOSE_LABEL} onPress={onClose} />
-      </BottomSheetFrame>
+      {/* T1(디자인 시스템): 아이 전환 시트와 같은 마운트 전이 — 같은 앱의 두 시트가 서로 다른
+          문법으로 열리지 않는다(위 머리말의 그 규율). 정착 상태 렌더는 종전과 같다. */}
+      <SheetMountTransition>
+        <BottomSheetFrame title={MONTH_JUMP_SHEET_TITLE} showHandle={false}>
+          <View style={monthJumpSheetStyle.yearRow}>
+            <Pressable
+              accessibilityLabel="이전 연도"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !view.canGoPreviousYear }}
+              disabled={!view.canGoPreviousYear}
+              onPress={() => setYear((value) => value - 1)}
+              style={({ pressed }) => [
+                monthJumpSheetStyle.navButton,
+                { opacity: view.canGoPreviousYear ? (pressed ? 0.76 : 1) : MONTH_JUMP_DISABLED_OPACITY }
+              ]}
+            >
+              <AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />
+            </Pressable>
+            <Text accessibilityRole="header" style={monthJumpSheetStyle.yearLabel}>
+              {view.yearLabel}
+            </Text>
+            <Pressable
+              accessibilityLabel="다음 연도"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !view.canGoNextYear }}
+              disabled={!view.canGoNextYear}
+              onPress={() => setYear((value) => value + 1)}
+              style={({ pressed }) => [
+                monthJumpSheetStyle.navButton,
+                { opacity: view.canGoNextYear ? (pressed ? 0.76 : 1) : MONTH_JUMP_DISABLED_OPACITY }
+              ]}
+            >
+              <AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />
+            </Pressable>
+          </View>
+          <View style={monthJumpSheetStyle.grid}>{view.cells.map((cell) => renderCell(cell))}</View>
+          <Text style={monthJumpSheetStyle.hint}>{hint}</Text>
+          <TextButton label={MONTH_JUMP_CLOSE_LABEL} onPress={onClose} />
+        </BottomSheetFrame>
+      </SheetMountTransition>
     </View>
   );
 }

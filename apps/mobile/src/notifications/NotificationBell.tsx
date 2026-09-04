@@ -17,7 +17,9 @@ export function NotificationBell() {
       accessibilityLabel={unreadCount > 0 ? `알림, 새 알림 ${unreadCount}개` : "알림"}
       hitSlop={NOTIFICATION_BELL_HIT_SLOP}
       onPress={() => router.push("/notifications")}
-      style={bellButtonStyle}
+      // T1(디자인 시스템): 누르는 동안만 흐려지는 시각 피드백 — 휴지 렌더는 bellButtonStyle
+      // 그대로다(레이아웃 상수는 아래 as const 선언에 남아 GAP-065 #7 계약이 계속 읽는다).
+      style={({ pressed }) => [bellButtonStyle, { opacity: pressed ? 0.6 : 1 }]}
     >
       <Text style={bellGlyphStyle}>🔔</Text>
       {unreadCount > 0 ? (

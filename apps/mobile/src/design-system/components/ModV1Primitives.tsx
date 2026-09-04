@@ -1,9 +1,11 @@
-import React, { useRef, type RefObject } from "react";
-import { AccessibilityInfo, findNodeHandle, Modal, Pressable, Text as NativeText, TextInput, View, type TextInputProps } from "react-native";
+import React, { useEffect, useRef, type RefObject } from "react";
+import { AccessibilityInfo, Animated, findNodeHandle, Modal, Pressable, Text as NativeText, TextInput, View, type TextInputProps } from "react-native";
 import { KoreanText as Text } from "./KoreanText";
 import { formatKrw } from "../../money";
+import { useReducedMotion } from "../../ui/useReducedMotion";
 import { balanceCompactKoreanLabel } from "../compact-korean-label";
 import { catalogItemStatusLabel, MOD_V1_ITEM_STATUS_LABELS } from "../item-status-vocabulary";
+import { motion } from "../tokens/motion";
 import { semanticColors } from "../tokens/color";
 import { radius } from "../tokens/radius";
 import { spacing } from "../tokens/spacing";
@@ -20,6 +22,19 @@ export function BudgetSummary({ usedKrw, budgetKrw, label = "이번 달 지출" 
   const overBudget = budgetKrw !== null && budgetKrw > 0 && usedKrw > budgetKrw;
   const ratio = budgetKrw && budgetKrw > 0 ? usedKrw / budgetKrw : 0;
   const progress = Math.min(1, Math.max(0, ratio));
+  // T1(디자인 시스템): 채움 폭이 값 변화에 스냅하지 않고 motion.slowMs로 보간된다. 초기값이
+  // 곧 현재 진행률이라 첫 렌더(휴지 렌더)는 종전과 픽셀 단위로 같고, reduce-motion은 즉시 대입.
+  // 훅은 조기 반환 없는 이 함수의 맨 앞 흐름에 선다(FIX-A 규율).
+  const reduceMotionEnabled = useReducedMotion();
+  const fill = useRef(new Animated.Value(progress * 100)).current;
+  useEffect(() => {
+    if (reduceMotionEnabled) {
+      fill.stopAnimation();
+      fill.setValue(progress * 100);
+      return;
+    }
+    Animated.timing(fill, { duration: motion.slowMs, toValue: progress * 100, useNativeDriver: false }).start();
+  }, [fill, progress, reduceMotionEnabled]);
   const backgroundColor = overBudget ? semanticColors.danger : semanticColors.actionPrimary;
   const description = budgetKrw && budgetKrw > 0
     ? overBudget
@@ -42,7 +57,14 @@ export function BudgetSummary({ usedKrw, budgetKrw, label = "이번 달 지출" 
           accessibilityValue={{ min: 0, max: 100, now: Math.min(100, Math.round(ratio * 100)) }}
           style={{ backgroundColor: "rgba(255,255,255,0.32)", borderRadius: radius.pill, height: 8, overflow: "hidden" }}
         >
-          <View style={{ backgroundColor: semanticColors.textInverse, borderRadius: radius.pill, height: 8, width: `${progress * 100}%` }} />
+          <Animated.View
+            style={{
+              backgroundColor: semanticColors.textInverse,
+              borderRadius: radius.pill,
+              height: 8,
+              width: fill.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] })
+            }}
+          />
         </View>
       ) : null}
     </View>

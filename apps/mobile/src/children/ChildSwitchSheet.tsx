@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSelectedChildStore } from "../stores/selected-child.store";
-import { announceForA11y, BottomSheetFrame, StatusBadge, TextButton } from "../ui";
+import { announceForA11y, BottomSheetFrame, SheetMountTransition, StatusBadge, TextButton } from "../ui";
 import { theme } from "../theme";
 import {
   applyChildSwitch,
@@ -125,25 +125,30 @@ export function ChildSwitchSheet({
 }) {
   return (
     <View testID={testID}>
-      <BottomSheetFrame title={CHILD_SWITCH_SHEET_TITLE} showHandle={false}>
-        {options.map((child) => {
-          const isCurrent = child.id === currentChildId;
-          return (
-            <Pressable
-              key={child.id}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isCurrent }}
-              accessibilityLabel={childSwitchOptionAccessibilityLabel(child.nickname, isCurrent)}
-              onPress={() => onSelect(child)}
-              style={childSwitchSheetStyle.row}
-            >
-              <Text style={childSwitchSheetStyle.rowName}>{child.nickname}</Text>
-              {isCurrent ? <StatusBadge label="현재 선택" tone="success" /> : null}
-            </Pressable>
-          );
-        })}
-        <TextButton label="닫기" onPress={onClose} />
-      </BottomSheetFrame>
+      {/* T1(디자인 시스템): 팝인하던 시트에 마운트 전이(opacity+translateY · motion.standardMs ·
+          reduce-motion 존중)를 끼운다. 정착 상태는 종전 렌더와 픽셀 단위로 같다 — 시트 자신의
+          트리·문구·접근성은 한 글자도 바뀌지 않았다. */}
+      <SheetMountTransition>
+        <BottomSheetFrame title={CHILD_SWITCH_SHEET_TITLE} showHandle={false}>
+          {options.map((child) => {
+            const isCurrent = child.id === currentChildId;
+            return (
+              <Pressable
+                key={child.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isCurrent }}
+                accessibilityLabel={childSwitchOptionAccessibilityLabel(child.nickname, isCurrent)}
+                onPress={() => onSelect(child)}
+                style={({ pressed }) => [childSwitchSheetStyle.row, { opacity: pressed ? 0.76 : 1 }]}
+              >
+                <Text style={childSwitchSheetStyle.rowName}>{child.nickname}</Text>
+                {isCurrent ? <StatusBadge label="현재 선택" tone="success" /> : null}
+              </Pressable>
+            );
+          })}
+          <TextButton label="닫기" onPress={onClose} />
+        </BottomSheetFrame>
+      </SheetMountTransition>
     </View>
   );
 }

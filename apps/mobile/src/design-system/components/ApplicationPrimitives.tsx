@@ -4,6 +4,7 @@ import type { ComponentProps, PropsWithChildren, Ref } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
 import { Pressable, ScrollView, View } from "react-native";
 import { KoreanText as Text } from "./KoreanText";
+import { formatKrw } from "../../money";
 import { EmptyState, ErrorState, LoadingState } from "../patterns/AsyncState";
 import { semanticColors } from "../tokens/color";
 import { elevation } from "../tokens/elevation";
@@ -120,10 +121,17 @@ export function StatusBadge({ label, tone = "neutral" }: { label: string; tone?:
   return <View style={{ alignSelf: "flex-start", backgroundColor, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}><Text style={{ color, fontSize: typography.caption.fontSize, fontWeight: "800" }}>{label}</Text></View>;
 }
 
-export function ListRow({ badgeLabel, icon, iconBackgroundColor, title, subtitle, value, onPress }: { badgeLabel?: string; icon?: React.ReactNode; iconBackgroundColor?: string; title: string; subtitle?: string; value?: string; onPress?: () => void }) {
+/**
+ * T1(디자인 시스템) — `amountKrw`는 **옵트인 금액 슬롯**이다. 지출 행에서 금액이 품목명보다
+ * 작게(기본 굵은 텍스트 < body 15) 서던 문제의 공용 몫: 숫자를 넘기면 값 자리가
+ * `typography.amountRegular`(18/700 · tabular-nums)로 선다. 넘기지 않으면 `value` 문자열
+ * 렌더가 종전 그대로라 기존 호출부는 한 픽셀도 바뀌지 않는다(화면 배선은 각 화면 트랙의 몫).
+ */
+export function ListRow({ badgeLabel, icon, iconBackgroundColor, title, subtitle, value, amountKrw, onPress }: { badgeLabel?: string; icon?: React.ReactNode; iconBackgroundColor?: string; title: string; subtitle?: string; value?: string; amountKrw?: number | null; onPress?: () => void }) {
+  const amountText = typeof amountKrw === "number" ? formatKrw(amountKrw) : undefined;
   return (
     <Pressable
-      accessibilityLabel={[title, badgeLabel, subtitle, value].filter(Boolean).join(". ")}
+      accessibilityLabel={[title, badgeLabel, subtitle, amountText ?? value].filter(Boolean).join(". ")}
       accessibilityRole={onPress ? "button" : "text"}
       disabled={!onPress}
       onPress={onPress}
@@ -142,7 +150,11 @@ export function ListRow({ badgeLabel, icon, iconBackgroundColor, title, subtitle
           </View>
           {subtitle ? <Text style={{ color: semanticColors.textSecondary, ...typography.caption }}>{subtitle}</Text> : null}
         </View>
-        {value ? <Text style={{ color: semanticColors.textPrimary, fontWeight: "800" }}>{value}</Text> : null}
+        {amountText !== undefined ? (
+          <Text style={{ color: semanticColors.textPrimary, ...typography.amountRegular }}>{amountText}</Text>
+        ) : value ? (
+          <Text style={{ color: semanticColors.textPrimary, fontWeight: "800" }}>{value}</Text>
+        ) : null}
       </Card>
     </Pressable>
   );

@@ -1,4 +1,5 @@
 import type { CategoryCode } from "./categories";
+import { typography as designSystemTypography } from "./design-system/tokens/typography";
 
 // Round 5A D0 (docs/5차/round5a-design-spec.md §D0) -- coral scale/cream/text/semantic tokens.
 // Additive: legacy flat color keys below are kept (nothing deleted) and redirected onto these
@@ -152,16 +153,29 @@ export const theme = {
     card: 22,
     sheet: 28
   },
+  // T1(디자인 시스템) — 타이포 이중 체계의 **1단계 값 재지향**: 값이 이미 같은 키
+  // (headline1↔heading1 · body1↔body)와, 이 라운드가 단일화한 caption은
+  // src/design-system/tokens/typography.ts를 단일 소스로 읽는다. 값이 서로 다른 키
+  // (headline2/3·body2)는 화면들이 그 수치의 픽셀락 캡처를 물고 있어 여기 남는다 —
+  // 합치는 것은 캡처 재대조를 부르는 2단계 몫이다.
   typography: {
-    headline1: { fontSize: 28, lineHeight: 36, fontWeight: "700" },
+    headline1: designSystemTypography.heading1,
     headline2: { fontSize: 22, lineHeight: 30, fontWeight: "700" },
     headline3: { fontSize: 18, lineHeight: 26, fontWeight: "600" },
-    body1: { fontSize: 15, lineHeight: 22, fontWeight: "400" },
+    body1: designSystemTypography.body,
     body2: { fontSize: 13, lineHeight: 20, fontWeight: "400" },
-    caption: { fontSize: 11, lineHeight: 16, fontWeight: "400" }
+    // caption 이중 기준(11 vs 12)의 단일화: 두 체계 중 작은 쪽(11/16)이 지워진다.
+    // 12/18은 design-system caption의 승인 수치라 새 값을 짓지 않는다.
+    caption: designSystemTypography.caption,
+    // 금액 타이포 3단 스케일. 값은 design-system의 amount 티어(전부 tabular-nums)가 단일
+    // 소스다 — 금액이 품목명보다 작게 그려지던 자리(공용 ListRow·히어로)가 이 티어를 쓴다.
+    amountLarge: designSystemTypography.amountLarge,
+    amountMedium: designSystemTypography.amountMedium,
+    amountRegular: designSystemTypography.amountRegular
   },
-  // (D0 money 3단 스케일은 유일 소비자였던 src/ui/MoneyText·ListRow가 DSN-053 P2에서
-  // 재삭제되며 함께 제거됐다 — 화면들은 각자 캡처 수치의 인라인 스타일을 쓴다.)
+  // (옛 D0 `theme.money` 3단 스케일은 유일 소비자였던 src/ui/MoneyText·ListRow가 DSN-053
+  // P2에서 재삭제되며 함께 제거됐다. 이번 T1의 `typography.amount*`는 그 부활이 아니라
+  // design-system amount 티어의 재지향이다 — 값의 단일 소스는 여전히 그쪽이다.)
   shadows: {
     card:
       typeof document !== "undefined"
