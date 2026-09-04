@@ -101,15 +101,36 @@ describe("evaluateBudgetPace — 산술(정수 규율 · 천원 반올림 · 윤
     expect(result?.overKrw).toBe(500_000);
   });
 
-  it("천원 반올림이 예산 경계를 정직하게 지난다 — 반올림 뒤에야 초과를 말한다", () => {
-    // 100,040 × 30 ÷ 3 = 1,000,400 → 1,000,000: 예산과 같으므로 '안'이다(0원 초과는 없는 사실).
-    const flat = evaluateBudgetPace(base({ todayIso: "2026-09-03", spentKrw: 100_040 }));
+  it("within/over 판정은 raw 외삽값으로 한다 — 천원 반올림은 표기에만 (리뷰 M-1 두 시점)", () => {
+    // 종전: 천원 반올림을 예산 비교 **전에** 적용해 ±500원 구간에서 판정이 뒤집혔다.
+    // 100,040 × 30 ÷ 3 = 1,000,400(raw) — 예산 1,000,000을 실제로 400원 넘는 페이스인데,
+    // 반올림(1,000,000) 뒤 비교라 "안에서 마무리"라고 말했다. 이제 판정·overKrw는 raw다.
+    const over = evaluateBudgetPace(base({ todayIso: "2026-09-03", spentKrw: 100_040 }));
+    expect(over?.outlook).toBe("over");
+    expect(over?.overKrw).toBe(400);
+    // 표기(projectedKrw·body)는 여전히 천원 반올림이다 — 어림값의 정밀도 규율은 그대로.
+    expect(over?.projectedKrw).toBe(1_000_000);
+    // raw가 정확히 예산과 같으면 '안'이다(0원 초과는 없는 사실 — overKrw > 0만 over).
+    const flat = evaluateBudgetPace(base({ todayIso: "2026-09-10", spentKrw: 333_334, budgetKrw: 1_000_002 }));
+    // 333,334 × 30 ÷ 10 = 1,000,002 = 예산 → within.
     expect(flat?.outlook).toBe("within");
     expect(flat?.overKrw).toBe(0);
-    // 100,060 × 30 ÷ 3 = 1,000,600 → 1,001,000: 약 1,000원 초과 예상.
-    const over = evaluateBudgetPace(base({ todayIso: "2026-09-03", spentKrw: 100_060 }));
+  });
+
+  it("천원의 배수가 아닌 예산 경계에서도 판정이 뒤집히지 않는다 (리뷰 M-1의 재현 값)", () => {
+    // 예산 999,800 · raw 외삽 999,600(= 99,960 × 30 ÷ 3): 실제로는 200원 **안**이다.
+    // 종전에는 외삽을 1,000,000으로 반올림한 뒤 비교해 "약 200원 넘길 것 같아요"가 섰다 —
+    // 안인 달에 초과 예상을 말하는 허위 표시(뒤집힘)였다.
+    const within = evaluateBudgetPace(base({ todayIso: "2026-09-03", spentKrw: 99_960, budgetKrw: 999_800 }));
+    expect(within?.outlook).toBe("within");
+    expect(within?.overKrw).toBe(0);
+    // 예산 999,600 · raw 외삽 999,800: 실제로 200원 초과 페이스 — 그 200원을 그대로 말한다.
+    const over = evaluateBudgetPace(base({ todayIso: "2026-09-03", spentKrw: 99_980, budgetKrw: 999_600 }));
     expect(over?.outlook).toBe("over");
-    expect(over?.overKrw).toBe(1_000);
+    expect(over?.overKrw).toBe(200);
+    expect(over?.title).toBe("이 속도면 이번 달 예산을 약 200원 넘길 것 같아요");
+    // 표기용 외삽값은 여전히 1,000의 배수다.
+    expect((over?.projectedKrw ?? 1) % 1000).toBe(0);
   });
 
   it("월일수는 윤년까지 실제 달력을 따른다(daysInYearMonth 재사용)", () => {

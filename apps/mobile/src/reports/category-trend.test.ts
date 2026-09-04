@@ -1,13 +1,17 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
   buildCategoryTrendChips,
   buildCategoryTrendView,
   buildCategoryTrendWindow,
+  planCategoryTrendMonthReads,
   CATEGORY_TREND_EMPTY_TEXT,
   CATEGORY_TREND_MONTH_COUNT,
   CATEGORY_TREND_NO_RECORD_NOTE,
   CATEGORY_TREND_SECTION_GUIDE,
+  type CategoryTrendMemo,
   type CategoryTrendMonthInput
 } from "./category-trend";
 
@@ -242,5 +246,96 @@ describe("buildCategoryTrendView — 표시 판정", () => {
       expect(copy).not.toContain("아껴");
       expect(copy).not.toContain("절약");
     }
+  });
+
+  it("기록 없음 구분 문구는 0원 막대의 두 뜻을 직접 가른다 (리뷰 L-4 — 문구 강화)", () => {
+    // 두 시점: 종전 "기록이 없는 달도 0원으로 그렸어요."는 그렸다는 사실만 말하고 그 막대가
+    // 무엇이 **아닌지**는 말하지 않았다. 시각 구분(빗금 등)은 토큰·차트 스타일 추가 비용이
+    // 더 커서, 구현 비용이 작은 쪽(문구 강화)을 골랐다 — 낭독("기록 없음")과 같은 사실을
+    // 보이는 쪽 문장이 온전히 말한다.
+    expect(CATEGORY_TREND_NO_RECORD_NOTE).toBe(
+      "기록이 없는 달도 0원 막대로 그렸어요. 그 달에 지출이 없었다는 뜻은 아니에요."
+    );
+  });
+});
+
+/**
+ * 리뷰 M-5 — **요청 판정(planCategoryTrendMonthReads)**: 차트를 연 채 월을 옮길 때 과거 다섯
+ * 달을 두 번 읽던(요청 10) 결함의 재현·수리 계약. 판정을 훅(use-category-trend.ts)에서 이
+ * 순수 함수로 내려, RN 렌더 없이 시퀀스를 값으로 문다(이 저장소의 확립된 규율).
+ */
+describe("planCategoryTrendMonthReads — 요청 판정 (리뷰 M-5)", () => {
+  const window = buildCategoryTrendWindow("2026-08")!;
+
+  function freshMemo(): CategoryTrendMemo {
+    return { signal: Number.NaN, childId: null, months: new Map() };
+  }
+
+  it("차트를 열면 과거 다섯 달만 한 번씩 읽고, 같은 입력의 재실행은 0건이다", () => {
+    const memo = freshMemo();
+    expect(planCategoryTrendMonthReads(memo, { window, childId: "child-1", refreshSignal: 100 })).toEqual(
+      window.slice(0, -1)
+    );
+    expect(planCategoryTrendMonthReads(memo, { window, childId: "child-1", refreshSignal: 100 })).toEqual([]);
+    // 마지막 달(보고 있는 달)은 기존 조회의 몫이라 어떤 경우에도 직접 읽지 않는다.
+    expect(memo.months.has("2026-08")).toBe(false);
+  });
+
+  it("차트 연 채 월 이동: 응답 전(신호 0)에는 유예하고, 응답 후 한 번만 — 총 요청 5 (두 시점)", () => {
+    const memo = freshMemo();
+    planCategoryTrendMonthReads(memo, { window, childId: "child-1", refreshSignal: 100 });
+    // 월 이동 직후: 보고 있는 달의 조회가 새 키라 dataUpdatedAt(신호)이 0이다. 종전 훅은
+    // 여기서 다섯을 쏘고, 그 조회의 응답이 신호를 바꾸는 순간 메모를 통째로 버려 같은 다섯
+    // 달을 곧바로 다시 쐈다 — 월 이동 한 번에 요청 10. 이제 신호 0은 "그 달의 첫 응답이
+    // 아직"이라는 뜻이므로 메모만 비우고 발사를 유예한다.
+    const nextWindow = buildCategoryTrendWindow("2026-09")!;
+    const duringPending = planCategoryTrendMonthReads(memo, {
+      window: nextWindow,
+      childId: "child-1",
+      refreshSignal: 0
+    });
+    expect(duringPending).toEqual([]);
+    // 응답 도착(신호 정착) 후 한 번만 다섯을 읽는다 — 낡은 막대 금지(신선도)는 그대로다.
+    const afterResponse = planCategoryTrendMonthReads(memo, {
+      window: nextWindow,
+      childId: "child-1",
+      refreshSignal: 200
+    });
+    expect(afterResponse).toEqual(nextWindow.slice(0, -1));
+    expect(duringPending.length + afterResponse.length).toBe(5);
+  });
+
+  it("이미 캐시가 있던 달로 이동(신호가 곧장 정착)하면 유예 없이 한 번만 읽는다", () => {
+    const memo = freshMemo();
+    planCategoryTrendMonthReads(memo, { window, childId: "child-1", refreshSignal: 100 });
+    const cachedWindow = buildCategoryTrendWindow("2026-07")!;
+    expect(
+      planCategoryTrendMonthReads(memo, { window: cachedWindow, childId: "child-1", refreshSignal: 300 })
+    ).toEqual(cachedWindow.slice(0, -1));
+  });
+
+  it("실패한 달만 지우고 다시 부르면 그 달만 읽는다 (retryFailedMonths의 경로)", () => {
+    const memo = freshMemo();
+    planCategoryTrendMonthReads(memo, { window, childId: "child-1", refreshSignal: 100 });
+    memo.months.delete("2026-04");
+    expect(planCategoryTrendMonthReads(memo, { window, childId: "child-1", refreshSignal: 100 })).toEqual([
+      "2026-04"
+    ]);
+  });
+
+  it("아이 전환은 신호가 같아도 메모를 통째로 버리고 새로 읽는다 (남의 달을 이어 그리지 않는다)", () => {
+    const memo = freshMemo();
+    planCategoryTrendMonthReads(memo, { window, childId: "child-1", refreshSignal: 100 });
+    expect(planCategoryTrendMonthReads(memo, { window, childId: "child-2", refreshSignal: 100 })).toEqual(
+      window.slice(0, -1)
+    );
+    expect(memo.childId).toBe("child-2");
+  });
+
+  it("훅은 이 판정을 그대로 쓴다 — 발사 판정이 두 벌로 살지 않는다 (소스 계약)", () => {
+    const hookSource = readFileSync(join(process.cwd(), "src/reports/use-category-trend.ts"), "utf8");
+    expect(hookSource).toContain("planCategoryTrendMonthReads(");
+    // 유예 판정(신호 0)의 단일 소스는 이 모듈이다 — 훅이 같은 분기를 다시 적지 않는다.
+    expect(hookSource).not.toContain("refreshSignal === 0");
   });
 });

@@ -81,6 +81,24 @@ export function isAmountSortApplied(input: { sortMode: RecordsSortMode; isCalend
   return input.sortMode === "amount" && !input.isCalendarView;
 }
 
+/**
+ * 화면이 **표시에 쓰는** 정렬 모드 — 달력 날짜 착지의 임시 오버라이드를 반영한다.
+ *
+ * 리뷰 M-4(두 시점): 종전에는 달력 칸 탭이 `setRecordsSortMode("latest")`로 **persist된
+ * 취향을 영구 덮어썼다** — 칸 탭의 목적지는 그 날짜의 섹션이라 금액순 평평 목록에는 자리가
+ * 없다는 판단 자체는 옳았지만, "그날 보기" 탭을 정렬 취향의 의사표시로 승격한 것이 과대
+ * 해석이었다(금액 큰 순을 기억시켜 둔 사용자가 날짜 하나를 보러 들어간 대가로 취향을 잃었다).
+ * 이제 착지는 화면의 비저장 state(`calendarDateLanding`)로만 남고, 이 판정이 저장 취향 위에
+ * 그 세션의 표시만 최신순으로 얹는다 — persist 값은 한 글자도 바뀌지 않고, 정렬 토글의 명시
+ * 선택(handleSortModeChange)이 오버라이드를 걷으며 언제나 이긴다.
+ */
+export function effectiveRecordsSortMode(input: {
+  sortMode: RecordsSortMode;
+  calendarDateLanding: boolean;
+}): RecordsSortMode {
+  return input.calendarDateLanding ? "latest" : input.sortMode;
+}
+
 /** 이 모듈이 행에서 필요로 하는 구조적 최소치(records-date-groups의 GroupableExpenseRow와 같은 결). */
 export type AmountSortableRecordRow = {
   amountKrw: number;

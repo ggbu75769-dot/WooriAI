@@ -70,6 +70,7 @@ import {
 // (buildRecordsAmountSortedSections)으로 바꾼다. 새 한국어 리터럴 0(keyboard-tap-guard의
 // 리터럴 대장) · 새 스크롤러 0(records-calendar.test.ts의 ScrollView 1개 계약 유지).
 import {
+  effectiveRecordsSortMode,
   isAmountSortApplied,
   isRecordsSortToggleVisible,
   recordsSortAnnouncement,
@@ -667,8 +668,19 @@ export default function RecordsScreen() {
    */
   const sortMode = useRecordsViewStore((state) => state.sort);
   const setRecordsSortMode = useRecordsViewStore((state) => state.setSort);
+  /**
+   * 리뷰 M-4(두 시점) — 달력 날짜 착지의 **임시 정렬 해제**(비저장 오버라이드).
+   *
+   * 종전에는 달력 칸 탭이 위 persist setter로 "latest"를 저장해 사용자의 정렬 취향을 영구
+   * 덮어썼다. 이제 착지는 이 화면 state만 세우고(persist 0바이트), 표시 모드는 아래
+   * effectiveRecordsSortMode가 정한다 — 정렬 토글의 명시 선택이 오버라이드를 걷는다.
+   * 정렬 *취향*은 여전히 스토어 한 곳에만 산다(이 state는 취향이 아니라 착지 사실이다).
+   */
+  const [calendarDateLanding, setCalendarDateLanding] = useState(false);
   const handleSortModeChange = useCallback(
     (mode: RecordsSortMode) => {
+      // 명시 선택은 오버라이드를 걷는다 — 표시가 방금 고른 값으로 곧장 떨어진다(리뷰 M-4).
+      setCalendarDateLanding(false);
       setRecordsSortMode(mode);
       announceForA11y(recordsSortAnnouncement(mode));
     },
@@ -680,7 +692,10 @@ export default function RecordsScreen() {
     (option: string) => handleSortModeChange(recordsSortModeForLabel(option)),
     [handleSortModeChange]
   );
-  const isAmountSort = isAmountSortApplied({ sortMode, isCalendarView });
+  // 표시 모드(임시 오버라이드 반영) — 토글 value·적용 판정이 전부 이 값을 본다(보이는 목록과
+  // 컨트롤이 갈리지 않는다). persist 값(sortMode)은 읽기만 한다.
+  const shownSortMode = effectiveRecordsSortMode({ sortMode, calendarDateLanding });
+  const isAmountSort = isAmountSortApplied({ sortMode: shownSortMode, isCalendarView });
   /**
    * 라운드 56 D#10 — **기록 리마인더 알림이 달력으로 착지한다.**
    *
@@ -1328,10 +1343,11 @@ export default function RecordsScreen() {
   const handleSelectCalendarDate = useCallback((date: string) => {
     setViewMode(RECORDS_VIEW_LIST);
     // 트랙 B: 달력 칸의 목적지는 그 날짜의 **섹션**인데, 금액 큰 순 평평 목록에는 그 자리가
-    // 없다(날짜 섹션이 아예 만들어지지 않는다). 칸을 누른 것 자체가 "그날 보기"라는 더 최신의
-    // 의사표시이므로, 칩을 직접 누른 것과 같은 setter로 최신순에 되돌린다 — persist도 그 최신
-    // 선택을 따라간다(앱이 정한 것이 아니라 사용자의 두 선택 중 나중 것이 남는다).
-    setRecordsSortMode("latest");
+    // 없다(날짜 섹션이 아예 만들어지지 않는다). 리뷰 M-4(두 시점): 종전에는 여기서 persist
+    // setter로 "latest"를 저장해 취향을 영구 덮어썼다 — "그날 보기" 탭은 정렬 취향의
+    // 의사표시가 아니다. 이제 비저장 오버라이드만 세워 그 세션의 표시를 최신순으로 하고,
+    // 저장된 취향은 그대로 남긴다(판정·근거는 effectiveRecordsSortMode 머리말).
+    setCalendarDateLanding(true);
     // 라운드 36 F-6: 이전 날짜로 예약해 둔 재시도 프레임을 먼저 취소한다. 8/12를 누르고
     // (스크롤 실패로 rAF가 예약된 채) 곧바로 8/20을 누르면, 살아남은 프레임이 깨어나
     // pendingScrollDate를 8/12로 되돌려 방금 고른 날짜의 스크롤을 덮어썼다.
@@ -1342,9 +1358,10 @@ export default function RecordsScreen() {
     scrollRetryCountRef.current = 0;
     setPendingScrollDate(date);
     announceForA11y(`${formatSpentOn(date)} 기록`);
-    // 두 setter 모두 렌더 간 참조가 안정적이다(zustand setter · 고정 deps의 useCallback)라
-    // 이 콜백도 안정적으로 남는다 — CalendarDayCell의 memo가 매 렌더 깨지지 않는다.
-  }, [setRecordsSortMode, setViewMode]);
+    // setViewMode(고정 deps useCallback)·setCalendarDateLanding(useState setter)은 렌더 간
+    // 참조가 안정적이라 이 콜백도 안정적으로 남는다 — CalendarDayCell의 memo가 매 렌더
+    // 깨지지 않는다(useState setter는 React가 안정성을 보장하므로 deps에 두지 않는다).
+  }, [setViewMode]);
 
   /**
    * 라운드 63 C(#8) — 달력의 **빈 날 칸** → 그날로 기록하기.
@@ -1688,7 +1705,9 @@ export default function RecordsScreen() {
         <View testID="records-sort-toggle">
           <SegmentedControl
             options={recordsSortModes().map((mode) => recordsSortOptionLabel(mode))}
-            value={recordsSortOptionLabel(sortMode)}
+            /* 리뷰 M-4: value는 표시 모드다 — 달력 날짜 착지의 임시 오버라이드 중에도 토글이
+               실제 목록 순서(최신순)를 가리킨다. persist 취향은 명시 선택 때만 움직인다. */
+            value={recordsSortOptionLabel(shownSortMode)}
             onChange={handleSortLabelChange}
           />
         </View>

@@ -34,17 +34,31 @@ import { bandForStage, type StageBandLabel } from "./stage-bands";
  *  - 마지막 밴드(더 갈 밴드가 없음) → 숨김. 스테이지가 바뀌어도 **밴드가 같으면** 예고하지
  *    않는다(예: 47→48개월은 toddler→kid 전환이지만 둘 다 "24개월+" 칩이다 — 준비물 목록이
  *    바뀌지 않는 전환을 예고하면 소음이다).
- *  - 이미 다음 밴드를 보고 있는 중 → 숨김(권할 일이 이미 일어났다).
- *  - **100% 축하 배너가 서 있으면 숨김** — 같은 행선지(다음 시기 칩)를 두 배너가 말하지 않는다.
+ *  - **출생 갈래에서** 이미 다음 밴드를 보고 있는 중 → 숨김(권할 일이 이미 일어났고, 밴드
+ *    전환 자체는 카탈로그 라벨의 일이라 그 밴드를 보는 중엔 남길 정보가 없다).
+ *  - ⚠️ **임신 갈래는 그 억제의 예외다** — 기능 라운드 1 리뷰 H-1(두 시점). 임신 스테이지
+ *    셋은 전부 "0-6개월" 밴드라 기본 칩이 곧 목적지 밴드이고, 종전 판정(밴드 동일성 억제를
+ *    임신 갈래에도 적용)은 이 배너를 **기본 상태에서 구조적으로 절대 세우지 못했다** —
+ *    설계 약속("임신 중이면 다음 경계는 출산 예정일")이 실동작에 없던 자리다. 출산 예정일
+ *    D-day는 지금 보는 칩과 무관한 달력 사실이라 배너는 서되, 이미 그 밴드를 보는 중이면
+ *    "미리 볼까요" 버튼만 접는다(`previewActionLabel: null` — 이미 선택된 칩을 다시 고르는
+ *    버튼은 거짓 어포던스다).
+ *  - **100% 축하 배너가 서 있으면 숨김** — 한 자리에 배너는 하나다(임신 갈래 포함: 행선지가
+ *    달라도 같은 슬롯에 배너 둘이 서면 소음이다).
  *  - 전환 당일(D-0)과 지난 날 → 숨김: 그날부터는 기본 칩이 이미 새 시기를 말한다.
  *
  * ## 문구 원칙
  *
- *  - 해요체(DNC-018) · **정보 제공만** — 시기 전환을 재촉하거나 구매를 권하지 않는다
+ *  - **정보 제공만** — 시기 전환을 재촉하거나 구매를 권하지 않는다
  *    (prep-milestones 머리말의 규율을 그대로 문다: "구매를 재촉하지 않는다").
+ *  - 제목은 milestone-countdown의 카운트다운 관례를 문다(리뷰 M-2 두 시점): 보이는 제목은
+ *    명사구 "…까지 D-N"(종전 "D-N일 뒤에 시작돼요"는 D-N과 "일 뒤"가 같은 사실을 겹쳐
+ *    적는 이중 표기였다), 낭독은 `spokenTitle`이 D-를 소리로 푼다("…까지 N일 남았어요" —
+ *    해요체 DNC-018). 버튼은 행동만 말한다.
  *  - 수와 조사는 값에서 파생한다: D-N의 N은 판정이 낸 일수이고, 밴드 라벨 뒤의 을/를은
  *    `objectParticle`(src/text/korean-particles.ts)이 받침에서 고른다("6-12개월**을**" ·
- *    "24개월+**를**").
+ *    "24개월+**를**"). 임신 갈래 버튼의 "준비물을"은 고정 명사 꼬리라 분기가 없다
+ *    (korean-particle-guard의 ⓐ 형식).
  *  - 발달·의료 정보 0글자(DNC-020) — "시기"는 카탈로그의 밴드 라벨일 뿐이다.
  */
 
@@ -67,18 +81,26 @@ export type NextStagePreviewInput = {
 };
 
 export type NextStagePreview = {
-  /** 다가오는 시기 밴드 — 탭하면 이 칩을 선택한다(기존 칩 선택, 새 화면 없음). */
+  /** 다가오는 시기 밴드 — 버튼을 탭하면 이 칩을 선택한다(기존 칩 선택, 새 화면 없음). */
   band: StageBandLabel;
   /** 시작까지 남은 날(1~14). */
   daysUntil: number;
   /** 그 밴드가 시작되는 날("YYYY-MM-DD"). */
   startDateIso: string;
-  /** 배너 제목 — "6-12개월 시기가 D-13일 뒤에 시작돼요". */
+  /** 배너 제목 — "6-12개월 시기 시작까지 D-13" / "출산 예정일까지 D-11" (카운트다운 명사구). */
   title: string;
-  /** 미리보기 버튼 라벨 — "6-12개월을 미리 볼까요?" (조사는 값에서 갈린다). */
-  previewActionLabel: string;
-  /** TalkBack 문장 — "D-"를 소리로 풀어 읽고, 눌렀을 때 무슨 일이 생기는지까지 말한다. */
-  accessibilityLabel: string;
+  /**
+   * 제목의 낭독 형 — "D-"를 소리로 풀어 읽는다("… 13일 남았어요", milestone-countdown의
+   * spokenTitle 관례). 화면은 이것을 제목 Text의 accessibilityLabel로 건다(리뷰 M-2 —
+   * 종전에는 제목이 "D-6일"을 원문 그대로 낭독하고 버튼 라벨이 같은 문장을 반복했다).
+   */
+  spokenTitle: string;
+  /**
+   * 미리보기 버튼 라벨 — "6-12개월을 미리 볼까요?" (조사는 값에서 갈린다). **null이면 버튼이
+   * 서지 않는다**: 임신 갈래에서 이미 목적지 밴드(0-6개월)를 보는 중 — D-day 제목만 남는다
+   * (리뷰 H-1의 판정, 머리말 숨김 규칙 참고).
+   */
+  previewActionLabel: string | null;
 };
 
 /**
@@ -113,7 +135,7 @@ function upcomingBandBoundary(input: {
   dueDate?: unknown;
   birthDate?: unknown;
   todayIso: string;
-}): { band: StageBandLabel; daysUntil: number; startDateIso: string } | null {
+}): { kind: "birth" | "band"; band: StageBandLabel; daysUntil: number; startDateIso: string } | null {
   if (!isDateOnly(input.todayIso)) return null;
 
   if (input.stageMode === "pregnant") {
@@ -123,7 +145,8 @@ function upcomingBandBoundary(input: {
     // 출생 직후의 밴드 — 하드코딩하지 않고 출생 당일의 판정(생년월일 = 예정일)에 묻는다.
     const band = bandOnDate({ stageMode: "born", birthDate: input.dueDate }, input.dueDate);
     if (band === null) return null;
-    return { band, daysUntil, startDateIso: input.dueDate };
+    // kind "birth": 경계가 출산 예정일 그 자체다 — 밴드 동일성 억제의 예외 갈래(머리말 H-1).
+    return { kind: "birth", band, daysUntil, startDateIso: input.dueDate };
   }
 
   if (input.stageMode === "born") {
@@ -135,7 +158,7 @@ function upcomingBandBoundary(input: {
       if (dateIso === null) return null;
       const band = bandOnDate({ stageMode: "born", birthDate: input.birthDate }, dateIso);
       if (band !== null && band !== todayBand) {
-        return { band, daysUntil: day, startDateIso: dateIso };
+        return { kind: "band", band, daysUntil: day, startDateIso: dateIso };
       }
     }
     return null;
@@ -147,24 +170,39 @@ function upcomingBandBoundary(input: {
 
 /** 다음 시기 D-day 예고 배너를 만든다. 세울 이유가 없으면 null. */
 export function buildNextStagePreview(input: NextStagePreviewInput): NextStagePreview | null {
-  // 같은 행선지(다음 시기 칩)를 두 배너가 말하지 않는다 — 축하 배너가 양보받는 쪽이다.
+  // 한 자리에 배너는 하나다 — 축하 배너가 양보받는 쪽이다(임신 갈래 포함, 머리말 숨김 규칙).
   if (input.celebrationVisible) return null;
 
   const boundary = upcomingBandBoundary(input);
   if (boundary === null) return null;
-  // 이미 다음 밴드를 보고 있는 중 — 권할 일이 이미 일어났다.
-  if (boundary.band === input.selectedBand) return null;
 
-  const title = `${boundary.band} 시기가 D-${boundary.daysUntil}일 뒤에 시작돼요`;
-  const previewActionLabel = `${boundary.band}${objectParticle(boundary.band)} 미리 볼까요?`;
+  if (boundary.kind === "birth") {
+    // 리뷰 H-1(두 시점): 종전에는 여기도 아래 밴드 동일성 억제를 지나서, 임신 기본 칩(0-6개월)
+    // = 목적지 밴드라 기본 상태에서 배너가 절대 서지 않았다. 출산 예정일 D-day는 보는 칩과
+    // 무관한 달력 사실이라 배너는 서고, 이미 그 밴드를 보는 중이면 버튼만 접는다(타입 주석).
+    return {
+      band: boundary.band,
+      daysUntil: boundary.daysUntil,
+      startDateIso: boundary.startDateIso,
+      title: `출산 예정일까지 D-${boundary.daysUntil}`,
+      spokenTitle: `출산 예정일까지 ${boundary.daysUntil}일 남았어요`,
+      previewActionLabel:
+        boundary.band === input.selectedBand ? null : `${boundary.band} 준비물을 미리 볼까요?`
+    };
+  }
+
+  // 출생 갈래: 이미 다음 밴드를 보고 있는 중 — 권할 일이 이미 일어났고, 밴드 라벨 전환은
+  // 그 자체가 사건이 아니라 남길 정보도 없다(임신 갈래와 갈리는 근거 — 머리말 숨김 규칙).
+  if (boundary.band === input.selectedBand) return null;
 
   return {
     band: boundary.band,
     daysUntil: boundary.daysUntil,
     startDateIso: boundary.startDateIso,
-    title,
-    previewActionLabel,
-    // "D-13"을 소리로 풀어 읽는다(milestone-countdown의 spokenTitle 관례).
-    accessibilityLabel: `${boundary.band} 시기가 ${boundary.daysUntil}일 뒤에 시작돼요. ${previewActionLabel}`
+    // 리뷰 M-2(두 시점): 종전 "…시기가 D-N일 뒤에 시작돼요"는 D-N과 "일 뒤"의 이중 표기.
+    // milestone-countdown의 카운트다운 제목 관례("100일까지 D-13")를 그대로 문다.
+    title: `${boundary.band} 시기 시작까지 D-${boundary.daysUntil}`,
+    spokenTitle: `${boundary.band} 시기 시작까지 ${boundary.daysUntil}일 남았어요`,
+    previewActionLabel: `${boundary.band}${objectParticle(boundary.band)} 미리 볼까요?`
   };
 }

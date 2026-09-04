@@ -25,13 +25,21 @@ const bornBase: NextStagePreviewInput = {
   celebrationVisible: false
 };
 
-/** 출산 예정일이 2026-09-15인 임신 중 아이. */
+/**
+ * 출산 예정일이 2026-09-15인 임신 중 아이 — **기본 상태 그대로**다.
+ *
+ * 기능 라운드 1 리뷰 H-1(두 시점): 종전 픽스처는 selectedBand를 "12-24개월"로 두고 통과했는데,
+ * 그 값은 임신 중 사용자가 실제로 서 있는 자리가 아니다 — 임신 스테이지 셋은 전부 "0-6개월"
+ * 밴드라(resolveDefaultStageLabel → bandForStage) 기본 칩이 곧 "0-6개월"이고, 그래서 밴드
+ * 동일성 억제가 임신 갈래를 기본 상태에서 **항상** 삼켰다(배너가 절대 서지 않았다). 이제
+ * 픽스처가 실상태(기본 칩 "0-6개월")를 들고, 임신 갈래의 예외를 아래 describe가 값으로 문다.
+ */
 const pregnantBase: NextStagePreviewInput = {
   stageMode: "pregnant",
   dueDate: "2026-09-15",
   birthDate: null,
   todayIso: "2026-09-04",
-  selectedBand: "12-24개월",
+  selectedBand: "0-6개월",
   celebrationVisible: false
 };
 
@@ -81,15 +89,34 @@ describe("트랙 F: D-day 경계 (0/1/14/15)", () => {
 });
 
 describe("트랙 F: 임신 → 출생 (다음 경계는 출산 예정일)", () => {
-  it("예정일이 창 안이면 출생 직후 밴드(0-6개월)를 예고한다", () => {
+  it("기본 상태(0-6개월 칩)에서도 선다 — 임신 갈래는 밴드 동일성 억제의 예외다 (리뷰 H-1)", () => {
+    // 임신 중의 기본 칩이 곧 목적지 밴드("0-6개월")라, 억제를 그대로 두면 이 배너는 기본
+    // 상태에서 구조적으로 절대 서지 않는다(설계 §트랙 F "임신 중이면 다음 경계는 출산
+    // 예정일"과 불일치). D-day 정보는 보고 있는 칩과 무관하게 유의미하므로 배너는 선다.
     const preview = buildNextStagePreview(pregnantBase);
+    expect(preview).not.toBeNull();
     expect(preview?.band).toBe("0-6개월");
     expect(preview?.daysUntil).toBe(11);
     expect(preview?.startDateIso).toBe("2026-09-15");
   });
 
-  it("이미 0-6개월 칩(임신 중의 기본 칩)을 보고 있으면 숨는다", () => {
-    expect(buildNextStagePreview({ ...pregnantBase, selectedBand: "0-6개월" })).toBeNull();
+  it("이미 0-6개월 칩을 보는 중엔 버튼만 접는다 — D-day는 남기고 '미리 볼까요'만 거둔다", () => {
+    // 근거(리뷰 H-1의 자기 판정): 이미 그 밴드를 보는 중이면 "미리 볼까요" 절반은 무의미하다
+    // (이미 선택된 칩을 다시 고르는 버튼은 거짓 어포던스다). 그러나 출산 예정일 D-day는 칩과
+    // 무관한 달력 사실이라 그대로 유의미하다 — 그래서 배너 전체 숨김이 아니라 버튼만 null이다.
+    const viewing = buildNextStagePreview(pregnantBase);
+    expect(viewing?.previewActionLabel).toBeNull();
+    // 다른 칩을 보는 중이면(수동 선택) 버튼이 선다 — 목적지는 0-6개월 칩.
+    const elsewhere = buildNextStagePreview({ ...pregnantBase, selectedBand: "12-24개월" });
+    expect(elsewhere?.previewActionLabel).toBe("0-6개월 준비물을 미리 볼까요?");
+  });
+
+  it("임신 갈래 문구는 출산 예고형이다 — D-는 보이는 제목에만, 낭독은 소리로 푼다 (리뷰 M-2)", () => {
+    const preview = buildNextStagePreview(pregnantBase);
+    // "D-11일 뒤" 같은 이중 표기 없이, 카운트다운 제목은 milestone-countdown 관례를 따른다
+    // ("100일까지 D-13" / spoken "100일까지 13일 남았어요").
+    expect(preview?.title).toBe("출산 예정일까지 D-11");
+    expect(preview?.spokenTitle).toBe("출산 예정일까지 11일 남았어요");
   });
 
   it("예정일 당일·지난 뒤에는 숨는다 (지난 날을 D-day로 말하지 않는다)", () => {
@@ -140,7 +167,9 @@ describe("트랙 F: 숨김 판정", () => {
     ).toBeNull();
   });
 
-  it("이미 다음 밴드를 보고 있으면 숨는다", () => {
+  it("이미 다음 밴드를 보고 있으면 숨는다 (출생 갈래 한정 — 임신 갈래의 예외는 위 describe)", () => {
+    // 출생 갈래의 경계는 카탈로그 밴드 라벨의 전환일 뿐이라, 그 밴드를 이미 보는 중이면
+    // 배너가 남길 정보가 없다(임신 갈래의 출산 예정일 D-day와 달리 그 자체가 사건이 아니다).
     expect(
       buildNextStagePreview({ ...bornBase, todayIso: "2026-08-09", selectedBand: "6-12개월" })
     ).toBeNull();
@@ -168,8 +197,17 @@ describe("트랙 F: 숨김 판정", () => {
 describe("트랙 F: 문구 — 정보 제공만, 수·조사는 값에서", () => {
   const d1 = () => buildNextStagePreview({ ...bornBase, todayIso: "2026-08-09" })!;
 
-  it("제목은 밴드와 D-N을 값 그대로 말한다", () => {
-    expect(d1().title).toBe("6-12개월 시기가 D-1일 뒤에 시작돼요");
+  it("제목은 카운트다운 명사구다 — 'D-N일 뒤에' 이중 표기를 쓰지 않는다 (리뷰 M-2 두 시점)", () => {
+    // 종전: "6-12개월 시기가 D-1일 뒤에 시작돼요" — "D-1"이 이미 '1일 남음'을 말하는데
+    // "일 뒤에"가 같은 사실을 겹쳐 적었다. 이제 milestone-countdown의 제목 관례
+    // ("100일까지 D-13")를 그대로 문다.
+    expect(d1().title).toBe("6-12개월 시기 시작까지 D-1");
+  });
+
+  it("spokenTitle은 D-를 소리로 푼다 (milestone-countdown의 spokenTitle 관례 — 리뷰 M-2)", () => {
+    expect(d1().spokenTitle).toBe("6-12개월 시기 시작까지 1일 남았어요");
+    // 그 관례가 원문에 실재하는지 값으로 확인한다(유령 인용 방지).
+    expect(source("src/home/milestone-countdown.ts")).toContain("spokenTitle");
   });
 
   it("버튼 라벨의 을/를은 밴드 라벨의 받침에서 갈린다 (korean-particles 단일 소스)", () => {
@@ -186,15 +224,12 @@ describe("트랙 F: 문구 — 정보 제공만, 수·조사는 값에서", () =
     expect(overlapping.previewActionLabel).toBe(`24개월+${objectParticle("24개월+")} 미리 볼까요?`);
   });
 
-  it("TalkBack 문장은 D-를 소리로 풀고, 눌렀을 때 생기는 일까지 말한다", () => {
-    expect(d1().accessibilityLabel).toBe("6-12개월 시기가 1일 뒤에 시작돼요. 6-12개월을 미리 볼까요?");
-  });
-
   it("전환·구매를 재촉하지 않는다 (prep-milestones 머리말의 규율: 구매를 재촉하지 않는다)", () => {
-    const preview = d1();
-    for (const text of [preview.title, preview.previewActionLabel, preview.accessibilityLabel]) {
-      for (const forbidden of ["구매", "사세요", "지금 바로", "서두르", "늦기 전에", "놓치"]) {
-        expect(text, `"${text}"에 재촉 표현이 없다`).not.toContain(forbidden);
+    for (const preview of [d1(), buildNextStagePreview(pregnantBase)!]) {
+      for (const text of [preview.title, preview.spokenTitle, preview.previewActionLabel ?? ""]) {
+        for (const forbidden of ["구매", "사세요", "지금 바로", "서두르", "늦기 전에", "놓치"]) {
+          expect(text, `"${text}"에 재촉 표현이 없다`).not.toContain(forbidden);
+        }
       }
     }
     // 인용한 규율이 원문에 실재하는지 값으로 확인한다(유령 인용 방지).
@@ -283,7 +318,17 @@ describe("트랙 F: 배선 (소스 계약)", () => {
     const items = itemsScreen();
     expect(items).toContain("{nextStagePreview.title}");
     expect(items).toContain("label={nextStagePreview.previewActionLabel}");
-    expect(items).toContain("accessibilityLabel={nextStagePreview.accessibilityLabel}");
     expect(items).not.toContain("시기가 D-");
+  });
+
+  it("낭독 이중 금지: 보이는 제목이 spokenTitle을 지고, 버튼은 행동만 말한다 (리뷰 M-2)", () => {
+    const items = itemsScreen();
+    // 종전(두 시점): 제목 Text는 라벨이 없어 "D-6일"을 원문 그대로 낭독했고, 버튼의
+    // accessibilityLabel이 제목 문장 전체를 반복해 같은 사실이 두 번 읽혔다. 이제 제목이
+    // spokenTitle(소리로 푼 형)을 지고, 버튼은 자기 라벨(행동)만 읽는다.
+    expect(items).toContain("accessibilityLabel={nextStagePreview.spokenTitle}");
+    expect(items).not.toContain("accessibilityLabel={nextStagePreview.accessibilityLabel}");
+    // 버튼 자리는 previewActionLabel이 null이면 아예 서지 않는다(임신 갈래의 이미 보는 중).
+    expect(items).toContain("{nextStagePreview.previewActionLabel ? (");
   });
 });

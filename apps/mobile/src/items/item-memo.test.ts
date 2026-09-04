@@ -37,6 +37,21 @@ describe("메모 정규화와 상한", () => {
     // 공백뿐인 입력은 "메모 없음"이다 -- 트림이 상한 자르기보다 먼저다.
     expect(normalizeItemMemo("   \n\t  ")).toBe("");
   });
+
+  it("상한 절단은 코드포인트 단위다 -- 이모지(서로게이트 쌍)를 반으로 자르지 않는다 (리뷰 L-1)", () => {
+    // 두 시점: 종전 String.prototype.slice(0, 200)은 UTF-16 단위라 200번째 자리가 서로게이트
+    // 쌍의 한가운데면 홀로 남은 high surrogate(U+D800대)가 저장됐다 -- 렌더에서 깨진 글자다.
+    // 이제 Array.from(코드포인트 반복자) 절단이라 경계의 이모지는 통째로 남거나 통째로 잘린다.
+    const exactly200 = "가".repeat(199) + "👶";
+    expect(normalizeItemMemo(exactly200)).toBe(exactly200);
+    expect(normalizeItemMemo(exactly200 + "뒤에 더")).toBe(exactly200);
+    // 잘린 결과 어디에도 홀로 남은 서로게이트가 없다(well-formed — 짝 없는 high/low 검출).
+    expect(normalizeItemMemo(exactly200 + "🍼")).not.toMatch(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+    );
+    // 코드포인트 200개 기준이므로 UTF-16 길이는 200을 넘을 수 있다 -- 이것이 새 상한의 뜻이다.
+    expect(Array.from(normalizeItemMemo(exactly200 + "🍼"))).toHaveLength(ITEM_MEMO_MAX_LENGTH);
+  });
 });
 
 describe("저장 판정 (applyItemMemoSave)", () => {
@@ -91,13 +106,16 @@ describe("문구 계약 (DNC-018 해요체 · 가격 언급 금지)", () => {
     expect(ITEM_MEMO_CLEARED_NOTICE).toBe("메모를 지웠어요.");
   });
 
-  it("기기 저장 실패 문구는 연결을 말하지 않는다 (네트워크 실패가 아니다 -- ITEM-124 규율)", () => {
-    expect(ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE).toContain("저장되지 않았어요");
+  it("기기 저장 실패 문구는 연결을 말하지 않고, 상태 저장 실패와 같은 꼴이다 (리뷰 M-3)", () => {
+    // 두 시점: 종전 "메모가 이 기기에 저장되지 않았어요."는 같은 화면·같은 원인(기기 저장
+    // 실패)의 상태 문구("준비 상태를 기기에 저장하지 못했어요.")와 문법이 갈렸다 -- 라운드
+    // 76 A 대장의 바늘("저장하지 못했어요")을 피하려던 우회가 원인이다. 그 대장은 수 고정
+    // 스윕이 아니라 **등재형**(이유가 적힌 면제 목록 -- offline-aware-screens.ts)이라, 이제
+    // 같은 꼴로 맞추고 src/items/item-memo.ts를 면제 목록에 등재했다(상태 문구와 같은 사유).
+    expect(ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE).toBe("메모를 이 기기에 저장하지 못했어요. 다시 눌러 주세요.");
     expect(ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE).toContain("다시 눌러 주세요");
     expect(ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE).not.toContain("연결");
     expect(ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE).not.toContain("잠시 후");
-    // 라운드 76 A 모듈 대장의 바늘(수가 값으로 고정된 스윕 -- 비접촉 파일)을 들지 않는다.
-    expect(ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE).not.toContain("저장하지 못했어요");
     expect(ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE).not.toContain("불러오지 못했어요");
   });
 
@@ -200,6 +218,31 @@ describe("품목 상세 배선 (app/items/[itemTemplateId].tsx)", () => {
     expect(screen).toContain("setStatusErrorMessage(ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE)");
     // 그 배너는 이 화면에 이미 서 있다(ITEM-124 -- Toast tone="error" · 자기 낭독).
     expect(screen).toContain('{statusErrorMessage ? <Toast message={statusErrorMessage} tone="error" /> : null}');
+  });
+
+  it("저장 진입은 실패 배너를 먼저 지운다 -- 실패 후 재시도 성공 때 배너+토스트 동시 표시 금지 (리뷰 H-2)", () => {
+    // 재현(두 시점): 저장 실패로 statusErrorMessage가 선 채 다시 [메모 저장]을 눌러 성공하면,
+    // 종전 handleMemoSave는 성공 갈래에서 memoNotice만 세워 "저장 실패" 배너와 "저장했어요"
+    // 토스트가 **동시에** 남았다. 상태 뮤테이션 경로(applyStatusChange)와 같은 관례로 진입
+    // 시점에 setStatusErrorMessage(null)을 지난다.
+    const screen = detail();
+    const handlerAt = screen.indexOf("const handleMemoSave = ");
+    expect(handlerAt, "handleMemoSave가 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    const saveCallAt = screen.indexOf("saveMemo(itemTemplateId, memoText)", handlerAt);
+    expect(saveCallAt, "저장 호출이 실재해야 자르는 구간이 참이다").toBeGreaterThan(handlerAt);
+    const entryBlock = screen.slice(handlerAt, saveCallAt);
+    expect(entryBlock).toContain("setStatusErrorMessage(null);");
+  });
+
+  it("빈 itemTemplateId의 no-op 저장은 성공 토스트를 만들지 않는다 (리뷰 L-2 -- id 가드)", () => {
+    // applyItemMemoSave는 빈 키를 no-op으로 돌려주는데(위 저장 판정 테스트), 종전 화면은 그
+    // no-op에도 "메모를 저장했어요."를 띄웠다 -- 일어나지 않은 일을 말하는 토스트다. 둘 중
+    // 구현이 작은 쪽(id 가드)으로: 키가 비면 저장 경로에 들어가지 않는다.
+    const screen = detail();
+    const handlerAt = screen.indexOf("const handleMemoSave = ");
+    const saveCallAt = screen.indexOf("saveMemo(itemTemplateId, memoText)", handlerAt);
+    const entryBlock = screen.slice(handlerAt, saveCallAt);
+    expect(entryBlock).toContain("if (itemTemplateId.trim().length === 0) return;");
   });
 
   it("세션 게이트: 메모 카드는 비세션 프리뷰(ITEM-002 픽셀락 캡처)에 렌더되지 않는다", () => {

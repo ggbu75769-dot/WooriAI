@@ -46,8 +46,16 @@ export const CATEGORY_TREND_SECTION_TITLE = "카테고리 월 추이";
 export const CATEGORY_TREND_SECTION_GUIDE = "카테고리를 고르면 최근 6개월 흐름을 보여드려요.";
 /** 여섯 달 전부 0원일 때 — 빈 막대 여섯 개 대신 서는 사실 한 줄. */
 export const CATEGORY_TREND_EMPTY_TEXT = "최근 6개월 동안 이 카테고리 지출 기록이 없어요.";
-/** 기록 자체가 없는 달이 창에 섞였을 때의 구분 문구(0원 막대가 전부 사실은 아니라는 고지). */
-export const CATEGORY_TREND_NO_RECORD_NOTE = "기록이 없는 달도 0원으로 그렸어요.";
+/**
+ * 기록 자체가 없는 달이 창에 섞였을 때의 구분 문구(0원 막대가 전부 사실은 아니라는 고지).
+ *
+ * 리뷰 L-4(두 시점): 종전 "기록이 없는 달도 0원으로 그렸어요."는 그렸다는 사실만 말하고 그
+ * 막대가 무엇이 **아닌지**는 말하지 않았다 — 기록 없는 0원과 기록 있는 0원이 시각적으로
+ * 같으니, 그 구분은 이 문장이 온전히 져야 한다. 시각 구분(빗금·점선)은 차트 스타일 추가
+ * 비용이 더 커서 구현 비용이 작은 쪽(문구 강화)을 골랐다 — 낭독의 "기록 없음"과 같은 사실.
+ */
+export const CATEGORY_TREND_NO_RECORD_NOTE =
+  "기록이 없는 달도 0원 막대로 그렸어요. 그 달에 지출이 없었다는 뜻은 아니에요.";
 
 /** 화면 배선·수동 확인용 testID(자리는 화면이, 값은 이 모듈이 소유한다 — 기존 관례). */
 export const CATEGORY_TREND_CARD_TEST_ID = "reports-category-trend-card";
@@ -143,6 +151,55 @@ export type CategoryTrendView =
       /** 차트 한 덩어리의 낭독 문장 — 달·금액 전부(기록 없는 달은 "기록 없음"). */
       accessibilityLabel: string;
     };
+
+/** 과거 달 메모 한 칸 — 훅(use-category-trend.ts)이 (childId, yearMonth) 단위로 든다. */
+export type CategoryTrendMonthMemoState = {
+  status: "pending" | "success" | "error";
+  categories?: CategoryTrendMonthInput["categories"];
+};
+
+/** 훅의 과거 달 메모 전체 — 신선도 신호·아이·달별 상태(뮤테이션은 planCategoryTrendMonthReads가 한다). */
+export type CategoryTrendMemo = {
+  /** 마지막으로 반영한 신선도 신호(activeCategory.dataUpdatedAt). NaN이면 아직 반영 전. */
+  signal: number;
+  childId: string | null;
+  months: Map<string, CategoryTrendMonthMemoState>;
+};
+
+/**
+ * 효과 한 번의 **발사 판정** — 메모를 신선도에 맞춰 정리하고, 지금 읽어야 할 과거 달 목록을
+ * 돌려준다(마지막 달은 언제나 기존 조회의 몫이라 제외). 돌려준 달은 pending으로 표시된다.
+ *
+ * 리뷰 M-5(두 시점): 종전에는 이 판정이 훅의 effect 안에 인라인이었고, **신호 0을 정착한
+ * 신호처럼 다뤘다.** 차트를 연 채 월을 옮기면 새 달의 기존 조회(react-query)가 새 키라
+ * `dataUpdatedAt`이 0에서 시작하는데, 종전 판정은 그 0으로 메모를 비우고 곧장 다섯 달을
+ * 쏜 뒤 — 응답이 도착해 신호가 실제 값으로 바뀌면 메모를 또 비우고 같은 다섯 달을 다시
+ * 쐈다(월 이동 한 번에 요청 10). 이제 **신호 0 = 보고 있는 달의 첫 응답이 아직**이므로
+ * 메모만 비우고 발사를 유예한다 — 응답이 신호를 정착시키는 effect 재실행에서 한 번만
+ * 다섯을 읽는다(요청 5 보장). 신선도 규율(신호·아이가 바뀌면 통째로 버린다)은 그대로다.
+ */
+export function planCategoryTrendMonthReads(
+  memo: CategoryTrendMemo,
+  input: { window: readonly string[]; childId: string; refreshSignal: number }
+): string[] {
+  // 신호(신선도)나 아이가 바뀌면 메모를 통째로 버린다 — 낡은 막대를 이어 그리지 않는다.
+  if (memo.signal !== input.refreshSignal || memo.childId !== input.childId) {
+    memo.signal = input.refreshSignal;
+    memo.childId = input.childId;
+    memo.months = new Map();
+  }
+  // 신호 0 = 보고 있는 달의 조회가 아직 첫 응답 전(react-query dataUpdatedAt의 초기값) —
+  // 지금 쏘면 그 응답이 신호를 바꿔 같은 다섯 달을 곧바로 다시 읽는다(리뷰 M-5의 요청 10).
+  // 메모는 위에서 비워 둔 채 발사만 유예한다: 응답이 오면 신호가 정착해 한 번만 읽는다.
+  if (input.refreshSignal === 0) return [];
+  const reads: string[] = [];
+  for (const yearMonth of input.window.slice(0, -1)) {
+    if (memo.months.has(yearMonth)) continue;
+    memo.months.set(yearMonth, { status: "pending" });
+    reads.push(yearMonth);
+  }
+  return reads;
+}
 
 /** "2026-08" → { year: 2026, label: "8월" }. 형식이 어긋나면 null(지어내지 않는다). */
 function parseYearMonth(yearMonth: string): { year: number; label: string } | null {

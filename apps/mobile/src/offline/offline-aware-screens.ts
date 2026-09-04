@@ -312,6 +312,8 @@ export const OFFLINE_UNAWARE_FAILURE_COPY_MODULES: Readonly<Record<string, strin
     "지출은 SQLite 우선 저장이라 오프라인에서 **성공한다**(MOB-102/EXP-005). 이 문장이 서는 것은 로컬 쓰기 자체가 실패한 경우뿐이라, 연결은 그 실패의 원인도 해법도 아니다.",
   "src/import/bulk-run.ts":
     "다른 클라이언트가 이미 잡은 작업이라는 사실을 말하는 자리다. 여기서의 '잠시 후 다시'는 지키지 못할 약속이 아니라 **실제로 기다리면 풀리는** 사실이다(그 잡이 끝나면 다음 시도가 통한다).",
+  "src/items/item-memo.ts":
+    "품목 메모는 서버 0바이트의 기기 로컬 저장(zustand persist·AsyncStorage)이라 네트워크가 등장하지 않는다. 이 문장이 서는 것은 기기 쓰기 자체가 실패한 경우뿐이고, 그 실패의 원인은 연결이 아니다 — 같은 화면의 준비 상태 문구(status-mutation-messages.ts)와 같은 판정. 기능 라운드 1 리뷰 M-3이 두 문구의 문법을 한 꼴로 맞추며 등재했다.",
   "src/items/status-mutation-messages.ts":
     "준비템 상태 변경은 아웃박스 큐에 들어가므로 오프라인에서 실패하지 않는다. 이 문장이 서는 것은 큐에 넣는 일 자체가 실패한 경우뿐이고, 그 실패의 원인은 연결이 아니다.",
   "src/onboarding/selected-child-recovery.ts":

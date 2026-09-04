@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   compareRecordsByAmountDesc,
+  effectiveRecordsSortMode,
   isAmountSortApplied,
   isRecordsSortToggleVisible,
   recordsSortAnnouncement,
@@ -148,6 +149,16 @@ describe("트랙 B: 달력 모드 게이트와 문구", () => {
       expect(recordsSortAnnouncement(mode)).toContain(recordsSortOptionLabel(mode));
     }
   });
+
+  it("달력 날짜 착지는 세션 한정 임시 오버라이드다 — persist 취향을 건드리지 않는다 (리뷰 M-4)", () => {
+    // 두 시점: 종전에는 달력 칸 탭이 setRecordsSortMode("latest")로 **저장된 취향을 영구
+    // 덮어썼다** — 금액 큰 순을 기억시켜 둔 사용자가 날짜 하나를 보러 들어간 대가로 취향을
+    // 잃었다. 이제 착지는 비저장 오버라이드(화면 state)이고, 이 판정이 표시 모드를 정한다.
+    expect(effectiveRecordsSortMode({ sortMode: "amount", calendarDateLanding: true })).toBe("latest");
+    expect(effectiveRecordsSortMode({ sortMode: "amount", calendarDateLanding: false })).toBe("amount");
+    expect(effectiveRecordsSortMode({ sortMode: "latest", calendarDateLanding: true })).toBe("latest");
+    expect(effectiveRecordsSortMode({ sortMode: "latest", calendarDateLanding: false })).toBe("latest");
+  });
 });
 
 /**
@@ -167,7 +178,9 @@ describe("트랙 B: app/(tabs)/records.tsx 배선", () => {
   it("토글은 기존 SegmentedControl 재사용이고, 라벨·라벨→값 변환·게이트가 전부 순수 모듈에서 온다", () => {
     expect(recordsSource).toContain('from "../../src/expenses/records-sort"');
     expect(recordsSource).toContain("options={recordsSortModes().map((mode) => recordsSortOptionLabel(mode))}");
-    expect(recordsSource).toContain("value={recordsSortOptionLabel(sortMode)}");
+    // 리뷰 M-4: 토글이 보여 주는 값은 표시 모드(임시 오버라이드 반영)다 — 목록이 최신순으로
+    // 보이는 동안 토글이 "금액 큰 순"을 켜 두면 보이는 것과 컨트롤이 갈린다.
+    expect(recordsSource).toContain("value={recordsSortOptionLabel(shownSortMode)}");
     expect(recordsSource).toContain("onChange={handleSortLabelChange}");
     expect(recordsSource).toContain("recordsSortModeForLabel(option)");
     expect(recordsSource).toContain("isRecordsSortToggleVisible({ isCalendarView })");
@@ -224,20 +237,36 @@ describe("트랙 B: app/(tabs)/records.tsx 배선", () => {
     expect(toggleBlock).not.toContain("<CategoryChip");
   });
 
-  it("달력 모드와의 상호작용: 달력 칸 탭은 그 날짜 섹션이 목적지라 최신순으로 되돌린다", () => {
+  it("달력 칸 탭은 임시 해제다 — 그 세션의 표시만 최신순, persist 취향은 그대로 (리뷰 M-4 두 시점)", () => {
+    // 종전: 칸 탭이 setRecordsSortMode("latest")를 불러 **저장된 취향을 영구 덮어썼다**
+    // ("사용자의 두 선택 중 나중 것"이라는 종전 주석의 판정은, 날짜 하나를 보려는 탭을 정렬
+    // 취향의 의사표시로 승격한 과대 해석이었다). 이제 칸 탭은 비저장 오버라이드 state만 세운다.
     const selectAt = recordsSource.indexOf("const handleSelectCalendarDate = useCallback(");
     expect(selectAt).toBeGreaterThan(-1);
-    const selectEndAt = recordsSource.indexOf("}, [setRecordsSortMode, setViewMode]);", selectAt);
+    const selectEndAt = recordsSource.indexOf("}, [setViewMode]);", selectAt);
     expect(selectEndAt, "콜백 닫힘(의존성 배열)이 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
     const selectBlock = recordsSource.slice(selectAt, selectEndAt);
-    // 리스트 전환과 같은 자리에서, 칩을 직접 누른 것과 같은 setter로 되돌린다(persist도 따라간다).
     expect(selectBlock).toContain("setViewMode(RECORDS_VIEW_LIST);");
-    expect(selectBlock).toContain('setRecordsSortMode("latest");');
-    expect(selectBlock.indexOf("setViewMode(RECORDS_VIEW_LIST);")).toBeLessThan(selectBlock.indexOf('setRecordsSortMode("latest");'));
+    expect(selectBlock).toContain("setCalendarDateLanding(true);");
+    // persist 보존의 핵심: 이 콜백 어디에도 저장 setter가 없다.
+    expect(selectBlock).not.toContain("setRecordsSortMode(");
+    expect(selectBlock.indexOf("setViewMode(RECORDS_VIEW_LIST);")).toBeLessThan(selectBlock.indexOf("setCalendarDateLanding(true);"));
+  });
+
+  it("정렬 토글의 명시 선택이 오버라이드를 걷는다 — 사용자의 직접 선택이 언제나 이긴다 (리뷰 M-4)", () => {
+    const handlerAt = recordsSource.indexOf("const handleSortModeChange = useCallback(");
+    expect(handlerAt).toBeGreaterThan(-1);
+    const handlerBlock = recordsSource.slice(handlerAt, handlerAt + 500);
+    expect(handlerBlock).toContain("setCalendarDateLanding(false);");
+    // 오버라이드 해제가 저장보다 먼저다(표시 모드가 방금 고른 값으로 곧장 떨어진다).
+    expect(handlerBlock.indexOf("setCalendarDateLanding(false);")).toBeLessThan(handlerBlock.indexOf("setRecordsSortMode(mode);"));
   });
 
   it("달력 보기에서는 정렬을 적용하지 않는다 — 저장된 선택은 남고 적용만 멈춘다", () => {
-    expect(recordsSource).toContain("const isAmountSort = isAmountSortApplied({ sortMode, isCalendarView });");
+    // 리뷰 M-4: 적용 판정의 입력이 저장 모드가 아니라 표시 모드(shownSortMode)다 — 임시
+    // 오버라이드 중에는 날짜 그룹 목록이 서야 착지 스크롤의 목적지(날짜 섹션)가 실재한다.
+    expect(recordsSource).toContain("const shownSortMode = effectiveRecordsSortMode({ sortMode, calendarDateLanding });");
+    expect(recordsSource).toContain("const isAmountSort = isAmountSortApplied({ sortMode: shownSortMode, isCalendarView });");
     // 달력 격자·일별 합계는 종전처럼 날짜 그룹에서 나온다(정렬과 무관).
     expect(recordsSource).toContain("dailyTotalsFromDateGroups(dateGroups)");
   });

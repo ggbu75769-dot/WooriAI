@@ -56,12 +56,16 @@ export const ITEM_MEMO_CLEARED_NOTICE = "메모를 지웠어요.";
  * 화면은 이 문구를 준비 상태 저장 실패와 같은 배너 한 자리(Toast tone="error")로 알린다 —
  * 저장 실패 무음 금지.
  *
- * ⚠️ 표현이 "…저장되지 않았어요"인 이유: 라운드 76 A의 모듈 실패 문구 대장
- * (src/offline/messages.test.ts)이 "저장하지 못했어요" 꼴을 바늘로 걷고 그 대장의 수를 값으로
- * 고정한다 — 스윕 계약은 이 라운드의 비접촉 파일이므로, 오프라인과 무관한 이 로컬 저장 실패는
- * 바늘 밖의 정직한 표현을 쓴다(대장을 늘리는 쪽은 스윕 소유 라운드의 몫).
+ * ⚠️ 리뷰 M-3(두 시점): 종전 표현은 "메모가 이 기기에 저장되지 않았어요."였다 — 라운드 76 A의
+ * 모듈 실패 문구 대장(src/offline/messages.test.ts)이 "저장하지 못했어요" 꼴을 바늘로 걷는다는
+ * 이유로 바늘을 피한 것인데, 그 결과 **같은 화면·같은 원인**(기기 저장 실패)의 두 문구가
+ * 문법("저장되지 않았어요" vs "저장하지 못했어요")으로 갈렸다. 그 대장은 수 고정 스윕이 아니라
+ * **등재형**이다(이유가 적힌 면제 목록 — src/offline/offline-aware-screens.ts에
+ * status-mutation-messages.ts가 이미 같은 사유로 서 있다). 그래서 문구를 상태 문구와 같은
+ * 꼴로 맞추고, 이 모듈을 그 면제 목록에 등재했다(등재 사유: 기기 로컬 저장이라 연결이
+ * 실패의 원인도 해법도 아니다).
  */
-export const ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE = "메모가 이 기기에 저장되지 않았어요. 다시 눌러 주세요.";
+export const ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE = "메모를 이 기기에 저장하지 못했어요. 다시 눌러 주세요.";
 
 /**
  * 저장 버튼의 낭독 문장 — 어느 품목의 메모인지 이름을 앞에 붙인다(같은 화면의
@@ -73,9 +77,17 @@ export function itemMemoSaveAccessibilityLabel(itemName: string): string {
   return name.length > 0 ? `${name} 메모 저장` : ITEM_MEMO_SAVE_LABEL;
 }
 
-/** 저장 대상 정규화: 앞뒤 공백을 지우고 상한에서 자른다. 빈 결과는 "메모 없음"이라는 뜻이다. */
+/**
+ * 저장 대상 정규화: 앞뒤 공백을 지우고 상한에서 자른다. 빈 결과는 "메모 없음"이라는 뜻이다.
+ *
+ * 리뷰 L-1(두 시점): 종전 `String.prototype.slice(0, 200)`은 UTF-16 단위 절단이라 200번째
+ * 자리가 서로게이트 쌍(이모지 등)의 한가운데면 홀로 남은 high surrogate가 저장됐다 — 렌더에서
+ * 깨진 글자다. 이제 `Array.from`(코드포인트 반복자)으로 자르므로 경계의 문자는 통째로 남거나
+ * 통째로 잘린다. 상한 200의 단위도 UTF-16 코드유닛 수에서 **코드포인트 수**로 옮겨 갔다
+ * (한글·라틴 등 BMP 문자만의 메모는 종전과 바이트 단위로 같다).
+ */
 export function normalizeItemMemo(text: string): string {
-  return text.trim().slice(0, ITEM_MEMO_MAX_LENGTH);
+  return Array.from(text.trim()).slice(0, ITEM_MEMO_MAX_LENGTH).join("");
 }
 
 export type ItemMemos = Readonly<Record<string, string>>;

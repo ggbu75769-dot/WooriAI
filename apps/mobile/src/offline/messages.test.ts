@@ -1366,11 +1366,17 @@ describe("라운드 76 A: 모듈 층의 실패 문구 대장 (src/** 스윕)", (
     expect([...named].sort().filter((path) => !modules.includes(path))).toEqual([]);
   });
 
-  it("ⓑ 오늘의 값 — 열여섯(배선 여섯 · 면제 여덟 · 정의상 밖 둘)", () => {
-    expect(modulesWithFailureCopy()).toHaveLength(16);
+  it("ⓑ 오늘의 값 — 열일곱(배선 여섯 · 면제 아홉 · 정의상 밖 둘)", () => {
+    // 두 시점: 라운드 76 A의 열여섯(면제 여덟) → 기능 라운드 1 리뷰 M-3이 하나를 등재해
+    // 열일곱(면제 아홉)이다. src/items/item-memo.ts의 기기 저장 실패 문구가 같은 화면의 상태
+    // 문구(status-mutation-messages.ts)와 같은 꼴("저장하지 못했어요")로 맞춰지며 바늘에
+    // 걸리게 됐고, 이 대장은 등재형(이유가 적힌 면제 목록)이라 등재가 옳은 길이다 — 바늘을
+    // 피한 우회 표현이 같은 화면의 문법을 가르던 것이 M-3의 병이었다.
+    expect(modulesWithFailureCopy()).toHaveLength(17);
     expect(OFFLINE_AWARE_FAILURE_COPY_MODULES).toHaveLength(6);
-    expect(Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES)).toHaveLength(8);
+    expect(Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES)).toHaveLength(9);
     expect(Object.keys(FAILURE_COPY_SWEEP_DEFINITIONAL_MODULES)).toHaveLength(2);
+    expect(Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES)).toContain("src/items/item-memo.ts");
     // 이 트랙의 대상이 실제로 배선 쪽에 있다(통과한 이유가 목록이지 예외가 아니다).
     expect(OFFLINE_AWARE_FAILURE_COPY_MODULES).toContain("src/family/invite-permissions.ts");
     expect(Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES)).not.toContain("src/family/invite-permissions.ts");

@@ -370,6 +370,14 @@ export default function ItemDetailScreen() {
    * 이 화면의 기기 저장 실패 출구는 하나다. 빈/공백 메모 저장은 그 품목의 메모 삭제다.
    */
   const handleMemoSave = () => {
+    // 리뷰 L-2: 키가 비면(딥링크 파라미터 이상) 스토어 판정(applyItemMemoSave)이 no-op이라
+    // 저장이 일어나지 않는데, 종전에는 그 no-op에도 성공 토스트가 떴다 — 일어나지 않은 일을
+    // 말하지 않도록 저장 경로 자체에 들어가지 않는다(같은 트림 판정 — item-memo.ts).
+    if (itemTemplateId.trim().length === 0) return;
+    // 리뷰 H-2(두 시점): 종전에는 진입에서 memoNotice만 지워서, 실패(statusErrorMessage 세움)
+    // → 재시도 성공 흐름에 실패 배너와 성공 토스트가 **동시에** 남았다. 상태 뮤테이션 경로
+    // (applyStatusChange)와 같은 관례로 진입 시점에 실패 배너도 지운다.
+    setStatusErrorMessage(null);
     setMemoNotice(null);
     saveMemo(itemTemplateId, memoText)
       .then(() => {

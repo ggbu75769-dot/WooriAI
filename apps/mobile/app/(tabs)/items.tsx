@@ -998,23 +998,30 @@ export default function ItemsScreen() {
             </View>
             {/* 트랙 F: 다음 시기 D-day 예고 배너 — 시기 칩 줄 바로 아래(눌렀을 때 바뀌는 칩이
                 바로 위에 보인다). 정보 제공만 하고 전환·구매를 재촉하지 않으며(DNC-018), 탭은
-                축하 배너의 다음 시기 버튼과 같은 기존 칩 선택이다(새 화면 없음). */}
+                축하 배너의 다음 시기 버튼과 같은 기존 칩 선택이다(새 화면 없음).
+                리뷰 M-2(두 시점): 종전에는 제목 Text가 라벨 없이 "D-6일"을 원문 그대로 낭독하고
+                버튼의 accessibilityLabel이 같은 문장을 반복했다 — 이제 제목이 spokenTitle
+                (D-를 소리로 푼 형)을 지고, 버튼은 자기 라벨(행동)만 읽는다. 버튼 자리는
+                previewActionLabel이 null이면 서지 않는다(임신 갈래에서 이미 0-6개월 칩을 보는
+                중 — 모듈 판정, 리뷰 H-1). */}
             {nextStagePreview ? (
               <View style={{ backgroundColor: theme.colors.beige, borderRadius: theme.radii.card, gap: 8, padding: 14 }}>
                 <Text
                   accessibilityRole="text"
+                  accessibilityLabel={nextStagePreview.spokenTitle}
                   style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700", lineHeight: 20 }}
                 >
                   {nextStagePreview.title}
                 </Text>
-                <SecondaryButton
-                  label={nextStagePreview.previewActionLabel}
-                  accessibilityLabel={nextStagePreview.accessibilityLabel}
-                  onPress={() => {
-                    setHasManualStageSelection(true);
-                    setStageLabel(nextStagePreview.band);
-                  }}
-                />
+                {nextStagePreview.previewActionLabel ? (
+                  <SecondaryButton
+                    label={nextStagePreview.previewActionLabel}
+                    onPress={() => {
+                      setHasManualStageSelection(true);
+                      setStageLabel(nextStagePreview.band);
+                    }}
+                  />
+                ) : null}
               </View>
             ) : null}
           </View>

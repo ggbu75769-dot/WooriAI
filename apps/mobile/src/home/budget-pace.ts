@@ -27,8 +27,12 @@ import { daysInYearMonth } from "./last-month-comparison";
  *    "월말 3,000만 원"이 된다 — 표본 부족은 지어낸 숫자다(last-month-comparison.ts의
  *    PERCENT_MIN_COMPARED_DAYS와 같은 계열의 판단).
  * 3. **이미 100% 도달이면 숨김**: 위 문구 경계 그대로.
- * 4. **반올림은 천원 단위**: 원 단위 예측은 정밀해 보이는 만큼 거짓말이다 — 추정값의 표기
- *    정밀도를 실제 확신 수준에 맞춘다.
+ * 4. **반올림은 천원 단위 — 단, 표기에만**: 원 단위 예측은 정밀해 보이는 만큼 거짓말이라
+ *    월말 예상값(projectedKrw·body)의 표기 정밀도는 천원이다. ⚠️ 리뷰 M-1(두 시점): 종전에는
+ *    이 반올림을 **예산 비교 전에** 적용해 ±500원 구간에서 within/over가 뒤집혔다(예산
+ *    999,800 · raw 외삽 999,600이 "약 200원 넘길 것 같아요"가 되는 허위 표시). 이제
+ *    within/over 판정과 overKrw는 **raw 외삽값**으로 하고, 반올림은 표기(트랙 E의 "약"
+ *    규율 — 어림임은 "약"이 말하고, 판정은 사실로 한다)만 진다.
  *
  * 여기에 정직성 게이트 둘을 더한다(같은 "지어내지 않는다" 규칙의 귀결):
  * - **이번 달이 아니면 숨김**: monthly.yearMonth와 오늘(서울)의 달이 다르면 "경과일"이라는
@@ -58,9 +62,9 @@ export type BudgetPaceOutlook = "within" | "over";
 
 export type BudgetPaceForecast = {
   outlook: BudgetPaceOutlook;
-  /** 페이스 외삽 월말 예상 지출(원) — 항상 1,000의 배수. */
+  /** 페이스 외삽 월말 예상 지출의 **표기값**(원) — 항상 1,000의 배수(표시 규칙 4). */
   projectedKrw: number;
-  /** 예상 초과액(원). within이면 0. */
+  /** 예상 초과액(원) — **raw 외삽 - 예산**(리뷰 M-1: 판정은 반올림 전 값으로). within이면 0. */
   overKrw: number;
   /** 오늘까지의 경과일(오늘 포함, 1일 = 1). */
   elapsedDays: number;
@@ -120,9 +124,11 @@ export function evaluateBudgetPace(input: BudgetPaceInput): BudgetPaceForecast |
   const daysInMonth = daysInYearMonth(monthKey);
   if (!Number.isInteger(daysInMonth) || daysInMonth < elapsedDays) return null;
 
-  // 곱을 먼저, 나눗셈은 한 번만(정수 규율 — 위 헤더 "산술").
-  const projectedKrw = roundToThousand((spentKrw * daysInMonth) / elapsedDays);
-  const overKrw = Math.max(0, projectedKrw - budgetKrw);
+  // 곱을 먼저, 나눗셈은 한 번만(정수 규율 — 위 헤더 "산술"). 판정은 raw로, 표기만 반올림
+  // (리뷰 M-1 두 시점 — 종전에는 반올림 값으로 비교해 ±500원 구간에서 판정이 뒤집혔다).
+  const projectedRawKrw = Math.round((spentKrw * daysInMonth) / elapsedDays);
+  const projectedKrw = roundToThousand(projectedRawKrw);
+  const overKrw = Math.max(0, projectedRawKrw - budgetKrw);
   const outlook: BudgetPaceOutlook = overKrw > 0 ? "over" : "within";
 
   const title =

@@ -4,6 +4,8 @@ import { getCategoryReport, type CategoryReport } from "../api/client";
 import {
   buildCategoryTrendView,
   buildCategoryTrendWindow,
+  planCategoryTrendMonthReads,
+  type CategoryTrendMemo,
   type CategoryTrendMonthInput,
   type CategoryTrendView
 } from "./category-trend";
@@ -35,8 +37,13 @@ import {
  * - **신선도 신호**: 메모는 activeCategory의 `dataUpdatedAt`(refreshSignal)이 바뀌면 통째로
  *   버린다. 지출을 적거나 당겨서 새로고침하면 그 조회가 다시 오므로, 차트가 열려 있는 동안
  *   과거 달도 낡은 채 남지 않는다(백데이트 수정·가져오기가 과거 달을 바꿀 수 있다). 달 이동도
- *   신호를 바꿔 다섯 달을 다시 읽는데, 이는 캐시 절약보다 정직(낡은 막대 금지)을 고른 값이다 —
- *   차트가 열린 채 달을 옮기는 드문 경로에서만 요청 5가 나간다.
+ *   신호를 바꿔 다섯 달을 다시 읽는데, 이는 캐시 절약보다 정직(낡은 막대 금지)을 고른 값이다.
+ *   ⚠️ 리뷰 M-5(두 시점): 종전 서술은 "달을 옮기는 경로에서만 요청 5"라고 적었지만 실동작은
+ *   **10**이었다 — 새 달의 기존 조회가 새 키라 신호가 0에서 시작하고, 종전 판정이 그 0으로
+ *   메모를 비우며 곧장 다섯을 쏜 뒤 응답이 신호를 정착시키면 같은 다섯을 다시 쐈다. 이제
+ *   발사 판정은 순수 모듈(planCategoryTrendMonthReads — category-trend.ts)이 지고, 신호 0에는
+ *   클리어만 하고 발사를 유예해 **요청 5가 보장**된다(그 함수 머리말·category-trend.test.ts의
+ *   시퀀스 계약 참고).
  *
  * 로컬 데모 백엔드는 임의 yearMonth를 이미 지원한다(local-backend getCategoryReport — REP-104 ·
  * 신규 엔드포인트 0). 이 훅은 지출을 쓰지 않는 읽기 전용이다.
@@ -49,8 +56,6 @@ export type CategoryTrendSubscription = {
   /** 부분 실패의 재시도 — **실패한 달만** 다시 읽는다(성공해 둔 메모를 버릴 이유가 없다). */
   retryFailedMonths: () => void;
 };
-
-type MonthState = { status: "pending" | "success" | "error"; categories?: CategoryReport["categories"] };
 
 export function useCategoryTrend(input: {
   authToken: string | null;
@@ -72,7 +77,7 @@ export function useCategoryTrend(input: {
 
   // (childId, yearMonth) → 상태. ref에 두고 도착만 tick으로 알린다 — 재렌더마다 Map을 다시
   // 만들지 않고, 실패한 달만 골라 다시 읽을 수 있다.
-  const storeRef = useRef<{ signal: number; childId: string | null; months: Map<string, MonthState> }>({
+  const storeRef = useRef<CategoryTrendMemo>({
     signal: Number.NaN,
     childId: null,
     months: new Map()
@@ -86,16 +91,9 @@ export function useCategoryTrend(input: {
     const effectWindow = buildCategoryTrendWindow(endYearMonth);
     if (!effectWindow) return;
     const store = storeRef.current;
-    // 신호(신선도)나 아이가 바뀌면 메모를 통째로 버린다 — 낡은 막대를 이어 그리지 않는다.
-    if (store.signal !== refreshSignal || store.childId !== childId) {
-      store.signal = refreshSignal;
-      store.childId = childId;
-      store.months = new Map();
-    }
-    // 마지막 달은 기존 조회가 진다(위 머리말) — 과거 다섯 달만, 아직 없는 것만 병렬로 읽는다.
-    for (const yearMonth of effectWindow.slice(0, -1)) {
-      if (store.months.has(yearMonth)) continue;
-      store.months.set(yearMonth, { status: "pending" });
+    // 메모 정리·발사 판정은 순수 모듈 한 벌이다(리뷰 M-5 — planCategoryTrendMonthReads 머리말:
+    // 신호/아이 변화의 메모 폐기, 신호 0의 발사 유예, 과거 다섯 달만·없는 달만).
+    for (const yearMonth of planCategoryTrendMonthReads(store, { window: effectWindow, childId, refreshSignal })) {
       const expectedSignal = store.signal;
       getCategoryReport(authToken, childId, { yearMonth }).then(
         (report) => {
