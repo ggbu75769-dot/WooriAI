@@ -33,10 +33,12 @@ import {
   AppScreen,
   Card,
   EmptyStateCard,
+  LoadErrorCard,
   ScreenHeader,
-  SecondaryButton,
   StatusBadge
 } from "../../src/ui";
+// 라운드 96 T6: 기기 목록 로딩은 텍스트 카드가 아니라 실루엣이다(D6 스켈레톤 프리셋).
+import { SkeletonCard } from "../../src/ui/Skeleton";
 
 /**
  * PUSH-116 (SET-006) 알림 설정: 현재 기기의 푸시 등록 상태 + "푸시 알림" 마스터 토글 +
@@ -216,9 +218,10 @@ export default function NotificationSettingsScreen() {
           onBack={() => router.back()}
         />
 
-        {/* 라운드 71 트랙 E: 문구 무변경 + 목적지 하나(가짜 버튼 → 로그인 화면). */}
+        {/* 라운드 71 트랙 E: 목적지 하나(가짜 버튼 → 로그인 화면).
+            라운드 96 T6: 버튼 글자가 목적지를 말한다("확인" → "로그인하기"). */}
         {!hasSession ? (
-          <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" onPress={() => router.push("/login")} />
+          <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="로그인하기" onPress={() => router.push("/login")} />
         ) : null}
 
         {/* C-08: 지금 실제로 뜨는 알림(인앱 알림함)의 종류별 스위치 -- 푸시 카드보다 위. */}
@@ -261,13 +264,16 @@ export default function NotificationSettingsScreen() {
             <View style={toggleRowStyle}>
               <View style={{ flex: 1, gap: 3, paddingRight: 12 }}>
                 <Text style={rowTitleStyle}>푸시 알림</Text>
+                {/* 라운드 96 T6: "기기 등록"은 서버 쪽 사정이지 사용자의 일이 아니다 — 화면은
+                    지금 이 기기가 푸시를 받는지 하나만 말한다(등록 어휘 0건). 판정은 마스터
+                    토글이 보여 주는 값과 같은 한 벌이다(masterToggleValue). */}
                 <Text style={rowSubtitleStyle}>
-                  {currentDevice
-                    ? "이 기기는 푸시 기기로 등록되어 있어요."
-                    : "이 기기는 아직 푸시 기기로 등록되지 않았어요."}
+                  {masterToggleValue
+                    ? "지금 이 기기로 푸시 알림을 받아요."
+                    : "지금 이 기기로는 푸시 알림을 받지 않아요."}
                 </Text>
               </View>
-              {currentDevice ? <StatusBadge label="등록됨" tone="success" /> : <StatusBadge label="미등록" />}
+              {masterToggleValue ? <StatusBadge label="받는 중" tone="success" /> : <StatusBadge label="꺼짐" />}
               <Switch
                 accessibilityLabel="푸시 알림"
                 accessibilityRole="switch"
@@ -299,23 +305,23 @@ export default function NotificationSettingsScreen() {
           <View style={{ gap: theme.spacing.gap }}>
             <Text style={sectionTitleStyle}>내 기기</Text>
 
-            {devices.isLoading ? (
-              <Card>
-                <Text style={rowSubtitleStyle}>불러오는 중이에요...</Text>
-              </Card>
-            ) : null}
+            {/* 라운드 96 T6: 텍스트 로딩 카드 → 기기 카드 실루엣(D6 스켈레톤). */}
+            {devices.isLoading ? <SkeletonCard /> : null}
 
+            {/* 라운드 96 T6: 조회 실패의 얼굴은 T1의 LoadErrorCard 한 벌이다(문구·재시도
+                라벨은 종전과 같은 단일 소스 — useLoadErrorCopy + 주어 접두). */}
             {devices.isError ? (
-              <Card style={{ gap: 10 }}>
-                <Text style={errorTextStyle}>{devicesLoadErrorText}</Text>
-                <SecondaryButton label={devicesLoadErrorCopy.actionLabel} onPress={() => devices.refetch()} />
-              </Card>
+              <LoadErrorCard
+                message={devicesLoadErrorText}
+                retryLabel={devicesLoadErrorCopy.actionLabel}
+                onRetry={() => devices.refetch()}
+              />
             ) : null}
 
+            {/* 라운드 96 T6: 섹션 빈 상태도 다른 화면과 같은 EmptyStateCard 문법이다
+                (등록 어휘 없이 — 푸시를 켜면 이 기기부터 목록에 선다는 사실만 말한다). */}
             {devices.isSuccess && deviceList.length === 0 ? (
-              <Card>
-                <Text style={rowSubtitleStyle}>등록된 기기가 없어요. 푸시를 켜면 이 기기가 등록돼요.</Text>
-              </Card>
+              <EmptyStateCard title="푸시 알림을 받는 기기가 없어요" description="푸시 알림을 켜면 이 기기가 목록에 추가돼요." />
             ) : null}
 
             {deviceList.map((device) => {

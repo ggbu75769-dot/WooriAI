@@ -62,12 +62,16 @@ import {
   Card,
   CategoryChip,
   EmptyStateCard,
+  LoadErrorCard,
   PrimaryButton,
   ScreenHeader,
   SecondaryButton,
   StatusBadge,
   Toast
 } from "../../src/ui";
+// 라운드 96 T6: 로딩은 텍스트 카드("불러오는 중이에요...")가 아니라 실루엣이다 — 가족·예산
+// 화면이 이미 쓰는 D6 스켈레톤 프리셋 그대로(아이 카드 자리이므로 카드 실루엣).
+import { SkeletonCard } from "../../src/ui/Skeleton";
 
 const emptyForm: ChildFormValues = { nickname: "", dateText: "", manualStage: null };
 
@@ -691,22 +695,25 @@ export default function ManageChildrenScreen() {
           onBack={() => router.back()}
         />
 
-        {/* 라운드 71 트랙 E: 문구 무변경 + 목적지 하나(가짜 버튼 → 로그인 화면). */}
+        {/* 라운드 71 트랙 E: 목적지 하나(가짜 버튼 → 로그인 화면).
+            라운드 96 T6: 버튼 글자가 목적지를 말한다 — "확인"은 눌러서 무엇이 되는지 말하지
+            않는 라벨이었다(a11y-contract의 잠금 카드 앵커도 같은 커밋에서 함께 옮긴다). */}
         {!hasSession ? (
-          <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" onPress={() => router.push("/login")} />
+          <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="로그인하기" onPress={() => router.push("/login")} />
         ) : null}
 
+        {/* 라운드 96 T6: 텍스트 로딩 카드 → 스켈레톤(아이 카드 목록의 실루엣 두 장). */}
         {hasSession && children.isLoading ? (
-          <Card>
-            <Text style={mutedTextStyle}>불러오는 중이에요...</Text>
-          </Card>
+          <View style={{ gap: theme.spacing.gap }}>
+            <SkeletonCard />
+            <SkeletonCard />
+          </View>
         ) : null}
 
+        {/* 라운드 96 T6: 같은 조회 실패가 화면마다 다른 얼굴로 서지 않게 T1의 LoadErrorCard
+            한 벌을 쓴다. 문구·재시도 라벨은 종전과 같은 단일 소스(useLoadErrorCopy)에서 온다. */}
         {hasSession && children.isError ? (
-          <Card style={{ gap: 10 }}>
-            <Text style={{ color: theme.colors.danger }}>{loadErrorCopy.title}</Text>
-            <SecondaryButton label={loadErrorCopy.actionLabel} onPress={() => children.refetch()} />
-          </Card>
+          <LoadErrorCard message={loadErrorCopy.title} retryLabel={loadErrorCopy.actionLabel} onRetry={() => children.refetch()} />
         ) : null}
 
         {hasSession && children.isSuccess && childList.length === 0 ? (

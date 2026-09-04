@@ -207,7 +207,9 @@ describe("라운드 87 D 기기 행의 구별 문구", () => {
 
     // 실패 문구 두 자리와 태그도 그대로다(오프라인 대장·낭독 대장이 무는 바이트).
     expect(screen.match(/accessibilityLiveRegion="polite" accessibilityRole="alert"/g) ?? []).toHaveLength(2);
-    expect(screen).toContain("<Text style={errorTextStyle}>{devicesLoadErrorText}</Text>");
+    // ⚠️ 두 시점(라운드 96 T6): 조회 실패 줄은 errorTextStyle <Text>에서 T1의 LoadErrorCard로
+    // 옮겨 갔다(핀은 오늘의 바이트 — 주어 접두 파생값이 도달한다는 사실은 그대로다).
+    expect(screen).toContain("message={devicesLoadErrorText}");
     expect(screen).toContain("`기기 목록을 ${devicesLoadErrorCopy.title}`");
     expect(screen).toContain("`알림 설정을 ${deviceToggleSaveErrorCopy}`");
     // 마지막 사용 줄과 마스터 토글 라벨도 종전 그대로.

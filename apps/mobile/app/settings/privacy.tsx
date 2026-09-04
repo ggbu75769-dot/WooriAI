@@ -70,10 +70,13 @@ import {
   AppScreen,
   Card,
   EmptyStateCard,
+  LoadErrorCard,
   ScreenHeader,
   SecondaryButton,
   StatusBadge
 } from "../../src/ui";
+// 라운드 96 T6: 동의 내역 로딩은 텍스트 카드가 아니라 실루엣이다(D6 스켈레톤 프리셋).
+import { SkeletonCard } from "../../src/ui/Skeleton";
 
 /**
  * 되돌릴 수 없다는 사실. 파괴 플로우 셋의 마지막 확인 Alert이 공유하던 그 한 문장이다.
@@ -93,8 +96,11 @@ const IRREVERSIBLE_NOTICE = "이 작업은 되돌릴 수 없어요.";
  * **카드 렌더는 한 줄도 건드리지 않는다** — 라운드 63·65가 이 화면에 "1아이 계정 결과 불변"을
  * 계약으로 걸어 두었고(그 계약은 실재한다 — 픽셀락 캡처 라우트에 설정 계열은 SET-001뿐이지만),
  * 늘리는 것을 Alert 본문으로 좁히면 그 계약을 깨지 않고도 필요한 말을 다 할 수 있다.
+ *
+ * 라운드 96 T6: 경로 표기("설정 > 데이터 내보내기")는 개발자의 문법이라 자연어로 옮겼다 —
+ * 문장이 가리키는 자리·버튼·목적지는 그대로다(export-flow.test.ts의 앵커도 같은 커밋에서 갱신).
  */
-const EXPORT_BEFORE_DELETE_NOTICE = "필요하면 먼저 설정 > 데이터 내보내기로 기록을 저장해 주세요.";
+const EXPORT_BEFORE_DELETE_NOTICE = "필요하면 먼저 설정의 데이터 내보내기에서 기록을 저장해 주세요.";
 /** 그 문장이 가리키는 자리로 가는 Alert 버튼. 문구는 이 화면이 시키는 행동 그대로다. */
 const EXPORT_BEFORE_DELETE_ACTION_LABEL = "내보내기";
 /** 내보내기 카드가 있는 화면(설정). 이 화면의 부모라 뒤로 가면 그대로 돌아온다. */
@@ -742,17 +748,16 @@ export default function PrivacySettingsScreen() {
           onBack={() => router.back()}
         />
 
-        {privacy.isLoading ? (
-          <Card>
-            <Text style={mutedTextStyle}>불러오는 중이에요...</Text>
-          </Card>
-        ) : null}
+        {/* 라운드 96 T6: 텍스트 로딩 카드 → 스켈레톤, 조회 실패 카드 → T1의 LoadErrorCard
+            한 벌(문구·재시도 라벨은 종전과 같은 단일 소스 — useLoadErrorCopy). */}
+        {privacy.isLoading ? <SkeletonCard /> : null}
 
         {privacy.isError ? (
-          <Card style={{ gap: 10 }}>
-            <Text style={{ color: theme.colors.danger }}>{privacyLoadErrorCopy.title}</Text>
-            <SecondaryButton label={privacyLoadErrorCopy.actionLabel} onPress={() => privacy.refetch()} />
-          </Card>
+          <LoadErrorCard
+            message={privacyLoadErrorCopy.title}
+            retryLabel={privacyLoadErrorCopy.actionLabel}
+            onRetry={() => privacy.refetch()}
+          />
         ) : null}
 
         {showConsentCard ? (
@@ -785,7 +790,7 @@ export default function PrivacySettingsScreen() {
               <View style={{ gap: 8 }}>
                 <Text style={mutedTextStyle}>{CONSENT_REQUIRED_NOTICE}</Text>
                 <SecondaryButton
-                  label={reconsent.isPending ? "저장하는 중..." : CONSENT_REQUIRED_ACTION_LABEL}
+                  label={reconsent.isPending ? "저장하는 중" : CONSENT_REQUIRED_ACTION_LABEL}
                   disabled={!authToken || reconsent.isPending}
                   onPress={() => reconsent.mutate()}
                 />
@@ -833,7 +838,7 @@ export default function PrivacySettingsScreen() {
               가구 탈퇴 카드의 같은 자리와 짝이다 -- 한 화면의 파괴적 카드가 같은 규율로 대상을 말한다. */}
           {childDeleteNotice ? <Text style={mutedTextStyle}>{childDeleteNotice}</Text> : null}
           <SecondaryButton
-            label={childPreview.isPending ? "확인하는 중..." : flowCopy.child_profile_delete.previewLabel}
+            label={childPreview.isPending ? "확인하는 중" : flowCopy.child_profile_delete.previewLabel}
             disabled={!authToken || !childId || childPreview.isPending}
             onPress={() => childPreview.mutate()}
           />
@@ -843,7 +848,7 @@ export default function PrivacySettingsScreen() {
           <PreviewSummary preview={childPreview.data} />
           {childPreview.data ? (
             <DangerButton
-              label={childDelete.isPending ? "삭제하는 중..." : flowCopy.child_profile_delete.confirmLabel}
+              label={childDelete.isPending ? "삭제하는 중" : flowCopy.child_profile_delete.confirmLabel}
               disabled={childDelete.isPending}
               onPress={confirmChildDelete}
             />
@@ -862,7 +867,7 @@ export default function PrivacySettingsScreen() {
           {/* 라운드 60 A: 다가구 계정에서만 나타나는 대상 표기(어느 가구를 나가는지). */}
           {householdLeaveNotice ? <Text style={mutedTextStyle}>{householdLeaveNotice}</Text> : null}
           <SecondaryButton
-            label={householdPreview.isPending ? "확인하는 중..." : flowCopy.household_leave.previewLabel}
+            label={householdPreview.isPending ? "확인하는 중" : flowCopy.household_leave.previewLabel}
             disabled={!authToken || !householdId || householdPreview.isPending}
             onPress={() => householdPreview.mutate()}
           />
@@ -872,7 +877,7 @@ export default function PrivacySettingsScreen() {
           <PreviewSummary preview={householdPreview.data} />
           {householdPreview.data ? (
             <DangerButton
-              label={householdLeave.isPending ? "나가는 중..." : flowCopy.household_leave.confirmLabel}
+              label={householdLeave.isPending ? "나가는 중" : flowCopy.household_leave.confirmLabel}
               disabled={householdLeave.isPending}
               onPress={confirmHouseholdLeaveAction}
             />
@@ -890,7 +895,7 @@ export default function PrivacySettingsScreen() {
           <Text style={mutedTextStyle}>{flowCopy.account_delete.description}</Text>
           <Text style={mutedTextStyle}>{ACCOUNT_DELETE_REJOIN_NOTICE}</Text>
           <SecondaryButton
-            label={accountPreview.isPending ? "확인하는 중..." : flowCopy.account_delete.previewLabel}
+            label={accountPreview.isPending ? "확인하는 중" : flowCopy.account_delete.previewLabel}
             disabled={!authToken || accountPreview.isPending}
             onPress={() => accountPreview.mutate()}
           />
@@ -900,7 +905,7 @@ export default function PrivacySettingsScreen() {
           <PreviewSummary preview={accountPreview.data} />
           {accountPreview.data ? (
             <DangerButton
-              label={accountDelete.isPending ? "삭제하는 중..." : flowCopy.account_delete.confirmLabel}
+              label={accountDelete.isPending ? "삭제하는 중" : flowCopy.account_delete.confirmLabel}
               disabled={accountDelete.isPending}
               onPress={confirmAccountDelete}
             />

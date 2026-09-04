@@ -259,8 +259,9 @@ export default function AppLockSettingsScreen() {
         {/* 라운드 71 트랙 E: 문구는 종전 그대로이고 **목적지 하나**가 더해진다 — 이 카드는
             "로그인 후 이용할 수 있어요"라고 말하면서 로그인으로 가는 길을 주지 않았고, [확인]은
             눌러도 아무 일도 일어나지 않는 가짜 버튼이었다(컴포넌트 타입이 그것을 허용했다). */}
+        {/* 라운드 96 T6: 버튼 글자가 목적지를 말한다("확인" → "로그인하기"). */}
         {!hasSession ? (
-          <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" onPress={() => router.push("/login")} />
+          <EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="로그인하기" onPress={() => router.push("/login")} />
         ) : null}
 
         {hasSession ? (
@@ -277,9 +278,11 @@ export default function AppLockSettingsScreen() {
             </View>
             {/* 이 잠금이 막는 것과 막지 못하는 것. 잠금 화면과 같은 한 문장을 쓴다. */}
             <Text style={rowSubtitleStyle}>{APP_LOCK_SCOPE_NOTICE}</Text>
+            {/* 라운드 96 T6: "같으면"은 무엇과 같은지 문장 안에 없다 — "안 되면"이 상황을
+                그대로 말한다(다시 시작해도 읽지 못하면). */}
             {recordStatus === "unreadable" ? (
               <Text style={errorTextStyle}>
-                저장된 잠금 정보를 읽지 못했어요. 앱을 다시 시작해도 같으면 로그아웃한 뒤 다시 로그인해 주세요.
+                저장된 잠금 정보를 읽지 못했어요. 앱을 다시 시작해도 안 되면 로그아웃한 뒤 다시 로그인해 주세요.
               </Text>
             ) : null}
             {done ? (

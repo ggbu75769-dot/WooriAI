@@ -46,8 +46,17 @@ import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
 import { AppScreen, Card, ListRow, ScreenHeader } from "../../src/ui";
+// 라운드 96 T6: 요약 값의 로딩은 글자("불러오는 중...")가 아니라 실루엣이다 — 홈·예산·가족
+// 화면이 이미 쓰는 D6 스켈레톤과 같은 한 벌(값 자리 한 줄 크기라 프리셋 대신 원시형을 쓴다).
+import { Skeleton } from "../../src/ui/Skeleton";
 
-const summaryLoadingText = "불러오는 중...";
+/**
+ * 라운드 96 T6 — **요약 값의 로딩 갈래는 문자열이 아니다.**
+ *
+ * 종전에는 `"불러오는 중..."` 리터럴이 값 자리에 섰다. 이제 로딩은 `null`로 떨어지고 렌더가
+ * 그 자리에 인라인 Skeleton을 세운다 — 진행 상태를 말줄임표로 흉내 내지 않는다(같은 라운드가
+ * 걷는 privacy의 "확인하는 중..." 일곱 자리와 같은 규율).
+ */
 const summaryUnavailableText = "불러오지 못했어요";
 /**
  * 라운드 72 트랙 B(GAP-072 #2) — 요약 줄의 **오프라인 갈래**.
@@ -70,7 +79,7 @@ const summaryUnavailableText = "불러오지 못했어요";
 const summaryOfflineText = OFFLINE_LOAD_NOTICE.slice(0, OFFLINE_LOAD_NOTICE.indexOf(".") + 1);
 // 리뷰 F7: 로그아웃해도 selectedChildId는 기기에 남는다(clearSelectedChild를 부르지 않는 경로 존재).
 // 그 상태에서는 ["children"] 쿼리가 enabled:false라 영원히 로딩도, 실패도 아니므로 요약 줄이
-// "불러오는 중..."에 붙박인다 -- 세션이 없다는 사실을 그대로 말한다.
+// 로딩 실루엣(라운드 96 T6 전에는 "불러오는 중..." 리터럴)에 붙박인다 -- 세션이 없다는 사실을 그대로 말한다.
 const summarySignedOutText = "로그인이 필요해요";
 
 /**
@@ -100,6 +109,23 @@ function SettingsRowIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
  * `moreMenuRows`가 이미 그 자리에 있는 것과 같은 관례다.
  */
 const supportRows = buildSupportMenuRows();
+
+/**
+ * 라운드 96 T6 — **설정 목록의 4구획(순수 모듈 표).**
+ *
+ * 종전 SET-002는 성격이 다른 11행(아이 관리 ~ 로그아웃)이 한 평면 목록이었다 — "예산 수정" 바로
+ * 아래 "알림 설정"이 오는 식이다. 더보기 탭이 이미 같은 이유로 4분할 구획을 세웠고
+ * (src/settings/more-menu.ts의 `MORE_MENU_SECTIONS` — DSN-053 P2-D), 이 화면도 같은 문법을
+ * 따른다. 구획의 이름·순서는 렌더가 아니라 이 표가 정한다(모듈 상수 — 렌더마다 새 배열을
+ * 만들지 않는 supportRows와 같은 관례). 행의 문구·목적지·순서는 한 글자도 바뀌지 않는다 —
+ * 바뀌는 것은 사이에 서는 구획 제목 넷뿐이다.
+ */
+const settingsSectionTitles = {
+  family: "아이 · 가족",
+  spending: "지출 · 예산",
+  alerts: "알림 · 잠금",
+  data: "데이터 · 개인정보"
+} as const;
 
 export default function SettingsScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -161,7 +187,8 @@ export default function SettingsScreen() {
         ? `가족 ${members.data.members.length}명`
         : members.isError
           ? summaryErrorText
-          : summaryLoadingText;
+          : // 로딩은 문자열이 아니라 인라인 스켈레톤이다(렌더의 null 갈래 — 위 머리말).
+            null;
   const selectedChild = children.data?.children.find((child) => child.id === childId);
   const childSummary = !authToken
     ? summarySignedOutText
@@ -176,7 +203,7 @@ export default function SettingsScreen() {
           })}`
         : children.isError
           ? summaryErrorText
-          : summaryLoadingText;
+          : null;
   // ANA-102: opt-in analytics consent -- backed by the persisted zustand store that gates the
   // entire analytics client (src/analytics/flag.ts), so flipping this off immediately stops any
   // event from being queued or sent, and the choice survives app restarts.
@@ -244,110 +271,138 @@ export default function SettingsScreen() {
   return (
     <AppScreen>
       <View testID="screen-SET-001" style={{ gap: theme.spacing.section }}>
-        <ScreenHeader eyebrow="설정" title="설정" subtitle="계정과 가족 정보를 관리해요" onBack={() => router.back()} />
+        {/* 라운드 96 T6: eyebrow가 제목("설정")을 그대로 반복하던 자리 — 같은 낱말을 두 번 읽게
+            하던 몫을 걷는다(eyebrow는 선택 프롭이라 노드 자체가 서지 않는다). */}
+        <ScreenHeader title="설정" subtitle="계정과 가족 정보를 관리해요" onBack={() => router.back()} />
         <Card style={{ gap: 6 }}>
           <View style={summaryRowStyle}>
             <Text style={summaryLabelStyle}>현재 가구</Text>
-            <Text style={summaryValueStyle}>{householdSummary}</Text>
+            {householdSummary === null ? (
+              <Skeleton width={72} height={13} radius={6} />
+            ) : (
+              <Text style={summaryValueStyle}>{householdSummary}</Text>
+            )}
           </View>
           <View style={summaryRowStyle}>
             <Text style={summaryLabelStyle}>선택된 아이</Text>
-            <Text style={summaryValueStyle}>{childSummary}</Text>
+            {childSummary === null ? (
+              <Skeleton width={104} height={13} radius={6} />
+            ) : (
+              <Text style={summaryValueStyle}>{childSummary}</Text>
+            )}
           </View>
         </Card>
       </View>
 
-      <View testID="screen-SET-002" style={{ gap: theme.spacing.gap }}>
-        {/* MOB-118: 아이 목록 · 전환 · 편집 · 추가 (SET-005) */}
-        <ListRow
-          icon={<SettingsRowIcon name="person-circle-outline" />}
-          title="아이 관리"
-          subtitle="아이를 전환하거나 정보를 수정해요"
-          onPress={() => router.push("/settings/children")}
-        />
-        {/* NAV-121: "아이 · 가구 프로필"과 "가족 관리"가 둘 다 /family로 가던 중복 행을 하나로 합쳤다.
-            아이 정보는 위의 아이 관리(SET-005)가, 가구 구성·초대·멤버는 이 행이 담당한다. */}
-        <ListRow
-          icon={<SettingsRowIcon name="people-outline" />}
-          title="가족 관리"
-          subtitle="가구 프로필과 초대 · 멤버를 관리해요"
-          onPress={() => router.push("/family")}
-        />
-        <ListRow
-          icon={<SettingsRowIcon name="wallet-outline" />}
-          title="예산 수정"
-          subtitle="이번 달 예산을 조정해요"
-          onPress={() => router.push("/budget")}
-        />
-        {/* 라운드 55 트랙 C — 반복/고정 지출 관리 진입점(설계 §1.5).
-            입구는 **둘뿐**이다: 홈 리마인더 카드 하단의 텍스트 버튼과 이 행. 더보기 탭은 7행
-            고정이 SET-001 compact 기준의 근거라 건드리지 않는다(src/settings/more-menu.ts).
-            부제가 "자동으로 기록해요"라고 말하지 않는 것이 계약이다 -- 이 기능은 리마인더이지
-            자동 기록이 아니다(DNC-013). */}
-        <ListRow
-          icon={<SettingsRowIcon name="repeat-outline" />}
-          title={RECURRING_MANAGE_LABEL}
-          subtitle="매달 반복되는 지출을 등록해 두고 기록할 때 알려 줘요"
-          onPress={() => router.push("/expenses/recurring")}
-        />
-        {/* PUSH-116: 푸시 알림·기기별 수신 관리 (SET-006) */}
-        <ListRow
-          icon={<SettingsRowIcon name="notifications-circle-outline" />}
-          title="알림 설정"
-          subtitle="푸시 알림과 기기별 수신을 관리해요"
-          onPress={() => router.push("/settings/notifications")}
-        />
-        {/* 라운드 55 트랙 B/C — 앱 잠금(PIN) 진입점.
-            부제는 APP_LOCK_SCOPE_NOTICE보다 **크게 말하지 않는다**(수용 기준 11): 이 잠금이
-            막는 것은 "잠깐 빌려준 폰에서 곁눈질"뿐이고, 기기·계정 보호가 아니다. 범위 고지
-            전문과 생체 인증 미지원 사실은 잠금 설정 화면이 말한다. */}
-        <ListRow
-          icon={<SettingsRowIcon name="lock-closed-outline" />}
-          title={APP_LOCK_TITLE}
-          subtitle="PIN 4자리로 앱을 열 때 한 번 확인해요"
-          onPress={() => router.push("/settings/app-lock")}
-        />
-        <ListRow
-          icon={<SettingsRowIcon name="shield-checkmark-outline" />}
-          title="약관 및 개인정보"
-          subtitle="동의 내역과 삭제 · 탈퇴를 관리해요"
-          onPress={() => router.push("/settings/privacy")}
-        />
-        <ListRow
-          icon={<SettingsRowIcon name="download-outline" />}
-          title="데이터 가져오기"
-          subtitle="엑셀 파일로 지출을 가져와요"
-          onPress={() => router.push("/import")}
-        />
-        {/* EXP-106 / CLEAN-123(A3): 가져오기의 반대 방향. 세션이 없으면 더보기 탭과 같은
-            비활성 행 패턴(안내 문구 + onPress 없음)으로 이유를 밝힌다.
-            FIX/F5: 행 제목은 더보기 탭과 같은 EXPORT_MENU_TITLE 한 벌만 쓴다 -- 예전에는 여기만
-            "CSV 내보내기"로 인라인돼 있어 같은 기능이 화면마다 다른 이름으로 보였다. */}
-        <ListRow
-          icon={<SettingsRowIcon name="share-outline" />}
-          title={EXPORT_MENU_TITLE}
-          subtitle={
-            csvExport.canExport
-              ? csvExport.cardOpen
-                ? "내보낼 기간을 선택해요"
-                : "지출 기록을 CSV 파일로 내보내요"
-              : EXPORT_SIGNED_OUT_CAPTION
-          }
-          onPress={csvExport.canExport ? csvExport.toggleCard : undefined}
-        />
-        <ExpenseCsvExportCard controller={csvExport} />
-        <ExpenseCsvExportToast controller={csvExport} />
-        {/* 라운드 71 트랙 D(#4): 도움으로 가는 행. URL이 주입된 빌드에서만 선다 -- 목록이 비면
-            이 자리에는 노드가 하나도 생기지 않아 화면이 종전과 한 글자도 다르지 않다. */}
-        {supportRows.map((row) => (
+      {/* 라운드 96 T6: 평면 11행 → 4구획. 구획의 이름·순서는 위 순수 모듈 표
+          (settingsSectionTitles)가 정하고, 행의 문구·목적지·순서는 종전 그대로다. */}
+      <View testID="screen-SET-002" style={{ gap: theme.spacing.section }}>
+        <View style={{ gap: theme.spacing.gap }}>
+          <Text style={sectionTitleStyle}>{settingsSectionTitles.family}</Text>
+          {/* MOB-118: 아이 목록 · 전환 · 편집 · 추가 (SET-005) */}
           <ListRow
-            key={row.id}
-            icon={<SettingsRowIcon name={row.icon} />}
-            title={row.title}
-            subtitle={row.subtitle}
-            onPress={() => openSupportLink(row.url)}
+            icon={<SettingsRowIcon name="person-circle-outline" />}
+            title="아이 관리"
+            subtitle="아이를 전환하거나 정보를 수정해요"
+            onPress={() => router.push("/settings/children")}
           />
-        ))}
+          {/* NAV-121: "아이 · 가구 프로필"과 "가족 관리"가 둘 다 /family로 가던 중복 행을 하나로 합쳤다.
+              아이 정보는 위의 아이 관리(SET-005)가, 가구 구성·초대·멤버는 이 행이 담당한다. */}
+          <ListRow
+            icon={<SettingsRowIcon name="people-outline" />}
+            title="가족 관리"
+            subtitle="가구 프로필과 초대 · 멤버를 관리해요"
+            onPress={() => router.push("/family")}
+          />
+        </View>
+
+        <View style={{ gap: theme.spacing.gap }}>
+          <Text style={sectionTitleStyle}>{settingsSectionTitles.spending}</Text>
+          <ListRow
+            icon={<SettingsRowIcon name="wallet-outline" />}
+            title="예산 수정"
+            subtitle="이번 달 예산을 조정해요"
+            onPress={() => router.push("/budget")}
+          />
+          {/* 라운드 55 트랙 C — 반복/고정 지출 관리 진입점(설계 §1.5).
+              입구는 **둘뿐**이다: 홈 리마인더 카드 하단의 텍스트 버튼과 이 행. 더보기 탭은 7행
+              고정이 SET-001 compact 기준의 근거라 건드리지 않는다(src/settings/more-menu.ts).
+              부제가 "자동으로 기록해요"라고 말하지 않는 것이 계약이다 -- 이 기능은 리마인더이지
+              자동 기록이 아니다(DNC-013). */}
+          <ListRow
+            icon={<SettingsRowIcon name="repeat-outline" />}
+            title={RECURRING_MANAGE_LABEL}
+            subtitle="매달 반복되는 지출을 등록해 두고 기록할 때 알려 줘요"
+            onPress={() => router.push("/expenses/recurring")}
+          />
+        </View>
+
+        <View style={{ gap: theme.spacing.gap }}>
+          <Text style={sectionTitleStyle}>{settingsSectionTitles.alerts}</Text>
+          {/* PUSH-116: 푸시 알림·기기별 수신 관리 (SET-006) */}
+          <ListRow
+            icon={<SettingsRowIcon name="notifications-circle-outline" />}
+            title="알림 설정"
+            subtitle="푸시 알림과 기기별 수신을 관리해요"
+            onPress={() => router.push("/settings/notifications")}
+          />
+          {/* 라운드 55 트랙 B/C — 앱 잠금(PIN) 진입점.
+              부제는 APP_LOCK_SCOPE_NOTICE보다 **크게 말하지 않는다**(수용 기준 11): 이 잠금이
+              막는 것은 "잠깐 빌려준 폰에서 곁눈질"뿐이고, 기기·계정 보호가 아니다. 범위 고지
+              전문과 생체 인증 미지원 사실은 잠금 설정 화면이 말한다. */}
+          <ListRow
+            icon={<SettingsRowIcon name="lock-closed-outline" />}
+            title={APP_LOCK_TITLE}
+            subtitle="PIN 4자리로 앱을 열 때 한 번 확인해요"
+            onPress={() => router.push("/settings/app-lock")}
+          />
+        </View>
+
+        <View style={{ gap: theme.spacing.gap }}>
+          <Text style={sectionTitleStyle}>{settingsSectionTitles.data}</Text>
+          <ListRow
+            icon={<SettingsRowIcon name="shield-checkmark-outline" />}
+            title="약관 및 개인정보"
+            subtitle="동의 내역과 삭제 · 탈퇴를 관리해요"
+            onPress={() => router.push("/settings/privacy")}
+          />
+          <ListRow
+            icon={<SettingsRowIcon name="download-outline" />}
+            title="데이터 가져오기"
+            subtitle="엑셀 파일로 지출을 가져와요"
+            onPress={() => router.push("/import")}
+          />
+          {/* EXP-106 / CLEAN-123(A3): 가져오기의 반대 방향. 세션이 없으면 더보기 탭과 같은
+              비활성 행 패턴(안내 문구 + onPress 없음)으로 이유를 밝힌다.
+              FIX/F5: 행 제목은 더보기 탭과 같은 EXPORT_MENU_TITLE 한 벌만 쓴다 -- 예전에는 여기만
+              "CSV 내보내기"로 인라인돼 있어 같은 기능이 화면마다 다른 이름으로 보였다. */}
+          <ListRow
+            icon={<SettingsRowIcon name="share-outline" />}
+            title={EXPORT_MENU_TITLE}
+            subtitle={
+              csvExport.canExport
+                ? csvExport.cardOpen
+                  ? "내보낼 기간을 선택해요"
+                  : "지출 기록을 CSV 파일로 내보내요"
+                : EXPORT_SIGNED_OUT_CAPTION
+            }
+            onPress={csvExport.canExport ? csvExport.toggleCard : undefined}
+          />
+          <ExpenseCsvExportCard controller={csvExport} />
+          <ExpenseCsvExportToast controller={csvExport} />
+          {/* 라운드 71 트랙 D(#4): 도움으로 가는 행. URL이 주입된 빌드에서만 선다 -- 목록이 비면
+              이 자리에는 노드가 하나도 생기지 않아 화면이 종전과 한 글자도 다르지 않다. */}
+          {supportRows.map((row) => (
+            <ListRow
+              key={row.id}
+              icon={<SettingsRowIcon name={row.icon} />}
+              title={row.title}
+              subtitle={row.subtitle}
+              onPress={() => openSupportLink(row.url)}
+            />
+          ))}
+        </View>
+
         <Card style={consentRowStyle}>
           <View style={{ flex: 1, gap: 3, paddingRight: 12 }}>
             <Text style={consentTitleStyle}>통계 수집 동의(선택)</Text>
@@ -376,6 +431,13 @@ const summaryRowStyle = {
   alignItems: "center",
   flexDirection: "row",
   justifyContent: "space-between"
+} as const;
+
+// 라운드 96 T6: 구획 제목 — 알림 설정·정기 지출 화면의 섹션 제목과 같은 값(14/800/brown)이다.
+const sectionTitleStyle = {
+  color: theme.colors.brown,
+  fontSize: 14,
+  fontWeight: "800"
 } as const;
 
 const summaryLabelStyle = {
