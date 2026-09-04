@@ -48,7 +48,7 @@ import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
+import { announceForA11y, AppScreen, Card, EmptyStateCard, FamilyAvatarGroup, StatusBadge } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { FamilyPixelStyles } from "../../src/pixelLock/styles";
@@ -121,7 +121,9 @@ function FamilyInviteRow({
       accessibilityState={{ disabled: !onPress }}
       disabled={!onPress}
       onPress={onPress}
-      style={familyInviteRowStyle}
+      // T7: 눌림 피드백. disabled 행에서는 pressed가 서지 않으므로 비활성 행 렌더는 종전과 같고,
+      // 휴지 상태는 opacity 1이라 FAM-001 픽셀락 캡처도 불변이다.
+      style={({ pressed }) => [familyInviteRowStyle, pressed ? familyPressedRowFeedbackStyle : null]}
     >
       <Ionicons name={icon} size={familyInviteIconStyle.fontSize} color={familyInviteIconStyle.color} style={{ width: familyInviteIconStyle.width }} />
       <Text style={familyInviteTitleStyle}>{title}</Text>
@@ -256,6 +258,11 @@ export default function FamilyScreen() {
     mutationFn: (memberId: string) => removeHouseholdMember(authToken!, householdId!, memberId),
     onError: (error) => alertMutationFailure("remove_member", error),
     onSuccess: async () => {
+      // 라운드 96 T7: 파괴적 동작의 **성공**도 소리로 남는다. 실패는 C-05의 Alert이 말하는데
+      // 성공은 목록에서 행이 사라질 뿐이라, 스크린리더 사용자는 두 번 확인까지 하고도 실행
+      // 여부를 알 수 없었다. 이름은 붙이지 않는다 -- mutate에는 id만 실려 오고, 여기서 이름을
+      // 다시 찾으면 그 사이 갱신된 목록과 어긋난 이름을 읽을 수 있다.
+      announceForA11y("가족 구성원을 삭제했어요.");
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
     }
   });
@@ -275,6 +282,8 @@ export default function FamilyScreen() {
     mutationFn: (inviteId: string) => cancelHouseholdInvite(authToken!, householdId!, inviteId),
     onError: (error) => alertMutationFailure("cancel_invite", error),
     onSuccess: async () => {
+      // 라운드 96 T7: 구성원 삭제와 같은 이유의 성공 낭독(위 removeMember 주석 참고).
+      announceForA11y("초대를 취소했어요.");
       await queryClient.invalidateQueries({ queryKey: ["household-invites"] });
       await queryClient.invalidateQueries({ queryKey: ["household-members"] });
     }
@@ -481,7 +490,16 @@ export default function FamilyScreen() {
     <AppScreen>
       <View testID={familyReferenceScreenId} style={familyReferenceFrameStyle()}>
         <View style={familyHeaderRowStyle}>
-          <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={12} onPress={() => router.back()}>
+          {/* 라운드 96 T7: 이 화면의 인라인 Pressable 전부에 눌림 피드백(opacity)을 단다 --
+              공용 프리미티브(TextButton 0.6 · SecondaryButton 0.82)와 같은 축이고, 휴지 상태는
+              opacity 1이라 FAM-001 픽셀락 캡처는 한 픽셀도 바뀌지 않는다. */}
+          <Pressable
+            accessibilityLabel="뒤로가기"
+            accessibilityRole="button"
+            hitSlop={12}
+            onPress={() => router.back()}
+            style={familyPressedTextFeedback}
+          >
             <Text style={familyBackStyle}>‹</Text>
           </Pressable>
           <Text style={familyTitleStyle}>가족과 함께</Text>
@@ -498,6 +516,7 @@ export default function FamilyScreen() {
             accessibilityLabel={HOUSEHOLD_SCOPE_SWITCH_LABEL}
             hitSlop={8}
             onPress={openHouseholdSwitch}
+            style={familyPressedTextFeedback}
           >
             <Text style={familyHouseholdSwitchStyle}>{HOUSEHOLD_SCOPE_SWITCH_LABEL}</Text>
           </Pressable>
@@ -518,6 +537,7 @@ export default function FamilyScreen() {
             accessibilityHint={householdNotice ?? undefined}
             hitSlop={8}
             onPress={() => router.push(addChildScreenHref(switchedHouseholdId))}
+            style={familyPressedTextFeedback}
           >
             <Text style={familyHouseholdAddChildStyle}>{HOUSEHOLD_SCOPE_ADD_CHILD_LABEL}</Text>
           </Pressable>
@@ -534,6 +554,7 @@ export default function FamilyScreen() {
             accessibilityHint={householdNotice ?? undefined}
             hitSlop={8}
             onPress={() => router.push(leaveScreenHref(switchedHouseholdId))}
+            style={familyPressedTextFeedback}
           >
             <Text style={familyHouseholdLeaveStyle}>{HOUSEHOLD_SCOPE_LEAVE_LABEL}</Text>
           </Pressable>
@@ -551,7 +572,7 @@ export default function FamilyScreen() {
             accessibilityState={{ disabled: inviteLocked }}
             disabled={inviteLocked}
             onPress={inviteLocked ? undefined : openInvite}
-            style={familyPlusButtonStyle}
+            style={({ pressed }) => [familyPlusButtonStyle, pressed ? familyPressedRowFeedbackStyle : null]}
           >
             <Text style={inviteLocked ? familyPlusDisabledTextStyle : familyPlusTextStyle}>+</Text>
           </Pressable>
@@ -618,6 +639,7 @@ export default function FamilyScreen() {
                   disabled={removeMember.isPending}
                   onPress={() => confirmRemoveMember(member.id, member.displayName)}
                   hitSlop={8}
+                  style={familyPressedTextFeedback}
                 >
                   <Text style={familyMemberDeleteStyle}>삭제</Text>
                 </Pressable>
@@ -634,12 +656,18 @@ export default function FamilyScreen() {
             pendingInvites.isLoading ? (
               <SkeletonRow />
             ) : pendingInvites.data && pendingInvites.data.invites.length === 0 ? (
-              <Text style={familyPendingInviteMetaStyle}>대기 중인 초대가 없어요.</Text>
+              // 라운드 96 T7: 섹션 빈 상태도 카드 문법으로. 맨 텍스트 한 줄은 멤버 행 카드들
+              // 사이에서 행인지 각주인지 읽히지 않았다 -- 문구·스타일은 종전 그대로고 자리만
+              // 이 목록의 다른 상태(스켈레톤·pending 행)와 같은 카드가 된다.
+              <Card>
+                <Text style={familyPendingInviteMetaStyle}>대기 중인 초대가 없어요.</Text>
+              </Card>
             ) : pendingInvites.isError ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="대기 중인 초대 다시 불러오기"
                 onPress={() => pendingInvites.refetch()}
+                style={familyPressedTextFeedback}
               >
                 <Text style={familyInviteErrorStyle}>{pendingInviteLoadErrorText}</Text>
               </Pressable>
@@ -665,6 +693,7 @@ export default function FamilyScreen() {
                       disabled={cancelInvite.isPending}
                       onPress={() => confirmCancelInvite(invite.id, roleLabel)}
                       hitSlop={8}
+                      style={familyPressedTextFeedback}
                     >
                       <Text style={familyMemberDeleteStyle}>취소</Text>
                     </Pressable>
@@ -694,7 +723,7 @@ export default function FamilyScreen() {
           accessibilityState={{ disabled: inviteLocked }}
           disabled={inviteLocked}
           onPress={inviteLocked ? undefined : openInvite}
-          style={familyInviteButtonStyle}
+          style={({ pressed }) => [familyInviteButtonStyle, pressed ? familyPressedRowFeedbackStyle : null]}
         >
           <Text style={inviteLocked ? familyInviteButtonDisabledTextStyle : familyInviteButtonTextStyle}>가족 초대하기</Text>
         </Pressable>
@@ -703,6 +732,18 @@ export default function FamilyScreen() {
     </AppScreen>
   );
 }
+
+/**
+ * 라운드 96 T7: 인라인 Pressable 눌림 피드백 두 벌 -- 문자 링크·행 액션은 공용 TextButton과 같은
+ * 0.6, 카드형 행·버튼은 공용 SecondaryButton과 같은 0.82다. 휴지 상태는 opacity 1(= 종전과 동일)
+ * 이라 FAM-001 픽셀락의 비세션 캡처는 한 픽셀도 바뀌지 않고, 애니메이션이 아니라 상태 스타일이라
+ * reduce-motion과도 무관하다.
+ */
+const familyPressedTextFeedback = ({ pressed }: { pressed: boolean }) => ({ opacity: pressed ? 0.6 : 1 });
+
+const familyPressedRowFeedbackStyle = {
+  opacity: 0.82
+} as const;
 
 const familyHeaderRowStyle = {
   alignItems: "center",
