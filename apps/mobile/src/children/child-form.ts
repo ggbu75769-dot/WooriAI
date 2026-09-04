@@ -213,6 +213,33 @@ export function computeDateError(stageMode: string | null, rawValue: string): st
   return null;
 }
 
+/**
+ * T9(토스급 정비) — 온보딩 아이 정보 입력(ONB-002)의 **안심 문구**.
+ *
+ * 첫 실행에서 앱이 가장 먼저 요구하는 것이 아이의 태명·예정일/출생일인데, 그 값이 **어디까지
+ * 보이는지**(공개 범위)와 **되돌릴 수 있는지**(수정·삭제)를 화면 어디에서도 말하지 않았다 —
+ * 민감한 값을 요구하면서 그 값의 운명을 말하지 않으면 입력을 머뭇거리게 된다(신뢰 비용).
+ *
+ * ## 문장이 말하는 사실의 근거 (지어낸 약속 금지)
+ *  - **공개 범위**: 아이는 가구(household)에 속하고, 조회는 가구 구성원 세션에만 열린다
+ *    (서버의 children 스코프 — 앱에는 아이 정보를 밖에 내보내는 공개/소셜 기능이 없다).
+ *  - **수정**: 설정 > 아이 관리(SET-005)가 같은 폼(`validateChildForm`)으로 고친다.
+ *  - **삭제**: 설정 > 개인정보(app/settings/privacy.tsx)의 아이 삭제 흐름이 실재한다.
+ *    두 목적지가 다른 화면이라 문장은 경로를 "설정"까지만 말한다(더 좁히면 한쪽이 거짓이 된다).
+ *
+ * 화면(app/(onboarding)/child-profile.tsx)은 이 문장들을 그리기만 한다 — 온보딩 카피의 단일
+ * 소스는 이 모듈이다(DNC-018 해요체). 상수 목록은 모듈 내부에 두고 함수로 읽는다.
+ */
+const CHILD_PROFILE_REASSURANCE_NOTES: readonly string[] = [
+  "아이 정보는 함께 기록하는 가족에게만 보여요. 밖에 공개되지 않아요.",
+  "저장한 아이 정보는 설정에서 언제든지 바꾸거나 삭제할 수 있어요."
+];
+
+/** ONB-002가 입력 카드 아래에 그리는 안심 문구 두 줄(공개 범위 · 수정/삭제 가능). */
+export function childProfileReassuranceNotes(): readonly string[] {
+  return CHILD_PROFILE_REASSURANCE_NOTES;
+}
+
 export type ChildFormValues = {
   nickname: string;
   dateText: string;

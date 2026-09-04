@@ -113,3 +113,72 @@ describe("FAM-121A 초대 수락 여정 배선 (source contract -- 화면은 vit
     }
   });
 });
+
+/**
+ * 라운드 96 T7 — 가족 여정 다듬기 (source contract, 같은 source-grep 관례).
+ *
+ * 넷을 고정한다: ① 파괴적 동작(구성원 삭제·초대 취소)의 **성공**이 낭독된다(실패는 라운드 52
+ * C-05의 Alert이 이미 말한다 -- 성공은 행이 사라질 뿐이라 비시각 사용자에게 무음이었다),
+ * ② 초대 링크 안내는 두 문장이고 복구 절차는 가족 화면의 한 벌에 위임한다, ③ 수락 화면의
+ * 로딩은 텍스트 카드가 아니라 공용 스켈레톤이다(MOB-119 관례), ④ 진행 라벨에 말줄임표가 없다
+ * (수락 참여 버튼의 "참여하는 중..."은 invite-accept-messages.test.ts가 바이트로 물고 있어
+ * 이 라운드 무접촉이다).
+ */
+describe("라운드 96 T7 가족 여정 다듬기 (source contract)", () => {
+  const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+  const withoutComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+
+  it("구성원 삭제·초대 취소의 성공이 announceForA11y로 낭독된다", () => {
+    const familySource = source("app/family/index.tsx");
+    expect(familySource).toContain('announceForA11y("가족 구성원을 삭제했어요.");');
+    expect(familySource).toContain('announceForA11y("초대를 취소했어요.");');
+    // 실패 쪽 배선(C-05)은 그대로다 -- 성공 낭독이 그 자리를 대체하지 않는다.
+    expect(familySource).toContain('onError: (error) => alertMutationFailure("remove_member", error)');
+    expect(familySource).toContain('onError: (error) => alertMutationFailure("cancel_invite", error)');
+  });
+
+  it("초대 링크 안내는 두 문장이고, 복구 절차는 가족 화면의 안내 한 벌에 위임한다", () => {
+    const inviteSource = source("app/family/invite.tsx");
+    expect(inviteSource).toContain(
+      "이 링크는 지금 화면에서만 볼 수 있어요. 지금 공유하거나 길게 눌러 복사해 두세요."
+    );
+    // 복구 절차 문장이 이 화면에 되살아나면 가족 화면의 안내와 두 벌이 되어 갈릴 날이 온다.
+    expect(withoutComments(inviteSource)).not.toContain("잃어버리면");
+    expect(source("app/family/index.tsx")).toContain(
+      "보낸 링크는 보안을 위해 다시 볼 수 없어요. 링크를 잃어버렸다면 취소하고 새로 만들어 주세요."
+    );
+  });
+
+  it("수락 화면의 로딩은 공용 스켈레톤이다 (텍스트 로딩 카드 잔존 금지)", () => {
+    const acceptSource = source("app/family/accept/[token].tsx");
+    expect(acceptSource).toContain('import { SkeletonCard } from "../../../src/ui/Skeleton";');
+    expect(acceptSource).toContain("{invite.isLoading ? <SkeletonCard /> : null}");
+    expect(withoutComments(acceptSource)).not.toContain("불러오는 중이에요");
+  });
+
+  it("진행 라벨에 말줄임표가 없다 (invite 링크 생성·accept 재시도)", () => {
+    expect(source("app/family/invite.tsx")).toContain('invite.isPending ? "링크 만드는 중" : "초대 링크 만들기"');
+    expect(source("app/family/invite.tsx")).not.toContain('"링크 만드는 중..."');
+    expect(source("app/family/accept/[token].tsx")).toContain('isFinishingJoin ? "다시 시도하는 중" : "다시 시도"');
+    expect(source("app/family/accept/[token].tsx")).not.toContain('"다시 시도하는 중..."');
+  });
+
+  it("가족 화면의 대기 초대 빈 상태는 맨 텍스트가 아니라 카드다", () => {
+    const familySource = source("app/family/index.tsx");
+    expect(familySource).toContain(
+      "<Card>\n                <Text style={familyPendingInviteMetaStyle}>대기 중인 초대가 없어요.</Text>\n              </Card>"
+    );
+  });
+
+  it("가족 화면 인라인 Pressable에 눌림 피드백이 있고, 휴지 상태는 픽셀 불변(opacity 1)이다", () => {
+    const familySource = source("app/family/index.tsx");
+    expect(familySource).toContain(
+      "const familyPressedTextFeedback = ({ pressed }: { pressed: boolean }) => ({ opacity: pressed ? 0.6 : 1 });"
+    );
+    expect(familySource).toContain("familyPressedRowFeedbackStyle");
+    // 문자 링크·행 액션(뒤로가기 · 가구 전환/아이 추가/탈퇴 링크 · 삭제 · 취소 · 대기 초대 재시도).
+    expect(familySource.match(/style=\{familyPressedTextFeedback\}/g) ?? []).toHaveLength(7);
+    // 카드형 셋(+ 버튼 · 초대 행 · 아래 가족 초대하기 버튼).
+    expect(familySource.match(/pressed \? familyPressedRowFeedbackStyle : null/g) ?? []).toHaveLength(3);
+  });
+});

@@ -172,6 +172,79 @@ export function isCategoryMissingForSave({ hasSession, selectedCategoryId }: Cat
 }
 
 /**
+ * 라운드 96 T3 — 품목명을 적지 않은 채 저장을 눌렀을 때의 **사전** 안내(DNC-018 해요체).
+ *
+ * 종전에는 이 사실을 말하는 자리가 뮤테이션 가드(`!itemName.trim()` → INVALID_EXPENSE_INPUT_ERROR)
+ * 하나뿐이라, 사용자는 "금액과 항목을 확인해 주세요."라는 **사후 일반 오류**로만 답을 받았다 —
+ * 무엇이 비었는지 문장이 말하지 않는다. 분류 안내(CATEGORY_REQUIRED_NOTICE)와 같은 문법으로
+ * 저장을 누른 그 자리에서 비어 있는 칸의 이름을 말한다. 톤 규칙도 같다: 사용자를 탓하지 않고
+ * ("입력하지 않았습니다" 아님) 다음에 무슨 일이 일어나는지를 말한다.
+ */
+export const ITEM_NAME_REQUIRED_NOTICE = "품목명을 적어 주시면 바로 저장할게요";
+
+export type ItemNameSaveGuardInput = {
+  hasSession: boolean;
+  /** 품목명 입력칸의 현재 값. 공백만 있는 것은 빈 것으로 본다(hasQuickExpenseInput의 trim 관례). */
+  itemName: string;
+};
+
+/**
+ * 라운드 96 T3 — 저장을 눌렀을 때 품목명이 비었는가.
+ *
+ * 뮤테이션 가드(`!itemName.trim()`)와 **같은 판정**을 화면 안내가 먼저 지나가게 한다 — 판정이
+ * 화면 핸들러에만 있으면 가드와 안내가 서로 다른 조건으로 갈린다. 세션이 없는 프리뷰/픽셀 락
+ * 경로는 저장 자체가 없고 품목명도 고정 시드("기저귀")라 언제나 false다(EXP-001 캡처 불변).
+ */
+export function isItemNameMissingForSave({ hasSession, itemName }: ItemNameSaveGuardInput): boolean {
+  if (!hasSession) return false;
+  return itemName.trim().length === 0;
+}
+
+export type DefaultPaymentMethodInput = {
+  /** 실/테스트 세션이 있는가. 비세션(EXP-001 캡처)은 언제나 null → 종전 그대로 0(카드)이다. */
+  hasSession: boolean;
+  /**
+   * 진입점이 결제 수단을 함께 실어 왔는가(정기 지출 "기록하기" — record-row-actions.ts 파싱).
+   * 있으면 그쪽이 이긴다: 사용자가 방금 그 템플릿을 골라서 온 것이라 최근값 추정이 낄 자리가 없다.
+   */
+  prefilledPaymentMethod: string | null;
+  /**
+   * 통합 제안 원천(src/expenses/suggest-source.ts의 buildSuggestSourceRows 결과 — 로컬 최신순
+   * 먼저, 그다음 서버 최신순). 이 화면이 이미 손에 들고 있는 배열이라 **새 요청은 0건**이다.
+   * paymentMethod가 없는 행(엑셀 가져오기 등으로 결제 수단 없이 들어온 기록)은 건너뛴다.
+   */
+  rows: readonly { paymentMethod?: string | null }[];
+  /** 화면이 실제로 그릴 수 있는 값들(quickExpensePaymentMethods의 value). 서버 enum의 "unknown"은
+   * 여기 없으므로 자연히 걸러진다 — 모르는 값을 기본값으로 지어내지 않는다. */
+  knownValues: readonly string[];
+};
+
+/**
+ * 라운드 96 T3 — 결제 수단 기본값. **가장 최근에 적은 기록의 결제 수단**을 돌려준다.
+ *
+ * 종전에는 시트를 열 때마다 무조건 "카드"였다: 늘 현금으로 적는 사용자가 매번 세그먼트를 한 번
+ * 더 눌러야 했다(핵심 루프 1단계의 반복 마찰). 이 판정은 **제안**이지 확정이 아니다 — 사용자가
+ * 세그먼트를 누르면 그 값이 이기고, 저장 payload는 언제나 화면에 보이는 그 값이다(허위 표시 없음).
+ *
+ * null을 돌려주는 경우(모르면 지어내지 않는다): 비세션 · 프리필이 이미 정함 · 아는 값이 담긴
+ * 행이 하나도 없음. 그때 화면은 종전 그대로 0(카드)에서 시작한다.
+ */
+export function resolveDefaultPaymentMethod({
+  hasSession,
+  prefilledPaymentMethod,
+  rows,
+  knownValues
+}: DefaultPaymentMethodInput): string | null {
+  if (!hasSession) return null;
+  if (prefilledPaymentMethod !== null) return null;
+  for (const row of rows) {
+    const value = row.paymentMethod;
+    if (typeof value === "string" && knownValues.includes(value)) return value;
+  }
+  return null;
+}
+
+/**
  * GAP-054 #2 — 금액 상한 초과 안내 한 줄.
  *
  * 문구도 숫자도 `./amount-limit`에서 온다(지출 상세·예산 화면과 같은 문장이 나오도록). 여기서

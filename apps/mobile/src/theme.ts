@@ -1,4 +1,5 @@
 import type { CategoryCode } from "./categories";
+import { typography as designSystemTypography } from "./design-system/tokens/typography";
 
 // Round 5A D0 (docs/5차/round5a-design-spec.md §D0) -- coral scale/cream/text/semantic tokens.
 // Additive: legacy flat color keys below are kept (nothing deleted) and redirected onto these
@@ -152,16 +153,32 @@ export const theme = {
     card: 22,
     sheet: 28
   },
+  // T1(디자인 시스템) — 타이포 이중 체계의 **1단계 값 재지향**: 값이 이미 같은 키
+  // (headline1↔heading1 · body1↔body)는 src/design-system/tokens/typography.ts를 단일
+  // 소스로 읽는다. 값이 서로 다른 키(headline2/3·body2·caption)는 화면들이 그 수치의
+  // 픽셀락 캡처를 물고 있어 여기 남는다 — 합치는 것은 캡처 재대조를 부르는 2단계 몫이다.
   typography: {
-    headline1: { fontSize: 28, lineHeight: 36, fontWeight: "700" },
+    headline1: designSystemTypography.heading1,
     headline2: { fontSize: 22, lineHeight: 30, fontWeight: "700" },
     headline3: { fontSize: 18, lineHeight: 26, fontWeight: "600" },
-    body1: { fontSize: 15, lineHeight: 22, fontWeight: "400" },
+    body1: designSystemTypography.body,
     body2: { fontSize: 13, lineHeight: 20, fontWeight: "400" },
-    caption: { fontSize: 11, lineHeight: 16, fontWeight: "400" }
+    // ⚠️ 두 시점(토스 리뷰 H) — T1은 여기서 caption을 design-system caption(12/18)으로
+    // 재지향했는데, 그 재지향이 textStyles.caption 경로를 타고 픽셀락 비세션 캡처 3종
+    // (HOME-001·REP-001·ITEM-001)의 렌더를 승인 재대조 없이 움직였다(diff bbox 실측:
+    // HOME-001 (10,119,380,772) 등). 바로 위 규칙("값이 서로 다른 키는 캡처를 물고 있어
+    // 남는다")이 caption(11≠12)에도 그대로 적용돼야 하므로 11/16 리터럴로 되돌린다 —
+    // 12/18 채택은 headline2/3·body2와 같은 2단계(캡처 재대조 + 변경 요청 문서) 몫이다.
+    caption: { fontSize: 11, lineHeight: 16, fontWeight: "400" },
+    // 금액 타이포 3단 스케일. 값은 design-system의 amount 티어(전부 tabular-nums)가 단일
+    // 소스다 — 금액이 품목명보다 작게 그려지던 자리(공용 ListRow·히어로)가 이 티어를 쓴다.
+    amountLarge: designSystemTypography.amountLarge,
+    amountMedium: designSystemTypography.amountMedium,
+    amountRegular: designSystemTypography.amountRegular
   },
-  // (D0 money 3단 스케일은 유일 소비자였던 src/ui/MoneyText·ListRow가 DSN-053 P2에서
-  // 재삭제되며 함께 제거됐다 — 화면들은 각자 캡처 수치의 인라인 스타일을 쓴다.)
+  // (옛 D0 `theme.money` 3단 스케일은 유일 소비자였던 src/ui/MoneyText·ListRow가 DSN-053
+  // P2에서 재삭제되며 함께 제거됐다. 이번 T1의 `typography.amount*`는 그 부활이 아니라
+  // design-system amount 티어의 재지향이다 — 값의 단일 소스는 여전히 그쪽이다.)
   shadows: {
     card:
       typeof document !== "undefined"

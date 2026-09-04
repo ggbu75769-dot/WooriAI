@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { Animated, LayoutAnimation, Platform, Pressable, RefreshControl, StyleSheet, Text, UIManager, View, type TextStyle } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import { getBudget, getHome, listCategories, listChildren, listExpenses, LOCAL_SESSION_TOKEN, type Expense } from "../../src/api/client";
 import { buildTileCategoryIdResolver } from "../../src/categories";
@@ -26,6 +26,7 @@ import {
 import { useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
 import { evaluateBabyCounter, evaluateBirthTransitionPrompt } from "../../src/home/baby-counter";
 import { resolveThisMonthUsedKrw } from "../../src/home/budget-edit";
+import { evaluateBudgetPace } from "../../src/home/budget-pace";
 import { buildHomeBudgetNudge, evaluateHomeBudgetProgress } from "../../src/home/budget-progress";
 import { evaluateBudgetWarning } from "../../src/home/budget-warning";
 import {
@@ -62,6 +63,7 @@ import {
 } from "../../src/home/cumulative-total";
 import {
   homeMoreSectionsLabel,
+  homeSectionDisplayName,
   planHomeSections,
   resolveHomePrepCard,
   HOME_MORE_SECTIONS_TEST_ID,
@@ -108,6 +110,7 @@ import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
+  AmountCountUpText,
   AppScreen,
   Card,
   EmptyStateCard,
@@ -120,6 +123,8 @@ import {
   TextButton
 } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
+import { useReducedMotion } from "../../src/ui/useReducedMotion";
+import { motion } from "../../src/design-system/tokens/motion";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
 import { HomePixelStyles } from "../../src/pixelLock/styles/HomePixelStyles";
@@ -192,6 +197,43 @@ function QuickActionIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
   return <Ionicons name={name} size={20} color={theme.colors.brown} />;
 }
 
+// TOSS-T2 — 홈 "더 보기" 펼침/접힘이 스냅하지 않도록 LayoutAnimation을 쓴다. 구 아키텍처
+// 안드로이드는 명시적으로 켜야 동작한다(새 아키텍처·iOS에서는 no-op). 파일 로드 시 1회.
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+/**
+ * TOSS-T2 — 세션 홈의 인라인 Pressable press 피드백. 공용 킷(src/ui.tsx)의 버튼들은 전부
+ * `opacity: pressed ? 0.6~0.86 : 1`을 갖는데, 이 화면이 직접 그리는 Pressable들만 눌러도
+ * 아무 반응이 없었다. 값은 킷의 카드형 프레스(0.76~0.86) 범위에서 하나로 통일한다.
+ * 휴지 상태(누르지 않음)에는 아무 스타일도 더하지 않으므로 렌더는 종전과 픽셀 단위로 같다.
+ */
+const homePressedStyle = { opacity: 0.76 } as const;
+
+/** 히어로는 화면에서 가장 큰 면이라 카드형 프레스보다 옅게 눌린다(킷 상단 0.86과 같은 값). */
+const homeHeroPressedStyle = { opacity: 0.86 } as const;
+
+/** TOSS-T2 — 예산 경고 배너·히어로 metaRow의 공통 액션 문구(목적지는 /budget 하나다). */
+const HOME_BUDGET_ADJUST_LABEL = "예산 조정하기";
+
+/**
+ * TOSS-T2 [P0] — 세션 홈 헤더의 프로필 진입 버튼 라벨. 세션에서는 하단 탭에 더보기가 없어
+ * (DNC-003: 탭 넷 + `href: null`) 이 버튼이 프로필(/(tabs)/more) → 설정 세계로 가는 유일한
+ * 입구다. 그 화면의 세션 제목("프로필")과 같은 낱말을 쓴다 — 같은 화면의 두 이름을 만들지
+ * 않는다(비세션 미리보기의 "더보기" 퀵액션은 HOME-001 픽셀락이라 종전 그대로다).
+ */
+const HOME_PROFILE_ENTRY_LABEL = "프로필";
+
+/*
+ * TOSS-T2 — 히어로 금액 카운트업.
+ * ⚠️ 두 시점(토스 리뷰 M): 종전에는 이 자리에 공용 AmountCountUpText(src/ui.tsx)와 effect
+ * 본문이 사실상 동일한 사적 사본(HomeHeroAmount)이 서 있었다 — "승인 캡처의 자체 골격이라
+ * 규칙만 같은 모양으로 든다"는 이유였지만, 골격(homeHeroStyle)과 카운트업 로직은 별개라
+ * 스타일 주입으로 충분하다. 이제 공용 컴포넌트를 직접 소비한다(reduce-motion·최종값 낭독
+ * 규칙은 그 컴포넌트가 단일 소스로 진다).
+ */
+
 const homeBudgetNudgeStyle = StyleSheet.create({
   card: {
     alignItems: "center",
@@ -236,6 +278,17 @@ const homeBudgetNudgeStyle = StyleSheet.create({
 // brand semantic tokens (theme.colors.warning / theme.colors.danger); the meaning itself is
 // always carried by the banner text, never by color alone.
 const homeBudgetWarningStyle = StyleSheet.create({
+  // TOSS-T2: 경고의 다음 행동(/budget) 한 줄. 소형 코랄 텍스트는 coral[700]만 쓴다(A11Y-117).
+  action: {
+    alignSelf: "flex-start",
+    justifyContent: "center",
+    minHeight: theme.touchTarget
+  },
+  actionLabel: {
+    color: theme.colors.coral[700],
+    fontSize: 13,
+    fontWeight: "700"
+  },
   banner: {
     alignItems: "center",
     backgroundColor: theme.colors.white,
@@ -243,8 +296,8 @@ const homeBudgetWarningStyle = StyleSheet.create({
     borderRadius: 14,
     flexDirection: "row",
     gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12
+    paddingHorizontal: 16,
+    paddingVertical: 14
   },
   bannerApproaching: {
     borderLeftColor: theme.colors.warning
@@ -278,8 +331,8 @@ const homeLastMonthInsightStyle = StyleSheet.create({
     borderRadius: 14,
     flexDirection: "row",
     gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12
+    paddingHorizontal: 16,
+    paddingVertical: 14
   },
   glyph: {
     color: theme.colors.gray600,
@@ -289,8 +342,50 @@ const homeLastMonthInsightStyle = StyleSheet.create({
   text: {
     color: theme.colors.brown,
     flex: 1,
-    fontSize: 13,
-    lineHeight: 20
+    fontSize: 14,
+    lineHeight: 21
+  }
+});
+
+/**
+ * 기능 라운드 1 트랙 A — 월말 예상 지출(예산 페이스) 카드.
+ *
+ * 주간 요약·지난달 대비와 **같은 흰 카드 골격**(글리프 + 본문)을 쓴다 — 새 카드 문법을 만들면
+ * 캡처의 리듬이 흔들린다(라운드 55 트랙 C가 같은 이유로 같은 골격을 골랐다). 눌러서 데려갈
+ * 화면을 약속하지 않으므로 화살표·CTA를 달지 않는다(라운드 48 B2 누적 카드와 같은 판단).
+ * 뜻은 전부 문장이 지고(색상 단독 전달 금지) 앞의 글리프는 장식이라 접근성 트리에서 감춘다.
+ * 판정·문구는 순수 모듈이 만든다(src/home/budget-pace.ts — 추정 문구·초과/안 갈래 포함).
+ */
+const homeBudgetPaceStyle = StyleSheet.create({
+  body: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingLeft: 24
+  },
+  card: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 14,
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 14
+  },
+  glyph: {
+    color: theme.colors.gray600,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  row: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10
+  },
+  title: {
+    color: theme.colors.brown,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 21
   }
 });
 
@@ -327,7 +422,11 @@ function homeSessionCanvasStyle() {
     flexGrow: 1,
     gap: theme.spacing.card,
     margin: -theme.spacing.screen,
-    padding: theme.spacing.screen
+    padding: theme.spacing.screen,
+    // TOSS-T2: FAB가 AppScreen floatingAction 슬롯으로 화면 하단에 떠 있게 되면서(스크롤과
+    // 무관하게 고정) 스크롤 끝의 마지막 줄(동기화 바)이 버튼에 가려지지 않도록 그 높이만큼
+    // 바닥 여백을 더 준다(ctaHeight 56 + 여유 8).
+    paddingBottom: theme.spacing.screen + theme.ctaHeight + 8
   } as const;
   if (!isPixelLockCalibration) return canvas;
   return {
@@ -394,7 +493,8 @@ const homeHeaderStyle = StyleSheet.create({
 });
 
 /**
- * 히어로 1장: bg mainCoral · radius 22 · padding 16 · 라벨 12/700 · 금액 27/800 · 트랙 coral[200]
+ * 히어로 1장: bg mainCoral · radius 22 · padding 16 · 라벨 12/700 · 금액 amountLarge(32/38
+ * tabular-nums — TOSS-T2, 캡처 이식값 27/800에서 금액 타이포 티어로 격상) · 트랙 coral[200]
  * h8에 흰 채움.
  *
  * 배경은 캡처 이식 때 subCoral(coral[500] #E85F3B)이었는데, 그 위의 흰 소형 텍스트(라벨 12/700,
@@ -411,10 +511,12 @@ const homeHeaderStyle = StyleSheet.create({
  * 있는 유일한 입구라 카드 다이어트로 사라지면 안 된다.
  */
 const homeHeroStyle = StyleSheet.create({
+  // TOSS-T2: 캡처 이식값 27/800 → 금액 타이포 티어 채택(theme.typography.amountLarge = 32/38/700
+  // tabular-nums). 홈에서 가장 중요한 숫자가 지출 입력 화면의 금액(28px)보다 작았고, 자릿수가
+  // 바뀔 때 폭이 흔들렸다. 새 수치를 짓지 않고 design-system 티어를 그대로 읽는다(T1 단일 소스).
   amount: {
-    color: theme.colors.white,
-    fontSize: 27,
-    fontWeight: "800"
+    ...(theme.typography.amountLarge as TextStyle),
+    color: theme.colors.white
   },
   card: {
     backgroundColor: theme.colors.mainCoral,
@@ -442,7 +544,10 @@ const homeHeroStyle = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
-    justifyContent: "space-between"
+    justifyContent: "space-between",
+    // 토스 리뷰 H 후속: 히어로 밖 형제 버튼이 되며 신설 타깃 기준(48dp)을 채운다 — 종전에는
+    // 히어로 안 중첩 Pressable로 렌더 높이 15px(hitSlop 포함 31px)였다.
+    minHeight: theme.touchTarget
   },
   metaStrong: {
     color: theme.colors.white,
@@ -473,6 +578,10 @@ const homeHeroStyle = StyleSheet.create({
     color: theme.colors.white,
     fontSize: 13,
     fontWeight: "800"
+  },
+  // 토스 리뷰 H 후속: 히어로 상단(라벨+금액)의 터치 영역 — 카드의 gap 리듬(8)을 그대로 쓴다.
+  summaryArea: {
+    gap: 8
   },
   track: {
     backgroundColor: theme.colors.coral[200],
@@ -555,7 +664,7 @@ const homeRecentStyle = StyleSheet.create({
   },
   moreLabel: {
     color: theme.colors.coral[700],
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700"
   },
   section: {
@@ -581,7 +690,7 @@ const homeMoreSectionsStyle = StyleSheet.create({
   },
   label: {
     color: theme.colors.coral[700],
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700"
   }
 });
@@ -634,8 +743,8 @@ const homeWeeklySummaryStyle = StyleSheet.create({
     backgroundColor: theme.colors.white,
     borderRadius: 14,
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 12
+    paddingHorizontal: 16,
+    paddingVertical: 14
   },
   glyph: {
     color: theme.colors.gray600,
@@ -656,8 +765,8 @@ const homeWeeklySummaryStyle = StyleSheet.create({
   text: {
     color: theme.colors.brown,
     flex: 1,
-    fontSize: 13,
-    lineHeight: 20
+    fontSize: 14,
+    lineHeight: 21
   }
 });
 
@@ -674,8 +783,8 @@ const homeCumulativeTotalStyle = StyleSheet.create({
     backgroundColor: theme.colors.white,
     borderRadius: 14,
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 12
+    paddingHorizontal: 16,
+    paddingVertical: 14
   },
   glyph: {
     color: theme.colors.coral[700],
@@ -696,9 +805,9 @@ const homeCumulativeTotalStyle = StyleSheet.create({
   title: {
     color: theme.colors.brown,
     flex: 1,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
-    lineHeight: 20
+    lineHeight: 21
   }
 });
 
@@ -717,8 +826,8 @@ const homeRecurringReminderStyle = StyleSheet.create({
     backgroundColor: theme.colors.white,
     borderRadius: 14,
     gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12
+    paddingHorizontal: 16,
+    paddingVertical: 14
   },
   glyph: {
     color: theme.colors.coral[700],
@@ -737,12 +846,12 @@ const homeRecurringReminderStyle = StyleSheet.create({
   },
   manageLabel: {
     color: theme.colors.coral[700],
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700"
   },
   recordAction: {
     color: theme.colors.coral[700],
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700"
   },
   row: {
@@ -764,7 +873,7 @@ const homeRecurringReminderStyle = StyleSheet.create({
   },
   skipAction: {
     color: theme.colors.gray600,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "700"
   },
   skipButton: {
@@ -775,9 +884,9 @@ const homeRecurringReminderStyle = StyleSheet.create({
   title: {
     color: theme.colors.brown,
     flex: 1,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
-    lineHeight: 20
+    lineHeight: 21
   }
 });
 
@@ -791,8 +900,8 @@ const homeMilestoneStyle = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     minHeight: 64,
-    paddingHorizontal: 14,
-    paddingVertical: 12
+    paddingHorizontal: 16,
+    paddingVertical: 14
   },
   copy: {
     flex: 1,
@@ -800,9 +909,9 @@ const homeMilestoneStyle = StyleSheet.create({
   },
   cta: {
     color: theme.colors.coral[700],
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "700",
-    lineHeight: 16
+    lineHeight: 18
   },
   icon: {
     color: theme.colors.coral[700],
@@ -868,8 +977,8 @@ const homeFirstRecordCelebrationStyle = StyleSheet.create({
     borderRadius: 14,
     flexDirection: "row",
     gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12
+    paddingHorizontal: 16,
+    paddingVertical: 14
   },
   body: {
     color: theme.colors.gray600,
@@ -912,8 +1021,8 @@ const homePendingSyncNoticeStyle = StyleSheet.create({
     borderRadius: 14,
     flexDirection: "row",
     gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12
+    paddingHorizontal: 16,
+    paddingVertical: 14
   },
   text: {
     color: theme.colors.gray600,
@@ -1177,7 +1286,40 @@ export default function HomeScreen() {
   // 홈으로 돌아오는 순간 그 전이가 실제로 관찰된다.
   const observeFirstRecord = useFirstRecordCelebrationStore((state) => state.observe);
   const celebrationChildId = useFirstRecordCelebrationStore((state) => state.activeChildId);
-  const dismissFirstRecordCelebration = useFirstRecordCelebrationStore((state) => state.dismiss);
+  const dismissFirstRecordCelebrationNow = useFirstRecordCelebrationStore((state) => state.dismiss);
+  /**
+   * TOSS-T2 — 홈 모션 훅 묶음. 조기 반환(로딩·에러·아이 대기)보다 **위**에 선다(FIX-A 규율:
+   * 훅 수는 렌더마다 같아야 한다). reduce-motion이면 세 모션(펼침 LayoutAnimation · 축하 스프링
+   * 등장/페이드 해제 · 히어로 카운트업) 전부 즉시 전환으로 떨어진다.
+   */
+  const reduceMotionEnabled = useReducedMotion();
+  // 축하 배너의 등장(스프링)·해제(페이드) 진행값. 배너가 없으면 0으로 되감아 다음 등장이 다시
+  // 스프링을 탄다. 표시 판정 자체는 종전과 한 글자도 다르지 않다(아래 showFirstRecordCelebration).
+  const showFirstRecordCelebration = hasSession && Boolean(childId) && celebrationChildId === childId;
+  const celebrationProgress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!showFirstRecordCelebration) {
+      celebrationProgress.stopAnimation();
+      celebrationProgress.setValue(0);
+      return;
+    }
+    if (reduceMotionEnabled) {
+      celebrationProgress.stopAnimation();
+      celebrationProgress.setValue(1);
+      return;
+    }
+    Animated.spring(celebrationProgress, { friction: 7, tension: 90, toValue: 1, useNativeDriver: true }).start();
+  }, [celebrationProgress, reduceMotionEnabled, showFirstRecordCelebration]);
+  // 닫기는 페이드가 끝난 뒤 스토어를 지운다 -- reduce-motion이면 종전처럼 즉시 사라진다.
+  const dismissFirstRecordCelebration = () => {
+    if (reduceMotionEnabled) {
+      dismissFirstRecordCelebrationNow();
+      return;
+    }
+    Animated.timing(celebrationProgress, { duration: motion.fastMs, toValue: 0, useNativeDriver: true }).start(() =>
+      dismissFirstRecordCelebrationNow()
+    );
+  };
   // 라운드 35 F3 → 36 F2: 세션 이력 래치는 이제 **축하 배너 재발화 방지 전용**이다. 이 값을
   // 화면 표시(안내 카드 · 최근 지출 섹션)까지 쓰면 래치가 거짓으로 돌아가지 않는 성질 때문에
   // "기록 1건 → 그 한 건 삭제" 뒤에 홈이 앱 재시작 전까지 기록이 있다고 믿고, 섹션은 접힌 채
@@ -1348,6 +1490,12 @@ export default function HomeScreen() {
   // DSN-053 P2-A: 히어로 아래 카드는 우선순위 상위 1~2장만 펼쳐 두고 나머지는 이 상태로 접는다.
   // 접힘은 **렌더만**이다 -- 판정 훅·데이터·알림 평가는 종전 그대로 전부 돈다(기능 무손실).
   const [sectionsExpanded, setSectionsExpanded] = useState(false);
+  // TOSS-T2: 펼침/접힘이 스냅하지 않게 다음 레이아웃 전이 하나를 보간한다. reduce-motion이면
+  // 종전 그대로 즉시 전환이다(LayoutAnimation은 이 탭 한 번의 전이에만 적용된다).
+  const toggleSectionsExpanded = () => {
+    if (!reduceMotionEnabled) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSectionsExpanded((expanded) => !expanded);
+  };
   // HOME-138: 아이 전환은 아이 관리 화면과 **같은 경로**(applyChildSwitch)로만 일어난다.
   // 여기서 스토어 쓰기·캐시 무효화를 손으로 다시 적으면 한쪽이 무효화를 빠뜨렸을 때 아이 A의
   // 홈/기록/리포트 캐시가 아이 B 화면에 그대로 남는다(라운드 28의 A→B 캐시 오염).
@@ -1449,9 +1597,9 @@ export default function HomeScreen() {
         {/* 라운드 38 H-9: 실패 카드 **위에** 전환 입구를 남긴다. 아이 이름은 이미 받아 둔
             ["children"] 캐시에서 오므로(실패한 것은 ["home"]이다) 새 요청도, 확인한 적 없는
             사실도 없다. 카운터·부제는 홈 데이터가 있어야 만들 수 있어 여기서는 그리지 않는다. */}
-        {canSwitchChild ? (
-          <View style={homeChildSwitchStyle.header}>
-            <View style={homeChildSwitchStyle.copy}>
+        <View style={homeChildSwitchStyle.header}>
+          <View style={homeChildSwitchStyle.copy}>
+            {canSwitchChild ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={childSwitchTriggerAccessibilityLabel(childSwitchHeaderText)}
@@ -1462,9 +1610,22 @@ export default function HomeScreen() {
               >
                 <Text style={homeChildSwitchStyle.title}>{childSwitchHeaderText}</Text>
               </Pressable>
-            </View>
+            ) : null}
           </View>
-        ) : null}
+          {/* TOSS-T2 [P0]: 실패 화면에서도 프로필(/(tabs)/more → 설정 세계) 입구가 남는다 --
+              세션 탭바에 더보기가 없으므로(DNC-003) 이 버튼이 없으면 홈이 실패한 동안 로그아웃
+              ·설정에 닿을 길이 없다. 정상 세션 헤더의 버튼과 같은 라벨·같은 목적지다. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={HOME_PROFILE_ENTRY_LABEL}
+            hitSlop={4}
+            onPress={() => router.push("/(tabs)/more")}
+            testID="home-profile-entry"
+            style={({ pressed }) => [homeHeaderStyle.bellSlot, pressed && homePressedStyle]}
+          >
+            <Ionicons accessible={false} name="person-circle-outline" size={26} color={theme.colors.gray600} />
+          </Pressable>
+        </View>
         {childSwitchSheet}
         <EmptyStateCard
           title={loadErrorCopy.title}
@@ -1588,6 +1749,21 @@ export default function HomeScreen() {
   // HOME-BUDGET-113: session-gated like NOTI-102 so the logged-out preview stays inert.
   // usedAmountKrw is the gift-excluded month total (DNC-015), see budget-warning.ts.
   const budgetWarning = hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null;
+  // 기능 라운드 1 트랙 A — 월말 예상(예산 페이스). 입력은 경고 배너와 **같은 한 값**이다:
+  // 예산은 monthly.amountKrw, 사용액은 오프라인 대기 행까지 재조정한 monthlyUsed(라운드 51 #7).
+  // 다른 모집단으로 예측하면 배너와 이 카드가 서로 다른 현재를 외삽하게 된다. 표시 규칙(예산
+  // 있는 달만 · 경과 3일 미만 숨김 · 이미 100% 도달 숨김 · 이번 달 아니면 숨김 · 천원 반올림)은
+  // 전부 순수 모듈이 판정한다(src/home/budget-pace.ts). **신규 쿼리 0** — 전부 이미 있는 값이다.
+  // 세션 게이트: 비세션 미리보기(previewHome)는 HOME-001 픽셀락 캡처의 원본이라 이 카드가
+  // 애초에 없다(모듈도 yearMonth 불일치로 null을 내지만, 게이트를 명시해 흔들릴 여지를 없앤다).
+  const budgetPace = hasSession
+    ? evaluateBudgetPace({
+        yearMonth: visibleHome.monthly.yearMonth,
+        budgetKrw: budget,
+        spentKrw: monthlyUsed,
+        todayIso: seoulToday
+      })
+    : null;
   // REP-121: 세션이 있을 때만 계산한다 -- 비세션 픽셀락 미리보기(previewHome)에는 지난달 데이터가
   // 없으므로 한 줄이 아예 렌더되지 않고, 미리보기 스크린샷은 기존과 동일하게 유지된다. 지난달에
   // 기록이 없는 첫 달 사용자도 순수 모듈이 null을 돌려줘 렌더되지 않는다.
@@ -1663,7 +1839,7 @@ export default function HomeScreen() {
     hasAnyExpenseRecord,
     guideVariant: firstRunGuide?.variant ?? null
   });
-  const showFirstRecordCelebration = hasSession && Boolean(childId) && celebrationChildId === childId;
+  // (TOSS-T2: showFirstRecordCelebration 선언은 축하 모션 훅과 함께 조기 반환 위로 올라갔다.)
   // UX-A: 아래 세 가지는 전부 세션이 있을 때만 계산한다 -- 비세션 픽셀락 미리보기(previewHome)에는
   // 아이의 실제 날짜도 지출 행도 없으므로 아무것도 렌더되지 않고, HOME-001 캡처는 종전 그대로다
   // (REP-121 한 줄과 같은 관례). 셋 다 순수 모듈이 null을 돌려주면 그 자리는 비어 있는다.
@@ -1801,16 +1977,35 @@ export default function HomeScreen() {
   // 라운드 55 트랙 C: 정기 지출 리마인더도 예외 없이 같은 순위표(3위)를 지난다 -- 상한 2장 안에서
   // 예산 경고·첫 실행 안내와 경쟁하고, 밀리면 "더 보기" 뒤로 접힌다(수용 기준 7).
   if (recurringReminder) activeSections.push("recurring-reminder");
+  // 기능 라운드 1 트랙 A: 월말 예상 카드도 예외 없이 같은 순위표(4위)를 지난다 -- 상한 2장
+  // 안에서 사실 카드들과 경쟁하고, 밀리면 "더 보기" 뒤로 접힌다.
+  if (budgetPace) activeSections.push("budget-pace");
   if (milestoneCountdown) activeSections.push("milestone");
   if (weeklySummary) activeSections.push("weekly-summary");
-  // 예산이 없는 달의 넛지는 카드가 아니라 **히어로 안**에 들어간다(홈의 유일한 예산 입구라
-  // 접히면 안 된다). 그래서 카드 후보가 되는 것은 예산이 있는 달의 사용률 넛지뿐이다.
-  if (budgetProgress.hasBudget) activeSections.push("budget-nudge");
+  // TOSS-T2 — 예산 사용률 넛지 카드는 **은퇴**했다: 히어로가 같은 퍼센트·진행바를 이미 말하고
+  // (80% 이상이면 경고 배너까지) 카드의 유일한 기능(눌러서 기록 탭)은 히어로 Pressable이
+  // 이어받았다. 예산이 없는 달의 넛지는 종전처럼 **히어로 안**에 산다(홈의 유일한 예산 입구라
+  // 접히면 안 된다 -- HOME-127). 은퇴 근거는 src/home/home-section-priority.ts 헤더.
   if (lastMonthInsight) activeSections.push("last-month");
   if (cumulativeTotal) activeSections.push("cumulative-total");
-  const sectionPlan = planHomeSections({ active: activeSections });
+  const sectionPlan = planHomeSections({
+    active: activeSections,
+    // TOSS-T2: 시한 임박(D-7 이내) 마일스톤은 순위표를 앞선다 -- 임박 판정은 카드의 순수 모듈이
+    // 했고(milestone-countdown.ts `boosted`) 화면은 그 값을 흘리기만 한다.
+    boosts: milestoneCountdown?.boosted ? ["milestone"] : [],
+    // TOSS-T2: 경고 배너(사실)가 서 있는 동안 월말 예상(추정)은 펼침 자리를 양보한다 --
+    // 80~99% 구간의 예산 3중 발화(히어로 % + 배너 + 페이스)를 배너 하나로 줄인다. 기능은
+    // 그대로다: "더 보기"를 펼치면 예전 그대로 나온다.
+    demotions: budgetWarning ? ["budget-pace"] : []
+  });
   const collapsedSectionCount = sectionPlan.collapsed.length;
-  const renderedSections = sectionsExpanded ? sectionPlan.entries.map((entry) => entry.id) : sectionPlan.visible;
+  // TOSS-T2: 펼쳐도 상위 카드 자리는 그대로다 -- 잔여분은 핵심 루프 구획(칩 · 준비 현황 · 최근
+  // 기록)을 밀어내지 않도록 최근 기록 **아래**에 선다(아래 overflowSections 렌더).
+  const renderedSections = sectionPlan.visible;
+  const overflowSections = sectionsExpanded ? sectionPlan.collapsed : [];
+  // "더 보기"가 무엇을 접었는지 예고한다 -- 접힌 것 중 최상위 카드의 이름(순수 모듈의 표).
+  const collapsedTopSectionName =
+    sectionPlan.collapsed.length > 0 ? homeSectionDisplayName(sectionPlan.collapsed[0]) : null;
   /**
    * 캡처 ③ "빠른 기록" 칩 4개. 고정 문자열을 새로 만들지 않고 지출 기록 화면의 최근 품목
    * 계산(EXP-113 `buildRecentItemChips`)을 그대로 재사용한다 -- 새 요청 0건이다(이미 구독 중인
@@ -1885,6 +2080,19 @@ export default function HomeScreen() {
             <View style={homeBudgetWarningStyle.copy}>
               <Text style={homeBudgetWarningStyle.title}>{budgetWarning.title}</Text>
               <Text style={homeBudgetWarningStyle.body}>{budgetWarning.body}</Text>
+              {/* TOSS-T2: 경고가 막다른 길로 끝나지 않게 한다 -- "남은 예산을 확인해 보세요"가
+                  권하는 그 행동을 할 수 있는 화면(/budget)으로 가는 액션 하나. 문구와 목적지가
+                  같은 곳을 가리킨다(라운드 41 UX-T(B)의 규칙). */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={HOME_BUDGET_ADJUST_LABEL}
+                hitSlop={8}
+                testID="home-budget-warning-adjust"
+                onPress={() => router.push("/budget")}
+                style={({ pressed }) => [homeBudgetWarningStyle.action, pressed && homePressedStyle]}
+              >
+                <Text style={homeBudgetWarningStyle.actionLabel}>{HOME_BUDGET_ADJUST_LABEL} ›</Text>
+              </Pressable>
             </View>
           </View>
         ) : null;
@@ -1957,7 +2165,7 @@ export default function HomeScreen() {
                     if (!params) return;
                     router.push({ pathname: "/expenses/new", params });
                   })}
-                  style={homeRecurringReminderStyle.rowMain}
+                  style={({ pressed }) => [homeRecurringReminderStyle.rowMain, pressed && homePressedStyle]}
                 >
                   <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flex: 1 }}>
                     <KoreanText style={homeRecurringReminderStyle.rowLabel}>{row.label}</KoreanText>
@@ -1973,7 +2181,7 @@ export default function HomeScreen() {
                   testID={`home-recurring-skip-${row.template.id}`}
                   // 지출을 만들지 않는다 -- 이번 달 목록에서만 뺀다(DNC-013 · 수용 기준 6).
                   onPress={() => skipRecurringThisMonth(row.template.id, recurringReminder.yearMonth)}
-                  style={homeRecurringReminderStyle.skipButton}
+                  style={({ pressed }) => [homeRecurringReminderStyle.skipButton, pressed && homePressedStyle]}
                 >
                   <Text accessible={false} style={homeRecurringReminderStyle.skipAction}>
                     {RECURRING_SKIP_ACTION_LABEL}
@@ -1987,10 +2195,39 @@ export default function HomeScreen() {
               accessibilityLabel={RECURRING_MANAGE_LABEL}
               testID="home-recurring-manage"
               onPress={() => router.push("/expenses/recurring")}
-              style={homeRecurringReminderStyle.manageButton}
+              style={({ pressed }) => [homeRecurringReminderStyle.manageButton, pressed && homePressedStyle]}
             >
               <Text style={homeRecurringReminderStyle.manageLabel}>{RECURRING_MANAGE_LABEL}</Text>
             </Pressable>
+          </View>
+        ) : null;
+      case "budget-pace":
+        return budgetPace ? (
+          /**
+           * 기능 라운드 1 트랙 A — 월말 예상 지출(예산 페이스) 카드.
+           *
+           * `accessibilityRole="alert"`를 쓰지 않는다: 추정 한 줄은 닫으면 끝나는 일시적 알림이
+           * 아니라 이번 달 내내 서 있는 관측이다. alert + liveRegion은 예산 경고 배너 전용이다
+           * (라운드 55 트랙 C 정기 지출 카드와 같은 판단). 문구·낭독 라벨은 전부 순수 모듈이
+           * 만든 값이고(추정임을 문장이 직접 말한다), 화면은 한 글자도 만들지 않는다.
+           */
+          <View
+            key={id}
+            accessible
+            accessibilityLabel={budgetPace.accessibilityLabel}
+            testID="home-budget-pace"
+            style={[homeBudgetPaceStyle.card, theme.shadows.card]}
+          >
+            <View style={homeBudgetPaceStyle.row}>
+              <Ionicons
+                accessible={false}
+                name="trending-up-outline"
+                size={homeBudgetPaceStyle.glyph.fontSize}
+                color={homeBudgetPaceStyle.glyph.color}
+              />
+              <Text style={homeBudgetPaceStyle.title}>{budgetPace.title}</Text>
+            </View>
+            <Text style={homeBudgetPaceStyle.body}>{budgetPace.body}</Text>
           </View>
         ) : null;
       case "milestone":
@@ -2002,6 +2239,7 @@ export default function HomeScreen() {
             accessibilityLabel={milestoneCountdown.accessibilityLabel}
             testID="home-milestone-countdown"
             onPress={() => router.push("/(tabs)/reports")}
+            style={({ pressed }) => (pressed ? homePressedStyle : null)}
           >
             <Card style={homeMilestoneStyle.card}>
               <View style={homeMilestoneStyle.iconBox}>
@@ -2056,35 +2294,9 @@ export default function HomeScreen() {
             <Text style={homeWeeklySummaryStyle.streak}>{weeklySummary.streakText}</Text>
           </View>
         ) : null;
-      case "budget-nudge":
-        return (
-          <Pressable
-            key={id}
-            accessibilityRole="button"
-            accessibilityLabel={`${budgetNudge.title} ${budgetNudge.subtitle}`}
-            testID="home-budget-nudge"
-            onPress={() => router.push(budgetNudge.route)}
-          >
-            <Card style={homeBudgetNudgeStyle.card}>
-              <View style={homeBudgetNudgeStyle.iconBox}>
-                <Ionicons
-                  name="wallet-outline"
-                  size={homeBudgetNudgeStyle.icon.fontSize}
-                  color={homeBudgetNudgeStyle.icon.color}
-                />
-              </View>
-              <View style={homeBudgetNudgeStyle.copy}>
-                <Text style={homeBudgetNudgeStyle.title}>{budgetNudge.title}</Text>
-                <Text style={homeBudgetNudgeStyle.subtitle}>{budgetNudge.subtitle}</Text>
-              </View>
-              <View accessible={false} style={homeBudgetNudgeArrowStyle.button}>
-                <Text accessible={false} style={homeBudgetNudgeArrowStyle.glyph}>
-                  ›
-                </Text>
-              </View>
-            </Card>
-          </Pressable>
-        );
+      // TOSS-T2: "budget-nudge"(사용률 넛지 카드) case는 은퇴 -- 히어로가 같은 사실을 말하고
+      // 같은 목적지(기록 탭)로 데려간다. 비세션 미리보기의 넛지 카드(HOME-001 픽셀락)와 예산
+      // 미설정 히어로 넛지는 종전 그대로 buildHomeBudgetNudge를 읽는다.
       case "last-month":
         return lastMonthInsight ? (
           <View
@@ -2249,7 +2461,15 @@ export default function HomeScreen() {
   // NOTI-102: 알림 벨은 헤더 오른쪽 48 슬롯에 그대로 산다(미확인 배지 포함).
   // ==============================================================================================
   return (
-    <AppScreen refreshControl={refreshControl}>
+    // 라운드 35 F2: FAB는 유지한다. 이건 빈 홈 전용 CTA가 아니라 **전역 관례**로, 기록이 쌓인
+    // 뒤에도 같은 자리에서 같은 일을 하는 유일한 상수다. TOSS-T2: 그 상수가 드디어 실제로
+    // 떠 있는다 -- 스크롤 콘텐츠의 마지막 줄이 아니라 AppScreen의 floatingAction 슬롯(T1)으로
+    // 화면 하단에 고정된다. 목적지·게이트(expenseGate.guard)는 한 글자도 다르지 않다.
+    // 비세션 미리보기(HOME-001 픽셀락)는 종전처럼 콘텐츠 끝에 그린다.
+    <AppScreen
+      refreshControl={refreshControl}
+      floatingAction={<FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />}
+    >
       <View testID="pixel-screen-HOME-001" style={[{ flexGrow: 1 }, homePixelScaleFrameStyle()]}>
         <View style={homeSessionCanvasStyle()}>
           {/* ① 헤더 -- 아이 원형 아이콘 + 닉네임 + 단계 + "아이 전환⌄" / 오른쪽 알림 벨.
@@ -2270,7 +2490,7 @@ export default function HomeScreen() {
                 hitSlop={8}
                 onPress={childSwitch.toggle}
                 testID="home-child-switch-trigger"
-                style={homeHeaderStyle.child}
+                style={({ pressed }) => [homeHeaderStyle.child, pressed && homePressedStyle]}
               >
                 <AppIcon color={theme.colors.subCoral} name="account-child-circle" size={34} />
                 <View style={homeHeaderStyle.copy}>
@@ -2295,6 +2515,20 @@ export default function HomeScreen() {
             <View style={homeHeaderStyle.bellSlot}>
               <NotificationBell />
             </View>
+            {/* TOSS-T2 [P0] -- 프로필 진입 버튼. 세션 탭바에는 더보기 탭이 없어(DNC-003: 탭 넷 +
+                `href: null`) 이 버튼이 프로필 화면(/(tabs)/more)과 그 너머 설정 세계(알림 설정 ·
+                통계 동의 · 로그아웃)로 가는 세션 홈의 유일한 입구다. 이름은 그 화면의 세션
+                제목과 같은 "프로필"로 통일한다(비세션 미리보기의 "더보기" 퀵액션은 픽셀락 불변). */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={HOME_PROFILE_ENTRY_LABEL}
+              hitSlop={4}
+              onPress={() => router.push("/(tabs)/more")}
+              testID="home-profile-entry"
+              style={({ pressed }) => [homeHeaderStyle.bellSlot, pressed && homePressedStyle]}
+            >
+              <Ionicons accessible={false} name="person-circle-outline" size={26} color={theme.colors.gray600} />
+            </Pressable>
           </View>
 
           {/* UX-A 아기 카운터: 예전에는 이 문장이 홈의 제목이었지만, 캡처의 제목 자리는 닉네임
@@ -2325,26 +2559,53 @@ export default function HomeScreen() {
           {childSwitchSheet}
 
           {/* ② 히어로 1장 -- 캡처 134-153. 금액은 오프라인 대기 행까지 재조정한 `monthlyUsed`다
-              (라운드 51 #7: 히어로·진행바·경고·넛지가 같은 한 값을 읽는다). */}
-          <View
-            accessible
-            accessibilityLabel={
-              budgetProgress.hasBudget
-                ? `이번 달 우리 아이 비용 ${formatKrw(monthlyUsed)}, 예산 사용률 ${progress}퍼센트`
-                : `이번 달 우리 아이 비용 ${formatKrw(monthlyUsed)}`
-            }
-            accessibilityRole="summary"
-            testID="home-hero-summary"
-            style={homeHeroStyle.card}
-          >
-            <KoreanText style={homeHeroStyle.label}>이번 달 우리 아이 비용</KoreanText>
-            <Text style={homeHeroStyle.amount}>{formatKrw(monthlyUsed)}</Text>
+              (라운드 51 #7: 히어로·진행바·경고·넛지가 같은 한 값을 읽는다).
+
+              TOSS-T2: 카드 상단(라벨+금액)이 눌린다 -- 은퇴한 사용률 넛지 카드의 유일한 기능
+              (기록 탭 이동)을 이 숫자의 근거 화면으로 가는 탭 하나로 이어받는다. 금액은
+              카운트업(공용 AmountCountUpText, reduce-motion 즉시 대입)이고, 낭독 라벨은 언제나
+              최종값이라 종전 문장 그대로다.
+
+              ⚠️ 두 시점(토스 리뷰 H) — 종전에는 카드 전체가 `accessible` role="button" Pressable
+              이었고 예산 줄·넛지 Pressable이 그 **안에** 중첩돼 있었다: 웹에서 <button> 중첩
+              콘솔 에러가 났고, 네이티브에서는 accessible 평탄화 때문에 TalkBack/VoiceOver가
+              내부 "예산 조정하기"·예산 넛지에 도달할 수 없었다(터치 타깃도 15px). 이제 카드는
+              평범한 View이고 그 안에 **형제** 터치 영역들이 선다 -- 상단(기록 탭)·예산 줄
+              (/budget, minHeight 48)·넛지가 각각 보조기술에 잡힌다. */}
+          <View style={homeHeroStyle.card}>
+            <Pressable
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={
+                budgetProgress.hasBudget
+                  ? `이번 달 우리 아이 비용 ${formatKrw(monthlyUsed)}, 예산 사용률 ${progress}퍼센트`
+                  : `이번 달 우리 아이 비용 ${formatKrw(monthlyUsed)}`
+              }
+              accessibilityHint="두 번 탭하면 이번 달 기록 목록이 열려요"
+              testID="home-hero-summary"
+              onPress={() => router.push("/(tabs)/records")}
+              style={({ pressed }) => [homeHeroStyle.summaryArea, pressed && homeHeroPressedStyle]}
+            >
+              <KoreanText style={homeHeroStyle.label}>이번 달 우리 아이 비용</KoreanText>
+              <AmountCountUpText amountKrw={monthlyUsed} style={homeHeroStyle.amount} />
+            </Pressable>
             {budgetProgress.hasBudget ? (
               <>
-                <View style={homeHeroStyle.metaRow}>
+                {/* TOSS-T2: 예산 줄은 따로 눌린다 -- "남은 예산 N원 · 예산 M원"이 막다른 길로
+                    끝나지 않게 예산 편집(/budget)으로 간다(경고 배너의 액션과 같은 문구·목적지).
+                    토스 리뷰 H 후속: 형제 노드가 되며 이 라운드의 신설 타깃 기준(minHeight 48)을
+                    함께 채운다 -- 경고 배너 액션과 같은 값이다. */}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${HOME_BUDGET_ADJUST_LABEL}. ${budgetProgress.subtext}`}
+                  hitSlop={8}
+                  testID="home-hero-budget-adjust"
+                  onPress={() => router.push("/budget")}
+                  style={({ pressed }) => [homeHeroStyle.metaRow, pressed && homePressedStyle]}
+                >
                   <KoreanText style={homeHeroStyle.meta}>{budgetProgress.subtext}</KoreanText>
                   <Text style={homeHeroStyle.metaStrong}>{progress}%</Text>
-                </View>
+                </Pressable>
                 <View
                   accessibilityLabel={`예산 사용률 ${progress}퍼센트`}
                   accessibilityRole="progressbar"
@@ -2363,7 +2624,7 @@ export default function HomeScreen() {
                 accessibilityLabel={`${budgetNudge.title} ${budgetNudge.subtitle}`}
                 testID="home-set-budget-cta"
                 onPress={() => router.push(budgetNudge.route)}
-                style={homeHeroStyle.nudge}
+                style={({ pressed }) => [homeHeroStyle.nudge, pressed && homePressedStyle]}
               >
                 <View style={{ flex: 1, gap: 2 }}>
                   <KoreanText style={homeHeroStyle.nudgeTitle}>{budgetNudge.title}</KoreanText>
@@ -2380,6 +2641,19 @@ export default function HomeScreen() {
             // UX-G: 첫 기록이 막 쌓인 순간. 히어로 카드 **바로 아래**에 붙어 "여기"가 어디인지
             // 가리킨다. 한 세션에 한 번 뜨고 닫으면 끝나는 일시적 알림이라 카드 다이어트의
             // 우선순위 판정에 넣지 않는다(스펙의 "일시적 예외"와 같은 취급).
+            //
+            // TOSS-T2: 등장은 스프링(아래에서 살짝 떠오르며), 닫기는 페이드다 -- 진행값과
+            // reduce-motion 즉시 대입 규칙은 위 celebrationProgress 훅 블록에 있다. 낭독·문구·
+            // 판정은 종전과 한 글자도 다르지 않다(움직임만 더한다).
+            <Animated.View
+              style={{
+                opacity: celebrationProgress,
+                transform: [
+                  { translateY: celebrationProgress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) },
+                  { scale: celebrationProgress.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }) }
+                ]
+              }}
+            >
             <View
               accessibilityRole="alert"
               accessibilityLiveRegion="polite"
@@ -2399,27 +2673,30 @@ export default function HomeScreen() {
                 accessibilityLabel={FIRST_RECORD_CELEBRATION_DISMISS_LABEL}
                 hitSlop={12}
                 onPress={dismissFirstRecordCelebration}
+                style={({ pressed }) => (pressed ? homePressedStyle : null)}
               >
                 <Text style={homeFirstRecordCelebrationStyle.dismiss}>{FIRST_RECORD_CELEBRATION_DISMISS_LABEL}</Text>
               </Pressable>
             </View>
+            </Animated.View>
           ) : null}
 
-          {/* 우선순위 상위 카드(기본 2장). 나머지는 아래 "더 보기"로 펼친다 -- 판정은 값이다. */}
+          {/* 우선순위 상위 카드(기본 2장). 나머지는 "더 보기"로 펼친다 -- 판정은 값이다.
+              TOSS-T2: 펼친 잔여분은 이 자리가 아니라 최근 기록 **아래**에 선다(핵심 루프 구획을
+              밀어내지 않는다). 그래서 이 버튼은 접힌 상태에서만 여기 서고, 펼친 상태의 "카드
+              접기"는 잔여분 끝에 선다 -- 문구는 접힌 것 중 최상위 카드의 이름을 예고한다. */}
           {renderedSections.map((sectionId) => renderHomeSection(sectionId))}
-          {collapsedSectionCount > 0 ? (
+          {collapsedSectionCount > 0 && !sectionsExpanded ? (
             <Pressable
               accessibilityRole="button"
               accessibilityState={{ expanded: sectionsExpanded }}
-              accessibilityLabel={
-                sectionsExpanded ? HOME_SECTIONS_COLLAPSE_LABEL : homeMoreSectionsLabel(collapsedSectionCount)
-              }
+              accessibilityLabel={homeMoreSectionsLabel(collapsedSectionCount, collapsedTopSectionName)}
               testID={HOME_MORE_SECTIONS_TEST_ID}
-              onPress={() => setSectionsExpanded((expanded) => !expanded)}
-              style={homeMoreSectionsStyle.button}
+              onPress={toggleSectionsExpanded}
+              style={({ pressed }) => [homeMoreSectionsStyle.button, pressed && homePressedStyle]}
             >
               <KoreanText style={homeMoreSectionsStyle.label}>
-                {sectionsExpanded ? HOME_SECTIONS_COLLAPSE_LABEL : homeMoreSectionsLabel(collapsedSectionCount)}
+                {homeMoreSectionsLabel(collapsedSectionCount, collapsedTopSectionName)}
               </KoreanText>
             </Pressable>
           ) : null}
@@ -2444,7 +2721,7 @@ export default function HomeScreen() {
                     }
                     router.push("/expenses/new");
                   })}
-                  style={homeQuickRecordStyle.chip}
+                  style={({ pressed }) => [homeQuickRecordStyle.chip, pressed && homePressedStyle]}
                 >
                   <KoreanText style={homeQuickRecordStyle.label}>{chip.label}</KoreanText>
                 </Pressable>
@@ -2476,7 +2753,7 @@ export default function HomeScreen() {
                   if (prepCard.source === "first-run-guide") dismissItemsGuide(childId);
                   router.push(prepCard.route);
                 }}
-                style={homePrepCardStyle.cta}
+                style={({ pressed }) => [homePrepCardStyle.cta, pressed && homePressedStyle]}
               >
                 <KoreanText style={homePrepCardStyle.ctaLabel}>{prepCard.ctaLabel}</KoreanText>
               </Pressable>
@@ -2503,7 +2780,10 @@ export default function HomeScreen() {
                   accessibilityLabel="최근 기록 전체 보기"
                   hitSlop={12}
                   onPress={() => router.push("/(tabs)/records")}
-                  style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget }}
+                  style={({ pressed }) => [
+                    { alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget },
+                    pressed && homePressedStyle
+                  ]}
                 >
                   <KoreanText style={homeRecentStyle.moreLabel}>전체 보기</KoreanText>
                 </Pressable>
@@ -2562,12 +2842,27 @@ export default function HomeScreen() {
             </View>
           ) : null}
 
+          {/* TOSS-T2: "더 보기"로 펼친 잔여 카드. 핵심 루프 구획(칩 · 준비 현황 · 최근 기록)을
+              밀어내지 않도록 최근 기록 아래에 서고, 접는 버튼이 그 끝에 함께 선다. 카드의 내용·
+              순서(순위표)는 종전 펼침과 동일하다 -- 자리만 옮겼다. */}
+          {overflowSections.length > 0 ? (
+            <>
+              {overflowSections.map((sectionId) => renderHomeSection(sectionId))}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: sectionsExpanded }}
+                accessibilityLabel={HOME_SECTIONS_COLLAPSE_LABEL}
+                testID={HOME_MORE_SECTIONS_TEST_ID}
+                onPress={toggleSectionsExpanded}
+                style={({ pressed }) => [homeMoreSectionsStyle.button, pressed && homePressedStyle]}
+              >
+                <KoreanText style={homeMoreSectionsStyle.label}>{HOME_SECTIONS_COLLAPSE_LABEL}</KoreanText>
+              </Pressable>
+            </>
+          ) : null}
+
           {/* 최하단 동기화 줄(스펙 §통합 지점). 눌러서 동기화 상태 화면으로 간다. */}
           <SyncStatusBar onPress={() => router.push("/sync-status")} status={homeSyncStatus} />
-
-          {/* 라운드 35 F2: FAB는 유지한다. 이건 빈 홈 전용 CTA가 아니라 **전역 관례**로,
-              기록이 쌓인 뒤에도 같은 자리에서 같은 일을 하는 유일한 상수다. */}
-          <FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />
         </View>
       </View>
     </AppScreen>

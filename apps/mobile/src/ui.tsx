@@ -1,13 +1,15 @@
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
-import { AccessibilityInfo, Image, Pressable, ScrollView, Text, View } from "react-native";
+import { AccessibilityInfo, Animated, Image, Pressable, ScrollView, Text, View } from "react-native";
+import { motion } from "./design-system/tokens/motion";
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { formatKrw } from "./money";
 import { computeCategoryShares } from "./reports/category-share";
 import type { CategoryShareSlice } from "./reports/category-share";
 import type { TrendPointLabels } from "./reports/trend-point-labels";
 import { theme } from "./theme";
+import { useReducedMotion } from "./ui/useReducedMotion";
 
 type ChildrenProps = {
   children: React.ReactNode;
@@ -79,9 +81,7 @@ function ensurePixelLockWebStyles() {
   document.head.appendChild(style);
 }
 
-// MOB-117: optional pass-through so screens can attach pull-to-refresh without restructuring
-// away from AppScreen (records.tsx is the exception -- its screen scroller is a FlatList per
-// PERF-102, so it takes the same element via the FlatList refreshControl prop instead).
+// MOB-117: refreshControl은 pull-to-refresh 패스스루 -- records.tsx만 예외(PERF-102 FlatList가 같은 요소를 직접 받는다).
 /**
  * GAP-065 #6 — `keyboardShouldPersistTaps="handled"`.
  *
@@ -108,10 +108,23 @@ function ensurePixelLockWebStyles() {
  * 렌더는 한 픽셀도 바뀌지 않는다 — 레이아웃 속성이 아니라 터치 전달 규칙이므로
  * EXP-001·HOME-001·REP-001·ITEM-001·IMP-003·SET-001 픽셀락 기준선이 이 변경으로 흔들리지 않는다.
  */
-export function AppScreen({ children, refreshControl }: ChildrenProps & { refreshControl?: React.ReactElement }) {
+export function AppScreen({
+  children,
+  refreshControl,
+  floatingAction
+}: ChildrenProps & {
+  refreshControl?: React.ReactElement;
+  /**
+   * T1(디자인 시스템) — **떠 있는 액션의 옵트인 슬롯.** FloatingActionButton은 이름과 달리
+   * 스크롤 콘텐츠의 마지막 줄로 함께 흘러가고 있었다(플로팅이 아니다). 이 슬롯에 넘기면
+   * 스크롤과 무관하게 화면 하단에 고정된다. **넘기지 않으면 렌더 트리가 종전과 노드 하나도
+   * 다르지 않다**(픽셀락 6종 — 조건부로 래퍼 자체를 만들지 않는다). 홈 배선은 T2의 몫이다.
+   */
+  floatingAction?: React.ReactNode;
+}) {
   ensurePixelLockWebStyles();
 
-  return (
+  const scroller = (
     <ScrollView
       refreshControl={refreshControl}
       keyboardShouldPersistTaps="handled"
@@ -127,6 +140,26 @@ export function AppScreen({ children, refreshControl }: ChildrenProps & { refres
     >
       {children}
     </ScrollView>
+  );
+
+  if (!floatingAction) {
+    return scroller;
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      {scroller}
+      {/* box-none: 떠 있는 줄의 빈 자리는 터치를 아래 스크롤러로 통과시킨다(버튼만 잡는다).
+          토스 리뷰 L 둘: ① prop형 pointerEvents는 RN 0.71+ deprecated(웹 콘솔 warning) —
+          style.pointerEvents로 옮겼다(동작 동일). ② 알려진 한계(기록): 콘텐츠가 뷰포트보다
+          살짝만 긴 짧은 화면(첫 기록 전 세션 홈 등)에서는 스크롤 유도 없이 FAB가 마지막
+          요소(동기화 상태 줄)의 중앙을 덮는다 — 끝까지 내리면 바닥 여백(88)으로 해소되지만,
+          "짧은 콘텐츠엔 FAB 회피 여백을 항상 적용"은 픽셀락 6종 밖 화면 전수 검토와 한
+          라운드라 여기 값으로 남긴다. */}
+      <View style={{ bottom: theme.spacing.screen, left: 0, pointerEvents: "box-none", position: "absolute", right: 0 }}>
+        {floatingAction}
+      </View>
+    </View>
   );
 }
 
@@ -166,7 +199,7 @@ export function ScreenHeader({
           accessibilityRole="button"
           hitSlop={8}
           onPress={onBack}
-          style={screenHeaderBackButtonStyle}
+          style={({ pressed }) => [screenHeaderBackButtonStyle, { opacity: pressed ? 0.6 : 1 }]}
         >
           <Text style={screenHeaderBackGlyphStyle}>‹</Text>
         </Pressable>
@@ -281,7 +314,7 @@ export function TextButton({ label, onPress, disabled, style, accessibilityLabel
       accessibilityLabel={accessibilityLabel}
       disabled={disabled}
       onPress={onPress}
-      style={[{ minHeight: theme.touchTarget, justifyContent: "center" }, style]}
+      style={({ pressed }) => [{ minHeight: theme.touchTarget, justifyContent: "center", opacity: pressed ? 0.6 : 1 }, style]}
     >
       <Text style={{ color: disabled ? theme.colors.gray300 : smallCoralText, fontWeight: "700" }}>{label}</Text>
     </Pressable>
@@ -367,12 +400,14 @@ export function SegmentedControl({
           accessibilityState={{ selected: option === value }}
           hitSlop={SEGMENTED_TAB_HIT_SLOP}
           onPress={() => onChange?.(option)}
-          style={{
+          style={({ pressed }) => ({
             backgroundColor: option === value ? theme.colors.mainCoral : "transparent",
             borderRadius: theme.radii.pill,
             flex: 1,
+            // T1: 휴지 렌더는 종전 그대로(opacity 1) — 누르는 동안만 시각 피드백이 선다.
+            opacity: pressed ? 0.82 : 1,
             paddingVertical: 9
-          }}
+          })}
         >
           <Text
             style={{
@@ -416,7 +451,7 @@ export function CategoryChip({
       disabled={disabled}
       hitSlop={CATEGORY_CHIP_HIT_SLOP}
       onPress={onPress}
-      style={{
+      style={({ pressed }) => ({
         alignItems: "center",
         backgroundColor: selected ? theme.colors.mainCoral : theme.colors.white,
         borderColor: selected ? theme.colors.mainCoral : theme.colors.primary100,
@@ -425,9 +460,10 @@ export function CategoryChip({
         minHeight: 38,
         justifyContent: "center",
         // 비활성은 색을 새로 만들지 않고 같은 칩을 흐리게만 한다(기존 칩 스타일 불변).
-        opacity: disabled ? 0.4 : 1,
+        // T1: 누르는 동안의 피드백은 비활성 흐림과 같은 축(opacity)을 쓴다 — 휴지 렌더 불변.
+        opacity: disabled ? 0.4 : pressed ? 0.82 : 1,
         paddingHorizontal: 14
-      }}
+      })}
     >
       <Text style={{ color: selected ? theme.colors.white : theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
         {label}
@@ -449,12 +485,84 @@ export function StatusBadge({ label, tone = "neutral" }: { label: string; tone?:
   );
 }
 
+/**
+ * T1(디자인 시스템) — 채움 폭이 값 변화에 스냅하지 않고 `motion.slowMs`로 보간된다.
+ * 첫 렌더는 애니메이션 없이 곧장 그 값에서 시작하므로(Animated.Value 초기값 = clamped)
+ * **휴지 렌더는 종전과 픽셀 단위로 같다** — 움직임은 이미 떠 있는 화면에서 값이 바뀔 때만
+ * 생기고, reduce-motion에서는 그때도 즉시 대입한다.
+ */
 export function BudgetProgressBar({ value }: { value: number }) {
   const clamped = Math.max(0, Math.min(100, value));
+  const reduceMotionEnabled = useReducedMotion();
+  const fill = useRef(new Animated.Value(clamped)).current;
+
+  useEffect(() => {
+    if (reduceMotionEnabled) {
+      fill.stopAnimation();
+      fill.setValue(clamped);
+      return;
+    }
+    Animated.timing(fill, { duration: motion.slowMs, toValue: clamped, useNativeDriver: false }).start();
+  }, [clamped, fill, reduceMotionEnabled]);
+
   return (
     <View style={{ backgroundColor: "rgba(255,255,255,0.45)", borderRadius: theme.radii.pill, height: 8, overflow: "hidden" }}>
-      <View style={{ backgroundColor: theme.colors.white, borderRadius: theme.radii.pill, height: 8, width: `${clamped}%` }} />
+      <Animated.View
+        style={{
+          backgroundColor: theme.colors.white,
+          borderRadius: theme.radii.pill,
+          height: 8,
+          width: fill.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] })
+        }}
+      />
     </View>
+  );
+}
+
+/**
+ * T1(디자인 시스템) — **금액 카운트업 텍스트.** 숫자가 주인공인 앱인데 금액이
+ * 항상 즉시 대치되고 있었다. 값이 바뀌면 이전 값에서 새 값까지 `motion.slowMs` 동안 세고,
+ * 마운트 직후와 reduce-motion에서는 애니메이션 없이 최종값을 그린다(휴지 렌더 불변).
+ *
+ * 낭독은 언제나 **최종값**이다(accessibilityLabel 고정) — 세는 중간값이 소리로 새면
+ * 스크린리더에 틀린 금액을 말하는 셈이 된다.
+ *
+ * ⚠️ 두 시점(토스 리뷰 M) — T1 시점에는 모듈 내부였고, T2가 세션 홈 히어로에 effect 본문이
+ * 사실상 동일한 사본(HomeHeroAmount)을 index.tsx에 세워 같은 로직이 두 벌로 진화하고 있었다.
+ * export로 열고 홈 히어로가 이것을 직접 소비한다 — 카운트업 규칙의 단일 소스는 이 컴포넌트다.
+ */
+export function AmountCountUpText({ amountKrw, style }: { amountKrw: number; style?: StyleProp<TextStyle> }) {
+  const reduceMotionEnabled = useReducedMotion();
+  const [displayedKrw, setDisplayedKrw] = useState(amountKrw);
+  const animated = useRef(new Animated.Value(amountKrw)).current;
+  const mountedValueRef = useRef(amountKrw);
+
+  useEffect(() => {
+    if (reduceMotionEnabled || mountedValueRef.current === amountKrw) {
+      animated.stopAnimation();
+      animated.setValue(amountKrw);
+      mountedValueRef.current = amountKrw;
+      setDisplayedKrw(amountKrw);
+      return;
+    }
+    mountedValueRef.current = amountKrw;
+    const listenerId = animated.addListener(({ value }) => setDisplayedKrw(Math.round(value)));
+    Animated.timing(animated, { duration: motion.slowMs, toValue: amountKrw, useNativeDriver: false }).start(({ finished }) => {
+      // 토스 리뷰 L: 값이 연달아 바뀌면 RN이 이전 애니메이션에 stop()을 걸고 이 콜백을
+      // {finished:false}로 동기 발화한다 — 가드 없이 setDisplayedKrw(amountKrw)를 부르면
+      // 옛 목표값이 한 프레임 커밋돼 금액이 앞으로 튀었다 되돌아온다. 중단된 콜백은
+      // 아무것도 하지 않는다(리스너 제거는 effect cleanup이 진다).
+      if (!finished) return;
+      animated.removeListener(listenerId);
+      setDisplayedKrw(amountKrw);
+    });
+    return () => animated.removeListener(listenerId);
+  }, [amountKrw, animated, reduceMotionEnabled]);
+
+  return (
+    <Text accessibilityLabel={formatKrw(amountKrw)} style={style}>
+      {formatKrw(displayedKrw)}
+    </Text>
   );
 }
 
@@ -470,13 +578,21 @@ export function HeroSummaryCard({
   amount,
   subtext,
   progress,
-  showProgress = true
+  showProgress = true,
+  amountKrw
 }: {
   label: string;
   amount: string;
   subtext: string;
   progress: number;
   showProgress?: boolean;
+  /**
+   * T1(디자인 시스템) — **옵트인 금액 슬롯.** 숫자를 넘기면 금액이 `theme.typography.amountLarge`
+   * (32/38 · tabular-nums)로 서고 값 변화에 카운트업이 붙는다(세션 홈 배선은 T2의 몫).
+   * 넘기지 않으면 종전 28/800 문자열 렌더 그대로다 — 비세션 미리보기(HOME-001 픽셀락)는
+   * 이 값을 모른 채 지나간다.
+   */
+  amountKrw?: number | null;
 }) {
   return (
     <View
@@ -489,7 +605,11 @@ export function HeroSummaryCard({
       }}
     >
       <Text style={[textStyles.caption, { color: theme.colors.white }]}>{label}</Text>
-      <Text style={{ color: theme.colors.white, fontSize: 28, fontWeight: "800" }}>{amount}</Text>
+      {typeof amountKrw === "number" ? (
+        <AmountCountUpText amountKrw={amountKrw} style={[textStyles.amountLarge, { color: theme.colors.white }]} />
+      ) : (
+        <Text style={{ color: theme.colors.white, fontSize: 28, fontWeight: "800" }}>{amount}</Text>
+      )}
       <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
         {/* UX-J 후속: subtext는 퍼센트와 한 줄(row/space-between)을 나눠 쓴다. 종전 문구
             ("예산 1,600,000원")는 짧아 문제가 없었지만, 세션 홈의 "남은 예산 N원 · 예산 M원"은
@@ -516,7 +636,7 @@ export function QuickActionIconButton({ icon, label, onPress }: { icon: React.Re
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      style={{ alignItems: "center", flex: 1, gap: 6, minHeight: 68 }}
+      style={({ pressed }) => ({ alignItems: "center", flex: 1, gap: 6, minHeight: 68, opacity: pressed ? 0.76 : 1 })}
     >
       <View
         style={{
@@ -545,16 +665,18 @@ export function FloatingActionButton({ onPress, accessibilityLabel = "지출 기
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      style={{
+      style={({ pressed }) => ({
         alignItems: "center",
         alignSelf: "center",
         backgroundColor: theme.colors.mainCoral,
         borderRadius: 28,
         height: 56,
         justifyContent: "center",
+        // PrimaryButton과 같은 눌림 피드백(0.86) — 핵심 루프의 첫 버튼이 무반응으로 보이지 않게.
+        opacity: pressed ? 0.86 : 1,
         width: 56,
         ...theme.shadows.card
-      }}
+      })}
     >
       <Text style={{ color: theme.colors.white, fontSize: 30, lineHeight: 32 }}>+</Text>
     </Pressable>
@@ -590,11 +712,46 @@ export function BottomSheetFrame({
   );
 }
 
+/**
+ * T1(디자인 시스템) — **시트 마운트 전이(1단계).** 아이 전환·월 선택 시트가 애니메이션 없이
+ * 팝인하던 자리의 공용 껍데기다: 마운트 때 opacity 0→1 · translateY 16→0을 `motion.standardMs`
+ * 동안 전이한다. 정착 상태(opacity 1 · translateY 0)는 감싸지 않은 렌더와 픽셀 단위로 같고,
+ * reduce-motion에서는 전이 없이 곧장 정착 상태로 선다.
+ *
+ * 제스처 추적·백드롭이 있는 2단계(진짜 바텀시트 문법)는 이 컴포넌트의 범위 밖이다 — 호출부는
+ * 종전 트리 그대로 두고 이 껍데기 하나만 끼운다.
+ */
+export function SheetMountTransition({ children }: ChildrenProps) {
+  const reduceMotionEnabled = useReducedMotion();
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (reduceMotionEnabled) {
+      progress.stopAnimation();
+      progress.setValue(1);
+      return;
+    }
+    Animated.timing(progress, { duration: motion.standardMs, toValue: 1, useNativeDriver: true }).start();
+  }, [progress, reduceMotionEnabled]);
+
+  return (
+    <Animated.View
+      style={{
+        opacity: progress,
+        transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }]
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
 export function ListRow({
   icon,
   title,
   subtitle,
   value,
+  amountKrw,
   onPress
 }: {
   /**
@@ -610,10 +767,21 @@ export function ListRow({
   title: string;
   subtitle?: string;
   value?: string;
+  /**
+   * T1(디자인 시스템) — **옵트인 금액 슬롯.** 지출 행에서 금액(13px)이 품목명(15px)보다 작게
+   * 서던 문제의 공용 몫: 숫자를 넘기면 값 자리가 `theme.typography.amountRegular`(18/700 ·
+   * tabular-nums)로 선다. 넘기지 않으면 `value` 문자열이 종전 body2 렌더 그대로라(픽셀락)
+   * 기존 호출부는 한 픽셀도 바뀌지 않는다 — 화면 배선은 각 화면 트랙의 몫이다.
+   */
+  amountKrw?: number | null;
   onPress?: () => void;
 }) {
   return (
-    <Pressable accessibilityRole={onPress ? "button" : undefined} onPress={onPress}>
+    <Pressable
+      accessibilityRole={onPress ? "button" : undefined}
+      onPress={onPress}
+      style={({ pressed }) => ({ opacity: onPress && pressed ? 0.76 : 1 })}
+    >
       <Card style={{ alignItems: "center", flexDirection: "row", gap: 12, paddingVertical: 12 }}>
         {typeof icon === "string" ? (
           icon ? (
@@ -626,7 +794,11 @@ export function ListRow({
           <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700" }]}>{title}</Text>
           {subtitle ? <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{subtitle}</Text> : null}
         </View>
-        {value ? <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "700" }]}>{value}</Text> : null}
+        {typeof amountKrw === "number" ? (
+          <Text style={[textStyles.amountRegular, { color: theme.colors.brown }]}>{formatKrw(amountKrw)}</Text>
+        ) : value ? (
+          <Text style={[textStyles.body2, { color: theme.colors.brown, fontWeight: "700" }]}>{value}</Text>
+        ) : null}
       </Card>
     </Pressable>
   );
@@ -648,7 +820,11 @@ export function ProductCard({
   onPress?: () => void;
 }) {
   return (
-    <Pressable accessibilityRole={onPress ? "button" : undefined} onPress={onPress}>
+    <Pressable
+      accessibilityRole={onPress ? "button" : undefined}
+      onPress={onPress}
+      style={({ pressed }) => ({ opacity: onPress && pressed ? 0.76 : 1 })}
+    >
       <Card style={{ borderRadius: 18, flexDirection: "row", gap: 10, padding: 12 }}>
         <View style={{ backgroundColor: theme.colors.beige, borderRadius: 14, height: 64, overflow: "hidden", width: 64 }}>
           {image ? <Image source={image} style={{ height: "100%", width: "100%" }} resizeMode="cover" /> : null}
@@ -850,6 +1026,7 @@ const donutSegmentPalette = [
 export function LineChartCard({
   title,
   value,
+  valueKrw,
   deltaLabel,
   points,
   chartNotice,
@@ -857,6 +1034,14 @@ export function LineChartCard({
 }: {
   title: string;
   value: string;
+  /**
+   * T1(디자인 시스템) — **옵트인 카운트업.** 숫자를 넘기면 보이는 합계가 값 변화에
+   * `motion.slowMs` 카운트업으로 따라온다(기간 전환 때 숫자가 스냅하지 않는다). 넘기지
+   * 않으면 종전 정적 `value` 렌더 그대로다(REP-001 픽셀락 · 배선은 리포트 트랙의 몫).
+   * 낭독 계약은 어느 쪽이든 `value`(최종 문자열)다 — 아래 accessibilityLabel들이 그 값을
+   * 그대로 쓰므로 세는 중간값이 소리로 새지 않는다.
+   */
+  valueKrw?: number | null;
   deltaLabel?: string | null;
   points?: number[];
   /** 차트 자리에 선 대신 그릴 한 줄. 없으면(undefined/null) 종전 그대로 선을 그린다. */
@@ -900,7 +1085,14 @@ export function LineChartCard({
   return (
     <Card style={{ gap: 8 }}>
       <Text style={[textStyles.caption, { color: theme.colors.gray600 }]}>{title}</Text>
-      <Text style={{ color: theme.colors.gray900, fontSize: 28, fontWeight: "800", lineHeight: 34 }}>{value}</Text>
+      {typeof valueKrw === "number" ? (
+        <AmountCountUpText
+          amountKrw={valueKrw}
+          style={{ color: theme.colors.gray900, fontSize: 28, fontWeight: "800", lineHeight: 34 }}
+        />
+      ) : (
+        <Text style={{ color: theme.colors.gray900, fontSize: 28, fontWeight: "800", lineHeight: 34 }}>{value}</Text>
+      )}
       {showDelta ? (
         // Preview-only fake delta stays visible but out of the accessibility tree (A11Y-117):
         // no-hide-descendants covers Android (TalkBack), accessibilityElementsHidden covers iOS.
@@ -1125,7 +1317,7 @@ export function DonutChartCard({
                 accessibilityRole="button"
                 key={`${slice.label}-${index}`}
                 onPress={() => onSelect(slice, index)}
-                style={{ alignItems: "center", flexDirection: "row", gap: 6, minHeight: 44 }}
+                style={({ pressed }) => ({ alignItems: "center", flexDirection: "row", gap: 6, minHeight: 44, opacity: pressed ? 0.76 : 1 })}
               >
                 {row}
               </Pressable>
@@ -1207,37 +1399,84 @@ export function DonutChartCard({
  * 액션이 없는 카드는 제목 한 줄짜리 안내가 된다(제목은 종전 그대로 보이는 Text다 — 색·배지 톤이
  * 아니라 문장으로 상태를 말한다는 A-1 Error text의 그 규율).
  */
-export type EmptyStateCardProps = { title: string } & (
+export type EmptyStateCardProps = { title: string; description?: string } & (
   | { actionLabel: string; onPress: () => void }
   | { actionLabel?: undefined; onPress?: undefined }
 );
 
-export function EmptyStateCard({ title, actionLabel, onPress }: EmptyStateCardProps) {
+/**
+ * T1(디자인 시스템) — `description`은 **옵트인 설명 슬롯**이다. 제목 한 줄에 상황과 다음 행동을
+ * 욱여넣던 호출부(T6/T7 몫)가 제목/설명 두 층으로 나눠 말할 수 있게 한다. 넘기지 않으면 렌더
+ * 트리가 종전과 노드 하나도 다르지 않다(픽셀락 6종의 빈 상태 카드 불변).
+ */
+export function EmptyStateCard({ title, description, actionLabel, onPress }: EmptyStateCardProps) {
   return (
     <Card style={{ alignItems: "center", backgroundColor: theme.colors.beige }}>
       <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700", textAlign: "center" }]}>{title}</Text>
+      {description ? (
+        <Text style={[textStyles.caption, { color: theme.colors.gray600, textAlign: "center" }]}>{description}</Text>
+      ) : null}
       {onPress && actionLabel ? <SecondaryButton label={actionLabel} onPress={onPress} /> : null}
+    </Card>
+  );
+}
+
+/**
+ * T1(디자인 시스템) — **조회 실패의 한 얼굴.** 같은 "불러오지 못했어요"가 화면마다 EmptyStateCard
+ * 재활용·인라인 Text 등 다른 모양으로 서 있었다(12개 호출부 채택은 T6/T7/T8의 몫 — 이 파일은
+ * 컴포넌트만 세운다). 규율은 EmptyStateCard와 같다:
+ *  · 상태는 색이 아니라 **문장**이 말한다(message는 보이는 Text다).
+ *  · `onRetry`가 없으면 버튼 노드를 만들지 않는다 — 낭독되는 가짜 버튼 금지(라운드 71 트랙 E).
+ *  · 색은 기존 토큰뿐이다(presentation.dangerSurface · brown · 새 리터럴 0).
+ */
+export function LoadErrorCard({
+  message,
+  onRetry,
+  retryLabel = "다시 시도"
+}: {
+  /** 무엇을 불러오지 못했는지 말하는 한 문장(해요체). 문구는 호출부의 순수 모듈이 정한다. */
+  message: string;
+  onRetry?: () => void;
+  retryLabel?: string;
+}) {
+  return (
+    <Card style={{ alignItems: "center", backgroundColor: theme.colors.presentation.dangerSurface }}>
+      <Text style={[textStyles.body1, { color: theme.colors.brown, fontWeight: "700", textAlign: "center" }]}>{message}</Text>
+      {onRetry ? <SecondaryButton label={retryLabel} onPress={onRetry} /> : null}
     </Card>
   );
 }
 
 export function Toast({ message, tone = "success" }: { message: string; tone?: "success" | "error" }) {
   const isError = tone === "error";
+  // T1(디자인 시스템): 즉시 팝인하던 토스트에 마운트 페이드(motion.standardMs)를 심는다.
+  // 정착 상태는 opacity 1이라 떠 있는 동안의 렌더는 종전과 픽셀 단위로 같고, reduce-motion은
+  // 전이 없이 곧장 정착 상태다. 소멸 시점은 여전히 호출부의 몫이다(useTransientNotice 참고).
+  const reduceMotionEnabled = useReducedMotion();
+  const fadeIn = useRef(new Animated.Value(0)).current;
   // A11Y-115: every Toast (저장 성공/실패, CSV 내보내기, 오프라인 저장 등) announces its message
   // when shown or when the message changes -- the live region backs this up on Android when the
   // subtree re-renders in place.
   useEffect(() => {
     announceForA11y(message);
   }, [message]);
+  useEffect(() => {
+    if (reduceMotionEnabled) {
+      fadeIn.stopAnimation();
+      fadeIn.setValue(1);
+      return;
+    }
+    Animated.timing(fadeIn, { duration: motion.standardMs, toValue: 1, useNativeDriver: true }).start();
+  }, [fadeIn, reduceMotionEnabled]);
   return (
-    <View
+    <Animated.View
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
-      style={{ backgroundColor: theme.colors.white, borderRadius: 18, flexDirection: "row", gap: 10, padding: 14, ...theme.shadows.card }}
+      style={{ backgroundColor: theme.colors.white, borderRadius: 18, flexDirection: "row", gap: 10, opacity: fadeIn, padding: 14, ...theme.shadows.card }}
     >
       <Text accessible={false} style={{ color: isError ? theme.colors.danger : theme.colors.success }}>{isError ? "⚠" : "✓"}</Text>
       <Text style={[textStyles.body2, { color: theme.colors.brown }]}>{message}</Text>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -1259,5 +1498,8 @@ const textStyles = {
   h3: theme.typography.headline3 as TextStyle,
   body1: theme.typography.body1 as TextStyle,
   body2: theme.typography.body2 as TextStyle,
-  caption: theme.typography.caption as TextStyle
+  caption: theme.typography.caption as TextStyle,
+  // T1: 금액 타이포 3단 스케일(전부 tabular-nums · 단일 소스는 design-system amount 티어).
+  amountLarge: theme.typography.amountLarge as TextStyle,
+  amountRegular: theme.typography.amountRegular as TextStyle
 };

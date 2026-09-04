@@ -7,7 +7,14 @@ import {
   objectParticle as babyCounterObjectParticle,
   withParticle as babyCounterWithParticle
 } from "./home/baby-counter";
-import { hasFinalConsonant, nameWithHonorificSuffix, objectParticle, withParticle } from "./text/korean-particles";
+import {
+  directionParticle,
+  hasFinalConsonant,
+  nameWithHonorificSuffix,
+  objectParticle,
+  subjectParticle,
+  withParticle
+} from "./text/korean-particles";
 
 /**
  * 라운드 93 트랙 B — **사용자가 지은 이름 뒤의 조사가 값에서 갈린다.**
@@ -123,6 +130,29 @@ import { hasFinalConsonant, nameWithHonorificSuffix, objectParticle, withParticl
  * `으로`로 옮겨 갔을 뿐 자리가 나거나 들지 않았다) · `fixed-tail` **30** · `chooses-from-value`
  * **9** · `varies-but-written-fixed` **0**(상한). **접미사 모집단은 셋**이고 갈래가 뒤집혔다:
  * *값에서 고른다* **0 → 3** · *갈리는데 고정으로 적었다* **3 → 0**.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * ## 라운드 96 T5 — **묻지 않기로 했던 자리 여섯 중 다섯이 물음에 들어왔다**
+ *
+ * 사각 ⓔ(`both-forms-written-is-outside-this-needle`)가 값으로 세어 두던 두 형태 표기
+ * (`이(가)` · `(으)로`) 여섯 중 **순수 모듈의 다섯**이 값에서 고르는 꼴(꼴 B)로 이관됐다 —
+ * 고르는 함수 둘이 새로 섰다(`subjectParticle` · `directionParticle`, 후자는 ㄹ 예외까지 진다):
+ *  · `src/notifications/generators.ts`의 단계 전환 제목(`『${childName}』이(가)` → `subjectParticle`)
+ *  · `src/children/child-switch.ts`의 전환 안내·낭독 라벨 둘(`(으)로` → `directionParticle`)
+ *  · `src/children/child-deletion.ts` · `src/children/household-join.ts`의 전환 토스트 둘(같은 이관)
+ * 남은 하나(`app/settings/children.tsx`의 `(으)로 전환` 라벨)는 그 라운드에서 그 파일을 소유한
+ * 트랙(T6)의 몫이라 사각 ⓔ의 실측이 6에서 **1**로 내려간 채 남았다.
+ *
+ * ## 토스 리뷰 후속 — **마지막 하나가 닫혔다**
+ *
+ * ⚠️ 두 시점(토스 리뷰 M): T5·T6이 서로에게 미룬 그 한 줄(`app/settings/children.tsx:732`)이
+ * 시트와 같은 단일 소스(`childSwitchOptionAccessibilityLabel` — `directionParticle` 값 파생)
+ * 재사용으로 이관됐다. 사각 ⓔ는 **1 → 0**으로 닫힌다.
+ *
+ * ⚠️ **오늘의 값(토스 리뷰)**: 모집단 **44**(꼴 A **30** · 꼴 B **14**) ·
+ * `fixed-tail` **30** · `chooses-from-value` **14** · `varies-but-written-fixed` **0**(상한 그대로) ·
+ * 사각 ⓔ **6 → 1 → 0**. 걷는 파일 수와 접미사 모집단(셋)은 그대로다.
  */
 
 /** 이 스윕이 걷는 앱 경계. `apps/mobile/` 밖으로는 한 걸음도 나가지 않는다. */
@@ -499,7 +529,10 @@ const USER_NAMED_VALUE_SITES: readonly {
 
 /** ⓓ 두 화면의 한국어 리터럴 수 — **새 낱말 0건**의 자. 트랙 전후가 같다. */
 const KOREAN_LITERAL_LEDGER: readonly { readonly file: string; readonly count: number }[] = [
-  { file: "app/settings/children.tsx", count: 35 },
+  // ⚠️ 두 시점(토스 리뷰 M): 35 → 33 — 마지막 괄호 표기 라벨의 한국어 리터럴 둘("…, 현재
+  // 선택된 아이" · "(으)로 전환")이 값 파생 단일 소스(childSwitchOptionAccessibilityLabel)
+  // 호출로 이관되며 리터럴에서 사라졌다. 새 낱말 0건은 유지된다(리터럴은 줄기만 했다).
+  { file: "app/settings/children.tsx", count: 33 },
   { file: "app/family/accept/[token].tsx", count: 25 }
 ];
 
@@ -570,17 +603,25 @@ const BLIND_SPOTS: readonly {
   },
   {
     id: "both-forms-written-is-outside-this-needle",
-    // `이(가)` 꼴 하나 + `(으)로` 꼴 다섯 — 이 저장소가 고른 세 번째 답이고, 이 바늘은 세지 않는다.
-    measure: 6,
-    floor: 1,
+    // ⚠️ **두 시점(라운드 96 T5)**: 라운드 93~94 시점 **여섯**(`이(가)` 하나 + `(으)로` 다섯) →
+    // **하나**. T5가 순수 모듈 다섯 자리를 값에서 고르는 꼴(꼴 B — subjectParticle ·
+    // directionParticle)로 이관했고, 남은 하나는 화면 라벨(`app/settings/children.tsx`의
+    // `(으)로 전환`)이었다 — 그 파일은 그 라운드에서 다른 트랙(T6)의 소유라 T5가 쓰지 않았다.
+    // ⚠️ **두 시점(토스 리뷰 M)**: 그 마지막 하나가 시트와 같은 단일 소스
+    // (childSwitchOptionAccessibilityLabel) 재사용으로 이관돼 **1 → 0** — 이 사각은 닫혔다.
+    measure: 0,
+    floor: 0,
     reason:
-      "**두 형태를 함께 적는 답**(`『${childName}』이(가) …` · `…(으)로 전환했어요.`)은 조사를 고정한 것도 " +
+      "**두 형태를 함께 적는 답**(`…(으)로 전환` — 종전에는 `『${childName}』이(가) …` 등 여섯)은 조사를 고정한 것도 " +
       "값에서 고른 것도 아니라 **묻지 않기로 한 것**이다. 이 바늘은 그 꼴을 모집단에서 뺀다 — 빼지 않으면 " +
-      "`varies-but-written-fixed`로 잘못 떨어져 거짓 빨강이 된다. ⚠️ **오늘 그 자리는 여섯이고**(`이(가)` 하나 · " +
-      "`(으)로` 다섯), 그 여섯은 이 계약이 초록이라는 사실 밖에 있다 — 옳다고 말한 적이 없다.",
+      "`varies-but-written-fixed`로 잘못 떨어져 거짓 빨강이 된다. ⚠️ **오늘 그 자리는 0이다** — 라운드 96 T5가 " +
+      "다섯을 꼴 B로 이관하고, 토스 리뷰가 마지막 하나(T6 소유 화면의 라벨)를 단일 소스 재사용으로 닫았다. " +
+      "이 수가 다시 0보다 커지면 두 형태 표기가 재발한 것이다.",
     resumeCondition:
       "재개 조건(사건형): 두 형태 표기를 화면 문구에서 걷어 내기로 정하는 라운드가 서는 날 — " +
-      "그날 그 여섯이 이 모집단으로 들어오고, 첫 모집단은 오늘의 38 + 6이다."
+      "그날 그 여섯이 이 모집단으로 들어오고, 첫 모집단은 오늘의 38 + 6이다. " +
+      "→ **발동됨(라운드 96 T5 · 일부)**: 여섯 중 다섯이 꼴 B로 들어왔다(모집단 39 → 44 · 꼴 B 9 → 14). " +
+      "→ **완결됨(토스 리뷰)**: 남은 하나(`app/settings/children.tsx`)가 helper 재사용으로 닫혀 이 수는 0이다."
   },
   {
     id: "source-not-runtime",
@@ -1218,7 +1259,12 @@ describe("ⓒ 순수 함수 — 받침에서 조사가 갈린다(표로 못 박�
       expect(hasFinalConsonant(name), `${name}: 받침이 있다`).toBe(true);
       expect(objectParticle(name)).toBe("을");
       expect(withParticle(name)).toBe("과");
+      // 라운드 96 T5: 주격도 같은 판정 하나를 지난다.
+      expect(subjectParticle(name)).toBe("이");
     }
+    // 라운드 96 T5: (으)로만 ㄹ 예외가 있다 — 받침 ㄹ("첫돌")은 `로`, 그 밖의 받침은 `으로`.
+    expect(directionParticle("지훈")).toBe("으로");
+    expect(directionParticle("첫돌")).toBe("로");
   });
 
   it("받침 없는 음절로 끝나면 `를`·`와`다", () => {
@@ -1226,6 +1272,9 @@ describe("ⓒ 순수 함수 — 받침에서 조사가 갈린다(표로 못 박�
       expect(hasFinalConsonant(name), `${name}: 받침이 없다`).toBe(false);
       expect(objectParticle(name)).toBe("를");
       expect(withParticle(name)).toBe("와");
+      // 라운드 96 T5: 주격·방향도 같은 갈래로 떨어진다.
+      expect(subjectParticle(name)).toBe("가");
+      expect(directionParticle(name)).toBe("로");
     }
   });
 
@@ -1235,6 +1284,9 @@ describe("ⓒ 순수 함수 — 받침에서 조사가 갈린다(표로 못 박�
       // ⚠️ 이 답은 관례이지 문법이 아니다(사각 `non-hangul-tail-is-convention-not-grammar`).
       expect(objectParticle(name)).toBe("를");
       expect(withParticle(name)).toBe("와");
+      // 라운드 96 T5: 주격·방향도 같은 관례를 따른다(가 · 로).
+      expect(subjectParticle(name)).toBe("가");
+      expect(directionParticle(name)).toBe("로");
     }
   });
 
@@ -1300,6 +1352,10 @@ describe("ⓒ 순수 함수 — 받침에서 조사가 갈린다(표로 못 박�
     // ㄹ 예외는 `(으)로`에만 있다 — 을/를은 받침 ㄹ에서도 `을`이다.
     expect(expectedParticle("첫돌", "을")).toBe("을");
     expect(expectedParticle("100일", "이")).toBe("이");
+    // 라운드 96 T5: 규칙 모듈(`directionParticle`)과 이 자가 같은 예외를 안다 — 갈리면 여기가 빨개진다.
+    for (const word of ["첫돌", "서울", "원", "메모", "지훈", "Ben"]) {
+      expect(directionParticle(word), `${word}: (으)로`).toBe(expectedParticle(word, "으로"));
+    }
   });
 });
 
@@ -1389,9 +1445,14 @@ describe("ⓐ 모집단 — 전수에서 파생한다(손 목록 금지)", () =>
   });
 
   it("⚠️ 조사를 고르는 함수 이름도 소스에서 파생한다 — 손으로 적지 않는다", () => {
-    // 오늘 넷: 순수 모듈 둘 × 두 모듈(`text/korean-particles.ts` · `home/baby-counter.ts`).
-    expect(chooserNames).toEqual(["objectParticle", "withParticle"]);
+    // ⚠️ **두 시점(라운드 96 T5)**: 트랙 B~라운드 94 시점 이 목록은 둘(`objectParticle` ·
+    // `withParticle`)이었다. T5가 괄호 표기 여섯 중 다섯을 값에서 고르는 꼴로 이관하며 둘을
+    // 더 세웠다 — 주격(`subjectParticle` · 이/가)과 방향(`directionParticle` · (으)로, ㄹ 예외 포함).
+    // 전부 `text/korean-particles.ts`가 지고, `home/baby-counter.ts`의 옛 두 벌은 그대로다.
+    expect(chooserNames).toEqual(["directionParticle", "objectParticle", "subjectParticle", "withParticle"]);
     expect(maskComments(readSweptSource("src/text/korean-particles.ts"))).toContain("export function objectParticle(");
+    expect(maskComments(readSweptSource("src/text/korean-particles.ts"))).toContain("export function subjectParticle(");
+    expect(maskComments(readSweptSource("src/text/korean-particles.ts"))).toContain("export function directionParticle(");
     expect(maskComments(readSweptSource("src/home/baby-counter.ts"))).toContain("export function withParticle(");
   });
 
@@ -1667,14 +1728,28 @@ describe("ⓕ 사각 — 이 스윕이 못 보는 것을 값과 하한으로 적
     expect(readSweptSource("src/text/korean-particles.ts")).toContain("받침 없는 형");
   });
 
-  it("⚠️⚠️ 두 형태를 함께 적은 자리는 이 바늘 밖이라는 사실이 값으로 서 있다", () => {
+  it("⚠️⚠️ 두 형태를 함께 적은 자리는 이 바늘 밖이라는 사실이 값으로 서 있다 — 오늘 그 수는 0이다", () => {
     const spot = BLIND_SPOTS.find((entry) => entry.id === "both-forms-written-is-outside-this-needle");
     expect(spot).toBeDefined();
     expect(bothFormsSiteCount()).toBeGreaterThanOrEqual(spot?.floor ?? 1);
     expect(bothFormsSiteCount()).toBe(spot?.measure ?? -1);
-    // 그 자리들이 실재한다 — 이름으로 둘을 보인다.
-    expect(readSweptSource("src/notifications/generators.ts")).toContain("이(가)");
-    expect(readSweptSource("src/children/child-switch.ts")).toContain("(으)로 전환했어요.");
+    // ⚠️ **두 시점(라운드 96 T5)**: 종전 이 자리는 실재하는 둘을 이름으로 보였다 —
+    // `readSweptSource("src/notifications/generators.ts")`가 `이(가)`를,
+    // `readSweptSource("src/children/child-switch.ts")`가 `(으)로 전환했어요.`를 들고 있었다.
+    // 그 라운드에 다섯 자리가 꼴 B(subjectParticle · directionParticle)로 이관돼 코드에서
+    // 사라졌고, 남은 하나(T6 소유 화면의 라벨)가 이 수의 전부였다.
+    // ⚠️ **두 시점(토스 리뷰 M)**: 종전 이 자리의 양성 핀은
+    // `expect(readSweptSource("app/settings/children.tsx")).toContain("(으)로 전환")` 이었다 —
+    // 그 마지막 하나가 시트의 단일 소스(childSwitchOptionAccessibilityLabel) 재사용으로 닫혀
+    // 핀이 부정 단언으로 뒤집힌다.
+    expect(maskComments(readSweptSource("app/settings/children.tsx"))).not.toContain("(으)로");
+    expect(readSweptSource("app/settings/children.tsx")).toContain(
+      "accessibilityLabel={childSwitchOptionAccessibilityLabel(child.nickname, selected)}"
+    );
+    expect(maskComments(readSweptSource("src/notifications/generators.ts"))).not.toContain("이(가)");
+    expect(maskComments(readSweptSource("src/children/child-switch.ts"))).not.toContain("(으)로");
+    expect(maskComments(readSweptSource("src/children/child-deletion.ts"))).not.toContain("(으)로");
+    expect(maskComments(readSweptSource("src/children/household-join.ts"))).not.toContain("(으)로");
     // 그리고 이 모집단은 그 꼴을 세지 않는다(모양 규칙이 유령이 아니다).
     // ⚠️ 이 규칙은 **조사를 읽어 낸 다음의 나머지**를 본다 — `이(가)`에서 `이`를 뗀 `(가) …`.
     expect(BOTH_FORMS_SHAPE.test("(가) 들어섰어요")).toBe(true);

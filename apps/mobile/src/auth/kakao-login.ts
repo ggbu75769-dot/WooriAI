@@ -82,7 +82,7 @@ export class KakaoLoginError extends Error {
 /** User pressed 취소 on the Kakao consent screen (redirect carried `error=access_denied`). */
 export class KakaoLoginCancelledError extends KakaoLoginError {
   constructor() {
-    super("KAKAO_LOGIN_CANCELLED", "카카오 로그인이 취소되었어요.");
+    super("KAKAO_LOGIN_CANCELLED", "카카오 로그인이 취소됐어요.");
     this.name = "KakaoLoginCancelledError";
   }
 }
@@ -144,12 +144,12 @@ export function buildKakaoAuthorizeUrl(params: AuthorizeUrlParams): string {
  * NEVER be echoed verbatim into UI copy -- only these fixed strings are shown.
  */
 const KAKAO_OAUTH_ERROR_MESSAGES: Record<string, string> = {
-  invalid_request: "카카오 인증 요청이 올바르지 않아요. 다시 시도해주세요.",
-  unauthorized_client: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
-  unsupported_response_type: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
-  invalid_scope: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해주세요.",
-  server_error: "카카오 서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해주세요.",
-  temporarily_unavailable: "카카오 서비스를 지금 이용할 수 없어요. 잠시 후 다시 시도해주세요."
+  invalid_request: "카카오 인증 요청이 올바르지 않아요. 다시 시도해 주세요.",
+  unauthorized_client: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해 주세요.",
+  unsupported_response_type: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해 주세요.",
+  invalid_scope: "카카오 앱 설정에 문제가 있어요. 잠시 후 다시 시도해 주세요.",
+  server_error: "카카오 서버에 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
+  temporarily_unavailable: "카카오 서비스를 지금 이용할 수 없어요. 잠시 후 다시 시도해 주세요."
 };
 
 /**
@@ -201,7 +201,7 @@ export function parseKakaoRedirectUrl(url: string, expectedState: string): { cod
     throw new KakaoLoginError("KAKAO_REDIRECT_INVALID", "카카오 인증 응답을 읽을 수 없어요.");
   }
   if (params.state !== expectedState) {
-    throw new KakaoLoginError("KAKAO_STATE_MISMATCH", "인증 절차를 다시 시작해주세요.");
+    throw new KakaoLoginError("KAKAO_STATE_MISMATCH", "인증 절차를 다시 시작해 주세요.");
   }
   return { code: params.code };
 }
@@ -239,7 +239,7 @@ async function openAuthSessionWithLinking(
 
     const timer = setTimeout(() => {
       finish(() =>
-        reject(new KakaoLoginError("KAKAO_LOGIN_TIMEOUT", "카카오 로그인 응답이 없어요. 다시 시도해주세요."))
+        reject(new KakaoLoginError("KAKAO_LOGIN_TIMEOUT", "카카오 로그인 응답이 없어요. 다시 시도해 주세요."))
       );
     }, timeoutMs);
 

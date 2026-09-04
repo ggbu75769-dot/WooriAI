@@ -81,11 +81,18 @@ export function OfflineState(props: Omit<StateViewProps, "icon" | "tone">) {
   return <StateView {...props} icon="cloud-off-outline" tone="warning" />;
 }
 
+/**
+ * T1(디자인 시스템) — **어휘 단일화**: 이 줄들이 서는 자리는 홈 하단의 동기화 줄이고, 그 화면의
+ * 주어는 언제나 "기록"이다(핵심 루프 1단계 — synced의 "모든 기록이"가 이미 그 어휘였다).
+ * syncing/pending만 "변경 (내용)"이라는 이 파일만의 낱말을 쓰고 있어 같은 줄이 상태에 따라
+ * 주어를 바꿔 말했다. 문장 구조·해요체·아이콘·톤은 그대로 두고 낱말만 기록으로 맞춘다
+ * (design-system-restore.test.ts의 해요체 계약을 같은 커밋에서 함께 갱신).
+ */
 const syncPresentation: Record<AppSyncStatus, { label: string; icon: IconName; tone: "neutral" | "warning" | "danger" }> = {
   synced: { label: "모든 기록이 동기화됐어요.", icon: "cloud-check-outline", tone: "neutral" },
-  syncing: { label: "변경 내용을 동기화하고 있어요.", icon: "cloud-sync-outline", tone: "neutral" },
+  syncing: { label: "기록을 동기화하고 있어요.", icon: "cloud-sync-outline", tone: "neutral" },
   offline: { label: "오프라인 · 연결되면 자동으로 동기화해요.", icon: "cloud-off-outline", tone: "warning" },
-  pending: { label: "서버 반영을 기다리는 변경이 있어요.", icon: "clock-outline", tone: "warning" },
+  pending: { label: "서버 반영을 기다리는 기록이 있어요.", icon: "clock-outline", tone: "warning" },
   conflict: { label: "확인이 필요한 동기화 충돌이 있어요.", icon: "alert-circle-outline", tone: "danger" },
   /**
    * 라운드 61 M-1 — 저장소를 열지 못해 **셀 수가 없는** 상태. 문구는 새로 짓지 않고

@@ -93,7 +93,7 @@ export async function collectExpensePages(
 
     if (pagesFetched >= maxPages) {
       throw new ExpensePageCollectionError(
-        `지출 목록이 ${maxPages}페이지를 넘어 전량을 모으지 못했어요. 기간을 좁혀서 다시 시도해주세요.`
+        `지출 목록이 ${maxPages}페이지를 넘어 전량을 모으지 못했어요. 기간을 좁혀서 다시 시도해 주세요.`
       );
     }
     cursor = nextCursor;

@@ -139,6 +139,13 @@ export type SuggestSourceLocalRow = {
     spentOn?: string;
     merchant?: string | null;
     /**
+     * 라운드 96 T3 — 결제 수단. **선택**이라 이 값을 싣지 않는 호출부는 종전과 정확히 같다.
+     * 소비자는 결제 수단 기본값 판정 하나뿐이다(entry-form-guards.ts의
+     * resolveDefaultPaymentMethod — "가장 최근에 적은 기록의 결제 수단"). 여기서 값을 해석하지
+     * 않고 그대로 나른다 — 화이트리스트 판정은 소비자의 몫이다(모르는 값은 그쪽에서 걸러진다).
+     */
+    paymentMethod?: string | null;
+    /**
      * "expense" | "gift" | "refund". 세 소비자 모듈이 모두 **일반 지출만** 제안하므로
      * 여기서 한 번에 거른다. 필드가 없는 레거시 행은 expense로 간주(라운드 13 m-8).
      */
@@ -163,6 +170,8 @@ export type SuggestSourceServerRow = {
   /** 지출 날짜(YYYY-MM-DD) — 최신순 정렬 기준. */
   spentOn: string;
   merchant?: string | null;
+  /** 라운드 96 T3 — 로컬 행과 같은 규칙: 선택이고, 있으면 그대로 나른다(해석은 소비자의 몫). */
+  paymentMethod?: string | null;
   /** 로컬 행과 같은 규칙: "expense"가 아니면 제외, 없으면 expense로 간주. */
   expenseType?: string;
 };
@@ -192,6 +201,8 @@ export type SuggestSourceRow = {
   /** 지출 날짜. 로컬 행의 payload에 없으면(구조적으로 선택) 없는 채로 둔다 — 지어내지 않는다. */
   spentOn?: string;
   merchant?: string | null;
+  /** 라운드 96 T3 — 결제 수단(있으면 그대로, 없으면 없는 채로). 결제 수단 기본값 판정이 읽는다. */
+  paymentMethod?: string | null;
   expenseType?: string;
   /** 로컬 행만 갖는 값(이 기기에 기록된 시각). 서버 행에는 없다. */
   createdAt?: string;
@@ -295,6 +306,7 @@ export function partitionSuggestSourceRows(input: SuggestSourceInput): SuggestSo
         categoryId: row.categoryId,
         spentOn: row.spentOn,
         merchant: row.merchant ?? null,
+        ...(row.paymentMethod !== undefined ? { paymentMethod: row.paymentMethod } : {}),
         ...(row.expenseType !== undefined ? { expenseType: row.expenseType } : {})
       });
     }
@@ -321,6 +333,7 @@ function toLocalSuggestRow(row: SuggestSourceLocalRow): SuggestSourceRow {
     categoryId: row.payload.categoryId,
     ...(row.payload.spentOn !== undefined ? { spentOn: row.payload.spentOn } : {}),
     merchant: row.payload.merchant ?? null,
+    ...(row.payload.paymentMethod !== undefined ? { paymentMethod: row.payload.paymentMethod } : {}),
     ...(row.payload.expenseType !== undefined ? { expenseType: row.payload.expenseType } : {}),
     createdAt: row.createdAt
   };

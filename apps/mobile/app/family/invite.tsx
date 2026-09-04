@@ -246,8 +246,11 @@ export default function FamilyInviteScreen() {
           <Text style={mutedTextStyle}>가구 정보가 없어서 초대를 만들 수 없어요.</Text>
         ) : null}
 
+        {/* 라운드 96 T7: 진행 라벨의 말줄임표 제거 -- 이 앱의 진행 라벨 관례는 점 없는 "~하는 중"
+            이고, 점 셋(...)은 이 여정에만 남아 있었다(수락 화면의 재시도 라벨도 같은 라운드에
+            정리). */}
         <PrimaryButton
-          label={invite.isPending ? "링크 만드는 중..." : "초대 링크 만들기"}
+          label={invite.isPending ? "링크 만드는 중" : "초대 링크 만들기"}
           disabled={!authToken || !householdId || invite.isPending}
           onPress={() => invite.mutate()}
         />
@@ -278,9 +281,14 @@ export default function FamilyInviteScreen() {
               Honest warning, matching how the server stores invites: only a sha256 hash
               of the token is kept, so this link can never be shown again. 가족 화면의
               "대기 중인 초대"에서 취소하고 새로 만드는 것이 유일한 복구 경로다.
+
+              라운드 96 T7: 세 문장 → 두 문장. 셋째 문장(잃어버린 뒤의 복구 절차)은 링크를 방금
+              받은 사람이 지금 할 일이 아니고, 같은 안내가 실제로 필요해지는 자리(가족 화면의
+              대기 초대 목록 아래)에 이미 한 벌로 서 있다 -- 여기서 반복하면 두 벌이 되어
+              문구가 갈릴 날이 온다. 이 화면은 지금 할 행동 둘(공유·복사)만 말한다.
             */}
             <Text style={mutedTextStyle}>
-              이 링크는 지금 화면에서만 볼 수 있어요. 지금 공유하거나 길게 눌러 복사해 두세요. 잃어버리면 가족 화면의 “대기 중인 초대”에서 취소하고 새로 만들 수 있어요.
+              이 링크는 지금 화면에서만 볼 수 있어요. 지금 공유하거나 길게 눌러 복사해 두세요.
             </Text>
             {isTestSession ? (
               <Text style={mutedTextStyle}>테스트 모드예요. 이 초대 링크는 실제로 전송되지 않아요.</Text>

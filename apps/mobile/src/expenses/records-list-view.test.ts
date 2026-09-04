@@ -5,6 +5,7 @@ import { categoryCatalog } from "../categories";
 import { EXPENSE_VIEW_ONLY_EMPTY_TITLE } from "../family/record-permissions";
 import { groupExpensesByDate } from "./records-date-groups";
 import {
+  buildRecordsAmountSortedSections,
   matchRecordSearch,
   normalizeRecordSearchText,
   RECORD_SEARCH_SPANNING_LABEL,
@@ -1490,6 +1491,53 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect((recordsSource.match(/\{monthJumpSearchActionButton\}/g) ?? []).length).toBe(2);
     // 시트는 여전히 한 벌이다 -- 새 시트를 그리지 않는다.
     expect((recordsSource.match(/<MonthJumpSheet/g) ?? []).length).toBe(1);
+  });
+});
+
+/**
+ * 기능 라운드 1 트랙 B — 금액 큰 순의 **평평한 목록 조립**(헤더 없는 섹션 하나).
+ *
+ * 날짜 헤더·일별 소계는 날짜 그룹의 것이다: 행이 날짜 밖으로 재배열된 목록에 그대로 두면
+ * 헤더가 자기 아래 행을 말하지 않게 되고, 합계가 아닌 정렬에 소계를 붙이면 거짓 신호다.
+ * 정렬 규칙 자체(안정성·동액 최신 우선)는 records-sort.test.ts가 문다 — 여기서는 조립의
+ * 모양(섹션 하나 · 헤더 없음 · 소계 없음 · 빈 섹션 없음)을 문다.
+ */
+describe("트랙 B: buildRecordsAmountSortedSections (금액순 평평 모드)", () => {
+  const rows = [
+    { key: "a", amountKrw: 12000, spentOn: "2026-08-27" },
+    { key: "b", amountKrw: 48000, spentOn: "2026-08-03" },
+    { key: "c", amountKrw: 12000, spentOn: "2026-08-30" },
+    { key: "d", amountKrw: 3000, spentOn: "2026-08-30" }
+  ];
+
+  it("헤더 없는 섹션 하나로 조립한다 — 날짜 헤더도 일별 소계도 없다", () => {
+    const sections = buildRecordsAmountSortedSections(rows);
+    expect(sections).toHaveLength(1);
+    const [section] = sections;
+    // headerLabel null = 화면(renderRecordsSectionHeader)이 헤더를 그리지 않는다.
+    expect(section.headerLabel).toBeNull();
+    expect(section.hasSubtotal).toBe(false);
+    expect(section.subtotalKrw).toBe(0);
+    // 섹션 key는 날짜 키("YYYY-MM-DD")와 충돌하지 않는다 — 달력→날짜 스크롤 판정이 섞이지 않는다.
+    expect(section.key).toBe("amount-sorted");
+    expect(/^\d{4}-\d{2}-\d{2}$/.test(section.key)).toBe(false);
+  });
+
+  it("행은 금액 내림차순, 동액이면 최신 우선으로 재배열된다 (규칙은 records-sort의 비교기 한 벌)", () => {
+    const [section] = buildRecordsAmountSortedSections(rows);
+    expect(section.rows.map((row) => row.key)).toEqual(["b", "c", "a", "d"]);
+  });
+
+  it("행을 잃지도 만들지도 않고, 입력 배열을 변형하지 않는다 (필터 결과 위의 재배열일 뿐)", () => {
+    const snapshot = [...rows];
+    const [section] = buildRecordsAmountSortedSections(rows);
+    expect(section.rows).toHaveLength(rows.length);
+    expect(new Set(section.rows)).toEqual(new Set(rows));
+    expect(rows).toEqual(snapshot);
+  });
+
+  it("빈 배열이면 섹션을 만들지 않는다 — 빈 상태 카드 게이트(ListEmptyComponent)가 종전 그대로다", () => {
+    expect(buildRecordsAmountSortedSections([])).toEqual([]);
   });
 });
 

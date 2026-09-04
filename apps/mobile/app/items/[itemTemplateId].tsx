@@ -4,8 +4,9 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Image, Linking, Pressable, Share, Text, View } from "react-native";
 // Platform/Alert are imported separately: items-commerce-flow.test.ts (COM-106) pins the
 // exact react-native import line above, so later additions go on this second line
-// (Alert = ITEM-123 B4의 "선물로 받았어요" 확인 흐름).
-import { Alert, Platform } from "react-native";
+// (Alert = ITEM-123 B4의 "선물로 받았어요" 확인 흐름 · TextInput = 기능 라운드 1 트랙 D의
+// 품목 메모 입력).
+import { Alert, Platform, TextInput } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import {
   buildAffiliateLinkClickedPayload,
@@ -39,6 +40,20 @@ import {
 } from "../../src/items/link-marker";
 import { resolveLinkPriceDisplay, withLinkPriceCaption } from "../../src/items/link-price";
 import { itemStatusBadgeLabel, itemStatusLabel, necessityBadgeLabel } from "../../src/items/item-labels";
+// 기능 라운드 1 트랙 D: 품목 메모(기기 보관). 문구·상한·판정은 순수 모듈이 들고
+// (src/items/item-memo.ts) 저장은 기기 로컬 스토어가 맡는다 — 서버 0바이트.
+import {
+  ITEM_MEMO_CARD_TITLE,
+  ITEM_MEMO_DEVICE_ONLY_NOTICE,
+  ITEM_MEMO_INPUT_LABEL,
+  ITEM_MEMO_INPUT_PLACEHOLDER,
+  ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE,
+  ITEM_MEMO_MAX_LENGTH,
+  ITEM_MEMO_SAVE_LABEL,
+  itemMemoSaveAccessibilityLabel,
+  itemMemoSavedNotice
+} from "../../src/items/item-memo";
+import { useItemMemoStore } from "../../src/items/item-memo.store";
 import { itemTrustNotes } from "../../src/items/item-trust-notes";
 import { linkedExpenseRow } from "../../src/items/linked-expense";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
@@ -81,6 +96,9 @@ import { AppIcon } from "../../src/design-system";
 // 다시 짓지 않는다 — 목록과 상세가 같은 물건에 다른 그림을 그리면 같은 품목인지 확신할 수 없다.
 import { resolvePreparationItemVisual } from "../../src/preparation/item-visuals";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
+// T1(디자인 시스템) 후속: 잠깐 안내의 수명 한 벌 — memoNotice가 화면 이탈까지 남던 관례를
+// 설정 → 아이 관리·더보기 내보내기와 같은 3200ms 수명(훅 기본값)으로 맞춘다.
+import { useTransientNotice } from "../../src/ui/use-transient-notice";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
 import { ProductDetailPixelStyles } from "../../src/pixelLock/styles/ProductDetailPixelStyles";
@@ -333,6 +351,50 @@ export default function ItemDetailScreen() {
   // ITEM-124: 상태 변경(찜하기/선물 받음/준비 완료) 실패 문구. 이 경로는 오프라인 아웃박스를
   // 타지 않아 실패가 곧 유실이라, 화면이 조용히 있으면 안 된다(src/items/status-mutation-messages.ts).
   const [statusErrorMessage, setStatusErrorMessage] = useState<string | null>(null);
+  /**
+   * 기능 라운드 1 트랙 D — 품목 메모(기기 보관).
+   *
+   * 입력 중 값은 draft로만 들고, 저장은 아래 handleMemoSave(명시 [메모 저장] 버튼)가 한다 —
+   * **자동 저장 없음**(blur/뒤로가기에 걸지 않는다): 지웠다가 마음을 바꾼 입력이 화면을
+   * 떠났다는 이유로 말없이 확정되지 않는다. draft가 null이면 화면은 스토어 값을 그대로
+   * 따르므로, persist 하이드레이션이 마운트보다 늦게 끝나도 저장된 메모가 제때 나타난다.
+   * 키는 itemTemplateId 단위다(아이 전환과 무관한 물건 메모 — item-memo.ts의 설계 근거).
+   */
+  const [memoDraft, setMemoDraft] = useState<string | null>(null);
+  /**
+   * 저장/삭제 직후의 확인 한 줄(Toast가 스스로 낭독한다 — A11Y-115). 문구는 순수 모듈의 것.
+   * 수명은 공용 훅(useTransientNotice — 기본 3200ms, 설정 → 아이 관리 토스트의 그 값)이 진다 —
+   * 종전에는 화면 이탈까지 남았다(T1이 세운 한 벌을 이 화면이 첫 소비자로 채택).
+   */
+  const { notice: memoNotice, show: showMemoNotice, clear: clearMemoNotice } = useTransientNotice();
+  const storedMemo = useItemMemoStore((state) => state.memos[itemTemplateId] ?? "");
+  const saveMemo = useItemMemoStore((state) => state.saveMemo);
+  const memoText = memoDraft ?? storedMemo;
+  /**
+   * 명시 저장: 스토어가 기기 쓰기까지 기다렸다가 실패를 되돌려주므로(saveMemo가 reject —
+   * item-memo.store.ts의 flushLastWrite) 실패가 무음이 될 수 없다. 실패 문구는 준비 상태의
+   * 기기 저장 실패(ITEM-124)와 **같은 배너 한 자리**(아래 statusErrorMessage Toast)로 알린다 —
+   * 이 화면의 기기 저장 실패 출구는 하나다. 빈/공백 메모 저장은 그 품목의 메모 삭제다.
+   */
+  const handleMemoSave = () => {
+    // 리뷰 L-2: 키가 비면(딥링크 파라미터 이상) 스토어 판정(applyItemMemoSave)이 no-op이라
+    // 저장이 일어나지 않는데, 종전에는 그 no-op에도 성공 토스트가 떴다 — 일어나지 않은 일을
+    // 말하지 않도록 저장 경로 자체에 들어가지 않는다(같은 트림 판정 — item-memo.ts).
+    if (itemTemplateId.trim().length === 0) return;
+    // 리뷰 H-2(두 시점): 종전에는 진입에서 memoNotice만 지워서, 실패(statusErrorMessage 세움)
+    // → 재시도 성공 흐름에 실패 배너와 성공 토스트가 **동시에** 남았다. 상태 뮤테이션 경로
+    // (applyStatusChange)와 같은 관례로 진입 시점에 실패 배너도 지운다.
+    setStatusErrorMessage(null);
+    clearMemoNotice();
+    saveMemo(itemTemplateId, memoText)
+      .then(() => {
+        setMemoDraft(null);
+        showMemoNotice(itemMemoSavedNotice(memoText));
+      })
+      .catch(() => {
+        setStatusErrorMessage(ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE);
+      });
+  };
   const queryClient = useQueryClient();
   /**
    * 라운드 62 #7 — 이 화면이 **누구의 준비템인가**를 말한다.
@@ -1303,6 +1365,57 @@ export default function ItemDetailScreen() {
                 </Text>
               )}
               <PrimaryButton label="다시 시도" onPress={() => void retryOpenFallbackLink()} />
+            </Card>
+          ) : null}
+
+          {/* 기능 라운드 1 트랙 D — 품목 메모(기기 보관). FIX-C가 정리한 카드 구조(설명 카드
+              둘·품목 아이콘)의 **아래**에 서는 별도 카드다. 제휴 고지-구매 CTA 인접(DNC-010)을
+              건드리지 않도록 CTA·기존 카드들보다 뒤에 둔다.
+
+              세션 게이트: 비세션 프리뷰(ITEM-002 픽셀락 캡처 — app/pixel-lock.tsx가 세션을
+              지운다)에는 렌더되지 않는다. 기록할 기기 상태의 주인이 없기도 하다.
+
+              정직성: 이 메모는 서버로 가지 않으므로 "이 기기에만 저장돼요" 고지가 필수다 —
+              가족 공유로 오해할 수 있는 자리에서 저장 위치의 사실을 숨기지 않는다(문구는
+              src/items/item-memo.ts 한 곳). 가격은 어디에도 표시하지 않는다(사용자 결정 대기
+              잠금). 저장은 명시 버튼이고 실패는 위 statusErrorMessage 배너로 알린다. */}
+          {hasSession ? (
+            <Card>
+              <Text accessibilityRole="header" style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>
+                {ITEM_MEMO_CARD_TITLE}
+              </Text>
+              <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>
+                {ITEM_MEMO_DEVICE_ONLY_NOTICE}
+              </Text>
+              <TextInput
+                accessibilityLabel={ITEM_MEMO_INPUT_LABEL}
+                // 상한은 판정 모듈의 값 하나다(글자 수 계약 — src/items/item-memo.ts).
+                maxLength={ITEM_MEMO_MAX_LENGTH}
+                multiline
+                onChangeText={setMemoDraft}
+                placeholder={ITEM_MEMO_INPUT_PLACEHOLDER}
+                // 지출 입력의 메모 칸과 같은 입력 칸 관례(app/expenses/new.tsx — 배경·테두리·
+                // 색). multiline이라 세로 여백과 위 정렬만 더한다. 글꼴 배율은 막지 않는다
+                // (allowFontScaling 기본값 유지 — 이 화면의 다른 글자들과 같은 규칙).
+                style={{
+                  backgroundColor: theme.colors.white,
+                  borderColor: "rgba(74, 63, 53, 0.10)",
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  color: theme.colors.brown,
+                  minHeight: 72,
+                  paddingHorizontal: 14,
+                  paddingVertical: 12,
+                  textAlignVertical: "top"
+                }}
+                value={memoText}
+              />
+              <SecondaryButton
+                accessibilityLabel={itemMemoSaveAccessibilityLabel(visibleDetail.name)}
+                label={ITEM_MEMO_SAVE_LABEL}
+                onPress={handleMemoSave}
+              />
+              {memoNotice ? <Toast message={memoNotice.message} /> : null}
             </Card>
           ) : null}
         </View>

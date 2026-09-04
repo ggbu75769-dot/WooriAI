@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { getSeoulToday } from "@wooriai/domain";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
@@ -102,6 +103,7 @@ import {
   PRE_BIRTH_FILTER_LABEL,
   shouldOfferPreBirthFilter
 } from "../../src/items/pre-birth-filter";
+import { buildNextStagePreview } from "../../src/items/next-stage-preview";
 import {
   GIFTED_RESET_CONFIRM_ACTION_LABEL,
   GIFTED_RESET_CONFIRM_CANCEL_LABEL,
@@ -696,6 +698,29 @@ export default function ItemsScreen() {
       next.add(stageLabel);
       return next;
     });
+  /**
+   * 기능 라운드 1 트랙 F — 다음 시기 D-day 예고 배너(달력 트리거).
+   *
+   * 위 축하 배너(100% 완료 트리거)와 별개의 달력 트리거다. 판정·문구는 전부 순수 모듈이 지고
+   * (src/items/next-stage-preview.ts — 날짜 산술은 도메인 `calculateChildStage` 재사용), 화면은
+   * 서울 오늘을 주입해 그리기만 한다. 데이터는 이미 구독 중인 `["children"]` 캐시의
+   * `stageMode`·`dueDate`·`birthDate`뿐이라 **새 요청 0건**이고, 축하 배너가 서 있으면 모듈이
+   * null을 돌려줘 같은 행선지(다음 시기 칩)를 두 배너가 말하지 않는다. 픽셀 락 캡처(ITEM-001)는
+   * 비세션 렌더라 이 아래 코드에 닿지 않지만, 판정 게이트에도 `!isPixelLockMode`를 한 겹 더
+   * 세운다(축하 배너·준비율과 같은 이중 게이트 관례).
+   */
+  const seoulToday = getSeoulToday();
+  const nextStagePreview =
+    hasSession && !isPixelLockMode && stageSourceChild
+      ? buildNextStagePreview({
+          stageMode: stageSourceChild.stageMode,
+          dueDate: stageSourceChild.dueDate,
+          birthDate: stageSourceChild.birthDate,
+          todayIso: seoulToday,
+          selectedBand: stageLabel,
+          celebrationVisible: showPrepCelebration
+        })
+      : null;
   // "먼저 챙기면 좋아요" 대상: 서버가 준 순서 그대로에서 앞선 미준비 필수템 1~2개를 **고르기만**
   // 한다(클라이언트 재정렬 없음). 같은 항목을 타일로 다시 그리지 않고, 목록 위 한 줄 안내 +
   // 제자리 배지로만 구분한다.
@@ -869,6 +894,12 @@ export default function ItemsScreen() {
         minimumGroupSize={1}
         selectedContextKey={childId}
         selectedContextName={childScopeLabel ?? "우리 아이"}
+        // ⚠️ 두 시점(토스 리뷰 L) — T9가 onBack을 옵셔널로 내리며 "필수 프롭이 호출부에게
+        // 목적지를 지어내게 만들었다"(router.push("/(tabs)"))를 은퇴 사유로 적었지만, 이
+        // 유일 호출부는 여전히 그 지어낸 목적지를 넘긴다. 여기서 걷지 않는 이유: 이 화면은
+        // 비세션에서 ITEM-001 픽셀락 캡처이고 TopAppBar의 뒤로 셰브런이 승인 캡처 안에
+        // 있다 — onBack을 걷으면 TopAppBar가 그 버튼 노드를 세우지 않아(가짜 버튼 금지
+        // 규율) 캡처가 움직인다. 걷는 것은 ITEM-001 재대조(변경 요청 문서)와 한 라운드다.
         onBack={() => router.push("/(tabs)")}
         // 라운드 72 트랙 E: `onRetry`는 이식본의 조회 실패 가지에만 쓰였는데, 이 화면이 `error`를
         // 넘긴 적이 없어 그 가지는 도달할 수 없었다. 죽은 프롭과 함께 걷었다 — 다시 조회는 이
@@ -971,6 +1002,34 @@ export default function ItemsScreen() {
                 />
               ) : null}
             </View>
+            {/* 트랙 F: 다음 시기 D-day 예고 배너 — 시기 칩 줄 바로 아래(눌렀을 때 바뀌는 칩이
+                바로 위에 보인다). 정보 제공만 하고 전환·구매를 재촉하지 않으며(DNC-018), 탭은
+                축하 배너의 다음 시기 버튼과 같은 기존 칩 선택이다(새 화면 없음).
+                리뷰 M-2(두 시점): 종전에는 제목 Text가 라벨 없이 "D-6일"을 원문 그대로 낭독하고
+                버튼의 accessibilityLabel이 같은 문장을 반복했다 — 이제 제목이 spokenTitle
+                (D-를 소리로 푼 형)을 지고, 버튼은 자기 라벨(행동)만 읽는다. 버튼 자리는
+                previewActionLabel이 null이면 서지 않는다(임신 갈래에서 이미 0-6개월 칩을 보는
+                중 — 모듈 판정, 리뷰 H-1). */}
+            {nextStagePreview ? (
+              <View style={{ backgroundColor: theme.colors.beige, borderRadius: theme.radii.card, gap: 8, padding: 14 }}>
+                <Text
+                  accessibilityRole="text"
+                  accessibilityLabel={nextStagePreview.spokenTitle}
+                  style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700", lineHeight: 20 }}
+                >
+                  {nextStagePreview.title}
+                </Text>
+                {nextStagePreview.previewActionLabel ? (
+                  <SecondaryButton
+                    label={nextStagePreview.previewActionLabel}
+                    onPress={() => {
+                      setHasManualStageSelection(true);
+                      setStageLabel(nextStagePreview.band);
+                    }}
+                  />
+                ) : null}
+              </View>
+            ) : null}
           </View>
         }
         notices={

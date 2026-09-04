@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ENTRY_DATE_MAX_PAST_YEARS } from "@wooriai/domain";
 import {
   buildExpenseDatePickerMonth,
   canGoToNextExpenseDatePickerMonth,
@@ -10,10 +11,16 @@ import {
   expenseDatePickerMonthLabel,
   isExpenseDatePickerCellSelectable,
   shiftExpenseDatePickerMonth,
+  EXPENSE_DATE_PICKER_MAX_FUTURE_DAYS,
+  EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS,
+  EXPENSE_DATE_PICKER_MAX_PAST_MONTHS,
   type ExpenseDatePickerDirection
 } from "./date-picker-month";
 import { CALENDAR_WEEKDAY_LABELS_KO, type CalendarCell, type CalendarMonth } from "./records-calendar";
+import { shiftIsoDate } from "./records-date-groups";
 import { AppIcon } from "../design-system";
+import { MONTH_JUMP_TRIGGER_HINT, monthJumpTriggerAccessibilityLabel, type MonthJumpBounds } from "../month-jump";
+import { MonthJumpSheet } from "../MonthJumpSheet";
 import { theme } from "../theme";
 
 /**
@@ -74,6 +81,55 @@ import { theme } from "../theme";
  */
 const PICKER_DISABLED_OPACITY = 0.35;
 
+/**
+ * T9(토스급 정비) — **달 라벨이 월 점프 시트의 입구가 된다.**
+ *
+ * 이 픽커의 달 이동은 ‹ › 한 칸씩뿐이라, 예정일(최대 만삭 ≈ 아홉 달 뒤)이나 몇 달 지난
+ * 영수증에 닿으려면 같은 버튼을 아홉 번 눌러야 했다. 기록·리포트 탭과 내보내기 카드가 이미
+ * 같은 문제를 월 선택 시트(src/MonthJumpSheet.tsx)로 풀었으므로 **그 시트를 그대로 소비한다**
+ * (네 번째 소비처 — 시트·순수 모듈은 한 글자도 손대지 않는다). 트리거 문법(라벨을 Pressable로
+ * 감싸고, 라벨은 순수 모듈의 monthJumpTriggerAccessibilityLabel, 힌트는 MONTH_JUMP_TRIGGER_HINT,
+ * 열림은 expanded 상태)도 그 세 자리와 같다.
+ *
+ * ## 시트에 넘기는 경계 — 픽커 자신의 규칙을 그대로 옮겨 적는다
+ *  - **과거 방향**(지출 날짜·출생일): 상한은 이번 달, 하한은 20년 — 시트의 기본 규칙
+ *    (`MonthJumpBounds.todayIso`만 넘긴 상태)과 **같은 값**이다(둘 다 MAX_PAST_MONTH_OFFSET이
+ *    단일 소스다). 하한 문장만 덮어쓴다 — 시트의 기본 문장("아이 기록이 시작되기 전…")은
+ *    기록 탭의 사실이지 이 달력의 사실이 아니다.
+ *  - **미래 방향**(출산 예정일): 시트는 "미래 달 금지"가 절대 규칙이라(`monthJumpCeilingYearMonth`가
+ *    이번 달로 접는다) 인자로는 만삭까지 열 수 없다. 그래서 기준일을 **만삭 날짜**로 옮겨 넘긴다 —
+ *    ‹ › 이동의 상한(`latestSelectableIso`)과 같은 산술(shiftIsoDate + MAX_FUTURE_DAYS)이라 시트가
+ *    여는 범위와 달력이 실제로 서는 범위가 갈릴 수 없다. 하한은 실제 오늘 기준 20년을 명시해
+ *    기준일 이동으로 바닥이 따라 밀리지 않게 한다.
+ *
+ * ⚠️ 기준일을 옮긴 대가 하나를 기록한다: 미래 방향 시트에서 "이번 달" 표기(테두리·낭독)가
+ * 실제 이번 달이 아니라 **만삭이 든 달**(고를 수 있는 마지막 달)에 선다. 시트의 그 표기는
+ * 기준일에서 파생되고 인자로 끌 수 없다(읽기 전용 소비 — 시트를 고치는 것은 이 트랙의 소유가
+ * 아니다). 아래 안내 한 줄이 그 달력의 실제 경계(만삭)를 문장으로 말한다.
+ */
+const DUE_DATE_MONTH_JUMP_HINT = `달을 눌러 이동해요. 만삭(${EXPENSE_DATE_PICKER_MAX_FUTURE_WEEKS}주)보다 먼 달은 고를 수 없어요.`;
+
+/** 하한(20년) 이전 달 칸의 이유 한 줄. 연 수는 도메인 단일 소스에서 읽는다(숫자를 짓지 않는다). */
+const BEFORE_FLOOR_MONTH_HINT = `${ENTRY_DATE_MAX_PAST_YEARS}년보다 오래된 달이라 고를 수 없어요`;
+
+/** 시트에 넘길 경계. 판정 규칙은 위 헤더 주석 — 값은 전부 기존 단일 소스에서 파생한다. */
+function expenseDatePickerMonthJumpBounds(todayIso: string, direction: ExpenseDatePickerDirection): MonthJumpBounds {
+  // ‹ 이동이 실제로 멈추는 그 달(오늘 기준 20년) — 시트에서만 더 열리거나 더 잠기지 않게 한다.
+  const floorYearMonth = shiftExpenseDatePickerMonth(
+    todayIso.slice(0, 7),
+    -EXPENSE_DATE_PICKER_MAX_PAST_MONTHS,
+    todayIso
+  );
+  if (direction !== "future") {
+    return { todayIso, earliestYearMonth: floorYearMonth, beforeEarliestHint: BEFORE_FLOOR_MONTH_HINT };
+  }
+  return {
+    todayIso: shiftIsoDate(todayIso, EXPENSE_DATE_PICKER_MAX_FUTURE_DAYS) ?? todayIso,
+    earliestYearMonth: floorYearMonth,
+    beforeEarliestHint: BEFORE_FLOOR_MONTH_HINT
+  };
+}
+
 const expenseDatePickerStyle = StyleSheet.create({
   card: {
     backgroundColor: theme.colors.white,
@@ -92,6 +148,14 @@ const expenseDatePickerStyle = StyleSheet.create({
     color: theme.colors.brown,
     fontSize: 15,
     fontWeight: "800"
+  },
+  // T9: 달 라벨 트리거. 글자 한 줄(≈20dp)만으로는 최소 터치 타깃에 못 미치므로 기록 탭의
+  // 같은 트리거처럼 48dp를 채운다 — 이 줄은 이미 48dp 화살표 둘이 높이를 잡고 있어
+  // 늘어나는 것은 히트 영역뿐이다.
+  monthTrigger: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 48
   },
   navButton: {
     alignItems: "center",
@@ -276,8 +340,11 @@ export function ExpenseDatePicker({
   const [pickerYearMonth, setPickerYearMonth] = useState(() =>
     expenseDatePickerInitialMonth(selectedIso, todayIso, direction)
   );
+  // T9: 월 점프 시트의 열림. 훅은 조기 반환 위에 선다(FIX-A 규율).
+  const [monthJumpOpen, setMonthJumpOpen] = useState(false);
   const pickerMonth = buildExpenseDatePickerMonth(pickerYearMonth, todayIso);
   if (!pickerMonth) return null;
+  const monthLabel = expenseDatePickerMonthLabel(pickerYearMonth);
   return (
     <View style={{ gap: 6 }}>
       <View style={expenseDatePickerStyle.header}>
@@ -297,9 +364,21 @@ export function ExpenseDatePicker({
         >
           <AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />
         </Pressable>
-        <Text accessibilityRole="header" style={expenseDatePickerStyle.monthLabel}>
-          {expenseDatePickerMonthLabel(pickerYearMonth)}
-        </Text>
+        {/* T9: 달 라벨이 곧 월 선택 시트의 입구다 — 기록·리포트 탭(GAP-066)·내보내기 카드
+            (라운드 67 C#5)와 같은 트리거 문법. 종전의 header 역할 대신 button 역할이 선다
+            (같은 전환을 기록 탭 달 라벨이 이미 했다). 라벨·힌트는 순수 모듈이 짓는다. */}
+        <Pressable
+          accessibilityHint={MONTH_JUMP_TRIGGER_HINT}
+          accessibilityLabel={monthJumpTriggerAccessibilityLabel(monthLabel)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: monthJumpOpen }}
+          hitSlop={8}
+          onPress={() => setMonthJumpOpen((open) => !open)}
+          testID="expense-date-picker-month-jump-trigger"
+          style={({ pressed }) => [expenseDatePickerStyle.monthTrigger, { opacity: pressed ? 0.76 : 1 }]}
+        >
+          <Text style={expenseDatePickerStyle.monthLabel}>{monthLabel}</Text>
+        </Pressable>
         {/* 다음 달 버튼은 이번 달에서 잠긴다 -- 미래 달을 열어 봐야 칸이 전부
             비활성이라 아무것도 고를 수 없는 달력이 된다(기록 탭 월 이동과 같은 상한). */}
         <Pressable
@@ -319,13 +398,31 @@ export function ExpenseDatePicker({
           <AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />
         </Pressable>
       </View>
-      <ExpenseDatePickerGrid
-        direction={direction}
-        month={pickerMonth}
-        onSelectDate={onSelectDate}
-        selectedIso={selectedIso ?? ""}
-        todayIso={todayIso}
-      />
+      {/* T9: 시트가 열려 있는 동안은 격자 대신 시트가 선다 — 달을 고르면 그 달의 격자로
+          돌아온다(고른 날짜(폼 상태)는 그대로다: 이 시트가 옮기는 것은 **보고 있는 달**뿐이고,
+          그 관계는 이 픽커가 원래 갖던 것이다 — 헤더 주석 "고른 날짜와 따로 움직인다").
+          닫혀 있으면 렌더는 종전과 한 줄도 다르지 않다. */}
+      {monthJumpOpen ? (
+        <MonthJumpSheet
+          testID="expense-date-picker-month-jump-sheet"
+          selectedYearMonth={pickerYearMonth}
+          bounds={expenseDatePickerMonthJumpBounds(todayIso, direction)}
+          hint={direction === "future" ? DUE_DATE_MONTH_JUMP_HINT : undefined}
+          onSelect={(yearMonth) => {
+            setPickerYearMonth(yearMonth);
+            setMonthJumpOpen(false);
+          }}
+          onClose={() => setMonthJumpOpen(false)}
+        />
+      ) : (
+        <ExpenseDatePickerGrid
+          direction={direction}
+          month={pickerMonth}
+          onSelectDate={onSelectDate}
+          selectedIso={selectedIso ?? ""}
+          todayIso={todayIso}
+        />
+      )}
     </View>
   );
 }

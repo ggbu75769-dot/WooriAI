@@ -20,7 +20,7 @@ describe("HOME-BUDGET-113 evaluateBudgetWarning boundaries", () => {
       usedPercent: 80,
       overAmountKrw: 0,
       title: "이번 달 예산의 80%를 사용했어요",
-      body: "남은 예산을 확인해보세요."
+      body: "남은 예산을 확인해 보세요."
     });
   });
 

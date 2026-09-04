@@ -358,6 +358,87 @@ describe("B1 이월 제안 칩 (last-month-budget)", () => {
 });
 
 /**
+ * 기능 라운드 1 트랙 E — 최근 3개월 실지출 평균 제안 칩(recent-average)의 **나란히 서는 규칙**.
+ *
+ * 칩의 내용물(평균 계산·문구·a11y)은 budget-suggestion.ts와 그 테스트가 진다. 이 스위트가
+ * 지키는 것은 목록 조립뿐이다: 어느 상태에서 서고, 이월 칩과 어떤 순서로 서고, 값이 같으면
+ * 어느 쪽이 남는가.
+ */
+describe("트랙 E recent-average 칩 — 나란히 서는 규칙 (buildBudgetAdjustChips)", () => {
+  /** budget-suggestion.ts가 실제로 만드는 모양의 내용물(값 검증은 저쪽 테스트가 한다). */
+  const averageChip = {
+    label: "최근 3개월 평균 약 400,000원씩 썼어요 · 이 값으로 시작",
+    accessibilityLabel: "최근 3개월 평균 약 400,000원씩 썼어요, 이 값으로 시작하기",
+    nextDigits: "400000"
+  };
+
+  it("예산이 없는 달에는 이월 칩 없이도 선다 — 지출 기록만 있으면 제안이 생긴다", () => {
+    const chips = buildBudgetAdjustChips({
+      amountDigits: "",
+      currentBudgetKrw: null,
+      lastMonthActualKrw: null,
+      lastMonthBudgetKrw: null,
+      recentAverageChip: averageChip
+    });
+    expect(chips.map((chip) => chip.id)).toEqual(["recent-average", "minus-step", "plus-step"]);
+    // 내용물은 그대로 실린다 — 조립이 문구·값을 고쳐 쓰지 않는다.
+    expect(chips[0]).toEqual({ id: "recent-average", ...averageChip });
+  });
+
+  it("이월 칩과 값이 다르면 함께 서고, 사용자의 과거 결정(이월)이 계산된 평균보다 앞이다", () => {
+    const chips = buildBudgetAdjustChips({
+      amountDigits: "",
+      currentBudgetKrw: null,
+      lastMonthActualKrw: 1_412_000,
+      lastMonthBudgetKrw: 1_600_000,
+      recentAverageChip: averageChip
+    });
+    expect(chips.map((chip) => chip.id)).toEqual([
+      "last-month-budget",
+      "recent-average",
+      "minus-step",
+      "plus-step",
+      "last-month"
+    ]);
+    expect(chips.map((chip) => chip.nextDigits)).toEqual(["1600000", "400000", "0", "100000", "1412000"]);
+  });
+
+  it("이월 칩과 값이 같으면 하나만 선다(이월 칩이 남는다) — 같은 숫자를 두 번 권하지 않는다", () => {
+    const chips = buildBudgetAdjustChips({
+      amountDigits: "",
+      currentBudgetKrw: null,
+      lastMonthActualKrw: null,
+      lastMonthBudgetKrw: 400_000,
+      recentAverageChip: averageChip
+    });
+    expect(chips.map((chip) => chip.id)).toEqual(["last-month-budget", "minus-step", "plus-step"]);
+    expect(chips[0].nextDigits).toBe("400000");
+  });
+
+  it("이번 달 예산이 이미 있으면 만들지 않는다 — '시작'할 것이 없다(이월 칩과 같은 판단)", () => {
+    const chips = buildBudgetAdjustChips({
+      amountDigits: "",
+      currentBudgetKrw: 1_400_000,
+      lastMonthActualKrw: null,
+      recentAverageChip: averageChip
+    });
+    expect(chips.map((chip) => chip.id)).toEqual(["minus-step", "plus-step"]);
+  });
+
+  it("내용물이 없으면(조회 전·실패·기록 없음) 종전과 동일하다", () => {
+    for (const recentAverageChip of [null, undefined]) {
+      const chips = buildBudgetAdjustChips({
+        amountDigits: "",
+        currentBudgetKrw: null,
+        lastMonthActualKrw: null,
+        recentAverageChip
+      });
+      expect(chips.map((chip) => chip.id)).toEqual(["minus-step", "plus-step"]);
+    }
+  });
+});
+
+/**
  * 라운드 39 I-6 — 예산 화면의 **이번 달 사용액**도 오프라인 재조정을 거친다.
  *
  * 종전에는 이 줄만 서버 집계였다. 같은 화면의 지난달 칩은 재조정된 값이라, 아직 올라가지 않은
@@ -531,10 +612,14 @@ describe("BUD-001 예산 화면 배선 (app/budget.tsx)", () => {
     // 이미 있는 데이터라 조회하면 화면을 열 때마다 요청이 늘어난다.
     expect(screen).not.toContain('useQuery({\n    queryKey: ["expenses"');
     expect(screen).not.toContain('useQuery({\n    queryKey: ["home"');
-    // 라운드 48 B1(b): 쿼리는 두 개다 -- 이번 달 예산(종전)과 지난달 **예산**. 후자는 어떤
+    // 라운드 48 B1(b): 쿼리는 두 개였다 -- 이번 달 예산(종전)과 지난달 **예산**. 후자는 어떤
     // 화면도 캐시에 담아 두지 않는 데이터라 캐시 읽기로는 얻을 수 없고(아래 테스트),
     // 이번 달 예산이 없다고 확인된 뒤에만 켜진다.
-    expect(screen.match(/useQuery\(/g) ?? []).toHaveLength(2);
+    // ⚠️ 두 시점(기능 라운드 1 트랙 E): 위 "두 개"는 그 라운드의 바이트다 — 오늘은 **세 개**다.
+    // 셋째는 최근 3개월 실지출 추이(getTrendReport 1회, REP-128 재조합)로, 지난달 예산과 같은
+    // 이유(그 두 달 전 합계는 어떤 화면도 받아 두지 않는다)·같은 defer 판단(budget.data === null)
+    // 아래에서만 켜진다. 인용한 문장은 지우지 않는다.
+    expect(screen.match(/useQuery\(/g) ?? []).toHaveLength(3);
   });
 
   /**
@@ -628,7 +713,9 @@ describe("B1(d) 온보딩 예산 안내 (app/(onboarding)/budget.tsx)", () => {
   });
 
   it("종전 안내(언제든 바꿀 수 있어요)를 지우지 않는다 — 새 줄은 덧붙임이다", () => {
-    expect(onboardingSource()).toContain("나중에 예산 화면에서 언제든 바꿀 수 있어요.");
+    // 두 시점(라운드 96 T5): 종전 부제는 "나중에 예산 화면에서 언제든 바꿀 수 있어요."로 시작했다 —
+    // "나중에 … 언제든"의 겹말을 걷어 핀도 오늘의 바이트를 따라간다(안내 자체는 그대로 남아 있다).
+    expect(onboardingSource()).toContain("언제든 바꿀 수 있어요.");
   });
 
   it("재촉·죄책감 없는 해요체다(DNC-018)", () => {

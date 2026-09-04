@@ -76,6 +76,6 @@ export function evaluateBudgetWarning(input: BudgetWarningInput): BudgetWarning 
     usedPercent: status.usedPercent,
     overAmountKrw: 0,
     title: `이번 달 예산의 ${status.usedPercent}%를 사용했어요`,
-    body: "남은 예산을 확인해보세요."
+    body: "남은 예산을 확인해 보세요."
   };
 }

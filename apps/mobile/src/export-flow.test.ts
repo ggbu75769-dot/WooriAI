@@ -25,7 +25,8 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     const cardSource = source(sharedExportModule);
     expect(cardSource).toContain("EXPORT_RANGE_OPTIONS.map((option)");
     expect(cardSource).toContain("selected={controller.range === option.value}");
-    expect(cardSource).toContain('controller.busy ? "내보내는 중..." : EXPORT_SHARE_BUTTON_LABEL');
+    // 두 시점(라운드 96 T5): 종전 라벨은 "내보내는 중..."(말줄임표) — 낭독과 같은 점 없는 꼴로 통일.
+    expect(cardSource).toContain('controller.busy ? "내보내는 중" : EXPORT_SHARE_BUTTON_LABEL');
     expect(cardSource).toContain("disabled={controller.busy}");
   });
 
@@ -55,7 +56,7 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     expect(hookSource).toContain("shareExpenseCsv(built.csv)");
     // Success, truncation, and error outcomes all surface through the Toast component.
     expect(hookSource).toContain("csvShareToastMessage({ outcomeKnown: outcome.outcomeKnown");
-    expect(hookSource).toContain('"내보내기에 실패했어요. 잠시 후 다시 시도해주세요."');
+    expect(hookSource).toContain('"내보내기에 실패했어요. 잠시 후 다시 시도해 주세요."');
     expect(hookSource).toContain("<Toast message={controller.toast.message} tone={controller.toast.tone} />");
   });
 
@@ -244,8 +245,9 @@ describe("라운드 66 트랙 B(#6) 삭제 전에 내보내기를 안내한다",
   const privacySource = source("app/settings/privacy.tsx");
 
   it("아이 삭제·계정 삭제 Alert 본문이 내보내기를 가리키고, 그 자리로 가는 버튼이 함께 선다", () => {
+    // 라운드 96 T6: 경로 표기("설정 >")를 자연어로 옮긴 앵커 갱신 — 가리키는 자리·버튼은 그대로다.
     expect(privacySource).toContain(
-      'const EXPORT_BEFORE_DELETE_NOTICE = "필요하면 먼저 설정 > 데이터 내보내기로 기록을 저장해 주세요.";'
+      'const EXPORT_BEFORE_DELETE_NOTICE = "필요하면 먼저 설정의 데이터 내보내기에서 기록을 저장해 주세요.";'
     );
     expect(privacySource).toContain("destructiveAlertMessage(flowCopy.child_profile_delete.exportNotice)");
     expect(privacySource).toContain("destructiveAlertMessage(flowCopy.account_delete.exportNotice)");

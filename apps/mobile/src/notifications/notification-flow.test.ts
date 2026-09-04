@@ -77,11 +77,21 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     // Relative timestamps + list rows from the shared pixel-lock component set.
     expect(screenSource).toContain("formatRelativeTime(entry.createdAt, now)");
     expect(screenSource).toContain("<ListRow");
-    // 모두 지우기 + a warm empty state that keeps the 뒤로가기 escape hatch.
+    // 라운드 96 T7: 화면 제목은 이 화면으로 오는 입구(더보기 메뉴 행 "알림함")와 같은 이름이고,
+    // eyebrow는 제목을 반복하던 자리라 사라졌다.
+    expect(screenSource).toContain('title="알림함"');
+    expect(screenSource).not.toContain('eyebrow="알림"');
+    // 모두 지우기 + a warm empty state. 라운드 96 T7: 빈 상태의 유일한 CTA가 "뒤로가기"(나가는
+    // 길은 헤더의 ‹가 이미 진다)에서 "알림 설정 보기"로 바뀌었고, 제목/설명이 T1의 description
+    // 슬롯으로 두 층이 됐다. 목록 상태에는 같은 목적지의 "알림 설정" TextButton이 선다.
     expect(screenSource).toContain("모두 지우기");
     expect(screenSource).toContain("clearAll()");
-    expect(screenSource).toContain("아직 알림이 없어요");
-    expect(screenSource).toContain('actionLabel="뒤로가기"');
+    expect(screenSource).toContain('title="아직 알림이 없어요"');
+    expect(screenSource).toContain('description="예산과 아이 성장, 구매 확인 소식이 여기에 따뜻하게 모일 거예요."');
+    expect(screenSource).toContain('actionLabel="알림 설정 보기"');
+    expect(screenSource).not.toContain('actionLabel="뒤로가기"');
+    expect(screenSource.match(/router\.push\("\/settings\/notifications"\)/g) ?? []).toHaveLength(2);
+    expect(screenSource).toContain('label="알림 설정"');
     expect(screenSource).toContain("EmptyStateCard");
   });
 
@@ -119,7 +129,7 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
     expect(screenSource).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     // 목록 상태에서도 화면 안 뒤로가기: UX-Q(C)가 낸 ScreenHeader의 onBack 슬롯을 쓴다
     // (‹ 표기·"뒤로가기" 라벨·44dp 타깃이 그 컴포넌트 한 곳에 있다 -- screen-header-back.test.ts).
-    // 빈 상태 카드의 뒤로가기는 그대로 남는다.
+    // 라운드 96 T7: 빈 상태 카드의 CTA는 "알림 설정 보기"가 됐고, 나가는 길은 이 onBack 하나다.
     const headerBlock = screenSource.slice(screenSource.indexOf("<ScreenHeader"), screenSource.indexOf("/>", screenSource.indexOf("<ScreenHeader")) + 2);
     expect(headerBlock).toContain("onBack={() => router.back()}");
   });

@@ -196,18 +196,25 @@ describe("design-system components (c20deeb 이식본)", () => {
     expect(source).toContain("balanceCompactKoreanLabel(title)");
   });
 
-  it("keeps every visible string in 해요체", () => {
+  /**
+   * T1(디자인 시스템): syncing/pending의 주어를 "변경 (내용)" → "기록"으로 단일화했다
+   * (홈 하단 동기화 줄의 어휘 이탈 — synced가 이미 쓰던 그 낱말이다). 해요체 계약은 그대로고,
+   * 옛 문장은 부정 단언으로 재발을 막는다.
+   */
+  it("keeps every visible string in 해요체 (동기화 줄의 주어는 기록이다)", () => {
     const source = readSource("patterns/AsyncState.tsx");
     for (const copy of [
       "불러오고 있어요.",
       "모든 기록이 동기화됐어요.",
-      "변경 내용을 동기화하고 있어요.",
+      "기록을 동기화하고 있어요.",
       "오프라인 · 연결되면 자동으로 동기화해요.",
-      "서버 반영을 기다리는 변경이 있어요.",
+      "서버 반영을 기다리는 기록이 있어요.",
       "확인이 필요한 동기화 충돌이 있어요."
     ]) {
       expect(source).toContain(copy);
     }
+    expect(source).not.toContain("변경 내용을 동기화하고 있어요.");
+    expect(source).not.toContain("서버 반영을 기다리는 변경이 있어요.");
     expect(readSource("components/ApplicationPrimitives.tsx")).toContain(
       "이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요."
     );

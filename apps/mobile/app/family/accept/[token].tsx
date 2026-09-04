@@ -41,6 +41,7 @@ import { useSessionStore } from "../../../src/stores/session.store";
 import { withParticle } from "../../../src/text/korean-particles";
 import { theme } from "../../../src/theme";
 import { announceForA11y, AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton } from "../../../src/ui";
+import { SkeletonCard } from "../../../src/ui/Skeleton";
 
 const roleLabel: Record<string, string> = {
   co_parent: "공동부모",
@@ -359,11 +360,10 @@ export default function AcceptInviteScreen() {
       <View testID="screen-FAM-003" style={{ gap: theme.spacing.section }}>
         <ScreenHeader eyebrow="가족 관리" title="초대 수락" subtitle="초대받은 가족에 참여해요" />
 
-        {invite.isLoading ? (
-          <Card>
-            <Text style={mutedTextStyle}>불러오는 중이에요...</Text>
-          </Card>
-        ) : null}
+        {/* 라운드 96 T7: 텍스트 로딩 카드("불러오는 중이에요...")를 공용 스켈레톤으로. 이 앱의
+            로딩 관례는 MOB-119부터 스켈레톤이고(가족·예산·지출 상세·알림 설정), 이 화면만 글자
+            카드로 남아 있었다. 낭독 라벨("불러오는 중")은 SkeletonCard가 이미 지닌다. */}
+        {invite.isLoading ? <SkeletonCard /> : null}
 
         {/* 재시도로 풀리는 실패(네트워크·5xx)만 이 카드에 남는다 — 카드도 버튼도 종전 그대로이고,
             문구는 오프라인일 때만 공용 문장으로 갈린다(라운드 73 E). */}
@@ -451,7 +451,7 @@ export default function AcceptInviteScreen() {
               <SecondaryButton
                 accessibilityLabel="가족 정보 다시 불러오기"
                 disabled={isFinishingJoin}
-                label={isFinishingJoin ? "다시 시도하는 중..." : "다시 시도"}
+                label={isFinishingJoin ? "다시 시도하는 중" : "다시 시도"}
                 onPress={() => void finishHouseholdJoin(joinedResult)}
               />
               {/* 라운드 60 리뷰(P1-1): 탈출구. 오프라인처럼 "잠시 후"로 풀리지 않는 실패에서

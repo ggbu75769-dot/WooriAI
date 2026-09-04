@@ -362,13 +362,15 @@ export default function RecurringExpensesScreen() {
           <Text style={rowSubtitleStyle}>{RECURRING_DEVICE_ONLY_NOTICE}</Text>
         </Card>
 
-        {/* 라운드 71 트랙 E: 문구 무변경 + 목적지 하나(가짜 버튼 → 실제로 갈 곳).
+        {/* 라운드 71 트랙 E: 목적지 하나(가짜 버튼 → 실제로 갈 곳).
             이 카드의 문장은 조건을 **둘** 말하므로("로그인하고 아이를 선택하면") 목적지도 지금
-            막고 있는 쪽으로 간다 — 토큰이 없으면 로그인, 있으면 아이를 고르는 화면이다. */}
+            막고 있는 쪽으로 간다 — 토큰이 없으면 로그인, 있으면 아이를 고르는 화면이다.
+            라운드 96 T6: 버튼 글자도 같은 갈래를 따라 목적지를 말한다("확인"은 눌러서 무엇이
+            되는지 말하지 않는 라벨이었다). */}
         {!canManage ? (
           <EmptyStateCard
             title="로그인하고 아이를 선택하면 정기 지출을 적어 둘 수 있어요."
-            actionLabel="확인"
+            actionLabel={authToken ? "아이 선택하러 가기" : "로그인하기"}
             onPress={() => router.push(authToken ? "/settings/children" : "/login")}
           />
         ) : null}
@@ -469,9 +471,10 @@ export default function RecurringExpensesScreen() {
                   <Text style={fieldLabelStyle}>일</Text>
                 </View>
                 {/* 없는 날(2월 31일)을 고를 수 있게 두되, 그때 어떻게 되는지 미리 말한다 —
-                    판정은 recurringDueDateForMonth가 그 달 말일로 클램프한다. */}
+                    판정은 recurringDueDateForMonth가 그달 말일로 클램프한다.
+                    라운드 96 T6: 한 문장 안에서 "그 달/그달"로 갈리던 표기를 "그달"로 통일. */}
                 <Text style={rowSubtitleStyle}>
-                  그 달에 없는 날짜(예: 31일)는 그달의 마지막 날로 알려드려요.
+                  그달에 없는 날짜(예: 31일)는 그달 마지막 날에 알려드려요.
                 </Text>
               </View>
 
@@ -511,10 +514,10 @@ export default function RecurringExpensesScreen() {
         {canManage ? (
           <View style={{ gap: theme.spacing.gap }}>
             <Text style={sectionTitleStyle}>저장한 정기 지출</Text>
+            {/* 라운드 96 T6: 섹션 빈 상태도 다른 화면과 같은 EmptyStateCard 문법이다
+                (알림 설정의 기기 목록 빈 상태와 한 벌 — 종전 두 문장을 제목/설명 두 층으로 나눈 것). */}
             {childTemplates.length === 0 ? (
-              <Card>
-                <Text style={rowSubtitleStyle}>아직 적어 둔 정기 지출이 없어요. 위에서 하나 추가해 보세요.</Text>
-              </Card>
+              <EmptyStateCard title="아직 적어 둔 정기 지출이 없어요" description="위에서 하나 추가해 보세요." />
             ) : null}
             {childTemplates.map((template) => (
               <Card key={template.id} style={{ gap: 10 }}>
@@ -577,10 +580,12 @@ export default function RecurringExpensesScreen() {
               </Card>
             ))}
             {/* 판정의 한계를 사실대로 밝힌다: 이름이 다르면(‘기저귀’ vs ‘기저귀 대형’) 못 찾고,
-                그때 쓰라고 홈 카드에 "이미 기록했어요"가 있다(설계 §6 위험 5). */}
+                그때 쓰라고 홈 카드에 "이미 기록했어요"가 있다(설계 §6 위험 5).
+                라운드 96 T6: 조건 둘을 이고 있던 55자 복문을 단문 셋으로 나눴다 — 말하는 사실
+                (날짜 경과 → 홈 알림 · 같은 품목명 기록 → 조용 · 다른 이름 → 건너뛰기)은 그대로다. */}
             <Text style={rowSubtitleStyle}>
-              적어 둔 날짜가 지났는데 그달 기록에 같은 품목명이 없으면 홈에서 알려드려요. 다른 이름으로 적으셨다면 홈 카드에서
-              『{RECURRING_SKIP_ACTION_LABEL}』로 넘길 수 있어요.
+              적어 둔 날짜가 지나면 홈에서 알려드려요. 그달에 같은 품목명을 기록했다면 알리지 않아요. 이름을 다르게
+              적었다면 홈 카드에서 『{RECURRING_SKIP_ACTION_LABEL}』로 넘길 수 있어요.
             </Text>
           </View>
         ) : null}

@@ -563,7 +563,9 @@ const EXPENSE_FIELD_LABELS: Record<string, string> = {
   amountKrw: "금액",
   spentOn: "날짜",
   itemName: "품목",
-  merchant: "구매처",
+  // 토스급 T4: 앱 전체(기록 검색 · CSV 헤더 · 상세 입력)가 이 필드를 "판매처"라 부른다 —
+  // 충돌 화면만 "구매처"라고 불러 같은 칸이 화면마다 다른 이름으로 읽혔다.
+  merchant: "판매처",
   memo: "메모",
   paymentMethod: "결제 수단",
   expenseType: "구분"

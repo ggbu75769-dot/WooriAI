@@ -95,10 +95,18 @@ describe("PUSH-116 push settings contract", () => {
   });
 
   /**
-   * ⓕ 바이트 불변 — 이 트랙은 **값이 도달하게** 할 뿐 문구를 만들지 않는다(새 한국어 문장 0건).
+   * ⓕ 한국어 줄 전수 대장 — 주석을 걷은 화면 소스에서 한국어를 이고 있는 줄 전수다(순서까지).
+   * 라운드 88 B가 "등록 인자 한 줄이 이 목록을 한 바이트도 건드리지 않는다"는 부정 단언으로
+   * 세웠고, 그 뒤로 이 화면의 문구가 바뀌는 라운드는 이 대장을 같은 커밋에서 함께 옮긴다.
    *
-   * 아래 스물넷은 주석을 걷은 화면 소스에서 한국어를 이고 있는 줄 전수이고(순서까지), 그 목록
-   * 자체가 이 트랙의 부정 단언이다 — 등록 인자 한 줄이 이 목록을 한 바이트도 건드리지 않는다.
+   * ⚠️ **두 시점(라운드 96 T6)** — 이 트랙은 문구를 실제로 바꿨으므로 대장이 함께 옮겨 간다:
+   *  · 잠금 카드 버튼 "확인" → "로그인하기"(a11y-contract의 앵커 교체와 같은 커밋),
+   *  · "기기 등록" 어휘 세 자리 제거 — 부제 두 갈래("지금 이 기기로 푸시 알림을 받아요/받지
+   *    않아요") · 배지 "등록됨/미등록" → "받는 중/꺼짐"(판정은 masterToggleValue 한 벌) ·
+   *    빈 목록 문장("푸시 알림을 받는 기기가 없어요"),
+   *  · 텍스트 로딩 카드("불러오는 중이에요...") → SkeletonCard(한국어 줄이 아예 사라졌다),
+   *  · 빈 목록 카드가 EmptyStateCard 문법(제목/설명 두 층)으로 옮겨 갔다.
+   * 나머지 줄은 종전과 바이트 단위로 같다.
    */
   const SCREEN_KOREAN_LINES: readonly string[] = [
     'if (platform === "android") return "Android 기기";',
@@ -108,26 +116,25 @@ describe("PUSH-116 push settings contract", () => {
     'eyebrow="설정"',
     'title="알림 설정"',
     'subtitle="앱 알림함과 푸시 알림을 관리해요"',
-    '<EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="확인" onPress={() => router.push("/login")} />',
+    '<EmptyStateCard title="로그인 후 이용할 수 있어요." actionLabel="로그인하기" onPress={() => router.push("/login")} />',
     "<Text style={sectionTitleStyle}>앱 알림함</Text>",
     "홈 종 아이콘의 알림함에 어떤 소식을 남길지 고를 수 있어요. 끈 알림은 알림함에 쌓이지 않아요.",
     "<Text style={noticeTextStyle}>다시 켜면 그다음부터 알림함에 다시 쌓여요.</Text>",
     "<Text style={rowTitleStyle}>푸시 알림</Text>",
-    '? "이 기기는 푸시 기기로 등록되어 있어요."',
-    ': "이 기기는 아직 푸시 기기로 등록되지 않았어요."}',
-    '{currentDevice ? <StatusBadge label="등록됨" tone="success" /> : <StatusBadge label="미등록" />}',
+    '? "지금 이 기기로 푸시 알림을 받아요."',
+    ': "지금 이 기기로는 푸시 알림을 받지 않아요."}',
+    '{masterToggleValue ? <StatusBadge label="받는 중" tone="success" /> : <StatusBadge label="꺼짐" />}',
     'accessibilityLabel="푸시 알림"',
     "지금 앱 버전에서는 푸시 알림을 받을 수 없어요. 앱 업데이트 후 사용할 수 있어요.",
     "푸시 설정을 바꾸지 못했어요. 알림 권한을 확인한 뒤 다시 시도해 주세요.",
     "앱 안의 알림함(홈 종 아이콘)은 푸시와 별개로 계속 표시돼요. 종류별로 끄려면 위의 앱 알림함에서 바꿀 수 있어요.",
     "<Text style={sectionTitleStyle}>내 기기</Text>",
-    "<Text style={rowSubtitleStyle}>불러오는 중이에요...</Text>",
-    "<Text style={rowSubtitleStyle}>등록된 기기가 없어요. 푸시를 켜면 이 기기가 등록돼요.</Text>",
+    '<EmptyStateCard title="푸시 알림을 받는 기기가 없어요" description="푸시 알림을 켜면 이 기기가 목록에 추가돼요." />',
     ": `마지막 사용 ${formatRelativeTime(updatedAtMs, Date.now())}`;",
     '{isThisDevice ? <StatusBadge label="이 기기" tone="success" /> : null}'
   ];
 
-  it("라운드 88 B ⓕ: 화면의 한국어 줄 전수·스위치 배선·실패 태그가 바이트 불변이다", () => {
+  it("라운드 88 B ⓕ: 화면의 한국어 줄 전수·스위치 배선·실패 태그가 이 대장 그대로다", () => {
     const screenSource = source("app/settings/notifications.tsx");
     const code = screenSource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[^\n"'`]*\/\/.*$/gm, "");
     const koreanLines = code

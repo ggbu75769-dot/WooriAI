@@ -370,7 +370,7 @@ export default function MoreScreen() {
             accessibilityLabel={hasSession ? "기록 검색" : "설정"}
             hitSlop={MORE_SEARCH_HIT_SLOP}
             onPress={handleSearchPress}
-            style={moreSearchButtonStyle}
+            style={({ pressed }) => [moreSearchButtonStyle, pressed && morePressedStyle]}
           >
             {/* 돋보기 글리프(⌕)도 같은 Ionicons 계열로. 라벨은 바깥 Pressable이 읽어 준다. */}
             <Ionicons
@@ -414,7 +414,7 @@ export default function MoreScreen() {
                 : `${nameWithHonorificSuffix(visibleProfile.nickname)}, ${sessionStageLabel}, 프로필 관리`
             }
             onPress={() => router.push(MORE_PROFILE_CARD_ROUTE)}
-            style={moreHouseholdCardStyle}
+            style={({ pressed }) => [moreHouseholdCardStyle, pressed && morePressedStyle]}
             testID="more-household-card"
           >
             <View style={moreHouseholdLogoCircleStyle}>
@@ -503,6 +503,9 @@ function moreReferenceFrameStyle() {
     transform: [{ translateX: MoreSettingsPixelStyles.horizontalOffset }, { translateY: MoreSettingsPixelStyles.topOffset }]
   } as const;
 }
+
+// TOSS-T2: 인라인 Pressable press 피드백(공용 킷의 0.76~0.86 범위). 휴지 상태에는 더해지지 않는다.
+const morePressedStyle = { opacity: 0.76 } as const;
 
 const moreHeaderRowStyle = {
   alignItems: "center",

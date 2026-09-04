@@ -269,11 +269,14 @@ export const OFFLINE_AWARE_SAVE_ERROR_EXEMPT_SCREENS: Readonly<Record<string, st
  * 들고 있는 모듈을 모은다. 바늘은 손으로 적지 않고 공용 상수에서 **파생**한다 —
  * `LOAD_ERROR_NOTICE`·`SAVE_ERROR_NOTICE`의 앞 문장 둘과 **꼬리 조각**(`"잠시 후 다시"`)이다.
  *
- * ⚠️ 꼬리를 **문장 전체**(`"잠시 후 다시 시도해 주세요"`)로 잡으면 안 된다: 이 저장소에는
- * 붙여 쓴 방언(`"시도해주세요"`)을 쓰는 파일이 셋 있어(`src/auth/kakao-login.ts` ·
- * `src/export/ExpenseCsvExport.tsx` · `src/export/expense-page-collector.ts`) 그물이 그 셋을
- * **구조적으로** 못 본다. 표기 방언을 통일하지 않은 대가를 그물이 대신 치르고 있고, 그 사실을
- * 여기 값으로 적어 둔다(라운드 76 P3 — 문구 통일은 이 트랙의 축이 아니다).
+ * ⚠️ 꼬리를 **문장 전체**(`"잠시 후 다시 시도해 주세요"`)로 잡으면 안 된다 — 조각 꼬리가 문장
+ * 전체보다 넓은 그물이고, 좁힐 이유가 없다.
+ * ⚠️ **두 시점(라운드 96 T5)**: 라운드 76 시점 이 자리는 *"붙여 쓴 방언(`"시도해주세요"`)을 쓰는
+ * 파일이 셋 있어(`src/auth/kakao-login.ts` · `src/export/ExpenseCsvExport.tsx` ·
+ * `src/export/expense-page-collector.ts`) 그물이 그 셋을 구조적으로 못 본다 — 표기 방언을
+ * 통일하지 않은 대가를 그물이 대신 치르고 있다(라운드 76 P3)"* 라고 적었다. 오늘 그 방언은
+ * 다수파(띄어 쓴 꼴)로 전량 통일됐고, 되돌아오지 못하도록 `messages.test.ts`의 표기 방언 스윕이
+ * **0을 상한으로** 문다(조각 꼬리는 그대로 둔다 — 방언이 아니어도 조각이 더 넓다).
  *
  * 걸린 모듈은 예외 없이 아래 셋 중 하나에 있어야 한다: 오프라인 판정을 **받는** 모듈,
  * **이유가 적힌** 면제 모듈, 그리고 **정의상 밖**인 둘(문장의 단일 소스 · 목록 자신).
@@ -312,6 +315,8 @@ export const OFFLINE_UNAWARE_FAILURE_COPY_MODULES: Readonly<Record<string, strin
     "지출은 SQLite 우선 저장이라 오프라인에서 **성공한다**(MOB-102/EXP-005). 이 문장이 서는 것은 로컬 쓰기 자체가 실패한 경우뿐이라, 연결은 그 실패의 원인도 해법도 아니다.",
   "src/import/bulk-run.ts":
     "다른 클라이언트가 이미 잡은 작업이라는 사실을 말하는 자리다. 여기서의 '잠시 후 다시'는 지키지 못할 약속이 아니라 **실제로 기다리면 풀리는** 사실이다(그 잡이 끝나면 다음 시도가 통한다).",
+  "src/items/item-memo.ts":
+    "품목 메모는 서버 0바이트의 기기 로컬 저장(zustand persist·AsyncStorage)이라 네트워크가 등장하지 않는다. 이 문장이 서는 것은 기기 쓰기 자체가 실패한 경우뿐이고, 그 실패의 원인은 연결이 아니다 — 같은 화면의 준비 상태 문구(status-mutation-messages.ts)와 같은 판정. 기능 라운드 1 리뷰 M-3이 두 문구의 문법을 한 꼴로 맞추며 등재했다.",
   "src/items/status-mutation-messages.ts":
     "준비템 상태 변경은 아웃박스 큐에 들어가므로 오프라인에서 실패하지 않는다. 이 문장이 서는 것은 큐에 넣는 일 자체가 실패한 경우뿐이고, 그 실패의 원인은 연결이 아니다.",
   "src/onboarding/selected-child-recovery.ts":

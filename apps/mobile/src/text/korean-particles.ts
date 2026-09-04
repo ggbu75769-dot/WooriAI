@@ -52,6 +52,9 @@ const HANGUL_SYLLABLE_END = 0xd7a3;
 /** 종성(받침)의 가짓수 — 없음 1 + 있음 27. 한글 음절이 이 주기로 늘어서 있다. */
 const FINAL_CONSONANT_COUNT = 28;
 
+/** 종성 인덱스 8 = ㄹ. `(으)로`만 이 받침에서 예외로 갈린다(아래 `directionParticle`). */
+const RIEUL_FINAL_CONSONANT_INDEX = 8;
+
 /**
  * 마지막 글자에 받침이 있는가.
  *
@@ -100,6 +103,48 @@ export function objectParticle(word: string): string {
  */
 export function withParticle(word: string): string {
   return hasFinalConsonant(word) === true ? "과" : "와";
+}
+
+/**
+ * 라운드 96 T5 — 주격 조사. 받침 있으면 `이`, 없거나 판정이 서지 않으면 `가`.
+ *
+ * 쓰는 자리: `src/notifications/generators.ts`의 단계 전환 알림 제목("『다온이』가 36개월에
+ * 들어섰어요."). ⚠️ **두 시점**: 그 자리는 두 형태를 함께 적는 꼴(`이(가)`)이었다 — 스윕 사각
+ * `both-forms-written-is-outside-this-needle`이 *묻지 않기로 한 답*이라 값으로 세어 두던 자리이고,
+ * 오늘 값에서 고르는 꼴(꼴 B)로 들어왔다. 위 두 함수와 같은 관례(같은 판정 하나를 지난다).
+ */
+export function subjectParticle(word: string): string {
+  return hasFinalConsonant(word) === true ? "이" : "가";
+}
+
+/**
+ * 종성(받침) 인덱스 — `0` 없음 · `8` ㄹ · **`null` 판정이 서지 않음**(한글 음절이 아닌 끝).
+ * `hasFinalConsonant`과 같은 자리에서 같은 규칙(`NFC` → 꼬리 글자 → 주기 28)을 보되, `(으)로`가
+ * 필요로 하는 것은 유무가 아니라 **어느 받침인가**라 인덱스째 낸다(아래 `directionParticle` 전용).
+ */
+function finalConsonantIndexOf(word: string): number | null {
+  const lastChar = word.normalize("NFC").trim().slice(-1);
+  if (!lastChar) return null;
+  const code = lastChar.charCodeAt(0);
+  if (code < HANGUL_SYLLABLE_START || code > HANGUL_SYLLABLE_END) return null;
+  return (code - HANGUL_SYLLABLE_START) % FINAL_CONSONANT_COUNT;
+}
+
+/**
+ * 라운드 96 T5 — 방향·자격 조사 `(으)로`. 받침 있으면 `으로`, 없거나 판정이 서지 않으면 `로`.
+ *
+ * ⚠️ **이 쌍만 규칙이 하나 더 있다: 받침이 ㄹ이면 `로`다**("서울로" · "첫돌로") — 스윕 계약
+ * (`src/korean-particle-guard.test.ts`의 `expectedParticle`)이 이미 자로 들고 있던 그 예외를
+ * 규칙 모듈로 옮겨 온다(두 자리가 서로 다른 답을 낼 수 없게 계약이 나란히 잰다).
+ *
+ * 쓰는 자리: 아이 전환 문구 넷 — `src/children/child-switch.ts`의 안내·낭독 라벨 둘,
+ * `src/children/child-deletion.ts`·`src/children/household-join.ts`의 전환 토스트.
+ * ⚠️ **두 시점**: 넷 다 두 형태를 함께 적는 꼴(`(으)로`)이었다(위 `subjectParticle`과 같은 이관).
+ */
+export function directionParticle(word: string): string {
+  const finalIndex = finalConsonantIndexOf(word);
+  if (finalIndex === null || finalIndex === 0) return "로";
+  return finalIndex === RIEUL_FINAL_CONSONANT_INDEX ? "로" : "으로";
 }
 
 /**

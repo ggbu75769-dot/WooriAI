@@ -92,7 +92,7 @@ const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
  */
 export class ApiTimeoutError extends Error {
   constructor(cause: unknown) {
-    super("요청 시간이 초과되었어요(10초)", { cause });
+    super("요청 시간이 초과됐어요(10초)", { cause });
     this.name = "ApiTimeoutError";
   }
 }

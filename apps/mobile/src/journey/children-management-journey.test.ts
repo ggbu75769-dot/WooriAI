@@ -192,7 +192,7 @@ describe("QA-118: 아이 관리 journey (create -> switch -> edit/재계산) thr
     const plan = planChildSwitch(useSelectedChildStore.getState().selectedChildId, SECOND_CHILD);
     expect(plan).not.toBeNull();
     expect(plan!.childId).toBe(SECOND_CHILD.id);
-    expect(plan!.announcement).toBe("튼튼이(으)로 전환했어요.");
+    expect(plan!.announcement).toBe("튼튼이로 전환했어요.");
     expect(plan!.invalidateKeys).toBe(CHILD_SCOPED_QUERY_KEY_PREFIXES);
 
     // Apply the plan exactly as app/settings/children.tsx does on a row tap.
@@ -218,7 +218,7 @@ describe("QA-118: 아이 관리 journey (create -> switch -> edit/재계산) thr
 
     // Switch back to child #1 for the edit step -- a fresh plan with the mirrored announcement.
     const backPlan = planChildSwitch(SECOND_CHILD.id, { id: LOCAL_CHILD_ID, nickname: "첫째 여정이" });
-    expect(backPlan!.announcement).toBe("첫째 여정이(으)로 전환했어요.");
+    expect(backPlan!.announcement).toBe("첫째 여정이로 전환했어요.");
     useSelectedChildStore.getState().setSelectedChildId(backPlan!.childId);
     expect(useSelectedChildStore.getState().selectedChildId).toBe(LOCAL_CHILD_ID);
   });

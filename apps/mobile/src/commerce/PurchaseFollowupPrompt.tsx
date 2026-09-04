@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AppState, Platform, Text, View } from "react-native";
+import { Animated, AppState, Platform, Text, View } from "react-native";
 import { router } from "expo-router";
 import { trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { buildPurchaseFollowupAnsweredPayload, type PurchaseFollowupAnswer } from "../analytics/events";
@@ -12,6 +12,9 @@ import { useAppLockStore } from "../stores/app-lock.store";
 import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
 import { announceForA11y, Card, PrimaryButton, SecondaryButton, TextButton } from "../ui";
+// T10(토스급): 등장 스프링·퇴장 페이드는 공용 reduce-motion 훅을 존중한다(직접 조회 복붙 금지 —
+// state-screen-conventions.test.ts의 단일 소스 계약).
+import { useReducedMotion } from "../ui/useReducedMotion";
 import { theme } from "../theme";
 import { isPurchaseFollowupHeldByAppLock } from "./purchase-followup-resolution";
 import { createPurchaseFollowupSessionGate, evaluateFollowupPrompt, followupSessionKey } from "./purchase-followup-session";
@@ -62,6 +65,55 @@ const purchaseFollowupOverlayStyle = {
   right: 16,
   zIndex: 30
 } as const;
+
+/**
+ * T10(토스급) — 등장·퇴장 모션의 이동 거리(dp). 카드가 아래에서 12dp 떠오르며 서고, 내려갈 때
+ * 같은 거리로 가라앉는다. 값이 크면 오버레이가 화면을 가로지르는 것처럼 보이고, 작으면 페이드와
+ * 구분되지 않는다 — 바텀 카드 하나 높이 안에서 끝나는 최소의 이동이다.
+ */
+const FOLLOWUP_CARD_RISE_DP = 12;
+
+/** 퇴장 페이드 길이(ms). 등장 스프링과 달리 답을 이미 받은 카드라 짧게 물러난다. */
+const FOLLOWUP_CARD_EXIT_MS = 120;
+
+/** 퇴장 잔상의 버튼이 받는 핸들러 — 잔상은 pointerEvents="none"이라 실제로는 불리지 않는다. */
+function noopFollowupAnswer() {
+  return undefined;
+}
+
+/**
+ * T10 — 카드의 **보이는 부분** 한 벌. 살아 있는 카드와 퇴장 잔상(답을 받고 120ms 페이드로
+ * 내려가는 그 프레임)이 같은 픽셀을 그리기 위해 공유한다 — 두 벌로 적으면 잔상이 원본과
+ * 미세하게 다른 카드로 깜빡인다. 판정·핸들러 내용은 전부 호출부(라이프사이클 컴포넌트)에
+ * 남는다: 이 컴포넌트는 문장 셋과 버튼 셋을 그리기만 한다.
+ */
+function FollowupCardContent({
+  entry,
+  onPurchased,
+  onNotYet,
+  onDismiss
+}: {
+  entry: PurchaseFollowupEntry;
+  onPurchased: () => void;
+  onNotYet: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <Card style={{ backgroundColor: theme.colors.mint }}>
+      <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>
+        {`『${entry.itemName}』 구매하셨나요?`}
+      </Text>
+      {entry.priceBandText ? (
+        <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{entry.priceBandText}</Text>
+      ) : null}
+      <PrimaryButton label="샀어요" onPress={onPurchased} />
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <SecondaryButton label="아직이요" onPress={onNotYet} style={{ flex: 1 }} />
+        <TextButton label="괜찮아요" onPress={onDismiss} style={{ flex: 1 }} />
+      </View>
+    </Card>
+  );
+}
 
 export function PurchaseFollowupLifecycle() {
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -124,6 +176,58 @@ export function PurchaseFollowupLifecycle() {
    * 알아야 한다 — 상태를 의존성에 넣으면 카드가 뜰 때마다 리스너를 다시 걸게 되므로 ref로 읽는다.
    */
   const activeFollowupRef = useRef<PurchaseFollowupEntry | null>(null);
+  /**
+   * T10(토스급) — 카드 모션 상태. 등장은 스프링(불투명도 + 12dp 떠오름), 퇴장은 120ms 페이드다.
+   * 판정 로직은 한 글자도 지나지 않는다: 모션이 읽는 것은 이미 내려진 판정(activeFollowup)뿐이고,
+   * 잔상(exitingFollowup)은 **답을 받은 카드**(closeCard)만 남긴다 — 아이 전환·앱 잠금·세션 종료로
+   * 내려가는 카드는 종전처럼 즉시 사라진다(그 셋은 보안·정합의 가드라 잔상을 남기면 안 된다).
+   * reduce-motion이면 등장은 정착 상태로 곧장 서고 잔상은 아예 만들지 않는다.
+   */
+  const reduceMotionEnabled = useReducedMotion();
+  const [exitingFollowup, setExitingFollowup] = useState<PurchaseFollowupEntry | null>(null);
+  const enterMotion = useRef(new Animated.Value(1)).current;
+  const exitMotion = useRef(new Animated.Value(0)).current;
+  // 등장 리플레이의 키는 세션 게이트가 쓰는 그 키다(followupSessionKey) — 같은 카드가 재렌더로
+  // 참조만 바뀌어도 스프링이 다시 튀지 않고, 다른 카드(다른 클릭)가 서면 새로 떠오른다.
+  const activeFollowupKey = activeFollowup ? followupSessionKey(activeFollowup) : null;
+
+  useEffect(() => {
+    if (!activeFollowupKey) return;
+    // 새 카드가 서면 이전 답의 잔상은 곧바로 내린다(두 카드가 겹쳐 그려지지 않게).
+    setExitingFollowup(null);
+    if (reduceMotionEnabled) {
+      enterMotion.setValue(1);
+      return;
+    }
+    enterMotion.setValue(0);
+    const spring = Animated.spring(enterMotion, {
+      friction: 8,
+      tension: 64,
+      toValue: 1,
+      useNativeDriver: true
+    });
+    spring.start();
+    return () => spring.stop();
+  }, [activeFollowupKey, reduceMotionEnabled, enterMotion]);
+
+  useEffect(() => {
+    if (!exitingFollowup) return;
+    if (reduceMotionEnabled) {
+      setExitingFollowup(null);
+      return;
+    }
+    exitMotion.setValue(1);
+    const timing = Animated.timing(exitMotion, {
+      duration: FOLLOWUP_CARD_EXIT_MS,
+      toValue: 0,
+      useNativeDriver: true
+    });
+    // 완주한 페이드만 잔상을 지운다 — cleanup의 stop()은 finished:false로 끝나 setState가 없다.
+    timing.start(({ finished }) => {
+      if (finished) setExitingFollowup(null);
+    });
+    return () => timing.stop();
+  }, [exitingFollowup, reduceMotionEnabled, exitMotion]);
 
   useEffect(() => {
     if (!hasSession) {
@@ -244,6 +348,55 @@ export function PurchaseFollowupLifecycle() {
     announceForA11y(`『${activeFollowup.itemName}』 구매하셨나요?`);
   }, [activeFollowup, appLockHeld, selectedChildId]);
 
+  /**
+   * T10 — 답을 받고 내려가는 카드의 120ms 잔상. pointerEvents "none"이라 어떤 탭도 받지 않고
+   * (핸들러는 형식상의 no-op), 스토어·판정에는 아무 흔적이 없다 — 아래 정식 가드 셋(세션 · 잠금 ·
+   * 아이 스코프)과 같은 술어를 그대로 지나야만 그려지므로, 잠금 화면 위나 다른 아이의 화면에
+   * 잔상이 남는 일도 없다.
+   *
+   * 토스 리뷰 L 후속 둘: ① pointerEvents는 a11y 트리를 숨기지 않는다 — noop 버튼 3개가
+   * 120ms 동안 스크린리더 포커스 대상으로 남지 않게 accessibilityElementsHidden +
+   * importantForAccessibility(같은 속성쌍을 쓰는 LineChartCard 장식 델타와 같은 관례)를
+   * 함께 단다. ② prop형 pointerEvents는 RN 0.71+에서 deprecated(웹 콘솔 warning) —
+   * style.pointerEvents로 옮긴다(네이티브 동작 동일).
+   */
+  if (
+    hasSession &&
+    !activeFollowup &&
+    exitingFollowup &&
+    !appLockHeld &&
+    isFollowupForSelectedChild(exitingFollowup, selectedChildId)
+  ) {
+    return (
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[purchaseFollowupOverlayStyle, { pointerEvents: "none" }]}
+      >
+        <Animated.View
+          style={{
+            opacity: exitMotion,
+            transform: [
+              {
+                translateY: exitMotion.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [FOLLOWUP_CARD_RISE_DP, 0]
+                })
+              }
+            ]
+          }}
+        >
+          <FollowupCardContent
+            entry={exitingFollowup}
+            onPurchased={noopFollowupAnswer}
+            onNotYet={noopFollowupAnswer}
+            onDismiss={noopFollowupAnswer}
+          />
+        </Animated.View>
+      </View>
+    );
+  }
+
   if (!hasSession || !activeFollowup) return null;
   /**
    * 라운드 60 트랙 B(#6): 잠금 중에는 그리지도 않는다. 오버레이가 어차피 위를 덮지만, 덮고
@@ -265,6 +418,9 @@ export function PurchaseFollowupLifecycle() {
    * 답(또는 답하러 가는 행동)을 받았으므로 같은 물음을 다시 세우지 않는다.
    */
   const closeCard = () => {
+    // T10: 판정·스토어 상태는 종전 그대로다 — 답을 받은 카드가 화면에서 내려가는 120ms 잔상만
+    // 여기서 준비한다(reduce-motion이면 잔상 없이 곧장 내려간다).
+    if (!reduceMotionEnabled) setExitingFollowup(activeFollowup);
     activeFollowupRef.current = null;
     setActiveFollowup(null);
   };
@@ -293,16 +449,24 @@ export function PurchaseFollowupLifecycle() {
 
   return (
     <View pointerEvents="box-none" style={purchaseFollowupOverlayStyle}>
-      <Card style={{ backgroundColor: theme.colors.mint }}>
-        <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>
-          {`『${activeFollowup.itemName}』 구매하셨나요?`}
-        </Text>
-        {activeFollowup.priceBandText ? (
-          <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{activeFollowup.priceBandText}</Text>
-        ) : null}
-        <PrimaryButton
-          label="샀어요"
-          onPress={() => {
+      {/* T10: 등장 스프링(불투명도 + 12dp 떠오름). reduce-motion이면 위 effect가 정착 상태(1)로
+          곧장 세워 전이가 없다. 카드의 픽셀 자체는 FollowupCardContent 한 벌 그대로다. */}
+      <Animated.View
+        style={{
+          opacity: enterMotion,
+          transform: [
+            {
+              translateY: enterMotion.interpolate({
+                inputRange: [0, 1],
+                outputRange: [FOLLOWUP_CARD_RISE_DP, 0]
+              })
+            }
+          ]
+        }}
+      >
+        <FollowupCardContent
+          entry={activeFollowup}
+          onPurchased={() => {
             // Same route params as the item-detail "지출 기록하고 준비 완료" action, so
             // app/expenses/new.tsx prefills the item name and records the expense with
             // linkedItemTemplateId (analytics source becomes "followup"). Not edited here.
@@ -377,26 +541,16 @@ export function PurchaseFollowupLifecycle() {
               }
             });
           }}
+          onNotYet={() => {
+            trackAnswer("not_purchased");
+            closeWith(snoozeFollowup);
+          }}
+          onDismiss={() => {
+            trackAnswer("dismissed");
+            closeWith(dismissFollowup);
+          }}
         />
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          <SecondaryButton
-            label="아직이요"
-            onPress={() => {
-              trackAnswer("not_purchased");
-              closeWith(snoozeFollowup);
-            }}
-            style={{ flex: 1 }}
-          />
-          <TextButton
-            label="괜찮아요"
-            onPress={() => {
-              trackAnswer("dismissed");
-              closeWith(dismissFollowup);
-            }}
-            style={{ flex: 1 }}
-          />
-        </View>
-      </Card>
+      </Animated.View>
     </View>
   );
 }

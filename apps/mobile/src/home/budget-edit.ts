@@ -1,6 +1,9 @@
 import { countsTowardMonthlyTotal, reconcileMonthlyExpenses } from "../offline/expense-list-reconciliation";
 import type { LocalExpenseRow } from "../offline/types";
 import { formatKrw } from "../money";
+// 기능 라운드 1 트랙 E: 타입만 가져온다(값 의존은 반대 방향 — budget-suggestion.ts가 이 파일의
+// BUDGET_MAX_KRW를 읽는다). 칩의 문구·값 산출은 저쪽, 나란히 서는 규칙은 이쪽이다.
+import type { RecentAverageChipContent } from "./budget-suggestion";
 
 /**
  * BUD-001(라운드 38 UX-M) — 월 예산 수정 화면(app/budget.tsx)의 **판단 근거** 순수 로직.
@@ -227,7 +230,7 @@ export function resolveThisMonthUsedKrw({
 
 export type BudgetAdjustChip = {
   /** React key 및 테스트용 식별자. */
-  id: "minus-step" | "plus-step" | "last-month" | "last-month-budget";
+  id: "minus-step" | "plus-step" | "last-month" | "last-month-budget" | "recent-average";
   /** 칩에 그리는 문구. */
   label: string;
   /** 스크린리더용 문장 — "-10만" 같은 축약이 소리로 뭉개지지 않게 따로 준다. */
@@ -253,6 +256,15 @@ export type BudgetAdjustChipsInput = {
    * 합치지 않고 각각의 사실을 각각의 라벨로 말한다.
    */
   lastMonthBudgetKrw?: number | null;
+  /**
+   * 기능 라운드 1 트랙 E — 최근 3개월 실지출 평균 제안 칩의 내용물(문구·값은
+   * budget-suggestion.ts의 `buildRecentAverageChip`이 만든다). 만들 근거가 없으면
+   * null/undefined → 칩을 만들지 않는다(다른 칩들과 같은 규율).
+   *
+   * 이 칩이 **어디에 어떻게 서는가**(예산이 없는 달에만 · 이월 칩과 값이 같으면 하나만)는
+   * 내용물이 아니라 목록 조립의 문제라, 그 판정은 아래 `buildBudgetAdjustChips`가 갖는다.
+   */
+  recentAverageChip?: RecentAverageChipContent | null;
 };
 
 /**
@@ -312,6 +324,14 @@ export function adjustBudgetDigits(
  * "…으로 시작"은 참이 아니고(시작할 것이 없다), 그때 필요한 제안은 종전의 ±10만·실지출 칩이다.
  * 나머지 규칙(0원 제외·상한 초과 제외·라벨과 입력값이 같은 숫자에서 나온다)은 실지출 칩과
  * 똑같다 — 규율이 갈릴 자리를 만들지 않는다.
+ *
+ * ## 기능 라운드 1 트랙 E — "최근 3개월 평균 …" 칩(recent-average)
+ *
+ * 이월 칩은 지난달 *예산*이 있어야만 선다. 예산 기능을 늦게 발견한 사용자에게는 지출 *기록*이
+ * 유일한 근거라, 최근 3개월 실지출 평균을 시작값으로 제안하는 칩이 이월 칩 옆에 선다.
+ * 내용물(평균 계산·문구·a11y)은 budget-suggestion.ts가 만들고, 이 함수는 나란히 서는 규칙만
+ * 갖는다 — 아래 recent-average 블록 주석 참고. 이 칩도 **제안만** 한다: 값을 입력칸에 채울
+ * 뿐이고 저장은 사람이 [저장]을 눌러야 일어난다(자동 저장 금지 — 위 B1과 같은 규율).
  */
 export function buildBudgetAdjustChips(input: BudgetAdjustChipsInput): BudgetAdjustChip[] {
   const chips: BudgetAdjustChip[] = [
@@ -332,6 +352,7 @@ export function buildBudgetAdjustChips(input: BudgetAdjustChipsInput): BudgetAdj
   // 이월 제안은 "이번 달에 예산이 없다"는 상태에서만 성립한다(위 B1 주석).
   const lastMonthBudgetKrw = input.lastMonthBudgetKrw;
   const thisMonthHasBudget = isUsableAmount(input.currentBudgetKrw) && input.currentBudgetKrw > 0;
+  let carryOverChip: BudgetAdjustChip | null = null;
   if (
     !thisMonthHasBudget &&
     isUsableAmount(lastMonthBudgetKrw) &&
@@ -340,13 +361,39 @@ export function buildBudgetAdjustChips(input: BudgetAdjustChipsInput): BudgetAdj
   ) {
     const nextDigits = String(Math.floor(lastMonthBudgetKrw));
     const amountText = formatKrw(Number(nextDigits));
-    // 예산이 없는 달에 사람이 가장 먼저 시도하는 값이라 맨 앞에 둔다(±10만은 그 뒤의 미세 조정).
-    chips.unshift({
+    carryOverChip = {
       id: "last-month-budget",
       label: `지난달과 같은 ${amountText}으로 시작`,
       accessibilityLabel: `지난달과 같은 ${amountText}으로 시작하기`,
       nextDigits
-    });
+    };
+  }
+
+  /**
+   * 기능 라운드 1 트랙 E — 최근 3개월 실지출 평균 제안 칩이 **나란히 서는 규칙**.
+   *
+   * 문구·값은 budget-suggestion.ts가 만들었고, 여기서는 목록에 세울지만 정한다:
+   *  - 이월 칩과 같은 상태 조건이다 — **이번 달 예산이 아직 없을 때만**. 라벨이 "…으로 시작"인
+   *    제안이라 이미 예산이 있는 화면에서는 참이 아니다(B1과 같은 판단).
+   *  - **이월 칩과 값이 같으면 하나만 세운다**(이월 칩이 남는다 — 하나는 사용자가 스스로 정했던
+   *    한도이고 하나는 계산된 평균인데, 같은 숫자를 두 번 권하면 목록만 길어지고 두 칩을 구분해
+   *    읽은 사람에게 아무 정보도 더해지지 않는다). 값 비교는 두 칩 모두의 원천인 nextDigits로
+   *    한다 — 라벨이 아니라 실제로 입력칸에 들어갈 숫자가 같은지를 본다.
+   *
+   * 순서: [이월 칩?, 평균 칩?, -10만, +10만, 지난달 실지출 칩?] — 예산이 없는 달의 시작값
+   * 제안 둘이 앞에 서고, 사용자의 과거 결정(이월)이 계산된 평균보다 앞이다.
+   */
+  const recentAverageChip = input.recentAverageChip ?? null;
+  if (
+    !thisMonthHasBudget &&
+    recentAverageChip !== null &&
+    (carryOverChip === null || Number(carryOverChip.nextDigits) !== Number(recentAverageChip.nextDigits))
+  ) {
+    chips.unshift({ id: "recent-average", ...recentAverageChip });
+  }
+  // 예산이 없는 달에 사람이 가장 먼저 시도하는 값이라 맨 앞에 둔다(±10만은 그 뒤의 미세 조정).
+  if (carryOverChip !== null) {
+    chips.unshift(carryOverChip);
   }
 
   const lastMonthKrw = input.lastMonthActualKrw;

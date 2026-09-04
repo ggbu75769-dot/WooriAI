@@ -37,7 +37,7 @@ import { formatRelativeTime } from "../src/notifications/relative-time";
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { theme } from "../src/theme";
-import { announceForA11y, AppScreen, EmptyStateCard, ListRow, ScreenHeader } from "../src/ui";
+import { announceForA11y, AppScreen, EmptyStateCard, ListRow, ScreenHeader, TextButton } from "../src/ui";
 
 /**
  * NOTI-102 인앱 알림 센터: lists the client-side notifications persisted in
@@ -231,6 +231,10 @@ export default function NotificationsScreen() {
   const deleteNotification = (entry: AppNotification) => {
     removeNotificationEntry(entry.id);
     setNewNotificationIds((previous) => removeNotificationMark(previous, entry.id));
+    // 라운드 96 T7: 파괴적 동작의 성공을 말한다 -- 지운 행은 화면에서 사라질 뿐이라 스크린리더
+    // 사용자에게는 실행됐는지 아무 신호가 없었다(확인 액션시트는 "지울까요?"까지만 말한다).
+    // 문장은 액션시트가 이미 말한 사실("다시 볼 수 없어요")을 반복하지 않고 결과 하나만 남긴다.
+    announceForA11y("알림을 지웠어요.");
   };
   const runRowAction = (actionKey: NotificationRowActionKey, entry: AppNotification) => {
     switch (actionKey) {
@@ -292,24 +296,38 @@ export default function NotificationsScreen() {
             화면을 벗어날 방법이 화면 안에 없었다(전역 headerShown:false라 OS 헤더도 없다).
             UX-Q(C)가 ScreenHeader에 낸 `onBack` 슬롯을 그대로 쓴다 -- 가족 화면의 ‹ 표기와
             44dp 타깃을 한 곳에서 재사용하므로 화면마다 다른 화살표가 생기지 않는다. */}
+        {/* 라운드 96 T7: 제목을 "알림함"으로 통일한다 -- 이 화면으로 오는 두 입구(더보기 메뉴 행
+            more-menu.ts · 홈 종 아이콘)가 전부 "알림함"이라 부르는데 착지 화면만 "알림"이었고,
+            설정 안의 "알림 설정"(푸시 관리)과도 한 글자 차이로 헷갈렸다. eyebrow는 제목과 같은
+            낱말("알림")을 반복할 뿐이라 지운다 -- 정보가 늘 때만 두 층을 쓴다. */}
         <ScreenHeader
-          eyebrow="알림"
-          title="알림"
+          title="알림함"
           subtitle="예산과 아이 성장 소식을 모아 보여드려요"
           onBack={() => router.back()}
           action={
             entries.length > 0 ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="알림 모두 지우기" hitSlop={12} onPress={confirmClearAll}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="알림 모두 지우기"
+                hitSlop={12}
+                onPress={confirmClearAll}
+                // T7: 인라인 Pressable 눌림 피드백 -- 공용 TextButton과 같은 축(opacity 0.6).
+                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+              >
                 <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>모두 지우기</Text>
               </Pressable>
             ) : undefined
           }
         />
         {entries.length === 0 ? (
+          // 라운드 96 T7: 제목/설명을 두 층으로 가른다(T1이 EmptyStateCard에 낸 description 슬롯).
+          // CTA는 "뒤로가기"에서 "알림 설정 보기"로 -- 나가는 길은 헤더의 ‹가 이미 지고 있고,
+          // 빈 알림함에서 실제로 할 수 있는 다음 행동은 어떤 소식을 받을지 고르는 것이다.
           <EmptyStateCard
-            title="아직 알림이 없어요. 예산과 아이 성장, 구매 확인 소식이 여기에 따뜻하게 모일 거예요."
-            actionLabel="뒤로가기"
-            onPress={() => router.back()}
+            title="아직 알림이 없어요"
+            description="예산과 아이 성장, 구매 확인 소식이 여기에 따뜻하게 모일 거예요."
+            actionLabel="알림 설정 보기"
+            onPress={() => router.push("/settings/notifications")}
           />
         ) : (
           entries.map((entry) => {
@@ -370,7 +388,9 @@ export default function NotificationsScreen() {
                     // 규약 모듈에 있고, 이 화면은 시각만 준다 — 목적지 함수는 순수하게 남는다).
                     router.push(notificationTapRoute(entry, nextRecordsViewNonce(), getSeoulToday()));
                   }}
-                  style={{ flex: 1 }}
+                  // T7: 행 눌림 피드백(공용 ListRow의 0.82와 같은 축). 휴지 상태는 opacity 1이라
+                  // 렌더는 종전과 같다.
+                  style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.82 : 1 })}
                 >
                   {/* 안쪽을 잠그는 두 가지 이유는 기록 탭과 같다: (1) 공용 ListRow의 루트
                       Pressable이 responder를 가져가면 바깥 롱프레스가 오지 않는다,
@@ -391,10 +411,26 @@ export default function NotificationsScreen() {
             );
           })
         )}
+        {/* 라운드 96 T7: 알림함 안에서 알림 설정으로 가는 길. 종전에는 이 화면에서 "어떤 소식을
+            받을지"를 바꾸러 가려면 더보기 → 설정 → 알림 설정 세 단계를 거슬러야 했다. 빈 상태는
+            위 카드의 CTA가 같은 목적지를 이미 지므로 목록이 있을 때만 그린다(중복 입구 금지).
+            공용 TextButton이라 44dp 타깃·눌림 피드백·coral[700] 대비가 한 곳에서 온다. */}
+        {entries.length > 0 ? (
+          <TextButton
+            label="알림 설정"
+            onPress={() => router.push("/settings/notifications")}
+            style={notificationSettingsLinkStyle}
+          />
+        ) : null}
       </View>
     </AppScreen>
   );
 }
+
+/** T7: 목록 아래 "알림 설정" 링크 자리(가운데 정렬만 더한다 -- 색·크기는 TextButton의 것). */
+const notificationSettingsLinkStyle = {
+  alignSelf: "center"
+} as const;
 
 const notificationRowStyle = {
   alignItems: "center",
