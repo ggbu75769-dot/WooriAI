@@ -313,7 +313,14 @@ export function PreparationListParity({
   items: PreparationParityItem[];
   selectedContextKey: string | null;
   selectedContextName: string;
-  onBack: () => void;
+  /**
+   * T9(토스급 정비) — **옵셔널로 내렸다.** 이 화면의 유일한 호출부는 루트 탭(준비템 탭)이라
+   * "뒤로"가 개념적으로 없는 자리인데, 필수 프롭이 호출부에게 목적지를 지어내게 만들고 있었다
+   * (`router.push("/(tabs)")`). 기존 전달 경로의 렌더는 그대로다 — `TopAppBar`도 폴백
+   * `EmptyStateCard`도 각자 `onBack`/`onPress`가 없으면 그 버튼 노드를 세우지 않으므로
+   * (가짜 버튼 금지 규율), 넘기지 않는 미래 호출부에서는 라벨 없는 목적지가 함께 사라진다.
+   */
+  onBack?: () => void;
   onItemPress: (item: PreparationParityItem) => void;
   onSearch: (query: string) => void;
   activeSearchQuery?: string;
@@ -550,7 +557,7 @@ export function PreparationListParity({
         onPress={() => setProgressExpanded((value) => !value)}
         style={({ pressed }) => ({ backgroundColor: semanticColors.actionPrimary, borderRadius: 16, gap: 12, opacity: pressed ? 0.88 : 1, padding: 18 })}
       >
-        <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between" }}>
+        <View style={{ alignItems: "center", flexDirection: "row", gap: 10, justifyContent: "space-between" }}>
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={{ color: semanticColors.textInverse, fontSize: 15, fontWeight: "800" }}>나의 준비 진행률</Text>
             {/* opacity를 걷어냈다: actionPrimary 위 흰 12px에 0.88을 곱하면 약 3.9:1로 WCAG AA
@@ -559,6 +566,16 @@ export function PreparationListParity({
               {progress?.summaryText ?? (totalCount ? `${totalCount}개 중 ${completedCount}개 완료` : "아직 준비 상태를 정한 품목이 없어요")}
             </Text>
           </View>
+          {/* T9(토스급 정비) — **진행률 카드에 퍼센트 숫자가 없었다.** 바 폭과 accessibilityValue는
+              이미 progressPercent를 그리는데(아래 progressbar), 눈으로 읽을 숫자는 어디에도 없어
+              "얼마나 왔는가"를 바의 길이로만 가늠해야 했다. 여기 서는 숫자는 **같은 값 하나**다 —
+              캡 규칙(prep-milestones의 displayPercent)을 다시 계산하지 않는다(같은 카드 안에서
+              서로를 부정하는 두 숫자 금지). tabular-nums는 값이 바뀔 때 숫자 폭이 출렁이지 않게
+              하고, 소리로는 아래 progressbar의 accessibilityValue가 같은 값을 이미 말하고 있어
+              이 텍스트를 따로 낭독시키지 않는다(히어로 Pressable의 라벨이 카드 전체를 진다). */}
+          <Text style={{ color: semanticColors.textInverse, fontSize: 28, fontVariant: ["tabular-nums"], fontWeight: "800", lineHeight: 34 }}>
+            {progressPercent}%
+          </Text>
           <AppIcon color={semanticColors.textInverse} name={progressExpanded ? "chevron-up" : "chevron-down"} size={24} />
         </View>
         <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: progressPercent }} style={{ backgroundColor: "rgba(255,255,255,0.28)", borderRadius: 999, height: 9, overflow: "hidden" }}>

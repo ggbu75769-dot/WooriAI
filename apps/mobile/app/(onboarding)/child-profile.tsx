@@ -10,6 +10,7 @@ import { LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN, upsertConsents } from "../../s
 import {
   buildCreateChildBody,
   childDatePickerDirection,
+  childProfileReassuranceNotes,
   CHILD_STAGE_LABELS,
   requiredDateFieldLabel,
   validateChildForm
@@ -333,6 +334,21 @@ export default function ChildProfileScreen() {
               ) : null}
             </View>
           ) : null}
+
+          {/* T9(토스급 정비) — 안심 문구 두 줄(공개 범위 · 수정/삭제 가능). 첫 실행에서 가장
+              민감한 값을 요구하는 화면이 그 값의 운명을 말하지 않고 있었다. 문장은 화면이 짓지
+              않는다 — 근거까지 순수 모듈에 있다(src/children/child-form.ts의
+              childProfileReassuranceNotes 주석). */}
+          <View style={{ gap: 4 }}>
+            {childProfileReassuranceNotes().map((note) => (
+              <Text
+                key={note}
+                style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, lineHeight: 18 }}
+              >
+                {note}
+              </Text>
+            ))}
+          </View>
         </Card>
 
         {/* 라운드 65 후속(#1): CONSENT_REQUIRED에는 [다시 동의하고 저장]이 선다. 핸들러가
