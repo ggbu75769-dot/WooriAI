@@ -47,6 +47,7 @@ import {
   expenseMutationErrorMessage
 } from "../../src/expenses/save-error-messages";
 import {
+  buildRecordsAmountSortedSections,
   buildRecordsCategoryChips,
   buildRecordsEmptyMonthState,
   buildRecordsFilteredEmptyState,
@@ -64,6 +65,19 @@ import {
   resolveExpenseAuthorLabel,
   resolveExpenseHouseholdId
 } from "../../src/expenses/records-list-view";
+// 기능 라운드 1 트랙 B: 정렬(최신순 ↔ 금액 큰 순)의 판정·문구는 전부 순수 모듈에 있다 — 이
+// 화면은 공용 SegmentedControl을 하나 더 그리고, 금액순일 때 섹션 조립만 평평한 쪽
+// (buildRecordsAmountSortedSections)으로 바꾼다. 새 한국어 리터럴 0(keyboard-tap-guard의
+// 리터럴 대장) · 새 스크롤러 0(records-calendar.test.ts의 ScrollView 1개 계약 유지).
+import {
+  isAmountSortApplied,
+  isRecordsSortToggleVisible,
+  recordsSortAnnouncement,
+  recordsSortModeForLabel,
+  recordsSortModes,
+  recordsSortOptionLabel,
+  type RecordsSortMode
+} from "../../src/expenses/records-sort";
 import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
 // 라운드 56 D#10: `view=calendar` 파라미터 규약은 링크를 만드는 알림 목적지 모듈과 **같은 곳**에서 읽는다.
 import {
@@ -186,8 +200,21 @@ type RecordsListItem = { key: string; spentOn: string; amountKrw: number; expens
 /** UX-L(A): 행에서 고른 동작을 화면 쪽 실행부로 넘기는 핸들러(수정 이동 / 또 기록 / 삭제 확인). */
 type RecordRowActionHandler = (action: RecordRowActionKey, expense: ServerExpense) => void;
 
-/** UX-B: SectionList가 요구하는 `data`를 붙인 날짜 그룹(순수 모듈의 `rows`를 그대로 옮긴다). */
-type RecordsSection = Omit<RecordsDateGroup<RecordsListItem>, "rows"> & { data: RecordsListItem[] };
+/**
+ * UX-B: SectionList가 요구하는 `data`를 붙인 날짜 그룹(순수 모듈의 `rows`를 그대로 옮긴다).
+ *
+ * 트랙 B: 금액 큰 순은 **헤더 없는 섹션 하나**(buildRecordsAmountSortedSections — headerLabel
+ * null)로 조립되므로, 섹션 타입은 두 조립의 공통 최소치다(날짜 그룹의 나머지 필드는 스프레드로
+ * 함께 실려 와도 화면이 읽지 않는다 — 헤더가 쓰는 것은 아래 세 값뿐이다).
+ */
+type RecordsSection = {
+  key: string;
+  /** null이면 헤더를 그리지 않는다(금액순 평평 목록 — 날짜가 아닌 순서에 날짜 헤더는 거짓이다). */
+  headerLabel: RecordsDateGroup<RecordsListItem>["headerLabel"] | null;
+  hasSubtotal: boolean;
+  subtotalKrw: number;
+  data: RecordsListItem[];
+};
 
 // HOME-124: `formatSpentOn`은 src/expenses/records-list-view.ts로 승격했다 -- 홈의 "최근 지출"
 // 행이 같은 포맷을 쓰도록 하기 위해서다(예전에는 ISO 원본을 그대로 그렸다).
@@ -433,7 +460,13 @@ const recordsSectionHeaderSubtotalStyle = {
  * 순수 모듈이 계산해 둔 값이다. 그날 합산 대상 행이 하나도 없으면(선물·환불만 있는 날) 소계 자리를
  * 비운다 -- "0원"은 그날 아무것도 안 썼다는 뜻으로 읽히는데, 선물 행은 그 아래 그대로 보인다.
  */
-const RecordsSectionHeader = memo(function RecordsSectionHeader({ section }: { section: RecordsSection }) {
+// 트랙 B: headerLabel이 null인 섹션(금액순 평평 목록)은 renderRecordsSectionHeader가 이 컴포넌트
+// 자체를 그리지 않으므로, 여기서는 날짜 그룹 섹션(headerLabel: string)만 받는다.
+const RecordsSectionHeader = memo(function RecordsSectionHeader({
+  section
+}: {
+  section: RecordsSection & { headerLabel: string };
+}) {
   return (
     <View
       accessible
@@ -451,7 +484,11 @@ const RecordsSectionHeader = memo(function RecordsSectionHeader({ section }: { s
 
 // 모듈 스코프 renderSectionHeader -- renderItem/keyExtractor와 같은 이유로 인라인 람다를 쓰지 않는다.
 function renderRecordsSectionHeader({ section }: { section: SectionListData<RecordsListItem, RecordsSection> }) {
-  return <RecordsSectionHeader section={section} />;
+  // 트랙 B: 금액순 평평 목록의 섹션은 헤더가 없다(headerLabel null) — 재배열된 행 위에 날짜
+  // 헤더·일별 소계를 그대로 두면 헤더가 자기 아래 행을 말하지 않게 된다(조립 모듈 머리말 참고).
+  if (section.headerLabel === null) return null;
+  // 속성 좁힘은 객체 타입까지 좁혀 주지 않아 캐스팅 한 번이 필요하다(위 가드가 사실을 보증한다).
+  return <RecordsSectionHeader section={section as RecordsSection & { headerLabel: string }} />;
 }
 
 // Note on getItemLayout: intentionally omitted -- ListRow height is not fixed (optional subtitle,
@@ -617,6 +654,33 @@ export default function RecordsScreen() {
     [setRecordsViewMode]
   );
   const isCalendarView = viewMode === RECORDS_VIEW_CALENDAR;
+  /**
+   * 기능 라운드 1 트랙 B — 리스트 정렬(최신순 ↔ 금액 큰 순).
+   *
+   * 선택은 보기(리스트/달력)와 **같은 스토어**에 세션 간 남고(저장 값은 라벨이 아니라
+   * `"latest" | "amount"`), 판정·문구·비교기는 전부 src/expenses/records-sort.ts에 있다.
+   * 달력 보기에서는 토글을 숨기고 적용도 멈춘다 — 저장된 선택은 그대로 남아 리스트로
+   * 돌아오면 복원된다(isAmountSortApplied의 판정).
+   *
+   * 전환 낭독은 월 이동(A11Y-117)과 같은 관례다: 포커스가 누른 칩에 머물러 목록이 재배열된
+   * 사실을 놓치므로, 모듈이 만든 한 문장을 announce로 읽어 준다(새 문구를 화면이 짓지 않는다).
+   */
+  const sortMode = useRecordsViewStore((state) => state.sort);
+  const setRecordsSortMode = useRecordsViewStore((state) => state.setSort);
+  const handleSortModeChange = useCallback(
+    (mode: RecordsSortMode) => {
+      setRecordsSortMode(mode);
+      announceForA11y(recordsSortAnnouncement(mode));
+    },
+    [setRecordsSortMode]
+  );
+  // SegmentedControl의 onChange는 옵션 라벨(문자열)을 돌려준다 — 라벨→값 변환도 모듈이 진다
+  // (화면이 한국어 리터럴로 분기하면 라벨 규칙이 두 벌이 된다).
+  const handleSortLabelChange = useCallback(
+    (option: string) => handleSortModeChange(recordsSortModeForLabel(option)),
+    [handleSortModeChange]
+  );
+  const isAmountSort = isAmountSortApplied({ sortMode, isCalendarView });
   /**
    * 라운드 56 D#10 — **기록 리마인더 알림이 달력으로 착지한다.**
    *
@@ -1151,16 +1215,20 @@ export default function RecordsScreen() {
 
   // 달력 뷰에서는 섹션을 비운다 -- 같은 데이터를 격자와 목록으로 동시에 마운트할 이유가 없고,
   // 목록을 그대로 둔 채 격자를 헤더에 얹으면 한 화면에 같은 내용이 두 번 나온다.
-  const sections = useMemo<RecordsSection[]>(
-    () =>
-      isCalendarView
-        ? []
-        : dateGroups.map(({ rows, ...group }) => ({
-            ...group,
-            data: rows
-          })),
-    [isCalendarView, dateGroups]
-  );
+  //
+  // 트랙 B: 금액 큰 순은 날짜 그룹 대신 **헤더 없는 섹션 하나**로 조립한다(정렬·게이트는 순수
+  // 모듈). 넘기는 것은 최신순과 같은 **필터가 이미 걸린** listData라, 정렬은 언제나 검색·칩
+  // 결과 위에 적용된다. showList 게이트는 dateGroups와 같다(로딩·오류 중에는 행을 세우지 않는다).
+  const sections = useMemo<RecordsSection[]>(() => {
+    if (isCalendarView) return [];
+    if (isAmountSort) {
+      return showList ? buildRecordsAmountSortedSections(listData).map(({ rows, ...group }) => ({ ...group, data: rows })) : [];
+    }
+    return dateGroups.map(({ rows, ...group }) => ({
+      ...group,
+      data: rows
+    }));
+  }, [isCalendarView, isAmountSort, showList, listData, dateGroups]);
 
   // UX-D: 달력 격자. 일별 합계는 **UX-B가 이미 만든 날짜 그룹**에서 그대로 나온다(소계 술어는
   // countsTowardMonthlyTotal 한 곳뿐이라 칸의 금액 = 그날 섹션 헤더의 소계 = 월 합계의 부분).
@@ -1259,6 +1327,11 @@ export default function RecordsScreen() {
   // 안정된 참조여야 CalendarDayCell의 memo가 매 렌더 깨지지 않는다.
   const handleSelectCalendarDate = useCallback((date: string) => {
     setViewMode(RECORDS_VIEW_LIST);
+    // 트랙 B: 달력 칸의 목적지는 그 날짜의 **섹션**인데, 금액 큰 순 평평 목록에는 그 자리가
+    // 없다(날짜 섹션이 아예 만들어지지 않는다). 칸을 누른 것 자체가 "그날 보기"라는 더 최신의
+    // 의사표시이므로, 칩을 직접 누른 것과 같은 setter로 최신순에 되돌린다 — persist도 그 최신
+    // 선택을 따라간다(앱이 정한 것이 아니라 사용자의 두 선택 중 나중 것이 남는다).
+    setRecordsSortMode("latest");
     // 라운드 36 F-6: 이전 날짜로 예약해 둔 재시도 프레임을 먼저 취소한다. 8/12를 누르고
     // (스크롤 실패로 rAF가 예약된 채) 곧바로 8/20을 누르면, 살아남은 프레임이 깨어나
     // pendingScrollDate를 8/12로 되돌려 방금 고른 날짜의 스크롤을 덮어썼다.
@@ -1269,7 +1342,9 @@ export default function RecordsScreen() {
     scrollRetryCountRef.current = 0;
     setPendingScrollDate(date);
     announceForA11y(`${formatSpentOn(date)} 기록`);
-  }, []);
+    // 두 setter 모두 렌더 간 참조가 안정적이다(zustand setter · 고정 deps의 useCallback)라
+    // 이 콜백도 안정적으로 남는다 — CalendarDayCell의 memo가 매 렌더 깨지지 않는다.
+  }, [setRecordsSortMode, setViewMode]);
 
   /**
    * 라운드 63 C(#8) — 달력의 **빈 날 칸** → 그날로 기록하기.
@@ -1601,6 +1676,23 @@ export default function RecordsScreen() {
           />
         ))}
       </ScrollView>
+
+      {/* 트랙 B: 정렬 토글(최신순 ↔ 금액 큰 순). 리스트/달력 토글과 같은 공용 SegmentedControl을
+          재사용한다 — 새 컴포넌트 0 · 새 스크롤러 0(이 화면의 ScrollView는 위 카테고리 칩
+          스트립 하나로 고정, records-calendar.test.ts 계약) · 카테고리 칩 줄에도 손대지 않는다
+          (a11y-contract가 칩 줄 수·간격을 실측으로 문다). 라벨·라벨→값 변환·낭독 문구는 전부
+          순수 모듈에서 오고, 선택 여부는 SegmentedControl의 accessibilityState.selected가 진다
+          (라벨에 상태 낱말 없음 — 라운드 95). 달력 보기에서는 숨긴다: 격자의 자리는 날짜라
+          금액 정렬이 성립하지 않는다(리스트로 돌아오면 저장된 선택 그대로 다시 선다). */}
+      {isRecordsSortToggleVisible({ isCalendarView }) ? (
+        <View testID="records-sort-toggle">
+          <SegmentedControl
+            options={recordsSortModes().map((mode) => recordsSortOptionLabel(mode))}
+            value={recordsSortOptionLabel(sortMode)}
+            onChange={handleSortLabelChange}
+          />
+        </View>
+      ) : null}
 
       {/* UX-D: 달력 격자. 서버 목록이 아직 안 왔을 때(로딩·오류)는 그리지 않는다 -- 빈 격자는
           "이번 달 지출이 하나도 없다"는 **사실이 아닌** 말이 된다. 그때는 아래 ListEmptyComponent의

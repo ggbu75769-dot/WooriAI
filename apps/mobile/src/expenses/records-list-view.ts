@@ -1,6 +1,8 @@
 import { categoryCatalog, categoryNameFor, selectableCategories, type SelectableCategory } from "../categories";
 import { EXPENSE_VIEW_ONLY_EMPTY_TITLE } from "../family/record-permissions";
 import { formatKrw } from "../money";
+// 트랙 B: 금액 큰 순의 재배열 규칙은 records-sort.ts 한 곳에 있다(비교기 재사용 — 규칙 두 벌 금지).
+import { sortRecordsByAmountDesc, type AmountSortableRecordRow } from "./records-sort";
 
 /**
  * REC-121: pure presentation helpers for the 기록 탭 list (app/(tabs)/records.tsx).
@@ -945,6 +947,48 @@ export function matchRecordSearch(input: {
   }
 
   return { matches: false, kind: "none", snippet: null };
+}
+
+/**
+ * 기능 라운드 1 트랙 B — 금액 큰 순의 **평평한 목록 조립**.
+ *
+ * 최신순은 날짜 그룹(records-date-groups.ts)이 화면의 섹션이 되지만, 금액 큰 순에서 날짜
+ * 헤더·일별 소계를 그대로 두면 두 가지가 거짓이 된다: ① 행이 날짜 밖으로 재배열되므로 헤더가
+ * 자기 아래 행을 말하지 않게 되고, ② 소계는 "그날의 합"인데 정렬은 합이 아니라 순서라, 합계가
+ * 아닌 자리에 소계를 붙이는 것 자체가 거짓 신호다(설계 문서의 판정 그대로). 그래서 금액순은
+ * **헤더 없는 섹션 하나**로 조립한다 — SectionList 구조(가상화·모듈 스코프 renderItem,
+ * PERF-102)는 그대로 두고 섹션 모양만 바꾼다.
+ *
+ * 정렬 규칙(금액 내림차순 · 동액이면 최신 우선 · 안정)은 records-sort.ts의 비교기를 그대로
+ * 쓴다 — 규칙이 두 벌이 되면 화면과 테스트가 서로 다른 순서를 참이라 부른다.
+ *
+ * 빈 배열이면 섹션을 만들지 않는다(빈 섹션 없음 — groupExpensesByDate와 같은 규칙). 그래서
+ * ListEmptyComponent의 기존 게이트(로딩·오류·빈 달·필터 0건)가 한 글자도 바뀌지 않는다.
+ */
+export type RecordsAmountSortedSection<TRow> = {
+  /** SectionList 섹션 key. 날짜 키("YYYY-MM-DD")와 충돌하지 않는 고정 문자열이다. */
+  key: string;
+  /** null = 화면이 헤더를 그리지 않는다(날짜 그룹 섹션과 갈리는 지점). */
+  headerLabel: null;
+  /** 금액순에는 일별 소계가 없다 — 위 머리말 ②. */
+  hasSubtotal: false;
+  subtotalKrw: 0;
+  rows: TRow[];
+};
+
+export function buildRecordsAmountSortedSections<TRow extends AmountSortableRecordRow>(
+  rows: readonly TRow[]
+): RecordsAmountSortedSection<TRow>[] {
+  if (rows.length === 0) return [];
+  return [
+    {
+      key: "amount-sorted",
+      headerLabel: null,
+      hasSubtotal: false,
+      subtotalKrw: 0,
+      rows: sortRecordsByAmountDesc(rows)
+    }
+  ];
 }
 
 /**
