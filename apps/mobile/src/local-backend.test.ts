@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getSeoulToday } from "@wooriai/domain";
+import { createJSONStorage, type StateStorage } from "zustand/middleware";
+import { getHome as clientGetHome, LOCAL_SESSION_TOKEN } from "./api/client";
 import * as localBackend from "./api/local-backend";
+import { persistStorage } from "./stores/persist-storage";
 import {
   LOCAL_CHILD_ID,
   LOCAL_HOUSEHOLD_ID,
@@ -528,5 +531,175 @@ describe("GAP-070 D 데모 거울: 탈퇴·계정 삭제 미리보기의 관리�
     // 그리고 서버가 그 줄을 **역할에서** 고르는지까지 본다 — 정적 배열로 되돌아가면 빨개진다.
     expect(controllerSource).toContain("isHouseholdOwner(request.user!, householdId)");
     expect(controllerSource).toContain("ownsAnyHousehold(request.user!)");
+  });
+});
+
+/**
+ * FIX-A(실기기): standalone APK 첫 진입 전면 에러의 재현 계약.
+ *
+ * 실기기에서 로컬 백엔드 스토어의 persist 재수화(AsyncStorage 읽기)는 비동기이고, 첫 기동이
+ * 느린 기기에서는 앱 라우팅의 3초 안전 밸브(app/index.tsx)가 재수화보다 먼저 열린다. 그때
+ * 두 개의 레이스가 실재했다:
+ *
+ *  1. **늦은 재수화의 덮어쓰기**: zustand persist는 저장소가 비어 있어도(merge 인자
+ *     undefined) merge를 부르는데, 종전 merge는 그 갈래에서도 initialState로 현재 상태를
+ *     통째로 갈아 끼웠다 — 밸브 뒤에서 온보딩을 진행한 사용자의 **방금 등록한 아이**가
+ *     메모리에서 지워진다.
+ *  2. **초기화 전 조회**: 재수화가 끝나기 전의 첫 요청(getHome)이 child: null인 초기 상태를
+ *     읽고 "아이 프로필을 찾을 수 없어요"로 실패한다 — 사용자에게는 첫 화면의 전면 에러
+ *     카드(🍼 "앗, 문제가 생겼어요")로 보였고 [다시 시도]가 지나면(그 사이 재수화가 끝나)
+ *     성공했다.
+ *
+ * 수리: merge는 저장된 것이 없으면 현재 상태를 보존하고(1), client.ts의 local()이 모든 로컬
+ * 세션 요청 앞에서 whenLocalBackendReady()로 재수화를 기다린다(2 — 밸브로 진행된 호출의
+ * 실패는 1회 내장 재시도). 아래 테스트는 수리 전 빨강이었다.
+ *
+ * 그리고 셋째 — expo web(EXPO_OFFLINE=1 + 테스트 로그인)에서 온보딩 → 첫 진입을 실제로
+ * 통과시켜 보니, 사용자가 찍어 보낸 그 카드의 **직접 원인은 홈 화면의 훅 순서 위반**이었다:
+ * app/(tabs)/index.tsx의 훅 네 개(useRecurringExpenseStore ×2 · useMemo ×2, 라운드 55 트랙 C /
+ * DSN-053 P2-A)가 로딩·에러·아이 대기 조기 반환 **아래**에 있어, 로딩 스켈레톤(렌더 1) →
+ * /home 도착(렌더 2) 전환에서 React가 "Rendered more hooks than during the previous render"를
+ * 던지고 전역 ErrorBoundary가 화면을 대체했다. [다시 시도]는 리마운트 첫 렌더가 캐시된
+ * 데이터로 전체 경로를 타서 지나갔다 — "일시 에러"의 실체다. 넷을 조기 반환 위로 옮겼고,
+ * 아래 마지막 테스트가 그 순서를 계약으로 문다(레이스 1·2는 그 크래시 아래 숨어 있던,
+ * 같은 첫 진입을 실패시키는 실기기 시나리오다).
+ */
+describe("FIX-A: 로컬 백엔드 재수화 레이스 (standalone 첫 진입 전면 에러)", () => {
+  const store = localBackend.useLocalBackendStore;
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  /** 재수화 도착 시점을 손에 쥐는 저장소 — getItem만 지연되고 쓰기는 조용히 삼킨다. */
+  function controlledStorage(getItemImpl: () => Promise<string | null>): StateStorage {
+    return {
+      getItem: () => getItemImpl(),
+      setItem: () => {},
+      removeItem: () => {}
+    };
+  }
+
+  beforeEach(() => {
+    localBackend.resetLocalBackendForTests();
+  });
+
+  afterEach(async () => {
+    // 다른 describe들이 쓰는 동기 메모리 저장소로 되돌리고 재수화를 끝난 상태로 복원한다.
+    store.persist.setOptions({ storage: createJSONStorage(() => persistStorage) });
+    await store.persist.rehydrate();
+    localBackend.resetLocalBackendForTests();
+  });
+
+  it("빈 저장소의 늦은 재수화가 그 사이 등록된 아이를 지우지 않는다 (레이스 1)", async () => {
+    const gate = deferred<string | null>();
+    store.persist.setOptions({ storage: createJSONStorage(() => controlledStorage(() => gate.promise)) });
+    const rehydration = store.persist.rehydrate();
+    expect(store.persist.hasHydrated()).toBe(false);
+
+    // 밸브가 먼저 열린 콜드 스타트: 사용자가 온보딩을 진행한다(테스트 로그인 → 아이 등록).
+    localBackend.ensureLocalBackendSeeded();
+    localBackend.createChild({ nickname: "첫째" });
+    localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "born", birthDate: seoulMonthsAgo(1) });
+
+    // 첫 설치라 저장소는 비어 있다 — 그 재수화가 이제서야 도착한다.
+    gate.resolve(null);
+    await rehydration;
+
+    // 수리 전: merge(undefined, current)가 initialState로 덮어 아이가 사라졌다(getHome 실패).
+    expect(localBackend.localChildId()).toBe(LOCAL_CHILD_ID);
+    expect(() => localBackend.getHome(LOCAL_CHILD_ID)).not.toThrow();
+    expect(localBackend.getHome(LOCAL_CHILD_ID).child.nickname).toBe("첫째");
+  });
+
+  it("첫 진입 요청(getHome)이 재수화를 기다렸다가 저장된 아이로 답한다 (레이스 2)", async () => {
+    // 온보딩을 마친 기기의 저장 블롭(버전 3)을 실제 상태에서 만든다.
+    localBackend.ensureLocalBackendSeeded();
+    localBackend.createChild({ nickname: "여정이" });
+    localBackend.updateChild(LOCAL_CHILD_ID, { stageMode: "born", birthDate: seoulMonthsAgo(2) });
+    const persistedBlob = JSON.stringify({ state: store.getState(), version: 3 });
+
+    // 프로세스 재시작 모사: 메모리는 초기 상태, 저장소 읽기는 아직 도착 전.
+    const gate = deferred<string | null>();
+    store.persist.setOptions({ storage: createJSONStorage(() => controlledStorage(() => gate.promise)) });
+    localBackend.resetLocalBackendForTests();
+    const rehydration = store.persist.rehydrate();
+
+    // 라우팅 밸브가 먼저 열려 첫 요청이 지금 나간다 — 수리 전에는 초기 상태를 읽고
+    // "아이 프로필을 찾을 수 없어요"로 즉시 거부됐다(전면 에러 카드의 실체).
+    const firstEntry = clientGetHome(LOCAL_SESSION_TOKEN, LOCAL_CHILD_ID).then(
+      (home) => ({ ok: true as const, home }),
+      (error: unknown) => ({ ok: false as const, error })
+    );
+
+    gate.resolve(persistedBlob);
+    await rehydration;
+
+    const outcome = await firstEntry;
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.home.child).toMatchObject({ id: LOCAL_CHILD_ID, nickname: "여정이" });
+    }
+  });
+
+  it("재수화가 이미 끝난 평상시에는 준비 대기가 즉시 풀린다", async () => {
+    await expect(localBackend.whenLocalBackendReady()).resolves.toBe(true);
+  });
+
+  it("재수화가 영영 끝나지 않아도 요청이 매달리지 않는다 (밸브)", async () => {
+    store.persist.setOptions({
+      storage: createJSONStorage(() => controlledStorage(() => new Promise<string | null>(() => {})))
+    });
+    void store.persist.rehydrate();
+
+    await expect(localBackend.whenLocalBackendReady(50)).resolves.toBe(false);
+  });
+
+  it("첫 진입 요청 경로가 준비 대기를 실제로 배선한다 (바이트 계약)", () => {
+    const clientSource = readFileSync(join(process.cwd(), "src/api/client.ts"), "utf8");
+    // local()이 재수화 대기를 지나지 않으면 초기화 전 조회 레이스가 되살아난다.
+    expect(clientSource).toContain("localBackend.whenLocalBackendReady().then((ready) =>");
+    const backendSource = readFileSync(join(process.cwd(), "src/api/local-backend.ts"), "utf8");
+    // merge의 빈-저장소 보존 갈래 — 이 갈래가 사라지면 늦은 재수화가 온보딩 입력을 덮는다.
+    expect(backendSource).toContain("persisted === undefined || persisted === null");
+  });
+
+  /**
+   * 전면 에러 카드의 직접 원인(위 머리말 셋째 문단): 홈 화면의 훅이 조기 반환 아래로 내려가면
+   * 로딩 → 데이터 전환의 두 번째 렌더가 훅을 더 부르고, React가 던진 오류를 ErrorBoundary가
+   * 받아 첫 진입이 통째로 🍼 카드가 된다. HomeScreen 본문의 모든 훅 호출은 첫 조기 반환
+   * (`if (hasSession && homePhase === "error")`)보다 앞서야 한다.
+   */
+  it("홈 화면의 훅은 전부 조기 반환보다 먼저 선다 (첫 진입 훅 순서 계약)", () => {
+    const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
+    const firstEarlyReturn = homeSource.indexOf('if (hasSession && homePhase === "error")');
+    expect(firstEarlyReturn).toBeGreaterThan(0);
+
+    // 라운드 55 트랙 C / DSN-053 P2-A가 조기 반환 아래 두었던 네 선언이 위로 올라와 있다.
+    for (const declaration of [
+      "const recurringTemplates = useRecurringExpenseStore(",
+      "const skipRecurringThisMonth = useRecurringExpenseStore(",
+      "const recurringReminder = useMemo(",
+      "const quickRecordChips = useMemo("
+    ]) {
+      const at = homeSource.indexOf(declaration);
+      expect(at, declaration).toBeGreaterThan(0);
+      expect(at, `${declaration} — 조기 반환보다 먼저 서야 한다`).toBeLessThan(firstEarlyReturn);
+    }
+
+    // 그리고 조기 반환 아래에는 훅 호출이 하나도 새로 들어오지 않는다(주석 제외).
+    const hookCallsAfterEarlyReturns = homeSource
+      .slice(firstEarlyReturn)
+      .split("\n")
+      .filter((line) => {
+        if (/^\s*(\*|\/\/|\{\/\*)/.test(line)) return false;
+        const code = line.split("//")[0];
+        return /(?:^|[^.\w])use[A-Z][A-Za-z]*\(/.test(code);
+      });
+    expect(hookCallsAfterEarlyReturns).toEqual([]);
   });
 });

@@ -45,42 +45,44 @@ describe("Batch 07 mobile items and commerce contract", () => {
     }
   });
 
-  it("renders the reasonText and skipReasonText sections on the item detail screen (COM-101)", () => {
+  /**
+   * FIX-C(2026-09-03) — 두 시점 이관.
+   * ① COM-101(round5a-sprint1-plan.md §6)은 "왜 필요해요?"와 skipReasonText 카드(제목
+   *    "이런 경우엔 안 사도 …") **두 섹션**을 상세에 세웠고, 이 케이스가 그 렌더를 고정했다.
+   * ② FIX-C: 안내 카드는 "왜 필요해요?" + 중고 구매 안내 둘만 남기는 지시에 따라
+   *    skipReasonText 카드의 **렌더가 지워졌다**. 데이터 계약은 무변이다 — skipReasonText는
+   *    ItemDetail 타입·로컬 데이터 층에 그대로 흐른다(아래 두 케이스가 계속 지킨다).
+   *    이 케이스는 이제 "reason 카드는 남고 skip 카드는 없다"를 고정한다.
+   */
+  it("renders the reasonText section and no skip-reason card on the item detail screen (COM-101 → FIX-C)", () => {
     const productDetailSource = readFileSync(join(mobileRoot, "app/items/[itemTemplateId].tsx"), "utf8");
 
-    // Section headings and copy from the design contract (round5a-sprint1-plan.md §6).
+    // Section heading and copy from the design contract (round5a-sprint1-plan.md §6).
     expect(productDetailSource).toContain("왜 필요해요?");
-    expect(productDetailSource).toContain("이런 경우엔 안 사도 돼요");
     expect(productDetailSource).toContain("visibleDetail.reasonText");
-    expect(productDetailSource).toContain("visibleDetail.skipReasonText");
 
-    // skipReasonText must be conditionally rendered (section hidden when null/empty), while
-    // reasonText (always present) must not be gated behind the same guard.
-    expect(productDetailSource).toContain("{visibleDetail.skipReasonText ? (");
-    expect(productDetailSource).toMatch(/{visibleDetail\.skipReasonText \? \(\s*<Card[^]*?<\/Card>\s*\) : null}/);
+    // FIX-C: the skip-reason card render is gone — heading and interpolation both. The full
+    // heading string must not survive anywhere in the screen file (comments included), so this
+    // absence contract cannot be satisfied by a stray comment.
+    expect(productDetailSource).not.toContain("이런 경우엔 안 사도 돼요");
+    expect(productDetailSource).not.toContain("{visibleDetail.skipReasonText}");
+    expect(productDetailSource).not.toContain("{visibleDetail.skipReasonText ? (");
 
-    // Both sections use accessible headings and sit above the purchase CTA row, below the
-    // price/necessity info card. Anchor on the `{visibleDetail.reasonText}` /
-    // `{visibleDetail.skipReasonText}` interpolations, which are unique in the file, and look
-    // backwards for the heading that immediately precedes each.
+    // The reason section keeps its accessible heading and sits above the purchase CTA row,
+    // below the price/necessity info card.
     const infoCardIndex = productDetailSource.indexOf("productDetailInfoCardStyle()");
     const reasonSectionIndex = productDetailSource.indexOf("{visibleDetail.reasonText}");
-    const skipSectionIndex = productDetailSource.indexOf("{visibleDetail.skipReasonText}");
     const ctaRowIndex = productDetailSource.indexOf("바로 구매하기");
     expect(infoCardIndex).toBeGreaterThan(-1);
     expect(reasonSectionIndex).toBeGreaterThan(infoCardIndex);
-    expect(skipSectionIndex).toBeGreaterThan(reasonSectionIndex);
-    expect(ctaRowIndex).toBeGreaterThan(skipSectionIndex);
+    expect(ctaRowIndex).toBeGreaterThan(reasonSectionIndex);
 
     const reasonHeadingBlock = productDetailSource.slice(reasonSectionIndex - 400, reasonSectionIndex);
-    const skipHeadingBlock = productDetailSource.slice(skipSectionIndex - 400, skipSectionIndex);
     expect(reasonHeadingBlock).toContain('accessibilityRole="header"');
     expect(reasonHeadingBlock).toContain("왜 필요해요?");
-    expect(skipHeadingBlock).toContain('accessibilityRole="header"');
-    expect(skipHeadingBlock).toContain("이런 경우엔 안 사도 돼요");
 
-    // Affiliate CTA disclosure position/copy must be unchanged (still directly after the new
-    // sections, right before the cart/purchase buttons).
+    // Affiliate CTA disclosure position/copy must be unchanged (still directly after the
+    // description cards, right before the cart/purchase buttons).
     //
     // 라운드 43 UX-V (C2) → 리뷰 M-1: 위치는 그대로고, **고지 대상이 있을 때만** 렌더된다는
     // 게이트가 앞에 붙었다 -- 제휴도 스폰서도 없는 화면에는 고지할 대상 자체가 없다
@@ -89,7 +91,7 @@ describe("Batch 07 mobile items and commerce contract", () => {
       /{affiliateDisclosureText \? <AffiliateDisclosure text={affiliateDisclosureText} \/> : null}/
     );
     const affiliateDisclosureIndex = productDetailSource.indexOf("<AffiliateDisclosure");
-    expect(affiliateDisclosureIndex).toBeGreaterThan(skipSectionIndex);
+    expect(affiliateDisclosureIndex).toBeGreaterThan(reasonSectionIndex);
     expect(affiliateDisclosureIndex).toBeLessThan(ctaRowIndex);
   });
 

@@ -1395,6 +1395,53 @@ export default function HomeScreen() {
   // 우선 저장이라 조회가 실패한 순간에도 **실제로** 남길 수 있고(src/offline/sync-controller.ts),
   // 홈은 그 입구(빠른 기록·FAB)를 늘 들고 있는 화면이다. 지킬 수 있는 약속만 한다.
   const loadErrorCopy = useLoadErrorCopy(home.isError);
+  /**
+   * FIX-A(실기기 첫 진입 전면 에러) — **아래 조기 반환들보다 먼저 서야 하는 훅 네 개.**
+   *
+   * 라운드 55 트랙 C가 정기 지출 리마인더의 훅 두 개(useRecurringExpenseStore ×2)와
+   * useMemo(recurringReminder), 그리고 DSN-053 P2-A의 useMemo(quickRecordChips)를 로딩·에러·
+   * 아이 대기 조기 반환 **아래**에 두었다. 그래서 첫 진입의 렌더 1(로딩 스켈레톤, 조기 반환)은
+   * 이 넷을 부르지 않고, /home 데이터가 도착한 렌더 2는 부른다 — React가 "Rendered more hooks
+   * than during the previous render"를 던지고 전역 ErrorBoundary(🍼 "앗, 문제가 생겼어요")가
+   * 화면을 통째로 대체했다. [다시 시도]가 지나가는 이유는 리마운트의 첫 렌더가 이미 캐시된
+   * 데이터로 곧장 전체 경로를 타서 훅 수가 처음부터 일치하기 때문이다 — 즉 "일시 오류"의
+   * 실체는 훅 순서 위반이다. 훅은 조건 없이 항상 부르고, 카드를 그릴지는 아래 렌더 단계가
+   * 종전 그대로 정한다(판정 입력·문구·요청 수 전부 무변).
+   *
+   * 원래 자리의 판정 근거 주석(라운드 55 트랙 C · DSN-053 P2-A)은 각 값이 쓰이는 자리에 남겨
+   * 두었다 — 이 블록은 순서만 옮긴 것이다.
+   */
+  const recurringTemplates = useRecurringExpenseStore((state) => state.templates);
+  const skipRecurringThisMonth = useRecurringExpenseStore((state) => state.skipThisMonth);
+  const recurringReminder = useMemo(
+    () =>
+      buildRecurringReminder({
+        templates: recurringTemplates,
+        childId: hasSession ? childId : null,
+        yearMonth: thisYearMonth,
+        todayIso: seoulToday,
+        monthExpenses: thisMonthExpenses.data?.expenses,
+        pendingRows: offlineSyncSnapshot.rows
+      }),
+    [
+      recurringTemplates,
+      hasSession,
+      childId,
+      thisYearMonth,
+      seoulToday,
+      thisMonthExpenses.data?.expenses,
+      offlineSyncSnapshot.rows
+    ]
+  );
+  const quickRecordChips = useMemo(
+    () =>
+      buildHomeQuickRecordChips(
+        childId
+          ? buildRecentItemChips(offlineSyncSnapshot.rows, childId, { serverRows: thisMonthExpenses.data?.expenses })
+          : null
+      ),
+    [childId, offlineSyncSnapshot.rows, thisMonthExpenses.data?.expenses]
+  );
 
   if (hasSession && homePhase === "error") {
     return (
@@ -1738,29 +1785,11 @@ export default function HomeScreen() {
    *
    * 비세션 미리보기(HOME-001 캡처 경로)에는 이 카드가 없다: `hasSession`이 false면 childId를
    * 넘기지 않아 모듈이 null을 낸다. 픽셀락 렌더 분기에는 애초에 이 자리가 존재하지 않는다.
+   *
+   * FIX-A: `recurringTemplates`/`skipRecurringThisMonth`/`recurringReminder` 선언(훅)은 조기
+   * 반환들보다 위로 옮겼다 — 훅 순서 위반이 첫 진입을 전면 에러로 만들었기 때문이다(위 블록).
+   * 판정 입력·문구는 그대로다.
    */
-  const recurringTemplates = useRecurringExpenseStore((state) => state.templates);
-  const skipRecurringThisMonth = useRecurringExpenseStore((state) => state.skipThisMonth);
-  const recurringReminder = useMemo(
-    () =>
-      buildRecurringReminder({
-        templates: recurringTemplates,
-        childId: hasSession ? childId : null,
-        yearMonth: thisYearMonth,
-        todayIso: seoulToday,
-        monthExpenses: thisMonthExpenses.data?.expenses,
-        pendingRows: offlineSyncSnapshot.rows
-      }),
-    [
-      recurringTemplates,
-      hasSession,
-      childId,
-      thisYearMonth,
-      seoulToday,
-      thisMonthExpenses.data?.expenses,
-      offlineSyncSnapshot.rows
-    ]
-  );
   /**
    * 히어로 아래에 설 수 있는 카드들. **판정은 위에서 전부 끝났다** -- 여기서 하는 일은 "그중 몇
    * 장을 지금 펼쳐 두는가"뿐이고, 나머지는 같은 화면의 "더 보기"로 접힌다(기능·데이터·알림
@@ -1791,16 +1820,9 @@ export default function HomeScreen() {
    * useMemo인 이유: 이 계산은 로컬 행 전체를 훑고 정렬한다(buildRecentItemChips). 홈은 리렌더가
    * 잦은 화면이라 매 렌더 다시 돌 이유가 없고, 결과 배열이 매번 새 참조면 아래 칩 렌더도 늘
    * 새로 그린다.
+   *
+   * FIX-A: `quickRecordChips` 선언(useMemo)도 같은 이유로 조기 반환들보다 위로 옮겼다(위 블록).
    */
-  const quickRecordChips = useMemo(
-    () =>
-      buildHomeQuickRecordChips(
-        childId
-          ? buildRecentItemChips(offlineSyncSnapshot.rows, childId, { serverRows: thisMonthExpenses.data?.expenses })
-          : null
-      ),
-    [childId, offlineSyncSnapshot.rows, thisMonthExpenses.data?.expenses]
-  );
   /**
    * 최하단 동기화 줄(스펙 §통합 지점). 상태는 이미 구독 중인 큐 스냅숏에서만 만든다 --
    * "오프라인"은 렌더 시점에 알 수 없어 말하지 않는다(src/home/home-sync-status.ts).

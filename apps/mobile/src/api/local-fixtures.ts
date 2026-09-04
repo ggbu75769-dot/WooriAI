@@ -107,6 +107,10 @@ export type LocalProductLinkFixture = {
  * 픽스처에 박아 둔 숫자일 뿐이다(허위 신선도). 서버 시드도 같은 이유로 재실행만으로는
  * 확인 시각을 오늘로 밀지 않는다(apps/api/prisma/seed.ts resolveSeedPriceCheckedAt).
  * 값은 UTC ISO — 09:00Z는 서울 18:00이라 두 달력 어디서도 날짜가 갈리지 않는다.
+ *
+ * FIX-C(2026-09-03): 플랜 B 정합으로 픽스처 행의 가격 스냅샷이 전부 null이 되면서 이 두 상수를
+ * 참조하는 행은 없어졌다. 상수는 남긴다 — 순수 판정 테스트(link-price.test.ts)가 고정 시각
+ * 입력으로 쓰고, 가격 스냅샷이 되살아나는 날(플랜 A CSV 전환) 같은 규율로 다시 쓰인다.
  */
 export const LOCAL_PRICE_CHECKED_AT = "2026-08-20T09:00:00.000Z";
 /** 같은 상세 화면에서 확인 시각이 행마다 다를 수 있다는 사실을 데모에서도 보이게 하는 짝. */
@@ -276,38 +280,57 @@ export const localItemTemplateFixtures: LocalItemTemplateFixture[] = [
   }
 ];
 
+/**
+ * FIX-C(2026-09-03) — 데모 링크를 서버 시드 **플랜 B**(2026-09-02, apps/api/prisma/seed-data.ts
+ * productLinkSeeds 머리말)와 같은 원칙으로 맞춘다(두 시점).
+ *
+ * ① 종전 픽스처는 example.com 플레이스홀더 URL에 `isAffiliate: true`·제휴 고지 문구·가격
+ *    스냅샷·스폰서 행("네이처 공식몰")을 실었다 — standalone APK가 이 내장 데이터로 돌므로,
+ *    실계정이 이미 플랜 B로 옮겨 간 뒤에도 앱은 "제휴" 배지와 "459,000원 · 7월 2일 확인" 같은
+ *    옛 데이터를 계속 말했다.
+ * ② FIX-C: 쿠팡 파트너스 승인 전 출시 상태를 데모도 그대로 말한다.
+ *    - **실 쿠팡 검색 URL**(`https://www.coupang.com/np/search?q=<품목명>`) — 계정·키 없이
+ *      동작하는 실 링크라 죽은 CTA가 없다.
+ *    - **전 행 `isAffiliate: false` · `affiliateUrl: null` · `disclosureText: null`** — 검색
+ *      링크로는 수수료를 받지 않으므로 제휴 고지가 서면 그것이 허위 고지다(DNC-010의 반대
+ *      방향 오류). 화면 판정은 link-marker의 `productLinksDisclosureText`가 **집합**으로
+ *      내리므로, 제휴도 스폰서도 없는 이 픽스처에서는 고지 문장이 서지 않는다(undefined).
+ *    - **가격 스냅샷 제거**(`priceSnapshotKrw/priceCheckedAt: null`) — 검색 결과 페이지에는
+ *      단일 가격이 없다. 확인할 수 없는 가격을 적어 두면 데모가 그것을 확인 시각과 함께
+ *      유효화한다(허위 데이터).
+ *    - **활성 스폰서 0** — 서버 시드는 스폰서 예시 다섯을 `active: false`로 내려 두었는데,
+ *      로컬 픽스처에는 active 축이 없어 실린 행이 곧 활성이다. 그래서 스폰서 행
+ *      ("local-link-diaper-sponsored")은 행째로 지운다(계약 성사 시 실 값으로 되살린다).
+ *      일반 검색 링크가 "스폰서" 배지를 달면 DNC-011의 반대 방향 오류다.
+ *    - id는 전부 종전 그대로다(테스트·큐가 id로 행을 찾는다). platform은 실제 목적지대로
+ *      전 행 `coupang`, title은 시드와 같은 "<품목명> 쿠팡 검색" 관례를 쓴다.
+ *    추천 점수·정렬은 무변경(DNC-009).
+ */
 export const localProductLinkFixtures: LocalProductLinkFixture[] = [
-  // 임신~첫돌 준비템의 구매 링크. 제휴 여부 고지는 실제 노출 문구 그대로 싣는다(DNC-010) --
-  // 데모라고 해서 고지를 비우거나 없는 제휴를 있는 척하지 않는다.
   {
     id: "local-link-car-seat-coupang",
     itemTemplateId: LOCAL_ITEM_CAR_SEAT,
     platform: "coupang",
-    title: "쿠팡",
-    url: "https://example.com/coupang/car-seat",
-    affiliateUrl: "https://example.com/coupang/car-seat?ref=wooriai",
-    isAffiliate: true,
+    title: "카시트 쿠팡 검색",
+    url: "https://www.coupang.com/np/search?q=%EC%B9%B4%EC%8B%9C%ED%8A%B8",
+    affiliateUrl: null,
+    isAffiliate: false,
     isSponsored: false,
-    disclosureText: "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
-    // 가격은 해당 준비템의 가격대(150,000~700,000원) 안에 둔다 — 데모가 스스로 어긋난
-    // 숫자를 말하지 않게.
-    priceSnapshotKrw: 289_000,
-    priceCheckedAt: LOCAL_PRICE_CHECKED_AT,
+    disclosureText: null,
+    priceSnapshotKrw: null,
+    priceCheckedAt: null,
     displayOrder: 10
   },
   {
     id: "local-link-diaper-stock-naver",
     itemTemplateId: LOCAL_ITEM_DIAPER_STOCK,
-    platform: "naver",
-    title: "네이버 스토어",
-    url: "https://example.com/naver/diaper-stock",
+    platform: "coupang",
+    title: "기저귀 쿠팡 검색",
+    url: "https://www.coupang.com/np/search?q=%EA%B8%B0%EC%A0%80%EA%B7%80",
     affiliateUrl: null,
     isAffiliate: false,
     isSponsored: false,
     disclosureText: null,
-    // 가격을 확인해 둔 적 없는 링크. 데모에도 이 경우를 남겨 둔다 — 모든 행에 숫자가
-    // 채워져 있으면 "가격은 언제나 있는 값"으로 보이고, 실제 화면의 빈 가격 칸(종전 동작)이
-    // 데모에서 한 번도 관찰되지 않는다.
     priceSnapshotKrw: null,
     priceCheckedAt: null,
     displayOrder: 10
@@ -316,82 +339,54 @@ export const localProductLinkFixtures: LocalProductLinkFixture[] = [
     id: "local-link-stroller-coupang",
     itemTemplateId: LOCAL_ITEM_STROLLER,
     platform: "coupang",
-    title: "쿠팡",
-    url: "https://example.com/coupang/stroller",
-    affiliateUrl: "https://example.com/coupang/stroller?ref=wooriai",
-    isAffiliate: true,
+    title: "유모차 쿠팡 검색",
+    url: "https://www.coupang.com/np/search?q=%EC%9C%A0%EB%AA%A8%EC%B0%A8",
+    affiliateUrl: null,
+    isAffiliate: false,
     isSponsored: false,
-    disclosureText: "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
-    // 가격대 100,000~1,200,000원. 확인 시각이 오래된 쪽 상수를 써서, 캡션이 그 사실을
-    // 숨기지 않고 그대로 말한다는 것을 데모에서도 볼 수 있게 한다.
-    priceSnapshotKrw: 459_000,
-    priceCheckedAt: LOCAL_PRICE_CHECKED_AT_OLDER,
+    disclosureText: null,
+    priceSnapshotKrw: null,
+    priceCheckedAt: null,
     displayOrder: 10
   },
   {
     id: "local-link-diaper-affiliate",
     itemTemplateId: LOCAL_ITEM_DIAPER,
-    platform: "custom",
-    title: "우리아이몰",
-    url: "https://example.com/wooriai-mall/diaper",
-    affiliateUrl: "https://example.com/wooriai-mall/diaper?ref=wooriai",
-    isAffiliate: true,
-    isSponsored: false,
-    disclosureText: "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
-    // 기저귀는 데모에서 링크가 둘인 유일한 준비템이라, 판매처별로 **다른** 가격과 **다른**
-    // 확인 시각이 나란히 보이는 자리다(가격대 42,900~48,900원).
-    priceSnapshotKrw: 45_900,
-    priceCheckedAt: LOCAL_PRICE_CHECKED_AT,
-    displayOrder: 10
-  },
-  {
-    id: "local-link-diaper-sponsored",
-    itemTemplateId: LOCAL_ITEM_DIAPER,
-    platform: "custom",
-    title: "네이처 공식몰",
-    url: "https://example.com/nature-official/diaper",
+    platform: "coupang",
+    title: "기저귀 팬티형 쿠팡 검색",
+    url: "https://www.coupang.com/np/search?q=%EA%B8%B0%EC%A0%80%EA%B7%80%20%ED%8C%AC%ED%8B%B0%ED%98%95",
     affiliateUrl: null,
-    isAffiliate: true,
-    isSponsored: true,
-    // 라운드 44 리뷰 N-1: 예전 값은 "스폰서 상품이며 구매 CTA 근처에 광고/제휴 고지를
-    // 표시합니다."였다 -- 사용자에게 보여 줄 고지가 아니라 **개발 스펙을 적어 둔 메모**였고
-    // (합쇼체라 앱 어디와도 말투가 다르다), 스폰서 우선 규칙 탓에 데모 기저귀 상세의 구매
-    // CTA 옆에 그대로 렌더됐다. 실사용 문구로 바꾼다: 광고임을 먼저 밝히고(DNC-011) 같은
-    // 줄에서 수수료 고지를 잇는다(DNC-010). 해요체(DNC-018).
-    disclosureText: "스폰서 광고 링크예요. 이 링크로 구매하면 우리아이가 수수료를 받을 수 있어요.",
-    // 스폰서 링크라고 해서 가격을 더 싸게 적지 않는다 — 같은 준비템의 일반 제휴 링크보다
-    // 비싸다(45,900 < 47,900). 광고비를 받은 자리가 값싸 보이도록 데모를 꾸미지 않는다
-    // (DNC-009·DNC-011).
-    priceSnapshotKrw: 47_900,
-    priceCheckedAt: LOCAL_PRICE_CHECKED_AT_OLDER,
-    displayOrder: 20
+    isAffiliate: false,
+    isSponsored: false,
+    disclosureText: null,
+    priceSnapshotKrw: null,
+    priceCheckedAt: null,
+    displayOrder: 10
   },
   {
     id: "local-link-carrier-coupang",
     itemTemplateId: LOCAL_ITEM_CARRIER,
     platform: "coupang",
-    title: "쿠팡",
-    url: "https://example.com/coupang/carrier",
-    affiliateUrl: "https://example.com/coupang/carrier?ref=wooriai",
-    isAffiliate: true,
+    title: "아기띠 쿠팡 검색",
+    url: "https://www.coupang.com/np/search?q=%EC%95%84%EA%B8%B0%EB%9D%A0",
+    affiliateUrl: null,
+    isAffiliate: false,
     isSponsored: false,
-    disclosureText: "이 링크로 구매하면 우리아이가 제휴수수료를 받을 수 있어요.",
-    // 가격대가 한 점(89,000원)인 준비템이라 스냅샷도 그 값이다.
-    priceSnapshotKrw: 89_000,
-    priceCheckedAt: LOCAL_PRICE_CHECKED_AT,
+    disclosureText: null,
+    priceSnapshotKrw: null,
+    priceCheckedAt: null,
     displayOrder: 10
   },
   {
     id: "local-link-blocks-naver",
     itemTemplateId: LOCAL_ITEM_BLOCKS,
-    platform: "naver",
-    title: "네이버 스토어",
-    url: "https://example.com/naver/blocks",
+    platform: "coupang",
+    title: "원목 블록 쿠팡 검색",
+    url: "https://www.coupang.com/np/search?q=%EC%9B%90%EB%AA%A9%20%EB%B8%94%EB%A1%9D",
     affiliateUrl: null,
     isAffiliate: false,
     isSponsored: false,
     disclosureText: null,
-    // 가격 확인 이력이 없는 두 번째 링크(위 기저귀 첫 준비와 같은 이유).
     priceSnapshotKrw: null,
     priceCheckedAt: null,
     displayOrder: 10

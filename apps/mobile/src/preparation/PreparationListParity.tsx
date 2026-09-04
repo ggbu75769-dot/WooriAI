@@ -344,7 +344,25 @@ export function PreparationListParity({
   renderItemFooter?: (item: PreparationParityItem) => ReactNode;
 }) {
   const { fontScale, width } = useWindowDimensions();
-  const columns = compactGridColumnCount(width, fontScale);
+  /**
+   * 긴급 수리 FIX-B — **타일 안에 컨트롤이 설 때는 3열을 2열로 접는다.**
+   *
+   * 실기기(360~412dp) 스크린샷에서 준비템 탭의 품목 그리드가 깨져 보였다: 3열이면 타일 폭이
+   * 약 98dp인데, 세션 목록은 타일마다 발밑 슬롯(`renderItemFooter`)에 필수 배지 · "먼저 챙기면
+   * 좋아요" · 준비했어요/괜찮아요 버튼을 그린다. 그 폭에서는 버튼 글자가 음절 중간에서 꺾이고
+   * ("준비했어\n요"), 카드(고정 148dp)가 먼저 닫힌 뒤 컨트롤들이 그 아래 좁은 기둥에 줄줄이
+   * 서서 — 세 타일의 발밑이 가로로 나란히 정렬되는 바람에 — **카드 밖으로 흘러내려 그리드
+   * 아래 뒤섞인 별도 줄들**처럼 읽혔다.
+   *
+   * 그래서 발밑 슬롯이 실재하는 렌더에서만 3열을 2열로 접는다(타일 폭 ~150dp — 버튼 한 줄이
+   * 온전히 들어간다). 판정 축은 **콘텐츠**(타일 안에 서는 컨트롤의 유무)이지 화면 폭이 아니라서
+   * `compactGridColumnCount`(글꼴 배율 상한 규칙 포함)는 그대로 두고 그 결과만 한 번 접는다:
+   *  - 슬롯이 없으면(픽셀 락 경로 = 원본 승인 디자인) 종전과 한 픽셀도 다르지 않다;
+   *  - 큰 글꼴 2열(usesLargeTextLayout)·넓은 화면 4열(타일 ~140dp+)은 이미 버튼이 들어가는
+   *    폭이라 손대지 않는다.
+   */
+  const baseColumns = compactGridColumnCount(width, fontScale);
+  const columns = renderItemFooter && baseColumns === 3 ? 2 : baseColumns;
   const [sortMode, setSortMode] = useState<SortMode>("category");
   const [progressExpanded, setProgressExpanded] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());

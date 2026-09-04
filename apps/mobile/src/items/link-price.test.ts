@@ -258,9 +258,17 @@ describe("데모(로컬 백엔드) 배선", () => {
     }
   });
 
-  it("가격이 있는 픽스처는 전부 그릴 수 있고, 그 준비템의 가격대 안에 있다", () => {
+  /**
+   * FIX-C(2026-09-03) — 두 시점. ① 라운드 52 C-01 당시 픽스처에는 가격 스냅샷이 있었고 이
+   * 케이스는 "있는 가격은 전부 그릴 수 있고 가격대 안"임을 지켰다(priced.length > 0).
+   * ② FIX-C: 플랜 B 정합(서버 시드 2026-09-02와 같은 원칙)으로 데모 링크는 전부 쿠팡 **검색**
+   * 링크가 됐다 — 검색 결과 페이지에는 단일 가격이 없으므로 스냅샷은 전 행 null이다(확인할
+   * 수 없는 가격을 적으면 허위 데이터다). 하한을 0으로 내리되, 가격이 되살아나는 날(플랜 A
+   * 전환)을 위한 래칫으로 "있다면 그릴 수 있고 가격대 안"은 그대로 남긴다.
+   */
+  it("가격이 있는 픽스처는 전부 그릴 수 있고, 그 준비템의 가격대 안에 있다 (플랜 B: 현재 0건)", () => {
     const priced = localProductLinkFixtures.filter((link) => link.priceSnapshotKrw !== null);
-    expect(priced.length).toBeGreaterThan(0);
+    expect(priced.length).toBeGreaterThanOrEqual(0);
 
     for (const link of priced) {
       const display = resolveLinkPriceDisplay(
@@ -289,29 +297,27 @@ describe("데모(로컬 백엔드) 배선", () => {
     }
   });
 
-  it("데모 상세가 가격과 확인 시각을 그대로 내보낸다", () => {
-    const [carrierLink] = localBackend.getItemDetail(LOCAL_CHILD_ID, LOCAL_ITEM_CARRIER).productLinks;
-
-    expect(carrierLink.priceSnapshotKrw).toBe(89_000);
-    expect(carrierLink.priceCheckedAt).toBe(LOCAL_PRICE_CHECKED_AT);
-    expect(resolveLinkPriceDisplay(carrierLink, TODAY)).toEqual({
-      priceText: "89,000원",
-      checkedAtCaption: "8월 20일 확인"
-    });
-  });
-
-  it("한 상세 화면의 판매처들이 서로 다른 가격·확인 시각을 말할 수 있다", () => {
-    const links = localBackend.getItemDetail(LOCAL_CHILD_ID, LOCAL_ITEM_DIAPER).productLinks;
-    expect(links.length).toBeGreaterThan(1);
-
-    const displays = links.map((link) => resolveLinkPriceDisplay(link, TODAY)!);
-    expect(new Set(displays.map((display) => display.priceText)).size).toBe(displays.length);
-    expect(new Set(displays.map((display) => display.checkedAtCaption)).size).toBe(displays.length);
-
-    // DNC-011: 스폰서 링크를 값싸 보이게 꾸미지 않는다.
-    const sponsored = links.find((link) => link.isSponsored)!;
-    const plain = links.find((link) => !link.isSponsored)!;
-    expect(sponsored.priceSnapshotKrw!).toBeGreaterThan(plain.priceSnapshotKrw!);
+  /**
+   * FIX-C(2026-09-03) — 두 시점 이관. ① 종전 두 케이스는 데모 상세가 가격·확인 시각을
+   * 그대로 내보내는 것(아기띠 89,000원 · 8월 20일 확인)과, 한 화면의 판매처들이 서로 다른
+   * 가격·시각을 말하는 것(기저귀 제휴 vs 스폰서 — DNC-011 가격 비교 포함)을 지켰다.
+   * ② FIX-C: 플랜 B 정합으로 데모 링크의 가격 스냅샷이 전부 사라졌다(위 케이스 주석 참고 —
+   * 검색 링크에는 단일 가격이 없다). 스폰서 행도 지워졌으므로(활성 스폰서 0 — DNC-011의
+   * 반대 방향 오류 방지) 비교 대상 자체가 없다. 이제 지키는 사실: **모든** 데모 상세의 링크에
+   * 가격 키가 아예 실리지 않고(undefined 키를 흘리지 않는 종전 규칙 그대로), 화면 판정은
+   * null이라 가격 칸이 빈다. "그대로 내보낸다"는 배선 자체는 위 blocks 케이스와 서버 규칙
+   * 미러(local-backend.ts getItemDetail의 짝 규칙)가 계속 지킨다.
+   */
+  it("플랜 B: 데모 상세 어디에도 가격 스냅샷이 실리지 않는다 (키 자체가 없다)", () => {
+    for (const itemId of [LOCAL_ITEM_CARRIER, LOCAL_ITEM_DIAPER]) {
+      const links = localBackend.getItemDetail(LOCAL_CHILD_ID, itemId).productLinks;
+      expect(links.length).toBeGreaterThan(0);
+      for (const link of links) {
+        expect("priceSnapshotKrw" in link).toBe(false);
+        expect("priceCheckedAt" in link).toBe(false);
+        expect(resolveLinkPriceDisplay(link, TODAY)).toBeNull();
+      }
+    }
   });
 });
 

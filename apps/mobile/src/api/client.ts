@@ -47,8 +47,26 @@ function isLocalToken(token?: string | null): boolean {
   return token === LOCAL_SESSION_TOKEN;
 }
 
+/**
+ * FIX-A(실기기): 로컬 세션 요청은 실행 전에 로컬 백엔드의 persist 재수화를 기다린다
+ * (localBackend.whenLocalBackendReady). AsyncStorage 첫 기동이 느린 기기에서는 라우팅의 3초
+ * 안전 밸브(app/index.tsx)가 재수화보다 먼저 열려, 온보딩 직후 첫 화면의 getHome이 아직
+ * child: null인 초기 상태를 읽고 "아이 프로필을 찾을 수 없어요"로 실패했다 — 사용자가
+ * [다시 시도]를 눌러야 지나가는 일시 오류다. 기다림이 밸브(3초)로 끝난 경우에 한해, 실패한
+ * 요청을 재수화 완료를 한 번 더 기다렸다가 1회 재시도한다. 준비가 끝난 뒤의 실패는 진짜
+ * 실패이므로 그대로 던진다(LocalVersionConflictError 등 타입 있는 실패 포함 — 재시도 없음).
+ * 실서버 모드는 이 함수를 지나지 않으므로 동작이 한 글자도 바뀌지 않는다.
+ */
 function local<T>(factory: () => T): Promise<T> {
-  return Promise.resolve().then(factory);
+  return localBackend.whenLocalBackendReady().then((ready) => {
+    try {
+      return factory();
+    } catch (error) {
+      if (ready) throw error;
+      // 밸브로 진행된(초기화 확인 없이 실행된) 호출만 1회 재시도 — 내장 재시도의 전부다.
+      return localBackend.whenLocalBackendReady().then(factory);
+    }
+  });
 }
 
 /**

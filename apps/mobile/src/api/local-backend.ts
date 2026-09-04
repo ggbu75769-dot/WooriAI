@@ -370,10 +370,20 @@ export const useLocalBackendStore = create<LocalBackendState>()(
     // 저장된 것은 사용자가 직접 입력한 기록이므로 종전대로 필드 단위로 살려 낸다.
     version: 3,
     migrate: (persisted, version) => (version < 3 ? { ...initialState } : sanitizeLocalBackendState(persisted)),
-    merge: (persisted, current) => ({
-      ...current,
-      ...sanitizeLocalBackendState(persisted)
-    })
+    // FIX-A(실기기): 저장소가 **비어 있던** 재수화(persisted가 undefined/null — zustand는 그때도
+    // merge를 부른다)는 지금 메모리에 있는 상태를 그대로 둔다. 예전에는 이 갈래도
+    // sanitizeLocalBackendState(undefined) = initialState로 흘러 **현재 상태를 통째로 덮었고**,
+    // AsyncStorage 첫 기동이 느린 실기기에서 재수화가 온보딩 입력(방금 등록한 아이)보다 늦게
+    // 도착하면 그 아이가 메모리에서 지워졌다 — 첫 화면 진입의 getHome이 "아이 프로필을 찾을 수
+    // 없어요"로 실패하는 레이스의 절반이다(나머지 절반은 client.ts local()의 재수화 대기).
+    // 저장된 블롭이 실제로 있으면 종전과 한 글자도 다르지 않게 필드 단위로 살려 낸다(MOB-107).
+    merge: (persisted, current) =>
+      persisted === undefined || persisted === null
+        ? current
+        : {
+            ...current,
+            ...sanitizeLocalBackendState(persisted)
+          }
   })
 );
 
@@ -434,6 +444,47 @@ export function ensureLocalBackendSeeded() {
 }
 
 /**
+ * FIX-A(실기기): **로컬 백엔드가 요청을 받을 준비가 됐는가** — 이 스토어의 persist 재수화가
+ * 끝났으면 즉시 true, 아직이면 끝나는 순간 true로 resolve한다.
+ *
+ * 왜 필요한가: 이 파일의 조회/쓰기 함수는 전부 동기라 자기 스스로 재수화를 기다릴 수 없고,
+ * AsyncStorage 첫 기동이 느린 실기기(콜드 스타트, 저사양)에서는 앱 라우팅의 3초 안전 밸브
+ * (app/index.tsx)가 재수화보다 먼저 열려 **초기화가 끝나기 전의 첫 요청**이 도착할 수 있다.
+ * 그 요청은 child: null인 초기 상태를 읽고 "아이 프로필을 찾을 수 없어요"로 실패한다 —
+ * 사용자에게는 온보딩을 막 끝냈는데 첫 화면에서 전면 에러 카드가 뜨는 일시 오류로 보인다.
+ * client.ts의 local()이 모든 로컬 세션 요청 앞에서 이 함수를 기다린다(서버 모드는 이 경로를
+ * 지나지 않으므로 동작 무변).
+ *
+ * 밸브: zustand persist는 저장소 읽기 자체가 실패하면 onFinishHydration을 영영 부르지 않는다
+ * (app/index.tsx·notification 훅들이 같은 이유로 같은 3초 밸브를 둔다). 그때는 timeoutMs 뒤
+ * false로 resolve해 요청이 영원히 매달리지 않게 한다 — false는 "준비를 확인하지 못한 채
+ * 진행한다"는 사실이고, local()은 그 갈래의 실패에 한해 한 번 더 기다렸다 재시도한다.
+ */
+export function whenLocalBackendReady(timeoutMs = 3000): Promise<boolean> {
+  const persistApi = useLocalBackendStore.persist;
+  // 존재 가드: persist 미들웨어가 없는(테스트 더블 등) 환경에서는 기다릴 대상이 없다.
+  if (!persistApi || typeof persistApi.hasHydrated !== "function" || persistApi.hasHydrated()) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    let unsubscribe: (() => void) | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (hydrated: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (unsubscribe) unsubscribe();
+      if (timer !== null) clearTimeout(timer);
+      resolve(hydrated);
+    };
+    unsubscribe = persistApi.onFinishHydration(() => finish(true));
+    timer = setTimeout(() => finish(false), timeoutMs);
+    // 구독을 걸기 직전에 재수화가 끝났을 수도 있다(경합 봉합).
+    if (persistApi.hasHydrated()) finish(true);
+  });
+}
+
+/**
  * 로컬 세션의 가구 관리자 = 이 기기의 사용자 본인. 실서버에서는 가입 순간 가구와 owner
  * 구성원이 함께 만들어지고, 로컬 세션에는 가입이라는 서버 왕복이 없으므로 여기가 그 자리다.
  * "아빠" 같은 다른 구성원은 데모 데이터라 더 이상 만들지 않는다 -- 가족 화면은 실계정 신규
@@ -468,8 +519,14 @@ function ensureSeeded() {
   const state = useLocalBackendStore.getState();
   if (state.seeded) return;
 
+  // FIX-A(실기기): `...initialState`를 펼치지 않는다. seeded가 false인 정상 상태는 어차피
+  // initialState 그대로라 결과가 같고, 유일하게 다른 경우가 **재수화가 끝나기 전의 호출**이다
+  // (AsyncStorage 첫 기동 지연 — startTestSession은 동기라 기다릴 수 없다). 그때 initialState를
+  // 펼치면 child: null까지 함께 쓰여 지고, persist 미들웨어가 그 지워진 상태를 곧바로 저장소에
+  // 되써서 사용자가 온보딩에서 만든 아이의 블롭을 덮는다(재수화 merge는 raw set이라 되살린
+  // 메모리를 다시 저장하지 않는다 — 다음 콜드 스타트에서 아이가 사라진다). seeded 표시와 가구
+  // 관리자 한 명만 만든다는 이 함수의 계약(위 주석)은 그대로다.
   useLocalBackendStore.setState({
-    ...initialState,
     seeded: true,
     members: [localOwnerMember()]
   });
