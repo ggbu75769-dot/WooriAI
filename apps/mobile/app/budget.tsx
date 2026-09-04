@@ -5,6 +5,7 @@ import { Pressable, Text, TextInput, View } from "react-native";
 import { getSeoulToday } from "@wooriai/domain";
 import {
   getBudget,
+  getTrendReport,
   LOCAL_SESSION_TOKEN,
   upsertBudget,
   type Child,
@@ -26,6 +27,9 @@ import {
   resolveThisMonthUsedKrw,
   sumLastMonthActualKrw
 } from "../src/home/budget-edit";
+// 기능 라운드 1 트랙 E: 최근 3개월 실지출 평균 제안 칩 — 평균·문구·a11y는 전부 이 순수 모듈이
+// 만들고(허위 표시 방지 규칙 포함), 화면은 추이 응답을 넘겨 받은 칩을 목록 조립에 주입만 한다.
+import { buildRecentAverageChip } from "../src/home/budget-suggestion";
 import { previousYearMonth } from "../src/home/last-month-comparison";
 // 라운드 70 B: 예산 저장의 서버 술어는 지출 쓰기와 **같은 canEdit**이라 판정을 새로 만들지 않고
 // 기존 게이트를 **읽는다**(훅은 이 트랙이 소유하지 않는다 — 한 글자도 바꾸지 않는다).
@@ -59,6 +63,15 @@ import { theme } from "../src/theme";
  * 아래 한 줄(예전 홈 캐시)이 서로 다른 시점을 섞어 말할 수도 있었다. 같은 응답에서 두 값을
  * 함께 읽으면 둘 다 사라진다.
  */
+
+/**
+ * 기능 라운드 1 트랙 E — 최근 실지출 평균 제안이 근거로 삼는 창(개월).
+ *
+ * 리포트 화면의 `MONTHLY_TREND_MONTHS`·`QUARTER_TREND_MONTHS`와 같은 관례(화면 지역 상수)다.
+ * src/home/budget-suggestion.ts의 창(`RECENT_AVERAGE_WINDOW_MONTHS`)과 같은 값이어야 하고,
+ * 그 정합은 budget-suggestion.test.ts가 두 소스를 함께 읽어 문다.
+ */
+const RECENT_AVERAGE_TREND_MONTHS = 3;
 
 const budgetContextLineStyle = {
   color: theme.colors.gray600,
@@ -187,6 +200,29 @@ export default function BudgetEditScreen() {
     queryFn: () => getBudget(authToken!, childId!, lastYearMonth!)
   });
 
+  /**
+   * 기능 라운드 1 트랙 E — 최근 3개월 실지출 평균 제안 칩의 근거(지난달까지 3개월의 월별 합계).
+   *
+   * 지난달 예산과 달리 실지출은 캐시에 조각으로 있지만(지난달 ["expenses"] 캐시 한 달치),
+   * 3개월 평균에는 그 앞 두 달이 더 필요하고 그 달들은 어떤 화면도 받아 두지 않는다. 기존
+   * `getTrendReport`(REP-128 — 서버 0바이트, 로컬 백엔드 기지원)가 한 번의 범위 질의로 세 달을
+   * 접어 주므로 그것을 그대로 재조합한다. 요청은 위 이월 칩과 **같은 defer 판단**으로 좁힌다 —
+   * 이번 달 예산이 없다고 확인된 뒤에만 켠다(예산이 있는 달에는 "…으로 시작" 제안이 성립하지
+   * 않아 왕복이 아예 생기지 않는다). 조회 전·실패면 data가 없어 칩도 없다(모르면 제안하지 않는다).
+   *
+   * 키 머리를 ["report"]가 아니라 **["budget"]**으로 두는 이유: 이 응답은 리포트 화면이 아니라
+   * 예산 제안의 근거라, 예산 캐시와 같은 수명이 맞다 — 지출 쓰기·예산 저장이 이미 무효화하는
+   * ["budget"] 프리픽스와 아이 전환 teardown(CHILD_SCOPED_QUERY_KEY_PREFIXES의 ["budget"])에
+   * 그대로 걸리고, ["report"] 키의 선언 파일을 이 화면으로 넓혀 공유 키 대장(shared-cache-policy)의
+   * 모집단을 움직이지도 않는다. 둘째 칸이 childId인 것은 ["budget"] 선언 전수의 계약이고
+   * (shared-cache-policy.test.ts의 childId 스코프 스윕), 그 뒤 꼬리가 용도·달·개월 수를 가른다.
+   */
+  const recentTrend = useQuery({
+    queryKey: ["budget", childId, "recent-trend", lastYearMonth, RECENT_AVERAGE_TREND_MONTHS],
+    enabled: Boolean(authToken && childId && lastYearMonth) && budget.data === null,
+    queryFn: () => getTrendReport(authToken!, childId!, lastYearMonth!, RECENT_AVERAGE_TREND_MONTHS)
+  });
+
   const currentBudgetKrw = budget.data?.amountKrw ?? null;
   /**
    * 라운드 39 I-6 + 라운드 40 J-4: 이번 달 사용액을 무엇으로 말할지.
@@ -223,11 +259,14 @@ export default function BudgetEditScreen() {
     lastYearMonth ? { rows: offlineSnapshot.rows, childId, yearMonth: lastYearMonth } : undefined
   );
   // B1(b): 지난달 예산은 이번 달 예산이 없을 때만 조회되고(위), 없으면 undefined -> 칩도 없다.
+  // 트랙 E: 평균 칩도 같은 규율 — 추이 응답이 없으면 null이라 칩이 없고, 이월 칩과 값이 같으면
+  // 하나만 남는 판정까지 전부 순수 모듈(budget-suggestion.ts + buildBudgetAdjustChips)이 한다.
   const adjustChips = buildBudgetAdjustChips({
     amountDigits,
     currentBudgetKrw,
     lastMonthActualKrw,
-    lastMonthBudgetKrw: lastMonthBudget.data?.amountKrw ?? null
+    lastMonthBudgetKrw: lastMonthBudget.data?.amountKrw ?? null,
+    recentAverageChip: buildRecentAverageChip(recentTrend.data?.months ?? null)
   });
 
   // 라운드 52 C-07: 예산 저장은 아웃박스를 거치지 않는 서버 직행 쓰기라, 오프라인에서는 그냥
