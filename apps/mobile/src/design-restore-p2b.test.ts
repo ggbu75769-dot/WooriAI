@@ -314,6 +314,8 @@ describe("T9 날짜 픽커: 월 점프 시트 소비", () => {
     // 달을 고르면 보고 있는 달만 옮긴다 — 폼의 날짜(onSelectDate)는 건드리지 않는다.
     const sheetTagStart = picker.indexOf("<MonthJumpSheet");
     const sheetTagEnd = picker.indexOf("/>", sheetTagStart);
+    expect(sheetTagStart, "시트 태그 시작이 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    expect(sheetTagEnd, "시트 태그 닫힘이 실재해야 자르는 구간이 참이다").toBeGreaterThan(sheetTagStart);
     const sheetTag = picker.slice(sheetTagStart, sheetTagEnd);
     expect(sheetTag).toContain("setPickerYearMonth(yearMonth);");
     expect(sheetTag).not.toContain("onSelectDate(");

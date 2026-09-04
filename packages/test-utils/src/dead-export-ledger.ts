@@ -2007,7 +2007,10 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     id: "common-name",
     // 두 시점(기능 라운드 1 통합): 226(라운드 89 C) → 229 — 새 기능 모듈의 export function 이름 셋이
     // 속성/키 자리로도 나오며 사각이 함께 자랐다(모집단이 는 것이지 새 병이 아니다 — 아래 77→226과 같은 결).
-    value: 229,
+    // 두 시점(토스 라운드 통합): 229 → 228 — T2 홈 개편이 삼항 `HOME_SECTIONS_COLLAPSE_LABEL : …`을
+    // 걷었다. 그 `이름 :` 모양을 이 그물은 객체 키로 읽었으므로(삼항의 `:`를 가르지 못한다 — 이
+    // 사각이 말하는 바로 그 오독), 줄어든 것은 사용이 아니라 **오독 표면**이다. 줄어든 쪽도 값이다.
+    value: 228,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +
@@ -2063,7 +2066,10 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   },
   {
     id: "string-keyed-dynamic-access",
-    value: 55,
+    // 두 시점(토스 라운드 통합): 55(라운드 89·90 같은 수) → 56 — T1의 새 훅 useReducedMotion은
+    // **파일 이름이 export 이름과 같아** import 경로 문자열("./ui/useReducedMotion")이 그 이름을 담는다.
+    // 코드 참조(호출)가 함께 있어 판정이 움직인 자리는 오늘도 넷 그대로다 — 실피해 여전히 0건.
+    value: 56,
     floor: 10,
     statement:
       "⚠️⚠️ **라운드 90 트랙 C가 `string-literal-references`를 닫으며 연 자리 — 오차의 방향이 뒤집혔다.** " +
@@ -2093,7 +2099,10 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   },
   {
     id: "jsx-apostrophe-string-masking",
-    value: 105,
+    // 두 시점(토스 라운드 통합): 105 → 106(호출부 분모도 328 → 330) — T1의 use-transient-notice.ts가
+    // 주석에 ASCII '(more.tsx's)를 지닌 채 호출부 모집단에 들어와 표면이 한 파일 자랐다.
+    // 실피해는 오늘도 0건이다(apostropheMaskedCodeSites() 실측 — 아래 문장의 그 0과 같은 자).
+    value: 106,
     floor: 60,
     statement:
       "⚠️⚠️ **같은 거짓 빨강의 둘째 문 — 이번엔 참조가 아니라 *스캐너*가 낸다**(라운드 90 리뷰 M-3). " +
@@ -2118,7 +2127,10 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   },
   {
     id: "tsx-components",
-    value: 141,
+    // 두 시점(토스 라운드 통합): 141(라운드 88~90 세 라운드 같은 수) → 143 — T1·T6이 ui.tsx에
+    // export function 둘(SheetMountTransition · LoadErrorCard)을 더했다. 모집단 밖 축이 함께 자란
+    // 것이지 새 병이 아니고, 재개 조건(JSX 사용을 참조로 세는 판정)은 오늘도 열지 않는다.
+    value: 143,
     floor: 80,
     statement:
       "`.tsx`의 `export function`(컴포넌트·훅) 141은 모집단 밖이다 — JSX 사용(`<Foo />`)은 이 그물의 이름 " +

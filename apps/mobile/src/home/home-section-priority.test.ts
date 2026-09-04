@@ -560,6 +560,8 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     // 비세션 미리보기는 종전처럼 콘텐츠 끝의 FAB 그대로다(HOME-001 픽셀락).
     const previewStart = homeSource.indexOf("// 비세션 프리뷰 렌더(HOME-001 캡처 경로)");
     const previewEnd = homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)", previewStart);
+    expect(previewStart, "비세션 프리뷰 렌더 표식을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(previewEnd, "세션 홈 렌더 표식을 찾지 못했어요").toBeGreaterThan(previewStart);
     const preview = homeSource.slice(previewStart, previewEnd);
     expect(preview).toContain('<FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />');
     expect(preview).not.toContain("floatingAction");

@@ -68,6 +68,7 @@ describe('"바로 기록" 타일 (승인 원본 c20deeb:app/expenses/new.tsx:82-
     // 두 줄까지 균형 있게 놓이도록 한 줄 자르기(numberOfLines={1})는 쓰지 않는다.
     const tileStart = newExpenseSource.indexOf("function ExpenseCategoryIconButton");
     const tileEnd = newExpenseSource.indexOf("function ExpenseQuickItemButton");
+    expect(tileStart, "타일 컴포넌트 선언이 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
     expect(tileEnd).toBeGreaterThan(tileStart);
     expect(newExpenseSource.slice(tileStart, tileEnd)).not.toContain("numberOfLines={1}");
   });

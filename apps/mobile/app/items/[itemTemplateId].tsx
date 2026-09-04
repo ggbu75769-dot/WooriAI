@@ -96,6 +96,9 @@ import { AppIcon } from "../../src/design-system";
 // 다시 짓지 않는다 — 목록과 상세가 같은 물건에 다른 그림을 그리면 같은 품목인지 확신할 수 없다.
 import { resolvePreparationItemVisual } from "../../src/preparation/item-visuals";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
+// T1(디자인 시스템) 후속: 잠깐 안내의 수명 한 벌 — memoNotice가 화면 이탈까지 남던 관례를
+// 설정 → 아이 관리·더보기 내보내기와 같은 3200ms 수명(훅 기본값)으로 맞춘다.
+import { useTransientNotice } from "../../src/ui/use-transient-notice";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
 import { ProductDetailPixelStyles } from "../../src/pixelLock/styles/ProductDetailPixelStyles";
@@ -358,8 +361,12 @@ export default function ItemDetailScreen() {
    * 키는 itemTemplateId 단위다(아이 전환과 무관한 물건 메모 — item-memo.ts의 설계 근거).
    */
   const [memoDraft, setMemoDraft] = useState<string | null>(null);
-  /** 저장/삭제 직후의 확인 한 줄(Toast가 스스로 낭독한다 — A11Y-115). 문구는 순수 모듈의 것. */
-  const [memoNotice, setMemoNotice] = useState<string | null>(null);
+  /**
+   * 저장/삭제 직후의 확인 한 줄(Toast가 스스로 낭독한다 — A11Y-115). 문구는 순수 모듈의 것.
+   * 수명은 공용 훅(useTransientNotice — 기본 3200ms, 설정 → 아이 관리 토스트의 그 값)이 진다 —
+   * 종전에는 화면 이탈까지 남았다(T1이 세운 한 벌을 이 화면이 첫 소비자로 채택).
+   */
+  const { notice: memoNotice, show: showMemoNotice, clear: clearMemoNotice } = useTransientNotice();
   const storedMemo = useItemMemoStore((state) => state.memos[itemTemplateId] ?? "");
   const saveMemo = useItemMemoStore((state) => state.saveMemo);
   const memoText = memoDraft ?? storedMemo;
@@ -378,11 +385,11 @@ export default function ItemDetailScreen() {
     // → 재시도 성공 흐름에 실패 배너와 성공 토스트가 **동시에** 남았다. 상태 뮤테이션 경로
     // (applyStatusChange)와 같은 관례로 진입 시점에 실패 배너도 지운다.
     setStatusErrorMessage(null);
-    setMemoNotice(null);
+    clearMemoNotice();
     saveMemo(itemTemplateId, memoText)
       .then(() => {
         setMemoDraft(null);
-        setMemoNotice(itemMemoSavedNotice(memoText));
+        showMemoNotice(itemMemoSavedNotice(memoText));
       })
       .catch(() => {
         setStatusErrorMessage(ITEM_MEMO_LOCAL_SAVE_FAILED_MESSAGE);
@@ -1408,7 +1415,7 @@ export default function ItemDetailScreen() {
                 label={ITEM_MEMO_SAVE_LABEL}
                 onPress={handleMemoSave}
               />
-              {memoNotice ? <Toast message={memoNotice} /> : null}
+              {memoNotice ? <Toast message={memoNotice.message} /> : null}
             </Card>
           ) : null}
         </View>

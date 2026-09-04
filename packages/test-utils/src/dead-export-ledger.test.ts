@@ -949,14 +949,16 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // ⚠️ 전제 재실측 의무(round90-scout #3 ⓕ): 축을 켠 **뒤에** 다시 재고, 갈리면 그 갈림이 값이다.
     const spotOf = (id: string) => LEDGER_BLIND_SPOTS.find((entry) => entry.id === id);
 
-    // ① tsx-components — 축을 켠 뒤에도 141(적힌 값·오늘의 실측이 같다).
-    expect(spotOf("tsx-components")?.value, "적어 둔 값").toBe(141);
-    expect(tsxExportFunctionCount(), "오늘 다시 잰 값 — 갈리면 그 수가 값이다").toBe(141);
+    // ① tsx-components — 종전 141(라운드 88~90), 토스 라운드 T1·T6이 ui.tsx에 export function 둘
+    // (SheetMountTransition · LoadErrorCard)을 더해 오늘 143(두 시점 — 대장 value도 함께 143으로 내려 적음).
+    expect(spotOf("tsx-components")?.value, "적어 둔 값").toBe(143);
+    expect(tsxExportFunctionCount(), "오늘 다시 잰 값 — 갈리면 그 수가 값이다").toBe(143);
 
-    // ② common-name — 종전 226(라운드 89 C), 기능 라운드 1이 export function 이름 셋을 더해 오늘 229.
-    // 이 자는 마스킹하지 않은 소스에 묻는다(두 시점 — 대장 value도 함께 229로 내려 적음).
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(229);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(229);
+    // ② common-name — 종전 226(라운드 89 C) → 229(기능 라운드 1), 토스 라운드 T2가 홈의 삼항
+    // `HOME_SECTIONS_COLLAPSE_LABEL : …`을 걷어 오늘 228(두 시점 — 그물이 삼항의 `:`를 키로 오독하던
+    // 표면이 준 것이고, 줄어든 쪽도 값이다. 대장 value도 함께 228로 내려 적음).
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(228);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(228);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.
@@ -979,12 +981,15 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     );
 
     // ④ 새로 연 사각도 같은 자리에서 다시 잰다(값 없이 열지 않는다).
-    expect(spotOf("string-keyed-dynamic-access")?.value, "적어 둔 값").toBe(55);
-    expect(namesReferencedInsideStringLiterals().length, "오늘 다시 잰 값").toBe(55);
+    // 두 시점: 55(라운드 89·90) → 56 — T1의 useReducedMotion은 파일 이름이 export 이름과 같아
+    // import 경로 문자열이 그 이름을 담는다(코드 참조가 함께 있어 판정은 움직이지 않았다).
+    expect(spotOf("string-keyed-dynamic-access")?.value, "적어 둔 값").toBe(56);
+    expect(namesReferencedInsideStringLiterals().length, "오늘 다시 잰 값").toBe(56);
 
     // ⑤ 라운드 90 리뷰 M-3이 연 자리 — **스캐너의 오탐 표면**도 값과 실피해를 함께 든다.
-    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(105);
-    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(105);
+    // 두 시점: 105(라운드 90) → 106 — T1의 use-transient-notice.ts가 ASCII '를 지닌 채 호출부에 들어왔다.
+    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(106);
+    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(106);
     // ⚠️ 이 등호는 우연이 아니다(M-4의 그 등호와 다르다): 0을 넘는 날 사문 판정 하나가 **거짓
     // 빨강**이므로, 빨개지는 것이 곧 알려야 할 사실이다. 그때의 답은 대장에 줄을 더하는 것이
     // 아니라 이 스캐너가 JSX 텍스트를 코드와 가르는 것이다.
@@ -1277,9 +1282,10 @@ describe("ⓘ 문자열 리터럴 축 — 글자는 지우고 템플릿 `${…}`
 
   it("⚠️ 저장소에서도 같은 갈래가 산다 — 넷 말고는 판정이 움직이지 않았다", () => {
     // ⚠️ 합성 소스가 갈래를 증명하고, 이 단언이 **그 갈래가 저장소에서 사고를 내지 않았음**을 센다.
-    // 문자열 안에 참조가 있는 이름 55 가운데 판정이 움직인 것은 넷뿐이다(나머지는 코드 참조를 함께 갖는다).
+    // 문자열 안에 참조가 있는 이름 56(두 시점: 라운드 89·90의 55 → 토스 라운드 T1의 useReducedMotion이
+    // import 경로 문자열로 하나 더함) 가운데 판정이 움직인 것은 넷뿐이다(나머지는 코드 참조를 함께 갖는다).
     const names = namesReferencedInsideStringLiterals();
-    expect(names.length, "문자열 안에 이름이 나오는 모집단 이름 수").toBe(55);
+    expect(names.length, "문자열 안에 이름이 나오는 모집단 이름 수").toBe(56);
     const moved = stringOnlyReferenceExports();
     expect(moved.length, "그중 판정이 움직인 자리").toBe(4);
     expect(
