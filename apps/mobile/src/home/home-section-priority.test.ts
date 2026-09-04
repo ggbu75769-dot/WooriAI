@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   homeMoreSectionsLabel,
   homePrepCardSubtitle,
+  homeSectionDisplayName,
   planHomeSections,
   resolveHomePrepCard,
   HOME_PREP_CARD_CTA_LABEL,
@@ -79,6 +80,9 @@ describe("planHomeSections 우선순위 판정", () => {
    * 사용자가 보는 카드 순서가 바뀐다(§6 위험 6). 재번호가 조용히 일어나지 않게 표 전체를 적는다.
    */
   it("정기 지출 리마인더는 첫 실행 안내 다음, 마일스톤 앞이다 (설계 §1.5)", () => {
+    // TOSS-T2: "budget-nudge"(사용률 넛지 카드)는 은퇴했다 -- 히어로가 같은 퍼센트·진행바를
+    // 이미 말하고, 카드의 유일한 기능(기록 탭 이동)은 히어로 Pressable이 이어받았다. 표는
+    // 여덟 장으로 줄고 마지막 둘이 한 칸씩 당겨졌다(순서 판단 자체는 종전과 같다).
     expect(HOME_SECTION_RANK).toEqual({
       "budget-warning": 1,
       "first-run-guide": 2,
@@ -88,9 +92,8 @@ describe("planHomeSections 우선순위 판정", () => {
       "budget-pace": 4,
       milestone: 5,
       "weekly-summary": 6,
-      "budget-nudge": 7,
-      "last-month": 8,
-      "cumulative-total": 9
+      "last-month": 7,
+      "cumulative-total": 8
     } satisfies Record<HomeSectionId, number>);
     // 근거: 미기록 정기 지출은 "지금 행동하지 않으면 이번 달 합계가 실제와 어긋나는" 사실이라
     // 날짜 안내(마일스톤)보다 금전적 결과가 크다. 다만 예산 경고·첫 실행 안내보다는 뒤다.
@@ -152,6 +155,90 @@ describe("planHomeSections 우선순위 판정", () => {
 
   it("더 보기 문구가 접힌 장수를 밝힌다(무엇이 숨었는지 감추지 않는다)", () => {
     expect(homeMoreSectionsLabel(3)).toBe("카드 3개 더 보기");
+  });
+
+  /**
+   * TOSS-T2 — "더 보기"가 개수만이 아니라 **무엇이 접혔는지**(최상위 카드의 이름)까지 예고한다.
+   * 이름 없이 "카드 3개"만 말하면 사용자가 눌러 보기 전까지 무엇을 접었는지 알 수 없었다.
+   */
+  it("더 보기 문구가 접힌 것 중 최상위 카드의 이름을 예고한다 (TOSS-T2)", () => {
+    expect(homeMoreSectionsLabel(3, "지난달 대비")).toBe("지난달 대비 외 2개 더 보기");
+    expect(homeMoreSectionsLabel(1, "누적 총액")).toBe("누적 총액 더 보기");
+    // 이름을 모르는 호출부(레거시 시그니처)는 종전 문구 그대로다.
+    expect(homeMoreSectionsLabel(2, null)).toBe("카드 2개 더 보기");
+  });
+
+  it("카드 이름 표는 모든 섹션 id를 안다 (TOSS-T2)", () => {
+    const ids: HomeSectionId[] = [
+      "budget-warning",
+      "first-run-guide",
+      "recurring-reminder",
+      "budget-pace",
+      "milestone",
+      "weekly-summary",
+      "last-month",
+      "cumulative-total"
+    ];
+    for (const id of ids) {
+      expect(homeSectionDisplayName(id).length, id).toBeGreaterThan(0);
+    }
+    expect(homeSectionDisplayName("last-month")).toBe("지난달 대비");
+    expect(homeSectionDisplayName("milestone")).toBe("마일스톤");
+  });
+
+  /**
+   * TOSS-T2 — 시한 임박 부스트. 날짜가 정한 카드(마일스톤 D-7 이내)는 상시 카드에 밀려 접히면
+   * 그 사실이 지나가 버리므로 순위표를 앞선다. 임박 판정은 milestone-countdown.ts의 `boosted`가
+   * 하고(창 7일), 이 모듈은 밝혀진 id를 앞세우기만 한다.
+   */
+  it("부스트된 카드는 순위표를 앞선다 -- D-7 이내 마일스톤이 상시 카드에 밀리지 않는다", () => {
+    const plan = planHomeSections({
+      active: ["recurring-reminder", "budget-pace", "milestone"],
+      boosts: ["milestone"]
+    });
+    expect(plan.visible).toEqual(["milestone", "recurring-reminder"]);
+    expect(plan.collapsed).toEqual(["budget-pace"]);
+  });
+
+  it("부스트도 예산 경고(되돌릴 수 없는 사실)는 넘지 못한다 -- 유효 순위 1.5", () => {
+    const plan = planHomeSections({
+      active: ["budget-warning", "first-run-guide", "milestone"],
+      boosts: ["milestone"]
+    });
+    expect(plan.visible).toEqual(["budget-warning", "milestone"]);
+    expect(plan.collapsed).toEqual(["first-run-guide"]);
+  });
+
+  it("부스트가 없으면 마일스톤은 종전 순위 그대로다(임박하지 않은 카드가 1등을 차지하지 않는다)", () => {
+    const plan = planHomeSections({ active: ["recurring-reminder", "budget-pace", "milestone"] });
+    expect(plan.visible).toEqual(["recurring-reminder", "budget-pace"]);
+    expect(plan.collapsed).toEqual(["milestone"]);
+  });
+
+  /**
+   * TOSS-T2 — 강등. 80~99% 구간에서 경고 배너(사실)가 서 있는 동안 월말 예상(추정)까지 펼치면
+   * 한 화면이 같은 예산을 세 번 말했다(히어로 % + 배너 + 페이스). 강등된 카드는 펼침 자리를
+   * 차지하지 않되 "더 보기"에는 그대로 남는다 -- 기능은 지워지지 않는다.
+   */
+  it("강등된 카드는 펼침 자리를 차지하지 않고 접힘으로만 남는다", () => {
+    const plan = planHomeSections({
+      active: ["budget-warning", "budget-pace", "weekly-summary"],
+      demotions: ["budget-pace"]
+    });
+    expect(plan.visible).toEqual(["budget-warning", "weekly-summary"]);
+    // 접힘 목록에는 순위표 순서대로 남는다(사라지지 않는다).
+    expect(plan.collapsed).toEqual(["budget-pace"]);
+    expect(plan.entries.map((entry) => entry.id)).toEqual(["budget-warning", "budget-pace", "weekly-summary"]);
+  });
+
+  it("강등은 부스트보다 세다(상위 정보의 중복 방지가 시한보다 우선한다)", () => {
+    const plan = planHomeSections({
+      active: ["budget-warning", "budget-pace"],
+      boosts: ["budget-pace"],
+      demotions: ["budget-pace"]
+    });
+    expect(plan.visible).toEqual(["budget-warning"]);
+    expect(plan.collapsed).toEqual(["budget-pace"]);
   });
 });
 
@@ -264,29 +351,57 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     ]) {
       expect(homeSource, evaluation).toContain(evaluation);
     }
-    // 순위·상한은 화면이 짐작하지 않는다 -- 값은 순수 모듈에서 온다.
+    // 순위·상한은 화면이 짐작하지 않는다 -- 값은 순수 모듈에서 온다. TOSS-T2: 부스트(임박
+    // 마일스톤)·강등(경고 배너 활성 중 페이스)도 화면은 사실만 밝히고 판정은 모듈이 한다.
     expect(homeSource).toContain('from "../../src/home/home-section-priority"');
-    expect(homeSource).toContain("const sectionPlan = planHomeSections({ active: activeSections });");
-    expect(homeSource).toContain(
-      "const renderedSections = sectionsExpanded ? sectionPlan.entries.map((entry) => entry.id) : sectionPlan.visible;"
-    );
+    expect(homeSource).toContain("const sectionPlan = planHomeSections({");
+    expect(homeSource).toContain('boosts: milestoneCountdown?.boosted ? ["milestone"] : []');
+    expect(homeSource).toContain('demotions: budgetWarning ? ["budget-pace"] : []');
+    expect(homeSource).toContain("const renderedSections = sectionPlan.visible;");
+    expect(homeSource).toContain("const overflowSections = sectionsExpanded ? sectionPlan.collapsed : [];");
   });
 
   it("접힌 카드는 같은 화면의 '더 보기'로 전부 펼쳐진다(다른 화면으로 떠넘기지 않는다)", () => {
     expect(homeSource).toContain("testID={HOME_MORE_SECTIONS_TEST_ID}");
-    expect(homeSource).toContain("homeMoreSectionsLabel(collapsedSectionCount)");
+    // TOSS-T2: 문구가 접힌 것 중 최상위 카드의 이름을 예고한다(이름 표는 순수 모듈).
+    expect(homeSource).toContain("homeMoreSectionsLabel(collapsedSectionCount, collapsedTopSectionName)");
+    expect(homeSource).toContain("homeSectionDisplayName(sectionPlan.collapsed[0])");
     expect(homeSource).toContain("HOME_SECTIONS_COLLAPSE_LABEL");
     expect(homeSource).toContain("accessibilityState={{ expanded: sectionsExpanded }}");
   });
 
-  it("아홉 카드가 모두 우선순위 목록을 지난다(새 카드를 몰래 히어로 밑에 세우지 않는다)", () => {
+  /**
+   * TOSS-T2 — 펼친 잔여분은 핵심 루프 구획을 밀어내지 않는다: 최근 기록 **아래**에 서고, 접는
+   * 버튼이 그 끝에 함께 선다. 상위 카드 자리(renderedSections)는 언제나 sectionPlan.visible이다.
+   */
+  it("펼친 잔여분(overflowSections)은 최근 기록 아래에 선다", () => {
+    const overflowAt = sessionRender.indexOf("{overflowSections.map(");
+    const recentAt = sessionRender.indexOf("최근 기록\n");
+    const syncAt = sessionRender.indexOf("<SyncStatusBar");
+    expect(overflowAt).toBeGreaterThan(recentAt);
+    expect(overflowAt).toBeLessThan(syncAt);
+    // 접는 버튼은 잔여분 끝에 있다(펼친 카드들 밑에서 접는다).
+    const collapseButtonAt = sessionRender.indexOf("{HOME_SECTIONS_COLLAPSE_LABEL}</KoreanText>");
+    expect(collapseButtonAt).toBeGreaterThan(overflowAt);
+    expect(collapseButtonAt).toBeLessThan(syncAt);
+  });
+
+  it("펼침/접힘 전이는 LayoutAnimation을 타고 reduce-motion을 존중한다 (TOSS-T2)", () => {
+    expect(homeSource).toContain("const toggleSectionsExpanded = () => {");
+    expect(homeSource).toContain(
+      "if (!reduceMotionEnabled) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);"
+    );
+    // 두 버튼(더 보기 · 카드 접기) 모두 같은 토글을 지난다 -- 한쪽만 보간되는 일이 없다.
+    expect(homeSource.match(/onPress=\{toggleSectionsExpanded\}/g) ?? []).toHaveLength(2);
+  });
+
+  it("여덟 카드가 모두 우선순위 목록을 지난다(새 카드를 몰래 히어로 밑에 세우지 않는다)", () => {
     const pushes = (homeSource.match(/activeSections\.push\("([a-z-]+)"\)/g) ?? []).map((line) =>
       line.replace(/activeSections\.push\("|"\)/g, "")
     );
     expect(pushes.sort()).toEqual(
       (
         [
-          "budget-nudge",
           // 기능 라운드 1 트랙 A: 월말 예상 카드도 예외 없이 같은 순위표를 지난다.
           "budget-pace",
           "budget-warning",
@@ -300,6 +415,9 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
         ] satisfies HomeSectionId[]
       ).sort()
     );
+    // TOSS-T2: 사용률 넛지 카드는 은퇴했다 -- 목록에도 렌더 스위치에도 없다.
+    expect(homeSource).not.toContain('activeSections.push("budget-nudge")');
+    expect(homeSource).not.toContain('case "budget-nudge"');
   });
 
   /**
@@ -365,13 +483,15 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     expect(homeSource).toContain("backgroundColor: theme.colors.coral[50]");
     expect(homeSource).toContain("margin: -theme.spacing.screen");
     expect(homeSource).toContain("padding: theme.spacing.screen");
-    // ② 히어로: mainCoral · radius 22(theme.radii.card) · 금액 27/800.
+    // ② 히어로: mainCoral · radius 22(theme.radii.card) · 금액은 TOSS-T2부터 amountLarge
+    // (32/38 tabular-nums) 티어 + 카운트업(HomeHeroAmount, reduce-motion 즉시 대입)이다.
     // 배경은 mainCoral이다 — coral[500] 위의 흰 소형 텍스트(12/700·11)는 3.43:1로 AA 미달이었다.
     expect(homeSource).toContain("backgroundColor: theme.colors.mainCoral");
     expect(homeSource).not.toContain("backgroundColor: theme.colors.subCoral");
     expect(homeSource).toContain("borderRadius: theme.radii.card");
     expect(sessionRender).toContain('testID="home-hero-summary"');
-    expect(sessionRender).toContain("<Text style={homeHeroStyle.amount}>{formatKrw(monthlyUsed)}</Text>");
+    expect(sessionRender).toContain("<HomeHeroAmount amountKrw={monthlyUsed} reduceMotionEnabled={reduceMotionEnabled} />");
+    expect(homeSource).toContain("...(theme.typography.amountLarge as TextStyle)");
     // 트랙 coral[200] h8, 채움은 흰색.
     expect(homeSource).toContain("backgroundColor: theme.colors.coral[200]");
     expect(homeSource).toContain('accessibilityRole="progressbar"');
@@ -385,8 +505,64 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     expect(sessionRender).toContain("{budgetProgress.hasBudget ? (");
     expect(sessionRender).toContain('testID="home-set-budget-cta"');
     expect(sessionRender).toContain("onPress={() => router.push(budgetNudge.route)}");
-    // 예산이 있는 달의 사용률 넛지만 접힘 후보다.
-    expect(homeSource).toContain('if (budgetProgress.hasBudget) activeSections.push("budget-nudge");');
+  });
+
+  /**
+   * TOSS-T2 — 히어로·경고 배너가 막다른 길로 끝나지 않는다.
+   *  - 히어로 카드: 눌러서 기록 탭(은퇴한 사용률 넛지 카드의 기능을 이어받았다).
+   *  - 히어로 예산 줄(metaRow)·경고 배너: "예산 조정하기" 액션이 /budget으로 간다 -- 문구가
+   *    권하는 행동("남은 예산을 확인해 보세요")을 할 수 있는 바로 그 화면이다.
+   */
+  it("히어로가 눌리고(기록 탭), 예산 줄·경고 배너에 예산 조정하기 액션이 선다 (TOSS-T2)", () => {
+    expect(sessionRender).toContain('accessibilityHint="두 번 탭하면 이번 달 기록 목록이 열려요"');
+    const heroBlock = sessionRender.slice(
+      sessionRender.indexOf('testID="home-hero-summary"') - 600,
+      sessionRender.indexOf('testID="home-set-budget-cta"')
+    );
+    expect(heroBlock).toContain('onPress={() => router.push("/(tabs)/records")}');
+    expect(sessionRender).toContain('testID="home-hero-budget-adjust"');
+    // 경고 배너의 액션(renderHomeSection은 세션 렌더 표식보다 앞이라 전체 소스에서 잡는다).
+    expect(homeSource).toContain('testID="home-budget-warning-adjust"');
+    const adjustPushes = homeSource.match(/testID="home-(?:hero-budget|budget-warning)-adjust"\s*\n\s*onPress=\{\(\) => router\.push\("\/budget"\)\}/g) ?? [];
+    expect(adjustPushes).toHaveLength(2);
+    expect(homeSource).toContain('const HOME_BUDGET_ADJUST_LABEL = "예산 조정하기";');
+  });
+
+  /**
+   * TOSS-T2 [P0] — 세션 홈에서 프로필(/(tabs)/more)·설정 세계로 가는 입구. 세션 탭바에는
+   * 더보기 탭이 없으므로(DNC-003) 이 버튼이 없으면 로그아웃·알림 설정이 도달 불가가 된다.
+   * 정상 세션 헤더와 에러 화면 둘 다에 선다(홈이 실패해도 설정에는 가야 한다).
+   */
+  it("프로필 진입 버튼이 세션 헤더와 에러 화면에 선다 (TOSS-T2 P0)", () => {
+    expect(homeSource.match(/testID="home-profile-entry"/g) ?? []).toHaveLength(2);
+    expect(sessionRender).toContain('testID="home-profile-entry"');
+    expect(homeSource).toContain('const HOME_PROFILE_ENTRY_LABEL = "프로필";');
+    expect(homeSource).toContain("accessibilityLabel={HOME_PROFILE_ENTRY_LABEL}");
+  });
+
+  it("첫 기록 축하 배너는 스프링 등장·페이드 해제이고 reduce-motion이면 즉시 전환이다 (TOSS-T2)", () => {
+    expect(homeSource).toContain("Animated.spring(celebrationProgress");
+    expect(homeSource).toContain("Animated.timing(celebrationProgress, { duration: motion.fastMs");
+    // reduce-motion: 등장은 즉시 1, 해제는 즉시 스토어 정리.
+    expect(homeSource).toContain("celebrationProgress.setValue(1);");
+    expect(homeSource).toContain("dismissFirstRecordCelebrationNow();");
+    // FIX-A: 모션 훅 묶음은 조기 반환보다 위에 있다(선언이 에러 분기보다 앞).
+    const hooksAt = homeSource.indexOf("const reduceMotionEnabled = useReducedMotion();");
+    const firstEarlyReturnAt = homeSource.indexOf('if (hasSession && homePhase === "error") {');
+    expect(hooksAt).toBeGreaterThan(-1);
+    expect(hooksAt).toBeLessThan(firstEarlyReturnAt);
+  });
+
+  it("FAB가 세션 홈에서 AppScreen floatingAction 슬롯으로 떠 있는다 (TOSS-T2)", () => {
+    expect(homeSource).toContain(
+      "floatingAction={<FloatingActionButton onPress={expenseGate.guard(() => router.push(\"/expenses/new\"))} />}"
+    );
+    // 비세션 미리보기는 종전처럼 콘텐츠 끝의 FAB 그대로다(HOME-001 픽셀락).
+    const previewStart = homeSource.indexOf("// 비세션 프리뷰 렌더(HOME-001 캡처 경로)");
+    const previewEnd = homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)", previewStart);
+    const preview = homeSource.slice(previewStart, previewEnd);
+    expect(preview).toContain('<FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />');
+    expect(preview).not.toContain("floatingAction");
   });
 
   it("최근 기록 행은 파스텔 원 아이콘을 쓰고 부제는 공용 헬퍼가 만든다", () => {

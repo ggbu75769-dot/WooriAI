@@ -71,6 +71,16 @@ import { addDays, daysBetween, isDateOnly } from "./day-math";
 /** 100일은 태어난 날을 1일로 세어 100번째 날 = 생일 + 99일. */
 export const HUNDREDTH_DAY_OFFSET = 99;
 
+/**
+ * TOSS-T2 — **임박 부스트의 창.** 마일스톤까지 이 일수 이하로 남으면 카드가 홈 순위표를
+ * 앞선다(`boosted: true` → planHomeSections의 `boosts`). 근거: 이 카드는 홈에서 유일하게
+ * **날짜가 시한을 정한 카드**인데 순위가 5위라, 정기 지출·페이스 같은 상시 카드 두 장만 서도
+ * "더 보기" 뒤로 접혔다 — D-3의 100일을 접어 두면 그 사실은 지나가 버리고 되돌아오지 않는다.
+ * 7일은 "준비(사진·리포트 확인)를 시작할 만한 가장 짧은 호흡"으로 잡은 값이고, 그 전(D-8 이상)
+ * 에는 종전 순위 그대로다 — 임박하지도 않은 카드가 상시로 1등을 차지하면 부스트의 뜻이 없다.
+ */
+const MILESTONE_BOOST_WINDOW_DAYS = 7;
+
 /** 100일 당일("YYYY-MM-DD"). 생년월일 형식이 아니면 null. */
 export function hundredthDayOf(birthDate: string | null | undefined): string | null {
   if (!isDateOnly(birthDate)) return null;
@@ -89,6 +99,12 @@ export type HomeMilestoneCountdown = {
   title: string;
   /** 카드 부제 — "지금까지 총 지출 1,245,700원"(전 기간 누적, 위 금액 규칙 참고). */
   subtitle: string;
+  /**
+   * TOSS-T2 — 마일스톤이 임박해(D-7 이내) 홈 순위표를 앞서야 하는가. 판정 근거는
+   * `MILESTONE_BOOST_WINDOW_DAYS` 주석에 있고, 화면은 이 값을 `planHomeSections`의 `boosts`로
+   * 그대로 흘린다(임박 계산을 화면이 다시 하지 않는다).
+   */
+  boosted: boolean;
   /**
    * GAP-063 트랙 A — 부제의 금액이 아직 모르는 기록을 밝히는 한 줄. 없으면 null이라 카드는
    * 예전과 한 픽셀도 다르지 않다(위 "대기 고지" 참고).
@@ -204,6 +220,7 @@ export function evaluateMilestoneCountdown(input: HomeMilestoneCountdownInput): 
     daysRemaining,
     title,
     subtitle,
+    boosted: daysRemaining <= MILESTONE_BOOST_WINDOW_DAYS,
     pendingNotice,
     reportMilestone,
     ctaLabel,

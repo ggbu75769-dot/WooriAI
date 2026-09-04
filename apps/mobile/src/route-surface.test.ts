@@ -262,10 +262,13 @@ const SPECIAL_ROUTE_DOORS: ReadonlyArray<{
     file: "(tabs)/more.tsx",
     reason:
       "탭 바에서 빠진 다섯째 파일. `href: null`이 **DNC-003(하단 탭 넷)을 지키는 바로 그 장치**이고, " +
-      "화면 자체는 홈의 퀵액션이 `\"/(tabs)/more\"`로 민다.",
+      "화면 자체는 비세션 홈의 퀵액션과 세션 홈 헤더의 프로필 진입 버튼(TOSS-T2 P0)이 " +
+      "`\"/(tabs)/more\"`로 민다.",
     evidence: [
       ["app/(tabs)/_layout.tsx", "<Tabs.Screen name=\"more\" options={{ href: null }} />"],
-      ["app/(tabs)/index.tsx", "router.push(\"/(tabs)/more\")"]
+      ["app/(tabs)/index.tsx", "router.push(\"/(tabs)/more\")"],
+      // TOSS-T2 [P0]: 세션 진입 버튼의 실재 -- 아래 전용 단언이 세션 렌더 블록 안에서 다시 잰다.
+      ["app/(tabs)/index.tsx", "testID=\"home-profile-entry\""]
     ]
   }
 ];
@@ -517,5 +520,35 @@ describe("GAP-080 #4 라우트 표면 계약 (트랙 D) — 열거·겹침·유�
         expect(readSource(file), `${file}에 ${door.file}의 문이 없다: ${marker}`).toContain(marker);
       }
     }
+  });
+
+  /**
+   * TOSS-T2 [P0] — **세션 홈에서 `/(tabs)/more`(프로필 → 설정 세계)로 가는 문이 실재한다.**
+   *
+   * 위 특수 라우트 표의 종전 증거(`router.push("/(tabs)/more")`)는 **비세션 미리보기의 퀵액션**
+   * 이 물고 있던 문자열이라, 세션 렌더에서 그 문이 사라져도(실제로 사라져 있었다 — 로그인한
+   * 사용자는 더보기·설정·로그아웃 세계 전체에 도달 불가) 이 계약은 초록이었다. 그래서 세션
+   * 렌더 블록(DSN-053 표식 이후)과 에러 분기를 **따로 잘라** 각각에서 문을 다시 잰다 —
+   * 홈이 정상일 때도, 홈 조회가 실패했을 때도 설정으로 가는 길이 있어야 한다.
+   */
+  it("ⓓ TOSS-T2 P0 — 세션 홈 렌더 블록과 에러 분기 각각에 /(tabs)/more 진입 버튼이 실재한다", () => {
+    const homeSource = readSource("app/(tabs)/index.tsx");
+    const sessionStart = homeSource.indexOf("// 세션 홈 렌더(DSN-053 P2-A)");
+    expect(sessionStart, "세션 홈 렌더 표식을 찾지 못했어요").toBeGreaterThan(-1);
+    const sessionRender = homeSource.slice(sessionStart);
+    expect(sessionRender).toContain('testID="home-profile-entry"');
+    expect(sessionRender).toContain('onPress={() => router.push("/(tabs)/more")}');
+
+    const errorStart = homeSource.indexOf('if (hasSession && homePhase === "error") {');
+    const errorEnd = homeSource.indexOf('if (hasSession && homePhase === "loading") {');
+    expect(errorStart, "에러 분기 표식을 찾지 못했어요").toBeGreaterThan(-1);
+    expect(errorEnd).toBeGreaterThan(errorStart);
+    const errorBranch = homeSource.slice(errorStart, errorEnd);
+    expect(errorBranch).toContain('testID="home-profile-entry"');
+    expect(errorBranch).toContain('onPress={() => router.push("/(tabs)/more")}');
+
+    // 이름 통일: 진입 버튼과 그 화면의 세션 제목이 같은 낱말("프로필")이다.
+    expect(homeSource).toContain('const HOME_PROFILE_ENTRY_LABEL = "프로필";');
+    expect(readSource("app/(tabs)/more.tsx")).toContain('{authToken ? "프로필" : "더보기"}');
   });
 });

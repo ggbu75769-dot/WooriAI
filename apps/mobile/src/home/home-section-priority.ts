@@ -27,10 +27,24 @@
  *     마일스톤보다 금전적 결과가 크지만, 리마인더(기록하지 않으면 합계가 어긋나는 *사실*)와
  *     달리 추정이라 그보다는 뒤에 선다. 그래서 기존 4~8위가 한 칸씩 밀린다(라운드 55 트랙 C가
  *     3위를 끼울 때와 같은 종류의, 사용자에게 보이는 변화다).
- *  5. 마일스톤 임박 — 날짜가 정해 놓은 것이라 놓치면 그 시점이 지나간다.
+ *  5. 마일스톤 임박 — 날짜가 정해 놓은 것이라 놓치면 그 시점이 지나간다. ⚠️ TOSS-T2: **시한이
+ *     실제로 임박하면**(D-7 이내) 순위표를 앞선다 — `boosts` 입력으로 화면이 밝힌다. 상시 카드
+ *     (주간 요약·페이스)는 다음 주에도 참이지만, D-3의 100일 카드가 접히면 그 사실은 지나가
+ *     버리고 되돌아오지 않는다.
  *  6. 주간 요약 — 이번 주의 사실. 지나가지는 않지만 호흡이 짧다.
- *  7. 예산 넛지(사용률) — 격려·확인 문구라 늦게 봐도 잃는 것이 없다.
- *  8. 지난달 대비 · 9. 누적 총액 — 리포트 탭이 같은 숫자를 더 자세히 말한다(위임 가능).
+ *  7. 지난달 대비 · 8. 누적 총액 — 리포트 탭이 같은 숫자를 더 자세히 말한다(위임 가능).
+ *
+ * TOSS-T2 — **예산 넛지(사용률) 카드는 은퇴했다.** 예산이 있는 달의 "예산의 N% 사용 중이에요!"
+ * 카드는 히어로(같은 화면 첫 장)가 이미 같은 퍼센트·같은 진행바로 말하는 사실의 반복이었고,
+ * 80% 이상 구간에서는 경고 배너까지 더해 **한 화면이 같은 예산을 세 번** 말했다. 카드가 지녔던
+ * 유일한 기능(눌러서 기록 탭)은 히어로 Pressable이 그대로 이어받는다(app/(tabs)/index.tsx).
+ * 예산 미설정 넛지는 애초에 이 표 밖이다(히어로 안에 산다 — HOME-127). `buildHomeBudgetNudge`
+ * 자체는 그 두 자리(히어로 · 비세션 미리보기)가 계속 쓰므로 은퇴하지 않는다.
+ *
+ * TOSS-T2 — `demotions`: 같은 화면의 **상위 정보가 이미 말하는 사실을 외삽하는 카드**는 펼침
+ * 자리를 차지하지 않는다(접힘으로만 남는다). 오늘의 유일한 소비자는 80~99% 구간의 월말 예상
+ * 카드다 — 경고 배너(사실)가 서 있는 동안 페이스 카드(추정)까지 펼치면 예산 이야기가 두 장을
+ * 차지해 다른 사실 카드가 밀린다. 기능은 지우지 않는다: "더 보기"를 펼치면 예전 그대로 나온다.
  *
  * 이 표에 없는 두 가지:
  *  - **구매 확인 카드**: 순위상으로는 예산 경고 다음이지만, 이 앱에서는 홈 구획이 아니라 전역
@@ -48,11 +62,10 @@ export type HomeSectionId =
   | "budget-pace"
   | "milestone"
   | "weekly-summary"
-  | "budget-nudge"
   | "last-month"
   | "cumulative-total";
 
-/** 낮을수록 먼저 펼친다. 위 헤더의 근거와 1:1로 대응한다. */
+/** 낮을수록 먼저 펼친다. 위 헤더의 근거와 1:1로 대응한다(budget-nudge는 TOSS-T2에서 은퇴). */
 export const HOME_SECTION_RANK: Readonly<Record<HomeSectionId, number>> = {
   "budget-warning": 1,
   "first-run-guide": 2,
@@ -60,10 +73,29 @@ export const HOME_SECTION_RANK: Readonly<Record<HomeSectionId, number>> = {
   "budget-pace": 4,
   milestone: 5,
   "weekly-summary": 6,
-  "budget-nudge": 7,
-  "last-month": 8,
-  "cumulative-total": 9
+  "last-month": 7,
+  "cumulative-total": 8
 };
+
+/**
+ * TOSS-T2 — "더 보기" 예고 문구가 부르는 카드 이름. 접힌 것 중 최상위 한 장의 이름을 밝혀
+ * "무엇이 숨어 있는지"를 버튼이 스스로 말하게 한다. 화면·테스트가 같은 한 벌을 읽도록 여기
+ * 두고, 새 카드가 늘면 타입이 이 표를 빨갛게 만든다.
+ */
+const HOME_SECTION_DISPLAY_NAME: Readonly<Record<HomeSectionId, string>> = {
+  "budget-warning": "예산 경고",
+  "first-run-guide": "시작 안내",
+  "recurring-reminder": "정기 지출",
+  "budget-pace": "월말 예상",
+  milestone: "마일스톤",
+  "weekly-summary": "이번 주 요약",
+  "last-month": "지난달 대비",
+  "cumulative-total": "누적 총액"
+};
+
+export function homeSectionDisplayName(id: HomeSectionId): string {
+  return HOME_SECTION_DISPLAY_NAME[id];
+}
 
 /**
  * 히어로 아래에서 **접지 않고** 펼쳐 두는 카드 수의 상한.
@@ -95,21 +127,48 @@ export type HomeSectionPlanInput = {
   active: readonly HomeSectionId[];
   /** 기본값 HOME_VISIBLE_SECTION_LIMIT. 0이면 전부 접힌다. */
   limit?: number;
+  /**
+   * TOSS-T2 — **시한 임박 카드의 부스트.** 여기 든 id는 순위표보다 앞선다(단, 1위 예산 경고는
+   * 넘지 못한다 — 유효 순위 1.5). 임박 판정은 이 모듈이 하지 않는다 — 마일스톤의 "며칠
+   * 남았는가"는 그 카드의 순수 모듈이 알고(src/home/milestone-countdown.ts의 `boosted`),
+   * 화면은 그 값을 그대로 흘린다.
+   */
+  boosts?: readonly HomeSectionId[];
+  /**
+   * TOSS-T2 — **강등.** 여기 든 id는 펼침 자리를 차지하지 않는다(항상 접힘). 같은 화면의 상위
+   * 정보가 이미 같은 사실을 말할 때 쓴다 — 오늘은 경고 배너 활성 중의 월말 예상 카드 하나다.
+   */
+  demotions?: readonly HomeSectionId[];
 };
 
 /**
  * 활성 카드를 순위대로 줄 세워 "펼침 / 접힘"으로 가른다.
  *
  * 중복 id는 한 번만 센다(같은 카드를 두 자리에서 활성으로 넘겨도 순위가 흔들리지 않게).
+ * 부스트는 순위표를 앞서되 **예산 경고(1위)만은 넘지 못한다** — 경고는 이 화면에서 유일하게
+ * 되돌릴 수 없는 사실이라(80/100% 도달) 시한 임박보다도 먼저 서야 한다. 그래서 부스트의
+ * 유효 순위는 1과 2 사이(1.5)다. 강등은 부스트보다 세다(강등된 카드는 부스트돼도 접힌다 —
+ * 상위 정보의 중복 방지가 시한보다 우선한다는 판단이고, 오늘 두 집합이 겹치는 조합은 없다).
  */
+const BOOSTED_SECTION_RANK = 1.5;
+
 export function planHomeSections(input: HomeSectionPlanInput): HomeSectionPlan {
   const limit = Math.max(0, input.limit ?? HOME_VISIBLE_SECTION_LIMIT);
+  const boosts = new Set(input.boosts ?? []);
+  const demotions = new Set(input.demotions ?? []);
   const unique: HomeSectionId[] = [];
   for (const id of input.active) {
     if (!unique.includes(id)) unique.push(id);
   }
-  const ordered = unique.slice().sort((left, right) => HOME_SECTION_RANK[left] - HOME_SECTION_RANK[right]);
-  const entries = ordered.map((id, index) => ({ id, rank: HOME_SECTION_RANK[id], visible: index < limit }));
+  const effectiveRank = (id: HomeSectionId) =>
+    boosts.has(id) ? Math.min(HOME_SECTION_RANK[id], BOOSTED_SECTION_RANK) : HOME_SECTION_RANK[id];
+  const ordered = unique.slice().sort((left, right) => effectiveRank(left) - effectiveRank(right));
+  let visibleCount = 0;
+  const entries = ordered.map((id) => {
+    const visible = !demotions.has(id) && visibleCount < limit;
+    if (visible) visibleCount += 1;
+    return { id, rank: HOME_SECTION_RANK[id], visible };
+  });
   return {
     visible: entries.filter((entry) => entry.visible).map((entry) => entry.id),
     collapsed: entries.filter((entry) => !entry.visible).map((entry) => entry.id),
@@ -117,9 +176,16 @@ export function planHomeSections(input: HomeSectionPlanInput): HomeSectionPlan {
   };
 }
 
-/** 접힌 카드를 펼치는 버튼 문구. 개수를 밝혀 "무엇이 숨어 있는지"를 감추지 않는다. */
-export function homeMoreSectionsLabel(count: number): string {
-  return `카드 ${count}개 더 보기`;
+/**
+ * 접힌 카드를 펼치는 버튼 문구. 개수를 밝혀 "무엇이 숨어 있는지"를 감추지 않고, TOSS-T2부터는
+ * **접힌 것 중 최상위 카드의 이름**까지 예고한다("지난달 대비 외 2개 더 보기") — 이름 없이
+ * 개수만 말하면 사용자가 눌러 보기 전까지 무엇을 접었는지 알 수 없다. 이름을 모르는 호출부
+ * (레거시 시그니처)는 종전 문구 그대로다.
+ */
+export function homeMoreSectionsLabel(count: number, topName?: string | null): string {
+  if (!topName) return `카드 ${count}개 더 보기`;
+  if (count === 1) return `${topName} 더 보기`;
+  return `${topName} 외 ${count - 1}개 더 보기`;
 }
 
 /** 펼친 뒤 다시 접는 버튼 문구. */
