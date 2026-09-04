@@ -193,9 +193,13 @@ function ReportPeriodArrow({
       disabled={isDisabled}
       hitSlop={4}
       onPress={onPress}
-      style={[
+      // 토스급 T4: 눌리는 동안 눌렸다는 사실이 보인다(press 피드백). 비활성 흐림 리터럴 배열
+      // 합성은 계약이 무는 형태 그대로 보존한다(a11y-contract · design-restore-p2d) — pressed
+      // 항은 그 **뒤**에 서고, disabled Pressable에는 pressed가 애초에 오지 않는다.
+      style={({ pressed }) => [
         reportReferencePeriodArrowButtonStyle,
-        { opacity: isDisabled ? reportReferencePeriodArrowDisabledOpacity : 1 }
+        { opacity: isDisabled ? reportReferencePeriodArrowDisabledOpacity : 1 },
+        pressed && !isDisabled ? reportPressedFeedbackStyle : null
       ]}
     >
       <AppIcon color={glyph.color} name={direction === "left" ? "chevron-left" : "chevron-right"} size={glyph.fontSize} />
@@ -245,7 +249,12 @@ function CategoryTrendChipButton({
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}
-      style={[reportCategoryTrendChipStyle, selected ? reportCategoryTrendChipSelectedStyle : null]}
+      // 토스급 T4: 칩도 눌리는 동안 눌렸다는 사실이 보인다(화살표와 같은 press 피드백 한 벌).
+      style={({ pressed }) => [
+        reportCategoryTrendChipStyle,
+        selected ? reportCategoryTrendChipSelectedStyle : null,
+        pressed ? reportPressedFeedbackStyle : null
+      ]}
     >
       <Text style={selected ? reportCategoryTrendChipSelectedTextStyle : reportCategoryTrendChipTextStyle}>
         {label}
@@ -766,13 +775,20 @@ export default function ReportsScreen() {
   // 같은 문구를 쓴다. 한 화면 안에서 같은 원인의 실패가 서로 다르게 읽히면 안 된다(DNC-018 톤 일관성).
   const loadErrorCopy = useLoadErrorCopy(activeIsError || activeCategory.isError || cumulative.isError);
 
-  // The delta comparison only makes sense against last month while the 월간 tab is active.
-  const hasDeltaData = hasSession && period === "월간" && monthly.isSuccess && previousMonth.isSuccess;
-  const deltaPercent =
-    hasDeltaData && previousMonth.data!.totalExpenseKrw > 0
-      ? Math.round(((monthly.data!.totalExpenseKrw - previousMonth.data!.totalExpenseKrw) / previousMonth.data!.totalExpenseKrw) * 1000) / 10
-      : null;
-  const deltaLabel = !hasSession ? undefined : deltaPercent === null ? null : `${deltaPercent > 0 ? "+" : ""}${deltaPercent}%`;
+  /**
+   * 토스급 T4 — **구형 델타 폴백 은퇴.** 종전에는 previousMonth 응답으로 "+12%"를 화면이 직접
+   * 계산해, 방향 행(trendDirection)·인사이트 비교 문장이 아직 없는 프레임에 카드 내장 델타로
+   * 그렸다. 그 퍼센트는 이 화면에서 비교의 의미(진행 중인 달은 "지금까지 vs 지난달 전체")를
+   * 캡션으로 밝히지 않는 유일한 숫자였다 — 같은 비교를 정직하게 말하는 자리는 방향 행
+   * (trend-direction.ts의 captionText)과 인사이트 문장("지난달 전체보다 …") 둘뿐이고, 그 둘이
+   * 이 화면의 전월 비교를 전담한다. 세션 카드의 내장 델타는 이제 **항상 null**(행 미렌더)이다.
+   *
+   * previousMonth 조회는 그대로다 — 인사이트의 비교 문장이 그 응답을 계속 쓴다(아래
+   * previousMonthTotalKrw 배선). 비세션 REP-001 장식 델타는 이 값과 무관하다: 그 분기의
+   * LineChartCard는 deltaLabel prop을 넘기지 않는 undefined 경로 그대로라 미리보기 "+12.5%"
+   * 장식이 종전과 바이트 단위로 같다(doNotDo — src/ui.tsx LineChartCard 비접촉).
+   */
+  const deltaLabel = null;
 
   const categoryData = activeCategory.data?.categories ?? [];
   // 라운드 52 C-03: `categoryId`를 **버리지 않는다**. 예전에는 여기서 이름만 남겨서, 범례가
@@ -1140,6 +1156,8 @@ export default function ReportsScreen() {
               accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
               hitSlop={8}
               onPress={childSwitch.toggle}
+              // 토스급 T4: 제목이 곧 버튼인 자리 — 눌리는 동안만 흐려져 버튼임이 드러난다.
+              style={({ pressed }) => (pressed ? reportPressedFeedbackStyle : null)}
               testID="reports-child-switch-trigger"
             >
               <Text style={reportReferenceHeaderStyle}>{withChildScopeLabel("리포트", childScopeLabel)}</Text>
@@ -1181,7 +1199,11 @@ export default function ReportsScreen() {
                     hitSlop={8}
                     onPress={() => setMonthJumpOpen((open) => !open)}
                     testID="reports-month-jump-trigger"
-                    style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
+                    // 토스급 T4: press 피드백. 몸값(48dp 세로 가운데)은 종전 그대로다(A11Y 계약).
+                    style={({ pressed }) => [
+                      { alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget },
+                      pressed ? reportPressedFeedbackStyle : null
+                    ]}
                   >
                     <Text style={reportReferencePeriodTextStyle}>{periodLabel}</Text>
                   </Pressable>
@@ -1267,6 +1289,14 @@ export default function ReportsScreen() {
                   카드가 그 위에 끼면 차트 구획이 둘로 갈리고, 캡처에서 peach 카드 두 장이
                   연달아 서는 아래쪽 리듬도 깨진다. 문장 자체는 그대로다(문장 수 상한은
                   src/reports/monthly-insight.ts의 MONTHLY_INSIGHT_MAX_SENTENCES가 진다). */}
+              {/* 토스급 T4: 차트와 그 캡션 줄들이 **한 구획**임을 구조로 말한다(gap: 8 묶음).
+                  종전에는 캡션마다 marginTop: -10으로 화면 gap 18을 당겨 붙였는데, 그 음수
+                  마진은 "이 줄이 위 카드의 것"이라는 사실을 산수로만 담은 접착이었다. 묶음 안
+                  gap 8 = 종전 18 - 10이라 렌더는 픽셀 단위로 같다. */}
+              {/* 카드·캡션 줄의 들여쓰기를 wrapper에 맞춰 옮기지 않은 이유: 이 줄들은
+                  "한 줄도 바뀌지 않았다" 계약이 바이트로 물고 있다(empty-period-card.test.ts).
+                  wrapper가 더한 것은 위아래 두 줄과 gap 8뿐이다. */}
+              <View style={reportCardCaptionGroupStyle}>
               <LineChartCard
                 title="총 지출"
                 value={formatKrw(activeTotal ?? 0)}
@@ -1274,6 +1304,7 @@ export default function ReportsScreen() {
                 // 않고, 비교 의미(진행 중 / 끝난 달)를 밝힌 아래 행만 남긴다.
                 // 라운드 34 L1: 방향 행을 접은 달(인사이트가 이미 비교를 말했다)에도 델타를 되살리지
                 // 않는다 -- 되살리면 접은 이유였던 중복이 카드 안으로 옮겨 갈 뿐이다.
+                // 토스급 T4: deltaLabel은 이제 상수 null이다(구형 델타 폴백 은퇴 — 위 주석).
                 deltaLabel={trendDirection || insightSpokeComparison ? null : deltaLabel}
                 // 라운드 52 QA P2-3: 그릴 점이 모자라면 **점을 넘기지 않는다**. 넘기면 카드가
                 // 장식용 고정 좌표로 폴백해, 점 하나뿐인 기간(1월의 연간·분기 첫 달)에 그럴듯한
@@ -1284,6 +1315,17 @@ export default function ReportsScreen() {
                 // 이미 비워 두므로, 카드는 그때 종전과 똑같이 그린다(축 0건).
                 pointLabels={trendPointLabels}
               />
+
+              {/* 토스급 T4: 진행 중인 달의 근거 줄("9월 1일~4일 기준"). 이 금액이 한 달치가
+                  아니라는 사실은 지금까지 공유 문구에만 실렸고(F-5), 화면의 숫자는 말없이
+                  부분 합계였다. 줄의 유일한 소스는 인사이트다(monthly-insight.ts
+                  partialRangeLine — 공유 조립기와 같은 소스라 화면과 보낸 문구가 갈릴 수
+                  없다). 끝난 달·분기·연간·비세션에서는 null이라 한 줄도 늘지 않는다. */}
+              {monthlyInsight?.partialRangeLine ? (
+                <Text style={reportPartialRangeLineStyle} testID="reports-partial-range-line">
+                  {monthlyInsight.partialRangeLine}
+                </Text>
+              ) : null}
 
               {/* C-02: 분기·연간 차트가 **어느 달까지**를 그린 것인지 한 줄로 말한다. 잘라 낸
                   기간에는 "1~8월 기준", 아직 두 달이 쌓이지 않아 LineChartCard가 장식선으로
@@ -1323,6 +1365,7 @@ export default function ReportsScreen() {
                   {completedMonthBudgetLine}
                 </Text>
               ) : null}
+              </View>
 
               {activeCategory.isLoading ? (
                 <SkeletonCard />
@@ -1353,6 +1396,10 @@ export default function ReportsScreen() {
                 // 월간/분기/연간 모두 categoryPeriod로 해당 기간만 집계한 비중을 보여준다 (REP-104).
                 // C-03: 범례 줄이 곧 기록 탭 입구다. 조각이 들고 온 categoryId를 그대로 쓴다.
                 <>
+                  {/* 토스급 T4: 도넛과 그 안내 줄도 같은 gap: 8 묶음이다(위 차트 묶음과 같은
+                      구조 정리 — 음수 마진 접착 제거, 렌더 픽셀 동일). 안쪽 들여쓰기를 옮기지
+                      않은 이유도 같다(바이트 계약). */}
+                  <View style={reportCardCaptionGroupStyle}>
                   <DonutChartCard
                     title={categoryCardTitle}
                     segments={categorySegments}
@@ -1364,6 +1411,7 @@ export default function ReportsScreen() {
                       {drilldownNote}
                     </Text>
                   ) : null}
+                  </View>
 
                   {/* 기능 라운드 1 트랙 C: 카테고리 월 추이. 칩 모집단이 곧 게이트다 —
                       trendChips는 월간 탭 + 비중 조회 성공에서만 채워지므로(위 배선 주석)
@@ -1638,12 +1686,26 @@ const reportInsightHeadlineStyle = reportReferenceTipTitleStyle;
 
 const reportInsightDetailStyle = reportReferenceTipBodyStyle;
 
-// 추이 차트 바로 아래에 붙는 전월 대비 방향 행(카드 밖, 화면 gap 18을 -10으로 당겨 차트에 붙인다).
+// 토스급 T4: 카드와 그 캡션 줄들을 한 구획으로 묶는다. 묶음 안 gap 8 = 종전 "화면 gap 18을
+// marginTop -10으로 당긴" 그 값이라 렌더는 픽셀 단위로 같고, 접착이 산수가 아니라 구조가 된다.
+const reportCardCaptionGroupStyle = { gap: 8 } as const;
+
+// 토스급 T4: 이 화면 인라인 Pressable들의 press 피드백 한 벌(앱 관례의 0.76 — 새 색 리터럴 0건).
+const reportPressedFeedbackStyle = { opacity: 0.76 } as const;
+
+// 토스급 T4: 진행 중인 달의 "9월 1일~4일 기준" 근거 줄 — 방향 행·예산 줄과 같은 12/18 gray600 캡션.
+const reportPartialRangeLineStyle = {
+  color: theme.colors.gray600,
+  fontSize: 12,
+  lineHeight: 18,
+  paddingHorizontal: 6
+} as const;
+
+// 추이 차트 바로 아래에 붙는 전월 대비 방향 행(카드 밖 — 간격은 위 gap: 8 묶음이 진다).
 const reportTrendDirectionRowStyle = {
   alignItems: "center",
   flexDirection: "row",
   gap: 6,
-  marginTop: -10,
   paddingHorizontal: 6
 } as const;
 
@@ -1654,22 +1716,20 @@ const reportTrendDirectionCaptionStyle = {
 } as const;
 
 // GAP-066 트랙 A(#1): "총 지출" 카드 아래 끝난 달의 예산 결과 한 줄. 방향 행·드릴다운 안내와
-// 같은 12/18 gray600 캡션 토큰이고, 같은 관례로 카드에 붙인다(화면 gap 18을 -10으로 당긴다).
+// 같은 12/18 gray600 캡션 토큰이고, 카드와의 간격은 gap: 8 묶음이 진다(토스급 T4).
 const reportCompletedMonthBudgetStyle = {
   color: theme.colors.gray600,
   fontSize: 12,
   lineHeight: 18,
-  marginTop: -10,
   paddingHorizontal: 6
 } as const;
 
 // C-03: 도넛 카드 바로 아래 "카테고리를 누르면 8월 기록을 보여드려요" 한 줄(분기·연간 전용).
-// 방향 행과 같은 관례로 카드에 붙인다(화면 gap 18을 -10으로 당긴다).
+// 방향 행과 같은 관례 — 카드와의 간격은 gap: 8 묶음이 진다(토스급 T4).
 const reportCategoryDrilldownNoteStyle = {
   color: theme.colors.gray600,
   fontSize: 12,
   lineHeight: 18,
-  marginTop: -10,
   paddingHorizontal: 6
 } as const;
 

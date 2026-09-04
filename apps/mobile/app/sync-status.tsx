@@ -41,6 +41,8 @@ import {
 } from "../src/offline/permission-denied";
 import { isDiscardablePendingRow } from "../src/offline/pending-row-actions";
 import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";
+// 토스급 T4: 지출 행의 날짜 표기는 기록 탭·홈 행과 같은 단일 소스("8월 4일")다.
+import { formatSpentOn } from "../src/expenses/records-list-view";
 import { useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
 // 라운드 71 트랙 E: 잠긴 세션의 머리말 문장은 화면이 짓지 않는다(단일 소스는 순수 모듈이다).
 import { VIEW_ONLY_HEADLINES } from "../src/family/record-permissions";
@@ -103,6 +105,12 @@ function SyncRow({ row, children }: { row: LocalExpenseRow; children?: React.Rea
         <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{row.payload.itemName}</Text>
         <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{formatKrw(row.payload.amountKrw)}</Text>
       </View>
+      {/* 토스급 T4: 어느 날의 기록인지(spentOn). 같은 품목명이 여러 건 대기 중이면 이 줄 없이는
+          무엇을 재시도/버리는지 행끼리 구별할 길이 없었다. 표기는 기록 탭·홈 행과 같은
+          formatSpentOn 하나다 — 읽을 수 없는 값은 그 함수가 원본을 그대로 돌려준다. */}
+      {row.payload.spentOn ? (
+        <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{formatSpentOn(row.payload.spentOn)}</Text>
+      ) : null}
       {row.lastError ? <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{row.lastError}</Text> : null}
       {children}
     </Card>
@@ -178,8 +186,10 @@ function ConflictFieldPicker({
           </View>
         </View>
       ))}
+      {/* 토스급 T4: "이 조합으로 저장" → "고른 값으로 저장" — 위 필드 선택 UI가 시키는 일
+          (칸마다 값을 고른다)을 버튼이 같은 말로 잇는다. "조합"은 UI 어디에도 없는 단어였다. */}
       <SecondaryButton
-        label="이 조합으로 저장"
+        label="고른 값으로 저장"
         onPress={() => {
           const merged: ExpensePayload = { ...local };
           for (const entry of diff) {
