@@ -92,6 +92,9 @@ import {
 import { useImportResumeStore } from "../../src/stores/import-resume.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
+// 라운드 96 T8: 로딩은 텍스트 카드("불러오는 중이에요...")가 아니라 실루엣이다 — 홈·기록·가족과
+// 같은 공용 프리셋 한 벌(낭독 라벨 "불러오는 중"은 프리셋이 이미 지닌다).
+import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import {
   announceForA11y,
   Card,
@@ -112,13 +115,21 @@ const selectedRowIds = (rows: ImportRow[]) => confirmableSelectedRowIds(rows);
 
 type ImportRowsResponse = { rows: ImportRow[] };
 
+/**
+ * 라운드 96 T8: 잡 상태 배지의 문형을 **압축 명사형 한 벌**로 통일한다. 종전에는 여섯 값이
+ * 세 문형("업로드 완료 · 분석 대기 중" 복합형 · "~중이에요/~했어요" 해요체 · "가져오기 완료"
+ * 명사형)으로 섞여 있었다 — 배지는 문장이 아니라 상태 표라, 같은 표 안에서 문형이 갈리면
+ * 사용자가 없는 의미 차이를 찾게 된다. 톤과 상태 의미는 한 값도 바뀌지 않는다(문구만 압축).
+ * 문장이 필요한 상태(실패 사유·다음 할 일)는 배지가 아니라 본문 문장이 말한다 — 그 자리들은
+ * 그대로다.
+ */
 const statusCopy: Record<ImportJob["status"], { label: string; tone: "neutral" | "success" | "warning" }> = {
-  uploaded: { label: "업로드 완료 · 분석 대기 중", tone: "neutral" },
-  analyzing: { label: "분석 진행 중이에요", tone: "warning" },
-  preview_ready: { label: "검수 대기 중이에요", tone: "warning" },
+  uploaded: { label: "분석 대기", tone: "neutral" },
+  analyzing: { label: "분석 중", tone: "warning" },
+  preview_ready: { label: "확인 대기", tone: "warning" },
   confirmed: { label: "가져오기 완료", tone: "success" },
-  failed: { label: "분석에 실패했어요", tone: "warning" },
-  cancelled: { label: "가져오기가 취소됐어요", tone: "neutral" }
+  failed: { label: "분석 실패", tone: "warning" },
+  cancelled: { label: "취소됨", tone: "neutral" }
 };
 
 // UX-S: 이 화면의 스크롤러는 FlatList 자체다(아래 주석 참고) -- 웹에서 스크롤바만 감추는
@@ -425,7 +436,9 @@ function CompletionSummaryCard({
         <Text style={summaryValueStyle}>{summary.skippedCount}건</Text>
       </View>
       {landingNotice ? <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{landingNotice}</Text> : null}
-      <PrimaryButton label="가계부에서 확인하기" onPress={onDone} />
+      {/* 라운드 96 T8: 종전 라벨 "가계부에서 확인하기"의 "가계부"는 이 앱 어디에도 없는 이름이다
+          (탭 이름은 "기록"이다) — 버튼이 데려가는 곳을 앱이 실제로 쓰는 이름으로 말한다. */}
+      <PrimaryButton label="기록 탭에서 확인하기" onPress={onDone} />
     </Card>
   );
 }
@@ -741,7 +754,8 @@ export default function ImportPreviewScreen() {
    * 라운드 51 C-#11 — 가져온 기록이 **실제로 있는 달**로 내려놓는다.
    *
    * 종전에는 언제나 `router.replace("/(tabs)/records")`라 이번 달이 열렸다. 가져오기의
-   * 절대다수는 지난 몇 달치 가계부라, 128건을 확정하고 "가계부에서 확인하기"를 누른 사용자가
+   * 절대다수는 지난 몇 달치 가계부라, 128건을 확정하고 "기록 탭에서 확인하기"(라운드 96 T8 전
+   * 이름은 "가계부에서 확인하기")를 누른 사용자가
    * 곧바로 빈 목록을 보는 일이 흔했다("가져왔는데 안 보여요").
    *
    * 대표 월을 모르면(날짜를 하나도 못 읽은 파일, 새로고침 후 이미 confirmed 상태로 들어온 화면)
@@ -1053,11 +1067,8 @@ export default function ImportPreviewScreen() {
         onBack={() => router.back()}
       />
 
-      {job.isLoading ? (
-        <Card>
-          <Text style={mutedTextStyle}>불러오는 중이에요...</Text>
-        </Card>
-      ) : null}
+      {/* 라운드 96 T8: 잡 상태 카드 자리의 로딩 — 텍스트 카드 대신 카드 실루엣(공용 프리셋). */}
+      {job.isLoading ? <SkeletonCard /> : null}
 
       {job.isError ? (
         <Card style={{ gap: 10 }}>
@@ -1143,10 +1154,15 @@ export default function ImportPreviewScreen() {
         </View>
       ) : null}
 
+      {/* 라운드 96 T8: 행 목록 자리의 로딩 — 뒤이어 설 것이 목록이므로 줄 실루엣 셋(기록 탭·
+          가족 화면과 같은 관례). 낭독 라벨("불러오는 중")은 프리셋이 지니므로 한국어 텍스트
+          로딩 줄은 이 화면에서 사라졌다. */}
       {rows.isLoading ? (
-        <Card>
-          <Text style={mutedTextStyle}>미리보기를 불러오는 중이에요...</Text>
-        </Card>
+        <View>
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </View>
       ) : null}
 
       {rows.isError ? (
@@ -1237,7 +1253,7 @@ export default function ImportPreviewScreen() {
           그 상태로 확정하면 그 행들이 본문에서 빠진 채 잡이 confirmed로 넘어가 영영 가져올 수
           없다(IMPORT_NOT_EDITABLE). 버튼이 왜 잠겼는지는 아래 한 줄이 말한다. */}
       <PrimaryButton
-        label={confirm.isPending ? "가져오는 중..." : "선택한 항목 가져오기"}
+        label={confirm.isPending ? "가져오는 중" : "선택한 항목 가져오기"}
         disabled={!canConfirm}
         onPress={expenseGate.guard(() => confirm.mutate())}
       />
