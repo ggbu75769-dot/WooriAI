@@ -170,7 +170,16 @@ export function useHomeNotificationEvaluation(
    * `/home` 캐시로 그리는 콜드 스타트). 화면이 그 사실을 지키므로(app/(tabs)/index.tsx — 게이트의
    * 달을 `home.data?.monthly.yearMonth`에서 뽑는다) 여기서는 값만 흘린다.
    */
-  hasRecoverablePendingMonthRecords: boolean
+  hasRecoverablePendingMonthRecords: boolean,
+  /**
+   * 트랙 T-F(D-7 예고): 선택된 아이의 단계 입력 셋(`stageMode`·`dueDate`·`birthDate`) — 홈이
+   * 이미 구독 중인 `["children"]` 캐시의 그 행이다(새 요청·새 구독 0건, 이 훅의 다른 입력과
+   * 같은 태도). 판정·키·문구는 순수 모듈(stage-preview-d7.ts)이 지고, 여기서는 값만 흘린다.
+   * `null`(행 미도착·비세션)이면 이 알림만 만들어지지 않고 나머지 평가는 종전과 같다.
+   * ⚠️ 참조 안정성: 호출부는 캐시 배열의 **행 그대로**를 넘긴다(`find` 결과 — 새 데이터 전까지
+   * 참조 안정). 렌더마다 새 객체 리터럴을 만들면 아래 effect가 매번 다시 돈다(weekly와 같은 주의).
+   */
+  stagePreviewSource: { stageMode: unknown; dueDate?: unknown; birthDate?: unknown } | null
 ) {
   useEffect(() => {
     if (!home) return;
@@ -211,7 +220,9 @@ export function useHomeNotificationEvaluation(
         hasRecoverablePendingMonthRecords,
         // GAP-066 #8: 홈이 이미 받아 둔 지난달 캐시. 없으면 지난달 정리만 만들어지지 않고
         // (키를 태우지 않는다) 나머지 평가는 종전과 한 글자도 다르지 않다.
-        lastMonthRecords
+        lastMonthRecords,
+        // 트랙 T-F: D-7 예고의 단계 입력. 서울 오늘은 generators가 같은 `now`에서 뽑는다.
+        stagePreviewSource
       });
       store.ingest(candidates, nowMs);
       store.recordSeenStage(home.child.id, home.child.stageLabel);
@@ -255,6 +266,7 @@ export function useHomeNotificationEvaluation(
     pendingRecordRows,
     lastMonthYearMonth,
     lastMonthExpenses,
-    hasRecoverablePendingMonthRecords
+    hasRecoverablePendingMonthRecords,
+    stagePreviewSource
   ]);
 }
