@@ -611,6 +611,87 @@ describe("Family invites and household RBAC", () => {
     expect(after.status).toBe("accepted");
   });
 
+  /**
+   * 라운드 99 L-2 회귀. acceptInvite의 existingMember 조회는 트랜잭션 **밖**이라, 같은 사용자가
+   * **서로 다른 초대 두 장**을 동시에 수락하면 두 요청 모두 "구성원 아님"을 읽고 둘 다 member
+   * create 분기로 들어간다. 초대 CAS는 초대별로 서로 다른 행이라 이 경합을 거르지 못하고
+   * (단일 초대 이중 수락과 다른 축이다 — 그쪽은 CAS가 INVITE_NOT_PENDING으로 거른다), 진 쪽은
+   * (householdId, userId) 유니크 P2002가 처리되지 않은 채 500으로 샜다. 상태는 정합했다 —
+   * 트랜잭션 롤백으로 진 쪽 초대는 pending에 남는다 — 틀린 것은 표면뿐이므로, 이제 그 P2002는
+   * 순차 재수락이 받는 기존 매핑(409 HOUSEHOLD_ALREADY_MEMBER)으로 돌아간다.
+   *
+   * 인터리빙은 FIX-121A(F5)와 같은 관례로 결정적으로 만든다: 바깥 수락(초대 A)의 멤버십 읽기가
+   * "구성원 아님"을 돌려준 직후, 초대 B의 수락을 실제 서비스로 **끝까지** 커밋시킨다.
+   */
+  it("라운드 99 L-2: 서로 다른 초대 두 장의 동시 수락은 500이 아니라 409 HOUSEHOLD_ALREADY_MEMBER다", async () => {
+    const ownerToken = await login(app, "r99-race-owner");
+    const { householdId } = await completeOwnerOnboarding(app, ownerToken);
+    const inviteeToken = await login(app, "r99-race-invitee");
+    const inviteeUserId = await userIdFor(app, inviteeToken);
+
+    const createInvite = async () =>
+      tokenFromInviteUrl(
+        (
+          await request(app.getHttpServer())
+            .post(`/api/v1/households/${householdId}/invites`)
+            .set("Authorization", `Bearer ${ownerToken}`)
+            .send({ role: "co_parent", channel: "link" })
+            .expect(200)
+        ).body.inviteUrl
+      );
+    const inviteTokenA = await createInvite();
+    const inviteTokenB = await createInvite();
+
+    const prisma = app.get(PrismaService);
+    const runtime = app.get(HouseholdRuntimeService);
+    const invitee = await runtime.enrichUser({
+      id: inviteeUserId,
+      displayName: "invitee",
+      email: null,
+      status: "active",
+      households: []
+    });
+
+    // FIX-121A의 대역과 같은 통과(pass-through) 원칙 — 서비스가 실제로 쓰는 delegate만 옮겨
+    // 담고, 멤버십 읽기 직후 한 번만 경합을 일으킨다. $transaction은 실 prisma에 그대로 위임해
+    // 트랜잭션 안 동작(CAS·create·롤백)이 전부 실 DB에서 일어난다.
+    let alreadyRaced = false;
+    const racingPrisma = {
+      household: prisma.household,
+      householdInvite: prisma.householdInvite,
+      householdMember: {
+        findUnique: async (args: never) => {
+          const result = await prisma.householdMember.findUnique(args as never);
+          if (!alreadyRaced) {
+            alreadyRaced = true;
+            await runtime.acceptInvite(invitee, inviteTokenB);
+          }
+          return result;
+        }
+      },
+      $transaction: (fn: never) => prisma.$transaction(fn)
+    } as unknown as PrismaService;
+    const racingRuntime = new HouseholdRuntimeService(racingPrisma);
+
+    const caught = await racingRuntime.acceptInvite(invitee, inviteTokenA).then(
+      () => null,
+      (error: unknown) => error
+    );
+    expect(caught).toBeInstanceOf(HttpException);
+    expect((caught as HttpException).getStatus()).toBe(409);
+    expect((caught as HttpException).getResponse()).toMatchObject({ code: "HOUSEHOLD_ALREADY_MEMBER" });
+
+    // 상태는 정합: 멤버십은 한 줄(초대 B의 커밋)이고, 진 쪽 초대 A는 롤백으로 pending에 남으며,
+    // 초대 B만 수락으로 남는다.
+    const memberships = await prisma.householdMember.findMany({ where: { householdId, userId: inviteeUserId } });
+    expect(memberships).toHaveLength(1);
+    expect(memberships[0].status).toBe("active");
+    expect((await inviteRowFor(prisma, inviteTokenA)).status).toBe("pending");
+    const inviteB = await inviteRowFor(prisma, inviteTokenB);
+    expect(inviteB.status).toBe("accepted");
+    expect(inviteB.acceptedByUserId).toBe(inviteeUserId);
+  });
+
   it("lets an owner force-remove a member; blocks non-owners and self-removal, and revokes access", async () => {
     const ownerToken = await login(app, "batch08-remove-owner");
     const { householdId, childId } = await completeOwnerOnboarding(app, ownerToken);

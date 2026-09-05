@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
+import { useAnalyticsConsentStore } from "../analytics/flag";
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
 import { useFirstRecordCelebrationStore } from "../home/first-record-celebration";
 import { useHomeFirstRunGuideStore } from "../home/first-run-guide.store";
@@ -103,6 +104,9 @@ async function seedUserScopedState(store: OfflineStore): Promise<void> {
     createdAt: "2026-08-28T00:00:00.000Z"
   });
   await useAppLockStore.getState().enableLock("1234");
+  // 라운드 99 M-1: 통계 수집 동의는 사용자 단위 선택이다 -- A가 켠 동의가 B의 세션으로 넘어가면
+  // 로그인 화면 체크박스가 미리 켜진 채 B의 토큰으로 커밋된다.
+  useAnalyticsConsentStore.getState().setEnabled(true);
 }
 
 async function expectStoreFullyEmpty(store: OfflineStore): Promise<void> {
@@ -133,6 +137,8 @@ beforeEach(async () => {
   useRecurringExpenseStore.getState().resetAll();
   useImportResumeStore.getState().resetAll();
   await useAppLockStore.getState().resetAll();
+  // 라운드 99 M-1: 동의 플래그도 테스트 사이에 초기화한다(남기면 다음 테스트의 사전 조건이 달라진다).
+  useAnalyticsConsentStore.getState().reset();
 });
 
 // ---------------------------------------------------------------------------
@@ -624,6 +630,31 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
     // 이미 닫은 준비템 안내가 다시 뜨고, 첫 기록 축하가 한 번 더 뜬다.
     expect(useHomeFirstRunGuideStore.getState().dismissedItemsGuideChildIds).toEqual(["child-1"]);
     expect(useFirstRecordCelebrationStore.getState().celebratedChildIds).toEqual({ "child-1": true });
+    // 라운드 99 M-1: 같은 사람의 동의도 그대로다 -- 토큰 갱신이 동의를 철회하면 안 된다.
+    expect(useAnalyticsConsentStore.getState().enabled).toBe(true);
+  });
+
+  /**
+   * 라운드 99 M-1 — 통계 수집 동의(ANA-102)가 계정 경계를 넘지 않는다.
+   *
+   * 유출 경로는 로그인 화면에 있다(app/(auth)/login.tsx 125-143): 동의 체크박스는 사용자가
+   * 손대기 전까지 이 스토어의 현재 값을 따르므로(storedAnalyticsEnabled), A가 켠 값이 남아
+   * 있으면 B의 체크박스가 미리 켜진 채 로그인 한 번에 B의 토큰으로 커밋된다. **로그인 화면은
+   * 고치지 않는다**: teardown이 여기서 지우면 그 폴백은 미동의 기본(OFF)으로 서고, 그 폴백
+   * 자체는 옳은 동작이다(같은 사용자의 재로그인이 자기 동의를 유지하는 근거 — 그 화면의
+   * ANA-104 주석). 만료(expired)는 정체성이 그대로라 teardown이 발화하지 않으므로 같은
+   * 사람의 동의를 빼앗지도 않는다(위 토큰 갱신 테스트).
+   */
+  it("라운드 99 M-1: 계정 전환·로그아웃·데모 전환에서 통계 수집 동의가 미동의(OFF)로 돌아간다", async () => {
+    for (const next of [userB, loggedOut, demoSession]) {
+      const store = createMemoryOfflineStore();
+      await seedUserScopedState(store);
+      expect(useAnalyticsConsentStore.getState().enabled).toBe(true);
+
+      await simulateSessionTransition(store, userA, next);
+
+      expect(useAnalyticsConsentStore.getState().enabled).toBe(false);
+    }
   });
 
   it("라운드 35 F5: 홈 첫 실행 상태 두 스토어도 정체성 변경 때 함께 초기화된다 (NOTI-102 관례)", async () => {

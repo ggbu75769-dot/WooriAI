@@ -19,7 +19,9 @@ import {
 } from "./offline-aware-screens";
 import {
   CONFLICT_BANNER_MESSAGE,
+  failedRowDeletedChildNotice,
   FAILED_ROW_OTHER_CHILD_NOTICE,
+  SYNC_STATUS_DISCARD_LABEL,
   FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE,
   FAILED_ROW_PREFILL_DATE_RESET_NOTICE,
   SYNC_STATUS_FIX_AND_RESEND_LABEL,
@@ -1876,5 +1878,42 @@ describe("라운드 69 A(#1) 로그아웃이 지우는 세 번째 목록", () =>
     expect(source("app/sync-status.tsx")).toContain(
       'import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";'
     );
+  });
+});
+
+/**
+ * 라운드 99 L-1 — 삭제된 아이의 실패 행에서 "그 아이를 선택하면 …"은 지킬 수 없는 안내다.
+ * 아이 삭제 뒤처리는 이 큐를 건드리지 않으므로(app/settings/privacy.tsx childDelete.onSuccess는
+ * 아이 단위 스토어 셋과 초안만 지운다) 그 행은 남고, 종전 문장은 아이 관리 어디에도 없는 아이를
+ * 고르라고 말했다.
+ */
+describe("라운드 99 L-1 삭제된 아이의 실패 행 — 지킬 수 없는 안내를 참 문장으로", () => {
+  const source = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
+
+  it("문장이 사실(삭제됐다)과 남은 행동(그 행의 버리기 버튼)을 그 버튼의 라벨 그대로 말한다", () => {
+    expect(failedRowDeletedChildNotice()).toBe("이 아이의 프로필은 삭제됐어요. 이 기록은 [삭제]로 정리할 수 있어요.");
+    // 인용하는 라벨은 그 행에 실제로 남는 유일한 버튼의 것이다 — 라벨이 바뀌면 문장도 따라간다.
+    expect(failedRowDeletedChildNotice()).toContain(`[${SYNC_STATUS_DISCARD_LABEL}]`);
+    // 지킬 수 없는 약속을 하지 않는다: 존재하지 않는 아이를 고르라고 말하지 않는다.
+    expect(failedRowDeletedChildNotice()).not.toContain("선택하면");
+    // 해요체(DNC-018).
+    expect(failedRowDeletedChildNotice().endsWith("요.")).toBe(true);
+  });
+
+  it("화면은 ['children'] 캐시가 실제로 로드됐을 때만 판정하고(모름=null이면 종전 문장), 행을 자동 삭제하지 않는다", () => {
+    const src = source("app/sync-status.tsx");
+    // ["categories"]와 같은 규율: 요청 없이 캐시를 구독만 한다(이 화면에서 새 요청 0건).
+    const childrenSubscription = src.slice(src.indexOf('queryKey: ["children"]'));
+    expect(childrenSubscription).toMatch(/enabled:\s*false,\s*\n\s*queryFn:\s*skipToken/);
+    // null = 모름(캐시 미로드) — 그때는 삭제됐다고 지어내지 않는다.
+    expect(src).toContain("() => cachedChildren?.children.map((child) => child.id) ?? null");
+    expect(src).toContain("const rowChildDeleted = knownChildIds !== null && !knownChildIds.includes(rowChildId);");
+    // 종전 안내가 서던 그 자리에서만 문장이 갈린다(자리·버리기 버튼 불변 — 과한 자동 정리 금지).
+    expect(src).toContain("rowChildDeleted ? (");
+    expect(src).toContain("{failedRowDeletedChildNotice()}");
+    expect(src).toContain("{FAILED_ROW_OTHER_CHILD_NOTICE}");
+    // 문구를 화면이 다시 적지 않는다(주석은 설명해도 된다 — 코드만 본다).
+    const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+    expect(codeOnly).not.toContain("프로필은 삭제됐어요");
   });
 });

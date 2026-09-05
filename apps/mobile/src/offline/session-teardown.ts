@@ -1,3 +1,4 @@
+import { useAnalyticsConsentStore } from "../analytics/flag";
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
 import { useFirstRecordCelebrationStore } from "../home/first-record-celebration";
 import { useHomeFirstRunGuideStore } from "../home/first-run-guide.store";
@@ -202,8 +203,10 @@ export type SessionTeardownContext = {
  *      never be delayed (or failed) by it. Kicked off before the awaits below so it uses the
  *      token while it is still valid;
  *   1. user-scoped zustand store resets (purchase-followup, notifications, since round 35's F5 the
- *      two home first-run stores, and since 라운드 55 트랙 C the recurring-expense templates and
- *      the app-lock record) — synchronous sets, effective immediately. The app-lock reset also
+ *      two home first-run stores, since 라운드 55 트랙 C the recurring-expense templates and
+ *      the app-lock record, and since 라운드 99 M-1 the analytics consent flag — the consent is a
+ *      per-USER choice, unlike the deliberately-kept per-device notification-preferences /
+ *      records-view stores) — synchronous sets, effective immediately. The app-lock reset also
  *      returns a promise for its SecureStore key deletion, awaited at the end (§2.8: leaving A's
  *      PIN behind bricks B — locked out with logout as the only exit, which locks them out again);
  *   2. `wipeOfflineStore` STARTED (not yet awaited) — this must come before any `await` in this
@@ -261,6 +264,13 @@ export async function teardownOfflineSessionState(
   // 명백한 계정 데이터라 같은 자격으로 든다. 대조군 records-view(리스트/달력 선택)는
   // 기기 단위 선택이라 notification-preferences와 같은 범주로 일부러 빠져 있다.
   useImportResumeStore.getState().resetAll();
+  // 라운드 99 M-1: 통계 수집 동의(ANA-102)는 **그 사람이 준 동의**라 사용자 단위다 --
+  // notification-preferences("이 기기에서 어떤 알림을 볼까")·records-view(리스트/달력 선택)의
+  // 기기 단위 범주와 갈린다. 지우지 않으면 로그인 화면의 동의 체크박스가 A의 값으로 미리 켜져
+  // (app/(auth)/login.tsx의 storedAnalyticsEnabled 폴백), 무접촉 로그인 한 번에 A의 동의가
+  // B의 토큰으로 커밋된다. 초기화 결과는 미동의 기본(OFF)이라 B는 스스로 켜기 전까지
+  // 아무 이벤트도 내보내지 않는다(ANA-101 opt-in).
+  useAnalyticsConsentStore.getState().reset();
   // 라운드 55 트랙 C(설계 §2.8) — **브릭 방지**. 앱 잠금 PIN이 정체성 변경에서 지워지지 않으면
   // A 로그아웃 → B 로그인 → B가 A의 PIN 화면에 갇히고, 탈출구는 로그아웃뿐이라 무한 루프가 된다.
   // 런타임 상태는 동기로 비고, SecureStore 키 삭제만 Promise다 -- 이 함수는 이미 async이므로
