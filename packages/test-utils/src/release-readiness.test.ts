@@ -27,11 +27,11 @@ describe("Batch 11 release readiness artifacts", () => {
       "test:e2e",
       "pnpm build",
       "pnpm peers check",
-      "pnpm.cmd",
       "docs/qa/evidence/latest-release-gate.md"
     ]) {
       expect(releaseGate).toContain(requiredText);
     }
+    expect(read("scripts/lib/release-gate-runner.ts")).toContain("pnpm.cmd");
   });
 
   it("exposes UI Pixel Lock automation scripts and output contracts", () => {

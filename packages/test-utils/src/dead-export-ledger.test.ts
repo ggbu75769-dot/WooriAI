@@ -1425,3 +1425,18 @@ describe("교란 — 사문이 하나 늘면 실제로 빨개진다", () => {
     }
   });
 });
+
+describe("reference index freshness", () => {
+  it("preserves identifier boundaries and rereads changed contents under the same file name", () => {
+    const item: ExportedFunction = { ...population[0], id: "fixture.ts:$helper", file: "fixture.ts", name: "$helper", line: 1 };
+    const sources = new Map([["fixture.ts", "export function $helper() {}\n// $helper\n$helper();\nother$helper();\n"]]);
+    expect(findProductReferences(item, sources)).toEqual([{ file: "fixture.ts", line: 3 }]);
+    expect(findRawProductReferences(item, sources)).toEqual([
+      { file: "fixture.ts", line: 2 }, { file: "fixture.ts", line: 3 }
+    ]);
+    sources.set("fixture.ts", "// removed\nother$helper();");
+    expect(findProductReferences(item, sources)).toEqual([]);
+    sources.set("fixture.ts", "// moved\n\n\n$helper();");
+    expect(findProductReferences(item, sources)).toEqual([{ file: "fixture.ts", line: 4 }]);
+  });
+});

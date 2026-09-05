@@ -327,9 +327,11 @@ describe.skipIf(!dbAvailable)("R24-M3 expense list keyset index (migration 00001
     return rows[0]?.indexdef;
   }
 
-  async function explainWithoutSeqscan(sql: string): Promise<string> {
+  async function explainWithoutSeqscan(sql: string, verifyOrdering = false): Promise<string> {
     return prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+      // Verify index ordering capability independently of small test-database statistics.
+      if (verifyOrdering) await tx.$executeRawUnsafe("SET LOCAL enable_sort = off");
       const rows = await tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(`EXPLAIN ${sql}`);
       return rows.map((row) => row["QUERY PLAN"]).join("\n");
     });
@@ -351,7 +353,8 @@ describe.skipIf(!dbAvailable)("R24-M3 expense list keyset index (migration 00001
     const plan = await explainWithoutSeqscan(
       `SELECT id FROM expenses
        WHERE child_id = ${ZERO_UUID} AND deleted_at IS NULL
-       ORDER BY spent_on DESC, created_at DESC, id DESC LIMIT 201`
+       ORDER BY spent_on DESC, created_at DESC, id DESC LIMIT 201`,
+      true
     );
     expect(plan).toContain("idx_expenses_list_keyset");
     // 인덱스 순서가 정렬 계약과 같으므로 Sort/Incremental Sort 노드가 필요 없다.

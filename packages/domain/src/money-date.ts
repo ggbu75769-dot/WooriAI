@@ -62,6 +62,9 @@ export function getSeoulToday(now: Date = new Date()): string {
 }
 
 export function getSeoulMonthRange(yearMonthOrDate: string): SeoulMonthRange {
+  if (!/^\d{4}-\d{2}$/.test(yearMonthOrDate.slice(0, 7))) {
+    throw new Error("YEAR_MONTH_INVALID");
+  }
   const [yearText, monthText] = yearMonthOrDate.slice(0, 7).split("-");
   const year = Number(yearText);
   const month = Number(monthText);

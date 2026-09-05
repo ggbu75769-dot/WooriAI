@@ -29,6 +29,7 @@ COPY packages/test-utils/package.json packages/test-utils/package.json
 RUN pnpm install --frozen-lockfile --filter . --filter admin...
 
 COPY apps/admin apps/admin
+COPY scripts/build-admin.cjs scripts/build-admin.cjs
 
 ARG ADMIN_API_PROXY_TARGET=http://api:3000
 ENV ADMIN_API_PROXY_TARGET=$ADMIN_API_PROXY_TARGET

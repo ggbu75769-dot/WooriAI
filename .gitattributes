@@ -1,0 +1,4 @@
+# Source snapshots and contract hashes use the same newlines on Windows and Unix.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf

@@ -7,7 +7,11 @@
     },
     "admin#build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/build-admin.cjs"],
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**"
+      ]
     },
     "lint": {
       "dependsOn": ["^lint"]
@@ -17,6 +21,33 @@
     },
     "test": {
       "dependsOn": ["^test"]
+    },
+    "api#test": {
+      "env": ["DATABASE_URL"],
+      "cache": false
+    },
+    "@wooriai/test-utils#test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/*/src/**",
+        "$TURBO_ROOT$/apps/*/app/**",
+        "$TURBO_ROOT$/apps/*/test/**",
+        "$TURBO_ROOT$/apps/*/plugins/**",
+        "$TURBO_ROOT$/apps/api/prisma/**",
+        "$TURBO_ROOT$/apps/*/assets/**",
+        "$TURBO_ROOT$/apps/*/app*.json",
+        "$TURBO_ROOT$/apps/*/app*.js",
+        "$TURBO_ROOT$/apps/*/package.json",
+        "$TURBO_ROOT$/packages/*/src/**",
+        "$TURBO_ROOT$/scripts/**",
+        "$TURBO_ROOT$/docs/**",
+        "$TURBO_ROOT$/infra/**",
+        "$TURBO_ROOT$/*.md",
+        "$TURBO_ROOT$/*.json",
+        "$TURBO_ROOT$/.env.example",
+        "$TURBO_ROOT$/.github/**",
+        "!$TURBO_ROOT$/docs/qa/evidence/latest-release-gate*.md"
+      ]
     }
   }
 }

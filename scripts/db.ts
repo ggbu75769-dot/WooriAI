@@ -15,9 +15,10 @@
  *   backup   pg_dump로 백업 생성 → artifacts/db-backups/<timestamp>.sql
  *   restore  <파일경로> 백업을 복원
  */
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { packageManagerInvocation } from "./lib/release-gate-runner";
 
 const repoRoot = resolve(__dirname, "..");
 const composeFile = resolve(repoRoot, "infra/docker/docker-compose.yml");
@@ -26,8 +27,7 @@ const dbUser = "wooriai";
 const dbPassword = "wooriai_dev_password";
 const dbName = "wooriai_dev";
 const containerService = "postgres";
-const portablePgBin =
-  process.env.PGBIN ?? resolve(repoRoot, ".toolcache/pg16/pgsql/bin");
+const portablePgBin = process.env.PGBIN ?? resolve(repoRoot, ".toolcache/pg16/pgsql/bin");
 const portablePgData = resolve(repoRoot, ".toolcache/pgdata");
 const portablePgLog = resolve(repoRoot, ".toolcache/pglog.txt");
 
@@ -72,14 +72,13 @@ function composeCapture(args: string[]): string {
 }
 
 function pnpmApi(args: string[]) {
-  execSync(`pnpm --filter api ${args.join(" ")}`, {
+  const invocation = packageManagerInvocation(["--filter", "api", ...args]);
+  execFileSync(invocation.executable, invocation.args, {
     stdio: "inherit",
     cwd: repoRoot,
     env: {
       ...process.env,
-      DATABASE_URL:
-        process.env.DATABASE_URL ??
-        `postgresql://${dbUser}:${dbPassword}@localhost:5432/${dbName}`
+      DATABASE_URL: process.env.DATABASE_URL ?? `postgresql://${dbUser}:${dbPassword}@localhost:5432/${dbName}`
     }
   });
 }
@@ -89,11 +88,7 @@ function timestamp() {
 }
 
 function sleepSeconds(seconds: number) {
-  execSync(
-    process.platform === "win32"
-      ? `timeout /t ${seconds} /nobreak >nul`
-      : `sleep ${seconds}`
-  );
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, seconds * 1000);
 }
 
 function waitForDockerHealthy(maxSeconds = 60) {
@@ -126,6 +121,14 @@ function portableReady(): boolean {
   }
 }
 
+function ensureDatabases(query: (sql: string) => string) {
+  for (const database of [dbName, "wooriai_test"]) {
+    if (query(`SELECT 1 FROM pg_database WHERE datname='${database}'`).trim() !== "1") {
+      query(`CREATE DATABASE ${database};`);
+    }
+  }
+}
+
 function startPortable() {
   if (!portableAvailable()) {
     throw new Error(
@@ -133,6 +136,7 @@ function startPortable() {
     );
   }
   if (!existsSync(portablePgData)) {
+    mkdirSync(resolve(repoRoot, ".toolcache"), { recursive: true });
     const pwFile = resolve(repoRoot, ".toolcache/pgpass.txt");
     writeFileSync(pwFile, dbPassword, "utf8");
     execFileSync(
@@ -142,24 +146,23 @@ function startPortable() {
     );
   }
   if (!portableReady()) {
-    execFileSync(pgExe("pg_ctl"), ["-D", portablePgData, "-l", portablePgLog, "-o", "-p 5432", "start"], {
-      stdio: "inherit"
+    execFileSync(pgExe("pg_ctl"), ["-D", portablePgData, "-l", portablePgLog, "-o", "-p 5432", "-W", "start"], {
+      stdio: "ignore",
+      windowsHide: true
     });
-    for (let i = 0; i < 15 && !portableReady(); i += 1) {
+    for (let i = 0; i < 60 && !portableReady(); i += 1) {
       sleepSeconds(1);
     }
+    if (!portableReady()) {
+      throw new Error("PORTABLE_POSTGRES_START_TIMEOUT: 포터블 PostgreSQL이 60초 안에 준비되지 않았습니다.");
+    }
   }
-  const dbExists = execFileSync(
-    pgExe("psql"),
-    ["-U", dbUser, "-h", "localhost", "-d", "postgres", "-tAc", `SELECT 1 FROM pg_database WHERE datname='${dbName}'`],
-    { env: portableEnv(), encoding: "utf8" }
-  ).trim();
-  if (dbExists !== "1") {
-    execFileSync(pgExe("psql"), ["-U", dbUser, "-h", "localhost", "-d", "postgres", "-c", `CREATE DATABASE ${dbName};`], {
+  ensureDatabases((sql) =>
+    execFileSync(pgExe("psql"), ["-U", dbUser, "-h", "localhost", "-d", "postgres", "-tAc", sql], {
       env: portableEnv(),
-      stdio: "inherit"
-    });
-  }
+      encoding: "utf8"
+    })
+  );
   console.log("[db] 포터블 postgres 준비 완료 (localhost:5432)");
 }
 
@@ -172,6 +175,9 @@ function main() {
       if (useDocker) {
         compose(["up", "-d", containerService]);
         waitForDockerHealthy();
+        ensureDatabases((sql) =>
+          composeCapture(["exec", "-T", containerService, "psql", "-U", dbUser, "-d", "postgres", "-tAc", sql])
+        );
         console.log("[db] postgres 준비 완료 (docker, localhost:5432)");
       } else {
         console.warn("[db] Docker 데몬에 접속할 수 없어 포터블 PostgreSQL로 시작합니다.");
@@ -183,7 +189,9 @@ function main() {
       if (useDocker) {
         compose(["stop", containerService]);
       } else if (portableAvailable()) {
-        execFileSync(pgExe("pg_ctl"), ["-D", portablePgData, "stop"], { stdio: "inherit" });
+        execFileSync(pgExe("pg_ctl"), ["-D", portablePgData, "stop"], {
+          stdio: "inherit"
+        });
       }
       return;
     }
@@ -263,11 +271,15 @@ function main() {
       }
       const sql = readFileSync(file, "utf8");
       if (useDocker) {
-        execFileSync("docker", ["compose", "-f", composeFile, "exec", "-T", containerService, "psql", "-U", dbUser, "-d", dbName], {
-          input: sql,
-          stdio: ["pipe", "inherit", "inherit"],
-          cwd: repoRoot
-        });
+        execFileSync(
+          "docker",
+          ["compose", "-f", composeFile, "exec", "-T", containerService, "psql", "-U", dbUser, "-d", dbName],
+          {
+            input: sql,
+            stdio: ["pipe", "inherit", "inherit"],
+            cwd: repoRoot
+          }
+        );
       } else {
         execFileSync(pgExe("psql"), ["-U", dbUser, "-h", "localhost", "-d", dbName], {
           input: sql,

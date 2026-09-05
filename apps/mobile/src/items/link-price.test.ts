@@ -354,7 +354,7 @@ describe("DNC-009 — 가격은 표시 전용이다 (정렬·추천에 유입되
         // 이 모듈의 LINK_PRICE_MAX_AGE_DAYS를 읽어야 한다.
         if (/\.test\.tsx?$/.test(entry.name)) continue;
         if (readFileSync(path, "utf8").includes("items/link-price")) {
-          importers.push(path.slice(mobileRoot.length + 1));
+          importers.push(path.slice(mobileRoot.length + 1).replace(/\\/g, "/"));
         }
       }
     }

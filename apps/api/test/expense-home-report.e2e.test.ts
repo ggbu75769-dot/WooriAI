@@ -1540,10 +1540,8 @@ describe("Expense, budget, home, and report API", () => {
 
   /**
    * 라운드 49 C-06 — 유효하지 않은 링크 id의 처리. 형식이 UUID가 아니면 DTO가 400
-   * VALIDATION_ERROR로 잡고, 형식은 맞지만 존재하지 않는 id는 DB의 FK
-   * (`fk_expenses_linked_product_link`)가 막는다. 어느 쪽도 **잘못된 값이 조용히 저장되지
-   * 않는다**는 것이 이 테스트가 지키는 계약이다(존재 검증을 서비스 계층에 또 두지 않은 근거 —
-   * CreateExpenseDto.linkedProductLinkId 주석 참고).
+   * VALIDATION_ERROR로 잡고, 존재하지 않는 id는 저장 경로에서 400으로 거절한다.
+   * DB의 FK도 유지한다. 잘못된 링크 때문에 지출 행이 생기거나 5xx 재시도가 이어지지 않아야 한다.
    */
   it("라운드 49 C-06: 형식이 틀린 linkedProductLinkId는 400, 존재하지 않는 id는 저장되지 않는다", async () => {
     const accessToken = await login(app, `r49c06-linked-product-invalid-${randomUUID()}`);

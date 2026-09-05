@@ -508,11 +508,6 @@ export function collectPopulation(baseDir: string = repoRoot): ExportedFunction[
 
 // ── 호출부 세기 ───────────────────────────────────────────────────────────────
 
-/** 낱말 경계로 끊은 이름(부분 일치가 호출로 읽히지 않게 한다). */
-function identifierPattern(name: string): RegExp {
-  return new RegExp(`(?<![\\w$])${name.replace(/[$]/g, "\\$")}(?![\\w$])`, "g");
-}
-
 // ── 마스킹 (라운드 88 트랙 D → **라운드 90 트랙 C**) ──────────────────────────
 //
 // ⚠️ **이 자리가 라운드 87이 사각으로 적어 둔 바로 그 재개 조건이다.** 그때의 문장은
@@ -781,16 +776,42 @@ const maskNothing = (_file: string, source: string): string => source;
 
 export type CallsiteHit = { readonly file: string; readonly line: number };
 
+// Index each unchanged masked file once instead of scanning it for every export.
+// Comparing the contents preserves fixture mutation and cross-checkout behavior.
+const referenceIndexes = new WeakMap<Function, Map<string, {
+  source: string;
+  linesByName: Map<string, number[]>;
+}>>();
+
 function referencesUnderMask(
   item: ExportedFunction,
   sources: ReadonlyMap<string, string>,
   mask: (file: string, source: string) => string
 ): CallsiteHit[] {
   const hits: CallsiteHit[] = [];
+  let indexes = referenceIndexes.get(mask);
+  if (!indexes) {
+    indexes = new Map();
+    referenceIndexes.set(mask, indexes);
+  }
   for (const [file, source] of sources) {
     const scanned = mask(file, source);
-    for (const match of scanned.matchAll(identifierPattern(item.name))) {
-      const line = scanned.slice(0, match.index).split("\n").length;
+    let index = indexes.get(file);
+    if (!index || index.source !== scanned) {
+      const linesByName = new Map<string, number[]>();
+      let line = 1;
+      let offset = 0;
+      for (const match of scanned.matchAll(/[\w$]+/g)) {
+        line += scanned.slice(offset, match.index).split("\n").length - 1;
+        offset = match.index! + match[0].length;
+        const lines = linesByName.get(match[0]) ?? [];
+        lines.push(line);
+        linesByName.set(match[0], lines);
+      }
+      index = { source: scanned, linesByName };
+      indexes.set(file, index);
+    }
+    for (const line of index.linesByName.get(item.name) ?? []) {
       if (file === item.file && line === item.line) continue;
       hits.push({ file, line });
     }
@@ -1039,7 +1060,7 @@ export function importersOfModule(
   const found: string[] = [];
   for (const [file, source] of sources) {
     if (file === target) continue;
-    for (const match of maskComments(source).matchAll(IMPORT_SPECIFIER)) {
+    for (const match of maskCommentsCached(file, source).matchAll(IMPORT_SPECIFIER)) {
       const specifier = match[1];
       const resolved = resolveRelativeSpecifier(file, specifier, baseDir);
       if (resolved === target || specifier.replace(/^.*\//, "") === basename) {
