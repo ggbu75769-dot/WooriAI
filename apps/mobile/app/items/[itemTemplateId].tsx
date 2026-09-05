@@ -345,6 +345,17 @@ export default function ItemDetailScreen() {
   // 다음 칸(구매처 확인)이 첫 화면에서 바로 보여야 한다.
   const [detailTab, setDetailTab] = useState<ProductDetailTab>("price");
   const [clickedTitle, setClickedTitle] = useState<string | null>(null);
+  /**
+   * 라운드 99 F2 M-3 — **실패 안내는 성공 카드와 다른 칸이다.**
+   *
+   * 종전에는 성공(링크가 실제 열림)과 실패(openURL 실패 · PRODUCT_LINK_NOT_FOUND 등 서버
+   * 거절 · 오프라인)가 `clickedTitle` 한 칸을 나눠 썼다. 그 칸이 서면 "준비 완료로 남길까요?"
+   * 카드(구매 후속 CTA)가 서고 G-8 게이트가 "이미 샀어요" 상시 진입점까지 숨기므로, **링크가
+   * 열린 적도 없는데** 앱이 구매를 전제로 말을 걸었다 — GAP-060 #4가 구매 확인 대기에서 걷어낸
+   * 그 사유("사용자가 한 일은 '눌렀는데 아무 일도 안 일어났다' 하나뿐인데 앱은 구매를 물었다")
+   * 그대로다. 실패 문구는 이 칸으로 갈라져 실패 안내 한 줄로만 선다.
+   */
+  const [linkFailureNotice, setLinkFailureNotice] = useState<string | null>(null);
   // COM-106 fallback: when Linking.openURL fails (or canOpenURL is false), keep the
   // redirect URL around so we can offer "링크 공유하기" (Share.share) and "다시 시도"
   // instead of leaving the user stuck with just an error message.
@@ -578,10 +589,18 @@ export default function ItemDetailScreen() {
       linkNoticeSeqRef.current = -1;
     };
   }, []);
-  /** 링크 카드 문구를 쓰는 **한 자리**. 쓰는 순간 이전 폴의 결과는 지난 것이 된다. */
+  /** 링크 카드(성공) 문구를 쓰는 **한 자리**. 쓰는 순간 이전 폴의 결과는 지난 것이 된다.
+   *  M-3: 성공이 서면 앞선 실패 안내는 지난 것이므로 함께 걷는다(재시도 성공 뒤 잔류 방지). */
   const showLinkNotice = (text: string) => {
     linkNoticeSeqRef.current += 1;
+    setLinkFailureNotice(null);
     setClickedTitle(text);
+  };
+  /** 실패 안내 문구를 쓰는 **한 자리**(M-3). 성공 카드와 칸이 다르고, seq는 같이 올린다 --
+   *  앞선 오프라인 폴이 늦게 돌아와 이 문구를 덮지 못하게 하는 걸쇠는 한 벌이다. */
+  const showLinkFailureNotice = (text: string) => {
+    linkNoticeSeqRef.current += 1;
+    setLinkFailureNotice(text);
   };
   /**
    * GAP-060 #4 — 링크 실패 문구의 **오프라인 정직** 갈래. 예산·아이 프로필 저장(라운드 52
@@ -594,12 +613,14 @@ export default function ItemDetailScreen() {
    * 판정할 수 없는 플랫폼에서는 true라 기존 문구로 안전하게 떨어진다.
    */
   const showLinkFailure = (onlineNotice: string) => {
-    showLinkNotice(onlineNotice);
+    // M-3: 실패 문구는 성공 카드(clickedTitle)가 아니라 실패 칸으로 간다 -- 열리지 않은
+    // 링크가 "준비 완료로 남길까요?" 카드를 세우면 안 된다.
+    showLinkFailureNotice(onlineNotice);
     const seq = linkNoticeSeqRef.current;
     void isCurrentlyOnline().then((online) => {
       // 그 사이에 더 최신 문구가 섰거나(재시도 성공) 화면이 사라졌으면 버린다.
       if (linkNoticeSeqRef.current !== seq) return;
-      if (!online) setClickedTitle(OFFLINE_RETRY_NOTICE);
+      if (!online) setLinkFailureNotice(OFFLINE_RETRY_NOTICE);
     });
   };
 
@@ -688,13 +709,17 @@ export default function ItemDetailScreen() {
   const clickLink = useMutation({
     mutationFn: (link: ProductLink) => clickProductLink(authToken!, link.id, childId!, "ITEM-003"),
     onSuccess: async (result, link) => {
-      showLinkNotice(result.disclosureText ?? "구매 링크");
-      setLinkOpenFallback(null);
       try {
         const canOpen = await Linking.canOpenURL(result.redirectUrl);
         if (!canOpen) throw new Error("cannot-open-url");
         await Linking.openURL(result.redirectUrl);
         registerPurchaseFollowup(link);
+        // 라운드 99 F2 M-3: 구매 후속 카드("준비 완료로 남길까요?")와 G-8 게이트는 **링크가
+        // 실제로 열린 이 자리**에서만 선다 -- 구매 확인 대기(registerPurchaseFollowup)와 같은
+        // 성공 지점이다. 종전에는 이 문구가 openURL보다 먼저 서서, 열기가 실패해도 카드가
+        // 남고 실패 문구로 덮이기 전 한 프레임까지 성공을 주장했다.
+        showLinkNotice(result.disclosureText ?? "구매 링크");
+        setLinkOpenFallback(null);
       } catch {
         // 라운드 68 C: 문구도 **공유 가능 여부와 같은 판정**에서 갈린다 — 공유 버튼이 서지
         // 않는 상태에서 "링크를 공유하거나"라고 말하면 화면의 두 주장이 어긋난다.
@@ -722,12 +747,16 @@ export default function ItemDetailScreen() {
      * ⚠️ 아는 코드일 때 **오프라인 폴을 돌리지 않는다**: 서버가 코드로 답했다는 사실이 곧
      * 연결이 있었다는 뜻이라, 그때 "인터넷 연결을 확인해 주세요"로 갈아 끼우면 새 오안내가
      * 선다(src/family/invite-permissions.ts가 403을 연결 판정보다 앞에 두는 그 근거 그대로).
-     * 그래서 아는 코드는 `showLinkNotice` 한 자리로 간다 — 그 함수가 seq를 올리므로
+     * 그래서 아는 코드는 `showLinkFailureNotice` 한 자리로 간다 — 그 함수가 seq를 올리므로
      * 앞선 폴이 늦게 돌아와 이 문구를 덮는 일도 없다.
+     *
+     * 라운드 99 F2 M-3: 아는 코드도 **실패**다(PRODUCT_LINK_NOT_FOUND는 링크가 열리지 않았다는
+     * 뜻이다). 종전에는 showLinkNotice로 가서 그 문구 위에 구매 후속 카드가 섰다 -- 열린 적
+     * 없는 링크에 "준비 완료로 남길까요?"를 물은 셈이라 실패 칸으로 옮긴다.
      */
     onError: (error) => {
       const knownFailureReason = apiErrorMessageForCode(apiErrorCodeOf(error));
-      if (knownFailureReason) showLinkNotice(knownFailureReason);
+      if (knownFailureReason) showLinkFailureNotice(knownFailureReason);
       else showLinkFailure("링크를 열지 못했어요. 잠시 후 다시 시도해 주세요.");
       setLinkOpenFallback(null);
     }
@@ -914,6 +943,13 @@ export default function ItemDetailScreen() {
   // 되돌리는 쪽(gifted → not_prepared)만 종전 확인을 유지한다: gifted 표시를 **잃는** 방향이라
   // confirmGiftedReset과 같은 근거다(질문형 제목 + "취소" cancel 버튼 + 실행 버튼).
   function handleGiftedButtonPress() {
+    // 라운드 99 F2 L-1: 게이트 판정이 확인 Alert보다 **먼저**다 -- 목록 탭(requestStatusChange)과
+    // 같은 순서. Alert를 띄운 뒤에야 막으면 눌러 놓고 되돌리는 꼴이 된다(applyStatusChange의
+    // 게이트는 그대로 남아 마지막 벨트가 된다).
+    if (itemStatusGate.locked) {
+      itemStatusGate.explain();
+      return;
+    }
     if (isGifted) {
       Alert.alert("선물 받음을 취소할까요?", "다시 준비 전으로 돌아가요.", [
         { text: "취소", style: "cancel" },
@@ -927,8 +963,23 @@ export default function ItemDetailScreen() {
    * 리뷰 F2: gifted는 interested/prepared와 같은 단일 status 컬럼을 쓴다. 그래서 선물로 받았다고
    * 정리해 둔 항목에서 찜하기나 준비 완료를 누르면 "선물 받음"이 아무 말 없이 사라진다. 지금
    * 상태가 gifted일 때만 한 번 확인하고, 그 밖에는 예전처럼 바로 실행한다(추가 탭 비용 0).
+   *
+   * 라운드 99 F2 L-1 — **왜 gifted에만 확인을 두는가(결정 기록 · 동작 무변).**
+   * 이 화면의 상태 전이 중 확인을 거치는 것은 "gifted를 잃는 방향" 하나뿐이다. 근거: gifted는
+   * "선물로 받았다"는 **일어난 일의 기록**이라 덮어쓰면 사실이 유실되지만, prepared를 잃는
+   * 전이(준비 완료 항목에서 찜하기·선물 받음을 누르는 경우)는 준비 **상태의 재조정**이고 같은
+   * 버튼으로 즉시 되돌릴 수 있어 잃는 사실이 없다. 한계도 함께 적는다: prepared에 연결 지출이
+   * 있는 항목이라면 그 전이도 맥락(기록과 상태의 연결)을 흐릴 수 있으나, 서버가 지출 자체는
+   * 지우지 않으므로(linked_expense 유지) 확인을 늘리는 쪽이 오히려 확인 남발이 된다고 판단했다.
+   * 이 경계를 옮기려면 결정을 먼저 문서화한다(임의 확장 금지).
    */
   function confirmGiftedReset(kind: GiftedResetActionKind, run: () => void) {
+    // L-1: 게이트 판정이 확인 Alert보다 먼저다 -- 목록 탭(requestStatusChange)과 같은 순서로
+    // 통일한다(종전에는 확인을 다 지나고 applyStatusChange 안에서야 막혔다).
+    if (itemStatusGate.locked) {
+      itemStatusGate.explain();
+      return;
+    }
     if (!isGifted) {
       run();
       return;
@@ -1362,6 +1413,11 @@ export default function ItemDetailScreen() {
               />
             </Card>
           ) : null}
+
+          {/* 라운드 99 F2 M-3: 링크 실패 안내 한 줄. 종전에는 위 카드의 Toast 자리를 실패
+              문구가 빌려 써서, 실패에도 "준비 완료로 남길까요?"가 함께 섰다. 실패는 실패
+              사실만 말하고(구매 후속 CTA 없음), 아래 폴백 카드(재시도·공유)가 출구를 진다. */}
+          {linkFailureNotice ? <Toast message={linkFailureNotice} /> : null}
 
           {linkOpenFallback ? (
             <Card style={{ backgroundColor: theme.colors.beige }}>

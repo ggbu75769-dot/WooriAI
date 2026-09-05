@@ -286,6 +286,43 @@ describe("화면 배선 (source contract)", () => {
     expect(linkIndex).toBeGreaterThan(ctaIndex);
   });
 
+  /**
+   * 라운드 99 F2 M-3 — clickedTitle(= 이 게이트와 구매 후속 카드의 근거)은 **성공 전용**이다.
+   *
+   * 종전에는 실패(openURL 실패 · 서버 거절 코드 · 오프라인)도 같은 칸을 써서, 링크가 열린 적이
+   * 없는데 "준비 완료로 남길까요?" 카드가 서고 G-8 게이트가 "이미 샀어요" 진입점을 숨겼다.
+   */
+  it("상세: 실패 문구는 clickedTitle이 아니라 실패 전용 칸으로 간다 (M-3)", () => {
+    const detail = detailSource();
+    expect(detail).toContain("const [linkFailureNotice, setLinkFailureNotice] = useState<string | null>(null);");
+    expect(detail).toContain("const showLinkFailureNotice = (text: string) => {");
+    // 실패 안내는 카드 없이 한 줄 Toast로만 선다(구매 후속 CTA 없음).
+    expect(detail).toContain("{linkFailureNotice ? <Toast message={linkFailureNotice} /> : null}");
+    // 아는 실패 코드(PRODUCT_LINK_NOT_FOUND 등)도 실패 칸이다.
+    expect(detail).toContain("if (knownFailureReason) showLinkFailureNotice(knownFailureReason);");
+    expect(detail).not.toContain("if (knownFailureReason) showLinkNotice(knownFailureReason);");
+    // 성공 문구(clickedTitle)는 링크가 실제 열린 자리(registerPurchaseFollowup과 같은 성공
+    // 지점) **뒤**에만 선다 -- onSuccess의 try 안, openURL 다음이다.
+    const onSuccessIndex = detail.indexOf("onSuccess: async (result, link) => {");
+    const openIndex = detail.indexOf("await Linking.openURL(result.redirectUrl);", onSuccessIndex);
+    const registerIndex = detail.indexOf("registerPurchaseFollowup(link);", onSuccessIndex);
+    const successNoticeIndex = detail.indexOf('showLinkNotice(result.disclosureText ?? "구매 링크");', onSuccessIndex);
+    const catchIndex = detail.indexOf("} catch {", onSuccessIndex);
+    expect(onSuccessIndex).toBeGreaterThan(-1);
+    expect(openIndex).toBeGreaterThan(onSuccessIndex);
+    expect(registerIndex).toBeGreaterThan(openIndex);
+    expect(successNoticeIndex).toBeGreaterThan(registerIndex);
+    expect(catchIndex).toBeGreaterThan(successNoticeIndex);
+    // 실패 갈래(showLinkFailure)는 성공 칸을 쓰지 않는다.
+    const failureBody = detail.slice(
+      detail.indexOf("const showLinkFailure = (onlineNotice: string) => {"),
+      detail.indexOf("const retryOpenFallbackLink = async () => {")
+    );
+    expect(failureBody.length).toBeGreaterThan(0);
+    expect(failureBody).not.toContain("setClickedTitle(");
+    expect(failureBody).not.toContain("showLinkNotice(");
+  });
+
   it("상세: 세션 게이트를 거치고 기존 프리필 경로를 재사용한다", () => {
     const detail = detailSource();
     expect(detail).toContain(

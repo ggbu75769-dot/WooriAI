@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import { SYNC_ROW_FAILED_LABEL, SYNC_ROW_PENDING_LABEL } from "../offline/messages";
 import type { ItemStatusOutboxRow } from "../offline/types";
@@ -105,9 +108,15 @@ describe("pendingItemStatusView", () => {
 
 describe("patchItemStatusInQueryData (낙관 반영)", () => {
   const listData = { items: [{ id: "item-carseat", status: "not_prepared" }, { id: "item-bottle", status: "interested" }] };
+  /** 라운드 99 F2 M-2: 패치는 이제 자기 주인(childId)과 겨냥한 캐시의 아이를 함께 받는다. */
+  const patchFor = (itemTemplateId: string, status: "prepared" | "gifted") => ({
+    childId: "child-1",
+    itemTemplateId,
+    status
+  } as const);
 
   it("목록 응답 모양을 고친다", () => {
-    const patched = patchItemStatusInQueryData(listData, "item-carseat", "prepared") as typeof listData;
+    const patched = patchItemStatusInQueryData(listData, patchFor("item-carseat", "prepared"), "child-1") as typeof listData;
     expect(patched.items[0].status).toBe("prepared");
     // 다른 행과 원본은 건드리지 않는다.
     expect(patched.items[1].status).toBe("interested");
@@ -115,20 +124,92 @@ describe("patchItemStatusInQueryData (낙관 반영)", () => {
   });
 
   it("준비율 스냅샷(배열) 모양도 고친다", () => {
-    const patched = patchItemStatusInQueryData(listData.items, "item-bottle", "prepared") as Array<{ status: string }>;
+    const patched = patchItemStatusInQueryData(listData.items, patchFor("item-bottle", "prepared"), "child-1") as Array<{
+      status: string;
+    }>;
     expect(patched[1].status).toBe("prepared");
   });
 
   it("상세 응답(단일 객체)은 id가 맞을 때만 고친다", () => {
     const detail = { id: "item-carseat", status: "not_prepared", name: "카시트" };
-    expect((patchItemStatusInQueryData(detail, "item-carseat", "gifted") as typeof detail).status).toBe("gifted");
-    expect(patchItemStatusInQueryData(detail, "item-other", "gifted")).toBe(detail);
+    expect((patchItemStatusInQueryData(detail, patchFor("item-carseat", "gifted"), "child-1") as typeof detail).status).toBe(
+      "gifted"
+    );
+    expect(patchItemStatusInQueryData(detail, patchFor("item-other", "gifted"), "child-1")).toBe(detail);
   });
 
   it("모르는 모양은 그대로 돌려준다 (추측해서 고치지 않는다)", () => {
     const unknown = { totalAmountKrw: 1000 };
-    expect(patchItemStatusInQueryData(unknown, "item-carseat", "prepared")).toBe(unknown);
-    expect(patchItemStatusInQueryData(undefined, "item-carseat", "prepared")).toBeUndefined();
-    expect(patchItemStatusInQueryData(null, "item-carseat", "prepared")).toBeNull();
+    expect(patchItemStatusInQueryData(unknown, patchFor("item-carseat", "prepared"), "child-1")).toBe(unknown);
+    expect(patchItemStatusInQueryData(undefined, patchFor("item-carseat", "prepared"), "child-1")).toBeUndefined();
+    expect(patchItemStatusInQueryData(null, patchFor("item-carseat", "prepared"), "child-1")).toBeNull();
+  });
+
+  /**
+   * 라운드 99 F2 M-2 — 아이 경계 축. 색인 쪽 주석의 경고 그대로다: 준비템 id는 카탈로그 템플릿
+   * id라 **아이가 달라도 같은 값**이다. 다른 아이의 캐시(cacheChildId 불일치)는 id가 맞아도
+   * 한 바이트도 고치지 않고 **같은 참조**로 돌려준다.
+   */
+  it("다른 아이의 캐시는 id가 같아도 건드리지 않는다 (같은 참조 반환)", () => {
+    const detail = { id: "item-carseat", status: "not_prepared", name: "카시트" };
+    expect(patchItemStatusInQueryData(detail, patchFor("item-carseat", "prepared"), "child-2")).toBe(detail);
+    expect(patchItemStatusInQueryData(listData, patchFor("item-carseat", "prepared"), "child-2")).toBe(listData);
+    expect(patchItemStatusInQueryData(listData.items, patchFor("item-carseat", "prepared"), undefined)).toBe(listData.items);
+  });
+});
+
+/**
+ * 라운드 99 F2 M-2 — **캐시 패치가 아이 경계를 넘지 않는다**(교란 테스트).
+ *
+ * sync-controller의 updateItemStatusOffline은 vitest에서 import할 수 없으므로(네이티브 모듈)
+ * 두 겹으로 고정한다:
+ *  1. 실제 react-query QueryClient에 두 아이의 캐시를 실키 모양(["items", childId, "catalog"] ·
+ *     ["item-detail", childId, itemTemplateId])으로 심고, 컨트롤러와 같은 접두
+ *     `["items", childId]`로 setQueriesData를 돌려 **다른 아이 캐시가 안 바뀜**을 단언한다.
+ *  2. 컨트롤러 소스가 실제로 그 좁힌 접두와 childId 인자를 쓰는지 소스 계약으로 고정한다.
+ */
+describe("라운드 99 F2 M-2: 낙관 캐시 패치의 아이 경계", () => {
+  const controllerSource = () =>
+    readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
+
+  it("접두를 childId까지 좁혀도 같은 아이의 캐시는 전부 패치되고, 다른 아이 캐시는 그대로다", () => {
+    const queryClient = new QueryClient();
+    const firstChildList = { items: [{ id: "item-carseat", status: "not_prepared" }] };
+    const secondChildList = { items: [{ id: "item-carseat", status: "not_prepared" }] };
+    const secondChildDetail = { id: "item-carseat", status: "not_prepared", name: "카시트" };
+    queryClient.setQueryData(["items", "child-1", "catalog"], firstChildList);
+    queryClient.setQueryData(["items", "child-2", "catalog"], secondChildList);
+    queryClient.setQueryData(["item-detail", "child-2", "item-carseat"], secondChildDetail);
+
+    // 컨트롤러의 배선과 같은 모양: 접두 ["items", childId] + 패치의 childId 검증 축.
+    const cachePatch = { childId: "child-1", itemTemplateId: "item-carseat", status: "prepared" } as const;
+    queryClient.setQueriesData({ queryKey: ["items", "child-1"] }, (data: unknown) =>
+      patchItemStatusInQueryData(data, cachePatch, "child-1")
+    );
+    queryClient.setQueriesData({ queryKey: ["item-detail", "child-1"] }, (data: unknown) =>
+      patchItemStatusInQueryData(data, cachePatch, "child-1")
+    );
+
+    expect(
+      (queryClient.getQueryData(["items", "child-1", "catalog"]) as typeof firstChildList).items[0].status
+    ).toBe("prepared");
+    // 둘째의 캐시는 값도 참조도 그대로 — 배지 없는 낙관 반영(거짓 표시)이 설 자리가 없다.
+    expect(queryClient.getQueryData(["items", "child-2", "catalog"])).toBe(secondChildList);
+    expect(queryClient.getQueryData(["item-detail", "child-2", "item-carseat"])).toBe(secondChildDetail);
+  });
+
+  it("컨트롤러가 실제로 그 좁힌 접두와 childId 축을 쓴다 (소스 계약)", () => {
+    const controller = controllerSource();
+    const writeBody = controller.slice(
+      controller.indexOf("export async function updateItemStatusOffline"),
+      controller.indexOf("export async function retryOfflineItemStatus")
+    );
+    expect(writeBody).toContain('queryClient.setQueriesData({ queryKey: ["items", payload.childId] }');
+    expect(writeBody).toContain('queryClient.setQueriesData({ queryKey: ["item-detail", payload.childId] }');
+    // 접두 전체(["items"] 단독)로 되돌아가지 않는다.
+    expect(writeBody).not.toContain('setQueriesData({ queryKey: ["items"] }');
+    expect(writeBody).not.toContain('setQueriesData({ queryKey: ["item-detail"] }');
+    // 패치 함수에도 주인과 겨냥한 캐시의 아이가 함께 간다.
+    expect(writeBody).toContain("{ childId: payload.childId, itemTemplateId: payload.itemTemplateId, status: payload.status }");
   });
 });

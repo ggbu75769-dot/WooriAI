@@ -31,8 +31,9 @@ describe("C-01 찜 칩 (클라이언트 필터, 서버 왕복 0)", () => {
   it("새 요청을 만들지 않는다 -- 이미 받아 둔 tab=\"all\" 스냅샷을 거른다", () => {
     const items = itemsSource();
     // DSN-053 P2-B: 그 스냅샷이 곧 목록이라(상태 탭 조회 없음) 찜은 같은 배열을 한 번 더
-    // 거르는 클라이언트 필터로 남는다.
-    expect(items).toContain("filterInterestedItems(visibleItems)");
+    // 거르는 클라이언트 필터로 남는다. 라운드 99 F2 M-1(핀 동반 이관): 그 배열에 낙관/대기
+    // 보정을 입힌 목록(effectiveStatusItems)이 모집단이다 -- 여전히 새 요청 0건이다.
+    expect(items).toContain("filterInterestedItems(effectiveStatusItems)");
     expect(items).toContain('listItems(authToken!, childId!, "all")');
     expect(items).not.toContain('listItems(authToken!, childId!, "interested"');
     // 목록 쿼리 키에도 찜이 끼지 않는다 = 칩을 눌러도 캐시가 갈리지 않는다.

@@ -41,7 +41,9 @@ describe("items tab stage-band wiring", () => {
   it("칩이 시기별 밴드 판정과 준비율의 기준이 된다", () => {
     const itemsSource = source("app/(tabs)/items.tsx");
     expect(itemsSource).toContain("resolvePreparationTimelineBucket(rowItem, stageLabel)");
-    expect(itemsSource).toContain("computeEssentialPrepProgress(items.data.items, stageLabel)");
+    // 라운드 99 F2 M-1(핀 동반 이관): 준비율의 입력이 원시 스냅샷에서 낙관/대기 보정 목록으로
+    // 바뀌었다 -- 분모·분자를 정하는 밴드 축(stageLabel)은 그대로다.
+    expect(itemsSource).toContain("computeEssentialPrepProgress(effectiveStatusItems, stageLabel)");
     // 기본 칩은 사용자의 수동 선택과 무관하게 계산한다(다른 칩을 눌렀다가 되돌아와도 판별 가능).
     // 라운드 69 트랙 C: 판정이 `{ label, resolved }`를 돌려주므로 화면은 라벨을 따로 꺼낸다.
     expect(itemsSource).toMatch(/const defaultStageBand = resolveDefaultStageLabel\(\{[^]*?hasManualSelection: false/);
@@ -174,10 +176,33 @@ describe("라운드 69 C: 시기 밴드의 원천과 모름 고지", () => {
     const items = source("app/(tabs)/items.tsx");
     expect(items).toContain("const offersPreBirthFilter = shouldOfferPreBirthFilter({");
     expect(items).toContain("const preBirthFilterActive = isPreBirthFilterActive({");
-    // 목록 요청·준비율·찜 칩도 그대로다.
+    // 목록 요청·준비율·찜 칩도 그대로다. (라운드 99 F2 M-1 핀 동반 이관: 두 소비처의 모집단이
+    // 낙관/대기 보정 목록(effectiveStatusItems)으로 옮겨 갔다 -- 판정 모듈은 여전히 무접촉이다.)
     expect(items).toContain('listItems(authToken!, childId!, "all")');
-    expect(items).toContain("computeEssentialPrepProgress(items.data.items, stageLabel)");
-    expect(items).toContain("filterInterestedItems(visibleItems)");
+    expect(items).toContain("computeEssentialPrepProgress(effectiveStatusItems, stageLabel)");
+    expect(items).toContain("filterInterestedItems(effectiveStatusItems)");
+  });
+
+  /**
+   * 라운드 99 F2 L-3 — **아이 전환 시 화면 상태 잔류 제거.**
+   *
+   * `hasManualStageSelection`(수동 시기 칩)과 `dismissedCelebrationBands`(축하 닫음 기억)는
+   * 아이 단위 결정인데 childId 변화에 살아남아, 둘째에게 첫째의 수동 칩·닫음 기억이 적용됐다.
+   * G-3 expenseLinkPrompt 정리 effect와 같은 관례로 childId 변화에 리셋한다.
+   */
+  it("아이가 바뀌면 수동 칩 선택과 축하 닫음 기억이 리셋된다 (L-3)", () => {
+    const items = source("app/(tabs)/items.tsx");
+    const resetEffect = items.slice(
+      items.indexOf("라운드 99 F2 L-3"),
+      items.indexOf("// 라운드 37 G-3: \"지출도 기록할까요?\" 줄이 살아 있어도 되는 화면 좌표.")
+    );
+    expect(resetEffect.length, "리셋 effect 구간을 찾지 못했어요").toBeGreaterThan(0);
+    expect(resetEffect).toContain("setHasManualStageSelection(false);");
+    expect(resetEffect).toContain("setDismissedCelebrationBands(() => new Set<StageBandLabel>());");
+    expect(resetEffect).toContain("}, [childId]);");
+    // 리셋 뒤 기본 칩 effect가 새 아이의 시기로 stageLabel을 되돌린다(기존 effect 그대로).
+    expect(items).toContain("if (hasManualStageSelection) return;");
+    expect(items).toContain("setStageLabel(defaultStageLabel);");
   });
 });
 

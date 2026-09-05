@@ -733,11 +733,15 @@ describe("라운드 77 A — 구매 링크 클릭 실패가 이유를 말한다"
     // 종전에는 인자를 **받지도 않았다**(onError: () => {) — 그것이 이 후보의 본체였다.
     expect(detailSource).toContain("onError: (error) => {");
     expect(detailSource).toContain("const knownFailureReason = apiErrorMessageForCode(apiErrorCodeOf(error));");
-    expect(detailSource).toContain("if (knownFailureReason) showLinkNotice(knownFailureReason);");
+    // 라운드 99 F2 M-3(핀 동반 이관): 아는 코드의 문구가 서는 칸이 성공 카드(clickedTitle)에서
+    // 실패 전용 칸(linkFailureNotice)으로 갈라졌다 — PRODUCT_LINK_NOT_FOUND는 링크가 열리지
+    // 않았다는 뜻이라, 그 문구 위에 "준비 완료로 남길까요?"(구매 후속 CTA)가 서면 안 된다.
+    // "아는 코드는 폴 없이"라는 이 계약의 본체는 그대로다(showLinkFailureNotice에는 폴이 없다).
+    expect(detailSource).toContain("if (knownFailureReason) showLinkFailureNotice(knownFailureReason);");
     // 모르는 실패의 문장은 **바이트 불변**이고, 그 갈래만 오프라인 폴을 지난다.
     expect(detailSource).toContain(`else showLinkFailure("${screenFallback}");`);
     expect(detailSource).toContain("const showLinkFailure = (onlineNotice: string) => {");
-    expect(detailSource).toContain("if (!online) setClickedTitle(OFFLINE_RETRY_NOTICE);");
+    expect(detailSource).toContain("if (!online) setLinkFailureNotice(OFFLINE_RETRY_NOTICE);");
     expect(detailSource).toContain("if (linkNoticeSeqRef.current !== seq) return;");
     // 화면은 문구를 새로 짓지 않는다 — 표의 두 문장이 이 파일에 사본으로 적히면 안 된다.
     for (const code of clickCodes) {

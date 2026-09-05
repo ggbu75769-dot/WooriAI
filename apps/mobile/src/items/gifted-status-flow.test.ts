@@ -165,6 +165,25 @@ describe("gifted를 잃게 만드는 조작은 확인을 거친다 (리뷰 F2)",
     }
   });
 
+  /**
+   * 라운드 99 F2 L-1 — 게이트 순서 두 화면 통일. 목록 탭은 게이트(itemStatusGate)가 확인
+   * Alert보다 먼저인데, 상세는 확인을 다 지나고 applyStatusChange 안에서야 막혔다 -- 보기
+   * 전용 참여자가 "선물 받음을 취소할까요?"에 답하고 나서야 안 된다는 안내를 받았다.
+   */
+  it("상세: 게이트 판정이 확인 Alert보다 먼저다 (목록 탭과 같은 순서 — L-1)", () => {
+    const detail = detailSource();
+    for (const handlerStartNeedle of ["function handleGiftedButtonPress()", "function confirmGiftedReset("]) {
+      const start = detail.indexOf(handlerStartNeedle);
+      expect(start, `${handlerStartNeedle} 실재`).toBeGreaterThan(-1);
+      const body = detail.slice(start, detail.indexOf("const canCallLinkApi"));
+      const guardIndex = body.indexOf("if (itemStatusGate.locked) {");
+      const alertIndex = body.indexOf("Alert.alert(");
+      expect(guardIndex, `${handlerStartNeedle}의 게이트`).toBeGreaterThan(-1);
+      expect(alertIndex, `${handlerStartNeedle}의 확인 Alert`).toBeGreaterThan(guardIndex);
+      expect(body).toContain("itemStatusGate.explain();");
+    }
+  });
+
   it("gifted 해제(선물 받음 취소) 자체는 기존 확인 흐름을 그대로 쓴다", () => {
     const detail = detailSource();
     expect(detail).toContain('Alert.alert("선물 받음을 취소할까요?"');

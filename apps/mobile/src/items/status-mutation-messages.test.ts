@@ -170,6 +170,28 @@ describe("C-10 준비템 상태 변경 오프라인 배선", () => {
     expect(detail).toContain("itemStatusBadgeLabel(displayStatus)");
   });
 
+  /**
+   * 라운드 99 F2 M-1 — 목록 탭의 보정이 **필터·계산보다 상류**에 선다. 종전에는 타일
+   * (sessionRows)에서만 보정해서, 재조회가 서버 옛 값으로 캐시를 덮으면 준비율 히어로 ·
+   * 100% 축하 · 찜 필터 · "먼저 챙기면 좋아요"가 원시 status를 읽어 타일과 모순됐다.
+   */
+  it("낙관 반영: 목록 탭은 보정을 상류(effectiveStatusItems)에서 한 번만 하고 전 소비처가 그 목록을 읽는다", () => {
+    const upstreamIndex = items.indexOf("const effectiveStatusItems");
+    expect(upstreamIndex).toBeGreaterThan(-1);
+    // 네 소비처 + 타일 목록이 전부 그 보정 목록(또는 그 파생 listedItems)을 읽는다.
+    expect(items).toContain("computeEssentialPrepProgress(effectiveStatusItems, stageLabel)");
+    expect(items).toContain("filterInterestedItems(effectiveStatusItems)");
+    expect(items.indexOf("filterInterestedItems(effectiveStatusItems)")).toBeGreaterThan(upstreamIndex);
+    expect(items).toContain("hasSession && showInterestedOnly ? filterInterestedItems(effectiveStatusItems) : effectiveStatusItems;");
+    expect(items).toContain("const prepFocusIds = hasSession && !isPixelLockMode ? nextPrepFocusIds(listedItems) : null;");
+    // 두 번째 보정(사본)이 남아 있지 않다 -- 타일은 상류에서 이미 보정된 항목을 그대로 쓴다.
+    expect(items).toContain("rowItem: item,");
+    expect(items.match(/effectiveItemStatus\(/g) ?? []).toHaveLength(1);
+    // 준비율이 원시 스냅샷을 직접 읽는 형태로 되돌아가지 않는다.
+    expect(items).not.toContain("computeEssentialPrepProgress(items.data.items");
+    expect(items).not.toContain("filterInterestedItems(visibleItems)");
+  });
+
   it("기기 저장 실패만 화면 안 배너로 알린다 (Toast tone=\"error\", accessibilityRole=alert)", () => {
     for (const [path, screenSource] of screens) {
       expect(screenSource, `${path} renders the banner`).toContain(

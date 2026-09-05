@@ -318,7 +318,9 @@ describe("items tab journey wiring (UX-E)", () => {
     expect(text).toContain("const prepMilestone = buildPrepMilestoneView(prepProgress);");
     // 수치는 여전히 ITEM-114 스냅샷 하나에서 나온다(DSN-053 P2-B에서 그 스냅샷이 곧 목록
     // 쿼리가 됐다 -- tab="all" 한 건이 목록·준비율·찜 목록의 공통 원천이다).
-    expect(text).toContain("computeEssentialPrepProgress(items.data.items, stageLabel)");
+    // 라운드 99 F2 M-1(핀 동반 이관): 그 스냅샷에 낙관/대기 보정을 한 번 입힌 목록
+    // (effectiveStatusItems)이 입력이다 -- 타일과 준비율이 같은 status를 읽는다.
+    expect(text).toContain("computeEssentialPrepProgress(effectiveStatusItems, stageLabel)");
   });
 
   /**
@@ -430,8 +432,10 @@ describe("items tab journey wiring (UX-E)", () => {
     // 클라이언트 좁히기는 여전히 순서를 보존한다. 라운드 49 C-01에서 찜 칩이 더해졌지만
     // (filterInterestedItems) 그쪽도 순서를 바꾸지 않는 filter 한 번이고, 필수도·검색은
     // 종전 그대로 filterItems 하나다(모집단 이름만 sourceItems로 바뀌었다).
+    // 라운드 99 F2 M-1(핀 동반 이관): 찜 필터의 모집단이 낙관/대기 보정 목록이다 -- 보정도
+    // 순서를 보존하는 map 한 번이라 서버 순서는 그대로다.
     expect(text).toContain("filterItems<ItemSummary | RecommendationPreviewItem>(sourceItems, itemFilterInput)");
-    expect(text).toContain("filterInterestedItems(visibleItems)");
+    expect(text).toContain("filterInterestedItems(effectiveStatusItems)");
   });
 
   it("adds no analytics events (UX-E는 이벤트 레지스트리 무접촉)", () => {
