@@ -33,16 +33,33 @@ describe("gifted 상태 진입점 (아이템 상세)", () => {
     expect(detail).toContain('markGifted("gifted")');
   });
 
-  it("확인 흐름(Alert)을 거친 뒤에만 상태가 바뀐다 -- 지출 삭제 등과 같은 관례", () => {
+  /**
+   * 토스 이월 라운드 T-A: "선물로 받았어요" **표시**는 확인 Alert 없이 즉시 반영한다.
+   * 같은 버튼이 곧바로 "선물 받음 취소"가 되는 가역 조작이라, 비가역 조작(지출 삭제 등)의
+   * 확인 관례를 여기까지 넓히지 않는다. 종전 확인 Alert는 실재하지 않는 화면('준비완료 탭')을
+   * 안내하기도 했다 — gifted 항목이 실제로 서는 자리는 준비템 탭의 "정리된 품목" 구획이다.
+   * 되돌리는 쪽(gifted를 잃는 방향)만 종전 확인을 유지한다(confirmGiftedReset과 같은 근거).
+   */
+  it("'선물로 받았어요' 표시는 확인 없이 즉시 반영하고, 되돌리기만 확인을 거친다", () => {
     const detail = detailSource();
-    expect(detail).toContain('Alert.alert("선물로 받았어요"');
-    expect(detail).toContain('Alert.alert("선물 받음을 취소할까요?"');
-    expect(detail).toContain('{ text: "취소", style: "cancel" }');
-    // 버튼은 확인 함수만 부르고, mutate는 Alert 콜백 안에서만 호출된다.
-    expect(detail).toContain("onPress={confirmGiftedChange}");
-    const confirmBlock = detail.slice(detail.indexOf("function confirmGiftedChange()"), detail.indexOf("const canCallLinkApi"));
-    expect(confirmBlock).toContain('markGifted("gifted")');
-    expect(confirmBlock.match(/markGifted\("/g)).toHaveLength(2);
+    // 표시 방향의 확인 Alert(와 실재하지 않는 '준비완료 탭' 안내)는 걷혔다.
+    expect(detail).not.toContain('Alert.alert("선물로 받았어요"');
+    expect(detail).not.toContain("준비완료 탭에서 볼 수 있어요");
+    expect(detail).toContain("onPress={handleGiftedButtonPress}");
+    // 슬라이스 가드(라운드 78 트랙 E): 두 끝의 실재를 먼저 묻는다 — 이름이 갈리면 빈 구간을
+    // 자르고도 조용히 통과하는 자리라서다.
+    const handlerStart = detail.indexOf("function handleGiftedButtonPress()");
+    const handlerEnd = detail.indexOf("const canCallLinkApi");
+    expect(handlerStart).toBeGreaterThan(-1);
+    expect(handlerEnd).toBeGreaterThan(handlerStart);
+    const handlerBlock = detail.slice(handlerStart, handlerEnd);
+    // gifted가 아니면 markGifted("gifted")를 Alert 콜백 없이 바로 부른다.
+    expect(handlerBlock).toContain('markGifted("gifted");');
+    expect(handlerBlock).not.toContain('onPress: () => markGifted("gifted")');
+    // 되돌리기(gifted → not_prepared)는 종전 확인 그대로다.
+    expect(handlerBlock).toContain('Alert.alert("선물 받음을 취소할까요?"');
+    expect(handlerBlock).toContain('{ text: "취소", style: "cancel" }');
+    expect(handlerBlock.match(/markGifted\("/g)).toHaveLength(2);
   });
 
   /**
@@ -151,7 +168,7 @@ describe("gifted를 잃게 만드는 조작은 확인을 거친다 (리뷰 F2)",
   it("gifted 해제(선물 받음 취소) 자체는 기존 확인 흐름을 그대로 쓴다", () => {
     const detail = detailSource();
     expect(detail).toContain('Alert.alert("선물 받음을 취소할까요?"');
-    expect(detail).toContain("onPress={confirmGiftedChange}");
+    expect(detail).toContain("onPress={handleGiftedButtonPress}");
     // 선물 받음 버튼은 새 확인 흐름(confirmGiftedReset)을 타지 않는다 -- 이중 확인 방지.
     const giftedButtonBlock = detail.slice(
       detail.indexOf('label={isGifted ? "선물 받음 취소" : "선물로 받았어요"}'),

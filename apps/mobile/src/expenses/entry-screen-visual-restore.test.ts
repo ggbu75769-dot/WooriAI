@@ -126,8 +126,11 @@ describe("하단 고정 요약바", () => {
     expect(newExpenseSource).toContain('{selectedCategory ? selectedCategory.label : "분류 선택"}');
     expect(newExpenseSource).toContain('color: theme.colors.brown, flex: 1, fontSize: 15, fontWeight: "800"');
     expect(newExpenseSource).toContain('name="pencil-outline" size={18}');
-    // 연필은 본문 품목명 칸으로 커서를 옮길 뿐이다 -- 같은 값을 고치는 칸을 둘로 만들지 않는다.
-    expect(newExpenseSource).toContain("onPress={() => itemNameInputRef.current?.focus()}");
+    // 연필의 커서는 여전히 본문 품목명 칸 하나로만 간다 -- 같은 값을 고치는 칸을 둘로 만들지
+    // 않는다. ⚠️ 두 시점(라운드 98 T-G · 변경 요청 문서 #2): 종전 앵커는 인라인
+    // `onPress={() => itemNameInputRef.current?.focus()}`였는데, 포커스 앞에 scrollTo가 더해지며
+    // 핸들러가 이름 있는 헬퍼로 옮겨졌다(아래 T-G 스위트가 그 헬퍼의 몸을 문다).
+    expect(newExpenseSource).toContain("onPress={focusItemNameFromSummaryBar}");
     expect(newExpenseSource).toContain("ref={itemNameInputRef}");
   });
 
@@ -390,6 +393,60 @@ describe("T3 — 화면 배선 (지출 입력 시트)", () => {
     expect(layoutSource).toContain('name="expenses/new"');
     expect(layoutSource).toContain('animation: reduceMotionEnabled ? "none" : "slide_from_bottom"');
     expect(layoutSource).toContain("AccessibilityInfo.isReduceMotionEnabled?.()");
+  });
+});
+
+/**
+ * 라운드 98 T-G — `docs/dev/toss-T3-entry-EXP001-change-request.md`의 "함께 남기는 변경 요청" 2건.
+ *
+ * ① '저장 중' → '저장하는 중' 라벨 통일(진행 라벨 다수파 꼴 — 7개 화면이 이미 그 꼴이다).
+ *    그 라벨을 위치 앵커로 바이트째 물던 entry-form-guards.test.ts의 두 곳도 문서가 요청한
+ *    대로 같은 커밋에서 함께 이관됐다.
+ * ② 요약바 연필의 품목명 scrollTo. 이 화면의 스크롤러(src/ui.tsx AppScreen)에 옵트인
+ *    `scrollViewRef`가 서고, 연필 탭이 품목명 블록 y로 스크롤한 **뒤** 종전 그대로 포커스를
+ *    옮긴다 — 포커스 동작은 그대로고 스크롤이 더해진 것이다.
+ */
+describe("T-G — EXP001 변경 요청 이행 (저장 라벨 · 연필 scrollTo)", () => {
+  const uiSource = source("src/ui.tsx");
+
+  it("저장 라벨이 저장소 다수파 꼴('저장하는 중')이다 — 이 시트만 '저장 중'이던 갈림을 닫는다", () => {
+    expect(newExpenseSource).toContain('label={saveExpense.isPending ? "저장하는 중" : "저장하기"}');
+    expect(newExpenseSource).not.toContain('? "저장 중" :');
+  });
+
+  it("AppScreen의 scrollViewRef는 옵트인이다 — 넘기지 않은 기존 화면은 ref={undefined}로 종전과 같다", () => {
+    // 프롭은 옵셔널이고, 스크롤러 여는 태그에 ref로만 걸린다(새 노드·레이아웃 속성 0건).
+    expect(uiSource).toContain("scrollViewRef?: React.Ref<AppScreenScrollHandle>;");
+    expect(uiSource).toContain("ref={scrollViewRef}");
+    // 레이아웃 속성·키보드 규칙은 종전 그대로다(a11y-contract의 픽셀락 6종 계약과 같은 자리).
+    expect(uiSource).toContain("gap: theme.spacing.section");
+    expect(uiSource).toContain('keyboardShouldPersistTaps="handled"');
+  });
+
+  it("연필 핸들러는 품목명 블록 y로 스크롤한 뒤 포커스를 옮긴다 (scrollTo → focus 순서)", () => {
+    const helperStart = newExpenseSource.indexOf("const focusItemNameFromSummaryBar = () => {");
+    expect(helperStart).toBeGreaterThan(0);
+    const helper = newExpenseSource.slice(helperStart, newExpenseSource.indexOf("};", helperStart) + 2);
+    expect(helper).toContain(
+      "bodyScrollRef.current?.scrollTo({ animated: !reduceMotionEnabled, y: itemNameBlockYRef.current });"
+    );
+    expect(helper).toContain("itemNameInputRef.current?.focus();");
+    // 스크롤이 먼저다 — 포커스(키보드)가 화면을 줄이기 전에 목적지를 잡는다.
+    expect(helper.indexOf("scrollTo")).toBeLessThan(helper.indexOf(".focus()"));
+    // reduce-motion이면 애니메이션 없이 즉시 이동한다(이 화면의 LayoutAnimation 관례와 같은 값).
+    expect(helper).toContain("animated: !reduceMotionEnabled");
+  });
+
+  it("본문 스크롤러 ref가 AppScreen에 걸리고, 블록 y는 세션 렌더의 품목명 블록 onLayout이 기억한다", () => {
+    expect(newExpenseSource).toContain("<AppScreen scrollViewRef={bodyScrollRef}>");
+    const onLayoutAt = newExpenseSource.indexOf("itemNameBlockYRef.current = event.nativeEvent.layout.y;");
+    const itemNameField = newExpenseSource.indexOf('accessibilityLabel="품목명 입력"');
+    expect(onLayoutAt).toBeGreaterThan(0);
+    // onLayout은 품목명 입력칸을 감싸는 그 블록 View에 있다(세션 게이트 안 — 비세션 EXP-001의
+    // 숨은 입력칸(원래 자리)에는 아무것도 더하지 않았다. 노드 순서 불변 계약은 위 스위트가 문다).
+    expect(onLayoutAt).toBeLessThan(itemNameField);
+    const gate = newExpenseSource.lastIndexOf("{authToken ? (", onLayoutAt);
+    expect(gate).toBeGreaterThan(newExpenseSource.lastIndexOf(") : null}", onLayoutAt));
   });
 });
 

@@ -4,8 +4,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Image, Linking, Pressable, Share, Text, View } from "react-native";
 // Platform/Alert are imported separately: items-commerce-flow.test.ts (COM-106) pins the
 // exact react-native import line above, so later additions go on this second line
-// (Alert = ITEM-123 B4의 "선물로 받았어요" 확인 흐름 · TextInput = 기능 라운드 1 트랙 D의
-// 품목 메모 입력).
+// (Alert = 선물 받음 취소·gifted 해제(confirmGiftedReset) 확인 흐름 · TextInput = 기능
+// 라운드 1 트랙 D의 품목 메모 입력).
 import { Alert, Platform, TextInput } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import {
@@ -191,6 +191,13 @@ function productDetailInfoCardStyle() {
     marginTop: -8
   };
 }
+/**
+ * 토스 이월 라운드 T-A: 이 화면 인라인 Pressable들의 press 피드백 한 벌 — 직전 라운드(토스급)가
+ * 홈·더보기·리포트에 세운 그 관례 그대로다(homePressedStyle · morePressedStyle ·
+ * reportPressedFeedbackStyle, 공용 킷의 0.76~0.86 범위에서 0.76). 휴지 상태(누르지 않음)에는
+ * 아무 스타일도 더하지 않으므로 렌더는 종전과 픽셀 단위로 같다(ITEM-002 캡처 불변).
+ */
+const productDetailPressedStyle = { opacity: 0.76 } as const;
 const productDetailFloatingControlsStyle = {
   alignItems: "center",
   flexDirection: "row",
@@ -224,14 +231,20 @@ const productDetailChromeButtonStyle = {
  */
 const PRODUCT_DETAIL_CHROME_HIT_SLOP = 7;
 
+/**
+ * 토스 이월 라운드 T-A: 텍스트 글리프("<" · "[]")가 아이콘 자리를 흉내 내던 마지막 두 자리를
+ * 공용 AppIcon으로 바꾼다 — 뒤로가기는 저장소 전역의 chevron-left 관례(기록 탭 달 이동 ·
+ * ScreenHeader/IconButton), 공유하기는 더보기 내보내기 행이 이미 쓰는 share-outline이다.
+ * 접근성 라벨·역할·히트 영역(PRODUCT_DETAIL_CHROME_HIT_SLOP)은 한 글자도 바뀌지 않는다.
+ */
 function ProductDetailNavigation({ onShare }: { onShare: () => void }) {
   return (
     <View style={productDetailFloatingControlsStyle}>
-        <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP} onPress={() => router.back()} style={productDetailChromeButtonStyle}>
-          <Text style={{ color: theme.colors.brown, fontSize: 18, fontWeight: "800" }}>{"<"}</Text>
+        <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP} onPress={() => router.back()} style={({ pressed }) => [productDetailChromeButtonStyle, pressed && productDetailPressedStyle]}>
+          <AppIcon color={theme.colors.brown} name="chevron-left" size={20} />
         </Pressable>
-        <Pressable accessibilityLabel="공유하기" accessibilityRole="button" hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP} onPress={onShare} style={productDetailChromeButtonStyle}>
-          <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "800" }}>[]</Text>
+        <Pressable accessibilityLabel="공유하기" accessibilityRole="button" hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP} onPress={onShare} style={({ pressed }) => [productDetailChromeButtonStyle, pressed && productDetailPressedStyle]}>
+          <AppIcon color={theme.colors.brown} name="share-outline" size={18} />
         </Pressable>
     </View>
   );
@@ -893,10 +906,14 @@ export default function ItemDetailScreen() {
    * (ITEM-002 픽셀 락 캡처)에서는 null이라 줄 자체가 없다.
    */
   const linkedExpense = linkedExpenseRow({ hasSession, linkedExpense: visibleDetail.linkedExpense });
-  // ITEM-123 (B4): 상태를 바꾸기 전 확인 -- 지출 삭제/설정 화면과 같은 Alert 관례
-  // (질문형 제목 + "취소" cancel 버튼 + 실행 버튼). 준비 전으로 되돌리는 쪽도 목록에서
-  // 항목이 다시 나타나는 눈에 띄는 변화라 같이 확인한다.
-  function confirmGiftedChange() {
+  // ITEM-123 (B4) → 토스 이월 라운드 T-A: "선물로 받았어요" 표시는 **가역 조작**이다 — 같은
+  // 버튼이 곧바로 "선물 받음 취소"가 되어 되돌릴 수 있으므로, 지출 삭제 같은 비가역 조작의
+  // 확인 Alert 관례를 여기까지 넓히지 않고 즉시 반영한다(찜하기 토글과 같은 무확인 관례).
+  // 종전 확인 Alert가 안내하던 '준비완료 탭'은 실재하지 않는 화면이기도 했다 — 오늘 gifted
+  // 항목이 실제로 서는 자리는 준비템 탭의 "정리된 품목" 구획이다(PreparationListParity.tsx).
+  // 되돌리는 쪽(gifted → not_prepared)만 종전 확인을 유지한다: gifted 표시를 **잃는** 방향이라
+  // confirmGiftedReset과 같은 근거다(질문형 제목 + "취소" cancel 버튼 + 실행 버튼).
+  function handleGiftedButtonPress() {
     if (isGifted) {
       Alert.alert("선물 받음을 취소할까요?", "다시 준비 전으로 돌아가요.", [
         { text: "취소", style: "cancel" },
@@ -904,10 +921,7 @@ export default function ItemDetailScreen() {
       ]);
       return;
     }
-    Alert.alert("선물로 받았어요", "이 준비템을 선물로 받은 걸로 표시할까요? 준비완료 탭에서 볼 수 있어요.", [
-      { text: "취소", style: "cancel" },
-      { text: "표시하기", onPress: () => markGifted("gifted") }
-    ]);
+    markGifted("gifted");
   }
   /**
    * 리뷰 F2: gifted는 interested/prepared와 같은 단일 status 컬럼을 쓴다. 그래서 선물로 받았다고
@@ -1071,7 +1085,8 @@ export default function ItemDetailScreen() {
                       key={tab.value}
                       onPress={() => setDetailTab(tab.value)}
                       // 텍스트+패딩(≈31dp)에 hitSlop 6으로는 48dp 타깃 미달이라 높이로 확보한다.
-                      style={{ justifyContent: "flex-end", minHeight: theme.touchTarget }}
+                      // 토스 이월 T-A: press 피드백은 화면 공통 한 벌(productDetailPressedStyle).
+                      style={({ pressed }) => [{ justifyContent: "flex-end", minHeight: theme.touchTarget }, pressed && productDetailPressedStyle]}
                     >
                       <Text
                         style={
@@ -1262,7 +1277,7 @@ export default function ItemDetailScreen() {
               accessibilityLabel={
                 isGifted ? `${visibleDetail.name} 선물 받음 취소` : `${visibleDetail.name} 선물로 받았어요`
               }
-              onPress={confirmGiftedChange}
+              onPress={handleGiftedButtonPress}
             />
           ) : null}
 

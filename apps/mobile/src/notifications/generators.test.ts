@@ -1477,8 +1477,15 @@ describe("라운드 80 B: 게이트의 범위를 그 알림이 단언하는 것�
     expect(callEnd, "그 호출의 끝").toBeGreaterThan(callAt);
     const call = homeSource.slice(callAt, callEnd);
     expect(call).toContain("\n    pendingRecordRows,");
-    // 인자는 여섯 그대로다(새 인자 0건 — 값은 이미 그 스냅샷에 있다).
-    expect(call.split("\n").slice(1).filter((line) => line.trim().length > 0)).toHaveLength(6);
+    // 라운드 80 시점에는 인자가 여섯 그대로였다(그 라운드의 새 인자 0건 — 값은 이미 그 스냅샷에
+    // 있었다). 라운드 98 T-F가 일곱째(stagePreviewSource = 선택 아이 행)를 더했다 — 그 값도
+    // 홈이 이미 읽는 ["children"] 캐시라 새 요청·새 구독은 여전히 0건이다(주석 줄은 세지 않는다).
+    const argLines = call
+      .split("\n")
+      .slice(1)
+      .filter((line) => line.trim().length > 0 && !line.trim().startsWith("//"));
+    expect(argLines).toHaveLength(7);
+    expect(argLines[6]).toContain("selectedChild");
     // 훅은 행을 받아 순수 함수에 그대로 흘린다 — 판정도, offline import도 여기서 늘지 않는다.
     const hookSource = readFileSync(join(process.cwd(), "src/notifications/useHomeNotificationEvaluation.ts"), "utf8");
     expect(hookSource).toContain("pendingRecordRows: ReadonlyArray<PendingRecordRowLike>,");

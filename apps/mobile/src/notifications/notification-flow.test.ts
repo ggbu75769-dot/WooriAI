@@ -27,7 +27,12 @@ describe("NOTI-102 in-app notification center wiring (source verification -- fol
         "    lastMonthExpenses.data?.expenses,",
         // 라운드 79 리뷰(M-3): 여섯째는 예산 경계 게이트의 술어다 — 같은 스냅샷에서 나오지만
         // 회복 가능한 상태 × 이번 달로 좁힌 값이라, 여기서도 새 요청·새 구독은 0건이다.
-        "    hasRecoverablePendingMonthRecords",
+        "    hasRecoverablePendingMonthRecords,",
+        // 라운드 98 T-F: 일곱째는 D-7 예고의 단계 입력 — 홈이 이미 읽는 ["children"] 캐시의
+        // 선택 아이 행 그대로다(새 요청 0건). 행 참조라 effect가 헛돌지 않는다(주석이 그 근거).
+        '    // 트랙 T-F(D-7 예고): 위 selectedChild — 이미 읽고 있는 ["children"] 캐시의 행 그대로다',
+        "    // (새 요청 0건). 행 참조는 새 데이터 전까지 안정적이라(find 결과) effect가 헛돌지 않는다.",
+        "    selectedChild",
         "  );"
       ].join("\n")
     );

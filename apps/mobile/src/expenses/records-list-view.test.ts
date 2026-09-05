@@ -21,6 +21,8 @@ import {
   buildRecordsSearchMonthJumpAction,
   buildRecordsSearchPreviousMonthAction,
   buildRecordsSearchScopeNotice,
+  countRecordsExcludedFromMonthlyTotal,
+  resolveRecordsFocusSearchParam,
   RECORDS_EMPTY_MONTH_CALENDAR_ACTION_LABEL,
   RECORDS_EMPTY_MONTH_CURRENT_ACTION_LABEL,
   RECORDS_SEARCH_PREVIOUS_MONTH_ACTION_LABEL,
@@ -1566,5 +1568,63 @@ describe("FAM-127 지출 상세 배선 (app/expenses/[expenseId].tsx)", () => {
     // 기록 탭이 선택된 아이를 쓰는 자리에서, 상세는 화면에 떠 있는 지출의 아이를 쓴다.
     expect(detailSource).toContain("childId: expense.data?.childId");
     expect(detailSource).not.toContain("const householdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);");
+  });
+});
+
+/**
+ * 토스 이월 T-B(#1) — 월 요약 줄 아래 '선물·환불 N건 제외' 고지의 건수 판정.
+ *
+ * 소스로 확인한 전제(고지의 사실성): 월 합계는 실제로 선물·환불을 세지 않는다 —
+ * `reconcileMonthlyExpenses`의 `monthlyTotalKrw`가 `countsTowardMonthlyTotal`(DNC-015,
+ * expense/구분 없음만 참)로 거른다. 이 함수는 **같은 술어의 부정**을 세므로 고지가 합계와
+ * 어긋날 수 없다.
+ */
+describe("토스 이월 T-B(#1): countRecordsExcludedFromMonthlyTotal", () => {
+  it("합계가 세지 않는 행(선물·환불)만 센다", () => {
+    expect(
+      countRecordsExcludedFromMonthlyTotal([
+        { expenseType: "expense" },
+        { expenseType: "gift" },
+        { expenseType: "refund" },
+        { expenseType: "gift" }
+      ])
+    ).toBe(3);
+  });
+
+  it("일반 지출·구분 없는 레거시 행은 합계에 포함되므로 세지 않는다 (0이면 화면이 아무것도 그리지 않는다)", () => {
+    expect(
+      countRecordsExcludedFromMonthlyTotal([{ expenseType: "expense" }, {}, { expenseType: null }, { expenseType: undefined }])
+    ).toBe(0);
+    expect(countRecordsExcludedFromMonthlyTotal([])).toBe(0);
+  });
+
+  it("술어의 단일 소스는 countsTowardMonthlyTotal이다 — 모든 구분에서 합계 판정의 부정과 일치한다", async () => {
+    const { countsTowardMonthlyTotal } = await import("../offline/expense-list-reconciliation");
+    for (const expenseType of ["expense", "gift", "refund", null, undefined, "future-kind"]) {
+      expect(
+        countRecordsExcludedFromMonthlyTotal([{ expenseType }]),
+        `expenseType=${String(expenseType)}`
+      ).toBe(countsTowardMonthlyTotal(expenseType) ? 0 : 1);
+    }
+  });
+});
+
+/**
+ * 토스 이월 T-B(#2) — 검색 착지 파라미터(`focusSearch`)의 수신측 파싱. 값은 회차(nonce)
+ * 관례다(드릴다운·알림 달력 착지와 같은 판단 — 값이 달라질 때마다 한 번씩만 적용).
+ */
+describe("토스 이월 T-B(#2): resolveRecordsFocusSearchParam", () => {
+  it("값이 있으면 트림해 돌려준다 (배열이면 첫 값 — expo-router 파라미터 관례)", () => {
+    expect(resolveRecordsFocusSearchParam("1")).toBe("1");
+    expect(resolveRecordsFocusSearchParam(" nonce-7 ")).toBe("nonce-7");
+    expect(resolveRecordsFocusSearchParam(["a", "b"])).toBe("a");
+  });
+
+  it("없거나 공백뿐이면 null — 파라미터 없는 진입은 종전과 한 글자도 다르지 않다", () => {
+    expect(resolveRecordsFocusSearchParam(undefined)).toBeNull();
+    expect(resolveRecordsFocusSearchParam(null)).toBeNull();
+    expect(resolveRecordsFocusSearchParam("")).toBeNull();
+    expect(resolveRecordsFocusSearchParam("   ")).toBeNull();
+    expect(resolveRecordsFocusSearchParam([])).toBeNull();
   });
 });

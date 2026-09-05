@@ -97,6 +97,10 @@ import {
   type NecessityFilter
 } from "../../src/items/item-filters";
 import { ITEM_PRICE_BAND_FALLBACK_TEXT, necessityBadgeLabel } from "../../src/items/item-labels";
+// 토스 이월 해소 — 품목 메모(기기 보관) **읽기 소비**: 목록 행의 1줄 미리보기가 전부다.
+// 저장·삭제는 상세 화면(app/items/[itemTemplateId].tsx)의 명시 저장 버튼만 한다.
+import { ITEM_MEMO_CARD_TITLE } from "../../src/items/item-memo";
+import { useItemMemoStore } from "../../src/items/item-memo.store";
 import {
   applyPreBirthFilter,
   isPreBirthFilterActive,
@@ -260,6 +264,16 @@ export default function ItemsScreen() {
   // 그대로 지킨다. 대기/실패 배지의 근거이기도 하다(src/items/pending-status.ts).
   const syncSnapshot = useOfflineSyncSnapshot();
   const pendingStatusIndex = buildPendingItemStatusIndex(syncSnapshot.itemStatusRows, childId);
+  /**
+   * 토스 이월 해소 — 품목 메모(기기 보관, itemTemplateId 단위) 표. 목록 행의 1줄 미리보기가
+   * 읽는 유일한 근거다. **읽기 전용 소비**: 이 화면은 스토어의 저장 함수를 부르지 않는다
+   * (저장·삭제는 상세 화면의 명시 버튼 — src/items/item-memo.store.ts).
+   *
+   * ⚠️ 훅은 모든 early return(아이 미선택·에러·로딩·비세션)보다 위에 선다 — store 훅이
+   * 조건부 반환 아래로 내려가는 것이 과거 실기기 크래시의 원인이었다. ITEM-001 픽셀락
+   * 캡처(비세션)는 renderItemFooter 자체에 도달하지 않으므로 미리보기가 캡처에 서지 않는다.
+   */
+  const itemMemos = useItemMemoStore((state) => state.memos);
   useEffect(() => {
     // 스냅샷은 앱 루트(useOfflineSyncLifecycle)와 저장 경로가 갱신하지만, 이 탭으로 곧장 들어온
     // 첫 렌더에서도 큐를 읽어 두어야 대기 배지가 한 박자 늦게 나타나지 않는다.
@@ -894,13 +908,16 @@ export default function ItemsScreen() {
         minimumGroupSize={1}
         selectedContextKey={childId}
         selectedContextName={childScopeLabel ?? "우리 아이"}
-        // ⚠️ 두 시점(토스 리뷰 L) — T9가 onBack을 옵셔널로 내리며 "필수 프롭이 호출부에게
-        // 목적지를 지어내게 만들었다"(router.push("/(tabs)"))를 은퇴 사유로 적었지만, 이
-        // 유일 호출부는 여전히 그 지어낸 목적지를 넘긴다. 여기서 걷지 않는 이유: 이 화면은
-        // 비세션에서 ITEM-001 픽셀락 캡처이고 TopAppBar의 뒤로 셰브런이 승인 캡처 안에
-        // 있다 — onBack을 걷으면 TopAppBar가 그 버튼 노드를 세우지 않아(가짜 버튼 금지
-        // 규율) 캡처가 움직인다. 걷는 것은 ITEM-001 재대조(변경 요청 문서)와 한 라운드다.
-        onBack={() => router.push("/(tabs)")}
+        // 토스 이월 해소 — **onBack을 걷었다.** 이 화면은 탭 루트라 "뒤로"가 개념적으로 없고,
+        // T9가 옵셔널로 내려 둔 프롭에 유일 호출부가 지어낸 목적지(router.push("/(tabs)"))를
+        // 계속 넘기고 있었다. 안 넘기면 TopAppBar가 뒤로 버튼 노드를 아예 세우지 않는다
+        // (가짜 버튼 금지 규율 — src/preparation/PreparationListParity.tsx의 T9 주석).
+        //
+        // 종전 주석은 "TopAppBar의 뒤로 셰브런이 ITEM-001 승인 캡처 안에 있다"를 걷지 않는
+        // 사유로 적었지만 그 전제가 사실이 아니다: ITEM-001 캡처는 세션을 지우고 찍는 비세션
+        // 렌더이고(app/pixel-lock.tsx), 비세션은 위 `if (!hasSession)` 갈래에서 **이 JSX에
+        // 도달하기 전에** 반환한다 — TopAppBar는 캡처에 한 프레임도 서지 않으므로 이 걷기는
+        // 캡처와 무관하다. `emptyState`를 언제나 넘기므로 onBack을 쓰는 폴백 카드도 도달 불가다.
         // 라운드 72 트랙 E: `onRetry`는 이식본의 조회 실패 가지에만 쓰였는데, 이 화면이 `error`를
         // 넘긴 적이 없어 그 가지는 도달할 수 없었다. 죽은 프롭과 함께 걷었다 — 다시 조회는 이
         // 화면의 당겨서 새로고침(RefreshControl)이 그대로 진다.
@@ -1140,8 +1157,22 @@ export default function ItemsScreen() {
           // "선택"에는 라벨이 없다 -- 모든 타일에 배지가 붙으면 배지가 아무것도 구분하지 못한다.
           // 카탈로그의 사실 하나일 뿐이라 순서·강조·점수에는 관여하지 않는다(DNC-009 무접촉).
           const necessityLabel = necessityBadgeLabel(item.necessityLevel);
+          // 토스 이월 해소: 이 기기에 남긴 품목 메모가 있으면 1줄 미리보기. 메모가 없는 행은
+          // 아무것도 그리지 않는다(빈 프리픽스 금지). 제목 낱말은 상세 카드와 같은 단일 소스
+          // (ITEM_MEMO_CARD_TITLE = "내 메모")를 쓴다 — 지출 메모와 헷갈리지 않기 위한
+          // 그 판정을 여기서 다시 하지 않는다. 전문은 상세 화면에서 읽는다(행은 한 줄만).
+          const memoPreview = itemMemos[item.id];
           return (
             <View style={{ gap: 6 }}>
+              {memoPreview ? (
+                <Text
+                  numberOfLines={1}
+                  accessibilityLabel={`${ITEM_MEMO_CARD_TITLE}: ${memoPreview}`}
+                  style={{ color: theme.colors.gray600, fontSize: 11, lineHeight: 16 }}
+                >
+                  {ITEM_MEMO_CARD_TITLE} · {memoPreview}
+                </Text>
+              ) : null}
               {necessityLabel ? <StatusBadge label={necessityLabel} /> : null}
               {isPrepFocusItem ? (
                 <Text style={{ color: theme.colors.coral[700], fontSize: 11, fontWeight: "700", lineHeight: 16 }}>

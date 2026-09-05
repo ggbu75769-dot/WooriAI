@@ -213,6 +213,12 @@ const noSuggestRows: SuggestSourceRow[] = [];
  */
 const SUGGEST_CHIP_HIT_SLOP = { bottom: 5, left: 3, right: 3, top: 5 } as const;
 
+// 라운드 98 T-G: 본문 스크롤러(src/ui.tsx AppScreen이 굴리는 ScrollView)의 인스턴스 타입 별칭.
+// useRef 제네릭에 그 컴포넌트 이름을 그대로 적으면 keyboard-tap-guard 스윕의 "여는 태그" 규칙과
+// 모양이 겹치므로(타입 인자 배제 대장이 파일 이름을 값으로 문다), 이름을 한 번 우회한다 —
+// 타입은 같다(src/ui.tsx의 AppScreenScrollHandle과 같은 우회·같은 근거).
+type AppBodyScroller = ScrollView;
+
 function formatExpenseDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -615,6 +621,10 @@ export default function NewExpenseScreen() {
    *    올리는 자리*는 둘이 아니다 —
    *    타일이 품목명을 채운 직후 금액으로 커서를 옮기는 `amountInputRef`의 둘이 더해져 **넷**이다
    *    (판매처 쪽의 `focus()` 0건 판정은 그대로다). 다시 찾는 손은 위 두 이름으로 찾는다.
+   *  · ⚠️ 라운드 98 T-G가 변경 요청 문서(toss-T3-entry-EXP001) #2를 이행하며 요약바 연필의
+   *    `focus()`를 `focusItemNameFromSummaryBar`(scrollTo 뒤 focus) 안으로 옮겼다 — 호출 수는
+   *    그대로 **둘**이고(그 헬퍼 하나 + `startCustomItem`의 rAF 하나), 이 문단과 ref·헬퍼가
+   *    더해지며 좌표가 다시 밀려 **오늘은 `:970`·`:1720`이다**.
    *
    * ⚠️ 판매처 쪽의 판정(`focus()`를 쓰지 않는다)은 그대로다 —
    * `src/keyboard-tap-guard.test.ts`가 그 부정 단언을 소스로 문다.
@@ -916,6 +926,17 @@ export default function NewExpenseScreen() {
    */
   const amountInputRef = useRef<TextInput | null>(null);
   /**
+   * 라운드 98 T-G(toss-T3-entry-EXP001 변경 요청 #2) — 본문 스크롤러(AppScreen)의 ref와
+   * 품목명 블록의 y. 요약바 연필은 여태 포커스만 옮겼다: 품목명 블록이 화면 밖이면 키보드만
+   * 올라오고 커서가 어디로 갔는지 보이지 않았다. 이제 연필 탭이 이 y로 스크롤한 뒤 포커스를
+   * 옮긴다(아래 focusItemNameFromSummaryBar — 포커스 동작은 종전 그대로다). y는 세션 렌더의
+   * 품목명 블록 View가 onLayout으로 기억한다 — 블록 위의 조건부 줄(최근 품목 칩·자동 분류
+   * 캡션)이 서고 사라질 때마다 다시 불려 늘 오늘의 값이고, 비세션(EXP-001 캡처)에는 그 블록
+   * 자체가 없어 아무 일도 없다(초기값 0 = 맨 위 — 스크롤이 이미 그 자리다).
+   */
+  const bodyScrollRef = useRef<AppBodyScroller | null>(null);
+  const itemNameBlockYRef = useRef(0);
+  /**
    * 라운드 96 T3 — 판매처 자동완성 칩 줄의 펼침/접힘이 **스냅**이었다(높이가 한 프레임에 튄다).
    * 이 저장소의 애니메이션 관례(launch-animation.tsx · src/ui/Skeleton.tsx)를 그대로 따른다:
    * reduce-motion이 켜져 있으면 종전의 스냅 그대로다(모션을 지어내지 않는다). 값은 화면당 한 번
@@ -940,6 +961,13 @@ export default function NewExpenseScreen() {
     LayoutAnimation.configureNext(
       LayoutAnimation.create(150, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity)
     );
+  };
+  // 라운드 98 T-G: 요약바 연필의 착지. 품목명 블록 위치로 스크롤한 뒤 커서를 옮긴다 — scrollTo의
+  // y는 스크롤 콘텐츠 기준의 블록 y라, 착지하면 블록이 화면 상단 여백(theme.spacing.screen)
+  // 바로 아래에 선다. reduce-motion이면 위 LayoutAnimation 관례와 같은 값으로 즉시 이동한다.
+  const focusItemNameFromSummaryBar = () => {
+    bodyScrollRef.current?.scrollTo({ animated: !reduceMotionEnabled, y: itemNameBlockYRef.current });
+    itemNameInputRef.current?.focus();
   };
 
   // Restores a saved quick-expense draft on mount, so a user who closes the sheet mid-entry
@@ -1701,7 +1729,7 @@ export default function NewExpenseScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={{ backgroundColor: theme.colors.background, flex: 1 }}
     >
-    <AppScreen>
+    <AppScreen scrollViewRef={bodyScrollRef}>
       <View style={quickExpensePixelFrameStyle()}>
         <BottomSheetFrame
           title=""
@@ -2027,7 +2055,14 @@ export default function NewExpenseScreen() {
             도 그대로다. ⚠️ 비세션(EXP-001 캡처)의 숨은 입력칸은 **원래 자리에 그대로** 남는다
             (아래 — 비세션 렌더의 노드 순서를 한 자리도 바꾸지 않는다). */}
         {authToken ? (
-          <View style={{ gap: 8 }}>
+          <View
+            // 라운드 98 T-G: 요약바 연필의 scrollTo가 겨누는 y. onLayout은 렌더 노드를 만들지
+            // 않는 속성이라 세션 렌더의 노드 수·순서도 종전 그대로다(비세션에는 이 블록이 없다).
+            onLayout={(event) => {
+              itemNameBlockYRef.current = event.nativeEvent.layout.y;
+            }}
+            style={{ gap: 8 }}
+          >
             <TextInput
               accessibilityLabel="품목명 입력"
               returnKeyType="done"
@@ -2483,7 +2518,9 @@ export default function NewExpenseScreen() {
                 accessibilityLabel={itemName ? `${itemName} 품목명 수정` : "품목명 입력하기"}
                 accessibilityRole="button"
                 disabled={!authToken}
-                onPress={() => itemNameInputRef.current?.focus()}
+                // 라운드 98 T-G: 포커스만 옮기던 자리에 스크롤이 더해졌다(변경 요청 문서 #2).
+                // 커서는 여전히 본문의 품목명 입력칸 하나로만 간다 — 칸을 둘로 만들지 않는다.
+                onPress={focusItemNameFromSummaryBar}
                 style={({ pressed }) => ({
                   alignItems: "center",
                   flexDirection: "row",
@@ -2647,7 +2684,9 @@ export default function NewExpenseScreen() {
           ) : null}
           <PrimaryButton
             disabled={saveExpense.isPending || isSaveBlocked}
-            label={saveExpense.isPending ? "저장 중" : "저장하기"}
+            // 라운드 98 T-G(변경 요청 문서 #1): '저장 중' → '저장하는 중'. 진행 라벨의 저장소
+            // 다수파 꼴(-하는 중 · 7개 화면)에서 이 시트만 갈라져 있었다.
+            label={saveExpense.isPending ? "저장하는 중" : "저장하기"}
             // 라운드 40 J-1: 잠긴 역할이면 안내만 띄우고 뮤테이션은 시작하지 않는다(guard 관례).
             // 버튼 자체는 그대로 둔다 -- disabled로 바꾸면 이유를 말할 자리가 사라진다.
             onPress={expenseGate.guard(() => {

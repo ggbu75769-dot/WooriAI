@@ -1441,7 +1441,10 @@ export default function HomeScreen() {
     pendingRecordRows,
     lastYearMonth,
     lastMonthExpenses.data?.expenses,
-    hasRecoverablePendingMonthRecords
+    hasRecoverablePendingMonthRecords,
+    // 트랙 T-F(D-7 예고): 위 selectedChild — 이미 읽고 있는 ["children"] 캐시의 행 그대로다
+    // (새 요청 0건). 행 참조는 새 데이터 전까지 안정적이라(find 결과) effect가 헛돌지 않는다.
+    selectedChild
   );
   /**
    * MOB-117 당겨서 새로고침 → GAP-060 #10: **이 화면이 실제로 읽는 캐시 전부**를 갱신한다.

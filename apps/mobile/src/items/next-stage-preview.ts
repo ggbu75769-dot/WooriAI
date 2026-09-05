@@ -81,6 +81,12 @@ export type NextStagePreviewInput = {
 };
 
 export type NextStagePreview = {
+  /**
+   * 어느 갈래의 판정인가 — 출산 예정일 D-day("birth") / 밴드 전환("band"). 라운드 98 리뷰
+   * L-6: D-7 알림(stage-preview-d7.ts)이 문구를 이 갈래로 나눈다 — 종전에는 stageMode를 다시
+   * 봐서(오늘은 동치) 이 모듈이 갈래 조건을 바꾸는 날 조용히 어긋나는 자리였다.
+   */
+  kind: "birth" | "band";
   /** 다가오는 시기 밴드 — 버튼을 탭하면 이 칩을 선택한다(기존 칩 선택, 새 화면 없음). */
   band: StageBandLabel;
   /** 시작까지 남은 날(1~14). */
@@ -181,6 +187,7 @@ export function buildNextStagePreview(input: NextStagePreviewInput): NextStagePr
     // = 목적지 밴드라 기본 상태에서 배너가 절대 서지 않았다. 출산 예정일 D-day는 보는 칩과
     // 무관한 달력 사실이라 배너는 서고, 이미 그 밴드를 보는 중이면 버튼만 접는다(타입 주석).
     return {
+      kind: "birth",
       band: boundary.band,
       daysUntil: boundary.daysUntil,
       startDateIso: boundary.startDateIso,
@@ -196,6 +203,7 @@ export function buildNextStagePreview(input: NextStagePreviewInput): NextStagePr
   if (boundary.band === input.selectedBand) return null;
 
   return {
+    kind: "band",
     band: boundary.band,
     daysUntil: boundary.daysUntil,
     startDateIso: boundary.startDateIso,

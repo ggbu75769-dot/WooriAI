@@ -679,7 +679,8 @@ const BLIND_SPOTS: readonly {
       "보이는 가구 카드였다. 받침 있는 별명이 들어오면 화면과 낭독이 함께 \"지훈네\"가 됐고, 그것은 " +
       "트랙 B가 고친 `}를`·`}과`와 **정확히 같은 병**이었다. " +
       "⚠️⚠️ **오늘의 사실(라운드 94 트랙 A)**: 그 세 바이트가 전부 순수 함수 " +
-      "`nameWithHonorificSuffix()`를 지난다(오늘의 자리 `:413`·`:414`·`:424`) — 리터럴 `}네`는 코드에 " +
+      "`nameWithHonorificSuffix()`를 지난다(오늘의 자리 `:424`·`:425`·`:435` — 라운드 98 리뷰 M-2의 " +
+      "검색 nonce 배선이 more.tsx 윗줄을 늘려 `:413`·`:414`·`:424`에서 밀렸다) — 리터럴 `}네`는 코드에 " +
       "**0건**이고, 남은 `}네`는 그 화면의 **주석 둘**뿐이다(마스킹이 그것을 세지 않는다는 사실을 " +
       "아래 it이 유령 방지로 확인한다). " +
       "⚠️ **그리고 이 사각이 열려 있던 동안 오차의 방향은 조용한 쪽(거짓 초록)이었다** — 조사 쌍에 " +
@@ -1828,9 +1829,11 @@ describe("ⓕ 사각 — 이 스윕이 못 보는 것을 값과 하한으로 적
     // ⚠️ **두 시점**: 라운드 93 시점의 자리는 `:406`·`:407`·`:417`이었고, 트랙 A가 import 한 줄과
     // 두 시점 주석을 더하며 오늘의 자리로 내려왔다(AG-5: 인용은 인용당한 자리를 따라간다).
     expect([...new Set(sites.map((site) => site.file))]).toEqual(["app/(tabs)/more.tsx"]);
-    expect(sites.map((site) => site.line)).toEqual([413, 414, 424]);
-    expect(sites.filter((site) => site.surface === "낭독 라벨").map((site) => site.line)).toEqual([413, 414]);
-    expect(sites.filter((site) => site.surface === "보이는 줄").map((site) => site.line)).toEqual([424]);
+    // 라운드 98 리뷰 M-2(검색 nonce 배선)가 more.tsx 윗줄을 늘려 세 자리가 +11 밀렸다(좌표
+    // 이동 의무 — 종전 413·414·424).
+    expect(sites.map((site) => site.line)).toEqual([424, 425, 435]);
+    expect(sites.filter((site) => site.surface === "낭독 라벨").map((site) => site.line)).toEqual([424, 425]);
+    expect(sites.filter((site) => site.surface === "보이는 줄").map((site) => site.line)).toEqual([435]);
 
     // ⓒ 마스킹이 실제로 일하고 있다 — 같은 파일이 **주석에도** 그 꼴을 적는데 세어지지 않는다.
     const more = readSweptSource("app/(tabs)/more.tsx");

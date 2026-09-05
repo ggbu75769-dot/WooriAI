@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import type { ReactNode } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
@@ -56,6 +57,7 @@ import {
   buildRecordsSearchMonthJumpAction,
   buildRecordsSearchPreviousMonthAction,
   buildRecordsSearchScopeNotice,
+  countRecordsExcludedFromMonthlyTotal,
   expenseCreatedByUserId,
   formatSpentOn,
   matchRecordSearch,
@@ -63,7 +65,8 @@ import {
   recordsRowSubtitle,
   RECORDS_SEARCH_PLACEHOLDER,
   resolveExpenseAuthorLabel,
-  resolveExpenseHouseholdId
+  resolveExpenseHouseholdId,
+  resolveRecordsFocusSearchParam
 } from "../../src/expenses/records-list-view";
 // 기능 라운드 1 트랙 B: 정렬(최신순 ↔ 금액 큰 순)의 판정·문구는 전부 순수 모듈에 있다 — 이
 // 화면은 공용 SegmentedControl을 하나 더 그리고, 금액순일 때 섹션 조립만 평평한 쪽
@@ -137,7 +140,7 @@ import {
   Card,
   CategoryChip,
   EmptyStateCard,
-  ListRow,
+  FloatingActionButton,
   PrimaryButton,
   ScreenHeader,
   SegmentedControl,
@@ -256,29 +259,124 @@ function pushSyncStatus() {
   router.push("/sync-status");
 }
 
+/**
+ * 토스 이월 T-B(#5) — 이 화면 인라인 Pressable의 press 피드백. TOSS-T2가 홈(homePressedStyle)·
+ * 더보기(morePressedStyle)에 세운 **같은 패턴·같은 값**이다(공용 킷의 카드형 프레스 0.76).
+ * 휴지 상태(누르지 않음)에는 아무 스타일도 더하지 않으므로 렌더는 종전과 픽셀 단위로 같다.
+ *
+ * ⚠️ 아이 전환 트리거 한 곳만 정적 style 그대로 둔다 — a11y-contract.test.ts(달 라벨 트리거
+ * 계약)가 그 자리의 `style={{ alignItems: "center", justifyContent: "center", minHeight:
+ * theme.touchTarget }}` 한 줄을 "발명이 아니라 인용"의 원본으로 파일에서 그대로 찾는다.
+ */
+const recordsPressedStyle = { opacity: 0.76 } as const;
+
+/**
+ * 토스 이월 T-B(#8) — 기록 리스트 행의 **flat 표면**.
+ *
+ * 공용 ListRow는 행마다 Card(테두리 1px + 그림자)를 그린다. 한 달치 수십~수백 행이 쌓이는 이
+ * 목록에서는 카드 크롬이 정보가 아니라 소음이고(행 사이 위계가 날짜 헤더·소계로 이미 서 있다),
+ * 토스류 내역 목록의 관례도 flat 행이다. 공용에 flat variant가 없으므로(새 공용 export 금지 —
+ * 다른 화면의 ListRow 사용과 픽셀락은 그대로다) 이 화면 로컬로만 둔다.
+ *
+ * 걷어낸 것은 크롬뿐이다: 제목(body1 700 brown)·부제(caption gray600)·금액(body2 700 brown)의
+ * 글자 스타일과 아이콘 자리는 ListRow와 같고, prop 이름도 같아 기존 배선(title/subtitle/value)이
+ * 한 글자도 바뀌지 않는다. 행 높이는 minHeight: theme.touchTarget(48 ≥ 44)으로 터치 타겟을
+ * 유지한다(누르는 주체는 바깥 Pressable — 이 컴포넌트는 표면만 그린다).
+ */
+const recordsFlatRowStyle = {
+  alignItems: "center",
+  flexDirection: "row",
+  gap: 12,
+  minHeight: theme.touchTarget,
+  paddingHorizontal: 4,
+  paddingVertical: 6
+} as const;
+
+function RecordsFlatRow({
+  icon,
+  title,
+  subtitle,
+  value
+}: {
+  icon?: ReactNode;
+  title: string;
+  subtitle?: string;
+  value?: string;
+}) {
+  return (
+    <View style={recordsFlatRowStyle}>
+      {icon ?? null}
+      <View style={{ flex: 1 }}>
+        {/* 라운드 98 리뷰 L-4: fontSize만 뽑으면 lineHeight가 기본값으로 돌아가 행이 종전 카드보다
+            조밀해진다 — ListRow(textStyles.*)와 같은 줄 높이를 함께 싣는다. */}
+        <Text
+          style={{
+            color: theme.colors.brown,
+            fontSize: theme.typography.body1.fontSize,
+            lineHeight: theme.typography.body1.lineHeight,
+            fontWeight: "700"
+          }}
+        >
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text
+            style={{
+              color: theme.colors.gray600,
+              fontSize: theme.typography.caption.fontSize,
+              lineHeight: theme.typography.caption.lineHeight
+            }}
+          >
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {value ? (
+        <Text
+          style={{
+            color: theme.colors.brown,
+            fontSize: theme.typography.body2.fontSize,
+            lineHeight: theme.typography.body2.lineHeight,
+            fontWeight: "700"
+          }}
+        >
+          {value}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 // PERF-102: memoized row components. Row props are the stable expense/row objects coming from
 // react-query / the offline snapshot, so unrelated screen re-renders (search keystrokes, flash
 // toasts) skip re-rendering already-mounted rows.
 const OfflineExpenseListRow = memo(function OfflineExpenseListRow({ row }: { row: LocalExpenseRow }) {
+  // 토스 이월 T-B(#8): 카드 크롬은 flat 표면으로 걷혔고, 누르는 주체(役)는 이 Pressable이
+  // 그대로 진다 -- 목적지(동기화 상태 화면)·role은 종전 ListRow의 onPress 경로와 같다.
   return (
-    <ListRow
-      icon={offlineStatusIcon(row.syncState)}
-      title={row.payload.itemName}
-      // GAP-054 라운드 54 P1-2: 대기 행도 구분(선물·환불)을 앞세운다 -- 같은 기록의 "환불 ·"이
-      // 동기화 상태에 따라 나타났다 사라지지 않도록. 규칙은 서버 행과 같은 순수 모듈에 있다.
-      subtitle={offlineRecordRowSubtitle({
-        expenseType: row.payload.expenseType,
-        statusLabel: row.pendingDelete
-          ? SYNC_ROW_PENDING_DELETE_LABEL
-          : row.syncState === "conflict"
-            ? SYNC_ROW_CONFLICT_LABEL
-            : row.syncState === "failed"
-              ? SYNC_ROW_FAILED_LABEL
-              : `${SYNC_ROW_PENDING_LABEL} · ${formatSpentOn(row.payload.spentOn)}`
-      })}
-      value={formatKrw(row.payload.amountKrw)}
+    <Pressable
+      accessibilityRole="button"
       onPress={pushSyncStatus}
-    />
+      style={({ pressed }) => (pressed ? recordsPressedStyle : null)}
+    >
+      <RecordsFlatRow
+        icon={offlineStatusIcon(row.syncState)}
+        title={row.payload.itemName}
+        // GAP-054 라운드 54 P1-2: 대기 행도 구분(선물·환불)을 앞세운다 -- 같은 기록의 "환불 ·"이
+        // 동기화 상태에 따라 나타났다 사라지지 않도록. 규칙은 서버 행과 같은 순수 모듈에 있다.
+        subtitle={offlineRecordRowSubtitle({
+          expenseType: row.payload.expenseType,
+          statusLabel: row.pendingDelete
+            ? SYNC_ROW_PENDING_DELETE_LABEL
+            : row.syncState === "conflict"
+              ? SYNC_ROW_CONFLICT_LABEL
+              : row.syncState === "failed"
+                ? SYNC_ROW_FAILED_LABEL
+                : `${SYNC_ROW_PENDING_LABEL} · ${formatSpentOn(row.payload.spentOn)}`
+        })}
+        value={formatKrw(row.payload.amountKrw)}
+      />
+    </Pressable>
   );
 });
 
@@ -383,17 +481,23 @@ const ServerExpenseListRow = memo(function ServerExpenseListRow({
       onAccessibilityAction={handleRowAccessibilityAction}
       onLongPress={openRowActionSheet}
       onPress={openExpenseDetail}
+      // 토스 이월 T-B(#5): 행 탭에도 press 피드백 -- 종전에는 안쪽 ListRow의 Pressable이
+      // 피드백 주체였는데 이 화면은 그것을 잠가 두어(아래 주석 1) 행이 무반응으로 보였다.
+      style={({ pressed }) => (pressed ? recordsPressedStyle : null)}
     >
       {/* 안쪽을 잠그는 이유 두 가지.
-          (1) 터치: 공용 ListRow는 자기 루트가 Pressable이라 그대로 두면 그것이 responder를
-              가져가 바깥의 롱프레스가 영영 오지 않는다. onPress를 넘기지 않고
-              pointerEvents="none"으로 잠가 탭/롱프레스를 바깥 하나가 소유한다.
-          (2) 접근성: Pressable은 기본적으로 스스로 접근성 요소라, 감추지 않으면 행 안에 초점이
-              두 개 생겨 커스텀 액션이 붙은 바깥이 아닌 안쪽에 초점이 갈 수 있다. 감추는 대신
-              바깥이 같은 세 문자열로 만든 라벨을 읽어 준다(보이는 것과 읽히는 것이 같다).
-          그려지는 모양은 예전과 같은 ListRow 그대로이고, 다른 화면의 ListRow 사용은 그대로다. */}
+          (1) 터치: 예전 공용 ListRow는 자기 루트가 Pressable이라 그대로 두면 그것이 responder를
+              가져가 바깥의 롱프레스가 영영 오지 않았다. onPress를 넘기지 않고
+              pointerEvents="none"으로 잠가 탭/롱프레스를 바깥 하나가 소유한다 -- T-B(#8)로
+              안쪽이 flat 표면(RecordsFlatRow, Pressable 아님)이 된 뒤에도 잠금은 그대로 둔다
+              (표면이 다시 Pressable로 바뀌는 회귀를 이 잠금이 막는다).
+          (2) 접근성: 감추지 않으면 행 안에 초점이 두 개 생겨 커스텀 액션이 붙은 바깥이 아닌
+              안쪽에 초점이 갈 수 있다. 감추는 대신 바깥이 같은 세 문자열로 만든 라벨을 읽어
+              준다(보이는 것과 읽히는 것이 같다).
+          T-B(#8): 그려지는 것은 카드 크롬을 걷어낸 flat 행(RecordsFlatRow)이다 -- 공용 ListRow는
+          손대지 않았으므로 다른 화면의 ListRow 사용은 그대로다. */}
       <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" pointerEvents="none">
-        <ListRow title={expense.itemName} subtitle={subtitle} value={formatKrw(expense.amountKrw)} />
+        <RecordsFlatRow title={expense.itemName} subtitle={subtitle} value={formatKrw(expense.amountKrw)} />
       </View>
     </Pressable>
   );
@@ -566,6 +670,8 @@ export default function RecordsScreen() {
     view?: string;
     // 라운드 57 QA(P1-1): 달력 착지의 회차(notification-route.ts의 RECORDS_VIEW_NONCE_PARAM).
     viewNonce?: string;
+    // 토스 이월 T-B(#2): 검색 착지 회차 -- 수신부만 서 있다(파서 doc comment 참고).
+    focusSearch?: string;
   }>();
   const monthParam = Array.isArray(monthParams.month) ? monthParams.month[0] : monthParams.month;
   const [monthOffset, setMonthOffset] = useState(() =>
@@ -635,6 +741,35 @@ export default function RecordsScreen() {
     if (monthParam) setMonthOffset(resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() }));
     setSelectedCategoryId(resolveDrilldownCategoryIdParam(categoryIdParam));
   }, [drilldownNonceParam, monthParam, categoryIdParam]);
+  /**
+   * 토스 이월 T-B(#2) — 검색 착지(`focusSearch`) **수신부**.
+   *
+   * 더보기 탭의 검색 버튼(app/(tabs)/more.tsx)은 현재 파라미터 없이 `/(tabs)/records`로만
+   * 온다 -- 보내는 쪽 배선은 이 트랙 소유 밖이라, 여기서는 받는 쪽만 세운다: 회차 값이 실려
+   * 오면 검색 입력에 포커스를 준다(파싱 규약은 순수 모듈 resolveRecordsFocusSearchParam).
+   *
+   * 가드는 드릴다운(라운드 52)·달력 착지(라운드 57 QA P1-1)와 같은 **회차(값) 단위**다: 이
+   * 탭은 한 번 열리면 계속 마운트된 채라, 가드가 없으면 재렌더마다 포커스를 빼앗고 boolean
+   * 가드면 두 번째 착지부터 죽는다. 값이 같은 회차 안에서는 다시 돌지 않으므로, 착지 뒤
+   * 사용자가 검색창을 떠나도 앱이 포커스를 되돌리지 않는다.
+   */
+  const focusSearchParam = resolveRecordsFocusSearchParam(monthParams.focusSearch);
+  const appliedFocusSearchRef = useRef<string | null>(null);
+  // 타입 인자를 `<TextInput>`로 적는 이유: keyboard-tap-guard.test.ts가 "정찰의 좁은 바늘
+  // `<TextInput␣`은 이 두 파일에서 0건"을 전제 재실측으로 물고 있다(여는 태그만 세는 규칙의 근거).
+  const searchInputRef = useRef<TextInput>(null);
+  useEffect(() => {
+    if (!focusSearchParam) return;
+    if (appliedFocusSearchRef.current === focusSearchParam) return;
+    appliedFocusSearchRef.current = focusSearchParam;
+    // 검색 입력은 ListHeaderComponent 안에 있고 첫 커밋에 함께 마운트되므로(요소로 넘기는
+    // listHeader -- 인라인 컴포넌트가 아니다) effect 시점에는 ref가 이미 차 있다.
+    // 라운드 98 리뷰 L-1: 이 탭은 마운트가 유지되므로 목록을 깊이 내려 둔 채 착지할 수 있다 —
+    // RN은 화면 밖 TextInput 포커스에 스크롤을 얹지 않아 키보드만 뜨는 결함 모양이 된다
+    // (new.tsx 연필과 같은 모양). 검색 입력이 사는 리스트 헤더로 먼저 올린 뒤 포커스를 준다.
+    sectionListRef.current?.getScrollResponder()?.scrollTo({ y: 0, animated: false });
+    searchInputRef.current?.focus();
+  }, [focusSearchParam]);
   /**
    * UX-D: 리스트/달력 보기.
    *
@@ -1076,6 +1211,22 @@ export default function RecordsScreen() {
     [serverExpenses, childOfflineRows, recordsYearMonth]
   );
 
+  // 토스 이월 T-B(#1): 월 요약 줄의 합계(DNC-015 countsTowardMonthlyTotal)가 세지 않은 선물·환불
+  // 행의 수. 모집단은 요약 줄의 건수와 **같은** 필터 무관 월 전체(서버 행 + 오프라인 대기 행)다 --
+  // 술어·판정은 순수 모듈에 있고(화면에 expenseType 비교가 다시 서지 않는다), 0이면 아래에서
+  // 아무것도 그리지 않는다.
+  const giftRefundExcludedCount = useMemo(
+    () =>
+      countRecordsExcludedFromMonthlyTotal([
+        ...offlinePendingRows.map((row) => ({ expenseType: row.payload.expenseType })),
+        ...monthlyServerExpenses
+      ]),
+    [offlinePendingRows, monthlyServerExpenses]
+  );
+  // 라운드 98 리뷰 L-3: 고지 문구는 이 한 벌뿐이다 — 화면 표기와 낭독 라벨("·"→쉼표)이 같은
+  // 값에서 파생된다(새 한국어 리터럴 0건, keyboard-tap-guard ⓔ의 문구 수 14 유지).
+  const giftRefundExclusionNoticeText = `선물·환불 ${giftRefundExcludedCount}건은 합계에서 제외했어요`;
+
   // 정밀 리뷰 F3: 델타의 두 항이 **같은 규칙**으로 나와야 한다.
   //
   // 이번 달 항(monthlyTotalKrw)은 reconcileMonthlyExpenses를 거쳐 미동기화 로컬 행까지 포함하는데,
@@ -1436,8 +1587,11 @@ export default function RecordsScreen() {
   const listHeader = (
     <View style={{ gap: theme.spacing.section, marginBottom: theme.spacing.section }}>
       {/* 라운드 39 UX-P: 부제도 보고 있는 달을 말한다. 종전에는 6월을 펼쳐 놓고도 "이번 달
-          지출 내역"이라고 적혀 있어, 바로 아래 월 이동 라벨("2026년 6월")과 어긋났다. */}
-      <ScreenHeader eyebrow="지출 기록" title="기록" subtitle={`${recordsMonthLabel} 지출 내역을 한눈에 확인해 보세요.`} />
+          지출 내역"이라고 적혀 있어, 바로 아래 월 이동 라벨("2026년 6월")과 어긋났다.
+          토스 이월 T-B(#7): eyebrow("지출 기록")를 걷었다 -- 제목("기록")과 같은 뜻이 두 줄로
+          겹쳐 서던 자리다(알림함이 라운드에서 같은 이유로 eyebrow="알림"을 걷은 그 판단 --
+          notification-flow.test.ts). 남는 한 자리는 탭 이름과 같은 제목이다. */}
+      <ScreenHeader title="기록" subtitle={`${recordsMonthLabel} 지출 내역을 한눈에 확인해 보세요.`} />
 
       <PrimaryButton label="빠른 지출 기록" onPress={expenseGate.guard(() => router.push("/expenses/new"))} />
 
@@ -1448,7 +1602,7 @@ export default function RecordsScreen() {
           accessibilityLabel={syncStatusChipAccessibilityLabel(childSyncCounts)}
           accessibilityRole="button"
           onPress={() => router.push("/sync-status")}
-          style={{ alignItems: "center", flexDirection: "row", gap: 8 }}
+          style={({ pressed }) => [{ alignItems: "center", flexDirection: "row", gap: 8 }, pressed && recordsPressedStyle]}
         >
           {childSyncCounts.pending + childSyncCounts.syncing > 0 ? (
             <StatusBadge label={syncStatusBadgeLabel("pending", childSyncCounts.pending + childSyncCounts.syncing)} tone="neutral" />
@@ -1460,7 +1614,10 @@ export default function RecordsScreen() {
         </Pressable>
       ) : null}
 
-      <View style={{ gap: 6 }}>
+      {/* 토스 이월 T-B(#4): 이 블록의 요약 줄들이 caption(11px)급으로 4~5줄 쌓여 있었다 --
+          본문급 정보(월 요약·검색 범위·스코프·비교)가 각주 크기로 서던 자리라 body2로 승격하고
+          줄 사이 간격을 8로 맞춘다(기록 탭에는 픽셀락 없음). */}
+      <View style={{ gap: 8 }}>
         {/* 라운드 49 C-08/C-09: 아이 이름은 이제 요약 문장 **앞에 붙는 항목**이 아니라 이 블록의
             첫 줄이다. " · "로 이어 붙이면("다온이 · 2026년 8월 42건 · 합계 …") 구분자가 셋이
             되면서 이름이 "8월"·"합계"와 동급 항목처럼 읽혔다. 줄을 나누면 층위가 눈에 보이고
@@ -1477,7 +1634,12 @@ export default function RecordsScreen() {
             hitSlop={8}
             onPress={childSwitch.toggle}
             testID="records-child-switch-trigger"
-            style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
+            // 라운드 98 리뷰 M-1: 이 트리거만 press 피드백이 없던 예외를 걷는다 — 기준 객체는
+            // a11y-contract의 인용 원본이라 바이트 그대로 두고, pressed 겹만 더한다(핀 동반 이관).
+            style={({ pressed }) => [
+              { alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget },
+              pressed && recordsPressedStyle
+            ]}
           >
             <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "800" }}>
               {childScopeLabel}
@@ -1513,7 +1675,10 @@ export default function RecordsScreen() {
             disabled={!canGoPrevMonth}
             hitSlop={12}
             onPress={goToPreviousMonth}
-            style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget, opacity: canGoPrevMonth ? 1 : 0.35 }}
+            style={({ pressed }) => [
+              { alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget, minWidth: theme.touchTarget, opacity: canGoPrevMonth ? 1 : 0.35 },
+              pressed && recordsPressedStyle
+            ]}
           >
             <AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />
           </Pressable>
@@ -1532,7 +1697,10 @@ export default function RecordsScreen() {
               hitSlop={8}
               onPress={() => setMonthJumpOpen((open) => !open)}
               testID="records-month-jump-trigger"
-              style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
+              style={({ pressed }) => [
+                { alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget },
+                pressed && recordsPressedStyle
+              ]}
             >
               <Text style={{ color: theme.colors.brown, fontSize: 16, fontWeight: "800" }}>{recordsMonthLabel}</Text>
             </Pressable>
@@ -1546,13 +1714,16 @@ export default function RecordsScreen() {
             disabled={!canGoNextMonth}
             hitSlop={12}
             onPress={goToNextMonth}
-            style={{
-              alignItems: "center",
-              justifyContent: "center",
-              minHeight: theme.touchTarget,
-              minWidth: theme.touchTarget,
-              opacity: canGoNextMonth ? 1 : 0.35
-            }}
+            style={({ pressed }) => [
+              {
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: theme.touchTarget,
+                minWidth: theme.touchTarget,
+                opacity: canGoNextMonth ? 1 : 0.35
+              },
+              pressed && recordsPressedStyle
+            ]}
           >
             <AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />
           </Pressable>
@@ -1578,9 +1749,24 @@ export default function RecordsScreen() {
           <Text
             testID="records-month-summary"
             accessibilityLabel={withSpokenChildScopeLabel(monthSummary.accessibilityLabel, childScopeLabel)}
-            style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
+            style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize, textAlign: "center" }}
           >
             {monthSummary.text}
+          </Text>
+        ) : null}
+        {/* 토스 이월 T-B(#1): 위 요약 줄의 '합계'는 DNC-015(countsTowardMonthlyTotal)대로 선물·
+            환불을 세지 않는다 -- 그 행들은 목록에는 그대로 보이므로, 소계 합산에서 왜 빠지는지를
+            화면이 한 줄로 직접 말한다(건수 판정은 순수 모듈 countRecordsExcludedFromMonthlyTotal,
+            합계와 같은 술어 한 벌). 0건이면 렌더하지 않아 평소 화면은 한 줄도 늘지 않고, 게이트는
+            요약 줄과 같다(expenses.data) -- 설명할 합계가 화면에 없으면 이 줄도 없다. */}
+        {expenses.data && giftRefundExcludedCount > 0 ? (
+          <Text
+            testID="records-total-exclusion-notice"
+            // 라운드 98 리뷰 L-3: 스택 이웃 줄들의 관례대로 "·"를 쉼표로 풀어 낭독한다(파생 한 벌).
+            accessibilityLabel={giftRefundExclusionNoticeText.replace("·", ", ")}
+            style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize, textAlign: "center" }}
+          >
+            {giftRefundExclusionNoticeText}
           </Text>
         ) : null}
         {/* 라운드 59 트랙 A 후속 배선 — **"동기화 대기"라고 부를 수 없는 행**이 이 달 목록에 섞여
@@ -1608,7 +1794,7 @@ export default function RecordsScreen() {
         {showList && !filterScopeSummary && permanentlyFailedCount > 0 ? (
           <Text
             testID="records-unsendable-notice"
-            style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
+            style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize, textAlign: "center" }}
           >
             {unsendableRowsNoticeText(permanentlyFailedCount)}
           </Text>
@@ -1619,7 +1805,7 @@ export default function RecordsScreen() {
         {searchScopeNotice ? (
           <Text
             testID="records-search-scope"
-            style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
+            style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize, textAlign: "center" }}
           >
             {searchScopeNotice}
           </Text>
@@ -1634,7 +1820,7 @@ export default function RecordsScreen() {
             accessibilityLabel={filterScopeSummary.accessibilityLabel}
             style={{
               color: theme.colors.gray600,
-              fontSize: theme.typography.caption.fontSize,
+              fontSize: theme.typography.body2.fontSize,
               fontWeight: "700",
               textAlign: "center"
             }}
@@ -1647,7 +1833,7 @@ export default function RecordsScreen() {
         {lastMonthInsight ? (
           <Text
             testID="records-last-month-insight"
-            style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, textAlign: "center" }}
+            style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize, textAlign: "center" }}
           >
             {lastMonthInsight.text}
           </Text>
@@ -1665,6 +1851,8 @@ export default function RecordsScreen() {
           라운드 54 P2-10: 그 목록을 여기 다시 적지 않고 **같은 상수에서** 만든다 -- 구분자가
           자리마다 갈려(고지는 가운뎃점, 여기는 쉼표) 소리로는 다른 문장이 되던 자리다. */}
       <TextInput
+        // 토스 이월 T-B(#2): 검색 착지(focusSearch 파라미터) 수신부가 포커스를 줄 자리.
+        ref={searchInputRef}
         accessibilityLabel={RECORDS_SEARCH_PLACEHOLDER}
         returnKeyType="search"
         onChangeText={setSearchText}
@@ -1732,7 +1920,11 @@ export default function RecordsScreen() {
           <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
             {recordsMonthLabel} 합계
           </Text>
-          <Text style={{ color: theme.colors.brown, fontSize: 24, fontWeight: "800" }}>
+          {/* 토스 이월 T-B(#3): 인라인 24/800 대신 디자인 시스템 금액 티어(amountMedium 24/30/700
+              · tabular-nums)를 소비한다 -- 자릿수가 바뀌어도 숫자 폭이 흔들리지 않는다(T1 티어의
+              존재 이유). 새 토큰을 만들지 않았다(theme.typography.amount*의 단일 소스는
+              design-system/tokens/typography.ts). */}
+          <Text style={[theme.typography.amountMedium, { color: theme.colors.brown }]}>
             {formatKrw(monthlyTotalKrw)}
           </Text>
         </Card>
@@ -1876,9 +2068,21 @@ export default function RecordsScreen() {
         contentContainerStyle={{
           backgroundColor: theme.colors.background,
           flexGrow: 1,
-          padding: theme.spacing.screen
+          padding: theme.spacing.screen,
+          // 토스 이월 T-B(#6): FAB가 스크롤과 무관하게 하단에 떠 있으므로(아래 오버레이) 목록
+          // 끝 행이 버튼에 가려지지 않게 홈(TOSS-T2 canvas)과 같은 값으로 바닥 여백을 더 준다.
+          paddingBottom: theme.spacing.screen + theme.ctaHeight + 8
         }}
       />
+      {/* 토스 이월 T-B(#6): 기록 추가 FAB. 이 화면은 AppScreen을 쓸 수 없으므로(PERF-102 --
+          리스트 자신이 스크롤러다) 그 floatingAction 슬롯(T1)이 그리는 오버레이를 같은 값으로
+          이 자리에 둔다: box-none이라 떠 있는 줄의 빈 자리는 터치를 아래 리스트로 통과시키고,
+          버튼만 잡는다. 목적지·게이트는 홈 FAB(TOSS-T2)·상단 "빠른 지출 기록" 버튼과 한 글자도
+          다르지 않다(UX-R(M) 게이트 계약 -- record-permissions.test.ts). 이 탭도 홈처럼 탭바
+          위에 서므로 안전영역 하단 인셋은 탭바가 이미 진다. */}
+      <View style={{ bottom: theme.spacing.screen, left: 0, pointerEvents: "box-none", position: "absolute", right: 0 }}>
+        <FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />
+      </View>
     </View>
   );
 }
