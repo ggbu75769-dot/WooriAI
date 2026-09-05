@@ -235,8 +235,9 @@ describe("QA-DEMO-JOURNEY: full demo user journey through the API client (local 
     expect(progress.completed).toBe(false);
     expect(progress.nextStep).toBe("prepared-items");
     expect(progress.summary.child).toMatchObject({ id: LOCAL_CHILD_ID, nickname: "여정이" });
-    // 데모 세션의 이어하기 판정(src/onboarding/resume.ts) -- 아이를 만들었으므로 대상이다.
-    expect(hasResumeWorthyProgress(progress, true)).toBe(true);
+    // 이어하기 판정(src/onboarding/resume.ts) -- 아이를 만들었으므로 대상이다.
+    // (라운드 99 F1(H): 판정이 세션 종류를 가르지 않게 되면서 둘째 인자가 사라졌다.)
+    expect(hasResumeWorthyProgress(progress)).toBe(true);
     // ONB-006 "이어서 하기"의 목적지: 아이 생성 화면을 다시 타지 않는다.
     expect(routeForOnboardingNextStep(progress.nextStep)).toBe("/onboarding/prepared-items");
     // 그래서 태명은 그대로다(아이를 다시 만들지 않으므로 교체가 일어나지 않는다).

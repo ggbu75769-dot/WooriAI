@@ -364,7 +364,26 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   FORBIDDEN: "권한이 없어 처리하지 못했어요. 가족 구성원 여부와 내 역할을 확인해 주세요.",
 
   // --- 가족 참여 (apps/api/src/households/household-runtime.service.ts) ---
-  HOUSEHOLD_ALREADY_MEMBER: "이미 이 가족의 구성원이에요."
+  HOUSEHOLD_ALREADY_MEMBER: "이미 이 가족의 구성원이에요.",
+
+  /**
+   * --- 멱등키 충돌 409 (apps/api/src/common/idempotency/idempotency.interceptor.ts) ---
+   *
+   * 라운드 99 트랙 F1(M): 같은 Idempotency-Key가 **다른 본문**과 함께 다시 오면 서버가 24시간
+   * 동안 돌려주는 코드다. 앱 쪽 1차 수리는 키를 본문 지문에 묶어 이 409에 애초에 닿지 않게
+   * 하는 것이고(src/children/child-create-idempotency.ts · onboarding-progress.store.ts),
+   * 이 줄은 그 수리가 못 덮는 잔여(구버전이 남긴 지문 없는 키 · 동시 이중 발사)를 위한 2차다 —
+   * 종전에는 표에 없어 "네트워크 연결을 확인한 뒤 다시 시도해 주세요"라는 **틀린 안내**가
+   * 나갔다(네트워크는 멀쩡했고, 같은 재제출은 몇 번을 눌러도 같은 409다).
+   *
+   * ⚠️ 이 코드는 서버에서 문장을 여럿 나른다(본문 충돌 · 이전 요청 처리 중 · 이전 요청 실패 —
+   * 전부 `conflictError()`의 변수 message라 위 ⓔ 스윕의 리터럴 그물에는 걸리지 않는다). 문장
+   * 하나로 셋을 다 덮어야 하므로, 셋에 공통인 사실만 말한다: **이전 제출이 이미 처리됐을 수
+   * 있다** — 그래서 재시도 대신 확인을 권한다(재시도 무익 처리는 온보딩 저장 실패 카드가
+   * 진다 — src/onboarding/step-ui.tsx). 목적지를 박지 않는 이유는 CHILD_NOT_FOUND가 배운
+   * 그것이다: 이 표는 코드 단위라, 온보딩(목록 없음)과 설정(목록 있음)이 같은 문장을 듣는다.
+   */
+  IDEMPOTENCY_KEY_CONFLICT: "이전 제출이 이미 처리됐을 수 있어요. 저장된 내용이 있는지 먼저 확인해 주세요."
 };
 
 /**

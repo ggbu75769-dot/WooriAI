@@ -103,6 +103,21 @@ export function isOnboardingSaveForbidden(error: unknown): boolean {
 }
 
 /**
+ * 라운드 99 트랙 F1(M) — 이 저장 실패가 **멱등키 충돌(409)**인가.
+ *
+ * 같은 Idempotency-Key + 다른 본문에 서버가 24시간 돌려주는 거절이다
+ * (idempotency.interceptor.ts). 같은 제출을 그대로 다시 보내는 [재시도]는 같은 키 + 같은
+ * 본문을 다시 보낼 뿐이라 결과가 바뀌지 않는다 — 403이 세운 그 규율(다시 눌러도 결과가 같은
+ * 자리에 버튼을 두지 않는다) 그대로 카드가 [재시도]를 내린다. 문구는 표가 답한다
+ * (src/api/api-error.ts의 IDEMPOTENCY_KEY_CONFLICT — "이전 제출이 이미 처리됐을 수 있어요…").
+ * 1차 수리(키를 본문 지문에 묶기)는 저장 경로 쪽에 있고, 이 판정은 그 수리가 못 덮는 잔여의
+ * 2차 방어다.
+ */
+export function isOnboardingSaveIdempotencyConflict(error: unknown): boolean {
+  return hasApiErrorCode(error, "IDEMPOTENCY_KEY_CONFLICT");
+}
+
+/**
  * 저장 실패 -> 화면 문구. 아는 코드 둘만 갈라내고 나머지는 종전 문구 그대로다.
  * `CONSENT_REQUIRED`를 먼저 본다 — 둘 다 403이지만 이쪽이 더 구체적인 사실이다.
  *
@@ -265,6 +280,9 @@ export function OnboardingSaveErrorCard({
 }) {
   const forbidden = isOnboardingSaveForbidden(error);
   const consentRequired = isOnboardingConsentRequired(error);
+  // 라운드 99 트랙 F1(M): 멱등키 충돌도 "다시 눌러도 결과가 같은" 4xx다 — 403과 같은 관례로
+  // [재시도]를 내린다(문구는 표가 답한다 — 아래 onboardingSaveErrorMessage의 knownByCode 갈래).
+  const idempotencyConflict = isOnboardingSaveIdempotencyConflict(error);
   // 라운드 72 트랙 A(#1): 이 카드는 실패했을 때만 그려지므로(세 화면 모두 `save.isError ?`)
   // 마운트되는 순간이 곧 실패 시점이고, 그때 폴이 한 번 돈다.
   // 라운드 72 리뷰 S-1: 그래서 종전의 `isError` 인자는 **언제나 리터럴 `true`**였다 —
@@ -308,7 +326,7 @@ export function OnboardingSaveErrorCard({
             label={ONBOARDING_CONSENT_RETRY_ACTION_LABEL}
             onPress={onReconsent}
           />
-        ) : forbidden ? null : (
+        ) : forbidden || idempotencyConflict ? null : (
           <SecondaryButton accessibilityLabel="저장 재시도" label="재시도" onPress={onRetry} />
         )}
       </Card>

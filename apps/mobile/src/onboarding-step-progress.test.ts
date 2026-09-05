@@ -134,9 +134,51 @@ describe("ONB-105 save-failure recovery", () => {
     it("403이면 [재시도] 버튼 자체를 내린다 (다시 눌러도 결과가 같은 자리)", () => {
       expect(stepUiSource).toContain("const forbidden = isOnboardingSaveForbidden(error);");
       // 라운드 65 후속(#1): 같은 자리에 CONSENT_REQUIRED 갈래가 하나 더 생겼다 -- 권한 실패는
-      // 종전 그대로 버튼이 없고(`forbidden ? null`), 그 뒤 기본 갈래만 [재시도]다.
-      expect(stepUiSource).toContain(") : forbidden ? null : (");
+      // 종전 그대로 버튼이 없고, 그 뒤 기본 갈래만 [재시도]다.
+      // 라운드 99 트랙 F1(M) — ⚠️ 두 시점: 종전 핀은 `) : forbidden ? null : (`(재시도 무익
+      // 4xx가 403 하나)였다. 멱등키 충돌 409가 같은 규율(다시 눌러도 결과가 같은 자리)에
+      // 합류하면서 갈래가 `forbidden || idempotencyConflict`로 넓어졌다.
+      expect(stepUiSource).toContain(") : forbidden || idempotencyConflict ? null : (");
       expect(stepUiSource).toContain('<SecondaryButton accessibilityLabel="저장 재시도" label="재시도" onPress={onRetry} />');
+    });
+  });
+
+  /**
+   * 라운드 99 트랙 F1(M) — **멱등키 충돌(409 IDEMPOTENCY_KEY_CONFLICT)의 2차 방어.**
+   *
+   * 1차 수리는 키를 본문 지문에 묶어 이 409에 애초에 닿지 않게 한 것이다(위 멱등키 배선 핀).
+   * 그래도 잔여(구버전이 남긴 지문 없는 키 · 동시 이중 발사)가 이 코드를 받을 수 있고, 종전에는
+   * 표에 없어 "네트워크 연결을 확인한 뒤 다시 시도해 주세요"라는 틀린 안내 + 무익 [재시도]였다.
+   */
+  describe("라운드 99 F1(M): 멱등키 충돌 409는 참인 안내 + 재시도 무익 처리", () => {
+    // 화면 모듈(step-ui)은 react-native를 끌고 와 vitest에서 import할 수 없다(이 저장소의 관례
+    // — local-progress.test.ts 계약 ⓒ와 같다). 그래서 값은 표 모듈을 **그대로 평가해** 확인하고,
+    // 배선(그 값이 서는 갈래·버튼)은 소스로 고정한다.
+    it("문구는 표(src/api/api-error.ts)가 답한다 -- 네트워크 폴백이 아니다", async () => {
+      const { API_ERROR_MESSAGES, ApiHttpError, apiErrorCodeOf, apiErrorMessageForCode } = await import(
+        "./api/api-error"
+      );
+      const conflict = new ApiHttpError(409, {
+        error: { code: "IDEMPOTENCY_KEY_CONFLICT", message: "이미 다른 요청 본문으로 사용된 Idempotency-Key예요.", requestId: "req-1" }
+      });
+      // 표가 아는 코드가 됐으므로 onboardingSaveErrorMessage의 knownByCode 갈래가 이 문장을 낸다.
+      const shown = apiErrorMessageForCode(apiErrorCodeOf(conflict));
+      expect(shown).toBe(API_ERROR_MESSAGES.IDEMPOTENCY_KEY_CONFLICT);
+      expect(shown).toContain("이전 제출이 이미 처리됐을 수 있어요");
+      // 종전 폴백("네트워크 연결을 확인한 뒤…")과 갈렸다 — 네트워크는 이 실패의 사실이 아니다.
+      expect(shown).not.toContain("네트워크");
+      // 그 갈래가 실제로 서는 자리(표 호출)가 소스에 있다.
+      const stepUiSource = source("src/onboarding/step-ui.tsx");
+      expect(stepUiSource).toContain("const knownByCode = apiErrorMessageForCode(apiErrorCodeOf(error));");
+    });
+
+    it("판정은 코드 하나로 하고, 카드는 그 갈래에서 [재시도]를 내린다", () => {
+      const stepUiSource = source("src/onboarding/step-ui.tsx");
+      expect(stepUiSource).toContain("export function isOnboardingSaveIdempotencyConflict");
+      expect(stepUiSource).toContain('hasApiErrorCode(error, "IDEMPOTENCY_KEY_CONFLICT")');
+      expect(stepUiSource).toContain("const idempotencyConflict = isOnboardingSaveIdempotencyConflict(error);");
+      // 재시도 무익 갈래(403의 그 자리)에 합류한다 — 위 403 케이스의 핀과 같은 줄이다.
+      expect(stepUiSource).toContain(") : forbidden || idempotencyConflict ? null : (");
     });
   });
 
@@ -144,7 +186,10 @@ describe("ONB-105 save-failure recovery", () => {
     const childProfileSource = source("app/(onboarding)/child-profile.tsx");
     // A retried createChild must reuse the same Idempotency-Key (cleared only on success), so
     // tapping 재시도 can never create a duplicate child.
-    expect(childProfileSource).toContain("getOrCreateChildCreateIdempotencyKey()");
+    // 라운드 99 트랙 F1(M) — ⚠️ 두 시점: 종전 핀은 인자 없는 호출이었다. 키가 본문 지문에
+    // 묶이면서(같은 본문 재시도만 같은 키 — 다른 본문이면 새 키라 409 루프가 없다) 호출이
+    // 지문을 넘긴다. [재시도]는 본문을 바꾸지 않으므로 이 계약(같은 키 재사용)은 그대로다.
+    expect(childProfileSource).toContain("getOrCreateChildCreateIdempotencyKey(childCreateBodyFingerprint(body))");
     expect(childProfileSource).toContain("clearChildCreateIdempotencyKey()");
   });
 });

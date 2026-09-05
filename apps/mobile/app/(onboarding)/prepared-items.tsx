@@ -9,7 +9,14 @@ import { listItems, LOCAL_SESSION_TOKEN, setPreparedItems } from "../../src/api/
 import { OFFLINE_LOAD_NOTICE } from "../../src/offline/messages";
 import { useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 // 라운드 72 트랙 A(#1): "이 단계를 로컬로 통과할 수 있는가"의 순수 판정 + 그 버튼의 라벨.
-import { canPassPreparedItemsLocally, PREPARED_ITEMS_LOCAL_PASS_LABEL } from "../../src/onboarding/local-progress";
+// 라운드 99 트랙 F1(L): 아이 없이 들어온 진입의 탈출구(계약 ⓔ) — 문구·라벨·목적지 전부 그 모듈에서 온다.
+import {
+  canPassPreparedItemsLocally,
+  PREPARED_ITEMS_LOCAL_PASS_LABEL,
+  preparedItemsMissingChildEscapeLabel,
+  preparedItemsMissingChildEscapeRoute,
+  preparedItemsMissingChildNotice
+} from "../../src/onboarding/local-progress";
 import {
   PREPARED_ITEMS_PARTIAL_ALERT_TITLE,
   preparedIdsToSubmit,
@@ -25,7 +32,7 @@ import {
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, PrimaryButton, ScreenHeader, TextButton } from "../../src/ui";
+import { AppScreen, Card, PrimaryButton, ScreenHeader, SecondaryButton, TextButton } from "../../src/ui";
 import { SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
@@ -122,6 +129,46 @@ export default function PreparedItemsScreen() {
       Alert.alert(PREPARED_ITEMS_PARTIAL_ALERT_TITLE, notice, [{ text: "확인", onPress: proceed }]);
     }
   });
+
+  /**
+   * 라운드 99 트랙 F1(L) — **아이 없이 들어온 진입의 탈출구**(계약 ⓔ · early return).
+   *
+   * ⚠️ 두 시점: 종전에는 이 갈래가 없었다. 딥링크로 selectedChildId 없이 이 화면이 열리면
+   * 목록 쿼리는 돌지 않고(enabled 게이트), 아래 0건 문구("…건너뛰어도 괜찮아요")와 "건너뛰고
+   * 계속" 라벨이 뜨는데 그 버튼은 저장 가드(`!selectedChildId`) 때문에 **영구 비활성**이었다 —
+   * 건너뛰어도 된다고 말하면서 건너뛸 수 없는 막다른 화면이다. 이제 그 상태는 이 전용 뷰가
+   * 받아, 사실 한 줄과 ONB-001로 돌아가는 길을 준다(문구·라벨·목적지는 순수 모듈에서 —
+   * src/onboarding/local-progress.ts 계약 ⓔ, 목적지는 라우트 표 한 벌).
+   *
+   * ⚠️ 훅은 전부 이 return **위**에 있다(마지막 훅이 위 save 뮤테이션이다) — 갈래가 렌더마다
+   * 같은 훅 순서를 지킨다. 아래 본래 화면의 갈래·문구·버튼은 한 글자도 바뀌지 않는다.
+   */
+  if (!selectedChildId) {
+    return (
+      <AppScreen>
+        <View testID="screen-ONB-003" style={{ gap: theme.spacing.section }}>
+          <OnboardingStepProgress screenId="ONB-003" />
+          <ScreenHeader
+            eyebrow="출산 준비물"
+            title="이미 준비한 물건이 있나요?"
+            subtitle="체크한 항목은 준비물 목록에서 완료로 표시할게요."
+          />
+          <View testID="onboarding-prepared-items-missing-child">
+            <Card style={{ gap: theme.spacing.gap }}>
+              <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body2.fontSize, lineHeight: 20 }}>
+                {preparedItemsMissingChildNotice()}
+              </Text>
+              <SecondaryButton
+                accessibilityLabel={preparedItemsMissingChildEscapeLabel()}
+                label={preparedItemsMissingChildEscapeLabel()}
+                onPress={() => router.replace(preparedItemsMissingChildEscapeRoute())}
+              />
+            </Card>
+          </View>
+        </View>
+      </AppScreen>
+    );
+  }
 
   // 목록을 못 받았거나(오프라인·서버 오류) 지금 시기에 보여줄 준비템이 없을 때는 이 단계를
   // 건너뛸 수 있어야 한다. 건너뛰기도 같은 저장(빈 목록 = 0건)을 태운다 — 서버가 단계 완료

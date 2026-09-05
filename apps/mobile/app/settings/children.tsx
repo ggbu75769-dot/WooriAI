@@ -29,7 +29,11 @@ import {
   validateChildForm,
   type ChildFormValues
 } from "../../src/children/child-form";
-import { getOrCreateChildCreateKey, rotateChildCreateKey } from "../../src/children/child-create-idempotency";
+import {
+  childCreateBodyFingerprint,
+  getOrCreateChildCreateKey,
+  rotateChildCreateKey
+} from "../../src/children/child-create-idempotency";
 import { applyChildSwitch, CHILD_SCOPED_QUERY_KEY_PREFIXES, childSwitchOptionAccessibilityLabel } from "../../src/children/child-switch";
 import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";
 import {
@@ -294,7 +298,10 @@ export default function ManageChildrenScreen() {
   // Same timer-in-ref discipline as more.tsx's export toast: never setState after unmount.
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // FIX-118B(F2): Idempotency-Key holder for 아이 추가 -- see child-create-idempotency.ts.
-  const addIdempotencyKeyRef = useRef<string | null>(null);
+  // 라운드 99 트랙 F1(M) — ⚠️ 두 시점: 종전에는 키 문자열 하나였다. 이제 키가 발급된 본문의
+  // 지문이 함께 살아, 입력을 고친 재제출이 옛 키를 재사용해 409(IDEMPOTENCY_KEY_CONFLICT)
+  // 루프에 갇히지 않는다(홀더 모양·판정은 그 모듈 한 곳에 있다).
+  const addIdempotencyKeyRef = useRef<{ key: string; bodyFingerprint: string } | null>(null);
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -481,14 +488,19 @@ export default function ManageChildrenScreen() {
   });
 
   const addChild = useMutation({
-    mutationFn: (input: { stageMode: ChildStageMode; values: ChildFormValues }) =>
-      createChild(
+    mutationFn: (input: { stageMode: ChildStageMode; values: ChildFormValues }) => {
+      const body = buildCreateChildBody(householdId!, input.stageMode, input.values);
+      return createChild(
         authToken!,
-        buildCreateChildBody(householdId!, input.stageMode, input.values),
+        body,
         // FIX-118B(F2): one key per input session, reused by every retry of THIS submission --
         // a lost response can no longer be retried into a second child.
-        getOrCreateChildCreateKey(addIdempotencyKeyRef)
-      ),
+        // 라운드 99 트랙 F1(M) — ⚠️ 두 시점: 종전에는 지문 없이 "같은 입력 세션 = 같은 키"였다.
+        // 이제 본문 지문이 같을 때만 재사용한다 — 입력을 고친 재제출은 재시도가 아니라 새
+        // 제출이라 새 키가 나간다(같은 키 + 다른 본문은 서버 409 루프였다).
+        getOrCreateChildCreateKey(addIdempotencyKeyRef, childCreateBodyFingerprint(body))
+      );
+    },
     onSuccess: async (created, input) => {
       // 성공 시 회전: the next 아이 추가 must be a genuinely new creation, not a replay of this one.
       rotateChildCreateKey(addIdempotencyKeyRef);

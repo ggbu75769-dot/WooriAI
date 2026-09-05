@@ -225,7 +225,26 @@ export default function LoginScreen() {
        * (문구·판정은 src/onboarding/step-ui.tsx 한 곳).
        */
       await upsertConsents(result.tokens.accessToken).catch(() => undefined);
-      router.replace(inviteResumeHref ?? "/onboarding/child-status");
+      /**
+       * 라운드 99 트랙 F1(H) — **실세션 로그인의 목적지도 "/"다.**
+       *
+       * ⚠️ 두 시점: 종전 이 줄은 `inviteResumeHref ?? "/onboarding/child-status"`였다 — 로그인
+       * 성공이 무조건 ONB-001로 보냈다. 갈랐던 이유는 이력이다: MOB-101이 이어하기를 세울 때
+       * "실계정은 로그인 직후 곧장 ONB-001로 간다"를 전제로 두었고(그 전제 위에서 app/index.tsx의
+       * 진행도 조회는 **콜드 스타트만** 받으면 됐다), 데모 경로만 실기기 피드백 1이 "/"로 옮겼다.
+       *
+       * 그런데 그 전제가 곧 구멍이었다: **기존 사용자**가 새 기기에서(또는 세션 만료 후) 다시
+       * 로그인하면 서버 진행도를 묻지 않고 온보딩 첫 화면으로 갔고, 새 기기에는 로컬 방어
+       * (완료 표시·selectedChildId·멱등키 — 전부 이 기기의 persist)가 하나도 없어서 그 길 끝의
+       * `POST /children`이 **같은 아이를 하나 더** 만들었다. 이 저장소에서 사용자가 가장 되돌리기
+       * 어려운 오염이고(local-progress.ts 머리말의 그 판정), 그것을 만든 것은 라우팅이었다.
+       *
+       * 그래서 데모 경로(아래 continueWithLogin)와 같은 곳으로 위임한다: "/"는 app/index.tsx의
+       * MOB-101 진행도 판정 한 곳으로 모인다 — 완료면 탭, 중단이면 ONB-006, 신규면 ONB-001.
+       * 신규 계정이 "/"를 한 번 경유하는 왕복(진행도 조회 한 번)은 그 화면의 콜드 스타트 홀딩 뷰
+       * (ColdStartHoldView — "onboarding-progress" 갈래 + 3초 밸브)가 흰 화면 없이 덮는다.
+       */
+      router.replace(inviteResumeHref ?? "/");
     } catch (error) {
       // Pressing 취소 on Kakao's consent screen is a normal outcome, not an error state.
       if (error instanceof KakaoLoginCancelledError) return;

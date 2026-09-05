@@ -233,11 +233,11 @@ export default function IndexScreen() {
           markHomeReached();
           return;
         }
-        // Only worth an interstitial resume screen once there is real progress to show
-        // (consents already accepted, i.e. past the very first step) -- otherwise this is
-        // just a fresh account and should start at ONB-001 like today. 데모 세션의 기준은
-        // 조금 더 엄격하다 -- hasResumeWorthyProgress 주석 참고.
-        if (hasResumeWorthyProgress(progress, isTestSession)) {
+        // Only worth an interstitial resume screen once there is real progress to show --
+        // otherwise this is just a fresh account and should start at ONB-001 like today.
+        // 라운드 99 트랙 F1(H): 로그인 목적지가 실세션도 "/"로 통일되면서 이 판정은 세션 종류를
+        // 더 이상 가르지 않는다(종전 둘째 인자 isTestSession) -- hasResumeWorthyProgress 주석 참고.
+        if (hasResumeWorthyProgress(progress)) {
           setResumeProgress(progress);
           setHasResumeTarget(true);
         }
@@ -254,7 +254,6 @@ export default function IndexScreen() {
       .finally(() => setProgressFetch("done"));
   }, [
     hydrated,
-    isTestSession,
     progressToken,
     hasReachedHome,
     progressFetch,

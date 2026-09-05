@@ -175,7 +175,10 @@ describe("로그인 화면의 약관 링크 (source contract)", () => {
       "loginFailureMessage({",
       "kakaoConfigured: isKakaoLoginAvailable()",
       "await upsertConsents(result.tokens.accessToken).catch(() => undefined);",
-      'router.replace(inviteResumeHref ?? "/onboarding/child-status");',
+      // 라운드 99 트랙 F1(H) — ⚠️ 두 시점: 종전 이 목록의 실세션 목적지는
+      // `inviteResumeHref ?? "/onboarding/child-status"`였다. 로그인 목적지가 "/"로 통일되면서
+      // (login-screen-contract.test.ts의 그 계약) 이 무변경 목록도 새 사실로 이관한다 —
+      // 이 파일이 무는 것(링크 열기 갈래가 로그인 분기를 건드리지 않았다)은 그대로다.
       "startTestSession();",
       'router.replace(inviteResumeHref ?? "/");'
     ]) {

@@ -87,7 +87,8 @@ describe("MOB-118 아이 관리 screen contract (app/settings/children.tsx)", ()
 
   it("adds a child with the same field mapping as onboarding and selects it", () => {
     const screenSource = source(screenPath);
-    expect(screenSource).toContain("buildCreateChildBody(householdId!, input.stageMode, input.values)");
+    // 라운드 99 F1(M): 본문을 변수로 받아 멱등키 지문과 요청이 같은 한 값을 쓴다(핀만 그 모양으로 이관).
+    expect(screenSource).toContain("const body = buildCreateChildBody(householdId!, input.stageMode, input.values);");
     expect(screenSource).toContain("setSelectedChildId(created.id)");
     expect(screenSource).toContain("CHILD_STAGE_MODE_OPTIONS.map");
   });
@@ -98,12 +99,19 @@ describe("MOB-118 아이 관리 screen contract (app/settings/children.tsx)", ()
   it("sends an Idempotency-Key with 아이 추가 (one key per input session, rotated on success)", () => {
     const screenSource = source(screenPath);
     expect(screenSource).toContain('from "../../src/children/child-create-idempotency"');
-    expect(screenSource).toContain("getOrCreateChildCreateKey(addIdempotencyKeyRef)");
+    // 라운드 99 트랙 F1(M) — ⚠️ 두 시점: 종전 핀은 `getOrCreateChildCreateKey(addIdempotencyKeyRef)`
+    // (홀더만, 본문 무관)였다. 키가 본문 지문에 묶이면서 호출이 지문을 함께 넘긴다 — 입력을
+    // 고친 재제출이 옛 키를 재사용해 409(IDEMPOTENCY_KEY_CONFLICT) 루프에 갇히지 않는다.
+    expect(screenSource).toContain(
+      "getOrCreateChildCreateKey(addIdempotencyKeyRef, childCreateBodyFingerprint(body))"
+    );
     // Rotated when a new input session opens AND after a successful creation.
     const startAddBlock = screenSource.slice(screenSource.indexOf("const startAdd = () => {"));
     expect(startAddBlock.slice(0, 400)).toContain("rotateChildCreateKey(addIdempotencyKeyRef)");
+    // 라운드 99 F1(M): 지문 주석·본문 변수화로 뮤테이션 머리가 길어져 창을 900 → 1600으로 넓혔다
+    // (무는 사실은 그대로다 — 성공 onSuccess 초입에서 회전한다).
     const onSuccessBlock = screenSource.slice(screenSource.indexOf("const addChild = useMutation("));
-    expect(onSuccessBlock.slice(0, 900)).toContain("rotateChildCreateKey(addIdempotencyKeyRef)");
+    expect(onSuccessBlock.slice(0, 1600)).toContain("rotateChildCreateKey(addIdempotencyKeyRef)");
     // The key must actually reach the request as a header (client.ts third argument).
     const clientSource = source("src/api/client.ts");
     expect(clientSource).toContain('headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined');
@@ -191,23 +199,55 @@ describe("MOB-118 아이 관리 screen contract (app/settings/children.tsx)", ()
 });
 
 // FIX-118B(F2): the settings-scoped key holder itself (pure module, no react-native).
+// 라운드 99 트랙 F1(M) — ⚠️ 두 시점: 종전 홀더는 키 문자열 하나였고 호출도 홀더 하나였다
+// ("같은 입력 세션 = 같은 키"). 키가 제출 본문 지문에 묶이면서 아래 케이스들이 그 새 사실을
+// 문다 — 같은 본문 재시도만 같은 키, 본문이 갈리면 새 키(409 IDEMPOTENCY_KEY_CONFLICT 루프 차단).
 describe("FIX-118B 설정 아이 추가 Idempotency-Key holder", () => {
-  it("reuses one key across retries of the same input session and rotates after success", async () => {
+  it("reuses one key across retries of the same-body submission and rotates after success", async () => {
     const { getOrCreateChildCreateKey, rotateChildCreateKey } = await import("./child-create-idempotency");
-    const holder = { current: null as string | null };
+    const holder = { current: null as { key: string; bodyFingerprint: string } | null };
 
-    const first = getOrCreateChildCreateKey(holder);
+    const first = getOrCreateChildCreateKey(holder, "fp-a");
     expect(first).toMatch(/^set-child-/);
     // A retry of the SAME submission must reuse it -- that is what makes the POST idempotent.
-    expect(getOrCreateChildCreateKey(holder)).toBe(first);
-    expect(holder.current).toBe(first);
+    expect(getOrCreateChildCreateKey(holder, "fp-a")).toBe(first);
+    expect(holder.current?.key).toBe(first);
 
     // 성공 시 회전: the next 아이 추가 is a new creation, not a replay of the previous one.
     rotateChildCreateKey(holder);
     expect(holder.current).toBeNull();
-    const second = getOrCreateChildCreateKey(holder);
+    const second = getOrCreateChildCreateKey(holder, "fp-a");
     expect(second).not.toBe(first);
     expect(second).toMatch(/^set-child-/);
+  });
+
+  it("라운드 99 F1(M): 본문이 갈리면 새 키 -- 같은 키 + 다른 본문의 409 루프를 만들지 않는다", async () => {
+    const { getOrCreateChildCreateKey } = await import("./child-create-idempotency");
+    const holder = { current: null as { key: string; bodyFingerprint: string } | null };
+
+    const first = getOrCreateChildCreateKey(holder, "fp-a");
+    // 응답을 잃은 사용자가 입력을 고쳐 재제출 → 재시도가 아니라 새 제출이라 새 키.
+    const second = getOrCreateChildCreateKey(holder, "fp-b");
+    expect(second).not.toBe(first);
+    // 새 본문의 재시도는 다시 안정적으로 같은 키를 받는다.
+    expect(getOrCreateChildCreateKey(holder, "fp-b")).toBe(second);
+  });
+
+  it("라운드 99 F1(M): childCreateBodyFingerprint는 정규화 지문이다 (필드 순서·undefined 부재 무관, 값이 다르면 다르다)", async () => {
+    const { childCreateBodyFingerprint } = await import("./child-create-idempotency");
+    const base = { householdId: "hh-1", nickname: "튼튼이", stageMode: "born", birthDate: "2026-03-02", dueDate: undefined };
+
+    // 같은 본문 = 같은 지문(키 순서·undefined 필드의 유무는 본문의 차이가 아니다).
+    expect(childCreateBodyFingerprint(base)).toBe(
+      childCreateBodyFingerprint({ nickname: "튼튼이", birthDate: "2026-03-02", stageMode: "born", householdId: "hh-1" })
+    );
+    // 값이 하나라도 다르면 다른 지문 — 이 차이가 곧 "새 키를 발급하라"는 신호다.
+    expect(childCreateBodyFingerprint(base)).not.toBe(
+      childCreateBodyFingerprint({ ...base, nickname: "씩씩이" })
+    );
+    expect(childCreateBodyFingerprint(base)).not.toBe(
+      childCreateBodyFingerprint({ ...base, birthDate: "2026-03-03" })
+    );
   });
 
   it("does not collide with onboarding's key namespace (set-child- vs onb-child-)", async () => {
