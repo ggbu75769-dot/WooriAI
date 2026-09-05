@@ -46,13 +46,16 @@ describe("T-B(#1) '선물·환불 N건 제외' 고지", () => {
 });
 
 describe("T-B(#2) 더보기 검색 착지 — 기록 탭 수신부", () => {
-  it("⚠️ 오늘의 값: 보내는 쪽은 아직 없다 — 더보기 검색 버튼은 파라미터 없이 온다", () => {
-    // app/(tabs)/more.tsx의 검색 버튼은 router.push("/(tabs)/records") 한 줄이다(이 트랙 소유
-    // 밖이라 손대지 않았다). 이 단언은 사실의 기록이다: 보내는 쪽이 focusSearch를 싣기 시작하는
-    // 라운드는 이 단언을 그 사실로 갱신하면 된다 — 수신부는 아래 계약대로 이미 서 있다.
+  it("보내는 쪽이 산다 — 더보기 검색 버튼이 focusSearch 회차를 싣는다 (라운드 98 리뷰 M-2)", () => {
+    // 라운드 98 T-B 시점에는 보내는 쪽이 없었다(검색 버튼은 파라미터 없는 push 한 줄 — 그때의
+    // 단언이 그 사실을 값으로 기록했다). 같은 라운드 리뷰 M-2가 그 사문 배선을 닫았다: 더보기가
+    // 단조 카운터 nonce(리포트 드릴다운 관례)를 싣고, 비세션 갈래(/settings)는 종전 그대로다.
     const moreSource = source("app/(tabs)/more.tsx");
-    expect(moreSource).toContain('router.push(hasSession ? "/(tabs)/records" : "/settings")');
-    expect(moreSource).not.toContain("focusSearch");
+    expect(moreSource).toContain(
+      'router.push({ pathname: "/(tabs)/records", params: { focusSearch: String(nonce) } });'
+    );
+    expect(moreSource).toContain('router.push("/settings");');
+    expect(moreSource).toContain("const nonce = searchFocusNonce + 1;");
   });
 
   it("focusSearch 파라미터를 순수 파서로 읽고, 검색 TextInput ref에 포커스를 준다", () => {
@@ -67,12 +70,21 @@ describe("T-B(#2) 더보기 검색 착지 — 기록 탭 수신부", () => {
   it("가드는 회차(값) 단위다 — 재렌더는 포커스를 빼앗지 않고, 새 회차는 다시 포커스한다", () => {
     const effectAt = recordsSource.indexOf("if (!focusSearchParam) return;");
     expect(effectAt).toBeGreaterThan(-1);
-    const effect = recordsSource.slice(effectAt, effectAt + 400);
+    // 라운드 98 리뷰 L-1이 스크롤 한 줄과 근거 주석을 더해 구간이 길어졌다 — 끝 앵커로 자른다.
+    const effectEnd = recordsSource.indexOf("}, [focusSearchParam]);", effectAt);
+    expect(effectEnd).toBeGreaterThan(effectAt);
+    const effect = recordsSource.slice(effectAt, effectEnd + "}, [focusSearchParam]);".length);
     expect(effect).toContain("if (appliedFocusSearchRef.current === focusSearchParam) return;");
     // 소모 표시가 적용보다 먼저 선다(라운드 57 QA P1-1 달력 착지와 같은 순서).
     expect(effect.indexOf("appliedFocusSearchRef.current = focusSearchParam;")).toBeLessThan(
       effect.indexOf("searchInputRef.current?.focus();")
     );
+    // 라운드 98 리뷰 L-1: 목록을 내려 둔 채 착지해도 검색 입력이 보이게, 스크롤이 포커스보다
+    // 먼저 선다(헤더 착지 → focus 순).
+    expect(effect.indexOf("scrollTo({ y: 0, animated: false })")).toBeLessThan(
+      effect.indexOf("searchInputRef.current?.focus();")
+    );
+    expect(effect.indexOf("scrollTo({ y: 0, animated: false })")).toBeGreaterThan(-1);
     // 회차가 deps에 있어야 마운트된 채로도 두 번째 착지가 effect를 깨운다.
     expect(effect).toContain("}, [focusSearchParam]);");
   });
@@ -119,16 +131,24 @@ describe("T-B(#5) 인라인 Pressable press 피드백 — TOSS-T2 홈/더보기�
     expect(recordsSource).toContain("const recordsPressedStyle = { opacity: 0.76 } as const;");
     // 래퍼형(기본 스타일 없음): 서버 행 · 오프라인 행.
     expect((recordsSource.match(/\(\{ pressed \}\) => \(pressed \? recordsPressedStyle : null\)/g) ?? []).length).toBe(2);
-    // 합성형(기존 스타일 위에 얹음): 동기화 칩 줄 · 달 화살표 둘 · 달 라벨 트리거.
-    expect((recordsSource.match(/pressed && recordsPressedStyle/g) ?? []).length).toBe(4);
+    // 합성형(기존 스타일 위에 얹음): 동기화 칩 줄 · 달 화살표 둘 · 달 라벨 트리거,
+    // 그리고 라운드 98 리뷰 M-1이 예외를 걷은 아이 전환 트리거까지 다섯이다.
+    expect((recordsSource.match(/pressed && recordsPressedStyle/g) ?? []).length).toBe(5);
   });
 
-  it("⚠️ 예외 한 곳: 아이 전환 트리거는 정적 style 그대로다 (a11y-contract의 인용 원본 한 줄)", () => {
-    // a11y-contract.test.ts(달 라벨 트리거 계약)가 이 한 줄을 파일에서 그대로 찾는다 — 감싸는
-    // 콜백으로 바꾸면 그 계약이 "발명이 아니라 인용"의 근거를 잃는다.
+  it("예외가 걷혔다: 아이 전환 트리거도 press 피드백을 받는다 — 인용 원본 객체는 보존 (라운드 98 리뷰 M-1)", () => {
+    // T-B 시점에는 이 트리거만 정적 style 그대로였다(a11y-contract가 그 한 줄을 인용 원본으로
+    // 바이트째 찾아서). 리뷰 M-1이 그 예외를 걷었다: style은 함수꼴이 됐지만 기준 객체는 함수 안에
+    // 바이트 그대로 남고, a11y-contract의 핀도 같은 커밋에서 객체 단위로 함께 이관됐다.
     expect(recordsSource).toContain(
-      'style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}'
+      '{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget },'
     );
+    const triggerAt = recordsSource.indexOf('testID="records-child-switch-trigger"');
+    expect(triggerAt).toBeGreaterThan(-1);
+    // 여는 태그 끝(">")은 style 화살표 함수의 "=>"와 겹쳐 앵커가 못 된다 — 닫는 태그로 자른다.
+    const triggerEnd = recordsSource.indexOf("</Pressable>", triggerAt);
+    expect(triggerEnd).toBeGreaterThan(triggerAt);
+    expect(recordsSource.slice(triggerAt, triggerEnd)).toContain("pressed && recordsPressedStyle");
   });
 });
 

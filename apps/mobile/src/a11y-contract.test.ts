@@ -1262,8 +1262,11 @@ describe("GAP-064 #6 터치 타깃 소스 계약 (높이 + 2×세로 hitSlop ≥
     }
 
     // 이 한 줄이 새로 지은 값이 아니라는 근거: 같은 파일의 아이 전환 트리거가 쓰던 그 줄이다.
+    // 라운드 98 리뷰 M-1(핀 동반 이관): 그 트리거가 press 피드백을 얻어 style이 함수꼴이 됐다 —
+    // 인용 원본의 기준 객체는 그 함수 안에 바이트 그대로 남아 있으므로, 여기서는 객체를 문다
+    // (종전에는 `style={{ … }}` 정적 꼴 전체를 물었다).
     expect(source("app/(tabs)/records.tsx")).toContain(
-      'style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}'
+      '{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }'
     );
   });
 

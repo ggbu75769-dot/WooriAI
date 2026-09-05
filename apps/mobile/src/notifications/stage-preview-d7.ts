@@ -71,6 +71,15 @@ import type { AppNotificationCandidate } from "./notification.store";
  * 캐시의 행이고, 로컬 백엔드(src/api/local-backend.ts)도 같은 필드를 그대로 서빙하므로
  * 데모/스탠드얼론 세션에서도 실계정과 똑같이 돈다(notification.store.ts 머리말의 계약).
  * 서버 신규 엔드포인트 0건.
+ *
+ * ## 알려진 한계 — 발화 뒤의 문장은 노화한다 (라운드 98 리뷰 L-5)
+ *
+ * 문구는 발화 시점의 사실이다: "9월 15일이에요"는 예정일이 그 뒤 수정되거나 전환일이 지나면
+ * 알림함 목록에 **거짓 시제로 얼어붙는다**. 이는 monthly_wrapup 등 목록형 알림 전부가 공유하는
+ * 성질이고(발화 시점 스냅샷 — 목록은 이력이지 현재 상태가 아니다), 시점어("오늘"·"내일")를
+ * 금지하는 이 모듈의 규칙은 노화 속도를 늦출 뿐 시제까지 막지는 못한다. 예정일이 갈리면 새
+ * 키의 새 문장이 서고(테스트 "전환일이 달라지면 새 사실로 다시 선다"), 옛 문장은 남는다 —
+ * 그 선택의 근거가 이 문단이다.
  */
 
 /** 예고 창(일). 배너의 14일 안쪽 — 이 안으로 들어와야 알림이 선다. */
@@ -137,10 +146,11 @@ export function stagePreviewD7Notification(input: StagePreviewD7Input): AppNotif
   const month = Number(preview.startDateIso.slice(5, 7));
   const day = Number(preview.startDateIso.slice(8, 10));
 
-  // 임신 갈래의 경계는 출산 예정일 그 자체다(next-stage-preview의 kind "birth" — 그 갈래는
-  // stageMode "pregnant"에서만 나온다). 문구만 갈리고 판정·키는 한 벌이다.
+  // 임신 갈래의 경계는 출산 예정일 그 자체다. 라운드 98 리뷰 L-6: 갈래도 판정이 낸 값
+  // (preview.kind)에서 읽는다 — 종전에는 stageMode를 다시 봤고(오늘은 동치), 그건
+  // next-stage-preview가 갈래 조건을 바꾸는 날 조용히 어긋나는 미세 복제였다.
   const title =
-    input.stageMode === "pregnant"
+    preview.kind === "birth"
       ? `『${input.childName}』${objectParticle(input.childName)} 만날 예정일이 ${month}월 ${day}일이에요.`
       : `『${input.childName}』${subjectParticle(input.childName)} ${month}월 ${day}일에 ${preview.band} 시기에 들어서요.`;
 

@@ -307,15 +307,39 @@ function RecordsFlatRow({
     <View style={recordsFlatRowStyle}>
       {icon ?? null}
       <View style={{ flex: 1 }}>
-        <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
+        {/* 라운드 98 리뷰 L-4: fontSize만 뽑으면 lineHeight가 기본값으로 돌아가 행이 종전 카드보다
+            조밀해진다 — ListRow(textStyles.*)와 같은 줄 높이를 함께 싣는다. */}
+        <Text
+          style={{
+            color: theme.colors.brown,
+            fontSize: theme.typography.body1.fontSize,
+            lineHeight: theme.typography.body1.lineHeight,
+            fontWeight: "700"
+          }}
+        >
           {title}
         </Text>
         {subtitle ? (
-          <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>{subtitle}</Text>
+          <Text
+            style={{
+              color: theme.colors.gray600,
+              fontSize: theme.typography.caption.fontSize,
+              lineHeight: theme.typography.caption.lineHeight
+            }}
+          >
+            {subtitle}
+          </Text>
         ) : null}
       </View>
       {value ? (
-        <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body2.fontSize, fontWeight: "700" }}>
+        <Text
+          style={{
+            color: theme.colors.brown,
+            fontSize: theme.typography.body2.fontSize,
+            lineHeight: theme.typography.body2.lineHeight,
+            fontWeight: "700"
+          }}
+        >
           {value}
         </Text>
       ) : null}
@@ -740,6 +764,10 @@ export default function RecordsScreen() {
     appliedFocusSearchRef.current = focusSearchParam;
     // 검색 입력은 ListHeaderComponent 안에 있고 첫 커밋에 함께 마운트되므로(요소로 넘기는
     // listHeader -- 인라인 컴포넌트가 아니다) effect 시점에는 ref가 이미 차 있다.
+    // 라운드 98 리뷰 L-1: 이 탭은 마운트가 유지되므로 목록을 깊이 내려 둔 채 착지할 수 있다 —
+    // RN은 화면 밖 TextInput 포커스에 스크롤을 얹지 않아 키보드만 뜨는 결함 모양이 된다
+    // (new.tsx 연필과 같은 모양). 검색 입력이 사는 리스트 헤더로 먼저 올린 뒤 포커스를 준다.
+    sectionListRef.current?.getScrollResponder()?.scrollTo({ y: 0, animated: false });
     searchInputRef.current?.focus();
   }, [focusSearchParam]);
   /**
@@ -1195,6 +1223,9 @@ export default function RecordsScreen() {
       ]),
     [offlinePendingRows, monthlyServerExpenses]
   );
+  // 라운드 98 리뷰 L-3: 고지 문구는 이 한 벌뿐이다 — 화면 표기와 낭독 라벨("·"→쉼표)이 같은
+  // 값에서 파생된다(새 한국어 리터럴 0건, keyboard-tap-guard ⓔ의 문구 수 14 유지).
+  const giftRefundExclusionNoticeText = `선물·환불 ${giftRefundExcludedCount}건은 합계에서 제외했어요`;
 
   // 정밀 리뷰 F3: 델타의 두 항이 **같은 규칙**으로 나와야 한다.
   //
@@ -1603,7 +1634,12 @@ export default function RecordsScreen() {
             hitSlop={8}
             onPress={childSwitch.toggle}
             testID="records-child-switch-trigger"
-            style={{ alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget }}
+            // 라운드 98 리뷰 M-1: 이 트리거만 press 피드백이 없던 예외를 걷는다 — 기준 객체는
+            // a11y-contract의 인용 원본이라 바이트 그대로 두고, pressed 겹만 더한다(핀 동반 이관).
+            style={({ pressed }) => [
+              { alignItems: "center", justifyContent: "center", minHeight: theme.touchTarget },
+              pressed && recordsPressedStyle
+            ]}
           >
             <Text style={{ color: theme.colors.brown, fontSize: theme.typography.body1.fontSize, fontWeight: "800" }}>
               {childScopeLabel}
@@ -1726,9 +1762,11 @@ export default function RecordsScreen() {
         {expenses.data && giftRefundExcludedCount > 0 ? (
           <Text
             testID="records-total-exclusion-notice"
+            // 라운드 98 리뷰 L-3: 스택 이웃 줄들의 관례대로 "·"를 쉼표로 풀어 낭독한다(파생 한 벌).
+            accessibilityLabel={giftRefundExclusionNoticeText.replace("·", ", ")}
             style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize, textAlign: "center" }}
           >
-            {`선물·환불 ${giftRefundExcludedCount}건은 합계에서 제외했어요`}
+            {giftRefundExclusionNoticeText}
           </Text>
         ) : null}
         {/* 라운드 59 트랙 A 후속 배선 — **"동기화 대기"라고 부를 수 없는 행**이 이 달 목록에 섞여

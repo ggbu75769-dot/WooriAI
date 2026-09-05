@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getSeoulToday } from "@wooriai/domain";
 import Constants from "expo-constants";
 import { router } from "expo-router";
+import { useState } from "react";
 import { Alert, Image, Pressable, Text, View } from "react-native";
 import { listChildren, listHouseholdMembers, LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN } from "../../src/api/client";
 // EXP-106 내보내기 흐름은 설정 화면과 공유하는 공용 모듈에 있다 (CLEAN-123/A3).
@@ -275,8 +276,18 @@ export default function MoreScreen() {
   const appLockRecord = useAppLockStore((state) => state.record);
   const appLockEnabled = Boolean(appLockRecord?.enabled);
 
+  // 라운드 98 리뷰 M-2: 검색 버튼이 기록 탭에 focusSearch 회차를 싣는다 — 수신부(records.tsx)가
+  // 회차 단위로 검색 입력에 착지시킨다(리포트 드릴다운의 단조 카운터 nonce 관례 그대로).
+  // 비세션 갈래는 종전과 같다(설정으로 — 검색할 기록 자체가 없다).
+  const [searchFocusNonce, setSearchFocusNonce] = useState(0);
   const handleSearchPress = () => {
-    router.push(hasSession ? "/(tabs)/records" : "/settings");
+    if (!hasSession) {
+      router.push("/settings");
+      return;
+    }
+    const nonce = searchFocusNonce + 1;
+    setSearchFocusNonce(nonce);
+    router.push({ pathname: "/(tabs)/records", params: { focusSearch: String(nonce) } });
   };
 
   /**

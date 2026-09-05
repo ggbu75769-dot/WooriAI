@@ -241,7 +241,11 @@ describe("라운드 41 UX-U(A) 비로그인 미리보기 메뉴 불변 계약", 
     const src = moreSource();
     expect(src).toContain('const previewProfile = { nickname: "다온이", stageLabel: "24개월" };');
     expect(src).toContain("accessibilityLabel={`${visibleProfile.nickname} 프로필 관리`}");
-    expect(src).toContain('router.push(hasSession ? "/(tabs)/records" : "/settings")');
+    // 라운드 98 리뷰 M-2: 검색 버튼이 focusSearch 회차를 싣게 되며 삼항 한 줄이 두 갈래로
+    // 갈라졌다 — 이 계약이 무는 것(비세션은 /settings)은 그대로다(종전 바이트:
+    // `router.push(hasSession ? "/(tabs)/records" : "/settings")`).
+    expect(src).toContain('router.push("/settings");');
+    expect(src).toContain('router.push({ pathname: "/(tabs)/records", params: { focusSearch: String(nonce) } });');
     // 라운드 49 QA(P2-3): 미리보기(픽스처 프로필·비로그인 메뉴)에 닿는 조건이 `hasSession`의
     // 반대에서 **`!authToken`**으로 좁혀졌다. 비로그인 렌더는 그대로이고(토큰이 없으면 두 식의
     // 값이 같다), 토큰은 있는데 아이만 없는 창에서 "다온이 · 24개월"이 그려지던 것만 사라진다.
