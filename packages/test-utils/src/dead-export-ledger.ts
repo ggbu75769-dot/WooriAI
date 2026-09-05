@@ -2010,7 +2010,10 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 두 시점(토스 라운드 통합): 229 → 228 — T2 홈 개편이 삼항 `HOME_SECTIONS_COLLAPSE_LABEL : …`을
     // 걷었다. 그 `이름 :` 모양을 이 그물은 객체 키로 읽었으므로(삼항의 `:`를 가르지 못한다 — 이
     // 사각이 말하는 바로 그 오독), 줄어든 것은 사용이 아니라 **오독 표면**이다. 줄어든 쪽도 값이다.
-    value: 228,
+    // 두 시점(라운드 99 F3·F4): 228 → 230 — RECORDS_VIEW_MODE_LIST(달력 착지 비저장 오버라이드)와
+    // useAnalyticsConsentStore(teardown 대장 등재)의 이름이 속성/키 자리로도 나오며 표면이 둘
+    // 자랐다(git 워크트리 대조 실측 — 모집단이 는 것이지 새 병이 아니다).
+    value: 230,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +
@@ -2102,7 +2105,9 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 두 시점(토스 라운드 통합): 105 → 106(호출부 분모도 328 → 330) — T1의 use-transient-notice.ts가
     // 주석에 ASCII '(more.tsx's)를 지닌 채 호출부 모집단에 들어와 표면이 한 파일 자랐다.
     // 실피해는 오늘도 0건이다(apostropheMaskedCodeSites() 실측 — 아래 문장의 그 0과 같은 자).
-    value: 106,
+    // 두 시점(라운드 99 F2): 106 → 107 — pending-status.ts가 아이 경계 수리의 주석에 ASCII '를
+    // 지닌 채 표면에 들어왔다(수정 전 0 → 후 1, git 대조 실측). 실피해 0은 그대로다.
+    value: 107,
     floor: 60,
     statement:
       "⚠️⚠️ **같은 거짓 빨강의 둘째 문 — 이번엔 참조가 아니라 *스캐너*가 낸다**(라운드 90 리뷰 M-3). " +
@@ -2133,7 +2138,10 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 두 시점(토스 리뷰 M): 143 → 144 — 홈 히어로가 사적 사본(HomeHeroAmount) 대신 공용
     // AmountCountUpText를 소비하도록 ui.tsx의 그 함수가 export로 열렸다(소비자 실재 —
     // app/(tabs)/index.tsx 히어로, 핀은 home-section-priority가 진다). 같은 성격의 성장이다.
-    value: 144,
+    // 두 시점(라운드 99 F1): 144 → 145 — step-ui.tsx가 IDEMPOTENCY_KEY_CONFLICT의 재시도 무익
+    // 판정(isOnboardingSaveIdempotencyConflict)을 export function으로 열었다(소비자 실재 —
+    // 온보딩 저장 카드의 403 갈래 합류). 같은 성격의 성장이다.
+    value: 145,
     floor: 80,
     statement:
       "`.tsx`의 `export function`(컴포넌트·훅) 141은 모집단 밖이다 — JSX 사용(`<Foo />`)은 이 그물의 이름 " +

@@ -200,10 +200,12 @@ describe("라운드 99 F2 M-2: 낙관 캐시 패치의 아이 경계", () => {
 
   it("컨트롤러가 실제로 그 좁힌 접두와 childId 축을 쓴다 (소스 계약)", () => {
     const controller = controllerSource();
-    const writeBody = controller.slice(
-      controller.indexOf("export async function updateItemStatusOffline"),
-      controller.indexOf("export async function retryOfflineItemStatus")
-    );
+    // 슬라이스 가드(라운드 78 트랙 E): 두 끝의 실재를 먼저 묻는다.
+    const writeStart = controller.indexOf("export async function updateItemStatusOffline");
+    const writeEnd = controller.indexOf("export async function retryOfflineItemStatus");
+    expect(writeStart).toBeGreaterThan(-1);
+    expect(writeEnd).toBeGreaterThan(writeStart);
+    const writeBody = controller.slice(writeStart, writeEnd);
     expect(writeBody).toContain('queryClient.setQueriesData({ queryKey: ["items", payload.childId] }');
     expect(writeBody).toContain('queryClient.setQueriesData({ queryKey: ["item-detail", payload.childId] }');
     // 접두 전체(["items"] 단독)로 되돌아가지 않는다.

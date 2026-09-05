@@ -314,10 +314,12 @@ describe("화면 배선 (source contract)", () => {
     expect(successNoticeIndex).toBeGreaterThan(registerIndex);
     expect(catchIndex).toBeGreaterThan(successNoticeIndex);
     // 실패 갈래(showLinkFailure)는 성공 칸을 쓰지 않는다.
-    const failureBody = detail.slice(
-      detail.indexOf("const showLinkFailure = (onlineNotice: string) => {"),
-      detail.indexOf("const retryOpenFallbackLink = async () => {")
-    );
+    // 슬라이스 가드(라운드 78 트랙 E): 두 끝의 실재를 먼저 묻는다.
+    const failureStart = detail.indexOf("const showLinkFailure = (onlineNotice: string) => {");
+    const failureEnd = detail.indexOf("const retryOpenFallbackLink = async () => {");
+    expect(failureStart).toBeGreaterThan(-1);
+    expect(failureEnd).toBeGreaterThan(failureStart);
+    const failureBody = detail.slice(failureStart, failureEnd);
     expect(failureBody.length).toBeGreaterThan(0);
     expect(failureBody).not.toContain("setClickedTitle(");
     expect(failureBody).not.toContain("showLinkNotice(");
@@ -364,10 +366,12 @@ describe("화면 배선 (source contract)", () => {
 
   it("목록: 세션 게이트를 거친다 (ITEM-001 비세션 캡처 불변)", () => {
     const items = itemsSource();
-    const placementBlock = items.slice(
-      items.indexOf("const expenseLinkPlacement = expenseLinkPromptPlacement({"),
-      items.indexOf("const openExpenseLinkPrompt")
-    );
+    // 슬라이스 가드(라운드 78 트랙 E): 두 끝의 실재를 먼저 묻는다.
+    const placementStart = items.indexOf("const expenseLinkPlacement = expenseLinkPromptPlacement({");
+    const placementEnd = items.indexOf("const openExpenseLinkPrompt");
+    expect(placementStart).toBeGreaterThan(-1);
+    expect(placementEnd).toBeGreaterThan(placementStart);
+    const placementBlock = items.slice(placementStart, placementEnd);
     expect(placementBlock).toContain("hasSession,");
     // G-3: 지금 화면 좌표를 함께 넘겨야 오래된 줄이 "none"으로 떨어진다.
     expect(placementBlock).toContain("scope: expenseLinkPromptScope,");

@@ -221,7 +221,10 @@ describe("GAP-054 #10 — 결제 수단을 상세 화면에서 고칠 수 있다
     // PATCH가 400으로 떨어지면 결제 수단과 무관한 수정까지 함께 실패한다. 계약이 사라지면
     // 배선보다 이 단언이 먼저 빨개진다.
     const dto = readFileSync(join(process.cwd(), "..", "api", "src", "finance", "dto", "expense.dto.ts"), "utf8");
-    const updateBlock = dto.slice(dto.indexOf("export class UpdateExpenseDto"));
+    // 슬라이스 가드(라운드 78 트랙 E): 시작의 실재를 먼저 묻는다.
+    const updateAt = dto.indexOf("export class UpdateExpenseDto");
+    expect(updateAt).toBeGreaterThan(-1);
+    const updateBlock = dto.slice(updateAt);
     expect(updateBlock).toContain("paymentMethod?: PaymentMethod;");
     // 아웃박스가 실제로 이 키를 실어 보내는 자리(remote-api의 toExpensePatch).
     expect(source("src/offline/remote-api.ts")).toContain("paymentMethod: payload.paymentMethod,");
@@ -247,6 +250,9 @@ describe("라운드 99 F3 M-1 — 상세 편집 보호(1회 초기화 · 미접�
   const screen = detailScreen();
   const effectStart = screen.indexOf("useEffect(() => {\n    if (!expense.data) return;");
   const effectEnd = screen.indexOf("}, [expense.data]);", effectStart);
+  // 슬라이스 가드(라운드 78 트랙 E): 두 끝의 실재를 먼저 묻는다 — describe 수집 시점에 던진다.
+  expect(effectStart).toBeGreaterThan(-1);
+  expect(effectEnd).toBeGreaterThan(effectStart);
   const initEffect = screen.slice(effectStart, effectEnd);
 
   it("① 초기화는 지출 id당 1회다 — setter 여덟이 게이트(첫 로드 ∥ 미접촉) 안에만 있다", () => {
@@ -255,6 +261,7 @@ describe("라운드 99 F3 M-1 — 상세 편집 보호(1회 초기화 · 미접�
     expect(initEffect).toContain("if (initializedExpenseIdRef.current !== expenseId || untouched) {");
     // setter 여덟은 전부 스냅숏을 읽고, 게이트 앞(무조건 실행 자리)에는 하나도 없다.
     const gateAt = initEffect.indexOf("if (initializedExpenseIdRef.current !== expenseId || untouched) {");
+    expect(gateAt).toBeGreaterThan(-1);
     const beforeGate = initEffect.slice(0, gateAt);
     for (const setter of [
       "setItemName(",
@@ -285,7 +292,10 @@ describe("라운드 99 F3 M-1 — 상세 편집 보호(1회 초기화 · 미접�
     expect(initEffect).toContain("serverBaselineRef.current = serverBaseline;");
     // 기준선 사상은 여덟 필드 전부를 견준다(하나라도 빠지면 그 칸의 타이핑이 보호 밖이다).
     const sameFnAt = screen.indexOf("function sameExpenseEditBaseline(");
-    const sameFn = screen.slice(sameFnAt, screen.indexOf("\n}", sameFnAt));
+    expect(sameFnAt).toBeGreaterThan(-1);
+    const sameFnEnd = screen.indexOf("\n}", sameFnAt);
+    expect(sameFnEnd).toBeGreaterThan(sameFnAt);
+    const sameFn = screen.slice(sameFnAt, sameFnEnd);
     for (const field of ["itemName", "amountDigits", "merchant", "memo", "spentOnIso", "categoryId", "isGift", "paymentMethod"]) {
       expect(sameFn).toContain(`left.${field} === right.${field}`);
     }
@@ -303,11 +313,14 @@ describe("라운드 99 F3 M-1 — 상세 편집 보호(1회 초기화 · 미접�
     // 렌더: gray600 caption 한 줄(기존 고지 관례) · 해요체 · 과한 UI 없음(Alert/모달 아님).
     const noticeAt = screen.indexOf('testID="expense-remote-change-notice"');
     expect(noticeAt).toBeGreaterThan(-1);
-    const noticeBlock = screen.slice(screen.lastIndexOf("{remoteChangeNotice ? (", noticeAt), noticeAt + 400);
+    const noticeStart = screen.lastIndexOf("{remoteChangeNotice ? (", noticeAt);
+    expect(noticeStart).toBeGreaterThan(-1);
+    const noticeBlock = screen.slice(noticeStart, noticeAt + 400);
     expect(noticeBlock).toContain("theme.typography.caption.fontSize");
     expect(noticeBlock).toContain("다른 기기에서 이 기록이 바뀌었어요. 저장하면 이 화면의 값으로 덮어써요.");
     // 저장이 확정되면 고지의 전제가 소진된다.
     const onSuccessAt = screen.indexOf("onSuccess: async () => {");
+    expect(onSuccessAt).toBeGreaterThan(-1);
     expect(screen.slice(onSuccessAt, onSuccessAt + 400)).toContain("setRemoteChangeNotice(false);");
     // 문구는 해요체이고 사용자를 탓하지 않는다(DNC-018).
     expect(noticeBlock).not.toMatch(/잘못|실수|하셨/);
@@ -316,6 +329,7 @@ describe("라운드 99 F3 M-1 — 상세 편집 보호(1회 초기화 · 미접�
   it("adopt(expectedVersion 갱신)는 편집 보호와 무관하게 매 응답을 지난다", () => {
     // 게이트 밖(무조건 자리)에서 adopt가 돈다 — 버전 반영은 별개 계약이다(M-1 fix 주석).
     const gateCloseAt = initEffect.indexOf("setRemoteChangeNotice(true);");
+    expect(gateCloseAt).toBeGreaterThan(-1);
     const afterBranches = initEffect.slice(gateCloseAt);
     expect(afterBranches).toContain("void adoptServerExpense(expense.data).then((row) => setLocalExpenseId(row.localId));");
   });
@@ -346,7 +360,12 @@ describe("GAP-054 #2 — 금액 상한(지출 상세·예산 두 화면)", () =>
    */
   it("저장 버튼 활성 판정에도 정수 가드가 있다(Infinity 붙여넣기 봉합)", () => {
     const screen = detailScreen();
-    const canSaveBlock = screen.slice(screen.indexOf("const canSave ="), screen.indexOf("const canTapAmountPreset"));
+    // 슬라이스 가드(라운드 78 트랙 E): 두 끝의 실재를 먼저 묻는다.
+    const canSaveAt = screen.indexOf("const canSave =");
+    const canSaveEnd = screen.indexOf("const canTapAmountPreset");
+    expect(canSaveAt).toBeGreaterThan(-1);
+    expect(canSaveEnd).toBeGreaterThan(canSaveAt);
+    const canSaveBlock = screen.slice(canSaveAt, canSaveEnd);
     expect(canSaveBlock).toContain("Number.isInteger(amountKrw)");
     expect(canSaveBlock).toContain("amountKrw > 0");
     expect(canSaveBlock).toContain("!amountError");
@@ -369,7 +388,9 @@ describe("GAP-054 #2 — 금액 상한(지출 상세·예산 두 화면)", () =>
       // 라운드 56 트랙 A(GAP-056 #1): expense.dto.ts는 길이 상한까지 contracts에서 가져오면서
       // import 문이 여러 줄로 바뀌었다. 고정할 사실은 문장의 모양이 아니라 **어디서 오는가**다
       // — `MONEY_KRW_MAX`가 @wooriai/contracts에서 오고, @Max가 그 이름을 문다.
-      const importBlock = dto.slice(0, dto.indexOf('from "@wooriai/contracts";'));
+      const importEnd = dto.indexOf('from "@wooriai/contracts";');
+      expect(importEnd, dtoPath).toBeGreaterThan(-1);
+      const importBlock = dto.slice(0, importEnd);
       expect(importBlock, dtoPath).toContain("MONEY_KRW_MAX");
       expect(dto, dtoPath).toContain('from "@wooriai/contracts";');
       expect(dto, dtoPath).toContain("@Max(MONEY_KRW_MAX)");
