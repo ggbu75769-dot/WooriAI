@@ -269,7 +269,9 @@ describe("GAP-054 #2 화면 배선 (지출 입력)", () => {
   it("안내 한 줄은 저장 버튼 바로 위, 분류 안내와 같은 자리다", () => {
     const notice = source.indexOf("{AMOUNT_OVER_LIMIT_NOTICE}");
     const categoryNotice = source.indexOf("{CATEGORY_REQUIRED_NOTICE}");
-    const saveButton = source.indexOf('label={saveExpense.isPending ? "저장 중" : "저장하기"}');
+    // 라운드 98 T-G(변경 요청 문서 #1): 라벨이 저장소 다수파 꼴('저장하는 중')로 통일되며
+    // 이 위치 앵커도 한 커밋에서 함께 이관됐다(문서가 요청한 그 이관 — 앵커는 위치용일 뿐이다).
+    const saveButton = source.indexOf('label={saveExpense.isPending ? "저장하는 중" : "저장하기"}');
     expect(notice).toBeGreaterThan(categoryNotice);
     expect(notice).toBeLessThan(saveButton);
     // 한 곳에서만 말한다(스크린리더가 두 번 읽지 않게).
@@ -319,7 +321,9 @@ describe("라운드 51 C-#5 화면 배선", () => {
   it("분류 안내는 저장 버튼 바로 위에 뜬다 (저장 실패 배너와 같은 자리)", () => {
     const notice = source.indexOf("{CATEGORY_REQUIRED_NOTICE}");
     const saveErrorToast = source.indexOf("{saveErrorMessage ? <Toast");
-    const saveButton = source.indexOf('label={saveExpense.isPending ? "저장 중" : "저장하기"}');
+    // 라운드 98 T-G(변경 요청 문서 #1): 라벨이 저장소 다수파 꼴('저장하는 중')로 통일되며
+    // 이 위치 앵커도 한 커밋에서 함께 이관됐다(문서가 요청한 그 이관 — 앵커는 위치용일 뿐이다).
+    const saveButton = source.indexOf('label={saveExpense.isPending ? "저장하는 중" : "저장하기"}');
     expect(saveErrorToast).toBeGreaterThan(-1);
     expect(notice).toBeGreaterThan(saveErrorToast);
     expect(notice).toBeLessThan(saveButton);

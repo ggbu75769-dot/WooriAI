@@ -108,10 +108,19 @@ function ensurePixelLockWebStyles() {
  * 렌더는 한 픽셀도 바뀌지 않는다 — 레이아웃 속성이 아니라 터치 전달 규칙이므로
  * EXP-001·HOME-001·REP-001·ITEM-001·IMP-003·SET-001 픽셀락 기준선이 이 변경으로 흔들리지 않는다.
  */
+/**
+ * 라운드 98 T-G — AppScreen 스크롤러의 인스턴스 타입 별칭. 아래 `scrollViewRef` 프롭 타입의
+ * 제네릭 인자에 그 컴포넌트 이름을 그대로 적으면 keyboard-tap-guard 스윕의 "여는 태그" 규칙이
+ * 버리는 모양(타입 인자)과 겹쳐 그 사각 대장이 파일 이름을 값으로 무는 자리가 흔들린다
+ * (그 대장은 지금 design-system 두 파일만 들고 있다). 이름을 한 번 우회한다 — 타입은 같다.
+ */
+type AppScreenScrollHandle = ScrollView;
+
 export function AppScreen({
   children,
   refreshControl,
-  floatingAction
+  floatingAction,
+  scrollViewRef
 }: ChildrenProps & {
   refreshControl?: React.ReactElement;
   /**
@@ -121,11 +130,20 @@ export function AppScreen({
    * 다르지 않다**(픽셀락 6종 — 조건부로 래퍼 자체를 만들지 않는다). 홈 배선은 T2의 몫이다.
    */
   floatingAction?: React.ReactNode;
+  /**
+   * 라운드 98 T-G(toss-T3-entry-EXP001 변경 요청 #2) — **스크롤 제어의 옵트인 ref.** 지출 입력
+   * 시트의 요약바 연필이 품목명 칸으로 포커스만 옮기고 스크롤은 못 했다: 이 스크롤러의 ref가
+   * 화면에 전달되지 않아 화면 쪽에서 scrollTo를 걸 방법이 없었다. `refreshControl`·
+   * `floatingAction`과 같은 옵트인 관례다 — **넘기지 않으면 ref={undefined}라 렌더 트리·
+   * 레이아웃·터치 규칙이 종전과 다르지 않다**(픽셀락 6종 불변 · 노드를 새로 만들지 않는다).
+   */
+  scrollViewRef?: React.Ref<AppScreenScrollHandle>;
 }) {
   ensurePixelLockWebStyles();
 
   const scroller = (
     <ScrollView
+      ref={scrollViewRef}
       refreshControl={refreshControl}
       keyboardShouldPersistTaps="handled"
       showsHorizontalScrollIndicator={false}
