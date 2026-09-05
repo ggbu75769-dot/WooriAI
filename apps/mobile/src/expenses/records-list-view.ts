@@ -1,6 +1,9 @@
 import { categoryCatalog, categoryNameFor, selectableCategories, type SelectableCategory } from "../categories";
 import { EXPENSE_VIEW_ONLY_EMPTY_TITLE } from "../family/record-permissions";
 import { formatKrw } from "../money";
+// 토스 이월 T-B(#1): 합산 술어는 DNC-015의 단일 소스(countsTowardMonthlyTotal) 그대로다 —
+// "합계에서 빠진 행"을 여기서 다시 정의하면 규칙이 두 벌이 된다.
+import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";
 // 트랙 B: 금액 큰 순의 재배열 규칙은 records-sort.ts 한 곳에 있다(비교기 재사용 — 규칙 두 벌 금지).
 import { sortRecordsByAmountDesc, type AmountSortableRecordRow } from "./records-sort";
 
@@ -250,6 +253,54 @@ export function buildRecordsMonthSummary(input: {
     text: `${prefix}${recordCount}건 · 합계 ${amountText}`,
     accessibilityLabel: `${prefix}${recordCount}건, 합계 ${amountText}`
   };
+}
+
+/**
+ * 토스 이월 T-B(#1) — 월 요약 줄 아래 **'선물·환불 N건 제외' 고지**의 건수 판정.
+ *
+ * 무엇이 문제였나: 월 요약 줄의 건수는 그 달 **모든 행**을 세고(선물·환불 포함 — 위
+ * buildRecordsMonthSummary의 관례), 합계는 DNC-015(`countsTowardMonthlyTotal`)대로 선물·환불을
+ * 세지 않는다. 그래서 선물 행이 있는 달에는 "42건 · 합계 …"의 두 숫자가 서로 다른 모집단을
+ * 말하는데, 그 사실이 화면 어디에도 없었다 — 행 부제의 "선물 ·" 접두(DNC-015 표시)와 날짜
+ * 헤더의 소계 생략은 **행 단위** 사실이고, 합계 자체가 무엇을 뺐는지는 아무도 말하지 않았다.
+ *
+ * 그래서 화면이 그 사실을 한 줄로 밝힐 수 있도록 **빠진 행의 수**만 순수하게 센다. 술어는
+ * 새로 만들지 않는다: 합계가 쓰는 `countsTowardMonthlyTotal` 그대로라, 이 수가 0인데 합계가
+ * 무언가를 뺐거나(또는 그 반대) 하는 어긋남이 정의상 생기지 않는다 — 미래에 합산 제외 구분이
+ * 하나 더 생겨도 이 수가 자동으로 따라간다. `expenseType`이 없는 레거시 행은 합계에 포함되므로
+ * 여기서도 세지 않는다.
+ *
+ * 0이면 화면이 아무것도 그리지 않는다(F8 스코프 줄·UX-P 범위 고지와 같은 규칙 — 평소 화면은
+ * 한 줄도 늘지 않는다).
+ */
+export function countRecordsExcludedFromMonthlyTotal(
+  rows: readonly { expenseType?: string | null }[]
+): number {
+  let count = 0;
+  for (const row of rows) {
+    if (!countsTowardMonthlyTotal(row.expenseType)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * 토스 이월 T-B(#2) — 더보기 탭 검색 착지 파라미터(`focusSearch`)의 **수신측 파싱**.
+ *
+ * 값은 회차(nonce) 관례다(리포트 드릴다운 `drilldown`·알림 착지 `viewNonce`와 같은 판단):
+ * 기록 탭은 한 번 열리면 계속 마운트된 채로 남으므로, 화면은 **값이 달라질 때마다 한 번씩**
+ * 검색 입력에 포커스를 준다 — boolean 가드면 두 번째 착지부터 죽고, 가드가 없으면 재렌더마다
+ * 포커스를 빼앗는다(라운드 57 QA P1-1과 같은 결함 구조).
+ *
+ * 보내는 쪽 배선은 아직 없다(app/(tabs)/more.tsx의 검색 버튼은 파라미터 없이
+ * `/(tabs)/records`로만 온다) — 이 파서는 그 링크가 파라미터를 싣기 시작하는 날 받는 쪽이
+ * 이미 서 있게 하는 수신부다. 값이 없거나 공백뿐이면 null이라 화면은 종전과 한 글자도
+ * 다르지 않다.
+ */
+export function resolveRecordsFocusSearchParam(value: string | string[] | null | undefined): string | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 /**
