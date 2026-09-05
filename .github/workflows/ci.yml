@@ -56,6 +56,9 @@ jobs:
       - name: Prisma migrate deploy
         run: pnpm --filter api prisma:deploy
 
+      - name: Prisma generate
+        run: pnpm --filter api prisma:generate
+
       - name: Prisma seed
         run: pnpm --filter api seed
 
