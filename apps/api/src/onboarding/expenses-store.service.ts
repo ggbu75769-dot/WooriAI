@@ -143,8 +143,7 @@ export function decodeExpenseCursor(value: string): ExpenseListCursor {
 /**
  * 라운드 49 QA(P2-4) — 존재하지 않는 `linkedProductLinkId`를 **400으로** 돌려준다.
  *
- * 이 값은 형식(UUID)만 검사하고 존재 검증은 DB의 FK
- * (`fk_expenses_linked_product_link`)에 맡긴다(CreateExpenseDto 주석). 문제는 그 거절이
+ * DTO는 UUID 형식을, 저장 경로는 링크 존재를 확인하고 FK가 동시 삭제를 방어한다. FK 거절이
  * 번역 없이 새어 나가면 **500**이 된다는 것이었다: 모바일 아웃박스는 5xx를 "일시적 실패"로
  * 분류해 무한히 다시 보내므로(src/offline/remote-api.ts의 rethrowAsSyncEngineError), 절대
  * 성공할 수 없는 요청 하나가 큐 맨 앞에서 영원히 재시도되는 poison pill이 된다 — 그 뒤의
@@ -170,14 +169,24 @@ async function createExpenseRowOrTranslateFk(
   client: DbClient,
   args: Parameters<DbClient["expense"]["create"]>[0]
 ): Promise<ExpenseRow> {
+  const linkNotFound = () => new BadRequestException({
+    code: "LINKED_PRODUCT_LINK_NOT_FOUND",
+    message: "연결하려던 구매 링크를 찾지 못했어요. 링크 없이 다시 저장해 주세요."
+  });
+  // Prisma's PostgreSQL engine can omit the FK identifier in P2003. Check the
+  // optional user-supplied link before inserting, so an invalid link is still a
+  // permanent input error without translating unrelated FK failures to 400.
+  const linkedProductLinkId = args.data.linkedProductLinkId;
+  if (linkedProductLinkId && !(await client.productLink.findUnique({
+    where: { id: linkedProductLinkId }, select: { id: true }
+  }))) {
+    throw linkNotFound();
+  }
   try {
     return await client.expense.create(args);
   } catch (error) {
     if (isLinkedProductLinkFkViolation(error)) {
-      throw new BadRequestException({
-        code: "LINKED_PRODUCT_LINK_NOT_FOUND",
-        message: "연결하려던 구매 링크를 찾지 못했어요. 링크 없이 다시 저장해 주세요."
-      });
+      throw linkNotFound();
     }
     throw error;
   }

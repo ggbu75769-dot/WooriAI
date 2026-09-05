@@ -92,7 +92,7 @@ function listComponentSources(): string[] {
   return ["app", "src"].flatMap((root) =>
     readdirSync(join(mobileRoot, root), { recursive: true, encoding: "utf8" })
       .filter((entry) => entry.endsWith(".tsx") && !entry.endsWith(".test.tsx"))
-      .map((entry) => join(root, entry))
+      .map((entry) => join(root, entry).replace(/\\/g, "/"))
   );
 }
 
@@ -100,7 +100,7 @@ function listComponentSources(): string[] {
 function listSettingsScreenSources(): string[] {
   return readdirSync(join(mobileRoot, "app/settings"), { recursive: true, encoding: "utf8" })
     .filter((entry) => entry.endsWith(".tsx") && !entry.endsWith(".test.tsx"))
-    .map((entry) => join("app/settings", entry));
+    .map((entry) => join("app/settings", entry).replace(/\\/g, "/"));
 }
 
 /**
@@ -1497,7 +1497,7 @@ describe("GAP-065 #7 공유 프리미티브 터치 타깃 계약 (크기 + 2×hi
     // 라운드 65 후속(#4): 목록을 손으로 적던 시절 빠져 있던 줄. 스캔이 실제로 그 줄을 읽는지
     // 한 번 못 박아 둔다 -- 스캐너가 조용히 빈 목록을 돌려주면 위 개수 단언만으로는 안 잡힌다.
     expect(rows.map((row) => row.path), "가져오기 검수 화면의 분류 칩 줄도 읽는다").toContain(
-      join("app", "import/[importJobId].tsx")
+      "app/import/[importJobId].tsx"
     );
     const tightest = Math.min(...rows.map((row) => row.gap));
     expect(tightest, "가장 좁은 칩 줄 간격").toBe(6);
@@ -4069,7 +4069,7 @@ type MutationTriggerSite = {
 function listRouteSources(): string[] {
   return readdirSync(join(mobileRoot, "app"), { recursive: true, encoding: "utf8" })
     .filter((entry) => entry.endsWith(".tsx") && !entry.endsWith(".test.tsx"))
-    .map((entry) => join("app", entry));
+    .map((entry) => join("app", entry).replace(/\\/g, "/"));
 }
 
 /** `이름(` 호출의 괄호 구간 **범위**. `callBlocksOf`와 같은 규칙이고 자리까지 돌려준다. */
@@ -5945,7 +5945,7 @@ function listNonDesignSystemSources(): string[] {
     .flatMap((root) =>
       readdirSync(join(mobileRoot, root), { recursive: true, encoding: "utf8" })
         .filter((entry) => /(?<!\.d)\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry))
-        .map((entry) => join(root, entry))
+        .map((entry) => join(root, entry).replace(/\\/g, "/"))
     )
     .filter((path) => !path.startsWith(DESIGN_SYSTEM_ROOT));
   return nonDesignSystemSourceCache;
@@ -6608,7 +6608,7 @@ const MODULE_FILE_SUFFIXES = [".tsx", ".ts", "/index.tsx", "/index.ts"] as const
 function moduleFileOf(fromFile: string, specifier: string): string | null {
   // 패키지 지정자(`react-native` 등)는 이 저장소 밖이다 — 상대 경로만 따라간다.
   if (!specifier.startsWith(".")) return null;
-  const base = join(dirname(fromFile), specifier);
+  const base = join(dirname(fromFile), specifier).replace(/\\/g, "/");
   for (const suffix of MODULE_FILE_SUFFIXES) {
     if (existsSync(join(mobileRoot, base + suffix))) return base + suffix;
   }
@@ -7677,7 +7677,7 @@ function listStateEchoSources(): string[] {
   stateEchoSourceCache = STATE_ECHO_ROOTS.flatMap((root) =>
     readdirSync(join(mobileRoot, root), { recursive: true, encoding: "utf8" })
       .filter((entry) => /(?<!\.d)\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry))
-      .map((entry) => join(root, entry))
+      .map((entry) => join(root, entry).replace(/\\/g, "/"))
   );
   return stateEchoSourceCache;
 }

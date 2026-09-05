@@ -21,7 +21,7 @@
 // 트랙 F 소유라 이 트랙이 열지 않는다. 그 파일에는 **표식이 있는지**만 묻는다(아래 마지막 절).
 import { readFileSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = join(process.cwd(), "..", "..");
@@ -158,8 +158,18 @@ function runCitedCommand(command: string): number {
     throw new Error(`읽기 전용이 아닌 명령은 돌리지 않아요 (${rejection}): \`${command}\``);
   }
 
-  const result = spawnSync("/bin/sh", ["-c", command], {
+  const windowsGitShell = (process.env.PATH ?? "").split(delimiter)
+    .filter((directory) => existsSync(join(directory, "git.exe")))
+    .map((directory) => resolve(dirname(directory), "usr/bin/sh.exe"))
+    .find(existsSync);
+  const shell = process.platform === "win32" ? windowsGitShell : "/bin/sh";
+  if (!shell) throw new Error("CITATION_SHELL_UNAVAILABLE: Git for Windows with usr/bin/sh.exe must be on PATH.");
+  const result = spawnSync(shell, ["-c", command], {
     cwd: repoRoot,
+    env: process.platform === "win32" ? {
+      ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "path")),
+      PATH: `${dirname(shell)}${delimiter}${process.env.PATH ?? ""}`
+    } : process.env,
     encoding: "utf8",
     timeout: 30_000
   });
@@ -1341,7 +1351,7 @@ function markdownRowCells(raw: string): string[] {
 
 /** 마지막 판정 절 뒤에 서는 재실측 표. **못 찾으면 `null`** — 부르는 쪽이 빨개진다(유령 방지). */
 function retestTableIn(text: string): RetestTable | null {
-  const lines = text.split("\n");
+  const lines = text.split(/\r?\n/);
   let sectionLine = -1;
   for (let index = 0; index < lines.length; index += 1) {
     if (JUDGMENT_SECTION_PATTERN.test(lines[index])) sectionLine = index;
@@ -1370,7 +1380,7 @@ function retestTableIn(text: string): RetestTable | null {
 
 /** 모집단 밖 — 마지막 판정 절 **앞**에 있는 옛 재실측 표들(사각 ⓑ). */
 function olderRetestTableRows(text: string): { tables: number; rows: number } {
-  const lines = text.split("\n");
+  const lines = text.split(/\r?\n/);
   let lastSection = -1;
   for (let index = 0; index < lines.length; index += 1) {
     if (JUDGMENT_SECTION_PATTERN.test(lines[index])) lastSection = index;
@@ -1865,8 +1875,8 @@ describe("판정 문서의 재실측 표가 수 곁에 바늘을 적는가를 �
     }
   });
 
-  it("픽스처 — 여섯째 판정이 갈래 둘을 가르고, 갈래 하나를 지우면 감지한다 (교란 둘)", () => {
-    const table = retestTableIn(RETEST_SHAPE_FIXTURE);
+  it.each(["\n", "\r\n"])("픽스처 — 줄바꿈 %j에서도 판정과 교란을 유지한다", (newline) => {
+    const table = retestTableIn(RETEST_SHAPE_FIXTURE.replace(/\r?\n/g, newline));
     expect(table, "여섯째 판정의 픽스처 표를 찾아야 해요").not.toBeNull();
     const rows = (table as RetestTable).rows;
     expect(rows.length, "픽스처의 행 일곱을 읽어야 해요").toBe(7);

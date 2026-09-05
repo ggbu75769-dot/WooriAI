@@ -155,11 +155,7 @@ describe("getSeoulMonthRange 경계", () => {
     expect(() => getSeoulMonthRange("2026")).toThrow("YEAR_MONTH_INVALID");
   });
 
-  // 발견 사항(TEST-115): 0채움 없는 "2026-7" 입력이 거부되지 않고
-  // startInclusive "2026-7-01" 같은 비정규(날짜 패턴 불일치) 문자열을 반환한다.
-  // isValidCalendarDate("2026-7-01") === false 이므로 하류에서 비교/검증이 깨질 수 있다.
-  // 소스 수정 금지 지침에 따라 기대 동작(거부)을 skip으로 남긴다.
-  it.skip("[버그 재현] 0채움 없는 월 입력(2026-7)은 YEAR_MONTH_INVALID로 거부해야 한다", () => {
+  it("0채움 없는 월 입력(2026-7)은 YEAR_MONTH_INVALID로 거부한다", () => {
     expect(() => getSeoulMonthRange("2026-7")).toThrow("YEAR_MONTH_INVALID");
   });
 

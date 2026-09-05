@@ -7,8 +7,7 @@ const { withAppBuildGradle, withAndroidManifest, withDangerousMod } = require("e
 const { mkdirSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 
-const PACKAGER_ARGS_LINE =
-  '    extraPackagerArgs = ["--max-workers", "1", "--entry-file", "${projectRoot}/index.js"]';
+const PACKAGER_ARGS_LINE = '    extraPackagerArgs = ["--max-workers", "1", "--entry-file", "${projectRoot}/index.js"]';
 const BUNDLE_COMMAND_ANCHOR = 'bundleCommand = "export:embed"';
 
 const NETWORK_SECURITY_CONFIG = `<?xml version="1.0" encoding="utf-8"?>
@@ -99,25 +98,35 @@ function withUploadSigning(config) {
 }
 
 /** 모노레포 serverRoot vs RN gradle plugin의 상대 entry 불일치 우회 (빌드 노트 참조). */
-function withPackagerArgs(config) {
-  return withAppBuildGradle(config, (mod) => {
-    const gradle = mod.modResults.contents;
-    // 주의: RN 템플릿에 주석 처리된 `// extraPackagerArgs = []` 예시 줄이 있으므로
-    // 중복 방지 검사는 실제 주입 내용(--max-workers)으로 해야 한다.
-    if (!gradle.includes("--max-workers")) {
-      if (!gradle.includes(BUNDLE_COMMAND_ANCHOR)) {
-        throw new Error(
-          "with-wooriai-android-release: app/build.gradle에서 bundleCommand 앵커를 찾지 못했습니다. " +
-            "expo/RN 템플릿 변경 여부를 확인하세요."
-        );
-      }
-      mod.modResults.contents = gradle.replace(
-        BUNDLE_COMMAND_ANCHOR,
-        `${BUNDLE_COMMAND_ANCHOR}\n\n    // REL-009 자동 적용 (plugins/with-wooriai-android-release.js)\n${PACKAGER_ARGS_LINE}`
+function injectPackagerArgs(gradle) {
+  // 주의: RN 템플릿에 주석 처리된 `// extraPackagerArgs = []` 예시 줄이 있으므로
+  // 중복 방지 검사는 실제 주입 내용(--max-workers)으로 해야 한다.
+  if (!gradle.includes("--max-workers")) {
+    if (!gradle.includes(BUNDLE_COMMAND_ANCHOR)) {
+      throw new Error(
+        "with-wooriai-android-release: app/build.gradle에서 bundleCommand 앵커를 찾지 못했습니다. " +
+          "expo/RN 템플릿 변경 여부를 확인하세요."
       );
     }
+    return gradle.replace(
+      BUNDLE_COMMAND_ANCHOR,
+      `${BUNDLE_COMMAND_ANCHOR}\n\n    // REL-009 자동 적용 (plugins/with-wooriai-android-release.js)\n${PACKAGER_ARGS_LINE}`
+    );
+  }
+  return gradle;
+}
+
+function withPackagerArgs(config) {
+  return withAppBuildGradle(config, (mod) => {
+    mod.modResults.contents = injectPackagerArgs(mod.modResults.contents);
     return mod;
   });
+}
+
+function applyNetworkSecurityManifest(manifest) {
+  const application = manifest.application?.[0];
+  if (application) application.$["android:networkSecurityConfig"] = "@xml/network_security_config";
+  return manifest;
 }
 
 function withNetworkSecurityConfig(config) {
@@ -131,10 +140,7 @@ function withNetworkSecurityConfig(config) {
     }
   ]);
   return withAndroidManifest(config, (mod) => {
-    const application = mod.modResults.manifest.application?.[0];
-    if (application) {
-      application.$["android:networkSecurityConfig"] = "@xml/network_security_config";
-    }
+    mod.modResults.manifest = applyNetworkSecurityManifest(mod.modResults.manifest);
     return mod;
   });
 }
@@ -145,3 +151,6 @@ module.exports = function withWooriaiAndroidRelease(config) {
 // REL-011: 순수 함수 테스트용(src/android-release-aab.test.ts) 내보내기.
 module.exports.injectUploadSigning = injectUploadSigning;
 module.exports.shouldInjectUploadSigning = shouldInjectUploadSigning;
+module.exports.injectPackagerArgs = injectPackagerArgs;
+module.exports.applyNetworkSecurityManifest = applyNetworkSecurityManifest;
+module.exports.NETWORK_SECURITY_CONFIG = NETWORK_SECURITY_CONFIG;
