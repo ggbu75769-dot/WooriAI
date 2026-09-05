@@ -22,6 +22,10 @@
     "test": {
       "dependsOn": ["^test"]
     },
+    "api#test": {
+      "env": ["DATABASE_URL"],
+      "cache": false
+    },
     "@wooriai/test-utils#test": {
       "inputs": [
         "$TURBO_DEFAULT$",
