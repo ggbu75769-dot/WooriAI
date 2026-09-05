@@ -100,7 +100,9 @@ describe("T-B(#4) 상단 요약 줄 스택 — caption(11px)급 → body2 승격
     for (const testId of stackTestIds) {
       const at = recordsSource.indexOf(`testID="${testId}"`);
       expect(at, testId).toBeGreaterThan(-1);
-      const block = recordsSource.slice(at, recordsSource.indexOf(">", at));
+      const blockEnd = recordsSource.indexOf(">", at);
+      expect(blockEnd, `${testId} 여는 태그의 끝`).toBeGreaterThan(at);
+      const block = recordsSource.slice(at, blockEnd);
       expect(block, `${testId}의 글자 크기`).toContain("fontSize: theme.typography.body2.fontSize");
       expect(block, `${testId}에 남은 caption`).not.toContain("theme.typography.caption.fontSize");
     }
@@ -168,7 +170,9 @@ describe("T-B(#8) 행 카드 크롬 → flat 리스트 행", () => {
     expect(recordsSource).toContain("function RecordsFlatRow({");
     const styleAt = recordsSource.indexOf("const recordsFlatRowStyle = {");
     expect(styleAt).toBeGreaterThan(-1);
-    const styleBlock = recordsSource.slice(styleAt, recordsSource.indexOf("} as const;", styleAt));
+    const styleEnd = recordsSource.indexOf("} as const;", styleAt);
+    expect(styleEnd, "recordsFlatRowStyle의 끝").toBeGreaterThan(styleAt);
+    const styleBlock = recordsSource.slice(styleAt, styleEnd);
     // 크롬이 없다: 테두리·그림자·카드 배경 없이 행 레이아웃뿐이다.
     expect(styleBlock).not.toContain("borderWidth");
     expect(styleBlock).not.toContain("shadows");

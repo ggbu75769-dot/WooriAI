@@ -46,7 +46,13 @@ describe("gifted 상태 진입점 (아이템 상세)", () => {
     expect(detail).not.toContain('Alert.alert("선물로 받았어요"');
     expect(detail).not.toContain("준비완료 탭에서 볼 수 있어요");
     expect(detail).toContain("onPress={handleGiftedButtonPress}");
-    const handlerBlock = detail.slice(detail.indexOf("function handleGiftedButtonPress()"), detail.indexOf("const canCallLinkApi"));
+    // 슬라이스 가드(라운드 78 트랙 E): 두 끝의 실재를 먼저 묻는다 — 이름이 갈리면 빈 구간을
+    // 자르고도 조용히 통과하는 자리라서다.
+    const handlerStart = detail.indexOf("function handleGiftedButtonPress()");
+    const handlerEnd = detail.indexOf("const canCallLinkApi");
+    expect(handlerStart).toBeGreaterThan(-1);
+    expect(handlerEnd).toBeGreaterThan(handlerStart);
+    const handlerBlock = detail.slice(handlerStart, handlerEnd);
     // gifted가 아니면 markGifted("gifted")를 Alert 콜백 없이 바로 부른다.
     expect(handlerBlock).toContain('markGifted("gifted");');
     expect(handlerBlock).not.toContain('onPress: () => markGifted("gifted")');
