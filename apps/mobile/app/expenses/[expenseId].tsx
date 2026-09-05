@@ -197,6 +197,70 @@ function buildRecentDateChips(today: Date) {
   });
 }
 
+/**
+ * 라운드 99 F3 M-1 — 서버 응답 하나가 이 화면의 8개 입력 상태로 펼쳐지는 **한 벌의 사상.**
+ *
+ * 종전에는 이 사상이 초기화 effect 안의 setter 여덟 줄로만 존재했고, 그 effect가
+ * `expense.data` **참조**가 바뀔 때마다 재발화했다. 전역 staleTime 30초 + focusManager 배선
+ * (app/_layout.tsx)이라 30초 넘게 이탈했다 돌아오면 백그라운드 refetch가 돌고, 그 사이 값이
+ * 달라져 있으면(가구 공동 수정 · 오프라인 flush 확정) **편집 중이던 여덟 칸이 소리 없이 서버
+ * 값으로 리셋됐다** — 타이핑 유실이다. 이제 이 사상을 값(스냅숏)으로 떼어 두 용도로 쓴다:
+ * ① 초기화가 실제로 채우는 값, ② "사용자가 손댄 칸이 있는가"의 기준선(아래 effect).
+ *
+ * 기준선 비교라는 판정 모양은 빠른 기록 시트의 닫기 판정과 같은 규율이다 — "지금 값이 스냅숏과
+ * 전부 같으면 사용자가 손댄 것이 하나도 없다"(src/expenses/entry-form-guards.ts 머리말:
+ * 기록 시트에서 **"사용자가 친 것"과 "사용자가 고른 것"을 지키는** 판정들 · G-7의
+ * shouldClearQuickExpenseDraftOnClose).
+ */
+type ExpenseEditBaseline = {
+  itemName: string;
+  amountDigits: string;
+  merchant: string;
+  memo: string;
+  spentOnIso: string;
+  categoryId: string;
+  isGift: boolean;
+  paymentMethod: string | null;
+};
+
+function expenseEditBaselineOf(expense: {
+  itemName: string;
+  amountKrw: number;
+  merchant?: string | null;
+  memo?: string | null;
+  spentOn: string;
+  categoryId: string;
+  expenseType?: string | null;
+  paymentMethod?: string | null;
+}): ExpenseEditBaseline {
+  return {
+    itemName: expense.itemName,
+    amountDigits: String(expense.amountKrw),
+    merchant: expense.merchant ?? "",
+    memo: expense.memo ?? "",
+    spentOnIso: expense.spentOn,
+    categoryId: expense.categoryId,
+    isGift: expense.expenseType === "gift",
+    // GAP-054 #10: 응답 값이 곧 초기값이다. 고른 적 없는 기록은 null로 두어 컨트롤이
+    // "고르지 않았어요"를 말하고, 저장 payload에도 키가 실리지 않는다(paymentMethodForPatch).
+    paymentMethod: expense.paymentMethod ?? null
+  };
+}
+
+/** 필드 여덟의 값 동치 — 손댄 칸이 하나라도 있으면 false다(공백 관용 없음: 친 그대로가 기준이다). */
+function sameExpenseEditBaseline(left: ExpenseEditBaseline, right: ExpenseEditBaseline): boolean {
+  return (
+    left.itemName === right.itemName &&
+    left.amountDigits === right.amountDigits &&
+    left.merchant === right.merchant &&
+    left.memo === right.memo &&
+    left.spentOnIso === right.spentOnIso &&
+    left.categoryId === right.categoryId &&
+    left.isGift === right.isGift &&
+    left.paymentMethod === right.paymentMethod
+  );
+}
+
 export default function ExpenseDetailScreen() {
   const params = useLocalSearchParams<{ expenseId?: string }>();
   const expenseId = String(params.expenseId ?? "");
@@ -367,21 +431,67 @@ export default function ExpenseDetailScreen() {
   // 남아 있으므로 저장 버튼 위 인라인 배너로, 삭제는 확인 Alert에서 이어지는 흐름이라 같은
   // 자리의 Alert로 알린다(아래 remove.onError).
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
+  /**
+   * 라운드 99 F3 M-1 — 초기화는 **지출 id당 1회**다(참조 교체 재발화가 값을 덮지 않는다).
+   *
+   * `initializedExpenseIdRef`가 "이 id의 폼을 이미 세웠다"를, `serverBaselineRef`가 "그때 서버가
+   * 말한 값"을 든다. 이후 백그라운드 refetch(전역 staleTime 30초 + 포커스 복귀)가 새 참조를
+   * 들고 와도:
+   *  - 사용자가 아직 **아무 칸도 안 건드렸으면** 새 서버 값을 채택한다(더 정확한 값이고,
+   *    지킬 입력이 없다 — 기준선 비교가 그 판정이다, expenseEditBaselineOf 머리말).
+   *  - **손댄 칸이 있으면** 조용히 두고, 서버 값이 기준선에서 실제로 달라진 경우에만 아래
+   *    캡션 한 줄로 사실을 말한다(remoteChangeNotice) — 리셋 대신 고지다.
+   */
+  const initializedExpenseIdRef = useRef<string | null>(null);
+  const serverBaselineRef = useRef<ExpenseEditBaseline | null>(null);
+  /**
+   * M-1의 고지 한 줄 — 손댄 편집이 있는 채로 서버 값이 달라졌을 때만 선다(위 주석). 저장하면
+   * 이 화면의 값이 이긴다는 사실을 말할 뿐, 어떤 입력도 막지 않는다(과한 UI 금지 — 캡션 하나).
+   * 저장 성공·새 서버 값 채택 때 함께 눕는다.
+   */
+  const [remoteChangeNotice, setRemoteChangeNotice] = useState(false);
 
   useEffect(() => {
     if (!expense.data) return;
-    setItemName(expense.data.itemName);
-    setAmountDigits(String(expense.data.amountKrw));
-    setMerchant(expense.data.merchant ?? "");
-    setMemo(expense.data.memo ?? "");
-    setSpentOnIso(expense.data.spentOn);
-    setCategoryId(expense.data.categoryId);
-    setIsGift(expense.data.expenseType === "gift");
-    // GAP-054 #10: 응답 값이 곧 초기값이다. 고른 적 없는 기록은 null로 두어 컨트롤이
-    // "고르지 않았어요"를 말하고, 저장 payload에도 키가 실리지 않는다(paymentMethodForPatch).
-    setPaymentMethod(expense.data.paymentMethod ?? null);
+    const serverBaseline = expenseEditBaselineOf(expense.data);
+    // 이 effect는 expense.data 참조가 바뀐 그 렌더의 클로저에서 돌므로, 아래 여덟 상태는 그
+    // 시점의 현재 값이다 — 기준선 비교의 재료로 충분하고, deps에 올리면 타이핑마다 재발화해
+    // 이 effect의 존재 이유(1회 초기화)가 무너진다.
+    const currentForm: ExpenseEditBaseline = { itemName, amountDigits, merchant, memo, spentOnIso, categoryId, isGift, paymentMethod };
+    const untouched = serverBaselineRef.current !== null && sameExpenseEditBaseline(currentForm, serverBaselineRef.current);
+    if (initializedExpenseIdRef.current !== expenseId || untouched) {
+      setItemName(serverBaseline.itemName);
+      setAmountDigits(serverBaseline.amountDigits);
+      setMerchant(serverBaseline.merchant);
+      setMemo(serverBaseline.memo);
+      setSpentOnIso(serverBaseline.spentOnIso);
+      setCategoryId(serverBaseline.categoryId);
+      setIsGift(serverBaseline.isGift);
+      setPaymentMethod(serverBaseline.paymentMethod);
+      initializedExpenseIdRef.current = expenseId;
+      serverBaselineRef.current = serverBaseline;
+      setRemoteChangeNotice(false);
+    } else if (!sameExpenseEditBaseline(serverBaseline, serverBaselineRef.current!)) {
+      if (sameExpenseEditBaseline(serverBaseline, currentForm)) {
+        // 서버가 **이 화면의 값 그대로**를 들고 왔다 — 방금 이 화면의 저장이 확정된 뒤의
+        // refetch(onSuccess의 invalidate가 즉시 부른다)가 정확히 이 모양이다. 어긋남이 아니라
+        // 수렴이므로 고지 없이 기준선만 오늘로 옮긴다(다음 refetch의 비교가 오늘을 본다).
+        serverBaselineRef.current = serverBaseline;
+        setRemoteChangeNotice(false);
+      } else {
+        // 손댄 상태 + 서버 값 변화: 값은 지키고(entry-form-guards 머리말의 "사용자가 친 것을
+        // 지킨다" 규율) 사실만 한 줄로 말한다. 기준선은 갱신하지 않는다 — 기준선의 뜻은
+        // "화면이 마지막으로 서버에서 채운 값"이다.
+        setRemoteChangeNotice(true);
+      }
+    }
+    // 채택 여부와 무관하게 adopt는 매번 지난다: 새 버전을 로컬 행(expectedVersion)에 반영하는
+    // 일은 편집 상태 보호와 별개의 계약이다(adoptServerExpense가 대기 중 변이가 있는 행을
+    // 스스로 지킨다 — sync-controller.ts M-1 주석).
     setLocalExpenseId(null);
     void adoptServerExpense(expense.data).then((row) => setLocalExpenseId(row.localId));
+    // 위 주석의 근거로 폼 상태 여덟은 의도적으로 deps 밖이다(1회 초기화 + 기준선 비교).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expense.data]);
 
   // Chip row source: the fetched category list when available; otherwise (query still loading,
@@ -662,6 +772,8 @@ export default function ExpenseDetailScreen() {
     },
     onSuccess: async () => {
       setSaveErrorMessage(null);
+      // M-1: 저장이 확정된 순간 고지의 전제("저장하면 …")가 소진된다 — 함께 눕힌다.
+      setRemoteChangeNotice(false);
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
       await queryClient.invalidateQueries({ queryKey: ["expenses"] });
       await queryClient.invalidateQueries({ queryKey: ["expense", expenseId] });
@@ -1432,6 +1544,18 @@ export default function ExpenseDetailScreen() {
               </Card>
             ) : null}
 
+            {/* 라운드 99 F3 M-1 — 손댄 편집이 있는 채로 서버 값이 달라졌을 때만 서는 캡션 한 줄
+                (판정·근거는 위 초기화 effect 주석). 이 화면의 다른 고지 줄들과 같은 관례
+                (gray600 caption — 이력 범위 고지·비활성 이유 줄)이고, 아무 입력도 막지 않는다.
+                비세션·미접촉·값 무변화에서는 언제나 false라 종전 화면 그대로다. */}
+            {remoteChangeNotice ? (
+              <Text
+                testID="expense-remote-change-notice"
+                style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}
+              >
+                {"다른 기기에서 이 기록이 바뀌었어요. 저장하면 이 화면의 값으로 덮어써요."}
+              </Text>
+            ) : null}
             {/* EXP-124: 수정 저장 실패 배너 -- 저장 버튼 바로 위, 입력값을 유지한 채 원인별 문구를
                 보여준다(삭제 실패는 위 remove.onError의 Alert로 알린다). */}
             {saveErrorMessage ? <Toast message={saveErrorMessage} tone="error" /> : null}

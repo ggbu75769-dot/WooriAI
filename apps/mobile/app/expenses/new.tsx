@@ -623,8 +623,8 @@ export default function NewExpenseScreen() {
    *    (판매처 쪽의 `focus()` 0건 판정은 그대로다). 다시 찾는 손은 위 두 이름으로 찾는다.
    *  · ⚠️ 라운드 98 T-G가 변경 요청 문서(toss-T3-entry-EXP001) #2를 이행하며 요약바 연필의
    *    `focus()`를 `focusItemNameFromSummaryBar`(scrollTo 뒤 focus) 안으로 옮겼다 — 호출 수는
-   *    그대로 **둘**이고(그 헬퍼 하나 + `startCustomItem`의 rAF 하나), 이 문단과 ref·헬퍼가
-   *    더해지며 좌표가 다시 밀려 **오늘은 `:970`·`:1720`이다**.
+   *    그대로 **둘**이고(그 헬퍼 하나 + `startCustomItem`의 rAF 하나), 좌표는 라운드 98에
+   *    `:970`·`:1720`, ⚠️ 라운드 99 F3(L-1·L-2)가 뒤쪽만 밀어 **오늘은 `:970`·`:1760`이다**.
    *
    * ⚠️ 판매처 쪽의 판정(`focus()`를 쓰지 않는다)은 그대로다 —
    * `src/keyboard-tap-guard.test.ts`가 그 부정 단언을 소스로 문다.
@@ -998,6 +998,13 @@ export default function NewExpenseScreen() {
       setItemName(draft.itemName);
       setAmountText(draft.amountText);
       setMemo(draft.memo);
+      /**
+       * 라운드 99 F3 L-1 — 판매처도 복원한다(가산 필드 — 구 blob에는 키가 없어 종전 그대로
+       * 빈 칸이다, draft-storage.ts의 merchant 주석). 프리필이 판매처를 정하고 들어온 경우
+       * ("샀어요"의 플랫폼 이름)에는 초안이 그것을 덮지 않는다 — 아래 spentOnIso가 프리필을
+       * 지키는 것과 같은 규칙이다(라운드 63 C#8의 판단을 같은 방향으로 잇는다).
+       */
+      if (typeof draft.merchant === "string" && !prefilledMerchant) setMerchant(draft.merchant);
       const matchedCategory = quickExpenseCategories.find((category) => category.id === draft.categoryId);
       // UX-C: 복원한 분류는 사용자가 이미 보고 있던 값이므로 자동 추천이 덮어쓰지 않는다.
       // 라운드 51 C-#5: 분류가 **없는** 초안(미선택 상태로 시트를 닫은 경우)이 이제 정상적으로
@@ -1032,7 +1039,11 @@ export default function NewExpenseScreen() {
   useEffect(() => {
     if (!authToken) return;
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
-    const hasTypedInput = Boolean(itemName.trim() || amountText.trim() || memo.trim());
+    // 라운드 99 F3 L-1: 판매처가 "친 것" 판정에 합류한다 — 판매처만 친 채 닫아도 초안이 남는다.
+    // (⚠️ 닫기 ×의 초안 폐기 판정(shouldClearQuickExpenseDraftOnClose)은 여전히 세 칸 스냅숏이라
+    // 판매처만 친 채 ×로 닫으면 그 경로가 초안을 지운다 — 그 판정은 entry-form-guards.ts 소유라
+    // 이 트랙 밖이고, 여기 남는 것은 자동 저장 쪽의 비대칭 해소다.)
+    const hasTypedInput = Boolean(itemName.trim() || amountText.trim() || memo.trim() || merchant.trim());
     draftSaveTimerRef.current = setTimeout(() => {
       if (!hasTypedInput) {
         // 라운드 63 C(#4): 지금 아이(또는 주인 없는) 초안만 지운다 -- 위 clearDraftForCurrentChild.
@@ -1046,6 +1057,9 @@ export default function NewExpenseScreen() {
         // 라운드 51 C-#5: 미선택이면 키 자체를 싣지 않는다 -- 빈 문자열을 적어 두면 복원할 때
         // 어느 타일도 못 찾는 값이 "분류가 있었다"는 것처럼 읽힌다.
         ...(selectedCategoryId ? { categoryId: selectedCategoryId } : {}),
+        // 라운드 99 F3 L-1: 판매처도 같은 규율의 가산 필드다 — 안 적었으면 키 자체를 싣지
+        // 않는다(결제 수단을 싣지 않는 결정 주석은 draft-storage.ts의 merchant 필드 참고).
+        ...(merchant.trim() ? { merchant } : {}),
         // 라운드 63 C(#4): **이 값을 어느 아이 앞에서 쳤는가**. 아이를 아직 모르면(선택 전·
         // persist 하이드레이션 전) 같은 규율로 키 자체를 싣지 않는다 -- 빈 문자열을 적어 두면
         // "모른다"와 "주인이 없다"가 구분되지 않고, 복원 판정이 그 둘을 다르게 다룰 수 없다.
@@ -1057,7 +1071,7 @@ export default function NewExpenseScreen() {
     return () => {
       if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     };
-  }, [itemName, amountText, memo, selectedCategoryId, expenseDateIso, isGift, authToken, childId]);
+  }, [itemName, amountText, memo, merchant, selectedCategoryId, expenseDateIso, isGift, authToken, childId]);
 
   /**
    * GAP-081 #1 — **서버 월 캐시 두 달치 한 벌**. 아래 자동 분류 effect와 최근 품목 칩(EXP-113)이
@@ -1597,9 +1611,17 @@ export default function NewExpenseScreen() {
    * 단일 소스이고(서버 @Max와 같은 숫자), 판정은 순수 함수 한 곳에만 있다.
    */
   const isAmountOverLimit = isAmountOverLimitForSave({ hasSession: Boolean(authToken), amountText });
-  const isAmountInvalid =
-    Boolean(authToken) &&
-    (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0 || isAmountOverLimit || Boolean(dateInputError));
+  /**
+   * 라운드 99 F3 L-2(두 시점) — 금액의 **빈 값·0 갈래가 이 잠금 식에서 빠졌다.**
+   *
+   * 종전에는 `!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0`이 여기
+   * 있어 금액이 비면 저장 버튼이 **말없이** 죽었다 — 이 화면 스스로 적어 둔 규율("비활성 버튼은
+   * 이유를 말할 자리가 없다", 아래 분류 안내 주석)을 금액만 어기고 있었고, 지출 상세(:amountError)
+   * 는 같은 사실을 사전 안내로 말한다. 그 세 갈래는 분류·품목명과 같은 사전 안내(prepareSave의
+   * isAmountMissing — 아래)로 옮겨 갔다. 여기 남는 것은 **화면에 danger 안내가 이미 서 있는**
+   * 갈래뿐이다(상한 초과·깨진 날짜) — 이유가 보이는 잠금만 잠금으로 남는다.
+   */
+  const isAmountInvalid = Boolean(authToken) && (isAmountOverLimit || Boolean(dateInputError));
   /**
    * GAP-056 #1 — 텍스트 길이 상한 가드(품목명 100 · 판매처 100 · 메모 500).
    *
@@ -1667,17 +1689,35 @@ export default function NewExpenseScreen() {
   const [itemNameNoticeRequested, setItemNameNoticeRequested] = useState(false);
   const showItemNameNotice = itemNameNoticeRequested && isItemNameMissing;
   /**
+   * 라운드 99 F3 L-2 — 금액 사전 안내(분류·품목명 안내와 같은 문법).
+   *
+   * 종전에는 금액이 비거나 0이면 저장 버튼이 **비활성**이었다(위 isAmountInvalid 두 시점 주석)
+   * — 셋 중 금액만 이유 없이 잠겼다. 이제 같은 판정(뮤테이션 가드의 `!Number.isInteger ||
+   * amountKrw <= 0`과 같은 갈래)이 저장을 누른 그 자리에서 문장으로 답하고, 금액이 채워지는
+   * 순간(타이핑·프리셋 칩) 저절로 사라진다. 뮤테이션 가드는 그대로 남는다(이중 가드 관례).
+   * 비세션(EXP-001)은 고정 시드 "38500"에 판정도 authToken 뒤라 언제나 false — 안내는 세션의
+   * 저장 탭 뒤에만 서는 조건부라 비세션 렌더 노드 수·순서가 한 자리도 바뀌지 않는다.
+   */
+  const isAmountMissing =
+    Boolean(authToken) && (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0);
+  const [amountNoticeRequested, setAmountNoticeRequested] = useState(false);
+  const showAmountNotice = amountNoticeRequested && isAmountMissing;
+  /**
    * 저장 버튼 두 개가 **같은 한 곳**에서 분류 가드를 지나고, 이번 저장이 어느 버튼이었는지도
    * 여기서 한 번만 기록한다(라운드 48 T4의 continueAfterSaveRef). 막혔으면 false를 돌려주고
    * 호출부는 그대로 멈춘다 -- 뮤테이션은 시작되지 않고 안내 한 줄만 뜬다.
    *
    * 라운드 96 T3: 품목명 가드가 같은 자리에 합류했다. 두 안내는 **한 탭에 함께** 선다 —
    * 분류를 고치고 다시 눌렀더니 이번에는 품목명이라고 말하는 두 번 왕복을 만들지 않는다.
+   *
+   * 라운드 99 F3 L-2: 금액 가드도 같은 자리에 합류했다(같은 근거 — 세 필수 입력의 안내가 한
+   * 탭에 함께 선다). 종전에는 금액만 버튼 비활성으로 침묵하던 비대칭이었다(isAmountMissing 주석).
    */
   const prepareSave = (continueRecording: boolean) => {
     setCategoryNoticeRequested(isCategoryMissing);
     setItemNameNoticeRequested(isItemNameMissing);
-    if (isCategoryMissing || isItemNameMissing) return false;
+    setAmountNoticeRequested(isAmountMissing);
+    if (isCategoryMissing || isItemNameMissing || isAmountMissing) return false;
     continueAfterSaveRef.current = continueRecording;
     return true;
   };
@@ -2624,6 +2664,20 @@ export default function NewExpenseScreen() {
               style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
             >
               {ITEM_NAME_REQUIRED_NOTICE}
+            </Text>
+          ) : null}
+          {/* 라운드 99 F3 L-2 — 금액 사전 안내. 분류·품목명 안내와 **같은 자리·같은 문법·같은
+              색**이다(버튼을 잠그지 않는 안내라 danger가 아니라 coral[700] — 분류 안내의 근거
+              그대로). 금액이 채워지는 순간 저절로 사라지고, 초기값이 false라 세션 없는 EXP-001
+              캡처(저장 시도 없음)에서는 렌더되지 않는다. 문장은 두 이웃 안내와 같은 꼬리
+              ("… 주시면 바로 저장할게요")를 쓴다 — 세 안내가 한 목소리로 말한다. */}
+          {showAmountNotice ? (
+            <Text
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+              style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}
+            >
+              {"0보다 큰 금액을 적어 주시면 바로 저장할게요"}
             </Text>
           ) : null}
           {/* GAP-054 #2 — 금액 상한 안내. 분류 안내와 **같은 자리**(저장 버튼 바로 위)이고,

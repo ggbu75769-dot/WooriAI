@@ -188,7 +188,12 @@ describe("라운드 48 T3 지출 상세 배선", () => {
    */
   it("판매처는 응답 값으로 seeding되어 편집·저장 경로에 실린다", () => {
     const screenSource = screen();
-    expect(screenSource).toContain('setMerchant(expense.data.merchant ?? "");');
+    // ⚠️ 라운드 99 F3 M-1(두 시점 · 핀 이관): 종전 앵커는 `setMerchant(expense.data.merchant ?? "");`
+    // — 응답을 setter가 직접 읽던 초기화 줄이다. 초기화가 "지출 id당 1회 + 미접촉 채택" 게이트를
+    // 얻으며 그 사상(`?? ""` 규칙 그대로)은 expenseEditBaselineOf 스냅숏으로 옮겨졌다
+    // (expense-detail-edit-rules.test.ts의 M-1 스위트). seeding이라는 사실은 그대로다.
+    expect(screenSource).toContain('merchant: expense.merchant ?? "",');
+    expect(screenSource).toContain("setMerchant(serverBaseline.merchant);");
     expect(screenSource).toContain("onChangeText={setMerchant}");
     expect(screenSource).toContain("value={merchant}");
     // 빈 문자열을 그대로 보내야 "지웠다"가 서버까지 간다(undefined면 옛 값이 남는다).

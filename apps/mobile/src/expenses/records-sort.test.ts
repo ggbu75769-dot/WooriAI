@@ -241,16 +241,29 @@ describe("트랙 B: app/(tabs)/records.tsx 배선", () => {
     // 종전: 칸 탭이 setRecordsSortMode("latest")를 불러 **저장된 취향을 영구 덮어썼다**
     // ("사용자의 두 선택 중 나중 것"이라는 종전 주석의 판정은, 날짜 하나를 보려는 탭을 정렬
     // 취향의 의사표시로 승격한 과대 해석이었다). 이제 칸 탭은 비저장 오버라이드 state만 세운다.
+    //
+    // ⚠️ 라운드 99 F3 M-2(두 시점 · 핀 이관): 이 블록의 종전 단언 둘은 `setViewMode(RECORDS_VIEW_LIST);`
+    // 의 존재와 순서였고, 끝 앵커도 `}, [setViewMode]);`였다 — 그 한 줄이 **보기 persist를 영구
+    // 덮어쓰는 저장 setter**라는 사실을 M-4가 못 보고 남긴 자기모순이었다(정렬만 비저장으로 고치고
+    // 보기는 저장 경로에 남았다). 보기 착지도 비저장 오버라이드(calendarDateViewLanding →
+    // effectiveRecordsViewMode, records-view.store.ts)가 되면서 이 콜백에는 이제 **어떤 persist
+    // setter도 없다** — 핀을 그 새 사실로 이관한다(끝 앵커는 다음 선언으로 잡는다).
     const selectAt = recordsSource.indexOf("const handleSelectCalendarDate = useCallback(");
     expect(selectAt).toBeGreaterThan(-1);
-    const selectEndAt = recordsSource.indexOf("}, [setViewMode]);", selectAt);
-    expect(selectEndAt, "콜백 닫힘(의존성 배열)이 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    const selectEndAt = recordsSource.indexOf("const handleRecordForCalendarDate = useCallback(", selectAt);
+    expect(selectEndAt, "다음 콜백 선언이 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
     const selectBlock = recordsSource.slice(selectAt, selectEndAt);
-    expect(selectBlock).toContain("setViewMode(RECORDS_VIEW_LIST);");
+    expect(selectBlock).toContain("setCalendarDateViewLanding(true);");
     expect(selectBlock).toContain("setCalendarDateLanding(true);");
-    // persist 보존의 핵심: 이 콜백 어디에도 저장 setter가 없다.
+    // persist 보존의 핵심: 이 콜백 어디에도 저장 setter가 없다(정렬도 보기도).
     expect(selectBlock).not.toContain("setRecordsSortMode(");
-    expect(selectBlock.indexOf("setViewMode(RECORDS_VIEW_LIST);")).toBeLessThan(selectBlock.indexOf("setCalendarDateLanding(true);"));
+    expect(selectBlock).not.toContain("setViewMode(");
+    expect(selectBlock).not.toContain("setRecordsViewMode(");
+    // 보기 오버라이드가 먼저 서고(리스트가 서야 날짜 섹션이 실재한다) 정렬 오버라이드가 뒤따른다
+    // — 종전 setViewMode → setCalendarDateLanding 순서의 같은 뜻을 새 이름으로 잇는다.
+    expect(selectBlock.indexOf("setCalendarDateViewLanding(true);")).toBeLessThan(
+      selectBlock.indexOf("setCalendarDateLanding(true);")
+    );
   });
 
   it("정렬 토글의 명시 선택이 오버라이드를 걷는다 — 사용자의 직접 선택이 언제나 이긴다 (리뷰 M-4)", () => {

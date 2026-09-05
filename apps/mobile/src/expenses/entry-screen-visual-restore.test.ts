@@ -347,10 +347,14 @@ describe("T3 — 화면 배선 (지출 입력 시트)", () => {
     expect(newExpenseSource).toContain(
       "const isItemNameMissing = isItemNameMissingForSave({ hasSession: Boolean(authToken), itemName });"
     );
-    // 한 탭에 두 안내가 함께 선다(두 번 왕복 금지).
+    // 한 탭에 안내가 함께 선다(두 번 왕복 금지).
+    // ⚠️ 라운드 99 F3 L-2(두 시점 · 핀 이관): 종전 게이트 줄은
+    // `if (isCategoryMissing || isItemNameMissing) return false;` — 금액만 이 가족 밖에서 버튼
+    // 비활성으로 침묵하던 비대칭이 있었다. 금액 가드가 같은 줄에 합류해 세 안내가 한 탭에 선다.
     expect(newExpenseSource).toContain("setCategoryNoticeRequested(isCategoryMissing);");
     expect(newExpenseSource).toContain("setItemNameNoticeRequested(isItemNameMissing);");
-    expect(newExpenseSource).toContain("if (isCategoryMissing || isItemNameMissing) return false;");
+    expect(newExpenseSource).toContain("setAmountNoticeRequested(isAmountMissing);");
+    expect(newExpenseSource).toContain("if (isCategoryMissing || isItemNameMissing || isAmountMissing) return false;");
     // 안내 한 줄: 분류 안내 뒤 · 저장 버튼 앞, alert + live region, 한 곳에서만.
     const notice = newExpenseSource.indexOf("{ITEM_NAME_REQUIRED_NOTICE}");
     const categoryNotice = newExpenseSource.indexOf("{CATEGORY_REQUIRED_NOTICE}");
@@ -361,6 +365,39 @@ describe("T3 — 화면 배선 (지출 입력 시트)", () => {
     const noticeBlock = newExpenseSource.slice(newExpenseSource.lastIndexOf("{showItemNameNotice ? (", notice), notice);
     expect(noticeBlock).toContain('accessibilityRole="alert"');
     expect(noticeBlock).toContain('accessibilityLiveRegion="polite"');
+  });
+
+  /**
+   * 라운드 99 F3 L-2 — 금액 0/빈 값의 안내 비대칭 해소.
+   *
+   * 종전: 지출 상세는 금액 0/빈 값을 사전 안내(amountError)로 말하는데, 이 시트는 버튼
+   * 비활성뿐이었다 — 이 화면 스스로 적어 둔 규율("비활성 버튼은 이유를 말할 자리가 없다")의
+   * 위반 잔여. 이제 그 갈래는 분류·품목명과 같은 prepareSave 사전 안내로 서고, 잠금 식에는
+   * 화면에 danger 안내가 이미 있는 갈래(상한 초과·깨진 날짜)만 남는다.
+   */
+  it("L-2: 금액 0/빈 값은 버튼 비활성이 아니라 사전 안내다 (분류·품목명과 같은 문법)", () => {
+    // 판정: 뮤테이션 가드와 같은 갈래(빈 값·정수 아님·0 이하), 세션 게이트 뒤.
+    expect(newExpenseSource).toContain(
+      "Boolean(authToken) && (!amountText || !Number.isInteger(amountKrwValue) || amountKrwValue <= 0);"
+    );
+    // 잠금 식에서는 그 세 갈래가 빠졌다 — 이유가 보이는 잠금(상한·날짜)만 남는다.
+    expect(newExpenseSource).toContain(
+      "const isAmountInvalid = Boolean(authToken) && (isAmountOverLimit || Boolean(dateInputError));"
+    );
+    // 안내 한 줄: 품목명 안내 뒤 · 금액 상한 안내(danger) 앞, alert + live region, coral[700],
+    // 이웃 둘과 같은 꼬리("… 주시면 바로 저장할게요") — 한 곳에서만 말한다.
+    const notice = newExpenseSource.indexOf('{"0보다 큰 금액을 적어 주시면 바로 저장할게요"}');
+    const itemNameNotice = newExpenseSource.indexOf("{ITEM_NAME_REQUIRED_NOTICE}");
+    const overLimitNotice = newExpenseSource.indexOf("{AMOUNT_OVER_LIMIT_NOTICE}");
+    expect(notice).toBeGreaterThan(itemNameNotice);
+    expect(notice).toBeLessThan(overLimitNotice);
+    expect(newExpenseSource.match(/0보다 큰 금액을 적어 주시면 바로 저장할게요/g) ?? []).toHaveLength(1);
+    const noticeBlock = newExpenseSource.slice(newExpenseSource.lastIndexOf("{showAmountNotice ? (", notice), notice);
+    expect(noticeBlock).toContain('accessibilityRole="alert"');
+    expect(noticeBlock).toContain('accessibilityLiveRegion="polite"');
+    expect(noticeBlock).toContain("theme.colors.coral[700]");
+    // 뮤테이션 가드(이중 가드)는 종전 그대로다.
+    expect(newExpenseSource).toContain("!Number.isInteger(amountKrw) || amountKrw <= 0 ||");
   });
 
   it("타일이 품목명을 채운 직후에만 커서가 금액으로 옮겨 간다(amountInputRef)", () => {

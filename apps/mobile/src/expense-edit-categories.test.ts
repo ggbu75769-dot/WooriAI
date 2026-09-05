@@ -161,7 +161,13 @@ describe("EXP-003 edit screen category/date wiring", () => {
   });
 
   it("preselects the expense's current category and sends the chosen categoryId + spentOn through the offline outbox update", () => {
-    expect(detailSource).toContain("setCategoryId(expense.data.categoryId)");
+    // ⚠️ 라운드 99 F3 M-1(두 시점 · 핀 이관): 종전 앵커는 `setCategoryId(expense.data.categoryId)`
+    // — 응답을 setter가 직접 읽던 초기화 줄이다. 초기화가 "지출 id당 1회 + 미접촉 채택" 게이트를
+    // 얻으며 그 사상은 expenseEditBaselineOf 스냅숏 한 벌로 옮겨졌다(참조 교체 refetch가 편집 중
+    // 분류 선택을 덮지 않게 — expense-detail-edit-rules.test.ts의 M-1 스위트가 게이트를 문다).
+    // 지키려는 사실(현재 분류가 미리 선택된다)은 그대로다.
+    expect(detailSource).toContain("categoryId: expense.categoryId,");
+    expect(detailSource).toContain("setCategoryId(serverBaseline.categoryId);");
     expect(detailSource).toContain("selected={chip.id === categoryId}");
     expect(detailSource).toContain("updateExpenseOffline(authToken, queryClient, localExpenseId,");
     expect(detailSource).toContain("spentOn: spentOnIso || undefined");

@@ -7981,10 +7981,18 @@ const STATE_ECHO_PIN_MIGRATIONS: readonly {
   {
     // ⚠️⚠️ **정찰의 배정표에 없던 넷째 계약이다** — 그리고 이 자리는 문구를 **바이트로** 물지
     // 않고 **수로** 물었다(한국어 리터럴 54). 바늘이 달라도 부채는 같으므로 대장이 함께 진다.
+    //
+    // ⚠️ 라운드 99 F3 L-2(두 시점 · 핀 이관): GAP-095 시점의 이 칸은 previous 54 → today 53
+    // 이었다(빠른 품목 타일의 ". 선택됨" 재낭독 조각을 걷어 하나 줄었다). 라운드 99 F3 L-2가
+    // 금액 사전 안내 한 문장을 **정당하게 더해** 그 대장이 54로 다시 움직였다 — 오늘의 54는
+    // 값이 우연히 옛 54와 같을 뿐 그 54가 아니고(원인이 '선택됨' 재낭독이 아니라 새 안내 문구
+    // 라는 사실은 keyboard-tap-guard 대장의 두 시점 주석과 아래 제품 바이트 둘이 진다: 걷힌
+    // ". 선택됨" 조각은 여전히 코드에 없다), GAP-095의 핀 이동 사실은 previousPin 인용으로
+    // 남는다.
     contract: "src/keyboard-tap-guard.test.ts",
     product: "app/expenses/new.tsx",
-    previousPin: '{ file: "app/expenses/new.tsx", count: 54 }',
-    todayPin: '{ file: "app/expenses/new.tsx", count: 53 }',
+    previousPin: '{ file: "app/expenses/new.tsx", count: 53 }',
+    todayPin: '{ file: "app/expenses/new.tsx", count: 54 }',
     previousProductByte: '${selected ? ". 선택됨" : ""}',
     todayProductByte: 'accessibilityLabel={`${label}${hint ? `. ${hint}` : ""}`}'
   }

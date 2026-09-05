@@ -412,8 +412,10 @@ describe("ⓒ 무효화 대장 (두 방향)", () => {
     expect(invalidateAt, "성공 분기에 [children] 무효화가 없다").toBeGreaterThan(-1);
     expect(navigateAt).toBeGreaterThan(invalidateAt);
     // 저장 규칙은 무접촉이다 — 멱등키·동의 복구가 그대로 있는지 같은 자리에서 본다.
+    // 라운드 99 트랙 F1(M) — ⚠️ 두 시점: 종전 핀은 인자 없는 `getOrCreateChildCreateIdempotencyKey()`
+    // 였다. 키가 제출 본문 지문에 묶이면서(같은 본문만 재사용 — 409 루프 차단) 호출이 지문을 넘긴다.
     expect(source).toContain("saveWithConsentRecovery(submitChild, () => upsertConsents(authToken!))");
-    expect(source).toContain("getOrCreateChildCreateIdempotencyKey()");
+    expect(source).toContain("getOrCreateChildCreateIdempotencyKey(childCreateBodyFingerprint(body))");
     expect(source).toContain("clearChildCreateIdempotencyKey();");
   });
 
