@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type React from "react";
-import type { ComponentProps, PropsWithChildren } from "react";
+import type { ComponentProps, PropsWithChildren, Ref } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, View } from "react-native";
+import { KoreanText as Text } from "./KoreanText";
 import { EmptyState, ErrorState, LoadingState } from "../patterns/AsyncState";
 import { semanticColors } from "../tokens/color";
 import { elevation } from "../tokens/elevation";
@@ -18,11 +19,19 @@ export function AppIcon({ name, size = 24, color = semanticColors.textPrimary }:
   return <MaterialCommunityIcons accessibilityElementsHidden color={color} importantForAccessibility="no-hide-descendants" name={name} size={size} />;
 }
 
-export function AppScreen({ children }: PropsWithChildren) {
-  if (!isPixelLockBuild()) return <ScreenScaffold>{children}</ScreenScaffold>;
+export function AppScreen({ children, scrollRef, scrollable = true }: PropsWithChildren<{ scrollRef?: Ref<ScrollView>; scrollable?: boolean }>) {
+  if (!isPixelLockBuild()) return <ScreenScaffold scrollRef={scrollRef} scrollable={scrollable}>{children}</ScreenScaffold>;
+  if (!scrollable) {
+    return (
+      <View style={{ backgroundColor: semanticColors.background, flex: 1, gap: spacing.lg, padding: spacing.xl }}>
+        {children}
+      </View>
+    );
+  }
   return (
     <ScrollView
       contentContainerStyle={{ backgroundColor: semanticColors.background, flexGrow: 1, gap: spacing.lg, padding: spacing.xl }}
+      ref={scrollRef}
       showsHorizontalScrollIndicator={false}
       showsVerticalScrollIndicator={false}
       style={{ backgroundColor: semanticColors.background, flex: 1 }}
@@ -32,9 +41,20 @@ export function AppScreen({ children }: PropsWithChildren) {
   );
 }
 
-export function ScreenHeader({ eyebrow, title, subtitle, action }: { eyebrow?: string; title: string; subtitle?: string; action?: React.ReactNode }) {
+export function ScreenHeader({ eyebrow, title, subtitle, action, onBack }: { eyebrow?: string; title: string; subtitle?: string; action?: React.ReactNode; onBack?: () => void }) {
   return (
     <View style={{ flexDirection: "row", gap: spacing.md, justifyContent: "space-between" }}>
+      {onBack ? (
+        <Pressable
+          accessibilityLabel="뒤로"
+          accessibilityRole="button"
+          hitSlop={4}
+          onPress={onBack}
+          style={({ pressed }) => ({ alignItems: "center", borderRadius: radius.large, height: 48, justifyContent: "center", opacity: pressed ? 0.7 : 1, width: 48 })}
+        >
+          <AppIcon color={semanticColors.textPrimary} name="chevron-left" size={26} />
+        </Pressable>
+      ) : null}
       <View style={{ flex: 1, gap: spacing.xs }}>
         {eyebrow ? <Text style={{ color: semanticColors.brandPrimary, ...typography.caption }}>{eyebrow}</Text> : null}
         <Text accessibilityRole="header" style={{ color: semanticColors.textPrimary, ...typography.heading1 }}>{title}</Text>
@@ -100,9 +120,15 @@ export function StatusBadge({ label, tone = "neutral" }: { label: string; tone?:
   return <View style={{ alignSelf: "flex-start", backgroundColor, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }}><Text style={{ color, fontSize: typography.caption.fontSize, fontWeight: "800" }}>{label}</Text></View>;
 }
 
-export function ListRow({ icon, iconBackgroundColor, title, subtitle, value, onPress }: { icon?: React.ReactNode; iconBackgroundColor?: string; title: string; subtitle?: string; value?: string; onPress?: () => void }) {
+export function ListRow({ badgeLabel, icon, iconBackgroundColor, title, subtitle, value, onPress }: { badgeLabel?: string; icon?: React.ReactNode; iconBackgroundColor?: string; title: string; subtitle?: string; value?: string; onPress?: () => void }) {
   return (
-    <Pressable accessibilityRole={onPress ? "button" : "text"} disabled={!onPress} onPress={onPress}>
+    <Pressable
+      accessibilityLabel={[title, badgeLabel, subtitle, value].filter(Boolean).join(". ")}
+      accessibilityRole={onPress ? "button" : "text"}
+      disabled={!onPress}
+      onPress={onPress}
+      style={({ pressed }) => ({ opacity: onPress && pressed ? 0.76 : 1 })}
+    >
       <Card style={{ alignItems: "center", flexDirection: "row", minHeight: 64 }}>
         {icon ? (
           <View style={{ alignItems: "center", backgroundColor: iconBackgroundColor ?? semanticColors.actionSecondary, borderRadius: radius.pill, height: 40, justifyContent: "center", width: 40 }}>
@@ -110,7 +136,10 @@ export function ListRow({ icon, iconBackgroundColor, title, subtitle, value, onP
           </View>
         ) : null}
         <View style={{ flex: 1, gap: spacing.xxs }}>
-          <Text style={{ color: semanticColors.textPrimary, fontSize: typography.body.fontSize, fontWeight: "800" }}>{title}</Text>
+          <View style={{ alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: spacing.xs }}>
+            <Text style={{ color: semanticColors.textPrimary, fontSize: typography.body.fontSize, fontWeight: "800" }}>{title}</Text>
+            {badgeLabel ? <StatusBadge label={badgeLabel} tone="info" /> : null}
+          </View>
           {subtitle ? <Text style={{ color: semanticColors.textSecondary, ...typography.caption }}>{subtitle}</Text> : null}
         </View>
         {value ? <Text style={{ color: semanticColors.textPrimary, fontWeight: "800" }}>{value}</Text> : null}
@@ -139,7 +168,7 @@ export function Toast({ message, tone = "success" }: { message: string; tone?: "
 }
 
 export function SampleDataBanner() {
-  return <View accessibilityLabel="샘플 데이터 안내" style={{ alignItems: "center", backgroundColor: semanticColors.infoSurface, borderRadius: radius.large, flexDirection: "row", gap: spacing.sm, minHeight: 48, paddingHorizontal: spacing.md }}><AppIcon color={semanticColors.info} name="flask-outline" size={20} /><Text style={{ color: semanticColors.textPrimary, flex: 1, ...typography.caption }}>샘플 데이터 · 실제 계정 정보와 분리되어 이 기기에만 저장돼요.</Text></View>;
+  return null;
 }
 
 export function AffiliateDisclosure({ text }: { text?: string }) {

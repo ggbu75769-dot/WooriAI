@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  addDateOnlyDays,
   assertMoneyKrw,
   dateOnlyToLocalDate,
   getSeoulMonthRange,
+  getSeoulTomorrow,
   getSeoulToday,
   getSeoulYearMonth,
+  isBeyondSeoulTomorrow,
   isFutureSeoulDate,
   isMoneyKrw,
   isValidCalendarDate,
-  localDateToDateOnly
+  localDateToDateOnly,
+  MAX_MONEY_KRW
 } from "./money-date";
 
 describe("money rules", () => {
@@ -18,6 +22,8 @@ describe("money rules", () => {
     expect(isMoneyKrw(0)).toBe(false);
     expect(isMoneyKrw(-1)).toBe(false);
     expect(isMoneyKrw(1.2)).toBe(false);
+    expect(isMoneyKrw(MAX_MONEY_KRW)).toBe(true);
+    expect(isMoneyKrw(MAX_MONEY_KRW + 1)).toBe(false);
   });
 
   it("throws a field-level error for invalid KRW", () => {
@@ -47,6 +53,17 @@ describe("Asia/Seoul date rules", () => {
     const now = new Date("2026-07-05T15:30:00.000Z");
     expect(isFutureSeoulDate("2026-07-06", now)).toBe(false);
     expect(isFutureSeoulDate("2026-07-07", now)).toBe(true);
+  });
+
+  it("allows exactly tomorrow for scheduled expenses and rejects later dates", () => {
+    const beforeSeoulMidnight = new Date("2026-07-05T14:59:59.000Z");
+    const afterSeoulMidnight = new Date("2026-07-05T15:00:01.000Z");
+
+    expect(getSeoulTomorrow(beforeSeoulMidnight)).toBe("2026-07-06");
+    expect(getSeoulTomorrow(afterSeoulMidnight)).toBe("2026-07-07");
+    expect(isBeyondSeoulTomorrow("2026-07-07", afterSeoulMidnight)).toBe(false);
+    expect(isBeyondSeoulTomorrow("2026-07-08", afterSeoulMidnight)).toBe(true);
+    expect(addDateOnlyDays("2026-12-31", 1)).toBe("2027-01-01");
   });
 });
 

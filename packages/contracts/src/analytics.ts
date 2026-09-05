@@ -43,6 +43,9 @@ export const expenseAmountBucketSchema = z.enum(EXPENSE_AMOUNT_BUCKETS);
 export const EXPENSE_RECORD_SOURCES = ["manual", "import", "followup"] as const;
 export const expenseRecordSourceSchema = z.enum(EXPENSE_RECORD_SOURCES);
 
+export const SEARCH_QUERY_LENGTH_BUCKETS = ["1_3", "4_7", "8_plus"] as const;
+export const searchQueryLengthBucketSchema = z.enum(SEARCH_QUERY_LENGTH_BUCKETS);
+
 export const SYNC_LATENCY_BUCKETS = ["lt1s", "1s_5s", "5s_30s", "30s_2m", "gte2m"] as const;
 export const syncLatencyBucketSchema = z.enum(SYNC_LATENCY_BUCKETS);
 
@@ -86,6 +89,13 @@ const expenseSyncedV1Payload = z
   })
   .strict();
 
+const expenseCatalogSearchMissedV1Payload = z
+  .object({
+    categoryCode: analyticsCategoryCodeSchema,
+    queryLengthBucket: searchQueryLengthBucketSchema
+  })
+  .strict();
+
 const itemStatusChangedV1Payload = z
   .object({
     itemCategoryCode: analyticsCategoryCodeSchema,
@@ -112,6 +122,7 @@ export const analyticsEventRegistry: readonly AnalyticsEventRegistryEntry[] = [
   { eventName: "onboarding_completed", eventVersion: 1, payloadSchema: onboardingCompletedV1Payload },
   { eventName: "expense_recorded", eventVersion: 1, payloadSchema: expenseRecordedV1Payload },
   { eventName: "expense_synced", eventVersion: 1, payloadSchema: expenseSyncedV1Payload },
+  { eventName: "expense_catalog_search_missed", eventVersion: 1, payloadSchema: expenseCatalogSearchMissedV1Payload },
   { eventName: "item_status_changed", eventVersion: 1, payloadSchema: itemStatusChangedV1Payload },
   { eventName: "affiliate_link_clicked", eventVersion: 1, payloadSchema: affiliateLinkClickedV1Payload }
 ];

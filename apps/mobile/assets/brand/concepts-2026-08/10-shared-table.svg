@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 10 셰어드 테이블</title><desc id="d">가족이 하나의 생활 기록을 함께 관리하는 공유 테이블 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#F7FBFA"/>
+  <rect x="98" y="208" width="316" height="98" rx="49" fill="#173D48"/>
+  <path d="M172 306v92M340 306v92" stroke="#173D48" stroke-width="46" stroke-linecap="round"/>
+  <circle cx="166" cy="148" r="52" fill="#6DC5AE"/>
+  <circle cx="346" cy="148" r="52" fill="#FF7658"/>
+  <circle cx="256" cy="236" r="35" fill="#FFD261" stroke="#F7FBFA" stroke-width="16"/>
+</svg>

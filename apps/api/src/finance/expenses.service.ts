@@ -3,7 +3,7 @@ import type { Expense as PrismaExpense, Prisma } from "@prisma/client";
 import type { MemberRole } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
-import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
+import { OnboardingStoreService, type ExpenseListPageInput } from "../onboarding/onboarding-store.service";
 import { toDeletedExpenseSnapshot, toExpenseSnapshot } from "./expense-snapshot";
 import type { UpdateExpenseDto } from "./dto/expense.dto";
 
@@ -61,12 +61,27 @@ export class ExpensesVersionService {
     return this.hydrateOne(dto as { id: string });
   }
 
-  async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string) {
-    const result = await this.store.listExpenses(user, childId, yearMonth);
-    const typed = result as { expenses: Array<{ id: string }>; totalAmountKrw: number };
+  async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string, page?: ExpenseListPageInput) {
+    const result = await this.store.listExpenses(user, childId, yearMonth, page);
+    const typed = result as {
+      expenses: Array<{ id: string }>;
+      filteredExpenseCount: number;
+      filteredRecordCount: number;
+      filteredTotalAmountKrw: number;
+      nextCursor: string | null;
+      totalAmountKrw: number;
+      totalExpenseCount: number;
+      totalRecordCount: number;
+    };
     return {
       expenses: await this.hydrateMany(typed.expenses),
-      totalAmountKrw: typed.totalAmountKrw
+      filteredExpenseCount: typed.filteredExpenseCount,
+      filteredRecordCount: typed.filteredRecordCount,
+      filteredTotalAmountKrw: typed.filteredTotalAmountKrw,
+      nextCursor: typed.nextCursor,
+      totalAmountKrw: typed.totalAmountKrw,
+      totalExpenseCount: typed.totalExpenseCount,
+      totalRecordCount: typed.totalRecordCount
     };
   }
 

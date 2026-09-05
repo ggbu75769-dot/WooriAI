@@ -1,11 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <g fill="#000" transform="translate(142 176)">
-    <circle cx="210" cy="176" r="78"/>
-    <path d="M88 504V360c0-92 55-146 122-146s122 54 122 146v144H88Z"/>
-    <circle cx="530" cy="176" r="78"/>
-    <path d="M408 504V360c0-92 55-146 122-146s122 54 122 146v144H408Z"/>
-    <circle cx="370" cy="244" r="56"/>
-    <path d="M294 504V360c0-67 34-108 76-108s76 41 76 108v144H294Z"/>
-  </g>
-  <path d="M262 596c86-104 158-86 218 14 48 80 113 92 182 22l52-52m-22 10 42 42 86-96" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="38"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">우리아이 스프라우트 월렛 단색 로고</title>
+  <desc id="description">테마 색상으로 표시되는 Android 단색 아이콘용 스프라우트 월렛 실루엣</desc>
+  <defs>
+    <mask id="sprout-wallet-mask">
+      <rect width="1024" height="1024" fill="#000"/>
+      <rect x="190" y="318" width="644" height="526" rx="148" fill="#FFF"/>
+      <path d="M512 368c-12-110 52-196 164-208 2 112-56 188-164 208Z" fill="#FFF"/>
+      <path d="M512 368c12-90-38-158-132-172-2 92 46 152 132 172Z" fill="#FFF"/>
+      <circle cx="512" cy="542" r="168" fill="#000"/>
+      <circle cx="454" cy="550" r="20" fill="#FFF"/><circle cx="570" cy="550" r="20" fill="#FFF"/>
+      <path d="M460 620c30 30 74 30 104 0" fill="none" stroke="#FFF" stroke-width="28" stroke-linecap="round"/>
+    </mask>
+  </defs>
+  <rect width="1024" height="1024" fill="#17324D" mask="url(#sprout-wallet-mask)"/>
 </svg>

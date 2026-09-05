@@ -1,4 +1,7 @@
-import { isFutureSeoulDate } from "@wooriai/domain";
+import { isBeyondSeoulTomorrow, MAX_MONEY_KRW } from "@wooriai/domain";
+
+export const EXPENSE_MEMO_MAX_LENGTH = 500;
+export const EXPENSE_AMOUNT_MAX_DIGITS = String(MAX_MONEY_KRW).length;
 
 export function sanitizeExpenseAmountText(value: string): string {
   return value.replace(/[^0-9]/g, "");
@@ -30,7 +33,7 @@ export function validateExpenseDateInput(dateOnly: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return "YYYY-MM-DD 형식으로 입력해 주세요.";
   if (!isValidCalendarDate(dateOnly)) return "존재하지 않는 날짜예요.";
   try {
-    if (isFutureSeoulDate(dateOnly)) return "미래 날짜는 선택할 수 없어요.";
+    if (isBeyondSeoulTomorrow(dateOnly)) return "내일 이후 날짜는 선택할 수 없어요.";
   } catch {
     return "날짜를 다시 확인해 주세요.";
   }
@@ -38,11 +41,11 @@ export function validateExpenseDateInput(dateOnly: string): string | null {
 }
 
 export function buildRecentExpenseDateChips(today: Date) {
-  return Array.from({ length: 14 }, (_, index) => {
+  return [-1, 0, 1].map((offset) => {
     const date = new Date(today);
-    date.setDate(date.getDate() - index);
+    date.setDate(date.getDate() + offset);
     const formatted = formatExpenseDate(date);
-    const shortLabel = index === 0 ? "오늘" : index === 1 ? "어제" : index === 2 ? "그제" : `${date.getMonth() + 1}/${date.getDate()}`;
+    const shortLabel = offset === -1 ? "어제" : offset === 0 ? "오늘" : "내일";
     return { iso: formatted.iso, shortLabel };
   });
 }
@@ -50,7 +53,11 @@ export function buildRecentExpenseDateChips(today: Date) {
 export function validateExpenseForm(input: { itemName: string; amountText: string; spentOn: string }) {
   const amountKrw = Number(input.amountText || "0");
   const itemNameError = input.itemName.trim() ? null : "품목을 입력해 주세요.";
-  const amountError = Number.isSafeInteger(amountKrw) && amountKrw > 0 ? null : "0보다 큰 금액을 입력해 주세요.";
+  const amountError = amountKrw > MAX_MONEY_KRW
+    ? `입력 가능한 최대 금액은 ${MAX_MONEY_KRW.toLocaleString("ko-KR")}원이에요.`
+    : Number.isSafeInteger(amountKrw) && amountKrw > 0
+      ? null
+      : "0보다 큰 금액을 입력해 주세요.";
   const dateError = validateExpenseDateInput(input.spentOn);
   return {
     amountKrw,
@@ -59,4 +66,10 @@ export function validateExpenseForm(input: { itemName: string; amountText: strin
     dateError,
     valid: !itemNameError && !amountError && !dateError
   };
+}
+
+export function validateExpenseMemo(memo: string): string | null {
+  return memo.length <= EXPENSE_MEMO_MAX_LENGTH
+    ? null
+    : `메모는 ${EXPENSE_MEMO_MAX_LENGTH}자까지 입력할 수 있어요.`;
 }

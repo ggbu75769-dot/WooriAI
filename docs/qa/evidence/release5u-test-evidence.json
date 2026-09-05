@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "generatedAt": "2026-08-11T00:46:34.417Z",
   "status": "PASS",
   "commands": [
     {
@@ -38,7 +38,17 @@
           "label": "Install",
           "command": "pnpm install --frozen-lockfile",
           "result": "PASS",
-          "durationMs": 1046,
+          "durationMs": 422,
+          "timeoutMs": 300000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "mobile-deps",
+          "label": "Mobile SDK dependencies",
+          "command": "pnpm mobile:deps:check",
+          "result": "PASS",
+          "durationMs": 1906,
           "timeoutMs": 300000,
           "timedOut": false,
           "issues": []
@@ -48,8 +58,28 @@
           "label": "Env example",
           "command": "pnpm check:env:example",
           "result": "PASS",
-          "durationMs": 662,
+          "durationMs": 651,
           "timeoutMs": null,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "secret-scan",
+          "label": "Secret scan",
+          "command": "pnpm security:secrets",
+          "result": "PASS",
+          "durationMs": 1111,
+          "timeoutMs": 300000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "prod-audit",
+          "label": "Production dependency audit",
+          "command": "pnpm security:audit",
+          "result": "PASS",
+          "durationMs": 1570,
+          "timeoutMs": 300000,
           "timedOut": false,
           "issues": []
         },
@@ -58,7 +88,7 @@
           "label": "Prisma validate",
           "command": "pnpm --filter api prisma:validate",
           "result": "PASS",
-          "durationMs": 1409,
+          "durationMs": 1583,
           "timeoutMs": null,
           "timedOut": false,
           "issues": []
@@ -68,7 +98,7 @@
           "label": "Prisma generate",
           "command": "pnpm --filter api prisma:generate",
           "result": "PASS",
-          "durationMs": 1840,
+          "durationMs": 2192,
           "timeoutMs": null,
           "timedOut": false,
           "issues": []
@@ -78,8 +108,18 @@
           "label": "Database up",
           "command": "pnpm db start",
           "result": "PASS",
-          "durationMs": 1122,
+          "durationMs": 1287,
           "timeoutMs": 180000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "catalog-audit",
+          "label": "Isolated catalog audit",
+          "command": "pnpm catalog:audit",
+          "result": "PASS",
+          "durationMs": 21020,
+          "timeoutMs": 300000,
           "timedOut": false,
           "issues": []
         },
@@ -88,7 +128,7 @@
           "label": "ESLint",
           "command": "pnpm lint",
           "result": "PASS",
-          "durationMs": 8699,
+          "durationMs": 11580,
           "timeoutMs": 300000,
           "timedOut": false,
           "issues": []
@@ -98,7 +138,7 @@
           "label": "Typecheck",
           "command": "pnpm typecheck",
           "result": "PASS",
-          "durationMs": 10352,
+          "durationMs": 13149,
           "timeoutMs": 600000,
           "timedOut": false,
           "issues": []
@@ -108,7 +148,7 @@
           "label": "All tests",
           "command": "pnpm test --concurrency=1 --force",
           "result": "PASS",
-          "durationMs": 296045,
+          "durationMs": 139359,
           "timeoutMs": 900000,
           "timedOut": false,
           "issues": []
@@ -118,7 +158,17 @@
           "label": "API e2e",
           "command": "pnpm --filter api test:e2e",
           "result": "PASS",
-          "durationMs": 163885,
+          "durationMs": 141375,
+          "timeoutMs": 600000,
+          "timedOut": false,
+          "issues": []
+        },
+        {
+          "id": "admin-browser",
+          "label": "Admin browser E2E",
+          "command": "pnpm test:admin-browser",
+          "result": "PASS",
+          "durationMs": 142705,
           "timeoutMs": 600000,
           "timedOut": false,
           "issues": []
@@ -128,7 +178,7 @@
           "label": "Production builds",
           "command": "pnpm build --force",
           "result": "PASS",
-          "durationMs": 60327,
+          "durationMs": 62229,
           "timeoutMs": 900000,
           "timedOut": false,
           "issues": []
@@ -138,7 +188,7 @@
           "label": "Peer dependencies",
           "command": "pnpm install --frozen-lockfile --strict-peer-dependencies --lockfile-only",
           "result": "PASS",
-          "durationMs": 478,
+          "durationMs": 782,
           "timeoutMs": null,
           "timedOut": false,
           "issues": []

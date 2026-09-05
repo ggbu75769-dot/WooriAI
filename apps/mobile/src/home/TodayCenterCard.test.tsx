@@ -1,7 +1,8 @@
-import React from "react";
+﻿import React from "react";
 import renderer, { act } from "react-test-renderer";
 import { AccessibilityInfo } from "react-native";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render } from "../test-utils/react-test-renderer";
 import type { LocalTodayCenterContract } from "../api/client";
 import { semanticColors } from "../design-system/tokens/color";
 
@@ -67,7 +68,7 @@ describe("TodayCenterCard", () => {
       message: "내일까지 미뤘어요.",
       canRetryMutation: false
     });
-    const tree = renderer.create(
+    const tree = render(
       <TodayCenterCard
         center={center}
         onNavigate={onNavigate}
@@ -101,7 +102,7 @@ describe("TodayCenterCard", () => {
 
   it("navigates safety without opening management", () => {
     const onNavigate = vi.fn();
-    const tree = renderer.create(
+    const tree = render(
       <TodayCenterCard
         center={{ ...center, actions: [center.actions[0]!] }}
         onNavigate={onNavigate}
@@ -109,13 +110,18 @@ describe("TodayCenterCard", () => {
         onSnooze={vi.fn()}
       />
     );
-    const row = tree.root.findAll((node) => node.props.accessibilityRole === "button" && !node.props.accessibilityLabel)[0]!;
+    const row = tree.root.find((node) =>
+      node.props.accessibilityRole === "button"
+      && String(node.props.accessibilityLabel).includes("기저귀")
+      && String(node.props.accessibilityLabel).includes("안전")
+    );
+    expect(row.props.accessibilityLabel).toContain("공식 안전 안내를 확인");
     act(() => row.props.onPress());
     expect(onNavigate).toHaveBeenCalledWith(center.actions[0]);
   });
 
   it("focuses the sheet heading and restores the invoker on Android-back dismissal", async () => {
-    const tree = renderer.create(
+    const tree = render(
       <TodayCenterCard
         center={{ ...center, actions: [center.actions[1]!] }}
         onNavigate={vi.fn()}
@@ -144,7 +150,7 @@ describe("TodayCenterCard", () => {
 
   it("keeps modal focus contained when Android Back is pressed during a pending snooze", async () => {
     const onSnooze = vi.fn().mockReturnValue(new Promise(() => undefined));
-    const tree = renderer.create(
+    const tree = render(
       <TodayCenterCard
         center={{ ...center, actions: [center.actions[1]!] }}
         onNavigate={vi.fn()}
@@ -177,7 +183,7 @@ describe("TodayCenterCard", () => {
 
   it("moves programmatic refresh-close focus to the stable Today heading", async () => {
     const onRefresh = vi.fn().mockResolvedValue(undefined);
-    const tree = renderer.create(
+    const tree = render(
       <TodayCenterCard
         center={center}
         onNavigate={vi.fn()}
@@ -207,7 +213,7 @@ describe("TodayCenterCard", () => {
   });
 
   it("renders an indeterminate refresh-required outcome as warning, not success", async () => {
-    const tree = renderer.create(
+    const tree = render(
       <TodayCenterCard
         center={{ ...center, actions: [center.actions[1]!] }}
         onNavigate={vi.fn()}
@@ -249,7 +255,7 @@ describe("TodayCenterCard", () => {
       onRefresh: vi.fn().mockResolvedValue(undefined),
       onSnooze
     };
-    const tree = renderer.create(
+    const tree = render(
       <TodayCenterCard center={ordinaryOnly} {...props} />,
       { createNodeMock: () => ({}) }
     );
@@ -272,8 +278,10 @@ describe("TodayCenterCard", () => {
     });
 
     expect(tree.root.findAll((node) => node.props.accessibilityLiveRegion === "polite")).toHaveLength(1);
-    expect(tree.root.find((node) => node.props.accessibilityRole === "header").children)
-      .toContain("오늘의 가족 준비");
+    const headerText = tree.root.find(
+      (node) => String(node.type) === "Text" && node.props.accessibilityRole === "header"
+    );
+    expect(headerText.children.join("").replaceAll("\u2060", "")).toContain("오늘의 가족 준비");
     expect(AccessibilityInfo.setAccessibilityFocus).toHaveBeenCalledWith(1);
   });
 });

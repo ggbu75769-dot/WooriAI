@@ -1,5 +1,4 @@
 import { router, type Href } from "expo-router";
-import { useState } from "react";
 import { View } from "react-native";
 import { AppScreen } from "../../src/design-system";
 import {
@@ -50,22 +49,18 @@ export default function ItemsScreen() {
 }
 
 function PixelItemsScreen() {
-  const [urgentOnly, setUrgentOnly] = useState(false);
-
   return (
     <AppScreen>
       <View accessibilityLabel="ITEM-CATALOG-001" style={recommendationPixelScaleFrameStyle()}>
         <PreparationListParity
-          contextOptions={[{ key: "child:pixel", label: "산모 · 복덩이" }]}
           items={pixelPreparationItems}
           onBack={() => router.push("/(tabs)" as Href)}
           onItemPress={(item) => router.push(`/items/${item.id}`)}
           onMissingReport={() => undefined}
           onRetry={() => undefined}
-          onSelectContext={() => undefined}
-          onToggleUrgent={() => setUrgentOnly((current) => !current)}
+          onSearch={() => undefined}
           selectedContextKey="child:pixel"
-          urgentOnly={urgentOnly}
+          selectedContextName="복덩이"
         />
       </View>
     </AppScreen>

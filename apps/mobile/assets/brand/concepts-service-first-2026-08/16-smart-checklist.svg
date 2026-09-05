@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 16 스마트 체크리스트</title><desc id="d">지금 필요하고 곧 필요한 준비템을 구분하는 추천 목록</desc>
+  <rect width="512" height="512" rx="112" fill="#F3F0FF"/>
+  <rect x="98" y="98" width="316" height="316" rx="72" fill="#173D48"/>
+  <path d="M170 184l26 26 48-54" fill="none" stroke="#6DC5AE" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M278 190h76" stroke="#F7FBFA" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="196" cy="274" r="22" fill="#FFD261"/>
+  <path d="M278 274h76" stroke="#F7FBFA" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="196" cy="350" r="22" fill="#FF7658"/>
+  <path d="M278 350h52" stroke="#F7FBFA" stroke-width="28" stroke-linecap="round"/>
+</svg>

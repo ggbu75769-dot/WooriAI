@@ -1,6 +1,7 @@
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
+import { MAX_MONEY_KRW } from "@wooriai/domain";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
@@ -72,17 +73,31 @@ describe("Release 5E assisted expense APIs", () => {
     expect(duplicateDraft.body).toMatchObject({ duplicate: true, draft: { id: draftId } });
 
     const idempotencyKey = randomUUID();
+    const confirmationBase = {
+      confirmed: true,
+      expectedVersion: 1,
+      categoryId: category.id,
+      spentOn: "2026-05-01",
+      itemName: items[0]!.nameKo,
+      merchant: "가족 상점"
+    };
+    await request(app.getHttpServer()).post(`/api/v1/receipt-drafts/${draftId}/confirm`).set("Authorization", `Bearer ${owner.token}`).send({
+      ...confirmationBase,
+      idempotencyKey: randomUUID(),
+      amountKrw: MAX_MONEY_KRW + 1
+    }).expect(400);
+    await request(app.getHttpServer()).post(`/api/v1/receipt-drafts/${draftId}/confirm`).set("Authorization", `Bearer ${owner.token}`).send({
+      ...confirmationBase,
+      idempotencyKey: randomUUID(),
+      amountKrw: 55_000,
+      itemName: "가".repeat(101)
+    }).expect(400);
     let confirmation: { body: Record<string, unknown> } | undefined;
     for (let repeat = 0; repeat < 30; repeat += 1) {
       confirmation = await request(app.getHttpServer()).post(`/api/v1/receipt-drafts/${draftId}/confirm`).set("Authorization", `Bearer ${owner.token}`).send({
-        confirmed: true,
+        ...confirmationBase,
         idempotencyKey,
-        expectedVersion: 1,
-        categoryId: category.id,
         amountKrw: 55_000,
-        spentOn: "2026-05-01",
-        itemName: items[0]!.nameKo,
-        merchant: "가족 상점"
       }).expect(200);
     }
     const expenseId = confirmation!.body.expenseId as string;
@@ -151,5 +166,27 @@ describe("Release 5E assisted expense APIs", () => {
       ]),
       localDeviceReceiptDrafts: "purged_on_logout_or_account_deletion_not_server_exported"
     });
+
+    const downloaded = await request(app.getHttpServer())
+      .get(`/api/v1/privacy/requests/${requested.body.id}/download`)
+      .set("Authorization", `Bearer ${owner.token}`)
+      .expect("Cache-Control", "private, no-store, max-age=0")
+      .expect("Content-Disposition", 'attachment; filename="wooriai-data-export.json"')
+      .expect(200);
+    expect(downloaded.body).toMatchObject({
+      schemaVersion: 1,
+      requestId: requested.body.id,
+      scope: "requesting-user-owned-and-authored-data",
+      data: {
+        profile: { id: owner.userId },
+        notificationPreference: { userId: owner.userId },
+        receiptDrafts: [{ fileName: "export-receipt.png" }]
+      }
+    });
+    expect(downloaded.body.data.profile).not.toHaveProperty("providerUserId");
+    expect(downloaded.body.data.oauthIdentities?.[0] ?? {}).not.toHaveProperty("providerSubject");
+    await request(app.getHttpServer())
+      .get(`/api/v1/privacy/requests/${requested.body.id}/download`)
+      .expect(401);
   });
 });

@@ -1,6 +1,7 @@
 import type { TodayActionContract, TodayCenterContract } from "@wooriai/contracts";
 import { useRef, useState } from "react";
-import { AccessibilityInfo, Pressable, Text, View, findNodeHandle } from "react-native";
+import { AccessibilityInfo, Pressable, Text as NativeText, View, findNodeHandle } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import {
   AppIcon,
   Card,
@@ -41,7 +42,7 @@ export function TodayCenterCard({
   const [pending, setPending] = useState(false);
   const [outcome, setOutcome] = useState<TodaySnoozeOutcome | null>(null);
   const [notice, setNotice] = useState<TodaySnoozeOutcome | null>(null);
-  const headingRef = useRef<Text | null>(null);
+  const headingRef = useRef<NativeText | null>(null);
   const returnFocusRef = useRef<View | null>(null);
   const managementRefs = useRef(new Map<string, View>());
 
@@ -104,8 +105,8 @@ export function TodayCenterCard({
         지금 처리할 중요한 행동만 최대 3개 보여드려요.
       </Text>
       {center.source === "local_fixture" ? (
-        <Text accessibilityLabel="로컬 샘플 Today Center" style={{ color: semanticColors.info, fontSize: 11, fontWeight: "700" }}>
-          이 기기의 샘플 알림
+        <Text accessibilityLabel="이 기기의 알림" style={{ color: semanticColors.info, fontSize: 11, fontWeight: "700" }}>
+          이 기기의 알림
         </Text>
       ) : null}
       {notice ? <Toast message={notice.message} tone={outcomeToastTone(notice)} /> : null}

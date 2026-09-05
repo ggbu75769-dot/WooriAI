@@ -65,7 +65,7 @@ export class SettingsController {
       householdId,
       requiresSecondStep: true,
       confirmationText: "LEAVE HOUSEHOLD",
-      impact: ["shared child data is no longer accessible from this account"]
+      impact: ["이 계정에서는 더 이상 가족의 공유 데이터에 접근할 수 없어요."]
     };
   }
 

@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 2200">
+  <rect width="1600" height="2200" fill="#F3F0EB"/>
+  <style>
+    .ko{font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+    .title{font-size:58px;font-weight:800;fill:#151A20;letter-spacing:-2px}
+    .sub{font-size:23px;font-weight:500;fill:#65707A;letter-spacing:-.5px}
+    .num{font-size:24px;font-weight:800}
+    .brand{font-size:46px;font-weight:800;fill:#173D48;letter-spacing:-2px}
+    .en{font-size:24px;font-weight:800;fill:#151A20;letter-spacing:.3px}
+    .desc{font-size:21px;font-weight:500;fill:#717B84;letter-spacing:-.5px}
+    .tag{font-size:18px;font-weight:700;fill:#173D48}
+  </style>
+  <text x="72" y="92" class="ko title">우리아이 — 앱스토어 컷 10</text>
+  <text x="72" y="138" class="ko sub">기존 10번 ‘Shared Table’을 1순위 기준으로 삼고, 형태는 완전히 다르게 재설계</text>
+  <rect x="72" y="172" width="1456" height="52" rx="26" fill="#E2ECE8"/>
+  <text x="104" y="206" class="ko tag">APP STORE RESEARCH  ·  단일 실루엣  ·  제한된 팔레트  ·  작은 크기 인지성  ·  가족 공동관리</text>
+
+  <g transform="translate(64 260)">
+    <rect width="720" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="01-embrace-core.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="86" class="ko num" fill="#6DC5AE">01</text>
+    <text x="334" y="146" class="ko brand">우리아이</text>
+    <text x="334" y="196" class="ko en">EMBRACE CORE</text>
+    <text x="334" y="240" class="ko desc">두 보호자가 감싸는 아이의 중심</text>
+  </g>
+  <g transform="translate(816 260)">
+    <rect width="720" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="02-family-handoff.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="86" class="ko num" fill="#FF7658">02</text>
+    <text x="334" y="146" class="ko brand">우리아이</text>
+    <text x="334" y="196" class="ko en">FAMILY HANDOFF</text>
+    <text x="334" y="240" class="ko desc">돌봄이 끊기지 않는 가족의 인계</text>
+  </g>
+
+  <g transform="translate(64 620)">
+    <rect width="720" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="03-family-day.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="86" class="ko num" fill="#45A88F">03</text>
+    <text x="334" y="146" class="ko brand">우리아이</text>
+    <text x="334" y="196" class="ko en">FAMILY DAY</text>
+    <text x="334" y="240" class="ko desc">한 화면에서 맞추는 가족의 하루</text>
+  </g>
+  <g transform="translate(816 620)">
+    <rect width="720" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="04-care-bridge.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="86" class="ko num" fill="#FF7658">04</text>
+    <text x="334" y="146" class="ko brand">우리아이</text>
+    <text x="334" y="196" class="ko en">CARE BRIDGE</text>
+    <text x="334" y="240" class="ko desc">아이의 성장을 함께 받치는 다리</text>
+  </g>
+
+  <g transform="translate(64 980)">
+    <rect width="720" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="05-care-signal.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="86" class="ko num" fill="#FF7658">05</text>
+    <text x="334" y="146" class="ko brand">우리아이</text>
+    <text x="334" y="196" class="ko en">CARE SIGNAL</text>
+    <text x="334" y="240" class="ko desc">생활 기록이 가족에게 닿는 신호</text>
+  </g>
+  <g transform="translate(816 980)">
+    <rect width="720" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="06-shared-notes.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="86" class="ko num" fill="#6D5CE7">06</text>
+    <text x="334" y="146" class="ko brand">우리아이</text>
+    <text x="334" y="196" class="ko en">SHARED NOTES</text>
+    <text x="334" y="240" class="ko desc">가족의 생활 기록이 모이는 곳</text>
+  </g>
+
+  <g transform="translate(64 1340)">
+    <rect width="720" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="07-round-table.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="86" class="ko num" fill="#45A88F">07</text>
+    <text x="334" y="146" class="ko brand">우리아이</text>
+    <text x="334" y="196" class="ko en">ROUND TABLE</text>
+    <text x="334" y="240" class="ko desc">세 가족이 바라보는 하나의 중심</text>
+  </g>
+  <g transform="translate(816 1340)">
+    <rect width="720" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="08-daily-thread.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="86" class="ko num" fill="#173D48">08</text>
+    <text x="334" y="146" class="ko brand">우리아이</text>
+    <text x="334" y="196" class="ko en">DAILY THREAD</text>
+    <text x="334" y="240" class="ko desc">세 사람을 잇는 하나의 하루</text>
+  </g>
+
+  <g transform="translate(64 1700)">
+    <rect width="720" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="09-care-pair.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="86" class="ko num" fill="#FF7658">09</text>
+    <text x="334" y="146" class="ko brand">우리아이</text>
+    <text x="334" y="196" class="ko en">CARE PAIR</text>
+    <text x="334" y="240" class="ko desc">서로 다른 보호자의 따뜻한 균형</text>
+  </g>
+  <g transform="translate(816 1700)">
+    <rect width="720" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="10-living-center.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="86" class="ko num" fill="#45A88F">10</text>
+    <text x="334" y="146" class="ko brand">우리아이</text>
+    <text x="334" y="196" class="ko en">LIVING CENTER</text>
+    <text x="334" y="240" class="ko desc">가족 생활이 만나는 공동 허브</text>
+  </g>
+
+  <text x="800" y="2125" text-anchor="middle" class="ko sub">글자·캐릭터·사진 없이, 64px에서도 구분되는 앱 아이콘 실루엣으로 설계</text>
+</svg>

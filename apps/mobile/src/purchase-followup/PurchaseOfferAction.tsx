@@ -1,4 +1,5 @@
 import { Linking } from "react-native";
+import * as WebBrowser from "expo-web-browser";
 import { PrimaryButton } from "../design-system";
 import { isSafePurchaseUrl, openPurchaseOffer } from "./link-orchestrator";
 import type { PurchaseFollowupStorage } from "./store";
@@ -8,6 +9,29 @@ export type PurchaseOfferAccessState =
   | "blocked"
   | "direct"
   | "followup";
+
+async function openSellerUrl(url: string): Promise<unknown> {
+  try {
+    return await Linking.openURL(url);
+  } catch (linkingError) {
+    try {
+      const result = await WebBrowser.openBrowserAsync(url);
+      if (result.type === WebBrowser.WebBrowserResultType.LOCKED) {
+        throw new Error("CUSTOM_TAB_LOCKED");
+      }
+      return result;
+    } catch (browserError) {
+      const diagnostic = (error: unknown) => error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : String(error);
+      console.warn("[purchase-offer] seller URL openers failed", {
+        linking: diagnostic(linkingError),
+        browser: diagnostic(browserError)
+      });
+      throw browserError;
+    }
+  }
+}
 
 export function PurchaseOfferAction({
   accessState,
@@ -31,8 +55,8 @@ export function PurchaseOfferAction({
   };
 }) {
   const link = dependencies ?? {
-    canOpenURL: Linking.canOpenURL,
-    openURL: Linking.openURL
+    canOpenURL: (url: string) => Linking.canOpenURL(url),
+    openURL: openSellerUrl
   };
 
   const open = async () => {
@@ -41,7 +65,7 @@ export function PurchaseOfferAction({
       return;
     }
     try {
-      if (!isSafePurchaseUrl(offer.publicUrl) || !(await link.canOpenURL(offer.publicUrl))) {
+      if (!isSafePurchaseUrl(offer.publicUrl)) {
         onMessage("안전하게 열 수 있는 판매처 주소가 아니에요.");
         return;
       }
@@ -63,6 +87,7 @@ export function PurchaseOfferAction({
         );
         return;
       }
+      await link.canOpenURL(offer.publicUrl).catch(() => false);
       await link.openURL(offer.publicUrl);
     } catch (error) {
       if (

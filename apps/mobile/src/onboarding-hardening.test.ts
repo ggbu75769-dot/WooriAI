@@ -10,6 +10,7 @@ import { completionErrorMessage, finalizeOnboardingSuccess } from "./onboarding/
 import { createSingleFlightGuard } from "./onboarding/single-flight";
 import { LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "./api/fixture-runtime";
 import {
+  householdIdForFeatureScope,
   householdIdForSelectedChildScope,
   selectedChildScopeKey,
   selectedChildScopeKeyForSession
@@ -32,19 +33,20 @@ describe("onboarding six-step hardening", () => {
   it("exposes category names instead of sellable product names in starter recommendations", () => {
     const preview = previewOnboardingStarterItems({ stageMode: "manual", manualStage: "newborn_0_3" });
     expect(preview.items.map((item) => item.nameKo)).toEqual([
-      "기저귀",
-      "아기띠",
-      "블록 세트",
-      "아기 침대",
-      "배냇저고리",
-      "속싸개",
+      "신생아 기저귀",
+      "신생아 아기띠",
+      "신생아 침대",
+      "신생아 배냇저고리",
+      "아기 수면조끼",
       "젖병",
-      "체온계",
-      "아기 욕조",
-      "손수건",
-      "카시트",
-      "유모차"
+      "아기 체온계",
+      "신생아 욕조",
+      "후드형 아기 타월",
+      "신생아용 카시트",
+      "신생아 유모차"
     ]);
+    expect(preview.eligibleCount).toBe(11);
+    expect(preview.items.map((item) => item.nameKo)).not.toContain("쌓기 블록");
     expect(preview.items.map((item) => item.nameKo).join(" ")).not.toMatch(/네이처러브|팬티형|힙시트|도담도담|원목/);
   });
 
@@ -93,6 +95,12 @@ describe("onboarding six-step hardening", () => {
     expect(householdIdForSelectedChildScope("child-b", null, "household-a")).toBeNull();
     expect(householdIdForSelectedChildScope("child-b", "household-b", "household-a")).toBe("household-b");
     expect(householdIdForSelectedChildScope(null, null, "household-a")).toBe("household-a");
+  });
+
+  it("uses the isolated fixture household for feature screens only in a test session", () => {
+    expect(householdIdForFeatureScope("local-child", null, null, true)).toBe(LOCAL_HOUSEHOLD_ID);
+    expect(householdIdForFeatureScope("child-b", null, "household-a", false)).toBeNull();
+    expect(householdIdForFeatureScope("child-b", "household-b", "household-a", false)).toBe("household-b");
   });
 
   it("maps validation, stale, auth, network, and server failures separately", () => {

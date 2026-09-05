@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 02 패밀리 핸드오프</title><desc id="d">세 사람이 끊김 없이 돌봄을 이어가는 세 개의 라운드 화살표</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF7ED"/>
+  <path d="M144 223c16-67 73-112 142-112h43" fill="none" stroke="#173D48" stroke-width="58" stroke-linecap="round"/>
+  <path d="M310 91l54 49-54 49" fill="none" stroke="#173D48" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M368 289c-16 67-73 112-142 112h-43" fill="none" stroke="#FF7658" stroke-width="58" stroke-linecap="round"/>
+  <path d="M202 421l-54-49 54-49" fill="none" stroke="#FF7658" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="256" r="47" fill="#6DC5AE" stroke="#FFF7ED" stroke-width="16"/>
+</svg>

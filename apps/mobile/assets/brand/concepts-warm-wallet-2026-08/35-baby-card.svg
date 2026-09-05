@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 35 베이비 카드</title><desc id="d">우리아이 전용 생활비 카드를 따뜻하게 표현한 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FF6B4A"/>
+  <rect x="76" y="108" width="360" height="296" rx="76" fill="#FFF9F3"/>
+  <circle cx="208" cy="250" r="82" fill="#FFD76A"/>
+  <path d="M183 184c0-29 19-50 47-50 0 27-13 45-39 56" fill="#FF6B4A"/>
+  <circle cx="180" cy="252" r="9" fill="#17324D"/><circle cx="236" cy="252" r="9" fill="#17324D"/>
+  <path d="M184 285c14 14 34 14 48 0" fill="none" stroke="#17324D" stroke-width="13" stroke-linecap="round"/>
+  <path d="M316 198h66M316 250h82M316 302h52" stroke="#17324D" stroke-width="25" stroke-linecap="round"/>
+</svg>

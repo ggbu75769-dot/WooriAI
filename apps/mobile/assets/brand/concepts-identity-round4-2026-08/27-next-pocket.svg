@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 27 넥스트 포켓</title><desc id="d">기록한 비용을 바탕으로 다음 준비를 꺼내는 주머니 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFD76A"/>
+  <path d="M92 152h328v158c0 89-72 161-161 161h-6c-89 0-161-72-161-161V152Z" fill="#17324D"/>
+  <path d="M92 152c46 61 101 92 164 92s118-31 164-92" fill="none" stroke="#FFF9F3" stroke-width="44"/>
+  <circle cx="204" cy="310" r="38" fill="#FF6B4A"/>
+  <path d="M270 318h74" stroke="#FFD76A" stroke-width="32" stroke-linecap="round"/>
+  <path d="M322 284l39 34-39 34" fill="none" stroke="#FFD76A" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

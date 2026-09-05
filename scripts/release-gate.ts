@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { validateProductionReleaseConfig, type ReleaseConfigIssue } from "@wooriai/config";
+import { acquireReleaseGateLock, ReleaseGateAlreadyRunningError } from "./lib/release-gate-lock";
 
 type GateCommand = {
   id: string;
@@ -302,36 +303,53 @@ function main() {
   const configOnly = args.includes("--config-only");
   const fixture = args.includes("--fixture");
   const mode = configOnly ? (fixture ? "production-config-fixture" : "production-config") : production ? "production-full" : dryRun ? "local-dry-run" : "local-executed";
-
-  const selectedCommands = configOnly ? [] : gateCommands;
-  const results: GateResult[] = [];
-  if (production) results.push(runProductionConfigGate(fixture));
-  for (const command of selectedCommands) {
-    if (dryRun) {
-      results.push({ ...command, durationMs: 0, status: 0, stdout: "", stderr: "", timedOut: false });
-      continue;
+  let releaseGateLock: ReturnType<typeof acquireReleaseGateLock> | null = null;
+  if (!configOnly) {
+    try {
+      releaseGateLock = acquireReleaseGateLock(process.env.WOORIAI_RELEASE_GATE_LOCK_PATH);
+    } catch (error) {
+      if (error instanceof ReleaseGateAlreadyRunningError) {
+        console.error(`[release:gate] ${error.message}`);
+        process.exitCode = 2;
+        return;
+      }
+      throw error;
     }
-    console.log(`[release:gate] ${command.display}`);
-    const result = runGateCommand(command);
-    process.stdout.write(result.stdout);
-    process.stderr.write(result.stderr);
-    results.push(result);
   }
 
-  const baseName = configOnly
-    ? fixture
-      ? "release3-production-config-fixture"
-      : "release3-production-config-gate"
-    : "latest-release-gate";
-  const evidence = writeEvidence(results, mode, dryRun, baseName);
-  const failed = results.filter((result) => result.status !== 0);
-  if (failed.length > 0) {
-    console.error(`[release:gate] failed: ${failed.map((result) => result.id).join(", ")}`);
-    console.error(`[release:gate] evidence: ${evidence.markdownPath}, ${evidence.jsonPath}`);
-    process.exitCode = 1;
-    return;
+  try {
+    const selectedCommands = configOnly ? [] : gateCommands;
+    const results: GateResult[] = [];
+    if (production) results.push(runProductionConfigGate(fixture));
+    for (const command of selectedCommands) {
+      if (dryRun) {
+        results.push({ ...command, durationMs: 0, status: 0, stdout: "", stderr: "", timedOut: false });
+        continue;
+      }
+      console.log(`[release:gate] ${command.display}`);
+      const result = runGateCommand(command);
+      process.stdout.write(result.stdout);
+      process.stderr.write(result.stderr);
+      results.push(result);
+    }
+
+    const baseName = configOnly
+      ? fixture
+        ? "release3-production-config-fixture"
+        : "release3-production-config-gate"
+      : "latest-release-gate";
+    const evidence = writeEvidence(results, mode, dryRun, baseName);
+    const failed = results.filter((result) => result.status !== 0);
+    if (failed.length > 0) {
+      console.error(`[release:gate] failed: ${failed.map((result) => result.id).join(", ")}`);
+      console.error(`[release:gate] evidence: ${evidence.markdownPath}, ${evidence.jsonPath}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`[release:gate] evidence: ${evidence.markdownPath}, ${evidence.jsonPath}`);
+  } finally {
+    releaseGateLock?.release();
   }
-  console.log(`[release:gate] evidence: ${evidence.markdownPath}, ${evidence.jsonPath}`);
 }
 
 main();

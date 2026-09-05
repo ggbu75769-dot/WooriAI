@@ -344,6 +344,168 @@ export class PrivacyService {
     return statusDto(request);
   }
 
+  async downloadExport(user: AuthenticatedUser, requestId: string) {
+    const request = await this.prisma.privacyRequest.findFirst({
+      where: { id: requestId, userId: user.id, requestType: "export" }
+    });
+    if (!request) {
+      throw new NotFoundException({ code: "PRIVACY_REQUEST_NOT_FOUND", message: "내보내기 요청을 찾을 수 없어요." });
+    }
+    if (request.state !== "completed" || !request.exportObjectKey) {
+      throw new ConflictException({ code: "PRIVACY_EXPORT_NOT_READY", message: "내보내기 파일을 준비하고 있어요." });
+    }
+    if (!request.exportExpiresAt || request.exportExpiresAt <= new Date()) {
+      throw new ConflictException({ code: "PRIVACY_EXPORT_EXPIRED", message: "내보내기 파일의 다운로드 기간이 끝났어요. 새로 요청해 주세요." });
+    }
+
+    const [
+      profile,
+      oauthIdentities,
+      paymentMethods,
+      devices,
+      householdMemberships,
+      expenses,
+      budgets,
+      consents,
+      consentEvents,
+      notificationPreference,
+      todayActionPreferences,
+      weeklyBriefings,
+      customPreparationBundles,
+      customBundleApplications,
+      receiptDrafts,
+      receiptConfirmations,
+      expensePlanLinkEvents,
+      privacyRequests
+    ] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: {
+          id: true,
+          authProvider: true,
+          email: true,
+          phone: true,
+          displayName: true,
+          profileImageUrl: true,
+          status: true,
+          lastLoginAt: true,
+          createdAt: true,
+          updatedAt: true,
+          deletedAt: true
+        }
+      }),
+      this.prisma.oAuthIdentity.findMany({
+        where: { userId: user.id },
+        select: { id: true, provider: true, emailAtLink: true, linkedAt: true, lastVerifiedAt: true, unlinkedAt: true }
+      }),
+      this.prisma.userPaymentMethod.findMany({ where: { userId: user.id } }),
+      this.prisma.userDevice.findMany({
+        where: { userId: user.id },
+        select: {
+          id: true,
+          platform: true,
+          notificationEnabled: true,
+          appVersion: true,
+          osVersion: true,
+          createdAt: true,
+          updatedAt: true,
+          disabledAt: true
+        }
+      }),
+      this.prisma.householdMember.findMany({ where: { userId: user.id } }),
+      this.prisma.expense.findMany({ where: { createdByUserId: user.id }, orderBy: { createdAt: "asc" } }),
+      this.prisma.budget.findMany({ where: { createdByUserId: user.id }, orderBy: { createdAt: "asc" } }),
+      this.prisma.consent.findMany({
+        where: { userId: user.id },
+        select: { id: true, consentType: true, version: true, accepted: true, acceptedAt: true, revokedAt: true, createdAt: true }
+      }),
+      this.prisma.consentEvent.findMany({
+        where: { userId: user.id },
+        select: { id: true, legalDocumentId: true, action: true, contentHash: true, source: true, appVersion: true, occurredAt: true }
+      }),
+      this.prisma.notificationPreference.findUnique({ where: { userId: user.id } }),
+      this.prisma.todayActionPreference.findMany({ where: { userId: user.id } }),
+      this.prisma.weeklyBriefing.findMany({ where: { userId: user.id }, orderBy: { weekStart: "asc" } }),
+      this.prisma.customPreparationBundle.findMany({ where: { createdByUserId: user.id }, orderBy: { createdAt: "asc" } }),
+      this.prisma.customBundleApplication.findMany({ where: { requestedByUserId: user.id }, orderBy: { appliedAt: "asc" } }),
+      this.prisma.receiptDraft.findMany({
+        where: { createdByUserId: user.id },
+        select: {
+          id: true,
+          householdId: true,
+          childId: true,
+          fileName: true,
+          mimeType: true,
+          fileSizeBytes: true,
+          status: true,
+          extractionProvider: true,
+          extractionJson: true,
+          confirmedExpenseId: true,
+          retentionUntil: true,
+          deletedAt: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      }),
+      this.prisma.receiptConfirmation.findMany({ where: { requestedByUserId: user.id }, orderBy: { createdAt: "asc" } }),
+      this.prisma.expensePlanLinkEvent.findMany({ where: { actorUserId: user.id }, orderBy: { createdAt: "asc" } }),
+      this.prisma.privacyRequest.findMany({
+        where: { userId: user.id },
+        select: {
+          id: true,
+          requestType: true,
+          state: true,
+          requestedAt: true,
+          dueAt: true,
+          accessRevokedAt: true,
+          completedAt: true,
+          failureCode: true,
+          exportExpiresAt: true,
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: { requestedAt: "asc" }
+      })
+    ]);
+    if (!profile) {
+      throw new NotFoundException({ code: "PRIVACY_USER_NOT_FOUND", message: "사용자 정보를 찾을 수 없어요." });
+    }
+
+    return {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      requestId,
+      exportExpiresAt: request.exportExpiresAt.toISOString(),
+      scope: "requesting-user-owned-and-authored-data",
+      exclusions: [
+        "authentication secrets and refresh tokens",
+        "device identifiers and push tokens",
+        "other household members' profile and authored data",
+        "raw uploaded files after their documented retention period"
+      ],
+      data: {
+        profile,
+        oauthIdentities,
+        paymentMethods,
+        devices,
+        householdMemberships,
+        expenses,
+        budgets,
+        consents,
+        consentEvents,
+        notificationPreference,
+        todayActionPreferences,
+        weeklyBriefings,
+        customPreparationBundles,
+        customBundleApplications,
+        receiptDrafts,
+        receiptConfirmations,
+        expensePlanLinkEvents,
+        privacyRequests
+      }
+    };
+  }
+
   async publicDeletionStatus(requestId: string, token: string) {
     const request = await this.prisma.privacyRequest.findUnique({ where: { id: requestId } });
     if (!request?.statusTokenHash || request.requestType !== "deletion") {

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 37 리틀 레저</title><desc id="d">아이 얼굴과 생활 기록장이 하나로 이어진 부드러운 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFD76A"/>
+  <rect x="92" y="72" width="328" height="368" rx="82" fill="#FFF9F3" stroke="#FF6B4A" stroke-width="22"/>
+  <circle cx="206" cy="220" r="76" fill="#FF6B4A"/>
+  <path d="M182 158c0-26 17-45 42-45 0 25-11 41-35 51" fill="#FFD76A"/>
+  <circle cx="181" cy="222" r="9" fill="#17324D"/><circle cx="231" cy="222" r="9" fill="#17324D"/>
+  <path d="M184 251c12 12 32 12 44 0" fill="none" stroke="#17324D" stroke-width="12" stroke-linecap="round"/>
+  <path d="M304 174h62M304 226h82M150 338h216" stroke="#17324D" stroke-width="25" stroke-linecap="round"/>
+</svg>

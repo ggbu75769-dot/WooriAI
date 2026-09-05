@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import { Redirect, router } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { createExcelImport, fixtureSessionToken } from "../../src/api/client";
 import { pixelEvidenceId } from "../../src/api/fixture-runtime";
 import { validateImportFile } from "../../src/import-file-validation";
@@ -118,7 +119,7 @@ export default function ImportUploadScreen() {
     <View accessibilityLabel={importUploadScreenId} style={[styles.screen, isPixelLockMode ? { paddingHorizontal: ExcelPreviewPixelStyles.screenPadding } : undefined, isPixelLockMode ? excelPreviewPixelFrameStyle() : undefined]}>
       {isTestSession ? <SampleDataBanner /> : null}
       <View style={styles.navigationBar}>
-        <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
+        <Pressable accessibilityLabel="뒤로" accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
           <AppIcon name="chevron-left" size={isPixelLockMode ? 22 : 26} />
         </Pressable>
         <Text style={styles.navigationTitle}>엑셀 업로드</Text>
@@ -159,6 +160,9 @@ export default function ImportUploadScreen() {
 
       <View style={styles.footerSpacer} />
       <Pressable
+        accessibilityLabel={upload.isPending ? "파일 분석 중" : "엑셀 또는 CSV 파일 선택"}
+        accessibilityRole="button"
+        accessibilityState={{ busy: upload.isPending, disabled: upload.isPending }}
         disabled={upload.isPending}
         onPress={applyPreview}
         style={({ pressed }) => [styles.applyButton, showPixelPreview ? { backgroundColor: theme.colors.coral[400] } : undefined, { bottom: 20 + ExcelPreviewPixelStyles.ctaBottomInset, height: ExcelPreviewPixelStyles.ctaHeight, opacity: pressed || upload.isPending ? 0.82 : 1 }]}

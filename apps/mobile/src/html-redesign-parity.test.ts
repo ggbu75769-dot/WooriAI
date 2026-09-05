@@ -28,13 +28,15 @@ describe("standalone HTML redesign parity", () => {
     expect(layout).toContain('<Tabs.Screen name="more" options={{ title: tabs.more.title');
   });
 
-  it("splits preparation into ten categories and groups the timing view into accordions", () => {
+  it("splits preparation into ten categories, hides sparse groups, and groups timing into accordions", () => {
     const preparation = source("src/preparation/PreparationListParity.tsx");
     for (const label of ["건강·진료", "의류·착용", "편안함·회복", "위생·목욕", "입원·출산", "수유·이유식", "수면·공간", "기저귀·생활", "외출·놀이·교육", "가족·기록"]) {
       expect(preparation).toContain(`name: "${label}"`);
     }
     expect(preparation).toContain("toggleTimingBand");
-    expect(preparation).toContain('accessibilityState={{ disabled: bandItems.length === 0, expanded }}');
+    expect(preparation).toContain(".filter((band) => band.items.length >= INITIAL_GROUP_LIMIT)");
+    expect(preparation).toContain("accessibilityState={{ expanded }}");
+    expect(preparation).toContain("nextPreparationGroupLimit");
   });
 
   it("assigns every catalog domain to exactly one of the ten preparation groups", () => {
@@ -162,7 +164,7 @@ describe("standalone HTML redesign parity", () => {
     const colors = source("android/app/src/main/res/values/colors.xml");
     const styles = source("android/app/src/main/res/values/styles.xml");
     const background = source("android/app/src/main/res/drawable/ic_launcher_background.xml");
-    expect(colors).toContain('<color name="splashscreen_background">#FFFDFC</color>');
+    expect(colors).toContain('<color name="splashscreen_background">#FFF9F3</color>');
     expect(styles).toContain('<item name="android:windowBackground">@drawable/ic_launcher_background</item>');
     expect(background).toContain('@drawable/splashscreen_logo');
     expect(background).not.toContain('@drawable/assets_illustrations_logo_mark');

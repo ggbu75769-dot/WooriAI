@@ -1,14 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
-  <title id="title">우리아이 가족 준비 로고</title>
-  <rect width="1024" height="1024" fill="#FFF8F1"/>
-  <g transform="translate(142 176)">
-    <circle cx="210" cy="176" r="78" fill="#EF6644"/>
-    <path d="M88 504V360c0-92 55-146 122-146s122 54 122 146v144H88Z" fill="#EF6644"/>
-    <circle cx="530" cy="176" r="78" fill="#7DDCC7"/>
-    <path d="M408 504V360c0-92 55-146 122-146s122 54 122 146v144H408Z" fill="#7DDCC7"/>
-    <circle cx="370" cy="244" r="56" fill="#FFA88E"/>
-    <path d="M294 504V360c0-67 34-108 76-108s76 41 76 108v144H294Z" fill="#FFA88E"/>
-    <path d="M120 420c86-104 158-86 218 14 48 80 113 92 182 22l52-52" fill="none" stroke="#B93E23" stroke-linecap="round" stroke-linejoin="round" stroke-width="38"/>
-    <path d="m550 414 42 42 86-96" fill="none" stroke="#B93E23" stroke-linecap="round" stroke-linejoin="round" stroke-width="38"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">우리아이 스프라우트 월렛 공식 로고</title>
+  <desc id="description">웃는 아이, 성장 새싹, 가족 생활비 지갑을 따뜻하게 결합한 우리아이 로고</desc>
+  <rect width="1024" height="1024" fill="#FFF9F3"/>
+  <rect x="164" y="304" width="696" height="564" rx="156" fill="#FF6B4A"/>
+  <circle cx="512" cy="540" r="176" fill="#FFD76A"/>
+  <path d="M512 368c-12-110 52-196 164-208 2 112-56 188-164 208Z" fill="#17324D"/>
+  <path d="M512 368c12-90-38-158-132-172-2 92 46 152 132 172Z" fill="#FFD76A" stroke="#17324D" stroke-width="24"/>
+  <circle cx="450" cy="548" r="20" fill="#17324D"/>
+  <circle cx="574" cy="548" r="20" fill="#17324D"/>
+  <path d="M458 620c32 32 76 32 108 0" fill="none" stroke="#17324D" stroke-width="28" stroke-linecap="round"/>
+  <rect x="612" y="688" width="300" height="144" rx="72" fill="#FFF9F3" stroke="#FF6B4A" stroke-width="28"/>
+  <circle cx="700" cy="760" r="28" fill="#FFD76A"/>
 </svg>

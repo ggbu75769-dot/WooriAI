@@ -48,7 +48,11 @@ export function openPurchaseOffer(
 
   const operation = (async () => {
     if (!isSafePurchaseUrl(input.publicUrl)) throw new Error("PURCHASE_URL_UNSAFE");
-    if (!(await dependencies.canOpenURL(input.publicUrl))) throw new Error("PURCHASE_URL_UNAVAILABLE");
+    // `canOpenURL` is only a hint on Android: package visibility and a browser's
+    // first-run state can report false even when ACTION_VIEW succeeds. The
+    // guarded `openURL` call below is the final authority, and its failure still
+    // removes the transient follow-up before surfacing the error.
+    await dependencies.canOpenURL(input.publicUrl).catch(() => false);
 
     const nowMs = dependencies.now?.() ?? Date.now();
     const recorded = await loadRecordedPurchaseFollowupForItem(

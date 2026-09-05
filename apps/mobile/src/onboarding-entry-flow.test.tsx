@@ -1,6 +1,7 @@
-import React from "react";
+﻿import React from "react";
 import renderer, { act } from "react-test-renderer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render } from "./test-utils/react-test-renderer";
 
 const navigation = vi.hoisted(() => ({
   back: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("@expo/vector-icons", () => ({ MaterialCommunityIcons: "MaterialCommunit
 vi.mock("@react-native-community/datetimepicker", () => ({ default: "DateTimePicker" }));
 vi.mock("react-native", () => ({
   AccessibilityInfo: { setAccessibilityFocus: vi.fn() },
+  ActivityIndicator: "ActivityIndicator",
   KeyboardAvoidingView: "KeyboardAvoidingView",
   Modal: "Modal",
   NativeModules: {},
@@ -64,7 +66,7 @@ describe("standalone onboarding entry behavior", () => {
       selectedPath: null
     });
 
-    const tree = renderer.create(<ChildStatusScreen />);
+    const tree = render(<ChildStatusScreen />);
     expect(tree.root.findAll((node) => node.props.accessibilityRole === "radiogroup")).toHaveLength(1);
     expect(tree.root.findAll((node) => node.props.accessibilityLabel === "선택 취소")).toHaveLength(0);
     const radios = tree.root.findAll((node) => node.props.accessibilityRole === "radio");
@@ -91,7 +93,7 @@ describe("standalone onboarding entry behavior", () => {
 
     let tree!: renderer.ReactTestRenderer;
     act(() => {
-      tree = renderer.create(<OnboardingLayout />);
+      tree = render(<OnboardingLayout />);
     });
 
     expect(useOnboardingDraftStore.getState().draft).toMatchObject({

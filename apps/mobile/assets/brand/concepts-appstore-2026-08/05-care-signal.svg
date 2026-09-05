@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 05 케어 시그널</title><desc id="d">아이의 생활 기록이 가족에게 퍼지는 따뜻한 신호</desc>
+  <rect width="512" height="512" rx="112" fill="#FF7658"/>
+  <path d="M116 230c36-66 86-99 140-99s104 33 140 99" fill="none" stroke="#FFF7ED" stroke-width="54" stroke-linecap="round"/>
+  <path d="M156 294c27-45 60-67 100-67s73 22 100 67" fill="none" stroke="#FFF7ED" stroke-width="54" stroke-linecap="round"/>
+  <circle cx="256" cy="354" r="48" fill="#FFD261"/>
+</svg>

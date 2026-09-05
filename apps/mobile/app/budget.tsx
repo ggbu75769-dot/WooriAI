@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { MAX_MONEY_KRW } from "@wooriai/domain";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../src/design-system/components/KoreanText";
 import { getBudget, fixtureSessionToken, listHouseholdMembers, upsertBudget } from "../src/api/client";
 import { AppIcon, AppScreen, Card, EmptyStateCard, MoneyField, PrimaryButton, Toast, TopAppBar } from "../src/design-system";
-import { useSelectedChildStore } from "../src/stores/selected-child.store";
+import { useConfirmDiscardChanges } from "../src/navigation/use-confirm-discard-changes";
+import { householdIdForFeatureScope, useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
 import { theme } from "../src/theme";
 
@@ -16,10 +19,19 @@ export default function BudgetEditScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const userId = useSessionStore((state) => state.userId);
-  const householdId = useSessionStore((state) => state.defaultHouseholdId);
+  const defaultHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const token = accessToken ?? (isTestSession ? fixtureSessionToken : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
+  const selectedChildHouseholdId = useSelectedChildStore((state) => state.selectedChildHouseholdId);
+  const householdId = householdIdForFeatureScope(
+    childId,
+    selectedChildHouseholdId,
+    defaultHouseholdId,
+    isTestSession
+  );
   const [amountDigits, setAmountDigits] = useState("");
+  const [allowExit, setAllowExit] = useState(false);
+  const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryClient = useQueryClient();
   const budget = useQuery({ queryKey: ["budget", childId], enabled: Boolean(token && childId), queryFn: () => getBudget(token!, childId!) });
   const members = useQuery({
@@ -34,14 +46,25 @@ export default function BudgetEditScreen() {
     if (budget.data?.amountKrw) setAmountDigits(String(budget.data.amountKrw));
   }, [budget.data?.amountKrw]);
 
+  useEffect(() => () => {
+    if (navigationTimerRef.current) clearTimeout(navigationTimerRef.current);
+  }, []);
+
   const amountKrw = amountDigits ? Number(amountDigits) : 0;
-  const amountError = !Number.isSafeInteger(amountKrw) || amountKrw <= 0 ? "0보다 큰 원화 정수를 입력해 주세요." : null;
+  const amountError = !Number.isSafeInteger(amountKrw) || amountKrw <= 0
+    ? "0보다 큰 원화 정수를 입력해 주세요."
+    : amountKrw > MAX_MONEY_KRW
+      ? `입력 가능한 최대 예산은 ${MAX_MONEY_KRW.toLocaleString("ko-KR")}원이에요.`
+      : null;
+  const hasChanges = Boolean(budget.data && amountKrw !== budget.data.amountKrw);
+  useConfirmDiscardChanges(hasChanges && !allowExit);
   const save = useMutation({
     mutationFn: () => {
       if (!token || !childId || !canEdit || amountError) throw new Error("BUDGET_INPUT_INVALID");
       return upsertBudget(token, childId, amountKrw);
     },
     onSuccess: async (value) => {
+      setAllowExit(true);
       queryClient.setQueryData(["budget", childId], value);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["home", childId] }),
@@ -49,20 +72,24 @@ export default function BudgetEditScreen() {
         queryClient.invalidateQueries({ queryKey: ["report-v3"] }),
         queryClient.invalidateQueries({ queryKey: ["budget-variance-explanation"] })
       ]);
-      router.replace("/(tabs)/more");
+      navigationTimerRef.current = setTimeout(() => {
+        navigationTimerRef.current = null;
+        router.replace("/(tabs)/more");
+      }, 50);
     }
   });
 
   return (
     <AppScreen>
       <View accessibilityLabel="PF-04 월 예산 설정" testID="screen-PF-04" style={{ gap: theme.spacing.section }}>
-        <TopAppBar eyebrow="프로필" onBack={() => router.back()} title="월 예산 설정" />
+        <TopAppBar eyebrow="예산 · 데이터" onBack={() => router.back()} title="월 예산 설정" />
         {budget.isLoading || members.isLoading ? <EmptyStateCard title="예산을 불러오고 있어요." actionLabel="잠시만요" /> : budget.isError || members.isError ? <EmptyStateCard title="예산을 불러오지 못했어요." actionLabel="다시 시도" onPress={() => { void budget.refetch(); void members.refetch(); }} /> : !canEdit ? <EmptyStateCard title="보기 전용 권한에서는 예산을 변경할 수 없어요." actionLabel="프로필로 돌아가기" onPress={() => router.replace("/(tabs)/more")} /> : (
           <>
             <MoneyField
               error={amountError}
               helper="매월 1일 기준으로 관리돼요. 변경한 값은 이번 달부터 적용돼요."
               label="월 예산"
+              maxLength={String(MAX_MONEY_KRW).length}
               onChangeText={(value) => setAmountDigits(toDigits(value))}
               placeholder="예: 500,000"
               value={amountDigits ? Number(amountDigits).toLocaleString("ko-KR") : ""}
@@ -77,7 +104,12 @@ export default function BudgetEditScreen() {
               </View>
             </Card>
             {save.isError ? <Toast message="예산을 저장하지 못했어요. 입력은 그대로 두었으니 다시 시도해 주세요." tone="error" /> : null}
-            <PrimaryButton busy={save.isPending} disabled={Boolean(amountError)} label={save.isPending ? "저장하는 중" : "저장하기"} onPress={() => save.mutate()} />
+            <PrimaryButton
+              busy={save.isPending}
+              disabled={Boolean(amountError) || !hasChanges}
+              label={save.isPending ? "저장하는 중" : hasChanges ? "저장하기" : "변경 없음"}
+              onPress={() => save.mutate()}
+            />
           </>
         )}
       </View>

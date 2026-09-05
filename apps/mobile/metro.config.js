@@ -73,8 +73,14 @@ const pixelLockBlockList = [
   "backups",
   "apps/mobile/android"
 ].map((name) => new RegExp(`${escapeRegex(path.resolve(workspaceRoot, name))}[/\\\\].*`));
-config.resolver.blockList = new RegExp(
-  [config.resolver.blockList, ...pixelLockBlockList].map((pattern) => pattern.source).join("|")
-);
+const defaultBlockList = Array.isArray(config.resolver.blockList)
+  ? config.resolver.blockList
+  : config.resolver.blockList
+    ? [config.resolver.blockList]
+    : [];
+// Expo SDK 54 returns its default block list as an array. Treating that array as
+// one RegExp produces an empty alternative (`|...`) that matches every path and
+// breaks workspace-relative pnpm entries during `expo export`.
+config.resolver.blockList = [...defaultBlockList, ...pixelLockBlockList];
 
 module.exports = config;

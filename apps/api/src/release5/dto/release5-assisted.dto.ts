@@ -1,11 +1,12 @@
 import { Type } from "class-transformer";
 import { ArrayMaxSize, Equals, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
+import { MAX_MONEY_KRW } from "@wooriai/domain";
 
 const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
 const sha256 = /^[0-9a-f]{64}$/;
 
 export class ReceiptFixtureExtractionDto {
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1)
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(MAX_MONEY_KRW)
   amountKrw?: number;
 
   @IsOptional() @Matches(dateOnly)
@@ -54,16 +55,16 @@ export class ConfirmReceiptDraftDto {
   @IsUUID()
   categoryId!: string;
 
-  @Type(() => Number) @IsInt() @Min(1)
+  @Type(() => Number) @IsInt() @Min(1) @Max(MAX_MONEY_KRW)
   amountKrw!: number;
 
   @Matches(dateOnly)
   spentOn!: string;
 
-  @IsString() @MinLength(1) @MaxLength(120)
+  @IsString() @MinLength(1) @MaxLength(100)
   itemName!: string;
 
-  @IsOptional() @IsString() @MaxLength(120)
+  @IsOptional() @IsString() @MaxLength(100)
   merchant?: string;
 
   @IsOptional() @IsUUID()

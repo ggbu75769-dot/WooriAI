@@ -86,7 +86,7 @@ describe("analytics event envelope (ANA-101, round5a-sprint2-plan.md §5)", () =
 });
 
 describe("analytics event registry lookup", () => {
-  it("has exactly the initial 6 events at version 1", () => {
+  it("has the seven approved events at version 1", () => {
     const keys = analyticsEventRegistry.map((entry) => `${entry.eventName}@${entry.eventVersion}`).sort();
     expect(keys).toEqual(
       [
@@ -94,6 +94,7 @@ describe("analytics event registry lookup", () => {
         "onboarding_completed@1",
         "expense_recorded@1",
         "expense_synced@1",
+        "expense_catalog_search_missed@1",
         "item_status_changed@1",
         "affiliate_link_clicked@1"
       ].sort()
@@ -115,6 +116,24 @@ describe("analytics event registry lookup", () => {
     for (const entry of analyticsEventRegistry) {
       expect(() => entry.payloadSchema.parse({ unexpectedField: "value" })).toThrow();
     }
+  });
+});
+
+describe("expense_catalog_search_missed v1 payload", () => {
+  it("accepts only coarse category and query-length buckets, never the query text", () => {
+    const schema = getAnalyticsEventPayloadSchema("expense_catalog_search_missed", 1)!;
+    expect(schema.parse({
+      categoryCode: "diaper_hygiene",
+      queryLengthBucket: "4_7"
+    })).toEqual({
+      categoryCode: "diaper_hygiene",
+      queryLengthBucket: "4_7"
+    });
+    expect(() => schema.parse({
+      categoryCode: "diaper_hygiene",
+      queryLengthBucket: "4_7",
+      query: "raw search text"
+    })).toThrow();
   });
 });
 

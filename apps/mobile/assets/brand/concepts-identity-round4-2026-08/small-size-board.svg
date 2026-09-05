@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 188">
+  <rect width="1260" height="188" rx="36" fill="#F3F0EB"/>
+  <style>.n{font-family:"Inter","Malgun Gothic",sans-serif;font-size:16px;font-weight:900;fill:#17324D}</style>
+  <g transform="translate(24 22)"><image href="21-nest-ledger.svg" width="112" height="112"/><text x="56" y="142" text-anchor="middle" class="n">21</text></g>
+  <g transform="translate(146 22)"><image href="22-baby-wallet.svg" width="112" height="112"/><text x="56" y="142" text-anchor="middle" class="n">22</text></g>
+  <g transform="translate(268 22)"><image href="23-ready-nest.svg" width="112" height="112"/><text x="56" y="142" text-anchor="middle" class="n">23</text></g>
+  <g transform="translate(390 22)"><image href="24-care-meter.svg" width="112" height="112"/><text x="56" y="142" text-anchor="middle" class="n">24</text></g>
+  <g transform="translate(512 22)"><image href="25-woori-basket.svg" width="112" height="112"/><text x="56" y="142" text-anchor="middle" class="n">25</text></g>
+  <g transform="translate(634 22)"><image href="26-growing-coins.svg" width="112" height="112"/><text x="56" y="142" text-anchor="middle" class="n">26</text></g>
+  <g transform="translate(756 22)"><image href="27-next-pocket.svg" width="112" height="112"/><text x="56" y="142" text-anchor="middle" class="n">27</text></g>
+  <g transform="translate(878 22)"><image href="28-family-token.svg" width="112" height="112"/><text x="56" y="142" text-anchor="middle" class="n">28</text></g>
+  <g transform="translate(1000 22)"><image href="29-care-balance.svg" width="112" height="112"/><text x="56" y="142" text-anchor="middle" class="n">29</text></g>
+  <g transform="translate(1122 22)"><image href="30-woori-ribbon.svg" width="112" height="112"/><text x="56" y="142" text-anchor="middle" class="n">30</text></g>
+</svg>

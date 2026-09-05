@@ -10,11 +10,38 @@ describe("Android native UI quality contract", () => {
     const appConfig = JSON.parse(source("app.json"));
 
     expect(appConfig.expo.icon).toBe("./assets/icon.png");
-    expect(appConfig.expo.splash.image).toBe("./assets/adaptive-icon.png");
+    expect(appConfig.expo.splash.image).toBe("./assets/splash-mark.png");
     expect(appConfig.expo.splash.resizeMode).toBe("contain");
-    expect(appConfig.expo.splash.backgroundColor).toBe("#FFFDFC");
+    expect(appConfig.expo.splash.backgroundColor).toBe("#FFF9F3");
+    expect(appConfig.expo.notification.color).toBe("#FF6B4A");
     expect(appConfig.expo.android.adaptiveIcon.foregroundImage).toBe("./assets/adaptive-icon.png");
-    expect(appConfig.expo.android.adaptiveIcon.backgroundColor).toBe("#FFFDFC");
+    expect(appConfig.expo.android.adaptiveIcon.backgroundColor).toBe("#FFF9F3");
+  });
+
+  it("uses the Sprout Wallet identity across every production brand surface", () => {
+    const mark = source("assets/brand/wooriai-mark.svg");
+    const foreground = source("assets/brand/wooriai-foreground.svg");
+    const monochrome = source("assets/brand/wooriai-monochrome.svg");
+    const notification = source("assets/brand/wooriai-notification.svg");
+    const lockup = source("assets/brand/wooriai-lockup.svg");
+    const generator = source("../../scripts/generate-brand-assets.ts");
+
+    expect(mark).toContain("우리아이 스프라우트 월렛 공식 로고");
+    expect(mark).toContain("#17324D");
+    expect(mark).toContain("#FF6B4A");
+    expect(mark).toContain("#FFD76A");
+    expect(source("src/theme.ts")).toContain('navy: "#17324D"');
+    expect(source("app/(auth)/login.tsx")).toContain("logo_lockup.png");
+    expect(foreground).toContain("우리아이 스프라우트 월렛 투명 전경");
+    expect(monochrome).toContain("우리아이 스프라우트 월렛 단색 로고");
+    expect(notification).toContain("우리아이 스프라우트 월렛 알림 로고");
+    expect(lockup).toContain("우리아이 스프라우트 월렛 공식 가로형 로고");
+    expect(lockup).toContain(">우리아이</text>");
+    expect(generator).toContain('input: "wooriai-lockup.svg"');
+    expect(generator).not.toContain("wooriai-portal-master.png");
+    for (const asset of [mark, foreground, monochrome, notification, lockup]) {
+      expect(asset).not.toMatch(/포털|linearGradient|#5B43E6|#52C7FF|#4937C8/);
+    }
   });
 
   it("keeps the five product tabs visible and exposes the more hub", () => {
@@ -123,9 +150,9 @@ describe("Android native UI quality contract", () => {
   it("reuses the matching per-screen render evidence when an Android capture is cached", () => {
     const pixelGateSource = source("../../scripts/pixel-lock/android-pixel-lock.ts");
     expect(pixelGateSource).toContain("validateRender(targetId, screenshotPath, !canSkipCapture)");
-    expect(pixelGateSource).toContain('existsSync(xmlPath)');
-    expect(pixelGateSource).toContain('readFileSync(xmlPath, "utf8")');
-    expect(pixelGateSource).toContain('readFileSync(logcatPath, "utf8")');
+    expect(pixelGateSource).toContain("isEvidenceCurrentForScreenshot");
+    expect(pixelGateSource).toContain("readCurrentEvidence(xmlPath)");
+    expect(pixelGateSource).toContain("readCurrentEvidence(logcatPath)");
     expect(pixelGateSource).toContain("else delete cache[targetId]");
   });
 
@@ -162,5 +189,44 @@ describe("Android native UI quality contract", () => {
     expect(expenseSource).toContain("authToken ? formatExpenseDate(today) : previewExpenseDate");
     expect(expenseSource).toContain('disabled={saveExpense.isPending || hasSaved || isSaveInvalid}');
     expect(expenseSource).toContain("validateExpenseForm({ itemName, amountText, spentOn: expenseDate.iso })");
+  });
+
+  it("keeps expense editing aligned with native date and vector category controls", () => {
+    const expenseEditSource = source("app/expenses/[expenseId].tsx");
+
+    expect(expenseEditSource).toContain("DateTimePickerAndroid.open");
+    expect(expenseEditSource).toContain('accessibilityLabel="지출 품목명"');
+    expect(expenseEditSource).toContain('accessibilityLabel="지출 금액"');
+    expect(expenseEditSource).toContain("icon={category.icon as AppIconName}");
+    expect(expenseEditSource).toContain("label={category.label}");
+    expect(expenseEditSource).not.toContain("`${category.icon} ${category.label}`");
+    expect(expenseEditSource).not.toContain('placeholder="YYYY-MM-DD"');
+  });
+
+  it("uses labeled native date review fields for receipt and preparation workflows", () => {
+    const receiptSource = source("app/receipts/new.tsx");
+    const itemDetailSource = source("src/preparation/Release4ItemDetailScreen.tsx");
+
+    expect(receiptSource).toContain("validateExpenseForm({ itemName, amountText: amount, spentOn })");
+    expect(receiptSource).toContain('<DateField clearable={false}');
+    expect(receiptSource).toContain('<FormField error={receiptValidation.itemNameError} label="지출 항목"');
+    expect(receiptSource).toContain('accessibilityRole="radiogroup"');
+    expect(receiptSource).not.toContain('placeholder="YYYY-MM-DD"');
+    expect(itemDetailSource.match(/<DateField label=/g)).toHaveLength(4);
+    expect(itemDetailSource).not.toContain("준비 예정일 YYYY-MM-DD");
+    expect(itemDetailSource).not.toContain("실제 구매일 YYYY-MM-DD");
+    expect(itemDetailSource).not.toContain("교체 예정일 YYYY-MM-DD");
+  });
+
+  it("reveals the saved expense category when its chip starts outside the viewport", () => {
+    const expenseEditSource = source("app/expenses/[expenseId].tsx");
+    const sharedUiSource = source("src/ui.tsx");
+
+    expect(expenseEditSource).toContain("ref={categoryScrollRef}");
+    expect(expenseEditSource).toContain("categoryChipXById.current[category.id] = event.nativeEvent.layout.x");
+    expect(expenseEditSource).toContain("if (category.id === categoryId) revealSelectedCategory(category.id)");
+    expect(expenseEditSource).toContain("categoryScrollRef.current?.scrollTo({");
+    expect(expenseEditSource).toContain("x: Math.max(0, chipX - theme.spacing.card)");
+    expect(sharedUiSource).toContain("onLayout={onLayout}");
   });
 });

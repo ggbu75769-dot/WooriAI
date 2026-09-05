@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Header, HttpCode, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { createDtoValidationPipe } from "../bootstrap";
 import { JwtAuthGuard } from "../common/guards/auth.guard";
 import type { AuthenticatedRequest } from "../common/types/authenticated-request";
@@ -59,6 +59,14 @@ export class PrivacyController {
   @UseGuards(JwtAuthGuard)
   async status(@Req() request: AuthenticatedRequest, @Param("requestId") requestId: string) {
     return await this.privacy.statusForUser(request.user!, requestId);
+  }
+
+  @Get("requests/:requestId/download")
+  @UseGuards(JwtAuthGuard)
+  @Header("Cache-Control", "private, no-store, max-age=0")
+  @Header("Content-Disposition", 'attachment; filename="wooriai-data-export.json"')
+  async downloadExport(@Req() request: AuthenticatedRequest, @Param("requestId") requestId: string) {
+    return await this.privacy.downloadExport(request.user!, requestId);
   }
 
   @Get("public/requests/:requestId")

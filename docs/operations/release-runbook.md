@@ -1,6 +1,6 @@
 # 릴리즈 런북 (Release Runbook)
 
-갱신: 2026-07-27 · 브랜치: `codex/sprint2-catalog-payments`
+갱신: 2026-08-11
 
 이 문서는 실행 절차다. 현재 전체 상태와 증거 경계는 `current-development-status-and-next-design-baseline-2026-07-26.md`를 우선한다.
 
@@ -10,7 +10,7 @@
 - [ ] `pnpm install --frozen-lockfile` PASS
 - [ ] `pnpm release:gate` 16/16 PASS
 - [ ] `pnpm release:config` PASS
-- [ ] `pnpm release5:external-readiness`가 `READY`
+- [ ] `pnpm release:store-preflight`가 `PASS`
 - [ ] `pnpm catalog:audit` 후 `publishedContentReady=true`
 - [ ] 승인된 Android application ID, semver, versionCode
 - [ ] 조직 소유 release signing secret 주입
@@ -25,14 +25,17 @@
 ```powershell
 pnpm release:gate
 pnpm release:config
-pnpm release5:external-readiness
+pnpm release:store-preflight
 pnpm catalog:audit
+pnpm db:restore-drill
 pnpm pixel:android
 ```
 
 - Release Gate는 격리 catalog DB를 생성해 41개 migration과 seed를 적용하고 감사 후 제거한다.
+- Restore drill은 현재 migration+seed를 격리 source/target DB에서 복원하고 schema catalog·행수 동등성을 검증한 뒤 두 DB를 제거한다.
 - Pixel 최종 증거는 설치 Android 앱의 adb `screencap`만 인정한다.
 - 브라우저/Expo web 캡처는 Android Pixel 최종 증거가 아니다.
+- Store preflight는 앱 identity, 실 API, 법적 공개 URL, core infra, OAuth, `live` provider, metrics, 외부 signing과 참조 비밀번호를 모두 검사하며 누락 시 exit 1이다. 보고서에는 secret 값이 기록되지 않는다.
 
 ## 3. DB 배포
 
@@ -82,6 +85,6 @@ pnpm android:build-aab
 ## 7. 현재 차단
 
 - `pnpm release:config`: 46개 운영 입력 차단
-- external readiness: core/OAuth/push/recall/merchant/signing 6영역 차단
+- `pnpm release:store-preflight`: identity/API/legal/core/OAuth/push/recall/merchant/observability/signing 10영역 `EXTERNAL_BLOCKED`
 - catalog: 409개 `in_review`, 독립 검토 0, 게시 0
 - physical Android/iOS/store: 미실행

@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, type Href, useLocalSearchParams } from "expo-router";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { createChild, LOCAL_HOUSEHOLD_ID, fixtureSessionToken } from "../../src/api/client";
 import { ChildProfileFields, type ChildProfileDraft } from "../../src/children/ChildProfileFields";
 import { invalidateChildScopedQueries } from "../../src/children/query-cache";
+import { useConfirmDiscardChanges } from "../../src/navigation/use-confirm-discard-changes";
 import { isPixelLockBuild } from "../../src/pixelLock/build-profile";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -30,8 +31,11 @@ export default function NewChildScreen() {
   const authToken = accessToken ?? (isTestSession || isPixelEvidence ? fixtureSessionToken : null);
   const householdId = defaultHouseholdId ?? (isTestSession || isPixelEvidence ? LOCAL_HOUSEHOLD_ID : null);
   const setSelectedChildId = useSelectedChildStore((state) => state.setSelectedChildId);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [allowExit, setAllowExit] = useState(false);
   const queryClient = useQueryClient();
   const idempotencyKey = useRef(`child-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
+  const navigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const create = useMutation({
     mutationFn: async (draft: ChildProfileDraft) => {
       if (!authToken || !householdId) throw new Error("missing child creation context");
@@ -50,12 +54,21 @@ export default function NewChildScreen() {
       );
     },
     onSuccess: async (child) => {
+      setAllowExit(true);
       setSelectedChildId(child.id, householdId);
       await queryClient.invalidateQueries({ queryKey: ["children"] });
       await invalidateChildScopedQueries(queryClient);
-      router.replace("/children" as Href);
+      navigationTimerRef.current = setTimeout(() => {
+        navigationTimerRef.current = null;
+        router.replace("/children" as Href);
+      }, 50);
     }
   });
+
+  useEffect(() => () => {
+    if (navigationTimerRef.current) clearTimeout(navigationTimerRef.current);
+  }, []);
+  useConfirmDiscardChanges(hasUnsavedChanges && !allowExit && !create.isPending);
 
   if (!authToken) return <Redirect href="/launch-animation" />;
   if (!householdId) return <Redirect href="/" />;
@@ -68,7 +81,7 @@ export default function NewChildScreen() {
         style={{ gap: theme.spacing.section }}
       >
         {isTestSession ? <SampleDataBanner /> : null}
-        <ScreenHeader eyebrow="CHILD-001" title="아이 추가" subtitle="아이마다 기록, 예산, 준비 현황을 따로 관리해요." />
+        <ScreenHeader eyebrow="아이 관리" onBack={() => router.back()} title="아이 추가" subtitle="아이마다 기록, 예산, 준비 현황을 따로 관리해요." />
         <ChildProfileFields
           failed={create.isError}
           initialValue={
@@ -76,8 +89,10 @@ export default function NewChildScreen() {
               ? { ...initialValue, nickname: "검증용 아이", birthDate: "2024-01-01", gender: "female" }
               : initialValue
           }
+          onDirtyChange={setHasUnsavedChanges}
           onSubmit={(draft) => create.mutate(draft)}
           pending={create.isPending}
+          showValidationInitially={false}
           submitLabel="아이 추가"
         />
       </View>

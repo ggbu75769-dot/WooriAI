@@ -1,6 +1,7 @@
-import React from "react";
+﻿import React from "react";
 import renderer from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
+import { render } from "./test-utils/react-test-renderer";
 
 const dimensions = vi.hoisted(() => ({ width: 320, height: 800, fontScale: 1.5 }));
 
@@ -29,7 +30,7 @@ describe("OnboardingScaffold responsive action contract", () => {
   it.each(viewportPairs)("keeps the action footer outside scrolling content at %sdp / %sx", (width, fontScale) => {
     dimensions.width = width;
     dimensions.fontScale = fontScale;
-    const tree = renderer.create(
+    const tree = render(
       <OnboardingScaffold footer={<View testID="primary-action">긴 다음 단계 계속하기</View>} testID="onboarding">
         <View>긴 한국어 질문과 입력 내용</View>
       </OnboardingScaffold>

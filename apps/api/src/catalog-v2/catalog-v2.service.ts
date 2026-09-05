@@ -147,7 +147,7 @@ function commonPrefixLength(left: string, right: string) {
   return length;
 }
 
-type CatalogSearchMatch = { score: number; reason: "canonical_exact" | "canonical_prefix" | "alias_exact" | "alias_contains" | "initials" | "typo" | "category"; matchedText: string };
+type CatalogSearchMatch = { score: number; reason: "canonical_exact" | "canonical_prefix" | "alias_exact" | "alias_contains" | "initials" | "typo" | "category" | "code" | "description" | "timing"; matchedText: string };
 
 type ComparisonField = { key: string; labelKo: string; valueType: "text" | "number" };
 
@@ -456,7 +456,10 @@ export class CatalogV2Service {
   private async catalogSearchMatches(rawQuery: string) {
     const normalized = normalizeSearch(rawQuery);
     const initialQuery = koreanInitials(rawQuery);
-    const definitions = await this.prisma.itemDefinition.findMany({ where: { code: { startsWith: RELEASE4_ITEM_PREFIX }, status: { in: this.visibleStatuses() } }, select: { id: true, nameKo: true } });
+    const definitions = await this.prisma.itemDefinition.findMany({
+      where: { code: { startsWith: RELEASE4_ITEM_PREFIX }, status: { in: this.visibleStatuses() } },
+      select: { id: true, code: true, nameKo: true, shortDescription: true, reasonText: true, timingSummary: true }
+    });
     const itemIds = definitions.map((item) => item.id);
     const [aliases, links] = await Promise.all([
       this.prisma.itemSynonym.findMany({ where: { itemDefinitionId: { in: itemIds } }, select: { itemDefinitionId: true, synonym: true, normalizedSynonym: true } }),
@@ -476,7 +479,9 @@ export class CatalogV2Service {
       if (match.score > (matches.get(itemId)?.score ?? -1)) matches.set(itemId, match);
     };
     for (const item of definitions) {
+      const code = normalizeSearch(item.code);
       const canonical = normalizeSearch(item.nameKo);
+      if (code === normalized || code.includes(normalized)) consider(item.id, { score: code === normalized ? 98 : 88, reason: "code", matchedText: item.code });
       if (canonical === normalized) consider(item.id, { score: 100, reason: "canonical_exact", matchedText: item.nameKo });
       else if (canonical.startsWith(normalized) || normalized.startsWith(canonical)) consider(item.id, { score: 90, reason: "canonical_prefix", matchedText: item.nameKo });
       else if (canonical.includes(normalized)) consider(item.id, { score: 85, reason: "alias_contains", matchedText: item.nameKo });
@@ -496,6 +501,9 @@ export class CatalogV2Service {
       }
       const category = (categoriesByItem.get(item.id) ?? []).find((name) => normalizeSearch(name).includes(normalized));
       if (category) consider(item.id, { score: 50, reason: "category", matchedText: category });
+      if (normalizeSearch(item.timingSummary).includes(normalized)) consider(item.id, { score: 48, reason: "timing", matchedText: item.timingSummary });
+      const description = [item.shortDescription, item.reasonText].find((value) => normalizeSearch(value).includes(normalized));
+      if (description) consider(item.id, { score: 45, reason: "description", matchedText: description });
     }
     return matches;
   }

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 23 레디 네스트</title><desc id="d">준비 완료 체크가 아이의 안전한 둥지가 되는 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FF6B4A"/>
+  <path d="M105 255c24 104 78 161 151 161s127-57 151-161" fill="none" stroke="#17324D" stroke-width="70" stroke-linecap="round"/>
+  <path d="M150 238l67 67 146-158" fill="none" stroke="#FFF9F3" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="352" r="38" fill="#FFD76A" stroke="#17324D" stroke-width="14"/>
+</svg>

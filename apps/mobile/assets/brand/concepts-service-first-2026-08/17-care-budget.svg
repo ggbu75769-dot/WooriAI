@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 17 케어 버짓</title><desc id="d">우리 아이 비용을 한눈에 보여주는 예산 리포트 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF7ED"/>
+  <circle cx="256" cy="256" r="142" fill="none" stroke="#DCEBE7" stroke-width="66"/>
+  <path d="M256 114a142 142 0 0 1 131 197" fill="none" stroke="#FF7658" stroke-width="66" stroke-linecap="round"/>
+  <path d="M387 311a142 142 0 0 1-220 55" fill="none" stroke="#6DC5AE" stroke-width="66" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="48" fill="#FFD261"/>
+</svg>

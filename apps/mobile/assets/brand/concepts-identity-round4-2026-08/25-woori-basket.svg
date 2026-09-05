@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 25 우리 바스켓</title><desc id="d">두 보호자의 손잡이와 아이 준비 바구니를 결합한 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF9F3"/>
+  <path d="M116 214c0-69 38-118 94-118 24 0 40 10 46 28 6-18 22-28 46-28 56 0 94 49 94 118" fill="none" stroke="#17324D" stroke-width="50" stroke-linecap="round"/>
+  <path d="M90 220h332l-46 198H136L90 220Z" fill="#FF6B4A" stroke="#17324D" stroke-width="22" stroke-linejoin="round"/>
+  <circle cx="256" cy="294" r="47" fill="#FFD76A"/>
+  <path d="M182 376h148" stroke="#FFF9F3" stroke-width="25" stroke-linecap="round"/>
+</svg>

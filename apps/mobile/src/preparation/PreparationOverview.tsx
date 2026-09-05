@@ -1,4 +1,5 @@
-import { Pressable, Text, View } from "react-native";
+import { Pressable, View } from "react-native";
+import { KoreanText as Text } from "../design-system/components/KoreanText";
 import type { CatalogSafetyAlert, CatalogSafetyAlternativesResponse, CatalogTimelineItem, CatalogPlanState } from "../api/client";
 import { AppIcon, EmptyStateCard, SectionCard, semanticColors, spacing, type AppIconName } from "../design-system";
 
@@ -57,26 +58,37 @@ function OverviewLink({
 
 export function PreparationProgressCard({
   plannedCount,
-  completedCount
+  completedCount,
+  onPress
 }: {
   plannedCount: number;
   completedCount: number;
+  onPress?: () => void;
 }) {
   const total = plannedCount + completedCount;
   const percentage = total ? Math.round((completedCount / total) * 100) : 0;
   return (
-    <SectionCard style={{ gap: spacing.sm }}>
-      <View accessibilityLabel={`준비 진행률 ${percentage}퍼센트. 완료 또는 제외 ${completedCount}개, 준비 중 ${plannedCount}개`} style={{ alignItems: "center", flexDirection: "row", gap: spacing.sm }}>
+    <Pressable
+      accessibilityHint={onPress ? "준비 상태별 목록을 열어요." : undefined}
+      accessibilityLabel={`나의 준비 진행률 ${percentage}퍼센트. 완료 ${completedCount}개, 준비 중 ${plannedCount}개`}
+      accessibilityRole={onPress ? "button" : undefined}
+      onPress={onPress}
+      style={({ pressed }) => ({ opacity: pressed ? 0.82 : 1 })}
+    >
+      <SectionCard style={{ gap: spacing.sm }}>
+      <View style={{ alignItems: "center", flexDirection: "row", gap: spacing.sm }}>
         <AppIcon color={semanticColors.actionPrimary} name="check-circle-outline" size={24} />
         <View style={{ flex: 1, gap: 3 }}>
-          <Text style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "800" }}>준비 진행률 {percentage}%</Text>
-          <Text style={{ color: semanticColors.textSecondary, fontSize: 13 }}>준비 중 {plannedCount}개 · 완료 또는 제외 {completedCount}개</Text>
+          <Text style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "800" }}>나의 준비 진행률 {percentage}%</Text>
+          <Text style={{ color: semanticColors.textSecondary, fontSize: 13 }}>준비 중 {plannedCount}개 · 완료 {completedCount}개</Text>
         </View>
+        {onPress ? <AppIcon color={semanticColors.textDisabled} name="chevron-right" size={22} /> : null}
       </View>
       <View style={{ backgroundColor: semanticColors.borderSubtle, borderRadius: 999, height: 8, overflow: "hidden" }}>
         <View style={{ backgroundColor: semanticColors.actionPrimary, height: 8, width: `${percentage}%` }} />
       </View>
-    </SectionCard>
+      </SectionCard>
+    </Pressable>
   );
 }
 
@@ -221,7 +233,7 @@ export function WeeklyPreparationSection({
             <View style={{ alignItems: "flex-start", flexDirection: "row", gap: spacing.sm }}>
               <View style={{ flex: 1, gap: 4 }}>
                 <Text style={{ color: semanticColors.textPrimary, fontSize: 16, fontWeight: "900" }}>{item.nameKo}</Text>
-                <Text numberOfLines={2} style={{ color: semanticColors.textSecondary, fontSize: 13, lineHeight: 19 }}>{item.recommendationReason}</Text>
+                <Text style={{ color: semanticColors.textSecondary, fontSize: 13, lineHeight: 19 }}>{item.recommendationReason}</Text>
                 <Text style={{ color: semanticColors.actionPrimary, fontSize: 12, fontWeight: "800" }}>{item.dueWindow.label} · {planLabel(item.plan?.state)}</Text>
                 <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>
                   필요 {item.plan?.quantityNeeded ?? item.plan?.desiredQuantity ?? 0} · 보유 {item.plan?.quantityOwned ?? item.plan?.ownedQuantity ?? 0} · {item.plan?.assignedUserId ? "담당자 지정됨" : "담당자 미정"}

@@ -167,11 +167,15 @@ describe("Release 4 preparation experience", () => {
     expect(listSource).toContain('useState<PreparationSurface>("list")');
     expect(paritySource).toContain("PreparationItemCard");
     expect(listSource).toContain("ItemStatusControl");
-    expect(paritySource).toContain("width >= 600 ? 4 : 3");
+    expect(paritySource).toContain("compactGridColumnCount(width, fontScale)");
+    expect(paritySource).toContain("compactGridItemWidth(columns)");
     expect(paritySource).toContain("autoExpandedContext.current === selectedContextKey");
     expect(paritySource).not.toContain("expandedGroups.size === 0");
     expect(listSource).toContain('setStatusDraft(current ?? "researching")');
     expect(listSource).not.toContain('current === "replaced"');
+    expect(listSource).toContain("const statusChanged = Boolean");
+    expect(listSource).toContain("준비 상태를 저장하지 않았어요");
+    expect(listSource).toContain('statusChanged ? "준비 상태 저장" : "변경 없음"');
     expect(listSource).toContain("WeeklyPreparationSection");
     expect(readFileSync(join(root, "src/preparation/PreparationOverview.tsx"), "utf8")).toContain("최대 5개");
     expect(detailSource).toContain("상품이 없어도 준비 상태와 예산은 계속 관리");

@@ -34,7 +34,7 @@ describe("Local test-mode backend data layer", () => {
   });
 
   it("persists exact-child Today snooze with create-only CAS and fixture provenance", () => {
-    const before = localBackend.getHome(childId).todayCenter!;
+    const before = localBackend.getLocalTodayCenter(childId);
     expect(before.source).toBe("local_fixture");
     const ordinary = before.actions.find((entry) => entry.kind !== "safety_acknowledgement")!;
     expect(ordinary.preferenceScope).toEqual({ kind: "child", childId });
@@ -53,7 +53,7 @@ describe("Local test-mode backend data layer", () => {
       snoozedUntil: nextDate(getSeoulToday()),
       version: 1
     });
-    expect(localBackend.getHome(childId).todayCenter!.actions.map((entry) => entry.actionKey))
+    expect(localBackend.getLocalTodayCenter(childId).actions.map((entry) => entry.actionKey))
       .not.toContain(ordinary.actionKey);
     expect(capturedError(() => localBackend.updateTodayPreference({
       householdId: LOCAL_HOUSEHOLD_ID,
@@ -65,7 +65,7 @@ describe("Local test-mode backend data layer", () => {
   });
 
   it("rejects safety and foreign Today preference scopes without writes", () => {
-    const safety = localBackend.getHome(childId).todayCenter!.actions
+    const safety = localBackend.getLocalTodayCenter(childId).actions
       .find((entry) => entry.kind === "safety_acknowledgement")!;
     expect(capturedError(() => localBackend.updateTodayPreference({
       householdId: LOCAL_HOUSEHOLD_ID,
@@ -85,7 +85,7 @@ describe("Local test-mode backend data layer", () => {
   });
 
   it("resolves exact preference state independently of the ranked Home projection", () => {
-    const ordinary = localBackend.getHome(childId).todayCenter!.actions
+    const ordinary = localBackend.getLocalTodayCenter(childId).actions
       .find((entry) => entry.kind !== "safety_acknowledgement")!;
     expect(localBackend.getTodayPreferenceResolution({
       householdId: LOCAL_HOUSEHOLD_ID,
@@ -107,7 +107,7 @@ describe("Local test-mode backend data layer", () => {
   });
 
   it("completes and persists the local safety acknowledgement journey", () => {
-    const safety = localBackend.getHome(childId).todayCenter!.actions
+    const safety = localBackend.getLocalTodayCenter(childId).actions
       .find((entry) => entry.kind === "safety_acknowledgement")!;
     const inbox = localBackend.listLocalNotifications();
     expect(inbox.items).toEqual(expect.arrayContaining([
@@ -120,7 +120,7 @@ describe("Local test-mode backend data layer", () => {
     localBackend.acknowledgeCatalogSafetyAlert(alert.id, alert.version);
 
     expect(localBackend.getCatalogSafetyAlerts(childId).alerts).toEqual([]);
-    expect(localBackend.getHome(childId).todayCenter!.actions.map((entry) => entry.actionKey))
+    expect(localBackend.getLocalTodayCenter(childId).actions.map((entry) => entry.actionKey))
       .not.toContain(safety.actionKey);
   });
 
@@ -132,9 +132,9 @@ describe("Local test-mode backend data layer", () => {
       birthDate: "2025-07-26",
       gender: "unknown"
     }).id;
-    const firstSafety = localBackend.getHome(childId).todayCenter!.actions
+    const firstSafety = localBackend.getLocalTodayCenter(childId).actions
       .find((entry) => entry.kind === "safety_acknowledgement")!;
-    const secondSafety = localBackend.getHome(secondChildId).todayCenter!.actions
+    const secondSafety = localBackend.getLocalTodayCenter(secondChildId).actions
       .find((entry) => entry.kind === "safety_acknowledgement")!;
     expect(firstSafety.actionKey).not.toBe(secondSafety.actionKey);
 
@@ -154,10 +154,10 @@ describe("Local test-mode backend data layer", () => {
     localBackend.acknowledgeCatalogSafetyAlert(firstAlert.id, firstAlert.version);
 
     expect(localBackend.getCatalogSafetyAlerts(childId).alerts).toEqual([]);
-    expect(localBackend.getHome(childId).todayCenter!.actions.map((entry) => entry.actionKey))
+    expect(localBackend.getLocalTodayCenter(childId).actions.map((entry) => entry.actionKey))
       .not.toContain(firstSafety.actionKey);
     expect(localBackend.getCatalogSafetyAlerts(secondChildId).alerts).toHaveLength(1);
-    expect(localBackend.getHome(secondChildId).todayCenter!.actions.map((entry) => entry.actionKey))
+    expect(localBackend.getLocalTodayCenter(secondChildId).actions.map((entry) => entry.actionKey))
       .toContain(secondSafety.actionKey);
     expect(localBackend.listLocalNotifications().items.map((item) => item.navigation))
       .toEqual([expect.objectContaining({ kind: "item", childId: secondChildId })]);
@@ -184,8 +184,9 @@ describe("Local test-mode backend data layer", () => {
       .toEqual([expect.objectContaining({ id: secondAlert.id })]);
   });
 
-  it("keeps the home total and the monthly report total in sync after a new expense", () => {
+  it("increments both the cumulative home total and the current-month report after a new expense", () => {
     const before = localBackend.getHome(childId);
+    const monthlyBefore = localBackend.getMonthlyReport(childId, currentYearMonth());
     localBackend.createExpense(childId, {
       categoryId: "local-category-diaper",
       amountKrw: 12_345,
@@ -197,7 +198,37 @@ describe("Local test-mode backend data layer", () => {
     const monthly = localBackend.getMonthlyReport(childId, currentYearMonth());
 
     expect(after.totalExpenseKrw).toBe(before.totalExpenseKrw + 12_345);
-    expect(after.totalExpenseKrw).toBe(monthly.totalExpenseKrw);
+    expect(monthly.totalExpenseKrw).toBe(monthlyBefore.totalExpenseKrw + 12_345);
+  });
+
+  it("accepts 100 consecutive expense records without losing rows or totals", () => {
+    const before = localBackend.listExpenses(childId, currentYearMonth());
+    const addedTotalKrw = Array.from({ length: 100 }, (_, index) => 1_000 + index)
+      .reduce((sum, amountKrw, index) => {
+        localBackend.createExpense(childId, {
+          categoryId: "local-category-diaper",
+          amountKrw,
+          spentOn: getSeoulToday(),
+          itemName: `100건 검증 ${String(index + 1).padStart(3, "0")}`
+        });
+        return sum + amountKrw;
+      }, 0);
+
+    const after = localBackend.listExpenses(childId, currentYearMonth());
+    expect(after.expenses).toHaveLength(before.expenses.length + 100);
+    expect(after.totalAmountKrw).toBe(before.totalAmountKrw + addedTotalKrw);
+    expect(new Set(after.expenses.map((expense) => expense.id)).size).toBe(after.expenses.length);
+
+    const firstPage = localBackend.listExpenses(childId, currentYearMonth(), { limit: 50, search: "100건 검증" });
+    const secondPage = localBackend.listExpenses(childId, currentYearMonth(), { cursor: firstPage.nextCursor, limit: 50, search: "100건 검증" });
+    expect(firstPage.expenses).toHaveLength(50);
+    expect(secondPage.expenses).toHaveLength(50);
+    expect(firstPage.filteredRecordCount).toBe(100);
+    expect(firstPage.filteredExpenseCount).toBe(100);
+    expect(firstPage.filteredTotalAmountKrw).toBe(addedTotalKrw);
+    expect(firstPage.nextCursor).not.toBeNull();
+    expect(secondPage.nextCursor).toBeNull();
+    expect(new Set([...firstPage.expenses, ...secondPage.expenses].map((expense) => expense.id)).size).toBe(100);
   });
 
   it("excludes soft-deleted expenses from the total once removed", () => {
@@ -226,6 +257,25 @@ describe("Local test-mode backend data layer", () => {
         itemName: "미래 지출"
       })
     ).toThrow();
+  });
+
+  it("keeps tomorrow visible as scheduled while excluding it from realized totals", () => {
+    const before = localBackend.getHome(childId).totalExpenseKrw;
+    const scheduledDate = nextDate(getSeoulToday());
+    const scheduledMonth = scheduledDate.slice(0, 7);
+    const monthlyBefore = localBackend.getMonthlyReport(childId, scheduledMonth).totalExpenseKrw;
+    const scheduled = localBackend.createExpense(childId, {
+      categoryId: "local-category-diaper",
+      amountKrw: 22_000,
+      spentOn: scheduledDate,
+      itemName: "내일 예정 지출"
+    });
+
+    expect(localBackend.listExpenses(childId, scheduledMonth).expenses).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: scheduled.id, spentOn: scheduledDate })])
+    );
+    expect(localBackend.getHome(childId).totalExpenseKrw).toBe(before);
+    expect(localBackend.getMonthlyReport(childId, scheduledMonth).totalExpenseKrw).toBe(monthlyBefore);
   });
 
   it("rejects a zero or negative amount", () => {
@@ -328,6 +378,18 @@ describe("Local test-mode backend data layer", () => {
     expect(rows.some((row) => row.confidence >= 0.7 && row.selected)).toBe(true);
   });
 
+  it("provides a 100-record local import fixture for installed-app volume testing", () => {
+    const job = localBackend.createExcelImport(childId, "wooriai-100-records.csv");
+    const rows = localBackend.listImportRows(job.id).rows;
+
+    expect(job.rowCount).toBe(100);
+    expect(rows).toHaveLength(100);
+    expect(rows.every((row) => row.selected && row.validationStatus === "valid")).toBe(true);
+
+    const result = localBackend.confirmImport(job.id, rows.map((row) => row.id));
+    expect(result).toEqual({ importedCount: 100, skippedCount: 0 });
+  });
+
   it("sums the yearly report from the twelve monthly totals", () => {
     const today = getSeoulToday();
     const year = Number(today.slice(0, 4));
@@ -358,6 +420,38 @@ describe("Local test-mode backend data layer", () => {
     expect(report.categories.find((category) => category.categoryId === categoryId)).toMatchObject({
       categoryNameKo: "기저귀·위생"
     });
+  });
+
+  it("keeps preparation item names and necessity groups readable in report evidence", () => {
+    const thermometer = localBackend.listCatalogItems({
+      childId,
+      query: "아기 체온계",
+      limit: 10
+    }).items.find((item) => item.nameKo === "아기 체온계");
+    expect(thermometer).toBeDefined();
+
+    localBackend.putCatalogItemPlan(childId, thermometer!.code, {
+      state: "planned",
+      budgetKrw: 35_000
+    });
+
+    const sources = localBackend.getReportV3Sources(
+      childId,
+      "month",
+      getSeoulToday(),
+      "planned"
+    );
+    expect(sources.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        itemDefinitionId: thermometer!.code,
+        itemName: "아기 체온계",
+        signedAmountKrw: 35_000
+      })
+    ]));
+
+    const report = localBackend.getReportV3(childId, "month", getSeoulToday());
+    expect(report.necessitySplit.find((entry) => entry.key === "essential"))
+      .toMatchObject({ plannedCostKrw: 35_000, planCount: 1 });
   });
 
   it("keeps the item status change reflected on subsequent reads", () => {
@@ -430,6 +524,15 @@ describe("Local test-mode backend data layer", () => {
         paymentMethodId: method.id
       })
     ).toThrow();
+
+    expect(localBackend.reactivatePaymentMethod(method.id)).toMatchObject({ id: method.id, active: true, isDefault: false });
+    expect(localBackend.createExpense(childId, {
+      categoryId: "local-category-diaper",
+      amountKrw: 1_000,
+      spentOn: getSeoulToday(),
+      itemName: "다시 사용",
+      paymentMethodId: method.id
+    })).toMatchObject({ paymentMethodId: method.id });
   });
 
   it("derives at most six recent shortcuts while leaving amount confirmation to the form", () => {
@@ -464,6 +567,8 @@ describe("Local test-mode backend data layer", () => {
       expect(result.items[0]?.searchMatch?.reason).toMatch(/initials|typo/);
       expect(result.search).toMatchObject({ rawQueryStored: false });
     }
+    const codeResult = localBackend.listCatalogItems({ childId, query: "R4-C10-001", limit: 10 });
+    expect(codeResult.items[0]).toMatchObject({ code: "R4-C10-001", searchMatch: { reason: "code" } });
     const first = localBackend.reportMissingCatalogItem("없는 품목 예시");
     const second = localBackend.reportMissingCatalogItem("없는 품목 예시");
     expect(first).toMatchObject({ idempotent: false, report: { reasonCode: "missing_item", state: "open" } });
@@ -479,5 +584,22 @@ describe("Local test-mode backend data layer", () => {
     expect(itemIdsAfter).toEqual(itemIdsBefore);
     localBackend.updateChild(childId, { gender: "" });
     expect(localBackend.getChild(childId).gender).toBeNull();
+  });
+
+  it("creates a downloadable privacy export without exposing authentication or device secrets", () => {
+    const request = localBackend.requestDataExport();
+    expect(request).toMatchObject({ requestType: "export", state: "completed" });
+    expect(localBackend.getPrivacyRequest(request.id)).toEqual(request);
+
+    const payload = localBackend.getPrivacyExportPayload(request.id);
+    expect(payload).toMatchObject({
+      schemaVersion: 1,
+      requestId: request.id,
+      data: { profile: { displayName: "로컬 테스트 사용자" } }
+    });
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("pushToken");
+    expect(serialized).not.toContain("refreshToken");
+    expect(serialized).not.toContain("providerSubject");
   });
 });

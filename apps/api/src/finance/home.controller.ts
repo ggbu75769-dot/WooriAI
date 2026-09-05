@@ -5,15 +5,13 @@ import type { AuthenticatedRequest } from "../common/types/authenticated-request
 import { OnboardingStoreService } from "../onboarding/onboarding-store.service";
 import { HomeQueryDto } from "./dto/query.dto";
 import { ExpensesVersionService } from "./expenses.service";
-import { Release5DailyService } from "../release5/release5-daily.service";
 
 @Controller("home")
 @UseGuards(JwtAuthGuard)
 export class HomeController {
   constructor(
     @Inject(OnboardingStoreService) private readonly store: OnboardingStoreService,
-    @Inject(ExpensesVersionService) private readonly expenses: ExpensesVersionService,
-    @Inject(Release5DailyService) private readonly release5Daily: Release5DailyService
+    @Inject(ExpensesVersionService) private readonly expenses: ExpensesVersionService
   ) {}
 
   @Get()
@@ -21,14 +19,11 @@ export class HomeController {
     @Req() request: AuthenticatedRequest,
     @Query(createDtoValidationPipe(HomeQueryDto)) query: HomeQueryDto
   ) {
-    const [home, todayEnabled] = await Promise.all([
-      this.store.getHome(request.user!, query.childId),
-      this.release5Daily.featureEnabled("today_family_center")
-    ]);
+    const home = await this.store.getHome(request.user!, query.childId);
     const hydrated = await this.expenses.hydrateHome(home as { recentExpenses: Array<{ id: string }> });
     return {
       ...hydrated,
-      todayCenter: todayEnabled ? await this.release5Daily.todayCenter(request.user!, query.childId) : null
+      todayCenter: null
     };
   }
 }

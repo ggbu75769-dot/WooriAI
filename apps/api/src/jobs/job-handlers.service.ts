@@ -160,7 +160,6 @@ export class JobHandlersService {
     if (!request || request.requestType !== "export") throw new JobExecutionError("PRIVACY_REQUEST_NOT_FOUND", false);
     if (request.state === "completed") return { code: "ALREADY_COMPLETED" };
     const mockMode = process.env.PRIVACY_PROCESSOR_MODE !== "live" && process.env.NODE_ENV !== "production";
-    if (!mockMode) throw new JobExecutionError("EXPORT_OBJECT_STORAGE_NOT_CONFIGURED", false);
     if (request.state === "requested") request = await this.privacy.transition(requestId, "processor_delete_queued", "EXPORT_JOB_ACCEPTED");
     if (request.state === "processor_delete_queued" || request.state === "failed") {
       request = await this.privacy.transition(requestId, "purging", "EXPORT_BUILD_STARTED");
@@ -200,7 +199,7 @@ export class JobHandlersService {
       data: {
         state: "completed",
         completedAt: new Date(),
-        exportObjectKey: `mock/privacy-export/${requestId}.enc`,
+        exportObjectKey: `generated/privacy-export/${requestId}.json`,
         exportExpiresAt: expiresAt,
         retentionSummaryJson: {
           exportSchemaVersion: 5,
@@ -215,10 +214,10 @@ export class JobHandlersService {
         previousState: "purging",
         nextState: "completed",
         actorType: "worker",
-        eventCode: "EXPORT_COMPLETED_MOCK_STORAGE"
+        eventCode: mockMode ? "EXPORT_COMPLETED_MOCK_STORAGE" : "EXPORT_COMPLETED_AUTHENTICATED_DOWNLOAD"
       }
     });
-    return { code: "EXPORT_COMPLETED_MOCK_STORAGE" };
+    return { code: mockMode ? "EXPORT_COMPLETED_MOCK_STORAGE" : "EXPORT_COMPLETED_AUTHENTICATED_DOWNLOAD" };
   }
 
   private async unlinkProcessor(payload: Record<string, unknown>): Promise<JobResult> {

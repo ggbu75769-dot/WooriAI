@@ -34,6 +34,13 @@ const semantic = {
   info: "#1D4ED8"
 } as const;
 
+const brandIdentity = {
+  canvas: "#FFF9F3",
+  navy: "#17324D",
+  persimmon: "#FF6B4A",
+  butter: "#FFD76A"
+} as const;
+
 // Named surfaces preserve the approved Android Pixel Lock palette while keeping
 // route/component code free of raw colour literals. They are presentation tokens,
 // never catalog or finance data.
@@ -41,6 +48,7 @@ const presentation = {
   dangerSurface: "#FFF0ED",
   segmentedTrack: "#F5F0EA",
   chartPlot: "#FFF4EE",
+  splashStageSurface: "#FFF9F4",
   importCanvas: "#FFFCFA",
   previewCoral: "#FFF0EA",
   previewYellow: "#FFF5D7",
@@ -88,9 +96,14 @@ export const theme = {
     cream,
     text,
     semantic,
+    brandIdentity,
     presentation,
     categoryPalette,
     categoryColors,
+    brandNavy: brandIdentity.navy,
+    brandPersimmon: brandIdentity.persimmon,
+    brandButter: brandIdentity.butter,
+    brandCanvas: brandIdentity.canvas,
     // Legacy flat keys -- unchanged names, kept for every existing call site, but redirected
     // onto the D0 tokens above wherever a clear mapping exists (round5a-design-spec.md "기존 키
     // 재지향으로 회귀 최소화"). mainCoral/subCoral/peach/beige/brown/gray600/textPrimary/

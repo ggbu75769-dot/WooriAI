@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 34 패밀리 퍼스</title><desc id="d">두 보호자가 손잡이가 되어 아이를 함께 돌보는 지갑 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF9F3"/>
+  <path d="M116 224c0-83 45-139 108-139 21 0 32 7 32 7s11-7 32-7c63 0 108 56 108 139" fill="none" stroke="#FF6B4A" stroke-width="52" stroke-linecap="round"/>
+  <rect x="84" y="198" width="344" height="254" rx="70" fill="#FFD76A" stroke="#17324D" stroke-width="18"/>
+  <circle cx="256" cy="302" r="78" fill="#FFF9F3"/>
+  <path d="M231 238c0-28 18-49 46-49 0 27-12 44-38 55" fill="#FF6B4A"/>
+  <circle cx="228" cy="304" r="9" fill="#17324D"/><circle cx="284" cy="304" r="9" fill="#17324D"/>
+  <path d="M232 336c14 14 34 14 48 0" fill="none" stroke="#17324D" stroke-width="13" stroke-linecap="round"/>
+</svg>

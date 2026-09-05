@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import * as WebBrowser from "expo-web-browser";
 import { useState } from "react";
 import { router } from "expo-router";
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import {
   fixtureSessionToken,
   getCurrentLegalDocuments,
@@ -17,21 +18,23 @@ import { isTestLoginBuild } from "../../src/pixelLock/build-profile";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
-import { AppIcon, AppScreen } from "../../src/ui";
+import { AppIcon, AppScreen } from "../../src/design-system";
 
 const isTestLoginEnabled = isTestLoginBuild();
-const logoMark = require("../../assets/illustrations/logo_mark.png");
+const logoLockup = require("../../assets/illustrations/logo_lockup.png");
 
 function ConsentRow({
   checked,
   disabled,
   label,
+  opened,
   onOpen,
   onPress
 }: {
   checked: boolean;
   disabled: boolean;
   label: string;
+  opened: boolean;
   onOpen: () => void;
   onPress: () => void;
 }) {
@@ -53,15 +56,15 @@ function ConsentRow({
         <Text style={styles.consentLabel}>{label}</Text>
       </Pressable>
       <Pressable
-        accessibilityLabel={`${label} 문서 보기`}
+        accessibilityLabel={`${label} 문서 ${opened ? "닫기" : "보기"}`}
         accessibilityRole="button"
-        accessibilityState={{ disabled }}
+        accessibilityState={{ disabled, expanded: opened }}
         disabled={disabled}
         hitSlop={8}
         onPress={onOpen}
         style={({ pressed }) => [styles.documentButton, pressed ? styles.pressed : null]}
       >
-        <Text style={styles.documentButtonText}>보기</Text>
+        <Text style={styles.documentButtonText}>{opened ? "닫기" : "보기"}</Text>
       </Pressable>
     </View>
   );
@@ -96,6 +99,10 @@ export default function LoginScreen() {
   const loginDisabled = !requiredAccepted || isLoginPending || !kakaoAvailable;
 
   async function openDocument(document: LegalDocument) {
+    if (!document.publicUrl && openedDocument?.documentType === document.documentType) {
+      setOpenedDocument(null);
+      return;
+    }
     setOpenedDocument(document);
     if (document.publicUrl) {
       await WebBrowser.openBrowserAsync(document.publicUrl);
@@ -117,7 +124,7 @@ export default function LoginScreen() {
       await completeOAuthLogin(result, consents);
     } catch (error) {
       setLoginError(
-        error instanceof Error && error.message === "OAUTH_CANCELLED"
+        String(error).includes("OAUTH_CANCELLED")
           ? "카카오 로그인이 취소됐어요."
           : "서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요."
       );
@@ -148,22 +155,21 @@ export default function LoginScreen() {
 
   return (
     <AppScreen>
-      <View accessibilityLabel="우리아이 테스트 로그인" testID="screen-AUTH-001" style={styles.screen}>
+      <View accessibilityLabel="우리아이 로그인" testID="screen-AUTH-001" style={styles.screen}>
         <View style={styles.brandRow}>
-          <Image source={logoMark} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.brandName}>우리아이</Text>
+          <Image
+            accessibilityLabel="우리아이"
+            resizeMode="contain"
+            source={logoLockup}
+            style={styles.logoLockup}
+          />
         </View>
 
         <View style={styles.hero}>
-          {isTestLoginEnabled ? (
-            <View style={styles.testBadge}>
-              <Text style={styles.testBadgeText}>테스트용 APK</Text>
-            </View>
-          ) : null}
           <Text style={styles.title}>우리 아이의 기록을 시작해요</Text>
           <Text style={styles.subtitle}>
             {isTestLoginEnabled
-              ? <>준비된 테스트 계정으로 로그인하고{`\n`}주요 화면을 편하게 둘러보세요.</>
+              ? <>필수 항목에 동의하고{`\n`}우리 가족의 기록을 시작해요.</>
               : <>카카오 계정으로 안전하게 시작하고{`\n`}가족의 기록을 함께 관리해요.</>}
           </Text>
         </View>
@@ -182,6 +188,7 @@ export default function LoginScreen() {
                 checked={termsAccepted}
                 disabled={isLoginPending}
                 label={requiredDocuments!.terms.title}
+                opened={openedDocument?.documentType === requiredDocuments!.terms.documentType && !requiredDocuments!.terms.publicUrl}
                 onOpen={() => void openDocument(requiredDocuments!.terms)}
                 onPress={() => setTermsAccepted((value) => !value)}
               />
@@ -190,6 +197,7 @@ export default function LoginScreen() {
                 checked={privacyAccepted}
                 disabled={isLoginPending}
                 label={requiredDocuments!.privacy.title}
+                opened={openedDocument?.documentType === requiredDocuments!.privacy.documentType && !requiredDocuments!.privacy.publicUrl}
                 onOpen={() => void openDocument(requiredDocuments!.privacy)}
                 onPress={() => setPrivacyAccepted((value) => !value)}
               />
@@ -238,7 +246,7 @@ export default function LoginScreen() {
               {isLoginPending
                 ? "로그인 중..."
                 : isTestLoginEnabled
-                  ? "테스트 계정으로 시작하기"
+                  ? "동의하고 시작하기"
                   : accessToken
                     ? "동의하고 계속하기"
                     : "카카오로 시작하기"}
@@ -258,7 +266,7 @@ export default function LoginScreen() {
           ) : null}
           <Text style={styles.testNotice}>
             {isTestLoginEnabled
-              ? "테스트 데이터는 이 기기에만 저장되며 실제 카카오 로그인이 아니에요."
+              ? "입력한 정보는 이 기기에 안전하게 저장돼요."
               : !kakaoAvailable
                 ? "현재 로그인 제공자를 확인할 수 없어요. 연결이 복구되면 다시 시도해 주세요."
                 : appleAdvertised
@@ -277,11 +285,6 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  brandName: {
-    color: theme.colors.mainCoral,
-    fontSize: 24,
-    fontWeight: "800"
-  },
   appleButton: {
     backgroundColor: theme.colors.surface,
     borderColor: theme.colors.gray300,
@@ -294,8 +297,7 @@ const styles = StyleSheet.create({
   },
   brandRow: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: 10
+    flexDirection: "row"
   },
   checkbox: {
     alignItems: "center",
@@ -438,9 +440,9 @@ const styles = StyleSheet.create({
   loginButtonTextDisabled: {
     color: theme.colors.gray600
   },
-  logo: {
-    height: 48,
-    width: 48
+  logoLockup: {
+    height: 52,
+    width: 195
   },
   pressed: {
     opacity: 0.82

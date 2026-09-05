@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 29 케어 밸런스</title><desc id="d">가족 예산과 필요한 준비의 균형 위에 있는 아이 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#17324D"/>
+  <path d="M256 118v238" stroke="#FFF9F3" stroke-width="42" stroke-linecap="round"/>
+  <path d="M112 184h288" stroke="#FFF9F3" stroke-width="42" stroke-linecap="round"/>
+  <path d="M112 184l-52 112h104L112 184Z" fill="#FF6B4A" stroke="#FF6B4A" stroke-width="20" stroke-linejoin="round"/>
+  <path d="M400 184l-52 112h104L400 184Z" fill="#FFD76A" stroke="#FFD76A" stroke-width="20" stroke-linejoin="round"/>
+  <circle cx="256" cy="118" r="48" fill="#FFD76A" stroke="#17324D" stroke-width="14"/>
+  <path d="M170 406h172" stroke="#FF6B4A" stroke-width="50" stroke-linecap="round"/>
+</svg>

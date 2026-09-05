@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 01 포옹의 중심</title><desc id="d">두 보호자가 아이를 감싸는 강한 괄호형 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#173D48"/>
+  <path d="M190 126C135 153 104 200 104 256s31 103 86 130" fill="none" stroke="#6DC5AE" stroke-width="72" stroke-linecap="round"/>
+  <path d="M322 126c55 27 86 74 86 130s-31 103-86 130" fill="none" stroke="#FF7658" stroke-width="72" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="47" fill="#FFD261"/>
+</svg>

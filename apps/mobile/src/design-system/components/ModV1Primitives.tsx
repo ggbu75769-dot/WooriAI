@@ -1,6 +1,8 @@
 import React, { useRef, type RefObject } from "react";
-import { AccessibilityInfo, findNodeHandle, Modal, Pressable, Text, TextInput, View, type TextInputProps } from "react-native";
+import { AccessibilityInfo, findNodeHandle, Modal, Pressable, Text as NativeText, TextInput, View, type TextInputProps } from "react-native";
+import { KoreanText as Text } from "./KoreanText";
 import { formatKrw } from "../../money";
+import { balanceCompactKoreanLabel } from "../compact-korean-label";
 import { semanticColors } from "../tokens/color";
 import { radius } from "../tokens/radius";
 import { spacing } from "../tokens/spacing";
@@ -141,6 +143,7 @@ function preparationStatusVisual(status: string | null | undefined) {
 export function PreparationItemCard({ title, status, icon = "baby-face-outline", iconBackgroundColor = semanticColors.actionSecondary, iconColor = semanticColors.actionPrimary, hint, onPress }: { title: string; status?: string | null; icon?: AppIconName; iconBackgroundColor?: string; iconColor?: string; hint?: string | null; onPress: () => void }) {
   const label = itemStatusLabel(status);
   const statusVisual = preparationStatusVisual(status);
+  const displayTitle = balanceCompactKoreanLabel(title);
   return (
     <Pressable
       accessibilityLabel={`${title}. 상태 ${label}${hint ? `. ${hint}` : ""}`}
@@ -151,7 +154,11 @@ export function PreparationItemCard({ title, status, icon = "baby-face-outline",
       <View style={{ alignItems: "center", backgroundColor: iconBackgroundColor, borderRadius: radius.pill, height: 44, justifyContent: "center", width: 44 }}>
         <AppIcon color={iconColor} name={icon} size={24} />
       </View>
-      <Text maxFontSizeMultiplier={1.2} numberOfLines={2} style={{ color: semanticColors.textPrimary, fontSize: 12, fontWeight: "700", lineHeight: 17, minHeight: 34, textAlign: "center", textAlignVertical: "center" }}>{title}</Text>
+      <View style={{ alignItems: "center", justifyContent: "center", minHeight: 34 }}>
+        {displayTitle.split("\n").map((line) => (
+          <Text key={line} style={{ color: semanticColors.textPrimary, fontSize: 12, fontWeight: "700", lineHeight: 17, textAlign: "center" }}>{line}</Text>
+        ))}
+      </View>
       <View style={{ alignItems: "center", backgroundColor: statusVisual.backgroundColor, borderRadius: radius.pill, minHeight: 24, paddingHorizontal: spacing.xs, paddingVertical: spacing.xxs }}>
         <Text style={{ color: statusVisual.color, fontSize: 10, fontWeight: "700" }}>{label}</Text>
       </View>
@@ -186,7 +193,7 @@ export function ItemStatusControl({ value, onChange, disabled }: { value?: strin
   );
 }
 
-function focusAccessibilityTarget(target: RefObject<View | Text | null>) {
+function focusAccessibilityTarget(target: RefObject<View | NativeText | null>) {
   const handle = findNodeHandle(target.current);
   if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
 }
@@ -206,7 +213,7 @@ export function BottomSheet({
   returnFocusRef?: RefObject<View | null>;
   children: React.ReactNode
 }) {
-  const headingRef = useRef<Text>(null);
+  const headingRef = useRef<NativeText>(null);
   const close = () => {
     if (onClose() === false) return;
     if (returnFocusRef) setTimeout(() => focusAccessibilityTarget(returnFocusRef), 0);

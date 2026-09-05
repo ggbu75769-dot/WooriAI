@@ -1,6 +1,7 @@
-import React from "react";
+﻿import React from "react";
 import renderer from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
+import { render } from "../test-utils/react-test-renderer";
 
 vi.mock("@expo/vector-icons", () => ({ MaterialCommunityIcons: "MaterialCommunityIcons" }));
 vi.mock("react-native", () => ({
@@ -30,7 +31,7 @@ describe("PurchaseFollowupCard interactions", () => {
     const onRecord = vi.fn();
     const onSnooze = vi.fn();
     const onRemove = vi.fn();
-    const tree = renderer.create(
+    const tree = render(
       <PurchaseFollowupCard
         followup={pending}
         itemName="카시트"
@@ -58,7 +59,7 @@ describe("PurchaseFollowupCard interactions", () => {
 
   it("renders only the sync review action after an expense is recorded", () => {
     const onReviewSync = vi.fn();
-    const tree = renderer.create(
+    const tree = render(
       <PurchaseFollowupCard
         followup={{ ...pending, state: "recorded_pending_sync", localExpenseId: "local-1" }}
         itemName="카시트"

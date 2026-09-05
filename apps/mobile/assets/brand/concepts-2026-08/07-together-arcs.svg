@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 07 투게더 아치</title><desc id="d">서로 다른 두 아치가 가운데 아이를 위한 공간을 만드는 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF8F2"/>
+  <path d="M96 350V236c0-82 54-142 130-142" fill="none" stroke="#24364B" stroke-width="58" stroke-linecap="round"/>
+  <path d="M416 350V236c0-82-54-142-130-142" fill="none" stroke="#FF7A5A" stroke-width="58" stroke-linecap="round"/>
+  <path d="M142 350h228" stroke="#24364B" stroke-width="58" stroke-linecap="round"/>
+  <circle cx="256" cy="238" r="43" fill="#FFD260"/>
+</svg>

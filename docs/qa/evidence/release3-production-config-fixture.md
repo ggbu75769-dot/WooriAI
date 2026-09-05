@@ -1,11 +1,11 @@
 # WooriAI Release Gate Evidence
 
-Generated: 2026-07-26T14:27:43.978Z
+Generated: 2026-08-11T00:29:53.763Z
 Mode: production-config-fixture
 
 | Gate | Command | Result | Duration |
 | --- | --- | --- | --- |
-| Production config fixture | `pnpm release:config:fixture` | PASS | 3ms |
+| Production config fixture | `pnpm release:config:fixture` | PASS | 1ms |
 
 ## Evidence boundary
 

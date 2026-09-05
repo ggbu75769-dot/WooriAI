@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Pressable, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import {
   createInvite,
   listHouseholdMembers,
@@ -315,7 +316,7 @@ export default function FamilyScreen() {
           <View style={familyProfileBodyStyle}>
             <FamilyAvatarGroup names={hasSession ? avatarNames : ["우"]} />
             <View>
-              <Text style={familyProfileNameStyle}>{hasSession ? "우리 가족" : "샘플 가족"}</Text>
+              <Text style={familyProfileNameStyle}>우리 가족</Text>
               <Text style={familyProfileMetaStyle}>
                 {hasSession ? visibleMembers.map((member) => member.displayName).join(" · ") : "엄마 · 아빠 · 할머니"}
               </Text>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { AccessibilityInfo, Animated, Image, StatusBar, Text, View } from "react-native";
+import { AccessibilityInfo, Animated, Image, StatusBar, View } from "react-native";
+import { KoreanText as Text } from "../src/design-system/components/KoreanText";
 import { AppScreen } from "../src/ui";
 import { theme } from "../src/theme";
 import { SplashPixelStyles } from "../src/pixelLock/styles";
@@ -14,6 +15,7 @@ const stageHoldMs = 320;
 const finalHoldMs = 350;
 const stageTransitionMs = 180;
 const splashLogo = require("../assets/splash-mark.png");
+const pixelSplashLogo = require("../assets/pixel-splash-mark.png");
 const intro = { label: "intro", source: require("../assets/illustrations/family.png") };
 const stageImageStyle = { height: 248, width: 248 };
 const animationStages = [
@@ -146,21 +148,22 @@ export default function LaunchAnimationScreen() {
         >
           <Image
             accessibilityLabel={splashScreenId}
-            source={splashLogo}
+            source={isPixelLockMode ? pixelSplashLogo : splashLogo}
             style={{ height: SplashPixelStyles.logoSize + 40, width: SplashPixelStyles.logoSize + 40 }}
-            resizeMode="cover"
+            resizeMode="contain"
           />
         </View>
-        <Text style={{ color: theme.colors.mainCoral, fontSize: SplashPixelStyles.titleFontSize, fontWeight: "800" }}>우리아이</Text>
-        <Text style={{ color: theme.colors.gray600, fontSize: SplashPixelStyles.taglineFontSize, lineHeight: SplashPixelStyles.taglineLineHeight, maxWidth: SplashPixelStyles.taglineMaxWidth, textAlign: "center" }}>
-          아이의 모든 순간, 우리가 함께 기록하고 응원할게요.
-        </Text>
+        <Text style={{ color: isPixelLockMode ? theme.colors.mainCoral : theme.colors.brandNavy, fontSize: SplashPixelStyles.titleFontSize, fontWeight: "800" }}>우리아이</Text>
+        <View style={{ alignItems: "center", maxWidth: SplashPixelStyles.taglineMaxWidth }}>
+          <Text style={{ color: theme.colors.gray600, fontSize: SplashPixelStyles.taglineFontSize, lineHeight: SplashPixelStyles.taglineLineHeight, textAlign: "center" }}>아이의 모든 순간,</Text>
+          <Text style={{ color: theme.colors.gray600, fontSize: SplashPixelStyles.taglineFontSize, lineHeight: SplashPixelStyles.taglineLineHeight, textAlign: "center" }}>우리가 함께 기록하고 응원할게요.</Text>
+        </View>
 
         <Animated.View
           key={currentStage.label}
           style={{
             alignItems: "center",
-            backgroundColor: stageIndex >= 0 ? "#FFF9F4" : "transparent",
+            backgroundColor: stageIndex >= 0 ? theme.colors.presentation.splashStageSurface : "transparent",
             borderColor: stageIndex >= 0 ? theme.colors.primary100 : "transparent",
             borderRadius: stageIndex >= 0 ? 32 : 0,
             borderWidth: stageIndex >= 0 ? 1 : 0,
@@ -192,7 +195,7 @@ export default function LaunchAnimationScreen() {
             <View
               key={stage}
               style={{
-                backgroundColor: index === activeDotIndex ? theme.colors.mainCoral : theme.colors.primary100,
+                backgroundColor: index === activeDotIndex ? (isPixelLockMode ? theme.colors.mainCoral : theme.colors.brandNavy) : theme.colors.primary100,
                 borderRadius: 999,
                 height: 5,
                 width: index === activeDotIndex ? 16 : 5

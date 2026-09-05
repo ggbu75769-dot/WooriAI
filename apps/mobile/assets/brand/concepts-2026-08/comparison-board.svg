@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 2200" role="img" aria-labelledby="title desc">
+  <title id="title">우리아이 신규 로고 10종 비교 보드</title>
+  <desc id="desc">기존 우 모노그램과 다른 열 가지 벡터 로고 시안</desc>
+  <rect width="1600" height="2200" fill="#F4F1EC"/>
+  <text x="80" y="110" fill="#15191E" font-family="Malgun Gothic, Apple SD Gothic Neo, sans-serif" font-size="60" font-weight="800">우리아이 — 로고 방향 10</text>
+  <text x="82" y="164" fill="#62676D" font-family="Malgun Gothic, Apple SD Gothic Neo, sans-serif" font-size="26">기존 ‘우’ 모노그램을 버리고, 한 가지 실루엣으로 다시 탐색한 벡터 시안</text>
+
+  <g transform="translate(70 220)">
+    <rect width="710" height="350" rx="40" fill="#FFFFFF"/>
+    <image href="01-orbit-family.svg" x="28" y="34" width="282" height="282"/>
+    <text x="342" y="86" fill="#FF6B4A" font-family="Arial, sans-serif" font-size="25" font-weight="800">01</text>
+    <text x="342" y="146" fill="#142F4A" font-family="Malgun Gothic, sans-serif" font-size="52" font-weight="800">우리아이</text>
+    <text x="342" y="196" fill="#2D3640" font-family="Malgun Gothic, sans-serif" font-size="26" font-weight="700">ORBIT FAMILY</text>
+    <text x="342" y="240" fill="#73777C" font-family="Malgun Gothic, sans-serif" font-size="22">아이를 중심으로 연결되는 가족</text>
+  </g>
+  <g transform="translate(820 220)">
+    <rect width="710" height="350" rx="40" fill="#FFFFFF"/>
+    <image href="02-woven-w.svg" x="28" y="34" width="282" height="282"/>
+    <text x="342" y="86" fill="#7C6DF2" font-family="Arial, sans-serif" font-size="25" font-weight="800">02</text>
+    <text x="342" y="146" fill="#312E63" font-family="Malgun Gothic, sans-serif" font-size="52" font-weight="800">우리아이</text>
+    <text x="342" y="196" fill="#2D3640" font-family="Arial, sans-serif" font-size="26" font-weight="700">WOVEN W</text>
+    <text x="342" y="240" fill="#73777C" font-family="Malgun Gothic, sans-serif" font-size="22">두 보호자가 만드는 하나의 리듬</text>
+  </g>
+
+  <g transform="translate(70 610)">
+    <rect width="710" height="350" rx="40" fill="#FFFFFF"/>
+    <image href="03-moment-frames.svg" x="28" y="34" width="282" height="282"/>
+    <text x="342" y="86" fill="#FF7257" font-family="Arial, sans-serif" font-size="25" font-weight="800">03</text>
+    <text x="342" y="146" fill="#174B72" font-family="Malgun Gothic, sans-serif" font-size="52" font-weight="800">우리아이</text>
+    <text x="342" y="196" fill="#2D3640" font-family="Arial, sans-serif" font-size="26" font-weight="700">MOMENT FRAMES</text>
+    <text x="342" y="240" fill="#73777C" font-family="Malgun Gothic, sans-serif" font-size="22">겹쳐 쌓이는 오늘의 순간</text>
+  </g>
+  <g transform="translate(820 610)">
+    <rect width="710" height="350" rx="40" fill="#FFFFFF"/>
+    <image href="04-tomorrow-page.svg" x="28" y="34" width="282" height="282"/>
+    <text x="342" y="86" fill="#FF704F" font-family="Arial, sans-serif" font-size="25" font-weight="800">04</text>
+    <text x="342" y="146" fill="#263B35" font-family="Malgun Gothic, sans-serif" font-size="52" font-weight="800">우리아이</text>
+    <text x="342" y="196" fill="#2D3640" font-family="Arial, sans-serif" font-size="26" font-weight="700">TOMORROW PAGE</text>
+    <text x="342" y="240" fill="#73777C" font-family="Malgun Gothic, sans-serif" font-size="22">오늘을 기록해 내일을 준비</text>
+  </g>
+
+  <g transform="translate(70 1000)">
+    <rect width="710" height="350" rx="40" fill="#FFFFFF"/>
+    <image href="05-family-knot.svg" x="28" y="34" width="282" height="282"/>
+    <text x="342" y="86" fill="#E7593E" font-family="Arial, sans-serif" font-size="25" font-weight="800">05</text>
+    <text x="342" y="146" fill="#17324D" font-family="Malgun Gothic, sans-serif" font-size="52" font-weight="800">우리아이</text>
+    <text x="342" y="196" fill="#2D3640" font-family="Arial, sans-serif" font-size="26" font-weight="700">FAMILY KNOT</text>
+    <text x="342" y="240" fill="#73777C" font-family="Malgun Gothic, sans-serif" font-size="22">서로 다른 셋, 하나의 가족</text>
+  </g>
+  <g transform="translate(820 1000)">
+    <rect width="710" height="350" rx="40" fill="#FFFFFF"/>
+    <image href="06-growth-rings.svg" x="28" y="34" width="282" height="282"/>
+    <text x="342" y="86" fill="#6BC1A8" font-family="Arial, sans-serif" font-size="25" font-weight="800">06</text>
+    <text x="342" y="146" fill="#184D43" font-family="Malgun Gothic, sans-serif" font-size="52" font-weight="800">우리아이</text>
+    <text x="342" y="196" fill="#2D3640" font-family="Arial, sans-serif" font-size="26" font-weight="700">GROWTH RINGS</text>
+    <text x="342" y="240" fill="#73777C" font-family="Malgun Gothic, sans-serif" font-size="22">시간과 함께 넓어지는 성장</text>
+  </g>
+
+  <g transform="translate(70 1390)">
+    <rect width="710" height="350" rx="40" fill="#FFFFFF"/>
+    <image href="07-together-arcs.svg" x="28" y="34" width="282" height="282"/>
+    <text x="342" y="86" fill="#FF7A5A" font-family="Arial, sans-serif" font-size="25" font-weight="800">07</text>
+    <text x="342" y="146" fill="#24364B" font-family="Malgun Gothic, sans-serif" font-size="52" font-weight="800">우리아이</text>
+    <text x="342" y="196" fill="#2D3640" font-family="Arial, sans-serif" font-size="26" font-weight="700">TOGETHER ARCS</text>
+    <text x="342" y="240" fill="#73777C" font-family="Malgun Gothic, sans-serif" font-size="22">둘이 만든 아이의 안전한 자리</text>
+  </g>
+  <g transform="translate(820 1390)">
+    <rect width="710" height="350" rx="40" fill="#FFFFFF"/>
+    <image href="08-record-path.svg" x="28" y="34" width="282" height="282"/>
+    <text x="342" y="86" fill="#6E7BEF" font-family="Arial, sans-serif" font-size="25" font-weight="800">08</text>
+    <text x="342" y="146" fill="#20345F" font-family="Malgun Gothic, sans-serif" font-size="52" font-weight="800">우리아이</text>
+    <text x="342" y="196" fill="#2D3640" font-family="Arial, sans-serif" font-size="26" font-weight="700">RECORD PATH</text>
+    <text x="342" y="240" fill="#73777C" font-family="Malgun Gothic, sans-serif" font-size="22">기록이 다음 행동으로 이어지는 길</text>
+  </g>
+
+  <g transform="translate(70 1780)">
+    <rect width="710" height="350" rx="40" fill="#FFFFFF"/>
+    <image href="09-cradle-spark.svg" x="28" y="34" width="282" height="282"/>
+    <text x="342" y="86" fill="#FF8061" font-family="Arial, sans-serif" font-size="25" font-weight="800">09</text>
+    <text x="342" y="146" fill="#18344C" font-family="Malgun Gothic, sans-serif" font-size="52" font-weight="800">우리아이</text>
+    <text x="342" y="196" fill="#2D3640" font-family="Arial, sans-serif" font-size="26" font-weight="700">CRADLE SPARK</text>
+    <text x="342" y="240" fill="#73777C" font-family="Malgun Gothic, sans-serif" font-size="22">품 안의 아이, 빛나는 가능성</text>
+  </g>
+  <g transform="translate(820 1780)">
+    <rect width="710" height="350" rx="40" fill="#FFFFFF"/>
+    <image href="10-shared-table.svg" x="28" y="34" width="282" height="282"/>
+    <text x="342" y="86" fill="#6DC5AE" font-family="Arial, sans-serif" font-size="25" font-weight="800">10</text>
+    <text x="342" y="146" fill="#173D48" font-family="Malgun Gothic, sans-serif" font-size="52" font-weight="800">우리아이</text>
+    <text x="342" y="196" fill="#2D3640" font-family="Arial, sans-serif" font-size="26" font-weight="700">SHARED TABLE</text>
+    <text x="342" y="240" fill="#73777C" font-family="Malgun Gothic, sans-serif" font-size="22">가족이 함께 관리하는 생활의 중심</text>
+  </g>
+</svg>

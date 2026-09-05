@@ -74,8 +74,13 @@ describe("production mobile bundle boundary", () => {
     expect(pixelBuild).toContain('EXPO_PUBLIC_SAFETY_ALTERNATIVE_FIXTURE: "0"');
     const aabBuild = readRepo("scripts/build-android-aab.ts");
     const releaseGate = readRepo("scripts/release-gate.ts");
-    expect(aabBuild).toContain('WOORIAI_BUILD_PROFILE: "production"');
+    expect(aabBuild).toContain('WOORIAI_BUILD_PROFILE: internalTest ? "standalone" : "production"');
     expect(aabBuild).toContain('EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: "0"');
+    expect(aabBuild).toContain('EXPO_PUBLIC_TEST_LOGIN: internalTest ? "1" : "0"');
+    expect(aabBuild).toContain('WOORIAI_ALLOW_DEBUG_RELEASE_SIGNING: "1"');
+    expect(aabBuild).toContain('qualification: internalTest ? "INTERNAL_TEST" : "PRODUCTION_CANDIDATE"');
+    expect(aabBuild).toContain("computeRelease5vSourceSnapshot");
+    expect(aabBuild).toContain("verifyBuildSourceSnapshots");
     expect(releaseGate).toContain('WOORIAI_BUILD_PROFILE: "production"');
     expect(releaseGate).toContain('EXPO_PUBLIC_AUTHORITY_RECOVERY_FIXTURE: "0"');
   });

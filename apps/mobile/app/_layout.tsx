@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { router, Stack } from "expo-router";
 import * as Linking from "expo-linking";
-import { ActivityIndicator, InteractionManager, SafeAreaView, Text, View } from "react-native";
+import { ActivityIndicator, Image, InteractionManager, SafeAreaView, View } from "react-native";
+import { KoreanText as Text } from "../src/design-system/components/KoreanText";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fixtureSessionToken, LOCAL_HOUSEHOLD_ID, LOCAL_USER_ID } from "../src/api/fixture-identifiers";
 import {
@@ -18,15 +19,47 @@ import { AppErrorBoundary } from "../src/crash/AppErrorBoundary";
 import { installGlobalCrashHandlers, reportCrash } from "../src/crash/crash-adapter";
 
 const queryClient = new QueryClient();
+const startupMark = require("../assets/splash-mark.png");
 installGlobalCrashHandlers();
 
 function StartupLoadingState({ title, description }: { title: string; description: string }) {
   return (
-    <SafeAreaView style={{ backgroundColor: "#FFFDFC", flex: 1 }}>
-      <View style={{ alignItems: "center", flex: 1, gap: 12, justifyContent: "center", padding: 24 }}>
-        <ActivityIndicator color="#C94627" size="large" />
-        <Text style={{ color: "#2F2925", fontSize: 16, fontWeight: "700" }}>{title}</Text>
-        <Text style={{ color: "#746B65", fontSize: 14, textAlign: "center" }}>{description}</Text>
+    <SafeAreaView style={{ backgroundColor: "#FFF9F3", flex: 1 }}>
+      <View
+        accessibilityLabel={`${title}. ${description}`}
+        accessibilityLiveRegion="polite"
+        accessibilityRole="progressbar"
+        accessibilityState={{ busy: true }}
+        style={{ alignItems: "center", flex: 1, justifyContent: "center", padding: 24 }}
+      >
+        <View
+          style={{
+            alignItems: "center",
+            backgroundColor: "#FFFFFF",
+            borderColor: "#F1E5DA",
+            borderRadius: 36,
+            borderWidth: 1,
+            height: 112,
+            justifyContent: "center",
+            marginBottom: 24,
+            width: 112
+          }}
+        >
+          <Image
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            resizeMode="contain"
+            source={startupMark}
+            style={{ height: 132, width: 132 }}
+          />
+        </View>
+        <Text style={{ color: "#17324D", fontSize: 24, fontWeight: "800", letterSpacing: -0.5, marginBottom: 10 }}>우리아이</Text>
+        <Text style={{ color: "#211E1C", fontSize: 17, fontWeight: "800", textAlign: "center" }}>{title}</Text>
+        <Text style={{ color: "#5F5854", fontSize: 14, lineHeight: 21, marginTop: 7, maxWidth: 280, textAlign: "center" }}>{description}</Text>
+        <View style={{ alignItems: "center", flexDirection: "row", gap: 9, marginTop: 22 }}>
+          <ActivityIndicator accessibilityElementsHidden color="#17324D" importantForAccessibility="no-hide-descendants" size="small" />
+          <Text style={{ color: "#746B65", fontSize: 13, fontWeight: "700" }}>안전하게 불러오는 중</Text>
+        </View>
       </View>
     </SafeAreaView>
   );

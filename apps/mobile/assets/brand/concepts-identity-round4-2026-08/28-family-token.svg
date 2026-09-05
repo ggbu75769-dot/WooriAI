@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 28 패밀리 토큰</title><desc id="d">가족의 두 보호와 아이 비용을 하나의 토큰으로 만든 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF9F3"/>
+  <circle cx="256" cy="256" r="154" fill="#17324D"/>
+  <path d="M200 155c-55 28-84 67-84 116s29 88 84 116" fill="none" stroke="#FF6B4A" stroke-width="48" stroke-linecap="round"/>
+  <path d="M312 155c55 28 84 67 84 116s-29 88-84 116" fill="none" stroke="#FFF9F3" stroke-width="48" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="49" fill="#FFD76A"/>
+  <path d="M232 244h48M232 272h34" stroke="#17324D" stroke-width="12" stroke-linecap="round"/>
+</svg>

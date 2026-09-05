@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-24T05:21:38.054Z",
+  "generatedAt": "2026-08-11T23:34:29.849Z",
   "actor": "Android build engineer and release reviewer",
   "input": "current-source standalone APK, binary manifest, Hermes bundle, and signer certificate",
   "mission": "prove native properties while refusing to qualify an internal fixture APK as a store artifact",
@@ -8,25 +8,37 @@
   "qualification": "INTERNAL_TEST",
   "storeArtifact": false,
   "productionCandidate": false,
-  "apkPath": "F:\\WooriAI\\artifacts\\android\\wooriai-0.0.0-release-standalone.apk",
-  "apkBytes": 79531958,
-  "apkSha256": "35D8F684195ED2DA209936A3D245231FEC84C448A8B72D61F72400119613880A",
-  "hermesBytes": 2821956,
-  "hermesSha256": "D7D059A9CA13652D605D75610D8F443359003A29AD918F98FF451CD174F55020",
+  "apkPath": "F:\\WooriAI\\wooriai-0.0.0-release-standalone.apk",
+  "apkBytes": 71410020,
+  "apkSha256": "3F45442801164B9DFF691DC89B423810FF4715671C7569267F3BF5FB4A6C5FC8",
+  "hermesBytes": 3046140,
+  "hermesSha256": "02DF35F5334A8679B0DDB76FCCF671B17E8A997389BF6266504F5E6EE29C174D",
   "packageName": "com.anonymous.wooriai",
   "versionCode": "1",
   "versionName": "0.0.0",
+  "targetSdk": 36,
+  "compileSdk": 36,
+  "zipAlignment16KiB": true,
+  "elfAlignment16KiB": true,
+  "nativeLibraryCount": 28,
+  "ignored32BitNativeLibraryCount": 28,
+  "elfAlignmentEvaluatedAbis": [
+    "arm64-v8a",
+    "x86_64"
+  ],
+  "alignedNativeLibraryCount": 28,
+  "invalidNativeLibraries": [],
   "debuggable": false,
   "allowBackupFalse": true,
   "cleartextFalse": true,
   "permissions": [
     "android.permission.INTERNET",
     "android.permission.VIBRATE",
-    "android.permission.ACCESS_WIFI_STATE",
-    "android.permission.ACCESS_NETWORK_STATE",
     "android.permission.USE_BIOMETRIC",
     "android.permission.USE_FINGERPRINT",
-    "com.anonymous.wooriai.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+    "com.anonymous.wooriai.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+    "android.permission.ACCESS_WIFI_STATE",
+    "android.permission.ACCESS_NETWORK_STATE"
   ],
   "forbiddenPermissions": [],
   "exportedComponentsReviewed": true,
@@ -47,12 +59,12 @@
     "localhost"
   ],
   "contamination": "INTERNAL_TEST_EXPECTED",
-  "sourceSnapshotSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
-  "currentSourceSnapshotSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
+  "sourceSnapshotSha256": "945CAB6AFFC88950DF0F833E27C04EF80A48A8E2BB29B54EECF8BB11B45400D3",
+  "currentSourceSnapshotSha256": "945CAB6AFFC88950DF0F833E27C04EF80A48A8E2BB29B54EECF8BB11B45400D3",
   "sourceSnapshotVerification": {
     "expectedSha256": null,
-    "beforeSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
-    "afterSha256": "E52FD2EB88B1FCB975DC35A4F0219E48574FFD0D8E5829E64E0A66F15CA75812",
+    "beforeSha256": "945CAB6AFFC88950DF0F833E27C04EF80A48A8E2BB29B54EECF8BB11B45400D3",
+    "afterSha256": "945CAB6AFFC88950DF0F833E27C04EF80A48A8E2BB29B54EECF8BB11B45400D3",
     "status": "VERIFIED_STABLE"
   },
   "sourceBinding": "BOUND",
@@ -61,6 +73,7 @@
   "notes": [
     "debug certificate",
     "test login and standalone fixture runtime enabled",
-    "not a production/store candidate"
+    "not a production/store candidate",
+    "16 KiB ZIP and ELF alignment are static packaging evidence; runtime page-size compatibility remains a separate device test"
   ]
 }

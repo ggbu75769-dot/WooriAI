@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 20 셰어드 토털</title><desc id="d">가족이 함께 기록한 우리 아이 비용이 하나로 모이는 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF4F1"/>
+  <path d="M112 168c0-42 34-76 76-76s76 34 76 76v132" fill="none" stroke="#6DC5AE" stroke-width="58" stroke-linecap="round"/>
+  <path d="M400 168c0-42-34-76-76-76s-76 34-76 76v132" fill="none" stroke="#FF7658" stroke-width="58" stroke-linecap="round"/>
+  <rect x="142" y="280" width="228" height="118" rx="59" fill="#173D48"/>
+  <circle cx="256" cy="339" r="34" fill="#FFD261"/>
+</svg>

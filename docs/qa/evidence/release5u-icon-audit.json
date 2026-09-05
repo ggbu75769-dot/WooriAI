@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-17T22:12:09.511Z",
+  "generatedAt": "2026-08-11T00:46:34.417Z",
   "status": "AUTOMATED_PASS",
   "actor": "Accessibility and Brand Engineer",
   "input": "repo-native SVG and generated PNG pipeline",
-  "mission": "recognizable gender-neutral family/growth mark",
+  "mission": "recognizable family protection and growth mark",
   "primaryIconFamily": "MaterialCommunityIcons",
   "sourceImports": 3,
   "rules": {
@@ -15,7 +15,7 @@
     "decorativeHidden": true,
     "iconOnlyLabelRequired": true
   },
-  "concept": "three gender-neutral family forms connected by a growth/check path",
+  "concept": "one continuous coral nest protects a central seed and mint sprout",
   "assets": [
     {
       "path": "apps/mobile/assets/icon.png",
@@ -30,7 +30,7 @@
         "maxY": 1023
       },
       "opaqueCoverage": 1,
-      "sha256": "F00497E68852C92535639D21504E45438AE0C15B71ADD43C44C6EC40A59A63E2"
+      "sha256": "F0EE9DBE504B12F4240D61FBB000C911DAC9BE0F9A325B64E0754E9D0CE426E3"
     },
     {
       "path": "apps/mobile/assets/adaptive-icon.png",
@@ -39,13 +39,13 @@
       "expected": 1024,
       "dimensionsPass": true,
       "alphaBounds": {
-        "minX": 230,
-        "minY": 274,
-        "maxX": 838,
-        "maxY": 696
+        "minX": 153,
+        "minY": 268,
+        "maxX": 870,
+        "maxY": 885
       },
-      "opaqueCoverage": 0.1812,
-      "sha256": "890DB70A61C7A261830DAD858F868976AC6B831817DBD883718B25F43FC1056B"
+      "opaqueCoverage": 0.2443,
+      "sha256": "002BD1FD94B5CD68AA1649D583BCCEF0C6FDAF9D818A5165AEBE3027599BE835"
     },
     {
       "path": "apps/mobile/assets/monochrome-icon.png",
@@ -54,13 +54,13 @@
       "expected": 432,
       "dimensionsPass": true,
       "alphaBounds": {
-        "minX": 97,
-        "minY": 115,
-        "maxX": 353,
-        "maxY": 293
+        "minX": 64,
+        "minY": 113,
+        "maxX": 367,
+        "maxY": 373
       },
-      "opaqueCoverage": 0.1824,
-      "sha256": "1FBA84F638E48625DEC12861200D4C1F3633717C9D56593AD37C843DA41F007D"
+      "opaqueCoverage": 0.2338,
+      "sha256": "DC748175C672D2C49F595DB2601605B3A754C32E82665EBE73AA06D12F043179"
     },
     {
       "path": "apps/mobile/assets/notification-icon.png",
@@ -69,13 +69,13 @@
       "expected": 96,
       "dimensionsPass": true,
       "alphaBounds": {
-        "minX": 15,
-        "minY": 23,
-        "maxX": 84,
-        "maxY": 68
+        "minX": 12,
+        "minY": 22,
+        "maxX": 83,
+        "maxY": 83
       },
-      "opaqueCoverage": 0.1247,
-      "sha256": "0062D1AFD7F2CAA9658E18790863AD498C91F1995760319F2A430E295086B4B3"
+      "opaqueCoverage": 0.2486,
+      "sha256": "87CB85A3422AF9DB16509A8211D2189CB693135FF005884DDAD4BE334F4CE1DD"
     },
     {
       "path": "apps/mobile/assets/splash-mark.png",
@@ -84,13 +84,13 @@
       "expected": 512,
       "dimensionsPass": true,
       "alphaBounds": {
-        "minX": 0,
-        "minY": 0,
-        "maxX": 511,
-        "maxY": 511
+        "minX": 76,
+        "minY": 134,
+        "maxX": 435,
+        "maxY": 442
       },
-      "opaqueCoverage": 1,
-      "sha256": "456AED05DAE12B63B58E84323D3D00661515A267D9EC5E08C7460EC4FE4E038B"
+      "opaqueCoverage": 0.2463,
+      "sha256": "27F055C0AF2AECB9116D2FA194E41E75D5E5DA4E74F4042187D2CD8114E3021A"
     },
     {
       "path": "apps/mobile/assets/illustrations/logo_mark.png",
@@ -99,13 +99,13 @@
       "expected": 256,
       "dimensionsPass": true,
       "alphaBounds": {
-        "minX": 0,
-        "minY": 0,
-        "maxX": 255,
-        "maxY": 255
+        "minX": 38,
+        "minY": 67,
+        "maxX": 217,
+        "maxY": 221
       },
-      "opaqueCoverage": 1,
-      "sha256": "F6EAE6C79C06FA91BC8D2F970AD357A9082FEFF1A725B8DBDA8D71F964041AB3"
+      "opaqueCoverage": 0.2502,
+      "sha256": "CD9EDD6E4ED782D34CD9D5F13956B50F7E65205250345FD2081416ECC666D8E1"
     }
   ],
   "runtimeOnly": [

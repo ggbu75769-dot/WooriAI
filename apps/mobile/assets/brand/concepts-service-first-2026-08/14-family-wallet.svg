@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 14 패밀리 월렛</title><desc id="d">가족이 함께 모아보는 우리 아이 비용 지갑</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF4F1"/>
+  <rect x="92" y="132" width="328" height="248" rx="64" fill="#173D48"/>
+  <rect x="280" y="208" width="164" height="104" rx="44" fill="#6DC5AE" stroke="#FFF4F1" stroke-width="18"/>
+  <circle cx="350" cy="260" r="22" fill="#FFD261"/>
+  <circle cx="162" cy="206" r="29" fill="#6DC5AE"/>
+  <circle cx="218" cy="206" r="29" fill="#FF7658"/>
+  <circle cx="190" cy="278" r="24" fill="#FFD261"/>
+</svg>

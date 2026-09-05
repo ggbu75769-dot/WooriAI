@@ -1,40 +1,39 @@
 # WooriAI Local Self-Implement Current State
 
-갱신: 2026-07-27
+갱신: 2026-07-30 02:01 KST
 
-전체 기준선은 `docs/operations/current-development-status-and-next-design-baseline-2026-07-26.md`가 우선한다.
+현재 실측 기준선은 `docs/state-of-truth.md`, 문서·실행 차이는 `docs/reality-diff.md`가 우선한다. `docs/operations/current-development-status-and-next-design-baseline-2026-07-26.md`는 2026-07-26 당시의 역사 증거다.
 
 ## Git·소스 경계
 
 - 저장소: `F:/WooriAI`
-- 브랜치: `codex/sprint2-catalog-payments`
-- HEAD: `edaf1f3850ac1f66055440eb04b51445d5ae4069`
-- upstream divergence: `0 / 0`
-- 현재 변경: unstaged/untracked, staged 0
-- 이번 개발에서 reset, checkout, stage, commit, push, deploy를 수행하지 않음
+- 브랜치: `codex/wooriai-apk-feedback-ux-hardening-v1`
+- 측정 대상 제품 소스: `6a3f4a0`
+- 보고서 포함 현재 HEAD: `git log -1 --oneline`으로 조회
+- upstream divergence: `git rev-list --left-right --count '@{upstream}...HEAD'`로 조회
+- 외부 배포·push: 이번 사이클에서 수행하지 않음
 
 ## 현재 검증
 
 | 영역 | 현재 증거 | 판정 |
 | --- | --- | --- |
-| 전체 Release Gate | isolated catalog audit 포함 16/16 PASS, `2026-07-26T15:56:15.746Z` | LOCAL PASS |
-| Android Pixel Lock | adb 설치 캡처 9/9, 최대 0.0474 | INTERNAL PASS |
-| 일반 standalone 흐름 | 로그인·온보딩·홈·준비템·지출 입력을 설치 앱에서 확인 | INTERNAL PASS |
-| 카탈로그 구조 | 409 item, 3,287 alias, 485 evidence, 구조 gate PASS | LOCAL PASS |
-| 카탈로그 운영 게시 | evidence 485건 모두 draft, 독립 검토 0, 게시 0 | FAIL-CLOSED |
-| 파일럿 런타임 | 구조·근거·두 승인·승인자 분리·manifest 무결성·publisher 분리 | IMPLEMENTED |
-| production config | 46개 승인값/자격증명 차단 | EXTERNAL_BLOCKED |
-| 외부 staging | core/OAuth/push/recall/merchant/signing 6영역 | EXTERNAL_BLOCKED |
+| 전체 Release Gate | isolated catalog audit 포함 16/16 | LOCAL PASS |
+| Android Pixel Lock | prior source 설치 APK adb 캡처 9/9, 최대 0.0474 | LAST PASS / PRIOR SOURCE |
+| EXP-003 수정 회귀 | focused 4 files / 34 tests | LOCAL PASS |
+| 일반 EXP-003 설치 앱 흐름 | 생성 → 날짜·금액 수정 → 기록·홈 합계 반영 | INTERNAL PASS |
+| onboarding keyboard 수정 | source-bound standalone, adb 전체 content/성별/CTA 노출 | INTERNAL PASS |
+| GitHub CI | run `30382997599`, step 시작 전 billing 차단 | EXTERNAL BLOCKED |
+| 실사용 analytics | 로컬 0건, 운영 데이터 위치 없음 | NO DATA |
+| production config·배포 | 승인 값·인프라·서명·배포 ID 없음 | EXTERNAL BLOCKED |
 
 ## Android 산출물
 
 - standalone APK: `F:/WooriAI/wooriai-0.0.0-release-standalone.apk`
-- standalone SHA-256: `EF165BC7677C36D3CC9DB987B56E353647F9E9BC756B6C6565CB455AA7879190`
-- Pixel Lock APK: `F:/WooriAI/wooriai-pixel-8244faa73e6480ce5f21251555fa3f36d3e727413df366f2715f950cd67e2135.apk`
-- Pixel APK SHA-256: `8244FAA73E6480CE5F21251555FA3F36D3E727413DF366F2715F950CD67E2135`
-- 두 APK 모두 내부 검증용이며 production identity/signing/store 후보가 아님
+- standalone APK / installed base SHA-256: `6C4ABDE6DA0FD822B5C18D896A7425308275488ABD3A7D54AA3982A851057BBB`
+- source snapshot SHA-256: `D6D6F3D363BC8F00570A2212CD1969B25C7821D4E3143D6B894B44060B4EE1F8`
+- 내부 검증용이며 production identity/signing/store 후보가 아님
 - 최종 APK는 프로젝트 루트에만 둔다. `artifacts`에는 보고서·스크린샷·로그만 둔다.
 
-## 현재 남은 경계
+## 다음 진입점
 
-코드 내부에서 확정 가능한 P0 경로는 완료됐다. 다음 단계에는 승인된 application ID/version/signing, 운영 인프라와 provider 자격증명, 법적 운영자 정보, 독립 catalog 검토자, 물리 Android/iOS 기기가 필요하다.
+EXP-003 진입 시 현재 선택 카테고리 칩을 첫 horizontal viewport에 자동 reveal한다. 외부 입력은 `docs/HUMAN-QUEUE.md`에서 별도로 추적한다.

@@ -14,6 +14,7 @@ export type AnalyticsEventName =
   | "onboarding_completed"
   | "expense_recorded"
   | "expense_synced"
+  | "expense_catalog_search_missed"
   | "item_status_changed"
   | "affiliate_link_clicked";
 

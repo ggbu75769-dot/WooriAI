@@ -268,6 +268,11 @@ describe("UI Pixel Lock source contract", () => {
     expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "scaleY", 1)');
     expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "horizontalOffset", 0)');
     expect(excelPixelStyleSource).toContain('return pixelNumber("IMP-003", "ctaBottomInset", 56)');
+
+    const generatedOverrides = JSON.parse(
+      readFileSync(join(mobileRoot, "src/pixelLock/generated-overrides.json"), "utf8")
+    ) as Record<string, Record<string, number>>;
+    expect(generatedOverrides["IMP-003"]?.ctaBottomInset).toBe(40);
   });
 
   it("uses the more route as the real MOD_V1 profile hub", () => {

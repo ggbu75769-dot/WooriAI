@@ -57,6 +57,35 @@ describe("quick expense draft storage", () => {
     expect(await readQuickExpenseDraft()).toBeNull();
   });
 
+  it("serializes clearing after an already-started write so the draft cannot resurrect", async () => {
+    const { persistStorage, writeQuickExpenseDraft, clearQuickExpenseDraft, readQuickExpenseDraft } = await loadModules();
+    const originalSetItem = persistStorage.setItem.bind(persistStorage);
+    let releaseWrite!: () => void;
+    let markWriteStarted!: () => void;
+    const writeStarted = new Promise<void>((resolve) => { markWriteStarted = resolve; });
+    const writeGate = new Promise<void>((resolve) => { releaseWrite = resolve; });
+    vi.spyOn(persistStorage, "setItem").mockImplementationOnce(async (name, value) => {
+      markWriteStarted();
+      await writeGate;
+      await originalSetItem(name, value);
+    });
+
+    const staleWrite = writeQuickExpenseDraft({
+      itemName: "분유",
+      amountText: "1234",
+      memo: "",
+      categoryId: "c0a7e901-0000-4c02-8c02-c47e900ec002",
+      spentOnIso: "2026-08-03",
+      isGift: false
+    });
+    await writeStarted;
+    const clear = clearQuickExpenseDraft();
+    releaseWrite();
+    await Promise.all([staleWrite, clear]);
+
+    expect(await readQuickExpenseDraft()).toBeNull();
+  });
+
   it("returns null when no draft has ever been written", async () => {
     const { readQuickExpenseDraft } = await loadModules();
 

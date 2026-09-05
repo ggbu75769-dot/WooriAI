@@ -64,6 +64,9 @@ describe("Release 4 design system", () => {
     const stateSource = source("src/design-system/patterns/AsyncState.tsx");
     const uiSource = source("src/ui.tsx");
     expect(stateSource).toContain("export function LoadingState");
+    expect(stateSource).toContain("ActivityIndicator");
+    expect(stateSource).toContain('accessibilityRole="progressbar"');
+    expect(stateSource).toContain("accessibilityState={{ busy: true }}");
     expect(stateSource).toContain("export function EmptyState");
     expect(stateSource).toContain("export function ErrorState");
     expect(stateSource).toContain("export function OfflineState");
@@ -71,5 +74,14 @@ describe("Release 4 design system", () => {
     expect(stateSource).toContain("minHeight: 48");
     expect(uiSource).toContain("height: theme.touchTarget");
     expect(uiSource).not.toMatch(/isError \? "⚠" : "✓"/u);
+  });
+
+  it("keeps startup hydration on a branded, screen-reader-friendly progress surface", () => {
+    const rootLayout = source("app/_layout.tsx");
+    expect(rootLayout).toContain('require("../assets/splash-mark.png")');
+    expect(rootLayout).toContain('accessibilityRole="progressbar"');
+    expect(rootLayout).toContain("accessibilityState={{ busy: true }}");
+    expect(rootLayout).toContain("안전하게 불러오는 중");
+    expect(rootLayout).toContain(">우리아이</Text>");
   });
 });

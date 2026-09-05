@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 30 우리 리본</title><desc id="d">가족의 W 리듬과 아이 비용의 성장선을 하나로 잇는 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FF6B4A"/>
+  <path d="M94 142l74 232c10 31 53 33 66 3l22-54 22 54c13 30 56 28 66-3l74-232" fill="none" stroke="#17324D" stroke-width="66" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M110 126l58 182c10 31 53 33 66 3l22-54" fill="none" stroke="#FFF9F3" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="256" cy="257" r="43" fill="#FFD76A" stroke="#17324D" stroke-width="14"/>
+</svg>

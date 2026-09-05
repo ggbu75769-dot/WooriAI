@@ -19,13 +19,23 @@ pnpm db restore artifacts/db-backups/wooriai-<timestamp>.sql
 
 ## 검증 절차 (릴리즈 전 필수)
 
-1. 테스트 계정·지출·준비 상태 생성 (API 또는 앱에서)
-2. `pnpm db backup` → 파일 경로 기록
-3. `pnpm db reset` (데이터 초기화)
-4. `pnpm db restore <파일>`
-5. API 재시작 후 홈/리포트 합계가 백업 시점과 동일한지 확인
+현재 개발 DB를 초기화하지 않는 자동 드릴을 먼저 실행한다.
 
-실행 결과 증거는 `docs/qa/round4-test-evidence.md`에 기록한다.
+```powershell
+pnpm db:restore-drill
+```
+
+이 명령은 임시 source DB에 현재 migration과 seed를 적용하고, 메모리상의 dump를 별도 임시 target DB에 복원한다. 93개 테이블의 catalog fingerprint와 전체 행수 fingerprint를 비교한 뒤 두 임시 DB를 모두 제거하며 raw backup은 남기지 않는다. 결과는 `artifacts/db-restore-drill/latest.json`에 기록한다.
+
+운영 또는 승인된 staging에서는 별도로 다음 절차를 수행한다.
+
+1. 테스트 계정·지출·준비 상태 생성 (API 또는 앱에서)
+2. `pnpm db backup` → 암호화된 외부 보관 위치와 hash 기록
+3. 운영 DB가 아닌 격리 복원 DB 생성
+4. `pnpm db restore <파일>`을 격리 복원 DB 설정으로 실행
+5. API 재시작 후 홈/리포트 합계와 privacy/outbox 상태가 백업 시점과 동일한지 확인
+
+현재 개발 DB를 직접 `reset`하여 복원 드릴을 수행하지 않는다. 로컬 stale 데이터나 개인 작업을 파괴할 수 있다.
 
 ## 운영 권장 사항
 

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 08 레코드 패스</title><desc id="d">기록한 순간들이 앞으로 이어지는 경로를 표현한 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#F6F8FF"/>
+  <path d="M104 334h92c30 0 42-18 42-44v-68c0-30 18-46 48-46h122" fill="none" stroke="#20345F" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="112" cy="334" r="44" fill="#6E7BEF"/>
+  <circle cx="238" cy="266" r="36" fill="#FF7860"/>
+  <circle cx="400" cy="176" r="48" fill="#FFD35E"/>
+  <path d="M338 112h92v92" fill="none" stroke="#20345F" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

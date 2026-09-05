@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_MONEY_KRW } from "@wooriai/domain";
 import {
   childSchema,
   createExpenseRequestSchema,
@@ -17,6 +18,8 @@ describe("shared contract schemas", () => {
     expect(moneyKrwSchema.parse(49800)).toBe(49800);
     expect(() => moneyKrwSchema.parse(0)).toThrow();
     expect(() => moneyKrwSchema.parse(1.5)).toThrow();
+    expect(moneyKrwSchema.parse(MAX_MONEY_KRW)).toBe(MAX_MONEY_KRW);
+    expect(() => moneyKrwSchema.parse(MAX_MONEY_KRW + 1)).toThrow();
   });
 
   it("validates CreateExpenseRequest shape from OpenAPI", () => {

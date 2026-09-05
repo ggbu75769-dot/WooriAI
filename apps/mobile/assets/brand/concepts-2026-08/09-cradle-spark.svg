@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 09 크래들 스파크</title><desc id="d">아이의 잠든 순간과 빛나는 성장을 절제된 곡선으로 표현한 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#FFF9F1"/>
+  <path d="M116 184c0 128 72 220 190 220 70 0 122-26 158-72-58 30-119 29-171-3-64-39-93-104-84-187-29 6-59 20-93 42Z" fill="#18344C"/>
+  <circle cx="276" cy="280" r="46" fill="#FF8061"/>
+  <path d="M366 96v88M322 140h88" stroke="#FFD15D" stroke-width="28" stroke-linecap="round"/>
+  <path d="m337 111 58 58M395 111l-58 58" stroke="#FFD15D" stroke-width="20" stroke-linecap="round"/>
+</svg>

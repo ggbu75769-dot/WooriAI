@@ -157,6 +157,24 @@ export type Expense = {
   version: number;
 };
 
+export type ExpenseListOptions = {
+  categoryId?: string | null;
+  cursor?: string | null;
+  limit?: number;
+  search?: string;
+};
+
+export type ExpenseListResponse = {
+  expenses: Expense[];
+  filteredExpenseCount: number;
+  filteredRecordCount: number;
+  filteredTotalAmountKrw: number;
+  nextCursor: string | null;
+  totalAmountKrw: number;
+  totalExpenseCount: number;
+  totalRecordCount: number;
+};
+
 export class ApiClientError extends Error {
   readonly status: number;
   readonly code: string;
@@ -408,7 +426,7 @@ export type CatalogItemSummary = {
     | "retired";
   primaryCategory: CatalogNodeSummary | null;
   plan: CatalogItemPlanSummary | null;
-  searchMatch?: { score: number; reason: "canonical_exact" | "canonical_prefix" | "alias_exact" | "alias_contains" | "initials" | "typo" | "category"; matchedText: string };
+  searchMatch?: { score: number; reason: "canonical_exact" | "canonical_prefix" | "alias_exact" | "alias_contains" | "initials" | "typo" | "category" | "code" | "description" | "timing"; matchedText: string };
 };
 
 export type CatalogProductOffer = {
@@ -686,6 +704,16 @@ export type ConfirmImportResponse = {
 };
 
 export type PrivacySettings = {
+  consents: Array<{
+    type: string;
+    version: string;
+    contentHash: string;
+    required: boolean;
+    title: string;
+    accepted: boolean;
+    acceptedAt: string | null;
+    requiresReconfirmation: boolean;
+  }>;
   flows: Array<{
     id: "account_delete" | "household_leave" | "child_profile_delete";
     title: string;
@@ -713,17 +741,36 @@ export type MyHousehold = {
   role: HouseholdMember["role"];
 };
 
-export type AccountDeletionRequest = {
+export type PrivacyRequestState = "requested" | "access_revoked" | "processor_delete_queued" | "purging" | "retained_exception" | "completed" | "failed" | "cancelled";
+
+type PrivacyRequestBase = {
   id: string;
-  requestType: "deletion";
-  state: "requested" | "access_revoked" | "processor_delete_queued" | "purging" | "retained_exception" | "completed" | "failed" | "cancelled";
+  state: PrivacyRequestState;
   requestedAt: string;
   dueAt: string | null;
   completedAt: string | null;
   failureCode: string | null;
   exportExpiresAt: string | null;
+};
+
+export type AccountDeletionRequest = PrivacyRequestBase & {
+  requestType: "deletion";
   statusToken?: string;
   details?: { householdId: string; accessRevoked: false };
+};
+
+export type PrivacyExportRequest = PrivacyRequestBase & {
+  requestType: "export";
+};
+
+export type PrivacyExportPayload = {
+  schemaVersion: number;
+  generatedAt: string;
+  requestId: string;
+  exportExpiresAt: string;
+  scope: string;
+  exclusions: string[];
+  data: Record<string, unknown>;
 };
 
 export type OnboardingNextStep = "consents" | "child-profile" | "prepared-items" | "budget" | "home";
@@ -1289,6 +1336,11 @@ export function deactivatePaymentMethod(token: string, paymentMethodId: string) 
   return requestJson<UserPaymentMethod>(`/me/payment-methods/${paymentMethodId}`, { method: "DELETE", token });
 }
 
+export function reactivatePaymentMethod(token: string, paymentMethodId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.reactivatePaymentMethod(paymentMethodId));
+  return requestJson<UserPaymentMethod>(`/me/payment-methods/${paymentMethodId}/active`, { method: "PUT", token });
+}
+
 export function setDefaultPaymentMethod(token: string, paymentMethodId: string) {
   if (isLocalToken(token)) return local(() => localBackend.setDefaultPaymentMethod(paymentMethodId));
   return requestJson<UserPaymentMethod>(`/me/payment-methods/${paymentMethodId}/default`, { method: "PUT", token });
@@ -1321,11 +1373,16 @@ export function createExpense(
   });
 }
 
-export function listExpenses(token: string, childId: string, yearMonth?: string) {
+export function listExpenses(token: string, childId: string, yearMonth?: string, options: ExpenseListOptions = {}): Promise<ExpenseListResponse> {
   const effectiveYearMonth = yearMonth ?? currentYearMonth();
-  if (isLocalToken(token)) return local(() => localBackend.listExpenses(childId, effectiveYearMonth));
-  return requestJson<{ expenses: Expense[]; totalAmountKrw: number }>(
-    `/children/${childId}/expenses?yearMonth=${effectiveYearMonth}`,
+  const effectiveOptions = { ...options, limit: options.limit ?? 50 };
+  if (isLocalToken(token)) return local(() => localBackend.listExpenses(childId, effectiveYearMonth, effectiveOptions));
+  const params = new URLSearchParams({ yearMonth: effectiveYearMonth, limit: String(effectiveOptions.limit) });
+  if (effectiveOptions.cursor) params.set("cursor", effectiveOptions.cursor);
+  if (effectiveOptions.categoryId) params.set("categoryId", effectiveOptions.categoryId);
+  if (effectiveOptions.search?.trim()) params.set("search", effectiveOptions.search.trim());
+  return requestJson<ExpenseListResponse>(
+    `/children/${childId}/expenses?${params.toString()}`,
     { token }
   );
 }
@@ -2190,6 +2247,25 @@ export function getCurrentAccountDeletion(token: string) {
   if (isLocalToken(token)) return local(() => ({ deletion: localBackend.getCurrentAccountDeletion() }));
   return requestJson<unknown>("/privacy/account-deletion/current", { token })
     .then((response) => currentAccountDeletionResponseSchema.parse(response));
+}
+
+export function requestDataExport(token: string) {
+  if (isLocalToken(token)) return local(() => localBackend.requestDataExport());
+  return requestJson<PrivacyExportRequest>("/privacy/data-export", {
+    method: "POST",
+    token,
+    body: { confirmationText: "EXPORT DATA" }
+  });
+}
+
+export function getPrivacyRequest(token: string, requestId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getPrivacyRequest(requestId));
+  return requestJson<PrivacyExportRequest>(`/privacy/requests/${requestId}`, { token });
+}
+
+export function getPrivacyExportPayload(token: string, requestId: string) {
+  if (isLocalToken(token)) return local(() => localBackend.getPrivacyExportPayload(requestId));
+  return requestJson<PrivacyExportPayload>(`/privacy/requests/${requestId}/download`, { token });
 }
 
 export function getPreparationCalendar(token: string, householdId: string, month: string, childId?: string) {

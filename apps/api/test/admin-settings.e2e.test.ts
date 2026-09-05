@@ -263,7 +263,7 @@ describe("Admin CMS and settings APIs", () => {
           confirmationText: "DELETE CHILD",
           requiresSecondStep: true
         });
-        expect(body.impact).toEqual(expect.arrayContaining([expect.stringContaining("child profile")]));
+        expect(body.impact).toEqual(expect.arrayContaining([expect.stringContaining("아이 프로필")]));
       });
 
     await request(app.getHttpServer())
@@ -310,6 +310,7 @@ describe("Admin CMS and settings APIs", () => {
       .expect(({ body }) => {
         expect(body.flowId).toBe("household_leave");
         expect(body.confirmationText).toBe("LEAVE HOUSEHOLD");
+        expect(body.impact).toEqual(expect.arrayContaining([expect.stringContaining("공유 데이터")]));
       });
 
     await request(app.getHttpServer())

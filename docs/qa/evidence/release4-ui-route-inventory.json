@@ -1,23 +1,23 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-23T15:18:44.607Z",
-  "sourceHead": "46c5d55584d8b839600d0198ac7e28a242cae69f",
+  "generatedAt": "2026-07-29T15:43:06.839Z",
+  "sourceHead": "aae301b6286b57ea505fb3cb55ef182c2bade195",
   "counts": {
     "routes": 51,
     "designSystemRoutes": 51,
-    "directDesignSystemRoutes": 26,
-    "legacyUiRoutes": 24,
-    "fullyDirectMigratedRoutes": 23,
+    "directDesignSystemRoutes": 28,
+    "legacyUiRoutes": 22,
+    "fullyDirectMigratedRoutes": 25,
     "screenScaffoldRoutes": 51,
     "designSystemPercentage": 100,
-    "routesWithLoading": 22,
+    "routesWithLoading": 23,
     "routesWithEmpty": 22,
     "routesWithError": 27,
     "routesWithOffline": 9,
     "rawColorLiterals": 0,
     "unicodeIconLiterals": 0,
-    "hardcodedSpacingLiterals": 238,
-    "possibleSub48Targets": 41
+    "hardcodedSpacingLiterals": 259,
+    "possibleSub48Targets": 43
   },
   "migration": {
     "sharedFacadeCoverageComplete": true,
@@ -47,17 +47,14 @@
       "owner": "auth",
       "scaffold": "AppScreen",
       "designSystem": true,
-      "directDesignSystem": false,
-      "directDesignSystemComponents": [],
-      "legacyUi": true,
-      "legacyUiComponents": [
+      "directDesignSystem": true,
+      "directDesignSystemComponents": [
         "AppIcon",
         "AppScreen"
       ],
-      "legacyFacadeComponents": [
-        "AppIcon",
-        "AppScreen"
-      ],
+      "legacyUi": false,
+      "legacyUiComponents": [],
+      "legacyFacadeComponents": [],
       "productionCallPathFiles": [
         "apps/mobile/app/(auth)/login.tsx"
       ],
@@ -510,7 +507,7 @@
       "rawColorLiterals": 0,
       "transformDeclarations": 0,
       "unicodeIconLiterals": 0,
-      "hardcodedSpacingLiterals": 20,
+      "hardcodedSpacingLiterals": 19,
       "possibleSub48Targets": 2,
       "harnessOnly": false
     },
@@ -524,13 +521,13 @@
       "directDesignSystemComponents": [
         "AppScreen",
         "AppIcon",
-        "BottomSheet",
         "EmptyStateCard",
         "PreparationItemCard",
         "TopAppBar",
         "semanticColors",
         "spacing",
         "type AppIconName",
+        "BottomSheet",
         "ItemStatusControl",
         "PageHeader",
         "PrimaryButton",
@@ -549,7 +546,8 @@
         "apps/mobile/src/preparation/item-visuals.ts",
         "apps/mobile/src/preparation/preparation-grouping.ts",
         "apps/mobile/src/preparation/Release4PreparationScreen.tsx",
-        "apps/mobile/src/preparation/PreparationOverview.tsx"
+        "apps/mobile/src/preparation/PreparationOverview.tsx",
+        "apps/mobile/src/preparation/safety-query-scope.ts"
       ],
       "header": false,
       "loading": false,
@@ -648,7 +646,7 @@
       "empty": true,
       "error": true,
       "offline": true,
-      "permissionDenied": false,
+      "permissionDenied": true,
       "safeArea": "shared-scaffold",
       "horizontalPadding": "responsive-shared-scaffold",
       "maxWidth": "shared-content-max",
@@ -659,7 +657,7 @@
       "rawColorLiterals": 0,
       "transformDeclarations": 0,
       "unicodeIconLiterals": 0,
-      "hardcodedSpacingLiterals": 7,
+      "hardcodedSpacingLiterals": 8,
       "possibleSub48Targets": 0,
       "harnessOnly": false
     },
@@ -704,14 +702,14 @@
       "horizontalPadding": "responsive-shared-scaffold",
       "maxWidth": "shared-content-max",
       "keyboardAvoidance": true,
-      "largeFontContract": "shared-font-scaling-default",
+      "largeFontContract": "route-constraint-present",
       "screenReaderContract": true,
-      "accessibilityLabels": 9,
+      "accessibilityLabels": 11,
       "rawColorLiterals": 0,
       "transformDeclarations": 2,
       "unicodeIconLiterals": 0,
-      "hardcodedSpacingLiterals": 26,
-      "possibleSub48Targets": 6,
+      "hardcodedSpacingLiterals": 31,
+      "possibleSub48Targets": 8,
       "harnessOnly": false
     },
     {
@@ -993,14 +991,13 @@
       "route": "/expenses/new",
       "path": "apps/mobile/app/expenses/new.tsx",
       "owner": "expenses",
-      "scaffold": "AppScreen",
+      "scaffold": "ScreenScaffold",
       "designSystem": true,
       "directDesignSystem": false,
       "directDesignSystemComponents": [],
       "legacyUi": true,
       "legacyUiComponents": [
         "AppIcon",
-        "AppScreen",
         "BottomSheetFrame",
         "CategoryChip",
         "PrimaryButton",
@@ -1010,7 +1007,6 @@
       ],
       "legacyFacadeComponents": [
         "AppIcon",
-        "AppScreen",
         "BottomSheetFrame",
         "CategoryChip",
         "PrimaryButton",
@@ -1021,8 +1017,8 @@
       "productionCallPathFiles": [
         "apps/mobile/app/expenses/new.tsx"
       ],
-      "header": false,
-      "loading": false,
+      "header": true,
+      "loading": true,
       "empty": false,
       "error": true,
       "offline": true,
@@ -1033,11 +1029,11 @@
       "keyboardAvoidance": true,
       "largeFontContract": "route-constraint-present",
       "screenReaderContract": true,
-      "accessibilityLabels": 7,
+      "accessibilityLabels": 17,
       "rawColorLiterals": 0,
       "transformDeclarations": 1,
       "unicodeIconLiterals": 0,
-      "hardcodedSpacingLiterals": 26,
+      "hardcodedSpacingLiterals": 44,
       "possibleSub48Targets": 6,
       "harnessOnly": false
     },
@@ -1059,7 +1055,8 @@
         "PrimaryButton",
         "ScreenHeader",
         "SecondaryButton",
-        "Toast"
+        "Toast",
+        "type AppIconName"
       ],
       "legacyFacadeComponents": [
         "AppIcon",
@@ -1070,7 +1067,8 @@
         "PrimaryButton",
         "ScreenHeader",
         "SecondaryButton",
-        "Toast"
+        "Toast",
+        "type AppIconName"
       ],
       "productionCallPathFiles": [
         "apps/mobile/app/expenses/[expenseId].tsx"
@@ -1087,11 +1085,11 @@
       "keyboardAvoidance": true,
       "largeFontContract": "shared-font-scaling-default",
       "screenReaderContract": true,
-      "accessibilityLabels": 5,
+      "accessibilityLabels": 8,
       "rawColorLiterals": 0,
       "transformDeclarations": 0,
       "unicodeIconLiterals": 0,
-      "hardcodedSpacingLiterals": 24,
+      "hardcodedSpacingLiterals": 23,
       "possibleSub48Targets": 2,
       "harnessOnly": false
     },
@@ -1176,7 +1174,7 @@
       "keyboardAvoidance": true,
       "largeFontContract": "shared-font-scaling-default",
       "screenReaderContract": true,
-      "accessibilityLabels": 6,
+      "accessibilityLabels": 7,
       "rawColorLiterals": 0,
       "transformDeclarations": 1,
       "unicodeIconLiterals": 0,
@@ -1423,14 +1421,10 @@
       "directDesignSystemComponents": [],
       "legacyUi": true,
       "legacyUiComponents": [
-        "AppScreen",
-        "PrimaryButton",
-        "TextButton"
+        "AppScreen"
       ],
       "legacyFacadeComponents": [
-        "AppScreen",
-        "PrimaryButton",
-        "TextButton"
+        "AppScreen"
       ],
       "productionCallPathFiles": [
         "apps/mobile/app/launch-animation.tsx"
@@ -1451,7 +1445,7 @@
       "rawColorLiterals": 0,
       "transformDeclarations": 2,
       "unicodeIconLiterals": 0,
-      "hardcodedSpacingLiterals": 2,
+      "hardcodedSpacingLiterals": 1,
       "possibleSub48Targets": 1,
       "harnessOnly": false
     },
@@ -2158,10 +2152,8 @@
       "owner": "receipts",
       "scaffold": "AppScreen",
       "designSystem": true,
-      "directDesignSystem": false,
-      "directDesignSystemComponents": [],
-      "legacyUi": true,
-      "legacyUiComponents": [
+      "directDesignSystem": true,
+      "directDesignSystemComponents": [
         "AppScreen",
         "Card",
         "CategoryChip",
@@ -2170,15 +2162,9 @@
         "ScreenHeader",
         "SecondaryButton"
       ],
-      "legacyFacadeComponents": [
-        "AppScreen",
-        "Card",
-        "CategoryChip",
-        "EmptyStateCard",
-        "PrimaryButton",
-        "ScreenHeader",
-        "SecondaryButton"
-      ],
+      "legacyUi": false,
+      "legacyUiComponents": [],
+      "legacyFacadeComponents": [],
       "productionCallPathFiles": [
         "apps/mobile/app/receipts/new.tsx"
       ],

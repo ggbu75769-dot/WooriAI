@@ -37,4 +37,12 @@ describe("Batch 08 mobile family invite contract", () => {
       expect(existsSync(filePath) ? readFileSync(filePath, "utf8") : "").toContain(expectedText);
     }
   });
+
+  it("exposes each invite role as a labelled radio with its selected state", () => {
+    const invite = readFileSync(join(mobileRoot, "app/family/invite.tsx"), "utf8");
+
+    expect(invite).toContain('accessibilityRole="radio"');
+    expect(invite).toContain("accessibilityState={{ checked: role === option.role, disabled: invite.isPending }}");
+    expect(invite).toContain('accessibilityLabel={`${option.label}. ${option.description}`}');
+  });
 });

@@ -1,0 +1,27 @@
+# WooriAI Autopilot Decisions
+
+- 2026-07-30 01:28 KST / 과거 날짜형 baseline 대신 `docs/state-of-truth.md`를 현재 좌표의 우선 문서로 둔다 / 오래된 HEAD·APK 주장을 자동으로 현재 사실처럼 읽는 위험 제거 / 과거 보고서는 역사 증거로 보존.
+- 2026-07-30 01:28 KST / GitHub run `30382997599`를 코드 실패가 아닌 CI 인프라 차단으로 분류한다 / job step 0개와 billing annotation 1건 / 로컬 gate 상태와 CI 상태를 분리 보고.
+- 2026-07-30 01:28 KST / analytics 0건에서 완주율·재사용률을 계산하지 않는다 / 운영 분모가 없고 로컬 DB도 0행 / 수치 발명 없이 계측 검증을 운영 백로그에 유지.
+- 2026-07-30 01:28 KST / EXP-003 UI 개선을 새 개념 없이 기존 공유 컨트롤 심화로 해결한다 / 신규 지출 흐름과의 불일치가 원인 / 새 화면·새 의존성 없이 단일 revert 가능.
+- 2026-07-30 01:28 KST / Pixel Lock 9/9를 일반 EXP-003 runtime 증거로 대체하지 않는다 / P0 fixture 화면 집합에 EXP-003이 없음 / 다음 T2 walkthrough가 별도 증거를 만든다.
+- 2026-07-30 02:01 KST / Android DateField를 열기 전에 소프트 키보드를 닫는다 / 직접 walkthrough에서 이름 입력 키보드가 성별·CTA를 가림 / 모든 onboarding 날짜 필드에 같은 복구 적용.
+- 2026-07-30 02:01 KST / 현재 standalone 과업 증거와 prior-source Pixel 9/9를 분리한다 / keyboard 변경 후 standalone은 source-bound 재검증했지만 Pixel 전체는 재실행하지 않음 / exact-source가 아닌 visual 증거를 현재 완료로 오인하지 않음.
+- 2026-07-30 02:38 KST / EXP-003이 저장 카테고리 위치를 측정해 선택 칩을 자동 reveal한다 / 직접 사용에서 현재 분류가 viewport 밖에 숨었음 / 새 화면·의존성 없이 기존 가로 칩 과업을 복구.
+- 2026-07-30 02:38 KST / 중복 Release Gate 실패를 제품 빌드 실패와 분리하되 재발 가능한 구조 결함으로 백로그화한다 / 첫 게이트 하위 프로세스와 두 번째 gate가 `.next`를 경합했고 단일 재실행은 16/16 PASS / 다음 T4에서 repo-scoped 상호배제를 굳힘.
+- 2026-07-30 02:57 KST / full/dry-run Release Gate는 저장소당 하나만 실행하고 config-only는 별도 증거라 lock 밖에 둔다 / `.next`·최신 evidence의 단일 작성자가 필요하지만 config 검증은 공유 빌드 산출물을 쓰지 않음 / 중복 full gate는 PID·시각을 포함한 exit 2로 조용하지 않게 차단.
+- 2026-07-30 02:57 KST / lock 해제는 owner token 일치 시에만 허용하고 죽은 PID·3시간 초과 lock은 복구한다 / 강제 종료 잔여와 PID 재사용 모두 고려 / 영구 교착 없이 후속 실행의 lock을 이전 실행이 삭제하지 못함.
+- 2026-07-30 03:13 KST / prior-source Pixel PASS를 current 완료로 쓰지 않고 clean current source APK를 다시 빌드한다 / gate·docs 변경도 snapshot을 바꿔 기존 Pixel artifact가 exact-source가 아니게 됨 / source snapshot·built·installed·9 captures를 한 좌표로 복원.
+- 2026-07-30 03:13 KST / 다음 Pixel 승격 목표를 overall `<= 0.0480`으로 높인다 / current 9화면 최고 0.047382로 모두 여유 안에 있음 / 두 번째 독립 current-source 실행 재현 후 필수 code threshold 상향 여부를 결정.
+- 2026-07-30 07:49 KST / React Native `Linking` 메서드는 래퍼로 호출해 원래 수신자를 보존한다 / 복사된 `canOpenURL`이 내부 `_validateURL`에서 TypeError를 내 Android 구매 CTA를 막음 / 바인딩 회귀와 설치 앱 Chrome 전환으로 굳힘.
+- 2026-07-30 07:49 KST / 안전한 HTTPS는 `canOpenURL`을 참고값으로만 쓰고 실제 open 결과를 최종 판정한다 / Android package visibility·브라우저 초기화가 false-negative를 낼 수 있음 / native open 실패 시 기존 WebBrowser로 복구하고 LOCKED는 성공으로 세지 않음.
+- 2026-07-30 07:49 KST / standalone 비제휴 판매처와 ITEM-002 affiliate fixture의 증거 역할을 분리한다 / 직접 후속 과업과 제휴 고지 시각 증거를 한 fixture가 동시에 제공하지 않음 / 런타임 후속과 고지 인접성의 검증 범위를 과장하지 않음.
+- 2026-07-30 09:21 KST / IMP-003 CTA inset 40은 generated Pixel override로만 승격하고 일반 import fallback 56은 유지한다 / 목표·footer가 함께 개선됐지만 일반 파일 가져오기 UI를 바꿀 근거는 없음 / source contract가 두 값을 동시에 고정.
+- 2026-07-30 09:21 KST / capture-only 경로도 full gate와 같은 readiness·settle·stable screencap·fresh evidence 순서를 사용한다 / 전환 중 흰 Surface는 시각 후보가 아니라 JS delivery/timing 실패 / blank capture를 점수 PASS로 승격하지 않음.
+- 2026-07-30 09:21 KST / 캐시 XML·logcat은 파일이 존재하는지만 보지 않고 검증할 screenshot 이후 생성됐을 때만 읽는다 / 과거 sentinel이 새 흰 캡처를 유효하게 만들 수 있었음 / timestamp 경계·정적 계약·실제 SET capture로 굳힘.
+- 2026-07-30 10:05 KST / `pixel:tune` 후보는 style fallback과 generated override를 합친 effective baseline에서 만든다 / 고정 key·절대 `-8..8`은 실제 UI 계약과 분리돼 위험한 후보를 만들었음 / 후보 의미·단위·baseline 출처를 기계 판독 가능하게 고정.
+- 2026-07-30 10:05 KST / fallback 0이 component 기본 높이를 뜻하는 height key는 effective baseline이 선언될 때까지 자동 후보에서 제외한다 / 2~8dp 같은 후보는 유효한 미세 조정이 아님 / 허구 최적화보다 명시적 제외를 선택.
+- 2026-07-30 10:05 KST / high audit PASS와 취약점 0건을 구분한다 / 현재 `tar 7.5.19` moderate advisory 1건이 실측됨 / 다음 T1의 로컬 최상단으로 승격.
+- 2026-07-30 10:29 KST / Expo SDK 자체를 넓게 올리지 않고 workspace `tar` override만 patched `7.5.21`로 이동한다 / advisory fix는 Node 18+ 호환이고 현재 Expo SDK 계약은 이미 green / dependency surface와 revert 범위를 최소화.
+- 2026-07-30 10:29 KST / patched floor를 lockfile 문자열 회귀로 고정한다 / audit feed 재측정만으로는 다음 lockfile 변경이 구버전을 다시 들이는 것을 즉시 설명하기 어려움 / 7.5.19·7.5.20 재등장을 CI에서 차단.
+- 2026-07-30 10:29 KST / audit 0건은 현재 lockfile 시점 증거로만 기록한다 / advisory 데이터와 dependency graph는 변할 수 있음 / 이후 dependency 변경마다 live audit를 다시 실행.

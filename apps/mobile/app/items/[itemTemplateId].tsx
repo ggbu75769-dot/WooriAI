@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { Image, Linking, Pressable, Share, Text, View } from "react-native";
+import { Image, Linking, Pressable, Share, View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { clickProductLink, getItemDetail, fixtureSessionToken, updateItemStatus, type ItemDetail, type ProductLink } from "../../src/api/client";
 import { pixelEvidenceId } from "../../src/api/fixture-runtime";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { completeOAuthLogin } from "../../src/auth/complete-oauth-login";
 import { resumeKakaoLoginFromUrl } from "../../src/auth/kakao-login";
 import { AppScreen } from "../../src/ui";

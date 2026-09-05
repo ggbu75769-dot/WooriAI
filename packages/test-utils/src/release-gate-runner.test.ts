@@ -1,6 +1,9 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { acquireReleaseGateLock, ReleaseGateAlreadyRunningError } from "../../../scripts/lib/release-gate-lock";
 
 describe("release gate package-manager runner", () => {
   it("reuses npm_execpath only when the active package-manager is pnpm", () => {
@@ -31,6 +34,68 @@ describe("release gate package-manager runner", () => {
     expect(source).toContain("writeFileWithRetry(join(process.cwd(), markdownPath)");
     expect(source).toContain("writeFileWithRetry(\n    join(process.cwd(), jsonPath)");
     expect(source).not.toContain("writeFileSync(join(process.cwd(), markdownPath)");
+  });
+
+  it("blocks a concurrent full gate and releases only the lock it owns", () => {
+    const releaseGateSource = readFileSync(resolve(__dirname, "../../../scripts/release-gate.ts"), "utf8");
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "wooriai-release-gate-lock-"));
+    const lockPath = join(temporaryRoot, "release-gate.lock");
+
+    try {
+      expect(releaseGateSource).toContain("releaseGateLock = acquireReleaseGateLock(process.env.WOORIAI_RELEASE_GATE_LOCK_PATH)");
+      expect(releaseGateSource).toContain("error instanceof ReleaseGateAlreadyRunningError");
+      expect(releaseGateSource).toContain("releaseGateLock?.release()");
+      const first = acquireReleaseGateLock(lockPath);
+      const root = resolve(__dirname, "../../..");
+      const blocked = spawnSync(
+        process.execPath,
+        [
+          resolve(root, "node_modules/tsx/dist/cli.mjs"),
+          resolve(root, "scripts/release-gate.ts"),
+          "--dry-run"
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            WOORIAI_RELEASE_GATE_LOCK_PATH: lockPath
+          }
+        }
+      );
+      expect(blocked.status).toBe(2);
+      expect(blocked.stderr).toContain("RELEASE_GATE_ALREADY_RUNNING");
+      expect(blocked.stderr).toContain(`pid ${process.pid}`);
+
+      writeFileSync(lockPath, JSON.stringify({
+        ...first.owner,
+        token: "successor-token"
+      }));
+      first.release();
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers an abandoned release-gate lock whose process is no longer running", () => {
+    const temporaryRoot = mkdtempSync(join(tmpdir(), "wooriai-release-gate-stale-"));
+    const lockPath = join(temporaryRoot, "release-gate.lock");
+
+    try {
+      writeFileSync(lockPath, JSON.stringify({
+        pid: 2_147_483_647,
+        startedAt: "2000-01-01T00:00:00.000Z",
+        cwd: temporaryRoot,
+        token: "abandoned-token"
+      }));
+      const current = acquireReleaseGateLock(lockPath);
+      expect(current.owner.pid).toBe(process.pid);
+      current.release();
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps portable PostgreSQL from holding the captured release-gate pipes open", () => {
@@ -109,12 +174,47 @@ describe("release gate package-manager runner", () => {
     const workspace = readFileSync(resolve(__dirname, "../../../pnpm-workspace.yaml"), "utf8");
     const lockfile = readFileSync(resolve(__dirname, "../../../pnpm-lock.yaml"), "utf8");
 
-    expect(workspace).toContain("postcss: 8.5.18");
-    expect(lockfile).toContain("postcss@8.5.18:");
-    expect(workspace).toContain("brace-expansion: 5.0.8");
-    expect(lockfile).toContain("brace-expansion@5.0.8:");
+    expect(workspace).toContain("postcss: 8.5.23");
+    expect(lockfile).toContain("postcss@8.5.23:");
+    expect(workspace).toContain("brace-expansion: 5.0.9");
+    expect(lockfile).toContain("brace-expansion@5.0.9:");
+    expect(workspace).toContain("fast-uri: 3.1.5");
+    expect(workspace).toContain("'js-yaml@3': 3.15.1");
+    expect(workspace).toContain("'js-yaml@4': 4.3.1");
+    expect(workspace).toContain("nanoid: 3.3.17");
+    expect(workspace).toContain("undici: 6.28.0");
     expect(lockfile).not.toContain("postcss@8.5.10:");
     expect(lockfile).not.toContain("postcss@8.5.11:");
+  });
+
+  it("backports the unpublished image-size infinite-loop fixes and audits their PoCs", () => {
+    const rootPackage = JSON.parse(
+      readFileSync(resolve(__dirname, "../../../package.json"), "utf8")
+    ) as { scripts?: Record<string, string> };
+    const workspace = readFileSync(resolve(__dirname, "../../../pnpm-workspace.yaml"), "utf8");
+    const patch = readFileSync(resolve(__dirname, "../../../patches/image-size@1.2.1.patch"), "utf8");
+    const auditScript = readFileSync(
+      resolve(__dirname, "../../../scripts/audit-production-dependencies.ts"),
+      "utf8"
+    );
+
+    expect(rootPackage.scripts?.["security:audit"]).toBe("tsx scripts/audit-production-dependencies.ts");
+    expect(workspace).toContain("image-size@1.2.1: patches/image-size@1.2.1.patch");
+    expect(patch).toContain("boxSize < 8 || input.length - offset < boxSize");
+    expect(patch).toContain("assertValidEntryLength(imageHeader[1])");
+    expect(auditScript).toContain("GHSA-5p2g-fcmc-qvqq");
+    expect(auditScript).toContain("GHSA-w3rx-r6r6-pgpr");
+    expect(auditScript).toContain("timeout: 1500");
+  });
+
+  it("resolves Expo archive handling above the patched node-tar security floor", () => {
+    const workspace = readFileSync(resolve(__dirname, "../../../pnpm-workspace.yaml"), "utf8");
+    const lockfile = readFileSync(resolve(__dirname, "../../../pnpm-lock.yaml"), "utf8");
+
+    expect(workspace).toContain("tar: 7.5.21");
+    expect(lockfile).toContain("tar@7.5.21:");
+    expect(lockfile).not.toContain("tar@7.5.19:");
+    expect(lockfile).not.toContain("tar@7.5.20:");
   });
 
   it("keeps the Admin runtime above the patched Next.js security floor", () => {

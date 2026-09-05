@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 13 기록에서 준비로</title><desc id="d">지출 기록이 다음 준비 추천으로 이어지는 흐름</desc>
+  <rect width="512" height="512" rx="112" fill="#F7FBFA"/>
+  <path d="M104 126h142v260H104V126Z" fill="#173D48"/>
+  <path d="M132 192h86M132 252h64" stroke="#F7FBFA" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="176" cy="324" r="25" fill="#FFD261"/>
+  <path d="M250 256h84" stroke="#FF7658" stroke-width="38" stroke-linecap="round"/>
+  <path d="M312 208l54 48-54 48" fill="none" stroke="#FF7658" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="342" y="178" width="74" height="156" rx="30" fill="#6DC5AE"/>
+</svg>

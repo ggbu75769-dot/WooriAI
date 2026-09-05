@@ -8,7 +8,7 @@
 export const OFFLINE_SAVED_MESSAGE = "기기에 저장했어요. 연결되면 자동으로 반영할게요.";
 
 /** Shown only once the server has actually accepted the write -- never shown pre-emptively. */
-export const SERVER_CONFIRMED_MESSAGE = "기록했어요. 이번 달 우리 아이 비용에 더해둘게요.";
+export const SERVER_CONFIRMED_MESSAGE = "기록 변경을 서버에 반영했어요.";
 
 /** Conflict banner headline (D-10 default). */
 export const CONFLICT_BANNER_MESSAGE = "다른 기기에서 이 기록이 바뀌었어요.";

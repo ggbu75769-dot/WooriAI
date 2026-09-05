@@ -2,7 +2,8 @@ import { useMutation } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
 import * as DocumentPicker from "expo-document-picker";
 import { Redirect, router } from "expo-router";
-import { Text, TextInput, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../../src/design-system/components/KoreanText";
 import { getSeoulToday } from "@wooriai/domain";
 import { confirmReceiptDraft, createReceiptDraft, fixtureSessionToken } from "../../src/api/client";
 import { categoryCatalog } from "../../src/categories";
@@ -27,7 +28,8 @@ import {
   useSelectedChildStore
 } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { AppScreen, Card, CategoryChip, EmptyStateCard, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/ui";
+import { AppScreen, Card, CategoryChip, DateField, EmptyStateCard, FormField, PrimaryButton, ScreenHeader, SecondaryButton } from "../../src/design-system";
+import { EXPENSE_AMOUNT_MAX_DIGITS, formatExpenseAmountInput, sanitizeExpenseAmountText, validateExpenseForm } from "../../src/expenses/form-contract";
 import { theme } from "../../src/theme";
 import { useEffect, useState } from "react";
 
@@ -41,6 +43,8 @@ function isReceiptOperationCancellation(error: unknown): boolean {
     (error instanceof Error && error.name === "AbortError")
   );
 }
+
+class ReceiptFileSizeError extends Error {}
 
 export default function ReceiptDraftScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
@@ -184,7 +188,7 @@ export default function ReceiptDraftScreen() {
       if (result.canceled || !result.assets[0]) return null;
       const asset = result.assets[0];
       const size = asset.size ?? 0;
-      if (!size || size > 15 * 1024 * 1024) throw new Error("영수증 파일은 15MB 이하만 선택할 수 있어요.");
+      if (!size || size > 15 * 1024 * 1024) throw new ReceiptFileSizeError();
       const bytes = await (await fetch(asset.uri, { signal: operation.signal })).arrayBuffer();
       operation.assertActive();
       const contentHash = hex(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new Uint8Array(bytes)));
@@ -224,7 +228,7 @@ export default function ReceiptDraftScreen() {
     upload.mutate(result.draft);
   }, onError: (error) => {
     if (isReceiptOperationCancellation(error)) return;
-    setMessage(error instanceof Error ? error.message : "파일을 확인하지 못했어요.");
+    setMessage(error instanceof ReceiptFileSizeError ? "영수증 파일은 15MB 이하만 선택할 수 있어요." : "파일을 확인하지 못했어요.");
   } });
   const confirm = useMutation({
     mutationFn: async () => {
@@ -266,7 +270,7 @@ export default function ReceiptDraftScreen() {
       setDraft(null);
       await clearReceiptOfflineDraft(owner.scopeKey);
       if (!receiptOperationOwnerIsActive(owner)) return;
-      router.replace(`/expenses/${result.expenseId}`);
+      router.replace({ pathname: "/expenses/[expenseId]", params: { expenseId: result.expenseId } });
     },
     onError: (error) => {
       if (isReceiptOperationCancellation(error)) return;
@@ -274,27 +278,45 @@ export default function ReceiptDraftScreen() {
     }
   });
   if (!token || !childId || (!isTestSession && !scopeKey)) return <Redirect href="/onboarding/child-status" />;
-  if (isTestSession) return <AppScreen><ScreenHeader title="영수증 빠른 입력" /><EmptyStateCard title="샘플 계정에서는 영수증을 저장하지 않아요" actionLabel="실제 계정에서 이용해 주세요" /></AppScreen>;
-  const canConfirm = Boolean(draft?.serverDraft && itemName.trim() && Number.isInteger(Number(amount)) && Number(amount) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(spentOn));
+  if (isTestSession) return <AppScreen><ScreenHeader onBack={() => router.back()} title="영수증 빠른 입력" /><EmptyStateCard title="현재 영수증을 저장할 수 없어요." actionLabel="직접 지출을 입력해 주세요" /></AppScreen>;
+  const receiptValidation = validateExpenseForm({ itemName, amountText: amount, spentOn });
+  const canConfirm = Boolean(draft?.serverDraft && receiptValidation.valid);
   return (
     <AppScreen>
-      <ScreenHeader eyebrow="확인 후 저장" title="영수증 빠른 입력" subtitle="사용자가 최종 확인하기 전에는 지출이 생성되지 않아요." />
+      <ScreenHeader eyebrow="확인 후 저장" onBack={() => router.back()} title="영수증 빠른 입력" subtitle="사용자가 최종 확인하기 전에는 지출이 생성되지 않아요." />
       <Card>
         <Text style={{ color: theme.colors.brown, fontWeight: "800" }}>{draft?.fileName ?? "영수증 이미지 또는 PDF를 선택해 주세요"}</Text>
         <SecondaryButton label={pick.isPending ? "파일 확인 중" : "영수증 선택"} disabled={pick.isPending || upload.isPending || confirm.isPending} onPress={() => pick.mutate()} />
         {draft && !draft.serverDraft ? <SecondaryButton label={upload.isPending ? "업로드 중" : "저장된 초안 다시 업로드"} disabled={upload.isPending || confirm.isPending} onPress={() => upload.mutate(draft)} /> : null}
+        {draft ? (
+          <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.gray600, fontSize: 13, lineHeight: 19 }}>
+            {upload.isPending ? "영수증 초안을 확인하고 있어요." : draft.serverDraft ? "초안 준비 완료 · 아래 내용을 확인해 주세요." : "기기에 안전하게 저장됨 · 연결 후 다시 업로드할 수 있어요."}
+          </Text>
+        ) : null}
       </Card>
       {draft?.serverDraft ? <Card>
-        <TextInput accessibilityLabel="지출 항목명" placeholder="지출 항목명" value={itemName} onChangeText={setItemName} style={inputStyle} />
-        <TextInput accessibilityLabel="금액" keyboardType="number-pad" placeholder="금액" value={amount} onChangeText={setAmount} style={inputStyle} />
-        <TextInput accessibilityLabel="지출 날짜" placeholder="YYYY-MM-DD" value={spentOn} onChangeText={setSpentOn} style={inputStyle} />
-        <TextInput accessibilityLabel="판매처" placeholder="판매처(선택)" value={merchant} onChangeText={setMerchant} style={inputStyle} />
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{categoryCatalog.map((category) => <CategoryChip key={category.id} label={category.label} selected={category.id === categoryId} onPress={() => setCategoryId(category.id)} />)}</View>
+        <FormField error={receiptValidation.itemNameError} label="지출 항목" maxLength={100} onChangeText={setItemName} placeholder="예: 기저귀" value={itemName} />
+        <View style={{ gap: 6 }}>
+          <FormField
+            error={receiptValidation.amountError}
+            keyboardType="number-pad"
+            label="금액"
+            maxLength={EXPENSE_AMOUNT_MAX_DIGITS}
+            onChangeText={(value) => setAmount(sanitizeExpenseAmountText(value).slice(0, EXPENSE_AMOUNT_MAX_DIGITS))}
+            placeholder="0"
+            value={amount}
+          />
+          {amount && !receiptValidation.amountError ? <Text style={{ color: theme.colors.gray600, fontSize: 13 }}>{formatExpenseAmountInput(amount)}원</Text> : null}
+        </View>
+        <DateField clearable={false} error={receiptValidation.dateError} label="지출 날짜" onChange={(value) => setSpentOn(value ?? getSeoulToday())} value={spentOn} />
+        <FormField label="판매처" maxLength={100} onChangeText={setMerchant} optional placeholder="예: 우리상점" value={merchant} />
+        <View accessibilityRole="radiogroup" style={{ gap: 8 }}>
+          <Text style={{ color: theme.colors.brown, fontSize: 15, fontWeight: "700" }}>분류</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{categoryCatalog.map((category) => <CategoryChip key={category.id} label={category.label} selected={category.id === categoryId} onPress={() => setCategoryId(category.id)} />)}</View>
+        </View>
       </Card> : null}
       {message ? <Text accessibilityRole="alert" style={{ color: theme.colors.gray600 }}>{message}</Text> : null}
       <PrimaryButton label={confirm.isPending ? "저장 중" : "확인하고 지출 저장"} disabled={!canConfirm || confirm.isPending} onPress={() => confirm.mutate()} />
     </AppScreen>
   );
 }
-
-const inputStyle = { borderColor: theme.colors.gray300, borderRadius: 12, borderWidth: 1, color: theme.colors.brown, minHeight: 48, paddingHorizontal: 12 } as const;

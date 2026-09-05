@@ -1,5 +1,6 @@
 const SEOUL_TIME_ZONE = "Asia/Seoul";
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+export const MAX_MONEY_KRW = 2_147_483_647;
 
 export type SeoulMonthRange = {
   yearMonth: string;
@@ -8,12 +9,12 @@ export type SeoulMonthRange = {
 };
 
 export function isMoneyKrw(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0;
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= MAX_MONEY_KRW;
 }
 
 export function assertMoneyKrw(value: unknown): number {
   if (!isMoneyKrw(value)) {
-    throw new Error("EXPENSE_AMOUNT_INVALID: amountKrw must be a positive KRW integer");
+    throw new Error(`EXPENSE_AMOUNT_INVALID: amountKrw must be an integer between 1 and ${MAX_MONEY_KRW}`);
   }
 
   return value;
@@ -40,6 +41,18 @@ export function getSeoulToday(now: Date = new Date()): string {
 
 export function getSeoulYearMonth(now: Date = new Date()): string {
   return getSeoulToday(now).slice(0, 7);
+}
+
+export function addDateOnlyDays(dateOnly: string, days: number): string {
+  if (!isValidCalendarDate(dateOnly) || !Number.isInteger(days)) {
+    throw new Error("DATE_INVALID");
+  }
+  const [year, month, day] = dateOnly.split("-").map(Number);
+  return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10);
+}
+
+export function getSeoulTomorrow(now: Date = new Date()): string {
+  return addDateOnlyDays(getSeoulToday(now), 1);
 }
 
 export function dateOnlyToLocalDate(dateOnly: string): Date {
@@ -82,6 +95,13 @@ export function isFutureSeoulDate(dateOnly: string, now: Date = new Date()): boo
   }
 
   return dateOnly > getSeoulToday(now);
+}
+
+export function isBeyondSeoulTomorrow(dateOnly: string, now: Date = new Date()): boolean {
+  if (!isValidCalendarDate(dateOnly)) {
+    throw new Error("DATE_INVALID");
+  }
+  return dateOnly > getSeoulTomorrow(now);
 }
 
 export function isValidCalendarDate(dateOnly: string): boolean {

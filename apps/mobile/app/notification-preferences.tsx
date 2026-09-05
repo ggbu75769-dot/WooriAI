@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { KoreanText as Text } from "../src/design-system/components/KoreanText";
 import { CheckCard, EmptyStateCard, AppScreen, SampleDataBanner, Toast, TopAppBar } from "../src/design-system";
 import {
   fixtureSessionToken,
@@ -76,7 +77,7 @@ export default function NotificationPreferencesScreen() {
       <AppScreen>
         <SampleDataBanner />
         <TopAppBar eyebrow="프로필" onBack={() => router.back()} title="알림 설정" />
-        <EmptyStateCard title="샘플 계정에서는 알림 설정을 변경하지 않아요." actionLabel="실제 계정에서 이용해 주세요" />
+        <EmptyStateCard title="현재 알림 설정을 변경할 수 없어요." actionLabel="나중에 다시 시도해 주세요" />
       </AppScreen>
     );
   }

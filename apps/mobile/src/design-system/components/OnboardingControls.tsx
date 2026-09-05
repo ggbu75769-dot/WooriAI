@@ -1,17 +1,8 @@
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { dateOnlyToLocalDate, localDateToDateOnly } from "@wooriai/domain/money-date";
 import { forwardRef, useRef, useState, type ReactNode, type RefObject } from "react";
-import {
-  AccessibilityInfo,
-  findNodeHandle,
-  Modal,
-  Platform,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-  type TextInputProps
-} from "react-native";
+import { AccessibilityInfo, findNodeHandle, Keyboard, Modal, Platform, Pressable, Text as NativeText, TextInput, View, type TextInputProps } from "react-native";
+import { KoreanText as Text } from "./KoreanText";
 import { AppIcon, IconButton, PrimaryButton, SecondaryButton, TextButton, type AppIconName } from "./ApplicationPrimitives";
 import { theme } from "../../theme";
 import { semanticColors } from "../tokens/color";
@@ -209,7 +200,8 @@ export function DateField({
   onChange,
   maximumDate,
   minimumDate,
-  error
+  error,
+  clearable = true
 }: {
   label: string;
   value: string | null;
@@ -217,11 +209,12 @@ export function DateField({
   maximumDate?: Date;
   minimumDate?: Date;
   error?: string | null;
+  clearable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [pendingDate, setPendingDate] = useState(() => pickerInitialDate(value, minimumDate, maximumDate));
   const triggerRef = useRef<View>(null);
-  const modalHeadingRef = useRef<Text>(null);
+  const modalHeadingRef = useRef<NativeText>(null);
   const restoreFocus = () => {
     const node = findNodeHandle(triggerRef.current);
     if (node) AccessibilityInfo.setAccessibilityFocus(node);
@@ -235,6 +228,7 @@ export function DateField({
     setTimeout(restoreFocus, 0);
   };
   const openPicker = () => {
+    Keyboard.dismiss();
     const initialDate = pickerInitialDate(value, minimumDate, maximumDate);
     if (Platform.OS === "android") {
       DateTimePickerAndroid.open({
@@ -283,7 +277,7 @@ export function DateField({
           <AppIcon color={theme.colors.coral[600]} name="calendar-month-outline" size={22} />
           <Text style={{ color: value ? theme.colors.textPrimary : theme.colors.text.tertiary, flex: 1, marginLeft: 10 }}>{value ? formatKoreanDate(value) : "날짜 선택"}</Text>
         </Pressable>
-        {value ? <IconButton accessibilityLabel={`${label} 삭제`} icon="close-circle-outline" onPress={() => onChange(null)} /> : null}
+        {clearable && value ? <IconButton accessibilityLabel={`${label} 삭제`} icon="close-circle-outline" onPress={() => onChange(null)} /> : null}
       </View>
       {error ? <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.danger, fontSize: 13 }}>{error}</Text> : null}
       {Platform.OS === "ios" ? <Modal accessibilityViewIsModal animationType="slide" onDismiss={restoreFocus} onRequestClose={closePicker} onShow={focusModalHeading} transparent visible={open}>
@@ -347,8 +341,8 @@ export function CheckboxRow({ icon, title, subtitle, checked, onPress }: { icon:
   );
 }
 
-export function ConfirmSheet({ visible, title, description, children, confirmLabel = "변경하기", onConfirm, onCancel, returnFocusRef }: { visible: boolean; title: string; description: string; children?: ReactNode; confirmLabel?: string; onConfirm: () => void; onCancel: () => void; returnFocusRef?: RefObject<View> }) {
-  const modalHeadingRef = useRef<Text>(null);
+export function ConfirmSheet({ visible, title, description, children, confirmLabel = "변경하기", onConfirm, onCancel, returnFocusRef }: { visible: boolean; title: string; description: string; children?: ReactNode; confirmLabel?: string; onConfirm: () => void; onCancel: () => void; returnFocusRef?: RefObject<View | null> }) {
+  const modalHeadingRef = useRef<NativeText>(null);
   const focusModalHeading = () => {
     const node = findNodeHandle(modalHeadingRef.current);
     if (node) AccessibilityInfo.setAccessibilityFocus(node);

@@ -87,15 +87,18 @@ function ensureWorkspaceGradleConfig() {
     );
   }
   if (!/^\s*root\s*=/m.test(next)) {
-    next = next.replace(/^react\s*\{\s*$/m, "react {\n    root = file(projectRoot)");
+    next = next.replace(/^react\s*\{\s*$/m, "react {\n    root = file(workspaceRoot)");
   } else {
-    next = next.replace(/^\s*root\s*=.*$/m, "    root = file(projectRoot)");
+    next = next.replace(/^\s*root\s*=.*$/m, "    root = file(workspaceRoot)");
   }
-  next = next.replace(/^\s*entryFile\s*=.*$/m, '    entryFile = file("${projectRoot}/index.js")');
+  next = next.replace(
+    /^\s*entryFile\s*=.*$/m,
+    '    entryFile = file(["node", "-e", "require(\'expo/scripts/resolveAppEntry\')", projectRoot, "android", "absolute"].execute(null, rootDir).text.trim())'
+  );
   if (!/^\s*extraPackagerArgs\s*=/m.test(next)) {
     next = next.replace(
       /^(\s*entryFile\s*=.*)$/m,
-      '$1\n    extraPackagerArgs = ["--max-workers", "1", "--reset-cache", "--entry-file", "${projectRoot}/index.js"]'
+      '$1\n    extraPackagerArgs = ["--max-workers", "1", "--reset-cache"]'
     );
   }
   if (next !== current) writeFileSync(appBuildGradlePath, next, "utf8");

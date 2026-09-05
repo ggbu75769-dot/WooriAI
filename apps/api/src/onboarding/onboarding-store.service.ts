@@ -8,6 +8,7 @@ import {
   calculatePreparationLifecycle,
   getSeoulMonthRange,
   getSeoulToday,
+  isBeyondSeoulTomorrow,
   isFutureSeoulDate,
   isValidCalendarDate,
   normalizeOnboardingCompletionInput,
@@ -177,6 +178,13 @@ export type UpdateExpenseInput = {
   paymentMethod?: PaymentMethod;
   paymentMethodId?: string | null;
   payerUserId?: string;
+};
+
+export type ExpenseListPageInput = {
+  categoryId?: string;
+  cursor?: string;
+  limit?: number;
+  search?: string;
 };
 
 export type CreateImportJobInput = {
@@ -951,6 +959,15 @@ export class OnboardingStoreService {
     return this.toUserPaymentMethodDto(updated);
   }
 
+  async reactivateUserPaymentMethod(user: AuthenticatedUser, paymentMethodId: string) {
+    await this.requireUserPaymentMethod(user.id, paymentMethodId);
+    const updated = await this.prisma.userPaymentMethod.update({
+      where: { id: paymentMethodId },
+      data: { active: true }
+    });
+    return this.toUserPaymentMethodDto(updated);
+  }
+
   async setDefaultUserPaymentMethod(user: AuthenticatedUser, paymentMethodId: string) {
     const existing = await this.requireUserPaymentMethod(user.id, paymentMethodId, true);
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -1039,12 +1056,84 @@ export class OnboardingStoreService {
     return this.insertExpense(client, householdId, childId, user, input);
   }
 
-  async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string) {
+  async listExpenses(user: AuthenticatedUser, childId: string, yearMonth?: string, page: ExpenseListPageInput = {}) {
     await this.requireChildAccess(user, childId);
-    const expenses = await this.expensesForChild(childId, yearMonth);
+    const range = yearMonth ? getSeoulMonthRange(yearMonth) : null;
+    const search = page.search?.trim();
+    const listWhere: Prisma.ExpenseWhereInput = {
+      childId,
+      deletedAt: null,
+      ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {}),
+      ...(page.categoryId ? { categoryId: page.categoryId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { itemName: { contains: search, mode: "insensitive" } },
+              { memo: { contains: search, mode: "insensitive" } },
+              { merchant: { contains: search, mode: "insensitive" } }
+            ]
+          }
+        : {})
+    };
+    const monthlyWhere: Prisma.ExpenseWhereInput = {
+      childId,
+      deletedAt: null,
+      expenseType: "expense",
+      spentOn: {
+        ...(range ? { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } : {}),
+        lte: toDateOnly(getSeoulToday(this.referenceNow()))
+      }
+    };
+    const filteredSummaryWhere: Prisma.ExpenseWhereInput = {
+      ...listWhere,
+      expenseType: "expense",
+      spentOn: {
+        ...(range ? { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } : {}),
+        lte: toDateOnly(getSeoulToday(this.referenceNow()))
+      }
+    };
+    const limit = Math.max(1, Math.min(page.limit ?? 50, 100));
+    const monthlySummaryPromise = this.prisma.expense.aggregate({
+      where: monthlyWhere,
+      _count: { _all: true },
+      _sum: { amountKrw: true }
+    });
+    const filteredSummaryPromise = search || page.categoryId
+      ? this.prisma.expense.aggregate({
+          where: filteredSummaryWhere,
+          _count: { _all: true },
+          _sum: { amountKrw: true }
+        })
+      : monthlySummaryPromise;
+    const [rows, totalRecordCount, filteredRecordCount, monthlySummary, filteredSummary] = await Promise.all([
+      this.prisma.expense.findMany({
+        where: listWhere,
+        orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {})
+      }),
+      this.prisma.expense.count({
+        where: {
+          childId,
+          deletedAt: null,
+          ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {})
+        }
+      }),
+      search || page.categoryId ? this.prisma.expense.count({ where: listWhere }) : Promise.resolve(null),
+      monthlySummaryPromise,
+      filteredSummaryPromise
+    ]);
+    const hasMore = rows.length > limit;
+    const expenses = hasMore ? rows.slice(0, limit) : rows;
     return {
       expenses: expenses.map((expense) => this.toExpenseDto(expense)),
-      totalAmountKrw: this.totalExpenseKrw(expenses)
+      filteredExpenseCount: filteredSummary._count._all,
+      filteredRecordCount: filteredRecordCount ?? totalRecordCount,
+      filteredTotalAmountKrw: filteredSummary._sum.amountKrw ?? 0,
+      nextCursor: hasMore ? expenses.at(-1)?.id ?? null : null,
+      totalAmountKrw: monthlySummary._sum.amountKrw ?? 0,
+      totalExpenseCount: monthlySummary._count._all,
+      totalRecordCount
     };
   }
 
@@ -1067,7 +1156,7 @@ export class OnboardingStoreService {
     }
     if (input.amountKrw !== undefined) data.amountKrw = this.requireMoneyKrw(input.amountKrw);
     if (input.spentOn !== undefined) {
-      this.assertNotFutureDate(input.spentOn);
+      this.assertExpenseDateWithinScheduleWindow(input.spentOn);
       data.spentOn = toDateOnly(input.spentOn);
     }
     if (input.itemName !== undefined) {
@@ -1311,11 +1400,13 @@ export class OnboardingStoreService {
     const budget = await this.prisma.budget.findUnique({
       where: { childId_yearMonth: { childId, yearMonth: toDateOnly(yearMonth) } }
     });
-    const recentExpenses = (await this.expensesForChild(childId)).slice(0, 3);
+    const realizedExpenses = (await this.expensesForChild(childId))
+      .filter((expense) => fromDateOnly(expense.spentOn) <= getSeoulToday(this.referenceNow()));
+    const recentExpenses = realizedExpenses.slice(0, 3);
 
     return {
       child: this.toChildDto(child),
-      totalExpenseKrw: this.totalExpenseKrw(await this.expensesForChild(childId)),
+      totalExpenseKrw: this.totalExpenseKrw(realizedExpenses),
       monthly: await this.toBudgetDto(childId, yearMonth, budget?.amountKrw ?? 0),
       recommendedItems: (await this.recommendedItemsForChild(childId)).slice(0, 3),
       recentExpenses: recentExpenses.map((expense) => this.toExpenseDto(expense))
@@ -1435,7 +1526,7 @@ export class OnboardingStoreService {
         expenseType: "expense",
         spentOn: {
           gte: new Date(`${normalizedYear}-01-01T00:00:00.000Z`),
-          lt: new Date(`${Number(normalizedYear) + 1}-01-01T00:00:00.000Z`)
+          lt: toDateOnly(this.realizedEndExclusive(`${Number(normalizedYear) + 1}-01-01`))
         }
       },
       select: { spentOn: true, amountKrw: true }
@@ -1463,7 +1554,7 @@ export class OnboardingStoreService {
   async getCumulativeReport(user: AuthenticatedUser, childId: string) {
     await this.requireChildAccess(user, childId);
     const rows = await this.prisma.expense.findMany({
-      where: { childId, deletedAt: null, expenseType: "expense" },
+      where: { childId, deletedAt: null, expenseType: "expense", spentOn: { lt: toDateOnly(this.realizedEndExclusive("9999-12-31")) } },
       select: { spentOn: true, amountKrw: true }
     });
 
@@ -1809,20 +1900,20 @@ export class OnboardingStoreService {
       flows: [
         {
           id: "account_delete",
-          title: "Delete account",
-          impact: ["account access stops", "active household memberships are left"],
+          title: "계정 삭제",
+          impact: ["로그인 접근이 중단돼요.", "참여 중인 가족에서 탈퇴 처리돼요."],
           confirmationText: "DELETE ACCOUNT"
         },
         {
           id: "household_leave",
-          title: "Leave household",
-          impact: ["shared child data is no longer accessible from this account"],
+          title: "가구 탈퇴",
+          impact: ["이 계정에서는 더 이상 가족의 공유 데이터에 접근할 수 없어요."],
           confirmationText: "LEAVE HOUSEHOLD"
         },
         {
           id: "child_profile_delete",
-          title: "Delete child profile",
-          impact: ["child profile becomes inaccessible", "related expense records are removed from reports"],
+          title: "아이 프로필 삭제",
+          impact: ["아이 프로필을 더 이상 볼 수 없어요.", "연결된 지출 기록이 리포트에서 제외돼요."],
           confirmationText: "DELETE CHILD"
         }
       ]
@@ -1835,7 +1926,7 @@ export class OnboardingStoreService {
       flowId: "child_profile_delete",
       requiresSecondStep: true,
       confirmationText: "DELETE CHILD",
-      impact: ["child profile becomes inaccessible", "related expense records are removed from reports"]
+      impact: ["아이 프로필을 더 이상 볼 수 없어요.", "연결된 지출 기록이 리포트에서 제외돼요."]
     };
   }
 
@@ -1883,7 +1974,7 @@ export class OnboardingStoreService {
     if (!itemName) {
       throw new BadRequestException({ code: "EXPENSE_ITEM_NAME_REQUIRED", message: "품목명을 입력해 주세요." });
     }
-    this.assertNotFutureDate(input.spentOn);
+    this.assertExpenseDateWithinScheduleWindow(input.spentOn);
     await this.requireExistingCategory(input.categoryId, client);
     if (input.linkedItemTemplateId) {
       await this.requireExistingItemTemplateAnyStatus(input.linkedItemTemplateId, client);
@@ -2273,7 +2364,7 @@ export class OnboardingStoreService {
         childId,
         deletedAt: null,
         expenseType: "expense",
-        spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) }
+        spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(this.realizedEndExclusive(range.endExclusive)) }
       },
       _sum: { amountKrw: true }
     });
@@ -2287,7 +2378,9 @@ export class OnboardingStoreService {
         childId,
         deletedAt: null,
         expenseType: "expense",
-        ...(range ? { spentOn: { gte: toDateOnly(range.startInclusive), lt: toDateOnly(range.endExclusive) } } : {})
+        spentOn: range
+          ? { gte: toDateOnly(range.startInclusive), lt: toDateOnly(this.realizedEndExclusive(range.endExclusive)) }
+          : { lt: toDateOnly(this.realizedEndExclusive("9999-12-31")) }
       },
       _sum: { amountKrw: true },
       _count: { _all: true }
@@ -2638,6 +2731,31 @@ export class OnboardingStoreService {
   private cleanOptionalText(value?: string) {
     const cleaned = value?.trim();
     return cleaned ? cleaned : null;
+  }
+
+  private realizedEndExclusive(requestedEndExclusive: string) {
+    const today = getSeoulToday(this.referenceNow());
+    const [year, month, day] = today.split("-").map(Number);
+    const tomorrow = new Date(Date.UTC(year!, month! - 1, day! + 1)).toISOString().slice(0, 10);
+    return requestedEndExclusive < tomorrow ? requestedEndExclusive : tomorrow;
+  }
+
+  private assertExpenseDateWithinScheduleWindow(spentOn: string) {
+    if (!isValidCalendarDate(spentOn)) {
+      throw new BadRequestException({ code: "EXPENSE_DATE_INVALID", message: "날짜를 다시 확인해 주세요." });
+    }
+
+    try {
+      if (isBeyondSeoulTomorrow(spentOn, this.referenceNow())) {
+        throw new BadRequestException({
+          code: "EXPENSE_DATE_TOO_FAR",
+          message: "예정 지출은 내일까지만 저장할 수 있어요."
+        });
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException({ code: "EXPENSE_DATE_INVALID", message: "날짜를 다시 확인해 주세요." });
+    }
   }
 
   private normalizePaymentMethodLabel(value: string) {

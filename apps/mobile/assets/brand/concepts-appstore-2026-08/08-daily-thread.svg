@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+  <title id="t">우리아이 로고 시안 08 데일리 스레드</title><desc id="d">세 사람의 하루가 하나의 끊김 없는 기록선으로 이어지는 심볼</desc>
+  <rect width="512" height="512" rx="112" fill="#EEF8F5"/>
+  <path d="M112 322c62 0 58-132 126-132s62 132 126 132c26 0 39-20 39-52" fill="none" stroke="#173D48" stroke-width="58" stroke-linecap="round"/>
+  <circle cx="112" cy="322" r="39" fill="#6DC5AE" stroke="#EEF8F5" stroke-width="13"/>
+  <circle cx="238" cy="190" r="39" fill="#FFD261" stroke="#EEF8F5" stroke-width="13"/>
+  <circle cx="364" cy="322" r="39" fill="#FF7658" stroke="#EEF8F5" stroke-width="13"/>
+</svg>

@@ -2,8 +2,9 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type React from "react";
 import type { ComponentProps } from "react";
 import { useState } from "react";
-import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import type { ImageSourcePropType, LayoutChangeEvent, StyleProp, TextStyle, ViewStyle } from "react-native";
+import { Image, Pressable, ScrollView, View } from "react-native";
+import { KoreanText as Text } from "./design-system/components/KoreanText";
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { theme } from "./theme";
 import { EmptyState as DesignEmptyState, ErrorState, LoadingState, ScreenScaffold } from "./design-system";
@@ -75,26 +76,7 @@ export function IconButton({
 }
 
 export function SampleDataBanner() {
-  return (
-    <View
-      accessibilityLabel="샘플 데이터 안내"
-      style={{
-        alignItems: "center",
-        alignSelf: "stretch",
-        backgroundColor: theme.colors.sky,
-        borderRadius: theme.radii.small,
-        flexDirection: "row",
-        gap: 8,
-        minHeight: theme.touchTarget,
-        paddingHorizontal: 12
-      }}
-    >
-      <AppIcon color={theme.colors.semantic.info} name="flask-outline" size={18} />
-      <Text style={[textStyles.caption, { color: theme.colors.brown, flex: 1, fontWeight: "700" }]}>
-        샘플 데이터 · 실제 계정 정보와 분리되어 이 기기에만 저장돼요.
-      </Text>
-    </View>
-  );
+  return null;
 }
 
 const pixelLockWebStyleId = "wooriai-pixel-lock-web-styles";
@@ -155,15 +137,28 @@ export function ScreenHeader({
   eyebrow,
   title,
   subtitle,
-  action
+  action,
+  onBack
 }: {
   eyebrow?: string;
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
+  onBack?: () => void;
 }) {
   return (
     <View style={{ flexDirection: "row", gap: 12, justifyContent: "space-between" }}>
+      {onBack ? (
+        <Pressable
+          accessibilityLabel="뒤로"
+          accessibilityRole="button"
+          hitSlop={4}
+          onPress={onBack}
+          style={({ pressed }) => ({ alignItems: "center", borderRadius: theme.radii.button, height: 48, justifyContent: "center", opacity: pressed ? 0.7 : 1, width: 48 })}
+        >
+          <AppIcon color={theme.colors.brown} name="chevron-left" size={26} />
+        </Pressable>
+      ) : null}
       <View style={{ flex: 1, gap: 4 }}>
         {eyebrow ? <Text style={[textStyles.caption, { color: theme.colors.mainCoral }]}>{eyebrow}</Text> : null}
         <Text style={[textStyles.h2, { color: theme.colors.brown }]}>{title}</Text>
@@ -241,7 +236,7 @@ export function PrimaryButton({ label, onPress, disabled, style }: PressableProp
         style
       ]}
     >
-      <Text style={{ color: theme.colors.white, fontSize: 15, fontWeight: "700" }}>{label}</Text>
+      <Text style={{ color: theme.colors.white, fontSize: 15, fontWeight: "700", textAlign: "center" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -269,7 +264,7 @@ export function SecondaryButton({ label, onPress, disabled, style }: PressablePr
         style
       ]}
     >
-      <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{label}</Text>
+      <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700", textAlign: "center" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -341,12 +336,16 @@ export function SegmentedControl({
 }
 
 export function CategoryChip({
+  icon,
   label,
   selected,
+  onLayout,
   onPress
 }: {
+  icon?: AppIconName;
   label: string;
   selected?: boolean;
+  onLayout?: (event: LayoutChangeEvent) => void;
   onPress?: () => void;
 }) {
   return (
@@ -355,18 +354,29 @@ export function CategoryChip({
       accessibilityRole="button"
       accessibilityState={{ selected: Boolean(selected) }}
       hitSlop={5}
+      onLayout={onLayout}
       onPress={onPress}
-      style={{
+      style={({ pressed }) => ({
         alignItems: "center",
         backgroundColor: selected ? theme.colors.mainCoral : theme.colors.white,
         borderColor: selected ? theme.colors.mainCoral : theme.colors.primary100,
         borderRadius: theme.radii.pill,
         borderWidth: 1,
+        flexDirection: "row",
+        gap: 6,
         minHeight: 38,
         justifyContent: "center",
+        opacity: pressed ? 0.82 : 1,
         paddingHorizontal: 14
-      }}
+      })}
     >
+      {icon ? (
+        <AppIcon
+          color={selected ? theme.colors.white : theme.colors.mainCoral}
+          name={icon}
+          size={17}
+        />
+      ) : null}
       <Text style={{ color: selected ? theme.colors.white : theme.colors.brown, fontSize: 13, fontWeight: "700" }}>
         {label}
       </Text>
@@ -516,7 +526,13 @@ export function ListRow({
   onPress?: () => void;
 }) {
   return (
-    <Pressable onPress={onPress}>
+    <Pressable
+      accessibilityLabel={[title, subtitle, value].filter(Boolean).join(". ")}
+      accessibilityRole={onPress ? "button" : "text"}
+      disabled={!onPress}
+      onPress={onPress}
+      style={({ pressed }) => ({ opacity: onPress && pressed ? 0.76 : 1 })}
+    >
       <Card style={{ alignItems: "center", flexDirection: "row", gap: 12, paddingVertical: 12 }}>
         {icon ? (
           typeof icon === "string" ? (

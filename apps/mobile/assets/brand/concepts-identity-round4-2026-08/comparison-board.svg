@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 2220">
+  <rect width="1600" height="2220" fill="#F3F0EB"/>
+  <style>
+    .ko{font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+    .title{font-size:60px;font-weight:900;fill:#151A20;letter-spacing:-2px}
+    .sub{font-size:24px;font-weight:500;fill:#66717B;letter-spacing:-.6px}
+    .num{font-size:24px;font-weight:900;fill:#FF6B4A}
+    .brand{font-size:44px;font-weight:900;fill:#17324D;letter-spacing:-2px}
+    .en{font-size:23px;font-weight:900;fill:#151A20;letter-spacing:.2px}
+    .desc{font-size:20px;font-weight:500;fill:#747E87;letter-spacing:-.5px}
+  </style>
+  <text x="70" y="92" class="ko title">우리아이 — 완전 신규 로고 10</text>
+  <text x="70" y="138" class="ko sub">기능 아이콘이 아닌 고유 브랜드 마크 · 아이 비용 기록 + 다음 준비 + 가족 보호</text>
+  <rect x="70" y="166" width="1460" height="54" rx="27" fill="#17324D"/>
+  <circle cx="110" cy="193" r="11" fill="#FF6B4A"/><circle cx="143" cy="193" r="11" fill="#FFD76A"/>
+  <text x="174" y="201" class="ko desc" fill="#FFF9F3">OFFICIAL PALETTE ONLY  ·  64PX SILHOUETTE  ·  NO GENERIC UI ICON</text>
+
+  <g transform="translate(58 258)"><rect width="722" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="21-nest-ledger.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">21</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">NEST LEDGER</text><text x="334" y="237" class="ko desc">아이를 품은 비용 기록</text><text x="334" y="273" class="ko desc">둥지 + 영수증 + 아이</text>
+  </g>
+  <g transform="translate(820 258)"><rect width="722" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="22-baby-wallet.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">22</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">BABY WALLET</text><text x="334" y="237" class="ko desc">우리 아이 전용 가족 지갑</text><text x="334" y="273" class="ko desc">아이 얼굴 + 비용 지갑</text>
+  </g>
+  <g transform="translate(58 620)"><rect width="722" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="23-ready-nest.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">23</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">READY NEST</text><text x="334" y="237" class="ko desc">준비할수록 안전해지는 둥지</text><text x="334" y="273" class="ko desc">준비 완료 + 아이 보호</text>
+  </g>
+  <g transform="translate(820 620)"><rect width="722" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="24-care-meter.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">24</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">CARE METER</text><text x="334" y="237" class="ko desc">비용과 준비 상태를 한눈에</text><text x="334" y="273" class="ko desc">아이 + 생활 대시보드</text>
+  </g>
+  <g transform="translate(58 982)"><rect width="722" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="25-woori-basket.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">25</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">WOORI BASKET</text><text x="334" y="237" class="ko desc">가족이 채우는 아이 준비 바구니</text><text x="334" y="273" class="ko desc">두 보호자 + 준비템</text>
+  </g>
+  <g transform="translate(820 982)"><rect width="722" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="26-growing-coins.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">26</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">GROWING COINS</text><text x="334" y="237" class="ko desc">아이 성장과 함께 쌓이는 비용</text><text x="334" y="273" class="ko desc">성장 단계 + 누적 기록</text>
+  </g>
+  <g transform="translate(58 1344)"><rect width="722" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="27-next-pocket.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">27</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">NEXT POCKET</text><text x="334" y="237" class="ko desc">기록에서 다음 준비를 꺼내다</text><text x="334" y="273" class="ko desc">아이 비용 + 다음 추천</text>
+  </g>
+  <g transform="translate(820 1344)"><rect width="722" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="28-family-token.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">28</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">FAMILY TOKEN</text><text x="334" y="237" class="ko desc">아이를 위한 가족 비용 토큰</text><text x="334" y="273" class="ko desc">두 보호 + 아이 기록</text>
+  </g>
+  <g transform="translate(58 1706)"><rect width="722" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="29-care-balance.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">29</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">CARE BALANCE</text><text x="334" y="237" class="ko desc">예산과 필요한 준비의 균형</text><text x="334" y="273" class="ko desc">아이 + 비용 판단</text>
+  </g>
+  <g transform="translate(820 1706)"><rect width="722" height="330" rx="42" fill="#FFFFFF"/>
+    <image href="30-woori-ribbon.svg" x="28" y="30" width="270" height="270"/>
+    <text x="334" y="84" class="ko num">30</text><text x="334" y="143" class="ko brand">우리아이</text>
+    <text x="334" y="193" class="ko en">WOORI RIBBON</text><text x="334" y="237" class="ko desc">가족의 W 안에서 자라는 아이</text><text x="334" y="273" class="ko desc">우리 + 성장 + 연결</text>
+  </g>
+  <text x="800" y="2118" text-anchor="middle" class="ko sub">이번 판 추천: 21 · 25 · 28 — 브랜드 고유성과 서비스 이해도의 균형</text>
+  <text x="800" y="2162" text-anchor="middle" class="ko desc">선택 전 단계이며 실제 앱 아이콘·스플래시 자산에는 아직 적용하지 않음</text>
+</svg>

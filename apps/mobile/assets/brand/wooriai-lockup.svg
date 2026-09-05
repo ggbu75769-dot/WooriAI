@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" role="img" aria-labelledby="title description">
+  <title id="title">우리아이 스프라우트 월렛 공식 가로형 로고</title>
+  <desc id="description">스프라우트 월렛 심볼과 우리아이 한글 워드마크를 결합한 공식 로고</desc>
+  <g transform="translate(0 4) scale(.30)">
+    <rect x="164" y="304" width="696" height="564" rx="156" fill="#FF6B4A"/>
+    <circle cx="512" cy="540" r="176" fill="#FFD76A"/>
+    <path d="M512 368c-12-110 52-196 164-208 2 112-56 188-164 208Z" fill="#17324D"/>
+    <path d="M512 368c12-90-38-158-132-172-2 92 46 152 132 172Z" fill="#FFD76A" stroke="#17324D" stroke-width="24"/>
+    <circle cx="450" cy="548" r="20" fill="#17324D"/><circle cx="574" cy="548" r="20" fill="#17324D"/>
+    <path d="M458 620c32 32 76 32 108 0" fill="none" stroke="#17324D" stroke-width="28" stroke-linecap="round"/>
+    <rect x="612" y="688" width="300" height="144" rx="72" fill="#FFF9F3" stroke="#FF6B4A" stroke-width="28"/>
+    <circle cx="700" cy="760" r="28" fill="#FFD76A"/>
+  </g>
+  <text x="330" y="214" fill="#17324D" font-family="Noto Sans KR, Malgun Gothic, sans-serif" font-size="156" font-weight="800" letter-spacing="-8">우리아이</text>
+</svg>

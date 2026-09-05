@@ -1,6 +1,6 @@
-import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from "class-validator";
+import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from "class-validator";
 import { Type } from "class-transformer";
-import { PAYMENT_METHODS, type PaymentMethod } from "@wooriai/domain";
+import { MAX_MONEY_KRW, PAYMENT_METHODS, type PaymentMethod } from "@wooriai/domain";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const creatableExpenseTypes = ["expense", "gift"] as const;
@@ -12,6 +12,7 @@ export class CreateExpenseDto {
 
   @IsInt()
   @Min(1)
+  @Max(MAX_MONEY_KRW)
   amountKrw!: number;
 
   @Matches(datePattern)
@@ -69,6 +70,7 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(MAX_MONEY_KRW)
   amountKrw?: number;
 
   @IsOptional()
