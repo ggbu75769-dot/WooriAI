@@ -7,6 +7,8 @@ import { LOCAL_HOUSEHOLD_ID, LOCAL_SESSION_TOKEN, upsertConsents } from "../../s
 // MOB-118: the date guard (isFutureSeoulDate/isValidCalendarDate wiring), stage labels, and
 // date-field label moved verbatim to src/children/child-form.ts so the settings 아이 관리
 // screen's edit/add forms reuse exactly this screen's validation -- see that module.
+// 라운드 99 트랙 F1(M): 멱등키를 본문에 묶는 지문 — 설정 아이 추가와 같은 한 벌이다.
+import { childCreateBodyFingerprint } from "../../src/children/child-create-idempotency";
 import {
   buildCreateChildBody,
   childDatePickerDirection,
@@ -123,16 +125,19 @@ export default function ChildProfileScreen() {
     if (draft.stageMode === "manual" && !manualStage) {
       throw new Error("missing manual stage selection");
     }
+    // 바디 조립은 설정 화면의 아이 추가와 같은 shared 모듈에서 온다(단일 소스).
+    const body = buildCreateChildBody(householdId, draft.stageMode, { nickname, dateText, manualStage });
     // MOB-101: reuse the same Idempotency-Key across retries of this submission (network
     // retry, or a resumed app restarting the mutation) so the server never creates a second
     // child for the household -- see round5a-sprint1-plan.md §4.
-    const idempotencyKey = getOrCreateChildCreateIdempotencyKey();
-    // 바디 조립은 설정 화면의 아이 추가와 같은 shared 모듈에서 온다(단일 소스).
-    return createOnboardingChild(
-      authToken,
-      buildCreateChildBody(householdId, draft.stageMode, { nickname, dateText, manualStage }),
-      idempotencyKey
-    );
+    //
+    // 라운드 99 트랙 F1(M) — ⚠️ 두 시점: 종전에는 인자 없이 불렀다("키가 있으면 무조건 재사용").
+    // 응답을 잃은 사람이 입력을 **고쳐** 다시 제출하면 같은 키 + 다른 본문이 나갔고, 서버는
+    // 409 IDEMPOTENCY_KEY_CONFLICT(24h)로 영원히 거절했다 — 표에도 없던 코드라 안내마저
+    // "네트워크를 확인하라"였다. 이제 본문 지문을 넘겨 **같은 본문일 때만** 키가 재사용된다
+    // (판정·지문 계산은 스토어와 공용 모듈에 있다 — 이 화면은 값만 잇는다).
+    const idempotencyKey = getOrCreateChildCreateIdempotencyKey(childCreateBodyFingerprint(body));
+    return createOnboardingChild(authToken, body, idempotencyKey);
   }, [authToken, dateText, draft.stageMode, getOrCreateChildCreateIdempotencyKey, householdId, manualStage, nickname]);
 
   const save = useMutation({

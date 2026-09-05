@@ -221,6 +221,31 @@ describe("PreparationListParity source contract", () => {
     expect(source).toContain("items.filter((item) => item.plan && !excludedStates.has(item.plan.state))");
   });
 
+  /**
+   * 라운드 99 F2 L-2 — 분류 그룹 헤더의 "n/m 보유"도 히어로 폴백과 **같은 규칙**으로 센다.
+   *
+   * 종전에는 분모가 group.items.length라 not_needed(괜찮아요)까지 계속 세어, 같은 화면의
+   * 두 완주 지표(히어로는 excludedStates 제외 · 헤더는 포함)가 서로 모순됐다 -- 전 항목을
+   * 정리해도 헤더는 100%가 못 되는 화면이었다. 그룹 목록 자체는 그대로다(정리한 항목이
+   * 화면에서 사라지지 않는다).
+   */
+  it("group header 'n/m 보유' excludes not_needed/retired/ended from the denominator (L-2)", () => {
+    expect(source).toContain(
+      "const trackedGroupItems = group.items.filter((item) => item.plan && !excludedStates.has(item.plan.state));"
+    );
+    expect(source).toContain("{done}/{trackedGroupItems.length} 보유");
+    expect(source).toContain(
+      "const percentage = trackedGroupItems.length ? Math.round((done / trackedGroupItems.length) * 100) : 0;"
+    );
+    // 분자도 같은 모집단에서 센다(분모만 좁히면 100%를 넘을 수 있다).
+    expect(source).toContain(
+      "const done = trackedGroupItems.filter((item) => item.plan?.state && completedStates.has(item.plan.state)).length;"
+    );
+    // 종전 형태(전체 분모)로 되돌아가지 않는다.
+    expect(source).not.toContain("{done}/{group.items.length} 보유");
+    expect(source).not.toContain("Math.round((done / group.items.length) * 100)");
+  });
+
   it("keeps the approved geometry: 48dp segmented control, 68/72 group headers, 40dp tint circle", () => {
     expect(source).toContain("borderRadius: 14, flexDirection: \"row\", padding: 4");
     expect(source).toContain("borderRadius: 11");

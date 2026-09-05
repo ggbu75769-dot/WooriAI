@@ -67,8 +67,12 @@ describe("FAM-121A 초대 수락 여정 배선 (source contract -- 화면은 vit
     // 카카오/개발 스텁 경로와 테스트 로그인 경로 둘 다 재개하되, 초대가 없으면 기존 목적지 그대로.
     // 실기기 피드백 1: 테스트 로그인의 기본 목적지가 "/(tabs)"에서 "/"로 바뀌었다 -- 데모 세션도
     // 온보딩을 마쳐야 탭에 들어가고, 그 판정은 app/index.tsx 한 곳에만 있다.
-    expect(loginSource).toContain('router.replace(inviteResumeHref ?? "/onboarding/child-status");');
-    expect(loginSource).toContain('router.replace(inviteResumeHref ?? "/");');
+    // 라운드 99 트랙 F1(H) — ⚠️ 두 시점: 종전에는 실세션 갈래만 `?? "/onboarding/child-status"`로
+    // 갈라져 있었다(기존 사용자의 재로그인이 진행도를 묻지 않고 온보딩으로 가 중복 아이를 만들던
+    // 길). 이제 두 갈래 모두 `?? "/"`로 app/index.tsx의 진행도 판정에 위임한다 — 같은 문자열이
+    // 두 번(실세션 login() + 테스트 로그인) 서는 것이 이 계약이다.
+    expect(loginSource.match(/router\.replace\(inviteResumeHref \?\? "\/"\);/g) ?? []).toHaveLength(2);
+    expect(loginSource).not.toContain('router.replace(inviteResumeHref ?? "/onboarding/child-status");');
   });
 
   it("수락 성공이 R19-C 관례대로 캐시 무효화 + 아이 재선택 + 안내를 수행한다", () => {

@@ -71,6 +71,28 @@ describe("quick expense draft storage", () => {
    * 저장하면 둘째의 지출이 됐다. 여기서 고정하는 것은 세 가지다: 가산 필드가 왕복하는가,
    * 구 blob이 종전대로 복원되는가, 폐기가 남의 초안을 건드리지 않는가.
    */
+  /**
+   * 라운드 99 F3 L-1 — 판매처는 childId와 같은 **가산 선택 필드**다. 왕복이 닫혀 있고,
+   * 키가 없는 구 blob은 종전 그대로 읽힌다(마이그레이션 없음 — 아래 왕복 테스트들의 draft에
+   * merchant 키가 없어도 그대로 통과하는 것이 그 사실의 절반이다).
+   */
+  it("판매처를 가산 필드로 왕복시킨다 (없으면 키 자체가 없다)", async () => {
+    const { writeQuickExpenseDraft, readQuickExpenseDraft } = await loadModules();
+
+    const draft = {
+      itemName: "물티슈",
+      amountText: "8900",
+      memo: "",
+      spentOnIso: "2026-09-04",
+      isGift: false,
+      merchant: "쿠팡",
+      childId: "child-a"
+    };
+
+    await writeQuickExpenseDraft(draft);
+    expect(await readQuickExpenseDraft()).toEqual(draft);
+  });
+
   it("아이 id를 가산 필드로 왕복시킨다 (구 계약의 나머지는 한 글자도 바뀌지 않는다)", async () => {
     const { writeQuickExpenseDraft, readQuickExpenseDraft } = await loadModules();
 
@@ -157,5 +179,26 @@ describe("아이 스코프 초안 배선 (app/expenses/new.tsx)", () => {
 
   it("프리필이 정한 날짜를 초안이 덮지 않는다 (달력 빈 칸 → 그날로 기록)", () => {
     expect(newExpenseSource).toContain("if (draft.spentOnIso && !prefilledSpentOn.spentOn) setExpenseDateIso(draft.spentOnIso);");
+  });
+
+  /**
+   * 라운드 99 F3 L-1 — 판매처가 자동 저장·복원에 합류한다. 종전에는 입력칸(라운드 49 C-03)만
+   * 있고 초안 배선이 없어, 시트를 닫으면 판매처만 조용히 사라졌고 판매처만 친 상태는 초안이
+   * 아예 남지 않았다("친 것 있음" 판정 밖). 결정 주석(결제 수단 미합류 근거)은 draft-storage.ts
+   * merchant 필드 doc이 진다.
+   */
+  it("판매처가 자동 저장(친 것 판정 포함)과 복원에 합류한다 — 프리필은 초안이 덮지 않는다", () => {
+    // 자동 저장: 친 것 판정과 deps에 합류하고, 안 적었으면 키를 싣지 않는다.
+    expect(newExpenseSource).toContain(
+      "const hasTypedInput = Boolean(itemName.trim() || amountText.trim() || memo.trim() || merchant.trim());"
+    );
+    expect(newExpenseSource).toContain("...(merchant.trim() ? { merchant } : {}),");
+    expect(newExpenseSource).toContain(
+      "}, [itemName, amountText, memo, merchant, selectedCategoryId, expenseDateIso, isGift, authToken, childId]);"
+    );
+    // 복원: 구 blob(키 없음)은 종전 그대로 빈 칸, "샀어요" 프리필(플랫폼 이름)은 초안이 덮지 않는다.
+    expect(newExpenseSource).toContain(
+      'if (typeof draft.merchant === "string" && !prefilledMerchant) setMerchant(draft.merchant);'
+    );
   });
 });

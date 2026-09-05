@@ -551,7 +551,15 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   });
 
   it("날짜를 누르면 리스트로 전환하고 그 날짜 섹션으로 스크롤한다 (실패해도 전환은 남는다)", () => {
-    expect(recordsSource).toContain("setViewMode(RECORDS_VIEW_LIST);");
+    // ⚠️ 라운드 99 F3 M-2(두 시점 · 핀 이관): 종전 첫 단언은 `setViewMode(RECORDS_VIEW_LIST);`
+    // — 칸 탭이 persist setter로 **보기 취향을 영구 덮어쓰던** 바로 그 줄이었다. 전환은 이제
+    // 비저장 착지 오버라이드로 일어난다(calendarDateViewLanding → effectiveRecordsViewMode,
+    // src/stores/records-view.store.ts) — "리스트로 전환하고 스크롤한다"는 이 계약의 사실은
+    // 그대로이고, 전환의 **수단**이 저장에서 표시 오버라이드로 바뀌었다.
+    expect(recordsSource).toContain("setCalendarDateViewLanding(true);");
+    expect(recordsSource).toContain(
+      "effectiveRecordsViewMode({ mode: persistedRecordsViewMode, calendarDateLanding: calendarDateViewLanding })"
+    );
     expect(recordsSource).toContain("setPendingScrollDate(date);");
     expect(recordsSource).toContain("sections.findIndex((section) => section.key === pendingScrollDate)");
     expect(recordsSource).toContain("sectionListRef.current?.scrollToLocation({ sectionIndex, itemIndex: 0, viewPosition: 0, animated: true })");

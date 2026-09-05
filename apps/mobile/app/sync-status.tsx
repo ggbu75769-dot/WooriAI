@@ -3,13 +3,14 @@ import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
 import { Alert, FlatList, Pressable, Text, View } from "react-native";
-import { LOCAL_SESSION_TOKEN, type CategoryListItem } from "../src/api/client";
+import { LOCAL_SESSION_TOKEN, type CategoryListItem, type Child } from "../src/api/client";
 import { buildConflictValueFormatter, type ConflictValueFormatter } from "../src/offline/conflict-display";
 import {
   CONFLICT_BANNER_MESSAGE,
   CONFLICT_OPTION_ADOPT_SERVER_LABEL,
   CONFLICT_OPTION_REAPPLY_MINE_LABEL,
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
+  failedRowDeletedChildNotice,
   FAILED_ROW_OTHER_CHILD_NOTICE,
   OFFLINE_STORAGE_UNAVAILABLE_NOTICE,
   syncStatusBadgeLabel,
@@ -293,6 +294,7 @@ const FailedRow = memo(function FailedRow({
   token,
   queryClient,
   selectedChildId,
+  knownChildIds,
   expenseEntryLocked,
   explainExpenseEntryLock
 }: {
@@ -304,6 +306,14 @@ const FailedRow = memo(function FailedRow({
    * (문자열이라 참조가 안정적이고 이 memo를 깨지 않는다).
    */
   selectedChildId: string | null;
+  /**
+   * 라운드 99 L-1 — ["children"] 캐시가 아는 아이 id 목록. `null`은 **모름**(캐시 미로드)이다.
+   * 다른 아이의 실패 행 안내("그 아이를 선택하면 …")는 그 아이가 목록에 실제로 있을 때만
+   * 지킬 수 있는 약속이라, 목록이 로드됐는데 없는 아이(= 삭제된 아이)의 행에서는 삭제 사실과
+   * 남은 행동(버리기)을 말하는 문장으로 갈린다. 화면이 useMemo로 한 번 만들어 내리므로 참조가
+   * 안정적이고 이 memo를 깨지 않는다.
+   */
+  knownChildIds: readonly string[] | null;
   /**
    * 라운드 58 #5 / UX-R(M): "고쳐서 다시 보내기"는 **새 지출을 만드는 진입점**이라 보기 전용
    * 참여자에게는 잠긴다(라운드 40 J-9의 역방향 계약 — /expenses/new로 가는 파일은 전부 이
@@ -363,6 +373,16 @@ const FailedRow = memo(function FailedRow({
      */
     const showOtherChildNotice =
       !isSelectedChildRow && rowChildId.length > 0 && Boolean(selectedChildId?.trim()) && prefillParams !== null;
+    /**
+     * 라운드 99 L-1 — 위 안내의 뒷절("그 아이를 선택하면 …")은 그 아이가 **아직 있을 때만**
+     * 참이다. 아이 프로필을 삭제해도 그 아이의 실패 행은 기기에 남으므로(아이 삭제 뒤처리는
+     * 이 큐를 건드리지 않는다 — app/settings/privacy.tsx childDelete.onSuccess), 그 행에
+     * 종전 문장이 서면 아이 관리 어디에도 없는 아이를 고르라는 지킬 수 없는 안내가 된다.
+     * 판정은 ["children"] 캐시가 실제로 로드됐을 때만 내린다(null = 모름이면 종전 문장
+     * 그대로 — 모르면 지어내지 않는다). 행을 자동으로 지우지는 않는다: 서버에 없는 기록이라
+     * 무엇을 버릴지는 사용자가 정하고, 그 행동(버리기 버튼)은 그대로 남아 있다.
+     */
+    const rowChildDeleted = knownChildIds !== null && !knownChildIds.includes(rowChildId);
     return (
       <SyncRow row={row}>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMANENT_FAILURE_HINT}</Text>
@@ -405,7 +425,12 @@ const FailedRow = memo(function FailedRow({
         ) : (
           <>
             {showOtherChildNotice ? (
-              <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{FAILED_ROW_OTHER_CHILD_NOTICE}</Text>
+              rowChildDeleted ? (
+                // 라운드 99 L-1: 삭제된 아이의 행 — 문장만 갈리고 자리·스타일·버리기는 같다.
+                <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{failedRowDeletedChildNotice()}</Text>
+              ) : (
+                <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{FAILED_ROW_OTHER_CHILD_NOTICE}</Text>
+              )
             ) : null}
             <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
           </>
@@ -626,6 +651,25 @@ export default function SyncStatusScreen() {
     [cachedCategories?.categories]
   );
 
+  /**
+   * 라운드 99 L-1 — 삭제된 아이 판정용 아이 목록. 위 ["categories"]와 **같은 규율**로 요청 없이
+   * 캐시를 구독만 한다(enabled:false + skipToken — 이 화면은 오프라인·동기화 실패 상황에서
+   * 열리는 화면이라 여기서만 새 요청을 쏘면 실패가 하나 더 늘 뿐이다). 캐시가 비어 있으면
+   * null = **모름**이고, 그때 다른 아이의 실패 행 안내는 종전 문장 그대로다(FailedRow의
+   * knownChildIds 주석). 캐시는 다른 화면들이 채우는 그 ["children"] 하나다 — 아이 삭제
+   * 뒤처리(finishChildRemoval)가 이 키를 무효화·재조회하므로 삭제 직후에도 목록이 낡지 않는다.
+   */
+  const cachedChildrenQuery = useQuery<{ children: Child[] }>({
+    queryKey: ["children"],
+    enabled: false,
+    queryFn: skipToken
+  });
+  const cachedChildren = cachedChildrenQuery.data;
+  const knownChildIds = useMemo(
+    () => cachedChildren?.children.map((child) => child.id) ?? null,
+    [cachedChildren?.children]
+  );
+
   const pendingRows = snapshot.rows.filter((row) => row.syncState === "pending" || row.syncState === "syncing");
   const failedRows = snapshot.rows.filter((row) => row.syncState === "failed");
   const conflictRows = snapshot.rows.filter((row) => row.syncState === "conflict");
@@ -756,6 +800,7 @@ export default function SyncStatusScreen() {
             token={authToken ?? ""}
             queryClient={queryClient}
             selectedChildId={selectedChildId}
+            knownChildIds={knownChildIds}
             expenseEntryLocked={expenseEntryLocked}
             explainExpenseEntryLock={explainExpenseEntryLock}
           />
@@ -773,6 +818,7 @@ export default function SyncStatusScreen() {
       explainExpenseEntryLock,
       failedRows.length,
       formatConflictValue,
+      knownChildIds,
       queryClient,
       retryAll,
       retryableFailedCount,

@@ -276,15 +276,26 @@ describe("resolveHomePrepCard — 준비 현황 카드 한 자리", () => {
     expect(card?.dismissible).toBe(true);
   });
 
-  it("지출 갈래·보기 전용 갈래는 이 자리를 쓰지 않는다(준비템 이야기가 아니다)", () => {
+  /**
+   * 라운드 99 F5(M-1) — ⚠️ 두 시점: 종전 케이스는 guide(first-expense/view-only)와 prepNudge를
+   * **함께** 넣고 prep-nudge 갈래를 기대했는데, 그 조합은 실배선에 존재하지 않는다 —
+   * evaluateHomePrepNudge가 guideVariant가 있으면 이미 null을 내기 때문이다(prep-nudge.test.ts
+   * "빈 홈의 안내 카드가 떠 있어도 접는다"). 그 불가능한 입력이 초록인 동안, 도달 가능한 조합
+   * (guide + prepNudge null + 추천 N개)에서는 recommended-count 갈래가 접힘을 우회해 첫 지출
+   * 유도 옆에 두 번째 큰 CTA가 섰다(DNC-002 위반). 판정은 homeGuideSpeaksForEmptyHome 하나다.
+   */
+  it("빈 홈의 안내(first-expense/view-only)가 서 있으면 기본 문구 갈래도 접는다 — 단일 CTA(DNC-002)", () => {
     for (const variant of ["first-expense", "view-only"] as const) {
-      const card = resolveHomePrepCard({
-        hasSession: true,
-        firstRunGuide: guide(variant),
-        prepNudge: nudge,
-        unpreparedItemCount: 3
-      });
-      expect(card?.source).toBe("prep-nudge");
+      expect(
+        resolveHomePrepCard({
+          hasSession: true,
+          firstRunGuide: guide(variant),
+          // 실배선의 값 그대로: 이 조합에서 넛지는 이미 접혀 null이다(prep-nudge.ts).
+          prepNudge: null,
+          unpreparedItemCount: 3
+        }),
+        variant
+      ).toBeNull();
     }
   });
 

@@ -127,7 +127,9 @@ describe("라운드 65 후속(#1) 화면 배선", () => {
     expect(screen).toContain('import { saveWithConsentRecovery } from "../../src/onboarding/consent-recovery";');
     expect(screen).toContain("mutationFn: () => saveWithConsentRecovery(submitChild, () => upsertConsents(authToken!))");
     // 재시도가 같은 Idempotency-Key를 재사용한다는 MOB-101 계약이 복구 경로의 전제다.
-    expect(screen).toContain("getOrCreateChildCreateIdempotencyKey()");
+    // 라운드 99 F1(M): 키가 본문 지문에 묶였지만 이 전제는 그대로다 — 복구 재시도는 같은
+    // submitChild를 다시 부르므로 본문이 같고, 같은 본문은 같은 키를 받는다.
+    expect(screen).toContain("getOrCreateChildCreateIdempotencyKey(childCreateBodyFingerprint(body))");
   });
 
   it("실패 카드에 [다시 동의하고 저장]이 배선돼 있다", () => {

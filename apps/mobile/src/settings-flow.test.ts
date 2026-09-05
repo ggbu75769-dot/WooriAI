@@ -155,3 +155,33 @@ describe("NAV-121 settings entry point contract", () => {
     expect(settingsSource).toContain("const childSummary = !authToken\n    ? summarySignedOutText");
   });
 });
+
+/**
+ * 라운드 99 M-2 — 파괴 플로우의 미리보기가 **대상 전환을 살아남지 않는다**.
+ *
+ * 종전에는 A 아이로 "삭제 전 확인하기"를 띄운 뒤 아이 관리에서 B로 전환하고 돌아오면 A 시점의
+ * 미리보기·삭제 버튼이 그대로 서 있었고, 그 버튼의 뮤테이션은 지금 `childId`를 읽으므로 누르면
+ * B가 삭제됐다(화면의 영향 목록·confirmationText는 A의 것). 가구 탈퇴도 대상(`householdId`)이
+ * 아이 전환·목록 도착으로 파생 변경되는 같은 모양이다. 화면은 vitest에서 렌더할 수 없으므로
+ * NAV-121과 같은 source-grep 관례로 리셋 계약을 고정한다.
+ */
+describe("라운드 99 M-2 privacy 미리보기 대상 전환 리셋 계약", () => {
+  const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+
+  it("대상 id가 바뀌면 그 플로우의 미리보기가 리셋된다 (childId → childPreview, householdId → householdPreview)", () => {
+    const privacySource = source("app/settings/privacy.tsx");
+
+    // 의존 배열이 대상 id를 들고 있는 effect 두 개 — 대상이 바뀌는 그 렌더에서 미리보기가 접힌다.
+    expect(privacySource).toContain(
+      "useEffect(() => {\n    childPreview.reset();\n  }, [childId, childPreview.reset]);"
+    );
+    expect(privacySource).toContain(
+      "useEffect(() => {\n    householdPreview.reset();\n  }, [householdId, householdPreview.reset]);"
+    );
+    // 계정 삭제에는 전환 축이 없다(대상이 세션 그 자체다) — 리셋 effect를 만들지 않는다.
+    expect(privacySource).not.toContain("accountPreview.reset();\n  }, [");
+    // 확인 단계 게이트는 종전 그대로 미리보기 data에 걸려 있다(리셋 = 확인 단계가 접힌다).
+    expect(privacySource).toContain("{childPreview.data ? (");
+    expect(privacySource).toContain("{householdPreview.data ? (");
+  });
+});

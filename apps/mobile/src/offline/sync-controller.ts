@@ -438,11 +438,29 @@ export async function updateItemStatusOffline(
   const store = await getOfflineStore();
   const row = await recordLocalItemStatus(store, payload);
   // 이미 받아 둔 캐시만 고쳐 쓴다(새 요청 0건). 판정·모양 처리는 순수 모듈이 한다.
-  queryClient.setQueriesData({ queryKey: ["items"] }, (data: unknown) =>
-    patchItemStatusInQueryData(data, payload.itemTemplateId, payload.status)
+  //
+  // 라운드 99 F2 M-2 — **그 아이의 캐시만.** 종전에는 접두 `["items"]`/`["item-detail"]` 전체를
+  // 패치해서, 다자녀 가구에서 첫째에게 누른 "준비했어요"가 둘째의 캐시(같은 카탈로그 템플릿
+  // id)에도 적혔다 — 색인 쪽(src/items/pending-status.ts buildPendingItemStatusIndex)이 이미
+  // 경고한 그 사고다: "준비템 id는 카탈로그 템플릿 id라 **아이가 달라도 같은 값**이다.
+  // 거르지 않으면 첫째에게 누른 '준비했어요'가 둘째의 목록에도 반영된 것처럼 보인다." 둘째의
+  // 캐시에는 대기 배지조차 없다(색인은 아이로 걸러진다) — 배지 없는 낙관 반영은 그냥 거짓이다.
+  // 캐시 키의 실제 모양은 `["items", childId, "catalog"]`(app/(tabs)/items.tsx) ·
+  // `["item-detail", childId, itemTemplateId]`(app/items/[itemTemplateId].tsx)라 childId 자리로
+  // 접두를 좁히고, 패치 함수도 같은 축을 한 번 더 검증한다(접두가 다시 넓어지는 날의 이중 벨트).
+  queryClient.setQueriesData({ queryKey: ["items", payload.childId] }, (data: unknown) =>
+    patchItemStatusInQueryData(
+      data,
+      { childId: payload.childId, itemTemplateId: payload.itemTemplateId, status: payload.status },
+      payload.childId
+    )
   );
-  queryClient.setQueriesData({ queryKey: ["item-detail"] }, (data: unknown) =>
-    patchItemStatusInQueryData(data, payload.itemTemplateId, payload.status)
+  queryClient.setQueriesData({ queryKey: ["item-detail", payload.childId] }, (data: unknown) =>
+    patchItemStatusInQueryData(
+      data,
+      { childId: payload.childId, itemTemplateId: payload.itemTemplateId, status: payload.status },
+      payload.childId
+    )
   );
   await refreshSnapshot();
   void flushInBackground(token, queryClient);

@@ -951,16 +951,18 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
 
     // ① tsx-components — 종전 141(라운드 88~90), 토스 라운드 T1·T6이 ui.tsx에 export function 둘
     // (SheetMountTransition · LoadErrorCard)을 더해 143이 됐고(두 시점), 토스 리뷰가 홈 히어로의
-    // 카운트업 사본을 걷으며 AmountCountUpText를 export로 열어 오늘 144다(두 시점 — 소비자 실재,
-    // 대장 value도 함께 144로 적음).
-    expect(spotOf("tsx-components")?.value, "적어 둔 값").toBe(144);
-    expect(tsxExportFunctionCount(), "오늘 다시 잰 값 — 갈리면 그 수가 값이다").toBe(144);
+    // 카운트업 사본을 걷으며 AmountCountUpText를 export로 열어 144가 됐다(두 시점 — 소비자 실재).
+    // 라운드 99 F1이 step-ui.tsx의 재시도 무익 판정(isOnboardingSaveIdempotencyConflict)을 열어
+    // 오늘 145다(두 시점 — 소비자 실재, 대장 value도 함께 145로 적음).
+    expect(spotOf("tsx-components")?.value, "적어 둔 값").toBe(145);
+    expect(tsxExportFunctionCount(), "오늘 다시 잰 값 — 갈리면 그 수가 값이다").toBe(145);
 
     // ② common-name — 종전 226(라운드 89 C) → 229(기능 라운드 1), 토스 라운드 T2가 홈의 삼항
-    // `HOME_SECTIONS_COLLAPSE_LABEL : …`을 걷어 오늘 228(두 시점 — 그물이 삼항의 `:`를 키로 오독하던
-    // 표면이 준 것이고, 줄어든 쪽도 값이다. 대장 value도 함께 228로 내려 적음).
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(228);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(228);
+    // `HOME_SECTIONS_COLLAPSE_LABEL : …`을 걷어 228이 됐다(두 시점 — 그물이 삼항의 `:`를 키로
+    // 오독하던 표면이 준 것). 라운드 99 F3·F4가 RECORDS_VIEW_MODE_LIST·useAnalyticsConsentStore를
+    // 열어 오늘 230이다(두 시점 — git 워크트리 대조 실측, 대장 value도 함께 230으로 적음).
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(230);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(230);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.
@@ -990,8 +992,10 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
 
     // ⑤ 라운드 90 리뷰 M-3이 연 자리 — **스캐너의 오탐 표면**도 값과 실피해를 함께 든다.
     // 두 시점: 105(라운드 90) → 106 — T1의 use-transient-notice.ts가 ASCII '를 지닌 채 호출부에 들어왔다.
-    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(106);
-    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(106);
+    // 라운드 99 F2: 106 → 107 — pending-status.ts가 아이 경계 수리 주석에 ASCII '를 지닌 채
+    // 들어왔다(수정 전 0 → 후 1, git 대조 실측). 실피해 0은 그대로다.
+    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(107);
+    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(107);
     // ⚠️ 이 등호는 우연이 아니다(M-4의 그 등호와 다르다): 0을 넘는 날 사문 판정 하나가 **거짓
     // 빨강**이므로, 빨개지는 것이 곧 알려야 할 사실이다. 그때의 답은 대장에 줄을 더하는 것이
     // 아니라 이 스캐너가 JSX 텍스트를 코드와 가르는 것이다.

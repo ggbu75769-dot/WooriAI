@@ -55,6 +55,8 @@
  *    이라 히어로 바로 아래에 그대로 둔다(스펙의 "일시적 예외"와 같은 취급).
  */
 
+import { homeGuideSpeaksForEmptyHome } from "./first-run-guide";
+
 export type HomeSectionId =
   | "budget-warning"
   | "first-run-guide"
@@ -212,7 +214,11 @@ export const HOME_MORE_SECTIONS_TEST_ID = "home-more-sections-toggle";
  * 우선순위:
  *  1. 첫 실행 안내(`first-items`) — 1회성이고 닫을 수 있어 가장 먼저 지나가야 할 말이다.
  *  2. 준비템 넛지 — 이름·상태까지 아는 구체적인 말이라 기본 문구보다 정보가 많다.
- *  3. 기본 문구 — 위 둘이 없을 때, 아직 준비되지 않은 항목이 실제로 있을 때만.
+ *  3. 기본 문구 — 위 둘이 없을 때, 아직 준비되지 않은 항목이 실제로 있을 때만. 단, **빈 홈의
+ *     안내(first-expense/view-only)가 서 있으면 이 갈래도 접는다** — 빈 홈에는 "다음 한 걸음"
+ *     CTA가 하나만 서야 한다(DNC-002, first-run-guide.ts 헤더 "왜 카드가 하나인가"). 판정은
+ *     `homeGuideSpeaksForEmptyHome` 한 곳이고, 준비템 넛지가 같은 이유로 접히는 자리
+ *     (prep-nudge.ts의 guideVariant 접힘)와 **같은 판정**이다.
  * 셋 다 해당 없으면 카드를 만들지 않는다(0개를 "0개"라고 말하려고 카드를 세우지 않는다).
  */
 export const HOME_PREP_CARD_TITLE = "이번 주 준비 현황";
@@ -295,7 +301,13 @@ export function resolveHomePrepCard(input: HomePrepCardInput): HomePrepCard | nu
     };
   }
 
-  if (input.unpreparedItemCount > 0) {
+  // 라운드 99 F5(M-1) — ⚠️ 두 시점: 종전에는 이 갈래만 안내 카드의 종류를 보지 않았다. 빈 홈
+  // (기록 0건)에도 서버 추천은 오므로 unpreparedItemCount가 양수라, 첫 지출 유도(first-expense)/
+  // 보기 전용(view-only) 카드 옆에 "지금 필요한 준비템 N개" CTA 카드가 **두 번째 큰 CTA**로
+  // 섰다 — 준비템 넛지는 prep-nudge.ts가 같은 이유(DNC-002 빈 홈 단일 CTA)로 이미 접고 있어서
+  // 이 갈래가 그 접힘을 우회하는 유일한 구멍이었다. 판정은 first-run-guide.ts의
+  // homeGuideSpeaksForEmptyHome 하나다(두 모듈이 각자 다시 짐작하지 않는다).
+  if (input.unpreparedItemCount > 0 && !homeGuideSpeaksForEmptyHome(guide?.variant)) {
     const subtitle = homePrepCardSubtitle(input.unpreparedItemCount);
     return {
       source: "recommended-count",

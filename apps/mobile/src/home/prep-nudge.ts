@@ -36,7 +36,10 @@ import type { HomeFirstRunGuideVariant } from "./first-run-guide";
  *    두 번 하지 않는다(마일스톤 ↔ 누적 총액 카드의 `hasMilestoneCard` 선례, F5/B2).
  *  - `first-expense` / `view-only`: 빈 홈에 "다음 한 걸음"이 **하나만** 서야 한다는 DNC-002
  *    규율 그대로다(first-run-guide.ts 헤더 "왜 카드가 하나인가"). 그 옆에 두 번째 큰 CTA를
- *    세우면 "어디부터?"라는 질문이 하나 더 생겨 루프가 오히려 흐려진다.
+ *    세우면 "어디부터?"라는 질문이 하나 더 생겨 루프가 오히려 흐려진다. 이 두 갈래의 판정은
+ *    first-run-guide.ts의 `homeGuideSpeaksForEmptyHome` 하나이고, 준비 현황 카드의 기본 문구
+ *    갈래(home-section-priority.ts `resolveHomePrepCard`)도 라운드 99 F5(M-1)부터 **같은
+ *    판정**으로 접는다 — 종전에는 그 갈래만 이 접힘을 우회해 빈 홈에 두 번째 큰 CTA가 섰다.
  * 판정은 호출부가 이미 갖고 있는 `firstRunGuide?.variant ?? null`을 그대로 받는다 — 여기서
  * 게이트를 다시 짐작하면 두 카드가 함께 뜨거나 함께 사라지는 상태가 생긴다.
  *
@@ -186,7 +189,9 @@ export function selectPrepNudgeItems(
 export function evaluateHomePrepNudge(input: HomePrepNudgeInput): HomePrepNudge | null {
   if (!input.hasSession) return null;
   // 첫 실행 안내 카드가 떠 있으면 접는다(위 "접는 조건" — 준비템 갈래는 같은 말, 나머지 두
-  // 갈래는 빈 홈의 단일 CTA 규율 DNC-002).
+  // 갈래는 빈 홈의 단일 CTA 규율 DNC-002 = homeGuideSpeaksForEmptyHome이 참인 두 종류다).
+  // 라운드 99 F5(M-1): 준비 현황 카드의 기본 문구 갈래(resolveHomePrepCard)도 같은 판정으로
+  // 접는다 — 이 접힘만으로는 빈 홈의 단일 CTA가 지켜지지 않았다(그 갈래가 우회하고 있었다).
   if (input.guideVariant) return null;
 
   const items = selectPrepNudgeItems(input.recommendedItems);

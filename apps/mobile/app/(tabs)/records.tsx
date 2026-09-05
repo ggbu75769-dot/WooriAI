@@ -129,6 +129,7 @@ import { MonthJumpSheet } from "../../src/MonthJumpSheet";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import {
+  effectiveRecordsViewMode,
   useRecordsViewStore,
   RECORDS_VIEW_MODE_CALENDAR,
   RECORDS_VIEW_MODE_LIST
@@ -781,12 +782,40 @@ export default function RecordsScreen() {
    * 화면이 쓰는 값은 여전히 세그먼트 라벨이므로, 라벨 ↔ 저장 값 변환을 이 자리 하나에 둔다.
    */
   const setRecordsViewMode = useRecordsViewStore((state) => state.setMode);
-  const viewMode = useRecordsViewStore((state) =>
-    state.mode === RECORDS_VIEW_MODE_CALENDAR ? RECORDS_VIEW_CALENDAR : RECORDS_VIEW_LIST
-  );
+  /**
+   * 리뷰 M-4 → 라운드 99 F3 M-2(두 시점) — 달력 날짜 착지의 **비저장 오버라이드 한 쌍.**
+   *
+   * 종전에는 달력 칸 탭이 정렬만 비저장 오버라이드(`calendarDateLanding`)로 풀고 보기는
+   * `setViewMode(RECORDS_VIEW_LIST)`(persist setter)로 **저장된 취향을 영구 덮어썼다** —
+   * 같은 제스처를 두 취향이 서로 다르게 다루는 자기모순이었다("그날 보기" 탭은 정렬 취향의
+   * 의사표시가 아니라는 M-4의 판정은 보기 취향에도 그대로 참이다). 이제 보기도 같은 방식이다:
+   * 착지 동안만 리스트를 보여 주는 화면 state(`calendarDateViewLanding`)를 세우고, 표시 판정은
+   * 스토어의 순수 함수(effectiveRecordsViewMode — records-sort의 landing 관례를 records-view
+   * 쪽에 대칭 이식)가 한다. persist는 0바이트다.
+   *
+   * 해제 규칙도 정렬 오버라이드와 대칭이다: 그 컨트롤의 **명시 조작이 언제나 이긴다** —
+   * 보기 토글 수동 조작(아래 setViewMode)이 걷고, 달 이동(아래 monthOffset effect)이 걷는다
+   * (착지의 목적지는 "그 달의 그 날짜 섹션"이라 달이 바뀌면 참이 아니다). 정렬 쪽 해제는
+   * 종전 그대로 handleSortModeChange가 진다.
+   */
+  const [calendarDateLanding, setCalendarDateLanding] = useState(false);
+  const [calendarDateViewLanding, setCalendarDateViewLanding] = useState(false);
+  const persistedRecordsViewMode = useRecordsViewStore((state) => state.mode);
+  // 표시 모드(임시 오버라이드 반영) — 세그먼트 value·달력 렌더·빈 상태 판정이 전부 이 값을
+  // 본다(보이는 화면과 컨트롤이 갈리지 않는다 — 정렬 토글의 shownSortMode와 같은 규칙).
+  const viewMode =
+    effectiveRecordsViewMode({ mode: persistedRecordsViewMode, calendarDateLanding: calendarDateViewLanding }) ===
+    RECORDS_VIEW_MODE_CALENDAR
+      ? RECORDS_VIEW_CALENDAR
+      : RECORDS_VIEW_LIST;
   const setViewMode = useCallback(
-    (next: string) =>
-      setRecordsViewMode(next === RECORDS_VIEW_CALENDAR ? RECORDS_VIEW_MODE_CALENDAR : RECORDS_VIEW_MODE_LIST),
+    (next: string) => {
+      // M-2: 보기 토글의 명시 조작이 착지 오버라이드(보기·정렬)를 함께 걷는다 — 사용자가 방금
+      // 고른 보기가 곧장 서고, 리스트를 골랐다면 저장된 정렬 취향도 그대로 돌아온다.
+      setCalendarDateViewLanding(false);
+      setCalendarDateLanding(false);
+      setRecordsViewMode(next === RECORDS_VIEW_CALENDAR ? RECORDS_VIEW_MODE_CALENDAR : RECORDS_VIEW_MODE_LIST);
+    },
     [setRecordsViewMode]
   );
   const isCalendarView = viewMode === RECORDS_VIEW_CALENDAR;
@@ -807,11 +836,11 @@ export default function RecordsScreen() {
    * 리뷰 M-4(두 시점) — 달력 날짜 착지의 **임시 정렬 해제**(비저장 오버라이드).
    *
    * 종전에는 달력 칸 탭이 위 persist setter로 "latest"를 저장해 사용자의 정렬 취향을 영구
-   * 덮어썼다. 이제 착지는 이 화면 state만 세우고(persist 0바이트), 표시 모드는 아래
-   * effectiveRecordsSortMode가 정한다 — 정렬 토글의 명시 선택이 오버라이드를 걷는다.
-   * 정렬 *취향*은 여전히 스토어 한 곳에만 산다(이 state는 취향이 아니라 착지 사실이다).
+   * 덮어썼다. 이제 착지는 화면 state(`calendarDateLanding` — 선언은 위 보기 오버라이드 쌍과
+   * 한 자리)만 세우고(persist 0바이트), 표시 모드는 아래 effectiveRecordsSortMode가 정한다 —
+   * 정렬 토글의 명시 선택이 오버라이드를 걷는다. 정렬 *취향*은 여전히 스토어 한 곳에만 산다
+   * (그 state는 취향이 아니라 착지 사실이다).
    */
-  const [calendarDateLanding, setCalendarDateLanding] = useState(false);
   const handleSortModeChange = useCallback(
     (mode: RecordsSortMode) => {
       // 명시 선택은 오버라이드를 걷는다 — 표시가 방금 고른 값으로 곧장 떨어진다(리뷰 M-4).
@@ -831,6 +860,17 @@ export default function RecordsScreen() {
   // 컨트롤이 갈리지 않는다). persist 값(sortMode)은 읽기만 한다.
   const shownSortMode = effectiveRecordsSortMode({ sortMode, calendarDateLanding });
   const isAmountSort = isAmountSortApplied({ sortMode: shownSortMode, isCalendarView });
+  /**
+   * M-2 대칭 해제 ② — **달 이동이 착지를 걷는다.** 착지의 목적지는 "그 달의 그 날짜 섹션"이라
+   * 달이 바뀌는 순간 참이 아니다. 화살표·월 선택 시트·검색 0건 카드의 되감기·딥링크 어느 손이
+   * 달을 옮겼든 같아야 하므로 핸들러 여섯 곳이 아니라 달 상태 하나를 본다. 두 오버라이드가
+   * 함께 걷혀 저장된 보기·정렬 취향이 그대로 돌아오고, 이미 꺼져 있으면 같은 값 setState라
+   * React가 재렌더 없이 눕힌다(마운트 1회차도 같은 이유로 무해하다).
+   */
+  useEffect(() => {
+    setCalendarDateViewLanding(false);
+    setCalendarDateLanding(false);
+  }, [monthOffset]);
   /**
    * 라운드 56 D#10 — **기록 리마인더 알림이 달력으로 착지한다.**
    *
@@ -867,6 +907,11 @@ export default function RecordsScreen() {
     if (!isRecordsCalendarViewParam(viewParam)) return;
     if (appliedViewNonceRef.current === viewNonceParam) return;
     appliedViewNonceRef.current = viewNonceParam;
+    // M-2: 착지 오버라이드가 서 있으면 함께 걷는다 — 저장 setter가 달력을 가리켜도 보기
+    // 오버라이드가 리스트를 계속 얹으면 알림이 약속한 달력이 서지 않는다(setter는 종전 그대로
+    // persist 경로다: 이 착지는 세그먼트를 직접 누른 것과 같은 길을 탄다는 위 주석의 판정 유지).
+    setCalendarDateViewLanding(false);
+    setCalendarDateLanding(false);
     setRecordsViewMode(RECORDS_VIEW_MODE_CALENDAR);
   }, [viewParam, viewNonceParam, setRecordsViewMode]);
   // 달력에서 누른 날짜. 리스트로 전환된 **다음 렌더**에 그 섹션으로 스크롤한다(전환과 스크롤을
@@ -1492,7 +1537,12 @@ export default function RecordsScreen() {
   // 달력 칸 → 그날 기록. 목록으로 전환하고, 그 다음 렌더에서 해당 날짜 섹션으로 스크롤한다.
   // 안정된 참조여야 CalendarDayCell의 memo가 매 렌더 깨지지 않는다.
   const handleSelectCalendarDate = useCallback((date: string) => {
-    setViewMode(RECORDS_VIEW_LIST);
+    // 리뷰 M-4 → 라운드 99 F3 M-2(두 시점): 종전에는 이 첫 줄이 보기 persist setter 호출
+    // (`setViewMode`에 RECORDS_VIEW_LIST)이라 **보기 취향까지 영구 덮어썼다**(정렬은 M-4가
+    // 이미 비저장 오버라이드로 고친 뒤라, 같은 제스처를 두 취향이 다르게 다루는
+    // 자기모순이었다). 이제 보기도 착지 오버라이드다: 이 콜백 어디에도 persist setter가 없고,
+    // 그 부재 자체가 계약이다(선언부 주석 · records-view.store.test.ts M-2 스위트).
+    setCalendarDateViewLanding(true);
     // 트랙 B: 달력 칸의 목적지는 그 날짜의 **섹션**인데, 금액 큰 순 평평 목록에는 그 자리가
     // 없다(날짜 섹션이 아예 만들어지지 않는다). 리뷰 M-4(두 시점): 종전에는 여기서 persist
     // setter로 "latest"를 저장해 취향을 영구 덮어썼다 — "그날 보기" 탭은 정렬 취향의
@@ -1509,10 +1559,10 @@ export default function RecordsScreen() {
     scrollRetryCountRef.current = 0;
     setPendingScrollDate(date);
     announceForA11y(`${formatSpentOn(date)} 기록`);
-    // setViewMode(고정 deps useCallback)·setCalendarDateLanding(useState setter)은 렌더 간
-    // 참조가 안정적이라 이 콜백도 안정적으로 남는다 — CalendarDayCell의 memo가 매 렌더
-    // 깨지지 않는다(useState setter는 React가 안정성을 보장하므로 deps에 두지 않는다).
-  }, [setViewMode]);
+    // M-2: persist setter가 빠지면서 이 콜백이 닿는 외부 값은 useState setter·ref뿐이다 —
+    // 둘 다 React가 참조 안정성을 보장하므로 deps가 비고, CalendarDayCell의 memo가 매 렌더
+    // 깨지지 않는 성질(이 콜백이 안정적이어야 한다)은 종전 그대로다.
+  }, []);
 
   /**
    * 라운드 63 C(#8) — 달력의 **빈 날 칸** → 그날로 기록하기.

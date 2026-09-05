@@ -53,6 +53,47 @@ function isProviderUserUniqueViolation(error: unknown): boolean {
 }
 
 /**
+ * 라운드 99 L-2 — true only for a P2002 unique-constraint violation on the
+ * household_members table's (householdId, userId) key (`uq_household_members_user`),
+ * the one acceptInvite's member `create` can race on.
+ *
+ * Matching strategy mirrors `isProviderUserUniqueViolation` above, and for the same
+ * reason: this repo's Postgres setup has been observed to return `meta.target: null`
+ * for unique violations, so we fall back to `meta.modelName === "HouseholdMember"`.
+ * That fallback is still specific: acceptInvite's transaction only writes to
+ * `householdInvite` (a CAS `updateMany` — no unique key can be newly violated) and
+ * `householdMember`, and the member `update` branch keeps its (householdId, userId)
+ * key unchanged — only the `create` branch can hit P2002 here.
+ */
+function isHouseholdMemberUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object" || (error as { code?: string }).code !== "P2002") {
+    return false;
+  }
+  const meta = (error as { meta?: { target?: unknown; modelName?: unknown } }).meta;
+  const target = meta?.target;
+  const targetText = Array.isArray(target) ? target.join(",") : typeof target === "string" ? target : "";
+  if (targetText) {
+    return (
+      targetText.includes("householdId_userId") ||
+      targetText.includes("uq_household_members_user") ||
+      (targetText.includes("household_id") && targetText.includes("user_id"))
+    );
+  }
+  return meta?.modelName === "HouseholdMember";
+}
+
+/**
+ * acceptInvite의 두 자리(사전 조회 · P2002 경합)가 같은 409 본문을 던진다 — 문구가 갈리지 않게
+ * 본문만 한 벌로 둔다. `throw new ConflictException(...)`은 각 자리에 그대로 남는다(가족 여정
+ * 오류 스윕이 이 서비스가 던지는 예외 클래스를 소스에서 전수로 세는 계약과 어긋나지 않게 —
+ * apps/mobile/src/api/api-error.test.ts의 "던지는 예외가 전부 4xx다").
+ */
+const HOUSEHOLD_ALREADY_MEMBER_ERROR = {
+  code: "HOUSEHOLD_ALREADY_MEMBER",
+  message: "이미 가족 구성원이에요. 초대를 다시 수락할 필요가 없어요."
+} as const;
+
+/**
  * Postgres-backed household/member/invite runtime, replacing the earlier in-memory
  * Maps. Authorization checks (assertOwner/assertMember) still read from the
  * already-DB-enriched `AuthenticatedUser.households` on the request (populated by
@@ -460,40 +501,51 @@ export class HouseholdRuntimeService {
       where: { householdId_userId: { householdId: invite.householdId, userId: user.id } }
     });
     if (existingMember && existingMember.status === "active") {
-      throw new ConflictException({
-        code: "HOUSEHOLD_ALREADY_MEMBER",
-        message: "이미 가족 구성원이에요. 초대를 다시 수락할 필요가 없어요."
-      });
+      throw new ConflictException(HOUSEHOLD_ALREADY_MEMBER_ERROR);
     }
 
     const now = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.householdInvite.updateMany({
-        where: { id: invite.id, status: "pending" },
-        data: { status: "accepted", acceptedByUserId: user.id, acceptedAt: now }
-      });
-      if (claimed.count === 0) {
-        throw new BadRequestException({ code: "INVITE_NOT_PENDING", message: "사용할 수 없는 초대 링크예요." });
-      }
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const claimed = await tx.householdInvite.updateMany({
+          where: { id: invite.id, status: "pending" },
+          data: { status: "accepted", acceptedByUserId: user.id, acceptedAt: now }
+        });
+        if (claimed.count === 0) {
+          throw new BadRequestException({ code: "INVITE_NOT_PENDING", message: "사용할 수 없는 초대 링크예요." });
+        }
 
-      if (existingMember) {
-        await tx.householdMember.update({
-          where: { id: existingMember.id },
-          data: { role: invite.role, status: "active", invitedByUserId: invite.invitedByUserId, joinedAt: now }
-        });
-      } else {
-        await tx.householdMember.create({
-          data: {
-            householdId: invite.householdId,
-            userId: user.id,
-            role: invite.role,
-            status: "active",
-            invitedByUserId: invite.invitedByUserId,
-            joinedAt: now
-          }
-        });
+        if (existingMember) {
+          await tx.householdMember.update({
+            where: { id: existingMember.id },
+            data: { role: invite.role, status: "active", invitedByUserId: invite.invitedByUserId, joinedAt: now }
+          });
+        } else {
+          await tx.householdMember.create({
+            data: {
+              householdId: invite.householdId,
+              userId: user.id,
+              role: invite.role,
+              status: "active",
+              invitedByUserId: invite.invitedByUserId,
+              joinedAt: now
+            }
+          });
+        }
+      });
+    } catch (error) {
+      // 라운드 99 L-2 — 같은 사용자가 서로 다른 초대 두 장을 동시에 수락하는 경합. 위의
+      // existingMember 조회는 트랜잭션 밖이라 두 요청 모두 "구성원 아님"을 읽을 수 있고, 그
+      // 경우 둘 다 create 분기로 들어가 진 쪽이 (householdId, userId) 유니크 P2002로 죽는다.
+      // 초대 CAS는 초대별로 서로 다른 행이라 이 경합을 막지 못한다(단일 초대 이중 수락과 다른
+      // 축이다 — 그쪽은 CAS가 INVITE_NOT_PENDING으로 거른다). 트랜잭션 전체가 롤백되므로 진
+      // 쪽의 초대는 pending으로 남고 상태는 정합이다 — 틀린 것은 표면(500)뿐이라, 순차 재수락이
+      // 받았을 기존 매핑(409 HOUSEHOLD_ALREADY_MEMBER)으로 돌려준다.
+      if (isHouseholdMemberUniqueViolation(error)) {
+        throw new ConflictException(HOUSEHOLD_ALREADY_MEMBER_ERROR);
       }
-    });
+      throw error;
+    }
 
     return {
       household: {

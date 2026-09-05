@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  effectiveRecordsViewMode,
   sanitizeRecordsViewMode,
   useRecordsViewStore,
   RECORDS_VIEW_MODE_CALENDAR,
@@ -149,6 +150,69 @@ describe("useRecordsViewStore", () => {
     expect(recordsSource).toContain(
       "<SegmentedControl options={RECORDS_VIEW_OPTIONS} value={viewMode} onChange={setViewMode} />"
     );
-    expect(recordsSource).toContain("setViewMode(RECORDS_VIEW_LIST);");
+    // ⚠️ 라운드 99 F3 M-2(두 시점 · 핀 이관): 종전 마지막 단언은 `setViewMode(RECORDS_VIEW_LIST);`
+    // — 달력 칸 탭이 persist를 덮어쓰던 그 호출의 존재 증명이었다. 그 호출은 비저장 착지
+    // 오버라이드로 대체됐고(아래 M-2 스위트), 화면에 남은 setViewMode는 세그먼트 onChange
+    // 하나뿐이다 — 저장 경로가 "사용자의 보기 토글 명시 조작"으로만 좁혀졌다는 사실이 새 핀이다.
+    expect(recordsSource).not.toContain("setViewMode(RECORDS_VIEW_LIST);");
+  });
+
+  /**
+   * 라운드 99 F3 M-2 — 달력 날짜 착지는 보기 persist를 건드리지 않는다.
+   *
+   * 정렬 쪽 리뷰 M-4(records-sort.ts `effectiveRecordsSortMode`)와 대칭인 판정·배선 계약이다:
+   * 착지 동안만 리스트를 얹고, persist 값은 0바이트, 명시 조작(보기 토글)·달 이동이 걷는다.
+   */
+  describe("M-2: 달력 날짜 착지의 비저장 보기 오버라이드", () => {
+    it("착지 중에는 리스트를 보여 주고, 아니면 저장된 취향 그대로다", () => {
+      expect(effectiveRecordsViewMode({ mode: RECORDS_VIEW_MODE_CALENDAR, calendarDateLanding: true })).toBe(
+        RECORDS_VIEW_MODE_LIST
+      );
+      expect(effectiveRecordsViewMode({ mode: RECORDS_VIEW_MODE_CALENDAR, calendarDateLanding: false })).toBe(
+        RECORDS_VIEW_MODE_CALENDAR
+      );
+      expect(effectiveRecordsViewMode({ mode: RECORDS_VIEW_MODE_LIST, calendarDateLanding: true })).toBe(
+        RECORDS_VIEW_MODE_LIST
+      );
+      expect(effectiveRecordsViewMode({ mode: RECORDS_VIEW_MODE_LIST, calendarDateLanding: false })).toBe(
+        RECORDS_VIEW_MODE_LIST
+      );
+    });
+
+    it("화면 표시가 이 판정을 지나고, 착지 콜백에는 persist setter가 없다", () => {
+      const recordsSource = source("app/(tabs)/records.tsx");
+      expect(recordsSource).toContain(
+        "effectiveRecordsViewMode({ mode: persistedRecordsViewMode, calendarDateLanding: calendarDateViewLanding })"
+      );
+      const selectAt = recordsSource.indexOf("const handleSelectCalendarDate = useCallback(");
+      const selectEndAt = recordsSource.indexOf("const handleRecordForCalendarDate = useCallback(", selectAt);
+      expect(selectAt).toBeGreaterThan(-1);
+      expect(selectEndAt).toBeGreaterThan(selectAt);
+      const selectBlock = recordsSource.slice(selectAt, selectEndAt);
+      expect(selectBlock).toContain("setCalendarDateViewLanding(true);");
+      expect(selectBlock).not.toContain("setRecordsViewMode(");
+      expect(selectBlock).not.toContain("setViewMode(");
+    });
+
+    it("해제는 정렬 오버라이드와 대칭이다 — 보기 토글 명시 조작·달 이동·알림 달력 착지가 걷는다", () => {
+      const recordsSource = source("app/(tabs)/records.tsx");
+      // ① 보기 토글 수동 조작(setViewMode)이 두 오버라이드를 걷고 나서야 저장한다.
+      const setViewModeAt = recordsSource.indexOf("const setViewMode = useCallback(");
+      expect(setViewModeAt).toBeGreaterThan(-1);
+      const setViewModeBlock = recordsSource.slice(setViewModeAt, recordsSource.indexOf("[setRecordsViewMode]", setViewModeAt));
+      expect(setViewModeBlock).toContain("setCalendarDateViewLanding(false);");
+      expect(setViewModeBlock).toContain("setCalendarDateLanding(false);");
+      expect(setViewModeBlock.indexOf("setCalendarDateViewLanding(false);")).toBeLessThan(
+        setViewModeBlock.indexOf("setRecordsViewMode(")
+      );
+      // ② 달 이동은 상태 하나(monthOffset)를 보는 effect가 걷는다 — 화살표·시트·딥링크 공통.
+      expect(recordsSource).toContain("  useEffect(() => {\n    setCalendarDateViewLanding(false);\n    setCalendarDateLanding(false);\n  }, [monthOffset]);");
+      // ③ 알림의 달력 착지(view=calendar)도 오버라이드를 걷어야 약속한 달력이 실제로 선다.
+      const nonceAt = recordsSource.indexOf("appliedViewNonceRef.current = viewNonceParam;");
+      expect(nonceAt).toBeGreaterThan(-1);
+      const nonceBlock = recordsSource.slice(nonceAt, recordsSource.indexOf("}, [viewParam, viewNonceParam, setRecordsViewMode]);", nonceAt));
+      expect(nonceBlock).toContain("setCalendarDateViewLanding(false);");
+      expect(nonceBlock).toContain("setRecordsViewMode(RECORDS_VIEW_MODE_CALENDAR);");
+    });
   });
 });

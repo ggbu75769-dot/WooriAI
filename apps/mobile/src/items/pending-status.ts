@@ -100,12 +100,23 @@ export function pendingItemStatusView(row: ItemStatusOutboxRow | undefined): Pen
  *  - 상세 응답 `ItemDetail`(= 단일 객체)
  * 셋 다 여기서 다루고, 그 밖의 모양은 **손대지 않고 그대로 돌려준다**(모르는 캐시를 추측해서
  * 고치지 않는다).
+ *
+ * 라운드 99 F2 M-2 — **아이 경계 축**. 위 색인 주석의 경고가 이 패치에는 빠져 있었다:
+ * "준비템 id는 카탈로그 템플릿 id라 **아이가 달라도 같은 값**이다. 거르지 않으면 첫째에게
+ * 누른 '준비했어요'가 둘째의 목록에도 반영된 것처럼 보인다." 캐시 키는 아이 단위로 갈리는데
+ * (`["items", childId, "catalog"]` · `["item-detail", childId, itemTemplateId]`) 이 패치가
+ * itemTemplateId만 보고 고치면, 접두 `["items"]` 전체에 적용되는 순간 둘째의 캐시가 배지도
+ * 없이(색인은 아이로 걸러져 있으므로) 첫째의 값으로 덮인다. 그래서 호출부는 **어느 아이의
+ * 캐시를 겨냥했는지**(`cacheChildId` — 캐시 키의 childId 자리)를 함께 밝혀야 하고, 패치의
+ * 주인(`patch.childId`)과 다르면 데이터를 그대로 돌려준다.
  */
 export function patchItemStatusInQueryData(
   data: unknown,
-  itemTemplateId: string,
-  status: ItemStatusValue
+  patch: { childId: string; itemTemplateId: string; status: ItemStatusValue },
+  cacheChildId: unknown
 ): unknown {
+  if (patch.childId !== cacheChildId) return data;
+  const { itemTemplateId, status } = patch;
   if (Array.isArray(data)) {
     return data.map((entry) => patchOneItem(entry, itemTemplateId, status));
   }

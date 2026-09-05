@@ -106,10 +106,18 @@ export default function OnboardingResumeScreen() {
   return (
     <AppScreen>
       <View testID="screen-ONB-006" style={{ gap: theme.spacing.section }}>
+        {/* 라운드 99 트랙 F1(L) — ⚠️ 두 시점: 종전 부제는 `지난번에는 "${stepLabel}" 단계까지
+            진행했어요.`였다. 그런데 stepLabel은 nextStep — **아직 가지 않은** 단계다(위
+            nextStepLabels). "아이 프로필 입력"이 다음인 사람은 아이 프로필을 입력한 적이
+            없는데, 종전 문장은 그 단계까지 **진행했다**고 과장했다 — hasResumeWorthyProgress
+            (src/onboarding/resume.ts)가 이어하기 게이트를 세울 때 정확히 이 문장을 들어
+            "사실이 아닌 말"이라 적었던 그 결함이, 게이트를 지나 온 사람에게도 한 단계
+            어긋난 채 남아 있던 것이다. 그래서 과거를 단정하지 않고 지금 갈 곳만 말한다
+            (DNC-018 해요체 — 사실만, 지시·과장 없이). */}
         <ScreenHeader
           eyebrow="이어서 진행하기"
           title="하던 곳부터 계속할까요?"
-          subtitle={`지난번에는 "${stepLabel}" 단계까지 진행했어요.`}
+          subtitle={`이번에는 "${stepLabel}"부터 이어가요.`}
         />
 
         <Card style={{ gap: 10 }}>

@@ -653,8 +653,14 @@ export function PreparationListParity({
         <View style={{ gap: 12 }}>
           {categories.map((group) => {
             const groupItems = group.items;
-            const done = group.items.filter((item) => item.plan?.state && completedStates.has(item.plan.state)).length;
-            const percentage = group.items.length ? Math.round((done / group.items.length) * 100) : 0;
+            // 라운드 99 F2 L-2: 헤더의 "n/m 보유"가 not_needed(괜찮아요)까지 분모에 세어,
+            // 같은 화면의 히어로(위 trackedItems -- excludedStates 제외)와 완주 지표가 서로
+            // 모순됐다(전 항목을 정리해도 헤더는 100%가 못 되는 화면). 분모를 히어로 폴백과
+            // **같은 규칙**(plan 있음 ∧ excludedStates 아님)으로 좁힌다. 그룹 목록 자체는
+            // 그대로다 -- 정리한 항목이 화면에서 사라지지는 않는다.
+            const trackedGroupItems = group.items.filter((item) => item.plan && !excludedStates.has(item.plan.state));
+            const done = trackedGroupItems.filter((item) => item.plan?.state && completedStates.has(item.plan.state)).length;
+            const percentage = trackedGroupItems.length ? Math.round((done / trackedGroupItems.length) * 100) : 0;
             const expanded = expandedGroups.has(group.id);
             const limit = groupLimits[group.id] ?? INITIAL_GROUP_LIMIT;
             const visibleGroupItems = groupItems.slice(0, limit);
@@ -672,7 +678,7 @@ export function PreparationListParity({
                   <View style={{ flex: 1, gap: 6 }}>
                     <View style={{ alignItems: "baseline", flexDirection: "row", gap: 7 }}>
                       <Text style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "800" }}>{group.name}</Text>
-                      <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>{done}/{group.items.length} 보유</Text>
+                      <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>{done}/{trackedGroupItems.length} 보유</Text>
                     </View>
                     <View style={{ backgroundColor: "#F5E8DF", borderRadius: 999, height: 5, overflow: "hidden" }}>
                       <View style={{ backgroundColor: semanticColors.brandSecondary, borderRadius: 999, height: 5, width: `${percentage}%` }} />

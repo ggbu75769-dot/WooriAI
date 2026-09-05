@@ -2098,9 +2098,18 @@ export function onboardingStatus(): {
   }
 
   const preparedItemsCount = Object.keys(state.itemStatuses).length;
-  const yearMonth = getSeoulMonthRange(getSeoulToday()).yearMonth;
-  const amountKrw = state.budgets[yearMonth];
-  if (amountKrw === undefined) {
+  // 라운드 99 트랙 F1(L) — ⚠️ 두 시점: 종전에는 **이번 달**(getSeoulToday 기준) 예산만 봤다.
+  // 그런데 이 함수의 머리말이 약속한 실서버 미러(OnboardingStoreService.onboardingStatus)는
+  // `budget.findFirst({ where: { childId } })` — **아무 달**이든 예산이 하나라도 있으면 완료다.
+  // 그래서 8월에 온보딩을 끝낸 데모 사용자가 9월에 앱을 열면, 실세션이라면 완료였을 진행도가
+  // 데모에서만 nextStep "budget"으로 되돌아갔다(달이 바뀌는 것만으로 완료가 풀리는 미러 이탈).
+  // 이번 달 예산이 있으면 종전과 같은 그 달을 요약에 싣고, 없으면 저장돼 있는 아무 달
+  // (정렬 첫 달 — findFirst처럼 "존재"가 판정이고 어느 달인지는 요약 표시용일 뿐이다)을 쓴다.
+  const currentYearMonth = getSeoulMonthRange(getSeoulToday()).yearMonth;
+  const yearMonth =
+    state.budgets[currentYearMonth] !== undefined ? currentYearMonth : Object.keys(state.budgets).sort()[0];
+  const amountKrw = yearMonth === undefined ? undefined : state.budgets[yearMonth];
+  if (yearMonth === undefined || amountKrw === undefined) {
     return {
       completed: false,
       nextStep: "budget",

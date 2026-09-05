@@ -97,7 +97,10 @@ describe("COM-108 purchase follow-up source contract", () => {
     expect(detailSource).toContain('import { isCurrentlyOnline } from "../../src/offline/connectivity";');
     expect(detailSource).toContain('import { OFFLINE_RETRY_NOTICE } from "../../src/offline/messages";');
     expect(detailSource).toContain("const showLinkFailure = (onlineNotice: string) => {");
-    expect(detailSource).toContain("if (!online) setClickedTitle(OFFLINE_RETRY_NOTICE);");
+    // 라운드 99 F2 M-3(핀 동반 이관): 실패 문구의 칸이 성공 카드(clickedTitle)에서 실패 전용
+    // 상태(linkFailureNotice)로 갈라졌다 -- 오프라인 판정도 그 칸에 쓴다. 문장은 그대로다.
+    expect(detailSource).toContain("if (!online) setLinkFailureNotice(OFFLINE_RETRY_NOTICE);");
+    expect(detailSource).not.toContain("setClickedTitle(OFFLINE_RETRY_NOTICE)");
     // 라운드 52 QA P3-1과 같은 레이스·언마운트 가드: 늦게 온 폴이 이미 지난 판정으로 화면을
     // 덮지 않는다(실패 → 재시도 성공 사이에 도착한 오프라인 판정이 성공 문구를 지우던 자리).
     expect(detailSource).toContain("const linkNoticeSeqRef = useRef(0);");

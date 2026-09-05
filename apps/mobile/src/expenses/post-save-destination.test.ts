@@ -332,8 +332,13 @@ describe("라운드 48 T4(D1) 화면 배선 (app/expenses/new.tsx)", () => {
   });
 
   it("빈 폼은 초안을 쓰지 않고 지운다 -- 계속 기록이 자동 분류 추천을 조용히 끄지 않도록", () => {
+    // ⚠️ 라운드 99 F3 L-1(두 시점 · 핀 이관): 종전 앵커는 세 칸(품목명·금액·메모)만 보던
+    // `Boolean(itemName.trim() || amountText.trim() || memo.trim())`이었다. 판매처가 초안의 가산
+    // 필드로 합류하며 "친 것 있음" 판정에도 합류했다(판매처만 친 상태가 초안 미저장이던 구멍 —
+    // draft-storage.test.ts의 L-1 스위트). 이 계약의 사실(네 칸이 전부 비면 쓰는 대신 지운다)은
+    // 그대로다.
     expect(newExpenseSource).toContain(
-      "const hasTypedInput = Boolean(itemName.trim() || amountText.trim() || memo.trim());"
+      "const hasTypedInput = Boolean(itemName.trim() || amountText.trim() || memo.trim() || merchant.trim());"
     );
     expect(newExpenseSource).toContain("if (!hasTypedInput) {");
   });

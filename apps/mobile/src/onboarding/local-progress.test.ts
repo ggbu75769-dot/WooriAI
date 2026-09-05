@@ -11,7 +11,10 @@ import {
   LOCAL_ONBOARDING_NEXT_STEP_BY_HIGHEST_COMPLETED,
   ONBOARDING_CHILD_ALREADY_CREATED_CONTINUE_LABEL,
   ONBOARDING_CHILD_ALREADY_CREATED_NOTICE,
-  PREPARED_ITEMS_LOCAL_PASS_LABEL
+  PREPARED_ITEMS_LOCAL_PASS_LABEL,
+  preparedItemsMissingChildEscapeLabel,
+  preparedItemsMissingChildEscapeRoute,
+  preparedItemsMissingChildNotice
 } from "./local-progress";
 import { routeForOnboardingNextStep } from "./resume";
 import { onboardingSteps, type OnboardingScreenId } from "./steps";
@@ -275,9 +278,11 @@ describe("계약 ⓓ: ONB-002 성공 → 진행도 조회 실패 → 콜드 스�
       expect(screen).toContain("localOnboardingResumeRoute({ completedStepIds, selectedChildId })");
       expect(screen).toContain("ONBOARDING_CHILD_ALREADY_CREATED_NOTICE");
       expect(screen).toContain("router.replace(continueHref)");
-      // 차단이 아니다: 저장 버튼과 멱등키 배선은 한 줄도 바뀌지 않았다.
+      // 차단이 아니다: 저장 버튼과 멱등키 배선은 그대로 있다.
+      // (라운드 99 F1(M): 호출 모양만 본문 지문을 넘기는 꼴로 바뀌었다 — 같은 본문 재시도의
+      // 키 재사용 계약은 그대로다.)
       expect(screen).toContain('label={save.isPending ? "저장하는 중" : "다음"}');
-      expect(screen).toContain("getOrCreateChildCreateIdempotencyKey()");
+      expect(screen).toContain("getOrCreateChildCreateIdempotencyKey(childCreateBodyFingerprint(body))");
       expect(screen).toContain("clearChildCreateIdempotencyKey()");
       // 서버 0건: 이 안내는 아무것도 조회하지 않는다.
       expect(screen).not.toContain("getOnboardingProgress");
@@ -376,6 +381,54 @@ describe("계약 ⓑ: ONB-003의 로컬 탈출구", () => {
 });
 
 /* ============================================================================================ */
+/* 계약 ⓔ — ONB-003의 아이 없는 진입 탈출구 (라운드 99 트랙 F1)                                  */
+/* ============================================================================================ */
+
+/**
+ * ⚠️ 두 시점: 종전에는 이 갈래가 없었다. 딥링크로 selectedChildId 없이 ONB-003이 열리면 목록
+ * 쿼리가 돌지 않아 0건 문구("…건너뛰어도 괜찮아요")와 "건너뛰고 계속" 라벨이 떴는데, 그 버튼은
+ * 저장 가드(`!selectedChildId`) 때문에 영구 비활성 — 건너뛰어도 된다면서 건너뛸 수 없는 막다른
+ * 화면이었다. 이제 전용 뷰가 사실 한 줄과 ONB-001로 돌아가는 길을 준다(계약 ⓑ가 세운 그 관례:
+ * 막힌 자리에 길을 세우되, 문구·라벨·목적지는 순수 모듈 한 곳에서).
+ */
+describe("계약 ⓔ: ONB-003의 아이 없는 진입 탈출구", () => {
+  it("목적지는 라우트 표에서 온다 -- 아이를 만드는 단계(ONB-001)다", () => {
+    // 손으로 적은 라우트가 아니라 서버 nextStep "child-profile"이 떨어지는 그 자리다(표 한 벌).
+    expect(preparedItemsMissingChildEscapeRoute()).toBe(routeForOnboardingNextStep("child-profile"));
+    expect(preparedItemsMissingChildEscapeRoute()).toBe("/onboarding/child-status");
+  });
+
+  it("문구·라벨은 해요체이고 사실만 말한다 (비난·지시형 없음 -- DNC-018)", () => {
+    expect(preparedItemsMissingChildNotice()).toMatch(/요\.$/);
+    expect(preparedItemsMissingChildNotice()).toContain("아이 정보");
+    expect(preparedItemsMissingChildEscapeLabel()).toMatch(/요$/);
+    // 계약 ⓑ의 "나중에 체크할게요"·ONB-004의 "나중에 설정할게요"와 같은 1인칭 해요체다.
+    expect(preparedItemsMissingChildEscapeLabel()).toBe("아이 정보부터 입력할게요");
+    for (const banned of ["잘못", "하세요.", "하십시오"]) {
+      expect(preparedItemsMissingChildNotice()).not.toContain(banned);
+    }
+  });
+
+  it("화면은 아이가 없으면 전용 뷰로 갈라지고(early return · 훅은 전부 그 위), 본래 갈래는 무변경이다", () => {
+    const screen = source(PREPARED_ITEMS_PATH);
+    const escapeAt = screen.indexOf("if (!selectedChildId) {");
+    expect(escapeAt, "아이 없는 진입의 전용 갈래").toBeGreaterThan(-1);
+    // 훅은 전부 이 return 위에 있다 -- 마지막 훅(save 뮤테이션)이 갈래보다 앞이다.
+    expect(screen.indexOf("const save = useMutation(")).toBeLessThan(escapeAt);
+    // 문구·라벨·목적지 전부 모듈에서 온다(화면에 리터럴 0건).
+    expect(screen).toContain("{preparedItemsMissingChildNotice()}");
+    expect(screen).toContain("label={preparedItemsMissingChildEscapeLabel()}");
+    expect(screen).toContain("onPress={() => router.replace(preparedItemsMissingChildEscapeRoute())}");
+    const rendered = screen.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+    expect(rendered, "화면이 다시 적은 문구").not.toContain(preparedItemsMissingChildNotice());
+    expect(rendered, "화면이 다시 적은 라벨").not.toContain(preparedItemsMissingChildEscapeLabel());
+    // 본래 화면의 갈래는 무변경이다: 0건 문구의 조건도, canSkip도 종전 그대로다
+    // (그 핀들은 offline/messages.test.ts가 진다 -- 여기서는 갈래가 전용 뷰 **뒤**라는 사실만).
+    expect(escapeAt).toBeLessThan(screen.indexOf("const canSkip = !isLoadingOptions && !hasOptions"));
+  });
+});
+
+/* ============================================================================================ */
 /* 계약 ⓒ — 실패 문구가 연결을 확인하고 갈린다                                                   */
 /* ============================================================================================ */
 
@@ -452,7 +505,9 @@ describe("계약 ⓒ: 온보딩 저장 실패 문구", () => {
     // 인자를 넘기지 않은 호출부는 종전 그대로다(기본값 true).
     expect(stepUi).toContain("{ isOnline = true }: { isOnline?: boolean } = {}");
     // 403은 여전히 [재시도] 버튼 자체를 내린다.
-    expect(stepUi).toContain(") : forbidden ? null : (");
+    // 라운드 99 F1(M) — ⚠️ 두 시점: 종전 핀은 `) : forbidden ? null : (`였다. 멱등키 충돌
+    // 409가 같은 재시도-무익 갈래에 합류했다(onboarding-step-progress.test.ts의 그 계약).
+    expect(stepUi).toContain(") : forbidden || idempotencyConflict ? null : (");
   });
 
   /* -------------------------------------------------------------------------------------- */

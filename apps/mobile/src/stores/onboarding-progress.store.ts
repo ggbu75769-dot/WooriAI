@@ -22,10 +22,18 @@ export type OnboardingProgressState = {
    * onboarding restarts), so a later, genuinely new child creation gets a fresh key.
    */
   childCreateIdempotencyKey: string | null;
+  /**
+   * 라운드 99 트랙 F1(M) — 위 키를 발급받은 **제출 본문의 정규화 지문**(⚠️ 두 시점: 종전에는
+   * 이 필드가 없었다 — "같은 제출"의 판정이 없어서, 응답을 잃은 뒤 입력을 **고쳐** 재제출해도
+   * 같은 키가 나갔고, 서버 멱등 인터셉터의 같은 키 + 다른 본문 409(IDEMPOTENCY_KEY_CONFLICT,
+   * 24h)에 갇혔다). 키와 지문은 언제나 함께 서고 함께 지워진다 — 본문이 달라지면
+   * getOrCreateChildCreateIdempotencyKey가 새 키를 발급한다(멱등 보호는 동일 본문 재시도에만).
+   */
+  childCreateIdempotencyBodyHash: string | null;
   completeStep: (screenId: OnboardingScreenId) => void;
   markHomeReached: () => void;
   updateChildDraft: (draft: Partial<OnboardingProgressState["childDraft"]>) => void;
-  getOrCreateChildCreateIdempotencyKey: () => string;
+  getOrCreateChildCreateIdempotencyKey: (bodyHash: string) => string;
   clearChildCreateIdempotencyKey: () => void;
   resetOnboarding: () => void;
 };
@@ -49,14 +57,15 @@ function generateIdempotencyKey(): string {
 
 type OnboardingProgressData = Pick<
   OnboardingProgressState,
-  "completedStepIds" | "hasReachedHome" | "childDraft" | "childCreateIdempotencyKey"
+  "completedStepIds" | "hasReachedHome" | "childDraft" | "childCreateIdempotencyKey" | "childCreateIdempotencyBodyHash"
 >;
 
 const initialOnboardingData: OnboardingProgressData = {
   completedStepIds: [],
   hasReachedHome: false,
   childDraft: initialDraft,
-  childCreateIdempotencyKey: null
+  childCreateIdempotencyKey: null,
+  childCreateIdempotencyBodyHash: null
 };
 
 /**
@@ -79,7 +88,12 @@ function sanitizeOnboardingProgress(persisted: unknown): OnboardingProgressData 
       : initialDraft;
   const childCreateIdempotencyKey =
     typeof candidate.childCreateIdempotencyKey === "string" ? candidate.childCreateIdempotencyKey : null;
-  return { completedStepIds, hasReachedHome, childDraft, childCreateIdempotencyKey };
+  // 라운드 99 트랙 F1(M): 지문 필드가 없던 옛 blob은 null로 온다 — 그 키가 어느 본문의
+  // 것인지 모르므로 getOrCreateChildCreateIdempotencyKey의 지문 비교가 어긋나 새 키가
+  // 발급된다(모르는 본문에 옛 키를 재사용하는 쪽이 409 루프였다 — 안전한 쪽으로 떨어진다).
+  const childCreateIdempotencyBodyHash =
+    typeof candidate.childCreateIdempotencyBodyHash === "string" ? candidate.childCreateIdempotencyBodyHash : null;
+  return { completedStepIds, hasReachedHome, childDraft, childCreateIdempotencyKey, childCreateIdempotencyBodyHash };
 }
 
 export const useOnboardingProgressStore = create<OnboardingProgressState>()(
@@ -89,6 +103,7 @@ export const useOnboardingProgressStore = create<OnboardingProgressState>()(
       hasReachedHome: false,
       childDraft: initialDraft,
       childCreateIdempotencyKey: null,
+      childCreateIdempotencyBodyHash: null,
       completeStep: (screenId) =>
         set((state) => ({
           completedStepIds: state.completedStepIds.includes(screenId)
@@ -98,16 +113,28 @@ export const useOnboardingProgressStore = create<OnboardingProgressState>()(
       markHomeReached: () => set({ hasReachedHome: true }),
       updateChildDraft: (draft) =>
         set((state) => ({ childDraft: { ...state.childDraft, ...draft } })),
-      getOrCreateChildCreateIdempotencyKey: () => {
-        const existing = get().childCreateIdempotencyKey;
-        if (existing) return existing;
+      // 라운드 99 트랙 F1(M) — ⚠️ 두 시점: 종전에는 인자가 없었고 "키가 있으면 무조건 재사용"
+      // 이었다. 이제 본문 지문이 같을 때만 재사용한다(다른 본문에 옛 키를 재사용하면 서버가
+      // 409 IDEMPOTENCY_KEY_CONFLICT를 24시간 돌려줘 — idempotency.interceptor.ts — 입력을
+      // 고친 재제출이 무한 루프였다). 지문 계산은 설정 아이 추가와 같은 한 벌이다
+      // (src/children/child-create-idempotency.ts의 childCreateBodyFingerprint).
+      getOrCreateChildCreateIdempotencyKey: (bodyHash) => {
+        const { childCreateIdempotencyKey: existing, childCreateIdempotencyBodyHash: existingHash } = get();
+        if (existing && existingHash === bodyHash) return existing;
         const key = generateIdempotencyKey();
-        set({ childCreateIdempotencyKey: key });
+        set({ childCreateIdempotencyKey: key, childCreateIdempotencyBodyHash: bodyHash });
         return key;
       },
-      clearChildCreateIdempotencyKey: () => set({ childCreateIdempotencyKey: null }),
+      clearChildCreateIdempotencyKey: () =>
+        set({ childCreateIdempotencyKey: null, childCreateIdempotencyBodyHash: null }),
       resetOnboarding: () =>
-        set({ completedStepIds: [], hasReachedHome: false, childDraft: initialDraft, childCreateIdempotencyKey: null })
+        set({
+          completedStepIds: [],
+          hasReachedHome: false,
+          childDraft: initialDraft,
+          childCreateIdempotencyKey: null,
+          childCreateIdempotencyBodyHash: null
+        })
     }),
     {
       name: "wooriai-onboarding-progress",

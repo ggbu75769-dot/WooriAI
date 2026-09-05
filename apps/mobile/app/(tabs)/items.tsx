@@ -387,6 +387,21 @@ export default function ItemsScreen() {
     if (hasManualStageSelection) return;
     setStageLabel(defaultStageLabel);
   }, [defaultStageLabel, hasManualStageSelection]);
+  /**
+   * 라운드 99 F2 L-3 — **아이가 바뀌면 이 화면의 아이-종속 상태도 함께 리셋한다.**
+   *
+   * 준비템은 아이마다 목록도 준비율도 통째로 다른 화면인데(라운드 51 #10), 수동 시기 칩 선택
+   * (`hasManualStageSelection`)과 100% 축하 닫음 기억(`dismissedCelebrationBands`)은 childId
+   * 변화에 살아남았다: 첫째에서 "24개월+" 칩을 눌러 두면 둘째로 전환해도 둘째의 현재 시기
+   * 대신 그 칩이 남고, 첫째의 축하를 닫은 밴드는 둘째가 100%를 채워도 축하가 서지 않았다 --
+   * 둘 다 다른 아이에게 내린 결정이다. 아래 G-3 expenseLinkPrompt 정리 effect와 같은 관례로
+   * childId 변화에 걷는다(그 프롬프트는 좌표 판정이 이미 childId를 보므로 여기서 또 걷지 않는다).
+   * 리셋 뒤에는 위 기본 칩 effect가 새 아이의 시기로 stageLabel을 되돌린다.
+   */
+  useEffect(() => {
+    setHasManualStageSelection(false);
+    setDismissedCelebrationBands(() => new Set<StageBandLabel>());
+  }, [childId]);
   // 라운드 37 G-3: "지출도 기록할까요?" 줄이 살아 있어도 되는 화면 좌표. 목록을 갈아 끼우는
   // 입력(아이·시기 밴드·필수도 칩·검색어)만 담는다.
   const expenseLinkPromptScope: ExpenseLinkPromptScope = {
@@ -605,12 +620,33 @@ export default function ItemsScreen() {
   }
 
   const visibleItems = hasSession ? items.data!.items : previewItems;
+  /**
+   * 라운드 99 F2 M-1 — **낙관/대기 보정이 모든 소비처의 상류에 선다.**
+   *
+   * pending-status.ts의 약속은 "낙관 반영 — 누른 값이 즉시 목록/상세에 보인다. 저장 경로가
+   * 로컬 우선이므로 **사용자가 보는 것이 곧 이 기기의 진실이다**"인데, 종전에는 그 보정이
+   * 타일(sessionRows)에만 붙었다. 그래서 재조회가 서버의 옛 값으로 캐시를 덮는 순간 준비율
+   * 히어로(computeEssentialPrepProgress) · 100% 축하 · 찜 필터(filterInterestedItems) ·
+   * "먼저 챙기면 좋아요"(nextPrepFocusIds) 네 표면이 원시 status를 읽어 타일과 서로 모순됐다
+   * (타일은 "보유"인데 히어로는 그 항목을 미해결로 세는 화면). 여기서 한 번 보정한 목록을
+   * 아래 전 소비처가 이어 쓴다. 대기 행이 없으면 항목이 같은 참조 그대로라 비세션 미리보기와
+   * 종전 렌더 어느 쪽도 흔들리지 않는다.
+   */
+  const effectiveStatusItems: Array<ItemSummary | RecommendationPreviewItem> = hasSession
+    ? items.data!.items.map((item) => {
+        const pendingStatusRow = pendingStatusIndex.get(item.id);
+        return pendingStatusRow
+          ? { ...item, status: effectiveItemStatus(item.status, pendingStatusRow) as ItemStatus }
+          : item;
+      })
+    : visibleItems;
   // 라운드 49 C-01: 찜 칩이 켜져 있으면 목록의 모집단이 **찜한 항목**으로 바뀐다. 서버 왕복은
   // 없다(같은 스냅샷) -- 판정은 순수 모듈이 한다(src/items/item-filters.ts). 스냅샷은 시기
   // 밴드를 무시하므로 찜 목록은 시기 칩을 따르지 않고, 그 사실은 목록 위 한 줄로 밝힌다
-  // (INTERESTED_FILTER_SCOPE_NOTE).
+  // (INTERESTED_FILTER_SCOPE_NOTE). M-1: 모집단도 보정 목록이다 -- 방금 찜한 항목이 재조회
+  // 한 번에 찜 목록에서 사라지면 안 된다.
   const sourceItems: Array<ItemSummary | RecommendationPreviewItem> =
-    hasSession && showInterestedOnly ? filterInterestedItems(visibleItems) : visibleItems;
+    hasSession && showInterestedOnly ? filterInterestedItems(effectiveStatusItems) : effectiveStatusItems;
   /**
    * 분류 섹션의 축. 원본(c20deeb)은 카탈로그 도메인 코드로 10그룹을 나눴지만 현재 준비템
    * 계약에는 그 코드가 없다 -- 있는 분류는 **지출 분류**(`categoryId`) 하나뿐이고, 그것이
@@ -676,9 +712,11 @@ export default function ItemsScreen() {
   const canUpdateStatus = hasSession;
   // ITEM-114: 선택된 시기 밴드(기본 칩은 아이의 현재 시기) 기준 필수템 준비율. 필수템이
   // 0개인 밴드나 스냅샷 로딩 전에는 null이라 히어로 수치가 통째로 숨는다.
+  // 라운드 99 F2 M-1: 입력이 원시 스냅샷(items.data.items)에서 **보정 목록**으로 바뀌었다 --
+  // 방금 누른 "준비했어요"가 타일에는 보이는데 준비율에는 안 잡히는 모순을 걷는다.
   const prepProgress =
     hasSession && !isPixelLockMode && items.data
-      ? computeEssentialPrepProgress(items.data.items, stageLabel)
+      ? computeEssentialPrepProgress(effectiveStatusItems, stageLabel)
       : null;
   // UX-E: 준비율을 "여정"으로 읽히게 하는 파생값들. 전부 순수 모듈(src/items/prep-milestones.ts)이
   // 계산하고, 화면은 그리기만 한다. prepProgress 자체가 hasSession + !isPixelLockMode 게이트를
@@ -846,13 +884,13 @@ export default function ItemsScreen() {
   const sessionRows = (listedItems as ItemSummary[]).map((item) => {
     // 라운드 51 C-10: 아직 전송되지 않은 변경이 있으면 그 값이 서버 응답을 이긴다 --
     // 사용자가 방금 누른 값이 이 기기의 진실이다(판정은 src/items/pending-status.ts).
-    const pendingStatusRow = pendingStatusIndex.get(item.id);
+    // 라운드 99 F2 M-1: 그 보정은 이제 상류(effectiveStatusItems)에서 한 번만 한다 --
+    // listedItems가 이미 보정 목록이라 rowItem은 같은 항목이고, 여기 남는 일은 대기/실패
+    // 배지 뷰(pendingItemStatusView)를 붙이는 것뿐이다.
     return {
       item,
-      rowItem: pendingStatusRow
-        ? { ...item, status: effectiveItemStatus(item.status, pendingStatusRow) as ItemStatus }
-        : item,
-      pendingStatus: pendingItemStatusView(pendingStatusRow)
+      rowItem: item,
+      pendingStatus: pendingItemStatusView(pendingStatusIndex.get(item.id))
     };
   });
   const sessionRowById = new Map(sessionRows.map((row) => [row.item.id, row]));

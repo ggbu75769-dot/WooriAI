@@ -193,8 +193,19 @@ const KOREAN_LITERAL_LEDGER: readonly { readonly file: string; readonly count: n
   // 태그의 `accessibilityState={{ selected }}`가 이미 그 사실을 져 TalkBack이 두 번 읽었다.
   // 그 조각 하나를 걷어 리터럴이 **하나 줄었다** — 문구를 더한 것이 아니라 **뺀** 자리이고,
   // 이 대장이 미리 적어 둔 대로 *그 라운드가 이 대장을 함께 갱신*한다(계약 갱신 · 손은 트랙 A).
-  { file: "app/expenses/new.tsx", count: 53 },
-  { file: "app/expenses/[expenseId].tsx", count: 42 },
+  // ⚠️ **두 시점(라운드 99 F3 L-2 · 위 ⓑ 갈래)** — 이 줄은 `{ file: "app/expenses/new.tsx", count: 53 }`
+  // 이었다. 금액 0/빈 값이 셋(분류·품목명·금액) 중 혼자 버튼 비활성으로 침묵하던 비대칭을 걷으며
+  // 사전 안내 한 문장("0보다 큰 금액을 적어 주시면 바로 저장할게요")이 더해졌다 — 이 대장이 미리
+  // 적어 둔 대로 *그 라운드가 이 대장을 함께 갱신*한다(계약 갱신 · 손은 라운드 99 F3, 근거는
+  // entry-screen-visual-restore.test.ts의 L-2 스위트). ⚠️ 값이 라운드 95 이전의 54와 우연히
+  // 같아졌을 뿐 그 54가 아니다(원인이 다르다 — a11y-contract의 GAP-095 핀 대장이 같은 커밋에서
+  // 두 시점으로 이관됐다).
+  { file: "app/expenses/new.tsx", count: 54 },
+  // ⚠️ **두 시점(라운드 99 F3 M-1 · 위 ⓑ 갈래)** — 이 줄은 `count: 42`였다. 편집 중 백그라운드
+  // refetch가 여덟 입력을 소리 없이 리셋하던 결함을 "id당 1회 초기화 + 미접촉 채택 + dirty 고지"
+  // 로 고치며 고지 캡션 한 문장("다른 기기에서 이 기록이 바뀌었어요. …")이 더해졌다(계약 갱신 ·
+  // 손은 라운드 99 F3, 근거는 expense-detail-edit-rules.test.ts의 M-1 스위트).
+  { file: "app/expenses/[expenseId].tsx", count: 43 },
   { file: "app/(tabs)/records.tsx", count: 14 }
 ];
 

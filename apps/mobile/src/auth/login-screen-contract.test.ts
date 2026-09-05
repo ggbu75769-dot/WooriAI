@@ -36,8 +36,17 @@ describe("AUTH-102 login screen wiring (source verification -- follows the exist
     // 필수 동의를 검사한다), 실패가 로그인 실패로 승격되지는 않는다 -- 종전에는 이 PUT이 실패하면
     // 세션은 저장된 채 router.replace가 실행되지 않아 "로그인 중 문제가 발생했어요"만 떴다.
     expect(loginSource).toContain("await upsertConsents(result.tokens.accessToken).catch(() => undefined);");
-    // FAM-121A: 초대 복귀 파라미터가 없을 때의 기본 목적지는 그대로 온보딩이다.
-    expect(loginSource).toContain('router.replace(inviteResumeHref ?? "/onboarding/child-status");');
+    // 라운드 99 트랙 F1(H) — ⚠️ 두 시점: 종전 핀은 `inviteResumeHref ?? "/onboarding/child-status"`
+    // 였다(로그인 성공이 무조건 ONB-001로). 그 길은 기존 사용자의 새 기기/재로그인에서 서버
+    // 진행도를 묻지 않았고, 새 기기에는 로컬 방어가 없어 끝이 중복 아이 생성(POST /children)
+    // 이었다. 이제 실세션도 데모 경로처럼 "/"로 가 app/index.tsx의 MOB-101 진행도 판정 한 곳에
+    // 위임한다(완료→탭·중단→ONB-006·신규→ONB-001 — 신규 왕복은 콜드 스타트 홀딩 뷰가 덮는다).
+    expect(loginSource).toContain('router.replace(inviteResumeHref ?? "/");');
+    // 종전 목적지는 코드에서 사라졌다(주석의 이력 인용만 남는다 — 되살아나면 여기가 빨개진다).
+    const renderedLoginSuccess = loginSource
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/^\s*\/\/.*$/gm, " ");
+    expect(renderedLoginSuccess).not.toContain('inviteResumeHref ?? "/onboarding/child-status"');
   });
 
   it("treats the user cancelling Kakao consent as a non-error (no server-unreachable message)", () => {

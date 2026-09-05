@@ -224,3 +224,36 @@ export const ONBOARDING_CHILD_ALREADY_CREATED_NOTICE =
 
 /** 이미 만든 아이로 이어가는 버튼. 목적지는 위 목적지 표가 정한다(라우트를 손으로 적지 않는다). */
 export const ONBOARDING_CHILD_ALREADY_CREATED_CONTINUE_LABEL = "등록한 아이로 계속하기";
+
+/* ------------------------------------------------------------------------------------------ */
+/* ONB-003의 아이 없는 진입 탈출구 (계약 ⓔ · 라운드 99 트랙 F1)                                  */
+/* ------------------------------------------------------------------------------------------ */
+
+/**
+ * **아이 없이 ONB-003에 들어온 사람의 탈출구.**
+ *
+ * 딥링크(또는 selectedChildId가 지워진 채 남은 내비게이션 잔재)로 이 화면이 열리면 목록 쿼리는
+ * 돌지 않고(`enabled: authToken && selectedChildId`), 화면은 0건 문구와 "건너뛰고 계속" 라벨을
+ * 그리면서 정작 그 버튼은 **영구 비활성**이었다(저장 가드가 selectedChildId를 요구한다) —
+ * 무엇이 잘못됐는지도, 나갈 길도 말하지 않는 막다른 화면이다.
+ *
+ * ONB-004의 순수 로컬 탈출("나중에 설정할게요")과 계약 ⓑ("나중에 체크할게요")가 세운 관례
+ * 그대로 **길을 세운다**. 다만 이 갈래의 길은 앞이 아니라 뒤다: 아이가 없으면 ONB-003·ONB-004
+ * 모두 저장할 대상이 없으므로(위 `localOnboardingNextStep` 머리말 — "아이 없이는 아무것도 누를
+ * 수 없는 화면"), 로컬 건너뛰기로 앞에 보내는 것은 같은 막다른 화면을 한 장 미루는 것뿐이다.
+ * 정직한 탈출구는 아이를 만드는 단계(ONB-001)로 돌아가는 것이고, 목적지는 라우트 표에서 받는다
+ * (서버 nextStep "child-profile"이 떨어지는 그 자리 — 표를 두 벌로 만들지 않는다).
+ */
+export function preparedItemsMissingChildEscapeRoute(): Href {
+  return routeForOnboardingNextStep("child-profile");
+}
+
+/** 그 사실 한 줄. 무엇이 없는지와 무엇부터 하면 되는지만 말한다(비난·지시형 없음 — DNC-018 해요체). */
+export function preparedItemsMissingChildNotice(): string {
+  return "아직 선택된 아이 정보가 없어요. 아이 정보를 먼저 입력하면 시기에 맞는 준비물을 보여드릴 수 있어요.";
+}
+
+/** 탈출구 버튼 라벨. ONB-004의 "나중에 설정할게요"·계약 ⓑ의 "나중에 체크할게요"와 같은 1인칭 해요체다. */
+export function preparedItemsMissingChildEscapeLabel(): string {
+  return "아이 정보부터 입력할게요";
+}

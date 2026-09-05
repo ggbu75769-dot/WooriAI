@@ -203,7 +203,12 @@ describe("GAP-054 #10 — 결제 수단을 상세 화면에서 고칠 수 있다
   it("화면이 상태·컨트롤·payload를 모두 배선한다", () => {
     const screen = detailScreen();
     expect(screen).toContain("const [paymentMethod, setPaymentMethod] = useState<string | null>(null);");
-    expect(screen).toContain("setPaymentMethod(expense.data.paymentMethod ?? null);");
+    // ⚠️ 라운드 99 F3 M-1(두 시점 · 핀 이관): 종전 앵커는 `setPaymentMethod(expense.data.paymentMethod ?? null);`
+    // — 응답을 직접 읽는 초기화 줄이었다. 초기화가 "지출 id당 1회 + 미접촉 채택" 게이트를 얻으며
+    // 그 사상은 expenseEditBaselineOf 한 벌로 옮겨졌고(같은 `?? null` 규칙 유지), setter는 그
+    // 스냅숏을 읽는다. 지키려는 사실(고른 적 없는 기록은 null로 시작한다)은 그대로다.
+    expect(screen).toContain("paymentMethod: expense.paymentMethod ?? null");
+    expect(screen).toContain("setPaymentMethod(serverBaseline.paymentMethod);");
     expect(screen).toContain("onPress={() => setPaymentMethod((value) => nextPaymentMethod(value))}");
     expect(screen).toContain("accessibilityLabel={PAYMENT_METHOD_CHANGE_LABEL}");
     expect(screen).toContain("paymentMethod: paymentMethodForPatch(paymentMethod),");
@@ -216,7 +221,10 @@ describe("GAP-054 #10 — 결제 수단을 상세 화면에서 고칠 수 있다
     // PATCH가 400으로 떨어지면 결제 수단과 무관한 수정까지 함께 실패한다. 계약이 사라지면
     // 배선보다 이 단언이 먼저 빨개진다.
     const dto = readFileSync(join(process.cwd(), "..", "api", "src", "finance", "dto", "expense.dto.ts"), "utf8");
-    const updateBlock = dto.slice(dto.indexOf("export class UpdateExpenseDto"));
+    // 슬라이스 가드(라운드 78 트랙 E): 시작의 실재를 먼저 묻는다.
+    const updateAt = dto.indexOf("export class UpdateExpenseDto");
+    expect(updateAt).toBeGreaterThan(-1);
+    const updateBlock = dto.slice(updateAt);
     expect(updateBlock).toContain("paymentMethod?: PaymentMethod;");
     // 아웃박스가 실제로 이 키를 실어 보내는 자리(remote-api의 toExpensePatch).
     expect(source("src/offline/remote-api.ts")).toContain("paymentMethod: payload.paymentMethod,");
@@ -225,6 +233,105 @@ describe("GAP-054 #10 — 결제 수단을 상세 화면에서 고칠 수 있다
   it("컨트롤 문구가 빠른 기록 시트의 라벨과 한 글자도 다르지 않다", () => {
     expect(PAYMENT_METHOD_CHANGE_LABEL).toBe("결제 수단 변경");
     expect(source("app/expenses/new.tsx")).toContain(`accessibilityLabel="${PAYMENT_METHOD_CHANGE_LABEL}"`);
+  });
+});
+
+/**
+ * 라운드 99 F3 M-1 — **편집 중 백그라운드 refetch가 여덟 입력을 소리 없이 리셋하던 자리.**
+ *
+ * 종전 초기화 effect는 `expense.data` 참조가 바뀔 때마다 무조건 setter 여덟을 다시 불렀다.
+ * 전역 staleTime 30초 + focusManager 배선이라 30초 넘게 이탈했다 돌아오면 refetch가 돌고,
+ * 그 사이 값이 달라져 있으면(가구 공동 수정 · flush 확정) 타이핑이 통째로 유실됐다. 화면은
+ * vitest에서 렌더할 수 없으므로 이 파일의 관례(소스 계약)로 세 사실을 문다:
+ * ① 참조 교체 재발화가 값을 덮지 않는다(id당 1회 게이트), ② 미접촉이면 새 서버 값을 채택한다,
+ * ③ 손댄 상태에서 서버가 달라지면 리셋 대신 고지 한 줄이다.
+ */
+describe("라운드 99 F3 M-1 — 상세 편집 보호(1회 초기화 · 미접촉 채택 · dirty 고지)", () => {
+  const screen = detailScreen();
+  const effectStart = screen.indexOf("useEffect(() => {\n    if (!expense.data) return;");
+  const effectEnd = screen.indexOf("}, [expense.data]);", effectStart);
+  // 슬라이스 가드(라운드 78 트랙 E): 두 끝의 실재를 먼저 묻는다 — describe 수집 시점에 던진다.
+  expect(effectStart).toBeGreaterThan(-1);
+  expect(effectEnd).toBeGreaterThan(effectStart);
+  const initEffect = screen.slice(effectStart, effectEnd);
+
+  it("① 초기화는 지출 id당 1회다 — setter 여덟이 게이트(첫 로드 ∥ 미접촉) 안에만 있다", () => {
+    expect(effectStart).toBeGreaterThan(-1);
+    expect(effectEnd).toBeGreaterThan(effectStart);
+    expect(initEffect).toContain("if (initializedExpenseIdRef.current !== expenseId || untouched) {");
+    // setter 여덟은 전부 스냅숏을 읽고, 게이트 앞(무조건 실행 자리)에는 하나도 없다.
+    const gateAt = initEffect.indexOf("if (initializedExpenseIdRef.current !== expenseId || untouched) {");
+    expect(gateAt).toBeGreaterThan(-1);
+    const beforeGate = initEffect.slice(0, gateAt);
+    for (const setter of [
+      "setItemName(",
+      "setAmountDigits(",
+      "setMerchant(",
+      "setMemo(",
+      "setSpentOnIso(",
+      "setCategoryId(",
+      "setIsGift(",
+      "setPaymentMethod("
+    ]) {
+      expect(beforeGate, `${setter} 는 게이트 안이어야 한다`).not.toContain(setter);
+      expect(initEffect).toContain(`${setter}serverBaseline.`);
+    }
+    // 응답을 setter가 직접 읽던 종전 모양은 남아 있지 않다(사상은 expenseEditBaselineOf 한 벌).
+    expect(screen).not.toContain("setItemName(expense.data.itemName);");
+    expect(screen).not.toContain("setPaymentMethod(expense.data.paymentMethod ?? null);");
+  });
+
+  it("② 미접촉 판정은 기준선 값 비교다 — entry-form-guards의 G-7 스냅숏 규율과 같은 모양", () => {
+    expect(initEffect).toContain("serverBaselineRef.current !== null &&");
+    expect(initEffect).toContain("sameExpenseEditBaseline(");
+    expect(initEffect).toContain(
+      "{ itemName, amountDigits, merchant, memo, spentOnIso, categoryId, isGift, paymentMethod }"
+    );
+    // 채택한 순간 기준선·id 표시가 함께 갱신된다(다음 refetch의 비교가 오늘의 값을 본다).
+    expect(initEffect).toContain("initializedExpenseIdRef.current = expenseId;");
+    expect(initEffect).toContain("serverBaselineRef.current = serverBaseline;");
+    // 기준선 사상은 여덟 필드 전부를 견준다(하나라도 빠지면 그 칸의 타이핑이 보호 밖이다).
+    const sameFnAt = screen.indexOf("function sameExpenseEditBaseline(");
+    expect(sameFnAt).toBeGreaterThan(-1);
+    const sameFnEnd = screen.indexOf("\n}", sameFnAt);
+    expect(sameFnEnd).toBeGreaterThan(sameFnAt);
+    const sameFn = screen.slice(sameFnAt, sameFnEnd);
+    for (const field of ["itemName", "amountDigits", "merchant", "memo", "spentOnIso", "categoryId", "isGift", "paymentMethod"]) {
+      expect(sameFn).toContain(`left.${field} === right.${field}`);
+    }
+  });
+
+  it("③ dirty + 서버 변화는 리셋 대신 고지다 — 캡션 한 줄, 저장 성공에 눕는다", () => {
+    // 서버 값이 기준선에서 실제로 달라진 경우에만 선다(참조만 새 refetch는 침묵).
+    expect(initEffect).toContain("else if (!sameExpenseEditBaseline(serverBaseline, serverBaselineRef.current!)) {");
+    expect(initEffect).toContain("setRemoteChangeNotice(true);");
+    // 수렴 예외: 서버가 이 화면의 값 그대로를 들고 온 경우(방금 저장 확정 뒤의 refetch)는
+    // 어긋남이 아니다 — 고지 없이 기준선만 오늘로 옮긴다(거짓 고지 금지).
+    expect(initEffect).toContain("if (sameExpenseEditBaseline(serverBaseline, currentForm)) {");
+    // 채택 분기는 고지를 함께 눕힌다(채택된 화면과 어긋나는 문장을 남기지 않는다).
+    expect(initEffect).toContain("setRemoteChangeNotice(false);");
+    // 렌더: gray600 caption 한 줄(기존 고지 관례) · 해요체 · 과한 UI 없음(Alert/모달 아님).
+    const noticeAt = screen.indexOf('testID="expense-remote-change-notice"');
+    expect(noticeAt).toBeGreaterThan(-1);
+    const noticeStart = screen.lastIndexOf("{remoteChangeNotice ? (", noticeAt);
+    expect(noticeStart).toBeGreaterThan(-1);
+    const noticeBlock = screen.slice(noticeStart, noticeAt + 400);
+    expect(noticeBlock).toContain("theme.typography.caption.fontSize");
+    expect(noticeBlock).toContain("다른 기기에서 이 기록이 바뀌었어요. 저장하면 이 화면의 값으로 덮어써요.");
+    // 저장이 확정되면 고지의 전제가 소진된다.
+    const onSuccessAt = screen.indexOf("onSuccess: async () => {");
+    expect(onSuccessAt).toBeGreaterThan(-1);
+    expect(screen.slice(onSuccessAt, onSuccessAt + 400)).toContain("setRemoteChangeNotice(false);");
+    // 문구는 해요체이고 사용자를 탓하지 않는다(DNC-018).
+    expect(noticeBlock).not.toMatch(/잘못|실수|하셨/);
+  });
+
+  it("adopt(expectedVersion 갱신)는 편집 보호와 무관하게 매 응답을 지난다", () => {
+    // 게이트 밖(무조건 자리)에서 adopt가 돈다 — 버전 반영은 별개 계약이다(M-1 fix 주석).
+    const gateCloseAt = initEffect.indexOf("setRemoteChangeNotice(true);");
+    expect(gateCloseAt).toBeGreaterThan(-1);
+    const afterBranches = initEffect.slice(gateCloseAt);
+    expect(afterBranches).toContain("void adoptServerExpense(expense.data).then((row) => setLocalExpenseId(row.localId));");
   });
 });
 
@@ -253,7 +360,12 @@ describe("GAP-054 #2 — 금액 상한(지출 상세·예산 두 화면)", () =>
    */
   it("저장 버튼 활성 판정에도 정수 가드가 있다(Infinity 붙여넣기 봉합)", () => {
     const screen = detailScreen();
-    const canSaveBlock = screen.slice(screen.indexOf("const canSave ="), screen.indexOf("const canTapAmountPreset"));
+    // 슬라이스 가드(라운드 78 트랙 E): 두 끝의 실재를 먼저 묻는다.
+    const canSaveAt = screen.indexOf("const canSave =");
+    const canSaveEnd = screen.indexOf("const canTapAmountPreset");
+    expect(canSaveAt).toBeGreaterThan(-1);
+    expect(canSaveEnd).toBeGreaterThan(canSaveAt);
+    const canSaveBlock = screen.slice(canSaveAt, canSaveEnd);
     expect(canSaveBlock).toContain("Number.isInteger(amountKrw)");
     expect(canSaveBlock).toContain("amountKrw > 0");
     expect(canSaveBlock).toContain("!amountError");
@@ -276,7 +388,9 @@ describe("GAP-054 #2 — 금액 상한(지출 상세·예산 두 화면)", () =>
       // 라운드 56 트랙 A(GAP-056 #1): expense.dto.ts는 길이 상한까지 contracts에서 가져오면서
       // import 문이 여러 줄로 바뀌었다. 고정할 사실은 문장의 모양이 아니라 **어디서 오는가**다
       // — `MONEY_KRW_MAX`가 @wooriai/contracts에서 오고, @Max가 그 이름을 문다.
-      const importBlock = dto.slice(0, dto.indexOf('from "@wooriai/contracts";'));
+      const importEnd = dto.indexOf('from "@wooriai/contracts";');
+      expect(importEnd, dtoPath).toBeGreaterThan(-1);
+      const importBlock = dto.slice(0, importEnd);
       expect(importBlock, dtoPath).toContain("MONEY_KRW_MAX");
       expect(dto, dtoPath).toContain('from "@wooriai/contracts";');
       expect(dto, dtoPath).toContain("@Max(MONEY_KRW_MAX)");

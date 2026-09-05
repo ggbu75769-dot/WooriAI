@@ -44,6 +44,25 @@ export function sanitizeRecordsViewMode(value: unknown): RecordsViewMode {
   return value === RECORDS_VIEW_MODE_CALENDAR ? RECORDS_VIEW_MODE_CALENDAR : RECORDS_VIEW_MODE_DEFAULT;
 }
 
+/**
+ * 라운드 99 F3 M-2 — 화면이 **표시에 쓰는** 보기 모드. 달력 날짜 착지의 임시 오버라이드를
+ * 반영한다(src/expenses/records-sort.ts의 `effectiveRecordsSortMode`와 대칭인 판정이다).
+ *
+ * 두 시점: 종전에는 기록 탭의 달력 칸 탭이 `setMode("list")`로 **persist된 보기 취향을 영구
+ * 덮어썼다** — 달력을 기억시켜 둔 사용자가 날짜 하나를 보러 들어간 대가로 다음 실행이 리스트로
+ * 열렸다. 정렬 쪽은 리뷰 M-4가 같은 제스처를 비저장 오버라이드(`calendarDateLanding`)로 고쳐
+ * 두고 보기만 저장 setter를 지나는 자기모순이 남아 있었다: "그날 보기" 탭은 보기 취향의
+ * 의사표시가 아니다. 이제 착지는 화면의 비저장 state로만 남고, 이 판정이 저장 취향 위에 그
+ * 착지 동안의 표시(리스트)만 얹는다 — persist 값은 한 글자도 바뀌지 않고, 보기 토글의 명시
+ * 조작·달 이동이 오버라이드를 걷으며 언제나 이긴다(해제 배선은 app/(tabs)/records.tsx).
+ */
+export function effectiveRecordsViewMode(input: {
+  mode: RecordsViewMode;
+  calendarDateLanding: boolean;
+}): RecordsViewMode {
+  return input.calendarDateLanding ? RECORDS_VIEW_MODE_LIST : input.mode;
+}
+
 export type RecordsViewState = {
   mode: RecordsViewMode;
   /** 이 실행에서 보기가 한 번이라도 바뀌었는가(저장하지 않는다 — 위 헤더 참고). */

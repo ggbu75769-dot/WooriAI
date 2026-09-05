@@ -13,6 +13,9 @@ import type { OfflineStorageState } from "./sync-controller";
 // 이 방향의 import는 사이클을 만들지 않는다: api-error.ts가 끌어오는 셋(amount-limit ·
 // entry-form-guards · child-form)은 어느 것도 src/offline/를 부르지 않는다.
 import { apiErrorCodeOf, apiErrorMessageForCode } from "../api/api-error";
+// 라운드 99 L-1: 인용하는 버튼 라벨 뒤의 (으)로는 값에서 고른다(라운드 93 트랙 B의 조사 규율 —
+// 라벨 상수가 받침 있는 말로 바뀌는 날 문장이 함께 따라간다).
+import { directionParticle } from "../text/korean-particles";
 
 /** Shown immediately after a local (SQLite-first) save, before the server has confirmed it. */
 export const OFFLINE_SAVED_MESSAGE = "기기에 저장했어요. 연결되면 자동으로 반영할게요.";
@@ -271,6 +274,25 @@ export const FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE =
 export const FAILED_ROW_OTHER_CHILD_NOTICE = "다른 아이의 기록이에요. 그 아이를 선택하면 고쳐서 다시 보낼 수 있어요.";
 
 /**
+ * 라운드 99 L-1 — **삭제된 아이의 실패 행**에서 위 문장을 대신하는 한 줄.
+ *
+ * 위 문장의 뒷절("그 아이를 선택하면 …")은 아이 목록에 그 아이가 있을 때만 참이다. 아이
+ * 프로필을 삭제하면 그 아이의 실패 행은 기기에 그대로 남는데(아이 삭제 뒤처리는 아이 단위
+ * 스토어 셋과 초안만 지운다 — app/settings/privacy.tsx childDelete.onSuccess), 그 행에 종전
+ * 문장이 서면 **지킬 수 없는 안내**가 된다: 아이 관리 어디에도 그 아이는 없고, 전환하고
+ * 돌아와도 아무것도 달라지지 않는다.
+ *
+ * 그래서 ["children"] 캐시가 실제로 로드돼 그 아이가 없다는 사실을 알 때만 이 문장으로
+ * 갈아탄다(모르면 지어내지 않는다 — 캐시가 비어 있으면 종전 문장 그대로다). 다음 행동은 그
+ * 행에 실제로 남아 있는 유일한 버튼을 그대로 인용한다(`SYNC_STATUS_DISCARD_LABEL` — 행 자체는
+ * 자동으로 지우지 않는다: 서버에 없는 기록이라 무엇을 버릴지는 사용자가 정한다).
+ * 해요체·책망 없음(DNC-018).
+ */
+export function failedRowDeletedChildNotice(): string {
+  return `이 아이의 프로필은 삭제됐어요. 이 기록은 [${SYNC_STATUS_DISCARD_LABEL}]${directionParticle(SYNC_STATUS_DISCARD_LABEL)} 정리할 수 있어요.`;
+}
+
+/**
  * SYNC-127 일괄 액션 문구. 개별 행의 "재시도"/"삭제"와 같은 동사를 쓰되 범위를 앞에 붙여
  * ("전체") 한 화면 안에서 두 액션이 서로 다른 것을 가리킨다는 사실이 문구만으로 드러나게 한다.
  * 버리기 쪽만 "삭제"가 아니라 "버리기"인 이유: 개별 삭제는 한 건이라 취소가 쉽지만, 일괄은
@@ -448,6 +470,10 @@ export const LOGOUT_UNCOUNTED_TEARDOWN_STORES: Readonly<Record<string, string>> 
   useFirstRecordCelebrationStore: "축하를 보였다는 관찰 이력(사용자가 적은 값이 아니다)",
   // 가져오기 이어보기: 원본 파일과 서버의 가져오기 잡이 그대로 있어 다시 열 수 있는 파생물이다.
   useImportResumeStore: "서버의 가져오기 잡에서 다시 이어 볼 수 있는 파생물",
+  // 통계 수집 동의(라운드 99 M-1): 사용자가 적은 기록이 아니라 동의 여부 하나이고, 남겨 두면
+  // 다음 계정의 로그인 체크박스가 이 값으로 미리 켜진다 — 잃는 값이 아니라 계정 경계에서
+  // 반드시 지워야 하는 값이다(앱 잠금 PIN과 같은 범주).
+  useAnalyticsConsentStore: "동의 여부 하나이고, 남기면 다음 계정의 동의 체크박스가 미리 켜진다",
   // 앱 잠금 PIN: 이 기기의 선택이고, 남겨 두면 다음 계정을 잠근다(session-teardown.ts §2.8 브릭 방지) —
   // 잃는 값이 아니라 반드시 지워야 하는 값이다.
   useAppLockStore: "이 기기의 선택이고, 남기면 다음 계정이 잠긴다(브릭 방지)"
