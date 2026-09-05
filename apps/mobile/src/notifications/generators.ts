@@ -17,6 +17,7 @@ import { subjectParticle } from "../text/korean-particles";
 import { shareTotalLine } from "../reports/share-text";
 import { isIsoCalendarDate, isoCalendarDaysBetween, seoulCalendarDate, seoulIsoWeekKey } from "./iso-week";
 import type { AppNotificationCandidate } from "./notification.store";
+import { stagePreviewD7Notification } from "./stage-preview-d7";
 
 /**
  * NOTI-102 notification generators: pure functions from data the app already has (home summary,
@@ -838,6 +839,24 @@ export type HomeNotificationInput = {
    * 판단하는 자리가 아니고, 없으면 그 알림만 만들어지지 않을 뿐 나머지 평가는 종전 그대로다.
    */
   lastMonthRecords?: ComparableExpenseRecord[] | null;
+  /**
+   * 토스 이월 해소 트랙 T-F — **시기 전환 D-7 예고**(stage-preview-d7.ts)의 판정 입력.
+   *
+   * 이 아이의 단계 입력 셋(`Child.stageMode`·`dueDate`·`birthDate`) 그대로다 — 준비템 탭의
+   * D-day 예고 배너가 이미 읽고 있는 `["children"]` 캐시의 그 행이고(app/(tabs)/items.tsx),
+   * 판정도 그 배너의 모듈(src/items/next-stage-preview.ts)을 **import해서 소비**하므로 배너와
+   * 알림이 같은 날 같은 답을 낸다. 새 요청 0건.
+   *
+   * `lastRecordedOn`과 같은 이유로 optional이다: 이 값을 넘기지 않는 호출부는 D-7 예고를
+   * 판단하는 자리가 아니고, 없으면 그 알림만 만들어지지 않을 뿐 나머지 평가는 종전과 한
+   * 글자도 다르지 않다. 오늘(서울)은 따로 받지 않는다 — `now` 하나에서 `seoulCalendarDate`로
+   * 뽑아 평가 전체가 같은 순간을 본다(monthly_wrapup의 달 경계와 같은 규율).
+   */
+  stagePreviewSource?: {
+    stageMode: unknown;
+    dueDate?: unknown;
+    birthDate?: unknown;
+  } | null;
 };
 
 /** Everything the home screen's evaluation hook needs in one pure call. */
@@ -897,5 +916,19 @@ export function evaluateHomeNotifications(input: HomeNotificationInput): AppNoti
     pendingRecordRows: input.pendingRecordRows
   });
   if (monthlyWrapupCandidate) candidates.push(monthlyWrapupCandidate);
+  // 트랙 T-F: 시기 전환 D-7 예고. 판정은 준비템 탭 배너의 모듈(next-stage-preview)을 소비하는
+  // 순수 모듈이 지고(stage-preview-d7.ts — 종류·키·문구의 근거도 그 머리말에), 여기서는 단계
+  // 입력을 흘리고 서울 오늘을 `now`에서 뽑기만 한다. 입력이 없으면 이 알림만 만들어지지 않는다.
+  if (input.stagePreviewSource) {
+    const stagePreviewCandidate = stagePreviewD7Notification({
+      childId: input.child.id,
+      childName: input.child.nickname,
+      stageMode: input.stagePreviewSource.stageMode,
+      dueDate: input.stagePreviewSource.dueDate,
+      birthDate: input.stagePreviewSource.birthDate,
+      todayIso: seoulCalendarDate(input.now)
+    });
+    if (stagePreviewCandidate) candidates.push(stagePreviewCandidate);
+  }
   return candidates;
 }
