@@ -312,9 +312,13 @@ describe("GAP-066 #8 목적지: 그 달의 리포트", () => {
     expect(
       notificationTapRoute({ type: "purchase_pending", dedupeKey: "purchase_pending:item-diaper:1700000000000" }, 3, TODAY)
     ).toBe("/items/item-diaper");
+    // 라운드 99 F5(M-2) 핀 이관: record_gap은 이제 이번 달(month)도 함께 싣는다 — 이 알림이
+    // 단언하는 공백은 서울 오늘 기준이라 이번 달의 사실이다(값 계약은 notification-route.test.ts).
+    // 이 단언이 묻는 것은 그대로다: monthly_wrapup의 달 착지가 다른 종류의 **목적지**를 바꾸지
+    // 않았는가.
     expect(notificationTapRoute({ type: "record_gap", dedupeKey: "record_gap:child-1:2026-W31" }, 3, TODAY)).toEqual({
       pathname: "/(tabs)/records",
-      params: { view: "calendar", viewNonce: "3" }
+      params: { view: "calendar", month: TODAY.slice(0, 7), viewNonce: "3" }
     });
   });
 

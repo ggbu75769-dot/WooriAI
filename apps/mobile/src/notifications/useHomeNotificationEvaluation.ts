@@ -9,7 +9,7 @@ import {
   type WeeklySpendResolution
 } from "./generators";
 import { seoulCalendarDate } from "./iso-week";
-import { useNotificationPreferencesStore } from "./notification-preferences.store";
+import { isNotificationTypeEnabled, useNotificationPreferencesStore } from "./notification-preferences.store";
 import { useNotificationStore } from "./notification.store";
 
 /**
@@ -183,11 +183,16 @@ export function useHomeNotificationEvaluation(
 ) {
   useEffect(() => {
     if (!home) return;
-    // 밸브가 열린 뒤 늦게 도착한 rehydrate 콜백이 같은 평가를 한 번 더 돌리지 않게 한다
-    // (dedupe 덕에 결과는 같지만, 헛도는 작업을 만들지 않는다 -- 아래 storesHydrated와 같은 판단).
+    // 라운드 99 F5(L-1) — ⚠️ 두 시점: 이 가드(evaluated)는 종전에 rehydrate 완료 콜백까지
+    // 막았다("dedupe 덕에 결과는 같지만, 헛도는 작업을 만들지 않는다"는 근거였다). 그런데 밸브가
+    // 먼저 열려 평가한 경우 그 결과가 같지 않다 — 늦게 끝난 rehydrate의 merge(notification.store
+    // persist)가 밸브 평가의 ingest를 저장본으로 **덮는데**, 콜백의 재평가는 가드에 걸려 돌지
+    // 않아 그 알림이 조용히 사라졌다. 그래서 지금 가드가 거르는 것은 초기 경로·밸브 사이의
+    // 중복뿐이고, rehydrate 완료 콜백은 가드를 지나지 않고(runEvaluation 직접 호출) rehydrate된
+    // 상태 위에서 한 번 더 평가한다 — 한 번 더 돌아도 안전한 근거는 종전 주석의 그 전제
+    // 그대로다: 스토어의 dedupe 메모리 덕에 재평가는 멱등이다.
     let evaluated = false;
-    const evaluate = () => {
-      if (evaluated) return;
+    const runEvaluation = () => {
       evaluated = true;
       const store = useNotificationStore.getState();
       // GAP-066 #8: 판정 전체가 **같은 순간**을 본다(위 머리말 -- 자정 근처의 달 어긋남 방지).
@@ -225,12 +230,25 @@ export function useHomeNotificationEvaluation(
         stagePreviewSource
       });
       store.ingest(candidates, nowMs);
-      store.recordSeenStage(home.child.id, home.child.stageLabel);
+      // 라운드 99 F5(L-2) — ⚠️ 두 시점: 종전에는 무조건 기록했다. stage_transition은 이 표에서
+      // 유일하게 수준이 아니라 **엣지**(lastSeenStage와의 차이)로 발화하는 종류라, 꺼 둔 사이에
+      // 시기가 바뀌면 muted 필터는 키를 태우지 않는데도(notification-preferences.store의 계약)
+      // 여기서 엣지 자체가 소모돼 다시 켠 뒤에도 영영 발화하지 않았다(수준 기반인 예산·주간은
+      // 켜면 그 조건이 여전히 참이라 돌아온다). 꺼져 있는 동안에는 기록을 미룬다 — 다시 켜면
+      // 다음 평가가 남아 있는 엣지로 발화한 뒤 여기서 기록한다. muted 판정은 평가 시점 값이면
+      // 충분해 getState()로 읽는다(이 훅은 이미 그 스토어의 hydration을 기다리고, 구독을 늘리면
+      // 설정 토글마다 재평가만 돌 뿐 결과는 dedupe로 같다 — 배선이 비용보다 크다).
+      if (isNotificationTypeEnabled(useNotificationPreferencesStore.getState().mutedTypes, "stage_transition")) {
+        store.recordSeenStage(home.child.id, home.child.stageLabel);
+      }
+    };
+    const evaluate = () => {
+      if (evaluated) return;
+      runEvaluation();
     };
     // 두 저장소가 **모두** 올라온 다음에만 평가한다(C-08 주석 참고). zustand persist는
     // hasHydrated를 세운 **뒤** onFinishHydration 리스너를 부르므로, 어느 쪽이 늦게 끝나든
-    // 그 콜백 안의 이 검사가 마지막 한 번만 통과한다 -- 중복 평가도 없다(있어도 dedupe로
-    // 무해하지만, 헛도는 작업을 만들지 않는다).
+    // 마지막 콜백 안의 이 검사만 통과한다.
     const storesHydrated = () =>
       useNotificationStore.persist.hasHydrated() && useNotificationPreferencesStore.persist.hasHydrated();
     if (storesHydrated()) {
@@ -239,10 +257,12 @@ export function useHomeNotificationEvaluation(
     }
     const unsubscribes = [
       useNotificationStore.persist.onFinishHydration(() => {
-        if (storesHydrated()) evaluate();
+        // L-1: 가드를 지나지 않는다 — 밸브가 이미 평가했더라도 지금 끝난 rehydrate의 merge가
+        // 그 ingest를 덮었을 수 있어, rehydrate된 상태 위에서 한 번 더 평가한다(멱등 — 위 주석).
+        if (storesHydrated()) runEvaluation();
       }),
       useNotificationPreferencesStore.persist.onFinishHydration(() => {
-        if (storesHydrated()) evaluate();
+        if (storesHydrated()) runEvaluation();
       })
     ];
     // QA P3-5: rehydrate가 끝나지 않는 기기(저장소 읽기 실패·저장본 손상)에서 평가가 영구

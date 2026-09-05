@@ -201,9 +201,12 @@ describe("라운드 52 C-08 화면·훅 배선 (source verification -- 화면은
     expect(hookSource).toContain("const valve = setTimeout(evaluate, NOTIFICATION_HYDRATION_VALVE_MS);");
     // 언마운트/재실행 시 타이머를 반드시 정리한다(사라진 화면에서 평가가 깨어나지 않게).
     expect(hookSource).toContain("clearTimeout(valve);");
-    // 밸브가 열린 뒤 늦게 도착한 rehydrate 콜백이 같은 평가를 두 번 돌리지 않는다.
+    // 라운드 99 F5(L-1)로 가드의 뜻이 좁아졌다: evaluated는 초기 경로·밸브 사이의 중복만 거르고,
+    // rehydrate 완료 콜백은 가드를 지나지 않고 한 번 더 평가한다(늦은 rehydrate의 merge가 밸브
+    // 평가의 ingest를 덮는 자리 — 상세·근거는 useHomeNotificationEvaluation.test.ts).
     expect(hookSource).toContain("let evaluated = false;");
     expect(hookSource).toContain("if (evaluated) return;");
+    expect(hookSource).toContain("if (storesHydrated()) runEvaluation();");
 
     const { NOTIFICATION_HYDRATION_VALVE_MS } = await import("./useHomeNotificationEvaluation");
     expect(NOTIFICATION_HYDRATION_VALVE_MS).toBe(3000);

@@ -11,6 +11,7 @@ import {
   resolveNotificationTapChild,
   resolveRecordsViewNonceParam
 } from "./notification-route";
+import { RECORDS_MONTH_PARAM, resolveInitialMonthOffset } from "../expenses/import-landing-month";
 import { RECORDS_DRILLDOWN_NONCE_PARAM } from "../reports/category-drilldown";
 
 const source = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
@@ -159,7 +160,14 @@ describe("라운드 56 D#10 record_gap 달력 착지", () => {
     expect(recordsSource).toContain("const appliedViewNonceRef = useRef<string | null | undefined>(undefined);");
     const effectStart = recordsSource.indexOf("if (!isRecordsCalendarViewParam(viewParam)) return;");
     expect(effectStart).toBeGreaterThan(0);
-    const effect = recordsSource.slice(effectStart, effectStart + 320);
+    // 라운드 99 F5 핀 이관: 종전에는 여기서 320바이트 창을 잘랐는데, 그 창은 effect 본문의
+    // 길이를 바이트로 못박는 셈이라 기록 탭 소유 트랙이 착지 오버라이드 해제 한 줄을 더한
+    // 순간 이 계약과 무관한 이유로 빨개졌다. 창의 끝을 effect의 deps 줄(모양)로 잡는다 —
+    // 묻는 것은 그대로다: 회차 가드·적용·deps가 한 effect 안에 있는가.
+    const effectDeps = "}, [viewParam, viewNonceParam, setRecordsViewMode]);";
+    const effectEnd = recordsSource.indexOf(effectDeps, effectStart);
+    expect(effectEnd, "view 착지 effect의 deps 줄").toBeGreaterThan(effectStart);
+    const effect = recordsSource.slice(effectStart, effectEnd + effectDeps.length);
     expect(effect).toContain("if (appliedViewNonceRef.current === viewNonceParam) return;");
     expect(effect).toContain("appliedViewNonceRef.current = viewNonceParam;");
     expect(effect).toContain("setRecordsViewMode(RECORDS_VIEW_MODE_CALENDAR);");
@@ -224,6 +232,68 @@ describe("라운드 56 D#10 record_gap 달력 착지", () => {
     expect(recordsSource).toContain("<SegmentedControl options={RECORDS_VIEW_OPTIONS} value={viewMode} onChange={setViewMode} />");
     expect(recordsSource).toContain('const RECORDS_VIEW_LIST = "리스트"');
     expect(recordsSource).toContain('const RECORDS_VIEW_CALENDAR = "달력"');
+  });
+});
+
+/**
+ * 라운드 99 F5(M-2) — record_gap 착지는 **이번 달**을 함께 싣는다.
+ *
+ * ⚠️ 두 시점: 종전에는 view=calendar+viewNonce만 실었다. 이 알림이 단언하는 공백("마지막 기록이
+ * N일 전이에요")은 서울 오늘 기준이라 이번 달의 사실인데, 기록 탭은 사용자가 옮겨 둔 과거 달에
+ * 잔류하므로 착지가 다른 달의 달력을 보여줬다 — monthly_wrapup이 정확히 같은 이유로 달을 싣는
+ * 것(위 라운드 66 E)과 같은 판단이다. 달은 호출부가 주입한 todayIso에서만 나온다(모듈은 시계를
+ * 읽지 않는다).
+ */
+describe("라운드 99 F5(M-2) record_gap 이번 달 착지", () => {
+  const gap = { type: "record_gap", dedupeKey: "record_gap:child-1:2026-W36" } as const;
+
+  it("record_gap은 이번 달(month=YYYY-MM)을 기존 규약(RECORDS_MONTH_PARAM)으로 함께 싣는다", () => {
+    expect(notificationTapRoute(gap, 7, "2026-09-05")).toEqual({
+      pathname: "/(tabs)/records",
+      params: {
+        [RECORDS_VIEW_PARAM]: RECORDS_CALENDAR_VIEW,
+        [RECORDS_MONTH_PARAM]: "2026-09",
+        [RECORDS_VIEW_NONCE_PARAM]: "7"
+      }
+    });
+    // 키 이름은 기록 탭의 기존 month 규약 그대로다(가져오기 착지·드릴다운과 같은 단일 소스).
+    expect(RECORDS_MONTH_PARAM).toBe("month");
+  });
+
+  it("실은 달은 규약 파서로 되읽으면 이번 달(오프셋 0)이다 — 왕복", () => {
+    const todayIso = "2026-09-05";
+    const route = notificationTapRoute(gap, 1, todayIso);
+    expect(typeof route).not.toBe("string");
+    if (typeof route === "string") return;
+    // 기록 탭이 같은 파라미터를 읽는 그 파서(resolveInitialMonthOffset)로 왕복한다: 과거 달에
+    // 잔류하던 화면도 이 값으로 이번 달(오프셋 0)에 선다.
+    expect(
+      resolveInitialMonthOffset({ monthParam: route.params[RECORDS_MONTH_PARAM], todayIso })
+    ).toBe(0);
+  });
+
+  it("오늘을 모르거나 형식이 어긋나면 달 키를 아예 싣지 않는다 (구 빌드 호출과 같은 모양)", () => {
+    for (const bad of [undefined, "", "2026-9-5", "2026-13-01", "2026-09", "abc", "2026-09-32"]) {
+      expect(notificationTapRoute(gap, 3, bad as string | undefined), String(bad)).toEqual({
+        pathname: "/(tabs)/records",
+        params: { [RECORDS_VIEW_PARAM]: RECORDS_CALENDAR_VIEW, [RECORDS_VIEW_NONCE_PARAM]: "3" }
+      });
+    }
+  });
+
+  it("달이 다른 종류로 번지지 않는다 — weekly_summary는 여전히 문자열 목적지다", () => {
+    expect(notificationTapRoute({ type: "weekly_summary", dedupeKey: "weekly_summary:child-1:2026-W36" }, 4, "2026-09-05")).toBe(
+      "/(tabs)/records"
+    );
+  });
+
+  it("링크를 만드는 화면(알림함)은 서울 오늘을 이미 주입하고 있다 (getSeoulToday — 직접 시계 없음)", () => {
+    // M-2가 새 인자를 요구하지 않는 근거: monthly_wrapup의 달 착지(라운드 66 E)가 이미 세운
+    // 주입이다. 이 모듈이 Date.now를 직접 읽지 않는다는 시계 규율도 함께 잡는다.
+    const notificationsSource = source("app/notifications.tsx");
+    expect(notificationsSource).toContain("router.push(notificationTapRoute(entry, nextRecordsViewNonce(), getSeoulToday()));");
+    const routeSource = source("src/notifications/notification-route.ts");
+    expect(routeSource).not.toContain("Date.now()");
   });
 });
 

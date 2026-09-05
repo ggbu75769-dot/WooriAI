@@ -1,3 +1,4 @@
+import { RECORDS_MONTH_PARAM } from "../expenses/import-landing-month";
 import {
   buildReportsMonthLandingTarget,
   REPORTS_TAB_PATHNAME,
@@ -54,11 +55,30 @@ export const RECORDS_VIEW_NONCE_PARAM = "viewNonce";
 /** 회차로 실을 수 있는 값의 형태. 딥링크로 들어온 긴 쓰레기 값이 눌러앉지 않게 자릿수를 묶는다. */
 const RECORDS_VIEW_NONCE_PATTERN = /^\d{1,12}$/;
 
+/**
+ * 라운드 99 F5(M-2) — record_gap 착지 월을 만들 때 쓰는 `todayIso`의 형태 방어. 형식은
+ * import-landing-month.ts의 ISO_DATE_PATTERN과 같은 판단이다(읽는 쪽이 무시할 값을 실어
+ * 보내지 않는다 — 회차의 형식 방어가 만드는 쪽에 있는 것과 같은 자리).
+ */
+const RECORDS_LANDING_TODAY_PATTERN = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
 /** 기록 탭 + 달력 보기 요청. expo-router의 `{ pathname, params }` 목적지 그대로다. */
 export type RecordsCalendarViewRoute = {
   pathname: "/(tabs)/records";
   params: {
     [RECORDS_VIEW_PARAM]: typeof RECORDS_CALENDAR_VIEW;
+    /**
+     * 라운드 99 F5(M-2) — 착지 월 `YYYY-MM`(기록 탭의 기존 month 파라미터 규약,
+     * RECORDS_MONTH_PARAM). ⚠️ 두 시점: 종전에는 view+viewNonce만 실어, 사용자가 과거 달에
+     * 옮겨 둔 기록 탭 위에 그대로 달력만 세웠다 — record_gap이 단언하는 공백("마지막 기록이
+     * N일 전")은 **이번 달** 달력에서만 보이는 사실이라, 착지가 알림의 문장과 다른 달을
+     * 보여줬다. monthly_wrapup이 같은 이유로 달을 싣는 것(위 유니온의
+     * ReportsMonthLandingTarget)과 같은 판단이다.
+     *
+     * 옵셔널인 이유는 회차와 같다: `todayIso`가 없거나 형식이 어긋나면 키 자체를 싣지 않고
+     * (구 빌드 호출과 같은 모양), 그때 착지는 달 이동 없이 달력 전환만 한다.
+     */
+    [RECORDS_MONTH_PARAM]?: string;
     /**
      * 이번 탭의 회차. 기록 탭은 이 값이 바뀔 때마다 달력 착지를 다시 적용한다.
      *
@@ -149,16 +169,29 @@ export function nextRecordsViewNonce(): number {
  *   만들었다. 기록 탭은 이 값을 **회차(nonce) 단위로** 적용한다(라운드 57 QA P1-1): 재렌더·
  *   뒤로가기는 사용자가 고른 보기를 되돌리지 않고, 알림을 **다시** 누르면 다시 달력으로 간다.
  *   예전 판은 "앱 실행당 1회"만 적용해(boolean 가드) 두 번째 탭부터 아무 일도 일어나지 않았다.
+ *   라운드 99 F5(M-2): **이번 달(`month=YYYY-MM`)도 함께 싣는다.** 이 알림의 공백 판정은 서울
+ *   오늘 기준이라(generators.ts의 record_gap — `lastRecordedOn`과 오늘의 간격) 단언하는 빈
+ *   며칠은 이번 달의 것인데, 종전에는 달을 싣지 않아 과거 달·필터 잔류 위의 달력에 내려놓았다
+ *   (monthly_wrapup이 정확히 이 이유로 달을 싣는 것과 같은 판단 — 아래 monthly_wrapup 항목).
+ *   달은 호출부가 주입한 `todayIso`에서만 뽑는다(이 모듈은 시계를 읽지 않는다 — 아래 @param).
+ *   카테고리 필터는 여전히 건드리지 않는다: 드릴다운의 회차를 빌리지 않는 이유 그대로다 —
+ *   "같은 파라미터를 빌려 쓰면 알림 한 번이 사용자가 걸어 둔 카테고리 필터를 조용히 풀어
+ *   버린다"(위 RECORDS_VIEW_NONCE_PARAM 주석). month 파라미터는 기록 탭이 카테고리와 무관하게
+ *   달만 옮기는 기존 규약(RECORDS_MONTH_PARAM, 라운드 51 C-#11)이라 그 판단과 충돌하지 않는다.
  * @param viewNonce 이번 탭의 회차. 화면은 `nextRecordsViewNonce()`가 주는 값을 그대로 넘긴다.
  *   정수가 아니거나 음수면 회차를 싣지 않는다 — 읽는 쪽이 무시할 값을 실어 보내면 착지가 조용히
  *   예전 가드로 되돌아가고, 그건 라운드 57 QA가 고친 그 증상이다. 회차를 쓰는 목적지가 둘이 됐지만
  *   (record_gap의 달력 · monthly_wrapup의 달) **카운터는 하나로 충분하다**: 한 번의 탭은 목적지
  *   하나만 만들고, 회차의 뜻은 두 자리 모두 "몇 번째 탭인가" 하나뿐이라 서로 간섭할 값이 없다
  *   (파라미터 **이름**을 나눠야 했던 이유와는 다른 문제다 — 위 RECORDS_VIEW_NONCE_PARAM 주석).
- * @param todayIso 서울 기준 오늘 `YYYY-MM-DD`. monthly_wrapup의 달 착지가 **고를 수 있는 달인지**를
- *   판정하는 데만 쓴다(`buildReportsMonthLandingTarget`). 넘기지 않거나 판정이 서지 않으면 달 없이
- *   리포트 탭으로 간다 — 아래 monthly_wrapup 항목 참고. 이 판정을 화면이 대신 내리지 않게 하려고
- *   인자로 받는다(`notificationTapRoute`는 여전히 입력만 보고 답하는 순수 함수다).
+ * @param todayIso 서울 기준 오늘 `YYYY-MM-DD`. 쓰는 곳이 둘이다(⚠️ 두 시점 — 라운드 99 F5(M-2)
+ *   전에는 monthly_wrapup 하나뿐이었다): monthly_wrapup의 달 착지가 **고를 수 있는 달인지**의
+ *   판정(`buildReportsMonthLandingTarget`)과, record_gap 착지의 **이번 달**(`todayIso`의 앞
+ *   7자). 넘기지 않거나 형식이 서지 않으면 각자 그 값 없이 간다(monthly_wrapup은 달 없이 리포트
+ *   탭, record_gap은 달 키 없이 달력 전환만) — 아래 각 항목 참고. 이 판정을 화면이 대신 내리지
+ *   않게 하려고 인자로 받는다(`notificationTapRoute`는 여전히 입력만 보고 답하는 순수 함수다 —
+ *   직접 시계(Date.now)를 읽지 않는 이 모듈의 규율 그대로, 호출부가 `getSeoulToday()`를
+ *   주입한다).
  * - monthly_wrapup -> /(tabs)/reports + **그 달**(라운드 66 E). 이 알림이 말하는 사실은 "7월은
  *   이랬어요"인데, 리포트 탭을 그냥 열면 사용자가 보는 것은 **이번 달**이다 — 알림이 가리킨 달로
  *   가려면 거기서 ‹ 를 직접 눌러야 하고, 그건 record_gap이 라운드 63에서 겪은 막다른 길과 같은
@@ -190,10 +223,15 @@ export function notificationTapRoute(
   }
   if (entry.type === "record_gap") {
     const nonce = Number.isInteger(viewNonce) && (viewNonce as number) >= 0 ? String(viewNonce) : "";
+    // M-2: 이번 달은 주입된 서울 오늘의 앞 7자다. 형식이 서지 않으면 키를 싣지 않는다(회차와
+    // 같은 방어 — 읽는 쪽이 무시할 값을 실어 보내면 착지가 조용히 예전 모양으로 되돌아간다).
+    const month =
+      typeof todayIso === "string" && RECORDS_LANDING_TODAY_PATTERN.test(todayIso) ? todayIso.slice(0, 7) : "";
     return {
       pathname: "/(tabs)/records",
       params: {
         [RECORDS_VIEW_PARAM]: RECORDS_CALENDAR_VIEW,
+        ...(month ? { [RECORDS_MONTH_PARAM]: month } : {}),
         ...(RECORDS_VIEW_NONCE_PATTERN.test(nonce) ? { [RECORDS_VIEW_NONCE_PARAM]: nonce } : {})
       }
     };
