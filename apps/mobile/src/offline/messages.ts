@@ -476,7 +476,12 @@ export const LOGOUT_UNCOUNTED_TEARDOWN_STORES: Readonly<Record<string, string>> 
   useAnalyticsConsentStore: "동의 여부 하나이고, 남기면 다음 계정의 동의 체크박스가 미리 켜진다",
   // 앱 잠금 PIN: 이 기기의 선택이고, 남겨 두면 다음 계정을 잠근다(session-teardown.ts §2.8 브릭 방지) —
   // 잃는 값이 아니라 반드시 지워야 하는 값이다.
-  useAppLockStore: "이 기기의 선택이고, 남기면 다음 계정이 잠긴다(브릭 방지)"
+  useAppLockStore: "이 기기의 선택이고, 남기면 다음 계정이 잠긴다(브릭 방지)",
+  // 기록 탭 최근 검색어(라운드 101 W2 F7): 사용자가 친 텍스트이긴 하지만 잃어서 되돌릴 수 없는
+  // 기록이 아니라 다시 치면 그만인 입력 보조이고(찾던 기록 자체는 서버에 그대로 있다), 남기면
+  // 다음 계정의 검색창 아래 이전 계정의 개인 텍스트가 칩으로 뜬다 — 동의·PIN과 같은 "잃는 값이
+  // 아니라 계정 경계에서 반드시 지워야 하는 값" 범주다.
+  useRecentSearchesStore: "다시 치면 그만인 입력 보조이고, 남기면 다음 계정의 검색창에 이전 계정의 개인 텍스트가 뜬다"
 };
 
 /**

@@ -82,6 +82,19 @@ import {
   resolveRecordsSearchScope,
   resolveSearchScopeMonths
 } from "../../src/expenses/records-search-scope";
+// 라운드 101 W2 F7: 최근 검색어 — 정규화·중복·상한·저장 시점·라벨은 전부 순수 모듈에 있고
+// (검색 필터와 같은 normalizeRecordSearchText 한 벌 — K-12의 규율), persist는 전용 스토어가
+// 진다(기기 단위 저장 · 계정 경계는 session-teardown이 사용자 단위로 지운다). 이 화면은
+// 포커스 상태와 칩 줄 배선만 한다 — 새 한국어 리터럴 0건(keyboard-tap-guard ⓔ의 대장 14 유지).
+import {
+  isRecentSearchRowVisible,
+  recentSearchChipAccessibilityLabel,
+  recentSearchesClearAllAccessibilityLabel,
+  recentSearchesClearAllLabel,
+  recentSearchesRowTitle,
+  recentSearchRecordDelayMs,
+  recentSearchRemoveAccessibilityLabel
+} from "../../src/expenses/recent-searches";
 import {
   effectiveRecordsSortMode,
   isAmountSortApplied,
@@ -145,6 +158,7 @@ import {
   RECORDS_VIEW_MODE_CALENDAR,
   RECORDS_VIEW_MODE_LIST
 } from "../../src/stores/records-view.store";
+import { useRecentSearchesStore } from "../../src/stores/recent-searches.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -281,6 +295,48 @@ function pushSyncStatus() {
  * theme.touchTarget }}` 한 줄을 "발명이 아니라 인용"의 원본으로 파일에서 그대로 찾는다.
  */
 const recordsPressedStyle = { opacity: 0.76 } as const;
+
+/**
+ * 라운드 101 W2 F7 — 최근 검색어 칩의 모듈 스코프 스타일(매 렌더 새 객체 금지 — 헤더 스타일
+ * 상수들과 같은 관례).
+ *
+ * 겉모양은 같은 화면의 CategoryChip(공용 킷)을 그대로 따른다: pill 38 · 흰 바탕 · primary100
+ * 테두리 · 13/700 글자. 공용 칩을 재사용하지 않는 이유는 몸이 둘이기 때문이다 — 칩 본체(그
+ * 검색어 적용)와 X(개별 삭제)가 한 pill 안에서 각자 눌리는데, CategoryChip은 Pressable
+ * 하나짜리다(새 공용 export 금지 — flat 행 T-B(#8)과 같은 판단으로 화면 로컬).
+ *
+ * 터치 타깃: 세로는 38 + hitSlop 5/5 = 48(CategoryChip과 같은 셈), X의 가로는 38 + 바깥쪽
+ * slop 6 = 44. slop을 본체는 왼쪽만, X는 오른쪽만 바깥으로 벌리는 이유: 두 몸 사이에서 slop이
+ * 겹치면 검색하려던 탭이 삭제로 떨어질 수 있다(경계 안쪽으로는 벌리지 않는다).
+ */
+const recentSearchChipStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.white,
+  borderColor: theme.colors.primary100,
+  borderRadius: theme.radii.pill,
+  borderWidth: 1,
+  flexDirection: "row"
+} as const;
+
+const recentSearchChipTermStyle = {
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: 38,
+  minWidth: 44,
+  paddingLeft: 14,
+  paddingRight: 4
+} as const;
+
+const recentSearchChipRemoveStyle = {
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: 38,
+  minWidth: 38,
+  paddingRight: 6
+} as const;
+
+const recentSearchTermHitSlop = { bottom: 5, left: 3, top: 5 } as const;
+const recentSearchRemoveHitSlop = { bottom: 5, right: 6, top: 5 } as const;
 
 /**
  * 토스 이월 T-B(#8) — 기록 리스트 행의 **flat 표면**.
@@ -697,6 +753,19 @@ export default function RecordsScreen() {
     setMonthOffset(resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() }));
   }, [monthParam]);
   const [searchText, setSearchText] = useState("");
+  /**
+   * 라운드 101 W2 F7 — 최근 검색어 칩.
+   *
+   * 칩 줄은 **검색 입력에 포커스가 있고 검색어가 비어 있을 때만** 선다(판정은 순수 모듈
+   * isRecentSearchRowVisible — 치기 시작하는 순간 그 자리는 결과의 것이다). 포커스 상태는
+   * 이 화면만 쓰는 비저장 useState이고, 이력 자체는 persist 스토어에 산다(기기 단위 저장 ·
+   * 계정 경계 teardown은 session-teardown.ts — 사용자 단위 판단의 근거는 스토어 헤더).
+   */
+  const [searchFocused, setSearchFocused] = useState(false);
+  const recentSearches = useRecentSearchesStore((state) => state.searches);
+  const addRecentSearch = useRecentSearchesStore((state) => state.add);
+  const removeRecentSearch = useRecentSearchesStore((state) => state.remove);
+  const resetRecentSearches = useRecentSearchesStore((state) => state.resetAll);
   /**
    * 라운드 52 C-03 — 리포트 카테고리 드릴다운의 착지 필터.
    *
@@ -1491,6 +1560,26 @@ export default function RecordsScreen() {
   const showList = !expenses.isLoading && !expenses.isError && Boolean(expenses.data);
   const hasVisibleRecords = showList && listData.length > 0;
 
+  /**
+   * 라운드 101 W2 F7 — 최근 검색어 **저장 시점**: 검색 결과를 실제로 본 뒤.
+   *
+   * 이 화면의 검색은 keystroke마다 즉시 걸리고(onChangeText — 디바운스 없음) 확정 신호가 될
+   * 배선이 없다(returnKeyType="search"는 있지만 onSubmitEditing이 없다 — 근거는 순수 모듈
+   * 헤더). 그래서 순수 모듈의 판정(검색어 유지 300ms + 화면에 선 결과 1건 이상)을 타이머로
+   * 배선한다: 검색어가 바뀌면 cleanup이 이전 타이머를 걷으므로 타이핑 중의 낱자("조", "조리")는
+   * 이력에 남지 않고, 로딩·오류 중에는 resultCount 0이라(showList 게이트) 판정이 null이다.
+   * 결과 수는 화면에 실제로 보이는 그 목록(listData — 검색·칩 필터 적용 후)에서 센다.
+   */
+  const recentSearchDelayMs = recentSearchRecordDelayMs({
+    searchText,
+    resultCount: showList ? listData.length : 0
+  });
+  useEffect(() => {
+    if (recentSearchDelayMs === null) return;
+    const timer = setTimeout(() => addRecentSearch(searchText), recentSearchDelayMs);
+    return () => clearTimeout(timer);
+  }, [recentSearchDelayMs, searchText, addRecentSearch]);
+
   // UX-B: 평평한 목록 대신 **날짜 그룹**. 그룹핑·라벨·소계 규칙은 전부 순수 모듈에 있고
   // (src/expenses/records-date-groups.ts) 여기서는 SectionList가 요구하는 `data` 이름만 붙인다.
   //
@@ -2054,7 +2143,10 @@ export default function RecordsScreen() {
         ref={searchInputRef}
         accessibilityLabel={RECORDS_SEARCH_PLACEHOLDER}
         returnKeyType="search"
+        // 라운드 101 W2 F7: 아래 최근 검색어 칩 줄의 노출 판정 입력(포커스 + 빈 검색어).
+        onBlur={() => setSearchFocused(false)}
         onChangeText={setSearchText}
+        onFocus={() => setSearchFocused(true)}
         placeholder={RECORDS_SEARCH_PLACEHOLDER}
         style={{
           backgroundColor: theme.colors.white,
@@ -2068,6 +2160,51 @@ export default function RecordsScreen() {
         }}
         value={searchText}
       />
+
+      {/* 라운드 101 W2 F7: 최근 검색어 칩 줄 — 검색 입력 **아래** 자리다(키보드 위 액세서리가
+          아니다). 포커스 + 빈 검색어 + 이력 있음일 때만 서고(판정은 순수 모듈), 검색어를 치는
+          순간 접힌다. 스크롤러를 새로 만들지 않는다(최대 5개 + 전체 지우기 — 줄바꿈 wrap,
+          records-calendar.test.ts의 ScrollView 1개 계약 유지). 칩 탭이 곧 그 검색이고
+          (setSearchText — 검색어가 서면서 이 줄 자체가 접힌다), X가 개별 삭제다(길게 누르기는
+          스크린리더로 발견할 수 없는 제스처라 쓰지 않는다 — 행 액션의 A11Y 판단과 같다).
+          바깥 SectionList가 keyboardShouldPersistTaps="handled"라(GAP-065 #6) 키보드가 뜬 채의
+          첫 탭도 칩에 그대로 닿는다. */}
+      {isRecentSearchRowVisible({ searchFocused, searchText, recentSearches }) ? (
+        <View style={{ gap: 8 }} testID="records-recent-searches">
+          <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+            {recentSearchesRowTitle()}
+          </Text>
+          <View style={{ alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {recentSearches.map((term) => (
+              <View key={term} style={recentSearchChipStyle}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={recentSearchChipAccessibilityLabel(term)}
+                  hitSlop={recentSearchTermHitSlop}
+                  onPress={() => setSearchText(term)}
+                  style={({ pressed }) => [recentSearchChipTermStyle, pressed && recordsPressedStyle]}
+                >
+                  <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>{term}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={recentSearchRemoveAccessibilityLabel(term)}
+                  hitSlop={recentSearchRemoveHitSlop}
+                  onPress={() => removeRecentSearch(term)}
+                  style={({ pressed }) => [recentSearchChipRemoveStyle, pressed && recordsPressedStyle]}
+                >
+                  <Ionicons accessible={false} color={theme.colors.gray600} name="close" size={16} />
+                </Pressable>
+              </View>
+            ))}
+            <TextButton
+              accessibilityLabel={recentSearchesClearAllAccessibilityLabel()}
+              label={recentSearchesClearAllLabel()}
+              onPress={resetRecentSearches}
+            />
+          </View>
+        </View>
+      ) : null}
 
       <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
         <CategoryChip label="전체" selected={selectedCategoryId === null} onPress={() => setSelectedCategoryId(null)} />

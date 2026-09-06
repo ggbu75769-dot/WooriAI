@@ -17,6 +17,7 @@ import {
 } from "../query/query-client-registry";
 import { useAppLockStore } from "../stores/app-lock.store";
 import { useImportResumeStore } from "../stores/import-resume.store";
+import { useRecentSearchesStore } from "../stores/recent-searches.store";
 import { useRecurringExpenseStore } from "../stores/recurring-expense.store";
 import { readAppLockRecord } from "../security/app-lock-storage";
 import { secureSessionStorage } from "../stores/secure-session-storage";
@@ -107,6 +108,9 @@ async function seedUserScopedState(store: OfflineStore): Promise<void> {
   // 라운드 99 M-1: 통계 수집 동의는 사용자 단위 선택이다 -- A가 켠 동의가 B의 세션으로 넘어가면
   // 로그인 화면 체크박스가 미리 켜진 채 B의 토큰으로 커밋된다.
   useAnalyticsConsentStore.getState().setEnabled(true);
+  // 라운드 101 W2 F7: 기록 탭 최근 검색어는 사용자가 친 개인 텍스트다 -- A가 무엇을 찾았는지가
+  // B의 검색창 아래에 칩으로 떠서는 안 된다(판단은 통계 동의와 같은 사용자 단위).
+  useRecentSearchesStore.getState().add("조리원");
 }
 
 async function expectStoreFullyEmpty(store: OfflineStore): Promise<void> {
@@ -139,6 +143,8 @@ beforeEach(async () => {
   await useAppLockStore.getState().resetAll();
   // 라운드 99 M-1: 동의 플래그도 테스트 사이에 초기화한다(남기면 다음 테스트의 사전 조건이 달라진다).
   useAnalyticsConsentStore.getState().reset();
+  // 라운드 101 W2 F7: 최근 검색어도 같은 이유로 테스트 사이에 비운다.
+  useRecentSearchesStore.getState().resetAll();
 });
 
 // ---------------------------------------------------------------------------
@@ -632,6 +638,8 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
     expect(useFirstRecordCelebrationStore.getState().celebratedChildIds).toEqual({ "child-1": true });
     // 라운드 99 M-1: 같은 사람의 동의도 그대로다 -- 토큰 갱신이 동의를 철회하면 안 된다.
     expect(useAnalyticsConsentStore.getState().enabled).toBe(true);
+    // 라운드 101 W2 F7: 같은 사람의 최근 검색어도 그대로다 -- 토큰 갱신이 이력을 지우면 안 된다.
+    expect(useRecentSearchesStore.getState().searches).toEqual(["조리원"]);
   });
 
   /**
@@ -654,6 +662,26 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
       await simulateSessionTransition(store, userA, next);
 
       expect(useAnalyticsConsentStore.getState().enabled).toBe(false);
+    }
+  });
+
+  /**
+   * 라운드 101 W2 F7 — 기록 탭 최근 검색어가 계정 경계를 넘지 않는다.
+   *
+   * 검색어는 사용자가 검색창에 친 개인 텍스트다(품목명·판매처·메모의 조각 — 무엇을 샀고
+   * 무엇을 찾았는지가 그대로 담긴다). 저장은 기기 단위 persist지만 **판단은 사용자 단위**
+   * (통계 동의 라운드 99 M-1과 같은 선례)이고, 대조군 records-view(리스트/달력)·
+   * notification-preferences는 "화면을 어떻게 볼까"류 기기 취향이라 일부러 유지된다.
+   */
+  it("라운드 101 W2 F7: 계정 전환·로그아웃·데모 전환에서 최근 검색어가 비워진다", async () => {
+    for (const next of [userB, loggedOut, demoSession]) {
+      const store = createMemoryOfflineStore();
+      await seedUserScopedState(store);
+      expect(useRecentSearchesStore.getState().searches).toEqual(["조리원"]);
+
+      await simulateSessionTransition(store, userA, next);
+
+      expect(useRecentSearchesStore.getState().searches).toEqual([]);
     }
   });
 
