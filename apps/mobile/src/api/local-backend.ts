@@ -1572,7 +1572,12 @@ function customItemsForTab(
 
   return activeCustomItems(childId)
     .filter(matchesTab)
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    // R100-R ⑥: createdAt 동점의 결정적 동점 파괴자 id — 서버 orderBy [createdAt, id]
+    // (custom-items.service.ts listSummariesForTab)와 동형. 같은 밀리초에 두 행이 생기면
+    // (멱등 재생·연속 추가) 정렬 안정성에 기대던 순서가 미러와 서버에서 갈릴 수 있다.
+    .sort(
+      (left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+    )
     .map(toCustomItemSummaryDto);
 }
 

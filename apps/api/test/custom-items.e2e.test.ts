@@ -267,6 +267,41 @@ describe("Custom items API (라운드 100 T1)", () => {
     expect(await prisma.childItemStatus.findFirst({ where: { childId, itemTemplateId: created.id } })).toBeNull();
   });
 
+  /**
+   * R100-R ③ — PATCH stageBand의 e2e 공백 메움: 시기 밴드를 고치면 목록의 탭 소속이
+   * now↔soon으로 옮겨 가고, 응답의 stageCodes/timingLabel이 새 밴드로 재전개되는지
+   * (§1.3 — stageCodes는 저장값이 아니라 응답 조립 시 stagesForBand 전개)를 왕복으로 묻는다.
+   */
+  it("PATCH stageBand 변경은 탭 소속(now↔soon)을 옮기고 stageCodes/timingLabel을 재전개한다", async () => {
+    // 아이 현재 단계 newborn_0_3 기준 "0-6개월" = now 소속으로 시작한다.
+    const created = await createCustomItem(ownerToken, createBody({ name: "시기 이동 경계용", stageBand: "0-6개월" }));
+    expect((await listItems(ownerToken, "tab=now")).some((item) => item.id === created.id)).toBe(true);
+
+    const patched = (
+      await request(app.getHttpServer())
+        .patch(`/api/v1/children/${childId}/custom-items/${created.id}`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .send({ stageBand: "12-24개월" })
+        .expect(200)
+    ).body as SummaryBody;
+    itemSummarySchema.parse(patched);
+    // 응답이 이미 새 밴드로 재전개돼 있다 — timingLabel은 밴드 라벨 원문, stageCodes는
+    // stagesForBand("12-24개월") 전개(§1.3, 서버 stage-bands.ts 현행 정의).
+    expect(patched.timingLabel).toBe("12-24개월");
+    expect(patched.stageCodes).toEqual(["toddler_1_3"]);
+    // 미전송 필드는 유지(§2.4 부분 갱신).
+    expect(patched.name).toBe("시기 이동 경계용");
+    expect(patched.necessityLevel).toBe("essential");
+
+    // 탭 소속 이동: now에서 빠지고 soon에 합류한다(카탈로그와 동일한 matchesTab 술어).
+    expect((await listItems(ownerToken, "tab=now")).some((item) => item.id === created.id)).toBe(false);
+    const soonEntry = (await listItems(ownerToken, "tab=soon")).find((item) => item.id === created.id);
+    expect(soonEntry).toBeDefined();
+    // 목록 응답도 같은 재전개 값을 싣는다 — 저장/조립 두 표면이 갈라지지 않는다.
+    expect(soonEntry!.timingLabel).toBe("12-24개월");
+    expect(soonEntry!.stageCodes).toEqual(["toddler_1_3"]);
+  });
+
   it("커스텀 id + expenseId 상태 변경은 400 CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED — 조용히 버리지 않는다(§2.4)", async () => {
     const created = await createCustomItem(ownerToken, createBody({ name: "지출 연결 경계용" }));
     const categories = (

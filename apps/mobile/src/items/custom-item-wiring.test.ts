@@ -72,6 +72,9 @@ describe("§4.2 입력 시트 — 뮤테이션·멱등·실패 얼굴(스윕 §6
     const sheet = sheetSource();
     expect(sheet).toContain("disabled={save.isPending}");
     expect(sheet).toContain("disabled={remove.isPending}");
+    // R100-R ④ 삭제/수정 상호 배제: 수정 시트가 서 있는 동안(수정 save 왕복 포함 — save는
+    // 시트 안에 살아 pending이 시트 mount 수명의 부분집합이다) 삭제 입구도 함께 잠긴다.
+    expect(sheet).toContain("disabled={remove.isPending || isEditSheetOpen}");
   });
 
   it("생성은 초안 단위 멱등 키(본문 지문 묶음)를 재사용하고 성공 시 폐기한다(§2.3)", () => {
@@ -254,7 +257,11 @@ describe("§4.4 상세 갈래 — 수정/삭제 진입 · 기존 0건 갈래가 
     expect(deletePress, "삭제 진입 핸들러").toBeGreaterThan(editPress);
     const editBody = sheet.slice(editPress, deletePress);
     expect(editBody).toContain("itemStatusGate.locked");
-    const deleteBody = sheet.slice(deletePress, sheet.indexOf("Alert.alert(", deletePress));
+    // R100-R ⑤ (라운드 78 규칙): 끝 표식도 실재 확인을 지난다 — Alert.alert 호출이 사라지면
+    // slice(deletePress, -1)이 핸들러 뒤 전체를 삼켜 부정/긍정 단언이 엉뚱한 구간 위에 선다.
+    const deleteAlertCall = sheet.indexOf("Alert.alert(", deletePress);
+    expect(deleteAlertCall, "삭제 확인 Alert 호출").toBeGreaterThan(deletePress);
+    const deleteBody = sheet.slice(deletePress, deleteAlertCall);
     expect(deleteBody).toContain("itemStatusGate.locked");
   });
 

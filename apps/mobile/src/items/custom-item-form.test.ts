@@ -32,6 +32,8 @@ import {
   withoutCustomItemTemplateId,
   type CustomItemKeyHolder
 } from "./custom-item-form";
+import type { NecessityLevel } from "@wooriai/domain";
+import { NECESSITY_FILTER_OPTIONS } from "./item-filters";
 import { bandDefinitions } from "./stage-bands";
 
 const mobileRoot = process.cwd();
@@ -109,6 +111,33 @@ describe("시기 밴드·필수도 — 어휘의 단일 소스", () => {
     expect(listing).toContain("꼭 필요해요");
     expect(listing).toContain("있으면 편해요");
     expect(listing).toContain("선택이에요");
+  });
+
+  /**
+   * R100-R ② — 필수도 어휘 이원화의 대응표 계약.
+   *
+   * 같은 `necessityLevel` 축을 두 어휘가 말한다: 입력 3칩은 권유형 문장(꼭 필요해요/있으면
+   * 편해요/선택이에요 — §9.6 확정값·스토어 소개문의 세 단계), 목록 필터 칩·배지는 축약 명사
+   * (필수/편의/선택 — NECESSITY_FILTER_OPTIONS, necessityBadgeLabel이 같은 표를 읽는다).
+   * 이원화는 의도다(문구 변경 금지) — 이 테스트는 두 어휘가 **같은 value 축의 일대일 대응**임을
+   * 값으로 못 박아, 한쪽 어휘에만 단계가 늘거나 라벨 축이 조용히 바뀌면 빨개지게 한다.
+   */
+  it("입력 3칩과 필터 어휘(필수/편의/선택)는 같은 value 축의 일대일 대응이다(드리프트 가드)", () => {
+    // 대응표가 이 계약의 본문이다 — 어느 쪽 라벨이 바뀌어도, 어느 쪽 value가 늘어도 여기서 깨진다.
+    const correspondence: Array<{ value: NecessityLevel; inputLabel: string; filterLabel: string }> = [
+      { value: "essential", inputLabel: "꼭 필요해요", filterLabel: "필수" },
+      { value: "convenience", inputLabel: "있으면 편해요", filterLabel: "편의" },
+      { value: "optional", inputLabel: "선택이에요", filterLabel: "선택" }
+    ];
+    // 입력 3칩 = 대응표의 (value, inputLabel) 그대로, 같은 순서.
+    expect(customItemNecessityOptions()).toEqual(
+      correspondence.map(({ value, inputLabel }) => ({ value, label: inputLabel }))
+    );
+    // 필터 칩 = "전체" + 대응표의 (value, filterLabel) 그대로 — 한쪽만 늘면 여기서 어긋난다.
+    expect(NECESSITY_FILTER_OPTIONS).toEqual([
+      { value: "all", label: "전체" },
+      ...correspondence.map(({ value, filterLabel }) => ({ value, label: filterLabel }))
+    ]);
   });
 
   it("초안 기본값: 시기 = 지금 보고 있는 칩, 필수도 = essential(§1.2 — 준비율 분모 편입)", () => {

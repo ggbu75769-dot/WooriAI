@@ -68,6 +68,13 @@ export class CustomItemsService {
     const name = this.requireCleanName(input.name);
 
     // §1.4: 활성(미삭제) 행만 센다 — 소프트 삭제된 행은 한도의 분모가 아니다.
+    //
+    // R100-R ⑦ — count→create 사이의 TOCTOU는 **알고 수용**한다: 동시 요청 둘이 같은 199를
+    // 읽으면 201번째 행이 생길 수 있다. 직렬화(트랜잭션 잠금·유니크 카운터)를 얹지 않는 근거
+    // (렌즈 판정 인용): 이 한도는 정합성 불변식이 아니라 **소프트 한도**다 — 목록 API가 매
+    // 조회 전량을 합치는 구조에서 무상한 적재(DoS)를 막는 가드이지(위 상수 주석), 200이라는
+    // 수 자체에 계약적 의미가 없다. 경합으로 1~2건이 초과돼도 다음 생성부터 count가 상한
+    // 이상을 읽어 거절되므로 초과는 유계이고, 사용자 피해·데이터 오염이 없다.
     const activeCount = await this.prisma.customItem.count({ where: { childId, deletedAt: null } });
     if (activeCount >= CUSTOM_ITEM_MAX_PER_CHILD) {
       throw new BadRequestException({

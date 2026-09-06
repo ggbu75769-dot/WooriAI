@@ -150,6 +150,36 @@ function isDeleteTargetAlreadyGoneOnServer(error: RemotePermanentError): boolean
   return body?.error?.code === "EXPENSE_NOT_FOUND";
 }
 
+/**
+ * R100-R ① — COV-T5(위 함수)의 준비템 상태판: status PATCH가 404 ITEM_NOT_FOUND로 거절되면
+ * **대상 준비템이 서버에서 사라진 것**이므로 행을 'failed'로 파킹하지 않고 폐기(성공 수렴)한다.
+ * 커스텀 품목 삭제(라운드 100 T1 소프트 삭제)로 이 경로가 상시화됐다: A 기기가 오프라인에서
+ * 상태를 누르고 B 기기가 그 커스텀을 지우면, A의 flush는 영원히 같은 404를 받는다.
+ *
+ * 폐기가 안전한 범위의 실측 근거(apps/api/src/onboarding/items-catalog.service.ts
+ * requireItemTemplateOrCustom): 이 코드는 "**그 아이 기준으로** 활성 템플릿도, 활성 커스텀 행도
+ * 아니다"라는 뜻 하나뿐이다.
+ *  - 타 가구/무권한 접근 거절은 이 코드로 오지 않는다 — child 게이트(requireChildAccess)가
+ *    먼저 404 CHILD_NOT_FOUND 또는 403 FORBIDDEN을 던지고, 커스텀 id의 childId 스코프 조회는
+ *    타 가구 id를 구조적으로 miss시켜 역시 ITEM_NOT_FOUND다(그 행도 그 아이에게는 영원히 404다).
+ *  - 커스텀 소프트 삭제에는 복구 API가 없고(custom-items.service.ts — deletedAt을 되돌리는
+ *    경로 부재), 비활성 템플릿은 어드민이 되살릴 수는 있지만 그동안 이 행의 재시도는 전부 같은
+ *    404다 — 그리고 404는 재시도 무익 4xx라(permission-denied.ts isRetryableSyncError) 'failed'
+ *    처분이 사용자에게 남기던 출구도 어차피 **버리기 하나**였다. 폐기는 그 유일 출구의 자동화이지
+ *    선택지의 박탈이 아니다.
+ *  - 코드가 다른 404(CHILD_NOT_FOUND, 프록시/게이트웨이의 봉투 없는 404)는 대상 소멸의 증거가
+ *    아니므로 예전대로 'failed'에 남는다 — COV-T5와 같은 좁힘이다.
+ *
+ * 사용자 흔적도 COV-T5와 동일하게: 행은 동기화 화면에서 조용히 사라지고, 수렴은 성공 칸
+ * (itemStatusSynced)에 계정된다 — 그 칸이 목록 재조회를 트리거해(sync-controller.ts) 화면도
+ * 서버 진실(그 품목 없음)로 돌아온다.
+ */
+function isItemStatusTargetGoneOnServer(error: RemotePermanentError): boolean {
+  if (error.status !== 404) return false;
+  const body = error.body as { error?: { code?: unknown } } | null | undefined;
+  return body?.error?.code === "ITEM_NOT_FOUND";
+}
+
 async function replaceOutboxForLocalId(
   store: OfflineStore,
   existing: MutationOutboxRow[],
@@ -902,6 +932,14 @@ async function flushItemStatusPass(
       continue;
     } catch (error) {
       if (error instanceof RemotePermanentError) {
+        if (isItemStatusTargetGoneOnServer(error)) {
+          // R100-R ①: 404/ITEM_NOT_FOUND — 대상 준비템이 서버에 없다(커스텀 삭제로 상시화된
+          // 경로). 이 행은 어떤 재시도로도 성공할 수 없으므로 COV-T5 관례 그대로 폐기하고
+          // 성공 칸에 계정한다(근거·안전 범위는 isItemStatusTargetGoneOnServer 주석).
+          await store.deleteItemStatusMutation(row.mutationId);
+          summary.itemStatusSynced += 1;
+          continue;
+        }
         // 4xx는 다시 보내도 같은 답이다. 특히 403은 R48 permission-denied 관례를 그대로 타서
         // (lastError가 API_ERROR_MESSAGES.FORBIDDEN 문구 그대로), 동기화 상태 화면이 재시도
         // 버튼 대신 안내를 그린다(src/offline/permission-denied.ts).

@@ -243,6 +243,53 @@ describe("C-10 준비템 상태 큐 · 전송", () => {
     expect(row.lastError).toBe(SERVER_ERROR_GIVE_UP_MESSAGE);
   });
 
+  /**
+   * R100-R ① — COV-T5의 준비템 상태판: 404 ITEM_NOT_FOUND는 "서버에 대상 없음"이라 이 행은
+   * 어떤 재시도로도 성공할 수 없다(커스텀 삭제 뒤 flush로 상시화된 경로). failed 파킹 대신
+   * 폐기(성공 수렴)한다.
+   */
+  it("404 ITEM_NOT_FOUND는 failed가 아니라 폐기로 수렴한다 (커스텀 삭제 뒤 flush — COV-T5 관례)", async () => {
+    const store = createMemoryOfflineStore();
+    await recordLocalItemStatus(store, statusPayload({ itemTemplateId: "custom-item-1", itemName: "직접 추가한 물티슈" }));
+    const { remote } = createFakeRemote({
+      failWith: () =>
+        new RemotePermanentError(404, "준비템을 찾을 수 없어요.", {
+          error: { code: "ITEM_NOT_FOUND", message: "준비템을 찾을 수 없어요." }
+        })
+    });
+
+    const summary = await flushOutbox(store, remote);
+
+    // 행은 남지 않는다 — 동기화 화면에서 조용히 사라진다(COV-T5의 지출 삭제 404와 같은 흔적).
+    expect(await itemRows(store)).toEqual([]);
+    // 수렴은 성공 칸에 계정한다 — 이 칸이 목록 재조회를 트리거해 화면이 서버 진실로 돌아온다.
+    expect(summary.itemStatusSynced).toBe(1);
+    expect(summary.itemStatusFailed).toBe(0);
+  });
+
+  it("코드가 다른 404는 예전대로 failed에 남는다 (대상 소멸의 증거가 아니다)", async () => {
+    // 봉투 코드가 CHILD_NOT_FOUND인 404(아이 게이트 거절)와 봉투 없는 404(프록시/게이트웨이)
+    // 둘 다 폐기 대상이 아니다 — ITEM_NOT_FOUND만 좁게 수렴한다.
+    for (const failWith of [
+      () =>
+        new RemotePermanentError(404, "아이 프로필을 찾을 수 없어요.", {
+          error: { code: "CHILD_NOT_FOUND", message: "아이 프로필을 찾을 수 없어요." }
+        }),
+      () => new RemotePermanentError(404, "요청을 처리하지 못했어요.")
+    ]) {
+      const store = createMemoryOfflineStore();
+      await recordLocalItemStatus(store, statusPayload());
+      const { remote } = createFakeRemote({ failWith });
+
+      const summary = await flushOutbox(store, remote);
+
+      expect(summary.itemStatusFailed).toBe(1);
+      expect(summary.itemStatusSynced).toBe(0);
+      const [row] = await itemRows(store);
+      expect(row.syncState).toBe("failed");
+    }
+  });
+
   it("사용자 재시도는 예산을 되돌리고, 버리기는 행을 지운다", async () => {
     const store = createMemoryOfflineStore();
     await recordLocalItemStatus(store, statusPayload());

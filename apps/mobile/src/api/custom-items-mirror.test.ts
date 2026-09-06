@@ -194,6 +194,39 @@ describe("같은 픽스처 대조 — 서버 탭 술어(matchesTab) ‖ 로컬 �
     expect(localBackend.getItemDetail(childId, helmet.id).timingLabel).toBe("24개월+");
   });
 
+  /**
+   * R100-R ⑥ — created ASC의 동점 파괴자. 서버는 orderBy [createdAt asc, id asc]
+   * (apps/api custom-items.service.ts listSummariesForTab — "id는 같은 시각 생성의 결정적
+   * 동점 파괴자")인데 미러가 createdAt만 비교하면, 같은 밀리초에 생긴 두 행의 순서가
+   * 삽입 순서(정렬 안정성)에 좌우돼 서버와 갈릴 수 있다 — 리스크 R5가 막는 바로 그 균열.
+   */
+  it("createdAt 동점은 id로 결정한다 — 서버 orderBy [createdAt, id]와 동형", () => {
+    const tiedAt = "2026-09-01T00:00:00.000Z";
+    const base = {
+      childId,
+      stageBand: "0-6개월",
+      necessityLevel: "essential",
+      status: "not_prepared",
+      createdAt: tiedAt,
+      deletedAt: null
+    } as const;
+    // 저장 순서를 id 역순으로 둔다 — createdAt만 보는 정렬이라면 안정성 덕에 역순이 그대로
+    // 남아 빨개진다(동점 파괴자가 실제로 일했음을 증명하는 배치).
+    localBackend.useLocalBackendStore.setState((state) => ({
+      customItems: [
+        ...state.customItems,
+        { ...base, id: "local-custom-item-tie-b", name: "동점 나중 id" },
+        { ...base, id: "local-custom-item-tie-a", name: "동점 먼저 id" }
+      ]
+    }));
+
+    const customIds = localBackend
+      .listItems(childId, "all")
+      .items.filter(isCustomRow)
+      .map((item) => item.id);
+    expect(customIds).toEqual(["local-custom-item-tie-a", "local-custom-item-tie-b"]);
+  });
+
   it("요약 모양(§9.2): isCustom·밴드 라벨 원문·서버와 같은 밴드 전개 — 가격·분류는 싣지 않는다", async () => {
     const { stagesForBand } = await import("../../../../apps/api/src/items-commerce/stage-bands");
     for (const stageBand of ALL_BANDS) {

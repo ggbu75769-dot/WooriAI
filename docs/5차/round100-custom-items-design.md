@@ -436,6 +436,7 @@ type LocalCustomItemRecord = {
 
 - 진입: 세션 렌더의 `PreparationListParity` 아래 `SecondaryButton` **"준비물 직접 추가하기"**.
 - 시트 필드: 이름(80자) · 시기 밴드 4칩(기본 = 현재 `stageLabel`) · 필수도 3칩(기본 essential="꼭 필요해요").
+- 필수도 어휘 이원화는 의도(R100-R ②): 입력 3칩은 권유형 문장(꼭 필요해요/있으면 편해요/선택이에요 — 처음 고르는 자리라 뜻을 말해 준다), 필터 칩·타일 배지는 축약 명사(필수/편의/선택)로 같은 `NecessityLevel` 축의 일대일 대응이다 — 대응표는 custom-item-form.test.ts의 계약 테스트가 값으로 문다.
 - 타일 표식: `renderItemFooter`에 `"직접 추가한 준비물"` 한 줄(`isCustom`만).
 - 상세: 커스텀이면 수정(시트 재사용)·삭제(Alert 확인, `objectParticle(name)` 사용) 버튼, 편집 게이트는 `useItemStatusGate` 재사용.
 - "지출도 기록할까요?": `isCustom`이면 `expenseLinkParams`에 `itemTemplateId` 미탑재(품목명 프리필만).

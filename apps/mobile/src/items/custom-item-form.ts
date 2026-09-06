@@ -81,7 +81,17 @@ export function coerceStageBandLabel(value: unknown, fallback: StageBandLabel): 
   return known ?? fallback;
 }
 
-/** 필수도 칩 3개 — §9.6 확정 어휘(스토어 소개문의 세 단계 그대로). 기본은 essential(§1.2). */
+/**
+ * 필수도 칩 3개 — §9.6 확정 어휘(스토어 소개문의 세 단계 그대로). 기본은 essential(§1.2).
+ *
+ * R100-R ② — 필수도 어휘가 **의도적으로 두 벌**인 근거: 이 입력 칩은 권유형 문장(꼭 필요해요/
+ * 있으면 편해요/선택이에요)이고, 목록 필터 칩·타일 배지는 축약 명사(필수/편의/선택 —
+ * src/items/item-filters.ts NECESSITY_FILTER_OPTIONS, item-labels.ts가 같은 표를 읽는다)다.
+ * 입력 안내는 긴 문장이 낫고(§9.6 확정값 — 처음 고르는 자리라 각 단계의 뜻을 말해 줘야 한다),
+ * 필터/배지는 좁은 칩·발밑 슬롯이라 축약이 맞다. 두 어휘는 **같은 value 축**
+ * (NecessityLevel)의 일대일 대응이고, 그 대응은 옆 테스트(custom-item-form.test.ts의 대응표
+ * 계약)가 값으로 물어 드리프트를 막는다 — 한쪽만 단계가 늘거나 라벨 축이 바뀌면 빨개진다.
+ */
 export function customItemNecessityOptions(): Array<{ value: NecessityLevel; label: string }> {
   return [
     { value: "essential", label: "꼭 필요해요" },

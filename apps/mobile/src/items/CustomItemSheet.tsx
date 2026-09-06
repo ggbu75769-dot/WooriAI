@@ -304,7 +304,10 @@ export function CustomItemDetailActions({
           accessibilityLabel={customItemDeleteAccessibilityLabel(item.name)}
           // mutation-press-guard(control-blocks): 확인 Alert를 지나 도는 삭제 왕복 동안
           // 두 입구가 함께 잠긴다.
-          disabled={remove.isPending}
+          // R100-R ④ 삭제/수정 상호 배제: 수정 시트가 서 있는 동안(수정 save.isPending은 시트
+          // mount 수명의 부분집합이다 — save는 시트 안에 산다) 같은 행의 삭제가 동시에 나가지
+          // 않게 잠근다. 반대 방향(삭제 중 수정 진입)은 위 버튼의 remove.isPending이 이미 잠갔다.
+          disabled={remove.isPending || isEditSheetOpen}
           label={customItemDeleteEntryLabel()}
           onPress={handleDeletePress}
           style={{ flex: 1 }}
