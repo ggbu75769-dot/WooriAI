@@ -114,7 +114,7 @@ const calendarWeekdayLabelStyle = {
 // 크기가 달라져 격자가 한 줄 흔들린다.
 const calendarCellStyle = {
   alignItems: "center",
-  borderColor: "rgba(74, 63, 53, 0.10)",
+  borderColor: theme.colors.presentation.hairlineStrong,
   borderRadius: theme.radii.small,
   borderWidth: 2,
   flex: 1,

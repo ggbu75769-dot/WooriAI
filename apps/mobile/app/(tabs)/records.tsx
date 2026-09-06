@@ -2150,7 +2150,7 @@ export default function RecordsScreen() {
         placeholder={RECORDS_SEARCH_PLACEHOLDER}
         style={{
           backgroundColor: theme.colors.white,
-          borderColor: "rgba(74, 63, 53, 0.10)",
+          borderColor: theme.colors.presentation.hairlineStrong,
           borderRadius: theme.radii.small,
           borderWidth: 1,
           color: theme.colors.brown,

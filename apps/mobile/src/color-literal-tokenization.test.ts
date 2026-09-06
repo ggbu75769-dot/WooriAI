@@ -19,6 +19,13 @@ import { theme } from "./theme";
  * app/(tabs)/index.tsx · app/expenses/new.tsx(이번 웨이브 타 트랙과 충돌 — 다음 차수 몫),
  * 그리고 6파일 밖의 hairline 사본들(more/family/records 등 — design-restore-p2d.test.ts가
  * 그 줄들을 바이트로 문다 · 다음 차수 몫).
+ *
+ * ⚠️ 두 시점(라운드 101 TK2) — 위 셋째 줄의 "hairline 사본들"은 **2차가 회수했다**: more ·
+ * family · records · 탭바(_layout) · CSV 내보내기 카드 · 기록 캘린더 · 날짜 피커의 hairline
+ * 변종 전부다(아래 "TK2" describe들). design-restore-p2d.test.ts가 바이트로 물던 세 줄
+ * (moreSectionGroupStyle · familyPlusButtonStyle · familyMemberRowStyle)은 그 대장 자체를
+ * 종전 리터럴 줄 → 토큰 줄로 함께 이관했고, 값 동일성의 증명은 이 파일의 대조표다.
+ * launch-animation(무접촉 계약)과 index.tsx · new.tsx(타 트랙 충돌)는 여전히 다음 차수 몫이다.
  */
 const mobileRoot = process.cwd();
 
@@ -76,6 +83,23 @@ const newTokenFormerLiterals: ReadonlyArray<[keyof typeof theme.colors.presentat
 const reusedTokenFormerLiterals: ReadonlyArray<[keyof typeof theme.colors.presentation, string]> = [
   ["dangerSurface", "#FFF0ED"], // app/(auth)/login.tsx errorCard 배경
   ["importCanvas", "#FFFCFA"] // app/import/index.tsx screen 배경
+];
+
+/**
+ * 라운드 101 TK2 — 2차(1차 잔여 회수)의 대조표. 신규 키는 hairlineHeavy 하나다: #4A3F35
+ * 12% — 가족 화면 "가족 초대하기" 버튼(familyInviteButtonStyle) 외곽선의 종전 리터럴이다.
+ */
+const tk2NewTokenFormerLiterals: ReadonlyArray<[keyof typeof theme.colors.presentation, string]> = [
+  ["hairlineHeavy", "rgba(74, 63, 53, 0.12)"]
+];
+
+/**
+ * 2차의 나머지 자리는 전부 **1차가 만든 토큰의 재사용**이다 — 종전 리터럴이 그 토큰의 값과
+ * 바이트 단위로 같다는 사실이 치환의 안전 근거다(값 교체 0건).
+ */
+const tk2ReusedTokenFormerLiterals: ReadonlyArray<[keyof typeof theme.colors.presentation, string]> = [
+  ["hairline", "rgba(74, 63, 53, 0.08)"], // more 5자리 · family 4자리 · 탭바 · CSV 카드
+  ["hairlineStrong", "rgba(74, 63, 53, 0.10)"] // family `+` 버튼 · 기록 검색 입력 · 캘린더 칸 · 날짜 피커 카드
 ];
 
 describe("라운드 101 TK — 토큰 값 = 종전 리터럴 값(두 시점 대조)", () => {
@@ -165,5 +189,80 @@ describe("라운드 101 TK — 치환 자리의 소스 계약", () => {
     for (const gone of goneLiterals) {
       expect(src, `종전 리터럴이 남아 있다: ${gone}`).not.toContain(gone);
     }
+  });
+});
+
+describe("라운드 101 TK2 — 토큰 값 = 종전 리터럴 값(두 시점 대조 · 2차)", () => {
+  it("신규 hairlineHeavy 토큰의 값이 종전 리터럴과 바이트 단위로 같다", () => {
+    for (const [token, formerLiteral] of tk2NewTokenFormerLiterals) {
+      expect(theme.colors.presentation[token], `presentation.${token}`).toBe(formerLiteral);
+    }
+  });
+
+  it("1차 토큰을 재사용한 자리의 종전 리터럴도 그 토큰의 값 그대로다", () => {
+    for (const [token, formerLiteral] of tk2ReusedTokenFormerLiterals) {
+      expect(theme.colors.presentation[token], `presentation.${token}`).toBe(formerLiteral);
+    }
+  });
+});
+
+/**
+ * 2차 치환 자리의 파일별 계약 — 1차와 같은 문법이다: 토큰 참조의 실재(자리 수까지)와 종전
+ * 리터럴의 부재(따옴표째). design-restore-p2d.test.ts가 물던 세 줄은 그쪽 대장이 토큰 줄로
+ * 이관되어 계속 물고 있으므로, 여기서는 파일 전체의 자리 수와 리터럴 부재만 문다.
+ */
+describe("라운드 101 TK2 — 치환 자리의 소스 계약(2차)", () => {
+  it("app/(tabs)/more.tsx: 가구 카드·구획 그룹·미리보기 그룹 3 + 행 구분선 2", () => {
+    const src = readSource("app/(tabs)/more.tsx");
+    expect(src.match(/borderColor: theme\.colors\.presentation\.hairline,/g) ?? []).toHaveLength(3);
+    expect(src.match(/borderBottomColor: theme\.colors\.presentation\.hairline,/g) ?? []).toHaveLength(2);
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
+  });
+
+  it("app/family/index.tsx: 초대 그룹·멤버 행·대기 행 3 + 행 구분선 1 + `+` 버튼 + 초대 버튼", () => {
+    const src = readSource("app/family/index.tsx");
+    expect(src.match(/borderColor: theme\.colors\.presentation\.hairline,/g) ?? []).toHaveLength(3);
+    expect(src.match(/borderBottomColor: theme\.colors\.presentation\.hairline,/g) ?? []).toHaveLength(1);
+    expect(src).toContain("borderColor: theme.colors.presentation.hairlineStrong,");
+    expect(src).toContain("borderColor: theme.colors.presentation.hairlineHeavy,");
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
+  });
+
+  it("app/family/invite.tsx · accept/[token].tsx: 실측 결과 색 리터럴 0건(치환할 자리 없음)", () => {
+    for (const path of ["app/family/invite.tsx", "app/family/accept/[token].tsx"]) {
+      const src = readSource(path);
+      expect(src, `${path}에 hairline 리터럴이 있다`).not.toContain("rgba(74, 63, 53");
+      expect(src, `${path}에 hex 리터럴이 있다`).not.toMatch(/Color: "#[0-9A-Fa-f]{3,8}"/);
+    }
+  });
+
+  it("app/(tabs)/records.tsx: 검색 입력 외곽선(0.10 변종)", () => {
+    const src = readSource("app/(tabs)/records.tsx");
+    expect(src).toContain("borderColor: theme.colors.presentation.hairlineStrong,");
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
+  });
+
+  it("app/(tabs)/_layout.tsx: 탭바 상단 구분선", () => {
+    const src = readSource("app/(tabs)/_layout.tsx");
+    expect(src).toContain("borderTopColor: theme.colors.presentation.hairline,");
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
+  });
+
+  it("src/export/ExpenseCsvExport.tsx: 내보내기 카드 외곽선", () => {
+    const src = readSource("src/export/ExpenseCsvExport.tsx");
+    expect(src).toContain("borderColor: theme.colors.presentation.hairline,");
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
+  });
+
+  it("src/expenses/RecordsCalendar.tsx: 캘린더 칸 외곽선(0.10 변종)", () => {
+    const src = readSource("src/expenses/RecordsCalendar.tsx");
+    expect(src).toContain("borderColor: theme.colors.presentation.hairlineStrong,");
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
+  });
+
+  it("src/expenses/ExpenseDatePicker.tsx: 날짜 피커 카드 외곽선(0.10 변종)", () => {
+    const src = readSource("src/expenses/ExpenseDatePicker.tsx");
+    expect(src).toContain("borderColor: theme.colors.presentation.hairlineStrong,");
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
   });
 });

@@ -812,7 +812,7 @@ const familyAvatarRowStyle = {
 const familyPlusButtonStyle = {
   alignItems: "center",
   backgroundColor: theme.colors.white,
-  borderColor: "rgba(74, 63, 53, 0.10)",
+  borderColor: theme.colors.presentation.hairlineStrong,
   borderRadius: theme.touchTarget / 2,
   borderWidth: 1,
   height: theme.touchTarget,
@@ -874,7 +874,7 @@ const familySectionTitleStyle = {
 
 const familyInviteGroupStyle = {
   backgroundColor: theme.colors.white,
-  borderColor: "rgba(74, 63, 53, 0.08)",
+  borderColor: theme.colors.presentation.hairline,
   borderRadius: 18,
   borderWidth: 1,
   overflow: "hidden"
@@ -882,7 +882,7 @@ const familyInviteGroupStyle = {
 
 const familyInviteRowStyle = {
   alignItems: "center",
-  borderBottomColor: "rgba(74, 63, 53, 0.08)",
+  borderBottomColor: theme.colors.presentation.hairline,
   borderBottomWidth: 1,
   flexDirection: "row",
   gap: 10,
@@ -932,7 +932,7 @@ const familyMemberGroupStyle = {
 const familyMemberRowStyle = {
   alignItems: "center",
   backgroundColor: theme.colors.white,
-  borderColor: "rgba(74, 63, 53, 0.08)",
+  borderColor: theme.colors.presentation.hairline,
   borderRadius: 16,
   borderWidth: 1,
   flexDirection: "row",
@@ -958,7 +958,7 @@ const familyMemberDeleteStyle = {
 const familyPendingInviteRowStyle = {
   alignItems: "center",
   backgroundColor: theme.colors.white,
-  borderColor: "rgba(74, 63, 53, 0.08)",
+  borderColor: theme.colors.presentation.hairline,
   borderRadius: 16,
   borderWidth: 1,
   flexDirection: "row",
@@ -990,7 +990,7 @@ const familyInviteErrorStyle = {
 const familyInviteButtonStyle = {
   alignItems: "center",
   backgroundColor: theme.colors.white,
-  borderColor: "rgba(74, 63, 53, 0.12)",
+  borderColor: theme.colors.presentation.hairlineHeavy,
   borderRadius: 16,
   borderWidth: 1,
   height: 52,

@@ -77,6 +77,9 @@ describe("D0 theme tokens", () => {
     // 1차가 화면 리터럴을 같은 값 그대로 끌어올리며 hairline·hero·prep* 27개 키가 늘었다 --
     // 종전 10개의 키·값은 한 글자도 바뀌지 않았고, 새 키의 값=종전 리터럴 대조는
     // src/color-literal-tokenization.test.ts가 문다(DNC-017: 값 교체 0건).
+    // ⚠️ 두 시점(라운드 101 TK2): 2차(1차 잔여 회수)가 hairlineHeavy(#4A3F35 12% — 가족
+    // "가족 초대하기" 버튼 외곽선의 종전 리터럴) 1개를 더했다. 기존 37개 키·값은 불변이고,
+    // 새 키의 값=종전 리터럴 대조도 같은 대조표가 문다.
     expect(theme.colors.presentation).toEqual({
       dangerSurface: "#FFF0ED",
       segmentedTrack: "#F5F0EA",
@@ -90,6 +93,7 @@ describe("D0 theme tokens", () => {
       previewNeutral: "#ECECEC",
       hairline: "rgba(74, 63, 53, 0.08)",
       hairlineStrong: "rgba(74, 63, 53, 0.10)",
+      hairlineHeavy: "rgba(74, 63, 53, 0.12)",
       heroProgressTrack: "rgba(255,255,255,0.45)",
       heroOverlaySoft: "rgba(255,255,255,0.28)",
       chartGridLine: "rgba(255, 107, 82, 0.08)",

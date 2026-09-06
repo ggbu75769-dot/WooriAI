@@ -71,6 +71,10 @@ const presentation = {
   // 헤어라인 2종: #4A3F35(카드 그림자 색)의 8%/10% — 카드·칩·목록 행의 외곽선 관례값.
   hairline: "rgba(74, 63, 53, 0.08)",
   hairlineStrong: "rgba(74, 63, 53, 0.10)",
+  // 라운드 101 TK2(2차 — 1차 잔여 회수): 헤어라인 셋째 변종 #4A3F35 12% — 가족 화면
+  // "가족 초대하기" 버튼(familyInviteButtonStyle)의 외곽선. 값=종전 리터럴 대조는 1차와
+  // 같은 대조표(src/color-literal-tokenization.test.ts)가 두 시점으로 문다.
+  hairlineHeavy: "rgba(74, 63, 53, 0.12)",
   // 코랄 히어로 위 흰색 반투명 2종(홈 히어로 진행 바 트랙 0.45 · 준비 히어로 트랙/구분선 0.28).
   heroProgressTrack: "rgba(255,255,255,0.45)",
   heroOverlaySoft: "rgba(255,255,255,0.28)",

@@ -587,7 +587,7 @@ const moreChildAgeStyle = {
 const moreHouseholdCardStyle = {
   alignItems: "center",
   backgroundColor: theme.colors.white,
-  borderColor: "rgba(74, 63, 53, 0.08)",
+  borderColor: theme.colors.presentation.hairline,
   borderRadius: theme.radii.card,
   borderWidth: 1,
   flexDirection: "row",
@@ -634,7 +634,7 @@ const moreSectionTitleStyle = {
 
 const moreSectionGroupStyle = {
   backgroundColor: theme.colors.white,
-  borderColor: "rgba(74, 63, 53, 0.08)",
+  borderColor: theme.colors.presentation.hairline,
   borderRadius: theme.radii.card,
   borderWidth: 1,
   overflow: "hidden"
@@ -642,7 +642,7 @@ const moreSectionGroupStyle = {
 
 const moreSectionRowStyle = {
   alignItems: "center",
-  borderBottomColor: "rgba(74, 63, 53, 0.08)",
+  borderBottomColor: theme.colors.presentation.hairline,
   borderBottomWidth: 1,
   flexDirection: "row",
   gap: 12,
@@ -670,7 +670,7 @@ const moreSectionRowTitleStyle = {
 function moreMenuGroupStyle() {
   return {
     backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderColor: theme.colors.presentation.hairline,
     borderRadius: MoreSettingsPixelStyles.cardRadius,
     borderWidth: 1,
     overflow: "hidden"
@@ -680,7 +680,7 @@ function moreMenuGroupStyle() {
 function moreMenuRowStyle() {
   return {
     alignItems: "center",
-    borderBottomColor: "rgba(74, 63, 53, 0.08)",
+    borderBottomColor: theme.colors.presentation.hairline,
     borderBottomWidth: 1,
     flexDirection: "row",
     gap: 10,

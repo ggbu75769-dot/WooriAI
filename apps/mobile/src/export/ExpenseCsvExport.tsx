@@ -596,7 +596,7 @@ export function ExpenseCsvExportToast({ controller }: { controller: ExpenseCsvEx
 function exportCardStyle() {
   return {
     backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderColor: theme.colors.presentation.hairline,
     borderRadius: MoreSettingsPixelStyles.cardRadius,
     borderWidth: 1,
     gap: 12,
