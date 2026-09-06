@@ -566,6 +566,125 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
     });
   });
 
+  describe("custom items 파기 정합 (라운드 100 T1, 리스크 R2)", () => {
+    /**
+     * round100-custom-items-design.md §1.5의 T1 체크리스트 증명: custom_items의
+     * created_by/updated_by는 users(id)를 캐스케이드 없이 참조하는 NOT NULL FK(000022)라
+     * child_item_statuses.updated_by_user_id와 정확히 같은 모양이다. 잡의 참조 차단 검사
+     * (findReferenceBlockedUserIds · selectPurgeableStubs)에 편입돼 있지 않으면 phase 3의
+     * user.deleteMany가 FK 위반으로 트랜잭션째 터져 **사용자 파기를 조용히 막는 새 자리**가
+     * 된다 — 아래 첫 테스트가 그 경로를 실제로 밟는다.
+     */
+    async function createCustomItem(
+      childId: string,
+      authorUserId: string,
+      overrides: { deletedAt?: Date; deletedByUserId?: string } = {}
+    ) {
+      return prisma.customItem.create({
+        data: {
+          childId,
+          name: "파기 테스트 커스텀 품목",
+          stageBand: "0-6개월",
+          necessityLevel: "essential",
+          createdByUserId: authorUserId,
+          updatedByUserId: authorUserId,
+          deletedAt: overrides.deletedAt ?? null,
+          deletedByUserId: overrides.deletedByUserId ?? null
+        }
+      });
+    }
+
+    it("생존 가구에 커스텀 품목을 남긴 탈퇴 사용자는 FK 위반 없이 anonymize되고(참조 차단 검사 편입), deleted_by는 끊긴다", async () => {
+      const now = new Date();
+      const survivor = await createUser({ status: "active" });
+      const withdrawnAuthor = await createUser({ status: "withdrawn", updatedAt: daysAgo(now, 40) });
+
+      // 가구는 생존자 소유(소유권이 차단 사유가 되지 않게) — 차단 사유를 custom_items
+      // created_by/updated_by 딱 하나로 좁힌다.
+      const household = await createHousehold(survivor.id);
+      await createMembership(household.id, survivor.id, "active");
+      await createMembership(household.id, withdrawnAuthor.id, "left");
+      const child = await createChild(household.id, null);
+      const authored = await createCustomItem(child.id, withdrawnAuthor.id);
+      // 소프트 삭제된 행의 deleted_by_user_id(FK 없는 uuid)는 expenses.deleted_by와 같은
+      // 취급으로 null로 끊긴다.
+      const softDeleted = await createCustomItem(child.id, withdrawnAuthor.id, {
+        deletedAt: daysAgo(now, 1),
+        deletedByUserId: withdrawnAuthor.id
+      });
+
+      const result = await job.run(now);
+      // FK 위반으로 phase 3이 터졌다면 여기부터 userPurgeError로 무너진다.
+      expect(result.usersAnonymized as number).toBeGreaterThanOrEqual(1);
+
+      // 하드 삭제가 아니라 stub — 생존 가구의 커스텀 품목이 참조 무결성을 지킨 채 남는다.
+      const stub = await prisma.user.findUniqueOrThrow({ where: { id: withdrawnAuthor.id } });
+      expect(stub.deletedAt).not.toBeNull();
+      expect(stub.providerUserId).toBe(`purged:${withdrawnAuthor.id}`);
+      const keptItem = await prisma.customItem.findUniqueOrThrow({ where: { id: authored.id } });
+      expect(keptItem.createdByUserId).toBe(withdrawnAuthor.id);
+      expect(keptItem.deletedAt).toBeNull();
+      const keptSoftDeleted = await prisma.customItem.findUniqueOrThrow({ where: { id: softDeleted.id } });
+      expect(keptSoftDeleted.deletedByUserId).toBeNull();
+      expect(keptSoftDeleted.deletedAt).not.toBeNull();
+
+      // phase 4(stub 청소): 커스텀 품목 행이 사라지면(여기서는 아이 삭제 캐스케이드로)
+      // 차단 사유가 걷혀 stub도 물리 파기된다 — selectPurgeableStubs의 NOT EXISTS 편입 증명.
+      await prisma.child.deleteMany({ where: { id: child.id } });
+      expect(await prisma.customItem.count({ where: { id: { in: [authored.id, softDeleted.id] } } })).toBe(0);
+      await job.run(now);
+      expect(await prisma.user.findUnique({ where: { id: withdrawnAuthor.id } })).toBeNull();
+
+      await prisma.householdMember.deleteMany({ where: { householdId: household.id } });
+      await prisma.household.deleteMany({ where: { id: household.id } });
+      await prisma.user.deleteMany({ where: { id: survivor.id } });
+    });
+
+    it("고아가 된 가구의 커스텀 품목은 아이 캐스케이드로 함께 파기되고(고아 0), 작성자는 하드 삭제된다", async () => {
+      const now = new Date();
+      const soleOwner = await createUser({ status: "withdrawn", updatedAt: daysAgo(now, 40) });
+      const orphanedHousehold = await createHousehold(soleOwner.id);
+      await createMembership(orphanedHousehold.id, soleOwner.id, "left");
+      const orphanChild = await createChild(orphanedHousehold.id, null);
+      const orphanItem = await createCustomItem(orphanChild.id, soleOwner.id);
+
+      const result = await job.run(now);
+      expect(result.householdsPurged as number).toBeGreaterThanOrEqual(1);
+
+      // purgeChildRows의 child.deleteMany가 000022의 ON DELETE CASCADE로 커스텀 행을 함께
+      // 지우므로(잡 코드에 custom_items 삭제 문장이 없어도) 고아 행이 0이고, 그 덕에
+      // 작성자의 참조 차단 사유도 함께 걷혀 anonymize가 아니라 하드 삭제로 끝난다.
+      expect(await prisma.customItem.findUnique({ where: { id: orphanItem.id } })).toBeNull();
+      expect(await prisma.child.findUnique({ where: { id: orphanChild.id } })).toBeNull();
+      expect(await prisma.household.findUnique({ where: { id: orphanedHousehold.id } })).toBeNull();
+      expect(await prisma.user.findUnique({ where: { id: soleOwner.id } })).toBeNull();
+    });
+
+    it("소프트 삭제된 아이의 phase 2 파기도 커스텀 품목을 함께 지운다(고아 0)", async () => {
+      const now = new Date();
+      const user = await createUser();
+      const household = await createHousehold(user.id);
+      await createMembership(household.id, user.id, "active");
+      const agedOutChild = await createChild(household.id, daysAgo(now, 40));
+      const doomedItem = await createCustomItem(agedOutChild.id, user.id);
+      const recentChild = await createChild(household.id, null);
+      const keptItem = await createCustomItem(recentChild.id, user.id);
+
+      const result = await job.run(now);
+      expect(result.childrenPurged as number).toBeGreaterThanOrEqual(1);
+
+      expect(await prisma.child.findUnique({ where: { id: agedOutChild.id } })).toBeNull();
+      expect(await prisma.customItem.findUnique({ where: { id: doomedItem.id } })).toBeNull();
+      // 살아 있는 아이의 커스텀 품목은 무접촉.
+      expect(await prisma.customItem.findUnique({ where: { id: keptItem.id } })).not.toBeNull();
+
+      await prisma.child.deleteMany({ where: { id: recentChild.id } });
+      await prisma.householdMember.deleteMany({ where: { householdId: household.id } });
+      await prisma.household.deleteMany({ where: { id: household.id } });
+      await prisma.user.deleteMany({ where: { id: user.id } });
+    });
+  });
+
   describe("batch cap", () => {
     it("purges at most PURGE_BATCH_SIZE rows per entity per tick and drains the backlog across ticks", async () => {
       const now = new Date();

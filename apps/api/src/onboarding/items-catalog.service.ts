@@ -13,6 +13,7 @@ import type { LinkHealthStatus } from "../worker/jobs/link-health.job";
 import { rankItemsForTab, type ItemTab } from "./item-ranking";
 import { ITEM_TIMING_LABEL_MISMATCH_CODE, judgeTimingLabelAgainstStages } from "./timing-label-range";
 import { ChildAccessService } from "./child-access.service";
+import { CustomItemsService, type CustomItemRow } from "./custom-items.service";
 import { ExpensesStoreService } from "./expenses-store.service";
 import { cleanOptionalText, fromDateOnly, toChildDto, type DbClient } from "./store-shared";
 
@@ -341,7 +342,10 @@ export class ItemsCatalogService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ChildAccessService) private readonly childAccess: ChildAccessService,
-    @Inject(ExpensesStoreService) private readonly expensesStore: ExpensesStoreService
+    @Inject(ExpensesStoreService) private readonly expensesStore: ExpensesStoreService,
+    // 라운드 100 T1: 커스텀 품목 합류·다형 갈래(§2.2·§2.4·§2.5). 방향은 이쪽 한 방향뿐이다 —
+    // CustomItemsService는 이 서비스를 모른다(주입 순환 회피, round100 설계 §8).
+    @Inject(CustomItemsService) private readonly customItems: CustomItemsService
   ) {}
 
   /**
@@ -352,14 +356,31 @@ export class ItemsCatalogService {
    *   단 tab="all"(전 상태 스냅샷)은 밴드를 무시한다 — item-ranking.ts의 FIX/F4 참고.
    */
   async listItems(user: AuthenticatedUser, childId: string, tab: ItemTab = "now", stageBand?: StageBandLabel) {
-    await this.childAccess.requireChildAccess(user, childId);
+    const child = await this.childAccess.requireChildAccess(user, childId);
     const items = await this.itemsForChild(childId, tab, stageBand);
-    return { items: items.map(({ item, status }) => this.toItemSummaryDto(item, status)) };
+    // 라운드 100 T1(§2.2): 커스텀 행을 같은 items 배열에 **병합**한다(isCustom 가산 마커 —
+    // 별도 배열이면 구클라이언트에서 커스텀 품목이 통째로 사라진다). 탭 술어는 카탈로그와
+    // 동일한 matchesTab을 지나고, 순서는 **카탈로그 랭킹 결과 뒤 created ASC**다 — 커스텀은
+    // 추천이 아니므로 rankItemsForTab 점수에 섞지 않는다(DNC-009 무접촉, §6.1). 합류 지점은
+    // 이 컨트롤러 경로 하나뿐이고 recommendedItemsForChild(홈 맞춤 추천)는 무접촉이다(§2.2 ⚠️).
+    const customItems = await this.customItems.listSummariesForTab(childId, {
+      tab,
+      stageCode: toChildDto(child).currentStage as ChildStageCode,
+      stageBand
+    });
+    return { items: [...items.map(({ item, status }) => this.toItemSummaryDto(item, status)), ...customItems] };
   }
 
   async getItemDetail(user: AuthenticatedUser, childId: string, itemTemplateId: string) {
     await this.childAccess.requireChildAccess(user, childId);
-    const item = await this.requireItemTemplate(itemTemplateId);
+    // 라운드 100 T1(§2.5): id가 커스텀이면 커스텀 상세 갈래 — 구클라이언트 호환의 핵심이다
+    // (병합 목록의 커스텀 타일을 구버전 앱이 눌러도 404 대신 링크 0건 상세가 열린다).
+    // 갈래 순서는 status 다형화와 동일하게 "템플릿 미존재 → 그 아이의 활성 커스텀 조회"
+    // 하나뿐이고(리스크 R1), 어느 표에도 없는 id는 종전 ITEM_NOT_FOUND 그대로다.
+    const item = await this.requireItemTemplateOrCustom(childId, itemTemplateId);
+    if ("customItem" in item) {
+      return this.customItems.toDetailDto(item.customItem);
+    }
     // 라운드 49 C-04: 상태와 연결된 지출 id를 **한 번에** 읽는다(예전 itemStatusFor와 같은
     // 조회 1건 — select에 컬럼 하나가 더해질 뿐이다).
     const statusRow = await this.itemStatusRowFor(childId, itemTemplateId);
@@ -393,7 +414,23 @@ export class ItemsCatalogService {
 
   async updateItemStatus(user: AuthenticatedUser, childId: string, itemTemplateId: string, status: ItemStatus, expenseId?: string) {
     await this.childAccess.requireChildAccess(user, childId, true);
-    const item = await this.requireItemTemplate(itemTemplateId);
+    // 라운드 100 T1(§2.4): 기존 status 엔드포인트의 id 다형화 — 이 설계의 가장 중요한
+    // 이음새다. 모바일 상태 변경은 전부 이 경로 하나를 오프라인 아웃박스로 타므로, 여기가
+    // 커스텀 id를 받으면 아웃박스·대기/실패 배지·낙관 캐시 패치·재시도·아이 스코프 가드가
+    // 클라이언트 0바이트로 커스텀에 적용된다. 갈래는 "템플릿 미존재 → 그 아이의 활성 커스텀
+    // 조회" 순서로만 열고(리스크 R1), 어느 표에도 없는 id는 종전 ITEM_NOT_FOUND 그대로다.
+    const item = await this.requireItemTemplateOrCustom(childId, itemTemplateId);
+    if ("customItem" in item) {
+      if (expenseId) {
+        // §2.4 경계: child_item_statuses.expense_id에 해당하는 자리가 없고 지출 연결은 §7
+        // 이월이다 — 조용히 버리면 사용자가 연결됐다고 믿는다(거짓 침묵 금지).
+        throw new BadRequestException({
+          code: "CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED",
+          message: "직접 추가한 준비물에는 아직 지출을 연결할 수 없어요."
+        });
+      }
+      return this.customItems.setCustomItemStatus(user, item.customItem, status);
+    }
     if (expenseId) {
       await this.expensesStore.requireExpenseBelongsToChild(user, expenseId, childId);
     }
@@ -716,6 +753,28 @@ export class ItemsCatalogService {
       throw new NotFoundException({ code: "ITEM_NOT_FOUND", message: "준비템을 찾을 수 없어요." });
     }
     return item;
+  }
+
+  /**
+   * 라운드 100 T1(§2.4·§2.5 공용): id 다형 해석. 판정 순서는 하나로 고정한다(리스크 R1) —
+   * ① 활성 카탈로그 템플릿이면 그것(종전 경로 그대로), ② 아니면 **그 아이의** 활성 커스텀
+   * 행(childId 스코프 + deleted_at IS NULL — 타 가구 id·소프트 삭제 행은 구조적으로 miss),
+   * ③ 둘 다 아니면 종전 `ITEM_NOT_FOUND` 그대로. 비활성 템플릿 id도 ②를 지나 ③으로
+   * 떨어진다(커스텀 id는 템플릿 표에 존재할 수 없으므로 결과는 종전과 동일한 404다).
+   */
+  private async requireItemTemplateOrCustom(
+    childId: string,
+    itemId: string
+  ): Promise<ItemTemplateWithStages | { customItem: CustomItemRow }> {
+    const item = await this.itemTemplateWithStages(itemId);
+    if (item && item.active) {
+      return item;
+    }
+    const customItem = await this.customItems.findActiveCustomItem(childId, itemId);
+    if (customItem) {
+      return { customItem };
+    }
+    throw new NotFoundException({ code: "ITEM_NOT_FOUND", message: "준비템을 찾을 수 없어요." });
   }
 
   private async requireItemTemplateAnyStatus(itemTemplateId: string): Promise<ItemTemplateWithStages> {
