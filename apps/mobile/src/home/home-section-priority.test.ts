@@ -83,6 +83,8 @@ describe("planHomeSections 우선순위 판정", () => {
     // TOSS-T2: "budget-nudge"(사용률 넛지 카드)는 은퇴했다 -- 히어로가 같은 퍼센트·진행바를
     // 이미 말하고, 카드의 유일한 기능(기록 탭 이동)은 히어로 Pressable이 이어받았다. 표는
     // 여덟 장으로 줄고 마지막 둘이 한 칸씩 당겨졌다(순서 판단 자체는 종전과 같다).
+    // ⚠️ 두 시점(라운드 101 F5): 회고 카드가 5위에 들며 표가 아홉 장이 되고 뒤 넷이 한 칸씩
+    // 밀렸다 -- 근거는 순위 모듈 헤더 5번 항목(7일 소멸 사실 > 상시 카드).
     expect(HOME_SECTION_RANK).toEqual({
       "budget-warning": 1,
       "first-run-guide": 2,
@@ -90,10 +92,13 @@ describe("planHomeSections 우선순위 판정", () => {
       // 기능 라운드 1 트랙 A: 월말 예상(페이스)은 "지금 알면 초과를 피할 수 있는" 앞을 보는
       // 숫자라 날짜 안내(마일스톤)보다 앞이지만, 추정이라 사실(리마인더)보다는 뒤다.
       "budget-pace": 4,
-      milestone: 5,
-      "weekly-summary": 6,
-      "last-month": 7,
-      "cumulative-total": 8
+      // 라운드 101 F5: 전환일 포함 7일만 서고 소멸하는 사실 -- 임박 마일스톤은 부스트(1.5)로
+      // 어차피 이를 앞선다.
+      "stage-retrospective": 5,
+      milestone: 6,
+      "weekly-summary": 7,
+      "last-month": 8,
+      "cumulative-total": 9
     } satisfies Record<HomeSectionId, number>);
     // 근거: 미기록 정기 지출은 "지금 행동하지 않으면 이번 달 합계가 실제와 어긋나는" 사실이라
     // 날짜 안내(마일스톤)보다 금전적 결과가 크다. 다만 예산 경고·첫 실행 안내보다는 뒤다.
@@ -171,12 +176,31 @@ describe("planHomeSections 우선순위 판정", () => {
     expect(homeMoreSectionsLabel(0, "지난달 대비")).toBe("지난달 대비 더 보기");
   });
 
+  /**
+   * 라운드 101 F5 — 회고 카드의 자리. 지나가면 소멸하는 사실(7일)이라 상시 카드(주간 요약)와
+   * 비임박 마일스톤보다 앞서고, 임박 마일스톤(부스트)에는 밀린다 -- TOSS-T2의 "지나가 버리는
+   * 사실이 먼저"를 표 안 순위로 적은 것이다.
+   */
+  it("시기 전환 회고는 월말 예상 다음, 마일스톤 앞이다 (라운드 101 F5)", () => {
+    expect(HOME_SECTION_RANK["budget-pace"]).toBeLessThan(HOME_SECTION_RANK["stage-retrospective"]);
+    expect(HOME_SECTION_RANK["stage-retrospective"]).toBeLessThan(HOME_SECTION_RANK.milestone);
+    expect(HOME_SECTION_RANK["stage-retrospective"]).toBeLessThan(HOME_SECTION_RANK["weekly-summary"]);
+    // 임박 마일스톤(D-7 이내)은 부스트로 회고를 앞선다 -- 시한이 정한 사실이 먼저다.
+    const plan = planHomeSections({
+      active: ["stage-retrospective", "milestone", "weekly-summary"],
+      boosts: ["milestone"]
+    });
+    expect(plan.visible).toEqual(["milestone", "stage-retrospective"]);
+    expect(plan.collapsed).toEqual(["weekly-summary"]);
+  });
+
   it("카드 이름 표는 모든 섹션 id를 안다 (TOSS-T2)", () => {
     const ids: HomeSectionId[] = [
       "budget-warning",
       "first-run-guide",
       "recurring-reminder",
       "budget-pace",
+      "stage-retrospective",
       "milestone",
       "weekly-summary",
       "last-month",
@@ -409,7 +433,7 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     expect(homeSource.match(/onPress=\{toggleSectionsExpanded\}/g) ?? []).toHaveLength(2);
   });
 
-  it("여덟 카드가 모두 우선순위 목록을 지난다(새 카드를 몰래 히어로 밑에 세우지 않는다)", () => {
+  it("아홉 카드가 모두 우선순위 목록을 지난다(새 카드를 몰래 히어로 밑에 세우지 않는다)", () => {
     const pushes = (homeSource.match(/activeSections\.push\("([a-z-]+)"\)/g) ?? []).map((line) =>
       line.replace(/activeSections\.push\("|"\)/g, "")
     );
@@ -425,6 +449,8 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
           "milestone",
           // 라운드 55 트랙 C: 정기 지출 리마인더도 예외 없이 같은 순위표를 지난다.
           "recurring-reminder",
+          // 라운드 101 F5: 시기 전환 회고도 예외 없이 같은 순위표를 지난다.
+          "stage-retrospective",
           "weekly-summary"
         ] satisfies HomeSectionId[]
       ).sort()
