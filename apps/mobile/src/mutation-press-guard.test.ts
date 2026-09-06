@@ -237,13 +237,19 @@ const BLIND_SPOTS: readonly {
   {
     id: "writes-outside-useMutation",
     // 파생값(아래 계약이 다시 센다): 마스킹된 모집단의 `void <호출>(` + 맨 `fetch(` 자리.
-    measure: 35,
+    // ⚠️ 두 시점(라운드 101 트랙 A): 35 → **36**. 기록 탭의 전체 기간 검색 수집 호출
+    // (`void collectSearchScope(fullScopeMonths)…` — app/(tabs)/records.tsx)이 하나 더해졌다.
+    // 그 자리는 쓰기가 아니라 **읽기 수집**(ensureQueryData 월 루프)이고, 연타는 훅의
+    // collectingRef 잠금 + 버튼 disabled가 이중으로 막는다(use-search-scope-collection.ts ·
+    // records-search-scope.test.ts의 배선 계약) — 이 사각의 뜻(연타 판정을 이 계약이 묻지
+    // 않는다)은 그대로다.
+    measure: 36,
     floor: 1,
     reason:
       "쓰기가 `useMutation` 밖에 서면 이 바늘에 걸리지 않는다 — 직접 `fetch(`(오늘 이 모집단에 0건)와 " +
-      "`void <호출>(`(오늘 35)이 그 자리다. 그 자리들의 연타 판정은 이 계약이 묻지 않는다.",
+      "`void <호출>(`(오늘 36)이 그 자리다. 그 자리들의 연타 판정은 이 계약이 묻지 않는다.",
     resumeCondition:
-      "재개 조건(사건형): `useMutation` 밖의 쓰기가 핵심 루프 안에 서는 날 — 그날 첫 모집단은 이 35다."
+      "재개 조건(사건형): `useMutation` 밖의 쓰기가 핵심 루프 안에 서는 날 — 그날 첫 모집단은 이 36이다."
   },
   {
     id: "admin-has-no-such-sweep",

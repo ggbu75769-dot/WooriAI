@@ -309,6 +309,8 @@ export const OFFLINE_UNAWARE_FAILURE_COPY_MODULES: Readonly<Record<string, strin
     "카카오가 돌려준 OAuth 오류 코드의 매핑이라 **연결이 있어야 도달한다**. 연결이 없을 때 로그인 화면이 읽는 문장은 src/auth/login-copy.ts의 LOGIN_FAILED_MESSAGE이고, 그 문장은 기다리라고 하지 않고 '네트워크 연결을 확인한 뒤'라고 이미 정직하게 말한다.",
   "src/children/household-join.ts":
     "'잠시 후 다시'를 아예 말하지 않는 두 갈래 문장이다(라운드 60 리뷰 P1-1). 기다리라는 약속이 없으므로 오프라인에서 어긋날 문장 자체가 없다 — 바늘에 걸리는 것은 앞 문장('불러오지 못했어요') 하나뿐이다.",
+  "src/expenses/records-search-scope.ts":
+    "'잠시 후 다시'를 말하지 않는 부분 실패 고지다(라운드 101 트랙 A — household-join과 같은 판정). 전체 기간 검색 수집에서 빠진 달을 **이름으로** 말할 뿐 기다리라는 약속이 없고, 재시도 라벨은 조회 실패 카드와 같은 LOAD_ERROR_RETRY_LABEL 재사용이다 — 바늘에 걸리는 것은 앞 문장('불러오지 못했어요') 하나뿐이다. 원인별 문구 분기(오프라인/서버)는 화면의 조회 실패 카드가 이미 지는 역할이라 여기서 되풀이하지 않는다.",
   "src/errors/ErrorBoundary.tsx":
     "크래시 화면이다. 여기 도달했다는 것은 렌더가 던졌다는 뜻이라 실패의 원인이 네트워크가 아니고, 연결을 물을 수 있는 상태인지도 이 자리는 알 수 없다(앱이 이미 무너진 뒤다).",
   "src/expenses/save-error-messages.ts":

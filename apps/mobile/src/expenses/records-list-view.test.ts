@@ -1301,13 +1301,21 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     // 판정·자르기는 순수 모듈 한 곳에만 있다 -- 화면이 메모를 직접 자르지 않는다.
     expect(recordsSource).toContain("matchRecordSearch({");
     expect(recordsSource).toContain("memo: expense.memo");
-    expect(recordsSource).toContain("searchText: searchText");
+    // ⚠️ 라운드 101 트랙 A(P1) — 두 시점(핀 이관): 종전 이 자리의 두 단언은
+    // `searchText: searchText`(listData가 스니펫용으로 matchRecordSearch를 **한 번 더** 부르던
+    // 호출부)와 `householdMemberRefs, searchText]`(그 재판정 때문에 listData 의존성에 검색어가
+    // 있어야 했다)였다. 이제 판정과 조각이 **필터 단계의 한 호출**에서 나와 행과 함께 내려간다 —
+    // 이 계약의 사실(행에는 해석된 문자열만 간다)은 그대로이고, 해석 시점이 한 단계 위로 갔다.
+    expect(recordsSource).toContain("const match = matchRecordSearch({");
+    expect(recordsSource).toContain("return match.matches ? [{ expense, searchSnippet: match.snippet }] : [];");
     expect(recordsSource).toContain("searchSnippet: string | null");
     expect(recordsSource).toContain("searchSnippet={item.searchSnippet}");
     // 행에는 해석된 문자열만 간다 -- 검색어를 행 prop으로 넘겨 행마다 판정하게 하지 않는다.
     expect(recordsSource).not.toContain("searchText={");
-    // 검색어가 바뀌면 목록이 다시 만들어져야 스니펫이 따라간다.
-    expect(recordsSource).toContain("householdMemberRefs, searchText]");
+    // 검색어가 바뀌면 필터 결과(visibleExpenses)가 다시 만들어지고 listData가 그것을 따라간다 —
+    // 스니펫이 이미 그 배열에 실려 있으므로 listData 의존성에는 검색어가 더 이상 없다.
+    expect(recordsSource).toContain("[scopeServerExpenses, scopeOfflineRows, selectedCategoryIds, searchText]");
+    expect(recordsSource).toContain("[visibleOfflineRows, visibleExpenses, categoryName, handleRowAction, householdMemberRefs]");
   });
 
   it("K-12: 필터도 같은 순수 함수를 쓴다 -- 화면에 연결 문자열 판정이 남아 있지 않다", () => {
@@ -1325,7 +1333,11 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
         "          searchText"
       ].join("\n")
     );
-    expect(recordsSource.match(/matchRecordSearch\(\{/g) ?? []).toHaveLength(3);
+    // ⚠️ 라운드 101 트랙 A(P1) — 두 시점(핀 이관): 종전 이 수는 **3**이었다(서버 필터 · 오프라인
+    // 필터 · listData의 스니펫 재판정). 스니펫이 필터 단계의 한 호출에서 함께 나오면서 재판정
+    // 자리가 사라졌다 — 남은 둘은 서버·오프라인 필터 하나씩이고, 셋으로 되돌아가면 행당 2회
+    // 호출이 되살아난 것이다.
+    expect(recordsSource.match(/matchRecordSearch\(\{/g) ?? []).toHaveLength(2);
     // 스니펫과 갈리던 옛 판정(`${itemName} ${memo}` 연결 문자열 훑기)은 화면에서 사라졌다.
     expect(recordsSource).not.toContain('`${expense.itemName} ${expense.memo ?? ""}`.toLowerCase()');
     expect(recordsSource).not.toContain("const haystack =");
@@ -1365,8 +1377,11 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     // 행에 구성원 배열이나 해석 함수를 내려주면 매 렌더 새 참조라 memo가 무의미해진다.
     expect(recordsSource).toContain("authorLabel: string | null");
     // 목록 useMemo의 의존성으로 남아 있어야 구성원 목록이 바뀔 때 라벨이 따라간다.
-    // (UX-T(C)에서 검색어가 뒤에 하나 더 붙었다 -- 고정하려는 것은 "의존성에 있다"이지 순서가 아니다.)
-    expect(recordsSource).toContain("householdMemberRefs, searchText]");
+    // ⚠️ 라운드 101 트랙 A(P1) — 두 시점(핀 이관): 종전 앵커는 `householdMemberRefs, searchText]`
+    // 였다(listData가 스니펫 재판정 때문에 검색어를 직접 읽었다). 스니펫이 필터 단계에서 해석돼
+    // 내려오면서 검색어 의존이 visibleExpenses로 옮겨 갔고, 이 계약이 묻는 사실("구성원 목록이
+    // 의존성에 있다")은 그대로다.
+    expect(recordsSource).toContain("householdMemberRefs]");
   });
 
   it("F8: 스코프 줄의 금액은 화면의 일별 소계를 그대로 더한 값이다 (새 집계 규칙 없음)", () => {
@@ -1414,9 +1429,12 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
   });
 
   it("UX-P: 검색 범위 고지는 요약 줄 바로 아래에, 검색 중일 때만 그린다", () => {
-    expect(recordsSource).toContain(
-      "const searchScopeNotice = buildRecordsSearchScopeNotice({ searchText, monthLabel: recordsMonthLabel });"
-    );
+    // ⚠️ 라운드 101 트랙 A — 두 시점(핀 이관): 종전 앵커는 한 줄 호출
+    // `const searchScopeNotice = buildRecordsSearchScopeNotice({ searchText, monthLabel: recordsMonthLabel });`
+    // 였다. 전체 기간 스코프가 생기면서 같은 줄이 같은 함수의 allPeriods 갈래를 함께 지난다 —
+    // 고지가 순수 모듈 한 곳에서 나온다는 이 계약의 사실은 그대로다.
+    expect(recordsSource).toContain("const searchScopeNotice = buildRecordsSearchScopeNotice({");
+    expect(recordsSource).toContain("allPeriods: isFullSearchScope");
     expect(recordsSource).toContain('testID="records-search-scope"');
     expect(recordsSource).toContain("{searchScopeNotice ? (");
     // 위치: 월 요약 줄 다음, F8 스코프 줄 앞.

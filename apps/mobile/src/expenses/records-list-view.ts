@@ -192,6 +192,13 @@ export function buildRecordsFilterScopeSummary(input: {
   categoryFiltered?: boolean;
   /** 검색어 원본(트림 전). */
   searchText?: string | null;
+  /**
+   * 라운드 101 트랙 A — 검색이 **전체 기간 스코프**인가(records-search-scope.ts의 판정).
+   * 참이면 검색 항이 "전체 기간 검색 결과"가 되어 이 줄이 어느 기간의 건수·합계인지를 스스로
+   * 말한다 — 월 요약 줄(월 전체)과 다른 모집단이라는 사실이 이 한 단어에 달려 있다. 생략/거짓이면
+   * 종전과 한 글자도 다르지 않다(검색 중이 아니면 이 값은 무시된다 — 스코프는 검색의 속성이다).
+   */
+  allPeriods?: boolean;
   /** 필터가 걸린 목록의 행 수(선물·환불 포함 — 위 doc comment 참고). */
   recordCount: number;
   /** 그 목록의 일별 소계 합. */
@@ -207,7 +214,8 @@ export function buildRecordsFilterScopeSummary(input: {
   // 이름을 못 찾았다고 그럴듯한 카테고리 이름을 지어내지 않는다(허위 표시 금지) — 그때는
   // 필터가 걸렸다는 사실만 말한다.
   if (categoryFiltered) scopeParts.push(categoryLabel.length > 0 ? `${categoryLabel} 필터` : "카테고리 필터");
-  if (searchQuery.length > 0) scopeParts.push("검색 결과");
+  // 라운드 101 트랙 A: 전체 스코프에서는 검색 항이 기간을 함께 말한다(위 allPeriods 필드 주석).
+  if (searchQuery.length > 0) scopeParts.push(input.allPeriods ? "전체 기간 검색 결과" : "검색 결과");
   const scopeLabel = scopeParts.join(" · ");
 
   const recordCount = nonNegativeInteger(input.recordCount);
@@ -328,12 +336,21 @@ export function buildRecordsSearchScopeNotice(input: {
   searchText?: string | null;
   /** 보고 있는 달의 라벨 — 화면의 월 이동 라벨과 **같은 문자열**을 넘긴다. */
   monthLabel: string;
+  /**
+   * 라운드 101 트랙 A — 전체 기간 스코프의 고지 갈래. 참이면 같은 줄이 "전체 기간의 …에서
+   * 찾아요"를 말한다(달 이름·"에서만"이 빠진다 — 이제 그 두 낱말이 사실이 아니다). 문장을
+   * 두 함수로 가르지 않는 이유는 F8 스코프 줄과 같다: 약속(고지)과 판정(필터 스코프)이 한
+   * 벌이어야 갈릴 수 없다. 생략/거짓이면 종전 문장 그대로다.
+   */
+  allPeriods?: boolean;
 }): string | null {
   const query = input.searchText?.trim() ?? "";
+  if (query.length === 0) return null;
+  if (input.allPeriods) return `'${query}' 검색은 전체 기간의 ${RECORDS_SEARCH_FIELDS_LABEL}에서 찾아요`;
   const monthLabel = input.monthLabel.trim();
   // 검색 중이 아니거나 달 라벨을 모르면 아무 말도 하지 않는다 — 범위를 반만 말하면
   // "어디에서만"이 빠져 고지의 의미가 없다.
-  if (query.length === 0 || monthLabel.length === 0) return null;
+  if (monthLabel.length === 0) return null;
   return `'${query}' 검색은 ${monthLabel}의 ${RECORDS_SEARCH_FIELDS_LABEL}에서만 찾아요`;
 }
 
@@ -427,6 +444,39 @@ export function buildRecordsSearchMonthJumpAction(input: {
   return {
     label: RECORDS_SEARCH_MONTH_JUMP_ACTION_LABEL,
     accessibilityLabel: `달을 골라 '${query}' 계속 찾기${filterSuffix}`
+  };
+}
+
+/**
+ * 라운드 101 트랙 A — 검색의 **세 번째 탈출구이자 전체 기간 스코프의 유일한 입구**,
+ * "[전체 기간에서 찾기]".
+ *
+ * 위 두 액션("지난달에서 찾기"·"다른 달에서 찾기")은 전부 **달 단위 이동**이라, 언제 적었는지
+ * 감도 없는 기록은 여전히 달을 하나씩 찍어 봐야 한다. 이 액션은 화면이 아이 하한~이번 달의
+ * 모든 달을 **한 번에 수집**해(records-search-scope.ts) 같은 검색을 전 기간 위에서 잇게 한다.
+ *
+ * 규칙은 위 두 액션과 **같은 조립**이다: 라벨은 짧은 상대 표현, 접근성 라벨은 검색어와 필터
+ * 유지 고지를 함께 말한다(한 카드에 나란히 서는 버튼들이 서로 다른 문법으로 읽히면 안 된다).
+ * 검색 중이 아니면 null — 이 액션은 검색의 속성이지 화면의 붙박이가 아니다. **자동 전환 금지**의
+ * 실행 주체가 이 버튼이다: 21개월치 조회는 사용자가 이 라벨을 읽고 눌렀을 때만 나간다.
+ * (하한을 모르는 계정에서 아예 내밀지 않는 판정은 화면이 달 목록 길이로 한다 —
+ * `resolveSearchScopeMonths`가 빈 배열을 준다.)
+ */
+export function buildRecordsSearchAllPeriodAction(input: {
+  /** 검색어 원본(트림 전). 비어 있으면 이 액션 자체가 없다. */
+  searchText?: string | null;
+  /** 카테고리 칩이 걸려 있는지(스코프 줄과 같은 관례로 라벨과 따로 받는다). */
+  categoryFiltered?: boolean;
+  /** 그 칩의 이모지 없는 이름. 모르면 이름 없이 "카테고리 필터"라고만 말한다. */
+  categoryLabel?: string | null;
+}): { label: string; accessibilityLabel: string } | null {
+  const query = input.searchText?.trim() ?? "";
+  if (query.length === 0) return null;
+  const filterName = categoryFilterName(input);
+  const filterSuffix = filterName ? `(${filterName} 유지)` : "";
+  return {
+    label: "전체 기간에서 찾기",
+    accessibilityLabel: `전체 기간에서 '${query}' 계속 찾기${filterSuffix}`
   };
 }
 
