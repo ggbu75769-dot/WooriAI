@@ -88,6 +88,8 @@ const FORWARD_STACK_SCREENS = [
   "budget",
   // 설정 세계
   "settings/index",
+  // 라운드 101 W2 F6a: 금액 프리셋 편집 — 설정 하위 상세라 같은 전진 문법이다.
+  "settings/amount-presets",
   "settings/app-lock",
   "settings/children",
   "settings/notifications",

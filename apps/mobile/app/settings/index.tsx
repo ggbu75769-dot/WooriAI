@@ -346,6 +346,16 @@ export default function SettingsScreen() {
             subtitle="매달 반복되는 지출을 등록해 두고 기록할 때 알려 줘요"
             onPress={() => router.push("/expenses/recurring")}
           />
+          {/* 라운드 101 W2 F6a — 지출 입력의 +금액 버튼 네 개(기본 +1천/+5천/+1만/+5만) 편집.
+              값은 기기 단위 취향(persist 스토어)이고 판정·기본값은 src/expenses/amount-presets.ts가
+              단일 소스다. "지출 · 예산" 구획인 이유: 이 버튼이 다스리는 것은 지출 입력의 금액
+              칸이다(예산 수정·정기 지출과 같은 성격의 입력 보조 설정). */}
+          <ListRow
+            icon={<SettingsRowIcon name="calculator-outline" />}
+            title="빠른 금액 버튼"
+            subtitle="지출 입력의 금액 더하기 버튼 네 개를 바꿔요"
+            onPress={() => router.push("/settings/amount-presets")}
+          />
         </View>
 
         <View style={{ gap: theme.spacing.gap }}>
