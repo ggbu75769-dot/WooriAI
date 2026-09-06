@@ -12,6 +12,9 @@ import {
   type AppIconName
 } from "../design-system";
 import { resolvePreparationItemVisual } from "./item-visuals";
+// 라운드 101 웨이브 2 TK — 색 리터럴 토큰화 1차: 아래 그룹/밴드 표와 히어로 오버레이의 리터럴이
+// theme.presentation의 같은 값 토큰으로 올라갔다(렌더 값 불변 — color-literal-tokenization.test.ts).
+import { theme } from "../theme";
 import { pendingSearchSubmission, searchResultCountAnnouncement, shouldSyncSearchDraft } from "./search-draft";
 import { announceForA11y } from "../ui";
 import { resolvePreparationDisplayGroupId, type PreparationDisplayGroupId } from "./preparation-grouping";
@@ -178,16 +181,16 @@ const displayGroups: ReadonlyArray<{
   tint: string;
   color: string;
 }> = [
-  { id: "health_care", name: "건강·진료", icon: "heart-pulse", tint: "#FFF0EC", color: "#C54A2C" },
-  { id: "clothing", name: "의류·착용", icon: "tshirt-crew-outline", tint: "#FFF0F4", color: "#B8476C" },
-  { id: "comfort_recovery", name: "편안함·회복", icon: "sleep", tint: "#EEE9FF", color: "#7157A8" },
-  { id: "hygiene_bath", name: "위생·목욕", icon: "bathtub-outline", tint: "#E5F7F2", color: "#147A66" },
-  { id: "hospital_birth", name: "입원·출산", icon: "bag-suitcase-outline", tint: "#EAF3FF", color: "#2866A3" },
-  { id: "feeding", name: "수유·이유식", icon: "baby-bottle-outline", tint: "#FFF6DD", color: "#A86400" },
-  { id: "sleep_home", name: "수면·공간", icon: "bed-outline", tint: "#F1EDFF", color: "#6553A3" },
-  { id: "diaper_daily", name: "기저귀·생활", icon: "human-baby-changing-table", tint: "#EAF8F4", color: "#19735F" },
-  { id: "outing_growth", name: "외출·놀이·교육", icon: "baby-carriage", tint: "#EEF5FF", color: "#3268A8" },
-  { id: "family_records", name: "가족·기록", icon: "account-group-outline", tint: "#F7F1EA", color: "#8A5A2B" }
+  { id: "health_care", name: "건강·진료", icon: "heart-pulse", tint: theme.colors.presentation.prepTintCoral, color: theme.colors.presentation.prepInkCoral },
+  { id: "clothing", name: "의류·착용", icon: "tshirt-crew-outline", tint: theme.colors.presentation.prepTintPink, color: theme.colors.presentation.prepInkPink },
+  { id: "comfort_recovery", name: "편안함·회복", icon: "sleep", tint: theme.colors.presentation.prepTintLavender, color: theme.colors.presentation.prepInkLavender },
+  { id: "hygiene_bath", name: "위생·목욕", icon: "bathtub-outline", tint: theme.colors.presentation.prepTintMint, color: theme.colors.presentation.prepInkMint },
+  { id: "hospital_birth", name: "입원·출산", icon: "bag-suitcase-outline", tint: theme.colors.presentation.prepTintSky, color: theme.colors.presentation.prepInkSky },
+  { id: "feeding", name: "수유·이유식", icon: "baby-bottle-outline", tint: theme.colors.presentation.prepTintButter, color: theme.colors.presentation.prepInkButter },
+  { id: "sleep_home", name: "수면·공간", icon: "bed-outline", tint: theme.colors.presentation.prepTintViolet, color: theme.colors.presentation.prepInkViolet },
+  { id: "diaper_daily", name: "기저귀·생활", icon: "human-baby-changing-table", tint: theme.colors.presentation.prepTintSeafoam, color: theme.colors.presentation.prepInkSeafoam },
+  { id: "outing_growth", name: "외출·놀이·교육", icon: "baby-carriage", tint: theme.colors.presentation.prepTintPowderBlue, color: theme.colors.presentation.prepInkPowderBlue },
+  { id: "family_records", name: "가족·기록", icon: "account-group-outline", tint: theme.colors.presentation.prepTintSand, color: theme.colors.presentation.prepInkSand }
 ];
 
 const timingBands: ReadonlyArray<{
@@ -199,9 +202,9 @@ const timingBands: ReadonlyArray<{
   tint: string;
   color: string;
 }> = [
-  { id: "now", name: "지금 준비해요", subtitle: "이번 주에 확인해요", buckets: ["overdue", "this_week"], icon: "alarm", tint: "#FFF0EC", color: semanticColors.actionPrimary },
-  { id: "soon", name: "곧 필요해요", subtitle: "이번 달에 준비해요", buckets: ["this_month"], icon: "clock-outline", tint: "#E5F7F2", color: semanticColors.brandSecondary },
-  { id: "later", name: "여유 있게 준비해요", subtitle: "다음 성장 단계를 살펴봐요", buckets: ["next_stage"], icon: "calendar-blank-outline", tint: "#FFF6DD", color: semanticColors.warning },
+  { id: "now", name: "지금 준비해요", subtitle: "이번 주에 확인해요", buckets: ["overdue", "this_week"], icon: "alarm", tint: theme.colors.presentation.prepTintCoral, color: semanticColors.actionPrimary },
+  { id: "soon", name: "곧 필요해요", subtitle: "이번 달에 준비해요", buckets: ["this_month"], icon: "clock-outline", tint: theme.colors.presentation.prepTintMint, color: semanticColors.brandSecondary },
+  { id: "later", name: "여유 있게 준비해요", subtitle: "다음 성장 단계를 살펴봐요", buckets: ["next_stage"], icon: "calendar-blank-outline", tint: theme.colors.presentation.prepTintButter, color: semanticColors.warning },
   { id: "finished", name: "정리된 품목", subtitle: "준비 완료와 제외한 품목을 모았어요", buckets: ["completed", "not_needed"], icon: "check-circle-outline", tint: semanticColors.successSurface, color: semanticColors.success }
 ];
 
@@ -578,11 +581,11 @@ export function PreparationListParity({
           </Text>
           <AppIcon color={semanticColors.textInverse} name={progressExpanded ? "chevron-up" : "chevron-down"} size={24} />
         </View>
-        <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: progressPercent }} style={{ backgroundColor: "rgba(255,255,255,0.28)", borderRadius: 999, height: 9, overflow: "hidden" }}>
+        <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: progressPercent }} style={{ backgroundColor: theme.colors.presentation.heroOverlaySoft, borderRadius: 999, height: 9, overflow: "hidden" }}>
           <View style={{ backgroundColor: semanticColors.textInverse, borderRadius: 999, height: 9, width: `${progressPercent}%` }} />
         </View>
         {progressExpanded ? (
-          <View style={{ borderTopColor: "rgba(255,255,255,0.28)", borderTopWidth: 1, gap: 8, paddingTop: 12 }}>
+          <View style={{ borderTopColor: theme.colors.presentation.heroOverlaySoft, borderTopWidth: 1, gap: 8, paddingTop: 12 }}>
             {/* 접힌 히어로를 펼치면 지금 어디까지 왔는지 한 줄 + 이름 몇 개. 수치를 호출부가
                 넘겨 준 경우에는 그 구간 문구를 쓴다 -- 여기서 개수를 다시 세면 바로 위 줄과
                 분모가 다른 두 숫자가 한 카드 안에 함께 서게 된다. */}
@@ -680,7 +683,7 @@ export function PreparationListParity({
                       <Text style={{ color: semanticColors.textPrimary, fontSize: 15, fontWeight: "800" }}>{group.name}</Text>
                       <Text style={{ color: semanticColors.textSecondary, fontSize: 12 }}>{done}/{trackedGroupItems.length} 보유</Text>
                     </View>
-                    <View style={{ backgroundColor: "#F5E8DF", borderRadius: 999, height: 5, overflow: "hidden" }}>
+                    <View style={{ backgroundColor: theme.colors.presentation.prepGroupProgressTrack, borderRadius: 999, height: 5, overflow: "hidden" }}>
                       <View style={{ backgroundColor: semanticColors.brandSecondary, borderRadius: 999, height: 5, width: `${percentage}%` }} />
                     </View>
                   </View>

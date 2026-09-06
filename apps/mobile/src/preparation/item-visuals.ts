@@ -199,6 +199,6 @@ export function expenseCategoryVisual(categoryId: string): {
   return {
     icon: expenseCategoryIcons[category.code],
     iconBackgroundColor: theme.colors.categoryColors[category.code],
-    iconColor: "#443F3C"
+    iconColor: theme.colors.presentation.categoryIconInk
   };
 }

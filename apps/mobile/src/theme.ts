@@ -63,7 +63,45 @@ const presentation = {
   previewYellow: "#FFF5D7",
   previewGreen: "#EAF7F2",
   previewPeach: "#FFECE6",
-  previewNeutral: "#ECECEC"
+  previewNeutral: "#ECECEC",
+  // 라운드 101 웨이브 2 TK — 색 리터럴 토큰화 1차(다크 모드 선행). 아래 키들은 화면에 흩어져
+  // 있던 리터럴을 **같은 값 그대로** 이름으로 끌어올린 것이다(DNC-017: 값 교체 0건 — 값이
+  // 바뀌면 그것은 팔레트 개정이고 변경 요청이 먼저다). 값=종전 리터럴의 대조표는
+  // src/color-literal-tokenization.test.ts가 두 시점으로 문다.
+  // 헤어라인 2종: #4A3F35(카드 그림자 색)의 8%/10% — 카드·칩·목록 행의 외곽선 관례값.
+  hairline: "rgba(74, 63, 53, 0.08)",
+  hairlineStrong: "rgba(74, 63, 53, 0.10)",
+  // 코랄 히어로 위 흰색 반투명 2종(홈 히어로 진행 바 트랙 0.45 · 준비 히어로 트랙/구분선 0.28).
+  heroProgressTrack: "rgba(255,255,255,0.45)",
+  heroOverlaySoft: "rgba(255,255,255,0.28)",
+  // 리포트 추이 카드의 격자선(퍼시몬 8%).
+  chartGridLine: "rgba(255, 107, 82, 0.08)",
+  // 지출 분류 팔레트 위 아이콘 잉크(item-visuals.ts expenseCategoryVisual).
+  categoryIconInk: "#443F3C",
+  // 준비 목록(PreparationListParity) 분류 헤더의 진행 바 트랙.
+  prepGroupProgressTrack: "#F5E8DF",
+  // 준비 목록 그룹 카드의 틴트/잉크 10쌍(색상 이름 기준 — 시기 밴드도 같은 값 셋을 공유한다:
+  // coral/mint/butter). 값은 c20deeb 이식본(DSN-053 P2-B)의 리터럴 그대로다.
+  prepTintCoral: "#FFF0EC",
+  prepInkCoral: "#C54A2C",
+  prepTintPink: "#FFF0F4",
+  prepInkPink: "#B8476C",
+  prepTintLavender: "#EEE9FF",
+  prepInkLavender: "#7157A8",
+  prepTintMint: "#E5F7F2",
+  prepInkMint: "#147A66",
+  prepTintSky: "#EAF3FF",
+  prepInkSky: "#2866A3",
+  prepTintButter: "#FFF6DD",
+  prepInkButter: "#A86400",
+  prepTintViolet: "#F1EDFF",
+  prepInkViolet: "#6553A3",
+  prepTintSeafoam: "#EAF8F4",
+  prepInkSeafoam: "#19735F",
+  prepTintPowderBlue: "#EEF5FF",
+  prepInkPowderBlue: "#3268A8",
+  prepTintSand: "#F7F1EA",
+  prepInkSand: "#8A5A2B"
 } as const;
 
 // Fixed 10-color warm-pastel category palette (D0), mapped onto the 12 existing category codes
