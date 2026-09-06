@@ -203,8 +203,12 @@ describe("기록 탭 배선 계약 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).toContain("label={recentSearchesClearAllLabel()}");
     expect(recordsSource).toContain("{recentSearchesRowTitle()}");
     // 길게 누르기는 쓰지 않는다 — 칩 줄 어디에도 onLongPress가 없다(행 액션의 그 한 곳뿐).
+    // ⚠️ 두 끝의 실재를 먼저 묻는다(라운드 78 트랙 E 형식) — 앵커가 사라지면 slice(-1, …)는
+    // 빈 구간이 되어 부정 단언이 영원히 초록이다.
     const rowAt = recordsSource.indexOf('testID="records-recent-searches"');
     const rowEnd = recordsSource.indexOf("<ScrollView horizontal", rowAt);
+    expect(rowAt).toBeGreaterThan(-1);
+    expect(rowEnd).toBeGreaterThan(rowAt);
     expect(recordsSource.slice(rowAt, rowEnd)).not.toContain("onLongPress");
   });
 

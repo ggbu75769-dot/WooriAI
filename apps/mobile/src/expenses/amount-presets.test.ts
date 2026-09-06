@@ -203,14 +203,18 @@ describe("sanitizeCustomAmountPresets (라운드 101 W2 F6a)", () => {
     expect(sanitizeCustomAmountPresets([1, 2, 3, 4])).toEqual([1, 2, 3, 4]);
   });
 
-  it("상한은 amount-limit.ts 단일 소스(서버 int4)와 같은 숫자다 — 경계 안팎", () => {
-    expect(sanitizeCustomAmountPresets([1000, 5000, 10000, EXPENSE_AMOUNT_MAX_KRW])).toEqual([
+  it("상한은 가산이 실제로 멈추는 값(QUICK_AMOUNT_MAX_KRW = 1억)이다 — 경계 안팎 (리뷰 M-3, 두 시점)", () => {
+    // 두 시점: 종전 상한은 서버 int4(EXPENSE_AMOUNT_MAX_KRW ≈ 21억)라 1억 초과 프리셋이 **저장은
+    // 되는데** 칩을 눌러도 가산은 1억에서 잘렸다(라벨 ≠ 효과). 이제 저장 상한 = 가산 상한 한 벌이다.
+    expect(sanitizeCustomAmountPresets([1000, 5000, 10000, QUICK_AMOUNT_MAX_KRW])).toEqual([
       1000,
       5000,
       10000,
-      EXPENSE_AMOUNT_MAX_KRW
+      QUICK_AMOUNT_MAX_KRW
     ]);
-    expect(sanitizeCustomAmountPresets([1000, 5000, 10000, EXPENSE_AMOUNT_MAX_KRW + 1])).toBeNull();
+    expect(sanitizeCustomAmountPresets([1000, 5000, 10000, QUICK_AMOUNT_MAX_KRW + 1])).toBeNull();
+    // 종전 상한이던 서버 int4 값은 이제 항 자격이 없다(옛 저장본의 초과값은 기본값 폴백으로 떨어진다).
+    expect(sanitizeCustomAmountPresets([1000, 5000, 10000, EXPENSE_AMOUNT_MAX_KRW])).toBeNull();
     // 안전 정수 밖 값도 항 자격이 없다(정밀도 깨진 값을 저장하지 않는다).
     expect(sanitizeCustomAmountPresets([1000, 5000, 10000, Number.MAX_SAFE_INTEGER + 2])).toBeNull();
   });
@@ -252,7 +256,11 @@ describe("resolveAmountPresets (라운드 101 W2 F6a)", () => {
       expect(addAmountPreset("", preset)).toBe(String(preset));
       expect(formatPresetChipLabel(preset).startsWith("+")).toBe(true);
     }
-    // 상한(1억)을 넘는 프리셋도 저장은 가능하지만(서버 상한이 기준) 가산은 여전히 칩 상한에서 멈춘다.
+    // 리뷰 M-3(두 시점): 종전에는 "상한(1억)을 넘는 프리셋도 저장은 가능하지만 가산은 칩
+    // 상한에서 멈춘다"가 이 자리의 사실이었다 — 라벨과 효과가 갈리는 그 갈림을 sanitize 상한
+    // 통일이 걷었다. 이제 1억 초과는 **저장 자체가 기본값 폴백**이고(라벨 = 효과), 가산 클램프는
+    // 방어로 그대로 남는다(직접 타이핑한 초과 금액의 관례는 addAmountPreset 머리말 그대로).
+    expect(sanitizeCustomAmountPresets([1000, 5000, 10000, QUICK_AMOUNT_MAX_KRW + 1000])).toBeNull();
     expect(addAmountPreset("", QUICK_AMOUNT_MAX_KRW + 1000)).toBe(String(QUICK_AMOUNT_MAX_KRW));
   });
 });

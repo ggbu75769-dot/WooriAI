@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 
 import { monthJumpFloorYearMonth } from "../month-jump";
-import { LOAD_ERROR_RETRY_LABEL } from "../offline/messages";
+import { LOAD_ERROR_NOTICE, LOAD_ERROR_RETRY_LABEL } from "../offline/messages";
 import {
   buildRecordsFilterScopeSummary,
   buildRecordsSearchAllPeriodAction,
@@ -13,8 +14,11 @@ import {
   buildSearchScopePartialNotice,
   collectSearchScopeMonths,
   fullScopeDateHeaderLabel,
+  rebuildSearchScopeResult,
   resolveRecordsSearchScope,
-  resolveSearchScopeMonths
+  resolveSearchScopeMonths,
+  searchScopeCollectingProgressLabel,
+  searchScopeCollectionAnnouncement
 } from "./records-search-scope";
 
 /**
@@ -128,6 +132,135 @@ describe("수집 루프 (collectSearchScopeMonths)", () => {
     });
     expect(calls).toBe(0);
     expect(result).toEqual({ months: [], failedMonths: [] });
+  });
+
+  it("리뷰 M-A2: 진행 콜백은 달 하나가 끝날 때마다(성공·실패 모두) (끝난 수, 전체 수)로 온다", async () => {
+    const progress: Array<[number, number]> = [];
+    await collectSearchScopeMonths(
+      ["2026-07", "2026-08", "2026-09"],
+      async (yearMonth) => {
+        if (yearMonth === "2026-08") throw new Error("network");
+        return { expenses: [] };
+      },
+      (done, total) => progress.push([done, total])
+    );
+    expect(progress).toEqual([
+      [1, 3],
+      [2, 3],
+      [3, 3]
+    ]);
+  });
+});
+
+/**
+ * 라운드 101 리뷰 H-2(A-1) — 소비 시점 캐시 재독의 값 계약 + **실측**.
+ *
+ * 종전 훅은 수집 완료 순간의 동결 스냅숏을 들었고, flush 확정이 캐시를 갈아도 스냅숏은 낡은
+ * 채라 전체 스코프에서 지운 행이 부활했다. 아래 스위트가 두 가지를 값으로 못 박는다:
+ *  ⓐ 재조립(rebuildSearchScopeResult)은 소비 시점의 캐시를 읽는다 — 캐시가 갈리면 다음 읽기가
+ *    새 사실이다(삭제→flush→부활 없음 시나리오).
+ *  ⓑ **관찰자 없는 캐시는 무효화가 다시 받지 않는다**(react-query invalidateQueries의 기본
+ *    refetchType은 "active") — 화면의 오프라인 스냅숏 리렌더에 편승하는 것만으로는 부족하고,
+ *    훅이 useQueries 구독으로 달 쿼리를 active로 세워야 하는 근거가 이 실측이다
+ *    (use-search-scope-collection.ts 머리말이 이 스위트를 가리킨다).
+ */
+describe("소비 시점 캐시 재독 (rebuildSearchScopeResult · 리뷰 H-2)", () => {
+  const childKey = (yearMonth: string) => ["expenses", "child-1", yearMonth];
+
+  it("수집 완료 달은 캐시에서 재조립되고, 캐시가 비워진 달은 failedMonths로 합류한다", () => {
+    const cache = new Map<string, { expenses: string[] }>([
+      ["2026-09", { expenses: ["row-9"] }],
+      ["2026-07", { expenses: [] }]
+    ]);
+    const rebuilt = rebuildSearchScopeResult(["2026-09", "2026-08", "2026-07"], ["2026-06"], (yearMonth) =>
+      cache.get(yearMonth)
+    );
+    expect(rebuilt.months).toEqual([
+      { yearMonth: "2026-09", expenses: ["row-9"] },
+      { yearMonth: "2026-07", expenses: [] }
+    ]);
+    // 사라진 달(2026-08)은 그럴듯한 빈 달로 위장하지 않고 실패 달에 합류한다(오름차순·중복 없음).
+    expect(rebuilt.failedMonths).toEqual(["2026-06", "2026-08"]);
+  });
+
+  it("삭제 → flush 확정 → **부활 없음**: 재조립은 refetch로 갈린 캐시를 읽는다(동결 스냅숏 대조)", async () => {
+    const queryClient = new QueryClient();
+    let serverRows = [{ id: "exp-1" }, { id: "exp-2" }];
+    const fetchMonth = vi.fn(async () => ({ expenses: [...serverRows] }));
+    await queryClient.ensureQueryData({ queryKey: childKey("2026-08"), queryFn: fetchMonth });
+    const readMonth = (yearMonth: string) =>
+      queryClient.getQueryData<{ expenses: { id: string }[] }>(childKey(yearMonth));
+
+    // 종전 훅의 모양(두 시점의 왼쪽): 수집 완료 순간의 동결 스냅숏.
+    const frozenSnapshot = readMonth("2026-08");
+
+    // 사용자가 exp-1을 지웠고 flush가 확정됐다: 서버 목록이 갈렸고, 훅의 useQueries 구독처럼
+    // 활성 관찰자가 서 있으면 ["expenses"] 무효화가 그 달을 실제로 다시 받는다.
+    serverRows = [{ id: "exp-2" }];
+    const observer = new QueryObserver(queryClient, { queryKey: childKey("2026-08"), queryFn: fetchMonth });
+    const unsubscribe = observer.subscribe(() => {});
+    await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+    unsubscribe();
+
+    const rebuilt = rebuildSearchScopeResult(["2026-08"], [], readMonth);
+    expect(rebuilt.months[0]?.expenses.map((row) => row.id), "지운 행이 부활했다").toEqual(["exp-2"]);
+    // 동결 스냅숏이었다면 지운 행을 계속 들고 있었다 — 그 갈림이 이 수리의 전부다.
+    expect(frozenSnapshot?.expenses.map((row) => row.id)).toEqual(["exp-1", "exp-2"]);
+  });
+
+  it("실측 ⓑ: 관찰자 없는 달 캐시는 invalidateQueries가 다시 받지 않는다 — useQueries 구독의 근거", async () => {
+    const queryClient = new QueryClient();
+    let serverValue = "old";
+    const fetchMonth = vi.fn(async () => ({ expenses: [serverValue] }));
+    await queryClient.ensureQueryData({ queryKey: childKey("2026-07"), queryFn: fetchMonth });
+    serverValue = "new";
+    await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+    // 관찰자가 없으므로 refetch는 돌지 않았고(호출 1회 그대로) 캐시는 낡은 값이다 — 리렌더에만
+    // 편승해 이 캐시를 다시 읽으면 낡은 값(지운 행이 든 목록)이 그대로 선다.
+    expect(fetchMonth).toHaveBeenCalledTimes(1);
+    expect(queryClient.getQueryData(childKey("2026-07"))).toEqual({ expenses: ["old"] });
+  });
+});
+
+describe("수집 중 진행 라벨 (searchScopeCollectingProgressLabel · 리뷰 M-A2)", () => {
+  it("진행값이 있으면 '불러오는 중 n/전체', 아직 모르면 수사 없이 사실만", () => {
+    expect(searchScopeCollectingProgressLabel({ done: 3, total: 21 })).toBe("불러오는 중 3/21");
+    expect(searchScopeCollectingProgressLabel({ done: 0, total: 21 })).toBe("불러오는 중 0/21");
+    expect(searchScopeCollectingProgressLabel(null)).toBe("불러오는 중");
+    expect(searchScopeCollectingProgressLabel({ done: 0, total: 0 })).toBe("불러오는 중");
+  });
+});
+
+describe("수집 완료 낭독 (searchScopeCollectionAnnouncement · 리뷰 M-2)", () => {
+  const scopeNotice = buildRecordsSearchScopeNotice({
+    searchText: "유모차",
+    monthLabel: "2026년 8월",
+    allPeriods: true
+  });
+
+  it("전량 실패면 전환 고지를 읽지 않는다 — 조회 실패 카드와 같은 문장 하나(모듈 재사용)", () => {
+    expect(
+      searchScopeCollectionAnnouncement({ outcome: "all-failed", scopeNotice, failedMonths: ["2026-01"] })
+    ).toBe(LOAD_ERROR_NOTICE);
+  });
+
+  it("부분 실패면 전환 고지 뒤에 화면의 부분 실패 고지 문장이 합류한다", () => {
+    const announcement = searchScopeCollectionAnnouncement({
+      outcome: "collected",
+      scopeNotice,
+      failedMonths: ["2026-03"]
+    });
+    expect(announcement).toBe(
+      "'유모차' 검색은 전체 기간의 품목명, 판매처, 메모에서 찾아요 2026년 3월의 기록은 아직 불러오지 못했어요"
+    );
+    // 화면에 그려지는 그 문장 그대로다(문장 두 벌 금지).
+    expect(announcement).toContain(buildSearchScopePartialNotice(["2026-03"])?.text ?? "!");
+  });
+
+  it("실패 달이 없으면 전환 고지 한 문장뿐이다 (종전 낭독과 같다)", () => {
+    expect(searchScopeCollectionAnnouncement({ outcome: "collected", scopeNotice, failedMonths: [] })).toBe(
+      scopeNotice
+    );
   });
 });
 
@@ -270,13 +403,55 @@ describe("화면 배선 (app/(tabs)/records.tsx · use-search-scope-collection.t
 
   it("자동 전환 금지 — 수집은 버튼 한 곳(handleFindInAllPeriods)만 산다", () => {
     expect(recordsSource).toContain("const handleFindInAllPeriods = useCallback(() => {");
-    expect(recordsSource).toContain("void collectSearchScope(fullScopeMonths).then((completed) => {");
+    // 리뷰 L-A5: 수집 요청에 검색어 스냅숏이 동반된다.
+    expect(recordsSource).toContain("const requestedSearchText = searchTextRef.current;");
+    expect(recordsSource).toContain(
+      "void collectSearchScope(fullScopeMonths, requestedSearchText).then((outcome) => {"
+    );
     // 진입 버튼 하나가 세 자리(범위 고지 아래 + 0건 카드 두 장)에 선다.
     expect((recordsSource.match(/\{allPeriodsSearchActionButton\}/g) ?? []).length).toBe(3);
     // 수집 중에는 잠근다(탭 한 번 = 수집 한 번).
     expect(recordsSource).toContain("disabled={searchScopeCollection.collecting}");
     // effect가 수집을 스스로 시작하는 자리가 없다 — collect 호출부는 그 핸들러 안 한 곳뿐이다.
     expect((recordsSource.match(/collectSearchScope\(/g) ?? []).length).toBe(1);
+  });
+
+  it("리뷰 L-A5: 수집 중 검색어가 바뀐 완료는 스코프를 세우지 않는다 — 수집물 폐기(재안내)", () => {
+    expect(recordsSource).toContain('if (searchTextRef.current.trim() !== requestedSearchText.trim()) {');
+    expect(recordsSource).toContain("resetSearchScopeCollection();");
+  });
+
+  it("리뷰 M-2: 완료 낭독은 순수 모듈 조립이다 — 부분 실패 합류·전량 실패 갈래가 한 곳에서 나온다", () => {
+    expect(recordsSource).toContain("const announcement = searchScopeCollectionAnnouncement({");
+    expect(recordsSource).toContain('outcome: outcome.status === "all-failed" ? "all-failed" : "collected",');
+    expect(recordsSource).toContain("if (announcement) announceForA11y(announcement);");
+  });
+
+  it("리뷰 M-A2: 수집이 도는 동안 진입·재시도 버튼의 라벨(=낭독)이 진행을 말한다", () => {
+    expect(recordsSource).toContain("const collectingProgressLabel = searchScopeCollection.collecting");
+    expect(recordsSource).toContain("? searchScopeCollectingProgressLabel(searchScopeCollection.progress)");
+    // 진입 버튼과 부분 실패 재시도 버튼, 두 자리 다 같은 진행 라벨 폴백을 쓴다(라벨·낭독 각 2).
+    expect((recordsSource.match(/collectingProgressLabel \?\? /g) ?? []).length).toBe(4);
+  });
+
+  it("리뷰 L-A4: 스코프 판정은 수집물의 childId 태그를 소비부에서도 동기 대조한다", () => {
+    expect(recordsSource).toContain(
+      "searchScopeCollection.result !== null && searchScopeCollection.collectedFor?.childId === childId"
+    );
+  });
+
+  it("리뷰 M-1: 전체 스코프는 리스트를 강제하고(비저장), 달력의 명시 조작은 월 스코프 복귀다", () => {
+    expect(recordsSource).toContain("fullSearchScope: isFullSearchScope");
+    expect(recordsSource).toContain(
+      "if (next === RECORDS_VIEW_CALENDAR && isFullSearchScope) resetSearchScopeCollection();"
+    );
+  });
+
+  it("리뷰 M-A3: 금액순은 전체 스코프에서 숨고 적용도 멈춘다 (판정은 records-sort 순수 모듈)", () => {
+    expect(recordsSource).toContain("isRecordsSortToggleVisible({ isCalendarView, isFullSearchScope })");
+    expect(recordsSource).toContain(
+      "isAmountSortApplied({ sortMode: shownSortMode, isCalendarView, isFullSearchScope })"
+    );
   });
 
   it("검색어를 지우면 월 스코프로 복귀한다 (수집물 폐기 — 다시 치면 월 스코프에서 시작)", () => {
@@ -306,8 +481,11 @@ describe("화면 배선 (app/(tabs)/records.tsx · use-search-scope-collection.t
     expect(recordsSource).toContain('testID="records-full-scope-partial-notice"');
     expect(recordsSource).toContain("buildSearchScopePartialNotice(searchScopeCollection.result?.failedMonths ?? [])");
     expect(recordsSource).toContain("{fullScopePartialNotice.text}");
-    expect(recordsSource).toContain("label={fullScopePartialNotice.retryLabel}");
-    expect(recordsSource).toContain("accessibilityLabel={fullScopePartialNotice.retryAccessibilityLabel}");
+    // 리뷰 M-A2: 재시도 버튼도 수집 중에는 진행 라벨을 말한다(진입 버튼과 같은 폴백 한 벌).
+    expect(recordsSource).toContain("label={collectingProgressLabel ?? fullScopePartialNotice.retryLabel}");
+    expect(recordsSource).toContain(
+      "accessibilityLabel={collectingProgressLabel ?? fullScopePartialNotice.retryAccessibilityLabel}"
+    );
   });
 
   it("전체 스코프에서는 달 단위 탈출구 둘을 세우지 않는다 (이미 전 기간을 봤다)", () => {
@@ -323,13 +501,29 @@ describe("화면 배선 (app/(tabs)/records.tsx · use-search-scope-collection.t
     expect(hookSource).toContain(
       "queryFn: () => fetchMonthExpenses((page) => listExpenses(authToken, childId, yearMonth, page))"
     );
-    // 온디맨드다 — 이 파일에는 첫 페인트에 서는 useQuery 선언이 없다.
+    // 리뷰 M-A2: 직렬 21개월 루프라 달당 재시도는 한 번으로 명시한다(실패 달은 failedMonths 몫).
+    expect(hookSource).toContain("retry: 1");
+    // 온디맨드다 — 이 파일에는 첫 페인트에 요청을 세우는 useQuery 선언이 없다(아래 useQueries는
+    // 수집 전 빈 목록 · 수집 직후 신선한 캐시 위의 관찰 구독이라 첫 페인트 요청이 0건 그대로다).
     expect(hookSource).not.toContain("useQuery(");
     // 겹치는 수집 금지 + 낡은 완료 폐기(run 대조).
-    expect(hookSource).toContain("if (collectingRef.current) return false;");
-    expect(hookSource).toContain("if (runRef.current !== run) return false;");
+    expect(hookSource).toContain('if (collectingRef.current) return { status: "discarded" };');
+    expect(hookSource).toContain('if (runRef.current !== run) return { status: "discarded" };');
     // 아이 전환은 수집물을 통째로 버린다.
     expect(hookSource).toContain("}, [childId, reset]);");
+  });
+
+  it("리뷰 H-2: 훅은 스냅숏이 아니라 달 목록을 들고, 캐시 재독 + useQueries 활성 구독으로 산다", () => {
+    // 소비 시점 캐시 재독(재조립은 순수 모듈).
+    expect(hookSource).toContain("rebuildSearchScopeResult<Expense>(collection.months, collection.failedMonths,");
+    expect(hookSource).toContain('queryClient.getQueryData<{ expenses: Expense[] }>(["expenses", collection.childId, yearMonth])');
+    // 활성 구독 — 무효화가 관찰자 없는 캐시를 다시 받지 않는다는 실측(위 ⓑ 스위트)의 처방이다.
+    expect(hookSource).toContain("const monthQueries = useQueries({");
+    // 리뷰 L-A4: 이전 아이의 수집물은 reset effect 전의 렌더에서도 동기 대조로 눕는다.
+    expect(hookSource).toContain("if (collection.childId !== childId) return null;");
+    // 리뷰 M-2: 전량 실패는 스코프를 세우지 않는다.
+    expect(hookSource).toContain("if (collected.months.length === 0) {");
+    expect(hookSource).toContain('return { status: "all-failed", failedMonths: collected.failedMonths };');
   });
 
   it("P1: matchRecordSearch는 필터 단계의 행당 1회다 — listData에 재판정 호출부가 없다", () => {

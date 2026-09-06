@@ -23,6 +23,13 @@ import { persistStorage } from "./persist-storage";
  * **양쪽에** 물린다 — 옛/손상 blob이 어느 경로로 올라와도 boolean 아닌 값이 상태에 남지
  * 않는다.
  *
+ * ## `touched` — 하이드레이션이 이 실행의 조작을 되감지 않게 (라운드 101 리뷰 L-L1)
+ * persist는 저장본을 읽고 나서 상태를 통째로 교체한다. 설정 화면의 토글을 하이드레이션이
+ * 끝나기 전에 조작하면(찰나지만 앱 시작 직후 딥링크 등으로 열릴 수 있다) merge가 그 조작을
+ * 옛 저장본으로 되감는다 — 같은 라운드의 두 스토어(records-view의 필드별 플래그 ·
+ * amount-presets의 touched)와 **대칭인 방어**를 그대로 둔다. 플래그는 저장하지 않는다
+ * (partialize) — 다음 실행에는 아무 의미가 없는 값이다.
+ *
  * ⚠️ 세션 교체(src/offline/session-teardown.ts)에서 **초기화하지 않는다.** 이 값은 계정
  * 데이터가 아니라 "이 기기가 진동으로 반응할까"라는 기기 단위 선택이다 —
  * notification-preferences("이 기기에서 어떤 알림을 볼까") · records-view(리스트/달력 선택)와
@@ -42,6 +49,8 @@ function sanitizedState(persisted: unknown) {
 export type HapticsSettingState = {
   /** 이 기기에서 터치 반응(진동)을 낼까. 기본 켬 — 끄면 haptics.ts 세 함수가 전부 no-op. */
   hapticsEnabled: boolean;
+  /** 이 실행에서 토글이 한 번이라도 조작됐는가(저장하지 않는다 — 위 `touched` 헤더 참고). */
+  touched: boolean;
   setHapticsEnabled: (enabled: boolean) => void;
 };
 
@@ -52,15 +61,26 @@ export const useHapticsStore = create<HapticsSettingState>()(
   persist(
     (set) => ({
       hapticsEnabled: true,
+      touched: false,
       setHapticsEnabled: (enabled) =>
-        set((state) => (state.hapticsEnabled === enabled ? state : { hapticsEnabled: enabled === true }))
+        set((state) =>
+          state.hapticsEnabled === enabled && state.touched
+            ? state
+            : { hapticsEnabled: enabled === true, touched: true }
+        )
     }),
     {
       name: "wooriai-haptics",
       storage: createJSONStorage(() => persistStorage),
       version: 1,
+      partialize: (state) => ({ hapticsEnabled: state.hapticsEnabled }),
       migrate: (persisted) => sanitizedState(persisted),
-      merge: (persisted, current) => ({ ...current, ...sanitizedState(persisted) })
+      // L-L1: 이 실행의 명시 조작(touched)이 저장본보다 이긴다 — records-view/amount-presets와
+      // 같은 대칭 방어(사용자가 방금 끈 진동을 하이드레이션이 다시 켜지 않는다).
+      merge: (persisted, current) => ({
+        ...current,
+        hapticsEnabled: current.touched ? current.hapticsEnabled : sanitizedState(persisted).hapticsEnabled
+      })
     }
   )
 );

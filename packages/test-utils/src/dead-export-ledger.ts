@@ -2038,7 +2038,13 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // updateCustomItem · deleteCustomItem)의 이름이 client.ts 로컬 세션 분기의 속성 자리
     // (`localBackend.createCustomItem` 등)로도 나온다(모집단이 는 것이지 새 병이 아니다 —
     // 그 속성 참조가 셋을 사문 밖에 세워 두는 살아 있는 자기 파일 호출부이기도 하다).
-    value: 233,
+    // 두 시점(라운드 101 리뷰): 233 → 237(git 워크트리 대조 실측) — 햅틱 셋(hapticSelection ·
+    // hapticSuccess · hapticWarning)은 호출 직전 줄의 **주석이 마침표로 끝나** `.\n이름`이 속성
+    // 접근 모양으로 읽힌 것이다(이 자는 마스킹하지 않은 소스를 훑는다 — 위 토스 라운드의 삼항
+    // `:` 오독과 같은 결, 자란 것은 사용이 아니라 오독 표면이다). useRecentSearchesStore는
+    // offline/messages.ts의 LOGOUT_UNCOUNTED_TEARDOWN_STORES 표의 **실제 객체 키**로 선다
+    // (F5 최근 검색어 스토어의 로그아웃 소거 등재). 넷 다 새 병이 아니라 표면의 성장이다.
+    value: 237,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +
@@ -2065,7 +2071,12 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
   },
   {
     id: "comment-and-string-references",
-    value: 20,
+    // 두 시점(라운드 101 리뷰): 20 → 21(git 워크트리 대조 실측) — home/first-run-guide.store.ts의
+    // 머리말 주석이 offline/messages.ts의 `LOGOUT_UNCOUNTED_TEARDOWN_STORES`를 이름으로 부르며
+    // 그 상수의 참조가 "0건"에서 "주석뿐 1건"이 됐다(사문 전수는 40/44 그대로 — 죽어 있던 자리가
+    // 주석 참조 하나를 얻은 것이지 새 사문이 아니다). 마스킹이 없었다면 이 한 건이 래칫 아래로
+    // 조용히 사라졌을 것이다 — 이 사각이 세는 바로 그 모양이다.
+    value: 21,
     floor: 5,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정: 9 → 20**(함수 축 아홉은 그대로이고 상수 축에서 열하나가 더 나왔다). " +
@@ -2097,7 +2108,11 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 두 시점(토스 라운드 통합): 55(라운드 89·90 같은 수) → 56 — T1의 새 훅 useReducedMotion은
     // **파일 이름이 export 이름과 같아** import 경로 문자열("./ui/useReducedMotion")이 그 이름을 담는다.
     // 코드 참조(호출)가 함께 있어 판정이 움직인 자리는 오늘도 넷 그대로다 — 실피해 여전히 0건.
-    value: 56,
+    // 두 시점(라운드 101 리뷰): 56 → 57(git 워크트리 대조 실측) — 라운드 101 트랙 A가
+    // offline/offline-aware-screens.ts의 부분 실패 고지 등재 **문장(문자열)** 안에서
+    // `LOAD_ERROR_RETRY_LABEL`을 이름으로 인용했다. 그 상수는 코드 참조가 여럿이라(조회 실패
+    // 카드 · records-search-scope.ts 재사용) 판정이 움직인 자리는 오늘도 넷 그대로다 — 실피해 0건.
+    value: 57,
     floor: 10,
     statement:
       "⚠️⚠️ **라운드 90 트랙 C가 `string-literal-references`를 닫으며 연 자리 — 오차의 방향이 뒤집혔다.** " +
@@ -2132,7 +2147,11 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 실피해는 오늘도 0건이다(apostropheMaskedCodeSites() 실측 — 아래 문장의 그 0과 같은 자).
     // 두 시점(라운드 99 F2): 106 → 107 — pending-status.ts가 아이 경계 수리의 주석에 ASCII '를
     // 지닌 채 표면에 들어왔다(수정 전 0 → 후 1, git 대조 실측). 실피해 0은 그대로다.
-    value: 107,
+    // 두 시점(라운드 101 리뷰): 107 → 109(호출부 분모도 334 → 343 — git 워크트리 대조 실측) —
+    // src/ui/haptics.ts(주석의 "package's")와 app/settings/amount-presets.tsx(주석의 '원' —
+    // R101-F6a)가 ASCII '를 지닌 채 표면에 들어왔다. 실피해는 오늘도 0건이다
+    // (apostropheMaskedCodeSites() 실측 — 둘 다 주석 안이라 문자열 마스킹 전에 지워진다).
+    value: 109,
     floor: 60,
     statement:
       "⚠️⚠️ **같은 거짓 빨강의 둘째 문 — 이번엔 참조가 아니라 *스캐너*가 낸다**(라운드 90 리뷰 M-3). " +
@@ -2170,7 +2189,11 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 시트와 상세 수정/삭제 갈래의 컴포넌트 둘(CustomItemSheet · CustomItemDetailActions)을
     // 열었다(소비자 실재 — app/(tabs)/items.tsx · app/items/[itemTemplateId].tsx가 JSX로
     // 부른다). 같은 성격의 성장이고, 재개 조건(JSX 사용을 참조로 세는 판정)은 열지 않는다.
-    value: 147,
+    // 두 시점(라운드 101 리뷰 — R101-F6a): 147 → 148 — app/settings/amount-presets.tsx가 금액
+    // 프리셋 설정 화면(AmountPresetsSettingsScreen, default export function)으로 섰다(라우터가
+    // 경로로 부르는 화면이라 텍스트 호출부가 애초에 없는 바로 그 갈래 — git 워크트리 대조 실측,
+    // 순증은 이 하나뿐). 같은 성격의 성장이고, 재개 조건은 오늘도 열지 않는다.
+    value: 148,
     floor: 80,
     statement:
       "`.tsx`의 `export function`(컴포넌트·훅) 141은 모집단 밖이다 — JSX 사용(`<Foo />`)은 이 그물의 이름 " +

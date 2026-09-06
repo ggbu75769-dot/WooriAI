@@ -6,6 +6,7 @@ import {
   formatPresetChipLabel,
   resolveAmountPresets,
   sanitizeCustomAmountPresets,
+  QUICK_AMOUNT_MAX_KRW,
   QUICK_AMOUNT_PRESETS_KRW
 } from "../../src/expenses/amount-presets";
 import { amountDigitsOnly, formatAmountDigits } from "../../src/money";
@@ -43,7 +44,11 @@ function presetInputNotice(presetDigits: readonly string[]): string | null {
   if (presetDigits.some((digits) => digits.length === 0)) return "네 칸을 모두 채워 주세요.";
   const values = presetDigits.map((digits) => Number(digits));
   if (values.some((value) => value <= 0)) return "0보다 큰 금액을 입력해 주세요.";
-  if (values.some((value) => isAmountOverLimit(value))) return amountOverLimitMessage();
+  // 리뷰 M-3: 상한은 서버 int4(EXPENSE_AMOUNT_MAX_KRW)가 아니라 **가산이 실제로 멈추는 값**
+  // (QUICK_AMOUNT_MAX_KRW = 1억)이다 — 그보다 큰 프리셋은 sanitize도 이제 기본값으로 떨어뜨리고
+  // (라벨 = 효과), 문구는 같은 단일 소스(amountOverLimitMessage)에 그 상한을 넘겨 만든다.
+  if (values.some((value) => isAmountOverLimit(value, QUICK_AMOUNT_MAX_KRW)))
+    return amountOverLimitMessage(QUICK_AMOUNT_MAX_KRW);
   if (new Set(values).size !== values.length) return "같은 금액이 두 번 있어요. 서로 다른 금액 네 개로 적어 주세요.";
   return null;
 }

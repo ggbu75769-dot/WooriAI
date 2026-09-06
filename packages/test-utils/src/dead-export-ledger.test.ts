@@ -955,18 +955,24 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // 라운드 99 F1이 step-ui.tsx의 재시도 무익 판정(isOnboardingSaveIdempotencyConflict)을 열어
     // 145가 됐다(두 시점 — 소비자 실재). 라운드 100 T3이 커스텀 품목 컴포넌트 둘
     // (src/items/CustomItemSheet.tsx의 CustomItemSheet · CustomItemDetailActions — 소비자 실재:
-    // 준비템 목록·상세가 JSX로 부른다)을 열어 오늘 147이다(두 시점 — 대장 value도 함께 147로 적음).
-    expect(spotOf("tsx-components")?.value, "적어 둔 값").toBe(147);
-    expect(tsxExportFunctionCount(), "오늘 다시 잰 값 — 갈리면 그 수가 값이다").toBe(147);
+    // 준비템 목록·상세가 JSX로 부른다)을 열어 147이 됐다(두 시점). 라운드 101 F6a가 금액 프리셋
+    // 설정 화면(app/settings/amount-presets.tsx의 AmountPresetsSettingsScreen — 라우터가 경로로
+    // 부르는 화면 default export)을 열어 오늘 148이다(두 시점 — git 워크트리 대조로 유일 순증
+    // 확인, 대장 value도 함께 148로 적음).
+    expect(spotOf("tsx-components")?.value, "적어 둔 값").toBe(148);
+    expect(tsxExportFunctionCount(), "오늘 다시 잰 값 — 갈리면 그 수가 값이다").toBe(148);
 
     // ② common-name — 종전 226(라운드 89 C) → 229(기능 라운드 1), 토스 라운드 T2가 홈의 삼항
     // `HOME_SECTIONS_COLLAPSE_LABEL : …`을 걷어 228이 됐다(두 시점 — 그물이 삼항의 `:`를 키로
     // 오독하던 표면이 준 것). 라운드 99 F3·F4가 RECORDS_VIEW_MODE_LIST·useAnalyticsConsentStore를
     // 열어 230이 됐다(두 시점 — git 워크트리 대조 실측). 라운드 100 T2가 커스텀 품목 클라이언트
     // 셋(create/update/deleteCustomItem — client.ts 로컬 분기의 `localBackend.…` 속성 자리)을
-    // 열어 오늘 233이다(두 시점 — 대장 value도 함께 233으로 적음).
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(233);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(233);
+    // 열어 233이 됐다(두 시점). 라운드 101 리뷰의 재실측이 237이다(두 시점 — git 워크트리 대조):
+    // 햅틱 셋(hapticSelection·hapticSuccess·hapticWarning)은 호출 직전 주석의 마침표가 `.\n이름`
+    // 속성 모양으로 읽힌 오독 표면이고, useRecentSearchesStore는 LOGOUT_UNCOUNTED_TEARDOWN_STORES
+    // 표의 실제 객체 키다(대장 value도 함께 237로 적음).
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(237);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(237);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.
@@ -991,15 +997,19 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // ④ 새로 연 사각도 같은 자리에서 다시 잰다(값 없이 열지 않는다).
     // 두 시점: 55(라운드 89·90) → 56 — T1의 useReducedMotion은 파일 이름이 export 이름과 같아
     // import 경로 문자열이 그 이름을 담는다(코드 참조가 함께 있어 판정은 움직이지 않았다).
-    expect(spotOf("string-keyed-dynamic-access")?.value, "적어 둔 값").toBe(56);
-    expect(namesReferencedInsideStringLiterals().length, "오늘 다시 잰 값").toBe(56);
+    // 라운드 101 리뷰: 56 → 57 — 트랙 A의 offline-aware-screens.ts 등재 문장(문자열)이
+    // LOAD_ERROR_RETRY_LABEL을 인용한다(코드 참조가 여럿이라 판정은 움직이지 않았다 — 실피해 0).
+    expect(spotOf("string-keyed-dynamic-access")?.value, "적어 둔 값").toBe(57);
+    expect(namesReferencedInsideStringLiterals().length, "오늘 다시 잰 값").toBe(57);
 
     // ⑤ 라운드 90 리뷰 M-3이 연 자리 — **스캐너의 오탐 표면**도 값과 실피해를 함께 든다.
     // 두 시점: 105(라운드 90) → 106 — T1의 use-transient-notice.ts가 ASCII '를 지닌 채 호출부에 들어왔다.
     // 라운드 99 F2: 106 → 107 — pending-status.ts가 아이 경계 수리 주석에 ASCII '를 지닌 채
     // 들어왔다(수정 전 0 → 후 1, git 대조 실측). 실피해 0은 그대로다.
-    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(107);
-    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(107);
+    // 라운드 101 리뷰: 107 → 109 — src/ui/haptics.ts("package's")와 app/settings/amount-presets.tsx
+    // ('원' — F6a)가 주석에 ASCII '를 지닌 채 들어왔다(git 워크트리 대조 실측). 실피해 0은 그대로다.
+    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(109);
+    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(109);
     // ⚠️ 이 등호는 우연이 아니다(M-4의 그 등호와 다르다): 0을 넘는 날 사문 판정 하나가 **거짓
     // 빨강**이므로, 빨개지는 것이 곧 알려야 할 사실이다. 그때의 답은 대장에 줄을 더하는 것이
     // 아니라 이 스캐너가 JSX 텍스트를 코드와 가르는 것이다.
@@ -1129,7 +1139,9 @@ describe("ⓖ 마스킹 — 참조를 셀 때 주석이 지워진다(라운드 8
     const vanished = commentMaskedDead
       .filter((item) => !rawDead.some((raw) => raw.id === item.id))
       .map((item) => item.id);
-    expect(vanished.length, "마스킹이 없었다면 사라졌을 항목 수").toBe(20);
+    // 라운드 101 리뷰: 20 → 21(두 시점 — git 워크트리 대조) — first-run-guide.store.ts의 머리말
+    // 주석이 LOGOUT_UNCOUNTED_TEARDOWN_STORES를 이름으로 불러 그 상수가 이 갈래로 들어왔다.
+    expect(vanished.length, "마스킹이 없었다면 사라졌을 항목 수").toBe(21);
     // 라운드 88이 못 박은 아홉은 오늘도 그 안에 그대로 있다(함수 축이 움직이지 않았다는 값).
     for (const id of [
       "apps/admin/src/lib/admin-api.ts:updateContentRevisionDraft",
@@ -1292,10 +1304,12 @@ describe("ⓘ 문자열 리터럴 축 — 글자는 지우고 템플릿 `${…}`
 
   it("⚠️ 저장소에서도 같은 갈래가 산다 — 넷 말고는 판정이 움직이지 않았다", () => {
     // ⚠️ 합성 소스가 갈래를 증명하고, 이 단언이 **그 갈래가 저장소에서 사고를 내지 않았음**을 센다.
-    // 문자열 안에 참조가 있는 이름 56(두 시점: 라운드 89·90의 55 → 토스 라운드 T1의 useReducedMotion이
-    // import 경로 문자열로 하나 더함) 가운데 판정이 움직인 것은 넷뿐이다(나머지는 코드 참조를 함께 갖는다).
+    // 문자열 안에 참조가 있는 이름 57(두 시점: 라운드 89·90의 55 → 토스 라운드 T1의 useReducedMotion이
+    // import 경로 문자열로 하나 → 라운드 101 트랙 A의 offline-aware-screens.ts 등재 문장이
+    // LOAD_ERROR_RETRY_LABEL을 인용해 하나 더함) 가운데 판정이 움직인 것은 넷뿐이다(나머지는 코드
+    // 참조를 함께 갖는다).
     const names = namesReferencedInsideStringLiterals();
-    expect(names.length, "문자열 안에 이름이 나오는 모집단 이름 수").toBe(56);
+    expect(names.length, "문자열 안에 이름이 나오는 모집단 이름 수").toBe(57);
     const moved = stringOnlyReferenceExports();
     expect(moved.length, "그중 판정이 움직인 자리").toBe(4);
     expect(

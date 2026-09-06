@@ -139,12 +139,34 @@ describe("라운드 101 트랙 B haptics.store persist 규약", () => {
     expect(migrate("not-an-object", 0)).toEqual({ hapticsEnabled: true });
   });
 
-  it("토글은 값이 바뀔 때만 상태를 만들고, boolean 아닌 입력을 boolean으로 좁힌다", () => {
+  it("토글은 조작 사실(touched)을 함께 적고, 같은 값의 재조작만 상태를 만들지 않는다 (리뷰 L-L1, 두 시점)", () => {
+    // 두 시점: 종전에는 값이 같으면 언제나 no-op이었다 — touched 가드가 없어 하이드레이션이
+    // 이 실행의 조작을 되감을 수 있었다(records-view·amount-presets와 비대칭). 이제 첫 조작은
+    // 값이 같아도 touched를 세우고, touched가 선 뒤의 같은 값 재조작만 no-op이다.
+    useHapticsStore.getState().setHapticsEnabled(true);
+    expect(useHapticsStore.getState().touched).toBe(true);
     const before = useHapticsStore.getState();
     useHapticsStore.getState().setHapticsEnabled(true);
     expect(useHapticsStore.getState()).toBe(before);
     useHapticsStore.getState().setHapticsEnabled(false);
     expect(useHapticsStore.getState().hapticsEnabled).toBe(false);
+  });
+
+  it("리뷰 L-L1: 이 실행의 명시 조작이 하이드레이션보다 이긴다 (동라운드 두 스토어와 대칭)", () => {
+    const options = useHapticsStore.persist.getOptions();
+    const merge = options.merge!;
+    // 조작 전: 저장본이 이긴다(종전 그대로).
+    expect(
+      merge({ hapticsEnabled: false }, { ...useHapticsStore.getInitialState(), touched: false })
+    ).toMatchObject({ hapticsEnabled: false });
+    // 조작 뒤: 방금 끈 진동을 옛 저장본(켬)이 되켜지 않는다.
+    expect(
+      merge({ hapticsEnabled: true }, { ...useHapticsStore.getInitialState(), hapticsEnabled: false, touched: true })
+    ).toMatchObject({ hapticsEnabled: false });
+    // 플래그는 저장하지 않는다 — 다음 실행에는 아무 의미가 없는 값이다.
+    expect(options.partialize!(useHapticsStore.getState())).toEqual({
+      hapticsEnabled: useHapticsStore.getState().hapticsEnabled
+    });
   });
 
   it("persist 관례가 저장소의 다른 스토어와 같다(이름·버전·방어적 migrate/merge)", () => {
@@ -153,7 +175,10 @@ describe("라운드 101 트랙 B haptics.store persist 규약", () => {
     expect(storeSource).toContain("createJSONStorage(() => persistStorage)");
     expect(storeSource).toContain("version: 1");
     expect(storeSource).toContain("migrate: (persisted) => sanitizedState(persisted)");
-    expect(storeSource).toContain("merge: (persisted, current) => ({ ...current, ...sanitizedState(persisted) })");
+    // 리뷰 L-L1(두 시점): 종전 merge는 저장본을 무조건 얹었다 — 이제 touched 가드를 지난다.
+    expect(storeSource).toContain(
+      "hapticsEnabled: current.touched ? current.hapticsEnabled : sanitizedState(persisted).hapticsEnabled"
+    );
     // 기기 단위 선택 — 세션 teardown 목록에 들지 않는다(notification-preferences와 같은 범주).
     expect(source("src/offline/session-teardown.ts")).not.toContain("haptics");
   });

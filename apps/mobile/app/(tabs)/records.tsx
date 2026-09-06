@@ -80,7 +80,9 @@ import {
   buildSearchScopePartialNotice,
   fullScopeDateHeaderLabel,
   resolveRecordsSearchScope,
-  resolveSearchScopeMonths
+  resolveSearchScopeMonths,
+  searchScopeCollectingProgressLabel,
+  searchScopeCollectionAnnouncement
 } from "../../src/expenses/records-search-scope";
 // 라운드 101 W2 F7: 최근 검색어 — 정규화·중복·상한·저장 시점·라벨은 전부 순수 모듈에 있고
 // (검색 필터와 같은 normalizeRecordSearchText 한 벌 — K-12의 규율), persist는 전용 스토어가
@@ -852,6 +854,42 @@ export default function RecordsScreen() {
     searchInputRef.current?.focus();
   }, [focusSearchParam]);
   /**
+   * 라운드 101 트랙 A — **전체 기간 검색.**
+   *
+   * 이 화면의 검색은 보고 있는 한 달치 응답에만 걸린다(아래 expenses 쿼리 — 범위 고지 줄이 그
+   * 사실을 말한다). 로컬 미러는 synced 90일 파기라 클라 전 기간은 **월별 수집**으로만 가능하고,
+   * 그 수집은 **자동 전환 없이** 범위 고지 줄의 "[전체 기간에서 찾기]"(+0건 카드 세 번째
+   * 탈출구)를 눌렀을 때만 한 번 돈다 — 탭 한 번 = 수집 한 번. 달마다
+   * ensureQueryData(["expenses", childId, ym], 같은 전량 페처)라 캐시된 달의 요청은 0건이다
+   * (훅 머리말 참고). 검색어를 지우면 월 스코프로 복귀하고 수집물도 버린다 — 다시 치면 월
+   * 스코프에서 시작한다(전환은 언제나 사용자의 그 탭 하나가 산다).
+   *
+   * 리뷰 M-1: 이 블록이 보기/정렬 블록보다 **먼저** 서는 이유 — 전체 스코프는 보기 판정
+   * (effectiveRecordsViewMode)과 정렬 판정(isAmountSortApplied)의 입력이다(전체 목록에 한 달
+   * 격자·연도 없는 금액순 평평 목록은 성립하지 않는다). 수집 시작(fullScopeMonths ·
+   * handleFindInAllPeriods)은 하한 계산(monthJumpBounds)이 서는 아래 자리에 그대로 있다.
+   */
+  const searchScopeCollection = useSearchScopeCollection({ authToken, childId });
+  const searchScope = resolveRecordsSearchScope({
+    searchText,
+    // 리뷰 L-A4: 수집물의 태그(childId)를 소비부에서도 동기 대조한다 — 훅의 reset effect가
+    // 도는 사이의 렌더에서도 이전 아이의 수집물이 스코프를 세우지 못한다.
+    fullScopeCollected:
+      searchScopeCollection.result !== null && searchScopeCollection.collectedFor?.childId === childId
+  });
+  const isFullSearchScope = searchScope === "all";
+  const resetSearchScopeCollection = searchScopeCollection.reset;
+  useEffect(() => {
+    if (searchText.trim().length > 0) return;
+    resetSearchScopeCollection();
+  }, [searchText, resetSearchScopeCollection]);
+  // 리뷰 L-A5: 수집 완료 시점의 "지금 검색어"를 읽기 위한 ref — 완료 콜백은 탭 시점의 클로저라
+  // 그 사이의 입력 변화를 볼 수 없다(값은 렌더마다 아래 effect가 갱신한다).
+  const searchTextRef = useRef(searchText);
+  useEffect(() => {
+    searchTextRef.current = searchText;
+  });
+  /**
    * UX-D: 리스트/달력 보기.
    *
    * 라운드 56 D#10 — 예전에는 화면 안 `useState`라 **앱을 다시 열 때마다 리스트로 돌아갔다**.
@@ -884,8 +922,14 @@ export default function RecordsScreen() {
   // 표시 모드(임시 오버라이드 반영) — 세그먼트 value·달력 렌더·빈 상태 판정이 전부 이 값을
   // 본다(보이는 화면과 컨트롤이 갈리지 않는다 — 정렬 토글의 shownSortMode와 같은 규칙).
   const viewMode =
-    effectiveRecordsViewMode({ mode: persistedRecordsViewMode, calendarDateLanding: calendarDateViewLanding }) ===
-    RECORDS_VIEW_MODE_CALENDAR
+    effectiveRecordsViewMode({
+      mode: persistedRecordsViewMode,
+      calendarDateLanding: calendarDateViewLanding,
+      // 리뷰 M-1: 전체 기간 스코프 동안은 리스트를 강제하는 비저장 오버라이드다(F3의
+      // calendarDateViewLanding과 같은 관례 — persist 0바이트). 달력 격자는 보고 있는 **한 달**의
+      // 자리라 전 기간 목록과 성립하지 않는다(다른 달 날짜는 buildCalendarMonth가 무시한다).
+      fullSearchScope: isFullSearchScope
+    }) === RECORDS_VIEW_MODE_CALENDAR
       ? RECORDS_VIEW_CALENDAR
       : RECORDS_VIEW_LIST;
   const setViewMode = useCallback(
@@ -894,9 +938,14 @@ export default function RecordsScreen() {
       // 고른 보기가 곧장 서고, 리스트를 골랐다면 저장된 정렬 취향도 그대로 돌아온다.
       setCalendarDateViewLanding(false);
       setCalendarDateLanding(false);
+      // 리뷰 M-1: 전체 스코프에서 달력의 **명시 조작**은 "달력이 성립하는 스코프(월)로
+      // 돌아간다"는 의사표시다 — 수집물을 걷어 월 스코프로 복귀한다(검색어는 그대로 남아 그
+      // 달에서 같은 검색이 이어진다). 명시 조작이 언제나 이긴다는 착지 오버라이드 해제 규칙과
+      // 같은 결이다.
+      if (next === RECORDS_VIEW_CALENDAR && isFullSearchScope) resetSearchScopeCollection();
       setRecordsViewMode(next === RECORDS_VIEW_CALENDAR ? RECORDS_VIEW_MODE_CALENDAR : RECORDS_VIEW_MODE_LIST);
     },
-    [setRecordsViewMode]
+    [setRecordsViewMode, isFullSearchScope, resetSearchScopeCollection]
   );
   const isCalendarView = viewMode === RECORDS_VIEW_CALENDAR;
   /**
@@ -939,7 +988,10 @@ export default function RecordsScreen() {
   // 표시 모드(임시 오버라이드 반영) — 토글 value·적용 판정이 전부 이 값을 본다(보이는 목록과
   // 컨트롤이 갈리지 않는다). persist 값(sortMode)은 읽기만 한다.
   const shownSortMode = effectiveRecordsSortMode({ sortMode, calendarDateLanding });
-  const isAmountSort = isAmountSortApplied({ sortMode: shownSortMode, isCalendarView });
+  // 리뷰 M-A3: 전체 스코프에서는 금액순을 적용하지 않는다(달력과 같은 판정 — 근거는
+  // isAmountSortApplied 머리말). 표시가 최신순(날짜 그룹 + 연도 헤더)으로 복귀하고, 저장된
+  // 취향은 그대로 남아 월 스코프로 돌아오면 다시 선다.
+  const isAmountSort = isAmountSortApplied({ sortMode: shownSortMode, isCalendarView, isFullSearchScope });
   /**
    * M-2 대칭 해제 ② — **달 이동이 착지를 걷는다.** 착지의 목적지는 "그 달의 그 날짜 섹션"이라
    * 달이 바뀌는 순간 참이 아니다. 화살표·월 선택 시트·검색 0건 카드의 되감기·딥링크 어느 손이
@@ -1218,44 +1270,46 @@ export default function RecordsScreen() {
     )
   };
   /**
-   * 라운드 101 트랙 A — **전체 기간 검색.**
-   *
-   * 이 화면의 검색은 보고 있는 한 달치 응답에만 걸린다(위 expenses 쿼리 — 범위 고지 줄이 그
-   * 사실을 말한다). 로컬 미러는 synced 90일 파기라 클라 전 기간은 **월별 수집**으로만 가능하고,
-   * 그 수집은 **자동 전환 없이** 범위 고지 줄의 "[전체 기간에서 찾기]"(+0건 카드 세 번째
-   * 탈출구)를 눌렀을 때만 한 번 돈다 — 탭 한 번 = 수집 한 번.
+   * 라운드 101 트랙 A — 전체 기간 수집의 **시작부**(하한·달 목록·완료 처분). 스코프 판정과 훅은
+   * 위 보기/정렬 블록 앞으로 옮겨 갔다(리뷰 M-1 — 스코프가 보기·정렬 판정의 입력이라서다).
    *
    * 하한은 월 선택 시트와 **같은 규칙**(위 monthJumpBounds의 earliestYearMonth →
    * monthJumpFloorYearMonth — 새 판정 0)이고, 하한을 모르면 달 목록이 비어 진입점 자체가 서지
-   * 않는다. 달마다 ensureQueryData(["expenses", childId, ym], 같은 전량 페처)라 캐시된 달의
-   * 요청은 0건이다(훅 머리말 참고). 검색어를 지우면 월 스코프로 복귀하고 수집물도 버린다 —
-   * 다시 치면 월 스코프에서 시작한다(전환은 언제나 사용자의 그 탭 하나가 산다).
+   * 않는다.
    */
-  const searchScopeCollection = useSearchScopeCollection({ authToken, childId });
   const fullScopeMonths = useMemo(
     () => resolveSearchScopeMonths({ earliestYearMonth: monthJumpBounds.earliestYearMonth, todayIso: seoulToday }),
     [monthJumpBounds.earliestYearMonth, seoulToday]
   );
-  const searchScope = resolveRecordsSearchScope({
-    searchText,
-    fullScopeCollected: searchScopeCollection.result !== null
-  });
-  const isFullSearchScope = searchScope === "all";
-  const resetSearchScopeCollection = searchScopeCollection.reset;
-  useEffect(() => {
-    if (searchText.trim().length > 0) return;
-    resetSearchScopeCollection();
-  }, [searchText, resetSearchScopeCollection]);
   const collectSearchScope = searchScopeCollection.collect;
   const handleFindInAllPeriods = useCallback(() => {
-    void collectSearchScope(fullScopeMonths).then((completed) => {
-      if (!completed) return;
+    // 리뷰 L-A5: 수집 요청에 검색어 스냅숏을 동반한다 — 완료 낭독·스코프 승계는 이 시점의
+    // 검색어에 고정된다.
+    const requestedSearchText = searchTextRef.current;
+    void collectSearchScope(fullScopeMonths, requestedSearchText).then((outcome) => {
+      if (outcome.status === "discarded") return;
+      // 리뷰 L-A5: 수집이 도는 사이 검색어가 바뀌었으면 이 완료는 **다른 질문의 답**이다 —
+      // 스코프를 세우지 않고 수집물을 걷는다(월 스코프에 진입 버튼이 다시 서는 것이 재안내다).
+      if (searchTextRef.current.trim() !== requestedSearchText.trim()) {
+        resetSearchScopeCollection();
+        return;
+      }
       // 포커스가 누른 버튼에 머물러 목록이 전 기간으로 바뀐 사실을 놓친다 — 범위 고지 문장
-      // (아래 searchScopeNotice와 같은 순수 모듈·같은 갈래)을 그대로 읽어 준다(A11Y-117 관례).
-      const notice = buildRecordsSearchScopeNotice({ searchText, monthLabel: recordsMonthLabel, allPeriods: true });
-      if (notice) announceForA11y(notice);
+      // (아래 searchScopeNotice와 같은 순수 모듈·같은 갈래)을 읽어 준다(A11Y-117 관례).
+      // 리뷰 M-2: 부분 실패가 있으면 화면의 부분 실패 고지 문장이 같은 낭독에 합류하고,
+      // 전량 실패면 스코프가 서지 않았으므로 실패 문장만 읽는다(조립은 순수 모듈).
+      const announcement = searchScopeCollectionAnnouncement({
+        outcome: outcome.status === "all-failed" ? "all-failed" : "collected",
+        scopeNotice: buildRecordsSearchScopeNotice({
+          searchText: requestedSearchText,
+          monthLabel: recordsMonthLabel,
+          allPeriods: true
+        }),
+        failedMonths: outcome.failedMonths
+      });
+      if (announcement) announceForA11y(announcement);
     });
-  }, [collectSearchScope, fullScopeMonths, searchText, recordsMonthLabel]);
+  }, [collectSearchScope, fullScopeMonths, recordsMonthLabel, resetSearchScopeCollection]);
   const { refreshing, onRefresh } = usePullToRefresh(() =>
     Promise.all([expenses.refetch(), refreshOfflineSyncSnapshot()])
   );
@@ -1836,11 +1890,17 @@ export default function RecordsScreen() {
   // 라운드 101 트랙 A: 전체 기간 진입 버튼. 범위 고지 줄 아래와 0건 카드 두 장, 세 자리가 같은
   // 한 요소를 쓴다(어느 자리에서 눌러도 같은 수집 · 같은 라벨). 수집이 도는 동안은 잠근다 —
   // 탭 한 번 = 수집 한 번(겹치는 수집 금지는 훅도 이중으로 지킨다).
+  // 리뷰 M-A2: 도는 동안은 라벨이 진행("불러오는 중 n/21")을 말한다 — 21개월 직렬 수집은 느린
+  // 회선에서 수 초를 넘고, 잠긴 버튼 하나는 멈춘 것과 구별되지 않는다. 진행 라벨이 곧
+  // 접근성 라벨이라 낭독도 같은 사실을 읽는다(문구는 순수 모듈).
+  const collectingProgressLabel = searchScopeCollection.collecting
+    ? searchScopeCollectingProgressLabel(searchScopeCollection.progress)
+    : null;
   const allPeriodsSearchActionButton = allPeriodsSearchAction ? (
     <TextButton
-      accessibilityLabel={allPeriodsSearchAction.accessibilityLabel}
+      accessibilityLabel={collectingProgressLabel ?? allPeriodsSearchAction.accessibilityLabel}
       disabled={searchScopeCollection.collecting}
-      label={allPeriodsSearchAction.label}
+      label={collectingProgressLabel ?? allPeriodsSearchAction.label}
       onPress={handleFindInAllPeriods}
       style={{ alignItems: "center" }}
     />
@@ -2090,9 +2150,10 @@ export default function RecordsScreen() {
               {fullScopePartialNotice.text}
             </Text>
             <TextButton
-              accessibilityLabel={fullScopePartialNotice.retryAccessibilityLabel}
+              /* 리뷰 M-A2: 재시도 수집이 도는 동안도 같은 진행 라벨을 말한다(위 진입 버튼과 한 벌). */
+              accessibilityLabel={collectingProgressLabel ?? fullScopePartialNotice.retryAccessibilityLabel}
               disabled={searchScopeCollection.collecting}
-              label={fullScopePartialNotice.retryLabel}
+              label={collectingProgressLabel ?? fullScopePartialNotice.retryLabel}
               onPress={handleFindInAllPeriods}
               style={{ alignItems: "center" }}
             />
@@ -2224,8 +2285,9 @@ export default function RecordsScreen() {
           (a11y-contract가 칩 줄 수·간격을 실측으로 문다). 라벨·라벨→값 변환·낭독 문구는 전부
           순수 모듈에서 오고, 선택 여부는 SegmentedControl의 accessibilityState.selected가 진다
           (라벨에 상태 낱말 없음 — 라운드 95). 달력 보기에서는 숨긴다: 격자의 자리는 날짜라
-          금액 정렬이 성립하지 않는다(리스트로 돌아오면 저장된 선택 그대로 다시 선다). */}
-      {isRecordsSortToggleVisible({ isCalendarView }) ? (
+          금액 정렬이 성립하지 않는다(리스트로 돌아오면 저장된 선택 그대로 다시 선다).
+          리뷰 M-A3: 전체 기간 스코프에서도 같은 판정으로 숨긴다 — 근거는 순수 모듈 머리말. */}
+      {isRecordsSortToggleVisible({ isCalendarView, isFullSearchScope }) ? (
         <View testID="records-sort-toggle">
           <SegmentedControl
             options={recordsSortModes().map((mode) => recordsSortOptionLabel(mode))}

@@ -124,7 +124,11 @@ describe("라운드 101 W2 F6a 화면 배선 (source verification — 화면은 
     const src = source("app/settings/amount-presets.tsx");
     expect(src).toContain("amountDigitsOnly(value)");
     expect(src).toContain("formatAmountDigits(presetDigits[index]");
-    expect(src).toContain("amountOverLimitMessage()");
+    // 리뷰 M-3(두 시점): 종전 상한은 인자 없는 기본값(서버 int4)이었다 — 이제 문구·판정 둘 다
+    // 가산이 실제로 멈추는 QUICK_AMOUNT_MAX_KRW(1억)를 같은 단일 소스 함수에 넘겨 만든다(라벨=효과).
+    expect(src).toContain("amountOverLimitMessage(QUICK_AMOUNT_MAX_KRW)");
+    expect(src).toContain("isAmountOverLimit(value, QUICK_AMOUNT_MAX_KRW)");
+    expect(src).not.toContain("amountOverLimitMessage()");
     expect(src).toContain('"0보다 큰 금액을 입력해 주세요."');
     expect(src).toContain("sanitizeCustomAmountPresets(presetDigits.map(Number))");
     expect(src).toContain("setCustomPresets(sanitized);");

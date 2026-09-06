@@ -26,6 +26,15 @@ import { theme } from "./theme";
  * (moreSectionGroupStyle · familyPlusButtonStyle · familyMemberRowStyle)은 그 대장 자체를
  * 종전 리터럴 줄 → 토큰 줄로 함께 이관했고, 값 동일성의 증명은 이 파일의 대조표다.
  * launch-animation(무접촉 계약)과 index.tsx · new.tsx(타 트랙 충돌)는 여전히 다음 차수 몫이다.
+ *
+ * ⚠️ 라운드 101 리뷰 L-TK1 — 잔여 hairlineStrong 사본이 위 목록 밖에 **세 자리 더 있다**
+ * (2차가 "전부"라고 적었지만 재실측이 셋을 더 찾았다 — 남은 자리는 이름으로 적어야 다음
+ * 차수가 목록을 다시 세지 않는다):
+ *  · app/(onboarding)/child-profile.tsx:283 — 관계 선택 칩 외곽선("rgba(74, 63, 53, 0.10)")
+ *  · app/items/[itemTemplateId].tsx:1512 — 준비템 상세의 카드 외곽선(같은 0.10 변종)
+ *  · app/settings/children.tsx:156 — 아이 관리 카드 외곽선(같은 0.10 변종)
+ * 셋 다 new.tsx·index.tsx와 같은 "다음 차수 몫"이다(이 라운드는 명기만 하고 치환하지 않는다 —
+ * 줄 번호는 라운드마다 밀릴 수 있으므로 바늘은 파일:값이고 줄은 오늘의 길잡이다).
  */
 const mobileRoot = process.cwd();
 

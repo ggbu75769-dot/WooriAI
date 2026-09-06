@@ -19,8 +19,6 @@
  *   (더 이상 늘리지 않고 친 값 그대로 둔다).
  */
 
-import { EXPENSE_AMOUNT_MAX_KRW } from "./amount-limit";
-
 /**
  * 칩으로 제공하는 가산 단위(원)의 **기본값**. 화면의 칩 순서와 같다.
  *
@@ -37,9 +35,12 @@ export const QUICK_AMOUNT_PRESETS_KRW = [1000, 5000, 10000, 50000] as const;
  *
  * 살아남는 조건:
  *  - 배열이고, 각 항이 **정수 1원 이상** — DNC-013("지출 금액은 0보다 큰 원화 정수")과 정합.
- *  - 상한은 지출 입력과 **같은 단일 소스**(src/expenses/amount-limit.ts의
- *    EXPENSE_AMOUNT_MAX_KRW = 서버 int4 상한) — 프리셋이 입력칸 가드가 막는 금액을 권하지
- *    않게 한다. (누적 가산 자체는 여전히 QUICK_AMOUNT_MAX_KRW에서 멈춘다 — addAmountPreset.)
+ *  - 상한은 **가산이 실제로 멈추는 그 값**(QUICK_AMOUNT_MAX_KRW = 1억, addAmountPreset의
+ *    클램프)이다. ⚠️ 라운드 101 리뷰 M-3(두 시점): 종전에는 상한이 입력칸 가드의
+ *    EXPENSE_AMOUNT_MAX_KRW(서버 int4, 약 21억)라 1억 초과 프리셋이 **저장은 되는데** 칩을
+ *    눌러도 가산이 1억에서 잘렸다 — 칩에 적힌 라벨("+2억")과 효과가 갈리는 거짓 컨트롤이다.
+ *    라벨 = 효과가 되도록 저장 상한을 가산 상한 한 벌로 묶는다(1억 초과는 설정 화면이 같은
+ *    상한 문구로 막고, 옛 저장본의 초과값은 여기서 기본값 폴백으로 떨어진다).
  *  - 중복 제거 뒤 **정확히 기본 칸 수(4)** — 모자라거나 남으면 통째로 기본값 폴백(null).
  *
  * 결과는 **오름차순 정렬**로 굳힌다: 칩은 왼쪽부터 읽히는 가산 버튼이라 작은 단위 → 큰 단위의
@@ -51,7 +52,7 @@ export function sanitizeCustomAmountPresets(value: unknown): number[] | null {
   const cleaned: number[] = [];
   for (const entry of value) {
     if (typeof entry !== "number" || !Number.isSafeInteger(entry)) continue;
-    if (entry < 1 || entry > EXPENSE_AMOUNT_MAX_KRW) continue;
+    if (entry < 1 || entry > QUICK_AMOUNT_MAX_KRW) continue;
     if (seen.has(entry)) continue;
     seen.add(entry);
     cleaned.push(entry);

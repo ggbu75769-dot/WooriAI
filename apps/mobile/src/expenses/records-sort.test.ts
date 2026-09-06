@@ -124,6 +124,16 @@ describe("트랙 B: 달력 모드 게이트와 문구", () => {
     expect(isAmountSortApplied({ sortMode: "latest", isCalendarView: false })).toBe(false);
   });
 
+  it("리뷰 M-A3: 전체 기간 스코프에서도 같은 판정으로 숨기고 적용을 멈춘다 — 취향은 그대로 남는다", () => {
+    // 금액순 평평 목록에는 날짜 헤더가 없어 전체 스코프의 연도 표기(fullScopeDateHeaderLabel)가
+    // 실릴 자리가 없다 — 여러 해의 행이 연도 없이 섞이는 반쪽 사실 목록이라 달력과 같은 처분이다.
+    expect(isRecordsSortToggleVisible({ isCalendarView: false, isFullSearchScope: true })).toBe(false);
+    expect(isAmountSortApplied({ sortMode: "amount", isCalendarView: false, isFullSearchScope: true })).toBe(false);
+    // 스코프가 월로 돌아오면(인자 생략 = 종전 호출과 같은 모양) 저장된 금액순이 그대로 다시 선다.
+    expect(isAmountSortApplied({ sortMode: "amount", isCalendarView: false, isFullSearchScope: false })).toBe(true);
+    expect(isRecordsSortToggleVisible({ isCalendarView: false, isFullSearchScope: false })).toBe(true);
+  });
+
   it("옵션 라벨은 상태 낱말을 싣지 않는다 — 선택 여부는 accessibilityState가 진다 (라운드 95)", () => {
     expect(recordsSortOptionLabel("latest")).toBe("최신순");
     expect(recordsSortOptionLabel("amount")).toBe("금액 큰 순");
@@ -183,7 +193,8 @@ describe("트랙 B: app/(tabs)/records.tsx 배선", () => {
     expect(recordsSource).toContain("value={recordsSortOptionLabel(shownSortMode)}");
     expect(recordsSource).toContain("onChange={handleSortLabelChange}");
     expect(recordsSource).toContain("recordsSortModeForLabel(option)");
-    expect(recordsSource).toContain("isRecordsSortToggleVisible({ isCalendarView })");
+    // 리뷰 M-A3: 전체 스코프 게이트가 달력 게이트와 같은 호출에 함께 들어간다.
+    expect(recordsSource).toContain("isRecordsSortToggleVisible({ isCalendarView, isFullSearchScope })");
     // 라벨 리터럴을 화면이 다시 적지 않는다(두 벌 금지 — keyboard-tap-guard의 리터럴 대장도
     // 이 화면의 한국어 리터럴 수를 값으로 물고 있다).
     expect(recordsSource).not.toContain('"최신순"');
@@ -279,7 +290,9 @@ describe("트랙 B: app/(tabs)/records.tsx 배선", () => {
     // 리뷰 M-4: 적용 판정의 입력이 저장 모드가 아니라 표시 모드(shownSortMode)다 — 임시
     // 오버라이드 중에는 날짜 그룹 목록이 서야 착지 스크롤의 목적지(날짜 섹션)가 실재한다.
     expect(recordsSource).toContain("const shownSortMode = effectiveRecordsSortMode({ sortMode, calendarDateLanding });");
-    expect(recordsSource).toContain("const isAmountSort = isAmountSortApplied({ sortMode: shownSortMode, isCalendarView });");
+    expect(recordsSource).toContain(
+      "const isAmountSort = isAmountSortApplied({ sortMode: shownSortMode, isCalendarView, isFullSearchScope });"
+    );
     // 달력 격자·일별 합계는 종전처럼 날짜 그룹에서 나온다(정렬과 무관).
     expect(recordsSource).toContain("dailyTotalsFromDateGroups(dateGroups)");
   });

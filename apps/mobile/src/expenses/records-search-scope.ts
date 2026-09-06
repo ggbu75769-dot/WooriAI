@@ -1,6 +1,6 @@
 import { isYearMonth, yearMonthLabel, yearMonthsBetween } from "../export/export-range";
 import { monthJumpFloorYearMonth } from "../month-jump";
-import { LOAD_ERROR_RETRY_LABEL } from "../offline/messages";
+import { LOAD_ERROR_NOTICE, LOAD_ERROR_RETRY_LABEL } from "../offline/messages";
 
 /**
  * 라운드 101 트랙 A — 기록 탭 검색의 **전체 기간 스코프** 순수 판정.
@@ -96,7 +96,13 @@ export type SearchScopeCollectionResult<TExpense> = {
  */
 export async function collectSearchScopeMonths<TExpense>(
   months: readonly string[],
-  ensureMonth: (yearMonth: string) => Promise<{ expenses: TExpense[] }>
+  ensureMonth: (yearMonth: string) => Promise<{ expenses: TExpense[] }>,
+  /**
+   * 라운드 101 리뷰 M-A2 — 달 하나가 끝날 때마다(성공·실패 모두) `(끝난 수, 전체 수)`로 부른다.
+   * 화면은 이 값으로 수집 중 버튼 라벨("불러오는 중 n/21")을 갱신한다 — 21개월 수집은 느린
+   * 회선에서 수 초를 넘고, 잠긴 버튼 하나만 남으면 멈춘 것과 구별되지 않는다.
+   */
+  onProgress?: (done: number, total: number) => void
 ): Promise<SearchScopeCollectionResult<TExpense>> {
   const collected: SearchScopeMonthExpenses<TExpense>[] = [];
   const failed: string[] = [];
@@ -108,9 +114,71 @@ export async function collectSearchScopeMonths<TExpense>(
     } catch {
       failed.push(yearMonth);
     }
+    onProgress?.(months.length - index, months.length);
   }
   // "YYYY-MM"은 사전순이 곧 시간순이다 — 고지 문장이 이른 달부터 읽히게 오름차순으로 넘긴다.
   return { months: collected, failedMonths: failed.sort() };
+}
+
+/**
+ * 라운드 101 리뷰 H-2(A-1) — 수집 완료 달 목록으로 **소비 시점에 캐시를 다시 읽어** 결과를
+ * 재조립한다.
+ *
+ * 종전 훅은 수집이 끝난 순간의 지출 배열을 **동결 스냅숏**으로 들고 있었다: 전체 스코프를 보는
+ * 동안 flush가 확정되면(삭제가 서버에 닿고, 대기 행이 synced가 되고, 캐시가 refetch로 갈리면)
+ * 오프라인 행 재조정이 걷히면서 스냅숏 속 **낡은 서버 행이 되살아났다**(방금 지운 행 부활 ·
+ * 수정 되돌림 · flush 직후 신규 증발). 이제 훅은 "수집이 성공한 달 목록"만 들고, 결과는 매
+ * 소비 시점에 이 함수가 그 달들의 캐시(`["expenses", childId, ym]`)를 읽어 다시 세운다 —
+ * 캐시가 갈리면(무효화 후 refetch) 같은 렌더 경로로 새 사실이 선다.
+ *
+ * 수집이 성공한 달은 캐시에 실재하는 것이 정상이다(ensureQueryData가 채웠다). 그 사이 캐시가
+ * 비워진 달(gc 등)은 **그럴듯한 빈 달로 위장하지 않고** failedMonths로 합류한다 — 부분을
+ * 전체로 위장하지 않는 규칙 그대로다.
+ */
+export function rebuildSearchScopeResult<TExpense>(
+  collectedMonths: readonly string[],
+  failedMonths: readonly string[],
+  readMonth: (yearMonth: string) => { expenses: TExpense[] } | undefined
+): SearchScopeCollectionResult<TExpense> {
+  const months: SearchScopeMonthExpenses<TExpense>[] = [];
+  const missing: string[] = [];
+  for (const yearMonth of collectedMonths) {
+    const cached = readMonth(yearMonth);
+    if (cached) months.push({ yearMonth, expenses: cached.expenses });
+    else missing.push(yearMonth);
+  }
+  return { months, failedMonths: [...new Set([...failedMonths, ...missing])].sort() };
+}
+
+/**
+ * 라운드 101 리뷰 M-A2 — 수집이 도는 동안 진입/재시도 버튼에 서는 진행 라벨("불러오는 중 3/21").
+ * 라벨이 곧 낭독이다(TextButton은 라벨을 접근성 라벨로도 쓴다) — 진행 없이 잠긴 버튼은
+ * 스크린리더에게도 멈춘 버튼으로 들린다. 진행값을 아직 모르면(첫 달 이전) 수사 없이 사실만 말한다.
+ */
+export function searchScopeCollectingProgressLabel(progress: { done: number; total: number } | null): string {
+  if (!progress || progress.total <= 0) return "불러오는 중";
+  return `불러오는 중 ${progress.done}/${progress.total}`;
+}
+
+/**
+ * 라운드 101 리뷰 M-2 — 수집 **완료 낭독** 한 문장.
+ *
+ *  - 전량 실패(`all-failed`): 스코프는 전환되지 않았으므로 "전체 기간의 …에서 찾아요"를 읽으면
+ *    거짓이다 — 조회 실패 카드와 같은 문장(LOAD_ERROR_NOTICE)만 읽는다(모듈 문장 재사용).
+ *  - 부분 실패: 전환 고지 뒤에 부분 실패 고지(buildSearchScopePartialNotice — 화면에 그려지는
+ *    그 문장)를 **같은 낭독에 합류**시킨다. 전환 고지만 읽으면 눈으로 부분 고지를 못 보는
+ *    사용자에게 부분이 전체로 위장된다.
+ */
+export function searchScopeCollectionAnnouncement(input: {
+  outcome: "collected" | "all-failed";
+  /** buildRecordsSearchScopeNotice(allPeriods: true)가 만든 전환 고지(검색어가 비면 null). */
+  scopeNotice: string | null;
+  failedMonths: readonly string[];
+}): string | null {
+  if (input.outcome === "all-failed") return LOAD_ERROR_NOTICE;
+  const partial = buildSearchScopePartialNotice(input.failedMonths);
+  if (!input.scopeNotice) return partial?.text ?? null;
+  return partial ? `${input.scopeNotice} ${partial.text}` : input.scopeNotice;
 }
 
 /**
