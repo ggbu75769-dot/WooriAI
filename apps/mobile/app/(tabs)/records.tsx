@@ -54,6 +54,7 @@ import {
   buildRecordsFilteredEmptyState,
   buildRecordsFilterScopeSummary,
   buildRecordsMonthSummary,
+  buildRecordsSearchAllPeriodAction,
   buildRecordsSearchMonthJumpAction,
   buildRecordsSearchPreviousMonthAction,
   buildRecordsSearchScopeNotice,
@@ -72,6 +73,30 @@ import {
 // 화면은 공용 SegmentedControl을 하나 더 그리고, 금액순일 때 섹션 조립만 평평한 쪽
 // (buildRecordsAmountSortedSections)으로 바꾼다. 새 한국어 리터럴 0(keyboard-tap-guard의
 // 리터럴 대장) · 새 스크롤러 0(records-calendar.test.ts의 ScrollView 1개 계약 유지).
+// 라운드 101 트랙 A: 전체 기간 검색 — 스코프 판정·월 열거·부분 고지·연 포함 헤더 라벨은 전부
+// 순수 모듈(records-search-scope.ts)에 있고, 월별 수집은 전용 훅(use-search-scope-collection.ts —
+// ensureQueryData 재사용, 캐시된 달 요청 0건)이 진다. 이 화면은 버튼·고지 배선만 한다.
+import {
+  buildSearchScopePartialNotice,
+  fullScopeDateHeaderLabel,
+  resolveRecordsSearchScope,
+  resolveSearchScopeMonths,
+  searchScopeCollectingProgressLabel,
+  searchScopeCollectionAnnouncement
+} from "../../src/expenses/records-search-scope";
+// 라운드 101 W2 F7: 최근 검색어 — 정규화·중복·상한·저장 시점·라벨은 전부 순수 모듈에 있고
+// (검색 필터와 같은 normalizeRecordSearchText 한 벌 — K-12의 규율), persist는 전용 스토어가
+// 진다(기기 단위 저장 · 계정 경계는 session-teardown이 사용자 단위로 지운다). 이 화면은
+// 포커스 상태와 칩 줄 배선만 한다 — 새 한국어 리터럴 0건(keyboard-tap-guard ⓔ의 대장 14 유지).
+import {
+  isRecentSearchRowVisible,
+  recentSearchChipAccessibilityLabel,
+  recentSearchesClearAllAccessibilityLabel,
+  recentSearchesClearAllLabel,
+  recentSearchesRowTitle,
+  recentSearchRecordDelayMs,
+  recentSearchRemoveAccessibilityLabel
+} from "../../src/expenses/recent-searches";
 import {
   effectiveRecordsSortMode,
   isAmountSortApplied,
@@ -82,6 +107,7 @@ import {
   recordsSortOptionLabel,
   type RecordsSortMode
 } from "../../src/expenses/records-sort";
+import { useSearchScopeCollection } from "../../src/expenses/use-search-scope-collection";
 import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
 // 라운드 56 D#10: `view=calendar` 파라미터 규약은 링크를 만드는 알림 목적지 모듈과 **같은 곳**에서 읽는다.
 import {
@@ -134,6 +160,7 @@ import {
   RECORDS_VIEW_MODE_CALENDAR,
   RECORDS_VIEW_MODE_LIST
 } from "../../src/stores/records-view.store";
+import { useRecentSearchesStore } from "../../src/stores/recent-searches.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
@@ -270,6 +297,48 @@ function pushSyncStatus() {
  * theme.touchTarget }}` 한 줄을 "발명이 아니라 인용"의 원본으로 파일에서 그대로 찾는다.
  */
 const recordsPressedStyle = { opacity: 0.76 } as const;
+
+/**
+ * 라운드 101 W2 F7 — 최근 검색어 칩의 모듈 스코프 스타일(매 렌더 새 객체 금지 — 헤더 스타일
+ * 상수들과 같은 관례).
+ *
+ * 겉모양은 같은 화면의 CategoryChip(공용 킷)을 그대로 따른다: pill 38 · 흰 바탕 · primary100
+ * 테두리 · 13/700 글자. 공용 칩을 재사용하지 않는 이유는 몸이 둘이기 때문이다 — 칩 본체(그
+ * 검색어 적용)와 X(개별 삭제)가 한 pill 안에서 각자 눌리는데, CategoryChip은 Pressable
+ * 하나짜리다(새 공용 export 금지 — flat 행 T-B(#8)과 같은 판단으로 화면 로컬).
+ *
+ * 터치 타깃: 세로는 38 + hitSlop 5/5 = 48(CategoryChip과 같은 셈), X의 가로는 38 + 바깥쪽
+ * slop 6 = 44. slop을 본체는 왼쪽만, X는 오른쪽만 바깥으로 벌리는 이유: 두 몸 사이에서 slop이
+ * 겹치면 검색하려던 탭이 삭제로 떨어질 수 있다(경계 안쪽으로는 벌리지 않는다).
+ */
+const recentSearchChipStyle = {
+  alignItems: "center",
+  backgroundColor: theme.colors.white,
+  borderColor: theme.colors.primary100,
+  borderRadius: theme.radii.pill,
+  borderWidth: 1,
+  flexDirection: "row"
+} as const;
+
+const recentSearchChipTermStyle = {
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: 38,
+  minWidth: 44,
+  paddingLeft: 14,
+  paddingRight: 4
+} as const;
+
+const recentSearchChipRemoveStyle = {
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: 38,
+  minWidth: 38,
+  paddingRight: 6
+} as const;
+
+const recentSearchTermHitSlop = { bottom: 5, left: 3, top: 5 } as const;
+const recentSearchRemoveHitSlop = { bottom: 5, right: 6, top: 5 } as const;
 
 /**
  * 토스 이월 T-B(#8) — 기록 리스트 행의 **flat 표면**.
@@ -687,6 +756,19 @@ export default function RecordsScreen() {
   }, [monthParam]);
   const [searchText, setSearchText] = useState("");
   /**
+   * 라운드 101 W2 F7 — 최근 검색어 칩.
+   *
+   * 칩 줄은 **검색 입력에 포커스가 있고 검색어가 비어 있을 때만** 선다(판정은 순수 모듈
+   * isRecentSearchRowVisible — 치기 시작하는 순간 그 자리는 결과의 것이다). 포커스 상태는
+   * 이 화면만 쓰는 비저장 useState이고, 이력 자체는 persist 스토어에 산다(기기 단위 저장 ·
+   * 계정 경계 teardown은 session-teardown.ts — 사용자 단위 판단의 근거는 스토어 헤더).
+   */
+  const [searchFocused, setSearchFocused] = useState(false);
+  const recentSearches = useRecentSearchesStore((state) => state.searches);
+  const addRecentSearch = useRecentSearchesStore((state) => state.add);
+  const removeRecentSearch = useRecentSearchesStore((state) => state.remove);
+  const resetRecentSearches = useRecentSearchesStore((state) => state.resetAll);
+  /**
    * 라운드 52 C-03 — 리포트 카테고리 드릴다운의 착지 필터.
    *
    * 리포트 탭의 도넛 범례가 `month=YYYY-MM&categoryId=…`를 붙여 이 탭으로 보낸다. 달 파라미터
@@ -772,6 +854,42 @@ export default function RecordsScreen() {
     searchInputRef.current?.focus();
   }, [focusSearchParam]);
   /**
+   * 라운드 101 트랙 A — **전체 기간 검색.**
+   *
+   * 이 화면의 검색은 보고 있는 한 달치 응답에만 걸린다(아래 expenses 쿼리 — 범위 고지 줄이 그
+   * 사실을 말한다). 로컬 미러는 synced 90일 파기라 클라 전 기간은 **월별 수집**으로만 가능하고,
+   * 그 수집은 **자동 전환 없이** 범위 고지 줄의 "[전체 기간에서 찾기]"(+0건 카드 세 번째
+   * 탈출구)를 눌렀을 때만 한 번 돈다 — 탭 한 번 = 수집 한 번. 달마다
+   * ensureQueryData(["expenses", childId, ym], 같은 전량 페처)라 캐시된 달의 요청은 0건이다
+   * (훅 머리말 참고). 검색어를 지우면 월 스코프로 복귀하고 수집물도 버린다 — 다시 치면 월
+   * 스코프에서 시작한다(전환은 언제나 사용자의 그 탭 하나가 산다).
+   *
+   * 리뷰 M-1: 이 블록이 보기/정렬 블록보다 **먼저** 서는 이유 — 전체 스코프는 보기 판정
+   * (effectiveRecordsViewMode)과 정렬 판정(isAmountSortApplied)의 입력이다(전체 목록에 한 달
+   * 격자·연도 없는 금액순 평평 목록은 성립하지 않는다). 수집 시작(fullScopeMonths ·
+   * handleFindInAllPeriods)은 하한 계산(monthJumpBounds)이 서는 아래 자리에 그대로 있다.
+   */
+  const searchScopeCollection = useSearchScopeCollection({ authToken, childId });
+  const searchScope = resolveRecordsSearchScope({
+    searchText,
+    // 리뷰 L-A4: 수집물의 태그(childId)를 소비부에서도 동기 대조한다 — 훅의 reset effect가
+    // 도는 사이의 렌더에서도 이전 아이의 수집물이 스코프를 세우지 못한다.
+    fullScopeCollected:
+      searchScopeCollection.result !== null && searchScopeCollection.collectedFor?.childId === childId
+  });
+  const isFullSearchScope = searchScope === "all";
+  const resetSearchScopeCollection = searchScopeCollection.reset;
+  useEffect(() => {
+    if (searchText.trim().length > 0) return;
+    resetSearchScopeCollection();
+  }, [searchText, resetSearchScopeCollection]);
+  // 리뷰 L-A5: 수집 완료 시점의 "지금 검색어"를 읽기 위한 ref — 완료 콜백은 탭 시점의 클로저라
+  // 그 사이의 입력 변화를 볼 수 없다(값은 렌더마다 아래 effect가 갱신한다).
+  const searchTextRef = useRef(searchText);
+  useEffect(() => {
+    searchTextRef.current = searchText;
+  });
+  /**
    * UX-D: 리스트/달력 보기.
    *
    * 라운드 56 D#10 — 예전에는 화면 안 `useState`라 **앱을 다시 열 때마다 리스트로 돌아갔다**.
@@ -804,8 +922,14 @@ export default function RecordsScreen() {
   // 표시 모드(임시 오버라이드 반영) — 세그먼트 value·달력 렌더·빈 상태 판정이 전부 이 값을
   // 본다(보이는 화면과 컨트롤이 갈리지 않는다 — 정렬 토글의 shownSortMode와 같은 규칙).
   const viewMode =
-    effectiveRecordsViewMode({ mode: persistedRecordsViewMode, calendarDateLanding: calendarDateViewLanding }) ===
-    RECORDS_VIEW_MODE_CALENDAR
+    effectiveRecordsViewMode({
+      mode: persistedRecordsViewMode,
+      calendarDateLanding: calendarDateViewLanding,
+      // 리뷰 M-1: 전체 기간 스코프 동안은 리스트를 강제하는 비저장 오버라이드다(F3의
+      // calendarDateViewLanding과 같은 관례 — persist 0바이트). 달력 격자는 보고 있는 **한 달**의
+      // 자리라 전 기간 목록과 성립하지 않는다(다른 달 날짜는 buildCalendarMonth가 무시한다).
+      fullSearchScope: isFullSearchScope
+    }) === RECORDS_VIEW_MODE_CALENDAR
       ? RECORDS_VIEW_CALENDAR
       : RECORDS_VIEW_LIST;
   const setViewMode = useCallback(
@@ -814,9 +938,14 @@ export default function RecordsScreen() {
       // 고른 보기가 곧장 서고, 리스트를 골랐다면 저장된 정렬 취향도 그대로 돌아온다.
       setCalendarDateViewLanding(false);
       setCalendarDateLanding(false);
+      // 리뷰 M-1: 전체 스코프에서 달력의 **명시 조작**은 "달력이 성립하는 스코프(월)로
+      // 돌아간다"는 의사표시다 — 수집물을 걷어 월 스코프로 복귀한다(검색어는 그대로 남아 그
+      // 달에서 같은 검색이 이어진다). 명시 조작이 언제나 이긴다는 착지 오버라이드 해제 규칙과
+      // 같은 결이다.
+      if (next === RECORDS_VIEW_CALENDAR && isFullSearchScope) resetSearchScopeCollection();
       setRecordsViewMode(next === RECORDS_VIEW_CALENDAR ? RECORDS_VIEW_MODE_CALENDAR : RECORDS_VIEW_MODE_LIST);
     },
-    [setRecordsViewMode]
+    [setRecordsViewMode, isFullSearchScope, resetSearchScopeCollection]
   );
   const isCalendarView = viewMode === RECORDS_VIEW_CALENDAR;
   /**
@@ -859,7 +988,10 @@ export default function RecordsScreen() {
   // 표시 모드(임시 오버라이드 반영) — 토글 value·적용 판정이 전부 이 값을 본다(보이는 목록과
   // 컨트롤이 갈리지 않는다). persist 값(sortMode)은 읽기만 한다.
   const shownSortMode = effectiveRecordsSortMode({ sortMode, calendarDateLanding });
-  const isAmountSort = isAmountSortApplied({ sortMode: shownSortMode, isCalendarView });
+  // 리뷰 M-A3: 전체 스코프에서는 금액순을 적용하지 않는다(달력과 같은 판정 — 근거는
+  // isAmountSortApplied 머리말). 표시가 최신순(날짜 그룹 + 연도 헤더)으로 복귀하고, 저장된
+  // 취향은 그대로 남아 월 스코프로 돌아오면 다시 선다.
+  const isAmountSort = isAmountSortApplied({ sortMode: shownSortMode, isCalendarView, isFullSearchScope });
   /**
    * M-2 대칭 해제 ② — **달 이동이 착지를 걷는다.** 착지의 목적지는 "그 달의 그 날짜 섹션"이라
    * 달이 바뀌는 순간 참이 아니다. 화살표·월 선택 시트·검색 0건 카드의 되감기·딥링크 어느 손이
@@ -1137,6 +1269,47 @@ export default function RecordsScreen() {
       childrenQuery.data?.children.find((child) => child.id === childId) ?? null
     )
   };
+  /**
+   * 라운드 101 트랙 A — 전체 기간 수집의 **시작부**(하한·달 목록·완료 처분). 스코프 판정과 훅은
+   * 위 보기/정렬 블록 앞으로 옮겨 갔다(리뷰 M-1 — 스코프가 보기·정렬 판정의 입력이라서다).
+   *
+   * 하한은 월 선택 시트와 **같은 규칙**(위 monthJumpBounds의 earliestYearMonth →
+   * monthJumpFloorYearMonth — 새 판정 0)이고, 하한을 모르면 달 목록이 비어 진입점 자체가 서지
+   * 않는다.
+   */
+  const fullScopeMonths = useMemo(
+    () => resolveSearchScopeMonths({ earliestYearMonth: monthJumpBounds.earliestYearMonth, todayIso: seoulToday }),
+    [monthJumpBounds.earliestYearMonth, seoulToday]
+  );
+  const collectSearchScope = searchScopeCollection.collect;
+  const handleFindInAllPeriods = useCallback(() => {
+    // 리뷰 L-A5: 수집 요청에 검색어 스냅숏을 동반한다 — 완료 낭독·스코프 승계는 이 시점의
+    // 검색어에 고정된다.
+    const requestedSearchText = searchTextRef.current;
+    void collectSearchScope(fullScopeMonths, requestedSearchText).then((outcome) => {
+      if (outcome.status === "discarded") return;
+      // 리뷰 L-A5: 수집이 도는 사이 검색어가 바뀌었으면 이 완료는 **다른 질문의 답**이다 —
+      // 스코프를 세우지 않고 수집물을 걷는다(월 스코프에 진입 버튼이 다시 서는 것이 재안내다).
+      if (searchTextRef.current.trim() !== requestedSearchText.trim()) {
+        resetSearchScopeCollection();
+        return;
+      }
+      // 포커스가 누른 버튼에 머물러 목록이 전 기간으로 바뀐 사실을 놓친다 — 범위 고지 문장
+      // (아래 searchScopeNotice와 같은 순수 모듈·같은 갈래)을 읽어 준다(A11Y-117 관례).
+      // 리뷰 M-2: 부분 실패가 있으면 화면의 부분 실패 고지 문장이 같은 낭독에 합류하고,
+      // 전량 실패면 스코프가 서지 않았으므로 실패 문장만 읽는다(조립은 순수 모듈).
+      const announcement = searchScopeCollectionAnnouncement({
+        outcome: outcome.status === "all-failed" ? "all-failed" : "collected",
+        scopeNotice: buildRecordsSearchScopeNotice({
+          searchText: requestedSearchText,
+          monthLabel: recordsMonthLabel,
+          allPeriods: true
+        }),
+        failedMonths: outcome.failedMonths
+      });
+      if (announcement) announceForA11y(announcement);
+    });
+  }, [collectSearchScope, fullScopeMonths, recordsMonthLabel, resetSearchScopeCollection]);
   const { refreshing, onRefresh } = usePullToRefresh(() =>
     Promise.all([expenses.refetch(), refreshOfflineSyncSnapshot()])
   );
@@ -1256,6 +1429,26 @@ export default function RecordsScreen() {
     [serverExpenses, childOfflineRows, recordsYearMonth]
   );
 
+  // 라운드 101 트랙 A: 전체 기간 스코프의 **목록 모집단**. 수집한 달마다 보고 있는 달과 **같은
+  // 재조정**(reconcileMonthlyExpenses — 로컬 변경이 걸린 낡은 서버 행 숨김 + 그 달의 오프라인
+  // 대기 행 합류)을 거쳐 이어 붙인다 — 재조정 없이 서버 원본을 이으면 방금 지운 행이 전 기간
+  // 결과에 되살아난다. childOfflineRows가 살아 있는 구독이라, 전체 스코프 목록에서 지우고
+  // 고친 행도 스냅숏 재수집 없이 곧바로 반영된다. 월 스코프면 null — 아래 필터 모집단이 종전과
+  // 완전히 같고, 월 요약 줄·합계 카드·달력은 어느 스코프에서든 계속 월 사실만 말한다.
+  const fullScopePopulation = useMemo(() => {
+    if (!isFullSearchScope || !searchScopeCollection.result) return null;
+    const scopeServerRows: ServerExpense[] = [];
+    const scopeOfflineRows: LocalExpenseRow[] = [];
+    for (const month of searchScopeCollection.result.months) {
+      const reconciled = reconcileMonthlyExpenses(month.expenses, childOfflineRows, month.yearMonth);
+      scopeServerRows.push(...reconciled.visibleServerExpenses);
+      scopeOfflineRows.push(...reconciled.offlinePendingRows);
+    }
+    return { serverExpenses: scopeServerRows, offlineRows: scopeOfflineRows };
+  }, [isFullSearchScope, searchScopeCollection.result, childOfflineRows]);
+  const scopeServerExpenses = fullScopePopulation?.serverExpenses ?? monthlyServerExpenses;
+  const scopeOfflineRows = fullScopePopulation?.offlineRows ?? offlinePendingRows;
+
   // 토스 이월 T-B(#1): 월 요약 줄의 합계(DNC-015 countsTowardMonthlyTotal)가 세지 않은 선물·환불
   // 행의 수. 모집단은 요약 줄의 건수와 **같은** 필터 무관 월 전체(서버 행 + 오프라인 대기 행)다 --
   // 술어·판정은 순수 모듈에 있고(화면에 expenseType 비교가 다시 서지 않는다), 0이면 아래에서
@@ -1332,18 +1525,28 @@ export default function RecordsScreen() {
   // `${itemName} ${memo}` 연결 문자열을 훑고 스니펫은 품목명·메모를 따로 봐서, 경계에 걸친
   // 검색어("귀 조" ← "기저귀" + "조리원")가 필터만 통과하고 근거는 없는 행을 만들었다.
   // 이제 두 자리가 같은 함수를 부르므로 그런 조합이 정의상 생기지 않는다.
+  //
+  // 라운드 101 트랙 A(P1) — **행당 판정 1회.** 종전에는 이 필터가 `.matches`만 읽고, 아래
+  // listData가 **같은 행에 같은 인자로 한 번 더** 불러 `.snippet`을 얻었다(행당 2회). 이제 필터
+  // 단계가 match 결과를 행과 함께 내려보낸다(authorLabel 선해석과 같은 관례 — 목록을 만들 때
+  // 문자열로 해석해 둔다). 판정과 근거가 **한 호출**에서 나오므로 K-12의 성질(필터가 통과시키는데
+  // 근거를 설명 못 하는 조합 없음)은 정의 그대로이고, 스니펫 문자열 계약(행 memo)도 불변이다.
+  //
+  // 모집단은 스코프가 정한다(위 fullScopePopulation): 월 스코프면 종전 그대로 그 달의 재조정
+  // 결과이고, 전체 스코프면 수집한 전 기간이다 — 필터·정렬·날짜 그룹은 어느 쪽이든 같은 길을 탄다.
   const { visibleExpenses, visibleOfflineRows } = useMemo(() => {
     return {
-      visibleExpenses: monthlyServerExpenses.filter((expense) => {
-        if (selectedCategoryIds && !selectedCategoryIds.has(expense.categoryId)) return false;
-        return matchRecordSearch({
+      visibleExpenses: scopeServerExpenses.flatMap((expense) => {
+        if (selectedCategoryIds && !selectedCategoryIds.has(expense.categoryId)) return [];
+        const match = matchRecordSearch({
           itemName: expense.itemName,
           merchant: expense.merchant,
           memo: expense.memo,
           searchText
-        }).matches;
+        });
+        return match.matches ? [{ expense, searchSnippet: match.snippet }] : [];
       }),
-      visibleOfflineRows: offlinePendingRows.filter((row) => {
+      visibleOfflineRows: scopeOfflineRows.filter((row) => {
         if (selectedCategoryIds && !selectedCategoryIds.has(row.payload.categoryId)) return false;
         return matchRecordSearch({
           itemName: row.payload.itemName,
@@ -1353,7 +1556,7 @@ export default function RecordsScreen() {
         }).matches;
       })
     };
-  }, [monthlyServerExpenses, offlinePendingRows, selectedCategoryIds, searchText]);
+  }, [scopeServerExpenses, scopeOfflineRows, selectedCategoryIds, searchText]);
 
   // Offline pending rows first (same order as the old eager render), then server rows.
   const listData = useMemo<RecordsListItem[]>(
@@ -1372,7 +1575,7 @@ export default function RecordsScreen() {
         })
       ),
       ...visibleExpenses.map(
-        (expense): RecordsListItem => ({
+        ({ expense, searchSnippet }): RecordsListItem => ({
           kind: "server",
           key: `server:${expense.id}`,
           spentOn: expense.spentOn,
@@ -1384,17 +1587,16 @@ export default function RecordsScreen() {
           // 내 기록이라 작성자가 자명하고, 서버가 준 createdByUserId도 아직 없다.
           authorLabel: resolveExpenseAuthorLabel(expenseCreatedByUserId(expense), householdMemberRefs),
           // UX-T(C) → K-12: "조리원"으로 검색해 3건이 나왔는데 화면 어디에도 조리원이 없던
-          // 자리 -- 위 필터와 **같은 함수**가 "어디서 맞았는지"까지 돌려주므로, 그 근거를 그대로
+          // 자리 -- 필터와 **같은 함수**가 "어디서 맞았는지"까지 돌려주므로, 그 근거를 그대로
           // 부제에 붙인다(품목명에서 맞은 행은 제목이 곧 근거라 null). 검색어가 없으면 null이라
           // 목록은 종전과 완전히 같다(판정·자르기 규칙은 순수 모듈에 있다).
           // GAP-054 D#8: 판매처 갈래도 같은 함수에서 나온다 -- 필터가 통과시키는데 근거를
-          // 말하지 못하는 조합이 정의상 생기지 않는다(위 필터와 인자가 한 벌이다).
-          searchSnippet: matchRecordSearch({
-            itemName: expense.itemName,
-            merchant: expense.merchant,
-            memo: expense.memo,
-            searchText: searchText
-          }).snippet,
+          // 말하지 못하는 조합이 정의상 생기지 않는다(필터와 인자가 한 벌이다).
+          // 라운드 101 트랙 A(P1) — 두 시점: 종전에는 이 자리가 matchRecordSearch를 **한 번 더**
+          // 불렀다(행당 2회). 이제 위 필터 단계가 판정과 함께 해석해 둔 문자열을 그대로 싣는다 —
+          // 그래서 이 memo의 의존성에서 searchText가 빠졌다(visibleExpenses가 이미 그 값의
+          // 함수다). 행에 내려가는 계약(해석된 문자열 | null)은 한 글자도 바뀌지 않았다.
+          searchSnippet,
           // UX-L(A): 롱프레스 액션 실행부. 안정된 참조라 행 memo(PERF-102)가 그대로 유지된다.
           // 오프라인 대기 행에는 붙이지 않는다 -- 아직 서버 id가 없어 상세로 갈 수도, 같은
           // 삭제 경로(adoptServerExpense)를 탈 수도 없다(그 행은 종전대로 동기화 상태로 간다).
@@ -1402,7 +1604,7 @@ export default function RecordsScreen() {
         })
       )
     ],
-    [visibleOfflineRows, visibleExpenses, categoryName, handleRowAction, householdMemberRefs, searchText]
+    [visibleOfflineRows, visibleExpenses, categoryName, handleRowAction, householdMemberRefs]
   );
 
   const monthlyRecordCount = monthlyServerExpenses.length + offlinePendingRows.length;
@@ -1411,6 +1613,26 @@ export default function RecordsScreen() {
   // resolved (loading -> skeleton, error -> retry card, disabled query -> empty state).
   const showList = !expenses.isLoading && !expenses.isError && Boolean(expenses.data);
   const hasVisibleRecords = showList && listData.length > 0;
+
+  /**
+   * 라운드 101 W2 F7 — 최근 검색어 **저장 시점**: 검색 결과를 실제로 본 뒤.
+   *
+   * 이 화면의 검색은 keystroke마다 즉시 걸리고(onChangeText — 디바운스 없음) 확정 신호가 될
+   * 배선이 없다(returnKeyType="search"는 있지만 onSubmitEditing이 없다 — 근거는 순수 모듈
+   * 헤더). 그래서 순수 모듈의 판정(검색어 유지 300ms + 화면에 선 결과 1건 이상)을 타이머로
+   * 배선한다: 검색어가 바뀌면 cleanup이 이전 타이머를 걷으므로 타이핑 중의 낱자("조", "조리")는
+   * 이력에 남지 않고, 로딩·오류 중에는 resultCount 0이라(showList 게이트) 판정이 null이다.
+   * 결과 수는 화면에 실제로 보이는 그 목록(listData — 검색·칩 필터 적용 후)에서 센다.
+   */
+  const recentSearchDelayMs = recentSearchRecordDelayMs({
+    searchText,
+    resultCount: showList ? listData.length : 0
+  });
+  useEffect(() => {
+    if (recentSearchDelayMs === null) return;
+    const timer = setTimeout(() => addRecentSearch(searchText), recentSearchDelayMs);
+    return () => clearTimeout(timer);
+  }, [recentSearchDelayMs, searchText, addRecentSearch]);
 
   // UX-B: 평평한 목록 대신 **날짜 그룹**. 그룹핑·라벨·소계 규칙은 전부 순수 모듈에 있고
   // (src/expenses/records-date-groups.ts) 여기서는 SectionList가 요구하는 `data` 이름만 붙인다.
@@ -1437,9 +1659,13 @@ export default function RecordsScreen() {
     }
     return dateGroups.map(({ rows, ...group }) => ({
       ...group,
+      // 라운드 101 트랙 A: 전체 기간 목록의 날짜 헤더에는 **연도**가 붙는다("2025년 8월 27일 (수)")
+      // — 여러 해가 한 목록에 섞이므로 연 없는 날짜는 반쪽 사실이다. 파생은 순수 모듈이 하고
+      // (fullScopeDateHeaderLabel — formatSpentOn·그룹핑 무수정), 월 스코프는 종전 라벨 그대로다.
+      headerLabel: isFullSearchScope ? fullScopeDateHeaderLabel(group) : group.headerLabel,
       data: rows
     }));
-  }, [isCalendarView, isAmountSort, showList, listData, dateGroups]);
+  }, [isCalendarView, isAmountSort, showList, listData, dateGroups, isFullSearchScope]);
 
   // UX-D: 달력 격자. 일별 합계는 **UX-B가 이미 만든 날짜 그룹**에서 그대로 나온다(소계 술어는
   // countsTowardMonthlyTotal 한 곳뿐이라 칸의 금액 = 그날 섹션 헤더의 소계 = 월 합계의 부분).
@@ -1475,10 +1701,13 @@ export default function RecordsScreen() {
         categoryLabel: selectedCategoryLabel,
         categoryFiltered: selectedCategoryId !== null,
         searchText,
+        // 라운드 101 트랙 A: 전체 스코프에서는 이 줄이 "전체 기간 검색 결과: N건 · 합계 …"가 된다
+        // — 위 월 요약 줄(월 전체)과 모집단이 다르다는 사실을 이 줄이 스스로 말한다.
+        allPeriods: isFullSearchScope,
         recordCount: listData.length,
         totalKrw: filteredSubtotalKrw
       }),
-    [selectedCategoryLabel, selectedCategoryId, searchText, listData.length, filteredSubtotalKrw]
+    [selectedCategoryLabel, selectedCategoryId, searchText, isFullSearchScope, listData.length, filteredSubtotalKrw]
   );
 
   // 라운드 39 UX-P: 월 요약 줄 · 검색 범위 고지 · 0건 카드의 "지난달에서 찾기" 보조 액션.
@@ -1494,7 +1723,15 @@ export default function RecordsScreen() {
   // 아이가 하나이거나 목록을 아직/영영 해석할 수 없으면 null이라 화면이 종전과 한 글자도
   // 다르지 않다(규칙은 src/children/child-switch.ts resolveChildScopeLabel).
   const childScopeLabel = resolveChildScopeLabel(childId, childrenQuery.data?.children);
-  const searchScopeNotice = buildRecordsSearchScopeNotice({ searchText, monthLabel: recordsMonthLabel });
+  // 라운드 101 트랙 A — 두 시점: 종전에는 이 줄이 월 갈래 하나였다
+  // (`buildRecordsSearchScopeNotice({ searchText, monthLabel: recordsMonthLabel })`). 전체 스코프가
+  // 생기면서 같은 줄이 같은 함수의 allPeriods 갈래로 "전체 기간의 …에서 찾아요"를 말한다 —
+  // 약속(고지)과 판정(필터 스코프)이 계속 한 벌이다.
+  const searchScopeNotice = buildRecordsSearchScopeNotice({
+    searchText,
+    monthLabel: recordsMonthLabel,
+    allPeriods: isFullSearchScope
+  });
   // 라운드 39 I-4: 이 이동은 검색어뿐 아니라 카테고리 칩도 그대로 들고 간다 -- 스크린리더 라벨이
   // 그 사실을 말해야 넘어간 달의 0건이 "그 달에 없다"로 잘못 들리지 않는다. 0건 카드의 제목·기본
   // 액션도 같은 두 필터를 함께 보고 만든다(문구는 전부 순수 모듈에서 나온다).
@@ -1517,6 +1754,24 @@ export default function RecordsScreen() {
     categoryFiltered: selectedCategoryId !== null,
     categoryLabel: selectedCategoryLabel
   });
+  // 라운드 101 트랙 A: 범위 고지 줄의 전체 기간 진입 액션 + 0건 카드의 **세 번째 탈출구**.
+  // 검색 중 + 월 스코프 + 하한을 아는 계정(달 목록 > 0)에서만 선다 — 하한을 모르면 "전체"의
+  // 범위를 지어내게 되므로 진입점 자체를 내밀지 않는다(records-search-scope.ts 머리말). 라벨·
+  // 접근성 문구는 위 두 액션과 같은 조립(검색어 + 필터 유지 고지)이고 전부 순수 모듈에서 온다
+  // (문구 리터럴은 이 화면에 0건 — GAP-067 #2 낭독 계약과 같은 규율).
+  const allPeriodsSearchAction =
+    hasRecordsSession && !isFullSearchScope && fullScopeMonths.length > 0
+      ? buildRecordsSearchAllPeriodAction({
+          searchText,
+          categoryFiltered: selectedCategoryId !== null,
+          categoryLabel: selectedCategoryLabel
+        })
+      : null;
+  // 전체 스코프에서 아직 불러오지 못한 달들 — 부분을 전체로 위장하지 않는다(이름으로 말하고
+  // 재시도를 제안한다). 실패 달이 없으면 null이라 한 줄도 늘지 않는다.
+  const fullScopePartialNotice = isFullSearchScope
+    ? buildSearchScopePartialNotice(searchScopeCollection.result?.failedMonths ?? [])
+    : null;
   // 라운드 39 I-5 → GAP-067 트랙 A(#2): 그 달에 기록이 하나도 없을 때의 문구·액션. 현재 달이면
   // 종전 "이번 달" 문구·[기록하기] 그대로이고(홈 화면의 같은 카드와 한 글자도 다르지 않다),
   // 끝난 달에서는 사실 한 줄 + 그 달에서 실제로 할 수 있는 일을 가리킨다. 판정은 전부 순수
@@ -1631,6 +1886,25 @@ export default function RecordsScreen() {
     },
     []
   );
+
+  // 라운드 101 트랙 A: 전체 기간 진입 버튼. 범위 고지 줄 아래와 0건 카드 두 장, 세 자리가 같은
+  // 한 요소를 쓴다(어느 자리에서 눌러도 같은 수집 · 같은 라벨). 수집이 도는 동안은 잠근다 —
+  // 탭 한 번 = 수집 한 번(겹치는 수집 금지는 훅도 이중으로 지킨다).
+  // 리뷰 M-A2: 도는 동안은 라벨이 진행("불러오는 중 n/21")을 말한다 — 21개월 직렬 수집은 느린
+  // 회선에서 수 초를 넘고, 잠긴 버튼 하나는 멈춘 것과 구별되지 않는다. 진행 라벨이 곧
+  // 접근성 라벨이라 낭독도 같은 사실을 읽는다(문구는 순수 모듈).
+  const collectingProgressLabel = searchScopeCollection.collecting
+    ? searchScopeCollectingProgressLabel(searchScopeCollection.progress)
+    : null;
+  const allPeriodsSearchActionButton = allPeriodsSearchAction ? (
+    <TextButton
+      accessibilityLabel={collectingProgressLabel ?? allPeriodsSearchAction.accessibilityLabel}
+      disabled={searchScopeCollection.collecting}
+      label={collectingProgressLabel ?? allPeriodsSearchAction.label}
+      onPress={handleFindInAllPeriods}
+      style={{ alignItems: "center" }}
+    />
+  ) : null;
 
   // Rendered as an element (not an inline component) so the TextInput keeps focus across
   // re-renders -- FlatList remounts ListHeaderComponent when it's a new function each render.
@@ -1860,6 +2134,31 @@ export default function RecordsScreen() {
             {searchScopeNotice}
           </Text>
         ) : null}
+        {/* 라운드 101 트랙 A: 범위 고지 바로 아래의 전체 기간 진입점 — 자동 전환 금지의 실행
+            주체다(21개월치 조회는 이 버튼이 산다). 검색어가 없거나 이미 전체 스코프이거나 하한을
+            모르면 null이라 종전 화면은 한 줄도 늘지 않는다. */}
+        {allPeriodsSearchActionButton}
+        {/* 라운드 101 트랙 A: 전체 스코프의 부분 실패 고지 + 재시도. 불러온 달만 보여 주면서
+            "전체 기간 검색 결과"라고 말하는 것은 허위 표시라, 빠진 달을 이름으로 밝힌다. 재시도는
+            같은 수집 한 번이다 — 성공해 둔 달은 캐시에서 즉시 돌아오고 실패한 달만 다시 나간다. */}
+        {fullScopePartialNotice ? (
+          <>
+            <Text
+              testID="records-full-scope-partial-notice"
+              style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize, textAlign: "center" }}
+            >
+              {fullScopePartialNotice.text}
+            </Text>
+            <TextButton
+              /* 리뷰 M-A2: 재시도 수집이 도는 동안도 같은 진행 라벨을 말한다(위 진입 버튼과 한 벌). */
+              accessibilityLabel={collectingProgressLabel ?? fullScopePartialNotice.retryAccessibilityLabel}
+              disabled={searchScopeCollection.collecting}
+              label={collectingProgressLabel ?? fullScopePartialNotice.retryLabel}
+              onPress={handleFindInAllPeriods}
+              style={{ alignItems: "center" }}
+            />
+          </>
+        ) : null}
         {/* F8: 카테고리 칩/검색이 켜져 있을 때만 붙는 스코프 줄. 위 월 요약 줄은 필터와 무관한
             그 달 전체이고, 이 줄은 화면에 보이는 행(=일별 소계의 합)이다 -- 필터가 없으면
             buildRecordsFilterScopeSummary가 null을 돌려주어 예전 화면 그대로다. 목록이 아직
@@ -1905,11 +2204,14 @@ export default function RecordsScreen() {
         ref={searchInputRef}
         accessibilityLabel={RECORDS_SEARCH_PLACEHOLDER}
         returnKeyType="search"
+        // 라운드 101 W2 F7: 아래 최근 검색어 칩 줄의 노출 판정 입력(포커스 + 빈 검색어).
+        onBlur={() => setSearchFocused(false)}
         onChangeText={setSearchText}
+        onFocus={() => setSearchFocused(true)}
         placeholder={RECORDS_SEARCH_PLACEHOLDER}
         style={{
           backgroundColor: theme.colors.white,
-          borderColor: "rgba(74, 63, 53, 0.10)",
+          borderColor: theme.colors.presentation.hairlineStrong,
           borderRadius: theme.radii.small,
           borderWidth: 1,
           color: theme.colors.brown,
@@ -1919,6 +2221,51 @@ export default function RecordsScreen() {
         }}
         value={searchText}
       />
+
+      {/* 라운드 101 W2 F7: 최근 검색어 칩 줄 — 검색 입력 **아래** 자리다(키보드 위 액세서리가
+          아니다). 포커스 + 빈 검색어 + 이력 있음일 때만 서고(판정은 순수 모듈), 검색어를 치는
+          순간 접힌다. 스크롤러를 새로 만들지 않는다(최대 5개 + 전체 지우기 — 줄바꿈 wrap,
+          records-calendar.test.ts의 ScrollView 1개 계약 유지). 칩 탭이 곧 그 검색이고
+          (setSearchText — 검색어가 서면서 이 줄 자체가 접힌다), X가 개별 삭제다(길게 누르기는
+          스크린리더로 발견할 수 없는 제스처라 쓰지 않는다 — 행 액션의 A11Y 판단과 같다).
+          바깥 SectionList가 keyboardShouldPersistTaps="handled"라(GAP-065 #6) 키보드가 뜬 채의
+          첫 탭도 칩에 그대로 닿는다. */}
+      {isRecentSearchRowVisible({ searchFocused, searchText, recentSearches }) ? (
+        <View style={{ gap: 8 }} testID="records-recent-searches">
+          <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+            {recentSearchesRowTitle()}
+          </Text>
+          <View style={{ alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {recentSearches.map((term) => (
+              <View key={term} style={recentSearchChipStyle}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={recentSearchChipAccessibilityLabel(term)}
+                  hitSlop={recentSearchTermHitSlop}
+                  onPress={() => setSearchText(term)}
+                  style={({ pressed }) => [recentSearchChipTermStyle, pressed && recordsPressedStyle]}
+                >
+                  <Text style={{ color: theme.colors.brown, fontSize: 13, fontWeight: "700" }}>{term}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={recentSearchRemoveAccessibilityLabel(term)}
+                  hitSlop={recentSearchRemoveHitSlop}
+                  onPress={() => removeRecentSearch(term)}
+                  style={({ pressed }) => [recentSearchChipRemoveStyle, pressed && recordsPressedStyle]}
+                >
+                  <Ionicons accessible={false} color={theme.colors.gray600} name="close" size={16} />
+                </Pressable>
+              </View>
+            ))}
+            <TextButton
+              accessibilityLabel={recentSearchesClearAllAccessibilityLabel()}
+              label={recentSearchesClearAllLabel()}
+              onPress={resetRecentSearches}
+            />
+          </View>
+        </View>
+      ) : null}
 
       <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
         <CategoryChip label="전체" selected={selectedCategoryId === null} onPress={() => setSelectedCategoryId(null)} />
@@ -1938,8 +2285,9 @@ export default function RecordsScreen() {
           (a11y-contract가 칩 줄 수·간격을 실측으로 문다). 라벨·라벨→값 변환·낭독 문구는 전부
           순수 모듈에서 오고, 선택 여부는 SegmentedControl의 accessibilityState.selected가 진다
           (라벨에 상태 낱말 없음 — 라운드 95). 달력 보기에서는 숨긴다: 격자의 자리는 날짜라
-          금액 정렬이 성립하지 않는다(리스트로 돌아오면 저장된 선택 그대로 다시 선다). */}
-      {isRecordsSortToggleVisible({ isCalendarView }) ? (
+          금액 정렬이 성립하지 않는다(리스트로 돌아오면 저장된 선택 그대로 다시 선다).
+          리뷰 M-A3: 전체 기간 스코프에서도 같은 판정으로 숨긴다 — 근거는 순수 모듈 머리말. */}
+      {isRecordsSortToggleVisible({ isCalendarView, isFullSearchScope }) ? (
         <View testID="records-sort-toggle">
           <SegmentedControl
             options={recordsSortModes().map((mode) => recordsSortOptionLabel(mode))}
@@ -1987,20 +2335,24 @@ export default function RecordsScreen() {
   // 찾던 기록은 대개 이전 달에 있다. 이동은 **기존 ‹ 동작을 그대로 재사용**한다 -- 검색어 state는
   // 건드리지 않으므로 넘어간 달에서 같은 검색이 이어진다. 라운드 68 리뷰 C-1의 과거 하한도 같은
   // 함수 안에 있으므로 이 재사용이 그 바닥을 우회하지 않는다.
-  const previousMonthSearchActionButton = previousMonthSearchAction ? (
-    <TextButton
-      accessibilityLabel={previousMonthSearchAction.accessibilityLabel}
-      label={previousMonthSearchAction.label}
-      onPress={goToPreviousMonth}
-      style={{ alignItems: "center" }}
-    />
-  ) : null;
+  // 라운드 101 트랙 A: 전체 스코프에서는 이 버튼을 세우지 않는다 — 이미 전 기간을 봤으므로
+  // "지난달에서 (계속) 찾기"는 더 넓힐 범위가 없는 제안, 즉 사실이 아닌 탈출구다.
+  const previousMonthSearchActionButton =
+    previousMonthSearchAction && !isFullSearchScope ? (
+      <TextButton
+        accessibilityLabel={previousMonthSearchAction.accessibilityLabel}
+        label={previousMonthSearchAction.label}
+        onPress={goToPreviousMonth}
+        style={{ alignItems: "center" }}
+      />
+    ) : null;
 
   // GAP-067 트랙 A(#2) 곁가지: 같은 카드에서 **달을 골라** 계속 찾는 자리. 여는 것은 헤더에 이미
   // 있는 그 시트 하나이고(새 컴포넌트·새 판정 0건), 검색어·필터 state는 건드리지 않으므로 고른
   // 달에서 같은 검색이 그대로 이어진다. 비세션에서는 시트 자체가 그려지지 않으므로 버튼도 없다.
+  // 라운드 101 트랙 A: 달을 골라 넘어가는 보조 액션도 같은 이유로 전체 스코프에서는 세우지 않는다.
   const monthJumpSearchActionButton =
-    hasRecordsSession && monthJumpSearchAction ? (
+    hasRecordsSession && !isFullSearchScope && monthJumpSearchAction ? (
       <TextButton
         accessibilityLabel={monthJumpSearchAction.accessibilityLabel}
         label={monthJumpSearchAction.label}
@@ -2040,6 +2392,8 @@ export default function RecordsScreen() {
       />
       {previousMonthSearchActionButton}
       {monthJumpSearchActionButton}
+      {/* 라운드 101 트랙 A: 세 번째 탈출구 — 달을 고르는 대신 전 기간을 한 번에 걷는다. */}
+      {allPeriodsSearchActionButton}
     </View>
   ) : (
     <View style={{ gap: theme.spacing.gap }}>
@@ -2072,6 +2426,8 @@ export default function RecordsScreen() {
       />
       {previousMonthSearchActionButton}
       {monthJumpSearchActionButton}
+      {/* 라운드 101 트랙 A: 위 분기와 같은 세 번째 탈출구(빈 달에서 검색 중인 경우). */}
+      {allPeriodsSearchActionButton}
     </View>
   );
 

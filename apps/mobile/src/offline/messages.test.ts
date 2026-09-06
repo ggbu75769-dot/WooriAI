@@ -1426,15 +1426,20 @@ describe("라운드 76 A: 모듈 층의 실패 문구 대장 (src/** 스윕)", (
     expect([...named].sort().filter((path) => !modules.includes(path))).toEqual([]);
   });
 
-  it("ⓑ 오늘의 값 — 열일곱(배선 여섯 · 면제 아홉 · 정의상 밖 둘)", () => {
+  it("ⓑ 오늘의 값 — 열여덟(배선 여섯 · 면제 열 · 정의상 밖 둘)", () => {
     // 두 시점: 라운드 76 A의 열여섯(면제 여덟) → 기능 라운드 1 리뷰 M-3이 하나를 등재해
     // 열일곱(면제 아홉)이다. src/items/item-memo.ts의 기기 저장 실패 문구가 같은 화면의 상태
     // 문구(status-mutation-messages.ts)와 같은 꼴("저장하지 못했어요")로 맞춰지며 바늘에
     // 걸리게 됐고, 이 대장은 등재형(이유가 적힌 면제 목록)이라 등재가 옳은 길이다 — 바늘을
     // 피한 우회 표현이 같은 화면의 문법을 가르던 것이 M-3의 병이었다.
-    expect(modulesWithFailureCopy()).toHaveLength(17);
+    // ⚠️ 두 시점(라운드 101 트랙 A): 열일곱(면제 아홉) → **열여덟(면제 열)**. 전체 기간 검색의
+    // 부분 실패 고지(src/expenses/records-search-scope.ts — "…의 기록은 아직 불러오지 못했어요")가
+    // 앞 문장 바늘에 걸린다. household-join과 같은 판정으로 면제 목록에 등재했다: '잠시 후
+    // 다시'라는 기다림의 약속이 문장에 없어 오프라인에서 어긋날 절이 없다(이유 전문은
+    // offline-aware-screens.ts의 그 줄).
+    expect(modulesWithFailureCopy()).toHaveLength(18);
     expect(OFFLINE_AWARE_FAILURE_COPY_MODULES).toHaveLength(6);
-    expect(Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES)).toHaveLength(9);
+    expect(Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES)).toHaveLength(10);
     expect(Object.keys(FAILURE_COPY_SWEEP_DEFINITIONAL_MODULES)).toHaveLength(2);
     expect(Object.keys(OFFLINE_UNAWARE_FAILURE_COPY_MODULES)).toContain("src/items/item-memo.ts");
     // 이 트랙의 대상이 실제로 배선 쪽에 있다(통과한 이유가 목록이지 예외가 아니다).

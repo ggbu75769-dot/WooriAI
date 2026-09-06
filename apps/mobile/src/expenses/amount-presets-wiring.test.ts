@@ -20,7 +20,16 @@ const newExpenseSource = readFileSync(join(mobileRoot, "app/expenses/new.tsx"), 
 describe("UX-121 quick-expense amount preset wiring", () => {
   it("drives the chips from the shared pure module instead of inline arithmetic", () => {
     expect(newExpenseSource).toContain('from "../../src/expenses/amount-presets"');
-    expect(newExpenseSource).toContain("QUICK_AMOUNT_PRESETS_KRW.map");
+    // ⚠️ 두 시점(라운드 101 W2 F6a): 종전 앵커는 `QUICK_AMOUNT_PRESETS_KRW.map`이었다 — 네 칸이
+    // 고정 상수였기 때문이다. 이제 칸의 값은 설정에서 바꿀 수 있고, 화면은 persist 스토어 값을
+    // 순수 해석 함수 하나(resolveAmountPresets — 유효하지 않으면 그 상수로 폴백)를 지나 그린다.
+    // 지키려는 사실은 그대로다: 화면에 가산/상한/네 칸 판정의 두 번째 구현이 생기지 않는다.
+    expect(newExpenseSource).toContain("quickAmountPresets.map");
+    expect(newExpenseSource).toContain(
+      "const customAmountPresets = useAmountPresetsStore((state) => state.customPresets);"
+    );
+    expect(newExpenseSource).toContain("const quickAmountPresets = resolveAmountPresets(customAmountPresets);");
+    expect(newExpenseSource).not.toContain("QUICK_AMOUNT_PRESETS_KRW.map");
     expect(newExpenseSource).toContain("setAmountText((value) => addAmountPreset(value, presetKrw))");
     expect(newExpenseSource).toContain("setAmountText(clearAmountText())");
     expect(newExpenseSource).toContain("formatPresetChipLabel(presetKrw)");
@@ -49,7 +58,8 @@ describe("UX-121 quick-expense amount preset wiring", () => {
   });
 
   it("renders the preset row only for a real session, keeping the EXP-001 capture unchanged", () => {
-    const presetRowStart = newExpenseSource.indexOf("QUICK_AMOUNT_PRESETS_KRW.map");
+    // 두 시점(라운드 101 W2 F6a): 앵커만 상수 map → 스토어 값 map으로 이관 — 게이트 계약은 그대로다.
+    const presetRowStart = newExpenseSource.indexOf("quickAmountPresets.map");
     expect(presetRowStart).toBeGreaterThan(0);
     // 칩 블록을 감싸는 가장 가까운 조건부 블록이 열려 있는 authToken 게이트여야 한다
     // (픽셀 락 캡처는 authToken null이므로 그 화면에서는 이 행 자체가 렌더되지 않는다).

@@ -177,11 +177,15 @@ describe("DSN-053 P2-D 더보기 = 승인 캡처의 '프로필'(SET-001)", () =>
         '  fontWeight: "700",'
       ].join("\n")
     );
+    // ⚠️ 두 시점(라운드 101 TK2) — 이 핀이 물던 줄은 `  borderColor: "rgba(74, 63, 53, 0.08)",`
+    // 리터럴이었다. 색 리터럴 토큰화 2차가 그 자리를 **같은 값**의 presentation 토큰 참조로
+    // 바꿨고, 이 핀은 그 줄을 따라간다 — 값 동일성(hairline = 종전 리터럴 그대로)은
+    // src/color-literal-tokenization.test.ts의 대조표가 바이트로 문다(DNC-017: 값 교체 0건).
     expect(src).toContain(
       [
         "const moreSectionGroupStyle = {",
         "  backgroundColor: theme.colors.white,",
-        '  borderColor: "rgba(74, 63, 53, 0.08)",',
+        "  borderColor: theme.colors.presentation.hairline,",
         "  borderRadius: theme.radii.card,"
       ].join("\n")
     );
@@ -220,12 +224,15 @@ describe("DSN-053 P2-D 가족(FAM-001) 아바타 행과 대기 초대 흡수", (
 
   it("아바타 스택 옆 `+`가 48dp다", () => {
     const src = familySource();
+    // ⚠️ 두 시점(라운드 101 TK2) — 이 핀이 물던 줄은 `  borderColor: "rgba(74, 63, 53, 0.10)",`
+    // 리터럴이었다. 색 리터럴 토큰화 2차가 같은 값의 hairlineStrong 토큰 참조로 바꿨고 이 핀은
+    // 그 줄을 따라간다(값 동일성은 src/color-literal-tokenization.test.ts 대조표가 문다).
     expect(src).toContain(
       [
         "const familyPlusButtonStyle = {",
         '  alignItems: "center",',
         "  backgroundColor: theme.colors.white,",
-        '  borderColor: "rgba(74, 63, 53, 0.10)",',
+        "  borderColor: theme.colors.presentation.hairlineStrong,",
         "  borderRadius: theme.touchTarget / 2,",
         "  borderWidth: 1,",
         "  height: theme.touchTarget,"
@@ -269,12 +276,15 @@ describe("DSN-053 P2-D 가족(FAM-001) 아바타 행과 대기 초대 흡수", (
 
   it("멤버 행 radius 16 · '가족 초대하기' 높이 52는 캡처 그대로다", () => {
     const src = familySource();
+    // ⚠️ 두 시점(라운드 101 TK2) — 이 핀이 물던 줄은 `  borderColor: "rgba(74, 63, 53, 0.08)",`
+    // 리터럴이었다. 색 리터럴 토큰화 2차가 같은 값의 hairline 토큰 참조로 바꿨고 이 핀은
+    // 그 줄을 따라간다(값 동일성은 src/color-literal-tokenization.test.ts 대조표가 문다).
     expect(src).toContain(
       [
         "const familyMemberRowStyle = {",
         '  alignItems: "center",',
         "  backgroundColor: theme.colors.white,",
-        '  borderColor: "rgba(74, 63, 53, 0.08)",',
+        "  borderColor: theme.colors.presentation.hairline,",
         "  borderRadius: 16,"
       ].join("\n")
     );

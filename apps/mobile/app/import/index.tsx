@@ -527,7 +527,7 @@ function excelUploadedFileCardStyle() {
   return {
     alignItems: "center" as const,
     backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderColor: theme.colors.presentation.hairline,
     borderRadius: ExcelPreviewPixelStyles.cardRadius,
     borderWidth: 1,
     flexDirection: "row" as const,
@@ -540,7 +540,8 @@ function excelUploadedFileCardStyle() {
 
 const styles = StyleSheet.create({
   screen: {
-    backgroundColor: "#FFFCFA",
+    // 라운드 101 TK: 값이 이미 토큰에 있던 자리(presentation.importCanvas = #FFFCFA) — 이름만 부른다.
+    backgroundColor: theme.colors.presentation.importCanvas,
     flex: 1,
     paddingBottom: 20,
     paddingHorizontal: 20,
@@ -614,7 +615,7 @@ const styles = StyleSheet.create({
   resumeCard: {
     alignItems: "center",
     backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderColor: theme.colors.presentation.hairline,
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: "row",
@@ -646,7 +647,7 @@ const styles = StyleSheet.create({
   // 표면 토큰을 쓴다 -- 새 hex 없이 기존 카드 문법 그대로다.
   guideCard: {
     backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderColor: theme.colors.presentation.hairline,
     borderRadius: 18,
     borderWidth: 1,
     marginTop: 34,
@@ -661,7 +662,7 @@ const styles = StyleSheet.create({
   },
   previewCard: {
     backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderColor: theme.colors.presentation.hairline,
     borderRadius: 18,
     borderWidth: 1,
     gap: 10,

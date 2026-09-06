@@ -42,7 +42,7 @@ import {
   clearAmountText,
   formatPresetChipLabel,
   presetChipAccessibilityLabel,
-  QUICK_AMOUNT_PRESETS_KRW
+  resolveAmountPresets
 } from "../../src/expenses/amount-presets";
 import {
   AUTO_CATEGORY_CAPTION,
@@ -151,9 +151,12 @@ import {
 import { createExpenseOffline } from "../../src/offline/sync-controller";
 import { useOfflineSyncSnapshot } from "../../src/offline/sync-controller";
 import { discardOfflineMutation } from "../../src/offline/sync-controller";
+import { useAmountPresetsStore } from "../../src/stores/amount-presets.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, SecondaryButton, Toast } from "../../src/ui";
+// 라운드 101 트랙 B: 저장 확정의 촉각 확인 — 핸들러(onSuccess) 안에서만 부른다(렌더 무접촉).
+import { hapticSuccess } from "../../src/ui/haptics";
 import {
   AppIcon,
   compactGridColumnCount,
@@ -504,6 +507,22 @@ export default function NewExpenseScreen() {
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   /**
+   * 라운드 101 W2 F6a — 금액 프리셋 칩 네 칸의 값. 설정(app/settings/amount-presets.tsx)에서
+   * 바꾼 기기 단위 취향(persist 스토어)을 순수 해석 함수 하나를 지나 소비한다: 사용자 값이
+   * 유효하면 그 값, null·손상 값이면 기본 [1천/5천/1만/5만]이다.
+   *
+   * 렌더 순서는 **오름차순 고정** — sanitize가 저장 시점에 정렬하고 resolve가 다시 보증하므로
+   * 입력 순서가 칩 순서를 흔들지 않는다(작은 단위 → 큰 단위, 기본 칩과 같은 읽기 방향).
+   *
+   * EXP-001 비세션 렌더 무접촉: 칩 행 자체가 아래 `{authToken ? (` 게이트 안에만 렌더되므로
+   * (amount-presets-wiring.test.ts가 그 게이트를 문다) 픽셀 락 캡처(세션 없음)는 이 값이 무엇이든
+   * 한 픽셀도 바뀌지 않는다. 셀렉터 구독 자체는 하이드레이션 전 찰나에 기본값을 보일 수 있는데,
+   * 이 시트는 최소 한 번의 화면 전환 뒤에야 닿는 자리라 그 창이 사실상 닫혀 있다
+   * (설정 화면 S-3과 같은 판단).
+   */
+  const customAmountPresets = useAmountPresetsStore((state) => state.customPresets);
+  const quickAmountPresets = resolveAmountPresets(customAmountPresets);
+  /**
    * 라운드 40 J-1 — 진입점 열 곳을 잠가도 **목적지 화면**이 그대로면 소용이 없다.
    * `wooriai:///expenses/new` 딥링크(그리고 아직 잠기지 않은 새 진입점 하나)로 이 시트에
    * 도달한 보기 전용 참여자가 저장을 누르면, 로컬 우선 저장이 "기기에 저장했어요"라고 말한
@@ -624,7 +643,12 @@ export default function NewExpenseScreen() {
    *  · ⚠️ 라운드 98 T-G가 변경 요청 문서(toss-T3-entry-EXP001) #2를 이행하며 요약바 연필의
    *    `focus()`를 `focusItemNameFromSummaryBar`(scrollTo 뒤 focus) 안으로 옮겼다 — 호출 수는
    *    그대로 **둘**이고(그 헬퍼 하나 + `startCustomItem`의 rAF 하나), 좌표는 라운드 98에
-   *    `:970`·`:1720`, ⚠️ 라운드 99 F3(L-1·L-2)가 뒤쪽만 밀어 **오늘은 `:970`·`:1760`이다**.
+   *    `:970`·`:1720`, ⚠️ 라운드 99 F3(L-1·L-2)가 뒤쪽만 밀어 라운드 99에는 `:970`·`:1760`이었다.
+   *    ⚠️ 라운드 101 트랙 B가 햅틱 import 두 줄(위)·onSuccess의 촉각 확인 네 줄·이 문단 두 줄을
+   *    더해 앞뒤 모두 밀어 라운드 101 트랙 B에는 `:974`·`:1768`이었다.
+   *    ⚠️ 라운드 101 W2 F6a가 금액 프리셋 스토어 배선(import 한 줄 + 프리셋 해석 블록 열여섯 줄)
+   *    과 이 문단 세 줄을 더해 앞뒤 모두 밀어 **오늘은 `:994`·`:1788`이다**(호출 수 둘·판매처
+   *    0건 판정은 그대로다).
    *
    * ⚠️ 판매처 쪽의 판정(`focus()`를 쓰지 않는다)은 그대로다 —
    * `src/keyboard-tap-guard.test.ts`가 그 부정 단언을 소스로 문다.
@@ -1485,6 +1509,10 @@ export default function NewExpenseScreen() {
       clearDraftForCurrentChild();
       setSaveErrorMessage(null);
       setSavedMessage(continueRecording ? CONTINUE_RECORDING_SAVED_MESSAGE : OFFLINE_SAVED_MESSAGE);
+      // 라운드 101 트랙 B: "저장했어요"의 촉각판 — 기준은 위 문구와 같은 **기기 저장 확정**이다
+      // (C-10 — 서버 확인을 기다리면 오프라인에서 영영 안 울린다). expo-haptics 미설치·설정
+      // 끔이면 그대로 no-op이고 실패도 스스로 삼킨다(src/ui/haptics.ts) — 저장 흐름 무접촉.
+      hapticSuccess();
       // ANA-103: expense_recorded fires once per successful (local-first) create. The payload is
       // PII-safe by construction (src/analytics/events.ts): the raw amount is bucketed and the
       // categoryId mapped to the coarse enum on-device; itemName/memo never enter it. `source`
@@ -2485,10 +2513,12 @@ export default function NewExpenseScreen() {
             DSN-053 P2-C: 금액 칸이 하단 고정 요약바로 내려가면서 이 행도 함께 본문 맨 아래로
             옮겼다 -- 칩은 자기가 더하는 금액 칸 바로 위에 있어야 무엇을 바꾸는 버튼인지 보인다.
             픽셀 락 캡처는 세션 없이(authToken null) 실행되므로(app/pixel-lock.tsx가 clearSession
-            후 이동) 캡처 화면에는 이 행이 아예 렌더되지 않는다. */}
+            후 이동) 캡처 화면에는 이 행이 아예 렌더되지 않는다.
+            라운드 101 W2 F6a: 네 칸의 값은 이제 설정에서 바꿀 수 있다 — 위 quickAmountPresets
+            (스토어 값 → resolveAmountPresets, 기본값 폴백 포함)가 단일 원천이다. */}
         {authToken ? (
           <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
-            {QUICK_AMOUNT_PRESETS_KRW.map((presetKrw) => (
+            {quickAmountPresets.map((presetKrw) => (
               <Pressable
                 key={presetKrw}
                 accessibilityRole="button"

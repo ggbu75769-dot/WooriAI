@@ -259,7 +259,7 @@ export function Card({ children, style }: ChildrenProps & { style?: StyleProp<Vi
       style={[
         {
           backgroundColor: theme.colors.white,
-          borderColor: "rgba(74, 63, 53, 0.08)",
+          borderColor: theme.colors.presentation.hairline,
           borderRadius: theme.radii.card,
           borderWidth: 1,
           gap: 10,
@@ -524,7 +524,7 @@ export function BudgetProgressBar({ value }: { value: number }) {
   }, [clamped, fill, reduceMotionEnabled]);
 
   return (
-    <View style={{ backgroundColor: "rgba(255,255,255,0.45)", borderRadius: theme.radii.pill, height: 8, overflow: "hidden" }}>
+    <View style={{ backgroundColor: theme.colors.presentation.heroProgressTrack, borderRadius: theme.radii.pill, height: 8, overflow: "hidden" }}>
       <Animated.View
         style={{
           backgroundColor: theme.colors.white,
@@ -1160,7 +1160,7 @@ export function LineChartCard({
           <Text style={[textStyles.caption, { color: theme.colors.gray600, textAlign: "center" }]}>{noticeText}</Text>
         ) : null}
         {gridLineTops.map((top) => (
-          <View key={top} style={{ backgroundColor: "rgba(255, 107, 82, 0.08)", height: 1, left: 0, position: "absolute", right: 0, top }} />
+          <View key={top} style={{ backgroundColor: theme.colors.presentation.chartGridLine, height: 1, left: 0, position: "absolute", right: 0, top }} />
         ))}
         {activeSegments.map((segment, index) => (
           <View

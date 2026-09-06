@@ -47,6 +47,10 @@
  */
 
 import type { AppSyncStatus } from "../design-system/patterns/AsyncState";
+// 라운드 101 트랙 C: 시간 표현은 알림함의 그 함수 하나를 그대로 쓴다(새 시간 문구를 만들지
+// 않는다 — formatSyncCheckedPhrase 머리말). 이 모듈의 유일한 런타임 import이고, 순수 함수라
+// 판정 모듈의 성격(시계·저장소 없음)은 그대로다.
+import { formatRelativeTime } from "../notifications/relative-time";
 import type { OfflineStorageState } from "../offline/sync-controller";
 import type { ItemStatusSyncState } from "../offline/types";
 
@@ -82,4 +86,30 @@ export function resolveHomeSyncStatus(
     return "pending";
   }
   return "synced";
+}
+
+/**
+ * 라운드 101 트랙 C — "모든 기록이 동기화됐어요" 옆에 서는 보조 문구
+ * ("방금 확인했어요" / "N분 전 확인").
+ *
+ * 시각의 원천은 스냅숏의 `lastFlushSucceededAt`(flush가 아무것도 남기지 않고 끝난 시각 —
+ * src/offline/sync-controller.ts의 그 칸 주석)이다. **null이면 null이다**: 이 세션에서 아직
+ * flush가 한 번도 전량 확정으로 끝나지 않았거나(콜드 스타트 — 그 값은 세션 수명이라 재시작하면
+ * 사라진다) 시각을 모르는 상태이고, 그때 화면은 보조 문구 없이 종전 문장 그대로다(모르는
+ * 시각을 지어내지 않는다 — 이 모듈의 오래된 규칙, 위 '오프라인' 문단).
+ *
+ * 시간 표현은 알림함·기기 목록·가져오기 이어보기와 같은 `formatRelativeTime` 하나다(새 시간
+ * 문구 발명 금지 — 미래 시각의 "방금" clamp까지 그 함수의 계약을 그대로 물려받는다). "방금 전"
+ * 갈래만 문장형("방금 확인했어요")으로 바꾼다: "방금 전 확인"은 어색하고, 홈 한 줄의 해요체와도
+ * 어긋난다. 그 갈래 판정은 리터럴 복제("방금 전")가 아니라 `formatRelativeTime(now, now)`와의
+ * 비교다 — 그 문구의 단일 소스는 그 함수 하나로 남는다.
+ */
+export function formatSyncCheckedPhrase(
+  lastFlushSucceededAt: number | null | undefined,
+  now: number
+): string | null {
+  if (typeof lastFlushSucceededAt !== "number" || !Number.isFinite(lastFlushSucceededAt)) return null;
+  const relative = formatRelativeTime(lastFlushSucceededAt, now);
+  if (relative === formatRelativeTime(now, now)) return "방금 확인했어요";
+  return `${relative} 확인`;
 }

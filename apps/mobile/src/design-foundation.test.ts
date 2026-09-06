@@ -71,8 +71,15 @@ describe("D0 theme tokens", () => {
       persimmon: "#FF6B4A",
       butter: "#FFD76A"
     });
-    // 화면이 raw 리터럴 대신 이름으로 부르는 10개 서피스. 값이 아니라 **이름이 존재한다**는
+    // 화면이 raw 리터럴 대신 이름으로 부르는 서피스 대장. 값이 아니라 **이름이 존재한다**는
     // 것이 요지다 -- 이름이 빠지면 그 자리는 다시 리터럴로 돌아간다.
+    // ⚠️ 두 시점(라운드 101 웨이브 2 TK): 종전 이 대장은 10개 서피스였다. 색 리터럴 토큰화
+    // 1차가 화면 리터럴을 같은 값 그대로 끌어올리며 hairline·hero·prep* 27개 키가 늘었다 --
+    // 종전 10개의 키·값은 한 글자도 바뀌지 않았고, 새 키의 값=종전 리터럴 대조는
+    // src/color-literal-tokenization.test.ts가 문다(DNC-017: 값 교체 0건).
+    // ⚠️ 두 시점(라운드 101 TK2): 2차(1차 잔여 회수)가 hairlineHeavy(#4A3F35 12% — 가족
+    // "가족 초대하기" 버튼 외곽선의 종전 리터럴) 1개를 더했다. 기존 37개 키·값은 불변이고,
+    // 새 키의 값=종전 리터럴 대조도 같은 대조표가 문다.
     expect(theme.colors.presentation).toEqual({
       dangerSurface: "#FFF0ED",
       segmentedTrack: "#F5F0EA",
@@ -83,7 +90,35 @@ describe("D0 theme tokens", () => {
       previewYellow: "#FFF5D7",
       previewGreen: "#EAF7F2",
       previewPeach: "#FFECE6",
-      previewNeutral: "#ECECEC"
+      previewNeutral: "#ECECEC",
+      hairline: "rgba(74, 63, 53, 0.08)",
+      hairlineStrong: "rgba(74, 63, 53, 0.10)",
+      hairlineHeavy: "rgba(74, 63, 53, 0.12)",
+      heroProgressTrack: "rgba(255,255,255,0.45)",
+      heroOverlaySoft: "rgba(255,255,255,0.28)",
+      chartGridLine: "rgba(255, 107, 82, 0.08)",
+      categoryIconInk: "#443F3C",
+      prepGroupProgressTrack: "#F5E8DF",
+      prepTintCoral: "#FFF0EC",
+      prepInkCoral: "#C54A2C",
+      prepTintPink: "#FFF0F4",
+      prepInkPink: "#B8476C",
+      prepTintLavender: "#EEE9FF",
+      prepInkLavender: "#7157A8",
+      prepTintMint: "#E5F7F2",
+      prepInkMint: "#147A66",
+      prepTintSky: "#EAF3FF",
+      prepInkSky: "#2866A3",
+      prepTintButter: "#FFF6DD",
+      prepInkButter: "#A86400",
+      prepTintViolet: "#F1EDFF",
+      prepInkViolet: "#6553A3",
+      prepTintSeafoam: "#EAF8F4",
+      prepInkSeafoam: "#19735F",
+      prepTintPowderBlue: "#EEF5FF",
+      prepInkPowderBlue: "#3268A8",
+      prepTintSand: "#F7F1EA",
+      prepInkSand: "#8A5A2B"
     });
   });
 

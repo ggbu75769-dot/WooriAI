@@ -65,7 +65,7 @@ export default function TabsLayout() {
         tabBarLabelStyle: { fontSize: BottomTabPixelStyles.labelSize, fontWeight: "700" },
         tabBarStyle: {
           backgroundColor: theme.colors.white,
-          borderTopColor: "rgba(74, 63, 53, 0.08)",
+          borderTopColor: theme.colors.presentation.hairline,
           height: BottomTabPixelStyles.height,
           paddingBottom: BottomTabPixelStyles.paddingBottom,
           paddingTop: BottomTabPixelStyles.paddingTop

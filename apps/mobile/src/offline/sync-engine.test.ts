@@ -6,6 +6,7 @@ import { createMemoryOfflineStore } from "./memory-offline-store";
 import {
   diffExpenseFields,
   flushOutbox,
+  isFlushFullyConfirmed,
   recordLocalCreate,
   recordLocalDelete,
   recordLocalItemStatus,
@@ -14,6 +15,7 @@ import {
   resolveConflictAdoptServer,
   resolveConflictReapplyMine,
   resolveConflictWithMergedPayload,
+  type FlushSummary,
   type RemoteExpenseApi
 } from "./sync-engine";
 import type { ConflictSnapshot, ExpensePayload, ItemStatusPayload, OfflineStore } from "./types";
@@ -712,5 +714,64 @@ describe("라운드 51 QA(P3-7) recoverInterruptedSyncState", () => {
     // 재연결·포그라운드 트리거는 종전 그대로 flush만 한다(되돌리기는 부팅 시 한 번이다).
     const watcherBody = hookBody.slice(hookBody.indexOf("startConnectivityWatcher"));
     expect(watcherBody).not.toContain("recoverAndFlushOnStart");
+  });
+});
+
+/**
+ * 라운드 101 트랙 C — 마지막 동기화 확인 시각의 판정.
+ *
+ * 시각 자체는 컨트롤러의 모듈 상태라 vitest에서 실행할 수 없다(sync-controller.ts 머리말의
+ * 오래된 사정). 그래서 **판정은 여기(엔진)의 순수 함수**로 행동 검증하고, 컨트롤러가 그 판정
+ * 하나로만 시각을 적는다는 배선은 source verification으로 고정한다 — recoverAndFlushOnStart의
+ * 위 테스트와 같은 관례다.
+ */
+describe("라운드 101 트랙 C: isFlushFullyConfirmed — 확인 시각을 적어도 되는 pass의 판정", () => {
+  const summary = (partial: Partial<FlushSummary> = {}): FlushSummary => ({
+    synced: 0,
+    failed: 0,
+    conflicted: 0,
+    itemStatusSynced: 0,
+    itemStatusFailed: 0,
+    stoppedForNetwork: false,
+    ...partial
+  });
+
+  it("아무것도 남기지 않고 끝난 pass만 참이다 — 빈 큐 pass 포함(큐가 비어 있음을 방금 확인한 것이다)", () => {
+    expect(isFlushFullyConfirmed(summary())).toBe(true);
+    expect(isFlushFullyConfirmed(summary({ synced: 3 }))).toBe(true);
+    expect(isFlushFullyConfirmed(summary({ synced: 1, itemStatusSynced: 2 }))).toBe(true);
+  });
+
+  it("부분 실패는 미갱신이다 — 어느 큐의 실패든, 충돌이든, 네트워크 중단이든", () => {
+    expect(isFlushFullyConfirmed(summary({ synced: 2, failed: 1 }))).toBe(false);
+    expect(isFlushFullyConfirmed(summary({ conflicted: 1 }))).toBe(false);
+    expect(isFlushFullyConfirmed(summary({ itemStatusSynced: 1, itemStatusFailed: 1 }))).toBe(false);
+    expect(isFlushFullyConfirmed(summary({ stoppedForNetwork: true }))).toBe(false);
+  });
+
+  it("실제 flush 결과와 맞물린다: 전량 확정은 참, 영구 실패를 남긴 pass는 거짓", async () => {
+    const confirmedStore = createMemoryOfflineStore();
+    await recordLocalCreate(confirmedStore, payload);
+    expect(isFlushFullyConfirmed(await flushOutbox(confirmedStore, createFakeRemote().remote))).toBe(true);
+
+    const failedStore = createMemoryOfflineStore();
+    await recordLocalCreate(failedStore, payload);
+    const { remote } = createFakeRemote({ permanentFailurePayloadMatch: () => true });
+    expect(isFlushFullyConfirmed(await flushOutbox(failedStore, remote))).toBe(false);
+  });
+
+  it("컨트롤러는 이 판정으로만 시각을 적는다 (source verification — 시계는 레이턴시 버킷과 같은 Date.now)", () => {
+    const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
+    // 기록: flush 직후, 전량 확정일 때만. 다른 자리에서 Date.now()로 이 칸을 적지 않는다.
+    expect(controllerSource).toContain("if (isFlushFullyConfirmed(summary)) publishLastFlushSucceededAt(Date.now());");
+    expect(controllerSource.match(/publishLastFlushSucceededAt\(Date\.now\(\)\)/g) ?? []).toHaveLength(1);
+    // 초깃값은 null(세션 수명 — 재시작 후 null을 허용한다: persist하지 않는 근거는 타입 주석).
+    expect(controllerSource).toContain("lastFlushSucceededAt: null");
+    expect(controllerSource).toContain("lastFlushSucceededAt: number | null;");
+    // 스냅숏 재계산은 시각을 이월만 한다 — 저장소 읽기는 flush가 아니다.
+    expect(controllerSource).toContain("lastFlushSucceededAt: latestSnapshot.lastFlushSucceededAt");
+    // 계정 전환은 이전 계정의 확인 시각을 다음 계정에 물려주지 않는다.
+    const identityBlock = controllerSource.slice(controllerSource.indexOf("isSessionIdentityChange(previous, state)"));
+    expect(identityBlock).toContain("publishLastFlushSucceededAt(null);");
   });
 });

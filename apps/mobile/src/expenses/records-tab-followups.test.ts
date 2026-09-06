@@ -133,7 +133,10 @@ describe("T-B(#5) 인라인 Pressable press 피드백 — TOSS-T2 홈/더보기�
     expect((recordsSource.match(/\(\{ pressed \}\) => \(pressed \? recordsPressedStyle : null\)/g) ?? []).length).toBe(2);
     // 합성형(기존 스타일 위에 얹음): 동기화 칩 줄 · 달 화살표 둘 · 달 라벨 트리거,
     // 그리고 라운드 98 리뷰 M-1이 예외를 걷은 아이 전환 트리거까지 다섯이다.
-    expect((recordsSource.match(/pressed && recordsPressedStyle/g) ?? []).length).toBe(5);
+    // ⚠️ 두 시점(라운드 101 W2 F7) — 이 줄은 `toBe(5)`였다. 최근 검색어 칩(본체 + X 개별 삭제)
+    // 이 같은 상수를 소비하며 합성형이 둘 늘었다(계약 갱신 · 근거는 recent-searches.test.ts의
+    // 배선 스위트 — 새 패턴을 발명하지 않고 이 상수를 쓰는 것 자체가 T-B(#5)의 규율이다).
+    expect((recordsSource.match(/pressed && recordsPressedStyle/g) ?? []).length).toBe(7);
   });
 
   it("예외가 걷혔다: 아이 전환 트리거도 press 피드백을 받는다 — 인용 원본 객체는 보존 (라운드 98 리뷰 M-1)", () => {

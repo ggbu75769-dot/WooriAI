@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { formatRelativeTime } from "../notifications/relative-time";
 import {
   OFFLINE_STORAGE_UNAVAILABLE_NOTICE,
   OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE
 } from "../offline/messages";
-import { resolveHomeSyncStatus } from "./home-sync-status";
+import { formatSyncCheckedPhrase, resolveHomeSyncStatus } from "./home-sync-status";
 
 const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
 const counts = (partial: Partial<Parameters<typeof resolveHomeSyncStatus>[0] & object> = {}) => ({
@@ -137,5 +138,65 @@ describe("준비템 상태 아웃박스도 같은 한 줄이 대변한다", () =
   it("지출 스냅숏이 아직 없어도 준비템 대기 행은 놓치지 않는다", () => {
     expect(resolveHomeSyncStatus(null, [{ syncState: "pending" }])).toBe("pending");
     expect(resolveHomeSyncStatus(null, [])).toBe("synced");
+  });
+});
+
+/**
+ * 라운드 101 트랙 C — "모든 기록이 동기화됐어요" 옆의 확인 시각 보조 문구.
+ *
+ * 시각의 원천(`lastFlushSucceededAt` — flush가 아무것도 남기지 않고 끝난 시각)의 기록 규칙은
+ * 엔진 쪽 테스트가 고정한다(sync-engine.test.ts의 isFlushFullyConfirmed describe). 여기서는
+ * 그 시각에서 문구를 **파생하는 쪽**을 본다: relative-time 재사용 · null 갈래 · 두 화면 배선.
+ */
+describe("라운드 101 트랙 C: 확인 시각 보조 문구(formatSyncCheckedPhrase)", () => {
+  const NOW = 1_757_000_000_000;
+  const MINUTE = 60_000;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+
+  it("1분 미만은 '방금 확인했어요'다 — 미래 시각(시계 왜곡)도 relative-time의 clamp 그대로", () => {
+    expect(formatSyncCheckedPhrase(NOW, NOW)).toBe("방금 확인했어요");
+    expect(formatSyncCheckedPhrase(NOW - 59_000, NOW)).toBe("방금 확인했어요");
+    expect(formatSyncCheckedPhrase(NOW + 5 * MINUTE, NOW)).toBe("방금 확인했어요");
+  });
+
+  it("그 밖의 문구는 relative-time의 출력 + '확인'이다 — 새 시간 문구를 만들지 않는다", () => {
+    expect(formatSyncCheckedPhrase(NOW - 5 * MINUTE, NOW)).toBe("5분 전 확인");
+    expect(formatSyncCheckedPhrase(NOW - 3 * HOUR, NOW)).toBe("3시간 전 확인");
+    expect(formatSyncCheckedPhrase(NOW - 2 * DAY, NOW)).toBe("2일 전 확인");
+    // 파생 단언: 어느 구간이든 시간 부분은 알림함의 그 함수 출력 글자 그대로다(단일 소스).
+    for (const at of [NOW - MINUTE, NOW - 59 * MINUTE, NOW - HOUR, NOW - 23 * HOUR, NOW - 10 * DAY]) {
+      expect(formatSyncCheckedPhrase(at, NOW)).toBe(`${formatRelativeTime(at, NOW)} 확인`);
+    }
+  });
+
+  it("시각이 없으면(콜드 스타트 — 세션 수명 · 아직 전량 확정 flush 없음) 문구도 없다", () => {
+    expect(formatSyncCheckedPhrase(null, NOW)).toBeNull();
+    expect(formatSyncCheckedPhrase(undefined, NOW)).toBeNull();
+    expect(formatSyncCheckedPhrase(Number.NaN, NOW)).toBeNull();
+  });
+
+  it("배선: 홈 한 줄은 synced에만 붙이고, 시각은 이미 구독 중인 스냅숏 필드 하나로 온다", () => {
+    const asyncState = readFileSync(join(process.cwd(), "src/design-system/patterns/AsyncState.tsx"), "utf8");
+    // 문구의 단일 소스는 이 모듈이다 — SyncStatusBar가 문장을 새로 짓지 않는다.
+    expect(asyncState).toContain('import { formatSyncCheckedPhrase } from "../../home/home-sync-status";');
+    // synced에만 붙는다(다른 상태의 줄에 옛 확인 시각이 서면 두 문장이 서로를 흐린다).
+    expect(asyncState).toContain(
+      'const checkedPhrase = status === "synced" ? formatSyncCheckedPhrase(lastCheckedAt ?? null, Date.now()) : null;'
+    );
+    // null 갈래: 문구가 없으면 종전 라벨 **그대로**다(라벨 문자열 자체는 손대지 않는다).
+    expect(asyncState).toContain(
+      "const visibleLabel = label ?? (checkedPhrase ? `${presentation.label} · ${checkedPhrase}` : presentation.label);"
+    );
+    // 홈 배선은 스냅숏 필드 전달 한 줄이다(새 훅·새 요청 없음).
+    expect(homeSource).toContain("lastCheckedAt={offlineSyncSnapshot.lastFlushSucceededAt}");
+  });
+
+  it("동기화 상태 화면 머리말도 같은 함수 하나로 같은 시각을 말한다", () => {
+    const screen = readFileSync(join(process.cwd(), "app/sync-status.tsx"), "utf8");
+    expect(screen).toContain('import { formatSyncCheckedPhrase } from "../src/home/home-sync-status";');
+    expect(screen).toContain("formatSyncCheckedPhrase(snapshot.lastFlushSucceededAt, Date.now())");
+    // null이면 줄 자체가 없다(모르는 시각을 지어내지 않는다).
+    expect(screen).toContain("{lastCheckedPhrase ? (");
   });
 });

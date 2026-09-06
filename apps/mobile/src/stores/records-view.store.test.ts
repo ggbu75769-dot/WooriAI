@@ -179,11 +179,28 @@ describe("useRecordsViewStore", () => {
       );
     });
 
+    it("리뷰 M-1: 전체 기간 검색 스코프는 리스트를 강제한다 — 착지와 같은 비저장 오버라이드", () => {
+      // 달력 격자는 보고 있는 한 달의 자리라 전 기간 목록과 성립하지 않는다. persist 0바이트 —
+      // 저장된 달력 취향은 스코프가 월로 돌아오면 그대로 다시 선다.
+      expect(
+        effectiveRecordsViewMode({ mode: RECORDS_VIEW_MODE_CALENDAR, calendarDateLanding: false, fullSearchScope: true })
+      ).toBe(RECORDS_VIEW_MODE_LIST);
+      expect(
+        effectiveRecordsViewMode({ mode: RECORDS_VIEW_MODE_CALENDAR, calendarDateLanding: false, fullSearchScope: false })
+      ).toBe(RECORDS_VIEW_MODE_CALENDAR);
+      // 인자 생략(종전 호출 모양)은 종전과 한 글자도 다르지 않다.
+      expect(effectiveRecordsViewMode({ mode: RECORDS_VIEW_MODE_CALENDAR, calendarDateLanding: false })).toBe(
+        RECORDS_VIEW_MODE_CALENDAR
+      );
+    });
+
     it("화면 표시가 이 판정을 지나고, 착지 콜백에는 persist setter가 없다", () => {
       const recordsSource = source("app/(tabs)/records.tsx");
-      expect(recordsSource).toContain(
-        "effectiveRecordsViewMode({ mode: persistedRecordsViewMode, calendarDateLanding: calendarDateViewLanding })"
-      );
+      // 리뷰 M-1: 전체 스코프 입력이 같은 호출에 함께 들어간다(다인자라 여러 줄 호출이 됐다).
+      expect(recordsSource).toContain("effectiveRecordsViewMode({");
+      expect(recordsSource).toContain("mode: persistedRecordsViewMode,");
+      expect(recordsSource).toContain("calendarDateLanding: calendarDateViewLanding,");
+      expect(recordsSource).toContain("fullSearchScope: isFullSearchScope");
       const selectAt = recordsSource.indexOf("const handleSelectCalendarDate = useCallback(");
       const selectEndAt = recordsSource.indexOf("const handleRecordForCalendarDate = useCallback(", selectAt);
       expect(selectAt).toBeGreaterThan(-1);
@@ -199,7 +216,16 @@ describe("useRecordsViewStore", () => {
       // ① 보기 토글 수동 조작(setViewMode)이 두 오버라이드를 걷고 나서야 저장한다.
       const setViewModeAt = recordsSource.indexOf("const setViewMode = useCallback(");
       expect(setViewModeAt).toBeGreaterThan(-1);
-      const setViewModeBlock = recordsSource.slice(setViewModeAt, recordsSource.indexOf("[setRecordsViewMode]", setViewModeAt));
+      // 리뷰 M-1: deps에 스코프 복귀 입력이 함께 들어갔다(전체 스코프에서 달력 명시 조작 = 월 복귀).
+      const setViewModeEndAt = recordsSource.indexOf(
+        "[setRecordsViewMode, isFullSearchScope, resetSearchScopeCollection]",
+        setViewModeAt
+      );
+      expect(setViewModeEndAt, "setViewMode 블록의 끝 앵커").toBeGreaterThan(setViewModeAt);
+      const setViewModeBlock = recordsSource.slice(setViewModeAt, setViewModeEndAt);
+      expect(setViewModeBlock).toContain(
+        "if (next === RECORDS_VIEW_CALENDAR && isFullSearchScope) resetSearchScopeCollection();"
+      );
       expect(setViewModeBlock).toContain("setCalendarDateViewLanding(false);");
       expect(setViewModeBlock).toContain("setCalendarDateLanding(false);");
       expect(setViewModeBlock.indexOf("setCalendarDateViewLanding(false);")).toBeLessThan(

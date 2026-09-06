@@ -52,4 +52,53 @@ describe("UX-G useHomeFirstRunGuideStore", () => {
     });
     expect(merge(undefined, current)).toMatchObject({ dismissedItemsGuideChildIds: [] });
   });
+
+  /**
+   * 라운드 101 F5 — 시기 전환 회고 카드의 닫음 목록. 같은 스토어에 얹힌 이유(같은 성질의
+   * 관찰 이력)는 스토어 머리말에 있고, 아래는 준비템 안내 닫기와 같은 세 성질(멱등 · null
+   * 무시 · sanitize)이 새 목록에도 서 있다는 계약이다.
+   */
+  it("회고 카드 닫기는 전환 식별자 키로 남고, 같은 키를 두 번 닫아도 목록이 늘지 않는다", () => {
+    const { dismissStageRetrospective } = useHomeFirstRunGuideStore.getState();
+    dismissStageRetrospective("stage_retrospective:child-a:2026-09-03");
+    dismissStageRetrospective("stage_retrospective:child-a:2026-09-03");
+
+    expect(useHomeFirstRunGuideStore.getState().dismissedStageRetrospectiveKeys).toEqual([
+      "stage_retrospective:child-a:2026-09-03"
+    ]);
+  });
+
+  it("회고 카드 닫기: 키가 없으면(null/undefined) 아무것도 기록하지 않는다", () => {
+    const { dismissStageRetrospective } = useHomeFirstRunGuideStore.getState();
+    dismissStageRetrospective(null);
+    dismissStageRetrospective(undefined);
+
+    expect(useHomeFirstRunGuideStore.getState().dismissedStageRetrospectiveKeys).toEqual([]);
+  });
+
+  it("회고 닫음 목록도 sanitize를 지난다 — 라운드 101 이전 blob(칸 없음)은 빈 목록으로 읽힌다", () => {
+    const merge = useHomeFirstRunGuideStore.persist.getOptions().merge!;
+    const current = useHomeFirstRunGuideStore.getState();
+
+    expect(merge({ dismissedItemsGuideChildIds: ["child-a"] }, current)).toMatchObject({
+      dismissedItemsGuideChildIds: ["child-a"],
+      dismissedStageRetrospectiveKeys: []
+    });
+    expect(
+      merge({ dismissedStageRetrospectiveKeys: ["stage_retrospective:child-a:2026-09-03", 7, null] }, current)
+    ).toMatchObject({
+      dismissedStageRetrospectiveKeys: ["stage_retrospective:child-a:2026-09-03"]
+    });
+  });
+
+  it("reset은 두 목록을 함께 비운다 (PRIV-104 teardown이 부르는 그 reset)", () => {
+    const { dismissItemsGuide, dismissStageRetrospective } = useHomeFirstRunGuideStore.getState();
+    dismissItemsGuide("child-a");
+    dismissStageRetrospective("stage_retrospective:child-a:2026-09-03");
+
+    useHomeFirstRunGuideStore.getState().reset();
+
+    expect(useHomeFirstRunGuideStore.getState().dismissedItemsGuideChildIds).toEqual([]);
+    expect(useHomeFirstRunGuideStore.getState().dismissedStageRetrospectiveKeys).toEqual([]);
+  });
 });

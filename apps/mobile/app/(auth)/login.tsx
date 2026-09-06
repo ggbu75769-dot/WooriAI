@@ -467,7 +467,7 @@ const styles = StyleSheet.create({
   },
   consentCard: {
     backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.08)",
+    borderColor: theme.colors.presentation.hairline,
     borderRadius: theme.radii.card,
     borderWidth: 1,
     gap: 5,
@@ -535,7 +535,8 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline"
   },
   errorCard: {
-    backgroundColor: "#FFF0ED",
+    // 라운드 101 TK: 값이 이미 토큰에 있던 자리(presentation.dangerSurface = #FFF0ED) — 이름만 부른다.
+    backgroundColor: theme.colors.presentation.dangerSurface,
     borderRadius: 14,
     padding: 12
   },

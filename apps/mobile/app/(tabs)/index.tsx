@@ -80,6 +80,10 @@ import {
   HOME_MILESTONE_PENDING_NOTICE_TEST_ID
 } from "../../src/home/milestone-countdown";
 import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
+import {
+  evaluateStageRetrospective,
+  type StageRetrospectiveExpenseRow
+} from "../../src/home/stage-retrospective";
 import { evaluateHomePrepNudge, type PrepNudgeRecommendedItem } from "../../src/home/prep-nudge";
 import { buildPendingItemStatusIndex, effectiveItemStatus } from "../../src/items/pending-status";
 import { evaluateWeeklySummary } from "../../src/home/weekly-summary";
@@ -152,7 +156,7 @@ function reconciledMonthRecords(
   serverExpenses: Expense[] | undefined,
   childOfflineRows: LocalExpenseRow[],
   yearMonth: string
-): ComparableExpenseRecord[] | null {
+): (ComparableExpenseRecord & StageRetrospectiveExpenseRow)[] | null {
   if (!serverExpenses) return null;
   const reconciled = reconcileMonthlyExpenses(serverExpenses, childOfflineRows, yearMonth);
   return [
@@ -160,7 +164,16 @@ function reconciledMonthRecords(
     ...reconciled.offlinePendingRows.map((row) => ({
       amountKrw: row.payload.amountKrw,
       spentOn: row.payload.spentOn,
-      expenseType: row.payload.expenseType
+      expenseType: row.payload.expenseType,
+      // 라운드 101 F5: 회고 카드의 합계는 서버 확정 행만 더하고 이 갈래를 고지로 밝힌다
+      // (src/home/stage-retrospective.ts 머리말 "합계 술어"). 실패 사유 칸 셋은 영구 실패
+      // 어휘 분리("보낼 수 없는 기록")가 읽는다. 주간 카드·지난달 비교는 이 표식을 읽지
+      // 않으므로 종전과 한 글자도 다르지 않다(추가 필드는 그 판정들의 모집단 밖이다).
+      pendingSync: true,
+      syncState: row.syncState,
+      lastError: row.lastError,
+      lastErrorStatus: row.lastErrorStatus,
+      lastErrorCode: row.lastErrorCode
     }))
   ];
 }
@@ -812,6 +825,53 @@ const homeCumulativeTotalStyle = StyleSheet.create({
 });
 
 /**
+ * 라운드 101 F5 — 시기 전환 회고 카드.
+ *
+ * 주간 요약·누적 총액과 **같은 흰 카드 골격**(글리프 + 본문 + 들여쓴 부제)을 쓴다 — 새 카드
+ * 문법을 만들면 캡처의 리듬이 흔들린다(라운드 55 트랙 C가 같은 이유로 같은 골격을 골랐다).
+ * 눌러서 데려갈 화면을 약속하지 않으므로 화살표·CTA를 달지 않고(라운드 48 B2 누적 카드와 같은
+ * 판단), 닫기는 첫 기록 축하 배너의 닫기와 같은 소형 텍스트 버튼이다(한 번 닫으면 끝나는 카드).
+ * 뜻은 전부 문장이 지고(색상 단독 전달 금지) 앞의 글리프는 장식이라 접근성 트리에서 감춘다.
+ * 판정·문구는 순수 모듈이 만든다(src/home/stage-retrospective.ts — 7일 창·닫음 멱등·합계 술어).
+ */
+const homeStageRetrospectiveStyle = StyleSheet.create({
+  body: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingLeft: 24
+  },
+  card: {
+    backgroundColor: theme.colors.white,
+    borderRadius: 14,
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 14
+  },
+  dismiss: {
+    color: theme.colors.gray600,
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  glyph: {
+    color: theme.colors.gray600,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  row: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10
+  },
+  title: {
+    color: theme.colors.brown,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 21
+  }
+});
+
+/**
  * 라운드 55 트랙 C 정기 지출 리마인더 카드.
  *
  * 주간 요약·누적 총액과 **같은 흰 카드 골격**(글리프 + 본문)을 쓴다 -- 새 카드 문법을 만들면
@@ -1361,6 +1421,13 @@ export default function HomeScreen() {
   // 바뀌어도 리렌더가 걸리지 않아 닫기 버튼이 즉시 반응하지 않는다.
   const dismissedItemsGuideChildIds = useHomeFirstRunGuideStore((state) => state.dismissedItemsGuideChildIds);
   const dismissItemsGuide = useHomeFirstRunGuideStore((state) => state.dismissItemsGuide);
+  // 라운드 101 F5: 시기 전환 회고 카드의 닫음 목록·닫기 — 같은 스토어에 얹힌 관찰 이력이다
+  // (스토어 머리말). 준비템 안내와 같은 이유로 목록 자체를 구독하고(함수 호출값은 리렌더를
+  // 못 건다), 훅이라 조기 반환들보다 위에 선다(FIX-A 규율).
+  const dismissedStageRetrospectiveKeys = useHomeFirstRunGuideStore(
+    (state) => state.dismissedStageRetrospectiveKeys
+  );
+  const dismissStageRetrospective = useHomeFirstRunGuideStore((state) => state.dismissStageRetrospective);
   // NOTI-102: evaluate client-side notifications (budget/stage/purchase) once the home query has
   // resolved -- session-gated by passing undefined otherwise, so preview/logged-out stays inert.
   // UX-J: 주간 요약 알림이 홈 주간 카드와 같은 숫자를 말하도록 이미 계산된 값을 함께 넘긴다
@@ -1950,6 +2017,40 @@ export default function HomeScreen() {
   // 준비 현황 카드가 흡수한 갈래는 아래 카드 목록에서 빠진다 -- 같은 카드를 두 자리에 세우지 않는다.
   const foldableFirstRunGuide = firstRunGuide && firstRunGuide.variant !== "first-items" ? firstRunGuide : null;
   /**
+   * 라운드 101 트랙 F5 — 시기 전환 회고 카드.
+   *
+   * 판정·문구는 전부 순수 모듈이 한다(src/home/stage-retrospective.ts — 7일 창·빈 홈 게이트·
+   * 닫음 멱등·합계 술어). 화면이 지키는 것은 **입력의 정직함**이다:
+   *  - 행은 주간 카드가 이미 만든 두 달치 재조정 결과 그대로다(**새 요청 0건**). 이번 달이
+   *    아직 없거나 지난달이 로딩 중이면 null을 넘긴다 — "아직 모른다"와 "0건"을 한 값으로
+   *    뭉개면 시기 앞부분이 빠진 합계를 사실처럼 말하게 된다(정기 지출 카드의 `?? []` 금지와
+   *    같은 규율). 지난달 조회가 확정 실패하면 이번 달만 넘기고, 그때는 창의 바닥(coverage)이
+   *    이번 달 1일로 좁아져 모듈이 말할 수 있는 만큼만 말한다(문장이 구간을 스스로 밝힌다).
+   *  - 닫음은 전환 식별자 키로 persist된다(first-run-guide.store — 같은 관찰 이력 스토어).
+   * 비세션 미리보기(HOME-001 캡처 경로)에는 이 카드가 없다: hasSession 게이트가 판정 자체를
+   * 만들지 않는다(UX-A 카드들과 같은 관례).
+   */
+  const retrospectiveRecordsReady =
+    weeklyThisMonthRecords !== null &&
+    (!lastYearMonth || weeklyLastMonthRecords !== null || lastMonthExpenses.isError);
+  const retrospectiveRecords = retrospectiveRecordsReady
+    ? [...(weeklyLastMonthRecords ?? []), ...(weeklyThisMonthRecords ?? [])]
+    : null;
+  const retrospectiveCoverageStartIso =
+    weeklyLastMonthRecords && lastYearMonth ? `${lastYearMonth}-01` : `${thisYearMonth}-01`;
+  const stageRetrospective = hasSession
+    ? evaluateStageRetrospective({
+        childId,
+        stageMode: selectedChild?.stageMode,
+        birthDate: selectedChild?.birthDate,
+        todayIso: seoulToday,
+        guideVariant: firstRunGuide?.variant ?? null,
+        dismissedKeys: dismissedStageRetrospectiveKeys,
+        records: retrospectiveRecords,
+        coverageStartIso: retrospectiveCoverageStartIso
+      })
+    : null;
+  /**
    * 라운드 55 트랙 C — 정기 지출 리마인더(설계 §1.3·§1.5).
    *
    * 판정은 전부 순수 모듈이 한다. 화면이 지키는 것은 **입력의 정직함** 하나다:
@@ -1983,6 +2084,10 @@ export default function HomeScreen() {
   // 기능 라운드 1 트랙 A: 월말 예상 카드도 예외 없이 같은 순위표(4위)를 지난다 -- 상한 2장
   // 안에서 사실 카드들과 경쟁하고, 밀리면 "더 보기" 뒤로 접힌다.
   if (budgetPace) activeSections.push("budget-pace");
+  // 라운드 101 F5: 회고 카드도 예외 없이 같은 순위표(5위)를 지난다 -- 전환일 포함 7일만 서고
+  // 소멸하는 사실이라 상시 카드보다 앞서되, 임박 마일스톤(D-7 이내)은 부스트로 이를 앞선다
+  // (근거는 home-section-priority.ts 헤더 5번 항목).
+  if (stageRetrospective) activeSections.push("stage-retrospective");
   if (milestoneCountdown) activeSections.push("milestone");
   if (weeklySummary) activeSections.push("weekly-summary");
   // TOSS-T2 — 예산 사용률 넛지 카드는 **은퇴**했다: 히어로가 같은 퍼센트·진행바를 이미 말하고
@@ -2231,6 +2336,56 @@ export default function HomeScreen() {
               <Text style={homeBudgetPaceStyle.title}>{budgetPace.title}</Text>
             </View>
             <Text style={homeBudgetPaceStyle.body}>{budgetPace.body}</Text>
+          </View>
+        ) : null;
+      case "stage-retrospective":
+        return stageRetrospective ? (
+          /**
+           * 라운드 101 F5 — 시기 전환 회고 카드.
+           *
+           * `accessibilityRole="alert"`를 쓰지 않는다: 닫을 수 있지만 7일간 서 있는 사실이라
+           * (alert + liveRegion은 예산 경고 배너 전용 — 라운드 55 트랙 C와 같은 판단). 문구·
+           * 낭독 라벨·닫음 키는 전부 순수 모듈이 만든 값이고 화면은 한 글자도 만들지 않는다.
+           * 닫기는 스토어에 전환 식별자 키로 남아 그 전환에 대해 재표시되지 않는다(멱등).
+           */
+          <View
+            key={id}
+            testID={stageRetrospective.testID}
+            style={[homeStageRetrospectiveStyle.card, theme.shadows.card]}
+          >
+            <View style={homeStageRetrospectiveStyle.row}>
+              <Ionicons
+                accessible={false}
+                name="flag-outline"
+                size={homeStageRetrospectiveStyle.glyph.fontSize}
+                color={homeStageRetrospectiveStyle.glyph.color}
+              />
+              <View
+                accessible
+                accessibilityLabel={stageRetrospective.accessibilityLabel}
+                style={{ flex: 1 }}
+              >
+                <Text style={homeStageRetrospectiveStyle.title}>{stageRetrospective.title}</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={stageRetrospective.dismissAccessibilityLabel}
+                hitSlop={12}
+                testID="home-stage-retrospective-dismiss"
+                onPress={() => dismissStageRetrospective(stageRetrospective.dismissKey)}
+                style={({ pressed }) => (pressed ? homePressedStyle : null)}
+              >
+                <Text style={homeStageRetrospectiveStyle.dismiss}>{stageRetrospective.dismissLabel}</Text>
+              </Pressable>
+            </View>
+            <Text accessible={false} style={homeStageRetrospectiveStyle.body}>
+              {stageRetrospective.summaryText}
+            </Text>
+            {stageRetrospective.pendingNoticeText ? (
+              <Text accessible={false} style={homeStageRetrospectiveStyle.body}>
+                {stageRetrospective.pendingNoticeText}
+              </Text>
+            ) : null}
           </View>
         ) : null;
       case "milestone":
@@ -2865,7 +3020,7 @@ export default function HomeScreen() {
           ) : null}
 
           {/* 최하단 동기화 줄(스펙 §통합 지점). 눌러서 동기화 상태 화면으로 간다. */}
-          <SyncStatusBar onPress={() => router.push("/sync-status")} status={homeSyncStatus} />
+          <SyncStatusBar lastCheckedAt={offlineSyncSnapshot.lastFlushSucceededAt} onPress={() => router.push("/sync-status")} status={homeSyncStatus} />
         </View>
       </View>
     </AppScreen>

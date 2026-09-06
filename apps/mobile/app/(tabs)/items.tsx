@@ -54,6 +54,8 @@ import {
   Toast
 } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
+// 라운드 101 트랙 B: 상태 체크 확정의 촉각 확인 — 핸들러(.then) 안에서만 부른다(렌더 무접촉).
+import { hapticSelection } from "../../src/ui/haptics";
 import { resolveScreenPhase } from "../../src/screen-phase";
 import { theme } from "../../src/theme";
 import { ItemListPixelStyles } from "../../src/pixelLock/styles";
@@ -472,6 +474,10 @@ export default function ItemsScreen() {
       status: variables.status
     })
       .then(() => {
+        // 라운드 101 트랙 B: 체크 확정의 촉각 확인 — 기준은 이 콜백의 다른 반응들과 같은
+        // **기기 저장**이다(C-10). 성공/선택 신호라 폴백 없이, expo-haptics 미설치·설정 끔이면
+        // 그대로 no-op이다(src/ui/haptics.ts). 실패도 스스로 삼킨다 — 상태 변경 흐름 무접촉.
+        hapticSelection();
         // 라운드 37 UX-I: "괜찮아요"(not_needed)에는 남기지 않는다 -- 사지 않기로 한 판단에
         // 지출 기록을 권하면 판단을 되묻는 잔소리가 된다(DNC-018). 판정은 순수 모듈이 한다.
         //

@@ -7,6 +7,7 @@ import { deactivateRegisteredPushDevice } from "../notifications/usePushDeviceRe
 import { clearAppQueryCache } from "../query/query-client-registry";
 import { useAppLockStore } from "../stores/app-lock.store";
 import { useImportResumeStore } from "../stores/import-resume.store";
+import { useRecentSearchesStore } from "../stores/recent-searches.store";
 import { useRecurringExpenseStore } from "../stores/recurring-expense.store";
 import { clearSyncCursor } from "./delta-sync";
 import { wipeOfflineStore } from "./sync-engine";
@@ -204,9 +205,10 @@ export type SessionTeardownContext = {
  *      token while it is still valid;
  *   1. user-scoped zustand store resets (purchase-followup, notifications, since round 35's F5 the
  *      two home first-run stores, since 라운드 55 트랙 C the recurring-expense templates and
- *      the app-lock record, and since 라운드 99 M-1 the analytics consent flag — the consent is a
+ *      the app-lock record, since 라운드 99 M-1 the analytics consent flag — the consent is a
  *      per-USER choice, unlike the deliberately-kept per-device notification-preferences /
- *      records-view stores) — synchronous sets, effective immediately. The app-lock reset also
+ *      records-view stores — and since 라운드 101 W2 F7 the records-tab recent searches, which
+ *      are personal text the user typed and follow the consent's per-user judgment) — synchronous sets, effective immediately. The app-lock reset also
  *      returns a promise for its SecureStore key deletion, awaited at the end (§2.8: leaving A's
  *      PIN behind bricks B — locked out with logout as the only exit, which locks them out again);
  *   2. `wipeOfflineStore` STARTED (not yet awaited) — this must come before any `await` in this
@@ -271,6 +273,12 @@ export async function teardownOfflineSessionState(
   // B의 토큰으로 커밋된다. 초기화 결과는 미동의 기본(OFF)이라 B는 스스로 켜기 전까지
   // 아무 이벤트도 내보내지 않는다(ANA-101 opt-in).
   useAnalyticsConsentStore.getState().reset();
+  // 라운드 101 W2 F7: 기록 탭 최근 검색어는 사용자가 검색창에 친 **개인 텍스트**다(품목명·
+  // 판매처·메모의 조각 — 무엇을 샀고 무엇을 찾았는지가 그대로 담긴다). 저장은 기기 단위
+  // persist지만 판단은 통계 동의(라운드 99 M-1)와 같은 **사용자 단위**다: records-view(리스트/
+  // 달력)·notification-preferences 같은 "화면을 어떻게 볼까"류 기기 취향과 달리, A가 무엇을
+  // 찾았는지가 B의 검색창 아래에 칩으로 떠서는 안 된다. 동기 set이라 이 줄에서 이미 유효하다.
+  useRecentSearchesStore.getState().resetAll();
   // 라운드 55 트랙 C(설계 §2.8) — **브릭 방지**. 앱 잠금 PIN이 정체성 변경에서 지워지지 않으면
   // A 로그아웃 → B 로그인 → B가 A의 PIN 화면에 갇히고, 탈출구는 로그아웃뿐이라 무한 루프가 된다.
   // 런타임 상태는 동기로 비고, SecureStore 키 삭제만 Promise다 -- 이 함수는 이미 async이므로

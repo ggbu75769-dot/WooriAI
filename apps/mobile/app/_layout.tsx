@@ -55,6 +55,58 @@ for (const policy of SHARED_CACHE_POLICIES) {
 registerAppQueryClient(queryClient);
 
 /**
+ * 라운드 101 W2 F8 — **스택 전환 문법의 명시** (라운드 96 T3의 확장).
+ *
+ * 지금까지 전환이 명시된 스택 화면은 지출 기록 시트(`expenses/new` · slide_from_bottom) 하나였고,
+ * 나머지는 전부 플랫폼 기본값(Android는 fade 계열)이라 "목록 → 상세"로 파고드는 몸짓이 화면
+ * 문법과 어긋났다. 화면군별로 전환을 명시한다:
+ *
+ *  · **시트 문법**(아래에서 올라옴): `expenses/new` — 종전 그대로(RootLayout의 라운드 96 T3 주석).
+ *  · **상세/전진 문법**(slide_from_right): 아래 목록 — 탭·홈·설정에서 `router.push`로 파고드는
+ *    화면들. 뒤로 가면 오른쪽으로 물러나는 몸짓이 ScreenHeader의 ← 와 짝이 된다.
+ *  · **명시하지 않는 것**(플랫폼 기본): 진입 라우팅(`index`)·스플래시(`launch-animation`)·
+ *    `(tabs)`·`(auth)/login`·온보딩 단계 열 개(`(onboarding)/*` 그림자 + `onboarding/*` 정본)·
+ *    캡처 전용 `pixel-lock`. 전부 replace/redirect로 갈아타는 진입 흐름이라 "옆에서 파고드는"
+ *    문법이 아니고, 스플래시·온보딩은 저마다의 연출·단계 문법을 이미 진다 — 여기 늘어놓지 않는
+ *    것 자체가 판정이다(소스 계약: src/stack-transition-contract.test.ts가 세 묶음의 합이 라우트
+ *    전수와 같은지를 잰다 — 새 라우트가 서면 거기서 빨개져 전환 결정을 요구한다).
+ *
+ * reduce-motion이면 "none" — 시트와 같은 분기(RootLayout의 reduceMotionEnabled 주석 참고).
+ *
+ * ⚠️ **실기기 체감 확인 항목.** 전환 방향·속도·중단(뒤로 제스처)은 vitest가 잴 수 없다 — 소스
+ * 계약은 "명시했다"까지만 잰다. Android 실기기에서 상세 진입 두어 곳(기록 상세·준비템 상세·설정)
+ * 이 오른쪽에서 미는지, reduce-motion을 켜면 즉시 전환인지 확인해야 한다
+ * (docs/qa/runtime-verification-required.md 관례의 항목 — 이 라운드는 코드 주석으로만 남긴다).
+ */
+const FORWARD_STACK_SCREENS = [
+  // 지출 세계 — 기록 상세 · 반복 지출 관리
+  "expenses/[expenseId]",
+  "expenses/recurring",
+  // 준비템 상세
+  "items/[itemTemplateId]",
+  // 예산 수정
+  "budget",
+  // 설정 세계
+  "settings/index",
+  // 라운드 101 W2 F6a: 금액 프리셋 편집 — 설정 하위 상세라 같은 전진 문법이다.
+  "settings/amount-presets",
+  "settings/app-lock",
+  "settings/children",
+  "settings/notifications",
+  "settings/privacy",
+  // 가족 공유 (accept는 딥링크 착지지만 스택 위로 서는 것은 같다)
+  "family/index",
+  "family/invite",
+  "family/accept/[token]",
+  // 지출 가져오기
+  "import/index",
+  "import/[importJobId]",
+  // 알림함 · 동기화 상태
+  "notifications",
+  "sync-status"
+] as const;
+
+/**
  * MOB-102 (round5a-sprint1-plan.md §3.2 point 4): mounted once at the app root so the offline
  * outbox flush-on-reconnect/foreground wiring runs for the whole app lifetime, independent of
  * which screen/tab is currently focused.
@@ -116,6 +168,16 @@ export default function RootLayout() {
               name="expenses/new"
               options={{ animation: reduceMotionEnabled ? "none" : "slide_from_bottom" }}
             />
+            {/* 라운드 101 W2 F8: 상세/전진 문법 화면은 오른쪽에서 파고든다(위 FORWARD_STACK_SCREENS
+                주석 — 명시하지 않은 진입 흐름 화면들은 플랫폼 기본이 판정이다). reduce-motion이면
+                시트와 같은 판정으로 "none". */}
+            {FORWARD_STACK_SCREENS.map((name) => (
+              <Stack.Screen
+                key={name}
+                name={name}
+                options={{ animation: reduceMotionEnabled ? "none" : "slide_from_right" }}
+              />
+            ))}
           </Stack>
           {/* COM-108: mounted after <Stack> so the 구매하셨나요? follow-up card overlays whatever
               screen is focused. Inert without a real/demo session and never blocks navigation --

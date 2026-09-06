@@ -27,12 +27,19 @@
  *     마일스톤보다 금전적 결과가 크지만, 리마인더(기록하지 않으면 합계가 어긋나는 *사실*)와
  *     달리 추정이라 그보다는 뒤에 선다. 그래서 기존 4~8위가 한 칸씩 밀린다(라운드 55 트랙 C가
  *     3위를 끼울 때와 같은 종류의, 사용자에게 보이는 변화다).
- *  5. 마일스톤 임박 — 날짜가 정해 놓은 것이라 놓치면 그 시점이 지나간다. ⚠️ TOSS-T2: **시한이
+ *  5. 시기 전환 회고 — 라운드 101 트랙 F5. 전환일 포함 7일만 서고 **소멸하는** 사실이라
+ *     (src/home/stage-retrospective.ts의 창), 다음 주에도 참인 상시 카드(주간 요약)와 최대
+ *     석 달을 서 있는 마일스톤(비임박)보다 앞선다 — TOSS-T2가 임박 마일스톤에 적용한 그
+ *     논리("접히면 그 사실은 지나가 버리고 되돌아오지 않는다")를 표 안 순위로 적은 것이다.
+ *     ⚠️ 임박 마일스톤(D-7 이내)은 부스트(유효 순위 1.5)로 어차피 이 카드를 앞선다. 그래서
+ *     기존 5~8위가 한 칸씩 밀린다(라운드 55 트랙 C·기능 라운드 1 트랙 A와 같은 종류의,
+ *     사용자에게 보이는 변화다).
+ *  6. 마일스톤 임박 — 날짜가 정해 놓은 것이라 놓치면 그 시점이 지나간다. ⚠️ TOSS-T2: **시한이
  *     실제로 임박하면**(D-7 이내) 순위표를 앞선다 — `boosts` 입력으로 화면이 밝힌다. 상시 카드
  *     (주간 요약·페이스)는 다음 주에도 참이지만, D-3의 100일 카드가 접히면 그 사실은 지나가
  *     버리고 되돌아오지 않는다.
- *  6. 주간 요약 — 이번 주의 사실. 지나가지는 않지만 호흡이 짧다.
- *  7. 지난달 대비 · 8. 누적 총액 — 리포트 탭이 같은 숫자를 더 자세히 말한다(위임 가능).
+ *  7. 주간 요약 — 이번 주의 사실. 지나가지는 않지만 호흡이 짧다.
+ *  8. 지난달 대비 · 9. 누적 총액 — 리포트 탭이 같은 숫자를 더 자세히 말한다(위임 가능).
  *
  * TOSS-T2 — **예산 넛지(사용률) 카드는 은퇴했다.** 예산이 있는 달의 "예산의 N% 사용 중이에요!"
  * 카드는 히어로(같은 화면 첫 장)가 이미 같은 퍼센트·같은 진행바로 말하는 사실의 반복이었고,
@@ -62,6 +69,7 @@ export type HomeSectionId =
   | "first-run-guide"
   | "recurring-reminder"
   | "budget-pace"
+  | "stage-retrospective"
   | "milestone"
   | "weekly-summary"
   | "last-month"
@@ -73,10 +81,12 @@ export const HOME_SECTION_RANK: Readonly<Record<HomeSectionId, number>> = {
   "first-run-guide": 2,
   "recurring-reminder": 3,
   "budget-pace": 4,
-  milestone: 5,
-  "weekly-summary": 6,
-  "last-month": 7,
-  "cumulative-total": 8
+  // 라운드 101 F5: 전환일 포함 7일만 서고 소멸하는 사실 — 근거는 헤더 5번 항목.
+  "stage-retrospective": 5,
+  milestone: 6,
+  "weekly-summary": 7,
+  "last-month": 8,
+  "cumulative-total": 9
 };
 
 /**
@@ -89,6 +99,7 @@ const HOME_SECTION_DISPLAY_NAME: Readonly<Record<HomeSectionId, string>> = {
   "first-run-guide": "시작 안내",
   "recurring-reminder": "정기 지출",
   "budget-pace": "월말 예상",
+  "stage-retrospective": "지난 시기 정리",
   milestone: "마일스톤",
   "weekly-summary": "이번 주 요약",
   "last-month": "지난달 대비",

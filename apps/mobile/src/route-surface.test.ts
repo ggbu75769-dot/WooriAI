@@ -154,6 +154,10 @@ const ROUTE_SURFACE: ReadonlyArray<readonly [file: string, url: string]> = [
   ["onboarding/prepared-items.tsx", "/onboarding/prepared-items"],
   ["onboarding/resume.tsx", "/onboarding/resume"],
   ["pixel-lock.tsx", "/pixel-lock"],
+  // 라운드 101 W2 F6a — 지출 입력 금액 프리셋 편집 화면(설정 하위, 기기 단위 취향). 부르는
+  // 자리는 설정 화면 한 곳(app/settings/index.tsx의 "빠른 금액 버튼" 행)이라 겹침도 참조 0건도
+  // 만들지 않는다 — 이 대장이 약속한 대로, 라우트를 더한 그 손이 이 줄을 함께 옮긴다.
+  ["settings/amount-presets.tsx", "/settings/amount-presets"],
   ["settings/app-lock.tsx", "/settings/app-lock"],
   ["settings/children.tsx", "/settings/children"],
   ["settings/index.tsx", "/settings"],

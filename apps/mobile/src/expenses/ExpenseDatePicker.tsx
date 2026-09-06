@@ -133,7 +133,7 @@ function expenseDatePickerMonthJumpBounds(todayIso: string, direction: ExpenseDa
 const expenseDatePickerStyle = StyleSheet.create({
   card: {
     backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.10)",
+    borderColor: theme.colors.presentation.hairlineStrong,
     borderRadius: 16,
     borderWidth: 1,
     gap: 6,

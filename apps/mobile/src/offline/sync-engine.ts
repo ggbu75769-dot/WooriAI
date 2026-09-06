@@ -399,6 +399,26 @@ function flushPassMadeProgress(summary: FlushSummary): boolean {
   );
 }
 
+/**
+ * 라운드 101 트랙 C — 이 flush의 결과를 "마지막으로 동기화를 확인한 시각"으로 적어도 되는가.
+ *
+ * 판정은 **남긴 것이 없는가**다. 실패·충돌로 큐에 남긴 행이 하나라도 있으면(지출·준비템 어느
+ * 큐든) 그 시각을 적는 순간, "모든 기록이 동기화됐어요" 옆에 서는 "N분 전 확인"이 실패 행을
+ * 남겨 둔 pass를 가리키게 된다 — 부분 실패는 미갱신이 정직하다(그 시각은 마지막으로 **전량**이
+ * 확정됐던 더 이른 pass의 것으로 남는다). 네트워크로 멈춘 pass도 같다: 스냅숏의 나머지를
+ * 보내 보지도 못했으므로 아무것도 확인하지 않았다.
+ *
+ * 확정 0건(빈 큐) pass는 **참**이다: 이 시각이 뒷받침하는 문장("모든 기록이 동기화됐어요" —
+ * src/home/home-sync-status.ts)은 서버 상태가 아니라 **이 기기 큐에 안 보낸 것이 없다**는
+ * 로컬 사실이고, 빈 큐를 읽고 끝난 pass는 정확히 그 사실을 방금 확인한 것이다. 지출/준비템을
+ * 가르지 않는 이유도 같다 — 그 문장은 두 큐를 함께 대변한다.
+ */
+export function isFlushFullyConfirmed(summary: FlushSummary): boolean {
+  return (
+    summary.failed === 0 && summary.conflicted === 0 && summary.itemStatusFailed === 0 && !summary.stoppedForNetwork
+  );
+}
+
 /** 재실행 결과를 호출자가 받는 한 장의 집계에 더한다(호출자는 모든 pass의 합을 본다). */
 function accumulateFlushSummary(total: FlushSummary, pass: FlushSummary): void {
   total.synced += pass.synced;

@@ -557,9 +557,10 @@ describe("UX-D 기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     // src/stores/records-view.store.ts) — "리스트로 전환하고 스크롤한다"는 이 계약의 사실은
     // 그대로이고, 전환의 **수단**이 저장에서 표시 오버라이드로 바뀌었다.
     expect(recordsSource).toContain("setCalendarDateViewLanding(true);");
-    expect(recordsSource).toContain(
-      "effectiveRecordsViewMode({ mode: persistedRecordsViewMode, calendarDateLanding: calendarDateViewLanding })"
-    );
+    // 라운드 101 리뷰 M-1(핀 이관): 같은 호출에 전체 스코프 입력이 더해지며 여러 줄 호출이 됐다 —
+    // 인자별 앵커로 옮긴다(판정 자체는 records-view.store.test.ts의 M-1 스위트가 값으로 문다).
+    expect(recordsSource).toContain("effectiveRecordsViewMode({");
+    expect(recordsSource).toContain("calendarDateLanding: calendarDateViewLanding,");
     expect(recordsSource).toContain("setPendingScrollDate(date);");
     expect(recordsSource).toContain("sections.findIndex((section) => section.key === pendingScrollDate)");
     expect(recordsSource).toContain("sectionListRef.current?.scrollToLocation({ sectionIndex, itemIndex: 0, viewPosition: 0, animated: true })");

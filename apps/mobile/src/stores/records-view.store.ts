@@ -59,7 +59,17 @@ export function sanitizeRecordsViewMode(value: unknown): RecordsViewMode {
 export function effectiveRecordsViewMode(input: {
   mode: RecordsViewMode;
   calendarDateLanding: boolean;
+  /**
+   * 라운드 101 리뷰 M-1 — 전체 기간 검색 스코프 동안의 **리스트 강제**(비저장 오버라이드 —
+   * 위 착지 오버라이드와 같은 관례, persist 0바이트). 달력 격자는 보고 있는 **한 달**의 자리라
+   * (다른 달 날짜는 buildCalendarMonth가 무시한다) 전 기간 목록과 성립하지 않는다 — 저장된
+   * 달력 취향은 그대로 남아 스코프가 월로 돌아오면 다시 선다. 전체 스코프에서 달력 토글의
+   * 명시 조작은 화면이 월 스코프 복귀로 다룬다(명시 조작 = 의사표시 — app/(tabs)/records.tsx
+   * setViewMode).
+   */
+  fullSearchScope?: boolean;
 }): RecordsViewMode {
+  if (input.fullSearchScope) return RECORDS_VIEW_MODE_LIST;
   return input.calendarDateLanding ? RECORDS_VIEW_MODE_LIST : input.mode;
 }
 

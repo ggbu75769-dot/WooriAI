@@ -68,17 +68,33 @@ export function recordsSortAnnouncement(mode: RecordsSortMode): string {
  * 정렬 토글을 그릴지 — **달력 보기에서는 숨긴다.** 달력 격자의 자리는 날짜라 "금액 큰 순"이
  * 성립하지 않고, 눌러도 아무것도 바뀌지 않는 컨트롤은 거짓 컨트롤이다(칩 disabled 규율과 같은
  * 판단이되, 여기서는 보기 전환이 곧 복귀 경로라 숨김이 맞다 — 리스트로 돌아오면 다시 선다).
+ *
+ * 라운드 101 리뷰 M-A3 — **전체 기간 검색 스코프에서도 숨긴다**(달력과 같은 판정). 금액순은
+ * 날짜 헤더 없는 평평한 목록인데(buildRecordsAmountSortedSections), 전체 스코프의 연도 표기는
+ * 날짜 **헤더**에 실린다(fullScopeDateHeaderLabel) — 즉 전체 스코프 금액순은 여러 해의 행이
+ * 연도 없이 섞이는 반쪽 사실 목록이다. 스코프가 월로 돌아오면(검색어 삭제·달력 조작) 저장된
+ * 선택 그대로 다시 선다.
  */
-export function isRecordsSortToggleVisible(input: { isCalendarView: boolean }): boolean {
-  return !input.isCalendarView;
+export function isRecordsSortToggleVisible(input: {
+  isCalendarView: boolean;
+  isFullSearchScope?: boolean;
+}): boolean {
+  return !input.isCalendarView && !input.isFullSearchScope;
 }
 
 /**
  * 금액 큰 순을 실제로 **적용**할지. 토글 숨김과 별도로 두는 이유: 달력 보기 중에도 저장된
  * 선택(sortMode)은 남아 있어야 하고(리스트로 돌아오면 그대로 복원), 적용만 멈춰야 한다.
+ *
+ * 라운드 101 리뷰 M-A3: 전체 기간 스코프도 같은 모양으로 적용을 멈춘다 — 표시가 최신순(날짜
+ * 그룹 + 연도 헤더)으로 복귀하고, 취향(persist)은 한 글자도 바뀌지 않는다(위 토글 숨김 머리말).
  */
-export function isAmountSortApplied(input: { sortMode: RecordsSortMode; isCalendarView: boolean }): boolean {
-  return input.sortMode === "amount" && !input.isCalendarView;
+export function isAmountSortApplied(input: {
+  sortMode: RecordsSortMode;
+  isCalendarView: boolean;
+  isFullSearchScope?: boolean;
+}): boolean {
+  return input.sortMode === "amount" && !input.isCalendarView && !input.isFullSearchScope;
 }
 
 /**
