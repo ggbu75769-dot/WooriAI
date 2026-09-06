@@ -5,6 +5,7 @@ import {
   getSeoulToday,
   isChildStageCode,
   isFutureSeoulDate,
+  NECESSITY_LEVELS,
   sortRecommendedItems,
   type CalculatedChildStage,
   type ChildStageCode,
@@ -13,6 +14,7 @@ import {
   type ExpenseType,
   type ImportStatus,
   type ItemStatus,
+  type NecessityLevel,
   type PaymentMethod
 } from "@wooriai/domain";
 import { create } from "zustand";
@@ -23,7 +25,7 @@ import { persistStorage } from "../stores/persist-storage";
 // (offline/expense-list-reconciliation.ts는 React/네이티브 의존이 없어 여기서 안전하게 쓴다.)
 import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";
 import { categoryCatalog } from "../categories";
-import { itemMatchesBand, type StageBandLabel } from "../items/stage-bands";
+import { bandDefinitions, bandStages, itemMatchesBand, type StageBandLabel } from "../items/stage-bands";
 import type {
   AffiliateClickResponse,
   Budget,
@@ -31,7 +33,10 @@ import type {
   CategoryReport,
   Child,
   ConfirmImportResponse,
+  CreateCustomItemBody,
   CumulativeReport,
+  CustomItemSummary,
+  DeleteCustomItemResponse,
   Expense,
   HomeSummary,
   ImportJob,
@@ -52,6 +57,7 @@ import type {
   SettingsPreview,
   TrendReport,
   UndoImportResponse,
+  UpdateCustomItemBody,
   YearlyReport
 } from "./client";
 
@@ -201,12 +207,34 @@ type LocalImportRowRecord = {
   userReviewed: boolean;
 };
 
+/**
+ * 라운드 100 T2: 서버 `custom_items` 행의 로컬 판본(설계 문서 §9.5). 상태(status)를 행에
+ * 내장하는 것까지 서버 결정 D1(§1.2)과 같다 — 커스텀 품목은 그 아이 하나의 것이라
+ * (품목, 아이) 조인이 항상 1:1이고, 별도 상태 표(itemStatuses)를 쓰지 않는다.
+ * `stageBand`는 사용자가 고른 밴드 라벨 **원문**이다(§1.3) — 스테이지 코드 전개는 응답 조립
+ * 시 bandStages()가 하고, 매핑을 행에 복제하지 않는다.
+ */
+type LocalCustomItemRecord = {
+  id: string; // generateLocalId("custom-item")
+  childId: string;
+  name: string;
+  stageBand: StageBandLabel;
+  necessityLevel: NecessityLevel;
+  status: ItemStatus; // 기본 "not_prepared"
+  createdAt: string; // ISO — 목록 합류 순서(카탈로그 뒤 created ASC)의 열쇠
+  deletedAt: string | null; // soft delete 미러(지출 DNC-014와 같은 관례)
+};
+
 type LocalBackendState = {
   seeded: boolean;
   child: LocalChildRecord | null;
   budgets: Record<string, number>;
   expenses: LocalExpenseRecord[];
   itemStatuses: Record<string, { status: ItemStatus; expenseId: string | null }>;
+  // 라운드 100 T2: 커스텀 품목(사용자 데이터 — 데모 픽스처 0건, zero-start §3.2). 세션 수명은
+  // 이 파일의 다른 사용자 데이터(expenses 등)와 동일: persist 버전 3 유지 — 필드 가산은 merge가
+  // 기본값([])으로 메우므로 일회성 초기화(v3의 성격)가 필요 없다.
+  customItems: LocalCustomItemRecord[];
   // MOB-101: mirrors the server's `children.prepared_items_set_at` -- set once the
   // prepared-items onboarding step is submitted (even with zero items checked), used by
   // onboardingStatus() below to tell "step not reached yet" apart from "step done, nothing
@@ -235,6 +263,7 @@ const initialState: LocalBackendState = {
   budgets: {},
   expenses: [],
   itemStatuses: {},
+  customItems: [],
   preparedItemsCompleted: false,
   members: [],
   invites: [],
@@ -283,6 +312,45 @@ function sanitizeLocalExpenseRecord(value: unknown): LocalExpenseRecord | null {
     // The actual backfill: anything that isn't already a finite number (missing, NaN, etc.)
     // becomes 1, matching what createExpense stamps on every fresh record.
     version: typeof value.version === "number" && Number.isFinite(value.version) ? value.version : 1
+  };
+}
+
+/** 밴드 라벨 원문 판정 — 표는 stage-bands.ts의 bandDefinitions 하나만 본다(사본 금지). */
+function isStageBandLabelValue(value: unknown): value is StageBandLabel {
+  return typeof value === "string" && bandDefinitions.some((band) => band.label === value);
+}
+
+function isNecessityLevelValue(value: unknown): value is NecessityLevel {
+  return typeof value === "string" && (NECESSITY_LEVELS as readonly string[]).includes(value);
+}
+
+function isItemStatusValue(value: unknown): value is ItemStatus {
+  return (
+    value === "not_prepared" || value === "prepared" || value === "gifted" || value === "not_needed" || value === "interested"
+  );
+}
+
+/**
+ * 라운드 100 T2: 커스텀 품목 행의 필드 단위 복구(sanitizeLocalExpenseRecord와 같은 관례).
+ * 식별자·이름·밴드 라벨이 성치 않으면 행을 버린다 — 밴드는 사용자가 고른 원문이라 기본값으로
+ * 지어낼 수 없고(§1.3), 깨진 라벨은 시기 판정 전체를 틀리게 한다. 필수도·상태는 서버 기본값과
+ * 같은 값으로 되돌린다(essential/not_prepared — 새 행이 갖는 값 그대로).
+ */
+function sanitizeLocalCustomItemRecord(value: unknown): LocalCustomItemRecord | null {
+  if (!isPlainObject(value)) return null;
+  if (typeof value.id !== "string" || typeof value.childId !== "string" || typeof value.name !== "string") {
+    return null;
+  }
+  if (!value.name.trim() || !isStageBandLabelValue(value.stageBand)) return null;
+  return {
+    id: value.id,
+    childId: value.childId,
+    name: value.name,
+    stageBand: value.stageBand,
+    necessityLevel: isNecessityLevelValue(value.necessityLevel) ? value.necessityLevel : "essential",
+    status: isItemStatusValue(value.status) ? value.status : "not_prepared",
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : new Date(0).toISOString(),
+    deletedAt: typeof value.deletedAt === "string" ? value.deletedAt : null
   };
 }
 
@@ -343,6 +411,13 @@ function sanitizeLocalBackendState(persisted: unknown): LocalBackendState {
     itemStatuses: isPlainObject(persisted.itemStatuses)
       ? (persisted.itemStatuses as LocalBackendState["itemStatuses"])
       : {},
+    // 라운드 100 T2: 비배열/오염 blob은 []로(멤버·초대와 같은 관례), 행 단위 오염은 필드
+    // 단위로 걸러 낸다(expenses와 같은 관례) — 깨진 행 하나가 listItems를 통째로 죽이지 않게.
+    customItems: Array.isArray(persisted.customItems)
+      ? persisted.customItems
+          .map(sanitizeLocalCustomItemRecord)
+          .filter((record): record is LocalCustomItemRecord => record !== null)
+      : [],
     preparedItemsCompleted: typeof persisted.preparedItemsCompleted === "boolean" ? persisted.preparedItemsCompleted : false,
     members: Array.isArray(persisted.members) ? (persisted.members as LocalMemberRecord[]) : [],
     invites: Array.isArray(persisted.invites) ? (persisted.invites as LocalInviteRecord[]) : [],
@@ -393,6 +468,7 @@ function wipeLocalBackendState() {
     budgets: {},
     expenses: [],
     itemStatuses: {},
+    customItems: [],
     importRows: {},
     idempotencyKeys: {}
   });
@@ -1300,13 +1376,217 @@ function toItemSummaryDto(item: (typeof localItemTemplateFixtures)[number]): Ite
   };
 }
 
+// ---------------------------------------------------------------------------
+// 라운드 100 T2 — 커스텀 품목(사용자 직접 추가 준비물)의 로컬 미러.
+// 계약 확정: docs/5차/round100-custom-items-design.md §9. 서버(custom_items 테이블)와의
+// 합류 규칙은 §2.2/§3.1의 한 문장 그대로다:
+// "탭 술어는 카탈로그와 동일, 순서는 카탈로그 뒤 created ASC"
+// — 드리프트는 custom-items-mirror.test.ts가 같은 픽스처로 양쪽을 대조한다(리스크 R5).
+// ---------------------------------------------------------------------------
+
+// 계약 상수의 로컬 사본(packages/contracts의 CUSTOM_ITEM_NAME_MAX_LENGTH ·
+// CUSTOM_ITEM_MAX_PER_CHILD · CUSTOM_ITEM_REASON_TEXT). 모바일은 contracts를 import하지
+// 않으므로(수기 미러 관례) 값을 여기 두되 export하지 않는다 — 두 값의 대조는
+// custom-items-mirror.test.ts가 계약 소스를 읽어서 문다(text-limits.test.ts와 같은 형식).
+const LOCAL_CUSTOM_ITEM_NAME_MAX_LENGTH = 80;
+const LOCAL_CUSTOM_ITEM_MAX_PER_CHILD = 200;
+const LOCAL_CUSTOM_ITEM_REASON_TEXT = "직접 추가한 준비물이에요.";
+
+/** §9.3 CUSTOM_ITEM_NOT_FOUND의 로컬 판본(해요체 문구까지 계약과 같다). */
+const CUSTOM_ITEM_NOT_FOUND_MESSAGE = "직접 추가한 준비물을 찾을 수 없어요.";
+
+function activeCustomItems(childId: string): LocalCustomItemRecord[] {
+  ensureSeeded();
+  return useLocalBackendStore
+    .getState()
+    .customItems.filter((record) => record.childId === childId && !record.deletedAt);
+}
+
+function findActiveCustomItem(childId: string, customItemId: string): LocalCustomItemRecord | undefined {
+  // 서버와 같은 스코프 조회(§2.6): WHERE id = :id AND child_id = :childId AND deleted_at IS NULL.
+  return activeCustomItems(childId).find((record) => record.id === customItemId);
+}
+
+/**
+ * §9.2 생성/수정/상태 응답의 로컬 판본: timingLabel = 밴드 라벨 원문, stageCodes = 밴드 전개.
+ * categoryId·priceBandText는 싣지 않는다 — 커스텀 품목에 없는 사실이다(§5, 가격 표시 잠금).
+ */
+function toCustomItemSummaryDto(record: LocalCustomItemRecord): CustomItemSummary {
+  return {
+    id: record.id,
+    name: record.name,
+    necessityLevel: record.necessityLevel,
+    status: record.status,
+    timingLabel: record.stageBand,
+    stageCodes: bandStages(record.stageBand),
+    isCustom: true
+  };
+}
+
+/** 서버가 트림 후 1~80자로 검증하는 것(§9.2)의 미러. 통과하면 트림된 이름을 돌려준다. */
+function requireCustomItemName(value: string): string {
+  const name = value.trim();
+  if (!name) {
+    throw new Error("준비물 이름을 입력해 주세요.");
+  }
+  if (name.length > LOCAL_CUSTOM_ITEM_NAME_MAX_LENGTH) {
+    throw new Error(`준비물 이름은 ${LOCAL_CUSTOM_ITEM_NAME_MAX_LENGTH}자까지 입력할 수 있어요.`);
+  }
+  return name;
+}
+
+/**
+ * 라운드 100 T2: 커스텀 품목 생성 — POST /children/:childId/custom-items의 로컬 미러.
+ * 멱등은 createExpenseIdempotent(MOB-102)와 같은 형식: 같은 키의 재제출이면 새 행을 만들지
+ * 않고 기존 행을 돌려준다(입력 시트의 초안 단위 키 — 온보딩 아이 생성 관례 §2.3).
+ */
+export function createCustomItem(
+  childId: string,
+  body: CreateCustomItemBody,
+  idempotencyKey?: string
+): CustomItemSummary {
+  ensureSeeded();
+  if (idempotencyKey) {
+    const existingId = useLocalBackendStore.getState().idempotencyKeys[idempotencyKey];
+    if (existingId) {
+      const existing = findActiveCustomItem(childId, existingId);
+      if (existing) return toCustomItemSummaryDto(existing);
+    }
+  }
+
+  const name = requireCustomItemName(body.name);
+  if (!isStageBandLabelValue(body.stageBand)) {
+    throw new Error("시기를 다시 확인해 주세요.");
+  }
+  if (!isNecessityLevelValue(body.necessityLevel)) {
+    throw new Error("필수 정도를 다시 확인해 주세요.");
+  }
+  // 아이당 활성(미삭제) 상한 — §9.3 CUSTOM_ITEM_LIMIT_EXCEEDED와 같은 경계·같은 문구.
+  if (activeCustomItems(childId).length >= LOCAL_CUSTOM_ITEM_MAX_PER_CHILD) {
+    throw new Error(`직접 추가할 수 있는 준비물은 아이당 ${LOCAL_CUSTOM_ITEM_MAX_PER_CHILD}개까지예요.`);
+  }
+
+  const record: LocalCustomItemRecord = {
+    id: generateLocalId("custom-item"),
+    childId,
+    name,
+    stageBand: body.stageBand,
+    necessityLevel: body.necessityLevel,
+    status: "not_prepared",
+    createdAt: new Date().toISOString(),
+    deletedAt: null
+  };
+  useLocalBackendStore.setState((state) => ({
+    customItems: [...state.customItems, record],
+    idempotencyKeys: idempotencyKey
+      ? { ...state.idempotencyKeys, [idempotencyKey]: record.id }
+      : state.idempotencyKeys
+  }));
+  return toCustomItemSummaryDto(record);
+}
+
+/** 속성 수정(name/stageBand/necessityLevel) — status는 updateItemStatus 하나가 쓴다(§2.4). */
+export function updateCustomItem(
+  childId: string,
+  customItemId: string,
+  body: UpdateCustomItemBody
+): CustomItemSummary {
+  const existing = findActiveCustomItem(childId, customItemId);
+  if (!existing) {
+    throw new Error(CUSTOM_ITEM_NOT_FOUND_MESSAGE);
+  }
+
+  const updated: LocalCustomItemRecord = { ...existing };
+  if (body.name !== undefined) updated.name = requireCustomItemName(body.name);
+  if (body.stageBand !== undefined) {
+    if (!isStageBandLabelValue(body.stageBand)) {
+      throw new Error("시기를 다시 확인해 주세요.");
+    }
+    updated.stageBand = body.stageBand;
+  }
+  if (body.necessityLevel !== undefined) {
+    if (!isNecessityLevelValue(body.necessityLevel)) {
+      throw new Error("필수 정도를 다시 확인해 주세요.");
+    }
+    updated.necessityLevel = body.necessityLevel;
+  }
+
+  useLocalBackendStore.setState((state) => ({
+    customItems: state.customItems.map((record) => (record.id === customItemId ? updated : record))
+  }));
+  return toCustomItemSummaryDto(updated);
+}
+
+/** 소프트 삭제(§9.2 — deletedAt만 찍는다). 활성 상한 계산에서 즉시 빠진다. */
+export function deleteCustomItem(childId: string, customItemId: string): DeleteCustomItemResponse {
+  const existing = findActiveCustomItem(childId, customItemId);
+  if (!existing) {
+    throw new Error(CUSTOM_ITEM_NOT_FOUND_MESSAGE);
+  }
+  const now = new Date().toISOString();
+  useLocalBackendStore.setState((state) => ({
+    customItems: state.customItems.map((record) =>
+      record.id === customItemId ? { ...record, deletedAt: now } : record
+    )
+  }));
+  return { id: customItemId, deleted: true };
+}
+
+/** 커스텀 행의 시기 판정 — 카탈로그의 inSelectedPeriod(listItems 안)와 같은 술어다. */
+function customInSelectedPeriod(
+  record: LocalCustomItemRecord,
+  stageBand: StageBandLabel | undefined,
+  stageCode: ChildStageCode
+): boolean {
+  const stageCodes = bandStages(record.stageBand);
+  return stageBand
+    ? itemMatchesBand({ stageCodes, timingLabel: record.stageBand }, stageBand)
+    : stageCodes.includes(stageCode);
+}
+
+/**
+ * 합류 규칙(§2.2)의 커스텀 절반: **탭 술어는 카탈로그와 동일**(서버 matchesTab —
+ * apps/api/src/onboarding/item-ranking.ts — 의 미러), **순서는 created ASC**. 반환 배열을
+ * listItems가 각 탭의 카탈로그 결과 **뒤에** 그대로 덧붙인다. 커스텀 행은 추천 점수
+ * (sortRecommendedItems)에 넣지 않는다 — 사용자 본인의 항목이라 순위를 매길 근거가 없고,
+ * DNC-009 표면(추천 점수 함수)은 0바이트 무접촉이다(§6.1).
+ */
+function customItemsForTab(
+  childId: string,
+  tab: ItemTab,
+  stageBand: StageBandLabel | undefined,
+  stageCode: ChildStageCode
+): ItemSummary[] {
+  const matchesTab = (record: LocalCustomItemRecord): boolean => {
+    // all: 상태로도 시기로도 거르지 않는다(서버 F4 — 밴드 유무와 무관한 전체 스냅샷).
+    if (tab === "all") return true;
+    if (tab === "prepared" || tab === "not_needed") {
+      if (!LOCAL_TAB_STATUSES[tab].includes(record.status)) return false;
+      return stageBand ? customInSelectedPeriod(record, stageBand, stageCode) : true;
+    }
+    // now/soon: 미정리 상태에서 시기 일치의 참/거짓(서로 여집합).
+    if (record.status !== "not_prepared" && record.status !== "interested") return false;
+    const inPeriod = customInSelectedPeriod(record, stageBand, stageCode);
+    return tab === "now" ? inPeriod : !inPeriod;
+  };
+
+  return activeCustomItems(childId)
+    .filter(matchesTab)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .map(toCustomItemSummaryDto);
+}
+
 /**
  * ITEM-121: 서버 GET /children/:childId/items의 선택적 `stageBand`와 같은 의미를 로컬
  * 세션에서도 지원한다 — 밴드를 넘기면 그 시기 기준, 생략하면 아이의 현재 단계 기준
  * (기존 호출자 동작 그대로).
+ *
+ * 라운드 100 T2: 각 탭의 카탈로그 결과 **뒤에** 같은 탭 술어로 거른 커스텀 행을 created ASC로
+ * 덧붙인다(§2.2 — customItemsForTab의 머리말 참고). 커스텀이 0건이면(데모 기본) 종전과
+ * 바이트 단위로 같은 응답이다.
  */
 export function listItems(
-  _childId: string,
+  childId: string,
   tab: ItemTab = "now",
   stageBand?: StageBandLabel
 ): { items: ItemSummary[] } {
@@ -1315,25 +1595,35 @@ export function listItems(
   const inSelectedPeriod = (item: (typeof localItemTemplateFixtures)[number]) =>
     stageBand ? itemMatchesBand({ stageCodes: item.stageCodes, timingLabel: item.timingLabel }, stageBand) : item.stageCodes.includes(stageCode);
 
+  // 라운드 100 T2: 이 탭에 담기는 커스텀 행(같은 탭 술어 · created ASC) — 각 갈래의 카탈로그
+  // 결과 뒤에 그대로 덧붙는다(§2.2 합류 규칙의 순서 절반).
+  const customAppend = customItemsForTab(childId, tab, stageBand, stageCode);
+
   // ITEM-123 (B5): 상태로 거르지 않는 전체 스냅샷 — 서버 tab="all"과 같은 집합.
   // F4 정합: 서버와 동일하게 stageBand를 무시해 네 탭의 합집합을 보장한다
   // (now∪soon은 밴드 무관 전체이므로 밴드로 좁히면 soon 집합을 잃는다).
   if (tab === "all") {
     return {
-      items: [...localItemTemplateFixtures]
-        .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map(toItemSummaryDto)
+      items: [
+        ...[...localItemTemplateFixtures]
+          .sort((left, right) => left.displayOrder - right.displayOrder)
+          .map(toItemSummaryDto),
+        ...customAppend
+      ]
     };
   }
 
   if (tab === "prepared" || tab === "not_needed") {
     const tabStatuses = LOCAL_TAB_STATUSES[tab];
     return {
-      items: localItemTemplateFixtures
-        .filter((item) => tabStatuses.includes(itemStatusFor(item.id)))
-        .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
-        .sort((left, right) => left.displayOrder - right.displayOrder)
-        .map(toItemSummaryDto)
+      items: [
+        ...localItemTemplateFixtures
+          .filter((item) => tabStatuses.includes(itemStatusFor(item.id)))
+          .filter((item) => (stageBand ? inSelectedPeriod(item) : true))
+          .sort((left, right) => left.displayOrder - right.displayOrder)
+          .map(toItemSummaryDto),
+        ...customAppend
+      ]
     };
   }
 
@@ -1366,11 +1656,32 @@ export function listItems(
     .map((entry) => itemById.get(entry.id))
     .filter((item): item is (typeof localItemTemplateFixtures)[number] => Boolean(item));
 
-  return { items: ordered.map(toItemSummaryDto) };
+  return { items: [...ordered.map(toItemSummaryDto), ...customAppend] };
 }
 
-export function getItemDetail(_childId: string, itemTemplateId: string): ItemDetail {
+export function getItemDetail(childId: string, itemTemplateId: string): ItemDetail {
   ensureSeeded();
+  // 라운드 100 T2 — §2.5 커스텀 갈래의 미러: 카탈로그에 없는 id가 그 아이의 활성 커스텀
+  // 행이면 itemDetailSchema 모양으로 응답한다. productLinks는 빈 배열(링크 0건 기존 갈래가
+  // CTA·판매처 비교·고지를 접는다), reasonText는 출처를 말하는 고정 문구(계약
+  // CUSTOM_ITEM_REASON_TEXT — 지어낸 설명이 아니라 사실의 라벨), 나머지는 주장 없음
+  // (usedSecondhandOk false · safetyNote/skipReasonText/linkedExpense null ·
+  // medicalDisclaimerRequired false). 어느 표에도 없는 id는 종전 ITEM_NOT_FOUND 그대로다(R1).
+  if (!localItemTemplateFixtures.some((template) => template.id === itemTemplateId)) {
+    const custom = findActiveCustomItem(childId, itemTemplateId);
+    if (custom) {
+      return {
+        ...toCustomItemSummaryDto(custom),
+        reasonText: LOCAL_CUSTOM_ITEM_REASON_TEXT,
+        skipReasonText: null,
+        usedSecondhandOk: false,
+        safetyNote: null,
+        medicalDisclaimerRequired: false,
+        linkedExpense: null,
+        productLinks: []
+      };
+    }
+  }
   const item = requireItemTemplate(itemTemplateId);
   const productLinks: ProductLink[] = localProductLinkFixtures
     .filter((link) => link.itemTemplateId === item.id)
@@ -1402,12 +1713,34 @@ export function getItemDetail(_childId: string, itemTemplateId: string): ItemDet
 }
 
 export function updateItemStatus(
-  _childId: string,
+  childId: string,
   itemTemplateId: string,
   status: ItemStatus,
   expenseId?: string
 ): ItemSummary {
   ensureSeeded();
+  // 라운드 100 T2 — §2.4 status 엔드포인트 다형화의 미러. 서버와 같은 순서(R1)로만 연다:
+  // "템플릿 미존재 → 그 아이의 활성 커스텀 조회". 커스텀이면 행 내장 status를 갱신하고 같은
+  // 요약 모양(isCustom)으로 응답한다 — 오프라인 아웃박스(updateItemStatusOffline → flush)가
+  // 정확히 이 경로 하나를 타므로, 데모 세션에서도 커스텀 상태 체크가 편승 경로 그대로 동작한다.
+  // 존재하지 않는 id는 종전 ITEM_NOT_FOUND 문구 그대로다(경계 불변).
+  if (!localItemTemplateFixtures.some((template) => template.id === itemTemplateId)) {
+    const custom = findActiveCustomItem(childId, itemTemplateId);
+    if (!custom) {
+      throw new Error("준비템을 찾을 수 없어요.");
+    }
+    // §2.4 경계: 커스텀 행에는 expense_id 자리가 없다 — 조용히 버리면 사용자가 연결됐다고
+    // 믿는다(거짓 침묵 금지). 서버 400 CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED와 같은 문구.
+    if (expenseId != null) {
+      throw new Error("직접 추가한 준비물에는 아직 지출을 연결할 수 없어요.");
+    }
+    const updated: LocalCustomItemRecord = { ...custom, status };
+    useLocalBackendStore.setState((state) => ({
+      customItems: state.customItems.map((record) => (record.id === itemTemplateId ? updated : record))
+    }));
+    return toCustomItemSummaryDto(updated);
+  }
+
   const item = requireItemTemplate(itemTemplateId);
   useLocalBackendStore.setState((state) => ({
     itemStatuses: { ...state.itemStatuses, [itemTemplateId]: { status, expenseId: expenseId ?? null } }
@@ -2293,6 +2626,10 @@ export function confirmChildProfileDeletion(childId: string, confirmationText: s
     ),
     budgets: {},
     itemStatuses: {},
+    // 라운드 100 T2: 커스텀 품목은 아이 소유라 아이 파기와 함께 사라진다(서버 ON DELETE
+    // CASCADE의 미러 — §1.5). 남겨 두면 createChild가 같은 LOCAL_CHILD_ID를 재사용하므로
+    // 이전 아이의 커스텀 품목이 새 아이 목록에 되살아난다(위 itemStatuses와 같은 근거).
+    customItems: state.customItems.filter((record) => record.childId !== childId),
     preparedItemsCompleted: false,
     idempotencyKeys: {}
   }));

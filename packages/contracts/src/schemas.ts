@@ -321,7 +321,11 @@ export const itemSummarySchema = z.object({
   categoryId: uuidSchema.optional(),
   timingLabel: z.string().optional(),
   priceBandText: z.string().optional(),
-  stageCodes: z.array(childStageCodeSchema).optional()
+  stageCodes: z.array(childStageCodeSchema).optional(),
+  // 라운드 100: 커스텀 품목(사용자 직접 추가 준비물, custom_items 행)이 이 모양으로 목록에
+  // 합류할 때의 표식. **additive optional** — 없으면 카탈로그 품목이고, 이 필드가 없던 시절의
+  // 응답(구 서버·구 캐시)도 그대로 통과한다. itemDetailSchema는 extend라 자동 승계된다.
+  isCustom: z.boolean().optional()
 });
 
 // ITEM-121: 준비템 화면의 "시기 칩" 라벨 — GET /children/:childId/items의 선택적
@@ -427,6 +431,39 @@ export const itemDetailSchema = itemSummarySchema.extend({
     .optional(),
   productLinks: z.array(productLinkSchema)
 });
+
+// ---------------------------------------------------------------------------
+// 라운드 100: 커스텀 품목(사용자 직접 추가 준비물). item_templates(운영 시드)와 별개 테이블이며
+// 목록에는 ItemSummary 모양으로 합류한다(isCustom 마커). DNC-009: 추천 점수·정렬 무접촉.
+// 계약 확정 원문은 docs/5차/round100-custom-items-design.md §9.1 — 이 절이 그 수기 단일 소스다.
+// ---------------------------------------------------------------------------
+export const CUSTOM_ITEM_NAME_MAX_LENGTH = 80; // custom_items.name varchar(80)와 동치
+export const CUSTOM_ITEM_MAX_PER_CHILD = 200; // 아이당 활성(미삭제) 상한
+/** 커스텀 상세의 reasonText 고정 문구 — 출처 라벨이지 지어낸 설명이 아니다. */
+export const CUSTOM_ITEM_REASON_TEXT = "직접 추가한 준비물이에요.";
+
+export const createCustomItemRequestSchema = z.object({
+  name: z.string().min(1).max(CUSTOM_ITEM_NAME_MAX_LENGTH), // 서버가 트림 후 재검증
+  stageBand: stageBandLabelSchema, // 4밴드 라벨 원문
+  necessityLevel: necessityLevelSchema // 클라이언트가 항상 명시(기본 essential은 UI 몫)
+});
+
+// 설계 문서 §9.1은 `createCustomItemRequestSchema.partial()`로 적었다 — 아래 선언은 그것과
+// **의미가 같다**(세 필드 전부 optional, 값 제약 동일. schemas.test.ts가 partial() 동치를 값으로
+// 문다). 파생 호출 대신 z.object로 푼 이유: 모바일 수기 미러 스윕
+// (apps/mobile/src/api/contracts-mirror.test.ts)의 모집단 파서가 `.object({`/`.extend({` 머리만
+// 객체 스키마로 읽어서, `.partial()` 한 줄짜리 파생은 분류 불능으로 빨개진다 — 스키마 의미를
+// 바꾸지 않고 파서가 읽는 형태로 적는다.
+// status는 여기 없다 — 상태는 기존 PATCH /children/:childId/items/:id/status 하나가 쓴다.
+export const updateCustomItemRequestSchema = z.object({
+  name: z.string().min(1).max(CUSTOM_ITEM_NAME_MAX_LENGTH).optional(),
+  stageBand: stageBandLabelSchema.optional(),
+  necessityLevel: necessityLevelSchema.optional()
+});
+
+export const customItemSummarySchema = itemSummarySchema.extend({ isCustom: z.literal(true) });
+
+export const deleteCustomItemResponseSchema = z.object({ id: uuidSchema, deleted: z.literal(true) });
 
 export const homeSummarySchema = z.object({
   child: childSchema,
@@ -546,6 +583,10 @@ export const importRowSchema = z.object({
 });
 
 export type CategoryBreakdownEntryDto = z.infer<typeof categoryBreakdownEntrySchema>;
+export type CreateCustomItemRequestDto = z.infer<typeof createCustomItemRequestSchema>;
+export type UpdateCustomItemRequestDto = z.infer<typeof updateCustomItemRequestSchema>;
+export type CustomItemSummaryDto = z.infer<typeof customItemSummarySchema>;
+export type DeleteCustomItemResponseDto = z.infer<typeof deleteCustomItemResponseSchema>;
 export type CategoryListItemDto = z.infer<typeof categoryListItemSchema>;
 export type CategoryReportDto = z.infer<typeof reportCategorySchema>;
 export type ChildDto = z.infer<typeof childSchema>;

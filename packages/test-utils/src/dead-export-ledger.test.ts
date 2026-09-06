@@ -960,9 +960,11 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // ② common-name — 종전 226(라운드 89 C) → 229(기능 라운드 1), 토스 라운드 T2가 홈의 삼항
     // `HOME_SECTIONS_COLLAPSE_LABEL : …`을 걷어 228이 됐다(두 시점 — 그물이 삼항의 `:`를 키로
     // 오독하던 표면이 준 것). 라운드 99 F3·F4가 RECORDS_VIEW_MODE_LIST·useAnalyticsConsentStore를
-    // 열어 오늘 230이다(두 시점 — git 워크트리 대조 실측, 대장 value도 함께 230으로 적음).
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(230);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(230);
+    // 열어 230이 됐다(두 시점 — git 워크트리 대조 실측). 라운드 100 T2가 커스텀 품목 클라이언트
+    // 셋(create/update/deleteCustomItem — client.ts 로컬 분기의 `localBackend.…` 속성 자리)을
+    // 열어 오늘 233이다(두 시점 — 대장 value도 함께 233으로 적음).
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(233);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(233);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.

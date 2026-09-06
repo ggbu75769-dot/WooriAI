@@ -289,6 +289,14 @@ export type ItemSummary = {
   timingLabel?: string;
   priceBandText?: string;
   stageCodes?: ChildStageCode[];
+  /**
+   * 라운드 100: 커스텀 품목(사용자 직접 추가 준비물)이 목록에 합류할 때의 표식 —
+   * packages/contracts `itemSummarySchema.isCustom`의 수기 미러다. **optional**이다: 없으면
+   * 카탈로그 품목이고, 이 필드가 없던 시절의 서버 응답·캐시도 그대로 동작해야 한다(가산 계약).
+   * 커스텀 품목에는 categoryId·priceBandText·상품 링크가 실리지 않는다 — 없는 사실을 지어내지
+   * 않는다(설계 문서 §5, DNC-009/010 무접촉).
+   */
+  isCustom?: boolean;
 };
 
 export type ProductLink = {
@@ -1322,6 +1330,93 @@ export function updateItemStatus(
     method: "PATCH",
     token,
     body: { status, expenseId }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 라운드 100 T2 — 커스텀 품목(사용자 직접 추가 준비물) CRUD. 계약 확정은
+// docs/5차/round100-custom-items-design.md §9. 위 기존 함수들은 시그니처 무파괴(가산 전용).
+// 상태 변경은 여기 없다 — 기존 updateItemStatus 하나가 커스텀 id도 받는다(§2.4: 서버가 id를
+// 다형으로 해석하므로 오프라인 아웃박스·낙관 캐시가 클라이언트 0바이트로 커스텀에 적용된다).
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /children/:childId/custom-items 요청 바디 — packages/contracts
+ * `createCustomItemRequestSchema`의 수기 미러(이 파일의 다른 요청/응답 타입과 같은 관례).
+ * 가격 필드는 없다 — 커스텀 품목에 가격대는 존재하지 않는 사실이다(설계 문서 §5).
+ */
+export type CreateCustomItemBody = {
+  /** 서버가 트림 후 1~80자로 재검증한다(계약 CUSTOM_ITEM_NAME_MAX_LENGTH). */
+  name: string;
+  stageBand: StageBandLabel;
+  necessityLevel: "essential" | "convenience" | "optional";
+};
+
+/** PATCH 바디 — `updateCustomItemRequestSchema`(= 생성 바디의 partial)의 수기 미러. */
+export type UpdateCustomItemBody = {
+  name?: string;
+  stageBand?: StageBandLabel;
+  necessityLevel?: "essential" | "convenience" | "optional";
+};
+
+/**
+ * 커스텀 품목 한 건의 응답 모양 — `customItemSummarySchema`의 수기 미러. ItemSummary에
+ * `isCustom: true`가 확정으로 실린 것뿐이라 목록·상세·상태 캐시의 소비자는 ItemSummary로
+ * 그대로 읽는다(로컬 미러 local-backend.ts가 이 타입으로 반환 모양을 못 박는다).
+ */
+export type CustomItemSummary = ItemSummary & { isCustom: true };
+
+/** DELETE 응답 — `deleteCustomItemResponseSchema`의 수기 미러(soft delete 확인). */
+export type DeleteCustomItemResponse = {
+  id: string;
+  deleted: true;
+};
+
+/**
+ * 커스텀 품목 생성. `idempotencyKey`는 온보딩 아이 생성(MOB-101 — 위 createChild)과 같은
+ * 관례다: 입력 시트가 열릴 때 초안 단위 키 하나를 만들어 같은 제출의 재시도에 재사용하고,
+ * 성공하면 폐기한다. 서버는 IdempotencyInterceptor, 로컬 세션은 idempotencyKeys 맵 미러.
+ */
+export function createCustomItem(
+  token: string,
+  childId: string,
+  body: CreateCustomItemBody,
+  idempotencyKey?: string
+): Promise<ItemSummary> {
+  if (isLocalToken(token)) return local(() => localBackend.createCustomItem(childId, body, idempotencyKey));
+  return requestJson<ItemSummary>(`/children/${childId}/custom-items`, {
+    method: "POST",
+    token,
+    body,
+    headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined
+  });
+}
+
+/** 커스텀 품목 **속성** 수정(name/stageBand/necessityLevel). status는 받지 않는다(§2.4). */
+export function updateCustomItem(
+  token: string,
+  childId: string,
+  customItemId: string,
+  body: UpdateCustomItemBody
+): Promise<ItemSummary> {
+  if (isLocalToken(token)) return local(() => localBackend.updateCustomItem(childId, customItemId, body));
+  return requestJson<ItemSummary>(`/children/${childId}/custom-items/${customItemId}`, {
+    method: "PATCH",
+    token,
+    body
+  });
+}
+
+/** 커스텀 품목 소프트 삭제(지출 DNC-014와 같은 관례 — 서버가 deleted_at을 찍는다). */
+export function deleteCustomItem(
+  token: string,
+  childId: string,
+  customItemId: string
+): Promise<DeleteCustomItemResponse> {
+  if (isLocalToken(token)) return local(() => localBackend.deleteCustomItem(childId, customItemId));
+  return requestJson<DeleteCustomItemResponse>(`/children/${childId}/custom-items/${customItemId}`, {
+    method: "DELETE",
+    token
   });
 }
 

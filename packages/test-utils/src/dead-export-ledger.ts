@@ -2013,7 +2013,11 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 두 시점(라운드 99 F3·F4): 228 → 230 — RECORDS_VIEW_MODE_LIST(달력 착지 비저장 오버라이드)와
     // useAnalyticsConsentStore(teardown 대장 등재)의 이름이 속성/키 자리로도 나오며 표면이 둘
     // 자랐다(git 워크트리 대조 실측 — 모집단이 는 것이지 새 병이 아니다).
-    value: 230,
+    // 두 시점(라운드 100 T2): 230 → 233 — 커스텀 품목 클라이언트 셋(createCustomItem ·
+    // updateCustomItem · deleteCustomItem)의 이름이 client.ts 로컬 세션 분기의 속성 자리
+    // (`localBackend.createCustomItem` 등)로도 나온다(모집단이 는 것이지 새 병이 아니다 —
+    // 그 속성 참조가 셋을 사문 밖에 세워 두는 살아 있는 자기 파일 호출부이기도 하다).
+    value: 233,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +

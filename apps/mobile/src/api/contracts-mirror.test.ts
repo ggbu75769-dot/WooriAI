@@ -320,6 +320,31 @@ const CONSTANT_LEDGER: Record<
     reason:
       "서버 검증 상한이다. 모바일은 기본값만 들고 상한 사본은 두지 않는다 — 이 파일 둘째 단언이 " +
       "계약 소스에서 상한을 읽어 '기본값 ≤ 상한'만 확인한다(사본이 아니라 읽기다)."
+  },
+  // 라운드 100 T2 — 커스텀 품목 상수 셋. 셋 다 `export const` 사본은 없다: 모바일에서 이 값을
+  // 실제로 쓰는 자리는 개발 전용 대역(src/api/local-backend.ts — 이 대장의 '사본 없음' 스윕과
+  // 사문 대장 둘 다 그 파일을 모집단 밖에 둔다)의 **비export 리터럴**이고, 그 리터럴과 계약
+  // 선언의 대조는 src/api/custom-items-mirror.test.ts가 값(숫자·문구)과 동작(경계) 두 방향으로
+  // 문다. T3의 입력 시트 가드가 자기 모듈에 사본을 세우는 날(text-limits 관례), 그 줄이
+  // mirror를 갖거나 아래 사본 없음 스윕이 빨개진다 — EXPENSE_LIST_DEFAULT_LIMIT과 같은 형식.
+  CUSTOM_ITEM_NAME_MAX_LENGTH: {
+    mirror: null,
+    reason:
+      "라운드 100 §1.2 — custom_items.name varchar(80)와 동치인 상한. export const 사본 없음 " +
+      "(로컬 대역의 비export 리터럴뿐), 대조는 src/api/custom-items-mirror.test.ts가 진다."
+  },
+  CUSTOM_ITEM_MAX_PER_CHILD: {
+    mirror: null,
+    reason:
+      "라운드 100 §1.4 — 아이당 활성(미삭제) 커스텀 품목 상한. export const 사본 없음(로컬 " +
+      "대역의 비export 리터럴뿐), 대조는 src/api/custom-items-mirror.test.ts가 진다."
+  },
+  CUSTOM_ITEM_REASON_TEXT: {
+    mirror: null,
+    reason:
+      "라운드 100 §2.5 — 커스텀 상세 reasonText 고정 문구(출처 라벨). 서버가 싣는 값이라 " +
+      "모바일 사본은 로컬 대역의 비export 리터럴뿐이고, 문구 대조는 " +
+      "src/api/custom-items-mirror.test.ts가 진다."
   }
 };
 
