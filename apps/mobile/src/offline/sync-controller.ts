@@ -36,6 +36,7 @@ import {
   discardAllFailedMutations,
   retryFailedItemStatusMutation,
   retryFailedMutation,
+  isFlushFullyConfirmed,
   type FlushSummary
 } from "./sync-engine";
 import { patchItemStatusInQueryData } from "../items/pending-status";
@@ -112,13 +113,29 @@ export type SyncSnapshot = {
   itemStatusRows: ItemStatusOutboxRow[];
   /** 라운드 61 #6: 이 숫자·목록을 **믿어도 되는가**(OfflineStorageState 주석). */
   storage: OfflineStorageState;
+  /**
+   * 라운드 101 트랙 C — 마지막으로 flush가 **아무것도 남기지 않고** 끝난 시각(ms epoch).
+   *
+   * 실패·충돌·네트워크 중단이 하나라도 있으면 갱신하지 않는다(부분 실패 미갱신 — 판정은
+   * 엔진의 `isFlushFullyConfirmed` 머리말). 화면은 이 값으로 "모든 기록이 동기화됐어요" 옆에
+   * "방금 확인했어요/N분 전 확인"을 붙인다(src/home/home-sync-status.ts의
+   * `formatSyncCheckedPhrase`).
+   *
+   * **세션 수명이다(persist하지 않는다).** 이 스냅숏의 다른 칸들과 같은 관례다 — 스냅숏 전체가
+   * 모듈 변수라 재시작하면 사라지고, 행·건수는 저장소에서 다시 읽지만 이 시각의 원천은 저장소가
+   * 아니라 그 세션에 실제로 돈 flush다. 재시작 직후 null이면 화면은 보조 문구를 아예 내지
+   * 않는다(지난 세션의 시각을 지어내 말하지 않는다). 로컬 세션(데모)도 같은 flush 경로를 지나
+   * 즉시 확정되므로(client.ts의 isLocalToken 분기) 이 값은 데모에서도 자연히 채워진다.
+   */
+  lastFlushSucceededAt: number | null;
 };
 
 const emptySnapshot: SyncSnapshot = {
   counts: { pending: 0, syncing: 0, failed: 0, conflict: 0 },
   rows: [],
   itemStatusRows: [],
-  storage: "ok"
+  storage: "ok",
+  lastFlushSucceededAt: null
 };
 
 let latestSnapshot: SyncSnapshot = emptySnapshot;
@@ -145,6 +162,21 @@ export async function refreshOfflineSyncSnapshot(): Promise<void> {
 function publishStorageUnavailableSnapshot(): void {
   if (latestSnapshot.storage === "unavailable") return;
   latestSnapshot = { ...latestSnapshot, storage: "unavailable" };
+  notifySnapshotListeners();
+}
+
+/**
+ * 라운드 101 트랙 C — 마지막 flush 전량 확정 시각을 스냅샷에 싣는다(null은 "그런 시각이
+ * 없다/더는 이 계정의 것이 아니다").
+ *
+ * refreshSnapshot과 달리 저장소를 읽지 않는다: 이 칸의 원천은 저장소가 아니라 방금 끝난 flush
+ * 자체다(attemptFlush). 그래서 refreshSnapshot이 실패하는 갈래(저장소 unavailable)에서도 이
+ * 시각은 그대로 남는다 — flush가 실제로 전량 확정으로 끝났다는 과거 사실은 그 뒤 저장소가
+ * 안 열린다고 거짓이 되지 않는다.
+ */
+function publishLastFlushSucceededAt(at: number | null): void {
+  if (latestSnapshot.lastFlushSucceededAt === at) return;
+  latestSnapshot = { ...latestSnapshot, lastFlushSucceededAt: at };
   notifySnapshotListeners();
 }
 
@@ -194,7 +226,9 @@ async function refreshSnapshot(): Promise<void> {
     if (row.syncState === "synced") continue;
     counts[row.syncState] += 1;
   }
-  latestSnapshot = { counts, rows, itemStatusRows, storage: "ok" };
+  // 라운드 101 트랙 C: 확인 시각은 이월한다 — 이 함수는 저장소를 다시 읽었을 뿐, flush가 새로
+  // 돈 것이 아니다(그 시각을 움직이는 자리는 attemptFlush와 계정 전환 둘뿐이다).
+  latestSnapshot = { counts, rows, itemStatusRows, storage: "ok", lastFlushSucceededAt: latestSnapshot.lastFlushSucceededAt };
   notifySnapshotListeners();
 }
 
@@ -239,6 +273,10 @@ async function attemptFlush(token: string, queryClient: QueryClient): Promise<Fl
   const remote = createClientRemoteExpenseApi(token);
   const startedAt = Date.now();
   const summary = await flushOutbox(store, remote);
+  // 라운드 101 트랙 C: 이 pass가 아무것도 남기지 않고 끝났을 때만 확인 시각을 적는다(부분
+  // 실패·충돌·네트워크 중단은 미갱신 — 근거는 isFlushFullyConfirmed 머리말). 시계는 바로 위
+  // 레이턴시 측정(startedAt)과 같은 직접 Date.now()다 — 이 모듈에 주입 시계 규약은 없다.
+  if (isFlushFullyConfirmed(summary)) publishLastFlushSucceededAt(Date.now());
   await refreshSnapshot();
   if (summary.synced > 0) {
     await queryClient.invalidateQueries({ queryKey: ["expenses"] });
@@ -716,6 +754,10 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
           // scheduled the incoming account's re-render — everything below is a promise hop and
           // therefore lands after it. See clearSessionScopedQueryCache's contract.
           clearSessionScopedQueryCache();
+          // 라운드 101 트랙 C: 확인 시각도 계정 정체성에 묶인 값이다 — 남겨 두면 다음 계정의
+          // 홈이 이전 계정의 flush를 "N분 전 확인"이라고 말한다. 아래 wipe가 끝난 뒤의
+          // refreshSnapshot은 이 칸을 이월만 하므로(원천이 저장소가 아니다) 여기서 직접 지운다.
+          publishLastFlushSucceededAt(null);
           void getOfflineStore()
             .then((store) =>
               teardownOfflineSessionState(store, {

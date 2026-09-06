@@ -44,6 +44,9 @@ import { isDiscardablePendingRow } from "../src/offline/pending-row-actions";
 import { buildFailedRowPrefillParams } from "../src/expenses/failed-row-prefill";
 // 토스급 T4: 지출 행의 날짜 표기는 기록 탭·홈 행과 같은 단일 소스("8월 4일")다.
 import { formatSpentOn } from "../src/expenses/records-list-view";
+// 라운드 101 트랙 C: 확인 시각 문구는 홈 최하단 줄과 같은 함수 하나다(같은 상태를 두 화면이
+// 같은 단어로 — relative-time 재사용, 새 시간 문구 없음).
+import { formatSyncCheckedPhrase } from "../src/home/home-sync-status";
 import { useExpenseEntryGate } from "../src/family/useExpenseEntryGate";
 // 라운드 71 트랙 E: 잠긴 세션의 머리말 문장은 화면이 짓지 않는다(단일 소스는 순수 모듈이다).
 import { VIEW_ONLY_HEADLINES } from "../src/family/record-permissions";
@@ -688,6 +691,14 @@ export default function SyncStatusScreen() {
    * 라벨도 `failedRows.length`를 유지한다.
    */
   const retryableFailedCount = countRetryableFailedRows(failedRows);
+  /**
+   * 라운드 101 트랙 C — 머리말의 확인 시각 한 줄. 시각이 null이면(콜드 스타트 — 세션 수명 값,
+   * 또는 아직 전량 확정 flush 없음) 줄 자체를 내지 않는다(모르는 시각을 지어내지 않는다).
+   * 대기·실패 행이 있어도 그대로 선다: 이 문구가 말하는 것은 "마지막으로 큐가 전량 확정으로
+   * 비었던 시각"이라는 과거 사실이고, 지금 남은 행은 바로 아래 배지·목록이 말한다.
+   * Date.now()는 홈 줄(SyncStatusBar)과 같은 관례다 — 렌더마다 재계산, 분 단위 표현에 충분.
+   */
+  const lastCheckedPhrase = formatSyncCheckedPhrase(snapshot.lastFlushSucceededAt, Date.now());
   // 라운드 51 C-10: 준비템 상태 큐. 충돌 갈래는 없다(상태에는 버전 충돌이 없다).
   const pendingItemStatusRows = snapshot.itemStatusRows.filter((row) => row.syncState !== "failed");
   const failedItemStatusRows = snapshot.itemStatusRows.filter((row) => row.syncState === "failed");
@@ -851,6 +862,12 @@ export default function SyncStatusScreen() {
         }
         onBack={() => router.back()}
       />
+
+      {/* 라운드 101 트랙 C: 홈 최하단 줄의 보조 문구와 같은 확인 시각 한 줄(같은 함수 —
+          formatSyncCheckedPhrase, 근거는 위 선언 주석). null이면 그리지 않는다. */}
+      {lastCheckedPhrase ? (
+        <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{lastCheckedPhrase}</Text>
+      ) : null}
 
       {/* REC-123(H4): 배지/섹션 제목 문구는 기록 탭과 같은 src/offline/messages.ts에서 온다.
           라운드 51 C-10: 이 화면의 배지는 목록에 실제로 그리는 행 수를 세므로 준비템 상태 행까지

@@ -211,8 +211,11 @@ describe("라운드 61 #6 배선 — 두 저장소 열기 자리가 모두 이 �
     expect(body).toContain('latestSnapshot = { ...latestSnapshot, storage: "unavailable" };');
     // 같은 사실을 반복해 알려 화면을 흔들지 않는다.
     expect(body).toContain('if (latestSnapshot.storage === "unavailable") return;');
-    // 성공 경로는 종전대로 전량을 다시 싣고 상태를 되돌린다.
-    expect(controller).toContain('latestSnapshot = { counts, rows, itemStatusRows, storage: "ok" };');
+    // 성공 경로는 종전대로 전량을 다시 싣고 상태를 되돌린다. (라운드 101 트랙 C: 확인 시각
+    // 칸은 이월한다 — 이 함수는 저장소를 읽었을 뿐 flush가 새로 돈 것이 아니다.)
+    expect(controller).toContain(
+      'latestSnapshot = { counts, rows, itemStatusRows, storage: "ok", lastFlushSucceededAt: latestSnapshot.lastFlushSucceededAt };'
+    );
   });
 
   it("동기화 상태 화면은 저장소가 없을 때 '모든 기록이 동기화됐어요'라고 말하지 않는다", () => {

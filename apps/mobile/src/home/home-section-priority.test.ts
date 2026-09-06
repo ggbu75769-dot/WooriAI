@@ -604,7 +604,10 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
   });
 
   it("SyncStatusBar가 최하단에 선다(스펙 §통합 지점)", () => {
-    expect(sessionRender).toContain("<SyncStatusBar onPress={() => router.push(\"/sync-status\")} status={homeSyncStatus} />");
+    // 라운드 101 트랙 C: 확인 시각(lastFlushSucceededAt)도 같은 스냅숏 한 개에서 온다(새 훅 없음).
+    expect(sessionRender).toContain(
+      "<SyncStatusBar lastCheckedAt={offlineSyncSnapshot.lastFlushSucceededAt} onPress={() => router.push(\"/sync-status\")} status={homeSyncStatus} />"
+    );
     const sync = sessionRender.indexOf("<SyncStatusBar");
     expect(sync).toBeGreaterThan(sessionRender.indexOf("최근 기록\n"));
   });

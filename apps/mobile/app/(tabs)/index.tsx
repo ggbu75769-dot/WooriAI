@@ -2865,7 +2865,7 @@ export default function HomeScreen() {
           ) : null}
 
           {/* 최하단 동기화 줄(스펙 §통합 지점). 눌러서 동기화 상태 화면으로 간다. */}
-          <SyncStatusBar onPress={() => router.push("/sync-status")} status={homeSyncStatus} />
+          <SyncStatusBar lastCheckedAt={offlineSyncSnapshot.lastFlushSucceededAt} onPress={() => router.push("/sync-status")} status={homeSyncStatus} />
         </View>
       </View>
     </AppScreen>

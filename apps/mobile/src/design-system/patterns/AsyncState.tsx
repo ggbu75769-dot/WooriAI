@@ -1,6 +1,10 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
+// 라운드 101 트랙 C: 확인 시각 보조 문구의 단일 소스(판정·시간 표현은 그 모듈이 정한다 —
+// relative-time 재사용). 이 import는 사이클을 만들지 않는다: home-sync-status가 이 파일에서
+// 가져가는 것은 타입(AppSyncStatus)뿐이라 런타임 방향은 이쪽 하나다.
+import { formatSyncCheckedPhrase } from "../../home/home-sync-status";
 import { OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE } from "../../offline/messages";
 import { KoreanText as Text } from "../components/KoreanText";
 import { semanticColors } from "../tokens/color";
@@ -106,9 +110,30 @@ const syncPresentation: Record<AppSyncStatus, { label: string; icon: IconName; t
   unknown: { label: OFFLINE_STORAGE_UNKNOWN_PENDING_SENTENCE, icon: "cloud-question", tone: "warning" }
 };
 
-export function SyncStatusBar({ status, label, onPress }: { status: AppSyncStatus; label?: string; onPress?: () => void }) {
+export function SyncStatusBar({
+  status,
+  label,
+  onPress,
+  lastCheckedAt
+}: {
+  status: AppSyncStatus;
+  label?: string;
+  onPress?: () => void;
+  /** 라운드 101 트랙 C: 스냅숏의 `lastFlushSucceededAt`(ms epoch). 없으면 종전 표시 그대로다. */
+  lastCheckedAt?: number | null;
+}) {
   const presentation = syncPresentation[status];
-  const visibleLabel = label ?? presentation.label;
+  /**
+   * 라운드 101 트랙 C — 보조 문구는 **synced에만** 붙는다("모든 기록이 동기화됐어요 · 방금
+   * 확인했어요"). 다른 상태의 줄은 지금 남아 있는 일(대기·전송 중·충돌)을 말하는 중이라 옛
+   * 확인 시각이 옆에 서면 두 문장이 서로를 흐린다. 시각이 null이거나(아직 전량 확정 flush가
+   * 없는 콜드 세션) 이 prop을 모르는 호출부에서는 종전 라벨 그대로다 — formatSyncCheckedPhrase
+   * 가 null을 돌려준다. 렌더에서 Date.now()를 직접 읽는 것은 기기 목록의 "마지막 사용" 표기와
+   * 같은 관례다(app/settings/notifications.tsx) — 이 줄은 스냅숏 갱신·리렌더마다 다시 계산되고,
+   * 분 단위 표현에는 그 정밀도로 충분하다.
+   */
+  const checkedPhrase = status === "synced" ? formatSyncCheckedPhrase(lastCheckedAt ?? null, Date.now()) : null;
+  const visibleLabel = label ?? (checkedPhrase ? `${presentation.label} · ${checkedPhrase}` : presentation.label);
   const warning = presentation.tone === "warning";
   const danger = presentation.tone === "danger";
   return (
