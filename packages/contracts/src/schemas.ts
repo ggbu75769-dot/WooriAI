@@ -293,17 +293,34 @@ export const listExpensesResponseSchema = z.object({
   nextCursor: z.string().nullable().optional()
 });
 
+// ---------------------------------------------------------------------------
+// 라운드 102: 카테고리별 예산. budgets(총액 한 칸, DNC-007)와 별개 테이블 category_budgets이며
+// 기존 PUT/GET /budget과 GET /reports/monthly에 additive로만 실린다. 홈·푸시·경고 판정 무접촉.
+// 계약 확정 원문은 docs/5차/round102-category-budget-design.md §9.
+// ---------------------------------------------------------------------------
+export const CATEGORY_BUDGET_MAX_PER_MONTH = 30; // 아이·월당 행 상한 (§1.4)
+
+export const categoryBudgetEntrySchema = z.object({
+  categoryId: uuidSchema,
+  amountKrw: moneyKrwSchema // 1..MONEY_KRW_MAX — 0원 예산 없음(부재가 곧 미설정)
+});
+
 export const budgetSchema = z.object({
   childId: uuidSchema,
   yearMonth: dateOnlySchema,
   amountKrw: moneyKrwSchema,
   usedAmountKrw: z.number().int(),
-  remainingAmountKrw: z.number().int()
+  remainingAmountKrw: z.number().int(),
+  // 라운드 102: additive optional — 이 필드가 없던 시절의 응답(구 서버·구 캐시)도 그대로
+  // 통과한다. 서버 200은 항상 배열(없으면 [])을 categoryId 오름차순으로 싣는다(§2.3).
+  categoryBudgets: z.array(categoryBudgetEntrySchema).optional()
 });
 
 // Home summary reports a budget of 0 (rather than omitting it) when no monthly
 // budget has been set yet, so its amountKrw allows 0 unlike the strict
 // moneyKrwSchema-backed budgetSchema used by the dedicated budget endpoints.
+// 라운드 102: extend라 categoryBudgets(optional)를 타입으로는 승계하지만, 서버는 홈 응답에
+// 이 필드를 싣지 않는다(§2.4 — 소비처 없는 페이로드를 늘리지 않는다).
 export const homeMonthlyBudgetSchema = budgetSchema.extend({
   amountKrw: z.number().int().min(0)
 });
@@ -511,7 +528,10 @@ export const reportMonthlySchema = z.object({
   budgetAmountKrw: z.number().int().min(1).nullable().optional(),
   // CON-121(CON-115 권고 잔여분): z.record(z.unknown())였던 자리를 실응답 형태로
   // 조인다 — 월간 리포트의 categoryTop은 카테고리 합계 내림차순 목록이다.
-  categoryTop: z.array(categoryBreakdownEntrySchema)
+  categoryTop: z.array(categoryBreakdownEntrySchema),
+  // 라운드 102: 그 달의 카테고리 예산 행(없으면 []). additive optional — 이 필드가 없던
+  // 시절의 응답도 통과한다. 리포트 "예산 대비" 블록의 예산 소스다(§2.4).
+  categoryBudgets: z.array(categoryBudgetEntrySchema).optional()
 });
 
 // REP-128: GET /children/:childId/reports/trend 의 구간 크기 계약.
@@ -583,6 +603,7 @@ export const importRowSchema = z.object({
 });
 
 export type CategoryBreakdownEntryDto = z.infer<typeof categoryBreakdownEntrySchema>;
+export type CategoryBudgetEntryDto = z.infer<typeof categoryBudgetEntrySchema>;
 export type CreateCustomItemRequestDto = z.infer<typeof createCustomItemRequestSchema>;
 export type UpdateCustomItemRequestDto = z.infer<typeof updateCustomItemRequestSchema>;
 export type CustomItemSummaryDto = z.infer<typeof customItemSummarySchema>;

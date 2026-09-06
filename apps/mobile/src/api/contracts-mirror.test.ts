@@ -352,6 +352,17 @@ const CONSTANT_LEDGER: Record<
       "라운드 100 §2.5 — 커스텀 상세 reasonText 고정 문구(출처 라벨). 서버가 싣는 값이라 " +
       "모바일 사본은 로컬 대역의 비export 리터럴뿐이고, 문구 대조는 " +
       "src/api/custom-items-mirror.test.ts가 진다."
+  },
+  // 라운드 102 T2 — 카테고리별 예산 상한. 커스텀 품목 상수 셋과 같은 형식: 모바일에서 이 값을
+  // 실제로 쓰는 자리는 로컬 대역(src/api/local-backend.ts — 이 대장의 '사본 없음' 스윕과 사문
+  // 대장 둘 다 모집단 밖)의 **비export 리터럴**(LOCAL_CATEGORY_BUDGET_MAX_PER_MONTH)이고,
+  // 라운드 95 공통 금지(모바일 새 export const 0건)에 따라 export const 사본은 두지 않는다.
+  CATEGORY_BUDGET_MAX_PER_MONTH: {
+    mirror: null,
+    reason:
+      "라운드 102 §1.4 — 아이·월당 카테고리 예산 행 상한(replace-set 트랜잭션의 문장 수가 " +
+      "입력에 비례하지 않는 근거). export const 사본 없음(로컬 대역의 비export 리터럴뿐), " +
+      "값·경계 동작 두 방향 대조는 src/api/category-budgets-mirror.test.ts가 진다."
   }
 };
 

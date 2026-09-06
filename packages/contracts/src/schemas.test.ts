@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  budgetSchema,
+  categoryBudgetEntrySchema,
+  CATEGORY_BUDGET_MAX_PER_MONTH,
   childSchema,
   createCustomItemRequestSchema,
   createExpenseRequestSchema,
@@ -673,5 +676,81 @@ describe("custom item contracts (round 100)", () => {
     expect(() => deleteCustomItemResponseSchema.parse({ id, deleted: false })).toThrow();
     expect(() => deleteCustomItemResponseSchema.parse({ id })).toThrow();
     expect(() => deleteCustomItemResponseSchema.parse({ id: "not-a-uuid", deleted: true })).toThrow();
+  });
+});
+
+/**
+ * 라운드 102 T2 — 카테고리별 예산 계약(docs/5차/round102-category-budget-design.md §9.1).
+ *
+ * budgets(총액 한 칸, DNC-007)는 무접촉이고 categoryBudgets는 **additive optional** 두 자리
+ * (budgetSchema · reportMonthlySchema)에만 실린다 — 이 필드가 없던 시절의 응답(구 서버·구
+ * 캐시)이 계속 통과하는 것이 하위호환의 전부다. 홈(homeMonthlyBudgetSchema)은 extend라
+ * 타입은 승계하되 서버가 싣지 않는다(§2.4).
+ */
+describe("category budget contracts (round 102)", () => {
+  const entry = { categoryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", amountKrw: 100_000 };
+  const baseBudget = {
+    childId: "11111111-1111-4111-8111-111111111111",
+    yearMonth: "2026-09-01",
+    amountKrw: 300_000,
+    usedAmountKrw: 120_000,
+    remainingAmountKrw: 180_000
+  };
+  const baseMonthly = {
+    childId: "11111111-1111-4111-8111-111111111111",
+    yearMonth: "2026-09-01",
+    totalExpenseKrw: 120_000,
+    budgetAmountKrw: 300_000,
+    categoryTop: []
+  };
+
+  it("pins the per-month row cap constant (§1.4)", () => {
+    expect(CATEGORY_BUDGET_MAX_PER_MONTH).toBe(30);
+  });
+
+  it("validates one entry: uuid categoryId + strict moneyKrw amount (0원 예산 없음 — 부재가 곧 미설정)", () => {
+    expect(categoryBudgetEntrySchema.parse(entry)).toEqual(entry);
+    // 지출·총액 예산과 같은 단일 상한(MONEY_KRW_MAX)을 문다 — GAP-054 #2 관례.
+    expect(categoryBudgetEntrySchema.parse({ ...entry, amountKrw: MONEY_KRW_MAX }).amountKrw).toBe(MONEY_KRW_MAX);
+    expect(() => categoryBudgetEntrySchema.parse({ ...entry, amountKrw: MONEY_KRW_MAX + 1 })).toThrow();
+    // 0원 예산은 존재하지 않는다(§1.2) — "없음"은 행의 부재이지 0이 아니다.
+    expect(() => categoryBudgetEntrySchema.parse({ ...entry, amountKrw: 0 })).toThrow();
+    expect(() => categoryBudgetEntrySchema.parse({ ...entry, amountKrw: 1.5 })).toThrow();
+    expect(() => categoryBudgetEntrySchema.parse({ ...entry, categoryId: "not-a-uuid" })).toThrow();
+  });
+
+  it("keeps categoryBudgets additive-optional on budgetSchema (구 응답·구 캐시 하위호환)", () => {
+    // 필드가 없던 시절의 응답 — 그대로 통과한다.
+    expect(budgetSchema.parse(baseBudget).categoryBudgets).toBeUndefined();
+    // 서버 200은 항상 배열을 싣는다 — 빈 배열(행 없음)과 채운 배열 둘 다 유효하다.
+    expect(budgetSchema.parse({ ...baseBudget, categoryBudgets: [] }).categoryBudgets).toEqual([]);
+    expect(budgetSchema.parse({ ...baseBudget, categoryBudgets: [entry] }).categoryBudgets).toEqual([entry]);
+    // 행 하나라도 계약 위반이면 응답 전체가 계약 밖이다.
+    expect(() => budgetSchema.parse({ ...baseBudget, categoryBudgets: [{ ...entry, amountKrw: 0 }] })).toThrow();
+    expect(() => budgetSchema.parse({ ...baseBudget, categoryBudgets: "not-an-array" })).toThrow();
+  });
+
+  it("inherits the field on homeMonthlyBudgetSchema via extend, without requiring it (§2.4)", () => {
+    const homeBudget = { ...baseBudget, amountKrw: 0, remainingAmountKrw: -120_000 };
+    // 서버는 홈에 싣지 않는다 — 없는 응답이 정상이다.
+    expect(homeMonthlyBudgetSchema.parse(homeBudget).categoryBudgets).toBeUndefined();
+    // extend 승계라 실려 와도 계약 위반은 아니다(타입 축은 budgetSchema와 같다).
+    expect(homeMonthlyBudgetSchema.parse({ ...homeBudget, categoryBudgets: [entry] }).categoryBudgets).toEqual([
+      entry
+    ]);
+  });
+
+  it("keeps categoryBudgets additive-optional on reportMonthlySchema (리포트 예산 대비 블록의 소스)", () => {
+    expect(reportMonthlySchema.parse(baseMonthly).categoryBudgets).toBeUndefined();
+    expect(reportMonthlySchema.parse({ ...baseMonthly, categoryBudgets: [] }).categoryBudgets).toEqual([]);
+    expect(reportMonthlySchema.parse({ ...baseMonthly, categoryBudgets: [entry] }).categoryBudgets).toEqual([entry]);
+    expect(() =>
+      reportMonthlySchema.parse({ ...baseMonthly, categoryBudgets: [{ categoryId: "not-a-uuid", amountKrw: 1 }] })
+    ).toThrow();
+    // 예산 미설정 월(budgetAmountKrw null)에도 필드 모양은 같다 — §1.3(b)의 구조 종속은
+    // 요청(PUT 본문) 축이지 응답 스키마가 교차 제약을 들지 않는다.
+    expect(
+      reportMonthlySchema.parse({ ...baseMonthly, budgetAmountKrw: null, categoryBudgets: [] }).categoryBudgets
+    ).toEqual([]);
   });
 });

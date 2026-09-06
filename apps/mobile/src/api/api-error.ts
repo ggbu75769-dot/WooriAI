@@ -244,6 +244,28 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   CHILD_STAGE_MODE_TRANSITION_NOT_ALLOWED: "아이 상태는 '임신 중'에서 '태어났어요'로만 바꿀 수 있어요.",
 
   /**
+   * --- 카테고리별 예산의 실패 둘 (라운드 102 · PUT /budget의 categoryBudgets replace-set) ---
+   *
+   * 서버 원문 그대로다(docs/5차/round102-category-budget-design.md §9.3 —
+   * onboarding-core.service.ts가 던진다). 예산 화면의 저장 실패는 `useSaveErrorCopy`를 지나
+   * 이 표를 읽으므로(라운드 70 B), 여기 없으면 다시 눌러도 절대 풀리지 않는 두 실패가
+   * "저장하지 못했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요."라는 틀린 안내로 접힌다.
+   *
+   * ⚠️ 30은 계약 상수 `CATEGORY_BUDGET_MAX_PER_MONTH`(packages/contracts §1.4)의 값이다 —
+   * 모바일은 그 패키지를 의존하지 않아 문장에 값이 그대로 적히고, 숫자·문구가 계약과 갈라지는
+   * 순간은 src/api/category-budgets-mirror.test.ts의 대조가 잡는다(amountOverLimitMessage처럼
+   * 읽어 올 모바일 쪽 단일 소스 모듈이 이 상한에는 없다 — 사본은 로컬 대역의 비export
+   * 리터럴뿐이다).
+   *
+   * 도달성 메모: 정식 카테고리는 오늘 12종이라 상한(30)은 앱 UI로는 닿지 않고, 비활성 카테고리도
+   * 화면 모집단이 살아 있는 목록이라 평상시에는 닿지 않는다 — 남는 경로는 오래된 카테고리
+   * 캐시(운영자가 그사이 숨긴 분류)와 구버전/우회 클라이언트다. 낮은 도달성이 곧 낮은 비용이다
+   * (EXPENSE_DATE_TOO_OLD가 세운 그 판단).
+   */
+  CATEGORY_BUDGET_INVALID_CATEGORY: "예산을 세울 수 없는 카테고리예요.",
+  CATEGORY_BUDGET_LIMIT_EXCEEDED: "카테고리 예산은 한 달에 30개까지 정할 수 있어요.",
+
+  /**
    * 라운드 69 B — **가장 도달하기 쉬운 자리**(400). 준비템에서 "샀어요"를 눌러 오프라인으로
    * 저장 → 그 사이 운영이 그 템플릿을 내림/교체 → flush가 400을 받는다. 사용자가 볼 수 있는
    * 값(금액·품목·날짜)에는 아무 문제가 없어서, 종전의 "요청을 처리하지 못했어요."로는 무엇을
