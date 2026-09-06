@@ -619,7 +619,13 @@ describe("BUD-001 예산 화면 배선 (app/budget.tsx)", () => {
     // 셋째는 최근 3개월 실지출 추이(getTrendReport 1회, REP-128 재조합)로, 지난달 예산과 같은
     // 이유(그 두 달 전 합계는 어떤 화면도 받아 두지 않는다)·같은 defer 판단(budget.data === null)
     // 아래에서만 켜진다. 인용한 문장은 지우지 않는다.
-    expect(screen.match(/useQuery\(/g) ?? []).toHaveLength(3);
+    // ⚠️ 두 시점(라운드 102 T3): 위 "세 개"도 그 라운드의 바이트다 — 오늘은 **네 개**다. 넷째는
+    // 카테고리별 예산 카드의 행 모집단인 `["categories"]`(includeAll 전량 규약 —
+    // categories-cache-contract 스윕이 형식을 물고, 이 화면 계약은 아래
+    // category-budget-form-wiring.test.ts가 진다). "사용액·지난달 실지출은 캐시 읽기"라는 이
+    // 계약의 축은 그대로다 — 늘어난 쿼리는 그 두 값의 조회가 아니다. 인용한 문장은 지우지 않는다.
+    expect(screen.match(/useQuery\(/g) ?? []).toHaveLength(4);
+    expect(screen).toContain('queryKey: ["categories"]');
   });
 
   /**

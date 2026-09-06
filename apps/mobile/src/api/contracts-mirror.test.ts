@@ -357,12 +357,18 @@ const CONSTANT_LEDGER: Record<
   // 실제로 쓰는 자리는 로컬 대역(src/api/local-backend.ts — 이 대장의 '사본 없음' 스윕과 사문
   // 대장 둘 다 모집단 밖)의 **비export 리터럴**(LOCAL_CATEGORY_BUDGET_MAX_PER_MONTH)이고,
   // 라운드 95 공통 금지(모바일 새 export const 0건)에 따라 export const 사본은 두지 않는다.
+  // ⚠️ 두 시점(라운드 102 T3): 커스텀 품목의 그날이 여기도 왔다 — 예산 화면의 상한 선제 가드
+  // 사본이 src/expenses/category-budget-form.ts에 섰다. 같은 금지에 따라 사본은 export const가
+  // 아니라 **비export 리터럴**(CATEGORY_BUDGET_FORM_ROW_LIMIT)이라 이 대장의 mirror 칸(export
+  // const 형식만 가리킬 수 있다)은 null 그대로 두고, 그 리터럴과 계약 선언의 두 방향 대조는
+  // src/expenses/category-budget-form.test.ts가 진다(문구는 api-error 표 한 곳 경유).
   CATEGORY_BUDGET_MAX_PER_MONTH: {
     mirror: null,
     reason:
       "라운드 102 §1.4 — 아이·월당 카테고리 예산 행 상한(replace-set 트랜잭션의 문장 수가 " +
-      "입력에 비례하지 않는 근거). export const 사본 없음(로컬 대역의 비export 리터럴뿐), " +
-      "값·경계 동작 두 방향 대조는 src/api/category-budgets-mirror.test.ts가 진다."
+      "입력에 비례하지 않는 근거). export const 사본 없음(로컬 대역의 비export 리터럴 + T3 " +
+      "예산 화면 선제 가드의 비export 리터럴뿐), 값·경계 동작 두 방향 대조는 " +
+      "src/api/category-budgets-mirror.test.ts와 src/expenses/category-budget-form.test.ts가 진다."
   }
 };
 

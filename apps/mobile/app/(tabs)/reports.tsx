@@ -71,6 +71,10 @@ import {
   categoryTrendBarDrilldownLabel
 } from "../../src/reports/category-trend-drilldown";
 import { useCategoryTrend } from "../../src/reports/use-category-trend";
+// 라운드 102 T3: 월간 탭 도넛 아래 "카테고리 예산" 블록. 행 조립(가족 합류·퍼센트·문장)은 전부
+// 순수 모듈이 소유하고(docs/5차/round102-category-budget-design.md §4.3·§5.1) 화면은 그린다.
+// 사용액 합류의 단일 소스는 기록 탭 칩의 matchIds다 — buildRecordsCategoryChips는 읽기 전용.
+import { buildCategoryBudgetUsageRows } from "../../src/reports/category-budget-usage";
 // GAP-066 트랙 A(#1): 끝난 달의 예산 결과 한 줄. 판정·문구는 전부 순수 모듈에 있고, 예산
 // 퍼센트는 홈 히어로·인사이트와 **같은** evaluateHomeBudgetProgress에서 온다(두 벌 금지).
 import {
@@ -1120,6 +1124,27 @@ export default function ReportsScreen() {
         })
       : null;
 
+  /**
+   * 라운드 102 §4.3 — 월간 탭 "카테고리 예산" 블록의 행. 새 요청은 0건이다: 예산은 월간 리포트
+   * 응답(monthly.data.categoryBudgets — §2.4 가산), 사용액은 **도넛과 같은** 카테고리 분해
+   * 응답(activeCategory — 두 숫자의 모집단이 같다), 이름·별칭 가족은 이미 켜져 있는
+   * ["categories"] 캐시다. 카테고리 목록이 아직 없으면 행을 만들지 않는다(이름 폴백으로 엉뚱한
+   * 카테고리를 지목하거나 퀵타일 지출이 빠진 가짜 사용액을 만드느니 블록을 생략한다 —
+   * 인사이트 카드의 categories.isSuccess 게이트와 같은 판단).
+   *
+   * REP-001 픽셀락: hasSession 게이트라 비세션 미리보기 분기에는 닿지 않는다(카테고리 추이
+   * 카드가 같은 방식으로 증명한 형식 — §6.6). 분기·연간에 없는 이유는 끝난 달 예산 한 줄이
+   * 확정한 문장 그대로다("세 달·열두 달을 합친 예산이라는 것이 존재하지 않는다").
+   */
+  const categoryBudgetUsageRows =
+    hasSession && period === "월간" && monthly.isSuccess && activeCategory.isSuccess && categories.isSuccess
+      ? buildCategoryBudgetUsageRows({
+          budgets: monthly.data.categoryBudgets,
+          breakdown: activeCategory.data?.categories,
+          categories: categories.data?.categories
+        })
+      : [];
+
   // UX-H: 월간 요약 공유 문구. 인사이트 카드가 화면에 그린 문장과 "총 지출" 카드가 그린 금액을
   // **그대로** 실어, 보낸 문구와 화면이 어긋날 수 없게 한다(DNC-013/015).
   // 라운드 36 F-1/F-5: 어느 문장을 싣는지("가족에게 보내도 되는" 카테고리 1위 문장)와 진행 중인
@@ -1479,6 +1504,32 @@ export default function ReportsScreen() {
                     </Text>
                   ) : null}
                   </View>
+
+                  {/* 라운드 102 §4.3: 도넛(+안내 줄) 아래 "카테고리 예산" 블록 — 월간 탭 전용,
+                      그 달 예산이 있는 카테고리 행만(예산 없는 카테고리 행 없음 — 사용자가
+                      정한 적 없는 기준선을 만들지 않는다). 도넛 조각·범례에는 주석을 달지
+                      않는다(§4.3 기각 3근거 — 원 id 이원·공용 컴포넌트 픽셀락·드릴다운 겹침).
+                      행 문장은 관측 톤뿐이고 경고색을 쓰지 않는다(DNC-018 — 색이 아니라 문장이
+                      의미를 진다). 대기 고지는 화면 머리의 기간 고지가 이미 같은 달을 덮는다. */}
+                  {categoryBudgetUsageRows.length > 0 ? (
+                    <Card style={reportCategoryBudgetCardStyle}>
+                      {/* Card는 testID를 받지 않아(ChildrenProps) 표식은 제목 줄에 둔다(추이 카드 관례). */}
+                      <Text style={reportCategoryTrendTitleStyle} testID="reports-category-budget-usage">
+                        카테고리 예산
+                      </Text>
+                      {categoryBudgetUsageRows.map((row) => (
+                        <View
+                          key={row.categoryId}
+                          accessible
+                          accessibilityLabel={row.accessibilityLabel}
+                          style={reportCategoryBudgetRowStyle}
+                        >
+                          <Text style={reportCategoryBudgetRowTitleStyle}>{row.primaryText}</Text>
+                          <Text style={reportCategoryTrendCaptionStyle}>{row.secondaryText}</Text>
+                        </View>
+                      ))}
+                    </Card>
+                  ) : null}
 
                   {/* 기능 라운드 1 트랙 C: 카테고리 월 추이. 칩 모집단이 곧 게이트다 —
                       trendChips는 월간 탭 + 비중 조회 성공에서만 채워지므로(위 배선 주석)
@@ -1865,6 +1916,20 @@ const reportReferenceMemoryBodyStyle = {
 // 기능 라운드 1 트랙 C: 카테고리 월 추이 카드. 새 카드 룩을 만들지 않는다 — 흰 카드 기본에
 // 제목은 도넛 카드 제목과 같은 body2/700 brown, 캡션은 이 화면의 12/18 gray600 캡션 토큰이다.
 const reportCategoryTrendCardStyle = { gap: 10 } as const;
+
+// 라운드 102 §4.3: "카테고리 예산" 블록도 같은 판단 — 흰 카드 기본에 추이 카드와 같은 제목
+// 토큰, 행 본문은 brown 13/700, 보조 줄은 12/18 gray600 캡션이다. 새 색 리터럴 0건(DNC-017)
+// 이고 초과 행에도 경고색이 없다(문장이 의미를 진다 — DNC-018).
+const reportCategoryBudgetCardStyle = { gap: 10 } as const;
+
+const reportCategoryBudgetRowStyle = { gap: 2 } as const;
+
+const reportCategoryBudgetRowTitleStyle = {
+  color: theme.colors.brown,
+  fontSize: 13,
+  fontWeight: "700",
+  lineHeight: 20
+} as const;
 
 const reportCategoryTrendTitleStyle = {
   color: theme.colors.brown,

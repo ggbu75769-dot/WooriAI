@@ -6,6 +6,7 @@ import { getSeoulToday } from "@wooriai/domain";
 import {
   getBudget,
   getTrendReport,
+  listCategories,
   LOCAL_SESSION_TOKEN,
   upsertBudget,
   type Child,
@@ -21,6 +22,15 @@ import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../src/money";
 // GAP-054 #2: 금액 상한의 값·문구는 지출 입력 화면들과 **같은 모듈**에서 온다. 여기에 숫자를
 // 다시 적으면 서버 @Max와 갈라지는 순간을 아무도 모른다(src/expenses/amount-limit.ts).
 import { amountOverLimitMessage, isAmountOverLimit } from "../src/expenses/amount-limit";
+// 라운드 102 T3: 카테고리별 예산 카드 — 행 조립·검증·문구·이월 칩 판정·합 관측은 전부 이 순수
+// 모듈이 소유하고 화면은 그린다(docs/5차/round102-category-budget-design.md §4.1·§4.2).
+import {
+  buildCategoryBudgetForm,
+  buildCategoryCarryOverChip,
+  categoryBudgetInitialDigits,
+  isCategoryBudgetDirty,
+  mergeCategoryBudgetDraft
+} from "../src/expenses/category-budget-form";
 import {
   buildBudgetAdjustChips,
   buildBudgetUsageLine,
@@ -114,6 +124,13 @@ export default function BudgetEditScreen() {
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const [amountDigits, setAmountDigits] = useState("");
+  /**
+   * 라운드 102 §4.1 — 카테고리 행에서 **사용자가 실제로 고친 값**만 담는 맵(categoryId → 숫자
+   * 문자열). 화면이 그리는 값은 서버 초기값 위에 이 편집을 얹은 것(mergeCategoryBudgetDraft)
+   * 이라, 저장 시 dirty 판정(값 비교)이 "안 고친 저장"과 "고쳤다가 되돌린 저장"을 둘 다
+   * 무접촉(필드 미탑재)으로 접는다 — 두 기기 동시 편집 레이스를 좁히는 §6.7 R1의 배선이다.
+   */
+  const [categoryEdits, setCategoryEdits] = useState<Record<string, string>>({});
   // T10: 저장 성공 토스트(위 BUDGET_SAVED_MESSAGE 주석). 값이 서면 아래에서 Toast가 그려지고,
   // Toast 자신이 문장을 낭독한다 -- 화면이 announce를 따로 부르지 않는다(문장 이중 낭독 방지).
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
@@ -133,6 +150,20 @@ export default function BudgetEditScreen() {
     queryKey: ["budget", childId],
     enabled: Boolean(authToken && childId),
     queryFn: () => getBudget(authToken!, childId!)
+  });
+
+  /**
+   * 라운드 102 §4.1 — 카테고리별 예산 카드의 행 모집단. 이 화면이 `["categories"]` 캐시를
+   * 직접 채운다 — includeAll 전량 규약(categories-cache-contract 스윕)·staleTime은 리포트
+   * 화면과 같은 형식이다. 목록이 아직 없으면(로딩·실패·오프라인 첫 실행) 아래 categoryForm이
+   * null이라 카드 자체가 서지 않는다(모르면 제안하지 않는다 — 8타일 폴백으로 별칭 id 예산이
+   * 저장되는 경로를 구조적으로 차단).
+   */
+  const categories = useQuery({
+    queryKey: ["categories"],
+    enabled: Boolean(authToken),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => listCategories(authToken!, { includeAll: true })
   });
 
   const typedAmountKrw = amountDigits ? Number(amountDigits) : null;
@@ -295,6 +326,38 @@ export default function BudgetEditScreen() {
     recentAverageChip: buildRecentAverageChip(recentTrend.data?.months ?? null)
   });
 
+  /**
+   * 라운드 102 §4.1 — 카테고리별 예산 카드의 산출 전부(행·검증·문구·이월 칩). 판정은 전부
+   * 순수 모듈에 있고 화면은 그린다.
+   *
+   * - 세션 갈래(authToken) 아래에서만 조립한다(§6.6 — 비세션은 캐시를 읽지도 않는 기존 구조
+   *   그대로). 목록이 없으면 categoryForm이 null → 카드 미렌더.
+   * - 합 관측의 분모는 **입력 중 값 우선, 없으면 현재 예산**(§4.1 확정값).
+   * - dirty가 아니면 저장 요청에 categoryBudgets 필드 자체가 실리지 않는다(§2.2 부재 = 서버
+   *   무접촉 — 온보딩 예산 화면 등 기존 호출부와 같은 하위호환 갈래).
+   */
+  const categoryInitialDigits = categoryBudgetInitialDigits(budget.data?.categoryBudgets);
+  const categoryDraft = mergeCategoryBudgetDraft(categoryInitialDigits, categoryEdits);
+  const categoryForm =
+    authToken && categories.isSuccess
+      ? buildCategoryBudgetForm({
+          categories: categories.data?.categories,
+          draft: categoryDraft,
+          totalBudgetKrw: typedAmountKrw ?? currentBudgetKrw
+        })
+      : null;
+  const categoryDirty = isCategoryBudgetDirty(categoryInitialDigits, categoryDraft);
+  // §4.2 — "지난달 카테고리 예산 그대로" 칩. 기존 이월 칩과 같은 defer 갈래(budget.data ===
+  // null일 때만 lastMonthBudget 조회가 켜져 있다)라 추가 요청은 0건이고, 누르면 행에 채워
+  // 넣기만 한다(자동 저장 금지 — B1(b) 규율 그대로).
+  const categoryCarryOverChip = categoryForm
+    ? buildCategoryCarryOverChip({
+        thisMonthBudgetMissing: budget.data === null,
+        lastMonthEntries: lastMonthBudget.data?.categoryBudgets,
+        draft: categoryDraft
+      })
+    : null;
+
   // 라운드 52 C-07: 예산 저장은 아웃박스를 거치지 않는 서버 직행 쓰기라, 오프라인에서는 그냥
   // 실패한다. 그때 "잠시 후 다시 시도해 주세요"는 기다릴 대상이 있다는 뜻이라 사실과 어긋난다 --
   // 실패한 그 순간에 연결을 한 번 확인해 문구를 고른다(src/offline/messages.ts).
@@ -311,7 +374,15 @@ export default function BudgetEditScreen() {
       if (!authToken || !childId || !Number.isInteger(amountKrw) || amountKrw <= 0 || isAmountOverLimit(amountKrw)) {
         throw new Error("invalid budget");
       }
-      return upsertBudget(authToken, childId, amountKrw);
+      // 라운드 102 §2.2/§4.1: 카테고리 구획은 카드가 렌더됐고(categoryForm) 사용자가 행을
+      // 고쳤을 때만(dirty) 화면 전체 집합으로 싣는다 — 아니면 undefined(필드 미탑재 = 그 달의
+      // 카테고리 행을 읽지도 쓰지도 않는 서버 무접촉). 서버가 받아 줄 수 없는 집합(상한·행
+      // 오류)은 버튼 비활성에 더해 여기서도 한 번 더 닫는다(총액의 GAP-054 #2와 같은 이중 가드).
+      if (categoryForm && categoryDirty && !categoryForm.isValid) {
+        throw new Error("invalid budget");
+      }
+      const categoryBudgets = categoryForm && categoryDirty ? categoryForm.entries : undefined;
+      return upsertBudget(authToken, childId, amountKrw, undefined, categoryBudgets);
     },
     onSuccess: async () => {
       // BUD-001: 예전에는 인자 없이 무효화를 불러 **앱 전체 캐시**를 날렸다 -- 준비템
@@ -332,7 +403,13 @@ export default function BudgetEditScreen() {
     }
   });
 
-  const canSave = !amountError && Boolean(authToken && childId) && (amountDigits.length > 0 || Boolean(budget.data));
+  // 라운드 102: 카테고리 구획을 고친 상태(dirty)에서 그 집합이 서버가 거절할 값(행 상한 초과 ·
+  // 상한 30 초과)이면 저장을 잠근다 — 실패가 예정된 요청을 내보내지 않는다(GAP-054 #2와 같은
+  // 판단). 고치지 않은 화면(dirty 아님)은 필드가 실리지 않으므로 잠글 이유도 없다.
+  const canSave = !amountError &&
+    !(categoryForm && categoryDirty && !categoryForm.isValid) &&
+    Boolean(authToken && childId) &&
+    (amountDigits.length > 0 || Boolean(budget.data));
 
   /**
    * 라운드 70 B — **앱에서 마지막까지 역할 게이트를 지나지 않던 쓰기**가 이 화면의 저장이었다.
@@ -469,6 +546,88 @@ export default function BudgetEditScreen() {
                 </Text>
               )}
             </Card>
+
+            {/* 라운드 102 §4.1 — "카테고리별 예산" 카드(선택 입력). 목록이 아직 없으면
+                categoryForm이 null이라 카드 자체가 서지 않는다(모르면 제안하지 않는다).
+                저장 버튼은 아래 기존 [저장] 하나 그대로다 — 이 카드는 값만 만든다.
+                ⚠️ 카드 안 안내 줄(행 상한·30개 상한·합 관측)은 전부 캡션 회색이다 — 문장이
+                의미를 지고 경고색을 늘리지 않는다(DNC-018 · budget-warning의 그 관례). */}
+            {categoryForm ? (
+              <Card style={{ gap: 10 }}>
+                <Text
+                  testID="budget-category-card"
+                  style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}
+                >
+                  카테고리별 예산
+                </Text>
+                {/* 선택 입력임을 문장이 직접 말한다(§4.1 확정 캡션). */}
+                <Text style={budgetContextLineStyle}>원하는 카테고리에만 정해도 돼요.</Text>
+                {categoryCarryOverChip ? (
+                  <View testID="budget-category-carry-over" style={budgetChipRowStyle}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={categoryCarryOverChip.accessibilityLabel}
+                      hitSlop={4}
+                      // §4.2: 채워 넣기만 한다 — 저장은 사람이 [저장]을 누를 때만 일어난다.
+                      onPress={() => setCategoryEdits(categoryCarryOverChip.prefillDigits)}
+                      style={budgetChipStyle}
+                    >
+                      <Text style={{ color: theme.colors.coral[700], fontSize: 13, fontWeight: "800" }}>
+                        {categoryCarryOverChip.label}
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+                {categoryForm.rows.map((row) => (
+                  <View key={row.categoryId} style={{ gap: 2 }}>
+                    <View style={{ alignItems: "center", flexDirection: "row", gap: 8, minHeight: theme.touchTarget }}>
+                      <Text
+                        numberOfLines={1}
+                        style={{ color: theme.colors.brown, flexShrink: 1, fontSize: 13, fontWeight: "700" }}
+                      >
+                        {row.name}
+                      </Text>
+                      {/* 금액 입력은 총액 입력과 같은 money 모듈 한 벌이다(FMT-127). 값 비우기 =
+                          그 카테고리 예산 해제(§2.2 — 빈 행이 곧 삭제라 행별 삭제 버튼이 없다). */}
+                      <TextInput
+                        accessibilityLabel={row.inputAccessibilityLabel}
+                        keyboardType="number-pad"
+                        onChangeText={(value) =>
+                          setCategoryEdits((edits) => ({ ...edits, [row.categoryId]: amountDigitsOnly(value) }))
+                        }
+                        placeholder="예산 없음"
+                        style={{
+                          color: theme.colors.brown,
+                          flex: 1,
+                          fontSize: theme.typography.body1.fontSize,
+                          paddingVertical: 6,
+                          textAlign: "right"
+                        }}
+                        value={formatAmountDigits(categoryDraft[row.categoryId] ?? "")}
+                      />
+                      <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>
+                        원
+                      </Text>
+                    </View>
+                    {/* 행 상한 초과 안내 — 문구는 총액·지출 입력과 같은 단일 소스(모듈이 실었다). */}
+                    {row.errorText ? <Text style={budgetContextLineStyle}>{row.errorText}</Text> : null}
+                  </View>
+                ))}
+                {/* 상한 30 선제 안내 — 서버 코드 문구와 같은 api-error 표 경유(§9.3). */}
+                {categoryForm.formError ? (
+                  <Text testID="budget-category-form-error" style={budgetContextLineStyle}>
+                    {categoryForm.formError}
+                  </Text>
+                ) : null}
+                {/* §1.3(a): 합>총액은 관측 한 줄 — 저장은 막지 않는다. */}
+                {categoryForm.sumNoticeText ? (
+                  <Text testID="budget-category-sum-notice" style={budgetContextLineStyle}>
+                    {categoryForm.sumNoticeText}
+                  </Text>
+                ) : null}
+                <Text style={budgetContextLineStyle}>값을 비우면 그 카테고리 예산이 해제돼요.</Text>
+              </Card>
+            ) : null}
 
             {save.isError ? <Toast message={saveErrorText} tone="error" /> : null}
             {/* T10: 저장 성공 확인. Toast가 마운트되며 같은 문장을 낭독한다(A11Y-115). */}

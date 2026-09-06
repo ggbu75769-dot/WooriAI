@@ -154,7 +154,11 @@ describe("트랙 E 예산 화면 배선 (app/budget.tsx)", () => {
     const screen = screenSource();
     // upsertBudget 호출부는 save 뮤테이션 안 한 곳이다(제안 값이 몰래 저장되는 경로가 없다).
     expect(screen.match(/upsertBudget\(/g) ?? []).toHaveLength(1);
-    expect(screen).toContain("upsertBudget(authToken, childId, amountKrw)");
+    // ⚠️ 두 시점(라운드 102 T3): 이 핀은 종전 `upsertBudget(authToken, childId, amountKrw)`
+    // 였다. 카테고리별 예산이 **같은 저장 한 번**의 다섯째 인자로 실리면서(§2.2 — dirty가
+    // 아니면 undefined = 필드 미탑재) 인자만 늘었고, "호출부 한 곳·자동 저장 없음"이라는 이
+    // 계약의 축은 그대로다. 인용한 문장은 지우지 않는다.
+    expect(screen).toContain("upsertBudget(authToken, childId, amountKrw, undefined, categoryBudgets)");
     expect(screen).not.toContain("upsertBudget(authToken, childId, recentTrend");
     // 칩의 onPress는 값 채움뿐이고, 뮤테이션 트리거는 [저장] 버튼 하나다.
     expect(screen).toContain("onPress={() => setAmountDigits(chip.nextDigits)}");
