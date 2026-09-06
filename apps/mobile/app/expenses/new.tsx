@@ -154,6 +154,8 @@ import { discardOfflineMutation } from "../../src/offline/sync-controller";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { AppScreen, BottomSheetFrame, CategoryChip, PrimaryButton, SecondaryButton, Toast } from "../../src/ui";
+// 라운드 101 트랙 B: 저장 확정의 촉각 확인 — 핸들러(onSuccess) 안에서만 부른다(렌더 무접촉).
+import { hapticSuccess } from "../../src/ui/haptics";
 import {
   AppIcon,
   compactGridColumnCount,
@@ -624,7 +626,9 @@ export default function NewExpenseScreen() {
    *  · ⚠️ 라운드 98 T-G가 변경 요청 문서(toss-T3-entry-EXP001) #2를 이행하며 요약바 연필의
    *    `focus()`를 `focusItemNameFromSummaryBar`(scrollTo 뒤 focus) 안으로 옮겼다 — 호출 수는
    *    그대로 **둘**이고(그 헬퍼 하나 + `startCustomItem`의 rAF 하나), 좌표는 라운드 98에
-   *    `:970`·`:1720`, ⚠️ 라운드 99 F3(L-1·L-2)가 뒤쪽만 밀어 **오늘은 `:970`·`:1760`이다**.
+   *    `:970`·`:1720`, ⚠️ 라운드 99 F3(L-1·L-2)가 뒤쪽만 밀어 라운드 99에는 `:970`·`:1760`이었다.
+   *    ⚠️ 라운드 101 트랙 B가 햅틱 import 두 줄(위)·onSuccess의 촉각 확인 네 줄·이 문단 두 줄을
+   *    더해 앞뒤 모두 밀어 **오늘은 `:974`·`:1768`이다**(호출 수 둘·판매처 0건 판정은 그대로다).
    *
    * ⚠️ 판매처 쪽의 판정(`focus()`를 쓰지 않는다)은 그대로다 —
    * `src/keyboard-tap-guard.test.ts`가 그 부정 단언을 소스로 문다.
@@ -1485,6 +1489,10 @@ export default function NewExpenseScreen() {
       clearDraftForCurrentChild();
       setSaveErrorMessage(null);
       setSavedMessage(continueRecording ? CONTINUE_RECORDING_SAVED_MESSAGE : OFFLINE_SAVED_MESSAGE);
+      // 라운드 101 트랙 B: "저장했어요"의 촉각판 — 기준은 위 문구와 같은 **기기 저장 확정**이다
+      // (C-10 — 서버 확인을 기다리면 오프라인에서 영영 안 울린다). expo-haptics 미설치·설정
+      // 끔이면 그대로 no-op이고 실패도 스스로 삼킨다(src/ui/haptics.ts) — 저장 흐름 무접촉.
+      hapticSuccess();
       // ANA-103: expense_recorded fires once per successful (local-first) create. The payload is
       // PII-safe by construction (src/analytics/events.ts): the raw amount is bucketed and the
       // categoryId mapped to the coarse enum on-device; itemName/memo never enter it. `source`

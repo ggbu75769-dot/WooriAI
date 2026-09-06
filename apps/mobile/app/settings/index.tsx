@@ -42,6 +42,9 @@ import { SUPPORT_LINK_FAILED_MESSAGE, SUPPORT_LINK_FAILED_TITLE } from "../../sr
 // 컨트롤러가 들고 나올 수 없다 — 그 모듈에는 정기 지출이 들어가지 않는다는 계약도 있다:
 // src/expenses/recurring-flow.test.ts "템플릿을 CSV 내보내기에 싣지 않는다").
 import { useRecurringExpenseStore } from "../../src/stores/recurring-expense.store";
+// 라운드 101 트랙 B: 터치 반응(진동) 켬/끔 — 기기 단위 선택의 단일 소스(기본 켬, 끄면
+// src/ui/haptics.ts 세 함수가 전부 no-op). 통계 동의 스위치와 같은 Card+Switch 행 관례다.
+import { useHapticsStore } from "../../src/stores/haptics.store";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -209,6 +212,11 @@ export default function SettingsScreen() {
   // event from being queued or sent, and the choice survives app restarts.
   const analyticsConsent = useAnalyticsConsentStore((state) => state.enabled);
   const setAnalyticsConsent = useAnalyticsConsentStore((state) => state.setEnabled);
+  // 라운드 101 트랙 B: 터치 반응(진동) 토글 — persist 스토어가 단일 소스라 이 화면은 값을
+  // 읽고 넘기기만 한다(통계 동의와 같은 배선). 하이드레이션 전 찰나에는 기본값(켬)이 보이는데,
+  // 이 화면은 최소 한 번의 화면 전환 뒤에야 닿아 그 창이 사실상 닫혀 있다(위 S-3과 같은 판단).
+  const hapticsEnabled = useHapticsStore((state) => state.hapticsEnabled);
+  const setHapticsEnabled = useHapticsStore((state) => state.setHapticsEnabled);
   // 가져오기 행 바로 아래에 붙는 CSV 내보내기 -- 상태·수집·공유·토스트는 공용 모듈이 담당한다.
   const csvExport = useExpenseCsvExport();
   /**
@@ -359,6 +367,29 @@ export default function SettingsScreen() {
             subtitle="PIN 4자리로 앱을 열 때 한 번 확인해요"
             onPress={() => router.push("/settings/app-lock")}
           />
+          {/* 라운드 101 트랙 B: 터치 반응(진동) 켬/끔. 이 구획("알림 · 잠금")이 자리인 이유는
+              이 토글이 다스리는 것이 알림과 같은 **기기의 반응 채널**이기 때문이다. 행 모양은
+              아래 통계 동의와 같은 Card+Switch 관례(제목+한 줄 설명+스위치). 부제가 "일부만
+              동작할 수 있어요"라고 밝히는 것이 계약이다 — 이 빌드는 expo-haptics 미설치
+              스캐폴드라(src/ui/haptics.ts) 지금은 경고 진동(Android)만 실제로 난다. 있는
+              것보다 크게 말하지 않는다(앱 잠금 부제·푸시 안내와 같은 규율). */}
+          <Card style={consentRowStyle}>
+            <View style={{ flex: 1, gap: 3, paddingRight: 12 }}>
+              <Text style={consentTitleStyle}>터치 반응(진동)</Text>
+              <Text style={consentSubtitleStyle}>
+                저장이나 잘못된 입력 같은 순간에 짧은 진동으로 반응해요. 기기나 앱 버전에 따라 일부만 동작할 수 있어요.
+              </Text>
+            </View>
+            <Switch
+              accessibilityLabel="터치 반응(진동)"
+              accessibilityRole="switch"
+              accessibilityState={{ checked: hapticsEnabled }}
+              onValueChange={setHapticsEnabled}
+              thumbColor={theme.colors.white}
+              trackColor={{ false: theme.colors.gray300, true: theme.colors.mainCoral }}
+              value={hapticsEnabled}
+            />
+          </Card>
         </View>
 
         <View style={{ gap: theme.spacing.gap }}>

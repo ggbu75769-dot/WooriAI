@@ -8,6 +8,8 @@ import { useSelectedChildStore } from "../stores/selected-child.store";
 import { useSessionStore } from "../stores/session.store";
 import { theme } from "../theme";
 import { announceForA11y, PrimaryButton, TextButton } from "../ui";
+// 라운드 101 트랙 B: PIN 오류의 촉각 경고 — 핸들러(submit) 안에서만 부른다(렌더 무접촉).
+import { hapticWarning } from "../ui/haptics";
 import { SkeletonCard } from "../ui/Skeleton";
 import {
   APP_LOCK_COPY,
@@ -231,6 +233,11 @@ export function AppLockOverlay() {
             : APP_LOCK_PIN_FORMAT_NOTICE;
       setNotice(message);
       announceForA11y(message);
+      // 라운드 101 트랙 B: 틀린 PIN·형식 오류의 촉각 경고. 이 자리는 화면을 못 보는 상황이
+      // 아니라 **화면만 보는** 상황이지만, secureTextEntry 입력칸은 무엇이 틀렸는지 보여 주지
+      // 못하므로 즉각 채널 하나가 더 있는 값이 있다. expo-haptics 미설치면 Android 한정 짧은
+      // Vibration 폴백(경고만 — 근거는 src/ui/haptics.ts 머리말), 설정 끔이면 전부 no-op.
+      hapticWarning();
     } finally {
       // 성공하면 이 컴포넌트는 곧 null을 반환하며 사라진다 — 그때의 setBusy는 no-op이다.
       submittingRef.current = false;
