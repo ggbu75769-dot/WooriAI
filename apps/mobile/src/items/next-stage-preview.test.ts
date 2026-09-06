@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { objectParticle } from "../text/korean-particles";
-import { buildNextStagePreview, type NextStagePreviewInput } from "./next-stage-preview";
+import {
+  buildNextStagePrepGapNote,
+  buildNextStagePreview,
+  type NextStagePreviewInput
+} from "./next-stage-preview";
+import { computeEssentialPrepProgress, type PrepProgressItem } from "./prep-progress";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
@@ -330,5 +335,147 @@ describe("트랙 F: 배선 (소스 계약)", () => {
     expect(items).not.toContain("accessibilityLabel={nextStagePreview.accessibilityLabel}");
     // 버튼 자리는 previewActionLabel이 null이면 아예 서지 않는다(임신 갈래의 이미 보는 중).
     expect(items).toContain("{nextStagePreview.previewActionLabel ? (");
+  });
+});
+
+/**
+ * 라운드 102 N1 — 배너 제목 아래 **다가오는 밴드의 미준비 필수템 한 줄**의 판정·문구·배선.
+ *
+ * 모집단 규칙(그 밴드 + 필수 + 미해결)은 prep-progress 한 벌 재사용이라, 여기 픽스처의 기대
+ * 개수는 computeEssentialPrepProgress로도 같은 값이 나와야 한다 — 그 동치를 값으로 문다.
+ */
+describe("라운드 102 N1: 미준비 필수템 한 줄 — 판정", () => {
+  /** 출생 갈래 D-1의 배너(목적지 밴드 "6-12개월") — 위 bornBase와 같은 아이다. */
+  const preview = () => buildNextStagePreview({ ...bornBase, todayIso: "2026-08-09" })!;
+
+  /** "6-12개월" 밴드(infant_7_12)의 필수템을 기본으로 하는 픽스처. */
+  const item = (id: string, over: Partial<PrepProgressItem> = {}): PrepProgressItem => ({
+    id,
+    necessityLevel: "essential",
+    status: "not_prepared",
+    stageCodes: ["infant_7_12"],
+    ...over
+  });
+
+  it("모집단은 prep-progress 규칙 그대로다 — 필수 + 그 밴드 + 미해결(prepared/gifted/not_needed 제외)", () => {
+    const items: PrepProgressItem[] = [
+      item("a"), // 미준비 필수 — 센다
+      item("b", { status: "interested" }), // 관심 표시는 준비가 아니다(prep-progress) — 센다
+      item("c", { status: "prepared" }), // 해결됨 — 안 센다
+      item("d", { status: "gifted" }), // 해결됨 — 안 센다
+      item("e", { status: "not_needed" }), // 해결됨 — 안 센다
+      item("f", { necessityLevel: "convenience" }), // 필수 아님 — 모집단 밖
+      item("g", { stageCodes: ["newborn_0_3"] }) // 다른 밴드 — 모집단 밖
+    ];
+    const note = buildNextStagePrepGapNote(preview(), items);
+    expect(note?.unpreparedCount).toBe(2);
+    expect(note?.text).toBe("필수 준비물 2개가 아직 준비 전이에요");
+    // 규칙 두 벌 금지의 동치 확인: 같은 목록을 prep-progress에 물어도 미준비 수가 같다.
+    const progress = computeEssentialPrepProgress(items, "6-12개월")!;
+    expect(progress.totalCount - progress.resolvedCount).toBe(note!.unpreparedCount);
+  });
+
+  it("커스텀 품목(라운드 100)도 같은 스냅숏 합류로 자연히 세어진다 (별도 갈래 없음)", () => {
+    // 커스텀 품목은 tab="all" 스냅숏에 ItemSummary 모양 + isCustom: true로 실린다
+    // (packages/contracts customItemSummarySchema). 판정에 isCustom 갈래가 없으므로
+    // 여분 필드가 있어도 그대로 모집단이다.
+    const custom = { ...item("custom-1"), isCustom: true } as PrepProgressItem;
+    const note = buildNextStagePrepGapNote(preview(), [custom, item("tmpl-1", { status: "prepared" })]);
+    expect(note?.unpreparedCount).toBe(1);
+  });
+
+  it("같은 id 중복은 한 번만 센다 (prep-progress의 중복 제거 재사용)", () => {
+    const note = buildNextStagePrepGapNote(preview(), [item("a"), item("a"), item("b", { status: "prepared" })]);
+    expect(note?.unpreparedCount).toBe(1);
+  });
+
+  it("미준비 0개(모집단은 있음)는 침묵이 아니라 완료 관측형이다 — prep-milestones의 100% 관례", () => {
+    // 침묵은 모집단 없음 전용이다(아래 케이스). 여기서도 줄을 지우면 "줄이 없다"가 두 뜻
+    // (다 준비됨/셀 것이 없음)을 겹쳐 진다 — 근거는 모듈 머리말과, 100%를 침묵이 아니라
+    // 문장으로 말하는 저장소 관례(PREP_CELEBRATION_TITLE)다. 인용 실재 확인은 아래 배선 절.
+    const note = buildNextStagePrepGapNote(preview(), [item("a", { status: "prepared" }), item("b", { status: "gifted" })]);
+    expect(note?.unpreparedCount).toBe(0);
+    expect(note?.text).toBe("필수 준비물은 모두 준비됐어요");
+  });
+
+  it("그 밴드에 필수템이 0개면 줄 자체가 없다 (prep-progress의 null 관례 그대로)", () => {
+    expect(buildNextStagePrepGapNote(preview(), [])).toBeNull();
+    expect(buildNextStagePrepGapNote(preview(), [item("f", { necessityLevel: "optional" })])).toBeNull();
+  });
+
+  it("배너가 없으면(null) 줄도 없다 — 이 줄은 배너의 부속이다", () => {
+    expect(buildNextStagePrepGapNote(null, [item("a")])).toBeNull();
+  });
+
+  it("이미 그 밴드를 보는 중(previewActionLabel null — 임신 갈래 H-1)이면 접는다", () => {
+    // 그때는 같은 밴드·같은 목록의 준비율 히어로가 같은 수를 더 자세히 말하고 있다 —
+    // 버튼이 접히는 근거(H-1)와 같은 근거로 줄도 접는다(모듈 머리말).
+    const viewing = buildNextStagePreview(pregnantBase)!;
+    expect(viewing.previewActionLabel).toBeNull();
+    expect(buildNextStagePrepGapNote(viewing, [item("a", { stageCodes: ["newborn_0_3"] })])).toBeNull();
+    // 다른 칩을 보는 중(버튼이 서는 상태)이면 같은 목록으로 줄이 선다 — 접힘의 원인이
+    // 목록이 아니라 previewActionLabel임을 가른다.
+    const elsewhere = buildNextStagePreview({ ...pregnantBase, selectedBand: "12-24개월" })!;
+    expect(
+      buildNextStagePrepGapNote(elsewhere, [item("a", { stageCodes: ["newborn_0_3"] })])?.unpreparedCount
+    ).toBe(1);
+  });
+
+  it("문구 규율: 해요체·가격 0글자·재촉 0글자 (배너 본문과 같은 규율)", () => {
+    const counted = buildNextStagePrepGapNote(preview(), [item("a")])!;
+    const complete = buildNextStagePrepGapNote(preview(), [item("a", { status: "prepared" })])!;
+    for (const text of [counted.text, complete.text]) {
+      expect(text.endsWith("요")).toBe(true);
+      for (const forbidden of ["₩", "원", "구매", "사세요", "지금 바로", "서두르", "늦기 전에", "놓치"]) {
+        expect(text, `"${text}"에 가격·재촉 표현이 없다`).not.toContain(forbidden);
+      }
+    }
+  });
+});
+
+describe("라운드 102 N1: 미준비 필수템 한 줄 — 배선 (소스 계약)", () => {
+  const itemsScreen = () => source("app/(tabs)/items.tsx");
+  const moduleSource = () => source("src/items/next-stage-preview.ts");
+
+  it("모집단 규칙은 prep-progress 한 벌 재사용이다 — 상태 목록을 다시 적지 않는다", () => {
+    const module = moduleSource();
+    expect(module).toContain("computeEssentialPrepProgress(");
+    // 해결됨 판정을 이 모듈이 되풀이하지 않는다 — 도메인 반전(shouldShowInNeededNow)도
+    // 그 반전의 이름(isResolvedItemStatus)도 여기서 부르지 않고, 계산 전체를 위임한다.
+    expect(module).not.toContain("shouldShowInNeededNow");
+    expect(module).not.toContain("isResolvedItemStatus");
+    expect(module).not.toContain("item.status");
+    // 완료 관측형의 근거로 인용한 관례가 원문에 실재한다(유령 인용 방지).
+    expect(source("src/items/prep-milestones.ts")).toContain("PREP_CELEBRATION_TITLE");
+  });
+
+  it("화면의 모집단은 보정 목록이다 (라운드 99 F2 M-1 — 원시 스냅숏 금지)", () => {
+    // 준비율 히어로와 같은 상류 한 벌(effectiveStatusItems)을 넘긴다 — 방금 누른
+    // "준비했어요"가 타일과 이 줄에서 다르게 세어지면 안 된다.
+    expect(itemsScreen()).toContain(
+      "const nextStagePrepGapNote = buildNextStagePrepGapNote(nextStagePreview, effectiveStatusItems);"
+    );
+  });
+
+  it("줄은 배너 안, 제목과 버튼 사이에 서고 문장은 모듈이 만든다", () => {
+    const items = itemsScreen();
+    const bannerAt = items.indexOf("{nextStagePreview ? (");
+    expect(bannerAt, "배너 시작 표식이 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    const buttonAt = items.indexOf("{nextStagePreview.previewActionLabel ? (", bannerAt);
+    expect(buttonAt, "버튼 표식이 실재해야 자르는 구간이 참이다").toBeGreaterThan(-1);
+    const aboveButton = items.slice(bannerAt, buttonAt);
+    expect(aboveButton).toContain("{nextStagePrepGapNote ? (");
+    expect(aboveButton).toContain("{nextStagePrepGapNote.text}");
+    // 화면이 문장을 다시 조립하지 않는다 — 낱말은 모듈에만 있다.
+    expect(items).not.toContain("아직 준비 전");
+    expect(items).not.toContain("모두 준비됐어요");
+  });
+
+  it("D-7 알림(stage-preview-d7)과 표면·문구가 겹치지 않는다", () => {
+    // 알림은 이 함수를 부르지 않고(무파괴의 구조적 보장 — 모듈 머리말), 낱말도 겹치지 않는다.
+    const d7 = source("src/notifications/stage-preview-d7.ts");
+    expect(d7).not.toContain("buildNextStagePrepGapNote");
+    expect(d7).not.toContain("아직 준비 전");
+    expect(d7).not.toContain("모두 준비됐어요");
   });
 });

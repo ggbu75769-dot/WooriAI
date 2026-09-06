@@ -1,6 +1,7 @@
 import { calculateChildStage, isChildStageCode } from "@wooriai/domain";
 import { addDays, daysBetween, isDateOnly } from "../home/day-math";
 import { objectParticle } from "../text/korean-particles";
+import { computeEssentialPrepProgress, type PrepProgressItem } from "./prep-progress";
 import { bandForStage, type StageBandLabel } from "./stage-bands";
 
 /**
@@ -212,5 +213,90 @@ export function buildNextStagePreview(input: NextStagePreviewInput): NextStagePr
     title: `${boundary.band} 시기 시작까지 D-${boundary.daysUntil}`,
     spokenTitle: `${boundary.band} 시기 시작까지 ${boundary.daysUntil}일 남았어요`,
     previewActionLabel: `${boundary.band}${objectParticle(boundary.band)} 미리 볼까요?`
+  };
+}
+
+/**
+ * 라운드 102 N1 — D-day 배너 제목 아래 한 줄: **다가오는 밴드의 미준비 필수템 개수.**
+ *
+ * 기능 라운드 1이 "추가 쿼리 설계 필요"로 이월했던 자리다. 지금은 화면이 이미 들고 있는
+ * tab="all" 스냅숏(상태·시기로 거르지 않는 전 밴드 목록 — prep-progress 머리말의 B5)이
+ * 모집단을 다 담고 있어 **새 요청 0건**으로 클라이언트 계산이 선다.
+ *
+ * ## 왜 `buildNextStagePreview` 확장이 아니라 별도 순수 함수인가 (실측 근거)
+ *
+ * `buildNextStagePreview`는 소비자가 둘이다: 이 배너와 **D-7 알림**(src/notifications/
+ * stage-preview-d7.ts — 탐침 두 번으로 이 판정을 소비한다). 알림 쪽 호출부는 아이의 날짜
+ * 셋만 들고 있고 품목 스냅숏이 없다 — 판정 입력에 `items`를 (선택으로라도) 끼우면 같은
+ * 판정 함수가 **호출자에 따라 다른 답**(개수 있음/없음)을 내는 갈래가 생기고, 알림 문구가
+ * 어느 날 그 개수를 조용히 얻거나 잃는다(배너와 알림은 다른 표면이고 문구를 겹치지 않는다 —
+ * 그 파일 머리말). 그래서 기존 판정의 입·출력은 **바이트 그대로** 두고, 그 판정의 *결과*를
+ * 입력으로 받는 가산 함수 하나를 옆에 세운다 — D-7 알림은 이 함수를 부르지 않으므로
+ * 무파괴가 구조로 보장된다.
+ *
+ * ## 모집단 — 규칙은 prep-progress 한 벌 그대로 (두 벌 금지)
+ *
+ * "그 밴드 + 필수(essential) + 미해결"의 세 판정을 여기서 다시 적지 않는다.
+ * `computeEssentialPrepProgress`(prep-progress.ts)가 이미 그 세 판정의 단일 소유자다 —
+ * 필수·밴드 일치·해결됨(prepared/gifted/not_needed — 판정은 그 파일이 도메인 규칙을 반전해
+ * 재사용한다)에 id 중복 제거까지. 여기서 하는 산술은 **미준비 = 총 - 해결됨** 한 줄뿐이라, 준비율 히어로가
+ * 세는 수와 이 줄이 세는 수는 정의상 같은 계산이다. 커스텀 품목(라운드 100)은 같은 스냅숏에
+ * ItemSummary 모양(isCustom: true)으로 합류하므로 별도 갈래 없이 자연히 세어진다.
+ *
+ * ⚠️ 넘길 목록은 **보정 목록**이어야 한다(라운드 99 F2 M-1의 effectiveStatusItems — 대기 중
+ * 낙관 상태가 반영된 상류 한 벌). 원시 스냅숏을 넘기면 방금 "준비했어요"를 누른 항목이
+ * 타일에서는 해결됐는데 이 줄에서는 미준비로 세는 모순이 되살아난다 — 호출부 계약은
+ * next-stage-preview.test.ts의 배선 절이 문다.
+ *
+ * ## 갈래 셋 (숨김·0개·N개)
+ *
+ *  - **배너가 없으면(null) 이 줄도 없다** — 이 줄은 배너의 부속이지 독립 표면이 아니다.
+ *  - **이미 그 밴드를 보는 중(previewActionLabel === null — 임신 갈래 H-1)이면 접는다**:
+ *    그때 화면 위쪽의 준비율 히어로(computeEssentialPrepProgress, 같은 밴드·같은 목록)가
+ *    같은 수를 이미 더 자세히 말하고 있다. 같은 화면에 같은 사실을 두 번 적으면 소음이고,
+ *    버튼이 접히는 근거(H-1: 이미 보는 칩을 다시 권하지 않는다)와 같은 근거다 — 배너는
+ *    그때 설계대로 "D-day 제목만" 남는다(타입 주석).
+ *  - **필수템 0개 밴드 → 줄 없음(null)**: prep-progress의 관례 그대로다("0개 중 0개 준비됨"은
+ *    정보가 없다 — 그 파일 머리말). "모두 준비됐어요"라고 말할 모집단 자체가 없다.
+ *  - **미준비 0개(모집단은 있음) → "필수 준비물은 모두 준비됐어요"**: 줄을 지우는 쪽이 아니라
+ *    말하는 쪽을 고른 근거 — 이 저장소는 "전부 해결됨"을 침묵이 아니라 관측 문장으로 말한다
+ *    (PREP_CELEBRATION_TITLE "지금 시기 준비, 모두 마쳤어요" · tier "지금 시기 준비 완료!" —
+ *    prep-milestones.ts). 침묵은 **모집단 없음** 전용이라(위 갈래), 여기서도 줄을 지우면
+ *    "줄이 없다"가 두 뜻(다 준비됨/셀 것이 없음)을 겹쳐 지게 된다.
+ *
+ * ## 문구
+ *
+ * 해요체(DNC-018) · 가격 0글자 · 재촉 0글자(정보 제공만 — 이 파일 머리말의 규율 그대로) ·
+ * 발달·의료 정보 0글자(DNC-020). "N개가"의 조사 가는 고정 명사 꼬리 "개" 뒤라 받침 분기가 없다
+ * (korean-particle-guard의 ⓐ 형식 — "기록 N건"과 같은 꼴). D-7 알림의 문장("…시기에
+ * 들어서요" · "…준비물을 미리 확인해 보세요")과 낱말이 겹치지 않는다 — 다른 표면이다.
+ */
+export type NextStagePrepGapNote = {
+  /** 그 밴드의 미해결 필수템 개수(0 = 모집단은 있는데 전부 해결됨). */
+  unpreparedCount: number;
+  /** 배너 제목 아래 한 줄 — 개수형 또는 완료 관측형. */
+  text: string;
+};
+
+/** D-day 배너의 미준비 필수템 한 줄. 세울 이유가 없으면 null(위 갈래 셋). */
+export function buildNextStagePrepGapNote(
+  preview: Pick<NextStagePreview, "band" | "previewActionLabel"> | null,
+  items: PrepProgressItem[]
+): NextStagePrepGapNote | null {
+  if (preview === null) return null;
+  // 이미 그 밴드를 보는 중(임신 갈래 H-1) — 준비율 히어로가 같은 수를 말하고 있다(머리말).
+  if (preview.previewActionLabel === null) return null;
+
+  const progress = computeEssentialPrepProgress(items, preview.band);
+  // 필수템 0개 밴드 — 셀 모집단이 없다(prep-progress의 null 관례 그대로).
+  if (progress === null) return null;
+
+  const unpreparedCount = progress.totalCount - progress.resolvedCount;
+  return {
+    unpreparedCount,
+    text:
+      unpreparedCount === 0
+        ? "필수 준비물은 모두 준비됐어요"
+        : `필수 준비물 ${unpreparedCount}개가 아직 준비 전이에요`
   };
 }
