@@ -75,6 +75,10 @@ const presentation = {
   // "가족 초대하기" 버튼(familyInviteButtonStyle)의 외곽선. 값=종전 리터럴 대조는 1차와
   // 같은 대조표(src/color-literal-tokenization.test.ts)가 두 시점으로 문다.
   hairlineHeavy: "rgba(74, 63, 53, 0.12)",
+  // 라운드 102 TK3(3차 — 2차 잔여 회수): 준비템 상세의 플로팅 크롬(뒤로가기·공유하기) 원형
+  // 버튼 서피스 — 상품 이미지 위 흰 반투명 82%(승인 캡처 ITEM-002의 값 그대로). 값=종전
+  // 리터럴 대조는 같은 대조표(src/color-literal-tokenization.test.ts)가 두 시점으로 문다.
+  floatingChromeSurface: "rgba(255, 255, 255, 0.82)",
   // 코랄 히어로 위 흰색 반투명 2종(홈 히어로 진행 바 트랙 0.45 · 준비 히어로 트랙/구분선 0.28).
   heroProgressTrack: "rgba(255,255,255,0.45)",
   heroOverlaySoft: "rgba(255,255,255,0.28)",

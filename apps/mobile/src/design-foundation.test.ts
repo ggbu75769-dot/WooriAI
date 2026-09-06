@@ -80,6 +80,9 @@ describe("D0 theme tokens", () => {
     // ⚠️ 두 시점(라운드 101 TK2): 2차(1차 잔여 회수)가 hairlineHeavy(#4A3F35 12% — 가족
     // "가족 초대하기" 버튼 외곽선의 종전 리터럴) 1개를 더했다. 기존 37개 키·값은 불변이고,
     // 새 키의 값=종전 리터럴 대조도 같은 대조표가 문다.
+    // ⚠️ 두 시점(라운드 102 TK3): 3차가 floatingChromeSurface(흰 82% — 준비템 상세 플로팅
+    // 크롬 버튼 서피스의 종전 리터럴) 1개를 더했다. 기존 38개 키·값은 불변이고, 새 키의
+    // 값=종전 리터럴 대조도 같은 대조표가 문다.
     expect(theme.colors.presentation).toEqual({
       dangerSurface: "#FFF0ED",
       segmentedTrack: "#F5F0EA",
@@ -94,6 +97,7 @@ describe("D0 theme tokens", () => {
       hairline: "rgba(74, 63, 53, 0.08)",
       hairlineStrong: "rgba(74, 63, 53, 0.10)",
       hairlineHeavy: "rgba(74, 63, 53, 0.12)",
+      floatingChromeSurface: "rgba(255, 255, 255, 0.82)",
       heroProgressTrack: "rgba(255,255,255,0.45)",
       heroOverlaySoft: "rgba(255,255,255,0.28)",
       chartGridLine: "rgba(255, 107, 82, 0.08)",

@@ -55,7 +55,7 @@ export function BudgetSummary({ usedKrw, budgetKrw, label = "이번 달 지출" 
           accessibilityLabel={`예산 사용률 ${Math.round(ratio * 100)}퍼센트`}
           accessibilityRole="progressbar"
           accessibilityValue={{ min: 0, max: 100, now: Math.min(100, Math.round(ratio * 100)) }}
-          style={{ backgroundColor: "rgba(255,255,255,0.32)", borderRadius: radius.pill, height: 8, overflow: "hidden" }}
+          style={{ backgroundColor: semanticColors.progressTrackInverse, borderRadius: radius.pill, height: 8, overflow: "hidden" }}
         >
           <Animated.View
             style={{
