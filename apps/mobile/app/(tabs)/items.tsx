@@ -115,6 +115,18 @@ import {
   giftedResetConfirmMessage,
   ITEM_STATUS_LOCAL_SAVE_FAILED_MESSAGE
 } from "../../src/items/status-mutation-messages";
+// 라운드 100 T3 — 커스텀 품목(사용자 직접 추가 준비물). 시트·뮤테이션은 컴포넌트 한 벌
+// (src/items/CustomItemSheet.tsx)에, 문구·판정은 순수 모듈(custom-item-form.ts)에 있고 이
+// 화면은 진입 버튼·목록 표식·프리필 게이트만 배선한다(설계 문서 §4.1/§4.3).
+import { CustomItemSheet } from "../../src/items/CustomItemSheet";
+import {
+  customItemCreatedNotice,
+  customItemEntryLabel,
+  customItemListMarkerText,
+  isCustomItemInList,
+  withoutCustomItemTemplateId
+} from "../../src/items/custom-item-form";
+import { useTransientNotice } from "../../src/ui/use-transient-notice";
 
 const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 
@@ -242,6 +254,12 @@ export default function ItemsScreen() {
   // 기록되고 서버가 그 아이의 준비템까지 준비 완료로 바꿔 버렸다(R19-B) -- 사용자가 시킨 적
   // 없는 데이터 변경이다.
   const [expenseLinkPrompt, setExpenseLinkPrompt] = useState<ExpenseLinkPrompt | null>(null);
+  // 라운드 100 T3: 커스텀 품목 입력 시트의 열림 상태. 세션 렌더에서만 열리는 입구라(§4.1)
+  // 비세션 프리뷰(ITEM-001 캡처)는 이 상태에 닿지 않는다 — 훅 자체는 early return 위 규율대로
+  // 여기 선다.
+  const [showCustomItemSheet, setShowCustomItemSheet] = useState(false);
+  // 커스텀 품목 추가 성공 토스트 — 잠깐 안내의 수명 한 벌(3200ms, use-transient-notice 관례).
+  const { notice: customItemNotice, show: showCustomItemNotice } = useTransientNotice();
   // UX-E: 100% 축하 배너를 닫은 시기 밴드들. 축하는 "도달했다"는 사실을 한 번 알리는 것이지
   // 계속 붙어 있는 라벨이 아니다 -- 닫으면 이 화면이 살아 있는 동안 같은 밴드에서는 다시
   // 뜨지 않는다(밴드별로 기억하므로 다른 시기를 100% 채우면 그때는 다시 축하한다).
@@ -401,6 +419,10 @@ export default function ItemsScreen() {
   useEffect(() => {
     setHasManualStageSelection(false);
     setDismissedCelebrationBands(() => new Set<StageBandLabel>());
+    // 라운드 100 T3: 열려 있던 커스텀 품목 시트도 함께 걷는다 — 시트의 저장은 지금 선택된
+    // 아이 밑으로 들어가므로, 첫째를 보다가 연 시트가 둘째에게 저장되면 다른 아이에게 내린
+    // 결정이 된다(위 두 상태와 같은 L-3 관례).
+    setShowCustomItemSheet(false);
   }, [childId]);
   // 라운드 37 G-3: "지출도 기록할까요?" 줄이 살아 있어도 되는 화면 좌표. 목록을 갈아 끼우는
   // 입력(아이·시기 밴드·필수도 칩·검색어)만 담는다.
@@ -799,9 +821,16 @@ export default function ItemsScreen() {
         // 라운드 49 C-02: 품목명·준비템 id에 더해 **분류**까지 넘긴다. 인라인(타일이 아직 보임)과
         // 떨어져 나온 줄(항목이 목록에서 빠짐) 둘 다 같은 조립기를 타므로, 어느 자리에서 눌러도
         // 같은 프리필이 간다. 분류가 없는 준비템이면 파라미터 키 자체가 생기지 않는다.
-        params: expenseLinkParams(
-          { itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId, categoryId: prompt.categoryId },
-          "items"
+        // 라운드 100 T3(§4.3): 커스텀 품목이면 itemTemplateId 키만 걷는다 —
+        // expenses.linked_item_template_id가 item_templates FK라 커스텀 id는 실을 수 없다.
+        // 줄 자체는 그대로 선다(품목명 프리필만, 자동 준비완료 연동 없음). 조립기는 한 벌
+        // 그대로이고, 커스텀 판정은 tab="all" 스냅샷을 되본다(프롬프트 타입 0바이트).
+        params: withoutCustomItemTemplateId(
+          expenseLinkParams(
+            { itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId, categoryId: prompt.categoryId },
+            "items"
+          ),
+          isCustomItemInList(items.data?.items, prompt.itemTemplateId)
         )
       });
     }
@@ -1202,6 +1231,15 @@ export default function ItemsScreen() {
           const memoPreview = itemMemos[item.id];
           return (
             <View style={{ gap: 6 }}>
+              {/* 라운드 100 T3(§4.3): 커스텀 표식은 타일이 아니라 발밑 슬롯이다 — 타일 구성
+                  (아이콘·이름·상태 pill)은 승인 디자인 잠금(catalog-contract.ts 머리말)이라
+                  손대지 않고, 메모 미리보기와 나란히 한 줄 텍스트만 세운다. isCustom이 없는
+                  항목(카탈로그)은 슬롯 무접촉이다. */}
+              {item.isCustom ? (
+                <Text style={{ color: theme.colors.gray600, fontSize: 11, lineHeight: 16 }}>
+                  {customItemListMarkerText()}
+                </Text>
+              ) : null}
               {memoPreview ? (
                 <Text
                   numberOfLines={1}
@@ -1269,6 +1307,40 @@ export default function ItemsScreen() {
           );
         }}
       />
+
+      {/* 라운드 100 T3(§4.1) — 커스텀 품목 추가 진입점. PreparationListParity **아래**(같은
+          스크롤 안)다: 목록을 끝까지 훑고 "없네"가 되는 지점이 정확히 여기고, 잠긴 뼈대
+          (PreparationListParity 내부)와 TopAppBar 우측 슬롯(아이 전환이 선점)을 건드리지
+          않는다. 비세션 프리뷰는 위 `if (!hasSession)`에서 먼저 반환하므로 ITEM-001 캡처
+          무접촉이 구조로 보장된다. 잠긴 세션(보기 전용)은 버튼을 지우지 않고 눌렀을 때
+          사실을 말한다 — 준비 상태 변경과 같은 판정·같은 안내다(라운드 51 #8 관례, §2.6:
+          서버가 생성에도 같은 편집 권한을 요구한다). */}
+      <SecondaryButton
+        label={customItemEntryLabel()}
+        onPress={() => {
+          if (itemStatusGate.locked) {
+            itemStatusGate.explain();
+            return;
+          }
+          setShowCustomItemSheet(true);
+        }}
+      />
+      {/* 추가 성공 한 줄(3200ms 수명). Toast가 스스로 낭독한다(A11Y-115). */}
+      {customItemNotice ? <Toast message={customItemNotice.message} /> : null}
+      {showCustomItemSheet ? (
+        <CustomItemSheet
+          testID="items-custom-item-sheet"
+          authToken={authToken!}
+          childId={childId!}
+          // 시기 기본값 = 지금 보고 있는 칩(§4.2). 필수도 기본값(essential)은 모듈이 진다.
+          mode={{ kind: "create", defaultStageBand: stageLabel }}
+          onClose={() => setShowCustomItemSheet(false)}
+          onSaved={(saved) => {
+            setShowCustomItemSheet(false);
+            showCustomItemNotice(customItemCreatedNotice(saved.name));
+          }}
+        />
+      ) : null}
 
       {childSwitch.canSwitch && childSwitch.isOpen ? (
         <ChildSwitchSheet

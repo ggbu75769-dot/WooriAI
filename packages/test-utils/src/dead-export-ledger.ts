@@ -2145,7 +2145,11 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 두 시점(라운드 99 F1): 144 → 145 — step-ui.tsx가 IDEMPOTENCY_KEY_CONFLICT의 재시도 무익
     // 판정(isOnboardingSaveIdempotencyConflict)을 export function으로 열었다(소비자 실재 —
     // 온보딩 저장 카드의 403 갈래 합류). 같은 성격의 성장이다.
-    value: 145,
+    // 두 시점(라운드 100 T3): 145 → 147 — src/items/CustomItemSheet.tsx가 커스텀 품목 입력
+    // 시트와 상세 수정/삭제 갈래의 컴포넌트 둘(CustomItemSheet · CustomItemDetailActions)을
+    // 열었다(소비자 실재 — app/(tabs)/items.tsx · app/items/[itemTemplateId].tsx가 JSX로
+    // 부른다). 같은 성격의 성장이고, 재개 조건(JSX 사용을 참조로 세는 판정)은 열지 않는다.
+    value: 147,
     floor: 80,
     statement:
       "`.tsx`의 `export function`(컴포넌트·훅) 141은 모집단 밖이다 — JSX 사용(`<Foo />`)은 이 그물의 이름 " +

@@ -26,6 +26,13 @@ import {
   shouldShowItemDetailExpenseLink,
   ITEM_DETAIL_EXPENSE_LINK_LABEL
 } from "../../src/items/expense-link-prompt";
+// 라운드 100 T3 — 커스텀 품목(사용자 직접 추가 준비물)의 상세 갈래. 수정/삭제 진입과 그
+// 뮤테이션·문구는 전부 컴포넌트/순수 모듈 한 벌에 있고(src/items/CustomItemSheet.tsx ·
+// custom-item-form.ts), 이 화면이 더하는 것은 조건부 렌더 한 자리와 프리필 게이트뿐이다 —
+// 이 화면의 한국어 문자열 수·뮤테이션 수 핀(src/mutation-press-guard.test.ts)이 구조적으로
+// 불변이도록 새 문장·새 useMutation을 이 파일에 두지 않는다(설계 문서 §4.4).
+import { CustomItemDetailActions } from "../../src/items/CustomItemSheet";
+import { withoutCustomItemTemplateId } from "../../src/items/custom-item-form";
 import {
   canSharePurchaseLink,
   EMPTY_PRODUCT_LINKS_TEXT,
@@ -1332,6 +1339,26 @@ export default function ItemDetailScreen() {
             />
           ) : null}
 
+          {/* 라운드 100 T3(§4.4) — 커스텀 품목이면 수정(시트 재사용)·삭제 진입. 구매 링크·제휴
+              고지·가격·판매처 비교는 **기존 링크 0건 갈래가 접는다**(productLinks: [] ·
+              priceBandText 없음 — 신규 조건부 은닉 코드 0건이 이 설계의 요점, §5). 편집
+              게이트는 useItemStatusGate와 같은 판정을 컴포넌트가 재사용한다. 위 "선물로
+              받았어요"와 같은 이유로 구매 CTA 아래이고, 제휴 고지-구매 CTA 사이에는 아무것도
+              끼우지 않는다(DNC-010 인접성 — 커스텀에는 그 구간 자체가 서지 않지만 자리 규율은
+              같다). 세션 게이트: ITEM-002 픽셀락 캡처(비세션 프리뷰)에는 렌더되지 않는다. */}
+          {hasSession && visibleDetail.isCustom === true ? (
+            <CustomItemDetailActions
+              authToken={authToken!}
+              childId={childId!}
+              item={{
+                id: itemTemplateId,
+                name: visibleDetail.name,
+                timingLabel: visibleDetail.timingLabel,
+                necessityLevel: visibleDetail.necessityLevel
+              }}
+            />
+          ) : null}
+
           {/* 라운드 37 UX-I: 앱 밖(마트·당근·지인)에서 이미 산 사람을 위한 상시 진입점.
               예전에는 아래 `clickedTitle` 카드 안의 "지출 기록하고 준비 완료"가 유일한 길이라
               **제휴 링크를 연 뒤에만** 지출과 준비템을 이을 수 있었다 -- 링크를 누를 일이 없는
@@ -1361,9 +1388,15 @@ export default function ItemDetailScreen() {
                   // 라운드 49 C-02: 준비템의 지출 분류까지 함께 넘긴다 — 서버 DTO에는 있었지만
                   // (item_templates.category_id) 프리필이 버려서 분류가 늘 기본 타일로 떨어졌다.
                   // 금액은 넘기지 않는다: priceBandText는 범위라 특정 값을 지어내는 셈이 된다.
-                  params: expenseLinkParams(
-                    { itemName: visibleDetail.name, itemTemplateId, categoryId: visibleDetail.categoryId },
-                    "item-detail"
+                  // 라운드 100 T3(§4.3): 커스텀이면 itemTemplateId 키만 걷는다(품목명 프리필만) —
+                  // expenses.linked_item_template_id가 item_templates FK라 커스텀 id는 실을 수
+                  // 없다. 조립기는 그대로 한 벌이다(걷기만 하는 모듈 함수 — custom-item-form.ts).
+                  params: withoutCustomItemTemplateId(
+                    expenseLinkParams(
+                      { itemName: visibleDetail.name, itemTemplateId, categoryId: visibleDetail.categoryId },
+                      "item-detail"
+                    ),
+                    visibleDetail.isCustom === true
                   )
                 })
               )}
@@ -1397,9 +1430,15 @@ export default function ItemDetailScreen() {
                     // 두 버튼이 같은 곳으로 가는 같은 행동인데(G-8) 한쪽만 출처를 붙이면
                     // 저장 후 목적지가 어느 버튼을 눌렀느냐로 갈린다.
                     // 라운드 49 C-02: 분류(categoryId)도 같은 조립기가 함께 싣는다.
-                    params: expenseLinkParams(
-                      { itemName: visibleDetail.name, itemTemplateId, categoryId: visibleDetail.categoryId },
-                      "item-detail"
+                    // 라운드 100 T3: 커스텀 게이트도 상시 진입점과 같은 한 겹이다(위 주석) —
+                    // 이 카드는 링크를 연 뒤에만 서므로 커스텀(링크 0건)에서는 도달 불가지만,
+                    // 두 자리의 파라미터가 갈리면 안 된다는 규율(P2-5)은 게이트에도 적용된다.
+                    params: withoutCustomItemTemplateId(
+                      expenseLinkParams(
+                        { itemName: visibleDetail.name, itemTemplateId, categoryId: visibleDetail.categoryId },
+                        "item-detail"
+                      ),
+                      visibleDetail.isCustom === true
                     )
                   })
                 )}

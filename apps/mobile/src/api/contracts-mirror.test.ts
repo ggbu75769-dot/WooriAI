@@ -327,17 +327,24 @@ const CONSTANT_LEDGER: Record<
   // 선언의 대조는 src/api/custom-items-mirror.test.ts가 값(숫자·문구)과 동작(경계) 두 방향으로
   // 문다. T3의 입력 시트 가드가 자기 모듈에 사본을 세우는 날(text-limits 관례), 그 줄이
   // mirror를 갖거나 아래 사본 없음 스윕이 빨개진다 — EXPENSE_LIST_DEFAULT_LIMIT과 같은 형식.
+  // ⚠️ 두 시점(라운드 100 T3): 그날이 왔다 — 입력 시트 가드의 사본이
+  // src/items/custom-item-form.ts에 섰다. 다만 라운드 95 공통 금지(새 export const 0건)에 따라
+  // 사본은 `export const`가 아니라 **함수 반환값**(customItemNameMaxLength ·
+  // customItemMaxPerChild)이라 이 대장의 mirror 칸(export const 형식만 가리킬 수 있다)은 null
+  // 그대로 두고, 그 함수 사본과 계약 선언의 대조는 src/items/custom-item-form.test.ts가 진다.
   CUSTOM_ITEM_NAME_MAX_LENGTH: {
     mirror: null,
     reason:
       "라운드 100 §1.2 — custom_items.name varchar(80)와 동치인 상한. export const 사본 없음 " +
-      "(로컬 대역의 비export 리터럴뿐), 대조는 src/api/custom-items-mirror.test.ts가 진다."
+      "(로컬 대역의 비export 리터럴 + T3 입력 가드의 함수 반환 사본뿐), 대조는 " +
+      "src/api/custom-items-mirror.test.ts와 src/items/custom-item-form.test.ts가 진다."
   },
   CUSTOM_ITEM_MAX_PER_CHILD: {
     mirror: null,
     reason:
       "라운드 100 §1.4 — 아이당 활성(미삭제) 커스텀 품목 상한. export const 사본 없음(로컬 " +
-      "대역의 비export 리터럴뿐), 대조는 src/api/custom-items-mirror.test.ts가 진다."
+      "대역의 비export 리터럴 + T3 실패 문구의 함수 반환 사본뿐), 대조는 " +
+      "src/api/custom-items-mirror.test.ts와 src/items/custom-item-form.test.ts가 진다."
   },
   CUSTOM_ITEM_REASON_TEXT: {
     mirror: null,
