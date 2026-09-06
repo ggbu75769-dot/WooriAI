@@ -7,6 +7,7 @@ import { deactivateRegisteredPushDevice } from "../notifications/usePushDeviceRe
 import { clearAppQueryCache } from "../query/query-client-registry";
 import { useAppLockStore } from "../stores/app-lock.store";
 import { useImportResumeStore } from "../stores/import-resume.store";
+import { useQuickRecordPinsStore } from "../stores/quick-record-pins.store";
 import { useRecentSearchesStore } from "../stores/recent-searches.store";
 import { useRecurringExpenseStore } from "../stores/recurring-expense.store";
 import { clearSyncCursor } from "./delta-sync";
@@ -279,6 +280,11 @@ export async function teardownOfflineSessionState(
   // 달력)·notification-preferences 같은 "화면을 어떻게 볼까"류 기기 취향과 달리, A가 무엇을
   // 찾았는지가 B의 검색창 아래에 칩으로 떠서는 안 된다. 동기 set이라 이 줄에서 이미 유효하다.
   useRecentSearchesStore.getState().resetAll();
+  // 라운드 102 F6b: 홈 빠른 기록 칩의 핀도 같은 자격이다 — 담기는 것은 사용자가 고른
+  // **품목명(개인 텍스트)**이라, 저장은 기기 단위 persist지만 판단은 최근 검색어(라운드 101
+  // W2 F7)와 같은 **사용자 단위**다: A가 무엇을 자주 사는지가 B의 홈 칩에 고정된 채 떠서는
+  // 안 된다. 동기 set이라 이 줄에서 이미 유효하다.
+  useQuickRecordPinsStore.getState().resetAll();
   // 라운드 55 트랙 C(설계 §2.8) — **브릭 방지**. 앱 잠금 PIN이 정체성 변경에서 지워지지 않으면
   // A 로그아웃 → B 로그인 → B가 A의 PIN 화면에 갇히고, 탈출구는 로그아웃뿐이라 무한 루프가 된다.
   // 런타임 상태는 동기로 비고, SecureStore 키 삭제만 Promise다 -- 이 함수는 이미 async이므로

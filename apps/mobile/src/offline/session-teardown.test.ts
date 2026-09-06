@@ -17,6 +17,7 @@ import {
 } from "../query/query-client-registry";
 import { useAppLockStore } from "../stores/app-lock.store";
 import { useImportResumeStore } from "../stores/import-resume.store";
+import { useQuickRecordPinsStore } from "../stores/quick-record-pins.store";
 import { useRecentSearchesStore } from "../stores/recent-searches.store";
 import { useRecurringExpenseStore } from "../stores/recurring-expense.store";
 import { readAppLockRecord } from "../security/app-lock-storage";
@@ -111,6 +112,8 @@ async function seedUserScopedState(store: OfflineStore): Promise<void> {
   // 라운드 101 W2 F7: 기록 탭 최근 검색어는 사용자가 친 개인 텍스트다 -- A가 무엇을 찾았는지가
   // B의 검색창 아래에 칩으로 떠서는 안 된다(판단은 통계 동의와 같은 사용자 단위).
   useRecentSearchesStore.getState().add("조리원");
+  // 라운드 102 F6b: 홈 빠른 기록 칩의 핀도 품목명(개인 텍스트)이다 -- 같은 사용자 단위 판단.
+  useQuickRecordPinsStore.getState().togglePin("튼살크림");
 }
 
 async function expectStoreFullyEmpty(store: OfflineStore): Promise<void> {
@@ -145,6 +148,8 @@ beforeEach(async () => {
   useAnalyticsConsentStore.getState().reset();
   // 라운드 101 W2 F7: 최근 검색어도 같은 이유로 테스트 사이에 비운다.
   useRecentSearchesStore.getState().resetAll();
+  // 라운드 102 F6b: 빠른 기록 칩 핀도 같은 이유로 테스트 사이에 비운다.
+  useQuickRecordPinsStore.getState().resetAll();
 });
 
 // ---------------------------------------------------------------------------
@@ -640,6 +645,8 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
     expect(useAnalyticsConsentStore.getState().enabled).toBe(true);
     // 라운드 101 W2 F7: 같은 사람의 최근 검색어도 그대로다 -- 토큰 갱신이 이력을 지우면 안 된다.
     expect(useRecentSearchesStore.getState().searches).toEqual(["조리원"]);
+    // 라운드 102 F6b: 같은 사람의 빠른 기록 칩 핀도 그대로다.
+    expect(useQuickRecordPinsStore.getState().pinnedItemNames).toEqual(["튼살크림"]);
   });
 
   /**
@@ -682,6 +689,25 @@ describe("PRIV-104 teardownOfflineSessionState", () => {
       await simulateSessionTransition(store, userA, next);
 
       expect(useRecentSearchesStore.getState().searches).toEqual([]);
+    }
+  });
+
+  /**
+   * 라운드 102 F6b — 홈 빠른 기록 칩의 핀이 계정 경계를 넘지 않는다.
+   *
+   * 핀에 담기는 것은 사용자가 고른 품목명(개인 텍스트)이다. 저장은 기기 단위 persist지만
+   * **판단은 사용자 단위**(최근 검색어 라운드 101 W2 F7과 같은 선례)다 — A가 무엇을 자주
+   * 사는지가 B의 홈 칩에 고정된 채 떠서는 안 된다.
+   */
+  it("라운드 102 F6b: 계정 전환·로그아웃·데모 전환에서 빠른 기록 칩 핀이 비워진다", async () => {
+    for (const next of [userB, loggedOut, demoSession]) {
+      const store = createMemoryOfflineStore();
+      await seedUserScopedState(store);
+      expect(useQuickRecordPinsStore.getState().pinnedItemNames).toEqual(["튼살크림"]);
+
+      await simulateSessionTransition(store, userA, next);
+
+      expect(useQuickRecordPinsStore.getState().pinnedItemNames).toEqual([]);
     }
   });
 

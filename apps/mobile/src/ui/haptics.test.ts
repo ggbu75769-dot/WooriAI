@@ -249,9 +249,30 @@ describe("라운드 101 트랙 B 채택 지점 (source verification — 화면�
     expect(src).toContain("const setHapticsEnabled = useHapticsStore((state) => state.setHapticsEnabled);");
   });
 
-  it("홈(index.tsx)은 소유 밖 — 이 라운드가 홈에 햅틱을 심지 않았다(예산 경고 채택은 이월)", () => {
+  it("홈 예산 100% 경고 배너: hapticWarning이 등장 전이 감지 effect 안에만 있다 (라운드 102 F6b 이월 채택)", () => {
+    // ⚠️ 두 시점: 라운드 101 트랙 B 시점의 이 자리는 부정 단언이었다 — "홈(index.tsx)은 소유
+    // 밖이라 이 라운드가 홈에 햅틱을 심지 않았다(예산 경고 채택은 이월)". 라운드 102 F6b가 그
+    // 이월 1건을 배선하며 같은 자리를 채택 계약으로 바꾼다.
     const homeSource = source("app/(tabs)/index.tsx");
-    expect(homeSource).not.toContain("haptic");
-    expect(homeSource).not.toContain("haptics.store");
+    expect(homeSource).toContain('import { hapticWarning } from "../../src/ui/haptics";');
+    // 슬라이스 두 끝 가드 — 판정 memo의 선언부터 첫 조기 반환까지. 끝 앵커가 시작보다 뒤라는
+    // 단언이 곧 FIX-A(훅이 조기 반환들보다 위) 확인이기도 하다.
+    const start = homeSource.indexOf("const exceededBudgetWarningVisible = useMemo(() => {");
+    const end = homeSource.indexOf('if (hasSession && homePhase === "error") {');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const block = homeSource.slice(start, end);
+    // 판정은 배너와 같은 순수 함수 두 개를 같은 게이트(hasSession · home.data)로 지난다 —
+    // 두 자리가 갈리면 배너 없이 진동이 난다.
+    expect(block).toContain("resolveThisMonthUsedKrw({");
+    expect(block).toContain("evaluateBudgetWarning({ budgetKrw: home.data.monthly.amountKrw, spentKrw })");
+    // 발화는 exceeded(100% 도달/초과) 갈래뿐이다 — 80% 접근 배너는 경고가 아니다.
+    expect(block).toContain('?.level === "exceeded"');
+    // 렌더 무접촉: 발화는 effect 안 이 한 곳뿐이고, 등장 전이 ref가 중복 발화를 막고 배너가
+    // 내려가면 되감긴다(다음 등장이 다시 한 번만 울린다).
+    expect(block).toContain("exceededWarningHapticFired.current = false;");
+    expect(block).toContain("exceededWarningHapticFired.current = true;");
+    expect(block).toContain("hapticWarning();");
+    expect(homeSource.match(/hapticWarning\(\);/g) ?? []).toHaveLength(1);
   });
 });

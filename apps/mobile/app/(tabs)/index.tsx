@@ -73,8 +73,13 @@ import {
 import { resolveHomeSyncStatus } from "../../src/home/home-sync-status";
 import {
   buildHomeQuickRecordChips,
+  isQuickRecordPinToggleAction,
+  quickRecordChipAccessibilityActions,
+  quickRecordChipAccessibilityLabel,
+  quickRecordPinToggleHint,
   HOME_QUICK_RECORD_SECTION_TITLE
 } from "../../src/home/quick-record-chips";
+import { useQuickRecordPinsStore } from "../../src/stores/quick-record-pins.store";
 import {
   evaluateMilestoneCountdown,
   HOME_MILESTONE_PENDING_NOTICE_TEST_ID
@@ -126,6 +131,7 @@ import {
   ScreenHeader,
   TextButton
 } from "../../src/ui";
+import { hapticWarning } from "../../src/ui/haptics";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { useReducedMotion } from "../../src/ui/useReducedMotion";
 import { motion } from "../../src/design-system/tokens/motion";
@@ -604,7 +610,9 @@ const homeHeroStyle = StyleSheet.create({
   }
 });
 
-/** "빠른 기록" 칩 4개: white · border gray300 · pill · minH 48 · 11/700(캡처 155-163·204-215). */
+/** "빠른 기록" 칩 4개: white · border gray300 · pill · minH 48 · 11/700(캡처 155-163·204-215).
+ * 라운드 102 F6b: 핀 칩은 라벨 앞에 작은 고정 글리프가 선다 — 뜻은 낭독 라벨이 함께 진다
+ * (색·글리프 단독 전달 금지). 글리프가 없는 칩의 렌더는 row 전환 후에도 종전과 같은 중앙 정렬이다. */
 const homeQuickRecordStyle = StyleSheet.create({
   chip: {
     alignItems: "center",
@@ -613,6 +621,8 @@ const homeQuickRecordStyle = StyleSheet.create({
     borderRadius: theme.radii.pill,
     borderWidth: 1,
     flex: 1,
+    flexDirection: "row",
+    gap: 4,
     justifyContent: "center",
     minHeight: theme.touchTarget,
     paddingHorizontal: 6
@@ -1651,15 +1661,57 @@ export default function HomeScreen() {
       offlineSyncSnapshot.rows
     ]
   );
+  // 라운드 102 F6b: 핀 목록·토글도 이 블록의 훅이다(FIX-A — 조기 반환 위). 값의 원천은 persist
+  // 스토어 하나이고(화면 로컬 state 금지), 병합 규칙은 아래 memo가 넘기는 순수 모듈에 있다.
+  const pinnedQuickRecordItemNames = useQuickRecordPinsStore((state) => state.pinnedItemNames);
+  const toggleQuickRecordPin = useQuickRecordPinsStore((state) => state.togglePin);
   const quickRecordChips = useMemo(
     () =>
       buildHomeQuickRecordChips(
         childId
           ? buildRecentItemChips(offlineSyncSnapshot.rows, childId, { serverRows: thisMonthExpenses.data?.expenses })
-          : null
+          : null,
+        // 라운드 102 F6b: 핀이 최근 이력보다 앞칸에 선다(핀 우선·중복 제거·상한 — 순수 모듈).
+        pinnedQuickRecordItemNames
       ),
-    [childId, offlineSyncSnapshot.rows, thisMonthExpenses.data?.expenses]
+    [childId, offlineSyncSnapshot.rows, thisMonthExpenses.data?.expenses, pinnedQuickRecordItemNames]
   );
+  /**
+   * 라운드 102 F6b — 라운드 101 트랙 B의 이월 1건: 예산 100% 경고 배너의 **등장 순간**에
+   * hapticWarning() 한 번.
+   *
+   * 렌더 중 발화 금지(src/ui/haptics.ts 머리말: 채택 지점은 전부 핸들러/effect)라 등장 **전이**를
+   * effect가 감지한다. FIX-A: 훅이라 아래 조기 반환들보다 위에 서야 하는데, 렌더가 쓰는
+   * `budgetWarning`/`monthlyUsed` 선언은 조기 반환 **뒤**라 여기서 그대로 읽을 수 없다 — 그래서
+   * 같은 순수 판정(resolveThisMonthUsedKrw → evaluateBudgetWarning)을 같은 입력(같은 게이트
+   * hasSession · 같은 캐시·스냅숏·서버 집계)으로 이 memo가 한 번 더 지난다. 두 자리가 갈리면
+   * 배너 없이 진동이 나므로, 나란함은 계약이 잰다(src/ui/haptics.test.ts).
+   *
+   * 발화는 exceeded(100% 도달/초과) 갈래뿐이다 — 80% 접근 배너는 "확인해 보세요"지 경고가
+   * 아니고, 잦은 진동은 확인이 아니라 소음이다(같은 모듈 머리말의 세기 선택 근거).
+   * 중복 발화 방지: ref가 "이번 등장에 이미 울렸다"를 들고, 배너가 내려가면 되감아 다음 등장이
+   * 다시 한 번만 울린다. 리렌더·refetch로 값이 그대로면 effect 자체가 다시 돌지 않는다(boolean 의존).
+   */
+  const exceededBudgetWarningVisible = useMemo(() => {
+    if (!hasSession || !home.data) return false;
+    const spentKrw =
+      resolveThisMonthUsedKrw({
+        cachedExpenses: thisMonthExpenses.data?.expenses ?? null,
+        offline: { rows: offlineSyncSnapshot.rows, childId, yearMonth: thisYearMonth },
+        homeUsedKrw: home.data.monthly.usedAmountKrw
+      }) ?? home.data.monthly.usedAmountKrw;
+    return evaluateBudgetWarning({ budgetKrw: home.data.monthly.amountKrw, spentKrw })?.level === "exceeded";
+  }, [hasSession, home.data, thisMonthExpenses.data?.expenses, offlineSyncSnapshot.rows, childId, thisYearMonth]);
+  const exceededWarningHapticFired = useRef(false);
+  useEffect(() => {
+    if (!exceededBudgetWarningVisible) {
+      exceededWarningHapticFired.current = false;
+      return;
+    }
+    if (exceededWarningHapticFired.current) return;
+    exceededWarningHapticFired.current = true;
+    hapticWarning();
+  }, [exceededBudgetWarningVisible]);
 
   if (hasSession && homePhase === "error") {
     return (
@@ -2866,11 +2918,26 @@ export default function HomeScreen() {
               {HOME_QUICK_RECORD_SECTION_TITLE}
             </Text>
             <View style={homeQuickRecordStyle.row}>
+              {/* 라운드 102 F6b: 품목 칩은 길게 눌러 핀/해제한다 — 기록 행 롱프레스 액션
+                  (app/(tabs)/records.tsx)과 같은 관례로, 길게 누르기를 못 듣는 보조기술에는
+                  힌트 문장 + 커스텀 액션이 같은 일을 노출한다. "직접 입력" 칩(itemName null)은
+                  핀 대상이 아니라 종전 그대로다. 핀 저장은 기기 단위 persist 스토어 하나다. */}
               {quickRecordChips.map((chip) => (
                 <Pressable
                   key={chip.testID}
-                  accessibilityLabel={chip.label}
+                  accessibilityLabel={quickRecordChipAccessibilityLabel(chip)}
                   accessibilityRole="button"
+                  accessibilityHint={chip.itemName ? quickRecordPinToggleHint() : undefined}
+                  accessibilityActions={chip.itemName ? quickRecordChipAccessibilityActions(chip) : undefined}
+                  onAccessibilityAction={
+                    chip.itemName
+                      ? (event) => {
+                          if (isQuickRecordPinToggleAction(event.nativeEvent.actionName)) {
+                            toggleQuickRecordPin(chip.itemName!);
+                          }
+                        }
+                      : undefined
+                  }
                   testID={chip.testID}
                   onPress={expenseGate.guard(() => {
                     if (chip.itemName) {
@@ -2879,8 +2946,10 @@ export default function HomeScreen() {
                     }
                     router.push("/expenses/new");
                   })}
+                  onLongPress={chip.itemName ? () => toggleQuickRecordPin(chip.itemName!) : undefined}
                   style={({ pressed }) => [homeQuickRecordStyle.chip, pressed && homePressedStyle]}
                 >
+                  {chip.pinned ? <AppIcon color={theme.colors.coral[700]} name="pin" size={12} /> : null}
                   <KoreanText style={homeQuickRecordStyle.label}>{chip.label}</KoreanText>
                 </Pressable>
               ))}
