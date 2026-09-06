@@ -413,6 +413,7 @@ function errorMessage(error: unknown): string {
  *    flow deliberately leaves shared household data behind), and those rows
  *    carry NOT NULL FKs to users (Expense.createdByUserId,
  *    Budget.createdByUserId, ChildItemStatus.updatedByUserId,
+ *    CustomItem.createdByUserId/updatedByUserId (000022, 라운드 100),
  *    Attachment.uploadedByUserId, ImportJob.userId, Household.ownerUserId).
  *    Such a user's row is instead anonymized in place: email/phone/
  *    displayName/profileImageUrl/lastLoginAt nulled and providerUserId
@@ -1049,6 +1050,9 @@ export class DataRetentionPurgeJob implements WorkerJob {
       where: { defaultChildId: { in: childIds } },
       data: { defaultChildId: null }
     });
+    // custom_items(라운드 100, 000022)는 여기서 지우지 않는다 — child_id가 SQL FK
+    // ON DELETE CASCADE라(push_boundary_marks의 000013 관례) 아래 child.deleteMany가
+    // 함께 지운다. 사용자 파기와의 상호작용은 findReferenceBlockedUserIds 쪽 주석 참고.
     const children = await tx.child.deleteMany({ where: { id: { in: childIds } } });
     return { children: children.count, expenses: expenseIds.length, clicksAnonymized: clicks.count };
   }
@@ -1108,6 +1112,14 @@ export class DataRetentionPurgeJob implements WorkerJob {
         data: { acceptedByUserId: null }
       });
       await tx.expense.updateMany({
+        where: { deletedByUserId: { in: userIds } },
+        data: { deletedByUserId: null }
+      });
+      // 라운드 100 T1: custom_items.deleted_by_user_id — expenses.deleted_by_user_id와 같은
+      // 취급(nullable 참조는 끊는다). created_by/updated_by(NOT NULL FK)는 여기서 끊을 수
+      // 없으므로 아래 findReferenceBlockedUserIds가 검사해 anonymize로 분류한다 —
+      // child_item_statuses.updated_by_user_id와 같은 방식이다(round100 설계 §1.5).
+      await tx.customItem.updateMany({
         where: { deletedByUserId: { in: userIds } },
         data: { deletedByUserId: null }
       });
@@ -1218,6 +1230,8 @@ export class DataRetentionPurgeJob implements WorkerJob {
         AND NOT EXISTS (SELECT 1 FROM expenses e WHERE e.created_by_user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM budgets b WHERE b.created_by_user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM child_item_statuses s WHERE s.updated_by_user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM custom_items ci WHERE ci.created_by_user_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM custom_items cu WHERE cu.updated_by_user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.uploaded_by_user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM import_jobs j WHERE j.user_id = u.id)
         AND NOT EXISTS (SELECT 1 FROM user_devices d WHERE d.user_id = u.id)
@@ -1715,6 +1729,29 @@ export class DataRetentionPurgeJob implements WorkerJob {
     collect(
       (
         await tx.childItemStatus.findMany({
+          where: { updatedByUserId: { in: userIds } },
+          select: { updatedByUserId: true },
+          distinct: ["updatedByUserId"]
+        })
+      ).map((row) => ({ userId: row.updatedByUserId }))
+    );
+    // 라운드 100 T1: custom_items의 NOT NULL user FK 둘(created_by/updated_by, 000022) —
+    // child_item_statuses.updated_by_user_id와 같은 모양이라 같은 방식으로 검사한다. 이 검사가
+    // 없으면 남의 가구에 살아남은 커스텀 품목 행이 users 하드 삭제를 FK 위반으로 터뜨려
+    // phase 3 트랜잭션 전체가 실패한다(round100 설계 §1.5 리스크 R2). 아이가 파기되는 경우는
+    // 무관하다 — custom_items.child_id는 ON DELETE CASCADE라 행이 먼저 사라진다.
+    collect(
+      (
+        await tx.customItem.findMany({
+          where: { createdByUserId: { in: userIds } },
+          select: { createdByUserId: true },
+          distinct: ["createdByUserId"]
+        })
+      ).map((row) => ({ userId: row.createdByUserId }))
+    );
+    collect(
+      (
+        await tx.customItem.findMany({
           where: { updatedByUserId: { in: userIds } },
           select: { updatedByUserId: true },
           distinct: ["updatedByUserId"]

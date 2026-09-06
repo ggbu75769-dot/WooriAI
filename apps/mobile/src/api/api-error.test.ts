@@ -518,6 +518,9 @@ describe("라운드 69 B — 실패의 이름이 화면까지 온다", () => {
         "목록 조회 전용 코드다 — 아웃박스도 준비템 상태 큐도 이 엔드포인트를 지나지 않는다(커서는 앱이 만든 값이고, 그 화면이 자기 폴백을 쓴다는 사실은 사유가 아니라 관측이다).",
       EXPENSE_CHILD_MISMATCH:
         "준비템 상태 PATCH가 expenseId를 함께 보낼 때만 나오는 403인데, 상태 큐가 보내는 것은 상태값 하나다(src/offline/remote-api.ts의 updateItemStatus).",
+      // 라운드 100 T2: 상태 PATCH의 커스텀 id 다형화(설계 문서 §2.4)가 이 스윕 파일에 더한 400.
+      CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED:
+        "커스텀 품목 상태 PATCH가 expenseId를 함께 보낼 때만 나오는 400인데, 상태 큐가 보내는 것은 상태값 하나다(위 EXPENSE_CHILD_MISMATCH와 같은 구조 — src/offline/remote-api.ts의 setItemStatus).",
       VALIDATION_ERROR:
         "바구니 코드다. 표에 넣으면 DTO 검증 실패 전량이 한 문구를 뒤집어쓴다 — 사유가 있는 갈래는 EXPENSE_CATEGORY_INVALID처럼 자기 코드를 받는다.",
       // --- items-catalog.service.ts의 어드민 전용 갈래 (apps/admin만 부른다) ---

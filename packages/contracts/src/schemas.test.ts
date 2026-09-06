@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   childSchema,
+  createCustomItemRequestSchema,
   createExpenseRequestSchema,
+  customItemSummarySchema,
+  CUSTOM_ITEM_MAX_PER_CHILD,
+  CUSTOM_ITEM_NAME_MAX_LENGTH,
+  CUSTOM_ITEM_REASON_TEXT,
+  deleteCustomItemResponseSchema,
   deleteExpenseRequestSchema,
+  itemDetailSchema,
+  updateCustomItemRequestSchema,
   listCategoriesResponseSchema,
   expenseSchema,
   homeMonthlyBudgetSchema,
@@ -557,5 +565,113 @@ describe("shared contract schemas", () => {
 
     // 셋 다 선택적이라는 하위호환 계약은 그대로다(limit/cursor를 모르는 기존 클라이언트).
     expect(listExpensesQuerySchema.parse({})).toEqual({});
+  });
+});
+
+/**
+ * 라운드 100 T2 — 커스텀 품목 계약(docs/5차/round100-custom-items-design.md §9.1).
+ *
+ * 커스텀 품목에는 가격 필드가 없다(준비템 가격 표시 잠금 — priceBandText는 카탈로그만의
+ * 사실이고 없는 사실을 지어내지 않는다, §5). 수수료·링크 축도 없다(DNC-009 무접촉).
+ */
+describe("custom item contracts (round 100)", () => {
+  const validCreate = {
+    name: "아기 욕조",
+    stageBand: "0-6개월" as const,
+    necessityLevel: "essential" as const
+  };
+
+  it("pins the three custom-item constants (name 80 · per-child 200 · reason text)", () => {
+    expect(CUSTOM_ITEM_NAME_MAX_LENGTH).toBe(80);
+    expect(CUSTOM_ITEM_MAX_PER_CHILD).toBe(200);
+    expect(CUSTOM_ITEM_REASON_TEXT).toBe("직접 추가한 준비물이에요.");
+  });
+
+  it("validates the create request: name 1..80, stageBand 4-label enum, necessityLevel 3-value enum", () => {
+    expect(createCustomItemRequestSchema.parse(validCreate)).toEqual(validCreate);
+
+    // 이름 경계: 정확히 80자는 통과, 81자는 거절(한 칸 위 경계 — moneyKrwSchema 테스트 관례).
+    expect(
+      createCustomItemRequestSchema.parse({ ...validCreate, name: "가".repeat(CUSTOM_ITEM_NAME_MAX_LENGTH) }).name
+    ).toHaveLength(CUSTOM_ITEM_NAME_MAX_LENGTH);
+    expect(() =>
+      createCustomItemRequestSchema.parse({ ...validCreate, name: "가".repeat(CUSTOM_ITEM_NAME_MAX_LENGTH + 1) })
+    ).toThrow();
+    expect(() => createCustomItemRequestSchema.parse({ ...validCreate, name: "" })).toThrow();
+
+    // 밴드는 stageBandLabelSchema의 4값 원문만(임의 문자열 금지 — 서버 stagesForBand 전개의 입력).
+    for (const stageBand of ["0-6개월", "6-12개월", "12-24개월", "24개월+"]) {
+      expect(createCustomItemRequestSchema.parse({ ...validCreate, stageBand }).stageBand).toBe(stageBand);
+    }
+    expect(() => createCustomItemRequestSchema.parse({ ...validCreate, stageBand: "0~6개월" })).toThrow();
+    expect(() => createCustomItemRequestSchema.parse({ ...validCreate, necessityLevel: "must-have" })).toThrow();
+
+    // 세 필드 전부 필수(기본 essential은 UI 몫 — 계약은 지어내지 않는다).
+    const { necessityLevel: _level, ...withoutLevel } = validCreate;
+    expect(() => createCustomItemRequestSchema.parse(withoutLevel)).toThrow();
+  });
+
+  /**
+   * 설계 문서 §9.1의 원문은 `createCustomItemRequestSchema.partial()`이다 — 선언 형태는
+   * z.object로 폈지만(스키마 파일 주석 참고) **동작은 partial()과 같아야 한다**. 여기서 실제
+   * partial() 산출과 맞대 동치를 값으로 못 박는다(선언 형태가 의미를 바꾸는 순간 빨개진다).
+   */
+  it("keeps the update request semantically identical to createCustomItemRequestSchema.partial()", () => {
+    const derivedPartial = createCustomItemRequestSchema.partial();
+    const cases: unknown[] = [
+      {},
+      { name: "물려받은 카시트" },
+      { stageBand: "12-24개월" },
+      { necessityLevel: "convenience" },
+      { name: "가".repeat(80), stageBand: "24개월+", necessityLevel: "optional" },
+      { name: "" }, // 무효 — 둘 다 거절해야 한다
+      { name: "가".repeat(81) },
+      { stageBand: "임신 중" },
+      { necessityLevel: "refund" }
+    ];
+    for (const candidate of cases) {
+      const expected = derivedPartial.safeParse(candidate);
+      const actual = updateCustomItemRequestSchema.safeParse(candidate);
+      expect(actual.success, JSON.stringify(candidate)).toBe(expected.success);
+      if (expected.success && actual.success) expect(actual.data).toEqual(expected.data);
+    }
+    // status는 이 계약에 없다 — 상태는 기존 status 엔드포인트 하나가 쓴다(§2.4).
+    expect("status" in updateCustomItemRequestSchema.shape).toBe(false);
+  });
+
+  it("keeps isCustom additive-optional on ItemSummary and literal-true on the custom summary", () => {
+    const baseSummary = {
+      id: "77777777-7777-4777-8777-777777777777",
+      name: "아기 욕조",
+      necessityLevel: "essential" as const,
+      status: "not_prepared" as const
+    };
+
+    // 구응답 호환: isCustom이 없던 시절의 페이로드도 그대로 통과한다.
+    expect(itemSummarySchema.parse(baseSummary).isCustom).toBeUndefined();
+    expect(itemSummarySchema.parse({ ...baseSummary, isCustom: true }).isCustom).toBe(true);
+    // itemDetailSchema는 extend라 자동 승계된다.
+    expect(
+      itemDetailSchema.parse({
+        ...baseSummary,
+        reasonText: CUSTOM_ITEM_REASON_TEXT,
+        usedSecondhandOk: false,
+        productLinks: [],
+        isCustom: true
+      }).isCustom
+    ).toBe(true);
+
+    // 커스텀 요약은 isCustom이 리터럴 true다 — false/부재는 커스텀이 아니라는 뜻이라 거절.
+    expect(customItemSummarySchema.parse({ ...baseSummary, isCustom: true }).isCustom).toBe(true);
+    expect(() => customItemSummarySchema.parse({ ...baseSummary, isCustom: false })).toThrow();
+    expect(() => customItemSummarySchema.parse(baseSummary)).toThrow();
+  });
+
+  it("requires deleted: true (literal) on the delete response", () => {
+    const id = "77777777-7777-4777-8777-777777777777";
+    expect(deleteCustomItemResponseSchema.parse({ id, deleted: true })).toEqual({ id, deleted: true });
+    expect(() => deleteCustomItemResponseSchema.parse({ id, deleted: false })).toThrow();
+    expect(() => deleteCustomItemResponseSchema.parse({ id })).toThrow();
+    expect(() => deleteCustomItemResponseSchema.parse({ id: "not-a-uuid", deleted: true })).toThrow();
   });
 });

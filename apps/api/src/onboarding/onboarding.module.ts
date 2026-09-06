@@ -6,6 +6,7 @@ import { ChildrenController } from "./children.controller";
 import { ConsentsController } from "./consents.controller";
 import { OnboardingController } from "./onboarding.controller";
 import { ChildAccessService } from "./child-access.service";
+import { CustomItemsService } from "./custom-items.service";
 import { ExpensesStoreService } from "./expenses-store.service";
 import { ImportPipelineService } from "./import-pipeline.service";
 import { ItemsCatalogService } from "./items-catalog.service";
@@ -27,6 +28,7 @@ import { ReportingStoreService } from "./reporting-store.service";
   controllers: [BudgetsController, ChildrenController, ConsentsController, OnboardingController],
   providers: [
     ChildAccessService,
+    CustomItemsService,
     ExpensesStoreService,
     OnboardingCoreService,
     ItemsCatalogService,
@@ -35,6 +37,7 @@ import { ReportingStoreService } from "./reporting-store.service";
   ],
   exports: [
     ChildAccessService,
+    CustomItemsService,
     ExpensesStoreService,
     OnboardingCoreService,
     ItemsCatalogService,

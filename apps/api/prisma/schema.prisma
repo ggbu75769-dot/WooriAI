@@ -501,6 +501,36 @@ model ChildItemStatus {
   @@map("child_item_statuses")
 }
 
+/// 라운드 100 T1: 커스텀 품목(사용자 직접 추가 준비물) — docs/5차/round100-custom-items-design.md §1.
+/// `item_templates`(운영 시드)와 별개 테이블이고, 상태(`item_status`)를 행에 내장한다
+/// (child_item_statuses는 item_templates FK라 커스텀 id를 담을 수 없다 — §1.1 대안 B 기각).
+/// 소유 단위는 아이(child): 아이 물리 파기 시 SQL FK ON DELETE CASCADE(000022)로 함께
+/// 삭제된다(push_boundary_marks의 000013 관례). created_by/updated_by는 users(id)를
+/// 캐스케이드 없이 참조하므로 사용자 물리 파기 잡의 참조 차단 검사
+/// (data-retention-purge.job.ts findReferenceBlockedUserIds · selectPurgeableStubs)에
+/// child_item_statuses.updated_by_user_id와 같은 방식으로 편입돼 있다(§1.5).
+/// 시드 0건 — 커스텀 품목은 사용자 데이터다(§3.2).
+model CustomItem {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  childId         String         @map("child_id") @db.Uuid
+  name            String         @db.VarChar(80)
+  /// 사용자가 고른 시기 밴드 라벨 원문(stageBandLabelSchema 4값). 스테이지 코드로의
+  /// 전개는 응답 조립 시 stagesForBand()가 한다 — 매핑을 행에 복제하지 않는다(§1.3).
+  stageBand       String         @map("stage_band") @db.VarChar(20)
+  necessityLevel  NecessityLevel @default(essential) @map("necessity_level")
+  /// child_item_statuses.status와 같은 enum. 이 행에 내장하는 근거는 §1.2.
+  status          ItemStatus     @default(not_prepared)
+  createdByUserId String         @map("created_by_user_id") @db.Uuid
+  updatedByUserId String         @map("updated_by_user_id") @db.Uuid
+  deletedAt       DateTime?      @map("deleted_at") @db.Timestamptz(6)
+  deletedByUserId String?        @map("deleted_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // SQL 전용 부분 인덱스: idx_custom_items_child_active (child_id, created_at) WHERE deleted_at IS NULL (000022)
+  @@map("custom_items")
+}
+
 model ProductLink {
   id                   String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   itemTemplateId       String          @map("item_template_id") @db.Uuid

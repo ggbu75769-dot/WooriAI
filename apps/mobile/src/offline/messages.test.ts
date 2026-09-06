@@ -974,7 +974,18 @@ describe("UX/C-07 저장 실패 문구", () => {
     walk("src");
 
     // 정의부(훅 자신)는 호출부가 아니다.
-    expect(users.filter((path) => path !== "src/offline/use-load-error-copy.ts")).toEqual([]);
+    // ⚠️ 두 시점(라운드 100 T3 — 자기 변경 동반 핀 이관): 이 집합은 `[]`였다. 이 단언의
+    // 머리말이 미리 적어 둔 물음("그 모듈이 어느 화면의 문장을 만드는가")에 답을 적고 한 줄을
+    // 연다 — src/items/CustomItemSheet.tsx는 **준비템 탭의 커스텀 품목 추가 시트와 상세의
+    // 수정/삭제 갈래**가 쓰는 컴포넌트 한 벌이고, 뮤테이션이 화면(app/**)이 아니라 거기 사는
+    // 이유는 상세 화면의 뮤테이션 수·한국어 리터럴 핀(src/mutation-press-guard.test.ts —
+    // 연타 계약의 일부라 옮길 수 없다) 때문이다. 그 실패 문장은 화면 목록
+    // (OFFLINE_AWARE_SAVE_ERROR_SCREENS — app/** 스윕)이 아니라 컴포넌트 자신의 Toast
+    // tone="error"(자체 낭독, A11Y-115)가 지고, 배선 계약은
+    // src/items/custom-item-wiring.test.ts가 문다.
+    expect(users.filter((path) => path !== "src/offline/use-load-error-copy.ts")).toEqual([
+      "src/items/CustomItemSheet.tsx"
+    ]);
   });
 
   /**

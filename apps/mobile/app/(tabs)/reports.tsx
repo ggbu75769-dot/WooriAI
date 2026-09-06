@@ -62,6 +62,14 @@ import {
   CATEGORY_TREND_SECTION_TITLE,
   type CategoryTrendBar
 } from "../../src/reports/category-trend";
+// 라운드 100 트랙 T5: 추이 막대 → 그 달의 기록 드릴다운(기능 라운드 1 트랙 C의 이월 후속).
+// 링크는 기존 삼요소 규약(month·categoryId·drilldown) 그대로고 — 수신부(records.tsx)와
+// category-drilldown.ts는 비접촉 — "그 막대의 달"을 한 달짜리 기간으로 접는 것과 막대 낭독
+// 라벨만 이 순수 모듈이 진다(머리말 참고).
+import {
+  buildCategoryTrendMonthDrilldownTarget,
+  categoryTrendBarDrilldownLabel
+} from "../../src/reports/category-trend-drilldown";
 import { useCategoryTrend } from "../../src/reports/use-category-trend";
 // GAP-066 트랙 A(#1): 끝난 달의 예산 결과 한 줄. 판정·문구는 전부 순수 모듈에 있고, 예산
 // 퍼센트는 홈 히어로·인사이트와 **같은** evaluateHomeBudgetProgress에서 온다(두 벌 금지).
@@ -263,22 +271,53 @@ function CategoryTrendChipButton({
   );
 }
 
+/**
+ * 라운드 100 트랙 T5 — 막대 하나하나(막대 + 월 라벨 기둥)가 **그 달 기록 드릴다운 버튼**이다.
+ *
+ * ## 낭독 구조가 바뀐 이유 (한 덩어리 → 막대 여섯)
+ * 종전에는 바깥 View가 accessible 한 덩어리로 달·금액 전부를 낭독했다(라운드 85 관례).
+ * 막대가 버튼이 되면 그 구조는 성립하지 않는다 — RN의 accessible 그룹은 안쪽 버튼을 삼켜
+ * 스크린리더가 드릴다운에 닿을 수 없다(UX-H가 공유 버튼을 그룹 **형제**로 둔 그 이유).
+ * 그래서 낭독 단위가 막대 기둥 여섯으로 갈라지되, 시각 전용 정보 금지 규율은 그대로다:
+ * 각 버튼 라벨이 자기 달의 사실 전부(달·카테고리·금액 또는 "기록 없음")를 말하고
+ * (categoryTrendBarDrilldownLabel — 순수 모듈), 착지 월의 **연도**는 도넛 범례와 같은 힌트
+ * 문장(categoryDrilldownHint)이 누르기 전에 말한다(창이 해를 넘으면 "11월"만으로는 모호하다).
+ * 창 요약(기간·합계)은 바로 아래 summaryText 줄이 보이는 글자 그대로 낭독된다.
+ *
+ * ## 터치 타깃 — hitSlop 0인 이유 (SegmentedControl과 같은 판정)
+ * 기둥은 flex 등분으로 서로 **맞붙는다** — 맞붙은 이웃에게 hitSlop으로 가로를 넓히면 서로의
+ * 히트 영역을 겹쳐 뺏을 뿐이라, 세그먼트 탭과 같은 규칙(가로 0 · 몸이 곧 타깃)을 따른다.
+ * 세로는 플롯이 stretch로 기둥을 행 높이(최대 막대 64 + 간격 4 + 라벨 13 = 81 ≥ 48)까지
+ * 세우므로 0원 달의 짧은 기둥도 같은 높이의 타깃이다(ready 뷰에는 비율 1의 막대가 항상 있다).
+ *
+ * ## 0원·기록 없음 달도 탭 가능하다 (근거)
+ * 도넛에는 베낄 0건 처분이 없다 — computeCategoryShares가 0원 조각을 줄이 태어나기 전에
+ * 떨어뜨려 "눌리는 0원 줄" 자체가 없다. 여기서는 기둥이 이미 그려져 있으므로 여섯 중 몇 개만
+ * 죽은 버튼이면 그게 곧 P2-1의 병("버튼이 죽은 것처럼 보인다")이고, 착지는 정직하다: 기록
+ * 탭이 그 달 + 그 카테고리 필터의 **빈 목록**과 "필터 해제" 탈출구를 그대로 보여준다
+ * (category-drilldown.ts의 칩 폴백 주석) — 막대가 말한 사실(그 달 0원/기록 없음)과 같은 사실이다.
+ */
 function CategoryTrendMiniChart({
-  accessibilityLabel,
-  bars
+  bars,
+  categoryLabel,
+  onSelectMonth
 }: {
-  accessibilityLabel: string;
   bars: CategoryTrendBar[];
+  categoryLabel: string;
+  onSelectMonth: (bar: CategoryTrendBar) => void;
 }) {
   return (
-    <View
-      accessible
-      accessibilityLabel={accessibilityLabel}
-      style={reportCategoryTrendPlotStyle}
-      testID={CATEGORY_TREND_CHART_TEST_ID}
-    >
+    <View style={reportCategoryTrendPlotStyle} testID={CATEGORY_TREND_CHART_TEST_ID}>
       {bars.map((bar) => (
-        <View key={bar.yearMonth} style={reportCategoryTrendColumnStyle}>
+        <Pressable
+          key={bar.yearMonth}
+          accessibilityHint={categoryDrilldownHint(bar.yearMonth) ?? undefined}
+          accessibilityLabel={categoryTrendBarDrilldownLabel(bar, categoryLabel)}
+          accessibilityRole="button"
+          onPress={() => onSelectMonth(bar)}
+          // 토스급 T4: 이 화면의 다른 인라인 버튼들과 같은 press 피드백 한 벌.
+          style={({ pressed }) => [reportCategoryTrendColumnStyle, pressed ? reportPressedFeedbackStyle : null]}
+        >
           <View
             style={{
               backgroundColor: bar.amountKrw > 0 ? theme.colors.mainCoral : theme.colors.gray300,
@@ -296,7 +335,7 @@ function CategoryTrendMiniChart({
           >
             {bar.monthLabel}
           </Text>
-        </View>
+        </Pressable>
       ))}
     </View>
   );
@@ -885,6 +924,27 @@ export default function ReportsScreen() {
   const toggleTrendCategory = (categoryId: string) => {
     setTrendCategoryId((current) => (current === categoryId ? null : categoryId));
   };
+  /**
+   * 라운드 100 트랙 T5 — 추이 막대 → 그 달·그 카테고리의 기록 드릴다운.
+   *
+   * 도넛 발신(openCategoryDrilldown)과 **같은 카운터·같은 순서**다: 회차는 화면의 단조 증가
+   * state 하나(drilldownNonce)를 공유하고 — 카운터가 둘이면 서로의 회차를 되감아 기록 탭의
+   * "지난번과 같은 값" 가드가 되살아난다(QA P1-1/P2-1) — 링크를 만들지 못한 탭(칩이 그새
+   * 사라진 재렌더 등)은 이동하지 않았으므로 회차도 올리지 않는다. 착지 월은 눌린 막대의 달
+   * 그 자체다(한 달짜리 기간 — 순수 모듈 머리말). Date.now()가 아닌 이유도 도넛과 같다.
+   */
+  const openCategoryTrendMonthDrilldown = (bar: CategoryTrendBar) => {
+    const nonce = drilldownNonce + 1;
+    const target = buildCategoryTrendMonthDrilldownTarget({
+      yearMonth: bar.yearMonth,
+      categoryId: selectedTrendChip?.categoryId,
+      nonce,
+      todayIso: seoulToday
+    });
+    if (!target) return;
+    setDrilldownNonce(nonce);
+    router.push(target);
+  };
 
   // 세션 경로의 절약 팁 카드는 제거했다 (허위 비교 제거).
   //
@@ -1465,11 +1525,19 @@ export default function ReportsScreen() {
                         </View>
                       ) : categoryTrend.view?.kind === "empty" ? (
                         <Text style={reportCategoryTrendCaptionStyle}>{categoryTrend.view.text}</Text>
-                      ) : categoryTrend.view?.kind === "ready" ? (
+                      ) : categoryTrend.view?.kind === "ready" && selectedTrendChip ? (
+                        /* 라운드 100 트랙 T5: 막대가 곧 그 달의 기록 드릴다운 버튼이다(발신은
+                           도넛과 같은 카운터 — openCategoryTrendMonthDrilldown 주석). ready 뷰는
+                           칩 없이 성립하지 않지만(훅이 category 없이는 view를 만들지 않는다)
+                           라벨의 카테고리 이름이 칩에서 오므로 타입 층에서도 한 번 더 좁힌다.
+                           REP-001 픽셀락: 이 카드 전체가 세션 데이터 렌더다 — trendChips가
+                           hasSession && activeCategory.isSuccess 뒤에만 채워져(위 배선 주석)
+                           비세션 미리보기 분기는 여기 닿지 않는다(무접촉). */
                         <>
                           <CategoryTrendMiniChart
-                            accessibilityLabel={categoryTrend.view.accessibilityLabel}
                             bars={categoryTrend.view.bars}
+                            categoryLabel={selectedTrendChip.label}
+                            onSelectMonth={openCategoryTrendMonthDrilldown}
                           />
                           {/* 요약·구분 문구는 낭독 문장과 같은 모듈 산출이다 — 눈과 귀가 같은
                               사실을 말한다. 구분 문구는 기록 없는 달이 섞였을 때만 선다. */}
@@ -1845,8 +1913,12 @@ const reportCategoryTrendChipSelectedTextStyle = {
 
 // 플롯: 총액 추이 차트와 같은 chartPlot 표면·둥근 모서리. 높이는 막대 영역(64) + 축 라벨
 // 한 줄 + 여백이다 — 카드 안의 보조 그림이라 총액 차트(104)보다 낮게 둔다.
+// 라운드 100 트랙 T5: alignItems를 flex-end → stretch로. 기둥이 버튼이 되면서 0원 달의
+// 짧은 기둥(막대 2px + 라벨)도 행 높이 전체(81 ≥ theme.touchTarget)를 터치 타깃으로 가져야
+// 한다. 렌더는 픽셀 단위로 같다 — 기둥 안 justifyContent가 flex-end라 막대·라벨은 종전
+// 그대로 바닥에 붙고, 행 높이는 어차피 가장 큰 기둥(비율 1 막대 = 64)이 정하던 값이다.
 const reportCategoryTrendPlotStyle = {
-  alignItems: "flex-end",
+  alignItems: "stretch",
   backgroundColor: theme.colors.presentation.chartPlot,
   borderRadius: 14,
   flexDirection: "row",
