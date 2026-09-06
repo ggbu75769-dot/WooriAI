@@ -101,6 +101,15 @@ const UNBOUNDED_LEDGER: Readonly<Record<string, LedgerEntry>> = {
       "부르므로, 행 수에 비례하는 쪽은 이미 상한을 가진 그 자리다."
   },
   "src/onboarding/onboarding-core.service.ts#1": {
+    member: "upsertBudget",
+    reason:
+      "고정 4문장(감사 before 조회 findMany 한 건 · 총액 budget.upsert 한 건 · categoryBudget." +
+      "deleteMany 한 건 · 상한 30(CATEGORY_BUDGET_MAX_PER_MONTH)으로 잘린 배열형 createMany " +
+      "한 건)이고 입력 크기에 비례하지 않는다(라운드 102 설계 §2.2/§6.3 — " +
+      "confirmChildProfileDeletion 등재와 같은 기준). 예산 저장은 사용자가 화면 앞에서 " +
+      "기다리는 단발 요청이라 5초 기본 예산을 늘릴 이유도 없다."
+  },
+  "src/onboarding/onboarding-core.service.ts#2": {
     member: "confirmChildProfileDeletion",
     reason:
       "두 문장 고정(child.update 하나 · expense.updateMany 하나 — 지출 수가 아무리 많아도 " +

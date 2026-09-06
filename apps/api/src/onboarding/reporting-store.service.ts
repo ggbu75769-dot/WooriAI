@@ -90,10 +90,18 @@ export class ReportingStoreService {
     await this.childAccess.requireChildAccess(user, childId);
     const normalizedMonth = getSeoulMonthRange(yearMonth).yearMonth;
     const range = getSeoulMonthRange(normalizedMonth);
-    const [totalExpenseKrw, budget, categoryTop] = await Promise.all([
+    // 라운드 102 T1(§2.4): 리포트 "예산 대비" 블록의 예산 소스 — 기존 Promise.all에
+    // categoryBudget.findMany 하나를 더한다(그 달 행, 없으면 []). 과거 달 조회도 그대로
+    // 동작한다(예산 표는 월 키로 남는다 — GAP-066의 끝난 달 예산 한 줄과 같은 성질).
+    // 추이·연간·누적·홈에는 싣지 않는다(소비처 없음).
+    const [totalExpenseKrw, budget, categoryTop, categoryBudgetRows] = await Promise.all([
       this.expensesStore.sumExpenses(childId, range),
       this.prisma.budget.findUnique({ where: { childId_yearMonth: { childId, yearMonth: toDateOnly(normalizedMonth) } } }),
-      this.categoryBreakdown(childId, range)
+      this.categoryBreakdown(childId, range),
+      this.prisma.categoryBudget.findMany({
+        where: { childId, yearMonth: toDateOnly(normalizedMonth) },
+        select: { categoryId: true, amountKrw: true }
+      })
     ]);
 
     return {
@@ -101,7 +109,11 @@ export class ReportingStoreService {
       yearMonth: normalizedMonth,
       totalExpenseKrw,
       budgetAmountKrw: budget?.amountKrw ?? null,
-      categoryTop
+      categoryTop,
+      // §2.3과 같은 결정적 정렬(categoryId 오름차순) — 두 응답이 같은 모양을 말한다.
+      categoryBudgets: [...categoryBudgetRows]
+        .map((row) => ({ categoryId: row.categoryId, amountKrw: row.amountKrw }))
+        .sort((a, b) => (a.categoryId < b.categoryId ? -1 : a.categoryId > b.categoryId ? 1 : 0))
     };
   }
 

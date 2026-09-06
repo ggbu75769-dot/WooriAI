@@ -439,6 +439,27 @@ model Budget {
   @@map("budgets")
 }
 
+// 라운드 102 T1: 카테고리별 예산 — docs/5차/round102-category-budget-design.md §1.
+// budgets(총액 한 칸, DNC-007)와 **별도 테이블**이다: 유니크 교체 없는 additive 확장이고,
+// 기존 총액 읽기 자리 전부(findUnique(childId_yearMonth)·푸시 경계·이월 칩)가 자동
+// 무접촉이다(§1.1 대안 A 기각). child_id는 SQL FK ON DELETE CASCADE(000023 —
+// custom_items 000022 관례)로 아이 물리 파기 시 함께 삭제된다(schema.prisma는 관계
+// 미선언 관례 — 000001 참조). 사용자 id 컬럼이 **없는 것이 결정이다**(§1.2): 행위자·시각은
+// 기존 budget.upsert 감사 봉투가 답하고, 사용자 물리 파기의 참조 차단 검사
+// (findReferenceBlockedUserIds·selectPurgeableStubs)에 새 자리를 만들지 않는다.
+model CategoryBudget {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  childId    String   @map("child_id") @db.Uuid
+  yearMonth  DateTime @map("year_month") @db.Date
+  categoryId String   @map("category_id") @db.Uuid
+  amountKrw  Int      @map("amount_krw")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([childId, yearMonth, categoryId], map: "uq_category_budgets_child_month_category")
+  @@map("category_budgets")
+}
+
 // PUSH-113 후속(리뷰 M-2): 예산 경계(80/100) 푸시 발송 클레임 — (아이, 월, 경계)당
 // 1행. unique 제약을 INSERT로 선점(claim)한 요청만 발송해 동시 지출 레이스에서의
 // 중복/누락을 구조적으로 제거한다. child_id는 SQL FK(ON DELETE CASCADE, 000013)로

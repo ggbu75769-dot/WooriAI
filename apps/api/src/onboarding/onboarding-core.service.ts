@@ -26,6 +26,26 @@ import {
   type ChildDto
 } from "./store-shared";
 
+/**
+ * 라운드 102 T1 — 아이·월당 카테고리 예산 행 상한(설계 문서 §1.4). 정식 카테고리는 오늘
+ * 12종이고 커스텀 카테고리는 존재하지 않는 전제(§6.5)라, 30은 분류 체계가 두 배 넘게
+ * 자라도 남는 수다. 이 상한이 있어야 replace-set 트랜잭션의 문장 수가 입력에 비례하지
+ * 않는다는 transaction-bounds 대장 등재 사유(§6.3)가 값으로 선다. 계약 패키지의 같은 이름
+ * 상수(`CATEGORY_BUDGET_MAX_PER_MONTH` — T2 소유)와 값이 같아야 한다(§9.1).
+ */
+export const CATEGORY_BUDGET_MAX_PER_MONTH = 30;
+
+/**
+ * 라운드 102 §2.3/§2.6 — 카테고리 예산 배열의 결정적 정렬(categoryId 오름차순). 응답도
+ * 감사 봉투 diff도 이 정렬 하나를 쓴다. 소문자 canonical UUID는 16진수 문자열 비교가
+ * PostgreSQL uuid 바이트 순서와 같으므로 단순 비교로 충분하다.
+ */
+function sortCategoryBudgetEntries(entries: ReadonlyArray<{ categoryId: string; amountKrw: number }>) {
+  return [...entries]
+    .map((entry) => ({ categoryId: entry.categoryId, amountKrw: entry.amountKrw }))
+    .sort((a, b) => (a.categoryId < b.categoryId ? -1 : a.categoryId > b.categoryId ? 1 : 0));
+}
+
 type ConsentDefinition = {
   type: string;
   version: string;
@@ -628,9 +648,13 @@ export class OnboardingCoreService {
       where: { childId_yearMonth: { childId, yearMonth: toDateOnly(normalizedMonth) } }
     });
     if (!budget) {
+      // 라운드 102 §1.3(b): 404 의미 불변 — 총액 없는 달에는 카테고리 행도 구조적으로
+      // 없으므로(카테고리 예산은 PUT 본문의 가산 필드로만 생긴다) 여기서 읽을 것도 없다.
       throw new NotFoundException({ code: "BUDGET_NOT_FOUND", message: "월 예산을 찾을 수 없어요." });
     }
-    return this.toBudgetDto(childId, normalizedMonth, budget.amountKrw);
+    // 라운드 102 §2.3: 200 갈래에는 categoryBudgets를 **항상** 싣는다(없으면 []).
+    const categoryBudgets = await this.readCategoryBudgets(childId, normalizedMonth);
+    return { ...(await this.toBudgetDto(childId, normalizedMonth, budget.amountKrw)), categoryBudgets };
   }
 
   /**
@@ -651,7 +675,13 @@ export class OnboardingCoreService {
    * 마이그레이션 0 원칙에 따라 그 사실은 **감사 로그가 대신 답한다** — 행위자는
    * audit_logs.actor_user_id, 시각은 그 행의 created_at이다.
    */
-  async upsertBudget(user: AuthenticatedUser, childId: string, yearMonth: string, amountKrw: number) {
+  async upsertBudget(
+    user: AuthenticatedUser,
+    childId: string,
+    yearMonth: string,
+    amountKrw: number,
+    categoryBudgets?: ReadonlyArray<{ categoryId: string; amountKrw: number }>
+  ) {
     const child = await this.childAccess.requireChildAccess(user, childId, true);
     // REP-105: yearMonth arrives DTO-normalized to `YYYY-MM-01` (inputs accept
     // `YYYY-MM` or `YYYY-MM-01`; see common/validation/year-month.ts), and
@@ -662,20 +692,123 @@ export class OnboardingCoreService {
     const amount = requireMoneyKrw(amountKrw);
     const where = { childId_yearMonth: { childId, yearMonth: toDateOnly(normalizedMonth) } };
     const existing = await this.prisma.budget.findUnique({ where });
-    const budget = await this.prisma.budget.upsert({
-      where,
-      update: { amountKrw: amount },
-      create: { childId, yearMonth: toDateOnly(normalizedMonth), amountKrw: amount, createdByUserId: user.id }
+
+    // 라운드 102 T1 — 필드 부재 = 무접촉(§2.2, 리스크 R5): 카테고리 예산 행은 한 건도
+    // 읽지도 쓰지도 않고, 감사 봉투도 종전과 바이트 단위로 같다. 이 갈래가 구클라이언트
+    // (온보딩 예산 화면 포함)의 하위호환 전부다.
+    if (categoryBudgets === undefined) {
+      const budget = await this.prisma.budget.upsert({
+        where,
+        update: { amountKrw: amount },
+        create: { childId, yearMonth: toDateOnly(normalizedMonth), amountKrw: amount, createdByUserId: user.id }
+      });
+      return {
+        budget: await this.toBudgetDto(childId, normalizedMonth, budget.amountKrw),
+        householdId: child.householdId,
+        budgetId: budget.id,
+        // 봉투에는 금액·연월·childId만 싣는다 — PII(닉네임·이메일)도, 지출 원문도 없다.
+        // before가 null이면 "이 달 예산이 처음 세워졌다"는 뜻이다(덮어쓰기가 아니다).
+        before: existing ? { childId, yearMonth: normalizedMonth, amountKrw: existing.amountKrw } : null,
+        after: { childId, yearMonth: normalizedMonth, amountKrw: budget.amountKrw }
+      };
+    }
+
+    // 필드 존재 = 그 달 집합 교체(§2.2). 검증은 전부 쓰기 앞에서 — 부분 적용 없음.
+    const entries = categoryBudgets.map((entry) => ({
+      categoryId: entry.categoryId,
+      amountKrw: requireMoneyKrw(entry.amountKrw)
+    }));
+    if (entries.length > CATEGORY_BUDGET_MAX_PER_MONTH) {
+      throw new BadRequestException({
+        code: "CATEGORY_BUDGET_LIMIT_EXCEEDED",
+        message: `카테고리 예산은 한 달에 ${CATEGORY_BUDGET_MAX_PER_MONTH}개까지 정할 수 있어요.`
+      });
+    }
+    await this.requireBudgetableCategories(entries.map((entry) => entry.categoryId));
+
+    // 총액 upsert + 집합 교체는 한 트랜잭션(원자성 — 화면의 [저장] 한 번이 부분 성공할 수
+    // 없다, §2.1 ②). 문장 수는 **고정 4문장**(감사 before 조회 · 총액 upsert · deleteMany
+    // 한 건 · 상한 30으로 잘린 배열형 createMany 한 건)이라 입력 크기에 비례하지 않는다 —
+    // transaction-bounds 대장 등재 사유가 이 문장이다(설계 문서 §2.2/§6.3, L-4 갱신).
+    // before 조회가 트랜잭션 **안**인 이유: deleteMany가 지우기 직전의 집합이 곧 봉투의
+    // before여야 하고(§2.6 — diff의 정밀도), 밖에서 읽으면 그 사이 창이 생긴다.
+    const { budget, beforeRows } = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.categoryBudget.findMany({
+        where: { childId, yearMonth: toDateOnly(normalizedMonth) },
+        select: { categoryId: true, amountKrw: true }
+      });
+      const upserted = await tx.budget.upsert({
+        where,
+        update: { amountKrw: amount },
+        create: { childId, yearMonth: toDateOnly(normalizedMonth), amountKrw: amount, createdByUserId: user.id }
+      });
+      await tx.categoryBudget.deleteMany({ where: { childId, yearMonth: toDateOnly(normalizedMonth) } });
+      if (entries.length > 0) {
+        await tx.categoryBudget.createMany({
+          data: entries.map((entry) => ({
+            childId,
+            yearMonth: toDateOnly(normalizedMonth),
+            categoryId: entry.categoryId,
+            amountKrw: entry.amountKrw
+          }))
+        });
+      }
+      return { budget: upserted, beforeRows: rows };
     });
+
+    const afterEntries = sortCategoryBudgetEntries(entries);
     return {
-      budget: await this.toBudgetDto(childId, normalizedMonth, budget.amountKrw),
+      budget: {
+        ...(await this.toBudgetDto(childId, normalizedMonth, budget.amountKrw)),
+        // PUT 200은 GET 200과 같은 모양(§9.2) — 방금 교체한 집합이 곧 그 달의 전량이다.
+        categoryBudgets: afterEntries
+      },
       householdId: child.householdId,
       budgetId: budget.id,
-      // 봉투에는 금액·연월·childId만 싣는다 — PII(닉네임·이메일)도, 지출 원문도 없다.
-      // before가 null이면 "이 달 예산이 처음 세워졌다"는 뜻이다(덮어쓰기가 아니다).
-      before: existing ? { childId, yearMonth: normalizedMonth, amountKrw: existing.amountKrw } : null,
-      after: { childId, yearMonth: normalizedMonth, amountKrw: budget.amountKrw }
+      // §2.6: 요청에 categoryBudgets가 있을 때만 before/after 각각에 categoryId 오름차순으로
+      // 가산한다(diff 안정). 카테고리 id는 운영 시드 식별자라 PII가 아니다 — 기존
+      // "금액·연월·childId만" 규칙 유지. before가 null이면 첫 설정이고(§1.3(b) 불변식 덕에
+      // 그때는 카테고리 행도 없었다), 그 사실 자체가 정보라 null을 유지한다.
+      before: existing
+        ? {
+            childId,
+            yearMonth: normalizedMonth,
+            amountKrw: existing.amountKrw,
+            categoryBudgets: sortCategoryBudgetEntries(beforeRows)
+          }
+        : null,
+      after: { childId, yearMonth: normalizedMonth, amountKrw: budget.amountKrw, categoryBudgets: afterEntries }
     };
+  }
+
+  /**
+   * 라운드 102 §2.2 — 배열의 categoryId 전부가 실재하고 `active:true`인가(일괄, 부분 적용
+   * 없음). `selectable`은 보지 않는다 — 지출의 categoryId 검증(requireExistingCategory)이
+   * 그 플래그를 보지 않는 것과 같은 선이되, `active:false`(운영자가 숨긴 행)에는 예산을
+   * **새로 세울 수 없다**(§6.5 — 숨긴 분류를 선택지로 되살리지 않는다).
+   */
+  private async requireBudgetableCategories(categoryIds: ReadonlyArray<string>) {
+    if (categoryIds.length === 0) return;
+    const found = await this.prisma.category.findMany({
+      where: { id: { in: [...categoryIds] } },
+      select: { id: true, active: true }
+    });
+    const activeIds = new Set(found.filter((category) => category.active).map((category) => category.id));
+    if (categoryIds.some((id) => !activeIds.has(id))) {
+      throw new BadRequestException({
+        code: "CATEGORY_BUDGET_INVALID_CATEGORY",
+        message: "예산을 세울 수 없는 카테고리예요."
+      });
+    }
+  }
+
+  /** 라운드 102 §2.3 — 그 달의 카테고리 예산 전량(categoryId 오름차순, 없으면 []). */
+  private async readCategoryBudgets(childId: string, normalizedMonth: string) {
+    const rows = await this.prisma.categoryBudget.findMany({
+      where: { childId, yearMonth: toDateOnly(normalizedMonth) },
+      select: { categoryId: true, amountKrw: true }
+    });
+    return sortCategoryBudgetEntries(rows);
   }
 
   private async toBudgetDto(childId: string, yearMonth: string, amountKrw: number) {

@@ -130,7 +130,7 @@ model CategoryBudget {
 
 - **필드 부재 = 무접촉.** `categoryBudgets`가 본문에 없으면 그 달의 카테고리 예산 행은 한 건도 읽지도 쓰지도 않는다 — 이것이 구클라이언트(온보딩 예산 화면 포함 — `app/(onboarding)/budget.tsx`도 같은 클라이언트 함수를 쓰고 이 필드를 싣지 않는다)와 "카테고리 카드가 렌더되지 않은 저장"(§4.1)의 하위호환 전부다.
 - **필드 존재 = 그 달의 집합 교체.** 배열에 있는 (categoryId, amountKrw)는 upsert, 배열에 없는 기존 행은 삭제. 빈 배열 `[]`은 "그 달 카테고리 예산 전부 해제"다. 행 단위 DELETE 엔드포인트가 필요 없는 이유가 이 의미론이다 — 화면의 "행 비우기"가 곧 삭제다.
-- **원자성**: 총액 upsert + 카테고리 교체(deleteMany + createMany)를 한 `$transaction`으로 묶는다. 문장 수는 고정 3문장(입력은 상한 30으로 잘린 배열형 createMany 하나)이라 입력 크기에 비례하지 않는다 — transaction-bounds 대장 등재 사유가 이 문장이다(§6.3).
+- **원자성**: 총액 upsert + 카테고리 교체(deleteMany + createMany)를 한 `$transaction`으로 묶는다. 문장 수는 **고정 4문장**(감사 봉투 before 채우기가 read 1문장을 더한다 — deleteMany 직전의 집합이 곧 봉투의 before여야 해서 조회가 트랜잭션 안이다(§2.6) · 총액 upsert · deleteMany 한 건 · 상한 30으로 잘린 배열형 createMany 한 건)이라 입력 크기에 비례하지 않는다 — transaction-bounds 대장 등재 사유가 이 문장이다(§6.3). ※ T1 구현 갱신(L-4): 설계 초안은 3문장으로 적었으나 before 조회가 더해져 4문장이 구현 사실이다.
 - **검증 순서**: DTO 형식(uuid·정수 범위·배열 상한 30·**배열 내 categoryId 중복 = `VALIDATION_ERROR`**) → 권한(§2.7) → 카테고리 실재+`active:true` 일괄 조회(하나라도 탈락하면 400 `CATEGORY_BUDGET_INVALID_CATEGORY` — 부분 적용 없음). `selectable`은 보지 않는다 — 지출의 categoryId 검증(`requireExistingCategory`)이 그 플래그를 보지 않는 것과 같은 선이되, `active:false`(운영자가 숨긴 행)는 **새로 세울 수 없다**(§6.5의 상호작용 규칙).
 - 응답: 종전과 같은 예산 DTO에 §2.3의 가산 필드가 실린 것.
 
@@ -256,7 +256,7 @@ model CategoryBudget {
 |---|---|
 | **categories-cache-contract**(전역) | budget.tsx가 `queryKey: ["categories"]` 소비처로 새로 잡힌다 — `listCategories(..., { includeAll: true })` 형식이면 그대로 초록(§4.1). 기본 12행 목록으로 채우는 순간 빨강. |
 | **shared-cache-policy** | `["budget"]` 선언 전수의 childId 스코프 계약 유지(신규 budget 키 없음 — 기존 키 재사용). `["categories"]` 소비처 증가는 walk가 자동 수용. 상수 경유 무효화 0건 유지. |
-| **transaction-bounds(api)** | T1의 replace-set `$transaction` 1자리 신규 — **명시 상한을 주거나 대장 등재**(둘 중 하나, 아니면 빨강). 등재 사유 초안: "고정 3문장(총액 upsert · deleteMany 한 건 · 상한 30으로 잘린 createMany 한 건)이고 입력 크기에 비례하지 않는다"(§2.2 — `confirmChildProfileDeletion` 등재와 같은 기준). |
+| **transaction-bounds(api)** | T1의 replace-set `$transaction` 1자리 신규 — **명시 상한을 주거나 대장 등재**(둘 중 하나, 아니면 빨강). 등재 사유(T1 구현 사실로 갱신 — L-4): "**고정 4문장**(감사 before 조회 findMany 한 건 · 총액 upsert · deleteMany 한 건 · 상한 30으로 잘린 createMany 한 건)이고 입력 크기에 비례하지 않는다"(§2.2 — `confirmChildProfileDeletion` 등재와 같은 기준). 대장 편입으로 기존 `onboarding-core.service.ts#1`(confirmChildProfileDeletion) 키는 `#2`로 밀렸다(파일 내 순번 키). |
 | **사문 대장 / 라운드 95 공통 금지** | 새 export는 같은 라운드에 제품 호출부 필수. **모바일 새 `export const` 0건**(함수형/계약 소유) — 상수는 contracts가 갖고 모바일은 자기 상수+대조(관례). T3 새 모듈 2개는 배선 커밋과 한 트랙. |
 | **contracts-mirror(mobile)** | 새 계약 스키마는 `.object({` 머리 형태로 적는다(파서 규약 — 라운드 100이 `.partial()`에서 배운 것). `CATEGORY_BUDGET_MAX_PER_MONTH` 미러+두 방향 대조를 T2가 싣는다. |
 | **korean-particle-guard** | 카테고리 이름이 들어가는 새 문장은 이름 뒤 조사를 피하는 형태로 설계했다(§4.3 행 형식 — 이름은 문두 명사구). 조사가 필요한 문장을 만들게 되면 `korean-particles.ts` 판정 필수. |
