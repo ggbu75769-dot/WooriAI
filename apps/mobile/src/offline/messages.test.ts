@@ -21,7 +21,9 @@ import {
   CONFLICT_BANNER_MESSAGE,
   failedRowDeletedChildNotice,
   FAILED_ROW_OTHER_CHILD_NOTICE,
+  syncStatusActionFailedMessage,
   SYNC_STATUS_DISCARD_LABEL,
+  SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE,
   FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE,
   FAILED_ROW_PREFILL_DATE_RESET_NOTICE,
   SYNC_STATUS_FIX_AND_RESEND_LABEL,
@@ -1938,5 +1940,35 @@ describe("라운드 99 L-1 삭제된 아이의 실패 행 — 지킬 수 없는 
     // 문구를 화면이 다시 적지 않는다(주석은 설명해도 된다 — 코드만 본다).
     const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
     expect(codeOnly).not.toContain("프로필은 삭제됐어요");
+  });
+});
+
+/**
+ * 라운드 104 B-5 — **복구 버튼이 실패했을 때의 한 줄.**
+ *
+ * 종전에는 동기화 상태 화면에 `catch`가 0개라 거절이 화면 어디에도 뜨지 않았다(근거 전문은
+ * messages.ts의 `syncStatusActionFailedMessage` 머리말). 문장은 라운드 62 #2가 대기 행 버리기
+ * 거절에 세운 형제 문장과 같은 규율을 진다 — 원인을 단정하지 않고, 다음에 할 일을 말한다.
+ */
+describe("라운드 104 B-5 복구 동작 실패 한 줄", () => {
+  it("원인을 단정하지 않고 다음에 할 일 둘(다시 누르기 · 앱 재시작)을 말한다", () => {
+    expect(syncStatusActionFailedMessage()).toBe("방금 누른 것을 처리하지 못했어요. 잠시 뒤 다시 누르거나 앱을 다시 켜 주세요.");
+    // 화면이 아는 것은 "거절됐다" 하나다 — 저장소를 원인으로 단정하지 않는다.
+    expect(syncStatusActionFailedMessage()).not.toContain("저장소");
+    // 막다른 문장이 아니다: 남은 행동 둘이 문장 안에 있다.
+    expect(syncStatusActionFailedMessage()).toContain("다시 누르");
+    expect(syncStatusActionFailedMessage()).toContain("앱을 다시 켜");
+    // 해요체 · 책망 없음(DNC-018).
+    expect(syncStatusActionFailedMessage().endsWith("주세요.")).toBe(true);
+    for (const blame of ["잘못", "실수", "확인하지"]) {
+      expect(syncStatusActionFailedMessage()).not.toContain(blame);
+    }
+  });
+
+  it("형제 문장(대기 행 버리기 거절)과 갈린다 — 두 거절의 사유가 다르기 때문이다", () => {
+    // 라운드 62 #2의 문장은 "지금 보내는 중"이라는 **아는 사유**를 말한다. 이쪽은 사유를 모른다.
+    expect(syncStatusActionFailedMessage()).not.toBe(SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE);
+    expect(SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE).toContain("보내는 중");
+    expect(syncStatusActionFailedMessage()).not.toContain("보내는 중");
   });
 });

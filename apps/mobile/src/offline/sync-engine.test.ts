@@ -704,16 +704,41 @@ describe("라운드 51 QA(P3-7) recoverInterruptedSyncState", () => {
 
   it("앱 시작 시 첫 flush **앞에서** 한 번 부른다 (source verification -- 컨트롤러는 vitest에서 실행할 수 없다)", () => {
     const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
-    expect(controllerSource).toContain("await recoverInterruptedSyncState(await getOfflineStore());");
-    const startBody = controllerSource.slice(controllerSource.indexOf("async function recoverAndFlushOnStart"));
+    expect(controllerSource).toContain("await recoverInterruptedSyncState(store);");
+    const startAt = controllerSource.indexOf("async function recoverAndFlushOnStart");
+    expect(startAt).toBeGreaterThan(-1);
+    const startBody = controllerSource.slice(startAt);
     // 되돌리기 → 스냅샷 → flush 순서. 순서가 뒤집히면 되돌린 행이 이번 pass에 실리지 않는다.
     expect(startBody.indexOf("recoverInterruptedSyncState")).toBeLessThan(startBody.indexOf("refreshSnapshot()"));
     expect(startBody.indexOf("refreshSnapshot()")).toBeLessThan(startBody.indexOf("flushInBackground(token, queryClient)"));
-    const hookBody = controllerSource.slice(controllerSource.indexOf("export function useOfflineSyncLifecycle"));
+    const hookAt = controllerSource.indexOf("export function useOfflineSyncLifecycle");
+    expect(hookAt).toBeGreaterThan(-1);
+    const hookBody = controllerSource.slice(hookAt);
     expect(hookBody).toContain("void recoverAndFlushOnStart(token, queryClient);");
     // 재연결·포그라운드 트리거는 종전 그대로 flush만 한다(되돌리기는 부팅 시 한 번이다).
-    const watcherBody = hookBody.slice(hookBody.indexOf("startConnectivityWatcher"));
+    const watcherAt = hookBody.indexOf("startConnectivityWatcher");
+    expect(watcherAt).toBeGreaterThan(-1);
+    const watcherBody = hookBody.slice(watcherAt);
     expect(watcherBody).not.toContain("recoverAndFlushOnStart");
+  });
+
+  /**
+   * 라운드 104 B-2 — 세션이 서는 그 자리에서 **재시도 가능 4xx로 굳은 행도** 되돌린다는 배선.
+   * 위 테스트와 같은 관례(컨트롤러는 vitest에서 실행할 수 없다)이고, 되살리는 규칙 자체의 행동
+   * 검증은 아래 `requeueRetryableClientErrorMutations` describe가 값으로 문다.
+   */
+  it("라운드 104 B-2: 같은 자리에서 재시도 가능 4xx 실패 행도 flush 앞에서 되돌린다", () => {
+    const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
+    expect(controllerSource).toContain("await requeueRetryableClientErrorMutations(store);");
+    const startAt = controllerSource.indexOf("async function recoverAndFlushOnStart");
+    expect(startAt).toBeGreaterThan(-1);
+    const startBody = controllerSource.slice(startAt);
+    const requeueAt = startBody.indexOf("requeueRetryableClientErrorMutations");
+    const flushAt = startBody.indexOf("flushInBackground(token, queryClient)");
+    expect(requeueAt).toBeGreaterThan(-1);
+    expect(flushAt).toBeGreaterThan(-1);
+    // 되돌리기가 flush보다 **먼저** 끝나야 그 행들이 재로그인 직후의 첫 pass에 실린다.
+    expect(requeueAt).toBeLessThan(flushAt);
   });
 });
 

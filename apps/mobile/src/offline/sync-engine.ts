@@ -2,7 +2,7 @@ import { MAX_DELAY_MS, computeNextRetryAtIso } from "./backoff";
 import { RemotePermanentError, RemoteVersionConflictError } from "./errors";
 import { mergeItemStatusMutation, mergeOutboxMutation } from "./outbox-merge";
 import { isDiscardablePendingRow } from "./pending-row-actions";
-import { isBulkRetryableFailedRow, syncFailureReasonOf } from "./permission-denied";
+import { isBulkRetryableFailedRow, isRetryableSyncError, syncFailureReasonOf } from "./permission-denied";
 import {
   generateOfflineId,
   type ExpensePayload,
@@ -94,6 +94,95 @@ export const SERVER_ERROR_GIVE_UP_MESSAGE = "서버 오류가 계속돼 자동 �
 function transientServerErrorStatus(error: unknown): number | null {
   const status = (error as { status?: unknown } | null | undefined)?.status;
   return typeof status === "number" && status >= 500 ? status : null;
+}
+
+/** 401. 상수로 두는 이유는 permission-denied.ts의 `FORBIDDEN_STATUS`와 같다 — 아래 두 자리가
+ * 같은 숫자를 보고 있다는 사실을 코드로 못 박기 위해서다. */
+const UNAUTHORIZED_STATUS = 401;
+
+/**
+ * 라운드 104 B-2·B-3 — **엔진의 분류와 화면의 판정을 하나의 단일 소스로 모은다.**
+ *
+ * ## 종전 동작과 그 끝
+ *
+ * 엔진은 4xx를 **하나도 빠짐없이** permanent로 봤다(remote-api.ts가 `status < 500`이면
+ * `RemotePermanentError`로 번역하고, 아래 갈래가 그것을 'failed'로 파킹한다). 그런데 화면의
+ * 판정(`isRetryableSyncError` — permission-denied.ts)은 **401·408·429를 재시도 가능**이라고
+ * 답한다. 같은 실패에 대해 두 벌이 정반대를 말하고 있었고, 그 어긋남이 두 사고를 만들었다.
+ *
+ *  - **401 한 번이 큐 전량을 태웠다(B-2).** 리프레시가 401로 끝나면 그 뒤 요청은 리프레시조차
+ *    시도하지 못하고 모두 401이 되는데, permanent 갈래는 `break`가 아니라 `continue`라 **한
+ *    pass에서 대기 12건이 전부 'failed'**가 됐다. 'failed' 행은 flush가 건너뛰고
+ *    (flushOutboxPass 위쪽 스킵 규칙) failed→pending 자동 복구 경로는 저장소 전체에 0건이라,
+ *    같은 계정으로 다시 로그인해도 그 12건은 다시 올라가지 않았다 — session-expiry.ts가
+ *    약속한 *"Unsynced records survive the expiry"* 가 "행이 남는다"까지만 참이었다.
+ *  - **429·408도 자동 재시도를 잃었다(B-3).** 전역 한도는 IP당 300req/60초라(서버
+ *    rate-limit.middleware.ts) 큰 큐나 CGNAT에서 실제로 밟힌다. **한도 창은 60초인데 행은
+ *    영구 파킹**됐다 — 서버가 "잠시 후 다시 시도해주세요"라고 답한 실패가 사용자가 손으로
+ *    누르기 전까지 영영 올라가지 않았다.
+ *
+ * ## 이제
+ *
+ * 그 셋은 permanent 파킹이 아니라 **transient 백오프 갈래**로 간다. 판정은 새로 적지 않고
+ * `isRetryableSyncError` **하나**를 부른다 — 두 벌이 어긋난 것이 문제의 뿌리였으므로 답을 두 곳에
+ * 두지 않는다. 여기서 필요한 것은 그중 **4xx 부분집합**이라 `status < 500`으로 좁히기만 한다
+ * (5xx·status 모름은 이미 아래 transient 갈래가 각자의 규칙으로 다룬다).
+ *
+ * 재시도 폭풍이 생기지 않는 이유: 세션이 없는 동안에는 flush 자체가 돌지 않고
+ * (sync-controller.ts의 `useOfflineSyncLifecycle`은 토큰이 없으면 아무것도 걸지 않는다),
+ * transient 갈래는 그 pass를 `break`로 끊으므로 401 한 번이 뒤의 행을 건드리지 못한다.
+ * 그리고 5xx가 이미 갖고 있는 `MAX_SERVER_ERROR_ATTEMPTS` 상한을 그대로 재사용하므로
+ * head-of-line 위험도 종전과 같다(아래 `cappedTransientStatus`).
+ */
+function retryableClientErrorStatus(error: unknown): number | null {
+  const status = (error as { status?: unknown } | null | undefined)?.status;
+  if (typeof status !== "number" || status >= 500) return null;
+  return isRetryableSyncError(status) ? status : null;
+}
+
+/**
+ * 이 행이 막힌 사유가 위 `retryableClientErrorStatus`가 말하는 그 셋인가. 저장된 행의
+ * `last_error_status`를 같은 단일 소스로 판정한다(`requeueRetryableClientErrorMutations`가 쓴다).
+ */
+function isRetryableClientErrorRowStatus(status: number | null | undefined): boolean {
+  return typeof status === "number" && status < 500 && isRetryableSyncError(status);
+}
+
+/**
+ * 라운드 104 B-3 — 시도 상한(`MAX_SERVER_ERROR_ATTEMPTS`)이 걸리는 실패인가.
+ *
+ * 종전에는 5xx만이었다(`transientServerErrorStatus !== null`). 이제 **서버가 status로 답한
+ * transient 전부**, 즉 5xx와 재시도 가능 4xx가 같은 상한을 쓴다. 순수 네트워크 오류/타임아웃이
+ * 상한 밖인 것은 종전 그대로다 — 그건 "기기가 오프라인"이라는 뜻이라 큐가 막힌 게 아니고,
+ * 오프라인 8.5분 만에 모든 기록을 '동기화 실패'로 보여 주는 건 오프라인 우선 설계를 깨뜨린다
+ * (MAX_SERVER_ERROR_ATTEMPTS 머리말).
+ */
+function cappedTransientStatus(error: unknown): number | null {
+  return transientServerErrorStatus(error) ?? retryableClientErrorStatus(error);
+}
+
+/**
+ * 라운드 104 B-2 — 재시도 가능 4xx 행이 사용자에게 내놓는 문장.
+ *
+ * 종전에는 이 행들이 곧바로 'failed'로 굳으면서 서버 봉투의 문구(모르는 코드는 "요청을 처리하지
+ * 못했어요.")를 달았다 → 이제 그 행은 대기 상태로 남아 자동으로 다시 나가므로, 문장도 **지금
+ * 무슨 일이 일어나는지**를 말해야 한다. 401은 사용자가 할 일이 하나 있으므로(다시 로그인)
+ * 그것만 갈라 말한다.
+ *
+ * `stage`는 자동 재시도가 아직 남았는지("retrying")와 상한에 닿아 멈췄는지("gave-up")를 가른다 —
+ * 5xx가 `SERVER_TRANSIENT_ERROR_MESSAGE`/`SERVER_ERROR_GIVE_UP_MESSAGE` 두 문장을 갖는 것과 같은
+ * 이유다. 상한에서 "잠시 뒤 자동으로 다시 시도해요"가 남아 있으면 그 자체가 거짓이 된다.
+ * 해요체·관찰형이고 사용자를 탓하거나 재촉하지 않는다(DNC-018).
+ */
+export function retryableClientErrorSyncMessage(status: number, stage: "retrying" | "gave-up"): string {
+  if (status === UNAUTHORIZED_STATUS) {
+    return stage === "retrying"
+      ? "로그인이 풀려서 아직 못 보냈어요. 다시 로그인하면 이어서 보낼게요."
+      : "로그인이 풀린 뒤로 못 보냈어요. 다시 로그인한 뒤 재시도하거나 삭제해 주세요.";
+  }
+  return stage === "retrying"
+    ? "지금은 보낼 수 없어 잠시 뒤 자동으로 다시 시도해요."
+    : "여러 번 시도했지만 아직 못 보냈어요. 다시 시도하거나 삭제해 주세요.";
 }
 
 /**
@@ -539,6 +628,70 @@ export async function recoverInterruptedSyncState(store: OfflineStore): Promise<
 }
 
 /**
+ * 라운드 104 B-2 — **세션이 다시 서는 순간, 세션 때문에 막힌 행을 되살린다.**
+ *
+ * ## 종전에는 되살리는 경로가 0건이었다
+ *
+ * `session-expiry.ts`는 만료의 경계를 이렇게 못 박아 두었다: *"outbox / local_expenses /
+ * sync_meta: KEPT … Unsynced records survive the expiry"*. 그런데 그 약속이 참인 범위는 **행이
+ * 남는다**까지였다. 401로 'failed'가 된 행은 flush pass가 건너뛰고(`flushOutboxPass` 위쪽 스킵
+ * 규칙), failed→pending으로 되돌리는 자동 경로는 저장소 전체에 없었다 —
+ * `retryAllFailedMutations`의 호출부는 사용자가 동기화 상태 화면에서 누르는 버튼 하나뿐이다.
+ * 즉 같은 계정으로 다시 로그인해도 기록 탭 배지는 "실패 12"로 남았고, 어느 화면도 "여기서 다시
+ * 보낼 수 있다"고 말하지 않았다.
+ *
+ * ## 이제
+ *
+ * 세션이 서는 자리(부팅·재로그인 — `useOfflineSyncLifecycle`의 토큰 진입, sync-controller.ts의
+ * `recoverAndFlushOnStart`)에서 **사유가 재시도 가능 4xx인 행을** 대기로 되돌리고 백오프 예산을
+ * 초기화한다. 되돌리는 한 벌은 사용자가 그 행의 재시도를 누른 것과 **글자 그대로 같다**
+ * (`retryFailedMutation` / `retryFailedItemStatusMutation`) — 새 규칙을 만들지 않는다.
+ *
+ * ## 대상이 'failed'만이 아닌 이유
+ *
+ * 두 종류가 같은 원인으로 막혀 있다.
+ *  - **'failed' 행** — 이 라운드의 엔진 수정 **이전에** 401로 굳어 기기에 남아 있는 행(그
+ *    사용자에게는 오늘도 실패 12건이다), 그리고 재시도 가능 4xx가
+ *    `MAX_SERVER_ERROR_ATTEMPTS` 상한에 닿아 'failed'로 승격된 행.
+ *  - **'pending'인데 백오프 창에 갇힌 행** — 이제 401은 transient라 행이 대기로 남지만
+ *    `nextRetryAt`이 붙는다. 그 창을 그대로 두면 재로그인 직후의 첫 pass가 큐 **맨 앞** 행을
+ *    건너뛰고 뒤의 행부터 보낸다(순서가 뒤집힌다). 세션이 새로 섰다는 것은 그 창의 전제가
+ *    사라졌다는 뜻이므로 창도 함께 지운다.
+ *
+ * ## 범위를 4xx 부분집합으로 좁히는 이유
+ *
+ * 5xx·사유 미상 행은 **손대지 않는다.** 5xx의 상한(F2 탈출구)은 "결정적 5xx가 큐 맨 앞을 영원히
+ * 막지 않게 한다"는 의도로 세운 것이라, 앱을 켤 때마다 자동으로 풀어 주면 그 탈출구가 사라진다.
+ * 400·403 같은 진짜 permanent를 건드리지 않는 것은 말할 것도 없다 — 판정은 화면과 같은 단일
+ * 소스를 쓴다(`isRetryableClientErrorRowStatus` → `isRetryableSyncError`). 충돌 행도 밖이다:
+ * 세 가지 해소 중 무엇을 고를지는 사용자만 답할 수 있다.
+ *
+ * **살아 있는 pass가 있으면 아무것도 하지 않는다** — `recoverInterruptedSyncState`가 같은 이유로
+ * 쓰는 가드 그대로다(지금 나가 있는 요청의 행을 밑에서 흔들지 않는다).
+ *
+ * 되살린 행 수를 돌려준다(테스트·호출부용).
+ */
+export async function requeueRetryableClientErrorMutations(store: OfflineStore): Promise<number> {
+  if (inFlightFlushes.get(store)) return 0;
+
+  let requeued = 0;
+  for (const row of await store.listLocalExpenses()) {
+    if (row.syncState !== "failed" && row.syncState !== "pending") continue;
+    if (!isRetryableClientErrorRowStatus(row.lastErrorStatus)) continue;
+    await retryFailedMutation(store, row.localId);
+    requeued += 1;
+  }
+  for (const row of await store.listItemStatusMutations()) {
+    if (row.syncState !== "failed" && row.syncState !== "pending") continue;
+    if (!isRetryableClientErrorRowStatus(row.lastErrorStatus)) continue;
+    await retryFailedItemStatusMutation(store, row.mutationId);
+    requeued += 1;
+  }
+
+  return requeued;
+}
+
+/**
  * PRIV-104 session teardown: wipes every row the offline store persists (local_expenses,
  * mutation_outbox, sync_meta) on logout / account switch / demo-session toggle — see
  * session-teardown.ts for the policy of *when* this fires.
@@ -753,7 +906,11 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
         continue;
       }
 
-      if (error instanceof RemotePermanentError) {
+      // 라운드 104 B-2·B-3: **재시도 가능 4xx(401·408·429)는 여기서 걸러 아래 transient 갈래로
+      // 흘려보낸다.** 종전에는 4xx라는 이유 하나로 전부 이 갈래에 들어와 'failed'로 굳었고,
+      // 그 갈래가 `break`가 아니라 `continue`라 401 한 번이 큐 전량을 태웠다(근거 전문은
+      // retryableClientErrorStatus 머리말). 판정은 화면과 **같은 함수** 하나다.
+      if (error instanceof RemotePermanentError && retryableClientErrorStatus(error) === null) {
         if (mutation.operation === "delete" && isDeleteTargetAlreadyGoneOnServer(error)) {
           // 404/EXPENSE_NOT_FOUND on a delete: the server already has no such row, which is
           // exactly the end state this mutation wanted. Converge as success -- mirror the
@@ -785,14 +942,28 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
 
       // Transient/network error: keep 'pending', schedule a backed-off retry, and stop this
       // flush pass -- further sends are likely to fail the same way while offline.
+      // 라운드 104 B-2·B-3: 재시도 가능 4xx도 이제 여기로 온다. pass를 끊는 것(`break`)이 그
+      // 셋에도 맞다 — 401은 뒤 요청이 리프레시조차 못 하고, 429는 한도 창이 열릴 때까지 뒤의
+      // 행도 같은 답을 받는다. 종전에는 그 자리가 `continue`라 큐 전량이 한 pass에 탔다.
       const serverErrorStatus = transientServerErrorStatus(error);
+      const retryableClientStatus = retryableClientErrorStatus(error);
       // F3: 5xx는 한국어 안내로, 그 외(네트워크/타임아웃)는 기존처럼 원본 메시지로.
+      // 라운드 104: 재시도 가능 4xx는 **지금 무슨 일이 일어나는지**를 말하는 전용 문장으로
+      // (종전에는 'failed'로 굳으며 서버 봉투의 막다른 문구를 달았다).
       const message =
         serverErrorStatus !== null
           ? SERVER_TRANSIENT_ERROR_MESSAGE
-          : error instanceof Error
-            ? error.message
-            : String(error);
+          : retryableClientStatus !== null
+            ? retryableClientErrorSyncMessage(retryableClientStatus, "retrying")
+            : error instanceof Error
+              ? error.message
+              : String(error);
+      // 라운드 104: 상한에 닿았을 때의 문장도 갈린다 — "서버 오류가 계속돼"는 401·429에 대해
+      // 거짓이다(서버는 정상이고 세션이 풀렸거나 한도를 밟은 것이다).
+      const giveUpMessage =
+        retryableClientStatus !== null
+          ? retryableClientErrorSyncMessage(retryableClientStatus, "gave-up")
+          : SERVER_ERROR_GIVE_UP_MESSAGE;
       const nextAttempt = mutation.attemptCount + 1;
 
       // F2: 결정적 5xx 탈출구 -- 상한에 닿으면 'failed'로 승격해 기존 재시도/삭제 UI에 넘기고,
@@ -803,19 +974,21 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
       // 가능**으로 읽힌다(isRetryableSyncError) — 서버가 회복되면 같은 요청이 그대로 통과하므로,
       // 자동 재시도를 포기한 아래 F2 갈래에서도 사용자의 재시도 버튼은 남아야 한다.
       const transientReason = failureReasonPatch(error);
-      if (serverErrorStatus !== null && nextAttempt >= MAX_SERVER_ERROR_ATTEMPTS) {
+      // 라운드 104 B-3: 상한의 대상이 5xx에서 **서버가 status로 답한 transient 전부**로 넓어진다
+      // (근거는 cappedTransientStatus 머리말). 순수 네트워크 오류가 상한 밖인 것은 그대로다.
+      if (cappedTransientStatus(error) !== null && nextAttempt >= MAX_SERVER_ERROR_ATTEMPTS) {
         await store.updateOutboxMutation(mutation.mutationId, {
           attemptCount: nextAttempt,
           // 사용자 재시도(retryFailedMutation)가 attemptCount/nextRetryAt을 어차피 초기화하므로
           // 여기서는 죽은 백오프 창을 남기지 않고 비워 둔다.
           nextRetryAt: null,
-          lastError: SERVER_ERROR_GIVE_UP_MESSAGE,
+          lastError: giveUpMessage,
           ...transientReason,
           inFlight: false
         });
         await store.updateLocalExpense(mutation.targetLocalId, {
           syncState: "failed",
-          lastError: SERVER_ERROR_GIVE_UP_MESSAGE,
+          lastError: giveUpMessage,
           ...transientReason,
           updatedAt: nowIso()
         });
@@ -951,7 +1124,10 @@ async function flushItemStatusPass(
       summary.itemStatusSynced += 1;
       continue;
     } catch (error) {
-      if (error instanceof RemotePermanentError) {
+      // 라운드 104 B-2·B-3: 지출 큐와 **같은 규칙**이다 — 재시도 가능 4xx(401·408·429)는 여기서
+      // 걸러 아래 transient 갈래로 흘려보낸다(근거 전문은 retryableClientErrorStatus 머리말).
+      // 준비템 큐도 401 한 번에 전량이 타던 자리가 같았다.
+      if (error instanceof RemotePermanentError && retryableClientErrorStatus(error) === null) {
         if (isItemStatusTargetGoneOnServer(error)) {
           // R100-R ①: 404/ITEM_NOT_FOUND — 대상 준비템이 서버에 없다(커스텀 삭제로 상시화된
           // 경로). 이 행은 어떤 재시도로도 성공할 수 없으므로 COV-T5 관례 그대로 폐기하고
@@ -977,23 +1153,31 @@ async function flushItemStatusPass(
       }
 
       const serverErrorStatus = transientServerErrorStatus(error);
+      const retryableClientStatus = retryableClientErrorStatus(error);
       const message =
         serverErrorStatus !== null
           ? SERVER_TRANSIENT_ERROR_MESSAGE
-          : error instanceof Error
-            ? error.message
-            : String(error);
+          : retryableClientStatus !== null
+            ? retryableClientErrorSyncMessage(retryableClientStatus, "retrying")
+            : error instanceof Error
+              ? error.message
+              : String(error);
+      const giveUpMessage =
+        retryableClientStatus !== null
+          ? retryableClientErrorSyncMessage(retryableClientStatus, "gave-up")
+          : SERVER_ERROR_GIVE_UP_MESSAGE;
       const nextAttempt = row.attemptCount + 1;
 
       // F2와 같은 결정적 5xx 탈출구: 상한에 닿으면 'failed'로 올려 사용자 몫으로 넘기고,
       // 뒤에 쌓인 다른 준비템은 이 pass에서 계속 보낸다(head-of-line 해제).
+      // 라운드 104 B-3: 지출 큐와 같이 상한의 대상이 **status로 답한 transient 전부**로 넓어진다.
       const transientReason = failureReasonPatch(error);
-      if (serverErrorStatus !== null && nextAttempt >= MAX_SERVER_ERROR_ATTEMPTS) {
+      if (cappedTransientStatus(error) !== null && nextAttempt >= MAX_SERVER_ERROR_ATTEMPTS) {
         await store.updateItemStatusMutation(row.mutationId, {
           syncState: "failed",
           attemptCount: nextAttempt,
           nextRetryAt: null,
-          lastError: SERVER_ERROR_GIVE_UP_MESSAGE,
+          lastError: giveUpMessage,
           ...transientReason,
           inFlight: false,
           updatedAt: nowIso()

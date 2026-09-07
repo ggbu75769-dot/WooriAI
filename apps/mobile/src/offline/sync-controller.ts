@@ -29,6 +29,7 @@ import {
   recordLocalItemStatus,
   recordLocalUpdate,
   recoverInterruptedSyncState,
+  requeueRetryableClientErrorMutations,
   resolveConflictAdoptServer,
   resolveConflictReapplyMine,
   resolveConflictWithMergedPayload,
@@ -337,10 +338,20 @@ async function flushInBackground(token: string, queryClient: QueryClient): Promi
  * recoverInterruptedSyncState), 그 결과를 화면 스냅샷에 반영한 뒤 평소의 첫 flush로 넘어간다.
  * 순서가 중요하다 -- 되돌리기가 flush보다 **먼저** 끝나야 그 행들이 이번 pass에 실린다.
  * 저장소 실패는 여기서 삼킨다(다른 백그라운드 오프라인 작업과 같은 최선 노력 태도).
+ *
+ * 라운드 104 B-2 — 되돌리기가 **둘**이 됐다. 종전에는 죽은 전송 표시만 되돌렸고, 세션 만료
+ * 401로 'failed'가 된 행은 아무도 다시 보내지 않았다(자동 경로 0건) → 이제 세션이 서는 이
+ * 자리에서 재시도 가능 4xx로 굳은 행도 대기로 되돌린다. 이 함수의 호출부가
+ * `useOfflineSyncLifecycle`의 **토큰 진입**이라는 점이 그대로 근거다: 부팅이든 재로그인이든
+ * "세션이 방금 섰다"가 참인 유일한 자리이고, 그래야 session-expiry.ts가 약속한 *"Unsynced
+ * records survive the expiry"* 가 "행이 남는다"를 넘어 실제로 다시 올라가는 데까지 참이 된다.
+ * 어느 행을 되돌리고 5xx·400·403을 왜 건드리지 않는지는 엔진 함수 머리말에 있다.
  */
 async function recoverAndFlushOnStart(token: string, queryClient: QueryClient): Promise<void> {
   try {
-    await recoverInterruptedSyncState(await getOfflineStore());
+    const store = await getOfflineStore();
+    await recoverInterruptedSyncState(store);
+    await requeueRetryableClientErrorMutations(store);
   } catch {
     // 되돌리기에 실패해도 아래 flush는 그대로 시도한다.
   }
