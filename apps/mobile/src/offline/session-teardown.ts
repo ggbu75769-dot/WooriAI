@@ -1,3 +1,4 @@
+import { revokeSessionOnServer } from "../api/client";
 import { useAnalyticsConsentStore } from "../analytics/flag";
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
 import { useFirstRecordCelebrationStore } from "../home/first-record-celebration";
@@ -162,6 +163,71 @@ export function subscribeToHydratedSessionTransitions<TState>(
  */
 export function clearSessionScopedQueryCache(): void {
   clearAppQueryCache();
+}
+
+/**
+ * 라운드 107 트랙 B(S1-2) — 떠나는 세션의 **서버 토큰 family를 폐기**한다.
+ *
+ * 종전: 이 파일이 지우는 것은 전부 기기 안의 상태였고, 서버 쪽으로 나가는 정리는 푸시 기기
+ * 행 끄기(0b) 하나였다. 그래서 로그아웃한 계정의 refresh 토큰은 서버에서 **살아 있었다**
+ * (근거·수명은 src/api/client.ts의 `revokeSessionOnServer` 머리말). 이제 세션 정체성이
+ * 바뀌는 그 순간, 나가는 자격증명으로 폐기를 한 번 요청한다.
+ *
+ * ## 순서 — 로컬 정리가 먼저, 폐기는 최선 노력
+ *
+ * 이 함수가 불릴 때 `clearSession()`의 `set`은 **이미 끝나 있다**(구독은 그 set 안에서
+ * 동기적으로 발화한다). 즉 토큰·정체성은 기기에서 이미 사라졌고, 화면 전이도 누른 자리에서
+ * 곧바로 일어난다. 이 요청은 그 뒤에 붙는 부록이라 **비행기 모드에서도 로그아웃을 한 톨도
+ * 막지 않는다** — await하지 않고, 실패는 값으로 삼켜지며(throw 없음), 되돌리는 화면 전이도
+ * 없다. 반대 순서(폐기를 기다렸다가 로컬 정리)는 오프라인에서 "로그아웃을 눌렀는데 화면이
+ * 안 넘어간다"가 되므로 쓰지 않는다.
+ *
+ * ## 왜 `teardownOfflineSessionState` 안이 아니라 이 자리(동기)인가
+ *
+ * 컨트롤러가 teardown에 닿는 길은 `getOfflineStore()` 프로미스 홉이고, 그 홉은 `.catch()`로
+ * 삼켜진다(SQLite 모듈 적재 실패·저장소 열기 실패). 토큰 폐기를 그 뒤에 두면 **저장소를 못 여는
+ * 기기에서는 폐기도 함께 사라진다** — 보안 조치가 오프라인 저장소의 건강에 묶이는 결합이다.
+ * 그래서 쿼리 캐시 비우기(FIX-118A / round27 M-1)와 같은 자리, 같은 이유로 홉 **앞**에 선다.
+ *
+ * ## 오프라인 큐 판정 (라운드 107 트랙 B의 핵심 결정)
+ *
+ * **로그아웃은 세션 만료와 다른 축이다. 이 트랙은 큐 정책을 한 글자도 바꾸지 않는다.**
+ *
+ * 라운드 104가 세운 규율은 "만료는 큐를 보존한다"이고 그 근거는 *정체성*이다(AUTH-127 —
+ * src/offline/session-expiry.ts): 자격증명만 죽었고 사람도 계정도 기기도 그대로라, 같은
+ * 사용자가 다시 로그인하면 그 큐를 이어서 flush한다. 로그아웃은 사용자가 **그 관계를 끊겠다고
+ * 직접 말한 것**이다 — 이 기기는 더 이상 이 계정의 것이 아니다. 그래서 위 `isSessionIdentityChange`가
+ * 참이 되고 큐는 지워진다(PRIV-104). 그 손실은 숨기지 않는다: 확인 다이얼로그가 대기 건수까지
+ * 세어 먼저 말하고(src/offline/messages.ts의 `logoutConfirmMessage`), PIN 분실 경로도 같은
+ * 문장을 쓴다(src/security/app-lock.ts).
+ *
+ * 폐기가 그 판정을 **오히려 굳힌다**: 서버 family가 죽은 뒤에는 큐를 남겨도 보낼 방법이 없다
+ * (refresh 토큰은 폐기됐고 액세스 토큰은 분 단위로 만료된다). 즉 "보존"은 사용자가 이미 사라진다고
+ * 들은 행을, 영영 못 보낼 상태로 기기에 남기는 것뿐이다 — 그 자체가 PRIV-104가 막는 잔류다.
+ *
+ * 그리고 이 호출은 큐를 **방해하지도 않는다**: family 폐기는 access 토큰(JWT)을 무효화하지
+ * 않으므로, 같은 순간 아직 날아가고 있는 flush 요청이 이 호출 때문에 실패하지 않는다.
+ * 큐를 먼저 비워 주려는 시도(로그아웃 직전 강제 flush)는 이 트랙이 하지 않는다 — 그것은 위
+ * 확인 문구의 계약(사라진다)을 바꾸는 별개의 변경이고, 오프라인에서는 로그아웃을 붙잡는다.
+ *
+ * ## 어떤 전이에서 실제로 나가는가
+ *
+ * `refreshToken`이 있을 때만이다(client.ts의 가드). 그래서:
+ *   - 설정 로그아웃 · PIN 분실 로그아웃 → 나간다(둘 다 같은 `clearSession()`을 지난다);
+ *   - 만료 → 정체성이 유지돼 이 구독 자체가 발화하지 않는다(그리고 그 토큰은 이미 죽었다);
+ *   - 로그아웃 뒤 로그인(null → 사용자) → 나가는 refresh 토큰이 없어 skip;
+ *   - 계정 삭제(app/settings/privacy.tsx) → 서버가 이미 `revokeAllForUser`로 전부 폐기했다.
+ *     한 번 더 요청해도 같은 family를 다시 폐기할 뿐이라 해가 없다;
+ *   - 데모 세션 토글 → 로컬 토큰이라 skip;
+ *   - 픽셀락 QA 라우트(app/pixel-lock.tsx) → 캡처는 비세션 렌더라 나가는 refresh 토큰이
+ *     없어 skip이고, 요청이 나가는 경우라면 그 라우트가 실제로 로그아웃을 시킨 것이 맞다.
+ */
+export function revokeOutgoingSessionOnServer(credentials: {
+  authToken: string | null;
+  refreshToken: string | null;
+}): void {
+  // fire-and-forget: await하지 않고, 이 함수는 절대 throw하지 않는다(호출부는 동기 구독 본문이다).
+  void revokeSessionOnServer(credentials.authToken, credentials.refreshToken);
 }
 
 /**

@@ -11,6 +11,7 @@ import { isSessionExpiryTransition, LOGIN_HREF } from "./session-expiry";
 import {
   clearSessionScopedQueryCache,
   isSessionIdentityChange,
+  revokeOutgoingSessionOnServer,
   subscribeToHydratedSessionTransitions,
   teardownOfflineSessionState
 } from "./session-teardown";
@@ -943,6 +944,12 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
           // scheduled the incoming account's re-render — everything below is a promise hop and
           // therefore lands after it. See clearSessionScopedQueryCache's contract.
           clearSessionScopedQueryCache();
+          // 라운드 107 트랙 B(S1-2): 나가는 세션의 refresh 토큰 family를 서버에서도 폐기한다.
+          // 종전에는 로그아웃이 기기 안만 정리해 그 family가 최대 30일 살아 있었다. 캐시 비우기와
+          // **같은 자리(동기·프로미스 홉 앞)**인 이유는 아래 getOfflineStore()의 `.catch()`가
+          // 삼키는 실패에 보안 조치를 묶지 않기 위함이다 — 근거는 revokeOutgoingSessionOnServer의
+          // 머리말(순서·오프라인 큐 판정 포함). 여기서도 나가는(previous) 자격증명을 쓴다.
+          revokeOutgoingSessionOnServer({ authToken: outgoingToken, refreshToken: previous.refreshToken });
           // 라운드 101 트랙 C: 확인 시각도 계정 정체성에 묶인 값이다 — 남겨 두면 다음 계정의
           // 홈이 이전 계정의 flush를 "N분 전 확인"이라고 말한다. 아래 wipe가 끝난 뒤의
           // refreshSnapshot은 이 칸을 이월만 하므로(원천이 저장소가 아니다) 여기서 직접 지운다.

@@ -260,6 +260,16 @@ export default function SettingsScreen() {
    * 아웃박스와 저장소가 다르므로(zustand persist ↔ SQLite) 위 스냅숏에 실려 오지 않고, 이 화면이
    * 셀렉터 하나로 읽어 두 모집단을 합쳐 넘긴다 — 합치는 것은 **입력**이고, 문장은 순수 모듈이
    * 여전히 두 줄로 나눠 말한다(성질이 다른 두 손실을 한 문장에 섞지 않는다). 0/0이면 종전 한 줄.
+   *
+   * 라운드 107 트랙 B(S1-2) — **이 로그아웃은 이제 서버에도 말한다.** 종전에는 이 핸들러가
+   * 기기 안만 정리했고(clearSession + 선택 아이 + 화면 전이), 서버의 refresh 토큰 family는
+   * 최대 30일 살아 있었다. 그 폐기 요청은 이 화면이 아니라 `clearSession()`이 발화시키는
+   * 정체성 전이 구독이 보낸다(src/offline/session-teardown.ts의 `revokeOutgoingSessionOnServer`
+   * — 순서·실패 거동·오프라인 큐 판정의 근거가 전부 그 머리말에 있다). 이 자리에 직접 fetch를
+   * 두지 않은 이유 둘: ① 사람이 실제로 쓰는 로그아웃은 이 버튼과 PIN 분실 경로 둘인데
+   * (src/security/AppLockOverlay.tsx) 두 곳이 같은 `clearSession()`을 지나므로 배선이 한 벌이면
+   * 족하다, ② 이 핸들러가 네트워크를 기다리게 되면 비행기 모드에서 화면이 안 넘어간다 —
+   * 아래 세 줄은 **여전히 동기이고 무조건 실행된다**(로컬 정리가 먼저, 폐기는 최선 노력).
    */
   const handleLogout = () => {
     Alert.alert(LOGOUT_CONFIRM_TITLE, logoutConfirmMessage({ ...csvExport.devicePendingRecords, recurringTemplateCount }), [

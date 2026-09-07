@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import { useAnalyticsConsentStore } from "../analytics/flag";
 import { usePurchaseFollowupStore } from "../commerce/purchase-followup.store";
@@ -27,6 +27,7 @@ import { createMemoryOfflineStore } from "./memory-offline-store";
 import {
   clearSessionScopedQueryCache,
   isSessionIdentityChange,
+  revokeOutgoingSessionOnServer,
   subscribeToHydratedSessionTransitions,
   teardownOfflineSessionState,
   type SessionIdentity
@@ -1165,5 +1166,106 @@ describe("PRIV-104 wipe vs in-flight flush sequencing", () => {
     expect(second).toBe(first);
     await Promise.all([first, second]);
     expect(clearCount).toBe(1);
+  });
+});
+
+
+/**
+ * 라운드 107 트랙 B(S1-2) — **로그아웃이 서버 토큰 family 폐기를 요청한다.**
+ *
+ * 종전: 이 파일이 잠그던 teardown은 전부 기기 안의 상태였고, 서버로 나가는 정리는 푸시 기기
+ * 행 끄기 하나였다. 로그아웃한 계정의 refresh 토큰은 서버에서 최대 30일 살아 있었다.
+ *
+ * 여기서 잠그는 것은 **언제 나가는가**와 **어디에 배선돼 있는가**다. 전송 자체의 세 실패
+ * 갈래(401 · 5xx · 오프라인)는 src/api/logout-revocation.test.ts에 있다.
+ */
+describe("라운드 107 트랙 B 나가는 세션의 서버 토큰 폐기", () => {
+  const LOGOUT_URL = `${process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api/v1"}/auth/logout`;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("나가는 자격증명으로 POST /auth/logout을 **동기적으로 시작한다**(await하지 않는다)", () => {
+    const calls: Array<{ url: string; auth: string | null; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({
+          url,
+          auth: (init?.headers as Record<string, string> | undefined)?.Authorization ?? null,
+          body: JSON.parse(String(init?.body))
+        });
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      })
+    );
+
+    // 반환값이 void이고, 이 줄 뒤에 await가 없는데도 요청이 이미 나가 있다 -- 로그아웃이
+    // 네트워크를 기다리지 않는다는 사실이 이 단언 하나에 들어 있다.
+    revokeOutgoingSessionOnServer({ authToken: "outgoing-access", refreshToken: "outgoing-refresh" });
+
+    expect(calls).toEqual([
+      { url: LOGOUT_URL, auth: "Bearer outgoing-access", body: { refreshToken: "outgoing-refresh" } }
+    ]);
+  });
+
+  it("서버가 죽었거나(5xx) 기기가 오프라인이어도 호출부로 예외가 새지 않는다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Network request failed");
+      })
+    );
+
+    expect(() =>
+      revokeOutgoingSessionOnServer({ authToken: "outgoing-access", refreshToken: "outgoing-refresh" })
+    ).not.toThrow();
+    // fire-and-forget이라 처리되지 않은 거부가 남으면 안 된다 -- 마이크로태스크를 한 바퀴 돌린다.
+    await Promise.resolve();
+  });
+
+  it("나가는 refresh 토큰이 없으면 요청 0건이다(로그아웃 뒤 로그인 · 데모 세션)", () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    revokeOutgoingSessionOnServer({ authToken: "outgoing-access", refreshToken: null });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sync-controller가 정체성 전이 구독에서, **getOfflineStore() 홉 앞에서** 나가는 자격증명으로 폐기를 시작한다 (source verification -- 컨트롤러는 vitest에서 실행되지 않는다)", () => {
+    const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
+    const start = controllerSource.indexOf("isSessionIdentityChange(previous, state)");
+    // 슬라이스 양쪽 끝 가드(라운드 78): 시작이 사라지면 -1에서 잘려 단언이 파일 전체를 보고,
+    // 끝이 사라지면 아래 "홉 앞" 비교가 무의미해진다.
+    expect(start).toBeGreaterThan(-1);
+    const end = controllerSource.indexOf("refreshSyncSnapshot: refreshSnapshot", start);
+    expect(end).toBeGreaterThan(start);
+    const subscriptionBody = controllerSource.slice(start, end);
+
+    expect(subscriptionBody).toContain(
+      "revokeOutgoingSessionOnServer({ authToken: outgoingToken, refreshToken: previous.refreshToken });"
+    );
+    // 폐기는 저장소를 여는 프로미스 홉(그 실패는 .catch로 삼켜진다)보다 **앞**에 서야 한다 --
+    // 뒤에 두면 SQLite를 못 여는 기기에서 토큰 폐기까지 함께 사라진다.
+    expect(subscriptionBody.indexOf("revokeOutgoingSessionOnServer(")).toBeLessThan(
+      // `void getOfflineStore()` -- 홉을 *여는 문장*으로 찾는다(위 주석도 그 이름을 언급한다).
+      subscriptionBody.indexOf("void getOfflineStore()")
+    );
+  });
+
+  it("사람이 쓰는 로그아웃 두 자리가 모두 같은 clearSession()을 지난다 -- 배선 한 벌이 둘을 덮는 근거 (source verification)", () => {
+    // 설정 화면(SET-001)의 로그아웃 버튼과 PIN 분실 탈출구. 둘 중 하나가 자기만의 세션 정리를
+    // 갖게 되면 그 경로만 조용히 폐기 없는 로그아웃으로 돌아간다.
+    const settingsSource = readFileSync(join(process.cwd(), "app/settings/index.tsx"), "utf8");
+    const overlaySource = readFileSync(join(process.cwd(), "src/security/AppLockOverlay.tsx"), "utf8");
+
+    for (const source of [settingsSource, overlaySource]) {
+      const start = source.indexOf('text: "로그아웃"');
+      expect(start).toBeGreaterThan(-1);
+      const end = source.indexOf('router.replace("/launch-animation")', start);
+      expect(end).toBeGreaterThan(start);
+      expect(source.slice(start, end)).toContain("clearSession();");
+    }
   });
 });
