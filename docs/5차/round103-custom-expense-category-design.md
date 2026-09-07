@@ -171,7 +171,7 @@ model Category {
 | 6 | `onboarding/expenses-store.service.ts:451` `requireExistingCategory` | **household-scoped** | 인자에 `householdId` 추가 → `{ id, OR: [{householdId: null}, {householdId}] }`. 호출부 둘 다 값을 이미 갖고 있다(`insertExpense(client, householdId, …)` · `updateExpense`의 `expense.householdId`) |
 | 7 | `onboarding/import-pipeline.service.ts:758` 확정 전 실재 | **household-scoped** | 같은 조건(`job.householdId`) — 확정이 남의 분류를 지출에 심지 못한다 |
 | 8 | `onboarding/import-pipeline.service.ts:928` code→id | **system-only** | `where: { code: {in: …}, householdId: null }` 가산. 오늘 파서는 정식 code만 내므로 동작 변화 0이고, 방어선이다 |
-| 9 | `onboarding/onboarding-core.service.ts:839` `requireBudgetableCategories` | **household-scoped** | 아이의 `householdId`로 좁힌다 — 남의 커스텀 분류에 예산을 세울 수 없다(라운드 102 계약은 그대로) |
+| 9 | `onboarding/onboarding-core.service.ts:839` `requireBudgetableCategories` | **household-scoped** | 아이의 `householdId`로 좁힌다 — 남의 커스텀 분류에 예산을 세울 수 없다(라운드 102 계약은 그대로). 값은 이미 손에 있다: `upsertBudget`이 첫 줄에서 `requireChildAccess`가 돌려준 `child`를 든다(`:695`) |
 | 10 | `prisma/seed.ts:24,59,95` | **code-scoped, 안전** | 무변경. 시드 code 집합으로 이미 좁고 커스텀 code는 `custom_` 접두라 절대 겹치지 않는다 |
 
 ---
