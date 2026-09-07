@@ -349,7 +349,12 @@ describe("라운드 70 A — FAM-003 네 갈래 배선 (source contract)", () =>
       planSource.indexOf("export function planAfterHouseholdJoin(")
     );
     expect(escapePlan).toContain('return { href: "/(tabs)", marksHomeReached: true };');
-    expect(escapePlan).toContain('return { href: "/onboarding/child-status", marksHomeReached: false };');
+    // ⚠️ 라운드 107 트랙 C(두 시점 · 핀 이관): 종전 목적지는 "/onboarding/child-status"였다 —
+    // 기기 신호 둘(selectedChildId·hasReachedHome)이 비었다는 것만으로 "신규"라 단정하던
+    // 자리다. 그 단정이 라운드 99가 로그인에서 고친 중복 아이 결함의 형제였고, 같은 답
+    // (목적지를 서버 진행도 판정에 위임)으로 옮겼다. 이 함수는 기기 신호 둘만 보므로
+    // "신규"를 알 방법이 애초에 없고, 위임이 유일하게 정직한 답이다.
+    expect(escapePlan).toContain('return { href: "/", marksHomeReached: false };');
     expect(escapePlan).not.toContain("authToken");
   });
 

@@ -386,7 +386,7 @@ describe("FAM-121A 수락 성공 후 아이 재선택", () => {
       expect(acceptSource).not.toContain('if (plan.kind === "onboarding") markHomeReached();');
     });
 
-    it("탈출구는 계정 상태로 목적지를 정한다 (아이 있음·홈 도달 → 탭, 아니면 온보딩)", () => {
+    it("탈출구는 계정 상태로 목적지를 정한다 (아이 있음·홈 도달 → 탭, 모르면 루트에 위임)", () => {
       expect(householdJoinEscapePlan({ currentChildId: "child-1" })).toEqual({
         href: "/(tabs)",
         marksHomeReached: true
@@ -395,11 +395,14 @@ describe("FAM-121A 수락 성공 후 아이 재선택", () => {
         href: "/(tabs)",
         marksHomeReached: true
       });
+      // ⚠️ 라운드 107 트랙 C(두 시점 · 핀 이관): 종전 두 단언의 href는
+      // `"/onboarding/child-status"`였다 -- 기기 신호 둘이 모두 비었다는 것만으로 "신규"라고
+      // 단정하던 자리다. 아래 describe가 그 단정이 왜 중복 아이로 끝났는지를 값으로 묻는다.
       expect(householdJoinEscapePlan({ currentChildId: null, hasReachedHome: false })).toEqual({
-        href: "/onboarding/child-status",
+        href: "/",
         marksHomeReached: false
       });
-      expect(householdJoinEscapePlan({})).toEqual({ href: "/onboarding/child-status", marksHomeReached: false });
+      expect(householdJoinEscapePlan({})).toEqual({ href: "/", marksHomeReached: false });
     });
 
     it("홈 도달 표시는 탭 셸 목적지에만 붙는다 (게이트를 지나는 목적지가 그것뿐이라)", () => {
@@ -452,5 +455,166 @@ describe("FAM-121A 수락 성공 후 아이 재선택", () => {
     ]);
     // R19-C 삭제/탈퇴 뒤처리의 단일 소스를 재사용한다 -- 새 아이 스코프 화면이 생기면 한 곳만 고친다.
     expect(HOUSEHOLD_JOIN_INVALIDATE_KEYS.length).toBe(CHILD_REMOVAL_INVALIDATE_KEYS.length + 1);
+  });
+});
+
+/**
+ * 라운드 107 트랙 C — **초대 재개 경로의 중복 아이 생성** (라운드 99 결함의 형제 둘).
+ *
+ * 라운드 99는 로그인 목적지를 `"/"`로 위임해(app/(auth)/login.tsx → app/index.tsx의 MOB-101
+ * 서버 진행도 판정) 새 기기에서의 중복 아이 생성을 막았다. 그런데 **초대 갈래는 그 위임을
+ * 지나지 않는다** -- 수락 화면은 자기 화면 안에서 다음 목적지를 정하고, 그 판정 둘이 모두
+ * 기기 로컬 신호(선택된 아이 · 홈 도달 표시)만 봤다.
+ *
+ * ⚠️ 이 파일의 종전 짝 테스트가 온보딩 갈래를 부른 입력은 전부 `children: []` 아니면
+ * `children: null`이었다 -- **비어 있지 않은데 그 가구에는 없는** 경우가 0건이라, 정확히 그
+ * 사각에서 사고가 났고 오늘도 초록이었다. 아래 두 describe가 그 칸을 값으로 채우고, 되돌림
+ * 방향(진짜 신규가 갇히지 않는가)도 같은 자리에서 함께 잠근다.
+ */
+describe("라운드 107 트랙 C — 초대 재개의 목적지는 '이 사용자에게 아이가 있는가'를 가구보다 먼저 묻는다", () => {
+  /** 이미 다른 가구에서 쓰던 아이. 새 기기에는 이 사실의 로컬 흔적이 하나도 없다. */
+  const daon = { id: "child-1", householdId: "household-old", nickname: "다온이" };
+  /** 방금 초대로 참여한, 아직 아이가 하나도 없는 가구. */
+  const emptyHousehold = "household-empty";
+
+  describe("사각을 채운다: children이 비어 있지 않은데 그 가구에는 없다", () => {
+    it("다른 가구에 아이가 있는 사용자는 온보딩으로 떨어지지 않는다 (중복 아이 차단)", () => {
+      const plan = planAfterHouseholdJoin({
+        householdId: emptyHousehold,
+        // GET /children은 **모든 가구**의 아이를 준다 -- 이 사람은 신규가 아니다.
+        children: [daon],
+        // 새 기기라 선택된 아이가 없다. 종전에는 이 조합이 곧장 온보딩이었다.
+        currentChildId: null
+      });
+      expect(plan).toEqual({
+        kind: "delegate",
+        notice: "이 가족에는 아직 등록된 아이가 없어요. 이미 등록한 아이는 그대로 볼 수 있어요.",
+        href: "/"
+      });
+      // 이 사각의 사고는 정확히 이 목적지였다: 온보딩 → ONB-002의 POST /children → 아이 하나 더.
+      expect(plan.href).not.toBe("/onboarding/child-status");
+      expect(plan.kind).not.toBe("onboarding");
+    });
+
+    it("아이가 여럿이어도, 참여한 가구 것만 없으면 같은 길이다", () => {
+      const sibling = { id: "child-9", householdId: "household-other", nickname: "반디" };
+      expect(
+        planAfterHouseholdJoin({
+          householdId: emptyHousehold,
+          children: [daon, sibling],
+          currentChildId: null
+        }).kind
+      ).toBe("delegate");
+    });
+
+    it("역할이 무엇이든 '아이가 있다'가 먼저다 (누구인가 → 여기서 무엇을 할 수 있는가 순서)", () => {
+      for (const role of [undefined, null, "owner", "co_parent", "viewer", "gift_participant"]) {
+        const plan = planAfterHouseholdJoin({
+          householdId: emptyHousehold,
+          children: [daon],
+          currentChildId: null,
+          role
+        });
+        expect(plan.kind).toBe("delegate");
+        // viewer/gift_participant의 blocked 갈래(`/(tabs)` + markHomeReached)도 지나지 않는다 --
+        // 아이가 있는 사람에게 홈 도달을 기기가 대신 단정해 줄 이유가 없다.
+        expect(plan.href).toBe("/");
+      }
+    });
+
+    it("가구로 거른 뒤 세지 않는다 — 같은 응답이라도 참여한 가구에 따라 답이 갈린다", () => {
+      const children = [daon];
+      // ① 참여한 가구에 그 아이가 있으면 전환(종전 그대로).
+      expect(
+        planAfterHouseholdJoin({ householdId: daon.householdId, children, currentChildId: null }).kind
+      ).toBe("select");
+      // ② 없으면 위임. 두 답 모두 온보딩이 아니다 -- 응답에 아이가 실려 온 이상, 이 사람은
+      //    어느 쪽에서도 "아이를 처음 만드는 사람"이 아니다.
+      expect(planAfterHouseholdJoin({ householdId: emptyHousehold, children, currentChildId: null }).kind).toBe(
+        "delegate"
+      );
+    });
+
+    it("안내는 사실만 말한다 — 있지도 않은 전환을 알리지 않는다", () => {
+      const plan = planAfterHouseholdJoin({
+        householdId: emptyHousehold,
+        children: [daon],
+        currentChildId: null
+      });
+      const notice = plan.kind === "delegate" ? plan.notice : "";
+      expect(notice).not.toContain("전환했어요");
+      expect(notice).not.toContain("등록하면");
+      expect(notice).toMatch(/요\.$/);
+    });
+
+    it("위임 목적지는 탭 셸이 아니다 — 홈 도달 표시는 서버 진행도를 받은 화면이 세운다", () => {
+      const plan = planAfterHouseholdJoin({
+        householdId: emptyHousehold,
+        children: [daon],
+        currentChildId: null
+      });
+      expect(plan.href.startsWith("/(tabs)")).toBe(false);
+      const acceptSource = source("app/family/accept/[token].tsx");
+      // 안내를 읽어 주는 처리는 onboarding/blocked와 한 자리에서 같다...
+      expect(acceptSource).toContain(
+        'if (plan.kind === "onboarding" || plan.kind === "blocked" || plan.kind === "delegate") {'
+      );
+      // ...하지만 홈 도달을 세우는 것은 blocked 하나뿐이다(그 줄이 유일하다).
+      expect(acceptSource).toContain('if (plan.kind === "blocked") markHomeReached();');
+      expect(acceptSource).not.toContain('if (plan.kind === "delegate") markHomeReached();');
+    });
+  });
+
+  describe("되돌림 방향: 진짜 신규 사용자는 갇히지 않는다", () => {
+    it("아이가 정말 하나도 없으면(children: []) 종전대로 온보딩 시작점이다", () => {
+      expect(
+        planAfterHouseholdJoin({ householdId: emptyHousehold, children: [], currentChildId: null })
+      ).toEqual({
+        kind: "onboarding",
+        notice: "아직 볼 수 있는 아이가 없어요. 아이 정보를 등록하면 바로 시작할 수 있어요.",
+        href: "/onboarding/child-status"
+      });
+    });
+
+    it("id가 비어 있는 malformed 항목만 실려 오면 '아이 있음'으로 세지 않는다", () => {
+      // 위임 판정은 select 판정과 **같은 유효성**을 통과한 항목만 센다 -- 고를 수도 없는
+      // 항목을 근거로 온보딩을 막으면 진짜 신규가 갇힌다.
+      expect(
+        planAfterHouseholdJoin({
+          householdId: emptyHousehold,
+          children: [{ id: "", householdId: "household-old", nickname: "" }],
+          currentChildId: null
+        }).kind
+      ).toBe("onboarding");
+    });
+
+    it("모를 때(children: null — 데모 세션)는 종전 경로를 그대로 쓴다", () => {
+      expect(
+        planAfterHouseholdJoin({ householdId: emptyHousehold, children: null, currentChildId: null }).kind
+      ).toBe("onboarding");
+    });
+
+    it("탈출구의 위임도 신규를 온보딩으로 내려놓는다 — 그 판정은 app/index.tsx가 진다", () => {
+      // 만료된 초대·뒤처리 실패 카드의 탈출구. 로컬 신호가 둘 다 비면 "/"에 위임한다.
+      expect(householdJoinEscapePlan({ currentChildId: null, hasReachedHome: false })).toEqual({
+        href: "/",
+        marksHomeReached: false
+      });
+      // 그 "/"가 실제로 신규를 온보딩에 내려놓는다는 것이 위임의 전제다(읽기 전용 계약 —
+      // 라운드 99가 로그인 목적지를 위임할 때 기댄 바로 그 줄이다).
+      const indexSource = source("app/index.tsx");
+      expect(indexSource).toContain('<Redirect href={hasReachedHome ? "/(tabs)" : "/onboarding/child-status"} />');
+      // 그리고 이미 아이가 있는 계정은 그 앞에서 갈린다(서버 진행도 완료 → 홈 도달 표시).
+      expect(indexSource).toContain("if (progress.completed) {");
+      expect(indexSource).toContain("markHomeReached();");
+    });
+
+    it("두 목적지를 코드에서 직접 적지 않는다 — 위임은 한 줄로 남는다", () => {
+      const planSource = source("src/children/household-join.ts");
+      const rendered = planSource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+      // 온보딩 리터럴은 planAfterHouseholdJoin의 **진짜 신규** 갈래 하나에만 남는다.
+      // (escapePlan의 종전 리터럴이 되살아나면 여기가 빨개진다 — 주석의 이력 인용은 세지 않는다.)
+      expect(rendered.split('"/onboarding/child-status"').length - 1).toBe(1);
+    });
   });
 });
