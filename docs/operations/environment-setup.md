@@ -44,7 +44,7 @@ AFFILIATE_DISCLOSURE_TEXT=...
 | `OAUTH_KAKAO/APPLE/GOOGLE_CLIENT_ID` + 시크릿 | 각 OAuth 콘솔 | 실 소셜 로그인 | 프로덕션에서 `oauth-login`이 501 반환(가짜 로그인 차단). dev/test는 결정론적 스텁 유저 |
 | `DATABASE_URL` (PostgreSQL) | 운영 인프라 | 영속 저장 | **API가 부팅하지 못한다** — 라운드 4 이후 Prisma+PostgreSQL이 유일한 저장 경로다(인메모리 폴백 없음). 스키마·마이그레이션은 `apps/api/prisma/`가 단일 소스, 로컬은 `pnpm db start`(scripts/db.ts) |
 | 릴리즈 keystore | 릴리즈 오너 | 스토어 배포 서명 | debug keystore로 서명(테스트 설치용, 스토어 배포 불가) |
-| 실 제휴/커머스 링크 | 제휴사 | 실제 구매 이동 | example.com dev 링크 |
+| 실 제휴/커머스 링크 | 제휴사 | 실제 구매 이동 | **비제휴 실 쿠팡 검색 링크로 이동**(구매 자체는 된다 · 수수료 0). ⚠️ **두 시점**: 이 칸은 종전에 "example.com dev 링크"라고 적었고 그때는 참이었다 — 출시 트랙 LP-A가 그 플레이스홀더 86곳을 전부 교체해 오늘은 **0곳**이다(`grep -c 'https://example.com' apps/api/prisma/seed-data.ts` → 0, 2026-09-07). 제휴 딥링크(`affiliateUrl`)는 여전히 0건이고 그것이 이 행이 남아 있는 이유다 |
 
 키가 없어도 앱 전체가 기동 실패하지 않도록 기능 경계가 분리되어 있으며, **프로덕션에서는 가짜 성공을 반환하지 않는다**(스텁은 dev/test 한정).
 
