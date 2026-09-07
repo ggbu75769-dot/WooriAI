@@ -16,13 +16,31 @@ const source = (relativePath: string) => readFileSync(join(process.cwd(), relati
  * 각 점의 달과 값이 들어간다 · ⓔ 금액은 `formatKrw` 하나로만 만든다.
  */
 describe("buildTrendPointLabels ⓐ 파생", () => {
-  it("응답의 yearMonth에서만 달 라벨을 만든다", () => {
-    const result = buildTrendPointLabels({
+  /**
+   * ⚠️ 픽스처가 거짓이었다 — 종전 이 파일은 달을 전부 `"2026-03"` 모양으로 적었고, 그때는
+   * "서버가 주는 모양"이라고 믿었다. 실제로는 **추이 응답이 그 모양을 내지 않는다**:
+   * `GET /reports/trend`의 `months[].yearMonth`는 `"2026-03-01"`이고(계약 `dateOnlySchema` ·
+   * 서버 `trailingYearMonths` · 데모 백엔드도 같다), `"2026-03"`은 **연간 응답**의 모양이다.
+   * 그래서 이 파일은 초록인 채로 월간·분기 탭의 축이 통째로 사라진 것을 못 봤다.
+   * 이제 **두 모양을 나란히** 센다 — 둘 다 읽히는 것이 이 모듈의 계약이다.
+   */
+  it("응답의 yearMonth에서만 달 라벨을 만든다 (추이 응답 · 연간 응답 두 형식 모두)", () => {
+    const trendShape = buildTrendPointLabels({
+      // 추이 응답의 실형식(YYYY-MM-01) — 월간·분기 탭이 받는 그 값.
+      yearMonths: ["2026-03-01", "2026-04-01", "2026-05-01"],
+      points: [120_000, 98_000, 143_500]
+    });
+    const yearlyShape = buildTrendPointLabels({
+      // 연간 응답의 실형식(YYYY-MM) — 연간 탭이 받는 그 값.
       yearMonths: ["2026-03", "2026-04", "2026-05"],
       points: [120_000, 98_000, 143_500]
     });
 
-    expect(result.labels).toEqual(["3월", "4월", "5월"]);
+    expect(trendShape.labels).toEqual(["3월", "4월", "5월"]);
+    expect(yearlyShape.labels).toEqual(["3월", "4월", "5월"]);
+    // 같은 달을 두 형식으로 받아도 낭독은 한 문장이다(형식은 전송 표기일 뿐이다).
+    expect(trendShape.accessibilitySeries).toBe(yearlyShape.accessibilitySeries);
+    expect(trendShape.accessibilitySeries).toBe("3월 120,000원, 4월 98,000원, 5월 143,500원");
   });
 
   it("해가 바뀌어도 그 달의 번호를 그대로 읽는다 (연 경계에서 인덱스로 세지 않는다)", () => {
@@ -48,15 +66,49 @@ describe("buildTrendPointLabels ⓐ 파생", () => {
     expect(tooFewMonths).toEqual(EMPTY_TREND_POINT_LABELS);
   });
 
-  it("형식이 어긋난 달이 하나라도 있으면 축 전체를 포기한다 (반쯤 지어낸 축을 만들지 않는다)", () => {
-    for (const broken of ["2026-13", "2026-00", "26-03", "2026-3", "", "2026-03-01"]) {
+  /**
+   * "포기" 규칙은 **틀린 달을 적지 않으려고** 있다 — 두 형식을 읽게 되었어도 그 규칙은 그대로다.
+   * 종전 목록에 있던 `"2026-03-01"`은 여기서 빠진다: 그때는 "읽을 수 없는 값"이었지만(그 판정이
+   * 곧 월간·분기 탭의 축을 없앤 결함이었다) 이제는 **서버가 실제로 내는 값**이다.
+   * 대신 그 모양 근처의 깨진 값들(잘못된 달·잘못된 일·자릿수·타임스탬프)을 함께 센다.
+   */
+  it("읽을 수 없는 달이 하나라도 있으면 축 전체를 포기한다 (반쯤 지어낸 축을 만들지 않는다)", () => {
+    const broken = [
+      "2026-13",
+      "2026-00",
+      "26-03",
+      "2026-3",
+      "",
+      // 두 형식을 읽게 된 뒤에도 여전히 포기해야 하는 값들.
+      "2026-13-01",
+      "2026-00-01",
+      "2026-3-01",
+      "2026-03-1",
+      "2026-03-00",
+      "2026-03-99",
+      "2026-03-01T00:00:00Z",
+      "2026-03-01 00:00",
+      "2026-03-01-01",
+      "202603"
+    ];
+
+    for (const value of broken) {
       const result = buildTrendPointLabels({
-        yearMonths: ["2026-01", broken, "2026-03"],
+        yearMonths: ["2026-01", value, "2026-03"],
         points: [10, 20, 30]
       });
 
-      expect(result, `깨진 달을 그냥 지나쳤다: ${broken}`).toEqual(EMPTY_TREND_POINT_LABELS);
+      expect(result, `깨진 달을 그냥 지나쳤다: ${value}`).toEqual(EMPTY_TREND_POINT_LABELS);
     }
+  });
+
+  it("서버가 실제로 내는 두 형식은 포기하지 않는다 (두 형식이 섞여 와도 읽는다)", () => {
+    const result = buildTrendPointLabels({
+      yearMonths: ["2026-01-01", "2026-02", "2026-03-01"],
+      points: [10, 20, 30]
+    });
+
+    expect(result.labels).toEqual(["1월", "2월", "3월"]);
   });
 
   it("입력이 아직 없으면(로딩·실패·비세션) 두 값 모두 null이다", () => {
@@ -117,14 +169,19 @@ describe("buildTrendPointLabels ⓔ 표기", () => {
 });
 
 describe("buildTrendPointLabels ⓑ 세 갈래 한 모듈", () => {
-  it("월간 탭: 선택한 달로 끝나는 6개월이 그대로 여섯 라벨이 된다", () => {
+  /**
+   * 종전 이 픽스처의 달은 `"2026-03"`이었다 — **추이 응답이 내지 않는 모양**이라 이 단언은
+   * 월간 탭에서 실제로 일어나는 일을 세지 못했다(그 탭의 축은 통째로 비어 있었다).
+   * 이제 `getTrendReport`가 내는 그대로 `"2026-03-01"`을 넣는다(계약 `dateOnlySchema`).
+   */
+  it("월간 탭: 선택한 달로 끝나는 6개월이 그대로 여섯 라벨이 된다 (추이 응답 실형식)", () => {
     const months = [
-      { yearMonth: "2026-03", totalExpenseKrw: 810_000 },
-      { yearMonth: "2026-04", totalExpenseKrw: 742_000 },
-      { yearMonth: "2026-05", totalExpenseKrw: 903_000 },
-      { yearMonth: "2026-06", totalExpenseKrw: 655_000 },
-      { yearMonth: "2026-07", totalExpenseKrw: 712_000 },
-      { yearMonth: "2026-08", totalExpenseKrw: 480_000 }
+      { yearMonth: "2026-03-01", totalExpenseKrw: 810_000 },
+      { yearMonth: "2026-04-01", totalExpenseKrw: 742_000 },
+      { yearMonth: "2026-05-01", totalExpenseKrw: 903_000 },
+      { yearMonth: "2026-06-01", totalExpenseKrw: 655_000 },
+      { yearMonth: "2026-07-01", totalExpenseKrw: 712_000 },
+      { yearMonth: "2026-08-01", totalExpenseKrw: 480_000 }
     ];
 
     const result = buildTrendPointLabels({
@@ -192,11 +249,13 @@ describe("buildTrendPointLabels ⓑ 세 갈래 한 모듈", () => {
     expect(result.accessibilitySeries).toContain("5월 0원");
   });
 
-  it("분기 탭(진행 중): 지나간 두 달만 라벨을 받는다", () => {
+  // 분기 탭도 `getTrendReport`(3개월)를 받으므로 달은 `YYYY-MM-01`이다 — 위 월간 탭과 같은 이유로
+  // 종전 `"2026-07"` 픽스처는 이 탭에서 실제로 오는 값이 아니었다.
+  it("분기 탭(진행 중): 지나간 두 달만 라벨을 받는다 (추이 응답 실형식)", () => {
     const months = [
-      { yearMonth: "2026-07", totalExpenseKrw: 300_000 },
-      { yearMonth: "2026-08", totalExpenseKrw: 250_000 },
-      { yearMonth: "2026-09", totalExpenseKrw: 0 }
+      { yearMonth: "2026-07-01", totalExpenseKrw: 300_000 },
+      { yearMonth: "2026-08-01", totalExpenseKrw: 250_000 },
+      { yearMonth: "2026-09-01", totalExpenseKrw: 0 }
     ];
 
     const periodTrend = buildPeriodTrendPoints({
@@ -220,7 +279,8 @@ describe("buildTrendPointLabels ⓑ 세 갈래 한 모듈", () => {
    * 자리에 축만 남는 일이 생기지 않는다.
    */
   it("차트가 빈 상태로 접히는 기간에는 축도 만들어지지 않는다", () => {
-    const months = [{ yearMonth: "2026-01", totalExpenseKrw: 120_000 }];
+    // 분기 첫 달 갈래라 이 픽스처도 추이 응답 실형식(YYYY-MM-01)이다.
+    const months = [{ yearMonth: "2026-01-01", totalExpenseKrw: 120_000 }];
     const periodTrend = buildPeriodTrendPoints({
       startYearMonth: "2026-01",
       points: months.map((month) => month.totalExpenseKrw),

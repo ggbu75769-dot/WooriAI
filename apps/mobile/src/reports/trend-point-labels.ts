@@ -16,8 +16,10 @@ import { formatKrw } from "../money";
  * 데이터는 이미 응답 안에 있었다. 새 요청도, 새 집계도 필요 없다 — 버리지만 않으면 된다.
  *
  * ## 이 모듈이 지는 규칙
- * - **라벨은 `yearMonth`에서만 나온다.** 인덱스로 "1월, 2월 …"을 지어내지 않는다. 형식이
- *   어긋난 달이 하나라도 있으면 **전체를 포기한다**(반쯤 지어낸 축은 없는 축보다 나쁘다).
+ * - **라벨은 `yearMonth`에서만 나온다.** 인덱스로 "1월, 2월 …"을 지어내지 않는다. 읽을 수 없는
+ *   달이 하나라도 있으면 **전체를 포기한다**(반쯤 지어낸 축은 없는 축보다 나쁘다).
+ * - **달 키는 두 모양이 온다**(`MONTH_KEY_PATTERN` 머리말) — 추이 응답의 `YYYY-MM-01`과 연간
+ *   응답의 `YYYY-MM`. 둘 다 읽는다.
  * - **라벨 수 ≠ 점 수면 그리지 않는다.** 분기·연간은 라운드 52 C-02가 미래 달을 잘라 내므로
  *   (src/reports/period-trend-points.ts) 잘린 뒤의 점과 라벨이 어긋날 수 있다. 어긋나면
  *   그리지 않는 쪽이 정직하다 — 8월 점 위에 12월이라 적힌 축은 허위 표시다.
@@ -27,7 +29,29 @@ import { formatKrw } from "../money";
  * 네이티브 바인딩 없음). 월간·분기·연간 **세 갈래가 같은 이 모듈**을 지난다.
  */
 
-const YEAR_MONTH_PATTERN = /^\d{4}-\d{2}$/;
+/**
+ * 달 키 한 개가 실제로 오는 **두 모양**: `YYYY-MM`과 `YYYY-MM-01`.
+ *
+ * 종전 이 자리는 `/^\d{4}-\d{2}$/` 하나였다 — **그때는 연간 응답만 보고 참이었다.** 서버는 두
+ * 리포트의 달 키를 서로 다른 형식으로 낸다:
+ *
+ * - 추이 `GET /reports/trend` → `months[].yearMonth`는 내부 **`YYYY-MM-01`**(date-only).
+ *   근거: apps/api/src/onboarding/reporting-store.service.ts의 `trailingYearMonths`가 `-01`을
+ *   붙여 만들고, 계약도 `dateOnlySchema`로 못박았다(packages/contracts/src/schemas.ts
+ *   `reportTrendSchema`). 데모 백엔드(src/api/local-backend.ts `getTrendReport`)도 같다.
+ * - 연간 `GET /reports/yearly` → `monthlyTotals[].yearMonth`는 **`YYYY-MM`**.
+ *   근거: 같은 파일의 `reportYearlySchema`가 `/^\d{4}-\d{2}$/`다.
+ *
+ * 그래서 종전 규칙에서는 월간(6점)·분기(3점) 탭의 달이 **전부** "읽을 수 없는 값"이 되어 아래
+ * 포기 규칙에 걸렸고, 두 탭은 축도 낭독 계열도 **0건**이었다(연간 탭만 고쳐져 있었다). 틀린
+ * 달을 적지는 않았지만 — 포기 규칙이 그것만은 막았다 — 라운드 85 트랙 C가 없애려던 결함이 세
+ * 탭 중 둘에서 그대로 살아 있었다.
+ *
+ * 이제 두 모양을 모두 읽는다. 근거: 라벨에 필요한 것은 **달**뿐이고 두 응답 다 그 달을 정확히
+ * 말한다 — 형식 차이는 전송 표기일 뿐이라, 여기서 달을 읽는 것은 지어내는 것이 아니다.
+ * 두 형식이 갈린 것 자체(계약)는 이 모듈이 고칠 수 있는 자리가 아니다.
+ */
+const MONTH_KEY_PATTERN = /^(\d{4})-(\d{2})(?:-(\d{2}))?$/;
 
 export type TrendPointLabels = {
   /**
@@ -45,18 +69,32 @@ export type TrendPointLabels = {
 /** 라벨을 만들 수 없을 때의 값. 카드가 이 값을 받으면 종전과 한 픽셀도 다르지 않게 그린다. */
 export const EMPTY_TREND_POINT_LABELS: TrendPointLabels = { labels: null, accessibilitySeries: null };
 
-/** "2026-08" → "8월". 형식이 어긋나면 null(지어내지 않는다). */
+/** "2026-08" · "2026-08-01" → "8월". 읽을 수 없으면 null(지어내지 않는다). */
 function monthLabelOf(yearMonth: string): string | null {
-  if (typeof yearMonth !== "string" || !YEAR_MONTH_PATTERN.test(yearMonth)) return null;
-  const month = Number(yearMonth.slice(5, 7));
+  if (typeof yearMonth !== "string") return null;
+  const matched = MONTH_KEY_PATTERN.exec(yearMonth);
+  // 종전에는 `YYYY-MM`이 아니면 여기서 끝났다(그때는 연간 탭에서만 참) → 이제 `YYYY-MM-01`도
+  // 읽는다. 포기 규칙 자체는 그대로다: 두 모양 어느 쪽도 아닌 값("2026-3" · "26-03" · 빈 값 ·
+  // "2026-03-01T00:00:00Z" 같은 타임스탬프 · 자릿수 어긋남)은 여전히 null로 떨어진다.
+  if (!matched) return null;
+  const month = Number(matched[2]);
   if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  // 일(day)은 라벨에 쓰지 않지만 **읽히기는 해야 한다**. 서버·데모가 내는 값은 언제나 01이고,
+  // 달력에 없는 일이 붙은 값("2026-03-00" · "2026-03-99")은 깨진 값이다 — 달만 떼어 읽으면
+  // 그 깨진 값을 정상인 척 통과시키게 되므로, 그때도 종전처럼 포기한다.
+  if (matched[3] !== undefined) {
+    const day = Number(matched[3]);
+    if (!Number.isInteger(day) || day < 1 || day > 31) return null;
+  }
   return `${month}월`;
 }
 
 export type TrendPointLabelsInput = {
   /**
-   * 차트가 그리는 점과 **같은 순서·같은 개수**의 "YYYY-MM" 목록. 아직 못 받았거나(로딩·실패·
-   * 비세션) 화면이 자른 뒤의 목록을 만들 수 없으면 null/undefined.
+   * 차트가 그리는 점과 **같은 순서·같은 개수**의 달 키 목록. 종전 주석은 "YYYY-MM 목록"이라고
+   * 적었는데(그때는 연간 응답만 보고 참) → 이제 응답이 주는 대로 `YYYY-MM`·`YYYY-MM-01` 둘 다
+   * 받는다(`MONTH_KEY_PATTERN` 머리말). 아직 못 받았거나(로딩·실패·비세션) 화면이 자른 뒤의
+   * 목록을 만들 수 없으면 null/undefined.
    */
   yearMonths: readonly string[] | null | undefined;
   /** 차트가 실제로 그리는 값들(자른 뒤). 카드에 넘기지 않는 경우와 같은 조건으로 비운다. */
