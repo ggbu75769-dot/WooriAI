@@ -83,3 +83,35 @@ export function deviceRowSwitchLabel(
   const label = `${deviceRowTitle(platformLabel, osVersion)} 알림`;
   return isCurrentDevice ? `${label}, 이 기기` : label;
 }
+
+/**
+ * 라운드 107 — **기기 목록 빈 상태의 설명 한 줄**, 또는 세우지 않을 때 `undefined`.
+ *
+ * ⚠️ **두 시점.** 종전에는 화면이 한 문장을 조건 없이 적었다:
+ * `description="푸시 알림을 켜면 이 기기가 목록에 추가돼요."`. 라운드 96 T6이 그 문장을 쓸
+ * 때는 참인 안내였다 — 목록이 비어 있는 이유가 "아직 안 켰다"라고 읽혔기 때문이다.
+ *
+ * 오늘 그 문장은 **할 수 없는 행동을 지시한다.** 이 빌드에는 expo-notifications가 없어
+ * `isPushSupported()`가 false이고(push-token-source.ts), 그래서 같은 화면의 푸시 마스터
+ * 토글은 `disabled={masterToggleDisabled}`로 **영구 비활성**이며 그 카드가 이미 "지금 앱
+ * 버전에서는 푸시 알림을 받을 수 없어요."라고 말한다. 토큰을 얻을 수 없으니 기기 행도 절대
+ * 생기지 않는다(usePushDeviceRegistration은 토큰 null이면 즉시 반환한다) — 즉 **모든
+ * 사용자가 늘 이 빈 상태를 보고, 그 밑에서 "켜면"이라고 권해지는 스위치는 누를 수 없다.**
+ * 지킬 수 없는 약속을 하지 않는다는 이 저장소의 규율(messages.ts의 "연결되면 자동으로
+ * 저장할게요"를 쓰지 않는 그 판단)이 정확히 이 자리에도 선다.
+ *
+ * 그래서 **새 문장을 짓지 않고 문장을 거둔다**: 푸시를 켤 수 없는 빌드에서 빈 상태는 사실
+ * 한 줄(제목 "푸시 알림을 받는 기기가 없어요")만 남고, 그 이유는 바로 위 푸시 카드의 안내
+ * 한 줄이 이미 지고 있다(같은 사실을 두 번 말하지 않는다 — 알림 종류 스위치가 홈 배너를
+ * 함께 끄지 않는 그 판단과 같은 자리). 켤 수 있는 빌드에서는 종전 문장이 **바이트 단위로
+ * 같게** 그대로 선다.
+ *
+ * 판정을 화면이 아니라 여기서 내리는 이유는 이 모듈의 나머지 둘과 같다: 기기 목록이 무엇을
+ * 말하는지는 값으로 검증할 수 있는 판정이고, 화면 안의 삼항으로 두면 테스트가 소스 문자열
+ * 검사밖에 안 된다.
+ *
+ * @param pushSupported 화면의 `pushSupported`(= `isPushSupported()`의 마운트 시점 확정값).
+ */
+export function deviceListEmptyDescription(pushSupported: boolean): string | undefined {
+  return pushSupported ? "푸시 알림을 켜면 이 기기가 목록에 추가돼요." : undefined;
+}

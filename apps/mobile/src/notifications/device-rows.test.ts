@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { UserDeviceSummary } from "../api/client";
-import { deviceRowSwitchLabel, deviceRowTitle } from "./device-rows";
+import { deviceListEmptyDescription, deviceRowSwitchLabel, deviceRowTitle } from "./device-rows";
 
 const mobileRoot = process.cwd();
 
@@ -143,7 +143,11 @@ describe("라운드 87 D 기기 행의 구별 문구", () => {
     expect(screen).toContain(
       "accessibilityLabel={deviceRowSwitchLabel(platformLabel(device.platform), device.osVersion, isThisDevice)}"
     );
-    expect(screen).toContain('import { deviceRowSwitchLabel, deviceRowTitle } from "../../src/notifications/device-rows";');
+    // ⚠️ 두 시점(라운드 107): 같은 모듈에서 빈 상태 설명 판정(deviceListEmptyDescription)까지
+    // 들여오면서 이 import 줄이 넓어졌다 — 파생 두 개가 이 모듈에서 온다는 계약은 그대로다.
+    expect(screen).toContain(
+      'import { deviceListEmptyDescription, deviceRowSwitchLabel, deviceRowTitle } from "../../src/notifications/device-rows";'
+    );
     // 라벨을 조립하는 자리는 모듈 하나뿐이다(화면에 두 벌 리터럴을 만들지 않았다).
     expect(screen).not.toContain("} 알림`");
 
@@ -215,5 +219,39 @@ describe("라운드 87 D 기기 행의 구별 문구", () => {
     // 마지막 사용 줄과 마스터 토글 라벨도 종전 그대로.
     expect(screen).toContain("`마지막 사용 ${formatRelativeTime(updatedAtMs, Date.now())}`");
     expect(screen).toContain('accessibilityLabel="푸시 알림"');
+  });
+});
+
+/**
+ * 라운드 107 — **빈 기기 목록이 무엇을 말하는가.**
+ *
+ * 실패 시나리오(오늘의 모든 빌드에서 100% 재현): expo-notifications가 없어
+ * `isPushSupported()`가 false라 푸시 마스터 토글은 영구 비활성이고, 토큰을 얻을 수 없으니
+ * 기기 행도 절대 생기지 않는다 — 즉 이 화면을 여는 모든 사람이 늘 빈 상태를 보는데, 그
+ * 설명이 *"푸시 알림을 켜면 이 기기가 목록에 추가돼요."* 였다. 바로 위 카드가 "지금 앱
+ * 버전에서는 푸시 알림을 받을 수 없어요."라고 말하는 그 스위치를 켜라고 권한 것이다.
+ *
+ * 기대값은 리터럴이다: 켤 수 있는 빌드에서는 종전 문장이 바이트 단위로 같게 서고, 켤 수 없는
+ * 빌드에서는 **문장이 서지 않는다**(EmptyStateCard의 description은 falsy면 노드를 만들지
+ * 않는다 — src/ui.tsx). 새 문장은 0건이다.
+ */
+describe("라운드 107 기기 목록 빈 상태 설명(deviceListEmptyDescription)", () => {
+  it("푸시를 켤 수 있는 빌드에서는 종전 문장을 그대로 세운다", () => {
+    expect(deviceListEmptyDescription(true)).toBe("푸시 알림을 켜면 이 기기가 목록에 추가돼요.");
+  });
+
+  it("푸시를 켤 수 없는 빌드에서는 설명을 세우지 않는다(누를 수 없는 스위치를 권하지 않는다)", () => {
+    expect(deviceListEmptyDescription(false)).toBeUndefined();
+  });
+
+  it("화면이 그 판정을 그대로 꽂고, 문장을 자기 안에 다시 적지 않는다", () => {
+    const screen = readSource("app/settings/notifications.tsx");
+    expect(screen).toContain(
+      '<EmptyStateCard title="푸시 알림을 받는 기기가 없어요" description={deviceListEmptyDescription(pushSupported)} />'
+    );
+    // 화면 코드(주석 제외)에는 그 문장이 더 이상 없다 — 두 벌 정의 금지.
+    expect(stripComments(screen)).not.toContain("푸시 알림을 켜면 이 기기가 목록에 추가돼요.");
+    // 판정의 입력은 이 화면이 이미 들고 있던 값 하나다(새 쿼리·새 상태 0건).
+    expect(screen).toContain("const [pushSupported] = useState(() => isPushSupported());");
   });
 });

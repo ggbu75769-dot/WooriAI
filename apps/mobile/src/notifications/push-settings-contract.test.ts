@@ -129,7 +129,12 @@ describe("PUSH-116 push settings contract", () => {
     "푸시 설정을 바꾸지 못했어요. 알림 권한을 확인한 뒤 다시 시도해 주세요.",
     "앱 안의 알림함(홈 종 아이콘)은 푸시와 별개로 계속 표시돼요. 종류별로 끄려면 위의 앱 알림함에서 바꿀 수 있어요.",
     "<Text style={sectionTitleStyle}>내 기기</Text>",
-    '<EmptyStateCard title="푸시 알림을 받는 기기가 없어요" description="푸시 알림을 켜면 이 기기가 목록에 추가돼요." />',
+    // ⚠️ 두 시점(라운드 107): 빈 목록 카드의 **설명이 값에서 온다**. 종전에는 이 자리에 문장이
+    // 조건 없이 박혀 있었고("푸시 알림을 켜면 이 기기가 목록에 추가돼요."), 푸시를 켤 수 없는
+    // 오늘의 빌드에서 그것은 누를 수 없는 스위치를 켜라는 지시였다. 문장 자체는 사라지지
+    // 않았고(켤 수 있는 빌드에서는 바이트 단위로 같다) 판정과 함께 src/notifications/
+    // device-rows.ts로 옮겨 갔다 — 값 검증은 device-rows.test.ts.
+    '<EmptyStateCard title="푸시 알림을 받는 기기가 없어요" description={deviceListEmptyDescription(pushSupported)} />',
     ": `마지막 사용 ${formatRelativeTime(updatedAtMs, Date.now())}`;",
     '{isThisDevice ? <StatusBadge label="이 기기" tone="success" /> : null}'
   ];
