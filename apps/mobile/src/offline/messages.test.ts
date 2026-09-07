@@ -21,7 +21,9 @@ import {
   CONFLICT_BANNER_MESSAGE,
   failedRowDeletedChildNotice,
   FAILED_ROW_OTHER_CHILD_NOTICE,
+  syncStatusActionFailedMessage,
   SYNC_STATUS_DISCARD_LABEL,
+  SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE,
   FAILED_ROW_PREFILL_CHILD_MISMATCH_NOTICE,
   FAILED_ROW_PREFILL_DATE_RESET_NOTICE,
   SYNC_STATUS_FIX_AND_RESEND_LABEL,
@@ -266,12 +268,14 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     for (const path of Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)) {
       expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS, `${path}는 목록 안의 화면이다`).toContain(path);
     }
-    // 오늘의 일곱(라운드 73 E가 초대 화면을, 74 D가 검수·개인정보 둘을, 86 B가 온보딩 준비물
-    // 단계를 더했다). 늘어나면 이 줄이 먼저 빨개지고, 늘린 라운드가 이유를 함께 적게 된다.
+    // 오늘의 여덟(라운드 73 E가 초대 화면을, 74 D가 검수·개인정보 둘을, 86 B가 온보딩 준비물
+    // 단계를, 103 리뷰 M-3이 지출 분류 관리를 더했다). 늘어나면 이 줄이 먼저 빨개지고, 늘린
+    // 라운드가 이유를 함께 적게 된다.
     expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS).sort()).toEqual([
       "app/(onboarding)/prepared-items.tsx",
       "app/family/accept/[token].tsx",
       "app/import/[importJobId].tsx",
+      "app/settings/categories.tsx",
       "app/settings/children.tsx",
       "app/settings/index.tsx",
       "app/settings/notifications.tsx",
@@ -765,6 +769,60 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     });
   });
 
+  /**
+   * 라운드 103 리뷰 M-3 — **지출 분류 관리의 조회 실패 배선.**
+   *
+   * 이 화면은 라운드 73 L-2가 예고한 사각을 실제로 지나간 첫 항목이다: 저장 쪽 목록에는 라운드
+   * 103 T3에 등재됐는데, 조회 쪽은 **공용 훅도 부르지 않고 옛 리터럴도 쓰지 않아** 사용 집합과
+   * 배선 목록이 **양쪽 다 이 화면을 모른 채** 일치했다. 그 사이에 조회 실패·조회 중 갈래 자체가
+   * 없었고, 그래서 비행기 모드에서 분류가 열다섯 있어도 화면은 "아직 직접 추가한 분류가 없어요."
+   * 하나만 그렸다(재시도도, 오프라인 인지 문장도 없이).
+   *
+   * 그러므로 이 계약이 무는 것은 **문구만이 아니다**: 얼굴 셋(스켈레톤 · LoadErrorCard · 빈 상태
+   * 문장)이 서로 다른 창에 서고, 그 판정이 화면이 아니라 순수 모듈에서 온다는 사실까지 함께 문다.
+   * 문구 자체는 여기서 다시 적지 않는다 — 공용 상수에서 파생해 비교하므로 그 문장이 다듬어지면
+   * 화면과 이 계약이 함께 따라간다.
+   */
+  describe("라운드 103 리뷰 M-3: 지출 분류 관리 조회 실패·조회 중 배선", () => {
+    it("조회 실패의 얼굴이 LoadErrorCard 한 벌이고, 문구·라벨·재조회가 같은 단일 소스에서 온다", () => {
+      const src = source("app/settings/categories.tsx");
+      expect(src).toContain('from "../../src/offline/use-load-error-copy"');
+      expect(src).toContain("const loadErrorCopy = useLoadErrorCopy(categories.isError);");
+      // 조회 자리는 목록 하나뿐이라 훅도 한 번이다(고정 호출 — hooks 규칙에도 안전하다).
+      expect(src.match(/useLoadErrorCopy\(/g) ?? [], "조회 자리당 한 번").toHaveLength(1);
+      expect(src).toContain("message={loadErrorCopy.title}");
+      expect(src).toContain("retryLabel={loadErrorCopy.actionLabel}");
+      // 재시도는 자기 조회를 다시 부른다 — 엉뚱한 쿼리로 가면 카드가 영영 걷히지 않는다.
+      expect(src).toContain("onRetry={() => categories.refetch()}");
+      // 온라인 갈래는 다른 열다섯과 바이트 단위로 같다(화면이 문장을 짓지 않는다).
+      expect(LOAD_ERROR_NOTICE).toBe("불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+      expect(LOAD_ERROR_RETRY_LABEL).toBe("다시 시도");
+      // 이 화면이 실패 문장을 손으로 적는 자리는 0건이다(주석 인용은 걷어 내고 본다).
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+      expect(code).not.toContain("불러오지 못했어요");
+      expect(code).not.toContain("오프라인이에요");
+    });
+
+    it("조회 중은 스켈레톤이고, '없어요'는 아는 창에서만 선다 (판정은 순수 모듈이 갖는다)", () => {
+      const src = source("app/settings/categories.tsx");
+      // 판정은 화면이 짓지 않는다 — 다섯 갈래를 접는 순수 함수 하나가 답한다.
+      expect(src).toContain("const listPhase = customCategoryListPhase({");
+      expect(src).toContain('const populationKnown = listPhase === "ready";');
+      // 로딩 자리는 텍스트 카드가 아니라 실루엣이다(형제 화면 SET-005의 그 프리셋 그대로).
+      expect(src).toContain('{listPhase === "loading" ? (');
+      expect(src).toContain("<SkeletonCard />");
+      expect(src).toContain('{listPhase === "error" ? (');
+      // 빈 상태 문장은 `ready` 창에서만 선다 — 모르는 창에서 "없어요"는 거짓이다.
+      expect(src).toContain(") : populationKnown ? (");
+      expect(src).toContain("{mine.total === 0 ? copy.emptyStateText : copy.inUseEmptyText}");
+      // 그리고 그 같은 축이 [분류 추가]를 잠근다(빈 모집단 위에서 중복·상한이 통과하던 자리).
+      expect(src).toContain("!populationKnown || draftNotice !== null");
+      // 이 화면은 조회 실패에 낭독을 얹지 않는다 — announce 셋은 저장 실패의 것이고, 조회 대장은
+      // 이 저장소가 아직 열지 않은 축이다(a11y-contract의 LOAD_ERROR_ANNOUNCE_OUT_OF_SCOPE_REASON).
+      expect(src.match(/announceForA11y\(/g) ?? [], "낭독은 저장 실패 셋뿐").toHaveLength(3);
+    });
+  });
+
   it("probes connectivity once per error, from the existing isCurrentlyOnline helper", () => {
     const hookSource = source("src/offline/use-load-error-copy.ts");
     expect(hookSource).toContain('from "./connectivity"');
@@ -943,7 +1001,12 @@ describe("UX/C-07 저장 실패 문구", () => {
     expect(wired.sort()).toEqual([...OFFLINE_AWARE_SAVE_ERROR_SCREENS].sort());
     // 오늘의 값: 라운드 72까지 둘 → 라운드 73 트랙 E 뒤 넷 → 라운드 76 트랙 A 뒤 **다섯**
     // (초대 만들기 — 가족 참여 여정의 첫 단추).
-    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(5);
+    // ⚠️ 두 시점(라운드 103 T3): 다섯 → **여섯**. 이 단언의 머리말이 미리 적어 둔 그대로다
+    // ("넷째 화면이 생기면 이 단언이 먼저 빨개지고, 만든 사람이 그 화면의 저장 실패는 무엇을
+    // 말해야 하는가에 답한 뒤 목록에 한 줄을 적게 된다") — 지출 분류 관리
+    // (app/settings/categories.tsx)가 서버 직행 저장 셋을 들고 들어왔고, 그 답은 목록의 그
+    // 줄에 값으로 적혀 있다.
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(6);
   });
 
   /**
@@ -1230,7 +1293,7 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
       expect(entry.reason.trim().length, `${path}의 사유가 값으로 남아 있다`).toBeGreaterThan(30);
       expect(entry.count, `${path}의 기대 출현 수`).toBeGreaterThan(0);
     }
-    // 배선된 화면 열다섯 중 이 표에 이름이 있는 것은 둘뿐이다 — 나머지 열셋은 **0건**이고,
+    // 배선된 화면 열여섯 중 이 표에 이름이 있는 것은 둘뿐이다 — 나머지 열넷은 **0건**이고,
     // 그중 하나라도 리터럴을 손으로 되쓰면 위 `toEqual`이 먼저 빨개진다.
     const wiredWithLiteral = OFFLINE_AWARE_LOAD_ERROR_SCREENS.filter((path) =>
       Object.hasOwn(LOAD_PHRASE_EXPECTED_OCCURRENCES, path)
@@ -1260,15 +1323,21 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
    * "P3 0개"를 선언했으므로, 이번 라운드가 만든 값도 여기 남긴다 — 다음 라운드가 문서의 산문이
    * 아니라 이 줄과 대조하게 된다.
    */
-  it("ⓑ 조회 목록 열다섯 · 카드가 아닌 자리 일곱(다섯 이상) · 저장 목록 다섯", () => {
+  it("ⓑ 조회 목록 열여섯 · 카드가 아닌 자리 여덟(다섯 이상) · 저장 목록 여섯", () => {
     // 라운드 86 트랙 B: 열넷 → **열다섯**이고, 늘어난 하나가 조회 쪽 제외 목록의 마지막
     // 항목이었다(제외는 0건이 됐다 — 위 그 단언이 같은 사실을 다른 방향에서 센다).
-    expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toHaveLength(15);
+    // ⚠️ 두 시점(라운드 103 리뷰 M-3): 열다섯 → **열여섯**. 늘어난 하나는 제외 목록에서 옮겨 온
+    // 것이 아니다 — 지출 분류 관리는 **두 목록 어디에도 없던 화면**이었고(훅도 옛 리터럴도 없어
+    // 사용 집합과 목록이 양쪽 다 이 화면을 모른 채 일치했다 — 라운드 73 L-2가 예고한 그 사각),
+    // 그 사이에 조회 실패·조회 중 갈래 자체가 없었다. 제외 목록은 이번에도 0건 그대로다.
+    expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toHaveLength(16);
     expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS).length).toBeGreaterThanOrEqual(5);
-    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)).toHaveLength(7);
+    expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)).toHaveLength(8);
     // 라운드 76 트랙 A: 저장 목록만 넷 → 다섯이다. **조회 쪽 값 셋은 한 글자도 바뀌지 않는다**
     // (두 라운드가 서로 다른 축을 열었다는 사실이 이 줄에 값으로 남는다).
-    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(5);
+    // ⚠️ 두 시점(라운드 103 T3): 다섯 → **여섯**(지출 분류 관리 — 서버 직행 저장 셋). 이번에도
+    // 움직인 것은 저장 쪽 하나뿐이고 조회 쪽 값 셋은 한 글자도 바뀌지 않는다.
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(6);
     // 이번 라운드가 더한 셋이 실제로 목록 안에 있다(스윕이 통과한 이유가 목록이지 예외가 아니다).
     for (const path of [
       "app/expenses/[expenseId].tsx",
@@ -1931,5 +2000,35 @@ describe("라운드 99 L-1 삭제된 아이의 실패 행 — 지킬 수 없는 
     // 문구를 화면이 다시 적지 않는다(주석은 설명해도 된다 — 코드만 본다).
     const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
     expect(codeOnly).not.toContain("프로필은 삭제됐어요");
+  });
+});
+
+/**
+ * 라운드 104 B-5 — **복구 버튼이 실패했을 때의 한 줄.**
+ *
+ * 종전에는 동기화 상태 화면에 `catch`가 0개라 거절이 화면 어디에도 뜨지 않았다(근거 전문은
+ * messages.ts의 `syncStatusActionFailedMessage` 머리말). 문장은 라운드 62 #2가 대기 행 버리기
+ * 거절에 세운 형제 문장과 같은 규율을 진다 — 원인을 단정하지 않고, 다음에 할 일을 말한다.
+ */
+describe("라운드 104 B-5 복구 동작 실패 한 줄", () => {
+  it("원인을 단정하지 않고 다음에 할 일 둘(다시 누르기 · 앱 재시작)을 말한다", () => {
+    expect(syncStatusActionFailedMessage()).toBe("방금 누른 것을 처리하지 못했어요. 잠시 뒤 다시 누르거나 앱을 다시 켜 주세요.");
+    // 화면이 아는 것은 "거절됐다" 하나다 — 저장소를 원인으로 단정하지 않는다.
+    expect(syncStatusActionFailedMessage()).not.toContain("저장소");
+    // 막다른 문장이 아니다: 남은 행동 둘이 문장 안에 있다.
+    expect(syncStatusActionFailedMessage()).toContain("다시 누르");
+    expect(syncStatusActionFailedMessage()).toContain("앱을 다시 켜");
+    // 해요체 · 책망 없음(DNC-018).
+    expect(syncStatusActionFailedMessage().endsWith("주세요.")).toBe(true);
+    for (const blame of ["잘못", "실수", "확인하지"]) {
+      expect(syncStatusActionFailedMessage()).not.toContain(blame);
+    }
+  });
+
+  it("형제 문장(대기 행 버리기 거절)과 갈린다 — 두 거절의 사유가 다르기 때문이다", () => {
+    // 라운드 62 #2의 문장은 "지금 보내는 중"이라는 **아는 사유**를 말한다. 이쪽은 사유를 모른다.
+    expect(syncStatusActionFailedMessage()).not.toBe(SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE);
+    expect(SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE).toContain("보내는 중");
+    expect(syncStatusActionFailedMessage()).not.toContain("보내는 중");
   });
 });

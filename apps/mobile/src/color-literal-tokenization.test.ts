@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { semanticColors } from "./design-system/tokens/color";
@@ -50,6 +50,16 @@ import { theme } from "./theme";
  *    값(파일:리터럴)은 한 글자도 바뀌지 않았다 — 위 문단의 "바늘은 파일:값, 줄은 오늘의
  *    길잡이"가 정확히 이 상황을 위한 문장이고, 길잡이는 낡으면 고친다.
  *  · app/launch-animation.tsx — a11y-contract가 소스 리터럴을 단언하는 무접촉 계약(치환 대상 아님)
+ *
+ * ⚠️ 두 시점(라운드 104 TK4) — 위 잔여 목록은 **4차가 비웠다**. index.tsx의 두 자리는 같은 값의
+ * 토큰으로 옮겼고(hairlineStrong 재사용 · heroOverlayFaint 신설), launch-animation은 오늘 다시
+ * 재니 **코드 색 리터럴이 0건**이다: 그 화면의 크림 프레임은 이미 presentation.splashStageSurface를
+ * 이름으로 부르고 있고, a11y-contract가 그 파일에서 무는 것은 리듀스모션·건너뛰기 문자열이지 색
+ * 리터럴이 아니다(3차까지의 "무접촉 계약" 표기는 그 시점의 기록이고, 오늘의 실측은 다르다).
+ * 4차 뒤 앱 소스(app/ · src/, 테스트 제외)의 색 리터럴 전수 실측은 **토큰 대장 셋뿐**이다 —
+ * src/theme.ts(79) · src/design-system/tokens/color.ts(37) · src/design-system/tokens/elevation.ts(2).
+ * 셋 다 이름이 가리키는 값 자신이라 더 위로 끌어올릴 곳이 없다. 그 사실은 아래 "TK4 스윕"이
+ * 매 실행 다시 재므로, 다음 차수는 잔여를 손으로 세지 않는다.
  */
 const mobileRoot = process.cwd();
 
@@ -376,5 +386,121 @@ describe("라운드 102 TK3 — 치환 자리의 소스 계약(3차)", () => {
     const src = readSource("src/design-system/components/ModV1Primitives.tsx");
     expect(src).toContain("backgroundColor: semanticColors.progressTrackInverse,");
     expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(255,255,255,0.32)"');
+  });
+});
+
+/**
+ * 라운드 104 TK4 — 4차(3차 잔여 회수)의 대조표. theme 신규 키는 heroOverlayFaint 하나다:
+ * 흰 18% — 홈 히어로 안 예산 넛지 행(homeHeroStyle.nudge)의 배경에 박혀 있던 종전 리터럴이다.
+ * rgba 공백 표기는 종전 그대로다(0.45·0.28은 공백 없음 · 0.18은 공백 있음 — 정규화하지 않는다).
+ */
+const tk4NewTokenFormerLiterals: ReadonlyArray<[keyof typeof theme.colors.presentation, string]> = [
+  ["heroOverlayFaint", "rgba(255, 255, 255, 0.18)"]
+];
+
+/**
+ * 4차의 나머지 한 자리는 **1차가 만든 hairlineStrong의 재사용**이다 — 홈 예산 넛지 화살표 버튼
+ * (homeBudgetNudgeArrowStyle)의 외곽선. 종전 리터럴이 그 토큰의 값과 바이트 단위로 같다.
+ */
+const tk4ReusedTokenFormerLiterals: ReadonlyArray<[keyof typeof theme.colors.presentation, string]> = [
+  ["hairlineStrong", "rgba(74, 63, 53, 0.10)"]
+];
+
+describe("라운드 104 TK4 — 토큰 값 = 종전 리터럴 값(두 시점 대조 · 4차)", () => {
+  it("신규 heroOverlayFaint 토큰의 값이 종전 리터럴과 바이트 단위로 같다", () => {
+    for (const [token, formerLiteral] of tk4NewTokenFormerLiterals) {
+      expect(theme.colors.presentation[token], `presentation.${token}`).toBe(formerLiteral);
+    }
+  });
+
+  it("1차 토큰을 재사용한 자리의 종전 리터럴도 그 토큰의 값 그대로다", () => {
+    for (const [token, formerLiteral] of tk4ReusedTokenFormerLiterals) {
+      expect(theme.colors.presentation[token], `presentation.${token}`).toBe(formerLiteral);
+    }
+  });
+});
+
+/**
+ * 4차 치환 자리의 파일별 계약 — 1~3차와 같은 문법: 토큰 참조의 실재와 종전 리터럴의 부재
+ * (따옴표째). 홈 픽셀락(ui-pixel-lock-flow)이 이 파일에서 무는 것은 스타일 **이름**
+ * (homeBudgetNudgeArrowStyle)이지 색 값이 아니므로 값 불변인 이 이관에 걸리지 않는다.
+ */
+describe("라운드 104 TK4 — 치환 자리의 소스 계약(4차)", () => {
+  it("app/(tabs)/index.tsx: 예산 넛지 화살표 버튼 외곽선(0.10 변종) + 히어로 넛지 행 배경(흰 18%)", () => {
+    const src = readSource("app/(tabs)/index.tsx");
+    expect(src).toContain("borderColor: theme.colors.presentation.hairlineStrong,");
+    expect(src).toContain("backgroundColor: theme.colors.presentation.heroOverlayFaint,");
+    for (const gone of ['"rgba(74, 63, 53,', '"rgba(255, 255, 255, 0.18)"']) {
+      expect(src, `종전 리터럴이 남아 있다: ${gone}`).not.toContain(gone);
+    }
+  });
+});
+
+/**
+ * 라운드 104 TK4 스윕 — **잔여를 손으로 세지 않기 위한 자리**. 1~3차는 매번 산문으로 "다음 차수
+ * 몫" 목록을 적었고 그 목록은 매번 낡았다(리뷰 L-TK1이 셋을 더 찾았고, L-10이 줄 번호를 고쳤다).
+ * 여기서는 목록 대신 **오늘 다시 재는 규칙**을 둔다: 앱 소스(app/ · src/, 테스트 제외)에서
+ * 따옴표째의 색 리터럴을 가진 파일 집합은 아래 토큰 대장 셋과 **정확히 같아야 한다**.
+ *
+ * 주석은 제외하고 센다 — 두 시점 기록이 종전 리터럴을 산문으로 인용하는 것은 코드가 아니다
+ * (1차가 세운 "따옴표째로 본다" 관례의 연장이고, 주석 안 인용은 따옴표를 떼는 것이 이 저장소의
+ * 표기다). 대장 셋이 남는 이유는 그 파일들이 이름이 가리키는 **값 자신**이라서다: 더 위로
+ * 끌어올릴 곳이 없다(elevation.ts의 그림자 잉크 두 줄은 그 파일 머리주석이 이유를 적는다).
+ */
+const tokenLedgerFiles = [
+  "src/theme.ts",
+  "src/design-system/tokens/color.ts",
+  "src/design-system/tokens/elevation.ts"
+] as const;
+
+function listAppSourceFiles(): string[] {
+  const found: string[] = [];
+  const walk = (relativeDir: string): void => {
+    for (const entry of readdirSync(join(mobileRoot, relativeDir), { withFileTypes: true })) {
+      const relativePath = `${relativeDir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name !== "node_modules") {
+          walk(relativePath);
+        }
+        continue;
+      }
+      if (!/\.tsx?$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) {
+        continue;
+      }
+      found.push(relativePath);
+    }
+  };
+  walk("app");
+  walk("src");
+  return found.sort();
+}
+
+/** 주석(블록·줄)을 지운 코드만 남긴다. 줄 주석은 `://`(URL)을 건드리지 않도록 앞 글자를 본다. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(?<!:)\/\/[^\n]*/g, "");
+}
+
+/** 따옴표째의 색 리터럴 — `#rgb`~`#rrggbbaa` · `rgb(...)` · `rgba(...)`. */
+const quotedColorLiteralSource = '"(?:#[0-9a-fA-F]{3,8}|rgba?\\([^"\\n]*\\))"';
+
+function countColorLiterals(relativePath: string): number {
+  const code = stripComments(readFileSync(join(mobileRoot, relativePath), "utf8"));
+  return (code.match(new RegExp(quotedColorLiteralSource, "g")) ?? []).length;
+}
+
+describe("라운드 104 TK4 — 앱 소스 색 리터럴 전수 스윕(잔여는 토큰 대장뿐)", () => {
+  it("app/ · src/의 색 리터럴 보유 파일이 토큰 대장 셋과 정확히 같다", () => {
+    const withLiterals = listAppSourceFiles().filter((relativePath) => countColorLiterals(relativePath) > 0);
+    expect(withLiterals, "색 리터럴이 남은 파일 집합").toEqual([...tokenLedgerFiles].sort());
+  });
+
+  it("대장 셋의 자리 수를 값으로 적어 둔다(오늘 다시 잰다)", () => {
+    const counts = Object.fromEntries(tokenLedgerFiles.map((relativePath) => [relativePath, countColorLiterals(relativePath)]));
+    // 라운드 104 TK4 실측. theme.ts 79 = 종전 78 + heroOverlayFaint 1(4차 신설).
+    expect(counts).toEqual({
+      "src/theme.ts": 79,
+      "src/design-system/tokens/color.ts": 37,
+      "src/design-system/tokens/elevation.ts": 2
+    });
   });
 });

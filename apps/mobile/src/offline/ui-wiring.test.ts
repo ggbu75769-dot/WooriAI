@@ -72,6 +72,84 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
     expect(rootLayoutSource).toContain("<OfflineSyncLifecycle");
   });
 
+  /**
+   * 라운드 104 B-5 — **복구 버튼이 실패를 삼키지 않는다.**
+   *
+   * 종전에는 이 화면(921줄)에 `catch`가 **0개**였다. 막힌 기록을 푸는 유일한 화면인데 복구 동작
+   * 열넷이 전부 fire-and-forget이었고, 그 함수들은 하나같이 `await getOfflineStore()`로 시작하므로
+   * 부팅 뒤 저장소가 죽으면(디스크 가득 참, SQLite I/O 오류) 호출은 조용히 reject하고 목록은 그대로
+   * 남았다 — 사용자는 눌러도 아무 일이 없는 버튼을 다시 눌렀다.
+   *
+   * 화면은 vitest에서 렌더할 수 없으므로(위 describe 머리말의 오래된 사정) 이 계약도 소스 대조다.
+   * 무는 것은 **자리 전수**다: 복구 호출 이름 하나하나를 코드에서 찾아, 그 자리가 실패 표면
+   * (`…run(() => …)`)이나 `.catch(`를 지나는지 본다. 새 복구 버튼이 붙으면 자동으로 이 질문을 받는다.
+   */
+  const RECOVERY_CALLS = [
+    "resolveConflictKeepServer",
+    "resolveConflictKeepMine",
+    "resolveConflictKeepChosenFields",
+    "retryOfflineMutation",
+    "discardOfflineMutation",
+    "retryOfflineItemStatus",
+    "discardOfflineItemStatus",
+    "retryAllOfflineMutations",
+    "discardAllOfflineMutations",
+    "discardPendingOfflineMutation"
+  ] as const;
+
+  /** 잡으려는 것은 코드의 호출이지 주석의 인용이 아니다(이 저장소의 다른 스윕과 같은 관례). */
+  const codeOnly = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+
+  it("라운드 104 B-5: 동기화 상태 화면의 복구 호출 전수가 실패를 붙잡는다 (종전에는 파일 전체 catch가 0개였다)", () => {
+    const code = codeOnly(source("app/sync-status.tsx"));
+    // 유령 방지: 그물이 실제로 이 화면을 훑고 있고, 이 화면에 `catch`가 실재한다.
+    expect(code).toContain(".catch(");
+
+    const unguarded: string[] = [];
+    let sites = 0;
+    for (const name of RECOVERY_CALLS) {
+      const pattern = new RegExp(`\\b${name}\\(`, "g");
+      let called: RegExpExecArray | null;
+      let seen = 0;
+      while ((called = pattern.exec(code))) {
+        seen += 1;
+        sites += 1;
+        const before = code.slice(Math.max(0, called.index - 40), called.index);
+        const after = code.slice(called.index, called.index + 260);
+        // 출구 둘: 실패 표면 러너(`…run(() => …)` — 행의 `rowAction.run`, 섹션의 `runBulkAction`)
+        // 를 지나거나, 그 자리에서 직접 `.catch(`로 거절을 붙잡거나.
+        const wrappedByRunner = /\brun[A-Za-z]*\(\(\)\s*=>\s*$/.test(before);
+        if (!wrappedByRunner && !after.includes(".catch(")) unguarded.push(`${name}@${called.index}`);
+      }
+      expect(seen, `${name}의 호출부가 이 화면에 실재한다`).toBeGreaterThan(0);
+    }
+    // 정찰이 센 열넷을 하한으로 둔다(오늘 실측은 그보다 많다 — 갈래마다 버리기가 따로 선다).
+    expect(sites, "이 화면의 복구 호출 자리").toBeGreaterThanOrEqual(14);
+    expect(unguarded, "거절을 삼키는 복구 호출").toEqual([]);
+
+    // 그리고 그 실패가 사용자에게 **보인다** — 행/섹션 안의 한 줄로.
+    expect(code).toContain("syncStatusActionFailedMessage()");
+    expect(code).toContain("<RecoveryActionFailureLine visible=");
+  });
+
+  it("라운드 104 B-5: 저장소 미가용 고지가 빈 목록 밖에서도 선다 (행이 남아 있으면 종전에는 절대 뜨지 않았다)", () => {
+    const code = codeOnly(source("app/sync-status.tsx"));
+    // 종전에는 이 상수가 `ListEmptyComponent` 한 자리에만 있었다. 그런데 저장소 미가용 스냅숏은
+    // 행과 건수를 **일부러 그대로 둔다**(sync-controller.ts) — 즉 목록이 비지 않아 고지가 뜰 수
+    // 없었다. 이제 머리말에도 같은 문장이 선다.
+    const noticeSites = code.match(/OFFLINE_STORAGE_UNAVAILABLE_NOTICE/g) ?? [];
+    // import 한 줄 + 머리말 + 빈 목록 카드.
+    expect(noticeSites.length).toBeGreaterThanOrEqual(3);
+    const headerAt = code.indexOf("const listHeader");
+    const emptyAt = code.indexOf("const listEmpty");
+    expect(headerAt, "머리말 블록").toBeGreaterThan(-1);
+    expect(emptyAt, "빈 목록 블록").toBeGreaterThan(-1);
+    expect(headerAt).toBeLessThan(emptyAt);
+    const header = code.slice(headerAt, emptyAt);
+    expect(header).toContain('snapshot.storage === "unavailable"');
+    expect(header).toContain("OFFLINE_STORAGE_UNAVAILABLE_NOTICE");
+  });
+
   it("mobile package.json declares the SDK-52-pinned expo-sqlite and expo-network dependencies", () => {
     const packageJson = JSON.parse(source("package.json"));
     expect(packageJson.dependencies["expo-sqlite"]).toBe("~15.1.4");

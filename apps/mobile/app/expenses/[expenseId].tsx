@@ -506,7 +506,14 @@ export default function ExpenseDetailScreen() {
   // "기타" on the row twice and offered the internal "가져오기 기본". The filter is display-only
   // (server response and every other screen are untouched) and always keeps this expense's
   // current categoryId, so the preselection above never loses its chip.
-  const fetchedCategories = selectableCategories(categories.data?.categories ?? [], categoryId);
+  //
+  // 라운드 103 리뷰 M-2: 세 번째 인자는 **이 지출이 속한 아이의 가구**(위 `householdId` —
+  // 구성원 목록을 물어보는 그 값 그대로다). 두 가구에 속한 계정에서 `GET /categories`는 합집합을
+  // 내려주는데(서버 §1.3) 저장 검증은 이 지출의 가구 하나로 좁히므로, 그 값을 넘기지 않으면
+  // 다른 가구의 커스텀 분류가 칩으로 서고 탭해서 저장하면 400
+  // EXPENSE_CATEGORY_INVALID("존재하지 않는 카테고리예요")가 났다 — 화면에는 왜 안 되는지 말할
+  // 근거가 없었다. 조회가 끝나기 전에는 null이라 종전 그대로다(그 함수의 "모르면 추측하지 않는다").
+  const fetchedCategories = selectableCategories(categories.data?.categories ?? [], categoryId, householdId);
   const baseCategoryChips =
     fetchedCategories.length > 0
       ? fetchedCategories.map((category) => ({ id: category.id, label: category.name }))
@@ -775,13 +782,24 @@ export default function ExpenseDetailScreen() {
       // M-1: 저장이 확정된 순간 고지의 전제("저장하면 …")가 소진된다 — 함께 눕힌다.
       setRemoteChangeNotice(false);
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
-      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      await queryClient.invalidateQueries({ queryKey: ["expense", expenseId] });
-      // GAP-062 #1: 금액·분류·날짜가 달라지면 리포트 집계와 예산 사용액도 달라진다. 근거 전문은
-      // app/expenses/new.tsx의 같은 두 줄 위에 있다(리포트 탭은 언마운트되지 않아 옛 숫자가 그대로
-      // 남는다 · 비활성 쿼리 무효화는 요청 0건 · 클라이언트 재집계 금지).
-      await queryClient.invalidateQueries({ queryKey: ["report"] });
-      await queryClient.invalidateQueries({ queryKey: ["budget"] });
+      /**
+       * 라운드 104 SAVE(F1) — **무효화가 저장 확정을 막지 않는다.** 근거 전문은
+       * app/expenses/new.tsx의 같은 자리(저장 성공 핸들러)에 있다: react-query는 onSuccess를
+       * await하므로 무효화를 여기서 기다리면 그동안 뮤테이션이 pending으로 남고, 화면은 이미
+       * "기기에 저장했어요"를 말한 뒤인데 저장 버튼만 잠긴 채 서 있었다. 무효화 네 줄은 그대로
+       * 두고(무엇을 왜 비우는지는 아래 각 줄의 근거가 진다) 대기만 확정 경로 밖으로 옮긴다.
+       */
+      void (async () => {
+        await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+        await queryClient.invalidateQueries({ queryKey: ["expense", expenseId] });
+        // GAP-062 #1: 금액·분류·날짜가 달라지면 리포트 집계와 예산 사용액도 달라진다. 근거 전문은
+        // app/expenses/new.tsx의 같은 두 줄 위에 있다(리포트 탭은 언마운트되지 않아 옛 숫자가 그대로
+        // 남는다 · 비활성 쿼리 무효화는 요청 0건 · 클라이언트 재집계 금지).
+        await queryClient.invalidateQueries({ queryKey: ["report"] });
+        await queryClient.invalidateQueries({ queryKey: ["budget"] });
+      })().catch(() => {
+        // 무시한다(위 주석). 남는 것은 낡은 캐시뿐이고, 다음 마운트·포커스 리페치가 덮는다.
+      });
       // GAP-056 #6: 타이머를 ref에 담아 언마운트 때 취소한다(위 leaveTimerRef 주석).
       if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
       leaveTimerRef.current = setTimeout(leaveAfterMutation, 650);
@@ -800,12 +818,21 @@ export default function ExpenseDetailScreen() {
     },
     onSuccess: async () => {
       setSavedMessage(OFFLINE_SAVED_MESSAGE);
-      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      // GAP-062 #1: 지운 금액만큼 리포트 집계와 예산 사용액이 줄어든다 — 근거 전문은
-      // app/expenses/new.tsx의 같은 두 줄 위. 홈·기록 탭은 대기 중인 삭제를 재조정으로 이미
-      // 반영하지만(src/offline/expense-list-reconciliation.ts) 리포트는 서버 집계를 그대로 읽는다.
-      await queryClient.invalidateQueries({ queryKey: ["report"] });
-      await queryClient.invalidateQueries({ queryKey: ["budget"] });
+      /**
+       * 라운드 104 SAVE(F1) — 수정 저장과 같은 처리다(그 위 주석이 근거 전문의 자리를 적어
+       * 두었다). 삭제는 확인 Alert에서 이어지는 흐름이라 화면이 굳는 동안 사용자가 볼 수 있는
+       * 것이 더 적다 — 무효화 세 줄은 그대로 두고 대기만 확정 경로 밖으로 옮긴다.
+       */
+      void (async () => {
+        await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+        // GAP-062 #1: 지운 금액만큼 리포트 집계와 예산 사용액이 줄어든다 — 근거 전문은
+        // app/expenses/new.tsx의 같은 두 줄 위. 홈·기록 탭은 대기 중인 삭제를 재조정으로 이미
+        // 반영하지만(src/offline/expense-list-reconciliation.ts) 리포트는 서버 집계를 그대로 읽는다.
+        await queryClient.invalidateQueries({ queryKey: ["report"] });
+        await queryClient.invalidateQueries({ queryKey: ["budget"] });
+      })().catch(() => {
+        // 무시한다(위 주석). 남는 것은 낡은 캐시뿐이고, 다음 마운트·포커스 리페치가 덮는다.
+      });
       // GAP-056 #6: 타이머를 ref에 담아 언마운트 때 취소한다(위 leaveTimerRef 주석).
       if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
       leaveTimerRef.current = setTimeout(leaveAfterMutation, 650);

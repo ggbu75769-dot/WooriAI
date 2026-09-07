@@ -157,7 +157,10 @@ describe("EXP-003 edit screen category/date wiring", () => {
 
   it("routes the fetched category list through selectableCategories with the current selection (R20-B)", () => {
     expect(detailSource).toContain('selectableCategories } from "../../src/categories";');
-    expect(detailSource).toContain("selectableCategories(categories.data?.categories ?? [], categoryId)");
+    // ⚠️ 두 시점(라운드 103 리뷰 M-2): 종전 핀은 인자 둘짜리였다. 세 번째 인자는 이 화면이 이미
+    // 구해 둔 `householdId`(이 지출이 속한 아이의 가구)이고, 그것이 없으면 다른 가구의 커스텀
+    // 분류가 칩으로 서서 저장할 때만 400이 났다. 지키려는 사실(목록이 그 함수를 지난다)은 그대로다.
+    expect(detailSource).toContain("selectableCategories(categories.data?.categories ?? [], categoryId, householdId)");
   });
 
   it("preselects the expense's current category and sends the chosen categoryId + spentOn through the offline outbox update", () => {

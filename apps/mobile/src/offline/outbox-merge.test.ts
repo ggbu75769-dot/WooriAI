@@ -186,3 +186,131 @@ describe("라운드 57 QA(P2-4) 병합 행의 실패 흔적 초기화", () => {
     expect(merged[0]).toEqual(inFlight);
   });
 });
+
+/**
+ * 라운드 104 B-1 — **접힌 수정의 멱등키.**
+ *
+ * 여기서 무는 것은 병합 규칙 한 줄이고, 그 규칙이 실제 사슬에서 무엇을 막는지는 값으로
+ * 도는 통합 테스트가 따로 문다(folded-update-idempotency.test.ts — "첫 수정 커밋 후 응답
+ * 유실 → 재수정 → 중복이 생기지 않는다").
+ *
+ * 종전에는 update+update 접기가 `{ ...pendingUpdate, payload: … }`라 **기존 행의 키가
+ * 살아남았다** → 이제 접은 결과 본문이 달라지면 새 키(incoming의 것)로 나간다. 근거 전문은
+ * outbox-merge.ts의 `foldedUpdateIdempotencyKey` 머리말에 있다.
+ */
+describe("라운드 104 B-1 접힌 update의 멱등키", () => {
+  it("본문이 달라지면 새 키로 나간다 — 같은 키는 '같은 요청의 재전송'이라는 뜻이기 때문이다", () => {
+    const pending = mutation({
+      mutationId: "mut-update-1",
+      idempotencyKey: "idem-첫번째",
+      operation: "update",
+      expectedVersion: 3,
+      payload: { ...basePayload, amountKrw: 11_000 }
+    });
+    const second = mutation({
+      mutationId: "mut-update-2",
+      idempotencyKey: "idem-두번째",
+      operation: "update",
+      expectedVersion: 3,
+      payload: { ...basePayload, amountKrw: 12_000 }
+    });
+
+    const [merged] = mergeOutboxMutation([pending], second);
+
+    // 새 키는 **만들지 않는다** — incoming 행이 이미 들고 온 값을 쓴다(이 모듈은 순수 함수다).
+    expect(merged.idempotencyKey).toBe("idem-두번째");
+    // 큐에서의 자리(순서)는 종전 그대로다 — 바뀐 것은 키 하나다.
+    expect(merged.mutationId).toBe("mut-update-1");
+    expect(merged.createdAt).toBe(pending.createdAt);
+    expect(merged.expectedVersion).toBe(3);
+    expect(merged.payload).toEqual({ ...basePayload, amountKrw: 12_000 });
+  });
+
+  it("본문이 한 글자도 안 바뀌면 키를 유지한다 — 그것은 정말로 같은 요청의 재전송이다", () => {
+    const pending = mutation({
+      mutationId: "mut-update-1",
+      idempotencyKey: "idem-첫번째",
+      operation: "update",
+      expectedVersion: 3,
+      payload: { ...basePayload, amountKrw: 11_000 }
+    });
+    // 같은 값을 다시 저장(사용자가 고쳤다가 되돌렸거나, 같은 화면에서 저장을 두 번 눌렀다).
+    const again = mutation({
+      mutationId: "mut-update-2",
+      idempotencyKey: "idem-두번째",
+      operation: "update",
+      expectedVersion: 3,
+      payload: { ...basePayload, amountKrw: 11_000 }
+    });
+
+    const [merged] = mergeOutboxMutation([pending], again);
+
+    expect(merged.idempotencyKey).toBe("idem-첫번째");
+    expect(merged.payload).toEqual({ ...basePayload, amountKrw: 11_000 });
+  });
+
+  it("부분 patch가 접혀 값이 실제로 달라져도 새 키다 (판정은 접은 **결과**로 한다)", () => {
+    const pending = mutation({
+      mutationId: "mut-update-1",
+      idempotencyKey: "idem-첫번째",
+      operation: "update",
+      expectedVersion: 3,
+      payload: { ...basePayload, memo: null }
+    });
+    const withMemo = mutation({
+      mutationId: "mut-update-2",
+      idempotencyKey: "idem-두번째",
+      operation: "update",
+      expectedVersion: 3,
+      payload: { ...basePayload, memo: "영수증 있음" }
+    });
+
+    const [merged] = mergeOutboxMutation([pending], withMemo);
+
+    expect(merged.idempotencyKey).toBe("idem-두번째");
+    expect(merged.payload).toEqual({ ...basePayload, memo: "영수증 있음" });
+  });
+
+  it("⚠️ create 접기는 키를 절대 바꾸지 않는다 — 생성이 서버에 닿은 뒤 키를 바꾸면 그것이 곧 중복 지출이다", () => {
+    const pendingCreate = mutation({
+      mutationId: "mut-create",
+      idempotencyKey: "idem-생성",
+      operation: "create",
+      payload: basePayload
+    });
+    const update = mutation({
+      mutationId: "mut-update",
+      idempotencyKey: "idem-수정",
+      operation: "update",
+      payload: { ...basePayload, amountKrw: 15_000 }
+    });
+
+    const [merged] = mergeOutboxMutation([pendingCreate], update);
+
+    expect(merged.operation).toBe("create");
+    // 본문은 접혔지만 키는 생성 행의 것 그대로다(수정 접기와 **의도적으로 다르다**).
+    expect(merged.payload).toEqual({ ...basePayload, amountKrw: 15_000 });
+    expect(merged.idempotencyKey).toBe("idem-생성");
+  });
+
+  it("delete는 종전대로 새 행이라 새 키를 받는다 — update 접기가 이 대칭을 되찾은 것이다", () => {
+    const pendingUpdate = mutation({
+      mutationId: "mut-update",
+      idempotencyKey: "idem-수정",
+      operation: "update",
+      expectedVersion: 3
+    });
+    const del = mutation({
+      mutationId: "mut-delete",
+      idempotencyKey: "idem-삭제",
+      operation: "delete",
+      payload: null,
+      expectedVersion: 3
+    });
+
+    const [merged] = mergeOutboxMutation([pendingUpdate], del);
+
+    expect(merged.operation).toBe("delete");
+    expect(merged.idempotencyKey).toBe("idem-삭제");
+  });
+});

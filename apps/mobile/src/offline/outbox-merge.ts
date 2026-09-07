@@ -51,8 +51,11 @@ export function mergeOutboxMutation(
  *  - `nextRetryAt`이 남아 있으면 방금 누른 편집이 앞선 실패의 백오프가 끝날 때까지 전송되지 않는다.
  *
  * 사용자가 손으로 재시도를 누른 것(`retryFailedMutation`)과 같은 취급이며, 큐에서의 자리
- * (`mutationId`·`createdAt`·`idempotencyKey`)는 기존 행 것을 그대로 유지한다 — 순서 역전을 만들지
- * 않으려는 것이 병합의 원래 목적이기 때문이다.
+ * (`mutationId`·`createdAt`)는 기존 행 것을 그대로 유지한다 — 순서 역전을 만들지 않으려는 것이
+ * 병합의 원래 목적이기 때문이다.
+ *
+ * ⚠️ **종전에는 `idempotencyKey`도 이 "자리"에 함께 묶여 있었다 → 이제 update 접기에서는 본문이
+ * 달라지면 새 키가 나간다.** 근거는 아래 `foldedUpdateIdempotencyKey`에 있다.
  */
 const MERGED_RETRY_BUDGET_RESET = {
   attemptCount: 0,
@@ -61,6 +64,71 @@ const MERGED_RETRY_BUDGET_RESET = {
   lastErrorStatus: undefined,
   lastErrorCode: undefined
 } as const;
+
+/**
+ * 라운드 104 B-1 — **접힌 수정이 물려받은 멱등키가 중복 지출을 만들던 자리.**
+ *
+ * ## 종전 동작과 그 끝
+ *
+ * update+update 접기는 `{ ...pendingUpdate, payload: … }`였다. 즉 **본문만 갈아 끼우고 키는
+ * 기존 행 것을 그대로 들고 나갔다.** 그 조합이 실제로 만드는 사슬:
+ *
+ *  1. 첫 수정 U1(키 K, 본문 B1)이 서버에 **커밋된다**(version v → v+1). 서버는 그 키에
+ *     `requestHash(B1)`과 응답을 24시간 보관한다(apps/api …/idempotency/idempotency.interceptor.ts).
+ *  2. **응답이 유실된다**(터널·강제 종료·10초 타임아웃). 클라이언트는 transient로 보고 행을
+ *     'pending'으로 남긴다 — 큐에는 여전히 키 K가 있다.
+ *  3. 사용자가 같은 지출을 한 번 더 고친다 → 접기 → **같은 키 K + 다른 본문 B2**.
+ *  4. 서버는 requestHash 불일치를 409 `IDEMPOTENCY_KEY_CONFLICT`로 답한다. 그 409는
+ *     `VERSION_CONFLICT`가 아니라 permanent 4xx로 번역돼 행이 'failed'로 굳고,
+ *     화면은 재시도 자리를 걷고 "내용을 고쳐 새로 기록하거나 버려 주세요"를 세운다.
+ *  5. 그 안내를 따르면 서버에는 이미 B1이 반영된 지출이 있으므로 **같은 지출이 두 건**이 된다.
+ *     `retryFailedMutation`은 멱등키를 일부러 보존하므로 재시도 버튼이 있었어도 통하지 않는다.
+ *
+ * ## 이제
+ *
+ * **접은 결과 본문이 실제로 달라졌으면 새 키(`incoming.idempotencyKey`)로 나간다.** 그것이
+ * 멱등키의 뜻이다 — 같은 키는 "같은 요청의 재전송"을 뜻하고, 본문이 바뀌면 그것은 다른 요청이다.
+ * 새 키를 만들지 않고 **incoming 행이 이미 들고 온 키**를 쓴다: `recordLocalUpdate`가 방금 발급한
+ * 값이라 이 모듈은 시계도 난수도 건드리지 않는 순수 함수로 남는다.
+ *
+ * 그러면 위 사슬의 5번이 사라진다. 서버는 이미 v+1이고 이 요청의 `expectedVersion`은 v이므로
+ * 409 **VERSION_CONFLICT**로 떨어지고, 그것은 **이미 설계된 회복 경로**다(충돌 3지선다 —
+ * app/sync-status.tsx). 같은 사고에서 delete 병합이 새 행(`return [incoming]`)을 만들어 새 키를
+ * 받고 바로 그 경로로 가는 것과 대칭이 맞는다 — 종전의 비대칭이 update 접기 하나였다.
+ *
+ * ## 본문이 같으면 키를 그대로 둔다
+ *
+ * 접었는데 값이 한 글자도 안 바뀐 경우(같은 값 다시 저장)는 정의상 **같은 요청의 재전송**이다.
+ * 새 키를 발급하면 그 요청이 서버에 이미 커밋된 B1과 부딪혀 불필요한 VERSION_CONFLICT를 만든다.
+ * 키를 유지하면 서버가 보관해 둔 응답을 그대로 돌려주고(멱등 재생) 행이 조용히 확정된다.
+ *
+ * ⚠️ **create 접기에는 이 처방을 쓰지 않는다.** 생성이 서버에 닿은 뒤 키를 바꾸면 그것이 곧
+ * **중복 지출 생성**이다(생성에는 충돌을 막아 줄 `expectedVersion` 게이트가 없다). 그래서 위
+ * `pendingCreate` 갈래는 한 글자도 바뀌지 않았다.
+ */
+function foldedUpdateIdempotencyKey(
+  pendingUpdate: MutationOutboxRow,
+  incoming: MutationOutboxRow,
+  mergedPayload: ExpensePayload
+): string {
+  return isSameExpensePayload(pendingUpdate.payload, mergedPayload)
+    ? pendingUpdate.idempotencyKey
+    : incoming.idempotencyKey;
+}
+
+/**
+ * 접기 전후의 payload가 실제로 같은가 — 얕은 비교로 충분하다. `ExpensePayload`의 값은 전부
+ * 원시값(문자열·숫자·boolean·null)이고 중첩 객체가 없다(src/offline/types.ts).
+ */
+function isSameExpensePayload(before: ExpensePayload | null, after: ExpensePayload | null): boolean {
+  if (before === after) return true;
+  if (!before || !after) return false;
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const key of keys) {
+    if ((before as Record<string, unknown>)[key] !== (after as Record<string, unknown>)[key]) return false;
+  }
+  return true;
+}
 
 function mergeIntoMergeableRows(existing: MutationOutboxRow[], incoming: MutationOutboxRow): MutationOutboxRow[] {
   if (existing.length === 0) {
@@ -100,9 +168,17 @@ function mergeIntoMergeableRows(existing: MutationOutboxRow[], incoming: Mutatio
 
     const pendingUpdate = existing.find((mutation) => mutation.operation === "update");
     if (pendingUpdate) {
+      const mergedPayload: ExpensePayload = {
+        ...(pendingUpdate.payload as ExpensePayload),
+        ...(incoming.payload as ExpensePayload)
+      };
       const merged: MutationOutboxRow = {
         ...pendingUpdate,
-        payload: { ...(pendingUpdate.payload as ExpensePayload), ...(incoming.payload as ExpensePayload) },
+        payload: mergedPayload,
+        // 라운드 104 B-1: 본문이 달라졌으면 키도 새로 나간다(근거 전문은 위
+        // foldedUpdateIdempotencyKey 머리말 — 종전에는 기존 키를 물려받아 409
+        // IDEMPOTENCY_KEY_CONFLICT로 굳었고, 화면의 안내가 중복 지출을 만들었다).
+        idempotencyKey: foldedUpdateIdempotencyKey(pendingUpdate, incoming, mergedPayload),
         ...MERGED_RETRY_BUDGET_RESET
       };
       return existing.map((mutation) => (mutation.mutationId === pendingUpdate.mutationId ? merged : mutation));

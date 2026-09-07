@@ -79,6 +79,7 @@ import {
 import {
   buildSearchScopePartialNotice,
   fullScopeDateHeaderLabel,
+  recordsSearchCommitDelayMs,
   resolveRecordsSearchScope,
   resolveSearchScopeMonths,
   searchScopeCollectingProgressLabel,
@@ -177,7 +178,7 @@ import {
   Toast
 } from "../../src/ui";
 import { AppIcon } from "../../src/design-system";
-import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
+import { Skeleton, SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
 type ServerExpense = Awaited<ReturnType<typeof listExpenses>>["expenses"][number];
@@ -755,6 +756,35 @@ export default function RecordsScreen() {
     setMonthOffset(resolveInitialMonthOffset({ monthParam, todayIso: getSeoulToday() }));
   }, [monthParam]);
   const [searchText, setSearchText] = useState("");
+  /**
+   * 라운드 104 트랙 SEARCH(#2) — 검색 **디바운스**: 입력(`searchText`)과 확정(`appliedSearchText`)의 분리.
+   *
+   * 두 시점: 종전에는 이 화면에 검색어 state가 **하나**뿐이라 키 한 번이 곧 확정이었고, 전체 기간
+   * 스코프에서는 그 한 번이 21~33개월치(4,000~6,000행) 재필터 + 목록·날짜 그룹·섹션·소계 전면
+   * 재조립을 샀다. 이제 **입력칸이 그리는 값은 그대로 즉시 state**(`value={searchText}` ·
+   * `onChangeText={setSearchText}` — 글자는 한 프레임도 늦지 않는다)이고, 무거운 파생만
+   * `appliedSearchText`를 본다. 확정 시점 판정은 순수 모듈(recordsSearchCommitDelayMs)이 지고
+   * 화면은 타이머만 건다 — 준비템 탭 검색이 쓰는 그 형식·그 350ms 그대로다.
+   *
+   * 즉시(디바운스 밖)로 남는 것들: 입력칸 값 · 최근 검색어 칩 줄 노출 판정 · 스코프 판정과
+   * 수집물 폐기(`resolveRecordsSearchScope` — 검색어를 지우면 그 자리에서 월 스코프로 돌아온다) ·
+   * 수집 시점 스냅숏(`searchTextRef`). 확정값을 보는 것들: 필터 모집단(visibleExpenses) ·
+   * 결과를 세거나 인용하는 모든 문장(범위 고지 · 스코프 줄 · 0건 카드의 세 탈출구).
+   * **검색에 대해 말하는 문장과 목록이 같은 검색어를 보게 하는 것**이 그 경계의 규칙이다.
+   */
+  const [appliedSearchText, setAppliedSearchText] = useState("");
+  const searchCommitDelayMs = recordsSearchCommitDelayMs({ searchText, appliedSearchText });
+  useEffect(() => {
+    if (searchCommitDelayMs === null) return;
+    // 0 = 비우기(넓히는 조작 — 기다릴 이유가 없다). 타이머 없이 그 자리에서 확정한다.
+    if (searchCommitDelayMs === 0) {
+      setAppliedSearchText(searchText);
+      return;
+    }
+    const timer = setTimeout(() => setAppliedSearchText(searchText), searchCommitDelayMs);
+    // 다음 글자가 오면 이전 타이머는 걷힌다 — 타이핑 중의 낱자는 한 번도 확정되지 않는다.
+    return () => clearTimeout(timer);
+  }, [searchCommitDelayMs, searchText]);
   /**
    * 라운드 101 W2 F7 — 최근 검색어 칩.
    *
@@ -1507,9 +1537,14 @@ export default function RecordsScreen() {
         })
       : null;
 
+  // 라운드 103 리뷰 M-2: 세 번째 인자는 위에서 이미 구한 **보고 있는 아이의 가구**다(구성원
+  // 목록을 물어보는 그 값 그대로). 두 가구에 속한 계정에서 `GET /categories`는 합집합을 내려
+  // 주는데(서버 §1.3), 이 탭이 거르는 지출은 이 아이의 것뿐이라 다른 가구의 커스텀 칩은 눌러도
+  // 언제나 0건이고, 같은 칩 대장을 예산 화면이 **행 모집단**으로 그대로 쓴다. 가구를 아직 모르면
+  // (콜드 진입) null이라 종전과 한 칩도 다르지 않다.
   const categoryChips = useMemo(
-    () => buildRecordsCategoryChips(serverCategories, selectedCategoryId),
-    [serverCategories, selectedCategoryId]
+    () => buildRecordsCategoryChips(serverCategories, selectedCategoryId, householdId),
+    [serverCategories, selectedCategoryId, householdId]
   );
   // 선택된 칩이 흡수한 동명 중복 id까지 모두 매칭한다 -- 서버 시드에는 정식 "기타"와 mobile_etc
   // 별칭 "기타"가 함께 있고(별칭 id는 빠른 기록 8타일이 실제로 쓰는 값), 데모 백엔드에도 카탈로그
@@ -1534,6 +1569,12 @@ export default function RecordsScreen() {
   //
   // 모집단은 스코프가 정한다(위 fullScopePopulation): 월 스코프면 종전 그대로 그 달의 재조정
   // 결과이고, 전체 스코프면 수집한 전 기간이다 — 필터·정렬·날짜 그룹은 어느 쪽이든 같은 길을 탄다.
+  //
+  // 라운드 104 트랙 SEARCH(#2) — 두 시점: 이 memo가 보는 검색어가 입력값(`searchText`)에서
+  // **확정값**(`appliedSearchText`)으로 바뀌었다. 여기가 디바운스를 넣은 이유 그 자체다 —
+  // 전체 스코프에서 모집단이 21~33개월치(4,000~6,000행)라, 키 한 번마다 그 전량에
+  // matchRecordSearch가 다시 돌고 아래 listData → dateGroups → sections가 전부 다시 조립됐다.
+  // 판정 규칙(어디서 맞았는지·스니펫)은 한 글자도 바뀌지 않았고, 바뀐 것은 **언제 도는가**뿐이다.
   const { visibleExpenses, visibleOfflineRows } = useMemo(() => {
     return {
       visibleExpenses: scopeServerExpenses.flatMap((expense) => {
@@ -1542,7 +1583,7 @@ export default function RecordsScreen() {
           itemName: expense.itemName,
           merchant: expense.merchant,
           memo: expense.memo,
-          searchText
+          searchText: appliedSearchText
         });
         return match.matches ? [{ expense, searchSnippet: match.snippet }] : [];
       }),
@@ -1552,11 +1593,11 @@ export default function RecordsScreen() {
           itemName: row.payload.itemName,
           merchant: row.payload.merchant,
           memo: row.payload.memo,
-          searchText
+          searchText: appliedSearchText
         }).matches;
       })
     };
-  }, [scopeServerExpenses, scopeOfflineRows, selectedCategoryIds, searchText]);
+  }, [scopeServerExpenses, scopeOfflineRows, selectedCategoryIds, appliedSearchText]);
 
   // Offline pending rows first (same order as the old eager render), then server rows.
   const listData = useMemo<RecordsListItem[]>(
@@ -1615,6 +1656,55 @@ export default function RecordsScreen() {
   const hasVisibleRecords = showList && listData.length > 0;
 
   /**
+   * 라운드 104 트랙 SEARCH(#3) — **달을 넘기는 동안 합계 카드의 골격만 남긴다.**
+   *
+   * ## 무엇이 문제였나
+   * 달을 옮기면 위 `expenses` 쿼리의 키(`["expenses", childId, recordsYearMonth]`)가 통째로
+   * 바뀌어 `isLoading`이 다시 true가 되고, 그때 아래 합계 카드는 `hasVisibleRecords` 게이트에
+   * 걸려 **카드째 사라졌다**. 저장소 전수에 `placeholderData`/`keepPreviousData`가 0건이라,
+   * 방금까지 보던 자리가 매번 무명 실루엣으로 되돌아갔다.
+   *
+   * ## 고른 방향과 근거 — "골격 유지 · 값 비움"(지어내지 않는다)
+   * 다른 길은 이전 달 응답을 그대로 이어 그리는 것이었는데, 그러면 **9월 값이 8월 카드의 숫자로
+   * 읽힌다** — 화면이 반박 가능한 거짓을 말하는 자리이고(DNC 정신), 목록·달력·요약 줄까지 전부
+   * "이 값이 어느 달의 것인가"를 따로 판정해야 한다. 그래서 남기는 것은 **틀과 제목**뿐이다:
+   * 제목은 지금 **불러오는 중인 그 달**의 라벨이고(`{recordsMonthLabel} 합계` — 아래 진짜
+   * 카드와 **같은 엘리먼트** monthTotalCardTitle), 금액 자리에는 숫자 대신 스켈레톤이 선다. 어떤 프레임에서도 화면에
+   * 서 있는 숫자는 그 제목의 달에서 나온 것뿐이다.
+   * 스켈레톤 높이는 금액 티어의 `lineHeight`를 그대로 읽는다 — 값이 도착해도 카드 높이가 한
+   * 픽셀도 움직이지 않는다(자리가 흔들리면 "골격 유지"가 아니다).
+   *
+   * ## 경계 — 달 전환 경로에만 선다
+   * 기준은 **"이 아이에게서 합계 카드를 한 번이라도 세웠는가"**다: 그 뒤의 로딩만 달 전환이고,
+   * 콜드 스타트(첫 진입)와 **아이 전환 직후**는 종전 그대로 목록 자리의 스켈레톤만 그린다 —
+   * 아직 아무 달도 보지 못한 화면에 달 제목이 붙은 빈 카드를 세우면, 그 자체가 "이 달에 합계가
+   * 있다"는 약속이 된다.
+   *
+   * 그래서 ref가 드는 것은 boolean이 아니라 **마지막으로 카드를 세운 아이의 id**다. 아이가
+   * 바뀐 커밋에서 판정이 그 자리에서 어긋나므로(비동기 effect가 지우기를 기다리지 않는다)
+   * 이전 아이의 카드가 새 아이의 화면에 한 프레임도 서지 않는다 — 라운드 101 리뷰 L-A4가
+   * 수집물 태그에서 세운 그 규율(소비부의 동기 대조)과 같은 모양이다.
+   */
+  const monthTotalSeenForChildRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (expenses.data) monthTotalSeenForChildRef.current = childId;
+  }, [expenses.data, childId]);
+  const monthTotalSkeletonVisible = expenses.isLoading && monthTotalSeenForChildRef.current === childId;
+  /**
+   * 합계 카드의 제목 — **한 자리에서만 만든다.**
+   *
+   * 값이 선 카드와 골격만 선 카드가 같은 제목을 각자 적으면, 그 순간부터 "불러오는 중인 달"과
+   * "값이 말하는 달"이 자리마다 갈릴 수 있다(그리고 이 화면의 한국어 문구가 한 벌 늘어난다 —
+   * keyboard-tap-guard ⓔ의 대장이 세는 그 수다). 두 갈래가 **같은 엘리먼트**를 그리므로 표기가
+   * 갈릴 자리 자체가 없다.
+   */
+  const monthTotalCardTitle = (
+    <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
+      {recordsMonthLabel} 합계
+    </Text>
+  );
+
+  /**
    * 라운드 101 W2 F7 — 최근 검색어 **저장 시점**: 검색 결과를 실제로 본 뒤.
    *
    * 이 화면의 검색은 keystroke마다 즉시 걸리고(onChangeText — 디바운스 없음) 확정 신호가 될
@@ -1625,7 +1715,12 @@ export default function RecordsScreen() {
    * 결과 수는 화면에 실제로 보이는 그 목록(listData — 검색·칩 필터 적용 후)에서 센다.
    */
   const recentSearchDelayMs = recentSearchRecordDelayMs({
-    searchText,
+    // 라운드 104 트랙 SEARCH(#2) 두 시점: 종전에는 여기에 입력값을 그대로 넘겼다. 디바운스가
+    // 들어오면서 `listData`가 **확정 검색어**의 결과가 되므로, 아직 확정되지 않은 입력을 그대로
+    // 넘기면 "결과 1건 이상"이라는 저장 조건이 **다른 검색어의 건수**로 채워진다("조리원비"를
+    // 치는 중에 "조리원"의 3건으로 저장되는 자리). 확정 전에는 null을 넘겨 판정 자체를 멈춘다 —
+    // 저장은 350ms 뒤 확정된 다음 종전 규칙(유지 300ms + 결과 1건 이상)대로 다시 선다.
+    searchText: searchText === appliedSearchText ? searchText : null,
     resultCount: showList ? listData.length : 0
   });
   useEffect(() => {
@@ -1700,14 +1795,23 @@ export default function RecordsScreen() {
       buildRecordsFilterScopeSummary({
         categoryLabel: selectedCategoryLabel,
         categoryFiltered: selectedCategoryId !== null,
-        searchText,
+        // 라운드 104 트랙 SEARCH(#2): 이 줄이 세는 건수·합계가 listData의 것이므로, 인용하는
+        // 검색어도 그 목록을 만든 확정값이어야 한다(문장과 목록이 같은 질문을 말한다).
+        searchText: appliedSearchText,
         // 라운드 101 트랙 A: 전체 스코프에서는 이 줄이 "전체 기간 검색 결과: N건 · 합계 …"가 된다
         // — 위 월 요약 줄(월 전체)과 모집단이 다르다는 사실을 이 줄이 스스로 말한다.
         allPeriods: isFullSearchScope,
         recordCount: listData.length,
         totalKrw: filteredSubtotalKrw
       }),
-    [selectedCategoryLabel, selectedCategoryId, searchText, isFullSearchScope, listData.length, filteredSubtotalKrw]
+    [
+      selectedCategoryLabel,
+      selectedCategoryId,
+      appliedSearchText,
+      isFullSearchScope,
+      listData.length,
+      filteredSubtotalKrw
+    ]
   );
 
   // 라운드 39 UX-P: 월 요약 줄 · 검색 범위 고지 · 0건 카드의 "지난달에서 찾기" 보조 액션.
@@ -1728,7 +1832,8 @@ export default function RecordsScreen() {
   // 생기면서 같은 줄이 같은 함수의 allPeriods 갈래로 "전체 기간의 …에서 찾아요"를 말한다 —
   // 약속(고지)과 판정(필터 스코프)이 계속 한 벌이다.
   const searchScopeNotice = buildRecordsSearchScopeNotice({
-    searchText,
+    // 라운드 104 트랙 SEARCH(#2): 결과를 설명하는 문장은 목록과 같은 검색어를 본다(확정값).
+    searchText: appliedSearchText,
     monthLabel: recordsMonthLabel,
     allPeriods: isFullSearchScope
   });
@@ -1736,13 +1841,14 @@ export default function RecordsScreen() {
   // 그 사실을 말해야 넘어간 달의 0건이 "그 달에 없다"로 잘못 들리지 않는다. 0건 카드의 제목·기본
   // 액션도 같은 두 필터를 함께 보고 만든다(문구는 전부 순수 모듈에서 나온다).
   const previousMonthSearchAction = buildRecordsSearchPreviousMonthAction({
-    searchText,
+    // 라운드 104 트랙 SEARCH(#2): 0건 카드의 세 탈출구는 **0건을 만든 그 검색어**를 인용한다.
+    searchText: appliedSearchText,
     previousMonthLabel,
     categoryFiltered: selectedCategoryId !== null,
     categoryLabel: selectedCategoryLabel
   });
   const filteredEmptyState = buildRecordsFilteredEmptyState({
-    searchText,
+    searchText: appliedSearchText,
     categoryFiltered: selectedCategoryId !== null,
     categoryLabel: selectedCategoryLabel
   });
@@ -1750,7 +1856,7 @@ export default function RecordsScreen() {
   // 자리를 하나 더 둔다(시트는 이미 이 화면에 있다 — 여는 자리만 늘린다). 라벨·접근성 문구는
   // 위 "지난달에서 찾기"와 같은 순수 모듈·같은 조립이다.
   const monthJumpSearchAction = buildRecordsSearchMonthJumpAction({
-    searchText,
+    searchText: appliedSearchText,
     categoryFiltered: selectedCategoryId !== null,
     categoryLabel: selectedCategoryLabel
   });
@@ -1762,7 +1868,7 @@ export default function RecordsScreen() {
   const allPeriodsSearchAction =
     hasRecordsSession && !isFullSearchScope && fullScopeMonths.length > 0
       ? buildRecordsSearchAllPeriodAction({
-          searchText,
+          searchText: appliedSearchText,
           categoryFiltered: selectedCategoryId !== null,
           categoryLabel: selectedCategoryLabel
         })
@@ -2313,11 +2419,18 @@ export default function RecordsScreen() {
         />
       ) : null}
 
+      {/* 라운드 104 트랙 SEARCH(#3): 달 전환 중에는 같은 카드의 **틀과 제목**만 남는다(위 판정의
+          머리말 — 값은 비우고, 서 있는 숫자는 언제나 제목이 말하는 달의 것이다). */}
+      {!hasVisibleRecords && monthTotalSkeletonVisible ? (
+        <Card>
+          {monthTotalCardTitle}
+          {/* 금액 티어의 lineHeight를 그대로 읽는다 — 숫자가 도착해도 카드 높이가 그대로다. */}
+          <Skeleton width="55%" height={theme.typography.amountMedium.lineHeight} radius={8} />
+        </Card>
+      ) : null}
       {hasVisibleRecords ? (
         <Card>
-          <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
-            {recordsMonthLabel} 합계
-          </Text>
+          {monthTotalCardTitle}
           {/* 토스 이월 T-B(#3): 인라인 24/800 대신 디자인 시스템 금액 티어(amountMedium 24/30/700
               · tabular-nums)를 소비한다 -- 자릿수가 바뀌어도 숫자 폭이 흔들리지 않는다(T1 티어의
               존재 이유). 새 토큰을 만들지 않았다(theme.typography.amount*의 단일 소스는
@@ -2363,8 +2476,11 @@ export default function RecordsScreen() {
 
   const listEmpty = expenses.isLoading ? (
     // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
+    // 라운드 104 트랙 SEARCH(#3): 달 전환 중에는 헤더에 **제목이 붙은** 합계 카드 골격이 이미
+    // 서 있으므로 이 무명 카드 실루엣은 그리지 않는다 — 같은 자리에 카드 모양 둘이 겹치면
+    // 골격을 남긴 것이 아니라 하나를 더한 것이다(행 스켈레톤은 그대로 목록 자리를 지킨다).
     <View style={{ gap: theme.spacing.gap }}>
-      <SkeletonCard />
+      {monthTotalSkeletonVisible ? null : <SkeletonCard />}
       <SkeletonRow />
       <SkeletonRow />
       <SkeletonRow />

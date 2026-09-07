@@ -182,7 +182,7 @@ describe("라운드 70 #3 초대 역할 설명은 실제 권한에서만 파생�
       expect(childAccess).not.toMatch(/viewer|gift_participant/);
     });
 
-    it("역할 화이트리스트 가드가 붙은 자리는 저장소 전체에서 쓰기 하나뿐이다", () => {
+    it("역할 화이트리스트 가드가 붙은 자리는 저장소 전체에서 **쓰기뿐**이다", () => {
       const guarded: string[] = [];
       const walk = (directory: string) => {
         for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -198,11 +198,34 @@ describe("라운드 70 #3 초대 역할 설명은 실제 권한에서만 파생�
       };
       walk(join(apiRoot, "src"));
 
-      // 아이 **생성**(쓰기)뿐이다. 조회 컨트롤러에 이 데코레이터가 하나라도 붙으면 = 읽기
-      // 스코프가 생긴 것이고, 그때 선물 참여 줄("권한이 같고")을 다시 판단해야 한다.
-      expect(guarded).toEqual(["src/onboarding/children.controller.ts"]);
+      // 조회 컨트롤러에 이 데코레이터가 하나라도 붙으면 = 읽기 스코프가 생긴 것이고, 그때
+      // 선물 참여 줄("권한이 같고")을 다시 판단해야 한다.
+      //
+      // ⚠️ **두 시점 (라운드 103)** — 종전 이 목록은 아이 **생성** 하나뿐이었다("쓰기 하나뿐").
+      // 라운드 103 T1이 커스텀 지출 분류 쓰기 컨트롤러를 세우며 둘이 됐다
+      // (docs/5차/round103-custom-expense-category-design.md §2.4). **이 앵커가 지키려는 사실은
+      // 여전히 참이다**: 새 자리도 POST·PATCH뿐인 **쓰기**이고, 역할 집합도 같은
+      // owner/co_parent(EXPENSE_EDIT_ROLES)이며, 그 라운드의 읽기(`GET /categories`)는
+      // 구성원 전원 그대로다(§2.4 — 좁히면 보기 전용 참여자 화면에서만 분류 이름이 "기타"로
+      // 무너진다). 그래서 목록만 늘리고, **읽기가 섞이는 순간을 잡는 단언을 아래에 새로 세운다** —
+      // 수를 등호로 못 박던 자리를 "전부 쓰기인가"로 바꿔 그물이 좁아지지 않게 한다.
+      expect(guarded).toEqual([
+        "src/households/custom-categories.controller.ts",
+        "src/onboarding/children.controller.ts"
+      ]);
+      for (const file of guarded) {
+        expect(apiSource(file), file).toContain('@RequireHouseholdRoles("owner", "co_parent")');
+      }
+
+      // 새 자리는 **클래스 전체** 가드다 — 그 클래스에 조회 라우트가 하나라도 생기면 그것이
+      // 곧 읽기 스코프이므로, 여기서 그 사실을 값으로 못 박는다(쓰기 둘뿐: 생성·수정).
+      const customCategories = apiSource("src/households/custom-categories.controller.ts");
+      expect(customCategories, "커스텀 분류 컨트롤러에 조회 라우트가 생겼다").not.toMatch(/@Get\(/);
+      expect(customCategories).toMatch(/@Post\(/);
+      expect(customCategories).toMatch(/@Patch\(/);
+      // 종전 자리는 **메서드** 가드이고, 그 메서드는 아이 생성(@Post) 하나다.
       expect(apiSource("src/onboarding/children.controller.ts")).toContain(
-        '@RequireHouseholdRoles("owner", "co_parent")'
+        '@Post()\n  @HttpCode(200)\n  @UseGuards(JwtAuthGuard, HouseholdRoleGuard)\n  @RequireHouseholdRoles("owner", "co_parent")'
       );
     });
   });

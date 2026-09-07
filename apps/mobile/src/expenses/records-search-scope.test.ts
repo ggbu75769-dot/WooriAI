@@ -153,6 +153,166 @@ describe("수집 루프 (collectSearchScopeMonths)", () => {
 });
 
 /**
+ * 라운드 104 트랙 SEARCH(#1) — 직렬 `for`가 **고정 동시성 워커 풀**이 됐다.
+ *
+ * 종전 루프는 몸통이 `await ensureMonth()` 하나뿐이라 동시성이 1이었다(21~33개월이 한 줄로 서서
+ * 앞 달이 끝나야 뒷 달이 출발했다). 이 스위트가 무는 것은 **바꾼 것과 바꾸지 않은 것**이다:
+ *  - 바꾼 것: 동시에 떠 있는 요청 수(상한 4).
+ *  - 바꾸지 않은 것: **서버 왕복 수**(달마다 정확히 한 번 — 호출 수 대조) · 호출이 출발하는
+ *    순서(최신 달부터) · 결과 배열의 달 순서 · failedMonths의 오름차순 · 진행 라벨의 단조 증가.
+ *
+ * 달을 손으로 풀어(deferred) 끝나는 순서를 일부러 뒤섞는다 — 병렬에서 진짜로 위험한 것은
+ * "완료 순서가 목록 순서를 흔드는 것"이고, 순서대로 끝나는 가짜 병렬에서는 그 결함이 보이지 않는다.
+ */
+describe("수집 루프의 동시성 (collectSearchScopeMonths · 라운드 104 #1)", () => {
+  type MonthGate = { resolve: () => void; reject: () => void };
+
+  function gatedEnsureMonth() {
+    const calls: string[] = [];
+    const gates = new Map<string, MonthGate>();
+    const state = { inFlight: 0, maxInFlight: 0 };
+    const ensureMonth = (yearMonth: string) =>
+      new Promise<{ expenses: string[] }>((resolve, reject) => {
+        calls.push(yearMonth);
+        state.inFlight += 1;
+        state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
+        gates.set(yearMonth, {
+          resolve: () => {
+            state.inFlight -= 1;
+            gates.delete(yearMonth);
+            resolve({ expenses: [`row-of-${yearMonth}`] });
+          },
+          reject: () => {
+            state.inFlight -= 1;
+            gates.delete(yearMonth);
+            reject(new Error("network"));
+          }
+        });
+      });
+    return { calls, ensureMonth, gates, state };
+  }
+
+  /** 워커의 다음 한 걸음(마이크로태스크 + 매크로태스크 한 바퀴)이 끝날 때까지 기다린다. */
+  const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  /** 하한(전년 1월)~이번 달 21개월 — 코드 주석의 그 21이다(2026-03 출생 기준). */
+  const twentyOneMonths = resolveSearchScopeMonths({ earliestYearMonth: "2025-01", todayIso: TODAY });
+
+  it("전제 재실측: 이 스위트가 세는 21은 지어낸 수가 아니라 월 열거가 만든 수다", () => {
+    expect(twentyOneMonths).toHaveLength(21);
+    expect(twentyOneMonths[0]).toBe("2025-01");
+    expect(twentyOneMonths[twentyOneMonths.length - 1]).toBe("2026-09");
+  });
+
+  it("동시에 뜨는 요청은 4개까지다 — 무한 병렬이 아니고, 5번째 달은 하나가 끝나야 출발한다", async () => {
+    const harness = gatedEnsureMonth();
+    const collection = collectSearchScopeMonths(twentyOneMonths, harness.ensureMonth);
+
+    // 워커 넷은 동기적으로 출발한다(첫 await 전에 ensureMonth를 부른다).
+    expect(harness.calls).toEqual(["2026-09", "2026-08", "2026-07", "2026-06"]);
+    expect(harness.state.maxInFlight).toBe(4);
+
+    // 하나가 끝나면 정확히 하나가 더 출발한다(폭은 계속 4).
+    harness.gates.get("2026-07")!.resolve();
+    await settle();
+    expect(harness.calls).toEqual(["2026-09", "2026-08", "2026-07", "2026-06", "2026-05"]);
+    expect(harness.state.maxInFlight).toBe(4);
+
+    // 남은 달을 끝까지 풀어도 폭은 4를 넘지 않는다(상한이 진짜 상한이라는 대조).
+    while (harness.gates.size > 0) {
+      for (const yearMonth of [...harness.gates.keys()]) harness.gates.get(yearMonth)!.resolve();
+      await settle();
+    }
+    await collection;
+    expect(harness.state.maxInFlight).toBe(4);
+    expect(harness.calls).toHaveLength(twentyOneMonths.length);
+  });
+
+  it("서버 왕복 수가 늘지 않는다 — 21개월 수집의 ensureMonth 호출은 정확히 21번, 달마다 한 번", async () => {
+    const calls: string[] = [];
+    const result = await collectSearchScopeMonths(twentyOneMonths, async (yearMonth) => {
+      calls.push(yearMonth);
+      return { expenses: [`row-of-${yearMonth}`] };
+    });
+
+    expect(calls).toHaveLength(twentyOneMonths.length);
+    expect([...new Set(calls)]).toHaveLength(twentyOneMonths.length);
+    expect([...calls].sort()).toEqual([...twentyOneMonths].sort());
+    // 한 달도 빠뜨리지 않았고 두 번 부르지도 않았다(수집 결과의 달 수가 그 대조다).
+    expect(result.months).toHaveLength(twentyOneMonths.length);
+    expect(result.failedMonths).toEqual([]);
+  });
+
+  it("끝나는 순서가 뒤섞여도 결과는 최신 달부터다 — 자리에 써 넣기(완료 순서 아님)", async () => {
+    const harness = gatedEnsureMonth();
+    const months = ["2026-05", "2026-06", "2026-07", "2026-08", "2026-09"];
+    const collection = collectSearchScopeMonths(months, harness.ensureMonth);
+    expect(harness.calls).toEqual(["2026-09", "2026-08", "2026-07", "2026-06"]);
+
+    // 일부러 거꾸로 푼다: 가장 늦게 출발한 달이 가장 먼저 끝난다.
+    harness.gates.get("2026-06")!.resolve();
+    await settle();
+    // 그 자리를 이어받아 마지막 달이 출발한다(달 목록의 첫 원소 = 가장 이른 달).
+    expect(harness.calls).toEqual(["2026-09", "2026-08", "2026-07", "2026-06", "2026-05"]);
+    harness.gates.get("2026-08")!.reject();
+    await settle();
+    harness.gates.get("2026-05")!.resolve();
+    await settle();
+    harness.gates.get("2026-09")!.resolve();
+    await settle();
+    harness.gates.get("2026-07")!.resolve();
+
+    const result = await collection;
+    expect(result.months.map((month) => month.yearMonth)).toEqual(["2026-09", "2026-07", "2026-06", "2026-05"]);
+    expect(result.months[0]).toEqual({ yearMonth: "2026-09", expenses: ["row-of-2026-09"] });
+    expect(result.failedMonths).toEqual(["2026-08"]);
+  });
+
+  it("진행 라벨이 정직하게 센다 — 1부터 전체까지 한 칸씩, 건너뜀도 되돌아감도 없다", async () => {
+    const harness = gatedEnsureMonth();
+    const progress: Array<[number, number]> = [];
+    const collection = collectSearchScopeMonths(twentyOneMonths, harness.ensureMonth, (done, total) =>
+      progress.push([done, total])
+    );
+
+    // 끝나는 순서를 뒤섞어도(먼저 뜬 것을 나중에 푼다) done은 "끝난 달 수"로 단조 증가한다.
+    while (harness.gates.size > 0) {
+      const open = [...harness.gates.keys()];
+      for (const yearMonth of open.reverse()) harness.gates.get(yearMonth)?.resolve();
+      await settle();
+    }
+    await collection;
+
+    expect(progress).toHaveLength(twentyOneMonths.length);
+    expect(progress.map(([done]) => done)).toEqual(
+      Array.from({ length: twentyOneMonths.length }, (_, index) => index + 1)
+    );
+    expect([...new Set(progress.map(([, total]) => total))]).toEqual([twentyOneMonths.length]);
+    // 라벨은 그 값을 그대로 읽는다 — 마지막 칸이 전체와 같아야 "끝났는데 20/21"이 없다.
+    expect(searchScopeCollectingProgressLabel({ done: progress[0][0], total: progress[0][1] })).toBe(
+      "불러오는 중 1/21"
+    );
+    expect(
+      searchScopeCollectingProgressLabel({
+        done: progress[progress.length - 1][0],
+        total: progress[progress.length - 1][1]
+      })
+    ).toBe("불러오는 중 21/21");
+  });
+
+  it("달이 동시성 상한보다 적으면 워커도 그만큼이다 (달 수보다 많이 부르지 않는다)", async () => {
+    const harness = gatedEnsureMonth();
+    const collection = collectSearchScopeMonths(["2026-08", "2026-09"], harness.ensureMonth);
+    expect(harness.calls).toEqual(["2026-09", "2026-08"]);
+    expect(harness.state.maxInFlight).toBe(2);
+    harness.gates.get("2026-09")!.resolve();
+    harness.gates.get("2026-08")!.resolve();
+    await collection;
+    expect(harness.calls).toHaveLength(2);
+  });
+});
+
+/**
  * 라운드 101 리뷰 H-2(A-1) — 소비 시점 캐시 재독의 값 계약 + **실측**.
  *
  * 종전 훅은 수집 완료 순간의 동결 스냅숏을 들었고, flush 확정이 캐시를 갈아도 스냅숏은 낡은

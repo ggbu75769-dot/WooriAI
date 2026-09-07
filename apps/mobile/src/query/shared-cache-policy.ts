@@ -90,8 +90,13 @@ export const SHARED_CACHE_POLICIES: readonly SharedCachePolicy[] = [
     queryKeyPrefix: ["categories"],
     staleTimeMs: LONG_SHARED_STALE_TIME_MS,
     why:
-      "서버가 시드하는 마스터 목록이고 앱 안에 이 목록을 바꾸는 쓰기 경로가 0건이다(사용자는 " +
-      "카테고리를 만들 수 없다). 일곱 소비처가 이미 5분을 적고 있었으므로 값이 아니라 자리만 옮긴다. " +
+      "⚠️ 두 시점(라운드 103 T3) — 이 줄은 *\"앱 안에 이 목록을 바꾸는 쓰기 경로가 0건이다(사용자는 " +
+      "카테고리를 만들 수 없다)\"* 였고, 그것이 이 키를 조건 없이 5분으로 두는 근거였다. 라운드 103이 " +
+      "그 전제를 깼다: 서버가 시드하는 마스터 목록 **위에 그 가구가 만든 행이 합류**하고, 관리 화면 " +
+      "하나(app/settings/categories.tsx)가 쓰기 셋을 든다. **값은 그대로 5분이고 근거만 옮겨 갔다** — " +
+      "종전 '쓰기 0건'에서 ['children']이 이미 서 있는 그 근거, 곧 **'쓰기 전수가 성공 뒤 명시 " +
+      "무효화를 갖는다'**로(전수·무효화는 아래 무효화 대장이 두 방향으로 센다). 여덟 소비처가 " +
+      "전부 5분을 적고 있었으므로 이 표가 옮긴 것은 값이 아니라 자리 그대로다. " +
       "CAT-124의 includeAll 규약은 다른 축이고 그 가드(src/categories-cache-contract.test.ts)는 무접촉."
   },
   {
@@ -431,9 +436,64 @@ const CHILD_SCOPE_INVALIDATION_SITES: readonly { readonly file: string; readonly
 export const SHARED_KEY_COVERAGE: readonly SharedKeyCoverage[] = [
   {
     queryKeyPrefix: ["categories"],
-    hasNoAppWrites: true,
-    writeApis: [],
-    writes: [],
+    /**
+     * ⚠️ **두 시점(라운드 103 T3): `true` → `false`.** 이 줄은 *"카테고리를 만들거나 고치거나
+     * 지우는 화면이 앱 안에 0건이다"* 라고 적고 있었고, 그 문단의 마지막 문장이 오늘을 미리
+     * 적어 두었다 — *"언젠가 카테고리 편집이 생기면 그 화면의 무효화가 아래
+     * otherInvalidationSites에 이유 없이 나타나 빨개진다."* 그날이 이 라운드다(설계 문서
+     * docs/5차/round103-custom-expense-category-design.md §4.1). 대장이 예고한 대로, 그 화면을
+     * 세운 손이 이 줄을 **쓰기 있는 키**로 옮긴다.
+     */
+    hasNoAppWrites: false,
+    writeApis: ["createCustomCategory", "updateCustomCategory"],
+    writes: [
+      {
+        writeSite: "app/settings/categories.tsx",
+        mutation: "create",
+        sliceStart: "const create = useMutation({",
+        sliceEnd: "const rename = useMutation({",
+        invalidatedIn: "app/settings/categories.tsx",
+        invalidation: 'await queryClient.invalidateQueries({ queryKey: ["categories"] });',
+        invalidatedKeyHeads: ["categories"],
+        why:
+          "커스텀 분류 추가(POST /households/:householdId/categories). 새 행은 기록 칩·리포트 " +
+          "범례·CSV·예산 화면이 **전부 이 캐시 하나**로 이름을 해석하므로(§4.3), 그 키를 비우는 " +
+          "것만으로 여섯 표면이 함께 따라온다 — 그래서 무효화 키가 하나뿐이고, 그 하나뿐이라는 " +
+          "사실을 invalidatedKeyHeads가 소스에서 세어 문다(설계 §4.1: 추가 키 0건)."
+      },
+      {
+        writeSite: "app/settings/categories.tsx",
+        mutation: "rename",
+        sliceStart: "const rename = useMutation({",
+        sliceEnd: "const archive = useMutation({",
+        invalidatedIn: "app/settings/categories.tsx",
+        invalidation: 'await queryClient.invalidateQueries({ queryKey: ["categories"] });',
+        invalidatedKeyHeads: ["categories"],
+        why:
+          "이름 바꾸기(PATCH). 이름은 **과거 지출의 표시 라벨**이라(설계 §1.6 — 행·id·code는 " +
+          "그대로다) 이 키를 비우지 않으면 도넛 범례·기록 칩·CSV 열이 최대 5분 동안 옛 이름을 " +
+          "그린다. 지출 자체는 한 건도 바뀌지 않으므로 [expenses]·[report]는 비우지 않는다."
+      },
+      {
+        writeSite: "app/settings/categories.tsx",
+        mutation: "archive",
+        sliceStart: "const archive = useMutation({",
+        // ⚠️ 끝 표시가 **바로 다음 줄**이 아니다: 그 자리의 줄은 `useSaveErrorCopy(`를 담고
+        // 있는데, 이 대장이 그 이름을 문자열로 들면 저장 실패 훅의 `src/**` 호출부 스윕
+        // (src/offline/messages.test.ts)이 이 파일을 **호출부로 잘못 센다**(그 스윕은 주석만
+        // 걷고 문자열은 걷지 않는다). 그래서 그 세 줄 뒤의 첫 줄을 표시로 쓴다 — 구간이 세
+        // 줄 길어지지만 그 세 줄에는 무효화가 0건이라 판정은 한 자도 달라지지 않는다.
+        sliceEnd: "const createErrorText = customCategoryMutationErrorMessage(",
+        invalidatedIn: "app/settings/categories.tsx",
+        invalidation: 'await queryClient.invalidateQueries({ queryKey: ["categories"] });',
+        invalidatedKeyHeads: ["categories"],
+        why:
+          "보관(`active:false`)과 다시 사용(`active:true`) — 한 뮤테이션의 두 방향이다(하드 삭제 " +
+          "경로는 없다, 설계 §1.6). 바뀌는 것은 **고를 수 있는 목록**이고 그 목록도 이 키에서 " +
+          "온다. 보관해도 `includeAll` 목록에는 남아 과거 지출의 이름 해석이 유지되므로, " +
+          "지출·리포트 키를 곁들여 비울 이유가 없다(그 표면들의 값이 한 건도 바뀌지 않는다)."
+      }
+    ],
     detailLedger: null,
     otherInvalidationSites: [
       {
@@ -444,10 +504,15 @@ export const SHARED_KEY_COVERAGE: readonly SharedKeyCoverage[] = [
       }
     ],
     why:
-      "서버가 시드하는 마스터 목록이고, 카테고리를 만들거나 고치거나 지우는 화면이 앱 안에 " +
-      "0건이다 — 무효화할 쓰기 자체가 없다. 위 정책 줄이 이 키만 조건 없이 5분으로 둘 수 있는 " +
-      "근거가 바로 이 0건이고, 그래서 그 0건을 **값으로** 적어 둔다: 언젠가 카테고리 편집이 " +
-      "생기면 그 화면의 무효화가 아래 otherInvalidationSites에 이유 없이 나타나 빨개진다."
+      "서버가 시드하는 마스터 목록 **위에 그 가구가 만든 행이 합류**한다(라운드 103 — " +
+      "categories에 nullable household_id 한 칸. 별도 표가 아닌 이유는 expenses.category_id가 " +
+      "NOT NULL FK라 그 밖의 id는 지출에 저장될 수 없기 때문이다). 앱 안의 쓰기는 관리 화면 " +
+      "하나의 뮤테이션 셋뿐이고 셋 다 성공 뒤 이 키 하나를 비운다 — 위 정책 줄이 이 키를 조건 " +
+      "없이 5분으로 두어도 되는 근거가 종전의 '쓰기 0건'에서 **'쓰기 전수가 명시 무효화를 " +
+      "갖는다'**로 옮겨 갔고(['children']이 이미 서 있는 그 근거와 같은 모양), 그 전수는 위 " +
+      "writeApis의 호출부 스윕이 두 방향으로 센다. ⚠️ 다른 기기·공동부모가 만든 분류는 그 5분 " +
+      "창 안에서 늦게 보일 수 있는데, 그 최악은 '방금 배우자가 만든 분류가 아직 안 보인다'이고 " +
+      "홈의 당김 한 번으로 사용자가 스스로 닫을 수 있다(['children']이 같은 자리에서 내린 판단)."
   },
   {
     queryKeyPrefix: ["children"],

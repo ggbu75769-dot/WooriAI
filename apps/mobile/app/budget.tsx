@@ -7,6 +7,7 @@ import {
   getBudget,
   getTrendReport,
   listCategories,
+  LOCAL_HOUSEHOLD_ID,
   LOCAL_SESSION_TOKEN,
   upsertBudget,
   type Child,
@@ -22,6 +23,9 @@ import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../src/money";
 // GAP-054 #2: 금액 상한의 값·문구는 지출 입력 화면들과 **같은 모듈**에서 온다. 여기에 숫자를
 // 다시 적으면 서버 @Max와 갈라지는 순간을 아무도 모른다(src/expenses/amount-limit.ts).
 import { amountOverLimitMessage, isAmountOverLimit } from "../src/expenses/amount-limit";
+// 라운드 103 리뷰 M-2: 카테고리 행 모집단의 가구 판정은 기록 탭·지출 수정·검수와 **같은 규칙**
+// 한 벌에서 온다(라운드 27 L-4의 그 함수 — 규칙을 두 벌로 만들지 않는다).
+import { resolveExpenseHouseholdId } from "../src/expenses/records-list-view";
 // 라운드 102 T3: 카테고리별 예산 카드 — 행 조립·검증·문구·이월 칩 판정·합 관측은 전부 이 순수
 // 모듈이 소유하고 화면은 그린다(docs/5차/round102-category-budget-design.md §4.1·§4.2).
 import {
@@ -134,6 +138,9 @@ export default function BudgetEditScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  // 라운드 103 M-2의 가구 판정 폴백 — 아이 목록에 그 아이가 있는데 householdId만 비어 있는
+  // 구버전 캐시에서만 쓰인다(resolveExpenseHouseholdId의 마지막 갈래).
+  const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const childId = useSelectedChildStore((state) => state.selectedChildId);
   const [amountDigits, setAmountDigits] = useState("");
   /**
@@ -364,12 +371,25 @@ export default function BudgetEditScreen() {
    */
   const categoryInitialDigits = categoryBudgetInitialDigits(budget.data?.categoryBudgets);
   const categoryDraft = mergeCategoryBudgetDraft(categoryInitialDigits, categoryEdits);
+  /**
+   * 라운드 103 리뷰 M-2 — 행 모집단의 **가구**. 이 예산은 이 아이의 것이고, 서버의 카테고리
+   * 예산 검증도 그 가구 하나로 좁힌다. 두 가구에 속한 계정에서 그 값을 넘기지 않으면 다른 가구의
+   * 커스텀 분류가 행으로 서고, 거기에 숫자를 넣고 [저장]을 누르면 서버가 요청을 통째로 거절해
+   * **그 달의 총액 예산까지 함께** 막혔다(replace-set은 한 요청이다). 위 `cachedChildren`을 그대로
+   * 읽으므로 새 요청은 0건이고, 캐시가 없으면 null이라 종전과 한 행도 다르지 않다.
+   */
+  const categoryHouseholdId = resolveExpenseHouseholdId({
+    children: cachedChildren,
+    childId,
+    fallbackHouseholdId: sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null)
+  });
   const categoryForm =
     authToken && categories.isSuccess
       ? buildCategoryBudgetForm({
           categories: categories.data?.categories,
           draft: categoryDraft,
-          totalBudgetKrw: typedAmountKrw ?? currentBudgetKrw
+          totalBudgetKrw: typedAmountKrw ?? currentBudgetKrw,
+          householdId: categoryHouseholdId
         })
       : null;
   const categoryDirty = isCategoryBudgetDirty(categoryInitialDigits, categoryDraft);

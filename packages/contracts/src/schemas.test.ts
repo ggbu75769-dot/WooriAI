@@ -2,17 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   budgetSchema,
   categoryBudgetEntrySchema,
+  categoryListItemSchema,
   CATEGORY_BUDGET_MAX_PER_MONTH,
   childSchema,
+  createCustomCategoryRequestSchema,
   createCustomItemRequestSchema,
   createExpenseRequestSchema,
   customItemSummarySchema,
   CUSTOM_ITEM_MAX_PER_CHILD,
   CUSTOM_ITEM_NAME_MAX_LENGTH,
   CUSTOM_ITEM_REASON_TEXT,
+  CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD,
+  CUSTOM_CATEGORY_NAME_MAX_LENGTH,
   deleteCustomItemResponseSchema,
   deleteExpenseRequestSchema,
   itemDetailSchema,
+  updateCustomCategoryRequestSchema,
   updateCustomItemRequestSchema,
   listCategoriesResponseSchema,
   expenseSchema,
@@ -752,5 +757,100 @@ describe("category budget contracts (round 102)", () => {
     expect(
       reportMonthlySchema.parse({ ...baseMonthly, budgetAmountKrw: null, categoryBudgets: [] }).categoryBudgets
     ).toEqual([]);
+  });
+});
+
+/**
+ * 라운드 103 T2 — 커스텀 지출 카테고리 계약(docs/5차/round103-custom-expense-category-design.md §9.1).
+ *
+ * 별도 표가 아니라 `categories`의 가구 소유 행이므로(설계 §1 — expenses.category_id가
+ * NOT NULL FK다), 읽기 경로의 계약 추가는 `categoryListItemSchema.householdId` **하나뿐**이고
+ * 커스텀 여부의 표식은 이미 required로 있던 `isSystem: false`다(§2.2 — 새 필드 0건).
+ */
+describe("custom expense category contracts (round 103)", () => {
+  const seedRow = {
+    id: "22222222-2222-4222-8222-222222222222",
+    code: "diaper_hygiene",
+    name: "기저귀/위생",
+    iconName: null,
+    displayOrder: 40,
+    isSystem: true,
+    active: true,
+    selectable: true
+  };
+
+  it("pins the two custom-category constants (name 50 · per-household 15)", () => {
+    expect(CUSTOM_CATEGORY_NAME_MAX_LENGTH).toBe(50);
+    expect(CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD).toBe(15);
+  });
+
+  /**
+   * R4 — **라운드 102 §1.4의 정당화 문장이 이 라운드 뒤에도 참인가**를 값으로 묻는다.
+   * 그 문서는 상한 30을 *"정식 12종이고 … 커스텀 카테고리는 존재하지 않는 전제"* 로
+   * 정당화했다. 이 라운드가 그 전제를 깨므로 12 + 15 = 27 <= 30이라야 그 문장이 계속 참이다.
+   * 어느 한쪽 상수를 올리는 라운드는 여기서 먼저 빨개진다(설계 §1.7 · §9.1).
+   */
+  it("keeps 12(정식) + CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD <= CATEGORY_BUDGET_MAX_PER_MONTH (R4 산술)", () => {
+    const SEEDED_CANONICAL_CATEGORY_COUNT = 12; // prisma/seed-data.ts categorySeeds
+    expect(SEEDED_CANONICAL_CATEGORY_COUNT + CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD).toBe(27);
+    expect(SEEDED_CANONICAL_CATEGORY_COUNT + CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD).toBeLessThanOrEqual(
+      CATEGORY_BUDGET_MAX_PER_MONTH
+    );
+  });
+
+  it("keeps householdId additive-optional on categoryListItemSchema (시드 행에는 키가 없다)", () => {
+    // 이 필드가 없던 시절의 응답(구 서버·구 캐시) — 그대로 통과하고 값은 undefined다.
+    expect(categoryListItemSchema.parse(seedRow).householdId).toBeUndefined();
+    // 커스텀 행: isSystem:false가 표식이고, householdId가 함께 실린다(§2.2).
+    const customRow = {
+      ...seedRow,
+      id: "33333333-3333-4333-8333-333333333333",
+      code: "custom_0123456789abcdef0123456789abcdef",
+      name: "산후도우미",
+      isSystem: false,
+      householdId: "44444444-4444-4444-8444-444444444444"
+    };
+    expect(categoryListItemSchema.parse(customRow)).toEqual(customRow);
+    // 소유자 축은 uuid다 — 아무 문자열이나 들어오면 목록 전체가 계약 밖이다.
+    expect(() => categoryListItemSchema.parse({ ...customRow, householdId: "local-household-daon" })).toThrow();
+    // 목록 응답도 같은 항목 계약을 그대로 쓴다(합류이지 두 번째 목록이 아니다 — §2.1).
+    expect(listCategoriesResponseSchema.parse({ categories: [seedRow, customRow] }).categories).toHaveLength(2);
+  });
+
+  it("validates the create request: name 1..50 (서버가 trim·공백접기 후 재검증)", () => {
+    expect(createCustomCategoryRequestSchema.parse({ name: "산후도우미" })).toEqual({ name: "산후도우미" });
+    // 경계 한 칸 위아래(moneyKrwSchema·커스텀 품목 테스트 관례).
+    expect(
+      createCustomCategoryRequestSchema.parse({ name: "가".repeat(CUSTOM_CATEGORY_NAME_MAX_LENGTH) }).name
+    ).toHaveLength(CUSTOM_CATEGORY_NAME_MAX_LENGTH);
+    expect(() =>
+      createCustomCategoryRequestSchema.parse({ name: "가".repeat(CUSTOM_CATEGORY_NAME_MAX_LENGTH + 1) })
+    ).toThrow();
+    expect(() => createCustomCategoryRequestSchema.parse({ name: "" })).toThrow();
+    expect(() => createCustomCategoryRequestSchema.parse({})).toThrow();
+    // code·displayOrder·iconName·selectable·isSystem은 요청이 정할 수 없다(§2.3) — 계약에 자리가 없다.
+    for (const forbidden of ["code", "displayOrder", "iconName", "selectable", "isSystem", "active"]) {
+      expect(forbidden in createCustomCategoryRequestSchema.shape, forbidden).toBe(false);
+    }
+  });
+
+  it("validates the update request: name?/active? — 보관은 active:false, 복원은 true (DELETE 없음 §1.6)", () => {
+    expect(updateCustomCategoryRequestSchema.parse({ name: "산후도우미(2호)" })).toEqual({ name: "산후도우미(2호)" });
+    expect(updateCustomCategoryRequestSchema.parse({ active: false })).toEqual({ active: false });
+    expect(updateCustomCategoryRequestSchema.parse({ active: true })).toEqual({ active: true });
+    // 이름 상한은 생성과 같은 한 벌이다.
+    expect(() =>
+      updateCustomCategoryRequestSchema.parse({ name: "가".repeat(CUSTOM_CATEGORY_NAME_MAX_LENGTH + 1) })
+    ).toThrow();
+    expect(() => updateCustomCategoryRequestSchema.parse({ name: "" })).toThrow();
+    expect(() => updateCustomCategoryRequestSchema.parse({ active: "false" })).toThrow();
+    /**
+     * ⚠️ **빈 바디 `{}`는 이 스키마를 통과한다** — "최소 하나 필요"는 형식이 아니라 도메인
+     * 규칙이라 서버 DTO가 지고(설계 §9.2: 둘 다 없으면 VALIDATION_ERROR), 계약은 필드 형식만
+     * 고정한다. 그 사실을 값으로 적어 둔다(다음 사람이 여기서 막힌다고 읽지 않게).
+     */
+    expect(updateCustomCategoryRequestSchema.parse({})).toEqual({});
+    // 축은 둘뿐이다 — code·displayOrder를 열면 전역 UNIQUE와 시드 대역 규칙이 곧바로 깨진다.
+    expect(Object.keys(updateCustomCategoryRequestSchema.shape).sort()).toEqual(["active", "name"]);
   });
 });

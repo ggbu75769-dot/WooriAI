@@ -647,8 +647,11 @@ export default function NewExpenseScreen() {
    *    ⚠️ 라운드 101 트랙 B가 햅틱 import 두 줄(위)·onSuccess의 촉각 확인 네 줄·이 문단 두 줄을
    *    더해 앞뒤 모두 밀어 라운드 101 트랙 B에는 `:974`·`:1768`이었다.
    *    ⚠️ 라운드 101 W2 F6a가 금액 프리셋 스토어 배선(import 한 줄 + 프리셋 해석 블록 열여섯 줄)
-   *    과 이 문단 세 줄을 더해 앞뒤 모두 밀어 **오늘은 `:994`·`:1788`이다**(호출 수 둘·판매처
-   *    0건 판정은 그대로다).
+   *    과 이 문단 세 줄을 더해 앞뒤 모두 밀어 라운드 101 W2 F6a에는 `:994`·`:1788`이었다
+   *    (호출 수 둘·판매처 0건 판정은 그대로다).
+   *    ⚠️ 라운드 104 SAVE(F1)가 onSuccess의 무효화 묶음을 확정 경로 밖으로 옮기며 그 근거 문단과
+   *    이 문단 세 줄을 더해 앞뒤 모두 밀어 **오늘은 `:997`·`:1822`이다**(호출 수 둘·판매처
+   *    0건 판정도 그대로다).
    *
    * ⚠️ 판매처 쪽의 판정(`focus()`를 쓰지 않는다)은 그대로다 —
    * `src/keyboard-tap-guard.test.ts`가 그 부정 단언을 소스로 문다.
@@ -1541,51 +1544,82 @@ export default function NewExpenseScreen() {
           });
         });
       }
-      await queryClient.invalidateQueries({ queryKey: ["expenses"] });
-      await queryClient.invalidateQueries({ queryKey: ["home"] });
       /**
-       * GAP-062 #1 — **리포트·예산 캐시도 방금의 기록을 모른다.** (지출 쓰기 4경로의 공통 근거)
+       * 라운드 104 SAVE(F1) — **무효화는 저장 확정 뒤에 남는 일이지, 확정을 막는 일이 아니다.**
        *
-       * 리포트 탭은 탭 전환으로 언마운트되지 않으므로(react-navigation 기본) 돌아와도
-       * `refetchOnMount`가 돌지 않고, `staleTime: 30_000`(app/_layout.tsx)과 포커스 리페치는
-       * **앱 포그라운드 복귀**에만 걸린다. 그래서 리포트를 한 번 열어 둔 뒤 FAB로 3건을 적고
-       * 돌아오면 월간 합계·카테고리 도넛·6개월 추이가 기록 전 값 그대로다 — 핵심 루프의
-       * "총액 확인"이 옛 숫자를 말한다. 더 나쁜 것은 시점이다: 오프라인 대기 동안에는
-       * "반영되지 않은 기록 N건" 고지가 사실을 말하지만(app/(tabs)/reports.tsx), flush가
-       * 확정되는 순간 그 고지가 사라지고 서버 집계 캐시는 여전히 낡은 채로 남는다.
+       * 아래 여섯 줄은 그대로다 — 무엇을 왜 무효화하는지는 각 줄 위의 근거(GAP-062 #1 ·
+       * R19-B/FIX-119B/F1)가 그대로 진다. 바뀐 것은 **누가 기다리는가**뿐이다.
        *
-       * 규칙은 이미 있었다 — 가져오기 확정(app/import/[importJobId].tsx)과 예산 저장
-       * (app/budget.tsx)은 둘 다 `["report"]`를 무효화한다. 지출 쓰기 경로 넷만 지나쳤다.
+       * 없앤 대기가 무엇이었나: 종전에는 이 여섯을 onSuccess가 직접 await했다. react-query는
+       * `await this.options.onSuccess?.(…)` 가 끝난 **뒤에야** success를 dispatch하므로
+       * (@tanstack/query-core mutation.js) 그동안 뮤테이션은 계속 pending이었고, 저장 버튼은
+       * `saveExpense.isPending`으로 "저장하는 중"에 잠긴 채 남았다 — 지출은 이미 기기에
+       * 확정됐고(createExpenseOffline은 SQLite 우선 저장이다) 바로 위에서 "기기에 저장했어요"
+       * 토스트까지 세운 뒤인데, 같은 화면이 저장이 됐다는 건지 아닌지를 두 가지로 말했다.
        *
-       * **`["budget"]`을 함께 넣는 이유**: 예산 응답의 `usedAmountKrw`도 이 기록만큼 달라진다.
-       * 예산 화면은 스택이라 마운트마다 다시 물어(증상이 30초 창에 그쳐) 리포트만큼 눈에
-       * 띄지 않았을 뿐, 낡기는 같이 낡는다. 비활성 쿼리의 무효화는 refetch를 일으키지
-       * 않으므로(react-query) 그 화면이 떠 있지 않은 대다수 경우 추가 요청은 0건이다.
+       * 그 대기의 길이를 이 화면은 정하지 못한다: invalidateQueries는 매칭되는 **활성** 쿼리의
+       * refetch가 끝나야 resolve하고(refetchQueries → Promise.all), 요청 하나의 상한은 10초
+       * (src/api/client.ts DEFAULT_FETCH_TIMEOUT_MS)에 재시도 기본 3회(app/_layout.tsx가
+       * "건드리지 않는다"고 적어 둔 그 기본)와 백오프가 붙는다. onlineManager 배선이 없어
+       * (FIX-118A) 오프라인에서 paused로 즉시 resolve되는 탈출구도 없다.
        *
-       * **숫자를 클라이언트에서 다시 더하지 않는다**: 리포트 합계·비중·추이를 앱에서 재집계하면
-       * 같은 집계 규칙을 두 벌 유지해야 하고 한쪽만 바뀌는 순간 화면이 조용히 틀린다
-       * (src/reports/pending-scope-notice.ts 머리말이 못박은 규칙). 여기서 하는 일은 캐시를
-       * 낡았다고 표시하는 것뿐이다.
+       * 그래서 묶음째 확정 경로 밖으로 내보낸다 — 위 실패 행 폐기(라운드 58 P3-9의 그 void)와
+       * 같은 처리이고, 이유도 같다: 결과를 쓰는 곳이 없고 늦어도 화면이 틀린 값을 말하지 않는
+       * 작업이라(무효화가 하는 일은 캐시에 낡음 표시를 다는 것뿐이다) 지연을 이 자리에서
+       * 격리한다. 순서도 개수도 종전 그대로 여섯이 차례로 돌아간다.
+       *
+       * catch를 함께 단다(위 실패 행 폐기와 같은 이유) — 오늘의 invalidateQueries는 거절하지
+       * 않지만(refetchQueries가 쿼리별 실패를 삼킨다) 그 사실이 바뀌는 날을 위한 자리다.
        */
-      await queryClient.invalidateQueries({ queryKey: ["report"] });
-      await queryClient.invalidateQueries({ queryKey: ["budget"] });
-      // R19-B (DNC-002 핵심 루프 마지막 고리): 준비템에서 넘어온 기록이면 서버가 그
-      // 준비템을 자동으로 '준비 완료'로 올린다(store-shared.ts markLinkedItemPrepared).
-      // 준비템 목록/상세 캐시를 그대로 두면 방금 기록한 항목이 화면에서는 계속
-      // 미준비로 보여 준비율이 정체된 것처럼 읽힌다 -- 그래서 여기서 함께 무효화한다.
-      // 연결이 없는 일반 기록은 준비템 상태를 바꾸지 않으므로 무효화도 하지 않는다.
-      //
-      // FIX-119B/F1 (R19 H-2) 유지 근거: 여기의 무효화는 "로컬 우선 저장 직후"이므로 실서버
-      // 세션에서는 아직 서버가 지출을 받기 전이다(createExpenseOffline은 outbox flush를
-      // fire-and-forget으로 띄운다). 실제 서버 반영 시점의 무효화는 src/offline/
-      // sync-controller.ts attemptFlush 성공 분기가 담당한다. 그래도 이 호출을 남기는 이유는
-      // 데모/로컬 백엔드 세션(LOCAL_SESSION_TOKEN) 때문이다 -- 그 경로의 "서버"는 동기적인
-      // 인메모리 백엔드라 flush가 즉시 끝나고 준비템 상태가 곧바로 바뀌므로, 화면 전환 전
-      // 이 무효화가 그대로 유효하다(그리고 무효화 자체는 멱등이라 실서버에서도 무해하다).
-      if (linkedItemTemplateId) {
-        await queryClient.invalidateQueries({ queryKey: ["items"] });
-        await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
-      }
+      void (async () => {
+        await queryClient.invalidateQueries({ queryKey: ["expenses"] });
+        await queryClient.invalidateQueries({ queryKey: ["home"] });
+        /**
+         * GAP-062 #1 — **리포트·예산 캐시도 방금의 기록을 모른다.** (지출 쓰기 4경로의 공통 근거)
+         *
+         * 리포트 탭은 탭 전환으로 언마운트되지 않으므로(react-navigation 기본) 돌아와도
+         * `refetchOnMount`가 돌지 않고, `staleTime: 30_000`(app/_layout.tsx)과 포커스 리페치는
+         * **앱 포그라운드 복귀**에만 걸린다. 그래서 리포트를 한 번 열어 둔 뒤 FAB로 3건을 적고
+         * 돌아오면 월간 합계·카테고리 도넛·6개월 추이가 기록 전 값 그대로다 — 핵심 루프의
+         * "총액 확인"이 옛 숫자를 말한다. 더 나쁜 것은 시점이다: 오프라인 대기 동안에는
+         * "반영되지 않은 기록 N건" 고지가 사실을 말하지만(app/(tabs)/reports.tsx), flush가
+         * 확정되는 순간 그 고지가 사라지고 서버 집계 캐시는 여전히 낡은 채로 남는다.
+         *
+         * 규칙은 이미 있었다 — 가져오기 확정(app/import/[importJobId].tsx)과 예산 저장
+         * (app/budget.tsx)은 둘 다 `["report"]`를 무효화한다. 지출 쓰기 경로 넷만 지나쳤다.
+         *
+         * **`["budget"]`을 함께 넣는 이유**: 예산 응답의 `usedAmountKrw`도 이 기록만큼 달라진다.
+         * 예산 화면은 스택이라 마운트마다 다시 물어(증상이 30초 창에 그쳐) 리포트만큼 눈에
+         * 띄지 않았을 뿐, 낡기는 같이 낡는다. 비활성 쿼리의 무효화는 refetch를 일으키지
+         * 않으므로(react-query) 그 화면이 떠 있지 않은 대다수 경우 추가 요청은 0건이다.
+         *
+         * **숫자를 클라이언트에서 다시 더하지 않는다**: 리포트 합계·비중·추이를 앱에서 재집계하면
+         * 같은 집계 규칙을 두 벌 유지해야 하고 한쪽만 바뀌는 순간 화면이 조용히 틀린다
+         * (src/reports/pending-scope-notice.ts 머리말이 못박은 규칙). 여기서 하는 일은 캐시를
+         * 낡았다고 표시하는 것뿐이다.
+         */
+        await queryClient.invalidateQueries({ queryKey: ["report"] });
+        await queryClient.invalidateQueries({ queryKey: ["budget"] });
+        // R19-B (DNC-002 핵심 루프 마지막 고리): 준비템에서 넘어온 기록이면 서버가 그
+        // 준비템을 자동으로 '준비 완료'로 올린다(store-shared.ts markLinkedItemPrepared).
+        // 준비템 목록/상세 캐시를 그대로 두면 방금 기록한 항목이 화면에서는 계속
+        // 미준비로 보여 준비율이 정체된 것처럼 읽힌다 -- 그래서 여기서 함께 무효화한다.
+        // 연결이 없는 일반 기록은 준비템 상태를 바꾸지 않으므로 무효화도 하지 않는다.
+        //
+        // FIX-119B/F1 (R19 H-2) 유지 근거: 여기의 무효화는 "로컬 우선 저장 직후"이므로 실서버
+        // 세션에서는 아직 서버가 지출을 받기 전이다(createExpenseOffline은 outbox flush를
+        // fire-and-forget으로 띄운다). 실제 서버 반영 시점의 무효화는 src/offline/
+        // sync-controller.ts attemptFlush 성공 분기가 담당한다. 그래도 이 호출을 남기는 이유는
+        // 데모/로컬 백엔드 세션(LOCAL_SESSION_TOKEN) 때문이다 -- 그 경로의 "서버"는 동기적인
+        // 인메모리 백엔드라 flush가 즉시 끝나고 준비템 상태가 곧바로 바뀌므로, 화면 전환 전
+        // 이 무효화가 그대로 유효하다(그리고 무효화 자체는 멱등이라 실서버에서도 무해하다).
+        if (linkedItemTemplateId) {
+          await queryClient.invalidateQueries({ queryKey: ["items"] });
+          await queryClient.invalidateQueries({ queryKey: ["item-detail"] });
+        }
+      })().catch(() => {
+        // 무시한다(위 주석). 남는 것은 낡은 캐시뿐이고, 다음 마운트·포커스 리페치가 덮는다.
+      });
       // 라운드 48 T4(D1): "저장하고 계속 기록"은 **화면을 떠나지 않는다** -- 폼만 비우고 같은
       // 자리에 남아 다음 항목을 바로 받는다(마트 연속 기록). 그 외에는 종전처럼 목적지로
       // 이동하되, 그 목적지가 이제 진입점을 따른다(post-save-destination.ts).

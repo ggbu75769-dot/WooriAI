@@ -957,10 +957,14 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // (src/items/CustomItemSheet.tsx의 CustomItemSheet · CustomItemDetailActions — 소비자 실재:
     // 준비템 목록·상세가 JSX로 부른다)을 열어 147이 됐다(두 시점). 라운드 101 F6a가 금액 프리셋
     // 설정 화면(app/settings/amount-presets.tsx의 AmountPresetsSettingsScreen — 라우터가 경로로
-    // 부르는 화면 default export)을 열어 오늘 148이다(두 시점 — git 워크트리 대조로 유일 순증
-    // 확인, 대장 value도 함께 148로 적음).
-    expect(spotOf("tsx-components")?.value, "적어 둔 값").toBe(148);
-    expect(tsxExportFunctionCount(), "오늘 다시 잰 값 — 갈리면 그 수가 값이다").toBe(148);
+    // 부르는 화면 default export)을 열어 148이 됐다(두 시점 — git 워크트리 대조로 유일 순증
+    // 확인, 대장 value도 함께 148로 적음). 라운드 103 T3이 지출 분류 관리 화면
+    // (app/settings/categories.tsx의 CategoriesSettingsScreen — **정확히 같은 갈래**의 설정 하위
+    // 라우트 default export)을 열어 오늘 149다(두 시점 — tsxExportFunctionCount() 실측, 순증은
+    // 이 하나뿐. 같은 라운드가 연 순수 모듈 src/categories/custom-category-form.ts는 `.ts`라 이
+    // 축이 아니라 모집단 본체에 든다).
+    expect(spotOf("tsx-components")?.value, "적어 둔 값").toBe(149);
+    expect(tsxExportFunctionCount(), "오늘 다시 잰 값 — 갈리면 그 수가 값이다").toBe(149);
 
     // ② common-name — 종전 226(라운드 89 C) → 229(기능 라운드 1), 토스 라운드 T2가 홈의 삼항
     // `HOME_SECTIONS_COLLAPSE_LABEL : …`을 걷어 228이 됐다(두 시점 — 그물이 삼항의 `:`를 키로
@@ -976,8 +980,12 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // (대장 value도 함께 238로 적음). 라운드 102 리뷰 M-1이 239로 하나 더 올렸다(두 시점 —
     // 같은 길: useBudgetWarningHapticStore가 teardown 등재와 함께 같은 표의 객체 키로 섰다.
     // 같은 배치의 다른 새 export 넷은 속성/키 자리로 서지 않아 이 수를 움직이지 않는다).
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(239);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(239);
+    // 라운드 103 T2가 241로 **둘** 올렸다(두 시점 — namesAlsoUsedAsProperty() 실측, 순증은 이
+    // 둘뿐): 커스텀 지출 분류 클라이언트 둘(createCustomCategory · updateCustomCategory)이
+    // 라운드 100 T2의 커스텀 품목 셋과 같은 길로 들어왔다 — client.ts 로컬 세션 분기의
+    // `localBackend.…` 속성 자리로도 그 이름이 선다(대장 value도 함께 241로 적음).
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(241);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(241);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.
@@ -1004,8 +1012,12 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // import 경로 문자열이 그 이름을 담는다(코드 참조가 함께 있어 판정은 움직이지 않았다).
     // 라운드 101 리뷰: 56 → 57 — 트랙 A의 offline-aware-screens.ts 등재 문장(문자열)이
     // LOAD_ERROR_RETRY_LABEL을 인용한다(코드 참조가 여럿이라 판정은 움직이지 않았다 — 실피해 0).
-    expect(spotOf("string-keyed-dynamic-access")?.value, "적어 둔 값").toBe(57);
-    expect(namesReferencedInsideStringLiterals().length, "오늘 다시 잰 값").toBe(57);
+    // 라운드 103 T3: 57 → 60 — 무효화 정책 대장의 ["categories"] 줄이 쓰기 셋을 값으로 갖게 되며
+    // createCustomCategory · updateCustomCategory · customCategoryMutationErrorMessage 셋을
+    // 문자열로 인용한다(셋 다 화면이 코드로 부른다 — 판정은 넷 그대로, 실피해 0).
+    // 두 시점(라운드 103 리뷰 M-3): 60 → 61 (`customCategoryListPhase` 하나 — 워크트리 A/B 실측).
+    expect(spotOf("string-keyed-dynamic-access")?.value, "적어 둔 값").toBe(61);
+    expect(namesReferencedInsideStringLiterals().length, "오늘 다시 잰 값").toBe(61);
 
     // ⑤ 라운드 90 리뷰 M-3이 연 자리 — **스캐너의 오탐 표면**도 값과 실피해를 함께 든다.
     // 두 시점: 105(라운드 90) → 106 — T1의 use-transient-notice.ts가 ASCII '를 지닌 채 호출부에 들어왔다.
@@ -1313,8 +1325,18 @@ describe("ⓘ 문자열 리터럴 축 — 글자는 지우고 템플릿 `${…}`
     // import 경로 문자열로 하나 → 라운드 101 트랙 A의 offline-aware-screens.ts 등재 문장이
     // LOAD_ERROR_RETRY_LABEL을 인용해 하나 더함) 가운데 판정이 움직인 것은 넷뿐이다(나머지는 코드
     // 참조를 함께 갖는다).
+    // ⚠️ 두 시점(라운드 103 T3): 57 → **60**. 커스텀 지출 분류의 관리 화면이 서면서 무효화 정책
+    // 대장(src/query/shared-cache-policy.ts)의 `["categories"]` 줄이 쓰기 셋을 값으로 갖게 됐고,
+    // 그 줄이 쓰기 API 둘(createCustomCategory · updateCustomCategory)을 `writeApis` 문자열로,
+    // 구간 끝 표시가 customCategoryMutationErrorMessage를 문자열로 인용한다
+    // (namesReferencedInsideStringLiterals() 실측 — 순증은 이 셋뿐이다). ⚠️ **판정이 움직인 자리는
+    // 오늘도 넷 그대로다**: 셋 다 제품 소스에 코드 참조를 함께 갖는다(그 대장은 계약 전용 데이터라
+    // 문자열로만 인용하지만, 화면 app/settings/categories.tsx가 셋 다 코드로 부른다).
     const names = namesReferencedInsideStringLiterals();
-    expect(names.length, "문자열 안에 이름이 나오는 모집단 이름 수").toBe(57);
+    // 두 시점(라운드 103 리뷰 M-3): 60 → 61. 늘어난 이름은 워크트리 A/B로 정확히 하나임을
+    // 확인했다(`customCategoryListPhase` — 관리 화면의 조회 국면 판정이 순수 모듈로 나가면서
+    // 배선 테스트와 무효화 정책 대장이 그 이름을 문자열로 인용한다). 판정이 움직인 자리는 넷 그대로다.
+    expect(names.length, "문자열 안에 이름이 나오는 모집단 이름 수").toBe(61);
     const moved = stringOnlyReferenceExports();
     expect(moved.length, "그중 판정이 움직인 자리").toBe(4);
     expect(

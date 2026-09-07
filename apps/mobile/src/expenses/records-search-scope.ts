@@ -74,6 +74,43 @@ export function resolveSearchScopeMonths(input: {
   return yearMonthsBetween({ startYearMonth: floor, endYearMonth: currentYearMonth });
 }
 
+/**
+ * 라운드 104 트랙 SEARCH(#2) — 검색어 **확정 시점**(디바운스) 판정.
+ *
+ * ## 무엇이 문제였나
+ * 기록 탭의 검색은 keystroke마다 즉시 확정됐다(`onChangeText={setSearchText}` — 디바운스 없음).
+ * 월 스코프에서는 그 달의 수십~수백 행이라 티가 나지 않지만, 위 전체 기간 스코프에서는 모집단이
+ * 21~33개월치(월 200건이면 4,000~6,000행)라 **키 한 번마다** 그 전량에
+ * `matchRecordSearch`(행당 정규식 4회 + `toLowerCase` 최대 4회)가 다시 돌고 목록·날짜 그룹·
+ * 섹션·소계가 전부 다시 조립됐다 — 저사양 기기에서 글자가 늦게 따라오던 그 구간이다.
+ *
+ * ## 왜 이 모듈인가
+ * 이 파일이 이미 "검색어가 무엇을 세우는가"의 단일 판정처다(`resolveRecordsSearchScope`가 같은
+ * 검색어로 스코프를 정한다). 확정 시점도 같은 성질의 판정이라 여기 두고, 화면은 타이머 배선만
+ * 진다 — 준비템 탭이 순수 판정(`pendingSearchSubmission`) + 화면 타이머로 나눈 그 관례 그대로다.
+ *
+ * ## 규칙
+ *  - **입력은 기다리지 않는다.** 이 판정은 *파생*을 미룰 뿐이고, 입력칸이 그리는 값은 화면의
+ *    즉시 state다(글자가 늦게 뜨는 일은 이 판정으로 생기지 않는다).
+ *  - **350ms는 새 값이 아니다.** 준비템 탭 검색의 디바운스와 **같은 수**다
+ *    (src/preparation/PreparationListParity.tsx) — 한 앱 안에서 검색 확정 시점이 자리마다
+ *    갈리면 같은 조작이 화면마다 다른 속도로 반응한다.
+ *  - **비우기는 즉시 확정한다(0ms).** 결과를 *넓히는* 조작이라 파생이 오히려 싸지고, 0건 카드의
+ *    [검색어 지우기]·최근 검색어 칩 줄 복귀가 350ms 늦게 반응하면 버튼이 죽은 것으로 보인다.
+ *    판정 기준은 `trim()`이다 — 공백만 남은 입력은 아무것도 좁히지 않는다.
+ *  - **이미 확정된 값에는 아무 일도 없다**(null) — 화면은 타이머 자체를 걸지 않는다.
+ */
+export function recordsSearchCommitDelayMs(input: {
+  /** 입력칸이 지금 들고 있는 값(즉시 state). */
+  searchText: string;
+  /** 무거운 파생이 지금 보고 있는 값(확정 검색어). */
+  appliedSearchText: string;
+}): number | null {
+  if (input.searchText === input.appliedSearchText) return null;
+  if (input.searchText.trim().length === 0) return 0;
+  return 350;
+}
+
 /** 수집이 모은 한 달치 — 서버 목록 원본이다(재조정은 화면이 보고 있는 달과 같은 한 벌로 한다). */
 export type SearchScopeMonthExpenses<TExpense> = { yearMonth: string; expenses: TExpense[] };
 
@@ -85,6 +122,23 @@ export type SearchScopeCollectionResult<TExpense> = {
 };
 
 /**
+ * 라운드 104 트랙 SEARCH(#1) — 수집이 한 번에 띄우는 달 수(고정 동시성 워커 풀의 폭).
+ *
+ * **왜 4인가**(무한 병렬이 아니라 이 수인 근거 셋):
+ *  1. **클라이언트 천장이 거기다.** iOS NSURLSession의 `HTTPMaximumConnectionsPerHost` 기본값이
+ *     4, 안드로이드 OkHttp `Dispatcher.maxRequestsPerHost` 기본값이 5다. 그 위로 더 띄워도
+ *     소켓이 없어 클라 큐에서 기다리므로 **벽시계는 줄지 않고** 떠 있는 약속만 늘어난다.
+ *  2. **서버 한도는 공유 버킷이다.** 레이트 리밋은 IP당 300req/60초인데
+ *     (apps/api/src/common/security/rate-limit.middleware.ts), 한국 이동통신의 CGNAT 뒤에서는
+ *     그 버킷을 수많은 기기가 나눠 쓴다. 수집 한 번의 총량은 달 수(21~33 · retry 1까지 최악
+ *     42~66)라 **어떤 동시성에서도 버킷을 혼자 채우지 못하지만**, 폭이 넓을수록 그 총량이 짧은
+ *     순간에 몰려 남의 몫까지 밀어낸다 — 총 왕복이 같다면 순간 폭은 좁은 쪽이 옳다.
+ *  3. **얻는 것은 이미 충분하다.** 33개월이 33단계에서 `ceil(33/4)=9`단계로, 21개월이 6단계로
+ *     줄어든다(4배 가까이). 8로 넓혀 봐야 1번 때문에 실제 단계 수는 거의 그대로다.
+ */
+const SEARCH_SCOPE_COLLECT_CONCURRENCY = 4;
+
+/**
  * 달 목록을 **최신 달부터** 걷어 한 달씩 모은다(CSV 수집기 `collectExpensesForRange`와 같은
  * 방향 — 실패로 걷다 멈춰도 최근 기록이 먼저 담긴다). 한 달의 실패는 수집 전체를 죽이지 않고
  * `failedMonths`로 남는다 — 부분 결과를 전체로 위장하지 않는 대신, 무엇이 빠졌는지를 값으로
@@ -93,6 +147,18 @@ export type SearchScopeCollectionResult<TExpense> = {
  * `ensureMonth`는 주입받는다(화면은 `queryClient.ensureQueryData(["expenses", childId, ym], …)`를
  * 넘긴다 — 이미 캐시된 달은 요청 0건). 그래서 이 루프는 네트워크를 모르는 순수 함수이고, 같은
  * 달 목록으로 다시 부르면 성공해 둔 달은 캐시에서 즉시 돌아와 **재시도 = 같은 호출**이 된다.
+ *
+ * ## 두 시점 — 라운드 104 트랙 SEARCH(#1): 직렬 `for` → 고정 동시성 워커 풀
+ * 종전에는 몸통이 `await ensureMonth()` 하나뿐인 `for` 루프였다(동시성 1). 21~33개월이 한 줄로
+ * 서서 앞 달이 끝나야 뒷 달이 출발했고, 진행 라벨("불러오는 중 3/21")이 붙어 있다는 사실 자체가
+ * 그 대기를 화면이 이미 인정하고 있었다는 증거다. 지금은 워커 넷이 같은 달 목록을 **앞에서부터
+ * 나눠** 집는다. 바뀐 것은 **동시에 떠 있는 요청 수뿐**이고, 아래 셋은 그대로다:
+ *  - **서버 왕복 수 무변경**: 달마다 `ensureMonth` 정확히 한 번(캐시된 달은 여전히 0회).
+ *  - **호출 순서 무변경**: 워커는 최신 달부터 내려가며 집으므로 먼저 출발하는 달의 순서가 같다.
+ *  - **결과 순서 무변경**: 끝나는 순서가 아니라 **자리(index)** 에 써 넣고 최신 달부터 훑어
+ *    담는다 — `rebuildSearchScopeResult`와 화면 고지가 읽는 그 순서다.
+ * `onProgress`만 뜻이 한 겹 좁아진다: `done`은 여전히 1씩 단조 증가하지만 "몇 번째 달"이 아니라
+ * **"끝난 달 수"**다(동시에 끝나면 끝난 순서대로 센다) — 라벨이 세는 것은 원래 그 수였다.
  */
 export async function collectSearchScopeMonths<TExpense>(
   months: readonly string[],
@@ -104,17 +170,42 @@ export async function collectSearchScopeMonths<TExpense>(
    */
   onProgress?: (done: number, total: number) => void
 ): Promise<SearchScopeCollectionResult<TExpense>> {
-  const collected: SearchScopeMonthExpenses<TExpense>[] = [];
+  const total = months.length;
+  // 자리에 써 넣는다 — 병렬이라 **끝나는 순서**는 뒤섞이지만 목록의 순서는 걷는 순서여야 한다.
+  const slots: (SearchScopeMonthExpenses<TExpense> | undefined)[] = new Array(total);
   const failed: string[] = [];
-  for (let index = months.length - 1; index >= 0; index -= 1) {
-    const yearMonth = months[index];
-    try {
-      const month = await ensureMonth(yearMonth);
-      collected.push({ yearMonth, expenses: month.expenses });
-    } catch {
-      failed.push(yearMonth);
+  // 다음에 집을 달. 최신 달(마지막 인덱스)에서 시작해 내려간다 — 종전 for 루프의 그 방향이다.
+  let nextIndex = total - 1;
+  let done = 0;
+
+  const runWorker = async (): Promise<void> => {
+    for (;;) {
+      const index = nextIndex;
+      if (index < 0) return;
+      // 자바스크립트는 단일 스레드라 이 두 줄 사이에 다른 워커가 끼어들 수 없다(await 없음) —
+      // 그래서 한 달을 두 워커가 집는 일도, 건너뛰는 일도 없다(왕복 수가 정확히 달 수인 근거).
+      nextIndex = index - 1;
+      const yearMonth = months[index];
+      try {
+        const month = await ensureMonth(yearMonth);
+        slots[index] = { yearMonth, expenses: month.expenses };
+      } catch {
+        failed.push(yearMonth);
+      }
+      done += 1;
+      onProgress?.(done, total);
     }
-    onProgress?.(months.length - index, months.length);
+  };
+
+  // 달보다 많은 워커는 만들지 않는다(빈 목록이면 워커가 0 — 한 번도 부르지 않는다).
+  await Promise.all(
+    Array.from({ length: Math.min(SEARCH_SCOPE_COLLECT_CONCURRENCY, total) }, () => runWorker())
+  );
+
+  const collected: SearchScopeMonthExpenses<TExpense>[] = [];
+  for (let index = total - 1; index >= 0; index -= 1) {
+    const month = slots[index];
+    if (month) collected.push(month);
   }
   // "YYYY-MM"은 사전순이 곧 시간순이다 — 고지 문장이 이른 달부터 읽히게 오름차순으로 넘긴다.
   return { months: collected, failedMonths: failed.sort() };

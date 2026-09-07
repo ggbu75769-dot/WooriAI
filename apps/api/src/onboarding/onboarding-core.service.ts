@@ -761,6 +761,8 @@ export class OnboardingCoreService {
       // 함께 넘기는 이유는 아래 requireBudgetableCategories의 doc comment에 있다.
       await this.requireBudgetableCategories(
         tx,
+        // 값은 이미 손에 있다 — 이 메서드 첫 줄의 requireChildAccess가 돌려준 아이 행(§1.9 #9).
+        child.householdId,
         entries.map((entry) => entry.categoryId),
         new Set(rows.map((row) => row.categoryId))
       );
@@ -829,15 +831,25 @@ export class OnboardingCoreService {
    * 숨김은 **선택지에서만** 사라지고, 이미 사용자가 정한 사실은 계속 고칠 수 있다.
    * (해제 갈래가 통과하는 방식도 같다 — 해제는 그 id를 배열에서 빼는 것이라 애초에 검증
    * 모집단에 들지 않는다.)
+   *
+   * ⚠️ 두 시점 (라운드 103 · 설계 §1.9 #9) — 종전 술어는 `{ id: { in } }` 하나였다
+   * (`categories`가 소유자 없는 전 가구 공용 시드라 좁힐 축이 없었다). 이제 그 표에 가구가
+   * 만든 분류가 함께 살므로 **그 아이의 가구**로 좁힌다: 자기 가구의 커스텀 분류에는 예산을
+   * 세울 수 있고(`category_budgets.category_id`가 같은 표를 가리키므로 마이그레이션 0건이다),
+   * 남의 가구 커스텀 분류는 "미존재 id" 갈래로 떨어져 종전과 같은 400
+   * `CATEGORY_BUDGET_INVALID_CATEGORY`가 나간다. 라운드 102가 세운 두 갈래 판정(신규 거부 ·
+   * 기존 유지)은 한 글자도 바뀌지 않는다 — 커스텀 분류의 **보관**(active:false)도 그 규칙을
+   * 그대로 탄다(설계 §6.3-3).
    */
   private async requireBudgetableCategories(
     tx: DbClient,
+    householdId: string,
     categoryIds: ReadonlyArray<string>,
     existingCategoryIds: ReadonlySet<string>
   ) {
     if (categoryIds.length === 0) return;
     const found = await tx.category.findMany({
-      where: { id: { in: [...categoryIds] } },
+      where: { id: { in: [...categoryIds] }, OR: [{ householdId: null }, { householdId }] },
       select: { id: true, active: true }
     });
     const knownIds = new Set(found.map((category) => category.id));

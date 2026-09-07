@@ -356,6 +356,16 @@ export default function SettingsScreen() {
             subtitle="지출 입력의 금액 더하기 버튼 네 개를 바꿔요"
             onPress={() => router.push("/settings/amount-presets")}
           />
+          {/* 라운드 103 T3 — 커스텀 지출 분류 관리 진입점(설계 §4.2 확정값).
+              "빠른 금액 버튼" 바로 아래인 이유: 둘 다 "기록을 내 방식으로" 성격의 입력 보조
+              설정이다. 이 화면의 값은 기기 취향이 아니라 **가구 데이터**라 서버 쓰기와 역할
+              게이트를 지나지만(app/settings/categories.tsx), 진입점의 성격은 같다. */}
+          <ListRow
+            icon={<SettingsRowIcon name="pricetags-outline" />}
+            title="지출 분류 관리"
+            subtitle="직접 만든 분류를 더하고, 이름을 바꾸고, 보관해요."
+            onPress={() => router.push("/settings/categories")}
+          />
         </View>
 
         <View style={{ gap: theme.spacing.gap }}>

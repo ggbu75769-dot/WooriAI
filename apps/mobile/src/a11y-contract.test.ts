@@ -3726,7 +3726,15 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
 
     // 오늘의 실측: 일곱 자리(맨 Text 여섯 + Toast 하나) — 자리 수는 라운드 79 트랙 A 때와 같다.
     // 더한 것이 프롭뿐이라 **자리는 하나도 늘거나 줄지 않았다**(아래 ⓓ가 그 사실을 따로 진다).
-    expect(total, "대장 다섯 화면이 그리는 저장 실패 자리 합계").toBe(7);
+    // ⚠️ 두 시점(라운드 103 T3): 일곱 → **열**. 대장에 여섯째 화면(지출 분류 관리)이 서면서
+    // 그 화면의 저장 실패 셋이 이 모집단에 함께 들어왔다 — 머리말이 적어 둔 그대로다
+    // ("화면이 하나 늘면 그 화면도 이 질문을 자동으로 받는다"). 셋 다 프롭 쌍 + announce 한
+    // 벌로 서므로 침묵도, 한 플랫폼만 답하는 자리도 늘지 않았다(아래 두 부정 단언이 그대로 0).
+    // ⚠️ 두 시점(라운드 103 리뷰 L-1): 열 → **열하나**. [다시 사용]은 보관 구획에 있는데 그
+    // 실패 문구는 위 카드에만 있어, 보관 행이 많으면 실패 문장이 스크롤 밖에 섰다. 같은
+    // 뮤테이션(archive)을 쓰는 자리 둘이 이제 같은 문구를 그리므로 자리가 하나 늘었다.
+    // 늘어난 자리도 프롭 쌍 + 같은 announce 한 벌 아래이므로 침묵은 그대로 0건이다.
+    expect(total, "대장 여섯 화면이 그리는 저장 실패 자리 합계").toBe(11);
     // 오늘의 값: 낭독 밖은 **0건**이다(트랙 A 뒤 넷 → 통합이 핀과 화면을 함께 움직여 0).
     expect(silent.sort(), "낭독 밖에 남은 저장 실패 자리").toEqual([]);
     // 그 0은 손으로 적은 값이 아니라 위 제외 목록에서 파생한다 — 제외가 다시 생기면 그 목록에
@@ -3740,7 +3748,11 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
     // 가진다: 맨 Text 여섯은 `announce`(프롭 + useEffect 배선), Toast 하나는 자기가 진다.
     expect(androidOnly.sort(), "프롭만 걸려 안드로이드에서만 읽히는 자리").toEqual([]);
     expect(ANDROID_ONLY_LIVE_REGION_REASON, "한 플랫폼만 답하는 자리를 세는 이유").toContain("@platform android");
-    expect(exits, "출구별 자리 수").toEqual({ announce: 6, toast: 1 });
+    // ⚠️ 두 시점(라운드 103 T3): announce 여섯 → **아홉**. 늘어난 셋은 지출 분류 관리의 저장
+    // 실패 셋이고, 셋 다 프롭 쌍과 announce 배선을 **함께** 들고 들어왔다(Toast 축은 그대로 하나).
+    // ⚠️ 두 시점(라운드 103 리뷰 L-1): announce 아홉 → **열**. 늘어난 하나는 archive 실패
+    // 문구가 보관 구획에도 서게 된 자리이고, 프롭 쌍과 announce 배선을 함께 들고 들어왔다.
+    expect(exits, "출구별 자리 수").toEqual({ announce: 10, toast: 1 });
   });
 
   it("ⓐ-4 일곱 자리 전부 announce 배선이 소스에 실재한다 (맨 Text 여섯 = useEffect · Toast 하나 = 컴포넌트)", () => {
@@ -4734,6 +4746,15 @@ const MUTATION_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
   "app/import/[importJobId].tsx": 3,
   "app/import/index.tsx": 2,
   "app/items/[itemTemplateId].tsx": 1,
+  // ⚠️ 두 시점(라운드 103 T3): 이 표에 **열넷째 화면**이 섰다. 지출 분류 관리
+  // (app/settings/categories.tsx)의 저장 실패 셋 — 추가 · 이름 바꾸기 · 보관/다시 사용이
+  // 각자 자기 뮤테이션을 묻는 자리다(라운드 70 M-2의 그 규율). 셋 다 아래 프롭 쌍 + announce
+  // 한 벌로 서므로 출구는 전부 `announce`이고, 이 라운드가 새로 뚫은 침묵은 0건이다.
+  // ⚠️ 두 시점(라운드 103 리뷰 L-1): 셋 → **넷**. archive 뮤테이션의 실패 문구가 [보관]이 있는
+  // 사용 중 카드와 [다시 사용]이 있는 보관 카드 **두 자리**에 서게 됐다(종전에는 위 카드에만
+  // 있어 보관 행이 많으면 실패 문장이 스크롤 밖이었다). 자리는 둘이지만 방아쇠는 여전히 셋이며,
+  // 넷째 자리도 같은 announce 한 벌 아래라 이 라운드가 뚫은 침묵은 0건이다.
+  "app/settings/categories.tsx": 4,
   "app/settings/children.tsx": 3,
   "app/settings/notifications.tsx": 2,
   "app/settings/privacy.tsx": 7
@@ -4770,6 +4791,13 @@ const MUTATION_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
  */
 const QUERY_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
   "app/budget.tsx": 2,
+  // ⚠️ 두 시점(라운드 103 T3) — 라운드 102 L-a11y가 예산 화면에서 만난 것과 **정확히 같은
+  // 모양** 둘이다: 지출 분류 관리의 **저장을 잠그는 오류 두 줄**(이름 바꾸기 검증 · 추가 칸의
+  // 중복/상한)이 `theme.colors.danger`를 입는데, 그 판정이 `["categories"]` 목록에서 파생하므로
+  // (중복 비교의 모집단이 그 목록이다) 이 스캐너가 **쿼리 방아쇠**로 분류한다. 실제 방아쇠는
+  // 조회가 아니라 **사용자의 타이핑**이고, 그래서 두 줄 다 제외 사유에 기대지 않는다 —
+  // 자기 프롭 쌍(live-region + alert)을 달고 스스로 읽힌다. 수가 둘 는 것은 침묵이 는 것이 아니다.
+  "app/settings/categories.tsx": 2,
   "app/family/accept/[token].tsx": 2,
   "app/family/index.tsx": 4,
   "app/import/[importJobId].tsx": 2
@@ -4804,7 +4832,15 @@ const CONTAINED_MUTATION_SITES: Readonly<Record<string, string>> = {
  */
 const BARE_QUERY_SITES: Readonly<Record<string, string>> = {
   "app/budget.tsx categoryForm.formError":
-    "조건만 쿼리(카테고리 목록)이고 방아쇠는 사용자의 타이핑이다 — 저장을 잠그는 오류라 자기 프롭 쌍(live-region+alert)으로 스스로 읽힌다"
+    "조건만 쿼리(카테고리 목록)이고 방아쇠는 사용자의 타이핑이다 — 저장을 잠그는 오류라 자기 프롭 쌍(live-region+alert)으로 스스로 읽힌다",
+  // ⚠️ 두 시점(라운드 103 T3): 하나 → **셋**. 늘어난 둘은 지출 분류 관리의 같은 갈래다 —
+  // 판정이 `["categories"]` 목록에서 파생하므로(중복 비교의 모집단이 그 목록이다) 조건은
+  // 쿼리로 읽히지만, 방아쇠는 사용자의 타이핑이고 출구는 자기 프롭 쌍이다. 위 예산 화면의
+  // 그 줄과 **같은 문장, 같은 근거**이고, 조건("맨 줄이면 침묵일 수 없다")도 그대로 만족한다.
+  "app/settings/categories.tsx limitReached || draftNotice":
+    "조건만 쿼리(카테고리 목록에서 중복·상한을 판정한다)이고 방아쇠는 추가 칸의 타이핑이다 — 추가를 잠그는 오류라 자기 프롭 쌍(live-region+alert)으로 스스로 읽힌다",
+  "app/settings/categories.tsx renameNotice":
+    "같은 갈래의 이름 바꾸기 칸 — 조건은 목록에서 파생한 중복 판정이고 방아쇠는 타이핑이다. 저장을 잠그는 오류라 자기 프롭 쌍으로 스스로 읽힌다"
 };
 
 describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에서 파생)", () => {
@@ -4828,14 +4864,21 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
     // 종전 값은 스물이었고 늘어난 다섯은 스캐너가 놓치던 자리다 — 지출 저장 실패 Toast 둘
     // (`new.tsx`·`[expenseId].tsx`) · 준비템 상태 변경 실패 Toast 둘(`(tabs)/items.tsx`·
     // `items/[itemTemplateId].tsx`) · 로그인 실패 카드 하나(`(auth)/login.tsx`).
-    expect(mutationSites.length, "뮤테이션 방아쇠 자리 합계").toBe(25);
+    // ⚠️ 두 시점(라운드 103 T3): 스물다섯 → **스물여덟**(지출 분류 관리의 저장 실패 셋).
+    // ⚠️ 두 시점(라운드 103 리뷰 L-1): 스물여덟 → **스물아홉**(archive 실패 문구가 [보관]과
+    // [다시 사용] 두 자리에 서게 됐다 — 방아쇠는 그대로 셋이고 자리만 넷이다).
+    expect(mutationSites.length, "뮤테이션 방아쇠 자리 합계").toBe(29);
 
     const exits: Record<string, number> = {};
     for (const site of mutationSites) exits[site.exit] = (exits[site.exit] ?? 0) + 1;
     // 오늘의 값: 낭독 밖은 **0건**이다. 스물은 프롭 + useEffect로, 다섯(Toast)은 자기가
     // announce해서 출구를 가진다. ⚠️ 재실측이 더한 다섯 자리는 **전부 이미 출구가 있었다** —
     // 넓어진 모집단이 새로 뚫은 침묵은 0건이다.
-    expect(exits, "출구별 자리 수").toEqual({ announce: 20, toast: 5 });
+    // ⚠️ 두 시점(라운드 103 T3): announce 스물 → **스물셋**. 늘어난 셋은 전부 프롭 쌍 +
+    // announce 한 벌을 함께 들고 들어왔다(Toast 축은 한 자도 움직이지 않았다).
+    // ⚠️ 두 시점(라운드 103 리뷰 L-1): announce 스물셋 → **스물넷**(archive 실패 문구의
+    // 둘째 자리 — 방아쇠는 그대로 셋이고 출구는 같은 announce 한 벌이다).
+    expect(exits, "출구별 자리 수").toEqual({ announce: 24, toast: 5 });
   });
 
   it("ⓑ 부정 단언 — 프롭만 걸린 자리 0건(iOS 침묵 0건) · 낭독 밖 0건이고 그 0이 값에서 파생한다", () => {
@@ -5490,7 +5533,9 @@ ${card("useEffect(() => { announceForA11y(text); }, [text]);")}
     // LoadErrorCard로 옮겨 가 danger 색 바늘 밖으로 나갔다(QUERY_TRIGGER_SITES_BY_SCREEN 머리말).
     // ⚠️ 두 시점(라운드 102 리뷰 L-a11y): 3 → 4 — 예산 화면의 카테고리 예산 카드에서 **저장을
     // 잠그는 오류 두 줄**이 캡션 회색에서 danger로 갈려 이 바늘 안에 들어왔다(같은 머리말).
-    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(4);
+    // ⚠️ 두 시점(라운드 103 T3): 4 → 5 — 지출 분류 관리의 저장 잠금 오류 두 줄이 **같은 갈래로**
+    // 들어왔다(판정이 ["categories"] 목록에서 파생해 조건이 쿼리로 읽힌다 — 같은 머리말).
+    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(5);
     expect(MUTATION_TRIGGER_SITES_BY_SCREEN["app/settings/privacy.tsx"], "개인정보 화면의 자리 수").toBe(7);
     expect(Object.keys(MUTATION_TRIGGER_SITES_BY_SCREEN)).not.toContain("app/(onboarding)/child-profile.tsx");
     expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "대장 스윕의 제외").toEqual([]);
@@ -5847,8 +5892,11 @@ export default function Screen() {
     // LoadErrorCard로 옮겨 갔다 — QUERY_TRIGGER_SITES_BY_SCREEN 머리말).
     // ⚠️ 두 시점(라운드 102 리뷰 L-a11y): 3 → 4(예산 화면의 저장 잠금 오류 두 줄이 danger로
     // 갈려 바늘 안에 들어왔다 — 같은 머리말).
-    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(4);
-    expect(Object.keys(MUTATION_TRIGGER_SITES_BY_SCREEN).length, "뮤테이션 방아쇠 화면").toBe(13);
+    // ⚠️ 두 시점(라운드 103 T3): 쿼리 방아쇠 화면 4 → 5 · 뮤테이션 방아쇠 화면 13 → 14 —
+    // 지출 분류 관리(app/settings/categories.tsx)가 저장 실패 셋과 저장 잠금 오류 둘을 함께
+    // 들고 두 모집단에 섰다. 두 표의 머리말이 그 경위를 값으로 진다.
+    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(5);
+    expect(Object.keys(MUTATION_TRIGGER_SITES_BY_SCREEN).length, "뮤테이션 방아쇠 화면").toBe(14);
     expect(MUTATION_TRIGGER_SITES_BY_SCREEN["app/settings/privacy.tsx"], "개인정보 화면의 자리 수").toBe(7);
     expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "대장 스윕의 제외").toEqual([]);
     expect(Object.keys(ALERT_ROLE_WITHOUT_LIVE_REGION), "role 단독의 제외").toEqual(["app/(tabs)/items.tsx"]);

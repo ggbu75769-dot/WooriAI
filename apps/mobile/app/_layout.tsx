@@ -91,6 +91,8 @@ const FORWARD_STACK_SCREENS = [
   // 라운드 101 W2 F6a: 금액 프리셋 편집 — 설정 하위 상세라 같은 전진 문법이다.
   "settings/amount-presets",
   "settings/app-lock",
+  // 라운드 103 T3: 지출 분류 관리 — 같은 설정 하위 상세라 전진 문법도 같다.
+  "settings/categories",
   "settings/children",
   "settings/notifications",
   "settings/privacy",

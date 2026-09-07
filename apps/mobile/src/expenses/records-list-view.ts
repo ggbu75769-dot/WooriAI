@@ -73,6 +73,9 @@ export type RecordsCategoryChip = {
  *    always survives the dedupe, and a selection the server list does not contain at all
  *    (legacy/inactive/demo id, or a chip picked while the fallback below was showing) is
  *    prepended so the row never loses the chip the list is currently filtered by;
+ *  - 라운드 103 리뷰 M-2: `householdScopeId`(이 화면이 보고 있는 가구)를 주면 **다른 가구의
+ *    커스텀 분류는 칩으로 서지 않는다** — 그 규칙 하나도 `selectableCategories`(규칙 e)에만 있고
+ *    여기에는 없다. 생략/null이면(가구를 아직 모르는 콜드 진입) 종전과 한 칩도 다르지 않다;
  *  - an empty/loading/failed list falls back to the static 8 tiles, so the row never disappears
  *    offline and preview/demo capture keeps its icons.
  *
@@ -82,9 +85,10 @@ export type RecordsCategoryChip = {
  */
 export function buildRecordsCategoryChips(
   categories: readonly SelectableCategory[] | null | undefined,
-  selectedCategoryId?: string | null
+  selectedCategoryId?: string | null,
+  householdScopeId?: string | null
 ): RecordsCategoryChip[] {
-  const offered = selectableCategories(categories ?? [], selectedCategoryId);
+  const offered = selectableCategories(categories ?? [], selectedCategoryId, householdScopeId);
 
   if (offered.length === 0) {
     // D1 후속(실기기 피드백 2): 카탈로그의 `icon`은 더 이상 텍스트 글리프가 아니라 Ionicons
@@ -101,6 +105,10 @@ export function buildRecordsCategoryChips(
     }));
   }
 
+  // ⚠️ 라운드 103 M-2: 이 동명 흡수만은 **합집합 전량**을 그대로 훑는다(위 `offered`와 다르다).
+  // `matchIds`는 저장되는 값이 아니라 목록을 거르는 축이고, 넓히는 방향으로만 쓰인다 — 남의 가구
+  // 커스텀 id가 여기 섞여도 그 id로 기록된 지출은 이 화면의 모집단(이 아이의 지출)에 애초에 없다.
+  // 좁히면 반대로 잃는 것이 생긴다(이름 해석·동명 흡수는 전량이 전제다 — 위 buildCategoryNameLookup).
   const idsByName = new Map<string, string[]>();
   for (const category of categories ?? []) {
     const name = category?.name?.trim();

@@ -647,6 +647,24 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       await createMembership(orphanedHousehold.id, soleOwner.id, "left");
       const orphanChild = await createChild(orphanedHousehold.id, null);
       const orphanItem = await createCustomItem(orphanChild.id, soleOwner.id);
+      /**
+       * 라운드 103 T1(설계 §1.8 체크리스트) — 커스텀 **지출 분류**는 `categories`의 가구 소유
+       * 행이고 `household_id`가 ON DELETE CASCADE(000024)라, 가구 물리 파기가 잡 코드 수정
+       * 없이 함께 지운다(custom_items 000022 · category_budgets 000023과 같은 관례).
+       * 이 표에 `created_by_user_id`를 두지 않은 것도 같은 절의 결정이라, 사용자 파기의
+       * 참조 차단 검사(findReferenceBlockedUserIds · selectPurgeableStubs)는 무접촉이다 —
+       * 아래에서 작성자가 anonymize가 아니라 **하드 삭제**로 끝나는 것이 그 사실의 값이다.
+       */
+      const orphanCategory = await prisma.category.create({
+        data: {
+          householdId: orphanedHousehold.id,
+          code: `custom_${randomUUID().replace(/-/gu, "")}`,
+          name: "파기 테스트 커스텀 분류",
+          isSystem: false,
+          displayOrder: 2000
+        }
+      });
+      const seedCountBefore = await prisma.category.count({ where: { householdId: null } });
 
       const result = await job.run(now);
       expect(result.householdsPurged as number).toBeGreaterThanOrEqual(1);
@@ -658,6 +676,10 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       expect(await prisma.child.findUnique({ where: { id: orphanChild.id } })).toBeNull();
       expect(await prisma.household.findUnique({ where: { id: orphanedHousehold.id } })).toBeNull();
       expect(await prisma.user.findUnique({ where: { id: soleOwner.id } })).toBeNull();
+      // 라운드 103: 가구 물리 파기 후 그 가구의 categories 행 0건 · **운영 시드는 불변**.
+      expect(await prisma.category.count({ where: { householdId: orphanedHousehold.id } })).toBe(0);
+      expect(await prisma.category.findUnique({ where: { id: orphanCategory.id } })).toBeNull();
+      expect(await prisma.category.count({ where: { householdId: null } })).toBe(seedCountBefore);
     });
 
     it("소프트 삭제된 아이의 phase 2 파기도 커스텀 품목을 함께 지운다(고아 0)", async () => {

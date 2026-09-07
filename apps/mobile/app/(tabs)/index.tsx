@@ -418,7 +418,9 @@ const homeBudgetNudgeArrowStyle = StyleSheet.create({
   button: {
     alignItems: "center",
     backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.10)",
+    // 라운드 104 TK4: 종전 리터럴 rgba(74, 63, 53, 0.10) → 이제 토큰
+    // presentation.hairlineStrong, 값 동일(#4A3F35 10% — 카드·칩 외곽선 관례값).
+    borderColor: theme.colors.presentation.hairlineStrong,
     borderRadius: 16,
     borderWidth: 1,
     height: 34,
@@ -581,7 +583,9 @@ const homeHeroStyle = StyleSheet.create({
   },
   nudge: {
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.18)",
+    // 라운드 104 TK4: 종전 리터럴 rgba(255, 255, 255, 0.18) → 이제 토큰
+    // presentation.heroOverlayFaint, 값 동일(코랄 히어로 위 흰 18%).
+    backgroundColor: theme.colors.presentation.heroOverlayFaint,
     borderRadius: theme.radii.small,
     flexDirection: "row",
     gap: 10,

@@ -56,6 +56,16 @@ import {
   CHILD_BIRTH_DATE_TOO_OLD_ERROR,
   CHILD_DUE_DATE_BEYOND_TERM_ERROR
 } from "../children/child-form";
+// 라운드 103 T3: 커스텀 지출 분류의 세 문구. 같은 규율(`amountOverLimitMessage`가 세운 선례)이라
+// **표가 폼 모듈을 읽는다** — 상한 15가 여기 리터럴로 적히면 계약 상수
+// (packages/contracts `CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD`)와 갈라지는 순간을 아무도 모른다.
+// ⚠️ 방향은 한쪽뿐이다: custom-category-form.ts는 이 파일을 import하지 않는다(그 파일 머리말의
+// 그 문단 — 순환이 되면 이 객체 리터럴이 초기화될 때 세 함수가 아직 없을 수 있다).
+import {
+  customCategoryDuplicateMessage,
+  customCategoryLimitExceededMessage,
+  customCategoryNotFoundMessage
+} from "../categories/custom-category-form";
 
 /** 서버 오류 응답 봉투(apps/api/src/common/filters/global-exception.filter.ts)에서 꺼낸 값. */
 export type ApiErrorEnvelope = {
@@ -272,6 +282,44 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
    */
   CATEGORY_BUDGET_INVALID_CATEGORY: "예산을 세울 수 없는 카테고리예요.",
   CATEGORY_BUDGET_LIMIT_EXCEEDED: "카테고리 예산은 한 달에 30개까지 정할 수 있어요.",
+
+  /**
+   * --- 커스텀 지출 분류의 실패 셋 (라운드 103 · POST/PATCH /households/:householdId/categories) ---
+   *
+   * 서버 원문 그대로다(docs/5차/round103-custom-expense-category-design.md §9.3 —
+   * households/custom-categories.service.ts가 던진다). 관리 화면
+   * (app/settings/categories.tsx)의 저장 실패는 `useSaveErrorCopy`를 지나 이 표를 읽으므로
+   * (라운드 70 B), 여기 없으면 **다시 눌러도 절대 풀리지 않는 셋**이 "저장하지 못했어요.
+   * 네트워크 연결을 확인한 뒤 다시 시도해 주세요."라는 틀린 안내로 접힌다.
+   *
+   * ⚠️ **두 시점 — 이 세 줄은 T2가 이월로 넘긴 자리다.** 라운드 103의 트랙 분할(설계 §8)에서
+   * 이 파일은 T2 소유 목록 밖이었고, 그래서 로컬 대역(src/api/local-backend.ts)이 같은 세
+   * 문장을 **자기 리터럴로** 던지고 있었다(그 파일의 주석이 *"표에 세 줄이 서는 걸음에서 이
+   * 셋은 그 표를 읽도록 옮겨야 한다"* 고 그 빚을 적어 뒀다). T3가 그 줄을 세운다 — 그리고
+   * §9.6이 *"상한·중복 문구는 화면이 짓지 않는다"* 고 못 박은 그 단일 소스가 이 표다.
+   *
+   * ⚠️ **왜 셋 중 하나가 정적 리터럴이 아니라 호출인가**(그리고 왜 셋 다 그렇게 했나):
+   * 종전 관례는 상한 문구에 숫자를 그대로 적는 것이었다 — 바로 윗줄
+   * `CATEGORY_BUDGET_LIMIT_EXCEEDED`의 "30"이 그 예이고, 그 자리의 주석은 이유까지 적어 뒀다
+   * (*"amountOverLimitMessage처럼 읽어 올 모바일 쪽 단일 소스 모듈이 이 상한에는 없다"*).
+   * **이제 여기에는 있다** — `src/categories/custom-category-form.ts`가 관리 화면의 판정·문구를
+   * 소유하는 순수 모듈이고, 그 모듈이 상한 15의 모바일 쪽 사본을 든다(대조는 그 모듈의 옆
+   * 테스트가 packages/contracts 소스를 읽어서 문다). 그래서 이 표는
+   * `EXPENSE_AMOUNT_TOO_LARGE: amountOverLimitMessage()`와 **같은 형태**로 그 모듈을 읽는다:
+   * 이 표는 정적 리터럴만 허용하는 표가 아니고(그 줄이 선례다), 숫자를 손으로 적으면 상한이
+   * 바뀌는 날 표가 거짓말을 한다. 나머지 둘도 같은 모듈에서 읽는 이유는 **셋이 한 화면의 한
+   * 벌**이기 때문이다 — 사전 판정(중복은 저장 전에 화면이 먼저 막는다)과 서버 400이 같은
+   * 실패를 다른 말로 부르면 그것이 곧 두 개의 계약이다.
+   *
+   * 도달성 메모: 중복은 사전 판정이 먼저 막으므로 서버 400에 닿는 경로는 **경합**(공동부모가
+   * 같은 이름을 동시에 만든다)과 오래된 목록 캐시이고, 한도는 화면이 상한에서 버튼을 잠그므로
+   * 같은 두 경로다. 404는 다른 기기가 그사이 그 행을 어찌하지 못하므로(하드 삭제 경로가
+   * 없다 — §1.6) 사실상 구버전·우회 클라이언트의 자리다. 낮은 도달성이 곧 낮은 비용이라는
+   * 판단은 `EXPENSE_DATE_TOO_OLD`가 세운 그것이다.
+   */
+  CUSTOM_CATEGORY_NAME_DUPLICATE: customCategoryDuplicateMessage(),
+  CUSTOM_CATEGORY_LIMIT_EXCEEDED: customCategoryLimitExceededMessage(),
+  CUSTOM_CATEGORY_NOT_FOUND: customCategoryNotFoundMessage(),
 
   /**
    * 라운드 69 B — **가장 도달하기 쉬운 자리**(400). 준비템에서 "샀어요"를 눌러 오프라인으로

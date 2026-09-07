@@ -243,11 +243,17 @@ const BLIND_SPOTS: readonly {
     // collectingRef 잠금 + 버튼 disabled가 이중으로 막는다(use-search-scope-collection.ts ·
     // records-search-scope.test.ts의 배선 계약) — 이 사각의 뜻(연타 판정을 이 계약이 묻지
     // 않는다)은 그대로다.
-    measure: 36,
+    // ⚠️ 두 시점(라운드 104 B-5): 36 → **35**. 동기화 상태 화면의 일괄 둘
+    // (`void retryAllOfflineMutations(…)` · `void discardAllOfflineMutations()` —
+    // app/sync-status.tsx)이 실패 표면을 가진 한 자리로 접혔다(`bulkAction.run(() => …)`).
+    // 그 화면은 파일 전체에 catch가 0개라 저장소가 답하지 않으면 눌러도 아무 말이 없었고,
+    // 그 라운드가 복구 호출 전부를 거절을 붙잡는 한 벌 뒤로 넣었다 — 즉 이 사각이 세던 자리
+    // 둘이 실제로 줄었다(자리 셋 → 둘: 그 한 벌의 `void <호출>(` 하나가 남는다).
+    measure: 35,
     floor: 1,
     reason:
       "쓰기가 `useMutation` 밖에 서면 이 바늘에 걸리지 않는다 — 직접 `fetch(`(오늘 이 모집단에 0건)와 " +
-      "`void <호출>(`(오늘 36)이 그 자리다. 그 자리들의 연타 판정은 이 계약이 묻지 않는다.",
+      "`void <호출>(`(오늘 35)이 그 자리다. 그 자리들의 연타 판정은 이 계약이 묻지 않는다.",
     resumeCondition:
       "재개 조건(사건형): `useMutation` 밖의 쓰기가 핵심 루프 안에 서는 날 — 그날 첫 모집단은 이 36이다."
   },

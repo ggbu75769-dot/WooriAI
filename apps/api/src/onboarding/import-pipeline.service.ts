@@ -754,8 +754,17 @@ export class ImportPipelineService {
     // ① 고유 분류 id 집합 한 번. 이 집합의 크기는 **행 수가 아니라 분류 표의 크기**로 막힌다
     //    (2,000행이라도 서로 다른 분류가 그보다 많을 수는 없다) — 조회는 한 문장이고 그 인자
     //    개수도 행 수에 비례하지 않는다.
+    //
+    //    ⚠️ 두 시점 (라운드 103 · 설계 §1.9 #7) — 종전 이 술어는 `{ id: { in } }` 하나였다
+    //    (`categories`에 소유자 칸이 없어 존재 = 사용 가능이었다). 이제 그 표에 다른 가구의
+    //    커스텀 분류가 함께 살므로 잡의 가구로 좁힌다 — **확정이 남의 분류를 지출에 심지
+    //    못한다.** 오늘 이 경로가 실어 오는 id는 파서가 고른 정식 code의 id 아니면 가져오기
+    //    스텁이라(둘 다 `household_id IS NULL`) 동작 변화는 0이고, 이 술어는 방어선이다.
     const categoryIds = [...new Set(rows.map((row) => row.categoryId!))];
-    const existingCategories = await tx.category.findMany({ where: { id: { in: categoryIds } }, select: { id: true } });
+    const existingCategories = await tx.category.findMany({
+      where: { id: { in: categoryIds }, OR: [{ householdId: null }, { householdId: job.householdId }] },
+      select: { id: true }
+    });
     if (existingCategories.length !== categoryIds.length) {
       const found = new Set(existingCategories.map((category) => category.id));
       /**
@@ -774,7 +783,7 @@ export class ImportPipelineService {
        * 진행되는 것이 옳다.
        */
       for (const categoryId of categoryIds.filter((id) => !found.has(id))) {
-        await this.expensesStore.requireExistingCategory(categoryId, tx);
+        await this.expensesStore.requireExistingCategory(categoryId, job.householdId, tx);
       }
     }
 
@@ -924,8 +933,16 @@ export class ImportPipelineService {
    */
   private async buildImportRowsFromParsed(childId: string, parsedRows: ParsedImportRow[]): Promise<ImportRowRow[]> {
     const categoryCodes = [...new Set(parsedRows.map((row) => row.categoryCode).filter((code): code is string => Boolean(code)))];
+    // 라운드 103 §1.9 #8 — 파서의 `CATEGORY_KEYWORDS`는 **정식 code 고정 목록**이라 오늘도
+    // 시드만 매치한다. `householdId: null`을 명시하는 것은 동작 변화가 아니라 방어선이다:
+    // 커스텀 code는 `custom_` + 32hex라 이 목록과 겹칠 수 없지만, 그 사실이 파서 쪽 상수에만
+    // 적혀 있으면 사전이 넓어지는 날 조용히 남의 분류를 집게 된다(가구별 키워드 사전은
+    // 별도 설계 — 설계 §7 이월표).
     const categories = categoryCodes.length
-      ? await this.prisma.category.findMany({ where: { code: { in: categoryCodes } }, select: { id: true, code: true } })
+      ? await this.prisma.category.findMany({
+          where: { code: { in: categoryCodes }, householdId: null },
+          select: { id: true, code: true }
+        })
       : [];
     const categoryIdByCode = new Map(categories.map((category) => [category.code, category.id]));
 

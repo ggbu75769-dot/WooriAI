@@ -30,7 +30,8 @@ import {
   SYNC_STATUS_PENDING_LABEL,
   SYNC_STATUS_RETRY_LABEL,
   SYNC_STATUS_SYNCING_LABEL,
-  SYNC_STATUS_SYNCING_ROW_MESSAGE
+  SYNC_STATUS_SYNCING_ROW_MESSAGE,
+  syncStatusActionFailedMessage
 } from "../src/offline/messages";
 import {
   countRetryableFailedRows,
@@ -101,6 +102,41 @@ type SyncListItem =
   // 무엇에 대한 대기인지는 행이 스스로 말해야 한다.
   | { kind: "item-status-failed"; key: string; row: ItemStatusOutboxRow }
   | { kind: "item-status-pending"; key: string; row: ItemStatusOutboxRow };
+
+/**
+ * 라운드 104 B-5 — **복구 동작의 실패를 그 자리에서 말한다.**
+ *
+ * 종전에는 이 화면의 복구 호출 열넷이 전부 `onPress={() => doSomething(...)}` 꼴의
+ * fire-and-forget이었다(파일 전체 `catch` 0개). 그 함수들은 하나같이 `await getOfflineStore()`로
+ * 시작하므로 저장소가 죽으면 조용히 reject하고, 목록은 그대로 남아 **눌린 것을 앱이 못 봤다**고
+ * 읽혔다 → 이제 거절을 붙잡아 누른 자리 안에 한 줄을 세운다(문구·근거는 messages.ts의
+ * `syncStatusActionFailedMessage`).
+ *
+ * 훅으로 두는 이유: 실패 표시는 **누른 그 행/섹션의 상태**라 컴포넌트마다 각자 들고 있어야 하고
+ * (한 행의 실패가 다른 행에 뜨면 그것이 또 다른 거짓말이다), 다시 누르면 지워지는 규칙이 다섯
+ * 자리에서 같아야 하기 때문이다. 라운드 62 #2가 대기 행 버리기 거절에 세운 규칙과 같은 모양이다.
+ *
+ * ⚠️ 훅이라 **조기 반환 위**에서 불러야 한다 — FailedRow처럼 갈래마다 다른 JSX를 돌려주는
+ * 컴포넌트가 이 규율을 따른다.
+ */
+function useRecoveryActionFailure(): { failed: boolean; run: (action: () => Promise<unknown>) => void } {
+  const [failed, setFailed] = useState(false);
+  const run = useCallback((action: () => Promise<unknown>) => {
+    // 새로 누른 것은 새 시도다 — 지난 실패 표시부터 걷는다(사용자가 같은 줄을 계속 보고 있으면
+    // 방금 누른 것이 또 실패했는지 알 수 없다).
+    setFailed(false);
+    void Promise.resolve()
+      .then(action)
+      .catch(() => setFailed(true));
+  }, []);
+  return { failed, run };
+}
+
+/** 복구 동작이 거절됐을 때 그 자리에 서는 한 줄. 다섯 자리가 같은 모양을 쓴다. */
+function RecoveryActionFailureLine({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{syncStatusActionFailedMessage()}</Text>;
+}
 
 function SyncRow({ row, children }: { row: LocalExpenseRow; children?: React.ReactNode }) {
   return (
@@ -220,21 +256,24 @@ function ConflictRow({
   formatValue: ConflictValueFormatter;
 }) {
   const [sideBySide, setSideBySide] = useState(false);
+  // 라운드 104 B-5: 훅은 조기 반환 위에서 부른다(아래 삭제-충돌 갈래가 먼저 돌아간다).
+  const resolveFailure = useRecoveryActionFailure();
   if (!row.conflictCurrent || row.conflictCurrent.deleted) {
     return (
       <SyncRow row={row}>
         {/* A11Y-117: 12px 배너 -- coral[500]은 흰 카드 위 3.16:1(AA 미달), coral[700]은 5.56:1 */}
         <Text style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}>{CONFLICT_BANNER_MESSAGE}</Text>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>다른 기기에서 이 기록을 삭제했어요.</Text>
+        <RecoveryActionFailureLine visible={resolveFailure.failed} />
         <View style={{ flexDirection: "row", gap: 8 }}>
           <SecondaryButton
             label={CONFLICT_OPTION_ADOPT_SERVER_LABEL}
-            onPress={() => resolveConflictKeepServer(queryClient, row.localId)}
+            onPress={() => resolveFailure.run(() => resolveConflictKeepServer(queryClient, row.localId))}
             style={{ flex: 1 }}
           />
           <SecondaryButton
             label={CONFLICT_OPTION_REAPPLY_MINE_LABEL}
-            onPress={() => resolveConflictKeepMine(token, queryClient, row.localId)}
+            onPress={() => resolveFailure.run(() => resolveConflictKeepMine(token, queryClient, row.localId))}
             style={{ flex: 1 }}
           />
         </View>
@@ -246,6 +285,7 @@ function ConflictRow({
     <SyncRow row={row}>
       {/* A11Y-117: 12px 배너 -- coral[500]은 흰 카드 위 3.16:1(AA 미달), coral[700]은 5.56:1 */}
       <Text style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}>{CONFLICT_BANNER_MESSAGE}</Text>
+      <RecoveryActionFailureLine visible={resolveFailure.failed} />
       {sideBySide ? (
         <ConflictFieldPicker
           local={row.payload}
@@ -253,7 +293,7 @@ function ConflictRow({
           formatValue={formatValue}
           onConfirm={(merged) => {
             setSideBySide(false);
-            resolveConflictKeepChosenFields(token, queryClient, row.localId, merged);
+            resolveFailure.run(() => resolveConflictKeepChosenFields(token, queryClient, row.localId, merged));
           }}
         />
       ) : (
@@ -261,12 +301,12 @@ function ConflictRow({
           <View style={{ flexDirection: "row", gap: 8 }}>
             <SecondaryButton
               label={CONFLICT_OPTION_ADOPT_SERVER_LABEL}
-              onPress={() => resolveConflictKeepServer(queryClient, row.localId)}
+              onPress={() => resolveFailure.run(() => resolveConflictKeepServer(queryClient, row.localId))}
               style={{ flex: 1 }}
             />
             <SecondaryButton
               label={CONFLICT_OPTION_REAPPLY_MINE_LABEL}
-              onPress={() => resolveConflictKeepMine(token, queryClient, row.localId)}
+              onPress={() => resolveFailure.run(() => resolveConflictKeepMine(token, queryClient, row.localId))}
               style={{ flex: 1 }}
             />
           </View>
@@ -326,11 +366,18 @@ const FailedRow = memo(function FailedRow({
   expenseEntryLocked: boolean;
   explainExpenseEntryLock: () => void;
 }) {
+  // 라운드 104 B-5: 이 컴포넌트는 갈래마다 다른 JSX를 돌려주므로 훅은 **첫 조기 반환 위**에서
+  // 한 번만 부른다(그 아래 세 갈래가 같은 한 줄을 공유한다).
+  const rowAction = useRecoveryActionFailure();
   if (isPermissionDeniedSyncError(row)) {
     return (
       <SyncRow row={row}>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMISSION_DENIED_HINT}</Text>
-        <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
+        <RecoveryActionFailureLine visible={rowAction.failed} />
+        <SecondaryButton
+          label={SYNC_STATUS_DISCARD_LABEL}
+          onPress={() => rowAction.run(() => discardOfflineMutation(row.localId))}
+        />
       </SyncRow>
     );
   }
@@ -389,6 +436,7 @@ const FailedRow = memo(function FailedRow({
     return (
       <SyncRow row={row}>
         <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMANENT_FAILURE_HINT}</Text>
+        <RecoveryActionFailureLine visible={rowAction.failed} />
         {fixParams ? (
           <View style={{ flexDirection: "row", gap: 8 }}>
             <SecondaryButton
@@ -421,7 +469,7 @@ const FailedRow = memo(function FailedRow({
             />
             <SecondaryButton
               label={SYNC_STATUS_DISCARD_LABEL}
-              onPress={() => discardOfflineMutation(row.localId)}
+              onPress={() => rowAction.run(() => discardOfflineMutation(row.localId))}
               style={{ flex: 1 }}
             />
           </View>
@@ -435,7 +483,10 @@ const FailedRow = memo(function FailedRow({
                 <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{FAILED_ROW_OTHER_CHILD_NOTICE}</Text>
               )
             ) : null}
-            <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />
+            <SecondaryButton
+              label={SYNC_STATUS_DISCARD_LABEL}
+              onPress={() => rowAction.run(() => discardOfflineMutation(row.localId))}
+            />
           </>
         )}
       </SyncRow>
@@ -443,13 +494,18 @@ const FailedRow = memo(function FailedRow({
   }
   return (
     <SyncRow row={row}>
+      <RecoveryActionFailureLine visible={rowAction.failed} />
       <View style={{ flexDirection: "row", gap: 8 }}>
         <SecondaryButton
           label={SYNC_STATUS_RETRY_LABEL}
-          onPress={() => token && retryOfflineMutation(token, queryClient, row.localId)}
+          onPress={() => token && rowAction.run(() => retryOfflineMutation(token, queryClient, row.localId))}
           style={{ flex: 1 }}
         />
-        <SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} style={{ flex: 1 }} />
+        <SecondaryButton
+          label={SYNC_STATUS_DISCARD_LABEL}
+          onPress={() => rowAction.run(() => discardOfflineMutation(row.localId))}
+          style={{ flex: 1 }}
+        />
       </View>
     </SyncRow>
   );
@@ -480,17 +536,24 @@ const FailedRow = memo(function FailedRow({
  */
 const PendingRow = memo(function PendingRow({ row }: { row: LocalExpenseRow }) {
   const [discardBlocked, setDiscardBlocked] = useState(false);
+  const [discardFailed, setDiscardFailed] = useState(false);
   const confirmDiscard = useCallback(() => {
     setDiscardBlocked(false);
+    setDiscardFailed(false);
     Alert.alert(SYNC_STATUS_DISCARD_PENDING_CONFIRM_TITLE, SYNC_STATUS_DISCARD_PENDING_CONFIRM_MESSAGE, [
       { text: "취소", style: "cancel" },
       {
         text: SYNC_STATUS_DISCARD_PENDING_LABEL,
         style: "destructive",
         onPress: () => {
-          void discardPendingOfflineMutation(row.localId).then((discarded) => {
-            if (!discarded) setDiscardBlocked(true);
-          });
+          // 라운드 104 B-5: 종전에는 `.then`만 있었다 — 거절(저장소가 답하지 않음)은 어디에도
+          // 뜨지 않았다. 이제 거절도 이 행 안의 한 줄로 말한다(문구는 두 사유가 다르다:
+          // 아래 blocked는 "지금 보내는 중", 이쪽은 "처리하지 못했다").
+          void discardPendingOfflineMutation(row.localId)
+            .then((discarded) => {
+              if (!discarded) setDiscardBlocked(true);
+            })
+            .catch(() => setDiscardFailed(true));
         }
       }
     ]);
@@ -504,6 +567,7 @@ const PendingRow = memo(function PendingRow({ row }: { row: LocalExpenseRow }) {
       {discardBlocked ? (
         <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE}</Text>
       ) : null}
+      <RecoveryActionFailureLine visible={discardFailed} />
       {isDiscardablePendingRow(row) ? (
         <SecondaryButton label={SYNC_STATUS_DISCARD_PENDING_LABEL} onPress={confirmDiscard} />
       ) : null}
@@ -529,6 +593,8 @@ function ItemStatusSyncRow({
   queryClient: ReturnType<typeof useQueryClient>;
 }) {
   const isFailed = row.syncState === "failed";
+  // 라운드 104 B-5: 지출 행과 같은 규칙 — 이 행의 재시도·버리기 거절도 이 행 안에서 말한다.
+  const rowAction = useRecoveryActionFailure();
   return (
     <Card style={{ gap: 8 }}>
       <View style={{ alignItems: "center", flexDirection: "row", gap: 8, justifyContent: "space-between" }}>
@@ -539,6 +605,7 @@ function ItemStatusSyncRow({
         <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{itemStatusLabel(row.status)}</Text>
       </View>
       {row.lastError ? <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{row.lastError}</Text> : null}
+      <RecoveryActionFailureLine visible={rowAction.failed} />
       {isFailed ? (
         // 라운드 47 UX-AB와 같은 규칙: 403은 재시도가 정의상 무익하므로 그 자리를 안내로 바꾼다
         // (보기 전용 역할이 준비 상태를 바꾸려 한 경우가 정확히 이 자리다).
@@ -547,7 +614,7 @@ function ItemStatusSyncRow({
             <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{SYNC_STATUS_PERMISSION_DENIED_HINT}</Text>
             <SecondaryButton
               label={SYNC_STATUS_DISCARD_LABEL}
-              onPress={() => discardOfflineItemStatus(queryClient, row.mutationId)}
+              onPress={() => rowAction.run(() => discardOfflineItemStatus(queryClient, row.mutationId))}
             />
           </>
         ) : !isRetryableSyncFailureRow(row) ? (
@@ -560,19 +627,19 @@ function ItemStatusSyncRow({
             </Text>
             <SecondaryButton
               label={SYNC_STATUS_DISCARD_LABEL}
-              onPress={() => discardOfflineItemStatus(queryClient, row.mutationId)}
+              onPress={() => rowAction.run(() => discardOfflineItemStatus(queryClient, row.mutationId))}
             />
           </>
         ) : (
           <View style={{ flexDirection: "row", gap: 8 }}>
             <SecondaryButton
               label={SYNC_STATUS_RETRY_LABEL}
-              onPress={() => token && retryOfflineItemStatus(token, queryClient, row.mutationId)}
+              onPress={() => token && rowAction.run(() => retryOfflineItemStatus(token, queryClient, row.mutationId))}
               style={{ flex: 1 }}
             />
             <SecondaryButton
               label={SYNC_STATUS_DISCARD_LABEL}
-              onPress={() => discardOfflineItemStatus(queryClient, row.mutationId)}
+              onPress={() => rowAction.run(() => discardOfflineItemStatus(queryClient, row.mutationId))}
               style={{ flex: 1 }}
             />
           </View>
@@ -712,10 +779,19 @@ export default function SyncStatusScreen() {
 
   /** SYNC-127 "전체 재시도": 실패 행 전부를 한 번에 되돌린 뒤 flush 한 번. 100건이면 예전에는
    * 버튼을 100번 눌러 flush를 100번 트리거해야 했다. */
+  // 라운드 104 B-5: 일괄 둘의 거절도 말한다. 자리는 그 두 버튼이 서 있는 **실패 섹션 제목 줄
+  // 아래**다(행 액션이 그 행 안에서 말하는 것과 같은 규칙 — 답이 나온 자리에서 답한다).
+  //
+  // 훅이 돌려주는 **객체가 아니라 두 값을 따로 받는** 이유: 이 화면은 100건 목록을 memo + FlatList로
+  // 그리는 화면이라(SYNC-127) 아래 useCallback·renderSyncRow의 의존성이 렌더마다 새 참조가 되면
+  // 그 가상화가 무의미해진다. `run`은 useCallback으로 참조가 안정적이고, `failed`는 불리언이다.
+  const bulkAction = useRecoveryActionFailure();
+  const runBulkAction = bulkAction.run;
+  const bulkActionFailed = bulkAction.failed;
   const retryAll = useCallback(() => {
     if (!authToken) return;
-    void retryAllOfflineMutations(authToken, queryClient);
-  }, [authToken, queryClient]);
+    runBulkAction(() => retryAllOfflineMutations(authToken, queryClient));
+  }, [authToken, queryClient, runBulkAction]);
 
   /** SYNC-127 "전체 버리기": 되돌릴 수 없는 파괴적 동작이라 지출 삭제(app/expenses/[expenseId].tsx)
    * 와 같은 확인 Alert 관례를 따른다. 몇 건이 사라지는지 본문에 숫자로 밝힌다. */
@@ -728,11 +804,11 @@ export default function SyncStatusScreen() {
         text: SYNC_STATUS_DISCARD_ALL_LABEL,
         style: "destructive",
         onPress: () => {
-          void discardAllOfflineMutations();
+          runBulkAction(() => discardAllOfflineMutations());
         }
       }
     ]);
-  }, [failedRows.length]);
+  }, [failedRows.length, runBulkAction]);
 
   const listData: SyncListItem[] = [];
   if (conflictRows.length > 0) {
@@ -773,25 +849,29 @@ export default function SyncStatusScreen() {
     ({ item }: ListRenderItemInfo<SyncListItem>) => {
       if (item.kind === "section") {
         return (
-          <SectionTitle title={item.title}>
-            {item.actions === "failed-bulk" ? (
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {/* 라운드 51 QA(P2-3): 라벨이 대상(지출)과 건수를 함께 말하므로 스크린리더용
-                    문구를 따로 두지 않는다 -- 두 문장이 갈라질 자리를 만들지 않는다.
-                    라운드 58 #4: 그 건수는 이제 **재시도가 다룰 수 있는 행**만 센다(위
-                    retryableFailedCount). 0건이면 버튼 자체가 없다 -- 눌러도 아무 일이 없는
-                    버튼과 거짓 숫자를 함께 없앤다. */}
-                {retryableFailedCount > 0 ? (
-                  <TextButton
-                    label={syncStatusRetryFailedExpensesLabel(retryableFailedCount)}
-                    onPress={retryAll}
-                    disabled={!authToken}
-                  />
-                ) : null}
-                <TextButton label={syncStatusDiscardFailedExpensesLabel(failedRows.length)} onPress={discardAll} />
-              </View>
-            ) : null}
-          </SectionTitle>
+          <View style={{ gap: 8 }}>
+            <SectionTitle title={item.title}>
+              {item.actions === "failed-bulk" ? (
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {/* 라운드 51 QA(P2-3): 라벨이 대상(지출)과 건수를 함께 말하므로 스크린리더용
+                      문구를 따로 두지 않는다 -- 두 문장이 갈라질 자리를 만들지 않는다.
+                      라운드 58 #4: 그 건수는 이제 **재시도가 다룰 수 있는 행**만 센다(위
+                      retryableFailedCount). 0건이면 버튼 자체가 없다 -- 눌러도 아무 일이 없는
+                      버튼과 거짓 숫자를 함께 없앤다. */}
+                  {retryableFailedCount > 0 ? (
+                    <TextButton
+                      label={syncStatusRetryFailedExpensesLabel(retryableFailedCount)}
+                      onPress={retryAll}
+                      disabled={!authToken}
+                    />
+                  ) : null}
+                  <TextButton label={syncStatusDiscardFailedExpensesLabel(failedRows.length)} onPress={discardAll} />
+                </View>
+              ) : null}
+            </SectionTitle>
+            {/* 라운드 104 B-5: 일괄 버튼이 있는 섹션에서만, 그리고 실제로 거절됐을 때만 선다. */}
+            {item.actions === "failed-bulk" ? <RecoveryActionFailureLine visible={bulkActionFailed} /> : null}
+          </View>
         );
       }
       if (item.kind === "conflict") {
@@ -824,6 +904,7 @@ export default function SyncStatusScreen() {
     },
     [
       authToken,
+      bulkActionFailed,
       discardAll,
       expenseEntryLocked,
       explainExpenseEntryLock,
@@ -884,6 +965,18 @@ export default function SyncStatusScreen() {
         />
         <StatusBadge label={syncStatusBadgeLabel("conflict", conflictRows.length)} tone={conflictRows.length > 0 ? "warning" : "neutral"} />
       </View>
+
+      {/* 라운드 104 B-5 — **저장소 미가용 고지를 빈 목록 밖에서도 본다.**
+          종전에는 이 고지가 `ListEmptyComponent`에만 있었다(아래 listEmpty). 그런데
+          `publishStorageUnavailableSnapshot`은 행과 건수를 **일부러 그대로 둔다**(0으로 밀면 다른
+          화면들이 일제히 "대기 0건"이라고 거짓말을 하기 때문이다 — sync-controller.ts). 즉 행이
+          하나라도 남아 있으면 목록은 비지 않고, 그 고지는 **절대 뜨지 않았다** → 부팅 뒤 저장소가
+          죽은 그 상태에서 화면이 완전히 침묵했다. 이제 머리말에서도 같은 문장을 세운다.
+          위 배지 숫자는 그대로 둔다: 그 값들은 실제로 읽어 온 사실이고, 이 한 줄이 그 값을
+          **믿어도 되는지**를 말한다(OfflineStorageState 주석). */}
+      {snapshot.storage === "unavailable" ? (
+        <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{OFFLINE_STORAGE_UNAVAILABLE_NOTICE}</Text>
+      ) : null}
     </View>
   );
 

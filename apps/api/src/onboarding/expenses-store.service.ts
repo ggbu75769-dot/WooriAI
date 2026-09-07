@@ -278,7 +278,9 @@ export class ExpensesStoreService {
     const data: Prisma.ExpenseUpdateInput = {};
 
     if (input.categoryId !== undefined) {
-      await this.requireExistingCategory(input.categoryId);
+      // 라운드 103 §1.9 #6: 이 지출이 속한 가구의 눈으로 본다 — 남의 가구 커스텀 분류로
+      // 옮기는 수정은 종전과 같은 400 EXPENSE_CATEGORY_INVALID다.
+      await this.requireExistingCategory(input.categoryId, expense.householdId);
       data.categoryId = input.categoryId;
     }
     if (input.amountKrw !== undefined) data.amountKrw = requireMoneyKrw(input.amountKrw);
@@ -359,7 +361,7 @@ export class ExpensesStoreService {
       throw new BadRequestException({ code: "EXPENSE_ITEM_NAME_REQUIRED", message: "품목명을 입력해 주세요." });
     }
     assertExpenseDateWithinRange(input.spentOn);
-    await this.requireExistingCategory(input.categoryId, client);
+    await this.requireExistingCategory(input.categoryId, householdId, client);
     if (input.linkedItemTemplateId) {
       await this.requireExistingItemTemplateAnyStatus(input.linkedItemTemplateId, client);
     }
@@ -446,9 +448,26 @@ export class ExpensesStoreService {
    * 왜 사용자에게 중요한가: 오프라인에서 적은 지출이 flush 400을 받으면 그 행은 실패 행으로
    * 파킹되고 재시도 버튼이 사라진다. 그때 화면에 서던 문장은 "요청을 처리하지 못했어요." 하나
    * 였다 — 고칠 곳이 카테고리라는 사실이 서버에는 있는데 화면에는 없었다.
+   *
+   * ⚠️ 두 시점 (라운드 103 · 설계 §1.9 #6) — 종전 이 검사는 **존재 확인 하나**였다.
+   * `categories`에 소유자 칸이 없어 "존재한다"와 "이 가구가 쓸 수 있다"가 같은 말이었기
+   * 때문이다. 이제 그 표에는 다른 가구가 만든 분류도 산다(`household_id`, 000024). 그래서
+   * 인자에 `householdId`가 하나 늘고 술어가 `{ id, OR: [{householdId: null}, {householdId}] }`로
+   * 좁아진다 — **남의 가구 분류 id로는 지출을 만들 수도 옮길 수도 없다**.
+   *
+   * 거절의 코드·문장·상태는 한 글자도 바뀌지 않는다(§2.6): 그 사람에게 그 분류는 실제로
+   * 존재하지 않으므로 `EXPENSE_CATEGORY_INVALID` 400이 그대로 옳고, 아웃박스의
+   * permanent/transient 분류도 무접촉이다. `selectable`·`active`를 여전히 보지 않는 것도
+   * 그대로다 — 8타일 별칭 id와 보관된 분류로의 재전송이 계속 통과해야 한다.
+   *
+   * 호출부 둘은 값을 이미 손에 들고 있다: `insertExpense(client, householdId, …)`의 인자와
+   * `updateExpense`가 접근 검증에서 받은 `expense.householdId`.
    */
-  async requireExistingCategory(categoryId: string, client: DbClient = this.prisma) {
-    const exists = await client.category.findUnique({ where: { id: categoryId }, select: { id: true } });
+  async requireExistingCategory(categoryId: string, householdId: string, client: DbClient = this.prisma) {
+    const exists = await client.category.findFirst({
+      where: { id: categoryId, OR: [{ householdId: null }, { householdId }] },
+      select: { id: true }
+    });
     if (!exists) {
       throw new BadRequestException({
         code: "EXPENSE_CATEGORY_INVALID",

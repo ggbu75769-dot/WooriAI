@@ -1276,8 +1276,14 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
 
   it("C1: 칩과 이름 해석을 같은 ['categories'] 응답에서 가져온다", () => {
     expect(recordsSource).toContain('queryKey: ["categories"]');
-    expect(recordsSource).toContain("buildRecordsCategoryChips(serverCategories, selectedCategoryId)");
+    // ⚠️ 두 시점(라운드 103 리뷰 M-2): 종전 핀은 인자 둘짜리였다. 칩 대장에 **소유자 축**이
+    // 하나 더 걸리면서 이 화면이 이미 구한 `householdId`(보고 있는 아이의 가구)를 함께 넘긴다.
+    // 지키려는 사실은 그대로다 — 칩과 이름 해석이 같은 응답 하나에서 나온다.
+    expect(recordsSource).toContain("buildRecordsCategoryChips(serverCategories, selectedCategoryId, householdId)");
+    // ⚠️ **이름 해석에는 그 축이 없다.** 좁히면 다른 가구 분류로 기록된 과거 지출이 "기타"로
+    // 무너진다(라운드 28 F3가 허위 표시로 판정한 그 상태) — 인자 하나짜리 그대로여야 한다.
     expect(recordsSource).toContain("buildCategoryNameLookup(serverCategories)");
+    expect(recordsSource).not.toContain("buildCategoryNameLookup(serverCategories,");
   });
 
   it("CAT-124: 그 하나의 응답은 전량(includeAll=1)이어야 한다 — 칩은 좁히고 이름은 전부 푼다", () => {
@@ -1314,7 +1320,15 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).not.toContain("searchText={");
     // 검색어가 바뀌면 필터 결과(visibleExpenses)가 다시 만들어지고 listData가 그것을 따라간다 —
     // 스니펫이 이미 그 배열에 실려 있으므로 listData 의존성에는 검색어가 더 이상 없다.
-    expect(recordsSource).toContain("[scopeServerExpenses, scopeOfflineRows, selectedCategoryIds, searchText]");
+    // ⚠️ **두 시점(라운드 104 트랙 SEARCH #2 · 계약 갱신)** — 이 줄은
+    // `"[scopeServerExpenses, scopeOfflineRows, selectedCategoryIds, searchText]"`였다. 기록 탭
+    // 검색에 디바운스가 들어오면서 이 memo가 보는 검색어가 **입력값에서 확정값으로** 바뀌었다
+    // (판정·스니펫 규칙은 무수정 — 바뀐 것은 언제 도는가뿐이다). 계약의 뜻은 그대로다:
+    // *필터 모집단·칩·검색어가 바뀔 때만 이 memo가 다시 돈다.* 근거는
+    // src/expenses/records-search-responsiveness.test.ts의 디바운스 스위트.
+    expect(recordsSource).toContain(
+      "[scopeServerExpenses, scopeOfflineRows, selectedCategoryIds, appliedSearchText]"
+    );
     expect(recordsSource).toContain("[visibleOfflineRows, visibleExpenses, categoryName, handleRowAction, householdMemberRefs]");
   });
 

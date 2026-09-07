@@ -257,6 +257,23 @@ export type CategoryListItem = {
    * optional이며, 소비자(src/categories.ts `selectableCategories`)는 `false`일 때만 감춘다.
    */
   selectable?: boolean;
+  /**
+   * 라운드 103: 이 분류를 만든 가구(categories.household_id) — **커스텀 행에만 실린다**.
+   * 운영 시드 21행에는 키 자체가 없다(설계 문서 §2.2). additive optional이라 이 필드가
+   * 없던 시절의 서버 응답·구 캐시도 그대로 동작한다.
+   *
+   * ⚠️ **커스텀 판별은 이 필드로 한다 — `isSystem === false`로는 안 된다.** 설계 §2.2와
+   * 이 자리의 종전 주석은 표식이 `isSystem === false`라고 적었고, 근거는 "시드 21행은 전부
+   * isSystem=true"였다. 그 전제가 실측으로 거짓이다: `prisma/seed.ts`가 모바일 퀵타일 별칭
+   * 8행과 가져오기 스텁 1행을 `isSystem: false`로 시드한다(dev DB 실측 t=12 / f=9).
+   * 즉 `?includeAll=1` 응답에는 isSystem=false인 **시드** 행이 아홉 개 들어 있어, 그 축만
+   * 보면 사용자가 만들지도 않은 별칭이 "직접 추가한 분류"로 잡히고 그 행 PATCH는 404가 된다.
+   * householdId가 있는 행만 커스텀이다(라운드 103 T1이 e2e로 값을 잠갔다).
+   *
+   * 이 값이 실리는 원래 이유는 그대로다 — 관리 화면이 PATCH 대상 URL을 만들고, 다가구
+   * 사용자에게 "이 분류는 다른 가구 것"을 가른다(읽기는 속한 가구 전부의 합집합 — §1.3).
+   */
+  householdId?: string;
 };
 
 export type MonthlyReport = {
@@ -960,9 +977,19 @@ export function getHome(token: string, childId: string) {
  * "기타" in the records rows / report legend / CSV export if those rows were missing. Narrowing
  * for display happens client-side in `selectableCategories` (src/categories.ts), which honors the
  * server's `selectable` flag -- so the picker shows the canonical 12, not 19.
+ *
+ * 라운드 103: 같은 응답에 호출자 가구의 **커스텀 분류**가 합류한다(설계 문서 §2.2 — 두 번째
+ * 목록을 만들지 않는다). 커스텀 행은 `isSystem: false`이고 언제나 `selectable: true`이며,
+ * 보관 축은 `active`다 — 즉 기본 목록에는 활성 커스텀만, `?includeAll=1`에는 보관된 것까지
+ * 실린다(R28-F3의 규칙을 그대로 재사용한다. 새 규칙 0건).
+ *
+ * ⚠️ 두 시점 — 종전 로컬 세션 분기는 `options`를 **버렸다**(데모 목록이 전부 `active: true`라
+ * `includeAll`이 무의미했기 때문이고, 그 사실은 local-backend.listCategories의 주석이 적어
+ * 두었다). 보관(`active:false`) 커스텀 행이 생기는 순간 그 전제가 깨지므로 이제 그대로
+ * 넘긴다 — standalone에서도 서버와 **같은 갈래**가 실제로 갈린다(설계 §3.1).
  */
 export function listCategories(token: string, options?: { includeAll?: boolean }) {
-  if (isLocalToken(token)) return local(() => localBackend.listCategories());
+  if (isLocalToken(token)) return local(() => localBackend.listCategories(options));
   const path = options?.includeAll ? "/categories?includeAll=1" : "/categories";
   return requestJson<{ categories: CategoryListItem[] }>(path, { token });
 }
@@ -1462,6 +1489,79 @@ export function deleteCustomItem(
   return requestJson<DeleteCustomItemResponse>(`/children/${childId}/custom-items/${customItemId}`, {
     method: "DELETE",
     token
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 라운드 103 T2 — 커스텀 지출 분류(사용자가 직접 더한 분류) 쓰기 둘. 계약 확정은
+// docs/5차/round103-custom-expense-category-design.md §9. **읽기는 새 함수가 없다** —
+// 커스텀 행은 기존 `listCategories`(GET /categories) 응답에 합류하므로(§2.2) 두 번째 목록도,
+// 두 번째 캐시 키도 생기지 않는다.
+//
+// **`DELETE`는 없다**(§1.6): 지출의 `category_id`가 NOT NULL FK라 하드 삭제는 이미 기록된
+// 지출을 허위로 재배정하거나(기각) 저장 경합에서 500 → 아웃박스 무한 재시도(poison pill)를
+// 만든다. "삭제"의 자리에 서는 것은 아래 PATCH의 `active: false`(보관)이고, 그 분류로 기록된
+// 지출은 한 바이트도 움직이지 않는다.
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /households/:householdId/categories 요청 바디 — packages/contracts
+ * `createCustomCategoryRequestSchema`의 수기 미러(이 파일의 다른 요청/응답 타입과 같은 관례).
+ * 사용자가 정하는 것은 **이름 하나**다(§1.5 — 색·아이콘은 오늘 그릴 자리가 0건이라 주지
+ * 않는다). code·displayOrder·iconName·selectable·isSystem은 전부 서버가 정한다(§2.3).
+ */
+export type CreateCustomCategoryBody = {
+  /** 서버가 trim + 연속 공백 1칸 접기 후 1~50자로 재검증한다(계약 CUSTOM_CATEGORY_NAME_MAX_LENGTH). */
+  name: string;
+};
+
+/**
+ * PATCH 바디 — `updateCustomCategoryRequestSchema`의 수기 미러. 둘 다 optional이고 서버가
+ * **최소 하나**를 요구한다(§9.2). `active: false`가 보관, `true`가 복원이며 행·id·code는
+ * 그대로다 — §1.6 전체가 그 사실에 기댄다.
+ */
+export type UpdateCustomCategoryBody = {
+  name?: string;
+  active?: boolean;
+};
+
+/**
+ * 커스텀 분류 생성. `idempotencyKey`는 커스텀 품목(위 createCustomItem)·온보딩 아이 생성
+ * (MOB-101)과 같은 관례다: 시트가 열릴 때 초안 단위 키 하나를 만들어 같은 제출의 재시도에
+ * 재사용하고 성공하면 폐기한다. 서버는 IdempotencyInterceptor, 로컬 세션은 idempotencyKeys 맵.
+ */
+export function createCustomCategory(
+  token: string,
+  householdId: string,
+  name: string,
+  idempotencyKey?: string
+): Promise<CategoryListItem> {
+  if (isLocalToken(token)) return local(() => localBackend.createCustomCategory(householdId, name, idempotencyKey));
+  const body: CreateCustomCategoryBody = { name };
+  return requestJson<CategoryListItem>(`/households/${householdId}/categories`, {
+    method: "POST",
+    token,
+    body,
+    headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined
+  });
+}
+
+/**
+ * 이름 변경 · 보관(`active:false`) · 복원(`active:true`) — 자연 멱등이라 키를 받지 않는다.
+ * 대상은 **그 가구의 커스텀 행**만이고, 시드 행 id·타 가구 id는 404로 떨어진다(§2.3 —
+ * 403이 아닌 이유는 "내가 만든 분류"라는 자원이 그 사람에게 존재하지 않기 때문이다).
+ */
+export function updateCustomCategory(
+  token: string,
+  householdId: string,
+  categoryId: string,
+  patch: UpdateCustomCategoryBody
+): Promise<CategoryListItem> {
+  if (isLocalToken(token)) return local(() => localBackend.updateCustomCategory(householdId, categoryId, patch));
+  return requestJson<CategoryListItem>(`/households/${householdId}/categories/${categoryId}`, {
+    method: "PATCH",
+    token,
+    body: patch
   });
 }
 

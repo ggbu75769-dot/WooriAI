@@ -144,6 +144,30 @@ export const SYNC_STATUS_VIEW_ONLY_MESSAGE =
   "보기 전용으로 참여하고 있어요. 남은 기록은 확인하고 정리할 수 있고, 다시 보내는 것은 관리자·공동부모가 할 수 있어요.";
 
 /**
+ * 라운드 103 T3 — **지출 분류 관리**(app/settings/categories.tsx)의 형제 문장
+ * (설계 문서 docs/5차/round103-custom-expense-category-design.md §9.6 확정값).
+ *
+ * 판정은 새로 만들지 않는다: 커스텀 분류의 쓰기 둘(POST/PATCH
+ * `/households/:householdId/categories`)이 `@RequireHouseholdRoles("owner", "co_parent")`를
+ * 지나므로(설계 §2.4) 서버 술어가 지출 쓰기와 **같은 역할 집합**이고, 그래서 잠금 여부는
+ * `isExpenseEntryLocked` 하나가 그대로 답한다 — 이 파일이 더하는 것은 **문장 한 줄**이다
+ * (`BUDGET_VIEW_ONLY_MESSAGE`가 세운 그 걸음 그대로).
+ *
+ * 왜 형제 문장을 돌려 쓰지 않는가: 그 화면에서 막힌 것은 기록도 예산도 아니라 **분류를 더하고
+ * 고치는 일**이다. 그리고 보기 전용 참여자도 그 화면에서 **목록은 끝까지 볼 수 있다**(읽기는
+ * 구성원 전원이다 — §2.4). 그래서 문장이 두 절이다: 할 수 있는 일을 거두지 않고, 역할이 필요한
+ * 그 한 가지만 말한다(라운드 71 리뷰 M-5가 정기 지출·동기화 상태에서 얻은 그 규율).
+ *
+ * ⚠️ **이 상수만 `export`가 아닌 이유**(형제 다섯과 다른 자리): 라운드 95 공통 금지가 새
+ * `export const`를 막고 있고(설계 §6.4 — *"모바일 새 `export const` 0건"*), 이 문장의 소비처는
+ * 아래 `VIEW_ONLY_HEADLINES.categories` **하나**다. 형제 다섯이 export인 것은 그 시절 계약이
+ * 이름으로 그것들을 import해 값을 물었기 때문이고, 여기서는 옆 테스트가 표의 항목을 통해 같은
+ * 강도로 문다 — 종전 다섯은 그대로 두고(지우면 그 계약들이 함께 무너진다), 새로 여는 문만 닫는다.
+ */
+const CATEGORY_EDIT_VIEW_ONLY_MESSAGE =
+  "보기 전용으로 참여하고 있어요. 지출 분류는 관리자·공동부모가 더하고 고칠 수 있어요.";
+
+/**
  * 라운드 71 트랙 E — **화면 머리말이 판정을 읽는다.**
  *
  * 라운드 40~70은 게이트를 **버튼**에 한 자리씩 태웠고, 라운드 70 B의 파생 계약도 **뮤테이션
@@ -178,7 +202,13 @@ export const VIEW_ONLY_HEADLINES = {
    * 문장은 트랙 E가 세우고, 머리말 배선은 그 화면을 소유한 트랙 A가 읽어 쓴다
    * (라운드 70의 C→A 읽기 방향 그대로 — 라운드 71 리뷰 M-1에서 이어졌다).
    */
-  importReview: EXPENSE_VIEW_ONLY_MESSAGE
+  importReview: EXPENSE_VIEW_ONLY_MESSAGE,
+  /**
+   * 라운드 103 T3 — app/settings/categories.tsx. 막힌 것은 **분류를 더하고 고치는 일**이고,
+   * 목록 열람은 그대로 열려 있다(읽기는 구성원 전원 — 설계 §2.4). 게이트를 지나는 새 화면이
+   * 생기면 이 표에 자리가 없어 빨개진다는 위 문단의 그 자리다.
+   */
+  categories: CATEGORY_EDIT_VIEW_ONLY_MESSAGE
 } as const;
 
 /**

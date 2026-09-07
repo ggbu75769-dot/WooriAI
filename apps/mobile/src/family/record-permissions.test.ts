@@ -909,6 +909,49 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
   });
 
   /**
+   * 라운드 103 T3 — **일곱째 머리말**(app/settings/categories.tsx).
+   *
+   * 위 여섯과 형식이 하나 다르다: **안 잠긴 쪽 문장이 화면 리터럴이 아니다.** 이 화면의 문구는
+   * 전량 순수 모듈(src/categories/custom-category-form.ts의 `customCategoryScreenCopy`)이
+   * 소유하고 화면은 그리기만 하는 것이 그 라운드 설계의 요구(§4.1 · §9.6)라, 그 규율과 위
+   * 여섯의 리터럴 형식이 부딪힌다. 답은 **읽는 이름을 무는 것**이다 — 잠긴 쪽은 이 파일의 표를,
+   * 안 잠긴 쪽은 그 모듈의 값을 지난다는 사실을 소스로 고정하고, 화면이 어느 쪽 문장도 다시
+   * 적지 않는다는 것을 부정 단언으로 함께 문다.
+   */
+  it("라운드 103 T3: 지출 분류 관리 머리말이 두 갈래를 갖고, 두 문장 다 화면이 짓지 않는다", () => {
+    const flat = (text: string) => text.replace(/\s+/g, " ");
+    const screen = source("app/settings/categories.tsx");
+
+    expect(flat(screen), "머리말 두 갈래").toContain(
+      "expenseGate.locked ? VIEW_ONLY_HEADLINES.categories : copy.subtitle"
+    );
+    // 잠긴 쪽 문장은 이 파일의 것이다(화면이 다시 적으면 두 개의 계약이 된다).
+    expect(screen, "화면이 다시 적은 잠금 문장").not.toContain(`"${VIEW_ONLY_HEADLINES.categories}"`);
+    // 안 잠긴 쪽 문장은 순수 모듈의 것이다(같은 이유로 화면에 리터럴이 없다).
+    expect(screen, "화면이 다시 적은 머리말").not.toContain('"우리 가족이 쓰는 분류를 직접 더할 수 있어요."');
+    expect(screen).toContain('from "../../src/categories/custom-category-form"');
+
+    // 그 문장이 형제 다섯 중 어느 것도 돌려 쓰지 않는다 — 막힌 것이 화면마다 다르다.
+    for (const sibling of [
+      EXPENSE_VIEW_ONLY_MESSAGE,
+      BUDGET_VIEW_ONLY_MESSAGE,
+      CHILD_EDIT_VIEW_ONLY_MESSAGE,
+      RECURRING_VIEW_ONLY_MESSAGE,
+      SYNC_STATUS_VIEW_ONLY_MESSAGE
+    ]) {
+      expect(VIEW_ONLY_HEADLINES.categories).not.toBe(sibling);
+    }
+    // 문장은 그 화면에서 **여전히 가능한 일**(목록 열람)을 부정하지 않고, 막힌 하나만 말한다.
+    expect(VIEW_ONLY_HEADLINES.categories).toBe(
+      "보기 전용으로 참여하고 있어요. 지출 분류는 관리자·공동부모가 더하고 고칠 수 있어요."
+    );
+    expect(VIEW_ONLY_HEADLINES.categories).toContain("지출 분류");
+    expect(VIEW_ONLY_HEADLINES.categories).not.toContain("기록은");
+    // ⚠️ "삭제"라는 낱말을 쓰지 않는다(설계 §1.6 — 이 화면의 조작은 보관이다).
+    expect(VIEW_ONLY_HEADLINES.categories).not.toContain("삭제");
+  });
+
+  /**
    * 라운드 71 트랙 E — ⚠ **"모르면 잠그지 않는다"가 머리말에도 그대로다.**
    *
    * 다섯 화면 중 넷은 게이트의 `locked`를 그대로 읽으므로 이 규칙이 자동으로 따라온다. 남은
@@ -952,7 +995,12 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     //
     // 라운드 71 리뷰 M-5: 셋에서 **다섯**이 됐다. 정기 지출·동기화 상태 두 자리가 지출 기록의
     // 문장을 돌려 쓰면서 그 화면에서 여전히 **할 수 있는 일**까지 부정하고 있었다.
-    expect(new Set(Object.values(VIEW_ONLY_HEADLINES)).size).toBe(5);
+    //
+    // ⚠️ 두 시점(라운드 103 T3): 다섯 → **여섯**. 지출 분류 관리(app/settings/categories.tsx)가
+    // 게이트를 지나는 일곱째 화면으로 서면서 자기 문장을 얻었다 — 그 화면에서 막힌 것은 기록도
+    // 예산도 아니라 **분류를 더하고 고치는 일**이고, 목록 열람은 그대로 열려 있다(읽기는 구성원
+    // 전원 — 설계 §2.4). 표를 좁혀 한 문장으로 만들지 않는다는 위 판단이 여기서도 답이다.
+    expect(new Set(Object.values(VIEW_ONLY_HEADLINES)).size).toBe(6);
     expect(CHILD_EDIT_VIEW_ONLY_MESSAGE).toBe("보기 전용으로 참여하고 있어요. 아이 정보는 관리자·공동부모가 수정할 수 있어요.");
   });
 

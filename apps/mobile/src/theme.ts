@@ -82,6 +82,12 @@ const presentation = {
   // 코랄 히어로 위 흰색 반투명 2종(홈 히어로 진행 바 트랙 0.45 · 준비 히어로 트랙/구분선 0.28).
   heroProgressTrack: "rgba(255,255,255,0.45)",
   heroOverlaySoft: "rgba(255,255,255,0.28)",
+  // 라운드 104 TK4(4차 — 3차 잔여 회수): 코랄 히어로 위 흰색 반투명 셋째 변종 0.18 — 홈
+  // 히어로 안 예산 넛지 행(homeHeroStyle.nudge)의 배경. 종전 리터럴은 그 화면에 박혀 있던
+  // "rgba(255, 255, 255, 0.18)"이고, 여기 값은 공백 표기까지 그 바이트 그대로다(0.45·0.28은
+  // 공백 없음 · 0.18은 공백 있음 — 정규화하지 않는다). 값=종전 리터럴 대조는 1~3차와 같은
+  // 대조표(src/color-literal-tokenization.test.ts)가 두 시점으로 문다.
+  heroOverlayFaint: "rgba(255, 255, 255, 0.18)",
   // 리포트 추이 카드의 격자선(퍼시몬 8%).
   chartGridLine: "rgba(255, 107, 82, 0.08)",
   // 지출 분류 팔레트 위 아이콘 잉크(item-visuals.ts expenseCategoryVisual).
