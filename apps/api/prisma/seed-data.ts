@@ -28,6 +28,15 @@ export type ItemTemplateSeed = {
 export type ProductLinkSeed = {
   itemTemplateCode: string;
   platform: "coupang" | "naver" | "custom";
+  /**
+   * 라운드 107 트랙 E — **이 값은 시드가 자기 행을 다시 찾는 키가 아니다.**
+   *
+   * 종전에는 그랬다: 시드가 `(itemTemplateId, platform, title)`로 기존 행을 찾았다.
+   * 그런데 `title`은 어드민 편집 축이라(`AdminUpdateProductLinkDto.title?`), 운영자가
+   * 제목을 한 글자 고치면 다음 배포가 같은 상품의 링크를 **하나 더 만들었다**(정찰 S5 D3 ②;
+   * 실측 67 → 68행, 둘 다 active). 오늘의 키는 `product_links.seed_key`이고 그 값은
+   * 아래 `productLinkSeedKey`가 정한다.
+   */
   title: string;
   url: string;
   affiliateUrl: string | null;
@@ -39,7 +48,30 @@ export type ProductLinkSeed = {
   displayOrder: number;
   active: boolean;
   disclosureText: string | null;
+  /**
+   * 라운드 107 트랙 E — `product_links.seed_key`(마이그레이션 000026)에 적힐 안정 식별자.
+   * 생략하면 `productLinkSeedKey`가 `<itemTemplateCode>:<platform>`으로 정한다.
+   * 한 (준비템, 플랫폼)에 시드 링크가 둘 이상 필요할 때만 직접 적는다.
+   */
+  seedKey?: string;
 };
+
+/**
+ * 라운드 107 트랙 E — 시드 링크의 **안정 식별자**.
+ *
+ * 어떤 어드민 DTO에도 없는 값이라 운영자가 움직일 수 없다. 모양을
+ * `<itemTemplateCode>:<platform>`으로 잡은 것은 지어낸 규칙이 아니라 **이미 저장소가
+ * 쓰던 식별자**이기 때문이다 — CSV 일괄 교체 도구(`admin/product-link-bulk.service.ts`)가
+ * (itemTemplate, platform)으로 링크를 찾고 **정확히 1건**을 요구한다. 오늘 시드 링크
+ * 67건의 그 쌍은 67개로 전부 다르다(실측). 즉 이 키는 운영 도구가 이미 전제하고 있는
+ * 유일성을 그대로 옮겨 적은 것이다.
+ *
+ * ⚠️ 한 쌍에 시드 링크를 둘 두려면 `seedKey`를 직접 적어야 한다. 잊으면 시드가
+ * 시작하자마자 어느 두 줄이 부딪혔는지 이름으로 말하며 멈춘다(prisma/seed.ts).
+ */
+export function productLinkSeedKey(link: Pick<ProductLinkSeed, "itemTemplateCode" | "platform" | "seedKey">): string {
+  return link.seedKey ?? `${link.itemTemplateCode}:${link.platform}`;
+}
 
 export type DisclosureSeed = {
   key: string;
@@ -1231,9 +1263,16 @@ export const importStubCategorySeeds: MobileCategoryAliasSeed[] = [
  * 딥링크로 채워 admin의 CSV 일괄 교체(미리보기→적용)로 무중단 전환한다 — 도구가
  * `isAffiliate: true`와 `affiliateUrl`을 함께 세팅한다(product-link-bulk.service.ts).
  *
- * ⚠️ 시드 upsert는 (itemTemplateId, platform, title)로 기존 행을 찾는다(seed.ts). 이 교체로
- * 세 값이 모두 바뀌었으므로 **기존 dev/test DB에는 재시드 대신 `pnpm db reset`**(또는 test DB
- * 재생성)이 필요하다 — 재시드만 하면 옛 example.com 행이 새 행 옆에 그대로 남는다.
+ * ⚠️ **두 시점.** 이 문단은 종전에 "시드 upsert는 (itemTemplateId, platform, title)로 기존
+ * 행을 찾으므로, 이 교체로 세 값이 모두 바뀐 기존 dev/test DB에는 재시드 대신
+ * `pnpm db reset`이 필요하다 — 재시드만 하면 옛 example.com 행이 새 행 옆에 남는다"라고
+ * 적었다. **그 성질이 곧 정찰 S5 D3 ②였다**: 운영자가 제목을 고쳐도 같은 일이 일어나
+ * 배포마다 살아 있는 구매 CTA가 하나씩 늘었다.
+ *
+ * 라운드 107 트랙 E가 그 자연키를 안정 식별자 `product_links.seed_key`(000026)로 바꿨다.
+ * 오늘 옛 행이 남는 자리는 **이 교체를 이미 겪은 DB 하나**뿐이고, 시드는 그런 쌍을 지우지
+ * 않고 `product_links 중복:` 경고로 보고한다(어느 행에 클릭 이력이 붙었는지를 봐야 하는
+ * 판단이라 시드가 대신 정하지 않는다). 그 밖에는 재시드가 안전하다.
  */
 export const productLinkSeeds: ProductLinkSeed[] = [
   {
