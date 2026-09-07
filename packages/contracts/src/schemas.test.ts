@@ -5,6 +5,7 @@ import {
   categoryListItemSchema,
   CATEGORY_BUDGET_MAX_PER_MONTH,
   childSchema,
+  CHILD_NICKNAME_MAX_LENGTH,
   createCustomCategoryRequestSchema,
   createCustomItemRequestSchema,
   createExpenseRequestSchema,
@@ -18,6 +19,7 @@ import {
   deleteExpenseRequestSchema,
   EXPENSE_ITEM_NAME_MAX_LENGTH,
   itemDetailSchema,
+  updateChildRequestSchema,
   updateCustomCategoryRequestSchema,
   updateCustomItemRequestSchema,
   listCategoriesResponseSchema,
@@ -271,6 +273,40 @@ describe("shared contract schemas", () => {
         status: "not_prepared"
       })
     ).toThrow();
+  });
+
+  /**
+   * 라운드 107 트랙 F — 태명 상한(60)의 경계. `moneyKrwSchema`(GAP-054 P2-8)·커스텀 분류 이름
+   * (라운드 103)이 세운 그 형식: 상한 값 자체는 통과하고 한 칸 위는 거절돼야 한다.
+   *
+   * 이 상한이 없던 동안 61자는 계약도 DTO도 지나 **DB에서** 터졌다(varchar(60) → Prisma P2000 →
+   * 500). 여기서 무는 것은 그 경계가 응답·요청 **양쪽 계약에** 실제로 서 있다는 사실이다.
+   */
+  it("caps a child nickname at the children.nickname column width (60)", () => {
+    expect(CHILD_NICKNAME_MAX_LENGTH).toBe(60);
+
+    const child = {
+      id: "11111111-1111-4111-8111-111111111111",
+      householdId: "22222222-2222-4222-8222-222222222222",
+      nickname: "가".repeat(CHILD_NICKNAME_MAX_LENGTH),
+      stageMode: "manual" as const,
+      manualStage: "infant_4_6" as const,
+      currentStage: "infant_4_6" as const,
+      stageLabel: "수동 선택: 4~6개월"
+    };
+    // 응답 계약: 상한은 컬럼 폭 그 자체라 60자는 정상 데이터이고 61자는 애초에 저장될 수 없다.
+    expect(childSchema.parse(child).nickname).toHaveLength(CHILD_NICKNAME_MAX_LENGTH);
+    expect(() => childSchema.parse({ ...child, nickname: "가".repeat(CHILD_NICKNAME_MAX_LENGTH + 1) })).toThrow();
+    expect(() => childSchema.parse({ ...child, nickname: "" })).toThrow();
+
+    // 요청 계약(PATCH)도 **같은 한 벌**이다 — 한쪽만 고쳐서 갈라지지 않게 한자리에서 함께 문다.
+    expect(updateChildRequestSchema.parse({ nickname: child.nickname }).nickname).toHaveLength(
+      CHILD_NICKNAME_MAX_LENGTH
+    );
+    expect(() => updateChildRequestSchema.parse({ nickname: "가".repeat(CHILD_NICKNAME_MAX_LENGTH + 1) })).toThrow();
+    expect(() => updateChildRequestSchema.parse({ nickname: "" })).toThrow();
+    // 부분 업데이트라 필드 생략은 여전히 통과한다(상한이 생겨도 하위호환이 깨지지 않는다).
+    expect(updateChildRequestSchema.parse({}).nickname).toBeUndefined();
   });
 
   it("keeps affiliate disclosure and import preview contracts explicit", () => {

@@ -1,4 +1,5 @@
-import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches } from "class-validator";
+import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength } from "class-validator";
+import { CHILD_NICKNAME_MAX_LENGTH } from "@wooriai/contracts";
 import { CHILD_STAGE_CODES, CHILD_STAGE_MODES, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -7,8 +8,24 @@ export class CreateChildDto {
   @IsUUID()
   householdId!: string;
 
+  /**
+   * 라운드 107 트랙 F — 상한은 `@wooriai/contracts`의 `CHILD_NICKNAME_MAX_LENGTH`
+   * (= `children.nickname` varchar(60))를 그대로 쓴다.
+   *
+   * 없을 때 무슨 일이 있었나: 이 칸에는 `@IsNotEmpty()`뿐이었고 서비스도 존재 여부만 봤다.
+   * 그래서 61자는 검증이 아니라 **DB에서** 터졌다 — Prisma가 P2000(값이 컬럼보다 길다)을 던지고,
+   * 이 저장소에는 그 코드를 400으로 옮기는 핸들러가 **한 곳도 없어서** 그대로 500이 됐다.
+   * 그 500이 서는 자리가 온보딩 첫 화면(ONB-002 아이 만들기)이라, 막힌 사람은 홈에도 준비템에도
+   * 도달하지 못한 채 무엇이 왜 막혔는지 모른다(500 본문에는 필드 사유가 실리지 않는다).
+   *
+   * 금액(GAP-054 #2)·지출 텍스트(GAP-056 #1)가 각각 int4 상한·varchar 상한에 대해 이미 세운
+   * 것과 같은 배선이다: 숫자의 단일 소스는 계약 층이고, 여기서는 그것을 물기만 한다.
+   *
+   * 마이그레이션 없음 — 컬럼이 이미 갖고 있던 한계를 계약 층에 적는 것뿐이다.
+   */
   @IsString()
   @IsNotEmpty()
+  @MaxLength(CHILD_NICKNAME_MAX_LENGTH)
   nickname!: string;
 
   @IsIn([...CHILD_STAGE_MODES])
@@ -40,9 +57,11 @@ export class CreateChildDto {
 }
 
 export class UpdateChildDto {
+  /** 라운드 107 트랙 F: 생성과 **같은 상한**이다(근거는 CreateChildDto.nickname 주석). */
   @IsOptional()
   @IsString()
   @IsNotEmpty()
+  @MaxLength(CHILD_NICKNAME_MAX_LENGTH)
   nickname?: string;
 
   /**

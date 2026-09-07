@@ -12,6 +12,7 @@ import { childCreateBodyFingerprint } from "../../src/children/child-create-idem
 import {
   buildCreateChildBody,
   childDatePickerDirection,
+  childNicknameMaxLength,
   childProfileReassuranceNotes,
   CHILD_STAGE_LABELS,
   requiredDateFieldLabel,
@@ -208,8 +209,12 @@ export default function ChildProfileScreen() {
             <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
               태명 / 별명
             </Text>
+            {/* 라운드 107 트랙 F: 상한 값을 화면에 다시 적지 않고 단일 소스에서 읽는다 — 61자는
+                예전에 DB에서 P2000으로 터져 500이 됐다(child-form.ts의 상한 주석). 판정 자체는
+                validateChildForm이 지고 이 속성은 거들기만 한다(붙여넣기·자동완성 경로). */}
             <TextInput
               accessibilityLabel="태명 또는 별명 입력"
+              maxLength={childNicknameMaxLength()}
               returnKeyType="done"
               onChangeText={(value) => {
                 setNickname(value);
