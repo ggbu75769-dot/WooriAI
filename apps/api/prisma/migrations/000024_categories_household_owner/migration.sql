@@ -16,6 +16,14 @@
 -- findReferenceBlockedUserIds·selectPurgeableStubs 두 자리에 NOT EXISTS 한 줄씩을 같은
 -- 목록으로 더해야 하고, 빠뜨리면 이 표가 사용자 파기를 조용히 막는 새 자리가 된다.
 -- 행위자·시각은 감사 로그(custom_category.update)가 답한다.
+-- ⚠️ 롤백 안전지대가 없다(라운드 103 리뷰 렌즈1 L-2). 이 마이그레이션 자체는 additive이고
+-- 재실행에 안전하지만, **커스텀 행이 하나라도 생긴 뒤에는 되돌릴 방법이 둘 다 위험하다**:
+--   ① 코드만 롤백 — 이전 빌드의 GET /categories와 어드민 목록에는 소유자 필터가 없다.
+--      모든 가구가 서로의 커스텀 분류 이름을 보게 되고 어드민 표에도 사용자 데이터가 오른다.
+--   ② 마이그레이션 롤백(컬럼 드롭) — 더 나쁘다. 행은 남은 채 소유자만 사라져 시드와 구별할
+--      수 없게 되고(is_system=false는 별칭 9행도 갖는다), 그 지출들의 분류는 되살릴 근거가 없다.
+-- 그래서 되돌리기는 "DB를 먼저 되돌린다"가 아니라 **앞으로 고쳐 나간다**로 계획해야 한다.
+
 ALTER TABLE categories
   ADD COLUMN IF NOT EXISTS household_id uuid REFERENCES households(id) ON DELETE CASCADE;
 

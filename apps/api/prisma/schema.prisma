@@ -300,6 +300,11 @@ model Category {
 
   @@index([active, displayOrder], map: "idx_categories_active_order")
   // SQL 전용(000024): idx_categories_household (household_id) WHERE household_id IS NOT NULL
+  // SQL 전용(000025): idx_categories_seed (household_id) WHERE household_id IS NULL
+  //   위 둘은 **쌍으로만 뜻이 있다**. GET /categories의 술어는
+  //   `household_id IS NULL OR household_id IN (...)`이라 한쪽만으로는 플래너가 전량
+  //   seq scan으로 떨어진다(라운드 103 리뷰 M-4 실측: 100,021행에서 buffers 1,136 → 18).
+  //   한쪽을 지우려면 다른 쪽도 함께 판단해야 한다.
   // SQL 전용(000024): uq_categories_household_name (household_id, lower(btrim(name)))
   //                   WHERE household_id IS NOT NULL — 부분·식 색인이라 Prisma가 표현하지 못한다.
   @@map("categories")

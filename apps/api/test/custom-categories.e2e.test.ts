@@ -2,6 +2,8 @@ import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import request from "supertest";
 import { errorResponseSchema, listCategoriesResponseSchema } from "@wooriai/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -717,6 +719,44 @@ describe("Custom expense categories API (라운드 103 T1)", () => {
       orderBy: { createdAt: "desc" }
     });
     expect(latest.afterJson).toMatchObject({ changed: ["active"], activeBefore: false, activeAfter: true });
+  });
+
+  // ------------------------------------------------ 색인 위반의 HTTP 계약(리뷰 M-3)
+
+  /**
+   * 라운드 103 리뷰 렌즈1 M-3 — 색인이 잡는 위반이 **HTTP로 어떻게 나가는지**를 문다.
+   * 종전에는 아래 ⓐ가 Prisma 직접 쓰기로 `rejects.toThrow()`만 확인해서, 그 위반이 사용자에게
+   * 500 `INTERNAL_ERROR`("잠시 후 다시 시도해 주세요")로 보이는 것을 아무도 잡지 못했다.
+   * 다시 눌러도 같은 결과인 실패에 재시도를 권하는 것은 DNC-018이 금지하는 틀린 안내다.
+   *
+   * 서비스 선검사(`requireUniqueName`)를 건너뛰는 창을 테스트에서 만들 수는 없으므로, 대신
+   * **서비스가 P2002를 번역하는지**를 그 창이 열렸을 때와 같은 모양으로 확인한다: 색인만
+   * 잡을 수 있는 이름(선검사의 JS 정규화는 통과하지만 PG `lower(btrim(...))`에서는 충돌하는
+   * 값)을 쓸 수 없으므로, 여기서는 선검사가 먼저 답하는 정상 경로가 **400 + 그 코드**임을
+   * 값으로 고정한다. 번역 함수 자체의 존재는 소스 계약으로 함께 문다.
+   */
+  it("이름 중복은 어느 방어선에서 잡히든 400 CUSTOM_CATEGORY_NAME_DUPLICATE로 나간다 (500 금지)", async () => {
+    const name = uniqueName("중복계약");
+    await createCategory(name);
+
+    const duplicate = await createRequest(`  ${name.toUpperCase()}  `);
+
+    expect(duplicate.status).toBe(400);
+    expect(duplicate.body?.error?.code).toBe("CUSTOM_CATEGORY_NAME_DUPLICATE");
+    // 500으로 새면 이 단언이 먼저 깨진다 — 그것이 이 테스트의 요점이다.
+    expect(duplicate.status).not.toBe(500);
+
+    // 마지막 방어선(P2002)도 같은 코드로 번역된다는 사실을 소스로 고정한다. 선검사와 색인
+    // 사이의 창(경합·정규화 갈림)은 e2e로 열 수 없지만, 번역이 사라지면 그 창이 다시 500이 된다.
+    const service = readFileSync(
+      resolve(__dirname, "../src/households/custom-categories.service.ts"),
+      "utf8"
+    );
+    expect(service).toContain("translateNameUniqueViolation");
+    expect(service).toContain('(error as { code?: string }).code !== "P2002"');
+    expect(service).toContain("throw duplicateNameError()");
+    // P2002가 아닌 오류를 삼키지 않는다(서버 버그가 입력 오류로 위장되지 않게).
+    expect(service).toContain("throw error;");
   });
 
   // ------------------------------------------------ DB 마지막 방어선(000024)
