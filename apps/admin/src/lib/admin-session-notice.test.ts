@@ -1,8 +1,8 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { AdminApiError } from "./admin-api";
-import { loadErrorCopy } from "./load-error-copy";
+import { AdminApiError, AdminApiTimeoutError } from "./admin-api";
+import { loadErrorCopy, loadErrorMessage } from "./load-error-copy";
 import { adminLoginScreenNotice } from "./session-end-copy";
 import { writeErrorMessage } from "./write-error-copy";
 
@@ -343,5 +343,141 @@ describe("ⓔ 이유의 기본값과 그 예외 둘", () => {
     expect(disclosures).toContain("onAuthError={clearSession}");
     expect(disclosures).toContain("onAuthError();");
     expect(codeOnly(disclosures), "참조를 넘기는 자리가 인자를 실었어요").not.toContain("onAuthError(\"");
+  });
+});
+
+/**
+ * 라운드 111 — **조회 실패의 칸별 사유가 화면 문장 뒤에 붙는다.**
+ *
+ * ⚠️ 두 시점. 종전(그때는 참): 위 ⓑ가 세운 것은 *"어느 문장을 세우는가"* 하나였고, 그때
+ * 조회 한 벌이 나르는 문장은 `error.message` **하나**였다 — 그 자리에 오던 봉투는 전용 코드를
+ * 지녔거나(그 `message`가 곧 사유다) 클라이언트가 지은 타임아웃·연결 실패 문장이었다.
+ * → 이제 `VALIDATION_ERROR` 갈래가 남는다: 그 봉투의 `message`는 어느 거절이든 **같은 일반
+ * 문장**이고 사유는 `details.fields`에만 있다. 쓰기 한 벌은 라운드 110에 그 사유를 일반 문장
+ * 뒤에 잇기 시작했고, 조회 한 벌만 오늘까지 버렸다.
+ *
+ * ⚠️⚠️ **이 겹이 오늘 바꾸는 화면 문장은 0건이다 — 그 사실을 숨기지 않고 값으로 적는다.**
+ * 어드민이 부르는 GET 가운데 `details.fields`를 싣는 것은 쿼리 DTO 검증뿐이고 그 사유는 전부
+ * class-validator의 **기본 영문 문장**이다(아래 두 리터럴이 그 실측이다 — 검증 파이프에 직접
+ * 태워 찍었다). 조회 경로에서 **한국어** 사유를 싣는 자리는 `admin-users-lookup.service.ts`의
+ * 최소 길이 거절 하나뿐인데, 그 입력은 화면이 **같은 술어로 먼저 막아**
+ * (`user-lookup-view.ts`의 `effectiveQueryLength`) 요청이 나가지 않는다. 그래서 이 절이 무는
+ * 것은 대부분 **부정 단언**이다: 영문은 붙지 않는다 · 사유가 없으면 한 바이트도 다르지 않다.
+ * 값을 하는 날은 조회 DTO가 한국어 사유를 갖는 날이다(쓰기 DTO는 라운드 110에 이미 그렇게 됐다).
+ *
+ * ⚠️ **자리 대장은 이 절이 만들지 않는다.** 조회 소비 자리 열여섯의 대장과 그 스윕은
+ * `src/admin-load-error-copy.test.ts`가 이미 지고 있고, 이 절이 무는 것은 그 한 벌이 **한
+ * 봉투에서 어떤 문장을 만드는가**뿐이다(자리 수도 폴백 바이트도 건드리지 않는다).
+ */
+describe("ⓕ 400 봉투의 칸별 사유가 조회 문장 뒤에 붙는다 (라운드 111)", () => {
+  /** 이 API의 `VALIDATION_ERROR` 봉투 `message` — 어느 거절이든 같은 일반 문장이다. */
+  const GENERIC = "요청 값을 다시 확인해주세요.";
+  /** 조회 화면의 종전 폴백 하나(app/audit-logs/page.tsx가 한 벌에 넘기는 그 바이트). */
+  const AUDIT_FALLBACK = "감사 로그를 불러오지 못했어요.";
+  /** 서버가 **조회** 경로에서 짓는 유일한 한국어 사유(admin-users-lookup.service.ts). */
+  const LOOKUP_MIN_LENGTH = "검색어는 2자 이상이어야 해요.";
+  /**
+   * class-validator의 **기본 영문 문장** 둘 — 앞머리가 서버 필드명 그대로다.
+   * ⚠️ 지어낸 값이 아니라 실측이다: `createDtoValidationPipe`에 한 자 검색어와 잘못된 감사
+   * 로그 필터를 태워 나온 `details.fields[].constraints`의 값이다.
+   */
+  const ENGLISH_MIN_LENGTH = "query must be longer than or equal to 2 characters";
+  const ENGLISH_UUID = "actorUserId must be a UUID";
+
+  const validationError = (reasons: readonly string[], message: string = GENERIC) =>
+    new AdminApiError(400, message, "VALIDATION_ERROR", reasons);
+
+  it("한국어 사유는 봉투의 일반 문장 뒤에 순서대로 붙는다", () => {
+    const copy = loadErrorCopy(validationError([LOOKUP_MIN_LENGTH]), AUDIT_FALLBACK);
+    expect(copy.message).toBe(`${GENERIC} ${LOOKUP_MIN_LENGTH}`);
+    // 갈래도 재시도 판정도 종전 그대로다 — 바뀐 것은 **문장**뿐이다(ⓑ와 같은 규율).
+    expect(copy.reason).toBe("server");
+    expect(copy.canRetry).toBe(false);
+  });
+
+  it("영문 사유는 붙지 않는다 — 영문 필드명이 조회 화면에 설 길이 없다", () => {
+    const message = loadErrorMessage(validationError([ENGLISH_MIN_LENGTH, ENGLISH_UUID]), AUDIT_FALLBACK);
+    expect(message).toBe(GENERIC);
+    expect(message).not.toContain("query");
+    expect(message).not.toContain("actorUserId");
+  });
+
+  it("섞여 오면 한국어만 남는다", () => {
+    expect(loadErrorMessage(validationError([ENGLISH_MIN_LENGTH, LOOKUP_MIN_LENGTH]), AUDIT_FALLBACK)).toBe(
+      `${GENERIC} ${LOOKUP_MIN_LENGTH}`
+    );
+  });
+
+  it("영문 봉투 + 한국어 사유면 화면 폴백 뒤에 사유가 붙는다 (한 문장도 잃지 않는다)", () => {
+    expect(loadErrorMessage(validationError([LOOKUP_MIN_LENGTH], "Bad Request"), AUDIT_FALLBACK)).toBe(
+      `${AUDIT_FALLBACK} ${LOOKUP_MIN_LENGTH}`
+    );
+  });
+
+  it("봉투 문장과 같은 사유는 두 번 서지 않는다", () => {
+    expect(loadErrorMessage(validationError([LOOKUP_MIN_LENGTH], LOOKUP_MIN_LENGTH), AUDIT_FALLBACK)).toBe(
+      LOOKUP_MIN_LENGTH
+    );
+  });
+
+  /**
+   * ⚠️ **이 자리가 이 절의 무게 중심이다.** 오늘 조회 경로가 실제로 받는 봉투는 아래 넷이고,
+   * 그 넷에서 화면 문장은 **한 바이트도 달라지지 않아야 한다** — 이 겹이 오늘 0건인 이유가
+   * 곧 이 단언이다.
+   */
+  it("사유가 없거나 읽을 수 없으면 네 갈래 전부 종전과 한 바이트도 다르지 않다", () => {
+    const readTimeout = new AdminApiTimeoutError(new Error("aborted"), "GET");
+    expect(loadErrorMessage(readTimeout, AUDIT_FALLBACK)).toBe(readTimeout.message);
+    // 네트워크(status 0) · 서버 한국어 문장 · 그 밖 — 전부 ⓑ가 고정한 값 그대로다.
+    expect(loadErrorMessage(new AdminApiError(0, "서버에 연결하지 못했어요.", "CONNECTION_FAILURE"), AUDIT_FALLBACK)).toBe(
+      "서버에 연결하지 못했어요."
+    );
+    expect(loadErrorMessage(new AdminApiError(400, GENERIC, "VALIDATION_ERROR"), AUDIT_FALLBACK)).toBe(GENERIC);
+    expect(loadErrorMessage(new TypeError("boom"), AUDIT_FALLBACK)).toBe(AUDIT_FALLBACK);
+    // 영문 사유만 실린 봉투도 마찬가지다(오늘 조회 쿼리 DTO가 내는 바로 그 모양).
+    expect(loadErrorMessage(validationError([ENGLISH_UUID]), AUDIT_FALLBACK)).toBe(GENERIC);
+  });
+
+  it("비검증 실패에는 사유가 붙지 않고 갈래·재시도도 그대로다", () => {
+    // 401·403은 화면의 첫 갈래가 가로채지만, 닿았을 때의 값도 종전 그대로여야 한다.
+    for (const failure of [
+      new AdminApiError(401, "Admin access is required.", "ADMIN_UNAUTHORIZED"),
+      new AdminApiError(403, "Admin access is required.", "ADMIN_FORBIDDEN"),
+      new AdminApiError(502, "Bad Gateway")
+    ]) {
+      const copy = loadErrorCopy(failure, AUDIT_FALLBACK);
+      expect(copy.message, `${failure.status}: 폴백이 아니에요`).toBe(AUDIT_FALLBACK);
+      expect(copy.reason, `${failure.status}: 갈래가 갈렸어요`).toBe("server");
+    }
+    const timeout = new AdminApiTimeoutError(new Error("aborted"), "GET");
+    expect(loadErrorCopy(timeout, AUDIT_FALLBACK).canRetry).toBe(true);
+  });
+
+  /**
+   * ⚠️ **사본 둘의 드리프트를 여기가 한 겹 더 문다.**
+   *
+   * ⓑ의 마지막 단언은 **어느 문장을 고르는가**(봉투 `message` ↔ 폴백)에서 두 한 벌이 갈리지
+   * 않는지만 잰다 — 그래서 라운드 110이 쓰기 쪽에만 잇기를 세웠을 때 그 자는 **조용했다**.
+   * 이 단언이 그 사각을 덮는다: 같은 봉투에 두 한 벌이 **같은 모양**(고른 문장 + 한국어 사유)을
+   * 내는가. 어느 한쪽만 고치면 여기가 먼저 빨개진다.
+   */
+  it("조회와 쓰기의 사본 둘이 같은 봉투에 같은 모양을 낸다 (잇기 드리프트 감지)", () => {
+    const reasonSets: readonly (readonly string[])[] = [
+      [],
+      [LOOKUP_MIN_LENGTH],
+      [ENGLISH_MIN_LENGTH],
+      [ENGLISH_UUID, LOOKUP_MIN_LENGTH],
+      [LOOKUP_MIN_LENGTH, LOOKUP_MIN_LENGTH]
+    ];
+    for (const reasons of reasonSets) {
+      for (const envelope of [GENERIC, "Bad Request"]) {
+        const error = validationError(reasons, envelope);
+        const label = `${envelope} + [${reasons.join(" | ")}]`;
+        // 같은 폴백을 주면 두 한 벌의 답이 **바이트로 같아야** 한다.
+        expect(loadErrorMessage(error, AUDIT_FALLBACK), `${label}: 두 한 벌의 문장이 갈렸어요`).toBe(
+          writeErrorMessage(error, AUDIT_FALLBACK)
+        );
+      }
+    }
   });
 });
