@@ -452,19 +452,24 @@ describe("Custom expense categories API (라운드 103 T1)", () => {
         .set("Authorization", `Bearer ${ownerToken}`)
         .expect(200)
     ).body.rows as Array<{ id: string }>;
-    // 행 수정은 분류 실재를 묻지 않는다(종전 그대로) — 거절은 확정에서 난다.
+    // ⚠️ 두 시점(라운드 106 T3): 종전에는 **행 수정이 분류 실재를 묻지 않아** 남의 가구
+    // 분류가 미리보기 행에 들어갔고 거절은 **확정에서** 났다(그때는 그것이 참이었다).
+    // 이제 updateImportRow가 잡의 가구로 그 자리에서 묻는다 — 사용자가 검수 화면에서
+    // 즉시 알게 되고, 확정까지 갔다가 배치 전체가 롤백되지 않는다.
+    //
+    // 이 테스트가 지키는 성질(남의 가구 분류로는 지출이 만들어지지 않는다)은 그대로이고,
+    // 지켜지는 **자리가 앞당겨졌다**. 그래서 단언도 앞으로 옮긴다.
     await request(app.getHttpServer())
       .patch(`/api/v1/imports/${job.id}/rows/${rows[0].id}`)
       .set("Authorization", `Bearer ${ownerToken}`)
       .send({ selected: true, categoryId: foreign.id })
-      .expect(200);
-    await request(app.getHttpServer())
-      .post(`/api/v1/imports/${job.id}/confirm`)
-      .set("Authorization", `Bearer ${ownerToken}`)
-      .send({ selectedRowIds: [rows[0].id] })
       .expect(400)
       .expect(({ body }) => expect(body.error.code).toBe("EXPENSE_CATEGORY_INVALID"));
-    // 확정이 롤백됐으므로 그 분류의 지출은 0건이다(부분 적용 없음).
+    // 거절이 행을 반쯤 고치지 않는다 — 그 분류가 행에 박히지 않았다.
+    expect(
+      await prisma.importRow.count({ where: { importJobId: job.id, categoryId: foreign.id } })
+    ).toBe(0);
+    // 그리고 끝 성질은 종전 그대로다: 그 분류의 지출은 0건이다.
     expect(await prisma.expense.count({ where: { childId, categoryId: foreign.id } })).toBe(0);
 
     // ⓕ 쓰기 대상으로도 잡히지 않는다: 남의 분류 id는 **404**다(403이 아니다 — 그 사람에게는

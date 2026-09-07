@@ -9,6 +9,18 @@ function readSource(relativePath: string): string {
   expect(existsSync(filePath), `${relativePath} should exist`).toBe(true);
   return readFileSync(filePath, "utf8");
 }
+/**
+ * 주석을 걷은 소스 — 이 저장소의 화면 주석은 자기가 무엇을 고쳤는지 설명하려고 **옛 문장과
+ * 식별자를 그대로 인용**한다. 원문을 그대로 물면 코드에서 사라진 뒤에도 주석 한 줄이 단언을
+ * 살려 둔다(라운드 106 F4가 모바일에서 고친 그 병). 주석 관용 앵커 대장이 그 자리를 센다.
+ */
+function codeOnly(text: string): string {
+  return text
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ");
+}
+
 
 // ADM-127: 카테고리 관리 화면. API는 조회가 모든 어드민 역할, 수정만 admin 전용
 // (RequireAdminRoles("admin") in the API's admin-categories.controller.ts).
@@ -106,7 +118,7 @@ describe("End-user lookup API client (ADM-127)", () => {
     expect(api).toContain("/admin/users-lookup?");
     expect(api).toContain('params.set("query"');
     expect(api).toContain("AdminLookupUser");
-    expect(api).toContain("expenseCount");
+    expect(codeOnly(api)).toContain("expenseCount");
   });
 
   it("types the result without any expense amount or other minimized PII field", () => {
@@ -127,7 +139,7 @@ describe("Users lookup page (ADM-127)", () => {
   });
 
   it("shows household/child summaries and the expense COUNT only", () => {
-    const source = readSource("app/users-lookup/page.tsx");
+    const source = codeOnly(readSource("app/users-lookup/page.tsx"));
     expect(source).toContain("가구");
     expect(source).toContain("childSummary");
     expect(source).toContain("{user.expenseCount}건");
@@ -137,7 +149,7 @@ describe("Users lookup page (ADM-127)", () => {
   });
 
   it("is read-only: no write API call anywhere on the page", () => {
-    const source = readSource("app/users-lookup/page.tsx");
+    const source = codeOnly(readSource("app/users-lookup/page.tsx"));
     for (const write of ["method: \"PATCH\"", "method: \"POST\"", "method: \"PUT\"", "updateAdminUser"]) {
       expect(source).not.toContain(write);
     }

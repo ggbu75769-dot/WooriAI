@@ -19,6 +19,7 @@ import {
   APP_ROOT_READ_SOURCE,
   COMMENT_ONLY_RATCHET,
   COMMENT_STRIPPING_CHAIN,
+  COMMENT_TOLERANT_AFTER_TRACK_C,
   COMMENT_TOLERANT_BEFORE_THIS_TRACK,
   COMMENT_TOLERANT_RATCHET,
   CONTRACT_NETS_BEFORE_THIS_ONE,
@@ -581,8 +582,12 @@ describe("ⓔ 래칫 — 주석 관용 앵커 수는 늘지 않는다", () => {
     // ⚠️ 두 시점: 라운드 88 트랙 C 당시 이 줄은 `70 → 69`였다. 그 두 수는 정규식 리터럴을 못 다루던
     //    splitCodeAndComments가 잰 값이고, 라운드 88 리뷰 H-1이 그 처리를 이식한 뒤 같은 워킹트리를
     //    다시 재니 `71 → 70`이다(저장소는 그 사이 한 글자도 달라지지 않았다).
-    expect(COMMENT_TOLERANT_RATCHET).toBeLessThanOrEqual(70);
-    expect(COMMENT_TOLERANT_BEFORE_THIS_TRACK).toBe(COMMENT_TOLERANT_RATCHET + 1);
+    // ⚠️ 두 시점(라운드 106): 종전 짝은 `BEFORE === RATCHET + 1`이었다. 그때는 역사와 오늘이
+    //    같은 수(70)라 한 상수로 둘 다 지킬 수 있었다. 라운드 106이 어드민 앵커 셋을 주석 걷은
+    //    소스로 옮겨 오늘의 수가 69가 되면서 그 묶음이 깨졌다 — 래칫을 내리면 BEFORE가 70이
+    //    되어야 하고 그러면 트랙 C의 실측 기록이 거짓이 된다. 축을 갈라 둘 다 지킨다.
+    expect(COMMENT_TOLERANT_RATCHET).toBeLessThanOrEqual(COMMENT_TOLERANT_AFTER_TRACK_C);
+    expect(COMMENT_TOLERANT_BEFORE_THIS_TRACK).toBe(COMMENT_TOLERANT_AFTER_TRACK_C + 1);
   });
 
   it("상한이 오늘 실측값과 **정확히** 같다 (앵커를 고치면 이 줄도 함께 내려간다)", () => {

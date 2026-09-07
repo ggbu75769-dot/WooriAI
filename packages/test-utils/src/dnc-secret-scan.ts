@@ -849,11 +849,23 @@ export const SECRET_ITEMS: readonly SecretItem[] = [
         label: "로컬이 아닌 DB 호스트",
         kinds: ["db-url-literal"],
         part: "host",
-        pattern: new RegExp(`^(?:${LOCAL_DB_HOSTS.map((host) => host.replace(/[.[\]:]/g, "\\$&")).join("|")})$`, "i"),
+        pattern: new RegExp(
+          `^(?:.*\\$\\{[^}]*\\}.*|${LOCAL_DB_HOSTS.map((host) => host.replace(/[.[\]:]/g, "\\$&")).join("|")})$`,
+          "i"
+        ),
         absent: true,
         reason:
           "운영 DB URL과 로컬 DB URL을 가르는 것은 비밀번호가 아니라 **호스트**다. 오늘 열 자리 전부 루프백이거나 " +
-          "compose 서비스 이름이고, 그 하나(`postgres`)는 계약이 compose 파일의 `services:` 키로 확인한다."
+          "compose 서비스 이름이고, 그 하나(`postgres`)는 계약이 compose 파일의 `services:` 키로 확인한다. " +
+          "⚠️ 두 시점(라운드 106): 종전에는 루프백 목록만 가짜로 봤다. 그때는 그것으로 충분했다 — 이 바늘이 " +
+          "보는 자리가 전부 **값으로 적힌** URL이었기 때문이다. 이제 아니다: `scripts/db.ts`가 대상을 먼저 " +
+          "출력하게 되면서 `postgresql://${user}…@${host}:${port}/${database}` 꼴의 **표시용 템플릿**이 섰고, " +
+          "그 안의 값은 하드코딩된 운영 호스트가 아니라 실행 시점에 파싱된 값이다(비밀번호 자리는 이미 " +
+          "`***`로 가려 있다). 바로 아래 비밀번호 바늘이 `${…}` 주입을 이미 가짜로 인정하는 것과 **같은 이유**이며, " +
+          "그 비대칭이 오늘 드러났다. 줄 번호 면제 대신 바늘을 고친 이유는 면제가 곧 낡기 때문이다. " +
+          "⚠️ 판정을 \"보간 **하나**\"가 아니라 \"보간이 **하나라도 있으면**\"으로 적은 이유: 이 뿌리가 무는 " +
+          "URL 리터럴은 공백·따옴표에서 잘리므로 템플릿에서는 호스트 조각이 `${user}${password`처럼 " +
+          "**여러 보간이 이어진 채** 잘려 나온다(실측). 소스에서 값을 알 수 없다는 사실은 그때도 같다."
       },
       {
         label: "표식 없는 DB 비밀번호",

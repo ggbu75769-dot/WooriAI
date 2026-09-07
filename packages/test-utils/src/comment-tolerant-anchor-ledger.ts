@@ -1039,7 +1039,18 @@ export const QUOTATION_EXEMPTIONS: readonly QuotationExemption[] = [
  * 빨개진다 — 그것이 이 그물의 값이다. 고쳐서 줄었으면 이 상수를 **함께 내린다**(래칫은 한 방향으로만
  * 움직인다).
  */
-export const COMMENT_TOLERANT_RATCHET = 70;
+export const COMMENT_TOLERANT_RATCHET = 69;
+
+/**
+ * ⚠️ **트랙 C가 손댄 날의 뒤 값** — 역사 기록이며 오늘의 래칫과는 다른 축이다.
+ *
+ * 두 시점(라운드 106): 종전에는 짝 단언이 `BEFORE === RATCHET + 1`로 **역사와 오늘을 한
+ * 상수에 묶어** 두었다. 그때는 둘이 같은 수(70)라 문제가 없었다. 이제 아니다 — 라운드 106이
+ * 어드민 앵커 셋을 주석 걷은 소스로 옮겨 오늘의 수가 **69**가 됐고, 그 묶음을 그대로 두면
+ * 래칫을 내리는 순간 `BEFORE`를 70으로 고쳐야 해서 **트랙 C의 실측 기록이 거짓이 된다.**
+ * 그래서 축을 가른다: 아래 짝은 그날의 전/후를 그대로 지키고, 래칫은 오늘의 실측을 따른다.
+ */
+export const COMMENT_TOLERANT_AFTER_TRACK_C = 70;
 
 /**
  * 트랙 C가 손대기 전의 수 — 이 대장이 첫날 무엇을 하나 고쳤는지가 값으로 남는다.

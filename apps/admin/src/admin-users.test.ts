@@ -9,6 +9,18 @@ function readSource(relativePath: string): string {
   expect(existsSync(filePath), `${relativePath} should exist`).toBe(true);
   return readFileSync(filePath, "utf8");
 }
+/**
+ * 주석을 걷은 소스 — 이 저장소의 화면 주석은 자기가 무엇을 고쳤는지 설명하려고 **옛 문장과
+ * 식별자를 그대로 인용**한다. 원문을 그대로 물면 코드에서 사라진 뒤에도 주석 한 줄이 단언을
+ * 살려 둔다(라운드 106 F4가 모바일에서 고친 그 병). 주석 관용 앵커 대장이 그 자리를 센다.
+ */
+function codeOnly(text: string): string {
+  return text
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ");
+}
+
 
 // ADM-006: admin account management page. The API endpoints are admin-role-only
 // (cookie session + CSRF + MFA, same as every other admin route); the frontend
@@ -47,7 +59,7 @@ describe("Admin accounts page (ADM-006)", () => {
   });
 
   it("shows the one-time temp password with the never-shown-again warning and never persists it", () => {
-    const source = readSource("app/users/page.tsx");
+    const source = codeOnly(readSource("app/users/page.tsx"));
     expect(source).toContain("tempPassword");
     expect(source).toContain("이 비밀번호는 다시 표시되지 않습니다");
     expect(source).toContain("clipboard");
@@ -83,7 +95,7 @@ describe("Admin accounts page (ADM-006)", () => {
  */
 describe("임시 비밀번호 복사 실패가 조용하지 않다 (라운드 106 트랙 T5)", () => {
   it("복사 실패에 안내 문구를 세운다 (형제 화면의 관례와 같은 말)", () => {
-    const source = readSource("app/users/page.tsx");
+    const source = codeOnly(readSource("app/users/page.tsx"));
     expect(source).toContain("TEMP_PASSWORD_COPY_FAILED_HINT");
     expect(source).toContain("클립보드에 복사하지 못했어요.");
     // 종전의 불리언 하나로는 실패와 "아직 안 눌렀음"이 같은 상태였다 — 셋으로 갈린다.
