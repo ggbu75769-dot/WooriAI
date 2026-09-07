@@ -347,3 +347,146 @@ describe("라운드 82 트랙 A 리포트 인사이트 배선", () => {
     expect(call).toContain('unit: period === "분기" ? "quarter" : "year"');
   });
 });
+
+/**
+ * 라운드 108 — **분류 이름의 개행 가드(분기·연간)**. 라운드 106 T6(share-text.ts의 마일스톤 줄)과
+ * 그 후속(monthly-insight.ts의 월간 문장)이 막은 그 슬라이스의 **남은 한 끝**이다.
+ *
+ * 종전(그때는 참): 이 모듈은 도넛 조각의 `label`을 그대로 문장에 끼웠고, 그때는 분류 이름이 시드
+ * 21행의 고정 문자열뿐이라 개행이 섞일 자리가 없었다.
+ * → 이제: 이름은 자유 문자열이고, 어드민 이름 변경 경로가 **개행을 접지 않는다**
+ * (`apps/api/src/admin/dto/admin-categories.dto.ts`의 `@Transform`은 오늘도 `.trim()`뿐이라
+ * `"기저귀\n위생"`이 MinLength(1)·MaxLength(50)을 통과하고, 저장 직전도 `input.name?.trim()`이다.
+ * 라운드 107 D6의 중복 검사는 **비교 키에서만** 공백을 접어 저장값을 바꾸지 않는다. 가구 커스텀
+ * 분류 쪽(`finance/dto/custom-categories.dto.ts`)만 `trim + /\s+/gu` 접기를 한다). 그 이름은
+ * `GET /categories` → `buildCategoryNameLookup`(내부 개행 무손질 `.trim()`) → 화면의
+ * `categorySegments.label` → 이 문장으로 온다.
+ *
+ * 이 모듈에서 깨지는 자리는 **둘**이다: 카드 문장(`headline`)이 두 줄로 갈라지는 것과, 카드를 한
+ * 요소로 읽어 주는 `accessibilityLabel`에 낭독을 끊는 제어문자가 들어가는 것. 월간의 셋째 자리
+ * (공유 문구가 한 줄 늘어나는 것)는 이 카드에 공유 버튼이 없어 **해당 없음**이다.
+ *
+ * 기대값은 전부 **리터럴**이다 — 조립기를 다시 불러 만든 값과 비교하지 않는다.
+ */
+describe("라운드 108 — 분기·연간 문장의 분류 이름 개행 가드", () => {
+  /** 어드민 경로로 저장될 수 있는 이름. 내부 개행은 trim으로 사라지지 않는다. */
+  const 깨진분해 = [
+    { label: "기저귀\n위생", amountKrw: 840_000, categoryId: "cat-diaper" },
+    { label: "수유/이유식", amountKrw: 620_000, categoryId: "cat-feed" },
+    { label: "의류", amountKrw: 340_000, categoryId: "cat-cloth" }
+  ];
+
+  it("① 이름 안의 개행을 한 칸 공백으로 접어 문장을 한 줄로 유지한다", () => {
+    const insight = buildPeriodInsight({
+      unit: "quarter",
+      periodLabel: "2026년 3분기",
+      totalExpenseKrw: 1_800_000,
+      segments: 깨진분해
+    });
+
+    expect(insight!.headline).toBe("2026년 3분기에는 기저귀 위생에 가장 많이 썼어요 (840,000원 · 전체의 47%)");
+    expect(insight!.headline).not.toContain("\n");
+    // 검산값도 문장이 실제로 말한 그 이름이다(원본을 내면 이 필드의 뜻이 거짓이 된다).
+    expect(insight!.topCategoryLabel).toBe("기저귀 위생");
+  });
+
+  it("② 낭독 라벨에도 제어문자가 남지 않는다", () => {
+    const insight = buildPeriodInsight({
+      unit: "year",
+      periodLabel: "2026년",
+      totalExpenseKrw: 1_800_000,
+      segments: 깨진분해
+    });
+
+    expect(insight!.accessibilityLabel).toBe("2026년에는 기저귀 위생에 가장 많이 썼어요 (840,000원 · 전체의 47%)");
+    expect(insight!.accessibilityLabel).not.toContain("\n");
+    expect(insight!.sentences).toEqual(["2026년에는 기저귀 위생에 가장 많이 썼어요 (840,000원 · 전체의 47%)"]);
+  });
+
+  it("캐리지 리턴·탭·수직 탭·줄 구분자(U+2028/2029)·연속 공백도 같은 규칙으로 한 칸이 된다", () => {
+    const insight = buildPeriodInsight({
+      unit: "quarter",
+      periodLabel: "2026년 3분기",
+      totalExpenseKrw: 840_000,
+      // 탭·CR·LF·수직 탭·U+2028(줄 구분자)·U+2029(문단 구분자)·NBSP·연속 공백을 한꺼번에 섞는다.
+      // 전부 JS `\s`가 잡는 부류다(오늘 실측) — 접고 나면 한 칸 공백 하나만 남아야 한다.
+      segments: [{ label: "  기저귀\r\n\t\v \u2028\u2029\u00a0위생  ", amountKrw: 840_000 }]
+    });
+
+    expect(insight!.headline).toBe("2026년 3분기에는 기저귀 위생에 가장 많이 썼어요 (840,000원 · 전체의 100%)");
+  });
+
+  it("금액 무접촉 — 이름이 깨진 조각도 떨어뜨리지 않아 '전체'의 분모가 그대로다", () => {
+    // 세 조각 전부 이름이 깨져도 분모는 840,000+620,000+340,000 = 1,800,000 그대로이고,
+    // 1위는 840,000 / 1,800,000 = 46.67% → 47%(최대잔여법)다. 조각을 하나라도 떨어뜨리면
+    // 이 퍼센트가 달라진다 = 숫자가 거짓이 된다.
+    const insight = buildPeriodInsight({
+      unit: "quarter",
+      periodLabel: "2026년 3분기",
+      totalExpenseKrw: 1_800_000,
+      segments: [
+        { label: "기저귀\n위생", amountKrw: 840_000 },
+        { label: "\n\n", amountKrw: 620_000 },
+        { label: "의류\t세탁", amountKrw: 340_000 }
+      ]
+    });
+
+    expect(insight!.headline).toBe("2026년 3분기에는 기저귀 위생에 가장 많이 썼어요 (840,000원 · 전체의 47%)");
+    expect(insight!.topCategoryPercentLabel).toBe("47%");
+  });
+
+  it("1위 이름이 접고 나서 비면 카드가 없다(근거 없는 문장 금지 — 문장이 하나뿐이라 카드 미렌더)", () => {
+    for (const label of ["   \n\t  ", "", "\r\n", "  "]) {
+      expect(
+        buildPeriodInsight({
+          unit: "quarter",
+          periodLabel: "2026년 3분기",
+          totalExpenseKrw: 840_000,
+          segments: [{ label, amountKrw: 840_000 }]
+        })
+      ).toBeNull();
+    }
+  });
+
+  it("1위가 아닌 조각의 이름이 비어도 문장은 선다(가드는 지목한 이름에만 건다)", () => {
+    const insight = buildPeriodInsight({
+      unit: "year",
+      periodLabel: "2026년",
+      totalExpenseKrw: 1_000_000,
+      segments: [
+        { label: "기저귀/위생", amountKrw: 900_000 },
+        { label: "  \n  ", amountKrw: 100_000 }
+      ]
+    });
+
+    expect(insight!.headline).toBe("2026년에는 기저귀/위생에 가장 많이 썼어요 (900,000원 · 전체의 90%)");
+  });
+
+  it("정상 이름의 바이트는 한 글자도 바뀌지 않는다(DNC-018·DNC-020 무접촉)", () => {
+    for (const [label, expected] of [
+      ["기저귀/위생", "2026년 3분기에는 기저귀/위생에 가장 많이 썼어요 (840,000원 · 전체의 100%)"],
+      ["분유 · 이유식", "2026년 3분기에는 분유 · 이유식에 가장 많이 썼어요 (840,000원 · 전체의 100%)"],
+      ["산후도우미", "2026년 3분기에는 산후도우미에 가장 많이 썼어요 (840,000원 · 전체의 100%)"]
+    ]) {
+      const insight = buildPeriodInsight({
+        unit: "quarter",
+        periodLabel: "2026년 3분기",
+        totalExpenseKrw: 840_000,
+        segments: [{ label, amountKrw: 840_000 }]
+      });
+      expect(insight!.headline).toBe(expected);
+    }
+  });
+
+  /**
+   * 형제 경로가 **같은 규칙 한 벌**을 쓰는지 값으로 고정한다. 월간 헬퍼는 export 되어 있지 않고,
+   * 이 모듈은 `monthly-insight` import 자체가 금지돼 있어(위 "월간 문장의 단일 소스" 테스트)
+   * 규칙만 같은 한 벌을 각자 둔다 — 두 자리가 갈리면 같은 이름이 월간과 분기에서 다르게 읽힌다.
+   */
+  it("접기 규칙이 월간·커스텀 분류 정규화와 글자 그대로 같다", () => {
+    const moduleSource = source("src/reports/period-insight.ts");
+    expect(moduleSource).toContain('rawLabel.trim().replace(/\\s+/gu, " ")');
+    // 앱 소스에 새 export const를 더하지 않는다(이 폴더의 관례).
+    expect(moduleSource.match(/export const /g) ?? []).toHaveLength(2);
+  });
+});

@@ -115,6 +115,44 @@ function normalizedAmount(value: number | null | undefined): number | null {
 }
 
 /**
+ * 문장에 들어가는 분류 이름을 **한 줄로** 접는다(`trim` + 내부 연속 공백 1칸).
+ *
+ * 종전(그때는 참): 이 모듈은 도넛에 넘어가는 조각의 `label`을 그대로 문장에 끼웠고, 그때는
+ * 분류 이름이 시드 21행의 고정 문자열뿐이라 개행이 섞일 자리가 없었다.
+ * → 이제: 이름은 **운영자·사용자가 적는 자유 문자열**이고, 같은 슬라이스의 다른 두 끝은 이미
+ * 가드를 갖고 있다(라운드 106 T6이 share-text.ts의 마일스톤 줄에, 그 후속이 월간 문장에 같은
+ * 두 줄을 넣었다). 형제 경로인 이 분기·연간 문장만 비어 있었다.
+ *
+ * **실재하는 유입 경로(오늘 재실측).** 두 쓰기 경로 중 하나가 개행을 접지 않는다:
+ *  · 가구 커스텀 분류 — `apps/api/src/finance/dto/custom-categories.dto.ts`의 `@Transform`이
+ *    `normalizeCustomCategoryName`(= `trim + /\s+/gu → " "`)을 하므로 개행이 들어올 수 없다.
+ *  · **어드민 분류 이름 변경 — `apps/api/src/admin/dto/admin-categories.dto.ts`의 `@Transform`은
+ *    오늘도 `.trim()`뿐이다.** `"기저귀\n위생"`은 내부 개행이라 trim으로 사라지지 않고
+ *    `@MinLength(1)`·`@MaxLength(50)`을 통과한다. 저장 직전(`admin-categories.service.ts`)도
+ *    `input.name?.trim()`이라 그대로다 — 라운드 107 D6이 더한 중복 검사(`duplicateKey`)는
+ *    **비교 키에서만** 공백을 접고 저장값은 손대지 않으므로 이 구멍을 막지 않는다. 그 이름은
+ *    `GET /categories` → `buildCategoryNameLookup`(`src/categories.ts` — 역시 `.trim()`만 한다)
+ *    → 화면의 `categorySegments.label` → 이 문장으로 온다.
+ *
+ * **깨지는 자리(값).** 개행이 하나 섞이면 ① 카드의 한 문장이 두 줄로 갈라지고
+ * (`reportInsightHeadlineStyle` Text), ② `accessibilityLabel`(카드를 한 요소로 읽어 주는 값)에
+ * 낭독을 끊는 제어문자가 들어간다. 월간의 셋째 자리(공유 문구가 한 줄 늘어나는 것)는 **여기서
+ * 해당 없음**이다 — 이 카드에는 공유 버튼이 서지 않는다(머리말 "말하지 않는 것").
+ *
+ * **왜 월간의 헬퍼를 import 하지 않는가.** `monthly-insight.ts`의 같은 이름 함수는 export 되어
+ * 있지 않고, 이 모듈은 **월간 문장의 단일 소스를 침범하지 않는다**는 계약을 지고 있다(이 폴더의
+ * 테스트가 `monthly-insight` import 자체를 금지한다). 그래서 규칙만 같은 한 벌을 여기 둔다 —
+ * 두 자리가 갈리면 같은 이름이 월간과 분기에서 다르게 읽힌다. (두 시점: 두 모듈이 공유 모듈
+ * 하나를 볼 수 있게 되는 라운드에 한 벌로 접는다.)
+ *
+ * 정상 이름("기저귀/위생", "분유 · 이유식")의 바이트는 바뀌지 않는다 — DNC-018(관찰형 어투)·
+ * DNC-020(의료) 무접촉.
+ */
+function singleLineCategoryLabel(rawLabel: string): string {
+  return rawLabel.trim().replace(/\s+/gu, " ");
+}
+
+/**
  * 분해에서 **금액이 가장 큰 조각**. 서버가 내림차순으로 주지만 순서에 기대지 않는다(동률은 먼저
  * 온 조각 — `computeCategoryShares`가 입력 순서를 그대로 보존하므로 범례 1위와 같은 조각이다).
  */
@@ -149,7 +187,19 @@ export function buildPeriodInsight(input: PeriodInsightInput): PeriodInsight | n
   // (근거·허용 오차의 이유는 PERIOD_INSIGHT_TOTAL_TOLERANCE_KRW 주석).
   if (Math.abs(denominator - totalExpenseKrw) > PERIOD_INSIGHT_TOTAL_TOLERANCE_KRW) return null;
 
-  const sentence = `${periodLabel}에는 ${top.label}에 가장 많이 썼어요 (${formatKrw(top.amountKrw)} · 전체의 ${top.percentLabel})`;
+  // 종전(그때는 참): 1위 조각의 `label`을 그대로 문장에 끼웠다 — 이름이 시드 고정 문자열뿐일
+  // 때는 참이었다. → 이제: 어드민 이름 변경 경로로 내부 개행이 들어올 수 있으므로 문장에
+  // 들어가기 직전에 한 줄로 접는다(근거는 singleLineCategoryLabel 주석).
+  // **금액은 손대지 않는다.** 접기는 1위 조각의 이름 하나에만 걸리고, 위 `denominator`와
+  // `top.amountKrw`·`top.percentLabel`은 이 줄 이전에 이미 굳은 값이다 — 이름이 깨진 조각도
+  // 떨어뜨리지 않으므로 "전체의 47%"의 *전체*가 달라지지 않는다(DNC: 허위 데이터 표시 금지).
+  const topLabel = singleLineCategoryLabel(top.label);
+  // 이름이 접고 나서 비면 지목할 대상이 없다 — 이 모듈의 "근거가 없으면 카드가 없다" 규율
+  // 그대로다(빈 이름으로 "2026년 3분기에는 에 가장 많이 썼어요"를 만들지 않는다). 문장이
+  // 하나뿐이라 문장 생략 = 카드 미렌더다(월간은 그 자리에 예산 문장이 올라올 수 있었다).
+  if (topLabel.length === 0) return null;
+
+  const sentence = `${periodLabel}에는 ${topLabel}에 가장 많이 썼어요 (${formatKrw(top.amountKrw)} · 전체의 ${top.percentLabel})`;
   const sentences = [sentence].slice(0, PERIOD_INSIGHT_MAX_SENTENCES);
 
   return {
@@ -158,7 +208,10 @@ export function buildPeriodInsight(input: PeriodInsightInput): PeriodInsight | n
     detail: null,
     sentences,
     accessibilityLabel: sentences.join(" "),
-    topCategoryLabel: top.label,
+    // 종전(그때는 참): 조각의 원본 `label`을 그대로 냈다 — 문장에 들어간 값과 같았다.
+    // → 이제: 문장은 접힌 이름을 말하므로 검산값도 **문장이 실제로 말한 그 이름**이어야 한다.
+    // 원본을 내면 "문장이 범례 1위와 같은 값을 말했는가"라는 이 필드의 뜻이 거짓이 된다.
+    topCategoryLabel: topLabel,
     topCategoryPercentLabel: top.percentLabel
   };
 }
