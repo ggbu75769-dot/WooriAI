@@ -610,7 +610,11 @@ export function PreparationListParity({
           onChangeText={setSearchDraft}
           onSubmitEditing={submitSearch}
           placeholder="품목명·별칭·분류 검색"
-          placeholderTextColor={semanticColors.textDisabled}
+          // 종전 semanticColors.textDisabled(#A99E97): 흰 배경 **2.62:1** — 그때는 "흐린 글자"라는
+          // 한 낱말이 비활성 텍스트와 플레이스홀더를 함께 가리켰다. → 이제 textPlaceholder(5.13:1).
+          // 비활성 텍스트는 WCAG 1.4.3의 예외지만 살아 있는 입력칸의 안내문은 예외가 아니다.
+          // textDisabled는 값·자리 그대로다 — 근거는 tokens/color.ts의 두 토큰 주석.
+          placeholderTextColor={semanticColors.textPlaceholder}
           returnKeyType="search"
           style={{ backgroundColor: semanticColors.surface, borderColor: semanticColors.border, borderRadius: 14, borderWidth: 1, color: semanticColors.textPrimary, flex: 1, minHeight: 48, paddingHorizontal: 14 }}
           value={searchDraft}

@@ -195,6 +195,36 @@ function monthSubjectPhrase(yearMonth: string, monthStatus: MonthlyInsightMonthS
 }
 
 /**
+ * 문장에 들어가는 분류 이름을 **한 줄로** 접는다(`trim` + 내부 연속 공백 1칸).
+ *
+ * 종전(그때는 참): 이 모듈은 `categoryLabel(...)`이 돌려준 이름을 그대로 문장에 끼웠고, 그때는
+ * 이름이 시드 21행의 고정 문자열뿐이라 개행이 섞일 자리가 없었다.
+ * → 이제: 이름은 **사용자·운영자가 적는 자유 문자열**이고, 그 슬라이스의 반대쪽 끝은 이미
+ * 가드를 갖고 있다(라운드 106 T6이 share-text.ts의 `shareTopCategoryLine`에 같은 두 줄을 넣었다).
+ * 이쪽 끝만 비어 있었다.
+ *
+ * **실재하는 유입 경로(오늘 실측).** 두 쓰기 경로 중 하나가 개행을 접지 않는다:
+ *  · 가구 커스텀 분류 — `apps/api/src/finance/dto/custom-categories.dto.ts`의 `@Transform`이
+ *    `trim + /\s+/gu → " "`를 하고, 앱 쪽 사본(`src/categories/custom-category-form.ts` ·
+ *    `src/api/local-backend.ts`)도 같다. 여기서는 개행이 들어올 수 없다.
+ *  · **어드민 분류 이름 변경 — `apps/api/src/admin/dto/admin-categories.dto.ts`의 `@Transform`은
+ *    `.trim()`뿐이다.** `"기저귀\n위생"`은 trim으로 사라지지 않고 `@MinLength(1)`·`@MaxLength(50)`을
+ *    둘 다 통과해 `categories.name`에 그대로 앉는다. 그 이름은 `GET /categories` →
+ *    `buildCategoryNameLookup`(내부 개행을 손대지 않는 `.trim()`만 한다) → 이 문장으로 온다.
+ *
+ * **깨지는 자리(값).** 개행이 하나 섞이면 ① 카드의 한 문장이 두 줄로 갈라지고, ②
+ * `accessibilityLabel`(문장을 " "로 이은 값)에 낭독이 끊기는 제어문자가 들어가며, ③ 무엇보다
+ * 공유 문구가 **네 줄에서 다섯 줄로** 갈라진다 — `joinShareLines`는 빈 줄만 거를 뿐 줄을 쪼개지
+ * 않으므로(share-text.ts), 받는 사람이 보는 카드 모양이 바뀐다. T6이 마일스톤 줄에서 막은 것과
+ * 정확히 같은 실패다.
+ *
+ * 정상 이름("기저귀/위생", "분유 · 이유식")의 바이트는 바뀌지 않는다.
+ */
+function singleLineCategoryLabel(rawLabel: string): string {
+  return rawLabel.trim().replace(/\s+/gu, " ");
+}
+
+/**
  * "이번 달은 기저귀/위생에 가장 많이 썼어요 (84,200원 · 전체의 32%)".
  * 카테고리 분해가 비었거나 전부 0원이면 null.
  */
@@ -203,13 +233,18 @@ function buildTopCategorySentence(input: MonthlyInsightInput, monthStatus: Month
   if (entries.length === 0) return null;
 
   // 도넛 범례와 같은 함수 = 같은 반올림(최대잔여법, 합계 정확히 100%).
+  // 이름은 위 가드를 지나 들어간다 — **금액은 손대지 않으므로** 퍼센트의 분모·분자가 그대로다
+  // (이름이 비는 조각도 떨어뜨리지 않는다: 떨어뜨리면 "전체의 32%"의 전체가 달라져 숫자가 거짓이 된다).
   const shares = computeCategoryShares(
-    entries.map((entry) => ({ label: input.categoryLabel(entry.categoryId), amountKrw: entry.amountKrw }))
+    entries.map((entry) => ({ label: singleLineCategoryLabel(input.categoryLabel(entry.categoryId)), amountKrw: entry.amountKrw }))
   );
   if (shares.length === 0) return null;
 
   // 서버가 금액 내림차순으로 주지만 순서에 기대지 않는다(동률은 먼저 온 항목).
   const top = shares.reduce((best, slice) => (slice.amountKrw > best.amountKrw ? slice : best), shares[0]);
+  // 1위 이름이 접고 나서 비면 지목할 대상이 없다 — 이 모듈의 "근거가 없는 문장은 만들지 않는다"
+  // 규율 그대로 문장을 생략한다(빈 이름으로 "이번 달은 에 가장 많이 썼어요"를 만들지 않는다).
+  if (top.label.length === 0) return null;
   return `${monthSubjectPhrase(input.yearMonth, monthStatus)} ${top.label}에 가장 많이 썼어요 (${formatKrw(top.amountKrw)} · 전체의 ${top.percentLabel})`;
 }
 

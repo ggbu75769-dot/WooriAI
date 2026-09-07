@@ -2668,7 +2668,11 @@ export default function NewExpenseScreen() {
                 keyboardType="number-pad"
                 onChangeText={(value) => setAmountText(amountDigitsOnly(value))}
                 placeholder="0"
-                placeholderTextColor={theme.colors.gray600}
+                // 종전 gray600(#5F5854): 6.98:1로 읽히기는 했지만 입력값(text.primary)과 **2.38:1**이라
+                // 구별선(3:1) 아래였다 — 그때는 "AA만 넘기면 된다"가 이 자리의 기준이었다. → 이제
+                // text.placeholder(5.13:1 · 입력값과 3.23:1)로 통일한다. 저장소가 들고 있던 플레이스홀더
+                // 관례 두 벌(gray300·gray600)이 여기서 한 벌이 된다. 근거는 src/theme.ts의 토큰 주석.
+                placeholderTextColor={theme.colors.text.placeholder}
                 // 라운드 96 T3: 타일이 품목명을 채운 직후 커서가 이리로 온다(amountInputRef).
                 ref={amountInputRef}
                 style={{

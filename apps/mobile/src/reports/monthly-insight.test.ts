@@ -267,3 +267,89 @@ describe("UX-F 카드 조립", () => {
     }
   });
 });
+
+/**
+ * 라운드 106 A11Y/문구 — **분류 이름의 개행 가드**(share-text.ts의 라운드 106 T6과 같은 슬라이스의
+ * 반대쪽 끝).
+ *
+ * 종전(그때는 참): 이 모듈은 `categoryLabel(...)`의 반환값을 그대로 문장에 끼웠고, 그때는 분류
+ * 이름이 시드 21행의 고정 문자열뿐이라 개행이 섞일 자리가 없었다.
+ * → 이제: 이름은 자유 문자열이고, 어드민 이름 변경 경로가 **개행을 접지 않는다**
+ * (`apps/api/src/admin/dto/admin-categories.dto.ts`의 `@Transform`은 `.trim()`뿐이라
+ * `"기저귀\n위생"`이 MinLength(1)·MaxLength(50)을 통과해 저장된다. 가구 커스텀 분류 쪽
+ * (`finance/dto/custom-categories.dto.ts`)만 `trim + /\s+/gu` 접기를 한다). 그 이름은
+ * `GET /categories` → `buildCategoryNameLookup`(내부 개행 무손질 `.trim()`) → 이 문장으로 온다.
+ *
+ * 기대값은 전부 **리터럴**이다 — 조립기를 다시 불러 만든 값과 비교하지 않는다.
+ */
+describe("라운드 106 — 분류 이름 개행 가드", () => {
+  /** 어드민 경로로 저장될 수 있는 이름. 내부 개행은 trim으로 사라지지 않는다. */
+  const brokenNames: Record<string, string> = {
+    diaper: "기저귀\n위생",
+    feeding: "분유/이유식",
+    clothes: "의류/세탁"
+  };
+  const brokenLabel = (categoryId: string) => brokenNames[categoryId] ?? "기타";
+
+  it("이름 안의 개행을 한 칸 공백으로 접어 문장을 한 줄로 유지한다", () => {
+    const insight = buildMonthlyInsight(
+      input({
+        categoryTop: [{ categoryId: "diaper", amountKrw: 84_200 }],
+        categoryLabel: brokenLabel
+      })
+    );
+
+    expect(insight?.headline).toBe("이번 달은 기저귀 위생에 가장 많이 썼어요 (84,200원 · 전체의 100%)");
+    expect(insight?.headline).not.toContain("\n");
+    expect(insight?.shareableHeadline).toBe("이번 달은 기저귀 위생에 가장 많이 썼어요 (84,200원 · 전체의 100%)");
+    // 낭독 라벨(문장을 " "로 이은 값)에도 제어문자가 남지 않는다.
+    expect(insight?.accessibilityLabel).not.toContain("\n");
+  });
+
+  it("캐리지 리턴·탭·연속 공백도 같은 규칙으로 한 칸이 된다", () => {
+    const insight = buildMonthlyInsight(
+      input({
+        categoryTop: [{ categoryId: "diaper", amountKrw: 84_200 }],
+        categoryLabel: () => "  기저귀\r\n\t \t위생  "
+      })
+    );
+
+    expect(insight?.headline).toBe("이번 달은 기저귀 위생에 가장 많이 썼어요 (84,200원 · 전체의 100%)");
+  });
+
+  it("퍼센트의 분모는 이름 가드와 무관하다 — 이름이 깨진 조각도 떨어뜨리지 않는다", () => {
+    const insight = buildMonthlyInsight(
+      input({
+        categoryTop: [
+          { categoryId: "clothes", amountKrw: 118_800 },
+          { categoryId: "diaper", amountKrw: 84_200 },
+          { categoryId: "feeding", amountKrw: 60_000 }
+        ],
+        categoryLabel: brokenLabel
+      })
+    );
+
+    // 1위는 의류/세탁 118,800원 / 총 263,000원 = 45.17% → 45%(최대잔여법, 세 조각 합 100%).
+    expect(insight?.headline).toBe("이번 달은 의류/세탁에 가장 많이 썼어요 (118,800원 · 전체의 45%)");
+  });
+
+  it("이름이 접고 나서 비면 1위 문장을 만들지 않는다(근거 없는 문장 금지)", () => {
+    const insight = buildMonthlyInsight(
+      input({
+        budgetAmountKrw: 380_000,
+        categoryTop: [{ categoryId: "diaper", amountKrw: 84_200 }],
+        categoryLabel: () => "   \n\t  "
+      })
+    );
+
+    // 카드가 사라지지는 않는다 — 그 자리에 예산·하루 평균 문장이 올라온다.
+    expect(insight?.headline).toBe("예산의 69%를 썼고, 하루 평균 17,533원이에요");
+    expect(insight?.shareableHeadline).toBeNull();
+  });
+
+  it("정상 이름의 바이트는 한 글자도 바뀌지 않는다", () => {
+    const insight = buildMonthlyInsight(input({ categoryTop: [{ categoryId: "diaper", amountKrw: 84_200 }] }));
+
+    expect(insight?.headline).toBe("이번 달은 기저귀/위생에 가장 많이 썼어요 (84,200원 · 전체의 100%)");
+  });
+});

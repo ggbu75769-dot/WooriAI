@@ -110,7 +110,12 @@ export function MoneyField({ label, value, onChangeText, error, helper, ...props
     <View style={{ gap: spacing.xs }}>
       <Text style={{ color: semanticColors.textPrimary, ...typography.bodyStrong }}>{label}</Text>
       <View style={{ alignItems: "center", backgroundColor: semanticColors.surface, borderColor: error ? semanticColors.danger : semanticColors.borderStrong, borderRadius: radius.medium, borderWidth: 1, flexDirection: "row", minHeight: 52, paddingHorizontal: spacing.md }}>
-        <TextInput accessibilityLabel={label} keyboardType="number-pad" onChangeText={onChangeText} placeholderTextColor={semanticColors.textDisabled} style={{ color: semanticColors.textPrimary, flex: 1, fontSize: typography.bodyLarge.fontSize, minHeight: 50 }} value={value} {...props} />
+        {/* 종전 semanticColors.textDisabled(#A99E97): 흰 배경 **2.62:1** — 그때는 "흐린 글자"라는 한
+            낱말이 비활성 텍스트와 플레이스홀더를 함께 가리켰다. → 이제 textPlaceholder(#756C66 ·
+            5.13:1, 입력값 text.primary와는 3.23:1로 구별). 비활성 텍스트는 WCAG 1.4.3의 예외지만
+            살아 있는 입력칸의 안내문은 예외가 아니다. textDisabled는 값·자리 그대로다 — 근거는
+            tokens/color.ts의 두 토큰 주석. */}
+        <TextInput accessibilityLabel={label} keyboardType="number-pad" onChangeText={onChangeText} placeholderTextColor={semanticColors.textPlaceholder} style={{ color: semanticColors.textPrimary, flex: 1, fontSize: typography.bodyLarge.fontSize, minHeight: 50 }} value={value} {...props} />
         <Text style={{ color: semanticColors.textSecondary, ...typography.bodyStrong }}>원</Text>
       </View>
       {error ? <Text accessibilityLiveRegion="polite" style={{ color: semanticColors.danger, ...typography.caption }}>{error}</Text> : helper ? <Text style={{ color: semanticColors.textSecondary, ...typography.caption }}>{helper}</Text> : null}

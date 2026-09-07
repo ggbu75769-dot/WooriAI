@@ -497,9 +497,14 @@ describe("라운드 104 TK4 — 앱 소스 색 리터럴 전수 스윕(잔여는
   it("대장 셋의 자리 수를 값으로 적어 둔다(오늘 다시 잰다)", () => {
     const counts = Object.fromEntries(tokenLedgerFiles.map((relativePath) => [relativePath, countColorLiterals(relativePath)]));
     // 라운드 104 TK4 실측. theme.ts 79 = 종전 78 + heroOverlayFaint 1(4차 신설).
+    // ⚠️ 두 시점(라운드 106 A11Y-대비) — 오늘은 theme.ts 80 · color.ts 38이다. 늘어난 한 줄씩은
+    // **화면에서 회수한 리터럴이 아니라 대장이 새로 갖게 된 이름**이다(플레이스홀더 잉크 #756C66:
+    // theme `text.placeholder` · design-system `semanticColors.textPlaceholder`). 스윕의 요지
+    // ("색 리터럴이 남은 파일 = 토큰 대장 셋")는 위 첫째 it이 그대로 물고 있고, 이 둘째 it의
+    // 숫자는 그 대장의 오늘 크기다 — 화면 쪽 리터럴은 여전히 0건이다.
     expect(counts).toEqual({
-      "src/theme.ts": 79,
-      "src/design-system/tokens/color.ts": 37,
+      "src/theme.ts": 80,
+      "src/design-system/tokens/color.ts": 38,
       "src/design-system/tokens/elevation.ts": 2
     });
   });
