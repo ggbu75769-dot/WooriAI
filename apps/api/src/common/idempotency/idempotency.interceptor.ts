@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  BadRequestException,
   CallHandler,
   ExecutionContext,
   HttpException,
@@ -36,6 +37,29 @@ const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
  * 이중 반영·응답 유실보다 훨씬 가볍다.
  */
 const PENDING_TTL_MS = 10 * 60 * 1000;
+/**
+ * `idempotency_keys.idem_key`의 컬럼 폭(varchar(120), prisma/schema.prisma) 그 자체.
+ *
+ * ⚠️ 두 시점 — 종전에는 이 상한이 **어디에도** 없었다(그때는 참이었다: 우리 클라이언트가
+ * 만드는 키는 uuid(36자) 또는 `onb-child-<base36 시각>-<난수 8자>`(~30자)뿐이라
+ * 120자를 넘길 일이 없었다 — apps/admin/src/lib/admin-api.ts의 newIdempotencyKey,
+ * apps/mobile/src/stores/onboarding-progress.store.ts의 generateIdempotencyKey,
+ * apps/mobile/src/offline/types.ts의 generateOfflineId). 하지만 값은 **요청 헤더**라
+ * 우리가 만든 것만 도착하지는 않는다. 121자를 보내면 아래 reserve()의 INSERT가
+ * Prisma P2000("값이 컬럼보다 길다")으로 터졌고, 저장소 전체에 P2000을 400으로 옮기는
+ * 핸들러가 0건이라 GlobalExceptionFilter를 지나 그대로 **500**이 됐다(실측:
+ * `POST /children` + 121자 헤더 → 500). 같은 인터셉터가 지출 생성·수정, 예산, import
+ * 확정, 커스텀 카테고리에도 걸려 있어 앱의 **모든 멱등 쓰기 경로**가 같은 모양이었다.
+ *
+ * 이제 상한을 넘는 키는 400으로 거절한다. **자르지 않는 이유**가 이 상수의 핵심이다:
+ * 조용히 `.slice(0, 120)`하면 앞 120자가 같은 서로 다른 두 키가 **같은 키**가 되고,
+ * 그 순간 두 번째 요청은 첫 요청의 응답을 그대로 돌려받는다(reserve()의 replay 분기).
+ * 즉 "지출을 새로 기록했다"는 응답을 받고도 아무것도 기록되지 않는 조용한 유실 —
+ * 500보다 나쁘다. 값을 고칠 수 있는 쪽(요청을 보낸 클라이언트)에게 사유를 돌려주는
+ * 400이 옳다.
+ */
+const IDEMPOTENCY_KEY_MAX_LENGTH = 120;
+
 const RETRY_INTERVAL_MS = 50;
 const RETRY_ATTEMPTS = 60; // ~3s of total wait for a concurrent in-flight request to finish
 
@@ -84,6 +108,27 @@ function toActorUuid(actorId: string): string {
   // RFC 9562 layout: version nibble 8 (custom) + the 10xx variant bits.
   const variant = ((parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * 상한을 넘는 `Idempotency-Key`의 거절 본문. 저장소의 기존 400 형식을 그대로 따른다 —
+ * `VALIDATION_ERROR` + `details.fields[].constraints`(admin-users-lookup.service.ts의
+ * 최소 길이 거절, bootstrap.ts의 DTO 거절과 같은 봉투). `field`에는 본문 필드가 아니라
+ * 헤더 이름을 적는다: 실제로 고쳐야 하는 자리가 본문이 아니라 헤더이기 때문이다.
+ */
+function keyTooLongError() {
+  return new BadRequestException({
+    code: "VALIDATION_ERROR",
+    message: "요청 값을 다시 확인해주세요.",
+    details: {
+      fields: [
+        {
+          field: "Idempotency-Key",
+          constraints: { maxLength: `Idempotency-Key는 ${IDEMPOTENCY_KEY_MAX_LENGTH}자 이하여야 해요.` }
+        }
+      ]
+    }
+  });
 }
 
 function conflictError(message: string) {
@@ -140,6 +185,13 @@ export class IdempotencyInterceptor implements NestInterceptor {
       return next.handle();
     }
 
+    // 키 검사는 **인증 주체 확인보다 앞**이다: 아래 actorId 분기는 키가 있어도 주체가 없으면
+    // 그냥 통과시키므로, 뒤에 두면 같은 121자 헤더가 경로에 따라 400이 되기도 하고 조용히
+    // 무시되기도 한다. 길이는 요청만 보면 판정할 수 있으니 여기서 한 번에 끝낸다.
+    if (idemKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+      throw keyTooLongError();
+    }
+
     // 인증 주체는 일반 사용자(JWT) 또는 관리자 세션(AdminAuthGuard가 채우는
     // request.adminUser) 둘 다 될 수 있다. admin은 users 테이블에 없는 별개
     // 계정이지만 idempotency_keys.user_id에는 FK가 없어(000002 마이그레이션)
@@ -157,7 +209,15 @@ export class IdempotencyInterceptor implements NestInterceptor {
     // URL을 포함한다 — 같은 키+같은 body로 다른 리소스(childId 등)에 요청했을 때
     // 첫 응답이 잘못 재생되지 않고 409(다른 요청)로 구분되게 하기 위함이다.
     const routePath = rawRequest.route?.path ?? rawRequest.url ?? "unknown";
-    const endpoint = `${rawRequest.method ?? "POST"}:${routePath}`.slice(0, 120);
+    // `endpoint`도 같은 varchar(120) 컬럼이라 여기서 자른다. **키와 달리 자르는 것이 맞다**:
+    //  - 실측(현재 등록된 라우트 전수) 최장값은 49자
+    //    (`POST:/api/v1/admin/content-revisions/:id/rollback`)라 이 slice는 지금 한 번도 걸리지
+    //    않는다. 걸릴 수 있는 건 route.path가 없어 url로 폴백하는 가상의 경우뿐이다.
+    //  - 설령 걸려 서로 다른 두 엔드포인트가 같은 문자열로 접혀도 **첫 응답이 잘못 재생되지는
+    //    않는다**: 아래 requestHash가 파라미터까지 치환된 실제 경로(actualPath)를 포함하므로
+    //    두 요청의 해시가 갈리고, reserve()는 replay가 아니라 409(다른 요청)로 끊는다.
+    //    즉 최악이 "잘못된 409"이지 "남의 응답"이 아니다 — 그래서 키(400 거절)와 결론이 갈린다.
+    const endpoint = `${rawRequest.method ?? "POST"}:${routePath}`.slice(0, IDEMPOTENCY_KEY_MAX_LENGTH);
     const actualPath = (rawRequest.originalUrl ?? rawRequest.url ?? "").split("?")[0];
     const requestHash = createHash("sha256")
       .update(`${actualPath}\n${JSON.stringify(request.body ?? {})}`)
