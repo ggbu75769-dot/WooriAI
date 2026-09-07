@@ -1,5 +1,6 @@
 import { Transform } from "class-transformer";
 import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { normalizeDisplayName } from "../../common/validation/display-name";
 
 /**
  * 라운드 103 T1: 커스텀 지출 분류 쓰기 본문 — docs/5차/round103-custom-expense-category-design.md
@@ -12,9 +13,23 @@ import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from "class-val
  * 다르게 읽는다. 그래서 여기서 **trim + 내부 연속 공백 1칸 접기**까지 끝내고, 길이 검사는
  * 정규화된 값에 걸린다 — 저장되는 값 = 검증된 값이다(§9.2의 "서버가 trim·공백접기 후 재검증").
  * 공백만 있는 이름은 정규화 뒤 빈 문자열이 되어 `@MinLength(1)`에서 400 VALIDATION_ERROR다.
+ *
+ * 라운드 109 두 시점 — 종전(그때는 참): 접기 정규식(`trim + /\s+/gu`)의 **구현이 여기 있었고**,
+ * 어드민 유입 지점(`admin/dto/admin-categories.dto.ts`)은 `.trim()`뿐이라 같은 컬럼에 쓰면서
+ * 규칙이 갈려 있었다. → 이제 구현은 `common/validation/display-name.ts` 한 벌이고 이 함수는
+ * 그것을 부르는 이름일 뿐이다(호출부·동작·저장값은 한 글자도 바뀌지 않는다 — 실측은
+ * test/custom-categories.e2e.test.ts와 src/api/custom-categories-mirror.test.ts가 그대로 문다).
+ * 이름을 남겨 두는 이유: §9.2·설계 문서와 모바일 미러가 이 이름으로 규칙을 가리킨다.
+ *
+ * ⚠️ 이 유입 지점에는 어드민 쪽에 세운 **보이지 않는 문자 거절**(`@IsSafeDisplayName`)이 아직
+ * 없다. 같은 병(RLO·NEL·ZWSP)이 여기에도 있지만, 이 계약은 설계 문서 §9.2 + 모바일 미러 두
+ * 자리(`src/api/local-backend.ts`의 `requireCustomCategoryName`,
+ * `src/categories/custom-category-form.ts`)와 그 미러 테스트가 함께 물고 있어서, 서버만 좁히면
+ * **데모에서는 조용히 성공하고 실계정에서만 400**이 나는 갈래가 생긴다(local-backend.ts가 그
+ * 위험을 이미 적어 두었다). 다섯 자리를 한 번에 옮기는 별도 작업으로 남긴다 — 라운드 109 보고서.
  */
 function normalizeCustomCategoryName(value: unknown): unknown {
-  return typeof value === "string" ? value.trim().replace(/\s+/gu, " ") : value;
+  return normalizeDisplayName(value);
 }
 
 /**

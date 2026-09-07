@@ -124,10 +124,42 @@ export function buildCategoryNameLookup(
 ): CategoryNameLookup {
   const nameById = new Map<string, string>();
   for (const category of categories ?? []) {
-    const name = category?.name?.trim();
+    const name = displaySafeCategoryName(category?.name);
     if (category?.id && name) nameById.set(category.id, name);
   }
   return (categoryId: string) => nameById.get(categoryId) ?? categoryNameFor(categoryId);
+}
+
+/**
+ * 라운드 109 — **표시 직전의 이름 손질.** 위 lookup이 내주는 값이 화면·CSV·낭독 라벨의
+ * 문자열이 되므로, 여기가 이 앱에서 분류 이름이 지나는 마지막 공통 관문이다.
+ *
+ * 두 시점 — 종전(그때는 참): `category?.name?.trim()`뿐이었다. 그때는 그것으로 충분해 **보이지
+ * 않았다**: `trim()`은 이름 **양끝**만 손대고, 이름 **안쪽**의 개행·양방향 제어문자는 그대로
+ * 통과한다. → 이제: 서버 유입 지점(`apps/api/src/admin/dto/admin-categories.dto.ts`)이 그
+ * 문자들을 400으로 거절하지만, 이 자리를 그대로 두지 않는 이유가 셋 있다:
+ *   ① `["categories"]` 캐시에는 **그 가드 이전에 저장된 값**이 그대로 실려 올 수 있다.
+ *   ② 데모/로컬 대역(`src/api/local-backend.ts`)은 서버 DTO를 지나지 않는다 — 그쪽 정규화는
+ *      `trim + /\s+/gu`뿐이고, 실측상 그 정규식은 RLO(U+202E)·NEL(U+0085)·ZWSP(U+200B)를
+ *      한 글자도 잡지 못한다.
+ *   ③ 가구 커스텀 분류의 서버 유입 지점(`finance/dto/custom-categories.dto.ts`)에는 아직 그
+ *      거절이 없다(그 파일의 라운드 109 주석 — 미러 다섯 자리를 함께 옮겨야 한다).
+ *
+ * **여기서는 거절하지 않고 손질한다.** 서버에는 400을 받아 볼 운영자가 있지만 이 자리에는
+ * 아무도 없고, 이름을 버리면 그 분류로 기록된 과거 지출이 일제히 "기타"로 무너진다 —
+ * 라운드 28 F3가 이미 허위 표시로 판정한 상태다.
+ *
+ * 규칙: 남은 `\p{Cc}`/`\p{Cf}`/`\p{Cs}`를 **공백 한 칸으로 바꾼 뒤** 접고 다듬는다.
+ * 지우지 않고 공백으로 바꾸는 이유: 지우면 `"산후\u0085도우미"`가 `"산후도우미"`가 되어 **원래
+ * 떨어져 있던 두 낱말이 붙는다**(없던 사실이 하나 생긴다). 공백으로 바꾸면 라운드 106·108이
+ * 문장 조립 자리(`reports/monthly-insight.ts` · `reports/period-insight.ts` ·
+ * `reports/share-text.ts`)에 세운 접기와 **같은 값**이 나온다.
+ * 손질 결과가 빈 문자열이면(예: ZWSP만으로 된 이름) 위 루프가 그 행을 건너뛰고
+ * `categoryNameFor` 폴백이 선다 — 빈 이름에 대해 종전부터 하던 그 동작 그대로다.
+ */
+function displaySafeCategoryName(raw: string | null | undefined): string {
+  if (typeof raw !== "string") return "";
+  return raw.replace(/[\p{Cc}\p{Cf}\p{Cs}]/gu, " ").replace(/\s+/gu, " ").trim();
 }
 
 /**

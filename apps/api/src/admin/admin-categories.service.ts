@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { foldDisplayName } from "../common/validation/display-name";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AdminUpdateCategoryDto } from "./dto/admin-categories.dto";
 
@@ -114,11 +115,18 @@ export class AdminCategoriesService {
       // 값이 오지 않은 축은 `undefined`라 Prisma가 그대로 건드리지 않는다 —
       // 부분 수정(PATCH) 계약이 그대로 유지된다.
       //
-      // `name`은 DTO가 이미 trim한 뒤 검증했다(F2) — 여기 `.trim()`은 그 계약을 두 번째로
-      // 확인하는 무해한 항등 연산이고, DTO를 거치지 않는 호출부가 생겨도 공백이 그대로
-      // 저장되지 않게 남겨 둔다. 공백만 있는 이름은 DTO에서 400으로 걸린다.
+      // `name`은 DTO가 이미 정규화한 뒤 검증했다(F2) — 여기 한 번 더 접는 것은 그 계약을
+      // 두 번째로 확인하는 무해한 항등 연산이고, DTO를 거치지 않는 호출부가 생겨도 공백이
+      // 그대로 저장되지 않게 남겨 둔다. 공백만 있는 이름은 DTO에서 400으로 걸린다.
+      //
+      // 라운드 109 두 시점 — 종전(그때는 참): 여기는 `.trim()`이었고, 그때는 DTO도 `.trim()`
+      // 뿐이라 두 자리가 같은 뜻이었다. → 이제 DTO가 `trim + 연속 공백 접기`(커스텀 쪽과 같은
+      // 함수)까지 하므로, `.trim()`을 그대로 두면 이 "확인"이 DTO보다 약해져 항등이 아니게 된다.
+      // 그래서 **같은 함수**를 부른다(`foldDisplayName` — 규칙의 구현은 저장소에 한 벌이다).
+      // 보이지 않는 제어문자 거절은 여기서 하지 않는다: 그 판정은 400을 낼 수 있는 자리
+      // (DTO)의 몫이고, 여기서 던지면 같은 위반이 유입 경로에 따라 400과 500으로 갈린다.
       data: {
-        name: input.name?.trim(),
+        name: input.name === undefined ? undefined : foldDisplayName(input.name),
         displayOrder: input.displayOrder,
         active: input.active,
         selectable: input.selectable
@@ -169,11 +177,14 @@ export class AdminCategoriesService {
 }
 
 /**
- * 이름 비교 키. `households/custom-categories.service.ts`의 같은 이름 함수와 규칙이 같다
- * (그 파일은 이 트랙의 무접촉 대상이라 함수를 공유하지 않고 같은 규칙을 여기 한 벌 둔다 —
- * 두 자리가 갈리면 같은 이름이 한쪽에서만 중복으로 판정된다. 두 시점: 공유 모듈로 합칠 수
- * 있게 되는 라운드에 한 벌로 접는다).
+ * 이름 비교 키. `households/custom-categories.service.ts`의 같은 이름 함수와 규칙이 같다.
+ *
+ * 라운드 109 두 시점 — 종전(그때는 참): 접기 정규식(`trim + /\s+/gu`)을 **여기 한 벌 더**
+ * 적어 두고 "공유 모듈로 합칠 수 있게 되는 라운드에 접는다"고 남겨 두었다. → 이제 그 접기의
+ * 구현은 `common/validation/display-name.ts` 한 자리이고, 이 함수는 거기에 `toLowerCase()`만
+ * 더한다. 접기 규칙을 넓혀도 비교 키와 저장값이 갈릴 수 없다(DTO도 같은 함수를 부른다).
+ * DB 색인 식 `lower(btrim(name))`이 같은 뜻을 진다.
  */
 function duplicateKey(name: string): string {
-  return name.trim().replace(/\s+/gu, " ").toLowerCase();
+  return foldDisplayName(name).toLowerCase();
 }
