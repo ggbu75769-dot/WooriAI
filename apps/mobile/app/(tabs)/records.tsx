@@ -1537,9 +1537,14 @@ export default function RecordsScreen() {
         })
       : null;
 
+  // 라운드 103 리뷰 M-2: 세 번째 인자는 위에서 이미 구한 **보고 있는 아이의 가구**다(구성원
+  // 목록을 물어보는 그 값 그대로). 두 가구에 속한 계정에서 `GET /categories`는 합집합을 내려
+  // 주는데(서버 §1.3), 이 탭이 거르는 지출은 이 아이의 것뿐이라 다른 가구의 커스텀 칩은 눌러도
+  // 언제나 0건이고, 같은 칩 대장을 예산 화면이 **행 모집단**으로 그대로 쓴다. 가구를 아직 모르면
+  // (콜드 진입) null이라 종전과 한 칩도 다르지 않다.
   const categoryChips = useMemo(
-    () => buildRecordsCategoryChips(serverCategories, selectedCategoryId),
-    [serverCategories, selectedCategoryId]
+    () => buildRecordsCategoryChips(serverCategories, selectedCategoryId, householdId),
+    [serverCategories, selectedCategoryId, householdId]
   );
   // 선택된 칩이 흡수한 동명 중복 id까지 모두 매칭한다 -- 서버 시드에는 정식 "기타"와 mobile_etc
   // 별칭 "기타"가 함께 있고(별칭 id는 빠른 기록 8타일이 실제로 쓰는 값), 데모 백엔드에도 카탈로그

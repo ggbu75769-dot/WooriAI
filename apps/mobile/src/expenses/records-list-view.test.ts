@@ -1276,8 +1276,14 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
 
   it("C1: 칩과 이름 해석을 같은 ['categories'] 응답에서 가져온다", () => {
     expect(recordsSource).toContain('queryKey: ["categories"]');
-    expect(recordsSource).toContain("buildRecordsCategoryChips(serverCategories, selectedCategoryId)");
+    // ⚠️ 두 시점(라운드 103 리뷰 M-2): 종전 핀은 인자 둘짜리였다. 칩 대장에 **소유자 축**이
+    // 하나 더 걸리면서 이 화면이 이미 구한 `householdId`(보고 있는 아이의 가구)를 함께 넘긴다.
+    // 지키려는 사실은 그대로다 — 칩과 이름 해석이 같은 응답 하나에서 나온다.
+    expect(recordsSource).toContain("buildRecordsCategoryChips(serverCategories, selectedCategoryId, householdId)");
+    // ⚠️ **이름 해석에는 그 축이 없다.** 좁히면 다른 가구 분류로 기록된 과거 지출이 "기타"로
+    // 무너진다(라운드 28 F3가 허위 표시로 판정한 그 상태) — 인자 하나짜리 그대로여야 한다.
     expect(recordsSource).toContain("buildCategoryNameLookup(serverCategories)");
+    expect(recordsSource).not.toContain("buildCategoryNameLookup(serverCategories,");
   });
 
   it("CAT-124: 그 하나의 응답은 전량(includeAll=1)이어야 한다 — 칩은 좁히고 이름은 전부 푼다", () => {

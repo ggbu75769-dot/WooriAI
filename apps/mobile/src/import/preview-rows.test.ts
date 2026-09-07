@@ -733,7 +733,10 @@ describe("A(#2) 분류 표시·편집 배선 (app/import/[importJobId].tsx)", ()
   it("칩 목록은 지출 수정 화면과 같은 모듈(selectableCategories)을 지난 목록만 쓴다", () => {
     const src = screen();
     expect(src).toContain('import { selectableCategories } from "../../src/categories";');
-    expect(src).toContain("selectableCategories(serverCategories ?? []).map(");
+    // ⚠️ 두 시점(라운드 103 리뷰 M-2): 종전 핀은 인자 하나짜리였다. 두 번째 인자는 여전히
+    // **null**(행의 현재 값을 넘기지 않는다 — 아래 not.toContain이 그 사실을 계속 문다)이고,
+    // 세 번째가 새로 걸린 소유자 축이다: 이 잡의 아이가 속한 가구.
+    expect(src).toContain("selectableCategories(serverCategories ?? [], null, importHouseholdId)");
     // 새 픽커를 만들지 않는다 -- 공유 CategoryChip을 쓴다.
     expect(src).toContain("<CategoryChip");
     // 행의 현재 값을 selectableCategories에 넘기면 스텁이 칩으로 되살아난다(=고를 수 있게 된다).

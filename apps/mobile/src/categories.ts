@@ -257,6 +257,13 @@ export type SelectableCategory = {
    * must keep behaving exactly as it did (missing = offer it).
    */
   active?: boolean;
+  /**
+   * 라운드 103: 이 분류를 만든 가구(`GET /categories`의 가산 필드) — **커스텀 행에만 실린다.**
+   * 운영 시드 21행에는 키 자체가 없으므로 `undefined`가 곧 "시드"다(설계 §2.2 · client.ts의
+   * `CategoryListItem.householdId` 주석). ⚠️ `isSystem === false`는 표식이 아니다 — 퀵타일
+   * 별칭 8행과 가져오기 스텁 1행이 그 값으로 시드된다.
+   */
+  householdId?: string | null;
 };
 
 /**
@@ -298,9 +305,34 @@ export const IMPORT_STUB_CODE_PREFIX = "import_";
  *       pre-CAT-124 payloads rule (a) deliberately lets through, and for the demo backend;
  *   (c) collapse entries that share the exact same display name down to one;
  *   (d) `currentCategoryId` — the category the expense being edited is already saved with — is
- *       ALWAYS kept, even if (a), (b) or (c) would have dropped it, so the chip row can still show
- *       and re-select the current value instead of silently losing it. This is what keeps an
- *       expense recorded through the 8-tile quick input (alias id) editable after CAT-124.
+ *       ALWAYS kept, even if (a), (b), (c) or (e) would have dropped it, so the chip row can still
+ *       show and re-select the current value instead of silently losing it. This is what keeps an
+ *       expense recorded through the 8-tile quick input (alias id) editable after CAT-124;
+ *   (e) 라운드 103 리뷰 M-2 — **소유자 축**: `householdId`가 실린 행(= 커스텀 분류)은 그것이
+ *       `householdScopeId`(지금 이 화면의 가구)일 때만 내민다.
+ *
+ * ## (e)가 왜 생겼나 — 읽기와 쓰기의 스코프가 갈려 있었다
+ * `GET /categories`의 읽기는 **속한 가구 전부의 합집합**이다(서버 설계 §1.3 — 그 전부가 이
+ * 사람의 가구이고, 이름 해석에는 하나를 고를 필요가 없다). 그런데 쓰기 검증은 전부 **가구
+ * 하나**로 좁힌다(`requireExistingCategory` · `requireBudgetableCategories` · 가져오기 확정).
+ * 두 가구 A·B에 모두 속한 사용자에게는 그 차이가 화면에 그대로 나왔다: B의 커스텀 "산후도우미"가
+ * A의 지출 수정 칩 행에 서고(활성·selectable이라 (a)~(c) 어느 규칙에도 걸리지 않는다), 탭해서
+ * 저장하면 400 EXPENSE_CATEGORY_INVALID("존재하지 않는 카테고리예요")가 났다. 예산 폼에서는 같은
+ * 칩이 행으로 서서 저장 400이 **그 달의 총액 예산까지 함께** 막았고(한 요청이다), 가져오기 검수
+ * 에서는 행 저장은 통과한 뒤 확정이 400을 던져 **배치 전체가 롤백**됐다.
+ *
+ * 고치는 자리는 여기다 — **내미는 목록만** 좁힌다. ⚠️ `buildCategoryNameLookup`(위)은 합집합
+ * 전량을 그대로 본다. 이름 해석까지 좁히면 다른 가구 분류로 기록된 과거 지출이 기록 탭·리포트
+ * 범례·CSV에서 일제히 "기타"로 무너지는데, 그것이 바로 라운드 28 F3가 허위 표시로 판정한 상태다.
+ *
+ * ## `householdScopeId`를 아직 모를 때(생략·null)
+ * **아무것도 좁히지 않는다** — 종전 동작 그대로다. 화면들이 이 값을 계산하는 방법은
+ * `resolveExpenseHouseholdId`(보고 있는 아이의 가구)인데, 그 판정은 `["children"]` 캐시가 아직
+ * 없으면 "모른다"는 뜻으로 null을 준다(콜드 진입·조회 실패·오프라인 첫 실행). 그 창에서 커스텀을
+ * 전부 걸러 버리면 자기 가구의 분류 칩이 잠깐 사라졌다가 되돌아온다 — 없는 사실을 말하는 쪽이
+ * 아니라 **있는 선택지를 잠깐 감추는** 쪽이라, 1가구 계정(대다수)에서도 매번 깜빡인다. 모르는
+ * 동안은 합집합을 그대로 두고, 알게 되는 순간 좁힌다. 1가구 계정에서는 합집합이 곧 그 가구라
+ * 이 규칙이 켜지든 꺼지든 결과가 한 행도 다르지 않다.
  *
  * Which entry survives a same-name group is deterministic: the current category first (so the
  * selection stays put), then a canonical row over a `mobile_`-prefixed alias, then input order.
@@ -317,7 +349,8 @@ export const IMPORT_STUB_CODE_PREFIX = "import_";
  */
 export function selectableCategories<T extends SelectableCategory>(
   categories: readonly T[] | null | undefined,
-  currentCategoryId?: string | null
+  currentCategoryId?: string | null,
+  householdScopeId?: string | null
 ): T[] {
   const current = currentCategoryId ?? "";
   const isCurrent = (category: T) => Boolean(current) && category.id === current;
@@ -326,6 +359,12 @@ export function selectableCategories<T extends SelectableCategory>(
   // CAT-124 / R28-F3: strictly `=== false`. `undefined` (a server/cache from before the flag)
   // means "offer it" — never let a missing field empty the chip row.
   const isHiddenByServer = (category: T) => category.selectable === false || category.active === false;
+  // 규칙 (e) 라운드 103 M-2. `scope`가 null이면(=아직 모른다) 판정 자체가 서지 않는다 — 위
+  // 주석의 그 창이다. 행 쪽 `householdId`도 `!= null`로 본다: 값이 있는 행만 커스텀이고,
+  // 시드 행에는 키가 없다(`undefined`).
+  const scope = householdScopeId ?? null;
+  const isOtherHouseholdCustom = (category: T) =>
+    scope !== null && category.householdId != null && category.householdId !== scope;
 
   const kept: T[] = [];
   // name -> index in `kept`, so a later entry can replace an earlier one in place (keeping the
@@ -336,7 +375,12 @@ export function selectableCategories<T extends SelectableCategory>(
     if (!category?.id) continue;
     const name = category.name?.trim() ?? "";
     if (!name) continue;
-    if ((isHiddenByServer(category) || isImportStub(category)) && !isCurrent(category)) continue;
+    if (
+      (isHiddenByServer(category) || isImportStub(category) || isOtherHouseholdCustom(category)) &&
+      !isCurrent(category)
+    ) {
+      continue;
+    }
 
     const slot = slotByName.get(name);
     if (slot === undefined) {

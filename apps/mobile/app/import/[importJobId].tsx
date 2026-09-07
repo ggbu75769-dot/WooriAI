@@ -9,6 +9,7 @@ import {
   getImportJob,
   listCategories,
   listImportRows,
+  LOCAL_HOUSEHOLD_ID,
   LOCAL_SESSION_TOKEN,
   updateImportRow,
   type Child,
@@ -24,6 +25,9 @@ import {
   resolveImportLandingMonth,
   RECORDS_MONTH_PARAM
 } from "../../src/expenses/import-landing-month";
+// 라운드 103 리뷰 M-2: 이 화면이 내미는 분류의 가구 판정은 기록 탭·지출 수정과 **같은 규칙**이다
+// (규칙을 두 벌로 만들지 않는다 -- 라운드 27 L-4의 그 함수).
+import { resolveExpenseHouseholdId } from "../../src/expenses/records-list-view";
 // 라운드 71 리뷰 M-1: 잠긴 세션의 머리말 문장은 화면이 짓지 않는다 — 여섯 화면의 단일 소스가
 // src/family/record-permissions.ts의 VIEW_ONLY_HEADLINES 표다(트랙 E가 세우고 A가 읽어 쓴다).
 import { VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
@@ -455,6 +459,9 @@ export default function ImportPreviewScreen() {
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
+  // 라운드 103 M-2의 가구 판정 폴백 -- 아이 목록에 그 아이가 있는데 householdId만 비어 있는
+  // 구버전 캐시에서만 쓰인다(resolveExpenseHouseholdId의 마지막 갈래).
+  const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const queryClient = useQueryClient();
   // 라운드 40 J-6: CSV 임포트 확정도 결국 지출을 만드는 동작이라 다른 진입점과 같은 판정을
   // 쓴다(잠금은 실세션 + 보기 전용 역할에서만 참이므로 비세션 IMP-003 렌더는 불변이다).
@@ -537,12 +544,36 @@ export default function ImportPreviewScreen() {
     queryFn: () => listCategories(authToken!, { includeAll: true })
   });
   const serverCategories = categories.data?.categories;
+  /**
+   * 라운드 103 리뷰 M-2 — 이 화면이 내미는 분류의 **가구**.
+   *
+   * 왜 이 화면이 가장 나빴나: `updateImportRow`는 categoryId의 실재·소유를 묻지 않고 저장한다
+   * (FK는 통과한다 — 실재하는 행이다). 그래서 두 가구에 속한 계정에서 다른 가구의 커스텀 분류를
+   * 칩에서 고르면 행 저장은 조용히 성공하고, 뒤이은 `confirmImport`가 400을 던지며 **확정 배치
+   * 전체가 롤백**됐다. 사용자는 어느 행이 원인인지 안내받지 못한 채 확정할 수 없었다.
+   *
+   * 기준 가구는 **잡에 박힌 아이**(`job.childId`)의 가구다 — 서버가 지출을 붙이는 곳이 그
+   * 아이이므로(위 K-2의 그 판단), 선택 아이 스토어가 아니라 이 값이 맞다. `["children"]`은
+   * 종전처럼 **읽기만** 한다(getQueryData — 이 화면 때문에 도는 요청은 여전히 0건). 캐시가
+   * 아직 없으면 `resolveExpenseHouseholdId`가 null을 주고, 그때는 아무것도 좁히지 않는다
+   * (그 함수의 "모르면 추측하지 않는다" — 칩이 잠깐 사라지지 않는다).
+   */
+  const cachedChildren = queryClient.getQueryData<{ children: Child[] }>(["children"])?.children;
+  const importHouseholdId = resolveExpenseHouseholdId({
+    children: cachedChildren,
+    childId: job.data?.childId,
+    fallbackHouseholdId: sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null)
+  });
   // 지출 수정 화면과 같은 필터를 지난 목록 = 화면이 **내밀어도 되는** 분류만. 여기서는 행의
   // 현재 값을 넘기지 않는다: 스텁("가져오기 기본")을 칩으로 되살려 다시 고르게 하면, 이 라운드가
   // 없애려는 바로 그 상태를 사용자가 손으로 만들 수 있게 된다.
   const categoryOptions = useMemo<ImportCategoryOption[]>(
-    () => selectableCategories(serverCategories ?? []).map((category) => ({ id: category.id, label: category.name })),
-    [serverCategories]
+    () =>
+      selectableCategories(serverCategories ?? [], null, importHouseholdId).map((category) => ({
+        id: category.id,
+        label: category.name
+      })),
+    [serverCategories, importHouseholdId]
   );
   const resolveCategoryName = useMemo(() => importCategoryNameResolver(serverCategories), [serverCategories]);
   /**
@@ -569,8 +600,9 @@ export default function ImportPreviewScreen() {
    *
    * `["children"]` 캐시를 **읽기만** 한다(useQuery가 아니라 getQueryData -- 이 화면 때문에 새로
    * 도는 요청은 0). 캐시가 없으면 순수 모듈이 null을 돌려주고 줄 자체가 사라진다(허위 표시 금지).
+   * 라운드 103 M-2가 같은 읽기를 칩 목록의 가구 판정에도 쓰면서 `cachedChildren` 선언 자체는
+   * 위(칩 목록 옆)로 올라갔다 -- 읽기는 여전히 한 번이고, 이 문단이 말하는 규율은 그대로다.
    */
-  const cachedChildren = queryClient.getQueryData<{ children: Child[] }>(["children"])?.children;
   const targetChildName = resolveImportTargetChildName(job.data?.childId, cachedChildren);
   /**
    * 라운드 42 L-6: 잡에는 아이가 박혀 있는데(childId) 그 이름을 이 기기가 모를 때 -- 캐시가 아직

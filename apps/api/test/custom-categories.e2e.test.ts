@@ -108,8 +108,22 @@ describe("Custom expense categories API (라운드 103 T1)", () => {
   /** 가구 B — 교차 가구 경계(R1)의 반대편. */
   let otherToken: string;
   let otherHouseholdId: string;
+  let otherChildId: string;
   /** 가구 A의 viewer — 쓰기 403의 반대편(§2.4). */
   let viewerToken: string;
+  /**
+   * 라운드 103 리뷰 M-2 — **가구 A·B 양쪽의 구성원**인 사용자.
+   *
+   * 왜 이 픽스처가 새로 필요했나: 이 스위트의 A·B는 **서로 다른 사용자**라,
+   * `GET /categories`의 `householdIds.length > 1` 갈래(설계 §1.3의 합집합 분기)가 스위트 전체에서
+   * 한 번도 실행되지 않았다 — 새로 만든 분기가 통째로 미검증이었다. 이 사용자는 자기 가구(로그인이
+   * 자동 생성) + A + B 셋에 속하므로 그 갈래를 실제로 지나고, 동시에 "읽기는 합집합인데 쓰기는 한
+   * 가구"라는 이 라운드의 비대칭을 값으로 물 수 있는 유일한 주체다.
+   */
+  let bothToken: string;
+  let bothOwnHouseholdId: string;
+  /** 위 사용자가 **속하지 않은** 가구 — 합집합이 "전부"가 아니라는 반대 끝(viewer의 자기 가구). */
+  let viewerOwnHouseholdId: string;
 
   beforeAll(async () => {
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
@@ -134,17 +148,39 @@ describe("Custom expense categories API (라운드 103 T1)", () => {
     const other = await whoAmI(app, otherToken);
     otherHouseholdId = other.householdId;
     // 가구 B에도 아이를 둔다 — 교차 가구 경계가 "빈 껍데기 가구"에서만 성립하지 않게(afterAll이 걷는다).
-    await createChildWithConsents(app, otherToken, otherHouseholdId, "옆집둥이");
+    // 라운드 103 리뷰 M-2: 그 아이의 id를 **버리지 않는다** — 같은 분류가 자기 가구에서는 통과한다는
+    // 반대 끝을 이 아이 위에서 물기 때문이다(거절이 "이 사람은 못 쓴다"가 아님을 값으로 가른다).
+    otherChildId = await createChildWithConsents(app, otherToken, otherHouseholdId, "옆집둥이");
 
     viewerToken = await login(app, "r103-custom-category-viewer");
     const viewer = await whoAmI(app, viewerToken);
+    viewerOwnHouseholdId = viewer.householdId;
     await prisma.householdMember.create({
       data: { householdId, userId: viewer.userId, role: "viewer", status: "active", joinedAt: new Date() }
     });
+
+    // 라운드 103 리뷰 M-2 — 다가구 사용자. 두 가구 모두에서 **쓸 수 있어야** 비대칭이 드러나므로
+    // 역할은 co_parent다(viewer면 거절이 분류 때문인지 역할 때문인지 갈리지 않는다).
+    bothToken = await login(app, "r103-custom-category-both");
+    const both = await whoAmI(app, bothToken);
+    bothOwnHouseholdId = both.householdId;
+    for (const memberHouseholdId of [householdId, otherHouseholdId]) {
+      await prisma.householdMember.create({
+        data: {
+          householdId: memberHouseholdId,
+          userId: both.userId,
+          role: "co_parent",
+          status: "active",
+          joinedAt: new Date()
+        }
+      });
+    }
   });
 
   afterAll(async () => {
-    const householdIds = [householdId, otherHouseholdId];
+    // 라운드 103 리뷰 M-2: 다가구 픽스처가 쓰는 가구 둘(다가구 사용자의 자기 가구 · viewer의 자기
+    // 가구)이 늘었다 — 그 둘에도 커스텀 행이 생기므로 걷는 목록에 함께 넣는다.
+    const householdIds = [householdId, otherHouseholdId, bothOwnHouseholdId, viewerOwnHouseholdId];
     const childIds = (
       await prisma.child.findMany({ where: { householdId: { in: householdIds } }, select: { id: true } })
     ).map((child) => child.id);
@@ -440,6 +476,91 @@ describe("Custom expense categories API (라운드 103 T1)", () => {
         expect(body.error.code).toBe("CUSTOM_CATEGORY_NOT_FOUND");
       });
     expect((await prisma.category.findUniqueOrThrow({ where: { id: foreign.id } })).name).toBe(foreign.name);
+  });
+
+  it("두 가구에 모두 속한 사용자: 목록은 **속한 가구 전부의 합집합**이고, 쓰기는 여전히 가구 하나로 좁는다", async () => {
+    // 라운드 103 리뷰 M-2 — 설계 §1.3의 합집합 분기(`householdIds.length > 1`)를 실제로 지나는
+    // 유일한 자리다. 이 스위트의 A·B는 서로 다른 사용자여서 그 갈래가 한 번도 실행되지 않았고,
+    // 그래서 "읽기 합집합 / 쓰기 한 가구"라는 비대칭이 값으로 확인된 적이 없었다.
+    const mine = await createCategory(uniqueName("우리집산후조리"));
+    const theirs = await createCategory(uniqueName("옆집산후도우미"), otherToken, otherHouseholdId);
+    // 이 사용자가 **속하지 않은** 가구의 커스텀 — 합집합이 "전부"라는 오독을 가르는 반대 끝.
+    const stranger = await createCategory(uniqueName("남의집분류"), viewerToken, viewerOwnHouseholdId);
+
+    // ⓐ 읽기: 두 갈래(기본 · includeAll) 모두에서 **두 가구의 커스텀이 함께** 실린다.
+    for (const query of ["", "?includeAll=1"]) {
+      const listed = await listCategories(bothToken, query);
+      const ids = listed.map((category) => category.id);
+      expect(ids, `${query || "기본"} 갈래에 가구 A의 커스텀이 없다`).toContain(mine.id);
+      expect(ids, `${query || "기본"} 갈래에 가구 B의 커스텀이 없다`).toContain(theirs.id);
+      // 양쪽 끝: 합집합이 "아무거나 다 준다"는 뜻이 아니다.
+      expect(ids).not.toContain(stranger.id);
+      // 시드도 그대로 실린다(소유자 필터가 시드를 걷어내지 않는다).
+      expect(listed.some((category) => category.code === "diaper_hygiene")).toBe(true);
+      // 소유자 표식은 가산 필드다 — 커스텀에만 실리고 시드에는 키 자체가 없다(§2.2).
+      expect(listed.find((category) => category.id === theirs.id)!.householdId).toBe(otherHouseholdId);
+      expect("householdId" in listed.find((category) => category.code === "diaper_hygiene")!).toBe(false);
+    }
+
+    // ⓑ 쓰기: 가구 A의 아이에게 **가구 B의 분류로** 기록하면 종전과 같은 400이다. 이 사람에게 그
+    //    분류는 목록에 보이지만(ⓐ), 이 지출이 서는 가구에는 존재하지 않는다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${bothToken}`)
+      .send({
+        categoryId: theirs.id,
+        amountKrw: 30000,
+        spentOn: "2026-07-06",
+        itemName: "다가구 사용자가 남의 가구 분류로",
+        paymentMethod: "card"
+      })
+      .expect(400)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("EXPENSE_CATEGORY_INVALID");
+      });
+    expect(await prisma.expense.count({ where: { childId, categoryId: theirs.id } })).toBe(0);
+
+    // ⓒ 양쪽 끝 — 거절의 이유가 **분류의 가구**이지 이 사람의 권한이 아니다:
+    //    같은 사용자가 같은 분류로 **가구 B의 아이**에게 기록하면 통과하고,
+    //    가구 A에서도 **가구 A의 분류**로는 통과한다.
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${otherChildId}/expenses`)
+      .set("Authorization", `Bearer ${bothToken}`)
+      .send({
+        categoryId: theirs.id,
+        amountKrw: 30000,
+        spentOn: "2026-07-06",
+        itemName: "같은 분류, 자기 가구",
+        paymentMethod: "card"
+      })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/children/${childId}/expenses`)
+      .set("Authorization", `Bearer ${bothToken}`)
+      .send({
+        categoryId: mine.id,
+        amountKrw: 30000,
+        spentOn: "2026-07-06",
+        itemName: "가구 A의 분류",
+        paymentMethod: "card"
+      })
+      .expect(200);
+
+    // ⓓ 카테고리 예산도 같은 축이다 — 목록에 보이는 그 분류로 A의 예산을 세울 수는 없다.
+    //    (한 요청이라 거절되면 그 달의 총액 예산까지 함께 서지 않는다 — 모바일 M-2 시나리오 2.)
+    await request(app.getHttpServer())
+      .put(`/api/v1/children/${childId}/budget`)
+      .set("Authorization", `Bearer ${bothToken}`)
+      .send({
+        yearMonth: "2026-08",
+        amountKrw: 500000,
+        categoryBudgets: [{ categoryId: theirs.id, amountKrw: 100000 }]
+      })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("CATEGORY_BUDGET_INVALID_CATEGORY"));
+    // `budgets.year_month`는 date 컬럼이라 그 달 1일로 물어본다(문자열은 Prisma가 거절한다).
+    expect(await prisma.budget.count({ where: { childId, yearMonth: new Date("2026-08-01") } })).toBe(0);
   });
 
   it("시드 행 id·UUID가 아닌 id도 같은 404로 떨어진다 (쓰기 대상은 그 가구의 커스텀 행뿐)", async () => {

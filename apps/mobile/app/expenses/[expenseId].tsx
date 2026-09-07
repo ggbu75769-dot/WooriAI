@@ -506,7 +506,14 @@ export default function ExpenseDetailScreen() {
   // "기타" on the row twice and offered the internal "가져오기 기본". The filter is display-only
   // (server response and every other screen are untouched) and always keeps this expense's
   // current categoryId, so the preselection above never loses its chip.
-  const fetchedCategories = selectableCategories(categories.data?.categories ?? [], categoryId);
+  //
+  // 라운드 103 리뷰 M-2: 세 번째 인자는 **이 지출이 속한 아이의 가구**(위 `householdId` —
+  // 구성원 목록을 물어보는 그 값 그대로다). 두 가구에 속한 계정에서 `GET /categories`는 합집합을
+  // 내려주는데(서버 §1.3) 저장 검증은 이 지출의 가구 하나로 좁히므로, 그 값을 넘기지 않으면
+  // 다른 가구의 커스텀 분류가 칩으로 서고 탭해서 저장하면 400
+  // EXPENSE_CATEGORY_INVALID("존재하지 않는 카테고리예요")가 났다 — 화면에는 왜 안 되는지 말할
+  // 근거가 없었다. 조회가 끝나기 전에는 null이라 종전 그대로다(그 함수의 "모르면 추측하지 않는다").
+  const fetchedCategories = selectableCategories(categories.data?.categories ?? [], categoryId, householdId);
   const baseCategoryChips =
     fetchedCategories.length > 0
       ? fetchedCategories.map((category) => ({ id: category.id, label: category.name }))

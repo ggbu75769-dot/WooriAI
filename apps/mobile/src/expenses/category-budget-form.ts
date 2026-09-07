@@ -21,6 +21,9 @@ import { buildRecordsCategoryChips } from "./records-list-view";
  *   그 집합에 들지 못한다. 그래서 **별칭 id로 예산이 저장되는 경로가 없다**(§1.1 대안 D 기각).
  *   ⚠️ 두 시점(리뷰 L-9): 종전 방어는 "서버 목록에 있는 id인가"였고 그것으로는 막히지 않았다
  *   (그 근거는 아래 buildCategoryBudgetForm의 주석).
+ *   ⚠️ 두 시점(라운드 103 리뷰 M-2): 그 모집단에 **소유자 축**이 하나 더 걸린다 — `householdId`를
+ *   받으면 다른 가구의 커스텀 분류는 행으로 서지 않는다. 종전에는 서고, 저장하면 400이 총액
+ *   예산까지 함께 막았다(같은 자리의 그 주석).
  * - **끼워 유지**: 이미 예산이 있는 categoryId가 칩 대장에 없으면(운영자가 숨긴 카테고리 등)
  *   그 행을 includeAll 목록의 이름 해석과 함께 앞에 끼워 유지한다 — `selectableCategories`
  *   규칙 (d)("현재 값은 언제나 남긴다")·칩 대장의 unshift와 같은 판단(§6.5).
@@ -158,6 +161,12 @@ export type CategoryBudgetFormInput = {
   draft: Readonly<Record<string, string>>;
   /** 합 관측의 분모 — 입력 중 값 우선, 없으면 현재 예산(§4.1). 모르면 null. */
   totalBudgetKrw: number | null | undefined;
+  /**
+   * 라운드 103 리뷰 M-2 — 이 예산이 서는 **가구**(= 이 아이의 가구). 주면 다른 가구의 커스텀
+   * 분류가 행으로 서지 않는다. 모르면(생략·null) 종전과 한 행도 다르지 않다 — 판정·근거는
+   * `selectableCategories` 규칙 (e)의 그 주석 하나뿐이다.
+   */
+  householdId?: string | null;
 };
 
 /**
@@ -180,8 +189,19 @@ export function buildCategoryBudgetForm(input: CategoryBudgetFormInput): Categor
   // `selectable:false`인 별칭 행이라 이 집합에 들지 못하고, 그러면 chips가 비어 폼 자체가 서지
   // 않는다("모르면 제안하지 않는다"가 구조로 성립한다). 정상 경로에서는 항등식이다 —
   // `buildRecordsCategoryChips`가 선택 인자 없이 돌면 칩 id 집합이 곧 이 집합이다.
-  const offeredIds = new Set(selectableCategories(categories).map((category) => category.id));
-  const chips = buildRecordsCategoryChips(categories).filter((chip) => offeredIds.has(chip.id));
+  //
+  // ⚠️ 두 시점 (라운드 103 리뷰 M-2): 여기에 **소유자 축**이 하나 더 붙는다. 종전 두 자
+  // (`selectableCategories` · 칩 대장)는 노출 축만 봤고, 두 가구에 속한 사용자에게는 다른 가구의
+  // 커스텀 분류가 그대로 행으로 섰다 — 그 행에 숫자를 넣고 [저장]을 누르면 서버가 400
+  // CATEGORY_BUDGET_INVALID_CATEGORY로 요청을 통째로 거절해서, **그 달의 총액 예산까지 함께**
+  // 막혔다(§2.2 replace-set은 한 요청이다). 같은 인자를 두 자에 모두 넘겨 행 모집단과 게이트가
+  // 갈라지지 않게 한다. `householdId`를 모르면 두 자 모두 종전 그대로 동작한다.
+  const offeredIds = new Set(
+    selectableCategories(categories, null, input.householdId).map((category) => category.id)
+  );
+  const chips = buildRecordsCategoryChips(categories, null, input.householdId).filter((chip) =>
+    offeredIds.has(chip.id)
+  );
   if (chips.length === 0) return null;
 
   const nameOf = buildCategoryNameLookup(categories);
