@@ -133,10 +133,13 @@ describe("어드민 토큰 거절 분기 — 오늘 거동 고정", () => {
    * 가로채므로 이 값은 화면에 서지 않는다 — 그러나 그 첫 갈래가 사라지는 날 운영자가
    * 무엇을 보게 되는지는 **오늘 이미 정해져 있다**. 그 값을 여기 고정한다.
    *
-   * 조회 한 벌은 서버 문장을 그대로 세우므로 **영문**이 한국어 화면에 서고, 쓰기 한 벌은
-   * 한글 가드가 있어 화면별 폴백으로 되돌린다(두 한 벌의 판정이 다르다는 사실 자체가 값이다).
+   * ⚠️ **두 시점**(라운드 107 트랙 J). 이 특성화가 처음 잰 값은 *"조회는 영문 서버 문장,
+   * 쓰기는 화면 폴백"* 이었고 **그때 그것이 실측이었다**: 쓰기 한 벌에만 한글 가드가 있어
+   * 두 한 벌의 판정이 갈렸다. 그 갈림 자체가 이 라운드가 고친 결함이라
+   * (`load-error-copy.ts`가 이제 같은 술어를 부른다) 이제 **둘 다 화면별 폴백**이다.
+   * 종전 값은 이 문단이 지킨다 — 지우지 않는다.
    */
-  it("401이 조회·쓰기 한 벌에 닿으면 — 조회는 영문 서버 문장, 쓰기는 화면 폴백", async () => {
+  it("401이 조회·쓰기 한 벌에 닿으면 — 이제 둘 다 화면 폴백이다(종전에는 조회만 영문이었다)", async () => {
     const failure = await rejectedWith(
       fetchMock,
       errorResponse(401, "ADMIN_UNAUTHORIZED", "Admin access is required."),
@@ -144,8 +147,9 @@ describe("어드민 토큰 거절 분기 — 오늘 거동 고정", () => {
     );
 
     const copy = loadErrorCopy(failure, "요약을 불러오지 못했어요.");
+    // 갈래는 그대로 "server"다 — 서버가 답을 주긴 했다(바뀐 것은 **문장**뿐이다).
     expect(copy.reason).toBe("server");
-    expect(copy.message).toBe("Admin access is required.");
+    expect(copy.message).toBe("요약을 불러오지 못했어요.");
     expect(copy.canRetry).toBe(false);
 
     expect(writeErrorMessage(failure, "저장하지 못했어요. 다시 시도해 주세요.")).toBe(
@@ -180,12 +184,19 @@ describe("어드민 토큰 거절 분기 — 오늘 거동 고정", () => {
 
   /**
    * ⑤ 403 `ADMIN_FORBIDDEN` — 역할이 모자란 계정(또는 세션 캐시가 옛 역할을 들고 있는 계정)이
-   * admin 전용 라우트를 쳤을 때. **서버 문장이 영문이다.**
+   * admin 전용 라우트를 쳤을 때. **서버 문장이 영문이다**(응답 계약이라 그 문장은 그대로다).
    *
-   * 오늘의 갈림이 값이다: 쓰기 한 벌에는 한글 가드가 있어 폴백으로 되돌아가지만,
-   * 조회 한 벌에는 그 가드가 없어 **영문 문장이 한국어 화면에 그대로 선다.**
+   * ⚠️ **두 시점**(라운드 107 트랙 J). 이 자리가 처음 잰 값은 *"조회 한 벌에서 영문 문장이
+   * 그대로 선다"* 였고 **그때 그것이 실측이었다** — 쓰기 한 벌에만 한글 가드가 있었다.
+   * 그 비대칭이 이 라운드의 과제였고(도달 경로: 다른 관리자가 역할을 강등한 뒤 클라이언트
+   * 세션 캐시가 옛 역할을 들고 있는 동안의 GET), 이제 조회 한 벌도 같은 술어를 부른다.
+   * 그래서 **한국어 화면에 서는 것은 그 화면의 종전 폴백**이다.
+   *
+   * ⚠️ 사유가 사라진 것이 아니라 **읽을 수 없는 사유를 세우지 않는 것**이다: 상태 코드와
+   * 코드는 아래처럼 그대로 손에 있고, `canRetry === false`도 그대로라 [다시 시도]는 서지
+   * 않는다(다시 눌러도 같은 403이다).
    */
-  it("403 ADMIN_FORBIDDEN(권한 부족)은 조회 한 벌에서 영문 문장 그대로 선다", async () => {
+  it("403 ADMIN_FORBIDDEN(권한 부족)의 영문 문장은 이제 조회 한 벌에서도 서지 않는다", async () => {
     const failure = await rejectedWith(
       fetchMock,
       errorResponse(403, "ADMIN_FORBIDDEN", "Admin access is required."),
@@ -199,10 +210,10 @@ describe("어드민 토큰 거절 분기 — 오늘 거동 고정", () => {
 
     const copy = loadErrorCopy(failure, "감사 로그를 불러오지 못했어요.");
     expect(copy.reason).toBe("server");
-    expect(copy.message).toBe("Admin access is required.");
+    expect(copy.message).toBe("감사 로그를 불러오지 못했어요.");
     expect(copy.canRetry).toBe(false);
 
-    // 쓰기 쪽은 같은 문장을 화면에 세우지 않는다(한글 가드).
+    // 쓰기 쪽은 종전부터 같은 문장을 화면에 세우지 않았다(라운드 76 리뷰 M-1의 그 겹).
     expect(writeErrorMessage(failure, "저장하지 못했어요. 다시 시도해 주세요.")).toBe(
       "저장하지 못했어요. 다시 시도해 주세요."
     );

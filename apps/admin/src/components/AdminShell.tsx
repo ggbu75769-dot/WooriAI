@@ -18,6 +18,7 @@ import {
 import { useAdminSession } from "../lib/admin-token-context";
 import { loadErrorCopy, type LoadErrorCopy } from "../lib/load-error-copy";
 import { recoveryCodesNotice } from "../lib/recovery-codes-view";
+import { adminLoginScreenNotice } from "../lib/session-end-copy";
 import styles from "./admin-shell.module.css";
 
 /**
@@ -320,7 +321,7 @@ function MfaDisableForm({ onCancel }: { onCancel?: () => void }) {
 }
 
 function LoginScreen() {
-  const { setSession, refresh } = useAdminSession();
+  const { setSession, refresh, lastEndReason, sessionCheckFailed } = useAdminSession();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -392,6 +393,29 @@ function LoginScreen() {
     void refresh();
   };
 
+  /**
+   * 라운드 107 트랙 J — **로그인 화면이 자기가 왜 떴는지 말하는 한 줄.**
+   *
+   * ⚠️ 두 시점. 종전 이 화면에는 로그인 **시도**의 실패만 있었고(`submitError`·`mfaError`),
+   * 그때는 그것으로 충분했다 — 이 화면에 오는 길이 "주소를 처음 열었다" 하나뿐인 줄 알았기
+   * 때문이다. 실제로는 길이 셋이고(처음 열기 · 서버가 토큰을 거절해 튕겨 옴 · 세션 확인이
+   * 실패해 못 들어옴) 뒤의 둘은 **말 없이** 이 화면을 세웠다. 이제 그 둘만 문장을 얻는다.
+   *
+   * ⚠️ **이 값은 로그인 시도의 실패와 섞이지 않는다.** 판정 재료는 세션 컨텍스트의 두 값뿐이고,
+   * 로그인·MFA·비밀번호 폼의 401은 그 두 값을 건드리지 않는다 — 그 폼들은 세션을 지우지도,
+   * 401 판정을 부르지도 않고 서버 문장을 자기 자리에 세운다. 비밀번호 오타가 "세션이
+   * 만료됐어요"가 되지 않는 이유가 그것이고, `src/lib/admin-session-notice.test.ts` ⓓ가 그
+   * 네 자리를 값으로 문다.
+   *
+   * ⚠️ 위 문단이 두 이름(세션을 지우는 함수 · 401 판정)을 **글자로 적지 않는 이유**가 값이다:
+   * 옆 계약이 이 파일의 원문에서 그 이름들을 찾아 *"배선이 살아 있다"* 를 확인하는데
+   * (`src/admin-cms-pages.test.ts`), 주석이 같은 글자를 지니면 코드가 사라져도 그 단언이
+   * 초록이 된다(`packages/test-utils`의 주석 관용 앵커 대장이 세는 바로 그 자리다).
+   *
+   * 조기 반환(2단계 인증 화면)보다 **위**에서 값을 만든다 — FIX-A의 순서 규율.
+   */
+  const sessionNotice = adminLoginScreenNotice({ endReason: lastEndReason, sessionCheckFailed });
+
   if (mfaToken) {
     return (
       <div className={styles.loginScreen}>
@@ -427,6 +451,19 @@ function LoginScreen() {
       <div className={styles.loginCard}>
         <h1>WooriAI 관리자</h1>
         <p>관리자 이메일과 비밀번호로 로그인하면 준비템, 상품 링크, 제휴 고지를 관리할 수 있어요.</p>
+        {/* 라운드 107 트랙 J: 클래스와 출구는 이 카드가 이미 쓰는 그것이다(`errorText` + role="alert" —
+            admin-status-announce.test.ts의 판정표에서 실패 축이 고른 값). [다시 시도] 라벨과 모양도
+            MFA 등록 관문이 이미 쓰는 `.retryButton` 그대로다 — 새 문구·새 클래스 0건. */}
+        {sessionNotice ? (
+          <p className={styles.errorText} role="alert">
+            {sessionNotice.message}
+            {sessionNotice.canRetry ? (
+              <button type="button" className={styles.retryButton} onClick={() => void refresh()}>
+                다시 시도
+              </button>
+            ) : null}
+          </p>
+        ) : null}
         <form className={styles.loginForm} onSubmit={handlePasswordSubmit}>
           <input
             type="email"
@@ -557,7 +594,10 @@ function MfaSetupScreen() {
       // Best-effort: still clear client-side session state below even if the
       // logout call itself fails, so the admin isn't stuck here.
     } finally {
-      clearSession();
+      // 라운드 107 트랙 J: 종전에는 인자가 없었고 **그때는 이유라는 것 자체가 없었다**.
+      // 이제 기본값이 "rejected"(서버가 토큰을 거절했다)라, 운영자가 스스로 누른 이 자리는
+      // "logout"을 명시해야 한다 — 아니면 자기가 누른 로그아웃에 만료 안내가 선다.
+      clearSession("logout");
     }
   };
 
@@ -658,7 +698,8 @@ function LogoutButton() {
       // Best-effort: clear the client-side session state either way so the
       // admin isn't stuck on a broken screen if the logout call itself fails.
     } finally {
-      clearSession();
+      // 라운드 107 트랙 J: 스스로 누른 로그아웃 둘 중 하나(위 `switchAccount`와 같은 이유).
+      clearSession("logout");
     }
   };
 

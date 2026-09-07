@@ -80,12 +80,20 @@ const STATUS_CLASSES = [
 ] as const;
 type StatusClass = (typeof STATUS_CLASSES)[number];
 
-/** ⓐ 오늘의 실측(= 정찰의 하한과 같다). 래칫은 이 수 아래로 내려가지 않는다. */
-const MIN_SITES = 47;
-/** 그 자리들이 사는 파일 수. */
+/**
+ * ⓐ 오늘의 실측(= 정찰의 하한과 같다). 래칫은 이 수 아래로 내려가지 않는다.
+ *
+ * ⚠️ 두 시점(라운드 107 트랙 J): 47 → 48. 자리가 하나 늘었다 —
+ * `AdminShell`의 로그인 화면이 **자기가 왜 떴는지** 말하는 한 줄이다(세션 거절 안내 ·
+ * 세션 확인 실패 안내). 종전 그 화면에는 로그인 **시도**의 실패만 있었고, 서버가 토큰을
+ * 거절해 튕겨 온 경우와 세션 확인이 실패한 경우는 **문장 0건**이었다.
+ * 새 자리는 이 파일의 판정표를 그대로 따른다(`errorText` → `role="alert"` · 실패 축).
+ */
+const MIN_SITES = 48;
+/** 그 자리들이 사는 파일 수. ⚠️ 라운드 107 트랙 J의 새 자리는 이미 목록에 있던 파일이라 그대로다. */
 const MIN_FILES = 14;
-/** ⓔ 래칫 — 출구를 가진 자리의 수는 줄지 않는다(마흔일곱에서 면제 둘을 뺀 값). */
-const MIN_ANNOUNCED = 45;
+/** ⓔ 래칫 — 출구를 가진 자리의 수는 줄지 않는다(마흔여덟에서 면제 둘을 뺀 값). */
+const MIN_ANNOUNCED = 46;
 
 /**
  * ⓑ **출구를 무엇으로 가를 것인가 — 트랙이 값으로 고른 판정과 그 근거.**
@@ -359,7 +367,7 @@ const isExempt = (site: Site): boolean => EXEMPT_TAGS.has(site.tagText);
 const POLICY_BY_CLASS = new Map(OUTLET_POLICY.map((entry) => [entry.className, entry] as const));
 
 /**
- * ⓒ **문구 대장 — 마흔일곱 자리의 문장이 바이트로 종전과 같다는 부정 단언.**
+ * ⓒ **문구 대장 — 마흔여덟 자리의 문장이 바이트로 종전과 같다는 부정 단언.**
  *
  * 각 줄은 `<파일> :: <클래스> :: <sha256 앞 12> :: <미리보기>`이고, 해시가 도는 대상은
  * **출구 속성을 뺀 요소 전체 바이트**다. 즉 이 대장이 초록이라는 것은 *"이 트랙이 더한 속성을
@@ -416,6 +424,9 @@ const SENTENCE_LEDGER: readonly string[] = [
   "app/users/page.tsx :: successBanner :: 7f0808ed9245 :: <p className={styles.successBanner}>{rowSuccess}</p>",
   "src/components/AdminShell.tsx :: errorText :: 178e67ac803b :: <p className={styles.errorText}>{verifyError}</p>",
   "src/components/AdminShell.tsx :: errorText :: 3eeaa20b4623 :: <p className={styles.errorText}>{mfaError}</p>",
+  // 라운드 107 트랙 J: 로그인 화면이 자기가 왜 떴는지 말하는 새 자리(위 MIN_SITES 주석).
+  // 종전에는 이 줄이 없었다 — 자리 자체가 없었다.
+  "src/components/AdminShell.tsx :: errorText :: 4fadb4492698 :: <p className={styles.errorText}> {sessionNotice.message} {sessionNotice.canRetry ? ( <bu",
   "src/components/AdminShell.tsx :: errorText :: 77e3adaa7b7b :: <p className={styles.errorText}>{submitError}</p>",
   "src/components/AdminShell.tsx :: errorText :: 7d9eec7bc754 :: <p className={styles.errorText}> {loadError.message} {loadError.canRetry ? ( <button typ",
   "src/components/AdminShell.tsx :: errorText :: c6157b8e68be :: <p className={styles.errorText}>{formError}</p>",
@@ -455,7 +466,7 @@ describe("어드민 상태 문장이 소리로 나간다 (라운드 90 트랙 B)
       expect(PARSE_FAILURES, "파서가 못 푼 자리는 모집단에서 조용히 빠져요").toEqual([]);
     });
 
-    it("상태 문장의 자리는 마흔일곱이고 열넷 파일에 산다", () => {
+    it("상태 문장의 자리는 마흔여덟이고 열넷 파일에 산다", () => {
       expect(ALL_SITES.length, "상태 문장 자리 수").toBeGreaterThanOrEqual(MIN_SITES);
       const files = new Set(ALL_SITES.map((site) => site.file));
       expect(files.size, "상태 문장이 사는 파일 수").toBeGreaterThanOrEqual(MIN_FILES);
@@ -523,7 +534,7 @@ describe("어드민 상태 문장이 소리로 나간다 (라운드 90 트랙 B)
   });
 
   describe("ⓒ 문구 불변 — 속성을 빼면 종전 바이트다", () => {
-    it("마흔일곱 자리의 문장이 대장과 바이트로 같다", () => {
+    it("마흔여덟 자리의 문장이 대장과 바이트로 같다", () => {
       const derived = ALL_SITES.map(ledgerLineOf).sort();
       expect(
         derived,

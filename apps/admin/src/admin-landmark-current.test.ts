@@ -852,8 +852,19 @@ describe("어드민 랜드마크와 현재 위치 (라운드 91 트랙 B)", () =
       for (const file of ["app/page.tsx", "app/error.tsx", "app/not-found.tsx"] as const) {
         expect(countIn(CODE, file, OPEN_MAIN), `${file}: <main>이 되살아났어요`).toBe(0);
       }
-      // 새 컴포넌트·새 상호작용 표면 0건: 셸의 누르는 자리 수가 그대로다.
-      expect((SHELL_CODE.match(/<button(?=[\s/>])/g) ?? []).length, "셸의 <button> 자리").toBe(15);
+      /**
+       * 새 컴포넌트·새 상호작용 표면 0건: 셸의 누르는 자리 수가 그대로다.
+       *
+       * ⚠️ 두 시점(라운드 107 트랙 J): 15 → 16. **이 트랙(라운드 91 B)이 더한 자리는 여전히
+       * 0건이다** — 이 수가 지키는 사실은 "랜드마크·현재 위치 표기를 다느라 누르는 자리를
+       * 만들지 않았다"이고, 그 사실은 오늘도 참이다. 늘어난 하나는 라운드 107 트랙 J가
+       * 로그인 화면에 세운 [다시 시도]다: 앱에 들어오면서 세션 확인이 **401이 아닌 이유로**
+       * 실패했을 때(연결 실패·타임아웃·5xx) 종전에는 설명 없는 로그인 화면만 떴고, 그 확인을
+       * 다시 돌릴 자리가 0건이라 세션이 멀쩡해도 다시 로그인하는 수밖에 없었다.
+       * 라벨·클래스는 MFA 등록 관문이 이미 쓰는 그것이다(새 문구·새 클래스 0건).
+       * 그 자리의 계약은 `src/lib/admin-session-notice.test.ts` ⓒ가 진다.
+       */
+      expect((SHELL_CODE.match(/<button(?=[\s/>])/g) ?? []).length, "셸의 <button> 자리").toBe(16);
       expect((SHELL_CODE.match(/<nav(?=[\s/>])/g) ?? []).length, "셸의 <nav> 자리").toBe(1);
     });
   });

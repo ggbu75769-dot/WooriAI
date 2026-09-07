@@ -55,6 +55,27 @@ export type LoadErrorCopy = {
  */
 const RETRYABLE_CLIENT_STATUSES = new Set([408, 425, 429]);
 
+/**
+ * 한글 음절 한 자라도 있는가 — **읽을 수 있는 사유인가**를 묻는 재료 하나.
+ *
+ * ⚠️ 범위를 유니코드 이스케이프로 적는 이유는 옆 한 벌이 이미 적어 둔 그것과 같다: 이 파일의
+ * 계약은 "판정 코드에 한국어 **문구**가 0건"이고, 문자 범위는 문구가 아니라 판정의 재료다.
+ * 리터럴로 적으면 옆 테스트의 부정 단언이 문구와 범위를 구별하지 못한다.
+ *
+ * ⚠️⚠️ **이것은 쓰기 한 벌에 있는 같은 재료의 사본이고, 사본인 것이 이 라운드의 결정이다.**
+ * 그쪽 것을 내보내 여기서 부르는 안을 먼저 세워 봤는데, 그러면 이 파일이 그 파일의 **이름**을
+ * 지니게 되고 저장소에는 그것을 금지하는 계약이 이미 서 있다: 쓰기 쪽 스윕의 무접촉 단언
+ * (*"조회 한 벌은 쓰기 한 벌을 부르지 않는다"*)이 이 파일에 그 이름이 **한 번도** 없기를
+ * 요구하고(주석까지 포함한 원문을 본다), `packages/test-utils`의 주석 관용 앵커 대장이 그
+ * 단언의 바이트를 **면제의 증명**으로 들고 있다. 두 한 벌이 서로를 모르는 것이 이 저장소가
+ * 고른 경계이고, 이 라운드가 그 경계를 뒤집을 자리는 아니다.
+ *
+ * 그래서 사본을 두되 **드리프트를 테스트가 문다**: `src/lib/admin-session-notice.test.ts` ⓑ의
+ * 마지막 단언이 같은 문장 넷에 두 한 벌이 **같은 답**을 내는지 잰다 — 한쪽만 고치면 그 자리가
+ * 먼저 빨개진다(사본이 조용히 갈리는 길을 막는 것이 사본을 없애는 것 다음으로 옳은 손이다).
+ */
+const HANGUL_SYLLABLE = /[\uAC00-\uD7A3]/;
+
 export function loadErrorReason(error: unknown): LoadErrorReason {
   if (isTimeoutError(error)) return "timeout";
   if (!(error instanceof AdminApiError)) return "unknown";
@@ -80,10 +101,29 @@ export function loadErrorRetryable(error: unknown): boolean {
 export function loadErrorCopy(error: unknown, fallbackMessage: string): LoadErrorCopy {
   const reason = loadErrorReason(error);
   const fromError = error instanceof AdminApiError ? error.message.trim() : "";
+  /**
+   * 라운드 107 트랙 J — **읽을 수 없는 서버 문장은 이 한 벌에서도 화면에 서지 않는다.**
+   *
+   * ⚠️ 두 시점. 종전 이 자리의 조건은 `!fromError` 하나였고 **그때는 그것이 옳아 보였다**:
+   * 이 한 벌이 세워진 라운드 73의 근거는 *"서버가 이미 한국어 문장을 준다"* 였고, 조회 쪽에서
+   * 영문 문장이 오는 경로가 값으로 확인된 적이 없었다. 라운드 76 리뷰 M-1이 쓰기 쪽에서 그
+   * 경로를 찾아 겹을 세웠고(`analyst`의 저장 → `ADMIN_FORBIDDEN` / 영문), 조회 쪽은 그때
+   * 그대로 남았다 — 라운드 107 트랙 I의 특성화 ⑤가 그 비대칭을 값으로 고정했다.
+   *
+   * 조회 쪽 도달 경로는 쓰기와 다르다: 다른 관리자가 역할을 강등했는데 클라이언트 세션 캐시가
+   * 옛 역할을 들고 있는 동안의 GET이다(캐시는 `adminMe()` 응답 하나라 서버의 강등을 바로
+   * 알지 못한다). 그 순간 열여섯 자리가 *"Admin access is required."* 를 한국어 화면에 세웠다.
+   *
+   * ⚠️ **이 한 겹은 판정이 아니라 소비 규칙이다** — 코드도 상태도 보지 않고 "이 문장을 사용자
+   * 화면에 세울 수 있는가"만 묻는다. 그래서 위 머리말의 *"판정을 새로 만들지 않는다"* 는
+   * 오늘도 참이다: 갈래(`reason`)도 재시도(`canRetry`)도 종전 그대로이고, 바뀐 것은 **어느
+   * 문장을 세우는가** 하나다. 재료(`HANGUL_SYLLABLE`)가 사본인 이유는 그 상수의 주석에 있다.
+   */
+  const displayable = fromError !== "" && HANGUL_SYLLABLE.test(fromError);
   return {
     reason,
     // 빈 문장을 화면에 세우지 않는다 — 이유를 못 받은 것은 "그 밖"과 같다.
-    message: reason === "unknown" || !fromError ? fallbackMessage : fromError,
+    message: reason === "unknown" || !displayable ? fallbackMessage : fromError,
     canRetry: loadErrorRetryable(error)
   };
 }
