@@ -244,23 +244,16 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
           "= useLoadErrorCopy("
         );
       } else {
-        // 종전 이 두 줄은 `title={loadErrorCopy.title}` **정확 일치**만 받았다 — 그때는 참이었다:
-        // 배선된 카드 화면 전부가 공용 값을 프롭에 그대로 흘렸기 때문이다. 라운드 109 B가
-        // app/items/[itemTemplateId].tsx에 ITEM_NOT_FOUND 전용 제목을 공용 값 **앞에** 세우면서
-        // 그 전제가 깨졌다: 내려간 준비템은 [다시 시도]가 영원히 같은 404로 돌아오는 막다른
-        // 길이라, 공용 "잠시 후 다시 시도해 주세요."가 그 자리에서만 거짓이 된다.
-        //
-        // 이제 받는 모양은 둘이다 — 공용 값을 그대로 흘리거나, 코드 전용 값을 앞에 세우고
-        // **공용 값을 기본 갈래로 남기거나**(`?? loadErrorCopy.title}` · `: loadErrorCopy.actionLabel}`).
-        // 무는 것은 한 글자도 바뀌지 않았다: 화면이 공용 단일 소스를 **조용히 버리지 못한다**는
-        // 것이고, 바로 아래 옛 리터럴 부정 단언이 그 짝으로 그대로 남는다. 전용 값을 앞에 세우는
-        // 화면은 그 값이 **어느 API 오류 코드에서만** 서는지를 화면 주석에 남겨야 한다
-        // (그 근거가 없으면 공용 문장을 덮을 이유도 없다).
-        expect(screenSource, `${path} renders the resolved copy`).toMatch(
-          /title=\{(?:loadErrorCopy\.title|[^}]*\?\? loadErrorCopy\.title)\}/
-        );
-        expect(screenSource, `${path} keeps the retry label from the same source`).toMatch(
-          /actionLabel=\{(?:loadErrorCopy\.actionLabel|[^}]*: loadErrorCopy\.actionLabel)\}/
+        // ⚠️ **정확 일치다 — 그리고 정확 일치인 것이 이 단언의 뜻이다.** 라운드 109가 한 번
+        // 이 자리를 정규식으로 넓혔다가 되돌렸다: 준비템 상세가 ITEM_NOT_FOUND 전용 제목을
+        // `title={X ?? loadErrorCopy.title}` 꼴로 프롭에 겹쳐 이 바늘을 빗나갔기 때문이다.
+        // 넓히는 대신 그 화면이 **갈래를 카드에 걸도록** 고쳤다(app/items/[itemTemplateId].tsx) —
+        // 일반 갈래가 종전 바이트 그대로 서므로 이 계약도, 같은 바이트를 무는 다른 계약 둘
+        // (src/screen-phase.test.ts · src/loading-skeleton-contract.test.ts)도 그대로 산다.
+        // 즉 화면이 더 구체적인 문장을 갖는 것과 이 바늘이 정확 일치인 것은 **양립한다**.
+        expect(screenSource, `${path} renders the resolved copy`).toContain("title={loadErrorCopy.title}");
+        expect(screenSource, `${path} keeps the retry label from the same source`).toContain(
+          "actionLabel={loadErrorCopy.actionLabel}"
         );
       }
       // 재발 방지: 같은 화면에 옛 리터럴이 다시 인라인되면 두 문구가 갈린다.

@@ -79,18 +79,36 @@ describe("ITEM_NOT_FOUND 막다른 길 — 문장과 나가는 길 (라운드 10
 
   it("ⓑ 그 길은 되돌아가기가 아니라 나가기다 — replace로 준비템 탭에 선다", () => {
     const code = maskComments(source(ITEM_DETAIL));
-    expect(code).toContain(
-      'onPress={() => (missingItemTitle ? router.replace("/(tabs)/items") : detail.refetch())}'
-    );
+    // ⚠️ 두 시점. 종전 이 자리는 프롭 하나에 삼항을 담은
+    // `onPress={() => (missingItemTitle ? router.replace(...) : detail.refetch())}`를 물었다 —
+    // **그때는 참이었다**. 라운드 109 정비가 갈래를 프롭에서 **카드로** 옮기면서(같은 파일의
+    // 그 주석) 두 onPress가 각자의 카드에 하나씩 섰다. 나가는 길·되돌아가는 길이 갈린다는
+    // 계약은 그대로이고, 무는 모양만 오늘의 것으로 옮겼다.
+    expect(code).toContain('onPress={() => router.replace("/(tabs)/items")}');
+    expect(code).toContain("onPress={() => detail.refetch()}");
     // 목적지 문자열은 이 파일이 이미 쓰던 그것이다(준비 완료 뒤 복귀 경로 — 새 라우트 0건).
     expect((code.match(/router\.replace\("\/\(tabs\)\/items"\)/g) ?? []).length).toBe(2);
   });
 
   it("ⓒ 코드가 없는 실패는 종전 그대로다 — 문구도 [다시 시도]도 한 글자도 바뀌지 않는다", () => {
     const code = maskComments(source(ITEM_DETAIL));
-    // 두 값 모두 `missingItemTitle`이 null이면 종전 값으로 떨어진다(UX-N의 그 훅 그대로).
-    expect(code).toContain("title={missingItemTitle ?? loadErrorCopy.title}");
-    expect(code).toContain("actionLabel={missingItemTitle ? MISSING_ITEM_EXIT_LABEL : loadErrorCopy.actionLabel}");
+    // ⚠️ 두 시점. 종전은 `title={missingItemTitle ?? loadErrorCopy.title}` 한 줄이었고 "null이면
+    // 종전 값으로 떨어진다"가 그 근거였다 — **그때는 참이었지만 대가가 있었다**: 소유 밖 계약
+    // 셋이 이 자리의 `title={loadErrorCopy.title}`를 바이트로 붙들고 있어 한꺼번에 빨개졌다
+    // (src/screen-phase.test.ts · src/loading-skeleton-contract.test.ts · src/offline/messages.test.ts).
+    // 이제 일반 갈래가 **종전 바이트 그대로** 서고 전용 갈래가 그 옆에 선다. "코드가 없는
+    // 실패는 한 글자도 바뀌지 않는다"는 이 자의 뜻은 더 강해졌다 — 이제 그것이 세 계약의
+    // 바늘과 **같은 문자열**이기 때문이다.
+    expect(code).toContain("title={loadErrorCopy.title}");
+    expect(code).toContain("actionLabel={loadErrorCopy.actionLabel}");
+    expect(code).toContain("title={missingItemTitle}");
+    expect(code).toContain("actionLabel={MISSING_ITEM_EXIT_LABEL}");
+    // ⚠️ **갈래를 여는 조건 자체를 문다.** 종전 `??` 꼴에는 조건이 프롭 문자열 안에 박혀 있어
+    // 저절로 물렸는데, 카드로 옮기면서 그 성질이 사라졌다 — 실제로 조건을 `false`로 죽여 보니
+    // 위 네 줄이 **전부 초록이었다**(모양만 보고 조건을 안 보기 때문). 그래서 조건을 따로 못박고,
+    // 죽은 갈래(`{false ?` 꼴)를 부정으로 함께 막는다.
+    expect(code).toContain("{missingItemTitle ? (");
+    expect(code).not.toMatch(/\{\s*(?:false|null|undefined|0|true)\s*\?\s*\(/);
     expect(code).toContain("const loadErrorCopy = useLoadErrorCopy(detail.isError);");
     // 공용 훅의 시그니처는 넓히지 않았다 — 넓히면 이 막다른 길이 없는 열한 자리가 함께 바뀐다.
     expect(source("src/offline/use-load-error-copy.ts")).toContain(

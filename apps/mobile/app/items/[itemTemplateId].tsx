@@ -867,13 +867,32 @@ export default function ItemDetailScreen() {
   if (hasSession && detailPhase === "error") {
     return (
       <AppScreen>
-        <EmptyStateCard
-          title={missingItemTitle ?? loadErrorCopy.title}
-          actionLabel={missingItemTitle ? MISSING_ITEM_EXIT_LABEL : loadErrorCopy.actionLabel}
-          // 되돌아갈 화면이 아니라 **나가는 길**이라 replace다(스택에 막다른 상세를 남기지
-          // 않는다). 목적지 문자열은 이 파일이 이미 쓰는 그것이다(준비 완료 뒤 복귀 경로).
-          onPress={() => (missingItemTitle ? router.replace("/(tabs)/items") : detail.refetch())}
-        />
+        {/*
+          ⚠️ 두 시점 — **갈래를 프롭이 아니라 카드에 건다.** 종전(라운드 109 B)은 카드 하나에
+          `title={missingItemTitle ?? loadErrorCopy.title}` 꼴로 프롭마다 갈랐다. 그때는 그것이
+          짧아 보였지만, 소유 밖 계약 **셋**이 이 자리의 `title={loadErrorCopy.title}`를 **바이트로**
+          붙들고 있어서 한꺼번에 빨개졌다: `src/screen-phase.test.ts`(MOB-130 갈래 순서),
+          `src/loading-skeleton-contract.test.ts`(MOB-119 실패 카드 유지),
+          `src/offline/messages.test.ts`(UX-N 조회 실패 문구의 단일 소스).
+          이제 일반 갈래는 종전 바이트 그대로 서고 전용 갈래가 그 옆에 선다 — 계약 셋을
+          하나도 무르게 하지 않는다. 같은 라운드의 가족 화면(app/family/index.tsx)이 같은
+          이유로 고른 모양이고, 판정이 하나면 자리도 하나여야 한다는 점에서 읽기도 낫다.
+        */}
+        {missingItemTitle ? (
+          <EmptyStateCard
+            title={missingItemTitle}
+            actionLabel={MISSING_ITEM_EXIT_LABEL}
+            // 되돌아갈 화면이 아니라 **나가는 길**이라 replace다(스택에 막다른 상세를 남기지
+            // 않는다). 목적지 문자열은 이 파일이 이미 쓰는 그것이다(준비 완료 뒤 복귀 경로).
+            onPress={() => router.replace("/(tabs)/items")}
+          />
+        ) : (
+          <EmptyStateCard
+            title={loadErrorCopy.title}
+            actionLabel={loadErrorCopy.actionLabel}
+            onPress={() => detail.refetch()}
+          />
+        )}
       </AppScreen>
     );
   }
