@@ -55,6 +55,53 @@ function tooLongMessage(fieldLabel: string): string {
   return `${fieldLabel} 최대 길이는 $constraint1자예요. 넘는 값은 잘라 저장하지 않아요.`;
 }
 
+/**
+ * 라운드 111 — **숫자 상한·하한의 사유도 같은 길로 화면까지.**
+ *
+ * 종전(그때는 참): 위 다섯 칸이 한국어를 얻은 뒤에도 아래 가격 두 칸의 사유는 class-validator
+ * 기본 문장 그대로였다. 실측한 그 문장 셋(POST·PATCH 양쪽 같다):
+ *   · `"priceMaxKrw must not be greater than 2147483647"`  (`max`)
+ *   · `"priceMinKrw must not be less than 0"`               (`min`)
+ *   · `"priceMinKrw must be an integer number"`             (`isInt`)
+ * 셋 다 한글이 한 자도 없어 `write-error-copy.ts`의 소비 규칙에 걸러지고, 앞머리는 서버
+ * 필드명 그대로다. 즉 라운드 107 D7이 int4 초과의 500을 400으로 바꿔 놓고도 운영자 화면에는
+ * 봉투의 일반 문장만 섰다 — varchar 쪽과 **같은 간극**이다.
+ * → 이제 이 세 함수가 짓는 한국어 문장이 그 자리에 실린다.
+ *
+ * ⚠️ **칸 이름에서 `(원)`만 뗀다.** 어드민 폼의 `<label>`은
+ * `최소 가격(원)` · `최대 가격(원)`이다(apps/admin/app/items/page.tsx —
+ * `<label htmlFor={…-price-min}>` · `{…-price-max}`). 그 `(원)`은 칸의 **이름**이 아니라 단위
+ * 주석이고, 문장이 이미 단위를 말하므로("…$constraint1원이에요") 그대로 쓰면
+ * *"최소 가격(원) 최대값은 2147483647원이에요"* 가 된다. 운영자가 화면에서 칸을 찾는 데 쓰는
+ * 부분("최소 가격")은 한 글자도 바뀌지 않는다.
+ *
+ * ⚠️ **상한을 사람이 읽는 모양(`21억`)으로 적지 않는다** — 이 판단이 이 주석의 값이다.
+ * `$constraint1`은 데코레이터의 **원값**을 넣어 주므로(실측: `2147483647`), 읽기 좋은 모양을
+ * 원하면 토큰을 버리고 숫자를 문장에 손으로 적어야 하고, 그 순간 상한이 **두 벌**이 된다.
+ * 맞바꿈을 재면: 열 자리 숫자는 읽기 나쁘지만 **참**이고, 두 벌이 된 문장은 상한이 바뀌는 날
+ * **거짓을 화면에 세운다**(이 저장소가 가장 먼저 금지하는 것이다). 게다가 운영자가 이 문장에서
+ * 실제로 얻는 것은 "상한을 넘었다"는 사실이지 상한의 정확한 자릿수가 아니다 — 21억 원짜리
+ * 준비템 가격은 오타이지 입력값이 아니다. 그래서 varchar 다섯 칸과 같은 규율을 지킨다.
+ *
+ * ⚠️ `@IsInt`에도 문구를 짓는 이유(죽은 코드가 아니다): 어드민의 가격 칸은
+ * `<input type="number">`라 **글자는 못 넣지만 소수점은 넣는다**. 그 폼에는 `<form>` 요소가
+ * 없고(버튼이 `type="button"` + `onClick`), `checkValidity()`를 부르는 자리도 0건이라
+ * HTML5 제약 검사(`min={0}` · 암묵 `step=1`)가 **한 번도 돌지 않는다**. 클라이언트 검사
+ * (`validateItemForm`)는 `Number.isNaN`과 최소>최대만 보므로 `1.5`도 `-5`도 그대로 서버에
+ * 닿는다 — 셋 다 실측으로 400을 받은 입력이다.
+ */
+function tooLargeMessage(fieldLabel: string): string {
+  return `${fieldLabel} 최대값은 $constraint1원이에요. 넘는 값은 줄여 저장하지 않아요.`;
+}
+
+function tooSmallMessage(fieldLabel: string): string {
+  return `${fieldLabel} 최소값은 $constraint1원이에요. 못 미치는 값은 올려 저장하지 않아요.`;
+}
+
+function notIntegerMessage(fieldLabel: string): string {
+  return `${fieldLabel}은 소수점 없는 정수로 넣어 주세요. 반올림해 저장하지 않아요.`;
+}
+
 export class AdminCreateItemTemplateDto {
   /**
    * 라운드 108 — **상한이 컬럼보다 넓었다.** 종전 이 줄은 `@MaxLength(120)`이었다(그때는
@@ -105,15 +152,15 @@ export class AdminCreateItemTemplateDto {
    * `@Max(MONEY_KRW_MAX)` = int4 상한).
    */
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(MONEY_KRW_MAX)
+  @IsInt({ message: notIntegerMessage("최소 가격") })
+  @Min(0, { message: tooSmallMessage("최소 가격") })
+  @Max(MONEY_KRW_MAX, { message: tooLargeMessage("최소 가격") })
   priceMinKrw?: number;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(MONEY_KRW_MAX)
+  @IsInt({ message: notIntegerMessage("최대 가격") })
+  @Min(0, { message: tooSmallMessage("최대 가격") })
+  @Max(MONEY_KRW_MAX, { message: tooLargeMessage("최대 가격") })
   priceMaxKrw?: number;
 
   @IsString()
@@ -176,15 +223,15 @@ export class AdminUpdateItemTemplateDto {
   // 실제로 받을 수 있는 값(null 포함)에 맞춘다 — 가격대 삭제 경로가 여기로 들어온다.
   // 라운드 107 D7 — 생성 DTO와 같은 상한(int4). 그 이유는 위 DTO의 같은 자리에 적었다.
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(MONEY_KRW_MAX)
+  @IsInt({ message: notIntegerMessage("최소 가격") })
+  @Min(0, { message: tooSmallMessage("최소 가격") })
+  @Max(MONEY_KRW_MAX, { message: tooLargeMessage("최소 가격") })
   priceMinKrw?: number | null;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(MONEY_KRW_MAX)
+  @IsInt({ message: notIntegerMessage("최대 가격") })
+  @Min(0, { message: tooSmallMessage("최대 가격") })
+  @Max(MONEY_KRW_MAX, { message: tooLargeMessage("최대 가격") })
   priceMaxKrw?: number | null;
 
   @IsOptional()
