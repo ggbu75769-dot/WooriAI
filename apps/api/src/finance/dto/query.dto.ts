@@ -6,7 +6,7 @@ import {
   TREND_REPORT_DEFAULT_MONTHS,
   TREND_REPORT_MAX_MONTHS
 } from "@wooriai/contracts";
-import { YEAR_MONTH_INPUT_PATTERN, normalizeYearMonthInput } from "../../common/validation/year-month";
+import { YEAR_MONTH_INPUT_PATTERN, normalizeYearMonthInput, yearInputPattern } from "../../common/validation/year-month";
 
 // REP-105 contract tolerance: every yearMonth input below accepts `YYYY-MM` or
 // `YYYY-MM-01` (previously `YYYY-MM` only) and normalizes to the internal
@@ -88,8 +88,16 @@ export class CategoryReportQueryDto {
   @Matches(YEAR_MONTH_INPUT_PATTERN)
   yearMonth?: string;
 
+  /**
+   * ⚠️ 두 시점 — 종전에는 `/^\d{4}$/`였다(그때는 참: 네 자리이기만 하면 실존하는 연도다).
+   * 그런데 이 값을 받는 `ReportingStoreService.resolvePeriodRange`는 `Number(year) + 1`로
+   * 다음 해 경계를 만들고, `9999`면 `10000-01-01` · `0001`이면 `2-01-01`이라 둘 다
+   * Invalid Date가 되어 Prisma가 던지고 **500**이 됐다(재현 실측: 0001~0998과 9999).
+   * 이제 `yearMonth`와 같은 연도 창을 쓴다 — 상한·하한의 도메인 근거는
+   * common/validation/year-month.ts의 `REPORT_YEAR_MIN`/`REPORT_YEAR_MAX` 주석.
+   */
   @IsOptional()
-  @Matches(/^\d{4}$/)
+  @Matches(yearInputPattern())
   year?: string;
 
   @IsOptional()
@@ -129,9 +137,14 @@ export function includeAllRequested(includeAll?: string): boolean {
   return includeAll === "1" || includeAll === "true";
 }
 
+/**
+ * GET /children/:childId/reports/yearly 의 연도 쿼리. 연도 창(`yearInputPattern`)은
+ * `CategoryReportQueryDto.year`와 **같은 자**다 — 같은 서비스의 같은 `Number(year) + 1`
+ * 경계 산술을 지나므로 두 입구가 다른 말을 하면 한쪽만 500으로 남는다.
+ */
 export class YearQueryDto {
   @IsOptional()
-  @Matches(/^\d{4}$/)
+  @Matches(yearInputPattern())
   year?: string;
 }
 

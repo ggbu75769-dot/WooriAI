@@ -31,6 +31,15 @@ export class UpsertBudgetDto {
   // `YYYY-MM-DD` only) and normalizes to the internal first-of-month form
   // `YYYY-MM-01` before the service sees it. Other days (e.g. 2026-08-15) are
   // rejected as VALIDATION_ERROR — see common/validation/year-month.ts.
+  //
+  // ⚠️ 두 시점 — 이 필드가 `YEAR_MONTH_INPUT_PATTERN`의 **연도 상·하한이 가장 아프게
+  // 필요한 자리**다. 종전 패턴은 연도를 `\d{4}`로 열어 뒀고(그때는 참: 고친 것이 달이었다),
+  // 그래서 `9999-12`가 형식 검사를 통과했다. 이 경로는 읽기가 아니라 **쓰기**라 결과가
+  // 다르다: `upsertBudget`이 행을 커밋한 **뒤** 응답 조립이 `getSeoulMonthRange`의
+  // Invalid Date로 터져 500이 났고(실측: budgets 행 0 → 1, yearMonth=9999-12-01),
+  // 그 뒤로는 같은 달의 `GET /budget`도 그 행을 읽다가 계속 500이었다 — 사용자가 앱에서
+  // 지울 수도, 덮어쓸 수도 없는 행이 남는다. 이제 연도가 창 밖이면 DTO에서 400으로 끊기니
+  // 행 자체가 만들어지지 않는다(report-year-bound.e2e.test.ts가 행 수 0을 못박는다).
   @Transform(({ value }) => normalizeYearMonthInput(value))
   @Matches(YEAR_MONTH_INPUT_PATTERN)
   yearMonth!: string;
