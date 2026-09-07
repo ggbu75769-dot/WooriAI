@@ -265,23 +265,55 @@ describe("데모(로컬 백엔드) 배선", () => {
    * 링크가 됐다 — 검색 결과 페이지에는 단일 가격이 없으므로 스냅샷은 전 행 null이다(확인할
    * 수 없는 가격을 적으면 허위 데이터다). 하한을 0으로 내리되, 가격이 되살아나는 날(플랜 A
    * 전환)을 위한 래칫으로 "있다면 그릴 수 있고 가격대 안"은 그대로 남긴다.
+   *
+   * 라운드 106 F4(S4-4) — ⚠️ **셋째 시점.** ② 이후 이 `it`은 통째로 **공허했다**: 링크 픽스처
+   * 여섯이 전부 `priceSnapshotKrw: null`이라 `priced`가 0건이고, 반복문이 한 번도 돌지 않아
+   * 남는 단언이 `expect(0).toBeGreaterThanOrEqual(0)` 하나였다 — `resolveLinkPriceDisplay`를
+   * 통째로 `() => null`로 바꿔도 초록이었고, 되살아나는 날에 누구를 부를지도 없었다
+   * ("래칫으로 남긴다"고 적었지만 남은 것은 **잠든 코드**였다). 이제 둘로 나눠 진다:
+   *
+   *  ⓐ **오늘의 0을 값으로 못 박는다** — 플랜 A로 스냅샷이 돌아오는 날 이 줄이 **먼저 빨개져**
+   *    사람을 부른다(그날 ⓑ의 모집단에 실제 스냅샷이 함께 들어오는지 보게 된다).
+   *  ⓑ **모집단은 이 테스트가 만든다** — 실제 픽스처 링크 × 그 준비템 **가격대의 양쪽 끝**을
+   *    실어, "가격+확인 시각이면 그릴 수 있다"를 픽스처의 오늘 상태와 무관하게 확인한다.
+   *    (실 스냅샷이 있는 링크는 그 값도 같은 반복문에 들어오고, 가격대 안인지까지 문다.)
    */
-  it("가격이 있는 픽스처는 전부 그릴 수 있고, 그 준비템의 가격대 안에 있다 (플랜 B: 현재 0건)", () => {
+  it("픽스처 링크에 가격을 실으면 전부 그릴 수 있다 -- 가격대 양쪽 끝으로 (플랜 B: 실 스냅샷 0건)", () => {
+    // ⓐ 플랜 A 전환 감지선. `>= 0`은 두 방향 어디로도 사람을 부르지 않아 값으로 바꾼다.
     const priced = localProductLinkFixtures.filter((link) => link.priceSnapshotKrw !== null);
-    expect(priced.length).toBeGreaterThanOrEqual(0);
+    expect(priced.length, "플랜 B: 데모 링크는 전부 검색 링크라 스냅샷이 전 행 null이다").toBe(0);
 
-    for (const link of priced) {
+    // ⓑ 반복문이 실제로 도는 모집단: 링크마다 {가격대 하한, 가격대 상한, (있다면) 실 스냅샷}.
+    const rows = localProductLinkFixtures.flatMap((link) => {
+      const item = localItemTemplateFixtures.find((fixture) => fixture.id === link.itemTemplateId);
+      expect(item, `${link.id}: 링크가 가리키는 준비템이 픽스처에 없다`).toBeDefined();
+      if (item!.priceMinKrw !== null && item!.priceMaxKrw !== null) {
+        // 가격대 자체가 뒤집혀 있으면 "안에 있다"는 판정이 뜻을 잃는다.
+        expect(item!.priceMinKrw, `${item!.id}: 가격대 하한 ≤ 상한`).toBeLessThanOrEqual(item!.priceMaxKrw);
+      }
+      const values = [item!.priceMinKrw, item!.priceMaxKrw, link.priceSnapshotKrw].filter(
+        (value): value is number => value !== null
+      );
+      return values.map((priceSnapshotKrw) => ({ link, item: item!, priceSnapshotKrw }));
+    });
+    // 모집단 하한 -- 가격대를 가진 링크가 하나도 없으면 아래 반복문은 아무것도 묻지 않는다.
+    expect(rows.length, "링크 여섯 × 가격대 양쪽 끝").toBeGreaterThan(0);
+
+    for (const { link, item, priceSnapshotKrw } of rows) {
       const display = resolveLinkPriceDisplay(
-        { priceSnapshotKrw: link.priceSnapshotKrw ?? undefined, priceCheckedAt: link.priceCheckedAt ?? undefined },
+        { priceSnapshotKrw, priceCheckedAt: link.priceCheckedAt ?? LOCAL_PRICE_CHECKED_AT },
         TODAY
       );
-      expect(display).not.toBeNull();
-      expect(display!.priceText).toBe(formatKrw(link.priceSnapshotKrw!));
+      expect(display, `${link.id}: ${priceSnapshotKrw}원은 그릴 수 있어야 한다`).not.toBeNull();
+      expect(display!.priceText).toBe(formatKrw(priceSnapshotKrw));
+      // 가격은 **언제 확인한 값인지와 함께가 아니면** 화면에 나오지 않는다(이 절의 계약).
+      expect(display!.checkedAtCaption).toContain(LINK_PRICE_CHECKED_SUFFIX);
 
-      const item = localItemTemplateFixtures.find((fixture) => fixture.id === link.itemTemplateId)!;
-      expect(item).toBeDefined();
-      if (item.priceMinKrw !== null) expect(link.priceSnapshotKrw!).toBeGreaterThanOrEqual(item.priceMinKrw);
-      if (item.priceMaxKrw !== null) expect(link.priceSnapshotKrw!).toBeLessThanOrEqual(item.priceMaxKrw);
+      // 실 스냅샷이 있는 링크(오늘 0건 · ⓐ가 그 0을 지킨다)는 그 값이 준비템 가격대 안이어야 한다.
+      if (link.priceSnapshotKrw === priceSnapshotKrw) {
+        if (item.priceMinKrw !== null) expect(priceSnapshotKrw).toBeGreaterThanOrEqual(item.priceMinKrw);
+        if (item.priceMaxKrw !== null) expect(priceSnapshotKrw).toBeLessThanOrEqual(item.priceMaxKrw);
+      }
     }
   });
 

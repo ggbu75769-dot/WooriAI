@@ -7,6 +7,19 @@ const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
 /**
+ * 주석을 걷어 낸 소스 / 주석만 남긴 소스 — 이 저장소가 이미 쓰는 그 관례다
+ * (shared-decision-wiring.test.ts · admin-write-role-gate.test.ts). 배선을 물 때는 코드만,
+ * *"근거가 적혀 있다"* 를 물 때는 주석만 본다 — 둘을 섞으면 주석 한 줄이 계약을 대신 선다.
+ * ⚠️ 줄 주석은 앞에 `:`가 없을 때만 지운다(코드 줄 안의 `https://`를 먹지 않는다).
+ */
+const withoutComments = (text: string) =>
+  text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+const commentsOnly = (text: string) =>
+  [...text.matchAll(/\/\*([\s\S]*?)\*\//g), ...text.matchAll(/\/\/([^\n]*)/g)]
+    .map((match) => match[1])
+    .join("\n");
+
+/**
  * ITEM-121 (B1): 준비템 시기 칩이 실제로 목록을 바꾸는지에 대한 회귀 가드.
  *
  * 이전 동작: 서버는 tab="now"에서 아이의 **현재 단계**만 필터하고, 화면이 그 결과에
@@ -105,16 +118,33 @@ describe("라운드 69 C: 시기 밴드의 원천과 모름 고지", () => {
     expect(items.match(/currentStage: stageSourceChild\?\.currentStage,/g)).toHaveLength(2);
   });
 
+  /**
+   * 라운드 106 F4(S4-5) — ⚠️ **두 시점.** 종전 이 자리의 앞 두 줄은 모바일 두 파일의 **원문**에서
+   * `toChildDto`를 찾았다. 그 이름은 두 파일 모두 **코드에 0건**이고 오직 주석에만 있어
+   * (`app/(tabs)/items.tsx`의 근거 문단 · `src/items/stage-bands.ts`의 세 자리), 읽는 사람에게는
+   * *"모바일이 그 함수를 쓴다"* 로 읽히면서 실제로는 **주석 관리 상태**를 확인했다.
+   * 이 `it`의 의도는 원래 문서 확인이 맞다(제목이 "근거가 소스에 적혀 있다"라고 말한다) —
+   * 그래서 이제 **그렇게 말한다**: 이름은 `…Doc`으로 부르고 **주석 쪽만** 뽑아 거기서 찾으며,
+   * 코드 쪽에는 그 이름이 없다는 사실을 짝으로 못 박는다(모바일은 서버 함수를 부르지 않는다).
+   * 서버가 실제로 그 함수를 한 벌로 쓰는지는 아래 세 줄이 **코드**에서 확인한다.
+   */
   it("두 원천이 서버에서 같은 함수(toChildDto)에서 온다는 근거가 소스에 적혀 있다", () => {
     // 출처를 바꾸는 변경의 정당성이 곧 이 사실이라, 다음 사람이 되돌리기 전에 읽을 수 있어야 한다.
-    const items = source("app/(tabs)/items.tsx");
-    expect(items).toContain("toChildDto");
-    expect(source("src/items/stage-bands.ts")).toContain("toChildDto");
+    const itemsDoc = commentsOnly(source("app/(tabs)/items.tsx"));
+    const stageBandsDoc = commentsOnly(source("src/items/stage-bands.ts"));
+    expect(itemsDoc, "화면의 근거 문단").toContain("toChildDto");
+    expect(stageBandsDoc, "밴드 모듈의 근거 문단").toContain("toChildDto");
+    // 짝: 그 이름은 모바일 **코드**에는 없다 -- 서버 함수를 여기서 부르는 것이 아니라, 그 함수가
+    // 내려보낸 필드를 읽을 뿐이라는 사실이다(코드에 생기는 날 이 줄이 갈라 준다).
+    expect(withoutComments(source("app/(tabs)/items.tsx")), "모바일은 서버 함수를 부르지 않는다").not.toContain("toChildDto");
+    expect(withoutComments(source("src/items/stage-bands.ts")), "모바일은 서버 함수를 부르지 않는다").not.toContain("toChildDto");
     // 서버에서도 그 함수가 한 벌인지 값으로 확인한다(이 트랙은 서버를 한 줄도 바꾸지 않는다).
-    const storeShared = readFileSync(join(mobileRoot, "../api/src/onboarding/store-shared.ts"), "utf8");
-    expect(storeShared).toContain("export function toChildDto(");
+    const storeShared = withoutComments(readFileSync(join(mobileRoot, "../api/src/onboarding/store-shared.ts"), "utf8"));
+    expect(storeShared, "서버의 단일 선언").toContain("export function toChildDto(");
     for (const path of ["../api/src/onboarding/reporting-store.service.ts", "../api/src/onboarding/onboarding-core.service.ts"]) {
-      expect(readFileSync(join(mobileRoot, path), "utf8"), path).toContain("toChildDto(");
+      // 주석을 걷고 본다 -- 두 엔드포인트가 **부르는** 자리를 묻는 것이지, 그 이름을 언급한
+      // 문장을 세는 것이 아니다(onboarding-core.service.ts의 머리말에도 같은 이름이 있다).
+      expect(withoutComments(readFileSync(join(mobileRoot, path), "utf8")), path).toContain("toChildDto(");
     }
   });
 

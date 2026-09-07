@@ -27,6 +27,23 @@ import { useNotificationStore } from "./notification.store";
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
+/**
+ * 주석을 걷어 낸 소스 — 이 파일의 소스 스캔이 무는 것은 훅이 **하는 일**이지 그 배선의 이력을
+ * 적은 문장이 아니다(shared-decision-wiring.test.ts·custom-category-wiring.test.ts가 세운 그
+ * 관례다). ⚠️ 줄 주석은 앞에 `:`가 없을 때만 지운다(코드 줄 안의 `https://`를 먹지 않는다).
+ */
+const withoutComments = (text: string) =>
+  text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
+/** 양쪽 끝을 값으로 확인하고 자르는 구간 — 표식이 사라지면 빈 문자열이 아니라 실패로 끝난다. */
+const guardedSlice = (text: string, startNeedle: string, endNeedle: string, label: string): string => {
+  const start = text.indexOf(startNeedle);
+  expect(start, `${label}: 시작 표식 "${startNeedle}"이 소스에 없다`).toBeGreaterThan(-1);
+  const end = text.indexOf(endNeedle, start + startNeedle.length);
+  expect(end, `${label}: 끝 표식 "${endNeedle}"이 시작 뒤에 없다`).toBeGreaterThan(start);
+  return text.slice(start, end + endNeedle.length);
+};
+
 /** 서울(KST) 달력의 그 날짜·시각에 해당하는 epoch ms. */
 const kst = (year: number, month1: number, day: number, hour = 12) =>
   Date.UTC(year, month1 - 1, day, hour) - SEOUL_UTC_OFFSET_MS;
@@ -176,18 +193,45 @@ describe("GAP-054 #6 기존 알림 평가 경로 합류(새 백그라운드 작�
     expect(candidates.map((candidate) => candidate.type)).toEqual(["weekly_summary"]);
   });
 
+  /**
+   * 라운드 106 F4(S4-2) — ⚠️ **두 시점.** 종전 이 `it`의 억제 근거 단언은
+   * `expect(hookSource).toContain("hasPendingLocalRecords")` 였다. 그 이름은 **라운드 80 B가
+   * 코드에서 걷어낸 이름**이고(그때 boolean이 행으로 바뀌었다), 오늘 훅에 남아 있는 자리는
+   * "종전에는…"으로 시작하는 **주석 셋**뿐이다. `source()`는 주석을 걷지 않으므로 그 단언이
+   * 확인하던 것은 *"오늘 억제 근거가 같은 평가에 실려 나간다"* 가 아니라 *"라운드 80의 이력
+   * 주석이 아직 지워지지 않았다"* 였다 — **억제 배선을 통째로 들어내도 초록, 이력 주석을
+   * 정리하면 빨강**인 뒤집힌 그물이다.
+   *
+   * 이제: 주석을 걷은 **코드**에서만 본다 — ⓐ 훅이 그 행을 파라미터로 받고 ⓑ 같은 평가 호출의
+   * 인자로 그대로 넘긴다. 배선을 들어내면 빨개지고, 이력 주석 셋을 통째로 지워도 초록이다
+   * (라운드 106 F4가 두 방향 모두 실증했다). 이력 주석 쪽은 일부러 묻지 않는다 — 묻는 순간
+   * 이 계약이 다시 "주석이 지워졌는가"를 세게 되고, 그것이 종전의 결함이었다.
+   */
   it("훅이 홈 스냅샷에서 값을 뽑아 넘긴다 -- 새 요청도 새 구독도 없다", () => {
-    const hookSource = source("src/notifications/useHomeNotificationEvaluation.ts");
-    expect(hookSource).toContain("lastRecordedOn: latestRecordedOn(home.recentExpenses)");
-    // P1-3: 억제 근거도 같은 평가 한 번에 실려 나간다(훅은 offline 모듈을 import하지 않는다).
-    expect(hookSource).toContain("hasPendingLocalRecords");
+    const hookCode = withoutComments(source("src/notifications/useHomeNotificationEvaluation.ts"));
+    // 평가 호출 한 자리를 양쪽 끝 가드로 잘라, 인자가 **그 호출 안에** 있는지를 본다.
+    const evaluationCall = guardedSlice(
+      hookCode,
+      "evaluateHomeNotifications({",
+      "});",
+      "훅의 홈 알림 평가 호출"
+    );
+
+    expect(evaluationCall).toContain("lastRecordedOn: latestRecordedOn(home.recentExpenses)");
+    // P1-3 + 라운드 80 B: 억제 근거도 같은 평가 한 번에 실려 나간다 -- 오늘 넘어가는 것은
+    // boolean이 아니라 **행**이다(generators.ts의 PendingRecordScope로 형제 둘이 좁혀 센다).
+    expect(hookCode, "훅이 그 행을 파라미터로 받는다").toContain("pendingRecordRows: ReadonlyArray<PendingRecordRowLike>");
+    expect(evaluationCall, "그 행이 같은 평가 호출의 인자로 넘어간다").toContain("pendingRecordRows,");
+    // 라운드 80 B가 걷어낸 boolean 이름은 코드 쪽에 0건이다 -- 되살아나면(= 화면이 다시 미리 접어
+    // 넘기면) 형제 둘이 자기 범위로 좁혀 셀 수 없게 되므로 여기서 잡는다.
+    expect(hookCode, "걷어낸 boolean 이름이 코드로 되살아나면 여기서 잡힌다").not.toContain("hasPendingLocalRecords");
     // 훅은 여전히 offline 모듈을 import하지 않는다(그 모듈이 react-native를 정적으로 끌고
     // 들어와 이 테스트 파일에서 훅을 읽을 수 없게 된다) -- 값은 홈이 계산해 넘긴다.
-    expect(hookSource).not.toMatch(/^import .*from "\.\.\/offline\//m);
+    expect(hookCode).not.toMatch(/^import .*from "\.\.\/offline\//m);
     // 평가 자리는 종전 그대로다(새 훅·새 타이머·새 백그라운드 작업 없음).
-    expect(hookSource).toContain("evaluateHomeNotifications(");
-    expect(hookSource).not.toContain("setInterval(");
-    expect(hookSource).not.toContain("registerTaskAsync");
+    expect(hookCode).toContain("evaluateHomeNotifications(");
+    expect(hookCode).not.toContain("setInterval(");
+    expect(hookCode).not.toContain("registerTaskAsync");
     // 홈 화면 호출부는 손대지 않았다(인자 2개 그대로).
     // 라운드 54 P1-3에서 인자가 셋이 됐다 — 세 번째는 홈이 **이미 구독 중인** 스냅샷에서
     // 나온 순수 판정이라, 화면이 새로 부르는 요청·구독은 여전히 0건이다.
