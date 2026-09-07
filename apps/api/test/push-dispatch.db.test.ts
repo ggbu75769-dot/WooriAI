@@ -72,7 +72,21 @@ describe.skipIf(!dbAvailable)("PushDispatchService (PUSH-113, real Postgres)", (
     prisma = app.get(PrismaService);
     devicesService = app.get(DevicesService, { strict: false });
 
-    const category = await prisma.category.findFirst();
+    // ⚠️ 두 시점. 종전 이 줄은 `findFirst()`를 **술어 없이** 불렀다 — 그때는 참이었다:
+    // 공유 테스트 DB의 `categories`에 시드(전역) 행만 있던 동안에는 무엇이 잡히든 이 픽스처의
+    // 가구가 쓸 수 있었다. 지금은 다른 스위트가 남긴 **가구 스코프 커스텀 분류**가 함께 산다
+    // (`custom_…` — 실측 시점의 첫 두 행이 그것이었다). 그 행이 잡히면
+    // `requireExistingCategory(categoryId, householdId)`가 `OR: [{householdId: null}, {householdId}]`로
+    // 거르므로 **남의 가구 분류**가 되어 400 EXPENSE_CATEGORY_INVALID로 떨어졌다 — 실패 문구는
+    // "존재하지 않는 카테고리"라고 말하지만 행은 실재했고, 틀린 것은 이 선택이었다.
+    //
+    // 이 자가 원하는 것은 처음부터 **전역 시드 분류**다(에러 문구가 이미 "시드 카테고리"라고
+    // 적고 있다). `householdId: null`로 그것을 명시하고, `orderBy`로 실행 간 순서까지 고정해
+    // 다른 스위트가 무엇을 남기든 이 픽스처가 흔들리지 않게 한다.
+    const category = await prisma.category.findFirst({
+      where: { householdId: null },
+      orderBy: { code: "asc" }
+    });
     if (!category) {
       throw new Error("시드 카테고리가 없어요 — global-setup의 seedDatabase가 실행됐는지 확인하세요.");
     }

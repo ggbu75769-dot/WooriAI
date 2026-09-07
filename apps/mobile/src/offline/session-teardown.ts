@@ -12,6 +12,7 @@ import { useImportResumeStore } from "../stores/import-resume.store";
 import { useQuickRecordPinsStore } from "../stores/quick-record-pins.store";
 import { useRecentSearchesStore } from "../stores/recent-searches.store";
 import { useRecurringExpenseStore } from "../stores/recurring-expense.store";
+import { useSelectedChildStore } from "../stores/selected-child.store";
 import { clearSyncCursor } from "./delta-sync";
 import { wipeOfflineStore } from "./sync-engine";
 import type { OfflineStore } from "./types";
@@ -166,6 +167,73 @@ export function clearSessionScopedQueryCache(): void {
 }
 
 /**
+ * 라운드 110 — **선택된 아이 id도 계정 경계에서 지운다.** (동기 절반)
+ *
+ * ## 종전 X(그때는 참)
+ *
+ * 이 목록의 열 항목은 전부 "떠난 계정의 값을 다음 계정이 보지 않게" 하는 것이었고,
+ * `useSelectedChildStore`가 빠져 있던 것은 실수가 아니라 **사람이 쓰는 로그아웃 세 자리가
+ * 각자 지우고 있었기 때문**이다: 설정 로그아웃(app/settings/index.tsx:282), PIN 분실
+ * 로그아웃(src/security/AppLockOverlay.tsx:260), 계정 삭제(app/settings/privacy.tsx:562).
+ * 그래서 "로그아웃 → 다른 계정 로그인"은 selectedChildId가 null인 상태로 도착했고, 그 null이
+ * 곧 MOB-116 복구의 방아쇠라(`shouldAttemptSelectedChildRecovery` — 조건에 `!selectedChildId`가
+ * 있다) 새 계정은 `GET /children`으로 자기 아이를 다시 골랐다. 그 세 자리만 보면 계약은 지켜졌다.
+ *
+ * ## 이제 Y, 근거
+ *
+ * 그 셋을 **지나지 않는** 정체성 전환이 하나 있다: `clearSession("expired")`다. 만료는 userId를
+ * 남기므로(AUTH-127 — src/stores/session.store.ts) 위 `isSessionIdentityChange`가 거짓이고 이
+ * 구독은 발화하지 않는다. 그 상태에서 **다른 계정 B가 같은 기기에서 로그인**하면
+ * (`setSession(userId=B)`) 그때 비로소 정체성이 바뀌는데, selectedChildId는 여전히 **A의 아이**다.
+ * 그리고 app/index.tsx:209가 `hasReachedHome`이면 진행도 조회 자체를 건너뛰므로 FIX-119B/F5의
+ * 무효 childId 감지(:230 `clearSelectedChildId()`)도 돌지 않고, MOB-116 복구는 값이 있어서 서지
+ * 않는다. B는 곧장 `/(tabs)`로 들어가 홈·기록·준비템·리포트 네 탭이 전부
+ * `GET /children/<A의 아이>/…`를 친다 — 403 FORBIDDEN(저장값이 UUID일 때. 비-UUID면 P2023이
+ * 500으로 올라오지만 그런 값을 쓰던 빌드가 있었는지는 이 저장소에서 잴 수 없다). 핵심 루프
+ * 네 탭이 동시에 오류 카드가 된다.
+ *
+ * ## 왜 "지우기"이고 "검증하기"가 아닌가
+ *
+ * 대안은 B의 아이 목록에 그 childId가 있는지 물어보고 **맞으면 남기는** 것이다. 쓰지 않는다:
+ *  ① 그 검증은 **이미 두 벌 있다** — MOB-116 복구(`GET /children` → 재선택, 다자녀면 안내,
+ *    오프라인 문구·자동 1회 재시도·3초 밸브까지 갖춘 경로)와 FIX-119B/F5의 childScopeRejected.
+ *    세 벌째를 여기 두는 것은 이 저장소가 라운드마다 걷어 온 그 모양이다;
+ *  ② 이 모듈은 **기기 안의 정리**이고 네트워크는 전부 최선 노력이다(0b 푸시 끄기·서버 폐기
+ *    둘 다 await하지 않는다). 검증은 답을 기다려야 성립하는데, 오프라인에서는 영영 답이 없다;
+ *  ③ 무엇보다 **묻는 동안 값이 남아 있는 것** 자체가 위 403 창이다. 지우면 그 창이 0이 되고,
+ *    판정은 이미 있는 복구 경로가 이어받는다 — 즉 이 한 줄이 하는 일은 "만료 갈래를 로그아웃
+ *    갈래와 같은 상태로 만드는 것"이지 새 상태 기계를 만드는 것이 아니다.
+ *
+ * ## 왜 여기(동기)이고 async teardown 안이 아닌가
+ *
+ * 쿼리 캐시 비우기(FIX-118A / round27 M-1)와 **같은 이유·같은 자리**다. selectedChildId는 그
+ * 캐시의 키를 짓는 값이고, 화면이 렌더에서 곧바로 읽는다. 프로미스 홉 뒤에 두면 index.tsx가
+ * 이미 `/(tabs)`로 리다이렉트한 뒤에 값이 null이 될 수 있고, 그때 탭은 언마운트된 index로
+ * 돌아가지 못해 **비로그인 미리보기 픽스처**(MOB-116이 막은 그 허위 표시)에 머문다 — 403 오류
+ * 카드보다 나쁜 자리다. 동기로 두면 그 경합이 존재하지 않는다.
+ *
+ * ## 지나치게 지우지 않는다
+ *
+ *  - **`hasReachedHome`(useOnboardingProgressStore)은 지우지 않는다.** 그 값이 false가 되면
+ *    MOB-116 복구 조건이 **꺼지고**(조건에 `hasReachedHome`이 있다), 서버가 답하지 않는 갈래
+ *    (오프라인·느린 회선·3초 밸브)에서 `localOnboardingResumeRoute`는 아이 id가 없으면 null을
+ *    돌려주므로 기본 목적지 `/onboarding/child-status`가 남는다 — 이미 아이가 있는 계정을
+ *    ONB-001로 보내는 길이고, 그 길 끝이 `POST /children`(아이 중복 생성)이다
+ *    (app/(auth)/login.tsx 라운드 99 트랙 F1(H)이 라우팅으로 만들었다고 적어 둔 그 오염).
+ *    게다가 로그아웃 세 자리도 `resetOnboarding`을 부르지 않으므로, 여기서 지우면 **지금 잘
+ *    도는 로그아웃 갈래까지** 함께 바꾸게 된다.
+ *  - **정체성이 같으면 이 함수는 아예 불리지 않는다.** 토큰 갱신(`setTokens`)과 같은 사용자의
+ *    재로그인(`setSession`에 같은 userId)은 위 `isSessionIdentityChange`가 거짓이고, 만료도
+ *    userId를 남기므로 거짓이다 — 같은 사람은 자기 아이 선택을 잃지 않는다.
+ *  - 데모 전환에서도 안전하다: `startTestSession`은 선택이 **비어 있을 때만** 데모 아이를
+ *    고르므로(`if (!selectedChild.selectedChildId)`) 종전에는 A의 아이 id가 데모 세션까지
+ *    따라갔다. 이 줄이 그것을 null로 만들고, app/index.tsx의 MOB-107 효과가 데모 아이를 고른다.
+ */
+export function clearSessionScopedChildSelection(): void {
+  useSelectedChildStore.getState().clearSelectedChildId();
+}
+
+/**
  * 라운드 107 트랙 B(S1-2) — 떠나는 세션의 **서버 토큰 family를 폐기**한다.
  *
  * 종전: 이 파일이 지우는 것은 전부 기기 안의 상태였고, 서버 쪽으로 나가는 정리는 푸시 기기
@@ -271,6 +339,11 @@ export type SessionTeardownContext = {
  *      awaited: it is a best-effort network call under the OUTGOING token, and teardown must
  *      never be delayed (or failed) by it. Kicked off before the awaits below so it uses the
  *      token while it is still valid;
+ *   0c. 선택된 아이 id 비우기(라운드 110) — 0과 같은 자격의 **동기** 단계다: 실제 호출은
+ *      컨트롤러가 프로미스 홉 **앞에서** 하고(`clearSessionScopedChildSelection`의 머리말),
+ *      여기 한 번 더 부르는 것은 0과 똑같이 멱등한 반복이라 직접 호출자와 단위 테스트가 온전하다.
+ *      만료 뒤 다른 계정 로그인이 A의 아이 id를 물고 `/(tabs)`로 들어가던 갈래를, 로그아웃
+ *      갈래와 같은 상태(선택 없음 → MOB-116 복구)로 되돌린다;
  *   1. user-scoped zustand store resets (purchase-followup, notifications, since round 35's F5 the
  *      two home first-run stores, since 라운드 55 트랙 C the recurring-expense templates and
  *      the app-lock record, since 라운드 99 M-1 the analytics consent flag — the consent is a
@@ -313,6 +386,9 @@ export async function teardownOfflineSessionState(
   clearSessionScopedQueryCache();
   // Step 0b: best-effort, fire-and-forget — never awaited, never allowed to reject.
   void deactivateRegisteredPushDevice(context.authToken);
+  // Step 0c (라운드 110): 떠난 계정의 아이 선택도 이 자리에서 지운다. 컨트롤러가 동기 자리에서
+  // 이미 한 번 불렀고(머리말의 "왜 여기(동기)인가"), 이 반복은 0과 같은 이유로 멱등하다.
+  clearSessionScopedChildSelection();
   usePurchaseFollowupStore.getState().resetAll();
   // NOTI-102: 알림 이력·중복 방지 키·시기 메타도 사용자 단위 상태이므로 함께 초기화한다.
   useNotificationStore.getState().resetAll();

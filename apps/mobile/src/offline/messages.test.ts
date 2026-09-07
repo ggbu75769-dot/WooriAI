@@ -1915,8 +1915,16 @@ describe("라운드 69 A(#1) 로그아웃이 지우는 세 번째 목록", () =>
 
   it("파생 단언 — teardown이 비우는 스토어가 전부 '센다/세지 않는다' 중 하나로 판정돼 있다", () => {
     const teardown = source("src/offline/session-teardown.ts");
+    // 라운드 110 — ⚠️ 두 시점: 종전 이 정규식은 `reset()`/`resetAll()` **두 모양만** 알았다
+    // (그때는 참 — teardown이 비우던 열 스토어가 전부 그 두 이름을 갖고 있었다). 이제 선택된
+    // 아이 스토어가 합류했는데 그 스토어의 비우기는 `clearSelectedChildId()`다(그 이름이 화면
+    // 다섯 자리에서 이미 쓰이고 있어 teardown을 위해 별칭을 더하지 않았다). 이름을 **명시로**
+    // 더한다 — `\w+`로 넓히면 "비우지 않는 호출"도 통과해 이 단언이 힘을 잃는다.
     const called = new Set(
-      Array.from(teardown.matchAll(/(use\w+Store)\.getState\(\)\.reset(?:All)?\(/g), (match) => match[1])
+      Array.from(
+        teardown.matchAll(/(use\w+Store)\.getState\(\)\.(?:reset(?:All)?|clearSelectedChildId)\(/g),
+        (match) => match[1]
+      )
     );
     expect(called.size).toBeGreaterThan(0);
     const judged = new Set<string>([

@@ -381,8 +381,17 @@ export const EXPENSE_LIST_MAX_LIMIT = 500;
 // Date로 터져 500이 되는 것을 막으려고 좁힌 패턴이다). 계약이 서버보다 넓으면
 // 계약을 통과한 요청이 서버에서 거절당해, 이 스키마를 믿는 클라이언트가 잡을 수
 // 있었던 오류를 왕복 뒤에야 알게 된다. 두 정규식은 **문자 그대로 같아야 한다**.
+//
+// 라운드 110 A: 연도도 같은 이유로 좁혔다. 종전 `\d{4}`는 **그때는 서버와 같았지만**, 그
+// 열린 연도가 정확히 R24-L5가 월에서 닫은 병을 연도에서 그대로 남기고 있었다 — 실측
+// 12,987개 값(`yearMonth` 11,988 + 맨 연도 999)이 `getSeoulMonthRange`의 `endExclusive`
+// 0채움 부재로 Invalid Date가 되어 500이었다(`0001-01` → `"1-02-01"`, `9999-12` →
+// `"10000-01-01"`). 이제 서버가 `[1900, 2200]`으로 묶으므로(같은 파일의
+// `REPORT_YEAR_MIN`/`REPORT_YEAR_MAX`) 이 줄도 **문자 그대로** 그것을 따른다.
+// 창의 근거는 서버 쪽에 있다: 하한은 지출 발생일 바닥(240개월)의 100년 아래, 상한은 이
+// 앱의 미래 지평(임신 10개월 + 첫돌 12개월 ≈ 오늘+2년)의 175년 위다.
 export const listExpensesQuerySchema = z.object({
-  yearMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])(-01)?$/).optional(),
+  yearMonth: z.string().regex(/^(19\d{2}|20\d{2}|21\d{2}|2200)-(0[1-9]|1[0-2])(-01)?$/).optional(),
   limit: z.number().int().min(1).max(EXPENSE_LIST_MAX_LIMIT).optional(),
   cursor: z.string().min(1).optional()
 });
