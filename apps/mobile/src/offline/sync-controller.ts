@@ -43,6 +43,7 @@ import {
 import { patchItemStatusInQueryData } from "../items/pending-status";
 import {
   generateOfflineId,
+  type ConflictSnapshot,
   type ExpensePayload,
   type ItemStatusOutboxRow,
   type ItemStatusPayload,
@@ -181,6 +182,179 @@ function publishLastFlushSucceededAt(at: number | null): void {
   notifySnapshotListeners();
 }
 
+
+/**
+ * 라운드 106 T2 — 스냅숏 **내용 비교** 한 벌(아래 네 함수). 최종 판정은 `isUnchangedSnapshot`이
+ * 내리고, true면 refreshSnapshot이 이전 스냅숏 객체를 그대로 둔다.
+ *
+ * ⚠️ **두 시점.**
+ * - 종전: `refreshSnapshot`이 불릴 때마다 새 스냅숏 객체 + 새 배열을 실었다. 저장소가 돌려주는
+ *   행은 매 읽기마다 **복사본**이라(memory-offline-store의 `.map((row) => ({ ...row }))`,
+ *   SQLite 구현은 SQL 행에서 새로 조립) 내용이 한 글자도 다르지 않아도 참조는 언제나 새것이다.
+ *   그래서 15초 연결 폴링·포그라운드 복귀·아무것도 확정하지 못한 flush pass처럼 **내용이
+ *   그대로인 갱신**에서도 구독 화면이 다시 렌더되고, 그 화면의 memo 사슬이 통째로 다시 돌았다
+ *   (준비템 탭 실측: 상태 체크당 재계산 2회).
+ * - 이제: 내용이 같으면 **이전 객체를 유지**하고 알림도 내지 않는다. `useSyncExternalStore`는
+ *   `getSnapshot()`이 같은 값을 돌려주면 어차피 렌더를 건너뛰므로, 알림을 생략하는 것과 알림 후
+ *   같은 값을 돌려주는 것은 화면에 대해 동치다 — 대신 배열·객체 참조가 그대로 남아 소비처의
+ *   `useMemo`(예: `buildPendingItemStatusIndex`)가 다시 돌지 않는다.
+ *
+ * ## 얕은 비교로 충분한가 — 아니다(실측)
+ *
+ * 원소 `===` 만으로는 **언제나 "다르다"** 가 나온다: 위 복사본 계약 때문에 행 객체의 동일성이
+ * 읽기 사이에 보존되지 않는다. 그래서 필드 단위로 비교한다.
+ *
+ * ## 그 비교가 재계산보다 싼가 — 그렇다(실측, node 18/vitest, 이 저장소에서 측정)
+ *
+ * 지출 행 200개 기준 1회당:
+ *   - 이 비교(전부 같을 때 = 최악): **34µs**. 길이가 다르면 O(1)에서 끝나므로 행 추가·삭제는
+ *     사실상 0이고, 한 필드만 바뀐 경우도 첫 차이에서 즉시 끝난다.
+ *   - 이 비교가 막아 주는 재계산 1회: `buildRecentItemChips` 208µs + `buildSuggestSourceRows`
+ *     210µs + `reconcileMonthlyExpenses` 14µs ≈ **430µs**(한 화면 몫, 렌더 비용은 별도).
+ *   즉 비교는 소비처 memo 사슬 한 번의 **8%** 수준이다.
+ *
+ * 범용 재귀 비교(`Object.keys` 순회)도 같은 조건에서 253µs로 재계산보다는 쌌지만 이 손비교의
+ * **7.5배**였고, 행 1000개에서는 1.28ms까지 올라 이득이 얇아진다(같은 조건 손비교 176µs).
+ * 그래서 필드를 손으로 적는 쪽을 택했다 — 대신 "필드를 하나 더 만들고 여기 안 적는" 사고를
+ * 테스트가 막는다(snapshot-reference-stability.test.ts가 types.ts의 필드 목록과 대조한다).
+ *
+ * ## 오류의 방향
+ *
+ * 놓치는 쪽(달라졌는데 같다고 답하기)이 위험하다 — 화면이 낡은 값에 멈춘다. 그래서 애매한
+ * 자리는 전부 **"다르다"** 로 답한다: `undefined`와 `null`은 서로 다른 값으로 보고(엄격 비교),
+ * 표현이 갈릴 수 있는 자리에서 굳이 같다고 우기지 않는다. 그 방향의 오류는 렌더 한 번이 더
+ * 도는 것이 전부다(종전 동작과 같다).
+ */
+function isSameExpensePayload(previous: ExpensePayload, next: ExpensePayload): boolean {
+  if (previous === next) return true;
+  return (
+    previous.childId === next.childId &&
+    previous.categoryId === next.categoryId &&
+    previous.amountKrw === next.amountKrw &&
+    previous.spentOn === next.spentOn &&
+    previous.itemName === next.itemName &&
+    previous.merchant === next.merchant &&
+    previous.memo === next.memo &&
+    previous.paymentMethod === next.paymentMethod &&
+    previous.linkedItemTemplateId === next.linkedItemTemplateId &&
+    previous.linkedProductLinkId === next.linkedProductLinkId &&
+    previous.expenseType === next.expenseType
+  );
+}
+
+/** 409로 받아 둔 서버 값. 삭제 묘비(`deleted: true`)와 살아 있는 값은 모양이 다르므로 갈래부터 본다. */
+function isSameConflictSnapshot(previous: ConflictSnapshot, next: ConflictSnapshot): boolean {
+  if (previous === next) return true;
+  if (previous === null || next === null) return false;
+  if (previous.deleted !== next.deleted) return false;
+  if (previous.deleted === true) {
+    const tombstone = next as Extract<ConflictSnapshot, { deleted: true }>;
+    return previous.id === tombstone.id && previous.version === tombstone.version;
+  }
+  const live = next as Extract<ConflictSnapshot, { deleted: false }>;
+  return (
+    previous.expense.id === live.expense.id &&
+    previous.expense.version === live.expense.version &&
+    isSameExpensePayload(previous.expense, live.expense)
+  );
+}
+
+function isSameLocalExpenseRows(previous: readonly LocalExpenseRow[], next: readonly LocalExpenseRow[]): boolean {
+  if (previous === next) return true;
+  // 길이 비교가 행 추가·삭제(대부분의 변화)를 O(1)에 잡는다. 순서까지 같은지도 함께 본다 --
+  // 자리만 바뀐 목록은 화면이 다시 그려야 하는 변화다.
+  if (previous.length !== next.length) return false;
+  for (let index = 0; index < previous.length; index += 1) {
+    const before = previous[index]!;
+    const after = next[index]!;
+    if (before === after) continue;
+    if (
+      before.localId !== after.localId ||
+      before.canonicalId !== after.canonicalId ||
+      before.childId !== after.childId ||
+      before.version !== after.version ||
+      before.syncState !== after.syncState ||
+      before.pendingDelete !== after.pendingDelete ||
+      before.lastError !== after.lastError ||
+      before.lastErrorStatus !== after.lastErrorStatus ||
+      before.lastErrorCode !== after.lastErrorCode ||
+      before.createdAt !== after.createdAt ||
+      before.updatedAt !== after.updatedAt
+    ) {
+      return false;
+    }
+    if (!isSameExpensePayload(before.payload, after.payload)) return false;
+    if (!isSameConflictSnapshot(before.conflictCurrent, after.conflictCurrent)) return false;
+  }
+  return true;
+}
+
+function isSameItemStatusRows(previous: readonly ItemStatusOutboxRow[], next: readonly ItemStatusOutboxRow[]): boolean {
+  if (previous === next) return true;
+  if (previous.length !== next.length) return false;
+  for (let index = 0; index < previous.length; index += 1) {
+    const before = previous[index]!;
+    const after = next[index]!;
+    if (before === after) continue;
+    if (
+      before.mutationId !== after.mutationId ||
+      before.childId !== after.childId ||
+      before.itemTemplateId !== after.itemTemplateId ||
+      before.status !== after.status ||
+      before.itemName !== after.itemName ||
+      before.syncState !== after.syncState ||
+      before.attemptCount !== after.attemptCount ||
+      before.nextRetryAt !== after.nextRetryAt ||
+      before.lastError !== after.lastError ||
+      before.lastErrorStatus !== after.lastErrorStatus ||
+      before.lastErrorCode !== after.lastErrorCode ||
+      before.inFlight !== after.inFlight ||
+      before.createdAt !== after.createdAt ||
+      before.updatedAt !== after.updatedAt
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isSameSyncStatusCounts(previous: SyncStatusCounts, next: SyncStatusCounts): boolean {
+  return (
+    previous.pending === next.pending &&
+    previous.syncing === next.syncing &&
+    previous.failed === next.failed &&
+    previous.conflict === next.conflict
+  );
+}
+
+/**
+ * 방금 읽어 온 값들이 지금 실려 있는 스냅숏과 **같은 내용인가.** 싼 칸부터 본다(저장소 상태 →
+ * 집계 → 준비템 큐 → 지출 행) — 어디서든 처음 다른 곳에서 끝난다.
+ *
+ * 스냅숏 객체를 만들어 놓고 비교하지 않는 이유: 같을 때 그 객체는 그대로 쓰레기가 된다. 이
+ * 함수가 막으려는 것이 바로 "아무것도 안 바뀌었는데 새로 만드는" 일이므로, 비교 자체도 아무것도
+ * 만들지 않는다(변화가 없는 갱신의 할당 0건).
+ *
+ * `lastFlushSucceededAt`은 비교하지 않는다 — 이 함수의 호출부가 그 칸을 **이전 값 그대로**
+ * 이월하므로(원천이 저장소가 아니다) 정의상 언제나 같다. 그 칸을 움직이는 자리는 따로 있고,
+ * 거기서는 자기 몫의 같음 검사를 이미 한다(publishLastFlushSucceededAt).
+ */
+function isUnchangedSnapshot(
+  previous: SyncSnapshot,
+  counts: SyncStatusCounts,
+  rows: readonly LocalExpenseRow[],
+  itemStatusRows: readonly ItemStatusOutboxRow[]
+): boolean {
+  return (
+    // 저장소가 다시 열렸다는 사실 자체가 변화다: 행·건수가 한 글자도 다르지 않아도 "모름"에서
+    // "ok"로 돌아온 것을 화면이 알아야 한다(라운드 61 #6의 정직한 한 줄이 걷히는 자리).
+    previous.storage === "ok" &&
+    isSameSyncStatusCounts(previous.counts, counts) &&
+    isSameItemStatusRows(previous.itemStatusRows, itemStatusRows) &&
+    isSameLocalExpenseRows(previous.rows, rows)
+  );
+}
+
 async function refreshSnapshot(): Promise<void> {
   let rows: LocalExpenseRow[];
   let itemStatusRows: ItemStatusOutboxRow[];
@@ -229,6 +403,10 @@ async function refreshSnapshot(): Promise<void> {
   }
   // 라운드 101 트랙 C: 확인 시각은 이월한다 — 이 함수는 저장소를 다시 읽었을 뿐, flush가 새로
   // 돈 것이 아니다(그 시각을 움직이는 자리는 attemptFlush와 계정 전환 둘뿐이다).
+  // 라운드 106 T2: 내용이 같으면 **이전 객체를 그대로 둔다**(근거·비용은 isUnchangedSnapshot
+  // 머리말). 위 두 publish 함수가 이미 쓰던 "달라졌을 때만 싣는다"와 같은 관례이고, 이 함수만
+  // 그 관례 밖에 있었다.
+  if (isUnchangedSnapshot(latestSnapshot, counts, rows, itemStatusRows)) return;
   latestSnapshot = { counts, rows, itemStatusRows, storage: "ok", lastFlushSucceededAt: latestSnapshot.lastFlushSucceededAt };
   notifySnapshotListeners();
 }
