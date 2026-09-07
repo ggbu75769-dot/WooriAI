@@ -238,7 +238,20 @@ function uncleanedCount(gauge: Gauge, creates: readonly Site[], cleanups: readon
  * (여유가 벌어진 채로 두면 상한이 헐거워진다).
  */
 function uncleanedCeilingToday(): Readonly<Record<Gauge, number>> {
-  return { "same-file": 7, forward: 9, bound: 11 };
+  // ⚠️ 두 시점(라운드 108 T23): bound 11 → 12 — `admin-role-gates.e2e.test.ts`의
+  // `prisma.itemTemplate.create`가 늘었다. **그 행은 실제로 지워진다** — 같은 파일의
+  // afterAll이 `itemTemplate.deleteMany({ where: { id: itemTemplateId } })`로 자기 행만
+  // 지우고(링크 → 준비템 순서), 그래서 `same-file`·`forward` 두 자에서는 정리된 자리로
+  // 선다. `bound`만 빨간 이유는 그 자가 "생성이 **받은 이름**을 정리가 무는가"를 보는데
+  // 생성은 beforeAll의 지역 `const template`이고 정리는 describe 스코프의 `itemTemplateId`라
+  // **스코프가 갈려 한 이름으로 묶을 수 없기** 때문이다. 실제로 묶어 보고 되돌렸다:
+  // `template`을 describe 스코프로 올리면 생성 줄이 `const`를 잃어 바인딩 추출이 되지 않아
+  // 같은 자가 그대로 빨갛다.
+  // 이 오차는 이 자가 **스스로 적어 둔 것**이다 — 위 머리말이 `link-health.db.test.ts:43`을
+  // "정리로 읽지 못한다"의 실물로 이름 대어 두었고, 이 자리는 그 두 번째 실물이다.
+  // 그래서 정리를 더하는 대신(더할 것이 없다) 오차를 값으로 적고 상한을 올린다.
+  // 결정 #14는 그대로 열려 있다 — 이 줄은 그 결정을 집지 않는다.
+  return { "same-file": 7, forward: 9, bound: 12 };
 }
 
 /**

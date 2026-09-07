@@ -3,7 +3,7 @@ import type { RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
 import { AccessibilityInfo, Animated, Image, Pressable, ScrollView, Text, View } from "react-native";
-import { focusAccessibilityTarget } from "./design-system/components/ModV1Primitives";
+import { focusAccessibilityTarget } from "./a11y/focus-accessibility-target";
 import { motion } from "./design-system/tokens/motion";
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { formatKrw } from "./money";

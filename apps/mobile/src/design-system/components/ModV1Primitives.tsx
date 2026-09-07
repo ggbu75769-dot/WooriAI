@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, type RefObject } from "react";
-import { AccessibilityInfo, Animated, findNodeHandle, Modal, Pressable, Text as NativeText, TextInput, View, type TextInputProps } from "react-native";
+import { focusAccessibilityTarget } from "../../a11y/focus-accessibility-target";
+import { Animated, Modal, Pressable, Text as NativeText, TextInput, View, type TextInputProps } from "react-native";
 import { KoreanText as Text } from "./KoreanText";
 import { formatKrw } from "../../money";
 import { useReducedMotion } from "../../ui/useReducedMotion";
@@ -227,10 +228,6 @@ export function ItemStatusControl({ value, onChange, disabled }: { value?: strin
   );
 }
 
-function focusAccessibilityTarget(target: RefObject<View | NativeText | null>) {
-  const handle = findNodeHandle(target.current);
-  if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
-}
 
 /**
  * A11Y 시트 — 종전 이 헬퍼는 이 파일 안에서만 쓰였다(그때는 참이었다: 포커스를 옮기는 시트는
@@ -239,6 +236,10 @@ function focusAccessibilityTarget(target: RefObject<View | NativeText | null>) {
  * 프레임)은 전부 `BottomSheetFrame`이고 `BottomSheet`는 호출부 0건이라, 열림 포커스를 세울 자리는
  * 그쪽이다. **한 벌을 두 벌로 만들지 않으려고** 새로 짓는 대신 이 한 줄로 연다.
  *
+ * ⚠️ 두 시점(라운드 108 T19 후속): 종전 이 파일이 그 헬퍼를 **선언**했고 옆 파일이 재수출로
+ * 가져갔다(그때는 참) → 이제 선언은 `src/a11y/focus-accessibility-target.ts`(잎)에 있고 이
+ * 파일도 거기서 가져간다. 근거는 그 파일 머리말에 값으로 있다 — `ui.tsx`가 이 `.tsx`를 무는
+ * 순간 아이콘 체인이 딸려 와 `preparation-restore` 스위트가 죽었다(배터리 실측).
  * ⚠️ `function` 선언 줄에 `export`를 붙이지 않고 **재수출 줄**로 여는 이유: 사문 대장의 tsx 축
  * 실측(`packages/test-utils/src/dead-export-ledger.ts`의 `tsxExportFunctionCount` — `.tsx`의
  * `^export … function` 선언 줄을 세고 오늘 149로 못박혀 있다)은 *"새 컴포넌트·훅이 태어났는가"*

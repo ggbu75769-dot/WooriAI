@@ -209,16 +209,40 @@ describe("ⓒ 열림 포커스와 닫힘 복귀 — 헬퍼는 새로 짓지 않�
     expect(frameBlock).toContain("return () => {");
   });
 
-  it("헬퍼는 한 벌이다 — ui.tsx는 사본을 짓지 않고 design-system의 그것을 부른다", () => {
-    expect(uiSource).toContain(
-      'import { focusAccessibilityTarget } from "./design-system/components/ModV1Primitives";'
+  it("헬퍼는 한 벌이다 — 두 파일이 같은 잎 모듈에서 가져간다", () => {
+    /**
+     * ⚠️ 두 시점(배터리 실측). **종전**: `ui.tsx`가 헬퍼를 ModV1Primitives에서 직접
+     * 가져갔다(그때는 한 벌이었다) → **이제**: 선언이 잎 모듈 `src/a11y/`에 있고 두 파일이
+     * 거기서 가져간다. 근거: `ui.tsx`가 그 `.tsx`를 무는 순간 **아이콘 체인이 딸려 와**
+     * (ModV1Primitives → 디자인 시스템 컴포넌트 → `@expo/vector-icons`) vitest의 ESM 해석이
+     * 그 패키지의 확장자 없는 내부 import에서 깨졌고, `preparation-restore` 스위트가 죽었다.
+     * 한 벌이라는 사실은 그대로다 — 옮긴 것은 **선언의 자리**뿐이다.
+     */
+    expect(uiSource).toContain('import { focusAccessibilityTarget } from "./a11y/focus-accessibility-target";');
+    expect(modV1Source).toContain(
+      'import { focusAccessibilityTarget } from "../../a11y/focus-accessibility-target";'
     );
-    // 사본 금지: 포커스 이동의 두 원재료가 ui.tsx에는 없다.
+    // 사본 금지: 포커스 이동의 두 원재료가 두 파일 어디에도 없다.
     expect(uiSource).not.toContain("findNodeHandle");
     expect(uiSource).not.toContain("setAccessibilityFocus");
-    // 원본은 여전히 한 자리에서만 선언된다(정의 하나 + 재수출 한 줄).
-    expect(modV1Source.match(/function focusAccessibilityTarget\(/g)).toHaveLength(1);
+    expect(modV1Source).not.toContain("findNodeHandle");
+    // 선언은 잎에서 딱 한 번이고, ModV1Primitives는 재수출 한 줄로 자기 공개면을 지킨다.
+    const leafSource = source("src/a11y/focus-accessibility-target.ts");
+    expect(leafSource.match(/function focusAccessibilityTarget\(/g)).toHaveLength(1);
+    expect(modV1Source.match(/function focusAccessibilityTarget\(/g)).toBeNull();
     expect(modV1Source).toContain("export { focusAccessibilityTarget };");
+    // ⚠️ 잎은 react-native 하나만 의존한다 — 화면 컴포넌트를 지나면 그 사슬이 다시 생긴다.
+    // (머리말은 그 사슬을 **이름으로** 설명하므로 문자열 전체가 아니라 **import 줄만** 본다.)
+    const leafImports = leafSource
+      .split("\n")
+      .filter((line) => /^\s*import\b/.test(line))
+      .join("\n");
+    expect(leafImports.length, "잎의 import 줄").toBeGreaterThan(0);
+    expect(leafImports).not.toContain("design-system");
+    expect(leafImports).not.toContain("vector-icons");
+    for (const line of leafImports.split("\n")) {
+      expect(line, "잎이 무는 모듈").toContain('"react');
+    }
   });
 
   it("훅은 조기 반환보다 위에 선다(FIX-A) — 프레임에는 조기 반환 자체가 없다", () => {
@@ -241,7 +265,10 @@ describe("ⓓ ref 없는 호출부의 갈래 — 오늘 넷 다 그 갈래다", 
     }
     // ⚠️ 그래도 봉인과 열림 포커스는 선다 — 그 둘은 호출부 배선을 요구하지 않는다.
     // (복귀만 조용히 없다: 헬퍼가 handle 없는 ref에는 아무 일도 하지 않는다.)
-    expect(modV1Source).toContain("if (handle) AccessibilityInfo.setAccessibilityFocus(handle);");
+    // ⚠️ 두 시점: 종전 이 줄은 ModV1Primitives에 있었다(그때는 참) → 이제 잎 모듈에 있다.
+    expect(source("src/a11y/focus-accessibility-target.ts")).toContain(
+      "if (handle) AccessibilityInfo.setAccessibilityFocus(handle);"
+    );
   });
 });
 
