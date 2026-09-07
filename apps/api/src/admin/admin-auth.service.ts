@@ -10,6 +10,47 @@ import { signAdminMfaPendingToken, verifyAdminMfaPendingToken } from "./admin-to
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000;
 
+/**
+ * 한 어드민 **계정**을 향한 실패 로그인의 상한(같은 15분 창).
+ *
+ * 종전에는 이 상수가 없었고 상한이 `MAX_ATTEMPTS`(5) 하나뿐이었다 — 그때 그 5회는
+ * `(이메일, IP)` **쌍**마다 따로 세어졌고, 그것이 이 파일이 가진 유일한 계정 방향 상한이었다.
+ * 즉 IP를 바꾸면 같은 이메일에 대해 카운터가 새로 시작했고, 겹치는 다른 상한도
+ * `auth:<ip>` 버킷(30회/분/IP, common/security/rate-limit.middleware.ts)뿐이라 **한 계정을
+ * 향한 시도 총량에는 상한이 아예 없었다**. MFA 잠금(admin-mfa.service.ts)은 `adminId` 단일
+ * 키라 계정 단위지만 비밀번호를 이미 통과한 뒤의 2단계이고, 갓 만들어진 어드민은
+ * 임시 비밀번호 + MFA 미등록이라 그 2단계 자체가 없다.
+ *
+ * 이제 이메일 단독 버킷을 하나 더 두고 쌍 버킷과 **AND**로 묶는다(둘 다 통과해야 시도가 된다).
+ * 예산을 `MAX_ATTEMPTS * 5`로 잡은 근거(이 저장소에서 실측한 값들):
+ *  - scrypt(N=16384,r=8,p=1) 검증 1회 ≈ 51ms → 한 코어가 낼 수 있는 상한이 ≈ 19.6회/초
+ *    (≈1,176회/분). 종전에는 IP만 40여 개면 그 CPU 상한까지 닿았다(40 × 30회/분).
+ *    즉 하루 ≈1.69M 추측이 가능했고, 흔한 10만 개짜리 사전은 **약 85분**이면 소진됐다.
+ *  - 이제 계정당 25회/15분 = 2,400회/일이라 같은 10만 사전이 **약 42일**이다(≈700배).
+ *    로그인 DTO는 최소 길이도 강제하지 않고(AdminLoginDto는 IsNotEmpty뿐), 변경 DTO의
+ *    하한도 10자·복잡도 규칙 없음이라 사람이 고른 비밀번호가 사전에 들어 있을 여지가 있다.
+ *    지켜야 하는 것은 "며칠 안에 뚫리지 않는다"이지 "이론상 불가능"이 아니다.
+ *
+ * ⚠️ 이메일 단독 버킷은 **서비스 거부를 만든다**: 공격자가 남의 이메일로 일부러 25번 틀리면
+ * 그 사람은 최대 15분 로그인하지 못한다(종전에는 이 거부가 아예 불가능했다 — 상한이 없었으니).
+ * 그 대가를 이 값으로 고른 이유:
+ *  - 5회/15분(정찰이 제안한 값)이면 거부 비용이 요청 5개로 떨어진다. 반대로 보안 이득은
+ *    42일 → 208일로 5배 늘 뿐이다. 이미 "몇 주" 구간에 들어온 뒤의 5배는 실익이 없고,
+ *    거부 비용의 5배 하락은 실질 손해다. 50회/15분은 그 반대 방향으로 같은 이유로 탈락.
+ *  - 25회는 정상 운영자가 자력으로 닿을 수 없는 값이다. 쌍 버킷이 IP마다 5회에서 먼저 막으므로,
+ *    집·사무실·폰 세 곳에서 전부 틀려도 15회다.
+ *  - 거부의 최대 길이는 15분이고(창이 지나면 스스로 풀린다) 대상은 **내부 운영 콘솔**이다.
+ *    핵심 사용자 루프(지출 기록→준비템→구매)는 이 게이트 뒤에 없다. 반대로 어드민 자격증명이
+ *    털리면 카탈로그 쓰기·제휴 URL·스폰서 표시(DNC-011)·사용자 조회까지 한 번에 넘어가고
+ *    그쪽은 시간이 지나도 저절로 복구되지 않는다.
+ *  - "잠금 대신 지연"은 이 문제를 풀지 못해서 버렸다: 지연은 총량을 묶지 못한다(공격자는
+ *    연결을 병렬로 늘려 흡수한다). R-1이 지적한 결함이 정확히 "총량에 상한이 없다"이므로
+ *    거절만이 답이고, 대신 성공 로그인 때 이 버킷을 비워(아래 `reset`) 정상 사용자가
+ *    공격자의 누적을 스스로 지울 수 있게 했다.
+ * 값은 상수 하나이므로, 실제 거부 사건이 관측되면 여기만 고치면 된다.
+ */
+const EMAIL_MAX_ATTEMPTS = MAX_ATTEMPTS * 5;
+
 const DUMMY_PASSWORD = "wooriai-dummy-password-for-constant-time-login";
 let dummyPasswordHash: string | null = null;
 
@@ -37,15 +78,25 @@ function getDummyPasswordHash(): string {
 }
 
 /**
- * In-memory brute-force limiter keyed by `email:ip`. Prototype-grade (no
- * persistence, no cross-instance sharing) — acceptable for the current
- * single-instance deployment; a durable/shared limiter can replace this later
- * without changing the AdminAuthService interface.
+ * In-memory brute-force limiter. Prototype-grade (no persistence, no
+ * cross-instance sharing) — acceptable for the current single-instance
+ * deployment; a durable/shared limiter can replace this later without changing
+ * the AdminAuthService interface.
+ *
+ * 종전에는 키가 `email:ip` **한 종류뿐**이었고(그때는 참), 한도도 코드도 `MAX_ATTEMPTS` ·
+ * `ADMIN_LOGIN_RATE_LIMITED` 하나로 이 클래스 안에 박혀 있었다. 이제 세 종류가 산다 —
+ * `login:<email>:<ip>`(쌍) · `login-email:<email>`(계정, EMAIL_MAX_ATTEMPTS) ·
+ * `password-change:<adminId>`(비밀번호 재확인) — 그래서 한도와 에러 코드를 호출부가 정한다.
+ * 근거는 각각 EMAIL_MAX_ATTEMPTS 주석과 `changePassword` 주석에 있다.
+ *
+ * 키에 접두사를 붙인 이유: 접두사가 없으면 `<email>:<ip>`와 이메일 단독 키가 한 이름공간에
+ * 살아, 콜론을 품은 로컬파트("a:b"@example.com은 RFC 5321이 허용한다)에서 두 키가 겹칠 수 있다.
+ * 겹치면 한쪽 버킷이 다른 쪽 카운터를 소모해 상한이 조용히 무너진다.
  */
 class LoginAttemptLimiter {
   private readonly attempts = new Map<string, { count: number; windowStart: number }>();
 
-  assertAllowed(key: string) {
+  assertAllowed(key: string, max: number = MAX_ATTEMPTS, code = "ADMIN_LOGIN_RATE_LIMITED") {
     const entry = this.attempts.get(key);
     if (!entry) {
       return;
@@ -54,9 +105,9 @@ class LoginAttemptLimiter {
       this.attempts.delete(key);
       return;
     }
-    if (entry.count >= MAX_ATTEMPTS) {
+    if (entry.count >= max) {
       throw new HttpException(
-        { code: "ADMIN_LOGIN_RATE_LIMITED", message: "너무 많이 시도했어요. 잠시 후 다시 시도해주세요." },
+        { code, message: "너무 많이 시도했어요. 잠시 후 다시 시도해주세요." },
         HttpStatus.TOO_MANY_REQUESTS
       );
     }
@@ -75,6 +126,25 @@ class LoginAttemptLimiter {
   reset(key: string) {
     this.attempts.delete(key);
   }
+}
+
+/** 종전 `${normalizedEmail}:${ip}` 문자열 그 자리. 이제 접두사가 붙어 아래 두 키와 이름공간이 갈린다. */
+function loginPairKey(normalizedEmail: string, ip: string): string {
+  return `login:${normalizedEmail}:${ip}`;
+}
+
+/**
+ * 계정 방향 키. **정규화한 이메일 문자열만** 보고, admin 행을 찾기 전에 판정한다 —
+ * 존재하는 이메일에만 버킷을 달면 429/401의 차이가 곧 "그 어드민이 있다"는 신호가 되어,
+ * 이 파일이 더미 해시(getDummyPasswordHash)까지 두고 막고 있는 이메일 열거가 되살아난다.
+ */
+function loginEmailKey(normalizedEmail: string): string {
+  return `login-email:${normalizedEmail}`;
+}
+
+/** 비밀번호 **재확인**(changePassword) 전용 키. 로그인 버킷과 섞이지 않는다 — 근거는 changePassword 주석. */
+function passwordChangeKey(adminId: string): string {
+  return `password-change:${adminId}`;
 }
 
 export type AdminProfile = { id: string; email: string; displayName: string; role: AdminUser["role"] };
@@ -131,8 +201,14 @@ export class AdminAuthService {
 
   async login(email: string, password: string, ip: string, userAgent: string | null): Promise<AdminLoginResult> {
     const normalizedEmail = email.trim().toLowerCase();
-    const rateLimitKey = `${normalizedEmail}:${ip}`;
-    this.limiter.assertAllowed(rateLimitKey);
+    // 종전에는 여기서 쌍 키 하나만 봤고(그때는 참) 그것이 로그인의 유일한 계정 방향 상한이었다.
+    // 이제 계정 키를 AND로 더 본다 — 두 버킷 다 통과해야 시도가 된다. 값과 서비스 거부
+    // 저울질은 EMAIL_MAX_ATTEMPTS 주석에 있다. 순서는 쌍 → 계정: 같은 IP에서 5번 틀린
+    // 흔한 경우의 응답이 종전과 글자 그대로 같게 유지된다(코드·문구·상태 전부 동일).
+    const pairKey = loginPairKey(normalizedEmail, ip);
+    const emailKey = loginEmailKey(normalizedEmail);
+    this.limiter.assertAllowed(pairKey);
+    this.limiter.assertAllowed(emailKey, EMAIL_MAX_ATTEMPTS);
 
     // Resolved before the lookup, so the memoized first-use derivation is charged to
     // whichever branch happens to be the process's first login attempt rather than
@@ -147,7 +223,10 @@ export class AdminAuthService {
       : verifyAdminPassword(password, fallbackHash);
 
     if (!admin || !admin.active || !passwordOk) {
-      this.limiter.recordFailure(rateLimitKey);
+      // 두 버킷 모두에 센다. 계정 키를 **존재하지 않는 이메일에도 똑같이** 세는 것이 중요하다 —
+      // 실재하는 이메일에만 세면 25회째부터 401/429가 갈려 이메일 열거 오라클이 된다.
+      this.limiter.recordFailure(pairKey);
+      this.limiter.recordFailure(emailKey);
       await this.auditLogger.record({
         action: "admin.login_failed",
         targetType: "admin_users",
@@ -162,7 +241,10 @@ export class AdminAuthService {
       });
     }
 
-    this.limiter.reset(rateLimitKey);
+    // 계정 키도 함께 비운다: 이것이 이메일 단독 버킷의 서비스 거부 대가를 실제로 깎는 장치다 —
+    // 정상 운영자가 한 번 로그인하는 순간 공격자가 쌓아 둔 실패 누적이 사라진다.
+    this.limiter.reset(pairKey);
+    this.limiter.reset(emailKey);
     await this.prisma.adminUser.update({ where: { id: admin.id }, data: { lastLoginAt: new Date() } });
     await this.auditLogger.record({
       actorUserId: admin.id,
@@ -333,6 +415,24 @@ export class AdminAuthService {
    * comparison as login; on success the hash is replaced and every OTHER
    * session of this admin is revoked (the session performing the change stays
    * valid). Neither password ever reaches the audit log.
+   *
+   * 라운드 R-2 — 종전에는 이 재확인에 **시도 제한이 없었다**(그때는 참): 실패하면 감사 로그
+   * `admin.password_change_failed` 한 줄만 남고 `limiter.recordFailure` 호출이 없어서,
+   * 유일한 상한이 `auth:<ip>` 버킷(30회/분/IP)이었다. 세션을 이미 손에 넣은 자 — 탈취한
+   * 쿠키, 또는 자리를 비운 브라우저 — 가 현재 비밀번호를 분당 30회씩 **무한히** 추측할 수
+   * 있었고, 알아내면 그 비밀번호의 재사용을 통해 다른 시스템까지 이어졌다. 세션은 IP에
+   * 묶여 있지도 않아(admin-session.service.ts는 ip를 기록만 한다) IP를 바꾸면 30회/분도
+   * 곱해졌다. 이제 계정 단위(`password-change:<adminId>`) 5회/15분으로 묶는다.
+   *
+   * 키를 `adminId` 하나로 잡은 것이 로그인 쪽(이메일+IP AND)과 다른 이유는, 여기에는
+   * **서비스 거부 대가가 없기 때문이다**: 이 자리에 닿으려면 이미 그 계정의 유효한 세션과
+   * CSRF 토큰을 들고 있어야 하므로, 모르는 사람이 남의 계정을 잠글 수 없다. 그래서 IP 축을
+   * 섞어 예산을 늘릴 이유가 없고 값도 기본 MAX_ATTEMPTS(5회/15분) 그대로다.
+   *
+   * 에러 코드는 로그인의 `ADMIN_LOGIN_RATE_LIMITED`가 아니라 전용
+   * `ADMIN_PASSWORD_RATE_LIMITED`다 — 어드민 웹은 429를 코드가 아니라 메시지로 보여주므로
+   * 화면은 달라지지 않지만, 운영자가 로그에서 "로그인이 막혔다"와 "세션 안에서 비밀번호
+   * 재확인이 막혔다"를 구분해야 한다. 후자는 곧 세션 탈취 의심 신호다.
    */
   async changePassword(
     admin: AdminUser,
@@ -340,7 +440,10 @@ export class AdminAuthService {
     currentPassword: string,
     newPassword: string
   ): Promise<void> {
+    const attemptKey = passwordChangeKey(admin.id);
+    this.limiter.assertAllowed(attemptKey, MAX_ATTEMPTS, "ADMIN_PASSWORD_RATE_LIMITED");
     if (!verifyAdminPassword(currentPassword, admin.passwordHash)) {
+      this.limiter.recordFailure(attemptKey);
       await this.auditLogger.record({
         actorUserId: admin.id,
         action: "admin.password_change_failed",
@@ -352,6 +455,10 @@ export class AdminAuthService {
         message: "현재 비밀번호를 다시 확인해주세요."
       });
     }
+    // 현재 비밀번호를 맞힌 시점에 비운다(아래 정책 검사 400보다 **앞**이다): 새 비밀번호가
+    // 정책에 걸려 되돌아온 것은 추측 실패가 아니므로, 그 왕복이 카운터를 태우면 정상 사용자가
+    // 자기 오타로 스스로 잠긴다.
+    this.limiter.reset(attemptKey);
     if (verifyAdminPassword(newPassword, admin.passwordHash)) {
       throw new HttpException(
         { code: "ADMIN_PASSWORD_UNCHANGED", message: "새 비밀번호는 기존 비밀번호와 달라야 해요." },
