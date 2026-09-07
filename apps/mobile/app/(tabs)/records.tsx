@@ -110,7 +110,11 @@ import {
 } from "../../src/expenses/records-sort";
 // 이월 항목(0건 사용자): 표면 갈래(로딩/오류/빈/필터 0건/목록) 판정과 필터 컨트롤 노출은
 // 순수 모듈 한 곳에 있다 — 화면은 그 값을 그리기만 한다(아래 recordsSurface 선언부 참고).
-import { areRecordsFilterControlsVisible, recordsSurfaceMode } from "../../src/expenses/records-surface-mode";
+import {
+  areRecordsFilterControlsVisible,
+  hasKnownAccountRecords,
+  recordsSurfaceMode
+} from "../../src/expenses/records-surface-mode";
 import { useSearchScopeCollection } from "../../src/expenses/use-search-scope-collection";
 import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
 // 라운드 56 D#10: `view=calendar` 파라미터 규약은 링크를 만드는 알림 목적지 모듈과 **같은 곳**에서 읽는다.
@@ -1659,14 +1663,53 @@ export default function RecordsScreen() {
   const hasVisibleRecords = showList && listData.length > 0;
 
   /**
+   * 이월된 "알려진 한계"의 **반증 신호 둘** — 새 엔드포인트 0 · 새 요청 0.
+   *
+   * 종전에는 이 화면이 "계정 전체에 기록이 있는가"를 물을 수단이 하나도 없었다(그때는 참이었다
+   * — 손에 든 것은 보고 있는 한 달뿐이라고 읽었다). 그래서 기록이 다른 달에만 있는 사용자가 빈
+   * 과거 달에 서면 검색창째 사라졌고, 월 스코프 검색을 먼저 걸어야 "전체 기간에서 찾기"로
+   * 올라가는 이 화면 구조에서 그 경로 하나가 통째로 막혔다.
+   *
+   * 이제는 **이미 받아 둔 것**을 읽어 그 반증만 만든다(새 요청을 하나도 더 쏘지 않는다 — 이
+   * 화면은 달을 넘길 때마다 렌더되므로 여기서 늘어난 비용은 달 이동마다 반복된다):
+   *  ① react-query 캐시에 남아 있는 이 아이의 다른 달 조회(‹ ›로 달을 옮겨 온 그 경로가 직전
+   *    달을 캐시에 남긴다 — 신고된 시나리오를 정확히 덮는다. "전체 기간에서 찾기"가 모아 둔
+   *    21개월도 같은 키라 여기에 함께 잡힌다),
+   *  ② 이미 구독 중인 오프라인 스냅샷의 이 아이 미동기화 행(달 무관).
+   * 캐시를 **읽기만** 하는 이 방식은 app/budget.tsx가 이미 세워 둔 선례다(쿼리를 켜지 않으므로
+   * 요청이 생기지 않고, 캐시가 없으면 그냥 undefined다).
+   *
+   * 둘 다 양성 전용이라 거짓은 "없다"가 아니라 "모른다"이고, 모르면 종전 판정 그대로 `"empty"`가
+   * 되어 0건 사용자의 첫 화면에서 컨트롤을 걷던 이득이 그대로 남는다. 판정은 순수 모듈이 진다.
+   *
+   * ⚠️ 셋째 후보(홈 탭이 구독하는 그 요약 응답의 캐시 — 전 기간 유무를 한 번에 말한다)는
+   * **일부러 배선하지 않았다.** 그 키를 만지는 비구독 화면은 src/query/home-payload-consumers.test.ts의
+   * 대장에 이유와 함께 등재돼야 하는데(라운드 82 D #4 — 그 계약이 캐시 읽기를 정당한 접촉으로
+   * 이미 인정한다) 그 파일은 이 트랙의 소유가 아니다. 근거와 되살리는 절차는 순수 모듈 머리말.
+   */
+  const cachedMonthRecordCounts = childId
+    ? queryClient
+        .getQueriesData<{ expenses: ServerExpense[] }>({ queryKey: ["expenses", childId] })
+        .map(([, cached]) => cached?.expenses.length ?? 0)
+    : [];
+  const knownAccountRecords = hasKnownAccountRecords({
+    cachedMonthRecordCounts,
+    offlineRowCount: childOfflineRows.length
+  });
+
+  /**
    * 이월 항목(0건 사용자의 컨트롤 무더기) — **표면 갈래 하나로 필터 컨트롤을 세운다.**
    *
    * 두 시점: 종전에는 아래 `listHeader`가 검색 입력 · 최근 검색어 줄 · 분류 칩 줄 · 정렬 토글을
    * **무조건** 그렸다(그때는 참이었다 — 그 컨트롤이 하나씩 붙던 라운드마다 "이 달에 목록이
    * 있다"가 암묵 전제였고, 아무도 그 전제를 판정으로 적지 않았다). 이제 로드가 성공했고 필터가
-   * 하나도 걸리지 않았는데 모집단이 0건이면 그 넷을 걷는다 — 아직 아무것도 적지 않은 사람의
-   * 첫 화면에서 가리킬 대상 없는 컨트롤이 핵심 루프 1단계(지출 기록)로 가는 빈 상태 카드를
-   * 아래로 밀어내던 자리다.
+   * 하나도 걸리지 않았고 모집단이 0건이고 **다른 달에 기록이 있다는 반증도 손에 없을 때** 그
+   * 넷을 걷는다 — 아직 아무것도 적지 않은 사람의 첫 화면에서 가리킬 대상 없는 컨트롤이 핵심
+   * 루프 1단계(지출 기록)로 가는 빈 상태 카드를 아래로 밀어내던 자리다.
+   *
+   * 마지막 조건은 이번에 더해졌다: 종전에는 그 조건이 없어(그때는 참이었다 — 계정 전체 유무를
+   * 물을 수단이 판정에 연결돼 있지 않았다) **기록이 다른 달에만 있는 사람이 빈 과거 달에 서면**
+   * 그 달에서 검색창이 사라졌다. 반증은 바로 위에서 이미 받아 둔 캐시로만 만든다(새 요청 0건).
    *
    * 판정은 전부 순수 모듈(src/expenses/records-surface-mode.ts) 하나에 있다. 특히 **필터 0건
    * (`"filtered-empty"`)에서는 걷지 않는다** — 0건을 만든 검색어·칩을 되돌릴 컨트롤이 사라지면
@@ -1684,7 +1727,9 @@ export default function RecordsScreen() {
     // 입력값과 확정값을 둘 다 넘긴다 — 확정 전 350ms 동안 입력칸이 손 아래에서 사라지지 않는다.
     searchText,
     appliedSearchText,
-    categoryId: selectedCategoryId
+    categoryId: selectedCategoryId,
+    // 위 신호 셋의 합. 참이면 "이 달만 비었다"(empty-month)라 필터 컨트롤을 걷지 않는다.
+    knownAccountRecords
   });
   const filterControlsVisible = areRecordsFilterControlsVisible(recordsSurface);
 
@@ -2060,12 +2105,27 @@ export default function RecordsScreen() {
 
       {confirmedFlash ? <Toast message={confirmedFlash} tone="success" /> : null}
 
+      {/* A11Y 이월(48dp 미만) — **동기화 상태 칩의 몸**. 종전에는 높이 선언도 hitSlop도 없어
+          눌리는 상자가 곧 StatusBadge 하나였다(paddingVertical 5 + 11px 한 줄 ≈ 25dp — 그때는
+          참이었다: 이 줄은 "배지를 보여 주는 자리"로 태어났고 누를 수 있게 된 것은 나중이다).
+          이제 minHeight 48로 몸 자체를 채운다.
+          ⚠️ 크기를 골랐지 hitSlop을 고르지 않았다. 이 Pressable은 부모(gap 20)의 flex 자식이라
+          **가로로 화면 전체를 덮는다**. 48을 슬롭으로 벌려면 세로 12가 필요한데, 바로 아래
+          블록의 첫 컨트롤들이 이미 자기 슬롭을 위로 내민다(아이 전환 트리거 8 · 달 이동 화살표
+          12). 12+12=24 > 20이라 두 슬롭이 4dp 띠에서 겹치고, 그 띠에서는 뒤에 그려진 달 이동
+          줄이 이겨 **칩을 누르려던 손가락이 이전 달로 넘긴다**(= 계약의 셈만 48이고 실제로는
+          45다). 세로 여백이 아니라 minHeight를 쓰므로 배지의 글자·여백은 한 픽셀도 바뀌지 않고,
+          justifyContent는 더하지 않는다 — flexDirection이 "row"라 세로 가운데 정렬은 이미 있는
+          alignItems: "center"가 하고, justifyContent를 건드리면 배지가 가로 가운데로 밀린다. */}
       {unsyncedCount > 0 ? (
         <Pressable
           accessibilityLabel={syncStatusChipAccessibilityLabel(childSyncCounts)}
           accessibilityRole="button"
           onPress={() => router.push("/sync-status")}
-          style={({ pressed }) => [{ alignItems: "center", flexDirection: "row", gap: 8 }, pressed && recordsPressedStyle]}
+          style={({ pressed }) => [
+            { alignItems: "center", flexDirection: "row", gap: 8, minHeight: theme.touchTarget },
+            pressed && recordsPressedStyle
+          ]}
         >
           {childSyncCounts.pending + childSyncCounts.syncing > 0 ? (
             <StatusBadge label={syncStatusBadgeLabel("pending", childSyncCounts.pending + childSyncCounts.syncing)} tone="neutral" />

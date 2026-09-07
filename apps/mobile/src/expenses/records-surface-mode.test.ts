@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { areRecordsFilterControlsVisible, recordsSurfaceMode } from "./records-surface-mode";
+import { areRecordsFilterControlsVisible, hasKnownAccountRecords, recordsSurfaceMode } from "./records-surface-mode";
 import type { RecordsSurfaceMode } from "./records-surface-mode";
 
 /**
@@ -17,7 +17,12 @@ import type { RecordsSurfaceMode } from "./records-surface-mode";
 const mobileRoot = process.cwd();
 const recordsSource = readFileSync(join(mobileRoot, "app/(tabs)/records.tsx"), "utf8");
 
-/** 로드 성공 · 필터 없음 · 기록 한 건 — 여기서 값 하나씩만 바꿔 갈래를 만든다. */
+/**
+ * 로드 성공 · 필터 없음 · 기록 한 건 — 여기서 값 하나씩만 바꿔 갈래를 만든다.
+ *
+ * `knownAccountRecords`(반증)의 기본값은 **false(= 모른다)** 다. 종전 케이스들이 물던 판정을
+ * 한 글자도 바꾸지 않는 쪽이 그 값이기 때문이다 — 반증이 손에 없으면 판정은 예전 그대로다.
+ */
 function loadedListInput() {
   return {
     isLoading: false,
@@ -27,11 +32,12 @@ function loadedListInput() {
     visibleCount: 1,
     searchText: "",
     appliedSearchText: "",
-    categoryId: null as string | null
+    categoryId: null as string | null,
+    knownAccountRecords: false
   };
 }
 
-describe("recordsSurfaceMode — 네 갈래를 섞지 않는다", () => {
+describe("recordsSurfaceMode — 갈래를 섞지 않는다", () => {
   it("조회 중이면 loading이다 (모집단을 아직 모른다)", () => {
     expect(recordsSurfaceMode({ ...loadedListInput(), isLoading: true, hasData: false, populationCount: 0, visibleCount: 0 })).toBe(
       "loading"
@@ -57,8 +63,37 @@ describe("recordsSurfaceMode — 네 갈래를 섞지 않는다", () => {
     expect(mode).toBe("loading");
   });
 
-  it("로드 성공 · 필터 0개 · 모집단 0건이면 empty다 (진짜 빈 상태)", () => {
+  it("로드 성공 · 필터 0개 · 모집단 0건 · 반증 없음이면 empty다 (진짜 빈 상태)", () => {
     expect(recordsSurfaceMode({ ...loadedListInput(), populationCount: 0, visibleCount: 0 })).toBe("empty");
+  });
+
+  /**
+   * 이월된 "알려진 한계"의 값 — **기록이 다른 달에만 있는 사용자가 빈 과거 달에 서는 자리.**
+   * 종전에는 이 입력이 `"empty"`였고(그때는 참이었다 — 계정 전체 유무를 물을 수단이 판정에
+   * 없었다) 그 달에서 검색창째 사라졌다. 이제는 갈래가 갈리고 컨트롤이 남는다.
+   */
+  it("이 달만 0건이고 계정에 기록이 있다는 반증이 손에 있으면 empty-month다", () => {
+    const mode = recordsSurfaceMode({
+      ...loadedListInput(),
+      populationCount: 0,
+      visibleCount: 0,
+      knownAccountRecords: true
+    });
+    expect(mode).toBe("empty-month");
+    // 이 갈래의 존재 이유: 그 사용자에게 검색창이 남아야 "전체 기간에서 찾기"로 올라갈 수 있다.
+    expect(areRecordsFilterControlsVisible(mode)).toBe(true);
+  });
+
+  it("반증이 있어도 이 달에 행이 있으면 list다 (새 갈래가 list를 잡아먹지 않는다)", () => {
+    expect(recordsSurfaceMode({ ...loadedListInput(), knownAccountRecords: true })).toBe("list");
+  });
+
+  it("반증이 있어도 로딩·오류·필터 0건 판정을 앞지르지 않는다 (분기 순서 불변)", () => {
+    const known = { ...loadedListInput(), populationCount: 0, visibleCount: 0, knownAccountRecords: true };
+    expect(recordsSurfaceMode({ ...known, isLoading: true, hasData: false })).toBe("loading");
+    expect(recordsSurfaceMode({ ...known, isError: true, hasData: false })).toBe("error");
+    expect(recordsSurfaceMode({ ...known, hasData: false })).toBe("loading");
+    expect(recordsSurfaceMode({ ...known, searchText: "유모차", appliedSearchText: "유모차" })).toBe("filtered-empty");
   });
 
   it("오프라인 대기 행만 있어도 empty가 아니다 — 모집단은 서버 행 + 대기 행이다", () => {
@@ -153,12 +188,60 @@ describe("recordsSurfaceMode — 네 갈래를 섞지 않는다", () => {
   });
 });
 
+/**
+ * `hasKnownAccountRecords` — **양성 전용** 신호의 값 계약.
+ *
+ * 참은 "기록이 있다"의 확증이고, 거짓은 "없다"가 아니라 "모른다"다. 그 비대칭이 무너지면
+ * (예: 홈 캐시가 없다는 사실을 "계정이 비었다"로 읽으면) 이 모듈이 고치려던 그 결함이 반대
+ * 방향으로 되살아난다.
+ */
+describe("hasKnownAccountRecords — 이미 손에 든 것만으로 만드는 반증", () => {
+  /** 아무 신호도 없는 상태 = 모른다. 여기서 한 칸씩만 채워 각 신호를 따로 본다. */
+  function noSignals() {
+    return {
+      cachedMonthRecordCounts: [] as readonly number[],
+      offlineRowCount: 0
+    };
+  }
+
+  it("아무 신호도 없으면 false다 — '없다'가 아니라 '모른다'이고, 판정은 종전대로 empty다", () => {
+    expect(hasKnownAccountRecords(noSignals())).toBe(false);
+  });
+
+  it("캐시에 남은 다른 달 조회에 행이 있으면 true다 (‹ ›로 넘어온 그 경로)", () => {
+    expect(hasKnownAccountRecords({ ...noSignals(), cachedMonthRecordCounts: [0, 0, 4] })).toBe(true);
+    // 캐시에 있는 달이 전부 0건이면 그것만으로는 아무것도 확증하지 않는다.
+    expect(hasKnownAccountRecords({ ...noSignals(), cachedMonthRecordCounts: [0, 0] })).toBe(false);
+  });
+
+  it("이 기기에 남은 미동기화 행 하나로도 true다 (달 무관 · 이미 구독 중인 스냅샷)", () => {
+    expect(hasKnownAccountRecords({ ...noSignals(), offlineRowCount: 1 })).toBe(true);
+  });
+
+  /**
+   * 이월로 남긴 셋째 신호(홈 요약 캐시)의 **경계**를 값으로 못박는다: 이 라운드의 신호는 둘뿐이고,
+   * 그래서 "빈 달만 지나온 사용자"는 아직 못 덮는다. 이 케이스가 그 사실을 숨기지 않는다 —
+   * 다음 사람이 대장 한 줄을 더하고 그 신호를 되살리면 이 기대값이 바뀐다.
+   */
+  it("빈 달만 지나온 사용자는 아직 못 덮는다 (이 라운드의 신호는 둘뿐이라는 사실)", () => {
+    expect(hasKnownAccountRecords({ cachedMonthRecordCounts: [0, 0], offlineRowCount: 0 })).toBe(false);
+    // 순수 모듈이 그 한계와 되살리는 절차를 산문이 아니라 자기 머리말에 적어 두고 있다.
+    const moduleSource = readFileSync(join(mobileRoot, "src/expenses/records-surface-mode.ts"), "utf8");
+    expect(moduleSource).toContain("HOME_CACHE_NON_SUBSCRIBER_SCREENS");
+    expect(moduleSource).toContain("src/query/home-payload-consumers.test.ts");
+  });
+});
+
 describe("areRecordsFilterControlsVisible — 걷는 갈래는 empty 하나뿐", () => {
-  const modes: readonly RecordsSurfaceMode[] = ["loading", "error", "empty", "filtered-empty", "list"];
+  const modes: readonly RecordsSurfaceMode[] = ["loading", "error", "empty", "empty-month", "filtered-empty", "list"];
 
   it("empty에서만 false다", () => {
     const hidden = modes.filter((mode) => !areRecordsFilterControlsVisible(mode));
     expect(hidden).toEqual(["empty"]);
+  });
+
+  it("empty-month에서 참이다 — 이 달만 비었을 뿐 검색이 가리킬 대상이 앱 안에 있다", () => {
+    expect(areRecordsFilterControlsVisible("empty-month")).toBe(true);
   });
 
   it("filtered-empty에서 참이다 — 0건을 만든 필터를 되돌릴 컨트롤이 남아야 한다", () => {
@@ -184,7 +267,47 @@ describe("화면 배선 — 판정은 순수 모듈에서 오고 화면은 그�
   it("모집단·검색어는 화면이 이미 쓰는 그 값들이다 (새 셈을 만들지 않는다)", () => {
     expect(recordsSource).toContain("populationCount: monthlyRecordCount,");
     expect(recordsSource).toContain("visibleCount: listData.length,");
-    expect(recordsSource).toContain("categoryId: selectedCategoryId");
+    expect(recordsSource).toContain("categoryId: selectedCategoryId,");
+  });
+
+  /**
+   * 이월된 한계를 좁힌 반증 신호의 **비용 계약**: 이 화면은 달을 넘길 때마다 렌더되므로,
+   * 신호를 얻으려고 요청을 하나라도 더 쏘면 그 비용이 달 이동마다 반복된다. 그래서 셋 다
+   * **읽기만** 한다(캐시 조회 · 이미 구독 중인 스냅샷).
+   */
+  it("반증 셋은 이미 받아 둔 것에서만 온다 — 새 엔드포인트도 새 쿼리도 없다", () => {
+    expect(recordsSource).toContain("const knownAccountRecords = hasKnownAccountRecords({");
+    expect(recordsSource).toContain("    knownAccountRecords\n  });");
+    // ① 다른 달 캐시: getQueriesData(읽기)다 — 쿼리를 켜지 않으므로 요청이 생기지 않는다.
+    expect(recordsSource).toContain('.getQueriesData<{ expenses: ServerExpense[] }>({ queryKey: ["expenses", childId] })');
+    // ② 오프라인 행: 화면이 이미 만들어 둔 그 목록을 그대로 센다(새 구독 0건).
+    expect(recordsSource).toContain("offlineRowCount: childOfflineRows.length");
+    // 이 화면의 useQuery는 종전 다섯 그대로다 — 반증을 얻으려고 여섯째를 켜지 않았다.
+    expect((recordsSource.match(/= useQuery\(\{/g) ?? []).length).toBe(5);
+    // 이월로 남긴 셋째 신호는 **문자열조차** 이 화면에 없다: 홈 응답 키를 만지는 비구독 화면은
+    // src/query/home-payload-consumers.test.ts의 대장에 등재돼야 하는데 그 파일은 이 트랙 밖이다.
+    expect(recordsSource).not.toContain('["home"');
+  });
+
+  /**
+   * 판정이 틀렸을 때(반증이 손에 없어 `"empty"`로 떨어진 빈 과거 달) 사용자가 **갇히지
+   * 않는다**는 확인. 이 한계의 값은 그래서 "불편"이지 "막다른 길"이 아니다.
+   */
+  it("빈 과거 달에서 나가는 길이 컨트롤 게이트 밖에 남는다", () => {
+    // 빈 달 카드 자신이 이번 달로 돌아가는 액션을 들고 있다(문구·판정은 records-list-view.ts).
+    expect(recordsSource).toContain('if (emptyMonthState.action === "go-current-month") {');
+    expect(recordsSource).toContain("goToCurrentMonth();");
+    // 그 액션과 달 이동 화살표는 게이트가 감싸는 구간(검색 입력 이후) 밖이다.
+    const gateAt = recordsSource.indexOf("{filterControlsVisible ? (");
+    const gateEndAt = recordsSource.indexOf("        </>\n      ) : null}");
+    const currentMonthActionAt = recordsSource.indexOf('if (emptyMonthState.action === "go-current-month") {');
+    const monthNavAt = recordsSource.indexOf('accessibilityLabel="이전 달"');
+    expect(gateAt).toBeGreaterThan(-1);
+    expect(gateEndAt).toBeGreaterThan(gateAt);
+    expect(currentMonthActionAt).toBeGreaterThan(-1);
+    expect(monthNavAt).toBeGreaterThan(-1);
+    expect(monthNavAt).toBeLessThan(gateAt);
+    expect(currentMonthActionAt).toBeGreaterThan(gateEndAt);
   });
 
   it("게이트는 화면에 **하나**다 — 넷을 한 Fragment가 함께 세운다", () => {
