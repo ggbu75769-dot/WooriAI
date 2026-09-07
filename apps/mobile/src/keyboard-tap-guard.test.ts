@@ -206,7 +206,19 @@ const KOREAN_LITERAL_LEDGER: readonly { readonly file: string; readonly count: n
   // 로 고치며 고지 캡션 한 문장("다른 기기에서 이 기록이 바뀌었어요. …")이 더해졌다(계약 갱신 ·
   // 손은 라운드 99 F3, 근거는 expense-detail-edit-rules.test.ts의 M-1 스위트).
   { file: "app/expenses/[expenseId].tsx", count: 43 },
-  { file: "app/(tabs)/records.tsx", count: 14 }
+  // ⚠️ **두 시점(라운드 104 트랙 SEARCH #3 · 위 ⓑ 갈래)** — 이 줄은
+  // `{ file: "app/(tabs)/records.tsx", count: 14 }`였다. **문구는 한 글자도 더해지지도 빠지지도
+  // 않았다**: 이 자가 세는 것은 파서가 아니라 정규식(`["'`][^"'`]*[가-힣][^"'`]*["'`]`)이라,
+  // 따옴표 사이에 낀 **JSX 텍스트**도 한 자리로 센다. 종전에는 합계 카드의 제목
+  // (`{recordsMonthLabel} 합계`)이 카드 안에 그대로 적혀 있어 그 앞 스타일의 `"700"` 닫는
+  // 따옴표부터 다음 따옴표까지가 그런 유사 리터럴 한 자리였다. 라운드 104가 달 전환 중에도
+  // 같은 카드의 **골격**을 세우면서(값은 비운다 — 이전 달 숫자를 새 달 제목 아래 두지 않는다)
+  // 그 제목을 두 갈래가 공유하는 엘리먼트 하나(`monthTotalCardTitle`)로 올렸고, 그 바람에
+  // 유사 매치의 구간이 옮겨 가 진짜 리터럴 하나(`` `${formatSpentOn(date)} 기록` ``)를 삼킨다.
+  // **실제 한국어 문자열 리터럴 수는 13으로 종전과 같다**(따옴표를 상태로 따라가는 파서로 센
+  // 값 — 그 13이 이 파일의 문구 수이고, 여기 적힌 수는 그 위에 유사 매치를 얹은 이 자의 셈이다).
+  // 계약 갱신 · 손은 라운드 104 트랙 SEARCH, 근거는 src/expenses/records-search-responsiveness.test.ts.
+  { file: "app/(tabs)/records.tsx", count: 13 }
 ];
 
 /**

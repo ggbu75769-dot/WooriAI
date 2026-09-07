@@ -1314,7 +1314,15 @@ describe("기록 화면 배선 (app/(tabs)/records.tsx)", () => {
     expect(recordsSource).not.toContain("searchText={");
     // 검색어가 바뀌면 필터 결과(visibleExpenses)가 다시 만들어지고 listData가 그것을 따라간다 —
     // 스니펫이 이미 그 배열에 실려 있으므로 listData 의존성에는 검색어가 더 이상 없다.
-    expect(recordsSource).toContain("[scopeServerExpenses, scopeOfflineRows, selectedCategoryIds, searchText]");
+    // ⚠️ **두 시점(라운드 104 트랙 SEARCH #2 · 계약 갱신)** — 이 줄은
+    // `"[scopeServerExpenses, scopeOfflineRows, selectedCategoryIds, searchText]"`였다. 기록 탭
+    // 검색에 디바운스가 들어오면서 이 memo가 보는 검색어가 **입력값에서 확정값으로** 바뀌었다
+    // (판정·스니펫 규칙은 무수정 — 바뀐 것은 언제 도는가뿐이다). 계약의 뜻은 그대로다:
+    // *필터 모집단·칩·검색어가 바뀔 때만 이 memo가 다시 돈다.* 근거는
+    // src/expenses/records-search-responsiveness.test.ts의 디바운스 스위트.
+    expect(recordsSource).toContain(
+      "[scopeServerExpenses, scopeOfflineRows, selectedCategoryIds, appliedSearchText]"
+    );
     expect(recordsSource).toContain("[visibleOfflineRows, visibleExpenses, categoryName, handleRowAction, householdMemberRefs]");
   });
 
