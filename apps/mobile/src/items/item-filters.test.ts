@@ -292,10 +292,14 @@ describe("분류 이름 검색 (라운드 81 D)", () => {
   describe("화면 배선", () => {
     it("검색이 보는 분류 이름은 groupKeyOf 하나에서만 나온다 (두 번째 조립기 금지)", () => {
       const text = itemsSource();
-      expect(text).toContain("const itemFilterInput = { necessity: necessityFilter, searchText, categoryNameOf: groupKeyOf };");
+      // ⚠️ 두 시점(라운드 105 트랙 ITEMS): 두 선언 다 `useMemo`로 감싸였다(파생을 조기 반환
+      // 위로 올린 재배치). 값도 조립기 수도 그대로다 — 그래서 이 계약이 무는 것은 선언 형태가
+      // 아니라 **조립기가 하나뿐인가**이고, 그 축은 아래 세 줄이 그대로 진다.
+      expect(text).toContain("{ necessity: necessityFilter, searchText, categoryNameOf: groupKeyOf }");
       // 조립기는 딱 하나 선언되고, 그 값이 그룹 헤더의 제목(name)이자 검색의 분류 이름이다.
       expect(text.match(/const groupKeyOf = /g)).toHaveLength(1);
-      expect(text.match(/const categoryNameOf = buildCategoryNameLookup\(/g)).toHaveLength(1);
+      expect(text.match(/const categoryNameOf = /g)).toHaveLength(1);
+      expect(text.match(/buildCategoryNameLookup\(/g)).toHaveLength(1);
       expect(text).toContain("const groupId = groupKeyOf(item);");
       expect(text).toContain("name: groupId,");
       // 그룹 헤더는 그 name을 그대로 그린다(단일 소스의 다른 쪽 끝).
@@ -304,10 +308,10 @@ describe("분류 이름 검색 (라운드 81 D)", () => {
 
     it("분류 이름 선언이 목록 조립보다 위에 있다 (순서 이동 하나)", () => {
       const text = itemsSource();
-      const lookupAt = text.indexOf("const categoryNameOf = buildCategoryNameLookup(");
+      const lookupAt = text.indexOf("const categoryNameOf = ");
       const groupKeyAt = text.indexOf("const groupKeyOf = ");
-      const filterInputAt = text.indexOf("const itemFilterInput = {");
-      const listedAt = text.indexOf("const listedItems:");
+      const filterInputAt = text.indexOf("const itemFilterInput = ");
+      const listedAt = text.indexOf("const listedItems = ");
       for (const index of [lookupAt, groupKeyAt, filterInputAt, listedAt]) expect(index).toBeGreaterThan(-1);
       expect(lookupAt).toBeLessThan(groupKeyAt);
       expect(groupKeyAt).toBeLessThan(filterInputAt);

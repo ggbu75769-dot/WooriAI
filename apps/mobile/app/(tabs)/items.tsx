@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { getSeoulToday } from "@wooriai/domain";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Alert, Image, Platform, Pressable, RefreshControl, Text, View, type ImageSourcePropType } from "react-native";
@@ -47,6 +47,7 @@ import {
   AppScreen,
   CategoryChip,
   EmptyStateCard,
+  FloatingActionButton,
   ProductCard,
   SecondaryButton,
   StatusBadge,
@@ -283,7 +284,13 @@ export default function ItemsScreen() {
   // 그 사이 목록이 다시 조회돼 서버 값으로 덮이더라도 이 색인이 사용자가 마지막으로 누른 값을
   // 그대로 지킨다. 대기/실패 배지의 근거이기도 하다(src/items/pending-status.ts).
   const syncSnapshot = useOfflineSyncSnapshot();
-  const pendingStatusIndex = buildPendingItemStatusIndex(syncSnapshot.itemStatusRows, childId);
+  // 라운드 105 ITEMS: 이 색인은 아래 목록 파생 전부의 의존성이라 참조가 흔들리면 그 memo들이
+  // 통째로 다시 돈다. 스냅숏 객체는 sync-controller가 갱신할 때만 새로 서므로(useSyncExternalStore)
+  // 이 memo는 "큐가 실제로 바뀐 렌더"에서만 다시 만든다 -- setState로 생기는 렌더는 그대로 통과한다.
+  const pendingStatusIndex = useMemo(
+    () => buildPendingItemStatusIndex(syncSnapshot.itemStatusRows, childId),
+    [childId, syncSnapshot.itemStatusRows]
+  );
   /**
    * 토스 이월 해소 — 품목 메모(기기 보관, itemTemplateId 단위) 표. 목록 행의 1줄 미리보기가
    * 읽는 유일한 근거다. **읽기 전용 소비**: 이 화면은 스토어의 저장 함수를 부르지 않는다
@@ -428,12 +435,17 @@ export default function ItemsScreen() {
   }, [childId]);
   // 라운드 37 G-3: "지출도 기록할까요?" 줄이 살아 있어도 되는 화면 좌표. 목록을 갈아 끼우는
   // 입력(아이·시기 밴드·필수도 칩·검색어)만 담는다.
-  const expenseLinkPromptScope: ExpenseLinkPromptScope = {
-    childId,
-    stageLabel,
-    necessityFilter,
-    searchText
-  };
+  // 라운드 105 ITEMS: 좌표 객체도 memo다 -- 아래 expenseLinkPlacement가 이 객체를 의존성으로
+  // 들고 있어, 렌더마다 새로 만들면 그 판정이 한 번도 캐시되지 않는다(값은 같은 네 칸 그대로다).
+  const expenseLinkPromptScope: ExpenseLinkPromptScope = useMemo(
+    () => ({
+      childId,
+      stageLabel,
+      necessityFilter,
+      searchText
+    }),
+    [childId, necessityFilter, searchText, stageLabel]
+  );
   // 좌표가 바뀌면 상태에서도 걷는다. 렌더 쪽(expenseLinkPromptPlacement)이 같은 판정으로 이미
   // 그리지 않으므로 이 정리는 "화면에 없는 줄이 상태에만 남는" 상황을 없애는 뒷정리다.
   useEffect(() => {
@@ -599,6 +611,364 @@ export default function ItemsScreen() {
   const loadErrorCopy = useLoadErrorCopy(items.isError);
 
   /**
+   * ⚠️ 라운드 105 트랙 ITEMS(라운드 104 정찰 C #4 · 스카우트 A F6) — **목록 파생이 조기 반환
+   * 위로 올라왔고, 그 자리에서 `useMemo`로 잠겼다.**
+   *
+   * **두 시점.**
+   *  · (전) 아래 파생 전부가 조기 반환(아이 미선택 · 조회 실패 · 로딩) **아래**에 있었다.
+   *    그 자리에서는 `items.data!`가 언제나 손에 있었지만 훅을 쓸 수 없어 이 화면의 `useMemo`가
+   *    **0개**였다 — 렌더마다 카탈로그(시드 62행)를 열네 번 훑었고, 그렇게 매 렌더 새로 만든
+   *    `parityItems`·`categoryGroups`가 자식(`PreparationListParity`)의 `useMemo` 둘을
+   *    **한 번도 적중시키지 못했다**(그 둘의 의존성이 정확히 이 두 배열의 참조다). 상태 체크
+   *    한 번이 최소 3렌더라, 한 번 누를 때마다 그 전량 순회가 3회 돌았다.
+   *  · (후) 파생을 `useMemo`로 감싸려면 훅이 조기 반환 **위**에 서야 한다(조건부 훅 금지 —
+   *    이 화면이 이미 `useItemMemoStore`에 같은 규율을 값으로 적어 두었다). 그래서 **자리를
+   *    먼저 옮기고** 감쌌다. 순수 모듈은 한 글자도 바뀌지 않았다(감싸기만 한다).
+   *
+   * **값이 바뀌지 않는 근거.** 재배치로 새로 지나게 된 프레임은 "세션인데 목록이 아직 없는"
+   * 로딩 프레임 하나뿐이고, 그 프레임의 화면은 **위 스켈레톤 갈래**가 그린다 — 여기서 만든
+   * 값은 그 렌더에 한 노드도 서지 않는다. 그래서 그 프레임만 먼저 가르고(아래 첫 memo의
+   * 첫 줄), 나머지 갈래는 종전과 같은 식을 같은 순서로 계산한다.
+   *
+   * ⚠️ **ITEM-001 픽셀락 무접촉.** 캡처는 세션을 지우고 찍는 비세션 렌더이고
+   * (`app/pixel-lock.tsx`), 그 갈래는 아래 `if (!hasSession)`에서 `previewItems` 리터럴만
+   * 그린다 — 이 블록은 그 JSX에 값을 하나도 넘기지 않으므로 캡처는 한 노드도 달라지지 않는다
+   * (src/items/items-render-cost.test.ts가 값으로 문다).
+   */
+
+  /**
+   * 라운드 99 F2 M-1 — **낙관/대기 보정이 모든 소비처의 상류에 선다.**
+   *
+   * pending-status.ts의 약속은 "낙관 반영 — 누른 값이 즉시 목록/상세에 보인다. 저장 경로가
+   * 로컬 우선이므로 **사용자가 보는 것이 곧 이 기기의 진실이다**"인데, 종전에는 그 보정이
+   * 타일(sessionRows)에만 붙었다. 그래서 재조회가 서버의 옛 값으로 캐시를 덮는 순간 준비율
+   * 히어로(computeEssentialPrepProgress) · 100% 축하 · 찜 필터(filterInterestedItems) ·
+   * "먼저 챙기면 좋아요"(nextPrepFocusIds) 네 표면이 원시 status를 읽어 타일과 서로 모순됐다
+   * (타일은 "보유"인데 히어로는 그 항목을 미해결로 세는 화면). 여기서 한 번 보정한 목록을
+   * 아래 전 소비처가 이어 쓴다. 대기 행이 없으면 항목이 같은 참조 그대로라 비세션 미리보기와
+   * 종전 렌더 어느 쪽도 흔들리지 않는다.
+   */
+  const effectiveStatusItems = useMemo<Array<ItemSummary | RecommendationPreviewItem>>(() => {
+    // 위 두 시점의 "로딩 프레임"이 여기다 — 이 렌더의 화면은 스켈레톤 갈래가 그리므로 이
+    // 값은 어디에도 서지 않는다. `items.data!`를 읽기 전에 먼저 빠져나간다.
+    if (hasSession && !items.data) return previewItems;
+    // 이 화면이 그리는 목록 — 세션이면 서버 스냅숏, 아니면 화면 안 미리보기 픽스처다
+    // (ITEM-001 캡처 경로는 그 리터럴 배열을 적힌 순서 그대로 그린다 — 정렬을 지나지 않는다).
+    const visibleItems = hasSession ? items.data!.items : previewItems;
+    if (!hasSession) return visibleItems;
+    // 세션 갈래에서는 위 ternary가 곧 `items.data!.items`다 — 대기 행이 있는 항목만 갈아 끼운다.
+    return items.data!.items.map((item) => {
+      const pendingStatusRow = pendingStatusIndex.get(item.id);
+      return pendingStatusRow
+        ? { ...item, status: effectiveItemStatus(item.status, pendingStatusRow) as ItemStatus }
+        : item;
+    });
+  }, [hasSession, items.data, pendingStatusIndex]);
+  // 라운드 49 C-01: 찜 칩이 켜져 있으면 목록의 모집단이 **찜한 항목**으로 바뀐다. 서버 왕복은
+  // 없다(같은 스냅샷) -- 판정은 순수 모듈이 한다(src/items/item-filters.ts). 스냅샷은 시기
+  // 밴드를 무시하므로 찜 목록은 시기 칩을 따르지 않고, 그 사실은 목록 위 한 줄로 밝힌다
+  // (INTERESTED_FILTER_SCOPE_NOTE). M-1: 모집단도 보정 목록이다 -- 방금 찜한 항목이 재조회
+  // 한 번에 찜 목록에서 사라지면 안 된다.
+  const sourceItems = useMemo<Array<ItemSummary | RecommendationPreviewItem>>(
+    () => (hasSession && showInterestedOnly ? filterInterestedItems(effectiveStatusItems) : effectiveStatusItems),
+    [effectiveStatusItems, hasSession, showInterestedOnly]
+  );
+  /**
+   * 분류 섹션의 축. 원본(c20deeb)은 카탈로그 도메인 코드로 10그룹을 나눴지만 현재 준비템
+   * 계약에는 그 코드가 없다 -- 있는 분류는 **지출 분류**(`categoryId`) 하나뿐이고, 그것이
+   * 마침 이 앱이 지출을 세는 축이자 "지출도 기록할까요?"가 프리필하는 축이다. 없는 분류를
+   * 지어내는 대신 그 축을 그대로 쓴다. 순서는 서버가 준 목록 순서 그대로다(재정렬 없음).
+   *
+   * 라운드 81 D: 선언이 목록 조립(listedItems)보다 **위**로 올라왔다. 검색이 분류 이름을
+   * 보려면 그 이름이 필터보다 먼저 있어야 하기 때문이고, 두 선언 다 순수 호출이라 값도
+   * 렌더도 바뀌지 않는다(아래 세션 렌더는 이 값을 그대로 이어 쓴다).
+   *
+   * 라운드 105 ITEMS: 이 조립기가 **아래 memo 넷의 실질 의존성**이다(`groupKeyOf`가 이 값의
+   * 얇은 껍데기이기 때문이다 — 바로 아래 주석 참고). 분류 캐시가 그대로면 참조도 그대로다.
+   */
+  const categoryNameOf = useMemo(
+    () => buildCategoryNameLookup(categories.data?.categories),
+    [categories.data?.categories]
+  );
+  /**
+   * 그룹 키는 **분류 id가 아니라 그 분류의 이름**이다.
+   *
+   * 공유 캐시가 아직 비어 있으면(콜드 스타트·오프라인 첫 실행) 서버 분류 UUID는 이름을 알 수
+   * 없어 전부 "기타"로 떨어진다. 그때 id로 묶으면 "기타"라는 이름의 섹션이 여러 개 나란히
+   * 서서 서로 구별되지 않는다 -- 이름으로 묶으면 그 경우 하나로 합쳐지고, 캐시가 채워지면
+   * 자연히 갈라진다.
+   *
+   * 라운드 81 D: 이 함수가 **분류 이름의 단일 소스**다 -- 그룹 헤더의 제목도, 아래 검색의
+   * 분류 갈래도 여기서만 나온다. 두 번째 조립기를 두면 사용자가 화면에서 읽은 글자와
+   * 검색이 찾는 글자가 갈라진다.
+   *
+   * ⚠️ 라운드 105 ITEMS: 이 화살표는 렌더마다 새로 만들어지지만 **`categoryNameOf`의 순수
+   * 함수**다(다른 자유 변수는 모듈 상수 하나뿐이다). 그래서 이 값을 읽는 아래 memo들의
+   * 의존성에는 이 화살표가 아니라 `categoryNameOf`가 선다 — 화살표를 의존성에 넣으면 memo가
+   * 매 렌더 깨지고(재배치의 목적이 사라진다), `categoryNameOf`가 그대로인 한 이 화살표가
+   * 돌려주는 값도 그대로다.
+   */
+  const groupKeyOf = (item: ItemSummary) =>
+    item.categoryId ? categoryNameOf(item.categoryId) : UNCATEGORIZED_GROUP_NAME;
+  // 필수도 칩과 검색만 적용한다 -- 비세션 미리보기에는 두 컨트롤을 노출하지 않으므로
+  // 목록도 손대지 않는다.
+  //
+  // 라운드 81 D: 검색은 품목명에 더해 **그룹 헤더가 그 항목 위에 그리는 분류 이름**도 본다.
+  // 새 요청도 새 스키마도 없다 -- 화면이 이미 만들어 그리고 있는 값 하나(groupKeyOf)를
+  // 술어에 그대로 넘길 뿐이고, 분류 캐시가 비어 있으면 헤더와 검색이 똑같이 "기타"를 쓴다.
+  const itemFilterInput = useMemo(
+    () => ({ necessity: necessityFilter, searchText, categoryNameOf: groupKeyOf }),
+    // eslint 규칙이 아니라 위 groupKeyOf 주석의 이유로 `categoryNameOf`가 선다.
+    [categoryNameOf, necessityFilter, searchText]
+  );
+  // 라운드 43 UX-V: 칩은 아이가 아직 태어나기 전일 때만 나온다. 출생 뒤에는 좁혀 봐야 지나간
+  // 준비물만 남기 때문이다. 켜 둔 채로 아이가 출생 전환을 하면 칩이 사라지는데, 그때 필터만
+  // 살아 남아 목록이 이유 없이 비지 않도록 **노출 판정과 적용 판정을 같은 값으로 묶는다**.
+  //
+  // 라운드 69 트랙 C: 판정(src/items/pre-birth-filter.ts)은 한 글자도 바뀌지 않는다 — 바뀐 것은
+  // `currentStage`의 **출처**뿐이고, 기본 칩과 이 칩이 이제 같은 한 값을 읽는다. 종전에는 둘 다
+  // `/home`을 읽었으므로 그 응답이 실패하면 기본 칩은 폴백으로, 이 칩은 통째로 사라졌다.
+  const offersPreBirthFilter = shouldOfferPreBirthFilter({
+    hasSession,
+    currentStage: stageSourceChild?.currentStage,
+    selectedBand: stageLabel
+  });
+  // 라운드 49 QA(P3-3): 찜 칩이 켜져 있으면 시기 좁히기는 쉰다 -- 바로 위 안내가 "시기와
+  // 상관없이 모두 보여요"라고 말하는 동안 시기 필터가 함께 걸리면 그 안내가 거짓이 된다.
+  const preBirthFilterActive = isPreBirthFilterActive({
+    offered: offersPreBirthFilter,
+    preBirthOnly,
+    interestedOnly: showInterestedOnly
+  });
+  const listedItems = useMemo<Array<ItemSummary | RecommendationPreviewItem>>(
+    () =>
+      hasSession
+        ? applyPreBirthFilter(
+            filterItems<ItemSummary | RecommendationPreviewItem>(sourceItems, itemFilterInput),
+            preBirthFilterActive
+          )
+        : // 비세션에서는 위 memo가 이미 `visibleItems`(= previewItems)를 그대로 돌려준다.
+          effectiveStatusItems,
+    [effectiveStatusItems, hasSession, itemFilterInput, preBirthFilterActive, sourceItems]
+  );
+  const isNarrowedByFilter = hasSession && (hasActiveItemFilter(itemFilterInput) || preBirthFilterActive);
+  // C-01: 찜 목록이 비었는데 다른 좁히기 조건은 하나도 안 걸려 있다면, 그건 "필터에 안 맞는다"가
+  // 아니라 **아직 찜한 것이 없다**는 뜻이다. 그때만 전용 문구를 쓴다(필터 초기화 카드는 눌러도
+  // 바뀌는 게 없어 막다른 길이 된다).
+  const showInterestedEmptyState = showInterestedOnly && !isNarrowedByFilter;
+  const canUpdateStatus = hasSession;
+  // ITEM-114: 선택된 시기 밴드(기본 칩은 아이의 현재 시기) 기준 필수템 준비율. 필수템이
+  // 0개인 밴드나 스냅샷 로딩 전에는 null이라 히어로 수치가 통째로 숨는다.
+  // 라운드 99 F2 M-1: 입력이 원시 스냅샷(items.data.items)에서 **보정 목록**으로 바뀌었다 --
+  // 방금 누른 "준비했어요"가 타일에는 보이는데 준비율에는 안 잡히는 모순을 걷는다.
+  const prepProgress = useMemo(
+    () =>
+      hasSession && !isPixelLockMode && items.data
+        ? computeEssentialPrepProgress(effectiveStatusItems, stageLabel)
+        : null,
+    [effectiveStatusItems, hasSession, items.data, stageLabel]
+  );
+  // UX-E: 준비율을 "여정"으로 읽히게 하는 파생값들. 전부 순수 모듈(src/items/prep-milestones.ts)이
+  // 계산하고, 화면은 그리기만 한다. prepProgress 자체가 hasSession + !isPixelLockMode 게이트를
+  // 이미 통과한 값이라 ITEM-001 픽셀 락 캡처(비세션 미리보기)에는 어느 것도 나오지 않는다.
+  // 라운드 105 ITEMS: 이 아래 셋(prepMilestone·parityProgress·showPrepCelebration)은 목록을
+  // 훑지 않는다(입력이 이미 수치 넷이다) -- 감쌀 순회가 없으므로 종전 그대로 둔다.
+  const prepMilestone = buildPrepMilestoneView(prepProgress);
+  /**
+   * DSN-053 P2-B — 승인 디자인의 진행률 히어로가 그릴 값.
+   *
+   * **프레임만 c20deeb이고 수치는 지금 화면의 정직한 계산 그대로다.** 퍼센트는 개수 판정에
+   * 맞춰 캡을 거친 `displayPercent` 하나뿐이고(라운드 36 F8), 접근성 문장도 모듈이 만든
+   * 그 값을 그대로 넘긴다 -- 화면이 문장을 다시 조립하지 않는다.
+   */
+  const parityProgress = prepMilestone
+    ? {
+        totalCount: prepMilestone.totalCount,
+        completedCount: prepMilestone.resolvedCount,
+        displayPercent: prepMilestone.displayPercent,
+        summaryText: prepMilestone.headline,
+        accessibilityLabel: prepMilestone.accessibilityLabel,
+        detailText: prepMilestone.tierText
+      }
+    : null;
+  // 축하 배너는 "지금 보고 있는 시기"가 100%일 때만, 그리고 닫기 전까지만.
+  const showPrepCelebration = Boolean(prepMilestone?.isComplete) && !dismissedCelebrationBands.has(stageLabel);
+  // 100%에서 자연스럽게 이어 줄 다음 시기 칩(마지막 밴드에서는 null -- 그때는 축하만 한다).
+  const nextStageBand = nextStageBandLabel(stageLabel);
+  const dismissPrepCelebration = () =>
+    setDismissedCelebrationBands((bands) => {
+      if (bands.has(stageLabel)) return bands;
+      const next = new Set(bands);
+      next.add(stageLabel);
+      return next;
+    });
+  /**
+   * 기능 라운드 1 트랙 F — 다음 시기 D-day 예고 배너(달력 트리거).
+   *
+   * 위 축하 배너(100% 완료 트리거)와 별개의 달력 트리거다. 판정·문구는 전부 순수 모듈이 지고
+   * (src/items/next-stage-preview.ts — 날짜 산술은 도메인 `calculateChildStage` 재사용), 화면은
+   * 서울 오늘을 주입해 그리기만 한다. 데이터는 이미 구독 중인 `["children"]` 캐시의
+   * `stageMode`·`dueDate`·`birthDate`뿐이라 **새 요청 0건**이고, 축하 배너가 서 있으면 모듈이
+   * null을 돌려줘 같은 행선지(다음 시기 칩)를 두 배너가 말하지 않는다. 픽셀 락 캡처(ITEM-001)는
+   * 비세션 렌더라 이 아래 코드에 닿지 않지만, 판정 게이트에도 `!isPixelLockMode`를 한 겹 더
+   * 세운다(축하 배너·준비율과 같은 이중 게이트 관례).
+   *
+   * 라운드 105 ITEMS: 이 배너 객체가 바로 아래 미준비 한 줄(memo)의 의존성이라, 배너 자체도
+   * 감싼다 -- 매 렌더 새 객체를 만들면 그 memo가 한 번도 적중하지 않는다.
+   */
+  const seoulToday = getSeoulToday();
+  const nextStagePreview = useMemo(
+    () =>
+      hasSession && !isPixelLockMode && stageSourceChild
+        ? buildNextStagePreview({
+            stageMode: stageSourceChild.stageMode,
+            dueDate: stageSourceChild.dueDate,
+            birthDate: stageSourceChild.birthDate,
+            todayIso: seoulToday,
+            selectedBand: stageLabel,
+            celebrationVisible: showPrepCelebration
+          })
+        : null,
+    [hasSession, seoulToday, showPrepCelebration, stageLabel, stageSourceChild]
+  );
+  /**
+   * 라운드 102 N1 — 배너 제목 아래 미준비 필수템 한 줄. 판정·문구는 순수 모듈이 지고
+   * (buildNextStagePrepGapNote — 모집단 규칙은 prep-progress 한 벌 재사용), 모집단은 준비율
+   * 히어로와 같은 **보정 목록**(effectiveStatusItems — 라운드 99 F2 M-1의 상류 낙관 반영,
+   * 커스텀 품목도 같은 tab="all" 스냅숏으로 합류)이다. 원시 스냅숏을 넘기면 방금 누른
+   * "준비했어요"가 타일에는 보이는데 이 줄에는 안 잡히는 모순이 되살아난다. 배너 자체가
+   * null이면(비세션·픽셀 락 포함 — 위 이중 게이트) 이 줄도 null이라 ITEM-001 캡처 무접촉이다.
+   */
+  const nextStagePrepGapNote = useMemo(
+    () => buildNextStagePrepGapNote(nextStagePreview, effectiveStatusItems),
+    [effectiveStatusItems, nextStagePreview]
+  );
+  // "먼저 챙기면 좋아요" 대상: 서버가 준 순서 그대로에서 앞선 미준비 필수템 1~2개를 **고르기만**
+  // 한다(클라이언트 재정렬 없음). 같은 항목을 타일로 다시 그리지 않고, 목록 위 한 줄 안내 +
+  // 제자리 배지로만 구분한다.
+  const prepFocusIds = useMemo(
+    () => (hasSession && !isPixelLockMode ? nextPrepFocusIds(listedItems) : null),
+    [hasSession, listedItems]
+  );
+  const prepFocusHint = useMemo(
+    () => (hasSession && !isPixelLockMode ? nextPrepFocusHintText(listedItems) : null),
+    [hasSession, listedItems]
+  );
+  // 라운드 37 UX-I: "지출도 기록할까요?" 한 줄을 어디에 그릴지. 준비했어요를 누른 항목이 목록에
+  // 남아 있으면 그 타일 아래(inline), 필터 때문에 사라졌으면 목록 위 한 줄(detached)로 자리만
+  // 옮긴다. 판정은 순수 모듈이 한다. G-3: 좌표가 어긋난 프롬프트(다른 아이·다른 밴드·다른
+  // 필터에서 남은 줄)는 "none"으로 떨어져 한 프레임도 그려지지 않는다.
+  const expenseLinkPlacement = useMemo(
+    () =>
+      expenseLinkPromptPlacement({
+        hasSession,
+        prompt: expenseLinkPrompt,
+        scope: expenseLinkPromptScope,
+        visibleItemIds: listedItems.map((item) => item.id)
+      }),
+    [expenseLinkPrompt, expenseLinkPromptScope, hasSession, listedItems]
+  );
+  // 라운드 48 QA(P2-5): 출처를 함께 넘겨 저장 후 **이 탭으로 돌아오게** 한다. 여기서 남긴
+  // 지출은 서버가 그 준비템을 준비 완료로 올리므로(store-shared.ts markLinkedItemPrepared),
+  // 방금 오른 준비율과 100% 축하 배너가 있는 화면이 바로 이 화면이다.
+  const openExpenseLinkPrompt = expenseGate.guard(
+    (prompt: { itemTemplateId: string; itemName: string; categoryId?: string }) => {
+      setExpenseLinkPrompt(null);
+      router.push({
+        pathname: "/expenses/new",
+        // 라운드 49 C-02: 품목명·준비템 id에 더해 **분류**까지 넘긴다. 인라인(타일이 아직 보임)과
+        // 떨어져 나온 줄(항목이 목록에서 빠짐) 둘 다 같은 조립기를 타므로, 어느 자리에서 눌러도
+        // 같은 프리필이 간다. 분류가 없는 준비템이면 파라미터 키 자체가 생기지 않는다.
+        // 라운드 100 T3(§4.3): 커스텀 품목이면 itemTemplateId 키만 걷는다 —
+        // expenses.linked_item_template_id가 item_templates FK라 커스텀 id는 실을 수 없다.
+        // 줄 자체는 그대로 선다(품목명 프리필만, 자동 준비완료 연동 없음). 조립기는 한 벌
+        // 그대로이고, 커스텀 판정은 tab="all" 스냅샷을 되본다(프롬프트 타입 0바이트).
+        params: withoutCustomItemTemplateId(
+          expenseLinkParams(
+            { itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId, categoryId: prompt.categoryId },
+            "items"
+          ),
+          isCustomItemInList(items.data?.items, prompt.itemTemplateId)
+        )
+      });
+    }
+  );
+
+  /**
+   * DSN-053 P2-B — 세션 렌더는 승인 디자인의 "내 준비 목록"이다.
+   *
+   * 목록의 뼈대(TopAppBar → 진행률 히어로 → 세그먼트 → 검색 → 분류 섹션/시기별 밴드)는
+   * 이식한 `PreparationListParity`가 그대로 그리고, 이 화면은 **무엇을 담을지**만 정한다.
+   *
+   * ⚠️ 라운드 105 ITEMS: 이 셋(sessionRows·categoryGroups·parityItems)이 자식의 `useMemo`
+   * 둘을 살리는 자리다 — `items`/`categoryGroups` **참조**가 그대로여야 자식의 `categories`
+   * (그룹 수 × N)와 `populatedTimingBands`(4 × N)가 다시 돌지 않는다.
+   */
+  const sessionRows = useMemo(
+    () =>
+      (listedItems as ItemSummary[]).map((item) => {
+        // 라운드 51 C-10: 아직 전송되지 않은 변경이 있으면 그 값이 서버 응답을 이긴다 --
+        // 사용자가 방금 누른 값이 이 기기의 진실이다(판정은 src/items/pending-status.ts).
+        // 라운드 99 F2 M-1: 그 보정은 이제 상류(effectiveStatusItems)에서 한 번만 한다 --
+        // listedItems가 이미 보정 목록이라 rowItem은 같은 항목이고, 여기 남는 일은 대기/실패
+        // 배지 뷰(pendingItemStatusView)를 붙이는 것뿐이다.
+        return {
+          item,
+          rowItem: item,
+          pendingStatus: pendingItemStatusView(pendingStatusIndex.get(item.id))
+        };
+      }),
+    [listedItems, pendingStatusIndex]
+  );
+  const sessionRowById = useMemo(
+    () => new Map(sessionRows.map((row) => [row.item.id, row])),
+    [sessionRows]
+  );
+
+  // 분류 섹션의 아이콘·색을 8타일 카탈로그에서 고르는 해석기(이름은 위 groupKeyOf가 낸다).
+  const resolveTileCategory = useMemo(
+    () => buildTileCategoryResolver(categories.data?.categories),
+    [categories.data?.categories]
+  );
+  const categoryGroups = useMemo<PreparationCategoryGroup[]>(() => {
+    const groups: PreparationCategoryGroup[] = [];
+    const seenGroupIds = new Set<string>();
+    for (const { item } of sessionRows) {
+      const groupId = groupKeyOf(item);
+      if (seenGroupIds.has(groupId)) continue;
+      seenGroupIds.add(groupId);
+      // 아이콘·색은 8타일 카탈로그의 것을 쓴다. 서버 분류 UUID는 code를 거쳐 타일로 옮기고
+      // (src/categories.ts buildTileCategoryResolver), 대응 타일이 없으면 중립 아이콘이다.
+      const visual = expenseCategoryVisual(
+        (item.categoryId ? resolveTileCategory(item.categoryId).tileCategoryId : null) ?? UNCATEGORIZED_GROUP_ID
+      );
+      groups.push({
+        id: groupId,
+        name: groupId,
+        icon: visual.icon,
+        tint: visual.iconBackgroundColor,
+        color: visual.iconColor
+      });
+    }
+    return groups;
+    // groupKeyOf는 categoryNameOf의 순수 껍데기다(위 주석) — 의존성은 그 실질 입력이 진다.
+  }, [categoryNameOf, resolveTileCategory, sessionRows]);
+
+  const parityItems = useMemo<PreparationParityItem[]>(
+    () =>
+      sessionRows.map(({ rowItem }) => ({
+        ...toPreparationParityItem(rowItem, {
+          // 시기 버킷은 서버가 주는 값이 아니라 **지금 보고 있는 밴드 기준 판정**이다
+          // (src/preparation/catalog-contract.ts -- 서버 now/soon 술어와 같은 규칙).
+          timelineBucket: resolvePreparationTimelineBucket(rowItem, stageLabel)
+        }),
+        groupId: groupKeyOf(rowItem)
+      })),
+    // 같은 이유로 groupKeyOf 대신 categoryNameOf가 선다.
+    [categoryNameOf, sessionRows, stageLabel]
+  );
+
+  /**
    * 라운드 49 C-07: 로그인은 돼 있는데 **선택된 아이가 없을 때**.
    *
    * 예전에는 이 경우도 `hasSession`이 false라 아래에서 비세션 미리보기 픽스처
@@ -646,210 +1016,6 @@ export default function ItemsScreen() {
       </AppScreen>
     );
   }
-
-  const visibleItems = hasSession ? items.data!.items : previewItems;
-  /**
-   * 라운드 99 F2 M-1 — **낙관/대기 보정이 모든 소비처의 상류에 선다.**
-   *
-   * pending-status.ts의 약속은 "낙관 반영 — 누른 값이 즉시 목록/상세에 보인다. 저장 경로가
-   * 로컬 우선이므로 **사용자가 보는 것이 곧 이 기기의 진실이다**"인데, 종전에는 그 보정이
-   * 타일(sessionRows)에만 붙었다. 그래서 재조회가 서버의 옛 값으로 캐시를 덮는 순간 준비율
-   * 히어로(computeEssentialPrepProgress) · 100% 축하 · 찜 필터(filterInterestedItems) ·
-   * "먼저 챙기면 좋아요"(nextPrepFocusIds) 네 표면이 원시 status를 읽어 타일과 서로 모순됐다
-   * (타일은 "보유"인데 히어로는 그 항목을 미해결로 세는 화면). 여기서 한 번 보정한 목록을
-   * 아래 전 소비처가 이어 쓴다. 대기 행이 없으면 항목이 같은 참조 그대로라 비세션 미리보기와
-   * 종전 렌더 어느 쪽도 흔들리지 않는다.
-   */
-  const effectiveStatusItems: Array<ItemSummary | RecommendationPreviewItem> = hasSession
-    ? items.data!.items.map((item) => {
-        const pendingStatusRow = pendingStatusIndex.get(item.id);
-        return pendingStatusRow
-          ? { ...item, status: effectiveItemStatus(item.status, pendingStatusRow) as ItemStatus }
-          : item;
-      })
-    : visibleItems;
-  // 라운드 49 C-01: 찜 칩이 켜져 있으면 목록의 모집단이 **찜한 항목**으로 바뀐다. 서버 왕복은
-  // 없다(같은 스냅샷) -- 판정은 순수 모듈이 한다(src/items/item-filters.ts). 스냅샷은 시기
-  // 밴드를 무시하므로 찜 목록은 시기 칩을 따르지 않고, 그 사실은 목록 위 한 줄로 밝힌다
-  // (INTERESTED_FILTER_SCOPE_NOTE). M-1: 모집단도 보정 목록이다 -- 방금 찜한 항목이 재조회
-  // 한 번에 찜 목록에서 사라지면 안 된다.
-  const sourceItems: Array<ItemSummary | RecommendationPreviewItem> =
-    hasSession && showInterestedOnly ? filterInterestedItems(effectiveStatusItems) : effectiveStatusItems;
-  /**
-   * 분류 섹션의 축. 원본(c20deeb)은 카탈로그 도메인 코드로 10그룹을 나눴지만 현재 준비템
-   * 계약에는 그 코드가 없다 -- 있는 분류는 **지출 분류**(`categoryId`) 하나뿐이고, 그것이
-   * 마침 이 앱이 지출을 세는 축이자 "지출도 기록할까요?"가 프리필하는 축이다. 없는 분류를
-   * 지어내는 대신 그 축을 그대로 쓴다. 순서는 서버가 준 목록 순서 그대로다(재정렬 없음).
-   *
-   * 라운드 81 D: 선언이 목록 조립(listedItems)보다 **위**로 올라왔다. 검색이 분류 이름을
-   * 보려면 그 이름이 필터보다 먼저 있어야 하기 때문이고, 두 선언 다 순수 호출이라 값도
-   * 렌더도 바뀌지 않는다(아래 세션 렌더는 이 값을 그대로 이어 쓴다).
-   */
-  const categoryNameOf = buildCategoryNameLookup(categories.data?.categories);
-  /**
-   * 그룹 키는 **분류 id가 아니라 그 분류의 이름**이다.
-   *
-   * 공유 캐시가 아직 비어 있으면(콜드 스타트·오프라인 첫 실행) 서버 분류 UUID는 이름을 알 수
-   * 없어 전부 "기타"로 떨어진다. 그때 id로 묶으면 "기타"라는 이름의 섹션이 여러 개 나란히
-   * 서서 서로 구별되지 않는다 -- 이름으로 묶으면 그 경우 하나로 합쳐지고, 캐시가 채워지면
-   * 자연히 갈라진다.
-   *
-   * 라운드 81 D: 이 함수가 **분류 이름의 단일 소스**다 -- 그룹 헤더의 제목도, 아래 검색의
-   * 분류 갈래도 여기서만 나온다. 두 번째 조립기를 두면 사용자가 화면에서 읽은 글자와
-   * 검색이 찾는 글자가 갈라진다.
-   */
-  const groupKeyOf = (item: ItemSummary) =>
-    item.categoryId ? categoryNameOf(item.categoryId) : UNCATEGORIZED_GROUP_NAME;
-  // 필수도 칩과 검색만 적용한다 -- 비세션 미리보기에는 두 컨트롤을 노출하지 않으므로
-  // 목록도 손대지 않는다.
-  //
-  // 라운드 81 D: 검색은 품목명에 더해 **그룹 헤더가 그 항목 위에 그리는 분류 이름**도 본다.
-  // 새 요청도 새 스키마도 없다 -- 화면이 이미 만들어 그리고 있는 값 하나(groupKeyOf)를
-  // 술어에 그대로 넘길 뿐이고, 분류 캐시가 비어 있으면 헤더와 검색이 똑같이 "기타"를 쓴다.
-  const itemFilterInput = { necessity: necessityFilter, searchText, categoryNameOf: groupKeyOf };
-  // 라운드 43 UX-V: 칩은 아이가 아직 태어나기 전일 때만 나온다. 출생 뒤에는 좁혀 봐야 지나간
-  // 준비물만 남기 때문이다. 켜 둔 채로 아이가 출생 전환을 하면 칩이 사라지는데, 그때 필터만
-  // 살아 남아 목록이 이유 없이 비지 않도록 **노출 판정과 적용 판정을 같은 값으로 묶는다**.
-  //
-  // 라운드 69 트랙 C: 판정(src/items/pre-birth-filter.ts)은 한 글자도 바뀌지 않는다 — 바뀐 것은
-  // `currentStage`의 **출처**뿐이고, 기본 칩과 이 칩이 이제 같은 한 값을 읽는다. 종전에는 둘 다
-  // `/home`을 읽었으므로 그 응답이 실패하면 기본 칩은 폴백으로, 이 칩은 통째로 사라졌다.
-  const offersPreBirthFilter = shouldOfferPreBirthFilter({
-    hasSession,
-    currentStage: stageSourceChild?.currentStage,
-    selectedBand: stageLabel
-  });
-  // 라운드 49 QA(P3-3): 찜 칩이 켜져 있으면 시기 좁히기는 쉰다 -- 바로 위 안내가 "시기와
-  // 상관없이 모두 보여요"라고 말하는 동안 시기 필터가 함께 걸리면 그 안내가 거짓이 된다.
-  const preBirthFilterActive = isPreBirthFilterActive({
-    offered: offersPreBirthFilter,
-    preBirthOnly,
-    interestedOnly: showInterestedOnly
-  });
-  const listedItems: Array<ItemSummary | RecommendationPreviewItem> = hasSession
-    ? applyPreBirthFilter(
-        filterItems<ItemSummary | RecommendationPreviewItem>(sourceItems, itemFilterInput),
-        preBirthFilterActive
-      )
-    : visibleItems;
-  const isNarrowedByFilter = hasSession && (hasActiveItemFilter(itemFilterInput) || preBirthFilterActive);
-  // C-01: 찜 목록이 비었는데 다른 좁히기 조건은 하나도 안 걸려 있다면, 그건 "필터에 안 맞는다"가
-  // 아니라 **아직 찜한 것이 없다**는 뜻이다. 그때만 전용 문구를 쓴다(필터 초기화 카드는 눌러도
-  // 바뀌는 게 없어 막다른 길이 된다).
-  const showInterestedEmptyState = showInterestedOnly && !isNarrowedByFilter;
-  const canUpdateStatus = hasSession;
-  // ITEM-114: 선택된 시기 밴드(기본 칩은 아이의 현재 시기) 기준 필수템 준비율. 필수템이
-  // 0개인 밴드나 스냅샷 로딩 전에는 null이라 히어로 수치가 통째로 숨는다.
-  // 라운드 99 F2 M-1: 입력이 원시 스냅샷(items.data.items)에서 **보정 목록**으로 바뀌었다 --
-  // 방금 누른 "준비했어요"가 타일에는 보이는데 준비율에는 안 잡히는 모순을 걷는다.
-  const prepProgress =
-    hasSession && !isPixelLockMode && items.data
-      ? computeEssentialPrepProgress(effectiveStatusItems, stageLabel)
-      : null;
-  // UX-E: 준비율을 "여정"으로 읽히게 하는 파생값들. 전부 순수 모듈(src/items/prep-milestones.ts)이
-  // 계산하고, 화면은 그리기만 한다. prepProgress 자체가 hasSession + !isPixelLockMode 게이트를
-  // 이미 통과한 값이라 ITEM-001 픽셀 락 캡처(비세션 미리보기)에는 어느 것도 나오지 않는다.
-  const prepMilestone = buildPrepMilestoneView(prepProgress);
-  /**
-   * DSN-053 P2-B — 승인 디자인의 진행률 히어로가 그릴 값.
-   *
-   * **프레임만 c20deeb이고 수치는 지금 화면의 정직한 계산 그대로다.** 퍼센트는 개수 판정에
-   * 맞춰 캡을 거친 `displayPercent` 하나뿐이고(라운드 36 F8), 접근성 문장도 모듈이 만든
-   * 그 값을 그대로 넘긴다 -- 화면이 문장을 다시 조립하지 않는다.
-   */
-  const parityProgress = prepMilestone
-    ? {
-        totalCount: prepMilestone.totalCount,
-        completedCount: prepMilestone.resolvedCount,
-        displayPercent: prepMilestone.displayPercent,
-        summaryText: prepMilestone.headline,
-        accessibilityLabel: prepMilestone.accessibilityLabel,
-        detailText: prepMilestone.tierText
-      }
-    : null;
-  // 축하 배너는 "지금 보고 있는 시기"가 100%일 때만, 그리고 닫기 전까지만.
-  const showPrepCelebration = Boolean(prepMilestone?.isComplete) && !dismissedCelebrationBands.has(stageLabel);
-  // 100%에서 자연스럽게 이어 줄 다음 시기 칩(마지막 밴드에서는 null -- 그때는 축하만 한다).
-  const nextStageBand = nextStageBandLabel(stageLabel);
-  const dismissPrepCelebration = () =>
-    setDismissedCelebrationBands((bands) => {
-      if (bands.has(stageLabel)) return bands;
-      const next = new Set(bands);
-      next.add(stageLabel);
-      return next;
-    });
-  /**
-   * 기능 라운드 1 트랙 F — 다음 시기 D-day 예고 배너(달력 트리거).
-   *
-   * 위 축하 배너(100% 완료 트리거)와 별개의 달력 트리거다. 판정·문구는 전부 순수 모듈이 지고
-   * (src/items/next-stage-preview.ts — 날짜 산술은 도메인 `calculateChildStage` 재사용), 화면은
-   * 서울 오늘을 주입해 그리기만 한다. 데이터는 이미 구독 중인 `["children"]` 캐시의
-   * `stageMode`·`dueDate`·`birthDate`뿐이라 **새 요청 0건**이고, 축하 배너가 서 있으면 모듈이
-   * null을 돌려줘 같은 행선지(다음 시기 칩)를 두 배너가 말하지 않는다. 픽셀 락 캡처(ITEM-001)는
-   * 비세션 렌더라 이 아래 코드에 닿지 않지만, 판정 게이트에도 `!isPixelLockMode`를 한 겹 더
-   * 세운다(축하 배너·준비율과 같은 이중 게이트 관례).
-   */
-  const seoulToday = getSeoulToday();
-  const nextStagePreview =
-    hasSession && !isPixelLockMode && stageSourceChild
-      ? buildNextStagePreview({
-          stageMode: stageSourceChild.stageMode,
-          dueDate: stageSourceChild.dueDate,
-          birthDate: stageSourceChild.birthDate,
-          todayIso: seoulToday,
-          selectedBand: stageLabel,
-          celebrationVisible: showPrepCelebration
-        })
-      : null;
-  /**
-   * 라운드 102 N1 — 배너 제목 아래 미준비 필수템 한 줄. 판정·문구는 순수 모듈이 지고
-   * (buildNextStagePrepGapNote — 모집단 규칙은 prep-progress 한 벌 재사용), 모집단은 준비율
-   * 히어로와 같은 **보정 목록**(effectiveStatusItems — 라운드 99 F2 M-1의 상류 낙관 반영,
-   * 커스텀 품목도 같은 tab="all" 스냅숏으로 합류)이다. 원시 스냅숏을 넘기면 방금 누른
-   * "준비했어요"가 타일에는 보이는데 이 줄에는 안 잡히는 모순이 되살아난다. 배너 자체가
-   * null이면(비세션·픽셀 락 포함 — 위 이중 게이트) 이 줄도 null이라 ITEM-001 캡처 무접촉이다.
-   */
-  const nextStagePrepGapNote = buildNextStagePrepGapNote(nextStagePreview, effectiveStatusItems);
-  // "먼저 챙기면 좋아요" 대상: 서버가 준 순서 그대로에서 앞선 미준비 필수템 1~2개를 **고르기만**
-  // 한다(클라이언트 재정렬 없음). 같은 항목을 타일로 다시 그리지 않고, 목록 위 한 줄 안내 +
-  // 제자리 배지로만 구분한다.
-  const prepFocusIds = hasSession && !isPixelLockMode ? nextPrepFocusIds(listedItems) : null;
-  const prepFocusHint = hasSession && !isPixelLockMode ? nextPrepFocusHintText(listedItems) : null;
-  // 라운드 37 UX-I: "지출도 기록할까요?" 한 줄을 어디에 그릴지. 준비했어요를 누른 항목이 목록에
-  // 남아 있으면 그 타일 아래(inline), 필터 때문에 사라졌으면 목록 위 한 줄(detached)로 자리만
-  // 옮긴다. 판정은 순수 모듈이 한다. G-3: 좌표가 어긋난 프롬프트(다른 아이·다른 밴드·다른
-  // 필터에서 남은 줄)는 "none"으로 떨어져 한 프레임도 그려지지 않는다.
-  const expenseLinkPlacement = expenseLinkPromptPlacement({
-    hasSession,
-    prompt: expenseLinkPrompt,
-    scope: expenseLinkPromptScope,
-    visibleItemIds: listedItems.map((item) => item.id)
-  });
-  // 라운드 48 QA(P2-5): 출처를 함께 넘겨 저장 후 **이 탭으로 돌아오게** 한다. 여기서 남긴
-  // 지출은 서버가 그 준비템을 준비 완료로 올리므로(store-shared.ts markLinkedItemPrepared),
-  // 방금 오른 준비율과 100% 축하 배너가 있는 화면이 바로 이 화면이다.
-  const openExpenseLinkPrompt = expenseGate.guard(
-    (prompt: { itemTemplateId: string; itemName: string; categoryId?: string }) => {
-      setExpenseLinkPrompt(null);
-      router.push({
-        pathname: "/expenses/new",
-        // 라운드 49 C-02: 품목명·준비템 id에 더해 **분류**까지 넘긴다. 인라인(타일이 아직 보임)과
-        // 떨어져 나온 줄(항목이 목록에서 빠짐) 둘 다 같은 조립기를 타므로, 어느 자리에서 눌러도
-        // 같은 프리필이 간다. 분류가 없는 준비템이면 파라미터 키 자체가 생기지 않는다.
-        // 라운드 100 T3(§4.3): 커스텀 품목이면 itemTemplateId 키만 걷는다 —
-        // expenses.linked_item_template_id가 item_templates FK라 커스텀 id는 실을 수 없다.
-        // 줄 자체는 그대로 선다(품목명 프리필만, 자동 준비완료 연동 없음). 조립기는 한 벌
-        // 그대로이고, 커스텀 판정은 tab="all" 스냅샷을 되본다(프롬프트 타입 0바이트).
-        params: withoutCustomItemTemplateId(
-          expenseLinkParams(
-            { itemName: prompt.itemName, itemTemplateId: prompt.itemTemplateId, categoryId: prompt.categoryId },
-            "items"
-          ),
-          isCustomItemInList(items.data?.items, prompt.itemTemplateId)
-        )
-      });
-    }
-  );
 
   /**
    * ITEM-001 비세션 미리보기 = 픽셀 락 캡처 경로. 승인 캡처와 한 픽셀도 달라지면 안 되므로
@@ -919,57 +1085,6 @@ export default function ItemsScreen() {
     );
   }
 
-  /**
-   * DSN-053 P2-B — 세션 렌더는 승인 디자인의 "내 준비 목록"이다.
-   *
-   * 목록의 뼈대(TopAppBar → 진행률 히어로 → 세그먼트 → 검색 → 분류 섹션/시기별 밴드)는
-   * 이식한 `PreparationListParity`가 그대로 그리고, 이 화면은 **무엇을 담을지**만 정한다.
-   */
-  const sessionRows = (listedItems as ItemSummary[]).map((item) => {
-    // 라운드 51 C-10: 아직 전송되지 않은 변경이 있으면 그 값이 서버 응답을 이긴다 --
-    // 사용자가 방금 누른 값이 이 기기의 진실이다(판정은 src/items/pending-status.ts).
-    // 라운드 99 F2 M-1: 그 보정은 이제 상류(effectiveStatusItems)에서 한 번만 한다 --
-    // listedItems가 이미 보정 목록이라 rowItem은 같은 항목이고, 여기 남는 일은 대기/실패
-    // 배지 뷰(pendingItemStatusView)를 붙이는 것뿐이다.
-    return {
-      item,
-      rowItem: item,
-      pendingStatus: pendingItemStatusView(pendingStatusIndex.get(item.id))
-    };
-  });
-  const sessionRowById = new Map(sessionRows.map((row) => [row.item.id, row]));
-
-  // 분류 섹션의 아이콘·색을 8타일 카탈로그에서 고르는 해석기(이름은 위 groupKeyOf가 낸다).
-  const resolveTileCategory = buildTileCategoryResolver(categories.data?.categories);
-  const categoryGroups: PreparationCategoryGroup[] = [];
-  const seenGroupIds = new Set<string>();
-  for (const { item } of sessionRows) {
-    const groupId = groupKeyOf(item);
-    if (seenGroupIds.has(groupId)) continue;
-    seenGroupIds.add(groupId);
-    // 아이콘·색은 8타일 카탈로그의 것을 쓴다. 서버 분류 UUID는 code를 거쳐 타일로 옮기고
-    // (src/categories.ts buildTileCategoryResolver), 대응 타일이 없으면 중립 아이콘이다.
-    const visual = expenseCategoryVisual(
-      (item.categoryId ? resolveTileCategory(item.categoryId).tileCategoryId : null) ?? UNCATEGORIZED_GROUP_ID
-    );
-    categoryGroups.push({
-      id: groupId,
-      name: groupId,
-      icon: visual.icon,
-      tint: visual.iconBackgroundColor,
-      color: visual.iconColor
-    });
-  }
-
-  const parityItems: PreparationParityItem[] = sessionRows.map(({ rowItem }) => ({
-    ...toPreparationParityItem(rowItem, {
-      // 시기 버킷은 서버가 주는 값이 아니라 **지금 보고 있는 밴드 기준 판정**이다
-      // (src/preparation/catalog-contract.ts -- 서버 now/soon 술어와 같은 규칙).
-      timelineBucket: resolvePreparationTimelineBucket(rowItem, stageLabel)
-    }),
-    groupId: groupKeyOf(rowItem)
-  }));
-
   return (
     <AppScreen
       refreshControl={
@@ -980,6 +1095,16 @@ export default function ItemsScreen() {
           colors={[theme.colors.mainCoral]}
         />
       }
+      /* 라운드 105 트랙 ITEMS(스카우트 A F5) — **상시 기록 입구.** 핵심 루프의 4·5단계
+         (준비템 확인 → 구매 → 구매 후 기록)를 밟는 사람이 서 있는 화면에 지출을 적기 시작할
+         자리가 하나도 없었다(FAB 실측: 홈 3 · 기록 2 · 준비템 0 · 리포트 0). 목적지·게이트는
+         홈(TOSS-T2)·기록 탭 FAB와 한 글자도 다르지 않다(UX-R(M) 게이트 계약).
+         ⚠️ ITEM-001 픽셀락 무접촉의 근거는 **자리**다: 캡처는 세션을 지우고 찍는 비세션
+         렌더이고(app/pixel-lock.tsx), 그 갈래는 위 `if (!hasSession)`에서 **이 JSX에 닿기
+         전에** 반환한다 — 그 갈래의 `<AppScreen>`은 이 슬롯에 아무것도 넘기지 않으므로
+         src/ui.tsx의 `if (!floatingAction) return scroller;`가 그대로 걸려 렌더 트리가
+         노드 하나도 달라지지 않는다(src/items/items-record-entry.test.ts가 값으로 문다). */
+      floatingAction={<FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />}
     >
       <PreparationListParity
         items={parityItems}
@@ -1352,6 +1477,12 @@ export default function ItemsScreen() {
       />
       {/* 추가 성공 한 줄(3200ms 수명). Toast가 스스로 낭독한다(A11Y-115). */}
       {customItemNotice ? <Toast message={customItemNotice.message} /> : null}
+      {/* 라운드 105 트랙 ITEMS(F5): 떠 있는 기록 버튼이 마지막 줄을 덮지 않게 하는 바닥 여백.
+          값은 기록 탭이 이미 쓰는 관례 그대로다(records.tsx의 목록 contentContainerStyle:
+          `theme.spacing.screen + theme.ctaHeight + 8`) — AppScreen의 contentContainerStyle이
+          `theme.spacing.screen`을 이미 주므로 여기서는 그 나머지(ctaHeight + 8)만 더한다.
+          비세션 갈래는 위에서 먼저 반환하므로 이 자리 표시자는 ITEM-001 캡처에 서지 않는다. */}
+      <View style={{ height: theme.ctaHeight + 8 }} />
       {showCustomItemSheet ? (
         <CustomItemSheet
           testID="items-custom-item-sheet"

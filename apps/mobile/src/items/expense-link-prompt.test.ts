@@ -367,11 +367,14 @@ describe("화면 배선 (source contract)", () => {
   it("목록: 세션 게이트를 거친다 (ITEM-001 비세션 캡처 불변)", () => {
     const items = itemsSource();
     // 슬라이스 가드(라운드 78 트랙 E): 두 끝의 실재를 먼저 묻는다.
-    const placementStart = items.indexOf("const expenseLinkPlacement = expenseLinkPromptPlacement({");
+    // ⚠️ 두 시점(라운드 105 트랙 ITEMS): 이 판정은 이제 `useMemo` 안에 있다(파생을 조기 반환
+    // 위로 올리면서 감쌌다 — 좌표 객체도 memo라 렌더마다 깨지지 않는다). 배선 자체는 그대로다.
+    const placementStart = items.indexOf("const expenseLinkPlacement = useMemo(");
     const placementEnd = items.indexOf("const openExpenseLinkPrompt");
     expect(placementStart).toBeGreaterThan(-1);
     expect(placementEnd).toBeGreaterThan(placementStart);
     const placementBlock = items.slice(placementStart, placementEnd);
+    expect(placementBlock).toContain("expenseLinkPromptPlacement({");
     expect(placementBlock).toContain("hasSession,");
     // G-3: 지금 화면 좌표를 함께 넘겨야 오래된 줄이 "none"으로 떨어진다.
     expect(placementBlock).toContain("scope: expenseLinkPromptScope,");

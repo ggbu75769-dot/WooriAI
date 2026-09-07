@@ -49,11 +49,25 @@ describe("Real session data integrity contract", () => {
     // 준비템 탭도 **같은 규칙**을 따른다(파일 소유는 다르지만 계약은 하나다): 토큰이 있는데
     // 아이가 없는 창은 픽스처가 아니라 조기 반환으로 빠지고, 미리보기 폴백은 그 뒤에만 남는다
     // = 폴백에 닿는 유일한 경로가 `!authToken`이다.
+    // ⚠️ **두 시점** — 이 계약이 items.tsx에서 무엇을 앵커로 삼는가.
+    //  · (전) `": previewItems;"`의 **첫 등장 위치**를 아이 게이트 뒤로 못 박았다. 그때는
+    //    화면의 목록 파생이 전부 조기 반환 아래에 있어서 그 자리가 곧 "폴백이 계산되는 자리"였다.
+    //  · (후) 라운드 105 트랙 ITEMS가 파생을 `useMemo`로 감싸면서 **훅 규율대로** 조기 반환
+    //    위로 올렸다(조건부 훅 금지). 그래서 그 문자열은 이제 게이트보다 위에 있다 — 하지만
+    //    **이 계약이 지키려는 사실은 그대로다**: 픽스처가 화면에 그려지는 유일한 자리는
+    //    `if (!hasSession)` 갈래이고, 그 갈래는 여전히 아이 게이트 **뒤**에 있다.
+    // 그래서 앵커를 "계산되는 자리"에서 **"그려지는 자리"**로 옮긴다 — 문자열이 아니라 렌더
+    // 경로를 무는 쪽이 이 계약의 뜻에 더 가깝다(토큰이 있는데 아이만 없는 창은 픽스처가 아니라
+    // 조기 반환으로 빠진다).
     const itemsSource = source("app/(tabs)/items.tsx");
     const itemsChildGate = itemsSource.indexOf("if (authToken && !childId) {");
-    const itemsPreviewFallback = itemsSource.indexOf(": previewItems;");
+    const itemsPreviewRender = itemsSource.indexOf("if (!hasSession) {");
+    const itemsPreviewFixtureRender = itemsSource.indexOf("previewItems.map(");
     expect(itemsChildGate).toBeGreaterThan(-1);
-    expect(itemsPreviewFallback).toBeGreaterThan(itemsChildGate);
+    expect(itemsPreviewRender).toBeGreaterThan(itemsChildGate);
+    expect(itemsPreviewFixtureRender).toBeGreaterThan(itemsPreviewRender);
+    // 픽스처가 JSX에 닿는 자리는 그 갈래 하나뿐이다(세션 렌더는 서버 목록만 그린다).
+    expect(itemsSource.match(/previewItems\.map\(/g) ?? []).toHaveLength(1);
 
     // 라운드 49 QA(P2-3): 리포트 탭도 같은 계약 아래로 들어온다. 예전에는 토큰이 있고 아이만
     // 없는 창에서 픽스처 총액(₩1,245,700)과 "다온이와의 오늘도 소중한 하루였어요"가 실사용자의

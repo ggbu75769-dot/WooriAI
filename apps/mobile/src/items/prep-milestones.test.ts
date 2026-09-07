@@ -385,10 +385,10 @@ describe("items tab journey wiring (UX-E)", () => {
     const text = itemsSource();
     // prepProgress(=prepMilestone의 입력)는 hasSession + !isPixelLockMode 게이트를 통과한 값이다.
     expect(text).toContain("hasSession && !isPixelLockMode && items.data");
-    expect(text).toContain("const prepFocusIds = hasSession && !isPixelLockMode ? nextPrepFocusIds(listedItems) : null;");
-    expect(text).toContain(
-      "const prepFocusHint = hasSession && !isPixelLockMode ? nextPrepFocusHintText(listedItems) : null;"
-    );
+    // ⚠️ 두 시점(라운드 105 트랙 ITEMS): 두 파생이 `useMemo` 안으로 들어갔다(조기 반환 위
+    // 재배치). 게이트 식은 한 글자도 바뀌지 않았다 — 그래서 무는 것도 그 식 그대로다.
+    expect(text).toContain("hasSession && !isPixelLockMode ? nextPrepFocusIds(listedItems) : null");
+    expect(text).toContain("hasSession && !isPixelLockMode ? nextPrepFocusHintText(listedItems) : null");
     // 비세션 미리보기 목록(previewItems)은 그대로 렌더된다.
     expect(text).toContain("const visibleItems = hasSession ? items.data!.items : previewItems;");
   });

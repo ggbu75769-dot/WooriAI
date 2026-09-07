@@ -239,8 +239,17 @@ describe("GAP-072 C(#3) ⓒ 끝난 기간의 액션은 오늘 날짜 기록으�
     expect(handler).toContain("setMonthOffset(0);");
     expect(handler).toContain('announceForA11y(periodLabelForOffset(baseDate, periodUnit, 0));');
     expect(handler.indexOf("setMonthOffset(")).toBeLessThan(handler.indexOf("announceForA11y("));
-    // /expenses/new로 가는 자리는 이 화면에 딱 하나다(끝난 기간에서 오늘 날짜 시트가 열리지 않는다).
-    expect(reportSource.match(/router\.push\("\/expenses\/new"\)/g) ?? []).toHaveLength(1);
+    // ⚠️ **두 시점** — /expenses/new로 가는 자리 수.
+    //  · (전) 이 화면에 **딱 하나**였다: 빈 기간 카드의 `record` 갈래. 그 하나가 이 계약의
+    //    측정 방식이기도 했다("끝난 기간에서 오늘 날짜 시트가 열리지 않는다").
+    //  · (후) 라운드 105 트랙 ITEMS(스카우트 A F5)가 **상시 기록 입구(FAB)**를 더해 둘이 됐다.
+    //    종전에는 "그 기간에 기록이 0건일 때만" 입구가 있어서, 총액을 보다가 빠진 기록을
+    //    떠올린 사람이 설 자리가 없었다. 그 하나는 이 카드와 아무 관계가 없다.
+    // 그래서 이 계약은 전체 수 대신 **자리 둘의 정체**를 문다 — 셋째가 생기면 여전히 빨개진다.
+    expect(reportSource.match(/router\.push\("\/expenses\/new"\)/g) ?? []).toHaveLength(2);
+    expect(reportSource).toContain(
+      'hasSession ? <FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} /> : undefined'
+    );
   });
 
   it("빠른 기록 시트에 새 파라미터를 만들지 않았다 (app/expenses/new.tsx 무접촉)", () => {

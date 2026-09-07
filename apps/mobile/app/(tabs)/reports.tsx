@@ -119,7 +119,17 @@ import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { usePullToRefresh } from "../../src/query/use-pull-to-refresh";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
-import { announceForA11y, AppScreen, Card, DonutChartCard, EmptyStateCard, LineChartCard, SegmentedControl, TextButton } from "../../src/ui";
+import {
+  announceForA11y,
+  AppScreen,
+  Card,
+  DonutChartCard,
+  EmptyStateCard,
+  FloatingActionButton,
+  LineChartCard,
+  SegmentedControl,
+  TextButton
+} from "../../src/ui";
 // DSN-053 P2-D: 월 내비 화살표를 승인 캡처(REP-001)의 MaterialCommunityIcons chevron으로.
 // 글리프(‹ ›)는 기기 폰트에 따라 굵기가 제각각이라 캡처와 다른 그림이 됐다 -- 아이콘 계열은
 // 앱 전역과 같은 MCI다(docs/5차/design-restore-spec.md §아이콘 계열, 신규 의존성 0).
@@ -1231,6 +1241,19 @@ export default function ReportsScreen() {
           />
         ) : undefined
       }
+      /* 라운드 105 트랙 ITEMS(스카우트 A F5) — **상시 기록 입구.** 종전에 이 화면에서
+         /expenses/new로 가는 유일한 자리는 **그 기간에 기록이 하나도 없을 때만** 서는 빈 기간
+         카드의 액션이었다 — "총액이 왜 이렇게 적지 → 아 그거 안 적었네"를 알아채는 정상
+         상태에는 입구가 0개였다(리포트 탭이 존재하는 이유가 바로 그 순간인데도). 목적지·
+         게이트는 홈·기록 탭 FAB와 한 글자도 다르지 않다(UX-R(M) 게이트 계약).
+         ⚠️ REP-001 픽셀락 무접촉: 이 화면은 비세션 미리보기도 **같은 AppScreen**을 쓰므로
+         `refreshControl`과 같은 세션 게이트를 그대로 따른다 — `hasSession`이 false면
+         undefined가 가고, src/ui.tsx의 `if (!floatingAction) return scroller;`가 걸려 렌더
+         트리가 노드 하나도 달라지지 않는다(캡처는 세션을 지운 비세션 렌더다 —
+         app/pixel-lock.tsx). src/items/items-record-entry.test.ts가 값으로 문다. */
+      floatingAction={
+        hasSession ? <FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} /> : undefined
+      }
     >
       <View style={reportReferenceScaleFrameStyle()}>
         <View testID={reportReferenceScreenId} style={reportReferenceFrameStyle}>
@@ -1717,6 +1740,12 @@ export default function ReportsScreen() {
           )}
         </View>
       </View>
+      {/* 라운드 105 트랙 ITEMS(F5): 떠 있는 기록 버튼이 마지막 카드를 덮지 않게 하는 바닥 여백.
+          값은 기록 탭 관례 그대로다(records.tsx: `theme.spacing.screen + theme.ctaHeight + 8`) --
+          AppScreen이 `theme.spacing.screen`을 이미 주므로 나머지(ctaHeight + 8)만 더한다.
+          ⚠️ 버튼과 **같은 세션 게이트**다: 비세션이면 `null`이라 노드 자체가 서지 않는다
+          (REP-001 캡처 무접촉 -- 여백만 남고 버튼은 없는 화면도, 그 반대도 만들지 않는다). */}
+      {hasSession ? <View style={{ height: theme.ctaHeight + 8 }} /> : null}
     </AppScreen>
   );
 }

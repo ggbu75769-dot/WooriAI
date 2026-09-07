@@ -453,7 +453,9 @@ describe("라운드 102 N1: 미준비 필수템 한 줄 — 배선 (소스 계�
     // 준비율 히어로와 같은 상류 한 벌(effectiveStatusItems)을 넘긴다 — 방금 누른
     // "준비했어요"가 타일과 이 줄에서 다르게 세어지면 안 된다.
     expect(itemsScreen()).toContain(
-      "const nextStagePrepGapNote = buildNextStagePrepGapNote(nextStagePreview, effectiveStatusItems);"
+      // ⚠️ 두 시점(라운드 105 트랙 ITEMS): 이 한 줄은 `useMemo` 안으로 들어갔다(배너 객체도
+      // memo라 이 파생이 매 렌더 깨지지 않는다). 입력 두 개는 종전과 같은 그 둘이다.
+      "buildNextStagePrepGapNote(nextStagePreview, effectiveStatusItems)"
     );
   });
 
