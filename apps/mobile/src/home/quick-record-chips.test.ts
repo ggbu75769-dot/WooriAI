@@ -6,6 +6,7 @@ import {
   isQuickRecordPinToggleAction,
   quickRecordChipAccessibilityActions,
   quickRecordChipAccessibilityLabel,
+  quickRecordPinToggleAnnouncement,
   quickRecordPinToggleHint,
   sanitizeQuickRecordPins,
   toggleQuickRecordPin,
@@ -142,6 +143,17 @@ describe("라운드 102 F6b 칩 핀 — 병합 규칙(핀 우선·중복 제거�
     expect(isQuickRecordPinToggleAction("activate")).toBe(false);
     expect(quickRecordPinToggleHint()).toBe("길게 누르면 이 품목을 홈에 고정하거나 해제할 수 있어요");
   });
+
+  it("라운드 102 리뷰 L-핀: 토글 뒤 확인 문장은 **결과 목록**이 정한다(이름 뒤 조사 없음)", () => {
+    expect(quickRecordPinToggleAnnouncement("분유", ["분유"])).toBe("분유 홈에 고정했어요");
+    expect(quickRecordPinToggleAnnouncement("분유", ["젖병"])).toBe("분유 고정을 해제했어요");
+    // 화면이 "무엇을 했는지"를 따로 기억하지 않아도 되도록 사실 하나(결과 목록)로 판정한다.
+    expect(quickRecordPinToggleAnnouncement(" 분유 ", ["분유"])).toBe("분유 홈에 고정했어요");
+    // 말할 대상이 없으면 문장도 없다("직접 입력" 칩은 애초에 이 경로에 오지 않는다).
+    for (const empty of [null, undefined, "   "]) {
+      expect(quickRecordPinToggleAnnouncement(empty, ["분유"])).toBeNull();
+    }
+  });
 });
 
 describe("빠른 기록 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
@@ -178,9 +190,13 @@ describe("빠른 기록 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     // 병합 규칙은 순수 모듈에 넘긴다(핀 우선·중복 제거·상한).
     expect(homeSource).toContain("pinnedQuickRecordItemNames\n      ),");
     // 길게 누르기 = 토글(기록 행 롱프레스 액션과 같은 관례). "직접 입력" 칩(itemName null)은 제외.
+    // ⚠️ 두 시점(라운드 102 리뷰 L-핀): 종전에는 두 입구가 스토어 액션을 **직접** 불렀다
+    // (`toggleQuickRecordPin(chip.itemName!)`). 이제 확인 신호(촉각+낭독)를 함께 내는 한
+    // 함수를 지난다 — 아래 계약이 그 함수의 본문을 문다.
     expect(homeSource).toContain(
-      "onLongPress={chip.itemName ? () => toggleQuickRecordPin(chip.itemName!) : undefined}"
+      "onLongPress={chip.itemName ? () => toggleQuickRecordPinWithFeedback(chip.itemName!) : undefined}"
     );
+    expect(homeSource).toContain("toggleQuickRecordPinWithFeedback(chip.itemName!);");
     // 길게 누르기를 못 듣는 보조기술: 힌트 문장 + 커스텀 액션이 같은 일을 노출한다.
     expect(homeSource).toContain("accessibilityHint={chip.itemName ? quickRecordPinToggleHint() : undefined}");
     expect(homeSource).toContain(

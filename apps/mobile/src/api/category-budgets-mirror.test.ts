@@ -156,16 +156,25 @@ describe("같은 픽스처 대조 — replace-set 미러(§2.2)와 응답 모양
     expect(localBackend.getBudget(childId, currentMonthInput()).categoryBudgets).toEqual([]);
   });
 
-  it("필드 부재 = 무접촉: 카테고리 인자 없는 저장(구클라이언트·온보딩 화면)은 총액만 바꾼다 (R5)", () => {
+  it("필드 부재 = 무접촉: 카테고리 인자 없는 저장(구클라이언트·온보딩 화면)은 총액만 바꾸고 **응답에 키도 싣지 않는다** (R5 · 리뷰 M-4)", () => {
     localBackend.upsertBudget(childId, 300_000, currentMonthInput(), [diaper, formula]);
 
     const totalOnly = localBackend.upsertBudget(childId, 550_000, currentMonthInput());
     expect(totalOnly.amountKrw).toBe(550_000);
-    expect(totalOnly.categoryBudgets).toEqual([diaper, formula]); // 한 건도 읽지도 쓰지도 않았다
+    // ⚠️ 두 시점: 종전 미러는 이 갈래에서도 categoryBudgets를 실었고(그래서 이 자리는
+    // `toEqual([diaper, formula])`였다), 서버는 키 자체를 싣지 않는다(카테고리 행을 한 건도
+    // 읽지 않는 갈래다 — §2.2). 두 벌이 갈린 채로 두면 PUT 응답을 낙관 갱신에 쓰는 날
+    // 데모는 멀쩡하고 실계정에서만 행이 사라진다. 방향은 서버 쪽으로 통일했다.
+    expect("categoryBudgets" in totalOnly).toBe(false);
 
+    // 무접촉의 증명은 응답이 아니라 **다음 GET**이 진다 — 행은 한 건도 바뀌지 않았다.
     const budget = localBackend.getBudget(childId, currentMonthInput());
     expect(budget.amountKrw).toBe(550_000);
     expect(budget.categoryBudgets).toEqual([diaper, formula]);
+    // 반대로 인자가 있는 갈래는 종전대로 방금 교체한 집합을 싣는다(§9.2 PUT 200 = GET 200 모양).
+    expect(localBackend.upsertBudget(childId, 550_000, currentMonthInput(), [diaper]).categoryBudgets).toEqual([
+      diaper
+    ]);
   });
 
   it("응답은 categoryId 오름차순 배열: 입력 순서와 무관하게 결정적이다(§2.3)", () => {
@@ -198,11 +207,11 @@ describe("같은 픽스처 대조 — replace-set 미러(§2.2)와 응답 모양
     expect("categoryBudgets" in localBackend.getHome(childId).monthly).toBe(false);
   });
 
-  it("검증 순서(§2.2): 상한 30이 실재 검사보다 먼저다 — 31은 상한 문구, 30은 실재 문구로 떨어진다", () => {
-    const synthetic = (count: number): CategoryBudgetEntry[] =>
+  it("검증 순서(§2.2): 형식(중복·금액) → 상한 30 → 실재 — 서버의 [ValidationPipe → 서비스] 순서와 같다 (리뷰 L-8)", () => {
+    const synthetic = (count: number, amountKrw = 10_000): CategoryBudgetEntry[] =>
       Array.from({ length: count }, (_, index) => ({
         categoryId: `synthetic-category-${String(index).padStart(2, "0")}`,
-        amountKrw: 10_000
+        amountKrw
       }));
 
     // 31건: 배열 상한 초과 — §9.3 CATEGORY_BUDGET_LIMIT_EXCEEDED 문구 그대로.
@@ -212,6 +221,48 @@ describe("같은 픽스처 대조 — replace-set 미러(§2.2)와 응답 모양
     // 정확히 30건은 상한을 통과한다 — 이 합성 id들은 모집단에 없으므로 다음 단계(실재)에서
     // §9.3 CATEGORY_BUDGET_INVALID_CATEGORY로 떨어진다(경계가 30/31 사이임을 증명).
     expect(() => localBackend.upsertBudget(childId, 300_000, currentMonthInput(), synthetic(30))).toThrow(
+      INVALID_CATEGORY_MESSAGE
+    );
+
+    // ⚠️ 두 시점(리뷰 L-8): **형식 위반과 상한 초과가 동시**인 요청. 종전 미러는 상한을 맨 앞에
+    // 두어 상한 문구로 떨어졌는데, 서버에서는 금액 범위·중복을 DTO(ValidationPipe)가 서비스보다
+    // 먼저 보므로 `VALIDATION_ERROR` 갈래다. 이제 미러도 형식 위반이 먼저 잡힌다.
+    expect(() => localBackend.upsertBudget(childId, 300_000, currentMonthInput(), synthetic(31, 0))).toThrow(
+      "금액은 0보다 큰 원화 정수만 입력할 수 있어요."
+    );
+    expect(() =>
+      localBackend.upsertBudget(childId, 300_000, currentMonthInput(), [...synthetic(31), synthetic(1)[0]])
+    ).toThrow("한 카테고리에는 예산을 하나만 정할 수 있어요.");
+  });
+
+  it("숨긴/모르는 카테고리의 **기존 행**은 계속 고칠 수 있다 — 새로 세우는 것만 막는다 (§6.5 · 리뷰 H 미러)", () => {
+    // 로컬 모집단에는 active:false 행이 없으므로 "모집단 밖 id"가 서버의 숨긴 행 대역이다
+    // (미러 헤더의 그 술어 접힘). 손상 저장본·구버전 blob으로 그런 행이 남아 있는 상태를 만든다.
+    const hiddenId = "local-category-hidden-by-operator";
+    localBackend.upsertBudget(childId, 300_000, currentMonthInput(), [diaper]);
+    localBackend.useLocalBackendStore.setState((state) => ({
+      categoryBudgets: {
+        ...state.categoryBudgets,
+        [currentMonthKey()]: { ...(state.categoryBudgets[currentMonthKey()] ?? {}), [hiddenId]: 50_000 }
+      }
+    }));
+    const hidden = { categoryId: hiddenId, amountKrw: 50_000 };
+
+    // ① 총액만 고치는 저장(화면은 kept 행을 그대로 다시 싣는다) — 종전에는 여기서 전체가 400.
+    expect(localBackend.upsertBudget(childId, 360_000, currentMonthInput(), [diaper, hidden]).categoryBudgets).toEqual(
+      [diaper, hidden]
+    );
+    // ② 그 행의 값 수정.
+    expect(
+      localBackend.upsertBudget(childId, 360_000, currentMonthInput(), [diaper, { ...hidden, amountKrw: 70_000 }])
+        .categoryBudgets
+    ).toEqual([diaper, { ...hidden, amountKrw: 70_000 }]);
+    // ③ 그 행 해제(배열에서 빼기).
+    expect(localBackend.upsertBudget(childId, 360_000, currentMonthInput(), [diaper]).categoryBudgets).toEqual([
+      diaper
+    ]);
+    // ④ 해제한 뒤에는 다시 **신규**다 — 모집단 밖 id를 새로 세울 수는 없다.
+    expect(() => localBackend.upsertBudget(childId, 360_000, currentMonthInput(), [diaper, hidden])).toThrow(
       INVALID_CATEGORY_MESSAGE
     );
   });
@@ -249,7 +300,11 @@ describe("같은 픽스처 대조 — replace-set 미러(§2.2)와 응답 모양
     // 총액과 같은 규칙: 정한 적 없는 달은 404이고, 다시 세운 총액에 이전 아이의 카테고리
     // 기준선이 달라붙지 않는다.
     expect(() => localBackend.getBudget(childId, currentMonthInput())).toThrow("월 예산을 찾을 수 없어요.");
-    expect(localBackend.upsertBudget(childId, 100_000, currentMonthInput()).categoryBudgets).toEqual([]);
+    // ⚠️ 두 시점(리뷰 M-4): 카테고리 인자 없는 저장의 응답에는 키 자체가 없으므로(무접촉 갈래)
+    // "행이 0건"이라는 사실은 그 응답이 아니라 **GET**이 진다.
+    const rebuilt = localBackend.upsertBudget(childId, 100_000, currentMonthInput());
+    expect("categoryBudgets" in rebuilt).toBe(false);
+    expect(localBackend.getBudget(childId, currentMonthInput()).categoryBudgets).toEqual([]);
   });
 });
 

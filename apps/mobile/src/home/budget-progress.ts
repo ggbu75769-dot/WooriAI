@@ -75,8 +75,14 @@ function normalizeAmount(value: number | null | undefined): number {
  * `spent >= budget`)와 같은 경계를 쓰기 위해서다. 이 모듈 안에서 히어로(subtext)와 넛지가
  * 각자 부등호를 들고 있으면 정확히 100%인 달에 한쪽은 "다 썼다", 다른 쪽은 "잘 관리하고
  * 있다"고 말한다(라운드 38 H-2) -- 그래서 판정을 여기 한 줄로 모은다.
+ *
+ * ⚠️ 두 시점 (라운드 102 리뷰 L-1): 종전에는 이 모듈 **안에서만** 쓰는 비export 함수였다.
+ * 라운드 102 T3의 리포트 카테고리 예산 행이 같은 질문을 자기 자리에서 `used > budget`으로 다시
+ * 물었고(정확히 100%인 행에서 이 모듈의 퍼센트와 그 행의 문장이 서로 다른 경계를 말했다),
+ * 그것이 정확히 라운드 38 H-2가 이 함수를 만들어 없앤 모양이다. 그래서 경계를 늘리는 대신
+ * **이 한 줄을 내보낸다** — 부등호를 새로 적는 자리를 만들지 않는 것이 이 함수의 목적이다.
  */
-function isBudgetUsedUp(budgetKrw: number, spentKrw: number): boolean {
+export function isBudgetUsedUp(budgetKrw: number, spentKrw: number): boolean {
   return spentKrw >= budgetKrw;
 }
 

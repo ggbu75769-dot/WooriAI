@@ -24,6 +24,9 @@ import { persistStorage } from "../stores/persist-storage";
 // reconcileMonthlyExpenses와 같은 함수를 써야 데모 세션의 홈·리포트·기록 합계가 갈리지 않는다.
 // (offline/expense-list-reconciliation.ts는 React/네이티브 의존이 없어 여기서 안전하게 쓴다.)
 import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";
+// 라운드 102 리뷰 L-8: 미러가 던지는 실패 문구 중 **서버 코드와 짝이 있는 것**은 이 표 한 곳에서
+// 온다(문장 세 벌 금지 — 서버·표·미러). 표에 없는 갈래(VALIDATION_ERROR 바구니)만 미러 로컬이다.
+import { API_ERROR_MESSAGES } from "./api-error";
 import { categoryCatalog } from "../categories";
 import { bandDefinitions, bandStages, itemMatchesBand, type StageBandLabel } from "../items/stage-bands";
 import type {
@@ -1203,29 +1206,54 @@ export function getSyncChanges(): {
 const LOCAL_CATEGORY_BUDGET_MAX_PER_MONTH = 30;
 
 /**
- * §2.2 검증 순서의 미러: DTO 형식(금액 범위 · 상한 30 · categoryId 중복) → 카테고리 실재.
- * 실재 판정의 모집단은 `listCategories()`가 서빙하는 바로 그 목록이다(§3.1 — 데모에서도 아무
- * 문자열이 예산 키가 되는 상태를 만들지 않는다. 데모 행은 전부 active라 active:false 거절
- * 갈래는 실재 탈락과 같은 술어로 접힌다). 부분 적용 없음 — 전부 통과해야 한 건이라도 쓴다.
+ * 배열 내 categoryId 중복의 로컬 문구. 서버는 이 갈래를 **바구니 코드**(`VALIDATION_ERROR`)로
+ * 던지고, 그 코드는 의도적으로 API_ERROR_MESSAGES 표에 없다(api-error.ts의 그 판단 — 한 코드가
+ * 열 가지 원인을 가리키므로 표로 문장을 정할 수 없다). 그래서 이 한 문장만 미러 로컬이다.
  */
-function requireCategoryBudgetReplacement(categoryBudgets: CategoryBudgetEntry[]): Record<string, number> {
-  if (categoryBudgets.length > LOCAL_CATEGORY_BUDGET_MAX_PER_MONTH) {
-    // §9.3 CATEGORY_BUDGET_LIMIT_EXCEEDED — 상한 검사가 실재 검사보다 먼저다(§2.2).
-    throw new Error(`카테고리 예산은 한 달에 ${LOCAL_CATEGORY_BUDGET_MAX_PER_MONTH}개까지 정할 수 있어요.`);
-  }
+const LOCAL_CATEGORY_BUDGET_DUPLICATE_MESSAGE = "한 카테고리에는 예산을 하나만 정할 수 있어요.";
+
+/**
+ * §2.2 검증 **순서**의 미러: DTO 형식(categoryId 중복 · 금액 범위) → 상한 30 → 카테고리 실재.
+ *
+ * ⚠️ 두 시점 (라운드 102 리뷰 L-8) — 종전 미러는 **상한을 맨 앞**에 두었다. 서버에서 중복·금액
+ * 범위는 `ValidationPipe`(DTO)가 서비스보다 **먼저** 보고, 상한 30은 서비스가 그 뒤에 보므로,
+ * "31건 + 금액 0" 같은 조합에서 서버는 `VALIDATION_ERROR`, 미러는 상한 문구로 **갈렸다**.
+ * 순서를 서버와 같게 맞춘다(같은 입력이 같은 갈래로 떨어진다). 중복과 금액은 서버에서 같은
+ * 바구니 코드라 둘 사이의 순서는 계약이 아니다 — 여기서는 한 번의 순회로 함께 본다.
+ *
+ * 실재 판정의 모집단은 `listCategories()`가 서빙하는 바로 그 목록이다(§3.1 — 데모에서도 아무
+ * 문자열이 예산 키가 되는 상태를 만들지 않는다. 데모 행은 전부 active라 서버의 `active:false`
+ * 거절 갈래는 여기서 실재 탈락과 **같은 술어로 접힌다**).
+ *
+ * ⚠️ 두 시점 (라운드 102 리뷰 H) — 그래서 서버의 좁힌 규칙("**새로 서는 id만** active 요구,
+ * 이미 그 (아이, 달)에 행이 있던 id는 통과")도 그 한 술어에 붙는다: `existingCategoryIds`에
+ * 있는 id는 실재 검사를 통과한다. 이 통로가 없으면 미러에서도 "행이 남아 있는데 값 수정·해제가
+ * 막히는" 상태가 만들어질 수 있고(손상 저장본·구버전 blob), 서버와 standalone이 다르게 군다.
+ *
+ * 부분 적용 없음 — 전부 통과해야 한 건이라도 쓴다.
+ */
+function requireCategoryBudgetReplacement(
+  categoryBudgets: CategoryBudgetEntry[],
+  existingCategoryIds: ReadonlySet<string>
+): Record<string, number> {
   const replacement: Record<string, number> = {};
   for (const entry of categoryBudgets) {
     if (Object.prototype.hasOwnProperty.call(replacement, entry.categoryId)) {
       // 서버는 배열 내 categoryId 중복을 VALIDATION_ERROR로 거절한다(§2.2 — 부분 적용 없음).
-      throw new Error("한 카테고리에는 예산을 하나만 정할 수 있어요.");
+      throw new Error(LOCAL_CATEGORY_BUDGET_DUPLICATE_MESSAGE);
     }
     replacement[entry.categoryId] = requireMoneyKrw(entry.amountKrw);
   }
+  if (categoryBudgets.length > LOCAL_CATEGORY_BUDGET_MAX_PER_MONTH) {
+    // §9.3 CATEGORY_BUDGET_LIMIT_EXCEEDED — 문구는 서버 코드와 같은 api-error 표 한 곳에서만
+    // 온다(값 사본은 위 리터럴이고, 두 방향 대조는 category-budgets-mirror.test.ts가 진다).
+    throw new Error(API_ERROR_MESSAGES.CATEGORY_BUDGET_LIMIT_EXCEEDED);
+  }
   const knownCategoryIds = new Set(listCategories().categories.map((category) => category.id));
   for (const categoryId of Object.keys(replacement)) {
-    if (!knownCategoryIds.has(categoryId)) {
+    if (!knownCategoryIds.has(categoryId) && !existingCategoryIds.has(categoryId)) {
       // §9.3 CATEGORY_BUDGET_INVALID_CATEGORY — 하나라도 탈락하면 전체 거절.
-      throw new Error("예산을 세울 수 없는 카테고리예요.");
+      throw new Error(API_ERROR_MESSAGES.CATEGORY_BUDGET_INVALID_CATEGORY);
     }
   }
   return replacement;
@@ -1256,6 +1284,13 @@ export function getBudget(childId: string, yearMonth: string): Budget {
  * undefined = 그 달의 카테고리 예산 행 무접촉, 배열 = 그 달 집합 통째 교체(빈 배열 = 전부
  * 해제). 검증은 쓰기 전에 전부 끝난다(서버의 한 $transaction 미러 — 실패한 저장은 총액도
  * 카테고리도 한 글자도 바꾸지 않는다).
+ *
+ * ⚠️ 두 시점 (라운드 102 리뷰 M-4) — 응답도 그 갈래를 그대로 말한다: **인자 부재면 응답에
+ * `categoryBudgets` 키 자체가 없다**. 종전 미러는 언제나 실었는데, 서버의 무접촉 갈래는 그
+ * 행을 "한 건도 읽지 않으므로"(§2.2) 응답에도 키가 없다 — 두 벌이 갈린 채로 두면, 다음
+ * 라운드가 PUT 응답으로 낙관 갱신을 하는 순간 데모에서는 멀쩡하고 **실계정에서만** 카테고리
+ * 행이 화면에서 사라진다. 방향은 서버 쪽으로 통일한다(무접촉 갈래가 모르는 것을 말하지 않는
+ * 쪽이 정직하다). GET·월간 리포트는 종전대로 **항상** 배열을 싣는다(§2.3).
  */
 export function upsertBudget(
   childId: string,
@@ -1266,14 +1301,24 @@ export function upsertBudget(
   requireChild();
   const normalizedMonth = budgetKey(yearMonth);
   const validAmount = requireMoneyKrw(amountKrw);
-  const replacement = categoryBudgets === undefined ? undefined : requireCategoryBudgetReplacement(categoryBudgets);
+  const replacement =
+    categoryBudgets === undefined
+      ? undefined
+      : requireCategoryBudgetReplacement(
+          categoryBudgets,
+          // 서버가 같은 트랜잭션 안에서 읽는 "이 달에 이미 서 있던 id" 집합의 미러(리뷰 H).
+          new Set(Object.keys(useLocalBackendStore.getState().categoryBudgets[normalizedMonth] ?? {}))
+        );
   useLocalBackendStore.setState((state) => ({
     budgets: { ...state.budgets, [normalizedMonth]: validAmount },
     ...(replacement === undefined
       ? {}
       : { categoryBudgets: { ...state.categoryBudgets, [normalizedMonth]: replacement } })
   }));
-  return { ...toBudgetDto(childId, normalizedMonth, validAmount), categoryBudgets: categoryBudgetEntriesForMonth(normalizedMonth) };
+  const budget = toBudgetDto(childId, normalizedMonth, validAmount);
+  return replacement === undefined
+    ? budget
+    : { ...budget, categoryBudgets: categoryBudgetEntriesForMonth(normalizedMonth) };
 }
 
 // ---------------------------------------------------------------------------

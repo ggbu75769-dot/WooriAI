@@ -89,6 +89,18 @@ const budgetContextLineStyle = {
   lineHeight: 18
 } as const;
 
+/**
+ * 라운드 102 리뷰 L-a11y — 카테고리 카드에서 **저장을 잠그는** 오류 줄(행 상한·30개 상한).
+ * 관측 줄(budgetContextLineStyle)과 같은 자·같은 줄높이지만 색이 다르다: 이 줄이 서 있는 동안
+ * [저장]이 눌리지 않으므로(categoryForm.isValid === false) 사실 서술이 아니라 오류다.
+ * 색은 이 화면의 총액 상한 오류와 같은 `theme.colors.danger` 한 벌이다(신규 리터럴 0 — DNC-017).
+ */
+const budgetCategoryLockedErrorStyle = {
+  color: theme.colors.danger,
+  fontSize: theme.typography.caption.fontSize,
+  lineHeight: 18
+} as const;
+
 const budgetChipRowStyle = {
   flexDirection: "row",
   flexWrap: "wrap",
@@ -145,6 +157,20 @@ export default function BudgetEditScreen() {
       if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
     };
   }, []);
+  /**
+   * 라운드 102 리뷰 L-11 — **예방 방어 한 줄**: 아이가 바뀌면 화면의 초안을 버린다.
+   *
+   * 오늘 이 화면에는 아이 전환 입구가 없다(설정·홈에서만 바꾼다). 그런데 `childId`는 전역
+   * persist 스토어에서 오므로, 이 화면이 떠 있는 동안 다른 경로로 값이 바뀌면 쿼리 키
+   * (`["budget", childId]`)만 갈아타고 **입력 초안은 그대로 남는다** — A의 아이에게 치던
+   * 총액·카테고리 숫자가 그대로 B의 아이의 [저장]에 실린다. 전환 입구가 이 화면에 생기는 날
+   * 조용히 열릴 구멍이라, 그 전에 닫아 둔다(비용은 이 훅 하나다). 훅이므로 아래 조기 반환들
+   * 보다 위에 선다(홈 화면 FIX-A와 같은 규율).
+   */
+  useEffect(() => {
+    setAmountDigits("");
+    setCategoryEdits({});
+  }, [childId]);
   const queryClient = useQueryClient();
   const budget = useQuery({
     queryKey: ["budget", childId],
@@ -550,8 +576,20 @@ export default function BudgetEditScreen() {
             {/* 라운드 102 §4.1 — "카테고리별 예산" 카드(선택 입력). 목록이 아직 없으면
                 categoryForm이 null이라 카드 자체가 서지 않는다(모르면 제안하지 않는다).
                 저장 버튼은 아래 기존 [저장] 하나 그대로다 — 이 카드는 값만 만든다.
-                ⚠️ 카드 안 안내 줄(행 상한·30개 상한·합 관측)은 전부 캡션 회색이다 — 문장이
-                의미를 지고 경고색을 늘리지 않는다(DNC-018 · budget-warning의 그 관례). */}
+
+                ⚠️ 두 시점 (라운드 102 리뷰 L-a11y): 종전 이 자리는 "카드 안 안내 줄(행 상한·
+                30개 상한·합 관측)은 **전부** 캡션 회색"이었다. 그 한 벌은 성격이 다른 두 종류를
+                한 색으로 접었다 — **합 관측**은 저장을 막지 않는 사실 서술이고(§1.3(a)), **행
+                상한·30개 상한**은 `isValid`를 false로 만들어 [저장]을 잠그는 오류다. 잠긴 이유를
+                회색 캡션 한 줄로만 말하면, 버튼이 왜 안 눌리는지 화면이 끝내 답하지 않는 것과
+                같다(DNC-018의 그 경계). 그래서 갈래를 나눈다:
+                  · 관측 줄(합) — 종전 그대로 캡션 회색, 라이브 리전 없음.
+                  · 저장 잠금 오류(행 상한·30개 상한) — danger + `accessibilityLiveRegion`.
+                포커스는 사용자가 치고 있는 입력칸에 남으므로 새 문장이 자동으로 낭독되지 않는다 —
+                지출 날짜 오류(app/expenses/new.tsx)가 같은 이유로 같은 속성을 갖는다.
+                ⚠️ 리뷰 문면은 "행 상한 오류"만 지목했지만, 30개 상한 줄도 같은 `isValid`를
+                내리는 **같은 성격**이라 함께 옮겼다 — 갈래를 "저장을 잠그는가" 하나로 가르지
+                않으면 새 계약 문장("관측 줄만 회색")이 자기 파일에서 거짓이 된다. */}
             {categoryForm ? (
               <Card style={{ gap: 10 }}>
                 <Text
@@ -609,13 +647,30 @@ export default function BudgetEditScreen() {
                         원
                       </Text>
                     </View>
-                    {/* 행 상한 초과 안내 — 문구는 총액·지출 입력과 같은 단일 소스(모듈이 실었다). */}
-                    {row.errorText ? <Text style={budgetContextLineStyle}>{row.errorText}</Text> : null}
+                    {/* 행 상한 초과 오류 — 문구는 총액·지출 입력과 같은 단일 소스(모듈이 실었다).
+                        저장을 잠그는 갈래라 danger + 라이브 리전이다(위 카드 머리 주석): 포커스가
+                        방금 친 입력칸에 남아 있어 스크린리더가 스스로 읽지 않는다
+                        (app/expenses/new.tsx의 날짜 오류와 같은 조합). */}
+                    {row.errorText ? (
+                      <Text
+                        accessibilityLiveRegion="polite"
+                        accessibilityRole="alert"
+                        style={budgetCategoryLockedErrorStyle}
+                      >
+                        {row.errorText}
+                      </Text>
+                    ) : null}
                   </View>
                 ))}
-                {/* 상한 30 선제 안내 — 서버 코드 문구와 같은 api-error 표 경유(§9.3). */}
+                {/* 상한 30 선제 오류 — 서버 코드 문구와 같은 api-error 표 경유(§9.3). 이 줄도
+                    `isValid`를 내려 저장을 잠그므로 행 오류와 같은 갈래다(위 카드 머리 주석). */}
                 {categoryForm.formError ? (
-                  <Text testID="budget-category-form-error" style={budgetContextLineStyle}>
+                  <Text
+                    accessibilityLiveRegion="polite"
+                    accessibilityRole="alert"
+                    testID="budget-category-form-error"
+                    style={budgetCategoryLockedErrorStyle}
+                  >
                     {categoryForm.formError}
                   </Text>
                 ) : null}

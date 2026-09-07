@@ -103,11 +103,16 @@ const UNBOUNDED_LEDGER: Readonly<Record<string, LedgerEntry>> = {
   "src/onboarding/onboarding-core.service.ts#1": {
     member: "upsertBudget",
     reason:
-      "고정 4문장(감사 before 조회 findMany 한 건 · 총액 budget.upsert 한 건 · categoryBudget." +
+      "고정 6문장(총액 before 조회 budget.findUnique 한 건 · 카테고리 before 조회 findMany 한 건 · " +
+      "카테고리 실재/active 일괄 조회 findMany 한 건 · 총액 budget.upsert 한 건 · categoryBudget." +
       "deleteMany 한 건 · 상한 30(CATEGORY_BUDGET_MAX_PER_MONTH)으로 잘린 배열형 createMany " +
       "한 건)이고 입력 크기에 비례하지 않는다(라운드 102 설계 §2.2/§6.3 — " +
-      "confirmChildProfileDeletion 등재와 같은 기준). 예산 저장은 사용자가 화면 앞에서 " +
-      "기다리는 단발 요청이라 5초 기본 예산을 늘릴 이유도 없다."
+      "confirmChildProfileDeletion 등재와 같은 기준). ⚠️ 두 시점: 라운드 102 T1 시점의 이 줄은 " +
+      "**4문장**이었다 — 총액 before 조회와 카테고리 실재 검증이 트랜잭션 밖이었기 때문이다. " +
+      "라운드 102 리뷰 M-2(한 봉투가 두 시점을 섞지 않게)·H(숨긴 카테고리 행의 재전송이 " +
+      "beforeRows를 봐야 통과한다)가 둘을 안으로 들였고, 늘어난 둘도 입력 크기와 무관한 " +
+      "단발 조회다(검증은 상한 30으로 잘린 id 배열 하나의 `in` 한 문장). 예산 저장은 사용자가 " +
+      "화면 앞에서 기다리는 단발 요청이라 5초 기본 예산을 늘릴 이유도 없다."
   },
   "src/onboarding/onboarding-core.service.ts#2": {
     member: "confirmChildProfileDeletion",

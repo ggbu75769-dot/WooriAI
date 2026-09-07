@@ -793,10 +793,15 @@ const KNOWN_STALE_COORDINATES: readonly StaleCoordinate[] = [
     line: 1260,
     sourcePath: "apps/mobile/app/(tabs)/index.tsx",
     literal: "`:1260`",
-    citedLineIsNot: /use[A-Z][A-Za-z0-9_]*\(/,
+    anchor: "useHomeNotificationEvaluation(",
     reason:
-      "같은 문장이 *\"훅 호출은 `:1260`\"* 이라고 적는데 오늘 1260은 훅 호출이 아니라 대기 행 " +
-      "주석이다. ⚠️ 경로가 없는 좌표라 이 계약의 모집단 밖이고, 그래서 값으로만 든다.",
+      "같은 문장이 *\"훅 호출은 `:1260`\"* 이라고 적는데, 그 문장이 가리키는 훅 호출" +
+      "(`useHomeNotificationEvaluation`)은 1260에 없다. ⚠️ 경로가 없는 좌표라 이 계약의 모집단 " +
+      "밖이고, 그래서 값으로만 든다. ⚠️ 두 시점(라운드 102 리뷰 배치): 종전 증거는 " +
+      "`citedLineIsNot: /use[A-Z]\\w*\\(/`(= 1260이 **아무** 훅 호출도 아니다)였는데, 그 증거는 " +
+      "홈 화면의 줄이 밀리기만 해도 뒤집힌다 — 실제로 이 배치가 훅 두 줄을 위에 더하자 1260이 " +
+      "`useOfflineSyncSnapshot()`이 되어 *거짓 좌표가 우연히 참처럼* 보였다. 증거를 **그 문장이 " +
+      "실제로 가리키는 심볼**로 바꾼다: 그 훅 호출은 파일에 실재하고(앵커 존재) 1260에는 없다.",
     foundInRound: 93
   }
 ];

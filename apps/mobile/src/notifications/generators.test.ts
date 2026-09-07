@@ -922,9 +922,17 @@ describe("라운드 79 B: 예산 알림은 그 달의 회복 가능한 대기 �
     it("화면 배선의 오늘 값: 배너·진행바가 읽는 것은 재조정 값이다 (읽기만 — 홈은 무접촉)", () => {
       const homeSource = readFileSync(join(process.cwd(), "app/(tabs)/index.tsx"), "utf8");
       expect(homeSource).toContain("  const monthlyUsed = hasSession\n    ? resolveThisMonthUsedKrw({");
-      expect(homeSource).toContain(
-        "  const budgetWarning = hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null;"
-      );
+      // ⚠️ 두 시점 (라운드 102 리뷰 M-1): 배너의 판정은 렌더 자리의 한 줄
+      // (`hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null`)
+      // 에서 조기 반환 위의 memo로 접혔다(햅틱 effect가 훅이라 그 위에 서야 하고, 판정 두 벌은
+      // "배너 없이 진동"을 만들 수 있었다). **재조정 값을 읽는다**는 이 계약의 사실은 그대로다 —
+      // memo가 같은 `resolveThisMonthUsedKrw`를 같은 세 입력으로 지난다.
+      expect(homeSource).toContain("const budgetWarning = useMemo(() => {");
+      const memoStart = homeSource.indexOf("const budgetWarning = useMemo(() => {");
+      const memo = homeSource.slice(memoStart, homeSource.indexOf("}, [hasSession, homePhase,", memoStart));
+      expect(memo).toContain("resolveThisMonthUsedKrw({");
+      expect(memo).toContain("offline: { rows: offlineSyncSnapshot.rows, childId, yearMonth: thisYearMonth }");
+      expect(memo).toContain("evaluateBudgetWarning({ budgetKrw: home.data.monthly.amountKrw, spentKrw })");
       // 알림 쪽 입력(= /home 응답 그대로)은 위 "홈 배선 계약" 테스트가 이미 고정한다.
     });
   });

@@ -1,5 +1,5 @@
 import { API_ERROR_MESSAGES } from "../api/api-error";
-import { buildCategoryNameLookup, type SelectableCategory } from "../categories";
+import { buildCategoryNameLookup, selectableCategories, type SelectableCategory } from "../categories";
 import { formatKrw } from "../money";
 // GAP-054 #2의 그 규율 그대로: 금액 상한의 값·문구는 지출·총액 예산 입력과 **같은 모듈**에서만
 // 온다. 카테고리 행이라고 다른 숫자를 보는 순간 서버 @Max와 갈라진다.
@@ -16,9 +16,11 @@ import { buildRecordsCategoryChips } from "./records-list-view";
  *   존재하지 않으므로(§1.2 — 부재가 곧 미설정) "0"을 친 행도 빈 행과 같은 해제로 접는다.
  * - **행 모집단 = 기록 탭 칩 대장**(`buildRecordsCategoryChips` — 정식 선택 가능 행). 목록이
  *   아직 없으면(로딩·실패·오프라인 첫 실행) 폼 자체를 만들지 않는다(null → 카드 미렌더,
- *   "모르면 제안하지 않는다"). 이 게이트가 칩 모듈의 8타일 폴백 갈래를 구조적으로 차단해
- *   **별칭 id로 예산이 저장되는 경로가 없다**(§1.1 대안 D 기각). 방어를 한 겹 더 둔다:
- *   서버 목록에 실재하는 id의 칩만 행이 된다(폴백 칩은 목록 밖 id라 여기서도 떨어진다).
+ *   "모르면 제안하지 않는다"). 칩 모듈의 8타일 폴백 갈래는 **제안 가능 행 집합**
+ *   (`selectableCategories`)으로 걸러 막는다 — 폴백 칩은 전부 `selectable:false`인 별칭 행이라
+ *   그 집합에 들지 못한다. 그래서 **별칭 id로 예산이 저장되는 경로가 없다**(§1.1 대안 D 기각).
+ *   ⚠️ 두 시점(리뷰 L-9): 종전 방어는 "서버 목록에 있는 id인가"였고 그것으로는 막히지 않았다
+ *   (그 근거는 아래 buildCategoryBudgetForm의 주석).
  * - **끼워 유지**: 이미 예산이 있는 categoryId가 칩 대장에 없으면(운영자가 숨긴 카테고리 등)
  *   그 행을 includeAll 목록의 이름 해석과 함께 앞에 끼워 유지한다 — `selectableCategories`
  *   규칙 (d)("현재 값은 언제나 남긴다")·칩 대장의 unshift와 같은 판단(§6.5).
@@ -165,10 +167,21 @@ export function buildCategoryBudgetForm(input: CategoryBudgetFormInput): Categor
   const categories = input.categories ?? null;
   if (!categories || categories.length === 0) return null;
 
-  // 칩 대장(정식 선택 가능 행 + matchIds 가족)이 행 모집단이다. 서버 목록 밖 id는 행이 되지
-  // 않는다 — 목록이 통째로 비선택(폴백 칩) 상태라면 여기서 전부 떨어져 폼이 서지 않는다.
-  const serverIds = new Set(categories.map((category) => category?.id).filter(Boolean));
-  const chips = buildRecordsCategoryChips(categories).filter((chip) => serverIds.has(chip.id));
+  // 칩 대장(정식 선택 가능 행 + matchIds 가족)이 행 모집단이다.
+  //
+  // ⚠️ 두 시점 (라운드 102 리뷰 L-9): 종전 방어는 **서버 목록에 있는 id인가**였고, 그 위에
+  // "이 게이트가 8타일 폴백 갈래를 구조적으로 차단한다"고 적혀 있었다 — 그 주장은 참이 아니었다.
+  // 폴백 칩의 id는 `categoryCatalog`의 id이고 그것은 서버 퀵타일 별칭 행(`mobile_*`)의 id와
+  // **바이트 동일**이라(records-list-view.ts의 그 주석), 실서버 includeAll 목록에는 그 8행이
+  // 들어 있어 방어를 그대로 통과했다. 즉 운영자가 정식 12행을 전부 숨긴 상태에서는 별칭 id에
+  // 예산이 서는 경로가 열려 있었다(§1.1 대안 D가 기각한 그 축).
+  //
+  // 그래서 방어를 **제안 가능한 행인가**(`selectableCategories`)로 좁힌다. 폴백 칩은 전부
+  // `selectable:false`인 별칭 행이라 이 집합에 들지 못하고, 그러면 chips가 비어 폼 자체가 서지
+  // 않는다("모르면 제안하지 않는다"가 구조로 성립한다). 정상 경로에서는 항등식이다 —
+  // `buildRecordsCategoryChips`가 선택 인자 없이 돌면 칩 id 집합이 곧 이 집합이다.
+  const offeredIds = new Set(selectableCategories(categories).map((category) => category.id));
+  const chips = buildRecordsCategoryChips(categories).filter((chip) => offeredIds.has(chip.id));
   if (chips.length === 0) return null;
 
   const nameOf = buildCategoryNameLookup(categories);

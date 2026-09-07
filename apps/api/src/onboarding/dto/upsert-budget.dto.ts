@@ -1,5 +1,5 @@
 import { Transform, Type } from "class-transformer";
-import { ArrayUnique, IsArray, IsInt, IsOptional, IsUUID, Matches, Max, Min, ValidateNested } from "class-validator";
+import { ArrayUnique, IsArray, IsInt, IsUUID, Matches, Max, Min, ValidateIf, ValidateNested } from "class-validator";
 import { MONEY_KRW_MAX } from "@wooriai/contracts";
 import { YEAR_MONTH_INPUT_PATTERN, normalizeYearMonthInput } from "../../common/validation/year-month";
 
@@ -61,8 +61,17 @@ export class UpsertBudgetDto {
    *   (`CATEGORY_BUDGET_LIMIT_EXCEEDED`)로 거절한다 — 사용자가 고칠 수 있는 단 하나의
    *   원인을 가진 실패라 형식 위반 한 덩어리에 섞지 않는다(CUSTOM_ITEM_LIMIT_EXCEEDED와
    *   같은 판단).
+   *
+   * ⚠️ 두 시점 (라운드 102 리뷰 M-3) — 종전 게이트는 `@IsOptional()`이었다. class-validator의
+   * `@IsOptional()`은 **null과 undefined 둘 다** 검증 전체를 건너뛰므로 `categoryBudgets: null`
+   * 본문이 형식 검사를 통과했고, 서비스의 무접촉 갈래는 `=== undefined`만 보므로 그 null이
+   * replace-set 갈래로 흘러 `.map` 호출에서 TypeError → **500**이 됐다. 게이트를
+   * `@ValidateIf(값 !== undefined)`로 바꾸면 **부재만** 검증을 건너뛰고 null은 `@IsArray()`
+   * 위반(400 `VALIDATION_ERROR`)으로 떨어진다. 서비스 가드를 `== null`로 넓히지 않는 이유는
+   * 그것이 **"null = 무접촉"이라는 새 의미**를 계약에 만들기 때문이다 — §2.2의 갈래는 부재와
+   * 존재 둘뿐이고, 셋째 갈래를 조용히 늘리지 않는다.
    */
-  @IsOptional()
+  @ValidateIf((dto: UpsertBudgetDto) => dto.categoryBudgets !== undefined)
   @IsArray()
   @ArrayUnique((entry: CategoryBudgetEntryDto) => entry?.categoryId)
   @ValidateNested({ each: true })

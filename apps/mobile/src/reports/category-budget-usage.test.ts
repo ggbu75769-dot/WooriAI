@@ -127,6 +127,34 @@ describe("퍼센트·초과 판정 — evaluateHomeBudgetProgress 하나다 (판
     }
   });
 
+  it("경계는 `isBudgetUsedUp`(>=) 하나다 — 정확히 100%인 행은 '모두 썼어요', 퍼센트 문장은 미소진에만 선다 (리뷰 L-1)", () => {
+    // ⚠️ 두 시점: 종전 갈래는 `used > budget`이라, 정확히 다 쓴 행에서 퍼센트(모듈의 `>=`
+    // 경계로 100%)와 문장(`>` 경계)이 서로 다른 경계를 들었다 — 라운드 38 H-2가 히어로·넛지에서
+    // 없앤 그 모양이다. 이제 세 갈래를 한 술어가 가른다.
+    const exact = buildCategoryBudgetUsageRows({
+      budgets: [{ categoryId: CANONICAL_DIAPER.id, amountKrw: 100_000 }],
+      breakdown: [{ categoryId: CANONICAL_DIAPER.id, amountKrw: 100_000 }],
+      categories: FIXTURE_CATEGORIES
+    });
+    expect(exact[0].secondaryText).toBe("예산을 모두 썼어요");
+    // 1원만 넘어도 초과 금액을 말한다(같은 술어의 다른 갈래 — "0원 더 썼어요"는 없는 사실이다).
+    const over = buildCategoryBudgetUsageRows({
+      budgets: [{ categoryId: CANONICAL_DIAPER.id, amountKrw: 100_000 }],
+      breakdown: [{ categoryId: CANONICAL_DIAPER.id, amountKrw: 100_001 }],
+      categories: FIXTURE_CATEGORIES
+    });
+    expect(over[0].secondaryText).toBe("예산보다 1원 더 썼어요");
+    // 그 경계는 홈 히어로·넛지와 **같은 모듈의 같은 함수**다(부등호를 새로 적는 자리 0건).
+    expect(moduleSource()).toContain("isBudgetUsedUp");
+    // 미소진 구간의 퍼센트 문장은 100을 말할 수 없다(캡 + 이 경계의 합작).
+    const almost = buildCategoryBudgetUsageRows({
+      budgets: [{ categoryId: CANONICAL_DIAPER.id, amountKrw: 100_000 }],
+      breakdown: [{ categoryId: CANONICAL_DIAPER.id, amountKrw: 99_999 }],
+      categories: FIXTURE_CATEGORIES
+    });
+    expect(almost[0].secondaryText).toBe("예산의 99%를 썼어요");
+  });
+
   it("사용액 0원인 예산 행도 사실 그대로 선다 (0%)", () => {
     const rows = buildCategoryBudgetUsageRows({
       budgets: [{ categoryId: CANONICAL_DIAPER.id, amountKrw: 100_000 }],
@@ -179,7 +207,7 @@ describe("모집단 — 예산이 있는 행만, 모르면 만들지 않는다 (
     ).toEqual([]);
   });
 
-  it("숨긴 카테고리의 예산 행은 이름 해석과 함께 앞에 남고, 가족은 자기 id 하나다 (§6.5)", () => {
+  it("숨긴 카테고리의 예산 행은 이름 해석과 함께 앞에 남는다 (§6.5)", () => {
     const rows = buildCategoryBudgetUsageRows({
       budgets: [
         { categoryId: CANONICAL_DIAPER.id, amountKrw: 100_000 },
@@ -190,7 +218,32 @@ describe("모집단 — 예산이 있는 행만, 모르면 만들지 않는다 (
     });
     expect(rows.map((row) => row.categoryId)).toEqual([HIDDEN_INSURANCE.id, CANONICAL_DIAPER.id]);
     expect(rows[0].name).toBe("보험/저축");
+    // 이 분류에는 퀵타일 코드 다리가 없어(카탈로그에 insurance_savings 없음) 가족이 자기 id
+    // 하나뿐이다 — 아래 계약과 같은 규칙이 낸 다른 답이다(규칙이 다른 것이 아니다).
     expect(rows[0].primaryText).toBe("보험/저축 10,000원 / 예산 40,000원");
+  });
+
+  it("숨긴 뒤에도 퀵타일 가족은 그대로 합류한다 — 숨김 전후로 같은 사용액이다 (리뷰 L-7)", () => {
+    // ⚠️ 두 시점: 종전 kept 행의 가족은 **자기 id 하나**로 못 박혀 있었다("모르는 합류를
+    // 지어내지 않는다"). 그런데 코드 다리가 있는 분류에서는 그 한 개가 **아는 합류를 잃는
+    // 것**이었다 — 운영자가 "기저귀/위생"을 숨기는 순간 같은 달·같은 지출인데 사용액만
+    // 20,000원 급감한다(퀵타일 id 지출이 통째로 빠진다). 오늘은 같은 `buildRecordsCategoryChips`를
+    // 그 id로 한 번 더 세워(규칙 (d)) 그 칩의 matchIds를 쓴다.
+    const hiddenDiaper = { ...CANONICAL_DIAPER, active: false };
+    const visible = buildCategoryBudgetUsageRows({
+      budgets: [{ categoryId: CANONICAL_DIAPER.id, amountKrw: 100_000 }],
+      breakdown: BREAKDOWN,
+      categories: FIXTURE_CATEGORIES
+    });
+    const hidden = buildCategoryBudgetUsageRows({
+      budgets: [{ categoryId: CANONICAL_DIAPER.id, amountKrw: 100_000 }],
+      breakdown: BREAKDOWN,
+      categories: [hiddenDiaper, CANONICAL_FEEDING, HIDDEN_INSURANCE]
+    });
+    // 30,000(정식) + 20,000(기저귀 타일) — 숨김은 **선택지**에서만 빼고 사실을 바꾸지 않는다.
+    expect(visible[0].primaryText).toBe("기저귀/위생 50,000원 / 예산 100,000원");
+    expect(hidden[0].primaryText).toBe(visible[0].primaryText);
+    expect(hidden[0].secondaryText).toBe(visible[0].secondaryText);
   });
 
   it("행 순서는 칩 대장 순서다 (§9.6 — 화면 정렬은 칩 대장이 진다)", () => {

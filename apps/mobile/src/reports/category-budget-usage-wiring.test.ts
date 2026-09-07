@@ -35,6 +35,29 @@ describe("라운드 102 리포트 카테고리 예산 블록 배선", () => {
     expect(reportScreen()).toContain("{categoryBudgetUsageRows.length > 0 ? (");
   });
 
+  it("게이트는 그 넷뿐이다 — 그 달 지출 0건이어도 예산이 있으면 블록이 선다 (리뷰 L-4)", () => {
+    // ⚠️ 두 시점: 블록이 도넛 갈래(`categoryData.length === 0`의 else) **안**에 있어, 그 달
+    // 지출이 0건이면 예산을 세워 두었어도 블록이 통째로 사라졌다 — 설계 §4.3에 없는 넷째
+    // 게이트다. 이제 블록은 그 삼항의 **형제**이고, 자리는 종전 그대로 도넛(또는 그 자리의 빈
+    // 카드) 아래·추이 카드 위다.
+    const src = reportScreen();
+    const emptyBranch = src.indexOf("categoryData.length === 0 ? (");
+    // 그 삼항의 else(도넛 묶음)가 닫히는 자리 — 같은 스타일 이름이 화면 위쪽에도 있으므로
+    // **빈 상태 갈래 이후**에서만 찾는다.
+    const branchEnd = src.indexOf("<View style={reportCardCaptionGroupStyle}>", emptyBranch);
+    const blockMarker = src.indexOf('testID="reports-category-budget-usage"');
+    const trendMarker = src.indexOf("{trendChips.length > 0 ? (");
+    expect(emptyBranch).toBeGreaterThan(-1);
+    expect(branchEnd).toBeGreaterThan(emptyBranch);
+    // 블록은 도넛 갈래가 **닫힌 뒤**에 서고(빈 상태 갈래에서도 렌더된다), 추이 카드보다는 앞이다.
+    expect(blockMarker).toBeGreaterThan(branchEnd);
+    expect(trendMarker).toBeGreaterThan(blockMarker);
+    // 도넛 갈래(빈 상태 카드 ~ 도넛 묶음)에는 블록이 남아 있지 않다.
+    expect(src.slice(emptyBranch, branchEnd)).not.toContain("categoryBudgetUsageRows");
+    // 지출 0건인 달의 행 문장은 순수 모듈이 관측 톤으로 만든다(화면에 새 빈 상태 문구 0건).
+    expect(source("src/reports/category-budget-usage.test.ts")).toContain("예산의 0%를 썼어요");
+  });
+
   it("REP-001 픽셀락 무접촉 — 블록은 세션 데이터 갈래 안이고, 비세션 미리보기 분기는 종전 그대로다 (§6.6)", () => {
     const src = reportScreen();
     const previewBranch = src.indexOf("{!hasSession ? (");

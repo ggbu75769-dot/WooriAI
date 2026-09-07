@@ -130,8 +130,9 @@ model CategoryBudget {
 
 - **필드 부재 = 무접촉.** `categoryBudgets`가 본문에 없으면 그 달의 카테고리 예산 행은 한 건도 읽지도 쓰지도 않는다 — 이것이 구클라이언트(온보딩 예산 화면 포함 — `app/(onboarding)/budget.tsx`도 같은 클라이언트 함수를 쓰고 이 필드를 싣지 않는다)와 "카테고리 카드가 렌더되지 않은 저장"(§4.1)의 하위호환 전부다.
 - **필드 존재 = 그 달의 집합 교체.** 배열에 있는 (categoryId, amountKrw)는 upsert, 배열에 없는 기존 행은 삭제. 빈 배열 `[]`은 "그 달 카테고리 예산 전부 해제"다. 행 단위 DELETE 엔드포인트가 필요 없는 이유가 이 의미론이다 — 화면의 "행 비우기"가 곧 삭제다.
-- **원자성**: 총액 upsert + 카테고리 교체(deleteMany + createMany)를 한 `$transaction`으로 묶는다. 문장 수는 **고정 4문장**(감사 봉투 before 채우기가 read 1문장을 더한다 — deleteMany 직전의 집합이 곧 봉투의 before여야 해서 조회가 트랜잭션 안이다(§2.6) · 총액 upsert · deleteMany 한 건 · 상한 30으로 잘린 배열형 createMany 한 건)이라 입력 크기에 비례하지 않는다 — transaction-bounds 대장 등재 사유가 이 문장이다(§6.3). ※ T1 구현 갱신(L-4): 설계 초안은 3문장으로 적었으나 before 조회가 더해져 4문장이 구현 사실이다.
-- **검증 순서**: DTO 형식(uuid·정수 범위·배열 상한 30·**배열 내 categoryId 중복 = `VALIDATION_ERROR`**) → 권한(§2.7) → 카테고리 실재+`active:true` 일괄 조회(하나라도 탈락하면 400 `CATEGORY_BUDGET_INVALID_CATEGORY` — 부분 적용 없음). `selectable`은 보지 않는다 — 지출의 categoryId 검증(`requireExistingCategory`)이 그 플래그를 보지 않는 것과 같은 선이되, `active:false`(운영자가 숨긴 행)는 **새로 세울 수 없다**(§6.5의 상호작용 규칙).
+- **원자성**: 총액 upsert + 카테고리 교체(deleteMany + createMany)를 한 `$transaction`으로 묶는다. 문장 수는 **고정 6문장**(총액 before 조회 · 카테고리 before 조회 · 카테고리 실재/active 일괄 조회 · 총액 upsert · deleteMany 한 건 · 상한 30으로 잘린 배열형 createMany 한 건)이라 입력 크기에 비례하지 않는다 — transaction-bounds 대장 등재 사유가 이 문장이다(§6.3). ※ 구현 갱신 이력(두 시점): 설계 초안 3문장 → T1 구현 4문장(감사 before 조회가 더해졌다 — deleteMany 직전의 집합이 곧 봉투의 before여야 해서 조회가 트랜잭션 **안**이다, §2.6) → **라운드 102 리뷰 M-2·H가 6문장**으로 고쳤다: ① 총액 before 조회가 트랜잭션 **밖**이라 한 봉투가 두 시점을 섞고 있었고(§2.6이 요구하는 것은 한 시점이다), ② 카테고리 실재/active 검증도 밖이라 "이 달에 이미 서 있던 id" 집합을 볼 수 없어 §6.5의 기존 유지가 깨졌다(아래 §6.5 두 시점). 늘어난 둘은 입력 크기와 무관한 단발 조회이고, 검증이 던지면 트랜잭션 전체가 롤백되므로 "부분 적용 없음"은 그대로다.
+- **검증 순서**: DTO 형식(uuid·정수 범위·배열 상한 30·**배열 내 categoryId 중복 = `VALIDATION_ERROR`**) → 권한(§2.7) → 카테고리 실재 일괄 조회(하나라도 탈락하면 400 `CATEGORY_BUDGET_INVALID_CATEGORY` — 부분 적용 없음). `selectable`은 보지 않는다 — 지출의 categoryId 검증(`requireExistingCategory`)이 그 플래그를 보지 않는 것과 같은 선이다. `active:false`(운영자가 숨긴 행) 판정은 **신규 행에만** 건다: 그 (아이, 달)에 이미 행이 서 있던 categoryId는 통과한다(§6.5의 상호작용 규칙 — 그 집합은 같은 트랜잭션의 before 조회가 이미 읽는 값이다). ⚠️ 두 시점(라운드 102 리뷰 H): T1 구현은 요청 배열 **전수**에 `active:true`를 요구했고, 그래서 예산이 있는 분류를 숨기는 순간 그 아이·그 달은 총액만 고치는 저장까지 400이 됐다(클라이언트가 kept 행을 함께 싣기 때문이다 — §4.1).
+- **필드가 `null`인 본문**: 부재가 아니라 **형식 위반**이다(400 `VALIDATION_ERROR`). 갈래는 부재와 존재 둘뿐이고 "null = 무접촉"이라는 셋째 갈래를 만들지 않는다. ⚠️ 두 시점(라운드 102 리뷰 M-3): T1 DTO의 `@IsOptional()`은 null도 검증을 건너뛰어 그 본문이 서비스의 replace-set 갈래로 흘렀고 500이 됐다 — 게이트가 `@ValidateIf(값 !== undefined)`로 좁혀졌다.
 - 응답: 종전과 같은 예산 DTO에 §2.3의 가산 필드가 실린 것.
 
 ### 2.3 GET 확장
@@ -163,7 +164,9 @@ model CategoryBudget {
 ### 3.1 상태·함수 (`local-backend.ts` — 실측 §0의 기존 budgets 경로와 같은 모양으로)
 
 - `LocalBackendState`에 `categoryBudgets: Record<string, Record<string, number>>`(정규화월 → categoryId → 금액) 추가. 기존 `budgets: Record<string, number>`와 같은 축이다 — **아이 축이 없는 것도 동일**하다(로컬 세션 단일 아이 전제, §0 실측. 미러가 원본보다 정교해질 이유가 없고, 아이 프로필 재생성 wipe(`local-backend.ts:2632` 계열)에 `categoryBudgets: {}`를 나란히 넣는다). `initialState`는 `{}`, `sanitizeLocalBackendState`는 비객체/오염 blob → `{}`(멤버·customItems 관례). persist version 유지 — 필드 가산은 merge가 기본값으로 메운다(라운드 100 §3.1과 같은 판단).
-- `upsertBudget(childId, amountKrw, yearMonth, categoryBudgets?)`: 서버 §2.2 미러 — 인자 부재면 무접촉, 존재면 그 달 맵을 통째로 교체. 검증(양수 정수·`requireMoneyKrw`·상한 30·중복 id 거절)도 미러.
+- `upsertBudget(childId, amountKrw, yearMonth, categoryBudgets?)`: 서버 §2.2 미러 — 인자 부재면 무접촉, 존재면 그 달 맵을 통째로 교체. 검증(양수 정수·`requireMoneyKrw`·상한 30·중복 id 거절)도 미러이고, **검증 순서**도 서버와 같다: 형식(중복·금액 범위 — 서버에서는 DTO) → 상한 30 → 실재. ⚠️ 두 시점(라운드 102 리뷰 L-8): T2 미러는 상한을 맨 앞에 두어 "31건 + 금액 0" 같은 조합에서 서버(`VALIDATION_ERROR`)와 다른 코드로 갈렸다. 문구도 서버 코드와 짝이 있는 둘은 `API_ERROR_MESSAGES` 한 곳에서 온다(중복 id만 미러 로컬 문장 — 서버 쪽이 바구니 코드라 표에 없다).
+- **응답 모양도 갈래를 그대로 말한다**(라운드 102 리뷰 M-4): 인자 부재 갈래의 반환에는 `categoryBudgets` 키 자체가 없다(서버 PUT 200과 같다 — §9.2). 종전 미러는 언제나 실었고, 그 갈림은 PUT 응답으로 낙관 갱신을 하는 날 **실계정에서만** 행이 사라지게 만든다.
+- **숨긴/모르는 카테고리의 기존 행**(라운드 102 리뷰 H 미러): 그 (아이, 달)에 이미 행이 있던 id는 실재 검사를 통과한다 — 로컬 모집단에는 `active:false` 행이 없어 서버의 "숨김" 갈래가 "모집단 밖"과 한 술어로 접히므로, 좁힘도 그 한 술어에 붙는다.
 - `getBudget` / `getMonthlyReport`: 응답에 `categoryBudgets` 배열(categoryId 오름차순) 가산. **서버와 미러의 규칙이 문장 하나로 같아야 한다**: "필드 부재 무접촉 · 존재 시 그 달 집합 교체 · 응답은 categoryId 오름차순 배열" — T2가 자기 테스트로 양쪽 규칙을 같은 픽스처로 고정한다(라운드 100 R5와 같은 드리프트 대응).
 - 카테고리 실재 검증은 로컬 픽스처 카테고리 목록(`listCategories`가 서빙하는 그 목록)에 대해 수행 — 데모에서도 "아무 문자열이나 예산 키가 되는" 상태를 만들지 않는다.
 
@@ -187,7 +190,7 @@ model CategoryBudget {
 - 행 모집단: `["categories"]` 캐시를 **이 화면이 직접 채운다** — `useQuery({queryKey: ["categories"], queryFn: () => listCategories(authToken!, { includeAll: true }), staleTime: 5*60*1000 })`(리포트 화면과 같은 형식 — `categories-cache-contract` 스윕이 요구하는 includeAll 규약 준수, §6.3). 행은 `buildRecordsCategoryChips(categories.data?.categories)`가 준 칩 대장(정식 선택 가능 행 + matchIds 가족)에서 만든다 — **단, 목록이 아직 없으면(로딩·실패·오프라인 첫 실행) 카드 자체를 그리지 않는다**(모르면 제안하지 않는다). 이 게이트가 칩 모듈의 8타일 폴백 갈래(목록 부재 시)를 구조적으로 차단해, 별칭 id로 예산이 저장되는 경로가 없다. 이미 예산이 있는 categoryId가 칩 대장에 없으면(운영자가 숨긴 카테고리 등) 그 행을 이름 해석(`buildCategoryNameLookup`)과 함께 **끼워서 유지**한다 — `selectableCategories` 규칙 (d)("현재 값은 언제나 남긴다")와 같은 판단.
 - 행 하나: 카테고리 이름 + 금액 입력(`amountDigitsOnly`/`formatAmountDigits` — 총액 입력과 같은 money 모듈, `isAmountOverLimit` 같은 상한·같은 문구). 값 비우기 = 그 카테고리 예산 해제. a11y 라벨은 "{이름} 예산 입력".
 - 관측 한 줄: 채워진 행 합이 총액(입력 중 값 우선, 없으면 현재 예산)보다 크면 "카테고리 예산을 더한 값이 월 예산보다 N원 커요"(§1.3(a) — 저장은 막지 않는다).
-- 저장: **기존 [저장] 버튼 하나 그대로.** mutation 본문에 `categoryBudgets`를 싣는 조건은 "카테고리 카드가 렌더됐고 **사용자가 행을 하나라도 고쳤다**(dirty)" — 고치지 않은 저장은 필드 부재로 서버 무접촉이다(§6.7 R1: 두 기기 동시 편집에서 총액만 고친 저장이 남의 카테고리 예산을 낡은 프리필로 덮는 레이스를 없앤다). dirty면 **화면에 보이는 전체 집합**을 싣는다(replace-set 계약). 판정·행 조립·문구·조사·합 비교는 전부 순수 모듈 `src/home/category-budget-form.ts`가 소유하고 화면은 그린다(저장소 확립 규율). 신규 `useMutation` 없음(기존 save 하나 확장) — press-guard 무접촉.
+- 저장: **기존 [저장] 버튼 하나 그대로.** mutation 본문에 `categoryBudgets`를 싣는 조건은 "카테고리 카드가 렌더됐고 **사용자가 행을 하나라도 고쳤다**(dirty)" — 고치지 않은 저장은 필드 부재로 서버 무접촉이다(§6.7 R1: 두 기기 동시 편집에서 총액만 고친 저장이 남의 카테고리 예산을 낡은 프리필로 덮는 레이스를 없앤다). dirty면 **화면에 보이는 전체 집합**을 싣는다(replace-set 계약). 판정·행 조립·문구·조사·합 비교는 전부 순수 모듈 `src/expenses/category-budget-form.ts`가 소유하고 화면은 그린다(저장소 확립 규율). ⚠️ 두 시점(라운드 102 리뷰 L-2): 이 문서의 초안과 §8은 그 경로를 `src/home/…`으로 적었는데, T3는 금액 상한·칩 대장 등 이웃 모듈이 모두 `src/expenses/`에 있어 그 옆에 두었다 — **구현이 기준**이므로 문서를 옮긴다. 신규 `useMutation` 없음(기존 save 하나 확장) — press-guard 무접촉.
 - 성공 무효화는 종전 `["budget"],["home"],["report"]` 그대로 — 리포트 블록(§4.3)이 `["report"]`에 걸려 자동 갱신된다. 추가 키 0건.
 
 ### 4.2 이월·제안 칩 합류
@@ -197,7 +200,7 @@ model CategoryBudget {
 
 ### 4.3 리포트: 도넛 아래 "카테고리 예산" 블록 — 월간 탭 전용, 관측 톤
 
-- 위치: 도넛 카드(+드릴다운 안내 줄) **아래**, `hasSession && period === "월간"`이고 그 달 `monthly.data.categoryBudgets`가 1건 이상일 때만. 분기·연간에 없는 이유는 끝난 달 예산 한 줄(GAP-066)이 이미 확정한 문장 그대로다 — "예산은 (아이, 월) 한 칸이라 세 달·열두 달을 합친 예산이라는 것이 존재하지 않는다".
+- 위치: 도넛 카드(+드릴다운 안내 줄) **아래**, `hasSession && period === "월간"`이고 그 달 `monthly.data.categoryBudgets`가 1건 이상일 때만. ⚠️ 두 시점(라운드 102 리뷰 L-4): T3 구현은 이 블록을 도넛의 **빈 상태 삼항 안**에 두어, 그 달 지출이 0건이면 예산이 있어도 블록이 사라졌다(문서에 없는 넷째 게이트). 블록을 그 삼항의 형제로 옮겨 게이트를 여기 적힌 셋으로 되돌렸다 — 지출 0건인 달의 행은 관측 톤 그대로 "예산의 0%를 썼어요"라고 말한다. 분기·연간에 없는 이유는 끝난 달 예산 한 줄(GAP-066)이 이미 확정한 문장 그대로다 — "예산은 (아이, 월) 한 칸이라 세 달·열두 달을 합친 예산이라는 것이 존재하지 않는다".
 - **도넛 조각(범례 줄)에 직접 주석을 달지 않는다** — 채택하지 않은 대안으로 명기한다: ① 조각은 **원 id 단위**라 별칭 "기저귀"와 정식 "기저귀/위생"이 두 줄로 설 수 있는데, 가족 예산 하나를 어느 줄에 달아도(또는 양쪽에 달아도) 사실이 비틀린다. ② `DonutChartCard`는 공용 컴포넌트(`ui.tsx`)이고 비세션 장식 분기가 REP-001 픽셀락 원본이다 — 범례 줄 구조 변경은 접촉 면적 대비 얻는 게 없다. ③ 범례 줄은 이미 드릴다운 버튼이라(C-03) 한 줄에 의미를 더 싣지 않는다(카테고리 추이 카드가 "두 동작이 한 줄에 겹치지 않도록" 자기 칩을 둔 것과 같은 판단).
 - 행 하나(예산이 있는 카테고리만): `"{이름} {사용액} / 예산 {예산액}"` + 보조 한 줄. 사용액은 §5.1의 가족 합류 값(도넛과 같은 응답에서 접는다 — 두 숫자의 모집단이 같다). 퍼센트·초과 판정은 **`evaluateHomeBudgetProgress` 재사용**(홈 히어로·인사이트·끝난 달 한 줄과 같은 함수 — 내림·미소진 100% 금지 캡이 그 안에 있다, 판정 두 벌 금지). 초과 행의 보조 줄은 **"예산보다 N원 더 썼어요"** — 관측 사실만(DNC-018: "아껴 쓰세요"류 지출 억제 권고 금지, budget-pace 헤더의 그 경계). 색으로만 말하지 않는다(문장이 의미를 진다 — budget-warning의 관례).
 - 조립은 순수 모듈 `src/reports/category-budget-usage.ts`: 입력(칩 대장·카테고리 분해·categoryBudgets) → 행 목록(이름·사용액·예산·퍼센트·문장·a11y 라벨). 화면은 그린다.
@@ -256,7 +259,7 @@ model CategoryBudget {
 |---|---|
 | **categories-cache-contract**(전역) | budget.tsx가 `queryKey: ["categories"]` 소비처로 새로 잡힌다 — `listCategories(..., { includeAll: true })` 형식이면 그대로 초록(§4.1). 기본 12행 목록으로 채우는 순간 빨강. |
 | **shared-cache-policy** | `["budget"]` 선언 전수의 childId 스코프 계약 유지(신규 budget 키 없음 — 기존 키 재사용). `["categories"]` 소비처 증가는 walk가 자동 수용. 상수 경유 무효화 0건 유지. |
-| **transaction-bounds(api)** | T1의 replace-set `$transaction` 1자리 신규 — **명시 상한을 주거나 대장 등재**(둘 중 하나, 아니면 빨강). 등재 사유(T1 구현 사실로 갱신 — L-4): "**고정 4문장**(감사 before 조회 findMany 한 건 · 총액 upsert · deleteMany 한 건 · 상한 30으로 잘린 createMany 한 건)이고 입력 크기에 비례하지 않는다"(§2.2 — `confirmChildProfileDeletion` 등재와 같은 기준). 대장 편입으로 기존 `onboarding-core.service.ts#1`(confirmChildProfileDeletion) 키는 `#2`로 밀렸다(파일 내 순번 키). |
+| **transaction-bounds(api)** | T1의 replace-set `$transaction` 1자리 신규 — **명시 상한을 주거나 대장 등재**(둘 중 하나, 아니면 빨강). 등재 사유(구현 사실로 갱신): "**고정 6문장**(총액 before 조회 findUnique 한 건 · 카테고리 before 조회 findMany 한 건 · 카테고리 실재/active 일괄 조회 findMany 한 건 · 총액 upsert · deleteMany 한 건 · 상한 30으로 잘린 createMany 한 건)이고 입력 크기에 비례하지 않는다"(§2.2 — `confirmChildProfileDeletion` 등재와 같은 기준). ⚠️ 두 시점: 이 칸은 T1 시점에 **4문장**이었고, 라운드 102 리뷰 M-2·H가 총액 before 조회와 카테고리 검증을 트랜잭션 안으로 들이며 6문장이 됐다(§2.2). 대장 편입으로 기존 `onboarding-core.service.ts#1`(confirmChildProfileDeletion) 키는 `#2`로 밀렸다(파일 내 순번 키). |
 | **사문 대장 / 라운드 95 공통 금지** | 새 export는 같은 라운드에 제품 호출부 필수. **모바일 새 `export const` 0건**(함수형/계약 소유) — 상수는 contracts가 갖고 모바일은 자기 상수+대조(관례). T3 새 모듈 2개는 배선 커밋과 한 트랙. |
 | **contracts-mirror(mobile)** | 새 계약 스키마는 `.object({` 머리 형태로 적는다(파서 규약 — 라운드 100이 `.partial()`에서 배운 것). `CATEGORY_BUDGET_MAX_PER_MONTH` 미러+두 방향 대조를 T2가 싣는다. |
 | **korean-particle-guard** | 카테고리 이름이 들어가는 새 문장은 이름 뒤 조사를 피하는 형태로 설계했다(§4.3 행 형식 — 이름은 문두 명사구). 조사가 필요한 문장을 만들게 되면 `korean-particles.ts` 판정 필수. |
@@ -274,6 +277,8 @@ model CategoryBudget {
 
 - **신규 거부**: `active:false` 카테고리에는 예산을 새로 세울 수 없다(§2.2 검증 — 숨긴 분류를 선택지로 되살리지 않는다).
 - **기존 유지**: 이미 세워진 예산 행은 지우지 않는다(사용자가 정한 사실). 리포트 블록·예산 화면에서 이름은 includeAll 전량 목록이 계속 해석한다(R28-F3이 지출 이름에 확립한 그 규칙). 예산 화면에서는 행이 남아 값 수정·해제가 가능하다(§4.1의 끼워 유지).
+  - ⚠️ **두 시점(라운드 102 리뷰 H) — 이 문장의 실현이 서버 검증의 모양이다.** 클라이언트의 replace-set은 화면 전체 집합을 싣고 끼워 유지한 행도 그 안에 있으므로, 검증이 요청 배열 전수에 `active:true`를 요구하면 **총액만 고치는 저장까지** 400이 되어 위 문장이 거짓이 된다(T1 구현이 그랬다). 오늘의 판정은 "**새로 서는 categoryId만** active 요구, 이미 그 (아이, 달)에 행이 있던 id는 통과"이고, 그 집합은 같은 트랜잭션의 before 조회가 이미 읽는 값이다(§2.2). 해제는 그 id를 배열에서 빼는 것이라 애초에 검증 모집단 밖이고, **해제한 뒤에는 다시 신규**라 같은 id를 다시 세울 수 없다(신규 거부는 그대로다). 로컬 미러도 같은 규칙이다(§3.1 — 서버와 갈리면 standalone이 다르게 군다).
+  - **리포트 사용액의 가족**(라운드 102 리뷰 L-7): 숨긴 카테고리의 행도 사용액은 칩 대장의 `matchIds` 가족 합이다 — 같은 `buildRecordsCategoryChips`를 그 id를 "현재 값"으로 넘겨 세운다(`selectableCategories` 규칙 (d)가 그 행을 언제나 남긴다). 자기 id 하나로만 세면 숨김 전후로 같은 달 사용액이 급감한다(퀵타일 별칭 지출이 통째로 빠진다).
 - **커스텀 카테고리 부재 전제**: 사용자는 분류를 만들 수 없다 — 모집단은 운영 시드뿐이므로 상한 30(§1.4)과 칩 대장 재사용이 성립한다. 이 전제가 깨지는 라운드는 이 절을 재론해야 한다.
 
 ### 6.6 픽셀락 무접촉 전략
@@ -321,7 +326,7 @@ model CategoryBudget {
 |---|---|---|---|
 | **T1 api** | `prisma/migrations/000023_category_budgets/` · `prisma/schema.prisma`(CategoryBudget 모델) · `onboarding/dto/upsert-budget.dto.ts`(중첩 DTO 가산) · `onboarding/onboarding-core.service.ts`(upsertBudget/getBudget 확장) · `onboarding/budgets.controller.ts`(봉투 가산 배선) · `onboarding/reporting-store.service.ts`(getMonthlyReport 가산) · `test/category-budgets.e2e.test.ts`(신규) · `test/transaction-bounds.test.ts`(대장 1행) · `test/data-retention-purge.db.test.ts`(단언 1개) | e2e: replace-set(교체·빈 배열 해제)·필드 부재 무접촉(R5)·총액 없는 달 404 불변(R3)·검증(중복 id·비활성/미존재 카테고리·상한 30·금액 범위)·권한(viewer 403)·멱등 재전송·감사 봉투 가산·월간 리포트 가산·아이 파기 캐스케이드(R2 아님 — §1.5) | DTO는 class-validator 자체 선언(contracts 신규 심볼 import 0 — T2와 독립) |
 | **T2 contracts + client + local-backend** | `packages/contracts/src/schemas.ts`(가산) · `apps/mobile/src/api/client.ts`(타입 가산 + upsertBudget 5번째 인자) · `local-backend.ts`(상태·sanitize·upsertBudget/getBudget/getMonthlyReport) · `contracts-mirror.test.ts`(상수 대조) · `local-backend` 계열 테스트 | zod 파스(가산 optional 두 스키마 위치) · 미러: 교체/부재 무접촉/빈 배열/상한/검증/응답 정렬(서버 규칙 §2.2를 같은 픽스처로) · sanitize(오염 blob → `{}`) · 상수 두 방향 대조 | |
-| **T3 UI** | `app/budget.tsx`(카테고리 카드 + categories 쿼리 + dirty 전송) · `src/home/category-budget-form.ts`+`.test.ts`(신규 — 행 조립·검증·문구·이월 칩 판정·합 관측·a11y) · `app/(tabs)/reports.tsx`(블록 배선) · `src/reports/category-budget-usage.ts`+`.test.ts`(신규 — 가족 합류·퍼센트·문장) · 배선 테스트(가드된 슬라이스) | 모듈 테스트(금액 가드 단일 소스·빈 행=해제·칩 defer 조건·matchIds 합류=칩 필터 동치(R2)·관측 문구 해요체·초과 관측 톤) · 배선 테스트(세션 갈래 한정·REP-001 비세션 무접촉·["categories"] includeAll) · 기존 스윕 전체 그린 | `budget-warning/pace/suggestion/progress`·`DonutChartCard`·`records-list-view.ts` **읽기 전용** |
+| **T3 UI** | `app/budget.tsx`(카테고리 카드 + categories 쿼리 + dirty 전송) · `src/expenses/category-budget-form.ts`+`.test.ts`(신규 — 행 조립·검증·문구·이월 칩 판정·합 관측·a11y. ⚠️ 두 시점 — 리뷰 L-2: 이 표는 `src/home/…`으로 적었고 구현은 금액 상한·칩 대장 이웃을 따라 `src/expenses/`에 두었다) · `app/(tabs)/reports.tsx`(블록 배선) · `src/reports/category-budget-usage.ts`+`.test.ts`(신규 — 가족 합류·퍼센트·문장) · 배선 테스트(가드된 슬라이스) | 모듈 테스트(금액 가드 단일 소스·빈 행=해제·칩 defer 조건·matchIds 합류=칩 필터 동치(R2)·관측 문구 해요체·초과 관측 톤) · 배선 테스트(세션 갈래 한정·REP-001 비세션 무접촉·["categories"] includeAll) · 기존 스윕 전체 그린 | `budget-warning/pace/suggestion/progress`·`DonutChartCard`·`records-list-view.ts` **읽기 전용** |
 
 **커밋 순서와 병렬성**: T1 ∥ T2 완전 병렬(교집합 0). **T3는 T2 머지 후**(client 타입·인자를 import한다). 즉 `T1, T2 → T3`. 각 트랙 머지 시 자기 필터 테스트 그린, 라운드 종료 시 `pnpm release:gate`(로컬 검증 기준 — launch-72h-plan). api 테스트는 실 PostgreSQL(`service postgresql start` 후 `wooriai_test`).
 
@@ -363,7 +368,11 @@ PUT    /api/v1/children/:childId/budget            (기존 — 본문 가산) �
              · 배열 상한 30 · categoryId 중복 = VALIDATION_ERROR
              · 카테고리 미존재/active:false = 400 CATEGORY_BUDGET_INVALID_CATEGORY(전체 거절)
              · 총액 upsert + 교체는 한 $transaction(대장 등재 §6.3)
-       200 → 9.3의 GET 200과 같은 모양
+       200 → 요청에 categoryBudgets가 **있었을 때만** 그 필드를 실은 GET 200과 같은 모양.
+             필드 부재 갈래의 200에는 categoryBudgets 키 자체가 없다(그 행을 한 건도 읽지
+             않는 갈래라 응답도 모른다고 말한다 — 로컬 미러도 같다).
+             ⚠️ 두 시점(라운드 102 리뷰 M-4): 이 줄은 "9.3의 GET 200과 같은 모양"이었고,
+             그 문장 위에서 서버는 키를 빼고 미러는 언제나 실어 두 벌이 갈려 있었다.
        감사: 기존 budget.upsert 봉투 — categoryBudgets 필드가 있을 때만 before/after에
              categoryBudgets(categoryId 오름차순) 가산
 
@@ -397,8 +406,14 @@ export function upsertBudget(
   categoryBudgets?: CategoryBudgetEntry[]   // undefined = 필드 미탑재(서버 무접촉)
 ): Promise<Budget>;  // local 토큰 → localBackend.upsertBudget(같은 5번째 인자)
 
-// 상수 미러는 contracts-mirror 관례(자기 값 + 두 방향 대조 테스트) — 새 export const 대신
-// 기존 관례에 맞춘 자리(client.ts의 기존 미러 상수 군)에 둔다: CATEGORY_BUDGET_MAX_PER_MONTH = 30
+// 상수 미러는 contracts-mirror 관례(자기 값 + 두 방향 대조 테스트)다.
+// ⚠️ 두 시점(라운드 102 리뷰 L-3): 이 줄은 미러를 "client.ts의 기존 미러 상수 군"에 두라고
+// 적어 §6.3(모바일 새 export const 0건 · 상수는 contracts가 갖고 모바일은 자기 상수+대조)과
+// 스스로 충돌했다. **§6.3이 우선**이고 구현도 그쪽이다: 값 사본은 그 값을 실제로 쓰는 자리의
+// **비export 리터럴**이고(local-backend.ts의 LOCAL_CATEGORY_BUDGET_MAX_PER_MONTH ·
+// category-budget-form.ts의 CATEGORY_BUDGET_FORM_ROW_LIMIT), 계약과의 두 방향 대조는
+// category-budgets-mirror.test.ts와 category-budget-form.test.ts가 진다. client.ts에는 미러
+// 상수를 두지 않는다.
 ```
 
 ### 9.5 local-backend.ts (T2)
@@ -415,8 +430,10 @@ export function upsertBudget(
 ### 9.6 UI 확정값 (T3)
 
 - 예산 화면: "새 예산" 카드 아래 **"카테고리별 예산"** 카드, 캡션 "원하는 카테고리에만 정해도 돼요.". 행 모집단 = `buildRecordsCategoryChips`(§4.1 — 목록 없으면 카드 미렌더, 기존 예산 행은 끼워 유지). 금액 입력은 money 모듈·`isAmountOverLimit` 재사용. 합>총액 관측 한 줄. 저장은 기존 버튼·기존 mutation — `categoryBudgets`는 dirty일 때만 탑재(전체 집합).
+  - **확정 카피(카드 안 문장 전량)**: 제목 "카테고리별 예산" · 캡션 "원하는 카테고리에만 정해도 돼요." · 입력 placeholder "예산 없음" · 이월 칩 "지난달 카테고리 예산 그대로"(낭독 "…그대로 채우기") · 행 a11y 라벨 "{이름} 예산 입력" · 맺음 안내 **"값을 비우면 그 카테고리 예산이 해제돼요."**. ⚠️ 두 시점(라운드 102 리뷰 L-카피): 맺음 안내는 T3가 화면에 세운 문장인데 이 목록에 없었다 — replace-set의 "빈 행이 곧 삭제"(§2.2)를 사용자에게 말하는 유일한 줄이라 확정 카피로 등재한다. 상한·합 문구는 화면이 짓지 않는다(api-error 표·순수 모듈).
+  - **색과 낭독의 갈래**(라운드 102 리뷰 L-a11y): 관측 줄(합>총액)은 캡션 회색 그대로이고, **저장을 잠그는 오류**(행 금액 상한 · 30개 상한 — 둘 다 `isValid`를 내린다)는 `theme.colors.danger` + `accessibilityLiveRegion="polite"`/`accessibilityRole="alert"`다. 포커스가 방금 친 입력칸에 남아 자동 낭독이 없기 때문이고(지출 날짜 오류와 같은 조합), 잠긴 이유를 회색 한 줄로만 말하면 버튼이 왜 안 눌리는지 화면이 끝내 답하지 않는다.
 - 이월 칩: "지난달 카테고리 예산 그대로" — `budget.data === null` && 지난달 응답에 행 존재 && 이번 달 행 전부 빈 상태에서만, 채워 넣기 전용(§4.2).
-- 리포트: 도넛 아래 블록(월간 탭·세션·행 1건 이상). 행 `"{이름} {사용액} / 예산 {예산액}"`, 사용액 = matchIds 가족 합(§5.1), 퍼센트/초과 = `evaluateHomeBudgetProgress` 재사용, 초과 보조 줄 "예산보다 N원 더 썼어요"(관측만).
+- 리포트: 도넛 아래 블록(월간 탭·세션·행 1건 이상 — 그 달 지출 0건이어도 선다, §4.3 두 시점). 행 `"{이름} {사용액} / 예산 {예산액}"`, 사용액 = matchIds 가족 합(§5.1), 퍼센트 = `evaluateHomeBudgetProgress` 재사용. 보조 줄은 세 갈래이고 경계는 그 모듈의 한 술어 `isBudgetUsedUp`(`>=`)다: 초과 "예산보다 N원 더 썼어요" · 정확히 다 씀 "예산을 모두 썼어요" · 그 아래 "예산의 N%를 썼어요"(전부 관측만). ⚠️ 두 시점(라운드 102 리뷰 L-1): T3 구현은 초과 판정만 `used > budget`으로 따로 적어, 한 행 안에서 퍼센트와 문장이 다른 경계를 들었다(라운드 38 H-2가 히어로·넛지에서 없앤 그 모양).
 - 홈·알림·푸시 0접촉(§4.4) · 신규 라우트 0 · 신규 색상 리터럴 0 · 신규 `useMutation` 0 · 모바일 새 `export const` 0(함수형/기존 미러 자리) · 배선 테스트 슬라이스는 실재 확인(`toBeGreaterThan(-1)`) 선행.
 
 ---

@@ -2048,7 +2048,13 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // useRecentSearchesStore와 **정확히 같은 길**로 들어왔다: teardown 등재와 함께
     // LOGOUT_UNCOUNTED_TEARDOWN_STORES 표의 실제 객체 키로 선다(namesAlsoUsedAsProperty()
     // 실측 — 순증은 이 하나뿐). 모집단이 는 것이지 새 병이 아니다.
-    value: 238,
+    // 두 시점(라운드 102 리뷰 M-1): 238 → 239 — useBudgetWarningHapticStore(예산 100% 경고 햅틱의
+    // (아이, 월, 경계) persist 클레임)가 **같은 길로 하나 더** 들어왔다: teardown 등재와 함께
+    // LOGOUT_UNCOUNTED_TEARDOWN_STORES 표의 실제 객체 키로 선다(namesAlsoUsedAsProperty() 실측 —
+    // 순증은 이 하나뿐이다. 같은 배치가 연 다른 export 넷 — isBudgetUsedUp ·
+    // budgetWarningHapticClaimKey · sanitizeBudgetWarningHapticClaims ·
+    // quickRecordPinToggleAnnouncement — 은 속성/키 자리로 서지 않아 이 수를 움직이지 않는다).
+    value: 239,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +

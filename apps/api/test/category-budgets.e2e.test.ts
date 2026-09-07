@@ -138,6 +138,8 @@ describe("Category budgets API (라운드 102 T1)", () => {
     await prisma.childItemStatus.deleteMany({ where: { childId: { in: childIds } } });
     await prisma.expense.deleteMany({ where: { childId: { in: childIds } } });
     await prisma.child.deleteMany({ where: { id: { in: childIds } } });
+    // 아이 삭제가 category_budgets를 캐스케이드로 걷은 **뒤**라야 카테고리 행을 지울 수 있다
+    // (category_id는 캐스케이드 없는 FK — §1.1의 그 결정).
     await prisma.category.deleteMany({ where: { id: inactiveCategoryId } });
     await prisma.$disconnect();
     await app.close();
@@ -326,6 +328,93 @@ describe("Category budgets API (라운드 102 T1)", () => {
     })
       .expect(200)
       .expect(({ body }) => expect(body.categoryBudgets).toEqual([{ categoryId: ALIAS_DIAPER_ID, amountKrw: 15000 }]));
+  });
+
+  it("숨긴 카테고리의 **기존 행**은 계속 고칠 수 있다(§6.5 기존 유지 · 리뷰 H): 총액만 수정·값 수정·해제 세 갈래가 전부 200이고, 같은 id를 **새로** 세우는 요청만 400이다", async () => {
+    // ⚠️ 두 시점: 종전 검증은 요청 배열 **전수**에 active:true를 요구했다. 클라이언트는
+    // replace-set이라 "끼워 유지"한 기존 행까지 화면 전체 집합으로 함께 싣는데(§4.1·§6.5),
+    // 그래서 운영자가 예산 있는 카테고리를 숨기는 순간 그 아이·그 달은 **총액만 고치는
+    // 저장까지** 400으로 막혔다. 오늘의 판정은 "새로 서는 id만 active 요구"다.
+    const monthKey = "2027-01";
+    const monthDate = "2027-01-01";
+    const visible = formalIds[0];
+
+    // 준비: 총액 + 보이는 카테고리 한 행(정상 경로).
+    await putBudget({ yearMonth: monthKey, amountKrw: 200000, categoryBudgets: [{ categoryId: visible, amountKrw: 30000 }] })
+      .expect(200);
+    // "운영자가 숨기기 **전에** 세워져 있던 행" — 숨긴 뒤에는 API로 만들 수 없으므로(그것이
+    // 이 판정의 다른 갈래다) 상태만 직접 심는다.
+    await prisma.categoryBudget.create({
+      data: { childId, yearMonth: new Date(`${monthDate}T00:00:00.000Z`), categoryId: inactiveCategoryId, amountKrw: 50000 }
+    });
+    const kept = sortedAsc([
+      { categoryId: visible, amountKrw: 30000 },
+      { categoryId: inactiveCategoryId, amountKrw: 50000 }
+    ]);
+    expect(await dbRows(monthDate)).toEqual(kept);
+
+    // ① 총액만 수정 — 화면은 kept 행을 그대로 다시 싣는다(§4.1 replace-set 전체 집합).
+    await putBudget({ yearMonth: monthKey, amountKrw: 260000, categoryBudgets: kept })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.amountKrw).toBe(260000);
+        expect(body.categoryBudgets).toEqual(kept);
+      });
+    expect(await dbRows(monthDate)).toEqual(kept);
+
+    // ② 그 행의 **값 수정** — 숨긴 카테고리라도 사용자가 정한 사실은 계속 고칠 수 있다.
+    const edited = sortedAsc([
+      { categoryId: visible, amountKrw: 30000 },
+      { categoryId: inactiveCategoryId, amountKrw: 70000 }
+    ]);
+    await putBudget({ yearMonth: monthKey, amountKrw: 260000, categoryBudgets: edited }).expect(200);
+    expect(await dbRows(monthDate)).toEqual(edited);
+
+    // ③ 그 행 **해제**(배열에서 빼기 = 삭제).
+    const released = sortedAsc([{ categoryId: visible, amountKrw: 30000 }]);
+    await putBudget({ yearMonth: monthKey, amountKrw: 260000, categoryBudgets: released }).expect(200);
+    expect(await dbRows(monthDate)).toEqual(released);
+
+    // ④ 해제한 뒤에는 그 id가 다시 **신규**다 — 숨긴 분류를 선택지로 되살리지 않는다(§6.5).
+    await putBudget({
+      yearMonth: monthKey,
+      amountKrw: 260000,
+      categoryBudgets: sortedAsc([...released, { categoryId: inactiveCategoryId, amountKrw: 10000 }])
+    })
+      .expect(400)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("CATEGORY_BUDGET_INVALID_CATEGORY");
+      });
+    // 거절은 부분 적용이 없다 — 유효한 행도 그대로다.
+    expect(await dbRows(monthDate)).toEqual(released);
+
+    // ⑤ 미존재 id는 "기존 행" 통로가 없다 — 종전 그대로 거절이다.
+    await putBudget({
+      yearMonth: monthKey,
+      amountKrw: 260000,
+      categoryBudgets: sortedAsc([...released, { categoryId: randomUUID(), amountKrw: 10000 }])
+    })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("CATEGORY_BUDGET_INVALID_CATEGORY"));
+    expect(await dbRows(monthDate)).toEqual(released);
+  });
+
+  it("`categoryBudgets: null`은 400 VALIDATION_ERROR다 — 부재만 무접촉이고 셋째 갈래는 없다 (리뷰 M-3)", async () => {
+    // ⚠️ 두 시점: 종전 게이트(@IsOptional)는 null도 검증 전체를 건너뛰어, 서비스의
+    // `=== undefined` 갈래를 지나 replace-set 쪽 `.map`에서 TypeError → 500이 됐다.
+    const rows = sortedAsc([{ categoryId: formalIds[0], amountKrw: 12000 }]);
+    await putBudget({ yearMonth: "2027-02", amountKrw: 100000, categoryBudgets: rows }).expect(200);
+
+    await putBudget({ yearMonth: "2027-02", amountKrw: 110000, categoryBudgets: null })
+      .expect(400)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+    // 거절이므로 총액도 카테고리 행도 한 글자도 바뀌지 않았다(부분 적용 없음).
+    expect(await dbRows("2027-02-01")).toEqual(rows);
+    expect((await getBudget("2027-02")).amountKrw).toBe(100000);
   });
 
   it("권한(§2.7): viewer 쓰기는 403 FORBIDDEN(행 무접촉), 읽기는 구성원 전원 — categoryBudgets 포함", async () => {

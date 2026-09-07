@@ -63,10 +63,29 @@ describe("행 모집단 — 칩 대장(정식 선택 가능 행)이고, 목록�
   });
 
   it("8타일 폴백 갈래를 구조적으로 차단한다 — 선택 가능 행이 0건이면 폼이 없다 (별칭 id 예산 경로 없음)", () => {
-    // 별칭·스텁만 남은 목록: 칩 모듈은 8타일 폴백을 돌려주지만 그 id들은 서버 목록 밖이라
+    // 별칭·스텁만 남은 목록: 칩 모듈은 8타일 폴백을 돌려주지만 제안 가능 행이 0건이므로
     // 전부 떨어져야 한다. 여기가 뚫리면 퀵타일 별칭 id로 예산이 저장되는 경로가 생긴다(§1.1 D).
     const form = buildCategoryBudgetForm({ categories: [IMPORT_STUB], draft: {}, totalBudgetKrw: null });
     expect(form).toBeNull();
+  });
+
+  it("⚠️ 그 차단의 자는 **제안 가능 행**이다 — 별칭 8행이 목록에 실재해도 폼은 서지 않는다 (리뷰 L-9)", () => {
+    // ⚠️ 두 시점: 종전 방어는 "서버 목록에 있는 id인가"였다. 그런데 실서버의 includeAll 목록에는
+    // 퀵타일 별칭 8행이 들어 있고 그 id는 폴백 칩의 id와 **바이트 동일**이라, 정식 12행이 전부
+    // 숨겨진 상태에서 폴백 칩이 그 방어를 그대로 통과했다 — 별칭 id로 예산이 서는 경로가
+    // 열려 있었다. 오늘의 자는 `selectableCategories`(제안 가능 행)이고, 별칭은 selectable:false다.
+    const aliasRows = categoryCatalog.map((entry) => ({
+      id: entry.id,
+      code: `mobile_${entry.code}`,
+      name: entry.label,
+      selectable: false,
+      active: true
+    }));
+    // 정식 행은 전부 숨겨졌고(active:false) 별칭 8행만 살아 있는 목록 — 종전 방어로는 통과했다.
+    const allHidden = [{ ...CANONICAL_DIAPER, active: false }, { ...CANONICAL_FEEDING, active: false }, ...aliasRows];
+    expect(buildCategoryBudgetForm({ categories: allHidden, draft: {}, totalBudgetKrw: null })).toBeNull();
+    // 그 목록의 별칭 id가 실제로 서버 목록 안에 있다는 사실(= 종전 방어가 왜 뚫렸는지)도 값이다.
+    expect(allHidden.some((category) => category.id === categoryCatalog[0].id)).toBe(true);
   });
 
   it("행은 정식 선택 가능 행뿐이다 — 별칭·스텁·숨긴 행은 행이 아니다", () => {

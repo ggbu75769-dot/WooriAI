@@ -174,3 +174,24 @@ export function quickRecordChipAccessibilityActions(
 export function isQuickRecordPinToggleAction(actionName: string): boolean {
   return actionName === QUICK_RECORD_PIN_TOGGLE_ACTION_NAME;
 }
+
+/**
+ * 라운드 102 리뷰 L-핀 — 토글이 **성사된 뒤** 낭독할 확인 문장.
+ *
+ * 길게 누르기·커스텀 액션 어느 쪽으로 토글해도 화면에서 바뀌는 것은 칩 앞의 작은 글리프와
+ * 칩 순서뿐이라(둘 다 시각 신호다), 스크린리더 사용자는 자기가 방금 한 일이 됐는지 알 방법이
+ * 없었다. 목록이 다시 그려져도 포커스가 옮겨 가지 않아 새 라벨("…, 홈에 고정됨")이 자동으로
+ * 읽히지도 않는다 — 그래서 확인은 **낭독 한 줄**이 진다(기록 행 롱프레스 액션과 같은 관례).
+ *
+ * 인자는 토글 **직후**의 목록이다(스토어가 돌려준 그 값). 목록에 이름이 있으면 방금 고정된
+ * 것이고, 없으면 방금 해제된 것이다 — 화면이 "무엇을 했는지"를 따로 기억하지 않아도 되도록
+ * 사실 하나로 판정한다. 이름 뒤에는 조사가 오지 않는다(korean-particle 설계 — 뒤에 체언이 온다).
+ */
+export function quickRecordPinToggleAnnouncement(
+  itemName: string | null | undefined,
+  pinsAfterToggle: readonly string[]
+): string | null {
+  const name = (itemName ?? "").trim();
+  if (!name) return null;
+  return pinsAfterToggle.includes(name) ? `${name} 홈에 고정했어요` : `${name} 고정을 해제했어요`;
+}

@@ -43,8 +43,12 @@ import { theme } from "./theme";
  * BudgetHeroCard 진행 바 트랙(흰 32% → semanticColors 신규 progressTrackInverse — theme이
  * 아니라 design-system 토큰이다: 그 레이어는 theme을 부르지 않는다)도 함께 회수했다.
  * 3차 뒤의 잔여 목록(코드 색 리터럴 전수 재실측):
- *  · app/(tabs)/index.tsx:409("rgba(74, 63, 53, 0.10)") · :572("rgba(255, 255, 255, 0.18)")
+ *  · app/(tabs)/index.tsx:421("rgba(74, 63, 53, 0.10)") · :584("rgba(255, 255, 255, 0.18)")
  *    — 이번 라운드 병렬 트랙과 충돌(무접촉) · 다음 차수 몫
+ *    ⚠️ 두 시점(라운드 102 리뷰 L-10): 이 두 줄 번호는 3차 작성 시점에 **409·572**로 적혔는데,
+ *    같은 라운드의 다른 트랙(F6b 핀 배선)과 이 리뷰 배치가 그 위에 줄을 더해 오늘은 421·584다.
+ *    값(파일:리터럴)은 한 글자도 바뀌지 않았다 — 위 문단의 "바늘은 파일:값, 줄은 오늘의
+ *    길잡이"가 정확히 이 상황을 위한 문장이고, 길잡이는 낡으면 고친다.
  *  · app/launch-animation.tsx — a11y-contract가 소스 리터럴을 단언하는 무접촉 계약(치환 대상 아님)
  */
 const mobileRoot = process.cwd();

@@ -23,7 +23,8 @@ import {
   requireMoneyKrw,
   toChildDto,
   toDateOnly,
-  type ChildDto
+  type ChildDto,
+  type DbClient
 } from "./store-shared";
 
 /**
@@ -39,10 +40,19 @@ export const CATEGORY_BUDGET_MAX_PER_MONTH = 30;
  * 라운드 102 §2.3/§2.6 — 카테고리 예산 배열의 결정적 정렬(categoryId 오름차순). 응답도
  * 감사 봉투 diff도 이 정렬 하나를 쓴다. 소문자 canonical UUID는 16진수 문자열 비교가
  * PostgreSQL uuid 바이트 순서와 같으므로 단순 비교로 충분하다.
+ *
+ * 라운드 102 리뷰 L-기타 — 그래서 **정렬 전에 소문자로 접는다**. 두 원천이 이 함수를 함께
+ * 지나기 때문이다: DB에서 온 행(PostgreSQL uuid는 언제나 소문자 canonical)과 **요청 본문의
+ * 문자열**(`@IsUUID()`는 대문자 표기도 통과시킨다). 접지 않으면 같은 카테고리가 봉투의
+ * before(소문자)와 after(대문자)에 다른 문자열로 실려 diff가 없는 변경을 만들고, 정렬 자체도
+ * 두 표기가 섞이면 흔들린다.
+ * ⚠️ 오늘 도달 가능한 입력에서 이 한 줄은 항등식이다 — `requireBudgetableCategories`가
+ * DB의 소문자 id 집합과 요청 문자열을 그대로 견주므로 대문자 요청은 그 앞에서 400으로
+ * 떨어진다. 이 줄이 무는 것은 **그 비교가 대소문자를 무시하게 되는 날**의 봉투 오염이다.
  */
 function sortCategoryBudgetEntries(entries: ReadonlyArray<{ categoryId: string; amountKrw: number }>) {
   return [...entries]
-    .map((entry) => ({ categoryId: entry.categoryId, amountKrw: entry.amountKrw }))
+    .map((entry) => ({ categoryId: entry.categoryId.toLowerCase(), amountKrw: entry.amountKrw }))
     .sort((a, b) => (a.categoryId < b.categoryId ? -1 : a.categoryId > b.categoryId ? 1 : 0));
 }
 
@@ -691,12 +701,14 @@ export class OnboardingCoreService {
     const normalizedMonth = getSeoulMonthRange(yearMonth).yearMonth;
     const amount = requireMoneyKrw(amountKrw);
     const where = { childId_yearMonth: { childId, yearMonth: toDateOnly(normalizedMonth) } };
-    const existing = await this.prisma.budget.findUnique({ where });
 
     // 라운드 102 T1 — 필드 부재 = 무접촉(§2.2, 리스크 R5): 카테고리 예산 행은 한 건도
     // 읽지도 쓰지도 않고, 감사 봉투도 종전과 바이트 단위로 같다. 이 갈래가 구클라이언트
     // (온보딩 예산 화면 포함)의 하위호환 전부다.
     if (categoryBudgets === undefined) {
+      // 이 갈래의 before 조회는 upsert **직전 1회**로 종전과 같다(트랜잭션이 없는 갈래라
+      // 담을 트랜잭션도 없다 — 지출 수정 경로 updateExpense와 같은 정밀도, 위 doc comment).
+      const existing = await this.prisma.budget.findUnique({ where });
       const budget = await this.prisma.budget.upsert({
         where,
         update: { amountKrw: amount },
@@ -724,19 +736,34 @@ export class OnboardingCoreService {
         message: `카테고리 예산은 한 달에 ${CATEGORY_BUDGET_MAX_PER_MONTH}개까지 정할 수 있어요.`
       });
     }
-    await this.requireBudgetableCategories(entries.map((entry) => entry.categoryId));
-
     // 총액 upsert + 집합 교체는 한 트랜잭션(원자성 — 화면의 [저장] 한 번이 부분 성공할 수
-    // 없다, §2.1 ②). 문장 수는 **고정 4문장**(감사 before 조회 · 총액 upsert · deleteMany
-    // 한 건 · 상한 30으로 잘린 배열형 createMany 한 건)이라 입력 크기에 비례하지 않는다 —
-    // transaction-bounds 대장 등재 사유가 이 문장이다(설계 문서 §2.2/§6.3, L-4 갱신).
-    // before 조회가 트랜잭션 **안**인 이유: deleteMany가 지우기 직전의 집합이 곧 봉투의
-    // before여야 하고(§2.6 — diff의 정밀도), 밖에서 읽으면 그 사이 창이 생긴다.
-    const { budget, beforeRows } = await this.prisma.$transaction(async (tx) => {
+    // 없다, §2.1 ②). 문장 수는 **고정 6문장**(총액 before 조회 · 카테고리 before 조회 ·
+    // 카테고리 실재/active 일괄 조회 · 총액 upsert · deleteMany 한 건 · 상한 30으로 잘린
+    // 배열형 createMany 한 건)이라 입력 크기에 비례하지 않는다 — transaction-bounds 대장
+    // 등재 사유가 이 문장이다(설계 문서 §2.2/§6.3).
+    //
+    // ⚠️ 두 시점 (라운드 102 리뷰 M-2·H) — 종전 이 자리는 **4문장**이었고 그 근거의 절반만
+    // 적용돼 있었다. ① 총액 before(`budget.findUnique`)가 트랜잭션 **밖**이라, 카테고리
+    // before와 한 봉투에 실리면서도 서로 다른 시점을 말할 수 있었다(§2.6이 요구하는 것은
+    // "지우기 직전의 상태"라는 **한 시점**이다). ② 카테고리 실재·active 검증도 밖이라,
+    // beforeRows가 이미 읽고 있는 "이 달에 이미 서 있던 id" 집합을 볼 수 없었다 — 그래서
+    // 운영자가 숨긴 카테고리에 예산이 있으면 **총액만 고치는 저장까지 400**이 됐다(H).
+    // 둘 다 트랜잭션 안으로 들어와 문장 수가 6으로 늘었고, 늘어난 둘은 전부 **입력 크기와
+    // 무관한 단발 조회**다(검증 조회는 상한 30으로 잘린 id 배열 하나의 `in` 한 문장).
+    // 검증이 던지면 트랜잭션이 통째로 롤백된다 — "부분 적용 없음"(§2.2)은 그대로다.
+    const { budget, existing, beforeRows } = await this.prisma.$transaction(async (tx) => {
+      const existingBudget = await tx.budget.findUnique({ where });
       const rows = await tx.categoryBudget.findMany({
         where: { childId, yearMonth: toDateOnly(normalizedMonth) },
         select: { categoryId: true, amountKrw: true }
       });
+      // 검증은 쓰기 앞에서 전부 끝난다(§2.2). 판정의 모집단에 "이미 이 달에 서 있던 id"를
+      // 함께 넘기는 이유는 아래 requireBudgetableCategories의 doc comment에 있다.
+      await this.requireBudgetableCategories(
+        tx,
+        entries.map((entry) => entry.categoryId),
+        new Set(rows.map((row) => row.categoryId))
+      );
       const upserted = await tx.budget.upsert({
         where,
         update: { amountKrw: amount },
@@ -753,7 +780,7 @@ export class OnboardingCoreService {
           }))
         });
       }
-      return { budget: upserted, beforeRows: rows };
+      return { budget: upserted, existing: existingBudget, beforeRows: rows };
     });
 
     const afterEntries = sortCategoryBudgetEntries(entries);
@@ -782,19 +809,43 @@ export class OnboardingCoreService {
   }
 
   /**
-   * 라운드 102 §2.2 — 배열의 categoryId 전부가 실재하고 `active:true`인가(일괄, 부분 적용
-   * 없음). `selectable`은 보지 않는다 — 지출의 categoryId 검증(requireExistingCategory)이
-   * 그 플래그를 보지 않는 것과 같은 선이되, `active:false`(운영자가 숨긴 행)에는 예산을
-   * **새로 세울 수 없다**(§6.5 — 숨긴 분류를 선택지로 되살리지 않는다).
+   * 라운드 102 §2.2/§6.5 — 배열의 categoryId 전부가 예산을 세울 수 있는 행인가(일괄, 부분
+   * 적용 없음). `selectable`은 보지 않는다 — 지출의 categoryId 검증(requireExistingCategory)이
+   * 그 플래그를 보지 않는 것과 같은 선이다.
+   *
+   * 판정은 **두 갈래**다:
+   *  - **미존재 id**: 언제나 거절(종전 그대로). 아무 문자열이 예산의 키가 되는 상태를 만들지
+   *    않는다.
+   *  - **`active:false`(운영자가 숨긴 행)**: `existingCategoryIds`(그 (child, yearMonth)에
+   *    **이미 행이 서 있던** id 집합, 호출자가 같은 트랜잭션 안에서 읽어 넘긴다)에 없을 때만
+   *    거절한다 — 즉 **새로 세우는 것만 막고, 이미 세워진 행의 재전송은 통과**시킨다.
+   *
+   * ⚠️ 두 시점 (라운드 102 리뷰 H) — 종전에는 요청 배열 **전수**에 `active:true`를 요구했다.
+   * 그런데 클라이언트의 replace-set은 화면에 보이는 **전체 집합**을 싣고(§4.1), 예산 화면은
+   * 칩 대장에 없는 기존 예산 행도 "끼워 유지"해 그 집합에 함께 싣는다(§6.5 기존 유지). 그래서
+   * 운영자가 예산이 있는 카테고리를 숨기는 순간, 그 아이·그 달은 **총액만 고치는 저장도, 그
+   * 행의 값 수정도, 그 행의 해제조차도** 400으로 막혔다 — §6.5가 "예산 화면에서 값 수정·해제가
+   * 가능하다"고 확정한 문장과 정면으로 어긋난다. 오늘의 판정은 그 문장의 실현이다:
+   * 숨김은 **선택지에서만** 사라지고, 이미 사용자가 정한 사실은 계속 고칠 수 있다.
+   * (해제 갈래가 통과하는 방식도 같다 — 해제는 그 id를 배열에서 빼는 것이라 애초에 검증
+   * 모집단에 들지 않는다.)
    */
-  private async requireBudgetableCategories(categoryIds: ReadonlyArray<string>) {
+  private async requireBudgetableCategories(
+    tx: DbClient,
+    categoryIds: ReadonlyArray<string>,
+    existingCategoryIds: ReadonlySet<string>
+  ) {
     if (categoryIds.length === 0) return;
-    const found = await this.prisma.category.findMany({
+    const found = await tx.category.findMany({
       where: { id: { in: [...categoryIds] } },
       select: { id: true, active: true }
     });
+    const knownIds = new Set(found.map((category) => category.id));
     const activeIds = new Set(found.filter((category) => category.active).map((category) => category.id));
-    if (categoryIds.some((id) => !activeIds.has(id))) {
+    const rejected = categoryIds.some(
+      (id) => !knownIds.has(id) || (!activeIds.has(id) && !existingCategoryIds.has(id))
+    );
+    if (rejected) {
       throw new BadRequestException({
         code: "CATEGORY_BUDGET_INVALID_CATEGORY",
         message: "예산을 세울 수 없는 카테고리예요."

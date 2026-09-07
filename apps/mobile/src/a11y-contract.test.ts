@@ -4756,7 +4756,20 @@ const MUTATION_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
  * (제외 사유 `QUERY_TRIGGER_OUT_OF_SCOPE_REASON`의 그 조건이 더 또렷해진 것이지 침묵이 는 것이
  * 아니다).
  */
+/**
+ * ⚠️ **두 시점(라운드 102 리뷰 L-a11y)** — `app/budget.tsx`의 두 자리가 새로 들어왔다.
+ *
+ * 카테고리별 예산 카드의 **저장을 잠그는 오류 두 줄**(행 금액 상한 · 30개 상한)이 캡션 회색에서
+ * `theme.colors.danger`로 갈렸다. 이 스캐너의 바늘은 "danger 색 글자"이고 그 두 줄은 카테고리
+ * 목록 조회(`categories.isSuccess`) 조건 아래에 있어 **쿼리 방아쇠**로 분류된다 — 그러나 실제
+ * 방아쇠는 조회가 아니라 **사용자의 타이핑**이고, 그래서 두 줄 다 이 칸의 제외 사유
+ * (`QUERY_TRIGGER_OUT_OF_SCOPE_REASON`: "화면 영역이 통째로 바뀌어 사용자가 다시 훑는다")에
+ * 기대지 않는다: 자기 `accessibilityLiveRegion="polite"` + `accessibilityRole="alert"`를 달고
+ * 스스로 읽힌다(지출 날짜 오류와 같은 조합). 즉 이 칸의 수가 둘 는 것은 **침묵이 는 것이
+ * 아니다** — 분류가 조건을 보고, 조건이 그 두 줄의 진짜 방아쇠와 다를 뿐이다.
+ */
 const QUERY_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
+  "app/budget.tsx": 2,
   "app/family/accept/[token].tsx": 2,
   "app/family/index.tsx": 4,
   "app/import/[importJobId].tsx": 2
@@ -4774,6 +4787,24 @@ const QUERY_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
 const CONTAINED_MUTATION_SITES: Readonly<Record<string, string>> = {
   "app/(auth)/login.tsx loginError":
     "문장이 alert 컨테이너 <View accessibilityRole=\"alert\" accessibilityLiveRegion=\"polite\"> 안에 선다 — 프롭 쌍은 그 컨테이너의 것이고 announceForA11y 배선도 이미 있다"
+};
+
+/**
+ * ⚠️ **맨 줄로 서는 쿼리 자리 — 오늘 하나이고, 그 하나는 침묵이 아니다** (라운드 102 리뷰 L-a11y).
+ *
+ * 종전 이 자리는 부정 단언(`[]`)이었다. 근거는 제외 사유(`QUERY_TRIGGER_OUT_OF_SCOPE_REASON`)
+ * 였다 — *"쿼리가 세우는 실패 문장은 화면 영역이 통째로 바뀌어 사용자가 다시 훑는다"* 는 판단은
+ * 그 문장이 **맨 줄로 서지 않을 때만** 성립하므로, 맨 줄이 하나라도 생기면 제외의 근거가 무너진다.
+ *
+ * 오늘 하나가 생겼고, 무너지지 않는다: 예산 화면 카테고리 카드의 30개 상한 오류는 **조건이 쿼리**
+ * (카드 자체가 `categories.isSuccess` 아래에 있다)일 뿐 **방아쇠는 사용자의 타이핑**이고, 그래서
+ * 제외 사유에 기대지 않고 자기 프롭 쌍(live-region + alert)을 들고 스스로 읽힌다. 즉 이 대장의
+ * 조건은 "맨 줄이면 안 된다"가 아니라 **"맨 줄이면 침묵일 수 없다"** 이고, 아래 단언이 그 둘을
+ * 함께 문다(같은 자리의 `exit`이 silent가 아닐 것).
+ */
+const BARE_QUERY_SITES: Readonly<Record<string, string>> = {
+  "app/budget.tsx categoryForm.formError":
+    "조건만 쿼리(카테고리 목록)이고 방아쇠는 사용자의 타이핑이다 — 저장을 잠그는 오류라 자기 프롭 쌍(live-region+alert)으로 스스로 읽힌다"
 };
 
 describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에서 파생)", () => {
@@ -4882,11 +4913,21 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
     const byScreen: Record<string, number> = {};
     for (const site of querySites) byScreen[site.screen] = (byScreen[site.screen] ?? 0) + 1;
     expect(byScreen, "화면별 쿼리 방아쇠 자리").toEqual(QUERY_TRIGGER_SITES_BY_SCREEN);
-    // ⚠️ 이 라운드의 판정이 값이 되는 자리다: **쿼리 자리는 하나도 맨 줄로 서지 않는다.**
+    // ⚠️ 두 시점 (라운드 102 리뷰 L-a11y): 종전 이 단언은 `[]`였다 — *"쿼리 자리는 하나도 맨
+    // 줄로 서지 않는다"* 가 제외 사유의 전제였기 때문이다. 오늘 하나가 맨 줄로 서고, 그 하나는
+    // 제외 사유에 기대지 않는다(자기 프롭 쌍으로 스스로 읽힌다). 그래서 부정 단언을 **이유가
+    // 적힌 대장 + 침묵 금지**로 바꾼다 — 조건은 "맨 줄이면 안 된다"가 아니라 "맨 줄이면 침묵일
+    // 수 없다"이고, 대장 밖의 새 맨 줄은 종전처럼 여기서 빨개진다.
+    const bareQuerySites = querySites.filter((site) => site.shape === "bare");
     expect(
-      querySites.filter((site) => site.shape === "bare").map((site) => `${site.screen} ${site.guard}`),
+      bareQuerySites.map((site) => `${site.screen} ${site.guard}`).sort(),
       "맨 줄로 서는 쿼리 자리"
-    ).toEqual([]);
+    ).toEqual(Object.keys(BARE_QUERY_SITES).sort());
+    for (const [key, why] of Object.entries(BARE_QUERY_SITES)) {
+      expect(why.length, `${key}가 맨 줄로 서는 이유`).toBeGreaterThan(0);
+      const site = bareQuerySites.find((candidate) => `${candidate.screen} ${candidate.guard}` === key);
+      expect(site?.exit, `${key}의 출구`).not.toBe("silent");
+    }
     // 반대 방향도 값이다 — 뮤테이션 자리는 **하나만 빼고** 맨 줄이고(그래서 포커스가 눌린
     // 컨트롤에 남는다), 그 하나는 이유가 적힌 값으로 서 있다(alert 컨테이너 관례 · 침묵 아님).
     // ⚠️ 종전 이 단언은 `[]`였다 — 모집단이 다섯 자리 좁던 때의 값이라 재실측이 정정한다.
@@ -5447,7 +5488,9 @@ ${card("useEffect(() => { announceForA11y(text); }, [text]);")}
     // 모집단을 옮기면 U절 이월과 라운드 80의 값이 함께 흔들린다 — 그래서 그 값들이 여기 선다.
     // ⚠️ 두 시점(라운드 96 T6): 쿼리 방아쇠 화면 6 → 3 — 설정 3화면의 조회 실패 자리가
     // LoadErrorCard로 옮겨 가 danger 색 바늘 밖으로 나갔다(QUERY_TRIGGER_SITES_BY_SCREEN 머리말).
-    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(3);
+    // ⚠️ 두 시점(라운드 102 리뷰 L-a11y): 3 → 4 — 예산 화면의 카테고리 예산 카드에서 **저장을
+    // 잠그는 오류 두 줄**이 캡션 회색에서 danger로 갈려 이 바늘 안에 들어왔다(같은 머리말).
+    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(4);
     expect(MUTATION_TRIGGER_SITES_BY_SCREEN["app/settings/privacy.tsx"], "개인정보 화면의 자리 수").toBe(7);
     expect(Object.keys(MUTATION_TRIGGER_SITES_BY_SCREEN)).not.toContain("app/(onboarding)/child-profile.tsx");
     expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "대장 스윕의 제외").toEqual([]);
@@ -5802,7 +5845,9 @@ export default function Screen() {
     // 값이 함께 흔들리므로 오늘의 값이 여기 선다.
     // ⚠️ 두 시점(라운드 96 T6): 쿼리 방아쇠 화면 6 → 3(설정 3화면의 조회 실패 자리가
     // LoadErrorCard로 옮겨 갔다 — QUERY_TRIGGER_SITES_BY_SCREEN 머리말).
-    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(3);
+    // ⚠️ 두 시점(라운드 102 리뷰 L-a11y): 3 → 4(예산 화면의 저장 잠금 오류 두 줄이 danger로
+    // 갈려 바늘 안에 들어왔다 — 같은 머리말).
+    expect(Object.keys(QUERY_TRIGGER_SITES_BY_SCREEN).length, "쿼리 방아쇠 화면").toBe(4);
     expect(Object.keys(MUTATION_TRIGGER_SITES_BY_SCREEN).length, "뮤테이션 방아쇠 화면").toBe(13);
     expect(MUTATION_TRIGGER_SITES_BY_SCREEN["app/settings/privacy.tsx"], "개인정보 화면의 자리 수").toBe(7);
     expect(Object.keys(SAVE_ERROR_ANNOUNCE_BLOCKED_BY_SOURCE_PIN), "대장 스윕의 제외").toEqual([]);
