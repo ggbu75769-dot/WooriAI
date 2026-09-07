@@ -129,6 +129,12 @@ import {
   isCustomItemInList,
   withoutCustomItemTemplateId
 } from "../../src/items/custom-item-form";
+// 빈 상태 감사: 0건 갈래 판정과 전체 0건 카드의 문구·액션은 순수 모듈 한 벌이다(화면은 배선만).
+import {
+  buildItemsAllEmptyCard,
+  itemsListEmptyKind,
+  showsStandingCustomItemEntry
+} from "../../src/items/items-empty-state";
 import { useTransientNotice } from "../../src/ui/use-transient-notice";
 
 const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
@@ -756,6 +762,19 @@ export default function ItemsScreen() {
   // 아니라 **아직 찜한 것이 없다**는 뜻이다. 그때만 전용 문구를 쓴다(필터 초기화 카드는 눌러도
   // 바뀌는 게 없어 막다른 길이 된다).
   const showInterestedEmptyState = showInterestedOnly && !isNarrowedByFilter;
+  /**
+   * 빈 상태 감사 — ⚠️ 두 시점: 종전에는 이 세 갈래(찜 0건 · 좁히기 0건 · 전체 0건)를 아래 JSX
+   * 삼항이 그 자리에서 갈랐고(그때는 그 삼항이 유일한 소비처라 참이었다), 이제는 순수 모듈이
+   * 한 번 갈라 **카드와 목록 아래 진입 버튼이 같은 한 값을 읽는다** — 전체 0건 카드가 커스텀
+   * 추가 입구를 지게 되면서 그 버튼과 카드가 서로의 갈래를 알아야 하기 때문이다
+   * (src/items/items-empty-state.ts). 찜·좁히기 두 갈래의 카드는 종전 리터럴 그대로다.
+   */
+  const itemsEmptyKind = itemsListEmptyKind({
+    listedCount: listedItems.length,
+    interestedEmpty: showInterestedEmptyState,
+    narrowedByFilter: isNarrowedByFilter
+  });
+  const allItemsEmptyCard = buildItemsAllEmptyCard();
   const canUpdateStatus = hasSession;
   // ITEM-114: 선택된 시기 밴드(기본 칩은 아이의 현재 시기) 기준 필수템 준비율. 필수템이
   // 0개인 밴드나 스냅샷 로딩 전에는 null이라 히어로 수치가 통째로 숨는다.
@@ -1331,7 +1350,7 @@ export default function ItemsScreen() {
           </>
         }
         emptyState={
-          showInterestedEmptyState ? (
+          itemsEmptyKind === "interested" ? (
             // C-01: 찜한 것이 하나도 없을 때. 찜을 안 한 것을 탓하지 않고(DNC-018), 원래 보던
             // 목록으로 돌아가는 길만 준다.
             <EmptyStateCard
@@ -1339,7 +1358,7 @@ export default function ItemsScreen() {
               actionLabel="준비템 목록 보기"
               onPress={() => setShowInterestedOnly(false)}
             />
-          ) : isNarrowedByFilter ? (
+          ) : itemsEmptyKind === "filtered" ? (
             // 필터/검색 때문에 비었을 때는 홈으로 보내는 대신 조건을 풀 수 있게 한다.
             <EmptyStateCard
               title="검색·필터에 맞는 준비템이 없어요."
@@ -1354,10 +1373,19 @@ export default function ItemsScreen() {
               }}
             />
           ) : (
+            /**
+             * ⚠️ 두 시점 — 종전 이 자리는 `[홈으로 가기]`(홈 탭으로 나가는 push)였다. 그때도
+             * 제목은 사실이었지만, 준비템이 하나도 없는 사람이 가장 큰 버튼을 눌러 **이 화면을
+             * 떠났고** 홈은 준비템을 만들지 않으므로 다시 들어와도 같은 화면이었다. 이제 그
+             * 버튼은 이 빈 상태를 실제로 푸는 유일한 행동 — 바로 아래 같은 스크롤에 있던 커스텀
+             * 품목 추가 — 를 가리킨다. 문구·게이트는 그 버튼의 것을 그대로 쓴다(새 문구 0건,
+             * 판정 0벌 추가): 잠긴 세션(보기 전용)은 노드를 지우지 않고 눌렀을 때 사실을
+             * 말한다(라운드 51 #8 · 라운드 100 T3 §2.6의 그 관례 그대로다).
+             */
             <EmptyStateCard
-              title="아직 볼 수 있는 준비템이 없어요."
-              actionLabel="홈으로 가기"
-              onPress={() => router.push("/(tabs)")}
+              title={allItemsEmptyCard.title}
+              actionLabel={allItemsEmptyCard.actionLabel}
+              onPress={itemStatusGate.guard(() => setShowCustomItemSheet(true))}
             />
           )
         }
@@ -1464,17 +1492,25 @@ export default function ItemsScreen() {
           않는다. 비세션 프리뷰는 위 `if (!hasSession)`에서 먼저 반환하므로 ITEM-001 캡처
           무접촉이 구조로 보장된다. 잠긴 세션(보기 전용)은 버튼을 지우지 않고 눌렀을 때
           사실을 말한다 — 준비 상태 변경과 같은 판정·같은 안내다(라운드 51 #8 관례, §2.6:
-          서버가 생성에도 같은 편집 권한을 요구한다). */}
-      <SecondaryButton
-        label={customItemEntryLabel()}
-        onPress={() => {
-          if (itemStatusGate.locked) {
-            itemStatusGate.explain();
-            return;
-          }
-          setShowCustomItemSheet(true);
-        }}
-      />
+          서버가 생성에도 같은 편집 권한을 요구한다).
+
+          ⚠️ 두 시점(빈 상태 감사) — 종전에는 세션 렌더에서 **언제나** 섰다(그때는 이 버튼이
+          커스텀 추가의 유일한 입구였다). 이제 전체 0건 카드가 같은 라벨·같은 동작의 버튼을
+          들고 서므로, 그 한 갈래에서만 카드에 자리를 넘긴다 — 같은 글자의 버튼 둘이 나란히
+          서면 낭독도 두 번이다. 나머지 갈래(목록이 있음 · 찜 0건 · 좁히기 0건)는 종전 그대로
+          이 버튼이 유일한 입구다(판정은 items-empty-state.ts 한 벌). */}
+      {showsStandingCustomItemEntry(itemsEmptyKind) ? (
+        <SecondaryButton
+          label={customItemEntryLabel()}
+          onPress={() => {
+            if (itemStatusGate.locked) {
+              itemStatusGate.explain();
+              return;
+            }
+            setShowCustomItemSheet(true);
+          }}
+        />
+      ) : null}
       {/* 추가 성공 한 줄(3200ms 수명). Toast가 스스로 낭독한다(A11Y-115). */}
       {customItemNotice ? <Toast message={customItemNotice.message} /> : null}
       {/* 라운드 105 트랙 ITEMS(F5): 떠 있는 기록 버튼이 마지막 줄을 덮지 않게 하는 바닥 여백.

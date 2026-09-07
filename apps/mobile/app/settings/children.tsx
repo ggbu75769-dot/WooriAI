@@ -53,6 +53,8 @@ import {
 // 화면이 짓지 않는다 — 둘 다 이 순수 모듈의 것이다.
 import { isExpenseEntryLocked, VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 import { resolveStageDisplayLabel } from "../../src/home/stage-display-label";
+// 빈 상태 감사: 0건 카드의 갈래·문구·액션과 목록 아래 진입 버튼의 노출 판정은 순수 모듈 한 벌이다.
+import { buildChildrenEmptyStateCard, showsStandingAddChildEntry } from "../../src/settings/empty-state-cards";
 import { useLoadErrorCopy, useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
@@ -671,6 +673,20 @@ export default function ManageChildrenScreen() {
   };
 
   const childList = children.data?.children ?? [];
+  /**
+   * 빈 상태 감사 — ⚠️ 두 시점: 종전 0건 카드는 `[새로고침]`이었다(그때는 이 카드가 조회
+   * 결과만 말하는 자리였다). 그러나 그 조회는 **이미 성공해서** 0건을 돌려준 조회라 다시
+   * 불러도 같은 화면이 오고, 이 빈 상태를 실제로 푸는 `[아이 추가]`는 카드 밖 화면 아래에
+   * 있었다. 이제 카드가 그 입구를 진다 — 누구에게 그 버튼을 줄지(역할·데모·폼 열림)는 화면이
+   * 인라인으로 다시 판단하지 않고 순수 모듈이 정한다(src/settings/empty-state-cards.ts).
+   */
+  const childrenEmptyCard = buildChildrenEmptyStateCard({
+    listEmpty: children.isSuccess && childList.length === 0,
+    canAddChild,
+    isDemoSession,
+    addFormOpen: addOpen,
+    role: myAddRole
+  });
   const editingChild = childList.find((child) => child.id === editingChildId) ?? null;
   /**
    * 라운드 60 A: **다가구 계정에서만** 붙는 한 줄("… 가구에 추가돼요."). 가구가 하나뿐이거나
@@ -731,8 +747,25 @@ export default function ManageChildrenScreen() {
           <LoadErrorCard message={loadErrorCopy.title} retryLabel={loadErrorCopy.actionLabel} onRetry={() => children.refetch()} />
         ) : null}
 
-        {hasSession && children.isSuccess && childList.length === 0 ? (
-          <EmptyStateCard title="등록된 아이가 없어요" actionLabel="새로고침" onPress={() => children.refetch()} />
+        {/* 카드가 설 갈래·문구·액션은 위 모듈의 산출 하나다. 액션 키마다 목적지를 화면이
+            배선하고, 액션이 없는 갈래(보기 전용 · 폼이 이미 열림)에는 버튼 노드를 만들지
+            않는다 — 낭독되는 가짜 버튼 금지(GAP-071 #5). */}
+        {hasSession && childrenEmptyCard ? (
+          childrenEmptyCard.action === "add-child" ? (
+            <EmptyStateCard
+              title={childrenEmptyCard.title}
+              actionLabel={childrenEmptyCard.actionLabel}
+              onPress={startAdd}
+            />
+          ) : childrenEmptyCard.action === "refresh" ? (
+            <EmptyStateCard
+              title={childrenEmptyCard.title}
+              actionLabel={childrenEmptyCard.actionLabel}
+              onPress={() => children.refetch()}
+            />
+          ) : (
+            <EmptyStateCard title={childrenEmptyCard.title} />
+          )
         ) : null}
 
         <View style={{ gap: theme.spacing.gap }}>
@@ -851,7 +884,11 @@ export default function ManageChildrenScreen() {
           </Card>
         ) : null}
 
-        {hasSession && canAddChild && !isDemoSession && !addOpen ? (
+        {/* ⚠️ 두 시점(빈 상태 감사) — 종전에는 목록이 비어 있을 때도 이 버튼이 섰다(그때는
+            이것이 추가의 유일한 입구였다). 이제 0건 카드가 같은 라벨·같은 목적지의 버튼을 들고
+            서는 갈래에서만 자리를 넘긴다 — 같은 글자의 버튼 둘이 한 화면에 서면 낭독도 두 번이다.
+            그 밖의 모든 상태(목록이 있음 · 로딩 · 실패 · 폼 열림)는 종전 그대로다. */}
+        {hasSession && canAddChild && !isDemoSession && !addOpen && showsStandingAddChildEntry(childrenEmptyCard) ? (
           <SecondaryButton accessibilityLabel="아이 추가" label="아이 추가" onPress={startAdd} />
         ) : null}
 

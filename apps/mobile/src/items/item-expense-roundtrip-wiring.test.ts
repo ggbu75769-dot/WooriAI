@@ -77,8 +77,18 @@ describe("C-01 찜 칩 (클라이언트 필터, 서버 왕복 0)", () => {
     const items = itemsSource();
     expect(items).toContain("const showInterestedEmptyState = showInterestedOnly && !isNarrowedByFilter;");
     expect(items).toContain("title={INTERESTED_FILTER_EMPTY_TEXT}");
-    const resetBlock = items.slice(items.indexOf('actionLabel="필터 초기화"'), items.indexOf('actionLabel="홈으로 가기"'));
-    expect(resetBlock).toContain("setShowInterestedOnly(false);");
+    /**
+     * ⚠️ 두 시점(빈 상태 감사) — 종전 끝 앵커는 `actionLabel="홈으로 가기"`였다(그때 셋째 갈래의
+     * 라벨이 그것이었다). 그 자리의 액션이 커스텀 품목 추가로 바뀌면서 앵커가 사라졌고, 사라진
+     * 앵커는 `indexOf`가 -1을 내어 **끝이 파일 끝 직전으로 밀린 채 조용히 초록**이 된다. 끝
+     * 앵커를 셋째 카드가 실제로 읽는 값(`allItemsEmptyCard.title`)으로 옮기고, 그 앵커가
+     * 실재하는지 먼저 확인한다(라운드 78 규칙).
+     */
+    const resetStart = items.indexOf('actionLabel="필터 초기화"');
+    const thirdCardStart = items.indexOf("title={allItemsEmptyCard.title}");
+    expect(resetStart, "좁히기 0건 카드").toBeGreaterThan(-1);
+    expect(thirdCardStart, "전체 0건 카드").toBeGreaterThan(resetStart);
+    expect(items.slice(resetStart, thirdCardStart)).toContain("setShowInterestedOnly(false);");
   });
 });
 
