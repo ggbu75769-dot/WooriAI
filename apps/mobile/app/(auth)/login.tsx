@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useAnalyticsConsentStore } from "../../src/analytics/flag";
-import { accountStatusErrorMessage } from "../../src/api/api-error";
+import { accountStatusErrorMessage, oauthLoginErrorMessage } from "../../src/api/api-error";
 import { LOCAL_SESSION_TOKEN, oauthLogin, upsertConsents } from "../../src/api/client";
 import { INVITE_RESUME_PARAM, resumeHrefAfterLogin } from "../../src/children/household-join";
 import {
@@ -264,6 +264,25 @@ export default function LoginScreen() {
       const accountStatusMessage = accountStatusErrorMessage(error);
       if (accountStatusMessage) {
         setLoginError(accountStatusMessage);
+        return;
+      }
+      /**
+       * 라운드 106 F2 — **라운드 45가 고친 그 결함에 로그인 경로만 합류하지 않았다.**
+       *
+       * ⚠️ 두 시점: 바로 윗 분기(계정 상태)가 선 뒤에도, 서버 auth 갈래가 던지는 나머지 코드는
+       * 전부 아래 한 문장으로 접혔다 — "네트워크 연결을 확인한 뒤 다시 시도해 주세요."
+       * 카카오 키 없이 만든 스토어 빌드에서 그 아래 삼항은 개발 스텁 `oauthLogin("kakao")`으로
+       * 가고 서버는 그것을 501(`OAUTH_LOGIN_NOT_IMPLEMENTED`)로 닫는다 — **다시 눌러도 영원히
+       * 안 되는 실패**인데, 사용자는 멀쩡한 자기 와이파이를 의심하며 앱을 못 쓴다(DNC-018).
+       *
+       * 형식은 윗 분기 그대로다: 화면은 문장을 짓지 않고 **코드 표 한 곳**에서 꺼내 온다
+       * (src/api/api-error.ts). 아는 코드가 아니면 아래 기존 분기가 한 글자도 바뀌지 않고
+       * 그대로 선다 — 특히 503은 다시 눌러 결과가 달라지는 실패라 폴백에 남긴다(그 판단의
+       * 근거는 표 옆 스윕의 제외 목록에 값으로 적혀 있다).
+       */
+      const oauthLoginMessage = oauthLoginErrorMessage(error);
+      if (oauthLoginMessage) {
+        setLoginError(oauthLoginMessage);
         return;
       }
       // 라운드 73 트랙 A: 타입 없는 실패(네트워크·서버)의 문구는 **빌드 성격**으로 갈린다.

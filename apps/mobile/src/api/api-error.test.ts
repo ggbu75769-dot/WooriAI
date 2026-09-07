@@ -10,6 +10,7 @@ import {
   ApiHttpError,
   API_ERROR_MESSAGES,
   hasApiErrorCode,
+  oauthLoginErrorMessage,
   parseApiErrorEnvelope
 } from "./api-error";
 import { amountOverLimitMessage, EXPENSE_AMOUNT_MAX_KRW } from "../expenses/amount-limit";
@@ -44,6 +45,11 @@ import {
 } from "../family/member-mutation-messages";
 import { inviteCreateErrorMessage, INVITE_CREATE_FAILED_MESSAGE, INVITE_FORBIDDEN_MESSAGE } from "../family/invite-permissions";
 import { isInviteUnavailableError, INVITE_UNAVAILABLE_CODES } from "../family/invite-accept-messages";
+/**
+ * 라운드 106 F2 — 로그인 화면의 **폴백 문장**을 사본으로 적지 않는다(그 문장이 바뀌는 날
+ * 이 계약이 조용해진다). 501이 이 문장을 띄우지 않는다는 부정 단언이 이 import의 전부다.
+ */
+import { LOGIN_FAILED_MESSAGE } from "../auth/login-copy";
 
 /**
  * 라운드 45 UX-Z — 서버 실패 사유가 경계에서 뭉개지지 않는다는 계약.
@@ -1107,7 +1113,11 @@ describe("배선 계약 (source verification)", () => {
 
   it("ⓓ 로그인 화면이 계정 상태 거절을 네트워크 오안내보다 먼저 분기한다", () => {
     const loginSource = source("app/(auth)/login.tsx");
-    expect(loginSource).toContain('import { accountStatusErrorMessage } from "../../src/api/api-error";');
+    // 라운드 106 F2: 같은 파일에서 창이 하나 늘었다(계정 상태 → 로그인 여정) — 이 계약이
+    // 무는 것은 **계정 상태 분기가 네트워크 오안내보다 먼저**라는 순서이고, 그 순서는 그대로다.
+    expect(loginSource).toContain(
+      'import { accountStatusErrorMessage, oauthLoginErrorMessage } from "../../src/api/api-error";'
+    );
     expect(loginSource).toContain("const accountStatusMessage = accountStatusErrorMessage(error);");
     expect(loginSource).toContain("setLoginError(accountStatusMessage);");
     // 순서가 계약이다: 타입 있는 카카오 오류 → 계정 상태 → 그 밖의 네트워크/서버 실패.
@@ -1562,5 +1572,204 @@ describe("라운드 103 T3 — 커스텀 지출 분류의 실패 셋이 이유�
     expect(API_ERROR_MESSAGES.CUSTOM_CATEGORY_NAME_DUPLICATE).toContain("다른 이름으로");
     // ⚠️ "삭제"라는 낱말을 쓰지 않는다(설계 §1.6 — 보관은 지우는 조작이 아니다).
     for (const code of CODES) expect(API_ERROR_MESSAGES[code], code).not.toContain("삭제");
+  });
+});
+
+/**
+ * 라운드 106 F2 — **로그인 실패가 사용자를 막다른 길에 세우지 않는다.**
+ *
+ * 라운드 45가 이 화면에서 `USER_WITHDRAWN`으로 이미 고친 결함인데, 서버 auth 갈래의 나머지
+ * 코드는 그 뒤로도 `LOGIN_FAILED_MESSAGE` 한 문장으로 접혔다 — "네트워크 연결을 확인한 뒤
+ * 다시 시도해 주세요." 가장 아픈 자리가 프로덕션 501 `OAUTH_LOGIN_NOT_IMPLEMENTED`다:
+ * **다시 눌러도 영원히 안 되는 실패**인데 사용자는 멀쩡한 자기 와이파이를 의심한다.
+ *
+ * 여기서 잠그는 것은 셋이다.
+ *  ⓐ 501이 네트워크 문구를 띄우지 않는다(이 라운드의 결함 그 자체).
+ *  ⓑ `apps/api/src/auth/**`가 던지는 코드 **전수**가 표에 있거나, **의도적으로 폴백임이
+ *    값으로 적혀** 있다(다른 여정 스윕이 세운 그 형식 — 서버가 코드를 더하면 여기가 빨개진다).
+ *  ⓒ 갈래의 판정: 다시 눌러 **안 될** 실패는 재시도를 권하지 않고, **될** 실패만 다음 행동을
+ *    말한다.
+ */
+describe("라운드 106 F2 — 로그인 실패가 이유를 말한다", () => {
+  /** 다시 눌러도 결과가 같은 둘(501 기능 미구성 · 400 redirect 어긋남). */
+  const DEAD_END_CODES = ["OAUTH_LOGIN_NOT_IMPLEMENTED", "OAUTH_REDIRECT_URI_NOT_ALLOWED"];
+  /** 처음부터 다시 하면 결과가 달라지는 넷. */
+  const RESTARTABLE_CODES = [
+    "OAUTH_TRANSACTION_INVALID",
+    "OAUTH_NONCE_MISMATCH",
+    "OAUTH_CODE_EXCHANGE_FAILED",
+    "OAUTH_ID_TOKEN_INVALID"
+  ];
+  const round106Codes = [...DEAD_END_CODES, ...RESTARTABLE_CODES];
+
+  it("ⓐ 501은 네트워크 문구를 띄우지 않는다 — 다시 눌러도 안 되는 실패에 연결을 확인하라 하지 않는다", () => {
+    // 서버 원문은 영어이고 내부 사정을 그대로 드러낸다(apps/api auth.service.ts).
+    const error = new ApiHttpError(
+      501,
+      envelope(
+        "OAUTH_LOGIN_NOT_IMPLEMENTED",
+        "OAuth provider token verification is not implemented yet; oauth-login is disabled outside development/test."
+      )
+    );
+    const shown = oauthLoginErrorMessage(error);
+    expect(shown).toBe(API_ERROR_MESSAGES.OAUTH_LOGIN_NOT_IMPLEMENTED);
+    // 이 라운드가 없애는 그 문장이 아니다(폴백 사본을 여기 적지 않는다 — 모듈에서 읽는다).
+    expect(shown).not.toBe(LOGIN_FAILED_MESSAGE);
+    expect(LOGIN_FAILED_MESSAGE).toContain("네트워크 연결을 확인");
+    expect(shown).not.toContain("네트워크");
+    // 기다림도 재시도도 답이 아니다.
+    expect(shown).not.toContain("잠시 후");
+    expect(shown).not.toContain("다시 시도");
+    // 영어 원문이 화면으로 새지 않는다(이 표의 존재 이유).
+    expect(shown).not.toContain("OAuth provider");
+    // 그리고 사용자가 무엇을 해도 같다는 **사실**을 말한다(없는 다음 행동을 지어내지 않는다).
+    expect(shown).toContain("다시 눌러도");
+  });
+
+  it("ⓒ 갈래 — 안 될 둘은 재시도를 권하지 않고, 될 넷만 다음 행동을 말한다", () => {
+    for (const code of DEAD_END_CODES) {
+      const message = API_ERROR_MESSAGES[code];
+      expect(message, code).toBeTruthy();
+      // 다시 시작하라고 말하지 않는다(그 말이 거짓이 되는 유일한 자리다).
+      expect(message, code).not.toContain("다시 로그인");
+      expect(message, code).not.toContain("잠시 후");
+      // 대신 사용자가 의심하지 않아도 되는 것을 말한다.
+      expect(message, code).toContain("연결 문제가 아니라서");
+      expect(message, code).toContain("다시 눌러도 같은 화면이 나와요");
+    }
+    for (const code of RESTARTABLE_CODES) {
+      const message = API_ERROR_MESSAGES[code];
+      expect(message, code).toBeTruthy();
+      // 다시 시작하면 결과가 달라지므로 **그 행동**을 말한다.
+      expect(message, code).toContain("처음부터 다시 로그인해 주세요.");
+      // 요청은 우리 서버까지 갔다 왔다 — 사용자의 연결을 의심하게 하지 않는다.
+      expect(message, code).not.toContain("네트워크");
+      expect(message, code).not.toContain("잠시 후");
+    }
+    // 여섯 다 DNC-018 해요체이고 지시형 방언("확인하세요")을 늘리지 않는다.
+    for (const code of round106Codes) {
+      expect(API_ERROR_MESSAGES[code], code).toMatch(/요\.$/);
+      expect(API_ERROR_MESSAGES[code], code).not.toContain("하세요.");
+    }
+  });
+
+  it("개발자·운영자가 읽을 서버 원문이 사용자 화면으로 새지 않는다", () => {
+    // redirect 주소를 고칠 수 있는 사람은 사용자가 아니다(PRODUCT_LINK_URL_SCHEME_INVALID의 그 판단).
+    const redirect = new ApiHttpError(
+      400,
+      envelope("OAUTH_REDIRECT_URI_NOT_ALLOWED", "허용되지 않은 redirect 주소예요.")
+    );
+    expect(oauthLoginErrorMessage(redirect)).toBe(API_ERROR_MESSAGES.OAUTH_REDIRECT_URI_NOT_ALLOWED);
+    expect(oauthLoginErrorMessage(redirect)).not.toContain("redirect");
+    // 401 셋의 원문은 이미 해요체지만 붙여 쓴 방언이다 — 표기는 이 표의 띄어 쓴 형태로 통일한다.
+    for (const code of round106Codes) {
+      expect(API_ERROR_MESSAGES[code], code).not.toContain("해주세요");
+    }
+  });
+
+  it("창은 표의 부분집합이고, 계정 상태 두 코드는 여전히 윗 분기의 몫이다", () => {
+    for (const code of round106Codes) {
+      const error = new ApiHttpError(401, envelope(code, "서버 원문"));
+      expect(oauthLoginErrorMessage(error), code).toBe(API_ERROR_MESSAGES[code]);
+      // 이 창은 문장을 짓지 않는다 — 표가 유일한 소스다.
+      expect(API_ERROR_MESSAGES[code], code).toBeTruthy();
+    }
+    // 계정 상태는 이 창이 답하지 않는다(라운드 45가 세운 그 창이 먼저 답한다).
+    for (const code of ACCOUNT_STATUS_ERROR_CODES) {
+      const error = new ApiHttpError(403, envelope(code, "서버 원문"));
+      expect(oauthLoginErrorMessage(error), code).toBeNull();
+      expect(accountStatusErrorMessage(error), code).toBe(API_ERROR_MESSAGES[code]);
+    }
+    // 모르는 실패는 모른다고 답한다 — 호출부의 폴백이 종전 그대로 선다.
+    expect(oauthLoginErrorMessage(new ApiHttpError(500, { boom: true }))).toBeNull();
+    expect(oauthLoginErrorMessage(new Error("network"))).toBeNull();
+    expect(oauthLoginErrorMessage(null)).toBeNull();
+    // 일반 403의 가족 문구는 이 화면에 서지 않는다(윗 창의 머리말이 지는 그 사실).
+    expect(oauthLoginErrorMessage(new ApiHttpError(403, envelope("FORBIDDEN", "x")))).toBeNull();
+  });
+
+  /**
+   * ⓑ **세 번째 여정 스윕** — `apps/api/src/auth/**`가 던지는 코드 전수.
+   *
+   * 앞선 둘(아웃박스 · 아이 프로필 여정)과 **합치지 않는다**: 단위가 다르다(로그인은 큐를
+   * 타지 않고, 아이도 가족도 아직 없다). 사유도 그 단위로만 적는다 — 여기서는
+   * *"로그인 화면이 이 코드를 문구로 받을 필요가 없는 이유"* 하나만이 사유다.
+   *
+   * ⚠️ 이 스윕이 세지 **못하는** 것을 함께 적어 둔다(관측): auth/token.service.ts와
+   * auth.service.ts의 회전 실패 넷은 `code:` 없이 `new UnauthorizedException("…")`로 던져,
+   * GlobalExceptionFilter의 기본 코드 `UNAUTHORIZED`로 나간다. 그것은 `VALIDATION_ERROR`와
+   * 같은 **바구니 코드**라 표에 넣지 않는다(넣으면 401 전량이 한 문구를 뒤집어쓴다). 그리고
+   * 그 넷이 나오는 `POST /auth/refresh`는 이 화면이 부르지 않는다 — 세션 만료 안내는
+   * `SESSION_EXPIRED_LOGIN_NOTICE`가 이미 진다(src/offline/session-expiry.ts).
+   */
+  it("ⓑ auth 서버 파일의 코드 전수는 표에 있거나, 이유가 적힌 제외 목록에 있다", () => {
+    const AUTH_JOURNEY_SERVER_FILES = [
+      // 프로덕션 fail-closed 501이 여기 산다(개발 스텁 /auth/oauth-login).
+      "auth/auth.service.ts",
+      // 카카오 OIDC prepare/exchange — 트랜잭션·redirect·nonce·계정 상태.
+      "auth/kakao/kakao-auth.service.ts",
+      // 카카오와의 코드 교환·ID 토큰 검증.
+      "auth/kakao/kakao-oidc-client.http.ts",
+      // 로그인이 지나는 토큰 발급/정리의 DB 관문(requireDb).
+      "auth/refresh-token.store.ts"
+    ];
+
+    /**
+     * 표에 넣지 않는 코드와 그 이유. 비우면 안 되고, 사유는 **이 스윕의 단위**로만 적는다.
+     */
+    const excludedWithReason: Readonly<Record<string, string>> = {
+      SERVICE_UNAVAILABLE:
+        "이 여정에서 **다시 눌러 결과가 달라지는 유일한 실패**다(서버가 DB에 닿지 못하는 동안의 503 — refresh-token.store.ts의 requireDb). 화면의 폴백이 권하는 행동(다시 시도)이 이 코드에는 참이라 막다른 문장이 되지 않는다 — 이 라운드가 없애는 결함은 '영원히 안 되는 실패에 재시도를 권하는 것'이고, 여기 해당하지 않는다. ⚠️ 관측(사유 아님): 이 코드는 로그인 밖에서도 오고(회전·로그아웃), 표는 코드 단위라 여기 세우면 로그인 밖 화면의 문장까지 이 트랙이 정하게 된다."
+    };
+
+    const swept = new Set(AUTH_JOURNEY_SERVER_FILES.flatMap(thrownCodesIn));
+    // 스윕이 실제로 무언가를 읽었는지부터 확인한다(정규식이 조용히 0건이 되면 계약이 사라진다).
+    expect(swept.size).toBeGreaterThanOrEqual(9);
+    expect([...swept].filter((code) => code.startsWith("UNRESOLVED:"))).toEqual([]);
+    // 이 라운드가 고치는 그 501을 스윕이 실제로 봤다.
+    expect([...swept]).toContain("OAUTH_LOGIN_NOT_IMPLEMENTED");
+
+    for (const code of swept) {
+      const known = Object.prototype.hasOwnProperty.call(API_ERROR_MESSAGES, code);
+      const excluded = Object.prototype.hasOwnProperty.call(excludedWithReason, code);
+      expect(
+        known || excluded,
+        `${code}: 표에 없고 제외 이유도 없다. 이 코드를 받은 로그인 실패는 화면에서 "${LOGIN_FAILED_MESSAGE}"가 된다.`
+      ).toBe(true);
+    }
+
+    // 제외 목록이 유령을 들고 있지 않은지 — 서버가 더는 던지지 않는 코드의 이유는 남을 수 없다.
+    for (const [code, reason] of Object.entries(excludedWithReason)) {
+      expect(swept.has(code), `${code}는 이 여정의 서버 파일이 던지지 않는다`).toBe(true);
+      expect(reason.length, code).toBeGreaterThan(20);
+      // 라운드 77 A의 규율: "그 화면이 자기 문구를 쓴다"는 제외의 근거가 될 수 없다.
+      expect(reason, `${code}의 제외 사유가 "자기 문구"에 기대고 있다`).not.toContain("자기 문구");
+    }
+
+    // 이 라운드가 세운 여섯은 제외가 아니라 **표**가 답하고, 스윕이 그 코드를 실제로 봤다.
+    for (const code of round106Codes) {
+      expect(Object.prototype.hasOwnProperty.call(excludedWithReason, code), `${code}는 제외 목록에 없다`).toBe(
+        false
+      );
+      expect(API_ERROR_MESSAGES[code], code).toBeTruthy();
+      expect([...swept], code).toContain(code);
+    }
+    // 라운드 45의 두 줄도 같은 스윕에 걸린다(그 라운드가 이 여정에서 세운 유일한 둘).
+    for (const code of ACCOUNT_STATUS_ERROR_CODES) expect([...swept], code).toContain(code);
+  });
+
+  it("여섯은 서버에서 문장을 하나씩만 나른다 — 표의 단위(코드 하나 = 문장 하나)와 어긋나지 않는다", () => {
+    // 라운드 78 A ⓔ가 세운 그 질문("이 코드는 서버에서 문장을 몇 개 나르는가")을 먼저 묻는다.
+    const messagesByCode = serverMessagesByCode();
+    for (const code of round106Codes) {
+      // 501의 원문은 줄바꿈 뒤에 오는 문자열이라 이 그물에 걸리지 않는다(0건) — 표의 단위와
+      // 어긋나지 않는다는 사실은 같으므로 상한만 본다.
+      expect(messagesByCode.get(code)?.size ?? 1, code).toBe(1);
+    }
+    // 서버가 같은 문장을 여러 자리에서 던지는 둘(redirect 400 ×2 · 코드 교환 401 ×3)도 하나다.
+    expect(thrownCodesIn("auth/kakao/kakao-auth.service.ts").filter((c) => c === "OAUTH_REDIRECT_URI_NOT_ALLOWED")).toHaveLength(2);
+    expect(
+      thrownCodesIn("auth/kakao/kakao-oidc-client.http.ts").filter((c) => c === "OAUTH_CODE_EXCHANGE_FAILED")
+    ).toHaveLength(3);
   });
 });

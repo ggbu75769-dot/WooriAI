@@ -432,6 +432,60 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   USER_WITHDRAWN: "탈퇴한 계정이에요. 삭제 후 30일 동안은 같은 계정으로 다시 가입할 수 없어요.",
   USER_BLOCKED: "이용이 제한된 계정이에요.",
 
+  /**
+   * --- 카카오 로그인 여정의 실패 여섯 (라운드 106 F2 · 루프에 들어오기 **전**의 첫 관문) ---
+   *
+   * ⚠️ **두 시점 — 라운드 45가 같은 화면에서 이미 고친 결함인데 로그인 경로만 합류하지 않았다.**
+   * 그때 세운 것이 바로 윗줄 둘(`USER_WITHDRAWN`·`USER_BLOCKED`)이고, 그 주석이 적은 진단은
+   * *"네트워크는 멀쩡했고, 몇 번을 다시 눌러도 결과는 같다"* 였다. 그런데 **서버 auth 갈래가
+   * 던지는 나머지 코드 전부**는 그 뒤로도 화면의 한 문장으로 접혔다 —
+   * `LOGIN_FAILED_MESSAGE`("로그인 중 문제가 발생했어요. 네트워크 연결을 확인한 뒤 다시 시도해
+   * 주세요." — src/auth/login-copy.ts). 서버는 이미 코드로 사유를 말해 줬는데
+   * (예: `OAUTH_TRANSACTION_INVALID`의 "인증 절차를 다시 시작해주세요.") 이 표가 그 코드를
+   * 몰라서 버려졌다.
+   *
+   * 가장 아픈 자리가 **501 `OAUTH_LOGIN_NOT_IMPLEMENTED`** 다(apps/api auth.service.ts —
+   * 프로덕션 fail-closed). 카카오 키 없이 만든 스토어 빌드는 `isKakaoLoginAvailable()`이 거짓이라
+   * 개발 스텁 `POST /auth/oauth-login`으로 가고, 서버는 그 요청을 501로 닫는다. 즉 **다시 눌러도
+   * 영원히 안 되는 실패**인데 사용자는 "네트워크 연결을 확인"하라는 말을 듣고 자기 와이파이를
+   * 의심하다 앱을 못 쓴다. DNC-018이 금지하는 그 오안내다.
+   *
+   * ## 갈래는 화면이 아니라 **코드**가 정한다 — 다시 눌러 될 실패인가
+   *
+   * ⓐ **다시 눌러도 안 되는 둘**(501 기능 미구성 · 400 redirect 허용 목록 어긋남): 사용자가
+   *    지금 할 수 있는 일이 없다. 그러면 *"없다"*고 말하는 것이 정직이다 — 없는 다음 행동을
+   *    지어내지 않고, 대신 **연결 문제가 아니라는 사실**과 **다시 눌러도 같다는 관찰**을
+   *    말한다(`USER_WITHDRAWN`이 세운 그 형식: 사실만 말하고 "다시 시도해 주세요"를 붙이지
+   *    않는다). ⚠️ 꼬리에 "잠시 후"를 쓰지 않는다 — 기다림은 이 둘에서 답이 아니다.
+   * ⓑ **다시 시작하면 될 넷**(401 셋 + 401 코드 교환 실패): 만료·재사용된 트랜잭션, 응답
+   *    불일치, 카카오와의 코드 교환·ID 토큰 검증 실패다. 처음부터 다시 로그인하면 결과가
+   *    달라지므로 그 다음 행동을 말한다. 폴백을 그대로 두지 않는 이유는 **원인 진단이 틀리기
+   *    때문**이다: 요청은 우리 서버까지 갔다 왔으므로 사용자의 연결은 멀쩡하고, 와이파이를
+   *    확인하라는 말은 고치지 않아도 될 것을 고치게 한다.
+   *
+   * ## 문장을 서버 원문 그대로 쓰지 않는 이유(이 표의 존재 이유 그대로)
+   *
+   * 501의 원문은 **영어**이고("OAuth provider token verification is not implemented yet…")
+   * 내부 사정을 그대로 드러낸다. 400의 원문("허용되지 않은 redirect 주소예요.")은 개발자가
+   * 읽을 문장이다 — redirect 주소를 고칠 수 있는 사람은 사용자가 아니다
+   * (`PRODUCT_LINK_URL_SCHEME_INVALID`가 지는 그 판단). 401 넷의 원문은 이미 해요체지만
+   * 붙여 쓴 방언("다시 시작해주세요")이라, 표기는 이 표의 띄어 쓴 형태로 통일한다.
+   *
+   * ⚠️ **전수 대조는 산문이 아니라 스윕이 진다** — api-error.test.ts의
+   * `AUTH_JOURNEY_SERVER_FILES`(네 파일)가 `apps/api/src/auth/**`의 `code:`를 전부 긁어,
+   * 각 코드가 이 표에 있거나 **이유가 적힌 제외 목록**에 있는지 묻는다. 오늘 제외는 하나뿐이다
+   * (`SERVICE_UNAVAILABLE` — 그 이유는 그 목록에 값으로 적혀 있다).
+   */
+  OAUTH_LOGIN_NOT_IMPLEMENTED:
+    "카카오 로그인은 아직 준비 중이라 지금은 로그인할 수 없어요. 연결 문제가 아니라서 다시 눌러도 같은 화면이 나와요.",
+  OAUTH_REDIRECT_URI_NOT_ALLOWED:
+    "카카오 로그인 설정이 서로 맞지 않아 로그인할 수 없어요. 연결 문제가 아니라서 다시 눌러도 같은 화면이 나와요.",
+  OAUTH_TRANSACTION_INVALID: "로그인 절차가 만료됐거나 이미 사용됐어요. 처음부터 다시 로그인해 주세요.",
+  OAUTH_NONCE_MISMATCH: "로그인 요청과 카카오 응답이 서로 맞지 않아요. 처음부터 다시 로그인해 주세요.",
+  OAUTH_CODE_EXCHANGE_FAILED:
+    "카카오 인증을 마치지 못했어요. 카카오 쪽 문제일 수 있으니 처음부터 다시 로그인해 주세요.",
+  OAUTH_ID_TOKEN_INVALID: "카카오에서 받은 인증 정보를 확인하지 못했어요. 처음부터 다시 로그인해 주세요.",
+
   // --- 권한 (GlobalExceptionFilter의 403 기본 코드) ---
   // 화면마다 다른 맥락에서 쓰이므로 중립적으로 쓴다. 초대 수락 화면은 이 표를 쓰지 않고 자기
   // 문구를 유지한다(아래 hasApiErrorCode 참고) — 같은 403이라도 그 화면에서는 "권한"이 아니라
@@ -519,5 +573,43 @@ export const ACCOUNT_STATUS_ERROR_CODES = ["USER_WITHDRAWN", "USER_BLOCKED"] as 
 export function accountStatusErrorMessage(error: unknown): string | null {
   const code = apiErrorCodeOf(error);
   if (!code || !(ACCOUNT_STATUS_ERROR_CODES as readonly string[]).includes(code)) return null;
+  return apiErrorMessageForCode(code);
+}
+
+/**
+ * 라운드 106 F2 — **로그인 화면이 표에서 꺼낼 수 있는 두 번째 창.**
+ *
+ * 바로 윗 함수(`accountStatusErrorMessage`)와 **같은 형식**이다: 표 전체를 열지 않고, 로그인
+ * 화면이 정확히 말할 수 있는 코드만 목록으로 세워 그 문구를 꺼낸다. 새 형식을 만들지 않는
+ * 이유는 그 함수의 머리말이 이미 말했다 — 아직 로그인도 못 한 사람에게 가족 이야기를 하는
+ * 것(일반 403)은 또 다른 오안내다.
+ *
+ * ⚠️ 창을 **둘로 나눠 두는** 이유(합치지 않는다): 두 목록은 사실의 종류가 다르다. 위는
+ * **계정의 상태**(탈퇴·차단 — 로그인 절차와 무관하게 참이고, 다시 눌러도 영원히 같다)이고,
+ * 여기는 **로그인 절차 자체**의 실패다(넷은 다시 시작하면 결과가 달라진다). 한 목록으로
+ * 합치면 "이 코드는 다시 눌러 되는가"라는 질문이 목록에서 사라진다.
+ *
+ * ⚠️ 이 목록은 **표의 부분집합**이다 — 문구는 여기서 짓지 않고 표에서 온다(이 저장소의 확립
+ * 규율: 문구의 단일 소스는 코드 표 하나다). 그래서 목록에만 있고 표에 없는 코드는 조용히
+ * `null`이 되고, 그 어긋남은 api-error.test.ts가 값으로 문다.
+ *
+ * `SERVICE_UNAVAILABLE`(503)이 여기 없는 것은 누락이 아니다: 그 코드는 로그인의 사실이 아니라
+ * 서버 의존성의 사실이고(refresh-token.store.ts의 requireDb), 다시 눌러 결과가 달라지는 실패라
+ * 화면의 기존 폴백이 권하는 행동이 이 코드에는 참이다 — 근거는 그 스윕의 제외 목록에 값으로
+ * 적혀 있다.
+ */
+const OAUTH_LOGIN_ERROR_CODES: readonly string[] = [
+  "OAUTH_LOGIN_NOT_IMPLEMENTED",
+  "OAUTH_REDIRECT_URI_NOT_ALLOWED",
+  "OAUTH_TRANSACTION_INVALID",
+  "OAUTH_NONCE_MISMATCH",
+  "OAUTH_CODE_EXCHANGE_FAILED",
+  "OAUTH_ID_TOKEN_INVALID"
+];
+
+/** 카카오 로그인 여정의 서버 코드면 그 문구, 아니면 null(호출부의 기존 폴백으로 넘어간다). */
+export function oauthLoginErrorMessage(error: unknown): string | null {
+  const code = apiErrorCodeOf(error);
+  if (!code || !OAUTH_LOGIN_ERROR_CODES.includes(code)) return null;
   return apiErrorMessageForCode(code);
 }
