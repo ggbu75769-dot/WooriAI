@@ -110,6 +110,16 @@ describe("분기·연간 인사이트 조립기", () => {
 
     expect(legend[1].percentLabel).toBe("<1%");
     expect(insight!.topCategoryPercentLabel).toBe(legend[0].percentLabel);
+    // ⚠️ 두 시점 (라벨 100% 캡). 위 단언은 **파생**이라 규칙이 바뀌어도 조용히 통과한다 —
+    // 이 문장이 실제로 무슨 글자를 말했는지는 리터럴로 적어 둔다.
+    // 종전(그때는 참): 1위 라벨이 "100%"였고 문장은 "… 전체의 100%)"로 끝났다. 바로 아래
+    // 범례 줄에 100원짜리 "기타"가 서 있는데도 그랬다(그때는 그것이 이 모듈들이 함께 고른
+    // 규칙이었다 — category-share.test.ts가 그 조합을 의도로 단언해 두었다).
+    // → 이제 "99%": 조각이 둘 이상이면 100은 "전부"라고 적지 않는다. `percent`는 여전히
+    //   [100, 0]이고 합계도 100이라 계산은 그대로다(근거는 category-share.ts의
+    //   percentDisplayLabel 주석).
+    expect(legend[0].percentLabel).toBe("99%");
+    expect(insight!.headline).toBe("2026년에는 기저귀/위생에 가장 많이 썼어요 (1,000,000원 · 전체의 99%)");
   });
 
   describe("ⓑ 근거가 없으면 카드가 없다", () => {
