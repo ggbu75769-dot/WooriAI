@@ -43,6 +43,7 @@ MFA 미등록 계정은 로그인 후에도 등록 전까지 `ADMIN_MFA_SETUP_RE
 - 시드(첫 계정): `ADMIN_SEED_EMAIL` / `ADMIN_SEED_PASSWORD` 환경변수 설정 후 `pnpm db seed`. role은 admin.
 - 개발 기본값(env 미설정 + development 한정): `admin@wooriai.local` / `wooriai-dev-admin`.
 - production에서 env 미설정 시 admin 시드는 생성되지 않는다(경고만 출력). 운영 첫 계정은 반드시 강한 비밀번호로 env를 지정해 시드하라. 재시드해도 기존 관리자의 비밀번호·활성 상태는 되돌리지 않는다(ADM-007).
+  - ⚠️ **두 시점(라운드 107 트랙 E)**: ADM-007의 이 배려는 오랫동안 `admin_users` **하나에만** 있었고 **그때는 그것이 사실이었다** — 콘텐츠 다섯 표(`categories`·`item_templates`·`item_template_stages`·`disclosures`·`product_links`)는 재시드가 **어드민에서 고친 값을 시드 값으로 되돌렸다**. 오늘은 다섯 표도 같은 규율을 따른다: **시드는 없는 행을 만들 뿐, 있는 행의 콘텐츠를 고치지 않는다**(`apps/api/prisma/seed.ts:33`, 경계 표 `:42~49`, 회귀 고정 `apps/api/test/seed-boundary.db.test.ts`). 그래서 이 콘솔에서 고친 값은 다음 배포의 시드를 살아남는다. 되돌리는 길은 명시적 opt-in `SEED_OVERWRITE_CONTENT=1`뿐이고 배포 경로는 그 값을 설정하지 않는다.
 - **추가 계정/역할 변경: 관리자 계정 관리 API·화면 완성(ADM-006)** — admin 역할 전용.
   - `GET /api/v1/admin/users` 목록 · `POST /api/v1/admin/users` 생성(임시 비밀번호를 응답에서 **딱 한 번** 반환) · `PATCH /api/v1/admin/users/:id` role/active 변경(본인 강등·비활성화는 차단).
   - 어드민 화면 **관리자 계정** 메뉴(`/users`)에서 동일 작업 가능. 새 관리자는 임시 비밀번호로 첫 로그인 → 비밀번호 변경 → MFA 등록 순.
@@ -90,3 +91,8 @@ ssh -N -L 3001:127.0.0.1:3001 ubuntu@<VM IP>
 ## 감사 로그
 
 준비템·상품링크·고지의 생성·수정, 관리자 로그인/MFA 이벤트, 관리자 계정 생성·변경(ADM-006)이 `audit_logs`에 actor·before/after·timestamp와 함께 기록된다. admin 역할은 어드민 화면 **감사 로그** 메뉴에서 조회할 수 있다.
+
+⚠️ **before/after 봉투에 들어가는 것은 정해져 있다** — 이 화면(과 그 화면의 CSV)이 내미는 값이므로 여기 적어 둔다. 봉투를 하나라도 다는 action의 **전수 대장**은 `apps/api/test/audit-envelope-fields.test.ts`(before·after 둘 다 다는 자리 **열넷** · after만 다는 자리 **열아홉**)이고, 그 파일이 `apps/api/src/**`를 스윕해 대장과 정확히 일치하는지를 계약으로 문다 — 아래 두 줄은 그 대장의 **사본**이고 원본은 그 테스트 파일이다.
+- **이용자가 직접 적은 자유 문자열은 봉투에 실리지 않는다.** 지출 봉투(`expense.update`·`expense.delete`)는 전용 스냅샷(`toExpenseAuditSnapshot`)의 키 열뿐이고 품목명·판매처·메모는 `changed`의 **축 이름으로만** 남는다(라운드 107 트랙 A). 가구 봉투(`household.member.remove`·`household.invite.cancel`)도 전용 스냅샷이라 닉네임 원문과 계정 연결값이 봉투 안에 없다(라운드 108 트랙 B) — 사람을 지목하는 값은 봉투 **밖**의 `actor_user_id`·`target_id`가 참조로만 들고, 그 둘은 파기 잡이 실제로 지운다. ⚠️ **두 시점**: 라운드 107 이전의 옛 **지출** 봉투에는 그 셋이 실제로 실려 있었고, 그 옛 행은 파기 잡 **12단계**(`expenseSnapshotScrub`)가 지우며 `snapshotScrubbedAt` 표식을 남긴다.
+  - ⚠️ **아직 남은 것(이월)**: 가구 봉투 쪽은 **쓰기 경로만** 고쳐졌다. 라운드 108 이전에 쌓인 `household.member.remove`·`household.invite.cancel` 행은 봉투 안에 닉네임 원문과 계정 연결값을 **그대로 들고 있고**, 12단계의 action·키 목록에는 그 둘이 아직 없다(근거: `apps/api/test/audit-envelope-fields.test.ts:312~319`의 이월 주석 — 실측 2026-09-07 로컬 `wooriai_test`에서 두 action 각 12행 중 10행이 옛 모양, dev DB는 0행). 감사 뷰어·CSV에서 옛 행을 볼 때는 이 사실을 감안한다. **확인 필요**: 운영 DB에 그런 옛 행이 몇 건인지는 이 문서가 알지 못한다(운영에서 세어야 하는 값이다).
+- **`admin.*` 봉투는 다르다** — 어드민이 스스로 적은 카탈로그·고지 문자열이라 원문이 그대로 남는다(이 화면을 볼 자격이 있는 사람에게는 새 노출면이 아니다).

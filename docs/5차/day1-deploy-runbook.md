@@ -66,8 +66,10 @@ fly ssh console -C "pnpm --filter api exec prisma migrate status"   # "up to dat
 
 ⚠️ **두 시점(낡은 값을 지우지 않고 남긴다)**: 이 자리는 2026-08-21(라운드 13, DOC-114)까지
 "마이그레이션 **13개**"라고 적었고 **그때는 참이었다**(당시 `apps/api/prisma/migrations/`가
-`000001`~`000013`). 오늘(2026-09-07) 그 디렉터리는 `000001`~`000025`로 **25개**다. 손으로 적은
-수는 마이그레이션을 더할 때마다 낡으므로 다시 적지 않는다 — **개수의 단일 소스는
+`000001`~`000013`). 오늘(2026-09-07) 그 디렉터리는 `000001`~`000026`으로 **26개**다
+(⚠️ **세 번째 시점**: 이 자리는 바로 위 정정에서 **25개**라고 적었고 라운드 106 F5 시점에는 참이었다 —
+라운드 107 트랙 E가 `000026_product_links_seed_key`를 더했다. 낡는 방식이 같으므로 결론도 같다).
+손으로 적은 수는 마이그레이션을 더할 때마다 낡으므로 다시 적지 않는다 — **개수의 단일 소스는
 `apps/api/prisma/migrations/` 디렉터리 자신**이고, 배포가 묻는 것은 그 수가 아니라 위
 `migrate status`의 답이다.
 
@@ -90,6 +92,14 @@ ADMIN_API_PROXY_TARGET=https://<API 도메인> pnpm --filter admin dev   # → h
 필요하면 /users에서 팀원 계정 발급.
 
 > 참고: 시드는 멱등이며 관리자 자격증명은 **생성 시 1회만** 적용됩니다 — 시드를 재실행해도 기존 계정의 비밀번호(교체한 값)나 활성 상태는 절대 되돌아가지 않습니다. 비밀번호 교체 후에는 `ADMIN_SEED_PASSWORD` 시크릿을 폐기해도 됩니다.
+>
+> ⚠️ **두 시점(라운드 107 트랙 E)** — "멱등"의 범위가 넓어졌습니다. **종전**: 이 보장은 `admin_users`
+> 하나에만 있었고, 카테고리·준비템·준비템 단계·고지 문구·구매 링크 다섯 표는 재시드가 **어드민에서 고친
+> 값을 시드 값으로 되돌렸습니다**(그때는 그것이 사실이었습니다). **오늘**: 다섯 표도 "없는 행을 만들 뿐,
+> 있는 행은 고치지 않는다"입니다 — 그래서 새 릴리즈의 준비템·링크를 운영에 세우려고 이 명령을 **다시
+> 돌려도** 어드민 편집분이 살아남습니다(`apps/api/prisma/seed.ts:33`·`:42~49`,
+> `apps/api/test/seed-boundary.db.test.ts`). 시드가 무엇을 했는지는 배포 로그가 값으로 말합니다
+> (`[시드] … 신규 N · 유지 N · 덮어씀 N`, 중복 링크가 이미 있는 환경이면 `product_links 중복:` 경고).
 
 ### A-6. 도메인 연결 (선택이지만 권장, 15분)
 ```bash
@@ -140,6 +150,13 @@ docker compose -f infra/docker/docker-compose.prod.yml exec api pnpm --filter ap
 HTTPS는 앞단에 Caddy/nginx + certbot을 두세요(80/443 → api:3000).
 리버스 프록시(Caddy/nginx) 뒤에서는 `.env.production`에 `TRUST_PROXY=1`을 반드시 넣으세요 — 없으면 모든 요청이 프록시 IP로 집계되어 per-IP rate limit이 전역 버킷 하나로 무력화됩니다(프록시 없이 직접 노출 시에는 설정하지 마세요).
 시드는 재실행해도 기존 관리자 계정의 비밀번호/활성 상태를 덮어쓰지 않습니다(생성 시 1회만, ADM-007).
+⚠️ **두 시점(라운드 107 트랙 E)**: 위 한 줄은 오랫동안 `admin_users` **하나에만** 참이었고 **그때는 그것이
+사실이었다** — 콘텐츠 다섯 표(`categories` · `item_templates` · `item_template_stages` · `disclosures` ·
+`product_links`)는 반대로 매 배포마다 시드 값으로 되돌아갔습니다(`product_links`는 되돌림이 아니라
+**증식**이었습니다 — 아래 E절 참조). **오늘은 그 다섯 표도 같은 보장을 받습니다: 시드는 없는 행을 만들 뿐,
+있는 행의 콘텐츠를 고치지 않습니다**(`apps/api/prisma/seed.ts:33` · 경계 표는 같은 파일 `:42~49` ·
+회귀 고정 `apps/api/test/seed-boundary.db.test.ts`). 되돌리는 길은 명시적 opt-in
+`SEED_OVERWRITE_CONTENT=1` 하나뿐이고, 배포 경로는 그 값을 설정하지 않습니다.
 
 ---
 
@@ -183,7 +200,8 @@ curl -si $BASE/../r/AAAAAAAAAAAA | head -1
 
 - [ ] Postgres 가동 + **마이그레이션 적용 여부 확인** — `prisma migrate status`가 "up to date"인가
       (A-4 참고). ⚠️ **개수를 세지 않는다**: 종전 이 칸은 "마이그레이션 **13개** 적용"이라 적었고
-      2026-08-21(라운드 13)에는 참이었으나 오늘은 25개다. 네 배포 경로 전부가 개수를 받지 않는
+      2026-08-21(라운드 13)에는 참이었다. 오늘은 26개다(라운드 106 F5가 이 칸을 고칠 때는 25개였고
+      그때도 참이었다 — 라운드 107 E가 `000026`을 더했다). 네 배포 경로 전부가 개수를 받지 않는
       `prisma migrate deploy`이므로, 이 칸이 묻는 것은 **`release_command`가 조용히 실패하지
       않았는가** 하나다(개수를 맞춰 세는 절차가 아니다).
 - [ ] 시크릿 13종 주입 (부트 필수 6종 — JWT 2·WOORIAI_ADMIN_TOKEN·AFFILIATE_ALLOWED_DOMAINS·salt 2 — 은 `assertRequiredSecretsConfigured`가 누락 시 부트 실패로 알려줌)
@@ -243,4 +261,28 @@ A-3의 `fly secrets set` 13종 + `fly.toml [env]` 4종(`NODE_ENV`·`PORT`·`TRUS
 - 시드의 상품링크 **67개**(수를 세는 자리는 위 A-5의 실행되는 인용이다)는 출시 트랙 LP-A(**플랜 B**, 72h 계획 §5)가 전부 **일반(비제휴) 쿠팡 검색 링크**로 교체했다 — 계정·키 없이 동작하는 실 링크라 죽은 CTA(리뷰 M-7 · 확인의 표 `#140` ⓕ / `#143` ⓖ)는 이 시점에 해소됐고, 제휴 고지·스폰서 배지는 비제휴 실태에 맞게 0건이다(스폰서 예시 다섯은 비활성 슬롯로 보존).
   ⚠️ 역사(교체 전): 라운드 82 B 이후 58 → 62 · 라운드 83 A 이후 62 → 67, 전부 example.com 플레이스홀더 = 죽은 CTA였다 — 그중 둘(`pregnancy_vitamin`·`diaper_stock`)은 `essential`이라 홈 추천 카드의 머리에 섰다.
   **플랜 A 전환**(쿠팡 파트너스 승인 후): `docs/5차/plan-a-affiliate-links-template.csv`의 `affiliateUrl` 칸을 파트너스 딥링크로 채워 admin 링크 페이지의 CSV 일괄 교체(미리보기 → 적용)에 업로드하면 무중단 전환된다(도구가 `isAffiliate=true`와 제휴 고지를 함께 세운다 · 도메인 allowlist 검증 자동).
-  ⚠️ 시드 upsert 키(itemTemplateId·platform·title)가 교체로 바뀌었으므로 **기존 dev/test DB는 재시드 대신 `pnpm db reset`**(옛 example.com 행이 남는 것 방지). 운영 신규 DB는 해당 없음.
+  ⚠️ **두 시점 — 이 줄이 적던 두 문장은 오늘 둘 다 거짓이다**(라운드 107 트랙 E).
+  **종전(그때는 참이었다)**: *"시드 upsert 키(itemTemplateId·platform·title)가 교체로 바뀌었으므로
+  기존 dev/test DB는 재시드 대신 `pnpm db reset`"* — 그 시절 시드는 `findFirst({ itemTemplateId,
+  platform, title })`로 자기 행을 찾았고 그 셋은 전부 어드민 편집 축이라, 운영자가 링크 이름을 한 글자만
+  고쳐도 다음 시드가 **두 번째 링크를 만들었다**(실측 67 → 68행, 둘 다 active).
+  **오늘 ① 자연키가 바뀌었다**: 시드는 `product_links.seed_key`(마이그레이션
+  `000026_product_links_seed_key`, 값은 `<itemTemplateCode>:<platform>`)로 자기 행을 찾는다 — 어떤 어드민
+  DTO에도 없는 칸이라 제목·URL이 바뀌어도 알아본다. 000026 이전부터 돌던 DB의 기존 행은 시드가 한 번
+  **입양**한다(제목 → URL → 그 쌍의 가장 오래된 행 순 · `seed_key` 한 칸만 쓰고 콘텐츠는 손대지 않는다 —
+  `apps/api/prisma/seed.ts:338~403`, 마이그레이션 머리말).
+  **오늘 ② 재시드가 안전한 기본 절차다**: 시드는 **없는 행을 만들 뿐 있는 행의 콘텐츠를 고치지 않는다**
+  (`apps/api/prisma/seed.ts:33`). 그러니 기존 dev/test DB에는 `pnpm db seed`를 **그냥 다시 돌린다** —
+  새 링크만 들어오고 기존 행과 어드민 편집분은 그대로다(검증: `apps/api/test/seed-boundary.db.test.ts` —
+  재시드 두 번 뒤에도 편집분이 살아남고 링크 수가 늘지 않는다).
+  ⚠️ **그 대신 이 줄이 원래 걱정하던 것의 답이 바뀌었다**: 시드가 있는 행을 고치지 않으므로,
+  **LP-A 이전에 시드해 둔 dev/test DB의 옛 `example.com` URL은 그냥 재시드해도 그대로 남는다**
+  (종전에는 재시드가 덮어썼고, 그때는 "덮어쓰기가 부족해서" 문제였던 것이 오늘은 "덮어쓰지 않아서"다).
+  그 행들을 오늘의 시드 값으로 맞추려면 아래 `SEED_OVERWRITE_CONTENT=1`을 쓴다.
+  ⚠️ **`pnpm db reset`을 기본 절차로 쓰지 않는다** — 대상 DB의 **모든 데이터를 지운다**
+  (`prisma migrate reset --force` · `scripts/db.ts:36`). 시드 데이터를 고친 뒤 **시드 값으로 맞추고 싶을**
+  때는 먼저 `SEED_OVERWRITE_CONTENT=1 pnpm --filter api seed`(다섯 콘텐츠 표를 시드 값으로 되돌리는
+  명시적 opt-in · 로컬 dev/test 전용 — 배포 경로는 이 값을 설정하지 않는다). `reset`은 그 DB를 통째로
+  버려도 되는 자리에서만 쓰고, 대상은 `--url` > `DATABASE_URL` > 로컬 dev 기본값 순으로 정해지며
+  로컬 dev(루프백 + 이름이 `_dev`로 끝남)가 아니면 `--confirm=<DB이름>` 없이는 멈춘다
+  (`scripts/db.ts:119~181` · 절차는 `docs/operations/database-backup-restore.md`). 운영 신규 DB는 해당 없음.

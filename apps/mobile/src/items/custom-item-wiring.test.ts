@@ -47,7 +47,13 @@ describe("§4.1 진입점 — PreparationListParity 아래 · 세션 전용(ITEM
   it("보기 전용 게이트가 시트보다 먼저다(준비 상태 변경과 같은 판정 — §2.6)", () => {
     const items = itemsSource();
     const entryButton = items.indexOf("label={customItemEntryLabel()}");
-    const sheetOpen = items.indexOf("setShowCustomItemSheet(true);");
+    /**
+     * ⚠️ 두 시점(빈 상태 감사) — 종전에는 `indexOf("setShowCustomItemSheet(true);")`를 **파일
+     * 처음부터** 찾았다(그때 시트를 여는 자리가 이 버튼 하나뿐이라 참이었다). 이제 전체 0건
+     * 카드도 같은 시트를 열므로, 이 버튼의 핸들러를 보려면 **버튼 뒤에서** 찾아야 한다.
+     * 카드 쪽 게이트는 아래 "전체 0건 카드" 계약이 따로 붙든다.
+     */
+    const sheetOpen = items.indexOf("setShowCustomItemSheet(true);", entryButton);
     expect(entryButton, "진입 버튼").toBeGreaterThan(-1);
     expect(sheetOpen, "시트 열기").toBeGreaterThan(entryButton);
     const pressHandler = items.slice(entryButton, sheetOpen);

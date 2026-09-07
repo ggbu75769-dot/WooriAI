@@ -532,7 +532,13 @@ const KOREAN_LITERAL_LEDGER: readonly { readonly file: string; readonly count: n
   // ⚠️ 두 시점(토스 리뷰 M): 35 → 33 — 마지막 괄호 표기 라벨의 한국어 리터럴 둘("…, 현재
   // 선택된 아이" · "(으)로 전환")이 값 파생 단일 소스(childSwitchOptionAccessibilityLabel)
   // 호출로 이관되며 리터럴에서 사라졌다. 새 낱말 0건은 유지된다(리터럴은 줄기만 했다).
-  { file: "app/settings/children.tsx", count: 33 },
+  // ⚠️ 두 시점(라운드 108 T11): 33 → 31 — **같은 성격의 이동이 한 번 더** 일어났다. 아이 0건
+  // 빈 상태의 한국어 리터럴 둘("등록된 아이가 없어요" · "새로고침")이 순수 모듈
+  // (src/settings/empty-state-cards.ts)로 이관되며 화면의 리터럴에서 사라졌다. 새로 생긴
+  // 리터럴은 **0건**이다(그 카드가 쓰는 보기 전용 문장도 기존 상수 HOUSEHOLD_JOIN_VIEWER_NOTICE
+  // 재사용이다). 즉 이 수가 줄어든 것은 낱말이 사라진 것이 아니라 **판정과 함께 화면 밖으로
+  // 옮겨 간 것**이고, 이 자가 세는 모집단이 화면 파일이라 그만큼 준다.
+  { file: "app/settings/children.tsx", count: 31 },
   { file: "app/family/accept/[token].tsx", count: 25 }
 ];
 

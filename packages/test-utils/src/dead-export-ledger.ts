@@ -783,6 +783,32 @@ const referenceIndexes = new WeakMap<Function, Map<string, {
   linesByName: Map<string, number[]>;
 }>>();
 
+/**
+ * 마스킹판에서 이름이 나오는 자리를 세는 자 — **줄 번호는 마스킹판에서, 선언 줄은 원본에서** 온다.
+ *
+ * ⚠️⚠️ **두 시점(라운드 108 트랙 M) — *"이 셈이 어긋난다"* 는 주장이 있었고, 실측이 그것을 부정했다.**
+ *
+ * 넘어온 진술: *"`apps/admin/src/lib/**` 제품 소스에 **블록 주석**(슬래시-별 꼴)을 새로 넣으면
+ * 마스킹된 좌표와 선언 줄 좌표가 어긋나 그 export가 '제품 소스 참조가 생겼다'로 **거짓 빨강**이
+ * 된다 — 고칠 자리는 `referencesUnderMask`의 줄 번호 계산이다."* 라운드 108 트랙 M이 그 진술을
+ * 믿지 않고 **다시 쟀고**, 넷 다 진술과 갈렸다(값으로 남긴다):
+ *
+ *  · 호출부 **351 파일 전수**에서 이 함수의 줄 셈을 *줄 단위로 직접 센 정답* 과 맞췄다 —
+ *    이름 단위로 어긋난 자리 **0건**.
+ *  · 오늘 사문 **44 전수**에 대해 *선언 줄 바로 위* 와 *파일 머리* 두 자리에 각각 그 export의
+ *    이름을 부르는 블록 주석을 넣고 다시 셌다 — 거짓 참조 **0/44 · 0/44**.
+ *  · 진술이 지목한 자리(`apps/admin/src/lib/admin-api.ts`의 `updateContentRevisionDraft`)는
+ *    **오늘도 블록 주석을 달고 있고 초록**이다. 그 파일에 블록 주석을 하나 **더** 넣어 봐도
+ *    참조는 `[]` 그대로였다(임시 편집 뒤 바이트 단위 원복 · md5 동일).
+ *  · 그러므로 **이 함수는 고치지 않았다.** 옳은 셈을 "고치면" 그때 생기는 것이 진짜 거짓 빨강이다.
+ *
+ * ⚠️ **왜 어긋날 수 없는가(기전)**: 마스킹은 `blankRange`가 **글자만 공백으로 바꾸고 줄바꿈은
+ * 그대로 둔다** — 그래서 마스킹판의 길이와 줄 수가 원본과 같고, 블록 주석이 몇 줄이든 그 안의
+ * `\n`이 살아남는다. 아래 셈은 *직전 일치의 끝부터 이번 일치의 앞까지* 의 `\n`만 더하므로
+ * (`line += slice(offset, match.index)`의 줄바꿈 수) 원본 줄 번호와 같은 답을 낸다.
+ * 이 성질은 계약 ⓙ가 **합성 소스**로 못 박고, 줄을 접는 마스킹으로 되돌리는 교란이 그 못이
+ * 실제로 무는지를 함께 잰다(`dead-export-ledger.test.ts`의 ⓙ 절).
+ */
 function referencesUnderMask(
   item: ExportedFunction,
   sources: ReadonlyMap<string, string>,
@@ -2069,7 +2095,14 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 같다). 그래서 자란 것은 사용이 아니라 **오독 표면**이고, 주석의 마침표를 지우는 쪽으로
     // 이 수를 되돌리지 않았다 — 문장을 스캐너에 맞춰 비트는 것보다 사실을 적는 쪽이 낫고,
     // 이 자가 스스로 하한이라고 말하는 이유가 바로 이 오독이기 때문이다.
-    value: 242,
+    // 두 시점(라운드 108 트랙 T20): 242 → 243 — formatSpentOn 하나뿐이다(f42b6ad 워크트리와
+    // 이름 집합을 정렬해 diff 한 실측). ⚠️ **여기에도 실제 속성/키 자리는 0건이다** —
+    // `.formatSpentOn` 도 `formatSpentOn:` 도 저장소에 없다. 걸린 이유는
+    // app/expenses/[expenseId].tsx 의 import 목록에서 그 이름 **바로 윗줄 주석이 `).` 로
+    // 끝나기** 때문이다(`.\n  이름` 이 속성 접근 모양으로 읽힌다). 라운드 101 햅틱 셋 ·
+    // 라운드 107 revokeOutgoingSessionOnServer 와 **정확히 같은 길**로, 세 번째 사례다.
+    // 자란 것은 사용이 아니라 오독 표면이고, 이번에도 주석을 비틀어 되돌리지 않았다.
+    value: 243,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +
@@ -2188,7 +2221,13 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // src/ui/haptics.ts(주석의 "package's")와 app/settings/amount-presets.tsx(주석의 '원' —
     // R101-F6a)가 ASCII '를 지닌 채 표면에 들어왔다. 실피해는 오늘도 0건이다
     // (apostropheMaskedCodeSites() 실측 — 둘 다 주석 안이라 문자열 마스킹 전에 지워진다).
-    value: 109,
+    // 두 시점(라운드 108 트랙 T10·T20): 109 → 111(f42b6ad 워크트리와 파일 목록을 정렬해 diff 한
+    // 실측 — 순증은 이 둘뿐). app/(onboarding)/budget.tsx 는 주석이 인용한 영문
+    // ("so the field's placeholder keeps showing" — money.ts 의 기존 근거 문장을 그대로 옮겨
+    // 적었다)로, app/budget.tsx 는 주석의 '원' 으로 표면에 들어왔다. 뒤엣것은 라운드 101 의
+    // amount-presets.tsx 와 **글자까지 같은 이유**다. 실피해는 오늘도 0건이다
+    // (apostropheMaskedCodeSites() 실측 — 둘 다 주석 안이라 문자열 마스킹 전에 지워진다).
+    value: 111,
     floor: 60,
     statement:
       "⚠️⚠️ **같은 거짓 빨강의 둘째 문 — 이번엔 참조가 아니라 *스캐너*가 낸다**(라운드 90 리뷰 M-3). " +

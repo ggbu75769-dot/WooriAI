@@ -133,7 +133,12 @@ export type { ItemTab };
  *
  * DNC-009 무관: 이건 추천 **점수**가 아니라 사용자 보호용 표시 순서다. 수수료율·제휴
  * 여부는 이 계산에 전혀 들어가지 않고(입력은 health_status 하나), 응답 필드와 링크
- * 개수도 그대로다 — toProductLinkDto는 health를 노출하지 않는다(계약 무변경).
+ * 개수도 그대로다.
+ *
+ * ⚠️ 두 시점(COM-105 후속). ① 종전 이 문단의 끝은 *"— toProductLinkDto는 health를 노출하지
+ * 않는다(계약 무변경)"* 였고 그때는 참이었다. ② 이제 앱 DTO는 실패 두 값(`broken`·`unstable`)만
+ * 싣는다(`appLinkHealthStatus`). **이 표는 그 변경의 무접촉 대상이다** — 등급 구성도 정렬
+ * 결과도 한 글자 바뀌지 않았고, 노출은 표시용 필드 하나가 늘었을 뿐 이 계산의 입력이 아니다.
  */
 const PRODUCT_LINK_HEALTH_DEMOTION: Record<string, number> = { unstable: 1, broken: 2 };
 
@@ -281,9 +286,15 @@ export function requireTimingLabelMatchesStages(timingLabel: string | null | und
  * 멈추는 것은 **밖으로 나가는 사본 하나뿐**이다. 여는 URL(`redirectUrl`)·링크 목록·개수·정렬은
  * 한 글자도 바뀌지 않고, 링크를 목록에서 감추지도 않는다: 워커는 기본 off이고
  * (`LINK_HEALTH_ENABLED`), 판정이 묵었거나 틀릴 수 있으며(정상 쇼핑몰에서도 5홉 초과가 난다),
- * 감추는 순간 "그런 판매처가 없다"는 **없는 사실**을 말하게 된다. `toProductLinkDto`에 health를
- * 노출하지도 않는다(계약 무변경 — "깨졌어요" 배지는 24시간 묵은 판정으로 판매처를 공개 비난하는
- * 표시다).
+ * 감추는 순간 "그런 판매처가 없다"는 **없는 사실**을 말하게 된다.
+ *
+ * ⚠️ 두 시점(COM-105 후속). ① 종전 이 자리에는 *"`toProductLinkDto`에 health를 노출하지도
+ * 않는다(계약 무변경 — '깨졌어요' 배지는 24시간 묵은 판정으로 판매처를 공개 비난하는 표시다)"*
+ * 가 있었고, 그 우려는 지금도 옳다. ② 다만 그 선택이 함께 만든 사실이 있었다: 우리가 도달
+ * 실패를 아는 링크를 사용자는 **아무 말도 못 들은 채** 눌렀다. 이제 앱 DTO는 실패 두 값만
+ * 싣고(`appLinkHealthStatus`), 앱은 그것을 비난이 아니라 **우리 관찰의 보고**로 한 줄 적는다
+ * ("마지막으로 확인했을 때는 …"). **링크를 감추지 않는다는 판정은 그대로**이고, 여는 URL·목록·
+ * 개수·정렬도 여전히 무접촉이다.
  *
  * `unstable`은 막지 않는다 — 5xx·타임아웃·네트워크 오류라 일시적일 수 있고 워커가 다음 회차에
  * 바로 재확인한다. 강등표의 등급 근거와 **같은 판단**이다: 살아 있을 가능성이 높은 링크를 죽은
@@ -314,6 +325,48 @@ function shareableRedirectUrl(link: { redirectCode: string | null; healthStatus:
   if (!link.redirectCode) return undefined;
   if (link.healthStatus === PRODUCT_LINK_HEALTH_BROKEN) return undefined;
   return publicRedirectShareUrl(link.redirectCode);
+}
+
+/** `health_status`의 "일시적 도달 실패" 값. 워커가 5xx·타임아웃·네트워크 오류에 적는 문자열
+ *  그대로이고, 타입 주석이 `broken` 쪽과 같은 이유로 워커의 유니온이다(리네임 시 컴파일 실패). */
+const PRODUCT_LINK_HEALTH_UNSTABLE: LinkHealthStatus = "unstable";
+
+/**
+ * 앱에 실을 수 있는 헬스 판정의 **좁힌 유니온**. `Extract`로 워커의 유니온에서 뽑으므로
+ * 그쪽에서 값이 사라지거나 이름이 바뀌면 `never`가 되어 아래 함수가 컴파일 타임에 터진다.
+ */
+type AppLinkHealthStatus = Extract<LinkHealthStatus, "broken" | "unstable">;
+
+/**
+ * COM-105 후속 — **앱에 무엇을 말할 것인가.**
+ *
+ * 종전(라운드 68 C #4 · 그때는 참): `toProductLinkDto`는 헬스를 노출하지 않았다. 근거는
+ * "묵은 판정으로 판매처를 공개 비난하지 않는다"였고 그 우려는 지금도 옳다. 그때 함께 참이었던
+ * 사실: 우리가 도달 실패를 아는 링크를 사용자는 **아무 말도 못 들은 채** 눌렀다(정렬 강등과
+ * 공유 URL 미발급은 둘 다 화면에 한 글자도 남기지 않는 대우다).
+ *
+ * 이제: 워커가 **실제로 실패를 관찰한 두 값만** 싣는다. 비난이 아니라 우리 관찰의 보고이므로
+ * 문구도 앱이 관찰형으로 짓는다(mobile src/items/link-marker.ts — 판정 단일 소스).
+ *
+ * ⚠️ `"ok"`는 **싣지 않는다.** 그 값은 최대 24시간(기본 `LINK_HEALTH_INTERVAL_HOURS`) 묵은
+ * 데이터센터발 HEAD 응답 하나라, 그것을 지금 이 사용자에게 "확인됨"으로 말하면 허위 표시다.
+ * 계약 유니온에서도 빠져 있어(packages/contracts productLinkSchema) 그 배지는 앱에서 타입상
+ * 표현 자체가 불가능하다.
+ * ⚠️ 미확인(null)도 싣지 않는다 — "괜찮다"가 아니라 **아무 말도 하지 않는다**는 뜻이고, 그것이
+ * 종전 동작 그대로다. 근거(오늘 시드 67건이 전부 `affiliate_url` null이라 그 문구가 100%의
+ * 링크에 영구히 선다)는 계약 머리말에 값과 함께 적었다.
+ *
+ * DNC-009 무접촉: 이 값은 표시 전용이고 정렬(`sortProductLinksForApp`)·추천(item-ranking.ts)의
+ * 입력이 아니다 — 링크 집합·개수·순서는 한 글자도 바뀌지 않는다.
+ * ⚠️ 링크를 목록에서 **감추지 않는다**: 워커는 기본 off이고 판정은 묵을 수 있으며, HEAD에
+ * 403으로 답하는 정상 쇼핑몰도 `broken`이 된다(워커는 405에서만 GET으로 재시도한다). 감추는
+ * 순간 "그런 판매처가 없다"는 **없는 사실**을 말하게 되고 핵심 루프의 "구매 링크 클릭"이 그
+ * 자리에서 끊긴다.
+ */
+function appLinkHealthStatus(healthStatus: string | null | undefined): AppLinkHealthStatus | undefined {
+  if (healthStatus === PRODUCT_LINK_HEALTH_BROKEN) return "broken";
+  if (healthStatus === PRODUCT_LINK_HEALTH_UNSTABLE) return "unstable";
+  return undefined;
 }
 
 function priceBandText(priceMinKrw: number | null, priceMaxKrw: number | null) {
@@ -873,6 +926,9 @@ export class ItemsCatalogService {
       priceKrw !== null && priceCheckedAt !== null
         ? { priceSnapshotKrw: priceKrw, priceCheckedAt: priceCheckedAt.toISOString() }
         : {};
+    // COM-105 후속: 워커가 실패를 관찰한 두 값만 싣는다(ok·미확인은 키 자체가 없다 —
+    // 근거는 appLinkHealthStatus 머리말). 가산 optional이라 구버전 클라이언트는 무영향이다.
+    const appHealthStatus = appLinkHealthStatus(link.healthStatus);
     return {
       id: link.id,
       platform: link.platform,
@@ -880,7 +936,8 @@ export class ItemsCatalogService {
       isAffiliate: link.isAffiliate,
       isSponsored: link.isSponsored,
       disclosureText: link.disclosureText ?? this.defaultDisclosureFor(link, disclosures),
-      ...datedPrice
+      ...datedPrice,
+      ...(appHealthStatus ? { healthStatus: appHealthStatus } : {})
     };
   }
 

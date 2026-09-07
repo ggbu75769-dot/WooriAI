@@ -22,6 +22,14 @@
 //     **합성 소스로** 증명하고(계약 ⓐ), 갈래를 지우는 옛 마스킹으로 되돌리면 **살아 있는 호출부가
 //     사문으로 세어진다**는 사실까지 같은 조각으로 함께 문다(교란 ①).
 //     그리고 마스킹 **전(40)/후(44)** 두 수를 **둘 다 값으로** 든다(계약 ⓑ — 한 낱말로 적지 않는다).
+//  ⓙ **블록 주석 좌표**(라운드 108 트랙 M) — 블록 주석을 새로 넣어도 **마스킹판의 줄 번호와 선언
+//     줄 번호가 어긋나지 않는다**. ⚠️ 이 절은 *고친 버그*가 아니라 **재현되지 않은 주장** 위에
+//     선다: 넘어온 진술은 *"`apps/admin/src/lib/**`에 블록 주석을 넣으면 좌표가 어긋나 거짓
+//     빨강이 난다"* 였고, 실측은 그것을 지지하지 않았다(호출부 351 파일 전수 줄 셈 어긋남 0건 ·
+//     사문 44 전수에 블록 주석을 심어도 거짓 참조 0건 · 진술이 지목한 `admin-api.ts`의
+//     `updateContentRevisionDraft`는 오늘도 블록 주석을 달고 초록이다). **그래서 그 트랙은
+//     `referencesUnderMask`를 고치지 않았고**, 대신 그 성질을 합성 소스로 못 박았다 — 옳은 셈을
+//     "고치는" 것이야말로 그때 생기는 진짜 거짓 빨강이기 때문이다.
 //
 // ⚠️ 라운드 87 트랙 E는 **제품 소스를 0건 고쳤다**(`apps/**`는 읽기만 했다).
 // ⚠️ 라운드 88 트랙 D는 제품 소스 아홉 파일에 **주석 한 덩이씩만** 더했다.
@@ -988,8 +996,11 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // revokeOutgoingSessionOnServer 하나). ⚠️ 앞의 다섯 번과 달리 이번 하나에는 **실제 속성/키
     // 자리가 0건**이다: 호출 직전 주석 줄이 마침표로 끝나 `.\n이름`이 속성 접근으로 읽힌
     // 라운드 101 햅틱 셋과 같은 오독 표면이다(대장 value도 함께 242로 적음).
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(242);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(242);
+    // 라운드 108 T20 이 243 으로 하나 더 올렸다(두 시점 — 워크트리 대조 실측, 순증은
+    // formatSpentOn 하나). 실제 속성/키 자리는 또 0건이고, 원인은 import 목록에서 그 이름
+    // 윗줄 주석이 마침표로 끝난 것 — 같은 오독의 **세 번째** 사례다.
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(243);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(243);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.
@@ -1029,8 +1040,11 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // 들어왔다(수정 전 0 → 후 1, git 대조 실측). 실피해 0은 그대로다.
     // 라운드 101 리뷰: 107 → 109 — src/ui/haptics.ts("package's")와 app/settings/amount-presets.tsx
     // ('원' — F6a)가 주석에 ASCII '를 지닌 채 들어왔다(git 워크트리 대조 실측). 실피해 0은 그대로다.
-    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(109);
-    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(109);
+    // 라운드 108 T10·T20: 109 → 111 — app/(onboarding)/budget.tsx(주석이 인용한 영문
+    // "field's")와 app/budget.tsx(주석의 '원' — 라운드 101 amount-presets.tsx 와 같은 이유)가
+    // ASCII '를 지닌 채 표면에 들어왔다. 실피해는 오늘도 0건이다.
+    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(111);
+    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(111);
     // ⚠️ 이 등호는 우연이 아니다(M-4의 그 등호와 다르다): 0을 넘는 날 사문 판정 하나가 **거짓
     // 빨강**이므로, 빨개지는 것이 곧 알려야 할 사실이다. 그때의 답은 대장에 줄을 더하는 것이
     // 아니라 이 스캐너가 JSX 텍스트를 코드와 가르는 것이다.
@@ -1377,6 +1391,141 @@ describe("ⓘ 문자열 리터럴 축 — 글자는 지우고 템플릿 `${…}`
     expect(apostropheBearingCallsiteFiles().length, "표면이 호출부 전수보다 클 수 없다").toBeLessThan(
       collectCallsiteFiles().length
     );
+  });
+});
+
+describe("ⓙ 블록 주석 좌표 — 마스킹판의 줄 번호와 선언 줄 번호는 어긋나지 않는다 (라운드 108 트랙 M)", () => {
+  /**
+   * ⚠️⚠️ **이 절이 서 있는 이유는 고친 버그가 아니라 *재현되지 않은 주장* 이다.**
+   *
+   * 라운드 108에 넘어온 진술은 이랬다: *"`apps/admin/src/lib/**` 에 **블록 주석**을 새로 넣으면
+   * 마스킹된 좌표와 선언 줄 좌표가 어긋나 그 export가 '제품 소스 참조가 생겼다'로 **거짓 빨강**이
+   * 되고, 실제로 `admin-api.ts`의 블록 주석 하나 때문에 `updateContentRevisionDraft`가 그렇게
+   * 됐다 — 고칠 자리는 `referencesUnderMask`의 줄 번호 계산이다."*
+   *
+   * ⚠️ **실측은 그 진술을 지지하지 않았다**(라운드 108 트랙 M · 값은 넷이다):
+   *  · 호출부 **351 파일 전수**에서 `referencesUnderMask`의 줄 셈을 *줄 단위로 직접 센 정답* 과
+   *    맞춰 보니 어긋난 이름이 **0건**이다.
+   *  · 오늘 사문 **44 전수**에 대해 *선언 줄 바로 위* 와 *파일 머리* 에 각각 그 export의 이름을
+   *    부르는 블록 주석을 넣어 봐도 거짓 참조가 **0건**이다.
+   *  · 진술이 지목한 그 자리(`apps/admin/src/lib/admin-api.ts`의 `updateContentRevisionDraft`)는
+   *    **오늘도 블록 주석을 달고 있고 초록**이다 — 그 파일에 블록 주석을 하나 **더** 넣어도
+   *    참조는 `[]` 그대로였다(임시 편집 후 바이트 단위 원복 · md5 e57c6438…166cc2 동일).
+   *  · 그래서 이 트랙은 `referencesUnderMask`를 **고치지 않았다.** 옳은 셈을 "고치면" 그때
+   *    생기는 것이 진짜 거짓 빨강이다.
+   *
+   * ⚠️ **그 대신 이 절이 그 성질을 못으로 박는다.** 진술이 참이 되려면 마스킹이 *길이·줄 수를
+   * 보존하지 않아야* 하는데, 이 저장소의 관례(`blankRange`)는 정확히 그것을 보존한다. 아래는
+   * **합성 소스만** 쓰고(저장소 파일에 기대지 않는다) 기대값을 **리터럴**로 든다 — 누군가
+   * 그 관례를 깨는 날 이 절이 먼저 빨개진다.
+   */
+  const BLOCK_MODULE_SOURCE =
+    "/**\n" + // 1
+    " * ⚠ **테스트 전용 export**(라운드 71 리뷰 S-8 관례) — 화면이 `blockCommentedJudgement`를\n" + // 2
+    " * 부르지 않는 이유를 적은 **블록** 주석이다. **지우지 않는다**.\n" + // 3
+    " */\n" + // 4
+    "export function blockCommentedJudgement(): boolean {\n" + // 5 ← 선언 줄
+    "  return true;\n" + // 6
+    "}\n" + // 7
+    "\n" + // 8
+    "/* 한 줄짜리 블록 주석도 blockCommentedJudgement 를 말한다 */\n" + // 9
+    "export function liveCaller(): boolean {\n" + // 10
+    "  return blockCommentedJudgement();\n" + // 11 ← 유일한 진짜 호출부
+    "}\n"; // 12
+  const BLOCK_SCREEN_SOURCE =
+    'import { liveCaller } from "../src/fixture/block";\n' + // 1
+    "\n" + // 2
+    "export default function Screen() {\n" + // 3
+    "  return (\n" + // 4
+    "    <View>\n" + // 5
+    "      {/* blockCommentedJudgement 는 화면이 부르지 않는다(JSX 블록 주석) */}\n" + // 6
+    "      {liveCaller()}\n" + // 7
+    "    </View>\n" + // 8
+    "  );\n" + // 9
+    "}\n"; // 10
+  /** 재현이 겨눈 손 그 자체 — **파일 머리에 블록 주석을 새로 넣는다**(정확히 다섯 줄). */
+  const HEAD_BLOCK =
+    "/**\n" +
+    " * 라운드 108: 이 파일 **머리에 블록 주석을 새로 넣는다** — 재현이 겨눈 바로 그 손이다.\n" +
+    " * 이 주석은 blockCommentedJudgement 를 이름으로 부른다.\n" +
+    " * 선언 줄이 아래로 밀리고, 마스킹판의 줄 번호도 **같은 만큼** 밀려야 한다.\n" +
+    " */\n";
+  const BLOCK_MODULE = "apps/mobile/src/fixture/block.ts";
+  const BLOCK_SCREEN = "apps/mobile/app/screen.tsx";
+  const blockItem = (line: number): ExportedFunction => ({
+    id: `${BLOCK_MODULE}:blockCommentedJudgement`,
+    root: "mobile-src",
+    file: BLOCK_MODULE,
+    line,
+    name: "blockCommentedJudgement",
+    kind: "function"
+  });
+
+  it("블록 주석은 **길이와 줄 수를 보존한 채** 지워진다(선언 줄은 한 글자도 잃지 않는다)", () => {
+    const masked = maskCommentsAndStrings(BLOCK_MODULE_SOURCE);
+    // 줄 수는 리터럴로 못 박는다 — 이 수가 밀리는 것이 진술이 말한 '좌표가 어긋난다'의 정체다.
+    expect(masked.split("\n").length, "블록 주석 마스킹이 줄 수를 바꿨어요").toBe(13);
+    expect(masked.length, "블록 주석 마스킹이 길이를 바꿨어요").toBe(BLOCK_MODULE_SOURCE.length);
+    const lines = masked.split("\n");
+    // 주석 줄 넷은 공백만 남고(글자가 사라졌다), 선언 줄 5는 **바이트 그대로**다.
+    expect(lines[1].trim(), "블록 주석 안의 이름이 남았어요").toBe("");
+    expect(lines[8].trim(), "한 줄짜리 블록 주석이 지워지지 않았어요").toBe("");
+    expect(lines[4], "선언 줄이 마스킹에 깎였어요").toBe(
+      "export function blockCommentedJudgement(): boolean {"
+    );
+    expect(lines[10], "진짜 호출부가 마스킹에 지워졌어요").toBe("  return blockCommentedJudgement();");
+  });
+
+  it("⚠️ 블록 주석이 이름을 불러도 **참조는 진짜 호출부 하나뿐**이다(줄 번호까지 리터럴)", () => {
+    const sources = new Map([
+      [BLOCK_MODULE, BLOCK_MODULE_SOURCE],
+      [BLOCK_SCREEN, BLOCK_SCREEN_SOURCE]
+    ]);
+    // 선언 줄 5는 빠지고(결정 ①), 주석 줄 2·9와 화면의 JSX 블록 주석 6도 빠진다 → 남는 것은 11 하나.
+    expect(
+      findProductReferences(blockItem(5), sources),
+      "블록 주석이 참조로 세어졌거나 진짜 호출부를 놓쳤어요"
+    ).toEqual([{ file: BLOCK_MODULE, line: 11 }]);
+    // ⚠️ 그리고 **마스킹이 없으면 넷**이다 — 그 갈림이 이 그물이 블록 주석을 실제로 물고 있다는 값이다.
+    expect(findRawProductReferences(blockItem(5), sources)).toEqual([
+      { file: BLOCK_MODULE, line: 2 },
+      { file: BLOCK_MODULE, line: 9 },
+      { file: BLOCK_MODULE, line: 11 },
+      { file: BLOCK_SCREEN, line: 6 }
+    ]);
+  });
+
+  it("⚠️⚠️ **머리에 블록 주석 다섯 줄을 새로 넣어도** 좌표가 정확히 다섯 줄 밀릴 뿐이다", () => {
+    // 진술이 말한 그 손을 그대로 재현한다: 파일 머리에 블록 주석을 넣으면 선언이 5 → 10,
+    // 호출부가 11 → 16이 된다. **어긋나면** 선언 줄이 제외되지 않아 참조가 하나 늘고,
+    // 그 export는 "호출부가 생겼다"로 대장에서 빠진다(= 진술이 말한 거짓 빨강).
+    const sources = new Map([
+      [BLOCK_MODULE, HEAD_BLOCK + BLOCK_MODULE_SOURCE],
+      [BLOCK_SCREEN, BLOCK_SCREEN_SOURCE]
+    ]);
+    expect(
+      findProductReferences(blockItem(10), sources),
+      "블록 주석을 넣었더니 좌표가 어긋났어요 — 선언 줄이 참조로 세어집니다(거짓 빨강)"
+    ).toEqual([{ file: BLOCK_MODULE, line: 16 }]);
+  });
+
+  it("⚠️ 교란 — **줄을 접는** 마스킹으로 되돌리면 진술이 말한 거짓 빨강이 실제로 난다", () => {
+    // ⚠️ 이 교란이 이 절의 역돌연변이다. 관례(`blankRange`: 글자만 공백으로 · 줄바꿈은 보존)를
+    // 버리고 주석을 **통째로 들어내면** 줄이 접히고, 그때 비로소 선언 줄 좌표가 어긋난다.
+    const folded = BLOCK_MODULE_SOURCE.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(folded.split("\n").length, "이 교란이 줄을 접지 않았어요 — 재현이 죽으면 계약은 영원히 초록입니다").toBe(10);
+    // 선언이 5 → 2로 밀렸는데 대장이 들고 있는 좌표는 여전히 5다.
+    expect(folded.split("\n")[1]).toBe("export function blockCommentedJudgement(): boolean {");
+    // 그래서 **선언 자신이 참조로 세어진다**(줄 2) — 이것이 "제품 소스 참조가 생겼다"의 정체다.
+    expect(
+      findProductReferences(blockItem(5), new Map([[BLOCK_MODULE, folded]])),
+      "줄을 접는 마스킹에서도 좌표가 맞았어요 — 이 교란은 아무것도 재현하지 못합니다"
+    ).toEqual([
+      { file: BLOCK_MODULE, line: 2 },
+      { file: BLOCK_MODULE, line: 8 }
+    ]);
+    // ⚠️ 그리고 **오늘의 마스킹은 그 줄을 접지 않는다** — 같은 소스, 같은 좌표, 다른 답.
+    expect(maskCommentsAndStrings(BLOCK_MODULE_SOURCE).split("\n").length).toBe(13);
   });
 });
 

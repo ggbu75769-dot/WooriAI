@@ -69,6 +69,13 @@ const screenHeaderBlock = () => {
  * ⚠️ **오늘의 하한.** 정찰(2026-08-31)이 낸 수를 오늘 워킹트리에서 다시 재었고 **전부 같았다**
  * (라우트 36 · 탭 밖 31 · `ScreenHeader` 18 · 배선 11 → 트랙 뒤 12 · 배선 없음 일곱 → 트랙 뒤 여섯).
  * 값은 갱신하되 이 하한은 내리지 않는다.
+ *
+ * ⚠️ 라운드 108(온보딩 나가는 길) — 위 괄호는 **라운드 93 A 시점의 값이라 그대로 둔다**(그때는
+ * 참이었다). 오늘 다시 재면 모집단 쪽 셋(라우트 36 · 탭 밖 31 · `ScreenHeader` 18)은 같고,
+ * 판정 쪽 둘만 움직였다: **배선 12 → 13 · 면제 6 → 5**. 그 이동은 화면이 늘어난 것이 아니라
+ * `app/(onboarding)/child-profile.tsx` 한 자리가 면제에서 배선으로 **건너간** 것이다(아래
+ * `REMOVED_FALSE_EXEMPTION`이 그 이유를 원문으로 지고 있다). 그래서 두 수의 합은 종전과 같은
+ * 열여덟이다 — 그 항등이 아래 `it`에서 값으로 선다.
  */
 const LOWER_BOUNDS = {
   /** `_` 레이아웃을 뺀 라우트 전수. */
@@ -79,10 +86,21 @@ const LOWER_BOUNDS = {
   reExports: 5,
   /** 탭 밖에서 `ScreenHeader`를 쓰는 화면. */
   screenHeaderScreens: 18,
-  /** ⓔ 래칫 — 배선한 자리 수는 줄지 않는다(라운드 55까지 11 · 라운드 93 A가 하나를 더했다). */
-  backWired: 12,
-  /** 뒤로가기가 없는 것이 판단인 자리. */
-  noBackByDesign: 6,
+  /**
+   * ⓔ 래칫 — 배선한 자리 수는 줄지 않는다(라운드 55까지 11 · 라운드 93 A가 하나 · 라운드 108이
+   * ONB-002 하나를 더했다).
+   */
+  backWired: 13,
+  /**
+   * 뒤로가기가 없는 것이 판단인 자리.
+   *
+   * ⚠️ 두 시점: 라운드 93~107 동안 이 수는 **6**이었다(그때는 참이었다 — 그 여섯 가운데 하나가
+   * 거짓 이유로 서 있다는 사실을 아무도 세지 않았을 뿐이다). 라운드 108이 그 하나(ONB-002)를
+   * 판정 첫째로 옮기면서 5가 됐다. ⚠️ 이 수는 하한이라 **줄어드는 쪽이 위험하지 않다** — 자리가
+   * 면제에서 배선으로 옮겨 간 것은 관례의 전진이다. 반대로 이 수가 다시 자라는 라운드는
+   * `NO_BACK_BY_DESIGN`에 이름을 더하는 손이므로 그 표의 머리말이 먼저 묻는다.
+   */
+  noBackByDesign: 5,
   /** `ScreenHeader`를 쓰지 않아 이 바늘 밖인 탭 밖 화면. */
   noScreenHeader: 8,
   /** 탭 루트 가운데 `ScreenHeader`를 쓰는 것(픽셀락 캡처가 지나간다). */
@@ -95,7 +113,12 @@ const LOWER_BOUNDS = {
  */
 const ROUND_55_HAND_LIST_SIZE = 11 as const;
 
-/** 열둘이 한 글자도 다르지 않게 쓰는 그 한 관례. 화면마다 다른 뒤로가기를 만들지 않는다. */
+/**
+ * 배선한 자리 전부가 한 글자도 다르지 않게 쓰는 그 한 관례. 화면마다 다른 뒤로가기를 만들지 않는다.
+ *
+ * ⚠️ 두 시점: 라운드 93~107에는 이 문장이 "열둘이"로 시작했다(그때는 참이었다). 오늘은 열셋이고,
+ * 수를 문장에 박지 않는다 — 세는 것은 아래 `LOWER_BOUNDS.backWired`와 파생 대장이다.
+ */
 const BACK_WIRING = "onBack={() => router.back()}" as const;
 
 /**
@@ -104,31 +127,68 @@ const BACK_WIRING = "onBack={() => router.back()}" as const;
  * ⚠️ 이유는 파생이 아니라 **사람의 문장**이다(사각 ⓓ). 빈 알리바이는 길이로만 막는다(40자 하한).
  * ⚠️⚠️ **여기에 이름을 적는 것으로 자리 하나가 면제되므로, 새 이름을 더하는 손은 그 화면이
  * 정말 그 갈래인지를 먼저 답해야 한다** — 이 표가 자라는 것은 관례의 후퇴가 아니라 판단의 기록이다.
+ *
+ * ## ⚠️⚠️ 라운드 108(온보딩 나가는 길) — **사각 ⓓ가 예고한 그 날이 왔다: 이유 하나가 거짓이었다**
+ *
+ * 사각 `second-verdict-reason-is-hand-written-prose`의 재개 조건은 *"이 표의 자리 하나가
+ * 뒤로가기가 있어야 하는 화면이었다고 보고되는 날"*이었다. 오늘이 그날이고, 집힌 자리는
+ * `app/(onboarding)/child-profile.tsx`(ONB-002)다. 그 줄이 지고 있던 이유는 아래
+ * `REMOVED_FALSE_EXEMPTION`에 **글자 그대로** 남긴다(지우지 않는다 — 무엇이 왜 틀렸는지가
+ * 기록이다). 요지는 이렇다:
+ *
+ *  · 그 문장은 *"되돌아갈 앞 화면이 없다"*고 말했는데, ONB-002에 이르는 길은 **push 하나뿐**이라
+ *    앞 화면(ONB-001)이 언제나 스택에 남아 있었다(`child-status.tsx`의
+ *    `router.push("/onboarding/child-profile")`). 이어하기도 이 라우트로 오지 않는다 —
+ *    `routeForOnboardingNextStep`이 "child-profile"을 **ONB-001로** 보낸다.
+ *  · 같은 저장소가 그 복귀를 이미 알고 있었다: ONB-001의 `useFocusEffect`가 *"coming back from
+ *    ONB-002"*를 받으려고 서 있다(ONB-105).
+ *  · ⚠️ 그런데 그 문장이 **거짓말이었던 것은 아니다 — 자리를 잘못 찾았을 뿐이다.** 로그인·런치
+ *    애니메이션 이야기는 `child-status.tsx`(ONB-001)에 대해서는 오늘도 참이고, 그래서 그 사실은
+ *    위 표에서 **그 화면의 이유로 옮겨 적혔다**(스택에 앞 화면이 남지 않는다는 파생 가능한 근거와
+ *    함께). 이 표가 고쳐진 방식은 "지우기"가 아니라 "제자리 찾기"다.
  */
+
+/**
+ * ⚠️ 지우지 않고 남기는 **그 거짓 이유의 원문**(AE-3의 왼쪽). 아래 `it`이 이 문장이 오늘의 표에
+ * 살아 있지 않다는 것과, 그 화면이 판정 첫째로 넘어갔다는 것을 함께 문다.
+ */
+const REMOVED_FALSE_EXEMPTION = {
+  file: "app/(onboarding)/child-profile.tsx",
+  /** 라운드 55~107 동안 이 표에 서 있던 문장. 한 글자도 고치지 않는다. */
+  reason:
+    "선형 온보딩의 첫 입력 걸음이라 되돌아갈 앞 화면이 없다(그 뒤는 로그인·런치 애니메이션이고 " +
+    "돌아가면 계정 흐름으로 떨어진다). 나가는 길은 다음 걸음으로 나아가는 것 하나다.",
+  /** 그 문장을 거짓으로 만드는 소스의 사실 — 파생으로 다시 세울 수 있는 형태로 적는다. */
+  falsifiedBy: 'app/(onboarding)/child-status.tsx의 router.push("/onboarding/child-profile")',
+  /** 그 문장이 **참인** 자리(오늘 그 사실을 이유로 지고 있는 화면). */
+  trueAbout: "app/(onboarding)/child-status.tsx"
+} as const;
 const NO_BACK_BY_DESIGN: readonly { readonly file: string; readonly reason: string }[] = [
   {
     file: "app/(onboarding)/budget.tsx",
     reason:
-      "선형 온보딩의 마지막 걸음이라 **뒤로가기가 없는 것이 판단**이다. 앞 걸음이 저장한 아이 정보 위에 서고, " +
-      "되돌아가면 이미 확정한 값과 어긋난 상태로 다시 들어온다. 나가는 길은 온보딩을 끝내는 것이다."
-  },
-  {
-    file: "app/(onboarding)/child-profile.tsx",
-    reason:
-      "선형 온보딩의 첫 입력 걸음이라 되돌아갈 앞 화면이 없다(그 뒤는 로그인·런치 애니메이션이고 " +
-      "돌아가면 계정 흐름으로 떨어진다). 나가는 길은 다음 걸음으로 나아가는 것 하나다."
+      "선형 온보딩의 **마지막** 걸음이고 앞으로 가는 길이 이 화면에 둘 다 서 있다([예산 저장하고 시작하기] · " +
+      "[나중에 설정할게요] — 둘 다 온보딩을 끝내고 홈으로 간다). 앞 걸음(ONB-003)은 push로 왔으니 스택에는 " +
+      "남아 있지만, 그 화면은 다시 열릴 때 체크 상태를 **빈 목록에서 시작한다**(prepared-items.tsx의 " +
+      "`useState<string[]>([])`) — 이미 저장한 체크가 전부 해제된 얼굴로 다시 서는 자리라, 그리로 부르는 문을 " +
+      "세우지 않는다. 저장 자체는 덧쓰기라 되돌아가도 지워지지는 않는다(그 사실이 이 판단의 근거는 아니다)."
   },
   {
     file: "app/(onboarding)/child-status.tsx",
     reason:
-      "선형 온보딩의 한 걸음이라 뒤로가기가 없는 것이 판단이다. 이 화면의 선택은 다음 걸음이 무엇을 " +
-      "물을지를 정하므로, 되돌아가 고르면 이미 지나간 걸음과 어긋난 상태가 남는다."
+      "이 화면에 이르는 길이 **전부 Redirect/replace라 스택에 앞 화면이 남지 않는다** — app/index.tsx의 " +
+      "`<Redirect href={hasReachedHome ? \"/(tabs)\" : \"/onboarding/child-status\"} />` · resume.tsx의 " +
+      "`router.replace(\"/onboarding/child-status\")` · 로그인의 `router.replace(inviteResumeHref ?? \"/\")`. " +
+      "앱 전체에 이 라우트로 가는 push가 0건이다. 그 뒤에 있는 것은 로그인·런치 애니메이션 흐름이라, " +
+      "여기에 ‹를 세우면 계정 흐름으로 떨어진다."
   },
   {
     file: "app/(onboarding)/prepared-items.tsx",
     reason:
-      "선형 온보딩의 한 걸음이라 뒤로가기가 없는 것이 판단이다. 여기서 고른 준비템은 다음 걸음(예산)의 " +
-      "재료이고, 되돌아가는 대신 앞으로 나아가는 길만 둔다 — 온보딩 다섯이 같은 답을 골랐다."
+      "앞 걸음(ONB-002)은 push로 왔으니 스택에 남아 있지만, 그 화면은 **아이를 한 번 더 만들 수 있는 폼**이다 — " +
+      "저장에 성공하면 멱등키가 지워지므로 다시 제출하면 서버가 새 아이를 만든다(child-profile.tsx의 " +
+      "*막지 않고 말한다* 주석이 그 사실을 값으로 적어 두었다). 되돌아가는 문을 세우는 것은 그 자리로 사람을 " +
+      "부르는 일이라, 여기서는 앞으로 가는 길만 둔다."
   },
   {
     file: "app/(onboarding)/resume.tsx",
@@ -404,7 +464,7 @@ const BLIND_SPOTS: readonly BlindSpot[] = [
       "이 계약이 초록이라는 사실이 그 항목을 대신하지 않는다.",
     uncountable: {
       wantedToCount:
-        "‹를 실제로 눌렀을 때 그 화면에서 나가지는가 — 즉 **배선 열둘 가운데 런타임에서 참인 것의 수**. " +
+        "‹를 실제로 눌렀을 때 그 화면에서 나가지는가 — 즉 **배선한 자리 전부(오늘 열셋) 가운데 런타임에서 참인 것의 수**. " +
         "그 수가 있어야 *나가는 길이 있다*를 소스가 아니라 앱에 대해 말할 수 있다.",
       missingFromSource:
         "누름과 이동은 **런타임 사건**이라 소스에는 배선까지만 남는다. 이 저장소의 vitest에는 react-native " +
@@ -444,7 +504,15 @@ const BLIND_SPOTS: readonly BlindSpot[] = [
     round93Constant: 6,
     /** 자 — 판정 둘째의 **파생된** 자리 수(손이 적은 표의 크기가 아니다). */
     measure: () => ledger.noBackByDesign.length,
-    today: 6,
+    /**
+     * ⚠️⚠️ **라운드 108 — 이 자리가 이 파일에서 처음으로 `round93Constant`와 갈렸다.**
+     *
+     * 라운드 94 B가 이 꼴을 세우며 적어 둔 규율이 그대로 발동한다: *"두 시점이 갈리는 날 고칠 곳은
+     * `today`이지 `round93Constant`가 아니다"*. 6에서 5로 내려간 이유는 자리가 사라진 것이 아니라
+     * 이 사각이 예고한 그 사건 — 이유 하나가 거짓으로 판명되어 그 화면이 판정 첫째로 건너간 것 —
+     * 이고, 그래서 아래 `it`의 `diverged`는 이제 **이 id 하나를 이름으로** 문다(빈 배열이 아니다).
+     */
+    today: 5,
     floor: 1,
     reason:
       "**판정 둘째의 *이유*는 파생이 아니라 사람의 문장이다.** 이 자는 그 문장이 참인지 묻지 못하고 " +
@@ -879,8 +947,9 @@ describe("라운드 93 A ⓑ 판정 — 탭 밖 화면마다 정확히 하나", 
     expect(ledger.screens.length + ledger.reExports.length).toBe(ledger.outsideTabs.length);
   });
 
-  it(`ⓔ 배선한 자리는 ${LOWER_BOUNDS.backWired} 아래로 내려가지 않고, 열둘이 한 관례를 쓴다`, () => {
-    // 라운드 55까지의 손 목록 열하나 → 라운드 93 A가 하나를 더해 열둘. 하한은 내려가지 않는다.
+  it(`ⓔ 배선한 자리는 ${LOWER_BOUNDS.backWired} 아래로 내려가지 않고, 그 전부가 한 관례를 쓴다`, () => {
+    // 라운드 55까지의 손 목록 열하나 → 라운드 93 A가 하나를 더해 열둘 → 라운드 108이 ONB-002를
+    // 더해 열셋. 하한은 내려가지 않는다(수는 문장이 아니라 LOWER_BOUNDS가 진다).
     expect(LOWER_BOUNDS.backWired).toBeGreaterThan(ROUND_55_HAND_LIST_SIZE);
     expect(ledger.backWired.length, `배선한 자리: ${names(ledger.backWired).join(", ")}`).toBeGreaterThanOrEqual(
       LOWER_BOUNDS.backWired
@@ -890,7 +959,7 @@ describe("라운드 93 A ⓑ 판정 — 탭 밖 화면마다 정확히 하나", 
       const wiredTags = entry.headerTags.filter((tag) => tag.full.includes("onBack"));
       expect(wiredTags.length, `${entry.file}에 onBack을 진 ScreenHeader가 있어야 한다`).toBeGreaterThan(0);
       for (const tag of wiredTags) {
-        // 화면마다 다른 뒤로가기를 만들지 않는다 — 열둘이 같은 한 줄이다.
+        // 화면마다 다른 뒤로가기를 만들지 않는다 — 배선한 자리 전부가 같은 한 줄이다.
         expect(tag.full, `${entry.file}의 ScreenHeader가 ${BACK_WIRING} 관례를 쓴다`).toContain(BACK_WIRING);
       }
     }
@@ -985,10 +1054,114 @@ describe("라운드 93 A ⓓ 바이트 불변 — 새 속성 하나 말고는 �
     const block = screenHeaderBlock();
     expect(block).toContain("onBack?: () => void");
     expect(block).toContain("{onBack ? (");
-    // 이 트랙이 슬롯을 새로 만들지 않았다는 뜻: 열둘이 **하나의** 슬롯을 나눠 쓴다.
+    // 이 트랙이 슬롯을 새로 만들지 않았다는 뜻: 배선한 자리 전부가 **하나의** 슬롯을 나눠 쓴다.
     // ⚠️ 등호를 고른 자리 — 이동 의무: ScreenHeader가 뒤로가기 노드를 둘 이상 지니게 되는 날
     // (예: 오른쪽 닫기 버튼이 같은 라벨을 쓰게 되는 개편) 그 라운드의 손이 이 수를 함께 옮긴다.
     expect(block.split("accessibilityLabel=\"뒤로가기\"").length - 1).toBe(1);
+  });
+});
+
+/**
+ * ⚠️⚠️ 라운드 108(온보딩 나가는 길) — **사각 ⓓ가 예고한 사건이 실제로 일어난 자리.**
+ *
+ * 사각 `second-verdict-reason-is-hand-written-prose`는 자기 재개 조건을 이렇게 적어 두었다:
+ * *"이 표의 자리 하나가 뒤로가기가 있어야 하는 화면이었다고 보고되는 날 — 그날 그 줄을 지우면
+ * 그 자리는 `stack-screen-without-exit`로 떨어지고 이 계약이 **먼저** 빨개진다."* 오늘이 그날이고,
+ * 그 예고대로 줄을 지우는 것만으로는 초록이 되지 않았다 — **화면에 문을 세운 뒤에야** 판정이
+ * 첫째로 떨어졌다. 아래 블록은 그 이동이 *일어났다*가 아니라 **왜 옳은지**를 소스에서 다시 센다.
+ *
+ * ⚠️ 이 블록이 무는 것은 온보딩 네 걸음 전부다(한 자리만 고치고 나머지 셋의 이유는 손대지 않은
+ * 상태를 막는다) — 종전 이유 셋 가운데 둘도 *"앞 화면이 없다"*는 뜻으로 읽히고 있었는데, 그 말이
+ * 참인 화면은 ONB-001 하나뿐이다.
+ */
+describe("라운드 108 — ONB-002가 면제에서 배선으로 건너간다", () => {
+  const ONB_001 = "app/(onboarding)/child-status.tsx";
+  const ONB_002 = "app/(onboarding)/child-profile.tsx";
+  const ONB_003 = "app/(onboarding)/prepared-items.tsx";
+  const ONB_004 = "app/(onboarding)/budget.tsx";
+
+  /**
+   * 그 바늘을 담은 **비테스트 소스**(주석은 걷고 본다 — 이 라운드가 남긴 근거 문단들이 같은
+   * 문자열을 인용하므로, 마스킹하지 않으면 근거를 적은 파일이 항해 자리로 세어진다).
+   */
+  function navigationSitesFor(needle: string): string[] {
+    return ["app", "src"].flatMap((root) =>
+      listSourceFiles(root).filter((file) => maskComments(source(file)).includes(needle))
+    );
+  }
+
+  it("ONB-002가 판정 첫째(back-wired)로 떨어지고, 면제 표에서 사라졌다", () => {
+    expect(names(ledger.screens), "모집단 안에 있어야 한다").toContain(ONB_002);
+    expect(names(ledger.backWired)).toContain(ONB_002);
+    expect(names(ledger.noBackByDesign)).not.toContain(ONB_002);
+    expect(names(ledger.withoutExit)).not.toContain(ONB_002);
+    expect(NO_BACK_BY_DESIGN.map((row) => row.file)).not.toContain(ONB_002);
+  });
+
+  it("그 이동의 근거가 소스에 실재한다 — 이 화면에 이르는 길은 push 하나뿐이다", () => {
+    // ⓐ 앞 화면이 **언제나** 스택에 남는다: 이 라우트로 미는 자리가 정확히 ONB-001 하나다.
+    expect(navigationSitesFor('router.push("/onboarding/child-profile")'), "ONB-002로 미는 자리").toEqual([
+      ONB_001
+    ]);
+    // ⓑ 이어하기도 이 라우트로 오지 않는다 — "child-profile"은 ONB-001로 간다(resume.ts의 판단).
+    const resumeModule = maskComments(source("src/onboarding/resume.ts"));
+    expect(resumeModule, "이어하기 표가 ONB-002를 목적지로 들고 있다").not.toContain("/onboarding/child-profile");
+    expect(resumeModule).toContain('case "child-profile":');
+    expect(resumeModule).toContain('return "/onboarding/child-status";');
+    // ⓒ 그 복귀를 이 저장소가 이미 알고 있었다(ONB-105의 useFocusEffect가 그것을 받는다).
+    const childStatus = source(ONB_001);
+    expect(childStatus).toContain("useFocusEffect");
+    expect(childStatus).toContain("setIsNavigating(false)");
+  });
+
+  it("거짓 이유의 원문은 기록으로 남고, 오늘의 표에는 살아 있지 않다 (AE-3)", () => {
+    expect(REMOVED_FALSE_EXEMPTION.file).toBe(ONB_002);
+    expect(REMOVED_FALSE_EXEMPTION.reason.length, "원문을 요약하지 않고 그대로 남긴다").toBeGreaterThan(40);
+    expect(REMOVED_FALSE_EXEMPTION.reason).toContain("되돌아갈 앞 화면이 없다");
+    for (const row of NO_BACK_BY_DESIGN) {
+      expect(row.reason, `${row.file}에 그 문장이 다시 서 있다`).not.toBe(REMOVED_FALSE_EXEMPTION.reason);
+    }
+    // ⚠️ 그 문장이 **참인** 자리는 오늘도 면제로 남아 있고, 그 이유가 같은 사실을 파생 가능한
+    // 근거(Redirect/replace)와 함께 말한다 — 고친 방식은 지우기가 아니라 제자리 찾기다.
+    const trueAbout = NO_BACK_BY_DESIGN.find((row) => row.file === REMOVED_FALSE_EXEMPTION.trueAbout);
+    expect(trueAbout, "그 사실이 참인 화면이 표에 있어야 한다").toBeDefined();
+    expect(trueAbout?.reason).toContain("Redirect");
+    expect(trueAbout?.reason).toContain("replace");
+  });
+
+  it("ONB-001은 면제로 남는다 — 이 라우트로 미는 push가 0건이고 갈아타기만 있다", () => {
+    expect(names(ledger.noBackByDesign)).toContain(ONB_001);
+    expect(navigationSitesFor('router.push("/onboarding/child-status")'), "ONB-001로 미는 자리").toEqual([]);
+    expect(maskComments(source("app/index.tsx")), "진입 라우팅의 Redirect").toContain(
+      'href={hasReachedHome ? "/(tabs)" : "/onboarding/child-status"}'
+    );
+    expect(maskComments(source("app/(onboarding)/resume.tsx")), "이어하기의 replace").toContain(
+      'router.replace("/onboarding/child-status")'
+    );
+  });
+
+  it("면제와 배선의 합은 그대로다 — 자리가 사라진 것이 아니라 건너갔다", () => {
+    const withHeader = ledger.screens.filter((entry) => entry.headerTags.length > 0);
+    expect(ledger.backWired.length + ledger.noBackByDesign.length + ledger.withoutExit.length).toBe(
+      withHeader.length
+    );
+    expect(withHeader.length).toBeGreaterThanOrEqual(LOWER_BOUNDS.screenHeaderScreens);
+    // 라운드 93 A의 12 + 6과 오늘의 13 + 5가 **같은 합**이다(그 항등이 이 이동의 모양이다).
+    expect(LOWER_BOUNDS.backWired + LOWER_BOUNDS.noBackByDesign).toBe(LOWER_BOUNDS.screenHeaderScreens);
+  });
+
+  it("온보딩 네 걸음의 판정과 그 이유가 오늘의 사실과 맞는다", () => {
+    const verdictOf = (file: string) => ledger.screens.find((entry) => entry.file === file)?.verdict;
+    expect(verdictOf(ONB_001), "ONB-001").toBe("no-back-by-design");
+    expect(verdictOf(ONB_002), "ONB-002").toBe("back-wired");
+    expect(verdictOf(ONB_003), "ONB-003").toBe("no-back-by-design");
+    expect(verdictOf(ONB_004), "ONB-004").toBe("no-back-by-design");
+    // ⚠️⚠️ 남은 둘의 이유는 *"앞 화면이 없다"*가 아니다 — 앞 화면은 있고(push), 그리로 부르지
+    // 않는 근거를 따로 든다. 그 정직함을 값으로 문다.
+    for (const file of [ONB_003, ONB_004]) {
+      const row = NO_BACK_BY_DESIGN.find((entry) => entry.file === file);
+      expect(row?.reason, `${file}의 이유가 앞 화면의 존재를 감춘다`).toContain("push로 왔으니 스택에");
+    }
   });
 });
 
@@ -1027,10 +1200,19 @@ describe("라운드 93 A ⓕ 사각 — 이 계약이 못 보는 것을 값과 �
       expect(measured, `${spot.id}: 오늘 다시 잰 값이 기록과 갈렸다`).toBe(spot.today);
       expect(measured, `${spot.id}의 오늘 값은 하한 위에 있다`).toBeGreaterThanOrEqual(spot.floor ?? 0);
     }
-    // ⚠️ 두 시점이 오늘 갈리지 않았다는 사실도 값이다. 갈리는 날 고칠 곳은 `today`이지
-    // `round93Constant`가 아니다(옛 수는 기록이라 지우지 않는다 · AE-3).
+    // ⚠️⚠️ 두 시점이 갈린 자리를 **이름으로** 든다(라운드 93~107에는 이 기대값이 빈 배열이었고,
+    // 그때는 참이었다). 라운드 108이 거짓 이유 하나를 판정 첫째로 옮기면서 면제 자리가 6에서 5로
+    // 내려갔다 — 고친 곳은 그 자리의 `today` 하나이고 `round93Constant`는 기록이라 그대로다(AE-3).
+    // 이 기대값이 리터럴 배열인 이유도 같다: 갈린 자리가 늘거나 줄면 그 사실이 먼저 빨개져야 한다.
     const diverged = gauged.filter((spot) => spot.today !== spot.round93Constant);
-    expect(diverged.map((spot) => spot.id), "라운드 93의 상수와 오늘의 파생값이 갈린 자리").toEqual([]);
+    expect(diverged.map((spot) => spot.id), "라운드 93의 상수와 오늘의 파생값이 갈린 자리").toEqual([
+      "second-verdict-reason-is-hand-written-prose"
+    ]);
+    // 갈린 그 자리의 방향도 값이다 — 면제는 **줄어드는 쪽**으로만 갈렸다(자리가 사라진 것이 아니라
+    // 배선으로 건너갔다는 뜻이고, 그 항등은 아래 라운드 108 블록이 따로 문다).
+    for (const spot of diverged) {
+      expect(spot.today, `${spot.id}: 두 시점이 늘어나는 쪽으로 갈렸다`).toBeLessThan(spot.round93Constant);
+    }
   });
 
   it("ⓕ 자 — 상수를 감싼 함수가 0건이다 (부정 단언 · 유령 자 금지)", () => {

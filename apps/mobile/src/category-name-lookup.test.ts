@@ -80,6 +80,61 @@ describe("buildCategoryNameLookup (server GET /categories -> 카테고리 이름
     expect(selectableOnly(aliasId)).toBe("기저귀"); // categoryNameFor 폴백
     expect(selectableOnly(importStubId)).toBe("기타"); // 무너지는 지점
   });
+
+  /**
+   * 라운드 109 — **표시 직전의 이름 손질**(`displaySafeCategoryName`).
+   *
+   * 종전(그때는 참): 이 lookup은 `category?.name?.trim()`만 했다. `trim()`은 이름 **양끝**만
+   * 손대므로 이름 **안쪽**의 개행·양방향 제어문자는 그대로 화면·CSV·낭독 라벨로 흘렀다.
+   * 같은 라운드의 서버 실측: 어드민 유입 지점이 `"\u202E전세 500만원"`을 200으로 저장했고
+   * (첫 코드포인트가 U+202E RLO), `"\u200B\u200B"`(ZWSP만)도 저장됐다.
+   * → 이제: 남은 `\p{Cc}`/`\p{Cf}`/`\p{Cs}`를 공백 한 칸으로 바꾼 뒤 접는다.
+   *
+   * 두 겹인 이유는 `src/categories.ts`의 그 함수 주석이 값으로 적는다(캐시·데모 대역·아직
+   * 좁히지 않은 커스텀 유입 지점). 여기서는 **결과값만** 리터럴로 못 박는다.
+   */
+  it("라운드 109: 이름 안쪽의 개행·양방향 제어문자를 표시 직전에 접는다", () => {
+    const lookup = buildCategoryNameLookup([
+      { id: "nl", name: "기저귀\n위생" },
+      { id: "nel", name: "산후\u0085도우미" },
+      { id: "rlo", name: "\u202E전세 500만원" },
+      { id: "zwsp-mid", name: "산후\u200B도우미" },
+      { id: "tab", name: "  돌잔치\t\t비용  " }
+    ]);
+
+    // 개행류는 **한 칸 공백**이 된다 — 지우면 원래 떨어져 있던 두 낱말이 붙는다.
+    expect(lookup("nl")).toBe("기저귀 위생");
+    expect(lookup("nel")).toBe("산후 도우미");
+    expect(lookup("zwsp-mid")).toBe("산후 도우미");
+    expect(lookup("tab")).toBe("돌잔치 비용");
+
+    // 양방향 제어문자는 한 글자도 남지 않는다 — 남으면 뒤따르는 금액 숫자의 표시 순서가
+    // 뒤집혀 사용자가 사실과 다른 금액을 읽는다.
+    expect(lookup("rlo")).toBe("전세 500만원");
+    expect(lookup("rlo")).not.toContain("\u202E");
+
+    // 손질은 **멱등**이다(이미 성한 이름은 한 글자도 바뀌지 않는다).
+    const clean = buildCategoryNameLookup([{ id: "clean", name: "산후 도우미" }]);
+    expect(clean("clean")).toBe("산후 도우미");
+  });
+
+  it("라운드 109: 보이지 않는 문자만으로 된 이름은 빈 이름과 같은 갈래로 떨어진다", () => {
+    const lookup = buildCategoryNameLookup([
+      { id: "zwsp-only", name: "\u200B\u200B" },
+      { id: "bidi-only", name: "\u202E\u202C" }
+    ]);
+
+    // 종전에는 이런 이름이 `trim()`을 통과해 화면에 그대로 실렸고, 문장이
+    // "…에는 에 가장 많이 썼어요"가 됐다. 이제는 빈 이름과 같은 폴백을 탄다.
+    expect(lookup("zwsp-only")).toBe("기타");
+    expect(lookup("bidi-only")).toBe("기타");
+  });
+
+  it("라운드 109: 정상 이모지 이름은 손대지 않는다 — 없는 위험을 지어내지 않는다", () => {
+    // 짝이 맞는 서로게이트 쌍(U+1F423)과 변형 선택자(U+FE0F)는 손질 대상이 아니다.
+    const lookup = buildCategoryNameLookup([{ id: "emoji", name: "\u{1F423} 병아리 \u2764\uFE0F" }]);
+    expect(lookup("emoji")).toBe("\u{1F423} 병아리 \u2764\uFE0F");
+  });
 });
 
 // ---------------------------------------------------------------------------

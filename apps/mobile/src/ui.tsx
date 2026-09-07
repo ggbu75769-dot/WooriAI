@@ -1,7 +1,9 @@
 import type React from "react";
+import type { RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
 import { AccessibilityInfo, Animated, Image, Pressable, ScrollView, Text, View } from "react-native";
+import { focusAccessibilityTarget } from "./a11y/focus-accessibility-target";
 import { motion } from "./design-system/tokens/motion";
 import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { formatKrw } from "./money";
@@ -701,14 +703,65 @@ export function FloatingActionButton({ onPress, accessibilityLabel = "지출 기
   );
 }
 
+/**
+ * A11Y 시트 봉인·포커스 — **앱이 실제로 그리는 시트는 전부 이 껍데기다.**
+ *
+ * 종전 이 컴포넌트는 그냥 `<View>`였다(그때는 참이었다: 시트 문법의 봉인·포커스는 옆 벌인
+ * `src/design-system/components/ModV1Primitives.tsx`의 `BottomSheet`가 이미 옳게 하고 있었고,
+ * 이 프레임은 "모양만" 지는 자리였다). → 이제 이 한 곳이 봉인(`accessibilityViewIsModal`)과
+ * 열림 포커스(제목)·닫힘 복귀(`returnFocusRef`)를 함께 진다. 근거: 그 `BottomSheet`는 앱 전체
+ * **호출부 0건**이고, 살아 있는 시트 마운트(아이 전환 4 · 달 점프 4 · 커스텀 품목 2 · 지출
+ * 입력 프레임 1)는 하나도 빠짐없이 이 껍데기를 지나간다. 한 곳을 고치면 그 전부가 함께 닫힌다.
+ *
+ * ⚠️ **`<Modal>`로 감싸지 않는다.** 이 프레임은 EXP-001(빠른 지출 기록 · `app/expenses/new.tsx`
+ * → `/expenses/new`, `scripts/pixel-lock/pixel-lock-screens.json`) 픽셀락 캡처 경로 위에 있다.
+ * Modal은 렌더 트리 자체를 바꿔 기준 이미지 재캡처를 부르고, 재캡처는 사람 손을 타는 일이라 이
+ * 트랙의 범위 밖이다. 아래 셋은 전부 **레이아웃 속성이 아니다**(`hitSlop`에 대해
+ * `a11y-contract.test.ts`가 적어 둔 "렌더는 불변이다"와 같은 근거) — 배율 1.0 렌더가 불변이다.
+ *
+ * ⚠️ **봉인은 제목이 있는 프레임만 선다.** 제목 없는 호출부는 오늘 하나뿐인데(EXP-001의
+ * `title=""` — 시트가 아니라 화면 본문 껍데기다) 그 화면의 **하단 고정 요약바(금액·저장)는 이
+ * 프레임 밖 형제**다. 화면 본문을 a11y 모달로 선언하면 그 저장 버튼이 낭독에서 사라질 수 있고,
+ * 그것은 핵심 루프를 끊는다 — 그래서 `title`이 시트인지 아닌지를 가르는 자리다.
+ *
+ * ⚠️ **봉인의 사정거리를 부풀려 적지 않는다.** `accessibilityViewIsModal`은 iOS 전용이고
+ * (안드로이드에는 짝이 되는 프롭이 없다 — 형제들에게 `importantForAccessibility`를 거는 일은
+ * 호출부의 손이다), `<Modal>` 밖에서는 VoiceOver가 **이 View의 형제**를 무시할 뿐이다. 열림
+ * 포커스와 닫힘 복귀는 그와 무관하게 두 플랫폼 다 선다. 진짜 봉인은 `<Modal>`이 서는 날인데,
+ * 그날은 EXP-001 재캡처가 함께 가는 날이라 이 트랙의 범위 밖이다.
+ */
 export function BottomSheetFrame({
   title,
   children,
   showHandle = true,
-  style
-}: ChildrenProps & { title: string; showHandle?: boolean; style?: StyleProp<ViewStyle> }) {
+  style,
+  returnFocusRef
+}: ChildrenProps & {
+  title: string;
+  showHandle?: boolean;
+  style?: StyleProp<ViewStyle>;
+  /**
+   * 시트를 연 버튼. 닫힐 때(언마운트) 낭독 포커스가 이 자리로 돌아간다. 넘기지 않으면 종전
+   * 그대로 — 복귀만 조용히 없다(봉인과 열림 포커스는 그래도 선다).
+   */
+  returnFocusRef?: RefObject<View | null>;
+}) {
+  // 훅은 조기 반환보다 위 — 이 함수에는 조기 반환이 없지만 규율은 그대로 지킨다(FIX-A).
+  const titleRef = useRef<Text>(null);
+  const sealsBackground = Boolean(title);
+  useEffect(() => {
+    // 한 틱 뒤에 잡는 이유는 죽은 `BottomSheet`가 `onShow`에서 쓰던 것과 같다 — 첫 레이아웃이
+    // 서기 전의 노드에는 포커스가 붙지 않는다. 제목이 없으면 잡을 노드도 없어 조용히 아무 일도
+    // 일어나지 않는다(`focusAccessibilityTarget`의 handle 가드).
+    const openFocusTimer = setTimeout(() => focusAccessibilityTarget(titleRef), 0);
+    return () => {
+      clearTimeout(openFocusTimer);
+      if (returnFocusRef) focusAccessibilityTarget(returnFocusRef);
+    };
+  }, [returnFocusRef]);
   return (
     <View
+      accessibilityViewIsModal={sealsBackground}
       style={[
         {
           backgroundColor: theme.colors.white,
@@ -724,7 +777,7 @@ export function BottomSheetFrame({
       {showHandle ? (
         <View style={{ alignSelf: "center", backgroundColor: theme.colors.gray300, borderRadius: theme.radii.pill, height: 4, width: 42 }} />
       ) : null}
-      {title ? <Text style={[textStyles.h3, { color: theme.colors.brown }]}>{title}</Text> : null}
+      {title ? <Text ref={titleRef} style={[textStyles.h3, { color: theme.colors.brown }]}>{title}</Text> : null}
       {children}
     </View>
   );

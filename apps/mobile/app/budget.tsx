@@ -19,7 +19,9 @@ import {
 import { resolveChildScopeLabel, withChildScopeLabel } from "../src/children/child-switch";
 import { useSelectedChildStore } from "../src/stores/selected-child.store";
 import { useSessionStore } from "../src/stores/session.store";
-import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../src/money";
+// A11Y-115(과제 2): 금액 칸이 스크린리더에 넘길 값도 **표기의 단일 소스**에서 온다
+// (amountFieldAccessibilityValue — 세 화면의 금액 칸이 같은 규칙을 각자 적지 않는다).
+import { amountDigitsOnly, amountFieldAccessibilityValue, formatAmountDigits, formatKrw } from "../src/money";
 // GAP-054 #2: 금액 상한의 값·문구는 지출 입력 화면들과 **같은 모듈**에서 온다. 여기에 숫자를
 // 다시 적으면 서버 @Max와 갈라지는 순간을 아무도 모른다(src/expenses/amount-limit.ts).
 import { amountOverLimitMessage, isAmountOverLimit } from "../src/expenses/amount-limit";
@@ -52,6 +54,8 @@ import { guardExpenseAction, VIEW_ONLY_HEADLINES } from "../src/family/record-pe
 import { useLoadErrorCopy, useSaveErrorCopy } from "../src/offline/use-load-error-copy";
 import { useOfflineSyncSnapshot } from "../src/offline/sync-controller";
 import { AppScreen, Card, EmptyStateCard, PrimaryButton, ScreenHeader, Toast } from "../src/ui";
+// A11Y-115(과제 1): 검증 오류의 낭독 규율은 한 벌이 소유한다(재낭독 금지 · 갈래가 닫히면 기억을 지운다).
+import { useFieldErrorAnnouncement } from "../src/a11y/use-field-error-announcement";
 import { SkeletonCard } from "../src/ui/Skeleton";
 import { theme } from "../src/theme";
 
@@ -214,6 +218,19 @@ export default function BudgetEditScreen() {
       : isAmountOverLimit(typedAmountKrw ?? 0)
         ? amountOverLimitMessage()
         : null;
+  /**
+   * A11Y-115(과제 1) ⚠️ **두 시점** — *종전*: 총액 오류 한 줄에는 낭독 출구가 없었다(그때는
+   * 참이었다 — 라운드 79·80의 낭독 스윕은 `useMutation`/`useQuery`에 닿는 조건 아래 선 실패
+   * 문장만 모집단으로 삼는데, 이 줄의 가드는 입력칸 상태에서 파생한 순수 계산이라 그 그물
+   * **밖**이다). 그래서 예산을 잘못 친 사람은 포커스가 입력칸에 남은 채 [저장]이 왜 잠겼는지
+   * 소리로는 알 수 없었다 — **아래 카테고리별 예산 카드의 오류 두 줄은 이미 프롭 쌍을 들고
+   * 있는데도** 이 총액 줄만 조용했다(라운드 102 리뷰 L-a11y가 연 것은 그 카드가 그 라운드에
+   * 새로 세운 두 줄이고, 이 줄은 그때 손대지 않은 자리다). *이제*: 아래 줄에 프롭 둘을 걸고,
+   * 낭독은 이 훅이 한 벌로 소유한다
+   * (`src/a11y/use-field-error-announcement.ts` — 프롭 둘은 안드로이드 한정이라 iOS의 답이 따로 필요하다).
+   * **새 한국어 문장 0건**이고, 읽히는 것은 화면이 이미 그리는 그 문자열이다.
+   */
+  useFieldErrorAnnouncement(amountError);
 
   /**
    * GAP-060 #7(트랙 E) — 이 화면이 고치는 예산은 **(아이, 월) 한 칸**이다.
@@ -559,6 +576,14 @@ export default function BudgetEditScreen() {
               <View style={{ alignItems: "center", flexDirection: "row", gap: 4 }}>
                 <TextInput
                   accessibilityLabel="새 예산 입력"
+                  /* A11Y-115(과제 2) ⚠️ **두 시점** — *종전*: 값만 그리고 단위는 형제 `<Text>`
+                     ("원")에 따로 서 있어(FMT-127) 포커스하면 "300,000"만 읽혔다. 그때도 화면은
+                     옳았다(눈에는 '원'이 붙어 있다). *이제*: 빠른 기록 시트가 이미 쓰는 그 한 벌
+                     (`accessibilityValue`에 접미사 붙은 표기)을 이 칸도 쓴다 — 같은 앱의 금액
+                     칸이 화면마다 다르게 읽히지 않는다. 빈 칸을 "0원"으로 말하지 않는 판정도
+                     그 모듈이 진다(빈 칸은 *"현재 예산이 그대로 유지"* 이지 0원이 아니다 — 바로
+                     아래 회색 안내가 눈으로 말하는 그 사실). */
+                  accessibilityValue={amountFieldAccessibilityValue(amountDigits)}
                   keyboardType="number-pad"
                   onChangeText={(value) => setAmountDigits(amountDigitsOnly(value))}
                   placeholder="새 예산을 입력해 주세요"
@@ -585,7 +610,17 @@ export default function BudgetEditScreen() {
                 ))}
               </View>
               {amountError ? (
-                <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{amountError}</Text>
+                /* A11Y-115(과제 1): 프롭 조합·순서는 **아래 카테고리별 예산 카드의 오류 줄과 같다**
+                   (라운드 102 리뷰 L-a11y가 세운 그 한 벌 — 포커스가 방금 친 입력칸에 남아
+                   스크린리더가 스스로 읽지 않는, 저장을 잠그는 오류라는 판정도 같다). 갈래의
+                   else(회색 안내 한 줄)는 오류가 아니므로 종전 그대로 조용하다. */
+                <Text
+                  accessibilityLiveRegion="polite"
+                  accessibilityRole="alert"
+                  style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}
+                >
+                  {amountError}
+                </Text>
               ) : (
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
                   비워두면 현재 예산이 그대로 유지돼요.
@@ -649,6 +684,11 @@ export default function BudgetEditScreen() {
                           그 카테고리 예산 해제(§2.2 — 빈 행이 곧 삭제라 행별 삭제 버튼이 없다). */}
                       <TextInput
                         accessibilityLabel={row.inputAccessibilityLabel}
+                        /* A11Y-115(과제 2): 총액 칸과 **같은 한 벌**이다(위 주석이 근거). 값의
+                           원천도 바로 아래 `value`와 같은 한 자릿수 문자열이라, 눈과 귀가
+                           갈리지 않는다 — 빈 행은 "0원"이 아니라 조용하다(빈 값 = 그 카테고리
+                           예산 해제, §2.2). */
+                        accessibilityValue={amountFieldAccessibilityValue(categoryDraft[row.categoryId] ?? "")}
                         keyboardType="number-pad"
                         onChangeText={(value) =>
                           setCategoryEdits((edits) => ({ ...edits, [row.categoryId]: amountDigitsOnly(value) }))

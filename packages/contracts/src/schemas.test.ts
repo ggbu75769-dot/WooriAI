@@ -369,6 +369,49 @@ describe("shared contract schemas", () => {
     ).toThrow();
   });
 
+  /**
+   * COM-105 후속 — 링크 헬스는 **실패한 관찰 두 값만** 계약에 실린다.
+   *
+   * 이 절이 무는 것은 유니온의 **모양 자체**다: `"ok"`가 통과하는 순간 앱은 "확인됨" 배지를
+   * 그릴 수 있게 되는데, 그 근거는 최대 24시간 묵은 데이터센터발 HEAD 응답 하나라 그 표시가
+   * 곧 허위다. 그래서 거절이 이 계약의 기능이다(누락이 아니다).
+   */
+  it("링크 헬스는 broken·unstable만 싣고 ok·미확인은 계약이 거절한다 (COM-105 후속)", () => {
+    const base = {
+      id: "44444444-4444-4444-8444-444444444444",
+      platform: "coupang" as const,
+      title: "카시트 보기",
+      isAffiliate: true,
+      isSponsored: false
+    };
+
+    // 실패를 관찰한 두 값은 그대로 실린다.
+    expect(productLinkSchema.parse({ ...base, healthStatus: "broken" }).healthStatus).toBe("broken");
+    expect(productLinkSchema.parse({ ...base, healthStatus: "unstable" }).healthStatus).toBe("unstable");
+
+    // 필드가 없는 응답(구버전 서버 · 미확인 링크 · ok 링크)은 그대로 통과하고, 그때 값은
+    // undefined다 — **"확인됨"이 아니라 "아무 말도 하지 않는다"**가 이 계약의 부재값이다.
+    expect(productLinkSchema.parse(base).healthStatus).toBeUndefined();
+
+    // "ok"는 거절한다 — 유니온에 넣지 않는 것이 이 계약의 핵심이다.
+    expect(() => productLinkSchema.parse({ ...base, healthStatus: "ok" })).toThrow();
+    // null도 거절한다: 미확인은 **키를 빼서** 말하지, 값으로 실어 보내지 않는다.
+    expect(() => productLinkSchema.parse({ ...base, healthStatus: null })).toThrow();
+    // 워커가 쓰지 않는 문자열도 거절한다(오타·새 값이 조용히 흘러들지 않는다).
+    expect(() => productLinkSchema.parse({ ...base, healthStatus: "미확인" })).toThrow();
+    expect(() => productLinkSchema.parse({ ...base, healthStatus: "broken " })).toThrow();
+
+    // 가격 짝 규칙(위 절)과 서로 **간섭하지 않는다**: 헬스만 있어도 통과한다.
+    const both = productLinkSchema.parse({
+      ...base,
+      healthStatus: "unstable",
+      priceSnapshotKrw: 249_000,
+      priceCheckedAt: "2026-08-01T03:00:00.000Z"
+    });
+    expect(both.healthStatus).toBe("unstable");
+    expect(both.priceSnapshotKrw).toBe(249_000);
+  });
+
   // CAT-101: GET /categories 응답 계약.
   it("validates the categories list contract including nullable iconName and display order", () => {
     const parsed = listCategoriesResponseSchema.parse({

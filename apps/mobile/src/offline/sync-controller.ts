@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import { getSyncChanges, LOCAL_SESSION_TOKEN } from "../api/client";
 import { bucketSyncLatencyMs, trackAndFlushAnalyticsEvent } from "../analytics/client";
 import { useSessionStore } from "../stores/session.store";
+import { nextBackoffWakeDelayMs } from "./backoff";
 import { isCurrentlyOnline, startConnectivityWatcher } from "./connectivity";
 import { runDeltaPull, syncCursorScopeKey } from "./delta-sync";
 import { isSessionExpiryTransition, LOGIN_HREF } from "./session-expiry";
@@ -483,7 +484,25 @@ async function attemptFlush(token: string, queryClient: QueryClient): Promise<Fl
     // app/expenses/new.tsx의 같은 두 줄 위(비활성 쿼리 무효화는 refetch를 일으키지 않는다).
     await queryClient.invalidateQueries({ queryKey: ["report"] });
     await queryClient.invalidateQueries({ queryKey: ["budget"] });
-    emitFlashMessage(SERVER_CONFIRMED_MESSAGE);
+    /**
+     * F6 — **"기록했어요. 이번 달 우리 아이 비용에 더해둘게요."는 `create` 확정에만 참이다.**
+     *
+     * 종전에는 `summary.synced > 0`(이 블록의 조건) 하나로 떴고, 그때는 이 칸이 create·update·
+     * delete를 한데 담는다는 사실이 문구와 부딪히지 않는다고 본 모양이다. 부딪힌다: **오프라인
+     * 에서 지출을 지우고 그 삭제가 서버에 반영되면** 이 문장이 떴다 — 그 pass가 한 일은 그
+     * 금액을 이번 달 합계에서 빼는 것이라 정확히 반대를 말한다(수정 확정에서도 "기록했어요"는
+     * 새 기록을 만든 것처럼 들린다).
+     *
+     * 이 블록의 나머지는 종전 그대로 `synced`를 읽는다 — 무효화는 어느 확정에도 필요하고,
+     * expense_synced는 "서버가 쓰기를 확정했다"의 지연을 재는 이벤트라 연산 종류를 가르지
+     * 않는다. 갈리는 것은 **사용자에게 문장을 말하는 자리** 하나다(라운드 51 C-10이 준비템
+     * 칸에서 세운 규칙과 같은 축 — FlushSummary 주석).
+     *
+     * delete/update만 확정된 pass가 조용한 것이 맞는가: 그 두 연산의 결과는 사용자가 이미 화면
+     * 에서 본 것이고(행이 사라졌거나 값이 바뀌었다), 서버 확정의 신호는 동기화 상태 화면에서
+     * 그 행이 없어지는 것으로 이미 말해진다. 없는 문장을 지어 채우지 않는다.
+     */
+    if (summary.createdSynced > 0) emitFlashMessage(SERVER_CONFIRMED_MESSAGE);
     // ANA-101 (round5a-sprint2-plan.md §5): fires once per flush pass that
     // actually confirmed at least one write with the server, not once. A
     // no-op while analytics opt-in is OFF (its default) -- see
@@ -506,10 +525,70 @@ async function attemptFlush(token: string, queryClient: QueryClient): Promise<Fl
   return summary;
 }
 
+/**
+ * F5 — **백오프를 예약만 하던 자리에 깨우는 시계를 붙인다.**
+ *
+ * ## 종전과 그 끝
+ *
+ * 엔진은 transient 실패에 `next_retry_at`을 적었고(backoff.ts), 그때는 그것이 "다음 트리거가
+ * 왔을 때 이 행을 보낼지"를 가르는 값으로 충분했다. **그런데 이 컨트롤러의 트리거는 전부
+ * 시간과 무관하다** — 토큰 진입 1회(`recoverAndFlushOnStart`) · 오프라인→온라인 전이 · 앱
+ * 포그라운드 복귀(`startConnectivityWatcher`) · 로컬 쓰기. 온라인인 채 앱을 켜 두고 기다리는
+ * 사용자에게는 *"자동으로 다시 시도해요"* 라는 화면 문장이 그동안 거짓이었다.
+ *
+ * ## 이제 — 큐 전체에 **타이머 하나**
+ *
+ * flush가 끝날 때마다 큐에서 **가장 이른 미래 창**을 읽어 `setTimeout`을 하나 건다
+ * (`nextBackoffWakeDelayMs`). 발화하면 평소의 flush를 한 번 부르고, 그 flush가 다시 다음
+ * 타이머를 건다.
+ *
+ * ⚠️ **폭주하지 않는 근거 넷** — 이 성질을 깨지 않고 고쳐야 한다.
+ *  1. **타이머는 언제나 최대 한 개.** 새로 걸기 전에 기존 것을 지운다(`clearBackoffWake`).
+ *     `flushInBackground`를 부르는 자리가 이 파일에만 열둘이고(로컬 쓰기 · 충돌 해소 · 재시도 ·
+ *     연결 복귀 · 앱 시작) 그것들이 동시에 발화해도 타이머가 쌓이지 않는다.
+ *  2. **한 번 깨어남 = 요청 한 건.** transient 갈래는 그 pass를 `break`로 끊으므로(sync-engine.ts)
+ *     깨어난 pass가 큐 전체를 태우지 않는다 — 라운드 104가 세운 성질을 그대로 쓴다.
+ *  3. **이미 지난 창으로는 깨어나지 않는다.** `nextBackoffWakeDelayMs`가 미래 창만 세므로
+ *     "깨움 → 못 보냄 → 같은 창 재독"의 0ms 루프가 성립하지 않고, 발화한 창은 곧 과거가 되어
+ *     다음 계산에서 빠진다. 지연의 하한은 그래서 창 자신이고(최소 2초 — BASE_DELAY_MS),
+ *     실패가 이어지면 2·4·8…300초로 스스로 성긴다.
+ *  4. **오프라인이면 사슬이 선다.** 아래 온라인 게이트에서 되돌아가면 타이머를 새로 걸지
+ *     않는다 — 연결이 돌아오는 자리는 이미 연결 감시자가 맡고 있다.
+ *
+ * 세션이 끝나면(`useOfflineSyncLifecycle`의 정리) 타이머도 함께 지운다.
+ */
+let backoffWakeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearBackoffWake(): void {
+  if (backoffWakeTimer === null) return;
+  clearTimeout(backoffWakeTimer);
+  backoffWakeTimer = null;
+}
+
+async function scheduleBackoffWake(token: string, queryClient: QueryClient): Promise<void> {
+  clearBackoffWake();
+  const store = await getOfflineStore();
+  const [expenseRows, itemStatusRows] = await Promise.all([
+    store.listOutboxMutations(),
+    store.listItemStatusMutations()
+  ]);
+  // 두 큐를 한 타이머가 대변한다: flush 한 번이 두 큐를 모두 돌기 때문이다(flushOutbox).
+  const delayMs = nextBackoffWakeDelayMs([...expenseRows, ...itemStatusRows], Date.now());
+  if (delayMs === null) return;
+  backoffWakeTimer = setTimeout(() => {
+    backoffWakeTimer = null;
+    void flushInBackground(token, queryClient);
+  }, delayMs);
+}
+
 async function flushInBackground(token: string, queryClient: QueryClient): Promise<void> {
   const online = await isCurrentlyOnline();
   if (!online) return;
   await attemptFlush(token, queryClient).catch(() => undefined);
+  // 위 근거 ①·④: 성공했든 실패했든 이 자리에서만 타이머를 다시 건다(오프라인 복귀는 위에서
+  // 이미 되돌아갔고, 그 자리는 연결 감시자의 몫이다). 저장소 실패는 다른 백그라운드 작업과
+  // 같은 최선 노력 태도로 삼킨다 -- 타이머를 못 걸어도 종전의 트리거들은 그대로 남는다.
+  await scheduleBackoffWake(token, queryClient).catch(() => undefined);
 }
 
 /**
@@ -877,7 +956,13 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
       void flushInBackground(token, queryClient);
       void pullDeltaInBackground(token, queryClient);
     });
-    return () => handle.stop();
+    return () => {
+      handle.stop();
+      // F5: 백오프 깨움 타이머도 이 세션의 것이다 — 토큰이 바뀌거나(재로그인·계정 전환) 이
+      // 마운트가 사라지면 함께 지운다. 남겨 두면 이미 끝난 세션의 토큰으로 flush가 한 번 더
+      // 나가고, 그 토큰은 정의상 더 이상 이 사용자의 것이 아니다.
+      clearBackoffWake();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 

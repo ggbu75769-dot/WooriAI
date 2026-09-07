@@ -99,12 +99,19 @@ pnpm db restore artifacts/db-backups/wooriai-<DB이름>-<timestamp>.sql
 DB 안의 데이터에는 **여섯 개의 서로 다른 보존 창**이 있고, 전부 워커 잡
 `data_retention_purge`(`apps/api/src/worker/jobs/data-retention-purge.job.ts`)가 집행한다.
 복구·백업 정책을 정할 때 이 숫자들과 어긋나지 않게 한다.
-(창은 여섯이지만 **단계는 열하나**다 — 가져오기 창 하나를 9단계·11단계가 나눠 쓴다.
-그 열하나 앞뒤로 **창을 갖지 않는 정정 단계가 하나** 더 있다: GAP-067 #7이 10단계 앞에
-세운 **10a단계**는 유효기간이 지났는데도 `pending`으로 남은 초대를 `expired`로 표시만
-하고 아무것도 지우지 않는다 — 새 보존 창이 아니라, 10단계의 창이 **모든** 초대 행에
-실제로 닿게 만드는 단계다. 잡 요약에서도 `householdInvitesExpired`(정정한 수)와
-`householdInvitesPurged`(지운 수)는 서로 다른 칸이다.)
+(창은 여섯이지만 **단계는 열둘**이다 — 가져오기 창 하나를 9단계·11단계가 나눠 쓰고,
+5단계·12단계는 **창을 갖지 않는 일회성 청소**다. 그 열둘 앞뒤로 **창을 갖지 않는 정정 단계가
+하나** 더 있다: GAP-067 #7이 10단계 앞에 세운 **10a단계**는 유효기간이 지났는데도 `pending`으로
+남은 초대를 `expired`로 표시만 하고 아무것도 지우지 않는다 — 새 보존 창이 아니라, 10단계의 창이
+**모든** 초대 행에 실제로 닿게 만드는 단계다. 잡 요약에서도 `householdInvitesExpired`(정정한 수)와
+`householdInvitesPurged`(지운 수)는 서로 다른 칸이다.
+⚠️ **두 시점**: 이 괄호는 종전에 *"단계는 열하나"* 라고 적었고 **그때는 참이었다**. 라운드 107
+트랙 A가 **12단계**(`expenseSnapshotScrub`)를 더했다 — 옛 `expense.update`·`expense.delete` 감사
+봉투에 남아 있던 사용자 자유 문자열(`itemName`·`merchant`·`memo`)과 봉투 안의 계정 연결값
+(`createdByUserId`)을 지우고 `snapshotScrubbedAt` 표식을 남긴다. **새 보존 창이 아니다**: 5단계
+(레거시 검색어 마스킹)와 같은 형식의 자기 종료형 청소라 파기 상수는 여섯 그대로다
+(근거: `apps/api/src/worker/jobs/data-retention-purge.job.ts:254~285`·`:897~904`, 그 잡의
+`runPhase` 호출은 오늘 **열셋**(12단계 + 정정 단계 10a)이다).)
 여기서 "여섯"은 **삭제 유예 30일을 포함해** 센 수다(아래 표의 첫 행). 스토어 제출 문서
 `docs/store/data-safety-answers.md` §E는 그 유예를 별개의 행으로 답하고 **나머지만** 세므로
 같은 사실을 "창은 다섯"이라고 적는다 — 두 숫자는 어긋난 것이 아니라 세는 범위가 다르다.

@@ -54,6 +54,8 @@ import { useNotificationStore } from "../../src/notifications/notification.store
 // 조회 자리 넷이 이 파일 안에서 그 훅을 지나쳐 가고 있었다 — 이제 넷도 같은 단일 소스를 읽는다.
 import { useErrorTimeConnectivity, useLoadErrorCopy } from "../../src/offline/use-load-error-copy";
 import { buildConsentSummaryLines } from "../../src/settings/consent-summary";
+// 빈 상태 감사: 0건 카드의 갈래·문구·액션은 순수 모듈 한 벌이다(화면은 목적지만 배선한다).
+import { buildPrivacyEmptyStateCard } from "../../src/settings/empty-state-cards";
 // 라운드 71 B(#2): 이 화면의 서버 직행 쓰기 넷이 실패했을 때의 문구 단일 소스(순수 모듈).
 import {
   destructiveFlowErrorMessage,
@@ -628,7 +630,6 @@ export default function PrivacySettingsScreen() {
     ]);
   };
 
-  const flows = privacy.data?.flows ?? [];
   /**
    * 라운드 45 UX-AA(후보 3): 화면 부제는 "동의 내역과 삭제 · 탈퇴를 관리해요"인데 동의 내역이
    * 어디에도 없었다. 서버 GET /settings/privacy가 이미 함께 내려주는 값이라 **새 요청 없이**
@@ -645,6 +646,20 @@ export default function PrivacySettingsScreen() {
     excludeTypes: consentToggles.map((definition) => definition.type)
   });
   const showConsentCard = consentLines.length > 0 || consentToggles.length > 0;
+  /**
+   * 빈 상태 감사 — ⚠️ 두 시점: 종전 0건 카드는 `title="표시할 항목이 없어요"`였고 판정은 응답의
+   * `flows`(삭제·탈퇴 흐름) **개수**를 읽었다. 그때도 그 값은 화면의 유일한 `flows` 소비였는데,
+   * 삭제·탈퇴 카드 셋(아래 SET-004)은 응답이 아니라 화면 안 `flowCopy`로 **언제나** 그려지므로
+   * 그 이름으로 고쳐 적으면 바로 아래 서 있는 카드 셋과 화면이 자기 모순에 빠진다. 이 자리에서
+   * 응답이 정하는 것은 **동의 내역** 하나뿐이라, 카드가 그 이름으로 말하고 판정도 그 값을 읽는다
+   * (덕분에 "동의 내역이 보이는데 표시할 항목이 없다"던 옛 어긋남도 함께 사라진다).
+   * 갈래·문구는 순수 모듈이 정한다(src/settings/empty-state-cards.ts).
+   */
+  const privacyEmptyCard = buildPrivacyEmptyStateCard({
+    hasSession: Boolean(authToken),
+    settled: !privacy.isLoading && !privacy.isError,
+    showsConsentCard: showConsentCard
+  });
   /** 라운드 65 B(#5): 주입된 빌드에서만 [보기] 링크가 생긴다(값이 없으면 카드가 종전 그대로다). */
   const legalUrls = legalDocumentUrls();
 
@@ -846,8 +861,23 @@ export default function PrivacySettingsScreen() {
           </Card>
         ) : null}
 
-        {!privacy.isLoading && !privacy.isError && flows.length === 0 ? (
-          <EmptyStateCard title="표시할 항목이 없어요" actionLabel="새로고침" onPress={() => privacy.refetch()} />
+        {/* 액션 키마다 목적지를 화면이 배선한다 — 조회가 꺼져 있는 비세션에서 [새로고침]은
+            아무것도 부르지 못하므로(위 `enabled: Boolean(authToken)`) 그 갈래의 목적지는
+            로그인 화면이다(잠금 카드 셋과 같은 한 벌). */}
+        {privacyEmptyCard ? (
+          privacyEmptyCard.action === "login" ? (
+            <EmptyStateCard
+              title={privacyEmptyCard.title}
+              actionLabel={privacyEmptyCard.actionLabel}
+              onPress={() => router.push("/login")}
+            />
+          ) : (
+            <EmptyStateCard
+              title={privacyEmptyCard.title}
+              actionLabel={privacyEmptyCard.actionLabel}
+              onPress={() => privacy.refetch()}
+            />
+          )
         ) : null}
       </View>
 

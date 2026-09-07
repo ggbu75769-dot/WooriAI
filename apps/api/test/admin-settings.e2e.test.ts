@@ -2,13 +2,34 @@ import type { INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
 import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
+import { PrismaService } from "../src/prisma/prisma.service";
 
 const adminToken = "dev-admin-token";
 const categoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+/**
+ * 라운드 107 F — 이 스위트가 만드는 고지 행의 **자기 접두**.
+ *
+ * ⚠️ 두 시점. 종전(그때는 참): 첫 테스트가 **시드 키** `affiliate_purchase`의 문구를
+ * "Batch10 affiliate disclosure near CTA."로 덮고 되돌리지 않았다. 매 실행 첫머리의 시드가
+ * 그 값을 되돌려 줬으므로 아무도 다치지 않았다.
+ * 이제: 시드는 있는 행의 콘텐츠를 더는 고치지 않는다(정찰 S5 D3 — 어드민 편집분 보존).
+ * 실행 첫머리의 기준선 복원은 `helpers/test-db.ts`의 `SEED_OVERWRITE_CONTENT=1` 하나뿐이라
+ * **한 실행 안에서** 이 스위트가 items-commerce보다 먼저 돌면 그 오염이 그대로 남았다.
+ * 실측(라운드 107 F, wooriai_test, admin-settings → items-commerce 순차 실행):
+ *   · items-commerce.e2e.test.ts:517 `disclosureText`가 "Batch10 affiliate disclosure near CTA."
+ *   · :756 · :825 같은 값으로 `stringContaining("수수료")` 불일치 — 총 3건 빨강.
+ * 근거: 시드 고지는 **앱이 실제로 읽는 전역 한 칸**이라 되돌리기(afterEach)로는 테스트가
+ * 중간에 죽는 순간 오염이 남는다. 그래서 아예 건드리지 않는다 — 이 스위트는 자기 접두를
+ * 가진 자기 키만 쓴다(admin-catalog-guards.e2e.test.ts의 관례와 같다).
+ */
+const OWN_DISCLOSURE_KEY_PREFIX = "batch10-e2e-disclosure-";
+/** GAP-065 절이 쓰는 자기 접두(같은 정리 훅이 함께 걷는다). */
+const PROBE_DISCLOSURE_KEY_PREFIX = "gap065-probe-";
 
 // Round 4: dev-login now persists a real users/households row per providerToken
 // (instead of a per-process in-memory Map), so reusing the same literal
@@ -96,6 +117,27 @@ describe("Admin CMS and settings APIs", () => {
     await app.close();
   });
 
+  /**
+   * 라운드 107 F — 자기 접두의 고지 행을 공유 DB에 쌓아 두지 않는다.
+   *
+   * 이 정리는 **정확성의 조건이 아니라 위생**이다(그것이 위 접두 전환과 되돌리기의 차이다):
+   * 정리가 못 돌아도 남는 것은 아무 스위트도 읽지 않는 자기 키뿐이라 순서 의존이 생기지
+   * 않는다. 종전에는 GAP-065 절의 프로브 키가 실행마다 한 줄씩 쌓이기만 했다.
+   * admin-catalog-guards.e2e.test.ts와 같은 방식으로 마지막 moduleRef의 PrismaService를 쓴다.
+   */
+  afterAll(async () => {
+    if (!moduleRef) return;
+    const prisma = moduleRef.get(PrismaService);
+    await prisma.disclosure.deleteMany({
+      where: {
+        OR: [
+          { key: { startsWith: OWN_DISCLOSURE_KEY_PREFIX } },
+          { key: { startsWith: PROBE_DISCLOSURE_KEY_PREFIX } }
+        ]
+      }
+    });
+  });
+
   it("lets internal admins update preparation items, product links, and disclosure copy without a mobile deploy", async () => {
     const accessToken = await login(app, "batch10-admin-cms");
     const { childId } = await completeOnboarding(app, accessToken);
@@ -142,14 +184,34 @@ describe("Admin CMS and settings APIs", () => {
         expect(body.reasonText).toBe("Updated by admin CMS.");
       });
 
+    // 고지 CMS: 종전에는 시드 키 `affiliate_purchase`를 덮어(그때는 시드가 매 실행 첫머리에
+    // 되돌려 줬다) 확인했다. 이제 자기 접두의 자기 키를 쓴다 — 파일 상단 주석의 근거.
+    // 검사 대상은 "운영이 모바일 배포 없이 고지 문구를 세울 수 있는가"이지 특정 키가 아니다.
+    // 이미 있는 키를 덮는 갈래(upsert의 update)는 같은 파일의 GAP-065 절이 문다.
+    const ownDisclosureKey = `${OWN_DISCLOSURE_KEY_PREFIX}${randomUUID()}`;
+    // 그리고 이 스위트가 시드 행을 **안 건드린다**는 사실 자체를 값으로 못박는다: 앱이 읽는
+    // 전역 한 칸의 문구가 이 테스트 전후로 같아야 한다(문구를 여기 다시 적지 않는다 —
+    // 고정하는 것은 운영 문구가 아니라 불변성이다).
+    const readSeededDisclosure = async () =>
+      (
+        await request(app.getHttpServer())
+          .get("/api/v1/admin/disclosures")
+          .set("x-admin-token", adminToken)
+          .expect(200)
+      ).body.disclosures.find((row: { key: string }) => row.key === "affiliate_purchase")?.text as string;
+    const seededDisclosureBefore = await readSeededDisclosure();
+    expect(seededDisclosureBefore, "시드 고지 affiliate_purchase 행이 없어요").toEqual(expect.any(String));
+
     await request(app.getHttpServer())
-      .put("/api/v1/admin/disclosures/affiliate_purchase")
+      .put(`/api/v1/admin/disclosures/${ownDisclosureKey}`)
       .set("x-admin-token", adminToken)
       .send({ text: "Batch10 affiliate disclosure near CTA." })
       .expect(200)
       .expect(({ body }) => {
-        expect(body).toMatchObject({ key: "affiliate_purchase", text: "Batch10 affiliate disclosure near CTA." });
+        expect(body).toMatchObject({ key: ownDisclosureKey, text: "Batch10 affiliate disclosure near CTA." });
       });
+
+    expect(await readSeededDisclosure()).toBe(seededDisclosureBefore);
 
     await request(app.getHttpServer())
       .post("/api/v1/admin/product-links")
@@ -560,7 +622,7 @@ describe("Admin CMS and settings APIs", () => {
   it("records admin.disclosure.update with a before/after copy pair (DNC-010)", async () => {
     const auditLogger = moduleRef.get(AuditLoggerService);
     // 키는 전역이라 고정 문자열을 쓰면 다음 실행에서 before가 null이 아니게 된다.
-    const key = `gap065-probe-${randomUUID()}`;
+    const key = `${PROBE_DISCLOSURE_KEY_PREFIX}${randomUUID()}`;
 
     await request(app.getHttpServer())
       .put(`/api/v1/admin/disclosures/${key}`)

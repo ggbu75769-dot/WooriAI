@@ -22,7 +22,31 @@ import { theme } from "../../src/theme";
 // toDigits/formatAmount 사본은 (예산 수정·지출 수정 화면의 같은 사본들과 함께) 제거했다.
 
 export default function BudgetScreen() {
-  const [amountDigits, setAmountDigits] = useState("500000");
+  /**
+   * 라운드 108(온보딩 나가는 길) — ⚠️ 두 시점: 종전 이 줄은 `useState("500000")`이었다.
+   *
+   * 그때도 그 값이 **저장되는 진짜 값**이긴 했다(허위 표시가 아니다 — 홈이 그리는 숫자는 실제로
+   * 저장된 예산이다). 문제는 다른 것이다: CTA가 "예산 저장하고 시작하기"라, 한 글자도 치지 않고
+   * 한 번 누르면 **자기가 정한 적 없는 50만원**이 저장되고 그 뒤로 홈 진행바·예산 경고·리포트의
+   * "예산의 N%"가 전부 그 수를 분모로 쓴다. 자기 예산이 200만원인 사람은 둘째 주에 근거 없는
+   * "예산을 넘겼어요"를 받는다.
+   *
+   * 이 판단은 이 트랙이 새로 짓지 않았다 — **이 저장소가 이미 두 번 내린 결정**을 마지막
+   * 한 자리에 적용할 뿐이다:
+   *  ① 바로 앞 걸음 ONB-002는 태명이 "튼튼이"로 미리 채워져 있던 자리를 빈 칸 + placeholder로
+   *     바꿨다("아무것도 입력하지 않아도 남의 이름으로 아이가 만들어졌다" — 실기기 피드백 1,
+   *     app/(onboarding)/child-profile.tsx의 그 주석). 같은 결함의 같은 모양이다.
+   *  ② 같은 값을 나중에 고치는 화면(app/budget.tsx)은 이미 `useState("")` + placeholder로 선다.
+   *  ③ `formatAmountDigits`는 빈 문자열을 빈 문자열로 돌려주도록 **일부러** 만들어져 있다
+   *     ("so the field's placeholder keeps showing" — src/money.ts). 이 꼴이 지원되는 모양이다.
+   *
+   * 빈 값으로 시작해도 새 갈래가 생기지 않는다: "예산 미설정"은 바로 아래 [나중에 설정할게요]가
+   * 이미 만드는 상태이고, 홈은 그 상태를 진행바 대신 예산 설정 넛지로 받는다
+   * (src/home/budget-progress.ts · budget-pace.ts). 첫 렌더의 기본 버튼은 비활성으로 시작하는데,
+   * 그것도 ONB-002가 같은 이유로 이미 고른 모양이다("저장 버튼은 어차피 비활성이라 진행을 잘못
+   * 허용할 위험도 없다"). 50만원은 사라지지 않고 **제안**의 자리로 내려간다 — placeholder다.
+   */
+  const [amountDigits, setAmountDigits] = useState("");
   const accessToken = useSessionStore((state) => state.accessToken);
   const isTestSession = useSessionStore((state) => state.isTestSession);
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
@@ -39,6 +63,12 @@ export default function BudgetScreen() {
    * (int4) 상한을 넘긴 값은 서버가 400으로 거절하므로(UpsertBudgetDto의 @Max), 온보딩 마지막
    * 단계에서 저장이 실패해 사용자가 막히는 일이 없게 입력 칸이 먼저 말한다. 기본값(500,000)은
    * 상한 아래라 이 화면의 첫 렌더는 한 픽셀도 바뀌지 않는다.
+   *
+   * ⚠️ 라운드 108 — 위 마지막 문장은 **그때는 참이었다**(기본값이 50만원이던 시점의 사실이라
+   * 지우지 않는다). 오늘 기본값은 빈 문자열이라(위 `useState` 주석) 첫 렌더에서 이 판정이 보는
+   * 값은 0이고, `amountDigits.length > 0` 가드 때문에 **오류 문구는 여전히 뜨지 않는다** —
+   * 아무것도 치지 않은 사람을 첫 화면에서 꾸짖지 않는다는 규율은 그대로다(ONB-002의 같은 가드).
+   * 바뀐 것은 하나: 기본 버튼이 `amountKrw > 0` 때문에 **비활성으로 시작한다.**
    */
   const amountError =
     amountDigits.length > 0 && amountKrw <= 0
@@ -135,6 +165,9 @@ export default function BudgetScreen() {
               keyboardType="number-pad"
               returnKeyType="done"
               onChangeText={(value) => setAmountDigits(amountDigitsOnly(value))}
+              // 라운드 108: 종전의 기본값 50만원이 내려앉은 자리. 예시는 placeholder로만 보여
+              // 준다 — ONB-002의 "예) 튼튼이"와 같은 문법이다(그 화면의 실기기 피드백 1 주석).
+              placeholder="예) 500,000"
               style={{
                 color: theme.colors.brown,
                 fontSize: 24,

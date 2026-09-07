@@ -306,16 +306,24 @@ export class HouseholdRuntimeService {
       });
     }
 
-    // before/after are the same person, so one displayName lookup covers both DTOs
-    // (this used to be two separate findUnique calls for one and the same user).
-    const displayNames = await this.memberDisplayNames([member]);
-    const before = toMemberDto(member, displayNames);
+    // 라운드 108 트랙 B(정찰 S1-3) — **감사 봉투는 응답 DTO가 아니다.**
+    // 종전: before/after 둘 다 `toMemberDto`였다(그때는 참 — 응답 DTO 하나로 화면과 봉투를
+    // 같이 만들었고, 그래서 여기서 `memberDisplayNames`로 카카오 닉네임을 한 번 읽어 양쪽에
+    // 넣었다). 이제: 봉투 전용 `toMemberAuditSnapshot`을 쓰고 닉네임 조회 자체를 하지 않는다.
+    // 근거는 지출 봉투(`toExpenseAuditSnapshot`)가 그은 선 그대로다 — 개인을 지목하는 값
+    // (`displayName`)과 계정 연결값(`userId`)은 730일 보존되는 감사 로그에 사본으로 남길 값이
+    // 아니고, 특히 `userId` 사본은 파기 잡 phase 3이 `actor_user_id`만 null로 만드는 탓에
+    // **탈퇴 뒤에도 살아남는다**(household_members 행은 phase 3이 실제로 지운다 — 즉 참조로
+    // 두면 함께 사라지고, 사본으로 두면 남는다).
+    // "누가 누구를 내보냈나"는 그대로 답한다: 행위자는 감사 행의 `actor_user_id`,
+    // 대상은 `target_id`(= 이 memberId) → household_members 행이다.
+    const before = toMemberAuditSnapshot(member);
     const updated = await this.prisma.householdMember.update({
       where: { id: member.id },
       data: { status: "removed" }
     });
 
-    return { success: true, before, after: toMemberDto(updated, displayNames), householdId };
+    return { success: true, before, after: toMemberAuditSnapshot(updated), householdId };
   }
 
   async leaveHousehold(user: AuthenticatedUser, householdId: string) {
@@ -457,7 +465,14 @@ export class HouseholdRuntimeService {
       throw new BadRequestException({ code: "INVITE_NOT_PENDING", message: "이미 사용했거나 만료된 초대예요." });
     }
 
-    const before = toInviteDto(invite);
+    // 라운드 108 트랙 B — 위 removeMember와 **같은 이유·같은 형식**. 종전 봉투는
+    // `toInviteDto`(응답 DTO)였고 그때는 참이었다(자유 문자열이 없는 DTO라 위험이 낮아
+    // 보였다). 이제는 봉투 전용 스냅샷을 쓴다: DTO가 싣던 `invitedByUserId`는 봉투 **안**의
+    // 계정 연결값이라 지출 봉투에서 뺀 `createdByUserId`와 정확히 같은 축이다
+    // (phase 3은 `actor_user_id`만 null로 만든다 → 사본은 탈퇴 파기를 비켜 간다).
+    // 초대를 만든 사람이 필요하면 `target_id`가 가리키는 household_invites 행이 답하고,
+    // 그 행은 phase 3(작성자 파기)·phase 10(만료 창)이 실제로 지운다.
+    const before = toInviteAuditSnapshot(invite);
     const claimed = await this.prisma.householdInvite.updateMany({
       where: { id: invite.id, status: "pending" },
       data: { status: "revoked" }
@@ -676,6 +691,75 @@ function toMemberDto(
     role: member.role,
     status: member.status,
     joinedAt: member.joinedAt?.toISOString() ?? null
+  };
+}
+
+/**
+ * 라운드 108 트랙 B(정찰 S1-3) — **구성원 감사 봉투.** `household.member.remove`가 싣는
+ * 값의 전부이고, 응답 DTO(`toMemberDto`)와 **일부러 다른 모양**이다(키 이름이 `memberId`라
+ * 둘을 맞바꾸면 테스트가 먼저 깨진다).
+ *
+ * **뺀 축**
+ *  · `displayName` — 카카오가 준 **닉네임 원문**. 사용자가 앱에서 적은 문자열은 아니지만
+ *    개인을 그대로 지목하는 값이고, 730일 보존 + 어드민 감사 뷰어/CSV 노출 + 탈퇴 후 잔존이라는
+ *    비용은 품목명·메모와 똑같다. 형제 `household.leave` 봉투가 이미 *"PII(닉네임·이메일) 금지"*
+ *    로 그은 선(settings.controller.ts)과 같은 선이다.
+ *  · `userId` — 계정 연결값. 파기 잡 phase 3은 `actor_user_id`만 null로 만들고 봉투 안은 손대지
+ *    않으므로, 사본을 두면 **탈퇴한 사람의 계정 id가 감사 로그 안에 남는다**. 참조로 두면
+ *    그렇지 않다: 같은 phase 3이 그 사람의 household_members 행을 물리 삭제한다.
+ *  · `householdId` — 감사 행의 `household_id` 컬럼이 이미 같은 값을 든다(중복은 정보를 더하지
+ *    않는다). 지출 봉투가 householdId를 싣지 않는 것과 같은 이유다.
+ *
+ * **남긴 축** — 감사가 답해야 하는 *"누가 누구를 언제 내보냈나"* 를 죽이지 않기 위해서다.
+ *  · `memberId` — 대상 식별자. 감사 행의 `target_id`와 같은 값이지만, 봉투만 떼어 읽을 때
+ *    무엇에 대한 기록인지 알 수 있어야 한다(파기 잡 phase 12가 옛 지출 봉투의 `id`를 지우지
+ *    않기로 한 판단과 같다 — 식별성이 더해지지 않는다).
+ *  · `role` · `status` — 값 공간이 고정된 열거형이다. `status`는 이 봉투의 본체다
+ *    (`active` → `removed`가 before/after로 나란히 서는 유일한 축), `role`은 "무슨 권한이던
+ *    사람을 내보냈나"에 답한다.
+ *  · `joinedAt` — 고정 형식의 시각이다(자유 문자열도, 계정 연결값도 아니다). 지출 봉투가
+ *    `spentOn`을 남긴 것과 같은 급이고, "가입 직후 내보냄" 같은 분쟁 맥락은 이 값에만 있다.
+ */
+export function toMemberAuditSnapshot(member: {
+  id: string;
+  role: MemberRole;
+  status: string;
+  joinedAt: Date | null;
+}) {
+  return {
+    memberId: member.id,
+    role: member.role,
+    status: member.status,
+    joinedAt: member.joinedAt?.toISOString() ?? null
+  };
+}
+
+/**
+ * 라운드 108 트랙 B — **초대 감사 봉투**(`household.invite.cancel`). 위 구성원 봉투와 같은 규율.
+ *
+ * **뺀 축**: `invitedByUserId`(봉투 안의 계정 연결값 — phase 3의 파기를 비켜 간다) ·
+ * `householdId`(감사 행의 컬럼과 중복) · `canReshareLink`(응답 화면용 상수 플래그라
+ * 감사 사실이 아니다). 초대 **토큰**은 애초에 DTO에도 없다(sha256으로만 저장).
+ *
+ * **남긴 축**: `inviteId`(대상 식별자) · `role`·`channel`·`status`(열거형) ·
+ * `expiresAt`·`createdAt`(고정 형식 시각 — 취소 시점(`created_at`)과 나란히 놓아야
+ * "만료된 초대를 취소했나, 살아 있는 초대를 취소했나"에 답할 수 있다).
+ */
+export function toInviteAuditSnapshot(invite: {
+  id: string;
+  role: MemberRole;
+  channel: string;
+  status: string;
+  expiresAt: Date;
+  createdAt: Date;
+}) {
+  return {
+    inviteId: invite.id,
+    role: invite.role,
+    channel: invite.channel,
+    status: invite.status,
+    expiresAt: invite.expiresAt.toISOString(),
+    createdAt: invite.createdAt.toISOString()
   };
 }
 

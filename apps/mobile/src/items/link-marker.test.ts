@@ -18,6 +18,7 @@ import {
   GENERAL_MARKER_LABEL,
   hasPurchasableLink,
   primaryPurchaseLinkIndex,
+  purchaseLinkHealthNotice,
   productLinkMarker,
   productLinksDisclosureText,
   productPlatformLabel,
@@ -744,8 +745,10 @@ describe("라운드 68 C(#4): 내보낼 수 있는 주소가 없으면 공유하
   });
 
   it("판매처를 탓하지 않는다 — 없는 것은 우리가 내보낼 주소다", () => {
-    // "깨졌어요" 배지·문구는 이번 범위 밖이다(24시간 묵은 판정으로 판매처를 공개 비난하지
-    // 않는다). 이 문장이 말하는 것은 우리 쪽 사실 하나뿐이고, 해요체다(DNC-018).
+    // ⚠️ 두 시점. ① 종전 이 주석은 *"'깨졌어요' 배지·문구는 이번 범위 밖이다"* 였고 그때는
+    // 참이었다(앱 DTO에 헬스가 없었다). ② 이제 헬스 문구는 있다(purchaseLinkHealthNotice) —
+    // 다만 "깨졌어요"라는 단정이 아니라 과거 시제의 관찰이고, **이 문장은 무접촉**이다.
+    // 이 문장이 말하는 것은 우리 쪽 사실 하나뿐이고, 해요체다(DNC-018).
     expect(LINK_SHARE_UNAVAILABLE_NOTICE).toBe("지금은 공유할 수 있는 주소가 없어요.");
     for (const word of ["깨진", "깨졌", "죽은", "오류"]) {
       expect(LINK_SHARE_UNAVAILABLE_NOTICE).not.toContain(word);
@@ -803,3 +806,75 @@ describe("라운드 64 #6: 커머스 크롬의 터치 타깃", () => {
 
 /** 크롬 히트 영역 계산에 쓰는 값 — 화면 소스의 상수와 같은 숫자여야 한다(위 테스트가 고정). */
 const PRODUCT_DETAIL_CHROME_HIT_SLOP = 7;
+
+
+/**
+ * COM-105 후속 — **우리가 관찰한 도달 실패를 그 자리에서 말한다.**
+ *
+ * 종전(라운드 68 C #4 · 그때는 참): 서버가 도달 실패를 아는 링크에도 이 앱의 화면 문구는
+ * 0줄이었다 — 대우는 정렬 강등과 공유 URL 미발급 둘뿐이고 둘 다 화면에 아무 글자도 남기지
+ * 않는다. 이 절이 무는 것은 그 0줄이 한 줄이 됐다는 사실과, **그 한 줄이 넘지 않는 선**이다.
+ */
+describe("COM-105 후속: 링크 헬스 관찰 한 줄", () => {
+  it("실패를 관찰한 두 값에만 서고, 둘은 서로 다른 말을 한다", () => {
+    // 기대값은 리터럴이다(판정 모듈의 상수를 되읽지 않는다 — 그러면 문구가 바뀌어도 초록이다).
+    expect(purchaseLinkHealthNotice({ healthStatus: "broken" })).toBe(
+      "마지막으로 확인했을 때는 이 링크가 열리지 않았어요."
+    );
+    expect(purchaseLinkHealthNotice({ healthStatus: "unstable" })).toBe(
+      "마지막으로 확인했을 때는 연결이 고르지 않았어요."
+    );
+    // 4xx(확정된 도달 실패)와 5xx·타임아웃(일시 실패)은 서로 다른 사실이라 같은 말을 하면
+    // 그중 하나가 틀린 말이 된다 — 두 문장이 같아지는 순간 빨개진다.
+    expect(purchaseLinkHealthNotice({ healthStatus: "broken" })).not.toBe(
+      purchaseLinkHealthNotice({ healthStatus: "unstable" })
+    );
+  });
+
+  it("값이 없으면 아무 말도 하지 않는다 — 미확인을 「확인됨」으로 바꿔 말하지 않는다", () => {
+    // 서버는 ok·미확인에 키 자체를 싣지 않는다. 그 부재는 "괜찮다"가 아니라 "말하지 않는다"다.
+    expect(purchaseLinkHealthNotice({})).toBeUndefined();
+    expect(purchaseLinkHealthNotice({ healthStatus: undefined })).toBeUndefined();
+
+    // 긍정 문구가 이 모듈 어디에도 없다: 있으면 24시간 묵은 판정이 "확인됨"으로 읽힌다.
+    const marker = readFileSync(join(mobileRoot, "src/items/link-marker.ts"), "utf8");
+    for (const claim of ["확인됐어요", "확인되었어요", "정상이에요", "이상 없어요", "안전해요"]) {
+      expect(marker, `${claim}: 긍정 단정 문구가 생겼다`).not.toContain(claim);
+    }
+  });
+
+  it("관찰형이다 — 링크를 단정하지도 다그치지도 않는다 (DNC-018)", () => {
+    const notices = [
+      purchaseLinkHealthNotice({ healthStatus: "broken" })!,
+      purchaseLinkHealthNotice({ healthStatus: "unstable" })!
+    ];
+    for (const notice of notices) {
+      // 해요체.
+      expect(notice.endsWith("요.")).toBe(true);
+      // 우리 관찰이 **언제**의 것인지를 문장이 스스로 말한다 — 판정은 최대 24시간 묵을 수 있고
+      // 지금은 다를 수 있다는 사실이 그 시제에 담긴다.
+      expect(notice.startsWith("마지막으로 확인했을 때는")).toBe(true);
+      // 단정·비난·다그침이 없다.
+      for (const word of ["깨졌", "죽은", "죽었", "오류", "실패했어요", "하세요", "주세요", "안 돼요"]) {
+        expect(notice, `${word}: 단정/다그침 어휘가 들어갔다`).not.toContain(word);
+      }
+    }
+  });
+
+  it("판정은 문자열 하나만 돌려준다 — 링크를 막지도 감추지도 않는다", () => {
+    const marker = readFileSync(join(mobileRoot, "src/items/link-marker.ts"), "utf8");
+    const start = marker.indexOf("export function purchaseLinkHealthNotice(");
+    expect(start, "purchaseLinkHealthNotice를 찾지 못했다").toBeGreaterThan(-1);
+    // 끝점도 실재를 먼저 묻는다: indexOf가 -1이면 slice(start, -1)은 실패가 아니라 **파일
+    // 끝 직전까지**를 뜻해, 이 단언이 조용히 다른 구간을 훑는 단언이 된다(라운드 77 리뷰 M-3).
+    const end = marker.indexOf("\n}", start);
+    expect(end, "purchaseLinkHealthNotice의 끝을 찾지 못했다").toBeGreaterThan(start);
+    const body = marker.slice(start, end);
+
+    // 반환 타입이 문자열/부재뿐이라, 이 판정으로 버튼을 끄거나 행을 지우는 배선을 만들 수 없다.
+    expect(body).toContain("): string | undefined {");
+    for (const word of ["disabled", "hidden", "filter(", "splice"]) {
+      expect(body, `${word}: 판정이 표시를 넘어 동작을 정하고 있다`).not.toContain(word);
+    }
+  });
+});

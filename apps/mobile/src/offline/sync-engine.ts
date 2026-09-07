@@ -133,19 +133,34 @@ const UNAUTHORIZED_STATUS = 401;
  * transient 갈래는 그 pass를 `break`로 끊으므로 401 한 번이 뒤의 행을 건드리지 못한다.
  * 그리고 5xx가 이미 갖고 있는 `MAX_SERVER_ERROR_ATTEMPTS` 상한을 그대로 재사용하므로
  * head-of-line 위험도 종전과 같다(아래 `cappedTransientStatus`).
+ *
+ * ## F1 — **셋에서 넷으로**
+ *
+ * 위 문단이 "그 셋"이라고 부른 집합은 라운드 104 시점에는 참이었다(401·408·429). → 이제
+ * **409 + `IDEMPOTENCY_KEY_CONFLICT`** 가 넷째로 들어온다. 판정을 여기에 다시 적지 않는 규율은
+ * 그대로이고(단일 소스는 `isRetryableSyncError`), 달라진 것은 그 함수에 넘기는 것이 status
+ * 하나가 아니라 (status, code) 한 쌍이라는 점뿐이다. 근거·안전 범위는 그 함수 머리말에 있다.
  */
 function retryableClientErrorStatus(error: unknown): number | null {
-  const status = (error as { status?: unknown } | null | undefined)?.status;
-  if (typeof status !== "number" || status >= 500) return null;
-  return isRetryableSyncError(status) ? status : null;
+  // F1: status 하나가 아니라 (status, code) 한 쌍을 판정에 넘긴다. 종전에는 status만 뽑았고
+  // (그때는 판정이 status만 물었다), 그래서 409는 코드가 무엇이든 permanent 갈래로 떨어졌다 —
+  // 서버가 "잠시 후 다시 시도해 주세요"라고 답한 IDEMPOTENCY_KEY_CONFLICT 포함(근거 전문은
+  // permission-denied.ts `isRetryableSyncError`). 쌍을 뽑는 규칙은 이미 있는 단일 소스를 쓴다.
+  const { status, code } = syncFailureReasonOf(error);
+  if (status == null || status >= 500) return null;
+  return isRetryableSyncError(status, code) ? status : null;
 }
 
 /**
  * 이 행이 막힌 사유가 위 `retryableClientErrorStatus`가 말하는 그 셋인가. 저장된 행의
  * `last_error_status`를 같은 단일 소스로 판정한다(`requeueRetryableClientErrorMutations`가 쓴다).
+ *
+ * F1: `last_error_code`도 함께 받는다 — 409는 코드까지 봐야 답이 서기 때문이다(위 함수와 같은
+ * 이유). 그래서 이 함수가 답하는 집합은 이제 401·408·429 **셋이 아니라** 409/IDEMPOTENCY_KEY_
+ * CONFLICT까지 넷이고, 세션이 설 때 되돌아오는 행에도 그 넷이 함께 든다.
  */
-function isRetryableClientErrorRowStatus(status: number | null | undefined): boolean {
-  return typeof status === "number" && status < 500 && isRetryableSyncError(status);
+function isRetryableClientErrorRowStatus(status: number | null | undefined, code?: string | null): boolean {
+  return typeof status === "number" && status < 500 && isRetryableSyncError(status, code);
 }
 
 /**
@@ -411,6 +426,23 @@ export async function recordLocalDelete(
 export type FlushSummary = {
   /** 지출 mutation 중 서버가 확정한 건수. 준비템 상태는 아래 별도 칸이다. */
   synced: number;
+  /**
+   * F6 — 그중 **`create`가 확정된** 건수.
+   *
+   * 라운드 51 C-10이 준비템 칸을 가른 이유(바로 아래 `itemStatusSynced` 주석)가 **지출 칸 안에서
+   * 한 번 더** 참이었다. `synced`는 create·update·delete를 한 칸에 담는데, 그 칸이 0보다 크면
+   * sync-controller가 *"기록했어요. 이번 달 우리 아이 비용에 더해둘게요."* 를 띄운다. 그래서
+   * **오프라인에서 지출을 지우고 그 삭제가 서버에 반영되면 "더해둘게요" 토스트가 떴다** —
+   * 그 pass가 한 일은 그 금액을 이번 달 합계에서 **빼는** 것이다. 정반대를 말한다.
+   *
+   * 종전에 `synced` 하나로 충분했던 것은 그때는 참이었다: 이 칸을 읽는 자리가 무효화(어느
+   * 확정에도 필요하다)와 지연 분석(어느 확정이든 같은 질문이다)뿐이던 시절의 모양이다. 문구를
+   * 그 칸에 얹은 뒤로 갈랐어야 할 축이 갈리지 않은 채 남아 있었다.
+   *
+   * ⚠️ **`synced`의 뜻은 한 글자도 바뀌지 않았다** — 이 칸은 그 부분집합이다. 무효화·분석·
+   * `flushPassMadeProgress`·`isFlushFullyConfirmed`는 전부 종전 그대로 `synced`를 읽는다.
+   */
+  createdSynced: number;
   failed: number;
   conflicted: number;
   /**
@@ -511,6 +543,7 @@ export function isFlushFullyConfirmed(summary: FlushSummary): boolean {
 /** 재실행 결과를 호출자가 받는 한 장의 집계에 더한다(호출자는 모든 pass의 합을 본다). */
 function accumulateFlushSummary(total: FlushSummary, pass: FlushSummary): void {
   total.synced += pass.synced;
+  total.createdSynced += pass.createdSynced;
   total.failed += pass.failed;
   total.conflicted += pass.conflicted;
   total.itemStatusSynced += pass.itemStatusSynced;
@@ -677,13 +710,13 @@ export async function requeueRetryableClientErrorMutations(store: OfflineStore):
   let requeued = 0;
   for (const row of await store.listLocalExpenses()) {
     if (row.syncState !== "failed" && row.syncState !== "pending") continue;
-    if (!isRetryableClientErrorRowStatus(row.lastErrorStatus)) continue;
+    if (!isRetryableClientErrorRowStatus(row.lastErrorStatus, row.lastErrorCode)) continue;
     await retryFailedMutation(store, row.localId);
     requeued += 1;
   }
   for (const row of await store.listItemStatusMutations()) {
     if (row.syncState !== "failed" && row.syncState !== "pending") continue;
-    if (!isRetryableClientErrorRowStatus(row.lastErrorStatus)) continue;
+    if (!isRetryableClientErrorRowStatus(row.lastErrorStatus, row.lastErrorCode)) continue;
     await retryFailedItemStatusMutation(store, row.mutationId);
     requeued += 1;
   }
@@ -742,6 +775,7 @@ export function wipeOfflineStore(store: OfflineStore): Promise<void> {
 async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): Promise<FlushSummary> {
   const summary: FlushSummary = {
     synced: 0,
+    createdSynced: 0,
     failed: 0,
     conflicted: 0,
     itemStatusSynced: 0,
@@ -816,6 +850,9 @@ async function flushOutboxPass(store: OfflineStore, remote: RemoteExpenseApi): P
           updatedAt: nowIso()
         });
         summary.synced += 1;
+        // F6: 이 pass가 **새 기록을 만든** 유일한 자리다. "기록했어요…더해둘게요" 문구는 이 칸을
+        // 보고 뜬다(sync-controller.ts) — delete/update 확정에는 그 문장이 거짓이기 때문이다.
+        summary.createdSynced += 1;
         continue;
       }
 
@@ -1464,8 +1501,13 @@ export async function resolveConflictAdoptServer(store: OfflineStore, localId: s
 
 /** ② 내 변경 다시 적용: resend the local change using the server's now-known version as the new
  * expectedVersion. If the server's current value is a deleted tombstone, "my change" can't be
- * applied on top of a resource that no longer exists -- it's re-queued as a brand-new create
- * instead (design doc §3.4: "current가 deleted면 이 옵션은 새 기록으로 재생성임을 안내"). */
+ * applied on top of a resource that no longer exists -- an *edit* is re-queued as a brand-new
+ * create instead (design doc §3.4: "current가 deleted면 이 옵션은 새 기록으로 재생성임을 안내"),
+ * and the screen says so before the user picks (messages.ts `deletedConflictRowCopy`).
+ *
+ * ⚠️ **"내 변경"이 삭제였다면 재생성이 아니다** — 그때는 서버와 이 기기가 이미 같은 결론에 도달한
+ * 것이라 보낼 요청이 없다(F3 — 아래 묘비 갈래 안의 주석이 전문). 종전 이 머리말은 묘비 갈래를
+ * 갈래 하나로 적었고, 그것이 지운 지출을 되살리던 자리다. */
 export async function resolveConflictReapplyMine(store: OfflineStore, localId: string): Promise<void> {
   const row = await store.getLocalExpense(localId);
   if (!row) return;
@@ -1477,6 +1519,33 @@ export async function resolveConflictReapplyMine(store: OfflineStore, localId: s
   const timestamp = nowIso();
 
   if (row.conflictCurrent.deleted) {
+    /**
+     * F3 — **"내 변경"이 삭제였다면 재생성은 그 변경의 정반대다.**
+     *
+     * 종전에는 묘비 갈래가 `pendingDelete`를 묻지 않고 무조건 `pendingDelete: false` + `create`를
+     * 큐에 넣었다. 그때는 참이었다: 이 갈래가 상정한 상황은 **로컬 수정 vs 서버 삭제**였고, 그
+     * 조합에서는 "내 수정을 살리는" 유일한 방법이 실제로 재생성이다(design doc §3.4).
+     *
+     * → 이제 `pendingDelete`를 먼저 묻는다. 근거는 **같은 함수 아래쪽 살아 있는 스냅숏 갈래**가
+     * 이미 그 축을 보고 있다는 것이다(`operation: row.pendingDelete ? "delete" : "update"`) —
+     * 재적용이 뜻하는 연산은 로컬 변경의 종류에 달렸고, 묘비 갈래만 그 질문을 건너뛰고 있었다.
+     *
+     * 삭제 vs 삭제(양쪽이 같은 지출을 지웠다 / 오프라인 삭제의 응답이 유실된 뒤 재전송이 묘비
+     * 409를 받았다)에서 재생성을 하면, **사용자가 지운 지출이 서버에 새로 생기고 그 달 합계로
+     * 되돌아온다**. 실측: 42,000원 지출 → 재적용 후 큐에 `create`(amount 42000) → flush가 새
+     * canonicalId를 받아 'synced', "기록했어요…" 플래시까지 떴다. 의도의 정반대다.
+     *
+     * 이 조합에서 "내 변경 다시 적용"의 결과는 **삭제의 확정**이다: 내 변경이 삭제였고 서버도
+     * 이미 지웠으므로 보낼 요청 자체가 없다(수렴). 로컬 행을 지우는 것은 `resolveConflictAdoptServer`의
+     * 묘비 갈래와 글자 그대로 같은 처분인데, 두 선택지가 같은 결과로 모이는 것이 정직하다 —
+     * 지운 기록을 되살릴 제3의 결과는 어느 쪽 버튼의 약속도 아니다. 화면은 이 상황을 별도
+     * 문장으로 말한다(messages.ts `deletedConflictRowCopy(true)` — "어느 쪽을 골라도 삭제한
+     * 대로 정리해요.").
+     */
+    if (row.pendingDelete) {
+      await store.deleteLocalExpense(localId);
+      return;
+    }
     await store.updateLocalExpense(localId, {
       canonicalId: null,
       version: null,

@@ -9,7 +9,7 @@ import {
   LOCAL_SESSION_TOKEN,
   type UserDeviceSummary
 } from "../../src/api/client";
-import { deviceRowSwitchLabel, deviceRowTitle } from "../../src/notifications/device-rows";
+import { deviceListEmptyDescription, deviceRowSwitchLabel, deviceRowTitle } from "../../src/notifications/device-rows";
 import {
   NOTIFICATION_TYPE_OPTIONS,
   isNotificationTypeEnabled,
@@ -319,9 +319,14 @@ export default function NotificationSettingsScreen() {
             ) : null}
 
             {/* 라운드 96 T6: 섹션 빈 상태도 다른 화면과 같은 EmptyStateCard 문법이다
-                (등록 어휘 없이 — 푸시를 켜면 이 기기부터 목록에 선다는 사실만 말한다). */}
+                (등록 어휘 없이 — 푸시를 켜면 이 기기부터 목록에 선다는 사실만 말한다).
+                ⚠️ 두 시점(라운드 107): 그 설명 한 줄이 조건 없이 서 있었다 — 종전에는 참이었지만
+                (T6 당시의 문장), 오늘 이 빌드는 푸시를 켤 수 없어(`pushSupported` false → 위
+                마스터 토글이 영구 비활성) **누를 수 없는 스위치를 켜라고 권하는 문장**이 됐다.
+                이제 그 판단은 순수 모듈이 지고(deviceListEmptyDescription), 켤 수 없는 빌드에서는
+                설명을 세우지 않는다 — 이유는 바로 위 푸시 카드의 안내 한 줄이 이미 말한다. */}
             {devices.isSuccess && deviceList.length === 0 ? (
-              <EmptyStateCard title="푸시 알림을 받는 기기가 없어요" description="푸시 알림을 켜면 이 기기가 목록에 추가돼요." />
+              <EmptyStateCard title="푸시 알림을 받는 기기가 없어요" description={deviceListEmptyDescription(pushSupported)} />
             ) : null}
 
             {deviceList.map((device) => {

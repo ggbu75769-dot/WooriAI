@@ -300,6 +300,86 @@ describe("REP-128 report trend API", () => {
       .expect(401);
   });
 
+  /**
+   * 라운드 108 트랙 C(C-3) — **리포트 다섯 경로 전부**를 낯선 토큰으로 부른다.
+   *
+   * 종전: 위 IDOR 테스트가 `trend`·`yearly`·`cumulative` 셋만 403으로 고정했다(그때는 참 —
+   * 그 셋이 이 파일이 세운 엔드포인트와 그 이웃이었다). 남은 둘(`milestone`·`category`)은
+   * 어느 테스트도 낯선 토큰으로 부르지 않았고, 하필 `milestone`이 **저장소에서 아이 인가를
+   * 두 번째로 구현한 유일한 자리**(`MilestoneReportService.requireChildView`)를 타고 있었다.
+   *
+   * 지금: 다섯을 한 배열로 돌린다. 그리고 이 라운드가 그 두 번째 구현을 지우고
+   * `ChildAccessService.requireChildAccess` 한 벌로 합쳤으므로(C-3 근본 해결 —
+   * `milestone-report.service.ts` 머리말), 이 테스트가 고정하는 것은 "다섯 경로가 **같은 한 벌**을
+   * 탄다"는 사실이다. 사본이 되살아나 거동이 갈리면 여기서 먼저 빨개진다.
+   *
+   * ⚠️ `milestone`은 아이에 생년월일이 있어야 200이 되지만(없으면 400 MILESTONE_UNAVAILABLE),
+   * 이 온보딩 헬퍼가 만드는 아이는 `stageMode: "manual"`이라 생년월일이 없다. 그래도 이 계약은
+   * 성립한다 — **인가가 그 판정보다 먼저**여야 하기 때문이다. 낯선 사람이 400을 받는다면 그것은
+   * 이미 남의 아이의 프로필 상태를 알려 준 것이다. 그래서 여기서는 400이 아니라 403이 정답이고,
+   * 주인 쪽 400을 함께 단언해 두 갈래가 실제로 갈린다는 것을 보인다.
+   */
+  it("리포트 다섯 경로 전부 남의 가구 아이는 403이다 (milestone·category 포함, IDOR)", async () => {
+    const ownerToken = await login("rep128-report-idor-owner");
+    const { childId } = await completeOnboarding(ownerToken);
+    await seedTrendExpenses(ownerToken, childId);
+
+    const outsiderToken = await login("rep128-report-idor-outsider");
+    await completeOnboarding(outsiderToken);
+
+    // 순서에 의미가 있다: 이 라운드가 새로 고정하는 둘(`milestone`·`category`)을 **앞에** 둔다.
+    // 앞에서 실패하면 루프가 거기서 멈추므로, 회귀가 났을 때 이 테스트가 가리키는 이름이
+    // "그동안 아무도 안 부르던 경로"가 되도록 한 배치다.
+    const paths = [
+      "reports/milestone?type=d100",
+      "reports/category",
+      "reports/trend",
+      "reports/yearly",
+      "reports/cumulative"
+    ];
+
+    for (const path of paths) {
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/${path}`)
+        .set("Authorization", `Bearer ${outsiderToken}`)
+        .expect(403)
+        .expect(({ body }) => {
+          expect(body.error.code).toBe("FORBIDDEN");
+          // 거절 봉투에 그 아이/그 가구의 값이 실려서는 안 된다(금액·아이 id 모두).
+          expect(JSON.stringify(body)).not.toContain(childId);
+        });
+
+      // 없는 아이는 종전과 같은 404다 — 다섯 경로가 "없음"과 "남의 것"을 같은 방식으로 가른다.
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${randomUUID()}/${path}`)
+        .set("Authorization", `Bearer ${outsiderToken}`)
+        .expect(404)
+        .expect(({ body }) => {
+          expect(body.error.code).toBe("CHILD_NOT_FOUND");
+        });
+
+      // 토큰이 없으면 JwtAuthGuard가 먼저 막는다.
+      await request(app.getHttpServer()).get(`/api/v1/children/${childId}/${path}`).expect(401);
+    }
+
+    // 막힌 것은 가구 경계이지 경로가 아니다 — 주인은 같은 다섯을 통과한다.
+    // `milestone`만 200이 아니라 400인 것이 이 라운드의 논점이다: 인가(403)가 생년월일 판정(400)
+    // **보다 먼저** 서므로, 낯선 사람은 이 400조차 볼 수 없다.
+    for (const path of ["reports/trend", "reports/yearly", "reports/cumulative", "reports/category"]) {
+      await request(app.getHttpServer())
+        .get(`/api/v1/children/${childId}/${path}`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .expect(200);
+    }
+    await request(app.getHttpServer())
+      .get(`/api/v1/children/${childId}/reports/milestone?type=d100`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe("MILESTONE_UNAVAILABLE");
+      });
+  });
+
   it("지출이 하나도 없는 아이는 요청한 개월 수만큼 0으로 채운 막대를 준다", async () => {
     const accessToken = await login("rep128-empty");
     const { childId } = await completeOnboarding(accessToken);
