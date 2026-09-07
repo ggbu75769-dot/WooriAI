@@ -23,8 +23,18 @@
 - [ ] DB 마이그레이션: `pnpm --filter api prisma:deploy` (= `prisma migrate deploy`)
 - [ ] seed: `pnpm --filter api seed` — 시드 내용의 단일 소스는 `apps/api/prisma/seed-data.ts`
       (정식 카테고리 12 + 모바일 별칭 8 + 가져오기 스텁 1, 준비템 카탈로그, 제휴 고지 문구,
-      상품 링크). 엔트리포인트는 `apps/api/prisma/seed.ts`이고 전부 `upsert`라 **재실행해도
-      안전**하다. 로컬 dev DB는 `pnpm db seed`로도 같은 시드를 돌린다.
+      상품 링크). 엔트리포인트는 `apps/api/prisma/seed.ts`이고 **재실행해도 안전**하다.
+      로컬 dev DB는 `pnpm db seed`로도 같은 시드를 돌린다.
+      ⚠️ **두 시점(라운드 107 트랙 E)**: 이 줄은 종전에 *"전부 `upsert`라 재실행해도 안전하다"*
+      라고 적었다. `upsert`인 것은 **그때 참이었지만**, 그 `update` 갈래가 곧 위험이었다 —
+      콘텐츠 다섯 표(카테고리·준비템·준비템 단계·고지·구매 링크)를 매 배포마다 시드 값으로
+      되돌렸고, 구매 링크는 자연키에 어드민 편집 축인 제목이 들어 있어 **되돌림이 아니라 증식**
+      이었다(제목을 한 글자 고치면 다음 배포가 살아 있는 구매 CTA를 하나 더 만든다 — 실측
+      67 → 68행). **오늘의 안전은 다른 뜻이다**: 시드는 *"없는 행을 만들 뿐, 있는 행의 콘텐츠를
+      고치지 않는다"* 이고(`apps/api/prisma/seed.ts:33`), 구매 링크는 안정 키
+      `product_links.seed_key`(마이그레이션 000026)로 자기 행을 찾는다. 되돌리는 길은 명시적
+      opt-in `SEED_OVERWRITE_CONTENT=1` 하나뿐이고 **배포 경로는 그 값을 설정하지 않는다**
+      (회귀 고정: `apps/api/test/seed-boundary.db.test.ts`).
 - [ ] 관리자 계정/토큰 발급 및 안전 보관(`WOORIAI_ADMIN_TOKEN`)
 - [ ] 릴리즈 keystore 준비 + Gradle signingConfig 연결 (스토어 배포 시)
 - [x] applicationId는 이미 실제 패키지명이다 — `kr.wooriai.app`(`apps/mobile/app.json`의 `expo.android.package`가 단일 소스이고, `android/`는 `expo prebuild`가 생성한다). **확인할 것이 남아 있지 않다.**
