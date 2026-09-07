@@ -999,8 +999,12 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // 라운드 108 T20 이 243 으로 하나 더 올렸다(두 시점 — 워크트리 대조 실측, 순증은
     // formatSpentOn 하나). 실제 속성/키 자리는 또 0건이고, 원인은 import 목록에서 그 이름
     // 윗줄 주석이 마침표로 끝난 것 — 같은 오독의 **세 번째** 사례다.
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(243);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(243);
+    // 라운드 109 N 이 244 로 하나 더 올렸다(두 시점 — 워크트리 대조 실측, 순증은
+    // SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE 하나). 실제 속성/키 자리는 또 0건이고,
+    // 이번 오독 표면은 주석 마침표가 아니라 **삼항의 콜론**(`… ? 이름 : null`)이다 —
+    // 라운드 88 T2가 홈에서 걷어냈던 바로 그 표면이 다른 화면에 다시 섰다. 네 번째 사례.
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(244);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(244);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.

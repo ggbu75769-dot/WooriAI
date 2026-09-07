@@ -402,6 +402,26 @@ describe("여정 스윕 소스 계약 (import 서버 파일 셋)", () => {
       "지출 입력 화면을 위해 앱 전역 표(src/api/api-error.ts)에 이미 문구가 있다(품목명을 입력해 주세요). 가져오기 확정에서는 방어적 재검사다 — 품목명이 빈 행은 미리보기 판정(validationStatusForImportRow)이 먼저 걸러 확정 대상에 들지 못하므로, 정상 경로에서는 도달하지 않는다."
   };
 
+  /**
+   * **제외의 셋째 부류 — 앱 전역 표가 *일부러* 답하지 않는 바구니 코드.**
+   *
+   * ⚠️ 두 시점. 종전 제외는 한 가지 전제 위에 서 있었다: *"여기 없는 것은 앱 전역 표가
+   * 답한다"* — 그래서 아래 유령 방지 자가 `API_ERROR_MESSAGES[code]`를 요구한다. **그때는
+   * 참이었다**(제외 넷이 전부 그 표에 줄을 갖는다). 라운드 109 L이 가져오기 파이프라인에
+   * `VALIDATION_ERROR`를 손으로 던지면서 그 전제가 처음 깨졌다.
+   *
+   * 이 코드는 표에 **없는 것이 판정**이다 — `src/api/api-error.ts:336-338`이 그 이유를 적어
+   * 뒀다(바구니 코드라 한 문장으로 답할 수 없다). 그러니 위 목록에 넣으면 유령 방지 자가
+   * 빨개지고, 표에 줄을 만들면 그 판정을 뒤집는다. 셋째 자리가 필요한 이유다.
+   *
+   * 그리고 이 자리는 **비어 있어도 안전한 자리가 아니다**: 아래 자가 "전역 표에 정말로 없다"를
+   * 되물어, 언젠가 그 표가 `VALIDATION_ERROR`에 줄을 갖게 되면 이 목록이 먼저 빨개진다.
+   */
+  const basketCodesAnsweredByFieldDetails: Readonly<Record<string, string>> = {
+    VALIDATION_ERROR:
+      "전역 ValidationPipe와 라운드 109 L의 파일명 폭 가드가 함께 쓰는 바구니 코드다. 앱 전역 표는 이 코드에 **일부러** 줄을 두지 않는다(src/api/api-error.ts의 그 주석: 바구니라 한 문장으로 답할 수 없고, 무엇이 틀렸는지는 details.fields가 말한다). 가져오기 여정에서 이 코드가 나는 유일한 자리는 멀티파트 파일명이 255자를 넘는 경우인데, 앱은 client.ts:1739에서 언제나 fileName 폼 필드를 함께 보내므로 그 갈래는 **이 앱에서 도달하지 않는다** — 제3자·구버전 클라이언트 방어다."
+  };
+
   it("여정 서버 파일들의 코드는 이 트랙의 표에 있거나, 이유가 적힌 제외 목록에 있다", () => {
     const swept = new Set(IMPORT_JOURNEY_SERVER_FILES.flatMap((file) => thrownCodesIn(file)));
     // 스윕이 실제로 무언가를 읽었는지부터 확인한다(정규식이 조용히 0건이 되면 계약이 사라진다).
@@ -413,8 +433,9 @@ describe("여정 스윕 소스 계약 (import 서버 파일 셋)", () => {
     for (const code of swept) {
       const known = Object.prototype.hasOwnProperty.call(IMPORT_FAILURE_MESSAGE_BY_CODE, code);
       const excluded = Object.prototype.hasOwnProperty.call(excludedWithReason, code);
+      const basket = Object.prototype.hasOwnProperty.call(basketCodesAnsweredByFieldDetails, code);
       expect(
-        known || excluded,
+        known || excluded || basket,
         `${code}: 이 여정의 표에 없고 제외 이유도 없다. 이 코드를 받은 사용자는 "${IMPORT_ROW_EDIT_FAILED_MESSAGE}" 계열의 일반 문구만 보게 된다.`
       ).toBe(true);
     }
@@ -426,6 +447,16 @@ describe("여정 스윕 소스 계약 (import 서버 파일 셋)", () => {
       expect(swept.has(code), `${code}는 서버가 더는 던지지 않는다 — 제외 이유가 남을 수 없다`).toBe(true);
       expect(reason.length, code).toBeGreaterThan(20);
       expect(API_ERROR_MESSAGES[code], `${code}는 앱 전역 표가 답한다는 전제로 제외됐다`).toBeTruthy();
+    }
+    // 셋째 부류는 **반대 방향**을 되묻는다: 전역 표가 답하지 않는다는 그 전제가 아직 참인가.
+    // 표가 언젠가 이 코드에 줄을 갖게 되면 여기가 먼저 빨개지고, 그때는 위 목록으로 옮기면 된다.
+    for (const [code, reason] of Object.entries(basketCodesAnsweredByFieldDetails)) {
+      expect(swept.has(code), `${code}는 서버가 더는 던지지 않는다 — 제외 이유가 남을 수 없다`).toBe(true);
+      expect(reason.length, code).toBeGreaterThan(20);
+      expect(
+        API_ERROR_MESSAGES[code],
+        `${code}는 앱 전역 표가 **일부러 답하지 않는다**는 전제로 제외됐는데, 그 표에 줄이 생겼다`
+      ).toBeFalsy();
     }
   });
 

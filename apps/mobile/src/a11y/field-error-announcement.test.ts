@@ -540,10 +540,14 @@ describe("A11Y-115 ⓗ 아이 관리(SET-005) 폼 셋 — 검증 오류가 소�
     // 폼 안의 날짜 칸: 앞줄이 틀린 동안 침묵한다(예산 화면의 `rows.find(…)`와 같은 규칙).
     expect(masked).toContain("announceError={!errors.nicknameError}");
     // 출생 전환 카드의 날짜 칸에는 앞줄이 없다 — 언제나 읽는다(약칭 프롭 = true).
-    const bornDateField = masked.slice(
-      masked.indexOf("showErrors={bornShowErrors}"),
-      masked.indexOf("onChange={setBornDateText}")
-    );
+    // ⚠️ 자르기 전에 **두 끝의 실재를 먼저 묻는다**(라운드 78 E의 그 계약). 묻지 않으면 바늘이
+    // 사라진 날 indexOf가 -1을 주고 slice가 조용히 빈 구간을 만들어, 아래 두 단언이 "없어서
+    // 통과"하거나 엉뚱한 자리를 두고 빨개진다 — 어느 쪽이든 무엇이 깨졌는지 말하지 못한다.
+    const bornFieldStart = masked.indexOf("showErrors={bornShowErrors}");
+    const bornFieldEnd = masked.indexOf("onChange={setBornDateText}");
+    expect(bornFieldStart, "출생 전환 카드의 날짜 칸 시작 바늘").toBeGreaterThan(-1);
+    expect(bornFieldEnd, "출생 전환 카드의 날짜 칸 끝 바늘").toBeGreaterThan(-1);
+    const bornDateField = masked.slice(bornFieldStart, bornFieldEnd);
     expect(bornDateField, "출생 전환 카드의 날짜 칸").toContain("announceError");
     expect(bornDateField, "출생 전환 카드의 날짜 칸").not.toContain("announceError={");
     // 선례가 오늘도 그 모양이다(발명 0건).

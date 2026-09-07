@@ -2102,7 +2102,16 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 끝나기** 때문이다(`.\n  이름` 이 속성 접근 모양으로 읽힌다). 라운드 101 햅틱 셋 ·
     // 라운드 107 revokeOutgoingSessionOnServer 와 **정확히 같은 길**로, 세 번째 사례다.
     // 자란 것은 사용이 아니라 오독 표면이고, 이번에도 주석을 비틀어 되돌리지 않았다.
-    value: 243,
+    // 두 시점(라운드 109 트랙 N): 243 → 244 — SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE
+    // 하나뿐이다(워크트리 대조 실측: 새 테스트 파일만 빼면 여전히 244, app/sync-status.tsx만
+    // 되돌리면 243 → 원인은 화면 한 줄). ⚠️ 실제 속성/키 자리는 **또 0건**이다 —
+    // `.SYNC_STATUS_…` 도 `SYNC_STATUS_…:` 도 저장소에 없다(grep 실증). 이번 오독 표면은
+    // 주석 마침표가 아니라 **삼항의 콜론**이다:
+    // `useFieldErrorAnnouncement(discardBlocked ? SYNC_STATUS_… : null)` 의 ` : ` 가
+    // 객체 키(`이름:`)로 읽힌다. 이 표면은 이 대장이 스스로 이름 붙여 둔 것이고(위 :980의
+    // 라운드 88 T2 — 홈의 삼항을 걷어 228이 된 그 자리), 걷힌 자리에 다른 화면이 다시 섰다.
+    // 네 번째 사례이며, 앞의 셋과 같은 판단을 한다 — 배선을 스캐너에 맞춰 비틀지 않는다.
+    value: 244,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +
