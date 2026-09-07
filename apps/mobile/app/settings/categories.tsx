@@ -32,7 +32,7 @@ import {
   type CustomCategoryListRow
 } from "../../src/categories/custom-category-form";
 import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
-import { VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
+import { guardExpenseAction, VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
 import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -212,16 +212,28 @@ export default function CategoriesSettingsScreen() {
   const limitText = apiErrorMessageForCode("CUSTOM_CATEGORY_LIMIT_EXCEEDED") ?? customCategoryLimitExceededMessage();
   const addBlocked = draftNotice !== null || normalizeCustomCategoryName(draftName).length === 0 || limitReached;
 
-  const submitDraft = expenseGate.guard(() => create.mutate());
-  const submitRename = expenseGate.guard((categoryId: string, name: string) =>
+  /**
+   * 라운드 103 리뷰 M-1 — 종전에는 네 핸들러가 `expenseGate.guard(...)`였다. 그 창구는 **본문을
+   * 받지 않아** 기본값 `EXPENSE_VIEW_ONLY_MESSAGE`("…**기록은** 관리자·공동부모가 남길 수
+   * 있어요.")를 띄운다. 이 화면에서 막힌 것은 기록이 아니라 분류를 더하고 고치는 일이라,
+   * `record-permissions.ts`가 그 이유를 적으며 `VIEW_ONLY_HEADLINES.categories`를 새로 세웠고
+   * 짝 테스트는 그 문장에 "기록은"이 없음을 단언했다 — 그런데 사용자가 실제로 문장을 읽는
+   * 순간(탭)에는 금지한 쪽이 떴다. 머리말과 안내가 같은 문장을 말하게 한다.
+   * 형태는 `app/budget.tsx`가 예산 화면에 대해 이미 쓰는 것 그대로다.
+   */
+  const guardCategoryAction = <TArgs extends unknown[]>(action: (...args: TArgs) => void) =>
+    guardExpenseAction(expenseGate.locked, () => expenseGate.explain(VIEW_ONLY_HEADLINES.categories), action);
+
+  const submitDraft = guardCategoryAction(() => create.mutate());
+  const submitRename = guardCategoryAction((categoryId: string, name: string) =>
     rename.mutate({ categoryId, name: normalizeCustomCategoryName(name) })
   );
-  const setActive = expenseGate.guard((categoryId: string, active: boolean) =>
+  const setActive = guardCategoryAction((categoryId: string, active: boolean) =>
     archive.mutate({ categoryId, active })
   );
   // 보관은 되돌릴 수 있는 조작이지만 되돌리는 자리가 다른 구획이라 한 번 묻는다. 문구는 순수
   // 모듈이 짓고(§9.6 확정값), 화면은 그 네 조각을 Alert에 넘기기만 한다.
-  const confirmArchive = expenseGate.guard((categoryId: string, name: string) => {
+  const confirmArchive = guardCategoryAction((categoryId: string, name: string) => {
     const confirm = customCategoryArchiveConfirmCopy(name);
     Alert.alert(confirm.title, confirm.message, [
       { text: confirm.cancelLabel, style: "cancel" },
@@ -314,10 +326,15 @@ export default function CategoriesSettingsScreen() {
           <Text accessibilityRole="header" style={sectionTitleStyle}>
             {copy.inUseSectionTitle}
           </Text>
+          {/* 라운드 103 리뷰 M-2: 종전에는 이 자리에서 언제나 `emptyStateText`("아직 직접
+              추가한 분류가 없어요.")를 그렸다. 판정은 사용 중 구획(`inUse`)인데 문장은 화면
+              전체를 말해서, 전부 보관한 상태에서는 **바로 아래 보관 목록과 나란히** 거짓말이
+              섰다(15개를 만들고 전부 보관하면 상한 안내와도 동시에 선다 — 상한의 분모는
+              보관을 포함한 `total`이기 때문이다). 두 사실을 두 문장으로 가른다. */}
           {mine.inUse.length > 0 ? (
             mine.inUse.map(renderRow)
           ) : (
-            <Text style={captionStyle}>{copy.emptyStateText}</Text>
+            <Text style={captionStyle}>{mine.total === 0 ? copy.emptyStateText : copy.inUseEmptyText}</Text>
           )}
           {rename.isError ? (
             <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>
@@ -337,13 +354,22 @@ export default function CategoriesSettingsScreen() {
               {copy.archivedSectionTitle}
             </Text>
             {mine.archived.map(renderRow)}
+            {/* 라운드 103 리뷰 L-1: [다시 사용]은 보관 구획에 있는데 그 실패 문구는 위 카드에만
+                있었다. 보관 행이 많으면 실패 문장이 스크롤 밖에 서서 화면이 침묵한 것처럼
+                읽힌다(낭독은 `announceForA11y`가 덮으므로 시각 사용자만의 문제였다). 같은
+                뮤테이션을 쓰는 자리 둘이 같은 문구를 그린다. */}
+            {archive.isError ? (
+              <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>
+                {archiveErrorText}
+              </Text>
+            ) : null}
             <Text style={captionStyle}>{copy.archivedFootnote}</Text>
           </Card>
         ) : null}
 
         <Card style={{ gap: theme.spacing.gap }}>
           <TextInput
-            accessibilityLabel={copy.addButtonLabel}
+            accessibilityLabel={copy.addInputLabel}
             maxLength={customCategoryNameMaxLength()}
             onChangeText={setDraftName}
             placeholder={copy.addPlaceholder}

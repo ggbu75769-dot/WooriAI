@@ -93,8 +93,16 @@ describe("§4.1 게이트 — useExpenseEntryGate를 지나고, 화면을 접지
   it("쓰기 셋이 전부 게이트를 지난다 — 우회하는 mutate 호출이 없다", () => {
     const screen = screenSource();
     for (const handler of ["submitDraft", "submitRename", "setActive", "confirmArchive"]) {
-      expect(screen, `${handler}가 게이트를 지나지 않는다`).toContain(`= expenseGate.guard(`);
+      expect(screen, `${handler}가 게이트를 지나지 않는다`).toContain(`const ${handler} = guardCategoryAction(`);
     }
+    // 라운드 103 리뷰 M-1 — 종전 이 자리는 `= expenseGate.guard(`만 물었다. 그 창구는 본문을
+    // 받지 않아 기본값("…기록은 관리자·공동부모가 남길 수 있어요.")이 뜬다. 머리말이 쓰는
+    // 문장과 탭했을 때 뜨는 문장이 갈렸던 자리이므로, 이제 **어느 문장을 넘기는지**까지 문다.
+    expect(screen).toContain("expenseGate.explain(VIEW_ONLY_HEADLINES.categories)");
+    expect(screen).toContain("guardExpenseAction(expenseGate.locked");
+    // 본문 없는 창구로 되돌아가면 빨개진다(그 창구는 기본 문장을 띄운다). 주석을 걷고 보는
+    // 이유는 위 두 시점 주석이 종전 형태를 값으로 인용하기 때문이다 — 이 저장소의 마스킹 관례.
+    expect(withoutComments(screen)).not.toContain("expenseGate.guard(");
     // 잠긴 세션에서 눌리는 자리는 전부 guard가 돌려준 핸들러다. 화면이 직접 부르는 mutate는
     // 그 핸들러 안(그리고 Alert의 확인 갈래) 뿐이다.
     const directCalls = screen.match(/\b(create|rename|archive)\.mutate\(/g) ?? [];
@@ -173,7 +181,10 @@ describe("§4.1 목록 — 시드 행을 그리지 않고, 두 구획으로 갈�
     const screen = screenSource();
     expect(screen).toContain("{copy.inUseSectionTitle}");
     expect(screen).toContain("{copy.archivedSectionTitle}");
-    expect(screen).toContain("{copy.emptyStateText}");
+    // 라운드 103 리뷰 M-2 — 빈 상태 문장이 하나뿐이라 전부 보관한 상태에서 "아직 직접 추가한
+    // 분류가 없어요."가 바로 아래 보관 목록과 나란히 섰다. 화면 전체가 비었다는 말과 사용 중
+    // 구획이 비었다는 말은 다른 사실이라 두 문장으로 갈렸고, 판정 축이 `total`임을 여기서 문다.
+    expect(screen).toContain("mine.total === 0 ? copy.emptyStateText : copy.inUseEmptyText");
     expect(screen).toContain("{copy.archivedFootnote}");
     expect(screen).toContain("mine.inUse.map(renderRow)");
     expect(screen).toContain("mine.archived.map(renderRow)");
@@ -215,7 +226,10 @@ describe("§4.1 목록 — 시드 행을 그리지 않고, 두 구획으로 갈�
     // 선택 상태를 라벨 문자열에 이어 붙이지 않는다(그 사실은 accessibilityState의 몫이다).
     expect(screen).not.toContain('". 선택됨"');
     // 저장을 잠그는 오류는 danger 토큰 + polite 낭독이다(라운드 102 §9.6의 그 갈래 규율).
-    expect(screen.match(/accessibilityLiveRegion="polite"/g) ?? []).toHaveLength(5);
+    // 라운드 103 리뷰 L-1 — 종전 다섯. [다시 사용]이 보관 구획에 있는데 그 실패 문구는 위
+    // 카드에만 있어, 보관 행이 많으면 실패 문장이 스크롤 밖에 섰다. 같은 뮤테이션을 쓰는 자리
+    // 둘이 같은 문구를 그리게 되어 여섯이다.
+    expect(screen.match(/accessibilityLiveRegion="polite"/g) ?? []).toHaveLength(6);
     expect(screen).toContain("color: theme.colors.danger");
     // 프롭 쌍만으로는 iOS가 침묵한다 — 크로스플랫폼의 답(announceForA11y)이 저장 실패 셋에 걸린다.
     expect(screen.match(/announceForA11y\(/g) ?? []).toHaveLength(3);

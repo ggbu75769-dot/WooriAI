@@ -268,7 +268,16 @@ describe("확정 카피와 낭독 (§9.6)", () => {
     expect(copy.inUseSectionTitle).toBe("사용 중");
     expect(copy.archivedSectionTitle).toBe("보관한 분류");
     expect(copy.emptyStateText).toBe("아직 직접 추가한 분류가 없어요.");
+    // 라운드 103 리뷰 M-2 — 화면 전체가 비었다는 말과 사용 중 구획이 비었다는 말은 다른
+    // 사실이다. 종전에는 문장이 하나뿐이라 전부 보관한 상태에서 앞 문장이 보관 목록과
+    // 나란히 서서 거짓이 됐다. 두 문장은 서로 달라야 한다 — 같아지면 그 결함이 되돌아온다.
+    expect(copy.inUseEmptyText).toBe("사용 중인 분류가 없어요.");
+    expect(copy.inUseEmptyText).not.toBe(copy.emptyStateText);
     expect(copy.addPlaceholder).toBe("예: 산후도우미");
+    // 라운드 103 리뷰 L-2 — 입력칸이 버튼 라벨("분류 추가")을 돌려 쓰면 스크린리더가 같은
+    // 문장을 두 번 읽고 무엇을 치는 칸인지 말하지 않는다. 칸은 자기 라벨을 갖는다.
+    expect(copy.addInputLabel).toBe("분류 이름");
+    expect(copy.addInputLabel).not.toBe(copy.addButtonLabel);
     expect(copy.addButtonLabel).toBe("분류 추가");
     expect(copy.renameLabel).toBe("이름 바꾸기");
     expect(copy.saveLabel).toBe("저장");
@@ -316,6 +325,7 @@ describe("확정 카피와 낭독 (§9.6)", () => {
     const sentences = [
       copy.subtitle,
       copy.emptyStateText,
+      copy.inUseEmptyText,
       copy.archivedFootnote,
       customCategoryArchiveConfirmCopy("산후도우미").message,
       customCategoryDuplicateMessage(),

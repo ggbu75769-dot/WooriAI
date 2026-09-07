@@ -129,11 +129,19 @@ export const categoryListItemSchema = categorySchema.extend({
    * 운영 시드 21행에는 키 자체가 없다(설계 §2.2). additive optional이라 이 필드가 없던
    * 시절의 응답·구 캐시도 그대로 통과한다.
    *
-   * ⚠️ 커스텀 행의 **표식은 이 필드가 아니라 기존 `isSystem: false`** 다(000018이
-   * "시스템 시드 vs 사용자 정의"라고 뜻을 적어 둔 칸이고, DB CHECK가
-   * `(household_id IS NULL) = is_system` 등호를 진다). 이 필드가 서는 이유는 관리 화면이
-   * PATCH 대상 URL(`/households/:householdId/categories/:categoryId`)을 만들고, 다가구
-   * 사용자에게 "이 분류는 다른 가구 것"을 가르기 위해서다.
+   * ⚠️ **커스텀 행의 표식은 이 필드다 — `isSystem: false`로 갈라서는 안 된다.**
+   * 종전 이 주석은 표식을 `isSystem: false`로 적고 DB CHECK가
+   * `(household_id IS NULL) = is_system` 등호를 진다고 했는데, **둘 다 사실이 아니다**:
+   * `prisma/seed.ts`가 모바일 퀵타일 별칭 8행과 가져오기 스텁 1행을 `isSystem: false`로
+   * 시드하므로(dev DB 실측 `true`=12 / `false`=9) 양방향 등호는 성립할 수 없고, 실제
+   * 제약도 단방향이다 — `migrations/000024_categories_household_owner/migration.sql`의
+   * `CHECK (household_id IS NULL OR is_system = false)`. 즉 `is_system = false`는 커스텀의
+   * **필요조건일 뿐 충분조건이 아니다.** 그 축으로 가르면 사용자가 만들지도 않은 시드
+   * 별칭 아홉 행이 커스텀으로 잡힌다(라운드 103이 실제로 한 번 밟은 함정이다).
+   *
+   * 이 필드가 서는 원래 이유는 그대로다 — 관리 화면이 PATCH 대상 URL
+   * (`/households/:householdId/categories/:categoryId`)을 만들고, 다가구 사용자에게
+   * "이 분류는 다른 가구 것"을 가른다.
    */
   householdId: uuidSchema.optional()
 });
@@ -149,7 +157,8 @@ export const listCategoriesResponseSchema = z.object({
 // ---------------------------------------------------------------------------
 // 라운드 103: 커스텀 지출 카테고리. 별도 표가 아니라 categories의 가구 소유 행이다
 // (expenses.category_id가 NOT NULL FK라 그 밖의 id는 지출에 저장될 수 없다 — 설계 §1.1).
-// 표식은 기존 isSystem(false)이고, 읽기 경로의 계약 추가는 householdId 하나뿐이다.
+// 표식은 householdId의 유무이며(isSystem: false는 시드 별칭 9행도 갖는다 — 위 필드 주석),
+// 읽기 경로의 계약 추가는 그 householdId 하나뿐이다.
 // 계약 확정 원문은 docs/5차/round103-custom-expense-category-design.md §9.
 // ---------------------------------------------------------------------------
 export const CUSTOM_CATEGORY_NAME_MAX_LENGTH = 50; // categories.name varchar(50)와 동치

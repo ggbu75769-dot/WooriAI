@@ -215,7 +215,19 @@ export function customCategoryScreenCopy(): {
   inUseSectionTitle: string;
   archivedSectionTitle: string;
   emptyStateText: string;
+  /**
+   * 라운드 103 리뷰 M-2 — 종전에는 빈 상태 문장이 하나뿐이라, 전부 보관한 상태에서
+   * "아직 직접 추가한 분류가 없어요."가 **바로 아래 보관 목록과 나란히** 섰다. 화면 전체가
+   * 비었다는 말과 사용 중 구획이 비었다는 말은 다른 사실이므로 문장을 가른다.
+   */
+  inUseEmptyText: string;
   addPlaceholder: string;
+  /**
+   * 라운드 103 리뷰 L-2 — 종전에는 입력칸 낭독 라벨로 `addButtonLabel`("분류 추가")을 돌려
+   * 썼다. 스크린리더가 칸과 버튼에서 같은 문장을 두 번 읽고, 무엇을 치는 칸인지는 말하지
+   * 않았다. 칸은 자기 라벨을 갖는다.
+   */
+  addInputLabel: string;
   addButtonLabel: string;
   renameLabel: string;
   saveLabel: string;
@@ -231,7 +243,9 @@ export function customCategoryScreenCopy(): {
     inUseSectionTitle: "사용 중",
     archivedSectionTitle: "보관한 분류",
     emptyStateText: "아직 직접 추가한 분류가 없어요.",
+    inUseEmptyText: "사용 중인 분류가 없어요.",
     addPlaceholder: "예: 산후도우미",
+    addInputLabel: "분류 이름",
     addButtonLabel: "분류 추가",
     renameLabel: "이름 바꾸기",
     saveLabel: "저장",
