@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { requiredDateFieldLabel, validateChildForm } from "../children/child-form";
 import { amountFieldAccessibilityValue, formatAmountDigits } from "../money";
 
 /**
@@ -413,5 +414,191 @@ describe("A11Y-115 ⓖ 예산 카테고리 오류 둘 — 세 줄이 같은 훅�
     expect(source("src/expenses/category-budget-form.ts")).toContain(
       "errorText: isAmountOverLimit(amountKrw) ? amountOverLimitMessage() : null"
     );
+  });
+});
+
+/**
+ * ⓗ **아이 관리(SET-005) — 이 계열에 마지막으로 남아 있던 침묵**(라운드 110).
+ *
+ * ⓕ가 온보딩 넷을 닫은 뒤에도 `app/settings/children.tsx`의 검증 오류 셋은 맨 `<Text>`였다:
+ * 태명(:ChildFormFields) · 날짜(:ChildDateField) · 단계 칩(:ChildFormFields). 화면에는 정직하게
+ * 그려졌지만(전부 `showErrors && …` 뒤에 선다) 포커스는 입력칸에 남으므로 소리로만 쓰는 사람에게는
+ * [저장]·[출생일로 바꾸기]가 왜 잠겼는지 도달할 길이 없었다.
+ *
+ * ## 이 화면이 앞의 여섯 화면과 다른 세 가지
+ *
+ * ⓘ **훅이 화면이 아니라 컴포넌트 안에 산다.** 앞의 화면들은 폼이 하나뿐이라 최상단 한 줄이면
+ * 됐다. 여기는 갈래가 셋(편집 · 출생 전환 · 추가)이고 그중 둘이 `ChildFormFields`를 공유한다.
+ * 최상단에 놓으면 어느 폼의 오류인지 구분되지 않고, 폼이 닫힌 뒤에도 `showErrors`가 참으로
+ * 남아(닫기·취소는 그 값을 되돌리지 않는다) **사라진 폼의 오류**를 읽는다. 컴포넌트 안이 정확한
+ * 근거는 아래 두 번째 단언이 값으로 진다 — 세 입구가 서로를 반드시 닫으므로 동시에 열린 폼이 없고,
+ * 따라서 살아 있는 훅도 언제나 하나다.
+ *
+ * ⓙ **touched 게이트가 없다 — 그리고 그것이 온보딩과 어긋나는 것이 아니다.**
+ * `app/(onboarding)/child-profile.tsx`는 제출 전에도 오류를 그리므로 touched가 곧 "화면이 그 줄을
+ * 그리는가"였다(위 ⓕ). 이 화면의 `showErrors`는 **제출 핸들러에서만** 참이 되므로 그 값 자체가
+ * 이미 같은 게이트다. 규칙은 두 화면에서 하나다 — *훅이 받는 값 = 화면이 그 줄을 그리는 조건*.
+ *
+ * ⓚ **프롭 쌍은 더하지 않는다.** 이 화면의 `accessibilityLiveRegion="polite" accessibilityRole="alert"`
+ * 셋은 **뮤테이션 저장 실패** 자리의 것이고 그 수는 소유 밖 대장(`src/a11y-contract.test.ts`)이
+ * 값으로 붙들고 있다. 검증 오류 셋에 프롭을 더하면 그 대장이 먼저 빨개지고, 무엇보다 안드로이드에서
+ * 라이브 리전과 announce가 겹친다(훅 모듈 머리말의 그 물음). 훅 하나로 두 플랫폼이 답하므로
+ * 프롭은 필요하지 않다 — 아래 마지막 단언이 그 셋을 그대로 붙든다.
+ */
+const MANAGE_CHILDREN = "app/settings/children.tsx";
+
+/** 이 화면의 화살표 핸들러 한 덩어리(선언 줄부터 두 칸 들여쓴 `};`까지). */
+function handlerBodyOf(masked: string, declaration: string): string {
+  const start = masked.indexOf(declaration);
+  if (start < 0) throw new Error(`${MANAGE_CHILDREN}에 ${declaration}가 없다`);
+  const end = masked.indexOf("\n  };", start);
+  if (end < 0) throw new Error(`${declaration}의 끝을 찾지 못했다`);
+  return masked.slice(start, end);
+}
+
+describe("A11Y-115 ⓗ 아이 관리(SET-005) 폼 셋 — 검증 오류가 소리로 나간다", () => {
+  it("폼 갈래는 셋이고, 오류를 그리는 조건이 소스에 그대로 있다 (편집·추가는 상태를 공유한다)", () => {
+    const masked = maskComments(source(MANAGE_CHILDREN));
+    // 상태는 둘 — 편집/추가가 함께 쓰는 `showErrors` 하나, 출생 전환 카드의 `bornShowErrors` 하나.
+    expect(masked).toContain("const [showErrors, setShowErrors] = useState(false);");
+    expect(masked).toContain("const [bornShowErrors, setBornShowErrors] = useState(false);");
+    // 그리는 자리 셋(공유 컴포넌트 둘 안에 있다).
+    expect(masked).toContain(
+      "{showErrors && errors.nicknameError ? <Text style={fieldErrorStyle}>{errors.nicknameError}</Text> : null}"
+    );
+    expect(masked).toContain("{showErrors && error ? <Text style={fieldErrorStyle}>{error}</Text> : null}");
+    expect(masked).toContain(
+      "{showErrors && errors.manualStageError ? <Text style={fieldErrorStyle}>{errors.manualStageError}</Text> : null}"
+    );
+    // 세 갈래의 렌더 게이트 — 하나가 사라지면 위 ⓘ의 근거가 함께 흔들린다.
+    expect(masked).toContain("{editingChild && editingChild.id === child.id ? (");
+    expect(masked).toContain("{canEditChildren && bornChildId === child.id ? (");
+    expect(masked).toContain("{hasSession && canAddChild && !isDemoSession && addOpen ? (");
+  });
+
+  it("⚠️ 세 입구가 서로를 반드시 닫는다 — 동시에 열린 폼이 없다(훅이 컴포넌트 안에 사는 근거)", () => {
+    const masked = maskComments(source(MANAGE_CHILDREN));
+    const openers = [
+      { declaration: "const startEdit = (child: Child) => {", closes: ["setAddOpen(false);", "setBornChildId(null);"] },
+      {
+        declaration: "const startBornTransition = (child: Child) => {",
+        closes: ["setAddOpen(false);", "setEditingChildId(null);"]
+      },
+      { declaration: "const startAdd = () => {", closes: ["setEditingChildId(null);", "setBornChildId(null);"] }
+    ] as const;
+    for (const opener of openers) {
+      const body = handlerBodyOf(masked, opener.declaration);
+      for (const close of opener.closes) {
+        expect(body, `${opener.declaration} 가 ${close} 로 다른 갈래를 닫는다`).toContain(close);
+      }
+    }
+    // 그래서 살아 있는 훅도 언제나 하나다 — 이 화면의 훅 호출은 **폼 필드를 소유한 컴포넌트마다
+    // 한 번**, 모두 둘이다(ChildFormFields · ChildDateField). 셋째가 생기면 여기가 먼저 빨개진다.
+    expect((masked.match(/useFieldErrorAnnouncement\(/g) ?? []).length, "이 화면의 낭독 배선").toBe(2);
+  });
+
+  it("⚠️ showErrors가 곧 게이트다 — 참이 되는 자리는 제출 핸들러뿐이다 (온보딩과 다른 결론의 근거)", () => {
+    const masked = maskComments(source(MANAGE_CHILDREN));
+    // 전수: `setShowErrors(true)`는 편집 제출 · 추가 제출 둘뿐이고, `setBornShowErrors(true)`는
+    // 출생 전환 제출 하나뿐이다. 입력 중에는 어떤 오류도 그려지지 않으므로 touched가 필요 없다.
+    expect((masked.match(/setShowErrors\(true\)/g) ?? []).length, "showErrors가 참이 되는 자리").toBe(2);
+    expect((masked.match(/setBornShowErrors\(true\)/g) ?? []).length, "bornShowErrors가 참이 되는 자리").toBe(1);
+    expect(handlerBodyOf(masked, "const submitEdit = (child: Child) => {")).toContain("setShowErrors(true);");
+    expect(handlerBodyOf(masked, "const submitAdd = () => {")).toContain("setShowErrors(true);");
+    expect(handlerBodyOf(masked, "const submitBornTransition = (child: Child) => {")).toContain(
+      "setBornShowErrors(true);"
+    );
+    // 온보딩 쪽 결론이 오늘도 그 화면의 사실 위에 서 있다(둘이 갈리는 이유가 실재한다).
+    expect(maskComments(source(CHILD_PROFILE)), "온보딩은 제출 전에도 그린다").toContain(
+      "{nicknameTouched && nicknameError ? ("
+    );
+    expect(maskComments(source(CHILD_PROFILE))).not.toContain("setShowErrors(true)");
+  });
+
+  it("훅이 받는 값 = 화면이 그 줄을 그리는 조건 (눈에 없는 문장을 귀에만 들려주지 않는다)", () => {
+    const masked = maskComments(source(MANAGE_CHILDREN));
+    expect(masked).toContain(
+      "useFieldErrorAnnouncement(showErrors ? (errors.nicknameError ?? errors.manualStageError) : null);"
+    );
+    expect(masked).toContain("useFieldErrorAnnouncement(announceError && showErrors ? error : null);");
+    // ⚠️ 순진한 한 줄 금지 — 이 화면 몫(위 ⓕ가 온보딩에 세운 그 핀과 같은 사유). 제출 전에 이미
+    // 서 있는 오류(빈 태명·빈 날짜)를 낭독해 버리는 형태들이다.
+    expect(masked).not.toContain("useFieldErrorAnnouncement(errors.nicknameError)");
+    expect(masked).not.toContain("useFieldErrorAnnouncement(errors.dateError)");
+    expect(masked).not.toContain("useFieldErrorAnnouncement(errors.manualStageError)");
+    expect(masked).not.toContain("useFieldErrorAnnouncement(error)");
+  });
+
+  it("⚠️ 동시에 여러 칸이 틀리면 첫 오류 하나 — 날짜 칸은 앞줄(태명)이 성할 때만 읽는다", () => {
+    const masked = maskComments(source(MANAGE_CHILDREN));
+    // 폼 안의 날짜 칸: 앞줄이 틀린 동안 침묵한다(예산 화면의 `rows.find(…)`와 같은 규칙).
+    expect(masked).toContain("announceError={!errors.nicknameError}");
+    // 출생 전환 카드의 날짜 칸에는 앞줄이 없다 — 언제나 읽는다(약칭 프롭 = true).
+    const bornDateField = masked.slice(
+      masked.indexOf("showErrors={bornShowErrors}"),
+      masked.indexOf("onChange={setBornDateText}")
+    );
+    expect(bornDateField, "출생 전환 카드의 날짜 칸").toContain("announceError");
+    expect(bornDateField, "출생 전환 카드의 날짜 칸").not.toContain("announceError={");
+    // 선례가 오늘도 그 모양이다(발명 0건).
+    expect(source(BUDGET)).toContain(
+      "useFieldErrorAnnouncement(categoryForm?.rows.find((row) => row.errorText !== null)?.errorText ?? null);"
+    );
+  });
+
+  it("⚠️ 태명·단계 둘만 이어 붙이면 되는 근거 — 날짜 칸과 단계 칩은 같은 폼에 함께 서지 않는다", () => {
+    // 값으로 판다(소스 대조가 아니다): manual 폼에는 날짜 칸 자체가 없고,
+    expect(requiredDateFieldLabel("manual")).toBeNull();
+    expect(requiredDateFieldLabel("pregnant")).toBe("출산 예정일");
+    expect(requiredDateFieldLabel("born")).toBe("출생일");
+    // 그 폼의 판정은 날짜 오류를 만들지 않으며(칸이 없으니 값도 비어 있다),
+    expect(validateChildForm("manual", { nickname: "", dateText: "", manualStage: null }, { requireDate: true })).toEqual(
+      {
+        nicknameError: "태명 또는 별명을 입력해 주세요.",
+        dateError: null,
+        manualStageError: "아이 단계를 하나 선택해 주세요."
+      }
+    );
+    // 반대로 날짜가 있는 폼에서는 단계 오류가 생기지 않는다 — 둘은 배타다.
+    expect(
+      validateChildForm("born", { nickname: "", dateText: "", manualStage: null }, { requireDate: true })
+    ).toEqual({
+      nicknameError: "태명 또는 별명을 입력해 주세요.",
+      dateError: "아이 생년월일을 입력해 주세요.",
+      manualStageError: null
+    });
+  });
+
+  it("⚠️ 새 한국어 문장 0건 — 셋 다 순수 모듈이 짓는 문장을 읽는다", () => {
+    const code = maskComments(source(MANAGE_CHILDREN));
+    const formSource = source("src/children/child-form.ts");
+    for (const sentence of [
+      "태명 또는 별명을 입력해 주세요.",
+      "출산 예정일을 입력해 주세요.",
+      "아이 생년월일을 입력해 주세요.",
+      "아이 단계를 하나 선택해 주세요."
+    ]) {
+      expect(formSource, sentence).toContain(sentence);
+      expect(code, sentence).not.toContain(sentence);
+    }
+  });
+
+  it("⚠️ 프롭 쌍은 한 개도 더하지 않았다 — 대장이 붙든 셋은 뮤테이션 실패 자리의 것이다 (ⓚ)", () => {
+    const screenSource = source(MANAGE_CHILDREN);
+    expect(
+      (screenSource.match(/accessibilityLiveRegion="polite" accessibilityRole="alert"/g) ?? []).length,
+      "아이 관리 화면의 프롭 쌍"
+    ).toBe(3);
+    // 그 셋이 검증 오류가 아니라 저장 실패 셋이라는 사실 — 검증 오류 셋은 맨 `<Text>` 그대로다.
+    for (const variable of ["bornFailedText", "editFailedText", "addFailedText"]) {
+      expect(screenSource, variable).toContain(
+        `<Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{${variable}}</Text>`
+      );
+    }
+    // 이 화면은 위 ⓒ·ⓕ의 두 화면과 달리 `announceForA11y(`를 **정당하게** 계속 쓴다 — 아이 전환 ·
+    // 출생 전환 성공 · 추가 성공, 그리고 저장 실패 셋의 effect다. 전부 필드 검증 오류가 아니므로
+    // 훅의 소관이 아니고, 그 배선은 소유 밖 대장(src/a11y-contract.test.ts)이 따로 붙든다.
+    expect(screenSource).toContain("announceForA11y(");
+    expect(maskComments(screenSource)).not.toMatch(/announceForA11y\((?:errors\.|error\b)/);
   });
 });
