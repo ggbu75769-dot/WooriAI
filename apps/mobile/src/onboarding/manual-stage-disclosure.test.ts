@@ -55,7 +55,14 @@ function withoutComments(sourceText: string): string {
  */
 function stageCards(): { mode: string; title: string; description: string }[] {
   const src = source(CHILD_STATUS_PATH);
-  const block = src.slice(src.indexOf("const stageOptions"), src.indexOf("export default function"));
+  // 양끝 존재 가드: 어느 한쪽 앵커가 사라지면 slice(-1, …)가 조용히 엉뚱한 구간을 잘라
+  // 아래 matchAll이 0건을 내고, 그 0건이 "카드가 셋이다" 단언에서야 뒤늦게 드러난다.
+  // 무엇이 없어졌는지 이름으로 먼저 말한다.
+  const blockStart = src.indexOf("const stageOptions");
+  expect(blockStart, "stageOptions 선언").toBeGreaterThan(-1);
+  const blockEnd = src.indexOf("export default function");
+  expect(blockEnd, "화면 컴포넌트 선언(stageOptions 구간의 끝)").toBeGreaterThan(blockStart);
+  const block = src.slice(blockStart, blockEnd);
   const found = [
     ...block.matchAll(
       /\{\s*mode: "(\w+)",\s*icon: "([^"]+)",\s*title: "([^"]+)",\s*description: "([^"]+)",\s*tint: ([^\s,}]+)\s*\}/g
@@ -208,7 +215,11 @@ describe("라운드 108 ⓒ — ONB-004의 기본값이 제안의 자리로 내�
     expect(screen).toContain('<TextButton disabled={save.isPending} label="나중에 설정할게요" onPress={skip}');
     const skipAt = screen.indexOf("function skip()");
     expect(skipAt, "건너뛰기 함수를 소스에서 찾지 못했다").toBeGreaterThan(-1);
-    const skipBody = screen.slice(skipAt, screen.indexOf("\n  }", skipAt));
+    // 끝 앵커도 함께 잠근다 — 함수 닫는 줄의 모양이 바뀌면 slice가 파일 끝까지 삼켜
+    // 아래 not.toContain이 화면 전체를 훑게 되고, 그때 이 단언은 거짓으로 빨개진다.
+    const skipEnd = screen.indexOf("\n  }", skipAt);
+    expect(skipEnd, "건너뛰기 함수의 닫는 줄").toBeGreaterThan(skipAt);
+    const skipBody = screen.slice(skipAt, skipEnd);
     expect(skipBody, "건너뛰기가 예산을 저장한다").not.toContain("upsertBudget");
     expect(skipBody).toContain('completeStep("ONB-004")');
     expect(skipBody).toContain("markHomeReached()");

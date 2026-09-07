@@ -367,6 +367,19 @@ export type ProductLink = {
   priceSnapshotKrw?: number;
   /** ISO 8601 UTC 문자열. 위 priceSnapshotKrw 주석의 짝. */
   priceCheckedAt?: string;
+  /**
+   * COM-105 후속 — 링크 헬스 워커가 **실패를 관찰한** 두 값(packages/contracts
+   * `productLinkSchema.healthStatus`의 수기 미러). 서버는 `ok`와 미확인(null)을 **아예 싣지
+   * 않으므로** 이 필드의 부재는 "확인됨"이 아니라 **아무 말도 하지 않는다**는 뜻이다.
+   *
+   * ⚠️ `"ok"`가 이 유니온에 없는 것이 핵심이다 — 있으면 앱이 "확인됨" 배지를 그릴 수 있게
+   * 되는데, 그 근거는 최대 24시간 묵은 데이터센터발 HEAD 응답 하나라 그 표시가 곧 허위다.
+   * 지금 모양에서는 `=== "ok"` 비교 자체가 컴파일 타임에 터진다.
+   *
+   * 문구·판정은 여기서 짓지 않는다: 단일 소스는 src/items/link-marker.ts의
+   * `purchaseLinkHealthNotice`다(화면에 판정을 흩뿌리지 않는다).
+   */
+  healthStatus?: "broken" | "unstable";
 };
 
 export type ItemDetail = ItemSummary & {

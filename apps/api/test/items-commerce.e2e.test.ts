@@ -652,9 +652,23 @@ describe("Items, commerce, and affiliate API", () => {
       ]);
       // 개수 불변 — 정렬일 뿐 필터가 아니다.
       expect(detail.productLinks).toHaveLength(linkFixtures.length);
-      // DTO에 health가 새어 나가지 않는다(어드민 응답 전용 필드).
+      /**
+       * ⚠️ 두 시점(COM-105 후속). ① 종전 이 자리는 *"DTO에 health가 새어 나가지 않는다(어드민
+       * 응답 전용 필드)"* 로 네 링크 전부에 `healthStatus` 부재를 요구했고, 그때는 참이었다.
+       * ② 이제 앱 DTO는 **워커가 실패를 관찰한 두 값만** 싣는다. 그래서 부재 단언은 사라지지
+       * 않고 **갈래별로 갈린다** — 이 절이 무는 것이 바로 그 경계다.
+       *
+       * `healthCheckedAt`은 네 갈래 **전부** 여전히 부재다: 시각을 실으면 앱이 "N시간 전 확인"
+       * 같은 문장을 지을 수 있게 되는데, 그 정밀도는 판정의 신뢰도를 실제보다 높게 말한다.
+       */
+      const byTitle = new Map(detail.productLinks.map((link) => [link.title, link]));
+      expect(byTitle.get("깨진 링크")).toHaveProperty("healthStatus", "broken");
+      expect(byTitle.get("불안정 링크")).toHaveProperty("healthStatus", "unstable");
+      // ok와 미확인은 **키 자체가 없다** — 부재가 곧 "아무 말도 하지 않는다"이고, 그 둘을
+      // 구분해 싣는 순간 앱이 미확인을 "확인됨"처럼 그릴 수 있게 된다.
+      expect(byTitle.get("정상 링크")).not.toHaveProperty("healthStatus");
+      expect(byTitle.get("미확인 링크")).not.toHaveProperty("healthStatus");
       for (const link of detail.productLinks) {
-        expect(link).not.toHaveProperty("healthStatus");
         expect(link).not.toHaveProperty("healthCheckedAt");
       }
     } finally {
@@ -722,7 +736,12 @@ describe("Items, commerce, and affiliate API", () => {
         linkIds.set(fixture.title, created.id);
       }
 
-      // 링크 목록은 이 변경과 무관하다 — 감추지 않는다(개수 그대로, health 비노출 그대로).
+      // 링크 목록은 이 변경과 무관하다 — **감추지 않는다**(개수 그대로).
+      //
+      // ⚠️ 두 시점(COM-105 후속). ① 종전 이 줄은 "health 비노출 그대로"라 적었고 아래 루프가
+      // 네 링크 전부에 부재를 요구했다 — 그때는 참이었다. ② 이제 앱 DTO는 실패 두 값을 싣는다.
+      // **감추지 않는다는 라운드 68의 판정은 그대로**이고(개수·순서·여는 URL 무접촉), 달라진
+      // 것은 사용자가 그 사실을 **듣게 됐다**는 것뿐이다.
       const detail = (
         await request(app.getHttpServer())
           .get(`/api/v1/children/${childId}/items/${template.id}`)
@@ -732,9 +751,11 @@ describe("Items, commerce, and affiliate API", () => {
       itemDetailSchema.parse(detail);
       expect(detail.productLinks).toHaveLength(linkFixtures.length);
       expect(detail.productLinks.map((link) => link.title)).toContain("깨진 링크");
-      for (const link of detail.productLinks) {
-        expect(link).not.toHaveProperty("healthStatus");
-      }
+      const listedByTitle = new Map(detail.productLinks.map((link) => [link.title, link]));
+      expect(listedByTitle.get("깨진 링크")).toHaveProperty("healthStatus", "broken");
+      expect(listedByTitle.get("불안정 링크")).toHaveProperty("healthStatus", "unstable");
+      expect(listedByTitle.get("정상 링크")).not.toHaveProperty("healthStatus");
+      expect(listedByTitle.get("미확인 링크")).not.toHaveProperty("healthStatus");
 
       for (const fixture of linkFixtures) {
         const linkId = linkIds.get(fixture.title)!;

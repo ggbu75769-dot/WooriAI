@@ -43,6 +43,7 @@ import {
   productLinkMarker,
   productLinksDisclosureText,
   productPlatformLabel,
+  purchaseLinkHealthNotice,
   purchaseLinkShareMessage
 } from "../../src/items/link-marker";
 import { resolveLinkPriceDisplay, withLinkPriceCaption } from "../../src/items/link-price";
@@ -1195,6 +1196,20 @@ export default function ItemDetailScreen() {
                 // 종전 그대로 가격 칸을 비운다 -- 값만 크게 찍고 언제 확인한 값인지를
                 // 빠뜨리는 배선을 만들 수 없게, 두 조각이 같은 객체에서만 나온다.
                 const linkPrice = hasSession ? resolveLinkPriceDisplay(link) : null;
+                /* COM-105 후속 — 서버가 **도달 실패를 관찰한** 링크에만 서는 한 줄.
+                   종전(라운드 68 C #4 · 그때는 참): 서버가 죽은 줄 아는 링크에도 이 화면의
+                   문구는 0줄이었다(대우는 정렬 강등과 공유 URL 미발급 둘뿐 — 둘 다 화면에
+                   아무 글자도 남기지 않는다). 그래서 사용자는 아무 말도 못 들은 채 눌러 앱
+                   밖에서 404를 만났다. 이제 우리 관찰을 그 자리에서 한 줄로 말한다.
+                   판정도 문구도 여기서 짓지 않는다 — 단일 소스는 src/items/link-marker.ts의
+                   purchaseLinkHealthNotice다(화면에 판정을 흩뿌리지 않는다).
+                   ⚠️ 버튼은 그대로 눌린다: 판정은 최대 24시간 묵을 수 있고 HEAD에 403으로
+                   답하는 정상 쇼핑몰도 broken이 되므로, 우리가 틀렸을 때 구매 경로를 우리가
+                   대신 닫지 않는다(감추기·비활성화 둘 다 하지 않는다).
+                   ⚠️ 세션 게이트는 링크 가격(위 linkPrice)과 **같은 관례**다 — 비세션
+                   프리뷰(ITEM-002 픽셀 락 캡처, app/pixel-lock.tsx가 세션을 지우고 찍는다)는
+                   한 글자도 달라지지 않는다. */
+                const linkHealthNotice = hasSession ? purchaseLinkHealthNotice(link) : undefined;
                 return (
                   <View key={link.id} style={{ gap: 6 }}>
                     <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
@@ -1203,6 +1218,9 @@ export default function ItemDetailScreen() {
                         <Text style={{ color: theme.colors.gray600, flex: 1, fontSize: 11 }}>{linkMarker.caption}</Text>
                       ) : null}
                     </View>
+                    {linkHealthNotice ? (
+                      <Text style={{ color: theme.colors.gray600, fontSize: 11, lineHeight: 16 }}>{linkHealthNotice}</Text>
+                    ) : null}
                     {/* UX-5B-1: 링크별 가짜 판매가 대신, API가 주는 가격대만 표시 (없으면 빈칸).
                         C4: 세션 경로에서는 그마저 비웠다 — 세 판매처 행에 **같은** 가격대를
                         나란히 찍으면 서로 다른 값을 견준 것처럼 읽히는데, 그 값은 이미 카드
