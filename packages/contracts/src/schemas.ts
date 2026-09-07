@@ -379,9 +379,19 @@ export const itemSummarySchema = z.object({
   name: z.string().min(1),
   necessityLevel: necessityLevelSchema,
   status: itemStatusSchema,
-  // 라운드 49 C-02: 준비템이 속한 지출 분류(categories.id). 시드 63개 준비템 전부가 값을
-  // 갖고 있었지만(prisma/seed.ts seedItemTemplates) 앱 DTO가 버려서, "준비템 → 지출 기록"
-  // 프리필이 품목명만 넘기고 분류는 늘 기본 타일로 떨어졌다. **additive optional**이다 —
+  // 라운드 49 C-02: 준비템이 속한 지출 분류(categories.id). 시드 준비템 **전부**가 값을
+  // 갖고 있었지만(목록은 apps/api/prisma/seed-data.ts의 `itemTemplateSeeds`, 적재는
+  // prisma/seed.ts의 `seedItemTemplates`) 앱 DTO가 버려서, "준비템 → 지출 기록"
+  // 프리필이 품목명만 넘기고 분류는 늘 기본 타일로 떨어졌다.
+  // ⚠️ 두 시점(라운드 106 T10): 종전 이 줄은 그 수를 **63개**로 적었는데 오늘 실측은
+  // **62개**다(`itemTemplateSeeds` 원소 62 · 그중 `categoryCode`를 가진 것 62 — 같은 파일을
+  // 세는 apps/api/test/seed-data.test.ts 머리말도 "62개 품목"으로 적는다). 이 문장이 서는
+  // 근거는 "전부가 값을 갖는다"이지 특정 개수가 아니므로 **수를 빼고 사실만 남긴다** —
+  // 시드가 한 줄 늘 때마다 갈리는 숫자를 계약 주석에 박아 두지 않는다.
+  // (같은 63이 apps 아래 주석 넷에 더 남아 있다: items-catalog.service.ts ·
+  // test/items-commerce.e2e.test.ts · mobile items/expense-link-prompt.ts와 그 테스트.
+  // 그 넷은 이 트랙 소유가 아니라 손대지 않았다.)
+  // **additive optional**이다 —
   // 컬럼 자체가 nullable(item_templates.category_id)이고 구버전 서버 응답도 그대로 통과해야
   // 한다. 금액은 여기 실리지 않는다: priceBandText는 범위라 특정 값을 프리필하면 허위 표시다.
   categoryId: uuidSchema.optional(),
@@ -409,7 +419,10 @@ export const STAGE_BAND_LABELS = stageBandLabelSchema.options;
 // ITEM-123 (B4/B5): 두 가지가 확장됐다(둘 다 값 추가/응답 확대라 기존 클라이언트는 무영향).
 // - `prepared` 탭은 이제 prepared뿐 아니라 gifted 상태 항목도 함께 돌려준다. gifted는
 //   "선물로 받아 이미 손에 있다"라 준비 완료와 같은 계열이고, "필요 없다고 판단했다"인
-//   not_needed와는 다르다(서버 items-catalog.service.ts TAB_STATUSES 주석 참고).
+//   not_needed와는 다르다(서버 `TAB_STATUSES` 주석 참고 — 그 상수는
+//   **apps/api/src/onboarding/item-ranking.ts**에 있다. ⚠️ 두 시점(라운드 106 T10): 종전 이
+//   줄은 자리를 items-catalog.service.ts로 적었는데 그 파일에 그 이름은 없다 — 탭 술어
+//   `matchesTab`과 함께 item-ranking.ts가 들고 있고, 카탈로그 서비스는 그것을 부를 뿐이다).
 // - `all`은 상태로 거르지 않는 전체 스냅샷 탭이다. 네 탭의 합집합과 같은 집합을 1요청으로
 //   준다 — 준비율(ITEM-114)처럼 전 상태가 필요한 화면의 4연속 요청을 없앤다.
 export const listItemsQuerySchema = z.object({
@@ -643,7 +656,25 @@ export const importRowSchema = z.object({
   id: uuidSchema,
   rowIndex: z.number().int().min(0),
   parsedDate: dateOnlySchema.optional(),
-  parsedItemName: z.string().max(100).optional(),
+  /**
+   * 라운드 106 T10 — 상한은 **컬럼 폭(120)**이지 지출 계약의 100이 아니다.
+   *
+   * 종전 이 줄은 `.max(100)`이었다. 그 숫자는 `EXPENSE_ITEM_NAME_MAX_LENGTH`(지출이 될 수
+   * 있는 품목명의 상한)에서 온 것인데, **이 스키마는 지출이 아니라 미리보기 행의 응답**이고
+   * 서버는 101~120자 행을 값 그대로 실어 보낸다: `import_rows.parsed_item_name`이
+   * `varchar(120)`이라 담을 수 있고, GAP-058 #8이 "컬럼이 담을 수 있는 값을 굳이 비우면
+   * 사용자가 어느 행인지조차 알 수 없다"는 이유로 **값을 보존하기로** 정했기 때문이다
+   * (apps/api/src/onboarding/import-pipeline.service.ts `buildImportRowsFromParsed` — 그 행은
+   * 값을 유지한 채 `item_name_too_long` 상태로 떨어지고 선택에서 빠진다. 121자 이상만 값이
+   * null이 된다). 즉 종전 계약은 **서버가 실제로 내보내는 정상 응답을 거절**했고, 그 응답을
+   * 이 스키마로 파싱하는 자리(apps/api/test/import-excel.e2e.test.ts)는 그 구간의 행을
+   * 아직 만들어 본 적이 없어 아무도 밟지 않았다. 계약을 사실에 맞춰 넓힌다(서버 무변경).
+   *
+   * ⚠️ 검수 PATCH의 입력 상한은 여전히 100이다(서버 `UpdateImportRowDto`의 `@MaxLength(100)`)
+   * — 사용자가 **고쳐 넣는** 값은 지출이 될 수 있어야 하고, 여기 넓힌 것은 **되읽는** 값의
+   * 상한뿐이다. 두 숫자가 다른 것이 이 파이프라인의 사실이다.
+   */
+  parsedItemName: z.string().max(120).optional(),
   parsedAmountKrw: moneyKrwSchema.optional(),
   categoryId: uuidSchema.optional(),
   confidence: z.number().min(0).max(1),
@@ -651,6 +682,31 @@ export const importRowSchema = z.object({
   validationStatus: z.string().min(1)
 });
 
+// ---------------------------------------------------------------------------
+// 라운드 106 T10 관찰(DNC-018 관찰형) — **아래 `z.infer` 별칭 대부분은 오늘 아무도 부르지 않는다.**
+//
+// 실측(2026-09-07 · 방식: apps · packages · scripts 아래 전 .ts/.tsx에서 **주석을 지운 뒤**
+// 선언 줄을 뺀 토큰 검색): 두 패키지의 export 선언 **171** 중 **27**이 제품 소스·테스트·자기
+// 파일 어디에도 나오지 않는다. 27은 전부 타입 별칭이다 — 26은 이 블록, 하나는 analytics.ts의
+// `AnalyticsEventEnvelope` — 값(런타임) export는 이 집합에 하나도 없다.
+// ⚠️ 이 수는 **하한**이다: 같은 이름이 다른 뜻으로 서 있으면(예: 서버가 자기 `ChildDto`를
+// 따로 선언한다) 토큰 검색이 "쓰인다"로 읽는다. 그리고 이 문단이 위 이름을 적고 있으므로
+// **주석까지 세는 검색으로는 27이 아니라 26으로 보인다** — 방식이 곧 수의 일부다.
+// 값(런타임) export 중 제품 소스 호출부가 0건인 것은 하나 있다(도메인의 `validateItemTrustRules`
+// — 테스트만 부른다. 그 함수 위의 관찰 주석이 오늘의 배선 상태를 적어 둔다).
+//
+// ⚠️ 왜 이 수가 지금까지 세어지지 않았나: 사문 대장(`packages/test-utils/src/dead-export-ledger.ts`)의
+// **모집단이 모바일 `src` 아래와 어드민 `src/lib` 아래뿐이라 packages는 애초에 밖**이다
+// (그 파일의 "결정 ②"). 즉 이 자리는 대장이 초록이어도 세어진 적이 없는 사각이다.
+//
+// ⚠️ 지우지 않는다. ⓐ 이 패키지의 존재 이유가 "계약을 **말하는** 수기 단일 소스"이고, 타입
+// 별칭은 스키마가 뜻하는 모양을 이름으로 고정하는 그 계약의 일부다(소비자가 `z.infer`를 각자
+// 다시 쓰면 이름이 갈린다). ⓑ 소비 3앱 중 모바일은 이 패키지를 의존하지 않고 수기 미러를
+// 쓰므로(known-limitations §D) "부르는 곳 0건"이 곧 "쓸모 0"이 아니다. ⓒ 값 export가 아니라
+// 타입이라 번들에 실리지 않는다(런타임 비용 0).
+// 지우는 판단이 필요해지는 날의 조건: 사문 대장의 모집단이 packages까지 넓어지고, 그 대장이
+// **타입 축**을 어떻게 다룰지 정할 때 — 그때 이 문단이 그날의 실측 기준선이다.
+// ---------------------------------------------------------------------------
 export type CategoryBreakdownEntryDto = z.infer<typeof categoryBreakdownEntrySchema>;
 export type CategoryBudgetEntryDto = z.infer<typeof categoryBudgetEntrySchema>;
 export type CreateCustomItemRequestDto = z.infer<typeof createCustomItemRequestSchema>;
