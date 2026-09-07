@@ -420,6 +420,12 @@ describe("A11Y-115 ⓖ 예산 카테고리 오류 둘 — 세 줄이 같은 훅�
 /**
  * ⓗ **아이 관리(SET-005) — 이 계열에 마지막으로 남아 있던 침묵**(라운드 110).
  *
+ * ⚠️ **두 시점**: *"마지막"*은 **그때는 참이었다** — ⓕ가 온보딩 넷을 닫고 ⓗ가 이 셋을 닫으면
+ * 그때까지 세어 온 모집단(지출 수정 · 예산 · 온보딩 · 아이 관리)이 비었다. *이제* 그 셈이 하나
+ * 늘었다: `app/settings/amount-presets.tsx`는 **라운드 101에 태어나** 그 어느 모집단에도 든 적이
+ * 없었고, 그래서 조용한 채로 남아 있었다. 아래 **ⓛ**이 그 자리를 닫는다 — ⓗ가 마지막이 아니라,
+ * *"모집단을 화면 목록으로 세는 한 새로 태어난 화면은 언제나 그물 밖"*이라는 사실이 남은 것이다.
+ *
  * ⓕ가 온보딩 넷을 닫은 뒤에도 `app/settings/children.tsx`의 검증 오류 셋은 맨 `<Text>`였다:
  * 태명(:ChildFormFields) · 날짜(:ChildDateField) · 단계 칩(:ChildFormFields). 화면에는 정직하게
  * 그려졌지만(전부 `showErrors && …` 뒤에 선다) 포커스는 입력칸에 남으므로 소리로만 쓰는 사람에게는
@@ -600,5 +606,102 @@ describe("A11Y-115 ⓗ 아이 관리(SET-005) 폼 셋 — 검증 오류가 소�
     // 훅의 소관이 아니고, 그 배선은 소유 밖 대장(src/a11y-contract.test.ts)이 따로 붙든다.
     expect(screenSource).toContain("announceForA11y(");
     expect(maskComments(screenSource)).not.toMatch(/announceForA11y\((?:errors\.|error\b)/);
+  });
+});
+
+/**
+ * ⓛ **빠른 금액 버튼 설정(`/settings/amount-presets`) — 새로 태어나 그물 밖에 있던 한 자리.**
+ *
+ * ⚠️ **두 시점.** *종전*: 이 화면의 오류 한 줄(`inputNotice`)에는 낭독 출구가 **0건**이었다 —
+ * `announceForA11y` · `useFieldErrorAnnouncement` · `accessibilityLiveRegion` 어느 것도 없었다.
+ * **그때는 참이었다**: 화면은 라운드 101에 태어났고, 라운드 109(ⓕ)와 라운드 110(ⓗ)이 이월을 닫을
+ * 때의 모집단은 지출 수정 · 예산 · 온보딩 · 아이 관리라 여기가 그 목록에 **없었다**. 라운드 79·80의
+ * 낭독 스윕도 이 자리를 볼 수 없었다 — 그 스윕의 모집단은 `useMutation`/`useQuery`에 닿는 갈래인데
+ * `inputNotice`는 네 칸의 입력에서 파생한 **순수 계산**이다(위 머리말의 그 사유 그대로).
+ *
+ * **왜 이 자리가 다른 자리보다 아픈가**: 이 화면의 [저장]은 **바로 그 값으로 잠긴다**
+ * (`disabled={inputNotice !== null}`). 소리로만 쓰는 사람은 버튼이 비활성이라는 **사실만** 듣고
+ * (RN Pressable이 `disabled`를 `accessibilityState`로 넘긴다) **왜인지는 끝내 듣지 못했다.**
+ * 도달 경로도 멀지 않다 — 설정 → 빠른 금액 버튼 → 네 칸 중 하나를 비우거나 같은 금액을 두 번 적으면
+ * 즉시 그 상태다.
+ *
+ * *이제*: 프롭 쌍(안드로이드) + 훅 한 벌(크로스플랫폼)이라는 **예산 수정 화면과 같은 한 벌**을 진다.
+ * 이 화면이 금액 입력 관례를 통째로 `app/budget.tsx`에서 가져왔다고 스스로 적고 있으므로(그 파일
+ * 머리말), 낭독도 같은 자리를 따르는 것이 새 관례를 만들지 않는 유일한 길이다.
+ *
+ * **버튼에 힌트를 달지 않은 근거**는 아래 마지막 단언이 값으로 진다: 공용 `PrimaryButton`의 프롭
+ * 계약에 `accessibilityHint`가 없고(넓히면 이 화면 하나 때문에 공용 버튼이 바뀐다), 무엇보다 힌트는
+ * **포커스가 그 버튼에 닿아야** 들리는데 오류는 타이핑하는 순간 생긴다. 저장소의 답은 언제나
+ * *"오류가 생기는 그 순간 그 자리에서 읽는 것"*이고, 예산 화면의 [저장]도 힌트 없이 같은 모양으로 잠긴다.
+ */
+const AMOUNT_PRESETS = "app/settings/amount-presets.tsx";
+
+describe("A11Y-115 ⓛ 빠른 금액 버튼 설정 — 저장을 잠그는 그 문장이 소리로 나간다", () => {
+  it("이 화면의 danger 글자 전수는 하나이고, 그 하나가 맨 문장에 프롭 쌍을 진다", () => {
+    const exits = dangerTextExitsOf(AMOUNT_PRESETS);
+    // 유령 방지: 바늘이 실제로 이 화면을 걷는다(모집단이 0건이 아니다).
+    expect(exits.length, "빠른 금액 버튼 설정의 danger 글자 자리").toBe(1);
+    expect(exits).toEqual(["bare"]);
+  });
+
+  it("같은 훅 한 벌을 지난다 (화면에 배선 사본 0건)", () => {
+    const screenSource = source(AMOUNT_PRESETS);
+    expect(screenSource).toContain("useFieldErrorAnnouncement(inputNotice);");
+    expect(screenSource).toContain('import { useFieldErrorAnnouncement } from "../../src/a11y/use-field-error-announcement";');
+    // 낭독 통로는 모듈 하나다 — 화면이 직접 부르면 규율이 두 벌이 된다(위 ⓒ·ⓕ와 같은 단언).
+    expect(screenSource).not.toContain("announceForA11y(");
+  });
+
+  it("⚠️ 훅이 받는 값 = 화면이 그 줄을 그리는 조건 (눈에 없는 문장을 귀에만 들려주지 않는다)", () => {
+    const code = maskComments(source(AMOUNT_PRESETS));
+    // JSX 갈래가 무는 값과 훅이 받는 값이 **같은 이름 하나**다.
+    expect(code, "오류 줄의 JSX 갈래").toContain("{inputNotice ? (");
+    expect(code, "훅이 받는 값").toContain("useFieldErrorAnnouncement(inputNotice);");
+    // 따로 touched 게이트가 필요 없는 근거: 판정 자체가 문제가 없으면 null을 돌려준다
+    // (온보딩 예산·단계 칩과 같은 사유 — 위 ⓕ의 그 판정).
+    expect(code, "판정의 성공 갈래").toContain("return null;");
+    expect(code, "판정이 화면에 넘어오는 자리").toContain("const inputNotice = presetInputNotice(presetDigits);");
+    // 갈래의 else(회색 미리보기)는 오류가 아니므로 조용한 채로 남는다 — 프롭 쌍은 정확히 하나다.
+    expect(code.match(/accessibilityLiveRegion="polite"/g)?.length, "이 화면의 라이브 리전 수").toBe(1);
+    expect(code.match(/accessibilityRole="alert"/g)?.length, "이 화면의 alert 역할 수").toBe(1);
+  });
+
+  it("⚠️ 이 수정의 핵심 — [저장]을 잠그는 값과 낭독되는 값이 **같은 값**이다", () => {
+    const code = maskComments(source(AMOUNT_PRESETS));
+    // 버튼을 잠그는 것도, 훅이 읽는 것도, 화면이 그리는 것도 전부 `inputNotice` 하나다.
+    // 이 셋이 갈라지는 날(예: 버튼만 다른 조건으로 잠그는 날) 여기서 빨개진다.
+    expect(code, "저장 버튼의 잠금 조건").toContain("disabled={inputNotice !== null}");
+    expect(code, "훅이 받는 값").toContain("useFieldErrorAnnouncement(inputNotice)");
+    expect(code, "화면이 그리는 조건").toContain("{inputNotice ? (");
+  });
+
+  it("⚠️ 새 한국어 문장 0건 — 낭독되는 것은 화면이 이미 그리는 그 문자열이다", () => {
+    const screenSource = source(AMOUNT_PRESETS);
+    // 네 문장은 전부 이 배선이 서기 **전부터** 있던 판정의 것이다(문구를 낭독하려고 짓지 않았다).
+    for (const sentence of [
+      '"네 칸을 모두 채워 주세요."',
+      '"0보다 큰 금액을 입력해 주세요."',
+      '"같은 금액이 두 번 있어요. 서로 다른 금액 네 개로 적어 주세요."'
+    ]) {
+      expect(screenSource, sentence).toContain(sentence);
+    }
+    // 상한 문장만은 이 화면이 짓지 않는다 — 단일 소스에 상한을 넘겨 받는다(그 관례도 그대로다).
+    expect(screenSource, "상한 문구의 단일 소스").toContain("amountOverLimitMessage(QUICK_AMOUNT_MAX_KRW)");
+    // 그 상한 문장의 단일 소스가 실제로 그 모듈이다(화면이 상한 문구를 다시 짓지 않는다).
+    expect(screenSource, "단일 소스 import").toContain(
+      'import { amountOverLimitMessage, isAmountOverLimit } from "../../src/expenses/amount-limit";'
+    );
+    // 훅이 문구를 짓지 않는다는 사실은 위 ⓒ가 이미 값으로 진다(`maskComments(HOOK_MODULE)`에 한글 0자).
+  });
+
+  it("⚠️ 비활성 버튼에 힌트를 달지 않았다 — 공용 PrimaryButton의 프롭 계약이 그대로다", () => {
+    // 이유를 버튼 쪽에 붙이려면 공용 버튼의 프롭을 넓혀야 한다. 넓히지 않았다는 사실을 값으로 문다.
+    const pressableProps = /type PressableProps = \{([^}]*)\}/.exec(source("src/ui.tsx"))?.[1];
+    expect(pressableProps, "공용 버튼의 프롭 선언을 찾지 못했다").toBeDefined();
+    expect(pressableProps, "공용 버튼에 힌트 프롭이 생기면 이 판단을 다시 적어야 한다").not.toContain("accessibilityHint");
+    // 화면 쪽에도 힌트를 흉내 낸 배선이 없다 — 이유는 오류 문장 하나가 진다.
+    expect(maskComments(source(AMOUNT_PRESETS)), "화면의 힌트 배선").not.toContain("accessibilityHint");
+    // 예산 수정 화면도 **같은 모양**으로 [저장]을 잠근다(이 화면이 새 관례를 만들지 않았다는 근거).
+    expect(maskComments(source(BUDGET)), "예산 화면의 힌트 배선").not.toContain("accessibilityHint");
   });
 });
