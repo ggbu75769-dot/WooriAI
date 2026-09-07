@@ -108,6 +108,9 @@ import {
   recordsSortOptionLabel,
   type RecordsSortMode
 } from "../../src/expenses/records-sort";
+// 이월 항목(0건 사용자): 표면 갈래(로딩/오류/빈/필터 0건/목록) 판정과 필터 컨트롤 노출은
+// 순수 모듈 한 곳에 있다 — 화면은 그 값을 그리기만 한다(아래 recordsSurface 선언부 참고).
+import { areRecordsFilterControlsVisible, recordsSurfaceMode } from "../../src/expenses/records-surface-mode";
 import { useSearchScopeCollection } from "../../src/expenses/use-search-scope-collection";
 import { evaluateLastMonthComparison, previousYearMonth, type ComparableExpenseRecord } from "../../src/home/last-month-comparison";
 // 라운드 56 D#10: `view=calendar` 파라미터 규약은 링크를 만드는 알림 목적지 모듈과 **같은 곳**에서 읽는다.
@@ -1656,6 +1659,36 @@ export default function RecordsScreen() {
   const hasVisibleRecords = showList && listData.length > 0;
 
   /**
+   * 이월 항목(0건 사용자의 컨트롤 무더기) — **표면 갈래 하나로 필터 컨트롤을 세운다.**
+   *
+   * 두 시점: 종전에는 아래 `listHeader`가 검색 입력 · 최근 검색어 줄 · 분류 칩 줄 · 정렬 토글을
+   * **무조건** 그렸다(그때는 참이었다 — 그 컨트롤이 하나씩 붙던 라운드마다 "이 달에 목록이
+   * 있다"가 암묵 전제였고, 아무도 그 전제를 판정으로 적지 않았다). 이제 로드가 성공했고 필터가
+   * 하나도 걸리지 않았는데 모집단이 0건이면 그 넷을 걷는다 — 아직 아무것도 적지 않은 사람의
+   * 첫 화면에서 가리킬 대상 없는 컨트롤이 핵심 루프 1단계(지출 기록)로 가는 빈 상태 카드를
+   * 아래로 밀어내던 자리다.
+   *
+   * 판정은 전부 순수 모듈(src/expenses/records-surface-mode.ts) 하나에 있다. 특히 **필터 0건
+   * (`"filtered-empty"`)에서는 걷지 않는다** — 0건을 만든 검색어·칩을 되돌릴 컨트롤이 사라지면
+   * 사용자가 자기 필터 안에 갇힌다. 로딩·오류에서도 걷지 않는다(모르는 동안에는 아무것도 걷지
+   * 않는다 · 달을 넘길 때마다 헤더가 튀지 않는다 — 라운드 104 #3의 "골격 유지"와 같은 판단).
+   * 걷는 것은 필터 컨트롤뿐이라 달 이동·월 선택 시트·리스트/달력 토글은 그대로 남는다.
+   */
+  const recordsSurface = recordsSurfaceMode({
+    isLoading: expenses.isLoading,
+    isError: expenses.isError,
+    hasData: Boolean(expenses.data),
+    // 모집단은 월 요약 줄과 같은 필터 무관 그 달 전체다(hasMonthlyRecords와 같은 셈).
+    populationCount: monthlyRecordCount,
+    visibleCount: listData.length,
+    // 입력값과 확정값을 둘 다 넘긴다 — 확정 전 350ms 동안 입력칸이 손 아래에서 사라지지 않는다.
+    searchText,
+    appliedSearchText,
+    categoryId: selectedCategoryId
+  });
+  const filterControlsVisible = areRecordsFilterControlsVisible(recordsSurface);
+
+  /**
    * 라운드 104 트랙 SEARCH(#3) — **달을 넘기는 동안 합계 카드의 골격만 남긴다.**
    *
    * ## 무엇이 문제였나
@@ -2300,6 +2333,17 @@ export default function RecordsScreen() {
         </View>
       </View>
 
+      {/* 이월 항목(0건 사용자) — **네 컨트롤을 한 게이트가 함께 세운다**: 검색 입력 · 최근
+          검색어 줄 · 분류 칩 줄 · 정렬 토글. 종전에는 넷 다 무조건 그려졌다(그때는 참이었다 --
+          그 컨트롤이 하나씩 붙던 라운드마다 "이 달에 목록이 있다"가 암묵 전제였다). 이제 로드
+          성공 · 필터 0개 · 모집단 0건일 때만 걷는다(판정·근거는 위 recordsSurface 선언부).
+          ⚠️ 감싸는 것은 Fragment다 -- 레이아웃 노드를 만들지 않으므로 바깥 View의 gap과 네
+          컨트롤의 간격이 종전과 한 픽셀도 다르지 않고, 안쪽 네 자리의 바이트도 손대지 않는다
+          (recent-searches·records-sort·records-search-responsiveness의 배선 계약이 그 줄들을
+          글자 그대로 문다 · keyboard-tap-guard의 핵심 루프 여덟 자리와 스크롤러 1개 계약).
+          필터 0건에서는 걷지 않는다 -- 0건을 만든 검색어·칩을 되돌릴 자리가 이 넷이다. */}
+      {filterControlsVisible ? (
+        <>
       {/* GAP-054 D#8: 판매처 갈래가 더해졌으므로 placeholder도 실제로 훑는 곳을 말한다 --
           matchRecordSearch의 갈래 순서(품목명 → 판매처 → 메모)와 같은 순서이고, 범위 고지 줄의
           RECORDS_SEARCH_FIELDS_LABEL과 같은 목록이다. 약속과 판정이 갈리면 그 자체가 허위 표시다.
@@ -2336,6 +2380,9 @@ export default function RecordsScreen() {
           스크린리더로 발견할 수 없는 제스처라 쓰지 않는다 — 행 액션의 A11Y 판단과 같다).
           바깥 SectionList가 keyboardShouldPersistTaps="handled"라(GAP-065 #6) 키보드가 뜬 채의
           첫 탭도 칩에 그대로 닿는다. */}
+      {/* 이월 항목(0건 사용자): 이 줄도 위 게이트 안이다 -- 입력칸이 언마운트되면 onBlur가
+          오지 않아 searchFocused가 true인 채로 남을 수 있고, 그러면 검색창 없는 화면에 최근
+          검색어만 떠 있게 된다(누를 검색창이 없는 검색 이력). 판정 줄 자체는 무변경이다. */}
       {isRecentSearchRowVisible({ searchFocused, searchText, recentSearches }) ? (
         <View style={{ gap: 8 }} testID="records-recent-searches">
           <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize, fontWeight: "700" }}>
@@ -2373,6 +2420,9 @@ export default function RecordsScreen() {
         </View>
       ) : null}
 
+      {/* 이월 항목(0건 사용자): 이 칩 줄은 종전에 무조건 섰다 -- 서버 카테고리를 못 받았을 때의
+          폴백 8타일까지 있어(buildRecordsCategoryChips) 로드 전에도 "전체 + 8칸"이 그려졌다.
+          기록이 0건인 달에서는 어떤 칩을 눌러도 결과가 0건이라 칩 줄이 가리킬 대상이 없다. */}
       <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
         <CategoryChip label="전체" selected={selectedCategoryId === null} onPress={() => setSelectedCategoryId(null)} />
         {categoryChips.map((category) => (
@@ -2393,6 +2443,8 @@ export default function RecordsScreen() {
           (라벨에 상태 낱말 없음 — 라운드 95). 달력 보기에서는 숨긴다: 격자의 자리는 날짜라
           금액 정렬이 성립하지 않는다(리스트로 돌아오면 저장된 선택 그대로 다시 선다).
           리뷰 M-A3: 전체 기간 스코프에서도 같은 판정으로 숨긴다 — 근거는 순수 모듈 머리말. */}
+      {/* 이월 항목(0건 사용자): 정렬할 행이 0건인 화면에서는 이 토글도 위 게이트가 함께 걷는다
+          -- 순수 모듈의 기존 두 판정(달력 · 전체 스코프)은 한 글자도 바뀌지 않았다. */}
       {isRecordsSortToggleVisible({ isCalendarView, isFullSearchScope }) ? (
         <View testID="records-sort-toggle">
           <SegmentedControl
@@ -2403,6 +2455,8 @@ export default function RecordsScreen() {
             onChange={handleSortLabelChange}
           />
         </View>
+      ) : null}
+        </>
       ) : null}
 
       {/* UX-D: 달력 격자. 서버 목록이 아직 안 왔을 때(로딩·오류)는 그리지 않는다 -- 빈 격자는

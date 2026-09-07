@@ -54,7 +54,17 @@ describe("D0 theme tokens", () => {
   it("defines cream, text, and semantic token groups", async () => {
     const { theme } = await import("./theme");
     expect(theme.colors.cream).toEqual({ bg: "#FFFDFC", surface: "#FFFFFF", surfaceAlt: "#F8F6F4" });
-    expect(theme.colors.text).toEqual({ primary: "#211E1C", secondary: "#5F5854", tertiary: "#7A716B" });
+    // ⚠️ 두 시점(라운드 106 A11Y-대비) — 종전 이 그룹은 primary/secondary/tertiary 셋이었다.
+    // 넷째 `placeholder`가 늘었다: 플레이스홀더가 `gray300`(흰 배경 1.32:1)을 빌려 쓰던 것을
+    // 자기 토큰으로 쪼갠 것이다(gray300은 테두리·트랙 60여 자리를 함께 물고 있어 값을 올릴 수
+    // 없다). **기존 셋의 값은 한 글자도 바뀌지 않았다** — DNC-017의 잠금 값(Primary/Secondary/
+    // Background)도 무접촉이다. 새 키의 대비 두 수치는 src/placeholder-contrast.test.ts가 문다.
+    expect(theme.colors.text).toEqual({
+      primary: "#211E1C",
+      secondary: "#5F5854",
+      tertiary: "#7A716B",
+      placeholder: "#756C66"
+    });
     expect(theme.colors.semantic).toEqual({
       success: "#16794B",
       warning: "#B45309",

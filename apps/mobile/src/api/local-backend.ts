@@ -1813,7 +1813,15 @@ const LOCAL_CUSTOM_ITEM_NAME_MAX_LENGTH = 80;
 const LOCAL_CUSTOM_ITEM_MAX_PER_CHILD = 200;
 const LOCAL_CUSTOM_ITEM_REASON_TEXT = "직접 추가한 준비물이에요.";
 
-/** §9.3 CUSTOM_ITEM_NOT_FOUND의 로컬 판본(해요체 문구까지 계약과 같다). */
+/**
+ * §9.3 CUSTOM_ITEM_NOT_FOUND의 로컬 판본(해요체 문구까지 계약과 같다).
+ *
+ * 종전: "계약과 같다"는 이 주석의 말이었고, 그 동치를 무는 것은 **소스 문자열 검사** 하나였다
+ * (custom-item-form.test.ts:233의 toContain — 그때도 참이었다). 이제: local-backend.test.ts의
+ * "§9.3 커스텀 준비물 실패 문구" 블록이 **실제로 던져진 문장**을 설계 문서 §9.3 표 셀·앱 정본
+ * 함수와 문자 단위로 맞댄다. 근거: 이 사본을 정본 import로 바꾸면 위 소스 문자열 계약이
+ * 빨개진다(측정 완료) — 자세한 이유는 그 블록 머리말.
+ */
 const CUSTOM_ITEM_NOT_FOUND_MESSAGE = "직접 추가한 준비물을 찾을 수 없어요.";
 
 function activeCustomItems(childId: string): LocalCustomItemRecord[] {
@@ -1883,6 +1891,9 @@ export function createCustomItem(
     throw new Error("필수 정도를 다시 확인해 주세요.");
   }
   // 아이당 활성(미삭제) 상한 — §9.3 CUSTOM_ITEM_LIMIT_EXCEEDED와 같은 경계·같은 문구.
+  // 종전: "같은 문구"를 무는 것은 접미사 검사(toContain("개까지예요.`"))뿐이라 문장 앞머리가
+  // 통째로 갈라져도 조용했다(그때도 참인 관찰). 이제: local-backend.test.ts의 §9.3 블록이
+  // 던져진 문장 전체를 문서 표 셀과 맞댄다.
   if (activeCustomItems(childId).length >= LOCAL_CUSTOM_ITEM_MAX_PER_CHILD) {
     throw new Error(`직접 추가할 수 있는 준비물은 아이당 ${LOCAL_CUSTOM_ITEM_MAX_PER_CHILD}개까지예요.`);
   }
@@ -2157,6 +2168,10 @@ export function updateItemStatus(
     }
     // §2.4 경계: 커스텀 행에는 expense_id 자리가 없다 — 조용히 버리면 사용자가 연결됐다고
     // 믿는다(거짓 침묵 금지). 서버 400 CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED와 같은 문구.
+    // 종전: 셋 중 이 문장만 앱에 정본이 없다 — api-error.ts 표가 이유를 적어 제외했고
+    // (api-error.test.ts의 제외 목록) custom-item-form.ts에도 대응 함수가 없다. 그래서 이
+    // 리터럴이 앱의 유일한 판본이고 문서·서버와의 동치를 무는 것이 아무것도 없었다.
+    // 이제: local-backend.test.ts의 §9.3 블록이 이 문장을 문서 §9.3 표 셀과 서버 소스에 문다.
     if (expenseId != null) {
       throw new Error("직접 추가한 준비물에는 아직 지출을 연결할 수 없어요.");
     }

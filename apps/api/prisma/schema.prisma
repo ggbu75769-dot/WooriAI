@@ -590,6 +590,19 @@ model ProductLink {
   active               Boolean         @default(true)
   disclosureText       String?         @map("disclosure_text") @db.VarChar(200)
   redirectCode         String          @unique @default(dbgenerated("substr(md5(gen_random_uuid()::text), 1, 12)")) @map("redirect_code") @db.VarChar(16)
+  /// 라운드 107 트랙 E(000026) — **시드가 자기 행을 다시 찾는 안정 식별자.** NULL이면
+  /// 시드가 만든 행이 아니다(운영자가 어드민에서 만든 링크). 값의 모양은
+  /// `<item_templates.code>:<platform>`이고 prisma/seed-data.ts의 `productLinkSeedKey`가 정한다.
+  ///
+  /// ⚠️ **어떤 어드민 DTO에도 없다 — 그것이 이 컬럼의 존재 이유다.** 종전 시드는
+  /// `(item_template_id, platform, title)`로 매칭했는데 그 셋이 전부 어드민 편집 축이라
+  /// (AdminUpdateProductLinkDto), 운영자가 링크 이름을 고치면 다음 배포가 같은 상품의
+  /// 링크를 하나 더 만들었다(정찰 S5 D3 ② · 실측 67 → 68행, 둘 다 active). 그래서 이
+  /// 칸만은 사람이 못 움직이는 값이어야 한다.
+  ///
+  /// 읽는 곳은 시드 하나뿐이다(런타임 조회·어드민 목록·CSV 일괄 교체는 이 값을 보지 않는다).
+  /// SQL 전용 부분 유니크 색인: uq_product_links_seed_key (seed_key) WHERE seed_key IS NOT NULL.
+  seedKey              String?         @map("seed_key") @db.VarChar(120)
   // COM-105 링크 헬스체크(000009): ok | broken | unstable, NULL = 미확인.
   healthStatus         String?         @map("health_status") @db.VarChar(16)
   healthCheckedAt      DateTime?       @map("health_checked_at") @db.Timestamptz(6)

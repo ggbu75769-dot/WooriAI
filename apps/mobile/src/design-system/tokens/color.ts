@@ -6,6 +6,19 @@ export const semanticColors = {
   textPrimary: "#211E1C",
   textSecondary: "#5F5854",
   textDisabled: "#A99E97",
+  /**
+   * 입력칸 플레이스홀더 전용 잉크 — theme.ts의 `text.placeholder`와 **같은 값**이다(그 토큰의
+   * 주석이 값의 근거를 든다). 여기에 사본이 서는 이유는 이 레이어가 theme을 부르지 않기
+   * 때문이다(`progressTrackInverse`가 선 것과 같은 사정).
+   *
+   * 종전(그때는 참): design-system 쪽 플레이스홀더 두 자리는 `textDisabled`(#A99E97)를 썼다.
+   * 그때는 "흐린 글자"라는 한 낱말로 비활성 텍스트와 플레이스홀더가 묶여 있었다.
+   * → 이제: 둘을 쪼갠다. 오늘 실측으로 #A99E97 on `surface`(#FFFFFF) = **2.62:1**이고,
+   * 비활성 텍스트는 WCAG 1.4.3의 예외라 그 값이 문제가 아니지만 **플레이스홀더는 예외가
+   * 아니다**. `textDisabled`는 값·자리 그대로 두고(토글 off 아이콘 · 비활성 라벨 · 접기
+   * 셰브런) 플레이스홀더만 이 토큰으로 옮겼다.
+   */
+  textPlaceholder: "#756C66",
   textInverse: "#FFFFFF",
   borderSubtle: "#E5DFDB",
   borderStrong: "#D3CAC4",

@@ -77,10 +77,50 @@ export const errorResponseSchema = z.object({
   })
 });
 
+/**
+ * 라운드 107 트랙 F — 아이 태명/별명의 길이 상한. **이 한 줄이 단일 소스다.**
+ *
+ * 금액(GAP-054 #2)·지출 텍스트(GAP-056 #1)가 이미 두 번 고친 것과 **정확히 같은 모양**의 마지막
+ * 잔여분이다. 지금까지 이 값에는 상한이 **세 층 어디에도 없었다**: 서버 DTO는 `@IsNotEmpty()`만,
+ * 서비스(`OnboardingCoreService.createChild`/`updateChild`)는 존재 여부만, 모바일 폼
+ * (`validateChildForm`)은 공백 여부만 봤다. 그래서 61자를 보내면 검증이 아니라 **DB에서** 터졌다 —
+ * `children.nickname`은 varchar(60)이라 Prisma가 P2000을 던지고, 저장소 전체에 그 오류를 400으로
+ * 옮기는 핸들러가 **0건**이라 GlobalExceptionFilter를 지나 그대로 500이 됐다.
+ *
+ * 그 500이 서는 자리가 **온보딩 핵심 경로**다(아이 만들기 ONB-002 · 태명 수정 SET-005). 아이가
+ * 없으면 홈도 준비템도 열리지 않으므로, 여기서 막히는 사람은 앱을 시작조차 못 한다. 지출과 달리
+ * 아이 생성은 오프라인 아웃박스를 지나지 않아(apps/mobile/src/onboarding/child-create.ts —
+ * `POST /children` 직접 호출) poison 큐 행이 되지는 않지만, 대신 사용자는 "잠시 후 다시
+ * 시도해 주세요" 류의 서버 오류만 보고 **무엇이 왜 막혔는지 영영 알 수 없다**(4xx의 필드 사유가
+ * 실리지 않는다).
+ *
+ * ## `CUSTOM_CATEGORY_NAME_MAX_LENGTH`와 같은 종류, `EXPENSE_ITEM_NAME_MAX_LENGTH`와 다른 종류
+ * 이 숫자는 **컬럼 폭 그 자체**다(varchar(60)와 동치) — 지출 품목명의 100처럼 컬럼(120)보다 좁은
+ * "계약이 정한 값"이 아니다. 결과가 둘 갈린다:
+ *  1. 상한을 넘긴 값은 **물리적으로 저장될 수 없다.** 그래서 DB에 이미 들어 있는 61자 이상 태명은
+ *     존재할 수 없고(dev DB 확인: 최대 5자), 지출 텍스트 가드가 져야 했던 "이미 들어 있는 초과값"
+ *     부담이 여기에는 없다. 모바일 가드도 새로 치는 글자만 막으면 충분하다.
+ *  2. 그래서 **응답 스키마(`childSchema`)에도 같은 상한을 건다.** 지출 응답(`expenseSchema.itemName`)이
+ *     상한 없이 남아 있는 이유는 엑셀 가져오기로 101~120자가 실제로 들어오기 때문인데, 태명에는
+ *     그런 경로가 없다 — 60을 넘는 응답이 나온다면 그것은 계약 위반이지 정상 데이터가 아니다.
+ *
+ * 같은 숫자를 무는 자리는 **셋**이다:
+ *  1. 아래 `childSchema`(응답)와 `updateChildRequestSchema`(PATCH 요청).
+ *  2. 서버 DTO의 `@MaxLength`(apps/api/src/onboarding/dto/child.dto.ts — 생성·수정 둘 다 이 상수를
+ *     import한다. 생성 요청 계약 스키마는 아직 없으므로 POST 쪽 경계는 그 DTO가 진다).
+ *  3. 모바일 입력 가드(apps/mobile/src/children/child-form.ts의 `childNicknameMaxLength()`. 모바일은
+ *     이 패키지를 의존하지 않아 값을 자기 모듈에 두되, 라운드 95 공통 금지에 따라 `export const`가
+ *     아니라 함수가 돌려주고, child-form.test.ts의 대조 테스트가 여기 선언과 갈리지 않는지 본다 —
+ *     custom-item-form.ts가 `CUSTOM_ITEM_NAME_MAX_LENGTH`와 맺고 있는 관계와 같다).
+ *
+ * 마이그레이션은 필요 없다 — 컬럼 폭을 바꾸는 것이 아니라 **이미 참인 한계를 계약으로 적는 것**이다.
+ */
+export const CHILD_NICKNAME_MAX_LENGTH = 60; // children.nickname varchar(60)와 동치
+
 export const childSchema = z.object({
   id: uuidSchema,
   householdId: uuidSchema,
-  nickname: z.string().min(1),
+  nickname: z.string().min(1).max(CHILD_NICKNAME_MAX_LENGTH),
   stageMode: childStageModeSchema,
   dueDate: nullableDateOnlySchema,
   birthDate: nullableDateOnlySchema,
@@ -97,7 +137,8 @@ export const childSchema = z.object({
 // 저장된 아이의 현재 stageMode를 알아야 판정할 수 있으므로 서버 도메인 규칙으로 남기고,
 // 이 스키마는 형식만 고정한다. optional이므로 이 필드를 모르는 기존 클라이언트와 하위호환.
 export const updateChildRequestSchema = z.object({
-  nickname: z.string().min(1).optional(),
+  // 라운드 107 트랙 F: 상한은 위 CHILD_NICKNAME_MAX_LENGTH 하나뿐이다(근거는 그 상수 주석).
+  nickname: z.string().min(1).max(CHILD_NICKNAME_MAX_LENGTH).optional(),
   stageMode: childStageModeSchema.optional(),
   dueDate: dateOnlySchema.optional(),
   birthDate: dateOnlySchema.optional(),

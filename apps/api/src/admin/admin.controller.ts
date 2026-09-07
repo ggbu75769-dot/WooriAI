@@ -21,6 +21,7 @@ import type { AuthenticatedRequest } from "../common/types/authenticated-request
 import { ItemsCatalogService } from "../onboarding/items-catalog.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AdminAuthGuard } from "./admin-auth.guard";
+import { AdminCatalogWriteService } from "./admin-catalog-write.service";
 import {
   AffiliateClickBreakdownService,
   CLICK_BREAKDOWN_WINDOWS,
@@ -45,6 +46,10 @@ function actorId(request: AuthenticatedRequest) {
 export class AdminController {
   constructor(
     @Inject(ItemsCatalogService) private readonly store: ItemsCatalogService,
+    // 라운드 107 D2·D7 — 카탈로그 **쓰기**는 저장소를 직접 부르지 않고 이 서비스를 지난다.
+    // 그 서비스가 DB CHECK(스폰서 라벨 · 가격 대소)를 먼저 지고, 저장소가 쓰지 않는
+    // `sponsor_label`을 쓴다. 읽기는 종전 그대로 `store`다.
+    @Inject(AdminCatalogWriteService) private readonly catalogWrite: AdminCatalogWriteService,
     @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(AffiliateClickBreakdownService)
@@ -72,7 +77,7 @@ export class AdminController {
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(AdminCreateItemTemplateDto)) body: AdminCreateItemTemplateDto
   ) {
-    const result = await this.store.adminCreateItemTemplate(body);
+    const result = await this.catalogWrite.createItemTemplate(body);
     await this.auditLogger.record({
       actorUserId: actorId(request),
       action: "admin.item_template.create",
@@ -90,7 +95,7 @@ export class AdminController {
     @Param("itemTemplateId") itemTemplateId: string,
     @Body(createDtoValidationPipe(AdminUpdateItemTemplateDto)) body: AdminUpdateItemTemplateDto
   ) {
-    const result = await this.store.adminUpdateItemTemplate(itemTemplateId, body);
+    const result = await this.catalogWrite.updateItemTemplate(itemTemplateId, body);
     await this.auditLogger.record({
       actorUserId: actorId(request),
       action: "admin.item_template.update",
@@ -101,9 +106,20 @@ export class AdminController {
     return result;
   }
 
+  /**
+   * 라운드 107 D2 — 표에 **스폰서 표시 문구**를 함께 싣는다.
+   *
+   * 저장소의 `toAdminProductLinkDto`는 `sponsorLabel`을 싣지 않는다(그 파일은 무접촉이다).
+   * 그런데 이 라운드가 그 칸을 편집 대상으로 열었으므로, 되읽을 수 없으면 운영자는 수정 폼을
+   * 열 때마다 이미 저장된 문구를 다시 타이핑해야 한다(빈 칸으로 보내면 그대로 지워진다).
+   * 바로 위 `listDisclosures`가 같은 이유로 같은 모양의 덧댐을 한다.
+   */
   @Get("product-links")
   async listProductLinks() {
-    return await this.store.adminListProductLinks();
+    const result = await this.store.adminListProductLinks();
+    const rows = await this.prisma.productLink.findMany({ select: { id: true, sponsorLabel: true } });
+    const labelById = new Map(rows.map((row) => [row.id, row.sponsorLabel]));
+    return { links: result.links.map((link) => ({ ...link, sponsorLabel: labelById.get(link.id) ?? null })) };
   }
 
   @Post("product-links")
@@ -114,7 +130,7 @@ export class AdminController {
     @Req() request: AuthenticatedRequest,
     @Body(createDtoValidationPipe(AdminCreateProductLinkDto)) body: AdminCreateProductLinkDto
   ) {
-    const result = await this.store.adminCreateProductLink(body);
+    const result = await this.catalogWrite.createProductLink(body);
     await this.auditLogger.record({
       actorUserId: actorId(request),
       action: "admin.product_link.create",
@@ -132,7 +148,7 @@ export class AdminController {
     @Param("productLinkId") productLinkId: string,
     @Body(createDtoValidationPipe(AdminUpdateProductLinkDto)) body: AdminUpdateProductLinkDto
   ) {
-    const result = await this.store.adminUpdateProductLink(productLinkId, body);
+    const result = await this.catalogWrite.updateProductLink(productLinkId, body);
     await this.auditLogger.record({
       actorUserId: actorId(request),
       action: "admin.product_link.update",

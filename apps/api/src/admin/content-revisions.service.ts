@@ -15,10 +15,10 @@ import {
   DEFAULT_ADMIN_ITEM_STAGE_CODES,
   ItemsCatalogService,
   requireTimingLabelMatchesStages,
-  type AdminItemTemplateInput,
-  type AdminProductLinkInput
+  type AdminItemTemplateInput
 } from "../onboarding/items-catalog.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { AdminCatalogWriteService, type AdminProductLinkWriteInput } from "./admin-catalog-write.service";
 import { AdminCreateItemTemplateDto, AdminCreateProductLinkDto } from "./dto/admin.dto";
 import {
   AdminContentRevisionDisclosurePayloadDto,
@@ -90,6 +90,9 @@ type ListFilter = { entityType?: string; entityId?: string; status?: string };
  *
  * Publish reflection (approve-publish / rollback) calls into
  * ItemsCatalogService's existing adminCreate.../adminUpdate... methods
+ * -- since 라운드 107 through AdminCatalogWriteService, which wraps them with the
+ * DB-constraint guards the off-limits store cannot carry (sponsor label, price range)
+ * so a draft cannot become a route around the admin controller's guards --
  * rather than re-implementing item/link/disclosure writes with a bare Prisma
  * transaction here: those methods already own the business rules (skip-reason
  * requirement, http(s)-only URL checks, display-order assignment, stage
@@ -107,6 +110,10 @@ export class ContentRevisionsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ItemsCatalogService) private readonly store: ItemsCatalogService,
+    // 라운드 107 D2·D7 — 발행이 쓰는 네 자리는 어드민 컨트롤러와 **같은 가드**를 지난다
+    // (admin-catalog-write.service.ts). 발행 경로만 저장소를 직접 부르면 초안으로 우회해
+    // 같은 500을 다시 낼 수 있다.
+    @Inject(AdminCatalogWriteService) private readonly catalogWrite: AdminCatalogWriteService,
     @Inject(AuditLoggerService) private readonly auditLogger: AuditLoggerService
   ) {}
 
@@ -669,15 +676,15 @@ export class ContentRevisionsService {
     if (entityType === "item_template") {
       const input = payload as unknown as AdminItemTemplateInput;
       const result = entityId
-        ? await this.store.adminUpdateItemTemplate(entityId, input)
-        : await this.store.adminCreateItemTemplate(input);
+        ? await this.catalogWrite.updateItemTemplate(entityId, input)
+        : await this.catalogWrite.createItemTemplate(input);
       return result.id;
     }
     if (entityType === "product_link") {
-      const input = payload as unknown as AdminProductLinkInput;
+      const input = payload as unknown as AdminProductLinkWriteInput;
       const result = entityId
-        ? await this.store.adminUpdateProductLink(entityId, input)
-        : await this.store.adminCreateProductLink(input);
+        ? await this.catalogWrite.updateProductLink(entityId, input)
+        : await this.catalogWrite.createProductLink(input);
       return result.id;
     }
 
@@ -851,6 +858,10 @@ export class ContentRevisionsService {
         affiliateUrl: link.affiliateUrl,
         isAffiliate: link.isAffiliate,
         isSponsored: link.isSponsored,
+        // 라운드 107 D2: 초안 payload가 이 칸을 실을 수 있게 됐으므로 라이브 스냅숏에도 있어야
+        // 한다. 한쪽에만 있는 키는 검수 화면의 diff에서 before가 늘 "(없음)"이 되어, 값을 바꾼
+        // 적 없는 리비전도 매번 '변경됨'으로 보인다(라운드 48 QA P2-4가 같은 자리에서 겪은 일).
+        sponsorLabel: link.sponsorLabel,
         disclosureText: link.disclosureText,
         active: link.active
       };

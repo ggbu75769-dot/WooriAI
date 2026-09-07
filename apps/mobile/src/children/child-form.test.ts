@@ -13,6 +13,8 @@ import {
   buildCreateChildBody,
   buildUpdateChildBody,
   childDatePickerDirection,
+  childNicknameMaxLength,
+  childNicknameOverLimitMessage,
   CHILD_BIRTH_DATE_FUTURE_ERROR,
   CHILD_BIRTH_DATE_TOO_OLD_ERROR,
   CHILD_DUE_DATE_BEYOND_TERM_ERROR,
@@ -377,5 +379,127 @@ describe("라운드 78 A 출생일 미래 금지 문구의 상수 승격", () =>
     const source = readFileSync(join(process.cwd(), "src/children/child-form.ts"), "utf8");
     expect(source).toContain('export const CHILD_BIRTH_DATE_FUTURE_ERROR = "출생일은 오늘보다 미래일 수 없어요.";');
     expect(source).toContain('if (stageMode === "born" && isFutureSeoulDate(trimmed)) return CHILD_BIRTH_DATE_FUTURE_ERROR;');
+  });
+});
+
+/**
+ * 라운드 107 트랙 F — 태명/별명의 **길이 경계**.
+ *
+ * 없을 때 어떤 모양으로 아팠나: 상한이 서버 DTO(`@IsNotEmpty()`뿐)·서비스·이 폼(공백 검사뿐)
+ * **세 층 어디에도 없었다.** `children.nickname`은 varchar(60)이라 61자는 검증이 아니라 DB에서
+ * 터졌고(Prisma P2000), 저장소 전체에 그 코드를 400으로 옮기는 핸들러가 0건이라 그대로 500이
+ * 됐다. 그 500이 서는 자리가 온보딩 첫 화면이다 — 막히면 홈도 준비템도 열리지 않는다.
+ *
+ * 관례는 금액(GAP-054 #2)·지출 텍스트(GAP-056 #1)와 같다: **판정은 순수 함수로**, **배선은 소스
+ * 그렙으로**, 그리고 계약 층(contracts)·서버 DTO와 숫자가 갈리지 않는지 **대조 테스트로** 본다.
+ */
+describe("라운드 107 트랙 F 태명 길이 상한(60)", () => {
+  const packageSource = (...segments: string[]) =>
+    readFileSync(join(process.cwd(), "..", "..", "packages", ...segments), "utf8");
+  const apiSource = (relative: string) => readFileSync(join(process.cwd(), "..", "api", "src", relative), "utf8");
+  const nickname = (length: number) => "가".repeat(length);
+
+  it("경계는 통과하고 한 글자 더는 막힌다(상한 그 자체는 유효한 입력이다)", () => {
+    const max = childNicknameMaxLength();
+    const atLimit = validateChildForm("manual", { nickname: nickname(max), dateText: "", manualStage: "infant_4_6" });
+    expect(atLimit.nicknameError).toBeNull();
+    expect(isChildFormValid(atLimit)).toBe(true);
+
+    const overLimit = validateChildForm("manual", {
+      nickname: nickname(max + 1),
+      dateText: "",
+      manualStage: "infant_4_6"
+    });
+    expect(overLimit.nicknameError).toBe(childNicknameOverLimitMessage());
+    expect(isChildFormValid(overLimit)).toBe(false);
+  });
+
+  it("판정은 **실제로 보내는 값**(trim한 문자열)을 본다 — 화면이 통과시킨 입력이 서버에서 거절되지 않는다", () => {
+    const max = childNicknameMaxLength();
+    // 앞뒤 공백은 build*ChildBody가 잘라내고 나가므로, 여기서도 잘라낸 값으로 판정해야 한다.
+    const padded = { nickname: `  ${nickname(max)}  `, dateText: "", manualStage: "infant_4_6" as const };
+    expect(validateChildForm("manual", padded).nicknameError).toBeNull();
+    expect(buildCreateChildBody("h", "manual", padded).nickname).toHaveLength(max);
+    expect(buildUpdateChildBody("manual", padded).nickname).toHaveLength(max);
+
+    // 빈 값 안내는 종전 그대로다 — 길이 갈래가 그 앞 갈래를 가리지 않는다.
+    expect(validateChildForm("manual", { nickname: "   ", dateText: "", manualStage: "infant_4_6" }).nicknameError).toBe(
+      "태명 또는 별명을 입력해 주세요."
+    );
+  });
+
+  it("안내 한 줄은 몇 자까지 쓸 수 있는지만 말한다(해요체, 기술 용어·죄책감 없음)", () => {
+    expect(childNicknameOverLimitMessage()).toBe("태명 또는 별명은 60자까지 입력할 수 있어요.");
+    expect(childNicknameOverLimitMessage()).toMatch(/요\.$/);
+    expect(childNicknameOverLimitMessage()).not.toMatch(/varchar|DTO|500|P2000|서버/);
+    expect(childNicknameOverLimitMessage()).not.toContain("다시 시도");
+    // 저장소가 이미 쓰는 문장 틀이다 — 같은 사실을 화면마다 다르게 말하지 않는다.
+    expect(readFileSync(join(process.cwd(), "src/expenses/text-limits.ts"), "utf8")).toContain(
+      "자까지 입력할 수 있어요."
+    );
+  });
+
+  it("단일 소스는 contracts다 — 계약 선언과 이 사본이 같은 숫자다(드리프트 대조)", () => {
+    const contracts = packageSource("contracts", "src", "schemas.ts");
+    const match = contracts.match(/export const CHILD_NICKNAME_MAX_LENGTH = (\d+);/);
+    expect(match, "계약에서 CHILD_NICKNAME_MAX_LENGTH를 찾지 못했다").not.toBeNull();
+    expect(Number(match![1])).toBe(childNicknameMaxLength());
+    // 그 숫자는 컬럼 폭 그 자체다 — 계약이 컬럼보다 넓어지면 다시 P2000이 된다.
+    expect(apiSource("../prisma/schema.prisma")).toContain("nickname        String          @db.VarChar(60)");
+
+    // 계약의 두 자리가 숫자 리터럴이 아니라 그 상수를 문다.
+    // 양끝 존재 가드: 어느 한쪽 앵커가 사라지면 slice(-1, …)가 조용히 엉뚱한 구간을 잘라
+    // "not.toContain" 쪽이 공짜로 초록이 된다. 무엇이 없어졌는지 이름으로 먼저 말한다.
+    const childStart = contracts.indexOf("export const childSchema = z.object({");
+    expect(childStart, "childSchema 선언").toBeGreaterThan(-1);
+    const childEnd = contracts.indexOf("export const categorySchema = z.object({");
+    expect(childEnd, "categorySchema 선언(childSchema 구간의 끝)").toBeGreaterThan(childStart);
+    const childBlock = contracts.slice(childStart, childEnd);
+    expect(childBlock).toContain("nickname: z.string().min(1).max(CHILD_NICKNAME_MAX_LENGTH),");
+    expect(childBlock).toContain("nickname: z.string().min(1).max(CHILD_NICKNAME_MAX_LENGTH).optional(),");
+    expect(childBlock).not.toContain(".max(60)");
+  });
+
+  it("서버 DTO가 같은 상수를 @MaxLength로 문다(생성·수정 모두)", () => {
+    const dto = apiSource("onboarding/dto/child.dto.ts");
+    expect(dto).toContain('import { CHILD_NICKNAME_MAX_LENGTH } from "@wooriai/contracts";');
+    // 숫자를 손으로 적어 두면 계약과 갈리는 순간을 아무도 모른다.
+    expect(dto).not.toContain("@MaxLength(60)");
+    for (const className of ["export class CreateChildDto", "export class UpdateChildDto"]) {
+      const start = dto.indexOf(className);
+      expect(start, className).toBeGreaterThan(-1);
+      const next = dto.indexOf("export class", start + 1);
+      const block = dto.slice(start, next === -1 ? undefined : next);
+      expect(block, className).toContain("@MaxLength(CHILD_NICKNAME_MAX_LENGTH)");
+    }
+  });
+
+  it("두 화면의 입력 칸이 상한 값을 로컬에 다시 적지 않고 이 모듈에서 읽는다", () => {
+    const screen = (relative: string) => readFileSync(join(process.cwd(), relative), "utf8");
+    for (const path of ["app/(onboarding)/child-profile.tsx", "app/settings/children.tsx"]) {
+      const source = screen(path);
+      expect(source, path).toContain("childNicknameMaxLength,");
+      expect(source, path).toContain("maxLength={childNicknameMaxLength()}");
+      expect(source, path).not.toContain("maxLength={60}");
+      // 문구 사본이 화면에 눌어붙지 않았다 — 안내는 nicknameError 한 자리로만 나간다.
+      expect(source, path).not.toContain("자까지 입력할 수 있어요");
+      expect(source, path).toContain("nicknameError");
+    }
+  });
+
+  /**
+   * ⚠️ **픽셀락 무접촉 근거**(값으로 남긴다): 온보딩 아이 정보(ONB-002)도 설정 아이 관리(SET-005)도
+   * 픽셀락 대상이 아니다. 캡처 대상 아홉 화면은 아래 표가 전부이며, 이번 변경이 손댄 두 파일은
+   * 그 표의 어느 라우트도 그리지 않는다(AUTH-001이 login-screen-contract.test.ts에 세운 형식 그대로).
+   */
+  it("픽셀락은 이 두 화면을 지나지 않는다 — 캡처 갈래 무접촉", () => {
+    const screens = JSON.parse(
+      readFileSync(join(process.cwd(), "..", "..", "scripts", "pixel-lock", "pixel-lock-screens.json"), "utf8")
+    ) as Record<string, { name: string }>;
+    const ids = Object.keys(screens).sort();
+    expect(ids).toEqual(["EXP-001", "FAM-001", "HOME-001", "IMP-003", "ITEM-001", "ITEM-002", "REP-001", "SET-001", "SPL-001"]);
+    for (const id of ids) {
+      expect(screens[id].name).not.toMatch(/child|onboarding/i);
+    }
   });
 });

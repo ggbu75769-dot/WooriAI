@@ -984,8 +984,12 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // 둘뿐): 커스텀 지출 분류 클라이언트 둘(createCustomCategory · updateCustomCategory)이
     // 라운드 100 T2의 커스텀 품목 셋과 같은 길로 들어왔다 — client.ts 로컬 세션 분기의
     // `localBackend.…` 속성 자리로도 그 이름이 선다(대장 value도 함께 241로 적음).
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(241);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(241);
+    // 라운드 107 트랙 B가 242로 하나 올렸다(두 시점 — 워크트리 대조 실측, 순증은
+    // revokeOutgoingSessionOnServer 하나). ⚠️ 앞의 다섯 번과 달리 이번 하나에는 **실제 속성/키
+    // 자리가 0건**이다: 호출 직전 주석 줄이 마침표로 끝나 `.\n이름`이 속성 접근으로 읽힌
+    // 라운드 101 햅틱 셋과 같은 오독 표면이다(대장 value도 함께 242로 적음).
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(242);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(242);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.

@@ -17,6 +17,11 @@ import { CHILD_REMOVAL_INVALIDATE_KEYS } from "./child-deletion";
  *    온보딩으로 보내 403을 무한 재시도하게 하던 길과, 아이 목록 조회 실패를 "아이 없음"으로
  *    단정해 중복 아이를 만들 수 있게 하던 길. 갈래가 3개(select/keep/onboarding)에서
  *    5개(+blocked/+retry)로 늘었다.
+ * 4) 라운드 107 트랙 C — 남은 중복 아이 한 자리: **다른 가구에 아이를 이미 가진 사용자**가
+ *    새 기기에서 초대로 들어와 아이 없는 가구에 참여하는 길. 두 판정(planAfterHouseholdJoin ·
+ *    householdJoinEscapePlan)이 모두 기기 로컬 신호만 보고 그 사람을 "신규"로 읽어 온보딩으로
+ *    내려놓았다. 이제 목적지를 루트("/")에 위임한다 -- 라운드 99가 로그인에 그은 선과 같다.
+ *    갈래는 6개(+delegate).
  *
  * react-native / expo-router import 없이 유지(child-switch.ts·child-deletion.ts와 같은 규율)해서
  * vitest에서 그대로 단위 테스트한다.
@@ -79,6 +84,23 @@ export type HouseholdJoinPlan =
    * 라운드 60 #3: 단, 이 길은 **아이를 등록할 수 있는 사람**에게만 유효하다(아래 "blocked").
    */
   | { kind: "onboarding"; notice: string; href: string }
+  /**
+   * 라운드 107 트랙 C — 참여한 가구에는 볼 아이가 없는데, **이 사용자에게는 아이가 있다**.
+   *
+   * `GET /children`은 사용자가 속한 **모든 가구**의 아이를 준다. 그래서 "이 가구의 아이"와
+   * "이 사용자의 아이"는 다른 질문인데, 종전에는 가구로 거른 뒤에야 개수를 세어 두 번째
+   * 질문을 물을 기회가 사라졌다: 다른 가구에 아이를 가진 사람이 새 기기에서 초대로 로그인해
+   * 아이 없는 가구에 참여하면, 응답에 그 아이들이 실려 왔는데도 "아이 하나도 없음"으로 읽혀
+   * 온보딩으로 떨어졌고 끝은 `POST /children` -- **중복 아이**다(라운드 99가 로그인 목적지에서
+   * 막은 것과 같은 결함의 형제).
+   *
+   * 이 사람에게 필요한 것은 등록이 아니라 **원래 있던 자리로 돌아가는 것**인데, 그 자리가
+   * 어디인지(탭 · 이어하기 · 온보딩 잔여 단계)는 이 함수가 알 수 없다 -- 아이가 있다는 사실이
+   * 온보딩을 끝냈다는 뜻은 아니기 때문이다. 그래서 목적지를 루트("/")에 위임한다: 라운드 99의
+   * 로그인이 그랬듯 서버 진행도 판정 한 곳(app/index.tsx의 MOB-101 + MOB-116 아이 복구)이
+   * 답하게 하고, 여기서는 그 판정을 두 벌로 적지 않는다.
+   */
+  | { kind: "delegate"; notice: string; href: string }
   /**
    * 라운드 60 #3 (막다른 길 ①): 참여는 했고 볼 아이도 없는데, **내 역할로는 아이를 만들 수
    * 없다**(viewer / gift_participant). 온보딩으로 보내면 ONB-002의 `POST /children`이 서버에서
@@ -149,11 +171,22 @@ export const HOUSEHOLD_JOIN_ESCAPE_LABEL = "나중에 하기";
  * 정할 수 없으므로 **계정이 지금 어떤 상태인가**로 정한다:
  *  - 보고 있는 아이가 있거나 이미 홈에 도달한 적이 있는 계정 → 탭 셸. 그 사람에게 온보딩은
  *    이미 끝난 길이고, 되돌려 보내면 아이를 한 번 더 만들라고 권하는 셈이다;
- *  - 그렇지 않으면 온보딩 시작점. 탭 셸로 보내도 게이트(`!hasReachedHome`)가 "/"로 되돌리므로
- *    그 사람에게 탭은 아직 갈 수 있는 곳이 아니다.
+ *  - 그렇지 않으면 **루트("/")**. 탭 셸로 보내도 게이트(`!hasReachedHome`)가 "/"로 되돌리므로
+ *    그 사람에게 탭은 아직 갈 수 있는 곳이 아니고, 그렇다고 온보딩이라고 **단정할 수도 없다**.
+ *
+ * ⚠️ 라운드 107 트랙 C — 두 시점: 종전 그 자리는 `/onboarding/child-status`(온보딩 시작점)를
+ * 곧장 가리켰다. 그런데 이 함수가 보는 것은 **이 기기가 아는 사실 둘**(선택된 아이 · 홈 도달
+ * 표시)뿐이라, 다른 가구에 아이를 이미 가진 사람이 **새 기기에서** 초대 링크로 들어오면 두
+ * 신호가 모두 비어 "신규"로 읽혔고, 그 길의 끝은 ONB-002의 `POST /children` -- 중복 아이다.
+ * 라운드 99가 로그인 목적지(`app/(auth)/login.tsx`)에 그은 것과 **같은 선**을 여기에도 긋는다:
+ * 기기가 모르면 우리가 추측하지 않고 **서버 진행도 판정 한 곳**(app/index.tsx의 MOB-101)에
+ * 위임한다. 되돌림 방향도 그 위임이 함께 잠근다 -- 진짜 신규 사용자는 그 판정이 그대로
+ * `/onboarding/child-status`로 내려놓으므로(완료→탭 · 중단→ONB-006 · 신규→ONB-001) 이 위임으로
+ * 갇히는 사람은 없다. 수락 **전** 카드가 비세션 방문자를 "/"로 보내는 것과도 같은 자리다.
  *
  * `marksHomeReached`는 목적지가 탭 셸일 때만 true다 -- 게이트를 지나는 목적지는 그것뿐이다
- * (planAfterHouseholdJoin의 select/blocked와 같은 규칙).
+ * (planAfterHouseholdJoin의 select/blocked와 같은 규칙). "/"는 그 표시를 여기서 세우지 않는다:
+ * 홈 도달 여부는 서버 진행도를 받은 app/index.tsx가 스스로 판단해 세운다.
  */
 export function householdJoinEscapePlan(input: {
   currentChildId?: string | null;
@@ -162,7 +195,7 @@ export function householdJoinEscapePlan(input: {
   if (input.currentChildId || input.hasReachedHome) {
     return { href: "/(tabs)", marksHomeReached: true };
   }
-  return { href: "/onboarding/child-status", marksHomeReached: false };
+  return { href: "/", marksHomeReached: false };
 }
 
 /**
@@ -183,10 +216,15 @@ export function planAfterHouseholdJoin(input: {
   role?: string | null;
   childrenLoadFailed?: boolean;
 }): HouseholdJoinPlan {
-  const joined = (input.children ?? []).filter(
-    (child) =>
-      typeof child?.id === "string" && child.id.length > 0 && child.householdId === input.householdId
+  /**
+   * 라운드 107 트랙 C — ⚠️ 두 시점: 종전에는 이 자리에서 **한 번에** 걸렀다(id 유효성 + 가구
+   * 일치). 그래서 "이 사용자의 아이"라는 사실이 가구 필터와 함께 사라졌다 -- 아래 delegate
+   * 분기가 묻는 질문이 바로 그것이라, 거르기 **전** 목록을 이름 있는 값으로 남긴다.
+   */
+  const owned = (input.children ?? []).filter(
+    (child) => typeof child?.id === "string" && child.id.length > 0
   );
+  const joined = owned.filter((child) => child.householdId === input.householdId);
   if (joined.length === 0) {
     /**
      * 라운드 60 #3 — 막다른 길 ②(조회 실패)를 **가장 먼저** 가른다.
@@ -218,6 +256,26 @@ export function planAfterHouseholdJoin(input: {
      * 초대받은 사람에게 온보딩은 길이 아니라 403 벽이다(위 "blocked" 주석).
      */
     if (!input.currentChildId) {
+      /**
+       * 라운드 107 트랙 C — **가구로 거르기 전에 묻는다: 이 사용자에게 아이가 있는가.**
+       *
+       * 순서가 값이다. 이 물음은 "여기서 아이를 만들 수 있는가"(아래 blocked)보다 **앞선다** --
+       * 앞의 것은 *이 사람이 누구인지*를, 뒤의 것은 *이 가구에서 무엇을 할 수 있는지*를
+       * 정하기 때문이다. 아이가 이미 있는 사람에게는 역할이 무엇이든 온보딩도, "아직 등록된
+       * 아이가 없어요"라는 가구 밖 단정도 맞지 않고, 홈 도달 표시(blocked가 세우는 기기 로컬
+       * 주장)를 여기서 대신 세워 줄 이유도 없다 -- 그 판단까지 "/"가 서버 진행도로 한다.
+       *
+       * `children: null`(데모 세션 · 조회하지 않음)은 **모름**이므로 이 분기에 들어오지 않는다:
+       * 모를 때는 종전 경로를 그대로 쓴다(라운드 60 #3의 규율과 같다 -- 조회 **실패**는 이미
+       * 위 retry가 갈라냈다).
+       */
+      if (owned.length > 0) {
+        return {
+          kind: "delegate",
+          notice: "이 가족에는 아직 등록된 아이가 없어요. 이미 등록한 아이는 그대로 볼 수 있어요.",
+          href: "/"
+        };
+      }
       if (isChildCreateBlockedRole(input.role)) {
         // 라운드 60 리뷰(P1-2): 목적지는 탭 셸이다 -- /family는 바로 아래 주석이 말하는 그
         // 막다른 길이라 "403 무한 재시도"를 "탭 없는 화면에 갇힘"으로 바꾸는 것뿐이었다.

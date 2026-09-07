@@ -384,6 +384,18 @@ const CONSTANT_LEDGER: Record<
       "LOCAL_CUSTOM_CATEGORY_NAME_MAX_LENGTH뿐), 값·경계 동작 두 방향 대조는 " +
       "src/api/custom-categories-mirror.test.ts가 진다."
   },
+  // 라운드 107 트랙 F — 아이 태명/별명 상한. 형식은 커스텀 품목 이름 상한과 같다: 계약이 단일
+  // 소스이고, 모바일 사본은 라운드 95 공통 금지에 따라 `export const`가 아니라 **함수 반환값**
+  // (childNicknameMaxLength)이라 이 대장의 mirror 칸(export const 형식만 가리킬 수 있다)은 null
+  // 그대로 두고, 그 함수 사본과 계약 선언의 대조는 src/children/child-form.test.ts가 진다.
+  CHILD_NICKNAME_MAX_LENGTH: {
+    mirror: null,
+    reason:
+      "라운드 107 트랙 F — children.nickname varchar(60)와 동치인 태명 상한. 상한이 세 층 어디에도 " +
+      "없어 61자가 검증이 아니라 DB에서 P2000으로 터져 500이 되던 온보딩 경로를 400으로 옮겼다. " +
+      "export const 사본 없음(입력 가드의 함수 반환 사본 childNicknameMaxLength뿐), 값·경계 동작 " +
+      "대조는 src/children/child-form.test.ts가 진다."
+  },
   CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD: {
     mirror: null,
     reason:

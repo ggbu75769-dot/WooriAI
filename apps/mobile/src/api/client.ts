@@ -624,6 +624,60 @@ async function refreshAccessToken(refreshToken: string): Promise<{ accessToken: 
   return data as { accessToken: string; refreshToken: string };
 }
 
+/**
+ * 라운드 107 트랙 B(S1-2) — 로그아웃이 **서버에도** 끝났다고 말한다.
+ *
+ * 종전: 앱의 로그아웃은 `clearSession()` 로컬 정리뿐이었다. 서버의 `POST /auth/logout`은
+ * 이미 구현돼 있었고(`apps/api/src/auth/auth.service.ts`의 `logout()` → `revokeFamily`),
+ * 그 계약을 잠그는 e2e도 있었는데(`apps/api/test/refresh-token-rotation.db.test.ts`),
+ * **모바일에 호출자가 0건**이었다. 그래서 로그아웃한 계정의 refresh 토큰 family가 최대 30일
+ * 살아 있었다 — 그 값을 손에 넣은 쪽은 회전만 계속하면 되고, 재사용 탐지는 로그아웃한 본인이
+ * 그 토큰을 다시 쓰지 않으므로 발화하지 않는다.
+ *
+ * ## 이 함수가 requestJson을 지나지 않는 이유 (중요)
+ *
+ * requestJson의 401 갈래는 refresh를 한 번 태우고, 그 refresh가 401이면
+ * `endSessionAsExpired()`를 부른다 — 즉 `clearSession("expired")`다. 그러면 사용자가 **직접
+ * 누른 로그아웃**이 만료 기계에 끌려 들어가 `lastEndReason`이 "expired"가 되고, 로그인 화면이
+ * "세션이 만료됐어요"라는 **사실이 아닌 안내**를 띄운다(src/offline/session-expiry.ts). 폐기
+ * 요청은 성격상 재시도·세션 전이가 없어야 하는 단발 호출이라 전송만 직접 쓴다.
+ *
+ * ## 실패는 전부 삼킨다 (호출부 계약)
+ *
+ * 절대 throw하지 않고 결과를 값으로 돌려준다. 로컬 로그아웃은 이 호출보다 **먼저** 끝나 있고
+ * (부르는 자리의 근거는 src/offline/session-teardown.ts), 이 결과로 되돌아가는 화면 전이는
+ * 없다. 값은 테스트가 세 갈래를 각각 잠그기 위한 것이다:
+ *
+ *   - `"revoked"` — 2xx. family가 서버에서 죽었다.
+ *   - `"failed"` — 401(액세스 토큰이 이미 만료된 채 누른 로그아웃)·5xx·타임아웃·오프라인.
+ *     family는 자연 만료(30일·family 90일)까지 남는다. 여기서 refresh를 태워 다시 시도하지
+ *     않는 이유는 위 문단과 같다. 이 창이 좁은 근거: 설정 화면에 닿기까지 홈·아이 목록 조회가
+ *     앞서 지나가고, 그 401들이 이미 refresh를 돌려 액세스 토큰을 갈아 끼운다.
+ *   - `"skipped"` — 보낼 것이 없다(refresh 토큰이 없는 세션·데모 세션·이미 비워진 자격증명).
+ */
+export async function revokeSessionOnServer(
+  accessToken: string | null,
+  refreshToken: string | null
+): Promise<"revoked" | "failed" | "skipped"> {
+  // 데모(local) 세션에는 서버 세션이 없다 — 로컬 백엔드로 보낼 폐기도 없다.
+  if (!accessToken || !refreshToken || isLocalToken(accessToken)) return "skipped";
+  try {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/auth/logout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      // 서버의 LogoutDto는 refreshToken이 선택이지만(만료·손상 토큰이 로그아웃을 막지 않는다),
+      // 폐기할 family를 아는 유일한 값이므로 없으면 위에서 아예 보내지 않는다.
+      body: JSON.stringify({ refreshToken })
+    });
+    // 본문은 읽지 않는다 — `{ success: true }`뿐이고, 비-JSON 프록시 응답에서 파싱이 터져
+    // 이 best-effort 호출이 예외를 내는 일도 함께 막는다(라운드 106 B-4와 같은 방향).
+    return response.ok ? "revoked" : "failed";
+  } catch {
+    // 오프라인·DNS·타임아웃(ApiTimeoutError). 로그아웃은 이미 로컬에서 끝났다.
+    return "failed";
+  }
+}
+
 function performSingleFlightRefresh(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
   if (!refreshPromise) {
     refreshPromise = refreshAccessToken(refreshToken)

@@ -153,6 +153,89 @@ export function toExpenseDto(expense: ExpenseRow) {
   };
 }
 
+/**
+ * **감사 봉투 전용** 지출 스냅숏 — 라운드 107 트랙 A(정찰 S1-1).
+ *
+ * ## 종전에 무슨 일이 있었나
+ *
+ * `expense.update`·`expense.delete` 감사 봉투는 위 `toExpenseDto`(삭제) 와
+ * `finance/expense-snapshot.ts`의 `toExpenseSnapshot`(수정)을 **그대로** before/after에 실었다.
+ * 그 두 모양에는 사용자가 손으로 적은 **품목명·판매처·메모**가 원문으로 들어 있고, 그것이
+ * ① `audit_logs`에 **730일**(`data-retention-purge.job.ts`의 `DEFAULT_AUDIT_LOGS_RETENTION_DAYS`)
+ * 남고 ② 어드민 감사 뷰어 JSON과 그 화면의 CSV 내보내기(최대 1,000행/파일)로 나가며
+ * ③ **계정을 삭제해도 지워지지 않았다** — 파기 잡 phase 3은 `actorUserId`만 null로 만들고
+ * `before_json`/`after_json`은 한 글자도 건드리지 않기 때문이다.
+ *
+ * 그 노출은 같은 저장소가 네 곳에서 명문으로 세운 규율의 **밖**에 있었다:
+ *  · `custom-items.service.ts` deleteCustomItem — *"감사 로그는 id·childId만 — 이름은 싣지 않는다"*
+ *  · `import-pipeline.service.ts` 확정/되돌리기 봉투 — 상태·건수·시각뿐(파일명·행 원문 금지)
+ *  · `auth/kakao/kakao-auth.service.ts` recordLoginRejected — *"⚠️ PII 0건"*
+ *  · `onboarding-core.service.ts` 예산 봉투 — *"금액·연월·childId만 — PII도, 지출 원문도 없다"*
+ * 그리고 `admin/admin-users-lookup.service.ts`는 **같은 admin 역할에게** *"지출 금액/품목/가맹점/메모
+ * 일체"* 를 싣지 않는다고 못 박아 두었다 — 즉 한 화면에서 금지한 값을 옆 화면(감사 뷰어)이
+ * 원문으로 주고 있었다.
+ *
+ * ## 지금 — 어떤 축을 빼고 어떤 축을 남겼나 (판단과 근거)
+ *
+ * **뺀 축(값 자체를 싣지 않는다)**
+ *  · `itemName` · `merchant` · `memo` — **사용자 자유 문자열**. 개인정보 밀도가 가장 높고
+ *    ("○○ 산부인과", "△△ 조리원 잔금"), 형제 넷이 전부 같은 이유로 뺀 그 축이다.
+ *    무엇이 바뀌었는지는 `changed`(수정 봉투)가 **축 이름으로만** 남긴다 —
+ *    `custom-categories.service.ts`의 `changed: ["name","active"]`와 **같은 모양**이고,
+ *    새 방식이 아니다. 알려진 귀결을 그대로 받아들인다: **이 세 축의 이전 값은 남지 않는다.**
+ *  · `createdByUserId` — 기록자 연결값. 이 봉투에서 *"누가"* 에 답하는 칸은 `audit_logs.actor_user_id`
+ *    이고 그것은 탈퇴 시 파기 잡 phase 3이 null로 만든다. 봉투 **안**에 사본을 두면 그 파기를
+ *    비켜 가 탈퇴 후에도 계정 연결값이 남는다 — 방침 문장(privacy-policy §3)이 약속한 것과
+ *    정확히 어긋나는 축이라 함께 뺀다.
+ *
+ * **남긴 축(값을 그대로 싣는다)** — 감사의 목적을 죽이지 않기 위해서다. 이 로그가 답해야 하는
+ * 질문은 *"누가 언제 무엇을 바꿨나"* 이고, 실제로 관측된 문의는 **"금액이 혼자 바뀌었어요"**
+ * (CS-101, 라운드 56)다. 그 문의는 **금액 두 개**면 답이 되므로 기능 손실이 없다.
+ *  · `amountKrw` · `spentOn` · `categoryId` — 분쟁에서 **두 값을 나란히 대조해야 하는** 축이고,
+ *    그 자체로는 사람을 가리키지 않는다(금액·날짜·가구 내부 분류 id). 형제인 예산 봉투
+ *    (`onboarding-core.service.ts`)가 *"금액·연월·childId만 싣는다"* 로 그은 선과 **같은 선**이다.
+ *  · `paymentMethod` · `expenseType` · `source` — 값 공간이 고정된 **열거형**이다(자유 문자열이
+ *    아니다). "결제 수단이 혼자 바뀌었어요"도 같은 종류의 문의이고, 열거형 한 칸은 식별성을
+ *    더하지 않는다.
+ *  · `expenseId` · `childId` · `linkedItemTemplateId` · `linkedProductLinkId` — 식별자뿐이다.
+ *    `childId`는 예산 봉투가 이미 싣고 있고, 링크 id 둘은 커머스 카탈로그의 **공용** id라
+ *    사용자에 대해 아무 것도 말하지 않는다.
+ *    ⚠️ DNC-009: `linkedProductLinkId`는 기록·정산용이다 — 추천 점수·정렬로 흘러가면 안 된다.
+ *
+ * **여기서 다루지 않는 것(정직하게 적어 둔다)**: `household.member.remove` 봉투가 싣는
+ * `displayName`(정찰 S1-3)은 이 트랙의 소유가 아니라 그대로다 — 방침 문장은 그 사실까지
+ * 포함해 참이 되도록 고쳤다(infra/legal/privacy-policy.html §3).
+ *
+ * `version`은 여기서 만들지 않는다. 수정 경로만 before/after의 정확한 버전을 알고
+ * (삭제 경로는 CAS 갈래에 따라 bump 순서가 달라 한 값으로 못 박을 수 없다), 오늘도 삭제 봉투에는
+ * 그 칸이 없었다 — 없던 칸을 갈래마다 다른 값으로 새로 만들지 않는다. 호출부가 붙인다.
+ */
+export function toExpenseAuditSnapshot(expense: {
+  id: string;
+  childId: string;
+  categoryId: string;
+  amountKrw: number;
+  spentOn: Date | string;
+  paymentMethod: string;
+  expenseType: string;
+  source: string;
+  linkedItemTemplateId?: string | null;
+  linkedProductLinkId?: string | null;
+}) {
+  return {
+    expenseId: expense.id,
+    childId: expense.childId,
+    categoryId: expense.categoryId,
+    amountKrw: expense.amountKrw,
+    spentOn: typeof expense.spentOn === "string" ? expense.spentOn : fromDateOnly(expense.spentOn),
+    paymentMethod: expense.paymentMethod,
+    expenseType: expense.expenseType,
+    source: expense.source,
+    linkedItemTemplateId: expense.linkedItemTemplateId ?? null,
+    linkedProductLinkId: expense.linkedProductLinkId ?? null
+  };
+}
+
 /** Pure DTO assembly shared by OnboardingCore's toBudgetDto and ReportingStore's getHome
  *  (PERF-103), so getHome can fetch usedAmountKrw inside its Promise.all without changing
  *  the response shape. */

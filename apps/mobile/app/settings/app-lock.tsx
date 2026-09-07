@@ -239,7 +239,11 @@ export default function AppLockSettingsScreen() {
       maxLength={APP_LOCK_PIN_LENGTH}
       onChangeText={(text) => onChange(text.replace(/[^0-9]/g, ""))}
       placeholder="••••"
-      placeholderTextColor={theme.colors.gray300}
+      // 종전 gray300(#E5DFDB): 흰 입력칸 위 **1.32:1**로 사실상 보이지 않았다 — 그때는 테두리와
+      // 같은 "연한 회색"을 안내문에도 재사용하는 것이 자연스러웠다. → 이제 text.placeholder
+      // (#756C66): 흰 배경 5.13:1(AA 통과)이면서 입력값(text.primary)과는 3.23:1로 구별된다.
+      // 값의 근거와 두 수치는 src/theme.ts의 그 토큰 주석이 든다(라운드 106 정찰 S2 발견 3).
+      placeholderTextColor={theme.colors.text.placeholder}
       secureTextEntry
       style={pinInputStyle}
       value={value}

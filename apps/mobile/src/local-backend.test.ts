@@ -5,6 +5,7 @@ import { getSeoulToday } from "@wooriai/domain";
 import { createJSONStorage, type StateStorage } from "zustand/middleware";
 import { getHome as clientGetHome, LOCAL_SESSION_TOKEN } from "./api/client";
 import * as localBackend from "./api/local-backend";
+import { customItemLimitExceededMessage, customItemNotFoundMessage } from "./items/custom-item-form";
 import { persistStorage } from "./stores/persist-storage";
 import {
   LOCAL_CHILD_ID,
@@ -701,5 +702,155 @@ describe("FIX-A: 로컬 백엔드 재수화 레이스 (standalone 첫 진입 전
         return /(?:^|[^.\w])use[A-Z][A-Za-z]*\(/.test(code);
       });
     expect(hookCallsAfterEarlyReturns).toEqual([]);
+  });
+});
+
+
+/**
+ * 라운드 100 §9.3 — **로컬 대역이 던지는 커스텀 준비물 실패 문장을 정본에 문다.**
+ *
+ * ## 먼저 잰 것 (표류 0건)
+ *
+ * 세 문장의 정본은 설계 문서 `docs/5차/round100-custom-items-design.md` §9.3 표다. 저장소에는
+ * 그 사본이 넷 있다 — 서버 둘(`custom-items.service.ts`의 NOT_FOUND·LIMIT_EXCEEDED,
+ * `items-catalog.service.ts`의 EXPENSE_LINK_UNSUPPORTED), 앱 정본 모듈
+ * `src/items/custom-item-form.ts`(앞 둘만), 그리고 `src/api/local-backend.ts`(셋 다).
+ * 문자 단위로 재 보니 **넷이 전부 같다(표류 0건)** — 조사·띄어쓰기·마침표까지, 한도 문장의
+ * 200은 계약 상수를 끼운 뒤 비교해도 같다.
+ *
+ * ## 그런데도 사본을 정본 import로 바꾸지 않은 이유 (셋 다 측정)
+ *
+ * ⓐ **소스 문자열 계약이 리터럴을 요구한다.** `src/items/custom-item-form.test.ts:233-234`가
+ *    로컬 대역 소스에 대고 `toContain('"직접 추가한 준비물을 찾을 수 없어요."')`와
+ *    ``toContain("개까지예요.`")``를 문다. 두 자리를 실제로 `customItemNotFoundMessage()` ·
+ *    `customItemLimitExceededMessage()` 호출로 바꿔 돌려 봤고, 그 계약이 빨개졌다
+ *    (1 failed / 47 passed). 그 파일은 이 트랙의 편집 범위 밖이다.
+ * ⓑ **방향이 반대로 못박혀 있다.** `custom-item-form.ts` 머리말: "실패 문장은 로컬 대역
+ *    (src/api/local-backend.ts)이 … 이미 던지는 그 문장들이다. 여기서 같은 바이트를 들고,
+ *    옆 테스트가 로컬 대역 소스와 맞댄다." 즉 그 모듈이 **미러**이고 이쪽이 소스다. import를
+ *    반대로 걸면 화면 계층(`src/items`)이 API 대역(`src/api`)의 값 의존이 된다.
+ *    ⚠️ 순환은 없다 — `custom-item-form.ts`의 값-의존 전이 폐포는 9파일이고 그 안에
+ *    `local-backend.ts`는 없으며 react-native/expo/react-query 의존도 0이다. 즉 **막은 것은
+ *    순환이 아니라 ⓐ의 계약과 ⓑ의 방향**이다.
+ * ⓒ **셋째 문장은 앱에 정본 자체가 없다.** `CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED`는 앱 전역
+ *    표(`src/api/api-error.ts`)가 이유를 적어 제외했고(`api-error.test.ts`의 제외 목록:
+ *    "상태 큐가 보내는 것은 상태값 하나다"), `custom-item-form.ts`에도 대응 함수가 없다.
+ *    참조할 대상이 없으니 문서 §9.3과 서버 소스가 유일한 앵커다.
+ *
+ * ## 그래서 이 블록이 대신 세우는 것
+ *
+ * 문구는 한 바이트도 바꾸지 않고(통합 작업이지 문안 개선이 아니다), **표류를 잡는 계약**을
+ * 남긴다: 로컬 대역이 런타임에 실제로 던진 문장을 문서 §9.3 표 셀과 **정확히 같은지** 본다.
+ * 기존 계약과 겹치지 않는다 — `custom-items-mirror.test.ts`는 던진 문장을 **테스트가 손으로
+ * 적은 리터럴**과 맞대므로 다섯 번째 사본이고, `custom-item-form.test.ts`는 소스 문자열의
+ * 존재(한도는 접미사 "개까지예요.`")만 본다. 문서 표가 바뀌는 날 빨개지는 것은 이 블록뿐이다.
+ */
+describe("§9.3 커스텀 준비물 실패 문구 — 던진 문장 ↔ 정본 (문자 단위)", () => {
+  const repoFile = (relativePath: string) => readFileSync(join(process.cwd(), "..", "..", relativePath), "utf8");
+
+  /** 설계 문서 §9.3 표(그 절만)를 코드 → 메시지로 읽는다. */
+  function designErrorMessages(): Record<string, string> {
+    const doc = repoFile("docs/5차/round100-custom-items-design.md");
+    const start = doc.indexOf("### 9.3 에러 코드");
+    expect(start, "round100 설계 문서에서 §9.3 절을 찾지 못했다").toBeGreaterThan(0);
+    const end = doc.indexOf("### 9.4", start);
+    expect(end, "§9.3 절의 끝(§9.4)을 찾지 못했다").toBeGreaterThan(start);
+    const table: Record<string, string> = {};
+    for (const line of doc.slice(start, end).split("\n")) {
+      // | `CODE` | HTTP | 언제 | "메시지" |
+      const cells = line.split("|").map((cell) => cell.trim());
+      if (cells.length < 6) continue;
+      const code = cells[1].replace(/`/g, "");
+      if (!/^CUSTOM_ITEM_[A-Z_]+$/.test(code)) continue;
+      table[code] = cells[4].replace(/^"/, "").replace(/"$/, "");
+    }
+    return table;
+  }
+
+  /** 던져진 Error.message를 그대로 돌려준다(부분 일치가 아니라 전문을 비교하려는 것). */
+  function thrownMessage(run: () => unknown): string {
+    try {
+      run();
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    throw new Error("던질 것으로 기대한 호출이 조용히 성공했다");
+  }
+
+  beforeEach(() => {
+    localBackend.resetLocalBackendForTests();
+    localBackend.seedLocalDemoFixturesForTests();
+  });
+
+  it("정본 표를 실제로 읽었다 — 세 코드가 문서 §9.3에 있고 문장이 비어 있지 않다", () => {
+    const table = designErrorMessages();
+    // 정규식이 조용히 0건이 되면 아래 세 계약이 전부 사라진다(스윕 자체를 먼저 확인한다).
+    expect(Object.keys(table).sort()).toEqual([
+      "CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED",
+      "CUSTOM_ITEM_LIMIT_EXCEEDED",
+      "CUSTOM_ITEM_NOT_FOUND"
+    ]);
+    for (const [code, message] of Object.entries(table)) {
+      // 문장 자체를 여기 다시 적지 않는다(그러면 여섯 번째 사본이 된다) — 모양만 본다:
+      // 비어 있지 않고 해요체로 끝난다(DNC-018).
+      expect(message.length, code).toBeGreaterThan(0);
+      expect(message, code).toMatch(/요[.?]$/);
+    }
+  });
+
+  it("CUSTOM_ITEM_NOT_FOUND: 던진 문장 = 문서 §9.3 = 앱 정본 함수", () => {
+    const canonical = designErrorMessages().CUSTOM_ITEM_NOT_FOUND;
+    const created = localBackend.createCustomItem(childId, {
+      name: "아기 욕조",
+      stageBand: "0-6개월",
+      necessityLevel: "essential"
+    });
+    localBackend.deleteCustomItem(childId, created.id);
+
+    // 소프트 삭제 뒤 수정·재삭제·타 아이 스코프 — 셋 다 같은 한 문장이어야 한다.
+    expect(thrownMessage(() => localBackend.updateCustomItem(childId, created.id, { name: "이름" }))).toBe(canonical);
+    expect(thrownMessage(() => localBackend.deleteCustomItem(childId, created.id))).toBe(canonical);
+    // 앱 정본 모듈(화면이 읽는 문장)과도 같은 바이트다 — 갈리면 데모와 실서버가 다른 말을 한다.
+    expect(customItemNotFoundMessage()).toBe(canonical);
+  });
+
+  it("CUSTOM_ITEM_LIMIT_EXCEEDED: 던진 문장 = 문서 §9.3 = 앱 정본 함수 (200을 끼운 뒤에도)", () => {
+    const canonical = designErrorMessages().CUSTOM_ITEM_LIMIT_EXCEEDED;
+    // 한도 자체는 custom-items-mirror.test.ts가 계약 상수와 맞댄다 — 여기서 무는 것은 문장이다.
+    const limit = 200;
+    for (let index = 0; index < limit; index += 1) {
+      localBackend.createCustomItem(childId, {
+        name: `품목 ${index}`,
+        stageBand: "0-6개월",
+        necessityLevel: "essential"
+      });
+    }
+    const message = thrownMessage(() =>
+      localBackend.createCustomItem(childId, {
+        name: "초과분",
+        stageBand: "0-6개월",
+        necessityLevel: "essential"
+      })
+    );
+    expect(message).toBe(canonical);
+    expect(customItemLimitExceededMessage()).toBe(canonical);
+  });
+
+  it("CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED: 던진 문장 = 문서 §9.3 = 서버 소스 (앱 정본 없음)", () => {
+    const canonical = designErrorMessages().CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED;
+    const created = localBackend.createCustomItem(childId, {
+      name: "수유등",
+      stageBand: "0-6개월",
+      necessityLevel: "convenience"
+    });
+    expect(thrownMessage(() => localBackend.updateItemStatus(childId, created.id, "prepared", "expense-1"))).toBe(
+      canonical
+    );
+    // 이 문장만 앱 정본이 없어 서버가 유일한 짝이다(api-error.ts 표가 이유를 적어 제외한 코드).
+    expect(repoFile("apps/api/src/onboarding/items-catalog.service.ts")).toContain(`message: "${canonical}"`);
+    // 그 제외가 아직 유효하다는 전제도 값으로 확인한다 — 표에 들어오는 날 이 단언이 먼저 운다.
+    expect(readFileSync(join(process.cwd(), "src/api/api-error.ts"), "utf8")).not.toContain(
+      "CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED:"
+    );
   });
 });

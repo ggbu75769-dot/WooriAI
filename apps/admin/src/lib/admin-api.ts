@@ -118,6 +118,9 @@ export type ProductLink = {
   affiliateUrl: string | null;
   isAffiliate: boolean;
   isSponsored: boolean;
+  // 라운드 107 D2: 스폰서 표시 문구(DNC-011). `GET /admin/product-links`가 함께 내려준다.
+  // 가산 optional — 이 필드 이전에 캐시된 응답과 섞여도 표가 깨지지 않는다(가격 칸과 같은 관례).
+  sponsorLabel?: string | null;
   disclosureText: string | null;
   active: boolean;
   // COM-105: link_health 워커 잡이 기록한 최근 헬스체크 결과 (ISO 8601 타임스탬프).
@@ -259,6 +262,8 @@ export type ProductLinkInput = {
   affiliateUrl?: string;
   isAffiliate?: boolean;
   isSponsored?: boolean;
+  // 라운드 107 D2: 스폰서를 켜는 요청에는 이 값이 있어야 한다(없으면 서버가 400).
+  sponsorLabel?: string;
   disclosureText?: string;
   active?: boolean;
 };

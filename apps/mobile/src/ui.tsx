@@ -1231,6 +1231,22 @@ export function LineChartCard({
 const categoryShareBarHeight = 14;
 
 /**
+ * A11Y-131 — **범례 줄의 히트 영역을 44에서 48로 갚는다.**
+ *
+ * ⚠️ 두 시점: 종전에는 `minHeight: 44`뿐이었고 위 머리말도 "hitSlop으로 늘리면 이웃 줄의 영역과
+ * 겹친다"고 적고 있었다 — **그때는 참이었다.** 그 뒤 이 카드가 `<Card style={{ gap: 10 }}>`로
+ * 서면서 줄 사이에 10dp가 생겼고, 위 줄의 bottom 2와 아래 줄의 top 2를 더해도 4 < 10이라
+ * 이제는 어느 줄도 이웃 줄의 몸에 닿지 않는다. 그래서 44 + 2×2 = 48 = `theme.touchTarget`이다.
+ *
+ * **크기가 아니라 hitSlop인 이유**: 이 카드는 REP-001 픽셀락 캡처 안에 서고, 줄 높이를 48로
+ * 올리면 카테고리 수만큼(줄당 4dp) 리포트 화면이 세로로 자란다. `hitSlop`은 레이아웃 속성이
+ * 아니므로 휴지 렌더는 한 픽셀도 바뀌지 않는다.
+ *
+ * **가로는 0이다.** 줄은 카드 폭을 가득 채우므로 가로로 더 벌 것이 없고, 벌면 카드 밖으로 나간다.
+ */
+const DONUT_LEGEND_ROW_HIT_SLOP = { bottom: 2, left: 0, right: 0, top: 2 } as const;
+
+/**
  * 카테고리 비중 카드.
  *
  * R20-A: with real `segments` this draws a **proportional stacked share bar** -- each category's
@@ -1333,6 +1349,7 @@ export function DonutChartCard({
                 accessibilityHint={selectHint ?? undefined}
                 accessibilityLabel={`${slice.label}, ${slice.percentLabel}, ${formatKrw(slice.amountKrw)}`}
                 accessibilityRole="button"
+                hitSlop={DONUT_LEGEND_ROW_HIT_SLOP}
                 key={`${slice.label}-${index}`}
                 onPress={() => onSelect(slice, index)}
                 style={({ pressed }) => ({ alignItems: "center", flexDirection: "row", gap: 6, minHeight: 44, opacity: pressed ? 0.76 : 1 })}

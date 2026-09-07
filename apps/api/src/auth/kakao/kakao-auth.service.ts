@@ -9,6 +9,53 @@ import { KAKAO_OIDC_CLIENT, type KakaoOidcClient } from "./kakao-oidc-client";
 const TX_TTL_MS = 10 * 60 * 1000;
 const KAKAO_PROVIDER = "kakao";
 
+/**
+ * `users.display_name` varchar(80) · `users.email` varchar(320)의 컬럼 폭 그 자체
+ * (prisma/schema.prisma). 아래 `clampDisplayName`/`clampEmail`이 유일한 사용처다.
+ */
+const USER_DISPLAY_NAME_MAX_LENGTH = 80;
+const USER_EMAIL_MAX_LENGTH = 320;
+
+/**
+ * ⚠️ 두 시점 — 종전에는 카카오 클레임을 **그대로** users 행으로 넘겼다(그때는 참이었다:
+ * 카카오 닉네임은 카카오 쪽에서 이미 짧고, 실제로 81자가 온 적은 없다). 그래도 이 값은
+ * **우리가 만든 값이 아니라 외부 IdP가 준 값**이라, 길면 `users.display_name`
+ * varchar(80) INSERT가 Prisma P2000으로 터졌고, P2000을 400으로 옮기는 핸들러가 저장소
+ * 전체에 0건이라 그대로 500이 됐다(실측: nickname 81자 → `POST /auth/kakao/exchange`
+ * 500. `providerUserId`만 `.slice(0, 191)`로 막혀 있었다 — household-runtime.service.ts).
+ *
+ * **거절이 아니라 자르기를 고른 이유**: 이 값은 사용자가 고칠 수 있는 자리가 아니다.
+ * 400을 내면 그 사람은 앱에 **들어올 방법 자체가 없다**(카카오 프로필을 바꾸라는 안내조차
+ * 우리 화면 밖이다). 반면 표시 이름은 잘려도 로그인·가계부·준비물 어느 것도 틀려지지
+ * 않는다 — 화면에 보이는 이름이 짧아질 뿐이고, 사용자는 앱 안에서 바꿀 수 있다.
+ * 로그인 자체를 막는 대가가 비교가 안 되게 크다.
+ */
+function clampDisplayName(nickname: string | undefined): string | undefined {
+  if (nickname === undefined) {
+    return undefined;
+  }
+  return nickname.slice(0, USER_DISPLAY_NAME_MAX_LENGTH);
+}
+
+/**
+ * ⚠️ 두 시점 — 종전에는 `claims.email`을 그대로 넘겼고(그때는 참이었다: 카카오가 주는
+ * 이메일이 320자를 넘은 적은 없다), 넘으면 `users.email` varchar(320)에서 위와 똑같이
+ * P2000 → 500이었다(실측: 321자 이메일 → 500).
+ *
+ * **닉네임과 달리 자르지 않고 `null`로 떨어뜨린다.** 잘린 이메일은 짧아진 이름과 달리
+ * "그럴듯하지만 틀린 값"이다 — 운영자 CS 조회 화면(admin-users-lookup.service.ts)이
+ * 그 값을 사용자의 이메일로 보여 주고, 그걸 보고 연락하면 **다른 주소**로 간다. 게다가
+ * 320자를 넘는 문자열은 애초에 배달 가능한 주소가 아니다(RFC 5321 상한 254) — 잘라서
+ * 지킬 정보가 없다. "이메일 없음"은 적어도 참이다(컬럼이 nullable이고, 이메일로 하는
+ * 일이 저장소에 아직 없다 — 발송 경로 0건). 로그인은 닉네임과 같은 이유로 막지 않는다.
+ */
+function clampEmail(email: string | undefined): string | null {
+  if (email === undefined || email.length > USER_EMAIL_MAX_LENGTH) {
+    return null;
+  }
+  return email;
+}
+
 function parseRedirectUriAllowlist(): string[] {
   return (process.env.OAUTH_KAKAO_REDIRECT_URIS ?? "")
     .split(",")
@@ -151,8 +198,8 @@ export class KakaoAuthService {
     const { user, isNewUser } = await this.householdRuntime.findOrCreateProviderUser({
       provider: KAKAO_PROVIDER,
       providerUserId: claims.sub,
-      displayName: claims.nickname,
-      email: claims.email ?? null
+      displayName: clampDisplayName(claims.nickname),
+      email: clampEmail(claims.email)
     });
 
     // 차단이 탈퇴보다 먼저 나는 판정 순서·코드·문장·403은 그대로다(GAP-076 D). 달라진 것은

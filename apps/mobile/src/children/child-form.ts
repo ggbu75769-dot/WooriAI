@@ -240,6 +240,48 @@ export function childProfileReassuranceNotes(): readonly string[] {
   return CHILD_PROFILE_REASSURANCE_NOTES;
 }
 
+/**
+ * 라운드 107 트랙 F — 태명/별명의 길이 상한(모바일 쪽 사본).
+ *
+ * 금액(amount-limit.ts)·지출 텍스트(text-limits.ts)가 이미 두 번 세운 것과 같은 종류의 구멍이
+ * 온보딩 첫 화면에 그대로 남아 있었다. 서버 DTO는 `@IsNotEmpty()`뿐이었고 이 폼은 공백 여부만
+ * 봤으므로, 61자를 적으면 **검증이 아니라 DB에서** 터졌다: `children.nickname`은 varchar(60)이라
+ * Prisma가 P2000을 던지고, 그 코드를 400으로 옮기는 핸들러가 서버에 한 곳도 없어 그대로 500이 됐다.
+ * 지출과 달리 아이 생성·수정은 오프라인 아웃박스를 지나지 않으므로(src/onboarding/child-create.ts —
+ * `POST /children` 직접 호출) poison 큐 행은 아니지만, 대신 사용자는 필드 사유가 실리지 않는
+ * 서버 오류 카드만 보고 **무엇이 왜 막혔는지 알 수 없다**. 입력 칸이 먼저 막으면 그 요청이
+ * 나갈 일 자체가 없다.
+ *
+ * ## 단일 소스는 어디인가
+ * **`@wooriai/contracts`의 `CHILD_NICKNAME_MAX_LENGTH`가 단일 소스다**(서버 DTO의 `@MaxLength`와
+ * 요청/응답 zod 스키마가 그 상수를 직접 import한다). 모바일은 그 패키지를 의존하지 않으므로
+ * (known-limitations §D) 값을 여기 다시 적되, 라운드 95 공통 금지에 따라 새 `export const`가
+ * 아니라 **함수가 돌려준다**(custom-item-form.ts의 `customItemNameMaxLength` 관례). 계약 선언과
+ * 이 숫자가 갈리는 순간은 옆 테스트(child-form.test.ts)의 대조가 잡는다.
+ *
+ * ## "이미 들어 있는 값"을 걱정하지 않는 이유
+ * 지출 품목명(100)은 컬럼(varchar(120))보다 좁은 계약값이라 상한을 넘긴 값이 DB에 실재할 수 있고
+ * (엑셀 가져오기 경로), 그래서 text-limits는 새로 치는 글자뿐 아니라 프리필 값도 판정해야 했다.
+ * 태명의 60은 **컬럼 폭 그 자체**다 — 61자는 애초에 저장된 적이 없다. 그래도 판정은 아래
+ * `validateChildForm`이 값으로 하고 `maxLength`는 거들기만 한다: 붙여넣기·자동완성으로 상태가
+ * 앞서가는 경로를 입력 속성 하나로 다 막지 못하는 것은 금액·지출 텍스트에서 이미 본 사실이다.
+ *
+ * ## 문구
+ * 몇 자까지 쓸 수 있는지만 말한다 — 컬럼도 서버도 말하지 않는다(DNC-018 해요체, 죄책감 금지).
+ * 문장의 틀은 지출 텍스트·커스텀 품목·커스텀 분류가 이미 쓰는 `~자까지 입력할 수 있어요.` 그대로이고,
+ * 주어는 이 칸이 스스로를 부르는 이름("태명 또는 별명" — 빈 값 안내와 접근성 라벨이 쓰는 그 말)이다.
+ */
+
+/** 계약 `CHILD_NICKNAME_MAX_LENGTH`(= children.nickname varchar(60))의 사본. 대조는 옆 테스트. */
+export function childNicknameMaxLength(): number {
+  return 60;
+}
+
+/** 상한을 넘긴 태명의 안내 한 줄. 막은 이유(= 몇 자까지 쓸 수 있는지)를 사실대로 말한다. */
+export function childNicknameOverLimitMessage(): string {
+  return `태명 또는 별명은 ${childNicknameMaxLength()}자까지 입력할 수 있어요.`;
+}
+
 export type ChildFormValues = {
   nickname: string;
   dateText: string;
@@ -268,7 +310,16 @@ export function validateChildForm(
   values: ChildFormValues,
   options: { requireDate?: boolean } = {}
 ): ChildFormErrors {
-  const nicknameError = values.nickname.trim().length === 0 ? "태명 또는 별명을 입력해 주세요." : null;
+  // 라운드 107 트랙 F: 빈 값 다음에 **길이**를 본다. 판정 대상은 두 build*ChildBody가 실제로
+  // 보내는 값(`nickname.trim()`)이다 — 화면이 "괜찮다"고 한 입력이 서버에서 거절되는 어긋남이
+  // 생기지 않게, 서버 `@MaxLength`가 보는 그 문자열을 그대로 본다.
+  const trimmedNickname = values.nickname.trim();
+  const nicknameError =
+    trimmedNickname.length === 0
+      ? "태명 또는 별명을 입력해 주세요."
+      : trimmedNickname.length > childNicknameMaxLength()
+        ? childNicknameOverLimitMessage()
+        : null;
   let dateError = computeDateError(stageMode, values.dateText);
   if (!dateError && options.requireDate && values.dateText.trim().length === 0) {
     if (stageMode === "pregnant") dateError = "출산 예정일을 입력해 주세요.";

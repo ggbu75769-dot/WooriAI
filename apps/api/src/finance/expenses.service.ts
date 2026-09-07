@@ -5,6 +5,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import { isUuid } from "../common/validation/uuid";
 import { ExpensesStoreService } from "../onboarding/expenses-store.service";
+import { toExpenseAuditSnapshot } from "../onboarding/store-shared";
 import { PushDispatchService } from "../push/push-dispatch.service";
 import { toDeletedExpenseSnapshot, toExpenseSnapshot } from "./expense-snapshot";
 import type { UpdateExpenseDto } from "./dto/expense.dto";
@@ -18,6 +19,33 @@ function canEdit(role: MemberRole | null) {
 }
 
 const VERSION_CONFLICT_MESSAGE = "다른 곳에서 먼저 변경됐어요. 최신 내용을 다시 불러와 주세요.";
+
+/**
+ * 라운드 107 트랙 A(정찰 S1-1) — `expense.update` 감사 봉투의 `changed`에 설 수 있는 **축 이름의
+ * 전부**. `UpdateExpenseDto`가 받는 필드에서 `expectedVersion`(동시성 가드일 뿐 지출의 축이
+ * 아니다)만 뺀 목록이고, 목록 밖의 키는 어떤 경우에도 봉투에 서지 않는다.
+ *
+ * 왜 요청 본문의 키를 그대로 쓰지 않고 이 대장으로 한 번 거르나: 전역 ValidationPipe가
+ * `forbidNonWhitelisted`라 오늘은 알 수 없는 키가 여기 닿지 않지만, 그 보장은 **다른 파일**에
+ * 있다. 봉투에 서는 문자열의 출처가 사용자 입력이면 안 된다는 규율은 이 파일 안에서 스스로
+ * 지킨다(자유 문자열을 값으로 싣지 않으려고 이 라운드를 한 것이므로, 키 자리로 우회되면 같은 결함이다).
+ *
+ * `itemName`·`merchant`·`memo`가 이 목록에 **있는 것이 의도**다 — 봉투가 싣는 것은 그 축을
+ * 건드렸다는 **사실**이지 값이 아니다(`custom-categories.service.ts`의 `changed: ["name","active"]`와
+ * 같은 모양). 그리고 `custom_category.update`가 그은 선을 그대로 따른다: `changed`는
+ * **이 요청이 실은 축**이지 값이 실제로 달라졌는지가 아니다 — 같은 값으로 다시 저장한 요청도
+ * "그 축을 건드린 요청"으로 남는 편이 요청 모양을 되짚는 쪽에 정직하다.
+ */
+const EXPENSE_UPDATE_AUDIT_AXES = [
+  "categoryId",
+  "amountKrw",
+  "spentOn",
+  "itemName",
+  "memo",
+  "merchant",
+  "paymentMethod",
+  "expenseType"
+] as const;
 
 /**
  * 라운드 106 T9 — 지출을 가리키지 못하는 `:expenseId`의 **단 하나의 출구**.
@@ -120,17 +148,31 @@ export class ExpensesVersionService {
    * CS-101(라운드 56): 응답 본문(`expense`)과 **감사 로그용 스냅샷**을 함께 돌려준다.
    * 삭제(deleteExpense)는 스토어가 `{householdId, before, after}`를 실어 주고 컨트롤러가
    * 그대로 기록하는데, 수정에는 그 자리가 없어 "금액이 혼자 바뀌었어요" 문의에 답할
-   * 근거가 남지 않았다. before는 CAS/필드 변경 **이전** 행에서 뜬 스냅샷이고
-   * (toExpenseSnapshot — 409 충돌 payload와 같은 모양), after는 그대로 클라이언트에
-   * 나가는 갱신 결과다. householdId도 여기서만 알 수 있다(응답 DTO에는 없다).
+   * 근거가 남지 않았다. householdId도 여기서만 알 수 있다(응답 DTO에는 없다).
    * 컨트롤러는 `result.expense`만 응답으로 돌려주므로 API 계약은 그대로다.
+   *
+   * ## 라운드 107 트랙 A(정찰 S1-1) — 봉투에서 자유 문자열을 뺐다
+   *
+   * 종전: `before = toExpenseSnapshot(row)`, `after = expense`(클라이언트로 나가는 갱신 결과
+   * 그대로). 두 모양 다 사용자가 적은 **품목명·판매처·메모**를 원문으로 담고 있어, 그 문자열이
+   * `audit_logs`에 730일 남고 어드민 감사 뷰어·CSV로 나가고 계정 삭제 후에도 잔존했다.
+   *
+   * 지금: 봉투는 `toExpenseAuditSnapshot`으로만 뜬다(빼고 남긴 축의 근거는 그 함수 머리말).
+   * 자유 문자열 세 축은 **값 대신 `changed`의 축 이름으로만** 남는다 —
+   * `custom_category.update`가 이미 쓰는 그 모양이고 새 방식이 아니다.
+   * `version`은 이 경로만 before/after를 정확히 알므로 여기서 붙인다.
+   *
+   * ⚠️ **응답(`expense`)은 한 바이트도 바뀌지 않는다.** 축소는 감사 봉투에만 적용된다 —
+   * `after`가 더 이상 `expense`와 같은 객체가 아니라는 것이 이 변경의 요점이다
+   * (409 충돌 payload·델타 동기화가 쓰는 `toExpenseSnapshot`은 그대로다).
    */
   async updateExpense(user: AuthenticatedUser, expenseId: string, body: UpdateExpenseDto) {
     this.requireExpenseIdShape(expenseId);
     const { expectedVersion, ...fields } = body;
     const raw = await this.prisma.expense.findUnique({ where: { id: expenseId } });
     const row = this.authorizeExpenseRow(user, raw, true);
-    const before = toExpenseSnapshot(row);
+    const changed = EXPENSE_UPDATE_AUDIT_AXES.filter((axis) => fields[axis] !== undefined);
+    const before = { ...toExpenseAuditSnapshot(row), version: row.version };
     const audit = { householdId: row.householdId, before };
 
     if (expectedVersion === undefined) {
@@ -140,7 +182,7 @@ export class ExpensesVersionService {
         data: { version: { increment: 1 } }
       });
       const expense = { ...(updated as Record<string, unknown>), version: bumped.version };
-      return { expense, ...audit, after: expense };
+      return { expense, ...audit, after: { ...toExpenseAuditSnapshot(updated), version: bumped.version, changed } };
     }
 
     const gate = await this.prisma.expense.updateMany({
@@ -154,11 +196,12 @@ export class ExpensesVersionService {
     try {
       const updated = await this.store.updateExpense(user, expenseId, fields);
       const final = await this.prisma.expense.findUnique({ where: { id: expenseId }, select: { version: true } });
+      const version = final?.version ?? expectedVersion + 1;
       const expense = {
         ...(updated as Record<string, unknown>),
-        version: final?.version ?? expectedVersion + 1
+        version
       };
-      return { expense, ...audit, after: expense };
+      return { expense, ...audit, after: { ...toExpenseAuditSnapshot(updated), version, changed } };
     } catch (error) {
       await this.rollbackVersionBump(expenseId, expectedVersion);
       throw error;

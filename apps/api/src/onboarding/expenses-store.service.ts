@@ -12,6 +12,7 @@ import {
   markLinkedItemPrepared,
   requireMoneyKrw,
   toDateOnly,
+  toExpenseAuditSnapshot,
   toExpenseDto,
   type DbClient,
   type ExpenseRow
@@ -320,7 +321,25 @@ export class ExpensesStoreService {
    */
   async deleteExpense(user: AuthenticatedUser, expenseId: string) {
     const expense = await this.requireExpenseAccess(user, expenseId, true);
-    const before = toExpenseDto(expense);
+    /**
+     * 라운드 107 트랙 A(정찰 S1-1): 감사 봉투는 `toExpenseDto`가 아니라
+     * **`toExpenseAuditSnapshot`** 으로 뜬다.
+     *
+     * 종전: `const before = toExpenseDto(expense)` — 사용자가 적은 품목명·판매처·메모가
+     * 원문 그대로 `audit_logs.before_json`/`after_json`에 730일 남고, 어드민 감사 뷰어와
+     * 그 CSV로 나가고, 계정을 삭제해도 지워지지 않았다.
+     * 지금: 자유 문자열 세 축이 봉투에서 빠진다(빼고 남긴 축의 근거는
+     * `store-shared.ts`의 `toExpenseAuditSnapshot` 머리말).
+     *
+     * ⚠️ 이 반환값의 `before`/`after`는 **감사 전용**이다 — 컨트롤러
+     * (`finance/expenses.controller.ts`)가 응답으로 돌려주는 것은 `{ success: true }`뿐이라
+     * API 계약은 한 글자도 바뀌지 않는다. 사용자에게 나가는 지출 모양이 필요하면
+     * `toExpenseDto`(목록·상세·델타)나 `toExpenseSnapshot`(409 충돌)을 쓸 것.
+     *
+     * 삭제 봉투에는 `changed`가 없다 — 지운 요청에는 "어느 축을 건드렸나"라는 질문이 없다
+     * (수정 봉투만 그 목록을 싣는다).
+     */
+    const before = toExpenseAuditSnapshot(expense);
     const now = new Date();
     const deleted = await this.prisma.expense.update({
       where: { id: expense.id },

@@ -1367,12 +1367,22 @@ export default function ExpenseDetailScreen() {
                         />
                       ))}
                     </ScrollView>
+                    {/* A11Y-131 ⚠️ 두 시점: 종전에는 세로 슬롭 14만 있어 12px 글자 한 줄(≈16dp)과
+                        합쳐 44dp였다(그때는 참 — 44는 이 저장소가 예전에 쓰던 최소 타깃이다).
+                        이제 `minHeight`로 48(`theme.touchTarget`, DSN-053 토큰 표의 현행 값)을
+                        채우고 hitSlop은 걷는다.
+                        **hitSlop이 아니라 크기인 이유**: 48을 슬롭만으로 채우려면 세로 24dp씩
+                        벌어야 하는데, 바로 위는 날짜 칩 ScrollView이고 사이 간격은 gap 8뿐이라
+                        칩의 몸을 16dp 덮는다(칩은 이미 자기 hitSlop 5를 아래로 쓰고 있어, 겹치는
+                        띠에서는 뒤에 그려진 이 토글이 이겨 **칩 대신 토글이 눌린다**).
+                        이 화면(지출 상세)은 픽셀락 캡처 대상이 아니라
+                        (scripts/pixel-lock/pixel-lock-screens.json에 없다) 세로 32dp가 자라도
+                        되는 자리다. 부모가 세로 스택이라 가로는 이미 카드 폭을 채운다. */}
                     <Pressable
                       accessibilityRole="button"
-                      hitSlop={14}
                       onPress={() => setCustomDateMode((value) => !value)}
                       // T10: 텍스트 토글 press 피드백(0.6 — TextButton 관례).
-                      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                      style={({ pressed }) => ({ justifyContent: "center", minHeight: theme.touchTarget, opacity: pressed ? 0.6 : 1 })}
                     >
                       {/* A11Y-117: 12px 토글 텍스트 -- coral[500] 3.16:1(AA 미달) → coral[700] 5.56:1 */}
                       <Text style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}>

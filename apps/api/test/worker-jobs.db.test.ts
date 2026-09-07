@@ -3,6 +3,7 @@ import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { AdminCatalogWriteService } from "../src/admin/admin-catalog-write.service";
 import { ContentRevisionsService, SYSTEM_WORKER_ACTOR } from "../src/admin/content-revisions.service";
 import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 import { AppModule } from "../src/app.module";
@@ -177,8 +178,18 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
     // 스코프된 prisma로 새로 만들고, 나머지 협력자(라이브 반영·감사 로그)는 앱의
     // 인스턴스를 그대로 쓴다 — auditLogger는 테스트가 `.entries`를 읽는 바로 그
     // 인스턴스여야 한다.
+    // ⚠️ 두 시점(라운드 107 트랙 D2·D7): 종전에는 협력자가 셋이었다(그때는 참) → 이제 넷이다.
+    // 발행 경로가 어드민 컨트롤러와 **같은 가드**(AdminCatalogWriteService)를 지나야 초안으로
+    // 우회해 같은 500을 다시 내지 못한다. 그 가드도 스코프된 prisma로 새로 만든다 — 이 잡이
+    // 검사하는 것은 격리된 스키마 안의 행이고, 앱 인스턴스는 공유 스키마를 본다.
+    const scopedCatalogStore = moduleRef.get(ItemsCatalogService, { strict: false });
     scheduledPublishJob = new ScheduledPublishJob(
-      new ContentRevisionsService(scopedPrisma, moduleRef.get(ItemsCatalogService, { strict: false }), auditLogger)
+      new ContentRevisionsService(
+        scopedPrisma,
+        scopedCatalogStore,
+        new AdminCatalogWriteService(scopedPrisma, scopedCatalogStore),
+        auditLogger
+      )
     );
     refreshTokenCleanupJob = new RefreshTokenCleanupJob(scopedPrisma);
     oauthTransactionCleanupJob = new OauthTransactionCleanupJob(scopedPrisma);

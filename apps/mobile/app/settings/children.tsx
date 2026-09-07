@@ -22,6 +22,7 @@ import {
   buildUpdateChildBody,
   canTransitionStageMode,
   childDatePickerDirection,
+  childNicknameMaxLength,
   CHILD_STAGE_LABELS,
   CHILD_STAGE_MODE_OPTIONS,
   isChildFormValid,
@@ -201,8 +202,10 @@ function ChildFormFields({
     <View style={{ gap: theme.spacing.gap }}>
       <View style={{ gap: 6 }}>
         <Text style={fieldLabelStyle}>태명 / 별명</Text>
+        {/* 라운드 107 트랙 F: 온보딩 ONB-002와 같은 단일 소스를 읽는다(child-form.ts). */}
         <TextInput
           accessibilityLabel="태명 또는 별명 입력"
+          maxLength={childNicknameMaxLength()}
           returnKeyType="done"
           onChangeText={(nickname) => onChange({ ...values, nickname })}
           placeholder="예) 튼튼이"
