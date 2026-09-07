@@ -369,6 +369,28 @@ const CONSTANT_LEDGER: Record<
       "입력에 비례하지 않는 근거). export const 사본 없음(로컬 대역의 비export 리터럴 + T3 " +
       "예산 화면 선제 가드의 비export 리터럴뿐), 값·경계 동작 두 방향 대조는 " +
       "src/api/category-budgets-mirror.test.ts와 src/expenses/category-budget-form.test.ts가 진다."
+  },
+  // 라운드 103 T2 — 커스텀 지출 분류 상수 둘. 커스텀 품목 셋·카테고리 예산 상한과 같은 형식:
+  // 모바일에서 이 값을 실제로 쓰는 자리는 로컬 대역(src/api/local-backend.ts — 이 대장의
+  // '사본 없음' 스윕과 사문 대장 둘 다 모집단 밖)의 **비export 리터럴**이고, 라운드 95 공통
+  // 금지(모바일 새 export const 0건)에 따라 export const 사본은 두지 않는다. T3의 입력 폼
+  // 가드가 자기 사본을 세우는 날 그 사본도 함수 반환/비export 리터럴이라 mirror 칸은 null
+  // 그대로이고(그 형식은 export const만 가리킬 수 있다), 대조 자리만 한 줄 늘어난다.
+  CUSTOM_CATEGORY_NAME_MAX_LENGTH: {
+    mirror: null,
+    reason:
+      "라운드 103 §1.4 — categories.name varchar(50)와 동치인 이름 상한(컬럼 폭을 바꾸지 않는 " +
+      "것이 additive 규율이다). export const 사본 없음(로컬 대역의 비export 리터럴 " +
+      "LOCAL_CUSTOM_CATEGORY_NAME_MAX_LENGTH뿐), 값·경계 동작 두 방향 대조는 " +
+      "src/api/custom-categories-mirror.test.ts가 진다."
+  },
+  CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD: {
+    mirror: null,
+    reason:
+      "라운드 103 §1.7 — 가구당 커스텀 분류 행 상한(보관 포함). **파생값**이라 값 자체가 계약이다: " +
+      "정식 12 + 15 = 27 <= CATEGORY_BUDGET_MAX_PER_MONTH(30). export const 사본 없음(로컬 " +
+      "대역의 비export 리터럴 LOCAL_CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD뿐), 값·경계 동작과 " +
+      "그 산술 대조는 src/api/custom-categories-mirror.test.ts가 진다."
   }
 };
 
@@ -653,7 +675,19 @@ describe("contracts 수기 미러 모집단 스윕 — 스키마 짝·필드 두
 
   it("ⓒ' 오늘 계약이 다루지 않는 도메인이 무엇인지 값으로 센다", () => {
     const { declarations } = population();
-    const schemaNames = declarations.map((decl) => decl.name.toLowerCase());
+    /**
+     * ⚠️ **두 시점 (라운드 103 T2)** — 종전 이 줄은 `declarations` **전수**의 이름을 봤고, 그
+     * 모집단에는 상수도 들어 있었다. 라운드 103이 계약에
+     * `CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD`(가구당 커스텀 분류 행 상한 — 설계 §1.7의 파생값)를
+     * 더하자 그 **상수 이름**이 `household`를 담아 이 단언이 빨개졌다. 그런데 이 스윕이 무는
+     * 것은 실패 문구가 그대로 말한다: *"그 도메인의 모바일 타입은 이제 **짝**을 가져야 한다"* —
+     * 짝은 **객체/값 스키마**에만 있는 축이고(위 ⓒ·ⓒ'의 모집단이 그것이다), 상수는 아래 상수
+     * 대장이 이름 전수를 등호로 문다. 그래서 여기서는 상수를 빼고 스키마만 센다.
+     *
+     * 덮는 범위는 줄지 않는다: `householdSchema` 같은 객체 스키마가 생기면 종전대로 빨개지고,
+     * 도메인 낱말을 담은 **상수**가 생기면 상수 대장의 ⓓ가 이유와 대조 자리를 요구한다.
+     */
+    const schemaNames = declarations.filter((decl) => decl.kind !== "constant").map((decl) => decl.name.toLowerCase());
     // 이 여섯은 오늘 계약의 모집단 밖이다 — 그래서 위 대장의 스물이 생긴다.
     for (const outside of ["household", "invite", "onboarding", "sync", "kakao", "device"]) {
       expect(

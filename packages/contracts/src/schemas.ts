@@ -123,13 +123,53 @@ export const categoryListItemSchema = categorySchema.extend({
   // 스텁 1행이 false다. **optional인 이유**: 이 필드가 없던 시절의 응답(구 서버·구
   // 캐시)도 계약을 계속 통과해야 한다. 없으면 "노출 대상"으로 간주하는 것이 기존
   // 동작과 같으므로, 소비자는 `selectable === false`일 때만 감춘다.
-  selectable: z.boolean().optional()
+  selectable: z.boolean().optional(),
+  /**
+   * 라운드 103: 이 분류를 만든 가구(categories.household_id). **커스텀 행에만 실린다** —
+   * 운영 시드 21행에는 키 자체가 없다(설계 §2.2). additive optional이라 이 필드가 없던
+   * 시절의 응답·구 캐시도 그대로 통과한다.
+   *
+   * ⚠️ 커스텀 행의 **표식은 이 필드가 아니라 기존 `isSystem: false`** 다(000018이
+   * "시스템 시드 vs 사용자 정의"라고 뜻을 적어 둔 칸이고, DB CHECK가
+   * `(household_id IS NULL) = is_system` 등호를 진다). 이 필드가 서는 이유는 관리 화면이
+   * PATCH 대상 URL(`/households/:householdId/categories/:categoryId`)을 만들고, 다가구
+   * 사용자에게 "이 분류는 다른 가구 것"을 가르기 위해서다.
+   */
+  householdId: uuidSchema.optional()
 });
 
 // CAT-101: GET /categories 응답 계약 (활성 카테고리만, displayOrder 오름차순).
 // CAT-124: 기본 응답은 selectable=true인 항목만, `?includeAll=1`이면 전량.
+// 라운드 103: 같은 응답에 호출자 가구의 커스텀 행이 **합류**한다(설계 §2.2 — 두 번째 목록을
+// 만들지 않는다. 소비처 열이 이미 `["categories"]` 하나를 본다).
 export const listCategoriesResponseSchema = z.object({
   categories: z.array(categoryListItemSchema)
+});
+
+// ---------------------------------------------------------------------------
+// 라운드 103: 커스텀 지출 카테고리. 별도 표가 아니라 categories의 가구 소유 행이다
+// (expenses.category_id가 NOT NULL FK라 그 밖의 id는 지출에 저장될 수 없다 — 설계 §1.1).
+// 표식은 기존 isSystem(false)이고, 읽기 경로의 계약 추가는 householdId 하나뿐이다.
+// 계약 확정 원문은 docs/5차/round103-custom-expense-category-design.md §9.
+// ---------------------------------------------------------------------------
+export const CUSTOM_CATEGORY_NAME_MAX_LENGTH = 50; // categories.name varchar(50)와 동치
+/**
+ * 가구당 커스텀 분류 행 상한(보관 포함). 15는 파생값이다 —
+ * 정식 12 + 15 = 27 <= CATEGORY_BUDGET_MAX_PER_MONTH(30, 라운드 102 §1.4).
+ * 이 부등식이 깨지면 카테고리 예산 화면이 상한에 먼저 부딪힌다(설계 §1.7 · R4).
+ */
+export const CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD = 15;
+
+export const createCustomCategoryRequestSchema = z.object({
+  name: z.string().min(1).max(CUSTOM_CATEGORY_NAME_MAX_LENGTH) // 서버가 trim·공백접기 후 재검증
+});
+
+// 두 필드 다 optional이고 **최소 하나**가 필요하다(둘 다 없으면 서버가 VALIDATION_ERROR).
+// "최소 하나"는 형식이 아니라 도메인 규칙이라 서버 DTO가 지고(설계 §9.2), 이 스키마는
+// 필드 형식만 고정한다 — `active: false`가 보관, `true`가 복원이다(설계 §1.6: 하드 삭제 없음).
+export const updateCustomCategoryRequestSchema = z.object({
+  name: z.string().min(1).max(CUSTOM_CATEGORY_NAME_MAX_LENGTH).optional(),
+  active: z.boolean().optional()
 });
 
 /**
@@ -606,6 +646,8 @@ export type CategoryBreakdownEntryDto = z.infer<typeof categoryBreakdownEntrySch
 export type CategoryBudgetEntryDto = z.infer<typeof categoryBudgetEntrySchema>;
 export type CreateCustomItemRequestDto = z.infer<typeof createCustomItemRequestSchema>;
 export type UpdateCustomItemRequestDto = z.infer<typeof updateCustomItemRequestSchema>;
+export type CreateCustomCategoryRequestDto = z.infer<typeof createCustomCategoryRequestSchema>;
+export type UpdateCustomCategoryRequestDto = z.infer<typeof updateCustomCategoryRequestSchema>;
 export type CustomItemSummaryDto = z.infer<typeof customItemSummarySchema>;
 export type DeleteCustomItemResponseDto = z.infer<typeof deleteCustomItemResponseSchema>;
 export type CategoryListItemDto = z.infer<typeof categoryListItemSchema>;

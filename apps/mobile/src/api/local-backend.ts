@@ -229,6 +229,25 @@ type LocalCustomItemRecord = {
   deletedAt: string | null; // soft delete 미러(지출 DNC-014와 같은 관례)
 };
 
+/**
+ * 라운드 103 T2: 서버 `categories`의 **가구 소유 행**(household_id NOT NULL)의 로컬 판본
+ * (설계 문서 §9.5). 별도 표가 아니라 같은 분류 표의 행이라는 것이 결정 D1이고, 그래서 이
+ * 레코드는 `listCategories()`가 서빙하는 바로 그 목록에 **합류**한다(§2.2).
+ *
+ * ⚠️ `deletedAt`이 없다 — 커스텀 품목(위 LocalCustomItemRecord)과 갈리는 자리다. 하드 삭제도
+ * 소프트 삭제도 없고(§1.6: 지출의 category_id가 NOT NULL FK라 지운 분류는 기록을 허위 재배정
+ * 하거나 저장 경합에서 500 → 아웃박스 무한 재시도를 만든다), "삭제"의 자리에 서는 것은
+ * `active: false`(보관)다. 보관해도 행·id·code는 그대로이고 과거 지출의 이름은 계속 해석된다.
+ */
+type LocalCustomCategoryRecord = {
+  id: string; // generateLocalId("custom-category")
+  code: string; // "custom_" + 로컬 접미 — 데모 목록 안에서만 유일하면 된다(서버는 전역 UNIQUE)
+  name: string;
+  displayOrder: number; // 2000 + 그 가구의 기존 커스텀 행 수(시드 대역 뒤 — §1.7)
+  active: boolean; // false = 보관(삭제 아님)
+  createdAt: string; // ISO
+};
+
 type LocalBackendState = {
   seeded: boolean;
   child: LocalChildRecord | null;
@@ -244,6 +263,10 @@ type LocalBackendState = {
   // 이 파일의 다른 사용자 데이터(expenses 등)와 동일: persist 버전 3 유지 — 필드 가산은 merge가
   // 기본값([])으로 메우므로 일회성 초기화(v3의 성격)가 필요 없다.
   customItems: LocalCustomItemRecord[];
+  // 라운드 103 T2: 커스텀 지출 분류(사용자 데이터 — 데모 픽스처 0건, §3.2). customItems와 같은
+  // 관례이고 persist 버전 3 유지 — 필드 가산은 merge가 기본값([])으로 메운다. 아이 축도 가구
+  // 축도 없다(로컬 세션 단일 가구·단일 아이 전제 — categoryBudgets와 같은 알려진 한계 §3.1).
+  customCategories: LocalCustomCategoryRecord[];
   // MOB-101: mirrors the server's `children.prepared_items_set_at` -- set once the
   // prepared-items onboarding step is submitted (even with zero items checked), used by
   // onboardingStatus() below to tell "step not reached yet" apart from "step done, nothing
@@ -274,6 +297,7 @@ const initialState: LocalBackendState = {
   expenses: [],
   itemStatuses: {},
   customItems: [],
+  customCategories: [],
   preparedItemsCompleted: false,
   members: [],
   invites: [],
@@ -361,6 +385,40 @@ function sanitizeLocalCustomItemRecord(value: unknown): LocalCustomItemRecord | 
     status: isItemStatusValue(value.status) ? value.status : "not_prepared",
     createdAt: typeof value.createdAt === "string" ? value.createdAt : new Date(0).toISOString(),
     deletedAt: typeof value.deletedAt === "string" ? value.deletedAt : null
+  };
+}
+
+// 계약 상수 CUSTOM_CATEGORY_NAME_MAX_LENGTH·CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD
+// (packages/contracts §9.1)의 비export 리터럴 사본 — 커스텀 품목 상수 셋·카테고리 예산 상한과
+// 같은 관례(contracts-mirror.test.ts 상수 대장이 가리키는 그 자리).
+const LOCAL_CUSTOM_CATEGORY_NAME_MAX_LENGTH = 50;
+const LOCAL_CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD = 15;
+/** 시드 대역(10~999 정식·별칭, 900대 로컬 픽스처) 뒤 대역의 바닥 — 서버 `2000 + 기존 행 수`. */
+const LOCAL_CUSTOM_CATEGORY_DISPLAY_ORDER_BASE = 2000;
+
+/**
+ * 라운드 103 T2: 커스텀 분류 행의 필드 단위 복구(sanitizeLocalCustomItemRecord와 같은 관례).
+ * 식별자·code·이름이 성치 않으면 **행을 버린다** — 이름은 사용자가 적은 원문이라 지어낼 수
+ * 없고, 이름 없는 분류는 칩·범례·CSV에서 그릴 것이 없다. 나머지 둘은 서버가 정하는 값이라
+ * 기본값으로 되돌린다: `active`는 새 행이 갖는 값(true = 사용 중)이고, `displayOrder`는
+ * 시드 대역 뒤 대역의 바닥(2000)이다(같은 값이 겹쳐도 정렬은 안정 정렬로 입력 순서를 남긴다).
+ */
+function sanitizeLocalCustomCategoryRecord(value: unknown): LocalCustomCategoryRecord | null {
+  if (!isPlainObject(value)) return null;
+  if (typeof value.id !== "string" || typeof value.code !== "string" || typeof value.name !== "string") {
+    return null;
+  }
+  if (!value.id.trim() || !value.code.trim() || !value.name.trim()) return null;
+  return {
+    id: value.id,
+    code: value.code,
+    name: value.name,
+    displayOrder:
+      typeof value.displayOrder === "number" && Number.isInteger(value.displayOrder) && value.displayOrder >= 0
+        ? value.displayOrder
+        : LOCAL_CUSTOM_CATEGORY_DISPLAY_ORDER_BASE,
+    active: typeof value.active === "boolean" ? value.active : true,
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : new Date(0).toISOString()
   };
 }
 
@@ -452,6 +510,14 @@ function sanitizeLocalBackendState(persisted: unknown): LocalBackendState {
           .map(sanitizeLocalCustomItemRecord)
           .filter((record): record is LocalCustomItemRecord => record !== null)
       : [],
+    // 라운드 103 T2: 같은 관례 — 비배열/오염 blob은 []로 접고(§3.1), 행 단위 오염은 필드
+    // 단위로 걸러 낸다. 깨진 행 하나가 listCategories를 죽이면 데모 세션의 기록·리포트·CSV가
+    // 통째로 이름을 잃는다(그 목록이 이름 해석의 모집단이다).
+    customCategories: Array.isArray(persisted.customCategories)
+      ? persisted.customCategories
+          .map(sanitizeLocalCustomCategoryRecord)
+          .filter((record): record is LocalCustomCategoryRecord => record !== null)
+      : [],
     preparedItemsCompleted: typeof persisted.preparedItemsCompleted === "boolean" ? persisted.preparedItemsCompleted : false,
     members: Array.isArray(persisted.members) ? (persisted.members as LocalMemberRecord[]) : [],
     invites: Array.isArray(persisted.invites) ? (persisted.invites as LocalInviteRecord[]) : [],
@@ -504,6 +570,7 @@ function wipeLocalBackendState() {
     expenses: [],
     itemStatuses: {},
     customItems: [],
+    customCategories: [],
     importRows: {},
     idempotencyKeys: {}
   });
@@ -927,8 +994,16 @@ const localOnlyCategorySeeds: Array<{ id: string; code: string }> = [
  * DIFFERENT canonical taxonomy (12 random-UUID rows); in demo mode those 8 tiles ARE the taxonomy,
  * and the 4 fixture ids are the only other categories the demo expenses use. Marking any of them
  * `selectable: false` would delete a chip a demo expense is filed under, with nothing to absorb it.
+ *
+ * ⚠️ **두 시점 (라운드 103 T2)** — 위 CAT-124 문단의 *"`includeAll`은 여기서 무의미하다"* 는
+ * **시드 12행에 대해서는 오늘도 참**이지만, 목록 전체에 대해서는 더 이상 참이 아니다: 사용자가
+ * 만든 커스텀 분류가 이 목록에 합류하고(설계 §2.2 — 두 번째 목록을 만들지 않는다), 그 행의
+ * 보관 축이 `active`다. 그래서 이 함수는 이제 인자를 실제로 읽는다 —
+ * **기본 목록은 활성만, `includeAll`은 보관된 것까지**(서버 where 절과 같은 갈래다).
+ * 시드 대역(8타일 + 픽스처 4)은 전부 `active: true`라 그 갈래에 걸리지 않으므로, 종전 호출부의
+ * 결과는 한 행도 달라지지 않는다.
  */
-export function listCategories(): { categories: CategoryListItem[] } {
+export function listCategories(options?: { includeAll?: boolean }): { categories: CategoryListItem[] } {
   ensureSeeded();
   const catalogCategories: CategoryListItem[] = categoryCatalog.map((entry, index) => ({
     id: entry.id,
@@ -950,11 +1025,208 @@ export function listCategories(): { categories: CategoryListItem[] } {
     active: true,
     selectable: true
   }));
+  // 라운드 103 T2: 커스텀 행의 합류(§2.2 미러). 표식은 `isSystem: false`이고, 커스텀은 언제나
+  // `selectable: true`(사용자가 고르라고 만든 행이다) · `iconName: null`(§1.5 — 색·아이콘을
+  // 주지 않는다)이며 소유자는 단일 세션의 그 가구다.
+  const customCategories: CategoryListItem[] = useLocalBackendStore
+    .getState()
+    .customCategories.filter((record) => (options?.includeAll ? true : record.active))
+    // 쓰기 둘의 200 응답과 **같은 조립 함수**를 쓴다 — 목록의 모양과 단건 응답이 갈리면
+    // 관리 화면이 방금 만든 행을 목록에서 다른 모양으로 다시 읽는다(§9.2: PATCH 200 = 목록 항목).
+    .map(toCustomCategoryDto);
   return {
-    categories: [...catalogCategories, ...localOnlyCategories].sort(
+    categories: [...catalogCategories, ...localOnlyCategories, ...customCategories].sort(
       (left, right) => left.displayOrder - right.displayOrder
     )
   };
+}
+
+// ---------------------------------------------------------------------------
+// 라운드 103 T2: 커스텀 지출 분류 — POST/PATCH /households/:householdId/categories(§2.3)의
+// 로컬 미러.
+//
+// 서버와 미러의 규칙은 문장 하나로 같다(설계 문서 §3.1):
+// "보관은 `active:false`이고 행은 남는다 · 기본 목록은 활성만 · includeAll은 전량 · 이름 중복은 시드+자기 가구 전량 기준"
+// 한쪽만 이 규칙을 바꾸면 standalone APK(서버 없이 도는 경로)와 실계정의 분류 목록·기록 칩·
+// 리포트 범례가 갈린다 — 두 벌의 대조는 src/api/custom-categories-mirror.test.ts가 같은
+// 픽스처로 문다(라운드 100 R5·102와 같은 대응).
+//
+// ⚠️ 가구 축은 인자로만 받는다: 로컬 세션은 단일 가구 전제라(categoryBudgets의 아이 축과 같은
+// 알려진 한계 — §3.1) 저장 상태에 소유자 칸이 없고, 응답 조립에서 LOCAL_HOUSEHOLD_ID를 싣는다.
+// 그래서 서버의 "타 가구 행 → 404" 갈래는 이 대역에서 재현되지 않는다(모집단이 하나뿐이다).
+// ---------------------------------------------------------------------------
+
+/**
+ * §9.3의 세 문구 — **서버 코드와 짝이 있는 문장**이다.
+ *
+ * ⚠️ 두 시점 (라운드 102 §3.1이 세운 규율) — 카테고리 예산의 두 문구는 `API_ERROR_MESSAGES`
+ * 표 한 곳에서 왔다. 여기 셋은 아직 그 표에 자리가 없어(라운드 103의 트랙 분할 §8에서
+ * `src/api/api-error.ts`는 T2 소유 파일 목록 밖이다) 미러 로컬 리터럴로 둔다. 표에 세 줄이
+ * 서는 걸음에서 이 셋은 그 표를 읽도록 옮겨야 하고, 그때까지 **문장이 두 벌**이라는 사실을
+ * src/api/custom-categories-mirror.test.ts가 설계 문서 §9.3 원문과 맞대어 잡는다.
+ */
+const CUSTOM_CATEGORY_NAME_DUPLICATE_MESSAGE = "이미 있는 분류 이름이에요. 다른 이름으로 적어 주세요.";
+const CUSTOM_CATEGORY_LIMIT_EXCEEDED_MESSAGE = `직접 추가한 분류는 가구당 ${LOCAL_CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD}개까지예요. 쓰지 않는 분류는 보관하고, 이름은 언제든 바꿀 수 있어요.`;
+const CUSTOM_CATEGORY_NOT_FOUND_MESSAGE = "직접 추가한 분류를 찾을 수 없어요.";
+
+/**
+ * PATCH 바디가 비었을 때의 로컬 문구. 서버는 이 갈래를 **바구니 코드**(`VALIDATION_ERROR` —
+ * DTO의 "둘 다 optional, 최소 하나 필요", §9.2)로 던지고, 그 코드는 의도적으로
+ * API_ERROR_MESSAGES 표에 없다(한 코드가 열 가지 원인을 가리킨다 — api-error.ts의 그 판단).
+ * 그래서 이 한 문장만 미러 로컬이다(라운드 102의 LOCAL_CATEGORY_BUDGET_DUPLICATE_MESSAGE와
+ * 같은 자리). 미러가 이 갈래를 통과시키면 데모에서는 조용히 성공하고 실계정에서만 400이 난다.
+ */
+const CUSTOM_CATEGORY_EMPTY_PATCH_MESSAGE = "바꿀 내용을 하나 이상 골라 주세요.";
+
+/**
+ * 이름 정규화(§1.4 미러): `trim()` + 내부 연속 공백 1칸 접기. **저장값이 이 형태다** — 서버가
+ * 같은 규칙으로 접어 varchar(50)에 넣고, DB의 부분 유니크 색인도 `lower(btrim(name))`이다.
+ */
+function normalizeCustomCategoryName(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+/** 서버가 trim·공백접기 후 1~50자로 검증하는 것(§9.2)의 미러. 통과하면 정규화된 이름을 돌려준다. */
+function requireCustomCategoryName(value: string): string {
+  const name = normalizeCustomCategoryName(value);
+  if (!name) {
+    throw new Error("분류 이름을 입력해 주세요.");
+  }
+  if (name.length > LOCAL_CUSTOM_CATEGORY_NAME_MAX_LENGTH) {
+    throw new Error(`분류 이름은 ${LOCAL_CUSTOM_CATEGORY_NAME_MAX_LENGTH}자까지 입력할 수 있어요.`);
+  }
+  return name;
+}
+
+/**
+ * 중복 판정의 모집단(§1.4): **① 시드 목록 전량**(퀵타일 8 + 로컬 픽스처 4 — 서버의 21행에
+ * 대응한다. 별칭·스텁까지 세는 이유는 `buildRecordsCategoryChips`의 `idsByName`이 전량 목록을
+ * 훑어 동명 id를 자기 `matchIds`로 흡수하기 때문이다) **② 자기 가구의 커스텀 행 전량(보관
+ * 포함 — 보관 해제가 중복을 만들면 안 된다)**. 비교는 정규화 후 `toLowerCase()` 일치다.
+ *
+ * `exceptCategoryId`는 이름 변경에서 **자기 자신**을 모집단에서 뺀다 — 행은 자기 이름과
+ * 충돌할 수 없고(DB의 부분 유니크 색인도 같은 행에 대해서는 걸리지 않는다), 빼지 않으면
+ * "이름을 그대로 둔 저장"이 중복으로 거절된다.
+ */
+function assertCustomCategoryNameAvailable(name: string, exceptCategoryId?: string): void {
+  const taken = normalizeCustomCategoryName(name).toLowerCase();
+  // ①과 ②를 한 번에 읽는다 — `includeAll`이 시드 대역과 **보관된 커스텀까지** 한 목록으로 준다.
+  const existing = listCategories({ includeAll: true }).categories.filter(
+    (category) => category.id !== exceptCategoryId
+  );
+  if (existing.some((category) => normalizeCustomCategoryName(category.name).toLowerCase() === taken)) {
+    throw new Error(CUSTOM_CATEGORY_NAME_DUPLICATE_MESSAGE);
+  }
+}
+
+/** 응답 조립(§9.2 미러) — 그 행 하나를 목록 항목과 **같은 모양**으로 돌려준다. */
+function toCustomCategoryDto(record: LocalCustomCategoryRecord): CategoryListItem {
+  return {
+    id: record.id,
+    code: record.code,
+    name: record.name,
+    iconName: null,
+    displayOrder: record.displayOrder,
+    isSystem: false,
+    active: record.active,
+    selectable: true,
+    householdId: LOCAL_HOUSEHOLD_ID
+  };
+}
+
+function customCategoryRecords(): LocalCustomCategoryRecord[] {
+  ensureSeeded();
+  return useLocalBackendStore.getState().customCategories;
+}
+
+/**
+ * 커스텀 분류 생성 — POST /households/:householdId/categories의 로컬 미러.
+ *
+ * 검증 **순서**가 서버와 같다(§2.3): 형식(트림·1..50) → 이름 중복 → 한도 15. 멱등은
+ * createCustomItem(라운드 100)·createExpenseIdempotent(MOB-102)와 같은 형식이다 — 같은 키의
+ * 재제출이면 새 행을 만들지 않고 기존 행을 돌려준다.
+ *
+ * 서버가 정하는 값(§2.3): code = "custom_" + 접미 · isSystem = false · active = true ·
+ * selectable = true · iconName = null · displayOrder = 2000 + 그 가구의 기존 커스텀 행 수.
+ * **요청이 정할 수 있는 것은 이름 하나다.**
+ */
+export function createCustomCategory(
+  householdId: string,
+  name: string,
+  idempotencyKey?: string
+): CategoryListItem {
+  ensureSeeded();
+  if (idempotencyKey) {
+    const existingId = useLocalBackendStore.getState().idempotencyKeys[idempotencyKey];
+    const existing = existingId
+      ? useLocalBackendStore.getState().customCategories.find((record) => record.id === existingId)
+      : undefined;
+    if (existing) return toCustomCategoryDto(existing);
+  }
+
+  const normalized = requireCustomCategoryName(name);
+  assertCustomCategoryNameAvailable(normalized);
+  // 보관 행도 센다(§1.7) — 세지 않으면 "만들고 보관"을 되풀이해 전량 목록을 무한히 불릴 수 있다.
+  const existingCount = customCategoryRecords().length;
+  if (existingCount >= LOCAL_CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD) {
+    throw new Error(CUSTOM_CATEGORY_LIMIT_EXCEEDED_MESSAGE);
+  }
+
+  const id = generateLocalId("custom-category");
+  const record: LocalCustomCategoryRecord = {
+    id,
+    code: `custom_${id}`,
+    name: normalized,
+    displayOrder: LOCAL_CUSTOM_CATEGORY_DISPLAY_ORDER_BASE + existingCount,
+    active: true,
+    createdAt: new Date().toISOString()
+  };
+  useLocalBackendStore.setState((state) => ({
+    customCategories: [...state.customCategories, record],
+    idempotencyKeys: idempotencyKey ? { ...state.idempotencyKeys, [idempotencyKey]: record.id } : state.idempotencyKeys
+  }));
+  return toCustomCategoryDto(record);
+}
+
+/**
+ * 이름 변경 · 보관(`active:false`) · 복원(`active:true`) — PATCH의 로컬 미러. 자연 멱등이라
+ * 키를 받지 않는다.
+ *
+ * 검증 순서(§2.3): 형식 → **대상이 그 가구의 커스텀 행인지**(아니면 404 문구) → 이름 중복.
+ * 한도는 여기서 보지 않는다 — 행을 늘리지 않는 조작이다(그래서 보관 해제도 막히지 않는다).
+ *
+ * ⚠️ **보관해도 행·id·code는 그대로다.** 그 분류로 기록된 지출은 한 바이트도 움직이지 않고,
+ * `listCategories({ includeAll: true })`가 그 행을 계속 서빙하므로 기록 탭 칩·리포트 범례·CSV의
+ * 이름 해석이 유지된다 — §1.6 전체가 기대는 사실이다.
+ */
+export function updateCustomCategory(
+  householdId: string,
+  categoryId: string,
+  patch: { name?: string; active?: boolean }
+): CategoryListItem {
+  ensureSeeded();
+  // 형식이 먼저다(서버는 ValidationPipe가 서비스보다 먼저 본다 — 라운드 102 리뷰 L-8이 얻은
+  // 그 순서). 빈 바디는 §9.2의 "둘 다 optional, 최소 하나 필요"에 걸린다.
+  if (patch.name === undefined && patch.active === undefined) {
+    throw new Error(CUSTOM_CATEGORY_EMPTY_PATCH_MESSAGE);
+  }
+  const nextName = patch.name === undefined ? undefined : requireCustomCategoryName(patch.name);
+  // 시드 행 id·모르는 id는 전부 여기로 떨어진다(§2.3 — "내가 만든 분류"라는 자원이 없다).
+  const existing = customCategoryRecords().find((record) => record.id === categoryId);
+  if (!existing) {
+    throw new Error(CUSTOM_CATEGORY_NOT_FOUND_MESSAGE);
+  }
+  if (nextName !== undefined) assertCustomCategoryNameAvailable(nextName, categoryId);
+
+  const updated: LocalCustomCategoryRecord = {
+    ...existing,
+    name: nextName ?? existing.name,
+    active: patch.active === undefined ? existing.active : patch.active
+  };
+  useLocalBackendStore.setState((state) => ({
+    customCategories: state.customCategories.map((record) => (record.id === categoryId ? updated : record))
+  }));
+  return toCustomCategoryDto(updated);
 }
 
 // ---------------------------------------------------------------------------

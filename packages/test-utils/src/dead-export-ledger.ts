@@ -2054,7 +2054,12 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 순증은 이 하나뿐이다. 같은 배치가 연 다른 export 넷 — isBudgetUsedUp ·
     // budgetWarningHapticClaimKey · sanitizeBudgetWarningHapticClaims ·
     // quickRecordPinToggleAnnouncement — 은 속성/키 자리로 서지 않아 이 수를 움직이지 않는다).
-    value: 239,
+    // 두 시점(라운드 103 T2): 239 → 241 — 커스텀 지출 분류 클라이언트 둘(createCustomCategory ·
+    // updateCustomCategory)이 **라운드 100 T2의 커스텀 품목 셋과 정확히 같은 길**로 들어왔다:
+    // client.ts 로컬 세션 분기의 속성 자리(`localBackend.createCustomCategory` 등)로도 그 이름이
+    // 선다(namesAlsoUsedAsProperty() 실측 — 순증은 이 둘뿐이다). 모집단이 는 것이지 새 병이
+    // 아니고, 그 속성 참조가 둘을 사문 밖에 세워 두는 살아 있는 자기 파일 호출부이기도 하다.
+    value: 241,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +

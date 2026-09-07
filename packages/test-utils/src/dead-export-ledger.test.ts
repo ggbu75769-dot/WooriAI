@@ -976,8 +976,12 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // (대장 value도 함께 238로 적음). 라운드 102 리뷰 M-1이 239로 하나 더 올렸다(두 시점 —
     // 같은 길: useBudgetWarningHapticStore가 teardown 등재와 함께 같은 표의 객체 키로 섰다.
     // 같은 배치의 다른 새 export 넷은 속성/키 자리로 서지 않아 이 수를 움직이지 않는다).
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(239);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(239);
+    // 라운드 103 T2가 241로 **둘** 올렸다(두 시점 — namesAlsoUsedAsProperty() 실측, 순증은 이
+    // 둘뿐): 커스텀 지출 분류 클라이언트 둘(createCustomCategory · updateCustomCategory)이
+    // 라운드 100 T2의 커스텀 품목 셋과 같은 길로 들어왔다 — client.ts 로컬 세션 분기의
+    // `localBackend.…` 속성 자리로도 그 이름이 선다(대장 value도 함께 241로 적음).
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(241);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(241);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.
