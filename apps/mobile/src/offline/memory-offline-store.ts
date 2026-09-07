@@ -90,6 +90,10 @@ export function createMemoryOfflineStore(): OfflineStore {
       itemStatusOutbox.set(row.mutationId, { ...row });
       itemStatusOrder.push(row.mutationId);
     },
+    async getItemStatusMutation(mutationId) {
+      const row = itemStatusOutbox.get(mutationId);
+      return row ? { ...row } : null;
+    },
     async updateItemStatusMutation(mutationId, patch) {
       const row = itemStatusOutbox.get(mutationId);
       if (!row) return;

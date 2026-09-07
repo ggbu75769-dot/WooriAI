@@ -12,14 +12,21 @@ import type {
 
 /**
  * expo-sqlite-backed `OfflineStore` (design doc §3.1's `local_expenses` / `mutation_outbox`
- * tables). The store *methods* are not exercised by vitest (no native SQLite binding in node) --
- * see memory-offline-store.ts for the test-covered equivalent they mirror 1:1. Only imported from
- * app runtime code (src/offline/sync-controller.ts), never from a test file.
+ * tables). See memory-offline-store.ts for the equivalent it mirrors 1:1.
  *
  * 예외가 하나 있다: 아래 **마이그레이션 러너와 SQL 목록**은 expo-sqlite를 몰라도 되는 순수한
  * 값/함수(구조 타입 `MigratableDatabase`만 받는다)라, sqlite-migrations.test.ts가 node의 내장
  * SQLite로 v0→v1→v2를 실제로 돌려 본다 — 그 파일은 `expo-sqlite`를 vi.mock으로 막고 이 모듈에서
  * 러너와 목록만 가져간다(저장소 팩토리는 건드리지 않는다).
+ *
+ * ⚠️ 라운드 105 — **종전에는 "저장소 메서드는 vitest가 돌리지 않는다 · 테스트에서 import하지
+ * 않는다"가 이 자리에 적혀 있었다(그때는 참) → 이제 store-equivalence.test.ts가 돌린다.**
+ * 그때의 근거는 "node에 expo-sqlite 네이티브 바인딩이 없다"였는데, 없어야 하는 것은 **바인딩**이지
+ * SQL 엔진이 아니다 — sqlite-migrations.test.ts가 이미 쓰던 그 방법(node 내장 `node:sqlite`)으로
+ * `openDatabaseAsync`만 갈아 끼우면 이 팩토리가 만든 저장소가 **진짜 SQL 위에서** 그대로 돈다.
+ * 그렇게 바뀐 이유: 라운드 105의 flush 수정이 "저장소가 방금 쓴 값을 그대로 돌려준다"는 성질에
+ * 기대게 됐고, 그 성질을 메모리 구현으로만 재고 기기에서 다르기를 바랄 수는 없다. 두 구현이
+ * 갈리는 자리는 그 파일이 값으로 못 박아 둔 셋뿐이다(말하지 않은 필드의 표기).
  */
 
 const DB_NAME = "wooriai-offline.db";
@@ -796,14 +803,20 @@ export function createSqliteOfflineStore(): OfflineStore {
       );
     },
 
-    async updateItemStatusMutation(mutationId, patch) {
+    async getItemStatusMutation(mutationId) {
       const db = await getDb();
-      const existing = await db.getFirstAsync<ItemStatusOutboxSqlRow>(
+      const row = await db.getFirstAsync<ItemStatusOutboxSqlRow>(
         `SELECT * FROM item_status_outbox WHERE mutation_id = ?`,
         mutationId
       );
+      return row ? fromSqlItemStatus(row) : null;
+    },
+
+    async updateItemStatusMutation(mutationId, patch) {
+      const existing = await this.getItemStatusMutation(mutationId);
       if (!existing) return;
-      const merged: ItemStatusOutboxRow = { ...fromSqlItemStatus(existing), ...patch };
+      const merged: ItemStatusOutboxRow = { ...existing, ...patch };
+      const db = await getDb();
       const reason = toSqlErrorReason(merged);
       await db.runAsync(
         `UPDATE item_status_outbox SET
