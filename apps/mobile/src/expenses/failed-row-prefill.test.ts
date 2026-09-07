@@ -323,9 +323,18 @@ describe("라운드 59 #5 다른 아이의 실패 행 — 지우지 않고 사�
     const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
     expect(codeOnly).not.toContain("다른 아이의 기록이에요");
     // 그 행에서도 "버리기"는 그대로 남는다 — 취할 수 있는 행동을 없애지 않는다.
-    expect(branch).toContain(
-      "<SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />"
-    );
+    //
+    // ⚠️ 두 시점(라운드 104 B-5): 종전에는 그 버튼의 **바이트 한 줄**을 핀했다 → 이제 그 갈래
+    // 안에서 **라벨과 대상 둘**을 문다. 그 라운드가 이 화면의 복구 호출 전부를 실패 표면 뒤로
+    // 넣으면서(`rowAction.run(() => …)` — 종전에는 파일 전체에 catch가 0개라 저장소가 답하지
+    // 않으면 화면이 완전히 침묵했다) 핸들러의 바이트가 바뀌었다. 이 계약이 지키려는 것은
+    // "아이가 어긋난 행에도 버리기가 남는다"이지 그 한 줄의 바이트가 아니므로 모양 핀으로 푼다
+    // (라운드 79 통합이 낭독 프롭을 걸기 위해 세 바이트 핀을 모양 핀으로 푼 그 선례).
+    const otherChildArmAt = branch.indexOf("{showOtherChildNotice ? (");
+    expect(otherChildArmAt, "다른 아이 갈래").toBeGreaterThan(-1);
+    const otherChildArm = branch.slice(otherChildArmAt);
+    expect(otherChildArm).toContain("label={SYNC_STATUS_DISCARD_LABEL}");
+    expect(otherChildArm).toContain("discardOfflineMutation(row.localId)");
   });
 });
 
@@ -516,7 +525,12 @@ describe("라운드 58 #5 sync-status 화면 배선 (소스 계약)", () => {
     const branchStart = src.indexOf("if (!isRetryableSyncFailureRow(row)) {");
     const branch = src.slice(branchStart, src.indexOf("\n  return (", branchStart));
     expect(branch).toContain("{fixParams ? (");
-    expect(branch).toContain("<SecondaryButton label={SYNC_STATUS_DISCARD_LABEL} onPress={() => discardOfflineMutation(row.localId)} />");
+    // ⚠️ 두 시점(라운드 104 B-5): 바이트 핀 → 모양 핀. 근거는 위 형제 테스트의 같은 자리에 있다.
+    const otherChildArmAt = branch.indexOf("{showOtherChildNotice ? (");
+    expect(otherChildArmAt, "다른 아이 갈래").toBeGreaterThan(-1);
+    const otherChildArm = branch.slice(otherChildArmAt);
+    expect(otherChildArm).toContain("label={SYNC_STATUS_DISCARD_LABEL}");
+    expect(otherChildArm).toContain("discardOfflineMutation(row.localId)");
   });
 });
 
