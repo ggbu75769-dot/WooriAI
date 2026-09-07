@@ -626,7 +626,12 @@ describe("DSN-053 P2-A 홈 화면 배선 계약 (app/(tabs)/index.tsx)", () => {
     expect(homeSource).toContain("buildTileCategoryIdResolver(categoriesQuery.data?.categories)");
     expect(sessionRender).toContain("resolveExpenseTileCategoryId(expense.categoryId) ?? expense.categoryId");
     expect(sessionRender).toContain("iconBackgroundColor={visual.iconBackgroundColor}");
-    expect(sessionRender).toContain("subtitle={homeRecentExpenseSubtitle(expense)}");
+    // 라운드 105 트랙 HOME(정찰 C #6): 부제는 같은 공용 헬퍼가 만들되, 세션 렌더는 이미 구독
+    // 중인 ["categories"] 캐시에서 고른 분류 이름을 함께 넘긴다(추가 요청 0건). 해석 실패는
+    // null이라 그 줄만 종전 문장 그대로다 -- 값 계약은 src/home/recent-expense-category.test.ts.
+    expect(sessionRender).toContain(
+      "subtitle={homeRecentExpenseSubtitle(expense, resolveRecentExpenseCategoryLabel(expense.categoryId))}"
+    );
   });
 
   it("SyncStatusBar가 최하단에 선다(스펙 §통합 지점)", () => {

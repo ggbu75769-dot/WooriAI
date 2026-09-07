@@ -520,6 +520,43 @@ describe("HOME-124 homeRecentExpenseSubtitle", () => {
       expect(homeRecentExpenseSubtitle({ expenseType: "expense", spentOn })).toBe(spentOn);
     }
   });
+
+  /* -------------------------------------------------------------------------------------- */
+  /* 라운드 105 트랙 HOME(라운드 104 정찰 C #6) — 분류 이름을 함께 말한다                      */
+  /* -------------------------------------------------------------------------------------- */
+
+  it("분류 이름을 넘기면 기록 탭 행과 **같은 토큰 순서**로 읽힌다(구분 → 분류 → 날짜)", () => {
+    expect(homeRecentExpenseSubtitle({ expenseType: "expense", spentOn: "2026-08-27" }, "기저귀/위생")).toBe(
+      "기저귀/위생 · 8월 27일"
+    );
+    expect(homeRecentExpenseSubtitle({ expenseType: "gift", spentOn: "2026-08-04" }, "기저귀/위생")).toBe(
+      "선물 · 기저귀/위생 · 8월 4일"
+    );
+    // 같은 사실이 두 화면에서 다르게 읽히면 안 된다 -- 기록 탭 행과 문자열이 같다.
+    expect(homeRecentExpenseSubtitle({ expenseType: "gift", spentOn: "2026-08-04" }, "기저귀/위생")).toBe(
+      recordsRowSubtitle({ expenseType: "gift", categoryLabel: "기저귀/위생", dateLabel: "8월 4일" })
+    );
+  });
+
+  it("⚠️ 해석에 실패한 분류(null · undefined · 공백)는 **말하지 않는다** -- '기타'를 지어내지 않는다", () => {
+    // 홈은 ["categories"] 캐시가 아직 비어 있는 콜드 스타트에서도 이 줄을 그린다. 그때 화면이
+    // 말하는 문장은 이 기능이 없던 때와 한 글자도 다르지 않아야 한다(허위 분류명 금지).
+    const previous = homeRecentExpenseSubtitle({ expenseType: "gift", spentOn: "2026-08-04" });
+    for (const label of [null, undefined, "", "   "] as const) {
+      expect(homeRecentExpenseSubtitle({ expenseType: "gift", spentOn: "2026-08-04" }, label)).toBe(previous);
+      expect(homeRecentExpenseSubtitle({ expenseType: "gift", spentOn: "2026-08-04" }, label)).not.toContain("기타");
+    }
+    // 해석기가 그 null을 만드는 자리와 근거: src/home/recent-expense-category.ts.
+  });
+
+  it("픽셀락: 인자 하나로 부르면 예전과 완전히 같은 문자열이다(비세션 미리보기 호출부)", () => {
+    for (const spentOn of ["오늘", "05.20", "05.19"]) {
+      expect(homeRecentExpenseSubtitle({ expenseType: "expense", spentOn })).toBe(spentOn);
+      expect(homeRecentExpenseSubtitle({ expenseType: "expense", spentOn })).toBe(
+        homeRecentExpenseSubtitle({ expenseType: "expense", spentOn }, null)
+      );
+    }
+  });
 });
 
 describe("HOME-124 홈 화면 배선 (app/(tabs)/index.tsx)", () => {
@@ -527,7 +564,13 @@ describe("HOME-124 홈 화면 배선 (app/(tabs)/index.tsx)", () => {
 
   it("최근 지출 행 부제를 공용 헬퍼로 만든다 -- ISO 원본을 직접 그리지 않는다", () => {
     expect(homeSource).toContain('import { homeRecentExpenseSubtitle } from "../../src/expenses/records-list-view";');
+    // 라운드 105 트랙 HOME(정찰 C #6) 두 시점: 종전에는 호출부가 하나뿐이었고 인자도 하나였다.
+    // 이제 세션 렌더만 분류 이름을 함께 넘기고(추가 요청 0건), 비세션 미리보기는 인자 하나
+    // 그대로다 -- 그 한 줄이 HOME-001 픽셀락 캡처의 출력을 바이트 그대로 두는 자리다.
     expect(homeSource).toContain("subtitle={homeRecentExpenseSubtitle(expense)}");
+    expect(homeSource).toContain(
+      "subtitle={homeRecentExpenseSubtitle(expense, resolveRecentExpenseCategoryLabel(expense.categoryId))}"
+    );
     expect(homeSource).not.toContain("subtitle={expense.spentOn}");
   });
 
