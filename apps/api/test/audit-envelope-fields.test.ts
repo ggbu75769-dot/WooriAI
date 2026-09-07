@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import { toInviteAuditSnapshot, toMemberAuditSnapshot } from "../src/households/household-runtime.service";
 import { toExpenseAuditSnapshot } from "../src/onboarding/store-shared";
 
 /**
@@ -20,12 +21,17 @@ import { toExpenseAuditSnapshot } from "../src/onboarding/store-shared";
  * 어드민 감사 뷰어 JSON과 그 화면의 CSV(최대 1,000행/파일)로 나가고, **계정을 삭제해도**
  * 지워지지 않았다(파기 잡 phase 3은 `actor_user_id`만 null로 만든다).
  *
- * ## 이 파일이 세는 둘
+ * ## 이 파일이 세는 셋
+ *
+ * (라운드 108 트랙 B에서 ⓒ가 붙었다. 종전에는 둘이었고 그때는 참이었다 — 그때 봉투 전용
+ * 모양을 가진 것은 지출뿐이었다. 이제 가구 봉투 둘도 전용 모양을 가지므로 같은 형식으로 센다.)
  *
  *  ⓐ **지출 감사 봉투의 키 집합이 값이다** — `toExpenseAuditSnapshot`이 내놓는 키가 대장과
  *    **정확히** 일치하고(부정 단언: 그 밖의 키 0건), 원문 자유 문자열은 값으로도 도달 불가.
  *  ⓑ **전수 스윕** — `apps/api/src/**`의 `auditLogger.record({...})` 호출부를 전량 긁어,
  *    **before/after 봉투를 다는 action의 목록**이 아래 대장과 정확히 일치할 것.
+ *  ⓒ **가구 감사 봉투의 키 집합이 값이다** — `toMemberAuditSnapshot`/`toInviteAuditSnapshot`
+ *    (ⓐ와 같은 형식). 닉네임 원문과 계정 연결값은 키로도 값으로도 도달 불가.
  *
  * ⚠️ **ⓑ가 빨개진 라운드에게**: 이 테스트는 "봉투가 하나 늘었다/줄었다"를 잡는 트립와이어다.
  * 대장에 한 줄을 더하는 것이 고치는 방법이고, 더하기 전에 **그 봉투에 사용자 자유 문자열이
@@ -122,9 +128,13 @@ describe("ⓐ 지출 감사 봉투(toExpenseAuditSnapshot)", () => {
  *  · `custom_category.update` — 축 이름 목록 + active 두 값(이름 문자열 없음).
  *  · `admin.*` 여덟 자리 — 어드민이 **스스로 적은** 카탈로그/공지 문자열이다(이용자 자유
  *    문자열이 아니다). 어드민 계정은 감사 뷰어를 볼 자격이 이미 있는 사람이라 노출면이 늘지 않는다.
- *  · `household.member.remove`/`household.invite.cancel` — ⚠️ **오늘 자유 문자열이 실린다**
- *    (`displayName` = 카카오 닉네임, 정찰 S1-3). 이 트랙의 소유가 아니라 손대지 않았고,
- *    사실대로 적어 둔다 — 대장이 "괜찮다"는 뜻이 아니라 "여기 봉투가 있다"는 뜻이기 때문이다.
+ *  · `household.member.remove`/`household.invite.cancel` — **라운드 108 트랙 B가 고친 자리.**
+ *    종전(그때는 참): 두 봉투가 응답 DTO 그대로였고 `member.remove`는 `displayName`
+ *    (= 카카오 닉네임 원문)과 대상 `userId`를, `invite.cancel`은 `invitedByUserId`를 실었다.
+ *    ⚠️ 그때 이 자리에 적혀 있던 *"둘 다 displayName을 싣는다"* 는 절반만 맞았다 —
+ *    `invite.cancel`의 DTO에는 닉네임 칸이 없었고 문제는 **계정 연결값**이었다.
+ *    이제: 봉투 전용 스냅샷(ⓒ가 키를 센다)뿐이고, 사람을 지목하는 값은 봉투 **밖**의
+ *    `actor_user_id`·`target_id`가 참조로만 든다(그 둘은 파기 잡이 실제로 지운다).
  */
 const AUDIT_ENVELOPE_LEDGER = [
   "admin/admin-categories.controller.ts admin.category.update before=yes after=yes",
@@ -281,5 +291,99 @@ describe("ⓑ 감사 봉투 전수 스윕", () => {
     // 회귀를 잡는다(그 셋이 자유 문자열을 담는 모양이다).
     const controller = readFileSync(join(SRC_DIR, "finance", "expenses.controller.ts"), "utf8");
     expect(controller).not.toMatch(/(before|after):\s*(toExpenseDto|toExpenseSnapshot|result\.expense)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⓒ 가구 감사 봉투의 키 집합 (라운드 108 트랙 B)
+// ---------------------------------------------------------------------------
+
+/** `toMemberAuditSnapshot`이 내놓아야 하는 **키의 전부**(근거는 그 함수 머리말). */
+const MEMBER_AUDIT_SNAPSHOT_KEYS = ["joinedAt", "memberId", "role", "status"];
+
+/** `toInviteAuditSnapshot`이 내놓아야 하는 **키의 전부**. */
+const INVITE_AUDIT_SNAPSHOT_KEYS = ["channel", "createdAt", "expiresAt", "inviteId", "role", "status"];
+
+/**
+ * 가구 봉투에 **값으로 서면 안 되는** 축. `displayName`은 카카오 닉네임 원문이고,
+ * `userId`/`invitedByUserId`는 봉투 **안**의 계정 연결값이다(파기 잡 phase 3은
+ * `actor_user_id`만 null로 만든다 — 봉투 안 사본은 탈퇴 뒤에도 남는다).
+ *
+ * ⚠️ **이월(이 트랙 밖)**: 이 계약은 **쓰기 경로**만 센다. 이미 쌓인 옛 행은 그대로다
+ * (실측 2026-09-07, 로컬 wooriai_test: 두 action 각 12행 중 10행이 옛 모양. dev DB는 0행).
+ * 씻는 자리는 파기 잡 phase 12(`worker/jobs/data-retention-purge.job.ts`)이고, 그 phase는
+ * 이미 `action = ANY(...)` + `jsonb_exists_any(키 목록)` 형태라 **목록 두 곳에 더하는 것으로
+ * 끝난다**: 액션에 `household.member.remove`·`household.invite.cancel`, 키에 `displayName`·
+ * `userId`·`invitedByUserId`. (`id`/`householdId`는 phase 12가 옛 지출 봉투의 `id`를 남긴
+ * 그 근거대로 남긴다 — 감사 행의 `target_id`/`household_id`가 이미 같은 값을 든다.)
+ */
+const FORBIDDEN_HOUSEHOLD_ENVELOPE_KEYS = ["displayName", "userId", "invitedByUserId", "householdId"];
+
+describe("ⓒ 가구 감사 봉투(toMemberAuditSnapshot / toInviteAuditSnapshot)", () => {
+  /** 응답 DTO가 싣던 칸이 전부 채워진 구성원 한 줄 — 새면 원문 그대로 잡히도록 특징적인 값을 쓴다. */
+  const member = {
+    id: "11111111-1111-4111-8111-111111111111",
+    householdId: "22222222-2222-4222-8222-222222222222",
+    userId: "33333333-3333-4333-8333-333333333333",
+    displayName: "카카오닉네임-절대노출금지",
+    role: "co_parent" as const,
+    status: "active",
+    joinedAt: new Date("2026-07-11T00:00:00.000Z")
+  };
+
+  const invite = {
+    id: "44444444-4444-4444-8444-444444444444",
+    householdId: "22222222-2222-4222-8222-222222222222",
+    role: "viewer" as const,
+    channel: "kakao",
+    status: "pending",
+    expiresAt: new Date("2026-07-18T00:00:00.000Z"),
+    createdAt: new Date("2026-07-11T00:00:00.000Z"),
+    invitedByUserId: "55555555-5555-4555-8555-555555555555"
+  };
+
+  it("구성원 봉투의 키 집합이 대장과 정확히 일치한다(그 밖의 키 0건)", () => {
+    expect(Object.keys(toMemberAuditSnapshot(member)).sort()).toEqual([...MEMBER_AUDIT_SNAPSHOT_KEYS].sort());
+    expect(toMemberAuditSnapshot(member)).toEqual({
+      memberId: "11111111-1111-4111-8111-111111111111",
+      role: "co_parent",
+      status: "active",
+      joinedAt: "2026-07-11T00:00:00.000Z"
+    });
+    expect(toMemberAuditSnapshot({ ...member, joinedAt: null }).joinedAt).toBeNull();
+  });
+
+  it("초대 봉투의 키 집합이 대장과 정확히 일치한다(그 밖의 키 0건)", () => {
+    expect(Object.keys(toInviteAuditSnapshot(invite)).sort()).toEqual([...INVITE_AUDIT_SNAPSHOT_KEYS].sort());
+    expect(toInviteAuditSnapshot(invite)).toEqual({
+      inviteId: "44444444-4444-4444-8444-444444444444",
+      role: "viewer",
+      channel: "kakao",
+      status: "pending",
+      expiresAt: "2026-07-18T00:00:00.000Z",
+      createdAt: "2026-07-11T00:00:00.000Z"
+    });
+  });
+
+  it("닉네임 원문·계정 연결값은 키로도 값으로도 도달 불가", () => {
+    const serialized = JSON.stringify([toMemberAuditSnapshot(member), toInviteAuditSnapshot(invite)]);
+    for (const snapshot of [toMemberAuditSnapshot(member), toInviteAuditSnapshot(invite)]) {
+      for (const key of FORBIDDEN_HOUSEHOLD_ENVELOPE_KEYS) {
+        expect(snapshot).not.toHaveProperty(key);
+      }
+    }
+    // 부정 단언: 직렬화한 봉투 어디에도 원문이 **부분 문자열로도** 없다
+    // (다른 키에 옮겨 담는 우회를 함께 막는다 — ⓐ가 지출에 쓴 그 형식).
+    for (const secret of [member.displayName, member.userId, member.householdId, invite.invitedByUserId]) {
+      expect(serialized).not.toContain(secret);
+    }
+  });
+
+  it("두 봉투는 응답 DTO로 되돌아가지 않는다", () => {
+    // 부정 단언: `const before = toMemberDto(...)` / `after: toInviteDto(...)` 같은 회귀를 잡는다.
+    // 그 둘은 화면용 DTO라 닉네임·계정 연결값을 싣는 모양이다(listMembers/listInvites의
+    // 정상 사용 `invites.map((invite) => toInviteDto(invite))`는 이 형태가 아니다).
+    const service = readFileSync(join(SRC_DIR, "households", "household-runtime.service.ts"), "utf8");
+    expect(service).not.toMatch(/(before|after)\s*[:=]\s*(toMemberDto|toInviteDto)\(/);
   });
 });

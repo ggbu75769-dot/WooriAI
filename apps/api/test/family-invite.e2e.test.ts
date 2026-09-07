@@ -1,10 +1,11 @@
 import { HttpException, type INestApplication } from "@nestjs/common";
-import { Test } from "@nestjs/testing";
+import { Test, type TestingModule } from "@nestjs/testing";
 import { createHash, randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
+import { AuditLoggerService } from "../src/common/audit/audit-logger.service";
 import { HouseholdRuntimeService } from "../src/households/household-runtime.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 
@@ -170,13 +171,16 @@ function tokenFromInviteUrl(inviteUrl: string) {
 
 describe("Family invites and household RBAC", () => {
   let app: INestApplication;
+  // 라운드 108 트랙 B: 감사 봉투 단언이 `AuditLoggerService.entries`를 읽어야 해서
+  // 모듈 참조를 describe 범위로 올렸다(expense-home-report.e2e.test.ts와 같은 관례).
+  let moduleRef: TestingModule;
 
   beforeEach(async () => {
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
     process.env.JWT_REFRESH_SECRET = "test-refresh-secret";
     process.env.WOORIAI_STAGE_TODAY = "2026-07-06";
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [AppModule]
     }).compile();
 
@@ -784,6 +788,118 @@ describe("Family invites and household RBAC", () => {
         paymentMethod: "card"
       })
       .expect(403);
+  });
+
+  /**
+   * 라운드 108 트랙 B(정찰 S1-3) — **가구 감사 봉투에서 닉네임·계정 연결값을 걷어낸 계약.**
+   *
+   * 종전(그때는 참): `household.member.remove`의 before/after는 응답 DTO(`toMemberDto`)
+   * 그대로였고 카카오 닉네임 원문(`displayName`)과 대상의 `userId`를 실었다. 그 값은 730일
+   * 보존되고(감사 창), 어드민 감사 뷰어 JSON·CSV로 나가며, 파기 잡 phase 3이 `actor_user_id`만
+   * null로 만드는 탓에 **탈퇴해도 봉투 안 사본이 남았다**. `household.invite.cancel`은 같은 이유로
+   * `invitedByUserId`를 실었다.
+   *
+   * 이제: 봉투 전용 스냅샷만 남는다(`toMemberAuditSnapshot`/`toInviteAuditSnapshot`).
+   * 그래도 *"누가 누구를 내보냈나"* 는 그대로 답한다 — 행위자는 `actorUserId`, 대상은
+   * `targetId`(= memberId)다. 아래 단언이 그 둘을 함께 센다.
+   */
+  it("라운드 108-B: 구성원 제거·초대 취소 감사 봉투에 닉네임과 계정 연결값이 없다", async () => {
+    const ownerToken = await login(app, "r108b-audit-owner");
+    const { householdId } = await completeOwnerOnboarding(app, ownerToken);
+    const ownerUserId = await userIdFor(app, ownerToken);
+
+    const coParentInvite = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "co_parent", channel: "link" })
+      .expect(200);
+    const coParentToken = await login(app, "r108b-audit-co-parent");
+    await request(app.getHttpServer())
+      .post(`/api/v1/invites/${tokenFromInviteUrl(coParentInvite.body.inviteUrl)}/accept`)
+      .set("Authorization", `Bearer ${coParentToken}`)
+      .expect(200);
+    const coParentUserId = await userIdFor(app, coParentToken);
+
+    // 카카오 닉네임 자리에 **특징적인 원문**을 심는다 — 새면 부분 문자열로 잡히도록.
+    const prisma = app.get(PrismaService);
+    await prisma.user.update({ where: { id: coParentUserId }, data: { displayName: "카카오닉네임-절대노출금지" } });
+    await prisma.user.update({ where: { id: ownerUserId }, data: { displayName: "가구주닉네임-절대노출금지" } });
+
+    // 취소 대상 초대 하나 더(초대 봉투용).
+    const doomedInvite = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/invites`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ role: "viewer", channel: "kakao" })
+      .expect(200);
+    // 생성 응답에는 초대 id가 없다(링크·만료·가구명뿐) — 저장된 행은 토큰 해시로 되찾는다.
+    const doomedInviteId = (await inviteRowFor(prisma, tokenFromInviteUrl(doomedInvite.body.inviteUrl))).id;
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/invites/${doomedInviteId}`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200);
+
+    const members = (
+      await request(app.getHttpServer())
+        .get(`/api/v1/households/${householdId}/members`)
+        .set("Authorization", `Bearer ${ownerToken}`)
+        .expect(200)
+    ).body.members as Array<{ id: string; role: string }>;
+    const coParentMemberId = members.find((member) => member.role === "co_parent")!.id;
+
+    await request(app.getHttpServer())
+      .delete(`/api/v1/households/${householdId}/members/${coParentMemberId}`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200);
+
+    const auditLogger = moduleRef.get(AuditLoggerService);
+    const removeEntry = auditLogger.entries.find(
+      (entry) => entry.action === "household.member.remove" && entry.targetId === coParentMemberId
+    );
+    expect(removeEntry).toBeDefined();
+
+    // 봉투의 **키 집합이 값이다**(지출 봉투와 같은 형식). `displayName`/`userId`/`householdId`는
+    // 키로도 없다 — 응답 DTO를 봉투로 되돌리면 여기서 먼저 깨진다.
+    expect(Object.keys(removeEntry!.before!).sort()).toEqual(["joinedAt", "memberId", "role", "status"]);
+    expect(Object.keys(removeEntry!.after!).sort()).toEqual(["joinedAt", "memberId", "role", "status"]);
+    expect(removeEntry!.before).toMatchObject({ memberId: coParentMemberId, role: "co_parent", status: "active" });
+    expect(removeEntry!.after).toMatchObject({ memberId: coParentMemberId, role: "co_parent", status: "removed" });
+
+    // **"누가 누구를 내보냈나"는 여전히 답한다** — 행위자는 감사 행의 actorUserId(가구주),
+    // 대상은 targetId(= 살아 있는 household_members 행)이고, 그 행이 대상의 userId를 든다.
+    expect(removeEntry!.actorUserId).toBe(ownerUserId);
+    expect(removeEntry!.householdId).toBe(householdId);
+    expect(removeEntry!.targetType).toBe("household_member");
+    const removedRow = await prisma.householdMember.findUniqueOrThrow({ where: { id: coParentMemberId } });
+    expect(removedRow.userId).toBe(coParentUserId);
+    expect(removedRow.status).toBe("removed");
+
+    const cancelEntry = auditLogger.entries.find(
+      (entry) => entry.action === "household.invite.cancel" && entry.targetId === doomedInviteId
+    );
+    expect(cancelEntry).toBeDefined();
+    expect(Object.keys(cancelEntry!.before!).sort()).toEqual([
+      "channel",
+      "createdAt",
+      "expiresAt",
+      "inviteId",
+      "role",
+      "status"
+    ]);
+    expect(cancelEntry!.before).toMatchObject({ inviteId: doomedInviteId, role: "viewer", channel: "kakao", status: "pending" });
+    expect(cancelEntry!.after).toMatchObject({ inviteId: doomedInviteId, status: "revoked" });
+
+    /**
+     * **부정 단언 — 이 라운드의 요점.** 두 봉투를 직렬화한 문자열 어디에도 닉네임 원문과
+     * 계정 id가 **부분 문자열로도** 없다. 키 이름이 아니라 값의 원문을 찾으므로, 다음 라운드가
+     * 같은 값을 다른 키로 옮겨 담아도 여기서 잡힌다(직전 라운드가 지출 봉투에 쓴 수법 그대로).
+     * 행위자 id는 봉투 **밖**(actorUserId 컬럼)에 있어야 하므로 여기 대상은 before/after뿐이다.
+     */
+    const envelopes = JSON.stringify(
+      [removeEntry!, cancelEntry!].map((entry) => [entry.before, entry.after])
+    );
+    for (const raw of ["카카오닉네임-절대노출금지", "가구주닉네임-절대노출금지", coParentUserId, ownerUserId]) {
+      expect(envelopes).not.toContain(raw);
+    }
   });
 
   /**
