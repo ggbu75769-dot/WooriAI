@@ -232,6 +232,22 @@ function focusAccessibilityTarget(target: RefObject<View | NativeText | null>) {
   if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
 }
 
+/**
+ * A11Y 시트 — 종전 이 헬퍼는 이 파일 안에서만 쓰였다(그때는 참이었다: 포커스를 옮기는 시트는
+ * 바로 아래 `BottomSheet` 하나뿐이었으니까). → 이제 `src/ui.tsx`의 `BottomSheetFrame`도 같은
+ * 헬퍼를 부른다. 근거: 앱이 실제로 그리는 시트 넷(아이 전환 · 달 점프 · 커스텀 품목 · 지출 입력
+ * 프레임)은 전부 `BottomSheetFrame`이고 `BottomSheet`는 호출부 0건이라, 열림 포커스를 세울 자리는
+ * 그쪽이다. **한 벌을 두 벌로 만들지 않으려고** 새로 짓는 대신 이 한 줄로 연다.
+ *
+ * ⚠️ `function` 선언 줄에 `export`를 붙이지 않고 **재수출 줄**로 여는 이유: 사문 대장의 tsx 축
+ * 실측(`packages/test-utils/src/dead-export-ledger.ts`의 `tsxExportFunctionCount` — `.tsx`의
+ * `^export … function` 선언 줄을 세고 오늘 149로 못박혀 있다)은 *"새 컴포넌트·훅이 태어났는가"*
+ * 를 재는 수인데, 여기서 태어난 것은 없다(이미 있던 헬퍼 하나가 옆 파일에 열렸을 뿐이다).
+ * 그 대장 파일은 이 트랙의 소유가 아니라 **읽기만** 했으므로, 수를 옮겨야 한다는 판단이 서면
+ * 그것은 대장 소유 트랙의 손이다.
+ */
+export { focusAccessibilityTarget };
+
 export function BottomSheet({
   visible,
   title,
