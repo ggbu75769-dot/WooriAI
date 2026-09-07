@@ -274,16 +274,28 @@ describe("UX-F 카드 조립", () => {
  *
  * 종전(그때는 참): 이 모듈은 `categoryLabel(...)`의 반환값을 그대로 문장에 끼웠고, 그때는 분류
  * 이름이 시드 21행의 고정 문자열뿐이라 개행이 섞일 자리가 없었다.
- * → 이제: 이름은 자유 문자열이고, 어드민 이름 변경 경로가 **개행을 접지 않는다**
- * (`apps/api/src/admin/dto/admin-categories.dto.ts`의 `@Transform`은 `.trim()`뿐이라
- * `"기저귀\n위생"`이 MinLength(1)·MaxLength(50)을 통과해 저장된다. 가구 커스텀 분류 쪽
- * (`finance/dto/custom-categories.dto.ts`)만 `trim + /\s+/gu` 접기를 한다). 그 이름은
- * `GET /categories` → `buildCategoryNameLookup`(내부 개행 무손질 `.trim()`) → 이 문장으로 온다.
+ * → 그다음(라운드 106 — **그때는 참이었다**): 이름은 자유 문자열이 됐고, 어드민 이름 변경 경로가
+ * 개행을 접지 않았다(`admin-categories.dto.ts`의 `@Transform`이 `.trim()`뿐이라 `"기저귀\n위생"`이
+ * MinLength(1)·MaxLength(50)을 통과해 저장됐고, `buildCategoryNameLookup`도 내부 개행 무손질
+ * `.trim()`이었다). 그래서 이 가드가 섰다.
+ * → **이제(라운드 109 — 오늘 소스에서 직접 재확인): 위 두 문장은 둘 다 거짓이다.** 그 라운드가
+ * 서버 유입 지점(`normalizeDisplayName` + `@IsSafeDisplayName`)과 앱의 해석기
+ * (`buildCategoryNameLookup` → `displaySafeCategoryName`)를 함께 고쳤다. **그래도 이 가드는
+ * 그대로 남는다**: 조립기는 순수 함수라 라벨을 호출부의 `categoryLabel(...)`에서 받고(아래
+ * 테스트도 직접 넘긴다), ⓐ 그 고침 이전에 저장돼 캐시에 실린 값 · ⓑ 서버 DTO를 지나지 않는
+ * 데모/로컬 대역 · ⓒ 아직 그 거절이 없는 가구 커스텀 유입 지점이 남는다(근거는
+ * `src/reports/monthly-insight.ts`와 `src/categories.ts`의 두 시점 주석).
  *
  * 기대값은 전부 **리터럴**이다 — 조립기를 다시 불러 만든 값과 비교하지 않는다.
  */
 describe("라운드 106 — 분류 이름 개행 가드", () => {
-  /** 어드민 경로로 저장될 수 있는 이름. 내부 개행은 trim으로 사라지지 않는다. */
+  /**
+   * 조립기가 받을 수 있는 이름. ⚠️ 두 시점 — 종전 이 줄은 *"어드민 경로로 저장될 수 있는 이름"*
+   * 이라고 적었고 그때는 참이었다. 오늘 그 유입은 400으로 막힌다(위 머리말 라운드 109) — 그래도
+   * 이 값이 남는 이유는 조립기가 **순수 함수**여서 호출부가 무엇을 넘기든 문장이 한 줄이어야
+   * 하기 때문이고, 손질을 지나지 않는 세 경로(옛 캐시 · 로컬 대역 · 가구 커스텀)가 아직 남기
+   * 때문이다. 내부 개행은 `trim`으로 사라지지 않는다.
+   */
   const brokenNames: Record<string, string> = {
     diaper: "기저귀\n위생",
     feeding: "분유/이유식",

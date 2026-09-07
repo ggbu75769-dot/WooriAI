@@ -14,6 +14,14 @@ import { amountFieldAccessibilityValue, formatAmountDigits } from "../money";
  * 이 트랙의 두 화면이다(지출 수정 다섯 · 예산 저장 하나). 남은 넷은 `app/(onboarding)/**`이라
  * 다른 트랙 소유이고 이번 걸음이 손대지 않았다(이월).
  *
+ * ⚠️ **두 시점(라운드 109 — 그 이월을 닫는 걸음).** 위 마지막 문장은 그때는 참이었다. 이제
+ * 그 넷도 같은 훅 한 벌을 진다(`app/(onboarding)/child-profile.tsx` 셋 ·
+ * `app/(onboarding)/budget.tsx` 하나) — 아래 **ⓕ**가 그 자리를 전수로 판다. 함께 닫는 자리가
+ * 둘 더 있다: 예산 화면 카테고리 카드의 저장 잠금 오류 두 줄은 프롭 쌍만 들고 있어 **iOS에서
+ * 조용했는데**(라운드 102 리뷰 L-a11y가 세운 그 쌍은 안드로이드의 답이다), 아래 **ⓖ**가 그 둘도
+ * 같은 훅을 지나게 한 것을 문다. T20이 *"고치는 날 빨개지는 핀"*을 남기지 않은 자리라, 이
+ * 걸음이 그 핀을 세운다 — 다음 사람이 이 배선을 지우면 ⓕ·ⓖ가 먼저 빨개진다.
+ *
  * ⚠️ **기존 스윕이 이 여섯을 못 잡은 이유는 그물이 성겨서가 아니라 모집단이 달라서다.**
  * 라운드 79·80의 낭독 스윕 넷은 모집단을 `mutationTriggerSitesOf`로 만드는데, 그 함수는 danger 색
  * 글자를 감싼 **최내곽 JSX 갈래**가 `useMutation`/`useQuery` 바인딩에 닿을 때만 자리로 센다(닿지
@@ -293,5 +301,117 @@ describe("A11Y-115 ⓔ 금액·날짜 칸이 값을 사람의 말로 넘긴다 (
     expect(source(EDIT_EXPENSE)).toContain('accessibilityLabel="날짜 직접 입력"');
     expect(source(BUDGET)).toContain('accessibilityLabel="새 예산 입력"');
     expect(source(BUDGET)).toContain("accessibilityLabel={row.inputAccessibilityLabel}");
+  });
+});
+
+/**
+ * ⓕ **이월 넷 — 온보딩 두 화면**(라운드 109).
+ *
+ * T20이 여섯을 닫으며 소유 밖으로 남긴 그 넷이다. 모양은 발명하지 않는다: T20이 고른 둘 가운데
+ * **맨 문장**(프롭 쌍을 `<Text>` 자신에 건다)이 관례의 기본형이고, 둘째 모양인 **alert 컨테이너**는
+ * 여는 태그가 소유 밖 계약에 바이트로 핀돼 있을 때만 쓴다(위 ⓓ — `auto-fill-wiring.test.ts`가
+ * 지출 수정 화면 넷을 붙드는 그 사정). 이 두 화면의 네 여는 태그를 붙드는 핀은 오늘 0건이라
+ * 기본형이 그대로 선다.
+ *
+ * ⚠️ **한 줄로 닫히지 않는 자리가 셋 중 둘이었다.** 온보딩 아이 프로필의 앞 두 줄은 touched
+ * 게이트 뒤에서만 그려진다("아직 손대지 않은 칸을 빨갛게 꾸짖지 않는다" — 그 화면의 주석).
+ * 훅에 오류 값만 그대로 넘기면 **첫 렌더에서** 눈에 없는 문장이 귀에만 들린다(빈 칸으로 시작하는
+ * 화면이라 `nicknameError`는 처음부터 서 있다). 그래서 훅에 넘기는 값은 "오류가 있는가"가 아니라
+ * **"화면이 그 줄을 그리는가"** 여야 하고, 아래 부정 단언이 그 순진한 한 줄을 막는다.
+ */
+const CHILD_PROFILE = "app/(onboarding)/child-profile.tsx";
+const ONBOARDING_BUDGET = "app/(onboarding)/budget.tsx";
+
+describe("A11Y-115 ⓕ 이월 넷 — 온보딩 검증 오류도 소리로 나간다", () => {
+  it("온보딩 두 화면의 danger 글자 전수 넷 — 넷 다 맨 문장에 프롭 쌍을 진다", () => {
+    const profileExits = dangerTextExitsOf(CHILD_PROFILE);
+    // 유령 방지: 바늘이 실제로 이 화면을 걷는다(모집단이 0건이 아니다).
+    expect(profileExits.length, "아이 프로필의 danger 글자 자리").toBe(3);
+    expect(profileExits).toEqual(["bare", "bare", "bare"]);
+
+    const budgetExits = dangerTextExitsOf(ONBOARDING_BUDGET);
+    expect(budgetExits.length, "온보딩 예산의 danger 글자 자리").toBe(1);
+    expect(budgetExits).toEqual(["bare"]);
+  });
+
+  it("넷 다 같은 훅 한 벌을 지난다 (화면에 배선 사본 0건)", () => {
+    const profileSource = source(CHILD_PROFILE);
+    expect(profileSource).toContain("useFieldErrorAnnouncement(nicknameTouched ? nicknameError : null);");
+    expect(profileSource).toContain("useFieldErrorAnnouncement(dateTouched ? dateError : null);");
+    expect(profileSource).toContain("useFieldErrorAnnouncement(manualStageError);");
+    expect(source(ONBOARDING_BUDGET)).toContain("useFieldErrorAnnouncement(amountError);");
+    // 낭독 통로는 모듈 하나다 — 화면이 직접 부르면 규율이 두 벌이 된다(위 ⓒ와 같은 단언).
+    expect(profileSource).not.toContain("announceForA11y(");
+    expect(source(ONBOARDING_BUDGET)).not.toContain("announceForA11y(");
+  });
+
+  it("⚠️ 훅이 받는 값 = 화면이 그 줄을 그리는 조건 (눈에 없는 문장을 귀에만 들려주지 않는다)", () => {
+    const profileSource = maskComments(source(CHILD_PROFILE));
+    // 앞 둘의 JSX 갈래가 touched 게이트를 지고 있고,
+    expect(profileSource).toContain("{nicknameTouched && nicknameError ? (");
+    expect(profileSource).toContain("{dateTouched && dateError ? (");
+    // 훅 호출도 **그 게이트 그대로**를 진다 — 순진한 한 줄(`useFieldErrorAnnouncement(오류)`)은 없다.
+    expect(profileSource).not.toContain("useFieldErrorAnnouncement(nicknameError)");
+    expect(profileSource).not.toContain("useFieldErrorAnnouncement(dateError)");
+    // 셋째는 게이트가 필요 없다: 판정 자체가 manual일 때만 문장을 만든다(그 사실을 값으로 문다).
+    expect(source("src/children/child-form.ts")).toContain(
+      'const manualStageError = stageMode === "manual" && !values.manualStage ? "아이 단계를 하나 선택해 주세요." : null;'
+    );
+    // 온보딩 예산도 같은 이유로 게이트가 없다 — 판정이 이미 `amountDigits.length > 0`을 진다.
+    expect(maskComments(source(ONBOARDING_BUDGET))).toContain("amountDigits.length > 0 && amountKrw <= 0");
+  });
+
+  it("⚠️ 새 한국어 문장 0건 — 넷 다 이미 있던 문구를 읽는다", () => {
+    // 아이 프로필 셋의 문장은 전부 순수 모듈이 만든다(화면에 문구 리터럴이 없다).
+    const formSource = source("src/children/child-form.ts");
+    // 화면 쪽은 **주석을 지운 뒤** 본다 — 이 라운드가 남긴 두 시점 주석이 그 문장을 인용하고 있어,
+    // 지우지 않으면 주석이 계약을 통과시키는(또는 여기서는 깨뜨리는) 자리를 만든다(위 maskComments 주석).
+    const profileCode = maskComments(source(CHILD_PROFILE));
+    for (const sentence of [
+      "태명 또는 별명을 입력해 주세요.",
+      "출산 예정일을 입력해 주세요.",
+      "아이 생년월일을 입력해 주세요.",
+      "아이 단계를 하나 선택해 주세요."
+    ]) {
+      expect(formSource, sentence).toContain(sentence);
+      expect(profileCode, sentence).not.toContain(sentence);
+    }
+    // 온보딩 예산의 두 문장은 예산 수정 화면과 **같은 두 문장**이다(한 쪽만 바뀌면 여기가 빨개진다).
+    expect(source(ONBOARDING_BUDGET)).toContain('"0보다 큰 금액을 입력해 주세요."');
+    expect(source(BUDGET)).toContain('"0보다 큰 금액을 입력해 주세요."');
+    expect(source(ONBOARDING_BUDGET)).toContain("amountOverLimitMessage()");
+    expect(source(BUDGET)).toContain("amountOverLimitMessage()");
+  });
+});
+
+/**
+ * ⓖ **예산 화면 카테고리 오류 둘 — iOS 침묵을 닫는다**(라운드 102가 연 자리 · 라운드 109가 닫는다).
+ *
+ * 위 ⓑ는 이 화면의 danger 글자 셋이 전부 `bare`(프롭 쌍이 문장에 걸림)라는 것만 물었다. 프롭 쌍은
+ * **안드로이드의 답**이고 iOS의 답은 `announceForA11y`라, 셋 가운데 훅을 지나는 것이 총액 하나뿐인
+ * 동안 나머지 둘은 iOS에서 조용했다. 이제 셋 다 지난다.
+ */
+describe("A11Y-115 ⓖ 예산 카테고리 오류 둘 — 세 줄이 같은 훅을 지난다", () => {
+  it("총액 하나 + 카테고리 둘 = 셋", () => {
+    const budgetSource = source(BUDGET);
+    expect(budgetSource).toContain("useFieldErrorAnnouncement(amountError);");
+    expect(budgetSource).toContain(
+      "useFieldErrorAnnouncement(categoryForm?.rows.find((row) => row.errorText !== null)?.errorText ?? null);"
+    );
+    expect(budgetSource).toContain("useFieldErrorAnnouncement(categoryForm?.formError ?? null);");
+    // 자리 수가 danger 글자 수(ⓑ의 셋)와 같다 — 하나가 늘면 배선도 함께 늘어야 한다.
+    expect(
+      (maskComments(budgetSource).match(/useFieldErrorAnnouncement\(/g) ?? []).length,
+      "예산 화면의 낭독 배선"
+    ).toBe(dangerTextExitsOf(BUDGET).length);
+  });
+
+  it("⚠️ '행 오류는 첫 줄 하나' 가 성립하는 근거 — 행 문구에 행 이름이 들어가지 않는다", () => {
+    // 훅은 값 하나를 받고 행은 map 안이라 행마다 부를 수 없다(FIX-A). 그것이 절충이 아닌 이유는
+    // 조립기가 **모든 행에 같은 한 문장**을 싣기 때문이다. 문구가 행별로 갈리는 날 이 줄이 먼저
+    // 빨개져 그 배선을 다시 보게 한다.
+    expect(source("src/expenses/category-budget-form.ts")).toContain(
+      "errorText: isAmountOverLimit(amountKrw) ? amountOverLimitMessage() : null"
+    );
   });
 });

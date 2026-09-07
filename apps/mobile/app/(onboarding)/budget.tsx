@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Platform, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
+// A11Y-115(라운드 108-T20 이월 · 과제 1): 검증 오류의 낭독 규율은 한 벌이 소유한다
+// (재낭독 금지 · 갈래가 닫히면 기억을 지운다 — src/a11y/use-field-error-announcement.ts).
+import { useFieldErrorAnnouncement } from "../../src/a11y/use-field-error-announcement";
 import { LOCAL_SESSION_TOKEN, upsertBudget } from "../../src/api/client";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import {
@@ -76,6 +79,21 @@ export default function BudgetScreen() {
       : isAmountOverLimit(amountKrw)
         ? amountOverLimitMessage()
         : null;
+  /**
+   * A11Y-115(라운드 108-T20 이월) ⚠️ **두 시점** — *종전*: 이 오류 한 줄에는 낭독 출구가 없었다
+   * (그때는 참이었다 — 라운드 79·80의 낭독 스윕은 `useMutation`/`useQuery`에 닿는 조건 아래 선
+   * 실패 문장만 모집단으로 삼는데, 이 줄의 가드는 입력칸 상태에서 파생한 순수 계산이라 그 그물
+   * **밖**이다). *이제*: 나중에 같은 값을 고치는 화면(app/budget.tsx)이 T20에서 세운 그 한 벌을
+   * 그대로 진다 — 문장 쪽에는 프롭 둘, 낭독은 이 훅이 소유한다. 같은 상한을 같은 모듈에서 읽어
+   * (`src/expenses/amount-limit.ts`) **같은 문장**을 말하는 두 화면이 서로 다르게 들리지 않는다.
+   * **새 한국어 문장 0건.**
+   *
+   * ⚠️ 여기에는 touched 게이트가 필요 없다 — `amountError` 자신이 `amountDigits.length > 0`을
+   * 이미 지고 있어(위 주석) 아무것도 치지 않은 첫 렌더에서는 null이다. 즉 훅에 넘기는 값이
+   * 화면이 그 줄을 그리는 조건과 글자 그대로 같다(온보딩 아이 프로필 셋과 갈리는 유일한 점).
+   * 훅이므로 조건 밖에서 부른다(FIX-A).
+   */
+  useFieldErrorAnnouncement(amountError);
   const canSave = !amountError && amountKrw > 0 && Boolean(authToken && selectedChildId);
 
   // ANA-101 (round5a-sprint2-plan.md §5): the last onboarding step reaching
@@ -179,7 +197,18 @@ export default function BudgetScreen() {
             <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body1.fontSize, fontWeight: "700" }}>원</Text>
           </View>
           {amountError ? (
-            <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{amountError}</Text>
+            /* A11Y-115(라운드 108-T20 이월): 프롭 조합·순서는 **예산 수정 화면의 총액 오류 줄과
+               같다**(app/budget.tsx — 같은 모듈이 만든 같은 문장이므로 모양도 같아야 한다).
+               맨 문장에 거는 관례의 기본형이다: 이 여는 태그를 붙드는 소유 밖 바이트 핀이 없다
+               (지출 수정 화면 넷이 컨테이너를 고른 사정 — `auto-fill-wiring.test.ts`의 색 계약 —
+               은 이 파일에 없다). */
+            <Text
+              accessibilityLiveRegion="polite"
+              accessibilityRole="alert"
+              style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}
+            >
+              {amountError}
+            </Text>
           ) : null}
         </Card>
 

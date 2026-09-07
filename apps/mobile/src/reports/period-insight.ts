@@ -123,16 +123,36 @@ function normalizedAmount(value: number | null | undefined): number | null {
  * 가드를 갖고 있다(라운드 106 T6이 share-text.ts의 마일스톤 줄에, 그 후속이 월간 문장에 같은
  * 두 줄을 넣었다). 형제 경로인 이 분기·연간 문장만 비어 있었다.
  *
- * **실재하는 유입 경로(오늘 재실측).** 두 쓰기 경로 중 하나가 개행을 접지 않는다:
+ * **유입 경로 ⚠️ 두 시점 — *종전*(그때는 참): 두 쓰기 경로 중 하나가 개행을 접지 않았다.**
  *  · 가구 커스텀 분류 — `apps/api/src/finance/dto/custom-categories.dto.ts`의 `@Transform`이
- *    `normalizeCustomCategoryName`(= `trim + /\s+/gu → " "`)을 하므로 개행이 들어올 수 없다.
- *  · **어드민 분류 이름 변경 — `apps/api/src/admin/dto/admin-categories.dto.ts`의 `@Transform`은
- *    오늘도 `.trim()`뿐이다.** `"기저귀\n위생"`은 내부 개행이라 trim으로 사라지지 않고
- *    `@MinLength(1)`·`@MaxLength(50)`을 통과한다. 저장 직전(`admin-categories.service.ts`)도
- *    `input.name?.trim()`이라 그대로다 — 라운드 107 D6이 더한 중복 검사(`duplicateKey`)는
- *    **비교 키에서만** 공백을 접고 저장값은 손대지 않으므로 이 구멍을 막지 않는다. 그 이름은
- *    `GET /categories` → `buildCategoryNameLookup`(`src/categories.ts` — 역시 `.trim()`만 한다)
- *    → 화면의 `categorySegments.label` → 이 문장으로 온다.
+ *    `normalizeCustomCategoryName`(= `trim + /\s+/gu → " "`)을 하므로 개행이 들어올 수 없다
+ *    (이 줄은 오늘도 참이다).
+ *  · **어드민 분류 이름 변경** — `apps/api/src/admin/dto/admin-categories.dto.ts`의 `@Transform`이
+ *    `.trim()`뿐이라 `"기저귀\n위생"`이 `@MinLength(1)`·`@MaxLength(50)`을 통과했고, 저장
+ *    직전(`admin-categories.service.ts`)도 `input.name?.trim()`이었다 — 라운드 107 D6의 중복
+ *    검사(`duplicateKey`)는 **비교 키에서만** 공백을 접고 저장값을 손대지 않아 그 구멍을
+ *    막지 못했다. 그 이름은 `GET /categories` → `buildCategoryNameLookup`(`src/categories.ts` —
+ *    역시 `.trim()`만 했다) → 화면의 `categorySegments.label` → 이 문장으로 왔다.
+ *
+ * **→ *이제*(라운드 109 — 오늘 두 소스에서 직접 재확인): 위 둘째 줄의 두 문장은 모두
+ * 거짓이다.** 그 라운드가 서버 유입 지점과 앱의 해석기를 **함께** 고쳤다:
+ *  ⓐ 서버 — `AdminUpdateCategoryDto.name`의 `@Transform`은 이제 커스텀 쪽과 **같은 함수**
+ *    (`normalizeDisplayName`)를 부르고, 접힌 뒤에도 남는 `\p{Cc}`/`\p{Cf}`/`\p{Cs}`는
+ *    `@IsSafeDisplayName`이 400으로 **거절한다**(그 DTO의 라운드 109 주석 — RLO·NEL·ZWSP를
+ *    실측으로 잡은 그 걸음).
+ *  ⓑ 앱 — `buildCategoryNameLookup`은 이제 `displaySafeCategoryName`을 지난다(`src/categories.ts`):
+ *    제어·서식 문자를 공백 한 칸으로 바꿔 놓고 `\s+`를 접는다. 즉 **화면 경로로** 들어오는
+ *    라벨은 이 모듈에 닿기 전에 이미 한 줄이다.
+ *
+ * **그래도 아래 가드는 그대로 둔다** — 이 함수가 라벨을 받는 길이 그 경로 하나가 아니다:
+ *  · 이 모듈은 **순수 함수**고 라벨은 호출부가 넘긴다. 오늘 앱의 호출부가 하나라는 것과
+ *    (`app/(tabs)/reports.tsx`) 그 호출부가 lookup을 지난 값을 넘긴다는 것은 **호출부의 사실**이지
+ *    이 함수의 계약이 아니다(테스트는 라벨을 그대로 넘긴다).
+ *  · ⓑ의 손질을 지나지 않는 이름이 아직 남는다: `["categories"]` 캐시에는 **ⓐ 이전에 저장된
+ *    값**이 실려 올 수 있고, 데모/로컬 대역(`src/api/local-backend.ts`)은 서버 DTO를 지나지 않으며,
+ *    가구 커스텀 분류의 서버 유입 지점에는 아직 그 거절이 없다(그 세 사유를
+ *    `displaySafeCategoryName` 주석이 값으로 들고 있다).
+ * 즉 이 두 줄은 오늘 **둘째 겹**이다 — 유일하지 않을 뿐 없어도 되는 것이 아니다.
  *
  * **깨지는 자리(값).** 개행이 하나 섞이면 ① 카드의 한 문장이 두 줄로 갈라지고
  * (`reportInsightHeadlineStyle` Text), ② `accessibilityLabel`(카드를 한 요소로 읽어 주는 값)에
@@ -188,8 +208,11 @@ export function buildPeriodInsight(input: PeriodInsightInput): PeriodInsight | n
   if (Math.abs(denominator - totalExpenseKrw) > PERIOD_INSIGHT_TOTAL_TOLERANCE_KRW) return null;
 
   // 종전(그때는 참): 1위 조각의 `label`을 그대로 문장에 끼웠다 — 이름이 시드 고정 문자열뿐일
-  // 때는 참이었다. → 이제: 어드민 이름 변경 경로로 내부 개행이 들어올 수 있으므로 문장에
-  // 들어가기 직전에 한 줄로 접는다(근거는 singleLineCategoryLabel 주석).
+  // 때는 참이었다. → 이제: 라벨은 호출부가 넘기는 자유 문자열이라 문장에 들어가기 직전에 한 줄로
+  // 접는다. ⚠️ 종전 이 자리는 그 이유를 "어드민 이름 변경 경로로 내부 개행이 들어올 수 있으므로"
+  // 라고 적었는데, 그 문장은 라운드 109 이후 거짓이다(그때는 참이었다 — 서버 DTO와
+  // buildCategoryNameLookup이 함께 고쳐졌다). 접기가 남는 이유는 유입 경로가 아니라 **이 함수가
+  // 순수 함수라는 것**이다(근거 전부는 singleLineCategoryLabel 주석의 두 시점).
   // **금액은 손대지 않는다.** 접기는 1위 조각의 이름 하나에만 걸리고, 위 `denominator`와
   // `top.amountKrw`·`top.percentLabel`은 이 줄 이전에 이미 굳은 값이다 — 이름이 깨진 조각도
   // 떨어뜨리지 않으므로 "전체의 47%"의 *전체*가 달라지지 않는다(DNC: 허위 데이터 표시 금지).

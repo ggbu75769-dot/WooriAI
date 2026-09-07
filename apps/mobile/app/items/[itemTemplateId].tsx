@@ -240,6 +240,17 @@ const productDetailChromeButtonStyle = {
 const PRODUCT_DETAIL_CHROME_HIT_SLOP = 7;
 
 /**
+ * 라운드 108-T18 이월 — 내려간 준비템 앞에서 **나가는 길**의 라벨.
+ *
+ * ⚠️ 새 한국어 문장이 아니다: 준비템 탭이 찜 필터 빈 상태에서 이미 쓰는 그 문자열이다
+ * (`app/(tabs)/items.tsx` — "원래 보던 목록으로 돌아가는 길만 준다"는 C-01의 그 판단이
+ * 여기서도 같은 뜻이다). 이 자리에 사본이 서는 이유는 그쪽이 화면 지역 리터럴이라 읽을 이름이
+ * 없기 때문이고, 두 자리가 갈리지 않게 계약이 둘을 함께 문다
+ * (`src/items/item-not-found-exit.test.ts`). 새 `export const`를 만들지 않는다(공통 금지).
+ */
+const MISSING_ITEM_EXIT_LABEL = "준비템 목록 보기";
+
+/**
  * 토스 이월 라운드 T-A: 텍스트 글리프("<" · "[]")가 아이콘 자리를 흉내 내던 마지막 두 자리를
  * 공용 AppIcon으로 바꾼다 — 뒤로가기는 저장소 전역의 chevron-left 관례(기록 탭 달 이동 ·
  * ScreenHeader/IconButton), 공유하기는 더보기 내보내기 행이 이미 쓰는 share-outline이다.
@@ -812,14 +823,56 @@ export default function ItemDetailScreen() {
   // UX-N: 오프라인이면 "잠시 후 다시" 대신 오프라인이라는 사실을 말한다. 카드 구조와 [다시 시도]
   // 버튼은 그대로 — 문구만 바뀐다(src/offline/messages.ts).
   const loadErrorCopy = useLoadErrorCopy(detail.isError);
+  /**
+   * 라운드 108-T18 이월 — **`purchase_pending` 알림이 내려간 준비템을 가리키면 막다른 길이었다.**
+   *
+   * ⚠️ 두 시점. *종전*: 이 화면의 조회 실패는 원인을 묻지 않고 한 갈래였다 — "불러오지 못했어요.
+   * 잠시 후 다시 시도해 주세요." + [다시 시도]. 그때도 대부분의 실패에는 그것이 맞다(5xx·타임아웃·
+   * 끊긴 연결은 실제로 다시 눌러 볼 값이 있다). *이제*: 그 갈래가 **틀리는 한 경우**를 가른다.
+   * 준비템이 카탈로그에서 내려갔거나(비활성) 커스텀 품목이 지워졌으면 서버는 404
+   * `ITEM_NOT_FOUND`를 준다(`requireItemTemplate`·`requireItemTemplateOrCustom` —
+   * `apps/api/src/onboarding/items-catalog.service.ts`). 그 404는 **다시 눌러도 영원히 같은
+   * 404**이고, 이 화면은 전역 `headerShown:false`라 카드 말고는 아무것도 그리지 않는다 —
+   * 화면 안에 뒤로 갈 문이 없다. 알림함에서 곧장 들어온 사람은 하드웨어 뒤로가기를 아는 경우에만
+   * 우연히 빠져나갔다.
+   *
+   * **새 한국어 문장 0건.** 문구는 이 화면이 짓지 않고 `src/api/api-error.ts`의 표에서 온다 —
+   * 그 표가 이 코드의 단일 소스이고, 그 자리의 주석이 *"준비템 상세 안에서 들으면 한 박자
+   * 어색하지만 거짓이 아니고, 다음 행동으로도 옳다"*고 이 맥락을 이미 판정해 두었다. 라벨도
+   * 새로 짓지 않는다: "준비템 목록 보기"는 준비템 탭이 이미 쓰는 그 문자열이다
+   * (`app/(tabs)/items.tsx`의 찜 필터 빈 상태 — 관찰형 어투, DNC-018 무접촉).
+   *
+   * ⚠️ **왜 `useLoadErrorCopy`를 넓히지 않았나**(T18의 변경안 셋 중 둘). 그 훅과
+   * `resolveLoadErrorCopy`는 `{title, actionLabel}`만 돌려주고 **목적지를 모른다** — 이 자리에서
+   * 실제로 고쳐야 하는 것은 `onPress`가 같은 404로 되돌아간다는 사실이라, 화면이 어차피 갈래를
+   * 져야 한다. 게다가 그 판정을 공용 훅에 넣으면 오늘 그 훅을 쓰는 **열한 자리 전부**의 조회
+   * 실패 문구가 함께 바뀐다(그 화면들에는 이 막다른 길이 없다). 그래서 갈래는 이 화면이 지고,
+   * 표를 지나는 방식은 저장 실패 쪽이 이미 쓰는 그 순서 그대로다(코드 → 오프라인 → 일반):
+   * 코드가 없으면 `null`이라 아래 두 값이 종전과 **한 글자도** 다르지 않다.
+   *
+   * ⚠️ ITEM-002 픽셀락 캡처는 이 갈래를 지나지 않는다(직접 확인함): 캡처는 세션을 지운 프리뷰
+   * 렌더이고(`app/pixel-lock.tsx`의 `clearSession`), 이 갈래는 `hasSession` 뒤에 선다.
+   *
+   * ⚠️ **판정에 `hasApiErrorCode`를 쓰지 않는다 — 소유 밖 바이트 핀 때문이다.** 그 술어가 더
+   * 읽기 좋지만, 그것을 쓰려면 위 import 줄에 이름을 하나 더해야 하고 그 줄은
+   * `src/api/api-error.test.ts`(소유 밖)가 **바이트로 붙들고 있다**(라운드 99 F2가 세운 그 계약:
+   * `import { apiErrorCodeOf, apiErrorMessageForCode } from "../../src/api/api-error";`). T20이 지출
+   * 수정 화면 넷에서 만난 것과 같은 모양의 핀이라, 같은 판단을 한다 — 핀을 넘지 않는 쪽을 고른다.
+   * `hasApiErrorCode`는 이 비교의 얇은 포장일 뿐이라(`apiErrorCodeOf(error) === code`) 판정은
+   * 글자 그대로 같다. 그 핀이 모양으로 풀리는 날 이 줄을 그 술어로 되돌릴 수 있다.
+   */
+  const missingItemTitle =
+    apiErrorCodeOf(detail.error) === "ITEM_NOT_FOUND" ? apiErrorMessageForCode("ITEM_NOT_FOUND") : null;
 
   if (hasSession && detailPhase === "error") {
     return (
       <AppScreen>
         <EmptyStateCard
-          title={loadErrorCopy.title}
-          actionLabel={loadErrorCopy.actionLabel}
-          onPress={() => detail.refetch()}
+          title={missingItemTitle ?? loadErrorCopy.title}
+          actionLabel={missingItemTitle ? MISSING_ITEM_EXIT_LABEL : loadErrorCopy.actionLabel}
+          // 되돌아갈 화면이 아니라 **나가는 길**이라 replace다(스택에 막다른 상세를 남기지
+          // 않는다). 목적지 문자열은 이 파일이 이미 쓰는 그것이다(준비 완료 뒤 복귀 경로).
+          onPress={() => (missingItemTitle ? router.replace("/(tabs)/items") : detail.refetch())}
         />
       </AppScreen>
     );

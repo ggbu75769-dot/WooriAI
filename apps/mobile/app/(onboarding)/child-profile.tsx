@@ -18,6 +18,9 @@ import {
   requiredDateFieldLabel,
   validateChildForm
 } from "../../src/children/child-form";
+// A11Y-115(라운드 108-T20 이월 · 과제 1): 검증 오류의 낭독 규율은 한 벌이 소유한다
+// (재낭독 금지 · 갈래가 닫히면 기억을 지운다 — src/a11y/use-field-error-announcement.ts).
+import { useFieldErrorAnnouncement } from "../../src/a11y/use-field-error-announcement";
 import { ExpenseDatePicker } from "../../src/expenses/ExpenseDatePicker";
 import { createOnboardingChild } from "../../src/onboarding/child-create";
 import { saveWithConsentRecovery } from "../../src/onboarding/consent-recovery";
@@ -95,6 +98,32 @@ export default function ChildProfileScreen() {
       ),
     [draft.stageMode, nickname, dateText, manualStage]
   );
+  /**
+   * A11Y-115(라운드 108-T20 이월) ⚠️ **두 시점** — *종전*: 이 화면의 검증 오류 셋은 전부 맨
+   * `<Text>`라 낭독 출구가 **0건**이었다(그때는 참이었다 — 라운드 79·80의 낭독 스윕은
+   * `useMutation`/`useQuery`에 닿는 조건 아래 선 실패 문장만 모집단으로 삼는데, 이 셋의 가드는
+   * `validateChildForm`이 입력칸 상태에서 파생하는 **순수 계산**이라 그 그물 **밖**이다 —
+   * `src/a11y-contract.test.ts`의 `mutationTriggerSitesOf`가 닿지 않는 자리는 아예 버린다).
+   * 그래서 태명·날짜·단계를 잘못 친 사람은 포커스가 입력칸(또는 방금 누른 칩)에 남은 채
+   * [다음]이 왜 잠겼는지 소리로는 알 수 없었다. *이제*: T20이 지출 수정·예산 여섯 자리에 세운
+   * **그 한 벌 그대로** 진다 — 문장 쪽에는 프롭 둘, 낭독은 훅이 소유한다.
+   * **새 한국어 문장 0건**이고, 읽히는 것은 화면이 이미 그리고 있는 그 문자열이다.
+   *
+   * ⚠️ **훅에 넘기는 값은 "오류가 있는가"가 아니라 "화면이 그 줄을 그리는가"다.** 앞의 둘은
+   * touched 게이트 뒤에서만 그려지므로(위 `nicknameTouched`/`dateTouched` 주석 — 아직 손대지
+   * 않은 칸을 꾸짖지 않는다) 게이트를 그대로 실어 넘긴다. 그러지 않으면 빈 칸으로 시작하는 이
+   * 화면이 **첫 렌더에서** "태명 또는 별명을 입력해 주세요."를 낭독한다 — 눈에는 없는 문장을
+   * 귀에만 들려주는 것이라, 그 가드가 지키려던 규율을 소리 쪽에서 되돌리는 셈이다.
+   * 셋째(`manualStageError`)는 게이트가 필요 없다: 판정 자체가 `stageMode === "manual"`일 때만
+   * 문장을 만들고(`src/children/child-form.ts`), 그 조건이 곧 그 줄이 그려지는 조건이다.
+   *
+   * ⚠️ 훅이므로 조건 밖에서 부른다(FIX-A) — 오류가 없을 때도 `null`을 넘긴다. 조건부 호출은
+   * 훅 순서를 깨고, 무엇보다 "갈래가 닫혔다"를 훅이 볼 수 없게 만든다(훅 머리말).
+   * 호출 순서는 위 파생(구조 분해) 순서 그대로다.
+   */
+  useFieldErrorAnnouncement(nicknameTouched ? nicknameError : null);
+  useFieldErrorAnnouncement(dateTouched ? dateError : null);
+  useFieldErrorAnnouncement(manualStageError);
   const dateLabel = useMemo(() => requiredDateFieldLabel(draft.stageMode), [draft.stageMode]);
 
   /**
@@ -267,7 +296,20 @@ export default function ChildProfileScreen() {
               value={nickname}
             />
             {nicknameTouched && nicknameError ? (
-              <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{nicknameError}</Text>
+              /* A11Y-115(라운드 108-T20 이월): **맨 문장**에 프롭 둘을 건다 — T20이 고른 두 모양
+                 가운데 관례의 기본형이다(둘째 모양인 alert 컨테이너는 여는 태그가 소유 밖 계약에
+                 바이트로 핀돼 있을 때만 쓴다 — `src/expenses/auto-fill-wiring.test.ts`가 지출 수정
+                 화면 넷을 붙드는 그 사정). 이 화면의 세 여는 태그를 붙드는 핀은 오늘 **0건**이라
+                 (`nicknameError`·`manualStageError`를 인용하는 테스트 넷은 전부 판정 값이나
+                 `"!manualStageError"` 같은 조각을 물지 태그 바이트를 물지 않는다) 기본형이 그대로
+                 선다. 프롭 순서는 같은 앱의 예산 화면(app/budget.tsx)과 같다. */
+              <Text
+                accessibilityLiveRegion="polite"
+                accessibilityRole="alert"
+                style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}
+              >
+                {nicknameError}
+              </Text>
             ) : null}
           </View>
 
@@ -348,7 +390,16 @@ export default function ChildProfileScreen() {
                 />
               ) : null}
               {dateTouched && dateError ? (
-                <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{dateError}</Text>
+                /* A11Y-115(라운드 108-T20 이월): 태명 오류와 **같은 한 벌**(위 첫 자리의 주석이
+                   기본형을 고른 근거다). 갈래의 else(회색 안내 한 줄)는 오류가 아니므로 종전
+                   그대로 조용하다 — 예산 화면의 같은 갈래와 같은 판정이다. */
+                <Text
+                  accessibilityLiveRegion="polite"
+                  accessibilityRole="alert"
+                  style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}
+                >
+                  {dateError}
+                </Text>
               ) : (
                 <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
                   시기에 맞는 준비물과 리포트를 보여드리는 데 써요. 나중에 설정에서 바꿀 수 있어요.
@@ -373,7 +424,16 @@ export default function ChildProfileScreen() {
                 ))}
               </View>
               {manualStageError ? (
-                <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{manualStageError}</Text>
+                /* A11Y-115(라운드 108-T20 이월): 태명 오류와 **같은 한 벌**. 이 자리의 포커스는
+                   입력칸이 아니라 방금 누른 단계 칩(또는 아직 아무 칩도 아닌 곳)에 남는다 —
+                   조건이 같으므로(새 문장이 서는데 포커스가 그리로 가지 않는다) 모양도 같다. */
+                <Text
+                  accessibilityLiveRegion="polite"
+                  accessibilityRole="alert"
+                  style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}
+                >
+                  {manualStageError}
+                </Text>
               ) : null}
             </View>
           ) : null}
