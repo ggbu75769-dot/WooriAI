@@ -22,6 +22,39 @@ import {
 } from "@wooriai/domain";
 import { IsHttpUrl } from "../../common/validation/is-http-url.decorator";
 
+/**
+ * 라운드 110 — **폭 초과의 사유가 화면까지 가려면 한국어여야 한다.**
+ *
+ * 종전(그때는 참): 아래 `@MaxLength(...)`들은 문구를 지정하지 않아 class-validator의 **기본
+ * 문장**이 실렸다. 실측한 그 문장은 `"disclosureText must be shorter than or equal to 200
+ * characters"` — 영문이고, 앞머리가 **서버 필드명 그대로**다. 그 문장은 400 봉투의
+ * `details.fields[].constraints`에 담겨 어드민까지 가지만, 어드민은 **한글이 한 자도 없는 서버
+ * 문장을 화면에 세우지 않는다**(apps/admin/src/lib/write-error-copy.ts — 라운드 76 리뷰 M-1의
+ * 판정이고, 그 판정 자체는 옳다: 읽을 수 없는 사유는 사유가 아니다). 그래서 라운드 108이 이
+ * 칸들의 500을 400으로 바꿔 놓고도 운영자 화면에는 봉투의 일반 문장("요청 값을 다시
+ * 확인해주세요.")만 섰고, 어느 칸이 왜 걸렸는지는 어디에도 보이지 않았다.
+ * → 이제 이 함수가 짓는 **한국어 한 문장**이 그 자리에 실려 화면까지 닿는다.
+ *
+ * ⚠️ **칸 이름은 어드민 화면이 이미 쓰는 라벨 그대로다** — 영문 필드명(`sponsorLabel` 같은
+ * 것)을 화면으로 내보내지 않는다. 라벨의 출처(어드민 루트 기준):
+ *   · `준비템 이름`  — app/items/page.tsx의 검색 placeholder(표 머리 `이름`과 같은 칸)
+ *   · `타이밍 라벨`  — app/items/page.tsx의 `<label htmlFor={…-timing}>`
+ *   · `상품 링크 제목` — app/links/page.tsx의 `<label htmlFor={…-title}>`(표 머리 `제목`)
+ *   · `스폰서 표시 문구` — app/links/page.tsx의 `<label htmlFor={…-sponsor-label}>`
+ *   · `고지 문구`    — app/links/page.tsx의 `<label htmlFor={…-disclosure}>`
+ *
+ * ⚠️ 숫자를 문장에 적지 않고 `$constraint1` 토큰을 쓰는 이유: class-validator가 그 자리에
+ * 데코레이터의 상한을 넣어 준다(실측). 리터럴로 적으면 상한과 문장이 **두 벌**이 되어, 폭이
+ * 바뀌는 날 한쪽만 고쳐질 수 있다.
+ *
+ * ⚠️ 뒷문장이 "자르지 않는다"까지 말하는 이유는 아래 `disclosureText`의 주석과 같다(DNC-010) —
+ * 그 사실을 모르면 운영자는 잘려 저장됐는지 아닌지를 화면에서 알 수 없다. 자르지 않는 것은
+ * 이 다섯 칸 모두에 대해 참이다(DTO가 거절하므로 아무것도 저장되지 않는다).
+ */
+function tooLongMessage(fieldLabel: string): string {
+  return `${fieldLabel} 최대 길이는 $constraint1자예요. 넘는 값은 잘라 저장하지 않아요.`;
+}
+
 export class AdminCreateItemTemplateDto {
   /**
    * 라운드 108 — **상한이 컬럼보다 넓었다.** 종전 이 줄은 `@MaxLength(120)`이었다(그때는
@@ -41,7 +74,7 @@ export class AdminCreateItemTemplateDto {
    * 컬럼 폭이 바뀌면 이 네 자리를 함께 고쳐야 한다.
    */
   @IsString()
-  @MaxLength(80)
+  @MaxLength(80, { message: tooLongMessage("준비템 이름") })
   name!: string;
 
   @IsOptional()
@@ -60,7 +93,7 @@ export class AdminCreateItemTemplateDto {
    */
   @IsOptional()
   @IsString()
-  @MaxLength(80)
+  @MaxLength(80, { message: tooLongMessage("타이밍 라벨") })
   timingLabel?: string;
 
   /**
@@ -121,7 +154,7 @@ export class AdminUpdateItemTemplateDto {
   // 수정 경로에만 남는다.
   @IsOptional()
   @IsString()
-  @MaxLength(80)
+  @MaxLength(80, { message: tooLongMessage("준비템 이름") })
   name?: string;
 
   @IsOptional()
@@ -135,7 +168,7 @@ export class AdminUpdateItemTemplateDto {
   // 라운드 108 — 생성 DTO와 같은 상한(= `timing_label` 컬럼 폭 80). 근거는 위 DTO의 같은 자리.
   @IsOptional()
   @IsString()
-  @MaxLength(80)
+  @MaxLength(80, { message: tooLongMessage("타이밍 라벨") })
   timingLabel?: string;
 
   // ADM-124: PATCH는 부분 수정이라 "안 보냄"(그대로 두기)과 "null"(지우기)이 서로 다른
@@ -195,7 +228,7 @@ export class AdminCreateProductLinkDto {
   platform!: ProductPlatform;
 
   @IsString()
-  @MaxLength(160)
+  @MaxLength(160, { message: tooLongMessage("상품 링크 제목") })
   title!: string;
 
   @IsUrl({ require_tld: false })
@@ -227,7 +260,7 @@ export class AdminCreateProductLinkDto {
    */
   @IsOptional()
   @IsString()
-  @MaxLength(80)
+  @MaxLength(80, { message: tooLongMessage("스폰서 표시 문구") })
   sponsorLabel?: string;
 
   /**
@@ -249,7 +282,7 @@ export class AdminCreateProductLinkDto {
    */
   @IsOptional()
   @IsString()
-  @MaxLength(200)
+  @MaxLength(200, { message: tooLongMessage("고지 문구") })
   disclosureText?: string;
 
   @IsOptional()
@@ -268,7 +301,7 @@ export class AdminUpdateProductLinkDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(160)
+  @MaxLength(160, { message: tooLongMessage("상품 링크 제목") })
   title?: string;
 
   @IsOptional()
@@ -296,14 +329,14 @@ export class AdminUpdateProductLinkDto {
    */
   @IsOptional()
   @IsString()
-  @MaxLength(80)
+  @MaxLength(80, { message: tooLongMessage("스폰서 표시 문구") })
   sponsorLabel?: string | null;
 
   // 라운드 108 — 생성 DTO와 같은 상한(= `disclosure_text` 컬럼 폭 200). 자르지 않고 400으로
   // 거절하는 근거(DNC-010)와 200자 충분성 실측은 위 DTO의 같은 자리에 적었다.
   @IsOptional()
   @IsString()
-  @MaxLength(200)
+  @MaxLength(200, { message: tooLongMessage("고지 문구") })
   disclosureText?: string;
 
   @IsOptional()

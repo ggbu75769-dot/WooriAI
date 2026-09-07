@@ -376,4 +376,85 @@ describe("어드민 카탈로그 varchar 상한 (라운드 108)", () => {
       );
     });
   });
+
+  /**
+   * 라운드 110 트랙 1 — **거절 사유가 운영자가 읽을 수 있는 문장인가.**
+   *
+   * 종전(그때는 참): 위 describe들은 `expectFieldRejected`로 **어느 칸이** 걸렸는지(`field`)만
+   * 물었고, 그것으로 충분해 보였다 — 500이 400이 된 것이 라운드 108의 축이었다.
+   * → 이제 그 400이 화면까지 가는 길에서 한 겹이 더 필요하다는 것이 드러났다: 어드민은
+   * `details.fields[].constraints`의 문장을 화면에 세우는데(라운드 110), **한글이 한 자도 없는
+   * 문장은 세우지 않는다**(apps/admin/src/lib/write-error-copy.ts — 라운드 76 리뷰 M-1).
+   * class-validator의 기본 문장은 영문이고 앞머리가 **서버 필드명 그대로**라, 그대로 두면
+   * 400으로 바꾼 보람이 화면 앞에서 사라진다.
+   *
+   * 그래서 이 describe가 무는 것은 셋이다:
+   *  ⓐ 사유가 **한글**이다(어드민의 소비 규칙을 통과한다).
+   *  ⓑ 사유가 **어드민 화면의 라벨**로 칸을 부른다(운영자가 어느 입력칸인지 안다).
+   *  ⓒ 사유에 **영문 필드명이 없다**(부정 단언 — 화면에 뜻 없는 키가 서지 않는다).
+   */
+  describe("거절 사유가 한국어이고 화면의 라벨로 칸을 부른다 (라운드 110)", () => {
+    /** `[요청을 만드는 함수, 필드 키, 화면 라벨]`. 라벨은 어드민 폼의 `<label>` 문자열 그대로다. */
+    const CASES: readonly [string, string, string][] = [
+      ["item-template.name", "name", "준비템 이름"],
+      ["item-template.timingLabel", "timingLabel", "타이밍 라벨"],
+      ["product-link.title", "title", "상품 링크 제목"],
+      ["product-link.sponsorLabel", "sponsorLabel", "스폰서 표시 문구"],
+      ["product-link.disclosureText", "disclosureText", "고지 문구"]
+    ];
+
+    async function rejectionFor(key: string): Promise<{ field: string; constraints: Record<string, string> }> {
+      let response: request.Response;
+      if (key === "name") {
+        response = await createTemplate({ name: `${TEMPLATE_NAME_PREFIX}${"가".repeat(81 - TEMPLATE_NAME_PREFIX.length)}` });
+      } else if (key === "timingLabel") {
+        response = await createTemplate({ timingLabel: "가".repeat(81) });
+      } else {
+        const itemTemplateId = await createTemplateId();
+        const overLimit: Record<string, unknown> = {
+          title: { title: "가".repeat(161) },
+          sponsorLabel: { sponsorLabel: "가".repeat(81) },
+          disclosureText: { disclosureText: "가".repeat(201) }
+        }[key] as Record<string, unknown>;
+        response = await asAdmin(request(app.getHttpServer()).post("/api/v1/admin/product-links")).send({
+          itemTemplateId,
+          platform: "custom",
+          title: `사유 문장 링크 ${randomUUID().slice(0, 8)}`,
+          url: `https://example.com/${randomUUID()}`,
+          active: false,
+          ...overLimit
+        });
+      }
+      expect(response.status, key).toBe(400);
+      expect(response.body.error.code, key).toBe("VALIDATION_ERROR");
+      const fields = response.body.error.details.fields as { field: string; constraints: Record<string, string> }[];
+      const entry = fields.find((row) => row.field === key);
+      expect(entry, `${key}를 짚는 항목이 없다`).toBeDefined();
+      return entry as { field: string; constraints: Record<string, string> };
+    }
+
+    for (const [label, key, screenLabel] of CASES) {
+      it(`${label} — 사유가 "${screenLabel}"로 시작하는 한국어 문장이다`, async () => {
+        const entry = await rejectionFor(key);
+        const sentences = Object.values(entry.constraints);
+        expect(sentences.length, `${key}의 제약이 0건이다`).toBeGreaterThan(0);
+        const sentence = sentences[0];
+        // ⓐ 한글이 있다(어드민이 화면에 세울 수 있는 문장이다).
+        expect(sentence, `${key}: 사유에 한글이 없다`).toMatch(/[가-힣]/);
+        // ⓑ 화면의 라벨로 칸을 부른다.
+        expect(sentence.startsWith(screenLabel), `${key}: 사유가 "${screenLabel}"로 시작하지 않는다 — ${sentence}`).toBe(
+          true
+        );
+        // ⓒ 부정 단언: 영문 필드명이 문장에 없다.
+        expect(sentence, `${key}: 사유에 영문 필드명이 있다`).not.toContain(key);
+      });
+    }
+
+    /** 상한 숫자는 데코레이터에서 오고(`$constraint1`) 문장에 손으로 적히지 않는다 — 실측 셋. */
+    it("문장이 말하는 숫자가 그 칸의 컬럼 폭과 같다", async () => {
+      expect((await rejectionFor("name")).constraints.maxLength).toContain("80자");
+      expect((await rejectionFor("title")).constraints.maxLength).toContain("160자");
+      expect((await rejectionFor("disclosureText")).constraints.maxLength).toContain("200자");
+    });
+  });
 });

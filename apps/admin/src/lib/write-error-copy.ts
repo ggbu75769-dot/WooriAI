@@ -50,6 +50,32 @@ import { AdminApiError } from "./admin-api";
 const HANGUL_SYLLABLE = /[\uAC00-\uD7A3]/;
 
 /**
+ * 라운드 110 — **봉투의 `message` 뒤에 붙는, 칸별 사유.**
+ *
+ * 종전(그때는 참): 이 한 벌이 나르는 문장은 `error.message` **하나**였고, 그것으로 충분했다 —
+ * 그때 화면에 서던 실패는 전용 코드를 가진 것들이라(`CONTENT_REVISION_SELF_APPROVAL` ·
+ * `ADMIN_SPONSOR_LABEL_REQUIRED` · `ADMIN_CATEGORY_NAME_DUPLICATE` …) 봉투의 `message`가 곧
+ * 사유였다. → 이제 `VALIDATION_ERROR` 갈래가 남는다: 그 봉투의 `message`는 어느 거절이든
+ * **같은 일반 문장**이고 사유는 `details.fields`에만 있다(admin-api.ts의 `fieldReasons` 주석).
+ * 그래서 일반 문장 **뒤에** 그 사유들을 잇는다 — 앞 문장을 갈아치우지 않는 이유는, 그 문장이
+ * 없으면 "무엇을 하려다 실패했는가"가 사라지기 때문이다.
+ *
+ * ⚠️ **거르는 규칙은 아래 `writeErrorMessage`가 쓰는 것과 같은 하나다** — 한글이 한 자도 없는
+ * 문장은 화면에 세우지 않는다(라운드 76 리뷰 M-1). 이 자리에서 그 규칙이 특히 값을 하는 이유:
+ * 서버의 사유 문장 상당수가 class-validator의 **기본 영문 문장**이고, 그 문장은 앞머리가
+ * 서버 필드명 그대로다(실측: `"necessityLevel must be one of the following values: …"`).
+ * 그 규칙 하나로 **영문 필드명이 화면에 서는 길이 구조적으로 막힌다** — 이 모듈은 필드명을
+ * 받지도 않는다(admin-api.ts가 아예 싣지 않는다).
+ *
+ * ⚠️ **판정을 새로 만들지 않는다**는 이 파일의 계약은 그대로다: 코드도 상태도 보지 않고,
+ * 한국어 문구를 짓지도 않는다(잇는 것은 공백 한 칸뿐이다).
+ */
+function readableFieldReasons(error: unknown, base: string): readonly string[] {
+  if (!(error instanceof AdminApiError)) return [];
+  return error.fieldReasons.filter((reason) => HANGUL_SYLLABLE.test(reason) && reason !== base);
+}
+
+/**
  * 쓰기 실패 하나를 화면이 쓸 문장으로.
  *
  * @param fallbackMessage 이 자리가 **종전에 쓰던 그 문장**. 서버도 클라이언트도 이유를
@@ -75,8 +101,9 @@ const HANGUL_SYLLABLE = /[\uAC00-\uD7A3]/;
 export function writeErrorMessage(error: unknown, fallbackMessage: string): string {
   const fromError = error instanceof AdminApiError ? error.message.trim() : "";
   // 빈 문장을 화면에 세우지 않는다 — 이유를 못 받은 것은 "그 밖"과 같다(조회 쪽과 같은 규율).
-  if (fromError === "") return fallbackMessage;
   // 그리고 한국어 화면에 영문 문장을 세우지 않는다 — 읽을 수 없는 사유는 사유가 아니다.
-  if (!HANGUL_SYLLABLE.test(fromError)) return fallbackMessage;
-  return fromError;
+  const base = fromError !== "" && HANGUL_SYLLABLE.test(fromError) ? fromError : fallbackMessage;
+  const reasons = readableFieldReasons(error, base);
+  // 라운드 110: 사유가 없으면 **종전과 한 글자도 다르지 않다**(오늘 화면에 선 문장 그대로다).
+  return reasons.length === 0 ? base : [base, ...reasons].join(" ");
 }

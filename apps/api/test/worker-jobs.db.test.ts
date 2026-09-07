@@ -44,6 +44,27 @@ const DAY_MS = 24 * HOUR_MS;
  */
 const FAR_FUTURE_SCHEDULE_MS = 10 * 365 * DAY_MS;
 
+/**
+ * 라운드 110 트랙 4 — **이 스위트가 만든 고지 행의 접두.**
+ *
+ * 종전(그때는 참): 이 파일에는 `disclosure.deleteMany`가 **0건**이었다. 예약 게시 잡이
+ * 실제로 라이브에 쓰는지를 보려면 고지 행이 정말 만들어져야 하고, 그 행을 읽는 다른 스위트가
+ * 없어서 남겨 두어도 아무 단언이 깨지지 않았다. 그러나 키는 매 실행 새 값이고
+ * (`${…}_${randomUUID().slice(0, 8)}`) 공유 테스트 DB는 누적된다 — 실측(라운드 110): 이
+ * 접두의 잔여 행 **69**(라운드 108-T13의 44에서 25 늘었다).
+ * → 이제 `afterAll`이 **이 접두만** 지운다.
+ *
+ * ⚠️ **스코프된 Prisma는 이 표를 좁히지 않는다**(makeScopedPrisma가 가로채는 것은
+ * `contentRevision.findMany`와 정리 잡 넷의 `deleteMany`뿐이다). 그래서 발행이 쓰는 고지 행은
+ * 공유 스키마에 그대로 앉고, 지우는 것도 이 파일이 직접 해야 한다.
+ *
+ * ⚠️ 이 접두는 **고지 키에만** 쓰이는 것이 아니다 — `worker_tx_…`는 `oauth_transactions.state`다.
+ * 그래서 삭제는 `disclosure` 표 하나에만 건다(다른 표는 종전 정리 그대로).
+ * ⚠️ `afterAll`이라 모든 `it`의 단언이 끝난 뒤에 돈다 — 잡의 due 판정·회수·요약을 보는
+ * 단언들은 이 삭제를 보지 못한다.
+ */
+const DISCLOSURE_KEY_PREFIX = "worker_";
+
 // INF-006-lite: unit tests for each worker job against the real test database
 // (create rows -> run(now) -> assert), without timers or the scheduler loop.
 // Assertions are always scoped to this suite's own random ids, never
@@ -200,6 +221,8 @@ describe.skipIf(!dbAvailable)("Worker jobs (INF-006-lite, real Postgres)", () =>
   afterAll(async () => {
     delete process.env.WORKER_TOKEN_RETENTION_DAYS;
     delete process.env.ADMIN_SESSIONS_RETENTION_DAYS;
+    // 라운드 110 트랙 4: 자기 접두 행만 지운다(위 DISCLOSURE_KEY_PREFIX 주석).
+    await prisma.disclosure.deleteMany({ where: { key: { startsWith: DISCLOSURE_KEY_PREFIX } } });
     await app.close();
     await prisma.$disconnect();
   });
