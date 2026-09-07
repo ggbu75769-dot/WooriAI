@@ -83,6 +83,10 @@ describe("D0 theme tokens", () => {
     // ⚠️ 두 시점(라운드 102 TK3): 3차가 floatingChromeSurface(흰 82% — 준비템 상세 플로팅
     // 크롬 버튼 서피스의 종전 리터럴) 1개를 더했다. 기존 38개 키·값은 불변이고, 새 키의
     // 값=종전 리터럴 대조도 같은 대조표가 문다.
+    // ⚠️ 두 시점(라운드 104 TK4): 4차가 heroOverlayFaint(흰 18% — 홈 히어로 안 예산 넛지
+    // 행의 종전 리터럴) 1개를 더했다. 기존 39개 키·값은 불변이고, 새 키의 값=종전 리터럴
+    // 대조도 같은 대조표가 문다. 4차로 앱 소스의 색 리터럴 스윕은 끝났다 — 남은 자리는
+    // 토큰 대장 자신(theme.ts · design-system/tokens/*)과 Expo 빌드 설정(app.json)뿐이다.
     expect(theme.colors.presentation).toEqual({
       dangerSurface: "#FFF0ED",
       segmentedTrack: "#F5F0EA",
@@ -100,6 +104,7 @@ describe("D0 theme tokens", () => {
       floatingChromeSurface: "rgba(255, 255, 255, 0.82)",
       heroProgressTrack: "rgba(255,255,255,0.45)",
       heroOverlaySoft: "rgba(255,255,255,0.28)",
+      heroOverlayFaint: "rgba(255, 255, 255, 0.18)",
       chartGridLine: "rgba(255, 107, 82, 0.08)",
       categoryIconInk: "#443F3C",
       prepGroupProgressTrack: "#F5E8DF",
