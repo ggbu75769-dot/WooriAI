@@ -136,6 +136,33 @@ async function completeOnboarding(app: INestApplication, accessToken: string) {
 describe("Excel import beta API", () => {
   let app: INestApplication;
 
+  /** 라운드 106 T3: 이 계정의 가구 id — 커스텀 분류 생성·정리의 기준값이다. */
+  async function householdIdOf(accessToken: string): Promise<string> {
+    const response = await request(app.getHttpServer())
+      .get("/api/v1/me")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    return response.body.households[0].id as string;
+  }
+
+  /** 라운드 103 T1이 세운 가구 커스텀 분류 생성 엔드포인트(설계 §2.3). */
+  async function createCustomCategory(accessToken: string, householdId: string, name: string): Promise<string> {
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/households/${householdId}/categories`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ name })
+      .expect(200);
+    return response.body.id as string;
+  }
+
+  async function listRows(accessToken: string, importJobId: string): Promise<ImportRow[]> {
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/imports/${importJobId}/rows`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    return response.body.rows as ImportRow[];
+  }
+
   beforeEach(async () => {
     process.env.JWT_ACCESS_SECRET = "test-access-secret";
     process.env.JWT_REFRESH_SECRET = "test-refresh-secret";
@@ -1308,6 +1335,163 @@ describe("Excel import beta API", () => {
         errorResponseSchema.parse(body);
         expect(body.error.code).toBe("IMPORT_JOB_NOT_FOUND");
       });
+  });
+
+  /**
+   * 라운드 106 T3 — **검수 시점에 분류를 묻는다** (라운드 103 리뷰 M-2의 이월 ①).
+   *
+   * 종전 `updateImportRow`는 `categoryId`의 실재도 소유도 묻지 않았다. FK는 통과하므로(실재하는
+   * 행이다) 남의 가구 분류를 담은 행이 검수 화면에 `valid`로 서 있다가 **확정에서야** 400을
+   * 만들었고, 확정은 전량 롤백이라 그 한 행이 나머지 전부의 검수를 되돌렸다. 여기서 묻는 것이
+   * 곧 그 사고를 없앤다.
+   */
+  it("라운드 106 T3: 검수 PATCH가 없는 분류·남의 가구 분류를 그 자리에서 거절한다", async () => {
+    const accessToken = await login(app, "r106t3-review-category");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const householdId = await householdIdOf(accessToken);
+
+    // 남의 가구: 계정 하나를 더 만들어 그쪽 가구에만 있는 커스텀 분류를 세운다.
+    const otherToken = await login(app, "r106t3-other-household");
+    await completeOnboarding(app, otherToken);
+    const otherHouseholdId = await householdIdOf(otherToken);
+    const foreignCategoryId = await createCustomCategory(otherToken, otherHouseholdId, "남의 가구 분류");
+    const ownCategoryId = await createCustomCategory(accessToken, householdId, "우리 가구 분류");
+
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", "검수분류.csv")
+        .attach("file", Buffer.from("날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n", "utf8"), "검수분류.csv")
+        .expect(200)
+    ).body as ImportJob;
+    const row = (await listRows(accessToken, job.id))[0];
+
+    // ⓐ 없는 분류 · ⓑ 남의 가구 분류 — 둘 다 지출 생성과 **같은 코드·같은 문장**으로 거절된다
+    //    (거절의 단일 소스는 expenses-store.service.ts의 `requireExistingCategory`다).
+    for (const invalidCategoryId of [randomUUID(), foreignCategoryId]) {
+      await request(app.getHttpServer())
+        .patch(`/api/v1/imports/${job.id}/rows/${row.id}`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ categoryId: invalidCategoryId })
+        .expect(400)
+        .expect(({ body }) => {
+          errorResponseSchema.parse(body);
+          expect(body.error.code).toBe("EXPENSE_CATEGORY_INVALID");
+        });
+    }
+
+    // 거절이 행을 반쯤 고쳐 놓지 않는다(검사가 저장 앞에 있다 — 상태·체크도 그대로다).
+    const afterReject = (await listRows(accessToken, job.id))[0];
+    expect(afterReject).toMatchObject({
+      categoryId: row.categoryId,
+      selected: row.selected,
+      validationStatus: row.validationStatus
+    });
+
+    // 그리고 **자기 가구의** 커스텀 분류는 그대로 통과한다(검사가 옳은 것을 막지 않는다).
+    await request(app.getHttpServer())
+      .patch(`/api/v1/imports/${job.id}/rows/${row.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId: ownCategoryId })
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.categoryId).toBe(ownCategoryId);
+        expect(body.validationStatus).toBe("valid");
+      });
+
+    // 뒷정리: 행이 가리키는 동안에는 분류를 지울 수 없다(import_rows_category_id_fkey) —
+    // 시드 분류로 되돌린 뒤 걷는다. 그 FK 자체가 아래 확정 테스트의 전제이기도 하다.
+    await request(app.getHttpServer())
+      .patch(`/api/v1/imports/${job.id}/rows/${row.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ categoryId })
+      .expect(200);
+    await app
+      .get(PrismaService)
+      .category.deleteMany({ where: { householdId: { in: [householdId, otherHouseholdId] } } });
+  });
+
+  /**
+   * 라운드 106 T3 — **확정이 실패하면 어느 행 때문인지 봉투가 말한다** (이월 ②).
+   *
+   * ⚠️ **이 상태는 오늘 API로는 만들 수 없다.** 위 ①이 검수 PATCH에서 막고, 그 위에
+   * `import_rows.category_id`의 FK가 "미리보기 행이 가리키는 분류의 삭제"까지 막는다. 그래서
+   * 여기서는 그 행을 **DB에 직접 세워** 방어선 자체를 검증한다 — 이 배포 이전에 쓰인 행이 딱
+   * 이 모양이고, 그 행을 든 사람이 확정을 누르면 오늘도 400이 나간다. 그때 사용자가 받는 것이
+   * "400" 한 마디여서는 안 된다는 것이 이 계약이다(확정은 전량 롤백이라 행을 모르면 다음에 할
+   * 일이 없다).
+   */
+  it("라운드 106 T3: 확정 400 봉투가 실패 행을 지목하고, 원문은 싣지 않는다", async () => {
+    const accessToken = await login(app, "r106t3-confirm-details");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const householdId = await householdIdOf(accessToken);
+    const prisma = app.get(PrismaService);
+
+    const otherToken = await login(app, "r106t3-confirm-foreign");
+    await completeOnboarding(app, otherToken);
+    const otherHouseholdId = await householdIdOf(otherToken);
+    const foreignCategoryId = await createCustomCategory(otherToken, otherHouseholdId, "남의 가구 분류");
+
+    const fileName = "확정실패.csv";
+    const job = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/imports/excel`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .field("fileName", fileName)
+        .attach(
+          "file",
+          Buffer.from("날짜,적요,금액\n2026-07-06,기저귀 구매,32000\n2026-07-05,분유 구매,33000\n", "utf8"),
+          fileName
+        )
+        .expect(200)
+    ).body as ImportJob;
+
+    const rows = await listRows(accessToken, job.id);
+    expect(rows).toHaveLength(2);
+    const targetRow = rows[1];
+    // 라운드 106 이전 배포가 남겼을 행 = 남의 가구 분류를 든 채 `valid`로 서 있는 행.
+    await prisma.importRow.update({ where: { id: targetRow.id }, data: { categoryId: foreignCategoryId } });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/imports/${job.id}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ selectedRowIds: rows.map((row) => row.id) })
+      .expect(400)
+      .expect(({ body }) => {
+        // 계약 안에서 해결한다 — 넓힌 것은 `errorResponseSchema`가 처음부터 갖고 있던 `details`다.
+        errorResponseSchema.parse(body);
+        // 코드·문장은 지출 생성의 단일 소스가 쓰던 그대로다(여기서 베끼지 않았다).
+        expect(body.error.code).toBe("EXPENSE_CATEGORY_INVALID");
+        expect(body.error.message).toBe("존재하지 않는 카테고리예요. 카테고리를 다시 선택해 주세요.");
+        // 그리고 **어느 행인지**를 말한다.
+        expect(body.error.details.failedRowCount).toBe(1);
+        expect(body.error.details.failedRows).toEqual([
+          { rowId: targetRow.id, rowIndex: targetRow.rowIndex, reason: "EXPENSE_CATEGORY_INVALID" }
+        ]);
+
+        // ⚠️ 개인정보: 봉투에는 **우리가 만든 값**만 있다(`import.confirm` 감사 봉투와 같은 규율).
+        const envelope = JSON.stringify(body);
+        expect(envelope).not.toContain(fileName);
+        expect(envelope).not.toContain("기저귀");
+        expect(envelope).not.toContain("분유");
+        expect(envelope).not.toContain("32000");
+        expect(envelope).not.toContain("33000");
+      });
+
+    // 전량 롤백: 지출 0건 · 잡은 여전히 검수 중이라 고친 뒤 다시 누를 수 있다.
+    expect(await prisma.expense.count({ where: { importJobId: job.id } })).toBe(0);
+    await request(app.getHttpServer())
+      .get(`/api/v1/imports/${job.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.status).toBe("preview_ready");
+        expect(body.importedCount).toBe(0);
+      });
+
+    await prisma.importRow.update({ where: { id: targetRow.id }, data: { categoryId } });
+    await prisma.category.deleteMany({ where: { householdId: { in: [householdId, otherHouseholdId] } } });
   });
 
   // API-130: 형식 판정이 파일명 확장자에만 기대던 것을 (1) mimetype 1차 관문과
