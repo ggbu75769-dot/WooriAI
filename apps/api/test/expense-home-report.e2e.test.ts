@@ -244,6 +244,13 @@ describe("Expense, budget, home, and report API", () => {
     // CS-101(라운드 56 트랙 C): 수정도 삭제와 같은 형식으로 남는다. before/after가
     // 없으면 "금액이 혼자 바뀌었어요" 문의에 어드민이 답할 근거가 없다 —
     // 바뀐 값(49,800 → 59,800)이 스냅샷 양쪽에 실제로 담겨야 한다.
+    //
+    // 라운드 107 트랙 A(정찰 S1-1): **그 근거는 그대로 두고 자유 문자열만 뺐다.**
+    // 종전 이 단언은 `memo: "첫 기록"` → `"수정된 기록"`을 봉투에서 확인했다 — 그 값이
+    // 봉투에 있었다는 사실이 곧 결함이었다(730일 보관 · 어드민 뷰어·CSV 노출 · 탈퇴 후 잔존).
+    // 지금은 **금액 두 개**로 같은 질문에 답하고, 메모를 건드렸다는 사실은 `changed`가
+    // **축 이름으로만** 남긴다. 봉투의 키는 `id`가 아니라 `expenseId`다
+    // (`toExpenseAuditSnapshot` — 감사 전용 모양이고 응답 DTO가 아니다).
     const updateEntry = auditLogger.entries.find(
       (entry) => entry.action === "expense.update" && entry.targetId === created.id
     );
@@ -252,9 +259,40 @@ describe("Expense, budget, home, and report API", () => {
       actorUserId: userId,
       householdId,
       targetType: "expense",
-      before: expect.objectContaining({ id: created.id, amountKrw: 49800, memo: "첫 기록", version: 1 }),
-      after: expect.objectContaining({ id: created.id, amountKrw: 59800, memo: "수정된 기록", version: 2 })
+      before: expect.objectContaining({ expenseId: created.id, amountKrw: 49800, categoryId, version: 1 }),
+      after: expect.objectContaining({
+        expenseId: created.id,
+        amountKrw: 59800,
+        categoryId,
+        version: 2,
+        // `changed`는 **이 요청이 실은 축**이다(custom_category.update와 같은 규율).
+        changed: ["amountKrw", "memo"]
+      })
     });
+
+    const deleteEntry = auditLogger.entries.find(
+      (entry) => entry.action === "expense.delete" && entry.targetId === created.id
+    );
+    // 삭제 봉투에는 `changed`가 없다 — 지운 요청에는 "어느 축을 건드렸나"라는 질문이 없다.
+    expect(deleteEntry!.after).not.toHaveProperty("changed");
+
+    /**
+     * **부정 단언 — 이 라운드의 요점.** 이 픽스처가 실제로 적어 넣은 자유 문자열
+     * ("기저귀"·"맘마마트"·"첫 기록"·"수정된 기록")이 이 지출의 감사 봉투 **어디에도**
+     * 직렬화되지 않는다. 키 이름이 아니라 **값의 원문**을 찾으므로, 다음 라운드가 같은 값을
+     * 다른 키로 옮겨 담아도 여기서 잡힌다.
+     *
+     * `createdByUserId`도 함께 센다: 봉투 안의 계정 연결값은 파기 잡 phase 3
+     * (`actor_user_id`만 null)을 비켜 가므로 탈퇴 후에도 남는 축이다.
+     */
+    const expenseEnvelopes = JSON.stringify(
+      auditLogger.entries
+        .filter((entry) => entry.targetId === created.id)
+        .map((entry) => [entry.before, entry.after])
+    );
+    for (const raw of ["기저귀", "맘마마트", "첫 기록", "수정된 기록", userId]) {
+      expect(expenseEnvelopes).not.toContain(raw);
+    }
   });
 
   it("derives home recentExpenses (newest 3) and totalExpenseKrw (all-time sum) consistently from the same expense set (PERF-103)", async () => {

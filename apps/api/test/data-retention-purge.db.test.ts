@@ -1079,6 +1079,154 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
     });
   });
 
+  /**
+   * 라운드 107 트랙 A(정찰 S1-1): 옛 지출 감사 봉투에 남아 있는 **사용자 자유 문자열**을
+   * phase 12가 제자리에서 씻는다. phase 5와 같은 형식(마스킹이지 파기가 아니다 · 선택 술어가
+   * 곧 "아직 들고 있다"라 멱등·자기 종료)이라, 여기서 세는 것도 그 테스트와 같은 넷이다:
+   * ① 씻긴다 ② 남아야 할 축은 남는다 ③ 두 번째 틱은 0건이고 표식이 덮어써지지 않는다
+   * ④ 다른 action·이미 씻긴 행은 손대지 않는다.
+   */
+  describe("legacy expense-snapshot scrub (phase 12, 정찰 S1-1)", () => {
+    /** 라운드 107 이전 쓰기 경로가 남기던 그대로의 봉투. */
+    async function createLegacyExpenseAudit(action: string, itemName: string, memo: string) {
+      return prisma.auditLog.create({
+        data: {
+          actorUserId: null,
+          action,
+          targetType: "expense",
+          beforeJson: {
+            id: "11111111-1111-4111-8111-111111111111",
+            childId: "22222222-2222-4222-8222-222222222222",
+            categoryId: "44444444-4444-4444-8444-444444444444",
+            amountKrw: 49800,
+            spentOn: "2026-07-06",
+            itemName,
+            merchant: "맘마마트",
+            paymentMethod: "card",
+            memo,
+            expenseType: "expense",
+            source: "manual",
+            createdByUserId: "77777777-7777-4777-8777-777777777777",
+            version: 1
+          },
+          afterJson: {
+            id: "11111111-1111-4111-8111-111111111111",
+            amountKrw: 59800,
+            itemName,
+            memo,
+            version: 2
+          }
+        }
+      });
+    }
+
+    /**
+     * 이 phase가 끝날 때까지 틱을 돌리고 씻은 총 건수를 돌려준다.
+     *
+     * ⚠️ 왜 한 번의 `job.run`으로는 부족한가: 이 스윕은 **오래된 행부터** `DEFAULT_PURGE_BATCH_SIZE`
+     * 만큼만 집는다. 테스트 DB는 실행 사이에 초기화되지 않으므로, 라운드 107 이전 코드가 남긴
+     * 옛 봉투가 이미 배치 한 개를 넘게 쌓여 있다(실측: 첫 실행에서 209건). 그 백로그를 먼저
+     * 비우지 않으면 **가장 새 행인 이 픽스처가 첫 틱에 닿지 않는다** — 이 헬퍼가 없으면
+     * 테스트가 코드가 아니라 DB 이력에 따라 갈린다.
+     */
+    async function drainExpenseSnapshotScrub(from: Date): Promise<number> {
+      let total = 0;
+      for (let tick = 0; tick < 50; tick += 1) {
+        const summary = await job.run(new Date(from.getTime() + tick * 1000));
+        const scrubbed = summary.expenseSnapshotsScrubbed as number;
+        total += scrubbed;
+        if (scrubbed === 0) return total;
+      }
+      throw new Error("phase 12가 50틱 안에 끝나지 않았다 — 자기 종료 계약이 깨졌다");
+    }
+
+    it("자유 문자열·기록자 연결값만 지우고 금액·날짜·분류·버전은 남긴다 (수정·삭제 두 action)", async () => {
+      const now = new Date();
+      const itemName = `purge-s1-1-품목-${randomUUID()}`;
+      const memo = `purge-s1-1-메모-${randomUUID()}`;
+      const update = await createLegacyExpenseAudit("expense.update", itemName, memo);
+      const remove = await createLegacyExpenseAudit("expense.delete", itemName, memo);
+
+      // 자기 종료 계약을 여기서 함께 센다: 반드시 0건 틱으로 끝난다.
+      expect(await drainExpenseSnapshotScrub(now)).toBeGreaterThanOrEqual(2);
+
+      for (const id of [update.id, remove.id]) {
+        const row = await prisma.auditLog.findUnique({ where: { id } });
+        // 행 자체는 남는다 — 감사 로그는 법적·운영 기록이다(이것은 파기가 아니다).
+        expect(row).not.toBeNull();
+        const before = row?.beforeJson as Record<string, unknown>;
+        const after = row?.afterJson as Record<string, unknown>;
+        for (const key of ["itemName", "merchant", "memo", "createdByUserId"]) {
+          expect(before[key]).toBeUndefined();
+        }
+        // 감사가 답해야 하는 축은 그대로다 — "금액이 혼자 바뀌었어요"는 여전히 답이 된다.
+        expect(before.amountKrw).toBe(49800);
+        expect(before.spentOn).toBe("2026-07-06");
+        expect(before.categoryId).toBe("44444444-4444-4444-8444-444444444444");
+        expect(before.version).toBe(1);
+        expect(after.amountKrw).toBe(59800);
+        expect(after.version).toBe(2);
+        // 정직한 표식: 이 봉투는 기록 당시의 모양이 아니라 나중에 다시 쓰인 것이다.
+        expect(typeof before.snapshotScrubbedAt).toBe("string");
+        expect(typeof after.snapshotScrubbedAt).toBe("string");
+        // 부정 단언: 원문이 어느 칸에도 부분 문자열로조차 남지 않는다.
+        expect(JSON.stringify([before, after])).not.toContain(itemName);
+        expect(JSON.stringify([before, after])).not.toContain(memo);
+      }
+
+      // 멱등: 다음 틱은 이 행들을 아예 고르지 않고 표식도 덮어쓰지 않는다.
+      const scrubbedAt = ((await prisma.auditLog.findUnique({ where: { id: update.id } }))
+        ?.beforeJson as Record<string, unknown>).snapshotScrubbedAt;
+      const second = await job.run(new Date(now.getTime() + 60_000));
+      expect(second.expenseSnapshotsScrubbed).toBe(0);
+      expect(
+        ((await prisma.auditLog.findUnique({ where: { id: update.id } }))?.beforeJson as Record<string, unknown>)
+          .snapshotScrubbedAt
+      ).toBe(scrubbedAt);
+
+      await prisma.auditLog.deleteMany({ where: { id: { in: [update.id, remove.id] } } });
+    });
+
+    it("이미 씻긴 지출 행과 다른 action의 행은 손대지 않는다", async () => {
+      const now = new Date();
+      // 옛 행 백로그를 먼저 비운다(위 헬퍼의 이유) — 그래야 아래 0건이 이 픽스처에 대한 사실이 된다.
+      await drainExpenseSnapshotScrub(now);
+      // 라운드 107 이후의 쓰기 경로가 남기는 모양 — 지울 키가 하나도 없다.
+      const fresh = await prisma.auditLog.create({
+        data: {
+          action: "expense.update",
+          targetType: "expense",
+          beforeJson: { expenseId: "11111111-1111-4111-8111-111111111111", amountKrw: 1000, version: 1 },
+          afterJson: { expenseId: "11111111-1111-4111-8111-111111111111", amountKrw: 2000, version: 2, changed: ["amountKrw"] }
+        }
+      });
+      // 같은 이름의 키를 정당하게 들고 있는 다른 action(어드민이 스스로 적은 카탈로그 문자열).
+      const otherAction = await prisma.auditLog.create({
+        data: {
+          action: "admin.item_template.update",
+          targetType: "item_template",
+          afterJson: { itemName: "기저귀", memo: "어드민 메모" }
+        }
+      });
+
+      const summary = await job.run(new Date(now.getTime() + 60_000));
+      expect(summary.expenseSnapshotsScrubbed).toBe(0);
+
+      expect((await prisma.auditLog.findUnique({ where: { id: fresh.id } }))?.afterJson).toEqual({
+        expenseId: "11111111-1111-4111-8111-111111111111",
+        amountKrw: 2000,
+        version: 2,
+        changed: ["amountKrw"]
+      });
+      expect((await prisma.auditLog.findUnique({ where: { id: otherAction.id } }))?.afterJson).toEqual({
+        itemName: "기저귀",
+        memo: "어드민 메모"
+      });
+
+      await prisma.auditLog.deleteMany({ where: { id: { in: [fresh.id, otherAction.id] } } });
+    });
+  });
+
   // SEC-130: time-based telemetry retention. Unlike phases 1-4 these tables
   // hold no tombstones — every row is live telemetry that only ever grows, so
   // the cutoff is the row's own timestamp and the default window is much

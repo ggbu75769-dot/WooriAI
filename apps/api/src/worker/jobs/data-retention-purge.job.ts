@@ -251,6 +251,39 @@ export const POISON_FAILURE_THRESHOLD = 3;
  */
 export const LOOKUP_SEARCH_ACTION = "admin.user_lookup.search";
 
+/**
+ * Phase 12 (라운드 107 트랙 A): audit actions whose before/after envelopes used to
+ * carry the user's own free text. Not exported — nothing outside this job needs
+ * it, and the write-path allow-list that replaced it lives in
+ * `onboarding/store-shared.ts` (`toExpenseAuditSnapshot`).
+ */
+const EXPENSE_SNAPSHOT_ACTIONS = ["expense.update", "expense.delete"];
+
+/**
+ * Phase 12: the envelope keys the sweep removes.
+ *  · `itemName`/`merchant`/`memo` — 사용자 자유 문자열(이 라운드가 쓰기 경로에서 뺀 그 셋).
+ *  · `createdByUserId` — 봉투 안의 계정 연결값. phase 3이 `actor_user_id`만 null로 만들기 때문에
+ *    이 사본은 탈퇴 파기를 비켜 간다.
+ * `id`는 **지우지 않는다** — 옛 봉투의 지출 식별자이고, 감사 행의 `target_id`가 이미 같은 값을
+ * 들고 있어(=식별성이 더해지지 않는다) 지우면 옛 행만 읽기 어려워질 뿐이다.
+ */
+const EXPENSE_SNAPSHOT_SCRUB_KEYS = ["itemName", "merchant", "memo", "createdByUserId"];
+
+/**
+ * Phase 12의 순수 부분: 봉투 한 칸에서 위 키를 지우고 정직한 표식을 붙인다.
+ * 지울 키가 하나도 없었으면 `null`을 돌려주고 호출부가 그 칸을 **손대지 않는다**
+ * (한쪽 칸만 옛 모양인 행이 실제로 있다 — 삭제 봉투의 `after`처럼).
+ */
+function scrubExpenseEnvelope(envelope: Record<string, unknown> | null, now: Date): Record<string, unknown> | null {
+  if (!envelope) return null;
+  const present = EXPENSE_SNAPSHOT_SCRUB_KEYS.filter((key) => key in envelope);
+  if (present.length === 0) return null;
+  const scrubbed: Record<string, unknown> = { ...envelope };
+  for (const key of present) delete scrubbed[key];
+  scrubbed.snapshotScrubbedAt = now.toISOString();
+  return scrubbed;
+}
+
 // Per-phase in-memory escalation state (job instance field — resets on
 // restart, which is fine: a genuinely poisoned row keeps failing and the
 // counter re-accumulates within POISON_FAILURE_THRESHOLD ticks).
@@ -668,6 +701,48 @@ function errorMessage(error: unknown): string {
  *     correct (neither predicate depends on the other's effect), but this one
  *     keeps the phase-9 counters reading as they always did.
  *
+ * 12. 지출 감사 봉투에 남은 **자유 문자열**(라운드 107 트랙 A / 정찰 S1-1) — phase 5·11과 같은
+ *     **마스킹이지 파기가 아니다**. `expense.update`·`expense.delete`의 `before_json`/`after_json`은
+ *     사용자가 손으로 적은 `itemName`·`merchant`·`memo`를 **원문으로** 담고 있었다. 쓰기 경로는
+ *     이 라운드에서 `toExpenseAuditSnapshot`(onboarding/store-shared.ts)으로 바뀌어 **새 행에는
+ *     그 세 축이 없다**. 문제는 이미 쌓인 행이다:
+ *
+ *     · phase 3(탈퇴 사용자)은 `actorUserId`만 null로 만들고 봉투 안은 손대지 않는다 —
+ *       즉 **계정을 삭제해도** 그 문자열이 730일(phase 8의 창) 살아남았다.
+ *     · 그 사이 어드민 감사 뷰어 JSON과 그 화면의 CSV(최대 1,000행/파일)로 계속 나갔다.
+ *     · 탈퇴한 사용자로부터 그 행에 **닿을 수 없다**: 봉투 안의 `childId`/`expenseId`가 가리키는
+ *       행은 phase 1~4가 이미 물리 파기했으므로, per-user 스코프로는 찾을 방법이 없다.
+ *       phase 5가 옛 검색어를 두고 내린 판단과 **같은 구조의 사실**이다.
+ *
+ *     그래서 phase 5와 **같은 형식**의 일회성·자기 종료 스윕이다. 선택 술어가 곧 *"이 행은 아직
+ *     자유 문자열을 들고 있다"* (`jsonb_exists_any`)이므로, 한 번 씻긴 행은 다시 보이지 않아
+ *     멱등하고 스스로 끝난다. 인덱스는 `idx_audit_logs_action_created`(action, created_at)를
+ *     그대로 타고 정렬은 다른 모든 phase와 같은 `(created_at, id)` 전순서라 halved retry ·
+ *     poison-skip 기계가 그대로 돈다. **새 인덱스도 새 마이그레이션도 없다.**
+ *
+ *     **SQL 마이그레이션 대신 phase를 고른 이유**는 phase 5가 적어 둔 그것과 글자 그대로 같다:
+ *     `audit_logs`는 상한이 없는 표이고, 그 위의 단일 UPDATE는 이 잡이 피하려고 존재하는 바로
+ *     그 긴 락이다. 그리고 롤아웃이 진행되는 동안 옛 배포가 쓰는 행까지 이 phase가 잡는다.
+ *
+ *     **되돌릴 수 없다**(phase 5·11과 동일). 지워지는 것은 사용자 자유 문자열의 사본이고
+ *     원본 지출 행이 아니다 — 살아 있는 지출은 `expenses` 표에 그대로 있고, 이미 파기된 지출의
+ *     문자열은 애초에 남아 있으면 안 되는 값이다. 감사가 답해야 하는 *"누가 언제 무엇을 바꿨나"* 는
+ *     봉투에 남는 축(금액·날짜·분류 id·버전·행위자·시각)으로 그대로 답한다.
+ *
+ *     `createdByUserId`도 같은 스윕에서 뺀다 — 봉투 **안**의 계정 연결값은 phase 3의 파기를
+ *     비켜 가므로, 그것을 남겨 두면 방침 문장(privacy-policy §3)이 계속 거짓이 된다.
+ *     씻긴 행에는 phase 5의 관례대로 정직한 표식(`snapshotScrubbedAt`)을 남긴다 — 이 봉투는
+ *     **기록 당시의 모양이 아니라 나중에 다시 쓰인 것**이라는 사실을 읽는 쪽이 알아야 한다.
+ *
+ *     Caveat는 phase 5와 같다: 워커가 도는 배포에서만 돈다(WORKER_ENABLED).
+ *     워커를 켜지 않는 배포의 일회성 대안은
+ *     `UPDATE audit_logs SET before_json = before_json - 'itemName' - 'merchant' - 'memo' …`
+ *     이고, 이는 새 노출이 아니라 docs/operations/known-limitations.md의 그 트레이드오프 그대로다.
+ *
+ *     Ordering note: phase 8(730일 파기) **뒤**가 아니라 phase 11 뒤에 둔다 — 창 밖 행은 phase 8이
+ *     이미 지웠고, 이 phase가 볼 수 있는 것은 창 안에 남은 행뿐이다. 두 순서 다 옳지만
+ *     이 순서는 파기가 실패한 틱에도 자유 문자열을 남기지 않는다(phase 8의 ordering note와 같은 이유).
+ *
  * ---
  * 시간 창이 **없는** 표는 둘이고, 각각 이유가 다르다 (GAP-068 #8). 이 목록 자체가 답이다 —
  * 여기에 없는 표는 위 phase 중 하나가 덮고 있고, 여기 있는 둘은 **판정을 받은 뒤 남은 것**이지
@@ -819,6 +894,14 @@ export class DataRetentionPurgeJob implements WorkerJob {
       (size, skip) => this.maskImportJobHeaders(importRowsCutoff, size, skip),
       { importJobHeadersMasked: 0 }
     );
+    // Phase 12 (라운드 107 트랙 A / 정찰 S1-1): 옛 지출 감사 봉투에 남은 자유 문자열.
+    // phase 8 뒤에 둔다(클래스 문서 item 12의 ordering note).
+    const expenseSnapshots = await this.runPhase(
+      "expenseSnapshotScrub",
+      batchSize,
+      (size, skip) => this.scrubLegacyExpenseSnapshots(now, size, skip),
+      { expenseSnapshotsScrubbed: 0 }
+    );
 
     const summary = {
       retentionDays,
@@ -841,7 +924,8 @@ export class DataRetentionPurgeJob implements WorkerJob {
       // 두 숫자를 뭉치면 다음 사람이 "지운 수"를 잘못 읽는다(클래스 문서 item 10a).
       ...householdInviteExpiry,
       ...householdInvites,
-      ...importJobHeaders
+      ...importJobHeaders,
+      ...expenseSnapshots
     };
 
     // Review M1b: all phases have run; if any of them failed terminally,
@@ -1332,6 +1416,69 @@ export class DataRetentionPurgeJob implements WorkerJob {
       FROM audit_logs
       WHERE action = ${LOOKUP_SEARCH_ACTION}
         AND after_json ->> 'query' IS NOT NULL
+      ORDER BY created_at ASC, id ASC
+      LIMIT ${limit} OFFSET ${offset}`;
+  }
+
+  /**
+   * Phase 12 (라운드 107 트랙 A / 정찰 S1-1): 옛 `expense.update`·`expense.delete` 감사 봉투에서
+   * 사용자 자유 문자열과 봉투 안의 계정 연결값을 지운다(클래스 문서 item 12).
+   *
+   * phase 5(`scrubLegacyLookupQueries`)와 **같은 형식**이다 — 새 설계가 아니다:
+   * 선택 술어가 곧 *"아직 그 키를 들고 있다"* 라 멱등·자기 종료이고, 정렬은
+   * `(created_at, id)` 전순서라 halved retry / poison-skip이 그대로 돈다.
+   *
+   * 표식(`snapshotScrubbedAt`)은 phase 5의 `queryScrubbedAt`과 같은 이유로 남긴다:
+   * 이 봉투는 **기록 당시의 모양이 아니라 나중에 다시 쓰인 것**이라는 사실을 읽는 쪽이 알아야
+   * 한다. 두 칸(before/after) 중 실제로 키가 있던 쪽만 다시 쓰고, 없던 칸은 손대지 않는다
+   * (`null`인 `before_json`을 `{}`로 만들면 없던 정보가 새로 생긴 것처럼 보인다).
+   */
+  private async scrubLegacyExpenseSnapshots(now: Date, batchSize: number, skip: number) {
+    if (skip > 0) {
+      const skipped = await this.selectLegacyExpenseSnapshotRows(skip, 0);
+      this.logPoisonSkippedRows("expenseSnapshotScrub", "audit_logs", skipped.map((row) => row.id));
+    }
+    const rows = await this.selectLegacyExpenseSnapshotRows(batchSize, skip);
+    if (rows.length === 0) {
+      return { expenseSnapshotsScrubbed: 0 };
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      let expenseSnapshotsScrubbed = 0;
+      for (const row of rows) {
+        const before = scrubExpenseEnvelope(row.before_json, now);
+        const after = scrubExpenseEnvelope(row.after_json, now);
+        await tx.auditLog.update({
+          where: { id: row.id },
+          data: {
+            ...(before === null ? {} : { beforeJson: before as Prisma.InputJsonValue }),
+            ...(after === null ? {} : { afterJson: after as Prisma.InputJsonValue })
+          }
+        });
+        expenseSnapshotsScrubbed += 1;
+      }
+      return { expenseSnapshotsScrubbed };
+    }, PURGE_TX_OPTIONS);
+  }
+
+  /**
+   * Phase-12 candidate selection: 지출 감사 행 중 **아직 자유 문자열 칸을 들고 있는** 행만,
+   * 오래된 것부터 id 타이브레이커와 함께. `jsonb_exists_any`는 `?|` 연산자의 함수 형태다 —
+   * 물음표가 드라이버의 파라미터 자리와 헷갈릴 여지를 아예 만들지 않으려고 함수로 쓴다.
+   * `offset`은 다른 phase와 같은 poison-skip 창이다.
+   */
+  private selectLegacyExpenseSnapshotRows(
+    limit: number,
+    offset: number
+  ): Promise<{ id: string; before_json: Record<string, unknown> | null; after_json: Record<string, unknown> | null }[]> {
+    return this.prisma.$queryRaw`
+      SELECT id, before_json, after_json
+      FROM audit_logs
+      WHERE action = ANY(${EXPENSE_SNAPSHOT_ACTIONS})
+        AND (
+          jsonb_exists_any(before_json, ${EXPENSE_SNAPSHOT_SCRUB_KEYS})
+          OR jsonb_exists_any(after_json, ${EXPENSE_SNAPSHOT_SCRUB_KEYS})
+        )
       ORDER BY created_at ASC, id ASC
       LIMIT ${limit} OFFSET ${offset}`;
   }
