@@ -2095,7 +2095,14 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 같다). 그래서 자란 것은 사용이 아니라 **오독 표면**이고, 주석의 마침표를 지우는 쪽으로
     // 이 수를 되돌리지 않았다 — 문장을 스캐너에 맞춰 비트는 것보다 사실을 적는 쪽이 낫고,
     // 이 자가 스스로 하한이라고 말하는 이유가 바로 이 오독이기 때문이다.
-    value: 242,
+    // 두 시점(라운드 108 트랙 T20): 242 → 243 — formatSpentOn 하나뿐이다(f42b6ad 워크트리와
+    // 이름 집합을 정렬해 diff 한 실측). ⚠️ **여기에도 실제 속성/키 자리는 0건이다** —
+    // `.formatSpentOn` 도 `formatSpentOn:` 도 저장소에 없다. 걸린 이유는
+    // app/expenses/[expenseId].tsx 의 import 목록에서 그 이름 **바로 윗줄 주석이 `).` 로
+    // 끝나기** 때문이다(`.\n  이름` 이 속성 접근 모양으로 읽힌다). 라운드 101 햅틱 셋 ·
+    // 라운드 107 revokeOutgoingSessionOnServer 와 **정확히 같은 길**로, 세 번째 사례다.
+    // 자란 것은 사용이 아니라 오독 표면이고, 이번에도 주석을 비틀어 되돌리지 않았다.
+    value: 243,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +
@@ -2214,7 +2221,13 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // src/ui/haptics.ts(주석의 "package's")와 app/settings/amount-presets.tsx(주석의 '원' —
     // R101-F6a)가 ASCII '를 지닌 채 표면에 들어왔다. 실피해는 오늘도 0건이다
     // (apostropheMaskedCodeSites() 실측 — 둘 다 주석 안이라 문자열 마스킹 전에 지워진다).
-    value: 109,
+    // 두 시점(라운드 108 트랙 T10·T20): 109 → 111(f42b6ad 워크트리와 파일 목록을 정렬해 diff 한
+    // 실측 — 순증은 이 둘뿐). app/(onboarding)/budget.tsx 는 주석이 인용한 영문
+    // ("so the field's placeholder keeps showing" — money.ts 의 기존 근거 문장을 그대로 옮겨
+    // 적었다)로, app/budget.tsx 는 주석의 '원' 으로 표면에 들어왔다. 뒤엣것은 라운드 101 의
+    // amount-presets.tsx 와 **글자까지 같은 이유**다. 실피해는 오늘도 0건이다
+    // (apostropheMaskedCodeSites() 실측 — 둘 다 주석 안이라 문자열 마스킹 전에 지워진다).
+    value: 111,
     floor: 60,
     statement:
       "⚠️⚠️ **같은 거짓 빨강의 둘째 문 — 이번엔 참조가 아니라 *스캐너*가 낸다**(라운드 90 리뷰 M-3). " +

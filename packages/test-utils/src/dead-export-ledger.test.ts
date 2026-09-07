@@ -996,8 +996,11 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // revokeOutgoingSessionOnServer 하나). ⚠️ 앞의 다섯 번과 달리 이번 하나에는 **실제 속성/키
     // 자리가 0건**이다: 호출 직전 주석 줄이 마침표로 끝나 `.\n이름`이 속성 접근으로 읽힌
     // 라운드 101 햅틱 셋과 같은 오독 표면이다(대장 value도 함께 242로 적음).
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(242);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(242);
+    // 라운드 108 T20 이 243 으로 하나 더 올렸다(두 시점 — 워크트리 대조 실측, 순증은
+    // formatSpentOn 하나). 실제 속성/키 자리는 또 0건이고, 원인은 import 목록에서 그 이름
+    // 윗줄 주석이 마침표로 끝난 것 — 같은 오독의 **세 번째** 사례다.
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(243);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(243);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.
@@ -1037,8 +1040,11 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // 들어왔다(수정 전 0 → 후 1, git 대조 실측). 실피해 0은 그대로다.
     // 라운드 101 리뷰: 107 → 109 — src/ui/haptics.ts("package's")와 app/settings/amount-presets.tsx
     // ('원' — F6a)가 주석에 ASCII '를 지닌 채 들어왔다(git 워크트리 대조 실측). 실피해 0은 그대로다.
-    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(109);
-    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(109);
+    // 라운드 108 T10·T20: 109 → 111 — app/(onboarding)/budget.tsx(주석이 인용한 영문
+    // "field's")와 app/budget.tsx(주석의 '원' — 라운드 101 amount-presets.tsx 와 같은 이유)가
+    // ASCII '를 지닌 채 표면에 들어왔다. 실피해는 오늘도 0건이다.
+    expect(spotOf("jsx-apostrophe-string-masking")?.value, "적어 둔 표면").toBe(111);
+    expect(apostropheBearingCallsiteFiles().length, "오늘 다시 잰 표면").toBe(111);
     // ⚠️ 이 등호는 우연이 아니다(M-4의 그 등호와 다르다): 0을 넘는 날 사문 판정 하나가 **거짓
     // 빨강**이므로, 빨개지는 것이 곧 알려야 할 사실이다. 그때의 답은 대장에 줄을 더하는 것이
     // 아니라 이 스캐너가 JSX 텍스트를 코드와 가르는 것이다.
