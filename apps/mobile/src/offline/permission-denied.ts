@@ -86,22 +86,56 @@ export function syncFailureReasonOf(error: unknown): SyncFailureReason {
  *    같은 요청이 통과한다. 이 셋까지 "무익"이라고 말하면 그 자체가 허위 안내다.
  *  - 그 밖의 4xx(400 검증 거부·상한 초과, 403 권한, 404, 422 …) → **불가능**. 로컬 payload가
  *    그대로인 한 서버의 답도 그대로다.
+ *
+ * ## F1 — **409만은 status 하나로 답할 수 없다**
+ *
+ * 종전에는 409가 위 마지막 줄("그 밖의 4xx")로 떨어져 **영구 실패**였고, 그때는 안전한 답이었다:
+ * 이 판정이 아는 것이 status뿐이었고, 409를 통째로 재시도 가능으로 열면 **버전 충돌도 409**라
+ * 사용자가 골라야 하는 3지선다가 자동 재시도에 먹힌다.
+ *
+ * → 이제 `code`를 함께 본다. 재료는 이미 갖춰져 있었다 — 행은 v2 컬럼에 `lastErrorCode`를
+ * 저장하고 있고(sqlite-offline-store.ts), `syncFailureReasonOf`가 그 값을 만든다.
+ *
+ * 갈라야 하는 이유(실측): 서버의 멱등 인터셉터는 409에 `IDEMPOTENCY_KEY_CONFLICT`를 싣고
+ * **"잠시 후 다시 시도해 주세요"** 라고 말한다(apps/api …/idempotency/idempotency.interceptor.ts
+ * — 예약이 아직 처리 중이거나 앞선 시도가 실패해 회수된 경우). 모바일 쓰기 타임아웃 10초는 서버
+ * 예약 수명(10분)보다 짧아, 10초에 끊긴 요청의 핸들러가 서버에서 더 살아 있는 창이 실재한다.
+ * 그 창에서 도착한 409를 영구 실패로 굳히면 화면은 재시도 버튼을 걷고 *"내용을 고쳐 새로
+ * 기록하거나 버려 주세요"* 를 세우는데, **원본이 실제로 커밋된 경우 그 안내를 따르면 같은 지출이
+ * 두 건**이 된다. 반대로 같은 키·같은 본문의 재전송은 정의상 안전하다 — 서버가 첫 응답을 그대로
+ * 재생한다.
+ *
+ * ⚠️ **`code`를 모르면(null·undefined) 409는 종전 그대로 영구 실패다.** VERSION_CONFLICT는
+ * 물론이고, v2 이전 행·프록시가 만든 봉투 없는 409도 이 판정을 통과하지 못한다 — 모르는 409를
+ * 자동 재시도로 열면 그 판단의 근거가 아무 데도 없다.
  */
 const RETRYABLE_CLIENT_ERROR_STATUSES = new Set([401, 408, 429]);
 
-export function isRetryableSyncError(status: number | null | undefined): boolean {
+/** 409. 상수로 두는 이유는 `FORBIDDEN_STATUS`와 같다 — 아래 판정이 보는 숫자를 코드로 못 박는다. */
+const CONFLICT_STATUS = 409;
+
+/** 409 중 **재시도가 유효한** 서버 코드. 집합으로 두는 이유는 "409 전체"와 결코 같지 않다는
+ * 사실을 형태로 남기기 위해서다(VERSION_CONFLICT는 여기에 들어오지 않는다 — 그 행은 애초에
+ * 실패가 아니라 충돌 섹션으로 가고, 사유도 비워진다: sync-engine.ts). */
+const RETRYABLE_CONFLICT_CODES = new Set(["IDEMPOTENCY_KEY_CONFLICT"]);
+
+export function isRetryableSyncError(status: number | null | undefined, code?: string | null): boolean {
   if (status == null) return true;
   if (status >= 500) return true;
+  if (status === CONFLICT_STATUS) return typeof code === "string" && RETRYABLE_CONFLICT_CODES.has(code);
   return RETRYABLE_CLIENT_ERROR_STATUSES.has(status);
 }
 
 /**
  * 행 단위 판정. status를 모르는 레거시 행은 **재시도 가능**으로 본다 — 예전에는 403을 뺀 모든
  * 실패 행에 재시도 버튼이 있었고, 그 행들의 동작을 이제 와서 좁히지 않는다.
+ *
+ * F1: 행이 들고 있는 `lastErrorCode`도 함께 넘긴다. 종전에는 status 하나만 넘겼고(그때는 판정이
+ * status만 물었다), 그래서 409 행은 코드가 무엇이든 같은 답을 받았다.
  */
 export function isRetryableSyncFailureRow(row: SyncFailureRow | null | undefined): boolean {
   if (!row) return true;
-  return isRetryableSyncError(row.lastErrorStatus);
+  return isRetryableSyncError(row.lastErrorStatus, row.lastErrorCode);
 }
 
 /**

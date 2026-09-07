@@ -10,6 +10,7 @@ import {
   CONFLICT_OPTION_ADOPT_SERVER_LABEL,
   CONFLICT_OPTION_REAPPLY_MINE_LABEL,
   CONFLICT_OPTION_VIEW_SIDE_BY_SIDE_LABEL,
+  deletedConflictRowCopy,
   failedRowDeletedChildNotice,
   FAILED_ROW_OTHER_CHILD_NOTICE,
   OFFLINE_STORAGE_UNAVAILABLE_NOTICE,
@@ -274,11 +275,28 @@ function ConflictRow({
   // 라운드 104 B-5: 훅은 조기 반환 위에서 부른다(아래 삭제-충돌 갈래가 먼저 돌아간다).
   const resolveFailure = useRecoveryActionFailure();
   if (!row.conflictCurrent || row.conflictCurrent.deleted) {
+    /**
+     * F3·F4 — 이 갈래가 말해야 하는 것이 **로컬 변경의 종류에 따라 갈린다.**
+     *
+     * 종전에는 갈래 하나에 인라인 리터럴 한 줄("다른 기기에서 이 기록을 삭제했어요.")뿐이었고,
+     * 그때는 참이었다: 화면이 상정한 묘비 충돌은 로컬 수정 vs 서버 삭제 하나였다.
+     *
+     * → 이제 `pendingDelete`로 갈린다. 삭제 vs 삭제에서는 두 선택지가 같은 결과(삭제 확정)로
+     * 모이고(sync-engine.ts `resolveConflictReapplyMine`), 수정 vs 삭제에서는 "내 변경 다시
+     * 적용"이 **새 기록을 만든다** — 설계 문서 §3.4가 안내를 요구해 둔 그 사실이다. 문장은
+     * 화면이 짓지 않는다(messages.ts가 단일 소스).
+     *
+     * `conflictCurrent`가 null인 행도 종전 그대로 이 갈래에 남는다(두 해소 함수가 모두
+     * 'failed'로 폴백한다). 그 행에는 `pendingDelete`가 무엇이든 "서버가 지웠다"를 단언할 수
+     * 없으므로, 갈래 판정은 **묘비가 실제로 있을 때만** 삭제-대-삭제로 본다.
+     */
+    const deletedCopy = deletedConflictRowCopy(Boolean(row.conflictCurrent?.deleted) && row.pendingDelete);
     return (
       <SyncRow row={row}>
         {/* A11Y-117: 12px 배너 -- coral[500]은 흰 카드 위 3.16:1(AA 미달), coral[700]은 5.56:1 */}
         <Text style={{ color: theme.colors.coral[700], fontSize: 12, fontWeight: "700" }}>{CONFLICT_BANNER_MESSAGE}</Text>
-        <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>다른 기기에서 이 기록을 삭제했어요.</Text>
+        <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{deletedCopy.fact}</Text>
+        <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{deletedCopy.outcome}</Text>
         <RecoveryActionFailureLine visible={resolveFailure.failed} />
         <View style={{ flexDirection: "row", gap: 8 }}>
           <SecondaryButton

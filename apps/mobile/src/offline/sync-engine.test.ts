@@ -96,7 +96,7 @@ describe("sync-engine: recordLocalCreate + flushOutbox", () => {
     const summary = await flushOutbox(store, remote);
 
     expect(order).toEqual(["첫번째", "두번째", "세번째"]);
-    expect(summary).toEqual({ synced: 3, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 3, createdSynced: 3, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     for (const local of [first, second, third]) {
       const row = await store.getLocalExpense(local.localId);
       expect(row?.syncState).toBe("synced");
@@ -141,7 +141,7 @@ describe("sync-engine: recordLocalCreate + flushOutbox", () => {
     const { remote, calls } = createFakeRemote();
     const summary = await flushOutbox(store, remote);
 
-    expect(summary).toEqual({ synced: 20, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 20, createdSynced: 20, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     expect(calls).toHaveLength(20);
     const idempotencyKeys = new Set(calls.map((call) => call.idempotencyKey));
     expect(idempotencyKeys.size).toBe(20);
@@ -164,13 +164,13 @@ describe("sync-engine: recordLocalCreate + flushOutbox", () => {
     const { remote } = createFakeRemote({ permanentFailurePayloadMatch: () => true });
 
     const summary = await flushOutbox(store, remote);
-    expect(summary).toEqual({ synced: 0, failed: 1, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 0, createdSynced: 0, failed: 1, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
     const row = await store.getLocalExpense(created.localId);
     expect(row?.syncState).toBe("failed");
 
     // A second flush pass should skip it (still 'failed', no user action taken yet).
     const secondSummary = await flushOutbox(store, remote);
-    expect(secondSummary).toEqual({ synced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
+    expect(secondSummary).toEqual({ synced: 0, createdSynced: 0, failed: 0, conflicted: 0, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
   });
 });
 
@@ -279,7 +279,7 @@ describe("sync-engine: 409 VERSION_CONFLICT transition", () => {
     const { remote } = createFakeRemote({ conflictOnCanonicalId: { id: synced.canonicalId!, current: currentFromServer } });
 
     const summary = await flushOutbox(store, remote);
-    expect(summary).toEqual({ synced: 0, failed: 0, conflicted: 1, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
+    expect(summary).toEqual({ synced: 0, createdSynced: 0, failed: 0, conflicted: 1, itemStatusSynced: 0, itemStatusFailed: 0, stoppedForNetwork: false });
 
     const row = await store.getLocalExpense(synced.localId);
     expect(row?.syncState).toBe("conflict");
@@ -753,6 +753,8 @@ describe("라운드 51 QA(P3-7) recoverInterruptedSyncState", () => {
 describe("라운드 101 트랙 C: isFlushFullyConfirmed — 확인 시각을 적어도 되는 pass의 판정", () => {
   const summary = (partial: Partial<FlushSummary> = {}): FlushSummary => ({
     synced: 0,
+    // F6: create 확정만 세는 칸. 이 판정(확인 시각)은 이 칸을 읽지 않는다 — 기본값만 채운다.
+    createdSynced: 0,
     failed: 0,
     conflicted: 0,
     itemStatusSynced: 0,
