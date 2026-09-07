@@ -17,6 +17,7 @@ import {
   IMPORT_FILE_TOO_LARGE_MESSAGE
 } from "../common/filters/global-exception.filter";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
+import { importFileNameMaxLength } from "../imports/dto/import.dto";
 import { assertImportFileMatchesExtension, parseImportFile, type ParsedImportRow } from "../imports/import-parser";
 import { PushDispatchService } from "../push/push-dispatch.service";
 import { ChildAccessService } from "./child-access.service";
@@ -80,6 +81,32 @@ function isOverImportTextColumn(value: string | null | undefined): boolean {
  */
 function isOverImportItemNameLimit(value: string | null | undefined): boolean {
   return typeof value === "string" && value.trim().length > IMPORT_ITEM_NAME_MAX_LENGTH;
+}
+
+/**
+ * 상한을 넘는 파일명의 거절 본문. 저장소의 기존 400 형식을 그대로 따른다 —
+ * `VALIDATION_ERROR` + `details.fields[].constraints`(idempotency.interceptor.ts의
+ * `keyTooLongError`, bootstrap.ts의 DTO 거절과 같은 봉투).
+ *
+ * `field`를 `"fileName"`으로 적는 이유: 같은 조건이 본문 필드로 들어오면 `CreateExcelImportDto`가
+ * 이미 그 이름으로 거절한다(실측 본문: `{"code":"VALIDATION_ERROR","details":{"fields":[{"field":"fileName",
+ * "constraints":{"maxLength":…}}]}}`). 두 유입 지점이 같은 이름을 쓰면 클라이언트는 "파일명이
+ * 너무 길다"를 한 가지 분기로 읽는다 — 새 오류 코드를 만들지 않은 것도 같은 이유다(모바일
+ * `api-error.ts`의 코드 표는 다른 트랙 소유라 새 코드는 그쪽에 폴백 문구만 남긴다).
+ */
+function fileNameTooLongError() {
+  return new BadRequestException({
+    code: "VALIDATION_ERROR",
+    message: "요청 값을 다시 확인해주세요.",
+    details: {
+      fields: [
+        {
+          field: "fileName",
+          constraints: { maxLength: `fileName은 ${importFileNameMaxLength()}자 이하여야 해요.` }
+        }
+      ]
+    }
+  });
 }
 
 type ImportRowRow = {
@@ -1020,6 +1047,35 @@ export class ImportPipelineService {
     const fileName = input.fileName?.trim();
     if (!fileName) {
       throw new BadRequestException({ code: "IMPORT_FILE_REQUIRED", message: "Import file is required." });
+    }
+
+    /**
+     * 라운드 110 두 시점 — 종전(그때는 참): 파일명 길이는 `CreateExcelImportDto`의
+     * `@MaxLength(255)`만 봤고, 앱은 언제나 `fileName` 필드를 함께 보내므로
+     * (apps/mobile/src/api/client.ts의 `createExcelImport` — `formData.append("fileName", file.name)`)
+     * 그 한 자리로 충분했다. → 이제 이 함수가 **두 유입 지점의 합류점**이라는 것이 실측으로
+     * 드러났다: 컨트롤러가 `stringField(body.fileName) ?? file?.originalname`로 고르므로
+     * (imports.controller.ts), `fileName` 필드를 보내지 않은 멀티파트 요청은 DTO를 지나지 않고
+     * 파일 파트의 이름이 그대로 `import_jobs.file_name`으로 갔다.
+     *
+     * 근거: schema.prisma의 `ImportJob.fileName`이 `@db.VarChar(255)`이고, 실측으로 256자
+     * 파일명(필드 없이 멀티파트만)은 `tx.importJob.create`에서 Prisma **P2000**을 냈다. 이
+     * 저장소에는 P2000을 400으로 옮기는 핸들러가 한 곳도 없어 그대로 **500**(INTERNAL_SERVER_ERROR)이
+     * 됐고, 그 500은 미리보기 트랜잭션 안이라 파일 전체가 거절되는데 사용자는 이유를 알 수 없다.
+     *
+     * ⚠️ 재는 값은 **저장될 값 그대로**다. multer/busboy는 파일 파트의 이름을 latin1로 디코딩하므로
+     * 한글 파일명은 UTF-8 바이트 수만큼 길어진다(실측: `가나다.csv` -> 13자로 저장). 그래서 여기서
+     * 다시 디코딩하지 않는다 — 컬럼에 들어갈 문자열이 아닌 다른 값으로 재면 이 검사가 500을 막지
+     * 못한다(그 mojibake 자체는 이 라운드가 건드리지 않은 별건이다 — 보고서 이월).
+     *
+     * 자르지 않고 거절하는 이유: 파일명은 사용자가 붙인 이름이고 가져오기 이력 화면이 그대로
+     * 보여 주는 값이라, 조용히 자르면 앱이 사실과 다른 이름을 기록한다(`IMPORT_TEXT_COLUMN_MAX_LENGTH`
+     * 주석의 "조용히 잘라 버리지 않는다"와 같은 규율). 봉투는 본문 필드 경로가 이미 내는 것과
+     * **같은 코드·같은 field 이름**을 쓴다(`fileNameTooLongError`) — 같은 조건이 어느 유입 지점으로 들어와도
+     * 클라이언트가 한 가지 분기로 읽는다.
+     */
+    if (fileName.length > importFileNameMaxLength()) {
+      throw fileNameTooLongError();
     }
 
     const extension = fileName.split(".").pop()?.toLowerCase();

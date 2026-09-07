@@ -15,6 +15,27 @@ import {
 const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const nullableDateOnlySchema = dateOnlySchema.nullable().optional();
 
+/**
+ * 달 한 칸의 표기 — **`YYYY-MM`**.
+ *
+ * 종전 이 모양을 못박은 자리는 `reportYearlySchema` 안의 **인라인 정규식 하나**뿐이었고(그때는
+ * 달을 `YYYY-MM`으로 내는 응답이 연간 하나여서 참이었다), 같은 차트를 먹이는 추이 응답은
+ * `dateOnlySchema`로 `YYYY-MM-01`을 냈다 → 이제 **달을 내는 응답은 이 스키마 하나**를 쓴다.
+ *
+ * 근거: 두 응답은 리포트 탭의 **같은 추이 차트**의 x축 라벨을 만든다. 형식이 갈려 있어서
+ * 모바일이 달 키를 읽지 못했고, 월간·분기 탭의 축 라벨과 낭독 계열이 **통째로 0건**이었다
+ * (apps/mobile/src/reports/trend-point-labels.ts 머리말 — 그 모듈은 두 모양을 모두 읽어 사용자
+ * 결함을 닫았지만, 형식이 갈린 것 자체는 계약의 자리다). 필드 이름이 `yearMonth`인 값에
+ * `-01`이라는 **의미 없는 일자**를 붙이지 않는 쪽이 사실에도 가깝다.
+ *
+ * ⚠️ 아직 `YYYY-MM-01`인 자리가 둘 남는다: `budgetSchema` · `reportMonthlySchema`(둘 다
+ * `dateOnlySchema`). **일부러 옮기지 않았다** — 그 달은 모바일 예산 알림 dedupeKey의 재료이고
+ * (apps/mobile/src/notifications/generators.ts `BudgetNotificationInput.yearMonth` 머리말:
+ * *"지금 와서 정규화하면 이미 이 달의 알림을 본 사용자에게 같은 알림이 한 번 더 간다"*),
+ * 그 키는 기기에 영속된다. 형식 통일의 남은 절반은 그 마이그레이션을 함께 설계하는 날의 일이다.
+ */
+export const yearMonthSchema = z.string().regex(/^\d{4}-\d{2}$/);
+
 export const uuidSchema = z.string().uuid();
 
 /**
@@ -688,16 +709,22 @@ export const TREND_REPORT_MAX_MONTHS = 12;
  * `GET /reports/monthly`(불변, 하위호환)를 부른다.
  *
  * `months`는 **오름차순 연속** 배열이고 마지막 원소가 요청한 `endYearMonth`다. 기록이
- * 없는 달도 0으로 채워 빠지지 않으므로 길이는 요청한 months와 항상 같다. 각 달의
- * `yearMonth`는 다른 리포트 응답과 같은 내부 `YYYY-MM-01` 형태이고, 같은 달의 월간 리포트
- * `totalExpenseKrw`와 정확히 일치한다(선물 제외 DNC-015 — 서버 sumExpenses와 같은 술어).
+ * 없는 달도 0으로 채워 빠지지 않으므로 길이는 요청한 months와 항상 같다.
+ *
+ * 각 달의 `yearMonth`는 **`YYYY-MM`**(`yearMonthSchema`)이고 — 종전에는 `dateOnlySchema`의
+ * `YYYY-MM-01`이었다(그때는 월간·예산 응답과 같은 모양이라는 것이 근거였다) → 이제 **연간
+ * 응답과 같은 모양**이다. 근거는 소비처다: 이 응답과 연간 응답은 같은 추이 차트의 x축을
+ * 먹이는데 형식이 갈려 축 라벨이 두 탭에서 사라져 있었다(`yearMonthSchema` 머리말).
+ * 값 자체는 같은 달의 월간 리포트 `totalExpenseKrw`와 정확히 일치한다(선물 제외 DNC-015 —
+ * 서버 sumExpenses와 같은 술어). ⚠️ 그 월간 응답의 `yearMonth`는 아직 `YYYY-MM-01`이라
+ * **달을 문자열로 맞대면 갈린다** — 맞대는 쪽은 앞 7자로 맞춘다.
  */
 export const reportTrendSchema = z.object({
   childId: uuidSchema,
   months: z
     .array(
       z.object({
-        yearMonth: dateOnlySchema,
+        yearMonth: yearMonthSchema,
         totalExpenseKrw: z.number().int().min(0)
       })
     )
@@ -711,7 +738,7 @@ export const reportYearlySchema = z.object({
   totalExpenseKrw: z.number().int().min(0),
   monthlyTotals: z.array(
     z.object({
-      yearMonth: z.string().regex(/^\d{4}-\d{2}$/),
+      yearMonth: yearMonthSchema,
       totalExpenseKrw: z.number().int().min(0)
     })
   ).length(12)

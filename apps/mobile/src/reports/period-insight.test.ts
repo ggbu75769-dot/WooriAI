@@ -110,6 +110,16 @@ describe("분기·연간 인사이트 조립기", () => {
 
     expect(legend[1].percentLabel).toBe("<1%");
     expect(insight!.topCategoryPercentLabel).toBe(legend[0].percentLabel);
+    // ⚠️ 두 시점 (라벨 100% 캡). 위 단언은 **파생**이라 규칙이 바뀌어도 조용히 통과한다 —
+    // 이 문장이 실제로 무슨 글자를 말했는지는 리터럴로 적어 둔다.
+    // 종전(그때는 참): 1위 라벨이 "100%"였고 문장은 "… 전체의 100%)"로 끝났다. 바로 아래
+    // 범례 줄에 100원짜리 "기타"가 서 있는데도 그랬다(그때는 그것이 이 모듈들이 함께 고른
+    // 규칙이었다 — category-share.test.ts가 그 조합을 의도로 단언해 두었다).
+    // → 이제 "99%": 조각이 둘 이상이면 100은 "전부"라고 적지 않는다. `percent`는 여전히
+    //   [100, 0]이고 합계도 100이라 계산은 그대로다(근거는 category-share.ts의
+    //   percentDisplayLabel 주석).
+    expect(legend[0].percentLabel).toBe("99%");
+    expect(insight!.headline).toBe("2026년에는 기저귀/위생에 가장 많이 썼어요 (1,000,000원 · 전체의 99%)");
   });
 
   describe("ⓑ 근거가 없으면 카드가 없다", () => {
@@ -354,13 +364,18 @@ describe("라운드 82 트랙 A 리포트 인사이트 배선", () => {
  *
  * 종전(그때는 참): 이 모듈은 도넛 조각의 `label`을 그대로 문장에 끼웠고, 그때는 분류 이름이 시드
  * 21행의 고정 문자열뿐이라 개행이 섞일 자리가 없었다.
- * → 이제: 이름은 자유 문자열이고, 어드민 이름 변경 경로가 **개행을 접지 않는다**
- * (`apps/api/src/admin/dto/admin-categories.dto.ts`의 `@Transform`은 오늘도 `.trim()`뿐이라
- * `"기저귀\n위생"`이 MinLength(1)·MaxLength(50)을 통과하고, 저장 직전도 `input.name?.trim()`이다.
- * 라운드 107 D6의 중복 검사는 **비교 키에서만** 공백을 접어 저장값을 바꾸지 않는다. 가구 커스텀
- * 분류 쪽(`finance/dto/custom-categories.dto.ts`)만 `trim + /\s+/gu` 접기를 한다). 그 이름은
- * `GET /categories` → `buildCategoryNameLookup`(내부 개행 무손질 `.trim()`) → 화면의
- * `categorySegments.label` → 이 문장으로 온다.
+ * → 그다음(라운드 108 — **그때는 참이었다**): 이름은 자유 문자열이 됐고, 어드민 이름 변경 경로가
+ * 개행을 접지 않았다(`admin-categories.dto.ts`의 `@Transform`이 `.trim()`뿐이라 `"기저귀\n위생"`이
+ * MinLength(1)·MaxLength(50)을 통과했고, `buildCategoryNameLookup`도 내부 개행 무손질 `.trim()`
+ * 이었다). 그래서 이 가드가 섰다.
+ * → **이제(라운드 109 — 오늘 소스에서 직접 재확인): 위 두 문장은 둘 다 거짓이다.** 그 라운드가
+ * 서버 유입 지점(`normalizeDisplayName` + `@IsSafeDisplayName`)과 앱의 해석기
+ * (`buildCategoryNameLookup` → `displaySafeCategoryName`)를 함께 고쳤다. **그래도 이 가드는
+ * 그대로 남는다**: 조립기는 순수 함수라 라벨을 호출부에서 받고(아래 테스트도 직접 넘긴다),
+ * ⓐ 그 고침 이전에 저장돼 캐시에 실린 값 · ⓑ 서버 DTO를 지나지 않는 데모/로컬 대역 · ⓒ 아직
+ * 그 거절이 없는 가구 커스텀 유입 지점이 남는다(근거는 `src/reports/period-insight.ts`와
+ * `src/categories.ts`의 두 시점 주석). 이 파일이 무는 것은 유입 경로가 아니라 **조립기의 계약**
+ * 이므로, 유입이 닫혀도 기대값은 한 글자도 달라지지 않는다.
  *
  * 이 모듈에서 깨지는 자리는 **둘**이다: 카드 문장(`headline`)이 두 줄로 갈라지는 것과, 카드를 한
  * 요소로 읽어 주는 `accessibilityLabel`에 낭독을 끊는 제어문자가 들어가는 것. 월간의 셋째 자리
@@ -369,7 +384,13 @@ describe("라운드 82 트랙 A 리포트 인사이트 배선", () => {
  * 기대값은 전부 **리터럴**이다 — 조립기를 다시 불러 만든 값과 비교하지 않는다.
  */
 describe("라운드 108 — 분기·연간 문장의 분류 이름 개행 가드", () => {
-  /** 어드민 경로로 저장될 수 있는 이름. 내부 개행은 trim으로 사라지지 않는다. */
+  /**
+   * 조립기가 받을 수 있는 이름. ⚠️ 두 시점 — 종전 이 줄은 *"어드민 경로로 저장될 수 있는 이름"*
+   * 이라고 적었고 그때는 참이었다. 오늘 그 유입은 400으로 막힌다(위 머리말 라운드 109) — 그래도
+   * 이 값이 남는 이유는 조립기가 **순수 함수**여서 호출부가 무엇을 넘기든 문장이 한 줄이어야
+   * 하기 때문이고, 손질을 지나지 않는 세 경로(옛 캐시 · 로컬 대역 · 가구 커스텀)가 아직 남기
+   * 때문이다. 내부 개행은 `trim`으로 사라지지 않는다.
+   */
   const 깨진분해 = [
     { label: "기저귀\n위생", amountKrw: 840_000, categoryId: "cat-diaper" },
     { label: "수유/이유식", amountKrw: 620_000, categoryId: "cat-feed" },

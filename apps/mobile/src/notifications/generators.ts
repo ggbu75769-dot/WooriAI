@@ -46,7 +46,25 @@ import { stagePreviewD7Notification } from "./stage-preview-d7";
 export type BudgetNotificationInput = {
   /** Scopes the dedupeKey so each child gets its own monthly budget alert (R19-D). */
   childId: string;
-  /** e.g. "2026-08" (HomeSummary.monthly.yearMonth). */
+  /**
+   * dedupeKey에 담는 **그 달** — `HomeSummary.monthly.yearMonth` **그대로**다(가공하지 않는다).
+   *
+   * ⚠️ **두 시점 (라운드 81 — 종전 주석이 사실과 달랐다).** 종전 이 자리는 `e.g. "2026-08"`이라고
+   * 적었다. **그 필드는 그 모양을 갖지 않는다.** `/home`의 달은 `buildBudgetDto` →
+   * `currentYearMonth()` → `getSeoulMonthRange(...).yearMonth`에서 나오고, 그 함수는
+   * **`"YYYY-MM-01"`** 을 낸다(packages/domain/src/money-date.ts — `yearMonth: \`${yearText}-${monthText}-01\``).
+   * 계약도 그 모양을 고정한다: `budgetSchema.yearMonth: dateOnlySchema`(= `/^\d{4}-\d{2}-\d{2}$/`,
+   * packages/contracts/src/schemas.ts)이고 홈의 `monthly`는 그 스키마의 extend다. 데모 백엔드도
+   * 같은 도메인 함수를 쓴다(src/api/local-backend.ts의 `budgetKey`·`getHome`). 즉 실값은
+   * `"2026-08-01"`이고, 기기 서울 달력에서 나오는 `"YYYY-MM"`(홈의 `thisYearMonth`)와 **형식이
+   * 다르다** — 종전 주석은 이 자리를 읽는 사람에게 그 둘을 같은 모양으로 믿게 했다.
+   *
+   * 키의 모양은 **바꾸지 않는다**(여기서 앞 7자로 자르지 않는다): `budget_80:{childId}:{yearMonth}`가
+   * 지는 뜻은 "그 달에 한 번"뿐이고 스토어에게는 불투명한 문자열이다(notification.store.ts — 키를
+   * 되읽는 곳은 monthly_wrapup 하나뿐이고 그 키는 이 값에서 나오지 않는다). 지금 와서 정규화하면
+   * 이미 이 달의 알림을 본 사용자에게 **같은 알림이 한 번 더** 간다. 달을 **비교**해야 하는 자리는
+   * 비교하는 쪽이 `monthKeyOf`로 맞춘다(아래 `hasRecoverablePendingRecordsForMonth`).
+   */
   yearMonth: string;
   budgetKrw: number;
   spentKrw: number;
@@ -431,6 +449,38 @@ export type PendingRecordScope =
   | { kind: "month"; yearMonth: string };
 
 /**
+ * 라운드 81 — 달 문자열에서 **달 키**(`"YYYY-MM"`)를 뽑는다. 읽을 수 없으면 `null`.
+ *
+ * ⚠️ **두 시점.** 종전 이 파일의 달 비교는 전부 `spentOn.startsWith(yearMonth)` 하나였다.
+ * 그때는 참이었다 — 그 자리에 오던 달은 기기 서울 달력이 만든 `"YYYY-MM"`뿐이었고(홈의
+ * `thisYearMonth`), `"2026-08-15".startsWith("2026-08")`는 맞는 판정이다. 라운드 80 B가 예산
+ * 게이트의 달을 **`/home` 응답의 달**로 바꾸면서 그 전제가 깨졌다: 서버의 달은 `"YYYY-MM-01"`이라
+ * (`BudgetNotificationInput.yearMonth` 주석의 근거 사슬) `"2026-08-15".startsWith("2026-08-01")`은
+ * **false**다. 한 달의 30일치 행이 게이트에서 사라지고 1일자 행만 통과했다 — 게이트가 죽은 채로
+ * 서 있었다는 뜻이다.
+ *
+ * 그래서 비교를 **접두 검사에서 달 키 동치**로 바꾼다. 정규화 방식은 이 저장소에 이미 있는 것을
+ * 그대로 쓴다(새로 만들지 않는다): `src/home/budget-pace.ts`의 `evaluateBudgetPace`가 같은 필드를
+ * 받아 `const monthKey = input.yearMonth.slice(0, 7); if (!/^\d{4}-\d{2}$/.test(monthKey)) return null;`
+ * 로 맞추고, 그 입력 주석이 `"YYYY-MM" — 서버가 "YYYY-MM-DD"로 줘도 앞 7자로 맞춘다`고 적는다.
+ * 앞 7자 + 같은 정규식이 이 파일의 규율이 된다.
+ *
+ * 정규화를 **배선(app/(tabs)/index.tsx)이 아니라 여기**서 하는 이유: ⓐ 판정은 순수 모듈의 몫이라는
+ * 이 파일의 규율 그대로이고(화면은 값만 흘린다), ⓑ 그래야 `yearMonth`·`spentOn` **양쪽** 형식이
+ * 함께 방어된다(한쪽만 맞추면 반대 방향으로 같은 함정이 남는다), ⓒ 배선에서 자르면 이 술어를
+ * 부르는 다른 호출부·앞으로의 호출부는 여전히 죽은 게이트를 받는다.
+ *
+ * 달의 **실재**(13월·0월)는 여기서 판정하지 않는다 — budget-pace와 같은 정규식이고, 없는 달은
+ * 어떤 행과도 같지 않으므로 답이 false로 떨어진다(모르는 것을 참으로 세지 않는다는 아래 규율과
+ * 같은 방향이다).
+ */
+function monthKeyOf(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const monthKey = value.slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(monthKey) ? monthKey : null;
+}
+
+/**
  * GAP-054 라운드 54 P1-3 — 이 기기에 **아직 서버가 모르는 이 아이의 지출 행**이 있는가.
  *
  * 판정 규칙은 리포트 탭 고지(src/reports/pending-scope-notice.ts)·예산 화면
@@ -459,7 +509,13 @@ export function hasPendingRecordsForChild(
     const spentOn = row.payload?.spentOn;
     if (!isIsoCalendarDate(spentOn)) return false;
     // 사전식 비교 = 시간순(YYYY-MM-DD) — latestRecordedOn이 최댓값을 고르는 것과 같은 근거다.
-    if (scope.kind !== "after") return spentOn.startsWith(scope.yearMonth);
+    // 라운드 81 — ⚠️ 두 시점: 종전 이 줄은 `spentOn.startsWith(scope.yearMonth)`였고 그때는
+    // 참이었다(이 범위의 유일한 호출부가 넘기는 달은 `previousYearMonth(seoulToday)` =
+    // `"YYYY-MM"`뿐이라 접두 검사와 달 동치가 같은 답이다). 이제 달 키 동치로 맞춘다 — 예산
+    // 게이트가 서버 달(`"YYYY-MM-01"`)을 받아 접두 검사가 무너진 자리를 고치면서, **같은 함정이
+    // 남아 있는 자리**를 함께 닫는다. 오늘의 답은 한 행도 바뀌지 않는다(위 isIsoCalendarDate를
+    // 통과한 spentOn과 "YYYY-MM" 달의 조합에서 두 식은 동치다).
+    if (scope.kind !== "after") return monthKeyOf(spentOn) === monthKeyOf(scope.yearMonth);
     if (spentOn <= scope.date) return false;
     // 라운드 80 리뷰 M-3: 상한 밖(= 서울 기준 미래 날짜)은 세지 않는다 — 서버가 영구 거절하는
     // 행이라 그 행이 동기화돼 판정을 바꾸는 일이 **없다**.
@@ -490,7 +546,20 @@ export const RECOVERABLE_PENDING_SYNC_STATES = ["pending", "syncing"] as const;
  *     의존하지 않는다) 상태 집합도 다르다. 같은 달 단위를 쓴다는 사실은 계약이 문다
  *     (generators.test.ts — 두 술어를 같은 행으로 나란히 돌린다).
  *
- * 달을 모르면(`yearMonth`가 없으면) false다 — 판정할 수 없는 것을 참으로 세지 않는다.
+ * 달을 모르면(`yearMonth`가 없거나 달 키로 읽히지 않으면) false다 — 판정할 수 없는 것을 참으로
+ * 세지 않는다.
+ *
+ * ⚠️ **라운드 81 두 시점 — 이 게이트는 형식 불일치로 사실상 죽어 있었다.** 종전 비교는
+ * `row.payload.spentOn.startsWith(yearMonth)`였고, 라운드 79에 그 자리에 오던 달은 기기 서울
+ * 달력의 `"YYYY-MM"`이라 참이었다. 라운드 80 B가 달을 **`/home` 응답의 달**로 바꾸자 실인자가
+ * `"2026-09-01"`이 됐고(서버는 `getSeoulMonthRange(...).yearMonth`를 낸다 —
+ * `BudgetNotificationInput.yearMonth` 주석의 근거 사슬), `"2026-09-15".startsWith("2026-09-01")`은
+ * **false**다. 실측(라운드 81 재현): 같은 행·같은 아이로 서버 달을 먹이면 15일자 대기 행은
+ * `false`(=게이트 통과 → 알림 발화), 1일자 행만 `true`. 한 달의 30일이 게이트 밖이었다.
+ * 그 대가는 이 파일이 이미 적어 둔 그것이다 — 삭제 대기 행 때문에 배너는 서지 않는데 알림만 떠서
+ * **그 달의 dedupeKey를 태우고**, 진짜로 경계를 넘겼을 때 그 달에는 다시 오지 않는다.
+ * 이제 양쪽을 `monthKeyOf`로 맞춘다(앞 7자 + `/^\d{4}-\d{2}$/` — budget-pace.ts의 관례 그대로).
+ * `yearMonth`가 `"YYYY-MM"`이든 `"YYYY-MM-01"`이든 같은 답이고, `spentOn` 쪽 형식도 함께 방어된다.
  *
  * ⚠️ 라운드 80 B — **오늘 두 술어가 갈리는 축은 상태 하나다.** 형제 둘도 이제 범위를 갖고
  * (`PendingRecordScope` — 시점 / 지난달), 그 범위는 각자의 알림이 단언하는 것에서 나온다.
@@ -503,14 +572,17 @@ export function hasRecoverablePendingRecordsForMonth(
   childId: string | null | undefined,
   yearMonth: string | null | undefined
 ): boolean {
-  if (!childId || !yearMonth || !rows) return false;
+  const monthKey = monthKeyOf(yearMonth);
+  if (!childId || !monthKey || !rows) return false;
   return rows.some(
     (row) =>
       row?.childId === childId &&
       typeof row?.syncState === "string" &&
       (RECOVERABLE_PENDING_SYNC_STATES as readonly string[]).includes(row.syncState) &&
-      typeof row?.payload?.spentOn === "string" &&
-      row.payload.spentOn.startsWith(yearMonth)
+      // 라운드 81(두 시점): 종전 `typeof spentOn === "string" && spentOn.startsWith(yearMonth)` →
+      // 이제 달 키 동치. `monthKeyOf`가 문자열이 아닌 값·달로 읽히지 않는 값을 null로 떨어뜨리므로
+      // 종전의 typeof 가드도 그 안에 든다(spentOn 없는 행은 여전히 세지 않는다).
+      monthKeyOf(row?.payload?.spentOn) === monthKey
   );
 }
 

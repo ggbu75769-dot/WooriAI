@@ -216,6 +216,31 @@ const noSuggestRows: SuggestSourceRow[] = [];
  */
 const SUGGEST_CHIP_HIT_SLOP = { bottom: 5, left: 3, right: 3, top: 5 } as const;
 
+/**
+ * A11Y-131(이월 한 자리) — **하단 고정 요약바 품목명 버튼의 히트 영역을 44에서 48로 갚는다.**
+ *
+ * ⚠️ 두 시점: 종전에는 그 버튼이 `minHeight: 44`뿐이었고 hitSlop이 없어 유효 타깃이 44dp였다
+ * (**그때는 참이었다** — A11Y-131이 일곱 자리를 갚을 때 이 자리는 픽셀락 화면 파일이라는 이유로
+ * 경계 밖에 두었고, `src/touch-target-contract.test.ts`의 마지막 케이스가 그 경계를 계약으로
+ * 적었다). *이제*: 세로로 2dp씩 갚아 44 + 2×2 = 48 = `theme.touchTarget`이다. 미룰 수 없는
+ * 이유는 **도달 경로가 핵심 루프**라는 것이다 — 이 버튼은 지출 기록 화면 하단에 언제나 고정돼
+ * 있고, 아기를 안은 채 한 손 엄지로 누르는 자리다.
+ *
+ * **크기가 아니라 hitSlop인 이유**: 이 요약바는 EXP-001 픽셀락 캡처 안에 서고, 버튼을 48로
+ * 올리면 왼쪽 열이 4dp 자라 요약바 전체(그리고 그 위 본문의 바닥)가 함께 밀린다. `hitSlop`은
+ * 레이아웃 속성이 아니라 히트 영역만 넓히므로 휴지 렌더는 한 픽셀도 바뀌지 않는다 — 바로 위
+ * `SUGGEST_CHIP_HIT_SLOP`이 **같은 파일·같은 픽셀락 화면**에서 이미 그 근거로 서 있고
+ * (라운드 64 #6), `src/expenses/ExpenseDatePicker.tsx`의 날짜 칸(EXP-001에서 열린다)과
+ * `app/import/index.tsx`의 뒤로가기(IMP-003)가 같은 판정을 각각 자기 픽셀락 화면에서 지고 있다.
+ *
+ * **가로는 0이다.** 버튼은 요약바 왼쪽 열(`flex: 1`)을 가득 채워 360dp 기기에서도 약 155dp이니
+ * (바 좌우 여백 20+20 · 열 사이 gap 10을 뺀 폭의 절반) 48을 이미 크게 넘고, 오른쪽으로 벌면
+ * gap 10 너머 금액 입력칸의 몸에 다가간다 — 벌 이유가 없는 축을 벌지 않는다.
+ * **세로 2의 근거**: 위로는 분류 라벨과의 gap 4보다 작아(2 < 4) 라벨의 몸에 닿지 않고, 아래로는
+ * 요약바 안쪽 열의 gap 10보다 작아(2 < 10) 저장 버튼 줄의 몸에 닿지 않는다.
+ */
+const SUMMARY_BAR_ITEM_NAME_HIT_SLOP = { bottom: 2, left: 0, right: 0, top: 2 } as const;
+
 // 라운드 98 T-G: 본문 스크롤러(src/ui.tsx AppScreen이 굴리는 ScrollView)의 인스턴스 타입 별칭.
 // useRef 제네릭에 그 컴포넌트 이름을 그대로 적으면 keyboard-tap-guard 스윕의 "여는 태그" 규칙과
 // 모양이 겹치므로(타입 인자 배제 대장이 파일 이름을 값으로 문다), 이름을 한 번 우회한다 —
@@ -652,6 +677,9 @@ export default function NewExpenseScreen() {
    *    ⚠️ 라운드 104 SAVE(F1)가 onSuccess의 무효화 묶음을 확정 경로 밖으로 옮기며 그 근거 문단과
    *    이 문단 세 줄을 더해 앞뒤 모두 밀어 **오늘은 `:997`·`:1822`이다**(호출 수 둘·판매처
    *    0건 판정도 그대로다).
+   *    ⚠️ A11Y-131(이월 한 자리)이 요약바 품목명 버튼의 `SUMMARY_BAR_ITEM_NAME_HIT_SLOP`과 그
+   *    근거 문단 스물다섯 줄을 **둘보다 위**에 더하고 이 문단 세 줄을 더해 앞뒤 모두 밀어
+   *    **오늘은 `:1025`·`:1850`이다**(호출 수 둘·판매처 0건 판정도 그대로다).
    *
    * ⚠️ 판매처 쪽의 판정(`focus()`를 쓰지 않는다)은 그대로다 —
    * `src/keyboard-tap-guard.test.ts`가 그 부정 단언을 소스로 문다.
@@ -2624,6 +2652,9 @@ export default function NewExpenseScreen() {
                 accessibilityLabel={itemName ? `${itemName} 품목명 수정` : "품목명 입력하기"}
                 accessibilityRole="button"
                 disabled={!authToken}
+                // A11Y-131(이월 한 자리): 선언 높이 44는 그대로 두고 세로 2dp씩만 갚아 히트
+                // 영역을 48로 만든다 — 근거와 두 시점은 SUMMARY_BAR_ITEM_NAME_HIT_SLOP 주석.
+                hitSlop={SUMMARY_BAR_ITEM_NAME_HIT_SLOP}
                 // 라운드 98 T-G: 포커스만 옮기던 자리에 스크롤이 더해졌다(변경 요청 문서 #2).
                 // 커서는 여전히 본문의 품목명 입력칸 하나로만 간다 — 칸을 둘로 만들지 않는다.
                 onPress={focusItemNameFromSummaryBar}

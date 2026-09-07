@@ -244,6 +244,13 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
           "= useLoadErrorCopy("
         );
       } else {
+        // ⚠️ **정확 일치다 — 그리고 정확 일치인 것이 이 단언의 뜻이다.** 라운드 109가 한 번
+        // 이 자리를 정규식으로 넓혔다가 되돌렸다: 준비템 상세가 ITEM_NOT_FOUND 전용 제목을
+        // `title={X ?? loadErrorCopy.title}` 꼴로 프롭에 겹쳐 이 바늘을 빗나갔기 때문이다.
+        // 넓히는 대신 그 화면이 **갈래를 카드에 걸도록** 고쳤다(app/items/[itemTemplateId].tsx) —
+        // 일반 갈래가 종전 바이트 그대로 서므로 이 계약도, 같은 바이트를 무는 다른 계약 둘
+        // (src/screen-phase.test.ts · src/loading-skeleton-contract.test.ts)도 그대로 산다.
+        // 즉 화면이 더 구체적인 문장을 갖는 것과 이 바늘이 정확 일치인 것은 **양립한다**.
         expect(screenSource, `${path} renders the resolved copy`).toContain("title={loadErrorCopy.title}");
         expect(screenSource, `${path} keeps the retry label from the same source`).toContain(
           "actionLabel={loadErrorCopy.actionLabel}"

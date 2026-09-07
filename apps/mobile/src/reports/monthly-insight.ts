@@ -203,14 +203,27 @@ function monthSubjectPhrase(yearMonth: string, monthStatus: MonthlyInsightMonthS
  * 가드를 갖고 있다(라운드 106 T6이 share-text.ts의 `shareTopCategoryLine`에 같은 두 줄을 넣었다).
  * 이쪽 끝만 비어 있었다.
  *
- * **실재하는 유입 경로(오늘 실측).** 두 쓰기 경로 중 하나가 개행을 접지 않는다:
+ * **유입 경로 ⚠️ 두 시점 — *종전*(그때는 참): 두 쓰기 경로 중 하나가 개행을 접지 않았다.**
  *  · 가구 커스텀 분류 — `apps/api/src/finance/dto/custom-categories.dto.ts`의 `@Transform`이
  *    `trim + /\s+/gu → " "`를 하고, 앱 쪽 사본(`src/categories/custom-category-form.ts` ·
- *    `src/api/local-backend.ts`)도 같다. 여기서는 개행이 들어올 수 없다.
- *  · **어드민 분류 이름 변경 — `apps/api/src/admin/dto/admin-categories.dto.ts`의 `@Transform`은
- *    `.trim()`뿐이다.** `"기저귀\n위생"`은 trim으로 사라지지 않고 `@MinLength(1)`·`@MaxLength(50)`을
- *    둘 다 통과해 `categories.name`에 그대로 앉는다. 그 이름은 `GET /categories` →
- *    `buildCategoryNameLookup`(내부 개행을 손대지 않는 `.trim()`만 한다) → 이 문장으로 온다.
+ *    `src/api/local-backend.ts`)도 같다. 여기서는 개행이 들어올 수 없다(오늘도 참이다).
+ *  · **어드민 분류 이름 변경** — `apps/api/src/admin/dto/admin-categories.dto.ts`의 `@Transform`이
+ *    `.trim()`뿐이라 `"기저귀\n위생"`이 `@MinLength(1)`·`@MaxLength(50)`을 둘 다 통과해
+ *    `categories.name`에 그대로 앉았다. 그 이름은 `GET /categories` →
+ *    `buildCategoryNameLookup`(내부 개행을 손대지 않는 `.trim()`만 했다) → 이 문장으로 왔다.
+ *
+ * **→ *이제*(라운드 109 — 오늘 두 소스에서 직접 재확인): 그 둘째 줄의 두 문장은 모두 거짓이다.**
+ * 같은 라운드가 ⓐ 서버 DTO(`normalizeDisplayName` + `@IsSafeDisplayName`이 남은 제어·서식 문자를
+ * 400으로 거절한다)와 ⓑ 앱의 해석기(`buildCategoryNameLookup` → `displaySafeCategoryName`가
+ * 제어·서식 문자를 공백으로 바꾼 뒤 `\s+`를 접는다)를 **함께** 고쳤다. 형제 모듈
+ * `period-insight.ts`의 같은 자리에 두 시점이 근거까지 함께 적혀 있다.
+ *
+ * **그래도 아래 가드는 그대로 둔다.** 이 모듈은 **순수 함수**이고 라벨은 호출부가 넘기는
+ * `categoryLabel(...)`의 반환값이다 — 오늘 앱의 유일한 호출부(`app/(tabs)/reports.tsx`)가 그
+ * lookup을 넘긴다는 것은 호출부의 사실이지 이 함수의 계약이 아니다. 게다가 ⓑ를 지나지 않는
+ * 이름이 아직 남는다(ⓐ 이전에 저장돼 `["categories"]` 캐시에 실린 값 · 서버 DTO를 지나지 않는
+ * 데모/로컬 대역 · 아직 그 거절이 없는 가구 커스텀 유입 지점 — 세 사유는 `src/categories.ts`의
+ * `displaySafeCategoryName` 주석이 값으로 들고 있다). 오늘 이 두 줄은 **둘째 겹**이다.
  *
  * **깨지는 자리(값).** 개행이 하나 섞이면 ① 카드의 한 문장이 두 줄로 갈라지고, ②
  * `accessibilityLabel`(문장을 " "로 이은 값)에 낭독이 끊기는 제어문자가 들어가며, ③ 무엇보다

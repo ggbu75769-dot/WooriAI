@@ -110,8 +110,16 @@ DB 안의 데이터에는 **여섯 개의 서로 다른 보존 창**이 있고, 
 봉투에 남아 있던 사용자 자유 문자열(`itemName`·`merchant`·`memo`)과 봉투 안의 계정 연결값
 (`createdByUserId`)을 지우고 `snapshotScrubbedAt` 표식을 남긴다. **새 보존 창이 아니다**: 5단계
 (레거시 검색어 마스킹)와 같은 형식의 자기 종료형 청소라 파기 상수는 여섯 그대로다
-(근거: `apps/api/src/worker/jobs/data-retention-purge.job.ts:254~285`·`:897~904`, 그 잡의
+(근거: `apps/api/src/worker/jobs/data-retention-purge.job.ts`의 `LEGACY_SNAPSHOT_ACTIONS`~
+`scrubLegacySnapshotEnvelope`·`runPhase("expenseSnapshotScrub", …)` 자리, 그 잡의
 `runPhase` 호출은 오늘 **열셋**(12단계 + 정정 단계 10a)이다).)
+⚠️ **두 시점(12단계의 대상)**: 위 문단은 종전 *"옛 지출 봉투"* 만 적었고 **그때는 참이었다**.
+이제 12단계는 `household.member.remove`·`household.invite.cancel`의 옛 봉투도 같은 자리에서
+씻는다(키에 `displayName`·`userId`·`invitedByUserId`가 더해졌다 — 라운드 108 트랙 B가 쓰기
+경로만 고치고 남긴 이월의 상환분). **단계 수도 파기 상수도 그대로**이고, 늘어난 것은 그
+단계가 보는 action 둘과 키 셋뿐이다. phase id(`expenseSnapshotScrub`)와 요약 키
+(`expenseSnapshotsScrubbed`)의 `expense…` 철자는 **역사적 이름으로 남겨 두었다** — 운영 로그와
+이 런북의 상호 참조를 끊지 않기 위해서다(근거는 그 상수의 머리말).
 여기서 "여섯"은 **삭제 유예 30일을 포함해** 센 수다(아래 표의 첫 행). 스토어 제출 문서
 `docs/store/data-safety-answers.md` §E는 그 유예를 별개의 행으로 답하고 **나머지만** 세므로
 같은 사실을 "창은 다섯"이라고 적는다 — 두 숫자는 어긋난 것이 아니라 세는 범위가 다르다.

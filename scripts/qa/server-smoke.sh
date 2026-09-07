@@ -25,7 +25,14 @@ A="authorization: Bearer $AT2"
 
 step "3. 온보딩: 동의 → 아이 생성 → 예산"
 chk "필수 동의 저장" $(curl -s -X PUT $B/consents -H "$A" -H "$J" -d '{"consents":[{"type":"terms","version":"2026-07-06","accepted":true},{"type":"privacy","version":"2026-07-06","accepted":true}]}' | jq -e '.' >/dev/null; echo $?)
-CHILD=$(curl -s -X POST $B/children -H "$A" -H "$J" -H "Idempotency-Key: smoke-child-$RANDOM" -d "{\"householdId\":\"$HH\",\"nickname\":\"스모크\",\"stageMode\":\"born\",\"birthDate\":\"2026-06-01\"}")
+# 생년월일은 **오늘 기준 상대값**이다. 종전에는 "2026-06-01"로 박아 뒀고 — 그때는 참이었다 —
+# 아래 100일 리포트 단언(`partial==true` = 생후 100일 전)이 그 값과 짝이었다. 2026-09-08(서울)
+# 자정에 그 아이가 정확히 100일이 되면서 단언이 뒤집혔다: 창은 [생일, 생일+100일)이고
+# coveredEnd가 창 끝과 같아지면 partial은 false가 **맞다**(서버가 옳고 픽스처가 늙었다).
+# 50일 전으로 잡으면 100일 창 한가운데라 partial이 언제 돌려도 참이고, 오늘 찍는 지출도
+# 그 창 안에 든다. 첫돌(365일) 쪽 단언이 생기면 이 값을 다시 재야 한다.
+SMOKE_BIRTH="$(date -u -d '50 days ago' +%F 2>/dev/null || date -u -v-50d +%F)"
+CHILD=$(curl -s -X POST $B/children -H "$A" -H "$J" -H "Idempotency-Key: smoke-child-$RANDOM" -d "{\"householdId\":\"$HH\",\"nickname\":\"스모크\",\"stageMode\":\"born\",\"birthDate\":\"$SMOKE_BIRTH\"}")
 CID=$(echo "$CHILD" | jq -r '.child.id // .id // empty')
 chk "아이 생성" $([ -n "$CID" ]; echo $?)
 YM="$(date +%Y-%m)"

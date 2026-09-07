@@ -105,6 +105,32 @@ const MERGED_RETRY_BUDGET_RESET = {
  * ⚠️ **create 접기에는 이 처방을 쓰지 않는다.** 생성이 서버에 닿은 뒤 키를 바꾸면 그것이 곧
  * **중복 지출 생성**이다(생성에는 충돌을 막아 줄 `expectedVersion` 게이트가 없다). 그래서 위
  * `pendingCreate` 갈래는 한 글자도 바뀌지 않았다.
+ *
+ * ## 라운드 105 — create 접기에도 같은 사슬이 있다는 것을 재보고 **그대로 두기로 했다**
+ *
+ * 종전(그때는 참): 위 문단은 "create에 새 키를 주면 중복이 난다"만 적었다. 라운드 104가 본 것이
+ * update 접기였으므로 create 쪽 사슬은 값으로 재 본 적이 없었다.
+ * 이제: 재 봤다. create도 ①응답 유실 → ②편집 접기(키 유지 · 본문 변경) → ③같은 키 + 다른
+ * 본문 → 409 `IDEMPOTENCY_KEY_CONFLICT`가 상한(8회)까지 반복되고 행이 'failed'로 굳는다.
+ * 서버 멱등 보관 24시간이 지난 뒤의 재시도는 통과하지만, 그때 만들어지는 것은 **두 번째 지출**이다.
+ *
+ * 그런데도 고치지 않는 근거 셋(값으로 확인한 것만):
+ *  1. **오늘 이 조합에 닿는 UI 경로가 없다.** `recordLocalUpdate`의 제품 호출부는
+ *     `sync-controller.ts`의 `updateExpenseOffline` 하나뿐이고, 그 화면
+ *     (app/expenses/[expenseId].tsx)은 서버 지출 id로만 열린다(`adoptServerExpense`가
+ *     canonicalId를 갖고 로컬 행을 만든다). 응답이 유실된 create 행은 canonicalId가 없어
+ *     그 화면에 존재하지 않고, 대기 행이 화면에서 받는 동작은 '버리기'뿐이다
+ *     (pending-row-actions.ts). 'failed' 행의 "고쳐서 다시 보내기"는 편집이 아니라 **새 기록**을
+ *     만든다(failed-row-prefill.ts — 새 localId · 새 키).
+ *  2. **처방을 쓰면 닿지 않는 결함 하나를 닿는 결함 하나로 바꾼다.** create 접기에 새 키를
+ *     주는 순간, 첫 create가 실제로 커밋된 모든 경우가 곧바로 중복 지출이다 — 그리고 그 경로는
+ *     오프라인 저장 뒤 재저장이라는 **흔한 동선**이다. 사용자 데이터가 걸린 자리에서 확률을
+ *     이렇게 옮기는 것은 손해다.
+ *  3. 옳은 해법은 클라이언트 병합 규칙 밖에 있다 — "내 create가 서버에 닿았는가"를 멱등키로
+ *     되물을 수 있어야 하고, 그것은 서버 계약(apps/api · packages/contracts)의 일이다.
+ *
+ * 다음 라운드가 이 자리를 다시 세지 않도록 남긴다: **여기서 볼 것은 없다. 닿는 경로가 생기면
+ * (대기 행 상세를 열어 편집하게 만드는 화면이 생기면) 그때 서버 계약과 함께 다뤄야 한다.**
  */
 function foldedUpdateIdempotencyKey(
   pendingUpdate: MutationOutboxRow,

@@ -190,7 +190,7 @@ export class ExpensesVersionService {
       data: { version: { increment: 1 } }
     });
     if (gate.count === 0) {
-      throw await this.versionConflictFor(expenseId);
+      throw await this.versionConflictFor(user, expenseId);
     }
 
     try {
@@ -224,7 +224,7 @@ export class ExpensesVersionService {
       data: { version: { increment: 1 } }
     });
     if (gate.count === 0) {
-      throw await this.versionConflictFor(expenseId);
+      throw await this.versionConflictFor(user, expenseId);
     }
 
     try {
@@ -277,8 +277,42 @@ export class ExpensesVersionService {
       .catch(() => undefined);
   }
 
-  private async versionConflictFor(expenseId: string) {
-    const row = await this.prisma.expense.findUnique({ where: { id: expenseId } });
+  /**
+   * 라운드 108 T24 후속 — 409 `current`가 나가는 읽기를 **호출자의 가구로 좁힌다.**
+   *
+   * 종전(그때도 참이고 오늘도 참이다): `findUnique({ where: { id: expenseId } })` 한 줄이었고,
+   * "남의 지출이 실리지 않는다"는 보장은 전적으로 **호출자 계약**이었다 — 두 호출부
+   * (`updateExpense`·`deleteExpense`)가 이 메서드를 부르기 **전에** `authorizeExpenseRow`를
+   * 지난다는 사실. 그 사실은 오늘 두 자리 모두 그대로이므로(전수로 따라가 확인했다)
+   * **오늘 실제로 새는 값은 없다.** 바뀌는 것은 그 보장이 서 있는 자리다.
+   *
+   * 라운드 108 T24가 역돌연변이로 재어 낸 것이 그것이다: `authorizeExpenseRow`의 역할 검사를
+   * 지워도 **성공 갈래는** 스토어(`ExpensesStoreService.requireExpenseAccess`)가 대신 403을 던져
+   * 기존 테스트가 전부 초록이었고, **CAS가 실패하는 갈래에서만** 이 메서드가 남의 지출을 다시
+   * 읽어 409 `current`에 품목명·판매처·메모·금액을 그대로 실어 보냈다 — 인가 두 벌이 서로를
+   * 가려 주는 바람에 그 갈래에는 지키는 눈이 없었다.
+   *
+   * 지금: 읽기 자체에 **호출자의 가구 집합**을 술어로 세운다(`sync.service.ts`의 델타 동기화가
+   * 같은 모양으로 이미 쓰는 `householdId: { in: householdIds }` 그대로다). 관문이 살아 있는
+   * 오늘은 **항등**이다 — `authorizeExpenseRow`가 `row.householdId`의 구성원임을 판정한 뒤에만
+   * 여기 닿기 때문이다. 그래서 **사용자에게 나가는 값은 한 축도 줄지 않는다.**
+   *
+   * 왜 축을 줄이는 쪽(라운드 107이 감사 봉투에 한 것)을 고르지 않았나: 이 값은 감사 기록이
+   * 아니라 **사용자가 충돌을 해소하라고** 주는 값이다. 모바일 충돌 화면의 "두 값 나란히 보기"가
+   * 비교 항목으로 내놓는 여덟 축(apps/mobile/src/offline/sync-engine.ts `diffExpenseFields`:
+   * categoryId·amountKrw·spentOn·itemName·merchant·memo·paymentMethod·expenseType)에
+   * 품목명·판매처·메모가 들어 있어, 그것을 뺀 순간 사용자는 서버 값을 보지 못한 채 고르게 된다
+   * (라운드 48 QA(P2-6)가 `paymentMethod` 하나 빠졌을 때 실측한 그 허위 표시와 같은 종류다).
+   *
+   * 행이 아예 없을 때(하드 삭제 경합, 그리고 이제는 가구 밖 행)를 종전 그대로 `current: null`로
+   * 두는 것도 의도다 — 계약이 `null`을 허용하고(packages/contracts `versionConflictResponseSchema`),
+   * 404로 갈라 나가면 상태코드 계약이 바뀐다.
+   */
+  private async versionConflictFor(user: AuthenticatedUser, expenseId: string) {
+    const householdIds = user.households.map((household) => household.id);
+    const row = await this.prisma.expense.findFirst({
+      where: { id: expenseId, householdId: { in: householdIds } }
+    });
     const current = !row ? null : row.deletedAt ? toDeletedExpenseSnapshot(row) : toExpenseSnapshot(row);
     return new HttpException(
       { code: "VERSION_CONFLICT", message: VERSION_CONFLICT_MESSAGE, current },

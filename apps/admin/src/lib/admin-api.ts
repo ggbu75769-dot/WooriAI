@@ -361,13 +361,71 @@ function readCookie(name: string): string | null {
 export class AdminApiError extends Error {
   readonly status: number;
   readonly code?: string;
+  /**
+   * 라운드 110 — **봉투의 `message` 옆에 있던 사유들.**
+   *
+   * 종전(그때는 참): 이 클래스는 응답 본문에서 `error.message` **하나만** 읽었고, 그것이
+   * 화면까지 가는 유일한 문장이었다. 그런데 이 API의 `VALIDATION_ERROR` 봉투에서 `message`는
+   * 언제나 **같은 일반 문장**이다("요청 값을 다시 확인해주세요." — apps/api/src/bootstrap.ts의
+   * `createDtoValidationPipe`). 어느 칸이 왜 걸렸는지는 `details.fields[].constraints`에만
+   * 있었고, 그 값을 읽는 코드가 어드민 전체에 **0건**이었다 — 그래서 라운드 107·108이 500을
+   * 400으로 바꿔 세운 거절들(폭 초과 · 고지 키 길이 · 분류 이름의 보이지 않는 문자)이 운영자
+   * 화면에서는 전부 같은 한 문장으로 보였다.
+   * → 이제 그 사유 문장들을 **원문 그대로** 여기 싣는다.
+   *
+   * ⚠️ **서버 필드명(`sponsorLabel` 같은 영문 키)은 일부러 싣지 않는다.** 그 키는 운영자에게
+   * 뜻이 없고, 어드민 번들에 필드명 표를 두면 서버 DTO의 사본이 하나 더 생긴다(그 사본은
+   * `src/admin-canonical-mirrors.test.ts`가 무는 미러가 된다). 대신 **칸 이름은 서버가 지은
+   * 사유 문장 안에 이미 들어 있다** — 그 문장은 어드민 화면이 쓰는 라벨 그대로 적혀 있고
+   * (apps/api/src/admin/dto/admin.dto.ts의 `tooLongMessage`), 그러지 못한 문장은 소비 쪽 한 벌
+   * (`writeErrorMessage`)이 화면에 세우지 않는다 — 한글이 없는 문장은 폴백으로 되돌린다.
+   *
+   * 순서는 응답이 준 순서 그대로이고, 같은 문장은 한 번만 담는다(한 칸이 제약 둘을 동시에
+   * 어기면 같은 문장이 두 번 오는 경우가 있다). 이 키가 없거나 모양이 다른 응답에서는 빈
+   * 배열이다 — **모르는 것을 지어내지 않는다.**
+   */
+  readonly fieldReasons: readonly string[];
 
-  constructor(status: number, message: string, code?: string) {
+  constructor(status: number, message: string, code?: string, fieldReasons: readonly string[] = []) {
     super(message);
     this.name = "AdminApiError";
     this.status = status;
     this.code = code;
+    this.fieldReasons = fieldReasons;
   }
+}
+
+/**
+ * 400 봉투의 `error.details.fields[].constraints`에서 **사유 문장만** 걷는다.
+ *
+ * 이 저장소의 검증 실패 봉투는 `{ field, constraints: { <제약 이름>: <문장> } }`의 배열이다
+ * (apps/api/src/bootstrap.ts의 `validationDetails` · 손으로 던지는 자리들도 같은 꼴을 쓴다 —
+ * admin.controller.ts의 고지 키 길이, admin-categories.controller.ts의 "하나는 필요해요").
+ * ⚠️ 여기서 `field`(영문 키)와 제약 이름(`maxLength` 같은 것)은 **꺼내지 않는다** — 위
+ * `fieldReasons` 주석의 판단이고, 꺼내지 않는 것이 곧 화면에 샐 수 없다는 보장이다.
+ *
+ * 모양이 조금이라도 다르면 그 항목을 조용히 건너뛴다(응답이 옛 버전이거나 프록시가 본문을
+ * 바꾼 경우까지 방어 — 여기서 던지면 사유가 아니라 화면 전체를 잃는다).
+ */
+function readFieldReasons(errorBody: unknown): readonly string[] {
+  if (!errorBody || typeof errorBody !== "object") return [];
+  const details = (errorBody as Record<string, unknown>).details;
+  if (!details || typeof details !== "object") return [];
+  const fields = (details as Record<string, unknown>).fields;
+  if (!Array.isArray(fields)) return [];
+  const reasons: string[] = [];
+  for (const entry of fields) {
+    if (!entry || typeof entry !== "object") continue;
+    const constraints = (entry as Record<string, unknown>).constraints;
+    if (!constraints || typeof constraints !== "object") continue;
+    for (const value of Object.values(constraints as Record<string, unknown>)) {
+      if (typeof value !== "string") continue;
+      const trimmed = value.trim();
+      if (trimmed === "" || reasons.includes(trimmed)) continue;
+      reasons.push(trimmed);
+    }
+  }
+  return reasons;
 }
 
 // ADM-117 timeout hardening: mirrors the mobile client's fetch-timeout
@@ -676,7 +734,8 @@ async function request<T>(
       errorBody && typeof errorBody === "object" && "message" in (errorBody as Record<string, unknown>)
         ? String((errorBody as Record<string, unknown>).message)
         : "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.";
-    throw new AdminApiError(response.status, message, code);
+    // 라운드 110: `message` 하나만 읽던 자리. 사유는 버리지 않고 함께 싣는다(위 readFieldReasons).
+    throw new AdminApiError(response.status, message, code, readFieldReasons(errorBody));
   }
 
   return (body ?? ({} as unknown)) as T;

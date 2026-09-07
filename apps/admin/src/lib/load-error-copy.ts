@@ -76,6 +76,42 @@ const RETRYABLE_CLIENT_STATUSES = new Set([408, 425, 429]);
  */
 const HANGUL_SYLLABLE = /[\uAC00-\uD7A3]/;
 
+/**
+ * 라운드 111 — **봉투의 `message` 옆에 있던 칸별 사유를 조회 쪽도 읽는다.**
+ *
+ * ⚠️ 두 시점. 종전(그때는 참): 이 한 벌이 나르는 문장은 `error.message` **하나**였고,
+ * 조회 실패에서는 그것이 사유의 전부였다 — 그 자리에 오던 봉투는 전용 코드를 지녔거나
+ * (`ADMIN_MFA_SETUP_REQUIRED`처럼 `message`가 곧 사유다) 클라이언트가 지은 타임아웃·연결 실패
+ * 문장이었다. → 이제 `VALIDATION_ERROR` 갈래가 남는다: 그 봉투의 `message`는 어느 거절이든
+ * **같은 일반 문장**이고 사유는 `details.fields`에만 있다(admin-api.ts의 `fieldReasons`
+ * 주석). 그래서 일반 문장 **뒤에** 그 사유들을 잇는다 — 앞 문장을 갈아치우지 않는 이유는,
+ * 그 문장이 없으면 "무엇을 불러오려다 실패했는가"가 사라지기 때문이다.
+ *
+ * ⚠️⚠️ **오늘 이 겹으로 화면 문장이 바뀌는 조회 자리는 0건이다 — 값으로 적어 둔다.**
+ * 어드민이 부르는 GET 가운데 `details.fields`를 싣는 것은 쿼리 DTO 검증뿐이고, 그 사유는
+ * 전부 class-validator의 **기본 영문 문장**이다(실측: `GET /admin/users-lookup`에 한 자
+ * 검색어를 보내면 `"query must be longer than or equal to 2 characters"`, 감사 로그 필터에
+ * 잘못된 값을 보내면 `"actorUserId must be a UUID"`). 조회 경로에서 **한국어** 사유를 싣는
+ * 자리는 `admin-users-lookup.service.ts`의 최소 길이 거절 하나인데, 그 입력은 화면이 **같은
+ * 술어로 먼저 막아**(`user-lookup-view.ts`의 `effectiveQueryLength`) 요청이 나가지 않는다.
+ * 그래서 이 겹이 오늘 하는 일은 **아래 필터가 전부 걸러 종전 문장을 바이트 그대로 두는
+ * 것**이고, 값을 하는 날은 조회 DTO가 한국어 사유를 갖는 날이다(쓰기 DTO는 이미 그렇다).
+ *
+ * ⚠️ **거르는 규칙은 위 `HANGUL_SYLLABLE` 하나 그대로다** — 한글이 한 자도 없는 문장은
+ * 화면에 세우지 않는다(라운드 107 트랙 J가 봉투 `message`에 이미 세운 그 규칙). 이 자리에서 그
+ * 규칙이 값을 하는 이유가 위 실측이다: 영문 기본 문장은 앞머리가 **서버 필드명 그대로**라,
+ * 그 규칙 하나로 영문 필드명이 한국어 화면에 서는 길이 구조적으로 막힌다(이 모듈은 필드명을
+ * 받지도 않는다 — admin-api.ts가 아예 싣지 않는다).
+ *
+ * ⚠️ **판정을 새로 만들지 않는다**는 이 파일의 계약은 그대로다: 갈래(`reason`)도
+ * 재시도(`canRetry`)도 종전 그대로이고, 코드도 상태도 보지 않으며, 한국어 문구를 짓지도
+ * 않는다(잇는 것은 공백 한 칸뿐이다).
+ */
+function readableFieldReasons(error: unknown, base: string): readonly string[] {
+  if (!(error instanceof AdminApiError)) return [];
+  return error.fieldReasons.filter((reason) => HANGUL_SYLLABLE.test(reason) && reason !== base);
+}
+
 export function loadErrorReason(error: unknown): LoadErrorReason {
   if (isTimeoutError(error)) return "timeout";
   if (!(error instanceof AdminApiError)) return "unknown";
@@ -120,10 +156,13 @@ export function loadErrorCopy(error: unknown, fallbackMessage: string): LoadErro
    * 문장을 세우는가** 하나다. 재료(`HANGUL_SYLLABLE`)가 사본인 이유는 그 상수의 주석에 있다.
    */
   const displayable = fromError !== "" && HANGUL_SYLLABLE.test(fromError);
+  // 빈 문장을 화면에 세우지 않는다 — 이유를 못 받은 것은 "그 밖"과 같다.
+  const base = reason === "unknown" || !displayable ? fallbackMessage : fromError;
+  const reasons = readableFieldReasons(error, base);
   return {
     reason,
-    // 빈 문장을 화면에 세우지 않는다 — 이유를 못 받은 것은 "그 밖"과 같다.
-    message: reason === "unknown" || !displayable ? fallbackMessage : fromError,
+    // 라운드 111: 사유가 없거나 읽을 수 없으면 **종전과 한 바이트도 다르지 않다**.
+    message: reasons.length === 0 ? base : [base, ...reasons].join(" "),
     canRetry: loadErrorRetryable(error)
   };
 }

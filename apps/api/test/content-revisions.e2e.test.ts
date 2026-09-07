@@ -15,6 +15,22 @@ import { deployMigrations, isDatabaseAvailable } from "./helpers/test-db";
 
 const dbAvailable = await isDatabaseAvailable();
 
+/**
+ * 라운드 110 트랙 4 — **이 스위트가 만든 고지 행의 접두.**
+ *
+ * 종전(그때는 참): 이 파일에는 `disclosure.deleteMany`가 **0건**이었다. 그때도 그것이 다른
+ * 스위트를 깨뜨리지는 않았다 — 남는 행을 읽는 단언이 저장소에 없기 때문이다(순서 의존 0건).
+ * 하지만 이 스위트가 만드는 고지는 매 실행마다 **새 키**이고(`${…}_${Date.now()}`), 공유 테스트
+ * DB(`wooriai_test`)는 라운드마다 누적된다. 실측(라운드 110): 이 접두의 잔여 행 **184**
+ * (라운드 108-T13이 잰 120에서 64 늘었다 — 아무도 지우지 않아 계속 는다).
+ * → 이제 `afterAll`이 **이 접두만** 지운다. 시드 셋(`affiliate_purchase` ·
+ * `sponsored_product` · `nutrition_supplement`)과 다른 스위트의 접두는 손대지 않는다.
+ *
+ * ⚠️ 이 파일의 모든 고지 키가 이 접두로 시작한다(여덟 자리: disclosure · disclosure_a ·
+ * disclosure_b · sched · sched_self · audit_before · audit_new · audit_sched).
+ */
+const DISCLOSURE_KEY_PREFIX = "cr_e2e_";
+
 // COM-103 (round5a-sprint2-plan.md §3): CMS draft -> review -> publish workflow.
 // Mirrors admin-rbac.db.test.ts's cookie-session + MFA-enrollment login pattern
 // (real Postgres required) since the content-revisions endpoints sit behind the
@@ -53,6 +69,10 @@ describe.skipIf(!dbAvailable)("Admin content revisions (COM-103, real Postgres)"
 
   afterAll(async () => {
     delete process.env.RATE_LIMIT_AUTH_MAX;
+    // 라운드 110 트랙 4: 자기 접두 행만 지운다(위 DISCLOSURE_KEY_PREFIX 주석).
+    // `content_revisions.entity_id`는 `disclosures`를 가리키는 FK가 아니라 그냥 uuid 칸이라
+    // (prisma/schema.prisma) 리비전 행이 남아 있어도 이 삭제가 막히지 않는다.
+    await prisma.disclosure.deleteMany({ where: { key: { startsWith: DISCLOSURE_KEY_PREFIX } } });
     await app.close();
     await prisma.$disconnect();
   });

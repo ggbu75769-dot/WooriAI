@@ -14,6 +14,10 @@ const DEFAULT_REDIRECT_MAX = 60;
 // generator behind carrier NAT.
 const DEFAULT_ANALYTICS_MAX = 60;
 const DEFAULT_ANALYTICS_USER_MAX = 60;
+// SEC-133: 인증 클릭 경로(POST /product-links/:id/click)의 전용 상한 둘.
+// 값을 이렇게 고른 근거는 아래 PRODUCT_LINK_CLICK_PATH_PATTERN 머리말의 "실사용 상한" 문단이다.
+const DEFAULT_PRODUCT_LINK_CLICK_MAX = 60;
+const DEFAULT_PRODUCT_LINK_CLICK_USER_MAX = 30;
 
 // api/v1 is the global prefix set in bootstrap.ts's configureApiApp; this
 // middleware runs at the raw Express level (registered before Nest's router
@@ -60,6 +64,52 @@ const REDIRECT_PATH_PATTERN = /^\/api\/v1\/r\//;
 // under 1 req/min per device, so 60/min leaves roughly two orders of magnitude
 // of headroom even for a user running several devices on one account.
 const ANALYTICS_PATH_PATTERN = /^\/api\/v1\/analytics\/events\/?$/;
+
+// SEC-133: 인증 클릭 경로 — POST /api/v1/product-links/:productLinkId/click.
+//
+// ⚠️ **두 시점.** 종전(그때는 참): 이 경로에는 전용 버킷이 없었고 전역 300/분 IP 상한만
+// 걸렸다. 그때의 암묵적 근거는 *"인증된 경로다"* 였는데, 바로 위 SEC-130 문단(`:41-42`)이
+// 같은 근거를 이미 부정해 두었다 — 유효 토큰 하나와 반복문이면 끝난다.
+//
+// → 이제: 구조적 쌍둥이인 공개 리다이렉트(REDIRECT_PATH_PATTERN)와 **같은 모양**의 전용
+// 버킷을 세운다. 근거도 그 쌍둥이와 글자 그대로 같다 — **요청 1건 = affiliate_clicks 행
+// 1건**이다(onboarding/items-catalog.service.ts의 `clickProductLink`가 요청마다
+// `affiliateClick.create`를 한 번 돈다). 그 1:1을 끊어 줄 것이 아무것도 없다: 스키마의
+// AffiliateClick에는 인덱스만 있고 유니크 제약이 없으며(prisma/schema.prisma),
+// items-commerce/commerce.controller.ts에는 `@UseInterceptors`가 0건이라 멱등 키도 없다
+// (같은 모듈의 custom-items.controller.ts는 IdempotencyInterceptor를 달고 있다 — 즉
+// 관례가 없어서가 아니라 이 경로에만 없다).
+//
+// 그리고 그 표는 **운영이 보는 수치를 그대로 먹인다**: admin/dashboard-summary.service.ts의
+// `affiliateClicks7d`와 admin/affiliate-click-breakdown.service.ts의 플랫폼별·일별 분해가
+// 전부 affiliate_clicks의 행 수다. 부풀린 클릭은 어드민 화면에 **허위 수치**로 선다.
+//
+// **상한 값의 근거 — 정찰이 제시한 60을 그대로 베끼지 않고 실사용 상한을 재서 정했다.**
+//  · 클릭이 성공하면 앱은 곧바로 `Linking.openURL`로 **앱 밖으로 나간다**
+//    (apps/mobile/app/items/[itemTemplateId].tsx의 `clickLink.onSuccess`). 다음 클릭은
+//    사람이 앱을 도로 전환하고 나서야 가능하다.
+//  · 열기 실패 뒤의 재시도(`retryOpenFallbackLink`)는 저장해 둔 `redirectUrl`을 다시 열 뿐
+//    **서버 클릭을 다시 만들지 않는다** — 재시도가 행을 늘리지 않는다.
+//  · 왕복이 끝나기 전 **같은 링크**의 두 번째 탭은 앱이 조용히 떨어뜨린다(라운드 91 리뷰의
+//    `handleProductLinkPress`). 다른 링크는 정당한 별개 클릭으로 통과한다.
+//  · 한 준비템이 들고 있는 판매처 링크 수는 **실측 최대 2**다(로컬 dev DB의 product_links
+//    67행을 item_template_id로 묶은 최댓값 = 2, 실측 2026-09-07).
+//  ⇒ 상세 한 화면이 낳을 수 있는 정직한 클릭은 최대 2건이고, 다음 상세로 가려면 목록→상세
+//    왕복(`getItemDetail`)이 한 번 더 붙는다. 가장 서두른 비교 구매(상세 하나를 6초에
+//    소진)라도 **분당 12건 언저리**가 사람이 낼 수 있는 상한이다.
+//
+// 그래서 **계정 30/분**을 실사용 상한으로 둔다 — 위 추정의 2.5배이고, 한 계정을 두 기기에서
+// 쓰는 가구까지 덮는다. 동시에 한 계정이 만들 수 있는 행을 300 → 30으로 열 배 좁힌다.
+// **IP는 60/분**으로 쌍둥이와 같은 값을 쓴다. IP 쪽을 계정 쪽까지 조이지 **않는** 이유는
+// SEC-132가 분석 IP 상한을 30에서 60으로 되돌린 그 이유 그대로다: 한국 이동통신의 CGNAT
+// 뒤에서는 한 주소에 수백 기기가 실려, 사람 한 명의 속도에 맞춘 IP 상한은 잘못 없는
+// 사용자를 막는 **새 결함**이 된다. 사람 단위 상한을 지는 것은 계정 버킷 쪽이다.
+//
+// 경로 모양: `^` 고정이라 어드민 카탈로그 경로(`/api/v1/admin/product-links/...`)는 걸리지
+// 않는다 — 그쪽은 클릭 행을 만들지 않는다. 끝의 `/click`까지 요구하므로 앞으로 이 접두 아래
+// 읽기 전용 라우트가 생겨도 쓰기 예산에 청구되지 않는다(ANALYTICS_PATH_PATTERN이 메서드까지
+// 좁힌 것과 같은 규율).
+const PRODUCT_LINK_CLICK_PATH_PATTERN = /^\/api\/v1\/product-links\/[^/]+\/click\/?$/;
 
 /**
  * SEC-132: the authenticated user id for the account-scoped analytics bucket.
@@ -159,9 +209,15 @@ function requestIdOf(req: Request): string | undefined {
  * (default 60 req/min) keyed on the verified JWT subject, ANDed with the IP
  * bucket (SEC-132).
  *
+ * ⚠️ 두 시점(SEC-133). 종전(그때는 참): 위 목록은 **공개** 리다이렉트만 클릭 쓰기 경로로
+ * 셌다. 이제: 인증된 `POST product-links/:id/click`도 같은 이유(요청 1건 = affiliate_clicks
+ * 행 1건)로 자기 IP 상한(기본 60 req/min)과 자기 계정 상한(기본 30 req/min)을 함께 지킨다 —
+ * 근거와 값의 산출은 PRODUCT_LINK_CLICK_PATH_PATTERN 머리말에 있다.
+ *
  * Test isolation: limits are read from RATE_LIMIT_GLOBAL_MAX /
  * RATE_LIMIT_AUTH_MAX / RATE_LIMIT_REDIRECT_MAX / RATE_LIMIT_ANALYTICS_MAX /
- * RATE_LIMIT_ANALYTICS_USER_MAX / RATE_LIMIT_WINDOW_MS env
+ * RATE_LIMIT_ANALYTICS_USER_MAX / RATE_LIMIT_PRODUCT_LINK_CLICK_MAX /
+ * RATE_LIMIT_PRODUCT_LINK_CLICK_USER_MAX / RATE_LIMIT_WINDOW_MS env
  * vars on every request (not
  * captured once at startup), and each call to this factory creates a fresh,
  * closure-scoped bucket Map -- so a dedicated test can set very low limits
@@ -205,6 +261,11 @@ export function rateLimitMiddleware() {
     const redirectMax = envInt("RATE_LIMIT_REDIRECT_MAX", DEFAULT_REDIRECT_MAX);
     const analyticsMax = envInt("RATE_LIMIT_ANALYTICS_MAX", DEFAULT_ANALYTICS_MAX);
     const analyticsUserMax = envInt("RATE_LIMIT_ANALYTICS_USER_MAX", DEFAULT_ANALYTICS_USER_MAX);
+    const productLinkClickMax = envInt("RATE_LIMIT_PRODUCT_LINK_CLICK_MAX", DEFAULT_PRODUCT_LINK_CLICK_MAX);
+    const productLinkClickUserMax = envInt(
+      "RATE_LIMIT_PRODUCT_LINK_CLICK_USER_MAX",
+      DEFAULT_PRODUCT_LINK_CLICK_USER_MAX
+    );
     const ip = clientIp(req);
     const path = req.path ?? req.url ?? "";
 
@@ -230,8 +291,38 @@ export function rateLimitMiddleware() {
       const subject = accessTokenSubject(req);
       return subject === null || checkAndIncrement(`analytics-user:${subject}`, analyticsUserMax, windowMs);
     })();
+    // SEC-133: 인증 클릭 쓰기. 분석 쓰기와 **같은 모양**이다 — 새 관례를 만들지 않는다.
+    //  · 메서드까지 좁힌다: 행을 만드는 것은 POST뿐이다.
+    //  · IP 버킷과 계정 버킷을 AND로 묶고, 둘 다 항상 청구한다(두 상한이 서로의 예산을
+    //    아끼거나 대신 쓰지 않는다 — 위 SEC-132 문단의 그 이유 그대로).
+    //  · 계정 버킷을 **함께** 세우는 이유: IP는 호출자가 고르는 값이라, IP만 두면 토큰 하나를
+    //    IP 여럿에 돌리는 순간 상한이 사라진다(SEC-132가 "Round 30 P3의 잔여"로 적어 둔 그
+    //    구멍이고, 이 경로는 그때의 분석 경로보다 결과가 더 직접적이다 — 어드민 KPI가 바로
+    //    이 표다). 검증할 수 없는 토큰은 어느 계정에도 청구되지 않고, 그런 요청은 어차피
+    //    가드에서 401로 끝난다.
+    const isProductLinkClick = req.method === "POST" && PRODUCT_LINK_CLICK_PATH_PATTERN.test(path);
+    const withinProductLinkClick =
+      !isProductLinkClick || checkAndIncrement(`product-link-click:${ip}`, productLinkClickMax, windowMs);
+    const withinProductLinkClickUser = ((): boolean => {
+      if (!isProductLinkClick) {
+        return true;
+      }
+      const subject = accessTokenSubject(req);
+      return (
+        subject === null ||
+        checkAndIncrement(`product-link-click-user:${subject}`, productLinkClickUserMax, windowMs)
+      );
+    })();
 
-    if (!withinGlobal || !withinAuth || !withinRedirect || !withinAnalytics || !withinAnalyticsUser) {
+    if (
+      !withinGlobal ||
+      !withinAuth ||
+      !withinRedirect ||
+      !withinAnalytics ||
+      !withinAnalyticsUser ||
+      !withinProductLinkClick ||
+      !withinProductLinkClickUser
+    ) {
       res.setHeader("Retry-After", Math.ceil(windowMs / 1000).toString());
       res.status(429).json({
         error: {

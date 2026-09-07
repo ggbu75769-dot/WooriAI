@@ -236,6 +236,87 @@ describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Pos
       .expect(({ body }) => expect(body.error.code).toBe("VALIDATION_ERROR"));
   });
 
+  /**
+   * 라운드 108 T24 후속 — **정상 경로의 409 `current`가 무엇을 싣는지 실선으로 적는다.**
+   *
+   * 위 두 테스트는 `toMatchObject`로 **몇 축만** 집어 봤다(그때는 그것이 목적이었다 —
+   * 하나는 version/amountKrw, 하나는 paymentMethod 회귀). 그래서 "이 응답이 실어 보내는 것의
+   * 전부"는 이 파일 어디에도 값으로 없었고, 축이 **줄어도 늘어도** 아무 단언이 움직이지 않았다.
+   *
+   * 그 공백이 실제로 문제인 이유는 두 방향이다:
+   *  · **줄어들면** 모바일 충돌 화면이 부서진다. "두 값 나란히 보기"의 비교 항목 여덟 축
+   *    (apps/mobile/src/offline/sync-engine.ts `diffExpenseFields`)에 품목명·판매처·메모가
+   *    들어 있어서, 서버 스냅숏에서 그 키가 사라지면 화면은 로컬 값과 "없음"을 비교하게 된다 —
+   *    라운드 48 QA(P2-6)가 `paymentMethod` 하나 빠졌을 때 실측한 그 허위 표시 그대로다.
+   *  · **늘어나면** 이 응답이 조용히 새 표면이 된다. 이 값은 라운드 107이 감사 봉투에서 빼낸
+   *    자유 문자열들을 그대로 싣는 몇 안 되는 경로다.
+   *
+   * 그래서 키 집합은 리터럴 배열로, 값은 리터럴로 잰다. `createdByUserId`만 실행 시점 값이라
+   * 키 집합 쪽에서만 확인한다.
+   */
+  it("주인이 낡은 expectedVersion을 보낸 409의 current가 싣는 축 전량 (실선 기록)", async () => {
+    const accessToken = await login("version-current-axes");
+    const { childId } = await completeOnboarding(accessToken);
+
+    const created = (
+      await request(app.getHttpServer())
+        .post(`/api/v1/children/${childId}/expenses`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({
+          categoryId,
+          amountKrw: 10000,
+          spentOn: "2026-07-06",
+          itemName: "409 원문 기저귀",
+          merchant: "409 원문 상점",
+          memo: "409 원문 메모",
+          paymentMethod: "card"
+        })
+        .expect(200)
+    ).body as { id: string };
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ amountKrw: 55000, expectedVersion: 999 })
+      .expect(409)
+      .expect(({ body }) => {
+        versionConflictResponseSchema.parse(body);
+        expect(Object.keys(body.current).sort()).toEqual([
+          "amountKrw",
+          "categoryId",
+          "childId",
+          "createdByUserId",
+          "expenseType",
+          "id",
+          "itemName",
+          "linkedItemTemplateId",
+          "linkedProductLinkId",
+          "memo",
+          "merchant",
+          "paymentMethod",
+          "source",
+          "spentOn",
+          "version"
+        ]);
+        expect(body.current).toMatchObject({
+          id: created.id,
+          childId,
+          categoryId,
+          amountKrw: 10000,
+          spentOn: "2026-07-06",
+          itemName: "409 원문 기저귀",
+          merchant: "409 원문 상점",
+          memo: "409 원문 메모",
+          paymentMethod: "card",
+          linkedItemTemplateId: null,
+          linkedProductLinkId: null,
+          expenseType: "expense",
+          source: "manual",
+          version: 1
+        });
+      });
+  });
+
   it("rolls back the version bump when the conditional update's field validation fails", async () => {
     const accessToken = await login("version-rollback");
     const { childId } = await completeOnboarding(accessToken);

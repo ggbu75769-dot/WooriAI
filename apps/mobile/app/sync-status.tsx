@@ -4,6 +4,9 @@ import { router } from "expo-router";
 import type { ListRenderItemInfo, ViewStyle } from "react-native";
 import { Alert, FlatList, Pressable, Text, View } from "react-native";
 import { LOCAL_SESSION_TOKEN, type CategoryListItem, type Child } from "../src/api/client";
+// 라운드 110 B-5 후속: 눌러서 나타난 실패를 소리로도 내보내는 저장소의 한 벌
+// (프롭 둘을 호출부마다 다시 적지 않는다 — 그 근거는 그 모듈 머리말이 진다).
+import { useFieldErrorAnnouncement } from "../src/a11y/use-field-error-announcement";
 import { buildConflictValueFormatter, type ConflictValueFormatter } from "../src/offline/conflict-display";
 import {
   CONFLICT_BANNER_MESSAGE,
@@ -135,6 +138,34 @@ function useRecoveryActionFailure(): { failed: boolean; run: (action: () => Prom
 
 /** 복구 동작이 거절됐을 때 그 자리에 서는 한 줄. 다섯 자리가 같은 모양을 쓴다. */
 function RecoveryActionFailureLine({ visible }: { visible: boolean }) {
+  /**
+   * 라운드 110 — **그 한 줄이 소리로도 나간다.**
+   *
+   * 종전에는 이 컴포넌트가 문장을 **화면에만** 세웠다(이 파일 전체 `announceForA11y` 0건). 그때는
+   * 참이었다: 라운드 104 B-5가 물은 것은 "거절이 보이는가"였고, 그 걸음의 답은 보이게 하는 데까지다.
+   * → 이제 같은 문장이 낭독까지 간다. 근거는 이 자리의 **포커스**다 — [재시도]/[버리기]/[충돌 해결]을
+   * 누르면 포커스는 방금 누른 SecondaryButton에 남고 문장은 그 곁에 맨 줄로 설 뿐이라, 소리로만 쓰는
+   * 사람에게는 "눌렀는데 아무 일도 일어나지 않았다"로 읽혀 **같은 버튼을 다시 누른다.**
+   * 이 저장소가 그 조건을 이미 명문화해 두었다: `src/a11y-contract.test.ts`의
+   * `LOAD_ERROR_ANNOUNCE_OUT_OF_SCOPE_REASON` — *"뮤테이션(누름)이 세운 실패는 눌린 컨트롤에 포커스가
+   * 남은 채로 문장이 그 바로 곁에 맨 줄로 선다"*. 이 컴포넌트의 여덟 자리가 정확히 그 정의다.
+   *
+   * 배선을 **여기 하나**에 두는 이유: 이 한 줄이 여덟 자리(충돌 둘 · 실패 셋 · 대기 하나 · 준비템
+   * 하나 · 실패 섹션 일괄 하나)에 서므로, 배선도 하나면 여덟이 함께 닫힌다. 호출부마다 다시 적는
+   * 배선 사본을 만들지 않는다(그 규율의 단일 소스가 `src/a11y/use-field-error-announcement.ts`다).
+   *
+   * ⚠️ **프롭 쌍(`accessibilityLiveRegion="polite"` + `accessibilityRole="alert"`)은 더하지 않는다.**
+   * 그 둘은 안드로이드의 답이라 iOS는 그대로 조용하고(RN 문서의 `@platform android` · 훅 모듈
+   * 머리말), 훅의 낭독과 함께 서면 TalkBack이 같은 문장을 두 번 읽을 수 있다. 이 자리를 프롭 쌍으로
+   * 붙드는 대장이 없으므로(이 화면의 danger 글자는 조건이 boolean useState라 GAP-080 스윕의 모집단
+   * 밖이다) 라운드 109가 `app/settings/children.tsx`에서 같은 갈림을 만나 내린 그 판단을 그대로
+   * 따른다 — *"훅 하나로 두 플랫폼이 답하므로 프롭은 필요하지 않다"*
+   * (`src/a11y/field-error-announcement.test.ts` ⓚ).
+   *
+   * ⚠️ 훅이라 **조기 반환 위**에서 부른다(FIX-A). 안 보이는 동안 `null`을 넘겨야 훅이 "갈래가
+   * 닫혔다"를 보고 기억을 지운다 — 다시 눌러 또 거절당하면 같은 문장이라도 **다시** 읽힌다.
+   */
+  useFieldErrorAnnouncement(visible ? syncStatusActionFailedMessage() : null);
   if (!visible) return null;
   return <Text style={{ color: theme.colors.danger, fontSize: 12 }}>{syncStatusActionFailedMessage()}</Text>;
 }
@@ -570,6 +601,19 @@ const FailedRow = memo(function FailedRow({
 const PendingRow = memo(function PendingRow({ row }: { row: LocalExpenseRow }) {
   const [discardBlocked, setDiscardBlocked] = useState(false);
   const [discardFailed, setDiscardFailed] = useState(false);
+  /**
+   * 라운드 110 — **거절 한 줄도 위 `RecoveryActionFailureLine`과 같은 한 벌로 닫는다.**
+   *
+   * 종전에는 이 문장이 화면에만 섰다. 그때는 참이었다: 라운드 62 #2가 물은 것은 "확인까지 누른
+   * 사용자에게 거절이 보이는가"였다. → 이제 소리까지 간다 — 사유만 다를 뿐(이쪽은 "지금 보내는
+   * 중", 아래 한 줄은 "처리하지 못했다") **눌러서 나타난 실패**라는 조건은 같고, 포커스는 방금
+   * 누른 [버리기]에 남아 있다.
+   *
+   * 훅이 받는 값은 **화면이 그 줄을 그리는 조건 그대로**다 — 눈에 없는 문장을 귀에만 들려주지
+   * 않는다(`app/settings/children.tsx`가 세운 그 규칙). 두 줄이 함께 설 수는 없다: 한 번의
+   * 확인에서 `.then`은 blocked를, `.catch`는 failed를 세우고 다음 누름이 둘 다 걷는다.
+   */
+  useFieldErrorAnnouncement(discardBlocked ? SYNC_STATUS_DISCARD_PENDING_BLOCKED_MESSAGE : null);
   const confirmDiscard = useCallback(() => {
     setDiscardBlocked(false);
     setDiscardFailed(false);

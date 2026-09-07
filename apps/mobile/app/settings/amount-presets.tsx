@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { router } from "expo-router";
 import { Text, TextInput, View } from "react-native";
+import { useFieldErrorAnnouncement } from "../../src/a11y/use-field-error-announcement";
 import { amountOverLimitMessage, isAmountOverLimit } from "../../src/expenses/amount-limit";
 import {
   formatPresetChipLabel,
@@ -64,6 +65,36 @@ export default function AmountPresetsSettingsScreen() {
   // 저장될(=오름차순으로 정렬된) 모양의 미리보기. 문제가 있으면 만들지 않는다(0을 지어내지 않는다).
   const previewValues = inputNotice === null ? sanitizeCustomAmountPresets(presetDigits.map(Number)) : null;
 
+  /**
+   * A11Y-115(이월 한 자리) ⚠️ **두 시점** — *종전*: 이 화면의 오류 한 줄에는 낭독 출구가 전혀
+   * 없었다(그때는 참이었다 — 이 화면은 라운드 101에 태어났고, 라운드 109가 A11Y-115 이월을
+   * 닫을 때의 모집단은 지출 수정·예산·온보딩이라 여기가 그 그물 **밖**이었다. 라운드 79·80의
+   * 낭독 스윕도 서버 호출(뮤테이션·쿼리) 바인딩에 닿는 갈래만 자리로 세는데, 아래 `inputNotice`는
+   * 네 칸의 입력에서 파생한 **순수 계산**이라 마찬가지로 밖이다 — 이 화면에는 그 바인딩 자체가
+   * 없다(로컬 스토어 저장 하나다). 그래서 소리로만 쓰는 사람은
+   * [저장]이 비활성이라는 **사실만** 듣고 **왜인지는 끝내 듣지 못했다** — 그 버튼은 바로 이
+   * `inputNotice`로 잠기는데(`disabled={inputNotice !== null}`), 포커스는 방금 친 입력칸에
+   * 남으므로 그 아래 한 줄을 만나러 갈 이유가 없다.
+   * *이제*: 아래 오류 줄에 프롭 둘을 걸고(안드로이드의 답), 크로스플랫폼 낭독은 저장소의 그
+   * 한 벌이 소유한다(`src/a11y/use-field-error-announcement.ts`). 배선의 모양·순서는 이 화면이
+   * 금액 입력 관례를 그대로 가져온 **예산 수정 화면**(app/budget.tsx의 `amountError`)과 같다 —
+   * 새 관례를 만들지 않는다. **새 한국어 문장 0건**: 읽히는 것은 화면이 이미 그리는 그 문자열
+   * 그대로다(문구의 단일 소스는 위 `presetInputNotice`와 `src/expenses/amount-limit.ts`).
+   *
+   * ⚠️ **버튼에 힌트를 달지 않는 이유.** "비활성"이라는 사실은 이미 소리에 있다 — RN Pressable이
+   * `disabled` 프롭을 `accessibilityState.disabled`로 넘기기 때문이다. 빠진 것은 **이유**이고,
+   * 이유는 이 문장이다. 이유를 버튼 쪽에 `accessibilityHint`로 붙이려면 `src/ui.tsx`의
+   * `PressableProps`(label·onPress·disabled·style·accessibilityLabel)를 넓혀야 하는데, 그건
+   * 공용 버튼의 계약을 이 화면 하나 때문에 바꾸는 일이고 무엇보다 **비활성 요소의 힌트는 읽히지
+   * 않을 수 있다**(포커스가 그 버튼에 닿아야 비로소 들리는 것도 늦다 — 오류는 타이핑하는 순간
+   * 생긴다). 그래서 저장소의 답은 **오류가 생기는 그 순간 그 자리에서 읽는 것**이고, 예산 화면이
+   * 같은 판단을 같은 모양으로 이미 지고 있다(그 화면의 [저장]도 힌트 없이 잠긴다).
+   *
+   * ⚠️ 훅은 조기 반환보다 위에서 부른다(FIX-A). 오류가 없으면 `null`이 가고, 그 걸음이 훅의
+   * 기억을 지워 같은 오류가 다시 열릴 때 다시 읽힌다.
+   */
+  useFieldErrorAnnouncement(inputNotice);
+
   const handleSave = () => {
     // 버튼이 inputNotice로 이미 잠겨 있어 정상 경로에서는 null이 오지 않는다(방어 갈래).
     const sanitized = sanitizeCustomAmountPresets(presetDigits.map(Number));
@@ -118,7 +149,12 @@ export default function AmountPresetsSettingsScreen() {
             </View>
           ))}
           {inputNotice ? (
-            <Text style={errorTextStyle}>{inputNotice}</Text>
+            /* A11Y-115(이월 한 자리): 프롭 조합·순서는 예산 수정 화면(app/budget.tsx)의 총액 오류
+               줄과 **같은 한 벌**이다 — 저장을 잠그는 오류이고 포커스가 방금 친 입력칸에 남는다는
+               판정도 같다. 갈래의 else(회색 미리보기 한 줄)는 오류가 아니므로 종전 그대로 조용하다. */
+            <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>
+              {inputNotice}
+            </Text>
           ) : (
             // 저장 시 오름차순으로 정렬된다는 사실을 미리 보여 준다(칩에 보일 표기 그대로).
             <Text style={captionStyle}>

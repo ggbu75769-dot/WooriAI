@@ -409,6 +409,37 @@ export default function BudgetEditScreen() {
           householdId: categoryHouseholdId
         })
       : null;
+  /**
+   * A11Y-115(라운드 102가 연 자리 · 라운드 108-T20이 범위 밖으로 둔 자리) ⚠️ **두 시점** —
+   * *종전*: 이 카드의 **저장을 잠그는 오류 두 줄**(행 금액 상한 · 30개 상한)은 프롭 쌍
+   * (`accessibilityLiveRegion="polite"` + `accessibilityRole="alert"`)만 들고 있었다. 그때도 그
+   * 판정은 옳았다(라운드 102 리뷰 L-a11y가 회색 캡션에서 danger로 가른 그 갈래다). 다만 그 쌍은
+   * **안드로이드의 답**이다 — `accessibilityLiveRegion`은 RN 문서가 `@platform android`로 표시한
+   * 프롭이고 `accessibilityRole="alert"`에는 VoiceOver의 대응 트레이트가 없어서(라운드 79 리뷰
+   * M-1 · `docs/operations/known-limitations.md` T-1), iOS에서는 두 줄 다 **조용했다**. 바로 위
+   * 총액 오류 한 줄만 T20에서 훅을 받아, 같은 화면의 같은 성격의 오류 셋이 플랫폼에 따라 갈렸다.
+   * *이제*: 세 줄이 같은 훅 한 벌을 지난다(프롭 쌍은 그대로 남는다 — 안드로이드에서 이미 들리던
+   * 것을 끄는 것이 목적이 아니다). **새 한국어 문장 0건**이고, 읽히는 것은 화면이 이미 그리는
+   * 그 문자열이다.
+   *
+   * ⚠️ **행 오류는 왜 "첫 줄 하나"인가.** 훅은 값 하나를 받고, 행은 `map` 안이라 행마다 부를 수
+   * 없다(조건부·가변 개수 호출은 훅 순서를 깬다 — FIX-A의 그 규율). 그런데 여기서는 그것이
+   * 절충이 아니다: 행 오류 문구는 `src/expenses/category-budget-form.ts`가 **모든 행에 같은
+   * `amountOverLimitMessage()` 한 문장**을 싣는다(행 이름이 들어가지 않는다). 즉 두 행이 동시에
+   * 넘쳐도 읽을 문장은 하나뿐이고, 첫 줄을 넘기는 것과 "지금 서 있는 행 오류 문장"을 넘기는 것이
+   * 같은 값이다. 문구가 행별로 갈리는 날에는 이 자리가 먼저 거짓이 되므로, 그 사실을 계약으로
+   * 문다(`src/a11y/field-error-announcement.test.ts`의 ⓖ).
+   *
+   * ⚠️ 이 두 줄은 `src/a11y-contract.test.ts`의 **쿼리 방아쇠 칸**(`app/budget.tsx: 2`)에 서 있다.
+   * 그 수는 이 변경으로 **움직이지 않는다**: 그 스캐너가 세는 것은 "danger 색 글자 + 그것을 감싼
+   * 최내곽 조건이 쿼리/뮤테이션에 닿는가"이고, 훅 호출은 조건도 색도 바꾸지 않는다. 출구 값도
+   * 그대로 `live-region`이다 — 그 스캐너는 화면 파일 안의 `useEffect` 안에 선 낭독 호출만
+   * announce로 세는데, 이 저장소는 T20 이후 그 배선을 **훅 한 벌**로 옮겼기 때문이다(스캐너가
+   * 훅을 모르는 것은 이 라운드가 만든 사실이 아니라 T20이 남긴 사실이고, 그 자리들은 대장의
+   * 단언 대상이 아니다 — 쿼리 칸에서 값으로 무는 것은 "맨 줄이면 침묵일 수 없다" 하나다).
+   */
+  useFieldErrorAnnouncement(categoryForm?.rows.find((row) => row.errorText !== null)?.errorText ?? null);
+  useFieldErrorAnnouncement(categoryForm?.formError ?? null);
   const categoryDirty = isCategoryBudgetDirty(categoryInitialDigits, categoryDraft);
   // §4.2 — "지난달 카테고리 예산 그대로" 칩. 기존 이월 칩과 같은 defer 갈래(budget.data ===
   // null일 때만 lastMonthBudget 조회가 켜져 있다)라 추가 요청은 0건이고, 누르면 행에 채워

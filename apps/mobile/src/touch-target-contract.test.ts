@@ -15,6 +15,19 @@ import { describe, expect, it } from "vitest";
  * (scripts/pixel-lock/pixel-lock-screens.json)과 다른 트랙이 들고 있는 파일의 미달 자리는
  * 손대지 않았으므로 여기에도 적지 않는다 — 없는 계약을 적어 두면 다음 사람이 이미 지켜지는
  * 줄로 읽는다.
+ *
+ * ⚠️ **두 시점(이월 한 자리를 닫는 걸음).** 바로 위 문단은 *그때는 참이었다* — A11Y-131은 일곱을
+ * 갚고 픽셀락 화면 파일을 통째로 경계 밖에 두었다. 그런데 그 경계가 남긴 것이 **하나**였다:
+ * 지출 입력 하단 고정 요약바의 품목명 버튼(`app/expenses/new.tsx` = EXP-001)이 44dp로 남았고,
+ * 그 자리는 하필 **핵심 루프**(지출 기록)에 언제나 고정된 버튼이다. *이제* 아래 **⑧**이 그 자리를
+ * 문다. 경계를 통째로 지운 것이 아니라 **경계의 근거를 다시 읽은 것**이다: 사람이 캡처를 다시
+ * 찍어야 하는 것은 **렌더가 바뀔 때**이고, `hitSlop`은 레이아웃 속성이 아니라 렌더를 바꾸지
+ * 않는다. 그 사실은 저장소가 이미 세 번 못박았다 — `app/expenses/new.tsx` 자신의
+ * `SUGGEST_CHIP_HIT_SLOP`(라운드 64 #6, 같은 EXP-001 화면) · `ExpenseDatePicker` 날짜 칸(위 ①,
+ * EXP-001에서 열린다) · `app/import/index.tsx` 뒤로가기(IMP-003 —
+ * `src/a11y-contract.test.ts`의 GAP-069 #5가 *"렌더는 한 픽셀도 바뀌지 않는다"*를 따로 못박았다).
+ * 그래서 ⑧은 히트 영역만 단언하지 않고, **선언 치수가 한 값도 움직이지 않았다**는 것을 같이 문다
+ * (아래 ⑧-픽셀). 크기로 갚는 길(③⑤⑥⑦)은 이 자리에서는 **금지**다.
  */
 
 const mobileRoot = process.cwd();
@@ -184,8 +197,65 @@ describe("A11Y-131 최소 터치 타깃 계약 (선언 치수 + 2×세로 hitSlo
   });
 
   /**
+   * ⑧ 지출 입력 **하단 고정 요약바의 품목명 버튼**(`app/expenses/new.tsx`). 종전 44dp
+   * (minHeight 44 · hitSlop 없음) → 이제 44 + 2×2 = 48. 위 ①과 **같은 4dp를 같은 방식으로**
+   * 갚는다(선언 치수는 0 변경). 이 자리가 위 일곱에 끼지 못했던 이유와 이제 닫는 이유는 이
+   * 파일 머리말의 두 시점 문단에 있다.
+   */
+  it("지출 요약바 품목명 버튼: minHeight 44 + 세로 hitSlop 2×2 = 48", () => {
+    const entrySource = source("app/expenses/new.tsx");
+    const box = readHitSlopBox(entrySource, "SUMMARY_BAR_ITEM_NAME_HIT_SLOP");
+    expect(box, "품목명 버튼 hitSlop").toEqual({ bottom: 2, left: 0, right: 0, top: 2 });
+
+    // 그 슬롭이 **요약바의 그 버튼에 실제로 걸려 있는가**(상수만 남고 prop이 사라지면 빨개진다).
+    const tag = pressableOpenTagAround(entrySource, "onPress={focusItemNameFromSummaryBar}");
+    expect(tag, "품목명 버튼의 hitSlop 배선").toContain("hitSlop={SUMMARY_BAR_ITEM_NAME_HIT_SLOP}");
+    const height = readNumericStyle(tag, "minHeight");
+    expect(height, "품목명 버튼의 선언 높이").toBe(44);
+    expect(height + box.top + box.bottom, "품목명 버튼의 히트 높이").toBe(MIN_TOUCH_TARGET);
+
+    // 가로는 0이다 — 버튼은 요약바 왼쪽 열(flex: 1)을 가득 채워 360dp 기기에서도 약 155dp이니
+    // 이미 48을 크게 넘고, 오른쪽으로 벌면 gap 10 너머 금액 입력칸의 몸에 다가간다.
+    expect(box.left + box.right, "품목명 버튼의 가로 슬롭").toBe(0);
+
+    // 세로 2의 근거인 두 간격이 소스에 그대로 있다: 위로는 분류 라벨과 gap 4(2 < 4),
+    // 아래로는 요약바 안쪽 열의 gap 10(2 < 10)이라 어느 이웃의 몸에도 닿지 않는다.
+    expect(entrySource, "품목명 버튼이 선 왼쪽 열의 gap").toContain("<View style={{ flex: 1, gap: 4 }}>");
+    expect(entrySource, "요약바 안쪽 열의 gap").toContain('alignSelf: "center", gap: 10');
+    expect(box.top, "위쪽 슬롭은 라벨과의 gap 4보다 작다").toBeLessThan(4);
+    expect(box.bottom, "아래쪽 슬롭은 저장 줄과의 gap 10보다 작다").toBeLessThan(10);
+  });
+
+  /**
+   * ⑧-픽셀 — 이 한 자리만 픽셀락 화면 파일(EXP-001) 안에 있으므로, **렌더가 안 바뀌었다**를
+   * 값으로 따로 못박는다. 형식은 `src/a11y-contract.test.ts`의 GAP-069 #5(IMP-003 뒤로가기)가
+   * 세운 그대로다 — 다음 사람이 "이왕 고치는 김에" 높이나 여백으로 갚으면 여기서 빨개지고,
+   * 그건 승인 캡처를 다시 찍어야 하는 변경이다.
+   */
+  it("⑧ 렌더는 한 픽셀도 바뀌지 않는다 — EXP-001 픽셀락 캡처가 그대로다", () => {
+    const entrySource = source("app/expenses/new.tsx");
+    const tag = pressableOpenTagAround(entrySource, "onPress={focusItemNameFromSummaryBar}");
+    // 44는 승인 캡처(EXP-001)의 값이다. 높이로 벌지 않았다는 사실을 값으로 못박는다.
+    expect(readNumericStyle(tag, "minHeight"), "버튼 높이").toBe(44);
+    // 여백으로 벌지도 않았다 — 그건 렌더가 바뀌는 길이다.
+    expect(tag, "버튼 여백").not.toContain("padding");
+    expect(tag, "버튼 여백").not.toContain("margin");
+    // hitSlop이 이 화면에서 렌더 중립이라는 근거는 **같은 파일의 선례**다(라운드 64 #6 입력 보조 칩).
+    expect(entrySource, "같은 파일의 hitSlop 선례 선언").toContain(
+      "const SUGGEST_CHIP_HIT_SLOP = { bottom: 5, left: 3, right: 3, top: 5 } as const;"
+    );
+    expect(entrySource, "같은 파일의 hitSlop 선례 배선").toContain("hitSlop={SUGGEST_CHIP_HIT_SLOP}");
+  });
+
+  /**
    * 이 라운드가 **손대지 않기로 한 경계**를 계약으로 남긴다: 픽셀락 화면 목록은 사람이 캡처를
    * 다시 찍어야 움직이는 자리이므로, 위 일곱 자리 중 어느 것도 그 아홉 화면 파일에 있지 않다.
+   *
+   * ⚠️ **두 시점**: 위 문장은 **일곱에 대해서는 지금도 참**이고, 그래서 아래 단언은 한 줄도
+   * 바뀌지 않았다. 다만 그 경계가 *"픽셀락 화면은 영원히 못 고친다"*로 읽히면 안 된다 — ⑧이
+   * 바로 그 파일(`app/expenses/new.tsx`) 안의 자리를 **렌더를 바꾸지 않는 방법으로** 갚았다.
+   * 아래 `touchedFiles`에 그 파일을 더하지 않는 이유도 그것이다: 이 목록이 세는 것은 *"크기로
+   * 갚아 캡처가 흔들릴 수 있는 자리"*이고, ⑧은 그 범주가 아니다(⑧-픽셀이 값으로 지킨다).
    */
   it("고친 일곱 자리는 픽셀락 화면 아홉 개의 파일 밖에 있다", () => {
     const pixelLockScreenFiles = [

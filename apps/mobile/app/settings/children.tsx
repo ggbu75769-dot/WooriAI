@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router, useLocalSearchParams } from "expo-router";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { CHILD_STAGE_CODES, getSeoulToday, type ChildStageCode, type ChildStageMode } from "@wooriai/domain";
+// A11Y-115 이월: 필드 검증 오류의 크로스플랫폼 낭독 출구 한 벌(프롭 쌍은 안드로이드의 답이다).
+import { useFieldErrorAnnouncement } from "../../src/a11y/use-field-error-announcement";
 import {
   createChild,
   listChildren,
@@ -115,6 +117,7 @@ function ChildDateField({
   value,
   error,
   showErrors,
+  announceError,
   onChange
 }: {
   dateLabel: string;
@@ -123,12 +126,31 @@ function ChildDateField({
   value: string;
   error: string | null;
   showErrors: boolean;
+  /** 이 칸이 **자기 오류를 읽는 자리인가**(첫 오류 하나 규칙 — 아래 훅 주석). */
+  announceError: boolean;
   onChange: (dateText: string) => void;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   // 이 폼이 열려 있는 동안 "오늘"은 한 값이다(렌더마다 다시 물으면 자정을 넘길 때 격자와
   // 판정이 갈린다).
   const [todayIso] = useState(() => getSeoulToday());
+  /**
+   * ⚠️ 두 시점(A11Y-115 이월 — 이 계열의 마지막 침묵) — 종전에도 이 칸은 오류를 **정직하게
+   * 그렸다**(아래 `showErrors && error` 한 줄, 그때는 그것이 이 트랙의 전부였다). 그러나 날짜를
+   * 잘못 친 사람의 포커스는 입력칸에 남으므로, 소리로만 쓰는 사람에게는 그 줄을 만나러 갈 이유가
+   * 없어 [저장]·[출생일로 바꾸기]가 왜 잠겼는지 끝내 알 수 없었다. 이제 그 문장이 저장소의
+   * 크로스플랫폼 출구 한 벌을 지난다(src/a11y/use-field-error-announcement.ts).
+   *
+   * 훅이 받는 값 = **화면이 그 줄을 그리는 조건**이다(`showErrors && error` — 아래 JSX와 같은
+   * 판정 하나). 눈에 없는 문장을 귀에만 들려주지 않는다.
+   *
+   * `announceError`가 따로 있는 이유: 이 컴포넌트는 **두 갈래가 공유**한다(편집·추가 폼 안의
+   * ChildFormFields · 출생 전환 카드). 폼 안에서는 태명 칸이 이 칸보다 앞줄이라, 태명이 틀린 채로
+   * 이 칸까지 읽으면 한 번의 제출에 두 문장이 겹친다 — 예산 화면이 세운 "첫 오류 하나"
+   * (app/budget.tsx의 `rows.find((row) => row.errorText !== null)`) 규칙을 이 자리에서는 프롭
+   * 하나가 진다. 출생 전환 카드에는 앞줄이 없으므로 언제나 참이다.
+   */
+  useFieldErrorAnnouncement(announceError && showErrors ? error : null);
   return (
     <View style={{ gap: 6 }}>
       <Text style={fieldLabelStyle}>{dateLabel}</Text>
@@ -200,6 +222,31 @@ function ChildFormFields({
 }) {
   const errors = validateChildForm(stageMode, values, { requireDate: true });
   const dateLabel = requiredDateFieldLabel(stageMode);
+  /**
+   * ⚠️ 두 시점(A11Y-115 이월) — 종전에는 이 폼의 오류 셋이 전부 침묵이었다(그때는 이 계열의
+   * 낭독 배선이 지출 수정·예산·온보딩까지만 와 있었다). 이제 셋 다 같은 훅 한 벌을 지난다.
+   *
+   * **훅이 화면 최상단이 아니라 여기 사는 근거.** 이 컴포넌트는 편집 폼(:편집 카드)과 추가
+   * 폼(:새 아이 추가 카드)이 함께 쓴다. 그런데 폼을 여는 세 입구(`startEdit`·`startBornTransition`·
+   * `startAdd`)가 서로를 **반드시 닫으므로**(각 함수가 나머지 둘의 상태를 비운다) 화면에 이
+   * 컴포넌트는 언제나 **하나뿐**이다 — 즉 훅도 하나뿐이라 동시에 열린 폼 수만큼 겹쳐 읽는 일이
+   * 없다. 반대로 화면 최상단에 한 줄로 놓으면 ⓐ 어느 폼의 오류인지 구분할 수 없고 ⓑ 폼이 닫힌
+   * 뒤에도 `showErrors`는 참으로 남아([닫기]·[취소]는 그 값을 되돌리지 않는다) **사라진 폼의
+   * 오류**를 읽게 된다. 컴포넌트가 언마운트되는 자리가 곧 훅의 기억이 지워지는 자리다.
+   *
+   * ⚠️ **온보딩과 결론이 다르다 — 여기에는 touched 게이트가 없다.**
+   * `app/(onboarding)/child-profile.tsx`는 훅에 `nicknameTouched ? nicknameError : null`을 넘긴다.
+   * 그 화면은 제출 전에도 오류를 그리기 때문에 touched가 곧 "화면이 그 줄을 그리는가"였다. 이
+   * 화면의 `showErrors`는 제출 핸들러(`submitEdit`·`submitAdd`)에서**만** 참이 되고 폼을 여는
+   * 걸음마다 다시 거짓이 되므로, `showErrors` 자체가 이미 그 게이트다 — 별도 touched를 세우면
+   * 화면이 그리지 않는 새 상태를 낭독을 위해 짓는 셈이 된다.
+   *
+   * 동시에 여러 칸이 틀리면 **첫 오류 하나**만 읽는다(app/budget.tsx의 선례). 화면 순서는 태명 →
+   * 날짜 → 단계인데, 날짜 칸과 단계 칩은 **같은 폼에 함께 서지 않는다**(`requiredDateFieldLabel`이
+   * manual에서 null이라 칸이 없고, 칩은 manual에서만 선다). 그래서 여기서 이어 붙일 것은 태명과
+   * 단계 둘뿐이고, 그 사이에 낄 날짜는 자기 칸이 `announceError`로 받는다.
+   */
+  useFieldErrorAnnouncement(showErrors ? (errors.nicknameError ?? errors.manualStageError) : null);
   return (
     <View style={{ gap: theme.spacing.gap }}>
       <View style={{ gap: 6 }}>
@@ -224,6 +271,8 @@ function ChildFormFields({
           value={values.dateText}
           error={errors.dateError}
           showErrors={showErrors}
+          // 첫 오류 하나 — 앞줄(태명)이 틀린 동안에는 이 칸이 읽지 않는다(위 훅 주석).
+          announceError={!errors.nicknameError}
           onChange={(dateText) => onChange({ ...values, dateText })}
         />
       ) : null}
@@ -836,6 +885,8 @@ export default function ManageChildrenScreen() {
                       value={bornDateText}
                       error={validateChildForm("born", bornTransitionValues(child), { requireDate: true }).dateError}
                       showErrors={bornShowErrors}
+                      // 이 카드에는 이 칸 하나뿐이라 앞줄이 없다 — 첫 오류가 곧 이 칸의 오류다.
+                      announceError
                       onChange={setBornDateText}
                     />
                     {markChildBorn.isError ? <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={{ color: theme.colors.danger }}>{bornFailedText}</Text> : null}

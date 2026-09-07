@@ -268,6 +268,13 @@ export interface OfflineStore {
    * 살고, `clearAll`이 함께 비운다(PRIV-104).
    */
   insertItemStatusMutation(row: ItemStatusOutboxRow): Promise<void>;
+  /**
+   * 라운드 105 A-2: 지출 큐의 `getOutboxMutation`과 **같은 자리·같은 이유**로 생긴 읽기다.
+   * flush pass는 전송 직전에 이 행을 다시 읽어(그 사이에 사용자가 같은 준비템을 다시 눌러
+   * 병합됐을 수 있다) 최신 값을 보낸다 -- 근거 전문은 sync-engine.ts의 flushItemStatusPass.
+   * 없는 mutationId면 null(병합이 그 행을 버렸다는 뜻).
+   */
+  getItemStatusMutation(mutationId: string): Promise<ItemStatusOutboxRow | null>;
   updateItemStatusMutation(mutationId: string, patch: Partial<ItemStatusOutboxRow>): Promise<void>;
   deleteItemStatusMutation(mutationId: string): Promise<void>;
   /** 생성 순서 그대로(= flush가 보내는 순서). */
