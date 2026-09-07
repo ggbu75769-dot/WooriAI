@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
+import { useWindowDimensions } from "react-native";
 import { LOCAL_SESSION_TOKEN } from "../../src/api/client";
+import { adaptiveTabBarHeight } from "../../src/design-system/responsive";
 import { usePushDeviceRegistration } from "../../src/notifications/usePushDeviceRegistration";
 import { BottomTabPixelStyles } from "../../src/pixelLock/styles";
 import { useOnboardingProgressStore } from "../../src/stores/onboarding-progress.store";
@@ -38,6 +40,16 @@ export default function TabsLayout() {
   // 실패도 조용히 무시되므로 탭 렌더/리다이렉트 흐름에는 어떤 영향도 없다 (early return보다
   // 앞에 두어 훅 순서를 고정한다).
   usePushDeviceRegistration(accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null));
+  // A11Y-TAB-001 두 시점 ①: 종전에는 탭바 높이가 `BottomTabPixelStyles.height`(72) 리터럴 하나였다
+  // -- 캡처 시점(글꼴 배율 1.0)에는 참이었다. 이제는 OS 글꼴 배율을 함께 읽는다. 근거: 이 바의
+  // 콘텐츠 칸은 72 - paddingTop 8 - paddingBottom 10 = 54dp이고, 그 안에서 라이브러리가 탭 한 칸에
+  // padding 5(@react-navigation/bottom-tabs `tabVerticalUiKit`)와 아이콘 래퍼 28dp(`ICON_SIZE_TALL`)를
+  // 고정으로 쓰므로 라벨에 남는 자리는 54 - 10 - 28 = 16dp뿐이다. 아이콘 글리프(19)는
+  // `@expo/vector-icons`가 `allowFontScaling: false`로 그려 배율과 무관하지만 라벨(10)은 배율을 타서,
+  // 기본 줄높이 비율 약 1.2 기준 배율 1.33쯤에서 16dp를 넘어선다 -- 앱이 "큰 글자 레이아웃"으로
+  // 치는 1.5(LARGE_TEXT_SCALE_THRESHOLD)보다도 먼저다. `useWindowDimensions`는 훅이므로 아래 early
+  // return(Redirect)보다 위에 둔다(FIX-A).
+  const { fontScale } = useWindowDimensions();
   const isPixelLockMode = process.env.EXPO_PUBLIC_PIXEL_LOCK === "1";
 
   if (!isPixelLockMode) {
@@ -66,7 +78,11 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: theme.colors.white,
           borderTopColor: theme.colors.presentation.hairline,
-          height: BottomTabPixelStyles.height,
+          // A11Y-TAB-001 두 시점 ②: 종전 `BottomTabPixelStyles.height`(=72 고정) → 이제
+          // `adaptiveTabBarHeight(72, fontScale)`. 픽셀락 캡처 여덟 장은 글꼴 배율 1.0에서 찍혔고
+          // `adaptiveTabBarHeight(72, 1) === 72`이므로 캡처 재대조는 필요 없다(아래 계약 테스트가
+          // 이 불변을 리터럴로 고정한다). 배율이 오를 때만 최대 +24dp까지 자란다.
+          height: adaptiveTabBarHeight(BottomTabPixelStyles.height, fontScale),
           paddingBottom: BottomTabPixelStyles.paddingBottom,
           paddingTop: BottomTabPixelStyles.paddingTop
         }

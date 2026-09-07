@@ -71,6 +71,16 @@ describe("design-system tokens (c20deeb)", () => {
     expect(iconSize).toEqual({ small: 16, medium: 22, large: 28, hero: 40 });
   });
 
+  /**
+   * ⚠️ 두 시점(A11Y-TYPO-001). 종전 정찰은 이 리터럴들(특히 `amountLarge` 32/38, 비 1.19)을
+   * "RN이 숫자 lineHeight에는 글꼴 배율을 안 곱하니 배율 2.0에서 64px 글자가 38px 줄상자에
+   * 들어간다"는 근거로 접근성 결함이라고 적었다 — **그 전제가 거짓이다.** react-native 0.76.9는
+   * iOS(Paper `RCTTextAttributes.mm` · Fabric `RCTAttributedTextUtils.mm`)와 Android
+   * (`TextAttributeProps.java` · `TextAttributes.java`, SP 변환) 양쪽에서 숫자 lineHeight에 같은
+   * 배수를 곱한다. 배율 2.0의 amountLarge는 64/76이지 64/38이 아니다.
+   * → 그래서 아래 리터럴은 **그대로 남는다**. 근거 소스 인용은 `font-scale-contract.test.ts`가
+   *   설치된 RN에서 직접 읽어 고정한다(RN을 올리면 그쪽이 먼저 빨개진다).
+   */
   it("keeps every amount typography tier tabular so digits stay aligned", () => {
     expect(typography.display).toMatchObject({ fontSize: 32, lineHeight: 40 });
     expect(typography.body).toMatchObject({ fontSize: 15, lineHeight: 22, fontWeight: "400" });
