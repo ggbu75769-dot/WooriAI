@@ -76,3 +76,26 @@ describe("Admin CMS content review page", () => {
     expect(shell).toContain("/reviews");
   });
 });
+
+/**
+ * 라운드 106 트랙 T5 — **실패한 상세 조회를 "불러오는 중"이라고 부르지 않는다.**
+ *
+ * 종전에는 상세 조회가 실패하면 오류 배너와 "불러오는 중..."이 **동시에** 섰고, 그 문장은
+ * 다시 부르는 자리가 없어 영영 사라지지 않았다 — 아직 기다리면 되는 화면인지 이미 끝난
+ * 실패인지 운영자가 알 수 없었다. 이 화면의 형제 자리들이 이미 쓰는 판정
+ * (`x === null && !loadError`)을 그대로 가져온다.
+ */
+describe("검토 상세의 로딩 표시가 실패를 가리지 않는다 (라운드 106 트랙 T5)", () => {
+  it("상세 조회가 실패하면 로딩 문장을 세우지 않는다", () => {
+    const source = readSource("app/reviews/page.tsx");
+    expect(source).toContain(") : detailError ? null : (");
+    // 실패하지 않은 로딩에서는 종전과 같은 문장이 같은 자리에 선다(새 문구 0건).
+    expect(source).toContain('<p className={styles.emptyState}>불러오는 중...</p>');
+    expect(source).toContain('<p className={styles.errorBanner} role="alert">{detailError}</p>');
+  });
+
+  it("같은 판정을 목록 쪽이 이미 쓰고 있다 (관례를 빌리지 발명하지 않는다)", () => {
+    const source = readSource("app/reviews/page.tsx");
+    expect(source).toContain("{revisions === null && !loadError ?");
+  });
+});

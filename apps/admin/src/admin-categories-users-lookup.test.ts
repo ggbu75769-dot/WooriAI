@@ -32,7 +32,13 @@ describe("Categories API client (ADM-127)", () => {
 });
 
 describe("Categories page (ADM-127)", () => {
-  it("lists every category with the 코드/이름/순서/사용/노출 columns", () => {
+  // ⚠️ 두 시점(라운드 106 트랙 T5): 이 단언의 이름은 원래 *"lists **every** category"* 였고,
+  // 그때는 참이었다 — `categories`에 소유자 칸이 없어 그 표에 사용자 행이 있을 수 없었다.
+  // 라운드 103부터 그 표에는 가구가 만든 분류가 함께 살고 서버가 어드민 조회를
+  // `householdId: null`로 좁힌다. 이름이 계약보다 넓게 말하고 있어 좁힌다(단언은 그대로다 —
+  // 이 자리가 무는 것은 열 다섯의 존재이지 모집단이 아니었다. 모집단을 무는 자리는 아래
+  // "카테고리 화면이 모집단을 정직하게 말한다"이다).
+  it("lists the operator seed rows with the 코드/이름/순서/사용/노출 columns", () => {
     const source = readSource("app/categories/page.tsx");
     expect(source).toContain("use client");
     expect(source).toContain("listAdminCategories");
@@ -154,5 +160,49 @@ describe("Users lookup page (ADM-127)", () => {
   it("is reachable from the admin nav for admin sessions only", () => {
     const shell = readSource("src/components/AdminShell.tsx");
     expect(shell).toContain('{ href: "/users-lookup", label: "사용자 조회", roles: ["admin"] }');
+  });
+});
+
+/**
+ * 라운드 106 트랙 T5(라운드 103 후속) — **표의 모집단이 달라졌는데 화면이 그 말을 하지
+ * 않고 있었다.**
+ *
+ * 라운드 103이 `categories`에 소유자 칸(`household_id`)을 더하면서 그 표에는 가구가 앱에서
+ * 직접 만든 분류가 함께 산다. 서버는 어드민의 세 조회를 `householdId: null`로 좁혀 **운영
+ * 시드만** 내려주는데(apps/api/src/admin/admin-categories.service.ts), 화면에는 그 사실을
+ * 적은 자리가 한 곳도 없어 이 표가 앱의 분류 전부처럼 읽혔다.
+ *
+ * ⚠️ 이 축이 **열지 않는 것**: 가구가 만든 분류의 이름도 수도 어드민에 오지 않는다
+ * (라운드 100·102·103이 나란히 기각한 "개인 데이터 표면 신설"). 늘어난 것은 사실 한 줄뿐이다.
+ */
+describe("카테고리 화면이 모집단을 정직하게 말한다 (라운드 106 트랙 T5)", () => {
+  it("이 표가 운영 시드만 담는다는 사실을 화면이 적는다", () => {
+    const source = readSource("app/categories/page.tsx");
+    expect(source).toContain("운영 시드 분류");
+    expect(source).toContain("가구가 앱에서 직접 만든 분류는 여기에 나오지 않고");
+  });
+
+  it("그 사실의 근거가 서버에 실재한다 (화면이 지어낸 말이 아니다)", () => {
+    const service = readFileSync(
+      join(adminRoot, "..", "api", "src", "admin", "admin-categories.service.ts"),
+      "utf8"
+    );
+    expect(service).toContain("where: { householdId: null }");
+    expect(service).toContain("where: { id: categoryId, householdId: null }");
+  });
+
+  it("개인 데이터 표면을 늘리지 않는다 (이름도 수도 오지 않는다)", () => {
+    const api = readSource("src/lib/admin-api.ts");
+    // 어드민의 카테고리 타입에는 소유자 칸이 없다 — 서버가 내려주지 않으므로 읽을 것도 없다.
+    // ⚠️ 파일 전체가 아니라 **그 타입 블록**만 본다: `householdId`는 감사 로그 항목
+    // (AdminAuditLogEntry)에도 실려 있고 그것은 이 축과 다른 값이다.
+    const categoryType = /export type AdminCategory = \{([\s\S]*?)\};/.exec(api)?.[1];
+    expect(categoryType, "admin-api.ts에서 AdminCategory 선언을 찾지 못했어요").toBeTruthy();
+    expect(categoryType).not.toContain("householdId");
+    // 화면이 커스텀 분류를 세거나 부르는 새 조회를 만들지 않았다(조회는 종전 하나뿐이다).
+    const source = readSource("app/categories/page.tsx");
+    const code = source.replace(/\{\/\*[\s\S]*?\*\/\}/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ");
+    expect(code).not.toContain("custom");
+    expect((code.match(/listAdminCategories\(\)/g) ?? []).length).toBe(1);
   });
 });

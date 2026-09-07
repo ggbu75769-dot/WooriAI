@@ -62,17 +62,31 @@ function formatDate(value: string | null): string {
  * state (never persisted anywhere) and gone for good once dismissed. */
 type TempPasswordNotice = { email: string; tempPassword: string };
 
+/**
+ * 라운드 106 트랙 T5 — **복사 실패가 조용했다.**
+ *
+ * 종전에는 `catch`가 `setCopied(false)`만 했다: 클립보드를 못 쓰는 브라우저(권한 거부,
+ * 또는 http로 연 어드민이라 `navigator.clipboard` 자체가 없는 안전하지 않은 컨텍스트)에서
+ * [복사]를 눌러도 라벨은 "복사"인 채 아무 일도 일어나지 않았다. 이 카드가 담고 있는 것은
+ * **다시는 표시되지 않는 임시 비밀번호**라, 복사됐다고 믿고 붙여 넣으면 클립보드의 옛 값이
+ * 새 관리자에게 전달된다. 형제 화면이 같은 실패에 이미 답을 갖고 있다 —
+ * app/links/page.tsx의 공유 링크 복사("클립보드에 복사하지 못했어요. …직접 복사해 주세요.").
+ * 그 관례를 그대로 빌리고, 카드가 이미 `role="status"`라 그 문장은 소리로도 나간다.
+ */
+const TEMP_PASSWORD_COPY_FAILED_HINT = "클립보드에 복사하지 못했어요. 위 비밀번호를 직접 선택해 복사해 주세요.";
+
 function TempPasswordCallout({ notice, onDismiss }: { notice: TempPasswordNotice; onDismiss: () => void }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(notice.tempPassword);
-      setCopied(true);
+      setCopyState("copied");
     } catch {
       // Clipboard can be unavailable (permissions/insecure context); the code
-      // below stays selectable-by-click (user-select: all) as a fallback.
-      setCopied(false);
+      // below stays selectable-by-click (user-select: all) as a fallback —
+      // 이제 그 폴백을 화면이 **말한다**(종전에는 아무 말도 없었다).
+      setCopyState("failed");
     }
   };
 
@@ -84,12 +98,13 @@ function TempPasswordCallout({ notice, onDismiss }: { notice: TempPasswordNotice
       <code className={styles.calloutCode}>{notice.tempPassword}</code>
       <div className={styles.actions}>
         <button type="button" className={styles.primaryButton} onClick={handleCopy}>
-          {copied ? "복사됨" : "복사"}
+          {copyState === "copied" ? "복사됨" : "복사"}
         </button>
         <button type="button" className={styles.secondaryButton} onClick={onDismiss}>
           확인했어요, 닫기
         </button>
       </div>
+      {copyState === "failed" ? <span className={styles.hint}>{TEMP_PASSWORD_COPY_FAILED_HINT}</span> : null}
       <span className={styles.hint}>새 관리자는 첫 로그인 후 2단계 인증(MFA)을 등록하게 돼요.</span>
     </div>
   );

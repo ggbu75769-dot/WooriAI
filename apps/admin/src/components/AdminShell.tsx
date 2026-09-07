@@ -20,6 +20,23 @@ import { loadErrorCopy, type LoadErrorCopy } from "../lib/load-error-copy";
 import { recoveryCodesNotice } from "../lib/recovery-codes-view";
 import styles from "./admin-shell.module.css";
 
+/**
+ * 라운드 106 트랙 T5 — **셸의 입력칸 여덟이 이름을 placeholder 하나에만 기대고 있었다.**
+ *
+ * 로그인·2단계 인증·비밀번호 변경·인증 앱 재등록은 운영자가 어드민에서 **처음 만나는**
+ * 화면이고 그 뒤에 콘솔 전체가 있는데, 이 넷의 입력칸에는 `<label>`도 `aria-label`도 없이
+ * `placeholder`만 있었다. 그 값은 **접근 가능한 이름의 폴백**일 뿐이라 ⓐ 글자를 한 자라도
+ * 치는 순간 화면에서 사라지고(그때 이 칸이 무엇을 받는 칸인지 보여 주는 자리가 0건이 된다),
+ * ⓑ 보조기술에 따라 이름으로 읽히지 않는다 — "편집 텍스트, 비어 있음" 셋이 나란히 서면
+ * 어느 것이 현재 비밀번호이고 어느 것이 확인 칸인지 들어서는 알 수 없다.
+ *
+ * `app/**`의 폼은 전부 `<label htmlFor>`로 이어져 있고(그쪽이 이 저장소의 관례다), 표 안처럼
+ * 라벨을 세울 자리가 없는 칸은 `aria-label`을 쓴다(app/categories/page.tsx의 인라인 편집).
+ * 여기 여덟 칸은 뒤쪽 모양을 빌린다 — 카드가 세로로 좁고 placeholder가 이미 그 이름을 말하고
+ * 있어서, **새 문구 0건**으로 이름만 붙일 수 있다(값은 placeholder와 바이트가 같다).
+ * 보이는 화면은 한 픽셀도 바뀌지 않는다. 모집단은 admin-control-name.test.ts가 진다.
+ */
+
 // `roles` omitted = visible to every signed-in role. ADM-006: the admin-account
 // page is admin-only, so it's hidden from editor/analyst sessions here (the
 // page itself also renders an access notice, and the API enforces the role).
@@ -194,6 +211,7 @@ function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
         autoComplete="current-password"
         value={currentPassword}
         onChange={(event) => setCurrentPassword(event.target.value)}
+        aria-label="현재 비밀번호"
         placeholder="현재 비밀번호"
         className={styles.tokenInput}
       />
@@ -202,6 +220,7 @@ function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
         autoComplete="new-password"
         value={newPassword}
         onChange={(event) => setNewPassword(event.target.value)}
+        aria-label="새 비밀번호 (10자 이상)"
         placeholder="새 비밀번호 (10자 이상)"
         className={styles.tokenInput}
       />
@@ -210,6 +229,7 @@ function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
         autoComplete="new-password"
         value={confirmPassword}
         onChange={(event) => setConfirmPassword(event.target.value)}
+        aria-label="새 비밀번호 확인"
         placeholder="새 비밀번호 확인"
         className={styles.tokenInput}
       />
@@ -281,6 +301,7 @@ function MfaDisableForm({ onCancel }: { onCancel?: () => void }) {
           autoComplete="one-time-code"
           value={code}
           onChange={(event) => setCode(event.target.value)}
+          aria-label="인증 코드 또는 복구 코드"
           placeholder="인증 코드 또는 복구 코드"
           className={styles.tokenInput}
         />
@@ -384,6 +405,7 @@ function LoginScreen() {
               autoComplete="one-time-code"
               value={mfaCode}
               onChange={(event) => setMfaCode(event.target.value)}
+              aria-label="인증 코드 또는 복구 코드"
               placeholder="인증 코드 또는 복구 코드"
               className={styles.tokenInput}
             />
@@ -411,6 +433,7 @@ function LoginScreen() {
             autoComplete="username"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+            aria-label="관리자 이메일"
             placeholder="관리자 이메일"
             className={styles.tokenInput}
           />
@@ -419,6 +442,7 @@ function LoginScreen() {
             autoComplete="current-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
+            aria-label="비밀번호"
             placeholder="비밀번호"
             className={styles.tokenInput}
           />
@@ -599,6 +623,7 @@ function MfaSetupScreen() {
             autoComplete="one-time-code"
             value={code}
             onChange={(event) => setCode(event.target.value)}
+            aria-label="인증 앱의 6자리 코드"
             placeholder="인증 앱의 6자리 코드"
             className={styles.tokenInput}
           />
