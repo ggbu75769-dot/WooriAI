@@ -678,7 +678,20 @@ async function requestJson<T>(path: string, options: RequestOptions = {}, isRetr
     }
   }
 
-  const data = (await response.json()) as T;
+  // 라운드 106 B-4: 예전에는 `await response.json()`의 결과를 그대로 `as T`로 단언했다 — 본문이
+  // JSON이 아니면 파싱이 그 자리에서 SyntaxError로 터지면서 **응답의 status가 통째로 사라졌다.**
+  // 실제로 밟히는 경로는 앱과 서버 사이의 프록시가 내는 비-JSON 5xx다(HTML 502·504 본문).
+  // status를 잃은 실패는 오프라인 엔진에서 "서버가 status로 답한 transient"가 아니라 순수 네트워크
+  // 오류로 읽힌다. 그러면 5xx가 갖는 시도 상한(MAX_SERVER_ERROR_ATTEMPTS — src/offline/sync-engine.ts
+  // 의 `cappedTransientStatus`)이 이 경로를 타는 **준비템 상태 큐에서 걸리지 않아**, 프록시가 계속
+  // HTML 502를 내는 동안 같은 행이 상한 없이 다시 나갔다(지출 큐는 requestExpenseJson이 이미
+  // `.catch(() => null)`로 접어 status를 지키고 있었다 — 두 큐가 같은 실패에 다르게 반응했다).
+  // 그래서 여기서 하는 일은 세 전송의 파싱을 **같은 규칙으로 맞추는 것**이다.
+  // 본문이 null이어도 봉투 파서는 종전과 같다 — 봉투 모양이 아니면 null을 돌려주고
+  // (src/api/api-error.ts `parseApiErrorEnvelope`) 호출부는 기존 폴백 문구를 쓴다.
+  // 2xx인데 본문이 JSON이 아닌 경우는 예전엔 SyntaxError, 지금은 `null`이 호출부로 간다 —
+  // 지출 경로가 이미 그 계약이고, 둘 다 status 없는 실패라 엔진의 분류는 달라지지 않는다.
+  const data = (await response.json().catch(() => null)) as T;
   if (!response.ok) {
     // 라운드 45 UX-Z: 예전에는 `new Error(JSON.stringify(data))`였다 -- 상태코드도 서버가 보낸
     // 오류 코드도 잃어버려서, 화면은 "다시 눌러도 절대 성공하지 않는 실패"에까지 "잠시 후 다시
@@ -734,7 +747,11 @@ async function requestMultipartJson<T>(
     }
   }
 
-  const data = (await response.json()) as T;
+  // 라운드 106 B-4: requestJson과 **같은 파싱 규칙**이다(근거는 그쪽 주석). 예전에는 여기도
+  // 무방비 `response.json()`이라 프록시가 낸 비-JSON 502가 status를 잃었다. 가져오기 업로드는
+  // 30초를 기다린 뒤 게이트웨이가 끊는 일이 특히 잦은 경로라, status가 남아야 화면이 "잠시 후
+  // 다시"와 "다시 눌러도 소용없음"을 가를 수 있다.
+  const data = (await response.json().catch(() => null)) as T;
   if (!response.ok) {
     // requestJson과 같은 타입 있는 실패(위 주석 참고). 가져오기 업로드 거절(행 초과·형식·용량)이
     // 바로 이 경로로 오므로, 화면이 "잠시 후 다시" 대신 사실을 말할 수 있는 유일한 자리다.
