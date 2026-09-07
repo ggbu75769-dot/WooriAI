@@ -798,8 +798,14 @@ describe("확정 실패의 실패 행 안내 (라운드 106 T3)", () => {
     expect(pipeline).toContain("rowIndex: row.rowIndex,");
 
     // 그 리터럴 안에는 사용자가 올린 값이 하나도 없다 — `import.confirm` 감사 봉투와 같은 규율.
+    // 라운드 78 규칙: 슬라이스는 **양쪽 끝**의 실재를 먼저 확인한다. 한쪽만 보면 못 찾은
+    // 인덱스가 -1이 되어 슬라이스가 조용히 파일 전체(또는 빈 문자열)가 되고, 그 위의 부정
+    // 단언은 무엇도 지키지 못한 채 초록이 된다.
     const start = pipeline.indexOf("failedRowCount: rows.length,");
-    const detailsLiteral = pipeline.slice(start, pipeline.indexOf("error.getStatus()", start));
+    expect(start, "봉투를 넓히는 자리의 시작").toBeGreaterThan(-1);
+    const end = pipeline.indexOf("error.getStatus()", start);
+    expect(end, "그 자리의 끝").toBeGreaterThan(start);
+    const detailsLiteral = pipeline.slice(start, end);
     expect(detailsLiteral.length).toBeGreaterThan(0);
     for (const forbidden of ["parsedItemName", "parsedAmountKrw", "parsedDate", "fileName", "merchant", "rawJson"]) {
       expect(detailsLiteral, forbidden).not.toContain(forbidden);

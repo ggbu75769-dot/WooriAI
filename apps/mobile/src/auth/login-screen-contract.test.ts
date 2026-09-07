@@ -161,10 +161,16 @@ describe("ANA-104 optional analytics consent on the login consent card (same sou
     expect(loginSource).toContain("setAnalyticsConsent(analyticsAccepted);");
     const storeWrites = loginSource.match(/setAnalyticsConsent\(analyticsAccepted\);/g) ?? [];
     expect(storeWrites).toHaveLength(1);
+    // 라운드 78 규칙: 슬라이스는 **양쪽 끝**의 실재를 먼저 묻는다. 한쪽만 보면 못 찾은
+    // 인덱스가 -1이 되어 구간이 조용히 파일 전체가 되고, 그 위의 순서 단언이 무엇도 지키지
+    // 못한 채 초록이 된다.
     const continueStart = loginSource.indexOf("function continueWithLogin()");
+    expect(continueStart, "continueWithLogin 선언").toBeGreaterThan(-1);
+    const continueEnd = loginSource.indexOf("return (", continueStart);
+    expect(continueEnd, "그 함수 뒤 렌더 시작").toBeGreaterThan(continueStart);
     const continueBody = loginSource.slice(
       continueStart,
-      loginSource.indexOf("return (", continueStart)
+      continueEnd
     );
     expect(continueBody).toContain("setAnalyticsConsent(analyticsAccepted);");
     // The commit sits after the required-consent guard and before both login branches.
@@ -280,9 +286,13 @@ describe("라운드 106 F2 — 로그인 실패가 코드 표를 지난다", () 
    */
   it("픽셀락은 이 화면을 지나지 않는다 — 캡처 갈래 무접촉", () => {
     const pixelLockLauncher = source("app/pixel-lock.tsx");
+    const routeStart = pixelLockLauncher.indexOf("const pixelLockRoutes = {");
+    expect(routeStart, "픽셀락 라우트 표의 시작").toBeGreaterThan(-1);
+    const routeEnd = pixelLockLauncher.indexOf("} as const;", routeStart);
+    expect(routeEnd, "그 표의 끝").toBeGreaterThan(routeStart);
     const routeBlock = pixelLockLauncher.slice(
-      pixelLockLauncher.indexOf("const pixelLockRoutes = {"),
-      pixelLockLauncher.indexOf("} as const;")
+      routeStart,
+      routeEnd
     );
     expect(routeBlock).not.toContain("(auth)");
     expect(routeBlock).not.toContain("login");
