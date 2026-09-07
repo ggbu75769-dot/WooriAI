@@ -8,6 +8,7 @@ import {
   INVITE_FORBIDDEN_MESSAGE,
   INVITE_OWNER_ONLY_CAPTION,
   inviteCreateErrorMessage,
+  isInviteCreateLocked,
   isInviteEntryPointLocked,
   isInviteForbiddenError
 } from "./invite-permissions";
@@ -42,6 +43,45 @@ describe("UX-Q(A) 초대 권한 판정", () => {
     // 비로그인 미리보기에서 두 판정이 갈리는 것이 이 함수의 존재 이유다.
     expect(canManageMembers(false, undefined)).toBe(false);
     expect(isInviteEntryPointLocked({ hasSession: false, myRole: undefined })).toBe(false);
+  });
+});
+
+/**
+ * 라운드 106 T8 — **목적지 화면의 판정**(`isInviteCreateLocked`).
+ *
+ * 위 진입점 판정과 나란히 두고 읽어야 하는 함수다: 네 역할의 답은 같고 **역할 미상에서만**
+ * 갈린다. 그 갈림이 사고가 아니라 결정이라는 사실과, 화면 배선까지 이은 전수 대조는
+ * `role-boundary-matrix.test.ts`가 진다 — 여기서는 이 모듈이 지는 몫만 값으로 남긴다.
+ */
+describe("라운드 106 T8 초대 생성(목적지) 판정", () => {
+  it("실세션에서 **아는 비관리자**만 잠근다", () => {
+    for (const myRole of ["co_parent", "viewer", "gift_participant"]) {
+      expect(isInviteCreateLocked({ hasSession: true, myRole })).toBe(true);
+    }
+    expect(isInviteCreateLocked({ hasSession: true, myRole: "owner" })).toBe(false);
+  });
+
+  it("역할 미상은 잠그지 않는다 — 진입점 판정과 **의도적으로** 반대 방향이다", () => {
+    // 이 화면은 구성원 목록을 부르지 않고 세션 스토어의 역할 표를 읽으므로 "모름"이 정상적으로
+    // 생긴다(구세션·데모·부분 표). 거기서 잠그면 정상 관리자가 가족을 부를 길을 잃는다.
+    for (const unknown of [undefined, null, "", "   "]) {
+      expect(isInviteCreateLocked({ hasSession: true, myRole: unknown }), String(unknown)).toBe(false);
+      expect(isInviteEntryPointLocked({ hasSession: true, myRole: unknown }), String(unknown)).toBe(true);
+    }
+  });
+
+  it("비세션은 어느 쪽도 잠그지 않는다 (FAM-001 픽셀락과 같은 규율)", () => {
+    expect(isInviteCreateLocked({ hasSession: false, myRole: "viewer" })).toBe(false);
+    expect(isInviteCreateLocked({ hasSession: false, myRole: undefined })).toBe(false);
+  });
+
+  it("서버가 답할 403과 **같은 문장**을 잠긴 화면이 미리 말한다 (새 문구 0건)", () => {
+    // 눌러서 받는 문장과 누르기 전에 읽는 문장이 같은 상수다 — 종전에는 누른 뒤에만 읽혔다.
+    const forbidden = new Error(JSON.stringify({ error: { code: "FORBIDDEN" } }));
+    expect(inviteCreateErrorMessage(forbidden, { isOnline: true })).toBe(INVITE_FORBIDDEN_MESSAGE);
+    expect(INVITE_FORBIDDEN_MESSAGE).not.toContain("다시 시도");
+    // 머리말은 가족 화면의 비활성 진입점과 같은 상수다(두 화면이 같은 말을 한다).
+    expect(INVITE_OWNER_ONLY_CAPTION).toBe("가족 초대는 관리자만 할 수 있어요");
   });
 });
 
@@ -377,7 +417,16 @@ describe("UX-Q(A) 화면 배선 (source contract — 화면은 vitest에서 렌�
 
   it("초대 만들기 화면이 403을 일반 재시도 문구와 분리해서 말한다", () => {
     const inviteSource = source("app/family/invite.tsx");
-    expect(inviteSource).toContain('import { inviteCreateErrorMessage } from "../../src/family/invite-permissions";');
+    /**
+     * 라운드 106 T8 — ⚠️ 두 시점: 종전 이 줄은 import 문 **한 줄을 바이트로** 못 박았다.
+     *   expect(inviteSource).toContain('import { inviteCreateErrorMessage } from "../../src/family/invite-permissions";');
+     * 같은 모듈에서 이름을 더 가져오게 되면서(잠금 판정·잠금 문구 — 라운드 106 T8) 그 한 줄이
+     * 여러 줄이 됐다. 계약이 붙드는 것은 **문구의 단일 소스가 이 모듈이라는 사실**이지 import
+     * 문의 줄바꿈이 아니므로, 이름과 모듈만 묻는다(라운드 79 C가 태그 핀에서 지나간 그 완화).
+     */
+    expect(inviteSource).toMatch(
+      /import \{[^}]*\binviteCreateErrorMessage\b[^}]*\} from "\.\.\/\.\.\/src\/family\/invite-permissions";/
+    );
     /**
      * 계약은 **한 쌍**이다: 실패 색 노드 하나가 이 모듈이 고른 값을 그린다. ⚠️ 그 노드에 붙는
      * **접근성 프롭은 이 계약의 단위가 아니다**(레이아웃도 문장도 아니다 — 낭독 여부의 계약은

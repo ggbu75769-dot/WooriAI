@@ -26,8 +26,15 @@ import {
   parseInviteHouseholdParam,
   parseInviteRoleParam
 } from "../../src/family/invite-flow";
-import { inviteCreateErrorMessage } from "../../src/family/invite-permissions";
+import {
+  INVITE_FORBIDDEN_MESSAGE,
+  INVITE_OWNER_ONLY_CAPTION,
+  inviteCreateErrorMessage,
+  isInviteCreateLocked
+} from "../../src/family/invite-permissions";
 import { formatInviteExpiry } from "../../src/family/memberLabels";
+// 라운드 106 T8: 세션 스토어의 역할 표에서 **이 가구의 내 역할** 하나만 읽는다(새 조회 0건).
+import { resolveHouseholdRole } from "../../src/family/record-permissions";
 import { OFFLINE_SAVE_NOTICE } from "../../src/offline/messages";
 import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
@@ -57,6 +64,8 @@ export default function FamilyInviteScreen() {
   const authToken = accessToken ?? (isTestSession ? LOCAL_SESSION_TOKEN : null);
   const sessionHouseholdId = useSessionStore((state) => state.defaultHouseholdId);
   const knownHouseholdIds = useSessionStore((state) => state.householdIds);
+  // 라운드 106 T8: 잠금 판정의 재료 하나. 훅은 다른 스토어 선택자들과 같은 자리에 선다(조기 반환 위).
+  const householdRoles = useSessionStore((state) => state.householdRoles);
   const fallbackHouseholdId = sessionHouseholdId ?? (isTestSession ? LOCAL_HOUSEHOLD_ID : null);
   const selectedChildId = useSelectedChildStore((state) => state.selectedChildId);
   /**
@@ -110,6 +119,27 @@ export default function FamilyInviteScreen() {
     })
   );
   const householdId = requestedHouseholdId ?? scopedHouseholdId;
+  /**
+   * 라운드 106 T8 — **이 화면도 진입점과 같은 답을 한다.**
+   *
+   * ⚠️ 두 시점: 종전에 이 화면에는 역할 판정이 **한 줄도 없었다.** 가족 화면이 진입점 셋을
+   * 잠그는 것으로 충분하다고 보았기 때문인데, 딥링크(`wooriai:///family/invite`)는 그 셋을
+   * 지나지 않는다 — 라운드 40 J-1이 지출에서 이미 겪고 목적지 화면까지 같은 판정을 태운 그
+   * 사각이다(근거는 src/family/invite-permissions.ts의 `isInviteCreateLocked` 머리말).
+   *
+   * 역할은 **새 조회 없이** 세션 스토어의 표에서 읽는다: 이 화면은 구성원 목록을 부르지 않고,
+   * 표는 로그인 응답·초대 수락 응답·가족 화면 방문이 채워 둔다(record-permissions.ts). 표가
+   * 이 가구를 모르면 `resolveHouseholdRole`이 undefined를 주고, 그때는 **잠그지 않는다** —
+   * 잘못 잠근 화면은 정상 관리자에게서 가족을 부르는 길을 통째로 빼앗는다(같은 머리말).
+   *
+   * 가구 판정 자체는 위 그대로다(`householdId`) — 잠금은 **초대가 실제로 갈 그 가구**의
+   * 역할을 묻는다. 다가구 계정에서 A 가구 owner가 B 가구 viewer로 잘못 잠기지 않는 이유가
+   * 이 한 줄이고, 바로 아래 "…로 초대해요." 한 줄이 그 가구를 사용자에게도 말한다.
+   */
+  const inviteCreateLocked = isInviteCreateLocked({
+    hasSession: Boolean(authToken),
+    myRole: resolveHouseholdRole({ householdRoles, householdId, knownHouseholdIds })
+  });
   // 다가구 계정에서만 붙는 한 줄. 1가구 계정에서는 null이라 화면이 종전 그대로다.
   const householdNotice = householdScopeInviteNotice(
     householdScopePhrase(
@@ -206,7 +236,11 @@ export default function FamilyInviteScreen() {
         <ScreenHeader
           eyebrow="가족 관리"
           title="가족 초대"
-          subtitle="함께할 역할을 선택하고 초대 링크를 만들어요"
+          /* 라운드 106 T8 — ⚠️ 두 시점: 종전 부제는 갈래 없이 "함께할 역할을 선택하고 초대
+             링크를 만들어요" 하나였다. 잠긴 계정에게는 그것이 지킬 수 없는 약속이라, 판정이
+             참일 때만 **가족 화면이 비활성 진입점에 붙이는 그 문장**으로 갈린다(같은 상수 —
+             두 화면이 같은 사실을 같은 말로 한다). 잠기지 않은 쪽은 바이트 불변이다. */
+          subtitle={inviteCreateLocked ? INVITE_OWNER_ONLY_CAPTION : "함께할 역할을 선택하고 초대 링크를 만들어요"}
           onBack={() => router.back()}
         />
 
@@ -246,12 +280,21 @@ export default function FamilyInviteScreen() {
           <Text style={mutedTextStyle}>가구 정보가 없어서 초대를 만들 수 없어요.</Text>
         ) : null}
 
+        {/* 라운드 106 T8: 잠긴 계정에게 **실제로 통하는 다음 행동**을 버튼 바로 위에 둔다.
+            문장은 이 화면이 짓지 않는다 — 서버 403이 왔을 때 아래 실패 줄이 말하던 그 상수
+            그대로라, 누르기 전과 누른 뒤가 같은 말을 한다(종전에는 눌러야만 읽을 수 있었다).
+            색은 실패 색이 아니라 안내 색이다: 이것은 방금 일어난 실패가 아니라 지금의 사실이다. */}
+        {inviteCreateLocked ? <Text style={mutedTextStyle}>{INVITE_FORBIDDEN_MESSAGE}</Text> : null}
+
         {/* 라운드 96 T7: 진행 라벨의 말줄임표 제거 -- 이 앱의 진행 라벨 관례는 점 없는 "~하는 중"
             이고, 점 셋(...)은 이 여정에만 남아 있었다(수락 화면의 재시도 라벨도 같은 라운드에
             정리). */}
         <PrimaryButton
           label={invite.isPending ? "링크 만드는 중" : "초대 링크 만들기"}
-          disabled={!authToken || !householdId || invite.isPending}
+          // 라운드 106 T8 — ⚠️ 두 시점: 종전 조건은 셋이었다(`!authToken || !householdId ||
+          // invite.isPending`). 넷째 칸이 역할이고, 그 칸은 **아는 비관리자일 때만** 참이라
+          // 종전에 눌리던 계정에서는 한 번도 서지 않는다.
+          disabled={!authToken || !householdId || invite.isPending || inviteCreateLocked}
           onPress={() => invite.mutate()}
         />
 

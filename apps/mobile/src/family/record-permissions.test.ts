@@ -677,8 +677,12 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
     const writesSomething = /\buseMutation\s*\(/;
     // ⚠ 판정을 **부르는** 자리만 센다. `revalidateHouseholdRoles`만 가져다 쓰는 화면
     // (개인정보·초대 수락)은 같은 모듈을 import하지만 게이트를 지나는 것이 아니다.
+    // 라운드 106 T8 — ⚠️ 두 시점: 종전 이 집합에는 초대 여정의 판정이 없었다(아래
+    // UNGATED_WITH_REASON이 그 화면을 예외로 들고 있었다). 목적지 화면이 실제로 역할을 묻게
+    // 됐으므로 그 이름을 집합에 더한다 — 예외 목록과 이 정규식이 어긋나면 바로 아래 key 동치
+    // 단언이 그 자리에서 빨개진다.
     const referencesRoleGate =
-      /useExpenseEntryGate\(\)|expenseGate\.(?:guard|locked|explain)|expenseEntryLocked|useItemStatusGate\(\)|itemStatusGate\.|canEditChildren|canAddChild|canManageMembers/;
+      /useExpenseEntryGate\(\)|expenseGate\.(?:guard|locked|explain)|expenseEntryLocked|useItemStatusGate\(\)|itemStatusGate\.|canEditChildren|canAddChild|canManageMembers|isInviteCreateLocked\s*\(/;
 
     /**
      * 게이트를 지나지 않는 쓰기와 그 이유. **역할이 판정에 개입하지 않는 쓰기만** 여기 온다.
@@ -691,9 +695,15 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
       "app/(onboarding)/prepared-items.tsx": "온보딩 — 같은 흐름의 준비템 초기 선택",
       // 가족: 초대 **수락**은 아직 구성원이 아닌 사람의 요청이라 가구 역할이 존재하지 않는다.
       "app/family/accept/[token].tsx": "초대 수락 — 요청자에게 아직 이 가구의 역할이 없다",
-      // 초대 **생성** 화면의 진입점은 가족 화면이 `inviteLocked`로 잠근다(invite-permissions.ts).
-      // 이 화면 자체의 문구·판정은 트랙 C가 소유한다 — 이 라운드는 읽기만 한다.
-      "app/family/invite.tsx": "초대 생성 — 진입점을 app/family/index.tsx의 inviteLocked가 잠근다",
+      /**
+       * 라운드 106 T8 — ⚠️ 두 시점: 종전 이 자리에는 한 줄이 더 있었다.
+       *   "app/family/invite.tsx": "초대 생성 — 진입점을 app/family/index.tsx의 inviteLocked가 잠근다"
+       * 그 예외의 근거가 **진입점만 잠그면 된다**였는데, 그것이 참이 아니라는 사실은 이 저장소가
+       * 라운드 40 J-1에서 지출로 이미 겪었다(딥링크는 진입점을 지나지 않는다 — 그래서 그때
+       * 목적지의 저장 실행에도 같은 판정을 태웠다). 이제 초대 목적지도 같은 축에 서므로
+       * (`isInviteCreateLocked` — src/family/invite-permissions.ts) 그 화면은 예외가 아니라
+       * **게이트를 지나는 쓰기 화면**이고, 위 정규식이 그것을 센다.
+       */
       // 본인 기기/본인 계정: 가구 역할이 개입하지 않는다.
       "app/settings/notifications.tsx": "알림 설정 — 본인 기기의 토글이다",
       "app/settings/privacy.tsx": "개인정보 — 본인 계정(탈퇴·삭제·동의)이고, 아이 삭제는 서버가 요청자 기준으로 판정한다"
@@ -763,8 +773,10 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
      * 그래서 판정 집합을 위 라운드 70 B 스윕(`referencesRoleGate`)과 **같게** 맞춘다 — 두 그물이
      * 다른 집합을 보면, 한쪽만 통과하는 화면이 조용히 생긴다.
      */
+    // 라운드 106 T8: 위 스윕과 **같은 집합**을 본다는 것이 이 줄의 계약이므로(바로 위 주석),
+    // 초대 목적지의 판정도 함께 들어온다.
     const readsGate =
-      /useExpenseEntryGate\(\)|expenseGate\.(?:guard|locked|explain)|expenseEntryLocked|useItemStatusGate\(\)|itemStatusGate\.|canEditChildren|canAddChild|canManageMembers|isExpenseEntryLocked\s*\(/;
+      /useExpenseEntryGate\(\)|expenseGate\.(?:guard|locked|explain)|expenseEntryLocked|useItemStatusGate\(\)|itemStatusGate\.|canEditChildren|canAddChild|canManageMembers|isExpenseEntryLocked\s*\(|isInviteCreateLocked\s*\(/;
     const readsHeadline = /VIEW_ONLY_HEADLINES\./;
 
     /**
@@ -777,7 +789,19 @@ describe("UX-R(M) 화면 배선 (source contract — 화면은 vitest에서 렌�
       "app/(tabs)/index.tsx": "머리말이 아이 이름·앱 성격이고, 잠긴 세션의 약속 문장은 J-5가 이미 판정에서 파생시킨다",
       // 기록 탭: 부제는 "확인해 보세요"라는 **읽기** 안내다(보기 전용도 끝까지 참이다).
       // 이 화면의 약속 문장(그 달 빈 상태 제목)도 J-5가 파생시킨다.
-      "app/(tabs)/records.tsx": "부제가 읽기 안내('확인해 보세요')라 잠긴 계정에게도 참이다 — 약속 문장은 J-5가 판정에서 파생시킨다"
+      "app/(tabs)/records.tsx": "부제가 읽기 안내('확인해 보세요')라 잠긴 계정에게도 참이다 — 약속 문장은 J-5가 판정에서 파생시킨다",
+      /**
+       * 라운드 106 T8 — **머리말은 판정을 읽지만 그 문장이 이 표의 것이 아닌 첫 화면.**
+       *
+       * 이 표(VIEW_ONLY_HEADLINES)의 축은 **보기 전용**(viewer·gift_participant)이고, 초대
+       * 만들기가 막히는 축은 **관리자 여부**다 — 공동부모는 기록·예산은 남기면서 초대만 못 한다.
+       * 그래서 이 화면의 잠긴 머리말은 이 표가 아니라 초대 여정의 단일 소스가 쥔다
+       * (`INVITE_OWNER_ONLY_CAPTION` — 가족 화면이 비활성 진입점에 붙이는 그 문장 그대로라,
+       * 두 화면이 같은 사실을 같은 말로 한다). 규율 자체는 이 그물이 세운 그대로다: 머리말이
+       * 판정을 읽고, 문장은 화면이 짓지 않는다(그 두 갈래는 invite-permissions.test.ts가 문다).
+       */
+      "app/family/invite.tsx":
+        "잠긴 머리말이 있지만 축이 다르다 — 보기 전용이 아니라 관리자 여부이고, 문장은 INVITE_OWNER_ONLY_CAPTION(초대 여정의 단일 소스)이다"
     };
 
     /**
