@@ -79,6 +79,9 @@ import {
 import type { MonthExpenses } from "../../src/expenses/month-expenses";
 import {
   expenseCreatedByUserId,
+  // A11Y-115(과제 2): 손타이핑 날짜 칸이 스크린리더에 넘기는 값 — 홈·기록 행 부제와 **같은
+  // 포맷터**다(이 화면이 사람이 읽는 날짜를 새로 짓지 않는다).
+  formatSpentOn,
   resolveExpenseAuthorLabel,
   resolveExpenseHouseholdId
 } from "../../src/expenses/records-list-view";
@@ -116,7 +119,9 @@ import { VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 // GAP-058 #6: "지난달"은 홈의 지난달 비교 한 줄과 **같은 함수**로 센다(달 경계를 화면에서 다시
 // 계산하면 12월→1월에 두 화면이 다른 달을 가리킬 수 있다).
 import { previousYearMonth } from "../../src/home/last-month-comparison";
-import { amountDigitsOnly, formatAmountDigits, formatKrw } from "../../src/money";
+// A11Y-115(과제 2): 금액 칸이 스크린리더에 넘길 값도 **표기의 단일 소스**에서 온다
+// (amountFieldAccessibilityValue — 세 화면의 금액 칸이 같은 규칙을 각자 적지 않는다).
+import { amountDigitsOnly, amountFieldAccessibilityValue, formatAmountDigits, formatKrw } from "../../src/money";
 import { OFFLINE_SAVED_MESSAGE } from "../../src/offline/messages";
 // 라운드 74 트랙 D(GAP-074 #4): 조회 실패 카드의 문구·라벨은 공용 단일 소스가 고른다
 // (판정은 순수 함수 resolveLoadErrorCopy — 이 화면은 결과를 카드에 그대로 넘긴다).
@@ -153,6 +158,8 @@ import {
   SecondaryButton,
   Toast
 } from "../../src/ui";
+// A11Y-115(과제 1): 검증 오류의 낭독 규율은 한 벌이 소유한다(재낭독 금지 · 갈래가 닫히면 기억을 지운다).
+import { useFieldErrorAnnouncement } from "../../src/a11y/use-field-error-announcement";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { theme } from "../../src/theme";
 
@@ -671,6 +678,37 @@ export default function ExpenseDetailScreen() {
         ? amountOverLimitMessage()
         : null;
   const dateInputError = customDateMode && customDateText.length > 0 ? validateExpenseDateInput(customDateText) : null;
+  /**
+   * A11Y-115(과제 2) ⚠️ **두 시점** — *종전*: 손타이핑 날짜 칸은 스크린리더에 넘기는 값이 없어
+   * 칸의 원문("2026-09-07")이 그대로 읽혔다(그때는 참이었다 — 이 칸은 ISO를 직접 받는 유일한
+   * 자리라 "적은 대로 읽어 준다"가 규칙처럼 보였다). *이제*: 이 앱은 다른 자리에서 ISO를
+   * 사람이 읽는 날짜로 바꿔 말한다(홈·기록 행 부제의 `formatSpentOn` · 달력 칸 라벨) — 그
+   * 규칙 밖에 홀로 서 있던 자리라 **같은 포맷터**를 넘긴다.
+   *
+   * ⚠️ **덜 친 날짜에는 넘길 사실이 없다(null).** 조건이 아래 오류 줄과 정확히 짝이다:
+   * 문자열이 비었거나 `dateInputError`가 서 있으면 아직 날짜가 아니고, `formatSpentOn`은
+   * 파싱 못 하는 값을 **원본 그대로** 돌려주므로("2026-09" → "2026-09") 넘겨 봐야 종전과
+   * 같은 소리가 난다. 더 나쁜 창은 "2026-09-0"처럼 형식만 맞는 중간 입력이다 — 그때
+   * `formatSpentOn`은 "9월 0일"이라는 **없는 날짜**를 만든다. 그래서 유효할 때만 넘긴다.
+   */
+  const customDateSpokenLabel = customDateText.length > 0 && !dateInputError ? formatSpentOn(customDateText) : null;
+  /**
+   * A11Y-115(과제 1) ⚠️ **두 시점** — *종전*: 이 화면의 검증 오류 다섯은 전부 맨 `<Text>`라
+   * 낭독 출구가 **0건**이었다(그때는 참이었다 — 라운드 79·80의 낭독 스윕은 `useMutation`/
+   * `useQuery`에 닿는 조건 아래 선 실패 문장만 모집단으로 삼았고, 이 다섯의 가드는 전부
+   * TextInput 상태에서 파생한 순수 계산이라 그 그물 **밖**이었다). 그래서 금액·날짜·길이를
+   * 잘못 친 사람은 포커스가 입력칸에 남은 채, 저장이 왜 막히는지 소리로는 알 수 없었다.
+   * *이제*: 다섯 자리가 저장소의 한 벌을 그대로 진다 — 문장 쪽에는 프롭 둘, 낭독은 이 훅
+   * (`src/a11y/use-field-error-announcement.ts`)이 한 벌로 소유한다. **새 한국어 문장 0건**이고, 읽히는
+   * 것은 화면이 이미 그리고 있는 그 문자열이다.
+   *
+   * 호출 순서는 **위 파생 순서 그대로**다(같은 값이 두 자리에서 다른 차례로 불리지 않게).
+   */
+  useFieldErrorAnnouncement(itemNameError);
+  useFieldErrorAnnouncement(merchantError);
+  useFieldErrorAnnouncement(memoError);
+  useFieldErrorAnnouncement(amountError);
+  useFieldErrorAnnouncement(dateInputError);
   const spentOnLabel = spentOnIso ? formatExpenseDate(new Date(`${spentOnIso}T00:00:00`)).label : "";
   /**
    * GAP-054 라운드 54 P2-7 — `Number.isInteger`가 이 줄에도 합류한다.
@@ -1113,7 +1151,26 @@ export default function ExpenseDetailScreen() {
                   value={merchant}
                 />
                 {merchantError ? (
-                  <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{merchantError}</Text>
+                  /* A11Y-115(과제 1) ⚠️ **두 시점** — *종전*: 맨 `<Text>` 하나였다(위 훅 주석의
+                     그 근거로, 이 화면의 검증 오류 다섯은 낭독 출구가 0건이었다). *이제*: 문장이
+                     **alert 컨테이너** 안에 선다.
+
+                     ⚠️ **왜 문장이 아니라 컨테이너인가.** 프롭 쌍은 *문장 자신*이나 *그 자리를
+                     감싼 alert 컨테이너* **둘 중 한 요소에 함께** 서면 된다(a11y-contract의 그
+                     판정 · 본보기는 `app/(auth)/login.tsx`의 실패 카드다). 여기서 컨테이너 쪽을
+                     고른 이유는 하나 더 있다 — 이 문장의 **여는 태그가 소유 밖 계약에 바이트로
+                     핀돼 있다**(`src/expenses/auto-fill-wiring.test.ts`의 색 계약: 상한 안내 넷의
+                     여는 태그가 `<Text style={{ color: theme.colors.danger, fontSize:
+                     theme.typography.caption.fontSize }}>{필드}</Text>` 그대로일 것). 태그 안에
+                     프롭을 한 칸 더하면 그 핀이 먼저 빨개진다. 라운드 79가 만난 것과 **같은
+                     모양의 핀**이고(그때는 다음 라운드가 핀을 모양으로 풀 때까지 자리가 조용히
+                     남았다), 컨테이너는 핀을 넘지 않고 같은 걸음에 출구를 세우는 자리다.
+
+                     ⚠️ **렌더 불변**: 스타일 없는 `<View>`라 세로 스택의 같은 칸에 같은 폭
+                     (stretch)으로 서고, 부모의 `gap: 6`이 세는 자식 수도 그대로 하나다. */
+                  <View accessibilityRole="alert" accessibilityLiveRegion="polite">
+                    <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{merchantError}</Text>
+                  </View>
                 ) : null}
                 {/* GAP-056 #2 — 판매처 자동완성 칩. 빠른 기록 시트와 **같은 칩 행**(같은 pill·
                     같은 높이·같은 한 줄 가로 스크롤)이고, 라벨과 스크린리더 문장도 같은 모듈이
@@ -1203,7 +1260,11 @@ export default function ExpenseDetailScreen() {
                   value={itemName}
                 />
                 {itemNameError ? (
-                  <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{itemNameError}</Text>
+                  /* A11Y-115(과제 1): 판매처 오류와 **같은 한 벌**(위 첫 자리의 주석이 컨테이너
+                     선택과 렌더 불변의 근거다 — 이 자리의 여는 태그도 같은 색 계약이 핀한다). */
+                  <View accessibilityRole="alert" accessibilityLiveRegion="polite">
+                    <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{itemNameError}</Text>
+                  </View>
                 ) : null}
               </View>
 
@@ -1226,6 +1287,15 @@ export default function ExpenseDetailScreen() {
                 >
                   <TextInput
                     accessibilityLabel="지출 금액 입력"
+                    /* A11Y-115(과제 2) ⚠️ **두 시점** — *종전*: 이 칸은 값만 그리고 단위는 형제
+                       `<Text>`("원")에 따로 서 있어(FMT-127의 그 규칙 — `formatAmountDigits`는
+                       접미사를 붙이지 않는다) 포커스하면 "38,500"만 읽혔다. 그때는 참이었다:
+                       눈으로는 바로 오른쪽에 '원'이 붙어 있으니 화면은 옳았다. *이제*: 소리에도
+                       단위를 붙인다 — 빠른 기록 시트가 같은 이유로 이미 `accessibilityValue`에
+                       접미사 붙은 쪽을 넘긴다(app/expenses/new.tsx: *"숫자만 읽어 주면 단위가
+                       사라진다"*). 같은 앱의 두 금액 칸이 서로 다르게 읽히던 자리다. 규칙은
+                       모듈 한 벌이 진다(빈 칸 판정 포함 — 그 함수의 주석 참고). */
+                    accessibilityValue={amountFieldAccessibilityValue(amountDigits)}
                     keyboardType="number-pad"
                     returnKeyType="done"
                     onChangeText={(value) => setAmountDigits(amountDigitsOnly(value))}
@@ -1241,7 +1311,11 @@ export default function ExpenseDetailScreen() {
                   </Text>
                 </View>
                 {amountError ? (
-                  <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{amountError}</Text>
+                  /* A11Y-115(과제 1): 판매처 오류와 **같은 한 벌**(위 첫 자리의 주석이 컨테이너
+                     선택과 렌더 불변의 근거다 — 이 자리의 여는 태그도 같은 색 계약이 핀한다). */
+                  <View accessibilityRole="alert" accessibilityLiveRegion="polite">
+                    <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{amountError}</Text>
+                  </View>
                 ) : null}
                 {/* 라운드 41 UX-U(B-ⓒ): 빠른 기록 시트와 **같은 프리셋 칩**(src/expenses/amount-presets.ts).
                     금액을 고치러 들어온 화면에서 "5,000원만 더"를 숫자 키패드로 다시 치게 하지
@@ -1393,6 +1467,9 @@ export default function ExpenseDetailScreen() {
                       <View style={{ gap: 6 }}>
                         <TextInput
                           accessibilityLabel="날짜 직접 입력"
+                          /* A11Y-115(과제 2): 위 금액 칸과 같은 결 — 값을 사람이 읽는 말로 넘긴다
+                             (근거와 빈 값 판정은 위 `customDateSpokenLabel` 주석). */
+                          accessibilityValue={customDateSpokenLabel ? { text: customDateSpokenLabel } : undefined}
                           keyboardType="numbers-and-punctuation"
                           onChangeText={(value) => {
                             const cleaned = value.replace(/[^0-9-]/g, "").slice(0, 10);
@@ -1415,7 +1492,18 @@ export default function ExpenseDetailScreen() {
                           value={customDateText}
                         />
                         {dateInputError ? (
-                          <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>
+                          /* A11Y-115(과제 1) ⚠️ **두 시점** — *종전*: 맨 `<Text>`였다. *이제*:
+                             프롭 둘을 **문장 자신**에 건다. 위 넷과 자리가 갈리는 이유는 하나다 —
+                             이 여는 태그는 바이트 핀 밖이라 관례의 기본형(맨 문장)을 그대로 쓸 수
+                             있다. 그리고 그 기본형이 **같은 오류의 형제 자리**가 이미 쓰는 모양이다:
+                             `app/expenses/new.tsx`의 날짜 손타이핑 오류가 같은 문장(같은 순수 모듈
+                             `validateExpenseDateInput`이 만든다)을 같은 프롭 조합으로 세운다.
+                             프롭 순서까지 그 자리와 같다. */
+                          <Text
+                            accessibilityRole="alert"
+                            accessibilityLiveRegion="polite"
+                            style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}
+                          >
                             {dateInputError}
                           </Text>
                         ) : null}
@@ -1465,7 +1553,11 @@ export default function ExpenseDetailScreen() {
                   value={memo}
                 />
                 {memoError ? (
-                  <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{memoError}</Text>
+                  /* A11Y-115(과제 1): 판매처 오류와 **같은 한 벌**(위 첫 자리의 주석이 컨테이너
+                     선택과 렌더 불변의 근거다 — 이 자리의 여는 태그도 같은 색 계약이 핀한다). */
+                  <View accessibilityRole="alert" accessibilityLiveRegion="polite">
+                    <Text style={{ color: theme.colors.danger, fontSize: theme.typography.caption.fontSize }}>{memoError}</Text>
+                  </View>
                 ) : null}
               </View>
 
