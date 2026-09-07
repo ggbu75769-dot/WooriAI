@@ -107,6 +107,15 @@ describe.skipIf(!dbAvailable)("PERF-115 perf indexes (migration 000014)", () => 
   async function explainWithoutSeqscan(sql: string): Promise<string> {
     return prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+      // 라운드 103: 종전에는 seqscan만 껐다 — 표가 작을 때는 그것으로 플랜이 한 모양으로
+      // 고정됐다. 이제 아니다: expenses가 커지고 autoanalyze가 통계를 갱신하면(실측 105,011행,
+      // autoanalyze 직후) 플래너가 같은 질의에 BitmapOr + Bitmap Index Scan 셋을 고르고,
+      // 커서 술어 세 분기가 서로 다른 인덱스로 흩어지면서 Index Cond 문자열의 괄호 깊이가
+      // 바뀐다. 그래서 코드가 그대로인데도 이 블록의 플랜 계약이 통계 상태에 따라 초록·빨강을
+      // 오갔다. 이 파일이 무는 것은 "어떤 술어가 Index Cond로 오르고 무엇이 Filter로 남는가"이지
+      // "비트맵이냐 일반 스캔이냐"가 아니므로, seqscan과 같은 이유로 비트맵도 끈다 — 단언의 뜻은
+      // 그대로 두고 무관한 플래너 선택지만 없애 판정을 결정적으로 만든다.
+      await tx.$executeRawUnsafe("SET LOCAL enable_bitmapscan = off");
       const rows = await tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(`EXPLAIN ${sql}`);
       return rows.map((row) => row["QUERY PLAN"]).join("\n");
     });
@@ -178,6 +187,15 @@ describe.skipIf(!dbAvailable)("PERF-119 user_devices push_token index (migration
   async function explainWithoutSeqscan(sql: string): Promise<string> {
     return prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+      // 라운드 103: 종전에는 seqscan만 껐다 — 표가 작을 때는 그것으로 플랜이 한 모양으로
+      // 고정됐다. 이제 아니다: expenses가 커지고 autoanalyze가 통계를 갱신하면(실측 105,011행,
+      // autoanalyze 직후) 플래너가 같은 질의에 BitmapOr + Bitmap Index Scan 셋을 고르고,
+      // 커서 술어 세 분기가 서로 다른 인덱스로 흩어지면서 Index Cond 문자열의 괄호 깊이가
+      // 바뀐다. 그래서 코드가 그대로인데도 이 블록의 플랜 계약이 통계 상태에 따라 초록·빨강을
+      // 오갔다. 이 파일이 무는 것은 "어떤 술어가 Index Cond로 오르고 무엇이 Filter로 남는가"이지
+      // "비트맵이냐 일반 스캔이냐"가 아니므로, seqscan과 같은 이유로 비트맵도 끈다 — 단언의 뜻은
+      // 그대로 두고 무관한 플래너 선택지만 없애 판정을 결정적으로 만든다.
+      await tx.$executeRawUnsafe("SET LOCAL enable_bitmapscan = off");
       const rows = await tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(`EXPLAIN ${sql}`);
       return rows.map((row) => row["QUERY PLAN"]).join("\n");
     });
@@ -251,6 +269,15 @@ describe.skipIf(!dbAvailable)("PERF-121 reporting hot-path queries reuse a (chil
   async function explainWithoutSeqscan(sql: string): Promise<string> {
     return prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+      // 라운드 103: 종전에는 seqscan만 껐다 — 표가 작을 때는 그것으로 플랜이 한 모양으로
+      // 고정됐다. 이제 아니다: expenses가 커지고 autoanalyze가 통계를 갱신하면(실측 105,011행,
+      // autoanalyze 직후) 플래너가 같은 질의에 BitmapOr + Bitmap Index Scan 셋을 고르고,
+      // 커서 술어 세 분기가 서로 다른 인덱스로 흩어지면서 Index Cond 문자열의 괄호 깊이가
+      // 바뀐다. 그래서 코드가 그대로인데도 이 블록의 플랜 계약이 통계 상태에 따라 초록·빨강을
+      // 오갔다. 이 파일이 무는 것은 "어떤 술어가 Index Cond로 오르고 무엇이 Filter로 남는가"이지
+      // "비트맵이냐 일반 스캔이냐"가 아니므로, seqscan과 같은 이유로 비트맵도 끈다 — 단언의 뜻은
+      // 그대로 두고 무관한 플래너 선택지만 없애 판정을 결정적으로 만든다.
+      await tx.$executeRawUnsafe("SET LOCAL enable_bitmapscan = off");
       const rows = await tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(`EXPLAIN ${sql}`);
       return rows.map((row) => row["QUERY PLAN"]).join("\n");
     });
@@ -330,6 +357,15 @@ describe.skipIf(!dbAvailable)("R24-M3 expense list keyset index (migration 00001
   async function explainWithoutSeqscan(sql: string, verifyOrdering = false): Promise<string> {
     return prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+      // 라운드 103: 종전에는 seqscan만 껐다 — 표가 작을 때는 그것으로 플랜이 한 모양으로
+      // 고정됐다. 이제 아니다: expenses가 커지고 autoanalyze가 통계를 갱신하면(실측 105,011행,
+      // autoanalyze 직후) 플래너가 같은 질의에 BitmapOr + Bitmap Index Scan 셋을 고르고,
+      // 커서 술어 세 분기가 서로 다른 인덱스로 흩어지면서 Index Cond 문자열의 괄호 깊이가
+      // 바뀐다. 그래서 코드가 그대로인데도 이 블록의 플랜 계약이 통계 상태에 따라 초록·빨강을
+      // 오갔다. 이 파일이 무는 것은 "어떤 술어가 Index Cond로 오르고 무엇이 Filter로 남는가"이지
+      // "비트맵이냐 일반 스캔이냐"가 아니므로, seqscan과 같은 이유로 비트맵도 끈다 — 단언의 뜻은
+      // 그대로 두고 무관한 플래너 선택지만 없애 판정을 결정적으로 만든다.
+      await tx.$executeRawUnsafe("SET LOCAL enable_bitmapscan = off");
       // Verify index ordering capability independently of small test-database statistics.
       if (verifyOrdering) await tx.$executeRawUnsafe("SET LOCAL enable_sort = off");
       const rows = await tx.$queryRawUnsafe<{ "QUERY PLAN": string }[]>(`EXPLAIN ${sql}`);
