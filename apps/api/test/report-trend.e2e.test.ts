@@ -156,22 +156,29 @@ describe("REP-128 report trend API", () => {
     expect(body.months).toHaveLength(6);
 
     // 참조 구현 = 종전 모바일이 실제로 보내던 6번의 요청. 값도 순서도 그대로여야 한다.
+    //
+    // ⚠️ **두 시점** — 종전에는 `monthly.yearMonth`를 **그대로** 담아 맞댔다(그때는 추이도
+    // 월간도 `YYYY-MM-01`이라 문자열이 같았다) → 이제 추이의 달은 `YYYY-MM`이고 월간은 아직
+    // `YYYY-MM-01`이라(계약 `yearMonthSchema` 머리말의 남은 절반) 앞 7자로 맞춘다. 이 테스트가
+    // 무는 것은 **어느 달의 얼마인가**이지 두 응답의 전송 표기가 같은가가 아니다 — 표기 자체는
+    // 아래 리터럴 단언이 따로 못박는다.
     const perMonth = [];
     for (const yearMonth of ["2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"]) {
       const monthly = await monthlyTotal(accessToken, childId, yearMonth);
-      perMonth.push({ yearMonth: monthly.yearMonth, totalExpenseKrw: monthly.totalExpenseKrw });
+      expect(monthly.yearMonth).toBe(`${yearMonth}-01`); // 월간 응답은 이번 통일의 대상이 아니다
+      perMonth.push({ yearMonth: monthly.yearMonth.slice(0, 7), totalExpenseKrw: monthly.totalExpenseKrw });
     }
     expect(body.months).toEqual(perMonth);
 
     // 값 자체도 한 번 못 박아 둔다 — 참조 구현과 새 구현이 같은 방향으로 함께 틀어지는
     // 경우(둘 다 선물을 더하는 등)를 참조 대조만으로는 잡을 수 없다.
     expect(body.months).toEqual([
-      { yearMonth: "2026-02-01", totalExpenseKrw: 23000 }, // 월 첫날 + 마지막 날
-      { yearMonth: "2026-03-01", totalExpenseKrw: 0 }, // 기록 없는 달
-      { yearMonth: "2026-04-01", totalExpenseKrw: 0 }, // 선물만 있는 달 (DNC-015)
-      { yearMonth: "2026-05-01", totalExpenseKrw: 3000 }, // 같은 날 2건
-      { yearMonth: "2026-06-01", totalExpenseKrw: 30000 }, // soft delete 제외 (DNC-014)
-      { yearMonth: "2026-07-01", totalExpenseKrw: 4000 }
+      { yearMonth: "2026-02", totalExpenseKrw: 23000 }, // 월 첫날 + 마지막 날
+      { yearMonth: "2026-03", totalExpenseKrw: 0 }, // 기록 없는 달
+      { yearMonth: "2026-04", totalExpenseKrw: 0 }, // 선물만 있는 달 (DNC-015)
+      { yearMonth: "2026-05", totalExpenseKrw: 3000 }, // 같은 날 2건
+      { yearMonth: "2026-06", totalExpenseKrw: 30000 }, // soft delete 제외 (DNC-014)
+      { yearMonth: "2026-07", totalExpenseKrw: 4000 }
     ]);
 
     // 창 밖(2025-12)의 90000원은 어느 막대에도 섞이지 않는다.
@@ -186,12 +193,12 @@ describe("REP-128 report trend API", () => {
     const body = await trend(accessToken, childId);
     // WOORIAI_STAGE_TODAY = 2026-07-06 → 마지막 달은 2026-07.
     expect(body.months.map((month) => month.yearMonth)).toEqual([
-      "2026-02-01",
-      "2026-03-01",
-      "2026-04-01",
-      "2026-05-01",
-      "2026-06-01",
-      "2026-07-01"
+      "2026-02",
+      "2026-03",
+      "2026-04",
+      "2026-05",
+      "2026-06",
+      "2026-07"
     ]);
     expect(await trend(accessToken, childId, "?months=6&endYearMonth=2026-07")).toEqual(body);
   });
@@ -204,23 +211,23 @@ describe("REP-128 report trend API", () => {
     // 2026-01로 끝나는 6개월은 2025-08부터다 — 연 경계를 정수 산술로 넘는다.
     const crossYear = await trend(accessToken, childId, "?months=6&endYearMonth=2026-01");
     expect(crossYear.months.map((month) => month.yearMonth)).toEqual([
-      "2025-08-01",
-      "2025-09-01",
-      "2025-10-01",
-      "2025-11-01",
-      "2025-12-01",
-      "2026-01-01"
+      "2025-08",
+      "2025-09",
+      "2025-10",
+      "2025-11",
+      "2025-12",
+      "2026-01"
     ]);
     // 2025-12의 90000원은 이 창 안에서는 보인다(창 밖 배제가 "그 달을 못 본다"는 뜻이 아니다).
-    expect(crossYear.months).toContainEqual({ yearMonth: "2025-12-01", totalExpenseKrw: 90000 });
+    expect(crossYear.months).toContainEqual({ yearMonth: "2025-12", totalExpenseKrw: 90000 });
 
     const single = await trend(accessToken, childId, "?months=1&endYearMonth=2026-05");
-    expect(single.months).toEqual([{ yearMonth: "2026-05-01", totalExpenseKrw: 3000 }]);
+    expect(single.months).toEqual([{ yearMonth: "2026-05", totalExpenseKrw: 3000 }]);
 
     const twelve = await trend(accessToken, childId, "?months=12&endYearMonth=2026-07");
     expect(twelve.months).toHaveLength(12);
-    expect(twelve.months[0]!.yearMonth).toBe("2025-08-01");
-    expect(twelve.months.at(-1)!.yearMonth).toBe("2026-07-01");
+    expect(twelve.months[0]!.yearMonth).toBe("2025-08");
+    expect(twelve.months.at(-1)!.yearMonth).toBe("2026-07");
     // 12개월 창의 합 = 시드한 살아있는 지출(선물·soft delete 제외) 전량.
     expect(twelve.months.reduce((sum, month) => sum + month.totalExpenseKrw, 0)).toBe(150000);
   });
@@ -386,12 +393,12 @@ describe("REP-128 report trend API", () => {
 
     const body = await trend(accessToken, childId, "?months=6&endYearMonth=2026-07");
     expect(body.months).toEqual([
-      { yearMonth: "2026-02-01", totalExpenseKrw: 0 },
-      { yearMonth: "2026-03-01", totalExpenseKrw: 0 },
-      { yearMonth: "2026-04-01", totalExpenseKrw: 0 },
-      { yearMonth: "2026-05-01", totalExpenseKrw: 0 },
-      { yearMonth: "2026-06-01", totalExpenseKrw: 0 },
-      { yearMonth: "2026-07-01", totalExpenseKrw: 0 }
+      { yearMonth: "2026-02", totalExpenseKrw: 0 },
+      { yearMonth: "2026-03", totalExpenseKrw: 0 },
+      { yearMonth: "2026-04", totalExpenseKrw: 0 },
+      { yearMonth: "2026-05", totalExpenseKrw: 0 },
+      { yearMonth: "2026-06", totalExpenseKrw: 0 },
+      { yearMonth: "2026-07", totalExpenseKrw: 0 }
     ]);
   });
 });

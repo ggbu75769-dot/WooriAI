@@ -35,6 +35,7 @@ import {
   reportMonthlySchema,
   reportTrendSchema,
   reportYearlySchema,
+  yearMonthSchema,
   TREND_REPORT_DEFAULT_MONTHS,
   TREND_REPORT_MAX_MONTHS,
   listExpensesQuerySchema,
@@ -596,12 +597,16 @@ describe("shared contract schemas", () => {
    * REP-128: 추이 리포트 응답 계약. 차트가 소비하는 값은 달마다 totalExpenseKrw 하나뿐이라
    * 예산·카테고리 분해는 담기지 않는다 — 그게 필요한 화면은 reportMonthlySchema 쪽이다.
    * 길이 상한(12)은 서버 DTO의 months 상한(TREND_REPORT_MAX_MONTHS)과 같은 값이어야 한다.
+   *
+   * ⚠️ **두 시점** — 종전 이 픽스처의 달은 `"2026-01-01"`이었고 아래 단언은 `"2026-02"`를
+   * **거부**하는 것이 계약이라고 적었다(그때는 추이가 `dateOnlySchema`였다) → 이제 정반대다:
+   * 추이의 달은 연간과 **같은 `yearMonthSchema`**이고, `YYYY-MM-01`이 거부된다.
    */
   it("bounds the trend report to 1-12 months of yearMonth/total pairs (REP-128)", () => {
     const uuid = "66666666-6666-4666-8666-666666666666";
     const months = (count: number) =>
       Array.from({ length: count }, (_, index) => ({
-        yearMonth: `2026-${String(index + 1).padStart(2, "0")}-01`,
+        yearMonth: `2026-${String(index + 1).padStart(2, "0")}`,
         totalExpenseKrw: 0
       }));
 
@@ -617,13 +622,20 @@ describe("shared contract schemas", () => {
     expect(() => reportTrendSchema.parse({ childId: uuid, months: [] })).toThrow();
     expect(() => reportTrendSchema.parse({ childId: uuid, months: months(13) })).toThrow();
 
-    // 월간 리포트와 같은 내부 `YYYY-MM-01` 형태만 받는다(연간 리포트의 `YYYY-MM`이 아니다).
+    // 연간 리포트와 **같은** `YYYY-MM`만 받는다 — 종전의 `YYYY-MM-01`은 이제 계약 위반이다.
+    // 두 응답이 같은 추이 차트의 x축을 먹이므로 형식이 갈리면 안 된다(yearMonthSchema 머리말).
     expect(() =>
-      reportTrendSchema.parse({ childId: uuid, months: [{ yearMonth: "2026-02", totalExpenseKrw: 0 }] })
+      reportTrendSchema.parse({ childId: uuid, months: [{ yearMonth: "2026-02-01", totalExpenseKrw: 0 }] })
     ).toThrow();
+    // 두 스키마가 **같은 자**라는 것을 값으로도 확인한다(한쪽만 바뀌면 여기서 빨개진다).
+    expect(yearMonthSchema.parse("2026-02")).toBe("2026-02");
+    expect(() => yearMonthSchema.parse("2026-02-01")).toThrow();
+    expect(
+      reportYearlySchema.shape.monthlyTotals.element.shape.yearMonth
+    ).toBe(reportTrendSchema.shape.months.element.shape.yearMonth);
     // 기록 없는 달은 0으로 채워지므로 음수는 계약 위반이다.
     expect(() =>
-      reportTrendSchema.parse({ childId: uuid, months: [{ yearMonth: "2026-02-01", totalExpenseKrw: -1 }] })
+      reportTrendSchema.parse({ childId: uuid, months: [{ yearMonth: "2026-02", totalExpenseKrw: -1 }] })
     ).toThrow();
   });
 

@@ -1618,10 +1618,16 @@ export function getMonthlyReport(childId: string, yearMonth: string): MonthlyRep
  * REP-128: local-session mirror of GET /children/:childId/reports/trend -- the demo session's
  * 6개월 추이. Assembled from the same fixture expenses getMonthlyReport folds, one month at a
  * time, so every bar matches what the demo's 월간 리포트 카드 would show for that month
- * (기록이 없는 달은 0). Month stepping is plain integer arithmetic on the `YYYY-MM-01` key so
+ * (기록이 없는 달은 0). Month stepping is plain integer arithmetic on the month key so
  * a window crossing a year boundary (e.g. 2026-02 back to 2025-09) lands on the right months
  * regardless of the device timezone -- the server does the same (reporting-store.service.ts
  * trailingYearMonths).
+ *
+ * ⚠️ **두 시점** — 종전 이 미러가 내던 달 키는 `YYYY-MM-01`이었다(그때는 서버가 그 모양이라
+ * 미러로서 옳았다) → 이제 **`YYYY-MM`**이다. 근거: 계약이 추이·연간의 달을 `yearMonthSchema`
+ * 하나로 모았고 서버가 그 모양을 낸다. 데모가 서버와 다른 모양을 내면 **데모에서만 나는
+ * 버그**가 생긴다(이 파일이 존재하는 이유가 그것을 막는 것이다). 아래 `expensesForChild`는
+ * 앞 7자만 읽는 `getSeoulMonthRange`를 거치므로 달 필터는 종전 그대로다.
  */
 export function getTrendReport(childId: string, endYearMonth: string, months: number): TrendReport {
   ensureSeeded();
@@ -1632,7 +1638,7 @@ export function getTrendReport(childId: string, endYearMonth: string, months: nu
       const absoluteMonth = endYear * 12 + (endMonth - 1) - (months - 1 - index);
       const year = Math.floor(absoluteMonth / 12);
       const month = absoluteMonth - year * 12 + 1;
-      const yearMonth = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`;
+      const yearMonth = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`;
       return { yearMonth, totalExpenseKrw: totalExpenseKrw(expensesForChild(childId, yearMonth)) };
     })
   };

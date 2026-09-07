@@ -17,10 +17,16 @@ import {
 } from "./store-shared";
 
 /**
- * REP-128: `endYearMonth`(내부 `YYYY-MM-01` 형태)로 끝나는 연속 `months`개월을 오름차순으로
- * 돌려준다 — 마지막 원소가 endYearMonth다. 연말/연초를 넘는 구간(예: 2026-02에서 6개월 →
- * 2025-09..2026-02)을 위해 Date 산술 대신 순수 정수 산술로 계산한다(서버 로컬 타임존과
- * 무관해야 하므로).
+ * REP-128: `endYearMonth`(`YYYY-MM` · `YYYY-MM-01` 둘 다 받는다 — 앞 7자만 읽는다)로 끝나는
+ * 연속 `months`개월을 오름차순으로 돌려준다 — 마지막 원소가 endYearMonth다. 연말/연초를 넘는
+ * 구간(예: 2026-02에서 6개월 → 2025-09..2026-02)을 위해 Date 산술 대신 순수 정수 산술로
+ * 계산한다(서버 로컬 타임존과 무관해야 하므로).
+ *
+ * ⚠️ **두 시점** — 종전에는 달마다 `-01`을 붙여 `YYYY-MM-01`을 돌려줬다(그때는 계약이
+ * `dateOnlySchema`였고 월간·예산 응답과 같은 모양이었다) → 이제 **`YYYY-MM`**이다. 근거:
+ * 계약이 추이·연간 두 응답의 달을 `yearMonthSchema` 하나로 모았다(packages/contracts/src/
+ * schemas.ts). 아래 두 소비처는 이 변화에 영향이 없다 — `getSeoulMonthRange`는 앞 7자만 읽고
+ * (packages/domain/src/money-date.ts), 집계 맵의 키는 원래부터 7자리였다(`slice(0, 7)`).
  */
 function trailingYearMonths(endYearMonth: string, months: number): string[] {
   const [endYear, endMonth] = endYearMonth.split("-").map(Number) as [number, number];
@@ -29,7 +35,7 @@ function trailingYearMonths(endYearMonth: string, months: number): string[] {
     const absoluteMonth = endYear * 12 + (endMonth - 1) - (months - 1 - index);
     const year = Math.floor(absoluteMonth / 12);
     const month = absoluteMonth - year * 12 + 1;
-    return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`;
+    return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`;
   });
 }
 
@@ -161,9 +167,11 @@ export class ReportingStoreService {
 
     return {
       childId,
+      // 종전에는 응답의 `yearMonth`(`YYYY-MM-01`)와 집계 맵의 키(7자리)가 달라 여기서 잘라
+      // 맞췄다 → 이제 둘이 같은 값이라 자를 것이 없다(위 trailingYearMonths 머리말).
       months: yearMonths.map((yearMonth) => ({
         yearMonth,
-        totalExpenseKrw: totalsByMonth.get(yearMonth.slice(0, 7)) ?? 0
+        totalExpenseKrw: totalsByMonth.get(yearMonth) ?? 0
       }))
     };
   }

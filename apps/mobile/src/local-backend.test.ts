@@ -71,6 +71,11 @@ describe("Local test-mode backend data layer", () => {
    * REP-128: 데모 세션의 추이 미러도 서버와 같은 동치를 만족해야 한다 — 6개월 추이의 각
    * 달이 같은 달의 월간 리포트와 정확히 일치하고, 마지막 원소가 요청한 endYearMonth,
    * 기록 없는 달은 0으로 채워 길이가 항상 요청한 개월 수와 같다.
+   *
+   * ⚠️ **두 시점** — 종전 이 단언들은 달을 `${endYearMonth}-01`로 기대했다(그때는 서버·데모
+   * 둘 다 `YYYY-MM-01`이었다) → 이제 **`YYYY-MM`**이다(계약 `yearMonthSchema`). 데모 미러는
+   * 서버를 그대로 따라가는 것이 존재 이유라, 이 기대가 서버와 갈리면 데모에서만 나는 버그가
+   * 생긴다. 월간 리포트의 달은 아직 `YYYY-MM-01`이라 동치 대조는 앞 7자로 맞춘다.
    */
   it("assembles the 6-month trend from the same fixture months getMonthlyReport folds (REP-128)", () => {
     localBackend.createExpense(childId, {
@@ -85,7 +90,7 @@ describe("Local test-mode backend data layer", () => {
 
     expect(trend.childId).toBe(childId);
     expect(trend.months).toHaveLength(6);
-    expect(trend.months.at(-1)!.yearMonth).toBe(`${endYearMonth}-01`);
+    expect(trend.months.at(-1)!.yearMonth).toBe(endYearMonth);
     // 오름차순 연속: 인접한 두 달의 간격이 정확히 1개월이다(연 경계 포함).
     const absoluteMonth = (yearMonth: string) => {
       const [year, month] = yearMonth.split("-").map(Number) as [number, number];
@@ -98,7 +103,10 @@ describe("Local test-mode backend data layer", () => {
     expect(trend.months).toEqual(
       trend.months.map(({ yearMonth }) => {
         const monthly = localBackend.getMonthlyReport(childId, yearMonth);
-        return { yearMonth: monthly.yearMonth, totalExpenseKrw: monthly.totalExpenseKrw };
+        // 월간 미러는 서버와 같이 `YYYY-MM-01`을 낸다(이번 통일의 대상이 아니다) — 동치가
+        // 무는 것은 "그 달의 얼마인가"이므로 달은 앞 7자로 맞대고, 그 사실을 함께 못박는다.
+        expect(monthly.yearMonth).toBe(`${yearMonth}-01`);
+        return { yearMonth: monthly.yearMonth.slice(0, 7), totalExpenseKrw: monthly.totalExpenseKrw };
       })
     );
     expect(trend.months.at(-1)!.totalExpenseKrw).toBe(localBackend.getMonthlyReport(childId, endYearMonth).totalExpenseKrw);
@@ -108,7 +116,7 @@ describe("Local test-mode backend data layer", () => {
     expect(crossYear.months.map((month) => month.yearMonth.slice(5, 7))).toEqual(["08", "09", "10", "11", "12", "01"]);
     // 미래 창이라 데모 지출이 하나도 없는 달은 0으로 채워진다(막대가 빠지지 않는다).
     expect(crossYear.months.at(-1)).toEqual({
-      yearMonth: `${Number(endYearMonth.slice(0, 4)) + 1}-01-01`,
+      yearMonth: `${Number(endYearMonth.slice(0, 4)) + 1}-01`,
       totalExpenseKrw: 0
     });
   });
