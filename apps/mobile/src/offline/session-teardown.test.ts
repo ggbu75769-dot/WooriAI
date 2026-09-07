@@ -1443,9 +1443,13 @@ describe("라운드 110 계정 경계에서 선택된 아이 id", () => {
 
   it("sync-controller가 **프로미스 홉 앞의 동기 자리**에서 부른다 (source verification -- 컨트롤러는 vitest에서 돌지 않는다)", () => {
     const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
-    const body = controllerSource.slice(
-      controllerSource.indexOf("subscribeToHydratedSessionTransitions(useSessionStore")
-    );
+    // ⚠️ 자르기 전에 **바깥 끝의 실재를 먼저 묻는다**(라운드 78 E의 계약). 묻지 않으면 그 바늘이
+    // 사라진 날 indexOf가 -1을 주고 slice(-1)이 파일의 **마지막 한 글자**를 body로 만든다 —
+    // 그러면 아래 두 자리도 -1이 되어 "clearAt이 storeAt보다 앞이다"가 -1 < -1로 빨개지는데,
+    // 그 실패 메시지는 순서가 틀렸다고 말할 뿐 **바늘이 사라졌다는 사실**을 말하지 않는다.
+    const subscribeAt = controllerSource.indexOf("subscribeToHydratedSessionTransitions(useSessionStore");
+    expect(subscribeAt, "구독 배선 바늘").toBeGreaterThan(-1);
+    const body = controllerSource.slice(subscribeAt);
     const clearAt = body.indexOf("clearSessionScopedChildSelection();");
     const storeAt = body.indexOf("void getOfflineStore()");
     expect(clearAt).toBeGreaterThan(-1);
