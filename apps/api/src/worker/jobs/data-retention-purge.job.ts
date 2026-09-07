@@ -252,31 +252,78 @@ export const POISON_FAILURE_THRESHOLD = 3;
 export const LOOKUP_SEARCH_ACTION = "admin.user_lookup.search";
 
 /**
- * Phase 12 (라운드 107 트랙 A): audit actions whose before/after envelopes used to
- * carry the user's own free text. Not exported — nothing outside this job needs
- * it, and the write-path allow-list that replaced it lives in
- * `onboarding/store-shared.ts` (`toExpenseAuditSnapshot`).
+ * Phase 12: audit actions whose before/after envelopes used to carry the user's own
+ * free text or an in-envelope account link. Not exported — nothing outside this job
+ * needs it, and the write-path allow-lists that replaced these live next to the
+ * envelopes themselves (`onboarding/store-shared.ts`의 `toExpenseAuditSnapshot`,
+ * `households/household-runtime.service.ts`의 `toMemberAuditSnapshot`/`toInviteAuditSnapshot`).
+ *
+ * ⚠️ **두 시점 — 이름이 `EXPENSE_SNAPSHOT_ACTIONS`에서 바뀌었다(라운드 108 이월 상환).**
+ *
+ * 종전(그때는 참): 라운드 107 트랙 A가 이 phase를 세웠을 때 목록은 지출 둘뿐이었고, 그래서
+ * 이름이 정확했다.
+ *
+ * → 이제 가구 액션 둘이 들어오면서 `EXPENSE_` 접두는 **거짓 이름**이 됐다. 그래서 이 파일 안에서만
+ * 사는 이름 넷(이 상수 · 아래 키 목록 · `scrubLegacySnapshotEnvelope` · `selectLegacySnapshotRows`)을
+ * 바로잡았다 — 전수 grep 결과 그 넷을 읽는 곳은 이 파일뿐이라 함께 움직일 참조가 0건이다.
+ *
+ * ⚠️ **반대로 `expenseSnapshotScrub`(phase id)과 `expenseSnapshotsScrubbed`(요약 키)는 그대로 둔다.**
+ * 그 둘은 파일 밖의 계약이다: 워커 로그의 phase 이름이고, `test/data-retention-purge.db.test.ts`가
+ * 세 자리에서 단언하며, `docs/operations/database-backup-restore.md`·`admin-access.md`가 *"12단계
+ * (`expenseSnapshotScrub`)"* 로 지목한다. 바꾸면 옛 운영 로그가 grep되지 않고 런북 상호 참조가
+ * 끊기는데, 얻는 것은 이름의 정확성뿐이라 **비용이 이득보다 크다**. 이 문단이 그 어긋남의 기록이다.
  */
-const EXPENSE_SNAPSHOT_ACTIONS = ["expense.update", "expense.delete"];
+const LEGACY_SNAPSHOT_ACTIONS = [
+  "expense.update",
+  "expense.delete",
+  // 라운드 108 트랙 B가 **쓰기 경로만** 고치고 남긴 이월. 그때 이전에 쌓인 행은 봉투 안에
+  // 닉네임 원문과 계정 연결값을 그대로 들고 있다(730일 보존 · 어드민 감사 뷰어와 CSV로 노출 ·
+  // phase 3은 `actor_user_id`만 null로 만들어 탈퇴해도 남는다).
+  "household.member.remove",
+  "household.invite.cancel"
+];
 
 /**
  * Phase 12: the envelope keys the sweep removes.
- *  · `itemName`/`merchant`/`memo` — 사용자 자유 문자열(이 라운드가 쓰기 경로에서 뺀 그 셋).
+ *  · `itemName`/`merchant`/`memo` — 사용자 자유 문자열(라운드 107이 지출 쓰기 경로에서 뺀 그 셋).
  *  · `createdByUserId` — 봉투 안의 계정 연결값. phase 3이 `actor_user_id`만 null로 만들기 때문에
  *    이 사본은 탈퇴 파기를 비켜 간다.
- * `id`는 **지우지 않는다** — 옛 봉투의 지출 식별자이고, 감사 행의 `target_id`가 이미 같은 값을
- * 들고 있어(=식별성이 더해지지 않는다) 지우면 옛 행만 읽기 어려워질 뿐이다.
+ *  · `displayName` — 카카오 닉네임 **원문**(옛 `household.member.remove` 봉투). 개인을 그대로
+ *    지목하는 값이고, 위 셋과 비용 구조가 같다.
+ *  · `userId`/`invitedByUserId` — 같은 이유의 계정 연결값(옛 구성원 제거 · 초대 취소 봉투).
+ *
+ * `id`는 **지우지 않는다** — 옛 봉투의 대상 식별자이고, 감사 행의 `target_id`가 이미 같은 값을
+ * 들고 있어(=식별성이 더해지지 않는다) 지우면 옛 행만 읽기 어려워질 뿐이다. 같은 근거로
+ * `householdId`도 남긴다(감사 행의 `household_id`가 든다).
+ *
+ * ⚠️ **교차 오염 없음(확인함).** 늘어난 세 키는 오늘의 어느 봉투에도 없다:
+ * `toExpenseAuditSnapshot`은 expenseId·childId·categoryId·amountKrw·spentOn·paymentMethod·
+ * expenseType·source·linkedItemTemplateId·linkedProductLinkId만 내놓고, `toMemberAuditSnapshot`은
+ * memberId·role·status·joinedAt, `toInviteAuditSnapshot`은 inviteId·role·channel·status·
+ * expiresAt·createdAt만 내놓는다. 그래서 **새 행은 선택 술어에 걸리지 않는다** — 이 스윕은
+ * 옛 행만 보고 스스로 끝난다.
  */
-const EXPENSE_SNAPSHOT_SCRUB_KEYS = ["itemName", "merchant", "memo", "createdByUserId"];
+const LEGACY_SNAPSHOT_SCRUB_KEYS = [
+  "itemName",
+  "merchant",
+  "memo",
+  "createdByUserId",
+  "displayName",
+  "userId",
+  "invitedByUserId"
+];
 
 /**
  * Phase 12의 순수 부분: 봉투 한 칸에서 위 키를 지우고 정직한 표식을 붙인다.
  * 지울 키가 하나도 없었으면 `null`을 돌려주고 호출부가 그 칸을 **손대지 않는다**
  * (한쪽 칸만 옛 모양인 행이 실제로 있다 — 삭제 봉투의 `after`처럼).
  */
-function scrubExpenseEnvelope(envelope: Record<string, unknown> | null, now: Date): Record<string, unknown> | null {
+function scrubLegacySnapshotEnvelope(
+  envelope: Record<string, unknown> | null,
+  now: Date
+): Record<string, unknown> | null {
   if (!envelope) return null;
-  const present = EXPENSE_SNAPSHOT_SCRUB_KEYS.filter((key) => key in envelope);
+  const present = LEGACY_SNAPSHOT_SCRUB_KEYS.filter((key) => key in envelope);
   if (present.length === 0) return null;
   const scrubbed: Record<string, unknown> = { ...envelope };
   for (const key of present) delete scrubbed[key];
@@ -701,18 +748,31 @@ function errorMessage(error: unknown): string {
  *     correct (neither predicate depends on the other's effect), but this one
  *     keeps the phase-9 counters reading as they always did.
  *
- * 12. 지출 감사 봉투에 남은 **자유 문자열**(라운드 107 트랙 A / 정찰 S1-1) — phase 5·11과 같은
- *     **마스킹이지 파기가 아니다**. `expense.update`·`expense.delete`의 `before_json`/`after_json`은
- *     사용자가 손으로 적은 `itemName`·`merchant`·`memo`를 **원문으로** 담고 있었다. 쓰기 경로는
- *     이 라운드에서 `toExpenseAuditSnapshot`(onboarding/store-shared.ts)으로 바뀌어 **새 행에는
- *     그 세 축이 없다**. 문제는 이미 쌓인 행이다:
+ * 12. 옛 감사 봉투에 남은 **자유 문자열과 계정 연결값**(라운드 107 트랙 A / 정찰 S1-1) —
+ *     phase 5·11과 같은 **마스킹이지 파기가 아니다**.
+ *
+ *     ⚠️ **두 시점 — 대상이 둘에서 넷으로 늘었다.**
+ *
+ *     종전(그때는 참): 대상은 `expense.update`·`expense.delete`뿐이었다.
+ *     `before_json`/`after_json`이 사용자가 손으로 적은 `itemName`·`merchant`·`memo`를 **원문으로**
+ *     담고 있었고, 쓰기 경로가 `toExpenseAuditSnapshot`(onboarding/store-shared.ts)으로 바뀌어
+ *     **새 행에는 그 세 축이 없다**.
+ *
+ *     → 이제 `household.member.remove`·`household.invite.cancel`도 같은 자리에서 씻는다.
+ *     라운드 108 트랙 B가 그 둘의 쓰기 경로를 전용 스냅샷(`toMemberAuditSnapshot`/
+ *     `toInviteAuditSnapshot`)으로 바꾸면서 **옛 행은 손대지 못하고 이월로 적어 두었던** 몫이다
+ *     (그 이월은 `test/audit-envelope-fields.test.ts`의 ⓒ 주석과 `docs/operations/admin-access.md`에
+ *     이름으로 남아 있었다). 그 옛 봉투가 든 것은 카카오 **닉네임 원문**(`displayName`)과 계정
+ *     연결값(`userId`/`invitedByUserId`)이고, 아래 세 사실은 지출 봉투와 **글자 그대로 같다**.
+ *
+ *     문제는 이미 쌓인 행이다:
  *
  *     · phase 3(탈퇴 사용자)은 `actorUserId`만 null로 만들고 봉투 안은 손대지 않는다 —
  *       즉 **계정을 삭제해도** 그 문자열이 730일(phase 8의 창) 살아남았다.
  *     · 그 사이 어드민 감사 뷰어 JSON과 그 화면의 CSV(최대 1,000행/파일)로 계속 나갔다.
- *     · 탈퇴한 사용자로부터 그 행에 **닿을 수 없다**: 봉투 안의 `childId`/`expenseId`가 가리키는
- *       행은 phase 1~4가 이미 물리 파기했으므로, per-user 스코프로는 찾을 방법이 없다.
- *       phase 5가 옛 검색어를 두고 내린 판단과 **같은 구조의 사실**이다.
+ *     · 탈퇴한 사용자로부터 그 행에 **닿을 수 없다**: 봉투 안의 `childId`/`expenseId`(가구 봉투라면
+ *       `memberId`/`inviteId`)가 가리키는 행은 phase 1~4가 이미 물리 파기했으므로, per-user
+ *       스코프로는 찾을 방법이 없다. phase 5가 옛 검색어를 두고 내린 판단과 **같은 구조의 사실**이다.
  *
  *     그래서 phase 5와 **같은 형식**의 일회성·자기 종료 스윕이다. 선택 술어가 곧 *"이 행은 아직
  *     자유 문자열을 들고 있다"* (`jsonb_exists_any`)이므로, 한 번 씻긴 행은 다시 보이지 않아
@@ -724,8 +784,8 @@ function errorMessage(error: unknown): string {
  *     `audit_logs`는 상한이 없는 표이고, 그 위의 단일 UPDATE는 이 잡이 피하려고 존재하는 바로
  *     그 긴 락이다. 그리고 롤아웃이 진행되는 동안 옛 배포가 쓰는 행까지 이 phase가 잡는다.
  *
- *     **되돌릴 수 없다**(phase 5·11과 동일). 지워지는 것은 사용자 자유 문자열의 사본이고
- *     원본 지출 행이 아니다 — 살아 있는 지출은 `expenses` 표에 그대로 있고, 이미 파기된 지출의
+ *     **되돌릴 수 없다**(phase 5·11과 동일). 지워지는 것은 사본이고
+ *     원본 지출 행(가구 봉투라면 `household_members`/`household_invites` 행)이 아니다 — 살아 있는 지출은 `expenses` 표에 그대로 있고, 이미 파기된 지출의
  *     문자열은 애초에 남아 있으면 안 되는 값이다. 감사가 답해야 하는 *"누가 언제 무엇을 바꿨나"* 는
  *     봉투에 남는 축(금액·날짜·분류 id·버전·행위자·시각)으로 그대로 답한다.
  *
@@ -894,12 +954,14 @@ export class DataRetentionPurgeJob implements WorkerJob {
       (size, skip) => this.maskImportJobHeaders(importRowsCutoff, size, skip),
       { importJobHeadersMasked: 0 }
     );
-    // Phase 12 (라운드 107 트랙 A / 정찰 S1-1): 옛 지출 감사 봉투에 남은 자유 문자열.
+    // Phase 12 (라운드 107 트랙 A / 정찰 S1-1): 옛 감사 봉투에 남은 자유 문자열·계정 연결값.
     // phase 8 뒤에 둔다(클래스 문서 item 12의 ordering note).
+    // ⚠️ phase id와 요약 키의 `expense…` 철자는 **역사적 이름**이다 — 대상은 지출 둘 +
+    // 가구 둘이고, 바꾸지 않은 근거는 LEGACY_SNAPSHOT_ACTIONS 머리말에 있다.
     const expenseSnapshots = await this.runPhase(
       "expenseSnapshotScrub",
       batchSize,
-      (size, skip) => this.scrubLegacyExpenseSnapshots(now, size, skip),
+      (size, skip) => this.scrubLegacySnapshots(now, size, skip),
       { expenseSnapshotsScrubbed: 0 }
     );
 
@@ -1421,8 +1483,14 @@ export class DataRetentionPurgeJob implements WorkerJob {
   }
 
   /**
-   * Phase 12 (라운드 107 트랙 A / 정찰 S1-1): 옛 `expense.update`·`expense.delete` 감사 봉투에서
-   * 사용자 자유 문자열과 봉투 안의 계정 연결값을 지운다(클래스 문서 item 12).
+   * Phase 12 (라운드 107 트랙 A / 정찰 S1-1): 옛 감사 봉투에서 사용자 자유 문자열과 봉투 안의
+   * 계정 연결값을 지운다(클래스 문서 item 12).
+   *
+   * ⚠️ **두 시점.** 종전(그때는 참): 대상은 `expense.update`·`expense.delete` 둘뿐이었고 이 메서드
+   * 이름도 `scrubLegacyExpenseSnapshots`였다. → 이제 `household.member.remove`·
+   * `household.invite.cancel`도 같은 자리에서 씻는다(라운드 108 트랙 B가 쓰기 경로만 고치고 남긴
+   * 이월). **phase id(`expenseSnapshotScrub`)와 요약 키(`expenseSnapshotsScrubbed`)는 파일 밖
+   * 계약이라 그대로 두었다** — 근거는 LEGACY_SNAPSHOT_ACTIONS 머리말.
    *
    * phase 5(`scrubLegacyLookupQueries`)와 **같은 형식**이다 — 새 설계가 아니다:
    * 선택 술어가 곧 *"아직 그 키를 들고 있다"* 라 멱등·자기 종료이고, 정렬은
@@ -1433,12 +1501,12 @@ export class DataRetentionPurgeJob implements WorkerJob {
    * 한다. 두 칸(before/after) 중 실제로 키가 있던 쪽만 다시 쓰고, 없던 칸은 손대지 않는다
    * (`null`인 `before_json`을 `{}`로 만들면 없던 정보가 새로 생긴 것처럼 보인다).
    */
-  private async scrubLegacyExpenseSnapshots(now: Date, batchSize: number, skip: number) {
+  private async scrubLegacySnapshots(now: Date, batchSize: number, skip: number) {
     if (skip > 0) {
-      const skipped = await this.selectLegacyExpenseSnapshotRows(skip, 0);
+      const skipped = await this.selectLegacySnapshotRows(skip, 0);
       this.logPoisonSkippedRows("expenseSnapshotScrub", "audit_logs", skipped.map((row) => row.id));
     }
-    const rows = await this.selectLegacyExpenseSnapshotRows(batchSize, skip);
+    const rows = await this.selectLegacySnapshotRows(batchSize, skip);
     if (rows.length === 0) {
       return { expenseSnapshotsScrubbed: 0 };
     }
@@ -1446,8 +1514,8 @@ export class DataRetentionPurgeJob implements WorkerJob {
     return this.prisma.$transaction(async (tx) => {
       let expenseSnapshotsScrubbed = 0;
       for (const row of rows) {
-        const before = scrubExpenseEnvelope(row.before_json, now);
-        const after = scrubExpenseEnvelope(row.after_json, now);
+        const before = scrubLegacySnapshotEnvelope(row.before_json, now);
+        const after = scrubLegacySnapshotEnvelope(row.after_json, now);
         await tx.auditLog.update({
           where: { id: row.id },
           data: {
@@ -1462,22 +1530,22 @@ export class DataRetentionPurgeJob implements WorkerJob {
   }
 
   /**
-   * Phase-12 candidate selection: 지출 감사 행 중 **아직 자유 문자열 칸을 들고 있는** 행만,
+   * Phase-12 candidate selection: 대상 액션의 감사 행 중 **아직 옛 키를 들고 있는** 행만,
    * 오래된 것부터 id 타이브레이커와 함께. `jsonb_exists_any`는 `?|` 연산자의 함수 형태다 —
    * 물음표가 드라이버의 파라미터 자리와 헷갈릴 여지를 아예 만들지 않으려고 함수로 쓴다.
    * `offset`은 다른 phase와 같은 poison-skip 창이다.
    */
-  private selectLegacyExpenseSnapshotRows(
+  private selectLegacySnapshotRows(
     limit: number,
     offset: number
   ): Promise<{ id: string; before_json: Record<string, unknown> | null; after_json: Record<string, unknown> | null }[]> {
     return this.prisma.$queryRaw`
       SELECT id, before_json, after_json
       FROM audit_logs
-      WHERE action = ANY(${EXPENSE_SNAPSHOT_ACTIONS})
+      WHERE action = ANY(${LEGACY_SNAPSHOT_ACTIONS})
         AND (
-          jsonb_exists_any(before_json, ${EXPENSE_SNAPSHOT_SCRUB_KEYS})
-          OR jsonb_exists_any(after_json, ${EXPENSE_SNAPSHOT_SCRUB_KEYS})
+          jsonb_exists_any(before_json, ${LEGACY_SNAPSHOT_SCRUB_KEYS})
+          OR jsonb_exists_any(after_json, ${LEGACY_SNAPSHOT_SCRUB_KEYS})
         )
       ORDER BY created_at ASC, id ASC
       LIMIT ${limit} OFFSET ${offset}`;
