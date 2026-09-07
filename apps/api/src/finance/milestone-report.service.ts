@@ -1,6 +1,7 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { getSeoulToday, type MemberRole } from "@wooriai/domain";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { getSeoulToday } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
+import { ChildAccessService } from "../onboarding/child-access.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
 import type { MilestoneReportType } from "./dto/milestone-query.dto";
 
@@ -21,16 +22,35 @@ import type { MilestoneReportType } from "./dto/milestone-query.dto";
  * Aggregation matches the other reports exactly: soft-deleted rows excluded,
  * `expenseType: "expense"` only (gifts/refunds never count).
  *
- * Follows the ExpensesVersionService precedent of a finance-owned service that does
- * its own Prisma access + household authorization instead of editing
- * the onboarding store services (owned by concurrent work).
+ * ## 라운드 108 트랙 C(C-3) — 아이 인가는 이 파일이 구현하지 않는다
+ *
+ * 종전: 이 서비스는 "finance가 소유한 서비스는 onboarding 스토어를 고치는 대신 자기 Prisma
+ * 접근과 가구 인가를 직접 든다"는 ExpensesVersionService 선례를 따라 `requireChildView`라는
+ * **아이 인가의 두 번째 구현**을 들고 있었다(그때는 참 — 그 스토어들을 다른 작업이 동시에
+ * 소유하고 있었다). 그 메서드의 주석 스스로가 "mirroring ChildAccessService.requireChildAccess"
+ * 라고 적었고, 실제로 저장소에서 아이 인가를 두 번 구현한 유일한 자리였다.
+ *
+ * 지금: `ChildAccessService`를 주입해 사본을 지웠다. 두 구현을 먼저 대조한 결과 **거동이 완전히
+ * 같았다** — 같은 `child.findUnique` → `!child || child.deletedAt`이면 404 CHILD_NOT_FOUND
+ * ("아이 프로필을 찾을 수 없어요.") → 역할 조회(사본의 인라인 식이 `memberRoleFor`와 글자까지
+ * 같았다) → 역할이 없으면 403 FORBIDDEN("아이 프로필 접근 권한이 없어요."). 사본에 없던 것은
+ * `edit` 인자 하나뿐이고 리포트는 읽기라 기본값 `false`가 종전과 같은 판정이다. 응답·상태·문구
+ * 어느 것도 바뀌지 않는다.
+ *
+ * DI는 새 배선이 필요 없다: `FinanceModule`이 이미 `OnboardingModule`을 import 하고 그 모듈이
+ * `ChildAccessService`를 export 한다(같은 파일의 `ExpensesVersionService`가 이미 그 경로로
+ * `ExpensesStoreService`를 주입받는다).
  */
 @Injectable()
 export class MilestoneReportService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(ChildAccessService) private readonly childAccess: ChildAccessService
+  ) {}
 
   async getMilestoneReport(user: AuthenticatedUser, childId: string, type: MilestoneReportType) {
-    const child = await this.requireChildView(user, childId);
+    // 라운드 108 C-3: 다른 모든 아이 경로와 **같은 한 벌**을 탄다(사본 제거 — 위 머리말).
+    const child = await this.childAccess.requireChildAccess(user, childId);
 
     if (!child.birthDate) {
       throw new BadRequestException({
@@ -100,19 +120,10 @@ export class MilestoneReportService {
     };
   }
 
-  /** View-only child access check, mirroring ChildAccessService.requireChildAccess. */
-  private async requireChildView(user: AuthenticatedUser, childId: string) {
-    const child = await this.prisma.child.findUnique({ where: { id: childId } });
-    if (!child || child.deletedAt) {
-      throw new NotFoundException({ code: "CHILD_NOT_FOUND", message: "아이 프로필을 찾을 수 없어요." });
-    }
-    const role: MemberRole | null =
-      user.households.find((household) => household.id === child.householdId)?.role ?? null;
-    if (!role) {
-      throw new ForbiddenException({ code: "FORBIDDEN", message: "아이 프로필 접근 권한이 없어요." });
-    }
-    return child;
-  }
+  // 라운드 108 C-3: 종전 이 자리에 `requireChildView`가 있었다 — "View-only child access check,
+  // mirroring ChildAccessService.requireChildAccess"라고 스스로 적은 **아이 인가의 두 번째
+  // 구현**이었다(그때는 참). 지금은 지웠고 위 생성자가 주입한 `ChildAccessService` 한 벌만
+  // 남는다. 거동 대조와 DI 근거는 이 클래스 머리말에 있다.
 
   /** Seoul-calendar "today", honoring the WOORIAI_STAGE_TODAY test/dev override. */
   private seoulToday(): string {

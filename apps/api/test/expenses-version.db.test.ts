@@ -375,5 +375,101 @@ describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Pos
       .delete(`/api/v1/expenses/${created.id}?expectedVersion=1`)
       .set("Authorization", `Bearer ${strangerToken}`)
       .expect(403);
+
+    /**
+     * 라운드 108 트랙 C(C-2 역돌연변이 소견) — **낡은 `expectedVersion`으로도 물어야 한다.**
+     *
+     * 종전: 위 두 호출이 `expectedVersion: 1`(= 지금 값)을 보냈다(그때는 참 — 잡으려던 것은
+     * 409 payload였다). 그런데 그 값이면 CAS가 **성공**하고, 그 뒤 스토어의
+     * `requireExpenseAccess`가 403을 던져 테스트가 초록이 된다 — 즉 이 파일이 소유한 인가
+     * (`ExpensesVersionService.authorizeExpenseRow`)를 통째로 지워도 위 두 단언은 초록이었다.
+     * 역돌연변이로 실측한 사실이고, 그 상태에서 실제로 열리는 구멍은 이것이다:
+     * **CAS가 실패하는 값**(낡은 version)을 보내면 `versionConflictFor`가 남의 지출을 다시 읽어
+     * 409 `current`에 품목명·판매처·메모·금액을 **그대로 실어 보낸다.**
+     *
+     * 지금: 낡은 값도 함께 보낸다. 이 갈래는 `authorizeExpenseRow`가 죽는 순간 403이 409로
+     * 바뀌므로, 두 인가 중 이 파일 쪽 한 벌이 여기서 값으로 고정된다.
+     */
+    for (const staleVersion of [999]) {
+      await request(app.getHttpServer())
+        .patch(`/api/v1/expenses/${created.id}`)
+        .set("Authorization", `Bearer ${strangerToken}`)
+        .send({ amountKrw: 1, expectedVersion: staleVersion })
+        .expect(403)
+        .expect(({ body }) => {
+          expect(body.error.code).toBe("FORBIDDEN");
+          // 409로 갈리는 순간 여기에 남의 지출 스냅샷이 실린다 — 상태코드와 함께 값도 본다.
+          expect(JSON.stringify(body)).not.toContain("타가구 접근 차단");
+        });
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/expenses/${created.id}?expectedVersion=${staleVersion}`)
+        .set("Authorization", `Bearer ${strangerToken}`)
+        .expect(403)
+        .expect(({ body }) => {
+          expect(JSON.stringify(body)).not.toContain("타가구 접근 차단");
+        });
+    }
+
+    // 그리고 거절당한 네 번의 호출은 그 지출의 version을 한 번도 움직이지 않았다.
+    await request(app.getHttpServer())
+      .get(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.version).toBe(1);
+        expect(body.amountKrw).toBe(10000);
+      });
+  });
+
+  /**
+   * 라운드 108 트랙 C(C-2) — **읽기 쪽 인가 한 벌에도 교차가구 e2e를 세운다.**
+   *
+   * 종전: 바로 위 테스트가 PATCH·DELETE만 낯선 토큰으로 불렀다(그때는 참 — 그 파일이 소유한
+   * 것은 낙관적 잠금 계층이었다). 그런데 이 표의 인가는 **두 벌**이다:
+   *   · PATCH/DELETE → `ExpensesVersionService.authorizeExpenseRow`(위 테스트가 고정)
+   *   · GET(상세)    → `ExpensesStoreService.requireExpenseAccess` → `requireChildAccess`
+   * 테스트가 없는 쪽이 망가지면 남의 지출 **상세**가 200으로 나간다 — 그 응답에는 라운드 107이
+   * 감사 봉투에서 빼내느라 트랙 하나를 쓴 값들(품목명·판매처·메모·금액)이 그대로 들어 있다.
+   *
+   * 지금: GET도 같은 낯선 토큰으로 부른다. 상태·코드뿐 아니라 **응답 본문 어디에도 그 문자열이
+   * 없다**는 것까지 본다 — 403이면서 오류 봉투에 품목명을 실어 보내는 회귀는 상태코드만 보는
+   * 단언으로는 잡히지 않기 때문이다.
+   *
+   * ⚠️ 문구는 두 벌이 갈린다(PATCH/DELETE는 "지출 기록 접근 권한이 없어요.", GET은 아이 인가를
+   * 타므로 "아이 프로필 접근 권한이 없어요."). 그래서 여기서 고정하는 것은 **코드**(FORBIDDEN)와
+   * "값이 새지 않는다"이지 문장이 아니다 — 문장까지 같아야 한다고 쓰면 두 벌 중 하나를 옮기는
+   * 정당한 변경이 이 테스트에 걸린다.
+   */
+  it("남의 가구 지출은 상세 조회(GET)도 403이고 응답에 품목명·금액이 실리지 않는다 (IDOR)", async () => {
+    const ownerToken = await login("version-get-idor-owner");
+    const { childId } = await completeOnboarding(ownerToken);
+    const itemName = "타가구 상세조회 차단 기저귀";
+    const created = await createExpense(ownerToken, childId, itemName);
+
+    const strangerToken = await login("version-get-idor-stranger");
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${strangerToken}`)
+      .expect(403)
+      .expect(({ body }) => {
+        errorResponseSchema.parse(body);
+        expect(body.error.code).toBe("FORBIDDEN");
+        // 기대값은 리터럴이다 — 응답 어디에도 그 지출의 값이 없어야 한다.
+        const serialized = JSON.stringify(body);
+        expect(serialized).not.toContain(itemName);
+        expect(serialized).not.toContain("10000");
+      });
+
+    // 주인은 같은 경로로 그대로 읽는다 — 막힌 것은 가구 경계이지 엔드포인트가 아니다.
+    await request(app.getHttpServer())
+      .get(`/api/v1/expenses/${created.id}`)
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.itemName).toBe(itemName);
+        expect(body.amountKrw).toBe(10000);
+      });
   });
 });
