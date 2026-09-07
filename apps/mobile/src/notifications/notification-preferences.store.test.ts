@@ -15,6 +15,11 @@ import {
   useNotificationStore,
   type AppNotificationCandidate
 } from "./notification.store";
+// 라운드 106 T7: 설명이 약속하는 것을 **실제 판정 함수**에 물어 대조한다(문자열끼리 맞추면
+// 판정이 바뀌어도 테스트가 그대로 통과한다 — 그 자리가 이 라운드가 고친 결함이다).
+import { budgetNotifications, recordGapNotification } from "./generators";
+import { SEOUL_UTC_OFFSET_MS } from "./iso-week";
+import { stagePreviewD7Notification, type StagePreviewD7Input } from "./stage-preview-d7";
 
 const source = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
 
@@ -96,6 +101,81 @@ describe("라운드 52 C-08 알림 종류별 설정(순수 로직)", () => {
     expect(migrate({ mutedTypes: ["weekly_summary", "weekly_summary", "hacked", 7, null] }, 0)).toEqual({
       mutedTypes: ["weekly_summary"]
     });
+  });
+});
+
+/**
+ * 라운드 106 T7 — **스위치가 약속하는 것과 실제로 오는 것의 대조.**
+ *
+ * 이 파일은 지금까지 설명의 **형식**만 봤다(비어 있지 않다 · 해요체로 끝난다). 그런데 설정
+ * 화면에서 사용자가 읽는 것은 형식이 아니라 **약속**이고, 이 저장소는 허위 표시를 계약으로
+ * 금지한다. 그래서 두 자리를 값으로 묶는다 — 둘 다 "설명은 한 가지를 말하는데 판정은 다른
+ * 것을 한다"였던 자리다.
+ *
+ * 숫자·이름을 이 테스트가 손으로 적지 않는 것이 요지다: 창의 일수는 판정 함수를 세어서 얻고,
+ * 옆 스위치의 이름은 목록에서 읽는다. 판정이나 라벨이 바뀌면 설명이 여기서 걸린다.
+ */
+describe("라운드 106 T7 설명 ↔ 실제 발화 대조", () => {
+  /** 생후 6→7개월(밴드 "0-6개월" → "6-12개월") 경계가 2026-08-10인 아이 — D-7 짝 테스트와 같은 픽스처. */
+  const bornPreviewBase: StagePreviewD7Input = {
+    childId: "child-1",
+    childName: "다온이",
+    stageMode: "born",
+    birthDate: "2026-01-10",
+    dueDate: null,
+    todayIso: "2026-08-03"
+  };
+
+  it("'시기 변화 알림'은 전환 당일뿐 아니라 D-7 예고까지 끈다 — 설명이 그 창을 말한다", () => {
+    const option = NOTIFICATION_TYPE_OPTIONS.find((entry) => entry.type === "stage_transition")!;
+
+    // 예고도 같은 종류라, 이 스위치 하나가 둘을 함께 끈다(stage-preview-d7.ts의 종류 재사용).
+    const preview = stagePreviewD7Notification(bornPreviewBase)!;
+    expect(preview.type).toBe("stage_transition");
+    expect(filterMutedNotificationCandidates([preview], ["stage_transition"])).toEqual([]);
+
+    // 창의 상한을 **판정에서 센다**. 전환일(8월 10일)에서 하루씩 거슬러 올라가며 마지막으로
+    // 서는 날이 곧 설명이 말해야 하는 일수다 — 숫자를 여기에 손으로 적지 않는다.
+    let windowDays = 0;
+    for (let daysUntil = 1; daysUntil <= 9; daysUntil += 1) {
+      const todayIso = `2026-08-${String(10 - daysUntil).padStart(2, "0")}`;
+      if (stagePreviewD7Notification({ ...bornPreviewBase, todayIso })) windowDays = daysUntil;
+    }
+    expect(windowDays).toBeGreaterThan(0);
+    expect(option.description, "설명이 예고 창을 말한다").toContain(`${windowDays}일`);
+  });
+
+  it("'기록 리마인더'가 세는 축은 기록한 시각이 아니라 지출 날짜다 — 설명이 그 축을 말한다", () => {
+    const option = NOTIFICATION_TYPE_OPTIONS.find((entry) => entry.type === "record_gap")!;
+    // 서울 8월 10일에 평가하면, 마지막 **지출 날짜**가 8월 1일인 것만으로 발화한다 — 그 행을
+    // 오늘 적었는지 여부는 판정의 입력에 아예 없다(라운드 54 P1-3).
+    const candidate = recordGapNotification({
+      childId: "child-1",
+      lastRecordedOn: "2026-08-01",
+      now: Date.UTC(2026, 7, 10, 12) - SEOUL_UTC_OFFSET_MS
+    })!;
+    expect(candidate.title).toBe("마지막 지출 기록이 9일 전이에요");
+    // 제목이 말하는 축("마지막 지출")을 설명도 말한다.
+    expect(option.description).toContain("마지막 지출");
+  });
+
+  it("'예산 80% 알림'은 100%를 넘어선 달에 서지 않는다 — 설명이 대신 서는 스위치를 가리킨다", () => {
+    const eighty = NOTIFICATION_TYPE_OPTIONS.find((entry) => entry.type === "budget_80")!;
+    const hundred = NOTIFICATION_TYPE_OPTIONS.find((entry) => entry.type === "budget_100")!;
+
+    // 한 번의 지출로 80% 아래에서 100%를 넘어서면 후보는 budget_100 하나뿐이다.
+    const jumped = budgetNotifications({
+      childId: "child-1",
+      yearMonth: "2026-08",
+      budgetKrw: 1_000_000,
+      spentKrw: 1_050_000
+    });
+    expect(jumped.map((entry) => entry.type)).toEqual(["budget_100"]);
+
+    // 그래서 100% 알림만 꺼 둔 사용자는 80% 스위치를 켜 둔 채로 그 달에 아무것도 받지 못한다.
+    expect(filterMutedNotificationCandidates(jumped, ["budget_100"])).toEqual([]);
+    // 설명이 그 사실을 말하고, 갈 곳을 **옆 스위치의 이름으로** 가리킨다(라벨은 목록에서 읽는다).
+    expect(eighty.description).toContain(hundred.label);
   });
 });
 
