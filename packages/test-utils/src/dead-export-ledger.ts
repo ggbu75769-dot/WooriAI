@@ -2059,7 +2059,17 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // client.ts 로컬 세션 분기의 속성 자리(`localBackend.createCustomCategory` 등)로도 그 이름이
     // 선다(namesAlsoUsedAsProperty() 실측 — 순증은 이 둘뿐이다). 모집단이 는 것이지 새 병이
     // 아니고, 그 속성 참조가 둘을 사문 밖에 세워 두는 살아 있는 자기 파일 호출부이기도 하다.
-    value: 241,
+    // 두 시점(라운드 107 트랙 B): 241 → 242 — revokeOutgoingSessionOnServer(로그아웃이 서버
+    // refresh 토큰 family를 폐기하는 자리) 하나뿐이다(git 워크트리 대조 실측 — 5bf993c와 오늘의
+    // 이름 집합을 정렬해 diff했고 순증은 이 하나). ⚠️ **여기에 실제 속성/키 자리는 0건이다** —
+    // `.revokeOutgoingSessionOnServer`도 `revokeOutgoingSessionOnServer:`도 저장소에 없다.
+    // 이 이름이 걸린 이유는 sync-controller.ts:951의 주석 줄이 `…쓴다.`로 끝나고 **바로 다음
+    // 줄이 그 호출**이라, 마스킹하지 않은 소스에서 `.\n이름`이 속성 접근 모양으로 읽힌 것이다
+    // (라운드 101의 햅틱 셋 hapticSelection · hapticSuccess · hapticWarning이 들어온 길과 정확히
+    // 같다). 그래서 자란 것은 사용이 아니라 **오독 표면**이고, 주석의 마침표를 지우는 쪽으로
+    // 이 수를 되돌리지 않았다 — 문장을 스캐너에 맞춰 비트는 것보다 사실을 적는 쪽이 낫고,
+    // 이 자가 스스로 하한이라고 말하는 이유가 바로 이 오독이기 때문이다.
+    value: 242,
     floor: 20,
     statement:
       "⚠️⚠️ **라운드 89 트랙 C의 재측정 — 모집단이 넓어지며 이 사각도 함께 넓어졌다: 77 → 226.** " +
