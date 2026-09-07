@@ -106,6 +106,19 @@ const CATEGORY_READ_LEDGER: Readonly<Record<string, LedgerEntry>> = {
       "404가 200으로 조용히 바뀐다. ⚠️ 그 파생이 끊기는 날(컨트롤러가 findById를 건너뛰는 날) 이 " +
       "줄의 이유가 거짓이 되므로, 그때 이 자리는 predicate를 가져야 한다."
   },
+  "src/admin/admin-categories.service.ts#3": {
+    designRow: null,
+    member: "requireUniqueSeedName",
+    stance: "system-only",
+    predicate: "householdId: null",
+    reason:
+      "라운드 107 D6 — 어드민 이름 변경의 중복 검사(라운드 103이 커스텀 쪽에 세운 " +
+      "`requireUniqueName`과 같은 규칙). 비교 모집단이 **시드 전량**인 이유가 곧 이 입장이다: " +
+      "운영자는 사용자가 만든 분류를 보지 않는다(설계 §1.9의 그 판단). 커스텀 행까지 세면 " +
+      "어드민 응답이 '몇 건 겹친다'는 형태로라도 사용자 데이터를 말하게 된다. ⚠️ 그 대가로 " +
+      "어드민 이름이 어느 가구의 커스텀과 겹치는 방향은 여기서 막히지 않고, 그 가구의 커스텀 " +
+      "쪽 검사(모집단에 시드를 포함한다)가 다음 쓰기에서 막는다."
+  },
   "src/finance/milestone-report.service.ts#0": {
     designRow: 5,
     member: "getMilestoneReport",
@@ -158,7 +171,23 @@ const CATEGORY_READ_LEDGER: Readonly<Record<string, LedgerEntry>> = {
       "`category_budgets.category_id`가 같은 표를 가리키므로 마이그레이션 0건이다. 라운드 102의 " +
       "두 갈래 판정(신규 거부 · 기존 유지)은 한 글자도 바뀌지 않는다."
   },
+  // ⚠️ 두 시점(라운드 107 트랙 E): 종전 이 자리는 셋이었고 순번은 #0 정식 upsert · #1 별칭
+  // upsert · #2 준비템 지도였다(그때는 참). → 이제 다섯이다. 트랙 E가 "시드는 있는 행을
+  // 고치지 않는다"는 경계를 세우면서 각 upsert **앞에** 존재 확인 findUnique 를 넣었고,
+  // 이 대장의 순번은 파일 등장 순서 파생이라 뒤의 셋이 통째로 밀렸다. 등재를 다시 적는
+  // 것이 옳다 — 순번을 고정하려고 대장을 목록이 아닌 것으로 바꾸면, 새 호출이 조용히
+  // 기존 등재를 물려받는 길이 열린다.
   "prisma/seed.ts#0": {
+    designRow: 10,
+    member: "seedCategories",
+    stance: "code-scoped",
+    predicate: "code: category.code",
+    reason:
+      "정식 12행의 **존재 확인**(라운드 107 E). 시드 code 집합으로 좁고 커스텀 code는 `custom_` " +
+      "접두라 겹치지 않는다. 읽기 전용이며, 있으면 아래 upsert 를 건너뛰어 어드민 편집분을 " +
+      "지킨다(설계 §1.9 #10과 같은 행)."
+  },
+  "prisma/seed.ts#1": {
     designRow: 10,
     member: "seedCategories",
     stance: "code-scoped",
@@ -167,7 +196,16 @@ const CATEGORY_READ_LEDGER: Readonly<Record<string, LedgerEntry>> = {
       "정식 12행 upsert. 시드 code 집합으로 이미 좁고 커스텀 code는 `custom_` 접두라 절대 겹치지 " +
       "않는다(설계 §1.9 #10 — 무변경)."
   },
-  "prisma/seed.ts#1": {
+  "prisma/seed.ts#2": {
+    designRow: 10,
+    member: "seedCategories",
+    stance: "code-scoped",
+    predicate: "id: alias.id",
+    reason:
+      "별칭 9행의 **존재 확인**(라운드 107 E). 고정 UUID 로 지목하는 자리라 커스텀 행에 닿을 수 " +
+      "없다. 읽기 전용이며 아래 upsert 의 건너뛰기 판정에만 쓰인다."
+  },
+  "prisma/seed.ts#3": {
     designRow: 10,
     member: "seedCategories",
     stance: "code-scoped",
@@ -177,7 +215,7 @@ const CATEGORY_READ_LEDGER: Readonly<Record<string, LedgerEntry>> = {
       "닿을 수 없다(설계 §1.9 #10과 같은 행). ⚠️ 이 아홉 행이 `isSystem: false`로 시드된다는 사실이 " +
       "마이그레이션 000024의 CHECK를 한 방향으로 좁힌 근거다."
   },
-  "prisma/seed.ts#2": {
+  "prisma/seed.ts#4": {
     designRow: 10,
     member: "seedItemTemplates",
     stance: "code-scoped",
@@ -492,8 +530,10 @@ describe("라운드 103 T1 — categories 소유자 필터 대장 (설계 §1.9)
     }
 
     // ⚠️ 주석 안의 언급은 세지 않는다 — 이 라운드의 설명문들이 그 문구를 값으로 여러 번 적는다.
-    //    (`admin-categories.service.ts`는 주석에서 `prisma.category.` 를 부르지만 자리는 셋이다.)
-    expect(sites.filter((site) => site.file === "src/admin/admin-categories.service.ts")).toHaveLength(3);
+    //    (`admin-categories.service.ts`는 주석에서 `prisma.category.` 를 부르지만 자리는 넷이다.)
+    // 라운드 107 D6이 셋 → 넷으로 늘렸다: 어드민 이름 변경의 중복 검사(`requireUniqueSeedName`,
+    // 등재 `#3`)가 저장 전에 시드 전량의 이름을 한 번 읽는다.
+    expect(sites.filter((site) => site.file === "src/admin/admin-categories.service.ts")).toHaveLength(4);
     // 그리고 `.categoryBudget.`은 이름이 달라 이 바늘에 걸리지 않는다.
     expect(sites.some((site) => site.verb === "" || site.member === "readCategoryBudgets")).toBe(false);
   });
@@ -566,8 +606,13 @@ describe("라운드 103 T1 — categories 소유자 필터 대장 (설계 §1.9)
       .map((entry) => entry.designRow)
       .filter((row): row is number => row !== null)
       .sort((left, right) => left - right);
-    // #10(시드)만 한 행이 세 자리를 덮는다 — 설계 표가 `seed.ts:24,59,95`라고 적은 그대로다.
-    expect(designRows).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10]);
+    // #10(시드)만 한 행이 여러 자리를 덮는다 — 설계 표가 `seed.ts:24,59,95`라고 적은 그대로다.
+    // ⚠️ 두 시점(라운드 107 트랙 E): 종전에는 **셋**이었다(그때는 참) → 이제 **다섯**이다.
+    // 트랙 E 가 "시드는 있는 행을 고치지 않는다"는 경계를 세우면서 두 upsert 앞에 존재 확인
+    // findUnique 를 넣었다. 늘어난 둘도 같은 설계 행(#10)의 자리다 — 읽는 모집단과 좁히는
+    // 술어가 그 아래 upsert 와 같고(code / 고정 id), 새 판정 축이 생긴 것이 아니라 같은 축을
+    // 한 번 먼저 읽을 뿐이기 때문이다. 그래서 설계 표에 행을 더하지 않고 #10 의 자리 수를 늘렸다.
+    expect(designRows).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 10]);
     expect(new Set(designRows).size).toBe(10);
     // 표 밖의 자리(= 이 라운드가 세운 쓰기 엔드포인트 내부)도 실재한다.
     expect(entries.filter((entry) => entry.designRow === null).length).toBeGreaterThan(0);

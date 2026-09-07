@@ -5,6 +5,7 @@ import { AdminAuthController } from "./admin-auth.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminCategoriesController } from "./admin-categories.controller";
+import { AdminCatalogWriteService } from "./admin-catalog-write.service";
 import { AdminCategoriesService } from "./admin-categories.service";
 import { AdminController } from "./admin.controller";
 import { AdminMfaService } from "./admin-mfa.service";
@@ -45,6 +46,7 @@ import { ProductLinkBulkService } from "./product-link-bulk.service";
     AdminAuthService,
     AdminSessionService,
     AdminMfaService,
+    AdminCatalogWriteService,
     AdminCategoriesService,
     AdminUsersLookupService,
     AffiliateClickBreakdownService,

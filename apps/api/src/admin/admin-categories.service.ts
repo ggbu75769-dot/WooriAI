@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AdminUpdateCategoryDto } from "./dto/admin-categories.dto";
 
@@ -102,6 +102,9 @@ export class AdminCategoriesService {
   }
 
   async update(categoryId: string, input: AdminUpdateCategoryDto): Promise<AdminCategoryView> {
+    if (input.name !== undefined) {
+      await this.requireUniqueSeedName(categoryId, input.name);
+    }
     return await this.prisma.category.update({
       // 라운드 103 §1.9 #4 — 이 쓰기는 `findById`(system-only)를 먼저 지나므로 자연히 시드
       // 행만 받는다. 그 사실을 대장 테스트가 값으로 고정한다(등재 입장: system-only).
@@ -123,4 +126,54 @@ export class AdminCategoriesService {
       select: CATEGORY_SELECT
     });
   }
+
+  /**
+   * 라운드 107 D6 — **어드민 이름 변경의 중복 검사.** 라운드 103이 커스텀 쪽에 세운
+   * `CustomCategoriesService.requireUniqueName`과 **같은 규칙**이고, 새 규칙은 하나도 없다.
+   *
+   * 왜 필요한가: 이름이 겹치는 순간 앱에서 **칩 하나가 조용히 사라지고**, 살아남은 칩이
+   * 사라진 칩의 지출까지 자기 합계로 끌어온다 — 사용자가 그 칩을 눌러 보는 금액이 사실이
+   * 아니게 된다(허위 표시). 기제 둘은 라운드 103이 이미 값으로 적었다:
+   * `apps/mobile/src/categories.ts`의 `selectableCategories`가 동명 그룹을 한 슬롯으로 접고
+   * (동순위면 뒤에 온 행이 버려진다), `records-list-view.ts`의 `idsByName`이 같은 이름의 모든
+   * id를 한 `matchIds`로 묶는다.
+   *
+   * DB는 이 방향을 잡지 못한다: `uq_categories_household_name`은 부분 색인
+   * `WHERE household_id IS NOT NULL`이라(000024) **시드 행이 색인 밖**이고, 마이그레이션
+   * 스스로 "그 축은 서비스 검사가 유일한 방어선"이라고 적어 두었다. 그래서 커스텀 쪽만
+   * 지키던 불변식이 어드민 쪽에서 한 방향으로 뚫려 있었다.
+   *
+   * 비교 규칙(커스텀과 글자 그대로 같다): `trim` → 연속 공백 접기 → `toLowerCase`.
+   * DB 색인 식의 `lower(btrim(name))`이 같은 뜻을 진다.
+   *
+   * 비교 모집단은 **시드 전량**(`householdId: null` — 정식 12 + 모바일 퀵타일 별칭 8 +
+   * 가져오기 스텁 1)이다. 커스텀 행을 넣지 않는 이유는 라운드 103 §1.9가 이 서비스를
+   * system-only로 좁힌 그 판단이다 — 운영자는 사용자가 만든 분류를 보지 않는다. 그 결과
+   * 어드민 이름이 어느 가구의 커스텀 이름과 겹치는 경우는 **여기서 막히지 않고** 그 가구의
+   * 커스텀 쪽 검사(같은 모집단에 시드를 포함한다)가 다음 쓰기에서 막는다. 이월로 남긴다.
+   */
+  private async requireUniqueSeedName(categoryId: string, name: string) {
+    const key = duplicateKey(name);
+    const rows = await this.prisma.category.findMany({
+      // 라운드 103 §1.9와 같은 렌즈 — 시드만 본다. (대장 등재: system-only)
+      where: { householdId: null },
+      select: { id: true, name: true }
+    });
+    if (rows.some((row) => row.id !== categoryId && duplicateKey(row.name) === key)) {
+      throw new BadRequestException({
+        code: "ADMIN_CATEGORY_NAME_DUPLICATE",
+        message: "이미 있는 카테고리 이름이에요. 다른 이름으로 바꿔 주세요."
+      });
+    }
+  }
+}
+
+/**
+ * 이름 비교 키. `households/custom-categories.service.ts`의 같은 이름 함수와 규칙이 같다
+ * (그 파일은 이 트랙의 무접촉 대상이라 함수를 공유하지 않고 같은 규칙을 여기 한 벌 둔다 —
+ * 두 자리가 갈리면 같은 이름이 한쪽에서만 중복으로 판정된다. 두 시점: 공유 모듈로 합칠 수
+ * 있게 되는 라운드에 한 벌로 접는다).
+ */
+function duplicateKey(name: string): string {
+  return name.trim().replace(/\s+/gu, " ").toLowerCase();
 }

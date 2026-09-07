@@ -55,6 +55,8 @@ type LinkFormState = {
   affiliateUrl: string;
   isAffiliate: boolean;
   isSponsored: boolean;
+  /** 라운드 107 D2: 스폰서 링크에 붙는 표시 문구(DNC-011). 스폰서를 켜면 필수다. */
+  sponsorLabel: string;
   disclosureText: string;
   active: boolean;
 };
@@ -68,6 +70,7 @@ function emptyLinkForm(firstItemId: string): LinkFormState {
     affiliateUrl: "",
     isAffiliate: false,
     isSponsored: false,
+    sponsorLabel: "",
     disclosureText: "",
     active: true
   };
@@ -82,6 +85,9 @@ function linkFormFromLink(link: ProductLink): LinkFormState {
     affiliateUrl: link.affiliateUrl ?? "",
     isAffiliate: link.isAffiliate,
     isSponsored: link.isSponsored,
+    // 목록이 라벨을 함께 내려준다(GET /admin/product-links). 프리필이 없으면 수정 폼을
+    // 여는 것만으로 저장 시 라벨이 지워진다.
+    sponsorLabel: link.sponsorLabel ?? "",
     disclosureText: link.disclosureText ?? "",
     active: link.active
   };
@@ -94,6 +100,11 @@ function validateLinkForm(form: LinkFormState): string | null {
   if (!isHttpUrl(form.url)) return "URL은 http:// 또는 https:// 로 시작해야 해요.";
   if (form.affiliateUrl.trim() && !isHttpUrl(form.affiliateUrl)) {
     return "제휴 URL은 http:// 또는 https:// 로 시작해야 해요.";
+  }
+  // 라운드 107 D2 — 서버가 같은 조건을 400(ADMIN_SPONSOR_LABEL_REQUIRED)으로 지지만,
+  // 여기서 먼저 말해 주면 운영자가 저장을 누르기 전에 고칠 수 있다. 문구는 서버와 같은 뜻이다.
+  if (form.isSponsored && !form.sponsorLabel.trim()) {
+    return "스폰서 링크에는 화면에 보일 스폰서 표시 문구가 필요해요. 스폰서 표시 문구를 적어 주세요.";
   }
   return null;
 }
@@ -132,6 +143,9 @@ function toProductLinkInput(form: LinkFormState, mode: "create" | "edit"): Produ
     isSponsored: form.isSponsored,
     active: form.active
   };
+  // 라운드 107 D2: 스폰서를 끈 링크는 라벨을 보내지 않는다(끈 상태에서는 서버가 요구하지도
+  // 않고, 예전 라벨을 지우는 것도 이 화면의 일이 아니다).
+  if (form.isSponsored) input.sponsorLabel = form.sponsorLabel.trim();
   const affiliateUrl = form.affiliateUrl.trim();
   const disclosureText = form.disclosureText.trim();
   if (mode === "edit") {
@@ -273,6 +287,26 @@ function LinkFormFields({
         />
         <label htmlFor={`${idPrefix}-sponsored`}>스폰서 상품</label>
       </div>
+
+      {/*
+        라운드 107 D2 — DNC-011의 표시 문구 칸. 스폰서를 켰을 때만 보인다: 꺼진 링크에는
+        서버도 이 값을 요구하지 않으므로, 늘 보이면 "안 채워도 되는 필수 칸"처럼 읽힌다.
+        종전에는 이 칸 자체가 없어서 스폰서 토글을 켜고 저장하면 500이었다.
+      */}
+      {form.isSponsored ? (
+        <div className={styles.field}>
+          <label htmlFor={`${idPrefix}-sponsor-label`}>스폰서 표시 문구</label>
+          <input
+            id={`${idPrefix}-sponsor-label`}
+            type="text"
+            maxLength={80}
+            value={form.sponsorLabel}
+            readOnly={readOnly}
+            onChange={(event) => onChange({ ...form, sponsorLabel: event.target.value })}
+          />
+          <span className={styles.hint}>앱 상세에서 이 링크가 광고임을 알리는 문구예요. 예: 광고 · 브랜드 제공</span>
+        </div>
+      ) : null}
 
       <div className={styles.checkboxRow}>
         <input
@@ -667,7 +701,7 @@ function ProductLinksPageContent() {
                         </a>
                       </td>
                       <td>{link.isAffiliate ? "예" : "아니오"}</td>
-                      <td>{link.isSponsored ? "예" : "아니오"}</td>
+                      <td>{link.isSponsored ? `예 (${link.sponsorLabel ?? "문구 없음"})` : "아니오"}</td>
                       <td>
                         <span className={link.active ? `${styles.badge} ${styles.badgeActive}` : `${styles.badge} ${styles.badgeInactive}`}>
                           {link.active ? "활성" : "비활성"}

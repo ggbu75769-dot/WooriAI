@@ -476,21 +476,33 @@ describe("Items, commerce, and affiliate API", () => {
       affiliateUrl: "https://example.com/dev/affiliate/lp-a-trust"
     });
 
+    /**
+     * 라운드 107 D2 — **이 링크는 어드민 API로 만든다.**
+     *
+     * 종전에는 `prisma.productLink.create`로 `sponsorLabel`을 직접 넣었다. 그 우회가 이 구멍을
+     * 보이지 않게 만든 원인이다: `sponsor_label`을 쓰는 런타임 경로가 저장소에 0건이라
+     * 어드민에서 `isSponsored: true`를 켜면 CHECK 위반 500이었는데(정찰 S5 D2), DNC-011을 무는
+     * 유일한 e2e가 그 API를 지나지 않아 초록이었다. 이제 **운영자가 실제로 밟는 경로**로 만들고,
+     * 그렇게 만든 링크가 앱 상세에서 스폰서로 보이는지를 아래에서 그대로 확인한다.
+     */
+    const adminToken = "test-admin-token-r107-dnc011";
+    process.env.WOORIAI_ADMIN_TOKEN = adminToken;
+
     try {
-      await prisma.productLink.create({
-        data: {
+      const sponsoredLink = await request(app.getHttpServer())
+        .post("/api/v1/admin/product-links")
+        .set("x-admin-token", adminToken)
+        .send({
           itemTemplateId: fixture.templateId,
           platform: "custom",
           title: "스폰서 마커 테스트 링크",
           url: "https://example.com/dev/lp-a-sponsored",
           isSponsored: true,
           sponsorLabel: "스폰서 테스트",
-          active: true,
-          displayOrder: 90,
-          healthStatus: "ok",
-          healthCheckedAt: new Date()
-        }
-      });
+          active: true
+        })
+        .expect(200);
+      expect(sponsoredLink.body).toMatchObject({ isSponsored: true, sponsorLabel: "스폰서 테스트" });
 
       const fixtureDetail = (
         await request(app.getHttpServer())
@@ -571,6 +583,7 @@ describe("Items, commerce, and affiliate API", () => {
       expect(loggedClick.ipHash).toMatch(/^[0-9a-f]{64}$/);
       expect(loggedClick.userAgent).toBe("wooriai-e2e-test-agent/1.0");
     } finally {
+      delete process.env.WOORIAI_ADMIN_TOKEN;
       await removeOwnClickFixture(prisma, fixture);
     }
   });
