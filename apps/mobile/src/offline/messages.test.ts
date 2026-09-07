@@ -943,7 +943,12 @@ describe("UX/C-07 저장 실패 문구", () => {
     expect(wired.sort()).toEqual([...OFFLINE_AWARE_SAVE_ERROR_SCREENS].sort());
     // 오늘의 값: 라운드 72까지 둘 → 라운드 73 트랙 E 뒤 넷 → 라운드 76 트랙 A 뒤 **다섯**
     // (초대 만들기 — 가족 참여 여정의 첫 단추).
-    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(5);
+    // ⚠️ 두 시점(라운드 103 T3): 다섯 → **여섯**. 이 단언의 머리말이 미리 적어 둔 그대로다
+    // ("넷째 화면이 생기면 이 단언이 먼저 빨개지고, 만든 사람이 그 화면의 저장 실패는 무엇을
+    // 말해야 하는가에 답한 뒤 목록에 한 줄을 적게 된다") — 지출 분류 관리
+    // (app/settings/categories.tsx)가 서버 직행 저장 셋을 들고 들어왔고, 그 답은 목록의 그
+    // 줄에 값으로 적혀 있다.
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(6);
   });
 
   /**
@@ -1260,7 +1265,7 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
    * "P3 0개"를 선언했으므로, 이번 라운드가 만든 값도 여기 남긴다 — 다음 라운드가 문서의 산문이
    * 아니라 이 줄과 대조하게 된다.
    */
-  it("ⓑ 조회 목록 열다섯 · 카드가 아닌 자리 일곱(다섯 이상) · 저장 목록 다섯", () => {
+  it("ⓑ 조회 목록 열다섯 · 카드가 아닌 자리 일곱(다섯 이상) · 저장 목록 여섯", () => {
     // 라운드 86 트랙 B: 열넷 → **열다섯**이고, 늘어난 하나가 조회 쪽 제외 목록의 마지막
     // 항목이었다(제외는 0건이 됐다 — 위 그 단언이 같은 사실을 다른 방향에서 센다).
     expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toHaveLength(15);
@@ -1268,7 +1273,9 @@ describe("라운드 74 D: 옛 실패 리터럴 부정 단언 스윕", () => {
     expect(Object.keys(OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS)).toHaveLength(7);
     // 라운드 76 트랙 A: 저장 목록만 넷 → 다섯이다. **조회 쪽 값 셋은 한 글자도 바뀌지 않는다**
     // (두 라운드가 서로 다른 축을 열었다는 사실이 이 줄에 값으로 남는다).
-    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(5);
+    // ⚠️ 두 시점(라운드 103 T3): 다섯 → **여섯**(지출 분류 관리 — 서버 직행 저장 셋). 이번에도
+    // 움직인 것은 저장 쪽 하나뿐이고 조회 쪽 값 셋은 한 글자도 바뀌지 않는다.
+    expect(OFFLINE_AWARE_SAVE_ERROR_SCREENS).toHaveLength(6);
     // 이번 라운드가 더한 셋이 실제로 목록 안에 있다(스윕이 통과한 이유가 목록이지 예외가 아니다).
     for (const path of [
       "app/expenses/[expenseId].tsx",

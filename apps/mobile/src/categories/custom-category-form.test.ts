@@ -1,0 +1,381 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  customCategoryArchiveAccessibilityLabel,
+  customCategoryArchiveConfirmCopy,
+  customCategoryDuplicateMessage,
+  customCategoryIdempotencyKey,
+  customCategoryLimitExceededMessage,
+  customCategoryMaxPerHousehold,
+  customCategoryMutationErrorMessage,
+  customCategoryNameMaxLength,
+  customCategoryNameNotice,
+  customCategoryNamePopulation,
+  customCategoryNotFoundMessage,
+  customCategoryRenameAccessibilityLabel,
+  customCategoryRestoreAccessibilityLabel,
+  customCategoryRowAccessibilityLabel,
+  customCategoryScreenCopy,
+  isCustomCategoryLimitReached,
+  isCustomCategoryRow,
+  normalizeCustomCategoryName,
+  rotateCustomCategoryIdempotencyKey,
+  splitCustomCategories,
+  type CustomCategoryKeyHolder,
+  type CustomCategoryListRow
+} from "./custom-category-form";
+
+const mobileRoot = process.cwd();
+const repoFile = (relativePath: string) => readFileSync(join(mobileRoot, "..", "..", relativePath), "utf8");
+const contractsSource = () => repoFile("packages/contracts/src/schemas.ts");
+const localBackendSource = () => readFileSync(join(mobileRoot, "src", "api", "local-backend.ts"), "utf8");
+const apiErrorSource = () => readFileSync(join(mobileRoot, "src", "api", "api-error.ts"), "utf8");
+
+/**
+ * 라운드 103 T3 — 커스텀 지출 분류 관리의 검증·문구·중복·상한·a11y 계약
+ * (설계 문서 docs/5차/round103-custom-expense-category-design.md §4.1 · §9.6).
+ *
+ * 이 모듈의 값은 짓는 값이 아니라 **미러**다: 수치는 packages/contracts(수기 단일 소스)와,
+ * 실패 문장은 로컬 대역(src/api/local-backend.ts — 서버 §9.3과 같은 해요체)과 맞대는 드리프트
+ * 가드를 여기 세운다(custom-item-form.test.ts · text-limits.test.ts와 같은 관례).
+ */
+const HOUSEHOLD = "hh-1";
+const OTHER_HOUSEHOLD = "hh-2";
+
+/** 시드 행 하나(소유자 칸 없음). `isSystem`은 인자로 받는다 — 그 칸이 판별이 아님을 값으로 쓰기 위해서다. */
+function seedRow(id: string, name: string, isSystem: boolean, displayOrder = 10): CustomCategoryListRow {
+  return { id, name, active: true, isSystem, displayOrder };
+}
+
+function customRow(
+  id: string,
+  name: string,
+  overrides: Partial<CustomCategoryListRow> = {}
+): CustomCategoryListRow {
+  return {
+    id,
+    name,
+    active: true,
+    isSystem: false,
+    displayOrder: 2000,
+    householdId: HOUSEHOLD,
+    ...overrides
+  };
+}
+
+describe("상한 두 값 — 계약 대조(수기 미러 드리프트 가드)", () => {
+  it("customCategoryNameMaxLength가 계약의 CUSTOM_CATEGORY_NAME_MAX_LENGTH와 같다", () => {
+    const match = contractsSource().match(/export const CUSTOM_CATEGORY_NAME_MAX_LENGTH = (\d+);/);
+    expect(match, "계약에서 CUSTOM_CATEGORY_NAME_MAX_LENGTH를 찾지 못했다").not.toBeNull();
+    expect(Number(match![1])).toBe(customCategoryNameMaxLength());
+    expect(customCategoryNameMaxLength()).toBe(50);
+  });
+
+  it("customCategoryMaxPerHousehold가 계약의 CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD와 같다", () => {
+    const match = contractsSource().match(/export const CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD = (\d+);/);
+    expect(match, "계약에서 CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD를 찾지 못했다").not.toBeNull();
+    expect(Number(match![1])).toBe(customCategoryMaxPerHousehold());
+    expect(customCategoryMaxPerHousehold()).toBe(15);
+  });
+
+  it("로컬 대역의 비export 사본 둘과도 값이 같다 (미러 셋이 한 값을 든다)", () => {
+    const source = localBackendSource();
+    const nameMax = source.match(/const LOCAL_CUSTOM_CATEGORY_NAME_MAX_LENGTH = (\d+);/);
+    const perHousehold = source.match(/const LOCAL_CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD = (\d+);/);
+    expect(nameMax, "로컬 대역에서 이름 상한 사본을 찾지 못했다").not.toBeNull();
+    expect(perHousehold, "로컬 대역에서 가구 한도 사본을 찾지 못했다").not.toBeNull();
+    expect(Number(nameMax![1])).toBe(customCategoryNameMaxLength());
+    expect(Number(perHousehold![1])).toBe(customCategoryMaxPerHousehold());
+  });
+});
+
+describe("§9.3 세 문구 — 로컬 대역·api-error 표와 바이트가 같다", () => {
+  it("세 문장이 설계 §9.3 원문 그대로다", () => {
+    expect(customCategoryDuplicateMessage()).toBe("이미 있는 분류 이름이에요. 다른 이름으로 적어 주세요.");
+    expect(customCategoryNotFoundMessage()).toBe("직접 추가한 분류를 찾을 수 없어요.");
+    expect(customCategoryLimitExceededMessage()).toBe(
+      "직접 추가한 분류는 가구당 15개까지예요. 쓰지 않는 분류는 보관하고, 이름은 언제든 바꿀 수 있어요."
+    );
+  });
+
+  it("상한 문구의 숫자는 손으로 적은 것이 아니라 상한 사본에서 조립된다", () => {
+    // 상한이 바뀌면 문장도 함께 바뀐다 — 표가 거짓말을 할 자리가 없다.
+    expect(customCategoryLimitExceededMessage()).toContain(`가구당 ${customCategoryMaxPerHousehold()}개까지`);
+    const moduleSource = readFileSync(join(mobileRoot, "src", "categories", "custom-category-form.ts"), "utf8");
+    expect(moduleSource).toContain("가구당 ${customCategoryMaxPerHousehold()}개까지예요");
+  });
+
+  it("로컬 대역(데모 세션)이 던지는 문장과 정확히 같다 — 실계정과 데모가 같은 말을 한다", () => {
+    const source = localBackendSource();
+    expect(source).toContain(`"${customCategoryDuplicateMessage()}"`);
+    expect(source).toContain(`"${customCategoryNotFoundMessage()}"`);
+    expect(source).toContain("직접 추가한 분류는 가구당 ${LOCAL_CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD}개까지예요");
+  });
+
+  it("api-error 표의 세 줄이 이 모듈을 읽는다 — 표가 문장도 숫자도 짓지 않는다", () => {
+    const source = apiErrorSource();
+    expect(source).toContain(
+      'import {\n  customCategoryDuplicateMessage,\n  customCategoryLimitExceededMessage,\n  customCategoryNotFoundMessage\n} from "../categories/custom-category-form";'
+    );
+    expect(source).toContain("CUSTOM_CATEGORY_NAME_DUPLICATE: customCategoryDuplicateMessage(),");
+    expect(source).toContain("CUSTOM_CATEGORY_LIMIT_EXCEEDED: customCategoryLimitExceededMessage(),");
+    expect(source).toContain("CUSTOM_CATEGORY_NOT_FOUND: customCategoryNotFoundMessage()");
+    // 상한 숫자가 표에 리터럴로 적히지 않는다(계약이 움직이면 표가 따라간다).
+    expect(source).not.toContain("가구당 15개까지예요");
+  });
+});
+
+describe("이름 정규화·검증 (§1.4 · §9.2)", () => {
+  it("정규화는 trim + 내부 연속 공백 1칸 접기 — 저장값이 이 형태다", () => {
+    expect(normalizeCustomCategoryName("  산후   도우미  ")).toBe("산후 도우미");
+    expect(normalizeCustomCategoryName("\t조리원\n추가결제 ")).toBe("조리원 추가결제");
+    expect(normalizeCustomCategoryName("   ")).toBe("");
+  });
+
+  it("빈 이름·공백만 있는 이름은 로컬 대역과 같은 문장으로 막는다", () => {
+    for (const raw of ["", "   ", "\n\t"]) {
+      expect(customCategoryNameNotice({ raw, population: [] })).toBe("분류 이름을 입력해 주세요.");
+    }
+    expect(localBackendSource()).toContain('"분류 이름을 입력해 주세요."');
+  });
+
+  it("50자를 넘으면 상한을 말하고, 정확히 50자는 통과한다 (붙여넣기 경로 포함)", () => {
+    const exact = "가".repeat(customCategoryNameMaxLength());
+    expect(customCategoryNameNotice({ raw: exact, population: [] })).toBeNull();
+    expect(customCategoryNameNotice({ raw: `${exact}가`, population: [] })).toBe(
+      `분류 이름은 ${customCategoryNameMaxLength()}자까지 입력할 수 있어요.`
+    );
+    // 판정은 **정규화 후** 길이다 — 앞뒤 공백이 상한을 밀어내지 않는다.
+    expect(customCategoryNameNotice({ raw: `  ${exact}  `, population: [] })).toBeNull();
+    expect(localBackendSource()).toContain(
+      "분류 이름은 ${LOCAL_CUSTOM_CATEGORY_NAME_MAX_LENGTH}자까지 입력할 수 있어요."
+    );
+  });
+
+  it("중복 비교는 정규화 + 소문자 일치다 (대소문자·공백이 우회로가 되지 않는다)", () => {
+    const population = [seedRow("s1", "기저귀", true), customRow("c1", "Baby Care")];
+    expect(customCategoryNameNotice({ raw: "기저귀", population })).toBe(customCategoryDuplicateMessage());
+    expect(customCategoryNameNotice({ raw: "  기저귀 ", population })).toBe(customCategoryDuplicateMessage());
+    expect(customCategoryNameNotice({ raw: "baby   care", population })).toBe(customCategoryDuplicateMessage());
+    expect(customCategoryNameNotice({ raw: "산후도우미", population })).toBeNull();
+  });
+
+  it("이름 바꾸기는 자기 자신과 충돌하지 않는다 (이름을 그대로 둔 저장이 거절되지 않는다)", () => {
+    const population = [customRow("c1", "산후도우미")];
+    expect(customCategoryNameNotice({ raw: "산후도우미", population })).toBe(customCategoryDuplicateMessage());
+    expect(customCategoryNameNotice({ raw: "산후도우미", population, exceptCategoryId: "c1" })).toBeNull();
+  });
+
+  it("보관한 행도 중복 모집단이다 — 보관 해제가 중복을 만들면 안 된다 (§1.4)", () => {
+    const population = [customRow("c1", "돌잔치", { active: false })];
+    expect(customCategoryNameNotice({ raw: "돌잔치", population })).toBe(customCategoryDuplicateMessage());
+  });
+});
+
+describe("⚠️ 커스텀 판별은 householdId다 — isSystem은 판별이 아니다 (실측 정정)", () => {
+  /**
+   * dev DB 실측(라운드 103 T3): `is_system = false`인 시드 행이 **아홉**이다(모바일 퀵타일 별칭
+   * 8 + 가져오기 스텁 1 — prisma/seed.ts가 그 아홉을 `isSystem:false`로 시드한다). 설계 §2.2와
+   * client.ts의 주석이 *"커스텀의 표식은 isSystem === false"* 라고 적어 둔 전제가 그 실측으로
+   * 거짓이 됐고, 그 하나만으로 걸렀다면 사용자가 만들지도 않은 아홉 행이 "직접 추가한 분류"
+   * 목록에 서서 보관을 누르는 순간 404가 났을 것이다. 그 함정을 값으로 잠근다.
+   */
+  const aliasRows: CustomCategoryListRow[] = [
+    seedRow("alias-1", "기저귀", false, 1001),
+    seedRow("alias-2", "분유", false, 1002),
+    seedRow("stub-1", "가져오기 기본", false, 1009)
+  ];
+
+  it("isSystem:false지만 소유자 칸이 없는 시드 별칭·스텁은 관리 목록에서 0건이다", () => {
+    const list = [...aliasRows, seedRow("seed-1", "육아용품", true, 10)];
+    const split = splitCustomCategories(list, HOUSEHOLD);
+    expect(split.inUse).toEqual([]);
+    expect(split.archived).toEqual([]);
+    expect(split.total).toBe(0);
+    for (const row of aliasRows) {
+      expect(isCustomCategoryRow(row, HOUSEHOLD), `${row.name}는 커스텀이 아니다`).toBe(false);
+    }
+  });
+
+  it("같은 목록에서 소유자 칸이 있는 행만 커스텀으로 선다", () => {
+    const mine = customRow("c1", "산후도우미");
+    const split = splitCustomCategories([...aliasRows, mine], HOUSEHOLD);
+    expect(split.inUse.map((row) => row.id)).toEqual(["c1"]);
+    expect(isCustomCategoryRow(mine, HOUSEHOLD)).toBe(true);
+  });
+
+  it("⚠️ 중복 모집단에는 그 아홉이 **들어간다** — 화면이 서버보다 느슨해지지 않는다", () => {
+    // 시드 판정도 `isSystem`이 아니라 `householdId == null`이다. `isSystem === true`로 걸렀다면
+    // 별칭 이름("기저귀")이 모집단에서 빠져 화면은 통과시키고 서버만 400을 내는 자리가 생긴다.
+    const population = customCategoryNamePopulation(aliasRows, HOUSEHOLD);
+    expect(population.map((row) => row.id)).toEqual(["alias-1", "alias-2", "stub-1"]);
+    expect(customCategoryNameNotice({ raw: "기저귀", population })).toBe(customCategoryDuplicateMessage());
+  });
+
+  it("다른 가구의 커스텀 행은 목록에도 중복 모집단에도 들어오지 않는다 (§1.3 · §6.6)", () => {
+    const theirs = customRow("c9", "시가 지원", { householdId: OTHER_HOUSEHOLD });
+    expect(isCustomCategoryRow(theirs, HOUSEHOLD)).toBe(false);
+    expect(splitCustomCategories([theirs], HOUSEHOLD).total).toBe(0);
+    const population = customCategoryNamePopulation([theirs], HOUSEHOLD);
+    expect(population).toEqual([]);
+    expect(customCategoryNameNotice({ raw: "시가 지원", population })).toBeNull();
+  });
+
+  it("가구를 아직 모르면(조회 중) 목록은 비고, 중복 모집단은 시드만 남는다", () => {
+    const list = [...aliasRows, customRow("c1", "산후도우미")];
+    expect(splitCustomCategories(list, null).total).toBe(0);
+    expect(splitCustomCategories(undefined, HOUSEHOLD).total).toBe(0);
+    expect(customCategoryNamePopulation(list, null).map((row) => row.id)).toEqual([
+      "alias-1",
+      "alias-2",
+      "stub-1"
+    ]);
+  });
+});
+
+describe("두 구획과 상한 (§4.1 · §1.7)", () => {
+  it("사용 중 / 보관한 분류로 갈리고, 목록이 온 순서를 그대로 둔다", () => {
+    const list = [
+      customRow("c1", "산후도우미", { displayOrder: 2000 }),
+      customRow("c2", "돌잔치", { displayOrder: 2001, active: false }),
+      customRow("c3", "친정 지원", { displayOrder: 2002 })
+    ];
+    const split = splitCustomCategories(list, HOUSEHOLD);
+    expect(split.inUse.map((row) => row.name)).toEqual(["산후도우미", "친정 지원"]);
+    expect(split.archived.map((row) => row.name)).toEqual(["돌잔치"]);
+    expect(split.total).toBe(3);
+  });
+
+  it("상한은 보관 행도 센다 — 만들고 보관을 반복해 목록을 불릴 수 없다 (§1.7)", () => {
+    const rows = Array.from({ length: customCategoryMaxPerHousehold() }, (_, index) =>
+      customRow(`c${index}`, `분류${index}`, { active: index % 2 === 0 })
+    );
+    const split = splitCustomCategories(rows, HOUSEHOLD);
+    expect(split.total).toBe(customCategoryMaxPerHousehold());
+    expect(isCustomCategoryLimitReached(split.total)).toBe(true);
+    expect(isCustomCategoryLimitReached(split.total - 1)).toBe(false);
+    expect(isCustomCategoryLimitReached(0)).toBe(false);
+  });
+});
+
+describe("확정 카피와 낭독 (§9.6)", () => {
+  const copy = customCategoryScreenCopy();
+
+  it("머리·구획·빈 상태·버튼이 §9.6 확정값 그대로다", () => {
+    expect(copy.title).toBe("지출 분류");
+    expect(copy.subtitle).toBe("우리 가족이 쓰는 분류를 직접 더할 수 있어요.");
+    expect(copy.inUseSectionTitle).toBe("사용 중");
+    expect(copy.archivedSectionTitle).toBe("보관한 분류");
+    expect(copy.emptyStateText).toBe("아직 직접 추가한 분류가 없어요.");
+    expect(copy.addPlaceholder).toBe("예: 산후도우미");
+    expect(copy.addButtonLabel).toBe("분류 추가");
+    expect(copy.renameLabel).toBe("이름 바꾸기");
+    expect(copy.saveLabel).toBe("저장");
+    expect(copy.archiveLabel).toBe("보관");
+    expect(copy.restoreLabel).toBe("다시 사용");
+    expect(copy.archivedFootnote).toBe("보관한 분류로 기록한 지출은 그대로 남아요.");
+  });
+
+  it('⚠️ "삭제"라는 낱말이 이 모듈 어디에도 없다 (§1.6 — 지우지 않는 조작이다)', () => {
+    // ⚠️ 주석은 먼저 걷는다 — 이 모듈의 머리말은 *왜* 그 낱말을 쓰지 않는지 설명하려고 그
+    // 낱말을 인용한다(record-permissions.test.ts의 withoutComments와 같은 관례). 여기서
+    // 잡으려는 것은 **화면에 서는 문자열**이지 설명이 아니다.
+    const moduleSource = readFileSync(join(mobileRoot, "src", "categories", "custom-category-form.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/[^\n]*/g, " ");
+    const literals = moduleSource.match(/"[^"\n]*"|`[^`]*`/g) ?? [];
+    expect(literals.length, "리터럴 스캔이 조용히 0건이 되지 않는다").toBeGreaterThan(15);
+    for (const literal of literals) {
+      expect(literal, "지우지 않는 조작에 '삭제'를 쓰지 않는다").not.toContain("삭제");
+      expect(literal).not.toContain("지우기");
+    }
+  });
+
+  it("보관 확인은 지출이 남는다는 사실을 말하고, 이름 뒤에 조사를 두지 않는다", () => {
+    const confirm = customCategoryArchiveConfirmCopy("산후도우미");
+    expect(confirm.message).toBe(
+      '"산후도우미" 분류를 보관할까요? 이미 기록한 지출은 그대로 남고, 앞으로 새 기록에서 고를 수 없어요.'
+    );
+    expect(confirm.confirmLabel).toBe("보관");
+    expect(confirm.cancelLabel).toBe("취소");
+    // 받침 유무가 달라도 문장이 갈리지 않는다 = 조사가 이름을 보지 않는 형태다(§6.4).
+    for (const name of ["산후도우미", "돌잔치", "Baby"]) {
+      expect(customCategoryArchiveConfirmCopy(name).message).toContain(`"${name}" 분류를 보관할까요?`);
+    }
+  });
+
+  it("행·버튼 낭독이 §9.6 확정값이고, 이름 바로 뒤가 조사가 아니다", () => {
+    expect(customCategoryRowAccessibilityLabel("산후도우미")).toBe("산후도우미. 지출 분류");
+    expect(customCategoryRenameAccessibilityLabel("산후도우미")).toBe("산후도우미 이름 바꾸기");
+    expect(customCategoryArchiveAccessibilityLabel("산후도우미")).toBe("산후도우미 보관");
+    expect(customCategoryRestoreAccessibilityLabel("산후도우미")).toBe("산후도우미 다시 사용");
+  });
+
+  it("DNC-018: 새 문장 전량이 해요체이고 재촉·비난·감탄이 없다", () => {
+    const sentences = [
+      copy.subtitle,
+      copy.emptyStateText,
+      copy.archivedFootnote,
+      customCategoryArchiveConfirmCopy("산후도우미").message,
+      customCategoryDuplicateMessage(),
+      customCategoryLimitExceededMessage(),
+      customCategoryNotFoundMessage(),
+      "분류 이름을 입력해 주세요.",
+      `분류 이름은 ${customCategoryNameMaxLength()}자까지 입력할 수 있어요.`
+    ];
+    for (const sentence of sentences) {
+      expect(sentence, sentence).toMatch(/(요\.|요\?)$/);
+      expect(sentence).not.toMatch(/!|축하|얼른|서둘|잘못|실패했습니다|하십시오/);
+    }
+  });
+});
+
+describe("실패 문장 층 (로컬 대역의 코드 없는 Error 한 겹)", () => {
+  it("아는 문장은 그대로 올리고, 모르는 실패는 호출부의 fallback이 선다", () => {
+    const fallback = "저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+    expect(customCategoryMutationErrorMessage(new Error(customCategoryDuplicateMessage()), fallback)).toBe(
+      customCategoryDuplicateMessage()
+    );
+    expect(customCategoryMutationErrorMessage(new Error(customCategoryLimitExceededMessage()), fallback)).toBe(
+      customCategoryLimitExceededMessage()
+    );
+    expect(customCategoryMutationErrorMessage(new Error(customCategoryNotFoundMessage()), fallback)).toBe(
+      customCategoryNotFoundMessage()
+    );
+    expect(customCategoryMutationErrorMessage(new Error("바꿀 내용을 하나 이상 골라 주세요."), fallback)).toBe(
+      "바꿀 내용을 하나 이상 골라 주세요."
+    );
+  });
+
+  it("모르는 내부 문장은 화면으로 새지 않는다 (정확 일치만 통과)", () => {
+    const fallback = "저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+    expect(customCategoryMutationErrorMessage(new Error("Network request failed"), fallback)).toBe(fallback);
+    expect(
+      customCategoryMutationErrorMessage(new Error(`${customCategoryDuplicateMessage()} (code 400)`), fallback)
+    ).toBe(fallback);
+    expect(customCategoryMutationErrorMessage({ code: "CUSTOM_CATEGORY_NOT_FOUND" }, fallback)).toBe(fallback);
+    expect(customCategoryMutationErrorMessage(null, fallback)).toBe(fallback);
+  });
+});
+
+describe("멱등 키 (§2.4 — 초안 단위 하나, 이름이 바뀌면 새 키)", () => {
+  it("같은 이름의 재시도는 같은 키를 쓰고, 이름이 달라지면 새 키가 나간다", () => {
+    const holder: CustomCategoryKeyHolder = { current: null };
+    const first = customCategoryIdempotencyKey(holder, "산후도우미");
+    expect(customCategoryIdempotencyKey(holder, "산후도우미")).toBe(first);
+    // 정규화 후 같은 이름이면 같은 제출이다(공백만 다른 재시도가 새 키를 만들지 않는다).
+    expect(customCategoryIdempotencyKey(holder, "  산후도우미 ")).toBe(first);
+    const second = customCategoryIdempotencyKey(holder, "돌잔치");
+    expect(second).not.toBe(first);
+  });
+
+  it("접두가 다른 멱등 축과 겹치지 않고, 성공 뒤 폐기하면 다음 추가는 새 범위다", () => {
+    const holder: CustomCategoryKeyHolder = { current: null };
+    const key = customCategoryIdempotencyKey(holder, "산후도우미");
+    expect(key.startsWith("custom-category-")).toBe(true);
+    rotateCustomCategoryIdempotencyKey(holder);
+    expect(holder.current).toBeNull();
+    expect(customCategoryIdempotencyKey(holder, "산후도우미")).not.toBe(key);
+  });
+});

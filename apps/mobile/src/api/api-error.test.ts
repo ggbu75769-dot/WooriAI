@@ -1462,3 +1462,105 @@ describe("라운드 79 C — 가족 여정의 세 번째 그물 (네 출구의 �
     expect([...sweptCodes()]).toContain("HOUSEHOLD_NOT_FOUND");
   });
 });
+
+/**
+ * 라운드 103 T3 — **커스텀 지출 분류의 실패 셋이 화면까지 온다.**
+ *
+ * 서버는 이 셋을 코드로 말한다(설계 문서 §9.3 · apps/api의
+ * households/custom-categories.service.ts): 이름 중복이면 400
+ * `CUSTOM_CATEGORY_NAME_DUPLICATE`, 가구 상한이면 400 `CUSTOM_CATEGORY_LIMIT_EXCEEDED`,
+ * 그 가구의 커스텀 행이 아니면 404 `CUSTOM_CATEGORY_NOT_FOUND`. **셋 다 다시 눌러도 결과가
+ * 같은데** 표에 자리가 없어(라운드 103의 트랙 분할에서 이 파일이 T2 소유 목록 밖이었다) 관리
+ * 화면의 저장 실패가 *"저장하지 못했어요. 네트워크 연결을 확인한 뒤 다시 시도해 주세요."* 한
+ * 문장으로 접힐 참이었다 — 연결과 무관한 실패에 연결을 확인하라 하는, 이 표가 없애려던 그것이다.
+ *
+ * 이 블록이 고정하는 것은 넷이다: 세 줄이 **표에 있는가**, 그 문장이 **모듈 한 곳에서 오는가**
+ * (표가 문장도 숫자도 짓지 않는다), 그 코드가 **실제 서버 소스에서 오는가**(유령 줄 금지),
+ * 그리고 그 문장이 이 표의 형식(해요체·재시도 권유 금지)을 지키는가.
+ */
+describe("라운드 103 T3 — 커스텀 지출 분류의 실패 셋이 이유를 말한다", () => {
+  const CODES = [
+    "CUSTOM_CATEGORY_NAME_DUPLICATE",
+    "CUSTOM_CATEGORY_LIMIT_EXCEEDED",
+    "CUSTOM_CATEGORY_NOT_FOUND"
+  ] as const;
+
+  it("세 줄이 표에 있고, 값이 설계 §9.3 원문 그대로다", () => {
+    expect(API_ERROR_MESSAGES.CUSTOM_CATEGORY_NAME_DUPLICATE).toBe(
+      "이미 있는 분류 이름이에요. 다른 이름으로 적어 주세요."
+    );
+    expect(API_ERROR_MESSAGES.CUSTOM_CATEGORY_LIMIT_EXCEEDED).toBe(
+      "직접 추가한 분류는 가구당 15개까지예요. 쓰지 않는 분류는 보관하고, 이름은 언제든 바꿀 수 있어요."
+    );
+    expect(API_ERROR_MESSAGES.CUSTOM_CATEGORY_NOT_FOUND).toBe("직접 추가한 분류를 찾을 수 없어요.");
+  });
+
+  it("서버가 던진 그 코드를 받으면 표의 문구가 서고, 막다른 폴백은 사라진다", () => {
+    const fallback = "저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+    for (const code of CODES) {
+      const error = new ApiHttpError(code === "CUSTOM_CATEGORY_NOT_FOUND" ? 404 : 400, envelope(code, "…"));
+      expect(apiErrorMessage(error, fallback), code).toBe(API_ERROR_MESSAGES[code]);
+      expect(apiErrorMessage(error, fallback), code).not.toBe(fallback);
+      // 저장 실패 경로(useSaveErrorCopy → resolveSaveErrorCopy)도 같은 문장을 고른다.
+      expect(resolveSaveErrorCopy({ isOnline: true, error }), code).toBe(API_ERROR_MESSAGES[code]);
+    }
+  });
+
+  it("⚠️ 상한 문구의 숫자를 표가 짓지 않는다 — 폼 모듈 한 곳이 계약 상수의 사본을 든다", () => {
+    const apiErrorSource = source("src/api/api-error.ts");
+    expect(apiErrorSource).toContain('} from "../categories/custom-category-form";');
+    expect(apiErrorSource).toContain("CUSTOM_CATEGORY_NAME_DUPLICATE: customCategoryDuplicateMessage(),");
+    expect(apiErrorSource).toContain("CUSTOM_CATEGORY_LIMIT_EXCEEDED: customCategoryLimitExceededMessage(),");
+    expect(apiErrorSource).toContain("CUSTOM_CATEGORY_NOT_FOUND: customCategoryNotFoundMessage(),");
+    // amountOverLimitMessage()가 세운 그 선례와 **같은 형태**다(정적 리터럴만 허용하는 표가 아니다).
+    expect(apiErrorSource).toContain("EXPENSE_AMOUNT_TOO_LARGE: amountOverLimitMessage(),");
+    // 숫자가 이 파일에 리터럴로 들어오지 않는다 — 상한이 바뀌면 문장이 따라간다.
+    expect(apiErrorSource).not.toContain("가구당 15개까지예요");
+    // 그리고 그 사본은 계약(packages/contracts)의 값과 같다.
+    const contracts = readFileSync(join(mobileRoot, "../../packages/contracts/src/schemas.ts"), "utf8");
+    const cap = contracts.match(/export const CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD = (\d+);/);
+    expect(cap, "계약에서 CUSTOM_CATEGORY_MAX_PER_HOUSEHOLD를 찾지 못했다").not.toBeNull();
+    expect(API_ERROR_MESSAGES.CUSTOM_CATEGORY_LIMIT_EXCEEDED).toContain(`가구당 ${cap![1]}개까지`);
+  });
+
+  it("세 코드는 실제 서버 소스가 던지는 코드다 (반대 방향 — 유령 줄 금지)", () => {
+    /**
+     * ⚠️ 파일 이름을 박지 않고 `apps/api/src` 전수를 훑는다 — 이 셋을 던지는 파일은 T1이
+     * 같은 라운드에 만드는 신규 파일이라, 경로를 못 박으면 이 계약이 **그 파일의 이름**을
+     * 물게 된다(계약이 물어야 하는 것은 코드의 실재다).
+     */
+    const thrown = new Set<string>();
+    const walk = (directory: string) => {
+      for (const name of readdirSync(directory)) {
+        if (name === "node_modules" || name === "dist" || name.startsWith(".")) continue;
+        const fullPath = join(directory, name);
+        if (statSync(fullPath).isDirectory()) {
+          walk(fullPath);
+          continue;
+        }
+        if (!/\.ts$/.test(name) || /\.test\.ts$/.test(name)) continue;
+        for (const match of readFileSync(fullPath, "utf8").matchAll(/code:\s*"([A-Z0-9_]+)"/g)) {
+          thrown.add(match[1]);
+        }
+      }
+    };
+    walk(apiSourceRoot);
+    // 스윕이 조용히 0건이 되면 이 반대 방향도 함께 죽는다.
+    expect(thrown.size).toBeGreaterThan(30);
+    for (const code of CODES) expect([...thrown], code).toContain(code);
+  });
+
+  it("셋 다 재시도를 권하지 않고, 다음에 할 수 있는 일을 말한다", () => {
+    for (const code of CODES) {
+      const message = API_ERROR_MESSAGES[code];
+      expect(message, code).not.toContain("잠시 후 다시");
+      expect(message, code).not.toContain("네트워크");
+      expect(message, code).toMatch(/요\.$/);
+    }
+    // 상한·중복은 사용자가 지금 할 수 있는 일을 말한다(보관 · 다른 이름).
+    expect(API_ERROR_MESSAGES.CUSTOM_CATEGORY_LIMIT_EXCEEDED).toContain("보관");
+    expect(API_ERROR_MESSAGES.CUSTOM_CATEGORY_NAME_DUPLICATE).toContain("다른 이름으로");
+    // ⚠️ "삭제"라는 낱말을 쓰지 않는다(설계 §1.6 — 보관은 지우는 조작이 아니다).
+    for (const code of CODES) expect(API_ERROR_MESSAGES[code], code).not.toContain("삭제");
+  });
+});

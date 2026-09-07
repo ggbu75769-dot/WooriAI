@@ -2127,7 +2127,14 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // offline/offline-aware-screens.ts의 부분 실패 고지 등재 **문장(문자열)** 안에서
     // `LOAD_ERROR_RETRY_LABEL`을 이름으로 인용했다. 그 상수는 코드 참조가 여럿이라(조회 실패
     // 카드 · records-search-scope.ts 재사용) 판정이 움직인 자리는 오늘도 넷 그대로다 — 실피해 0건.
-    value: 57,
+    // 두 시점(라운드 103 T3): 57 → 60(namesReferencedInsideStringLiterals() 실측) — 커스텀 지출
+    // 분류의 관리 화면이 서면서 무효화 정책 대장(src/query/shared-cache-policy.ts)의
+    // `["categories"]` 줄이 쓰기 셋을 값으로 갖게 됐고, 그 줄이 쓰기 API 둘
+    // (`createCustomCategory`·`updateCustomCategory`)을 `writeApis` **문자열**로, 구간 끝 표시가
+    // `customCategoryMutationErrorMessage`를 문자열로 인용한다. 셋 다 제품 소스에 코드 참조를
+    // 함께 갖는다(app/settings/categories.tsx가 셋 다 부른다) — 판정이 움직인 자리는 오늘도 넷
+    // 그대로이고 실피해는 0건이다.
+    value: 60,
     floor: 10,
     statement:
       "⚠️⚠️ **라운드 90 트랙 C가 `string-literal-references`를 닫으며 연 자리 — 오차의 방향이 뒤집혔다.** " +
@@ -2208,7 +2215,13 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // 프리셋 설정 화면(AmountPresetsSettingsScreen, default export function)으로 섰다(라우터가
     // 경로로 부르는 화면이라 텍스트 호출부가 애초에 없는 바로 그 갈래 — git 워크트리 대조 실측,
     // 순증은 이 하나뿐). 같은 성격의 성장이고, 재개 조건은 오늘도 열지 않는다.
-    value: 148,
+    // 두 시점(라운드 103 T3): 148 → 149 — app/settings/categories.tsx가 지출 분류 관리 화면
+    // (CategoriesSettingsScreen, default export function)으로 **정확히 같은 길**로 섰다(설정
+    // 하위 라우트 하나 · 라우터가 경로로 부르므로 텍스트 호출부가 애초에 없다 —
+    // tsxExportFunctionCount() 실측, 순증은 이 하나뿐이다. 같은 라운드가 연 순수 모듈
+    // src/categories/custom-category-form.ts는 `.ts`라 이 축이 아니라 모집단 본체에 든다).
+    // 같은 성격의 성장이고, 재개 조건(JSX 사용을 참조로 세는 판정)은 오늘도 열지 않는다.
+    value: 149,
     floor: 80,
     statement:
       "`.tsx`의 `export function`(컴포넌트·훅) 141은 모집단 밖이다 — JSX 사용(`<Foo />`)은 이 그물의 이름 " +

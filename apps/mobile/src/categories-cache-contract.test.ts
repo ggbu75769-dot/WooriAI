@@ -22,10 +22,39 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+/**
+ * ⚠️ 두 시점(라운드 103 T3) — **`src/query/**`는 이 스윕의 모집단이 아니다.**
+ *
+ * 종전에는 뺄 이유가 없었다: 무효화 정책 대장(src/query/shared-cache-policy.ts)의
+ * `["categories"]` 줄이 *"앱 안에 이 목록을 바꾸는 쓰기가 0건"* 이라 그 파일에 이 키의 무효화
+ * **표현식 문자열**이 한 줄도 없었기 때문이다. 라운드 103이 관리 화면을 세우며 그 대장에
+ * `'await queryClient.invalidateQueries({ queryKey: ["categories"] });'` 세 줄이 값으로 들어왔고,
+ * 그 문자열 안의 `queryKey: ["categories"]`가 이 스윕에 **소비처로** 잡혔다 — 그 파일은 쿼리를
+ * 열지 않으므로 `skipToken` 갈래도 만족할 수 없어 거짓 빨강이 된다.
+ *
+ * 같은 사각을 그 대장의 짝 테스트가 이미 같은 방법으로 닫아 두었다(shared-cache-policy.test.ts의
+ * `literalInvalidationSites`: *"`src/query/**`는 문자열로 들고 있을 뿐이라 뺀다"*). 여기서도 그
+ * 관례를 그대로 인용하되, **면제가 진짜 소비처를 숨기지 못하게** 아래 단언이 그 뿌리에
+ * `useQuery(`가 0건임을 함께 센다 — 그 뿌리에 쿼리를 여는 파일이 생기는 날 이 면제가 먼저
+ * 빨개진다.
+ */
+const LEDGER_ONLY_ROOT = "src/query/";
+
 describe("공유 [\"categories\"] 캐시 규약 (전역 가드)", () => {
   it("categories 쿼리 키를 쓰는 모든 소스가 includeAll: true로 채운다", () => {
-    const files = [...walk(join(process.cwd(), "app")), ...walk(join(process.cwd(), "src"))];
-    const consumers = files.filter((file) => readFileSync(file, "utf8").includes('queryKey: ["categories"]'));
+    const mobileRoot = process.cwd();
+    const files = [...walk(join(mobileRoot, "app")), ...walk(join(mobileRoot, "src"))];
+    const isLedgerOnly = (file: string) =>
+      file.slice(mobileRoot.length + 1).split("\\").join("/").startsWith(LEDGER_ONLY_ROOT);
+    // 면제가 진짜 소비처를 숨기지 않는다 — 그 뿌리는 쿼리를 **열지 않는** 계약 전용 데이터다.
+    for (const file of files.filter(isLedgerOnly)) {
+      expect(readFileSync(file, "utf8"), `${file} 가 쿼리를 연다 — 이 면제가 더는 참이 아니다`).not.toContain(
+        "useQuery("
+      );
+    }
+    const consumers = files
+      .filter((file) => !isLedgerOnly(file))
+      .filter((file) => readFileSync(file, "utf8").includes('queryKey: ["categories"]'));
     // 규약의 존재 자체도 고정한다 — 소비처가 0이면 grep 패턴이 낡은 것이다.
     expect(consumers.length).toBeGreaterThanOrEqual(4);
     for (const file of consumers) {

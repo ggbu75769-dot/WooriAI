@@ -220,6 +220,12 @@ export const OFFLINE_AWARE_SAVE_ERROR_SCREENS: ReadonlyArray<string> = [
   // 문구 판정은 종전대로 src/family/invite-permissions.ts 한 곳이고, 이 화면이 그 모듈에 넘기는
   // 것은 **연결 사실 하나**다(온라인 갈래 바이트 불변).
   "app/family/invite.tsx",
+  // 라운드 103 T3: 지출 분류 관리(POST/PATCH 셋 — 추가 · 이름 바꾸기 · 보관/다시 사용).
+  // 서버 직행 저장이라 아웃박스를 거치지 않고, 오프라인에서는 그냥 실패한다(설계 §3.3이
+  // 오프라인 생성을 **구조적으로** 막았다 — 서버에 없는 분류 id를 단 지출이 아웃박스에 실리면
+  // flush에서 FK 위반 500 → 무한 재시도 poison pill이 된다). 세 자리가 각자 자기 뮤테이션의
+  // 사유를 묻는다(라운드 70 M-2의 그 규율 — `??` 체인은 남의 사유를 그린다).
+  "app/settings/categories.tsx",
   "app/settings/children.tsx",
   // 라운드 73 트랙 E: 기기 알림 스위치 저장(PATCH). 같은 화면의 **조회** 실패는 라운드 72가
   // 이미 정직하게 만들어 뒀는데 저장만 남아, 한 화면 안에서 조회는 정직하고 저장은 아니었다.
