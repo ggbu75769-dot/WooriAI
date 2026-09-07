@@ -221,16 +221,23 @@ const EXPENSE_OWNER_LEDGER: Readonly<Record<string, LedgerEntry>> = {
   [`${EXPENSES_FILE}#7`]: {
     member: "versionConflictFor",
     zone: "app",
-    stance: "access-derived",
-    predicate: "id: expenseId",
+    stance: "household-scoped",
+    predicate: "householdId: { in: householdIds }",
     gate: "authorizeExpenseRow",
     reason:
       "⚠️ **이 대장에서 가장 조심할 자리다.** 여기서 읽은 행이 409 응답의 `current`로 " +
-      "**밖으로 나간다**(품목명·판매처·메모·금액을 담은 스냅샷). 그래도 소유자 술어가 없는 " +
-      "이유는 두 호출자(updateExpense·deleteExpense) 모두 `authorizeExpenseRow`를 지난 뒤에만 " +
-      "이 메서드를 부르기 때문이다. 그 사실을 값으로 고정하는 것이 " +
-      "expenses-version.db.test.ts의 '409로 남의 지출 상태를 흘리지 않는다' 단언이다 " +
-      "(낯선 토큰의 응답에 `current`가 없어야 한다)."
+      "**밖으로 나간다**(품목명·판매처·메모·금액을 담은 스냅샷). " +
+      "⚠️ 두 시점(라운드 108 T24 후속) — **종전**에는 이 자리가 `access-derived`였고 술어는 " +
+      "`id: expenseId` 하나였다. 그때의 이유도 참이었다: 두 호출자(updateExpense·deleteExpense) " +
+      "모두 `authorizeExpenseRow`를 지난 뒤에만 이 메서드를 부른다(그 사실은 **지금도 참**이고, " +
+      "이 후속 트랙이 두 호출부를 전수로 다시 따라가 확인했다 — 오늘 실제로 새는 값은 없었다). " +
+      "그런데 T24가 역돌연변이로 재어 보니, 그 관문 **한 벌만** 지웠을 때 성공 갈래는 스토어의 " +
+      "`requireExpenseAccess`가 대신 403을 던져 테스트가 전부 초록이었고 **CAS가 실패하는 이 " +
+      "갈래에서만** 남의 지출 원문이 409로 나갔다 — 인가 두 벌이 서로를 가려, 보장이 서 있는 " +
+      "줄이 죽어도 아무도 보지 못했다. **지금**은 읽기 자체가 호출자의 가구 집합으로 좁는다 " +
+      "(`householdIds`는 `user.households.map(h => h.id)` — sync.service.ts#0과 같은 모양). " +
+      "관문이 살아 있는 오늘은 **항등**이라 사용자에게 나가는 축은 하나도 줄지 않았고, 관문이 " +
+      "한 겹 죽는 날에는 이 읽기가 0건을 돌려주어 `current`가 null이 된다."
   },
   [`${EXPENSES_FILE}#8`]: {
     member: "hydrateOne",
@@ -374,7 +381,8 @@ const EXPENSE_OWNER_LEDGER: Readonly<Record<string, LedgerEntry>> = {
     gate: "requireImportJobAccess",
     gateFile: IMPORT_FILE,
     reason:
-      "되돌리기가 지울 **살아 있는** 행 조회. 이 대장에서 **가구 축**으로 좁는 두 자리 중 하나다 — " +
+      "되돌리기가 지울 **살아 있는** 행 조회. 이 대장에서 **가구 축**으로 좁는 세 자리 중 하나다 " +
+      "(라운드 108 T24 후속으로 `expenses.service.ts#7`이 합류하기 전에는 둘이었다) — " +
       "`importJobId`만으로도 오늘은 좁지만, 잡의 가구를 함께 걸어 '남의 잡 id를 알아낸 사람이 " +
       "남의 지출을 지우는' 길을 술어로 막는다. `job`은 `requireImportJobAccess(edit)`가 돌려준 것이다."
   },
@@ -514,7 +522,7 @@ const EXPENSE_OWNER_LEDGER: Readonly<Record<string, LedgerEntry>> = {
       "온다 — 알림을 받는 디바이스도 같은 행의 가구에서 파생하므로 합계가 그 가구 밖으로 나가지 않는다."
   },
 
-  // ── 델타 동기화(가구 축으로 좁는 두 번째 자리) ────────────────────────────────
+  // ── 델타 동기화(가구 축으로 좁는 세 자리 중 하나) ─────────────────────────────
   "src/sync/sync.service.ts#0": {
     member: "getChanges",
     zone: "app",
@@ -526,6 +534,9 @@ const EXPENSE_OWNER_LEDGER: Readonly<Record<string, LedgerEntry>> = {
       "`householdIds`가 `user.households.map(h => h.id)`, 즉 토큰이 말하는 소속 그대로라 " +
       "가구 밖 행이 술어에 들어올 수 없다. 술어는 인자에 직접 서지 않고 위의 " +
       "`const where: Prisma.ExpenseWhereInput` 바인딩에 담겨 있다(훑기가 따라간다). " +
+      "⚠️ 두 시점(라운드 108 T24 후속): `expenses.service.ts#7`이 같은 모양의 술어를 갖게 " +
+      "됐지만 그 자리는 선행 검사(`authorizeExpenseRow`)도 함께 지나므로, **선행 검사 없이** 좁는 " +
+      "자리는 여전히 여기 하나다. " +
       "⚠️ 이 자리는 **행 전체**(품목명·판매처·메모·금액)를 내보내므로 `householdId` 술어가 " +
       "빠지는 순간 전 사용자의 지출이 흐른다 — 이 대장에서 술어가 가장 무거운 자리다."
   },
