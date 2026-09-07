@@ -68,6 +68,20 @@ import type { PendingScopeBreakdown } from "./pending-scope-notice";
  * 대기 고지가 싣는 것도 **건수 두 개(N·M)뿐**이다 — 대기 행의 품목명·금액·날짜·id는 이 모듈에
  * 들어오지도 않는다(입력 타입이 숫자 두 칸이라 구조적으로 불가능하다).
  *
+ * 라운드 106 T6: 위 "하나뿐"은 **더 이상 사실이 아니다**. 라운드 103이 커스텀 지출 분류를
+ * 더하면서 **분류 이름도 사용자 자유 문자열**(가구당 15개, 50자)이 되었고, 그 이름이 이 모듈을
+ * 두 갈래로 지나 앱 밖으로 나간다:
+ *  - `shareTopCategoryLine` — 마일스톤 카드의 "가장 많이 준비한 것: …"(milestone-share.ts가
+ *    `report.topCategories[].name`을 그대로 넘긴다),
+ *  - `MonthlyShareInput.insight.shareableHeadline` — 월간 카드의 "이번 달은 __에 가장 많이
+ *    썼어요" 문장 안(문장 조립은 monthly-insight.ts, 이 모듈은 완성된 문장을 받는다).
+ *
+ * 그래도 **취급은 childName과 같다**. 두 값 모두 (1) 사용자가 직접 적었고, (2) [공유하기]를
+ * 누르기 직전 화면의 그 카드에 **같은 글자로 이미 떠 있으며**, (3) 보내는 행위 자체가 사용자의
+ * 탭이다. 몰래 나가는 값이 아니라 **보이는 것을 그대로 보내는** 값이라, 가리거나 되묻지 않는다
+ * (숨기면 오히려 화면과 보낸 글이 갈린다 — 이 모듈이 숫자에 대해 지키는 규율과 같다).
+ * 새로 들어온 것은 이름뿐이다: 분류의 id·소유 가구·보관 여부는 여전히 입력에 없다.
+ *
  * ## 톤 (DNC-018)
  * 사실 서술 + 해요체. 평가("잘하고 있어요")·조언("줄여보세요")·죄책감 유발 문구 없음.
  * 앱 홍보는 마지막 한 줄뿐이다.
@@ -86,7 +100,15 @@ export function shareTotalLine(totalKrw: number): string {
  * (근거 없는 줄은 넣지 않는다).
  */
 export function shareTopCategoryLine(categoryNames: readonly string[]): string | null {
-  const names = categoryNames.map((name) => name.trim()).filter((name) => name.length > 0);
+  // 라운드 106 T6 — 줄 안의 공백을 한 칸으로 접는다. 라운드 103 이후 이 이름은 사용자가 적은
+  // 자유 문자열이고, 개행이 하나라도 섞이면 네 줄짜리 카드가 다섯 줄로 갈라져 **받는 사람이 보는
+  // 카드 모양**이 바뀐다(`joinShareLines`는 빈 줄만 거를 뿐 줄을 쪼개지 않는다). 저장 시점의
+  // 서버 정규화(`trim` + `\s+` 접기, apps/api custom-categories.dto.ts)가 이미 같은 일을 하므로
+  // 지금 들어오는 값은 그대로 통과한다 — 이건 슬라이스 **이쪽 끝**의 가드다. 정상 이름
+  // ("기저귀/위생", "분유 · 이유식")의 바이트는 바뀌지 않는다.
+  const names = categoryNames
+    .map((name) => name.trim().replace(/\s+/gu, " "))
+    .filter((name) => name.length > 0);
   if (names.length === 0) return null;
   // 카테고리 이름 자체에 "/"가 들어가므로(기저귀/위생) 구분자는 "·"를 쓴다.
   return `가장 많이 준비한 것: ${names.join("·")}`;

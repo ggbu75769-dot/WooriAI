@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { Expense } from "../api/client";
+import { buildCategoryNameLookup } from "../categories";
+import { buildExpenseCsv } from "./expense-csv";
 import { capCsvForShare, csvShareToastMessage, MAX_SHARE_MESSAGE_BYTES, utf8ByteLength } from "./share-payload";
 
 describe("EXP-106 share payload cap (Share.share message path)", () => {
@@ -37,6 +40,97 @@ describe("EXP-106 share payload cap (Share.share message path)", () => {
     expect(result.message).toBe("날짜,카테고리,항목,금액(원),메모,출처\r\n");
     expect(result.truncated).toBe(true);
     expect(result.droppedRows).toBe(1);
+  });
+});
+
+/**
+ * 라운드 106 T6 — **개행이 든 칸**이 있는 CSV에서도 잘림이 RFC 4180 레코드 경계에서 일어난다.
+ *
+ * 실측(고치기 전): 메모에 개행이 든 5행 CSV를 용량으로 자르면 본문 마지막 줄이
+ * `...,"첫 줄` 로 끝났다 — 따옴표가 닫히지 않은 CSV다. 그리고 `droppedRows`가 줄 수를 세는
+ * 바람에 데이터 4행이 빠진 자리에서 8을 돌려줬고, 호출부(ExpenseCsvExport.tsx)의
+ * `built.rowCount - outcome.droppedRows`가 음수로 내려갈 수 있었다.
+ */
+describe("라운드 106 T6: 개행이 든 칸과 용량 잘림 (RFC 4180 레코드 경계)", () => {
+  function makeExpense(overrides: Partial<Expense> = {}): Expense {
+    return {
+      id: "e-1",
+      childId: "child-1",
+      categoryId: "cat-x",
+      amountKrw: 45900,
+      spentOn: "2026-08-01",
+      itemName: "기저귀",
+      merchant: null,
+      memo: null,
+      expenseType: "expense",
+      source: "manual",
+      version: 1,
+      ...overrides
+    };
+  }
+
+  /** 개행이 든 메모 5건짜리 **실제** CSV — 손으로 지어낸 문자열이 아니라 빌더가 만든 것 그대로. */
+  function multilineBuild() {
+    return buildExpenseCsv(
+      Array.from({ length: 5 }, (_, index) => makeExpense({ id: `e${index}`, memo: `첫 줄\r\n둘째 줄 ${index}` }))
+    );
+  }
+
+  it("따옴표 한가운데서 자르지 않는다 — 어떤 예산에서도 따옴표 개수가 짝수다", () => {
+    const { csv } = multilineBuild();
+    const full = utf8ByteLength(csv);
+    // 헤더만 남는 예산부터 전량이 들어가는 예산까지 한 바이트씩 훑는다.
+    for (let budget = 1; budget <= full; budget += 1) {
+      const { message } = capCsvForShare(csv, budget);
+      const quoteCount = (message.match(/"/g) ?? []).length;
+      expect(quoteCount % 2, `예산 ${budget}바이트에서 따옴표가 닫히지 않았다`).toBe(0);
+      // 레코드는 언제나 CRLF로 끝난다 — 잘린 레코드 조각이 남지 않는다.
+      expect(message.endsWith("\r\n"), `예산 ${budget}바이트에서 레코드가 잘렸다`).toBe(true);
+    }
+  });
+
+  it("droppedRows는 줄이 아니라 레코드를 센다 — 토스트 건수가 음수로 내려가지 않는다", () => {
+    const built = multilineBuild();
+    expect(built.rowCount).toBe(5);
+
+    const full = utf8ByteLength(built.csv);
+    for (let budget = 1; budget <= full; budget += 1) {
+      const capped = capCsvForShare(built.csv, budget);
+      expect(capped.droppedRows).toBeLessThanOrEqual(built.rowCount);
+      // ExpenseCsvExport.tsx가 토스트 건수를 만드는 식 그대로.
+      expect(built.rowCount - capped.droppedRows, `예산 ${budget}바이트에서 건수가 음수다`).toBeGreaterThanOrEqual(0);
+    }
+
+    // 헤더만 남는 예산에서는 데이터 5건이 전부 빠진다(줄 수 8이 아니다).
+    const headerOnly = capCsvForShare(built.csv, 1);
+    expect(headerOnly.droppedRows).toBe(5);
+    expect(headerOnly.message.split("\r\n").filter(Boolean)).toHaveLength(1);
+  });
+
+  it("커스텀 분류 이름에 쉼표·따옴표가 들어가도 같은 규칙이다 (라운드 103 자유 문자열)", () => {
+    const categoryName = buildCategoryNameLookup([{ id: "cat-x", name: '아빠, "비상"금' }]);
+    const built = buildExpenseCsv(
+      Array.from({ length: 4 }, (_, index) => makeExpense({ id: `e${index}` })),
+      { categoryName }
+    );
+    const full = utf8ByteLength(built.csv);
+    for (let budget = 1; budget <= full; budget += 1) {
+      const { message } = capCsvForShare(built.csv, budget);
+      expect((message.match(/"/g) ?? []).length % 2).toBe(0);
+      expect(message.endsWith("\r\n")).toBe(true);
+    }
+  });
+
+  it("개행이 없는 CSV(대다수)에서는 예전 줄 단위 계산과 결과가 같다", () => {
+    const header = "날짜,금액";
+    const rows = ["2026-08-01,1000", "2026-08-02,2000", "2026-08-03,3000"];
+    const csv = `${header}\r\n${rows.join("\r\n")}\r\n`;
+    const budget = utf8ByteLength(header) + 2 + utf8ByteLength(rows[0]) + 2;
+    expect(capCsvForShare(csv, budget)).toEqual({
+      message: `${header}\r\n${rows[0]}\r\n`,
+      truncated: true,
+      droppedRows: 2
+    });
   });
 });
 
