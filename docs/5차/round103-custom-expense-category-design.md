@@ -200,7 +200,7 @@ orderBy: [{ displayOrder: "asc" }, { code: "asc" }]            // 종전 그대�
 ```
 
 - **노출 두 축은 종전 의미 그대로 커스텀에도 적용된다**: 커스텀 행은 언제나 `selectable = true`(사용자가 고르라고 만든 행이다), `active`가 보관 축이다. 즉 기본 목록에는 활성 커스텀만, `?includeAll=1`에는 보관된 것까지 — R28-F3의 규칙이 커스텀에 **그대로 재사용**된다(새 규칙 0건).
-- **표식**: `isSystem: false`. 이 필드는 계약에 **이미 required로 있고**(`categoryListItemSchema:119`) 오늘 값이 항상 `true`라 소비자가 아무도 분기하지 않는다 — 000018이 *"시스템 시드 vs 사용자 정의"*라고 뜻을 적어 둔 그 칸의 첫 소비처가 이 라운드다. **읽기 경로의 계약 추가 0건**이 이 설계의 산출물이다.
+- **표식**: `householdId`의 유무다. ⚠️ **정정(T1 실측)** — 이 절은 원래 표식을 `isSystem: false`로 적고 근거를 *"오늘 값이 항상 `true`"*로 들었는데, 그 실측이 틀렸다: `prisma/seed.ts`가 퀵타일 별칭 8행과 가져오기 스텁 1행을 `isSystem: false`로 시드한다(dev DB 실측 `t`=12 / `f`=9). 그래서 `?includeAll=1` 응답에는 `isSystem === false`인 **시드** 행이 아홉 개 있고, 그 축만으로 거르면 사용자가 만들지 않은 별칭이 커스텀으로 잡힌다. 같은 이유로 §1의 CHECK도 양방향 등호에서 `household_id IS NULL OR is_system = false`로 좁혔다(양방향이면 그 아홉 행에서 마이그레이션이 실패한다). §4.1의 판정식은 `householdId` 절이 있어 그대로 안전하다. 아래 문단이 말하는 "읽기 경로의 계약 추가 0건"은 유지된다 — `isSystem`은 계약에 이미 required로 있고, 가산 필드는 `householdId` 하나뿐이다. 이 필드는 계약에 **이미 required로 있고**(`categoryListItemSchema:119`) 오늘 값이 항상 `true`라 소비자가 아무도 분기하지 않는다 — 000018이 *"시스템 시드 vs 사용자 정의"*라고 뜻을 적어 둔 그 칸의 첫 소비처가 이 라운드다. **읽기 경로의 계약 추가 0건**이 이 설계의 산출물이다.
 - **가산 필드 하나**: `householdId?: string` — **커스텀 행에만** 싣는다(시드 행에는 키 자체가 없다). 관리 화면이 PATCH 대상 URL을 만들고, 다가구 사용자에게 "이 분류는 다른 가구 것"을 구분해 주는 용도다. additive optional이라 구 클라이언트·구 캐시 무접촉.
 - 별칭·스텁 관련 규칙(§0)은 **한 글자도 바뀌지 않는다**. 커스텀 code는 `custom_` 접두라 `mobile_`·`import_` 접두 규칙에 걸리지 않고, `catalogIdsByCode`(퀵타일 code 다리)에도 없으므로 기록 탭 칩의 `matchIds`는 **자기 id 하나**다 — 가족 규칙에 새 축이 들어가지 않는다.
 
