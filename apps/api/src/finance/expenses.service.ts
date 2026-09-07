@@ -3,6 +3,7 @@ import type { Expense as PrismaExpense } from "@prisma/client";
 import type { MemberRole } from "@wooriai/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthenticatedUser } from "../common/types/authenticated-request";
+import { isUuid } from "../common/validation/uuid";
 import { ExpensesStoreService } from "../onboarding/expenses-store.service";
 import { PushDispatchService } from "../push/push-dispatch.service";
 import { toDeletedExpenseSnapshot, toExpenseSnapshot } from "./expense-snapshot";
@@ -17,6 +18,17 @@ function canEdit(role: MemberRole | null) {
 }
 
 const VERSION_CONFLICT_MESSAGE = "다른 곳에서 먼저 변경됐어요. 최신 내용을 다시 불러와 주세요.";
+
+/**
+ * 라운드 106 T9 — 지출을 가리키지 못하는 `:expenseId`의 **단 하나의 출구**.
+ *
+ * 문구·코드가 갈리지 않게 한 곳에서 만든다(`custom-categories.service.ts`의
+ * `duplicateNameError()`와 같은 형식). 갈래는 둘이고 응답은 하나다:
+ * ① 형식은 맞지만 그런 지출이 없는 id, ② 아예 UUID가 아닌 id(아래 `requireExpenseIdShape`).
+ */
+function expenseNotFound() {
+  return new NotFoundException({ code: "EXPENSE_NOT_FOUND", message: "지출 기록을 찾을 수 없어요." });
+}
 
 /**
  * Owns MOB-103's optimistic-concurrency layer for expenses: `version` exposure,
@@ -52,6 +64,7 @@ export class ExpensesVersionService {
   ) {}
 
   async getExpense(user: AuthenticatedUser, expenseId: string) {
+    this.requireExpenseIdShape(expenseId);
     const dto = await this.store.getExpense(user, expenseId);
     return this.hydrateOne(dto as { id: string });
   }
@@ -113,6 +126,7 @@ export class ExpensesVersionService {
    * 컨트롤러는 `result.expense`만 응답으로 돌려주므로 API 계약은 그대로다.
    */
   async updateExpense(user: AuthenticatedUser, expenseId: string, body: UpdateExpenseDto) {
+    this.requireExpenseIdShape(expenseId);
     const { expectedVersion, ...fields } = body;
     const raw = await this.prisma.expense.findUnique({ where: { id: expenseId } });
     const row = this.authorizeExpenseRow(user, raw, true);
@@ -152,6 +166,7 @@ export class ExpensesVersionService {
   }
 
   async deleteExpense(user: AuthenticatedUser, expenseId: string, expectedVersion?: number) {
+    this.requireExpenseIdShape(expenseId);
     const raw = await this.prisma.expense.findUnique({ where: { id: expenseId } });
     this.authorizeExpenseRow(user, raw, true);
 
@@ -174,6 +189,37 @@ export class ExpensesVersionService {
     } catch (error) {
       await this.rollbackVersionBump(expenseId, expectedVersion);
       throw error;
+    }
+  }
+
+  /**
+   * 라운드 106 T9 — `:expenseId`가 **UUID 형식일 때만** Prisma 술어에 닿게 한다.
+   *
+   * 종전(이 줄이 없던 시점): `GET/PATCH/DELETE /api/v1/expenses/<UUID가 아닌 값>`의 id가
+   * 그대로 `expenses.id`(`@db.Uuid`) 술어에 실렸다 — PATCH·DELETE는 바로 아래
+   * `expense.findUnique`, GET은 스토어의 `requireExpenseAccess`가 그 첫 자리다. Prisma는
+   * 그 값을 드라이버 단에서 거절하고(`Inconsistent column data: Error creating UUID` —
+   * 판정 근거는 `common/validation/uuid.ts` 머리말, R24-M2가 커서에서 실측한 것과 같은
+   * 예외다), HttpException이 아니므로 `GlobalExceptionFilter`가 **500 INTERNAL_SERVER_ERROR
+   * "잠시 후 다시 시도해주세요."** 로 내보냈다. 원인은 클라이언트가 보낸 id인데 화면에는
+   * 서버 장애로 보이고, 그 안내대로 다시 눌러도 결과가 같다 — DNC-018이 금지하는 틀린
+   * 안내다. 그리고 모바일 오프라인 아웃박스는 5xx를 일시 실패로 보고 무한히 재전송하므로
+   * (`apps/mobile/src/offline/remote-api.ts`) 성공할 수 없는 수정/삭제 하나가 큐 맨 앞에서
+   * 뒤의 멀쩡한 지출까지 막는 poison pill이 된다 — 같은 파일의
+   * `LINKED_PRODUCT_LINK_NOT_FOUND`가 400으로 옮긴 그 실패와 **같은 종류**다.
+   *
+   * 지금: 어떤 지출도 가리킬 수 없는 id이므로 형식은 맞지만 없는 id와 **같은 404
+   * `EXPENSE_NOT_FOUND`**로 끝낸다(새 오류 코드 0건). 라운드 103
+   * `custom-categories.service.ts`가 `isUuid`로 같은 판단을 한 선례와 같은 형식이고,
+   * 정규식 사본을 늘리지 않으려고 판정은 `common/validation/uuid.ts` 한 벌을 그대로 쓴다.
+   *
+   * 권한 판정보다 앞서는 것이 의도다: 이 검사는 DB를 한 줄도 읽지 않는 **모양 검사**라
+   * 어떤 지출의 존재 여부도 말하지 않고(오라클 없음), 전역 ValidationPipe가 본문·쿼리를
+   * 먼저 거르는 순서와 같은 자리에 선다.
+   */
+  private requireExpenseIdShape(expenseId: string): void {
+    if (!isUuid(expenseId)) {
+      throw expenseNotFound();
     }
   }
 
@@ -203,7 +249,7 @@ export class ExpensesVersionService {
     requireEdit: boolean
   ): PrismaExpense {
     if (!row) {
-      throw new NotFoundException({ code: "EXPENSE_NOT_FOUND", message: "지출 기록을 찾을 수 없어요." });
+      throw expenseNotFound();
     }
     const role = memberRoleFor(user, row.householdId);
     if (!role || (requireEdit && !canEdit(role))) {
