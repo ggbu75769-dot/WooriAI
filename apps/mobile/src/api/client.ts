@@ -197,12 +197,36 @@ export type ListExpensesResponse = {
 /** API-124 서버 상한(packages/contracts EXPENSE_LIST_MAX_LIMIT). 초과 요청은 400. */
 export const EXPENSE_LIST_MAX_LIMIT = 500;
 
+/**
+ * 라운드 102: 카테고리별 예산 한 행 — `categoryBudgetEntrySchema`(packages/contracts)의 수기
+ * 미러다. 예산의 축은 **정식 카테고리 id**다(설계 문서 §1.1 대안 D 기각 — 퀵타일 별칭 id로
+ * 저장되는 경로는 없다); 별칭 지출의 사용액 합류는 소비 시점의 `matchIds` 가족이 진다(§5.1).
+ */
+export type CategoryBudgetEntry = {
+  categoryId: string;
+  amountKrw: number;
+};
+
 export type Budget = {
   childId: string;
   yearMonth: string;
   amountKrw: number;
   usedAmountKrw: number;
   remainingAmountKrw: number;
+  /**
+   * 라운드 102: 그 달의 카테고리 예산 집합(categoryId 오름차순). additive optional — 이 필드가
+   * 없던 시절의 서버 응답·캐시도 그대로 동작해야 한다.
+   *
+   * 싣는 자리는 셋으로 갈린다(⚠️ 두 시점 — 라운드 102 리뷰 M-4: 종전 이 주석은 "GET/PUT 200은
+   * 항상 배열"이라 적었고 그것은 PUT의 절반에 대해 참이 아니었다):
+   *  - `GET /budget` 200: **항상** 배열(없으면 `[]`) — §2.3.
+   *  - `PUT /budget` 200: 요청에 `categoryBudgets`가 **있었을 때만**. 필드 부재 갈래는 그 행을
+   *    한 건도 읽지 않으므로(§2.2 무접촉) 응답에도 키가 없다 — 로컬 미러도 같다.
+   *    그래서 이 필드의 부재는 "그 달에 카테고리 예산이 없다"가 **아니다**: PUT 응답만 보고
+   *    화면 상태를 낙관 갱신하면 안 되고, 값이 필요하면 GET(무효화된 `["budget"]`)이 답한다.
+   *  - 홈 요약의 monthly(같은 타입 재사용): 서버가 싣지 않는다(§2.4).
+   */
+  categoryBudgets?: CategoryBudgetEntry[];
 };
 
 export type HomeSummary = {
@@ -241,6 +265,12 @@ export type MonthlyReport = {
   totalExpenseKrw: number;
   budgetAmountKrw: number | null;
   categoryTop: Array<{ categoryId: string; amountKrw: number; count: number }>;
+  /**
+   * 라운드 102: 그 달의 카테고리 예산 행(categoryId 오름차순, 없으면 []). additive optional —
+   * 구 서버 응답도 통과한다. 리포트 월간 탭 "예산 대비" 블록의 예산 소스(§2.4)이며, 추이·연간·
+   * 누적에는 실리지 않는다.
+   */
+  categoryBudgets?: CategoryBudgetEntry[];
 };
 
 export type CumulativeReport = {
@@ -882,18 +912,33 @@ export async function getBudget(token: string, childId: string, yearMonth?: stri
   }
 }
 
+/**
+ * 라운드 102: 다섯째 인자 `categoryBudgets`는 서버 §2.2의 replace-set 계약 그대로다 —
+ * **undefined = 필드 미탑재**(그 달의 카테고리 예산 행은 읽지도 쓰지도 않는다: 온보딩 예산
+ * 화면 등 기존 호출부의 저장이 남의 카테고리 편집을 덮지 않는 하위호환의 전부), 배열 = 그 달
+ * 집합 통째 교체(빈 배열 = 전부 해제). 로컬 세션은 같은 규칙의 미러(localBackend.upsertBudget)로
+ * 라우팅한다.
+ */
 export function upsertBudget(
   token: string,
   childId: string,
   amountKrw: number,
-  yearMonth?: string
+  yearMonth?: string,
+  categoryBudgets?: CategoryBudgetEntry[]
 ) {
   const effectiveYearMonth = yearMonth ?? currentYearMonthDate();
-  if (isLocalToken(token)) return local(() => localBackend.upsertBudget(childId, amountKrw, effectiveYearMonth));
+  if (isLocalToken(token)) {
+    return local(() => localBackend.upsertBudget(childId, amountKrw, effectiveYearMonth, categoryBudgets));
+  }
   return requestJson<Budget>(`/children/${childId}/budget`, {
     method: "PUT",
     token,
-    body: { yearMonth: effectiveYearMonth, amountKrw }
+    // 필드 부재 = 무접촉(§2.2)이므로 undefined일 때는 키 자체를 싣지 않는다 — JSON 직렬화가
+    // undefined를 떨어뜨리는 데 기대지 않고 본문 모양을 명시한다.
+    body:
+      categoryBudgets === undefined
+        ? { yearMonth: effectiveYearMonth, amountKrw }
+        : { yearMonth: effectiveYearMonth, amountKrw, categoryBudgets }
   });
 }
 

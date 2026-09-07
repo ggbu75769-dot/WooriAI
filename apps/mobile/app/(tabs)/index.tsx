@@ -73,8 +73,18 @@ import {
 import { resolveHomeSyncStatus } from "../../src/home/home-sync-status";
 import {
   buildHomeQuickRecordChips,
+  isQuickRecordPinToggleAction,
+  quickRecordChipAccessibilityActions,
+  quickRecordChipAccessibilityLabel,
+  quickRecordPinToggleAnnouncement,
+  quickRecordPinToggleHint,
   HOME_QUICK_RECORD_SECTION_TITLE
 } from "../../src/home/quick-record-chips";
+import {
+  budgetWarningHapticClaimKey,
+  useBudgetWarningHapticStore
+} from "../../src/stores/budget-warning-haptic.store";
+import { useQuickRecordPinsStore } from "../../src/stores/quick-record-pins.store";
 import {
   evaluateMilestoneCountdown,
   HOME_MILESTONE_PENDING_NOTICE_TEST_ID
@@ -115,6 +125,7 @@ import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import {
   AmountCountUpText,
+  announceForA11y,
   AppScreen,
   Card,
   EmptyStateCard,
@@ -126,6 +137,7 @@ import {
   ScreenHeader,
   TextButton
 } from "../../src/ui";
+import { hapticSelection, hapticWarning } from "../../src/ui/haptics";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
 import { useReducedMotion } from "../../src/ui/useReducedMotion";
 import { motion } from "../../src/design-system/tokens/motion";
@@ -604,7 +616,9 @@ const homeHeroStyle = StyleSheet.create({
   }
 });
 
-/** "빠른 기록" 칩 4개: white · border gray300 · pill · minH 48 · 11/700(캡처 155-163·204-215). */
+/** "빠른 기록" 칩 4개: white · border gray300 · pill · minH 48 · 11/700(캡처 155-163·204-215).
+ * 라운드 102 F6b: 핀 칩은 라벨 앞에 작은 고정 글리프가 선다 — 뜻은 낭독 라벨이 함께 진다
+ * (색·글리프 단독 전달 금지). 글리프가 없는 칩의 렌더는 row 전환 후에도 종전과 같은 중앙 정렬이다. */
 const homeQuickRecordStyle = StyleSheet.create({
   chip: {
     alignItems: "center",
@@ -613,6 +627,8 @@ const homeQuickRecordStyle = StyleSheet.create({
     borderRadius: theme.radii.pill,
     borderWidth: 1,
     flex: 1,
+    flexDirection: "row",
+    gap: 4,
     justifyContent: "center",
     minHeight: theme.touchTarget,
     paddingHorizontal: 6
@@ -1651,15 +1667,104 @@ export default function HomeScreen() {
       offlineSyncSnapshot.rows
     ]
   );
+  // 라운드 102 F6b: 핀 목록·토글도 이 블록의 훅이다(FIX-A — 조기 반환 위). 값의 원천은 persist
+  // 스토어 하나이고(화면 로컬 state 금지), 병합 규칙은 아래 memo가 넘기는 순수 모듈에 있다.
+  const pinnedQuickRecordItemNames = useQuickRecordPinsStore((state) => state.pinnedItemNames);
+  const toggleQuickRecordPin = useQuickRecordPinsStore((state) => state.togglePin);
   const quickRecordChips = useMemo(
     () =>
       buildHomeQuickRecordChips(
         childId
           ? buildRecentItemChips(offlineSyncSnapshot.rows, childId, { serverRows: thisMonthExpenses.data?.expenses })
-          : null
+          : null,
+        // 라운드 102 F6b: 핀이 최근 이력보다 앞칸에 선다(핀 우선·중복 제거·상한 — 순수 모듈).
+        pinnedQuickRecordItemNames
       ),
-    [childId, offlineSyncSnapshot.rows, thisMonthExpenses.data?.expenses]
+    [childId, offlineSyncSnapshot.rows, thisMonthExpenses.data?.expenses, pinnedQuickRecordItemNames]
   );
+  /**
+   * 라운드 102 리뷰 L-핀 — 핀 토글의 **확인 신호**. 두 입구(길게 누르기 · TalkBack 커스텀
+   * 액션)가 같은 이 함수를 지난다: 한쪽에만 확인을 달면 보조기술 경로가 조용한 채로 남는다.
+   *
+   * 종전에는 토글이 성사돼도 바뀌는 것이 칩 앞 글리프와 칩 순서뿐이었다 — 둘 다 **시각 신호**라
+   * 스크린리더 사용자에게는 아무 일도 일어나지 않은 것과 같았고(목록이 다시 그려져도 포커스가
+   * 옮겨 가지 않아 새 라벨이 자동으로 읽히지 않는다), 눈으로 보는 사용자에게도 길게 누르기가
+   * 먹혔는지 알려 주는 촉각 확인이 없었다. 준비템 상태 체크와 **같은 세기**(hapticSelection)와
+   * Toast와 같은 낭독 경로(announceForA11y)를 쓴다.
+   *
+   * 값이 실제로 바뀌었을 때만 신호를 낸다: 순수 모듈은 변화 없음을 **같은 배열 참조**로 알려
+   * 주므로(상한에서의 추가 시도 — UI로는 닿지 않는 손상 저장본 방어) 그 갈래에서는 조용하다.
+   */
+  const toggleQuickRecordPinWithFeedback = (itemName: string) => {
+    const before = useQuickRecordPinsStore.getState().pinnedItemNames;
+    toggleQuickRecordPin(itemName);
+    // 스토어의 set은 동기라 이 줄에서 이미 토글 뒤 목록이다.
+    const after = useQuickRecordPinsStore.getState().pinnedItemNames;
+    if (after === before) return;
+    hapticSelection();
+    const message = quickRecordPinToggleAnnouncement(itemName, after);
+    if (message) announceForA11y(message);
+  };
+  /**
+   * 라운드 102 F6b — 라운드 101 트랙 B의 이월 1건: 예산 100% 경고 배너의 **등장 순간**에
+   * hapticWarning() 한 번. (HOME-BUDGET-113 배너 자신도 이 판정 하나를 읽는다.)
+   *
+   * 렌더 중 발화 금지(src/ui/haptics.ts 머리말)라 등장을 effect가 감지한다. FIX-A: 훅이라 아래
+   * 조기 반환들보다 위에 서야 한다.
+   *
+   * ⚠️ 두 시점 ① (라운드 102 리뷰 M-1 부수) — 종전에는 같은 순수 판정이 이 파일에 **두 번**
+   * 있었다(여기 memo 하나, 배너 자리에 하나). 두 자리가 갈리면 배너 없이 진동이 나므로 계약이
+   * 나란함을 재고 있었는데, 나란해야 하는 두 벌을 두느니 **한 벌로 접는 것**이 그 계약이 원한
+   * 상태다. 세션 갈래에서 두 입력(예산·사용액)이 같은 값임은 아래 `monthlyUsed` 주석이 근거를
+   * 진다(`visibleHome`은 세션이면 `home.data`이고, 같은 `resolveThisMonthUsedKrw`를 같은
+   * 캐시·스냅숏으로 지난다). 비세션 미리보기가 null인 것도 종전과 같다.
+   *
+   * ⚠️ 두 시점 ② (라운드 102 리뷰 M-5) — 게이트에 `homePhase !== "ready"`가 없었다. 배너는
+   * `homePhase === "error"` 조기 반환 **뒤**에만 그려지므로, 오프라인 재조회 실패(에러 카드만
+   * 뜬 화면)에서 오프라인 대기 행이 100%를 넘기면 **배너 없이 진동만** 났다. 판정의 게이트를
+   * 렌더의 게이트와 같은 자리에 둔다.
+   *
+   * 발화는 exceeded(100% 도달/초과) 갈래뿐이다 — 80% 접근 배너는 "확인해 보세요"지 경고가
+   * 아니고, 잦은 진동은 확인이 아니라 소음이다(같은 모듈 머리말의 세기 선택 근거).
+   */
+  const budgetWarning = useMemo(() => {
+    if (!hasSession || homePhase !== "ready" || !home.data) return null;
+    const spentKrw =
+      resolveThisMonthUsedKrw({
+        cachedExpenses: thisMonthExpenses.data?.expenses ?? null,
+        offline: { rows: offlineSyncSnapshot.rows, childId, yearMonth: thisYearMonth },
+        homeUsedKrw: home.data.monthly.usedAmountKrw
+      }) ?? home.data.monthly.usedAmountKrw;
+    return evaluateBudgetWarning({ budgetKrw: home.data.monthly.amountKrw, spentKrw });
+  }, [hasSession, homePhase, home.data, thisMonthExpenses.data?.expenses, offlineSyncSnapshot.rows, childId, thisYearMonth]);
+  const exceededBudgetWarningVisible = budgetWarning?.level === "exceeded";
+  const claimBudgetWarningHaptic = useBudgetWarningHapticStore((state) => state.claimBoundary);
+  /**
+   * ⚠️ 두 시점 (라운드 102 리뷰 M-1) — 중복 발화 기억이 `useRef`였다. ref는 마운트마다 새로
+   * 서므로 **앱을 열 때마다** 울렸다: 예산을 초과한 달에는 홈에 들어올 때마다 진동이 났고,
+   * 그것은 설계 §4.4가 인용하는 at-most-once 규율(푸시의 (아이,월,경계) 유니크 클레임)과
+   * haptics.ts 머리말의 "경고는 드물다"를 함께 깬다. 기억을 persist 클레임으로 옮긴다 —
+   * 키에 월이 있으므로 달이 바뀌면 다시 한 번 울리고, 아이가 있으므로 형제자매가 서로의
+   * 클레임을 쓰지 않는다(src/stores/budget-warning-haptic.store.ts).
+   *
+   * 하이드레이션을 기다리는 이유: 저장본을 읽기 전에 클레임하면 언제나 "처음"이라 답하고,
+   * 그 답이 세운 touched가 하이드레이션의 되돌림까지 막아 종전과 똑같이 매번 울린다.
+   * 저장소 읽기 자체가 실패한 기기에서는 이 신호가 **조용히 나지 않는다** — 진동은 보조
+   * 채널이고 배너(문장)가 이미 사실을 말하므로, 잘못 울리는 쪽보다 안 울리는 쪽이 낫다.
+   */
+  useEffect(() => {
+    if (!exceededBudgetWarningVisible) return;
+    const claimKey = budgetWarningHapticClaimKey(childId, thisYearMonth, "exceeded");
+    if (!claimKey) return;
+    const fire = () => {
+      if (claimBudgetWarningHaptic(claimKey)) hapticWarning();
+    };
+    if (useBudgetWarningHapticStore.persist.hasHydrated()) {
+      fire();
+      return;
+    }
+    return useBudgetWarningHapticStore.persist.onFinishHydration(fire);
+  }, [exceededBudgetWarningVisible, childId, thisYearMonth, claimBudgetWarningHaptic]);
 
   if (hasSession && homePhase === "error") {
     return (
@@ -1818,7 +1923,11 @@ export default function HomeScreen() {
   const progress = budgetProgress.percent ?? 0;
   // HOME-BUDGET-113: session-gated like NOTI-102 so the logged-out preview stays inert.
   // usedAmountKrw is the gift-excluded month total (DNC-015), see budget-warning.ts.
-  const budgetWarning = hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null;
+  // ⚠️ 두 시점(라운드 102 리뷰 M-1 부수): 이 자리에는 같은 판정 함수를 `budget`/`monthlyUsed`로
+  // 한 번 더 부르는 **두 번째 벌**이 있었다. 위 memo 한 벌로 접었다 — 세션 갈래에서 그 두 값이
+  // memo의 두 입력과 같은 값이기 때문이다(바로 위 두 주석이 그 근거이고, 비세션은 양쪽 다
+  // null이다). 판정이 한 벌이면 "배너 없이 진동"이 구조적으로 없다(그 나란함을 재던 계약은
+  // src/ui/haptics.test.ts이고, 오늘 그 계약은 **호출 자리가 하나임**을 문다).
   // 기능 라운드 1 트랙 A — 월말 예상(예산 페이스). 입력은 경고 배너와 **같은 한 값**이다:
   // 예산은 monthly.amountKrw, 사용액은 오프라인 대기 행까지 재조정한 monthlyUsed(라운드 51 #7).
   // 다른 모집단으로 예측하면 배너와 이 카드가 서로 다른 현재를 외삽하게 된다. 표시 규칙(예산
@@ -2866,11 +2975,26 @@ export default function HomeScreen() {
               {HOME_QUICK_RECORD_SECTION_TITLE}
             </Text>
             <View style={homeQuickRecordStyle.row}>
+              {/* 라운드 102 F6b: 품목 칩은 길게 눌러 핀/해제한다 — 기록 행 롱프레스 액션
+                  (app/(tabs)/records.tsx)과 같은 관례로, 길게 누르기를 못 듣는 보조기술에는
+                  힌트 문장 + 커스텀 액션이 같은 일을 노출한다. "직접 입력" 칩(itemName null)은
+                  핀 대상이 아니라 종전 그대로다. 핀 저장은 기기 단위 persist 스토어 하나다. */}
               {quickRecordChips.map((chip) => (
                 <Pressable
                   key={chip.testID}
-                  accessibilityLabel={chip.label}
+                  accessibilityLabel={quickRecordChipAccessibilityLabel(chip)}
                   accessibilityRole="button"
+                  accessibilityHint={chip.itemName ? quickRecordPinToggleHint() : undefined}
+                  accessibilityActions={chip.itemName ? quickRecordChipAccessibilityActions(chip) : undefined}
+                  onAccessibilityAction={
+                    chip.itemName
+                      ? (event) => {
+                          if (isQuickRecordPinToggleAction(event.nativeEvent.actionName)) {
+                            toggleQuickRecordPinWithFeedback(chip.itemName!);
+                          }
+                        }
+                      : undefined
+                  }
                   testID={chip.testID}
                   onPress={expenseGate.guard(() => {
                     if (chip.itemName) {
@@ -2879,8 +3003,10 @@ export default function HomeScreen() {
                     }
                     router.push("/expenses/new");
                   })}
+                  onLongPress={chip.itemName ? () => toggleQuickRecordPinWithFeedback(chip.itemName!) : undefined}
                   style={({ pressed }) => [homeQuickRecordStyle.chip, pressed && homePressedStyle]}
                 >
+                  {chip.pinned ? <AppIcon color={theme.colors.coral[700]} name="pin" size={12} /> : null}
                   <KoreanText style={homeQuickRecordStyle.label}>{chip.label}</KoreanText>
                 </Pressable>
               ))}

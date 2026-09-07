@@ -21,7 +21,10 @@ import {
  *     Vibration 폴백을 탄다(근거는 src/ui/haptics.ts 머리말).
  *  3. persist 규약 — 스토어가 저장소의 다른 스토어와 같은 한 벌(name·version·방어적 migrate/merge),
  *     기본 켬, 명시적 false만 끔으로 살린다.
- *  4. 채택 지점 — 세 호출이 전부 핸들러/콜백 안이다(EXP-001/ITEM-001 비세션 렌더 무접촉).
+ *  4. 채택 지점 — 호출이 전부 핸들러/콜백 **또는 effect** 안이다(EXP-001/ITEM-001 비세션 렌더
+ *     무접촉). ⚠️ 두 시점(라운드 102 리뷰 L-10): 라운드 101 시점의 이 줄은 "세 호출이 전부
+ *     핸들러/콜백 안"이었다 — 라운드 102 F6b의 예산 경고 채택이 effect라 목록이 넓어졌고,
+ *     금지 대상은 처음부터 **렌더 경로**였다(모듈 머리말의 그 문장).
  */
 
 const source = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
@@ -249,9 +252,58 @@ describe("라운드 101 트랙 B 채택 지점 (source verification — 화면�
     expect(src).toContain("const setHapticsEnabled = useHapticsStore((state) => state.setHapticsEnabled);");
   });
 
-  it("홈(index.tsx)은 소유 밖 — 이 라운드가 홈에 햅틱을 심지 않았다(예산 경고 채택은 이월)", () => {
+  it("홈 예산 100% 경고 배너: hapticWarning이 등장 감지 effect 안에만 있고, 발화 기억은 persist 클레임이다 (라운드 102 F6b + 리뷰 M-1·M-5)", () => {
+    // ⚠️ 두 시점 ①: 라운드 101 트랙 B 시점의 이 자리는 부정 단언이었다 — "홈(index.tsx)은 소유
+    // 밖이라 이 라운드가 홈에 햅틱을 심지 않았다(예산 경고 채택은 이월)". 라운드 102 F6b가 그
+    // 이월 1건을 배선하며 같은 자리를 채택 계약으로 바꿨다.
+    // ⚠️ 두 시점 ②(리뷰 M-1): F6b의 중복 방지는 `useRef`였다 — 마운트마다 새로 서므로 앱을 열
+    // 때마다 울렸다(예산 초과 달 내내). 오늘의 계약은 **(아이, 월, 경계) persist 클레임**이다
+    // (설계 §4.4가 인용하는 푸시 at-most-once와 같은 축).
+    // ⚠️ 두 시점 ③(리뷰 M-5): 판정 게이트에 `homePhase`가 없어 에러 카드 화면(배너 없음)에서
+    // 진동만 나는 갈래가 있었다. 게이트가 렌더의 게이트와 같은 자리에 선다.
     const homeSource = source("app/(tabs)/index.tsx");
-    expect(homeSource).not.toContain("haptic");
-    expect(homeSource).not.toContain("haptics.store");
+    expect(homeSource).toContain('import { hapticSelection, hapticWarning } from "../../src/ui/haptics";');
+    // 슬라이스 두 끝 가드 — 판정 memo의 선언부터 첫 조기 반환까지. 끝 앵커가 시작보다 뒤라는
+    // 단언이 곧 FIX-A(훅이 조기 반환들보다 위) 확인이기도 하다.
+    const start = homeSource.indexOf("const budgetWarning = useMemo(() => {");
+    const end = homeSource.indexOf('if (hasSession && homePhase === "error") {');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const block = homeSource.slice(start, end);
+    // 판정은 배너와 **같은 한 벌**이다(리뷰 M-1 부수: 두 번째 벌을 이 memo로 접었다) — 나란해야
+    // 하는 두 자리가 아예 없으므로 "배너 없이 진동"이 구조적으로 불가능하다.
+    expect(block).toContain("resolveThisMonthUsedKrw({");
+    expect(block).toContain("evaluateBudgetWarning({ budgetKrw: home.data.monthly.amountKrw, spentKrw })");
+    expect(homeSource.match(/evaluateBudgetWarning\(\{/g) ?? []).toHaveLength(1);
+    // 게이트 셋: 세션 · 화면 단계 ready(에러/로딩 조기 반환 갈래 제외) · 데이터 존재.
+    expect(block).toContain('if (!hasSession || homePhase !== "ready" || !home.data) return null;');
+    // 발화는 exceeded(100% 도달/초과) 갈래뿐이다 — 80% 접근 배너는 경고가 아니다.
+    expect(block).toContain('const exceededBudgetWarningVisible = budgetWarning?.level === "exceeded";');
+    // 렌더 무접촉: 발화는 effect 안 이 한 곳뿐이고, 중복 방지는 화면 밖 persist 클레임이 진다.
+    expect(block).toContain('budgetWarningHapticClaimKey(childId, thisYearMonth, "exceeded")');
+    expect(block).toContain("if (claimBudgetWarningHaptic(claimKey)) hapticWarning();");
+    // 하이드레이션 전에 클레임하면 언제나 "처음"이라 답한다 — 저장본을 읽은 뒤에만 묻는다.
+    expect(block).toContain("if (useBudgetWarningHapticStore.persist.hasHydrated()) {");
+    expect(block).toContain("return useBudgetWarningHapticStore.persist.onFinishHydration(fire);");
+    // 종전 ref 기억은 남아 있지 않다(되돌리면 여기서 빨개진다).
+    expect(homeSource).not.toContain("exceededWarningHapticFired");
+    expect(homeSource.match(/hapticWarning\(\);/g) ?? []).toHaveLength(1);
+  });
+
+  it("홈 빠른 기록 칩 핀: hapticSelection이 두 입구가 공유하는 토글 핸들러 안에만 있다 (라운드 102 리뷰 L-핀)", () => {
+    const homeSource = source("app/(tabs)/index.tsx");
+    const start = homeSource.indexOf("const toggleQuickRecordPinWithFeedback = (itemName: string) => {");
+    const end = homeSource.indexOf("if (hasSession && homePhase === ");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const handler = homeSource.slice(start, homeSource.indexOf("};", start));
+    // 값이 실제로 바뀐 토글에서만 확인 신호가 난다(상한 갈래는 같은 배열 참조로 눕는다).
+    expect(handler).toContain("if (after === before) return;");
+    expect(handler).toContain("hapticSelection();");
+    // 촉각과 낭독이 한 쌍이다 — 글리프·순서(시각)만으로는 성사됐는지 알 방법이 없다.
+    expect(handler).toContain("quickRecordPinToggleAnnouncement(itemName, after)");
+    expect(handler).toContain("announceForA11y(message)");
+    // 렌더 무접촉: 이 화면의 선택 햅틱은 이 한 곳뿐이다(두 입구가 같은 함수를 지난다).
+    expect(homeSource.match(/hapticSelection\(\);/g) ?? []).toHaveLength(1);
   });
 });

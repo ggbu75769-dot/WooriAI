@@ -59,7 +59,17 @@ export class BudgetsController {
     @Param("childId") childId: string,
     @Body(createDtoValidationPipe(UpsertBudgetDto)) body: UpsertBudgetDto
   ) {
-    const result = await this.store.upsertBudget(request.user!, childId, body.yearMonth, body.amountKrw);
+    // 라운드 102 T1: categoryBudgets는 그대로 흘려보낸다 — 필드 부재 무접촉/집합 교체와
+    // 봉투 가산(§2.2/§2.6)은 서비스가 진다. 봉투는 종전과 같은 한 action(budget.upsert)
+    // 하나다: 저장은 화면에서도 서버에서도 한 번의 예산 저장이고, 봉투가 갈라지면
+    // "누가 언제 얼마에서 얼마로"(GAP-063 #5)에 두 행을 대조해야 답하게 된다.
+    const result = await this.store.upsertBudget(
+      request.user!,
+      childId,
+      body.yearMonth,
+      body.amountKrw,
+      body.categoryBudgets
+    );
     await this.auditLogger.record({
       actorUserId: request.user!.id,
       householdId: result.householdId,

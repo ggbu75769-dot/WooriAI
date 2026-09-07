@@ -217,7 +217,7 @@ const productDetailFloatingControlsStyle = {
 } as const;
 const productDetailChromeButtonStyle = {
   alignItems: "center",
-  backgroundColor: "rgba(255, 255, 255, 0.82)",
+  backgroundColor: theme.colors.presentation.floatingChromeSurface,
   borderRadius: 17,
   height: 34,
   justifyContent: "center",
@@ -1509,7 +1509,7 @@ export default function ItemDetailScreen() {
                 // (allowFontScaling 기본값 유지 — 이 화면의 다른 글자들과 같은 규칙).
                 style={{
                   backgroundColor: theme.colors.white,
-                  borderColor: "rgba(74, 63, 53, 0.10)",
+                  borderColor: theme.colors.presentation.hairlineStrong,
                   borderRadius: 14,
                   borderWidth: 1,
                   color: theme.colors.brown,

@@ -970,9 +970,14 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // 열어 233이 됐다(두 시점). 라운드 101 리뷰의 재실측이 237이다(두 시점 — git 워크트리 대조):
     // 햅틱 셋(hapticSelection·hapticSuccess·hapticWarning)은 호출 직전 주석의 마침표가 `.\n이름`
     // 속성 모양으로 읽힌 오독 표면이고, useRecentSearchesStore는 LOGOUT_UNCOUNTED_TEARDOWN_STORES
-    // 표의 실제 객체 키다(대장 value도 함께 237로 적음).
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(237);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(237);
+    // 표의 실제 객체 키다. 라운드 102 F6b가 238로 하나 올렸다(두 시점 — namesAlsoUsedAsProperty()
+    // 실측, 순증은 useQuickRecordPinsStore 하나뿐): 홈 빠른 기록 칩 핀 스토어가
+    // useRecentSearchesStore와 같은 길(teardown 등재 + 같은 표의 실제 객체 키)로 들어왔다
+    // (대장 value도 함께 238로 적음). 라운드 102 리뷰 M-1이 239로 하나 더 올렸다(두 시점 —
+    // 같은 길: useBudgetWarningHapticStore가 teardown 등재와 함께 같은 표의 객체 키로 섰다.
+    // 같은 배치의 다른 새 export 넷은 속성/키 자리로 서지 않아 이 수를 움직이지 않는다).
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(239);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(239);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.

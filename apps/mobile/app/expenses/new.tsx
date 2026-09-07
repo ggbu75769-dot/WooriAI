@@ -281,7 +281,7 @@ const quickExpenseCategoryTileStyle = StyleSheet.create({
   button: {
     alignItems: "center",
     backgroundColor: theme.colors.white,
-    borderColor: "rgba(74, 63, 53, 0.10)",
+    borderColor: theme.colors.presentation.hairlineStrong,
     borderRadius: 16,
     borderWidth: 1,
     gap: 6,
@@ -1951,7 +1951,7 @@ export default function NewExpenseScreen() {
             style={({ pressed }) => ({
               alignItems: "center",
               backgroundColor: theme.colors.white,
-              borderColor: "rgba(74, 63, 53, 0.10)",
+              borderColor: theme.colors.presentation.hairlineStrong,
               borderRadius: 14,
               borderWidth: 1,
               height: 48,
@@ -2037,7 +2037,7 @@ export default function NewExpenseScreen() {
                   placeholder="YYYY-MM-DD"
                   style={{
                     backgroundColor: theme.colors.white,
-                    borderColor: dateInputError ? theme.colors.danger : "rgba(74, 63, 53, 0.10)",
+                    borderColor: dateInputError ? theme.colors.danger : theme.colors.presentation.hairlineStrong,
                     borderRadius: 14,
                     borderWidth: 1,
                     color: theme.colors.brown,
@@ -2140,12 +2140,14 @@ export default function NewExpenseScreen() {
               placeholder="품목명 (예: 기저귀)"
               // DSN-053 P2-C: 요약바의 연필과 빠른 품목의 "직접 입력"이 겨누는 유일한 입력칸.
               ref={itemNameInputRef}
-              // 토스 리뷰 L(기록): 이 헤어라인 rgba는 기존 관례값 사본이다(#4A3F35 브라운 10% —
-              // ExpenseDatePicker·RecordsCalendar·child-profile에 기존 존재, DNC-017 팔레트 교체
-              // 아님). theme에 hairline 토큰이 서는 라운드에 파일들 일괄 이관 몫.
+              // 토스 리뷰 L(기록): 이 헤어라인은 기존 관례값이다(#4A3F35 브라운 10% —
+              // ExpenseDatePicker·RecordsCalendar·child-profile과 같은 값, DNC-017 팔레트 교체
+              // 아님). ⚠️ 두 시점(라운드 102 TK3) — 예고했던 "일괄 이관"이 이 라운드에 실행돼
+              // 파일 전체가 hairlineStrong 토큰을 부른다(값=종전 리터럴, 대조는
+              // src/color-literal-tokenization.test.ts).
               style={{
                 backgroundColor: theme.colors.white,
-                borderColor: "rgba(74, 63, 53, 0.10)",
+                borderColor: theme.colors.presentation.hairlineStrong,
                 borderRadius: 14,
                 borderWidth: 1,
                 color: theme.colors.brown,
@@ -2211,7 +2213,7 @@ export default function NewExpenseScreen() {
               key={`quick-items-${category.id}-${category.label}`}
               style={{
                 backgroundColor: theme.colors.white,
-                borderColor: expanded ? theme.colors.mainCoral : "rgba(74, 63, 53, 0.10)",
+                borderColor: expanded ? theme.colors.mainCoral : theme.colors.presentation.hairlineStrong,
                 borderRadius: 16,
                 borderWidth: 1,
                 overflow: "hidden"
@@ -2329,7 +2331,7 @@ export default function NewExpenseScreen() {
               ref={merchantInputRef}
               style={{
                 backgroundColor: theme.colors.white,
-                borderColor: "rgba(74, 63, 53, 0.10)",
+                borderColor: theme.colors.presentation.hairlineStrong,
                 borderRadius: 14,
                 borderWidth: 1,
                 color: theme.colors.brown,
@@ -2380,7 +2382,7 @@ export default function NewExpenseScreen() {
           placeholder="메모를 입력해 주세요 (선택)"
           style={{
             backgroundColor: theme.colors.white,
-            borderColor: "rgba(74, 63, 53, 0.10)",
+            borderColor: theme.colors.presentation.hairlineStrong,
             borderRadius: 14,
             borderWidth: 1,
             color: theme.colors.brown,
@@ -2402,7 +2404,7 @@ export default function NewExpenseScreen() {
           accessibilityLabel="결제 수단 변경"
           style={{
             backgroundColor: theme.colors.white,
-            borderColor: "rgba(74, 63, 53, 0.10)",
+            borderColor: theme.colors.presentation.hairlineStrong,
             borderRadius: 14,
             borderWidth: 1,
             gap: 10,
@@ -2466,7 +2468,7 @@ export default function NewExpenseScreen() {
             style={{
               alignItems: "center",
               backgroundColor: theme.colors.white,
-              borderColor: "rgba(74, 63, 53, 0.10)",
+              borderColor: theme.colors.presentation.hairlineStrong,
               borderRadius: 14,
               borderWidth: 1,
               flexDirection: "row",
@@ -2571,7 +2573,7 @@ export default function NewExpenseScreen() {
       <View
         style={{
           backgroundColor: theme.colors.white,
-          borderColor: "rgba(74, 63, 53, 0.10)",
+          borderColor: theme.colors.presentation.hairlineStrong,
           borderTopWidth: 1,
           paddingHorizontal: 20,
           paddingVertical: 12

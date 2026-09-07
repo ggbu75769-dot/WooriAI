@@ -109,7 +109,7 @@ import {
   PRE_BIRTH_FILTER_LABEL,
   shouldOfferPreBirthFilter
 } from "../../src/items/pre-birth-filter";
-import { buildNextStagePreview } from "../../src/items/next-stage-preview";
+import { buildNextStagePreview, buildNextStagePrepGapNote } from "../../src/items/next-stage-preview";
 import {
   GIFTED_RESET_CONFIRM_ACTION_LABEL,
   GIFTED_RESET_CONFIRM_CANCEL_LABEL,
@@ -801,6 +801,15 @@ export default function ItemsScreen() {
           celebrationVisible: showPrepCelebration
         })
       : null;
+  /**
+   * 라운드 102 N1 — 배너 제목 아래 미준비 필수템 한 줄. 판정·문구는 순수 모듈이 지고
+   * (buildNextStagePrepGapNote — 모집단 규칙은 prep-progress 한 벌 재사용), 모집단은 준비율
+   * 히어로와 같은 **보정 목록**(effectiveStatusItems — 라운드 99 F2 M-1의 상류 낙관 반영,
+   * 커스텀 품목도 같은 tab="all" 스냅숏으로 합류)이다. 원시 스냅숏을 넘기면 방금 누른
+   * "준비했어요"가 타일에는 보이는데 이 줄에는 안 잡히는 모순이 되살아난다. 배너 자체가
+   * null이면(비세션·픽셀 락 포함 — 위 이중 게이트) 이 줄도 null이라 ITEM-001 캡처 무접촉이다.
+   */
+  const nextStagePrepGapNote = buildNextStagePrepGapNote(nextStagePreview, effectiveStatusItems);
   // "먼저 챙기면 좋아요" 대상: 서버가 준 순서 그대로에서 앞선 미준비 필수템 1~2개를 **고르기만**
   // 한다(클라이언트 재정렬 없음). 같은 항목을 타일로 다시 그리지 않고, 목록 위 한 줄 안내 +
   // 제자리 배지로만 구분한다.
@@ -1109,6 +1118,16 @@ export default function ItemsScreen() {
                 >
                   {nextStagePreview.title}
                 </Text>
+                {/* 라운드 102 N1: 다가오는 밴드의 미준비 필수템 한 줄(0개면 완료 관측형 —
+                    갈래 근거는 모듈 머리말). 문장은 모듈이 만들고 화면은 그리기만 한다. */}
+                {nextStagePrepGapNote ? (
+                  <Text
+                    accessibilityRole="text"
+                    style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}
+                  >
+                    {nextStagePrepGapNote.text}
+                  </Text>
+                ) : null}
                 {nextStagePreview.previewActionLabel ? (
                   <SecondaryButton
                     label={nextStagePreview.previewActionLabel}

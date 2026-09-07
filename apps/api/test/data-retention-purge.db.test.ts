@@ -669,12 +669,26 @@ describe.skipIf(!dbAvailable)("DataRetentionPurgeJob (PRIV-105, real Postgres)",
       const doomedItem = await createCustomItem(agedOutChild.id, user.id);
       const recentChild = await createChild(household.id, null);
       const keptItem = await createCustomItem(recentChild.id, user.id);
+      // 라운드 102 T1(설계 §1.5 체크리스트): category_budgets도 child_id ON DELETE
+      // CASCADE(000023)라 아이 물리 파기(child.deleteMany)가 잡 코드 수정 없이 함께
+      // 지운다 — custom_items(000022)와 같은 관례. 카테고리 행 자체(운영 시드,
+      // 여기서는 모바일 별칭 시드의 고정 id)는 파기 대상이 아니다.
+      const doomedCategoryBudget = await prisma.categoryBudget.create({
+        data: {
+          childId: agedOutChild.id,
+          yearMonth: new Date("2026-07-01"),
+          categoryId: "c0a7e901-0000-4c01-8c01-c47e900ec001",
+          amountKrw: 90000
+        }
+      });
 
       const result = await job.run(now);
       expect(result.childrenPurged as number).toBeGreaterThanOrEqual(1);
 
       expect(await prisma.child.findUnique({ where: { id: agedOutChild.id } })).toBeNull();
       expect(await prisma.customItem.findUnique({ where: { id: doomedItem.id } })).toBeNull();
+      // 라운드 102: 아이 물리 파기 후 category_budgets 0행(고아 0 — FK 캐스케이드 증명).
+      expect(await prisma.categoryBudget.findUnique({ where: { id: doomedCategoryBudget.id } })).toBeNull();
       // 살아 있는 아이의 커스텀 품목은 무접촉.
       expect(await prisma.customItem.findUnique({ where: { id: keptItem.id } })).not.toBeNull();
 

@@ -116,9 +116,15 @@ describe("HOME-BUDGET-113 home screen wiring contract", () => {
   });
 
   it("keeps the logged-out preview inert (session-gated like NOTI-102)", () => {
-    expect(homeSource).toContain(
-      "hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null"
-    );
+    // ⚠️ 두 시점 (라운드 102 리뷰 M-1·M-5): 종전 배선은 렌더 자리에서 `hasSession ?
+    // evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null`이었고, 같은
+    // 판정의 **두 번째 벌**이 조기 반환 위 memo에도 있었다(햅틱 발화용). 두 벌을 memo 하나로
+    // 접으면서 게이트가 그 memo로 옮겨 갔다 — 비세션이 null인 사실은 그대로이고(`!hasSession`),
+    // 화면 단계 게이트(`homePhase !== "ready"`)가 함께 선 것이 M-5의 수정이다.
+    expect(homeSource).toContain('if (!hasSession || homePhase !== "ready" || !home.data) return null;');
+    expect(homeSource).toContain("const budgetWarning = useMemo(() => {");
+    // 판정 호출 자리는 저장소 전체에서 **하나**다(두 자리가 갈리면 배너 없이 진동이 난다).
+    expect(homeSource.match(/evaluateBudgetWarning\(\{/g) ?? []).toHaveLength(1);
   });
 
   it("uses the brand semantic warning/danger tokens for the two tones", () => {
@@ -282,9 +288,19 @@ describe("라운드 51 #7 홈 화면 배선 계약", () => {
   it("네 소비처가 모두 같은 한 값을 읽는다(히어로 · 진행바 · 경고 · 넛지)", () => {
     expect(homeSource).toContain("amount={formatKrw(monthlyUsed)}");
     expect(homeSource).toContain("budgetKrw: budget,\n    spentKrw: monthlyUsed,");
-    expect(homeSource).toContain(
-      "hasSession ? evaluateBudgetWarning({ budgetKrw: budget, spentKrw: monthlyUsed }) : null"
-    );
+    // ⚠️ 두 시점 (라운드 102 리뷰 M-1): 경고만 `monthlyUsed` 식별자를 더 이상 읽지 않는다 —
+    // 그 판정이 조기 반환 **위**의 memo로 접혔기 때문이다(햅틱 effect가 훅이라 그 위에 서야
+    // 한다). 값이 같다는 것은 식별자가 아니라 **입력 셋이 같다**는 사실이 진다: 세션 갈래에서
+    // `serverMonthlyUsedKrw`는 `home.data.monthly.usedAmountKrw`이고(visibleHome = home.data),
+    // 나머지 두 입력(이번 달 캐시·오프라인 스냅숏)도 아래 단언이 잡는 그 한 벌이다.
+    const memoStart = homeSource.indexOf("const budgetWarning = useMemo(() => {");
+    const memo = homeSource.slice(memoStart, homeSource.indexOf("}, [hasSession, homePhase,", memoStart));
+    expect(memoStart).toBeGreaterThan(-1);
+    expect(memo).toContain("cachedExpenses: thisMonthExpenses.data?.expenses ?? null");
+    expect(memo).toContain("offline: { rows: offlineSyncSnapshot.rows, childId, yearMonth: thisYearMonth }");
+    expect(memo).toContain("homeUsedKrw: home.data.monthly.usedAmountKrw");
+    expect(memo).toContain("evaluateBudgetWarning({ budgetKrw: home.data.monthly.amountKrw, spentKrw })");
+    expect(homeSource).toContain("const serverMonthlyUsedKrw = visibleHome.monthly.usedAmountKrw;");
     // 넛지도 같은 값에서 문구를 만든다.
     const nudgeStart = homeSource.indexOf("const budgetNudge = buildHomeBudgetNudge({");
     expect(homeSource.slice(nudgeStart, homeSource.indexOf("});", nudgeStart))).toContain("spentKrw: monthlyUsed");

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { semanticColors } from "./design-system/tokens/color";
 import { theme } from "./theme";
 
 /**
@@ -35,6 +36,20 @@ import { theme } from "./theme";
  *  · app/settings/children.tsx:156 — 아이 관리 카드 외곽선(같은 0.10 변종)
  * 셋 다 new.tsx·index.tsx와 같은 "다음 차수 몫"이다(이 라운드는 명기만 하고 치환하지 않는다 —
  * 줄 번호는 라운드마다 밀릴 수 있으므로 바늘은 파일:값이고 줄은 오늘의 길잡이다).
+ *
+ * ⚠️ 두 시점(라운드 102 TK3) — 위 명기 세 자리와 new.tsx(1차 때 웨이브 충돌로 제외됐던
+ * 그 파일 — 0.10 변종 10자리 실측)는 **3차가 회수했다**(아래 "TK3" describe들). 추가로
+ * 준비템 상세의 플로팅 크롬 서피스(흰 82% → 신규 floatingChromeSurface)와 design-system
+ * BudgetHeroCard 진행 바 트랙(흰 32% → semanticColors 신규 progressTrackInverse — theme이
+ * 아니라 design-system 토큰이다: 그 레이어는 theme을 부르지 않는다)도 함께 회수했다.
+ * 3차 뒤의 잔여 목록(코드 색 리터럴 전수 재실측):
+ *  · app/(tabs)/index.tsx:421("rgba(74, 63, 53, 0.10)") · :584("rgba(255, 255, 255, 0.18)")
+ *    — 이번 라운드 병렬 트랙과 충돌(무접촉) · 다음 차수 몫
+ *    ⚠️ 두 시점(라운드 102 리뷰 L-10): 이 두 줄 번호는 3차 작성 시점에 **409·572**로 적혔는데,
+ *    같은 라운드의 다른 트랙(F6b 핀 배선)과 이 리뷰 배치가 그 위에 줄을 더해 오늘은 421·584다.
+ *    값(파일:리터럴)은 한 글자도 바뀌지 않았다 — 위 문단의 "바늘은 파일:값, 줄은 오늘의
+ *    길잡이"가 정확히 이 상황을 위한 문장이고, 길잡이는 낡으면 고친다.
+ *  · app/launch-animation.tsx — a11y-contract가 소스 리터럴을 단언하는 무접촉 계약(치환 대상 아님)
  */
 const mobileRoot = process.cwd();
 
@@ -273,5 +288,93 @@ describe("라운드 101 TK2 — 치환 자리의 소스 계약(2차)", () => {
     const src = readSource("src/expenses/ExpenseDatePicker.tsx");
     expect(src).toContain("borderColor: theme.colors.presentation.hairlineStrong,");
     expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
+  });
+});
+
+/**
+ * 라운드 102 TK3 — 3차(2차 잔여 회수)의 대조표. theme 신규 키는 floatingChromeSurface
+ * 하나(흰 82% — 준비템 상세 플로팅 크롬 원형 버튼 서피스, ITEM-002 승인 캡처의 값)다.
+ * design-system 쪽 신규 키는 semanticColors.progressTrackInverse 하나(흰 32% —
+ * BudgetHeroCard 진행 바 트랙)다: ModV1Primitives는 design-system 레이어라 theme을 부르지
+ * 않으므로 토큰의 집도 그 레이어의 대장(tokens/color.ts)이다. rgba 공백 표기는 종전 리터럴
+ * 그대로다(0.82는 공백 있음 · 0.32는 공백 없음 — 정규화하지 않는다).
+ */
+const tk3NewTokenFormerLiterals: ReadonlyArray<[keyof typeof theme.colors.presentation, string]> = [
+  ["floatingChromeSurface", "rgba(255, 255, 255, 0.82)"]
+];
+
+const tk3NewSemanticTokenFormerLiterals: ReadonlyArray<[keyof typeof semanticColors, string]> = [
+  ["progressTrackInverse", "rgba(255,255,255,0.32)"]
+];
+
+/**
+ * 3차의 나머지 자리는 전부 **1차가 만든 hairlineStrong의 재사용**이다 — 라운드 101 리뷰
+ * L-TK1이 명기한 세 자리(child-profile·준비템 상세·아이 관리)와 new.tsx의 0.10 변종
+ * 10자리(실측: 단독 borderColor 8 + 삼항의 기본 가지 2).
+ */
+const tk3ReusedTokenFormerLiterals: ReadonlyArray<[keyof typeof theme.colors.presentation, string]> = [
+  ["hairlineStrong", "rgba(74, 63, 53, 0.10)"]
+];
+
+describe("라운드 102 TK3 — 토큰 값 = 종전 리터럴 값(두 시점 대조 · 3차)", () => {
+  it("신규 floatingChromeSurface 토큰의 값이 종전 리터럴과 바이트 단위로 같다", () => {
+    for (const [token, formerLiteral] of tk3NewTokenFormerLiterals) {
+      expect(theme.colors.presentation[token], `presentation.${token}`).toBe(formerLiteral);
+    }
+  });
+
+  it("신규 semanticColors.progressTrackInverse의 값이 종전 리터럴과 바이트 단위로 같다", () => {
+    for (const [token, formerLiteral] of tk3NewSemanticTokenFormerLiterals) {
+      expect(semanticColors[token], `semanticColors.${token}`).toBe(formerLiteral);
+    }
+  });
+
+  it("1차 토큰을 재사용한 자리의 종전 리터럴도 그 토큰의 값 그대로다", () => {
+    for (const [token, formerLiteral] of tk3ReusedTokenFormerLiterals) {
+      expect(theme.colors.presentation[token], `presentation.${token}`).toBe(formerLiteral);
+    }
+  });
+});
+
+/**
+ * 3차 치환 자리의 파일별 계약 — 1·2차와 같은 문법: 토큰 참조의 실재(자리 수까지)와 종전
+ * 리터럴의 부재(따옴표째). new.tsx의 픽셀락(EXP-001)·entry-screen-visual-restore 노드
+ * 계약은 값 불변이므로 그대로 그린이다 — 여기서는 파일의 자리 수와 리터럴 부재만 문다.
+ */
+describe("라운드 102 TK3 — 치환 자리의 소스 계약(3차)", () => {
+  it("app/(onboarding)/child-profile.tsx: 달력 열기 버튼 외곽선(0.10 변종 — L-TK1 명기 자리)", () => {
+    const src = readSource("app/(onboarding)/child-profile.tsx");
+    expect(src).toContain("borderColor: theme.colors.presentation.hairlineStrong,");
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
+  });
+
+  it("app/settings/children.tsx: 달력 열기 버튼 외곽선(0.10 변종 — L-TK1 명기 자리)", () => {
+    const src = readSource("app/settings/children.tsx");
+    expect(src).toContain("borderColor: theme.colors.presentation.hairlineStrong,");
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
+  });
+
+  it("app/items/[itemTemplateId].tsx: 메모 입력 외곽선(L-TK1 명기 자리) + 플로팅 크롬 서피스", () => {
+    const src = readSource("app/items/[itemTemplateId].tsx");
+    expect(src).toContain("borderColor: theme.colors.presentation.hairlineStrong,");
+    expect(src).toContain("backgroundColor: theme.colors.presentation.floatingChromeSurface,");
+    for (const gone of ['"rgba(74, 63, 53,', '"rgba(255, 255, 255, 0.82)"']) {
+      expect(src, `종전 리터럴이 남아 있다: ${gone}`).not.toContain(gone);
+    }
+  });
+
+  it("app/expenses/new.tsx: 0.10 변종 전수 10자리(단독 8 + 삼항 기본 가지 2)", () => {
+    const src = readSource("app/expenses/new.tsx");
+    expect(src.match(/theme\.colors\.presentation\.hairlineStrong/g) ?? []).toHaveLength(10);
+    // 삼항 두 자리는 강조 가지(danger·mainCoral)를 그대로 두고 기본 가지만 토큰을 부른다.
+    expect(src).toContain("borderColor: dateInputError ? theme.colors.danger : theme.colors.presentation.hairlineStrong,");
+    expect(src).toContain("borderColor: expanded ? theme.colors.mainCoral : theme.colors.presentation.hairlineStrong,");
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(74, 63, 53,');
+  });
+
+  it("src/design-system/components/ModV1Primitives.tsx: 예산 히어로 진행 바 트랙(design-system 토큰)", () => {
+    const src = readSource("src/design-system/components/ModV1Primitives.tsx");
+    expect(src).toContain("backgroundColor: semanticColors.progressTrackInverse,");
+    expect(src, "종전 리터럴이 남아 있다").not.toContain('"rgba(255,255,255,0.32)"');
   });
 });

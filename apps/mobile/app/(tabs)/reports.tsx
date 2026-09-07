@@ -71,6 +71,10 @@ import {
   categoryTrendBarDrilldownLabel
 } from "../../src/reports/category-trend-drilldown";
 import { useCategoryTrend } from "../../src/reports/use-category-trend";
+// 라운드 102 T3: 월간 탭 도넛 아래 "카테고리 예산" 블록. 행 조립(가족 합류·퍼센트·문장)은 전부
+// 순수 모듈이 소유하고(docs/5차/round102-category-budget-design.md §4.3·§5.1) 화면은 그린다.
+// 사용액 합류의 단일 소스는 기록 탭 칩의 matchIds다 — buildRecordsCategoryChips는 읽기 전용.
+import { buildCategoryBudgetUsageRows } from "../../src/reports/category-budget-usage";
 // GAP-066 트랙 A(#1): 끝난 달의 예산 결과 한 줄. 판정·문구는 전부 순수 모듈에 있고, 예산
 // 퍼센트는 홈 히어로·인사이트와 **같은** evaluateHomeBudgetProgress에서 온다(두 벌 금지).
 import {
@@ -1120,6 +1124,27 @@ export default function ReportsScreen() {
         })
       : null;
 
+  /**
+   * 라운드 102 §4.3 — 월간 탭 "카테고리 예산" 블록의 행. 새 요청은 0건이다: 예산은 월간 리포트
+   * 응답(monthly.data.categoryBudgets — §2.4 가산), 사용액은 **도넛과 같은** 카테고리 분해
+   * 응답(activeCategory — 두 숫자의 모집단이 같다), 이름·별칭 가족은 이미 켜져 있는
+   * ["categories"] 캐시다. 카테고리 목록이 아직 없으면 행을 만들지 않는다(이름 폴백으로 엉뚱한
+   * 카테고리를 지목하거나 퀵타일 지출이 빠진 가짜 사용액을 만드느니 블록을 생략한다 —
+   * 인사이트 카드의 categories.isSuccess 게이트와 같은 판단).
+   *
+   * REP-001 픽셀락: hasSession 게이트라 비세션 미리보기 분기에는 닿지 않는다(카테고리 추이
+   * 카드가 같은 방식으로 증명한 형식 — §6.6). 분기·연간에 없는 이유는 끝난 달 예산 한 줄이
+   * 확정한 문장 그대로다("세 달·열두 달을 합친 예산이라는 것이 존재하지 않는다").
+   */
+  const categoryBudgetUsageRows =
+    hasSession && period === "월간" && monthly.isSuccess && activeCategory.isSuccess && categories.isSuccess
+      ? buildCategoryBudgetUsageRows({
+          budgets: monthly.data.categoryBudgets,
+          breakdown: activeCategory.data?.categories,
+          categories: categories.data?.categories
+        })
+      : [];
+
   // UX-H: 월간 요약 공유 문구. 인사이트 카드가 화면에 그린 문장과 "총 지출" 카드가 그린 금액을
   // **그대로** 실어, 보낸 문구와 화면이 어긋날 수 없게 한다(DNC-013/015).
   // 라운드 36 F-1/F-5: 어느 문장을 싣는지("가족에게 보내도 되는" 카테고리 1위 문장)와 진행 중인
@@ -1479,78 +1504,113 @@ export default function ReportsScreen() {
                     </Text>
                   ) : null}
                   </View>
-
-                  {/* 기능 라운드 1 트랙 C: 카테고리 월 추이. 칩 모집단이 곧 게이트다 —
-                      trendChips는 월간 탭 + 비중 조회 성공에서만 채워지므로(위 배선 주석)
-                      분기·연간과 비세션·로딩·실패 갈래에서는 카드 자체가 서지 않는다.
-                      범례 줄(위 도넛)은 종전 그대로 기록 드릴다운 입구다 — 두 동작이 한
-                      줄에 겹치지 않도록 추이는 자기 칩으로 고른다. 로딩은 카드 내부
-                      스켈레톤이고(이 화면의 자리 스켈레톤 관례), 실패 재시도는 실패한 달만
-                      다시 부른다. 낭독은 차트 한 덩어리의 accessibilityLabel이 달·금액
-                      전부를 말한다(라운드 85 차트 낭독 관례 — 시각 전용 정보 0건). */}
-                  {trendChips.length > 0 ? (
-                    <Card style={reportCategoryTrendCardStyle}>
-                      {/* Card는 testID를 받지 않아(ChildrenProps) 표식은 제목 줄에 둔다. */}
-                      <Text style={reportCategoryTrendTitleStyle} testID={CATEGORY_TREND_CARD_TEST_ID}>
-                        {CATEGORY_TREND_SECTION_TITLE}
-                      </Text>
-                      <Text style={reportCategoryTrendCaptionStyle}>{CATEGORY_TREND_SECTION_GUIDE}</Text>
-                      {/* 칩은 가로 스크롤이 아니라 **줄바꿈**으로 편다 — 기록 탭의 칩 줄과 달리
-                          이 화면은 세로 스크롤 카드 안이라 숨은 칩을 만들 이유가 없다(전 카테고리가
-                          한눈에 보이고, 접근성 순회도 화면 순서 그대로다). */}
-                      <View style={reportCategoryTrendChipRowStyle}>
-                        {trendChips.map((chip) => (
-                          <CategoryTrendChipButton
-                            key={chip.categoryId}
-                            label={chip.label}
-                            selected={chip.categoryId === trendCategoryId}
-                            onPress={() => toggleTrendCategory(chip.categoryId)}
-                          />
-                        ))}
-                      </View>
-                      {categoryTrend.view?.kind === "loading" ? (
-                        <SkeletonRow />
-                      ) : categoryTrend.view?.kind === "error" ? (
-                        // 실패 문구·재시도 라벨은 이 화면의 세 오류 카드와 **같은 공용 단일
-                        // 소스**다(UX-N — 한 화면 안 같은 원인의 실패가 다르게 읽히지 않는다.
-                        // 모듈 층의 실패 문구 대장(라운드 76 A)도 이 화면이 새 문구를 만들지
-                        // 않기를 요구한다). 재시도는 실패한 달만 다시 읽는다.
-                        <View style={reportCategoryTrendErrorRowStyle}>
-                          <Text style={reportCategoryTrendCaptionStyle}>{loadErrorCopy.title}</Text>
-                          <TextButton
-                            label={loadErrorCopy.actionLabel}
-                            onPress={categoryTrend.retryFailedMonths}
-                            disabled={categoryTrend.isRefetching}
-                          />
-                        </View>
-                      ) : categoryTrend.view?.kind === "empty" ? (
-                        <Text style={reportCategoryTrendCaptionStyle}>{categoryTrend.view.text}</Text>
-                      ) : categoryTrend.view?.kind === "ready" && selectedTrendChip ? (
-                        /* 라운드 100 트랙 T5: 막대가 곧 그 달의 기록 드릴다운 버튼이다(발신은
-                           도넛과 같은 카운터 — openCategoryTrendMonthDrilldown 주석). ready 뷰는
-                           칩 없이 성립하지 않지만(훅이 category 없이는 view를 만들지 않는다)
-                           라벨의 카테고리 이름이 칩에서 오므로 타입 층에서도 한 번 더 좁힌다.
-                           REP-001 픽셀락: 이 카드 전체가 세션 데이터 렌더다 — trendChips가
-                           hasSession && activeCategory.isSuccess 뒤에만 채워져(위 배선 주석)
-                           비세션 미리보기 분기는 여기 닿지 않는다(무접촉). */
-                        <>
-                          <CategoryTrendMiniChart
-                            bars={categoryTrend.view.bars}
-                            categoryLabel={selectedTrendChip.label}
-                            onSelectMonth={openCategoryTrendMonthDrilldown}
-                          />
-                          {/* 요약·구분 문구는 낭독 문장과 같은 모듈 산출이다 — 눈과 귀가 같은
-                              사실을 말한다. 구분 문구는 기록 없는 달이 섞였을 때만 선다. */}
-                          <Text style={reportCategoryTrendCaptionStyle}>{categoryTrend.view.summaryText}</Text>
-                          {categoryTrend.view.emptyMonthNote ? (
-                            <Text style={reportCategoryTrendCaptionStyle}>{categoryTrend.view.emptyMonthNote}</Text>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </Card>
-                  ) : null}
                 </>
               )}
+
+              {/* 라운드 102 §4.3: 도넛(+안내 줄) 아래 "카테고리 예산" 블록 — 월간 탭 전용,
+                  그 달 예산이 있는 카테고리 행만(예산 없는 카테고리 행 없음 — 사용자가
+                  정한 적 없는 기준선을 만들지 않는다). 도넛 조각·범례에는 주석을 달지
+                  않는다(§4.3 기각 3근거 — 원 id 이원·공용 컴포넌트 픽셀락·드릴다운 겹침).
+                  행 문장은 관측 톤뿐이고 경고색을 쓰지 않는다(DNC-018 — 색이 아니라 문장이
+                  의미를 진다). 대기 고지는 화면 머리의 기간 고지가 이미 같은 달을 덮는다.
+
+                  ⚠️ 두 시점 (라운드 102 리뷰 L-4): 이 블록은 종전에 도넛 갈래(`categoryData.
+                  length === 0`의 else) **안**에 있었다. 그래서 그 달 지출이 0건이면 예산을
+                  세워 두었어도 블록이 통째로 사라졌다 — 설계 §4.3의 게이트는 "월간 탭 · 세션 ·
+                  그 달 예산 행 1건 이상"뿐인데, 도넛의 빈 상태가 문서에 없는 넷째 게이트로
+                  덧붙어 있었다. 예산은 지출과 독립한 사실이고(그 달에 아직 안 썼다는 것도
+                  예산 대비의 답이다), 행 문장은 그 상태를 관측 톤으로 그대로 말한다
+                  ("예산의 0%를 썼어요"). 게이트를 행 존재 하나로 되돌리고, 자리는 종전 그대로
+                  도넛(또는 그 자리의 빈 카드) **아래**·추이 카드 **위**다. */}
+              {categoryBudgetUsageRows.length > 0 ? (
+                <Card style={reportCategoryBudgetCardStyle}>
+                  {/* Card는 testID를 받지 않아(ChildrenProps) 표식은 제목 줄에 둔다(추이 카드 관례). */}
+                  <Text style={reportCategoryTrendTitleStyle} testID="reports-category-budget-usage">
+                    카테고리 예산
+                  </Text>
+                  {categoryBudgetUsageRows.map((row) => (
+                    <View
+                      key={row.categoryId}
+                      accessible
+                      accessibilityLabel={row.accessibilityLabel}
+                      style={reportCategoryBudgetRowStyle}
+                    >
+                      <Text style={reportCategoryBudgetRowTitleStyle}>{row.primaryText}</Text>
+                      <Text style={reportCategoryTrendCaptionStyle}>{row.secondaryText}</Text>
+                    </View>
+                  ))}
+                </Card>
+              ) : null}
+
+              {/* 기능 라운드 1 트랙 C: 카테고리 월 추이. 칩 모집단이 곧 게이트다 —
+                  trendChips는 월간 탭 + 비중 조회 성공에서만 채워지므로(위 배선 주석)
+                  분기·연간과 비세션·로딩·실패 갈래에서는 카드 자체가 서지 않는다.
+                  범례 줄(위 도넛)은 종전 그대로 기록 드릴다운 입구다 — 두 동작이 한
+                  줄에 겹치지 않도록 추이는 자기 칩으로 고른다. 로딩은 카드 내부
+                  스켈레톤이고(이 화면의 자리 스켈레톤 관례), 실패 재시도는 실패한 달만
+                  다시 부른다. 낭독은 차트 한 덩어리의 accessibilityLabel이 달·금액
+                  전부를 말한다(라운드 85 차트 낭독 관례 — 시각 전용 정보 0건). */}
+              {trendChips.length > 0 ? (
+                <Card style={reportCategoryTrendCardStyle}>
+                  {/* Card는 testID를 받지 않아(ChildrenProps) 표식은 제목 줄에 둔다. */}
+                  <Text style={reportCategoryTrendTitleStyle} testID={CATEGORY_TREND_CARD_TEST_ID}>
+                    {CATEGORY_TREND_SECTION_TITLE}
+                  </Text>
+                  <Text style={reportCategoryTrendCaptionStyle}>{CATEGORY_TREND_SECTION_GUIDE}</Text>
+                  {/* 칩은 가로 스크롤이 아니라 **줄바꿈**으로 편다 — 기록 탭의 칩 줄과 달리
+                      이 화면은 세로 스크롤 카드 안이라 숨은 칩을 만들 이유가 없다(전 카테고리가
+                      한눈에 보이고, 접근성 순회도 화면 순서 그대로다). */}
+                  <View style={reportCategoryTrendChipRowStyle}>
+                    {trendChips.map((chip) => (
+                      <CategoryTrendChipButton
+                        key={chip.categoryId}
+                        label={chip.label}
+                        selected={chip.categoryId === trendCategoryId}
+                        onPress={() => toggleTrendCategory(chip.categoryId)}
+                      />
+                    ))}
+                  </View>
+                  {categoryTrend.view?.kind === "loading" ? (
+                    <SkeletonRow />
+                  ) : categoryTrend.view?.kind === "error" ? (
+                    // 실패 문구·재시도 라벨은 이 화면의 세 오류 카드와 **같은 공용 단일
+                    // 소스**다(UX-N — 한 화면 안 같은 원인의 실패가 다르게 읽히지 않는다.
+                    // 모듈 층의 실패 문구 대장(라운드 76 A)도 이 화면이 새 문구를 만들지
+                    // 않기를 요구한다). 재시도는 실패한 달만 다시 읽는다.
+                    <View style={reportCategoryTrendErrorRowStyle}>
+                      <Text style={reportCategoryTrendCaptionStyle}>{loadErrorCopy.title}</Text>
+                      <TextButton
+                        label={loadErrorCopy.actionLabel}
+                        onPress={categoryTrend.retryFailedMonths}
+                        disabled={categoryTrend.isRefetching}
+                      />
+                    </View>
+                  ) : categoryTrend.view?.kind === "empty" ? (
+                    <Text style={reportCategoryTrendCaptionStyle}>{categoryTrend.view.text}</Text>
+                  ) : categoryTrend.view?.kind === "ready" && selectedTrendChip ? (
+                    /* 라운드 100 트랙 T5: 막대가 곧 그 달의 기록 드릴다운 버튼이다(발신은
+                       도넛과 같은 카운터 — openCategoryTrendMonthDrilldown 주석). ready 뷰는
+                       칩 없이 성립하지 않지만(훅이 category 없이는 view를 만들지 않는다)
+                       라벨의 카테고리 이름이 칩에서 오므로 타입 층에서도 한 번 더 좁힌다.
+                       REP-001 픽셀락: 이 카드 전체가 세션 데이터 렌더다 — trendChips가
+                       hasSession && activeCategory.isSuccess 뒤에만 채워져(위 배선 주석)
+                       비세션 미리보기 분기는 여기 닿지 않는다(무접촉). */
+                    <>
+                      <CategoryTrendMiniChart
+                        bars={categoryTrend.view.bars}
+                        categoryLabel={selectedTrendChip.label}
+                        onSelectMonth={openCategoryTrendMonthDrilldown}
+                      />
+                      {/* 요약·구분 문구는 낭독 문장과 같은 모듈 산출이다 — 눈과 귀가 같은
+                          사실을 말한다. 구분 문구는 기록 없는 달이 섞였을 때만 선다. */}
+                      <Text style={reportCategoryTrendCaptionStyle}>{categoryTrend.view.summaryText}</Text>
+                      {categoryTrend.view.emptyMonthNote ? (
+                        <Text style={reportCategoryTrendCaptionStyle}>{categoryTrend.view.emptyMonthNote}</Text>
+                      ) : null}
+                    </>
+                  ) : null}
+                </Card>
+              ) : null}
 
               {/* UX-F: 그 달을 한 문장으로 요약한다. 말할 근거가 없으면(총액 0원·카테고리
                   없음·지난달 0원) 카드 자체가 렌더되지 않는다. 캡처의 "절약 팁" 카드와 **같은
@@ -1865,6 +1925,20 @@ const reportReferenceMemoryBodyStyle = {
 // 기능 라운드 1 트랙 C: 카테고리 월 추이 카드. 새 카드 룩을 만들지 않는다 — 흰 카드 기본에
 // 제목은 도넛 카드 제목과 같은 body2/700 brown, 캡션은 이 화면의 12/18 gray600 캡션 토큰이다.
 const reportCategoryTrendCardStyle = { gap: 10 } as const;
+
+// 라운드 102 §4.3: "카테고리 예산" 블록도 같은 판단 — 흰 카드 기본에 추이 카드와 같은 제목
+// 토큰, 행 본문은 brown 13/700, 보조 줄은 12/18 gray600 캡션이다. 새 색 리터럴 0건(DNC-017)
+// 이고 초과 행에도 경고색이 없다(문장이 의미를 진다 — DNC-018).
+const reportCategoryBudgetCardStyle = { gap: 10 } as const;
+
+const reportCategoryBudgetRowStyle = { gap: 2 } as const;
+
+const reportCategoryBudgetRowTitleStyle = {
+  color: theme.colors.brown,
+  fontSize: 13,
+  fontWeight: "700",
+  lineHeight: 20
+} as const;
 
 const reportCategoryTrendTitleStyle = {
   color: theme.colors.brown,

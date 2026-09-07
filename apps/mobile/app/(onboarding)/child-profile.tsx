@@ -280,7 +280,7 @@ export default function ChildProfileScreen() {
                   style={({ pressed }) => ({
                     alignItems: "center",
                     backgroundColor: theme.colors.white,
-                    borderColor: "rgba(74, 63, 53, 0.10)",
+                    borderColor: theme.colors.presentation.hairlineStrong,
                     borderRadius: 14,
                     borderWidth: 1,
                     height: 48,

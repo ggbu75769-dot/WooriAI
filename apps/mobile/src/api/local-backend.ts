@@ -24,11 +24,15 @@ import { persistStorage } from "../stores/persist-storage";
 // reconcileMonthlyExpenses와 같은 함수를 써야 데모 세션의 홈·리포트·기록 합계가 갈리지 않는다.
 // (offline/expense-list-reconciliation.ts는 React/네이티브 의존이 없어 여기서 안전하게 쓴다.)
 import { countsTowardMonthlyTotal } from "../offline/expense-list-reconciliation";
+// 라운드 102 리뷰 L-8: 미러가 던지는 실패 문구 중 **서버 코드와 짝이 있는 것**은 이 표 한 곳에서
+// 온다(문장 세 벌 금지 — 서버·표·미러). 표에 없는 갈래(VALIDATION_ERROR 바구니)만 미러 로컬이다.
+import { API_ERROR_MESSAGES } from "./api-error";
 import { categoryCatalog } from "../categories";
 import { bandDefinitions, bandStages, itemMatchesBand, type StageBandLabel } from "../items/stage-bands";
 import type {
   AffiliateClickResponse,
   Budget,
+  CategoryBudgetEntry,
   CategoryListItem,
   CategoryReport,
   Child,
@@ -229,6 +233,11 @@ type LocalBackendState = {
   seeded: boolean;
   child: LocalChildRecord | null;
   budgets: Record<string, number>;
+  // 라운드 102 T2: 서버 category_budgets(아이×월×카테고리)의 로컬 미러 — 정규화월 →
+  // categoryId → 금액. 기존 budgets와 같은 축이라 **아이 축이 없는 것도 동일**하다(로컬 세션
+  // 단일 아이 전제 — 설계 문서 §3.1의 알려진 한계). 사용자 데이터이므로 데모 픽스처 0건
+  // (zero-start §3.2)이고, persist 버전 3 유지 — 필드 가산은 merge가 기본값({})으로 메운다.
+  categoryBudgets: Record<string, Record<string, number>>;
   expenses: LocalExpenseRecord[];
   itemStatuses: Record<string, { status: ItemStatus; expenseId: string | null }>;
   // 라운드 100 T2: 커스텀 품목(사용자 데이터 — 데모 픽스처 0건, zero-start §3.2). 세션 수명은
@@ -261,6 +270,7 @@ const initialState: LocalBackendState = {
   seeded: false,
   child: null,
   budgets: {},
+  categoryBudgets: {},
   expenses: [],
   itemStatuses: {},
   customItems: [],
@@ -354,6 +364,29 @@ function sanitizeLocalCustomItemRecord(value: unknown): LocalCustomItemRecord | 
   };
 }
 
+/**
+ * 라운드 102 T2: 카테고리 예산 blob의 필드 단위 복구. 비객체/오염 blob은 {}로(멤버·
+ * customItems 관례 — 설계 문서 §3.1), 달 단위·행 단위 오염은 성한 값만 살린다
+ * (sanitizeLocalExpenseRecord와 같은 관례 — 깨진 금액 하나가 예산·리포트 조회를 통째로
+ * 죽이지 않게). 금액은 양수 정수만 예산일 수 있으므로(0원 예산 없음 — 부재가 곧 미설정)
+ * 그 밖의 값은 행을 버린다.
+ */
+function sanitizeCategoryBudgets(value: unknown): Record<string, Record<string, number>> {
+  if (!isPlainObject(value)) return {};
+  const sanitized: Record<string, Record<string, number>> = {};
+  for (const [month, monthBlob] of Object.entries(value)) {
+    if (!isPlainObject(monthBlob)) continue;
+    const monthEntries: Record<string, number> = {};
+    for (const [categoryId, amountKrw] of Object.entries(monthBlob)) {
+      if (typeof amountKrw === "number" && Number.isInteger(amountKrw) && amountKrw > 0) {
+        monthEntries[categoryId] = amountKrw;
+      }
+    }
+    if (Object.keys(monthEntries).length > 0) sanitized[month] = monthEntries;
+  }
+  return sanitized;
+}
+
 function optionalDateOnly(value: unknown): string | null {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
@@ -407,6 +440,7 @@ function sanitizeLocalBackendState(persisted: unknown): LocalBackendState {
     seeded: typeof persisted.seeded === "boolean" ? persisted.seeded : false,
     child,
     budgets: isPlainObject(persisted.budgets) ? (persisted.budgets as Record<string, number>) : {},
+    categoryBudgets: sanitizeCategoryBudgets(persisted.categoryBudgets),
     expenses,
     itemStatuses: isPlainObject(persisted.itemStatuses)
       ? (persisted.itemStatuses as LocalBackendState["itemStatuses"])
@@ -466,6 +500,7 @@ function wipeLocalBackendState() {
   useLocalBackendStore.setState({
     ...initialState,
     budgets: {},
+    categoryBudgets: {},
     expenses: [],
     itemStatuses: {},
     customItems: [],
@@ -1157,22 +1192,133 @@ export function getSyncChanges(): {
   return { changes, nextCursor: "local-sync-cursor", hasMore: false };
 }
 
+// ---------------------------------------------------------------------------
+// 라운드 102 T2: 카테고리별 예산 — 서버 PUT /budget 확장(§2.2)의 로컬 미러.
+//
+// 서버와 미러의 규칙은 문장 하나로 같다(설계 문서 §3.1):
+// "필드 부재 무접촉 · 존재 시 그 달 집합 교체 · 응답은 categoryId 오름차순 배열"
+// 한쪽만 이 규칙을 바꾸면 데모 세션과 실계정의 예산 화면·리포트가 갈린다 — 두 벌의 대조는
+// src/api/category-budgets-mirror.test.ts가 같은 픽스처로 문다(라운드 100 R5와 같은 대응).
+// ---------------------------------------------------------------------------
+
+// 계약 상수 CATEGORY_BUDGET_MAX_PER_MONTH(packages/contracts §1.4)의 비export 리터럴 사본 —
+// 커스텀 품목 상수 셋과 같은 관례(contracts-mirror.test.ts 상수 대장이 가리키는 그 자리).
+const LOCAL_CATEGORY_BUDGET_MAX_PER_MONTH = 30;
+
+/**
+ * 배열 내 categoryId 중복의 로컬 문구. 서버는 이 갈래를 **바구니 코드**(`VALIDATION_ERROR`)로
+ * 던지고, 그 코드는 의도적으로 API_ERROR_MESSAGES 표에 없다(api-error.ts의 그 판단 — 한 코드가
+ * 열 가지 원인을 가리키므로 표로 문장을 정할 수 없다). 그래서 이 한 문장만 미러 로컬이다.
+ */
+const LOCAL_CATEGORY_BUDGET_DUPLICATE_MESSAGE = "한 카테고리에는 예산을 하나만 정할 수 있어요.";
+
+/**
+ * §2.2 검증 **순서**의 미러: DTO 형식(categoryId 중복 · 금액 범위) → 상한 30 → 카테고리 실재.
+ *
+ * ⚠️ 두 시점 (라운드 102 리뷰 L-8) — 종전 미러는 **상한을 맨 앞**에 두었다. 서버에서 중복·금액
+ * 범위는 `ValidationPipe`(DTO)가 서비스보다 **먼저** 보고, 상한 30은 서비스가 그 뒤에 보므로,
+ * "31건 + 금액 0" 같은 조합에서 서버는 `VALIDATION_ERROR`, 미러는 상한 문구로 **갈렸다**.
+ * 순서를 서버와 같게 맞춘다(같은 입력이 같은 갈래로 떨어진다). 중복과 금액은 서버에서 같은
+ * 바구니 코드라 둘 사이의 순서는 계약이 아니다 — 여기서는 한 번의 순회로 함께 본다.
+ *
+ * 실재 판정의 모집단은 `listCategories()`가 서빙하는 바로 그 목록이다(§3.1 — 데모에서도 아무
+ * 문자열이 예산 키가 되는 상태를 만들지 않는다. 데모 행은 전부 active라 서버의 `active:false`
+ * 거절 갈래는 여기서 실재 탈락과 **같은 술어로 접힌다**).
+ *
+ * ⚠️ 두 시점 (라운드 102 리뷰 H) — 그래서 서버의 좁힌 규칙("**새로 서는 id만** active 요구,
+ * 이미 그 (아이, 달)에 행이 있던 id는 통과")도 그 한 술어에 붙는다: `existingCategoryIds`에
+ * 있는 id는 실재 검사를 통과한다. 이 통로가 없으면 미러에서도 "행이 남아 있는데 값 수정·해제가
+ * 막히는" 상태가 만들어질 수 있고(손상 저장본·구버전 blob), 서버와 standalone이 다르게 군다.
+ *
+ * 부분 적용 없음 — 전부 통과해야 한 건이라도 쓴다.
+ */
+function requireCategoryBudgetReplacement(
+  categoryBudgets: CategoryBudgetEntry[],
+  existingCategoryIds: ReadonlySet<string>
+): Record<string, number> {
+  const replacement: Record<string, number> = {};
+  for (const entry of categoryBudgets) {
+    if (Object.prototype.hasOwnProperty.call(replacement, entry.categoryId)) {
+      // 서버는 배열 내 categoryId 중복을 VALIDATION_ERROR로 거절한다(§2.2 — 부분 적용 없음).
+      throw new Error(LOCAL_CATEGORY_BUDGET_DUPLICATE_MESSAGE);
+    }
+    replacement[entry.categoryId] = requireMoneyKrw(entry.amountKrw);
+  }
+  if (categoryBudgets.length > LOCAL_CATEGORY_BUDGET_MAX_PER_MONTH) {
+    // §9.3 CATEGORY_BUDGET_LIMIT_EXCEEDED — 문구는 서버 코드와 같은 api-error 표 한 곳에서만
+    // 온다(값 사본은 위 리터럴이고, 두 방향 대조는 category-budgets-mirror.test.ts가 진다).
+    throw new Error(API_ERROR_MESSAGES.CATEGORY_BUDGET_LIMIT_EXCEEDED);
+  }
+  const knownCategoryIds = new Set(listCategories().categories.map((category) => category.id));
+  for (const categoryId of Object.keys(replacement)) {
+    if (!knownCategoryIds.has(categoryId) && !existingCategoryIds.has(categoryId)) {
+      // §9.3 CATEGORY_BUDGET_INVALID_CATEGORY — 하나라도 탈락하면 전체 거절.
+      throw new Error(API_ERROR_MESSAGES.CATEGORY_BUDGET_INVALID_CATEGORY);
+    }
+  }
+  return replacement;
+}
+
+/** 응답 조립(§2.3 미러): 그 달의 카테고리 예산 행을 **항상 배열**로, categoryId 오름차순으로. */
+function categoryBudgetEntriesForMonth(normalizedMonth: string): CategoryBudgetEntry[] {
+  const monthEntries = useLocalBackendStore.getState().categoryBudgets[normalizedMonth] ?? {};
+  return Object.entries(monthEntries)
+    .map(([categoryId, amountKrw]) => ({ categoryId, amountKrw }))
+    .sort((left, right) => (left.categoryId < right.categoryId ? -1 : left.categoryId > right.categoryId ? 1 : 0));
+}
+
 export function getBudget(childId: string, yearMonth: string): Budget {
   ensureSeeded();
   const normalizedMonth = budgetKey(yearMonth);
   const amountKrw = useLocalBackendStore.getState().budgets[normalizedMonth];
   if (amountKrw === undefined) {
+    // 총액 없는 달의 404 의미는 종전 그대로다(§1.3(b) — 총액 없는 달에는 카테고리 행도
+    // 구조적으로 없다: upsertBudget이 언제나 총액을 함께 쓴다).
     throw new Error("월 예산을 찾을 수 없어요.");
   }
-  return toBudgetDto(childId, normalizedMonth, amountKrw);
+  return { ...toBudgetDto(childId, normalizedMonth, amountKrw), categoryBudgets: categoryBudgetEntriesForMonth(normalizedMonth) };
 }
 
-export function upsertBudget(childId: string, amountKrw: number, yearMonth: string): Budget {
+/**
+ * 라운드 102: 넷째 인자 `categoryBudgets`는 서버 §2.2의 replace-set 계약 그대로다 —
+ * undefined = 그 달의 카테고리 예산 행 무접촉, 배열 = 그 달 집합 통째 교체(빈 배열 = 전부
+ * 해제). 검증은 쓰기 전에 전부 끝난다(서버의 한 $transaction 미러 — 실패한 저장은 총액도
+ * 카테고리도 한 글자도 바꾸지 않는다).
+ *
+ * ⚠️ 두 시점 (라운드 102 리뷰 M-4) — 응답도 그 갈래를 그대로 말한다: **인자 부재면 응답에
+ * `categoryBudgets` 키 자체가 없다**. 종전 미러는 언제나 실었는데, 서버의 무접촉 갈래는 그
+ * 행을 "한 건도 읽지 않으므로"(§2.2) 응답에도 키가 없다 — 두 벌이 갈린 채로 두면, 다음
+ * 라운드가 PUT 응답으로 낙관 갱신을 하는 순간 데모에서는 멀쩡하고 **실계정에서만** 카테고리
+ * 행이 화면에서 사라진다. 방향은 서버 쪽으로 통일한다(무접촉 갈래가 모르는 것을 말하지 않는
+ * 쪽이 정직하다). GET·월간 리포트는 종전대로 **항상** 배열을 싣는다(§2.3).
+ */
+export function upsertBudget(
+  childId: string,
+  amountKrw: number,
+  yearMonth: string,
+  categoryBudgets?: CategoryBudgetEntry[]
+): Budget {
   requireChild();
   const normalizedMonth = budgetKey(yearMonth);
   const validAmount = requireMoneyKrw(amountKrw);
-  useLocalBackendStore.setState((state) => ({ budgets: { ...state.budgets, [normalizedMonth]: validAmount } }));
-  return toBudgetDto(childId, normalizedMonth, validAmount);
+  const replacement =
+    categoryBudgets === undefined
+      ? undefined
+      : requireCategoryBudgetReplacement(
+          categoryBudgets,
+          // 서버가 같은 트랜잭션 안에서 읽는 "이 달에 이미 서 있던 id" 집합의 미러(리뷰 H).
+          new Set(Object.keys(useLocalBackendStore.getState().categoryBudgets[normalizedMonth] ?? {}))
+        );
+  useLocalBackendStore.setState((state) => ({
+    budgets: { ...state.budgets, [normalizedMonth]: validAmount },
+    ...(replacement === undefined
+      ? {}
+      : { categoryBudgets: { ...state.categoryBudgets, [normalizedMonth]: replacement } })
+  }));
+  const budget = toBudgetDto(childId, normalizedMonth, validAmount);
+  return replacement === undefined
+    ? budget
+    : { ...budget, categoryBudgets: categoryBudgetEntriesForMonth(normalizedMonth) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1189,7 +1335,10 @@ export function getMonthlyReport(childId: string, yearMonth: string): MonthlyRep
     yearMonth: normalizedMonth,
     totalExpenseKrw: totalExpenseKrw(expenses),
     budgetAmountKrw,
-    categoryTop: categoryBreakdown(expenses)
+    categoryTop: categoryBreakdown(expenses),
+    // 라운드 102(§2.4 미러): 그 달의 카테고리 예산 행 — 없으면 []. 과거 달 조회도 월 키로
+    // 그대로 남는다(GAP-066의 끝난 달 예산 한 줄과 같은 성질).
+    categoryBudgets: categoryBudgetEntriesForMonth(normalizedMonth)
   };
 }
 
@@ -2630,6 +2779,10 @@ export function confirmChildProfileDeletion(childId: string, confirmationText: s
       expense.childId === childId ? { ...expense, deletedAt: now, updatedAt: now } : expense
     ),
     budgets: {},
+    // 라운드 102 T2: 카테고리 예산도 아이 소유다(서버 category_budgets.child_id ON DELETE
+    // CASCADE의 미러 — §1.5). 남겨 두면 재생성된 아이가 정한 적 없는 카테고리 기준선을
+    // 물려받는다(위 budgets와 같은 근거).
+    categoryBudgets: {},
     itemStatuses: {},
     // 라운드 100 T2: 커스텀 품목은 아이 소유라 아이 파기와 함께 사라진다(서버 ON DELETE
     // CASCADE의 미러 — §1.5). 남겨 두면 createChild가 같은 LOCAL_CHILD_ID를 재사용하므로

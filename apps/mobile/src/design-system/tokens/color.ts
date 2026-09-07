@@ -28,7 +28,11 @@ export const semanticColors = {
   info: "#1D4ED8",
   review: "#7C3AED",
   focus: "#2F6FED",
-  overlay: "rgba(33, 30, 28, 0.48)"
+  overlay: "rgba(33, 30, 28, 0.48)",
+  // 라운드 102 TK3 — BudgetHeroCard(ModV1Primitives) 진행 바 트랙: 코랄/위험색 히어로 위
+  // 흰 반투명 32%. 값은 그 컴포넌트에 박혀 있던 종전 리터럴 그대로다(값 교체 0건 —
+  // 대조: src/color-literal-tokenization.test.ts). c20deeb 이식 값들은 위에서 무수정이다.
+  progressTrackInverse: "rgba(255,255,255,0.32)"
 } as const;
 
 export const chartColors = ["#C94627", "#267A68", "#2F6FED", "#B45309", "#7C3AED", "#7A716B"] as const;
