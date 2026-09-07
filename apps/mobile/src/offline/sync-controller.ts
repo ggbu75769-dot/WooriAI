@@ -10,6 +10,7 @@ import { isCurrentlyOnline, startConnectivityWatcher } from "./connectivity";
 import { runDeltaPull, syncCursorScopeKey } from "./delta-sync";
 import { isSessionExpiryTransition, LOGIN_HREF } from "./session-expiry";
 import {
+  clearSessionScopedChildSelection,
   clearSessionScopedQueryCache,
   isSessionIdentityChange,
   revokeOutgoingSessionOnServer,
@@ -1029,6 +1030,13 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
           // scheduled the incoming account's re-render — everything below is a promise hop and
           // therefore lands after it. See clearSessionScopedQueryCache's contract.
           clearSessionScopedQueryCache();
+          // 라운드 110: 선택된 아이 id도 **같은 동기 자리**에서 지운다. 종전에는 사람이 누르는
+          // 로그아웃 세 자리가 각자 지웠고(설정·PIN 분실·계정 삭제), 그 셋을 지나지 않는
+          // 만료(`clearSession("expired")`) 뒤의 타계정 로그인만 A의 아이 id를 물고 탭으로
+          // 들어갔다 — 근거·"지우기 vs 검증하기"·hasReachedHome을 왜 남기는지는 전부
+          // clearSessionScopedChildSelection의 머리말에 있다. 캐시 비우기와 같은 자리인 이유도
+          // 같다: 화면이 렌더에서 곧바로 읽는 값이라 프로미스 홉 뒤로 밀 수 없다.
+          clearSessionScopedChildSelection();
           // 라운드 107 트랙 B(S1-2): 나가는 세션의 refresh 토큰 family를 서버에서도 폐기한다.
           // 종전에는 로그아웃이 기기 안만 정리해 그 family가 최대 30일 살아 있었다. 캐시 비우기와
           // **같은 자리(동기·프로미스 홉 앞)**인 이유는 아래 getOfflineStore()의 `.catch()`가

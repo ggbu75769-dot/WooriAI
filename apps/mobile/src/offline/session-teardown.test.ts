@@ -20,11 +20,13 @@ import { useImportResumeStore } from "../stores/import-resume.store";
 import { useQuickRecordPinsStore } from "../stores/quick-record-pins.store";
 import { useRecentSearchesStore } from "../stores/recent-searches.store";
 import { useRecurringExpenseStore } from "../stores/recurring-expense.store";
+import { useSelectedChildStore } from "../stores/selected-child.store";
 import { readAppLockRecord } from "../security/app-lock-storage";
 import { secureSessionStorage } from "../stores/secure-session-storage";
 import { saveSyncCursor, SYNC_CURSOR_META_KEY } from "./delta-sync";
 import { createMemoryOfflineStore } from "./memory-offline-store";
 import {
+  clearSessionScopedChildSelection,
   clearSessionScopedQueryCache,
   isSessionIdentityChange,
   revokeOutgoingSessionOnServer,
@@ -40,6 +42,7 @@ import {
   type RemoteExpenseApi
 } from "./sync-engine";
 import { useSessionStore } from "../stores/session.store";
+import { shouldAttemptSelectedChildRecovery } from "../onboarding/selected-child-recovery";
 import type { ExpensePayload, OfflineStore } from "./types";
 
 /**
@@ -239,6 +242,9 @@ function mountControllerTeardownSubscription(
     if (!isSessionIdentityChange(previous, state)) return;
     clearSessionScopedQueryCache();
     order.push("query-cache-cleared");
+    // 라운드 110: 컨트롤러가 같은 동기 자리에서 부르는 단계. 이 하네스는 그 거울이므로 함께 선다.
+    clearSessionScopedChildSelection();
+    order.push("selected-child-cleared");
     pending.push(
       Promise.resolve(store).then(async (resolved) => {
         order.push("offline-store-torn-down");
@@ -474,7 +480,7 @@ describe("AUTH-127 (round27 M-1) the query-cache clear runs ahead of the async s
     // Cache already empty; the offline-store teardown has not even started (its marker is pushed
     // from the `then` callback, still queued).
     expect(client.getQueryCache().getAll()).toEqual([]);
-    expect(wiring.order).toEqual(["query-cache-cleared"]);
+    expect(wiring.order).toEqual(["query-cache-cleared", "selected-child-cleared"]);
     // Limitation, stated plainly: vitest mounts no navigator and no screens, so what is pinned
     // here is "the clear completes in the same tick as the store notification, ahead of the
     // async teardown" -- not the React commit itself. That tick is the one in which the store's
@@ -483,7 +489,7 @@ describe("AUTH-127 (round27 M-1) the query-cache clear runs ahead of the async s
 
     await wiring.settle();
 
-    expect(wiring.order).toEqual(["query-cache-cleared", "offline-store-torn-down"]);
+    expect(wiring.order).toEqual(["query-cache-cleared", "selected-child-cleared", "offline-store-torn-down"]);
     await expectStoreFullyEmpty(store);
     wiring.unsubscribe();
   });
@@ -1267,5 +1273,213 @@ describe("라운드 107 트랙 B 나가는 세션의 서버 토큰 폐기", () =
       expect(end).toBeGreaterThan(start);
       expect(source.slice(start, end)).toContain("clearSession();");
     }
+  });
+});
+
+/**
+ * 라운드 110 — **선택된 아이 id도 계정 경계에서 지운다.**
+ *
+ * 종전(그때는 참): 이 목록에 `useSelectedChildStore`가 없었던 것은 실수가 아니라 **사람이 누르는
+ * 로그아웃 세 자리가 각자 지우고 있었기 때문**이다(설정 로그아웃 · PIN 분실 · 계정 삭제). 그래서
+ * "로그아웃 → 다른 계정 로그인"은 선택이 null인 채 도착했고, 그 null이 곧 MOB-116 복구의
+ * 방아쇠였다.
+ *
+ * 이제: 그 셋을 지나지 않는 정체성 전환이 하나 있다 — 만료(`clearSession("expired")`)는 userId를
+ * 남겨 이 구독을 발화시키지 않으므로, 뒤이은 **타계정 로그인**만 A의 아이 id를 물고 도착했다.
+ * app/index.tsx:209가 `hasReachedHome`이면 진행도 조회를 건너뛰어 FIX-119B/F5의 무효 감지도 돌지
+ * 않고, MOB-116 복구는 값이 있어 서지 않는다 → 네 탭이 A의 childId로 조회한다. 그 비대칭을 여기서
+ * 없앤다(근거 전문은 session-teardown.ts의 `clearSessionScopedChildSelection` 머리말).
+ */
+describe("라운드 110 계정 경계에서 선택된 아이 id", () => {
+  beforeEach(() => {
+    useSelectedChildStore.getState().clearSelectedChildId();
+    resetAppQueryClientRegistryForTests();
+  });
+
+  afterEach(() => {
+    useSelectedChildStore.getState().clearSelectedChildId();
+    resetAppQueryClientRegistryForTests();
+  });
+
+  it("clearSessionScopedChildSelection은 **동기로** 비운다 (순서 계약이 기대는 사실)", () => {
+    useSelectedChildStore.getState().setSelectedChildId("child-of-user-a");
+
+    // await 없음: 계약상 동기이므로 같은 틱의 아래 단언이 이미 참이다.
+    clearSessionScopedChildSelection();
+
+    expect(useSelectedChildStore.getState().selectedChildId).toBeNull();
+  });
+
+  it("만료 뒤 타계정 로그인 — A의 아이 id가 B의 첫 렌더 **앞에서** 사라진다 (이 라운드가 고친 갈래)", async () => {
+    const store = createMemoryOfflineStore();
+    useSelectedChildStore.getState().setSelectedChildId("child-of-user-a");
+
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const wiring = mountControllerTeardownSubscription(fake, store);
+    fake.rehydrateAs(userASnapshot);
+    await wiring.settle();
+
+    // 만료: 자격증명만 죽고 정체성은 남는다 -> 이 구독은 발화하지 않는다(그래서 선택도 그대로다).
+    fake.write(expiredUserASnapshot);
+    expect(wiring.order).toEqual([]);
+    expect(useSelectedChildStore.getState().selectedChildId).toBe("child-of-user-a");
+
+    // 같은 기기에서 B가 로그인한다. 여기서 비로소 정체성이 바뀐다.
+    fake.write(userBSnapshot);
+
+    // 프로미스 홉을 하나도 돌리지 않은 이 시점에 이미 비어 있어야 한다 -- B의 화면이 읽기 전이다.
+    expect(useSelectedChildStore.getState().selectedChildId).toBeNull();
+    expect(wiring.order).toEqual(["query-cache-cleared", "selected-child-cleared"]);
+
+    await wiring.settle();
+    expect(useSelectedChildStore.getState().selectedChildId).toBeNull();
+    wiring.unsubscribe();
+  });
+
+  it("파생 단언 — 그 null이 곧 MOB-116 복구의 방아쇠다(검증을 여기서 새로 짓지 않는 근거)", async () => {
+    const store = createMemoryOfflineStore();
+    useSelectedChildStore.getState().setSelectedChildId("child-of-user-a");
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const wiring = mountControllerTeardownSubscription(fake, store);
+    fake.rehydrateAs(userASnapshot);
+    await wiring.settle();
+    fake.write(expiredUserASnapshot);
+
+    const recoveryInput = (selectedChildId: string | null, hasReachedHome = true) => ({
+      hydrated: true,
+      isTestSession: false,
+      accessToken: userBSnapshot.accessToken,
+      hasReachedHome,
+      selectedChildId
+    });
+
+    // 지우기 전: 값이 있어 복구가 서지 않는다 -- 그래서 B가 그대로 /(tabs)로 들어갔다.
+    expect(shouldAttemptSelectedChildRecovery(recoveryInput("child-of-user-a"))).toBe(false);
+
+    fake.write(userBSnapshot);
+
+    // 지운 뒤: 이미 있는 복구 경로(GET /children -> 재선택, 다자녀면 안내)가 이어받는다.
+    expect(shouldAttemptSelectedChildRecovery(recoveryInput(useSelectedChildStore.getState().selectedChildId))).toBe(
+      true
+    );
+    // 반대 방향 -- `hasReachedHome`까지 함께 지우면 그 복구가 **꺼진다**. 지나치게 지우지 않는
+    // 근거가 이 한 줄이다(서버가 답하지 않는 갈래에서는 ONB-001로 떨어져 아이가 하나 더 생긴다).
+    expect(shouldAttemptSelectedChildRecovery(recoveryInput(null, false))).toBe(false);
+
+    await wiring.settle();
+    wiring.unsubscribe();
+  });
+
+  it("정체성이 같으면 선택을 잃지 않는다 — 토큰 갱신 · 만료 뒤 같은 사람 재로그인", async () => {
+    const store = createMemoryOfflineStore();
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const wiring = mountControllerTeardownSubscription(fake, store);
+    fake.rehydrateAs(userASnapshot);
+    await wiring.settle();
+    useSelectedChildStore.getState().setSelectedChildId("child-of-user-a");
+
+    // setTokens: 정체성 필드 무변화.
+    fake.write({ ...userASnapshot, accessToken: "rotated-a" });
+    await wiring.settle();
+    expect(useSelectedChildStore.getState().selectedChildId).toBe("child-of-user-a");
+
+    // 만료 -> 같은 사람이 다시 로그인(AUTH-127): userId가 유지되므로 전이가 아니다.
+    fake.write(expiredUserASnapshot);
+    fake.write(userASnapshot);
+    await wiring.settle();
+    expect(useSelectedChildStore.getState().selectedChildId).toBe("child-of-user-a");
+    expect(wiring.order).toEqual([]);
+    wiring.unsubscribe();
+  });
+
+  it("로그아웃 갈래는 종전 그대로다 — 화면이 이미 지운 뒤라 이 단계는 멱등한 no-op이다", async () => {
+    const store = createMemoryOfflineStore();
+    useSelectedChildStore.getState().setSelectedChildId("child-of-user-a");
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const wiring = mountControllerTeardownSubscription(fake, store);
+    fake.rehydrateAs(userASnapshot);
+    await wiring.settle();
+
+    // app/settings/index.tsx는 clearSession() 직후 clearSelectedChild()를 부른다. 순서를 그대로 둔다.
+    fake.write(loggedOutSnapshot);
+    useSelectedChildStore.getState().clearSelectedChildId();
+    await wiring.settle();
+    expect(useSelectedChildStore.getState().selectedChildId).toBeNull();
+
+    // 이어지는 B 로그인에서도 null 그대로 -- 종전 동작과 한 글자도 다르지 않다.
+    fake.write(userBSnapshot);
+    await wiring.settle();
+    expect(useSelectedChildStore.getState().selectedChildId).toBeNull();
+    wiring.unsubscribe();
+  });
+
+  it("데모 전환에서도 지운다 — startTestSession은 **비어 있을 때만** 데모 아이를 고른다", async () => {
+    // 그 스토어의 전제를 값으로 확인한다: 선택이 남아 있으면 데모 세션이 A의 아이를 물고 간다.
+    const sessionSource = readFileSync(join(process.cwd(), "src/stores/session.store.ts"), "utf8");
+    expect(sessionSource).toContain("if (!selectedChild.selectedChildId) selectedChild.setSelectedChildId(existingChildId);");
+
+    const store = createMemoryOfflineStore();
+    useSelectedChildStore.getState().setSelectedChildId("child-of-user-a");
+    const fake = createFakePersistedSessionStore(loggedOutSnapshot);
+    const wiring = mountControllerTeardownSubscription(fake, store);
+    fake.rehydrateAs(userASnapshot);
+    await wiring.settle();
+
+    fake.write(demoSnapshot);
+    expect(useSelectedChildStore.getState().selectedChildId).toBeNull();
+    await wiring.settle();
+    wiring.unsubscribe();
+  });
+
+  it("teardownOfflineSessionState를 직접 불러도 지운다 (step 0c -- 멱등 반복이라 단위 테스트와 직접 호출자가 온전하다)", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+    useSelectedChildStore.getState().setSelectedChildId("child-of-user-a");
+
+    await teardownOfflineSessionState(store);
+
+    expect(useSelectedChildStore.getState().selectedChildId).toBeNull();
+  });
+
+  it("sync-controller가 **프로미스 홉 앞의 동기 자리**에서 부른다 (source verification -- 컨트롤러는 vitest에서 돌지 않는다)", () => {
+    const controllerSource = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
+    const body = controllerSource.slice(
+      controllerSource.indexOf("subscribeToHydratedSessionTransitions(useSessionStore")
+    );
+    const clearAt = body.indexOf("clearSessionScopedChildSelection();");
+    const storeAt = body.indexOf("void getOfflineStore()");
+    expect(clearAt).toBeGreaterThan(-1);
+    expect(storeAt).toBeGreaterThan(-1);
+    expect(clearAt).toBeLessThan(storeAt);
+    // 세션 스토어 통지와 이 호출 사이에서 아무것도 양보하지 않는다(캐시 비우기와 같은 계약).
+    expect(body.slice(0, clearAt)).not.toContain("await ");
+    expect(body.slice(0, clearAt)).not.toContain(".then(");
+  });
+
+  it("teardown은 `hasReachedHome`(온보딩 진행도)을 지우지 않는다 — 로그아웃 세 자리도 지우지 않는 값이다", () => {
+    // 주석은 그 판단의 **근거를 적는 자리**라 이름이 나온다(session-teardown.ts 머리말). 코드만 본다.
+    const codeOf = (path: string) =>
+      readFileSync(join(process.cwd(), path), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/\/\/[^\n]*/g, " ");
+    const teardownCode = codeOf("src/offline/session-teardown.ts");
+    expect(teardownCode).not.toContain("useOnboardingProgressStore");
+    expect(teardownCode).not.toContain("resetOnboarding");
+    // 근거의 사실 확인: 사람이 누르는 세 로그아웃 자리 중 어느 것도 진행도를 지우지 않는다.
+    // (지운다면 그 셋과 맞추기 위해 teardown도 지워야 했을 것이다.)
+    for (const path of ["app/settings/index.tsx", "src/security/AppLockOverlay.tsx", "app/settings/privacy.tsx"]) {
+      expect(codeOf(path), path).not.toContain("resetOnboarding");
+    }
+  });
+
+  it("비대칭의 사실 확인 — 세 로그아웃 화면은 각자 지우고, 만료 갈래만 이 배선에 기대고 있었다 (source verification)", () => {
+    for (const path of ["app/settings/index.tsx", "src/security/AppLockOverlay.tsx", "app/settings/privacy.tsx"]) {
+      const source = readFileSync(join(process.cwd(), path), "utf8");
+      expect(source, path).toContain("useSelectedChildStore((state) => state.clearSelectedChildId)");
+    }
+    // 만료는 정체성을 남긴다 -- 그래서 그 순간에는 어떤 정리도 발화하지 않는다(AUTH-127).
+    expect(isSessionIdentityChange(userASnapshot, expiredUserASnapshot)).toBe(false);
+    // 비로소 뒤이은 타계정 로그인이 전이다. 그 자리가 이 라운드가 채운 구멍이다.
+    expect(isSessionIdentityChange(expiredUserASnapshot, userBSnapshot)).toBe(true);
   });
 });
