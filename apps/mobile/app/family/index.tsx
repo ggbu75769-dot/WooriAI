@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, Platform, Pressable, Text, View } from "react-native";
+// 라운드 111: 403의 문구는 이 화면이 짓지 않고 앱 전역 표에서 읽는다(아래 forbiddenTitle 주석).
+import { apiErrorMessageForCode } from "../../src/api/api-error";
 import {
   cancelHouseholdInvite,
   listChildren,
@@ -37,6 +39,7 @@ import {
 } from "../../src/family/invite-flow";
 import { INVITE_OWNER_ONLY_CAPTION, isInviteEntryPointLocked } from "../../src/family/invite-permissions";
 import {
+  familyErrorCodeOf,
   memberMutationAlertTitle,
   memberMutationErrorMessage,
   type FamilyMemberMutationKind
@@ -69,6 +72,20 @@ const previewMembers = [
  * 단일 소스 문장으로 갈린다(아래 `pendingInviteLoadErrorText`).
  */
 const FAMILY_PENDING_INVITE_LOAD_ERROR_TEXT = "대기 중인 초대를 불러오지 못했어요. 눌러서 다시 시도해 주세요.";
+
+/**
+ * 라운드 111 — 403 갈래의 **나가는 길 라벨**. 값은 이 저장소가 *같은 성격의 막다른 길*에 이미
+ * 쓰고 있는 그 문자열이다(`src/family/invite-accept-messages.ts`의 `INVITE_UNAVAILABLE_ESCAPE_LABEL`
+ * = "앱 둘러보기" — 끝난 초대처럼 다시 눌러도 결과가 같은 자리에서 탭 셸로 내보내는 버튼).
+ * 새 한국어 문장을 짓지 않는다는 규율(라운드 108-T18의 `MISSING_ITEM_EXIT_LABEL`과 같은 꼴)이고,
+ * 두 자리가 갈리면 `src/family/forbidden-exit.test.ts`가 빨개진다.
+ *
+ * ⚠️ 그 상수를 import하지 않고 값을 여기 두는 이유: 이름이 `INVITE_UNAVAILABLE_*`이라 **초대 전용
+ * 사실**을 뜻하는데 이 자리의 사실은 초대가 아니라 "이 가족의 구성원이 아니다"이다. 이름을 빌리면
+ * 다음 사람이 두 자리를 한 뜻으로 읽고 한쪽을 고칠 때 다른 쪽까지 끌고 간다 — 값은 같고 뜻은
+ * 다르므로 **값만** 같게 두고, 같음은 계약이 문다(그쪽은 `invite-accept-messages.test.ts`가 문다).
+ */
+const FAMILY_FORBIDDEN_EXIT_LABEL = "앱 둘러보기";
 
 const familyReferenceScreenId = "pixel-screen-FAM-001 FAM-001";
 // PIX-133: 보정 변환은 FAM-001 캡처 빌드 전용(기본값은 항등이지만 튜닝 값 유출을 구조적으로 차단).
@@ -135,6 +152,42 @@ function FamilyInviteRow({
         <Text accessible={false} style={familyInviteChevronStyle}>›</Text>
       )}
     </Pressable>
+  );
+}
+
+/**
+ * 라운드 111 — 화면 제목줄(뒤로가기 + 제목). **정상 렌더와 실패 갈래가 같은 한 벌을 그린다.**
+ *
+ * ⚠️ 두 시점. 종전에는 이 JSX가 정상 렌더 안에만 인라인으로 있었고, 그때는 참이었다 — 실패
+ * 갈래가 `EmptyStateCard` 하나만 그린다는 사실을 아무도 나가는 길과 함께 읽지 않았기 때문이다.
+ * 이제 아래 `membersPhase === "error"` 갈래도 이 컴포넌트를 그린다. 앱은 전역
+ * `headerShown:false`(`app/_layout.tsx`)라 OS 헤더가 없어서, 그 갈래에는 **화면 안의 나가는 길이
+ * 0개**였고 유일한 버튼은 [다시 시도]였다. 같은 모양을 저장소가 이미 두 번 결함으로 판정하고
+ * 고쳤다(라운드 93 #1 동기화 상태 화면 · 라운드 108-T18 준비템 상세).
+ *
+ * ⚠️ **사본이 아니라 이동이다.** 정상 렌더는 이 컴포넌트를 부르므로 렌더 결과가 바이트 단위로
+ * 같고, 소스에서도 눌림 피드백 스타일 프롭의 **출현 수가 7 그대로**다 — 그 수는
+ * `src/family-invite-flow.test.ts`(이 트랙 소유 밖)가 정규식으로 붙들고 있어, 사본을 만들었다면
+ * 8이 되어 그 계약이 먼저 빨개졌을 자리다. ⚠️ 그 정규식은 **주석까지 읽으므로** 이 문단도 그
+ * 프롭을 글자 그대로 적지 않는다(적었더니 실제로 8이 됐다 — 이 문장이 그 실측이다).
+ */
+function FamilyHeaderRow() {
+  return (
+    <View style={familyHeaderRowStyle}>
+      {/* 라운드 96 T7: 이 화면의 인라인 Pressable 전부에 눌림 피드백(opacity)을 단다 --
+          공용 프리미티브(TextButton 0.6 · SecondaryButton 0.82)와 같은 축이고, 휴지 상태는
+          opacity 1이라 FAM-001 픽셀락 캡처는 한 픽셀도 바뀌지 않는다. */}
+      <Pressable
+        accessibilityLabel="뒤로가기"
+        accessibilityRole="button"
+        hitSlop={12}
+        onPress={() => router.back()}
+        style={familyPressedTextFeedback}
+      >
+        <Text style={familyBackStyle}>‹</Text>
+      </Pressable>
+      <Text style={familyTitleStyle}>가족과 함께</Text>
+    </View>
   );
 }
 
@@ -302,6 +355,34 @@ export default function FamilyScreen() {
   const loadErrorCopy = useLoadErrorCopy(members.isError);
 
   /**
+   * 라운드 111 — **403은 기다린다고 풀리지 않는다.**
+   *
+   * ⚠️ 두 시점. 종전에는 이 화면의 조회 실패가 `useLoadErrorCopy` 하나로만 갈렸고, 그때는
+   * 절반만 참이었다 — 그 훅(`src/offline/use-load-error-copy.ts` → `resolveLoadErrorCopy`)이
+   * 가르는 축은 **온/오프라인뿐**이라 서버가 코드로 말해 준 사유를 구조적으로 볼 수 없었다.
+   * 그래서 온라인에서 온 403에도 "불러오지 못했어요. 잠시 후 다시 시도해 주세요."가 서고,
+   * [다시 시도]는 **영원히 같은 403**으로 되돌아왔다.
+   *
+   * 그 403의 출처는 하나다: `apps/api/src/households/household-runtime.service.ts`의
+   * `listMembers`(:361)가 부르는 `assertMember`(:618)가 토큰의 가구 목록에 그 가구가 없으면
+   * `ForbiddenException({ code: "FORBIDDEN", ... })`을 던진다(:621). 가장 흔한 원인은 **소유자가
+   * 나를 구성원에서 뺀 뒤에도 이 기기의 액세스 토큰이 아직 옛 목록을 들고 있는 창**이고, 그
+   * 창에서는 무엇을 눌러도 같은 답이 온다.
+   *
+   * ⚠️ **왜 `useLoadErrorCopy`를 넓히지 않았나** — 라운드 108-T18이 준비템 상세에서 내린 것과
+   * 같은 판정이다. 그 훅은 `{title, actionLabel}`만 돌려주고 **목적지를 모르는데**, 이 자리에서
+   * 실제로 고쳐야 하는 것은 `onPress`가 같은 403으로 되돌아간다는 사실이다. 게다가 그 훅은 오늘
+   * 열여섯 화면이 함께 쓰고(`src/offline/offline-aware-screens.ts`), 그 문구는
+   * `src/offline/messages.test.ts`가 화면별 출현 수까지 값으로 붙들고 있다 — 여기서 넓히면 이
+   * 막다른 길이 없는 열다섯 자리의 문구가 함께 움직인다. 그래서 갈래는 **이 화면이 진다.**
+   *
+   * 코드 추출은 이 도메인이 이미 쓰는 한 벌(`familyErrorCodeOf` — `ApiHttpError`와 옛 봉투 JSON을
+   * 함께 읽는다)을 그대로 쓰고, 문구도 짓지 않고 앱 전역 표에서 읽는다. 코드가 아니면 `null`이라
+   * 아래 세 값이 종전과 **한 글자도** 다르지 않다(네트워크·5xx·오프라인 갈래 불변).
+   */
+  const forbiddenTitle = familyErrorCodeOf(members.error) === "FORBIDDEN" ? apiErrorMessageForCode("FORBIDDEN") : null;
+
+  /**
    * 라운드 72 트랙 B(GAP-072 #2) — **대기 초대 줄**도 같은 판정을 읽는다.
    *
    * 이 줄은 구성원 목록 카드와 달리 줄 자체가 눌리는 자리라(Pressable + 한 줄) 종전 문장의
@@ -381,11 +462,52 @@ export default function FamilyScreen() {
   if (hasSession && membersPhase === "error") {
     return (
       <AppScreen>
-        <EmptyStateCard
-          title={loadErrorCopy.title}
-          actionLabel={loadErrorCopy.actionLabel}
-          onPress={() => members.refetch()}
-        />
+        {/* 라운드 111: 실패 갈래에도 **나가는 길**이 선다(위 FamilyHeaderRow 주석 — 종전에는
+            이 갈래에 카드 하나뿐이라 화면 안의 문이 0개였다). 감싸는 View의 간격은 바로 아래
+            로딩 갈래가 이미 쓰는 그 값이라 새 스타일 상수가 0건이다. */}
+        <View style={{ gap: theme.spacing.section }}>
+          <FamilyHeaderRow />
+          {/**
+            * 라운드 111 — 403이면 **다른 카드**가 선다. 갈래를 세 프롭에 각각 걸지 않고
+            * 카드 하나에 거는 이유는 둘이다.
+            *
+            *  ① 판정이 하나이므로 자리도 하나여야 한다. 프롭마다 삼항을 걸면(라운드 108-T18이
+            *     준비템 상세에서 고른 꼴) 한 사람이 셋 중 하나만 고치는 날 문구와 버튼과 행동이
+            *     서로 다른 갈래를 말한다 — 이 화면의 결함이 바로 *두 자리가 갈린 것*이었다.
+            *  ② ⚠️ **소유 밖 계약 셋이 종전 갈래의 프롭을 바이트로 붙들고 있다**
+            *     (`src/screen-phase.test.ts` · `src/loading-skeleton-contract.test.ts` ·
+            *     `src/family/member-mutation-messages.test.ts` — 셋 다
+            *     `title={loadErrorCopy.title}`·`actionLabel={loadErrorCopy.actionLabel}`을 문다).
+            *     이 꼴은 그 바이트를 **그대로 남긴다**. ⚠️ 준비템 상세는 `??` 꼴을 골라 오늘
+            *     그 셋 중 둘이 그 화면에서 빨간 채로 있다(이 트랙 소유 밖이라 손대지 않았고,
+            *     보고서에 실측 시각과 함께 적는다).
+            */}
+          {forbiddenTitle ? (
+            /**
+             * 403 갈래. 되돌아가기가 아니라 **나가기**라 replace다(라운드 108-T18과 같은 판정):
+             * 이 화면은 초대 수락 흐름에서 `router.replace(plan.href)`로도 착지하므로
+             * (`app/family/accept/[token].tsx`), 그 경로로 들어온 사용자에게 `router.back()`은
+             * 갈 곳이 없을 수 있다 — 제목줄의 ‹ 는 push로 들어온 흔한 경로를 맡고, 이 버튼은
+             * 스택 깊이와 무관하게 선다. 목적지도 짓지 않는다: 같은 가족 도메인의 같은 403
+             * 막다른 길에 저장소가 이미 고른 그 탭 셸이다(라운드 60 리뷰 P1-2 —
+             * `src/children/household-join.ts`의 `{ kind: "blocked", href: "/(tabs)" }`가
+             * *"403 무한 재시도"* 를 고치며 적어 둔 값).
+             */
+            <EmptyStateCard
+              title={forbiddenTitle}
+              actionLabel={FAMILY_FORBIDDEN_EXIT_LABEL}
+              onPress={() => router.replace("/(tabs)")}
+            />
+          ) : (
+            // 코드가 없는 실패(네트워크·5xx·오프라인)는 **종전 그대로**다 — 세 프롭 모두 한 글자도
+            // 바뀌지 않았고, 여기서는 [다시 시도]가 여전히 지킬 수 있는 약속이다.
+            <EmptyStateCard
+              title={loadErrorCopy.title}
+              actionLabel={loadErrorCopy.actionLabel}
+              onPress={() => members.refetch()}
+            />
+          )}
+        </View>
       </AppScreen>
     );
   }
@@ -508,21 +630,7 @@ export default function FamilyScreen() {
   return (
     <AppScreen>
       <View testID={familyReferenceScreenId} style={familyReferenceFrameStyle()}>
-        <View style={familyHeaderRowStyle}>
-          {/* 라운드 96 T7: 이 화면의 인라인 Pressable 전부에 눌림 피드백(opacity)을 단다 --
-              공용 프리미티브(TextButton 0.6 · SecondaryButton 0.82)와 같은 축이고, 휴지 상태는
-              opacity 1이라 FAM-001 픽셀락 캡처는 한 픽셀도 바뀌지 않는다. */}
-          <Pressable
-            accessibilityLabel="뒤로가기"
-            accessibilityRole="button"
-            hitSlop={12}
-            onPress={() => router.back()}
-            style={familyPressedTextFeedback}
-          >
-            <Text style={familyBackStyle}>‹</Text>
-          </Pressable>
-          <Text style={familyTitleStyle}>가족과 함께</Text>
-        </View>
+        <FamilyHeaderRow />
 
         {/* 라운드 60 A: 다가구 계정에서만 나타나는 부제 -- 어느 가구를 관리하는 중인지 말한다. */}
         {householdNotice ? <Text style={familyScopeNoticeStyle}>{householdNotice}</Text> : null}
