@@ -19,6 +19,14 @@ process.env.RATE_LIMIT_AUTH_MAX ??= "100000";
 process.env.RATE_LIMIT_REDIRECT_MAX ??= "100000";
 process.env.RATE_LIMIT_ANALYTICS_MAX ??= "100000";
 process.env.RATE_LIMIT_ANALYTICS_USER_MAX ??= "100000";
+// 라운드 109 P가 인증 클릭 경로에 전용 버킷 둘을 세우며 더한 두 줄이다. 그 라운드에는
+// 이 목록을 갱신하지 않아도 결함이 없었다 — **그때는 참이었다**: 클릭을 치는 스위트가
+// 셋뿐이고 각 최대 ~10건이라 새 기본값(IP 60 · 계정 30)에 한참 못 미쳤다(실측). 그래도
+// 여기 적는다. 이 목록의 취지는 "오늘 넘지 않는다"가 아니라 **리밋이 테스트를 막는 날
+// 그 원인이 리밋이라는 것을 한 자리에서 읽게 하는 것**이고, 클릭 스위트가 늘어나는 날
+// 그 진단은 이 파일을 모르는 사람에게 가장 비싸다.
+process.env.RATE_LIMIT_PRODUCT_LINK_CLICK_MAX ??= "100000";
+process.env.RATE_LIMIT_PRODUCT_LINK_CLICK_USER_MAX ??= "100000";
 
 /**
  * PERF-130 setup file: gates every test file on the shared-database readers/writer
