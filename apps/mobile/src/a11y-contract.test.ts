@@ -3730,7 +3730,11 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
     // 그 화면의 저장 실패 셋이 이 모집단에 함께 들어왔다 — 머리말이 적어 둔 그대로다
     // ("화면이 하나 늘면 그 화면도 이 질문을 자동으로 받는다"). 셋 다 프롭 쌍 + announce 한
     // 벌로 서므로 침묵도, 한 플랫폼만 답하는 자리도 늘지 않았다(아래 두 부정 단언이 그대로 0).
-    expect(total, "대장 여섯 화면이 그리는 저장 실패 자리 합계").toBe(10);
+    // ⚠️ 두 시점(라운드 103 리뷰 L-1): 열 → **열하나**. [다시 사용]은 보관 구획에 있는데 그
+    // 실패 문구는 위 카드에만 있어, 보관 행이 많으면 실패 문장이 스크롤 밖에 섰다. 같은
+    // 뮤테이션(archive)을 쓰는 자리 둘이 이제 같은 문구를 그리므로 자리가 하나 늘었다.
+    // 늘어난 자리도 프롭 쌍 + 같은 announce 한 벌 아래이므로 침묵은 그대로 0건이다.
+    expect(total, "대장 여섯 화면이 그리는 저장 실패 자리 합계").toBe(11);
     // 오늘의 값: 낭독 밖은 **0건**이다(트랙 A 뒤 넷 → 통합이 핀과 화면을 함께 움직여 0).
     expect(silent.sort(), "낭독 밖에 남은 저장 실패 자리").toEqual([]);
     // 그 0은 손으로 적은 값이 아니라 위 제외 목록에서 파생한다 — 제외가 다시 생기면 그 목록에
@@ -3746,7 +3750,9 @@ describe("GAP-079 #1 저장 실패 문장의 낭독 계약 (대장에서 파생)
     expect(ANDROID_ONLY_LIVE_REGION_REASON, "한 플랫폼만 답하는 자리를 세는 이유").toContain("@platform android");
     // ⚠️ 두 시점(라운드 103 T3): announce 여섯 → **아홉**. 늘어난 셋은 지출 분류 관리의 저장
     // 실패 셋이고, 셋 다 프롭 쌍과 announce 배선을 **함께** 들고 들어왔다(Toast 축은 그대로 하나).
-    expect(exits, "출구별 자리 수").toEqual({ announce: 9, toast: 1 });
+    // ⚠️ 두 시점(라운드 103 리뷰 L-1): announce 아홉 → **열**. 늘어난 하나는 archive 실패
+    // 문구가 보관 구획에도 서게 된 자리이고, 프롭 쌍과 announce 배선을 함께 들고 들어왔다.
+    expect(exits, "출구별 자리 수").toEqual({ announce: 10, toast: 1 });
   });
 
   it("ⓐ-4 일곱 자리 전부 announce 배선이 소스에 실재한다 (맨 Text 여섯 = useEffect · Toast 하나 = 컴포넌트)", () => {
@@ -4744,7 +4750,11 @@ const MUTATION_TRIGGER_SITES_BY_SCREEN: Readonly<Record<string, number>> = {
   // (app/settings/categories.tsx)의 저장 실패 셋 — 추가 · 이름 바꾸기 · 보관/다시 사용이
   // 각자 자기 뮤테이션을 묻는 자리다(라운드 70 M-2의 그 규율). 셋 다 아래 프롭 쌍 + announce
   // 한 벌로 서므로 출구는 전부 `announce`이고, 이 라운드가 새로 뚫은 침묵은 0건이다.
-  "app/settings/categories.tsx": 3,
+  // ⚠️ 두 시점(라운드 103 리뷰 L-1): 셋 → **넷**. archive 뮤테이션의 실패 문구가 [보관]이 있는
+  // 사용 중 카드와 [다시 사용]이 있는 보관 카드 **두 자리**에 서게 됐다(종전에는 위 카드에만
+  // 있어 보관 행이 많으면 실패 문장이 스크롤 밖이었다). 자리는 둘이지만 방아쇠는 여전히 셋이며,
+  // 넷째 자리도 같은 announce 한 벌 아래라 이 라운드가 뚫은 침묵은 0건이다.
+  "app/settings/categories.tsx": 4,
   "app/settings/children.tsx": 3,
   "app/settings/notifications.tsx": 2,
   "app/settings/privacy.tsx": 7
@@ -4855,7 +4865,9 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
     // (`new.tsx`·`[expenseId].tsx`) · 준비템 상태 변경 실패 Toast 둘(`(tabs)/items.tsx`·
     // `items/[itemTemplateId].tsx`) · 로그인 실패 카드 하나(`(auth)/login.tsx`).
     // ⚠️ 두 시점(라운드 103 T3): 스물다섯 → **스물여덟**(지출 분류 관리의 저장 실패 셋).
-    expect(mutationSites.length, "뮤테이션 방아쇠 자리 합계").toBe(28);
+    // ⚠️ 두 시점(라운드 103 리뷰 L-1): 스물여덟 → **스물아홉**(archive 실패 문구가 [보관]과
+    // [다시 사용] 두 자리에 서게 됐다 — 방아쇠는 그대로 셋이고 자리만 넷이다).
+    expect(mutationSites.length, "뮤테이션 방아쇠 자리 합계").toBe(29);
 
     const exits: Record<string, number> = {};
     for (const site of mutationSites) exits[site.exit] = (exits[site.exit] ?? 0) + 1;
@@ -4864,7 +4876,9 @@ describe("GAP-080 #1 눌러서 나타난 실패의 낭독 계약 (방아쇠에�
     // 넓어진 모집단이 새로 뚫은 침묵은 0건이다.
     // ⚠️ 두 시점(라운드 103 T3): announce 스물 → **스물셋**. 늘어난 셋은 전부 프롭 쌍 +
     // announce 한 벌을 함께 들고 들어왔다(Toast 축은 한 자도 움직이지 않았다).
-    expect(exits, "출구별 자리 수").toEqual({ announce: 23, toast: 5 });
+    // ⚠️ 두 시점(라운드 103 리뷰 L-1): announce 스물셋 → **스물넷**(archive 실패 문구의
+    // 둘째 자리 — 방아쇠는 그대로 셋이고 출구는 같은 announce 한 벌이다).
+    expect(exits, "출구별 자리 수").toEqual({ announce: 24, toast: 5 });
   });
 
   it("ⓑ 부정 단언 — 프롭만 걸린 자리 0건(iOS 침묵 0건) · 낭독 밖 0건이고 그 0이 값에서 파생한다", () => {
