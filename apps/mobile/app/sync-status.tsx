@@ -187,11 +187,21 @@ function ConflictFieldPicker({
                   return next;
                 })
               }
+              // A11Y-131 ⚠️ 두 시점: 종전에는 `paddingVertical: 8`뿐이라 12px 글자 한 줄과 합쳐
+              // 유효 타깃이 34dp 남짓이었다(그때는 참 — 이 pill은 "고르는" 자리가 아니라 값을
+              // 보여 주는 칸에 가깝게 태어났다). 이제 최소 높이 토큰(48dp)으로
+              // 세운다: 충돌 해결은 **잘못 누르면 남의 기록을 덮는** 자리라 최소 타깃을 지켜야
+              // 한다. hitSlop이 아니라 크기를 키운 근거 — 48을 채우려면 세로로 16dp씩 벌어야
+              // 하는데, 위 필드 라벨과는 gap 6 · 아래 항목과는 gap 10뿐이라 두 이웃의 몸을
+              // 모두 덮는다(잘못된 필드가 눌린다). 이 화면은 픽셀락 캡처 대상이 아니라
+              // (scripts/pixel-lock/pixel-lock-screens.json에 없다) 세로로 자라도 되는 자리다.
               style={{
                 borderColor: chosenFromServer.has(entry.field) ? theme.colors.gray300 : theme.colors.mainCoral,
                 borderRadius: theme.radii.pill,
                 borderWidth: 1,
                 flex: 1,
+                justifyContent: "center",
+                minHeight: theme.touchTarget,
                 paddingVertical: 8
               }}
             >
@@ -211,11 +221,16 @@ function ConflictFieldPicker({
                   return next;
                 })
               }
+              // A11Y-131 ⚠️ 두 시점: 위 "내 값" pill과 **같은 자리·같은 이유**다. 종전
+              // 34dp 남짓(paddingVertical 8 + 12px 한 줄) → 이제 48dp(`theme.touchTarget`).
+              // 형제 둘이 같은 수치를 들고 나란히 서야 한쪽만 누르기 쉬운 일이 생기지 않는다.
               style={{
                 borderColor: chosenFromServer.has(entry.field) ? theme.colors.mainCoral : theme.colors.gray300,
                 borderRadius: theme.radii.pill,
                 borderWidth: 1,
                 flex: 1,
+                justifyContent: "center",
+                minHeight: theme.touchTarget,
                 paddingVertical: 8
               }}
             >

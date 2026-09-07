@@ -82,6 +82,26 @@ import { theme } from "../theme";
 const PICKER_DISABLED_OPACITY = 0.35;
 
 /**
+ * A11Y-131 — **날짜 칸의 히트 영역을 44에서 48로 갚는다.**
+ *
+ * ⚠️ 두 시점: 종전에는 칸이 `minHeight: 44`뿐이었고 hitSlop이 없어 유효 타깃이 44dp였다
+ * (그때는 참이었다 — 이 파일 머리말도 "44dp 칸"이라고 적고 있다). 이제 세로로 2dp씩 갚아
+ * 44 + 2×2 = 48 = `theme.touchTarget`이다. 근거: 이 저장소가 스스로 못박은 최소 타깃이 48이고
+ * (DSN-053 토큰 표), 칸은 이 컴포넌트에서 **가장 많이 눌리는 자리**다.
+ *
+ * **크기가 아니라 hitSlop인 이유**: 칸 높이를 48로 올리면 6주 격자가 24dp 자라 이 픽커를 여는
+ * 세 화면(빠른 기록 EXP-001 · 지출 상세 · 아이 날짜)의 배치가 함께 밀린다. `hitSlop`은 레이아웃
+ * 속성이 아니므로 휴지 렌더는 한 픽셀도 바뀌지 않는다(라운드 64·65가 칩·정사각 버튼에서 쓴
+ * 그 판단과 같은 근거).
+ *
+ * **가로는 0이다.** 한 주의 칸 일곱은 `flex: 1`로 `weekRow`의 gap 2만 두고 맞붙어 있어,
+ * 가로로 넓히면 이웃 칸의 몸을 덮는다(그때는 뒤에 그려진 칸이 이겨 **다른 날짜가 눌린다**).
+ * 세로 2의 근거: 주 줄 사이 간격은 `card`의 gap 6이고, 위 줄의 bottom 2와 아래 줄의 top 2를
+ * 더해도 4 < 6이라 어느 줄도 이웃 줄의 몸에 닿지 않는다.
+ */
+const EXPENSE_DATE_PICKER_CELL_HIT_SLOP = { bottom: 2, left: 0, right: 0, top: 2 } as const;
+
+/**
  * T9(토스급 정비) — **달 라벨이 월 점프 시트의 입구가 된다.**
  *
  * 이 픽커의 달 이동은 ‹ › 한 칸씩뿐이라, 예정일(최대 만삭 ≈ 아홉 달 뒤)이나 몇 달 지난
@@ -278,6 +298,7 @@ function ExpenseDatePickerGrid({
         accessibilityLabel={accessibilityLabel}
         accessibilityRole="button"
         accessibilityState={{ selected }}
+        hitSlop={EXPENSE_DATE_PICKER_CELL_HIT_SLOP}
         key={cell.key}
         onPress={() => onSelectDate(cell.date as string)}
         style={({ pressed }) => [...cellStyle, { opacity: pressed ? 0.76 : 1 }]}

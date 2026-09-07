@@ -208,12 +208,21 @@ function ImportRowCategoryBlock({
       {category.needsChoice ? <Text style={rowNoticeStyle}>{IMPORT_ROW_CATEGORY_STUB_HINT}</Text> : null}
       {editable ? (
         <View style={{ gap: 6 }}>
+          {/* A11Y-131 ⚠️ 두 시점: 종전에는 `hitSlop={8}`만 있어 12px 글자 한 줄(≈16dp)과 합쳐
+              32dp 남짓이었다(그때는 참 — 이 줄은 "펼치기" 표시에 가깝게 태어났다). 이제
+              `minHeight`로 48(`theme.touchTarget`)을 채우고 hitSlop은 걷는다.
+              **hitSlop이 아니라 크기인 이유**: 48을 슬롭만으로 채우려면 세로 16dp씩 벌어야 하는데
+              부모가 `gap: 6` 세로 스택이라 위(스텁 안내 줄)·아래(펼친 칩 묶음)의 몸을 각각 10dp씩
+              덮는다 — 칩 위를 눌렀는데 행이 접히는 종류의 오작동이다. 이 화면(엑셀 가져오기 상세)은
+              픽셀락 대상이 아니다: IMP-003 캡처 경로는 비세션 업로드 화면 app/import/index.tsx이고
+              (scripts/pixel-lock/pixel-lock-screens.json), 이 파일 위쪽 주석도 같은 사실을 적고 있다.
+              부모가 세로 스택이라 가로는 이미 카드 폭을 채운다. */}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={importRowCategoryEditLabel(expanded)}
             accessibilityState={{ expanded }}
-            hitSlop={8}
             onPress={handleExpand}
+            style={{ justifyContent: "center", minHeight: theme.touchTarget }}
           >
             <Text style={rowCategoryEditStyle}>{importRowCategoryEditLabel(expanded)}</Text>
           </Pressable>

@@ -390,7 +390,11 @@ export default function RecurringExpensesScreen() {
                   maxLength={RECURRING_ITEM_NAME_MAX_LENGTH}
                   onChangeText={(value) => setForm((state) => ({ ...state, itemName: value }))}
                   placeholder="예: 기저귀"
-                  placeholderTextColor={theme.colors.gray600}
+                  // 종전 gray600(#5F5854): 6.98:1로 읽히기는 했지만 입력값(text.primary)과 **2.38:1**이라
+                  // 구별선(3:1) 아래였다 — 그때는 "AA만 넘기면 된다"가 이 자리의 기준이었다. → 이제
+                  // text.placeholder(5.13:1 · 입력값과 3.23:1)로 통일한다. 저장소가 들고 있던 플레이스홀더
+                  // 관례 두 벌(gray300·gray600)이 여기서 한 벌이 된다. 근거는 src/theme.ts의 토큰 주석.
+                  placeholderTextColor={theme.colors.text.placeholder}
                   returnKeyType="done"
                   style={inputStyle}
                   value={form.itemName}
@@ -414,7 +418,8 @@ export default function RecurringExpensesScreen() {
                       setForm((state) => ({ ...state, amountDigits: amountDigitsOnly(value) }))
                     }
                     placeholder="0"
-                    placeholderTextColor={theme.colors.gray600}
+                    // 종전 gray600(#5F5854) → text/token placeholder 통일(위 첫 자리의 주석이 값의 근거).
+                    placeholderTextColor={theme.colors.text.placeholder}
                     returnKeyType="done"
                     style={[inputStyle, { flex: 1 }]}
                     value={formatAmountDigits(form.amountDigits)}
@@ -463,7 +468,8 @@ export default function RecurringExpensesScreen() {
                       setForm((state) => ({ ...state, dayDigits: amountDigitsOnly(value).slice(0, 2) }))
                     }
                     placeholder="5"
-                    placeholderTextColor={theme.colors.gray600}
+                    // 종전 gray600(#5F5854) → text/token placeholder 통일(위 첫 자리의 주석이 값의 근거).
+                    placeholderTextColor={theme.colors.text.placeholder}
                     returnKeyType="done"
                     style={[inputStyle, { width: 72 }]}
                     value={form.dayDigits}
@@ -485,7 +491,8 @@ export default function RecurringExpensesScreen() {
                   maxLength={RECURRING_MERCHANT_MAX_LENGTH}
                   onChangeText={(value) => setForm((state) => ({ ...state, merchant: value }))}
                   placeholder="예: 쿠팡"
-                  placeholderTextColor={theme.colors.gray600}
+                  // 종전 gray600(#5F5854) → text/token placeholder 통일(위 첫 자리의 주석이 값의 근거).
+                  placeholderTextColor={theme.colors.text.placeholder}
                   returnKeyType="done"
                   style={inputStyle}
                   value={form.merchant}
@@ -565,11 +572,22 @@ export default function RecurringExpensesScreen() {
                       setShowPrefillNotice(false);
                     }}
                   />
+                  {/* A11Y-131 ⚠️ 두 시점: 종전에는 `hitSlop={8}`만 있어 13px 글자 한 줄(≈18dp)과
+                      합쳐 34dp 남짓이었다(그때는 참 — 옆의 두 형제가 공용 TextButton이라 이 줄만
+                      맨 Pressable로 태어났고 그 차이가 보이지 않았다). 이제 `minHeight`로
+                      48(`theme.touchTarget`)을 채운다.
+                      **크기를 키웠는데도 렌더가 불변인 이유**: 이 행(actionRowStyle)은
+                      `alignItems: "center"`이고 형제 TextButton 둘이 이미 `minHeight:
+                      theme.touchTarget`이라 행 높이는 이미 48이다 — 자라는 것은 이 버튼의
+                      히트 상자뿐이다. hitSlop 8은 그대로 둔다: 세로는 이제 필요 없지만 "삭제"
+                      두 글자(≈26dp)의 **가로**를 벌어 주고, 형제 사이 gap 16보다 작아 옆 버튼의
+                      몸에 닿지 않는다. */}
                   <Pressable
                     accessibilityLabel={`${template.itemName} 정기 지출 삭제`}
                     accessibilityRole="button"
                     hitSlop={8}
                     onPress={() => confirmRemove(template)}
+                    style={{ justifyContent: "center", minHeight: theme.touchTarget }}
                   >
                     <Text style={deleteLinkStyle}>삭제</Text>
                   </Pressable>
