@@ -284,10 +284,24 @@ model Category {
   // 전량을 돌려준다. 지출의 categoryId 검증은 이 플래그를 보지 않는다(하위 호환).
   // 마이그레이션: 000018_categories_selectable.
   selectable       Boolean  @default(true)
+  /// 라운드 103: 이 분류를 만든 가구. NULL이면 운영 시드(오늘의 21행)다.
+  /// 별도 표를 만들지 않은 이유는 `expenses.category_id`가 NOT NULL FK라 categories 밖의
+  /// id가 지출에 저장될 수 없기 때문이다(설계 §1.1). `GET /categories`는 호출자가 속한
+  /// 가구의 행만 시드에 합류시키고(§2.2), 쓰기는 `POST/PATCH /households/:householdId/
+  /// categories` 둘뿐이다(DELETE 없음 — 보관은 `active = false`, §1.6).
+  /// ⚠️ **커스텀 행을 가리는 술어는 이 칸 하나다.** `isSystem = false`는 충분조건이 아니다 —
+  /// 모바일 퀵타일 별칭 8행과 가져오기 스텁 1행이 이미 `is_system = false`로 시드되기
+  /// 때문이다(prisma/seed.ts). 그래서 DB CHECK도 한 방향만 진다:
+  /// `chk_categories_owner_is_system = (household_id IS NULL OR is_system = false)`
+  /// — 가구 소유 행은 결코 시스템 시드가 아니다(마이그레이션 000024의 두 시점 주석).
+  householdId      String?  @map("household_id") @db.Uuid
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([active, displayOrder], map: "idx_categories_active_order")
+  // SQL 전용(000024): idx_categories_household (household_id) WHERE household_id IS NOT NULL
+  // SQL 전용(000024): uq_categories_household_name (household_id, lower(btrim(name)))
+  //                   WHERE household_id IS NOT NULL — 부분·식 색인이라 Prisma가 표현하지 못한다.
   @@map("categories")
 }
 
