@@ -185,7 +185,40 @@ export default function ChildProfileScreen() {
     <AppScreen>
       <View testID="screen-ONB-002" style={{ gap: theme.spacing.section }}>
         <OnboardingStepProgress screenId="ONB-002" />
-        <ScreenHeader eyebrow="아이 프로필" title="아이를 소개해 주세요" subtitle="태명이나 별명을 알려주시면 앞으로 이렇게 부를게요." />
+        {/**
+         * 라운드 108(온보딩 나가는 길) — ⚠️ 두 시점: **이 화면에는 화면 안 뒤로가기가 없었다.**
+         *
+         * 종전 그 면제의 사유는 `src/screen-header-back.test.ts`의 표에 이렇게 적혀 있었다 —
+         * *"선형 온보딩의 첫 입력 걸음이라 되돌아갈 앞 화면이 없다(그 뒤는 로그인·런치
+         * 애니메이션이고 돌아가면 계정 흐름으로 떨어진다)"*. ⚠️⚠️ **그 문장은 틀렸다**(그때도
+         * 틀렸다 — 사실이 바뀐 것이 아니라 처음부터 이 화면의 사실이 아니었다). 근거 셋:
+         *
+         *  ① 이 화면에 이르는 길은 오늘 **하나뿐**이고 그것이 `push`다 —
+         *     `app/(onboarding)/child-status.tsx`의 `router.push("/onboarding/child-profile")`.
+         *     그러므로 앞 화면(ONB-001)은 **언제나 스택에 남아 있다.**
+         *  ② 이어하기도 여기로 오지 않는다: `routeForOnboardingNextStep`은 "child-profile"과
+         *     "consents"를 둘 다 **ONB-001**로 보낸다(`src/onboarding/resume.ts` — 아이를 아직
+         *     만들지 않은 자리라 맨 위에서 다시 시작하는 것이 언제나 안전하다는 그 판단).
+         *     즉 이 화면이 `replace`로 열리는 경로 자체가 없다.
+         *  ③ 이 저장소는 그 복귀를 **이미 알고 있었다**: ONB-001의 `useFocusEffect`가
+         *     *"coming back from ONB-002"*를 받으려고 서 있다(ONB-105 주석). 되돌아오는 사람이
+         *     없었다면 그 코드가 있을 이유가 없다.
+         *
+         * 그래서 없던 것은 *되돌아갈 곳*이 아니라 **되돌아갈 문**이었다 — 상태를 잘못 고른
+         * 사람은 안드로이드 하드웨어 뒤로가기를 아는 경우에만 우연히 돌아갔다. 문법은 열둘이
+         * 쓰는 그 한 관례 그대로다(새 슬롯·새 라벨·새 한국어 문구 0건 — 라벨 "뒤로가기"는
+         * `src/ui.tsx`의 공용 슬롯이 이미 지닌 하나다).
+         *
+         * ⚠️ 앞 걸음(ONB-001)에는 이 문을 세우지 않는다: 그 화면에 이르는 길은 전부
+         * `Redirect`/`replace`라 스택에 앞 화면이 남지 않고, 그 뒤에 있는 것이 정말로 로그인
+         * 흐름이다(위 종전 사유가 참인 자리는 이 화면이 아니라 **그 화면**이었다).
+         */}
+        <ScreenHeader
+          eyebrow="아이 프로필"
+          title="아이를 소개해 주세요"
+          subtitle="태명이나 별명을 알려주시면 앞으로 이렇게 부를게요."
+          onBack={() => router.back()}
+        />
 
         {/* 라운드 72 트랙 A(#1): 이 기기가 이미 아이를 만든 상태로 이 화면이 다시 열렸다는 사실.
             안내일 뿐 차단이 아니다 -- 아래 폼과 [다음]은 그대로 쓸 수 있다. */}
