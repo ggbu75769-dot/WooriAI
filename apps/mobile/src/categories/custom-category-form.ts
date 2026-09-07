@@ -31,7 +31,11 @@
  * Error** 한 겹뿐이다(데모 세션 — 라운드 100 T3의 같은 자리와 같은 판단).
  *
  * react-native/react-query import 0건인 순수 모듈 — vitest node 환경에서 그대로 테스트한다.
+ * (아래 `customCategoryListPhase`가 들이는 `../screen-phase`도 같은 성질의 순수 모듈이라
+ * 그 사실이 깨지지 않는다 — 그 파일의 import는 0건이다.)
  */
+
+import { resolveScreenPhase, type ScreenPhase } from "../screen-phase";
 
 /**
  * 목록 한 행 가운데 이 모듈이 실제로 보는 최소치. `CategoryListItem`(src/api/client.ts)이 이
@@ -200,6 +204,62 @@ export function splitCustomCategories(
     archived: mine.filter((category) => !category.active),
     total: mine.length
   };
+}
+
+/**
+ * 목록 조회의 국면 — **"이 창에서 모집단을 믿어도 되는가"의 단일 소스**(라운드 103 리뷰 M-3).
+ *
+ * ## 두 시점 ① — 종전에는 이 축이 **아예 없었다**
+ *
+ * 화면은 `["categories"]` 조회의 로딩·실패를 한 갈래도 읽지 않았다. 그래서 비행기 모드에서
+ * (또는 `GET /categories` 500) 설정 → 지출 분류 관리를 열면, 그 가구에 분류가 열다섯 있어도
+ * 화면이 그리는 것은 *"아직 직접 추가한 분류가 없어요."* 한 줄뿐이었다 — [다시 시도]도,
+ * "지금은 오프라인이에요"도 없이. 그리고 그 **거짓 빈 목록이 판정까지 오염시켰다**:
+ * 중복 비교의 모집단(`customCategoryNamePopulation`)이 비고 `isCustomCategoryLimitReached(0)`가
+ * false라, 이미 있는 이름을 다시 쳐도 [분류 추가]가 활성이었고 막는 것은 서버 400뿐이었다.
+ *
+ * ## 왜 이 판정이 화면이 아니라 여기 있는가
+ *
+ * 이 화면의 규율은 *"문장도 판정도 화면이 짓지 않는다"* 이고(위 머리말 · §9.6), **[분류 추가]를
+ * 잠그는 축**은 문구가 아니라 판정이다. 그 축을 화면의 `addBlocked` 식에 손으로 적으면 중복·상한
+ * 판정과 **그 판정을 믿어도 되는 조건**이 두 파일로 갈린다 — 이 모듈이 존재하는 이유와 정확히
+ * 같은 자리다. 그래서 "무엇을 그릴 것인가"와 "추가를 열어도 되는가"가 이 함수 하나에서 나온다:
+ * 화면은 `ready`인 창에서만 빈 상태 문장을 그리고, 그때만 추가를 연다.
+ *
+ * ## 이 함수가 새로 짓는 것은 **두 줄뿐**이다
+ *
+ *  - **세션이 없으면 기다릴 조회가 없다.** 쿼리가 `enabled: Boolean(authToken)`이라 그 창에서
+ *    `isPending`은 영원히 참이고, 그것을 "조회 중"으로 읽으면 비로그인 화면이 스켈레톤에 갇힌다.
+ *    같은 이유로 같은 첫 줄을 갖는 선례가 `isChildrenSettled`(src/family/household-scope.ts)다.
+ *    ⚠️ 그 창의 문장(로그인 안내)은 이 라운드가 열지 않는다 — 형제 화면(app/settings/children.tsx)
+ *    은 그 자리를 EmptyStateCard로 덮지만 이 화면에는 그 갈래 자체가 없고, 쓰기 컨트롤은
+ *    `canWrite`가 이미 잠근다. 종전 동작과 한 글자도 다르지 않은 창이라는 뜻이다.
+ *  - **`householdId`를 아직 모르면 조회 중이다.** `["children"]`이 정착하기 전 그 값은 null이고
+ *    (`resolveManagedHouseholdId`가 열어 둔 그 창), 그때 `splitCustomCategories`는 **행 전부를
+ *    걸러 낸다** — 즉 콜드 진입의 첫 프레임에도 "없어요"가 스친다. 그 창에서 그 문장은 거짓이고,
+ *    사실은 "아직 모른다"다.
+ *
+ * 나머지 셋(에러 우선 · 확정 전 · 확정됐는데 데이터 없음)은 새로 짓지 않는다 — MOB-130이 세운
+ * `resolveScreenPhase` 하나가 그 순서의 단일 소스다(실패를 로딩으로 위장하지 않는다).
+ */
+export function customCategoryListPhase(input: {
+  /** 세션(토큰)이 있는가. 없으면 조회가 켜지지 않으므로 기다릴 대상도 없다. */
+  hasSession: boolean;
+  /** react-query v5 `isPending` — 성공/실패로 확정되기 전. */
+  isPending: boolean;
+  /** react-query v5 `isError` — 재시도까지 끝나고 실패로 확정됨. */
+  isError: boolean;
+  /** `Boolean(categories.data)` — 그릴 목록이 손에 있는가. */
+  hasData: boolean;
+  /** 이 목록의 주인 가구. `["children"]`이 정착하기 전에는 null이다. */
+  householdId: string | null | undefined;
+}): ScreenPhase {
+  if (!input.hasSession) return "ready";
+  return resolveScreenPhase({
+    isPending: input.isPending,
+    isError: input.isError,
+    hasData: input.hasData && input.householdId != null
+  });
 }
 
 /**

@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { VIEW_ONLY_HEADLINES } from "../family/record-permissions";
-import { OFFLINE_AWARE_SAVE_ERROR_SCREENS } from "../offline/offline-aware-screens";
+import {
+  OFFLINE_AWARE_LOAD_ERROR_SCREENS,
+  OFFLINE_AWARE_SAVE_ERROR_SCREENS
+} from "../offline/offline-aware-screens";
 import { SHARED_KEY_COVERAGE } from "../query/shared-cache-policy";
 
 const mobileRoot = process.cwd();
@@ -233,6 +236,91 @@ describe("§4.1 목록 — 시드 행을 그리지 않고, 두 구획으로 갈�
     expect(screen).toContain("color: theme.colors.danger");
     // 프롭 쌍만으로는 iOS가 침묵한다 — 크로스플랫폼의 답(announceForA11y)이 저장 실패 셋에 걸린다.
     expect(screen.match(/announceForA11y\(/g) ?? []).toHaveLength(3);
+  });
+});
+
+/**
+ * 라운드 103 리뷰 M-3 — **조회 실패·조회 중·가구 미확정의 세 갈래.**
+ *
+ * 재현 경로: 비행기 모드에서(또는 `GET /categories` 500) 설정 → 지출 분류 관리. 종전 이 화면은
+ * `["categories"]` 조회의 `isLoading`·`isError`를 **한 갈래도** 읽지 않았고, `useLoadErrorCopy`·
+ * `LoadErrorCard`도 0건이었다. 그래서 분류가 열다섯 있어도 화면은 "아직 직접 추가한 분류가
+ * 없어요." 하나만 그렸고(재시도 버튼도, 오프라인 인지 문장도 없이), 그 거짓 빈 목록 위에서
+ * 중복·상한 판정이 통과해 **이미 있는 이름에도 [분류 추가]가 활성**이었다.
+ *
+ * 판정 자체(다섯 갈래 → 세 국면)는 순수 모듈의 몫이고 옆 테스트가 값으로 문다. 여기서 무는 것은
+ * **그 판정이 화면의 세 얼굴과 잠금에 실제로 배선돼 있는가**다.
+ */
+describe("리뷰 M-3 조회 갈래 — 없는 것과 모르는 것을 가른다", () => {
+  it("판정은 순수 모듈 하나에서 오고, 화면이 조회 국면을 다시 짓지 않는다", () => {
+    const screen = withoutComments(screenSource());
+    expect(screen).toContain("const listPhase = customCategoryListPhase({");
+    const phase = guardedSlice(screen, "const listPhase = customCategoryListPhase({", "});", "국면 판정");
+    // 다섯 갈래의 입력이 전부 그 함수로 들어간다 — 화면은 조합만 넘긴다.
+    expect(phase).toContain("hasSession: Boolean(authToken)");
+    expect(phase).toContain("isPending: categories.isPending");
+    expect(phase).toContain("isError: categories.isError");
+    expect(phase).toContain("hasData: Boolean(categories.data)");
+    expect(phase).toContain("householdId");
+    // 화면이 같은 판정을 손으로 다시 적는 자리가 없다(`isLoading` 직접 읽기·가구 null 비교).
+    expect(screen, "화면이 로딩 판정을 다시 짓는다").not.toContain("categories.isLoading");
+    expect(screen, "화면이 가구 미확정을 다시 짓는다").not.toContain("householdId == null");
+  });
+
+  it("조회 실패는 LoadErrorCard 한 벌이 지고, 문구·라벨·재조회가 공용 단일 소스에서 온다", () => {
+    const screen = screenSource();
+    expect(screen).toContain('from "../../src/offline/use-load-error-copy"');
+    expect(screen).toContain("const loadErrorCopy = useLoadErrorCopy(categories.isError);");
+    // 조회 자리는 목록 하나뿐이라 훅도 한 번이다(고정 호출 — hooks 규칙에도 안전하다).
+    expect(screen.match(/useLoadErrorCopy\(/g) ?? [], "조회 자리당 한 번").toHaveLength(1);
+    const card = guardedSlice(screen, '{listPhase === "error" ? (', ") : null}", "조회 실패 카드");
+    expect(card).toContain("<LoadErrorCard");
+    expect(card).toContain("message={loadErrorCopy.title}");
+    expect(card).toContain("retryLabel={loadErrorCopy.actionLabel}");
+    // 재시도는 자기 조회를 다시 부른다 — 엉뚱한 쿼리로 가면 카드가 영영 걷히지 않는다.
+    expect(card).toContain("onRetry={() => categories.refetch()}");
+    // 화면이 실패 문장을 손으로 적는 자리는 0건이다(§9.6 — 주석 인용은 걷어 내고 본다).
+    const code = withoutComments(screen);
+    expect(code).not.toContain("불러오지 못했어요");
+    expect(code).not.toContain("오프라인이에요");
+    // 그리고 이 화면이 **조회** 실패 대장에도 등재돼 있다(app/** 스윕과 목록의 정확한 일치).
+    expect(OFFLINE_AWARE_LOAD_ERROR_SCREENS).toContain("app/settings/categories.tsx");
+  });
+
+  it("조회 중은 스켈레톤이다 — '불러오는 중' 텍스트 카드도, 죽은 버튼도 세우지 않는다", () => {
+    const screen = screenSource();
+    const skeleton = guardedSlice(screen, '{listPhase === "loading" ? (', ") : null}", "조회 중 자리");
+    expect(skeleton.match(/<SkeletonCard \/>/g) ?? [], "카드 실루엣 두 장").toHaveLength(2);
+    expect(screen).toContain('from "../../src/ui/Skeleton"');
+    expect(screen).not.toContain("잠시만요");
+    expect(screen).not.toContain("불러오고 있어요");
+  });
+
+  it("⚠️ '없어요'는 아는 창에서만 선다 — 실패·조회 중·가구 미확정 창에서는 그 문장이 서지 않는다", () => {
+    const screen = screenSource();
+    expect(screen).toContain('const populationKnown = listPhase === "ready";');
+    // 빈 상태 문장은 그 축 아래에 있다(종전에는 조건 없이 언제나 그려졌다).
+    const emptyBranch = guardedSlice(
+      screen,
+      "{mine.inUse.length > 0 ? (",
+      "{rename.isError ? (",
+      "사용 중 구획의 빈 상태"
+    );
+    expect(emptyBranch).toContain(") : populationKnown ? (");
+    expect(emptyBranch).toContain("{mine.total === 0 ? copy.emptyStateText : copy.inUseEmptyText}");
+    // 그 갈래의 else는 **아무 문장도 아니다**(모르는 창에서 화면이 다른 말을 지어내지 않는다).
+    expect(emptyBranch.trimEnd().endsWith(") : null}")).toBe(true);
+  });
+
+  it("⚠️ [분류 추가]의 잠금 축이 그 같은 판정 하나다 (빈 모집단으로 400을 받던 자리)", () => {
+    const screen = screenSource();
+    // 첫 절이 이 라운드가 세운 축이다 — 그 뒤 셋은 종전 그대로(중복·빈 이름·상한).
+    expect(screen).toContain(
+      "!populationKnown || draftNotice !== null || normalizeCustomCategoryName(draftName).length === 0 || limitReached"
+    );
+    // 버튼은 그 한 식(addBlocked)만 읽는다 — 잠금 조건이 두 벌로 갈리지 않는다.
+    expect(screen).toContain("disabled={!canWrite || addBlocked || create.isPending}");
+    expect(screen.match(/addBlocked/g) ?? [], "addBlocked는 정의 하나 · 사용 하나").toHaveLength(2);
   });
 });
 

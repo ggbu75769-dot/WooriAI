@@ -16,6 +16,7 @@ import {
   customCategoryArchiveConfirmCopy,
   customCategoryIdempotencyKey,
   customCategoryLimitExceededMessage,
+  customCategoryListPhase,
   customCategoryMutationErrorMessage,
   customCategoryNameMaxLength,
   customCategoryNameNotice,
@@ -34,7 +35,7 @@ import {
 import { isChildrenSettled, resolveManagedHouseholdId } from "../../src/family/household-scope";
 import { guardExpenseAction, VIEW_ONLY_HEADLINES } from "../../src/family/record-permissions";
 import { useExpenseEntryGate } from "../../src/family/useExpenseEntryGate";
-import { useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
+import { useLoadErrorCopy, useSaveErrorCopy } from "../../src/offline/use-load-error-copy";
 import { useSelectedChildStore } from "../../src/stores/selected-child.store";
 import { useSessionStore } from "../../src/stores/session.store";
 import { theme } from "../../src/theme";
@@ -42,11 +43,15 @@ import {
   announceForA11y,
   AppScreen,
   Card,
+  LoadErrorCard,
   PrimaryButton,
   ScreenHeader,
   SecondaryButton,
   TextButton
 } from "../../src/ui";
+// 라운드 103 리뷰 M-3: 조회 중의 얼굴은 텍스트 카드가 아니라 실루엣이다 — 형제 화면
+// (app/settings/children.tsx)이 라운드 96 T6부터 쓰는 D6 프리셋 그대로(분류 카드 자리).
+import { SkeletonCard } from "../../src/ui/Skeleton";
 
 /**
  * 라운드 103 T3 — **지출 분류 관리**(`/settings/categories`).
@@ -84,6 +89,14 @@ import {
  * 라벨이 조용히 "기타"로 무너진다). 이 화면은 보관 행까지 그려야 하므로 그 규약이 곧 요구사항과
  * 같다. 성공 뒤 무효화는 **그 키 하나뿐**이다(§4.1: 추가 키 0건) — 이름 변경·보관이 기록 칩·
  * 리포트 범례·CSV에 곧바로 반영되는 것은 그 셋이 같은 캐시를 읽기 때문이다.
+ *
+ * ## 조회의 세 국면 — 빈 목록과 **모르는 목록**을 가른다 (라운드 103 리뷰 M-3)
+ *
+ * 종전 이 화면은 `["categories"]`의 로딩·실패를 한 갈래도 읽지 않아, 비행기 모드에서도 "아직
+ * 직접 추가한 분류가 없어요." 하나만 그렸다(재시도도, 오프라인 인지 문장도 없이). 그 거짓 빈
+ * 목록은 중복·상한 판정의 모집단이기도 해서 **이미 있는 이름에도 [분류 추가]가 활성**이었다.
+ * 이제 국면 판정 하나(`customCategoryListPhase`)가 그릴 것과 추가를 열지 말지를 함께 정하고,
+ * 얼굴은 형제 화면(app/settings/children.tsx)의 스켈레톤 + LoadErrorCard 한 벌 그대로다.
  *
  * ## 화면을 잠그지 않는다
  *
@@ -131,6 +144,36 @@ export default function CategoriesSettingsScreen() {
     queryFn: () => listCategories(authToken!, { includeAll: true }),
     staleTime: 5 * 60 * 1000
   });
+
+  /**
+   * 라운드 103 리뷰 M-3 — **조회가 아직 답하지 않았거나 실패한 창을 빈 목록으로 읽지 않는다.**
+   *
+   * 두 시점: 종전 이 화면은 이 조회의 로딩·실패를 한 갈래도 읽지 않았다. 그래서 비행기 모드에서
+   * 열면 분류가 열다섯 있어도 화면은 "아직 직접 추가한 분류가 없어요." 하나만 그렸고, 그 거짓
+   * 빈 목록 위에서 중복·상한 판정이 통과해 **이미 있는 이름에도 [분류 추가]가 활성**이었다
+   * (막는 것은 서버 400 하나뿐이었다). 게다가 `householdId`는 `["children"]`이 정착하기 전 null
+   * 이라 `splitCustomCategories`가 전부 걸러 내므로, **콜드 진입에도** 같은 문장이 스쳤다.
+   *
+   * 판정은 화면이 짓지 않는다 — 순수 모듈의 `customCategoryListPhase` 하나가 다섯 갈래(세션 ·
+   * 실패 · 확정 전 · 데이터 없음 · 가구 미확정)를 접어 그리고, 화면은 그 답으로 **그릴 것**과
+   * **추가를 열지 말지**를 함께 정한다. 문구도 화면 밖이다: 실패 문장·재시도 라벨은 조회 실패의
+   * 공용 단일 소스(useLoadErrorCopy)에서 오고, 이 화면은 그 값을 얼굴 한 벌(LoadErrorCard)에
+   * 넘기기만 한다 — 형제 화면(app/settings/children.tsx)의 그 모양 그대로다.
+   */
+  const listPhase = customCategoryListPhase({
+    hasSession: Boolean(authToken),
+    isPending: categories.isPending,
+    isError: categories.isError,
+    hasData: Boolean(categories.data),
+    householdId
+  });
+  const loadErrorCopy = useLoadErrorCopy(categories.isError);
+  /**
+   * 중복·상한 판정을 **믿어도 되는 창**. `ready`가 아닌 동안 그 둘의 답은 "없다"가 아니라
+   * "모른다"이므로, 그 위에서 [분류 추가]를 열면 사용자가 받는 것은 사전 안내가 아니라 서버
+   * 400이다(리뷰 M-3의 그 파생). 빈 상태 문장도 같은 축을 읽는다 — 두 사실이 한 조건이다.
+   */
+  const populationKnown = listPhase === "ready";
 
   const rows: CustomCategoryListRow[] = categories.data?.categories ?? [];
   const mine = splitCustomCategories(rows, householdId);
@@ -210,7 +253,11 @@ export default function CategoriesSettingsScreen() {
    * 순수 모듈의 것이다 — 표의 그 줄이 이 함수를 부른다).
    */
   const limitText = apiErrorMessageForCode("CUSTOM_CATEGORY_LIMIT_EXCEEDED") ?? customCategoryLimitExceededMessage();
-  const addBlocked = draftNotice !== null || normalizeCustomCategoryName(draftName).length === 0 || limitReached;
+  // ⚠️ 첫 절이 리뷰 M-3의 잠금 축이다(위 `populationKnown`) — 모집단을 모르는 창에서 중복·상한이
+  // 조용히 통과하던 자리다. 그 창에서 버튼이 왜 잠겼는지는 바로 위 얼굴이 말한다(실패면
+  // LoadErrorCard의 문장과 [다시 시도], 조회 중이면 스켈레톤) — 화면이 문장을 하나 더 짓지 않는다.
+  const addBlocked =
+    !populationKnown || draftNotice !== null || normalizeCustomCategoryName(draftName).length === 0 || limitReached;
 
   /**
    * 라운드 103 리뷰 M-1 — 종전에는 네 핸들러가 `expenseGate.guard(...)`였다. 그 창구는 **본문을
@@ -322,6 +369,24 @@ export default function CategoriesSettingsScreen() {
           onBack={() => router.back()}
         />
 
+        {/* 라운드 103 리뷰 M-3: 조회 중 · 조회 실패의 두 갈래. 자리·모양은 형제 화면
+            (app/settings/children.tsx)이 라운드 96 T6에 세운 그대로다 — 실루엣 두 장이 서고,
+            실패는 화면마다 다른 얼굴로 서지 않게 LoadErrorCard 한 벌이 진다. 문구·재시도 라벨은
+            공용 단일 소스(useLoadErrorCopy)의 값이라 이 화면이 문장을 짓지 않는다(§9.6). */}
+        {listPhase === "loading" ? (
+          <View style={{ gap: theme.spacing.gap }}>
+            <SkeletonCard />
+            <SkeletonCard />
+          </View>
+        ) : null}
+        {listPhase === "error" ? (
+          <LoadErrorCard
+            message={loadErrorCopy.title}
+            retryLabel={loadErrorCopy.actionLabel}
+            onRetry={() => categories.refetch()}
+          />
+        ) : null}
+
         <Card style={{ gap: theme.spacing.gap }}>
           <Text accessibilityRole="header" style={sectionTitleStyle}>
             {copy.inUseSectionTitle}
@@ -331,11 +396,16 @@ export default function CategoriesSettingsScreen() {
               전체를 말해서, 전부 보관한 상태에서는 **바로 아래 보관 목록과 나란히** 거짓말이
               섰다(15개를 만들고 전부 보관하면 상한 안내와도 동시에 선다 — 상한의 분모는
               보관을 포함한 `total`이기 때문이다). 두 사실을 두 문장으로 가른다. */}
+          {/* 라운드 103 리뷰 M-3: 빈 상태 문장은 **아는 창에서만** 선다(`populationKnown`).
+              조회가 답하지 않았거나 실패한 창에서 "없어요"는 사실이 아니라 모른다는 뜻이고,
+              그 창의 얼굴은 위 스켈레톤·LoadErrorCard가 이미 지고 있다. 실패해도 손에 남은
+              옛 목록은 계속 그린다 — 형제 화면이 실패 카드 아래에 아이 목록을 그대로 두는 그
+              판단과 같다(실패를 이유로 아는 사실을 지우지 않는다). */}
           {mine.inUse.length > 0 ? (
             mine.inUse.map(renderRow)
-          ) : (
+          ) : populationKnown ? (
             <Text style={captionStyle}>{mine.total === 0 ? copy.emptyStateText : copy.inUseEmptyText}</Text>
-          )}
+          ) : null}
           {rename.isError ? (
             <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={errorTextStyle}>
               {renameErrorText}

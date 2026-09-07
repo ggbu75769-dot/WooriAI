@@ -7,6 +7,7 @@ import {
   customCategoryDuplicateMessage,
   customCategoryIdempotencyKey,
   customCategoryLimitExceededMessage,
+  customCategoryListPhase,
   customCategoryMaxPerHousehold,
   customCategoryMutationErrorMessage,
   customCategoryNameMaxLength,
@@ -256,6 +257,96 @@ describe("두 구획과 상한 (§4.1 · §1.7)", () => {
     expect(isCustomCategoryLimitReached(split.total)).toBe(true);
     expect(isCustomCategoryLimitReached(split.total - 1)).toBe(false);
     expect(isCustomCategoryLimitReached(0)).toBe(false);
+  });
+});
+
+/**
+ * 라운드 103 리뷰 M-3 — **빈 목록과 "모르는 목록"을 가르는 축.**
+ *
+ * 재현: 비행기 모드에서(또는 `GET /categories` 500) 설정 → 지출 분류 관리. 종전 화면은 이
+ * 조회의 로딩·실패를 한 갈래도 읽지 않아, 그 가구에 분류가 열다섯 있어도 "아직 직접 추가한
+ * 분류가 없어요." 하나만 그렸다. 그리고 그 **거짓 빈 목록이 판정까지 오염시켰다** — 아래 첫
+ * 단언이 그 파생을 값으로 재현한다: 모집단이 비면 중복 판정도 상한 판정도 통과한다.
+ *
+ * 그래서 이 describe가 무는 것은 두 가지다: ⓐ 그 오염이 **오늘도 실재한다**(모집단이 비면 판정이
+ * 통과한다 — 그러니 판정을 여는 조건이 따로 있어야 한다), ⓑ 그 조건을 `customCategoryListPhase`
+ * 하나가 답하고, 그 답이 화면의 얼굴과 [분류 추가] 잠금을 **같은 축**으로 정한다.
+ */
+describe("목록 국면 — 조회 실패·조회 중·가구 미확정을 빈 목록으로 읽지 않는다 (리뷰 M-3)", () => {
+  const fifteen = Array.from({ length: customCategoryMaxPerHousehold() }, (_, index) =>
+    customRow(`c${index}`, `분류${index}`)
+  );
+
+  it("⚠️ 모집단이 비면 중복·상한 판정이 통과한다 — 그래서 판정을 여는 조건이 따로 있어야 한다", () => {
+    // 실제로 있는 목록에서는 둘 다 막는다.
+    expect(customCategoryNameNotice({ raw: "분류0", population: customCategoryNamePopulation(fifteen, HOUSEHOLD) })).toBe(
+      customCategoryDuplicateMessage()
+    );
+    expect(isCustomCategoryLimitReached(splitCustomCategories(fifteen, HOUSEHOLD).total)).toBe(true);
+    // 조회가 실패해 손에 목록이 없으면(= `categories.data`가 없다) **둘 다 통과한다**.
+    const nothing = customCategoryNamePopulation(undefined, HOUSEHOLD);
+    expect(customCategoryNameNotice({ raw: "분류0", population: nothing })).toBeNull();
+    expect(isCustomCategoryLimitReached(splitCustomCategories(undefined, HOUSEHOLD).total)).toBe(false);
+    // 가구를 아직 모르는 창도 **같은 자리**다 — 목록은 손에 있는데 전부 걸러진다.
+    const coldEntry = customCategoryNamePopulation(fifteen, null).filter((row) => row.householdId != null);
+    expect(coldEntry).toEqual([]);
+    expect(isCustomCategoryLimitReached(splitCustomCategories(fifteen, null).total)).toBe(false);
+  });
+
+  it("조회 실패는 `error`다 — 손에 남은 옛 목록이 있어도 실패를 로딩·정상으로 위장하지 않는다", () => {
+    const failed = {
+      hasSession: true,
+      isPending: false,
+      isError: true,
+      hasData: false,
+      householdId: HOUSEHOLD
+    } as const;
+    expect(customCategoryListPhase(failed)).toBe("error");
+    // 새로고침 실패(캐시 보유)도 실패다 — MOB-130의 그 순서를 이 함수가 다시 짓지 않는다.
+    expect(customCategoryListPhase({ ...failed, hasData: true })).toBe("error");
+  });
+
+  it("조회 중과 **가구 미확정**은 `loading`이다 — 그 창에서 '없어요'는 거짓이다", () => {
+    const pending = { hasSession: true, isPending: true, isError: false, hasData: false, householdId: null } as const;
+    expect(customCategoryListPhase(pending)).toBe("loading");
+    // ⚠️ 콜드 진입: 목록은 이미 왔는데 `["children"]`이 정착하지 않아 가구가 null인 창.
+    // 그 창에서 splitCustomCategories는 전부 걸러 내므로 화면이 "없어요"를 그렸었다.
+    expect(customCategoryListPhase({ ...pending, isPending: false, hasData: true })).toBe("loading");
+    expect(customCategoryListPhase({ ...pending, isPending: false, hasData: true, householdId: undefined })).toBe(
+      "loading"
+    );
+    // 확정됐는데 데이터가 없는 모양(react-query v5)도 로딩이다.
+    expect(
+      customCategoryListPhase({ hasSession: true, isPending: false, isError: false, hasData: false, householdId: HOUSEHOLD })
+    ).toBe("loading");
+  });
+
+  it("목록과 가구를 **둘 다** 아는 창 하나만 `ready`다 (= 모집단을 믿어도 되는 창)", () => {
+    expect(
+      customCategoryListPhase({ hasSession: true, isPending: false, isError: false, hasData: true, householdId: HOUSEHOLD })
+    ).toBe("ready");
+    // 세션이 없으면 기다릴 조회가 없다(쿼리가 enabled: Boolean(authToken)이라 영원히 pending이다)
+    // — 그 창을 로딩으로 읽으면 비로그인 화면이 스켈레톤에 갇힌다. isChildrenSettled의 그 첫 줄.
+    expect(
+      customCategoryListPhase({ hasSession: false, isPending: true, isError: false, hasData: false, householdId: null })
+    ).toBe("ready");
+  });
+
+  it("세 국면 밖의 답이 없다 — 입력 조합 전수", () => {
+    const flags = [false, true];
+    for (const hasSession of flags) {
+      for (const isPending of flags) {
+        for (const isError of flags) {
+          for (const hasData of flags) {
+            for (const householdId of [null, HOUSEHOLD]) {
+              expect(["loading", "error", "ready"]).toContain(
+                customCategoryListPhase({ hasSession, isPending, isError, hasData, householdId })
+              );
+            }
+          }
+        }
+      }
+    }
   });
 });
 

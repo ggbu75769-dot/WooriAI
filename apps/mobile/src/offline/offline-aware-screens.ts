@@ -81,6 +81,14 @@ export const OFFLINE_AWARE_LOAD_ERROR_SCREENS: ReadonlyArray<string> = [
   // (useErrorTimeConnectivity — 라운드 72 E). 남아 있던 것은 조회 둘뿐이다.
   "app/import/[importJobId].tsx",
   "app/items/[itemTemplateId].tsx",
+  // 라운드 103 리뷰 M-3: 지출 분류 관리의 목록 조회. ⚠️ 이 화면이 **위 두 스윕이 미리 적어 둔
+  // 사각을 실제로 지나간 첫 항목**이다(이 파일 머리말의 "라운드 74 트랙 D" 문단 · 라운드 73
+  // L-2가 예고한 그 자리): 저장 쪽 목록에는 라운드 103 T3에 등재됐는데 조회 쪽은 **훅도 부르지
+  // 않고 옛 리터럴도 쓰지 않아** 사용 집합과 목록이 양쪽 다 이 화면을 모른 채 일치했다. 그래서
+  // 비행기 모드에서 분류가 열다섯 있어도 화면은 "아직 직접 추가한 분류가 없어요." 하나만 그렸고,
+  // 그 거짓 빈 목록 위에서 중복·상한 판정이 통과해 [분류 추가]가 활성이었다. 등재로 그 축이
+  // 앞으로 지켜진다 — 훅을 벗기면 사용 집합 일치 단언이 먼저 빨개진다.
+  "app/settings/categories.tsx",
   // 라운드 72 트랙 B(GAP-072 #2): L-2가 세어 둔 옛 리터럴 자리 중 셋. 같은 사람이 30초 전 홈에서
   // 읽은 문장과 이 세 화면의 문장이 갈려 있었다 -- 판정·문구는 한 벌 그대로이고 배선만 붙는다.
   // 셋 다 EmptyStateCard가 아니라서 카드 프롭 계약을 그대로 받지 않는다(아래 목록에 이유를 적었다).
@@ -123,6 +131,12 @@ export const OFFLINE_AWARE_LOAD_ERROR_NON_CARD_SCREENS: Readonly<Record<string, 
     "Card 안 Text 한 줄이라 카드 프롭이 없고, 그 자리에 화면 고유의 탈출구 안내('이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요') 한 줄이 **함께** 선다 — 공용 문장은 그 위에 얹히고 고유 문장을 대체하지 않는다(온라인 갈래는 주어 '준비물 목록을'을 앞에 붙여 종전과 같은 뜻이다). 조회 자리는 하나뿐이라 훅도 한 번 부른다. ⚠️ [다시 시도] 버튼의 라벨은 loadErrorCopy.actionLabel이 아니라 이 화면의 '목록 다시 불러오기'다: 온보딩에는 저장·건너뛰기·로컬 통과 버튼이 함께 서 있어 '무엇을' 다시 하는지가 라벨에 남아야 하고, 그 값은 prepared-items-selection.test.ts가 이미 문다. 버튼이 조회 실패 하나에만 걸리는 이유(옛 목록이 남은 채 실패한 창)는 화면 주석에 있다. ⚠️ 리뷰 L-10: 그 버튼은 문장 **옆**이 아니라 화면 맨 아래에 서고, `isError && hasOptions` 창에서도 실패 문장과 버튼이 **함께** 선다 — 라운드 86까지는 문장 두 줄이 0건 갈래 안에 묶여 그 창에서 버튼만 남았고, 라운드 87 트랙 B가 문장의 조건을 버튼과 같은 하나(`itemsQuery.isError`)로 올렸다. 문장과 버튼이 한 짝으로 읽히는지는 기기 확인(짝 문서 #153 ⓑ)이 진다.",
   "app/family/accept/[token].tsx":
     "Card + Text + [다시 시도] SecondaryButton이라 카드 프롭이 없다. 문구는 온라인 갈래에만 주어('초대 정보를')를 붙여 종전 문자열과 바이트 단위로 같고, 버튼 라벨은 label={inviteLoadErrorCopy.actionLabel}로 같은 값을 받는다(만료·사용된 초대 카드는 이 갈래에 서지 않는다 — 라운드 70 A).",
+  // 라운드 103 리뷰 M-3 — 카드 프롭이 아닌 이유가 위 셋과 다르다: 자리가 **T1의 LoadErrorCard**라
+  // 프롭 이름이 `message`·`retryLabel`이다(EmptyStateCard의 `title`·`actionLabel`이 아니다).
+  // 같은 단일 소스의 같은 값을 받으므로 문구·라벨은 다른 열다섯과 바이트 단위로 같고, 다른
+  // 것은 그 값을 받는 프롭의 이름 하나다.
+  "app/settings/categories.tsx":
+    "조회 실패의 얼굴이 T1의 LoadErrorCard 한 벌이라 EmptyStateCard의 카드 프롭(title·actionLabel)을 받지 않는다 — 값은 같은 단일 소스에서 오고(message={loadErrorCopy.title} · retryLabel={loadErrorCopy.actionLabel}) 재시도는 자기 조회를 다시 부른다(onRetry={() => categories.refetch()}). 조회 자리는 목록 하나뿐이라 훅도 한 번 부른다. ⚠️ 같은 화면의 `[\"children\"]` 조회는 이 자리를 따로 갖지 않는다: 그 조회가 답하지 않는 창은 `householdId == null`로 접혀 **조회 중**으로 읽히고(순수 모듈 customCategoryListPhase), 그 창의 얼굴은 스켈레톤이다 — 실패 문장을 둘로 나눌 이유가 없어 둘째 훅을 부르지 않는다(가족 화면의 대기 초대 줄과 같은 판단).",
   "app/settings/children.tsx":
     "Card + Text + [다시 시도] SecondaryButton이라 카드 프롭이 없다. 문구는 {loadErrorCopy.title}, 버튼 라벨은 label={loadErrorCopy.actionLabel}로 같은 값을 받는다(온라인 갈래 바이트 불변).",
   "app/settings/index.tsx":
