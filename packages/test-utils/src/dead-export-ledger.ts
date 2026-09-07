@@ -2134,7 +2134,12 @@ export const LEDGER_BLIND_SPOTS: readonly LedgerBlindSpot[] = [
     // `customCategoryMutationErrorMessage`를 문자열로 인용한다. 셋 다 제품 소스에 코드 참조를
     // 함께 갖는다(app/settings/categories.tsx가 셋 다 부른다) — 판정이 움직인 자리는 오늘도 넷
     // 그대로이고 실피해는 0건이다.
-    value: 60,
+    // 두 시점(라운드 103 리뷰 M-3): 60 → 61(워크트리 A/B 실측 — 057b91f 60 · HEAD 61, 늘어난
+    // 이름은 정확히 하나 `customCategoryListPhase`다). 그 화면의 조회 실패·조회 중 갈래를
+    // 세우면서 국면 판정이 순수 모듈로 나갔고, 배선 테스트와 무효화 정책 대장이 그 이름을
+    // **문자열로** 인용한다. 코드 참조는 app/settings/categories.tsx가 함께 갖는다 — 판정이
+    // 움직인 자리는 오늘도 넷 그대로이고 실피해는 0건이다.
+    value: 61,
     floor: 10,
     statement:
       "⚠️⚠️ **라운드 90 트랙 C가 `string-literal-references`를 닫으며 연 자리 — 오차의 방향이 뒤집혔다.** " +

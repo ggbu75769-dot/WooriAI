@@ -1015,8 +1015,9 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // 라운드 103 T3: 57 → 60 — 무효화 정책 대장의 ["categories"] 줄이 쓰기 셋을 값으로 갖게 되며
     // createCustomCategory · updateCustomCategory · customCategoryMutationErrorMessage 셋을
     // 문자열로 인용한다(셋 다 화면이 코드로 부른다 — 판정은 넷 그대로, 실피해 0).
-    expect(spotOf("string-keyed-dynamic-access")?.value, "적어 둔 값").toBe(60);
-    expect(namesReferencedInsideStringLiterals().length, "오늘 다시 잰 값").toBe(60);
+    // 두 시점(라운드 103 리뷰 M-3): 60 → 61 (`customCategoryListPhase` 하나 — 워크트리 A/B 실측).
+    expect(spotOf("string-keyed-dynamic-access")?.value, "적어 둔 값").toBe(61);
+    expect(namesReferencedInsideStringLiterals().length, "오늘 다시 잰 값").toBe(61);
 
     // ⑤ 라운드 90 리뷰 M-3이 연 자리 — **스캐너의 오탐 표면**도 값과 실피해를 함께 든다.
     // 두 시점: 105(라운드 90) → 106 — T1의 use-transient-notice.ts가 ASCII '를 지닌 채 호출부에 들어왔다.
@@ -1332,7 +1333,10 @@ describe("ⓘ 문자열 리터럴 축 — 글자는 지우고 템플릿 `${…}`
     // 오늘도 넷 그대로다**: 셋 다 제품 소스에 코드 참조를 함께 갖는다(그 대장은 계약 전용 데이터라
     // 문자열로만 인용하지만, 화면 app/settings/categories.tsx가 셋 다 코드로 부른다).
     const names = namesReferencedInsideStringLiterals();
-    expect(names.length, "문자열 안에 이름이 나오는 모집단 이름 수").toBe(60);
+    // 두 시점(라운드 103 리뷰 M-3): 60 → 61. 늘어난 이름은 워크트리 A/B로 정확히 하나임을
+    // 확인했다(`customCategoryListPhase` — 관리 화면의 조회 국면 판정이 순수 모듈로 나가면서
+    // 배선 테스트와 무효화 정책 대장이 그 이름을 문자열로 인용한다). 판정이 움직인 자리는 넷 그대로다.
+    expect(names.length, "문자열 안에 이름이 나오는 모집단 이름 수").toBe(61);
     const moved = stringOnlyReferenceExports();
     expect(moved.length, "그중 판정이 움직인 자리").toBe(4);
     expect(
