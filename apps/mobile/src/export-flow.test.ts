@@ -27,7 +27,10 @@ describe("EXP-106 데이터 내보내기(CSV) wiring (source verification -- fol
     expect(cardSource).toContain("selected={controller.range === option.value}");
     // 두 시점(라운드 96 T5): 종전 라벨은 "내보내는 중..."(말줄임표) — 낭독과 같은 점 없는 꼴로 통일.
     expect(cardSource).toContain('controller.busy ? "내보내는 중" : EXPORT_SHARE_BUTTON_LABEL');
-    expect(cardSource).toContain("disabled={controller.busy}");
+    // 두 시점(라운드 106 F3): 종전 단언은 `disabled={controller.busy}`였다 — 진행 중 잠금은
+    // 그대로이고, 그 옆에 분류 목록 게이트가 함께 선다(export-category-gate.test.ts가 이유를
+    // 값으로 붙든다).
+    expect(cardSource).toContain("disabled={controller.busy || !controller.categoryNamesReady}");
   });
 
   /**
