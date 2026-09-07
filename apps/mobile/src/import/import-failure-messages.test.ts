@@ -2,6 +2,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, posix } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  importFailedRows,
+  importFailedRowsNotice,
   importFailureMessage,
   isNamedImportFailure,
   IMPORT_CONFIRM_FAILED_MESSAGE,
@@ -649,5 +651,169 @@ describe("배선 계약 (source verification)", () => {
     expect(src).toContain('importFailureMessage("confirm"');
     // 이 여정 모듈은 조회 목록을 import하지 않는다(두 단일 소스가 서로를 부르지 않는다).
     expect(source("src/import/import-failure-messages.ts")).not.toContain("offline-aware-screens");
+  });
+});
+
+
+/**
+ * 라운드 106 T3 — **확정 실패가 어느 행 때문인지 말한다**.
+ *
+ * 확정은 배치 한 트랜잭션이라 한 행이 걸리면 파일 전체가 롤백된다. 그때 사용자가 받던 것은
+ * 코드 하나가 고른 문장뿐이었고, **어느 행을 고쳐야 다시 누를 수 있는지**는 어디에도 없었다
+ * (라운드 103 리뷰 M-2의 이월). 서버가 그 행들을 기존 봉투의 `details`에 실으므로, 여기서는
+ * 그 값이 문장이 되는 자리와 **되지 않는 자리**(모양이 어긋난 값 · 개인정보)를 고정한다.
+ */
+describe("확정 실패의 실패 행 안내 (라운드 106 T3)", () => {
+  const failedEnvelope = (
+    code: string,
+    message: string,
+    details: Record<string, unknown>
+  ) => new ApiHttpError(400, { error: { code, message, details, requestId: "req-1" } });
+
+  const categoryFailure = (details: Record<string, unknown>) =>
+    failedEnvelope("EXPENSE_CATEGORY_INVALID", "존재하지 않는 카테고리예요. 카테고리를 다시 선택해 주세요.", details);
+
+  it("한 행이면 그 행의 자리를 말하고, 아무것도 들어가지 않았다는 사실을 감추지 않는다", () => {
+    const error = categoryFailure({
+      failedRowCount: 1,
+      failedRows: [{ rowId: "row-1", rowIndex: 0, reason: "EXPENSE_CATEGORY_INVALID" }]
+    });
+
+    // `rowIndex`는 0부터라, 사람에게 보이는 자리는 +1이다(검수 목록이 그 순서로 서 있다).
+    expect(importFailedRowsNotice(error)).toBe(
+      "검수 목록의 1번째 행에서 멈춰 아무 기록도 가져오지 않았어요. 그 행을 고친 뒤 다시 가져와 주세요."
+    );
+    // 그리고 화면이 그리는 한 문장은 **사유 + 어느 행**이다(코드가 고른 문장이 앞에 그대로 선다).
+    expect(importFailureMessage("confirm", error, { isOnline: true })).toBe(
+      `${API_ERROR_MESSAGES.EXPENSE_CATEGORY_INVALID} ${importFailedRowsNotice(error)}`
+    );
+  });
+
+  it("여러 행은 자리를 나열하고, 다섯을 넘으면 '외 N개 행'으로 접는다", () => {
+    const many = Array.from({ length: 8 }, (_, index) => ({
+      rowId: `row-${index}`,
+      rowIndex: index,
+      reason: "EXPENSE_CATEGORY_INVALID"
+    }));
+    expect(importFailedRowsNotice(categoryFailure({ failedRowCount: 3, failedRows: many.slice(0, 3) }))).toContain(
+      "검수 목록의 1 · 2 · 3번째 행에서 멈춰"
+    );
+    expect(importFailedRowsNotice(categoryFailure({ failedRowCount: 8, failedRows: many }))).toContain(
+      "검수 목록의 1 · 2 · 3 · 4 · 5번째 행 외 3개 행에서 멈춰"
+    );
+    // 서버가 목록을 상한까지만 싣고 전체 수를 따로 적으므로, 목록보다 큰 수도 그대로 말한다
+    // (숫자를 감추면 그것이 또 하나의 거짓이다).
+    expect(importFailedRowsNotice(categoryFailure({ failedRowCount: 40, failedRows: many }))).toContain(
+      "외 35개 행에서 멈춰"
+    );
+  });
+
+  it("행 정보가 없는 실패는 종전과 바이트 단위로 같다 (네 걸음 전부)", () => {
+    const withoutDetails = serverError(400, "IMPORT_NOT_CONFIRMABLE", "Import job is not ready to confirm.");
+    for (const kind of IMPORT_FAILURE_KINDS) {
+      expect(importFailedRowsNotice(withoutDetails), kind).toBeNull();
+      expect(importFailureMessage(kind, withoutDetails, { isOnline: true }), kind).toBe(
+        IMPORT_FAILURE_MESSAGE_BY_CODE.IMPORT_NOT_CONFIRMABLE
+      );
+    }
+    // 코드 없는 실패·403·오프라인도 그대로다(문장을 고르는 순서에 손대지 않았다).
+    expect(importFailureMessage("confirm", new Error("boom"), { isOnline: true })).toBe(IMPORT_CONFIRM_FAILED_MESSAGE);
+    expect(importFailureMessage("confirm", new Error("boom"), { isOnline: false })).toBe(OFFLINE_RETRY_NOTICE);
+    expect(importFailureMessage("confirm", serverError(403, "FORBIDDEN", "접근 권한이 없어요."), { isOnline: true })).toBe(
+      IMPORT_FORBIDDEN_MESSAGE
+    );
+    expect(importFailureMessage("row_edit", new Error("boom"), { isOnline: true })).toBe(IMPORT_ROW_EDIT_FAILED_MESSAGE);
+    expect(importFailureMessage("upload", new Error("boom"), { isOnline: true })).toBe(IMPORT_UPLOAD_FAILED_MESSAGE);
+    expect(importFailureMessage("undo", new Error("boom"), { isOnline: true })).toBe(IMPORT_UNDO_FAILED_MESSAGE);
+  });
+
+  it("모양이 어긋난 값은 조용히 버린다 (없는 행을 지어내지 않는다)", () => {
+    for (const details of [
+      {},
+      { failedRows: [] },
+      { failedRows: "row-1" },
+      { failedRows: [{ rowIndex: 3 }] },
+      { failedRows: [{ rowId: "row-1" }] },
+      { failedRows: [{ rowId: "row-1", rowIndex: -1 }] },
+      { failedRows: [{ rowId: "", rowIndex: 0 }] },
+      { failedRows: [{ rowId: "row-1", rowIndex: 1.5 }] }
+    ]) {
+      const error = categoryFailure(details as Record<string, unknown>);
+      expect(importFailedRows(error), JSON.stringify(details)).toBeNull();
+      // 그때 화면에 서는 문장은 코드가 고른 그 문장 하나다.
+      expect(importFailureMessage("confirm", error, { isOnline: true })).toBe(
+        API_ERROR_MESSAGES.EXPENSE_CATEGORY_INVALID
+      );
+    }
+    // 전체 수가 목록보다 작으면 **목록이 곧 전체**다(수를 부풀리지 않는다).
+    const understated = categoryFailure({
+      failedRowCount: 0,
+      failedRows: [
+        { rowId: "row-1", rowIndex: 0, reason: "EXPENSE_CATEGORY_INVALID" },
+        { rowId: "row-2", rowIndex: 4, reason: "EXPENSE_CATEGORY_INVALID" }
+      ]
+    });
+    expect(importFailedRows(understated)?.totalCount).toBe(2);
+    expect(importFailedRowsNotice(understated)).toContain("검수 목록의 1 · 5번째 행에서 멈춰");
+  });
+
+  it("⚠️ 개인정보 — 봉투에 원문이 섞여 와도 문장은 그것을 옮기지 않는다", () => {
+    const leaky = categoryFailure({
+      failedRowCount: 1,
+      failedRows: [
+        {
+          rowId: "row-1",
+          rowIndex: 2,
+          reason: "EXPENSE_CATEGORY_INVALID",
+          // 서버는 이런 값을 싣지 않는다(아래 소스 계약). 실려 오더라도 이 모듈은 읽지 않는다.
+          parsedItemName: "산부인과 진료비",
+          fileName: "내 카드내역.csv"
+        }
+      ]
+    });
+    const notice = importFailedRowsNotice(leaky)!;
+    expect(notice).toContain("검수 목록의 3번째 행");
+    expect(notice).not.toContain("산부인과");
+    expect(notice).not.toContain("카드내역");
+    expect(JSON.stringify(importFailedRows(leaky))).not.toContain("산부인과");
+    expect(importFailureMessage("confirm", leaky, { isOnline: true })).not.toContain("산부인과");
+  });
+
+  it("배선 — 화면은 여전히 한 문장만 그린다 (행 안내를 화면이 짓지 않는다)", () => {
+    const src = reviewScreen();
+    // 그리는 자리·읽는 자리 모두 종전 그대로다(a11y 낭독 대장의 자리 수가 움직이지 않는다).
+    expect(src).toContain('{importFailureMessage("confirm", confirm.error, { isOnline: confirmFailureOnline })}');
+    // 그리고 화면은 이 라운드가 더한 판정·문구를 하나도 알지 못한다.
+    for (const owned of ["importFailedRows", "failedRowCount", "검수 목록의", "멈춰 아무 기록도"]) {
+      expect(src, owned).not.toContain(owned);
+    }
+  });
+
+  it("소스 계약 — 서버가 details에 싣는 것은 우리가 만든 값 셋뿐이다", () => {
+    const pipeline = apiSource("onboarding/import-pipeline.service.ts");
+    // 봉투를 넓히는 자리가 실재한다(정규식이 아니라 실제 바이트로 확인한다).
+    expect(pipeline).toContain("failedRowCount: rows.length,");
+    expect(pipeline).toContain("failedRows: rows.slice(0, IMPORT_FAILED_ROW_DETAIL_LIMIT).map((row) => ({");
+    expect(pipeline).toContain("rowId: row.id,");
+    expect(pipeline).toContain("rowIndex: row.rowIndex,");
+
+    // 그 리터럴 안에는 사용자가 올린 값이 하나도 없다 — `import.confirm` 감사 봉투와 같은 규율.
+    // 라운드 78 규칙: 슬라이스는 **양쪽 끝**의 실재를 먼저 확인한다. 한쪽만 보면 못 찾은
+    // 인덱스가 -1이 되어 슬라이스가 조용히 파일 전체(또는 빈 문자열)가 되고, 그 위의 부정
+    // 단언은 무엇도 지키지 못한 채 초록이 된다.
+    const start = pipeline.indexOf("failedRowCount: rows.length,");
+    expect(start, "봉투를 넓히는 자리의 시작").toBeGreaterThan(-1);
+    const end = pipeline.indexOf("error.getStatus()", start);
+    expect(end, "그 자리의 끝").toBeGreaterThan(start);
+    const detailsLiteral = pipeline.slice(start, end);
+    expect(detailsLiteral.length).toBeGreaterThan(0);
+    for (const forbidden of ["parsedItemName", "parsedAmountKrw", "parsedDate", "fileName", "merchant", "rawJson"]) {
+      expect(detailsLiteral, forbidden).not.toContain(forbidden);
+    }
+
+    // 그리고 검수 PATCH가 분류의 실재·소유를 **그 시점에** 묻는다(확정까지 미루지 않는다).
+    expect(pipeline).toContain(
+      "await this.expensesStore.requireExistingCategory(input.categoryId, job.householdId);"
+    );
   });
 });

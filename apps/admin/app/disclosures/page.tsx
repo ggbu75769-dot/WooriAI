@@ -90,8 +90,22 @@ function DisclosureRow({
           걸어도 무시된다). 선택형에서 같은 뜻을 내는 것은 `disabled`뿐이다. 이 화면에는 선택형이
           없어 자물쇠가 readOnly 하나지만, 셋이 같은 이유를 들고 있어야 다음 라운드가 그 비대칭을
           결함으로 읽지 않는다. */}
+      {/* 라운드 106 트랙 T5: 이 칸에는 **이름이 없었다.** 어드민의 다른 입력칸은 전부
+          `<label htmlFor>`(새 키 폼·준비템·링크·감사 로그 필터) 또는 `aria-label`
+          (카테고리 표의 인라인 편집)로 이름을 갖는데, 카드마다 반복되는 이 textarea만
+          둘 다 없어 스크린리더에는 "편집 텍스트, 비어 있음"으로만 불렸다 — 고지 문구가
+          열 장이면 열 칸이 같은 소리를 낸다. 카드의 `<h2>{key}</h2>`는 이 칸의 이름이
+          맞지만 `htmlFor`로 잇는 id를 붙일 수 없다(카드가 map 안이라 문서에서 유일하지
+          않다 — admin-table-name.test.ts가 users-lookup 표에 적어 둔 그 이유와 같다).
+          그래서 카테고리 표가 이미 쓰는 관례(`aria-label={`${category.code} 이름`}`)를
+          그대로 빌린다. 보이는 화면은 한 픽셀도 바뀌지 않는다. */}
       <div className={styles.field}>
-        <textarea value={text} readOnly={!canEdit} onChange={(event) => setText(event.target.value)} />
+        <textarea
+          aria-label={`${disclosure.key} 문구`}
+          value={text}
+          readOnly={!canEdit}
+          onChange={(event) => setText(event.target.value)}
+        />
       </div>
       {error ? <p className={styles.errorBanner} role="alert">{error}</p> : null}
       {saved ? <p className={styles.successBanner} role="status">{isEditor ? "검토 요청을 보냈어요." : "저장했어요."}</p> : null}

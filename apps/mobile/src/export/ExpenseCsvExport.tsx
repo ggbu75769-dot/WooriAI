@@ -63,6 +63,11 @@ export type ExpenseCsvExportToastState = { message: string; tone: "success" | "e
 export type ExpenseCsvExportController = {
   /** 세션(토큰 + 선택된 아이)이 있어 실제로 내보낼 데이터가 존재하는지. */
   canExport: boolean;
+  /**
+   * 라운드 106 F3: 분류 **이름 목록**이 도착해 있는가. 파일의 카테고리 열이 사실일 수 있는
+   * 조건이라 카드의 공유 버튼이 이 값으로 잠긴다(판정 근거는 아래 훅의 같은 이름 주석).
+   */
+  categoryNamesReady: boolean;
   /** 기간 선택 카드 펼침 여부. */
   cardOpen: boolean;
   toggleCard: () => void;
@@ -152,6 +157,10 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
   // "기타"로 나갔다 -- src/categories.ts의 buildCategoryNameLookup 주석 참고. 지출 수정 화면·
   // 리포트 탭과 같은 ["categories"] 캐시를 공유하므로 대부분 이미 채워져 있고, 없으면(첫 진입
   // 직후·오프라인) 기존 정적 매핑으로 폴백한다.
+  //
+  // ⚠️ 라운드 106 F3(두 시점) — 그 "폴백"은 **이 흐름에서는 답이 아니다.** 아래
+  // `categoryNamesReady` 주석 참고: 목록이 없으면 내보내기 자체가 잠기므로, 위 폴백 문장은
+  // 이제 화면 표시(범례·칩)에만 해당한다.
   const categories = useQuery({
     queryKey: ["categories"],
     enabled: canExport,
@@ -159,6 +168,28 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     // CAT-124: includeAll=1 — CSV "카테고리" 열도 전량이 필요하다(별칭 id로 저장된 지출).
     queryFn: () => listCategories(authToken!, { includeAll: true })
   });
+  /**
+   * 라운드 106 F3 — **분류 이름 목록이 도착하기 전에는 내보내지 않는다.**
+   *
+   * 무슨 일이 있었나: 이름을 못 구한 id는 `buildCategoryNameLookup`이 `categoryNameFor`로
+   * 넘기고, 그 함수의 마지막 줄은 `return "기타";`다(src/categories.ts). 서버 시드 카테고리는
+   * DB마다 랜덤 UUID라 앱의 정적 8타일 매핑에 **하나도** 걸리지 않는다 — 그래서 캐시가 비어
+   * 있는 첫 진입(또는 조회 실패)에서 내보내면 모든 행의 카테고리 열이 "기타"인 파일이 나간다.
+   * 화면이라면 목록이 도착한 다음 렌더에서 저절로 고쳐지지만, **CSV는 이미 사용자 손을 떠난
+   * 파일이라 고칠 방법이 없다**(가계부에 옮겼거나 배우자에게 보낸 뒤라면 더더욱).
+   *
+   * 게이트 모양은 **리포트 탭이 이미 쓰는 그것**이다 — 카테고리 1위 문장이 `categories.isSuccess`
+   * 뒤에 서서, 이름을 모르면 "기타"로 엉뚱한 카테고리를 지목하느니 말을 하지 않는다
+   * (app/(tabs)/reports.tsx). 새 판정을 짓지 않는다.
+   *
+   * ⚠️ `canExport`에 접지 않는 이유 둘: ① 위 두 쿼리의 `enabled`가 `canExport`라 목록 도착을
+   * 그 값의 조건으로 넣으면 조회가 영영 켜지지 않는다(자기 자신을 기다린다), ② `canExport`는
+   * 두 소비 화면의 메뉴 행이 EXPORT_SIGNED_OUT_CAPTION("로그인 후 이용 가능")으로 갈리는
+   * 판정이라, 로그인한 사람에게 거짓 문장을 세우게 된다. 그래서 잠그는 것은 **내보내기 한
+   * 동작**뿐이다: 슬라이스 양 끝(카드의 공유 버튼 · runExport의 조기 반환)에 같은 값을 건다.
+   * 화면 문구는 한 글자도 늘지 않는다.
+   */
+  const categoryNamesReady = categories.isSuccess;
 
   /**
    * 라운드 66 트랙 B(#3) — 내보내기는 **선택된 아이 한 명**의 기록만 모으는데(아래 `runExport`의
@@ -313,8 +344,14 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     storage: offlineSyncSnapshot.storage
   };
 
+  // 라운드 106 F3: 아래 의존성 목록은 **한 줄**로 둔다 — 그 문자열 모양이 두 짝 테스트의
+  // 계약이다(export-pending-notice.test.ts · export-custom-range-wiring.test.ts: "고정 클로저에
+  // 갇히지 않는다"). 새 값은 알파벳 순으로만 끼운다.
   const runExport = useCallback(async () => {
-    if (!authToken || !childId || busy) return;
+    // 라운드 106 F3: 버튼이 이미 잠겨 있어도 여기서 한 번 더 막는다 — 이 함수는 컨트롤러가
+    // 밖으로 내보내는 값이라(다른 화면이 들고 쓸 수 있다) 파일을 만드는 쪽 끝에도 같은 조건이
+    // 서 있어야 한다. 조건이 한쪽에만 있으면 "기타" 파일로 가는 길이 하나 열린 채로 남는다.
+    if (!authToken || !childId || !categoryNamesReady || busy) return;
     setBusy(true);
     try {
       // CSV-124: API-124 이후 한 요청은 한 페이지(기본 200 · 상한 500건)다. 월별 수집기는 이
@@ -385,13 +422,14 @@ export function useExpenseCsvExport(): ExpenseCsvExportController {
     } finally {
       setBusy(false);
     }
-  }, [authToken, busy, categories.data?.categories, childId, customRange, pendingCount, pendingStorage, pendingUnsendableCount, range, showToast]);
+  }, [authToken, busy, categories.data?.categories, categoryNamesReady, childId, customRange, pendingCount, pendingStorage, pendingUnsendableCount, range, showToast]);
 
   return {
     busy,
     canExport,
     canShiftCustomMonth,
     cardOpen,
+    categoryNamesReady,
     childScopeLabel,
     closeMonthJump,
     customRange,
@@ -575,10 +613,17 @@ export function ExpenseCsvExportCard({ controller }: { controller: ExpenseCsvExp
       {/* 라운드 96 T5 — ⚠️ 두 시점: 종전 라벨은 "내보내는 중..."(말줄임표) · 낭독은 "내보내는 중"
           이라 한 버튼의 눈과 귀가 달랐다. 진행 상태 라벨의 다수파(온보딩 "저장하는 중" 등 점 없는
           꼴)에 맞춰 점을 걷고 두 표면을 한 문자열로 통일한다. */}
+      {/* 라운드 106 F3 — 분류 이름 목록이 아직 없으면 버튼이 잠긴다. 그 상태로 만든 파일은 모든
+          행의 카테고리 열이 "기타"가 되고(훅의 `categoryNamesReady` 주석), 파일은 되돌릴 수 없다.
+          **문구는 늘리지 않는다**: 잠김을 말하는 방식은 이 카드가 이미 쓰는 문법 그대로 opacity
+          0.35다(위 ExportMonthStepper의 화살표 — "더 갈 수 없음"은 색이 아니라 투명도로 말한다).
+          잠기는 창은 ["categories"] 캐시가 도착하기 전 한순간이고, 그 캐시는 홈·기록·리포트가
+          이미 채워 둔다. 라벨·낭독 문자열은 종전 두 갈래 그대로다. */}
       <SecondaryButton
         label={controller.busy ? "내보내는 중" : EXPORT_SHARE_BUTTON_LABEL}
         accessibilityLabel={controller.busy ? "내보내는 중" : EXPORT_SHARE_BUTTON_LABEL}
-        disabled={controller.busy}
+        disabled={controller.busy || !controller.categoryNamesReady}
+        style={controller.categoryNamesReady ? undefined : { opacity: 0.35 }}
         onPress={() => {
           void controller.runExport();
         }}

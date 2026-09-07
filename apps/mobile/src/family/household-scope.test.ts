@@ -344,6 +344,27 @@ describe("화면 배선 (source contract — 화면은 vitest에서 렌더할 �
     expect(screenSource).toContain(
       "{householdNotice ? <Text style={familyScopeNoticeStyle}>{householdNotice}</Text> : null}"
     );
+    /**
+     * 라운드 106 T8 — **전환의 주인공 가구에서만 말이 없던 자리.**
+     *
+     * ⚠️ 두 시점: 종전 이 판정은 `householdScopePhrase(describeHouseholdScope({...}))` 하나로
+     * 끝났고, 그래서 **아이가 하나도 없는 가구**로 전환하면 언제나 null이었다(표기 판정이 보는
+     * 것은 이름과 그 가구의 아이 둘뿐이다). 전환 목록은 그 가구를 "아이가 아직 없는 가구"라고
+     * 부르며 고르게 해 놓고, 고르고 나면 화면이 어느 가구를 관리하는 중인지 아무 말도 하지
+     * 않았다 — 그 침묵이 [이 가구에 아이 추가하기]·[이 가구에서 나가기]의 힌트로도 이어졌다.
+     *
+     * 이제 형제 화면(SET-005)이 라운드 63 #7에 세운 그 폴백을 같은 상수로 한 자리 더 쓴다 —
+     * 파라미터에 해당하는 값만 이 화면의 전환 상태다(새 문구 0건).
+     */
+    expect(screenSource).toContain(") ?? (switchedHouseholdId ? HOUSEHOLD_SCOPE_EMPTY_LABEL : null)");
+    expect(householdScopeManageNotice(HOUSEHOLD_SCOPE_EMPTY_LABEL)).toBe("아이가 아직 없는 가구를 관리하고 있어요.");
+    // ⚠ 전환하지 않은 계정(1가구 · 다가구 무전환 · 비로그인 미리보기 = FAM-001 픽셀락)에서는
+    // 이 폴백이 서지 않는다 — 그 근거가 이 화면의 전환 판정 한 줄이다.
+    expect(screenSource).toContain(
+      "const switchedHouseholdId = householdId && householdId !== scopedHouseholdId ? householdId : null;"
+    );
+    // 되돌릴 수 없는 진입점의 힌트가 그 한 줄을 그대로 물어 온다(눈과 귀가 같은 말을 한다).
+    expect(screenSource.match(/accessibilityHint=\{householdNotice \?\? undefined\}/g) ?? []).toHaveLength(2);
   });
 
   it("초대 생성도 같은 가구로 가고, 대기 중에는 '가구 정보가 없다'고 단정하지 않는다", () => {

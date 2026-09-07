@@ -18,6 +18,7 @@ import {
   collectKnownHouseholdIds,
   describeHouseholdScope,
   HOUSEHOLD_SCOPE_ADD_CHILD_LABEL,
+  HOUSEHOLD_SCOPE_EMPTY_LABEL,
   HOUSEHOLD_SCOPE_LEAVE_LABEL,
   HOUSEHOLD_SCOPE_SWITCH_CLOSE_LABEL,
   HOUSEHOLD_SCOPE_SWITCH_LABEL,
@@ -332,8 +333,26 @@ export default function FamilyScreen() {
    * 아이의 가구(또는 기본 가구)로 확정되므로 이 창은 캐시가 따뜻하면 아예 생기지 않는다.
    */
   const householdScopePending = Boolean(authToken) && !householdId && childrenQuery.isPending;
-  // 다가구 계정에서만 붙는 한 줄 -- 1가구 계정과 비로그인 미리보기(FAM-001 픽셀락)에서는 null이라
-  // 화면이 종전과 한 노드도 달라지지 않는다.
+  /**
+   * 다가구 계정에서만 붙는 한 줄 -- 1가구 계정과 비로그인 미리보기(FAM-001 픽셀락)에서는 null이라
+   * 화면이 종전과 한 노드도 달라지지 않는다.
+   *
+   * 라운드 106 T8 — ⚠️ 두 시점: 종전에는 여기서 끝이었고, 그래서 **이 화면의 전환이 존재하는
+   * 이유였던 그 가구**에서만 말이 없었다. 표기 판정은 이름(서버가 주지 않는다) → 그 가구의
+   * 아이(없다) 순으로 보므로, 아이가 하나도 없는 가구로 전환하면 언제나 null이다 -- 전환 목록은
+   * 방금 "아이가 아직 없는 가구"라고 이름 붙여 놓고, 전환하고 나면 화면이 어느 가구를 관리하는
+   * 중인지 아무 말도 하지 않았다. 그 침묵은 바로 아래 두 진입점의 `accessibilityHint`로도
+   * 이어져서, **되돌릴 수 없는 [이 가구에서 나가기]의 대상**이 소리로도 사라졌다.
+   *
+   * 고치는 방법은 새로 짓는 것이 아니라 **이미 있는 사실 표기를 한 자리 더 내려 쓰는 것**이다.
+   * 형제 화면이 라운드 63 #7에서 같은 함정에 같은 답을 이미 세워 두었다(app/settings/children.tsx의
+   * `?? (requestedHouseholdId ? HOUSEHOLD_SCOPE_EMPTY_LABEL : null)`) -- 이름을 지어내지 않고
+   * 전환 목록이 쓰는 그 사실을 그대로 쓴다. 여기서 파라미터에 해당하는 값은 이 화면의 전환
+   * 상태(`switchedHouseholdId`)다.
+   *
+   * ⚠ 전환하지 않은 계정(1가구 · 다가구 무전환 · 비로그인 미리보기)에서는 이 폴백이 서지 않아
+   * 종전과 한 글자도 다르지 않다.
+   */
   const householdNotice = householdScopeManageNotice(
     householdScopePhrase(
       describeHouseholdScope({
@@ -343,7 +362,7 @@ export default function FamilyScreen() {
         knownHouseholdIds,
         fallbackHouseholdId
       })
-    )
+    ) ?? (switchedHouseholdId ? HOUSEHOLD_SCOPE_EMPTY_LABEL : null)
   );
   /**
    * 라운드 60 리뷰(P1-3): 전환 후보. 1가구(또는 몇인지 모르는) 계정에서는 빈 배열이라 아래

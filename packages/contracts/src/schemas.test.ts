@@ -16,6 +16,7 @@ import {
   CUSTOM_CATEGORY_NAME_MAX_LENGTH,
   deleteCustomItemResponseSchema,
   deleteExpenseRequestSchema,
+  EXPENSE_ITEM_NAME_MAX_LENGTH,
   itemDetailSchema,
   updateCustomCategoryRequestSchema,
   updateCustomItemRequestSchema,
@@ -852,5 +853,58 @@ describe("custom expense category contracts (round 103)", () => {
     expect(updateCustomCategoryRequestSchema.parse({})).toEqual({});
     // 축은 둘뿐이다 — code·displayOrder를 열면 전역 UNIQUE와 시드 대역 규칙이 곧바로 깨진다.
     expect(Object.keys(updateCustomCategoryRequestSchema.shape).sort()).toEqual(["active", "name"]);
+  });
+});
+
+/**
+ * 라운드 106 T10 — **미리보기 행 계약의 상한은 컬럼 폭(120)이다.**
+ *
+ * 종전 `importRowSchema.parsedItemName`은 `.max(100)`이었다. 그 숫자는 지출 계약의
+ * `EXPENSE_ITEM_NAME_MAX_LENGTH`에서 온 것인데, 이 스키마가 말하는 것은 지출이 아니라
+ * **검수 화면이 되읽는 미리보기 행**이고 서버는 101~120자 행을 값 그대로 실어 보낸다
+ * (`import_rows.parsed_item_name`은 varchar(120)이고, GAP-058 #8이 "컬럼이 담을 수 있는 값을
+ * 굳이 비우지 않는다"로 값 보존을 택했다 — apps/api/src/onboarding/import-pipeline.service.ts
+ * `buildImportRowsFromParsed`). 즉 계약이 **서버의 정상 응답보다 좁아서**, 이 스키마를 믿는
+ * 소비자(같은 파일을 파싱하는 apps/api/test/import-excel.e2e.test.ts 포함)가 그 구간의 행을
+ * 만나는 순간 계약 위반으로 읽었을 것이다. 서버는 건드리지 않고 계약을 사실에 맞춘다.
+ *
+ * 이 블록이 잠그는 것은 **두 숫자가 다르다는 사실**이다: 되읽기 상한 120 vs 검수 PATCH 입력
+ * 상한 100(서버 `UpdateImportRowDto`의 `@MaxLength(100)`).
+ */
+describe("import preview row length contract (round 106 T10)", () => {
+  const baseRow = {
+    id: "55555555-5555-4555-8555-555555555555",
+    rowIndex: 0,
+    parsedDate: "2026-07-05",
+    parsedAmountKrw: 49_800,
+    confidence: 0.9,
+    selected: false,
+    validationStatus: "item_name_too_long"
+  };
+
+  it("101~120자 품목명을 실은 행은 계약을 통과한다(서버가 실제로 내보내는 모양)", () => {
+    // 지출 계약 상한(100) 바로 위 — 이 행은 `item_name_too_long`으로 떨어지되 값은 남는다.
+    expect(importRowSchema.parse({ ...baseRow, parsedItemName: "가".repeat(101) }).parsedItemName).toHaveLength(101);
+    // 컬럼 폭 그 자체(120)도 저장 가능하므로 응답에 그대로 실린다.
+    expect(importRowSchema.parse({ ...baseRow, parsedItemName: "가".repeat(120) }).parsedItemName).toHaveLength(120);
+  });
+
+  it("121자 이상은 계약 밖이다 — 그 행은 서버가 값을 비워 보내기 때문이다(컬럼이 담지 못한다)", () => {
+    expect(() => importRowSchema.parse({ ...baseRow, parsedItemName: "가".repeat(121) })).toThrow();
+    // 값을 비운 행은 키 자체가 없다(toImportRowDto의 `?? undefined`) — optional이라 통과한다.
+    expect(importRowSchema.parse(baseRow).parsedItemName).toBeUndefined();
+  });
+
+  it("되읽기 상한(120)은 지출 품목명 상한(100)과 다른 숫자다 — 겹쳐 읽지 않는다", () => {
+    expect(EXPENSE_ITEM_NAME_MAX_LENGTH).toBe(100);
+    // 지출 생성 계약은 종전 그대로 100에서 끊는다(이 라운드가 넓힌 것은 미리보기 되읽기뿐).
+    expect(() =>
+      createExpenseRequestSchema.parse({
+        categoryId: "11111111-1111-4111-8111-111111111111",
+        amountKrw: 1000,
+        spentOn: "2026-07-05",
+        itemName: "가".repeat(EXPENSE_ITEM_NAME_MAX_LENGTH + 1)
+      })
+    ).toThrow();
   });
 });

@@ -592,3 +592,39 @@ describe("Admin CMS analytics page (ADM-009)", () => {
     });
   });
 });
+
+/**
+ * 라운드 106 트랙 T5 — **형제 화면이 이미 고친 경쟁 조건이 이 화면에는 남아 있었다.**
+ *
+ * 기간 토글(7/30)은 누를 때마다 요청을 새로 보내는데, 종전 이 화면은 ⓐ 먼저 보낸 요청이
+ * 나중에 도착해도 그 응답을 화면에 실었고, ⓑ 새 창이 오기 전까지 이전 기간의 집계를 그대로
+ * 두었다. 그래서 버튼은 "최근 30일"이 눌린 채인데 카드 제목은 "요약 (최근 7일)"이고 퍼널·
+ * 이벤트 표는 7일치인 화면이 만들어졌다 — 한 화면에서 두 기간의 수를 읽게 되는 자리다.
+ * 클릭 통계 화면이 같은 토글에서 같은 결함을 FIX/F6으로 이미 고쳐 두었고, 이 축은 그 판정을
+ * 그대로 가져온다(새 상태·새 문구 0건).
+ */
+describe("분석 기간 토글의 경쟁 조건 (라운드 106 트랙 T5)", () => {
+  it("마지막 요청만 화면에 반영한다 (형제 화면 FIX/F6과 같은 모양)", () => {
+    const source = readSource("app/analytics/page.tsx");
+    expect(source).toContain("const requestSeq = useRef(0);");
+    expect(source).toContain("const seq = ++requestSeq.current;");
+    // 늦게 도착한 옛 응답은 성공에서도 실패에서도 버려진다.
+    expect((source.match(/if \(requestSeq\.current !== seq\) return;/g) ?? []).length).toBe(2);
+    // 로딩 해제도 마지막 요청만 한다(옛 요청이 새 요청의 로딩을 끄지 않는다).
+    expect(source).toContain("if (requestSeq.current === seq) setLoading(false);");
+    // 기간이 바뀌면 이전 창의 집계를 감춘다 — 버튼과 표가 다른 기간을 말하지 않게.
+    expect(source).toContain("setSummary(null);");
+  });
+
+  it("클릭 통계 화면의 그 판정을 그대로 빌렸다 (발명 0건)", () => {
+    const clicks = readSource("app/clicks/page.tsx");
+    for (const anchor of [
+      "const requestSeq = useRef(0);",
+      "const seq = ++requestSeq.current;",
+      "if (requestSeq.current !== seq) return;",
+      "if (requestSeq.current === seq) setLoading(false);"
+    ]) {
+      expect(clicks, `본보기(app/clicks/page.tsx)에서 "${anchor}"가 사라졌어요`).toContain(anchor);
+    }
+  });
+});

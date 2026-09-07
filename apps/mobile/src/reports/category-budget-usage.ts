@@ -76,6 +76,24 @@ export function buildCategoryBudgetUsageRows(input: CategoryBudgetUsageInput): C
   // "서버 목록에 있는 id인가"로 걸렀는데, 폴백 8타일의 id는 서버 별칭 행의 id와 바이트 동일이라
   // 그 자를 통과했다(예산 화면 모듈의 주석이 근거 원문). 제안 가능 행 집합으로 좁힌다 — 폴백
   // 칩은 전부 `selectable:false`라 여기서 떨어지고, 정상 경로에서는 항등식이다.
+  //
+  // ⚠️ 두 시점 (라운드 103 리뷰 M-2 · 라운드 106 T4에서 재확인): 예산 화면
+  // (src/expenses/category-budget-form.ts)은 이 두 자에 **소유자 축 인자**를 넘겨 다른 가구의
+  // 커스텀 분류를 행에서 뺀다. 여기서는 넘기지 않는다 — "일관성"으로 맞추기 전에 라운드 106이
+  // 실제로 잰 값이 이것이다.
+  //  · **행 모집단이 다르다.** 폼의 행은 칩 대장이 낳는다(그래서 남의 가구 칩은 저장하면 400이
+  //    나는 빈 제안이었다). 이 모듈의 행은 `budgets` — 서버가 이미 그 아이의 가구로 좁혀 내려준
+  //    그 달의 예산 행이다. 좁히는 자가 여기서 새로 거를 것이 없다.
+  //  · **넘겨도 값이 바뀌지 않는다**(다가구 픽스처 측정): 좁힌 판과 오늘 판의 행 집합·이름·
+  //    사용액이 같았다. 칩 대장에서 떨어지는 예산 행은 아래 keptRows가 그대로 받고(따라서
+  //    "좁히면 사용자가 정한 예산 행이 사라진다"는 종전 근거 문장은 소스가 하는 일과 다르다),
+  //    동명 흡수(matchIds)는 애초에 합집합 전량을 훑는다(records-list-view의 그 주석). 달라지는
+  //    것은 두 가구가 **같은 이름**의 커스텀을 각각 가진 달의 행 **순서** 하나뿐이고, 그 축은
+  //    설계 §6.6 R9로 이미 수용됐다.
+  //  · **틀리는 방향이 반대다.** 폼은 넓으면 못 쓰는 선택지를 내밀고, 이 화면은 좁히는 쪽으로 한
+  //    걸음 더 가면(예산 행을 거른다 · 이름 해석을 좁힌다) 사용자가 정한 사실이 화면에서
+  //    사라진다 — 라운드 28 F3가 허위 표시로 판정한 그 자리다. 그래서 넓은 쪽이 기본값이다.
+  //    이 판단은 category-budget-usage.test.ts의 "가구 스코프" 묶음이 값과 호출 모양으로 문다.
   const offeredIds = new Set(selectableCategories(categories).map((category) => category.id));
   const chips = buildRecordsCategoryChips(categories).filter((chip) => offeredIds.has(chip.id));
   const nameOf = buildCategoryNameLookup(categories);

@@ -405,7 +405,11 @@ const SENTENCE_LEDGER: readonly string[] = [
   "app/reviews/page.tsx :: errorBanner :: ed4e28dfe530 :: <p className={styles.errorBanner}> {loadError.message} {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 ",
   "app/reviews/page.tsx :: successBanner :: 23572b5c31b9 :: <p className={styles.successBanner}>{actionSuccess}</p>",
   "app/users-lookup/page.tsx :: errorBanner :: ed4444d4eaad :: <p className={styles.errorBanner}>{searchError}</p>",
-  "app/users/page.tsx :: calloutWarning :: 8cbcd21c7305 :: <div className={styles.calloutWarning}> <strong> {notice.email} 계정의 임시 비밀번호예요. 이 비밀번호는 다",
+  // 라운드 106 트랙 T5: 이 카드 **안에** 복사 실패 안내 한 줄이 늘어 해시가 갈렸다
+  // (8cbcd21c7305 → 75e92036ac1b). 여는 태그·클래스·출구(role="status")는 바이트 불변이고,
+  // 바뀐 것은 카드가 담는 글자다 — 종전에는 클립보드 복사가 실패해도 아무 말이 없었다
+  // (app/users/page.tsx의 TEMP_PASSWORD_COPY_FAILED_HINT 주석이 그 사유를 진다).
+  "app/users/page.tsx :: calloutWarning :: 75e92036ac1b :: <div className={styles.calloutWarning}> <strong> {notice.email} 계정의 임시 비밀번호예요. 이 비밀번호는 다",
   "app/users/page.tsx :: errorBanner :: 97791fd15cc9 :: <p className={styles.errorBanner}>{createError}</p>",
   "app/users/page.tsx :: errorBanner :: adb6770efeb2 :: <p className={styles.errorBanner}> {loadError.message} {/* 라운드 73 트랙 D: 다시 눌러도 같은 답이 오는 ",
   "app/users/page.tsx :: errorBanner :: c55c3574a059 :: <p className={styles.errorBanner}>{rowError}</p>",

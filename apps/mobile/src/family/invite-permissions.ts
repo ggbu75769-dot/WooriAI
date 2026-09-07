@@ -106,6 +106,45 @@ export function isInviteEntryPointLocked({ hasSession, myRole }: InviteEntryPoin
   return myRole !== "owner";
 }
 
+/**
+ * 라운드 106 T8 — **목적지 화면(FAM-002)의 절반.**
+ *
+ * ⚠️ 두 시점: 종전에 이 모듈이 든 판정은 위 `isInviteEntryPointLocked` **하나**였고, 그것은
+ * 가족 화면의 진입점 셋만 잠갔다. 초대 만들기 화면(app/family/invite.tsx)에는 역할 판정이
+ * **0건**이었고, 그 사실은 저장소에 근거까지 적혀 있었다 — `record-permissions.test.ts`의
+ * 쓰기 화면 스윕이 그 파일을 예외로 두며 *"초대 생성 — 진입점을 app/family/index.tsx의
+ * inviteLocked가 잠근다"* 고 적어 두었다.
+ *
+ * 그런데 **진입점만 잠그는 것으로 충분하지 않다는 사실은 이 저장소가 이미 한 번 겪었다.**
+ * 라운드 40 J-1이 지출에서 적어 둔 그대로다(src/family/record-permissions.ts의
+ * `guardExpenseAction` 머리말): *"진입점 열 곳을 잠가도 목적지 화면이 그대로면 딥링크나 아직
+ * 잠기지 않은 새 진입점 하나로 저장 버튼까지 도달할 수 있다."* 초대 여정에는 그 둘째 절반이
+ * 없었다 — `wooriai:///family/invite`로 들어온 공동부모·보기 전용 참여자는 머리말
+ * ("함께할 역할을 선택하고 초대 링크를 만들어요")과 세 역할 카드와 **눌리는 버튼**을 받고,
+ * 눌러서 서버가 403을 돌려준 **뒤에야** "관리자만 만들 수 있어요"를 읽었다. 화면의 첫 문장과
+ * 탭한 뒤의 문장이 다른, 라운드 103 리뷰 M-1이 이름 붙인 그 모양이다.
+ *
+ * ## 왜 위 판정을 그대로 쓰지 않는가 — **역할 미상의 방향이 반대다**
+ *
+ * 위 판정은 "모르면 잠근다"이고, 그것은 가족 화면에서만 옳다: 그 화면은 **구성원 목록 응답**에서
+ * 내 역할을 찾으므로(app/family/index.tsx의 `myRole`) "모름"은 사실상 로딩 아니면 이상 응답이고,
+ * 잘못 열면 라운드 52 이전의 403 무반응이 되살아난다.
+ *
+ * 목적지 화면은 사정이 다르다. 그 화면은 구성원 조회를 하지 않고(새 요청을 만들지 않는다)
+ * **세션 스토어의 역할 표**를 읽으므로, "모름"이 정상적으로 발생한다 — v3 이전 블롭에서 올라온
+ * 세션 · 데모 세션 · 표가 아직 그 가구를 담지 못한 부분 표가 전부 그렇다. 거기서 잠그면 **정상
+ * 관리자의 초대가 통째로 막히고**, 가족을 부르는 길이 앱에서 사라진다. 잘못 열었을 때의 손해는
+ * 종전과 똑같은 403 한 번이고, 잘못 잠갔을 때의 손해는 그 여정이 없어지는 것이다.
+ *
+ * 그래서 이 판정은 record-permissions.ts의 규율을 따른다: **알고 있고, 그 아는 값이 owner가
+ * 아닐 때만** 잠근다(`isExpenseEntryLocked`가 "알려진 보기 전용 역할"로만 잠그는 그 방향).
+ * 역할 미상·비세션의 답은 종전과 한 글자도 다르지 않다.
+ */
+export function isInviteCreateLocked({ hasSession, myRole }: InviteEntryPointInput): boolean {
+  if (!hasSession) return false;
+  return typeof myRole === "string" && myRole.trim().length > 0 && myRole !== "owner";
+}
+
 const FORBIDDEN_ERROR_CODE = "FORBIDDEN";
 
 /**

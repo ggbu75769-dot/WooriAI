@@ -324,9 +324,20 @@ function ItemFormFields({
         />
       </div>
 
+      {/* 라운드 106 트랙 T5 — **이 `<label>`은 아무것도 이름 짓지 않고 있었다.**
+          `htmlFor`도 없고 컨트롤을 감싸지도 않아(HTML 명세상 이 자리의 label은 라벨이
+          아니다) 체크박스 여덟이 이름 없는 묶음으로 서 있었다: 스크린리더는 "임신 초기,
+          체크박스"까지만 읽고 **그 여덟이 무엇의 목록인지**는 끝내 말하지 않았다.
+          같은 파일의 다른 칸들은 전부 `<label htmlFor>`로 이어져 있고, 같은 모양의 묶음
+          (링크 화면의 "링크 상태" 칩 그룹)이 이미 답을 갖고 있다 —
+          `role="group" + aria-labelledby`. 그 관례를 그대로 빌린다.
+          id를 리터럴이 아니라 `idPrefix`에서 짓는 이유: 이 폼은 한 화면에 여러 번 뜬다
+          (생성 폼 하나 + 펼친 행마다 수정 폼 하나). 리터럴이면 같은 id가 문서에 여러 개
+          서서 `aria-labelledby`가 어느 것을 가리키는지 정해지지 않는다. 보이는 화면은
+          한 픽셀도 바뀌지 않는다. */}
       <div className={styles.field}>
-        <label>적용 단계</label>
-        <div className={styles.stageGrid}>
+        <label id={`${idPrefix}-stages-label`}>적용 단계</label>
+        <div className={styles.stageGrid} role="group" aria-labelledby={`${idPrefix}-stages-label`}>
           {CHILD_STAGE_CODES.map((code) => (
             <label key={code} className={styles.stageOption}>
               <input

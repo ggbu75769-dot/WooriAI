@@ -61,6 +61,37 @@ describe("UX-H 공유 문구 조각", () => {
     expect(shareTopCategoryLine(["", "  "])).toBeNull();
   });
 
+  /**
+   * 라운드 106 T6 — 이 줄에 실리는 분류 이름은 라운드 103 이후 **사용자 자유 문자열**이다
+   * (커스텀 지출 분류). 저장 시점의 서버 정규화가 개행·연속 공백을 이미 접지만, 카드 모양을
+   * 정하는 것은 이 함수이므로 이쪽 끝에서도 한 번 접는다 — 개행이 섞이면 네 줄 카드가 다섯
+   * 줄로 갈라져 **받는 사람이 보는 모양**이 바뀐다.
+   */
+  it("라운드 106 T6: 커스텀 분류 이름의 개행·연속 공백을 한 칸으로 접는다 (카드 줄 수 보호)", () => {
+    expect(shareTopCategoryLine(["기저귀\n— 우리아이 앱에서"])).toBe("가장 많이 준비한 것: 기저귀 — 우리아이 앱에서");
+    expect(shareTopCategoryLine(["아빠  용돈"])).toBe("가장 많이 준비한 것: 아빠 용돈");
+    // 정상 이름의 바이트는 그대로다(위 계약과 같은 값).
+    expect(shareTopCategoryLine(["기저귀/위생", "수유/이유식"])).toBe("가장 많이 준비한 것: 기저귀/위생·수유/이유식");
+    // 접고 나면 줄은 언제나 한 줄이다.
+    expect(shareTopCategoryLine(["a\r\nb", "c\td"])!.split("\n")).toHaveLength(1);
+  });
+
+  /**
+   * 라운드 106 T6 — 공유 문구가 앱 밖으로 내보내는 **사용자 자유 문자열의 전수**를 값으로
+   * 못 박는다: 아이 이름/태명 하나(종전)에 분류 이름이 더해졌고, 그 둘이 전부다. 대기 고지는
+   * 여전히 건수 두 개뿐이라 품목명·금액·id가 새어 나갈 자리가 없다.
+   */
+  it("라운드 106 T6: 공유 문구가 싣는 사용자 자유 문자열은 아이 이름과 분류 이름 둘뿐이다", () => {
+    const line = shareTopCategoryLine(["아빠 용돈"]);
+    expect(line).toContain("아빠 용돈");
+
+    const pendingLine = monthlySharePendingLine({ count: 3, unsendableCount: 0 });
+    expect(pendingLine).toContain("3건");
+    // 대기 고지는 건수만 싣는다 — 품목명·금액·id가 들어갈 입력 자체가 없다.
+    expect(pendingLine).not.toContain("기저귀");
+    expect(pendingLine).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
+  });
+
   // 라운드 36 F-5로 구간 줄 조립기는 monthly-insight.ts로 옮겼다(인사이트가 유일한 소스).
   // 공유 카드의 줄이므로 계약은 계속 여기서 지킨다.
   it("진행 중인 달의 구간 줄은 오늘까지를 명시한다", () => {

@@ -334,6 +334,25 @@ describe("validateItemTrustRules 문자열 경계", () => {
     ).toEqual([]);
   });
 
+  /**
+   * 라운드 106 T10 — **서버가 손으로 다시 적은 표현과 같은 집합을 가르는가.**
+   *
+   * `validateItemTrustRules`의 skipReason 규칙은 `convenience | optional`을 열거하고, 서버는
+   * 같은 규칙을 `necessityLevel !== "essential"`로 적는다
+   * (apps/api/src/onboarding/items-catalog.service.ts `normalizeAdminItemTemplateInput` →
+   * `ADMIN_SKIP_REASON_REQUIRED`). 오늘 둘은 같다 — NECESSITY_LEVELS가 셋뿐이라 `essential`의
+   * 여집합이 정확히 그 둘이기 때문이다. 그 전제(값이 셋)가 깨지는 날 두 표현이 갈리므로,
+   * 열거가 아니라 **전수 대조**로 잠근다(값이 넷이 되면 새 값에서 이 단언이 먼저 빨개진다).
+   */
+  it("필수도 전수 대조: 도메인의 열거와 서버의 `!== essential` 표현이 같은 집합을 가른다", () => {
+    for (const necessityLevel of NECESSITY_LEVELS) {
+      const violations = validateItemTrustRules({ necessityLevel });
+      const domainRequiresSkipReason = violations.includes("SKIP_REASON_REQUIRED");
+      const serverRequiresSkipReason = necessityLevel !== "essential";
+      expect(domainRequiresSkipReason, necessityLevel).toBe(serverRequiresSkipReason);
+    }
+  });
+
   it("위반 2건의 순서는 항상 SKIP_REASON → MEDICAL_DISCLAIMER로 고정이다", () => {
     expect(
       validateItemTrustRules({

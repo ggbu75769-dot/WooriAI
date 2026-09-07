@@ -186,6 +186,74 @@ export function buildImportRowCreateData(row: ImportRowRow, importJobId: string)
   };
 }
 
+/**
+ * 라운드 106 T3 — **확정 실패가 "어느 행 때문인지"를 봉투에 싣는다.**
+ *
+ * ## 무엇이 없었나
+ * 확정은 배치 한 트랜잭션이라 한 행이 걸리면 **파일 전체가 롤백**된다(confirmImport 주석의 그
+ * 설계다). 그런데 그때 나가는 400에는 코드와 문장뿐이라, 수십~수백 행을 검수한 사람이 받는
+ * 것은 화면이 되돌아왔다는 사실 하나였다 — 무엇을 고치면 다시 누를 수 있는지 **앱이 말할
+ * 근거가 0**이었다(라운드 103 리뷰 M-2가 남긴 이월).
+ *
+ * ## 넓히는 것은 기존 봉투의 `details` 한 칸이다
+ * 새 엔드포인트도, 새 코드도, 계약 변경도 없다: `errorResponseSchema`(packages/contracts)의
+ * `details`는 처음부터 `z.record(z.unknown()).optional()`이고 GlobalExceptionFilter가 그 칸을
+ * 그대로 실어 보낸다. **코드·문장·상태는 한 글자도 바뀌지 않는다** — 원본 예외의 응답 본문을
+ * 그대로 펼쳐 담고(문장을 여기서 베끼면 단일 소스가 갈라진다) `details`만 더한 뒤, 상태코드도
+ * 원본 그대로 다시 던진다.
+ *
+ * ## ⚠️ 개인정보 — 여기 실리는 것은 **우리가 만든 값**뿐이다
+ * `import.confirm` 감사 봉투가 파일명·행 원문을 싣지 않는 그 규율 그대로다(confirmImport 주석 —
+ * 파기 잡 phase 11이 90일 뒤 마스킹하는 값을 더 긴 창으로 복사하지 않는다). 사용자가 올린
+ * 문자열(품목명·판매처·파일명)도, 금액·날짜 원문도 싣지 않는다. 남는 것은 ⓐ 미리보기 행의
+ * 서버 id, ⓑ 그 행의 순번(`rowIndex` — 파서가 매긴 0부터의 자리), ⓒ 우리 오류 코드 셋뿐이고,
+ * 셋 다 이미 그 사용자가 접근 권한을 가진 잡의 값이다(행 목록 조회가 ⓐⓑ를 이미 돌려준다).
+ *
+ * ## ⚠️ 오늘 이 봉투에 도달하는 입력은 **없다** — 그래도 지운 값이 아니다
+ * 확정이 행 때문에 거절하는 갈래는 둘이고 둘 다 방어선이다: 분류 거절은 라운드 106이 검수
+ * PATCH에서 먼저 묻게 됐고(`updateImportRow` — 그 위에 FK까지 있다), 품목명·날짜·금액은
+ * `validationStatusForImportRow`가 확정 대상에서 먼저 걷어낸다(라운드 81 리뷰 L-6의 그 근거).
+ * 그 방어선이 언젠가 실제로 울리는 날 **사용자가 받는 것이 "400" 한 마디여서는 안 된다**는 것이
+ * 이 코드가 존재하는 이유다 — 확정은 전량 롤백이라, 행을 모르면 다음에 할 일이 없다.
+ *
+ * ## 상한이 있는 이유
+ * 상한을 다 채운 파일(2,000행)의 분류가 통째로 사라지면 이 배열이 2,000개가 된다 — 실패 응답
+ * 하나가 그만큼 커질 이유가 없고, 화면이 읽어 줄 수 있는 행 수도 아니다. 그래서 목록은 앞에서
+ * 스무 개까지 싣고 **전체 수는 따로 적는다**(앱이 "외 N개"까지 말할 수 있게 — 숫자를 감추면
+ * 그것이 또 하나의 거짓이 된다).
+ */
+const IMPORT_FAILED_ROW_DETAIL_LIMIT = 20;
+
+function withFailedImportRows(error: unknown, rows: readonly ImportRowRow[]): unknown {
+  if (!(error instanceof HttpException) || rows.length === 0) return error;
+  const body = error.getResponse();
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return error;
+  const envelope = body as { code?: unknown; details?: unknown };
+  // 코드 없는 실패에는 붙이지 않는다: 앱은 사유를 **코드로** 읽으므로(src/api/api-error.ts),
+  // 이름 없는 실패에 행만 붙이면 "무엇이 문제인지는 모르지만 이 행이다"가 된다.
+  const reason = typeof envelope.code === "string" && envelope.code.length > 0 ? envelope.code : null;
+  if (reason === null) return error;
+  const existingDetails =
+    typeof envelope.details === "object" && envelope.details !== null && !Array.isArray(envelope.details)
+      ? (envelope.details as Record<string, unknown>)
+      : undefined;
+  return new HttpException(
+    {
+      ...(body as Record<string, unknown>),
+      details: {
+        ...existingDetails,
+        failedRowCount: rows.length,
+        failedRows: rows.slice(0, IMPORT_FAILED_ROW_DETAIL_LIMIT).map((row) => ({
+          rowId: row.id,
+          rowIndex: row.rowIndex,
+          reason
+        }))
+      }
+    },
+    error.getStatus()
+  );
+}
+
 const defaultImportCategoryId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 /**
  * 업로드 크기 상한. 여기서는 클라이언트가 알려준 fileSizeBytes를 사전 검증하고,
@@ -405,6 +473,38 @@ export class ImportPipelineService {
     const current = await this.prisma.importRow.findFirst({ where: { id: rowId, importJobId } });
     if (!current) {
       throw new NotFoundException({ code: "IMPORT_ROW_NOT_FOUND", message: "Import preview row was not found." });
+    }
+
+    /**
+     * 라운드 106 T3 — **분류의 실재·소유를 확정이 아니라 검수 시점에 묻는다.**
+     *
+     * ⚠️ 두 시점: 종전 이 PATCH는 `categoryId`를 **아무것도 묻지 않고** 저장했다. FK는 통과하므로
+     * (실재하는 행이다) 저장이 조용히 성공하고 그 행은 검수 화면에 `valid`로 서 있다가,
+     * **확정에서야** 400을 만든다 — 그리고 확정은 배치 전체가 롤백이라 한 행 때문에 나머지
+     * 수백 행의 검수가 함께 되돌아갔다(라운드 103 리뷰 M-2가 이 자리를 이름으로 지목했다:
+     * 두 가구에 속한 계정이 다른 가구의 커스텀 분류를 칩에서 고르는 경로).
+     *
+     * 가구 스코프는 라운드 103이 세운 것을 **그대로 재사용한다** —
+     * `requireExistingCategory(categoryId, householdId)`(expenses-store.service.ts)가 지출 생성·
+     * 수정과 같은 술어(`{ id, OR: [{householdId: null}, {householdId}] }`)로 답한다. 기준 가구는
+     * **잡의 가구**다: 확정이 지출을 넣는 곳이 `job.householdId`이므로(`insertImportedExpenses`가
+     * 쓰는 그 값), 여기서 통과한 값은 확정에서도 통과한다. 거절의 코드·문장·상태도 그 단일
+     * 소스의 것 그대로다(`EXPENSE_CATEGORY_INVALID` 400 — 앱 전역 표가 이미 답하는 코드라
+     * 검수 화면은 새 문구 없이 그 문장을 쓴다).
+     *
+     * **값이 바뀔 때만 묻는다.** 체크 토글은 화면이 읽은 값을 그대로 되돌려 싣고
+     * (app/import/[importJobId].tsx의 `toggleRow`), 일괄 선택은 행마다 PATCH를 한 번씩 보낸다 —
+     * 그 뜨거운 경로에 조회를 하나 더 얹으면 요청당 문장이 2에서 3이 되는데, 되돌려 실은 값은
+     * **이미 이 검사나 미리보기 생성을 지난 값**이라 새로 묻는 질문이 없다
+     * (`buildImportRowsFromParsed`가 넣는 id는 `householdId: null`인 시드 아니면 가져오기 스텁이다).
+     * ⚠️ **"검수와 확정 사이에 분류가 사라지는 경우"는 잔여가 아니다.** `import_rows.category_id`에
+     * FK가 걸려 있어(`import_rows_category_id_fkey`) 미리보기 행이 가리키는 분류는 그 행이 살아
+     * 있는 동안 지워지지 않는다. 그래서 이 검사가 선 뒤로 **확정의 분류 거절에 도달하는 입력이
+     * 오늘은 없다** — 남는 것은 이 배포 이전에 쓰인 행과, 이 PATCH를 지나지 않는 경로가 생기는
+     * 날뿐이고, 그때 확정 봉투가 **행을 지목해** 말한다(`withFailedImportRows`).
+     */
+    if (input.categoryId !== undefined && input.categoryId !== current.categoryId) {
+      await this.expensesStore.requireExistingCategory(input.categoryId, job.householdId);
     }
 
     const merged: ImportRowRow = {
@@ -783,23 +883,40 @@ export class ImportPipelineService {
        * 진행되는 것이 옳다.
        */
       for (const categoryId of categoryIds.filter((id) => !found.has(id))) {
-        await this.expensesStore.requireExistingCategory(categoryId, job.householdId, tx);
+        try {
+          await this.expensesStore.requireExistingCategory(categoryId, job.householdId, tx);
+        } catch (error) {
+          // 라운드 106 T3: 거절은 단일 소스의 것 **그대로** 나가고(코드·문장·상태 무변경),
+          // 그 분류를 든 **행들**만 봉투의 details에 더한다 — 사용자가 고칠 자리는 분류 id가
+          // 아니라 그 id를 든 행이고, 확정은 전량 롤백이라 그 행을 모르면 다시 누를 수 없다.
+          throw withFailedImportRows(
+            error,
+            rows.filter((row) => row.categoryId === categoryId)
+          );
+        }
       }
     }
 
     // ② 배치 한 문장. ⚠️ 행 하나의 모양은 `buildImportedExpenseCreateData`가 만들고, 그것은
     //    `ExpensesStoreService.insertExpense`가 만드는 지출 행과 **같은 모양이어야 한다** —
     //    그쪽에 칸이 생기면 그 함수도 같이 고친다(위 주석 마지막 문단).
-    const inserted = await tx.expense.createMany({
-      data: rows.map((row) =>
-        buildImportedExpenseCreateData(row, {
+    // 라운드 106 T3: 행 하나의 순수 판정이 던지면(품목명 trim·날짜 범위·금액 상한 — 오늘은
+    // 도달하지 않는 방어선이다, 위 L-6 문단) 그 **한 행**을 봉투에 지목해 넣는다. 만들어지는
+    // 값·순서·모양은 그대로이고(`buildImportedExpenseCreateData(row, {` 그 호출 그대로),
+    // 늘어난 것은 실패 경로에서만 도는 catch 하나다.
+    const expenseRows = rows.map((row) => {
+      try {
+        return buildImportedExpenseCreateData(row, {
           householdId: job.householdId,
           childId: job.childId,
           createdByUserId: user.id,
           importJobId
-        })
-      )
+        });
+      } catch (error) {
+        throw withFailedImportRows(error, [row]);
+      }
     });
+    const inserted = await tx.expense.createMany({ data: expenseRows });
 
     /**
      * 라운드 81 리뷰(L-7②) — **넣은 만큼 들어갔는지 본다.**

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ANALYTICS_EVENT_LABELS,
   ANALYTICS_EVENT_NAMES,
@@ -173,22 +173,42 @@ export default function AnalyticsSummaryPage() {
   const [summary, setSummary] = useState<AdminAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<LoadErrorCopy | null>(null);
+  /**
+   * 라운드 106 트랙 T5 — **형제 화면이 이미 고친 경쟁 조건이 이 화면에는 남아 있었다.**
+   *
+   * 기간 토글(7/30)은 누를 때마다 요청을 새로 보내는데, 종전에는 ⓐ 먼저 보낸 요청이 나중에
+   * 도착해도 그 응답이 화면에 실렸고, ⓑ 새 창이 오기 전까지 이전 기간의 집계가 그대로 남았다.
+   * 그래서 7→30을 빠르게 누르면 버튼은 "최근 30일"이 눌린 채(aria-pressed=true)인데 카드
+   * 제목은 "요약 (최근 7일)"이고 퍼널·이벤트 표는 7일치인 화면이 만들어졌다 — 두 기간의 수를
+   * 같은 화면에서 읽게 되는 자리다(허위 표시).
+   *
+   * 클릭 통계 화면이 같은 토글에서 같은 결함을 이미 FIX/F6으로 고쳐 두었고(app/clicks/page.tsx의
+   * `requestSeq`), 이 자리는 그 판정을 **그대로** 가져온다 — 새 상태·새 문구 0건이고, 마지막
+   * 요청만 화면에 반영한다.
+   */
+  const requestSeq = useRef(0);
 
   const loadSummary = useCallback(async () => {
     if (!session) return;
+    const seq = ++requestSeq.current;
     setLoadError(null);
     setLoading(true);
+    // FIX/F6과 같은 이유: 이전 기간의 집계를 남겨 두면 로딩 동안 버튼과 표가 다른 기간을
+    // 말한다. 새 창을 받을 때까지 감춘다(그동안 서는 것은 종전의 "불러오는 중..." 하나다).
+    setSummary(null);
     try {
       const result = await getAdminAnalyticsSummary(days);
+      if (requestSeq.current !== seq) return;
       setSummary(result);
     } catch (error) {
+      if (requestSeq.current !== seq) return;
       if (isAuthError(error)) {
         clearSession();
         return;
       }
       setLoadError(loadErrorCopy(error, "분석 요약을 불러오지 못했어요."));
     } finally {
-      setLoading(false);
+      if (requestSeq.current === seq) setLoading(false);
     }
   }, [session, clearSession, days]);
 

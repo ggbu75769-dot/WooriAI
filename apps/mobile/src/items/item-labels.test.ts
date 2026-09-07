@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ITEM_STATUSES, NECESSITY_LEVELS } from "@wooriai/domain";
@@ -14,6 +14,19 @@ import {
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
+
+/**
+ * 주석을 걷어 낸 소스 / 주석만 남긴 소스 — 이 저장소가 이미 쓰는 그 관례다
+ * (shared-decision-wiring.test.ts · admin-write-role-gate.test.ts). 배선을 물 때는 코드만,
+ * *"머리말에 적혀 있다"* 를 물 때는 주석만 본다.
+ * ⚠️ 줄 주석은 앞에 `:`가 없을 때만 지운다(코드 줄 안의 `https://`를 먹지 않는다).
+ */
+const withoutComments = (text: string) =>
+  text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+const commentsOnly = (text: string) =>
+  [...text.matchAll(/\/\*([\s\S]*?)\*\//g), ...text.matchAll(/\/\/([^\n]*)/g)]
+    .map((match) => match[1])
+    .join("\n");
 
 /**
  * `apps/mobile`의 `app/`·`src/` 아래 .ts/.tsx 전수(테스트 포함) — 사문 부정 단언이 도는 모집단.
@@ -190,13 +203,31 @@ describe("라운드 86 A: 목록이 필수도를 말한다", () => {
     expect(self).not.toContain(`  ${deadFunctionName},`);
   });
 
+  /**
+   * 라운드 106 F4(S4-5) — ⚠️ **두 시점.** 종전 뒤 두 줄은 `item-labels.ts` **원문**에서
+   * `renderItemFooter`·`ModV1Primitives`를 찾았다. 두 이름 모두 그 파일의 **머리말 주석**에만
+   * 있고 코드에는 0건이라(이 모듈이 하는 일은 판정뿐이다), 이름만 보면 *"이 파일이 두
+   * 컴포넌트를 쓴다"* 로 읽히면서 실제로 확인하던 것은 **머리말의 관리 상태**였다.
+   * 이 `it`의 의도는 원래 문서 확인이 맞다(제목이 "머리말은"이라고 말한다) — 그래서 이제
+   * 그렇게 말한다: 변수를 `labelsDoc`으로 부르고 **주석 쪽만** 뽑아 거기서 찾는다.
+   * 그 위에 **머리말이 가리키는 자리가 실재하는지**를 함께 문다 — 그러지 않으면 이 계약은
+   * 여전히 "문장이 남아 있는가"만 세고, 그 문장이 오늘도 참인지는 아무도 보지 않는다.
+   */
   it("머리말은 거짓이 된 근거를 다시 근거로 내놓지 않는다", () => {
-    const labels = source("src/items/item-labels.ts");
+    const labelsSource = source("src/items/item-labels.ts");
+    const labelsDoc = commentsOnly(labelsSource);
     // 라운드 48이 적어 둔 그 문장은 DSN-053 P2-B 이후 거짓이었다(선행 확인 3ⓑ①).
-    expect(labels).not.toContain("배지는 이제 응답에 실제로 있는 두 값만 말한다");
-    // 대신 **두 값을 오늘 어디가 그리는지**가 값으로 적혀 있다(다음 라운드가 세어 볼 수 있게).
-    expect(labels).toContain("renderItemFooter");
-    expect(labels).toContain("ModV1Primitives");
+    expect(labelsSource).not.toContain("배지는 이제 응답에 실제로 있는 두 값만 말한다");
+    // 대신 **두 값을 오늘 어디가 그리는지**가 머리말에 값으로 적혀 있다.
+    expect(labelsDoc, "필수도를 그리는 자리").toContain("renderItemFooter");
+    expect(labelsDoc, "상태 pill이 사는 자리").toContain("ModV1Primitives");
+    // 그리고 그 두 자리가 **오늘도 실재한다** -- 이름이 사라지거나 옮겨 가면 머리말이 다시
+    // 거짓이 되므로, 그날 여기가 빨개져 머리말을 고치게 한다(주석만으로는 서지 않는 그물).
+    expect(withoutComments(source("app/(tabs)/items.tsx")), "목록 타일 발밑 슬롯").toContain("renderItemFooter={");
+    expect(
+      existsSync(join(mobileRoot, "src/design-system/components/ModV1Primitives.tsx")),
+      "머리말이 가리키는 상태 pill 모듈"
+    ).toBe(true);
   });
 });
 

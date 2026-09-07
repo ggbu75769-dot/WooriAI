@@ -95,6 +95,7 @@ import {
   type StageRetrospectiveExpenseRow
 } from "../../src/home/stage-retrospective";
 import { evaluateHomePrepNudge, type PrepNudgeRecommendedItem } from "../../src/home/prep-nudge";
+import { buildHomeCategoryLabelResolver } from "../../src/home/recent-expense-category";
 import { buildPendingItemStatusIndex, effectiveItemStatus } from "../../src/items/pending-status";
 import { evaluateWeeklySummary } from "../../src/home/weekly-summary";
 import { reconcileMonthlyExpenses } from "../../src/offline/expense-list-reconciliation";
@@ -1185,6 +1186,20 @@ export default function HomeScreen() {
     () => buildTileCategoryIdResolver(categoriesQuery.data?.categories),
     [categoriesQuery.data?.categories]
   );
+  /**
+   * 라운드 105 트랙 HOME(라운드 104 정찰 C #6): **같은 캐시 한 벌**로 그 세 줄의 분류 이름까지
+   * 고른다 -- 위 글리프 해석과 입력이 같으므로 추가 요청은 0건이다(그렇게 하지 않던 종전 근거와
+   * 그것이 언제 거짓이 됐는지는 src/expenses/records-list-view.ts `homeRecentExpenseSubtitle`
+   * 머리말의 두 시점 기록).
+   *
+   * 해석에 실패한 id는 null이고, 그 줄만 분류 토큰 없이 종전 문장 그대로 남는다 -- 캐시가 아직
+   * 비어 있는 콜드 스타트에서 "기타" 폴백을 태우면 세 줄이 전부 사용자가 적은 적 없는 분류명을
+   * 말하게 된다(src/home/recent-expense-category.ts 머리말).
+   */
+  const resolveRecentExpenseCategoryLabel = useMemo(
+    () => buildHomeCategoryLabelResolver(categoriesQuery.data?.categories),
+    [categoriesQuery.data?.categories]
+  );
   const hasSession = Boolean(authToken && childId);
   // REP-121: 홈 한 줄 인사이트는 "지난달 같은 일자까지"의 부분 합계를 필요로 한다. /home 응답에는
   // 지난달 값이 없고, 월간 리포트 API(reports/monthly)는 yearMonth 단위 **월 전체** 합계만 주므로
@@ -1832,8 +1847,25 @@ export default function HomeScreen() {
 
   if (hasSession && homePhase === "loading") {
     // UX-5B-5 (D6): 가짜 버튼이 달린 EmptyStateCard 대신 스켈레톤 로딩.
+    //
+    // 라운드 105 트랙 HOME(라운드 104 정찰 A F2) -- 그 스켈레톤 화면에는 **기록 입구가 하나도
+    // 없었다.** 바로 위 실패 갈래는 보조문과 입구를 함께 남기는데 로딩 갈래만 FAB도 퀵액션도
+    // 없이 서 있었다. 이 앱에서 지출 기록은 SQLite 우선 저장이라 조회를 기다리는 동안에도
+    // **실제로** 남길 수 있고(같은 파일 homePhase 머리말의 그 근거), 로딩은 짧지 않을 수 있다
+    // (["home"] 조회는 retry 기본 3회 × 요청당 10초 상한 + 백오프 -- app/_layout.tsx ·
+    // src/api/client.ts). 콜드 스타트마다 · 아이 전환마다 지나는 자리다.
+    //
+    // 세우는 것은 **세션 홈 렌더와 글자 하나까지 같은 한 줄**이다(같은 슬롯 · 같은 게이트 ·
+    // 같은 목적지). 새 문구를 만들지 않는 이유가 둘이다: ① 로딩이 끝나도 입구가 자리를 옮기지
+    // 않는다 -- 두 상태가 같은 자리에 같은 버튼을 둔다. ② 실패 갈래의 보조문("기록은 지금도
+    // 남길 수 있어요")은 **무언가 잘못됐다**는 사실이 앞에 설 때 참인 문장이라, 평범한 로딩에
+    // 그대로 옮기면 일어나지 않은 실패를 암시한다(DNC-018의 관찰형 어투도 같은 쪽을 가리킨다).
+    // 보기 전용 참여자에게는 expenseGate.guard가 눌렀을 때 안내한다 -- 약속 문장 없이 서 있는
+    // 입구는 잠그지 않는 것이 이 화면의 다른 진입점들과 같은 관례다.
     return (
-      <AppScreen>
+      <AppScreen
+        floatingAction={<FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />}
+      >
         <View style={{ gap: theme.spacing.section }}>
           <SkeletonCard />
           <SkeletonCard />
@@ -3120,7 +3152,7 @@ export default function HomeScreen() {
                       icon={<AppIcon color={visual.iconColor} name={visual.icon} size={19} />}
                       iconBackgroundColor={visual.iconBackgroundColor}
                       title={expense.itemName}
-                      subtitle={homeRecentExpenseSubtitle(expense)}
+                      subtitle={homeRecentExpenseSubtitle(expense, resolveRecentExpenseCategoryLabel(expense.categoryId))}
                       value={formatKrw(expense.amountKrw)}
                       onPress={() => router.push(`/expenses/${expense.id}`)}
                     />

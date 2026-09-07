@@ -9,6 +9,18 @@ function readSource(relativePath: string): string {
   expect(existsSync(filePath), `${relativePath} should exist`).toBe(true);
   return readFileSync(filePath, "utf8");
 }
+/**
+ * 주석을 걷은 소스 — 이 저장소의 화면 주석은 자기가 무엇을 고쳤는지 설명하려고 **옛 문장과
+ * 식별자를 그대로 인용**한다. 원문을 그대로 물면 코드에서 사라진 뒤에도 주석 한 줄이 단언을
+ * 살려 둔다(라운드 106 F4가 모바일에서 고친 그 병). 주석 관용 앵커 대장이 그 자리를 센다.
+ */
+function codeOnly(text: string): string {
+  return text
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ");
+}
+
 
 // ADM-006: admin account management page. The API endpoints are admin-role-only
 // (cookie session + CSRF + MFA, same as every other admin route); the frontend
@@ -47,7 +59,7 @@ describe("Admin accounts page (ADM-006)", () => {
   });
 
   it("shows the one-time temp password with the never-shown-again warning and never persists it", () => {
-    const source = readSource("app/users/page.tsx");
+    const source = codeOnly(readSource("app/users/page.tsx"));
     expect(source).toContain("tempPassword");
     expect(source).toContain("이 비밀번호는 다시 표시되지 않습니다");
     expect(source).toContain("clipboard");
@@ -69,5 +81,39 @@ describe("Admin accounts page (ADM-006)", () => {
     expect(shell).toContain("관리자 계정");
     expect(shell).toContain('roles: ["admin"]');
     expect(shell).toContain("item.roles.includes(session.admin.role)");
+  });
+});
+
+/**
+ * 라운드 106 트랙 T5 — **한 번만 보이는 값의 복사가 조용히 실패하던 자리.**
+ *
+ * 임시 비밀번호 카드는 계정 생성 직후 **딱 한 번** 뜨고 다시 볼 수 없다. 종전에는
+ * `navigator.clipboard`가 없거나(안전하지 않은 컨텍스트로 연 어드민) 권한이 거부되면
+ * `catch`가 `setCopied(false)`만 하고 끝나서, [복사]를 눌러도 라벨은 "복사"인 채 아무 일도
+ * 일어나지 않았다 — 운영자는 복사됐다고 믿고 클립보드의 **옛 값**을 새 관리자에게 보낼 수 있다.
+ * 형제 화면(상품 링크의 공유 링크 복사)이 같은 실패에 이미 답을 갖고 있어 그 관례를 빌린다.
+ */
+describe("임시 비밀번호 복사 실패가 조용하지 않다 (라운드 106 트랙 T5)", () => {
+  it("복사 실패에 안내 문구를 세운다 (형제 화면의 관례와 같은 말)", () => {
+    const source = codeOnly(readSource("app/users/page.tsx"));
+    expect(source).toContain("TEMP_PASSWORD_COPY_FAILED_HINT");
+    expect(source).toContain("클립보드에 복사하지 못했어요.");
+    // 종전의 불리언 하나로는 실패와 "아직 안 눌렀음"이 같은 상태였다 — 셋으로 갈린다.
+    expect(source).toContain('"idle" | "copied" | "failed"');
+    expect(source).toContain('setCopyState("failed")');
+    expect(source).toContain('copyState === "failed"');
+    expect(source, "복사 성공 라벨이 사라졌어요").toContain('copyState === "copied" ? "복사됨" : "복사"');
+  });
+
+  it("실패해도 값 자체는 화면에 남는다 (직접 복사가 폴백이다)", () => {
+    const source = readSource("app/users/page.tsx");
+    expect(source).toContain("<code className={styles.calloutCode}>{notice.tempPassword}</code>");
+    // 그 폴백을 문장이 가리킨다 — 안내 없이 값만 남겨 두지 않는다.
+    expect(source).toContain("위 비밀번호를 직접 선택해 복사해 주세요.");
+  });
+
+  it("실패 문장이 소리로도 나간다 (카드가 이미 role=\"status\"다)", () => {
+    const source = readSource("app/users/page.tsx");
+    expect(source).toContain('<div className={styles.calloutWarning} role="status">');
   });
 });

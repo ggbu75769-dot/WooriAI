@@ -7,7 +7,19 @@
 - [ ] `npx --yes pnpm@11.7.0 install --frozen-lockfile` 성공
 - [ ] `npx --yes pnpm@11.7.0 release:gate` 전 단계 PASS (근거: `grep -c '    label: "' scripts/release-gate.ts` → **11**단계 — Install·Env example·Prisma validate·Prisma generate·Database up·Lint·Typecheck·All tests·API e2e·Build dry-run·Peer dependencies)
 - [ ] 프로덕션 env 설정: `NODE_ENV=production`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `WOORIAI_ADMIN_TOKEN`, `DATABASE_URL`, OAuth client id/secret, `EXPO_PUBLIC_API_BASE_URL`(https)
-- [ ] `pnpm check:env` 통과 (누락 시 API 부팅 실패) — 카탈로그 크기는 필수 근거: `awk '/^const REQUIRED_SPECS/,/^\];/' scripts/check-env.ts | grep -c 'key: "'` → **22**개 · 선택 근거: `awk '/^const OPTIONAL_SPECS/,/^\];/' scripts/check-env.ts | grep -c 'key: "'` → **41**개
+- [ ] `pnpm check:env --scope=api` 통과 — 카탈로그 크기는 필수 근거: `awk '/^const REQUIRED_SPECS/,/^\];/' scripts/check-env.ts | grep -c 'key: "'` → **22**개 · 선택 근거: `awk '/^const OPTIONAL_SPECS/,/^\];/' scripts/check-env.ts | grep -c 'key: "'` → **41**개
+  - ⚠️ **두 시점(라운드 106 F5)**: 이 칸은 종전에 "`pnpm check:env` 통과 (누락 시 API 부팅 실패)"라고만
+    적었다. 오늘 다시 재 보면 그 두 마디가 다 정확하지 않다. ⓐ **`--scope`가 없으면 이 명령은
+    런북대로 배포한 Fly 머신에서 반드시 실패한다** — REQUIRED 22 중 여덟(`EXPO_PUBLIC_API_BASE_URL` ·
+    `REDIS_URL` · `S3_*` 넷 · `OAUTH_APPLE_CLIENT_ID` · `OAUTH_GOOGLE_CLIENT_ID`)이 그 배포에
+    애초에 존재하지 않기 때문이다. `--scope=api`로 좁히면 남는 누락은 뒤의 둘뿐이다.
+    ⓑ **"누락 시 API 부팅 실패"는 여섯 개에만 참이다** — 부팅을 실제로 막는 것은
+    `assertRequiredSecretsConfigured`가 무는 여섯이고, 나머지는 조용히 기본값으로 간다.
+    ⓒ 이 명령은 **존재**와 좁은 플레이스홀더 정규식만 검사하므로 `.env.example`을 그대로 복사한
+    `https://wooriai.local`·`http://localhost:3000/api/v1`도 통과한다 — **값이 맞다는 증명이 아니다.**
+    ⓓ `apps/api`는 `dotenv`를 쓰지 않으므로 이 명령은 **도는 셸의 env**만 본다. 배포된 머신의
+    값을 보려면 그 안에서 돌린다: `fly ssh console -C "pnpm check:env --scope=api"`.
+    자세한 갈래와 여덟 키의 목록은 `docs/5차/day1-deploy-runbook.md` **§D-1**.
 - [ ] DB 마이그레이션: `pnpm --filter api prisma:deploy` (= `prisma migrate deploy`)
 - [ ] seed: `pnpm --filter api seed` — 시드 내용의 단일 소스는 `apps/api/prisma/seed-data.ts`
       (정식 카테고리 12 + 모바일 별칭 8 + 가져오기 스텁 1, 준비템 카탈로그, 제휴 고지 문구,
@@ -95,8 +107,12 @@ INF-007이 막으려는 상황은 **"퍼지/정리 워커가 죽었는데 아무
 전체 절차는 [rollback.md](rollback.md)가 단일 소스다. 요약:
 
 - **API**: 이전 이미지/태그로 재배포. 데이터는 PostgreSQL에 있으므로 **코드 롤백이 데이터를
-  되돌리지는 않는다** — 스키마 호환성을 먼저 확인한다. 라운드 4 이후 마이그레이션은 additive
-  위주라 대개 코드만 되돌려도 안전하다.
+  되돌리지는 않는다** — 스키마 호환성을 먼저 확인한다. 마이그레이션은 대개 additive라 코드만
+  되돌려도 안전하지만 **예외가 다섯 있다**(`000007`·`000008`·`000010`·`000018`·`000024`) —
+  전수 표와 각각의 이유는 [rollback.md](rollback.md) **§1.1**이 진다.
+  - ⚠️ **두 시점**: 이 줄은 종전에 "**라운드 4 이후** 마이그레이션은 additive 위주라 대개 코드만
+    되돌려도 안전하다"라고 적었고 그 문장이 태어난 시점에는 참이었다. 오늘은 그 뒤로 스무 개가
+    더 붙었고, 그중 `000008`·`000018`·`000024`는 **코드만 되돌리는 것 자체가 안전하지 않다**.
 - **스키마 롤백**: Prisma는 down migration을 만들지 않는다. 불가피하면 배포 직전 백업으로
   복원한다([database-backup-restore.md](database-backup-restore.md)) — 백업 이후 데이터는
   유실되므로 최후 수단.
@@ -113,11 +129,22 @@ INF-007이 막으려는 상황은 **"퍼지/정리 워커가 죽었는데 아무
 | API 부팅 실패 | 필수 시크릿 env 누락(`main.ts` fail-fast 메시지 확인) |
 | `/health`는 200인데 앱이 안 됨 | `/health/ready`가 503인지 확인 — DB 연결 끊김(§3.1) |
 | `/health/ready` 503 지속 | `DATABASE_URL`·DB 기동 상태·커넥션 수 확인, `pnpm db status` |
-| 로그인 501 | 프로덕션에서 OAuth 실검증 미구현(`auth.service.ts`) — 실 OAuth 연동 필요 |
+| 로그인 501 | ⚠️ **앱 빌드 플래그를 먼저 본다**(라운드 106 F5). `EXPO_PUBLIC_KAKAO_ENABLED`·`EXPO_PUBLIC_KAKAO_CLIENT_ID` 없이 만들어진 빌드가 dev 스텁 경로(`POST /auth/oauth-login`)를 부르고 있는가 → 데모/스탠드얼론 APK를 실사용자에게 배포하지 않았는지 확인. `pnpm android:build-aab`로 만든 AAB는 그 플래그를 fail-closed로 물기 때문에 이 증상이 날 수 없다 |
 | cleartext 차단 오류 | `EXPO_PUBLIC_API_BASE_URL`이 http — https로 변경 |
 | 홈/리포트 금액 불일치 | 집계 헬퍼 단일화 확인(`expensesForChild`) — 회귀 시 e2e `expense-home-report` |
 | 오래된 데이터가 안 지워짐 | 워커 정지/잡 실패 — `/health/worker`의 `stale`·`degraded`·`jobs[].lastStatus` 확인(§3.2) |
 | 마이그레이션 미적용 | `prisma migrate deploy` 누락 — `pnpm --filter api prisma:deploy` 재실행 |
+
+⚠️ **"로그인 501" 행의 두 시점(라운드 106 F5).** 이 행은 종전에 "프로덕션에서 OAuth 실검증
+미구현(`auth.service.ts`) — 실 OAuth 연동 필요"라고 적었다. **그 진단이 참이던 시절이 있었다** —
+카카오 검증 어댑터가 없던 때다. 오늘은 틀리다: 카카오 OIDC는 서버에 구현돼 있고
+(`apps/api/src/auth/kakao/` — prepare/exchange, JWKS 서명·`iss`/`aud`/`exp`·nonce 검증), 501을
+던지는 자리는 **dev 스텁 하나**(`POST /auth/oauth-login`이 `isDevOrTestEnv()`가 아닐 때)뿐이다.
+그러므로 프로덕션에서 사용자가 501을 받았다면 원인은 서버가 아니라 **그 사용자의 앱이 스텁
+경로를 부르고 있다**는 것이고, 그 앱은 `pnpm android:build-aab`가 아닌 경로로 만들어진 빌드다
+(빌드 스크립트가 `EXPO_PUBLIC_KAKAO_ENABLED !== "1"`이면 빌드를 거부한다).
+⚠️ 단 **카카오 콘솔 키 발급과 redirect 등록은 사용자만** 할 수 있다 — 키가 아예 없으면 앱을
+켤 수 없고, 그때는 이 진단이 아니라 [known-limitations.md](known-limitations.md) A절의 일이다.
 
 ## 6. 알려진 외부 의존성
 

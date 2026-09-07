@@ -181,6 +181,80 @@ describe("EXP-106 expense CSV builder", () => {
     expect(row).toContain("'@evil");
   });
 
+  /**
+   * 라운드 106 T6 — **위험 문자 집합은 서버와 한 벌**이어야 한다.
+   *
+   * 이 파일의 `DANGEROUS_LEADING_CHARS`는 apps/api/src/imports/import-parser.ts의 같은 이름
+   * 상수의 사본이다. 사본은 조용히 갈린다 — 서버가 한 글자를 더해도 내보내기는 모르고, 그
+   * 사이로 나간 파일은 엑셀에서 수식이 된다. 그래서 여기 다시 적지 않고 **서버 소스에서 읽어**
+   * 대조한다(위 HEADER_KEYWORDS 테스트와 같은 관례).
+   */
+  it("라운드 106 T6: 위험 선행 문자 집합을 서버 파서 소스에서 읽어 대조한다", () => {
+    const parserSource = readFileSync(
+      join(process.cwd(), "..", "..", "apps", "api", "src", "imports", "import-parser.ts"),
+      "utf8"
+    );
+    const literal = /const DANGEROUS_LEADING_CHARS = new Set\(\[([^\]]*)\]\);/.exec(parserSource);
+    expect(literal, "DANGEROUS_LEADING_CHARS 리터럴을 import-parser.ts에서 찾지 못했다").not.toBeNull();
+    const serverChars = [...literal![1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((match) =>
+      JSON.parse(`"${match[1]}"`) as string
+    );
+    expect(serverChars.length, "서버 위험 문자 집합이 비었다").toBeGreaterThan(0);
+
+    for (const dangerous of serverChars) {
+      expect(sanitizeCsvCell(`${dangerous}x`), `${JSON.stringify(dangerous)} 가 가드되지 않는다`).toBe(
+        `'${dangerous}x`
+      );
+    }
+    // 반대 방향: 서버가 위험하다고 보지 않는 글자를 우리만 가드하면 왕복에서 `'`가 더 붙는다.
+    for (const safe of ["가", "1", "'", '"', " ", "\n"]) {
+      if (serverChars.includes(safe)) continue;
+      expect(sanitizeCsvCell(`${safe}x`), `${JSON.stringify(safe)} 를 과잉 가드한다`).toBe(`${safe}x`);
+    }
+  });
+
+  /**
+   * 라운드 106 T6 — 라운드 103이 `카테고리` 열에 **사용자 자유 문자열**을 들여보냈다(커스텀 분류
+   * 이름, 최대 50자). 그 전까지 이 열은 시드 12분류 + 8타일의 고정 라벨뿐이라 수식이 될 수
+   * 없었다. 열이 바뀐 뒤에도 가드가 걸려 있는지 **값으로** 확인한다.
+   */
+  it("라운드 106 T6: 커스텀 분류 이름(라운드 103 자유 문자열)도 수식 가드와 RFC 4180을 함께 지난다", () => {
+    const dangerousName = (name: string) => {
+      const categoryName = buildCategoryNameLookup([{ id: "custom-1", name }]);
+      return expenseToCsvRow(makeExpense({ categoryId: "custom-1" }), categoryName);
+    };
+
+    // 서버 정규화(trim + 연속 공백 접기)를 통과할 수 있는 이름들 — 즉 실제로 저장 가능한 값이다.
+    expect(dangerousName("=1+1")).toContain(",'=1+1,");
+    expect(dangerousName("+더치페이")).toContain(",'+더치페이,");
+    expect(dangerousName("-용돈")).toContain(",'-용돈,");
+    expect(dangerousName("@엄마카드")).toContain(",'@엄마카드,");
+
+    // 순서 계약: sanitize가 **먼저**라 따옴표 안쪽 첫 글자가 `'`다. 뒤집히면 `"=1,2"`가 되어
+    // 스프레드시트가 그 칸을 수식으로 읽는다.
+    expect(dangerousName("=1,2")).toContain(`,"'=1,2",`);
+    expect(escapeCsvField(sanitizeCsvCell("=1,2"))).toBe(`"'=1,2"`);
+
+    // 쉼표·따옴표만 든 이름은 가드 없이 RFC 4180 인용만 받는다(없는 위험을 지어내지 않는다).
+    expect(dangerousName('아빠, "비상"금')).toContain(`,"아빠, ""비상""금",`);
+  });
+
+  /**
+   * 라운드 106 T6 — 가드는 **멱등**이다. 내보낸 파일을 그대로 다시 올리면 서버 파서가 첫 글자
+   * `'`를 위험하지 않다고 보아 그대로 저장하고(apps/api import-parser.ts `sanitizeText`),
+   * 그 값을 다시 내보내도 `'`가 더 붙지 않는다. 왕복에서 한 글자가 눌어붙되 **누적되지는
+   * 않는다**는 사실을 값으로 고정한다(expense-csv.ts 머리말 3번).
+   */
+  it("라운드 106 T6: 이미 가드된 셀을 다시 내보내도 따옴표가 누적되지 않는다 (왕복 멱등)", () => {
+    const once = sanitizeCsvCell("=SUM(A1:A9)");
+    expect(once).toBe("'=SUM(A1:A9)");
+    expect(sanitizeCsvCell(once)).toBe(once);
+    expect(sanitizeCsvCell(sanitizeCsvCell(once))).toBe(once);
+
+    // 재가져오기가 저장하게 되는 값(`'`가 붙은 품목명)을 다시 내보낸 행.
+    expect(expenseToCsvRow(makeExpense({ itemName: once }))).toContain(",'=SUM(A1:A9),");
+  });
+
   it("renders a null memo as an empty field", () => {
     expect(expenseToCsvRow(makeExpense({ memo: null }))).toBe("2026-08-01,지출,기저귀,기저귀 대형,,,45900,,직접 입력");
   });

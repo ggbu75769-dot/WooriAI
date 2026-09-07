@@ -8,10 +8,18 @@ import { uuidSchema, itemStatusSchema, productPlatformSchema } from "./schemas";
  * Every payload schema in `analyticsEventRegistry` must stay "PII-safe by
  * construction": each field is either an enum literal, a boolean, or an
  * integer count (never a free-form string, and never a raw money amount).
- * `analytics.pii-lint.test.ts` asserts this for every registry entry plus
- * checks property keys against a forbidden-name list, so a new event that
- * violates the rule fails CI automatically -- no manual review checklist to
- * remember.
+ * That rule is asserted for **every registry entry** (the lint iterates the
+ * registry itself, so a newly added event is covered without editing a list)
+ * plus a forbidden property-name check, so a violating event fails CI
+ * automatically -- no manual review checklist to remember.
+ *
+ * ⚠️ 라운드 106 T10 — 그 린트가 사는 자리는 `packages/contracts/src/analytics.test.ts`의
+ * `describe("analytics payload PII lint")` 블록이다. 종전 이 세 문단은 근거로
+ * `analytics.pii-lint.test.ts`를 들었는데 **그런 파일은 저장소에 존재한 적이 없다**
+ * (오늘 실측: `find . -name "*pii*"` 0건). 라운드 64 M-2가 `LINK_PRICE_MAX_AGE_DAYS`의
+ * 주석에서 고친 것과 **같은 종류의 오류**다 — 존재하지 않는 가드를 근거로 들면 다음
+ * 구현자가 "이미 잠겨 있다"고 읽고 그 자리를 다시 확인하지 않는다. 값·동작은 한 글자도
+ * 바뀌지 않았고 인용 자리만 사실로 고쳤다(린트 자체는 실제로 서 있다).
  */
 
 export const ANALYTICS_PLATFORMS = ["ios", "android"] as const;
@@ -178,7 +186,8 @@ const purchaseFollowupAnsweredV1Payload = z
  *
  * 페이로드는 어느 카드에서 눌렸는지 하나뿐이다. 공유 문구에는 아이 애칭·금액이 들어가지만
  * (buildMonthlyShareMessage/buildMilestoneShareMessage) 그중 어느 것도 페이로드에 실리지 않는다 --
- * 이 레지스트리의 PII 규칙상 문자열 필드는 enum만 허용되고, analytics.pii-lint가 이를 강제한다.
+ * 이 레지스트리의 PII 규칙상 문자열 필드는 enum만 허용되고, analytics.test.ts의 PII 린트가
+ * 이를 강제한다(위 머리말의 두 시점 주석 — 종전에 적힌 `analytics.pii-lint`는 없는 파일이다).
  */
 const reportShareTappedV1Payload = z
   .object({
@@ -193,7 +202,7 @@ const reportShareTappedV1Payload = z
  *
  * 페이로드는 **단계 enum + 정수 하나**뿐이다. 이 네 화면에는 아이 애칭·예정일·출생일·월 예산이
  * 모두 있지만 그중 무엇도 싣지 않는다 -- 이 레지스트리의 PII 규칙상 문자열 필드는 enum만
- * 허용되고(analytics.pii-lint), strict 스키마가 나머지 키를 전부 거부한다.
+ * 허용되고(analytics.test.ts의 PII 린트), strict 스키마가 나머지 키를 전부 거부한다.
  *
  * `stepNumber`가 `step`과 함께 있는 이유: 단계 이름만으로는 순서를 모르는 소비자(어드민 표,
  * 나중에 붙을 단계별 분해)가 정렬을 위해 이름 목록을 다시 하드코딩하게 된다. 순서는 이벤트가

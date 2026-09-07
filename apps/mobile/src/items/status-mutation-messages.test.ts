@@ -182,8 +182,10 @@ describe("C-10 준비템 상태 변경 오프라인 배선", () => {
     expect(items).toContain("computeEssentialPrepProgress(effectiveStatusItems, stageLabel)");
     expect(items).toContain("filterInterestedItems(effectiveStatusItems)");
     expect(items.indexOf("filterInterestedItems(effectiveStatusItems)")).toBeGreaterThan(upstreamIndex);
-    expect(items).toContain("hasSession && showInterestedOnly ? filterInterestedItems(effectiveStatusItems) : effectiveStatusItems;");
-    expect(items).toContain("const prepFocusIds = hasSession && !isPixelLockMode ? nextPrepFocusIds(listedItems) : null;");
+    // ⚠️ 두 시점(라운드 105 트랙 ITEMS): 두 식이 `useMemo` 안으로 들어가며 줄 끝의 `;`가
+    // 사라졌다(파생을 조기 반환 위로 올린 재배치). 식 자체와 읽는 목록은 그대로다.
+    expect(items).toContain("hasSession && showInterestedOnly ? filterInterestedItems(effectiveStatusItems) : effectiveStatusItems");
+    expect(items).toContain("hasSession && !isPixelLockMode ? nextPrepFocusIds(listedItems) : null");
     // 두 번째 보정(사본)이 남아 있지 않다 -- 타일은 상류에서 이미 보정된 항목을 그대로 쓴다.
     expect(items).toContain("rowItem: item,");
     expect(items.match(/effectiveItemStatus\(/g) ?? []).toHaveLength(1);

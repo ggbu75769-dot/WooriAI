@@ -47,6 +47,16 @@
 2. 부분 복원이 필요하면 백업을 별도 DB에 restore 후 필요한 행만 이관.
 3. Prisma는 down migration을 만들지 않으므로 스키마를 되돌려야 하는 사고는 **배포 직전 백업
    복원이 유일한 경로**다(백업 이후 데이터는 유실 — 최후 수단). [rollback.md](rollback.md) §1 참조.
+   ⚠️ 그리고 **되돌릴 수 없는 마이그레이션이 오늘 다섯이다** — 그 다섯에서는 이 3번이 "유일한
+   경로"조차 되지 못한다(무엇이·왜인지는 [rollback.md](rollback.md) §1.1의 표).
+4. ⚠️ **위 1~3은 "배포 직전 백업이 있다"를 전제하는데, 추천 배포 경로에는 그 백업이 없다**
+   (라운드 106 F5). Fly 경로(`docs/5차/day1-deploy-runbook.md` A절)는 자동 백업 크론도, 복구
+   절차도, 드릴도 갖고 있지 않다 — 갖춘 것은 자체 VM 경로뿐이다
+   (`scripts/deploy/oracle-bootstrap.sh`의 크론 자동 등록 · `docs/5차/oracle-free-deploy-runbook.md`
+   부록 · `scripts/qa/backup-restore-drill.sh`). 또 `pnpm db backup`은 `DATABASE_URL`을 읽지 않고
+   로컬 dev DB만 덤프하므로 운영 백업의 대체가 되지 못한다. **사고 중에 이 사실을 처음 알게 되는
+   일이 없도록 여기 적는다** — 배포 경로가 A라면 복원 자산을 먼저 찾지 말고, 위 §데이터 사고를
+   시작하기 전에 그것이 존재하는지부터 확인한다.
 
 ## 백그라운드 워커 정지 (SEV3, 조용히 쌓이는 장애)
 

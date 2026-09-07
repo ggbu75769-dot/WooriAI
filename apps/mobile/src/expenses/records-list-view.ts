@@ -1101,14 +1101,34 @@ export function buildRecordsAmountSortedSections<TRow extends AmountSortableReco
 }
 
 /**
- * HOME-124: 홈 "최근 지출" 행의 부제 -- "[선물|환불 ·] 8월 27일".
+ * HOME-124: 홈 "최근 지출" 행의 부제 -- "[선물|환불 ·] [분류 ·] 8월 27일".
  *
- * 홈은 `GET /home` 응답만 읽고 `["categories"]` 캐시를 구독하지 않으므로(그러려고 요청을 하나
- * 더 붙이면 홈 첫 화면 비용이 늘어난다) 카테고리 라벨 없이 같은 규칙을 쓴다. 구분 접두사는
- * **새 규칙을 만들지 않고** 위의 `recordsRowSubtitle`에 그대로 위임한다 -- 선물/환불 표기가
- * 두 화면에서 갈리면 그 자체가 DNC-015(선물 제외) 표시의 신뢰를 깎는다. 카테고리 라벨을 넘기지
- * 않으면 "선물 · 8월 27일" / "8월 27일"이 되어 기록 탭 행에서 카테고리만 빠진 형태가 된다.
+ * 구분 접두사는 **새 규칙을 만들지 않고** 위의 `recordsRowSubtitle`에 그대로 위임한다 --
+ * 선물/환불 표기가 두 화면에서 갈리면 그 자체가 DNC-015(선물 제외) 표시의 신뢰를 깎는다.
+ * 토큰 순서(구분 → 작성자 → 분류 → 날짜)도 그 함수가 정한 그대로다.
+ *
+ * ⚠️ **두 시점 — `categoryLabel`이 왜 없었고, 왜 생겼나.**
+ *  - 종전(HOME-124, 그때는 참이었다): *"홈은 `GET /home` 응답만 읽고 `["categories"]` 캐시를
+ *    **구독하지 않으므로**(그러려고 요청을 하나 더 붙이면 홈 첫 화면 비용이 늘어난다) 카테고리
+ *    라벨 없이 같은 규칙을 쓴다."* 그래서 이 함수는 인자를 하나만 받았고, 홈 행은 기록 탭 행에서
+ *    분류만 빠진 모양이었다.
+ *  - 이제(라운드 105 트랙 HOME / 라운드 104 정찰 C #6): 그 전제가 **거짓이다**. 홈은
+ *    `["categories"]`를 이미 구독하고 있고(app/(tabs)/index.tsx `categoriesQuery`), 바로 그
+ *    응답으로 이 세 줄의 **글리프**를 고른다. 즉 이름을 함께 말하는 데 드는 **추가 요청은
+ *    0건**이라, 종전 근거가 지목하던 비용이 남아 있지 않다.
+ *
+ * `categoryLabel`은 **옵셔널**이고, 넘기지 않으면 출력이 예전과 한 글자도 다르지 않다 -- 그것이
+ * 비세션 미리보기 호출부(HOME-001 픽셀락 캡처 경로)를 바이트 그대로 두는 자리다. 해석에 실패한
+ * 분류는 호출부가 `null`을 넘겨 **말하지 않는다**(홈은 캐시가 빈 콜드 스타트에서도 이 줄을
+ * 그리므로 "기타" 폴백을 태우면 허위 표시가 된다 -- src/home/recent-expense-category.ts).
  */
-export function homeRecentExpenseSubtitle(expense: { expenseType?: string | null; spentOn: string }): string {
-  return recordsRowSubtitle({ expenseType: expense.expenseType, dateLabel: formatSpentOn(expense.spentOn) });
+export function homeRecentExpenseSubtitle(
+  expense: { expenseType?: string | null; spentOn: string },
+  categoryLabel?: string | null
+): string {
+  return recordsRowSubtitle({
+    expenseType: expense.expenseType,
+    categoryLabel,
+    dateLabel: formatSpentOn(expense.spentOn)
+  });
 }

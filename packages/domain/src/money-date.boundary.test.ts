@@ -331,3 +331,39 @@ describe("라운드 68 A 입력 날짜 하한(20년)", () => {
     }
   });
 });
+
+/**
+ * 라운드 106 T10 — **두 날짜 술어는 달력 유효성을 보지 않는다.** 그 사실이 계약이다.
+ *
+ * `isFutureSeoulDate`·`isBeforeEntryDateFloor`는 `/^\d{4}-\d{2}-\d{2}$/`만 보고 나머지는
+ * **문자열 비교**로 답한다. 그래서 `2026-02-30`·`2026-13-01`처럼 형식은 맞지만 존재하지 않는
+ * 날짜에 대해 던지지 않고 조용히 true/false를 낸다 — 달력 판정은 `isValidCalendarDate`의 몫이다.
+ *
+ * 왜 값으로 적어 두는가: 서버가 그 **순서에 기대고 있다**. `assertExpenseDateWithinRange`
+ * (apps/api/src/onboarding/store-shared.ts)는 `isValidCalendarDate`를 **먼저** 통과시킨 뒤에야
+ * 이 두 술어를 부른다. 순서를 뒤집거나 앞의 검사를 빼면 `2026-02-30`이 미래도 아니고 하한
+ * 아래도 아니라는 이유로 통과해 저장 직전 DB에서 터진다. "형식만 본다"를 이 자리에 못 박아
+ * 두면 다음 사람이 이 술어들을 달력 검사로 오해하지 않는다.
+ */
+describe("날짜 술어의 책임 경계 — 형식만 본다(달력 유효성은 isValidCalendarDate)", () => {
+  const NOW = new Date("2026-08-29T12:00:00+09:00");
+
+  it("존재하지 않는 날짜(2026-02-30 · 2026-13-01)에도 던지지 않고 문자열 비교로 답한다", () => {
+    // 달력에 없는 날짜지만 형식은 맞으므로 두 술어 다 통과한다(= 아무 신호도 주지 않는다).
+    expect(isValidCalendarDate("2026-02-30")).toBe(false);
+    expect(isFutureSeoulDate("2026-02-30", NOW)).toBe(false);
+    expect(isBeforeEntryDateFloor("2026-02-30", NOW)).toBe(false);
+
+    expect(isValidCalendarDate("2026-13-01")).toBe(false);
+    // 13월은 문자열로 "2026-08-29"보다 크므로 **미래로 판정된다** — 사유가 달력이 아니라 정렬이다.
+    expect(isFutureSeoulDate("2026-13-01", NOW)).toBe(true);
+    expect(isBeforeEntryDateFloor("2026-13-01", NOW)).toBe(false);
+  });
+
+  it("반대로 형식이 깨진 값에서는 둘 다 DATE_INVALID로 던진다(같은 방식)", () => {
+    for (const broken of ["2026-2-30", "20260230", "2026-02-30 ", ""]) {
+      expect(() => isFutureSeoulDate(broken, NOW), broken).toThrow("DATE_INVALID");
+      expect(() => isBeforeEntryDateFloor(broken, NOW), broken).toThrow("DATE_INVALID");
+    }
+  });
+});

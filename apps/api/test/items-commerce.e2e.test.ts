@@ -895,6 +895,44 @@ describe("Items, commerce, and affiliate API", () => {
     }
   });
 
+  /**
+   * 라운드 106 T9 — **UUID가 아닌 `:productLinkId`가 500으로 새지 않는다.**
+   *
+   * 종전: 경로 파라미터가 그대로 `productLink.findFirst({ where: { id, active: true } })`의
+   * `@db.Uuid` 술어에 실렸고, Prisma가 드라이버 단에서 던진 예외(`Error creating UUID`)를
+   * `GlobalExceptionFilter`가 **500 "잠시 후 다시 시도해주세요."** 로 내보냈다. 핵심 루프의
+   * 마지막 마디(구매 링크 클릭)에서 "다시 시도"라고 안내하면서 다시 눌러도 성공할 수 없는
+   * 실패였다(DNC-018).
+   *
+   * 지금: 미존재·비활성·허용목록 밖 도메인과 **같은 404 `PRODUCT_LINK_NOT_FOUND`** 다
+   * (바로 위 테스트가 그 셋을 같은 코드로 묶은 그 규율 — 갈래를 구별할 수 없다는 것이
+   * `PRODUCT_LINK_NOT_FOUND_ERROR`의 계약이다). 그리고 클릭 행은 남지 않는다.
+   */
+  it("UUID가 아닌 productLinkId를 500이 아니라 미존재 링크와 같은 404 PRODUCT_LINK_NOT_FOUND로 돌려주고 클릭을 남기지 않는다", async () => {
+    const accessToken = await login(app, "batch07-click-malformed-link-id");
+    const { childId } = await completeOnboarding(app, accessToken);
+    const prisma = moduleRef.get(PrismaService);
+    // referrer는 이 테스트만 쓰는 값이라 "클릭이 하나도 남지 않았다"를 가구·시간 조건 없이
+    // 셀 수 있다(경로 id가 UUID가 아니라 productLinkId로는 셀 수 없다).
+    const referrerScreenId = `T9-${randomUUID().slice(0, 8)}`;
+
+    // 왼쪽은 UUID가 아예 아닌 id, 오른쪽은 형식은 맞지만 존재하지 않는 id — 응답이 같아야 한다.
+    for (const productLinkId of ["not-a-uuid", randomUUID()]) {
+      await request(app.getHttpServer())
+        .post(`/api/v1/product-links/${productLinkId}/click`)
+        .set("Authorization", `Bearer ${accessToken}`)
+        .send({ childId, referrerScreenId })
+        .expect(404)
+        .expect(({ body }) => {
+          errorResponseSchema.parse(body);
+          expect(body.error.code).toBe("PRODUCT_LINK_NOT_FOUND");
+          expect(body.error.message).toBe("상품 링크를 찾을 수 없어요.");
+        });
+    }
+
+    expect(await prisma.affiliateClick.count({ where: { referrerScreenId } })).toBe(0);
+  });
+
   it("rejects an item status update whose expenseId belongs to a different child", async () => {
     const accessToken = await login(app, "batch07-item-expense-mismatch");
     const { childId, householdId } = await completeOnboarding(app, accessToken);

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import { versionConflictResponseSchema } from "@wooriai/contracts";
+import { errorResponseSchema, versionConflictResponseSchema } from "@wooriai/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module";
 import { configureApiApp } from "../src/bootstrap";
@@ -292,6 +292,66 @@ describe.skipIf(!dbAvailable)("Expense optimistic concurrency (version, real Pos
         expect(body.error.code).toBe("VERSION_CONFLICT");
         expect(body.current).toEqual({ id: created.id, deleted: true, version: 2 });
       });
+  });
+
+  /**
+   * 라운드 106 T9 — **UUID가 아닌 `:expenseId`가 500으로 새지 않는다.**
+   *
+   * 종전: 세 경로(GET/PATCH/DELETE) 모두 경로 파라미터를 그대로 `expenses.id`(`@db.Uuid`)
+   * 술어에 실었고, Prisma가 드라이버 단에서 던진 예외(`Error creating UUID`)는 HttpException이
+   * 아니라 `GlobalExceptionFilter`의 **500 "잠시 후 다시 시도해주세요."** 로 나갔다 —
+   * 원인은 클라이언트가 보낸 id인데 안내는 "다시 시도"였고, 다시 눌러도 결과가 같다(DNC-018).
+   * 모바일 아웃박스가 5xx를 무한 재전송하므로 그 요청 하나가 큐를 막는 poison pill이 됐다.
+   *
+   * 지금: **형식이 맞지만 없는 UUID와 바이트 단위로 같은 404 `EXPENSE_NOT_FOUND`** 다.
+   * 이 테스트가 두 갈래를 나란히 두는 이유가 그것이다 — 새 오류 코드를 만들지 않았다는
+   * 사실 자체가 계약이다(`src/finance/expenses.service.ts`의 `expenseNotFound()` 한 곳).
+   */
+  it("UUID가 아닌 expenseId를 500이 아니라 미존재 UUID와 같은 404 EXPENSE_NOT_FOUND로 돌려준다", async () => {
+    const accessToken = await login("version-malformed-id");
+    const auth = { Authorization: `Bearer ${accessToken}` };
+
+    // 왼쪽은 UUID가 아예 아닌 id, 오른쪽은 형식은 맞지만 존재하지 않는 id.
+    // 둘의 응답이 같아야 한다(상태코드·코드·문구 전부).
+    for (const expenseId of ["not-a-uuid", randomUUID()]) {
+      await request(app.getHttpServer())
+        .get(`/api/v1/expenses/${expenseId}`)
+        .set(auth)
+        .expect(404)
+        .expect(({ body }) => {
+          errorResponseSchema.parse(body);
+          expect(body.error.code).toBe("EXPENSE_NOT_FOUND");
+          expect(body.error.message).toBe("지출 기록을 찾을 수 없어요.");
+        });
+
+      await request(app.getHttpServer())
+        .patch(`/api/v1/expenses/${expenseId}`)
+        .set(auth)
+        .send({ amountKrw: 12345 })
+        .expect(404)
+        .expect(({ body }) => expect(body.error.code).toBe("EXPENSE_NOT_FOUND"));
+
+      // expectedVersion이 붙은 낙관적 잠금 갈래도 같은 404다(409로 갈리지 않는다 —
+      // 충돌이 아니라 "그런 지출이 없다"이기 때문이다).
+      await request(app.getHttpServer())
+        .patch(`/api/v1/expenses/${expenseId}`)
+        .set(auth)
+        .send({ amountKrw: 12345, expectedVersion: 1 })
+        .expect(404)
+        .expect(({ body }) => expect(body.error.code).toBe("EXPENSE_NOT_FOUND"));
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/expenses/${expenseId}`)
+        .set(auth)
+        .expect(404)
+        .expect(({ body }) => expect(body.error.code).toBe("EXPENSE_NOT_FOUND"));
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/expenses/${expenseId}?expectedVersion=1`)
+        .set(auth)
+        .expect(404)
+        .expect(({ body }) => expect(body.error.code).toBe("EXPENSE_NOT_FOUND"));
+    }
   });
 
   it("does not leak another household's expense version/state through a 409 conflict (IDOR)", async () => {

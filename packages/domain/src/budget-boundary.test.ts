@@ -4,6 +4,8 @@
 // 경계 케이스를 여기로 모았다 — 각 표면의 테스트는 카피/배선만 검증한다.
 import { describe, expect, it } from "vitest";
 import { reachedBudgetBoundaries } from "./budget-boundary";
+// 라운드 106 T10: 상한 숫자를 이 파일에 다시 적지 않는다 — 단일 소스는 도메인 상수다.
+import { MONEY_KRW_MAX } from "./money-date";
 
 const BUDGET = 1_000_000;
 
@@ -152,5 +154,61 @@ describe("reachedBudgetBoundaries — 선물 제외 합계 계약(DNC-015)", () 
     expect(reachedBudgetBoundaries({ budgetKrw: BUDGET, spentKrw: giftExcluded }).reached80).toBe(false);
     const giftIncluded = monthRecords.reduce((sum, record) => sum + record.amountKrw, 0);
     expect(reachedBudgetBoundaries({ budgetKrw: BUDGET, spentKrw: giftIncluded }).reached100).toBe(true);
+  });
+});
+
+/**
+ * 라운드 106 T10 — 예산 자체의 **양 끝**(표현 가능한 최소·최대)에서의 판정.
+ *
+ * 종전 경계 테스트는 전부 100만원·10만원 같은 "가운데 값"이었다. 이 모듈이 무는 예산은
+ * 계약상 `moneyKrwSchema`(1 이상 `MONEY_KRW_MAX` 이하 정수, packages/contracts)로 저장되므로
+ * **1원과 int4 상한이 실제로 표현 가능한 입력**이고, 그 두 끝에서 판정이 무너지지 않는지는
+ * 어느 테스트도 묻지 않았다.
+ */
+describe("reachedBudgetBoundaries — 예산의 양 끝(1원 · int4 상한)", () => {
+  it("1원 예산에서는 첫 1원 지출이 80%와 100%에 동시에 도달한다(도달이지 초과는 아니다)", () => {
+    expect(reachedBudgetBoundaries({ budgetKrw: 1, spentKrw: 0 })).toEqual({
+      hasBudget: true,
+      reached80: false,
+      reached100: false,
+      exceeded: false,
+      overAmountKrw: 0,
+      usedPercent: 0
+    });
+    expect(reachedBudgetBoundaries({ budgetKrw: 1, spentKrw: 1 })).toEqual({
+      hasBudget: true,
+      reached80: true,
+      reached100: true,
+      // 정확히 예산이면 '0원 초과했어요'가 되므로 초과가 아니다(위 100% 경계 규칙과 같은 근거).
+      exceeded: false,
+      overAmountKrw: 0,
+      usedPercent: 100
+    });
+    expect(reachedBudgetBoundaries({ budgetKrw: 1, spentKrw: 2 })).toMatchObject({
+      exceeded: true,
+      overAmountKrw: 1,
+      usedPercent: 200
+    });
+  });
+
+  it("int4 상한 예산에서도 정수 연산이 정확하다(부동소수점 오차 없음)", () => {
+    expect(reachedBudgetBoundaries({ budgetKrw: MONEY_KRW_MAX, spentKrw: MONEY_KRW_MAX })).toEqual({
+      hasBudget: true,
+      reached80: true,
+      reached100: true,
+      exceeded: false,
+      overAmountKrw: 0,
+      usedPercent: 100
+    });
+    // 상한 예산의 정확히 한 칸 아래는 100%에 닿지 않는다 — 곱셈(spent*100)이 2^53 안이라 정확하다.
+    const oneWon = reachedBudgetBoundaries({ budgetKrw: MONEY_KRW_MAX, spentKrw: MONEY_KRW_MAX - 1 });
+    expect(oneWon.reached100).toBe(false);
+    expect(oneWon.usedPercent).toBe(99);
+    // 반대쪽 끝: 1원 예산에 상한만큼 쓰면 초과 금액도 정확한 정수다.
+    expect(reachedBudgetBoundaries({ budgetKrw: 1, spentKrw: MONEY_KRW_MAX })).toMatchObject({
+      exceeded: true,
+      overAmountKrw: MONEY_KRW_MAX - 1,
+      usedPercent: MONEY_KRW_MAX * 100
+    });
   });
 });

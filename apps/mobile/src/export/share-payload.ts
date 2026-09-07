@@ -33,33 +33,71 @@ export type CapCsvResult = {
 };
 
 /**
- * Caps a CRLF-terminated CSV (header + data rows) to `maxBytes` of UTF-8 at row boundaries.
- * The header line always survives; rows are kept front-to-back until the budget runs out.
+ * 라운드 106 T6 — CSV를 **레코드 단위**로 끊는다(RFC 4180). `csv.split("\r\n")`이 아니다.
+ *
+ * 예전에는 이 모듈이 CSV를 줄 단위(`split("\r\n")`)로 봤다. 그런데 expense-csv.ts가 만드는
+ * 파일에서 한 레코드는 **여러 줄일 수 있다** — 메모나 분류 이름에 개행이 들어가면 그 칸은
+ * 따옴표로 감싸이고(RFC 4180), 따옴표 **안의** CRLF는 레코드 경계가 아니다. 줄 단위로 세면
+ * 그 한 레코드가 두 줄로 계산돼 두 가지가 함께 깨졌다(값으로 재현한 실측):
+ *
+ *  1. **따옴표 한가운데서 잘렸다.** 예산이 그 사이에서 끝나면 공유 본문의 마지막 줄이
+ *     `...,"첫 줄` 로 끝난다 — 따옴표가 닫히지 않은 CSV라 받는 쪽 파서는 그 뒤를 통째로
+ *     한 칸으로 삼키거나 오류를 낸다. 사용자가 파일을 열기 전에는 알 수 없는 종류의
+ *     손상이다(expense-page-collector.ts가 "조용한 잘림 금지"로 막아 둔 것과 같은 성질).
+ *  2. **`droppedRows`가 부풀었다.** 5행짜리 CSV에서 4행이 빠졌는데 8을 돌려줬고, 호출부
+ *     (ExpenseCsvExport.tsx)는 `built.rowCount - outcome.droppedRows`로 토스트의 건수를
+ *     만들므로 "기록 -3건을 내보냈어요."라는 **음수 건수**가 나올 수 있었다.
+ *
+ * 그래서 따옴표 상태를 따라가며 레코드로 끊는다. 개행 없는 CSV(대다수)에서는 예전과
+ * **같은 결과**다 — 레코드 하나가 곧 한 줄이다.
+ */
+function splitCsvRecords(csv: string): string[] {
+  const records: string[] = [];
+  let recordStart = 0;
+  let inQuotes = false;
+  for (let index = 0; index < csv.length; index += 1) {
+    const character = csv[index];
+    // `""`(이스케이프된 따옴표)는 두 번 토글되므로 별도 분기가 필요 없다.
+    if (character === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && character === "\r" && csv[index + 1] === "\n") {
+      // 레코드에 자기 CRLF를 포함시켜 둔다 — 이어 붙일 때 구분자를 다시 지어내지 않는다.
+      records.push(csv.slice(recordStart, index + 2));
+      index += 1;
+      recordStart = index + 1;
+    }
+  }
+  // 마지막 CRLF 뒤에 남는 것이 없으면(우리 빌더의 정상 출력) 빈 레코드를 만들지 않는다.
+  if (recordStart < csv.length) records.push(csv.slice(recordStart));
+  return records;
+}
+
+/**
+ * Caps a CRLF-terminated CSV (header + data records) to `maxBytes` of UTF-8 at RFC 4180 record
+ * boundaries. The header record always survives; records are kept front-to-back until the budget
+ * runs out. 따옴표 안의 CRLF는 경계가 아니다(위 `splitCsvRecords`).
  */
 export function capCsvForShare(csv: string, maxBytes: number = MAX_SHARE_MESSAGE_BYTES): CapCsvResult {
   if (utf8ByteLength(csv) <= maxBytes) {
     return { message: csv, truncated: false, droppedRows: 0 };
   }
 
-  const newline = "\r\n";
-  const newlineBytes = 2;
-  // Trailing CRLF produces one empty trailing segment; drop it, re-append on join.
-  const lines = csv.split(newline);
-  if (lines[lines.length - 1] === "") lines.pop();
-
-  const keptLines: string[] = [];
+  const records = splitCsvRecords(csv);
+  const keptRecords: string[] = [];
   let usedBytes = 0;
-  for (const line of lines) {
-    const lineBytes = utf8ByteLength(line) + newlineBytes;
-    // Always keep the header (first line) even in a pathologically small budget.
-    if (keptLines.length > 0 && usedBytes + lineBytes > maxBytes) break;
-    keptLines.push(line);
-    usedBytes += lineBytes;
+  for (const record of records) {
+    const recordBytes = utf8ByteLength(record);
+    // Always keep the header (first record) even in a pathologically small budget.
+    if (keptRecords.length > 0 && usedBytes + recordBytes > maxBytes) break;
+    keptRecords.push(record);
+    usedBytes += recordBytes;
   }
 
-  const droppedRows = lines.length - keptLines.length;
+  const droppedRows = records.length - keptRecords.length;
   return {
-    message: `${keptLines.join(newline)}${newline}`,
+    message: keptRecords.join(""),
     truncated: droppedRows > 0,
     droppedRows
   };

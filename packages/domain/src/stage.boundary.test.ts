@@ -211,6 +211,32 @@ describe("생후 개월 경계 (born)", () => {
     ).toMatchObject({ ageMonths: 0, stageCode: "newborn_0_3" });
   });
 
+  /**
+   * 라운드 106 T10 — **첫 밴드 경계(3/4개월)가 명시 케이스에서 빠져 있었다.**
+   *
+   * 아래 표는 `ageMonthsToStageCode`의 밴드 경계를 6/7부터 열거하는데, 그 함수의 **첫 갈래**는
+   * `ageMonths <= 3`(newborn_0_3)이다. 즉 신생아→영아 전환이라는 이 앱에서 가장 자주 밟히는
+   * 경계만 명시 단언이 없었다(속성 테스트의 무작위 100건이 우연히 지날 뿐이고, 그 테스트는
+   * 같은 밴드 표를 테스트 쪽에 복제해 두므로 두 표가 함께 틀리면 함께 초록이다).
+   * 0개월(출생 당일)은 위 테스트가 이미 잠그므로 여기서는 3/4만 문다.
+   */
+  it("첫 밴드 경계(3/4개월)를 정확히 가른다 — newborn_0_3 → infant_4_6", () => {
+    // 같은 날짜(21일)를 기준으로 3개월째까지는 신생아, 4개월이 되는 날 영아로 넘어간다.
+    expect(calculateChildStage({ stageMode: "born", birthDate: "2026-05-21", today: "2026-08-21" })).toMatchObject({
+      ageMonths: 3,
+      stageCode: "newborn_0_3"
+    });
+    expect(calculateChildStage({ stageMode: "born", birthDate: "2026-04-21", today: "2026-08-21" })).toMatchObject({
+      ageMonths: 4,
+      stageCode: "infant_4_6"
+    });
+    // 개월이 아직 완성되지 않은 하루 전(생일 하루 전)은 여전히 3개월이다 — 밴드도 그대로다.
+    expect(calculateChildStage({ stageMode: "born", birthDate: "2026-04-21", today: "2026-08-20" })).toMatchObject({
+      ageMonths: 3,
+      stageCode: "newborn_0_3"
+    });
+  });
+
   it("모든 단계 밴드 경계(6/7, 12/13, 47/48, 95/96, 155/156개월)를 정확히 가른다", () => {
     const cases: Array<[string, string, number, ChildStageCode]> = [
       ["2025-08-21", "2026-02-21", 6, "infant_4_6"],

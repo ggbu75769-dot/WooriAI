@@ -111,6 +111,24 @@ export function shouldShowInNeededNow(status: ItemStatus): boolean {
   return !EXCLUDED_NOW_NEEDED_STATUSES.has(status);
 }
 
+/**
+ * ⚠️ 라운드 106 T10 관찰(DNC-018 관찰형) — **이 함수를 부르는 제품 코드는 오늘 0건이다.**
+ *
+ * 실측(저장소 전수, 선언 줄 제외): 호출부는 이 패키지의 테스트 둘뿐이고 apps 아래에는 없다.
+ * 두 규칙이 각각 지금 어디에 서 있는지는 다르다 —
+ *  ⓐ **skipReason 필수**는 서버가 **같은 규칙을 손으로 다시 적어** 지킨다:
+ *     `apps/api/src/onboarding/items-catalog.service.ts`의 `normalizeAdminItemTemplateInput`이
+ *     `necessityLevel !== "essential" && !skipReasonText`면 `ADMIN_SKIP_REASON_REQUIRED`(400)로
+ *     막는다. 오늘 두 표현은 같은 집합을 가른다(NECESSITY_LEVELS가 셋뿐이라 `essential`의
+ *     여집합 = `convenience | optional`) — 아래 테스트가 그 동치를 값으로 문다. 필수도 값이
+ *     넷이 되는 날 두 표현이 갈리고, 그 순간 이 자리가 먼저 빨개진다.
+ *  ⓑ **의료 고지 문구 필수**(DNC-020 인접)는 **어디에서도 강제되지 않는다.** 서버에는 대응
+ *     오류 코드가 없고(`MEDICAL_DISCLAIMER_REQUIRED` 저장소 검색 0건 — 도메인 밖),
+ *     `medicalDisclaimerRequired: true`인 준비템에 문구가 비어 있어도 저장·노출된다.
+ *
+ * 지우지 않는 이유: 판정 자체는 참이고 배선만 없다 — 사문 대장의 표현대로 *"호출부 0건인
+ * 판정은 결함이 아니라 아직 배선되지 않은 답"* 이다. 배선은 서버 소유라 이 트랙이 하지 않는다.
+ */
 export function validateItemTrustRules(input: ItemTrustRuleInput): ItemTrustRuleViolation[] {
   const violations: ItemTrustRuleViolation[] = [];
 

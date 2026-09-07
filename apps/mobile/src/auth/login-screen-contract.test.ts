@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { isAnalyticsEnabled, useAnalyticsConsentStore } from "../analytics/flag";
+// 라운드 106 F2: 문구의 단일 소스는 코드 표다 — 이 계약은 문장을 사본으로 적지 않고 읽는다.
+import { API_ERROR_MESSAGES } from "../api/api-error";
+import { LOGIN_FAILED_MESSAGE } from "./login-copy";
 
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
@@ -158,10 +161,16 @@ describe("ANA-104 optional analytics consent on the login consent card (same sou
     expect(loginSource).toContain("setAnalyticsConsent(analyticsAccepted);");
     const storeWrites = loginSource.match(/setAnalyticsConsent\(analyticsAccepted\);/g) ?? [];
     expect(storeWrites).toHaveLength(1);
+    // 라운드 78 규칙: 슬라이스는 **양쪽 끝**의 실재를 먼저 묻는다. 한쪽만 보면 못 찾은
+    // 인덱스가 -1이 되어 구간이 조용히 파일 전체가 되고, 그 위의 순서 단언이 무엇도 지키지
+    // 못한 채 초록이 된다.
     const continueStart = loginSource.indexOf("function continueWithLogin()");
+    expect(continueStart, "continueWithLogin 선언").toBeGreaterThan(-1);
+    const continueEnd = loginSource.indexOf("return (", continueStart);
+    expect(continueEnd, "그 함수 뒤 렌더 시작").toBeGreaterThan(continueStart);
     const continueBody = loginSource.slice(
       continueStart,
-      loginSource.indexOf("return (", continueStart)
+      continueEnd
     );
     expect(continueBody).toContain("setAnalyticsConsent(analyticsAccepted);");
     // The commit sits after the required-consent guard and before both login branches.
@@ -209,5 +218,90 @@ describe("ANA-104 optional analytics consent on the login consent card (same sou
     // Settings toggle (same store) can revoke afterwards.
     setEnabled(false);
     expect(isAnalyticsEnabled()).toBe(false);
+  });
+});
+
+/**
+ * 라운드 106 F2 — **로그인 실패 문구가 사용자를 막다른 길에 세우지 않는다**(배선 계약).
+ *
+ * 문구 자체와 전수 대조는 표 옆(src/api/api-error.test.ts)이 진다. 여기서 무는 것은 화면이
+ * 그 표를 **어디서 어떤 순서로** 읽는가다 — 이 파일의 다른 케이스들과 같은 소스 grep 관례다
+ * (화면은 vitest에서 렌더할 수 없다).
+ */
+describe("라운드 106 F2 — 로그인 실패가 코드 표를 지난다", () => {
+  it("계정 상태 다음, 네트워크 폴백 **앞**에서 카카오 로그인 여정의 코드를 분기한다", () => {
+    const loginSource = source("app/(auth)/login.tsx");
+    expect(loginSource).toContain(
+      'import { accountStatusErrorMessage, oauthLoginErrorMessage } from "../../src/api/api-error";'
+    );
+    expect(loginSource).toContain("const oauthLoginMessage = oauthLoginErrorMessage(error);");
+    expect(loginSource).toContain("setLoginError(oauthLoginMessage);");
+    // 순서가 계약이다: 취소 → 타입 있는 카카오 오류 → 계정 상태 → 로그인 여정 코드 → 폴백.
+    // 폴백이 앞서면 이 라운드가 고친 그 결함(501이 "네트워크 연결을 확인"으로 접힘)이 돌아온다.
+    expect(loginSource.indexOf("const accountStatusMessage =")).toBeLessThan(
+      loginSource.indexOf("const oauthLoginMessage =")
+    );
+    expect(loginSource.indexOf("const oauthLoginMessage =")).toBeLessThan(
+      loginSource.indexOf("loginFailureMessage({")
+    );
+  });
+
+  it("문구는 화면이 짓지 않는다 — 여섯 문장 어느 것도 화면에 리터럴로 없다", () => {
+    const loginSource = source("app/(auth)/login.tsx");
+    // 주석(이력 인용)을 걷어낸 실제 코드에서 본다 — 라운드 73 트랙 A가 세운 그 형식.
+    const renderedLogin = loginSource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+    for (const code of [
+      "OAUTH_LOGIN_NOT_IMPLEMENTED",
+      "OAUTH_REDIRECT_URI_NOT_ALLOWED",
+      "OAUTH_TRANSACTION_INVALID",
+      "OAUTH_NONCE_MISMATCH",
+      "OAUTH_CODE_EXCHANGE_FAILED",
+      "OAUTH_ID_TOKEN_INVALID"
+    ]) {
+      const message = API_ERROR_MESSAGES[code];
+      expect(message, code).toBeTruthy();
+      expect(renderedLogin, code).not.toContain(message);
+    }
+    // 그리고 폴백 두 갈래는 종전 그대로 login-copy.ts의 몫이다(한 글자도 옮겨오지 않는다).
+    expect(renderedLogin).not.toContain(LOGIN_FAILED_MESSAGE);
+  });
+
+  it("경로 선택과 취소·타입 있는 오류 분기는 무접촉이다 (바뀐 것은 문구의 출처뿐)", () => {
+    const loginSource = source("app/(auth)/login.tsx");
+    expect(loginSource).toContain(
+      'const result = isKakaoLoginAvailable() ? await loginWithKakao() : await oauthLogin("kakao");'
+    );
+    expect(loginSource).toContain("if (error instanceof KakaoLoginCancelledError) return;");
+    expect(loginSource).toContain("if (error instanceof KakaoLoginError) {");
+    expect(loginSource).toMatch(
+      /loginFailureMessage\(\{\s*developerBuild: isDeveloperBuild\(\),\s*kakaoConfigured: isKakaoLoginAvailable\(\)\s*\}\)/
+    );
+  });
+
+  /**
+   * ⚠️ **픽셀락 무접촉 근거**(값으로 남긴다): AUTH-001은 픽셀락 대상이 아니다. 캡처가 지나는
+   * 라우트 목록은 app/pixel-lock.tsx의 `pixelLockRoutes`와 scripts/pixel-lock/의 화면 표
+   * 둘뿐이고, 어느 쪽에도 `(auth)/login`이 없다(src/auth/login-copy.ts 머리말이 라운드 65 B에
+   * 적어 둔 그 사실과 같다). 이 트랙은 그 두 목록을 한 글자도 건드리지 않았다.
+   */
+  it("픽셀락은 이 화면을 지나지 않는다 — 캡처 갈래 무접촉", () => {
+    const pixelLockLauncher = source("app/pixel-lock.tsx");
+    const routeStart = pixelLockLauncher.indexOf("const pixelLockRoutes = {");
+    expect(routeStart, "픽셀락 라우트 표의 시작").toBeGreaterThan(-1);
+    const routeEnd = pixelLockLauncher.indexOf("} as const;", routeStart);
+    expect(routeEnd, "그 표의 끝").toBeGreaterThan(routeStart);
+    const routeBlock = pixelLockLauncher.slice(
+      routeStart,
+      routeEnd
+    );
+    expect(routeBlock).not.toContain("(auth)");
+    expect(routeBlock).not.toContain("login");
+    const screens = JSON.parse(
+      readFileSync(join(mobileRoot, "../../scripts/pixel-lock/pixel-lock-screens.json"), "utf8")
+    ) as Record<string, { route: string }>;
+    expect(Object.keys(screens)).not.toContain("AUTH-001");
+    for (const [id, screen] of Object.entries(screens)) {
+      expect(screen.route, id).not.toContain("AUTH-001");
+    }
   });
 });

@@ -162,6 +162,112 @@ export const IMPORT_FAILURE_MESSAGE_BY_CODE: Readonly<Record<string, string>> = 
 
 const FORBIDDEN_ERROR_CODE = "FORBIDDEN";
 
+/**
+ * --- 라운드 106 T3 — **확정 실패가 어느 행 때문인지 말한다** ---
+ *
+ * ## 무엇이 남아 있었나
+ * 위 표는 "무슨 실패인가"까지 답했지만, 이 여정에서 가장 비싼 실패에는 답이 하나 더 필요하다:
+ * 확정은 배치 한 트랜잭션이라 **한 행이 걸리면 파일 전체가 롤백**된다(서버
+ * `confirmImport` 주석). 수백 행을 검수한 사람이 받던 것은 코드 하나가 고른 한 문장뿐이었고,
+ * 그 문장으로는 **어느 행을 고쳐야 다시 누를 수 있는지**를 알 수 없었다(라운드 103 리뷰 M-2의
+ * 이월).
+ *
+ * 서버는 이제 그 행들을 기존 봉투의 `details`에 싣는다(계약 변경 0건 — `errorResponseSchema`의
+ * `details`는 처음부터 있던 칸이다). 여기서 하는 일은 그 값을 **문장으로 바꾸는 것 하나**이고,
+ * 문장은 이 모듈에서만 만들어진다 — 화면은 종전과 똑같이 `importFailureMessage` 한 줄을
+ * 그리고 읽는다(그래서 이 라운드의 화면 변경은 0줄이고, 낭독 배선도 무접촉이다).
+ *
+ * ## 왜 별도 문장이 아니라 **같은 문장의 뒤**인가
+ * 코드가 고른 문장이 "무엇을 고쳐야 하는가"를 이미 말한다(예: `EXPENSE_CATEGORY_INVALID` →
+ * "카테고리를 다시 선택해 주세요."). 여기서 더하는 사실은 **어디를**과 **아무것도 들어가지
+ * 않았다** 둘뿐이고, 그 둘이 앞 문장과 떨어져 다른 노드에 서면 스크린리더가 둘을 다른 사건으로
+ * 읽는다. 한 문장이면 화면·소리·순서가 종전 그대로다.
+ *
+ * ## ⚠️ "파일의 N번째 줄"이라고 말하지 않는다
+ * 서버 `rowIndex`는 파서가 **빈 줄을 걷어낸 데이터 행**에 0부터 매긴 자리다(머리글 행도 빠져
+ * 있다 — apps/api/src/imports/import-parser.ts). 그 값에 1을 더한 수는 **검수 목록에서 그 행이
+ * 서 있는 자리**와는 정확히 같지만(목록은 언제나 `rowIndex` 오름차순이다) 원본 파일의 줄
+ * 번호와는 다를 수 있다. 그래서 문장은 아는 사실만 말한다: "검수 목록의 N번째".
+ */
+
+/** 봉투가 지목한 행 하나. 값은 전부 서버가 만든 것이다(사용자가 올린 원문은 실리지 않는다). */
+export type ImportFailedRow = {
+  /** 미리보기 행의 서버 id. 위치가 아니라 **행 자체**를 가리키는 유일한 손잡이다. */
+  rowId: string;
+  /** 파서가 매긴 0부터의 자리. 사람에게 보일 때는 +1 해서 "검수 목록의 N번째"가 된다. */
+  rowIndex: number;
+  /** 그 행이 걸린 사유(서버 오류 코드). 오늘은 한 번의 실패에 한 사유다. */
+  reason: string;
+};
+
+/** 봉투가 실어 온 실패 행 묶음. `rows`는 상한까지만 오고 `totalCount`가 실제 수다. */
+export type ImportFailedRows = {
+  rows: readonly ImportFailedRow[];
+  totalCount: number;
+};
+
+/** 한 문장에 늘어놓을 자리의 최대 개수. 나머지는 "외 N개 행"으로 접는다. */
+const IMPORT_FAILED_ROW_POSITION_LIMIT = 5;
+
+function readFailedRows(details: Record<string, unknown>): ImportFailedRow[] {
+  const raw = details.failedRows;
+  if (!Array.isArray(raw)) return [];
+  const rows: ImportFailedRow[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const { rowId, rowIndex, reason } = entry as { rowId?: unknown; rowIndex?: unknown; reason?: unknown };
+    // 모양이 어긋난 항목은 **버린다**(지어내지 않는다). 하나도 못 읽으면 아래에서 문장이 없다.
+    if (typeof rowId !== "string" || rowId.length === 0) continue;
+    if (typeof rowIndex !== "number" || !Number.isInteger(rowIndex) || rowIndex < 0) continue;
+    rows.push({ rowId, rowIndex, reason: typeof reason === "string" ? reason : "" });
+  }
+  return rows;
+}
+
+/**
+ * 실패에서 "어느 행" 정보를 꺼낸다. 없으면 `null`이고, 그때 문구는 종전과 바이트 단위로 같다.
+ *
+ * 봉투의 `error.details`를 읽는 곳은 여기 하나다 — 코드 추출은 종전처럼
+ * `apiErrorCodeOf`(src/api/api-error.ts)를 그대로 지난다. 그 함수가 돌려주는 것은 `code`뿐이라
+ * (`ApiErrorEnvelope`에 `details`가 없다) 이 칸만 여기서 읽고, 읽는 경로는 그 함수가 쓰는 것과
+ * **같은 자리**다(`error.body.error`).
+ */
+export function importFailedRows(error: unknown): ImportFailedRows | null {
+  if (!error || typeof error !== "object") return null;
+  const body = (error as { body?: unknown }).body;
+  if (!body || typeof body !== "object") return null;
+  const envelope = (body as { error?: unknown }).error;
+  if (!envelope || typeof envelope !== "object") return null;
+  const details = (envelope as { details?: unknown }).details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return null;
+  const rows = readFailedRows(details as Record<string, unknown>);
+  if (rows.length === 0) return null;
+  const rawCount = (details as Record<string, unknown>).failedRowCount;
+  // 전체 수가 없거나 목록보다 작으면 **목록이 곧 전체**다(수를 부풀리지 않는다).
+  const totalCount =
+    typeof rawCount === "number" && Number.isInteger(rawCount) && rawCount > rows.length ? rawCount : rows.length;
+  return { rows, totalCount };
+}
+
+/**
+ * "어느 행에서 멈췄는가" 한 문장. 지목할 행이 없으면 `null`.
+ *
+ * 재시도를 권하지 않는다(DNC-018): 같은 파일을 그대로 다시 확정하면 같은 행에서 같은 답이
+ * 온다. 대신 **다음에 무엇을 하면 되는지**를 말하고, 사용자가 가장 알고 싶어 하는 사실
+ * ("그럼 몇 건은 들어간 건가?")을 감추지 않는다 — 확정은 전량 롤백이라 답은 0건이다.
+ */
+export function importFailedRowsNotice(error: unknown): string | null {
+  const failed = importFailedRows(error);
+  if (!failed) return null;
+  const positions = failed.rows
+    .slice(0, IMPORT_FAILED_ROW_POSITION_LIMIT)
+    .map((row) => row.rowIndex + 1)
+    .join(" · ");
+  const remaining = failed.totalCount - Math.min(failed.rows.length, IMPORT_FAILED_ROW_POSITION_LIMIT);
+  const where = remaining > 0 ? `검수 목록의 ${positions}번째 행 외 ${remaining}개 행` : `검수 목록의 ${positions}번째 행`;
+  return `${where}에서 멈춰 아무 기록도 가져오지 않았어요. 그 행을 고친 뒤 다시 가져와 주세요.`;
+}
+
 const FALLBACK_MESSAGE_BY_KIND: Readonly<Record<ImportFailureKind, string>> = {
   upload: IMPORT_UPLOAD_FAILED_MESSAGE,
   row_edit: IMPORT_ROW_EDIT_FAILED_MESSAGE,
@@ -185,12 +291,17 @@ export function isNamedImportFailure(error: unknown): boolean {
 }
 
 /**
- * 실패 → 사용자에게 보여줄 문구.
+ * 실패 → **무슨 실패인가**를 말하는 문장.
  *
  * 판정 순서: 403 → 이 여정의 코드 → 앱 전역 표 → 오프라인 → 동작별 일반(위 머리말).
  * 서버 원문은 어떤 경로로도 화면에 나가지 않는다(save-error-messages.ts와 같은 규칙).
+ *
+ * ⚠️ 두 시점(라운드 106 T3): 종전에는 이 함수가 `importFailureMessage`라는 이름으로 **화면이
+ * 부르는 유일한 자리**였다. 지금은 그 이름이 아래 한 겹 위로 옮겨 갔고(어느 행인가를 잇는
+ * 자리), 여기는 그 이음이 부르는 **판정 한 벌**로 남는다 — 판정 순서·문장·폴백은 한 글자도
+ * 바뀌지 않았고, 행 정보가 없는 실패에서 두 함수의 값은 같다.
  */
-export function importFailureMessage(
+function importFailureReasonMessage(
   kind: ImportFailureKind,
   error: unknown,
   { isOnline }: { isOnline: boolean }
@@ -206,4 +317,28 @@ export function importFailureMessage(
   if (knownGlobally) return knownGlobally;
   if (!isOnline) return OFFLINE_RETRY_NOTICE;
   return FALLBACK_MESSAGE_BY_KIND[kind];
+}
+
+/**
+ * 실패 → 화면에 서는 **완성된 한 문장**. 위 판정에 "어느 행에서 멈췄나" 한 마디를 잇는다.
+ *
+ * **화면이 부르는 이름은 종전 그대로다.** 그래서 이 라운드의 화면 변경은 0줄이고, 그리는
+ * 자리(danger `<Text>` 하나)도 읽는 자리(`announceForA11y`)도 무접촉이다 — 새 문장이 새 노드를
+ * 만들면 그 노드는 스스로 읽히거나 침묵하거나 둘 중 하나이고, 둘 다 이 화면의 낭독 계약을
+ * 건드린다(src/a11y-contract.test.ts의 자리 수 대장).
+ *
+ * 행 정보가 없는 실패에서는 값이 종전과 **바이트 단위로 같다**(네 걸음의 폴백·403·표 문장 전부).
+ *
+ * 걸음을 가리지 않는 이유: 문장을 가르는 것은 걸음이 아니라 **봉투가 그 정보를 실었는가**다.
+ * 오늘 그것을 싣는 서버 경로는 확정 하나뿐이고(apps/api의 `withFailedImportRows`), 다른 걸음이
+ * 같은 사실을 싣게 되는 날 이 자리는 이미 옳다.
+ */
+export function importFailureMessage(
+  kind: ImportFailureKind,
+  error: unknown,
+  { isOnline }: { isOnline: boolean }
+): string {
+  const message = importFailureReasonMessage(kind, error, { isOnline });
+  const notice = importFailedRowsNotice(error);
+  return notice ? `${message} ${notice}` : message;
 }

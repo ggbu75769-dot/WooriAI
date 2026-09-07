@@ -5,6 +5,17 @@ import { beforeEach, describe, expect, it } from "vitest";
 const mobileRoot = process.cwd();
 const source = (relativePath: string) => readFileSync(join(mobileRoot, relativePath), "utf8");
 
+/**
+ * 주석을 걷어 낸 소스 — 이 파일의 소스 스캔이 무는 것은 화면이 **하는 일**이지, 그 배선을
+ * 설명하는 문장이 아니다(shared-decision-wiring.test.ts·custom-category-wiring.test.ts가
+ * 같은 이유로 갖고 있는 그 헬퍼다). 이 저장소는 설계 근거를 주석에 길게 남기는 관례라,
+ * 걷지 않으면 "종전에는 이렇게 불렀다"는 이력 한 줄이 계약을 대신 서게 된다.
+ *
+ * ⚠️ 줄 주석은 앞에 `:`가 없을 때만 지운다 — 코드 줄 안의 `https://`를 먹지 않기 위해서다.
+ */
+const withoutComments = (text: string) =>
+  text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+
 describe("MOB-101 onboarding resume contract", () => {
   describe("routeForOnboardingNextStep", () => {
     it("routes each server nextStep to the right screen, skipping past already-completed steps", async () => {
@@ -305,17 +316,44 @@ describe("MOB-101 onboarding resume contract", () => {
       expect(rendered).not.toContain("단계까지 진행했어요");
     });
 
+    /**
+     * 라운드 106 F4(S4-1) — ⚠️ **두 시점.** 종전 이 자리의 첫 단언은
+     * `expect(indexSource).toContain("getOnboardingProgress")` 하나였다. 그 이름이 오늘
+     * app/index.tsx에 남아 있는 자리는 **안전 밸브를 설명하는 주석 한 줄**뿐이고(화면이 실제로
+     * 부르는 것은 `fetchOnboardingProgressForSelectedChild`다), `source()`는 주석을 걷지 않으므로
+     * 그물이 정확히 뒤집혀 있었다 — **주석을 지우면 빨개지고, 서버 진행도 조회를 통째로 들어내도
+     * 초록**이었다. 즉 제목이 말하는 "fetch server onboarding progress"를 아무것도 지키지 않았다.
+     *
+     * 이제: 주석을 걷은 **코드**에서만 본다 — 조회 배선(들여오는 자리 · 부르는 자리)과 그 답이
+     * 이어하기로 가는 갈래(판정 → 표식 → 리다이렉트). 밸브 주석의 옛 이름은 그대로 두되
+     * **이 계약이 그 주석에 기대지 않는다**: 주석을 통째로 지워도 초록이고, 조회 배선을
+     * 들어내면 빨갛다(라운드 106 F4가 두 방향 모두 실증했다).
+     */
     it("has app/index.tsx fetch server onboarding progress and route to the resume screen for an interrupted session", () => {
-      const indexSource = source("app/index.tsx");
+      const indexCode = withoutComments(source("app/index.tsx"));
 
-      expect(indexSource).toContain("getOnboardingProgress");
-      expect(indexSource).toContain('<Redirect href="/onboarding/resume" />');
-      // The already-onboarded fast path (test-login-flow.test.ts pins this exact substring) must
-      // survive untouched -- the new server-progress check only runs for sessions that haven't
+      // ⓐ 서버 진행도 조회 자체 -- 들여오는 자리와 부르는 자리를 함께 문다(한쪽만 지워도 빨갛다).
+      expect(indexCode, "진행도 조회 모듈을 들여오는 자리").toContain(
+        'import { fetchOnboardingProgressForSelectedChild } from "../src/onboarding/onboarding-progress-scope"'
+      );
+      expect(indexCode, "그 조회를 실제로 부르는 자리").toContain(
+        "fetchOnboardingProgressForSelectedChild(progressToken, selectedChildId)"
+      );
+      // ⓑ 그 답을 받아 이어하기로 가는 갈래(순수 판정 → 표식 → ONB-006 리다이렉트).
+      expect(indexCode, "이어하기 판정").toContain("hasResumeWorthyProgress(progress)");
+      expect(indexCode, "이어하기 표식").toContain("setHasResumeTarget(true)");
+      expect(indexCode, "ONB-006으로 가는 리다이렉트").toContain('<Redirect href="/onboarding/resume" />');
+      // ⓒ The already-onboarded fast path (test-login-flow.test.ts pins this exact substring) must
+      // survive untouched -- the server-progress check only runs for sessions that haven't
       // locally reached home yet.
       // 실기기 피드백 1: 데모(테스트) 세션의 예외(`|| isTestSession`)가 빠졌다 -- 테스트 로그인도
       // 이제 아이 정보 입력을 포함한 온보딩을 마쳐야 탭으로 간다.
-      expect(indexSource).toContain('hasReachedHome ? "/(tabs)" : "/onboarding/child-status"');
+      expect(indexCode).toContain('hasReachedHome ? "/(tabs)" : "/onboarding/child-status"');
+
+      // ⓓ 옛 이름은 밸브 주석의 이력으로만 남아 있다 -- 코드 쪽에 되살아나면(= 화면이 아이 범위를
+      //    건너뛰고 다시 직접 조회하면) 여기서 잡힌다. 주석 쪽은 일부러 묻지 않는다: 그 순간
+      //    이 계약이 다시 "주석이 지워졌는가"를 세게 된다(종전 이 자리의 결함이 정확히 그것이다).
+      expect(indexCode, "화면이 getOnboardingProgress를 직접 부르지는 않는다").not.toContain("getOnboardingProgress");
     });
 
     /**
