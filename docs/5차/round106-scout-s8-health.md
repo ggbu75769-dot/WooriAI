@@ -1,7 +1,7 @@
 # 라운드 106 정찰 S8 — 코드 건강·복잡도 감사
 
 **성격**: 읽기 전용 정찰. 제품 소스·테스트·설정은 **0바이트** 고쳤다. 이 문서가 유일한 산출물이다.
-**측정 시각**: 2026-09-07 08:05~08:35 UTC (개별 수치마다 읽은 시점을 적는다).
+**측정 시각**: 2026-09-07 08:05~08:50 UTC (개별 수치마다 읽은 시점을 적는다).
 **측정 도구**: 세는 코드는 전부 스크래치패드에서 돌렸고 저장소에 남기지 않았다. 마스킹 규칙은
 `packages/test-utils/src/dead-export-ledger.ts`의 `maskCommentsAndStrings`와 같은 판단을 따랐다 —
 주석과 문자열 리터럴은 지우되 템플릿의 `${…}` 안은 **코드로 남긴다**(그 갈래를 지우면 살아 있는
@@ -26,8 +26,8 @@
 | S8-6 | 사문 대장이 **모집단 밖으로 선언한 자리**에 사문 16건 | 대장이 초록인 채로 그 16건을 한 번도 보지 않는다 | apps/api 4 · packages 7 · local-backend 4 · admin lib 1 |
 | S8-7 | **런타임 순환 0**(파일 사이클 13은 전부 `import type`으로 끊긴다) | — (건강) | 값으로 기록 |
 | S8-8 | **`as any` 0 · `@ts-ignore` 0 · `: any` 0** (제품 소스) | — (건강) | non-null 단언만 제품 338건 |
-| S8-9 | mobile 테스트 시간의 **39%를 파일 두 개**가 쓴다 | 그 둘은 같은 소스 트리를 캐시 없이 반복해서 읽는다 | 35.7s + 26.8s / 합 159.2s |
-| S8-10 | 관측 중 mobile 실패 4건 = **동시 편집 아티팩트** | 건강 판정이 아니다. 오해를 막기 위해 값으로 남긴다 | 4/6157 |
+| S8-9 | 테스트 시간이 **파일 네 개**에 몰려 있다 | `dead-export-ledger.test.ts` 하나가 233.2s — 잰 것 중 최대 | test-utils 380.1s(상위 2개가 91.2%) · mobile 159.2s(상위 2개가 39.3%) |
+| S8-10 | 관측 중 실패 6건 = **전부 동시 편집 아티팩트** | 건강 판정이 아니다. 오해를 막기 위해 값으로 남긴다 | mobile 4/6,157 · test-utils 2/624 · 나머지 셋 0 |
 
 ---
 
@@ -60,7 +60,7 @@
 import 수: index.tsx 60줄(고유 `../` 모듈 53), new.tsx 47(38), records.tsx 46(38), reports.tsx 45(40).
 
 **고치는 크기.** ⚠️ **여기서는 아무것도 권하지 않는다.** 화면 분해는 이 저장소가 무는
-소스 문자열 계약을 대량으로 깬다(S8-9 근거 참고 — 테스트 456개 중 **311개**가 소스를 문자열로
+소스 문자열 계약을 대량으로 깬다(S8-9 근거 참고 — 테스트 458개 중 **313개**가 소스를 문자열로
 읽고, 그중 `expect(screen).toContain("…")` 형식이 화면 본문의 코드 조각을 그대로 문다).
 이 항목은 **값으로만 남긴다**: 다음 라운드가 화면 하나를 만질 때 "이 함수가 오늘 1,279줄이다"를
 알고 시작하도록.
@@ -391,7 +391,8 @@ S8-1의 거대 화면), 이는 **거대 화면의 부산물**이지 독립된 �
 ## S8-9 · 테스트 실행 시간
 
 ⚠️ **측정 조건.** 이 창에서 저장소의 다른 에이전트들이 동시에 vitest를 돌리고 있었다
-(2026-09-07 08:23 UTC에 `ps`로 **vitest 프로세스 44개**). 그래서 아래 벽시계 값은 **상한**이고,
+(2026-09-07 08:23 UTC에 `ps`로 **vitest 프로세스 44개**; 08:29 UTC에는 다른 에이전트가
+`dead-export-ledger.test.ts`를 따로 돌리고 있었다). 그래서 아래 벽시계 값은 **상한**이고,
 파일 사이의 **상대 순위**가 이 절의 값이다.
 
 ### mobile (2026-09-07 08:05~08:25 UTC · `npx vitest run`)
@@ -428,13 +429,50 @@ S8-1의 거대 화면), 이는 **거대 화면의 부산물**이지 독립된 �
 `admin-load-error-copy.test.ts` **1.0s**(57 케이스). ✅ 이 워크스페이스는 건강하다 —
 고칠 자리가 없다.
 
-### packages (test-utils / domain / contracts)
+### packages (2026-09-07 08:26~08:47 UTC)
 
-관측 창 안에서 완주하지 못했다(다른 에이전트가 같은 시각 `dead-export-ledger.test.ts`를 따로
-돌리고 있었다 — 08:23 UTC `ps` 확인). **값을 지어내지 않는다**: 미측정으로 남긴다.
-정적 대리 지표만 적는다 — test-utils는 **테스트 20파일**이고 그 대장들이 저장소 전수를 반복해서
-걷는다(`comment-tolerant-anchor-ledger.ts` 1,197줄·`dead-export-ledger.ts` 2,282줄·
-`resume-condition-ledger.ts` 3,218줄).
+**test-utils — 20파일 / 624 테스트 / 파일 시간 합 380.1s.** ⚠️ **이것이 측정된 전 워크스페이스 중
+가장 큰 수다**(mobile 294파일 159.2s보다 크다).
+
+| 초 | 케이스 | 파일 |
+| --- | --- | --- |
+| **233.2** | 91 | `packages/test-utils/src/dead-export-ledger.test.ts` |
+| **113.4** | 101 | `packages/test-utils/src/resume-condition-ledger.test.ts` |
+| 14.1 | 7 | `packages/test-utils/src/release-gate-runner.test.ts` |
+| 12.9 | 35 | `packages/test-utils/src/repo-self-description.test.ts` |
+| 1.6 | 57 | `packages/test-utils/src/dnc-secret-scan.test.ts` |
+| 1.4 | 47 | `packages/test-utils/src/dnc-scope-guard.test.ts` |
+| 0.7 | 7 | `packages/test-utils/src/ui-pixel-lock-normalization.test.ts` |
+
+**상위 두 파일이 346.6s = 이 패키지 합의 91.2%.** `dead-export-ledger.test.ts` 하나가
+**233.2s**로, 이 감사에서 잰 모든 파일 중 최대다(2위 mobile `a11y-contract.test.ts`의 6.5배).
+
+**왜 그런가 — 실측.** `dead-export-ledger.test.ts`(1,487줄 / 91 케이스)는 **저장소 전수를 다시 거는
+최상위 함수를 41번 부른다**(2026-09-07 08:48 UTC):
+`findDeadExportsOfKind` 8 · `findDeadExports` 7 · `readCallsiteSources` 5 · `ledgerRequiredDeadExports` 3 ·
+`stringOnlyReferenceExports` 2 · `findDeadExportsBeforeStringMasking` 2 · `contractOnlyExemptions` 2 ·
+`contractOnlyDataModules` 2 · `collectExportedFunctions` 2 · `collectExportedConstants` 2 ·
+`collectCallsiteFiles` 2 · `apostropheMaskedCodeSites` 2 · `commentOnlyReferenceExports` 1 ·
+`collectPopulation` 1. 한 번마다 호출부 파일 약 350개를 읽고, 모집단 이름 약 1,671개를 그 위에서 훑는다.
+
+⚠️ **그런데 이것을 권고로 올리지 않는다** — 함정이 소스에 이미 적혀 있다.
+모듈은 이미 두 겹으로 캐시한다(`maskCommentsCached`/`maskCommentsAndStringsCached` :773-774,
+`referenceIndexes` WeakMap :781). 그리고 그 캐시가 **내용을 비교하는** 이유가 주석에 있다:
+*"Comparing the contents preserves fixture mutation and cross-checkout behavior."*
+이 대장의 테스트들은 **임시 트리에 합성 픽스처를 써 넣고 같은 함수를 다시 부른다**
+(S8-9 마지막 절의 미실재 경로 17개가 정확히 그것들이다 — `apps/mobile/src/a.ts` 등).
+`readCallsiteSources`를 순진하게 메모이즈하면 **그 픽스처 테스트가 조용히 거짓 초록이 된다.**
+게다가 이 파일은 오늘 다른 에이전트가 동시에 돌리고 있었다(08:23·08:29 UTC `ps` 확인).
+**값으로만 남긴다. 이 자리를 만지는 것은 대장 소유자의 판단이다.**
+
+**domain — 9파일 / 139 테스트 / 전부 통과 / 합 1.4s.** ✅
+**contracts — 3파일 / 84 테스트 / 전부 통과 / 합 0.2s.** ✅
+
+**test-utils 실패 2건(동시 편집 아티팩트)**: 둘 다
+`packages/test-utils/src/comment-tolerant-anchor-ledger.test.ts`의 래칫이고, *"주석 관용 앵커가
+오늘 73개예요 — `COMMENT_TOLERANT_RATCHET`(70)을 그 수로 맞추세요"* 다. 늘어난 셋의 출처는
+`apps/admin/src/admin-analytics.test.ts:161-176`이 새로 문 `apps/admin/app/analytics/page.tsx`의
+문구들 — **오늘 다른 트랙이 어드민 분석 화면에 더한 것**이지 S8이 관측한 부채가 아니다.
 
 ### api — **이 창에서는 측정할 수 없었다**
 
@@ -463,6 +501,8 @@ S8-1의 거대 화면), 이는 **거대 화면의 부산물**이지 독립된 �
 ### 계약이 소스를 무는 폭 (리팩터링 폭발 반경)
 
 테스트 **456파일 중 311파일(68.2%)** 이 `readFileSync`로 소스를 읽는다(2026-09-07 08:28 UTC).
+⚠️ 08:52 UTC에 다시 세니 **458파일 중 313파일(68.3%)** 이었다 — 관측 창 안에 테스트 두 개가 늘었다.
+**비율은 움직이지 않았다**: 이 저장소에서 새로 생기는 테스트도 같은 비율로 소스를 문다.
 테스트 안에 **문자열 리터럴로 적힌 저장소 경로는 184개**(`apps/`·`packages/`·`scripts/`·`docs/` 접두)이고,
 그중 **166개가 실재**한다. 나머지 **18개**는 대부분 대장 테스트가 임시 트리에 만드는 **합성 픽스처**
 (`apps/mobile/src/a.ts`·`fixture/pretend.ts`·`definitely-not-here-r93e.tsx` 등)이고,
@@ -473,9 +513,9 @@ S8-1의 거대 화면), 이는 **거대 화면의 부산물**이지 독립된 �
 
 ---
 
-## S8-10 · 관측 중 mobile 실패 4건 — 동시 편집 아티팩트 (건강 판정 아님)
+## S8-10 · 관측 중 실패 6건 — 전부 동시 편집 아티팩트 (건강 판정 아님)
 
-08:25 UTC 실행에서 6,157 중 **4건 실패**. 넷 다 **소스 문자열 계약**이고, 하나는 테스트 이름이
+**mobile**: 08:25 UTC 실행에서 6,157 중 **4건 실패**. 넷 다 **소스 문자열 계약**이고, 하나는 테스트 이름이
 자기 라운드를 밝힌다:
 
 | 파일 | 테스트 |
@@ -485,9 +525,13 @@ S8-1의 거대 화면), 이는 **거대 화면의 부산물**이지 독립된 �
 | `apps/mobile/src/family/invite-permissions.test.ts:380` | UX-Q(A) — `import { inviteCreateErrorMessage }` 를 못 찾음 |
 | `apps/mobile/src/notifications/notification-preferences.store.test.ts:159` | **"라운드 106 T7"** — 설명 문구에 `마지막 지출` 을 못 찾음 |
 
-⚠️ **이것을 저장소 건강으로 읽지 마라.** 넷 다 "테스트는 새 계약, 소스는 아직 옛 상태"의 중간
+**test-utils**: 08:47 UTC 실행에서 624 중 **2건 실패** — 둘 다 `comment-tolerant-anchor-ledger.test.ts`의
+같은 래칫이고, 늘어난 앵커 셋의 출처는 오늘 다른 트랙이 어드민 분석 화면에 더한 문구다(S8-9 참고).
+**admin 42파일·domain 9파일·contracts 3파일은 실패 0.**
+
+⚠️ **이것을 저장소 건강으로 읽지 마라.** 여섯 다 "테스트는 새 계약, 소스는 아직 옛 상태"의 중간
 스냅숏이고, 마지막 하나는 **오늘 진행 중인 트랙**의 이름을 달고 있다. 값으로 남기는 이유는,
-다음 라운드가 이 문서를 근거로 *"S8 시점에 mobile이 빨갰다"* 고 오독하지 않게 하기 위해서다.
+다음 라운드가 이 문서를 근거로 *"S8 시점에 저장소가 빨갰다"* 고 오독하지 않게 하기 위해서다.
 
 ---
 
@@ -501,6 +545,8 @@ S8-1의 거대 화면), 이는 **거대 화면의 부산물**이지 독립된 �
 | `@ts-ignore` / `@ts-expect-error` / `@ts-nocheck` | **0** |
 | `: any` (제품 소스) | **0** |
 | admin 테스트 | **42파일 / 760 케이스 / 5.8s / 실패 0** |
+| domain 테스트 | **9파일 / 139 케이스 / 1.4s / 실패 0** |
+| contracts 테스트 | **3파일 / 84 케이스 / 0.2s / 실패 0** |
 | 테스트가 이름 부른 경로의 실재율 | 문자열로 적힌 경로 184개 중 **166개 실재**, 미실재 18개 중 17개는 합성 픽스처·유령 1개는 문서화된 것 |
 | 화면 라우트·스크립트의 사문 | `apps/mobile/app/**`·`apps/admin/app/**`·`scripts/**` 69파일 **0건** |
 | 대장의 `local-backend` 제외 판단 | **실측으로 옳다**(4건 전부 이름 고백 또는 테스트 픽스처, 테스트 포함 시 0건) |
@@ -613,7 +659,7 @@ S8-1의 거대 화면), 이는 **거대 화면의 부산물**이지 독립된 �
 
 | 안 하는 것 | 왜 |
 | --- | --- |
-| 거대 화면 8개 분해(S8-1) | 테스트 456 중 **311(68.2%)** 이 소스를 문자열로 읽고, 그중 다수가 화면 본문의 코드 조각을 그대로 문다. 대규모 이동은 그 계약을 수십 개 단위로 깬다 |
+| 거대 화면 8개 분해(S8-1) | 테스트 458 중 **313(68.3%)** 이 소스를 문자열로 읽고, 그중 다수가 화면 본문의 코드 조각을 그대로 문다. 대규모 이동은 그 계약을 수십 개 단위로 깬다 |
 | `record-row-actions.ts` ↔ `notification-row-actions.ts` 모듈 통합(S8-4 ⓘⓘ) | 두 파일 주석이 이 쌍둥이 관계를 **의도로** 적고 있고, 통합의 옳고 그름은 이 정찰이 판정할 수 없다 |
 | `isRepeatableExpenseType` → `countsTowardMonthlyTotal` 단일화(S8-4 ⓘⓘⓘ-2) | `record-row-actions.ts`는 **import가 한 줄도 없는 무의존 모듈**이다. 그 무의존성이 의도인지 미확인이고, `recurring-flow.test.ts:160`이 그 이름을 문자열로 문다 |
 | `effectiveQueryLength`(admin↔api) 통합(S8-4 ⓘ) | 프로세스 경계를 넘는 의도된 미러이고 양쪽에 테스트가 있다 |
@@ -628,7 +674,9 @@ S8-1의 거대 화면), 이는 **거대 화면의 부산물**이지 독립된 �
 1. **api 테스트 시간** — 오늘은 DB가 없어 못 쟀다. 조건: PostgreSQL 접속 가능 + **vitest가 이 상자에 혼자**.
    그때 볼 것은 배타 스위트 다섯(특히 `data-retention-purge.db.test.ts` 2,182줄 / 51케이스)이
    전체 벽시계에서 차지하는 비율이다.
-2. **packages 테스트 시간** — 오늘 완주하지 못했다. 같은 조건.
+2. **`dead-export-ledger.test.ts` 233.2s** — 오늘의 값은 경합 아래의 상한이다. 조용한 창에서 다시 재고,
+   그다음에 *"41번의 전수 재주행 중 몇 번이 픽스처 변이 때문에 꼭 필요한가"* 를 대장 소유자가 센다.
+   ⚠️ 그 수를 세기 전에 캐시를 넣으면 픽스처 테스트가 거짓 초록이 된다(S8-9).
 3. **R1 이후의 mobile 합계** — 오늘의 159.2s는 vitest 44프로세스 경합 아래의 상한이다.
    R1 전후를 **같은 조건에서** 재야 39%라는 수가 의미를 갖는다.
 4. **`apps/api/src`·`packages/*/src`를 사문 대장 모집단으로 들일 것인가** — 오늘 실측으로

@@ -48,10 +48,28 @@ fly secrets set \
 
 ### A-4. 배포 (10~15분)
 ```bash
-fly deploy          # 이미지 빌드 → release_command(prisma:deploy, 마이그레이션 13개) → 기동
+fly deploy          # 이미지 빌드 → release_command(prisma:deploy = 미적용분 전부) → 기동
 fly status          # 머신 1대 started 확인
 curl -s https://<앱이름>.fly.dev/api/v1/health/ready   # {"status":"ok"...} 확인
 ```
+
+⚠️ **마이그레이션 개수는 이 런북이 세지 않는다**(라운드 106 F5 정정). `release_command`는
+`pnpm --filter api prisma:deploy` = `prisma migrate deploy`이고, 그 명령은 **`_prisma_migrations`에
+없는 것을 전부** 적용할 뿐 개수를 인자로 받지 않는다. 네 배포 경로가 전부 같은 명령이다 —
+`fly.toml`의 `release_command`(경로 A) · `infra/docker/docker-compose.prod.yml`의 `migrate`
+서비스(경로 B, `api`가 그 완료에 의존) · `.github/workflows/ci.yml`의 PR 검증 · 로컬 게이트가
+쓰는 `apps/api/test/global-setup.ts`. 그래서 **적용 개수가 아니라 적용 여부를 확인한다**:
+
+```bash
+fly ssh console -C "pnpm --filter api exec prisma migrate status"   # "up to date"면 통과
+```
+
+⚠️ **두 시점(낡은 값을 지우지 않고 남긴다)**: 이 자리는 2026-08-21(라운드 13, DOC-114)까지
+"마이그레이션 **13개**"라고 적었고 **그때는 참이었다**(당시 `apps/api/prisma/migrations/`가
+`000001`~`000013`). 오늘(2026-09-07) 그 디렉터리는 `000001`~`000025`로 **25개**다. 손으로 적은
+수는 마이그레이션을 더할 때마다 낡으므로 다시 적지 않는다 — **개수의 단일 소스는
+`apps/api/prisma/migrations/` 디렉터리 자신**이고, 배포가 묻는 것은 그 수가 아니라 위
+`migrate status`의 답이다.
 
 ### A-5. 시드·관리자 부트스트랩 (10분)
 ```bash
@@ -113,18 +131,38 @@ curl -s -X POST $BASE/auth/kakao/prepare -H 'content-type: application/json' \
 # 실코드 확인은 admin 링크 목록의 redirectCode로: 시드 링크는 쿠팡 검색 URL이라 302가 정상)
 curl -si $BASE/../r/AAAAAAAAAAAA | head -1
 ```
-전체 스모크(근거: `grep -c '^chk ' scripts/qa/server-smoke.sh` → **37**검사)를 돌리려면: `SMOKE_BASE_URL=$BASE bash scripts/qa/server-smoke.sh` — 단, 테스트 사용자·지출 데이터를 실제로 생성하므로 실서버에서는 감안하고 실행하세요.
+⚠️ **전체 스모크는 프로덕션 서버에서 돌지 않는다**(라운드 106 F5 정정). `scripts/qa/server-smoke.sh`는
+**dev 모드 서버 전용**이다 — 그 스크립트의 1번 검사가 `POST /auth/oauth-login`인데, 그 엔드포인트는
+`NODE_ENV`가 정확히 `development`/`test`가 아니면 **항상 501**(`OAUTH_LOGIN_NOT_IMPLEMENTED`,
+`apps/api/src/auth/auth.service.ts`의 `isDevOrTestEnv()` 가드)이다. 프로덕션은 `NODE_ENV=production`
+(`fly.toml [env]` · compose)이므로 토큰이 비고, 그 뒤의 검사가 전부 인증 없이 돌아 **연쇄 FAIL**한다.
+
+- **dev 모드 서버**(로컬·스테이징)에서만: `SMOKE_BASE_URL=$BASE bash scripts/qa/server-smoke.sh`
+  (근거: `grep -c '^chk ' scripts/qa/server-smoke.sh` → **37**검사). 테스트 사용자·지출 데이터를
+  실제로 만드므로 대상 DB를 감안하세요.
+- **프로덕션 배포 직후에 실제로 돌릴 수 있는 것은 위 `curl` 묶음이 전부다** — health 4종 + 카카오
+  OIDC prepare + 리다이렉트 404. 그 너머(기록→총액→준비템 루프)는 **실계정 로그인이 필요하므로
+  ⚠️ 앱에서 손으로 확인**한다(카카오 실키·실기기가 필요한 대목이라 자동화 밖이다).
+
+⚠️ **두 시점**: 이 줄은 종전에 "단, 테스트 사용자·지출 데이터를 실제로 생성하므로 실서버에서는
+감안하고 실행하세요"라고만 적어 **"돌긴 돈다"를 전제**했다. 검사 수(37)는 그때도 오늘도 참이지만,
+그 37이 프로덕션에서 전부 FAIL한다는 사실이 빠져 있었다. `docs/5차/launch-readiness-status.md`의
+"실서버 스모크 37/37"도 같은 이유로 **dev 모드 서버에 대한 사실**이다.
 어드민: 로그인→MFA→준비템/링크 목록 로드 확인 (admin 역할이면 **감사 로그** 메뉴도 로드 확인). 링크 헬스체크를 켤 거면 `LINK_HEALTH_ENABLED=1` 시크릿 추가(실링크 투입 후 권장).
 
 ## D. 체크리스트 요약
 
-- [ ] Postgres 가동·마이그레이션 13개 적용
+- [ ] Postgres 가동 + **마이그레이션 적용 여부 확인** — `prisma migrate status`가 "up to date"인가
+      (A-4 참고). ⚠️ **개수를 세지 않는다**: 종전 이 칸은 "마이그레이션 **13개** 적용"이라 적었고
+      2026-08-21(라운드 13)에는 참이었으나 오늘은 25개다. 네 배포 경로 전부가 개수를 받지 않는
+      `prisma migrate deploy`이므로, 이 칸이 묻는 것은 **`release_command`가 조용히 실패하지
+      않았는가** 하나다(개수를 맞춰 세는 절차가 아니다).
 - [ ] 시크릿 13종 주입 (부트 필수 6종 — JWT 2·WOORIAI_ADMIN_TOKEN·AFFILIATE_ALLOWED_DOMAINS·salt 2 — 은 `assertRequiredSecretsConfigured`가 누락 시 부트 실패로 알려줌)
 - [ ] (푸시를 켤 경우) `PUSH_ENABLED=1` + `FCM_SERVICE_ACCOUNT_PATH` 설정 → `GET /api/v1/health/push`로 확인 (A-3의 푸시 참고 — 기본은 꺼짐/no-op이라 출시 비차단)
 - [ ] `health/ready` 200
 - [ ] 시드 + 관리자 로그인 → 비밀번호 교체 + MFA 등록
 - [ ] (도메인 있으면) HTTPS 커스텀 도메인 + `INVITE_LINK_BASE_URL` 일치
-  - `INVITE_LINK_BASE_URL`은 **부트 필수 6종에 들어 있지 않다** — 미설정이어도 서버는 그냥 뜨고, 대신 그 값에서 나오는 **공유 URL 소비자 셋**이 조용히 `https://wooriai.local`로 발급된다: ⓐ 가족 초대 링크(`household-runtime.service.ts`), ⓑ 어드민이 복사해 뿌리는 공개 공유 URL, ⓒ 앱이 밖으로 내보내는 구매 링크(`items-catalog.service.ts`의 `publicRedirectShareUrl` — 라운드 67 #4). 셋 다 **받는 사람 쪽에서만** 죽은 링크로 드러나므로 배포 스모크에서는 보이지 않는다. `pnpm check:env`가 REQUIRED로 잡고 있으니 배포 전에 한 번 돌려 확인하세요.
+  - `INVITE_LINK_BASE_URL`은 **부트 필수 6종에 들어 있지 않다** — 미설정이어도 서버는 그냥 뜨고, 대신 그 값에서 나오는 **공유 URL 소비자 셋**이 조용히 `https://wooriai.local`로 발급된다: ⓐ 가족 초대 링크(`household-runtime.service.ts`), ⓑ 어드민이 복사해 뿌리는 공개 공유 URL, ⓒ 앱이 밖으로 내보내는 구매 링크(`items-catalog.service.ts`의 `publicRedirectShareUrl` — 라운드 67 #4). 셋 다 **받는 사람 쪽에서만** 죽은 링크로 드러나므로 배포 스모크에서는 보이지 않는다. `pnpm check:env`가 REQUIRED로 잡고 있으니 배포 전에 한 번 돌려 확인하세요 — 단 **아래 ⚠️의 조건**을 먼저 읽으세요.
 - [ ] 카카오 콘솔에 `wooriai://oauth/kakao` redirect 등록 (서버 allowlist와 동일 값)
 
 ## E. 주의

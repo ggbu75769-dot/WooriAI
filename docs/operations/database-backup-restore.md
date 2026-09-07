@@ -1,35 +1,96 @@
 # 데이터베이스 백업·복구
 
-`scripts/db.ts`가 docker/포터블 PostgreSQL을 자동 감지해 pg_dump/psql을 실행한다.
+`scripts/db.ts`가 docker/포터블 PostgreSQL(둘 다 없으면 PATH의 클라이언트)을 자동 감지해
+pg_dump/psql을 실행한다.
+
+## 대상(target) — 먼저 읽을 것 (2026-09-07, 라운드 106 F1)
+
+**두 시점.** 종전에는 `backup`·`restore`가 `wooriai_dev`@localhost로 **고정**돼 있었고
+`reset`만 `DATABASE_URL`을 **따랐다**. 그래서 운영 `DATABASE_URL`이 export된 셸에서 아래
+§검증 절차를 그대로 따르면 **dev를 백업하고 운영을 지우고 dev에 복원했다** — 세 명령 모두
+성공 종료했고 어느 줄도 대상을 출력하지 않았다. **오늘은 세 명령이 같은 규칙으로 대상을
+정하고, 실행 전에 대상을 출력하며, 파괴적 명령에는 확인 관문이 있다.**
+
+대상 우선순위는 **모든** `pnpm db` 명령이 같다:
+
+1. `--url=<postgres URL>` 인자
+2. `DATABASE_URL` 환경변수
+3. 문서화된 로컬 dev 기본값 `postgresql://wooriai:wooriai_dev_password@localhost:5432/wooriai_dev`
+
+`DATABASE_URL`이 있는데 postgres URL로 읽히지 않으면 **조용히 dev로 되돌아가지 않고 멈춘다**
+("모르면 멈춘다").
+
+모든 명령은 첫 세 줄로 대상을 밝힌다:
+
+```
+[db] 명령: backup
+[db] 대상: postgresql://wooriai:***@localhost:5432/wooriai_dev  (출처: 기본값(로컬 dev))
+[db] 성격: 로컬 dev
+```
+
+`성격`이 `⚠️ 로컬 dev 아님`이면 **호스트가 루프백이 아니거나 DB 이름이 `_dev`로 끝나지 않는다**는
+뜻이다. 이 판정이 확인 관문의 기준이기도 하다.
+
+예외는 `start`·`stop` 둘뿐이다 — 로컬 postgres 서버를 켜고 끄는 명령이라 원격을 대상으로 할 수
+없다. `DATABASE_URL`이 원격이면 그 사실을 출력하고 **로컬 서버만** 제어한다.
+
+## 확인 관문 (`reset`·`restore`)
+
+대상이 로컬 dev면 종전처럼 그냥 돈다. 로컬 dev가 **아니면** 대상 DB 이름을 사람이 그대로 다시
+적기 전에는 아무것도 하지 않는다(비대화형이라 CI에서도 결과가 같다):
+
+```powershell
+pnpm db reset --confirm=<대상 DB 이름>
+# 또는 WOORIAI_DB_CONFIRM=<대상 DB 이름> 환경변수
+```
+
+관문은 명령이 실제 작업을 시작하기 **전에** 걸리므로, 막힌 실행은 대상 DB에 접속조차 하지 않는다.
+
+⚠️ AI 에이전트가 `pnpm db reset`을 부르면 Prisma 자체 가드가 한 번 더 막고
+`PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION`(사용자의 동의 문구 원문)을 요구한다 — 사람의 명시적
+동의 없이 이 변수를 채우지 않는다.
 
 ## 백업
 
 ```powershell
 pnpm db backup
-# → artifacts/db-backups/wooriai-<timestamp>.sql (pg_dump --clean --if-exists)
+# → artifacts/db-backups/wooriai-<DB이름>-<timestamp>.sql (pg_dump --clean --if-exists)
+
+pnpm db backup --url=postgresql://<user>:<pw>@<host>:5432/<db>   # 대상 명시
 ```
+
+파일 이름에 **대상 DB 이름이 들어간다**(종전에는 `wooriai-<timestamp>.sql`뿐이라 파일만 봐서는
+어느 DB의 덤프인지 알 수 없었다). `backup`은 읽기 전용이라 확인 관문이 없다 — 대신 출력한
+`백업 대상` 줄을 기록에 남긴다.
 
 ## 복구
 
 ```powershell
-pnpm db restore artifacts/db-backups/wooriai-<timestamp>.sql
+pnpm db restore artifacts/db-backups/wooriai-<DB이름>-<timestamp>.sql
 ```
 
 `--clean --if-exists` 덤프이므로 복구 시 기존 객체를 drop 후 재생성한다(백업 시점 상태로 완전 대체).
+**복구는 대상을 통째로 덮어쓴다** — 위 확인 관문이 적용된다.
 
-## 검증 절차 (릴리즈 전 필수)
+## 검증 절차 (릴리즈 전 필수 — 로컬 dev 전용)
+
+⚠️ **이 절차는 데이터를 지운다. 로컬 dev DB(또는 일회용 사본)에서만 돌린다.**
+운영 `DATABASE_URL`이 export된 셸이라면 각 줄에 `--url=`로 dev를 명시하거나 그 변수를 비운 셸을 쓴다.
 
 1. 테스트 계정·지출·준비 상태 생성 (API 또는 앱에서)
-2. `pnpm db backup` → 파일 경로 기록
-3. `pnpm db reset` (데이터 초기화)
-4. `pnpm db restore <파일>`
+2. `pnpm db backup` → **출력된 `대상`과 파일 경로를 함께 기록**
+3. `pnpm db reset` (데이터 초기화) → 출력된 `대상`이 2단계와 같은지 확인
+4. `pnpm db restore <파일>` → 출력된 `대상`이 2단계와 같은지 확인
 5. API 재시작 후 홈/리포트 합계가 백업 시점과 동일한지 확인
 
+세 단계의 `대상` 줄이 서로 다르면 절차가 성립하지 않는다 — 그 자리에서 멈춘다.
 실행 결과 증거는 `docs/qa/round4-test-evidence.md`에 기록한다.
 
 ## 운영 권장 사항
 
 - 운영 DB는 관리형 서비스의 자동 스냅샷(일 1회 이상) + 위 pg_dump를 배포 직전 수동 실행.
+  운영을 향한 `pnpm db backup`은 `--url=`로 대상을 **명시**하고(출력된 `대상` 줄을 눈으로 확인),
+  그 셸에서는 `reset`·`restore`를 부르지 않는다.
 - 백업 파일에는 개인정보가 포함되므로 저장소에 커밋 금지(`artifacts/`는 .gitignore 대상), 암호화된 저장소에 보관, 보존 기한(예: 30일) 후 파기.
 - 복구 리허설을 월 1회 스테이징에서 수행.
 
