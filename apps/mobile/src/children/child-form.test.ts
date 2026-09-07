@@ -448,10 +448,13 @@ describe("라운드 107 트랙 F 태명 길이 상한(60)", () => {
     expect(apiSource("../prisma/schema.prisma")).toContain("nickname        String          @db.VarChar(60)");
 
     // 계약의 두 자리가 숫자 리터럴이 아니라 그 상수를 문다.
-    const childBlock = contracts.slice(
-      contracts.indexOf("export const childSchema = z.object({"),
-      contracts.indexOf("export const categorySchema = z.object({")
-    );
+    // 양끝 존재 가드: 어느 한쪽 앵커가 사라지면 slice(-1, …)가 조용히 엉뚱한 구간을 잘라
+    // "not.toContain" 쪽이 공짜로 초록이 된다. 무엇이 없어졌는지 이름으로 먼저 말한다.
+    const childStart = contracts.indexOf("export const childSchema = z.object({");
+    expect(childStart, "childSchema 선언").toBeGreaterThan(-1);
+    const childEnd = contracts.indexOf("export const categorySchema = z.object({");
+    expect(childEnd, "categorySchema 선언(childSchema 구간의 끝)").toBeGreaterThan(childStart);
+    const childBlock = contracts.slice(childStart, childEnd);
     expect(childBlock).toContain("nickname: z.string().min(1).max(CHILD_NICKNAME_MAX_LENGTH),");
     expect(childBlock).toContain("nickname: z.string().min(1).max(CHILD_NICKNAME_MAX_LENGTH).optional(),");
     expect(childBlock).not.toContain(".max(60)");
