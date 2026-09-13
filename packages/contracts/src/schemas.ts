@@ -456,7 +456,7 @@ export const itemSummarySchema = z.object({
   // 프리필이 품목명만 넘기고 분류는 늘 기본 타일로 떨어졌다.
   // ⚠️ 두 시점(라운드 106 T10): 종전 이 줄은 그 수를 **63개**로 적었는데 오늘 실측은
   // **62개**다(`itemTemplateSeeds` 원소 62 · 그중 `categoryCode`를 가진 것 62 — 같은 파일을
-  // 세는 apps/api/test/seed-data.test.ts 머리말도 "62개 품목"으로 적는다). 이 문장이 서는
+  // 세는 apps/api/test/seed-data.test.ts 머리말도 당시 "62개 품목"으로 적었다). 이 문장이 서는
   // 근거는 "전부가 값을 갖는다"이지 특정 개수가 아니므로 **수를 빼고 사실만 남긴다** —
   // 시드가 한 줄 늘 때마다 갈리는 숫자를 계약 주석에 박아 두지 않는다.
   // (같은 63이 apps 아래 주석 넷에 더 남아 있다: items-catalog.service.ts ·

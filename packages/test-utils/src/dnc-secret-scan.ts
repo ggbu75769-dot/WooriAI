@@ -23,7 +23,7 @@
 // 넷이다(`SECRET_ROOTS` — **뿌리마다 왜 이 뿌리인가가 빈 문자열일 수 없다**).
 //
 //  · `seed-affiliate-code` — 시드의 `affiliatePartnerCode` 칸. 제휴 ID가 저장소에 들어오는 가장 싼
-//    입구이고, 오늘 **67행 전부 `null`** 이라 경계가 값으로 선명하다.
+//    입구이고, 오늘 **105행 전부 `null`** 이라 경계가 값으로 선명하다.
 //  · `secret-fallback` — `requireSecret(envKey, devFallback)`의 **둘째 인자**. 이 저장소에서 비밀값을
 //    읽는 자리는 그 함수 하나이고, 값이 코드에 적히는 자리도 거기 하나다.
 //  · `db-url-literal` — 코드·설정에 적힌 `postgres(ql)://` URL 리터럴. 운영 DB URL은 URL로만 온다.

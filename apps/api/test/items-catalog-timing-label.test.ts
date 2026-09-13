@@ -202,7 +202,7 @@ describe("준비 시기 판정 모듈 (라운드 76 트랙 E)", () => {
     );
   });
 
-  it("오늘의 시드 62건이 이 판정을 전부 지난다 (저장 경로가 기존 카탈로그를 막지 않는다)", async () => {
+  it("오늘의 시드 100건이 이 판정을 전부 지난다 (저장 경로가 기존 카탈로그를 막지 않는다)", async () => {
     const seedDataPath = join(fileURLToPath(new URL("..", import.meta.url)), "prisma", "seed-data.ts");
     const { itemTemplateSeeds } = (await import(pathToFileURL(seedDataPath).href)) as {
       itemTemplateSeeds: Array<{ code: string; timingLabel: string; stageCodes: string[] }>;

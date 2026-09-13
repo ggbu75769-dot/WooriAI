@@ -454,7 +454,7 @@ describe("ⓔ 바늘이 실제로 문다 (물지 못하는 스윕은 영원히 �
     expect(findSecretViolations(item, planted).map((violation) => violation.needle)).toContain(
       "시드의 제휴 파트너 코드 칸에 값이 들어왔다"
     );
-    // 그리고 `null` 그대로면 초록이다(오늘 67행의 모양).
+    // 그리고 `null` 그대로면 초록이다(오늘 105행의 모양).
     expect(
       findSecretViolations(item, [{ ...planted[0], parts: { value: "null" } }])
     ).toEqual([]);

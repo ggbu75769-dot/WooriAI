@@ -398,7 +398,7 @@ const SETUP_CLOSURE = setupModuleClosure();
  * 대조하지 않는다(대조하면 소스 계약이 환경에 매인다).
  *
  * ⚠️ 라운드 91 C 재실측: 정찰(round91-scout)이 적은 **9,302 · 8,680 · 719MB**가 이 컨테이너에서
- * 그대로 재현됐다. 시드 준비템 **62**(`prisma/seed-data.ts`의 `itemTemplateSeeds`)도 그대로다.
+ * 그대로 재현됐다. 시드 준비템 **100**(`prisma/seed-data.ts`의 `itemTemplateSeeds`)도 그대로다.
  * 갈린 값은 하나다 — 라운드 82 주석의 `tab=now` **2,651건**이 오늘 **2,818건**이다.
  *
  * ⚠️ 재개 조건(사건형): 이 컨테이너 밖의 환경에서 이 수들이 다시 실측되는 날 — 그날 이 블록은
@@ -411,7 +411,7 @@ const MEASURED_ENVIRONMENT_2026_08_31 = {
   itemTemplatesTotal: 9302,
   itemTemplatesActive: 8680,
   databaseSizeMb: 719,
-  seededItemTemplates: 62,
+  seededItemTemplates: 100,
   tabNowItemsForInfant46: 2818,
   tabNowResponseBytes: 579990
 } as const;

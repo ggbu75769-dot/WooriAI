@@ -286,7 +286,7 @@ const CLEANUP_STEP_FLOOR = 10;
  * 목록이 되고, 그 순간 이 파일의 자기 배제(바늘을 조각으로 잇는 관례)가 다시 검사되어야 한다.
  *
  * ⚠️ **ⓑ 시드(`apps/api/prisma/seed.ts`)가 만드는 행은 이 바늘 밖이다.** 그쪽은 `upsert`라 멱등이고,
- * 누적이 아니라 **고정 62**다. 뿌리를 `apps/api/test`로 둔 것이 그 배제의 실물이다(손 목록이 아니다).
+ * 누적이 아니라 **고정 100**이다. 뿌리를 `apps/api/test`로 둔 것이 그 배제의 실물이다(손 목록이 아니다).
  *
  * ⚠️ **ⓒ 정리가 *같은 파일*에 있는지만 본다.** 다른 파일이나 전역 훅이 지우면 이 자가 못 본다.
  * 세 자 가운데 둘(`forward`·`bound`)의 오차 방향은 **거짓 빨강 = 안전**이고, 가장 넓은
@@ -299,7 +299,7 @@ const SCOUTED_ENVIRONMENT_SEVENTH = {
   itemTemplatesTotal: 9545,
   itemTemplatesActive: 8888,
   databaseSizeMb: 753,
-  seededItemTemplates: 62,
+  seededItemTemplates: 100,
   /** 여섯째 → 일곱째 오름. 다섯째 → 여섯째는 +37이었다 — **오름이 빨라졌다.** */
   growthSinceSixth: 69
 } as const;

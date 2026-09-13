@@ -156,7 +156,7 @@ export class ProductLinkBulkService {
   private async validate(csv: string): Promise<ValidatedRow[]> {
     const csvRows = parseBulkCsv(csv);
 
-    // Small tables (67 seeded links today, capped CSV) — load once and match
+    // Small tables (105 seeded links today, capped CSV) — load once and match
     // in memory instead of a query per row.
     const [links, templates] = await Promise.all([
       this.prisma.productLink.findMany(),
