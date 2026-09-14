@@ -51,8 +51,8 @@ describe("COM-105 후속: 링크 헬스 관찰 한 줄의 화면 배선", () => 
     expect(rowBlock).toContain("{linkHealthNotice ? (");
     expect(rowBlock).toContain("{linkHealthNotice}</Text>");
 
-    // ⓐ(숨기기)를 하지 않았다: 링크 행은 여전히 productLinks 전수를 그대로 그린다.
-    expect(detail).toContain("visibleDetail.productLinks.map((link, index) => {");
+    // ⓐ(숨기기)를 하지 않았다: 정렬된 링크 행은 여전히 productLinks 전수를 그대로 그린다.
+    expect(detail).toContain("displayedProductLinks.map((link) => {");
     expect(rowBlock).not.toContain("linkHealthNotice ? null :");
     // 버튼을 끄지도 않는다 — 이 판정이 onPress·disabled 근처에 얼씬하지 않는다.
     expect(rowBlock).toContain("onPress={() => handleProductLinkPress(link)}");

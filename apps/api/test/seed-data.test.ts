@@ -55,6 +55,13 @@ async function loadSeedData() {
       isSponsored: boolean;
       sponsorLabel?: string | null;
       priceSnapshotKrw?: number | null;
+      priceCheckedAt?: string | null;
+      productName?: string | null;
+      brand?: string | null;
+      imageUrl?: string | null;
+      rating?: number | null;
+      reviewCount?: number | null;
+      searchRank?: number | null;
       // 라운드 83 트랙 A: 비스폰서 대장은 **활성** 링크만 센다(화면이 받는 집합이 그것이다 —
       // items-catalog.service.getItemDetail의 `where: { active: true }`).
       active: boolean;
@@ -266,38 +273,31 @@ describe("Batch 03 seed data", () => {
     ).toBe(true);
   });
 
-  /**
-   * 출시 트랙 LP-A(72h 계획 §5 **플랜 B**) — 종전 이 절은 "example.com dev 플레이스홀더만
-   * 쓴다"를 잠갔다(그때는 그것이 정직이었다: 실 제휴 URL·파트너 코드가 저장소에 들어오지
-   * 못하게). 플랜 B가 링크 전량을 **일반(비제휴) 쿠팡 검색 링크**로 바꿨으므로 이 절이 잠그는
-   * 정직의 내용도 바뀐다: 이제 죽은 CTA(example.com)와 **허위 표시**(수수료를 받지 않는데 서는
-   * 제휴 고지 · 계약 없는 스폰서 배지 · 확인할 수 없는 가격)가 0건이어야 한다.
-   */
-  it("플랜 B 출시 링크: 전 행이 비제휴 쿠팡 검색 링크이고 허위 표시가 0건이다", async () => {
+  it("출시 상품 링크: 100개 품목마다 고평점 쿠팡 상품 3개와 표시 근거가 있다", async () => {
     const { itemTemplateSeeds, productLinkSeeds } = await loadSeedData();
     const itemCodes = new Set(itemTemplateSeeds.map((item) => item.code));
+    const activeLinks = productLinkSeeds.filter((link) => link.active);
+    const countsByItem = new Map<string, number>();
+    for (const link of activeLinks) {
+      countsByItem.set(link.itemTemplateCode, (countsByItem.get(link.itemTemplateCode) ?? 0) + 1);
+    }
 
-    expect(productLinkSeeds.length).toBeGreaterThanOrEqual(3);
+    expect(activeLinks).toHaveLength(300);
+    expect(countsByItem.size).toBe(100);
+    expect([...countsByItem.values()].every((count) => count === 3)).toBe(true);
     expect(productLinkSeeds.every((link) => itemCodes.has(link.itemTemplateCode))).toBe(true);
-    // 죽은 CTA 0건: 전 행이 계정·키 없이 동작하는 실 쿠팡 검색 URL이다.
-    expect(
-      productLinkSeeds.every((link) => link.url.startsWith("https://www.coupang.com/np/search?q=")),
-      "플랜 B: 모든 시드 링크는 쿠팡 검색 URL이어야 해요"
-    ).toBe(true);
+    expect(activeLinks.every((link) => link.affiliateUrl?.startsWith("https://link.coupang.com/"))).toBe(true);
+    expect(new Set(activeLinks.map((link) => link.affiliateUrl)).size).toBe(300);
     expect(JSON.stringify(productLinkSeeds)).not.toContain("example.com");
-    // 제휴 0건(승인 전): 플래그·URL·고지 어느 하나라도 서면 허위 고지다(DNC-010의 반대 방향).
-    expect(productLinkSeeds.every((link) => !link.isAffiliate)).toBe(true);
-    expect(productLinkSeeds.every((link) => link.affiliateUrl == null)).toBe(true);
-    expect(
-      productLinkSeeds.every((link) => !(link.disclosureText ?? "").includes("제휴")),
-      "비제휴 링크에 제휴 고지가 서면 안 돼요"
-    ).toBe(true);
+    expect(activeLinks.every((link) => link.isAffiliate && !link.isSponsored)).toBe(true);
+    expect(activeLinks.every((link) => link.productName && link.brand && link.imageUrl)).toBe(true);
+    expect(activeLinks.every((link) => (link.rating ?? 0) >= 4.5)).toBe(true);
+    expect(activeLinks.every((link) => (link.reviewCount ?? -1) >= 0 && (link.searchRank ?? 0) > 0)).toBe(true);
+    expect(activeLinks.every((link) => link.priceSnapshotKrw != null && link.priceCheckedAt != null)).toBe(true);
     // 실 스폰서 계약이 없는 출시 시점: 활성 행에는 스폰서 배지가 서지 않는다(DNC-011의 반대 방향).
     expect(productLinkSeeds.some((link) => link.active && link.isSponsored)).toBe(false);
     // 스폰서 슬롯 자체는 지우지 않고 비활성으로 보존한다(계약 성사 시 재활성화) — 라벨과 함께.
     expect(productLinkSeeds.some((link) => !link.active && link.isSponsored && Boolean(link.sponsorLabel))).toBe(true);
-    // 검색 결과 페이지에는 단일 가격이 없다 — 확인할 수 없는 가격 스냅샷을 적지 않는다.
-    expect(productLinkSeeds.every((link) => link.priceSnapshotKrw == null)).toBe(true);
     // 파트너 코드·비밀값은 여전히 0건(dnc-secret-scan의 seed-affiliate-code 축 그대로).
     expect(productLinkSeeds.every((link) => link.affiliatePartnerCode == null)).toBe(true);
     expect(JSON.stringify(productLinkSeeds).toLowerCase()).not.toMatch(/secret|access_key|partner_id/);

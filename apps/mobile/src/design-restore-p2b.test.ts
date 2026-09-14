@@ -194,7 +194,8 @@ describe("ITEM-002 상세: 승인 프레임", () => {
   it("판매처 한 줄만 채워진 구매하기다(나머지는 외곽선) — 그 한 줄은 첫 비스폰서 링크다", () => {
     const detail = detailSource();
     expect(detail).toContain("const filledPurchaseRowIndex = primaryPurchaseLinkIndex(visibleDetail.productLinks);");
-    expect(detail).toContain("primaryAction={hasSession && index === filledPurchaseRowIndex}");
+    // 정렬 뒤에도 강조 대상은 배열 위치가 아니라 기존 판정이 고른 링크 ID로 유지된다.
+    expect(detail).toContain("primaryAction={hasSession && link.id === primaryPurchaseLink?.id}");
     // 순서만 보고 채우면 스폰서가 1위일 때 광고 자리만 강한 CTA를 갖는다(DNC-011 역행).
     expect(detail).not.toContain("primaryAction={hasSession && index === 0}");
     expect(source("src/ui.tsx")).toContain('label="구매하기"');

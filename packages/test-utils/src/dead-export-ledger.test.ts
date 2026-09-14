@@ -1006,9 +1006,10 @@ describe("ⓔ 사각 — 값으로 적혀 있고, 오늘 다시 잰다", () => {
     // 라운드 110 B 가 246 으로 둘 더 올렸다 — **처음으로 둘의 성질이 갈린다**(워크트리 대조):
     // `useSelectedChildStore`는 판정 표의 **진짜 객체 키**(그물이 제 일을 한 것),
     // `clearSessionScopedChildSelection`은 다섯 번째 `.\n이름` 오독이다. 자세한 근거는
-    // dead-export-ledger.ts의 `common-name` 사각 주석에 있다.
-    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(246);
-    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(246);
+    // dead-export-ledger.ts의 `common-name` 사각 주석에 있다. 상품 비교 정렬 공개 이름 하나가
+    // 기존 속성 이름과 겹쳐 이번 실측은 247이다.
+    expect(spotOf("common-name")?.value, "적어 둔 값").toBe(247);
+    expect(namesAlsoUsedAsProperty().length, "오늘 다시 잰 값").toBe(247);
     expect(spotOf("common-name")?.statement, "77 → 226이 왜 갈렸는지").toContain("77");
 
     // ③ derived-exemptions의 **절반 문턱** — 라운드 89는 40 중 18(여유 둘)이었다.

@@ -755,7 +755,7 @@ describe("ⓒ 핵심 루프의 그 자리 — clickLink는 막는 쪽에 선다"
  * ⚠️ 미리보기는 **읽으라고** 있다 — 해시만 있으면 빨개졌을 때 무엇이 달라졌는지 알 수 없다.
  */
 const PRESS_SITE_LEDGER: readonly string[] = [
-  "ProductComparisonRow :: 63c08fe2b5a8 :: <ProductComparisonRow primaryAction={hasSession && index === filledPurchaseRowIndex} seller={lin",
+  "ProductComparisonRow :: 540a987354d0 :: <ProductComparisonRow primaryAction={hasSession && link.id === primaryPurchaseLink?.id} seller={",
   'PrimaryButton :: f905e44921d0 :: <PrimaryButton label="바로 구매하기" onPress={() => handleProductLinkPress(primaryPurchaseLink)} style'
 ];
 
@@ -946,13 +946,15 @@ describe("ⓔ 소음 금지 — 막힌 탭은 조용히 아무 일도 하지 않
       // (MISSING_ITEM_EXIT_LABEL = "준비템 목록 보기"). **새로 지은 문장이 아니라** 준비템 탭이
       // 이미 쓰던 그 문자열을 이 화면으로 들여온 것이고, 연타 가드와는 무관한 편집이다
       // (그 트랙은 뮤테이션을 하나도 더하지 않았다 — 바로 아래 자가 그것을 따로 문다).
-      `이 화면의 한국어 문자열이 41에서 ${korean.length}로 갈렸어요. 연타 가드는 문구를 더하지 ` +
+      // 상품 비교 정렬과 실제 메타데이터 표기가 인기순·최저가순·쿠팡 노출순·3개 중 최저가
+      // 네 리터럴을 더해 41 → 45가 됐다. 연타 가드와 무관한 상품 비교 기능 편집이다.
+      `이 화면의 한국어 문자열이 45에서 ${korean.length}로 갈렸어요. 연타 가드는 문구를 더하지 ` +
         "않으므로, 이 수가 움직였다면 (ⓐ 이 트랙이 문구를 더했거나 (ⓑ 다른 라운드가 이 화면의 " +
         "문구를 정당하게 고친 것입니다. ⓑ라면 **이 대장을 그 라운드가 함께 갱신해야 합니다** — " +
-        "이 줄의 41을 오늘의 값으로 옮기고, 그 편집이 연타 가드와 무관하다는 사실을 커밋 메시지에 " +
+        "이 줄의 45를 오늘의 값으로 옮기고, 그 편집이 연타 가드와 무관하다는 사실을 커밋 메시지에 " +
         "적어 주세요(값을 옮기는 것이 이 계약을 무르게 하지 않습니다: 무는 것은 *한 트랙이 문구를 " +
         "조용히 더하지 않았는가*이지 문구 수 자체가 아닙니다)."
-    ).toHaveLength(41);
+    ).toHaveLength(45);
   });
 
   it("서버 0건 · 새 요청 0건 — 이 화면의 뮤테이션 수도 종전 그대로다", () => {

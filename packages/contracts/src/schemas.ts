@@ -580,6 +580,12 @@ export const productLinkSchema = z
     isAffiliate: z.boolean(),
     isSponsored: z.boolean(),
     disclosureText: z.string().optional(),
+    productName: z.string().min(1).max(300).optional(),
+    brand: z.string().min(1).max(120).optional(),
+    imageUrl: z.string().url().optional(),
+    rating: z.number().min(0).max(5).optional(),
+    reviewCount: z.number().int().min(0).optional(),
+    searchRank: z.number().int().positive().optional(),
     priceSnapshotKrw: z.number().int().min(0).optional(),
     /** ISO 8601 UTC 문자열. 이 값이 없으면 가격도 없어야 한다(위 주석). */
     priceCheckedAt: z.string().datetime().optional(),

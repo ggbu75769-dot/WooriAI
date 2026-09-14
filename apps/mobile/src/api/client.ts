@@ -353,6 +353,12 @@ export type ProductLink = {
   isAffiliate: boolean;
   isSponsored: boolean;
   disclosureText?: string;
+  productName?: string;
+  brand?: string;
+  imageUrl?: string;
+  rating?: number;
+  reviewCount?: number;
+  searchRank?: number;
   /**
    * 라운드 51 #9 — 판매처별 가격(가산 optional, 이번 라운드는 계약만이고 화면 배선은 없다).
    *

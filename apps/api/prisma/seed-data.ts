@@ -1,4 +1,5 @@
 import type { ChildStageCode } from "@prisma/client";
+import productLinkCatalog from "./product-link-catalog.json";
 
 export type CategorySeed = {
   code: string;
@@ -45,6 +46,13 @@ export type ProductLinkSeed = {
   isSponsored: boolean;
   sponsorLabel: string | null;
   priceSnapshotKrw: number | null;
+  priceCheckedAt?: string | null;
+  productName?: string | null;
+  brand?: string | null;
+  imageUrl?: string | null;
+  rating?: number | null;
+  reviewCount?: number | null;
+  searchRank?: number | null;
   displayOrder: number;
   active: boolean;
   disclosureText: string | null;
@@ -61,12 +69,10 @@ export type ProductLinkSeed = {
  *
  * 어떤 어드민 DTO에도 없는 값이라 운영자가 움직일 수 없다. 모양을
  * `<itemTemplateCode>:<platform>`으로 잡은 것은 지어낸 규칙이 아니라 **이미 저장소가
- * 쓰던 식별자**이기 때문이다 — CSV 일괄 교체 도구(`admin/product-link-bulk.service.ts`)가
- * (itemTemplate, platform)으로 링크를 찾고 **정확히 1건**을 요구한다. 오늘 시드 링크
- * 105건의 그 쌍은 105개로 전부 다르다(실측). 즉 이 키는 운영 도구가 이미 전제하고 있는
- * 유일성을 그대로 옮겨 적은 것이다.
+ * 쓰던 식별자**이기 때문이다. 첫 링크는 기존 `<itemTemplateCode>:<platform>` 키를 유지해
+ * 설치된 DB의 행을 이어받고, 두 번째·세 번째 링크는 끝에 `:2`, `:3`을 붙인다.
  *
- * ⚠️ 한 쌍에 시드 링크를 둘 두려면 `seedKey`를 직접 적어야 한다. 잊으면 시드가
+ * ⚠️ 한 쌍에 시드 링크를 둘 이상 두려면 `seedKey`를 직접 적어야 한다. 잊으면 시드가
  * 시작하자마자 어느 두 줄이 부딪혔는지 이름으로 말하며 멈춘다(prisma/seed.ts).
  */
 export function productLinkSeedKey(link: Pick<ProductLinkSeed, "itemTemplateCode" | "platform" | "seedKey">): string {
@@ -1920,7 +1926,7 @@ export const importStubCategorySeeds: MobileCategoryAliasSeed[] = [
  * 않고 `product_links 중복:` 경고로 보고한다(어느 행에 클릭 이력이 붙었는지를 봐야 하는
  * 판단이라 시드가 대신 정하지 않는다). 그 밖에는 재시드가 안전하다.
  */
-export const productLinkSeeds: ProductLinkSeed[] = [
+const legacyProductLinkSeeds: ProductLinkSeed[] = [
   {
     itemTemplateCode: "car_seat",
     platform: "coupang",
@@ -3532,4 +3538,33 @@ export const productLinkSeeds: ProductLinkSeed[] = [
     active: true,
     disclosureText: null
   }
+];
+
+const catalogProductLinkSeeds: ProductLinkSeed[] = productLinkCatalog.map((offer, index) => ({
+  itemTemplateCode: offer.itemTemplateCode,
+  platform: "coupang",
+  title: offer.productName.slice(0, 160),
+  url: offer.affiliateUrl,
+  affiliateUrl: offer.affiliateUrl,
+  affiliatePartnerCode: null,
+  isAffiliate: true,
+  isSponsored: false,
+  sponsorLabel: null,
+  priceSnapshotKrw: offer.priceSnapshotKrw,
+  priceCheckedAt: offer.priceCheckedAt,
+  productName: offer.productName,
+  brand: offer.brand,
+  imageUrl: offer.imageUrl,
+  rating: offer.rating,
+  reviewCount: offer.reviewCount,
+  searchRank: offer.searchRank,
+  displayOrder: index + 1,
+  active: true,
+  disclosureText: null,
+  seedKey: offer.offerIndex === 1 ? undefined : `${offer.itemTemplateCode}:coupang:${offer.offerIndex}`
+}));
+
+export const productLinkSeeds: ProductLinkSeed[] = [
+  ...catalogProductLinkSeeds,
+  ...legacyProductLinkSeeds.filter((link) => link.isSponsored && !link.active)
 ];

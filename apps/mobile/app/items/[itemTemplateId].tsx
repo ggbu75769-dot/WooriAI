@@ -47,6 +47,12 @@ import {
   purchaseLinkShareMessage
 } from "../../src/items/link-marker";
 import { resolveLinkPriceDisplay, withLinkPriceCaption } from "../../src/items/link-price";
+import {
+  lowestPriceProductLinkId,
+  PRODUCT_OFFER_SORT_OPTIONS,
+  sortProductOffers,
+  type ProductOfferSort
+} from "../../src/items/product-offer-sort";
 import { itemStatusBadgeLabel, itemStatusLabel, necessityBadgeLabel } from "../../src/items/item-labels";
 // 기능 라운드 1 트랙 D: 품목 메모(기기 보관). 문구·상한·판정은 순수 모듈이 들고
 // (src/items/item-memo.ts) 저장은 기기 로컬 스토어가 맡는다 — 서버 0바이트.
@@ -363,6 +369,7 @@ export default function ItemDetailScreen() {
   // DSN-053 P2-B: 정보 카드의 "가격 비교 / 제품 정보" 탭. 기본값은 가격 비교 -- 핵심 루프의
   // 다음 칸(구매처 확인)이 첫 화면에서 바로 보여야 한다.
   const [detailTab, setDetailTab] = useState<ProductDetailTab>("price");
+  const [offerSort, setOfferSort] = useState<ProductOfferSort>("popular");
   const [clickedTitle, setClickedTitle] = useState<string | null>(null);
   /**
    * 라운드 99 F2 M-3 — **실패 안내는 성공 카드와 다른 칸이다.**
@@ -1009,6 +1016,10 @@ export default function ItemDetailScreen() {
    */
   const primaryPurchaseLink =
     filledPurchaseRowIndex >= 0 ? visibleDetail.productLinks[filledPurchaseRowIndex] : undefined;
+  const displayedProductLinks = hasSession
+    ? sortProductOffers(visibleDetail.productLinks, offerSort)
+    : visibleDetail.productLinks;
+  const lowestPriceLinkId = hasSession ? lowestPriceProductLinkId(visibleDetail.productLinks) : undefined;
   /**
    * 라운드 49 C-04: "이 준비템으로 기록한 지출" 한 줄. 세션 게이트·표기·문구는 전부 순수
    * 모듈이 정하고(src/items/linked-expense.ts) 화면은 그리기만 한다 -- 비세션 프리뷰
@@ -1257,8 +1268,36 @@ export default function ItemDetailScreen() {
               </View>
             ) : null}
 
+            {hasSession && detailTab === "price" && hasProductLinks ? (
+              <View accessibilityLabel="상품 정렬" style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                {PRODUCT_OFFER_SORT_OPTIONS.map((option) => {
+                  const selected = offerSort === option.value;
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      key={option.value}
+                      onPress={() => setOfferSort(option.value)}
+                      style={{
+                        backgroundColor: selected ? theme.colors.gray900 : theme.colors.white,
+                        borderColor: selected ? theme.colors.gray900 : theme.colors.gray300,
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8
+                      }}
+                    >
+                      <Text style={{ color: selected ? theme.colors.white : theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+
             {hasSession && detailTab === "info" ? null : hasProductLinks ? (
-              visibleDetail.productLinks.map((link, index) => {
+              displayedProductLinks.map((link) => {
                 // C3: 배지와 캡션을 한 판정에서 함께 받는다(src/items/link-marker.ts).
                 // 예전에는 배지만 3분기하고 캡션은 스폰서 여부로만 갈라, 일반 링크에
                 // "일반" 배지와 "제휴 링크" 캡션이 나란히 붙는 모순이 있었다.
@@ -1284,6 +1323,29 @@ export default function ItemDetailScreen() {
                 const linkHealthNotice = hasSession ? purchaseLinkHealthNotice(link) : undefined;
                 return (
                   <View key={link.id} style={{ gap: 6 }}>
+                    {hasSession && (link.imageUrl || link.productName) ? (
+                      <View style={{ alignItems: "center", flexDirection: "row", gap: 12 }}>
+                        {link.imageUrl ? (
+                          <Image source={{ uri: link.imageUrl }} style={{ backgroundColor: theme.colors.beige, borderRadius: 12, height: 84, width: 84 }} />
+                        ) : null}
+                        <View style={{ flex: 1, gap: 4 }}>
+                          <Text numberOfLines={3} style={{ color: theme.colors.gray900, fontSize: 14, fontWeight: "800", lineHeight: 20 }}>
+                            {link.productName ?? link.title}
+                          </Text>
+                          {link.brand ? <Text style={{ color: theme.colors.gray600, fontSize: 12 }}>{link.brand}</Text> : null}
+                          <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>
+                            {[
+                              link.rating !== undefined ? `평점 ${link.rating.toFixed(1)}` : null,
+                              link.reviewCount !== undefined ? `후기 ${link.reviewCount.toLocaleString("ko-KR")}개` : null,
+                              link.searchRank !== undefined ? `검색 ${link.searchRank}위` : null
+                            ].filter(Boolean).join(" · ")}
+                          </Text>
+                          {link.id === lowestPriceLinkId ? (
+                            <Text style={{ color: theme.colors.mainCoral, fontSize: 12, fontWeight: "800" }}>3개 중 최저가</Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    ) : null}
                     <View style={{ alignItems: "center", flexDirection: "row", gap: 8 }}>
                       <StatusBadge label={linkMarker.badgeLabel} tone={linkMarker.badgeTone} />
                       {linkMarker.caption ? (
@@ -1310,8 +1372,8 @@ export default function ItemDetailScreen() {
                          "구매하기"이고 나머지는 외곽선 "구매"다(src/ui.tsx primaryAction 주석).
                          그 한 줄은 첫 비스폰서 링크다(filledPurchaseRowIndex — DNC-011).
                          비세션 프리뷰는 종전 렌더 그대로 둔다(캡처 불변). */
-                      primaryAction={hasSession && index === filledPurchaseRowIndex}
-                      seller={link.title}
+                      primaryAction={hasSession && link.id === primaryPurchaseLink?.id}
+                      seller={hasSession ? productPlatformLabel(link.platform) : link.title}
                       price={hasSession ? linkPrice?.priceText ?? "" : visibleDetail.priceBandText ?? ""}
                       caption={hasSession ? withLinkPriceCaption(productPlatformLabel(link.platform), linkPrice) : undefined}
                       onPress={() => handleProductLinkPress(link)}

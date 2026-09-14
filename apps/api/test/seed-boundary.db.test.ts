@@ -108,14 +108,14 @@ describe.skipIf(!dbAvailable)("시드 경계 — 재시드가 어드민 편집�
     }
   }, 60_000);
 
-  it("시드 링크의 안정 키는 (준비템 코드, 플랫폼) 쌍이고 그 쌍은 시드 안에서 유일하다", () => {
+  it("시드 링크의 안정 키는 첫 링크의 기존 키와 추가 링크 슬롯 키로 유일하다", () => {
     // 이 유일성이 깨지면 부분 유니크 색인(uq_product_links_seed_key)이 시드를 멈춘다.
     // 그 전에 여기서 이름으로 말한다. CSV 일괄 교체 도구도 같은 쌍에 "정확히 1건"을
     // 요구하므로, 이 대장은 그 도구의 전제와 같은 값을 지킨다.
     const keys = productLinkSeeds.map((link) => productLinkSeedKey(link));
     expect(new Set(keys).size, `시드 키가 겹쳤어요: ${keys.length}건 중 ${new Set(keys).size}개만 유일`).toBe(keys.length);
     for (const link of productLinkSeeds) {
-      expect(productLinkSeedKey(link)).toBe(`${link.itemTemplateCode}:${link.platform}`);
+      expect(productLinkSeedKey(link).startsWith(`${link.itemTemplateCode}:${link.platform}`)).toBe(true);
     }
   });
 
@@ -188,7 +188,7 @@ describe.skipIf(!dbAvailable)("시드 경계 — 재시드가 어드민 편집�
 
     // ── 그리고 링크는 **하나도 늘지 않았다**(D3 ②의 증식).
     expect(await prisma.productLink.count()).toBe(beforeLinkCount);
-    expect(await prisma.productLink.count({ where: { itemTemplateId: template.id, platform: "coupang" } })).toBe(1);
+    expect(await prisma.productLink.count({ where: { itemTemplateId: template.id, platform: "coupang" } })).toBe(3);
 
     // 원래 값으로 되돌리는 길은 명시적 opt-in 하나뿐이고, 그 길은 실제로 동작해야 한다
     // (로컬에서 시드 데이터를 고친 뒤 dev/test DB를 맞추는 자리 — 배포 경로는 쓰지 않는다).

@@ -54,6 +54,7 @@ const prisma = new PrismaClient();
  * 데이터를 통째로 버려도 되는 자리라면 `pnpm db reset`이 여전히 더 정직한 도구다.
  */
 const OVERWRITE_CONTENT = process.env.SEED_OVERWRITE_CONTENT === "1";
+const OVERWRITE_PRODUCT_LINKS = OVERWRITE_CONTENT || process.env.SEED_OVERWRITE_PRODUCT_LINKS === "1";
 
 type SeedTally = { created: number; kept: number; overwritten: number; adopted: number };
 
@@ -449,7 +450,7 @@ async function seedProductLinks() {
         );
       }
 
-      if (!OVERWRITE_CONTENT) {
+      if (!OVERWRITE_PRODUCT_LINKS) {
         tallies.productLinks.kept += 1;
         continue;
       }
@@ -500,7 +501,15 @@ function buildProductLinkData(
     // 이미 같은 가격으로 확인 시각이 남아 있으면 그대로 둔다(시드를 다시 돌렸다는
     // 사실만으로 "방금 확인했다"고 말하지 않는다). 가격이 바뀌었거나 시각이 비어
     // 있을 때만 지금으로 채우고, 가격이 없는 링크는 시각도 없다(둘 다 NULL 규칙).
-    priceCheckedAt: resolveSeedPriceCheckedAt(link.priceSnapshotKrw, existing),
+    priceCheckedAt: link.priceCheckedAt
+      ? new Date(link.priceCheckedAt)
+      : resolveSeedPriceCheckedAt(link.priceSnapshotKrw, existing),
+    productName: link.productName ?? null,
+    brand: link.brand ?? null,
+    imageUrl: link.imageUrl ?? null,
+    rating: link.rating ?? null,
+    reviewCount: link.reviewCount ?? null,
+    searchRank: link.searchRank ?? null,
     displayOrder: link.displayOrder,
     active: link.active,
     disclosureText: link.disclosureText
@@ -517,9 +526,11 @@ function buildProductLinkData(
  * 판단이라 시드가 대신 정하지 않는다.
  */
 async function reportDuplicateSeedLinks(itemIdByCode: Map<string, string>) {
-  const seedPairs = new Set(
-    productLinkSeeds.map((link) => `${itemIdByCode.get(link.itemTemplateCode) ?? ""}|${link.platform}`)
-  );
+  const expectedByPair = new Map<string, number>();
+  for (const link of productLinkSeeds) {
+    const pair = `${itemIdByCode.get(link.itemTemplateCode) ?? ""}|${link.platform}`;
+    expectedByPair.set(pair, (expectedByPair.get(pair) ?? 0) + 1);
+  }
   const groups = await prisma.productLink.groupBy({
     by: ["itemTemplateId", "platform"],
     where: { itemTemplateId: { in: [...itemIdByCode.values()] } },
@@ -528,11 +539,11 @@ async function reportDuplicateSeedLinks(itemIdByCode: Map<string, string>) {
   const codeById = new Map([...itemIdByCode].map(([code, id]) => [id, code]));
 
   for (const group of groups) {
-    if (group._count._all <= 1) continue;
-    if (!seedPairs.has(`${group.itemTemplateId}|${group.platform}`)) continue;
+    const expected = expectedByPair.get(`${group.itemTemplateId}|${group.platform}`);
+    if (expected === undefined || group._count._all <= expected) continue;
     warnings.push(
       `product_links 중복: ${codeById.get(group.itemTemplateId) ?? group.itemTemplateId}/${group.platform} — ` +
-        `${group._count._all}행. 구매 CTA가 둘 뜨고 CSV 일괄 교체가 이 쌍을 매칭하지 못해요(정확히 1건 필요).`
+        `${group._count._all}행(시드 ${expected}행). 시드 밖의 추가 링크가 있으니 어드민에서 확인해 주세요.`
     );
   }
 }
@@ -620,6 +631,9 @@ function printSummary() {
       ? "[시드] 콘텐츠 덮어쓰기: 켜짐(SEED_OVERWRITE_CONTENT=1) — 어드민 편집분이 시드 값으로 되돌아갑니다."
       : "[시드] 콘텐츠 덮어쓰기: 꺼짐(기본) — 이미 있는 행은 어드민 편집분 그대로 둡니다."
   );
+  if (OVERWRITE_PRODUCT_LINKS && !OVERWRITE_CONTENT) {
+    console.log("[시드] 구매 링크만 덮어쓰기: 켜짐(SEED_OVERWRITE_PRODUCT_LINKS=1)");
+  }
   console.log(line("카테고리", tallies.categories));
   console.log(line("준비템", tallies.itemTemplates));
   console.log(line("준비템 단계", tallies.itemTemplateStages));

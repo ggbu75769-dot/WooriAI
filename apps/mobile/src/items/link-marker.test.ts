@@ -596,7 +596,7 @@ describe("라운드 64 #1: 전폭 구매 CTA도 같은 판정을 지난다 (DNC-
     const detail = detailSource();
 
     expect(detail).toContain("const filledPurchaseRowIndex = primaryPurchaseLinkIndex(visibleDetail.productLinks);");
-    expect(detail).toContain("primaryAction={hasSession && index === filledPurchaseRowIndex}");
+    expect(detail).toContain("primaryAction={hasSession && link.id === primaryPurchaseLink?.id}");
     // 화면이 스폰서 여부를 자기 손으로 다시 판정하지 않는다(판정은 순수 모듈 하나뿐이다).
     expect(detail).not.toContain("isSponsored)");
     expect(detail.match(/primaryPurchaseLinkIndex\(/g)).toHaveLength(1);

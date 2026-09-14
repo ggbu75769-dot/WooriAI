@@ -75,15 +75,13 @@ fly ssh console -C "pnpm --filter api exec prisma migrate status"   # "up to dat
 
 ### A-5. 시드·관리자 부트스트랩 (10분)
 ```bash
-fly ssh console -C "pnpm --filter api seed"   # 카테고리 12·준비템 62·상품링크 67 + ADMIN_SEED_* 관리자
+fly ssh console -C "pnpm --filter api seed"   # 카테고리 21·준비템 100·활성 상품링크 300 + ADMIN_SEED_* 관리자
 ```
-상품링크 수는 손으로 적지 않는다(근거: `grep -c '^    url:' apps/api/prisma/seed-data.ts` → **67**건 ·
-전부 실 쿠팡 검색 링크 — 근거: `grep -c 'url: "https://www.coupang.com/np/search' apps/api/prisma/seed-data.ts` → **67**건 ·
-example.com URL 잔존 근거: `grep -c 'https://example.com' apps/api/prisma/seed-data.ts` → **0**곳 ·
-제휴 URL은 쿠팡 파트너스 승인 전이라 근거: `grep -c 'affiliateUrl: "https' apps/api/prisma/seed-data.ts` → **0**건).
-세 시점: 라운드 82 B 이후 **62건 / 81곳** → 라운드 83 A 이후 **67건 / 86곳**(전부 example.com
-플레이스홀더) → 출시 트랙 LP-A(72h 계획 §5 **플랜 B**)가 86곳 전부를 비제휴 쿠팡 검색 링크로
-교체(활성 62 + 비활성 스폰서 슬롯 5 · 제휴/스폰서 표시 0건 · 플랜 A 전환은 아래 E절).
+상품링크 수는 손으로 적지 않는다(근거: `grep -c '"itemTemplateCode":' apps/api/prisma/product-link-catalog.json` → **300**건 ·
+실 쿠팡 파트너스 URL 근거: `grep -c '"affiliateUrl": "https://link.coupang.com/' apps/api/prisma/product-link-catalog.json` → **300**건 ·
+example.com URL 잔존 근거: `grep -c 'https://example.com' apps/api/prisma/product-link-catalog.json` → **0**곳).
+100개 준비템마다 평점 4.5 이상 상품을 3개씩 저장하며, 가격은 수집 확인 시각과 한 쌍으로만 노출한다.
+배포에서 기존 링크까지 이 카탈로그로 교체할 때는 `SEED_OVERWRITE_PRODUCT_LINKS=1`을 시드 명령에 명시한다.
 어드민 콘솔 접속은 운영자 로컬 프록시가 기본 경로다(어드민 웹은 서버에 배포되지 않음 — LP-D, 상세는 `docs/operations/admin-access.md` §운영 접근 경로):
 ```bash
 ADMIN_API_PROXY_TARGET=https://<API 도메인> pnpm --filter admin dev   # → http://localhost:3001
@@ -258,9 +256,9 @@ A-3의 `fly secrets set` 13종 + `fly.toml [env]` 4종(`NODE_ENV`·`PORT`·`TRUS
 - `WORKER_ENABLED=1`은 **머신 1대일 때만**. 수평 확장 시 워커 전용 머신 1대에만 켜세요(중복 실행 방지).
 - `TRUST_PROXY=1`은 `fly.toml [env]`에 이미 포함(Fly 엣지 프록시 1홉 뒤 실 클라이언트 IP 인식 — per-IP rate limit 필수 조건). 셀프호스트(B)도 리버스 프록시 뒤라면 동일하게 설정하세요.
 - Dockerfile은 이 저장소의 tsx 구동 방식에 맞춘 것으로, 로컬 검증 환경에 Docker 데몬이 없어 **이미지 빌드는 `fly deploy` 시점에 처음 검증됩니다** — 빌드 오류가 나면 로그를 그대로 전달해 주세요.
-- 시드의 상품링크 **67개**(수를 세는 자리는 위 A-5의 실행되는 인용이다)는 출시 트랙 LP-A(**플랜 B**, 72h 계획 §5)가 전부 **일반(비제휴) 쿠팡 검색 링크**로 교체했다 — 계정·키 없이 동작하는 실 링크라 죽은 CTA(리뷰 M-7 · 확인의 표 `#140` ⓕ / `#143` ⓖ)는 이 시점에 해소됐고, 제휴 고지·스폰서 배지는 비제휴 실태에 맞게 0건이다(스폰서 예시 다섯은 비활성 슬롯로 보존).
+- 시드의 활성 상품링크 **300개**(수를 세는 자리는 위 A-5의 실행되는 인용이다)는 100개 준비템마다 쿠팡 파트너스 상품 3개를 제공한다. 앱은 제휴 고지를 CTA 가까이에 표시하고 수수료를 추천 순위에 쓰지 않는다(비활성 스폰서 예시 다섯은 별도 보존).
   ⚠️ 역사(교체 전): 라운드 82 B 이후 58 → 62 · 라운드 83 A 이후 62 → 67, 전부 example.com 플레이스홀더 = 죽은 CTA였다 — 그중 둘(`pregnancy_vitamin`·`diaper_stock`)은 `essential`이라 홈 추천 카드의 머리에 섰다.
-  **플랜 A 전환**(쿠팡 파트너스 승인 후): `docs/5차/plan-a-affiliate-links-template.csv`의 `affiliateUrl` 칸을 파트너스 딥링크로 채워 admin 링크 페이지의 CSV 일괄 교체(미리보기 → 적용)에 업로드하면 무중단 전환된다(도구가 `isAffiliate=true`와 제휴 고지를 함께 세운다 · 도메인 allowlist 검증 자동).
+  현재 파트너스 링크·상품 이미지·제품명·브랜드 표기·가격·평점·후기 수·검색 순위의 소스는 `apps/api/prisma/product-link-catalog.json`이다.
   ⚠️ **두 시점 — 이 줄이 적던 두 문장은 오늘 둘 다 거짓이다**(라운드 107 트랙 E).
   **종전(그때는 참이었다)**: *"시드 upsert 키(itemTemplateId·platform·title)가 교체로 바뀌었으므로
   기존 dev/test DB는 재시드 대신 `pnpm db reset`"* — 그 시절 시드는 `findFirst({ itemTemplateId,

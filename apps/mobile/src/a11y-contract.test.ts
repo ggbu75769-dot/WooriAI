@@ -1333,7 +1333,7 @@ describe("GAP-064 #1 전폭 구매 CTA 라벨 계약 (스폰서 판정 게이트
     // 소리로 갈리지 않는다(A11Y-101이 고정한 라벨 배선).
     expect(source("src/ui.tsx")).toContain("accessibilityLabel={`${seller}에서 구매하기`}");
     // 강조(채움)만 판정을 따르고 행 자체는 서버가 준 순서대로 전부 그려진다(DNC-009 무접촉).
-    expect(detailSource()).toContain("primaryAction={hasSession && index === filledPurchaseRowIndex}");
+    expect(detailSource()).toContain("primaryAction={hasSession && link.id === primaryPurchaseLink?.id}");
   });
 });
 

@@ -174,6 +174,11 @@ type ProductLink = {
   isAffiliate: boolean;
   isSponsored: boolean;
   disclosureText?: string;
+  productName?: string;
+  imageUrl?: string;
+  rating?: number;
+  reviewCount?: number;
+  searchRank?: number;
 };
 
 describe("Items, commerce, and affiliate API", () => {
@@ -442,18 +447,20 @@ describe("Items, commerce, and affiliate API", () => {
       usedSecondhandOk: false
     });
     expect(carSeatDetail.reasonText.length).toBeGreaterThan(0);
-    // 플랜 B(LP-A · 72h 계획 §5): 시드 링크는 전부 일반(비제휴) 쿠팡 검색 링크다 — 제휴
-    // 고지도 스폰서 배지도 서지 않아야 한다(수수료를 받지 않는 링크의 고지는 허위 고지 ·
-    // DNC-010/DNC-011의 반대 방향 오류). 스폰서 예시는 비활성 슬롯이라 상세(active만 내리는
-    // 집합)에 나타나지 않는다.
-    expect(carSeatDetail.productLinks.length).toBeGreaterThan(0);
-    // (DTO는 원문 url을 싣지 않는다 — 클릭/공유는 리다이렉트를 지난다. URL 자체가 실 쿠팡
-    // 검색 링크라는 사실은 시드 계약 apps/api/test/seed-data.test.ts가 잠근다.)
-    for (const link of carSeatDetail.productLinks) {
+    const coupangCatalogLinks = carSeatDetail.productLinks.filter(
+      (link) => link.platform === "coupang" && link.isAffiliate
+    );
+    expect(coupangCatalogLinks).toHaveLength(3);
+    for (const link of coupangCatalogLinks) {
       productLinkSchema.parse(link);
-      expect(link.isAffiliate).toBe(false);
+      expect(link.isAffiliate).toBe(true);
       expect(link.isSponsored).toBe(false);
-      expect(link.disclosureText ?? "").not.toContain("제휴");
+      expect(link.disclosureText ?? "").toContain("수수료");
+      expect(link.productName).toEqual(expect.any(String));
+      expect(link.imageUrl).toMatch(/^https:\/\//);
+      expect(link.rating).toBeGreaterThanOrEqual(4.5);
+      expect(link.reviewCount).toBeGreaterThanOrEqual(0);
+      expect(link.searchRank).toBeGreaterThan(0);
     }
 
     const strollerDetail = (

@@ -52,6 +52,12 @@ type ProductLinkRow = {
   isAffiliate: boolean;
   isSponsored: boolean;
   disclosureText: string | null;
+  productName?: string | null;
+  brand?: string | null;
+  imageUrl?: string | null;
+  rating?: number | null;
+  reviewCount?: number | null;
+  searchRank?: number | null;
   displayOrder: number;
   active: boolean;
   // COM-105 link health (migration 000009): "ok" | "broken" | "unstable",
@@ -936,6 +942,12 @@ export class ItemsCatalogService {
       isAffiliate: link.isAffiliate,
       isSponsored: link.isSponsored,
       disclosureText: link.disclosureText ?? this.defaultDisclosureFor(link, disclosures),
+      ...(link.productName ? { productName: link.productName } : {}),
+      ...(link.brand ? { brand: link.brand } : {}),
+      ...(link.imageUrl ? { imageUrl: link.imageUrl } : {}),
+      ...(link.rating !== null && link.rating !== undefined ? { rating: link.rating } : {}),
+      ...(link.reviewCount !== null && link.reviewCount !== undefined ? { reviewCount: link.reviewCount } : {}),
+      ...(link.searchRank !== null && link.searchRank !== undefined ? { searchRank: link.searchRank } : {}),
       ...datedPrice,
       ...(appHealthStatus ? { healthStatus: appHealthStatus } : {})
     };
@@ -1036,6 +1048,12 @@ export class ItemsCatalogService {
       isAffiliate: link.isAffiliate,
       isSponsored: link.isSponsored,
       disclosureText,
+      productName: link.productName ?? null,
+      brand: link.brand ?? null,
+      imageUrl: link.imageUrl ?? null,
+      rating: link.rating ?? null,
+      reviewCount: link.reviewCount ?? null,
+      searchRank: link.searchRank ?? null,
       // 제휴가 아닌 링크는 종전 그대로다 — 없는 수수료 고지를 지어내지 않는다(라운드 43 M-1).
       shareDisclosureText: link.isAffiliate
         ? withCommissionDisclosure(disclosureText, disclosures.get("affiliate_purchase"))
