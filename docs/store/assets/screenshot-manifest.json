@@ -8,7 +8,7 @@
       "build": "expo-web-dev + Playwright Chromium 1194 (viewport 390x844 @3x, EXPO_PUBLIC_PIXEL_LOCK=1, pixel-lock?screen=HOME-001)",
       "commit": "1271880",
       "capturedAt": "2026-09-02",
-      "note": "컨테이너 expo web 캡처 — 실기기 캡처 아님. 종전 스토어 원본 3장도 expo web 픽셀락 라이브 캡처였음(docs/ui-pixel-lock/live-screenshots/manifest.json). 실기기 재촬영은 선택 개선."
+      "note": "Expo Web Pixel Lock 캡처이며 일반 실행 Android 화면과 다름. 제출 전 운영 AAB 일반 경로의 실제 화면으로 교체 필요."
     }
   },
   {
@@ -20,7 +20,7 @@
       "build": "expo-web-dev + Playwright Chromium 1194 (viewport 390x844 @3x, EXPO_PUBLIC_PIXEL_LOCK=1, pixel-lock?screen=FAM-001)",
       "commit": "1271880",
       "capturedAt": "2026-09-02",
-      "note": "컨테이너 expo web 캡처 — 실기기 캡처 아님. 종전 스토어 원본 3장도 expo web 픽셀락 라이브 캡처였음(docs/ui-pixel-lock/live-screenshots/manifest.json). 실기기 재촬영은 선택 개선."
+      "note": "Expo Web Pixel Lock 캡처이며 일반 실행 Android 화면과 다름. 제출 전 운영 AAB 일반 경로의 실제 화면으로 교체 필요."
     }
   },
   {
@@ -32,7 +32,7 @@
       "build": "expo-web-dev + Playwright Chromium 1194 (viewport 390x844 @3x, EXPO_PUBLIC_PIXEL_LOCK=1, pixel-lock?screen=IMP-003)",
       "commit": "1271880",
       "capturedAt": "2026-09-02",
-      "note": "컨테이너 expo web 캡처 — 실기기 캡처 아님. 종전 스토어 원본 3장도 expo web 픽셀락 라이브 캡처였음(docs/ui-pixel-lock/live-screenshots/manifest.json). 실기기 재촬영은 선택 개선."
+      "note": "Expo Web Pixel Lock 캡처이며 일반 실행 Android 화면과 다름. 제출 전 운영 AAB 일반 경로의 실제 화면으로 교체 필요."
     }
   }
 ]
