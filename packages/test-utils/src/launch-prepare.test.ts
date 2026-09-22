@@ -10,10 +10,11 @@ const htmlTargets = [
   "infra/legal/terms-of-service.html", "infra/legal/privacy-policy.html", "infra/legal/account-deletion.html",
   "infra/site/index.html", "infra/site/faq.html", "infra/site/support.html"
 ];
-const template = '<p>[운영 주체명] · [지원 이메일] · [출시일]</p><p>[적용 법령·기간은 법률 검토 시 확정]</p>';
+const template = '<p>[운영 주체명] · [지원 이메일] · [출시일]</p><p>[호스팅 사업자명 — 확정 후 기재]</p><p>[적용 법령·기간은 법률 검토 시 확정]</p>';
 const config = {
   operatorName: "우리아이 & 부모 <운영>", supportEmail: "help@wooriai.test", domain: "api.wooriai.test",
-  launchDate: "2026-09-15", siteDomain: "wooriai.test", kakao: { restApiKey: "synthetic-kakao-key", clientSecret: "synthetic-kakao-secret" }
+  launchDate: "2026-09-15", siteDomain: "wooriai.test", hostingProvider: "검증용 호스팅",
+  kakao: { restApiKey: "synthetic-kakao-key", clientSecret: "synthetic-kakao-secret" }
 };
 
 function fixture(overrides = {}) {
@@ -74,6 +75,7 @@ describe("launch preparation on the host platform", () => {
     for (const file of htmlTargets) {
       const html = readFileSync(join(directory, file), "utf8");
       expect(html).toContain("우리아이 &amp; 부모 &lt;운영&gt;");
+      expect(html).toContain("검증용 호스팅");
       expect(html).toContain("[적용 법령·기간은 법률 검토 시 확정]");
     }
     const second = cli(directory);
@@ -87,6 +89,15 @@ describe("launch preparation on the host platform", () => {
     expect(cli(directory).status).toBe(1);
     expect(readFileSync(join(directory, htmlTargets[0]), "utf8")).toBe(template);
     expect(existsSync(join(directory, ".env.production"))).toBe(false);
+  });
+
+  it("refuses to name a guessed legal hosting provider when the real provider is unknown", () => {
+    const directory = fixture({ hostingProvider: "" });
+    const result = cli(directory, ["--check"]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("hostingProvider");
+    expect(existsSync(join(directory, ".env.production"))).toBe(false);
+    for (const file of htmlTargets) expect(readFileSync(join(directory, file), "utf8")).toBe(template);
   });
 
   it("does not echo a malformed config containing a key", () => {

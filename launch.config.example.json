@@ -2,7 +2,7 @@
 //
 // 사용법:
 //   1) cp launch.config.example.json launch.config.json
-//   2) 아래 [필수] 4개(+ 카카오 키)를 채운다 (5분)
+//   2) 아래 [필수] 5개(+ 카카오 키)를 채운다
 //   3) pnpm launch:prepare
 //
 // ⚠️ launch.config.json에는 카카오 키가 들어가므로 커밋 금지 (.gitignore에 등록되어 있음).
@@ -48,9 +48,8 @@
   // 사업자라면 실제 책임자 성명으로 채우는 것을 권장.
   "privacyOfficerName": "",
 
-  // [선택] 호스팅 사업자(개인정보 처리 수탁업체 표에 기재) —
-  // 비우면 "Oracle Cloud Infrastructure(오라클 클라우드)" (docs/5차/oracle-free-deploy-runbook.md 기준).
-  // Fly.io 등 다른 곳에 배포한다면 그 사업자명으로 채울 것.
+  // [필수] 실제 호스팅 사업자(개인정보 처리 수탁업체 표에 기재).
+  // API·DB를 실제로 운영하는 사업자를 확정한 뒤 입력한다. 배포 전에는 추정하지 않는다.
   "hostingProvider": "",
 
   // [선택] 푸시 발송 사업자 — 비우면 "Google LLC(Firebase Cloud Messaging — 푸시 알림 기능 사용 시)".

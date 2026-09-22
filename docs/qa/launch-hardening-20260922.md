@@ -43,7 +43,7 @@
 | 16KB RELRO 보호 범위 | 64비트 28/28 라이브러리의 보호 범위가 다른 쓰기 데이터를 침범하지 않음 | `final-apk-elf-protection.json` |
 | Android 일반 화면 | 온보딩·지출·총액·준비템·연결 지출·CSV·오프라인, 최종 APK의 수정·선물 제외·삭제·PIN 검증 PASS | 아래 Android 검증, `android-runtime/` |
 | 최종 Android 설정 회귀 | 4개 파일 29개 테스트 및 모바일 typecheck PASS | `android-final-config-tests.log` |
-| 출시 입력 검사 | EXTERNAL_BLOCKED — 필수 4개 값 미입력 | `launch-input-check.log` |
+| 출시 입력 검사 | EXTERNAL_BLOCKED — 당시 필수 4개 값 미입력; 2026-09-23 실제 호스팅 사업자도 필수로 변경 | `launch-input-check.log` |
 | 운영 AAB 사전 검사 | EXTERNAL_BLOCKED — 운영 API 주소 미입력, 빌드 전 중단 | `aab-readiness-check.log` |
 | Docker API·관리자 이미지 | 두 이미지 빌드 PASS, 최종 API·관리자·PostgreSQL healthy | `docker-api-bootstrap-fix-build.log`, `docker-admin-build-final.log`, `docker-final-state.txt` |
 | Docker 마이그레이션·시드 | 27개 마이그레이션 PASS, 재시드 시 기존 콘텐츠 보존 | `docker-migration.log`, `docker-seed.log`, `docker-seed-idempotent.log` |
@@ -128,7 +128,7 @@ Docker Desktop의 시작을 막던 0바이트 IPC 소켓 디렉터리를 원본 
 
 ## 제출 전 필요한 실제 입력
 
-1. `launch.config.json`의 운영자명, 문의 이메일, 서비스 도메인, 출시일.
+1. `launch.config.json`의 운영자명, 문의 이메일, 서비스 도메인, 시행일, 실제 호스팅 사업자.
 2. 카카오 앱 생성·키 보관·OIDC 활성화는 2026-09-23 완료했다. 운영 도메인이 정해지면 HTTPS callback을 등록한다. 서버와 앱의 callback은 `https://<도메인>/api/v1/auth/kakao/callback`으로 일치시킨다. 앱 복귀용 `wooriai://oauth/kakao`는 카카오 콘솔 등록 URL과 다르다.
 3. 실제 운영 서버와 HTTPS 도메인 연결, 약관·개인정보·지원·계정 삭제 페이지 공개, 운영 값으로 로그인 및 핵심 흐름 확인.
 4. Play 개발자 계정, 최종 앱 정보·정책 문서·데이터 보안 응답 확인, 서명된 운영 AAB의 내부 트랙 설치 검증 및 심사 제출.
@@ -159,3 +159,9 @@ Docker Desktop의 시작을 막던 0바이트 IPC 소켓 디렉터리를 원본 
 기존 `docs/store/assets` 휴대전화 스크린샷은 2026-09-02 Pixel Lock 웹 캡처에서 합성한 것이다. 최종 standalone APK의 일반 실행 캡처(`artifacts/launch-20260922/android-runtime/final-*.png`)와 화면 구성이 다르다. 스토어 제출 전에 운영 AAB의 실제 화면과 대조해 자산을 교체하거나 일치 근거를 확보해야 한다. [Google의 미리보기 자산 정책](https://support.google.com/googleplay/android-developer/answer/9866151)은 실제 앱 경험을 보여야 하며 원본 스크린샷의 긴 변이 짧은 변의 2배를 초과할 수 없다고 규정한다. 현재 에뮬레이터 원본은 1080×2400이므로 그대로 업로드할 수 없다.
 
 2026-09-23에 같은 프로젝트 전용 API 36 AVD를 다시 기동해 1080×1920 원본을 직접 찍으려 했으나, 호스트의 하드웨어 가속이 차단되어 에뮬레이터가 기동하지 않았다. 소프트웨어 가속 해제 경로도 기기 연결까지 진행되지 않아 종료했다. 다른 프로젝트의 AVD나 호스트 부팅 설정은 변경하지 않았다. 기존 2026-09-22 일반 실행 캡처는 보존했고, 제출용 스크린샷 교체는 미완료다.
+
+## 2026-09-23 실제 호스팅 사업자 안전장치·전체 재검증
+
+`launch:prepare`가 호스팅 사업자 미입력 시 Oracle Cloud를 자동으로 개인정보처리방침에 적던 경로를 제거했다. `hostingProvider`를 다섯 번째 필수 운영 입력으로 만들고, 실제 사업자를 모르면 HTML·운영 환경 파일을 수정하지 않도록 회귀 테스트를 추가했다. 현재 `launch.config.json`의 운영자명·문의 이메일·API 도메인·시행일·호스팅 사업자는 모두 미확정이므로 `pnpm launch:prepare --check`는 해당 5개 필드를 명시하며 중단한다. 카카오 키는 별도 로컬 파일에 유지된다.
+
+변경 후 `pnpm --filter @wooriai/test-utils exec vitest run src/launch-prepare.test.ts` 18/18, `pnpm typecheck:scripts` PASS. 로컬 PostgreSQL을 기동해 `pnpm release:gate`를 다시 실행했고 13/13 PASS였다. 고유 자동 테스트는 517개 파일 9,379개(공통 696·관리자 838·도메인 139·API 1,055·계약 87·모바일 6,564), 별도 API E2E는 14개 파일 161개 PASS이며 고유 합계에 중복 합산하지 않는다. 운영 의존성 감사는 high/critical 0, moderate 1이다. 증거는 `artifacts/launch-20260922/release-gate-hosting-provider-20260923.log`와 `docs/qa/evidence/latest-release-gate.md`에 기록했고 테스트용 로컬 DB는 검증 후 종료했다. 이 결과는 운영 배포·실제 카카오 로그인·Play 내부 트랙 검증을 뜻하지 않는다.

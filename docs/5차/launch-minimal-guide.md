@@ -12,7 +12,7 @@
 cp launch.config.example.json launch.config.json
 ```
 
-파일을 열어 **[필수] 4개**를 채운다(각 항목의 한국어 주석 참고):
+파일을 열어 **[필수] 5개**를 채운다(각 항목의 한국어 주석 참고):
 
 | 필드 | 내용 | 예 |
 |---|---|---|
@@ -20,10 +20,11 @@ cp launch.config.example.json launch.config.json
 | `supportEmail` | 실제 수신 가능한 지원 이메일 | `help@example.com` |
 | `domain` | API 서버 도메인(스킴 없이) | `wooriai.duckdns.org` |
 | `launchDate` | 시행일(출시일), YYYY-MM-DD | `2026-09-15` |
+| `hostingProvider` | API·DB를 운영할 실제 호스팅 사업자 | `실제 배포 사업자명` |
 
 카카오 REST API 키와 서버 전용 Client Secret(`kakao.restApiKey`, `kakao.clientSecret`)은 developers.kakao.com에서 발급받아 채운다 —
 **비워 두어도 진행된다**(카카오 단계만 건너뛰고 표식이 남는다. 발급은 심사 없이 즉시,
-`docs/5차/launch-72h-plan.md` §1 참고). `siteDomain` 등 [선택] 항목은 비우면 합리적
+`docs/5차/launch-72h-plan.md` §1 참고). `siteDomain` 등 [선택] 항목은 비우면 정해진
 기본값이 쓰인다.
 
 ⚠️ `launch.config.json`과 `.env.production`은 .gitignore 대상 — 커밋하지 않는다.

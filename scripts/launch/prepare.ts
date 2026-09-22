@@ -59,7 +59,7 @@ if (!existsSync(CONFIG_PATH)) {
       "[launch:prepare] launch.config.json이 없습니다.",
       "",
       "  1) cp launch.config.example.json launch.config.json",
-      "  2) 파일 안 [필수] 4개(운영 주체명·지원 이메일·도메인·시행일)와 카카오 키를 채운다",
+      "  2) 파일 안 [필수] 5개(운영 주체명·지원 이메일·도메인·시행일·실제 호스팅 사업자)와 카카오 키를 채운다",
       "  3) pnpm launch:prepare 재실행",
       "",
       "  (launch.config.json은 .gitignore 대상 — 커밋되지 않습니다)"
@@ -149,7 +149,7 @@ function normalizeLaunchDate(value: string): string {
   return iso;
 }
 
-const missingRequired = (["operatorName", "supportEmail", "domain", "launchDate"] as const).filter(
+const missingRequired = (["operatorName", "supportEmail", "domain", "launchDate", "hostingProvider"] as const).filter(
   (key) => str(key) === ""
 );
 if (missingRequired.length > 0) {
@@ -178,7 +178,7 @@ const config: LaunchConfig = {
 
 const siteDomain = config.siteDomain || config.domain;
 const privacyOfficer = config.privacyOfficerName || config.operatorName;
-const hostingProvider = config.hostingProvider || "Oracle Cloud Infrastructure(오라클 클라우드)";
+const hostingProvider = config.hostingProvider;
 const pushProvider = config.pushProvider || "Google LLC(Firebase Cloud Messaging — 푸시 알림 기능 사용 시)";
 const kakaoConfigured = config.kakao.restApiKey !== "";
 const kakaoRedirectUri = `https://${config.domain}/api/v1/auth/kakao/callback`;
