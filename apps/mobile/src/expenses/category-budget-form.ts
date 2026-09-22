@@ -268,6 +268,9 @@ export type CategoryCarryOverChip = {
 };
 
 export type CategoryCarryOverChipInput = {
+  /** 새 달에는 활성 분류만 저장할 수 있다. 목록을 모르면 이월도 제안하지 않는다. */
+  categories: ReadonlyArray<SelectableCategory> | null | undefined;
+  householdId?: string | null;
   /** 이번 달 총액 예산이 없다고 **확인된** 상태인가(budget.data === null — 조회 전이면 false). */
   thisMonthBudgetMissing: boolean;
   /** 지난달 예산 응답의 categoryBudgets(§2.3이 공짜로 실어 준다 — 추가 요청 0건). */
@@ -283,12 +286,24 @@ export type CategoryCarryOverChipInput = {
  */
 export function buildCategoryCarryOverChip(input: CategoryCarryOverChipInput): CategoryCarryOverChip | null {
   if (!input.thisMonthBudgetMissing) return null;
-  const prefillDigits = categoryBudgetInitialDigits(input.lastMonthEntries);
+  const lastMonthDigits = categoryBudgetInitialDigits(input.lastMonthEntries);
+  // 서버 requireBudgetableCategories와 같은 신규 월 규칙이다. selectable은 조건이 아니다:
+  // 이미 저장된 활성 별칭 예산도 이월할 수 있어야 한다. 기존 달의 보관 분류 예산은 건드리지 않는다.
+  const eligibleIds = new Set((input.categories ?? [])
+    .filter((category) => category.active !== false &&
+      (category.householdId == null || category.householdId === input.householdId))
+    .map((category) => category.id));
+  const prefillDigits = Object.fromEntries(
+    Object.entries(lastMonthDigits).filter(([categoryId]) => eligibleIds.has(categoryId))
+  );
   if (Object.keys(prefillDigits).length === 0) return null;
   if (filledAmounts(input.draft).size > 0) return null;
+  const label = Object.keys(prefillDigits).length === Object.keys(lastMonthDigits).length
+    ? "지난달 카테고리 예산 그대로"
+    : "사용 중인 지난달 카테고리 예산만";
   return {
-    label: "지난달 카테고리 예산 그대로",
-    accessibilityLabel: "지난달 카테고리 예산 그대로 채우기",
+    label,
+    accessibilityLabel: `${label} 채우기`,
     prefillDigits
   };
 }

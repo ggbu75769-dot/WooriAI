@@ -64,7 +64,8 @@ const appRelative = (absolutePath: string) => relative(appRoot, absolutePath).sp
  * 파일로 세어져** 대장·겹침 스윕이 통째로 어긋난다 — `src/a11y-contract.test.ts`의 라우트 전수가
  * 같은 제외를 이미 진다(같은 모집단은 같은 규칙으로 센다).
  */
-const isRouteModule = (file: string) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file);
+// Expo's native intent rewriter is a lifecycle hook, not a navigable screen.
+const isRouteModule = (file: string) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file) && file !== "+native-intent.ts";
 const isLayout = (file: string) => /(^|\/)_layout\.tsx?$/.test(file);
 
 /** 라우트 파일 전수 — 레이아웃(`_layout`)은 화면이 아니라 껍데기라 뺀다(아래에서 따로 센다). */

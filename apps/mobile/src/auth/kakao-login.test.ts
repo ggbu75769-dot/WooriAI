@@ -1,10 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { redirectSystemPath } from "../../app/+native-intent";
 import {
   buildKakaoAuthorizeUrl,
   getKakaoEnvConfig,
   isKakaoLoginAvailable,
   KAKAO_AUTHORIZE_ENDPOINT,
+  KAKAO_APP_RETURN_URI,
   KakaoLoginCancelledError,
   KakaoLoginError,
   loginWithKakao,
@@ -13,9 +15,10 @@ import {
 } from "./kakao-login";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api/v1";
+vi.mock("expo-crypto", () => ({ getRandomBytesAsync: async (length: number) => new Uint8Array(randomBytes(length)) }));
 
 const CLIENT_ID = "test-kakao-rest-key";
-const REDIRECT_URI = "wooriai://oauth/kakao";
+const REDIRECT_URI = "https://api.wooriai.test/api/v1/auth/kakao/callback";
 
 function stubKakaoEnv({ enabled = "1", clientId = CLIENT_ID, redirectUri = REDIRECT_URI } = {}) {
   vi.stubEnv("EXPO_PUBLIC_KAKAO_ENABLED", enabled);
@@ -105,23 +108,38 @@ describe("AUTH-102 authorize URL construction", () => {
 });
 
 describe("AUTH-102 redirect URL parsing", () => {
+  it("keeps OAuth returns on login and strips callback credentials from route params", () => {
+    for (const initial of [true, false]) {
+      expect(redirectSystemPath({ path: `${KAKAO_APP_RETURN_URI}?code=c&state=s1`, initial })).toBe(initial ? "/(auth)/login" : "");
+    }
+    const invite = "wooriai://family/accept/invite-token";
+    expect(redirectSystemPath({ path: invite, initial: false })).toBe(invite);
+  });
+  it("rejects lookalike app paths and validates state before provider errors", () => {
+    expect(() => parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}-evil?code=c&state=s1`, "s1")).toThrowError(
+      expect.objectContaining({ code: "KAKAO_REDIRECT_INVALID" })
+    );
+    expect(() => parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}?error=access_denied&state=wrong`, "s1")).toThrowError(
+      expect.objectContaining({ code: "KAKAO_STATE_MISMATCH" })
+    );
+  });
   it("extracts the code when the state echo matches", () => {
-    expect(parseKakaoRedirectUrl(`${REDIRECT_URI}?code=auth-code-1&state=s1`, "s1")).toEqual({
+    expect(parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}?code=auth-code-1&state=s1`, "s1")).toEqual({
       code: "auth-code-1"
     });
   });
 
   it("rejects a state mismatch before trusting the code", () => {
-    expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?code=auth-code-1&state=evil`, "s1")).toThrowError(
+    expect(() => parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}?code=auth-code-1&state=evil`, "s1")).toThrowError(
       expect.objectContaining({ code: "KAKAO_STATE_MISMATCH" })
     );
   });
 
   it("surfaces Kakao's access_denied as a cancellation, other errors as provider errors", () => {
-    expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=access_denied&state=s1`, "s1")).toThrowError(
+    expect(() => parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}?error=access_denied&state=s1`, "s1")).toThrowError(
       KakaoLoginCancelledError
     );
-    expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=server_error&state=s1`, "s1")).toThrowError(
+    expect(() => parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}?error=server_error&state=s1`, "s1")).toThrowError(
       expect.objectContaining({ code: "KAKAO_PROVIDER_ERROR" })
     );
   });
@@ -136,7 +154,7 @@ describe("AUTH-102 redirect URL parsing", () => {
       temporarily_unavailable: "카카오 서비스를 지금 이용할 수 없어요. 잠시 후 다시 시도해 주세요."
     };
     for (const [code, message] of Object.entries(fixedMessages)) {
-      expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=${code}&state=s1`, "s1")).toThrowError(
+      expect(() => parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}?error=${code}&state=s1`, "s1")).toThrowError(
         expect.objectContaining({ code: "KAKAO_PROVIDER_ERROR", message })
       );
     }
@@ -145,7 +163,7 @@ describe("AUTH-102 redirect URL parsing", () => {
   it("never echoes an arbitrary redirect error param verbatim: unknown codes are sanitized to [a-z_-] (max 32 chars) inside a generic message", () => {
     // HTML/script-looking payloads: the dangerous characters are stripped before display.
     const attack = encodeURIComponent('<script>alert("PWNED")</script>');
-    expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=${attack}&state=s1`, "s1")).toThrowError(
+    expect(() => parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}?error=${attack}&state=s1`, "s1")).toThrowError(
       expect.objectContaining({
         code: "KAKAO_PROVIDER_ERROR",
         message: "카카오 인증에 실패했어요. (scriptalertpwnedscript)"
@@ -154,12 +172,12 @@ describe("AUTH-102 redirect URL parsing", () => {
 
     // Unknown-but-plausible codes survive (as safe context), truncated to 32 chars.
     const long = "some_very_long_unknown_error_code_from_kakao";
-    expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=${long}&state=s1`, "s1")).toThrowError(
+    expect(() => parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}?error=${long}&state=s1`, "s1")).toThrowError(
       expect.objectContaining({ message: `카카오 인증에 실패했어요. (${long.slice(0, 32)})` })
     );
 
     // A value that sanitizes to nothing falls back to the bare generic message.
-    expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?error=1234!%40%23&state=s1`, "s1")).toThrowError(
+    expect(() => parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}?error=1234!%40%23&state=s1`, "s1")).toThrowError(
       expect.objectContaining({ message: "카카오 인증에 실패했어요." })
     );
   });
@@ -172,7 +190,7 @@ describe("AUTH-102 redirect URL parsing", () => {
   });
 
   it("rejects a redirect with no code at all", () => {
-    expect(() => parseKakaoRedirectUrl(`${REDIRECT_URI}?state=s1`, "s1")).toThrowError(
+    expect(() => parseKakaoRedirectUrl(`${KAKAO_APP_RETURN_URI}?state=s1`, "s1")).toThrowError(
       expect.objectContaining({ code: "KAKAO_REDIRECT_INVALID" })
     );
   });
@@ -231,6 +249,8 @@ describe("AUTH-102 loginWithKakao end-to-end wiring (fetch mocked)", () => {
     expect(authorizeParams.code_challenge).toBe(codeChallenge);
     expect(authorizeParams.code_challenge_method).toBe("S256");
     expect(authorizeParams.client_id).toBe(CLIENT_ID);
+    expect(authorizeParams.redirect_uri).toBe(REDIRECT_URI);
+    expect(openAuthSession).toHaveBeenCalledWith(openedAuthorizeUrl, KAKAO_APP_RETURN_URI, expect.any(Number));
 
     // exchange payload: exact DTO shape, verifier hashes to the challenge sent to prepare.
     const exchangeRequest = requests[1];
@@ -293,6 +313,13 @@ describe("AUTH-102 loginWithKakao end-to-end wiring (fetch mocked)", () => {
     await expect(loginWithKakao()).rejects.toMatchObject({ code: "KAKAO_NOT_CONFIGURED" });
     await expect(loginWithKakao()).rejects.toBeInstanceOf(KakaoLoginError);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never starts an OAuth transaction when secure randomness is unavailable", async () => {
+    const prepare = vi.fn();
+    await expect(loginWithKakao({ prepare, createPkce: async () => { throw new Error("secure randomness unavailable"); } }))
+      .rejects.toThrow("secure randomness unavailable");
+    expect(prepare).not.toHaveBeenCalled();
   });
 
   it("propagates a prepare failure (e.g. redirect URI not allowlisted server-side)", async () => {

@@ -22,6 +22,7 @@ COPY packages/domain/package.json packages/domain/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/test-utils/package.json packages/test-utils/package.json
+COPY patches patches
 
 # 루트(tsx)와 api 및 그 워크스페이스 의존성만 설치 — mobile/admin 의존성 제외로 이미지 경량화
 RUN pnpm install --frozen-lockfile --filter . --filter api...

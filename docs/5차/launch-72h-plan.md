@@ -8,10 +8,11 @@
 스토어 *공개*는 우리가 통제할 수 없는 두 가지에 걸립니다 — 반드시 미리 인지하세요:
 
 1. **Google 심사 기간**: 보통 1~7일.
-2. **신규 개인 개발자 계정 제한**: 2023-11 이후 만든 *개인* Play Console 계정은 프로덕션 공개 전
-   **테스터 20명 × 14일 비공개 테스트**가 강제됩니다. **법인/조직 계정은 면제.**
-   → 개인 계정으로 갈 거라면 3일 안에 "비공개 테스트 시작"이 최대치이고,
-   조직 계정(사업자 필요)이면 3일 안에 프로덕션 심사 제출까지 가능합니다. **D-02(운영 주체) 결정이 곧 출시 속도입니다.**
+2. **신규 개인 개발자 계정 제한**: 2023-11-13 이후 만든 *개인* Play Console 계정은
+   **최소 12명이 14일 연속 참여를 유지하는 비공개 테스트** 후 프로덕션 액세스를 신청합니다.
+   [Google 공식 요건](https://support.google.com/googleplay/android-developer/answer/14151465?hl=ko)(2026-09-11 확인).
+   계정 유형은 실제 운영 주체에 맞춥니다. 테스트 기간 충족은 자동 승인·공개를 뜻하지 않습니다.
+   이 요건이 적용되는 신규 계정의 72시간 목표는 테스트 준비·시작이며, 신원 확인과 심사 일정은 별도입니다.
 
 Android 단독 출시입니다(iOS는 다음 사이클 — D-04 결정 반영).
 
@@ -19,7 +20,7 @@ Android 단독 출시입니다(iOS는 다음 사이클 — D-04 결정 반영).
 
 전부 사용자 본인만 할 수 있는 것들입니다. 오늘 안에 전부 "신청"까지 끝내세요.
 
-- [ ] **Google Play Console 등록** ($25, 결제 즉시). 가능하면 **조직(사업자) 계정** — 위 14일 규칙 회피.
+- [ ] **Google Play Console 등록** — 실제 운영 주체에 맞는 계정 유형을 선택하고 콘솔의 비용·신원 확인·테스트 요구사항을 확인.
 - [ ] **카카오 개발자 앱 생성** (developers.kakao.com) → 네이티브/REST 키 확보. 심사 없이 즉시 발급.
 - [ ] **쿠팡 파트너스 가입 신청** — 승인까지 수일 걸릴 수 있음. *출시 차단 요소 아님*(§5 참고).
 - [ ] **도메인 구입** (예: wooriai.app / woori-ai.kr) — 초대 링크·API·개인정보처리방침 호스팅에 필요.
@@ -50,7 +51,7 @@ AFFILIATE_ALLOWED_DOMAINS=coupang.com,link.coupang.com,naver.com,smartstore.nave
 AFFILIATE_DISCLOSURE_TEXT=이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.
 WOORIAI_ADMIN_TOKEN ← openssl rand -base64 32 (부트 필수 — dev/test 외에는 헤더 인증에 안 쓰이지만 부재 시 부트 실패)
 OAUTH_KAKAO_CLIENT_ID / OAUTH_KAKAO_CLIENT_SECRET ← 카카오 콘솔
-OAUTH_KAKAO_REDIRECT_URIS=wooriai://oauth/kakao
+OAUTH_KAKAO_REDIRECT_URIS=https://<도메인>/api/v1/auth/kakao/callback
 INVITE_LINK_BASE_URL=https://<확정 도메인>   ← 가족 초대 링크 도메인 (REL-007)
 ADMIN_SEED_EMAIL / ADMIN_SEED_PASSWORD ← 관리자 1호 시드용 (§2.3)
 TRUST_PROXY=1             ← 리버스 프록시/Fly 엣지 1홉 뒤일 때 (per-IP rate limit 조건, fly.toml [env]에 이미 포함)
@@ -75,7 +76,7 @@ FCM_SERVICE_ACCOUNT_PATH=<Firebase 서비스 계정 JSON "파일 경로"> ← PU
 
 ### 3.2 프로덕션 빌드
 - [ ] `.env`: `EXPO_PUBLIC_API_BASE_URL=https://<도메인>/api/v1`, `EXPO_PUBLIC_KAKAO_ENABLED=1`,
-  `EXPO_PUBLIC_KAKAO_CLIENT_ID`, `EXPO_PUBLIC_KAKAO_REDIRECT_URI=wooriai://oauth/kakao`, `EXPO_PUBLIC_TEST_LOGIN=0`
+  `EXPO_PUBLIC_KAKAO_CLIENT_ID`, `EXPO_PUBLIC_KAKAO_REDIRECT_URI=https://<도메인>/api/v1/auth/kakao/callback`, `EXPO_PUBLIC_TEST_LOGIN=0`
 - [ ] 카카오 콘솔에 redirect URI 등록(서버 allowlist와 동일 값)
 - [ ] `expo prebuild --platform android` — Round 5A 빌드 노트의 gradle·네트워크 보안 설정 2종은 REL-009 config plugin(`apps/mobile/plugins/with-wooriai-android-release.js`)이 **자동 적용**(손패치 불필요). 패키지명·버전은 env로 주입: `WOORIAI_ANDROID_PACKAGE=<확정 패키지명> WOORIAI_APP_VERSION=1.0.0 WOORIAI_ANDROID_VERSION_CODE=1`
 - [ ] 스토어 제출용은 APK가 아닌 **AAB** — REL-011 원커맨드 파이프라인 (§3.1 keystore만 준비되면 명령 하나):
@@ -109,7 +110,7 @@ FCM_SERVICE_ACCOUNT_PATH=<Firebase 서비스 계정 JSON "파일 경로"> ← PU
 - [ ] 스토어 자산: 스크린샷 4~8장(홈/기록/준비템/리포트/100일 리포트 — pixel-lock 캡처 재활용 가능), 512 아이콘, 1024×500 그래픽, 앱 설명(§6 문구 초안)
 - [ ] **내부 테스트 트랙에 AAB 업로드 → 자가 설치 검증 → 심사 제출**
   - 조직 계정: 프로덕션 심사 제출까지
-  - 개인 계정: 비공개 테스트 시작 + 테스터 20명 모집 개시(가족·맘카페·지인)
+  - 2023-11-13 이후 생성된 개인 계정: 비공개 테스트 시작 + 최소 12명 모집(14일 연속 참여 유지; 실제 사용 의견 수집)
 - [ ] 크래시 모니터링: 최소 Play Console 자동 수집으로 시작(Sentry는 출시 후 1주 내 추가 권장)
 
 ## 5. 제휴 링크 전략 (쿠팡 승인 대기와 무관하게 출시)
@@ -153,7 +154,7 @@ FCM_SERVICE_ACCOUNT_PATH=<Firebase 서비스 계정 JSON "파일 경로"> ← PU
 
 | 결정 | 마감 | 영향 |
 |---|---|---|
-| D-02 운영 주체(개인 vs 사업자) | 오늘 | 개인이면 14일 테스트 강제 → 공개일 +2주 |
+| D-02 운영 주체(개인 vs 사업자) | 오늘 | 해당 신규 개인 계정이면 최소 12명·14일 연속 비공개 테스트 후 액세스 신청; 공개일은 심사 결과에 따름 |
 | D-03 패키지명·도메인 | 오늘 | 빌드·카카오·약관 전부의 선행 조건 |
 | D-01 호스팅 선택 | Day 1 오전 | 이후 언제든 이전 가능, 지금은 속도 우선 |
 | 쿠팡 승인 대기 여부 | Day 2 | §5 플랜 B로 출시 비차단 |

@@ -86,8 +86,8 @@ describe("§2.1 AppState 단일 구독", () => {
   });
 });
 
-describe("§2.9-1 새 의존성 0", () => {
-  it("apps/mobile/package.json의 의존성 목록이 그대로다", () => {
+describe("§2.9-1 앱 잠금 의존성 경계", () => {
+  it("앱 잠금은 생체 인증 패키지를 추가하지 않고 PKCE 보안 난수만 expo-crypto를 사용한다", () => {
     const packageJson = JSON.parse(source("package.json")) as {
       dependencies: Record<string, string>;
       devDependencies: Record<string, string>;
@@ -102,6 +102,7 @@ describe("§2.9-1 새 의존성 0", () => {
       "expo",
       "expo-asset",
       "expo-constants",
+      "expo-crypto",
       "expo-document-picker",
       "expo-linking",
       "expo-network",
@@ -118,14 +119,14 @@ describe("§2.9-1 새 의존성 0", () => {
       "react-native-web",
       "zustand"
     ]);
-    expect(Object.keys(packageJson.devDependencies).sort()).toEqual(["@react-native-community/cli", "@types/react"]);
+    expect(Object.keys(packageJson.devDependencies).sort()).toEqual(["@react-native-community/cli", "@types/react", "@types/react-dom"]);
     // 잠금 때문에 추가하기 쉬운 두 패키지.
     expect(packageJson.dependencies["expo-local-authentication"]).toBeUndefined();
-    expect(packageJson.dependencies["expo-crypto"]).toBeUndefined();
+    expect(packageJson.dependencies["expo-crypto"]).toBeDefined();
   });
 
-  it("expo-local-authentication · expo-crypto를 어느 소스도 import하지 않는다", () => {
-    const forbiddenImport = /(?:from\s+["']|require\(\s*["']|import\(\s*["'])expo-(?:local-authentication|crypto)["']/;
+  it("expo-local-authentication을 import하지 않는다", () => {
+    const forbiddenImport = /(?:from\s+["']|require\(\s*["']|import\(\s*["'])expo-local-authentication["']/;
     const offenders = listAppSources().filter((relativePath) => forbiddenImport.test(source(relativePath)));
     expect(offenders).toEqual([]);
   });

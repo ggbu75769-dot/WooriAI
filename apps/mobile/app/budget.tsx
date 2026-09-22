@@ -448,6 +448,8 @@ export default function BudgetEditScreen() {
     ? buildCategoryCarryOverChip({
         thisMonthBudgetMissing: budget.data === null,
         lastMonthEntries: lastMonthBudget.data?.categoryBudgets,
+        categories: categories.data?.categories,
+        householdId: categoryHouseholdId,
         draft: categoryDraft
       })
     : null;

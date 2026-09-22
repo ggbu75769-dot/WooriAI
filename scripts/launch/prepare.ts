@@ -5,6 +5,7 @@
  *  1) infra/legal·infra/site HTML의 [대괄호] placeholder를 실제 값으로 치환하고
  *  2) 프로덕션 환경 파일 .env.production을 생성하며(비밀값은 crypto로 자동 생성)
  *  3) `pnpm check:env --file .env.production`으로 생성 결과를 검증한다.
+ *  `--check`는 설정·HTML 치환 계획만 점검한다(파일 변경·비밀값 생성 없음).
  *
  * ## 하지 않는 것 (일부러)
  *  - `[적용 법령·기간은 법률 검토 시 확정]`(개인정보처리방침 §3)은 **치환하지 않는다** —
@@ -22,21 +23,27 @@
  */
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const repoRoot = process.cwd();
 const CONFIG_PATH = resolve(repoRoot, "launch.config.json");
-const EXAMPLE_PATH = resolve(repoRoot, "launch.config.example.json");
 const ENV_PATH = resolve(repoRoot, ".env.production");
 const GITIGNORE_PATH = resolve(repoRoot, ".gitignore");
 
 const forceEnv = process.argv.includes("--force-env");
+const checkOnly = process.argv.includes("--check");
 
 function fail(message: string): never {
   console.error(`[launch:prepare] ${message}`);
   process.exit(1);
 }
+
+const unknownArgs = process.argv.slice(2).filter((arg) => !["--", "--check", "--force-env"].includes(arg));
+if (unknownArgs.length > 0) fail("지원하지 않는 옵션입니다. 허용 옵션: --check 또는 --force-env");
+if (checkOnly && forceEnv) fail("--check와 --force-env는 함께 사용할 수 없습니다.");
 
 if (!existsSync(join(repoRoot, "scripts", "launch", "prepare.ts"))) {
   fail("리포지토리 루트에서 실행하세요: pnpm launch:prepare");
@@ -69,8 +76,9 @@ function parseJsonc(raw: string, source: string): unknown {
     .join("\n");
   try {
     return JSON.parse(withoutComments);
-  } catch (error) {
-    fail(`${source} 파싱 실패: ${(error as Error).message}\n  (주석은 줄 전체 주석만 허용됩니다 — 값 뒤 // 금지)`);
+  } catch {
+    // JSON 파서의 오류 메시지에는 입력의 일부(카카오 키 포함)가 들어갈 수 있다.
+    fail(`${source} 파싱 실패: JSON 형식을 확인하세요.\n  (주석은 줄 전체 주석만 허용됩니다 — 값 뒤 // 금지)`);
   }
 }
 
@@ -80,21 +88,39 @@ type LaunchConfig = {
   domain: string;
   launchDate: string;
   siteDomain: string;
-  kakao: { restApiKey: string; javascriptKey: string; nativeAppKey: string };
+  kakao: { restApiKey: string; clientSecret: string; javascriptKey: string; nativeAppKey: string };
   privacyOfficerName: string;
   hostingProvider: string;
   pushProvider: string;
 };
 
-const rawConfig = parseJsonc(readFileSync(CONFIG_PATH, "utf8"), "launch.config.json") as Record<string, unknown>;
+const parsedConfig = parseJsonc(readFileSync(CONFIG_PATH, "utf8"), "launch.config.json");
+if (!parsedConfig || typeof parsedConfig !== "object" || Array.isArray(parsedConfig)) {
+  fail("launch.config.json은 설정 객체여야 합니다.");
+}
+const rawConfig = parsedConfig as Record<string, unknown>;
+
+function configString(value: unknown, key: string, fallback = ""): string {
+  if (value === undefined) return fallback;
+  if (typeof value !== "string") fail(`${key}는 문자열이어야 합니다.`);
+  if (/[\r\n\0]/.test(value)) fail(`${key}에는 줄바꿈이나 NUL 문자를 넣을 수 없습니다.`);
+  return value.trim();
+}
 
 function str(key: string, fallback = ""): string {
   const value = rawConfig[key];
-  return typeof value === "string" ? value.trim() : fallback;
+  return configString(value, key, fallback);
 }
 
+if (rawConfig.kakao !== undefined && (!rawConfig.kakao || typeof rawConfig.kakao !== "object" || Array.isArray(rawConfig.kakao))) {
+  fail("kakao는 키를 담은 설정 객체여야 합니다.");
+}
 const kakaoRaw = (rawConfig.kakao ?? {}) as Record<string, unknown>;
-const kakaoStr = (key: string): string => (typeof kakaoRaw[key] === "string" ? (kakaoRaw[key] as string).trim() : "");
+const kakaoStr = (key: string): string => {
+  const value = configString(kakaoRaw[key], `kakao.${key}`);
+  if (/[\s#'"`$\\]/.test(value)) fail(`kakao.${key}에는 키 값만 입력하세요.`);
+  return value;
+};
 
 /** "https://example.com/" → "example.com" (스킴·말미 슬래시 제거 후 형식 검증). */
 function normalizeDomain(value: string, label: string): string {
@@ -129,8 +155,8 @@ const missingRequired = (["operatorName", "supportEmail", "domain", "launchDate"
 if (missingRequired.length > 0) {
   fail(`launch.config.json의 [필수] 항목이 비어 있습니다: ${missingRequired.join(", ")}`);
 }
-if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str("supportEmail"))) {
-  fail(`supportEmail이 이메일 형식이 아닙니다: "${str("supportEmail")}"`);
+if (!/^[A-Za-z0-9.!+_%=-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(str("supportEmail"))) {
+  fail("supportEmail이 지원되는 이메일 형식이 아닙니다.");
 }
 
 const config: LaunchConfig = {
@@ -141,6 +167,7 @@ const config: LaunchConfig = {
   siteDomain: str("siteDomain") === "" ? "" : normalizeDomain(str("siteDomain"), "siteDomain"),
   kakao: {
     restApiKey: kakaoStr("restApiKey"),
+    clientSecret: kakaoStr("clientSecret"),
     javascriptKey: kakaoStr("javascriptKey"),
     nativeAppKey: kakaoStr("nativeAppKey")
   },
@@ -154,6 +181,10 @@ const privacyOfficer = config.privacyOfficerName || config.operatorName;
 const hostingProvider = config.hostingProvider || "Oracle Cloud Infrastructure(오라클 클라우드)";
 const pushProvider = config.pushProvider || "Google LLC(Firebase Cloud Messaging — 푸시 알림 기능 사용 시)";
 const kakaoConfigured = config.kakao.restApiKey !== "";
+const kakaoRedirectUri = `https://${config.domain}/api/v1/auth/kakao/callback`;
+if (kakaoConfigured && !config.kakao.clientSecret) {
+  fail("kakao.clientSecret이 필요합니다. 카카오 REST API 키는 기본적으로 Client Secret이 활성화됩니다. 서버 전용 값을 입력하세요.");
+}
 
 /* ---------------------------------------------------------------------------
  * 2) infra/legal·infra/site placeholder 치환 (정확 일치 토큰만)
@@ -185,9 +216,13 @@ const TOKEN_MAP: [token: string, value: string][] = [
 /** 치환 후에도 남는 것이 정상인 대괄호 표현(메타 표현·법률 검토 핀). */
 const EXPECTED_REMAINING = ["[대괄호]", "[적용 법령·기간은 법률 검토 시 확정]"] as const;
 
-type ReplaceResult = { path: string; replaced: number };
+type ReplaceResult = { path: string; replaced: number; original: string; updated: string };
 const replaceResults: ReplaceResult[] = [];
 const unexpectedRemaining: string[] = [];
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
 
 for (const relativePath of HTML_TARGETS) {
   const absolute = resolve(repoRoot, relativePath);
@@ -198,11 +233,10 @@ for (const relativePath of HTML_TARGETS) {
   for (const [token, value] of TOKEN_MAP) {
     if (!updated.includes(token)) continue;
     const count = updated.split(token).length - 1;
-    updated = updated.split(token).join(value);
+    updated = updated.split(token).join(escapeHtml(value));
     replaced += count;
   }
-  if (updated !== original) writeFileSync(absolute, updated, "utf8");
-  replaceResults.push({ path: relativePath, replaced });
+  replaceResults.push({ path: relativePath, replaced, original, updated });
 
   for (const match of updated.matchAll(/\[[^\][\n]{1,60}\]/g)) {
     const token = match[0];
@@ -210,6 +244,63 @@ for (const relativePath of HTML_TARGETS) {
     if (/^\[aria-/.test(token)) continue; // CSS/HTML 속성 선택자 표기
     unexpectedRemaining.push(`${relativePath}: ${token}`);
   }
+}
+
+// 기존 파일도 문서 변경 전에 검증한다. 실패 시 HTML과 운영 시크릿을 그대로 유지한다.
+const requireFromScript = createRequire(resolve(__dirname, "prepare.ts"));
+function validateEnvironment(path: string): boolean {
+  const check = spawnSync(process.execPath, [requireFromScript.resolve("tsx/cli"), resolve(repoRoot, "scripts/check-env.ts"), "--file", path], {
+    cwd: repoRoot, encoding: "utf8", windowsHide: true, timeout: 60_000
+  });
+  // check-env.ts는 키 이름·개수만 출력한다(값 미출력).
+  if (check.stdout) process.stdout.write(check.stdout);
+  if (check.stderr) process.stderr.write(check.stderr);
+  return check.status === 0;
+}
+
+const envSkipped = existsSync(ENV_PATH) && !forceEnv;
+if (envSkipped) {
+  if (!validateEnvironment(ENV_PATH)) fail("기존 .env.production 검증 실패. HTML·환경 파일을 변경하지 않았습니다.");
+  const entries = new Map<string, string>();
+  const duplicates = new Set<string>();
+  for (const line of readFileSync(ENV_PATH, "utf8").split(/\r?\n/)) {
+    const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!match) continue;
+    if (entries.has(match[1])) duplicates.add(match[1]);
+    entries.set(match[1], match[2].replace(/^(["'])(.*)\1$/, "$2"));
+  }
+  if (duplicates.size) fail(`기존 .env.production 중복 키: ${[...duplicates].join(", ")}. 파일 변경 없음.`);
+  const expected: Record<string, string> = {
+    NODE_ENV: "production",
+    INVITE_LINK_BASE_URL: `https://${config.domain}`,
+    EXPO_PUBLIC_API_BASE_URL: `https://${config.domain}/api/v1`,
+    EXPO_PUBLIC_TERMS_URL: `https://${siteDomain}/terms-of-service.html`,
+    EXPO_PUBLIC_PRIVACY_POLICY_URL: `https://${siteDomain}/privacy-policy.html`,
+    EXPO_PUBLIC_SUPPORT_URL: `https://${siteDomain}/support.html`,
+    EXPO_PUBLIC_FAQ_URL: `https://${siteDomain}/faq.html`,
+    OAUTH_KAKAO_CLIENT_ID: kakaoConfigured ? config.kakao.restApiKey : "replace-with-kakao-rest-api-key",
+    OAUTH_KAKAO_CLIENT_SECRET: config.kakao.clientSecret,
+    EXPO_PUBLIC_KAKAO_ENABLED: kakaoConfigured ? "1" : "0",
+    EXPO_PUBLIC_KAKAO_CLIENT_ID: config.kakao.restApiKey,
+    EXPO_PUBLIC_KAKAO_REDIRECT_URI: kakaoRedirectUri
+  };
+  const drift = Object.keys(expected).filter((key) => entries.get(key) !== expected[key]);
+  if (!entries.get("OAUTH_KAKAO_REDIRECT_URIS")?.split(",").map((uri) => uri.trim()).includes(kakaoRedirectUri)) {
+    drift.push("OAUTH_KAKAO_REDIRECT_URIS");
+  }
+  if (drift.length) {
+    fail(`ENV_CONFIG_DRIFT: launch.config.json과 기존 .env.production 불일치: ${drift.join(", ")}.\n  파일 변경 없음. 해당 설정만 일치시키세요. 운영 시크릿 전체 회전(--force-env)은 필요하지 않습니다.`);
+  }
+}
+
+if (checkOnly) {
+  console.log("[launch:prepare] CHECK_ONLY: 설정 형식과 HTML 치환 계획 점검 완료. 파일 변경·비밀값 생성 없음.");
+  for (const result of replaceResults) console.log(`  - ${result.path}: 치환 예정 ${result.replaced}건`);
+  console.log(`[launch:prepare] 기존 .env.production: ${envSkipped ? "검증 완료·설정 일치·유지 예정" : "아직 없음"}`);
+  if (!kakaoConfigured) console.log("[launch:prepare] KAKAO_NOT_CONFIGURED: 실제 로그인·AAB 빌드 전에 카카오 키 필요.");
+  if (unexpectedRemaining.length > 0) console.log(`[launch:prepare] 미분류 대괄호 표현 ${unexpectedRemaining.length}건 확인 필요.`);
+  console.log("[launch:prepare] NOT_RELEASE_READY: 운영 환경·실제 로그인·법적 문서 확정·서명·기기·스토어 검증은 별도입니다.");
+  process.exit(0);
 }
 
 /* ---------------------------------------------------------------------------
@@ -223,11 +314,7 @@ const dbPassword = randomBytes(24).toString("hex");
 const KAKAO_SENTINEL = "replace-with-kakao-rest-api-key";
 const kakaoClientId = kakaoConfigured ? config.kakao.restApiKey : KAKAO_SENTINEL;
 
-let envSkipped = false;
-
-if (existsSync(ENV_PATH) && !forceEnv) {
-  envSkipped = true;
-} else {
+if (!envSkipped) {
   // 비밀값 자동 생성 항목: 아래 8개(값은 로그에 출력하지 않는다).
   const envContent = `# 우리아이 프로덕션 환경변수 — pnpm launch:prepare가 생성 (${new Date().toISOString().slice(0, 10)})
 # ⚠️ 비밀값 포함 — 커밋 금지(.gitignore), 파일 권한 600.
@@ -271,12 +358,12 @@ ${
 # — 단 재실행은 모든 시크릿을 새로 뽑으므로 이미 배포했다면 이 파일을 직접 수정).`
 }
 OAUTH_KAKAO_CLIENT_ID=${kakaoClientId}
-# 카카오 콘솔에서 Client Secret을 "사용"으로 켰을 때만 채운다(선택).
-OAUTH_KAKAO_CLIENT_SECRET=
-OAUTH_KAKAO_REDIRECT_URIS=wooriai://oauth/kakao
+# 서버 전용 Client Secret. EXPO_PUBLIC_* 또는 모바일 빌드에 넣지 않는다.
+OAUTH_KAKAO_CLIENT_SECRET=${config.kakao.clientSecret}
+OAUTH_KAKAO_REDIRECT_URIS=${kakaoRedirectUri}
 EXPO_PUBLIC_KAKAO_ENABLED=${kakaoConfigured ? "1" : "0"}
 EXPO_PUBLIC_KAKAO_CLIENT_ID=${kakaoConfigured ? config.kakao.restApiKey : ""}
-EXPO_PUBLIC_KAKAO_REDIRECT_URI=wooriai://oauth/kakao
+EXPO_PUBLIC_KAKAO_REDIRECT_URI=${kakaoRedirectUri}
 
 # ── 운영 스위치 (끌 때도 값을 명시 — oracle-bootstrap.sh와 같은 규율) ─
 # 단일 VM 1프로세스 전제 — 수평 확장 시 워커 전용 1대에만 1.
@@ -303,8 +390,25 @@ S3_BUCKET=wooriai-prod
 S3_ACCESS_KEY_ID=wooriai
 S3_SECRET_ACCESS_KEY=${secret(32)}
 `;
-  writeFileSync(ENV_PATH, envContent, "utf8");
+  // 새 환경도 임시 파일로 먼저 검증한다. --force-env 실패로 기존 시크릿을 잃지 않는다.
+  const validationDirectory = mkdtempSync(join(tmpdir(), "wooriai-launch-env-"));
+  const validationPath = join(validationDirectory, ".env.production");
+  let valid = false;
+  try {
+    writeFileSync(validationPath, envContent, { encoding: "utf8", mode: 0o600 });
+    valid = validateEnvironment(validationPath);
+  } finally {
+    if (existsSync(validationPath)) unlinkSync(validationPath);
+    rmdirSync(validationDirectory);
+  }
+  if (!valid) fail("새 .env.production 검증 실패. HTML·기존 환경 파일을 변경하지 않았습니다.");
+  writeFileSync(ENV_PATH, envContent, { encoding: "utf8", mode: 0o600 });
   chmodSync(ENV_PATH, 0o600);
+}
+
+// 설정·전체 문서·환경 검증이 모두 통과한 뒤에만 실제 문서를 변경한다.
+for (const result of replaceResults) {
+  if (result.updated !== result.original) writeFileSync(resolve(repoRoot, result.path), result.updated, "utf8");
 }
 
 /* ---------------------------------------------------------------------------
@@ -325,21 +429,6 @@ if (additions.length > 0) {
     "utf8"
   );
   console.log(`[launch:prepare] .gitignore에 추가: ${additions.join(", ")}`);
-}
-
-/* ---------------------------------------------------------------------------
- * 5) 검증: pnpm check:env --file .env.production
- * ------------------------------------------------------------------------- */
-
-const check = spawnSync("pnpm", ["check:env", "--file", ".env.production"], {
-  cwd: repoRoot,
-  encoding: "utf8"
-});
-// check-env.ts는 키 이름·개수만 출력한다(값 미출력) — 그대로 흘려도 안전.
-if (check.stdout) process.stdout.write(check.stdout);
-if (check.stderr) process.stderr.write(check.stderr);
-if (check.status !== 0) {
-  fail("생성된 .env.production이 pnpm check:env를 통과하지 못했습니다 — 위 오류를 확인하세요.");
 }
 
 /* ---------------------------------------------------------------------------
@@ -376,5 +465,5 @@ console.log("  - 법률 검토: 초안 배너 제거 + [적용 법령·기간은
 if (config.privacyOfficerName === "") {
   console.log(`  - 개인정보 보호책임자 성명: 운영 주체명("${config.operatorName}")으로 기재됨 — 사업자라면 실제 성명으로 확인`);
 }
-console.log("  - 카카오 콘솔: 플랫폼 등록 + redirect URI(wooriai://oauth/kakao) 등록(서버 allowlist와 동일 값)");
+console.log(`  - 카카오 콘솔: 로그인·OpenID Connect 활성화 + HTTPS redirect URI(${kakaoRedirectUri}) 등록(서버 allowlist와 동일 값)`);
 console.log("  - 다음 단계는 docs/5차/launch-minimal-guide.md 참고");

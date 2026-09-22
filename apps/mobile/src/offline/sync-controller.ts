@@ -12,6 +12,7 @@ import { isSessionExpiryTransition, LOGIN_HREF } from "./session-expiry";
 import {
   clearSessionScopedChildSelection,
   clearSessionScopedQueryCache,
+  clearSessionScopedStores,
   isSessionIdentityChange,
   revokeOutgoingSessionOnServer,
   subscribeToHydratedSessionTransitions,
@@ -1047,10 +1048,12 @@ export function useOfflineSyncLifecycle(token: string | null, queryClient: Query
           // 홈이 이전 계정의 flush를 "N분 전 확인"이라고 말한다. 아래 wipe가 끝난 뒤의
           // refreshSnapshot은 이 칸을 이월만 하므로(원천이 저장소가 아니다) 여기서 직접 지운다.
           publishLastFlushSucceededAt(null);
+          const clientStateCleared = clearSessionScopedStores();
           void getOfflineStore()
             .then((store) =>
               teardownOfflineSessionState(store, {
                 authToken: outgoingToken,
+                clientStateCleared,
                 // 라운드 51 QA(P3-10): wipe가 끝나면 화면이 읽는 스냅샷도 다시 만든다. 함수를
                 // 넘기는 이유는 순환 import 회피다(session-teardown.ts의 컨텍스트 주석 참고).
                 refreshSyncSnapshot: refreshSnapshot

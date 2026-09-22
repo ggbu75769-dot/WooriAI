@@ -305,6 +305,8 @@ export function revokeOutgoingSessionOnServer(credentials: {
  * leaving account's token is still valid; every step of the teardown works without it.
  */
 export type SessionTeardownContext = {
+  /** 컨트롤러가 SQLite를 열기 전에 시작한 정리. 늦게 열린 저장소가 새 계정의 상태를 다시 지우지 않는다. */
+  clientStateCleared?: Promise<void>;
   /** Access token of the session being torn down (or the local test-session token). */
   authToken: string | null;
   /**
@@ -381,14 +383,28 @@ export async function teardownOfflineSessionState(
   context: SessionTeardownContext = { authToken: null }
 ): Promise<void> {
   // Step 0: drop every cached server response of the outgoing account (see doc comment). The
-  // controller already did this synchronously at the moment of the identity change (round27 M-1);
-  // repeating it here keeps every direct caller of the teardown — and its unit tests — whole.
-  clearSessionScopedQueryCache();
+  // controller already did this synchronously at the moment of the identity change (round27 M-1).
+  // Direct callers still need it; a delayed store open must not clear incoming-session data again.
+  if (!context.clientStateCleared) clearSessionScopedQueryCache();
   // Step 0b: best-effort, fire-and-forget — never awaited, never allowed to reject.
   void deactivateRegisteredPushDevice(context.authToken);
   // Step 0c (라운드 110): 떠난 계정의 아이 선택도 이 자리에서 지운다. 컨트롤러가 동기 자리에서
-  // 이미 한 번 불렀고(머리말의 "왜 여기(동기)인가"), 이 반복은 0과 같은 이유로 멱등하다.
-  clearSessionScopedChildSelection();
+  // 이미 불렀으면 반복하지 않는다. 그 사이 새 계정이 고른 아이를 지울 수 있기 때문이다.
+  if (!context.clientStateCleared) clearSessionScopedChildSelection();
+  const appLockCleared = context.clientStateCleared ?? clearSessionScopedStores();
+  // 큐 삭제는 첫 await 전에 등록해야 새 세션의 flush가 떠난 계정의 행을 보내지 않는다.
+  const wipe = wipeOfflineStore(store);
+  await clearSyncCursor(store);
+  await wipe;
+  await appLockCleared;
+  await context.refreshSyncSnapshot?.();
+}
+
+/**
+ * 계정별 메모리/persist 상태는 SQLite를 열 수 없어도 즉시 지운다.
+ * 반환값은 SecureStore 삭제 완료만 기다린다. 컨트롤러와 비동기 큐 정리가 같은 작업을 공유한다.
+ */
+export function clearSessionScopedStores(): Promise<void> {
   usePurchaseFollowupStore.getState().resetAll();
   // NOTI-102: 알림 이력·중복 방지 키·시기 메타도 사용자 단위 상태이므로 함께 초기화한다.
   useNotificationStore.getState().resetAll();
@@ -434,19 +450,13 @@ export async function teardownOfflineSessionState(
   useBudgetWarningHapticStore.getState().resetAll();
   // 라운드 55 트랙 C(설계 §2.8) — **브릭 방지**. 앱 잠금 PIN이 정체성 변경에서 지워지지 않으면
   // A 로그아웃 → B 로그인 → B가 A의 PIN 화면에 갇히고, 탈출구는 로그아웃뿐이라 무한 루프가 된다.
-  // 런타임 상태는 동기로 비고, SecureStore 키 삭제만 Promise다 -- 이 함수는 이미 async이므로
-  // 아래에서 함께 await한다(삭제 실패가 다음 부팅까지 남는 창을 줄인다).
+  // 런타임 상태는 동기로 비고 SecureStore 키 삭제만 Promise다. 호출자가 큐 정리와 함께
+  // 완료를 기다릴 수 있도록 그 Promise를 반환한다.
   // `clearSession("expired")`는 정체성을 유지하므로 여기 오지 않는다: 만료로 끝난 세션은 PIN을
   // 잃지 않는다 — 같은 사람이다.
   const appLockCleared = useAppLockStore.getState().resetAll();
-  // Step 2: start the wipe BEFORE the first await so it registers in inFlightWipes
-  // synchronously — see the ordering rationale in the doc comment above.
-  const wipe = wipeOfflineStore(store);
-  await clearSyncCursor(store);
-  await wipe;
-  await appLockCleared;
-  // Step 5 (라운드 51 QA P3-10): 비운 저장소를 화면 스냅샷에도 반영한다 — 지출 대기 행과
-  // 준비템 대기 행이 함께 사라져야 새 계정의 첫 화면이 이전 계정의 건수를 말하지 않는다.
-  // wipe **뒤에** 있어야 의미가 있다(그 전에 읽으면 지우기 전 사본을 다시 만든다).
-  await context.refreshSyncSnapshot?.();
+  // SQLite 열기가 실패해 teardown까지 못 가더라도 처리되지 않은 Promise 거절을 남기지 않는다.
+  // 원본 Promise를 돌려주므로 정상 경로에서 await하는 호출자는 삭제 실패를 계속 관측한다.
+  void appLockCleared.catch(() => undefined);
+  return appLockCleared;
 }

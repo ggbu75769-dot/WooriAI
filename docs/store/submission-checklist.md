@@ -3,6 +3,14 @@
 > `docs/5차/launch-72h-plan.md` §4(Day 3)를 실행 단위로 쪼갠 순서표.
 > 전제: Day 1(서버 가동)·Day 2(AAB 빌드 + 실기기 QA + `pnpm release:gate` PASS) 완료.
 
+> 2026-09-22: 로컬 게이트, API 36의 4KB·16KB 에뮬레이터 실행, 실제 Docker 이미지와 DB 초기화·재시작·관리자 검증을 완료했습니다. 현재 루트 APK는 내부 테스트 로그인·debug 서명 산출물이며 제출용 AAB가 아닙니다. 운영 정보 4종, 카카오 운영 callback·실제 로그인, 운영 배포, 물리 기기/Play 내부 트랙 확인이 남아 있습니다. 현재 판정과 파일 해시는 [출시 검증 보고서](../qa/launch-hardening-20260922.md)를 따릅니다.
+
+> 2026-09-23 실계정 확인: 로그인된 Google Play Console의 개인 개발자 계정에는 앱이 아직 없고, **신분증 본인 확인·실제 Android 기기 확인·연락처 전화번호 인증**이 `조치 필요`입니다. 계정 확인 전 `앱 만들기`가 비활성화되어 있습니다. 인증은 계정 소유자가 Play Console에서 완료해야 합니다. 이 계정이 2023-11-13 이후 생성된 개인 계정이라면 [Google의 비공개 테스트 요건](https://support.google.com/googleplay/android-developer/answer/14151465)에 따라 최소 12명·연속 14일 테스트와 프로덕션 액세스 신청도 필요합니다. 계정 생성일은 확인되지 않아 이 요건의 적용 여부는 미확정입니다.
+
+> 카카오 개발자 콘솔에는 전용 앱 `우리아이`(ID `1586090`)를 만들고 앱 아이콘·카카오 로그인·OpenID Connect를 등록했습니다. 실제 키는 Git 무시 대상 로컬 설정 파일에만 있습니다. 운영 API 도메인이 정해진 뒤 HTTPS OAuth callback을 등록하고 실제 로그인·연결 끊기를 검증해야 합니다.
+
+> 다른 프로젝트에서 운영 중인 [우리아이 공개 체험 페이지](https://wooriai-first-look.nj9702.chatgpt.site/)는 2026-09-23에 HTTP 200으로 확인했습니다. 소개용 데모이며 현재 개인정보처리방침·문의처 링크가 없어 스토어의 필수 개인정보처리방침/지원 URL로 사용하지 않습니다. `infra/legal/`·`infra/site/`의 실제 값 확정과 법률 검토, 공개 호스팅이 여전히 필요합니다. 기존 스토어 스크린샷 3장은 Pixel Lock 웹 캡처이므로 최종 일반 실행 앱과 화면·문구를 대조하고 불일치하면 교체합니다. [Google의 미리보기 자산 정책](https://support.google.com/googleplay/android-developer/answer/9866151)은 실제 앱 경험을 보여야 한다고 명시합니다.
+
 ## 0. 제출 전 선행 조건 (아침에 먼저 확인)
 
 - [ ] **법적 문서 + 지원 사이트 호스팅**: `infra/legal/`(처리방침·약관·계정 삭제 안내)과
@@ -98,10 +106,11 @@
    `WOORIAI_KEYSTORE_B64` · `WOORIAI_KEYSTORE_PASSWORD` · `WOORIAI_KEY_ALIAS` · `WOORIAI_KEY_PASSWORD`
    (값은 1의 출력 그대로. gh CLI 명령도 스크립트가 출력해요.)
 3. **변수 등록**(같은 화면의 **Variables** 탭 — 비밀 아닌 앱 구성값, 릴리즈마다 재사용):
-   - 필수 5개: `WOORIAI_ANDROID_PACKAGE`(확정 패키지명, 예: kr.wooriai.app) ·
+   - 필수 6개: `WOORIAI_ANDROID_PACKAGE`(확정 패키지명, 예: kr.wooriai.app) ·
      `EXPO_PUBLIC_API_BASE_URL`(`https://<도메인>/api/v1`) · `EXPO_PUBLIC_KAKAO_CLIENT_ID` ·
-     `EXPO_PUBLIC_TERMS_URL` · `EXPO_PUBLIC_PRIVACY_POLICY_URL`
-   - 선택: `EXPO_PUBLIC_KAKAO_REDIRECT_URI`(기본 `wooriai://oauth/kakao`) ·
+     `EXPO_PUBLIC_TERMS_URL` · `EXPO_PUBLIC_PRIVACY_POLICY_URL` ·
+     `EXPO_PUBLIC_KAKAO_REDIRECT_URI`(`https://<도메인>/api/v1/auth/kakao/callback`)
+   - 선택:
      `EXPO_PUBLIC_SUPPORT_URL` · `EXPO_PUBLIC_FAQ_URL`(없으면 빌드는 되지만 앱에 도움 링크 0건 —
      경고가 로그에 남아요)
    - 이 값들은 AAB 빌드가 fail-closed로 요구해요(없으면 localhost API·개발 스텁 로그인이 실사용자
@@ -131,7 +140,7 @@ WOORIAI_UPLOAD_KEYSTORE=$HOME/wooriai-release.keystore \
 WOORIAI_UPLOAD_KEYSTORE_PASSWORD=… WOORIAI_UPLOAD_KEY_ALIAS=wooriai WOORIAI_UPLOAD_KEY_PASSWORD=… \
 EXPO_PUBLIC_API_BASE_URL=https://<도메인>/api/v1 \
 WOORIAI_ANDROID_PACKAGE=<확정 패키지명> WOORIAI_APP_VERSION=1.0.0 WOORIAI_ANDROID_VERSION_CODE=1 \
-EXPO_PUBLIC_KAKAO_ENABLED=1 EXPO_PUBLIC_KAKAO_CLIENT_ID=… EXPO_PUBLIC_KAKAO_REDIRECT_URI=wooriai://oauth/kakao \
+EXPO_PUBLIC_KAKAO_ENABLED=1 EXPO_PUBLIC_KAKAO_CLIENT_ID=… EXPO_PUBLIC_KAKAO_REDIRECT_URI=https://<도메인>/api/v1/auth/kakao/callback \
 EXPO_PUBLIC_TERMS_URL=… EXPO_PUBLIC_PRIVACY_POLICY_URL=… \
 pnpm android:build-aab
 ```
@@ -200,8 +209,8 @@ keystore·비밀번호는 경로 A와 **같은 것**을 쓰세요(§0.2-1에서 
       제휴 고지 노출 확인).
 - [ ] 문제 없으면:
   - 조직(사업자) 계정: **프로덕션 트랙 생성 → 국가(대한민국) 선택 → 심사 제출.**
-  - 개인 계정(2023-11 이후 생성): **비공개 테스트 시작 + 테스터 20명 모집 개시**
-    (14일 요건 — launch-72h-plan.md §0).
+  - 개인 계정(2023-11-13 이후 생성): **최소 12명이 14일 연속 참여를 유지하는 비공개 테스트** 후 프로덕션 액세스 신청.
+    ([Google 공식 요건](https://support.google.com/googleplay/android-developer/answer/14151465?hl=ko), 2026-09-11 확인; 자동 승인·공개가 아님).
 - [ ] 출시 노트(ko-KR) 작성: "우리아이 첫 출시예요. 지출 기록, 준비템 체크리스트,
       100일 리포트, 가족 공유를 담았어요."
 

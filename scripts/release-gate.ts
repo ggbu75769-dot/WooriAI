@@ -14,6 +14,13 @@ const gateCommands: GateCommand[] = [
     args: ["install", "--frozen-lockfile"]
   },
   {
+    id: "mobile-sdk",
+    label: "Mobile SDK compatibility",
+    display: "pnpm --filter mobile exec expo install --check",
+    command: "pnpm",
+    args: ["--filter", "mobile", "exec", "expo", "install", "--check"]
+  },
+  {
     id: "env",
     label: "Env example",
     display: "pnpm check:env:example",
@@ -88,6 +95,13 @@ const gateCommands: GateCommand[] = [
     display: "pnpm peers check",
     command: "pnpm",
     args: ["peers", "check"]
+  },
+  {
+    id: "security",
+    label: "Production dependency security",
+    display: "pnpm audit --prod --audit-level=high",
+    command: "pnpm",
+    args: ["audit", "--prod", "--audit-level=high"]
   }
 ];
 

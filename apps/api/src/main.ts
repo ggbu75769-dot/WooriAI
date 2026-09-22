@@ -44,6 +44,18 @@ function handleShutdownSignal(appPromise: ReturnType<typeof bootstrap>) {
 
 if (process.env.NODE_ENV !== "test") {
   const appPromise = bootstrap();
+  // The global rejection logger must not turn a failed deployment into exit 0.
+  void appPromise.catch((reason: unknown) => {
+    console.error(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "error",
+        message: "bootstrapFailed",
+        reason: reason instanceof Error ? reason.stack ?? reason.message : String(reason)
+      })
+    );
+    process.exit(1);
+  });
   process.on("SIGTERM", handleShutdownSignal(appPromise));
   process.on("SIGINT", handleShutdownSignal(appPromise));
 }

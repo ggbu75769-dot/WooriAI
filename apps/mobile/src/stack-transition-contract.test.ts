@@ -37,7 +37,7 @@ function walkFiles(dir: string): string[] {
 }
 
 /** 라우트 모듈 판정 — route-surface.test.ts와 같은 모집단은 같은 규칙으로 센다. */
-const isRouteModule = (file: string) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file);
+const isRouteModule = (file: string) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file) && file !== "+native-intent.ts";
 const isLayout = (file: string) => /(^|\/)_layout\.tsx?$/.test(file);
 
 const routeFiles = walkFiles(appRoot)

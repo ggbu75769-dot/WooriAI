@@ -63,6 +63,18 @@ function parseRedirectUriAllowlist(): string[] {
     .filter(Boolean);
 }
 
+function isAllowedRedirectUri(value: string): boolean {
+  if (!parseRedirectUriAllowlist().includes(value)) return false;
+  try {
+    const uri = new URL(value);
+    const local = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+    return !uri.username && !uri.password && !uri.search && !uri.hash &&
+      (uri.protocol === "https:" || (local && uri.protocol === "http:"));
+  } catch {
+    return false;
+  }
+}
+
 function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -106,7 +118,7 @@ export class KakaoAuthService {
   ) {}
 
   async prepare(input: PrepareKakaoOAuthInput) {
-    if (!parseRedirectUriAllowlist().includes(input.redirectUri)) {
+    if (!isAllowedRedirectUri(input.redirectUri)) {
       throw new BadRequestException({
         code: "OAUTH_REDIRECT_URI_NOT_ALLOWED",
         message: "허용되지 않은 redirect 주소예요."
@@ -140,6 +152,28 @@ export class KakaoAuthService {
     return { transactionId: tx.id, state: tx.state, nonce };
   }
 
+  /** Kakao accepts HTTP(S) callbacks. The app return target is fixed, never supplied by a browser. */
+  async callbackUrl(state: unknown, code: unknown, error: unknown): Promise<string> {
+    if (typeof state !== "string" || !/^[A-Za-z0-9_-]{32}$/.test(state)) {
+      throw oauthTransactionInvalid();
+    }
+    const tx = await this.prisma.oauthTransaction.findFirst({ where: { state, provider: KAKAO_PROVIDER } });
+    if (!tx || tx.consumedAt || tx.expiresAt.getTime() <= Date.now() || !isAllowedRedirectUri(tx.redirectUri)) {
+      throw oauthTransactionInvalid();
+    }
+    const query = new URLSearchParams({ state });
+    if (error !== undefined) {
+      if (typeof error !== "string" || !/^[a-z_]{1,64}$/.test(error)) throw oauthTransactionInvalid();
+      query.set("error", error);
+    } else {
+      if (typeof code !== "string" || !code || code.length > 4096 || /[\r\n\0]/.test(code)) {
+        throw oauthTransactionInvalid();
+      }
+      query.set("code", code);
+    }
+    return `wooriai://oauth/kakao?${query.toString()}`;
+  }
+
   async exchange(input: ExchangeKakaoOAuthInput) {
     const tx = await this.prisma.oauthTransaction.findUnique({ where: { id: input.transactionId } });
     if (!tx) {
@@ -161,11 +195,19 @@ export class KakaoAuthService {
       throw oauthTransactionInvalid();
     }
 
-    if (!parseRedirectUriAllowlist().includes(input.redirectUri) || input.redirectUri !== tx.redirectUri) {
+    if (!isAllowedRedirectUri(input.redirectUri) || input.redirectUri !== tx.redirectUri) {
       throw new BadRequestException({
         code: "OAUTH_REDIRECT_URI_NOT_ALLOWED",
         message: "허용되지 않은 redirect 주소예요."
       });
+    }
+
+    // Bind the exchange to the verifier held by the initiating app, before consuming the transaction.
+    if (tx.codeChallenge && (
+      !input.codeVerifier || !/^[A-Za-z0-9._~-]{43,128}$/.test(input.codeVerifier) ||
+      createHash("sha256").update(input.codeVerifier).digest("base64url") !== tx.codeChallenge
+    )) {
+      throw oauthTransactionInvalid();
     }
 
     // Atomic claim (compare-and-swap on consumed_at) right before starting the

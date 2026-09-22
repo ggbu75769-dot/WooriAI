@@ -1,5 +1,6 @@
 import { execSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
@@ -61,8 +62,10 @@ describe.skipIf(!dbAvailable)("시드 경계 — 재시드가 어드민 편집�
    * **둘 다** 합쳐 돌려준다 — 한쪽만 보면 경고를 못 보고도 초록일 수 있다.
    */
   function runSeed(extraEnv: Record<string, string> = {}): string {
-    const tsxBin = binPath("tsx", [apiRoot, join(apiRoot, "..", "..")]);
-    const result = spawnSync(tsxBin, ["prisma/seed.ts"], {
+    // Windows의 .CMD는 shell 없는 spawnSync로 실행할 수 없다. 같은 tsx CLI를 Node로
+    // 직접 실행하면 경로의 공백도 안전하게 전달되고 플랫폼별 셸 차이가 사라진다.
+    const tsxCli = createRequire(import.meta.url).resolve("tsx/cli");
+    const result = spawnSync(process.execPath, [tsxCli, "prisma/seed.ts"], {
       cwd: apiRoot,
       encoding: "utf8",
       env: {
@@ -74,7 +77,7 @@ describe.skipIf(!dbAvailable)("시드 경계 — 재시드가 어드민 편집�
         ...extraEnv
       }
     });
-    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    const output = `${result.error?.message ?? ""}${result.stdout ?? ""}${result.stderr ?? ""}`;
     if (result.status !== 0) {
       throw new Error(`시드 실행이 실패했어요(exit ${result.status}):\n${output}`);
     }

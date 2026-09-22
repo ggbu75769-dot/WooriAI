@@ -34,7 +34,7 @@ export type LinkedExpenseSummary = {
 
 export type LinkedExpenseRow = {
   /** 지출 상세로 가는 경로. 세션 화면에서만 쓰인다. */
-  href: string;
+  href: `/expenses/${string}`;
   /** 눈에 보이는 한 줄. */
   text: string;
   /** 스크린 리더 문장 — 링크만 따로 읽혀도 무엇으로 가는 줄인지 알 수 있게 한다. */

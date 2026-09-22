@@ -68,6 +68,10 @@ export function createDtoValidationPipe(expectedType?: Type<unknown>) {
 }
 
 export function configureApiApp(app: INestApplication) {
+  // Keep Express 4's query semantics when upgrading to Express 5: repeated
+  // bracket fields must still be parsed as arrays/objects before DTO validation.
+  app.getHttpAdapter().getInstance().set("query parser", "extended");
+
   // TRUST_PROXY=1 (or "true"): the API sits exactly one reverse-proxy hop
   // behind Caddy (Oracle compose) / Fly's edge proxy, so Express must derive
   // req.ip from X-Forwarded-For (one hop) or every request would share the

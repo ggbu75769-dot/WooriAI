@@ -37,7 +37,7 @@ fly secrets set \
   AFFILIATE_DISCLOSURE_TEXT="이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다." \
   OAUTH_KAKAO_CLIENT_ID="<카카오 REST API 키>" \
   OAUTH_KAKAO_CLIENT_SECRET="<카카오 Client Secret>" \
-  OAUTH_KAKAO_REDIRECT_URIS="wooriai://oauth/kakao" \
+  OAUTH_KAKAO_REDIRECT_URIS="https://<도메인>/api/v1/auth/kakao/callback" \
   INVITE_LINK_BASE_URL="https://<확정 도메인>" \
   ADMIN_SEED_EMAIL="<운영 관리자 이메일>" \
   ADMIN_SEED_PASSWORD="$(openssl rand -base64 24)"
@@ -169,7 +169,7 @@ curl -s $BASE/health/push     # 푸시 상태 — FCM 키 미주입이면 enable
 
 # 카카오 OIDC prepare가 실키로 동작하는지 (redirectUri는 등록값과 동일해야 함)
 curl -s -X POST $BASE/auth/kakao/prepare -H 'content-type: application/json' \
-  -d '{"redirectUri":"wooriai://oauth/kakao"}'   # state/nonce/transactionId 반환 확인
+  -d '{"redirectUri":"https://<도메인>/api/v1/auth/kakao/callback"}'   # state/nonce/transactionId 반환 확인
 # 미인증 제휴 리다이렉트 (임의 코드라 404가 정상 — 미존재 코드/차단 도메인이 같은 404인지 확인.
 # 실코드 확인은 admin 링크 목록의 redirectCode로: 시드 링크는 쿠팡 검색 URL이라 302가 정상)
 curl -si $BASE/../r/AAAAAAAAAAAA | head -1
@@ -208,7 +208,7 @@ curl -si $BASE/../r/AAAAAAAAAAAA | head -1
 - [ ] 시드 + 관리자 로그인 → 비밀번호 교체 + MFA 등록
 - [ ] (도메인 있으면) HTTPS 커스텀 도메인 + `INVITE_LINK_BASE_URL` 일치
   - `INVITE_LINK_BASE_URL`은 **부트 필수 6종에 들어 있지 않다** — 미설정이어도 서버는 그냥 뜨고, 대신 그 값에서 나오는 **공유 URL 소비자 셋**이 조용히 `https://wooriai.local`로 발급된다: ⓐ 가족 초대 링크(`household-runtime.service.ts`), ⓑ 어드민이 복사해 뿌리는 공개 공유 URL, ⓒ 앱이 밖으로 내보내는 구매 링크(`items-catalog.service.ts`의 `publicRedirectShareUrl` — 라운드 67 #4). 셋 다 **받는 사람 쪽에서만** 죽은 링크로 드러나므로 배포 스모크에서는 보이지 않는다. `pnpm check:env`가 REQUIRED로 잡고 있으니 배포 전에 한 번 돌려 확인하세요 — 단 **아래 ⚠️의 조건**을 먼저 읽으세요.
-- [ ] 카카오 콘솔에 `wooriai://oauth/kakao` redirect 등록 (서버 allowlist와 동일 값)
+- [ ] 카카오 콘솔에 `https://<도메인>/api/v1/auth/kakao/callback` redirect 등록 (서버 allowlist와 동일 값)
 - [ ] ⚠️ **백업 — 경로 A(Fly)를 골랐다면 이 칸은 오늘 체크할 수 없다**(A-7). 경로 B는 부트스트랩이
       크론을 자동 등록하므로 `tail /opt/wooriai-backup.log`로 확인한다. 경로 A는 Fly 콘솔의
       스냅샷 정책·보존 기간·복원 명령을 **사용자가 직접 확인해 A-7에 적어야** 이 칸이 생긴다.

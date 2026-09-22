@@ -32,6 +32,7 @@
 // D1 후속(실기기 피드백 2): 행 글리프가 Ionicons **이름**이 됐다. 타입 전용 import라 런타임에는
 // 아무것도 들어오지 않는다(이 모듈은 vitest에서 도는 순수 모듈로 남는다).
 import type { Ionicons } from "@expo/vector-icons";
+import type { Href } from "expo-router";
 // 라운드 68 트랙 B(#6): 잠금 행의 라벨·낭독 문장은 **이미 있는 셋**을 그대로 쓴다(새 문구 0건).
 // 내보내기 제목만 주입받는 이유는 그 단일 소스가 화면 컴포넌트 파일이기 때문이고, 앱 잠금 문구는
 // 순수 모듈이라 여기서 곧장 읽어도 이 모듈이 vitest에서 그대로 돈다.
@@ -94,7 +95,7 @@ export type MoreMenuRowSpec = {
    * 이동할 라우트. 화면 안에서 처리하는 행(내보내기 카드 토글 · 앱 정보 Alert · 지금 잠그기)은
    * `null`이고, 그 행의 동작은 화면이 id로 붙인다 — 라우팅이 아닌 동작을 이 모듈이 알 필요가 없다.
    */
-  route: string | null;
+  route: Href | null;
   /**
    * 라운드 71 트랙 D(#4): **앱 밖 브라우저**로 여는 주소(지원·FAQ 행). 앱 안 라우트가 아니므로
    * `route`는 null이고, 화면은 이 값이 있으면 `Linking.openURL` 하나로 연다(인앱 웹뷰 0건).

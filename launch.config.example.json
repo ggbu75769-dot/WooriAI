@@ -31,13 +31,15 @@
   // 예: "wooriai-site.pages.dev". 비우면 위 domain을 그대로 쓴다.
   "siteDomain": "",
 
-  // [카카오] developers.kakao.com > 내 애플리케이션 > 앱 키 3종.
-  // 셋 다 비워 두면 카카오 단계는 건너뛰고(.env에 표식만 남김) 나중에 채워 다시 실행하면 된다.
+  // [카카오] developers.kakao.com > 앱 > 플랫폼 키 > REST API 키와 Client Secret.
+  // restApiKey와 clientSecret을 함께 채운다. 둘 다 비우면 카카오 단계는 건너뛴다.
+  // 카카오 로그인과 OpenID Connect를 ON으로 하고 HTTPS 서버 callback을 등록한다.
   // restApiKey    → 서버(OAUTH_KAKAO_CLIENT_ID) + 앱(EXPO_PUBLIC_KAKAO_CLIENT_ID)
   // javascriptKey → 현재 코드가 읽지 않음(웹 SDK용 — 카카오 콘솔 설정 참고용으로만 보관)
   // nativeAppKey  → 현재 코드가 읽지 않음(카카오 SDK 도입 시·콘솔 안드로이드 플랫폼 등록용)
   "kakao": {
     "restApiKey": "",
+    "clientSecret": "",
     "javascriptKey": "",
     "nativeAppKey": ""
   },

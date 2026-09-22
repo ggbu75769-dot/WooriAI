@@ -1,7 +1,7 @@
 import type React from "react";
 import type { RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
-import type { ImageSourcePropType, StyleProp, TextStyle, ViewStyle } from "react-native";
+import type { ImageSourcePropType, ScrollViewProps, StyleProp, TextStyle, ViewStyle } from "react-native";
 import { AccessibilityInfo, Animated, Image, Pressable, ScrollView, Text, View } from "react-native";
 import { focusAccessibilityTarget } from "./a11y/focus-accessibility-target";
 import { motion } from "./design-system/tokens/motion";
@@ -124,7 +124,7 @@ export function AppScreen({
   floatingAction,
   scrollViewRef
 }: ChildrenProps & {
-  refreshControl?: React.ReactElement;
+  refreshControl?: ScrollViewProps["refreshControl"];
   /**
    * T1(디자인 시스템) — **떠 있는 액션의 옵트인 슬롯.** FloatingActionButton은 이름과 달리
    * 스크롤 콘텐츠의 마지막 줄로 함께 흘러가고 있었다(플로팅이 아니다). 이 슬롯에 넘기면

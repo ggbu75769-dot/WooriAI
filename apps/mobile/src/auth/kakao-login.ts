@@ -14,16 +14,14 @@
  *     from the Kakao Developers console for the same Kakao app the API server verifies
  *     ID tokens against; see `KAKAO_*` config in apps/api).
  * - `EXPO_PUBLIC_KAKAO_REDIRECT_URI`
- *     The redirect URI the browser returns to, e.g. `wooriai://oauth/kakao` (the app scheme
- *     is `wooriai`, see app.json). It must be BOTH registered in the Kakao Developers
+ *     The HTTPS server callback, e.g. `https://api.example.com/api/v1/auth/kakao/callback`.
+ *     The server returns to the fixed `wooriai://oauth/kakao` app link. It must be registered in the Kakao Developers
  *     console AND present in the API server's `OAUTH_KAKAO_REDIRECT_URIS` allowlist --
  *     prepare/exchange reject it otherwise (OAUTH_REDIRECT_URI_NOT_ALLOWED).
  *
- * ## Dependency choice (why no expo-auth-session / expo-web-browser / expo-crypto)
+ * ## Browser return and PKCE
  *
- * None of those packages are installed, and none are present in the workspace's pnpm store,
- * so adding any of them would require a network download -- forbidden for this ticket. The
- * flow is therefore implemented manually on top of what IS already bundled:
+ * The browser session uses expo-linking; PKCE uses expo-crypto's secure native randomness:
  * - `expo-linking` (installed) opens the system browser (`Linking.openURL`) and delivers the
  *   `wooriai://...` redirect back via its `url` event listener. It is lazily imported (same
  *   pattern as src/stores/secure-session-storage.ts) so importing this module under
@@ -57,6 +55,7 @@ import {
 import { createPkcePair, type PkcePair } from "./pkce";
 
 export const KAKAO_AUTHORIZE_ENDPOINT = "https://kauth.kakao.com/oauth/authorize";
+export const KAKAO_APP_RETURN_URI = "wooriai://oauth/kakao";
 
 /** Upper bound on how long we wait for the browser to redirect back into the app. */
 export const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
@@ -189,7 +188,14 @@ function parseQuery(url: string): Record<string, string> {
  * code. The state echo must match the prepare-issued state BEFORE the code is trusted.
  */
 export function parseKakaoRedirectUrl(url: string, expectedState: string): { code: string } {
+  if (url.split(/[?#]/)[0] !== KAKAO_APP_RETURN_URI) {
+    throw new KakaoLoginError("KAKAO_REDIRECT_INVALID", "카카오 인증 응답을 읽을 수 없어요.");
+  }
   const params = parseQuery(url);
+
+  if (params.state !== expectedState) {
+    throw new KakaoLoginError("KAKAO_STATE_MISMATCH", "인증 절차를 다시 시작해 주세요.");
+  }
 
   if (params.error === "access_denied") {
     throw new KakaoLoginCancelledError();
@@ -199,9 +205,6 @@ export function parseKakaoRedirectUrl(url: string, expectedState: string): { cod
   }
   if (!params.code) {
     throw new KakaoLoginError("KAKAO_REDIRECT_INVALID", "카카오 인증 응답을 읽을 수 없어요.");
-  }
-  if (params.state !== expectedState) {
-    throw new KakaoLoginError("KAKAO_STATE_MISMATCH", "인증 절차를 다시 시작해 주세요.");
   }
   return { code: params.code };
 }
@@ -232,7 +235,7 @@ async function openAuthSessionWithLinking(
     };
 
     const subscription = Linking.addEventListener("url", (event: { url: string }) => {
-      if (event.url.startsWith(redirectUri)) {
+      if (event.url.split(/[?#]/)[0] === redirectUri) {
         finish(() => resolve(event.url));
       }
     });
@@ -259,7 +262,7 @@ export type KakaoLoginDeps = {
     codeVerifier?: string;
   }) => Promise<KakaoExchangeResult>;
   openAuthSession: (authorizeUrl: string, redirectUri: string, timeoutMs: number) => Promise<string>;
-  createPkce: () => PkcePair;
+  createPkce: () => PkcePair | Promise<PkcePair>;
 };
 
 const defaultDeps: KakaoLoginDeps = {
@@ -286,7 +289,7 @@ export async function loginWithKakao(
   }
   const deps: KakaoLoginDeps = { ...defaultDeps, ...overrides };
 
-  const pkce = deps.createPkce();
+  const pkce = await deps.createPkce();
   // forbidNonWhitelisted on the API: send exactly these keys, nothing else.
   const prepared = await deps.prepare({
     redirectUri: config.redirectUri,
@@ -301,7 +304,7 @@ export async function loginWithKakao(
     codeChallenge: pkce.codeChallenge
   });
 
-  const redirectUrl = await deps.openAuthSession(authorizeUrl, config.redirectUri, LOGIN_TIMEOUT_MS);
+  const redirectUrl = await deps.openAuthSession(authorizeUrl, KAKAO_APP_RETURN_URI, LOGIN_TIMEOUT_MS);
   const { code } = parseKakaoRedirectUrl(redirectUrl, prepared.state);
 
   return deps.exchange({

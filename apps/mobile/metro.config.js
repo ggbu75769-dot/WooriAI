@@ -17,12 +17,14 @@ const pixelLockBlockList = [
   ".android-avd",
   ".gradle-home",
   ".pixel-lock-avd",
+  ".toolcache",
   "artifacts",
   "backups",
   "apps/mobile/android"
 ].map((name) => new RegExp(`${escapeRegex(path.resolve(workspaceRoot, name))}[/\\\\].*`));
-config.resolver.blockList = new RegExp(
-  [config.resolver.blockList, ...pixelLockBlockList].map((pattern) => pattern.source).join("|")
-);
+// Expo 54 returns an array here. Reading array.source creates an empty regex
+// alternative that excludes every file, including the app's entry point.
+const defaultBlockList = [config.resolver.blockList].flat().filter(Boolean);
+config.resolver.blockList = [...defaultBlockList, ...pixelLockBlockList];
 
 module.exports = config;

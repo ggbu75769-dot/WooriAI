@@ -273,8 +273,50 @@ describe("이월 칩 — 서는 조건 셋 · 채워 넣기 전용 (§4.2 · B1(
     { categoryId: "cat-feeding", amountKrw: 50_000 }
   ];
 
+  it("지난달 이후 보관되거나 사라진 분류는 새 달 예산에 이월하지 않는다", () => {
+    const chip = buildCategoryCarryOverChip({
+      thisMonthBudgetMissing: true,
+      lastMonthEntries: [...lastMonth, { categoryId: "deleted-category", amountKrw: 20_000 }],
+      categories: [CANONICAL_DIAPER, { ...CANONICAL_FEEDING, active: false }],
+      draft: {}
+    });
+    expect(chip?.prefillDigits).toEqual({ "cat-diaper": "100000" });
+    expect(chip?.label).toBe("사용 중인 지난달 카테고리 예산만");
+    expect(chip?.accessibilityLabel).toBe("사용 중인 지난달 카테고리 예산만 채우기");
+  });
+
+  it("이월할 분류가 전부 보관되었거나 목록을 모르면 칩을 제안하지 않는다", () => {
+    for (const categories of [undefined, [], [{ ...CANONICAL_DIAPER, active: false }]]) {
+      expect(buildCategoryCarryOverChip({
+        thisMonthBudgetMissing: true,
+        lastMonthEntries: lastMonth,
+        categories,
+        draft: {}
+      })).toBeNull();
+    }
+  });
+
+  it("현재 가구의 분류만 이월하고 활성 별칭의 저장된 예산은 보존한다", () => {
+    const chip = buildCategoryCarryOverChip({
+      thisMonthBudgetMissing: true,
+      lastMonthEntries: [
+        { categoryId: "own-category", amountKrw: 30_000 },
+        { categoryId: "other-category", amountKrw: 40_000 },
+        { categoryId: "alias", amountKrw: 10_000 }
+      ],
+      categories: [
+        { ...CANONICAL_DIAPER, id: "own-category", householdId: "household-a" },
+        { ...CANONICAL_FEEDING, id: "other-category", householdId: "household-b" },
+        { ...CANONICAL_DIAPER, id: "alias", selectable: false }
+      ],
+      householdId: "household-a",
+      draft: {}
+    });
+    expect(chip?.prefillDigits).toEqual({ "own-category": "30000", alias: "10000" });
+  });
+
   it("이번 달 총액 없음 + 지난달 행 존재 + 이번 달 행 전부 빈 상태에서만 선다", () => {
-    const chip = buildCategoryCarryOverChip({ thisMonthBudgetMissing: true, lastMonthEntries: lastMonth, draft: {} });
+    const chip = buildCategoryCarryOverChip({ categories: FIXTURE_CATEGORIES, thisMonthBudgetMissing: true, lastMonthEntries: lastMonth, draft: {} });
     expect(chip).not.toBeNull();
     expect(chip!.label).toBe("지난달 카테고리 예산 그대로");
     expect(chip!.accessibilityLabel).toBe("지난달 카테고리 예산 그대로 채우기");
@@ -284,16 +326,17 @@ describe("이월 칩 — 서는 조건 셋 · 채워 넣기 전용 (§4.2 · B1(
 
   it("조건 하나라도 빠지면 서지 않는다", () => {
     // 이번 달 예산이 있는(또는 아직 모르는) 화면 — 기존 이월 칩과 같은 defer 갈래.
-    expect(buildCategoryCarryOverChip({ thisMonthBudgetMissing: false, lastMonthEntries: lastMonth, draft: {} })).toBeNull();
+    expect(buildCategoryCarryOverChip({ categories: FIXTURE_CATEGORIES, thisMonthBudgetMissing: false, lastMonthEntries: lastMonth, draft: {} })).toBeNull();
     // 지난달 행 없음(구 서버 응답의 필드 부재 포함).
-    expect(buildCategoryCarryOverChip({ thisMonthBudgetMissing: true, lastMonthEntries: [], draft: {} })).toBeNull();
-    expect(buildCategoryCarryOverChip({ thisMonthBudgetMissing: true, lastMonthEntries: undefined, draft: {} })).toBeNull();
+    expect(buildCategoryCarryOverChip({ categories: FIXTURE_CATEGORIES, thisMonthBudgetMissing: true, lastMonthEntries: [], draft: {} })).toBeNull();
+    expect(buildCategoryCarryOverChip({ categories: FIXTURE_CATEGORIES, thisMonthBudgetMissing: true, lastMonthEntries: undefined, draft: {} })).toBeNull();
     // 이번 달 행이 하나라도 채워져 있으면 덮어쓸 제안을 하지 않는다.
     expect(
       buildCategoryCarryOverChip({
         thisMonthBudgetMissing: true,
         lastMonthEntries: lastMonth,
-        draft: { "cat-diaper": "70000" }
+        draft: { "cat-diaper": "70000" },
+        categories: FIXTURE_CATEGORIES
       })
     ).toBeNull();
     // 지난달 행이 전부 저장 불가 값(0 이하)이면 채울 것이 없다.
@@ -301,6 +344,7 @@ describe("이월 칩 — 서는 조건 셋 · 채워 넣기 전용 (§4.2 · B1(
       buildCategoryCarryOverChip({
         thisMonthBudgetMissing: true,
         lastMonthEntries: [{ categoryId: "cat-diaper", amountKrw: 0 }],
+        categories: FIXTURE_CATEGORIES,
         draft: {}
       })
     ).toBeNull();

@@ -1,9 +1,12 @@
-import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { createHash, randomBytes } from "node:crypto";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { getRandomBytesAsync } from "expo-crypto";
 import { createPkcePair, getRandomBytes, toBase64Url } from "./pkce";
 import { sha256, utf8Bytes } from "./sha256";
 
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
+vi.mock("expo-crypto", () => ({ getRandomBytesAsync: vi.fn(async (length: number) => new Uint8Array(randomBytes(length))) }));
+afterEach(() => vi.restoreAllMocks());
 
 function nodeSha256Hex(input: Buffer | string): string {
   return createHash("sha256").update(input).digest("hex");
@@ -45,23 +48,30 @@ describe("AUTH-102 PKCE helpers", () => {
     }
   });
 
-  it("produces a 43-char base64url code_verifier (RFC 7636 minimum) that varies per call", () => {
-    const first = createPkcePair();
-    const second = createPkcePair();
+  it("produces a 43-char base64url code_verifier (RFC 7636 minimum) that varies per call", async () => {
+    const first = await createPkcePair();
+    const second = await createPkcePair();
     expect(first.codeVerifier).toHaveLength(43);
     expect(first.codeVerifier).toMatch(BASE64URL_PATTERN);
     expect(first.codeVerifier).not.toBe(second.codeVerifier);
   });
 
-  it("derives the S256 challenge as base64url(sha256(verifier)), verified against node:crypto", () => {
-    const pair = createPkcePair();
+  it("derives the S256 challenge as base64url(sha256(verifier)), verified against node:crypto", async () => {
+    const pair = await createPkcePair();
     const expected = createHash("sha256").update(pair.codeVerifier, "ascii").digest("base64url");
     expect(pair.codeChallenge).toBe(expected);
     expect(pair.codeChallenge).toHaveLength(43);
     expect(pair.codeChallengeMethod).toBe("S256");
   });
 
-  it("code_challenge fits the API DTO's 128-char MaxLength", () => {
-    expect(createPkcePair().codeChallenge.length).toBeLessThanOrEqual(128);
+  it("code_challenge fits the API DTO's 128-char MaxLength", async () => {
+    expect((await createPkcePair()).codeChallenge.length).toBeLessThanOrEqual(128);
+  });
+
+  it("fails closed when secure native randomness fails, without Math.random fallback", async () => {
+    const fallback = vi.spyOn(Math, "random");
+    vi.mocked(getRandomBytesAsync).mockRejectedValueOnce(new Error("native randomness unavailable"));
+    await expect(createPkcePair()).rejects.toThrow("native randomness unavailable");
+    expect(fallback).not.toHaveBeenCalled();
   });
 });
