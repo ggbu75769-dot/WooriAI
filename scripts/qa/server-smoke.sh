@@ -3,6 +3,10 @@
 # 총 37 체크 (라운드 59 트랙 D에서 31 → 37: 거절 계약 3 + 카테고리 노출 범위 3 — step 4b·5).
 set -uo pipefail
 B="${SMOKE_BASE_URL:-http://localhost:3400/api/v1}"
+if ! curl -fsS --connect-timeout 3 --max-time 10 "$B/health/ready" >/dev/null; then
+  echo "API readiness check failed: $B/health/ready" >&2
+  exit 1
+fi
 J='content-type: application/json'
 fail=0
 step() { echo -e "\n=== $1 ==="; }
@@ -32,22 +36,23 @@ chk "필수 동의 저장" $(curl -s -X PUT $B/consents -H "$A" -H "$J" -d '{"co
 # 50일 전으로 잡으면 100일 창 한가운데라 partial이 언제 돌려도 참이고, 오늘 찍는 지출도
 # 그 창 안에 든다. 첫돌(365일) 쪽 단언이 생기면 이 값을 다시 재야 한다.
 SMOKE_BIRTH="$(date -u -d '50 days ago' +%F 2>/dev/null || date -u -v-50d +%F)"
-CHILD=$(curl -s -X POST $B/children -H "$A" -H "$J" -H "Idempotency-Key: smoke-child-$RANDOM" -d "{\"householdId\":\"$HH\",\"nickname\":\"스모크\",\"stageMode\":\"born\",\"birthDate\":\"$SMOKE_BIRTH\"}")
+CHILD=$(curl -s -X POST $B/children -H "$A" -H "$J" -H "Idempotency-Key: smoke-child-$RANDOM" -d "{\"householdId\":\"$HH\",\"nickname\":\"\uc2a4\ubaa8\ud06c\",\"stageMode\":\"born\",\"birthDate\":\"$SMOKE_BIRTH\"}")
 CID=$(echo "$CHILD" | jq -r '.child.id // .id // empty')
 chk "아이 생성" $([ -n "$CID" ]; echo $?)
 YM="$(date +%Y-%m)"
 BUD=$(curl -s -X PUT $B/children/$CID/budget -H "$A" -H "$J" -d "{\"yearMonth\":\"${YM}-01\",\"amountKrw\":500000}")
 chk "예산 설정(500,000)" $(echo "$BUD" | jq -e '[.. | numbers] | any(. == 500000)' >/dev/null; echo $?)
 
+# JSON Unicode escapes keep Korean payloads intact through Windows native curl/jq argv.
 step "3b. 아이 관리: 목록 + 태명 수정 (MOB-118)"
 chk "아이 목록 GET /children에 생성 아이 포함" $(curl -s $B/children -H "$A" | jq -e --arg cid "$CID" '.children | map(.id) | index($cid) != null' >/dev/null; echo $?)
-PCH=$(curl -s -w '\n%{http_code}' -X PATCH $B/children/$CID -H "$A" -H "$J" -d '{"nickname":"스모크수정"}')
+PCH=$(curl -s -w '\n%{http_code}' -X PATCH $B/children/$CID -H "$A" -H "$J" -d '{"nickname":"\uc2a4\ubaa8\ud06c\uc218\uc815"}')
 PCODE=$(echo "$PCH" | tail -n1); PBODY=$(echo "$PCH" | sed '$d')
-chk "태명 수정 200 + stageLabel 존재" $([ "$PCODE" = "200" ] && echo "$PBODY" | jq -e '.nickname == "스모크수정" and (.stageLabel | type == "string" and length > 0)' >/dev/null; echo $?)
+chk "태명 수정 200 + stageLabel 존재" $([ "$PCODE" = "200" ] && echo "$PBODY" | jq -e '.nickname == "\uc2a4\ubaa8\ud06c\uc218\uc815" and (.stageLabel | type == "string" and length > 0)' >/dev/null; echo $?)
 
 step "4. 지출: 생성→홈→수정(버전)→충돌 409"
 CATID=$(curl -s $B/categories -H "$A" | jq -r '.categories[0].id')
-EXP=$(curl -s -X POST $B/children/$CID/expenses -H "$A" -H "$J" -H "Idempotency-Key: smoke-exp-$RANDOM" -d "{\"amountKrw\":38500,\"categoryId\":\"$CATID\",\"itemName\":\"기저귀\",\"spentOn\":\"$(date +%Y-%m-%d)\"}")
+EXP=$(curl -s -X POST $B/children/$CID/expenses -H "$A" -H "$J" -H "Idempotency-Key: smoke-exp-$RANDOM" -d "{\"amountKrw\":38500,\"categoryId\":\"$CATID\",\"itemName\":\"\uae30\uc800\uadc0\",\"spentOn\":\"$(date +%Y-%m-%d)\"}")
 EID=$(echo "$EXP" | jq -r '.expense.id // .id // empty'); VER=$(echo "$EXP" | jq -r '.expense.version // .version // 1')
 chk "지출 생성" $([ -n "$EID" ]; echo $?)
 chk "홈 합계 반영" $(curl -s "$B/home?childId=$CID" -H "$A" | jq -e '[.. | numbers] | any(. >= 38500)' >/dev/null; echo $?)
@@ -139,3 +144,4 @@ PH=$(curl -s ${B%/api/v1}/api/v1/health/push)
 chk "push health 응답 형태(키 미주입 시 enabled=false)" $(echo "$PH" | jq -e 'has("enabled") and has("sentOk") and has("sendFailed")' >/dev/null; echo $?)
 
 echo -e "\n================= 결과: 실패 $fail 건 ================="
+exit "$((fail > 0))"

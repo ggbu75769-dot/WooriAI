@@ -12,7 +12,7 @@
 cp launch.config.example.json launch.config.json
 ```
 
-파일을 열어 **[필수] 4개**를 채운다(각 항목의 한국어 주석 참고):
+파일을 열어 **[필수] 5개**를 채운다(각 항목의 한국어 주석 참고):
 
 | 필드 | 내용 | 예 |
 |---|---|---|
@@ -20,17 +20,27 @@ cp launch.config.example.json launch.config.json
 | `supportEmail` | 실제 수신 가능한 지원 이메일 | `help@example.com` |
 | `domain` | API 서버 도메인(스킴 없이) | `wooriai.duckdns.org` |
 | `launchDate` | 시행일(출시일), YYYY-MM-DD | `2026-09-15` |
+| `hostingProvider` | API·DB를 운영할 실제 호스팅 사업자 | `실제 배포 사업자명` |
 
-카카오 키 3종(`kakao.restApiKey` 등)은 developers.kakao.com에서 발급받아 채운다 —
+카카오 REST API 키와 서버 전용 Client Secret(`kakao.restApiKey`, `kakao.clientSecret`)은 developers.kakao.com에서 발급받아 채운다 —
 **비워 두어도 진행된다**(카카오 단계만 건너뛰고 표식이 남는다. 발급은 심사 없이 즉시,
-`docs/5차/launch-72h-plan.md` §1 참고). `siteDomain` 등 [선택] 항목은 비우면 합리적
+`docs/5차/launch-72h-plan.md` §1 참고). `siteDomain` 등 [선택] 항목은 비우면 정해진
 기본값이 쓰인다.
 
 ⚠️ `launch.config.json`과 `.env.production`은 .gitignore 대상 — 커밋하지 않는다.
 
 ## ② pnpm launch:prepare (자동)
 
+먼저 `pnpm launch:prepare --check`로 설정 형식과 HTML 치환 계획을 점검한다.
+이 옵션은 HTML·환경 파일·비밀값·gitignore를 바꾸지 않는다. 통과해도 운영 환경,
+실제 카카오 로그인, 법적 문서 확정이나 스토어 출시가 검증된 것은 아니다.
+카카오 미설정은 별도로 표시한다. `--force-env`와 함께 사용할 수 없다.
+기존 `.env.production`이 있으면 필수 환경값과 설정 파일의 도메인·카카오 일치 여부도
+검증한다. `ENV_CONFIG_DRIFT`는 출력된 키만 맞추면 된다. 이때 시크릿 전체를 재생성할
+필요가 없다. 환경 검증 실패 시 HTML·기존 환경 파일·gitignore는 변경하지 않는다.
+
 ```bash
+pnpm launch:prepare --check
 pnpm launch:prepare
 ```
 
@@ -43,6 +53,13 @@ pnpm launch:prepare
 - `.env.production` 생성: JWT 시크릿·salt·DB 비밀번호·관리자 초기 비밀번호 등
   비밀값 8개 자동 생성(crypto), 도메인 파생 URL 6개 자동, 카카오 키 주입.
 - `pnpm check:env --file .env.production` 통과 확인까지 자동 검증.
+
+2026-09-12: 새 환경 파일은 제한된 임시 파일에서 먼저 검증하고 즉시 제거한다.
+새 설정 검증에 실패하면 `--force-env`를 사용했어도 기존 운영 시크릿을 보존한다.
+
+2026-09-11: Windows에서도 설치된 Node·tsx로 동일한 환경 검사를 실행한다.
+운영자명 등의 HTML 특수문자는 이스케이프하고, 잘못된 설정 형식·줄바꿈 입력과
+누락된 대상 파일은 치환 전에 거부한다. 오류 메시지에 카카오 키 원문을 출력하지 않는다.
 
 끝나면 요약이 출력된다(치환 파일 목록·남은 수동 항목). 재실행해도 안전하다 —
 치환은 멱등이고, 기존 `.env.production`은 덮어쓰지 않는다(재생성은 `--force-env`,
@@ -112,7 +129,7 @@ bash scripts/release/make-keystore.sh
 
 ## 남은 수동 항목 체크리스트
 
-- [ ] 카카오 키 발급·주입(①에서 비웠다면) + 카카오 콘솔 redirect URI(`wooriai://oauth/kakao`) 등록
+- [ ] 카카오 키 발급·주입(①에서 비웠다면) + 카카오 콘솔 redirect URI(`https://<도메인>/api/v1/auth/kakao/callback`) 등록
 - [ ] 법률 검토: 초안 배너 제거, `[적용 법령·기간은 법률 검토 시 확정]` 확정
 - [ ] 어드민 초기 비밀번호 교체 + MFA 등록(③)
 - [ ] (사업자인 경우) 개인정보 보호책임자 성명 확인 — 기본값은 운영 주체명

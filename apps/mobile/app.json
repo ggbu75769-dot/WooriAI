@@ -7,6 +7,7 @@
     "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "newArchEnabled": false,
     "plugins": [
       "expo-router",
       "expo-asset",
@@ -29,6 +30,7 @@
     },
     "android": {
       "package": "kr.wooriai.app",
+      "blockedPermissions": ["android.permission.SYSTEM_ALERT_WINDOW"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFF9F3",

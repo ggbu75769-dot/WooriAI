@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { transpileModule } from "typescript";
 import { CHILD_REMOVAL_INVALIDATE_KEYS } from "./child-deletion";
 import {
   acceptInviteHref,
@@ -611,7 +612,8 @@ describe("라운드 107 트랙 C — 초대 재개의 목적지는 '이 사용�
 
     it("두 목적지를 코드에서 직접 적지 않는다 — 위임은 한 줄로 남는다", () => {
       const planSource = source("src/children/household-join.ts");
-      const rendered = planSource.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+      // 타입의 목적지 리터럴은 실행되는 이동이 아니다. 타입과 주석을 지운 JS를 검사한다.
+      const rendered = transpileModule(planSource, { compilerOptions: { removeComments: true } }).outputText;
       // 온보딩 리터럴은 planAfterHouseholdJoin의 **진짜 신규** 갈래 하나에만 남는다.
       // (escapePlan의 종전 리터럴이 되살아나면 여기가 빨개진다 — 주석의 이력 인용은 세지 않는다.)
       expect(rendered.split('"/onboarding/child-status"').length - 1).toBe(1);

@@ -15,7 +15,7 @@
 #         없으면 localhost API·개발 스텁 로그인이 실사용자에게 실리기 때문 — 라운드 73 트랙 A)
 #     필수: WOORIAI_ANDROID_PACKAGE · EXPO_PUBLIC_API_BASE_URL(https) ·
 #           EXPO_PUBLIC_KAKAO_CLIENT_ID · EXPO_PUBLIC_TERMS_URL · EXPO_PUBLIC_PRIVACY_POLICY_URL
-#     선택: EXPO_PUBLIC_KAKAO_REDIRECT_URI(기본 wooriai://oauth/kakao) ·
+#     필수: EXPO_PUBLIC_KAKAO_REDIRECT_URI(HTTPS API callback) ·
 #           EXPO_PUBLIC_SUPPORT_URL · EXPO_PUBLIC_FAQ_URL(없으면 opt-out 플래그로 빌드하되 경고)
 #
 # 비밀값 로그 안전: GitHub Actions가 시크릿을 자동 마스킹하고, 추가로 keystore는 base64 디코드로
@@ -52,6 +52,7 @@ jobs:
           VAR_ANDROID_PACKAGE: ${{ vars.WOORIAI_ANDROID_PACKAGE }}
           VAR_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL }}
           VAR_KAKAO_CLIENT_ID: ${{ vars.EXPO_PUBLIC_KAKAO_CLIENT_ID }}
+          VAR_KAKAO_REDIRECT_URI: ${{ vars.EXPO_PUBLIC_KAKAO_REDIRECT_URI }}
           VAR_TERMS_URL: ${{ vars.EXPO_PUBLIC_TERMS_URL }}
           VAR_PRIVACY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
           INPUT_VERSION_CODE: ${{ inputs.version_code }}
@@ -66,6 +67,7 @@ jobs:
           [ -n "$VAR_ANDROID_PACKAGE" ]      || missing_vars="$missing_vars WOORIAI_ANDROID_PACKAGE(예: kr.wooriai.app)"
           [ -n "$VAR_API_BASE_URL" ]         || missing_vars="$missing_vars EXPO_PUBLIC_API_BASE_URL(https://<도메인>/api/v1)"
           [ -n "$VAR_KAKAO_CLIENT_ID" ]      || missing_vars="$missing_vars EXPO_PUBLIC_KAKAO_CLIENT_ID"
+          [ -n "$VAR_KAKAO_REDIRECT_URI" ]   || missing_vars="$missing_vars EXPO_PUBLIC_KAKAO_REDIRECT_URI"
           [ -n "$VAR_TERMS_URL" ]            || missing_vars="$missing_vars EXPO_PUBLIC_TERMS_URL"
           [ -n "$VAR_PRIVACY_URL" ]          || missing_vars="$missing_vars EXPO_PUBLIC_PRIVACY_POLICY_URL"
           if [ -n "$missing_secrets" ] || [ -n "$missing_vars" ]; then
@@ -77,7 +79,7 @@ jobs:
           case "$INPUT_VERSION_CODE" in
             ''|*[!0-9]*) echo "::error::version_code 입력이 양의 정수가 아닙니다: $INPUT_VERSION_CODE"; exit 1 ;;
           esac
-          echo "사전 점검 통과 — 시크릿 4개·필수 변수 5개 확인됨."
+          echo "사전 점검 통과 — 시크릿 4개·필수 변수 6개 확인됨."
 
       # ── 이하 환경 세팅은 android-apk.yml과 동일 ──
       - uses: pnpm/action-setup@v6
@@ -121,7 +123,7 @@ jobs:
           EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL }}
           EXPO_PUBLIC_KAKAO_ENABLED: "1"
           EXPO_PUBLIC_KAKAO_CLIENT_ID: ${{ vars.EXPO_PUBLIC_KAKAO_CLIENT_ID }}
-          EXPO_PUBLIC_KAKAO_REDIRECT_URI: ${{ vars.EXPO_PUBLIC_KAKAO_REDIRECT_URI || 'wooriai://oauth/kakao' }}
+          EXPO_PUBLIC_KAKAO_REDIRECT_URI: ${{ vars.EXPO_PUBLIC_KAKAO_REDIRECT_URI }}
           EXPO_PUBLIC_TERMS_URL: ${{ vars.EXPO_PUBLIC_TERMS_URL }}
           EXPO_PUBLIC_PRIVACY_POLICY_URL: ${{ vars.EXPO_PUBLIC_PRIVACY_POLICY_URL }}
           EXPO_PUBLIC_SUPPORT_URL: ${{ vars.EXPO_PUBLIC_SUPPORT_URL }}

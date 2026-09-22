@@ -9,7 +9,7 @@ import { typography } from "./tokens/typography";
  * 이 파일은 **두 개의 서로 다른 주장**을 각각 오라클로 고정한다.
  *
  * ① 금액 타이포(`amountLarge/Medium/Regular`)의 숫자 `lineHeight`가 OS 글꼴 배율을 **안 따라간다**는
- *    주장 → **거짓이다.** react-native 0.76.9는 iOS(구·신 아키텍처 둘 다)와 Android 양쪽에서 숫자
+ *    주장 → **거짓이다.** react-native 0.81.5는 iOS(구·신 아키텍처 둘 다)와 Android 양쪽에서 숫자
  *    `lineHeight`에 글꼴 배율을 곱한다. 그래서 토큰은 손대지 않는다. 손대면(토큰 쪽에서 배율을 한 번
  *    더 곱하면) 플랫폼이 곱하는 배율과 겹쳐 **이중 배율**이 된다 — 배율 2.0에서 줄상자가 38 → 76이
  *    아니라 152가 되어, 지금은 멀쩡한 금액 행들이 그때 처음 깨진다.
@@ -38,9 +38,9 @@ function readAppSource(relativePath: string): string {
 
 /** 정찰이 "숫자 lineHeight는 배율을 안 탄다"고 적은 전제를 설치된 RN에서 다시 잰다. */
 describe("A11Y-TYPO-001 재실측: 숫자 lineHeight는 이미 OS 글꼴 배율을 탄다", () => {
-  it("설치된 react-native가 0.76.9다 (아래 네이티브 소스 인용의 사정거리)", () => {
+  it("설치된 react-native가 0.81.5다 (아래 네이티브 소스 인용의 사정거리)", () => {
     const manifest = JSON.parse(readReactNativeSource("package.json")) as { version: string };
-    expect(manifest.version).toBe("0.76.9");
+    expect(manifest.version).toBe("0.81.5");
   });
 
   it("iOS 구 아키텍처(Paper)가 lineHeight에 effectiveFontSizeMultiplier를 곱한다", () => {
@@ -71,10 +71,11 @@ describe("A11Y-TYPO-001 재실측: 숫자 lineHeight는 이미 OS 글꼴 배율�
     expect(paper).toContain(": PixelUtil.toPixelFromDIP(lineHeight);");
 
     const fabric = readReactNativeSource(
-      "ReactAndroid/src/main/java/com/facebook/react/views/text/TextAttributes.java"
+      "ReactAndroid/src/main/java/com/facebook/react/views/text/TextAttributes.kt"
     );
-    expect(fabric).toContain("public float getEffectiveLineHeight()");
-    expect(fabric).toContain("? PixelUtil.toPixelFromSP(mLineHeight, getEffectiveMaxFontSizeMultiplier())");
+    expect(fabric).toContain("public val effectiveLineHeight: Float");
+    expect(fabric).toContain("if (allowFontScaling) PixelUtil.toPixelFromSP(lineHeight, effectiveMaxFontSizeMultiplier)");
+    expect(fabric).toContain("else PixelUtil.toPixelFromDIP(lineHeight)");
 
     // SP → PX 변환이 실제로 사용자 글꼴 배율을 타는 지점(안 그러면 위 두 인용이 무의미하다).
     const pixelUtil = readReactNativeSource(

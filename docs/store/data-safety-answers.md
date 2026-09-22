@@ -1,6 +1,6 @@
 # Play Console 데이터 안전(Data Safety) 설문 답안지 (STORE-101)
 
-> 상태: 제출용 초안 v1.1 (2026-08-20 작성 · 2026-08-28 갱신 — GAP-058 #9: 앱 잠금 PIN 항목 추가).
+> 상태: 제출용 초안 v1.2 (2026-09-23 확인 — 계정 삭제 웹 페이지 초안과 실제 공개 상태 반영).
 > **모든 답은 코드로 확인한 실제 구현 기준.**
 > 근거 파일: `apps/api/prisma/schema.prisma`, `apps/api/src/settings/settings.controller.ts`,
 > `apps/api/src/households/household-runtime.service.ts`, `apps/api/src/onboarding/onboarding-core.service.ts`,
@@ -21,17 +21,17 @@
 | 수집된 모든 사용자 데이터가 전송 중 암호화되나요? | **예** | Android `network_security_config.xml`: `cleartextTrafficPermitted="false"` (예외는 로컬 개발 호스트 `localhost`/`10.0.2.2`뿐 — 릴리즈 트래픽은 전부 HTTPS) |
 | 사용자가 데이터 삭제를 요청할 수 있는 방법을 제공하나요? | **예** | 앱 내 설정 > 약관 및 개인정보(SET-003/004): 계정 삭제·아이 프로필 삭제·가구 탈퇴 2단계 플로우 (`app/settings/privacy.tsx` → `POST /settings/account/delete-confirm` 등) |
 
-### ⚠ 계정 삭제 웹 URL 요구사항 (미충족 — 후속 티켓 필요)
+### ⚠ 계정 삭제 웹 URL 요구사항 (페이지 초안 완료, 공개 URL 미충족)
 
 Play 정책상 **계정 생성이 가능한 앱은 "웹에서 접근 가능한 계정 삭제 요청 URL"을
-Data Safety 섹션에 반드시 입력**해야 한다(2024년부터 시행). 현재 앱 내 삭제 플로우는
-완비되어 있으나 **웹 삭제(또는 삭제 요청 접수) 페이지는 구현되어 있지 않다.**
+Data Safety 섹션에 반드시 입력**해야 한다. 현재 앱 내 삭제 플로우와
+`infra/legal/account-deletion.html` 초안은 있지만, 지원 이메일 등의 placeholder가 남아 있고
+실제 공개 URL은 없다. 소개용 체험 페이지는 이 요구사항을 충족하지 않는다.
 
-- 제안: 후속 티켓 `STORE-1xx` — 정적 페이지 1장(삭제 절차 안내 + 이메일 접수 안내)로도
-  요건 충족 가능. `infra/legal/`에 `account-deletion.html` 추가 후 약관·처리방침과 같은
-  도메인에 호스팅.
-- 임시 대응: 페이지 준비 전에는 설문 제출이 막히거나 반려될 수 있으므로 **Day 3 제출 전
-  필수 선행 작업**으로 취급할 것.
+- 운영자·문의처 확정 뒤 페이지의 placeholder를 치환하고 약관·처리방침과 같은 HTTPS
+  사이트에 공개한다. URL이 앱/개발자명을 명시하고, 앱 재설치를 요구하지 않고 삭제 요청을
+  접수하며, 정상 열리는지 확인한다. [Google의 계정 삭제 웹 링크 요건](https://support.google.com/googleplay/android-developer/answer/13327111).
+- 공개·검증 전에는 설문에 임시 URL을 넣지 않는다. **Day 3 제출 전 필수 선행 작업**이다.
 
 ---
 
@@ -169,6 +169,6 @@ Data Safety 섹션에 반드시 입력**해야 한다(2024년부터 시행). 현
 3. **해시 IP/User-Agent → 별도 신고 생략, 처리방침에만 기재**. §B-7.
 4. **displayName(카카오 닉네임) → "이름"으로 신고**(실명 아닐 수 있으나 이름 항목이 최근접).
 5. **광고 없음이되 isSponsored 기능 가동 시 재신고 필요**. §D.
-6. **계정 삭제 웹 URL 부재 = 제출 블로커** — 후속 티켓 필수. §A.
+6. **계정 삭제 페이지 초안은 있으나 공개 URL 부재 = 제출 블로커** — 운영 정보 치환·공개·접수 확인 필요. §A.
 7. **앱 잠금 PIN → 어떤 유형으로도 신고하지 않음**(기기 내 SecureStore·솔트+SHA-256 해시·전송
    경로 없음). §B-6-1. 계정 동기화나 서버 재설정을 붙이면 재신고 대상.

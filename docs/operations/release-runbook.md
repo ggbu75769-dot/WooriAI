@@ -5,7 +5,7 @@
 ## 1. 배포 전 체크리스트
 
 - [ ] `npx --yes pnpm@11.7.0 install --frozen-lockfile` 성공
-- [ ] `npx --yes pnpm@11.7.0 release:gate` 전 단계 PASS (근거: `grep -c '    label: "' scripts/release-gate.ts` → **11**단계 — Install·Env example·Prisma validate·Prisma generate·Database up·Lint·Typecheck·All tests·API e2e·Build dry-run·Peer dependencies)
+- [ ] `npx --yes pnpm@11.7.0 release:gate` 전 단계 PASS (근거: `grep -c '    label: "' scripts/release-gate.ts` → **13**단계 — Install·Mobile SDK compatibility·Env example·Prisma validate·Prisma generate·Database up·Lint·Typecheck·All tests·API e2e·Build dry-run·Peer dependencies·Production dependency security)
 - [ ] 프로덕션 env 설정: `NODE_ENV=production`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `WOORIAI_ADMIN_TOKEN`, `DATABASE_URL`, OAuth client id/secret, `EXPO_PUBLIC_API_BASE_URL`(https)
 - [ ] `pnpm check:env --scope=api` 통과 — 카탈로그 크기는 필수 근거: `awk '/^const REQUIRED_SPECS/,/^\];/' scripts/check-env.ts | grep -c 'key: "'` → **22**개 · 선택 근거: `awk '/^const OPTIONAL_SPECS/,/^\];/' scripts/check-env.ts | grep -c 'key: "'` → **41**개
   - ⚠️ **두 시점(라운드 106 F5)**: 이 칸은 종전에 "`pnpm check:env` 통과 (누락 시 API 부팅 실패)"라고만

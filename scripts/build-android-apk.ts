@@ -1,6 +1,9 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { androidSourceSnapshot } from "./lib/android-source-snapshot";
 
 const repoRoot = process.cwd();
 const androidDir = join(repoRoot, "apps", "mobile", "android");
@@ -70,10 +73,8 @@ function findAndroidSdk() {
 }
 
 function main() {
-  if (!existsSync(gradlew)) throw new Error(`GRADLEW_NOT_FOUND ${gradlew}`);
-
   const profile = parseProfile();
-  const artifactPath = join(repoRoot, "artifacts", "android", `wooriai-0.0.0-release-${profile}.apk`);
+  const artifactPath = join(repoRoot, `wooriai-0.0.0-release-${profile}.apk`);
   const reportPath = join(repoRoot, "artifacts", "android", `wooriai-0.0.0-release-${profile}.json`);
 
   const javaHome = findJavaHome();
@@ -113,6 +114,19 @@ function main() {
     GRADLE_USER_HOME: process.env.GRADLE_USER_HOME || gradleUserHome,
     ...(apiBaseUrl ? { EXPO_PUBLIC_API_BASE_URL: apiBaseUrl } : {})
   };
+  // Generated native files can belong to an older SDK or package identity. Reapply the
+  // current Expo config and config plugin before every APK, as the AAB pipeline does.
+  const mobileDir = join(repoRoot, "apps", "mobile");
+  const mobileRequire = createRequire(join(mobileDir, "package.json"));
+  const prebuild = spawnSync(process.execPath, [mobileRequire.resolve("expo/bin/cli"), "prebuild", "--platform", "android", "--no-install"], {
+    cwd: mobileDir,
+    env,
+    stdio: "inherit",
+    windowsHide: true
+  });
+  if (prebuild.status !== 0) throw new Error(`EXPO_PREBUILD_FAILED: ${prebuild.error?.message ?? prebuild.status}`);
+  if (!existsSync(gradlew)) throw new Error(`GRADLEW_NOT_FOUND ${gradlew}`);
+  const sourceSnapshot = androidSourceSnapshot(repoRoot);
   const args = ["assembleRelease", "--rerun-tasks"];
   const result = spawnSync(gradlew, args, {
     cwd: androidDir,
@@ -126,8 +140,11 @@ function main() {
     throw new Error(`${gradlew} ${args.join(" ")} failed\n${result.error?.message ?? ""}\n${result.stdout ?? ""}\n${result.stderr ?? ""}`);
   }
   if (!existsSync(builtApkPath)) throw new Error(`RELEASE_APK_MISSING ${builtApkPath}`);
+  if (androidSourceSnapshot(repoRoot) !== sourceSnapshot) {
+    throw new Error("ANDROID_SOURCE_CHANGED_DURING_BUILD: source changed; the APK was not published. Build again after edits finish.");
+  }
 
-  mkdirSync(dirname(artifactPath), { recursive: true });
+  mkdirSync(dirname(reportPath), { recursive: true });
   copyFileSync(builtApkPath, artifactPath);
   writeFileSync(
     reportPath,
@@ -135,6 +152,10 @@ function main() {
       {
         generatedAt: new Date().toISOString(),
         profile,
+        signing: "debug-internal-only",
+        storeReady: false,
+        sourceSnapshot,
+        apkSha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex"),
         env: {
           EXPO_PUBLIC_PIXEL_LOCK: "0",
           EXPO_PUBLIC_TEST_LOGIN: profileTestLoginEnv[profile],

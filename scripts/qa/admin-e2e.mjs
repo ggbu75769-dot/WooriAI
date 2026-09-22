@@ -27,6 +27,8 @@
  *   EDITOR_EMAIL     (default editor@wooriai.local — QA-114 role-gate step)
  *   EDITOR_PASSWORD  (default wooriai-dev-editor)
  *   QA_OUT_DIR       screenshot/output dir (default scripts/qa/out)
+ *   QA_DATABASE_URL  local PostgreSQL URL matching the API under test (default wooriai_dev)
+ *   QA_BROWSER_PATH  optional installed Chromium/Chrome executable
  *
  * The script prints a per-step PASS/FAIL summary and exits non-zero if any
  * step failed. It performs NO writes to the app data other than the MFA
@@ -73,6 +75,18 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
+// Keep MFA verification on the same disposable local database as the API under test.
+// Never put the database password in command arguments or test output.
+const qaDatabase = new URL(process.env.QA_DATABASE_URL ?? "postgresql://wooriai:wooriai_dev_password@localhost:5432/wooriai_dev");
+if (!['postgres:', 'postgresql:'].includes(qaDatabase.protocol) ||
+    !['localhost', '127.0.0.1', '[::1]'].includes(qaDatabase.hostname) ||
+    !/^\/[a-zA-Z0-9_]+$/.test(qaDatabase.pathname)) {
+  throw new Error('QA_DATABASE_URL must name a local PostgreSQL test database');
+}
+const qaPgArgs = ['-h', qaDatabase.hostname.replace(/^\[|\]$/g, ''), '-p', qaDatabase.port || '5432',
+  '-U', decodeURIComponent(qaDatabase.username), '-d', qaDatabase.pathname.slice(1), '-tA'];
+const qaPgEnv = { ...process.env, PGPASSWORD: decodeURIComponent(qaDatabase.password) };
+
 const { chromium } = require(path.join(repoRoot, "node_modules", "playwright-core"));
 const otplib = require(path.join(repoRoot, "apps", "api", "node_modules", "otplib"));
 
@@ -97,6 +111,24 @@ const OUT_DIR = process.env.QA_OUT_DIR ?? path.join(repoRoot, "scripts", "qa", "
 // Dev-first-compile of a Next.js route can take a long time.
 const NAV_TIMEOUT = 120_000;
 const STEP_TIMEOUT = 60_000;
+
+async function verifyDocumentNonce() {
+  let previousNonce;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(BASE_URL, { signal: AbortSignal.timeout(NAV_TIMEOUT) });
+    if (!response.ok) throw new Error(`Admin document returned HTTP ${response.status}`);
+    const policy = response.headers.get("content-security-policy") ?? "";
+    const nonce = policy.match(/'nonce-([^']+)'/)?.[1];
+    if (!nonce || !policy.includes("'strict-dynamic'")) throw new Error("Admin document is missing its nonce CSP");
+    const html = await response.text();
+    const scripts = html.match(/<script\b[^>]*>/gi) ?? [];
+    if (!scripts.length || scripts.some((tag) => tag.match(/\bnonce="([^"]+)"/)?.[1] !== nonce)) {
+      throw new Error("Admin HTML scripts do not match the response CSP nonce; production hydration is blocked");
+    }
+    if (nonce === previousNonce) throw new Error("Admin CSP nonce was reused across requests");
+    previousNonce = nonce;
+  }
+}
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -144,10 +176,10 @@ function totpSecretFromDb(email = ADMIN_EMAIL) {
   const out = execFileSync(
     "psql",
     [
-      "-h", "localhost", "-U", "wooriai", "-d", "wooriai_dev", "-tA",
+      ...qaPgArgs,
       "-c", `select totp_secret from admin_users where email = '${email.replace(/'/g, "''")}'`
     ],
-    { env: { ...process.env, PGPASSWORD: "wooriai_dev_password" }, encoding: "utf8" }
+    { env: qaPgEnv, encoding: "utf8", windowsHide: true }
   ).trim();
   if (!out) throw new Error(`no totp_secret in dev DB for ${email}`);
   return out;
@@ -161,10 +193,10 @@ function adminAccountInDb(email) {
     const out = execFileSync(
       "psql",
       [
-        "-h", "localhost", "-U", "wooriai", "-d", "wooriai_dev", "-tA",
+      ...qaPgArgs,
         "-c", `select 1 from admin_users where email = '${email.replace(/'/g, "''")}' and active = true`
       ],
-      { env: { ...process.env, PGPASSWORD: "wooriai_dev_password" }, encoding: "utf8" }
+      { env: qaPgEnv, encoding: "utf8", windowsHide: true }
     ).trim();
     return out === "1";
   } catch {
@@ -518,9 +550,9 @@ function narrowedTableVerdict(action) {
 }
 
 async function main() {
-  let executablePath;
+  let executablePath = process.env.QA_BROWSER_PATH;
   try {
-    executablePath = chromium.executablePath();
+    executablePath ??= chromium.executablePath();
   } catch {
     executablePath = undefined;
   }
@@ -545,9 +577,10 @@ async function main() {
   // 계정에는 복구 코드 자체가 없다. 그래서 값을 여기서 붙잡아 둔다.
   let adminLoginFlow = null;
   const loginOk = await runStep("login-mfa-dashboard", page, async () => {
+    await verifyDocumentNonce();
     const flow = await loginViaUi(page, ADMIN_EMAIL, ADMIN_PASSWORD);
     adminLoginFlow = flow;
-    return `logged in via ${flow} path, dashboard heading visible`;
+    return `fresh matching CSP nonces verified; logged in via ${flow} path, dashboard heading visible`;
   });
 
   if (!loginOk) {

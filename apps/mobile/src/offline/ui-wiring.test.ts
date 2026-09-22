@@ -150,9 +150,10 @@ describe("MOB-102/EXP-005 offline UI wiring (source verification -- follows the 
     expect(header).toContain("OFFLINE_STORAGE_UNAVAILABLE_NOTICE");
   });
 
-  it("mobile package.json declares the SDK-52-pinned expo-sqlite and expo-network dependencies", () => {
+  it("mobile package.json declares the installed Expo SDK's compatible SQLite/network dependencies", () => {
     const packageJson = JSON.parse(source("package.json"));
-    expect(packageJson.dependencies["expo-sqlite"]).toBe("~15.1.4");
-    expect(packageJson.dependencies["expo-network"]).toBe("~7.0.5");
+    const bundled = JSON.parse(source("node_modules/expo/bundledNativeModules.json"));
+    expect(packageJson.dependencies["expo-sqlite"]).toBe(bundled["expo-sqlite"]);
+    expect(packageJson.dependencies["expo-network"]).toBe(bundled["expo-network"]);
   });
 });

@@ -24,6 +24,7 @@ COPY packages/domain/package.json packages/domain/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/test-utils/package.json packages/test-utils/package.json
+COPY patches patches
 
 # 루트(typescript — next build의 타입 체크가 사용)와 admin 의존성만 설치
 RUN pnpm install --frozen-lockfile --filter . --filter admin...

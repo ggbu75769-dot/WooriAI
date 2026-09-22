@@ -161,7 +161,7 @@ ADMIN_SEED_PASSWORD=${ADMIN_SEED_PASSWORD_GEN}
 # 카카오 실연동 시 채우고 api 재기동 (docs/5차/day1-deploy-runbook.md):
 #OAUTH_KAKAO_CLIENT_ID=
 #OAUTH_KAKAO_CLIENT_SECRET=
-#OAUTH_KAKAO_REDIRECT_URIS=wooriai://oauth/kakao
+#OAUTH_KAKAO_REDIRECT_URIS=https://${DOMAIN}/api/v1/auth/kakao/callback
 EOF
   chmod 600 "$ENV_FILE"
 else

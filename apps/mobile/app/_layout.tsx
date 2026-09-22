@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AccessibilityInfo } from "react-native";
+import { AccessibilityInfo, Platform } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack } from "expo-router";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { LOCAL_SESSION_TOKEN } from "../src/api/client";
@@ -11,6 +12,7 @@ import { registerAppQueryClient } from "../src/query/query-client-registry";
 import { SHARED_CACHE_POLICIES } from "../src/query/shared-cache-policy";
 import { AppLockOverlay, AppLockScreenShield } from "../src/security/AppLockOverlay";
 import { useSessionStore } from "../src/stores/session.store";
+import { theme } from "../src/theme";
 
 // MOB-117: react-query의 기본 focus/online 리스너는 웹 전용(window focus/online 이벤트)이라
 // 네이티브에서는 포그라운드 복귀·네트워크 복구 시 재조회가 전혀 없었다. focusManager를
@@ -149,6 +151,9 @@ export default function RootLayout() {
   }, []);
   return (
     <QueryClientProvider client={queryClient}>
+      {/* Android 16 draws edge-to-edge. Keep the navigator, fixed tab bar and overlays
+          inside system insets; existing iOS screen-level safe areas stay in charge. */}
+      <SafeAreaView edges={Platform.OS === "android" ? ["top", "right", "bottom", "left"] : []} style={{ flex: 1, backgroundColor: theme.colors.background }}>
       {/* MOB-108: global render-crash boundary. Wraps the navigator AND the lifecycle mounts
           (OfflineSyncLifecycle, PurchaseFollowupLifecycle) so a crash in any of them shows the
           warm recovery screen instead of a white screen; [다시 시도] remounts this whole subtree.
@@ -163,7 +168,7 @@ export default function RootLayout() {
             노드가 생기지 않고(수용 기준 2), 픽셀락 빌드에서는 존재할 수 없다(수용 기준 6) —
             근거·대안 비교는 src/security/AppLockOverlay.tsx의 AppLockScreenShield 주석. */}
         <AppLockScreenShield>
-          <Stack screenOptions={{ headerShown: false }}>
+          <Stack screenOptions={{ headerShown: false, statusBarStyle: "dark" }}>
             {/* 라운드 96 T3: 시트 문법 화면은 시트처럼 아래에서 올라온다(위 RootLayout 주석).
                 reduce-motion이면 "none" — 몸짓을 지어내지 않는다. */}
             <Stack.Screen
@@ -193,6 +198,7 @@ export default function RootLayout() {
             기존 화면 트리가 한 노드도 달라지지 않는다. */}
         <AppLockOverlay />
       </ErrorBoundary>
+      </SafeAreaView>
     </QueryClientProvider>
   );
 }

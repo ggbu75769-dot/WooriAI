@@ -705,7 +705,8 @@ function listAppNonTsxSourceFiles(): string[] {
         walk(path);
         continue;
       }
-      if (!entry.name.endsWith(".ts") || entry.name.includes(".test.")) continue;
+      // The native intent hook rewrites incoming links; it never renders a screen/header.
+      if (!entry.name.endsWith(".ts") || entry.name.includes(".test.") || entry.name === "+native-intent.ts") continue;
       found.push(relative(mobileRoot, path).split(sep).join("/"));
     }
   };

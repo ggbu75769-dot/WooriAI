@@ -28,6 +28,7 @@ import { createMemoryOfflineStore } from "./memory-offline-store";
 import {
   clearSessionScopedChildSelection,
   clearSessionScopedQueryCache,
+  clearSessionScopedStores,
   isSessionIdentityChange,
   revokeOutgoingSessionOnServer,
   subscribeToHydratedSessionTransitions,
@@ -604,6 +605,61 @@ describe("PRIV-104 isSessionIdentityChange policy", () => {
 });
 
 describe("PRIV-104 teardownOfflineSessionState", () => {
+  it("SQLite 없이도 계정별 검색어·동의·템플릿·잠금을 동기로 비운다", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+
+    const cleared = clearSessionScopedStores();
+    expect(useRecentSearchesStore.getState().searches).toEqual([]);
+    expect(useQuickRecordPinsStore.getState().pinnedItemNames).toEqual([]);
+    expect(useAnalyticsConsentStore.getState().enabled).toBe(false);
+    expect(usePurchaseFollowupStore.getState().entries).toEqual([]);
+    expect(useRecurringExpenseStore.getState().templates).toEqual([]);
+    expect(useAppLockStore.getState().record).toBeNull();
+    // SQLite를 열기 전 정리 단계는 큐에 접근하지 않는다.
+    expect(await store.listOutboxMutations()).toHaveLength(1);
+    await cleared;
+    expect(await readAppLockRecord()).toEqual({ status: "loaded", record: null });
+  });
+
+  it("SQLite 열기가 늦어져도 새 계정이 만든 클라이언트 상태를 다시 지우지 않는다", async () => {
+    const store = createMemoryOfflineStore();
+    await seedUserScopedState(store);
+    const clientStateCleared = clearSessionScopedStores();
+    clearSessionScopedQueryCache();
+    clearSessionScopedChildSelection();
+    await clientStateCleared;
+
+    const client = new QueryClient();
+    registerAppQueryClient(client);
+    try {
+      useRecentSearchesStore.getState().add("새 계정 검색");
+      useSelectedChildStore.getState().setSelectedChildId("child-b");
+      client.setQueryData(["children"], { children: [{ id: "child-b" }] });
+      await teardownOfflineSessionState(store, { authToken: null, clientStateCleared });
+
+      expect(useRecentSearchesStore.getState().searches).toEqual(["새 계정 검색"]);
+      expect(useSelectedChildStore.getState().selectedChildId).toBe("child-b");
+      expect(client.getQueryData(["children"])).toEqual({ children: [{ id: "child-b" }] });
+      await expectStoreFullyEmpty(store);
+    } finally {
+      resetAppQueryClientRegistryForTests();
+      client.clear();
+      useSelectedChildStore.getState().clearSelectedChildId();
+    }
+  });
+
+  it("컨트롤러는 SQLite 열기 앞에서 스토어 정리를 시작하고 같은 완료 신호를 넘긴다", () => {
+    const source = readFileSync(join(process.cwd(), "src/offline/sync-controller.ts"), "utf8");
+    const start = source.indexOf("subscribeToHydratedSessionTransitions(useSessionStore");
+    expect(start).toBeGreaterThan(-1);
+    const subscription = source.slice(start);
+    const clearAt = subscription.indexOf("const clientStateCleared = clearSessionScopedStores();");
+    const openAt = subscription.indexOf("void getOfflineStore()");
+    expect(clearAt).toBeGreaterThan(-1);
+    expect(openAt).toBeGreaterThan(clearAt);
+    expect(subscription.slice(openAt)).toContain("clientStateCleared,");
+  });
   it("logout wipes all three tables, the sync cursor, and the purchase-followup store", async () => {
     const store = createMemoryOfflineStore();
     await seedUserScopedState(store);

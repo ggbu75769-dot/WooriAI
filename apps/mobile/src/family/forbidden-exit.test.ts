@@ -109,7 +109,11 @@ describe("라운드 111 ⓐ 가족 화면 실패 갈래의 나가는 길", () =>
   });
 
   it("이 갈래에 나가는 길이 필요한 이유가 오늘도 참이다 — 앱에는 OS 헤더가 없다", () => {
-    expect(source("app/_layout.tsx")).toContain("<Stack screenOptions={{ headerShown: false }}>");
+    const code = maskComments(source("app/_layout.tsx"));
+    const stackOptions = code.match(/<Stack\s+screenOptions=\{\{([^}]+)\}\}/)?.[1];
+    expect(stackOptions).toBeDefined();
+    // Status-bar options may change independently of the hidden navigation header.
+    expect(stackOptions).toMatch(/\bheaderShown\s*:\s*false\b/);
   });
 
   it("감싸는 View는 새 스타일을 만들지 않는다 — 바로 아래 로딩 갈래가 이미 쓰는 그 간격이다", () => {

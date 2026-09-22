@@ -141,6 +141,14 @@ function validateReleasePublicEnv() {
     );
   }
 
+  try {
+    const callback = new URL(process.env.EXPO_PUBLIC_KAKAO_REDIRECT_URI ?? "");
+    if (callback.protocol !== "https:" || callback.username || callback.password || callback.search || callback.hash ||
+        callback.pathname !== "/api/v1/auth/kakao/callback") throw new Error("invalid callback");
+  } catch {
+    throw new Error("EXPO_PUBLIC_KAKAO_REDIRECT_URI_INVALID: HTTPS API callback(/api/v1/auth/kakao/callback)을 등록하세요. 앱 딥링크는 카카오에 등록할 수 없습니다.");
+  }
+
   const missingOptional = RELEASE_OPTIONAL_PUBLIC_ENV.filter((spec) => !process.env[spec.key]?.trim());
   const optedOut = process.env[SUPPORT_LINKS_OPT_OUT] === "1";
   if (missingOptional.length > 0 && !optedOut) {

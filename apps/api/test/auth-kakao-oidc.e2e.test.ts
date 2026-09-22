@@ -1,6 +1,6 @@
 import { UnauthorizedException, type INestApplication } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { exportJWK, generateKeyPair, importJWK, jwtVerify, SignJWT, type JWK, type KeyLike } from "jose";
 import request from "supertest";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -155,6 +155,61 @@ describe("Kakao OIDC prepare/exchange (AUTH-101)", () => {
     });
     return response.body as { transactionId: string; state: string; nonce: string };
   }
+
+  it("returns a valid callback only to the fixed app URI, with no caching or referrer forwarding", async () => {
+    const { state } = await prepare();
+    const response = await request(app.getHttpServer())
+      .get("/api/v1/auth/kakao/callback")
+      .query({ state, code: "code+with&reserved=value", returnUrl: "https://evil.example/collect" })
+      .expect(302);
+    const location = new URL(response.headers.location);
+    expect(`${location.protocol}//${location.host}${location.pathname}`).toBe("wooriai://oauth/kakao");
+    expect(location.searchParams.get("code")).toBe("code+with&reserved=value");
+    expect(location.searchParams.get("state")).toBe(state);
+    expect(response.headers.location).not.toContain("evil.example");
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["referrer-policy"]).toBe("no-referrer");
+  });
+
+  it("returns a provider cancellation with its bound state", async () => {
+    const { state } = await prepare();
+    const response = await request(app.getHttpServer())
+      .get("/api/v1/auth/kakao/callback").query({ state, error: "access_denied" }).expect(302);
+    expect(new URL(response.headers.location).searchParams.get("error")).toBe("access_denied");
+  });
+
+  it("does not redirect unknown, malformed, expired or consumed callback states", async () => {
+    const { transactionId, state } = await prepare();
+    const callback = () => request(app.getHttpServer()).get("/api/v1/auth/kakao/callback");
+    await callback().query({ state: "x".repeat(32), code: "code" }).expect(401);
+    await callback().query({ state: [state, state], code: "code" }).expect(401);
+    await callback().query({ state, error: "bad\r\nLocation:evil" }).expect(401);
+    await prisma.oauthTransaction.update({ where: { id: transactionId }, data: { consumedAt: new Date() } });
+    await callback().query({ state, code: "code" }).expect(401);
+    await prisma.oauthTransaction.update({ where: { id: transactionId }, data: { consumedAt: null, expiresAt: new Date(0) } });
+    await callback().query({ state, code: "code" }).expect(401);
+  });
+
+  it("requires the initiating PKCE verifier before consuming a transaction", async () => {
+    const codeVerifier = "a".repeat(64);
+    const prepared = await request(app.getHttpServer()).post("/api/v1/auth/kakao/prepare")
+      .send({ redirectUri: ALLOWED_REDIRECT_URI, codeChallenge: createHash("sha256").update(codeVerifier).digest("base64url") })
+      .expect(200);
+    const { transactionId, state, nonce } = prepared.body;
+    kakaoClient.nextIdToken = (await signIdToken(signingKey, { nonce })).token;
+    const body = { transactionId, state, code: "pkce-code", redirectUri: ALLOWED_REDIRECT_URI };
+    for (const verifier of [undefined, "b".repeat(64)]) {
+      await request(app.getHttpServer()).post("/api/v1/auth/kakao/exchange").send({ ...body, codeVerifier: verifier }).expect(401);
+      expect((await prisma.oauthTransaction.findUniqueOrThrow({ where: { id: transactionId } })).consumedAt).toBeNull();
+    }
+    await request(app.getHttpServer()).post("/api/v1/auth/kakao/exchange").send({ ...body, codeVerifier }).expect(200);
+  });
+
+  it("rejects a custom app scheme even when it is mistakenly allowlisted", async () => {
+    process.env.OAUTH_KAKAO_REDIRECT_URIS += ",wooriai://oauth/kakao";
+    await request(app.getHttpServer()).post("/api/v1/auth/kakao/prepare")
+      .send({ redirectUri: "wooriai://oauth/kakao" }).expect(400);
+  });
 
   /**
    * GAP-076 D ⓐ·ⓒ: a turned-away login leaves **exactly one** `auth.login_rejected`

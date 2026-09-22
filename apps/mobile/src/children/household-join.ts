@@ -49,7 +49,7 @@ function firstParamValue(param: unknown): string | null {
 }
 
 /** 초대 수락 화면 경로. 토큰이 비어 있으면 null(= 갈 곳 없음). */
-export function acceptInviteHref(token: unknown): string | null {
+export function acceptInviteHref(token: unknown): `/family/accept/${string}` | null {
   const value = firstParamValue(token);
   return value ? `/family/accept/${encodeURIComponent(value)}` : null;
 }
@@ -58,7 +58,7 @@ export function acceptInviteHref(token: unknown): string | null {
  * 비로그인 방문자가 누르는 "로그인하고 참여하기"의 목적지. 토큰을 파라미터로 함께 보내
  * 로그인 성공 후 `resumeHrefAfterLogin`이 이 초대로 정확히 되돌아올 수 있게 한다.
  */
-export function loginHrefForInvite(token: unknown): string | null {
+export function loginHrefForInvite(token: unknown): `/login?${string}` | null {
   const value = firstParamValue(token);
   return value ? `/login?${INVITE_RESUME_PARAM}=${encodeURIComponent(value)}` : null;
 }
@@ -67,15 +67,15 @@ export function loginHrefForInvite(token: unknown): string | null {
  * 로그인 성공 직후 갈 곳. 초대 토큰이 실려 있으면 수락 화면으로 복귀하고(= 중단된 여정 재개),
  * 없으면 null을 돌려줘 호출측이 기존 목적지(온보딩 / 탭)를 그대로 쓰게 한다.
  */
-export function resumeHrefAfterLogin(inviteParam: unknown): string | null {
+export function resumeHrefAfterLogin(inviteParam: unknown): `/family/accept/${string}` | null {
   return acceptInviteHref(inviteParam);
 }
 
 export type HouseholdJoinPlan =
   /** 새로 참여한 가구의 아이로 전환하고 홈으로. */
-  | { kind: "select"; childId: string; notice: string; href: string }
+  | { kind: "select"; childId: string; notice: string; href: "/(tabs)" }
   /** 고를 아이가 없거나 이미 그 가구 아이를 보고 있음 -- 선택을 건드리지 않고 가족 화면으로. */
-  | { kind: "keep"; href: string }
+  | { kind: "keep"; href: "/family" }
   /**
    * 라운드 49 QA(P3-10): 참여는 했는데 **볼 아이가 하나도 없다** -- 온보딩을 마치지 않은
    * 사용자가 초대 링크로 들어온 경우(데모 세션은 항상 여기, `children: null`)와, 아직 아이가
@@ -83,7 +83,7 @@ export type HouseholdJoinPlan =
    *
    * 라운드 60 #3: 단, 이 길은 **아이를 등록할 수 있는 사람**에게만 유효하다(아래 "blocked").
    */
-  | { kind: "onboarding"; notice: string; href: string }
+  | { kind: "onboarding"; notice: string; href: "/onboarding/child-status" }
   /**
    * 라운드 107 트랙 C — 참여한 가구에는 볼 아이가 없는데, **이 사용자에게는 아이가 있다**.
    *
@@ -100,7 +100,7 @@ export type HouseholdJoinPlan =
    * 로그인이 그랬듯 서버 진행도 판정 한 곳(app/index.tsx의 MOB-101 + MOB-116 아이 복구)이
    * 답하게 하고, 여기서는 그 판정을 두 벌로 적지 않는다.
    */
-  | { kind: "delegate"; notice: string; href: string }
+  | { kind: "delegate"; notice: string; href: "/" }
   /**
    * 라운드 60 #3 (막다른 길 ①): 참여는 했고 볼 아이도 없는데, **내 역할로는 아이를 만들 수
    * 없다**(viewer / gift_participant). 온보딩으로 보내면 ONB-002의 `POST /children`이 서버에서
@@ -123,14 +123,14 @@ export type HouseholdJoinPlan =
    * 이 안내(수락 직후 한 번 읽힌다)를 본 뒤에도 더보기 → 가족으로 언제든 되돌아갈 수 있다.
    * 목적지가 탭 셸이므로 호출측은 select 분기와 **같이** markHomeReached()를 세워야 한다.
    */
-  | { kind: "blocked"; notice: string; href: string }
+  | { kind: "blocked"; notice: string; href: "/(tabs)" }
   /**
    * 라운드 60 #3 (막다른 길 ②): 아이 목록 **조회 자체가 실패**했다. 예전에는 `.catch(() => null)`이
    * 실패를 "아이 없음"과 같은 값으로 접어서, 아이가 멀쩡히 있는 가구에 참여한 사람도 온보딩으로
    * 떨어져 **아이를 한 번 더 만들 수 있었다**(중복 아이). 모르는 것을 안다고 말하지 않는다:
    * 사실("불러오지 못했어요")과 재시도만 준다.
    */
-  | { kind: "retry"; notice: string; href: string };
+  | { kind: "retry"; notice: string; href: "/family" };
 
 /**
  * 아이를 등록할 수 없는 역할. 서버의 허용 목록(`owner`/`co_parent`)의 여집합을 **명시적으로**
@@ -191,7 +191,7 @@ export const HOUSEHOLD_JOIN_ESCAPE_LABEL = "나중에 하기";
 export function householdJoinEscapePlan(input: {
   currentChildId?: string | null;
   hasReachedHome?: boolean;
-}): { href: string; marksHomeReached: boolean } {
+}): { href: "/" | "/(tabs)"; marksHomeReached: boolean } {
   if (input.currentChildId || input.hasReachedHome) {
     return { href: "/(tabs)", marksHomeReached: true };
   }
