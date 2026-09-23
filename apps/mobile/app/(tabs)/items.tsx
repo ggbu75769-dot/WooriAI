@@ -236,8 +236,8 @@ const UNCATEGORIZED_GROUP_NAME = "분류 없음";
 
 export default function ItemsScreen() {
   const { fontScale, width } = useWindowDimensions();
-  // 네 시기 칩이 한 줄에 들어갈 때만 남는 폭을 나눈다. 좁은 화면·큰 글꼴에서는 자연스럽게 줄바꿈한다.
-  const stretchStageChips = width >= 360 && fontScale < LARGE_TEXT_SCALE_THRESHOLD;
+  // 네 시기 칩이 충분히 넓게 한 줄에 들어갈 때만 폭을 맞춘다. 좁은 화면·큰 글꼴은 자연스럽게 줄바꿈한다.
+  const fillStageChips = width >= 424 && fontScale < LARGE_TEXT_SCALE_THRESHOLD;
   const [stageLabel, setStageLabel] = useState<StageBandLabel>("12-24개월");
   const [hasManualStageSelection, setHasManualStageSelection] = useState(false);
   // 라운드 49 C-01: 찜(♡) 칩. 서버 tab 파라미터가 아니라 클라이언트 필터라, 이 칩을 눌러도
@@ -1061,7 +1061,7 @@ export default function ItemsScreen() {
                 <CategoryChip
                   key={option}
                   label={option}
-                  stretchRow={stretchStageChips}
+                  fillRow={fillStageChips}
                   selected={option === stageLabel}
                   onPress={() => {
                     setHasManualStageSelection(true);

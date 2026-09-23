@@ -442,15 +442,12 @@ export function CategoryChip({
   selected,
   disabled,
   fillRow,
-  stretchRow,
   onPress
 }: {
   label: string;
   selected?: boolean;
   /** 같은 줄의 필터 버튼을 동일한 폭으로 배치한다. */
   fillRow?: boolean;
-  /** 칩의 고유 폭을 유지하면서 남는 가로 공간만 나눠 갖는다. */
-  stretchRow?: boolean;
   /**
    * 라운드 49 QA(P3-3): 지금은 적용되지 않는 칩. **숨기지 않고 비활성으로 둔다** — 사라지면
    * "왜 없어졌지"가 되고, 그대로 누를 수 있게 두면 눌러도 아무 일이 없는 거짓 컨트롤이 된다.
@@ -476,7 +473,6 @@ export function CategoryChip({
         borderRadius: theme.radii.pill,
         borderWidth: 1,
         flex: fillRow ? 1 : undefined,
-        flexGrow: stretchRow ? 1 : undefined,
         minHeight: 38,
         minWidth: 0,
         justifyContent: "center",
