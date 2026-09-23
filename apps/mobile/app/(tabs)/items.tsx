@@ -1221,6 +1221,7 @@ export default function ItemsScreen() {
                 <CategoryChip
                   key={option}
                   label={option}
+                  fillRow={fillStageChips}
                   selected={option === stageLabel}
                   onPress={() => {
                     setHasManualStageSelection(true);
