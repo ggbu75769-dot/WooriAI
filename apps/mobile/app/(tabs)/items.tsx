@@ -3,7 +3,7 @@ import { getSeoulToday } from "@wooriai/domain";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Alert, Image, Platform, Pressable, RefreshControl, Text, View, type ImageSourcePropType } from "react-native";
+import { Alert, Image, Platform, Pressable, RefreshControl, Text, View, useWindowDimensions, type ImageSourcePropType } from "react-native";
 import { trackAndFlushAnalyticsEvent } from "../../src/analytics/client";
 import { buildItemStatusChangedPayload } from "../../src/analytics/events";
 import {
@@ -55,6 +55,7 @@ import {
   Toast
 } from "../../src/ui";
 import { SkeletonCard, SkeletonRow } from "../../src/ui/Skeleton";
+import { LARGE_TEXT_SCALE_THRESHOLD } from "../../src/design-system/responsive";
 // 라운드 101 트랙 B: 상태 체크 확정의 촉각 확인 — 핸들러(.then) 안에서만 부른다(렌더 무접촉).
 import { hapticSelection } from "../../src/ui/haptics";
 import { resolveScreenPhase } from "../../src/screen-phase";
@@ -234,6 +235,9 @@ const UNCATEGORIZED_GROUP_ID = "uncategorized";
 const UNCATEGORIZED_GROUP_NAME = "분류 없음";
 
 export default function ItemsScreen() {
+  const { fontScale, width } = useWindowDimensions();
+  // 네 시기 칩이 한 줄에 들어갈 때만 남는 폭을 나눈다. 좁은 화면·큰 글꼴에서는 자연스럽게 줄바꿈한다.
+  const stretchStageChips = width >= 360 && fontScale < LARGE_TEXT_SCALE_THRESHOLD;
   const [stageLabel, setStageLabel] = useState<StageBandLabel>("12-24개월");
   const [hasManualStageSelection, setHasManualStageSelection] = useState(false);
   // 라운드 49 C-01: 찜(♡) 칩. 서버 tab 파라미터가 아니라 클라이언트 필터라, 이 칩을 눌러도
@@ -1057,6 +1061,7 @@ export default function ItemsScreen() {
                 <CategoryChip
                   key={option}
                   label={option}
+                  stretchRow={stretchStageChips}
                   selected={option === stageLabel}
                   onPress={() => {
                     setHasManualStageSelection(true);
