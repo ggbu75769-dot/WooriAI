@@ -387,7 +387,8 @@ describe("추이 차트 축 라벨의 글자 (라운드 85 리뷰 M-2)", () => {
     expect(axisStyleBlock()).toContain("flexShrink: 1");
     const axisBlock = axisRenderBlock();
     expect(axisBlock).toContain("numberOfLines={1}");
-    expect(axisBlock).toContain("style={lineChartAxisLabelStyle}");
+    expect(axisBlock).toContain("lineChartAxisLabelStyle,");
+    expect(axisBlock).toContain("lineChartAxisLabelPosition(drawnPoints[index].x, measuredWidth, axisLabels.length)");
   });
 
   /**
@@ -397,7 +398,7 @@ describe("추이 차트 축 라벨의 글자 (라운드 85 리뷰 M-2)", () => {
    */
   it("라벨을 건너뛰거나 비우지 않는다 — 열둘이면 열둘을 그린다", () => {
     const axisBlock = axisRenderBlock();
-    expect(axisBlock).toContain("{axisLabels.map((label, index) => (");
+    expect(axisBlock).toContain("{axisLabels.map((label, index) => {");
     for (const skipping of ["index % 2", "filter(", 'label : ""', "slice("]) {
       expect(axisBlock, `축이 라벨을 골라 그리기 시작했어요: ${skipping}`).not.toContain(skipping);
     }

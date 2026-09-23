@@ -6,7 +6,7 @@ import type { ImageSourcePropType, ScrollViewProps, StyleProp, TextStyle, ViewSt
 import { AccessibilityInfo, Animated, Image, Pressable, ScrollView, Text, View } from "react-native";
 import { focusAccessibilityTarget } from "./a11y/focus-accessibility-target";
 import { motion } from "./design-system/tokens/motion";
-import { lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
+import { lineChartAxisLabelPosition, lineChartSegmentsFor, normalizeLineChartPoints } from "./lineChartMath";
 import { formatKrw } from "./money";
 import { computeCategoryShares } from "./reports/category-share";
 import type { CategoryShareSlice } from "./reports/category-share";
@@ -1031,31 +1031,15 @@ const CHART_AXIS_MAX_FONT_SCALE = 1.2;
  * 그 계약을 파일 밖에서 되돌리고 있었다(그쪽 계약은 `RecordsCalendar.tsx`만 읽는다 —
  * 그래서 `src/reports/trend-point-labels.test.ts`가 이 파일에도 같은 부정 단언을 건다).
  *
- * ## 밀도 방어: 열두 칸을 **다 그리고** 상한·수축으로 막는다(격단 표기를 택하지 않은 이유)
- * 이 축이 설 수 있는 가장 빽빽한 갈래는 끝난 해의 연간 탭 **열두 점**이다. 후보는 둘이었다.
- *  ⓐ 라벨을 격단(짝수 인덱스)으로만 적어 여섯으로 줄이기.
- *  ⓑ 열둘을 그대로 두고 글자·배율·수축으로 막기. ← **택한 쪽**
- *
- * ⓐ를 택하지 않은 이유는 이 축의 유일한 존재 이유와 부딪히기 때문이다. 라벨이 어느 점 위에
- * 서는지는 지금 `justifyContent: "space-between"`이 **칸의 실제 너비**로 정하므로, 칸 여섯을
- * 빈 문자열로 비우면 남은 여섯이 자기 점에서 밀려난다 — `trend-point-labels.ts`가 *"8월 점 위에
- * 12월이라 적힌 축은 허위 표시"* 라며 라벨 수와 점 수가 어긋나면 축을 통째로 버리는 그 자리를,
- * 밀도를 위해 화면에서 다시 여는 셈이다(칸을 균등 폭으로 바꾸면 오늘의 여섯 점 배치도 함께
- * 흔들린다 — 픽셀락이 무는 자리다). 게다가 격단은 **보이는 사실만** 줄이고 낭독 계열은 열둘을
- * 그대로 읽어, 보는 것과 듣는 것이 갈린다.
- *
- * ⓑ가 실제로 버티는지는 재어 보면 나온다: 라벨은 최대 세 글자("12월")이고 10px에서 한 칸이
- * 약 20dp, 배율 상한 1.2에서 약 24dp다. 열둘이면 약 288dp이고, 이 카드의 플롯 폭은 360dp 기기
- * 에서 약 328dp(화면 - 탭 여백 - 카드 패딩)라 남는다. 더 좁은 기기·더 큰 배율에서 모자라면
- * `flexShrink: 1`이 칸을 함께 줄여 **행이 카드 밖으로 밀려나지 않게** 하고, 넘치는 글자는
- * `numberOfLines={1}`이 한 줄로 붙든다. 즉 나빠지는 방향이 "카드가 깨진다"가 아니라 "글자가
- * 좁아진다"다.
+ * 연간 탭의 열두 라벨도 모두 그린다. 각 라벨은 대응하는 점 아래에 놓고 카드 안으로
+ * 제한한다(`lineChartAxisLabelPosition`). 좁은 화면에서는 칸을 줄이고 한 줄로 제한한다.
  */
 const lineChartAxisLabelStyle = {
   color: theme.colors.gray600,
   flexShrink: 1,
   fontSize: 10,
-  lineHeight: 13
+  lineHeight: 13,
+  textAlign: "center"
 } as const;
 
 const reportCategoryLegend = [
@@ -1246,28 +1230,29 @@ export function LineChartCard({
             />
           );
         })}
-        {/* 라운드 85 트랙 C: 점이 어느 달인지 축이 말한다. 카드 높이·격자선·점 크기는 그대로다 --
-            라벨은 플롯 영역의 **이미 비어 있는 아래 여백**(lineChartPaddingBottom 20)에 절대
-            배치로 들어가므로 선/점 좌표에 닿지 않는다. 이 줄은 실데이터 갈래에만 서고
-            (axisLabels === null이면 렌더 0건), 바깥 View가 accessible이라 라벨 하나하나가 따로
-            읽히지 않는다 -- 소리로는 위 accessibilityLabel의 계열 한 조각이 대신 말한다. */}
+        {/* Label positions follow the measured point geometry. Edge labels stay inside the
+            clipped plot area, and the card's accessible summary still announces the series. */}
         {axisLabels ? (
-          <View
-            style={{ bottom: 0, flexDirection: "row", justifyContent: "space-between", left: 0, position: "absolute", right: 0 }}
-          >
-            {axisLabels.map((label, index) => (
-              <Text
-                key={`${label}-${index}`}
-                // 라운드 85 리뷰 M-2: 캘린더 칸과 같은 배율 상한 · 10px · 수축 허용.
-                // 이유는 lineChartAxisLabelStyle 주석에 값으로 적혀 있다(9px 재도입 금지).
-                maxFontSizeMultiplier={CHART_AXIS_MAX_FONT_SCALE}
-                numberOfLines={1}
-                style={lineChartAxisLabelStyle}
-              >
-                {label}
-              </Text>
-            ))}
-          </View>
+          <>
+            {axisLabels.map((label, index) => {
+              const labelPosition = lineChartAxisLabelPosition(drawnPoints[index].x, measuredWidth, axisLabels.length);
+              return (
+                <Text
+                  key={`${label}-${index}`}
+                  // 라운드 85 리뷰 M-2: 캘린더 칸과 같은 배율 상한 · 10px · 수축 허용.
+                  // 이유는 lineChartAxisLabelStyle 주석에 값으로 적혀 있다(9px 재도입 금지).
+                  maxFontSizeMultiplier={CHART_AXIS_MAX_FONT_SCALE}
+                  numberOfLines={1}
+                  style={[
+                    lineChartAxisLabelStyle,
+                    { position: "absolute", bottom: 0, left: labelPosition.left, width: labelPosition.width }
+                  ]}
+                >
+                  {label}
+                </Text>
+              );
+            })}
+          </>
         ) : null}
       </View>
     </Card>
