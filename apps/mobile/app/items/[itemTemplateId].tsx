@@ -216,34 +216,22 @@ const productDetailFloatingControlsStyle = {
   alignItems: "center",
   flexDirection: "row",
   justifyContent: "space-between",
-  left: -4,
+  left: 0,
   position: "absolute",
-  right: -4,
+  right: 0,
   top: 8 + productDetailViewportOffset,
   zIndex: 4
 } as const;
 const productDetailChromeButtonStyle = {
   alignItems: "center",
   backgroundColor: theme.colors.presentation.floatingChromeSurface,
-  borderRadius: 17,
-  height: 34,
+  borderRadius: 24,
+  height: theme.touchTarget,
   justifyContent: "center",
-  width: 34
+  width: theme.touchTarget
 } as const;
-/**
- * 라운드 64 #6 — 이 화면의 플로팅 크롬(뒤로가기·공유하기) 히트 영역.
- *
- * 34dp 정사각에 hitSlop 5면 44dp라, 이 저장소가 스스로 못박은 최소 터치 타깃
- * (`theme.touchTarget = 48`, DSN-053 토큰 표)에 미달이었다. 같은 파일의 탭 밴드는 이미 그
- * 규율을 명시적으로 지킨다("텍스트+패딩(≈31dp)에 hitSlop 6으로는 48dp 타깃 미달이라 높이로
- * 확보한다"). 여기서는 높이를 못 늘린다 — 34는 승인 캡처(ITEM-002)의 값이다. 그래서
- * **hitSlop만** 7로 올린다: 34 + 2×7 = 48. `hitSlop`은 레이아웃 속성이 아니라 히트 영역이라
- * 렌더는 한 픽셀도 바뀌지 않으므로 ITEM-002 픽셀락 캡처가 그대로다.
- *
- * 가로도 함께 늘려도 되는 이유: 기록 화면의 칩들(gap 8)과 달리 이 둘은 `space-between`으로
- * 화면 좌·우 끝에 하나씩 서 있어 서로의 히트 영역과 만날 일이 없다.
- */
-const PRODUCT_DETAIL_CHROME_HIT_SLOP = 7;
+// 두 버튼은 양쪽 콘텐츠 정렬선에 놓고, 보이는 버튼 자체가 최소 터치 크기를 채운다.
+const PRODUCT_DETAIL_CHROME_HIT_SLOP = 0;
 
 /**
  * 라운드 108-T18 이월 — 내려간 준비템 앞에서 **나가는 길**의 라벨.
@@ -254,22 +242,22 @@ const PRODUCT_DETAIL_CHROME_HIT_SLOP = 7;
  * 없기 때문이고, 두 자리가 갈리지 않게 계약이 둘을 함께 문다
  * (`src/items/item-not-found-exit.test.ts`). 새 `export const`를 만들지 않는다(공통 금지).
  */
-const MISSING_ITEM_EXIT_LABEL = "준비템 목록 보기";
+const MISSING_ITEM_EXIT_LABEL = "준비물 목록 보기";
 
 /**
  * 토스 이월 라운드 T-A: 텍스트 글리프("<" · "[]")가 아이콘 자리를 흉내 내던 마지막 두 자리를
  * 공용 AppIcon으로 바꾼다 — 뒤로가기는 저장소 전역의 chevron-left 관례(기록 탭 달 이동 ·
  * ScreenHeader/IconButton), 공유하기는 더보기 내보내기 행이 이미 쓰는 share-outline이다.
- * 접근성 라벨·역할·히트 영역(PRODUCT_DETAIL_CHROME_HIT_SLOP)은 한 글자도 바뀌지 않는다.
+ * 접근성 라벨·역할은 유지하고, 48dp 버튼 자체로 터치 영역을 확보한다.
  */
 function ProductDetailNavigation({ onShare }: { onShare: () => void }) {
   return (
     <View style={productDetailFloatingControlsStyle}>
         <Pressable accessibilityLabel="뒤로가기" accessibilityRole="button" hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP} onPress={() => router.back()} style={({ pressed }) => [productDetailChromeButtonStyle, pressed && productDetailPressedStyle]}>
-          <AppIcon color={theme.colors.brown} name="chevron-left" size={20} />
+          <AppIcon color={theme.colors.brown} name="chevron-left" size={26} />
         </Pressable>
         <Pressable accessibilityLabel="공유하기" accessibilityRole="button" hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP} onPress={onShare} style={({ pressed }) => [productDetailChromeButtonStyle, pressed && productDetailPressedStyle]}>
-          <AppIcon color={theme.colors.brown} name="share-outline" size={18} />
+          <AppIcon color={theme.colors.brown} name="share-outline" size={22} />
         </Pressable>
     </View>
   );
@@ -1152,7 +1140,7 @@ export default function ItemDetailScreen() {
                 조립은 공용 함수 하나뿐이고 이 화면에서 문자열을 다시 잇지 않는다. */}
             {hasSession && childScopeLabel ? (
               <Text style={{ color: theme.colors.gray600, fontSize: 12, fontWeight: "700" }}>
-                {withChildScopeLabel("준비템", childScopeLabel)}
+                {withChildScopeLabel("준비물", childScopeLabel)}
               </Text>
             ) : null}
             <Text style={{ color: theme.colors.brown, fontSize: 21, fontWeight: "800" }}>{visibleDetail.name}</Text>
@@ -1571,7 +1559,7 @@ export default function ItemDetailScreen() {
                   통합), 지출 기록을 기본 동작으로 올리고 아래는 "지출 없이" 표시하는
                   보조 수단으로만 남긴다. */}
               <Text style={{ color: theme.colors.gray600, fontSize: 12, lineHeight: 18 }}>
-                지출을 기록하면 이 준비템도 자동으로 준비 완료로 표시돼요.
+                지출을 기록하면 이 준비물도 자동으로 준비 완료로 표시돼요.
               </Text>
               <PrimaryButton
                 label="지출 기록하고 준비 완료"

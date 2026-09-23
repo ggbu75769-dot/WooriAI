@@ -274,4 +274,4 @@ export const SYNC_STATUS_PERMANENT_FAILURE_HINT =
  * 기록하라"는, 이 행에서는 할 수 없는 일을 시키는 안내가 된다. 해요체(DNC-018).
  */
 export const SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT =
-  "다시 보내도 같은 결과예요. 이 변경은 버리고 준비템 화면에서 다시 확인해 주세요.";
+  "다시 보내도 같은 결과예요. 이 변경은 버리고 준비물 화면에서 다시 확인해 주세요.";

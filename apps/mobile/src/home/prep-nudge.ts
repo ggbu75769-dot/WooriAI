@@ -77,10 +77,10 @@ export const HOME_PREP_NUDGE_TEST_ID = "home-prep-nudge";
 export const HOME_PREP_NUDGE_ROUTE = "/(tabs)/items" as const;
 
 /** CTA 문구. 눌렀을 때 실제로 열리는 화면을 그대로 예고한다(마일스톤 카드 F1과 같은 규칙). */
-export const HOME_PREP_NUDGE_CTA_LABEL = "준비템 탭에서 확인하기";
+export const HOME_PREP_NUDGE_CTA_LABEL = "준비물 탭에서 확인하기";
 
-export const HOME_PREP_NUDGE_INTERESTED_TITLE = "관심 표시해 둔 준비템이 있어요";
-export const HOME_PREP_NUDGE_RECOMMENDED_TITLE = "지금 시기 준비템을 골라뒀어요";
+export const HOME_PREP_NUDGE_INTERESTED_TITLE = "관심 표시해 둔 준비물이 있어요";
+export const HOME_PREP_NUDGE_RECOMMENDED_TITLE = "지금 시기 준비물을 골라뒀어요";
 
 export type HomePrepNudgeVariant = "interested" | "recommended";
 

@@ -9,7 +9,7 @@ describe("Android native UI quality contract", () => {
   it("keeps four visible bottom tabs and exposes settings outside the tab bar", () => {
     const tabsSource = source("app/(tabs)/_layout.tsx");
 
-    expect(tabsSource).toContain('items: { title: "준비템"');
+    expect(tabsSource).toContain('items: { title: "준비물"');
     expect(tabsSource).toContain('name="more" options={{ href: null }}');
     expect(tabsSource).toContain('index: { title: "홈"');
     expect(tabsSource).toContain('records: { title: "기록"');

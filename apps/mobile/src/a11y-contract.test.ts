@@ -1219,11 +1219,11 @@ describe("GAP-064 #6 터치 타깃 소스 계약 (높이 + 2×세로 hitSlop ≥
       detailSource.indexOf("const productDetailChromeButtonStyle = {"),
       detailSource.indexOf("const PRODUCT_DETAIL_CHROME_HIT_SLOP")
     );
-    const chromeHeight = Number(/height:\s*(\d+)/.exec(chromeStyle)?.[1]);
     const chromeHitSlop = readNumericConstant(detailSource, "PRODUCT_DETAIL_CHROME_HIT_SLOP");
 
-    expect(chromeHeight).toBe(34);
-    expect(chromeHeight + 2 * chromeHitSlop).toBeGreaterThanOrEqual(theme.touchTarget);
+    expect(chromeStyle).toContain("height: theme.touchTarget");
+    expect(chromeStyle).toContain("width: theme.touchTarget");
+    expect(chromeHitSlop).toBe(0);
     // 뒤로가기·공유하기 둘 다 같은 상수를 쓴다(값을 자리마다 다시 박지 않는다).
     expect(pressableBlocksWithHitSlop(detailSource, "hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP}")).toHaveLength(2);
   });
@@ -2005,7 +2005,7 @@ describe("GAP-067 #3 가져오기 되돌리기 카드의 낭독 계약", () => {
  * 아니므로(오른쪽은 같은 크기의 **빈 스페이서**다) 네 변을 함께 넓혀도 이웃 컨트롤의 몸에
  * 닿지 않는다 — 알림 벨·더보기 검색(GAP-065 #7)과 같은 판정이다.
  */
-describe("GAP-069 #5 가져오기 첫 화면 뒤로가기 터치 타깃 (32 + 2×8 = 48)", () => {
+describe("가져오기 첫 화면 뒤로가기 터치 타깃과 좌우 정렬", () => {
   const uploadScreen = () => source("app/import/index.tsx");
 
   /** `StyleSheet.create({ ... name: { ... } })`의 한 칸에서 숫자 하나. */
@@ -2020,33 +2020,26 @@ describe("GAP-069 #5 가져오기 첫 화면 뒤로가기 터치 타깃 (32 + 2�
   /** 내비게이션 바의 첫 Pressable = 뒤로가기(오른쪽 자리는 Pressable이 아닌 스페이서다). */
   const backButtonTag = () => openingTagAfter(uploadScreen(), "<View style={styles.navigationBar}>", "<Pressable");
 
-  it("32dp 정사각 + hitSlop 8 = 48 (값을 계약에 다시 박지 않고 소스에서 더한다)", () => {
+  it("보이는 버튼 자체가 48dp이며 가운데 제목 양옆이 같은 폭이다", () => {
     const tag = backButtonTag();
-    const slop = Number(/hitSlop=\{(\d+)\}/.exec(tag)?.[1]);
-    expect(Number.isFinite(slop), "뒤로가기의 hitSlop을 소스에서 찾지 못했다").toBe(true);
-
     const src = uploadScreen();
     const height = readStyleSheetNumber(src, "backButton", "height");
     const width = readStyleSheetNumber(src, "backButton", "width");
     expect(height, "뒤로가기는 정사각이다").toBe(width);
-    expect(height + 2 * slop, "뒤로가기의 히트 영역").toBeGreaterThanOrEqual(theme.touchTarget);
+    expect(height, "뒤로가기의 히트 영역").toBeGreaterThanOrEqual(theme.touchTarget);
 
     // 이 버튼이 그 hitSlop을 실제로 지고 있는지(태그가 바뀌면 위 계산이 다른 버튼을 잰다).
     expect(tag, "뒤로가기 버튼").toContain("style={styles.backButton}");
     expect(tag, "역할").toContain('accessibilityRole="button"');
     expect(tag, "라벨").toContain('accessibilityLabel="뒤로가기"');
-    // 44dp로 되돌리는 손은 여기서 빨개진다(라운드 64·65가 맨 숫자에 쓴 그 못).
-    expect(src, "44dp로 되돌린 hitSlop").not.toContain("hitSlop={6}");
+    expect(src).toContain("<View style={styles.backButton} />");
   });
 
-  it("렌더는 한 픽셀도 바뀌지 않는다 — IMP-003 픽셀락 캡처가 그대로다", () => {
+  it("내비게이션 바와 양쪽 버튼은 같은 48dp 높이로 정렬된다", () => {
     const src = uploadScreen();
-    // 32는 승인 캡처(IMP-003)의 값이다. 높이로 벌지 않았다는 사실을 값으로 못박는다.
-    expect(readStyleSheetNumber(src, "backButton", "height"), "버튼 높이").toBe(32);
-    expect(readStyleSheetNumber(src, "backButton", "width"), "버튼 너비").toBe(32);
-    // 바 높이도 그대로다(바를 키우는 것은 제목 줄이 내려앉는 길이다).
-    expect(readStyleSheetNumber(src, "navigationBar", "height"), "내비게이션 바 높이").toBe(46);
-    // 여백으로 히트 영역을 벌지 않았다 — 그건 렌더가 바뀌는 길이다.
+    expect(readStyleSheetNumber(src, "backButton", "height"), "버튼 높이").toBe(48);
+    expect(readStyleSheetNumber(src, "backButton", "width"), "버튼 너비").toBe(48);
+    expect(readStyleSheetNumber(src, "navigationBar", "height"), "내비게이션 바 높이").toBe(48);
     const backButtonStyle = /\bbackButton: \{([^}]*)\}/.exec(src)?.[1] ?? "";
     expect(backButtonStyle, "버튼 여백").not.toContain("padding");
     expect(backButtonStyle, "버튼 여백").not.toContain("margin");

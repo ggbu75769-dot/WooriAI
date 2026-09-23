@@ -143,8 +143,8 @@ describe("interested (찜) filter", () => {
    */
   it("칩 라벨과 안내 문구는 해요체이고 찜을 재촉하지 않는다", () => {
     expect(INTERESTED_FILTER_LABEL).toBe("찜한 것만");
-    expect(INTERESTED_FILTER_SCOPE_NOTE).toBe("찜한 준비템은 시기와 상관없이 모두 보여요.");
-    expect(INTERESTED_FILTER_EMPTY_TEXT).toBe("아직 찜한 준비템이 없어요.");
+    expect(INTERESTED_FILTER_SCOPE_NOTE).toBe("찜한 준비물은 시기와 상관없이 모두 보여요.");
+    expect(INTERESTED_FILTER_EMPTY_TEXT).toBe("아직 찜한 준비물이 없어요.");
     for (const text of [INTERESTED_FILTER_SCOPE_NOTE, INTERESTED_FILTER_EMPTY_TEXT]) {
       expect(text.endsWith("요.")).toBe(true);
     }

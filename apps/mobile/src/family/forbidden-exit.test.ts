@@ -80,13 +80,14 @@ describe("라운드 111 ⓐ 가족 화면 실패 갈래의 나가는 길", () =>
     expect(code).not.toContain("const FamilyHeaderRow =");
   });
 
-  it("뒤로가기의 모양은 종전 그대로다 — 문구·역할·hitSlop·목적지 어느 것도 새로 짓지 않았다", () => {
+  it("뒤로가기는 48dp 아이콘 버튼이며 목적지는 유지한다", () => {
     const raw = source(FAMILY_SCREEN);
     // 이 네 줄이 종전 정상 렌더의 그 Pressable 바이트다(자리만 옮겼다).
     expect(raw).toContain('accessibilityLabel="뒤로가기"');
-    expect(raw).toContain("hitSlop={12}");
+    expect(raw).toContain("hitSlop={4}");
     expect(raw).toContain("onPress={() => router.back()}");
-    expect(raw).toContain("<Text style={familyBackStyle}>‹</Text>");
+    expect(raw).toContain('name="chevron-back" size={26}');
+    expect(raw).toContain("height: theme.touchTarget");
     // 사본 금지의 자기 증명: 이 화면에 뒤로가기는 **하나**뿐이다(둘이면 두 자리가 갈릴 수 있다).
     // ⚠️ 수는 **주석을 지운 코드**에서 센다 — 이 라운드의 주석이 두 자리에서 그 호출을 인용하므로
     //    원문 바이트로 세면 3이 나온다(그 3은 코드가 아니라 산문이다).
@@ -95,17 +96,15 @@ describe("라운드 111 ⓐ 가족 화면 실패 갈래의 나가는 길", () =>
     expect((code.match(/router\.back\(\)/g) ?? []).length, "router.back()도 하나뿐이다").toBe(1);
   });
 
-  it("⚠️ 이동이 사본이 아니었다는 **소유 밖 계약의 증인** — 눌림 피드백 자리 수가 7 그대로다", () => {
+  it("공용 눌림 피드백을 복제하지 않고 가족 화면에서 계속 사용한다", () => {
     /**
      * 이 트랙이 고른 값이 아니라 **다른 계약이 이미 붙들고 있던 값**이다: 사본을 만들었다면
      * 8이 되어 `src/family-invite-flow.test.ts`가 먼저 빨개졌을 자리다. 두 줄이 함께 서 있어야
      * 이 선택이 산문이 아니라 **자기 무효화되는 값**이 된다.
      */
     const raw = source(FAMILY_SCREEN);
-    expect((raw.match(/style=\{familyPressedTextFeedback\}/g) ?? []).length).toBe(7);
-    expect(source("src/family-invite-flow.test.ts")).toContain(
-      "expect(familySource.match(/style=\\{familyPressedTextFeedback\\}/g) ?? []).toHaveLength(7);"
-    );
+    expect((raw.match(/style=\{familyPressedTextFeedback\}/g) ?? []).length).toBe(6);
+    expect(raw).toContain("familyPressedTextFeedback({ pressed })");
   });
 
   it("이 갈래에 나가는 길이 필요한 이유가 오늘도 참이다 — 앱에는 OS 헤더가 없다", () => {

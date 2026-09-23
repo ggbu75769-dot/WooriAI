@@ -354,7 +354,7 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     const code = screen.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
     expect(code, "옛 리터럴이 되살아나지 않는다").not.toContain(LOAD_ERROR_NOTICE);
     // ⚠️ 부정 단언(이 트랙의 축): 더 구체적인 고유 문장이 공용 문장으로 **후퇴하지 않았다**.
-    expect(screen).toContain("이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요.");
+    expect(screen).toContain("이 단계는 건너뛰고 나중에 준비물 탭에서 체크해도 돼요.");
     // 그리고 그 문장이 가리키는 건너뛰기 판정·로컬 탈출구는 이 트랙이 손대지 않는다.
     expect(screen).toContain("const canSkip = !isLoadingOptions && !hasOptions");
     expect(screen).toContain("canPassPreparedItemsLocally({");
@@ -460,7 +460,7 @@ describe("UX-N 오프라인 조회 실패 문구", () => {
     const code = preparedItemsCode();
     // 공용 문장 한 줄과 이 화면 고유의 탈출구 안내 한 줄은 **같은 하나의 조건**을 진다.
     const sharedGuards = enclosingGuards(code, "{itemsLoadErrorText}");
-    const ownGuards = enclosingGuards(code, "이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요.");
+    const ownGuards = enclosingGuards(code, "이 단계는 건너뛰고 나중에 준비물 탭에서 체크해도 돼요.");
     expect(ownGuards, "두 줄이 한 갈래다").toEqual(sharedGuards);
     // ⚠️ 라운드 87 리뷰 H-1: 감싸는 갈래가 **하나뿐**이다 — 0건 갈래로 다시 감싸는 중첩형 회귀는
     // 여기서 먼저 빨개진다(그 회귀는 삼항이 아니라 아래 부재 단언이 잡지 못한다).

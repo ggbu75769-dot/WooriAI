@@ -33,7 +33,7 @@ describe("UI Pixel Lock source contract", () => {
   it("uses the image-locked visual navigation labels while preserving existing route modules", () => {
     const layoutSource = readFileSync(join(mobileRoot, "app/(tabs)/_layout.tsx"), "utf8");
 
-    for (const expectedLabel of ["홈", "기록", "준비템", "리포트", "더보기"]) {
+    for (const expectedLabel of ["홈", "기록", "준비물", "리포트", "더보기"]) {
       expect(layoutSource).toContain(expectedLabel);
     }
 

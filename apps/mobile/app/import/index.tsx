@@ -341,14 +341,8 @@ export default function ImportUploadScreen() {
   return (
     <View testID={importUploadScreenId} style={[styles.screen, { paddingHorizontal: ExcelPreviewPixelStyles.screenPadding }, excelPreviewPixelFrameStyle()]}>
       <View style={styles.navigationBar}>
-        {/* 라운드 69 E(#5): 이 뒤로가기만 44dp였다 — `styles.backButton`이 32×32라 32 + 2×6 = 44로
-            이 저장소가 스스로 못박은 최소 타깃(`theme.touchTarget` = 48)에 미달이었다. 32는
-            IMP-003 픽셀락 캡처의 값이라 높이로 벌 수 없으므로 **hitSlop만** 8로 올린다:
-            32 + 2×8 = 48(커머스 상세의 `PRODUCT_DETAIL_CHROME_HIT_SLOP`이 34dp에 쓴 그 산수).
-            `hitSlop`은 레이아웃 속성이 아니라 히트 영역이라 렌더는 한 픽셀도 바뀌지 않는다.
-            산수 자체는 src/a11y-contract.test.ts가 소스에서 다시 계산해 붙든다. */}
-        <Pressable accessibilityRole="button" accessibilityLabel="뒤로가기" hitSlop={8} onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backIcon}>‹</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="뒤로가기" onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons accessibilityElementsHidden color={theme.colors.textPrimary} importantForAccessibility="no-hide-descendants" name="chevron-back" size={26} />
         </Pressable>
         {/* 라운드 68 B(#5): 다자녀 계정에서만 "다온이 — 엑셀 업로드"가 된다(외동·비로그인은 원문
             그대로 — 위 childScopeLabel 주석의 이중 게이트). 스타일·자리는 한 글자도 바뀌지 않는다. */}
@@ -550,19 +544,14 @@ const styles = StyleSheet.create({
   navigationBar: {
     alignItems: "center",
     flexDirection: "row",
-    height: 46,
+    height: 48,
     justifyContent: "space-between"
   },
   backButton: {
-    alignItems: "center",
-    height: 32,
+    alignItems: "flex-start",
+    height: 48,
     justifyContent: "center",
-    width: 32
-  },
-  backIcon: {
-    color: theme.colors.textPrimary,
-    fontSize: 30,
-    lineHeight: 32
+    width: 48
   },
   navigationTitle: {
     color: theme.colors.textPrimary,

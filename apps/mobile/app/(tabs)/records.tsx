@@ -2183,14 +2183,11 @@ export default function RecordsScreen() {
             alignItems: "center",
             flexDirection: "row",
             justifyContent: "space-between",
-            paddingHorizontal: 6
+            paddingHorizontal: 2
           }}
         >
-          {/* DSN-053 P2-C: 달 내비 화살표를 텍스트 글리프(‹ ›)에서 승인 원본의 아이콘 문법으로
-              옮긴다 -- c20deeb `app/(tabs)/records.tsx`와 같은 chevron 26 + 48dp 터치 타깃이다.
-              글리프는 기기 폰트에 따라 굵기가 제각각이었고, hitSlop만으로는 실제 눌리는 상자가
-              화면에 드러나지 않았다. 이동 규칙·비활성 조건·라벨은 한 글자도 바뀌지 않는다
-              (다음 달 잠금은 색이 아니라 opacity로 말한다 -- gray300 화살표는 AA 미달이었다). */}
+          {/* 양쪽 달 이동 화살표는 리포트와 같은 28dp 아이콘과 48dp 버튼을 사용한다.
+              이동 규칙·비활성 조건·접근성 라벨은 그대로 유지한다. */}
           <Pressable
             accessibilityLabel="이전 달"
             accessibilityRole="button"
@@ -2203,7 +2200,7 @@ export default function RecordsScreen() {
               pressed && recordsPressedStyle
             ]}
           >
-            <AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />
+            <AppIcon color={theme.colors.gray900} name="chevron-left" size={28} />
           </Pressable>
           {/* GAP-066 트랙 A(#2): 달 라벨이 곧 월 선택 시트의 입구다. 라운드 49 C-09의 선례대로
               <Text>를 Pressable로 **감싸기만** 한다 -- 라벨의 스타일·문자열은 한 글자도 손대지
@@ -2248,7 +2245,7 @@ export default function RecordsScreen() {
               pressed && recordsPressedStyle
             ]}
           >
-            <AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />
+            <AppIcon color={theme.colors.gray900} name="chevron-right" size={28} />
           </Pressable>
         </View>
         {/* GAP-066 트랙 A(#2): 월 선택 시트. 라벨을 눌렀을 때만 그린다(닫혀 있으면 화면은

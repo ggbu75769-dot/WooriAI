@@ -80,7 +80,7 @@ export function preparedIdsToSubmit(checkedIds: string[], options: PreparedItemO
 /** 일부만 반영됐을 때의 안내 제목·문구(Alert 관례: 제목은 짧게, 본문은 사실 한 줄). */
 export const PREPARED_ITEMS_PARTIAL_ALERT_TITLE = "일부만 반영됐어요";
 export const PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE =
-  "일부 항목은 목록이 바뀌어 반영되지 않았어요. 준비템 탭에서 다시 체크할 수 있어요.";
+  "일부 항목은 목록이 바뀌어 반영되지 않았어요. 준비물 탭에서 다시 체크할 수 있어요.";
 
 /**
  * 저장 응답의 `updatedCount`가 보낸 개수보다 작으면 안내 문구, 같거나 크면 `null`.

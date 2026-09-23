@@ -143,10 +143,10 @@ export function hasActiveItemFilter(input: ItemNarrowingInput): boolean {
 export const INTERESTED_FILTER_LABEL = "찜한 것만";
 
 /** 찜 목록이 시기 칩을 따르지 않는다는 사실을 그 자리에서 밝히는 한 줄(해요체, DNC-018). */
-export const INTERESTED_FILTER_SCOPE_NOTE = "찜한 준비템은 시기와 상관없이 모두 보여요.";
+export const INTERESTED_FILTER_SCOPE_NOTE = "찜한 준비물은 시기와 상관없이 모두 보여요.";
 
 /** 찜한 항목이 하나도 없을 때의 빈 화면 문구. 찜을 안 한 것을 탓하지 않는다(DNC-018). */
-export const INTERESTED_FILTER_EMPTY_TEXT = "아직 찜한 준비템이 없어요.";
+export const INTERESTED_FILTER_EMPTY_TEXT = "아직 찜한 준비물이 없어요.";
 
 export type InterestFilterableItem = { status: ItemStatus };
 

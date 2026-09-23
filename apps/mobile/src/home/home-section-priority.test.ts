@@ -352,7 +352,7 @@ describe("resolveHomePrepCard — 준비 현황 카드 한 자리", () => {
     expect(card?.source).toBe("recommended-count");
     expect(card?.title).toBe(HOME_PREP_CARD_TITLE);
     expect(card?.subtitle).toBe(homePrepCardSubtitle(3));
-    expect(card?.subtitle).toBe("지금 필요한 준비템 3개");
+    expect(card?.subtitle).toBe("지금 필요한 준비물 3개");
     expect(card?.ctaLabel).toBe(HOME_PREP_CARD_CTA_LABEL);
     expect(card?.testID).toBe(HOME_PREP_CARD_TEST_ID);
     expect(card?.dismissible).toBe(false);

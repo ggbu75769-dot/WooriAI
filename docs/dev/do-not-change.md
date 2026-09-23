@@ -3,7 +3,7 @@
 Source: `docs/4차/prompts/04_do_not_change_v0_4.md` and `docs/4차/contracts/do_not_change_contract_v0_4.yaml`  
 Version: v0.5  
 Repo copy created: 2026-07-06  
-Last revised: 2026-08-27 (DNC-017 토큰 잠금 값 개정 — 아래 "개정 이력" 참고)  
+Last revised: 2026-09-23 (DNC-003 하단 탭 표시 이름 변경; DNC-017 토큰 잠금 값 개정은 아래 "개정 이력" 참고)
 Batch: 00 - Source Lock
 
 This file is the repo-local copy of the WooriAI MVP Do Not Change contract. If implementation pressure conflicts with this file, stop and document the requested change for PM/Tech Lead approval before modifying the locked behavior.
@@ -14,7 +14,7 @@ This file is the repo-local copy of the WooriAI MVP Do Not Change contract. If i
 | --- | --- | --- | --- |
 | DNC-001 | Product Positioning | 우리아이는 "아이 비용 관리 + 시기별 준비템 구매 내비게이션"이다. 일반 가계부/쇼핑몰/커뮤니티 앱으로 포지션을 바꾸지 않는다. | Scope creep 방지 |
 | DNC-002 | MVP Core Loop | 지출 기록 -> 총액 확인 -> 준비템 확인 -> 구매 링크 클릭 -> 구매 후 기록/상태 체크 루프를 흐리지 않는다. | 제품 검증 루프 보호 |
-| DNC-003 | Bottom Tabs | 하단 탭은 홈/기록/준비템/리포트 4개로 유지한다. | 2차 화면 고정 준수 |
+| DNC-003 | Bottom Tabs | 하단 탭은 홈/기록/준비물/리포트 4개로 유지한다. 2026-09-23 사용자 요청에 따라 `준비템`의 표시 이름을 `준비물`로 변경했다. | 2차 화면 고정 준수 |
 | DNC-004 | Screen IDs | SPL, AUTH, ONB, HOME, EXP, ITEM, REP, FAM, IMP, SET, ADM 화면 ID를 임의 변경하지 않는다. | 디자인/QA/API 매핑 보호 |
 | DNC-005 | Tech Stack | React Native + Expo, NestJS, PostgreSQL + Prisma, Next.js Admin, TanStack Query + Zustand 조합을 임의 교체하지 않는다. | 3차 개발 고정 준수 |
 | DNC-006 | API Base | API base path는 `/api/v1`, OpenAPI 기반 DTO/타입 생성을 유지한다. | 클라이언트/서버 계약 보호 |

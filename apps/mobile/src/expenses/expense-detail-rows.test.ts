@@ -136,8 +136,8 @@ describe("라운드 48 T3(C3) 연결된 준비템 링크", () => {
   });
 
   it("링크 문구에 준비템 이름을 지어내지 않는다 -- 지출 응답에는 이름이 없다", () => {
-    expect(LINKED_ITEM_LINK_LABEL).toBe("연결된 준비템 보기");
-    expect(LINKED_ITEM_ROW_LABEL).toBe("연결된 준비템");
+    expect(LINKED_ITEM_LINK_LABEL).toBe("연결된 준비물 보기");
+    expect(LINKED_ITEM_ROW_LABEL).toBe("연결된 준비물");
   });
 });
 
@@ -173,7 +173,7 @@ describe("라운드 48 T3 지출 상세 배선", () => {
     // 행 라벨 문구는 화면에 리터럴로 박히지 않는다 -- 전부 모듈 상수를 거치므로, 문구를
     // 고치는 자리가 한 곳뿐이다(판매처 입력칸의 placeholder/접근성 라벨은 별개 문구다).
     expect(screenSource).not.toContain('"결제 수단"');
-    expect(screenSource).not.toContain('"연결된 준비템"');
+    expect(screenSource).not.toContain('"연결된 준비물"');
     expect(PAYMENT_METHOD_ROW_LABEL).toBe("결제 수단");
     expect(MERCHANT_ROW_LABEL).toBe("판매처");
   });

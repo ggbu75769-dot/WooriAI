@@ -150,7 +150,7 @@ describe("COM-108 purchase follow-up source contract", () => {
     // 안내가 붙는다. "지출 없이 표시"는 보조 수단으로만 남는다.
     const detailSource = source("app/items/[itemTemplateId].tsx");
     expect(detailSource).toContain('label="지출 기록하고 준비 완료"');
-    expect(detailSource).toContain("지출을 기록하면 이 준비템도 자동으로 준비 완료로 표시돼요.");
+    expect(detailSource).toContain("지출을 기록하면 이 준비물도 자동으로 준비 완료로 표시돼요.");
     expect(detailSource).toContain('label="지출 없이 준비 완료로 표시"');
     // 예전의 배타적 2버튼 라벨은 남아 있지 않다.
     expect(detailSource).not.toContain('label="지출도 기록하기"');

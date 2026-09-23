@@ -570,7 +570,7 @@ describe("C-10 동기화 상태 화면 배선", () => {
 
   it("준비템 행을 대기/실패 섹션에 함께 그리되 종류를 배지로 구분한다", () => {
     expect(screen).toContain("ItemStatusSyncRow");
-    expect(screen).toContain('<StatusBadge label="준비템" />');
+    expect(screen).toContain('<StatusBadge label="준비물" />');
     // 값 렌더는 목록·상세와 같은 상태 이름을 쓴다(conflict-display 관례: 화면마다 다른 말 금지).
     expect(screen).toContain("itemStatusLabel(row.status)");
   });

@@ -215,7 +215,7 @@ function viewOnlyGuide(): HomeFirstRunGuide {
 
 function firstItemsGuide(count: number): HomeFirstRunGuide {
   const title = `지금 시기 준비물 ${count}개를 골라뒀어요`;
-  const subtitle = "준비템 탭에서 확인하고 준비한 것만 체크해 보세요.";
+  const subtitle = "준비물 탭에서 확인하고 준비한 것만 체크해 보세요.";
   return {
     variant: "first-items",
     title,

@@ -250,7 +250,7 @@ export default function PreparedItemsScreen() {
                 {itemsLoadErrorText}
               </Text>
               <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.body2.fontSize }}>
-                이 단계는 건너뛰고 나중에 준비템 탭에서 체크해도 돼요.
+                이 단계는 건너뛰고 나중에 준비물 탭에서 체크해도 돼요.
               </Text>
             </>
           ) : null}
@@ -311,7 +311,7 @@ export default function PreparedItemsScreen() {
         </Card>
 
         <Text style={{ color: theme.colors.gray600, fontSize: theme.typography.caption.fontSize }}>
-          나중에 준비템 탭에서 언제든 다시 체크할 수 있어요.
+          나중에 준비물 탭에서 언제든 다시 체크할 수 있어요.
         </Text>
 
         {save.isError ? <OnboardingSaveErrorCard error={save.error} onRetry={() => save.mutate()} /> : null}

@@ -676,7 +676,7 @@ function ItemStatusSyncRow({
     <Card style={{ gap: 8 }}>
       <View style={{ alignItems: "center", flexDirection: "row", gap: 8, justifyContent: "space-between" }}>
         <View style={{ alignItems: "center", flexDirection: "row", flexShrink: 1, gap: 6 }}>
-          <StatusBadge label="준비템" />
+          <StatusBadge label="준비물" />
           <Text style={{ color: theme.colors.brown, flexShrink: 1, fontSize: 14, fontWeight: "700" }}>{row.itemName}</Text>
         </View>
         <Text style={{ color: theme.colors.brown, fontSize: 14, fontWeight: "700" }}>{itemStatusLabel(row.status)}</Text>

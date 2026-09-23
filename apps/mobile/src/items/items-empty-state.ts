@@ -83,7 +83,7 @@ export function itemsListEmptyKind(input: {
  */
 export function buildItemsAllEmptyCard(): ItemsAllEmptyCard {
   return {
-    title: "아직 볼 수 있는 준비템이 없어요.",
+    title: "아직 볼 수 있는 준비물이 없어요.",
     actionLabel: customItemEntryLabel(),
     action: "add-custom-item"
   };

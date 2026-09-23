@@ -34,13 +34,13 @@ export const PAYMENT_METHOD_ROW_LABEL = "결제 수단";
 /** 상세 화면의 "판매처" 행 라벨 — CSV의 같은 열 이름과 한 단어를 쓴다. */
 export const MERCHANT_ROW_LABEL = "판매처";
 /** 상세 화면의 "연결된 준비템" 행 라벨. */
-export const LINKED_ITEM_ROW_LABEL = "연결된 준비템";
+export const LINKED_ITEM_ROW_LABEL = "연결된 준비물";
 /**
  * 그 행의 링크 문구. **품목 이름을 쓰지 않는다** — 지출 응답에는 준비템 이름이 없고,
  * 이름 한 줄을 위해 상세 화면이 요청을 하나 더 쏘게 만들 이유도 없다. 이름을 모르는 채
  * 그럴듯한 이름을 적는 것은 허위 표시라, "무엇을 볼 수 있는지"만 말한다.
  */
-export const LINKED_ITEM_LINK_LABEL = "연결된 준비템 보기";
+export const LINKED_ITEM_LINK_LABEL = "연결된 준비물 보기";
 
 /**
  * 결제 수단 코드 → 한국어 라벨. 키/문구는 app/expenses/new.tsx의

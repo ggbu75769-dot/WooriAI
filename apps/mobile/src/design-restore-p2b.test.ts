@@ -97,7 +97,7 @@ describe("ITEM-001 목록: 승인 프레임", () => {
     const parity = paritySource();
     expect(parity).toContain("onBack?: () => void;");
     // 전달 경로의 렌더 두 줄은 바이트 그대로다(preparation-restore.test.ts의 승인 렌더 계약).
-    expect(parity).toContain('<TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비 목록" trailing={topBarTrailing} />');
+    expect(parity).toContain('<TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비물" trailing={topBarTrailing} />');
     expect(parity).toContain('emptyState ?? <EmptyStateCard actionLabel="준비 홈" onPress={onBack} title="5개 이상 확인된 준비 품목 그룹이 없어요." />');
     // 생략을 받아 주는 가드(둘 다 design-system 쪽 — 없으면 옵셔널화가 라벨 없는 버튼을 만든다).
     expect(source("src/design-system/components/ModV1Primitives.tsx")).toContain(

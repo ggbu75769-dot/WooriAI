@@ -99,7 +99,7 @@ describe("라운드 45 UX-Y(P1) ONB-003 준비물 선택 판정", () => {
       expect(preparedItemsPartialNotice(3, 1)).toBe(PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE);
       expect(preparedItemsPartialNotice(2, 0)).toBe(PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE);
       // 안내일 뿐 실패가 아니다 -- 저장은 성공했고 다시 체크할 곳을 알려 준다.
-      expect(PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE).toContain("준비템 탭");
+      expect(PREPARED_ITEMS_PARTIAL_ALERT_MESSAGE).toContain("준비물 탭");
     });
 
     it("전부 반영됐거나 보낼 것이 없었으면 조용하다", () => {

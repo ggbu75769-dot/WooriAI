@@ -300,8 +300,8 @@ describe("상세 갈래(§2.5)와 status 다형화(§2.4) — 오프라인 아�
       "직접 추가한 준비물에는 아직 지출을 연결할 수 없어요."
     );
     // 존재하지 않는 id의 실패 모양은 다형화 이전과 같다(기존 e2e 경계 불변).
-    expect(() => localBackend.updateItemStatus(childId, "no-such-item", "prepared")).toThrow("준비템을 찾을 수 없어요.");
-    expect(() => localBackend.getItemDetail(childId, "no-such-item")).toThrow("준비템을 찾을 수 없어요.");
+    expect(() => localBackend.updateItemStatus(childId, "no-such-item", "prepared")).toThrow("준비물을 찾을 수 없어요.");
+    expect(() => localBackend.getItemDetail(childId, "no-such-item")).toThrow("준비물을 찾을 수 없어요.");
     // 카탈로그 갈래는 expenseId를 종전대로 받는다(커스텀 경계가 기존 동작을 좁히지 않는다).
     expect(localBackend.updateItemStatus(childId, LOCAL_ITEM_DIAPER, "prepared", "expense-1").status).toBe("prepared");
   });
@@ -393,7 +393,7 @@ describe("CRUD 미러 — 검증·한도 200·멱등·소프트 삭제 (계약 �
     );
     expect(() => localBackend.deleteCustomItem(childId, created.id)).toThrow("직접 추가한 준비물을 찾을 수 없어요.");
     // 상세는 어느 표에도 없는 id와 같은 모양으로 떨어진다(활성 행만 커스텀 갈래를 연다).
-    expect(() => localBackend.getItemDetail(childId, created.id)).toThrow("준비템을 찾을 수 없어요.");
+    expect(() => localBackend.getItemDetail(childId, created.id)).toThrow("준비물을 찾을 수 없어요.");
   });
 
   it("타 아이 스코프(§2.6 미러): 다른 childId의 조회·수정·삭제는 구조적으로 NOT_FOUND다", () => {

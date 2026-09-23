@@ -1,6 +1,7 @@
 import type React from "react";
 import type { RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { ImageSourcePropType, ScrollViewProps, StyleProp, TextStyle, ViewStyle } from "react-native";
 import { AccessibilityInfo, Animated, Image, Pressable, ScrollView, Text, View } from "react-native";
 import { focusAccessibilityTarget } from "./a11y/focus-accessibility-target";
@@ -169,13 +170,7 @@ export function AppScreen({
   return (
     <View style={{ flex: 1 }}>
       {scroller}
-      {/* box-none: 떠 있는 줄의 빈 자리는 터치를 아래 스크롤러로 통과시킨다(버튼만 잡는다).
-          토스 리뷰 L 둘: ① prop형 pointerEvents는 RN 0.71+ deprecated(웹 콘솔 warning) —
-          style.pointerEvents로 옮겼다(동작 동일). ② 알려진 한계(기록): 콘텐츠가 뷰포트보다
-          살짝만 긴 짧은 화면(첫 기록 전 세션 홈 등)에서는 스크롤 유도 없이 FAB가 마지막
-          요소(동기화 상태 줄)의 중앙을 덮는다 — 끝까지 내리면 바닥 여백(88)으로 해소되지만,
-          "짧은 콘텐츠엔 FAB 회피 여백을 항상 적용"은 픽셀락 6종 밖 화면 전수 검토와 한
-          라운드라 여기 값으로 남긴다. */}
+      {/* 빈 영역은 스크롤 터치를 통과시키고, 공통 FAB는 오른쪽 콘텐츠 정렬선에 놓는다. */}
       <View style={{ bottom: theme.spacing.screen, left: 0, pointerEvents: "box-none", position: "absolute", right: 0 }}>
         {floatingAction}
       </View>
@@ -211,45 +206,42 @@ export function ScreenHeader({
   action?: React.ReactNode;
   onBack?: () => void;
 }) {
+  const heading = (
+    <View style={onBack ? { gap: 4 } : { flex: 1, gap: 4 }}>
+      {eyebrow ? <Text style={[textStyles.caption, { color: smallCoralText }]}>{eyebrow}</Text> : null}
+      <Text style={[textStyles.h2, { color: theme.colors.brown }]}>{title}</Text>
+      {subtitle ? <Text style={[textStyles.body2, { color: theme.colors.gray600 }]}>{subtitle}</Text> : null}
+    </View>
+  );
   return (
-    <View style={{ flexDirection: "row", gap: 12, justifyContent: "space-between" }}>
+    <View style={onBack ? { gap: 8 } : { flexDirection: "row", gap: 12, justifyContent: "space-between" }}>
       {onBack ? (
-        <Pressable
-          accessibilityLabel="뒤로가기"
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={onBack}
-          style={({ pressed }) => [screenHeaderBackButtonStyle, { opacity: pressed ? 0.6 : 1 }]}
-        >
-          <Text style={screenHeaderBackGlyphStyle}>‹</Text>
-        </Pressable>
+        <View style={{ alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: theme.touchTarget }}>
+          <Pressable
+            accessibilityLabel="뒤로가기"
+            accessibilityRole="button"
+            hitSlop={4}
+            onPress={onBack}
+            style={({ pressed }) => [screenHeaderBackButtonStyle, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <MaterialCommunityIcons accessibilityElementsHidden color={theme.colors.gray900} importantForAccessibility="no-hide-descendants" name="chevron-left" size={26} />
+          </Pressable>
+          {action}
+        </View>
       ) : null}
-      <View style={{ flex: 1, gap: 4 }}>
-        {eyebrow ? <Text style={[textStyles.caption, { color: smallCoralText }]}>{eyebrow}</Text> : null}
-        <Text style={[textStyles.h2, { color: theme.colors.brown }]}>{title}</Text>
-        {subtitle ? <Text style={[textStyles.body2, { color: theme.colors.gray600 }]}>{subtitle}</Text> : null}
-      </View>
-      {action}
+      {heading}
+      {!onBack ? action : null}
     </View>
   );
 }
 
-// 44dp 정사각 터치 타깃(theme.touchTarget). alignSelf로 제목 줄 위쪽에 붙여, 부제까지 있는
-// 헤더에서도 화살표가 세로 가운데로 떠내려가지 않게 한다. marginLeft 음수로 화살표의 좌측
-// 여백을 상쇄해 글리프가 화면 콘텐츠 왼쪽 정렬선에 맞는다.
+// 뒤로가기와 오른쪽 액션은 같은 상단 행에 두고, 제목은 화면 콘텐츠의 왼쪽 정렬선에서 시작한다.
+// 글꼴에 따라 위치가 달라지는 텍스트 글리프 대신 다른 화면과 같은 chevron 아이콘을 쓴다.
 const screenHeaderBackButtonStyle = {
-  alignItems: "center",
-  alignSelf: "flex-start",
+  alignItems: "flex-start",
   height: theme.touchTarget,
   justifyContent: "center",
-  marginLeft: -12,
   width: theme.touchTarget
-} as const;
-
-const screenHeaderBackGlyphStyle = {
-  color: theme.colors.gray900,
-  fontSize: 24,
-  fontWeight: "900"
 } as const;
 
 // CLN-130: `BrandLogo`는 어느 화면도 렌더하지 않는 죽은 export였다(런치 화면은 자체
@@ -687,11 +679,12 @@ export function FloatingActionButton({ onPress, accessibilityLabel = "지출 기
       onPress={onPress}
       style={({ pressed }) => ({
         alignItems: "center",
-        alignSelf: "center",
+        alignSelf: "flex-end",
         backgroundColor: theme.colors.mainCoral,
         borderRadius: 28,
         height: 56,
         justifyContent: "center",
+        marginRight: theme.spacing.screen,
         // PrimaryButton과 같은 눌림 피드백(0.86) — 핵심 루프의 첫 버튼이 무반응으로 보이지 않게.
         opacity: pressed ? 0.86 : 1,
         width: 56,
