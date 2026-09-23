@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeLineChartPoints } from "./lineChartMath";
+import { lineChartAxisLabelPosition, normalizeLineChartPoints } from "./lineChartMath";
 
 describe("LineChartCard point normalization", () => {
   it("maps values onto the chart width, inset by the point radius, with even horizontal spacing", () => {
@@ -54,5 +54,21 @@ describe("LineChartCard point normalization", () => {
 
   it("returns an empty array for an empty input instead of throwing", () => {
     expect(normalizeLineChartPoints([], 200)).toEqual([]);
+  });
+});
+
+describe("LineChartCard axis labels", () => {
+  it.each([6, 12])("keeps all %i month labels inside the plot and aligned with their points", (count) => {
+    const chartWidth = 280;
+    const points = normalizeLineChartPoints(Array.from({ length: count }, () => 0), chartWidth);
+    const positions = points.map((point) => lineChartAxisLabelPosition(point.x, chartWidth, count));
+
+    for (const [index, label] of positions.entries()) {
+      expect(label.left).toBeGreaterThanOrEqual(0);
+      expect(label.left + label.width).toBeLessThanOrEqual(chartWidth);
+      expect(Math.abs(label.left + label.width / 2 - points[index].x)).toBeLessThanOrEqual(6);
+    }
+    expect(positions[0].left).toBe(0);
+    expect(positions[count - 1].left + positions[count - 1].width).toBe(chartWidth);
   });
 });

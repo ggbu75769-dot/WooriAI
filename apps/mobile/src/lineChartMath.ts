@@ -12,6 +12,14 @@ export type LineChartSegment = {
   y: number;
 };
 
+// Keep axis labels centered under their points, while holding the first and last
+// labels inside the chart's clipped plot area.
+export function lineChartAxisLabelPosition(pointX: number, chartWidth: number, pointCount: number) {
+  const width = Math.min(24, chartWidth / Math.max(pointCount, 1));
+  const left = Math.max(0, Math.min(chartWidth - width, pointX - width / 2));
+  return { left, width };
+}
+
 // Matches the largest point marker LineChartCard draws (the final point renders at 12px
 // diameter, i.e. 6px radius). The chart's plot area clips overflow, so without insetting the
 // x-range by this radius the first and last dots get their outer edge cut off.
