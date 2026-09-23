@@ -1229,22 +1229,25 @@ export default function ItemsScreen() {
                 <CategoryChip
                   key={option.value}
                   label={option.label}
+                  fillRow
                   selected={option.value === necessityFilter}
                   onPress={() => setNecessityFilter(option.value)}
                 />
               ))}
-              {/* 라운드 43 UX-V: "출산 전"만 보기. 임신 중인 아이의 세션에서만 나타난다.
+            </View>
+            {/* 라운드 43 UX-V: "출산 전"만 보기. 임신 중인 아이의 세션에서만 나타난다.
                   라운드 49 QA(P3-3): 찜 목록을 보는 동안에는 적용되지 않으므로 비활성으로
                   그린다 -- 켜 둔 선택은 그대로 두어 찜을 끄면 보고 있던 좁히기가 돌아온다. */}
-              {offersPreBirthFilter ? (
+            {offersPreBirthFilter ? (
+              <View style={{ alignItems: "flex-start" }}>
                 <CategoryChip
                   label={PRE_BIRTH_FILTER_LABEL}
                   selected={preBirthFilterActive}
                   disabled={showInterestedOnly}
                   onPress={() => setPreBirthOnly((on) => !on)}
                 />
-              ) : null}
-            </View>
+              </View>
+            ) : null}
             {/* 트랙 F: 다음 시기 D-day 예고 배너 — 시기 칩 줄 바로 아래(눌렀을 때 바뀌는 칩이
                 바로 위에 보인다). 정보 제공만 하고 전환·구매를 재촉하지 않으며(DNC-018), 탭은
                 축하 배너의 다음 시기 버튼과 같은 기존 칩 선택이다(새 화면 없음).
@@ -1513,12 +1516,6 @@ export default function ItemsScreen() {
       ) : null}
       {/* 추가 성공 한 줄(3200ms 수명). Toast가 스스로 낭독한다(A11Y-115). */}
       {customItemNotice ? <Toast message={customItemNotice.message} /> : null}
-      {/* 라운드 105 트랙 ITEMS(F5): 떠 있는 기록 버튼이 마지막 줄을 덮지 않게 하는 바닥 여백.
-          값은 기록 탭이 이미 쓰는 관례 그대로다(records.tsx의 목록 contentContainerStyle:
-          `theme.spacing.screen + theme.ctaHeight + 8`) — AppScreen의 contentContainerStyle이
-          `theme.spacing.screen`을 이미 주므로 여기서는 그 나머지(ctaHeight + 8)만 더한다.
-          비세션 갈래는 위에서 먼저 반환하므로 이 자리 표시자는 ITEM-001 캡처에 서지 않는다. */}
-      <View style={{ height: theme.ctaHeight + 8 }} />
       {showCustomItemSheet ? (
         <CustomItemSheet
           testID="items-custom-item-sheet"

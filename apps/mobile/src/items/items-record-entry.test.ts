@@ -102,29 +102,10 @@ describe("라운드 105 F5 — 준비템·리포트 탭의 상시 기록 입구"
     expect(reports).toContain("hasSession ? (\n          <RefreshControl");
   });
 
-  /**
-   * ⚠️ 바닥 여백 — 기록 탭이 이미 값으로 적어 둔 관례를 그대로 가져온다.
-   * `records.tsx`는 목록 자신이 스크롤러라(PERF-102) contentContainerStyle에
-   * `theme.spacing.screen + theme.ctaHeight + 8`을 적는다. 두 화면은 AppScreen을 쓰고 그
-   * 스크롤러가 이미 `padding: theme.spacing.screen`을 주므로, **나머지(ctaHeight + 8)만** 더한다.
-   */
-  it("바닥 여백: 떠 있는 버튼이 마지막 줄을 덮지 않는다 (기록 탭과 같은 값)", () => {
-    // 관례의 원본이 오늘도 그 값이다(양쪽 끝 존재 가드).
-    expect(source("app/(tabs)/records.tsx")).toContain(
-      "paddingBottom: theme.spacing.screen + theme.ctaHeight + 8"
-    );
-    // AppScreen이 이미 주는 몫 — 두 화면이 나머지만 더한다는 판단의 근거다.
-    expect(uiSource()).toContain("padding: theme.spacing.screen");
-    for (const screen of [itemsSource(), reportsSource()]) {
-      expect(screen).toContain("style={{ height: theme.ctaHeight + 8 }}");
-    }
-    // 값 하나는 디자인 토큰에서 온다(하드코딩된 56이 아니다 — DNC-017 관례).
-    expect(source("src/theme.ts")).toContain("ctaHeight: 56");
-  });
-
-  it("리포트 탭의 여백은 버튼과 **같은 세션 게이트**다 (여백만 남고 버튼은 없는 화면을 만들지 않는다)", () => {
-    expect(reportsSource()).toContain(
-      '{hasSession ? <View style={{ height: theme.ctaHeight + 8 }} /> : null}'
-    );
+  it("하단 액션은 스크롤 영역 밖에 있어 카드와 마지막 줄을 가리지 않는다", () => {
+    expect(uiSource()).toContain("{scroller}");
+    expect(uiSource()).toContain("borderTopWidth: 1, paddingBottom: 16, paddingTop: 8");
+    expect(itemsSource()).not.toContain("<View style={{ height: theme.ctaHeight + 8 }} />");
+    expect(reportsSource()).not.toContain("<View style={{ height: theme.ctaHeight + 8 }} />");
   });
 });

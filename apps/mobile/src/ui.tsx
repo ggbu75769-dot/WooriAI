@@ -170,8 +170,8 @@ export function AppScreen({
   return (
     <View style={{ flex: 1 }}>
       {scroller}
-      {/* 빈 영역은 스크롤 터치를 통과시키고, 공통 FAB는 오른쪽 콘텐츠 정렬선에 놓는다. */}
-      <View style={{ bottom: theme.spacing.screen, left: 0, pointerEvents: "box-none", position: "absolute", right: 0 }}>
+      {/* 액션을 스크롤 영역 밖에 두어 준비물 카드와 리포트 내용을 가리지 않는다. */}
+      <View style={{ backgroundColor: theme.colors.background, borderTopColor: theme.colors.presentation.hairline, borderTopWidth: 1, paddingBottom: 16, paddingTop: 8 }}>
         {floatingAction}
       </View>
     </View>
@@ -441,10 +441,13 @@ export function CategoryChip({
   label,
   selected,
   disabled,
+  fillRow,
   onPress
 }: {
   label: string;
   selected?: boolean;
+  /** 같은 줄의 필터 버튼을 동일한 폭으로 배치한다. */
+  fillRow?: boolean;
   /**
    * 라운드 49 QA(P3-3): 지금은 적용되지 않는 칩. **숨기지 않고 비활성으로 둔다** — 사라지면
    * "왜 없어졌지"가 되고, 그대로 누를 수 있게 두면 눌러도 아무 일이 없는 거짓 컨트롤이 된다.
@@ -469,7 +472,9 @@ export function CategoryChip({
         borderColor: selected ? theme.colors.mainCoral : theme.colors.primary100,
         borderRadius: theme.radii.pill,
         borderWidth: 1,
+        flex: fillRow ? 1 : undefined,
         minHeight: 38,
+        minWidth: 0,
         justifyContent: "center",
         // 비활성은 색을 새로 만들지 않고 같은 칩을 흐리게만 한다(기존 칩 스타일 불변).
         // T1: 누르는 동안의 피드백은 비활성 흐림과 같은 축(opacity)을 쓴다 — 휴지 렌더 불변.

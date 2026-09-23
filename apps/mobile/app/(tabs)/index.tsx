@@ -451,10 +451,7 @@ function homeSessionCanvasStyle() {
     gap: theme.spacing.card,
     margin: -theme.spacing.screen,
     padding: theme.spacing.screen,
-    // TOSS-T2: FAB가 AppScreen floatingAction 슬롯으로 화면 하단에 떠 있게 되면서(스크롤과
-    // 무관하게 고정) 스크롤 끝의 마지막 줄(동기화 바)이 버튼에 가려지지 않도록 그 높이만큼
-    // 바닥 여백을 더 준다(ctaHeight 56 + 여유 8).
-    paddingBottom: theme.spacing.screen + theme.ctaHeight + 8
+    paddingBottom: theme.spacing.screen
   } as const;
   if (!isPixelLockCalibration) return canvas;
   return {

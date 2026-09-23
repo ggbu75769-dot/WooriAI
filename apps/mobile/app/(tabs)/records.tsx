@@ -2702,18 +2702,11 @@ export default function RecordsScreen() {
           backgroundColor: theme.colors.background,
           flexGrow: 1,
           padding: theme.spacing.screen,
-          // 토스 이월 T-B(#6): FAB가 스크롤과 무관하게 하단에 떠 있으므로(아래 오버레이) 목록
-          // 끝 행이 버튼에 가려지지 않게 홈(TOSS-T2 canvas)과 같은 값으로 바닥 여백을 더 준다.
-          paddingBottom: theme.spacing.screen + theme.ctaHeight + 8
+          paddingBottom: theme.spacing.screen
         }}
       />
-      {/* 토스 이월 T-B(#6): 기록 추가 FAB. 이 화면은 AppScreen을 쓸 수 없으므로(PERF-102 --
-          리스트 자신이 스크롤러다) 그 floatingAction 슬롯(T1)이 그리는 오버레이를 같은 값으로
-          이 자리에 둔다: box-none이라 떠 있는 줄의 빈 자리는 터치를 아래 리스트로 통과시키고,
-          버튼만 잡는다. 목적지·게이트는 홈 FAB(TOSS-T2)·상단 "빠른 지출 기록" 버튼과 한 글자도
-          다르지 않다(UX-R(M) 게이트 계약 -- record-permissions.test.ts). 이 탭도 홈처럼 탭바
-          위에 서므로 안전영역 하단 인셋은 탭바가 이미 진다. */}
-      <View style={{ bottom: theme.spacing.screen, left: 0, pointerEvents: "box-none", position: "absolute", right: 0 }}>
+      {/* 리스트 밖의 고정 액션 영역: 기록 행을 가리지 않고 다른 탭과 같은 오른쪽 정렬선을 쓴다. */}
+      <View style={{ backgroundColor: theme.colors.background, borderTopColor: theme.colors.presentation.hairline, borderTopWidth: 1, paddingBottom: 16, paddingTop: 8 }}>
         <FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />
       </View>
     </View>
