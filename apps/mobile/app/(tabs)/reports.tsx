@@ -1740,12 +1740,6 @@ export default function ReportsScreen() {
           )}
         </View>
       </View>
-      {/* 라운드 105 트랙 ITEMS(F5): 떠 있는 기록 버튼이 마지막 카드를 덮지 않게 하는 바닥 여백.
-          값은 기록 탭 관례 그대로다(records.tsx: `theme.spacing.screen + theme.ctaHeight + 8`) --
-          AppScreen이 `theme.spacing.screen`을 이미 주므로 나머지(ctaHeight + 8)만 더한다.
-          ⚠️ 버튼과 **같은 세션 게이트**다: 비세션이면 `null`이라 노드 자체가 서지 않는다
-          (REP-001 캡처 무접촉 -- 여백만 남고 버튼은 없는 화면도, 그 반대도 만들지 않는다). */}
-      {hasSession ? <View style={{ height: theme.ctaHeight + 8 }} /> : null}
     </AppScreen>
   );
 }

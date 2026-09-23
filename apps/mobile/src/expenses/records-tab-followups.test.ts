@@ -155,26 +155,23 @@ describe("T-B(#5) 인라인 Pressable press 피드백 — TOSS-T2 홈/더보기�
   });
 });
 
-describe("T-B(#6) 기록 추가 FAB — AppScreen floatingAction 오버레이의 로컬 복제", () => {
+describe("T-B(#6) 기록 추가 FAB — 다른 탭과 같은 하단 액션 영역", () => {
   it("FAB는 홈(TOSS-T2)과 같은 목적지·게이트다", () => {
     expect(recordsSource).toContain(
       '<FloatingActionButton onPress={expenseGate.guard(() => router.push("/expenses/new"))} />'
     );
   });
 
-  it("오버레이는 AppScreen 슬롯(T1)과 같은 문법이다 — box-none · 하단 고정, AppScreen 래핑은 없다", () => {
-    // 이 화면은 리스트 자신이 스크롤러라(PERF-102) AppScreen을 쓸 수 없다 — 그 슬롯이 그리는
-    // 오버레이 한 줄을 같은 값으로 복제한다(src/ui.tsx floatingAction 참고).
+  it("액션은 SectionList 밖에 있어 기록 행을 가리지 않는다", () => {
     expect(recordsSource).toContain(
-      '<View style={{ bottom: theme.spacing.screen, left: 0, pointerEvents: "box-none", position: "absolute", right: 0 }}>'
+      '<View style={{ backgroundColor: theme.colors.background, borderTopColor: theme.colors.presentation.hairline, borderTopWidth: 1, paddingBottom: 16, paddingTop: 8 }}>'
     );
     expect(recordsSource).not.toContain("<AppScreen");
-    // FAB는 SectionList 뒤(위에 겹쳐) 선다.
     expect(recordsSource.indexOf("<FloatingActionButton")).toBeGreaterThan(recordsSource.indexOf("<SectionList"));
   });
 
-  it("목록 끝 행이 FAB에 가려지지 않게 홈 캔버스와 같은 바닥 여백을 더한다", () => {
-    expect(recordsSource).toContain("paddingBottom: theme.spacing.screen + theme.ctaHeight + 8");
+  it("겹침 보정용 빈 공간이 필요 없다", () => {
+    expect(recordsSource).not.toContain("paddingBottom: theme.spacing.screen + theme.ctaHeight + 8");
   });
 });
 
