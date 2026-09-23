@@ -120,20 +120,18 @@
 ## 5. 스크린샷 촬영 가이드
 
 > **오늘 저장소에 있는 자산 (STORE-102, `docs/store/assets/`)**: `phone-01-home` · `phone-02-family` ·
-> `phone-03-excel-import` 3장(1080×1920 프레임 합성, Play 규격 검증 완료) + `play-icon-512.png` +
-> `play-feature-graphic-1024x500.png`. **장수와 규격은 Play 최소 요건(2장)을 넘고, 제출 가능
-> 여부는 장수가 아니라 계보 판정인데 2026-09-02(LP-E/LP-G 재생성)부터 그 판정은 셋 다 ✅예요**
-> — 자산별 실측은 아래 §6 표, 종전 ⛔의 해제 경위와 실기기 재촬영(선택 개선) 절차는
-> `docs/store/submission-checklist.md` §0·§0.1이에요(자산이 **존재**하는 것과 자산이
-> **지금의 앱**인 것은 다른 이야기예요 — 오늘은 둘 다 참이에요).
+> `phone-03-excel-import` 3장(1080×1920 프레임 합성) + `play-icon-512.png` +
+> `play-feature-graphic-1024x500.png`. 2026-09-02 재생성으로 옛 색상 문제는 해소됐지만,
+> 휴대전화 스크린샷은 Pixel Lock 웹 캡처이며 2026-09-22 일반 실행 Android 화면과 다릅니다.
+> **현재 3장은 제출 보류**입니다. 자산 판정은 아래 §6을, 최종 운영 AAB의 일반 사용자
+> 화면으로 교체하는 절차는 `docs/store/submission-checklist.md` §0·§0.1을 따릅니다.
 > 아래 표의 나머지 화면은 Day 2 실기기 QA 중 `adb exec-out screencap -p > shot.png`로 캡처해
 > `scripts/store/frame_screenshots.py`(매니페스트: `docs/store/assets/screenshot-manifest.json`)로
 > 재합성하면 추가된다.
 > **주의**: `docs/ui-pixel-lock/app-screenshots/`의 quick-expense·recommendation·report·
 > product-detail·more는 **영문 와이어프레임 목업이라 스토어 사용 금지**. native-screenshots
-> 2장은 라운드 5A 이전 구 UI라 부적합. 사용 가능 소스는 DSN-053+ 계보의 픽셀락 라이브 캡처
-> (`assets/sources/`의 home·family·excel-import — expo web 캡처, 실기기 아님을 매니페스트에
-> 명기)와 향후 실기기 캡처뿐이다.
+> 2장은 라운드 5A 이전 구 UI라 부적합. `assets/sources/`의 home·family·excel-import도
+> Pixel Lock 웹 화면이므로 최종 앱과 일치한다는 증거 없이 제출하지 않습니다.
 
 실제 존재하는 화면만 사용한다(하단 탭: 홈/기록/준비템/리포트 — DNC-003). 촬영은
 실기기 또는 에뮬레이터에서 실데이터 유사 시드로. 순서는 핵심 루프(기록 → 총액 →
@@ -162,13 +160,12 @@
 |---|---|---|
 | 앱 아이콘(스토어) | 512×512 PNG, 32bit, 알파 허용, 1MB 이하 | ✅ — `apps/mobile/assets/icon.png`(DSN-053 복원본) 원본에서 512px(LANCZOS)로 재내보냄. 실측 최빈색 `#FFF9F3`/`#FF6B4A` — 승인된 아이콘 일러스트 고유색이고, 종전의 비승인 `#FFF8F1`/`#DB4F2E`는 0건. 계보: `docs/store/assets/graphic-assets-manifest.json`. |
 | 피처 그래픽 | 1024×500 JPG/PNG, 텍스트 최소화 | ✅ — `scripts/store/feature_graphic.py`(2026-09-02 신설)가 `docs/brand/brand-tokens.json`(DNC-017 v0.5 단일 소스: Primary `#C94627`, Background `#FFFDFC`)에서 색을, §1 권장 앱 이름에서 문구를 읽어 재생성. 실측 최빈색 `#C94627`. 계보: `graphic-assets-manifest.json`. |
-| 휴대전화 스크린샷 | 2~8장, 16:9 또는 9:16, 각 변 320~3840px, PNG/JPG | ✅ — 3장의 원본(`assets/sources/`)이 전부 **DSN-053+ 계보**(commit 1271880, expo web 픽셀락 캡처 — 실기기 아님)이고 실측 지배색이 `#C94627`/`#FFFDFC`예요. 각 캡처의 출처는 `docs/store/assets/screenshot-manifest.json`의 `capturedFrom` 칸이 져요. 실기기 재촬영(선택 개선) 절차는 `docs/store/submission-checklist.md` §0.1. |
+| 휴대전화 스크린샷 | 최소 2장, JPEG/24비트 PNG, 각 변 320~3840px, 긴 변 ≤ 짧은 변×2 | ⛔ 제출 보류 — 3장의 원본(`assets/sources/`)은 DSN-053+ 색상 계보의 Expo Web Pixel Lock 캡처입니다. 일반 실행 Android 앱 화면과 다르므로 최종 운영 AAB의 실제 화면으로 교체하고 크기·내용을 재검증해야 합니다. 출처는 `docs/store/assets/screenshot-manifest.json`의 `capturedFrom`을 참조하세요. |
 | 7"/10" 태블릿 스크린샷 | 선택(태블릿 미최적화 시 생략 가능) | 생략 (portrait 전용 앱) |
 | 프로모션 동영상 | 선택 (YouTube URL) | 생략 |
 
-> **§6 자산 표의 제출 차단 판정 규칙**: 위 세 줄 중 하나라도 ⛔로 돌아오면 스토어에 올리지
-> 않아요(2026-09-02 현재 셋 다 ✅). 자산이 존재하는 것과 자산이 지금의 앱인 것은 다른
-> 이야기예요 — Play 정책도 스크린샷이 실제 앱을 대표할 것을 요구해요. 브랜드 값의 단일
+> **§6 자산 표의 제출 차단 판정 규칙**: 위 세 줄 중 하나라도 ⛔이면 해당 자산을 스토어에
+> 올리지 않습니다(2026-09-23 현재 스크린샷 ⛔). Play의 [미리보기 자산 요건](https://support.google.com/googleplay/android-developer/answer/9866151)에 따라 실제 앱 경험과 크기를 확인합니다. 브랜드 값의 단일
 > 소스는 `docs/brand/brand-tokens.json`이고, 생성기(`scripts/store/frame_screenshots.py` ·
 > `scripts/store/feature_graphic.py`)의 색 상수는 라운드 73부터 그 파일에서 읽어요.
 

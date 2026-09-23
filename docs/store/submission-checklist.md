@@ -5,7 +5,7 @@
 
 > 2026-09-22: 로컬 게이트, API 36의 4KB·16KB 에뮬레이터 실행, 실제 Docker 이미지와 DB 초기화·재시작·관리자 검증을 완료했습니다. 현재 루트 APK는 내부 테스트 로그인·debug 서명 산출물이며 제출용 AAB가 아닙니다. 운영 정보 5종(실제 호스팅 사업자 포함), 카카오 운영 callback·실제 로그인, 운영 배포, 물리 기기/Play 내부 트랙 확인이 남아 있습니다. 현재 판정과 파일 해시는 [출시 검증 보고서](../qa/launch-hardening-20260922.md)를 따릅니다.
 
-> 2026-09-23 실계정 확인: 로그인된 Google Play Console의 개인 개발자 계정에는 앱이 아직 없고, **신분증 본인 확인·실제 Android 기기 확인·연락처 전화번호 인증**이 `조치 필요`입니다. 계정 확인 전 `앱 만들기`가 비활성화되어 있습니다. 인증은 계정 소유자가 Play Console에서 완료해야 합니다. 활동 로그의 `계정 생성됨` 항목은 **2026-09-22**이므로 [Google의 비공개 테스트 요건](https://support.google.com/googleplay/android-developer/answer/14151465)에 따른 **최소 12명·연속 14일 테스트와 프로덕션 액세스 신청이 필수**입니다. 테스트 기간은 실제 비공개 트랙에 테스터가 참여한 뒤부터 계산하며, 계정 생성일에서 자동으로 시작하지 않습니다.
+> 2026-09-23 실계정 확인: Google Play Console 개인 개발자 계정에 신분증 자료가 제출되어 Google의 본인 확인 심사 중입니다. 전화번호 인증은 본인 확인 승인 후 진행할 수 있고, `앱 만들기`는 아직 비활성화되어 있습니다. 실제 Android 기기 확인은 현재 카드에 표시되지 않지만 완료 여부를 직접 확인하지 못했습니다. 인증은 계정 소유자가 Play Console에서 마쳐야 합니다. 활동 로그의 `계정 생성됨` 항목은 **2026-09-22**이므로 [Google의 비공개 테스트 요건](https://support.google.com/googleplay/android-developer/answer/14151465)에 따른 **최소 12명·연속 14일 테스트와 프로덕션 액세스 신청이 필수**입니다. 테스트 기간은 실제 비공개 트랙에 테스터가 참여한 뒤부터 계산하며, 계정 생성일에서 자동으로 시작하지 않습니다.
 
 > 카카오 개발자 콘솔에는 전용 앱 `우리아이`(ID `1586090`)를 만들고 앱 아이콘·카카오 로그인·OpenID Connect를 등록했습니다. 실제 키는 Git 무시 대상 로컬 설정 파일에만 있습니다. 운영 API 도메인이 정해진 뒤 HTTPS OAuth callback을 등록하고 실제 로그인·연결 끊기를 검증해야 합니다.
 
@@ -26,44 +26,32 @@
       필요, release keystore 서명 자동 주입)와 versionCode 확정. (env 없이 gradle 직접 실행 금지
       — debug 서명 AAB는 Play 업로드 거부, `docs/5차/launch-72h-plan.md` §3.2)
       **빌드 경로는 §0.2 참고** — GitHub Actions(권장)와 로컬(폴백) 두 경로가 있음.
-- [x] ✅ **스토어 자산 재생성 완료 — 종전 ⛔(제출 차단) 해제** (차단: 2026-08-29 · 라운드 73
-      트랙 B, GAP-073 #2 → 해제: 2026-09-02 · LP-E/LP-G): **pre-DSN-053 잔존이 0건이 됐어요.**
-      - 차단 당시 사실: 스크린샷 3장의 원본은 `#FF6B52`/`#FFF8F1` 팔레트의 **DSN-053(2026-08-27)
-        이전 빌드 캡처**, 512 아이콘·피처 그래픽은 `#DB4F2E`/`#FFF8F1`(어느 시점의 토큰도 아닌
-        색)이었어요 — 이대로 올리면 스토어에서 본 앱과 설치한 앱이 다른 앱이었어요.
-      - 해제된 사실(2026-09-02 실측): 스크린샷 3장 원본은 **DSN-053+ 계보의 expo web 픽셀락
-        캡처**(commit 1271880 — 계보·"실기기 아님" 명기는 `docs/store/assets/screenshot-manifest.json`
-        `capturedFrom`), 512 아이콘은 `apps/mobile/assets/icon.png`(DSN-053 복원본)에서 512px
-        재내보내기, 피처 그래픽은 신설 `scripts/store/feature_graphic.py`가
-        `docs/brand/brand-tokens.json`(`#C94627`/`#FFFDFC`)에서 색을 읽어 재생성했어요
-        (계보: `docs/store/assets/graphic-assets-manifest.json`). 자산별 실측은
-        `docs/store/play-listing.md` §6.
-      - **웹 캡처 채택은 품질 하락이 아니에요** — ⛔의 근거는 "pre-DSN-053 계보(옛 색)"였지
-        웹 캡처 자체가 아니고, 종전 스토어 원본 3장도 원래 expo web 캡처였어요
-        (`docs/ui-pixel-lock/live-screenshots/manifest.json`). **실기기 재촬영은 선택 개선**으로
-        남고, 그때는 아래 §0.1을 그대로 따라가요.
+- [ ] **제출용 휴대전화 스크린샷 재캡처**: 2026-09-02에 옛 색상 계보 문제는 해소됐지만,
+      현재 3장은 Expo Web Pixel Lock 화면을 합성한 자산입니다. 2026-09-22 일반 실행 Android
+      화면과 구성·문구가 달라 운영 AAB의 실제 사용자 화면을 대신한다는 근거가 없습니다.
+      `docs/qa/launch-hardening-20260922.md`의 캡처 비교를 참고해 §0.1에 따라 교체하고,
+      최종 빌드와 화면 일치 및 Play의 크기 요건을 확인한 뒤에만 업로드합니다.
+      기존 512 아이콘과 피처 그래픽의 색상 계보는 `docs/store/assets/graphic-assets-manifest.json`에
+      기록돼 있으며, 최종 앱과 일치 여부는 제출 전에 다시 확인합니다.
 
-## 0.1 스토어 자산 재캡처 절차 (실기기 캡처로 갈아탈 때 따라가는 길 — 2026-09-02부터 선택 개선)
+## 0.1 스토어 자산 재캡처 절차 (제출 전 필수)
 
-> 손으로 새 이미지를 그리지 않아요. 기기 없이 만든 이미지는 "지금 앱이 아닌 것"을 한 장 더
-> 늘릴 뿐이에요. 저장소에는 이미 **기기 캡처 파이프라인**이 있으니 그 산출물에서 뽑아요 —
-> 그러면 다음 디자인 변경 때도 같은 길로 갱신돼요.
+> 최종 운영 AAB를 설치한 Android 기기에서 일반 사용자 경로를 촬영합니다. Pixel Lock 전용
+> 화면·웹 렌더링·내부 테스트 로그인을 제출용 실제 화면의 대용으로 쓰지 않습니다.
 
-1. **DSN-053 이후 커밋으로 APK를 만들고 실기기에 올려요.** `pnpm pixel:android:build-apk` →
-   `pnpm pixel:android`(또는 화면 단위 `pnpm pixel:android:screen`). 캡처는
-   `artifacts/pixel-lock/android/screenshots/`에 떨어지고, 그 회차의 기기·시각은
-   `artifacts/pixel-lock/android/reports/latest.json`(`generatedAt`·`device`)이 적어요.
-   ⚠️ 이 절차는 `scripts/pixel-lock/**`을 **쓰는 것**이지 고치는 것이 아니에요.
-2. **쓸 캡처를 `docs/store/assets/sources/`로 복사해요**(오버레이 라벨이 없는 화면만 — 홈·가족·
-   가져오기 미리보기가 오늘의 세 장이에요). 어떤 화면을 어떤 캡션으로 담을지와 촬영 체크
-   (개인정보 없는 시드 · 상태바 정리 · 라이트 모드 고정)는 `docs/store/play-listing.md` §5예요.
+1. **운영 설정으로 서명한 AAB를 내부 트랙에 업로드하고 실제 Android 기기에 설치합니다.**
+   앱의 일반 경로에서 로그인·홈·지출·준비템 등 핵심 화면을 검증하고, 개인 정보가 없는
+   테스트 데이터로 캡처합니다. 촬영 화면과 상태바 점검은 `docs/store/play-listing.md` §5를 따릅니다.
+2. **실제 화면 캡처를 `docs/store/assets/sources/`에 반영합니다.** 적어도 두 장을 준비하고,
+   Google Play의 JPEG 또는 24비트 PNG, 320~3840px, 긴 변이 짧은 변의 2배 이하 요건을
+   확인합니다. 이전 1080×2400 에뮬레이터 원본은 비율 요건을 충족하지 않습니다.
 3. **`docs/store/assets/screenshot-manifest.json`의 `capturedFrom` 칸을 채워요.** 각 행의 형식은
    이래요:
 
    | 칸 | 값 | 규칙 |
    |---|---|---|
    | `lineage` | `"DSN-053+"` 또는 `"pre-DSN-053"` | **빈 칸·미선언은 계약이 빨간불로 잡아요.** 2026-09-02부터 셋 다 `DSN-053+`예요 |
-   | `build` | 그 캡처를 만든 빌드 이름(예: 픽셀락 릴리즈 태그) | `DSN-053+`라고 적으려면 **반드시** 채워요 |
+   | `build` | 실제 운영 AAB의 빌드 이름·버전 | `DSN-053+`라고 적으려면 **반드시** 채워요 |
    | `commit` | 그 빌드의 커밋 SHA | `DSN-053+`라고 적으려면 **반드시** 채워요 |
    | `capturedAt` | 캡처 일자(`YYYY-MM-DD`) | — |
    | `note` | 사람이 읽을 한 줄 | — |
@@ -73,7 +61,8 @@
    이 도구는 라운드 73부터 ① 색을 `docs/brand/brand-tokens.json`(DNC-017 v0.5 단일 소스)에서 읽고
    ② **출처가 미선언이거나 승인 계보 이전이면 합성을 거부**해요
    (프레임 코드 확인 등으로 굳이 돌려야 하면 `ALLOW_PRE_DSN053_CAPTURES=1`을 명시해요 —
-   그때도 "스토어에 올리지 마세요"를 출력해요).
+   그때도 "스토어에 올리지 마세요"를 출력해요). 합성 결과도 최종 앱 화면과 크기 요건을
+   재확인합니다.
 5. **512 아이콘·피처 그래픽을 다시 만들어요.** 아이콘은 `apps/mobile/assets/icon.png`(DSN-053
    복원본) 원본에서 512px로 내보내고, 피처 그래픽은 `FRAME_FONT=<한글 폰트> python3
    scripts/store/feature_graphic.py`로 재생성해요(색은 같은 값 파일, 문구는
