@@ -871,13 +871,15 @@ const ledger = deriveLedger();
 const names = (entries: readonly RouteEntry[]) => entries.map((entry) => entry.file);
 
 describe("UX-Q(C) ScreenHeader 뒤로가기 슬롯", () => {
-  it("onBack은 옵셔널이고, 지정 시 가족 화면의 ‹ · 44dp · \"뒤로가기\" 관례를 재사용한다", () => {
+  it("onBack은 옵셔널이고, 지정 시 48dp chevron 버튼을 제목과 분리해 배치한다", () => {
     const block = screenHeaderBlock();
     expect(block).toContain("onBack?: () => void");
     expect(block).toContain('accessibilityLabel="뒤로가기"');
     expect(block).toContain('accessibilityRole="button"');
     expect(block).toContain("onPress={onBack}");
-    expect(block).toContain("‹");
+    expect(block).toContain('name="chevron-left" size={26}');
+    expect(block).toContain("{heading}");
+    expect(block).toContain("minHeight: theme.touchTarget");
   });
 
   it("미지정 시 Pressable 자체를 렌더하지 않는다 (픽셀락 캡처 불변)", () => {

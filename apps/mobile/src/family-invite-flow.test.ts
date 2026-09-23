@@ -18,7 +18,7 @@ describe("Batch 08 mobile family invite contract", () => {
     const routeExpectations = [
       ["app/(tabs)/_layout.tsx", "홈"],
       ["app/(tabs)/_layout.tsx", "기록"],
-      ["app/(tabs)/_layout.tsx", "준비템"],
+      ["app/(tabs)/_layout.tsx", "준비물"],
       ["app/(tabs)/_layout.tsx", "리포트"],
       ["app/(tabs)/_layout.tsx", "더보기"],
       ["app/family/index.tsx", "FAM-001"],
@@ -181,7 +181,8 @@ describe("라운드 96 T7 가족 여정 다듬기 (source contract)", () => {
     );
     expect(familySource).toContain("familyPressedRowFeedbackStyle");
     // 문자 링크·행 액션(뒤로가기 · 가구 전환/아이 추가/탈퇴 링크 · 삭제 · 취소 · 대기 초대 재시도).
-    expect(familySource.match(/style=\{familyPressedTextFeedback\}/g) ?? []).toHaveLength(7);
+    expect(familySource.match(/style=\{familyPressedTextFeedback\}/g) ?? []).toHaveLength(6);
+    expect(familySource).toContain("familyPressedTextFeedback({ pressed })");
     // 카드형 셋(+ 버튼 · 초대 행 · 아래 가족 초대하기 버튼).
     expect(familySource.match(/pressed \? familyPressedRowFeedbackStyle : null/g) ?? []).toHaveLength(3);
   });

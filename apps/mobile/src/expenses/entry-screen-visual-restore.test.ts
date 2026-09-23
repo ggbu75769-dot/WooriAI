@@ -489,8 +489,8 @@ describe("T-G — EXP001 변경 요청 이행 (저장 라벨 · 연필 scrollTo)
 
 describe("기록 탭 (구조 변경 없이 문법 정돈)", () => {
   it("달 내비 화살표가 chevron 아이콘 26 + 48dp 터치 타깃이다", () => {
-    expect(recordsSource).toContain('<AppIcon color={theme.colors.gray900} name="chevron-left" size={26} />');
-    expect(recordsSource).toContain('<AppIcon color={theme.colors.gray900} name="chevron-right" size={26} />');
+    expect(recordsSource).toContain('<AppIcon color={theme.colors.gray900} name="chevron-left" size={28} />');
+    expect(recordsSource).toContain('<AppIcon color={theme.colors.gray900} name="chevron-right" size={28} />');
     expect(recordsSource).toContain("minHeight: theme.touchTarget, minWidth: theme.touchTarget");
     // 텍스트 글리프 화살표는 이 화면에 남아 있지 않다.
     expect(recordsSource).not.toContain('fontSize: 22, fontWeight: "900" }}>‹</Text>');

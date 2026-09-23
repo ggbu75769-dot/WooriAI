@@ -874,7 +874,7 @@ export default function ManageChildrenScreen() {
                 {canEditChildren && bornChildId === child.id ? (
                   <View style={{ gap: theme.spacing.gap }}>
                     <Text style={mutedTextStyle}>
-                      출생일을 입력하면 지금부터 출생일 기준으로 단계와 준비템을 보여드려요. 저장한 출산 예정일은 그대로
+                      출생일을 입력하면 지금부터 출생일 기준으로 단계와 준비물을 보여드려요. 저장한 출산 예정일은 그대로
                       남아 있어요.
                     </Text>
                     <ChildDateField

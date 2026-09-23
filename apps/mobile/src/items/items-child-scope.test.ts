@@ -62,7 +62,7 @@ describe("#10 준비템 탭 아이 스코프", () => {
     // DSN-053 P2-B: 입구가 승인 디자인의 TopAppBar 우측 슬롯으로 옮겼다(제목은 "내 준비
     // 목록"). 라벨/접근성 문구는 여전히 순수 모듈에서만 온다(리포트 탭과 같은 관례).
     expect(items).toContain("topBarTrailing={");
-    expect(items).toContain('withSpokenChildScopeLabel("내 준비 목록", childScopeLabel)');
+    expect(items).toContain('withSpokenChildScopeLabel("내 준비물", childScopeLabel)');
     expect(items).toContain("childSwitchTriggerAccessibilityLabel(");
     expect(items).toContain("accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}");
     // 비세션 미리보기(ITEM-001 캡처)의 헤더는 종전 그대로 "추천"이다.

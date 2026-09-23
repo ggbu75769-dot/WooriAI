@@ -161,7 +161,7 @@ describe("NOTI-102 stage_transition generator", () => {
       type: "stage_transition",
       // 두 시점(라운드 96 T5): 종전 "『다온이』이(가) …" — 조사가 값(받침)에서 갈린다("다온이"는 `가`).
       title: "『다온이』가 36개월에 들어섰어요.",
-      body: "새 준비템을 확인해 보세요.",
+      body: "새 준비물을 확인해 보세요.",
       dedupeKey: "stage_transition:child-1:36개월",
       childId: "child-1"
     });

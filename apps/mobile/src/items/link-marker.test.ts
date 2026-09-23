@@ -777,35 +777,37 @@ describe("라운드 68 C(#4): 내보낼 수 있는 주소가 없으면 공유하
  * 타깃(theme.touchTarget = 48)을 만족하는가. 레이아웃이 아니라 히트 영역만 본다.
  */
 describe("라운드 64 #6: 커머스 크롬의 터치 타깃", () => {
-  it("34dp 크롬 + hitSlop 7 = 48dp (theme.touchTarget)", () => {
+  it("플로팅 버튼 자체가 최소 터치 크기를 채운다", () => {
     const detail = detailSource();
 
-    expect(detail).toContain("height: 34,");
-    expect(detail).toContain("const PRODUCT_DETAIL_CHROME_HIT_SLOP = 7;");
-    expect(34 + 2 * PRODUCT_DETAIL_CHROME_HIT_SLOP).toBeGreaterThanOrEqual(theme.touchTarget);
+    expect(detail).toContain("height: theme.touchTarget,");
+    expect(detail).toContain("width: theme.touchTarget");
+    expect(detail).toContain("const PRODUCT_DETAIL_CHROME_HIT_SLOP = 0;");
+    expect(PRODUCT_DETAIL_CHROME_HIT_SLOP).toBe(0);
     // 두 자리 모두 같은 상수를 쓴다(값을 다시 박지 않는다).
     expect(detail.match(/hitSlop={PRODUCT_DETAIL_CHROME_HIT_SLOP}/g)).toHaveLength(2);
     expect(detail).not.toContain("hitSlop={5}");
   });
 
-  it("렌더는 한 픽셀도 바뀌지 않는다 — 레이아웃 속성은 그대로다 (ITEM-002 픽셀락)", () => {
+  it("양쪽 버튼은 같은 크기로 콘텐츠 정렬선에 놓인다", () => {
     const detail = detailSource();
     const chromeStyle = detail.slice(
       detail.indexOf("const productDetailChromeButtonStyle = {"),
       detail.indexOf("const PRODUCT_DETAIL_CHROME_HIT_SLOP")
     );
 
-    // 승인 캡처의 34 정사각·반지름 17이 그대로다(hitSlop은 레이아웃 속성이 아니다).
-    expect(chromeStyle).toContain("borderRadius: 17,");
-    expect(chromeStyle).toContain("height: 34,");
-    expect(chromeStyle).toContain("width: 34");
+    expect(chromeStyle).toContain("borderRadius: 24,");
+    expect(chromeStyle).toContain("height: theme.touchTarget,");
+    expect(chromeStyle).toContain("width: theme.touchTarget");
+    expect(detail).toContain("left: 0,");
+    expect(detail).toContain("right: 0,");
     expect(chromeStyle).not.toContain("padding");
     expect(chromeStyle).not.toContain("minHeight");
   });
 });
 
 /** 크롬 히트 영역 계산에 쓰는 값 — 화면 소스의 상수와 같은 숫자여야 한다(위 테스트가 고정). */
-const PRODUCT_DETAIL_CHROME_HIT_SLOP = 7;
+const PRODUCT_DETAIL_CHROME_HIT_SLOP = 0;
 
 
 /**

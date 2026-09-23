@@ -549,8 +549,8 @@ export function PreparationListParity({
   };
 
   return (
-    <View accessibilityLabel={`ITEM-001 내 준비 목록, 선택된 아이 ${selectedContextName}`} style={{ gap: 14 }}>
-      <TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비 목록" trailing={topBarTrailing} />
+    <View accessibilityLabel={`ITEM-001 내 준비물, 선택된 아이 ${selectedContextName}`} style={{ gap: 14 }}>
+      <TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비물" trailing={topBarTrailing} />
 
       <Pressable
         accessibilityHint="준비 상태별 품목을 펼치거나 접어요."

@@ -451,7 +451,7 @@ describe("라운드 47 UX-AB / 라운드 57 #8: sync-status 화면 배선", () =
     expect(SYNC_STATUS_PERMISSION_DENIED_HINT.split("\n")).toHaveLength(1);
     expect(SYNC_STATUS_PERMANENT_FAILURE_HINT).toBe("다시 보내도 같은 결과예요. 내용을 고쳐 새로 기록하거나 버려 주세요.");
     expect(SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT).toBe(
-      "다시 보내도 같은 결과예요. 이 변경은 버리고 준비템 화면에서 다시 확인해 주세요."
+      "다시 보내도 같은 결과예요. 이 변경은 버리고 준비물 화면에서 다시 확인해 주세요."
     );
     for (const hint of [SYNC_STATUS_PERMANENT_FAILURE_HINT, SYNC_STATUS_ITEM_STATUS_PERMANENT_FAILURE_HINT]) {
       expect(hint.split("\n")).toHaveLength(1);

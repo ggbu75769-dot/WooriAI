@@ -292,7 +292,7 @@ describe("D1 tab bar outlined/filled wiring", () => {
   const source = readSource("app/(tabs)/_layout.tsx");
 
   it("keeps the 4 always-visible tab labels and the hidden more route", () => {
-    for (const label of ["홈", "기록", "준비템", "리포트", "더보기"]) {
+    for (const label of ["홈", "기록", "준비물", "리포트", "더보기"]) {
       expect(source).toContain(label);
     }
     expect(source).toContain('name="more"');

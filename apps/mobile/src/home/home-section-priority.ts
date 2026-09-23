@@ -233,12 +233,12 @@ export const HOME_MORE_SECTIONS_TEST_ID = "home-more-sections-toggle";
  * 셋 다 해당 없으면 카드를 만들지 않는다(0개를 "0개"라고 말하려고 카드를 세우지 않는다).
  */
 export const HOME_PREP_CARD_TITLE = "이번 주 준비 현황";
-export const HOME_PREP_CARD_CTA_LABEL = "지금 필요한 준비템 보기";
+export const HOME_PREP_CARD_CTA_LABEL = "지금 필요한 준비물 보기";
 export const HOME_PREP_CARD_ROUTE = "/(tabs)/items" as const;
 export const HOME_PREP_CARD_TEST_ID = "home-prep-status-card";
 
 export function homePrepCardSubtitle(count: number): string {
-  return `지금 필요한 준비템 ${count}개`;
+  return `지금 필요한 준비물 ${count}개`;
 }
 
 export type HomePrepCardSource = "first-run-guide" | "prep-nudge" | "recommended-count";

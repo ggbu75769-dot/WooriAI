@@ -16,7 +16,7 @@ import { theme } from "../../src/theme";
 const tabs = {
   index: { title: "홈", outline: "home-outline", filled: "home" },
   records: { title: "기록", outline: "receipt-outline", filled: "receipt" },
-  items: { title: "준비템", outline: "cube-outline", filled: "cube" },
+  items: { title: "준비물", outline: "cube-outline", filled: "cube" },
   reports: { title: "리포트", outline: "bar-chart-outline", filled: "bar-chart" },
   more: { title: "더보기", outline: "menu-outline", filled: "menu" }
 } as const;

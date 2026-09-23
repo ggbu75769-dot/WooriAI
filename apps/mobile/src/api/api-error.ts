@@ -330,7 +330,7 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
    * 서버 원문("연결된 준비템을 찾을 수 없어요.")에 **다음에 할 일**을 한 문장 붙인다 —
    * 형태는 바로 아래 `LINKED_PRODUCT_LINK_NOT_FOUND`와 같다(그쪽은 링크, 이쪽은 준비템 연결).
    */
-  EXPENSE_LINKED_ITEM_TEMPLATE_INVALID: "연결된 준비템을 찾을 수 없어요. 준비템 연결 없이 다시 저장해 주세요.",
+  EXPENSE_LINKED_ITEM_TEMPLATE_INVALID: "연결된 준비물을 찾을 수 없어요. 준비물 연결 없이 다시 저장해 주세요.",
   /**
    * 라운드 69 B — 카테고리 갈래의 **자기 코드**. 서버는 이 문장을 오래전부터 들고 있었는데
    * `VALIDATION_ERROR`라는 바구니 코드로 던져서(라운드 69 B가 `EXPENSE_CATEGORY_INVALID`로
@@ -382,9 +382,9 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
    * *"이 준비템의 구매 링크를 다시 확인해 주세요."* — 링크 목록은 그 상세에 이미 떠 있다.
    */
   PRODUCT_LINK_NOT_FOUND:
-    "이 구매 링크는 더 이상 열 수 없어요. 내려간 링크일 수 있으니 이 준비템의 구매 링크를 다시 확인해 주세요.",
+    "이 구매 링크는 더 이상 열 수 없어요. 내려간 링크일 수 있으니 이 준비물의 구매 링크를 다시 확인해 주세요.",
   PRODUCT_LINK_URL_SCHEME_INVALID:
-    "이 구매 링크의 주소가 올바르지 않아 열 수 없어요. 이 준비템의 구매 링크를 다시 확인해 주세요.",
+    "이 구매 링크의 주소가 올바르지 않아 열 수 없어요. 이 준비물의 구매 링크를 다시 확인해 주세요.",
 
   /**
    * --- 대상이 사라진 404 셋 (라운드 69 B) ---
@@ -409,7 +409,7 @@ export const API_ERROR_MESSAGES: Readonly<Record<string, string>> = {
    */
   EXPENSE_NOT_FOUND: "지출 기록을 찾을 수 없어요. 다른 기기에서 지워졌을 수 있으니 기록 탭에서 확인해 주세요.",
   CHILD_NOT_FOUND: "아이 프로필을 찾을 수 없어요. 다른 기기에서 지워졌을 수 있으니 아이 목록에서 확인해 주세요.",
-  ITEM_NOT_FOUND: "준비템을 찾을 수 없어요. 목록에서 내려갔을 수 있으니 준비템 탭에서 확인해 주세요.",
+  ITEM_NOT_FOUND: "준비물을 찾을 수 없어요. 목록에서 내려갔을 수 있으니 준비물 탭에서 확인해 주세요.",
 
   // --- 엑셀 가져오기 (apps/api/src/imports/import-parser.ts, onboarding/import-pipeline.service.ts) ---
   // 서버 원문이 영어라 한국어로 옮긴다. 행 수·확장자·용량 상한은 서버가 거절하는 조건과 같은 값이다

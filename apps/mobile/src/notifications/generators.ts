@@ -193,7 +193,7 @@ export function stageTransitionNotification(input: StageTransitionInput): AppNot
   return {
     type: "stage_transition",
     title: `『${childName}』${subjectParticle(childName)} ${stageLabel}에 들어섰어요.`,
-    body: "새 준비템을 확인해 보세요.",
+    body: "새 준비물을 확인해 보세요.",
     dedupeKey: `stage_transition:${childId}:${stageLabel}`,
     childId
   };

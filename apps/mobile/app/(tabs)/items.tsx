@@ -1160,7 +1160,7 @@ export default function ItemsScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={childSwitchTriggerAccessibilityLabel(
-                withSpokenChildScopeLabel("내 준비 목록", childScopeLabel)
+                withSpokenChildScopeLabel("내 준비물", childScopeLabel)
               )}
               accessibilityHint={CHILD_SWITCH_TRIGGER_HINT}
               hitSlop={8}
@@ -1355,13 +1355,13 @@ export default function ItemsScreen() {
             // 목록으로 돌아가는 길만 준다.
             <EmptyStateCard
               title={INTERESTED_FILTER_EMPTY_TEXT}
-              actionLabel="준비템 목록 보기"
+              actionLabel="준비물 목록 보기"
               onPress={() => setShowInterestedOnly(false)}
             />
           ) : itemsEmptyKind === "filtered" ? (
             // 필터/검색 때문에 비었을 때는 홈으로 보내는 대신 조건을 풀 수 있게 한다.
             <EmptyStateCard
-              title="검색·필터에 맞는 준비템이 없어요."
+              title="검색·필터에 맞는 준비물이 없어요."
               actionLabel="필터 초기화"
               onPress={() => {
                 setNecessityFilter("all");

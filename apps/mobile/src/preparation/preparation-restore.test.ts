@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+vi.mock("@expo/vector-icons", () => ({ MaterialCommunityIcons: () => null }));
 
 /**
  * 라운드 81 트랙 C — 첫 펼침 판정을 **실행해서** 확인하기 위한 최소 대역(stub).
@@ -335,7 +336,7 @@ describe("PreparationListParity source contract", () => {
     expect(source).toContain("<ItemGrid columns={columns} items={displayedItems.slice(0, searchLimit)} onItemPress={onItemPress} renderItemFooter={renderItemFooter} />");
     expect(source).toContain("<ItemGrid columns={columns} items={visibleGroupItems} onItemPress={onItemPress} renderItemFooter={renderItemFooter} />");
     expect(source).toContain("<ItemGrid columns={columns} items={visibleBandItems} onItemPress={onItemPress} renderItemFooter={renderItemFooter} />");
-    expect(source).toContain('<TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비 목록" trailing={topBarTrailing} />');
+    expect(source).toContain('<TopAppBar eyebrow="준비 홈" onBack={onBack} title="내 준비물" trailing={topBarTrailing} />');
     // 남은 EmptyStateCard는 검색 0건과 그룹 0건 폴백 **둘뿐**이다(죽은 둘이 사라졌다).
     expect(source.match(/<EmptyStateCard\b/g) ?? []).toHaveLength(2);
   });

@@ -45,7 +45,7 @@ describe("빈 상태 감사 ⓐ 갈래 판정 — 0건 셋을 한 곳에서 가�
 describe("빈 상태 감사 ⓑⓒ 전체 0건 카드 — 주 행동이 이 빈 상태를 푼다", () => {
   it("제목은 종전 문장 그대로이고, 액션은 커스텀 품목 추가다", () => {
     expect(buildItemsAllEmptyCard()).toEqual({
-      title: "아직 볼 수 있는 준비템이 없어요.",
+      title: "아직 볼 수 있는 준비물이 없어요.",
       actionLabel: "준비물 직접 추가하기",
       action: "add-custom-item"
     });
@@ -108,12 +108,12 @@ describe("빈 상태 감사 — 화면 배선(app/(tabs)/items.tsx)", () => {
   it("찜 0건 · 좁히기 0건 카드는 문구도 액션도 종전 그대로다", () => {
     const items = itemsSource();
     expect(items).toContain("title={INTERESTED_FILTER_EMPTY_TEXT}");
-    expect(items).toContain('actionLabel="준비템 목록 보기"');
+    expect(items).toContain('actionLabel="준비물 목록 보기"');
     expect(items).toContain("onPress={() => setShowInterestedOnly(false)}");
-    expect(items).toContain('title="검색·필터에 맞는 준비템이 없어요."');
+    expect(items).toContain('title="검색·필터에 맞는 준비물이 없어요."');
     expect(items).toContain('actionLabel="필터 초기화"');
     // 찜 0건 문구의 단일 소스도 그대로다(그 모듈은 이 트랙이 열지 않는다).
-    expect(INTERESTED_FILTER_EMPTY_TEXT).toBe("아직 찜한 준비템이 없어요.");
+    expect(INTERESTED_FILTER_EMPTY_TEXT).toBe("아직 찜한 준비물이 없어요.");
   });
 
   /**

@@ -1777,7 +1777,7 @@ function itemStatusFor(itemTemplateId: string): ItemStatus {
 function requireItemTemplate(itemTemplateId: string) {
   const item = localItemTemplateFixtures.find((template) => template.id === itemTemplateId);
   if (!item) {
-    throw new Error("준비템을 찾을 수 없어요.");
+    throw new Error("준비물을 찾을 수 없어요.");
   }
   return item;
 }
@@ -2170,7 +2170,7 @@ export function updateItemStatus(
   if (!localItemTemplateFixtures.some((template) => template.id === itemTemplateId)) {
     const custom = findActiveCustomItem(childId, itemTemplateId);
     if (!custom) {
-      throw new Error("준비템을 찾을 수 없어요.");
+      throw new Error("준비물을 찾을 수 없어요.");
     }
     // §2.4 경계: 커스텀 행에는 expense_id 자리가 없다 — 조용히 버리면 사용자가 연결됐다고
     // 믿는다(거짓 침묵 금지). 서버 400 CUSTOM_ITEM_EXPENSE_LINK_UNSUPPORTED와 같은 문구.

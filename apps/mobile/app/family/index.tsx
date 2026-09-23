@@ -174,17 +174,14 @@ function FamilyInviteRow({
 function FamilyHeaderRow() {
   return (
     <View style={familyHeaderRowStyle}>
-      {/* 라운드 96 T7: 이 화면의 인라인 Pressable 전부에 눌림 피드백(opacity)을 단다 --
-          공용 프리미티브(TextButton 0.6 · SecondaryButton 0.82)와 같은 축이고, 휴지 상태는
-          opacity 1이라 FAM-001 픽셀락 캡처는 한 픽셀도 바뀌지 않는다. */}
       <Pressable
         accessibilityLabel="뒤로가기"
         accessibilityRole="button"
-        hitSlop={12}
+        hitSlop={4}
         onPress={() => router.back()}
-        style={familyPressedTextFeedback}
+        style={({ pressed }) => [familyHeaderBackStyle, familyPressedTextFeedback({ pressed })]}
       >
-        <Text style={familyBackStyle}>‹</Text>
+        <Ionicons accessibilityElementsHidden color={theme.colors.gray900} importantForAccessibility="no-hide-descendants" name="chevron-back" size={26} />
       </Pressable>
       <Text style={familyTitleStyle}>가족과 함께</Text>
     </View>
@@ -873,15 +870,15 @@ const familyPressedRowFeedbackStyle = {
 } as const;
 
 const familyHeaderRowStyle = {
-  alignItems: "center",
-  flexDirection: "row",
-  gap: 4
+  alignItems: "flex-start",
+  gap: 8
 } as const;
 
-const familyBackStyle = {
-  color: theme.colors.gray900,
-  fontSize: 24,
-  fontWeight: "900"
+const familyHeaderBackStyle = {
+  alignItems: "flex-start",
+  height: theme.touchTarget,
+  justifyContent: "center",
+  width: theme.touchTarget
 } as const;
 
 const familyTitleStyle = {

@@ -42,7 +42,7 @@ export type LinkedExpenseRow = {
 };
 
 /** 줄 앞머리 문구. 화면과 테스트가 같은 문자열을 본다. */
-export const LINKED_EXPENSE_ROW_PREFIX = "이 준비템으로 기록한 지출";
+export const LINKED_EXPENSE_ROW_PREFIX = "이 준비물로 기록한 지출";
 
 export function linkedExpenseRow(input: {
   hasSession: boolean;

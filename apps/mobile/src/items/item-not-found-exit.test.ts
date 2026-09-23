@@ -42,7 +42,7 @@ describe("ITEM_NOT_FOUND 막다른 길 — 문장과 나가는 길 (라운드 10
   it("ⓐ 문장은 표의 그 한 줄이다 — 화면이 새 문구를 짓지 않는다", () => {
     // 기대값은 리터럴이다(표를 다시 불러 만든 값과 비교하지 않는다).
     expect(API_ERROR_MESSAGES.ITEM_NOT_FOUND).toBe(
-      "준비템을 찾을 수 없어요. 목록에서 내려갔을 수 있으니 준비템 탭에서 확인해 주세요."
+      "준비물을 찾을 수 없어요. 목록에서 내려갔을 수 있으니 준비물 탭에서 확인해 주세요."
     );
     // 화면에는 그 문장의 사본이 없다(주석을 지운 코드에서 확인한다).
     expect(maskComments(source(ITEM_DETAIL))).not.toContain("목록에서 내려갔을 수 있으니");
@@ -70,9 +70,9 @@ describe("ITEM_NOT_FOUND 막다른 길 — 문장과 나가는 길 (라운드 10
   });
 
   it("ⓑ 나가는 길의 라벨은 준비템 탭이 이미 쓰는 그 문자열이다 (새 한국어 문장 0건)", () => {
-    expect(maskComments(source(ITEM_DETAIL))).toContain('const MISSING_ITEM_EXIT_LABEL = "준비템 목록 보기";');
+    expect(maskComments(source(ITEM_DETAIL))).toContain('const MISSING_ITEM_EXIT_LABEL = "준비물 목록 보기";');
     // 사본이 갈리면 여기가 빨개진다(그쪽은 화면 지역 리터럴이라 읽을 이름이 없다).
-    expect(source("app/(tabs)/items.tsx")).toContain('actionLabel="준비템 목록 보기"');
+    expect(source("app/(tabs)/items.tsx")).toContain('actionLabel="준비물 목록 보기"');
     // 새 export const를 만들지 않는다(공통 금지 — 화면 지역 상수다).
     expect(maskComments(source(ITEM_DETAIL))).not.toContain("export const MISSING_ITEM_EXIT_LABEL");
   });

@@ -193,10 +193,10 @@ describe("라운드 62 #7 준비템 상세의 아이 스코프 라벨", () => {
       'import { resolveChildScopeLabel, withChildScopeLabel } from "../../src/children/child-switch";'
     );
     expect(src).toContain("const childScopeLabel = resolveChildScopeLabel(childId, cachedChildren);");
-    expect(src).toContain('withChildScopeLabel("준비템", childScopeLabel)');
+    expect(src).toContain('withChildScopeLabel("준비물", childScopeLabel)');
     expect(src).not.toContain("childScopeLabel} — ");
     // 어휘 자체는 4탭·쓰기 화면과 같은 값이다.
-    expect(withChildScopeLabel("준비템", "하온이")).toBe("하온이 — 준비템");
+    expect(withChildScopeLabel("준비물", "하온이")).toBe("하온이 — 준비물");
   });
 
   it("게이트는 둘이다: 세션 ∧ 다자녀 — ITEM-002 픽셀락 캡처(비세션)는 한 글자도 달라지지 않는다", () => {
